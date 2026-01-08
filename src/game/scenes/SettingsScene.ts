@@ -313,7 +313,7 @@ export class SettingsScene extends Phaser.Scene {
 
     const modeStartX = 280;
     damageNumberModes.forEach((item, index) => {
-      const buttonX = modeStartX + index * 80;
+      const buttonX = modeStartX + index * 140;
       const isActive = settingsManager.getDamageNumbersMode() === item.mode;
 
       const button = this.add.text(buttonX, currentY, `[${item.label}]`, {

@@ -5,3 +5,4 @@
  */
 
 export { ToastManager, getToastManager } from './ToastManager';
+export { JoystickManager } from './JoystickManager';

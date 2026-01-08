@@ -15,6 +15,7 @@ import {
   StatusEffect,
 } from '../../ecs/components';
 import { inputSystem, InputState } from '../../ecs/systems/InputSystem';
+import { JoystickManager } from '../../ui/JoystickManager';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
@@ -89,6 +90,7 @@ export class GameScene extends Phaser.Scene {
 
   // Input
   private inputState!: InputState;
+  private joystickManager: JoystickManager | null = null;
 
   // Player reference
   private playerId: number = -1;
@@ -570,6 +572,7 @@ export class GameScene extends Phaser.Scene {
 
     // Setup input
     this.setupInput();
+    this.joystickManager = new JoystickManager(this);
 
     // Create player at center of screen
     this.playerId = this.createPlayer(GAME_WIDTH / 2, GAME_HEIGHT / 2);
@@ -2067,6 +2070,13 @@ export class GameScene extends Phaser.Scene {
     // Update laser beams
     this.updateLaserBeams(deltaSeconds);
 
+    // Update joystick input
+    if (this.joystickManager) {
+      const joystickDirection = this.joystickManager.getDirection();
+      this.inputState.joystickX = joystickDirection.x;
+      this.inputState.joystickY = joystickDirection.y;
+    }
+
     // Run ECS systems
     inputSystem(this.world, this.inputState);
     enemyAISystem(this.world, deltaSeconds);
@@ -3516,6 +3526,8 @@ export class GameScene extends Phaser.Scene {
         S: keyboard.addKey('S'),
         D: keyboard.addKey('D'),
       },
+      joystickX: 0,
+      joystickY: 0,
     };
 
     // Shift key for dash ability
@@ -5432,6 +5444,12 @@ export class GameScene extends Phaser.Scene {
     if (this.autoBuyKeyHandler) {
       this.input.keyboard?.off('keydown-T', this.autoBuyKeyHandler);
       this.autoBuyKeyHandler = null;
+    }
+
+    // Clean up joystick manager
+    if (this.joystickManager) {
+      this.joystickManager.destroy();
+      this.joystickManager = null;
     }
 
     // Remove beforeunload handler for game state persistence

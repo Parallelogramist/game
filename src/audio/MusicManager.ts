@@ -73,8 +73,8 @@ export class MusicManager {
     } catch {
       console.warn('Could not load music settings');
     }
-    // Default: only BRD Teleport Pro enabled
-    return new Set(['brd-teleport']);
+    // Default: all tracks enabled
+    return new Set(MUSIC_CATALOG.map((track) => track.id));
   }
 
   /**
