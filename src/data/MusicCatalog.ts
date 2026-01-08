@@ -157,5 +157,5 @@ export function getTrackById(id: string): Track | undefined {
  * Get the full path to a track file.
  */
 export function getTrackPath(track: Track): string {
-  return `/music/${track.filename}`;
+  return `music/${track.filename}`;
 }
