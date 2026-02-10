@@ -22,8 +22,11 @@ const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: str
   { id: 'challenge', name: 'Challenge', icon: 'trophy' },
 ];
 
+type FocusZone = 'tabs' | 'grid' | 'back';
+
 interface AchievementCardElements {
   container: Phaser.GameObjects.Container;
+  cardBg: Phaser.GameObjects.Rectangle;
   progressBar: Phaser.GameObjects.Rectangle;
   progressBg: Phaser.GameObjects.Rectangle;
   statusText: Phaser.GameObjects.Text;
@@ -37,11 +40,19 @@ export class AchievementScene extends Phaser.Scene {
   private achievementContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
   private maxScrollY: number = 0;
+  private backButton!: Phaser.GameObjects.Text;
 
   // Grid constants
   private readonly cardWidth = 300;
   private readonly cardHeight = 100;
   private readonly cardSpacing = 12;
+  private readonly columns = 2;
+
+  // Keyboard navigation state
+  private focusZone: FocusZone = 'tabs';
+  private selectedTabIndex: number = 0;
+  private selectedCardIndex: number = 0;
+  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 
   constructor() {
     super({ key: 'AchievementScene' });
@@ -54,6 +65,9 @@ export class AchievementScene extends Phaser.Scene {
     this.achievementCards = [];
     this.categoryTabs.clear();
     this.scrollY = 0;
+    this.focusZone = 'tabs';
+    this.selectedTabIndex = 0;
+    this.selectedCardIndex = 0;
 
     // Dark background
     this.add.rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
@@ -101,7 +115,7 @@ export class AchievementScene extends Phaser.Scene {
     this.displayCategoryAchievements(this.currentCategory);
 
     // Back button
-    const backButton = this.add
+    this.backButton = this.add
       .text(centerX, GAME_HEIGHT - 30, '[ Back to Menu ]', {
         fontSize: '20px',
         color: '#888888',
@@ -110,19 +124,22 @@ export class AchievementScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
-    backButton.on('pointerover', () => backButton.setColor('#ffffff'));
-    backButton.on('pointerout', () => backButton.setColor('#888888'));
-    backButton.on('pointerdown', () => {
+    this.backButton.on('pointerover', () => this.backButton.setColor('#ffffff'));
+    this.backButton.on('pointerout', () => {
+      this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
+    });
+    this.backButton.on('pointerdown', () => {
       this.scene.start('BootScene');
     });
 
     // Setup scroll input
     this.setupScrollInput();
 
-    // ESC key to go back
-    this.input.keyboard?.on('keydown-ESC', () => {
-      this.scene.start('BootScene');
-    });
+    // Setup keyboard navigation
+    this.setupKeyboardNavigation();
+
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
   }
 
   private createCategoryTabs(): void {
@@ -191,6 +208,8 @@ export class AchievementScene extends Phaser.Scene {
       tabBg.on('pointerdown', () => {
         if (category.id !== this.currentCategory) {
           this.currentCategory = category.id;
+          this.selectedTabIndex = index;
+          this.selectedCardIndex = 0;
           this.updateTabVisuals();
           this.displayCategoryAchievements(category.id);
         }
@@ -199,20 +218,25 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   private updateTabVisuals(): void {
-    ACHIEVEMENT_CATEGORIES.forEach((category) => {
+    ACHIEVEMENT_CATEGORIES.forEach((category, index) => {
       const container = this.categoryTabs.get(category.id);
       if (!container) return;
 
       const isSelected = category.id === this.currentCategory;
+      const isFocused = this.focusZone === 'tabs' && this.selectedTabIndex === index;
       const tabBg = container.list[0] as Phaser.GameObjects.Rectangle;
       const tabIcon = container.list[1] as Phaser.GameObjects.Image;
       const tabText = container.list[2] as Phaser.GameObjects.Text;
       const countText = container.list[3] as Phaser.GameObjects.Text;
 
       tabBg.setFillStyle(isSelected ? 0x2a5a2a : 0x2a2a4a);
-      tabBg.setStrokeStyle(2, isSelected ? 0x44ff88 : 0x3a3a5a);
-      tabIcon.setTint(isSelected ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED);
-      tabText.setColor(isSelected ? '#ffffff' : '#888888');
+      if (isFocused) {
+        tabBg.setStrokeStyle(3, 0xffdd44);
+      } else {
+        tabBg.setStrokeStyle(2, isSelected ? 0x44ff88 : 0x3a3a5a);
+      }
+      tabIcon.setTint(isSelected || isFocused ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED);
+      tabText.setColor(isSelected || isFocused ? '#ffffff' : '#888888');
       countText.setColor(isSelected ? '#44ff88' : '#666666');
     });
   }
@@ -242,11 +266,10 @@ export class AchievementScene extends Phaser.Scene {
 
     const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
-    const columns = 2;
 
     achievements.forEach((achievement, index) => {
-      const col = index % columns;
-      const row = Math.floor(index / columns);
+      const col = index % this.columns;
+      const row = Math.floor(index / this.columns);
       const x = startX + col * (this.cardWidth + this.cardSpacing);
       const y = startY + row * (this.cardHeight + this.cardSpacing);
 
@@ -255,10 +278,13 @@ export class AchievementScene extends Phaser.Scene {
     });
 
     // Calculate max scroll
-    const totalRows = Math.ceil(achievements.length / columns);
+    const totalRows = Math.ceil(achievements.length / this.columns);
     const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
     const viewHeight = GAME_HEIGHT - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
+
+    // Update container scroll position
+    this.achievementContainer.y = 120 - this.scrollY;
   }
 
   private createAchievementCard(
@@ -349,9 +375,9 @@ export class AchievementScene extends Phaser.Scene {
     );
     container.add(progressBar);
 
-    // Progress text
+    // Progress text — right-aligned to stay within card boundary
     const statusText = this.add.text(
-      barX + barWidth + 8,
+      this.cardWidth - 10,
       barY,
       isUnlocked ? '✓' : `${currentValue}/${achievement.targetValue}`,
       {
@@ -360,7 +386,7 @@ export class AchievementScene extends Phaser.Scene {
         fontFamily: 'Arial',
       }
     );
-    statusText.setOrigin(0, 0.5);
+    statusText.setOrigin(1, 0.5);
     container.add(statusText);
 
     // Reward display
@@ -401,6 +427,7 @@ export class AchievementScene extends Phaser.Scene {
 
     return {
       container,
+      cardBg,
       progressBar,
       progressBg,
       statusText,
@@ -441,5 +468,196 @@ export class AchievementScene extends Phaser.Scene {
         lastY = pointer.y;
       }
     });
+  }
+
+  private setupKeyboardNavigation(): void {
+    this.keydownHandler = (event: KeyboardEvent) => {
+      switch (event.key) {
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          event.preventDefault();
+          this.navigateDown();
+          break;
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          event.preventDefault();
+          this.navigateUp();
+          break;
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          event.preventDefault();
+          this.navigateLeft();
+          break;
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          event.preventDefault();
+          this.navigateRight();
+          break;
+        case 'Enter':
+        case ' ':
+          event.preventDefault();
+          this.activateCurrentSelection();
+          break;
+        case 'Escape':
+          event.preventDefault();
+          this.scene.start('BootScene');
+          break;
+      }
+    };
+    this.input.keyboard?.on('keydown', this.keydownHandler);
+  }
+
+  private navigateDown(): void {
+    if (this.focusZone === 'tabs') {
+      if (this.achievementCards.length > 0) {
+        this.focusZone = 'grid';
+        this.selectedCardIndex = 0;
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'back';
+      }
+    } else if (this.focusZone === 'grid') {
+      const totalCards = this.achievementCards.length;
+      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+      const totalRows = Math.ceil(totalCards / this.columns);
+
+      if (currentRow < totalRows - 1) {
+        const newIndex = this.selectedCardIndex + this.columns;
+        this.selectedCardIndex = Math.min(newIndex, totalCards - 1);
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'back';
+      }
+    } else if (this.focusZone === 'back') {
+      this.focusZone = 'tabs';
+    }
+    this.updateFocusVisuals();
+  }
+
+  private navigateUp(): void {
+    if (this.focusZone === 'tabs') {
+      this.focusZone = 'back';
+    } else if (this.focusZone === 'grid') {
+      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+
+      if (currentRow > 0) {
+        this.selectedCardIndex -= this.columns;
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'tabs';
+      }
+    } else if (this.focusZone === 'back') {
+      if (this.achievementCards.length > 0) {
+        this.focusZone = 'grid';
+        const totalCards = this.achievementCards.length;
+        const totalRows = Math.ceil(totalCards / this.columns);
+        const lastRowStart = (totalRows - 1) * this.columns;
+        this.selectedCardIndex = Math.min(lastRowStart, totalCards - 1);
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'tabs';
+      }
+    }
+    this.updateFocusVisuals();
+  }
+
+  private navigateLeft(): void {
+    if (this.focusZone === 'tabs') {
+      this.selectedTabIndex = Math.max(0, this.selectedTabIndex - 1);
+      this.selectCategoryByIndex(this.selectedTabIndex);
+    } else if (this.focusZone === 'grid') {
+      const currentCol = this.selectedCardIndex % this.columns;
+      if (currentCol > 0) {
+        this.selectedCardIndex--;
+      } else {
+        const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+        const rowEnd = Math.min((currentRow + 1) * this.columns - 1, this.achievementCards.length - 1);
+        this.selectedCardIndex = rowEnd;
+      }
+    }
+    this.updateFocusVisuals();
+  }
+
+  private navigateRight(): void {
+    if (this.focusZone === 'tabs') {
+      this.selectedTabIndex = Math.min(ACHIEVEMENT_CATEGORIES.length - 1, this.selectedTabIndex + 1);
+      this.selectCategoryByIndex(this.selectedTabIndex);
+    } else if (this.focusZone === 'grid') {
+      const currentCol = this.selectedCardIndex % this.columns;
+      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+      const rowStart = currentRow * this.columns;
+
+      if (currentCol < this.columns - 1 && this.selectedCardIndex < this.achievementCards.length - 1) {
+        this.selectedCardIndex++;
+      } else {
+        this.selectedCardIndex = rowStart;
+      }
+    }
+    this.updateFocusVisuals();
+  }
+
+  private selectCategoryByIndex(tabIndex: number): void {
+    const category = ACHIEVEMENT_CATEGORIES[tabIndex];
+    if (category && category.id !== this.currentCategory) {
+      this.currentCategory = category.id;
+      this.selectedCardIndex = 0;
+      this.displayCategoryAchievements(category.id);
+    }
+  }
+
+  private activateCurrentSelection(): void {
+    if (this.focusZone === 'tabs') {
+      this.selectCategoryByIndex(this.selectedTabIndex);
+      this.updateFocusVisuals();
+    } else if (this.focusZone === 'back') {
+      this.scene.start('BootScene');
+    }
+  }
+
+  private ensureCardVisible(): void {
+    const row = Math.floor(this.selectedCardIndex / this.columns);
+    const cardTopInContainer = 10 + row * (this.cardHeight + this.cardSpacing);
+    const cardBottomInContainer = cardTopInContainer + this.cardHeight;
+    const viewHeight = GAME_HEIGHT - 180;
+
+    if (cardTopInContainer < this.scrollY) {
+      this.scrollY = cardTopInContainer;
+    } else if (cardBottomInContainer > this.scrollY + viewHeight) {
+      this.scrollY = cardBottomInContainer - viewHeight;
+    }
+
+    this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, this.maxScrollY);
+    this.achievementContainer.y = 120 - this.scrollY;
+  }
+
+  private updateFocusVisuals(): void {
+    // Update tab visuals (handles both selected and focus states)
+    this.updateTabVisuals();
+
+    // Update card visuals
+    this.achievementCards.forEach((card, index) => {
+      const isFocused = this.focusZone === 'grid' && this.selectedCardIndex === index;
+      const isUnlocked = getAchievementManager().getAchievementProgress(card.achievement.id)?.isUnlocked ?? false;
+
+      if (isFocused) {
+        card.cardBg.setStrokeStyle(3, 0xffdd44);
+      } else {
+        card.cardBg.setStrokeStyle(2, isUnlocked ? 0x44ff88 : 0x3a3a5a);
+      }
+    });
+
+    // Update back button
+    this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
+  }
+
+  shutdown(): void {
+    if (this.keydownHandler) {
+      this.input.keyboard?.off('keydown', this.keydownHandler);
+      this.keydownHandler = null;
+    }
   }
 }

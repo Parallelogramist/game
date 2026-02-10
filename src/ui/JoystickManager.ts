@@ -58,6 +58,8 @@ export class JoystickManager {
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
+    // Only respond to touch input — mouse clicks are used for cursor-follow movement
+    if (!pointer.wasTouch) return;
     // Ignore if joystick already active or pointer is over UI
     if (this.state.active) return;
     if (this.isPointerOverUI(pointer)) return;

@@ -1,10 +1,23 @@
 import { defineQuery, IWorld, hasComponent } from 'bitecs';
 import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, EnemyType, Health, StatusEffect } from '../components';
 import { EnemyAIType } from '../../enemies/EnemyTypes';
+import { getEnemySpatialHash } from '../../utils/SpatialHash';
 
 // OPTIMIZATION: Pre-computed Math constants to avoid repeated calculations
 const PI_HALF = Math.PI / 2;
 const PI_TWO = Math.PI * 2;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SWARM BOIDS TUNING CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════
+const SWARM_PERCEPTION_RADIUS = 100;    // How far each entity "sees" neighbors
+const SWARM_SEPARATION_RADIUS = 25;     // Push apart below this distance
+const WEIGHT_SEPARATION = 2.5;          // Prevent overlap (strongest)
+const WEIGHT_PLAYER = 1.2;              // Chase the player
+const WEIGHT_ALIGNMENT = 0.6;           // Match neighbor velocity direction
+const WEIGHT_WANDER = 0.5;              // Organic noise via sinusoidal phase
+const WEIGHT_COHESION = 0.4;            // Pull toward group center (lightest)
+const VELOCITY_LERP_FACTOR = 5.0;       // Momentum smoothing (higher = snappier)
 
 // Queries
 const enemyQuery = defineQuery([Transform, Velocity, EnemyTag, EnemyAI]);
@@ -139,7 +152,7 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         updateCircleAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Swarm:
-        updateSwarmAI(enemyId, playerX, playerY);
+        updateSwarmAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Tank:
         updateTankAI(enemyId, playerX, playerY);

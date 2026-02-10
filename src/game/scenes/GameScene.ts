@@ -91,6 +91,8 @@ export class GameScene extends Phaser.Scene {
   // Input
   private inputState!: InputState;
   private joystickManager: JoystickManager | null = null;
+  private previousMouseX: number = 0;
+  private previousMouseY: number = 0;
 
   // Player reference
   private playerId: number = -1;
@@ -1018,12 +1020,12 @@ export class GameScene extends Phaser.Scene {
     Health.current[entityId] = this.playerStats.currentHealth;
     Health.max[entityId] = this.playerStats.maxHealth;
 
-    // Create player visual
+    // Create player visual (pass current level for particle growth system)
     this.playerPlasmaCore = new PlayerPlasmaCore(this, entity.transform.x, entity.transform.y, {
       baseRadius: 16,
       neonColor: PLAYER_NEON,
       quality: this.visualQuality,
-    });
+    }, this.playerStats.level);
     const playerVisual = this.playerPlasmaCore.getContainer();
     playerVisual.setDepth(10);
     registerSprite(entityId, playerVisual);
@@ -1617,7 +1619,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Controls hint (bottom left)
-    this.add.text(HUD_EDGE_PADDING, GAME_HEIGHT - HUD_EDGE_PADDING, 'WASD / Arrows to move', {
+    this.add.text(HUD_EDGE_PADDING, GAME_HEIGHT - HUD_EDGE_PADDING, 'WASD / Arrows / Mouse to move', {
       fontSize: '14px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -2076,6 +2078,35 @@ export class GameScene extends Phaser.Scene {
       this.inputState.joystickX = joystickDirection.x;
       this.inputState.joystickY = joystickDirection.y;
     }
+
+    // Update control mode based on actual input device usage
+    const activePointer = this.input.activePointer;
+    const mouseMovedDistance = Math.abs(activePointer.worldX - this.previousMouseX)
+      + Math.abs(activePointer.worldY - this.previousMouseY);
+    const mouseHasMoved = mouseMovedDistance > 2;
+
+    const keyboardIsActive = this.inputState.cursors.left.isDown
+      || this.inputState.cursors.right.isDown
+      || this.inputState.cursors.up.isDown
+      || this.inputState.cursors.down.isDown
+      || this.inputState.wasd.W.isDown
+      || this.inputState.wasd.A.isDown
+      || this.inputState.wasd.S.isDown
+      || this.inputState.wasd.D.isDown;
+
+    if (this.inputState.joystickX !== 0 || this.inputState.joystickY !== 0) {
+      this.inputState.controlMode = 'joystick';
+    } else if (keyboardIsActive) {
+      this.inputState.controlMode = 'keyboard';
+    } else if (mouseHasMoved && !keyboardIsActive) {
+      this.inputState.controlMode = 'mouse';
+    }
+
+    this.previousMouseX = activePointer.worldX;
+    this.previousMouseY = activePointer.worldY;
+    this.inputState.mouseX = activePointer.worldX;
+    this.inputState.mouseY = activePointer.worldY;
+    this.inputState.mouseActive = this.inputState.controlMode === 'mouse';
 
     // Run ECS systems
     inputSystem(this.world, this.inputState);
@@ -3528,6 +3559,10 @@ export class GameScene extends Phaser.Scene {
       },
       joystickX: 0,
       joystickY: 0,
+      mouseX: 0,
+      mouseY: 0,
+      mouseActive: false,
+      controlMode: 'keyboard',
     };
 
     // Shift key for dash ability
@@ -3620,7 +3655,7 @@ export class GameScene extends Phaser.Scene {
       baseRadius: 16,
       neonColor: PLAYER_NEON,
       quality: this.visualQuality,
-    });
+    }, this.playerStats.level);
     const playerVisual = this.playerPlasmaCore.getContainer();
     playerVisual.setDepth(10);
     registerSprite(entityId, playerVisual);
@@ -4326,6 +4361,11 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.level++;
       this.playerStats.xpToNextLevel = calculateXPForLevel(this.playerStats.level);
       this.pendingLevelUps++;
+
+      // Grow player particle swarm on level-up
+      if (this.playerPlasmaCore) {
+        this.playerPlasmaCore.onLevelUp(this.playerStats.level);
+      }
 
       // Track level up for achievements
       getAchievementManager().recordLevelUp(this.playerStats.level);

@@ -14,6 +14,10 @@ No lint or test commands are currently configured.
 
 This is a 2D roguelike survival game built with **Phaser 3** for rendering and **bitECS** for entity management.
 
+### Player Visual Identity
+
+The **player character IS the particle swarm** — a boids-physics plasma core rendered by `PlayerPlasmaCore` (`/src/visual/PlayerPlasmaCore.ts`). There is no traditional sprite; the player is 20–100 glowing particles with separation, cohesion, alignment, center attraction, wander, and directional streaming forces. The swarm grows by 4 particles per level (starting at 20, maxing at 100 by level 21). When moving, particles stream forward in a teardrop shape with leading particles compressed/bright and trailing particles dispersed/dim.
+
 ### ECS Architecture
 
 The game uses an Entity-Component-System pattern where:

@@ -4,6 +4,12 @@ import { Transform, Velocity, PlayerTag } from '../components';
 // Query for player entities
 const playerQuery = defineQuery([Transform, Velocity, PlayerTag]);
 
+// Dead zone radius — player stops moving when within this distance of the cursor
+const MOUSE_DEAD_ZONE = 20;
+
+// Control mode tracks which input device the player is actively using
+export type ControlMode = 'keyboard' | 'mouse' | 'joystick';
+
 // Input state interface
 export interface InputState {
   cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -15,6 +21,10 @@ export interface InputState {
   };
   joystickX: number;
   joystickY: number;
+  mouseX: number;
+  mouseY: number;
+  mouseActive: boolean;
+  controlMode: ControlMode;
 }
 
 /**
@@ -31,12 +41,12 @@ export function inputSystem(world: IWorld, input: InputState): IWorld {
     let directionX = 0;
     let directionY = 0;
 
-    // Check if joystick is providing input (already normalized)
+    // Priority 1: Virtual joystick (touch devices)
     if (input.joystickX !== 0 || input.joystickY !== 0) {
       directionX = input.joystickX;
       directionY = input.joystickY;
     } else {
-      // Fallback to keyboard input
+      // Priority 2: Keyboard (WASD / arrows)
       if (input.cursors.left.isDown || input.wasd.A.isDown) {
         directionX -= 1;
       }
@@ -51,10 +61,23 @@ export function inputSystem(world: IWorld, input: InputState): IWorld {
       }
 
       // Normalize keyboard diagonal movement
-      const magnitude = Math.sqrt(directionX * directionX + directionY * directionY);
-      if (magnitude > 0) {
-        directionX /= magnitude;
-        directionY /= magnitude;
+      const keyboardMagnitude = Math.sqrt(directionX * directionX + directionY * directionY);
+      if (keyboardMagnitude > 0) {
+        directionX /= keyboardMagnitude;
+        directionY /= keyboardMagnitude;
+      } else if (input.controlMode === 'mouse') {
+        // Priority 3: Mouse cursor — only when mouse is the active control mode
+        const playerX = Transform.x[playerId];
+        const playerY = Transform.y[playerId];
+        const deltaX = input.mouseX - playerX;
+        const deltaY = input.mouseY - playerY;
+        const distanceToCursor = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+        if (distanceToCursor > MOUSE_DEAD_ZONE) {
+          directionX = deltaX / distanceToCursor;
+          directionY = deltaY / distanceToCursor;
+        }
+        // Within dead zone: directionX/Y stay 0, player stops near cursor
       }
     }
 
