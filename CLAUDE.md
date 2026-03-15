@@ -236,7 +236,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 `MetaProgressionManager` (`/src/meta/`) handles persistent cross-run progression using SecureStorage:
 - **Gold currency**: Earned after each run based on kills, time survived, and player level
 - **Permanent upgrades**: Purchased in ShopScene, applied at run start in GameScene
-- **Gold formula**: `(kills × 2) + (seconds ÷ 10) + (level × 10)`, with 1.5× multiplier on victory
+- **Gold formula**: `(kills × 2.5) + (seconds ÷ 10) + (level × 10)`, multiplied by victory (1.5×), gold upgrade, world level, and streak bonuses
 - **Upgrade costs**: Scale exponentially — `baseCost × costScaling^currentLevel`
 - **World Level**: Cross-run difficulty scaling. Each level adds +15% enemy HP, +10% enemy damage, reduces elite spawn time, and increases XP/gold multipliers
 - **Win Streak**: Bonus gold for consecutive victories, capped at 10 streaks (50% bonus)
