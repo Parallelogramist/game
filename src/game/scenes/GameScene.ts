@@ -19,8 +19,8 @@ import { JoystickManager } from '../../ui/JoystickManager';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
-import { resetCollisionSystem, setCombatStats, setLifeStealCallback } from '../../ecs/systems/CollisionSystem';
-import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, applyPoison } from '../../ecs/systems/StatusEffectSystem';
+import { resetCollisionSystem, setCombatStats, setLifeStealCallback, setCollisionDamageDealtCallback } from '../../ecs/systems/CollisionSystem';
+import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison } from '../../ecs/systems/StatusEffectSystem';
 import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems } from '../../ecs/systems/XPGemSystem';
@@ -116,6 +116,7 @@ export class GameScene extends Phaser.Scene {
   private toastManager!: ToastManager;
   private lastAchievementTimeCheck: number = 0; // For throttled time tracking
   private totalDamageTaken: number = 0;
+  private totalDamageDealt: number = 0;
 
   // Player stats and upgrades
   private playerStats!: PlayerStats;
@@ -336,6 +337,7 @@ export class GameScene extends Phaser.Scene {
     this.enemyCount = 0;
     this.killCount = 0;
     this.totalDamageTaken = 0;
+    this.totalDamageDealt = 0;
     this.lastAchievementTimeCheck = 0;
 
     // Initialize achievement tracking for this run
@@ -570,6 +572,10 @@ export class GameScene extends Phaser.Scene {
       this.healPlayer(amount);
     });
 
+    // Setup damage dealt tracking callbacks
+    setCollisionDamageDealtCallback((amount) => { this.totalDamageDealt += amount; });
+    setStatusEffectDamageCallback((amount) => { this.totalDamageDealt += amount; });
+
     // Setup input
     this.setupInput();
     this.joystickManager = new JoystickManager(this);
@@ -588,8 +594,8 @@ export class GameScene extends Phaser.Scene {
 
     // Set up weapon manager callbacks for enemy death and player heal
     this.weaponManager.setCallbacks(
-      // onDamaged - visual feedback handled in WeaponManager
-      () => {},
+      // onDamaged - track total damage dealt
+      (_enemyId, damage) => { this.totalDamageDealt += damage; },
       // onKilled - handle death
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
@@ -863,7 +869,7 @@ export class GameScene extends Phaser.Scene {
 
     // Set up weapon manager callbacks
     this.weaponManager.setCallbacks(
-      () => {},
+      (_enemyId, damage) => { this.totalDamageDealt += damage; },
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
       },
@@ -956,6 +962,10 @@ export class GameScene extends Phaser.Scene {
     setLifeStealCallback((amount) => {
       this.healPlayer(amount);
     });
+
+    // Setup damage dealt tracking callbacks
+    setCollisionDamageDealtCallback((amount) => { this.totalDamageDealt += amount; });
+    setStatusEffectDamageCallback((amount) => { this.totalDamageDealt += amount; });
   }
 
   /**
@@ -2332,6 +2342,7 @@ export class GameScene extends Phaser.Scene {
       const thornsDamage = Math.floor(amount * this.playerStats.thornsPercent);
       if (thornsDamage > 0 && hasComponent(this.world, Health, attackerEntity)) {
         Health.current[attackerEntity] -= thornsDamage;
+        this.totalDamageDealt += thornsDamage;
         // Visual feedback for thorns
         this.effectsManager.showDamageNumber(
           Transform.x[attackerEntity],
@@ -3111,7 +3122,7 @@ export class GameScene extends Phaser.Scene {
       levelReached: this.playerStats.level,
       survivalTimeSeconds: this.gameTime,
       worldLevel: metaManager.getWorldLevel(),
-      damageDealt: 0, // TODO: track total damage dealt
+      damageDealt: this.totalDamageDealt,
       damageTaken: this.totalDamageTaken,
       goldEarned,
     });
@@ -3120,7 +3131,7 @@ export class GameScene extends Phaser.Scene {
     getCodexManager().recordRunEnd(
       this.gameTime,
       this.killCount,
-      0, // TODO: track total damage dealt
+      this.totalDamageDealt,
       goldEarned,
       true, // wasVictory
       metaManager.getWorldLevel(),
@@ -3443,7 +3454,7 @@ export class GameScene extends Phaser.Scene {
       getCodexManager().recordRunEnd(
         this.gameTime,
         this.killCount,
-        0, // TODO: track total damage dealt
+        this.totalDamageDealt,
         goldEarned,
         false, // wasVictory
         metaManager.getWorldLevel(),
