@@ -573,8 +573,14 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Setup damage dealt tracking callbacks
-    setCollisionDamageDealtCallback((amount) => { this.totalDamageDealt += amount; });
-    setStatusEffectDamageCallback((amount) => { this.totalDamageDealt += amount; });
+    setCollisionDamageDealtCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
+    setStatusEffectDamageCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
 
     // Setup input
     this.setupInput();
@@ -595,7 +601,10 @@ export class GameScene extends Phaser.Scene {
     // Set up weapon manager callbacks for enemy death and player heal
     this.weaponManager.setCallbacks(
       // onDamaged - track total damage dealt
-      (_enemyId, damage) => { this.totalDamageDealt += damage; },
+      (_enemyId, damage, isCrit) => {
+        this.totalDamageDealt += damage;
+        getAchievementManager().recordDamageDealt(damage, isCrit);
+      },
       // onKilled - handle death
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
@@ -869,7 +878,10 @@ export class GameScene extends Phaser.Scene {
 
     // Set up weapon manager callbacks
     this.weaponManager.setCallbacks(
-      (_enemyId, damage) => { this.totalDamageDealt += damage; },
+      (_enemyId, damage, isCrit) => {
+        this.totalDamageDealt += damage;
+        getAchievementManager().recordDamageDealt(damage, isCrit);
+      },
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
       },
@@ -964,8 +976,14 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Setup damage dealt tracking callbacks
-    setCollisionDamageDealtCallback((amount) => { this.totalDamageDealt += amount; });
-    setStatusEffectDamageCallback((amount) => { this.totalDamageDealt += amount; });
+    setCollisionDamageDealtCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
+    setStatusEffectDamageCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
   }
 
   /**
@@ -2343,6 +2361,7 @@ export class GameScene extends Phaser.Scene {
       if (thornsDamage > 0 && hasComponent(this.world, Health, attackerEntity)) {
         Health.current[attackerEntity] -= thornsDamage;
         this.totalDamageDealt += thornsDamage;
+        getAchievementManager().recordDamageDealt(thornsDamage);
         // Visual feedback for thorns
         this.effectsManager.showDamageNumber(
           Transform.x[attackerEntity],

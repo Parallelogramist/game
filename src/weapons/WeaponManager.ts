@@ -24,7 +24,7 @@ export class WeaponManager {
   private maxWeaponSlots: number = 3;
 
   // Callbacks for game integration
-  private onEnemyDamaged: ((enemyId: number, damage: number) => void) | null = null;
+  private onEnemyDamaged: ((enemyId: number, damage: number, isCrit: boolean) => void) | null = null;
   private onEnemyKilled: ((enemyId: number, x: number, y: number) => void) | null = null;
   private onPlayerHealed: ((amount: number) => void) | null = null;
 
@@ -70,7 +70,7 @@ export class WeaponManager {
    * Set callbacks for enemy damage/death/player heal.
    */
   public setCallbacks(
-    onDamaged: (enemyId: number, damage: number) => void,
+    onDamaged: (enemyId: number, damage: number, isCrit: boolean) => void,
     onKilled: (enemyId: number, x: number, y: number) => void,
     onHealed?: (amount: number) => void
   ): void {
@@ -240,7 +240,7 @@ export class WeaponManager {
 
     // Callback
     if (this.onEnemyDamaged) {
-      this.onEnemyDamaged(enemyId, actualDamage);
+      this.onEnemyDamaged(enemyId, actualDamage, isCrit);
     }
 
     // Check for death
