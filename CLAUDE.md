@@ -10,6 +10,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 No lint or test commands are currently configured.
 
+## Deployment
+
+- **GitHub Pages**: Auto-deploys on push to `main` via `.github/workflows/deploy.yml` (Node 20)
+- **Vite config**: Base path `/game/`, output to `dist/`
+
 ## Architecture Overview
 
 This is a 2D roguelike survival game built with **Phaser 3** for rendering and **bitECS** for entity management.
@@ -17,17 +22,19 @@ This is a 2D roguelike survival game built with **Phaser 3** for rendering and *
 ### ECS Architecture
 
 The game uses an Entity-Component-System pattern where:
-- **Components** (`/src/ecs/components/index.ts`) define data schemas (Transform, Velocity, Health, Weapon, EnemyAI, etc.)
+- **Components** (`/src/ecs/components/index.ts`) define data schemas — 19 components total including Transform, Velocity, Health, Weapon, EnemyAI, EnemyType, Knockback, StatusEffect, and tag components
 - **Systems** (`/src/ecs/systems/`) contain game logic that operates on entities with specific components
 - **SpriteRef** component bridges ECS entities to Phaser sprites for rendering
 
-Systems execute in this fixed order each frame:
+Systems execute in this fixed order each frame (from `GameScene.update()`):
 ```
-InputSystem → EnemyAISystem → MovementSystem → Knockback → WeaponManager.update →
-XPGemSystem → HealthPickupSystem → MagnetPickupSystem → StatusEffectSystem →
-Enemy Projectiles → Player-Enemy Collision → SpriteSystem
+updateFrameCache → Timer/spawn updates → Laser beams → Joystick input →
+InputSystem → EnemyAISystem → MovementSystem → processKnockback → clampPlayerToScreen →
+WeaponManager.update → XPGemSystem → HealthPickupSystem → MagnetPickupSystem →
+StatusEffectSystem → Enemy Projectiles → Player-Enemy Collision → SpriteSystem →
+PlayerPlasmaCore → GridBackground → Trails → EffectsManager → VisualQuality → UI
 ```
-Note: Knockback and collision are processed inline in GameScene rather than as separate systems.
+Note: Knockback, collision, and visual updates are processed inline in GameScene rather than as separate system files.
 
 ### Scene Flow
 
@@ -37,8 +44,12 @@ BootScene (start screen + music)
   ├─→ ShopScene (permanent upgrades, returns to BootScene)
   ├─→ SettingsScene (SFX, visual settings, returns to BootScene)
   ├─→ MusicSettingsScene (BGM settings, returns to BootScene)
+  ├─→ AchievementScene (achievement viewer, returns to BootScene)
+  ├─→ CodexScene (encyclopedia/bestiary, returns to BootScene)
   └─→ CreditsScene (attribution, returns to BootScene)
 ```
+
+All 9 scenes live in `/src/game/scenes/`.
 
 ### Weapon System
 
@@ -78,7 +89,13 @@ The game features 14 unique weapons managed by `WeaponManager` (`/src/weapons/We
 
 ### Enemy Variety System
 
-The game features 13 regular enemies, 5 minibosses, and 3 bosses defined in `/src/enemies/EnemyTypes.ts`.
+The game features 26 enemy type definitions in `/src/enemies/EnemyTypes.ts`:
+- **9 Basic** (Shambler, Zigzag Runner, Dasher, Circler, Tiny Swarm, Exploder, Splitter Mini, Ghost, Turret)
+- **8 Elite** (Tank, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Giant)
+- **6 Miniboss** (The Glutton, Swarm Mother, The Charger, Necromancer, Twin Alpha, Twin Beta)
+- **3 Boss** (The Horde King, Void Wyrm, The Machine)
+
+Note: Ghost and Turret are spawned-only types (created by minibosses/bosses, not natural spawns). Twins spawn as a linked pair.
 
 **EnemyAI Component:**
 ```typescript
@@ -86,8 +103,8 @@ EnemyAI: { aiType, state, timer, targetX, targetY, shootTimer, specialTimer, pha
 ```
 
 **AI Types (EnemyAIType enum):**
-- **Basic (0-12):** Chaser, Shooter, Charger, Tank, Exploder, Splitter, Healer, Teleporter, Shielded, Ranged, Swarm, Flanker, Ambusher
-- **Miniboss (50-54):** Glutton, SwarmMother, Charger, Necromancer, Twin
+- **Regular (0-13):** Chase, Zigzag, Dash, Circle, Swarm, Tank, Exploder, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Giant
+- **Miniboss (50-55):** Glutton, SwarmMother, Charger, Necromancer, TwinA, TwinB
 - **Boss (100-102):** HordeKing, VoidWyrm, TheMachine
 
 **Spawn System:**
@@ -112,10 +129,10 @@ Bosses cycle via a static class property that persists across scene reloads. Eac
 4. Register the system call in GameScene's update loop
 
 **Adding in-run upgrades:**
-Add an object to the `upgrades` array in `src/data/Upgrades.ts` with `name`, `description`, `maxLevel`, and `apply` function.
+Add an object to the `upgrades` array in `src/data/Upgrades.ts` with `name`, `description`, `maxLevel`, and `apply` function. Upgrades have break level gates at levels 3, 6, and 9 (require player level thresholds), and level 10 grants mastery bonuses.
 
 **Adding permanent upgrades (shop):**
-1. Add a new upgrade object to `PERMANENT_UPGRADES` in `src/data/PermanentUpgrades.ts`
+1. Add a new upgrade object to `PERMANENT_UPGRADES` in `src/data/PermanentUpgrades.ts` (categories: offense, defense, movement, resources, utility, elemental, mastery)
 2. Add corresponding level field to `PermanentUpgradeState` interface in `src/meta/MetaProgressionManager.ts`
 3. Add a `getStartingXXX()` method in MetaProgressionManager to calculate the stat bonus
 4. Apply the bonus in GameScene's `create()` method where meta bonuses are applied
@@ -138,7 +155,11 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 
 **Music** (`/src/audio/MusicManager.ts`): Uses IBXM library for tracker music (.mod/.xm files). Singleton pattern via `getMusicManager()`. Supports playlist modes (sequential/shuffle/off) with localStorage persistence.
 
-**Sound Effects** (`/src/audio/SoundManager.ts`): Standard Phaser audio for SFX (hit, pickup, level-up sounds).
+**Music Player** (`/src/audio/MusicPlayer.ts`): Low-level IBXM wrapper that handles AudioContext, GainNode, and ScriptProcessor for single track playback.
+
+**Music Catalog** (`/src/data/MusicCatalog.ts`): Track metadata for the 25 tracker music files in `public/music/`.
+
+**Sound Effects** (`/src/audio/SoundManager.ts`): Standard Phaser audio for SFX (hit, pickup, level-up sounds). Uses pentatonic scale for harmonious design. Sound throttling (50ms minimum between hits).
 
 ### Effects System
 
@@ -155,19 +176,52 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 ### Visual System
 
 `/src/visual/` contains specialized visual effects managers:
-- **GridBackground**: Animated grid with entity-reactive warping effect
-- **TrailManager**: Motion trails behind player and fast enemies (pooled trail points)
-- **GlowGraphics**: Neon glow rendering with quality levels (Low/Medium/High/Ultra)
-- **NeonColors**: Consistent color palette for the cyberpunk aesthetic
-- **PlayerPlasmaCore**: Player visual with squash/stretch, fins, and breathing animations
-- **ShieldBarrierVisual**: Shield effects for shielded enemies
-- **MasteryVisuals/MasteryIconEffectsManager**: Visual flair for mastered upgrades
+- **GridBackground**: Animated grid with entity-reactive warping effect (uses SpatialHash for O(1) lookups)
+- **TrailManager**: Motion trails behind player and fast enemies (pooled trail points, 500 max)
+- **GlowGraphics**: Neon glow rendering with quality levels (Low/Medium/High/Ultra). Single Graphics object per shape for performance.
+- **NeonColors**: Consistent color palette for the cyberpunk aesthetic, with utility functions for color manipulation
+- **PlayerPlasmaCore**: Player visual — 100 glowing particles in dual-ring formation with breathing, scatter, and speed-based glow effects
+- **ShieldBarrierVisual**: Honeycomb pattern shield effects for shielded enemies
+- **MasteryVisuals**: 9 unique orbital visual effects for maxed stats (orbiting sword, lightning sparks, etc.)
+- **MasteryIconEffectsManager**: Golden glow and sparkle particles for mastered upgrade icons in HUD
+- **DeathRippleManager**: Expanding ripple waves from enemy death locations with quality scaling
+- **Gem3DRenderer**: 3D octahedron rendering for XP gems using transformation matrices and painter's algorithm
+
+### UI Systems
+
+`/src/ui/` provides user interface components:
+- **JoystickManager**: Virtual joystick for mobile/touch input. Dynamic spawn at touch point, outputs normalized direction vector.
+- **ToastManager**: Queue-based notification system for achievements, milestones, and events. Configurable styles and durations.
+
+### Achievements System
+
+`/src/achievements/` tracks and unlocks 30+ achievements:
+- **AchievementManager**: Singleton that tracks progress, checks conditions, and unlocks achievements. Persistent via SecureStorage.
+- **AchievementDefinitions**: All achievement definitions with conditions and rewards
+- **MilestoneDefinitions**: Stat-based milestones (kills, time survived, etc.)
+- **AchievementScene**: UI scene accessible from BootScene for viewing unlocked achievements
+
+### Codex System
+
+`/src/codex/` provides an in-game encyclopedia:
+- **CodexManager**: Tracks discovered weapons, enemies, and upgrades. Records playtime, kills, damage, victories, and world level progression. Persistent via SecureStorage.
+- **CodexScene**: UI scene accessible from BootScene for browsing codex entries
+
+### Storage System
+
+`/src/storage/` provides encrypted persistence (anti-cheat):
+- **SecureStorage**: Encrypted localStorage wrapper — all persistent game data flows through this
+- **StorageBootstrap**: Initialization and migration logic
+- **StorageEncryption**: Encryption/decryption utilities
+
+Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManager
 
 ### Settings System
 
-`SettingsManager` (`/src/settings/`) persists user preferences via localStorage:
-- SFX enabled/volume, screen shake, FPS counter
+`SettingsManager` (`/src/settings/`) persists user preferences via SecureStorage:
+- SFX enabled/volume, screen shake, FPS counter, status text
 - Damage numbers mode: `'all' | 'crits' | 'perfect_crits' | 'off'`
+- Music enabled/volume/playback mode
 - Singleton via `getSettingsManager()`
 
 ### Save/Load System
@@ -179,20 +233,34 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 
 ### Meta-Progression System
 
-`MetaProgressionManager` (`/src/meta/`) handles persistent cross-run progression using localStorage:
+`MetaProgressionManager` (`/src/meta/`) handles persistent cross-run progression using SecureStorage:
 - **Gold currency**: Earned after each run based on kills, time survived, and player level
 - **Permanent upgrades**: Purchased in ShopScene, applied at run start in GameScene
-- Gold formula: `(kills × 2) + (seconds ÷ 10) + (level × 10)`, with 1.5× multiplier on victory
-- Upgrade costs scale exponentially: `baseCost × costScaling^currentLevel`
+- **Gold formula**: `(kills × 2.5) + (seconds ÷ 10) + (level × 10)`, multiplied by victory (1.5×), gold upgrade, world level, and streak bonuses
+- **Upgrade costs**: Scale exponentially — `baseCost × costScaling^currentLevel`
+- **World Level**: Cross-run difficulty scaling. Each level adds +15% enemy HP, +10% enemy damage, reduces elite spawn time, and increases XP/gold multipliers
+- **Win Streak**: Bonus gold for consecutive victories, capped at 10 streaks (50% bonus)
+- **Account Level**: Sum of all permanent upgrade levels
+
+### Utility Systems
+
+`/src/utils/` provides shared utilities:
+- **SpatialHash**: O(1) spatial queries via grid bucketing. Used by GridBackground and collision checks to avoid O(n²) comparisons.
+- **IconRenderer/IconMap**: Icon sprite creation from the `public/icons/game-icons.png` atlas. IconMap provides semantic key-to-frame mappings for 60+ icons.
 
 ### Game Configuration
 
-- Screen: 1280×720 (defined in `GameConfig.ts`)
+- Screen: 1280×720 (defined in `GameConfig.ts`), scales with FIT mode (min 640×360)
 - Max enemies: 100 concurrent
 - XP formula: `10 × level^1.5` for next level
 - Damage invincibility: 0.5 seconds
 - Miniboss spawn: First at 2 min, then every 1.5 min
 - Boss spawn: 10 minutes
+
+## Tooling
+
+- `tools/build-icon-atlas.cjs` — Builds icon sprite sheet from SVG sources in `tools/icon-sources/` (uses sharp)
+- `tools/download-icons.sh` — Downloads icon SVGs from game-icons.net
 
 ## Development Guidelines
 
@@ -213,3 +281,5 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 **Entity removal order:** Destroy sprite and `unregisterSprite()` BEFORE `removeEntity()`. Removing entity first orphans the sprite.
 
 **Tween cleanup:** Call `this.tweens.killAll()` in shutdown to stop tweens from running after scene restart.
+
+**Encrypted storage:** All persistent data (settings, meta-progression, achievements, codex) must use `SecureStorage` from `/src/storage/`, not raw `localStorage`.
