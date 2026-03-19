@@ -19,7 +19,7 @@ import { JoystickManager } from '../../ui/JoystickManager';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
-import { resetCollisionSystem, setCombatStats, setLifeStealCallback, setEnemyDamageCallback } from '../../ecs/systems/CollisionSystem';
+import { resetCollisionSystem, setCombatStats, setLifeStealCallback, setCollisionDamageDealtCallback } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
 import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
@@ -574,9 +574,15 @@ export class GameScene extends Phaser.Scene {
       this.healPlayer(amount);
     });
 
-    // Setup damage tracking callbacks for collision and status effect systems
-    setEnemyDamageCallback((damage) => { this.totalDamageDealt += damage; });
-    setStatusEffectDamageCallback((damage) => { this.totalDamageDealt += damage; });
+    // Setup damage dealt tracking callbacks
+    setCollisionDamageDealtCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
+    setStatusEffectDamageCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
 
     // Setup input
     this.setupInput();
@@ -596,8 +602,11 @@ export class GameScene extends Phaser.Scene {
 
     // Set up weapon manager callbacks for enemy death and player heal
     this.weaponManager.setCallbacks(
-      // onDamaged - track damage dealt
-      (_enemyId: number, damage: number) => { this.totalDamageDealt += damage; },
+      // onDamaged - track total damage dealt
+      (_enemyId, damage, isCrit) => {
+        this.totalDamageDealt += damage;
+        getAchievementManager().recordDamageDealt(damage, isCrit);
+      },
       // onKilled - handle death
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
@@ -872,7 +881,10 @@ export class GameScene extends Phaser.Scene {
 
     // Set up weapon manager callbacks
     this.weaponManager.setCallbacks(
-      (_enemyId: number, damage: number) => { this.totalDamageDealt += damage; },
+      (_enemyId, damage, isCrit) => {
+        this.totalDamageDealt += damage;
+        getAchievementManager().recordDamageDealt(damage, isCrit);
+      },
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
       },
@@ -966,9 +978,15 @@ export class GameScene extends Phaser.Scene {
       this.healPlayer(amount);
     });
 
-    // Setup damage tracking callbacks for collision and status effect systems
-    setEnemyDamageCallback((damage) => { this.totalDamageDealt += damage; });
-    setStatusEffectDamageCallback((damage) => { this.totalDamageDealt += damage; });
+    // Setup damage dealt tracking callbacks
+    setCollisionDamageDealtCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
+    setStatusEffectDamageCallback((amount) => {
+      this.totalDamageDealt += amount;
+      getAchievementManager().recordDamageDealt(amount);
+    });
   }
 
   /**
@@ -2381,6 +2399,7 @@ export class GameScene extends Phaser.Scene {
       if (thornsDamage > 0 && hasComponent(this.world, Health, attackerEntity)) {
         Health.current[attackerEntity] -= thornsDamage;
         this.totalDamageDealt += thornsDamage;
+        getAchievementManager().recordDamageDealt(thornsDamage);
         // Visual feedback for thorns
         this.effectsManager.showDamageNumber(
           Transform.x[attackerEntity],

@@ -69,8 +69,8 @@ let combatStats: CombatStats | null = null;
 // Callback for life steal healing
 let lifeStealCallback: ((amount: number) => void) | null = null;
 
-// Callback for tracking damage dealt
-let onEnemyDamageCallback: ((damage: number) => void) | null = null;
+// Callback for tracking total damage dealt
+let damageDealtCallback: ((amount: number) => void) | null = null;
 
 /**
  * Register a callback to be called when an enemy dies.
@@ -122,10 +122,10 @@ export function setLifeStealCallback(callback: (amount: number) => void): void {
 }
 
 /**
- * Set callback for tracking damage dealt to enemies.
+ * Set callback for tracking total damage dealt.
  */
-export function setEnemyDamageCallback(callback: (damage: number) => void): void {
-  onEnemyDamageCallback = callback;
+export function setCollisionDamageDealtCallback(callback: ((amount: number) => void) | null): void {
+  damageDealtCallback = callback;
 }
 
 /**
@@ -221,12 +221,8 @@ export function collisionSystem(world: IWorld, deltaTime: number): IWorld {
 
         // Apply damage
         Health.current[enemyId] -= actualDamage;
+        if (damageDealtCallback) damageDealtCallback(actualDamage);
         hitCount++;
-
-        // Track damage dealt
-        if (onEnemyDamageCallback) {
-          onEnemyDamageCallback(actualDamage);
-        }
 
         // Calculate hit direction (from projectile to enemy)
         const distance = Math.sqrt(distanceSquared);
@@ -309,11 +305,7 @@ export function collisionSystem(world: IWorld, deltaTime: number): IWorld {
                 const nearbyY = Transform.y[nearbyId];
 
                 Health.current[nearbyId] -= splashDamage;
-
-                // Track splash damage dealt
-                if (onEnemyDamageCallback) {
-                  onEnemyDamageCallback(splashDamage);
-                }
+                if (damageDealtCallback) damageDealtCallback(splashDamage);
 
                 // Show splash damage number
                 if (effectsManager) {
@@ -423,7 +415,7 @@ export function resetCollisionSystem(): void {
   effectsManager = null;
   soundManager = null;
   sceneReference = null;
-  onEnemyDamageCallback = null;
+  damageDealtCallback = null;
   combatStats = null;
   lifeStealCallback = null;
 }

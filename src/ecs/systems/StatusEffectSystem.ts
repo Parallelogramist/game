@@ -11,8 +11,8 @@ let effectsManager: EffectsManager | null = null;
 // Callback for enemy death
 let onEnemyDeath: ((entityId: number, x: number, y: number) => void) | null = null;
 
-// Callback for tracking damage dealt
-let onDamageCallback: ((damage: number) => void) | null = null;
+// Callback for tracking total damage dealt
+let damageDealtCallback: ((amount: number) => void) | null = null;
 
 // Constants
 const BURN_TICK_INTERVAL = 500;   // ms between burn damage ticks
@@ -31,6 +31,13 @@ export function setStatusEffectSystemEffectsManager(manager: EffectsManager): vo
 }
 
 /**
+ * Sets the callback for tracking total damage dealt by status effects.
+ */
+export function setStatusEffectDamageCallback(callback: ((amount: number) => void) | null): void {
+  damageDealtCallback = callback;
+}
+
+/**
  * Sets the callback for when an enemy dies from status effects.
  */
 export function setStatusEffectSystemDeathCallback(
@@ -40,20 +47,13 @@ export function setStatusEffectSystemDeathCallback(
 }
 
 /**
- * Sets the callback for tracking damage dealt by status effects.
- */
-export function setStatusEffectDamageCallback(callback: (damage: number) => void): void {
-  onDamageCallback = callback;
-}
-
-/**
  * Resets all module-level state in StatusEffectSystem.
  * Must be called when starting a new game to clear state from previous runs.
  */
 export function resetStatusEffectSystem(): void {
   effectsManager = null;
   onEnemyDeath = null;
-  onDamageCallback = null;
+  damageDealtCallback = null;
 }
 
 /**
@@ -210,12 +210,8 @@ export function statusEffectSystem(world: IWorld, deltaMs: number): IWorld {
       if (StatusEffect.burnTickTimer[entityId] <= 0) {
         const burnDamage = StatusEffect.burnDamage[entityId];
         Health.current[entityId] -= burnDamage;
+        if (damageDealtCallback) damageDealtCallback(burnDamage);
         StatusEffect.burnTickTimer[entityId] = BURN_TICK_INTERVAL;
-
-        // Track burn damage dealt
-        if (onDamageCallback) {
-          onDamageCallback(burnDamage);
-        }
 
         // Show damage number
         if (effectsManager) {
@@ -250,12 +246,8 @@ export function statusEffectSystem(world: IWorld, deltaMs: number): IWorld {
         const stacks = StatusEffect.poisonStacks[entityId];
         const poisonDamage = stacks * POISON_DAMAGE_PER_STACK;
         Health.current[entityId] -= poisonDamage;
+        if (damageDealtCallback) damageDealtCallback(poisonDamage);
         StatusEffect.poisonTickTimer[entityId] = POISON_TICK_INTERVAL;
-
-        // Track poison damage dealt
-        if (onDamageCallback) {
-          onDamageCallback(poisonDamage);
-        }
 
         // Show damage number
         if (effectsManager) {
