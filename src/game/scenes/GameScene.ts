@@ -19,8 +19,8 @@ import { JoystickManager } from '../../ui/JoystickManager';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
-import { resetCollisionSystem, setCombatStats, setLifeStealCallback } from '../../ecs/systems/CollisionSystem';
-import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, applyPoison } from '../../ecs/systems/StatusEffectSystem';
+import { resetCollisionSystem, setCombatStats, setLifeStealCallback, setEnemyDamageCallback } from '../../ecs/systems/CollisionSystem';
+import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
 import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems } from '../../ecs/systems/XPGemSystem';
@@ -62,6 +62,7 @@ const STORAGE_KEY_AUTO_BUY = 'game_autoBuyEnabled';
 const HUD_EDGE_PADDING = 16;  // Padding from screen edges
 const HUD_ELEMENT_SPACING = 8; // Spacing between adjacent HUD elements
 const HUD_DEPTH = 1000;        // Depth for all HUD elements (renders on top)
+const WORLD_LEVEL_TEXT_HEIGHT = 18; // Height of world level text for layout calculations
 const HUD_ALPHA = 0.75;        // 75% opacity so gameplay is visible behind HUD
 const PAUSE_MENU_DEPTH = 1100; // Pause menu renders above HUD
 
@@ -91,8 +92,6 @@ export class GameScene extends Phaser.Scene {
   // Input
   private inputState!: InputState;
   private joystickManager: JoystickManager | null = null;
-  private previousMouseX: number = 0;
-  private previousMouseY: number = 0;
 
   // Player reference
   private playerId: number = -1;
@@ -118,6 +117,7 @@ export class GameScene extends Phaser.Scene {
   private toastManager!: ToastManager;
   private lastAchievementTimeCheck: number = 0; // For throttled time tracking
   private totalDamageTaken: number = 0;
+  private totalDamageDealt: number = 0;
 
   // Player stats and upgrades
   private playerStats!: PlayerStats;
@@ -328,6 +328,7 @@ export class GameScene extends Phaser.Scene {
     resetMagnetPickupSystem();
     resetWeaponSystem();
     resetCollisionSystem();
+    resetStatusEffectSystem();
     resetFrameCache();
     resetEnemySpatialHash();
 
@@ -338,6 +339,7 @@ export class GameScene extends Phaser.Scene {
     this.enemyCount = 0;
     this.killCount = 0;
     this.totalDamageTaken = 0;
+    this.totalDamageDealt = 0;
     this.lastAchievementTimeCheck = 0;
 
     // Initialize achievement tracking for this run
@@ -572,6 +574,10 @@ export class GameScene extends Phaser.Scene {
       this.healPlayer(amount);
     });
 
+    // Setup damage tracking callbacks for collision and status effect systems
+    setEnemyDamageCallback((damage) => { this.totalDamageDealt += damage; });
+    setStatusEffectDamageCallback((damage) => { this.totalDamageDealt += damage; });
+
     // Setup input
     this.setupInput();
     this.joystickManager = new JoystickManager(this);
@@ -590,8 +596,8 @@ export class GameScene extends Phaser.Scene {
 
     // Set up weapon manager callbacks for enemy death and player heal
     this.weaponManager.setCallbacks(
-      // onDamaged - visual feedback handled in WeaponManager
-      () => {},
+      // onDamaged - track damage dealt
+      (_enemyId: number, damage: number) => { this.totalDamageDealt += damage; },
       // onKilled - handle death
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
@@ -732,6 +738,7 @@ export class GameScene extends Phaser.Scene {
     resetMagnetPickupSystem();
     resetWeaponSystem();
     resetCollisionSystem();
+    resetStatusEffectSystem();
     resetFrameCache();
     resetEnemySpatialHash();
 
@@ -865,7 +872,7 @@ export class GameScene extends Phaser.Scene {
 
     // Set up weapon manager callbacks
     this.weaponManager.setCallbacks(
-      () => {},
+      (_enemyId: number, damage: number) => { this.totalDamageDealt += damage; },
       (enemyId, x, y) => {
         this.handleEnemyDeath(enemyId, x, y);
       },
@@ -958,6 +965,10 @@ export class GameScene extends Phaser.Scene {
     setLifeStealCallback((amount) => {
       this.healPlayer(amount);
     });
+
+    // Setup damage tracking callbacks for collision and status effect systems
+    setEnemyDamageCallback((damage) => { this.totalDamageDealt += damage; });
+    setStatusEffectDamageCallback((damage) => { this.totalDamageDealt += damage; });
   }
 
   /**
@@ -1253,6 +1264,10 @@ export class GameScene extends Phaser.Scene {
       }
       this.effectsManager.playImpactFlash(0.3, 120);
 
+      // Massive grid ripple + Z-axis punch for boss death
+      this.gridBackground.applyExplosiveForce(3000, x, y, 500);
+      this.gridBackground.applyDirectedForce(0, 0, 120, x, y, 300);
+
       // Boss kill = Victory! Advance to next world level
       if (!this.hasWon) {
         const metaManager = getMetaProgressionManager();
@@ -1269,9 +1284,15 @@ export class GameScene extends Phaser.Scene {
       if (getSettingsManager().isScreenShakeEnabled()) {
         this.cameras.main.shake(200, 0.015);
       }
+
+      // Medium grid ripple for miniboss death
+      this.gridBackground.applyExplosiveForce(1500, x, y, 300);
     } else {
       // Normal death effect
       this.effectsManager.playDeathBurst(x, y);
+
+      // Small grid ripple for normal enemy death
+      this.gridBackground.applyExplosiveForce(500, x, y, 200);
     }
 
     // Clean up entity
@@ -1563,7 +1584,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Game time display (centered top, below world level)
-    this.add.text(GAME_WIDTH / 2, HUD_EDGE_PADDING + 18 + HUD_ELEMENT_SPACING, '', {
+    this.add.text(GAME_WIDTH / 2, HUD_EDGE_PADDING + WORLD_LEVEL_TEXT_HEIGHT + HUD_ELEMENT_SPACING, '', {
       fontSize: '28px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -2081,9 +2102,6 @@ export class GameScene extends Phaser.Scene {
 
     // Update control mode based on actual input device usage
     const activePointer = this.input.activePointer;
-    const mouseMovedDistance = Math.abs(activePointer.worldX - this.previousMouseX)
-      + Math.abs(activePointer.worldY - this.previousMouseY);
-    const mouseHasMoved = mouseMovedDistance > 2;
 
     const keyboardIsActive = this.inputState.cursors.left.isDown
       || this.inputState.cursors.right.isDown
@@ -2096,14 +2114,13 @@ export class GameScene extends Phaser.Scene {
 
     if (this.inputState.joystickX !== 0 || this.inputState.joystickY !== 0) {
       this.inputState.controlMode = 'joystick';
+      this.inputState.hasClickTarget = false;
     } else if (keyboardIsActive) {
       this.inputState.controlMode = 'keyboard';
-    } else if (mouseHasMoved && !keyboardIsActive) {
-      this.inputState.controlMode = 'mouse';
+      this.inputState.hasClickTarget = false;
     }
+    // Mouse control mode is set in the pointerdown handler
 
-    this.previousMouseX = activePointer.worldX;
-    this.previousMouseY = activePointer.worldY;
     this.inputState.mouseX = activePointer.worldX;
     this.inputState.mouseY = activePointer.worldY;
     this.inputState.mouseActive = this.inputState.controlMode === 'mouse';
@@ -2155,7 +2172,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update grid background with entity positions for warping effect
-    this.updateGridBackground();
+    this.updateGridBackground(deltaSeconds);
 
     // Update motion trails for player and fast enemies
     this.updateTrails(deltaSeconds);
@@ -2363,6 +2380,7 @@ export class GameScene extends Phaser.Scene {
       const thornsDamage = Math.floor(amount * this.playerStats.thornsPercent);
       if (thornsDamage > 0 && hasComponent(this.world, Health, attackerEntity)) {
         Health.current[attackerEntity] -= thornsDamage;
+        this.totalDamageDealt += thornsDamage;
         // Visual feedback for thorns
         this.effectsManager.showDamageNumber(
           Transform.x[attackerEntity],
@@ -3142,7 +3160,7 @@ export class GameScene extends Phaser.Scene {
       levelReached: this.playerStats.level,
       survivalTimeSeconds: this.gameTime,
       worldLevel: metaManager.getWorldLevel(),
-      damageDealt: 0, // TODO: track total damage dealt
+      damageDealt: this.totalDamageDealt,
       damageTaken: this.totalDamageTaken,
       goldEarned,
     });
@@ -3151,7 +3169,7 @@ export class GameScene extends Phaser.Scene {
     getCodexManager().recordRunEnd(
       this.gameTime,
       this.killCount,
-      0, // TODO: track total damage dealt
+      this.totalDamageDealt,
       goldEarned,
       true, // wasVictory
       metaManager.getWorldLevel(),
@@ -3474,7 +3492,7 @@ export class GameScene extends Phaser.Scene {
       getCodexManager().recordRunEnd(
         this.gameTime,
         this.killCount,
-        0, // TODO: track total damage dealt
+        this.totalDamageDealt,
         goldEarned,
         false, // wasVictory
         metaManager.getWorldLevel(),
@@ -3500,7 +3518,7 @@ export class GameScene extends Phaser.Scene {
     const titleText = this.hasWon ? 'VICTORY!' : 'GAME OVER';
     const titleColor = this.hasWon ? '#ffdd44' : '#ff4444';
 
-    const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, titleText, {
+    const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 80, titleText, {
       fontSize: '64px',
       color: titleColor,
       fontFamily: 'Arial',
@@ -3532,7 +3550,7 @@ export class GameScene extends Phaser.Scene {
     statsText.setOrigin(0.5);
     statsText.setDepth(PAUSE_MENU_DEPTH + 1);
 
-    const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 130, 'Press SPACE to restart', {
+    const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 180, 'Press SPACE to restart', {
       fontSize: '20px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -3563,7 +3581,22 @@ export class GameScene extends Phaser.Scene {
       mouseY: 0,
       mouseActive: false,
       controlMode: 'keyboard',
+      clickTargetX: 0,
+      clickTargetY: 0,
+      hasClickTarget: false,
     };
+
+    // Point-and-click movement: click to set destination
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      // Ignore touch input (handled by joystick) and UI interactions
+      if (pointer.wasTouch) return;
+      if (this.isPaused || this.isGameOver) return;
+
+      this.inputState.clickTargetX = pointer.worldX;
+      this.inputState.clickTargetY = pointer.worldY;
+      this.inputState.hasClickTarget = true;
+      this.inputState.controlMode = 'mouse';
+    });
 
     // Shift key for dash ability
     keyboard.on('keydown-SHIFT', () => {
@@ -5366,7 +5399,7 @@ export class GameScene extends Phaser.Scene {
    * Updates the grid background with current entity positions for warping effect.
    * All entities contribute - weight is calculated from actual enemy size.
    */
-  private updateGridBackground(): void {
+  private updateGridBackground(deltaSeconds: number): void {
     // Get player position
     let playerPos: { x: number; y: number } | null = null;
     if (this.playerId !== -1) {
@@ -5409,8 +5442,8 @@ export class GameScene extends Phaser.Scene {
     // Pass ALL enemies - no sorting, no limit for maximum visual effect
     this.gridBackground.setGravityPoints(playerPos, enemyData);
 
-    // Update grid animation (using fixed delta for consistency)
-    this.gridBackground.update(1 / 60);
+    // Update grid animation with actual delta for proper physics integration
+    this.gridBackground.update(deltaSeconds);
   }
 
   /**

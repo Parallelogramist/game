@@ -15,6 +15,8 @@ import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
+import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { SoundManager } from '../../audio/SoundManager';
 
 export class CodexScene extends Phaser.Scene {
   private currentCategory: CodexCategory = 'weapons';
@@ -32,8 +34,13 @@ export class CodexScene extends Phaser.Scene {
     super({ key: 'CodexScene' });
   }
 
+  private soundManager!: SoundManager;
+
   create(): void {
     const centerX = GAME_WIDTH / 2;
+
+    fadeIn(this, 200);
+    this.soundManager = new SoundManager(this);
 
     // Reset state
     this.categoryTabs.clear();
@@ -106,16 +113,26 @@ export class CodexScene extends Phaser.Scene {
     backButton.on('pointerover', () => backButton.setColor('#ffffff'));
     backButton.on('pointerout', () => backButton.setColor('#888888'));
     backButton.on('pointerdown', () => {
-      this.scene.start('BootScene');
+      this.soundManager.playUIClick();
+      fadeOut(this, 150, () => this.scene.start('BootScene'));
     });
+    addButtonInteraction(this, backButton);
 
     // Setup scroll input
     this.setupScrollInput();
 
     // ESC key to go back
     this.input.keyboard?.on('keydown-ESC', () => {
-      this.scene.start('BootScene');
+      fadeOut(this, 150, () => this.scene.start('BootScene'));
     });
+
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
+  }
+
+  shutdown(): void {
+    this.input.keyboard?.removeAllListeners();
+    this.tweens.killAll();
   }
 
   private createCategoryTabs(): void {
@@ -153,7 +170,7 @@ export class CodexScene extends Phaser.Scene {
       });
 
       // Tab text
-      const tabText = this.add.text(tabWidth / 2 + 6, tabHeight / 2, category.name, {
+      const tabText = this.add.text((tabWidth + 28) / 2, tabHeight / 2, category.name, {
         fontSize: '14px',
         color: isSelected ? '#ffffff' : '#888888',
         fontFamily: 'Arial',
@@ -166,6 +183,7 @@ export class CodexScene extends Phaser.Scene {
       // Click handler
       tabBg.on('pointerdown', () => {
         if (category.id !== this.currentCategory) {
+          this.soundManager.playUIClick();
           this.currentCategory = category.id;
           this.updateTabVisuals();
           this.displayCategoryContent(category.id);
@@ -486,24 +504,40 @@ export class CodexScene extends Phaser.Scene {
       return;
     }
 
-    const startX = 20;
+    const centerX = GAME_WIDTH / 2;
     const startY = 10;
     const lineHeight = 30;
 
     upgradeEntries.forEach((entry, index) => {
       const y = startY + index * lineHeight;
 
-      const text = this.add.text(
-        startX,
+      // Name (right-aligned to center)
+      const nameText = this.add.text(
+        centerX - 20,
         y,
-        `${entry.id} - Selected ${entry.timesSelected} time${entry.timesSelected !== 1 ? 's' : ''}`,
+        entry.id,
         {
           fontSize: '14px',
           color: '#aaaaaa',
           fontFamily: 'Arial',
         }
       );
-      this.contentContainer.add(text);
+      nameText.setOrigin(1, 0);
+      this.contentContainer.add(nameText);
+
+      // Count (left-aligned from center)
+      const countText = this.add.text(
+        centerX + 20,
+        y,
+        `Selected ${entry.timesSelected} time${entry.timesSelected !== 1 ? 's' : ''}`,
+        {
+          fontSize: '14px',
+          color: '#ffffff',
+          fontFamily: 'Arial',
+        }
+      );
+      countText.setOrigin(0, 0);
+      this.contentContainer.add(countText);
     });
 
     const contentHeight = upgradeEntries.length * lineHeight + startY * 2;

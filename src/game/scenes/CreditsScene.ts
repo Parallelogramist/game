@@ -4,6 +4,7 @@
  */
 
 import Phaser from 'phaser';
+import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 
 export class CreditsScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -17,9 +18,11 @@ export class CreditsScene extends Phaser.Scene {
     const screenWidth = this.cameras.main.width;
     const screenHeight = this.cameras.main.height;
 
+    fadeIn(this, 200);
+
     // Title
     this.add
-      .text(centerX, 50, 'CREDITS', {
+      .text(centerX, 30, 'CREDITS', {
         fontSize: '42px',
         color: '#ffdd44',
         fontFamily: 'Arial',
@@ -30,7 +33,7 @@ export class CreditsScene extends Phaser.Scene {
     // Define column positions (2 columns)
     const leftColumnX = screenWidth * 0.35;
     const rightColumnX = screenWidth * 0.65;
-    const contentStartY = 130;
+    const contentStartY = 110;
     const lineHeight = 28;
     const sectionGap = 20;
 
@@ -86,26 +89,27 @@ export class CreditsScene extends Phaser.Scene {
     rightY = addLine(rightColumnX, rightY, 'CC BY 3.0', '#888888');
 
     // Decorative separator line
-    const separatorY = screenHeight - 100;
+    const separatorY = screenHeight - 70;
     const separatorGraphics = this.add.graphics();
     separatorGraphics.lineStyle(1, 0x444444);
     separatorGraphics.lineBetween(screenWidth * 0.2, separatorY, screenWidth * 0.8, separatorY);
 
     // Back button
     const backButton = this.add
-      .text(centerX, screenHeight - 60, '[ Back ]', {
+      .text(centerX, screenHeight - 30, '[ Back ]', {
         fontSize: '20px',
-        color: '#ffdd44',
+        color: '#888888',
         fontFamily: 'Arial',
       })
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
-    backButton.on('pointerover', () => backButton.setColor('#ffffff'));
-    backButton.on('pointerout', () => backButton.setColor('#ffdd44'));
+    backButton.on('pointerover', () => backButton.setColor('#ffdd44'));
+    backButton.on('pointerout', () => backButton.setColor('#888888'));
     backButton.on('pointerdown', () => {
       this.returnToMenu();
     });
+    addButtonInteraction(this, backButton);
 
     // Keyboard handler for ESC, Enter, Space
     this.keydownHandler = (event: KeyboardEvent) => {
@@ -114,13 +118,16 @@ export class CreditsScene extends Phaser.Scene {
       }
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
+
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
   }
 
   /**
    * Returns to the main menu.
    */
   private returnToMenu(): void {
-    this.scene.start('BootScene');
+    fadeOut(this, 150, () => this.scene.start('BootScene'));
   }
 
   /**
@@ -131,5 +138,6 @@ export class CreditsScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    this.tweens.killAll();
   }
 }

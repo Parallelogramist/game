@@ -7,6 +7,7 @@ import Phaser from 'phaser';
 import { getSettingsManager, DamageNumbersMode } from '../../settings';
 import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
+import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 
 type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'fpsCounter' | 'damageNumbers' | 'statusText' | 'back';
 
@@ -60,6 +61,8 @@ export class SettingsScene extends Phaser.Scene {
     this.damageNumberIndex = this.getDamageNumberModeIndex(settingsManager.getDamageNumbersMode());
     this.playbackModeIndex = this.getPlaybackModeIndex(musicManager.getPlaybackMode());
 
+    fadeIn(this, 150);
+
     // Semi-transparent background
     this.add.rectangle(
       this.cameras.main.centerX,
@@ -71,14 +74,15 @@ export class SettingsScene extends Phaser.Scene {
     );
 
     // Title
-    this.add.text(centerX, 40, 'SETTINGS', {
+    this.add.text(centerX, 30, 'SETTINGS', {
       fontSize: '36px',
       color: '#ffdd44',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    let currentY = 90;
+    const contentLeftX = 340;
+    let currentY = 80;
 
     // ═══════════════════════════════════════════════════════════════════════
     // AUDIO Section
@@ -91,38 +95,38 @@ export class SettingsScene extends Phaser.Scene {
     currentY += 35;
 
     // SFX Toggle + Volume
-    this.add.text(100, currentY, 'SFX', {
+    this.add.text(contentLeftX, currentY, 'SFX', {
       fontSize: '18px',
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.sfxToggle = this.createToggle(200, currentY, settingsManager.isSfxEnabled(), () => {
+    this.sfxToggle = this.createToggle(contentLeftX + 100, currentY, settingsManager.isSfxEnabled(), () => {
       const newValue = !settingsManager.isSfxEnabled();
       settingsManager.setSfxEnabled(newValue);
       this.updateSfxToggle();
     });
     this.sfxToggle.setData('zone', 'sfx');
 
-    this.add.text(350, currentY, 'Volume', {
+    this.add.text(contentLeftX + 250, currentY, 'Volume', {
       fontSize: '16px',
       color: '#aaaaaa',
       fontFamily: 'Arial',
     });
 
-    this.sfxVolumeDown = this.createButton(440, currentY, '[ - ]', () => {
+    this.sfxVolumeDown = this.createButton(contentLeftX + 340, currentY, '[ - ]', () => {
       settingsManager.setSfxVolume(settingsManager.getSfxVolume() - 0.1);
       this.updateSfxVolume();
     });
     this.sfxVolumeDown.setData('zone', 'sfxVolume');
 
-    this.sfxVolumeText = this.add.text(500, currentY, `${Math.round(settingsManager.getSfxVolume() * 100)}%`, {
+    this.sfxVolumeText = this.add.text(contentLeftX + 400, currentY, `${Math.round(settingsManager.getSfxVolume() * 100)}%`, {
       fontSize: '16px',
       color: '#ffffff',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0);
 
-    this.sfxVolumeUp = this.createButton(560, currentY, '[ + ]', () => {
+    this.sfxVolumeUp = this.createButton(contentLeftX + 460, currentY, '[ + ]', () => {
       settingsManager.setSfxVolume(settingsManager.getSfxVolume() + 0.1);
       this.updateSfxVolume();
     });
@@ -131,14 +135,14 @@ export class SettingsScene extends Phaser.Scene {
     currentY += 35;
 
     // BGM Toggle + Volume
-    this.add.text(100, currentY, 'BGM', {
+    this.add.text(contentLeftX, currentY, 'BGM', {
       fontSize: '18px',
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
     const bgmEnabled = musicManager.getPlaybackMode() !== 'off';
-    this.bgmToggle = this.createToggle(200, currentY, bgmEnabled, () => {
+    this.bgmToggle = this.createToggle(contentLeftX + 100, currentY, bgmEnabled, () => {
       const currentMode = musicManager.getPlaybackMode();
       if (currentMode === 'off') {
         musicManager.setPlaybackMode('sequential');
@@ -151,25 +155,25 @@ export class SettingsScene extends Phaser.Scene {
     });
     this.bgmToggle.setData('zone', 'bgm');
 
-    this.add.text(350, currentY, 'Volume', {
+    this.add.text(contentLeftX + 250, currentY, 'Volume', {
       fontSize: '16px',
       color: '#aaaaaa',
       fontFamily: 'Arial',
     });
 
-    this.bgmVolumeDown = this.createButton(440, currentY, '[ - ]', () => {
+    this.bgmVolumeDown = this.createButton(contentLeftX + 340, currentY, '[ - ]', () => {
       musicManager.setVolume(musicManager.getVolume() - 0.1);
       this.updateBgmVolume();
     });
     this.bgmVolumeDown.setData('zone', 'bgmVolume');
 
-    this.bgmVolumeText = this.add.text(500, currentY, `${Math.round(musicManager.getVolume() * 100)}%`, {
+    this.bgmVolumeText = this.add.text(contentLeftX + 400, currentY, `${Math.round(musicManager.getVolume() * 100)}%`, {
       fontSize: '16px',
       color: '#ffffff',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0);
 
-    this.bgmVolumeUp = this.createButton(560, currentY, '[ + ]', () => {
+    this.bgmVolumeUp = this.createButton(contentLeftX + 460, currentY, '[ + ]', () => {
       musicManager.setVolume(musicManager.getVolume() + 0.1);
       this.updateBgmVolume();
     });
@@ -178,7 +182,7 @@ export class SettingsScene extends Phaser.Scene {
     currentY += 35;
 
     // Playback Mode selector (Sequential / Shuffle)
-    this.add.text(100, currentY, 'Playback', {
+    this.add.text(contentLeftX, currentY, 'Playback', {
       fontSize: '18px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -189,7 +193,7 @@ export class SettingsScene extends Phaser.Scene {
       { mode: 'shuffle', label: 'Shuffle' },
     ];
 
-    const playbackModeStartX = 220;
+    const playbackModeStartX = contentLeftX + 120;
     playbackModes.forEach((item, index) => {
       const buttonX = playbackModeStartX + index * 100;
       const currentMode = musicManager.getPlaybackMode();
@@ -256,13 +260,13 @@ export class SettingsScene extends Phaser.Scene {
     currentY += 35;
 
     // Screen Shake Toggle
-    this.add.text(100, currentY, 'Screen Shake', {
+    this.add.text(contentLeftX, currentY, 'Screen Shake', {
       fontSize: '18px',
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.screenShakeToggle = this.createToggle(280, currentY, settingsManager.isScreenShakeEnabled(), () => {
+    this.screenShakeToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isScreenShakeEnabled(), () => {
       const newValue = !settingsManager.isScreenShakeEnabled();
       settingsManager.setScreenShakeEnabled(newValue);
       this.updateScreenShakeToggle();
@@ -272,13 +276,13 @@ export class SettingsScene extends Phaser.Scene {
     currentY += 35;
 
     // FPS Counter Toggle
-    this.add.text(100, currentY, 'FPS Counter', {
+    this.add.text(contentLeftX, currentY, 'FPS Counter', {
       fontSize: '18px',
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.fpsCounterToggle = this.createToggle(280, currentY, settingsManager.isFpsCounterEnabled(), () => {
+    this.fpsCounterToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isFpsCounterEnabled(), () => {
       const newValue = !settingsManager.isFpsCounterEnabled();
       settingsManager.setFpsCounterEnabled(newValue);
       this.updateFpsCounterToggle();
@@ -298,7 +302,7 @@ export class SettingsScene extends Phaser.Scene {
     currentY += 35;
 
     // Damage Numbers Mode
-    this.add.text(100, currentY, 'Damage Numbers', {
+    this.add.text(contentLeftX, currentY, 'Damage Numbers', {
       fontSize: '18px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -311,7 +315,7 @@ export class SettingsScene extends Phaser.Scene {
       { mode: 'off', label: 'Off' },
     ];
 
-    const modeStartX = 280;
+    const modeStartX = contentLeftX + 180;
     damageNumberModes.forEach((item, index) => {
       const buttonX = modeStartX + index * 140;
       const isActive = settingsManager.getDamageNumbersMode() === item.mode;
@@ -343,13 +347,13 @@ export class SettingsScene extends Phaser.Scene {
     currentY += 35;
 
     // Status Text Toggle
-    this.add.text(100, currentY, 'Status Text', {
+    this.add.text(contentLeftX, currentY, 'Status Text', {
       fontSize: '18px',
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.statusTextToggle = this.createToggle(280, currentY, settingsManager.isStatusTextEnabled(), () => {
+    this.statusTextToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isStatusTextEnabled(), () => {
       const newValue = !settingsManager.isStatusTextEnabled();
       settingsManager.setStatusTextEnabled(newValue);
       this.updateStatusTextToggle();
@@ -357,7 +361,7 @@ export class SettingsScene extends Phaser.Scene {
     this.statusTextToggle.setData('zone', 'statusText');
 
     // Status Text hint
-    this.add.text(380, currentY, '(DODGE, BLOCKED, etc.)', {
+    this.add.text(contentLeftX + 280, currentY, '(DODGE, BLOCKED, etc.)', {
       fontSize: '12px',
       color: '#666666',
       fontFamily: 'Arial',
@@ -368,7 +372,7 @@ export class SettingsScene extends Phaser.Scene {
     // ═══════════════════════════════════════════════════════════════════════
     // Back Button
     // ═══════════════════════════════════════════════════════════════════════
-    this.backButton = this.add.text(centerX, this.cameras.main.height - 50, '[ Back ]', {
+    this.backButton = this.add.text(centerX, this.cameras.main.height - 30, '[ Back ]', {
       fontSize: '20px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -382,10 +386,14 @@ export class SettingsScene extends Phaser.Scene {
     this.backButton.on('pointerdown', () => {
       this.goBack();
     });
+    addButtonInteraction(this, this.backButton);
 
     // Setup keyboard navigation
     this.setupKeyboardNavigation();
     this.updateFocusVisuals();
+
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -758,5 +766,6 @@ export class SettingsScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    this.tweens.killAll();
   }
 }

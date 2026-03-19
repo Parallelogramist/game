@@ -1,5 +1,8 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
+import { getJuiceManager } from '../effects/JuiceManager';
+import { WEAPON_COLORS } from '../visual/NeonColors';
+import { DepthLayers } from '../visual/DepthLayers';
 
 interface GroundSpike {
   graphics: Phaser.GameObjects.Graphics;
@@ -11,6 +14,7 @@ interface GroundSpike {
   damage: number;
   isAftershock?: boolean;        // Mastery: Seismic Cascade - aftershock spikes
   triggeredAftershock?: boolean; // Mastery: Track if this spike triggered its aftershock
+  debrisSpawned?: boolean;       // Track if eruption debris has been spawned
 }
 
 /**
@@ -55,9 +59,9 @@ export class GroundSpikeWeapon extends BaseWeapon {
       const ey = Transform.y[enemyId];
       const dx = ex - ctx.playerX;
       const dy = ey - ctx.playerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
 
-      if (dist <= this.stats.range) {
+      if (distSq <= this.stats.range * this.stats.range) {
         validTargets.push(enemyId);
       }
     }
@@ -89,7 +93,7 @@ export class GroundSpikeWeapon extends BaseWeapon {
     aftershockDamage?: number
   ): void {
     const graphics = ctx.scene.add.graphics();
-    graphics.setDepth(2);
+    graphics.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
 
     this.spikes.push({
       graphics,
@@ -138,10 +142,10 @@ export class GroundSpikeWeapon extends BaseWeapon {
       const adjustedRadius = spikeRadius * sizeMultiplier;
 
       // Aftershock spikes use orange/gold colors
-      const warningColor = spike.isAftershock ? 0xffaa44 : 0x4488ff;
-      const warningStroke = spike.isAftershock ? 0xcc8833 : 0x2266dd;
-      const spikeColor = spike.isAftershock ? 0xffaa44 : 0x4488ff;
-      const spikeCenterColor = spike.isAftershock ? 0xffcc66 : 0x66aaff;
+      const warningColor = spike.isAftershock ? 0xffaa44 : WEAPON_COLORS.spike.core;
+      const warningStroke = spike.isAftershock ? 0xcc8833 : WEAPON_COLORS.spike.glow;
+      const spikeColor = spike.isAftershock ? 0xffaa44 : WEAPON_COLORS.spike.core;
+      const spikeCenterColor = spike.isAftershock ? 0xffcc66 : WEAPON_COLORS.spikeCenter.core;
 
       if (spike.phase === 'warning') {
         // Warning circle grows
@@ -154,7 +158,51 @@ export class GroundSpikeWeapon extends BaseWeapon {
         spike.graphics.lineStyle(2, warningStroke, 0.5);
         spike.graphics.strokeCircle(0, 0, radius);
 
+        // Warning ground cracks — 5 jagged radial lines emanating from center
+        spike.graphics.lineStyle(1, warningStroke, 0.4 + warningProgress * 0.4);
+        for (let crackIndex = 0; crackIndex < 5; crackIndex++) {
+          const crackAngle = (crackIndex / 5) * Math.PI * 2;
+          const crackLength = adjustedRadius * warningProgress;
+          const segmentCount = 3;
+          const segmentLength = crackLength / segmentCount;
+
+          spike.graphics.beginPath();
+          spike.graphics.moveTo(0, 0);
+
+          let crackCurrentX = 0;
+          let crackCurrentY = 0;
+          for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex++) {
+            const perpOffset = (Math.random() - 0.5) * 6;
+            crackCurrentX += Math.cos(crackAngle) * segmentLength + Math.cos(crackAngle + Math.PI * 0.5) * perpOffset;
+            crackCurrentY += Math.sin(crackAngle) * segmentLength + Math.sin(crackAngle + Math.PI * 0.5) * perpOffset;
+            spike.graphics.lineTo(crackCurrentX, crackCurrentY);
+          }
+          spike.graphics.strokePath();
+        }
+
       } else if (spike.phase === 'active') {
+        // Eruption debris and screen shake on first active frame
+        if (!spike.debrisSpawned) {
+          spike.debrisSpawned = true;
+          getJuiceManager().screenShake(0.002, 60);
+
+          // Spawn 4 small debris circles flying upward
+          for (let debrisIndex = 0; debrisIndex < 4; debrisIndex++) {
+            const debrisOffsetX = (Math.random() - 0.5) * adjustedRadius;
+            const debrisCircle = ctx.scene.add.circle(spike.x + debrisOffsetX, spike.y, 2, spikeColor, 0.8);
+            debrisCircle.setDepth(DepthLayers.GROUND_SPIKE_DEBRIS);
+
+            ctx.scene.tweens.add({
+              targets: debrisCircle,
+              y: spike.y - 30 - Math.random() * 20,
+              x: spike.x + debrisOffsetX + (Math.random() - 0.5) * 40,
+              alpha: 0,
+              duration: 300,
+              onComplete: () => debrisCircle.destroy(),
+            });
+          }
+        }
+
         // Spikes erupt!
         const activeProgress = (elapsed - warningDuration) / activeDuration;
         const spikeHeight = 40 * this.stats.size * sizeMultiplier * (1 - activeProgress * 0.3);
@@ -200,9 +248,10 @@ export class GroundSpikeWeapon extends BaseWeapon {
           const ey = Transform.y[enemyId];
           const dx = ex - spike.x;
           const dy = ey - spike.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
+          const distSq = dx * dx + dy * dy;
+          const hitRange = adjustedRadius + 12;
 
-          if (dist < adjustedRadius + 12) {
+          if (distSq < hitRange * hitRange) {
             ctx.damageEnemy(enemyId, spike.damage, spike.isAftershock ? 80 : 120);
             spike.hitEnemies.add(enemyId);
           }
@@ -274,7 +323,7 @@ export class GroundSpikeWeapon extends BaseWeapon {
 
     // Visual effect for aftershock trigger
     const shockwave = ctx.scene.add.circle(originX, originY, 10, 0xffaa44, 0.5);
-    shockwave.setDepth(3);
+    shockwave.setDepth(DepthLayers.ORBIT_RING);
     ctx.scene.tweens.add({
       targets: shockwave,
       scaleX: 5,

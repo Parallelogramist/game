@@ -1,5 +1,7 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Velocity } from '../ecs/components';
+import { WEAPON_COLORS } from '../visual/NeonColors';
+import { DepthLayers } from '../visual/DepthLayers';
 
 /**
  * AuraWeapon creates a damaging field around the player.
@@ -10,6 +12,8 @@ export class AuraWeapon extends BaseWeapon {
   private auraGraphics: Phaser.GameObjects.Graphics | null = null;
   private pulsePhase: number = 0;
   private hitCooldowns: Map<number, number> = new Map();
+  private damageFlashIntensity: number = 0;
+  private lastPulsePhase: number = 0;
 
   // Mastery: Consecrated Ground
   private stillnessTimer: number = 0;
@@ -87,12 +91,13 @@ export class AuraWeapon extends BaseWeapon {
       const ey = Transform.y[enemyId];
       const dx = ex - ctx.playerX;
       const dy = ey - ctx.playerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
 
-      if (dist <= radius) {
+      if (distSq <= radius * radius) {
         const finalDamage = this.stats.damage * damageMultiplier;
         ctx.damageEnemy(enemyId, finalDamage, 50); // Light knockback
         this.hitCooldowns.set(enemyId, currentTime);
+        this.damageFlashIntensity = 0.6;
 
         // Mastery: Slow enemies when consecrated
         if (this.isConsecrated) {
@@ -105,6 +110,24 @@ export class AuraWeapon extends BaseWeapon {
         }
       }
     }
+
+    // Ripple ring on full pulse cycle
+    if (Math.floor(this.pulsePhase / (Math.PI * 2)) > Math.floor(this.lastPulsePhase / (Math.PI * 2))) {
+      const rippleColor = this.isConsecrated ? 0xffd700 : WEAPON_COLORS.auraRing.core;
+      const rippleRing = ctx.scene.add.circle(ctx.playerX, ctx.playerY, radius, rippleColor, 0);
+      rippleRing.setStrokeStyle(2, rippleColor, 0.5);
+      rippleRing.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
+
+      ctx.scene.tweens.add({
+        targets: rippleRing,
+        scaleX: 1.3,
+        scaleY: 1.3,
+        alpha: 0,
+        duration: 400,
+        onComplete: () => rippleRing.destroy(),
+      });
+    }
+    this.lastPulsePhase = this.pulsePhase;
 
     // Clean up old cooldowns occasionally
     if (Math.random() < 0.01) {
@@ -167,7 +190,7 @@ export class AuraWeapon extends BaseWeapon {
    */
   private playConsecratedActivation(ctx: WeaponContext): void {
     const flash = ctx.scene.add.graphics();
-    flash.setDepth(2);
+    flash.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
     flash.setPosition(ctx.playerX, ctx.playerY);
 
     const radius = this.stats.range * this.stats.size;
@@ -187,7 +210,7 @@ export class AuraWeapon extends BaseWeapon {
   private ensureAuraVisual(ctx: WeaponContext): void {
     if (!this.auraGraphics) {
       this.auraGraphics = ctx.scene.add.graphics();
-      this.auraGraphics.setDepth(1); // Below player
+      this.auraGraphics.setDepth(DepthLayers.AURA); // Below player
     }
   }
 
@@ -197,14 +220,17 @@ export class AuraWeapon extends BaseWeapon {
     this.auraGraphics.clear();
 
     // Colors change when consecrated (gold instead of blue)
-    const outerColor = this.isConsecrated ? 0xffd700 : 0x88aaff;
-    const midColor = this.isConsecrated ? 0xffec8b : 0x6699ff;
-    const coreColor = this.isConsecrated ? 0xffffcc : 0xaaccff;
-    const ringColor = this.isConsecrated ? 0xffd700 : 0x4488ff;
-    const detailColor = this.isConsecrated ? 0xffec8b : 0x88aaff;
+    const outerColor = this.isConsecrated ? 0xffd700 : WEAPON_COLORS.aura.core;
+    const midColor = this.isConsecrated ? 0xffec8b : WEAPON_COLORS.auraRing.glow;
+    const coreColor = this.isConsecrated ? 0xffffcc : WEAPON_COLORS.aura.glow;
+    const ringColor = this.isConsecrated ? 0xffd700 : WEAPON_COLORS.auraRing.core;
+    const detailColor = this.isConsecrated ? 0xffec8b : WEAPON_COLORS.aura.core;
 
-    // Outer glow
-    this.auraGraphics.fillStyle(outerColor, this.isConsecrated ? 0.15 : 0.1);
+    // Decay damage flash
+    this.damageFlashIntensity = Math.max(0, this.damageFlashIntensity - 0.05);
+
+    // Outer glow (boosted by damage flash)
+    this.auraGraphics.fillStyle(outerColor, (this.isConsecrated ? 0.15 : 0.1) + this.damageFlashIntensity * 0.3);
     this.auraGraphics.fillCircle(0, 0, radius);
 
     // Inner ring
@@ -223,6 +249,15 @@ export class AuraWeapon extends BaseWeapon {
     // Inner detail rings
     this.auraGraphics.lineStyle(1, detailColor, this.isConsecrated ? 0.3 : 0.2);
     this.auraGraphics.strokeCircle(0, 0, radius * 0.5);
+
+    // Orbiting edge particles — 6 bright dots rotating along aura perimeter
+    for (let i = 0; i < 6; i++) {
+      const particleAngle = (i / 6) * Math.PI * 2 + this.pulsePhase * 0.5;
+      const particleX = Math.cos(particleAngle) * radius;
+      const particleY = Math.sin(particleAngle) * radius;
+      this.auraGraphics.fillStyle(ringColor, 0.8);
+      this.auraGraphics.fillCircle(particleX, particleY, 3);
+    }
 
     // Extra consecrated visual: radiant cross pattern
     if (this.isConsecrated) {

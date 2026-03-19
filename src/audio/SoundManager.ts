@@ -211,6 +211,43 @@ export class SoundManager {
   }
 
   /**
+   * Play a UI click sound — hit at high pitch, low volume.
+   */
+  playUIClick(): void {
+    this.play(SoundKeys.HIT, {
+      rate: PENTATONIC_SCALE[10], // C5
+      volume: getSettingsManager().getSfxVolume() * 0.3,
+    });
+  }
+
+  /**
+   * Play a purchase success sound — ascending two-note chord.
+   */
+  playPurchase(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.PICKUP_XP, {
+      rate: PENTATONIC_SCALE[7], // E4
+      volume: volume * 0.6,
+    });
+    this.scene.time.delayedCall(80, () => {
+      this.play(SoundKeys.PICKUP_XP, {
+        rate: PENTATONIC_SCALE[10], // C5
+        volume: volume * 0.6,
+      });
+    });
+  }
+
+  /**
+   * Play an error/denied sound — player_hurt at low volume, low pitch.
+   */
+  playError(): void {
+    this.play(SoundKeys.PLAYER_HURT, {
+      rate: PENTATONIC_SCALE[1], // D3
+      volume: getSettingsManager().getSfxVolume() * 0.4,
+    });
+  }
+
+  /**
    * Set the master volume for all sound effects.
    * Persists to SettingsManager.
    * @param volume - Volume from 0 to 1

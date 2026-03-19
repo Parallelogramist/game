@@ -74,6 +74,33 @@ export const EFFECT_NEON = {
 };
 
 /**
+ * Weapon-specific color constants.
+ * Weapons should import these instead of hardcoding hex values.
+ */
+export const WEAPON_COLORS = {
+  blade: PLAYER_COLORS.weaponMedium,
+  bladeGlow: PLAYER_COLORS.weaponLight,
+  projectile: PLAYER_COLORS.weaponLight,
+  frost: PLAYER_COLORS.ice,
+  fire: { core: 0xff6622, glow: 0xff8844 } as NeonColorPair,
+  lightning: { core: 0x88ccff, glow: 0xaaddff } as NeonColorPair,
+  spike: PLAYER_COLORS.weaponMedium,
+  spikeCenter: PLAYER_COLORS.weaponLight,
+  aura: { core: 0x88aaff, glow: 0xaaccff } as NeonColorPair,
+  auraRing: PLAYER_COLORS.weaponMedium,
+  orbit: PLAYER_COLORS.weaponMedium,
+  orbitHit: PLAYER_COLORS.weaponMedium,
+  meteor: { core: 0xff6622, glow: 0xff8844 } as NeonColorPair,
+  shuriken: PLAYER_COLORS.weaponLight,
+  drone: PLAYER_COLORS.weaponLight,
+  ricochet: PLAYER_COLORS.weaponLight,
+  homing: { core: 0xff6622, glow: 0xff8844 } as NeonColorPair,
+  laser: { core: 0xff4444, glow: 0xff8888 } as NeonColorPair,
+  chain: { core: 0x88ccff, glow: 0xaaddff } as NeonColorPair,
+  flamethrower: { core: 0xff6622, glow: 0xff8844 } as NeonColorPair,
+} as const;
+
+/**
  * Convert any hex color to a neon core/glow pair.
  * The glow is created by increasing brightness and reducing saturation slightly.
  *

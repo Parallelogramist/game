@@ -213,7 +213,7 @@ export class ChainLightningWeapon extends BaseWeapon {
     this.lightningGraphics = ctx.scene.add.graphics();
     this.lightningGraphics.setDepth(15);
 
-    // Draw all connections
+    // Initial draw of all connections
     for (const conn of connections) {
       this.drawLightningBolt(conn.from.x, conn.from.y, conn.to.x, conn.to.y);
     }
@@ -223,14 +223,50 @@ export class ChainLightningWeapon extends BaseWeapon {
       ctx.effectsManager.playHitSparks(target.x, target.y, 0);
     }
 
-    // Fade out
-    ctx.scene.tweens.add({
-      targets: this.lightningGraphics,
-      alpha: 0,
-      duration: this.stats.duration * 1000 * 1.5, // Longer duration for dramatic effect
+    // Impact point flashes (cap at 8)
+    const impactFlashCount = Math.min(targets.length, 8);
+    for (let flashIndex = 0; flashIndex < impactFlashCount; flashIndex++) {
+      const target = targets[flashIndex];
+      const impactFlash = ctx.scene.add.circle(target.x, target.y, 8, 0x88ccff, 0.8);
+      impactFlash.setDepth(16);
+      ctx.scene.tweens.add({
+        targets: impactFlash,
+        scaleX: 2.5,
+        scaleY: 2.5,
+        alpha: 0,
+        duration: 100,
+        onComplete: () => impactFlash.destroy(),
+      });
+    }
+
+    // Snapshot connections for re-randomization
+    const connectionSnapshot = connections.map(conn => ({
+      fromX: conn.from.x,
+      fromY: conn.from.y,
+      toX: conn.to.x,
+      toY: conn.to.y,
+    }));
+
+    // Animated bolt re-randomization
+    const animatedGraphics = this.lightningGraphics;
+    ctx.scene.tweens.addCounter({
+      from: 1,
+      to: 0,
+      duration: this.stats.duration * 1000 * 1.5,
+      onUpdate: (tween: Phaser.Tweens.Tween) => {
+        if (!animatedGraphics || !animatedGraphics.scene) return;
+        const counterValue = tween.getValue() ?? 0;
+        animatedGraphics.clear();
+        animatedGraphics.setAlpha(counterValue);
+        for (const conn of connectionSnapshot) {
+          this.drawLightningBoltOn(animatedGraphics, conn.fromX, conn.fromY, conn.toX, conn.toY);
+        }
+      },
       onComplete: () => {
-        if (this.lightningGraphics) {
-          this.lightningGraphics.destroy();
+        if (animatedGraphics && animatedGraphics.scene) {
+          animatedGraphics.destroy();
+        }
+        if (this.lightningGraphics === animatedGraphics) {
           this.lightningGraphics = null;
         }
       },
@@ -249,27 +285,62 @@ export class ChainLightningWeapon extends BaseWeapon {
     this.lightningGraphics = ctx.scene.add.graphics();
     this.lightningGraphics.setDepth(15);
 
-    // Draw from player to first target, then between targets
-    let startX = ctx.playerX;
-    let startY = ctx.playerY;
-
+    // Build segment list: player -> target1 -> target2 -> ...
+    const segments: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    let segStartX = ctx.playerX;
+    let segStartY = ctx.playerY;
     for (const target of targets) {
-      this.drawLightningBolt(startX, startY, target.x, target.y);
-      startX = target.x;
-      startY = target.y;
+      segments.push({ x1: segStartX, y1: segStartY, x2: target.x, y2: target.y });
+      segStartX = target.x;
+      segStartY = target.y;
+    }
 
-      // Spark at each hit point
+    // Initial draw
+    for (const segment of segments) {
+      this.drawLightningBolt(segment.x1, segment.y1, segment.x2, segment.y2);
+    }
+
+    // Spark at each hit point
+    for (const target of targets) {
       ctx.effectsManager.playHitSparks(target.x, target.y, 0);
     }
 
-    // Fade out
-    ctx.scene.tweens.add({
-      targets: this.lightningGraphics,
-      alpha: 0,
+    // Impact point flashes (cap at 8)
+    const impactFlashCount = Math.min(targets.length, 8);
+    for (let flashIndex = 0; flashIndex < impactFlashCount; flashIndex++) {
+      const target = targets[flashIndex];
+      const impactFlash = ctx.scene.add.circle(target.x, target.y, 8, 0x88ccff, 0.8);
+      impactFlash.setDepth(16);
+      ctx.scene.tweens.add({
+        targets: impactFlash,
+        scaleX: 2.5,
+        scaleY: 2.5,
+        alpha: 0,
+        duration: 100,
+        onComplete: () => impactFlash.destroy(),
+      });
+    }
+
+    // Animated bolt re-randomization: redraw with fresh random offsets each frame
+    const animatedGraphics = this.lightningGraphics;
+    ctx.scene.tweens.addCounter({
+      from: 1,
+      to: 0,
       duration: this.stats.duration * 1000,
+      onUpdate: (tween: Phaser.Tweens.Tween) => {
+        if (!animatedGraphics || !animatedGraphics.scene) return;
+        const counterValue = tween.getValue() ?? 0;
+        animatedGraphics.clear();
+        animatedGraphics.setAlpha(counterValue);
+        for (const segment of segments) {
+          this.drawLightningBoltOn(animatedGraphics, segment.x1, segment.y1, segment.x2, segment.y2);
+        }
+      },
       onComplete: () => {
-        if (this.lightningGraphics) {
-          this.lightningGraphics.destroy();
+        if (animatedGraphics && animatedGraphics.scene) {
+          animatedGraphics.destroy();
+        }
+        if (this.lightningGraphics === animatedGraphics) {
           this.lightningGraphics = null;
         }
       },
@@ -278,43 +349,87 @@ export class ChainLightningWeapon extends BaseWeapon {
 
   private drawLightningBolt(x1: number, y1: number, x2: number, y2: number): void {
     if (!this.lightningGraphics) return;
+    this.drawLightningBoltOn(this.lightningGraphics, x1, y1, x2, y2);
+  }
 
-    const segments = 6;
+  private drawLightningBoltOn(
+    graphics: Phaser.GameObjects.Graphics,
+    x1: number, y1: number, x2: number, y2: number
+  ): void {
+    const segmentCount = 6;
     const dx = x2 - x1;
     const dy = y2 - y1;
     const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
     const perpX = -dy / dist;
     const perpY = dx / dist;
 
-    // Main bolt
-    this.lightningGraphics.lineStyle(3, 0x88ccff, 1);
-    this.lightningGraphics.beginPath();
-    this.lightningGraphics.moveTo(x1, y1);
+    // Store segment midpoints for branching
+    const segmentPoints: { x: number; y: number }[] = [{ x: x1, y: y1 }];
 
-    for (let i = 1; i < segments; i++) {
-      const t = i / segments;
-      const baseX = x1 + dx * t;
-      const baseY = y1 + dy * t;
+    // Main bolt
+    graphics.lineStyle(3, 0x88ccff, 1);
+    graphics.beginPath();
+    graphics.moveTo(x1, y1);
+
+    for (let segmentIndex = 1; segmentIndex < segmentCount; segmentIndex++) {
+      const interpolation = segmentIndex / segmentCount;
+      const baseX = x1 + dx * interpolation;
+      const baseY = y1 + dy * interpolation;
       const offset = (Math.random() - 0.5) * 20 * this.stats.size;
-      this.lightningGraphics.lineTo(baseX + perpX * offset, baseY + perpY * offset);
+      const pointX = baseX + perpX * offset;
+      const pointY = baseY + perpY * offset;
+      graphics.lineTo(pointX, pointY);
+      segmentPoints.push({ x: pointX, y: pointY });
     }
 
-    this.lightningGraphics.lineTo(x2, y2);
-    this.lightningGraphics.strokePath();
+    graphics.lineTo(x2, y2);
+    graphics.strokePath();
+    segmentPoints.push({ x: x2, y: y2 });
 
     // Glow effect
-    this.lightningGraphics.lineStyle(8, 0x4488ff, 0.3);
-    this.lightningGraphics.beginPath();
-    this.lightningGraphics.moveTo(x1, y1);
-    this.lightningGraphics.lineTo(x2, y2);
-    this.lightningGraphics.strokePath();
+    graphics.lineStyle(8, 0x4488ff, 0.3);
+    graphics.beginPath();
+    graphics.moveTo(x1, y1);
+    graphics.lineTo(x2, y2);
+    graphics.strokePath();
 
     // Core
-    this.lightningGraphics.lineStyle(1, 0xffffff, 1);
-    this.lightningGraphics.beginPath();
-    this.lightningGraphics.moveTo(x1, y1);
-    this.lightningGraphics.lineTo(x2, y2);
-    this.lightningGraphics.strokePath();
+    graphics.lineStyle(1, 0xffffff, 1);
+    graphics.beginPath();
+    graphics.moveTo(x1, y1);
+    graphics.lineTo(x2, y2);
+    graphics.strokePath();
+
+    // Branching micro-bolts: 50% chance per segment to spawn a 1-2 segment branch
+    graphics.lineStyle(1, 0xaaddff, 0.5);
+    for (let segmentIndex = 1; segmentIndex < segmentPoints.length - 1; segmentIndex++) {
+      if (Math.random() < 0.5) continue;
+
+      const branchOrigin = segmentPoints[segmentIndex];
+      const nextPoint = segmentPoints[segmentIndex + 1];
+      const mainDirectionX = nextPoint.x - branchOrigin.x;
+      const mainDirectionY = nextPoint.y - branchOrigin.y;
+      const mainAngle = Math.atan2(mainDirectionY, mainDirectionX);
+
+      // Diverge at +/- 30 to 45 degrees
+      const branchAngle = mainAngle + (Math.random() > 0.5 ? 1 : -1) * (Math.PI / 6 + Math.random() * Math.PI / 12);
+      const branchSegments = 1 + Math.floor(Math.random() * 2);
+      const branchLength = 15 + Math.random() * 15;
+
+      graphics.beginPath();
+      graphics.moveTo(branchOrigin.x, branchOrigin.y);
+
+      let branchCurrentX = branchOrigin.x;
+      let branchCurrentY = branchOrigin.y;
+      for (let branchStep = 0; branchStep < branchSegments; branchStep++) {
+        const stepLength = branchLength / branchSegments;
+        branchCurrentX += Math.cos(branchAngle) * stepLength + (Math.random() - 0.5) * 6;
+        branchCurrentY += Math.sin(branchAngle) * stepLength + (Math.random() - 0.5) * 6;
+        graphics.lineTo(branchCurrentX, branchCurrentY);
+      }
+      graphics.strokePath();
+    }
   }
 
   protected recalculateStats(): void {

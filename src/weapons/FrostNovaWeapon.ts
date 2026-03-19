@@ -1,5 +1,7 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Velocity, Health } from '../ecs/components';
+import { WEAPON_COLORS } from '../visual/NeonColors';
+import { DepthLayers } from '../visual/DepthLayers';
 
 /**
  * FrostNovaWeapon periodically releases a freezing blast.
@@ -49,9 +51,9 @@ export class FrostNovaWeapon extends BaseWeapon {
       const ey = Transform.y[enemyId];
       const dx = ex - ctx.playerX;
       const dy = ey - ctx.playerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
 
-      if (dist <= radius) {
+      if (distSq <= radius * radius) {
         // Deal damage
         ctx.damageEnemy(enemyId, this.stats.damage, 100);
 
@@ -63,14 +65,26 @@ export class FrostNovaWeapon extends BaseWeapon {
       }
     }
 
+    // Lingering frost ground circle at blast center
+    const groundFrost = ctx.scene.add.circle(ctx.playerX, ctx.playerY, radius * 0.8, WEAPON_COLORS.frost.core, 0.12);
+    groundFrost.setStrokeStyle(1, WEAPON_COLORS.frost.glow, 0.3);
+    groundFrost.setDepth(DepthLayers.GROUND_EFFECTS);
+
+    ctx.scene.tweens.add({
+      targets: groundFrost,
+      alpha: 0,
+      duration: this.stats.duration * 1000,
+      onComplete: () => groundFrost.destroy(),
+    });
+
     ctx.soundManager.playHit();
   }
 
   private createNovaVisual(ctx: WeaponContext, radius: number): void {
     // Expanding ring - ice blue with white stroke
-    const ring = ctx.scene.add.circle(ctx.playerX, ctx.playerY, 10, 0x88ccff, 0);
+    const ring = ctx.scene.add.circle(ctx.playerX, ctx.playerY, 10, WEAPON_COLORS.frost.core, 0);
     ring.setStrokeStyle(4, 0xffffff, 1); // White outline
-    ring.setDepth(8);
+    ring.setDepth(DepthLayers.FROST_NOVA_RING);
 
     ctx.scene.tweens.add({
       targets: ring,
@@ -82,26 +96,39 @@ export class FrostNovaWeapon extends BaseWeapon {
       onComplete: () => ring.destroy(),
     });
 
-    // Ice particles
+    // Ice crystal particles — geometric 6-pointed stars
     for (let i = 0; i < 12; i++) {
       const angle = (i / 12) * Math.PI * 2;
-      const particle = ctx.scene.add.text(
-        ctx.playerX,
-        ctx.playerY,
-        '❄',
-        { fontSize: '16px' }
-      );
-      particle.setOrigin(0.5);
-      particle.setDepth(9);
+      const crystal = ctx.scene.add.graphics();
+      crystal.setPosition(ctx.playerX, ctx.playerY);
+      crystal.setDepth(DepthLayers.FROST_NOVA_CRYSTAL);
+
+      // Draw 6-pointed star: 6 lines from center outward at 60-degree intervals
+      crystal.lineStyle(1, 0xffffff, 0.8);
+      crystal.fillStyle(WEAPON_COLORS.frost.core, 0.6);
+      for (let rayIndex = 0; rayIndex < 6; rayIndex++) {
+        const rayAngle = (rayIndex / 6) * Math.PI * 2;
+        const rayEndX = Math.cos(rayAngle) * 8;
+        const rayEndY = Math.sin(rayAngle) * 8;
+        crystal.beginPath();
+        crystal.moveTo(0, 0);
+        crystal.lineTo(rayEndX, rayEndY);
+        crystal.strokePath();
+      }
+      // Small center dot
+      crystal.fillCircle(0, 0, 2);
+
+      const targetX = ctx.playerX + Math.cos(angle) * radius;
+      const targetY = ctx.playerY + Math.sin(angle) * radius;
 
       ctx.scene.tweens.add({
-        targets: particle,
-        x: ctx.playerX + Math.cos(angle) * radius,
-        y: ctx.playerY + Math.sin(angle) * radius,
+        targets: crystal,
+        x: targetX,
+        y: targetY,
         alpha: 0,
         duration: 500,
         ease: 'Cubic.easeOut',
-        onComplete: () => particle.destroy(),
+        onComplete: () => crystal.destroy(),
       });
     }
   }
@@ -130,22 +157,31 @@ export class FrostNovaWeapon extends BaseWeapon {
   }
 
   private createFrostOnEnemy(ctx: WeaponContext, x: number, y: number): void {
-    // Create a fading snowflake instead of a circle
-    const snowflake = ctx.scene.add.text(x, y, '❄', {
-      fontSize: '24px',
-      color: '#88ccff',
-    });
-    snowflake.setOrigin(0.5);
-    snowflake.setDepth(3);
-    snowflake.setAlpha(0.8);
+    // Diamond-shaped frost indicator
+    const frostDiamond = ctx.scene.add.graphics();
+    frostDiamond.setPosition(x, y);
+    frostDiamond.setDepth(DepthLayers.FROST_INDICATOR);
+
+    // Draw diamond: 4 vertices at N/E/S/W, 8px from center
+    frostDiamond.fillStyle(WEAPON_COLORS.frost.core, 0.8);
+    frostDiamond.beginPath();
+    frostDiamond.moveTo(0, -8);
+    frostDiamond.lineTo(8, 0);
+    frostDiamond.lineTo(0, 8);
+    frostDiamond.lineTo(-8, 0);
+    frostDiamond.closePath();
+    frostDiamond.fillPath();
+
+    frostDiamond.lineStyle(1, 0xffffff, 0.8);
+    frostDiamond.strokePath();
 
     ctx.scene.tweens.add({
-      targets: snowflake,
+      targets: frostDiamond,
       alpha: 0,
       scaleX: 0.5,
       scaleY: 0.5,
       duration: this.stats.duration * 1000,
-      onComplete: () => snowflake.destroy(),
+      onComplete: () => frostDiamond.destroy(),
     });
   }
 
@@ -154,12 +190,14 @@ export class FrostNovaWeapon extends BaseWeapon {
     const toRemove: number[] = [];
 
     for (const [enemyId, data] of this.slowedEnemies) {
-      // Mastery: Absolute Zero - check if frozen enemy died
-      if (this.isMastered() && Health.current[enemyId] <= 0) {
-        // Trigger shatter effect before removal
-        const ex = Transform.x[enemyId];
-        const ey = Transform.y[enemyId];
-        this.triggerShatterEffect(ctx, ex, ey, data.maxHealth);
+      // Check if enemy is dead - remove stale entries
+      if (Health.current[enemyId] <= 0) {
+        if (this.isMastered()) {
+          // Mastery: Absolute Zero - trigger shatter effect before removal
+          const ex = Transform.x[enemyId];
+          const ey = Transform.y[enemyId];
+          this.triggerShatterEffect(ctx, ex, ey, data.maxHealth);
+        }
         toRemove.push(enemyId);
         continue;
       }
@@ -196,9 +234,9 @@ export class FrostNovaWeapon extends BaseWeapon {
       const ey = Transform.y[enemyId];
       const dx = ex - x;
       const dy = ey - y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
 
-      if (dist <= shatterRadius && dist > 0) {
+      if (distSq <= shatterRadius * shatterRadius && distSq > 0) {
         // Deal shatter damage
         ctx.damageEnemy(enemyId, shatterDamage, 250);
 
@@ -218,10 +256,10 @@ export class FrostNovaWeapon extends BaseWeapon {
       const angle = (i / shardCount) * Math.PI * 2;
       const shard = ctx.scene.add.graphics();
       shard.setPosition(x, y);
-      shard.setDepth(10);
+      shard.setDepth(DepthLayers.SHATTER);
 
       // Draw ice shard shape
-      shard.fillStyle(0x88ddff, 1);
+      shard.fillStyle(WEAPON_COLORS.frost.glow, 1);
       shard.beginPath();
       shard.moveTo(0, -8);
       shard.lineTo(3, 0);
@@ -252,7 +290,7 @@ export class FrostNovaWeapon extends BaseWeapon {
 
     // Central burst
     const burst = ctx.scene.add.circle(x, y, 5, 0xffffff, 1);
-    burst.setDepth(11);
+    burst.setDepth(DepthLayers.FINISHING_BLOW);
     ctx.scene.tweens.add({
       targets: burst,
       scaleX: 4,

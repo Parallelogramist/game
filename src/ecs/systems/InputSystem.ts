@@ -25,6 +25,9 @@ export interface InputState {
   mouseY: number;
   mouseActive: boolean;
   controlMode: ControlMode;
+  clickTargetX: number;
+  clickTargetY: number;
+  hasClickTarget: boolean;
 }
 
 /**
@@ -65,19 +68,21 @@ export function inputSystem(world: IWorld, input: InputState): IWorld {
       if (keyboardMagnitude > 0) {
         directionX /= keyboardMagnitude;
         directionY /= keyboardMagnitude;
-      } else if (input.controlMode === 'mouse') {
-        // Priority 3: Mouse cursor — only when mouse is the active control mode
+      } else if (input.controlMode === 'mouse' && input.hasClickTarget) {
+        // Priority 3: Point-and-click — move toward clicked destination
         const playerX = Transform.x[playerId];
         const playerY = Transform.y[playerId];
-        const deltaX = input.mouseX - playerX;
-        const deltaY = input.mouseY - playerY;
-        const distanceToCursor = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+        const deltaX = input.clickTargetX - playerX;
+        const deltaY = input.clickTargetY - playerY;
+        const distanceToTarget = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-        if (distanceToCursor > MOUSE_DEAD_ZONE) {
-          directionX = deltaX / distanceToCursor;
-          directionY = deltaY / distanceToCursor;
+        if (distanceToTarget > MOUSE_DEAD_ZONE) {
+          directionX = deltaX / distanceToTarget;
+          directionY = deltaY / distanceToTarget;
+        } else {
+          // Arrived at destination — clear target
+          input.hasClickTarget = false;
         }
-        // Within dead zone: directionX/Y stay 0, player stops near cursor
       }
     }
 

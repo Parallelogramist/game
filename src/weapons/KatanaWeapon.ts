@@ -1,11 +1,16 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
+import { getJuiceManager } from '../effects/JuiceManager';
+import { WEAPON_COLORS } from '../visual/NeonColors';
+import { DepthLayers } from '../visual/DepthLayers';
 
-interface SlashLine {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
+interface SlashArc {
+  centerX: number;
+  centerY: number;
+  angle: number;       // rotation of the arc
+  length: number;      // tip-to-tip length
+  curvature: number;   // how much the arc bows outward
+  thickness: number;   // max thickness at the midpoint
   delay: number;
 }
 
@@ -103,9 +108,39 @@ export class KatanaWeapon extends BaseWeapon {
       }
     }
 
-    // Play sound
+    // Play sound and screen shake scaled by enemy count
     if (hitCount > 0) {
       ctx.soundManager.playHit();
+      getJuiceManager().screenShake(0.002 + hitCount * 0.0005, 80);
+
+      // Directional impact wave — semicircular arc expanding in slash direction
+      const impactWaveGraphics = ctx.scene.add.graphics();
+      impactWaveGraphics.setDepth(DepthLayers.SLASH);
+      impactWaveGraphics.setPosition(ctx.playerX, ctx.playerY);
+
+      const slashAngle = this.lastDirection > 0 ? 0 : Math.PI;
+      const arcStartAngle = slashAngle - Math.PI * 0.5;
+      const arcEndAngle = slashAngle + Math.PI * 0.5;
+
+      impactWaveGraphics.lineStyle(3, WEAPON_COLORS.blade.core, 0.6);
+      impactWaveGraphics.beginPath();
+      impactWaveGraphics.arc(0, 0, 40, arcStartAngle, arcEndAngle, false);
+      impactWaveGraphics.strokePath();
+
+      impactWaveGraphics.lineStyle(1, 0xffffff, 0.8);
+      impactWaveGraphics.beginPath();
+      impactWaveGraphics.arc(0, 0, 40, arcStartAngle, arcEndAngle, false);
+      impactWaveGraphics.strokePath();
+
+      ctx.scene.tweens.add({
+        targets: impactWaveGraphics,
+        scaleX: 3,
+        scaleY: 3,
+        alpha: 0,
+        duration: 150,
+        ease: 'Quad.easeOut',
+        onComplete: () => impactWaveGraphics.destroy(),
+      });
     }
 
     // Iai: Thousand Cuts mastery - hitting 8+ enemies triggers 360° Finishing Blow
@@ -130,9 +165,9 @@ export class KatanaWeapon extends BaseWeapon {
       const ey = Transform.y[enemyId];
       const dx = ex - ctx.playerX;
       const dy = ey - ctx.playerY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
+      const distSq = dx * dx + dy * dy;
 
-      if (dist <= finishingRange) {
+      if (distSq <= finishingRange * finishingRange) {
         ctx.damageEnemy(enemyId, finishingDamage, 500);
         finishingHits++;
       }
@@ -151,7 +186,7 @@ export class KatanaWeapon extends BaseWeapon {
    */
   private createFinishingBlowVisual(ctx: WeaponContext, range: number): void {
     const finishGraphics = ctx.scene.add.graphics();
-    finishGraphics.setDepth(11);
+    finishGraphics.setDepth(DepthLayers.FINISHING_BLOW);
     finishGraphics.setPosition(ctx.playerX, ctx.playerY);
 
     // Animation: expanding ring of slashes
@@ -209,6 +244,109 @@ export class KatanaWeapon extends BaseWeapon {
     });
   }
 
+  /**
+   * Draws a single crescent-shaped slash arc onto a Graphics object.
+   * The shape is two quadratic bezier curves forming a lens that tapers to points.
+   */
+  private drawSlashArc(
+    graphics: Phaser.GameObjects.Graphics,
+    arc: SlashArc,
+    sweepProgress: number,
+    alpha: number
+  ): void {
+    const halfLen = arc.length * 0.5;
+    const cosA = Math.cos(arc.angle);
+    const sinA = Math.sin(arc.angle);
+
+    // Tip points along the slash line
+    const tipStartX = arc.centerX - cosA * halfLen;
+    const tipStartY = arc.centerY - sinA * halfLen;
+    const tipEndX = arc.centerX + cosA * halfLen;
+    const tipEndY = arc.centerY + sinA * halfLen;
+
+    // Animated end position based on sweep progress
+    const currentEndX = tipStartX + (tipEndX - tipStartX) * sweepProgress;
+    const currentEndY = tipStartY + (tipEndY - tipStartY) * sweepProgress;
+
+    // Perpendicular direction for the curve bow
+    const perpX = -sinA;
+    const perpY = cosA;
+
+    // Midpoint of the visible portion
+    const midX = (tipStartX + currentEndX) * 0.5;
+    const midY = (tipStartY + currentEndY) * 0.5;
+
+    // Control points for the two bezier curves (outer and inner arcs)
+    const outerControlX = midX + perpX * arc.curvature;
+    const outerControlY = midY + perpY * arc.curvature;
+    const innerControlX = midX - perpX * arc.curvature * 0.3;
+    const innerControlY = midY - perpY * arc.curvature * 0.3;
+
+    // -- Outer glow (wider filled crescent so it tapers to points, no round caps) --
+    const glowScale = 1.6;
+    const glowOuterControlX = midX + perpX * arc.curvature * glowScale;
+    const glowOuterControlY = midY + perpY * arc.curvature * glowScale;
+    const glowInnerControlX = midX - perpX * arc.curvature * 0.5;
+    const glowInnerControlY = midY - perpY * arc.curvature * 0.5;
+
+    graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.15);
+    graphics.beginPath();
+    graphics.moveTo(tipStartX, tipStartY);
+    this.quadBezierTo(graphics, tipStartX, tipStartY, glowOuterControlX, glowOuterControlY, currentEndX, currentEndY);
+    this.quadBezierTo(graphics, currentEndX, currentEndY, glowInnerControlX, glowInnerControlY, tipStartX, tipStartY);
+    graphics.closePath();
+    graphics.fillPath();
+
+    // -- Main filled crescent shape --
+    graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.4);
+    graphics.beginPath();
+    graphics.moveTo(tipStartX, tipStartY);
+    this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY);
+    this.quadBezierTo(graphics, currentEndX, currentEndY, innerControlX, innerControlY, tipStartX, tipStartY);
+    graphics.closePath();
+    graphics.fillPath();
+
+    // -- Bright edge (thin stroke along outer arc, thin enough to avoid visible caps) --
+    graphics.lineStyle(1.5, WEAPON_COLORS.bladeGlow.core, alpha * 0.8);
+    graphics.beginPath();
+    graphics.moveTo(tipStartX, tipStartY);
+    this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY);
+    graphics.strokePath();
+
+    // -- White-hot core (thin filled sliver through the center) --
+    const coreOuterControlX = midX + perpX * arc.curvature * 0.55;
+    const coreOuterControlY = midY + perpY * arc.curvature * 0.55;
+    const coreInnerControlX = midX + perpX * arc.curvature * 0.35;
+    const coreInnerControlY = midY + perpY * arc.curvature * 0.35;
+
+    graphics.fillStyle(0xffffff, alpha * 0.9);
+    graphics.beginPath();
+    graphics.moveTo(tipStartX, tipStartY);
+    this.quadBezierTo(graphics, tipStartX, tipStartY, coreOuterControlX, coreOuterControlY, currentEndX, currentEndY);
+    this.quadBezierTo(graphics, currentEndX, currentEndY, coreInnerControlX, coreInnerControlY, tipStartX, tipStartY);
+    graphics.closePath();
+    graphics.fillPath();
+  }
+
+  /**
+   * Approximates a quadratic bezier using line segments on a Phaser Graphics path.
+   */
+  private quadBezierTo(
+    graphics: Phaser.GameObjects.Graphics,
+    fromX: number, fromY: number,
+    controlX: number, controlY: number,
+    toX: number, toY: number,
+    segments: number = 12
+  ): void {
+    for (let step = 1; step <= segments; step++) {
+      const t = step / segments;
+      const invT = 1 - t;
+      const pointX = invT * invT * fromX + 2 * invT * t * controlX + t * t * toX;
+      const pointY = invT * invT * fromY + 2 * invT * t * controlY + t * t * toY;
+      graphics.lineTo(pointX, pointY);
+    }
+  }
+
   private createSlashVisual(ctx: WeaponContext, direction: number): void {
     // Clean up previous slash
     if (this.slashGraphics) {
@@ -219,120 +357,113 @@ export class KatanaWeapon extends BaseWeapon {
     const slashHeight = 80 * this.stats.size;
     const slashCount = this.stats.count;
 
-    // Create graphics for all slashes
     this.slashGraphics = ctx.scene.add.graphics();
-    this.slashGraphics.setDepth(10);
+    this.slashGraphics.setDepth(DepthLayers.SLASH);
 
     // Center of the slash zone
-    const centerX = ctx.playerX + (direction * slashWidth * 0.5);
-    const centerY = ctx.playerY;
+    const zoneCenterX = ctx.playerX + (direction * slashWidth * 0.5);
+    const zoneCenterY = ctx.playerY;
 
-    // Generate random crisscrossing slash lines
-    const slashes: SlashLine[] = [];
+    // Generate crescent-shaped slash arcs with varied angles
+    const slashArcs: SlashArc[] = [];
 
     for (let i = 0; i < slashCount; i++) {
-      // Random angle for variety (-60 to 60 degrees from horizontal, with some vertical)
+      // Random angle variety for crisscross pattern
       const angleVariety = Math.random();
       let angle: number;
 
       if (angleVariety < 0.3) {
-        // Mostly horizontal slashes
-        angle = (Math.random() - 0.5) * 0.5; // -15 to 15 degrees
+        // Near-horizontal arcs
+        angle = (Math.random() - 0.5) * 0.5;
       } else if (angleVariety < 0.6) {
-        // Diagonal slashes
-        angle = (Math.random() - 0.5) * 2; // -60 to 60 degrees
+        // Diagonal arcs
+        angle = (Math.random() - 0.5) * 2;
       } else {
-        // Steep diagonal / near vertical
-        angle = (Math.random() > 0.5 ? 1 : -1) * (1 + Math.random() * 0.5); // 60-90 degrees
+        // Steep / near-vertical arcs
+        angle = (Math.random() > 0.5 ? 1 : -1) * (1 + Math.random() * 0.5);
       }
 
-      // Random position within the slash zone
+      // Offset within the slash zone
       const offsetX = (Math.random() - 0.5) * slashWidth * 0.6;
       const offsetY = (Math.random() - 0.5) * slashHeight * 0.6;
 
-      // Slash length varies
-      const length = slashWidth * (0.5 + Math.random() * 0.5);
+      const arcLength = slashWidth * (0.5 + Math.random() * 0.5);
+      // Curvature: how far the arc bows outward (randomize direction)
+      const curveBow = (15 + Math.random() * 20) * this.stats.size * (Math.random() > 0.5 ? 1 : -1);
 
-      // Calculate start and end points
-      const slashCenterX = centerX + offsetX;
-      const slashCenterY = centerY + offsetY;
-
-      const halfLength = length / 2;
-      const cosAngle = Math.cos(angle);
-      const sinAngle = Math.sin(angle);
-
-      slashes.push({
-        startX: slashCenterX - cosAngle * halfLength * direction,
-        startY: slashCenterY - sinAngle * halfLength,
-        endX: slashCenterX + cosAngle * halfLength * direction,
-        endY: slashCenterY + sinAngle * halfLength,
-        delay: i * 15, // Stagger the appearance slightly
+      slashArcs.push({
+        centerX: zoneCenterX + offsetX,
+        centerY: zoneCenterY + offsetY,
+        angle: direction > 0 ? angle : angle + Math.PI,
+        length: arcLength,
+        curvature: curveBow,
+        thickness: 6 * this.stats.size,
+        delay: i * 15,
       });
     }
 
-    // Draw all slashes with staggered timing
-    const drawSlashes = (progress: number) => {
+    // Draw all arcs with staggered sweep animation
+    const drawArcs = (progress: number) => {
       if (!this.slashGraphics) return;
       this.slashGraphics.clear();
 
-      for (let i = 0; i < slashes.length; i++) {
-        const slash = slashes[i];
-        const slashProgress = Math.min(1, Math.max(0, (progress * slashCount - i) / 1.5));
+      for (let i = 0; i < slashArcs.length; i++) {
+        const arc = slashArcs[i];
+        const sweepProgress = Math.min(1, Math.max(0, (progress * slashCount - i) / 1.5));
 
-        if (slashProgress <= 0) continue;
+        if (sweepProgress <= 0) continue;
 
-        // Animate the slash drawing from start to end
-        const currentEndX = slash.startX + (slash.endX - slash.startX) * slashProgress;
-        const currentEndY = slash.startY + (slash.endY - slash.startY) * slashProgress;
-
-        // Outer glow (blue)
-        this.slashGraphics.lineStyle(8, 0x4488ff, 0.3 * slashProgress);
-        this.slashGraphics.beginPath();
-        this.slashGraphics.moveTo(slash.startX, slash.startY);
-        this.slashGraphics.lineTo(currentEndX, currentEndY);
-        this.slashGraphics.strokePath();
-
-        // Middle glow (light blue)
-        this.slashGraphics.lineStyle(4, 0x66aaff, 0.6 * slashProgress);
-        this.slashGraphics.beginPath();
-        this.slashGraphics.moveTo(slash.startX, slash.startY);
-        this.slashGraphics.lineTo(currentEndX, currentEndY);
-        this.slashGraphics.strokePath();
-
-        // Core line (white)
-        this.slashGraphics.lineStyle(2, 0xffffff, 1 * slashProgress);
-        this.slashGraphics.beginPath();
-        this.slashGraphics.moveTo(slash.startX, slash.startY);
-        this.slashGraphics.lineTo(currentEndX, currentEndY);
-        this.slashGraphics.strokePath();
-
-        // Add small spark at the tip of each slash
-        if (slashProgress > 0.8) {
-          const sparkSize = 3 * this.stats.size;
-          this.slashGraphics.fillStyle(0xffffff, slashProgress);
-          this.slashGraphics.fillCircle(currentEndX, currentEndY, sparkSize);
-        }
+        const arcAlpha = Math.min(1, sweepProgress * 1.5);
+        this.drawSlashArc(this.slashGraphics!, arc, sweepProgress, arcAlpha);
       }
     };
 
-    // Initial draw
-    drawSlashes(0);
+    drawArcs(0);
 
-    // Animate slashes appearing then fading
+    // Animate: draw phase → hold → fade
     const duration = this.stats.duration * 1000;
-    const drawPhase = duration * 0.4; // 40% for drawing
-    const holdPhase = duration * 0.2; // 20% hold
-    const fadePhase = duration * 0.4; // 40% for fading
+    const drawPhase = duration * 0.4;
+    const holdPhase = duration * 0.2;
+    const fadePhase = duration * 0.4;
 
-    // Drawing phase
     ctx.scene.tweens.addCounter({
       from: 0,
       to: 1,
       duration: drawPhase,
       onUpdate: (tween) => {
-        drawSlashes(tween.getValue() ?? 0);
+        drawArcs(tween.getValue() ?? 0);
       },
     });
+
+    // Lingering thin cut marks (curved remnants)
+    const cutMarkCount = Math.min(3, slashCount);
+    for (let i = 0; i < cutMarkCount; i++) {
+      const cutMarkGraphics = ctx.scene.add.graphics();
+      cutMarkGraphics.setDepth(9);
+
+      const markCenterX = zoneCenterX + (Math.random() - 0.5) * slashWidth * 0.6;
+      const markCenterY = zoneCenterY + (Math.random() - 0.5) * slashHeight * 0.4;
+      const markAngle = (Math.random() - 0.5) * 2.0;
+      const markLength = 15 + Math.random() * 25;
+      const markCurve = (5 + Math.random() * 8) * (Math.random() > 0.5 ? 1 : -1);
+      const markCos = Math.cos(markAngle);
+      const markSin = Math.sin(markAngle);
+
+      const markStartX = markCenterX - markCos * markLength * 0.5;
+      const markStartY = markCenterY - markSin * markLength * 0.5;
+      const markEndX = markCenterX + markCos * markLength * 0.5;
+      const markEndY = markCenterY + markSin * markLength * 0.5;
+      const markCtrlX = markCenterX + (-markSin) * markCurve;
+      const markCtrlY = markCenterY + markCos * markCurve;
+
+      cutMarkGraphics.lineStyle(1, 0xffffff, 0.4);
+      cutMarkGraphics.beginPath();
+      cutMarkGraphics.moveTo(markStartX, markStartY);
+      this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
+      cutMarkGraphics.strokePath();
+
+      ctx.scene.time.delayedCall(300, () => cutMarkGraphics.destroy());
+    }
 
     // Fade phase (after draw + hold)
     ctx.scene.time.delayedCall(drawPhase + holdPhase, () => {

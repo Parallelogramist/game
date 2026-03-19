@@ -1,5 +1,6 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Health } from '../ecs/components';
+import { DepthLayers } from '../visual/DepthLayers';
 
 /**
  * FlamethrowerWeapon sprays fire in a cone toward enemies.
@@ -7,8 +8,9 @@ import { Transform, Health } from '../ecs/components';
  */
 export class FlamethrowerWeapon extends BaseWeapon {
   private flameGraphics: Phaser.GameObjects.Graphics | null = null;
+  private coneGraphics: Phaser.GameObjects.Graphics | null = null;
   // OPTIMIZATION: Use Set for O(1) add/delete instead of array indexOf+splice
-  private particles: Set<Phaser.GameObjects.Arc> = new Set();
+  private particles: Set<Phaser.GameObjects.GameObject> = new Set();
   private lastAimAngle: number = 0;
   private hitCooldowns: Map<number, number> = new Map();
 
@@ -120,6 +122,70 @@ export class FlamethrowerWeapon extends BaseWeapon {
       }
     }
 
+    // Draw visible flame cone
+    const coneAngleHalf = coneAngle / 2;
+    const coneRange = this.stats.range * 0.7;
+
+    if (!this.coneGraphics) {
+      this.coneGraphics = ctx.scene.add.graphics();
+      this.coneGraphics.setDepth(7);
+    }
+    this.coneGraphics.clear();
+
+    // Filled cone wedge
+    const coneLeftAngle = this.lastAimAngle - coneAngleHalf;
+    const coneRightAngle = this.lastAimAngle + coneAngleHalf;
+    const leftTipX = ctx.playerX + Math.cos(coneLeftAngle) * coneRange;
+    const leftTipY = ctx.playerY + Math.sin(coneLeftAngle) * coneRange;
+    const rightTipX = ctx.playerX + Math.cos(coneRightAngle) * coneRange;
+    const rightTipY = ctx.playerY + Math.sin(coneRightAngle) * coneRange;
+
+    this.coneGraphics.fillStyle(0x4488ff, 0.08);
+    this.coneGraphics.beginPath();
+    this.coneGraphics.moveTo(ctx.playerX, ctx.playerY);
+    this.coneGraphics.lineTo(leftTipX, leftTipY);
+    this.coneGraphics.lineTo(rightTipX, rightTipY);
+    this.coneGraphics.closePath();
+    this.coneGraphics.fillPath();
+
+    // Cone edge lines
+    this.coneGraphics.lineStyle(1, 0x66aaff, 0.15);
+    this.coneGraphics.beginPath();
+    this.coneGraphics.moveTo(ctx.playerX, ctx.playerY);
+    this.coneGraphics.lineTo(leftTipX, leftTipY);
+    this.coneGraphics.strokePath();
+    this.coneGraphics.beginPath();
+    this.coneGraphics.moveTo(ctx.playerX, ctx.playerY);
+    this.coneGraphics.lineTo(rightTipX, rightTipY);
+    this.coneGraphics.strokePath();
+
+    // Heat shimmer lines inside the cone
+    const perpAngle = this.lastAimAngle + Math.PI / 2;
+    const shimmerDistances = [0.3, 0.5, 0.7];
+    this.coneGraphics.lineStyle(1, 0x88ccff, 0.12);
+    for (let shimmerIndex = 0; shimmerIndex < shimmerDistances.length; shimmerIndex++) {
+      const distanceFraction = shimmerDistances[shimmerIndex];
+      const lineCenterX = ctx.playerX + Math.cos(this.lastAimAngle) * coneRange * distanceFraction;
+      const lineCenterY = ctx.playerY + Math.sin(this.lastAimAngle) * coneRange * distanceFraction;
+      const halfSpread = coneRange * distanceFraction * Math.sin(coneAngleHalf) * 0.8;
+
+      const shimmerSegments = 6;
+      this.coneGraphics.beginPath();
+      for (let segmentIndex = 0; segmentIndex <= shimmerSegments; segmentIndex++) {
+        const segmentFraction = segmentIndex / shimmerSegments;
+        const spreadOffset = (segmentFraction - 0.5) * 2 * halfSpread;
+        const sineWobble = Math.sin(ctx.gameTime * 4 + shimmerIndex * 2 + segmentFraction * Math.PI * 2) * 5;
+        const pointX = lineCenterX + Math.cos(perpAngle) * spreadOffset + Math.cos(this.lastAimAngle) * sineWobble;
+        const pointY = lineCenterY + Math.sin(perpAngle) * spreadOffset + Math.sin(this.lastAimAngle) * sineWobble;
+        if (segmentIndex === 0) {
+          this.coneGraphics.moveTo(pointX, pointY);
+        } else {
+          this.coneGraphics.lineTo(pointX, pointY);
+        }
+      }
+      this.coneGraphics.strokePath();
+    }
+
     // Create flame visual
     this.createFlameVisual(ctx);
   }
@@ -145,22 +211,37 @@ export class FlamethrowerWeapon extends BaseWeapon {
       : [0x2266dd, 0x4488ff, 0x66aaff, 0x88ccff]; // Blue normally
     const color = colors[Math.floor(Math.random() * colors.length)];
 
-    const particle = ctx.scene.add.circle(x, y, isIgnited ? size * 1.3 : size, color, 0.8);
-    particle.setDepth(8);
-    // OPTIMIZATION: Set.add is O(1)
-    this.particles.add(particle);
+    const particleSize = isIgnited ? size * 1.3 : size;
+    const angleFromPlayer = Math.atan2(y - ctx.playerY, x - ctx.playerX);
+
+    // Teardrop-shaped flame particle using Graphics
+    const particleGraphics = ctx.scene.add.graphics();
+    particleGraphics.setPosition(x, y);
+    particleGraphics.setDepth(8);
+    particleGraphics.setRotation(angleFromPlayer);
+
+    // Draw elongated teardrop: ellipse body + pointed tail
+    particleGraphics.fillStyle(color, 0.8);
+    particleGraphics.fillEllipse(0, 0, particleSize * 1.5, particleSize * 0.7);
+    // Pointed tail toward player (negative x in local space)
+    particleGraphics.fillTriangle(
+      -particleSize * 0.6, 0,
+      -particleSize * 1.2, -particleSize * 0.15,
+      -particleSize * 1.2, particleSize * 0.15
+    );
+
+    this.particles.add(particleGraphics);
 
     ctx.scene.tweens.add({
-      targets: particle,
+      targets: particleGraphics,
       scaleX: 0.3,
       scaleY: 0.3,
       alpha: 0,
       y: y - 20 - Math.random() * 20,
       duration: 200 + Math.random() * 200,
       onComplete: () => {
-        // OPTIMIZATION: Set.delete is O(1) instead of indexOf O(n) + splice O(n)
-        this.particles.delete(particle);
-        particle.destroy();
+        this.particles.delete(particleGraphics);
+        particleGraphics.destroy();
       },
     });
   }
@@ -243,7 +324,7 @@ export class FlamethrowerWeapon extends BaseWeapon {
     // Visual explosion
     const explosion = ctx.scene.add.graphics();
     explosion.setPosition(x, y);
-    explosion.setDepth(10);
+    explosion.setDepth(DepthLayers.PROJECTILES);
 
     explosion.fillStyle(0xff4400, 0.7);
     explosion.fillCircle(0, 0, explosionRadius * 0.3);
@@ -303,6 +384,10 @@ export class FlamethrowerWeapon extends BaseWeapon {
     if (this.flameGraphics) {
       this.flameGraphics.destroy();
       this.flameGraphics = null;
+    }
+    if (this.coneGraphics) {
+      this.coneGraphics.destroy();
+      this.coneGraphics = null;
     }
     for (const particle of this.particles) {
       particle.destroy();

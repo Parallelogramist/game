@@ -13,6 +13,8 @@ import {
 } from '../../achievements';
 import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
+import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { SoundManager } from '../../audio/SoundManager';
 
 // Achievement categories with display names and icons
 const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: string }[] = [
@@ -53,6 +55,7 @@ export class AchievementScene extends Phaser.Scene {
   private selectedTabIndex: number = 0;
   private selectedCardIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private soundManager!: SoundManager;
 
   constructor() {
     super({ key: 'AchievementScene' });
@@ -60,6 +63,9 @@ export class AchievementScene extends Phaser.Scene {
 
   create(): void {
     const centerX = GAME_WIDTH / 2;
+
+    fadeIn(this, 200);
+    this.soundManager = new SoundManager(this);
 
     // Reset state
     this.achievementCards = [];
@@ -129,8 +135,10 @@ export class AchievementScene extends Phaser.Scene {
       this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
     });
     this.backButton.on('pointerdown', () => {
-      this.scene.start('BootScene');
+      this.soundManager.playUIClick();
+      fadeOut(this, 150, () => this.scene.start('BootScene'));
     });
+    addButtonInteraction(this, this.backButton);
 
     // Setup scroll input
     this.setupScrollInput();
@@ -177,7 +185,7 @@ export class AchievementScene extends Phaser.Scene {
       });
 
       // Tab text
-      const tabText = this.add.text(tabWidth / 2 + 6, tabHeight / 2, category.name, {
+      const tabText = this.add.text((tabWidth + 28) / 2, tabHeight / 2, category.name, {
         fontSize: '14px',
         color: isSelected ? '#ffffff' : '#888888',
         fontFamily: 'Arial',
@@ -207,6 +215,7 @@ export class AchievementScene extends Phaser.Scene {
       // Click handler
       tabBg.on('pointerdown', () => {
         if (category.id !== this.currentCategory) {
+          this.soundManager.playUIClick();
           this.currentCategory = category.id;
           this.selectedTabIndex = index;
           this.selectedCardIndex = 0;
@@ -659,5 +668,6 @@ export class AchievementScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    this.tweens.killAll();
   }
 }

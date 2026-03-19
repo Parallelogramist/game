@@ -69,6 +69,9 @@ let combatStats: CombatStats | null = null;
 // Callback for life steal healing
 let lifeStealCallback: ((amount: number) => void) | null = null;
 
+// Callback for tracking damage dealt
+let onEnemyDamageCallback: ((damage: number) => void) | null = null;
+
 /**
  * Register a callback to be called when an enemy dies.
  */
@@ -116,6 +119,13 @@ export function getCombatStats(): CombatStats | null {
  */
 export function setLifeStealCallback(callback: (amount: number) => void): void {
   lifeStealCallback = callback;
+}
+
+/**
+ * Set callback for tracking damage dealt to enemies.
+ */
+export function setEnemyDamageCallback(callback: (damage: number) => void): void {
+  onEnemyDamageCallback = callback;
 }
 
 /**
@@ -213,6 +223,11 @@ export function collisionSystem(world: IWorld, deltaTime: number): IWorld {
         Health.current[enemyId] -= actualDamage;
         hitCount++;
 
+        // Track damage dealt
+        if (onEnemyDamageCallback) {
+          onEnemyDamageCallback(actualDamage);
+        }
+
         // Calculate hit direction (from projectile to enemy)
         const distance = Math.sqrt(distanceSquared);
         const dirX = distance > 0 ? (enemyX - projectileX) / distance : 0;
@@ -294,6 +309,11 @@ export function collisionSystem(world: IWorld, deltaTime: number): IWorld {
                 const nearbyY = Transform.y[nearbyId];
 
                 Health.current[nearbyId] -= splashDamage;
+
+                // Track splash damage dealt
+                if (onEnemyDamageCallback) {
+                  onEnemyDamageCallback(splashDamage);
+                }
 
                 // Show splash damage number
                 if (effectsManager) {
@@ -403,4 +423,7 @@ export function resetCollisionSystem(): void {
   effectsManager = null;
   soundManager = null;
   sceneReference = null;
+  onEnemyDamageCallback = null;
+  combatStats = null;
+  lifeStealCallback = null;
 }

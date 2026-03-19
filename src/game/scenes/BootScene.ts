@@ -4,6 +4,7 @@ import { SoundKeys } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { preloadIcons } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
+import { fadeOut, fadeIn } from '../../utils/SceneTransition';
 
 /**
  * BootScene handles initial setup and asset loading.
@@ -68,6 +69,9 @@ export class BootScene extends Phaser.Scene {
     const centerY = this.cameras.main.centerY;
     const musicManager = getMusicManager();
 
+    // Fade in from black
+    fadeIn(this, 200);
+
     // Reset state for scene restart
     this.menuItems = [];
     this.menuActions = [];
@@ -130,7 +134,7 @@ export class BootScene extends Phaser.Scene {
         if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
           await musicManager.play();
         }
-        this.scene.start('GameScene', { restore: true });
+        fadeOut(this, 200, () => this.scene.start('GameScene', { restore: true }));
       } catch (error) {
         console.error('Could not continue game:', error);
         this.scene.start('GameScene', { restore: true });
@@ -143,7 +147,7 @@ export class BootScene extends Phaser.Scene {
           await musicManager.play();
         }
         gameStateManager.clearSave();
-        this.scene.start('GameScene', { restore: false });
+        fadeOut(this, 200, () => this.scene.start('GameScene', { restore: false }));
       } catch (error) {
         console.error('Could not start game:', error);
         gameStateManager.clearSave();
@@ -159,11 +163,11 @@ export class BootScene extends Phaser.Scene {
       }
     };
 
-    const openShop = () => this.scene.start('ShopScene');
-    const openAchievements = () => this.scene.start('AchievementScene');
-    const openCodex = () => this.scene.start('CodexScene');
-    const openSettings = () => this.scene.start('SettingsScene', { returnTo: 'BootScene' });
-    const openCredits = () => this.scene.start('CreditsScene');
+    const openShop = () => fadeOut(this, 150, () => this.scene.start('ShopScene'));
+    const openAchievements = () => fadeOut(this, 150, () => this.scene.start('AchievementScene'));
+    const openCodex = () => fadeOut(this, 150, () => this.scene.start('CodexScene'));
+    const openSettings = () => fadeOut(this, 150, () => this.scene.start('SettingsScene', { returnTo: 'BootScene' }));
+    const openCredits = () => fadeOut(this, 150, () => this.scene.start('CreditsScene'));
 
     // Build dynamic menu config based on save state
     const menuConfig: { label: string; y: number; fontSize: string; action: () => void }[] = [];
@@ -247,12 +251,15 @@ export class BootScene extends Phaser.Scene {
 
     // Gold balance indicator (next to SHOP)
     this.add
-      .text(centerX + 60, shopY, `Gold: ${metaManager.getGold()}`, {
+      .text(centerX + 90, shopY, `Gold: ${metaManager.getGold()}`, {
         fontSize: '14px',
         color: '#666666',
         fontFamily: 'Arial',
       })
       .setOrigin(0, 0.5);
+
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
 
     // Select first item by default
     this.selectItem(0);
@@ -442,5 +449,6 @@ export class BootScene extends Phaser.Scene {
       this.pulseTween.stop();
       this.pulseTween = null;
     }
+    this.tweens.killAll();
   }
 }

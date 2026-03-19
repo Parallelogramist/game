@@ -2,17 +2,26 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { GAME_WIDTH, GAME_HEIGHT } from '../GameConfig';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
+import { DepthLayers } from '../visual/DepthLayers';
+
+const RICOCHET_TRAIL_LENGTH = 6;
 
 interface RicochetBall {
-  sprite: Phaser.GameObjects.Arc;
-  trail: Phaser.GameObjects.Arc;
+  sprite: Phaser.GameObjects.Graphics;
   velocityX: number;
   velocityY: number;
+  x: number;
+  y: number;
   damage: number;
   bounces: number;
   lifetime: number;
   hitEnemies: Set<number>;
   isEcho?: boolean; // Mastery: Kinetic Amplification - echo projectiles don't spawn more echoes
+  trailHistory: { x: number; y: number }[];
+  trailIndex: number;
+  trailCount: number;
+  ballSize: number;
+  ballColor: number;
 }
 
 /**
@@ -21,6 +30,7 @@ interface RicochetBall {
  */
 export class RicochetWeapon extends BaseWeapon {
   private balls: RicochetBall[] = [];
+  private trailGraphics: Phaser.GameObjects.Graphics | null = null;
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -83,25 +93,26 @@ export class RicochetWeapon extends BaseWeapon {
   }
 
   private createBall(ctx: WeaponContext, angle: number): void {
-    const size = 8 * this.stats.size;
+    const ballSize = 8 * this.stats.size;
 
-    const sprite = ctx.scene.add.circle(ctx.playerX, ctx.playerY, size, 0x4488ff); // Blue
-    sprite.setStrokeStyle(2, 0xffffff); // White outline
-    sprite.setDepth(10);
-
-    // Add trail effect
-    const trail = ctx.scene.add.circle(ctx.playerX, ctx.playerY, size * 0.7, 0x66aaff, 0.3); // Blue trail
-    trail.setDepth(9);
+    const sprite = ctx.scene.add.graphics();
+    sprite.setDepth(DepthLayers.PROJECTILES);
 
     this.balls.push({
       sprite,
-      trail,
+      x: ctx.playerX,
+      y: ctx.playerY,
       velocityX: Math.cos(angle) * this.stats.speed,
       velocityY: Math.sin(angle) * this.stats.speed,
       damage: this.stats.damage,
       bounces: 3 + Math.floor(this.level / 2), // More bounces at higher levels
       lifetime: this.stats.duration,
       hitEnemies: new Set(),
+      trailHistory: new Array(RICOCHET_TRAIL_LENGTH).fill(null).map(() => ({ x: 0, y: 0 })),
+      trailIndex: 0,
+      trailCount: 0,
+      ballSize,
+      ballColor: 0x4488ff,
     });
   }
 
@@ -111,6 +122,17 @@ export class RicochetWeapon extends BaseWeapon {
     // OPTIMIZATION: Get spatial hash once per frame
     const spatialHash = getEnemySpatialHash();
 
+    // Ensure shared trail graphics exists
+    if (!this.trailGraphics && ctx.scene) {
+      this.trailGraphics = ctx.scene.add.graphics();
+      this.trailGraphics.setDepth(9);
+    }
+
+    // Clear shared trail graphics each frame
+    if (this.trailGraphics) {
+      this.trailGraphics.clear();
+    }
+
     for (const ball of this.balls) {
       // Update lifetime
       ball.lifetime -= ctx.deltaTime;
@@ -119,34 +141,36 @@ export class RicochetWeapon extends BaseWeapon {
         continue;
       }
 
-      // Move ball
-      ball.sprite.x += ball.velocityX * ctx.deltaTime;
-      ball.sprite.y += ball.velocityY * ctx.deltaTime;
+      // Record trail position in circular buffer
+      ball.trailHistory[ball.trailIndex].x = ball.x;
+      ball.trailHistory[ball.trailIndex].y = ball.y;
+      ball.trailIndex = (ball.trailIndex + 1) % RICOCHET_TRAIL_LENGTH;
+      if (ball.trailCount < RICOCHET_TRAIL_LENGTH) ball.trailCount++;
 
-      // Update trail position to follow ball
-      ball.trail.x = ball.sprite.x;
-      ball.trail.y = ball.sprite.y;
+      // Move ball
+      ball.x += ball.velocityX * ctx.deltaTime;
+      ball.y += ball.velocityY * ctx.deltaTime;
 
       // Check wall bounces
       const margin = 10;
       let bounced = false;
 
-      if (ball.sprite.x <= margin) {
-        ball.sprite.x = margin;
+      if (ball.x <= margin) {
+        ball.x = margin;
         ball.velocityX = Math.abs(ball.velocityX);
         bounced = true;
-      } else if (ball.sprite.x >= GAME_WIDTH - margin) {
-        ball.sprite.x = GAME_WIDTH - margin;
+      } else if (ball.x >= GAME_WIDTH - margin) {
+        ball.x = GAME_WIDTH - margin;
         ball.velocityX = -Math.abs(ball.velocityX);
         bounced = true;
       }
 
-      if (ball.sprite.y <= margin) {
-        ball.sprite.y = margin;
+      if (ball.y <= margin) {
+        ball.y = margin;
         ball.velocityY = Math.abs(ball.velocityY);
         bounced = true;
-      } else if (ball.sprite.y >= GAME_HEIGHT - margin) {
-        ball.sprite.y = GAME_HEIGHT - margin;
+      } else if (ball.y >= GAME_HEIGHT - margin) {
+        ball.y = GAME_HEIGHT - margin;
         ball.velocityY = -Math.abs(ball.velocityY);
         bounced = true;
       }
@@ -165,8 +189,20 @@ export class RicochetWeapon extends BaseWeapon {
           }
         }
 
+        // Bounce flash: white expanding circle
+        const bounceFlash = ctx.scene.add.circle(ball.x, ball.y, ball.ballSize, 0xffffff, 0.8);
+        bounceFlash.setDepth(11);
+        ctx.scene.tweens.add({
+          targets: bounceFlash,
+          scaleX: 3,
+          scaleY: 3,
+          alpha: 0,
+          duration: 120,
+          onComplete: () => bounceFlash.destroy(),
+        });
+
         // Bounce visual
-        ctx.effectsManager.playHitSparks(ball.sprite.x, ball.sprite.y, Math.atan2(ball.velocityY, ball.velocityX));
+        ctx.effectsManager.playHitSparks(ball.x, ball.y, Math.atan2(ball.velocityY, ball.velocityX));
 
         if (ball.bounces <= 0) {
           toRemove.add(ball);
@@ -174,10 +210,39 @@ export class RicochetWeapon extends BaseWeapon {
         }
       }
 
+      // Draw trail circles at previous positions using shared graphics
+      if (this.trailGraphics) {
+        for (let i = 0; i < ball.trailCount; i++) {
+          const bufferIdx = (ball.trailIndex - ball.trailCount + i + RICOCHET_TRAIL_LENGTH) % RICOCHET_TRAIL_LENGTH;
+          const trailAlpha = ((i + 1) / ball.trailCount) * 0.35;
+          const trailRadius = ball.ballSize * 0.6 * ((i + 1) / ball.trailCount);
+          this.trailGraphics.fillStyle(ball.ballColor, trailAlpha);
+          this.trailGraphics.fillCircle(ball.trailHistory[bufferIdx].x, ball.trailHistory[bufferIdx].y, trailRadius);
+        }
+      }
+
+      // Draw velocity-stretched ellipse for ball
+      const currentSpeed = Math.sqrt(ball.velocityX * ball.velocityX + ball.velocityY * ball.velocityY);
+      const baseSpeed = this.stats.speed;
+      const stretchFactor = Math.min(1.5, currentSpeed / baseSpeed);
+      const movementAngle = Math.atan2(ball.velocityY, ball.velocityX);
+
+      ball.sprite.clear();
+      ball.sprite.setPosition(ball.x, ball.y);
+      ball.sprite.setRotation(movementAngle);
+
+      // Filled stretched ellipse
+      ball.sprite.fillStyle(ball.ballColor, 1);
+      ball.sprite.fillEllipse(0, 0, ball.ballSize * 2 * stretchFactor, ball.ballSize * 2 / stretchFactor);
+
+      // White stroke outline
+      ball.sprite.lineStyle(2, 0xffffff, 1);
+      ball.sprite.strokeEllipse(0, 0, ball.ballSize * 2 * stretchFactor, ball.ballSize * 2 / stretchFactor);
+
       // OPTIMIZATION: Use spatial hash for O(1) proximity lookup instead of O(n) all enemies
       const collisionRadius = 20;
       const collisionRadiusSq = collisionRadius * collisionRadius;
-      const nearbyEnemies = spatialHash.queryPotential(ball.sprite.x, ball.sprite.y, collisionRadius + 5);
+      const nearbyEnemies = spatialHash.queryPotential(ball.x, ball.y, collisionRadius + 5);
       let hitsThisFrame = 0;
 
       for (const enemy of nearbyEnemies) {
@@ -187,8 +252,8 @@ export class RicochetWeapon extends BaseWeapon {
 
         const ex = Transform.x[enemyId];
         const ey = Transform.y[enemyId];
-        const dx = ex - ball.sprite.x;
-        const dy = ey - ball.sprite.y;
+        const dx = ex - ball.x;
+        const dy = ey - ball.y;
         // OPTIMIZATION: Squared distance comparison
         const distSq = dx * dx + dy * dy;
 
@@ -197,7 +262,7 @@ export class RicochetWeapon extends BaseWeapon {
           ball.hitEnemies.add(enemyId);
           hitsThisFrame++;
 
-          ctx.effectsManager.playHitSparks(ball.sprite.x, ball.sprite.y, Math.atan2(ball.velocityY, ball.velocityX));
+          ctx.effectsManager.playHitSparks(ball.x, ball.y, Math.atan2(ball.velocityY, ball.velocityX));
         }
       }
     }
@@ -206,7 +271,6 @@ export class RicochetWeapon extends BaseWeapon {
     if (toRemove.size > 0) {
       for (const ball of toRemove) {
         ball.sprite.destroy();
-        ball.trail.destroy();
       }
       this.balls = this.balls.filter(b => !toRemove.has(b));
     }
@@ -219,25 +283,9 @@ export class RicochetWeapon extends BaseWeapon {
   private spawnEchoBall(ctx: WeaponContext, parentBall: RicochetBall): void {
     const echoSize = 8 * this.stats.size * 0.5; // 50% size
 
-    // Gold/yellow color for echo projectiles
-    const sprite = ctx.scene.add.circle(
-      parentBall.sprite.x,
-      parentBall.sprite.y,
-      echoSize,
-      0xffdd44  // Gold
-    );
-    sprite.setStrokeStyle(2, 0xffffff);
+    // Gold/yellow color for echo projectiles - use Graphics for velocity stretch
+    const sprite = ctx.scene.add.graphics();
     sprite.setDepth(9);
-
-    // Smaller trail for echo
-    const trail = ctx.scene.add.circle(
-      parentBall.sprite.x,
-      parentBall.sprite.y,
-      echoSize * 0.7,
-      0xffee88,  // Light gold
-      0.3
-    );
-    trail.setDepth(8);
 
     // Echo fires in a slightly different direction (perpendicular-ish)
     const angleOffset = (Math.random() > 0.5 ? 1 : -1) * (Math.PI / 4 + Math.random() * Math.PI / 4);
@@ -247,7 +295,8 @@ export class RicochetWeapon extends BaseWeapon {
 
     this.balls.push({
       sprite,
-      trail,
+      x: parentBall.x,
+      y: parentBall.y,
       velocityX: Math.cos(echoAngle) * echoSpeed,
       velocityY: Math.sin(echoAngle) * echoSpeed,
       damage: parentBall.damage * 0.5, // 50% damage
@@ -255,6 +304,11 @@ export class RicochetWeapon extends BaseWeapon {
       lifetime: 2.5, // Shorter lifetime
       hitEnemies: new Set(),
       isEcho: true,
+      trailHistory: new Array(RICOCHET_TRAIL_LENGTH).fill(null).map(() => ({ x: 0, y: 0 })),
+      trailIndex: 0,
+      trailCount: 0,
+      ballSize: echoSize,
+      ballColor: 0xffdd44,
     });
   }
 
@@ -267,9 +321,12 @@ export class RicochetWeapon extends BaseWeapon {
   public destroy(): void {
     for (const ball of this.balls) {
       ball.sprite.destroy();
-      ball.trail.destroy();
     }
     this.balls = [];
+    if (this.trailGraphics) {
+      this.trailGraphics.destroy();
+      this.trailGraphics = null;
+    }
     super.destroy();
   }
 }

@@ -1,6 +1,7 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
+import { DepthLayers } from '../visual/DepthLayers';
 
 interface Shuriken {
   sprite: Phaser.GameObjects.Graphics;
@@ -95,7 +96,7 @@ export class ShurikenWeapon extends BaseWeapon {
 
   private createShuriken(ctx: WeaponContext, angle: number): void {
     const graphics = ctx.scene.add.graphics();
-    graphics.setDepth(10);
+    graphics.setDepth(DepthLayers.PROJECTILES);
 
     this.shurikens.push({
       sprite: graphics,
@@ -162,19 +163,59 @@ export class ShurikenWeapon extends BaseWeapon {
       shuriken.sprite.clear();
       shuriken.sprite.setPosition(shuriken.x, shuriken.y);
 
-      // Cyclones get a wind effect ring
+      // Cyclones get a wind effect ring + orbiting particle dots
       if (shuriken.isCyclone) {
         const windRing = 0.3 + Math.sin(ctx.gameTime * 8) * 0.1;
         shuriken.sprite.lineStyle(3, 0xffdd44, windRing);
         shuriken.sprite.strokeCircle(0, 0, size * 1.3);
         shuriken.sprite.lineStyle(2, 0xffaa22, windRing * 0.6);
         shuriken.sprite.strokeCircle(0, 0, size * 1.5);
+
+        // Orbiting particle dots (opposite spin direction)
+        const particleDotCount = 5;
+        const particleOrbitAngle = ctx.gameTime * -spinSpeed * 0.7;
+        const particleOrbitRadius = size * 1.1;
+        shuriken.sprite.fillStyle(0xffdd44, 0.6);
+        for (let dotIndex = 0; dotIndex < particleDotCount; dotIndex++) {
+          const dotAngle = particleOrbitAngle + (dotIndex * Math.PI * 2 / particleDotCount);
+          const dotX = Math.cos(dotAngle) * particleOrbitRadius;
+          const dotY = Math.sin(dotAngle) * particleOrbitRadius;
+          shuriken.sprite.fillCircle(dotX, dotY, 2);
+        }
       }
 
       // Colors: gold for cyclone, blue for normal
       const bladeColor = shuriken.isCyclone ? 0xffdd44 : 0x4488ff;
       const centerColor = shuriken.isCyclone ? 0xffaa22 : 0x2266dd;
       const bladeCount = shuriken.isCyclone ? 6 : 4; // More blades for cyclone
+
+      // Rotation afterimage: draw 2 ghost copies at earlier spin angles (simplified 2-blade version)
+      const ghostAngles = [spinAngle - 0.3, spinAngle - 0.6];
+      const ghostAlphas = [0.15, 0.08];
+      for (let ghostIdx = 0; ghostIdx < ghostAngles.length; ghostIdx++) {
+        const ghostSpin = ghostAngles[ghostIdx];
+        const ghostAlpha = ghostAlphas[ghostIdx];
+        shuriken.sprite.fillStyle(bladeColor, ghostAlpha);
+        for (let bladePair = 0; bladePair < 2; bladePair++) {
+          const ghostPointAngle = ghostSpin + (bladePair * Math.PI);
+          shuriken.sprite.beginPath();
+          shuriken.sprite.moveTo(0, 0);
+          shuriken.sprite.lineTo(
+            Math.cos(ghostPointAngle - 0.3) * size * 0.4,
+            Math.sin(ghostPointAngle - 0.3) * size * 0.4
+          );
+          shuriken.sprite.lineTo(
+            Math.cos(ghostPointAngle) * size,
+            Math.sin(ghostPointAngle) * size
+          );
+          shuriken.sprite.lineTo(
+            Math.cos(ghostPointAngle + 0.3) * size * 0.4,
+            Math.sin(ghostPointAngle + 0.3) * size * 0.4
+          );
+          shuriken.sprite.closePath();
+          shuriken.sprite.fillPath();
+        }
+      }
 
       // Draw star shape
       shuriken.sprite.fillStyle(bladeColor, 1);
@@ -242,6 +283,28 @@ export class ShurikenWeapon extends BaseWeapon {
           shuriken.hitCooldown.set(enemyId, ctx.gameTime);
 
           ctx.effectsManager.playHitSparks(shuriken.x, shuriken.y, shuriken.baseAngle);
+
+          // On-hit spark lines (30% chance)
+          if (Math.random() < 0.3) {
+            const sparkLineCount = 2 + Math.floor(Math.random() * 2); // 2-3 lines
+            const sparkGraphics = ctx.scene.add.graphics();
+            sparkGraphics.setPosition(shuriken.x, shuriken.y);
+            sparkGraphics.setDepth(12);
+            sparkGraphics.lineStyle(1.5, 0xffffff, 0.8);
+            for (let sparkIdx = 0; sparkIdx < sparkLineCount; sparkIdx++) {
+              const sparkAngle = Math.random() * Math.PI * 2;
+              const sparkLength = 20;
+              sparkGraphics.lineBetween(0, 0, Math.cos(sparkAngle) * sparkLength, Math.sin(sparkAngle) * sparkLength);
+            }
+            ctx.scene.tweens.add({
+              targets: sparkGraphics,
+              scaleX: 2,
+              scaleY: 2,
+              alpha: 0,
+              duration: 150,
+              onComplete: () => sparkGraphics.destroy(),
+            });
+          }
         }
       }
     }

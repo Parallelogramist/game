@@ -7,6 +7,7 @@
 import Phaser from 'phaser';
 import { getMusicManager } from '../../audio/MusicManager';
 import { MUSIC_CATALOG, Track } from '../../data/MusicCatalog';
+import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 
 type FocusZone = 'actions' | 'tracks' | 'back';
 
@@ -33,7 +34,7 @@ export class MusicSettingsScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 
   // Track list constants - positioned higher since we removed mode/volume
-  private readonly trackListY = 140;
+  private readonly trackListY = 130;
   private readonly trackHeight = 28;
   private readonly visibleHeight = 420;
 
@@ -63,6 +64,8 @@ export class MusicSettingsScene extends Phaser.Scene {
       musicManager.play();
     }
 
+    fadeIn(this, 150);
+
     // Semi-transparent background
     this.add.rectangle(
       this.cameras.main.centerX,
@@ -75,7 +78,7 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     // Title
     this.add
-      .text(centerX, 40, 'MUSIC TRACKS', {
+      .text(centerX, 30, 'MUSIC TRACKS', {
         fontSize: '36px',
         color: '#ffdd44',
         fontFamily: 'Arial',
@@ -85,7 +88,7 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     // Now Playing indicator
     this.nowPlayingText = this.add
-      .text(centerX, 80, '', {
+      .text(centerX, 70, '', {
         fontSize: '16px',
         color: '#88ff88',
         fontFamily: 'Arial',
@@ -95,7 +98,7 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     // Select All / Deselect All buttons
     const selectAllButton = this.add
-      .text(centerX - 80, 110, '[ Select All ]', {
+      .text(centerX - 80, 100, '[ Select All ]', {
         fontSize: '14px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -113,7 +116,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     });
 
     const deselectAllButton = this.add
-      .text(centerX + 80, 110, '[ Deselect All ]', {
+      .text(centerX + 80, 100, '[ Deselect All ]', {
         fontSize: '14px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -181,7 +184,7 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     // Back button
     this.backButton = this.add
-      .text(centerX, this.cameras.main.height - 40, '[ Back ]', {
+      .text(centerX, this.cameras.main.height - 30, '[ Back ]', {
         fontSize: '20px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -197,6 +200,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     this.backButton.on('pointerdown', () => {
       this.goBack();
     });
+    addButtonInteraction(this, this.backButton);
 
     // Update interval for now playing
     this.time.addEvent({
@@ -211,6 +215,9 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     // Initial focus visuals
     this.updateFocusVisuals();
+
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
   }
 
   /**
@@ -224,43 +231,43 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     // Selection indicator (>) - shows when track is focused
     const selector = this.add
-      .text(40, y, '', {
+      .text(40, y + rowHeight / 2, '', {
         fontSize: '14px',
         color: '#ffdd44',
         fontFamily: 'monospace',
       })
-      .setOrigin(0, 0);
+      .setOrigin(0, 0.5);
 
     // Checkbox
     const checkbox = this.add
-      .text(60, y, isEnabled ? '[x]' : '[ ]', {
+      .text(60, y + rowHeight / 2, isEnabled ? '[x]' : '[ ]', {
         fontSize: '14px',
         color: isEnabled ? '#88ff88' : '#666666',
         fontFamily: 'monospace',
       })
-      .setOrigin(0, 0);
+      .setOrigin(0, 0.5);
 
     // Track title
     const label = this.add
-      .text(100, y, track.title, {
+      .text(100, y + rowHeight / 2, track.title, {
         fontSize: '14px',
         color: isPlaying ? '#ffdd44' : isEnabled ? '#ffffff' : '#666666',
         fontFamily: 'Arial',
       })
-      .setOrigin(0, 0);
+      .setOrigin(0, 0.5);
 
     // Playing indicator
     const playingIndicator = this.add
-      .text(this.cameras.main.width - 80, y, isPlaying ? 'PLAYING' : '', {
+      .text(this.cameras.main.width - 80, y + rowHeight / 2, isPlaying ? 'PLAYING' : '', {
         fontSize: '12px',
         color: '#ffdd44',
         fontFamily: 'Arial',
       })
-      .setOrigin(0, 0);
+      .setOrigin(0, 0.5);
 
     // Make row interactive
     const hitArea = this.add
-      .rectangle(centerX, y + 10, this.cameras.main.width - 60, rowHeight - 4, 0x000000, 0)
+      .rectangle(centerX, y + rowHeight / 2, this.cameras.main.width - 60, rowHeight - 4, 0x000000, 0)
       .setInteractive({ useHandCursor: true });
 
     hitArea.on('pointerover', () => {
@@ -587,5 +594,6 @@ export class MusicSettingsScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    this.tweens.killAll();
   }
 }

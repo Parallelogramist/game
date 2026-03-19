@@ -1,6 +1,8 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
+import { WEAPON_COLORS } from '../visual/NeonColors';
+import { DepthLayers } from '../visual/DepthLayers';
 
 /**
  * OrbitingBladesWeapon creates blades that continuously orbit the player.
@@ -14,6 +16,9 @@ export class OrbitingBladesWeapon extends BaseWeapon {
   private rotationSpeed: number = 2; // Radians per second
   private orbitRadius: number = 60;
   private hitCooldowns: Map<number, number> = new Map(); // enemyId -> lastHitTime
+  private trailGraphics: Phaser.GameObjects.Graphics | null = null;
+  private orbitRingGraphics: Phaser.GameObjects.Graphics | null = null;
+  private previousAngles: number[][] = []; // previousAngles[bladeIndex][historyIndex]
 
   // Mastery: Blade Storm
   private bladeStormCooldown: number = 0;
@@ -66,41 +71,99 @@ export class OrbitingBladesWeapon extends BaseWeapon {
       this.updateBladeStorm(ctx);
     }
 
+    // Ensure previousAngles array matches blade count
+    while (this.previousAngles.length < this.blades.length) {
+      this.previousAngles.push([]);
+    }
+    while (this.previousAngles.length > this.blades.length) {
+      this.previousAngles.pop();
+    }
+
+    // Record current angles before updating (for trail)
+    for (let bladeIndex = 0; bladeIndex < this.blades.length; bladeIndex++) {
+      this.previousAngles[bladeIndex].unshift(this.bladeAngles[bladeIndex]);
+      if (this.previousAngles[bladeIndex].length > 3) {
+        this.previousAngles[bladeIndex].length = 3;
+      }
+    }
+
+    // Ensure trailGraphics and orbitRingGraphics exist
+    if (!this.trailGraphics) {
+      this.trailGraphics = ctx.scene.add.graphics();
+      this.trailGraphics.setDepth(DepthLayers.TRAIL);
+    }
+    if (!this.orbitRingGraphics) {
+      this.orbitRingGraphics = ctx.scene.add.graphics();
+      this.orbitRingGraphics.setDepth(DepthLayers.ORBIT_RING);
+    }
+
+    // Clear trail and orbit ring each frame for redrawing
+    this.trailGraphics.clear();
+    this.orbitRingGraphics.clear();
+
     // Update blade positions
     const currentTime = ctx.gameTime;
+    let hitFlashesThisFrame = 0;
 
-    for (let i = 0; i < this.blades.length; i++) {
+    for (let bladeIndex = 0; bladeIndex < this.blades.length; bladeIndex++) {
       // Update angle
-      this.bladeAngles[i] += this.rotationSpeed * ctx.deltaTime;
+      this.bladeAngles[bladeIndex] += this.rotationSpeed * ctx.deltaTime;
 
       // Calculate position - modified during Blade Storm
-      const angle = this.bladeAngles[i];
+      const angle = this.bladeAngles[bladeIndex];
       let currentRadius = this.orbitRadius;
 
       if (this.isBladeStormActive) {
-        currentRadius = this.bladeStormRadii[i] || this.orbitRadius;
+        currentRadius = this.bladeStormRadii[bladeIndex] || this.orbitRadius;
       }
 
-      const x = ctx.playerX + Math.cos(angle) * currentRadius;
-      const y = ctx.playerY + Math.sin(angle) * currentRadius;
+      const bladeX = ctx.playerX + Math.cos(angle) * currentRadius;
+      const bladeY = ctx.playerY + Math.sin(angle) * currentRadius;
 
       // Update blade position
-      this.blades[i].setPosition(x, y);
+      this.blades[bladeIndex].setPosition(bladeX, bladeY);
 
       // Set blade rotation to always point radially outward (tip away from player)
       // The blade is drawn with tip at -Y, so add π/2 to make tip point along radius
       const radialAngle = angle + Math.PI / 2;
-      this.blades[i].setRotation(radialAngle);
+      this.blades[bladeIndex].setRotation(radialAngle);
 
       // Update axial spin for coin-flip effect on hilt
       const axialSpinSpeed = 12; // rad/s - ultra-fast hilt spinning
-      this.bladeSpinAngles[i] += axialSpinSpeed * ctx.deltaTime;
+      this.bladeSpinAngles[bladeIndex] += axialSpinSpeed * ctx.deltaTime;
 
       // Apply coin-flip effect: scaleX oscillates from -1 to 1
       // This simulates the hilt spinning around the blade's length axis
-      const hiltScaleX = Math.cos(this.bladeSpinAngles[i]);
-      if (this.bladeHilts[i]) {
-        this.bladeHilts[i].setScale(hiltScaleX, 1);
+      const hiltScaleX = Math.cos(this.bladeSpinAngles[bladeIndex]);
+      if (this.bladeHilts[bladeIndex]) {
+        this.bladeHilts[bladeIndex].setScale(hiltScaleX, 1);
+      }
+
+      // Draw blade motion trail: fading afterimages at previous orbit positions
+      const trailAlphas = [0.15, 0.08, 0.03];
+      const bladeScale = this.stats.size;
+      const trailBladeLength = 20 * bladeScale;
+      const trailBladeWidth = 10 * bladeScale;
+
+      for (let historyIndex = 0; historyIndex < this.previousAngles[bladeIndex].length; historyIndex++) {
+        const prevAngle = this.previousAngles[bladeIndex][historyIndex];
+        const trailRadius = this.isBladeStormActive
+          ? (this.bladeStormRadii[bladeIndex] || this.orbitRadius)
+          : this.orbitRadius;
+        const trailX = ctx.playerX + Math.cos(prevAngle) * trailRadius;
+        const trailY = ctx.playerY + Math.sin(prevAngle) * trailRadius;
+        const trailRotation = prevAngle + Math.PI / 2;
+
+        // Draw simplified triangle afterimage
+        this.trailGraphics.fillStyle(WEAPON_COLORS.orbit.core, trailAlphas[historyIndex]);
+        const tipX = trailX + Math.cos(trailRotation - Math.PI / 2) * trailBladeLength;
+        const tipY = trailY + Math.sin(trailRotation - Math.PI / 2) * trailBladeLength;
+        const rightBaseX = trailX + Math.cos(trailRotation) * (trailBladeWidth / 2);
+        const rightBaseY = trailY + Math.sin(trailRotation) * (trailBladeWidth / 2);
+        const leftBaseX = trailX - Math.cos(trailRotation) * (trailBladeWidth / 2);
+        const leftBaseY = trailY - Math.sin(trailRotation) * (trailBladeWidth / 2);
+
+        this.trailGraphics.fillTriangle(tipX, tipY, rightBaseX, rightBaseY, leftBaseX, leftBaseY);
       }
 
       // Check collision with nearby enemies using spatial hash
@@ -108,27 +171,28 @@ export class OrbitingBladesWeapon extends BaseWeapon {
       const bladeHitRadius = 20 * this.stats.size;
       const queryRadius = bladeHitRadius + 15; // Blade radius + enemy radius
 
-      const nearbyEnemies = spatialHash.queryPotential(x, y, queryRadius);
+      const nearbyEnemies = spatialHash.queryPotential(bladeX, bladeY, queryRadius);
 
       for (const enemy of nearbyEnemies) {
         const enemyId = enemy.id;
 
         // During Blade Storm outward phase, use per-blade hit tracking (pierce all)
         if (this.isBladeStormActive && this.bladeStormPhase === 'outward') {
-          if (this.bladeStormHitEnemies[i]?.has(enemyId)) continue;
+          if (this.bladeStormHitEnemies[bladeIndex]?.has(enemyId)) continue;
         } else {
           // Normal cooldown check
           const lastHit = this.hitCooldowns.get(enemyId) || 0;
           if (currentTime - lastHit < this.stats.cooldown) continue;
         }
 
-        const ex = Transform.x[enemyId];
-        const ey = Transform.y[enemyId];
-        const dx = ex - x;
-        const dy = ey - y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const enemyX = Transform.x[enemyId];
+        const enemyY = Transform.y[enemyId];
+        const dx = enemyX - bladeX;
+        const dy = enemyY - bladeY;
+        const distSq = dx * dx + dy * dy;
+        const hitRange = bladeHitRadius + 12;
 
-        if (dist < bladeHitRadius + 12) {
+        if (distSq < hitRange * hitRange) {
           // Hit! 300% damage during Blade Storm outward phase
           const stormDamage = (this.isBladeStormActive && this.bladeStormPhase === 'outward')
             ? this.stats.damage * 3
@@ -137,15 +201,54 @@ export class OrbitingBladesWeapon extends BaseWeapon {
           ctx.damageEnemy(enemyId, stormDamage, this.isBladeStormActive ? 300 : 150);
 
           if (this.isBladeStormActive && this.bladeStormPhase === 'outward') {
-            this.bladeStormHitEnemies[i]?.add(enemyId);
+            this.bladeStormHitEnemies[bladeIndex]?.add(enemyId);
           } else {
             this.hitCooldowns.set(enemyId, currentTime);
           }
 
           // Spark effect (golden during storm)
-          ctx.effectsManager.playHitSparks(x, y, angle);
+          ctx.effectsManager.playHitSparks(bladeX, bladeY, angle);
+
+          // Hit flash on contact (cap at 3 per frame)
+          if (hitFlashesThisFrame < 3) {
+            const contactFlash = ctx.scene.add.circle(bladeX, bladeY, 8, WEAPON_COLORS.orbitHit.core, 0.7);
+            contactFlash.setDepth(DepthLayers.BLADE_HIT);
+            ctx.scene.tweens.add({
+              targets: contactFlash,
+              scaleX: 2,
+              scaleY: 2,
+              alpha: 0,
+              duration: 80,
+              onComplete: () => contactFlash.destroy(),
+            });
+            hitFlashesThisFrame++;
+          }
         }
       }
+    }
+
+    // Draw faint dashed orbit ring
+    const dashCount = 16;
+    const dashArcAngle = (Math.PI * 2 / dashCount) * 0.67; // ~15 degrees per dash
+    const gapArcAngle = (Math.PI * 2 / dashCount) * 0.33;  // ~7.5 degrees gap
+    this.orbitRingGraphics.lineStyle(1, WEAPON_COLORS.orbit.core, 0.08);
+
+    for (let dashIndex = 0; dashIndex < dashCount; dashIndex++) {
+      const dashStartAngle = dashIndex * (dashArcAngle + gapArcAngle);
+      // Draw arc segment as a series of short line segments
+      const arcSegments = 4;
+      this.orbitRingGraphics.beginPath();
+      for (let arcStep = 0; arcStep <= arcSegments; arcStep++) {
+        const arcAngle = dashStartAngle + (dashArcAngle * arcStep / arcSegments);
+        const arcX = ctx.playerX + Math.cos(arcAngle) * this.orbitRadius;
+        const arcY = ctx.playerY + Math.sin(arcAngle) * this.orbitRadius;
+        if (arcStep === 0) {
+          this.orbitRingGraphics.moveTo(arcX, arcY);
+        } else {
+          this.orbitRingGraphics.lineTo(arcX, arcY);
+        }
+      }
+      this.orbitRingGraphics.strokePath();
     }
 
     // Clean up old cooldowns
@@ -276,7 +379,7 @@ export class OrbitingBladesWeapon extends BaseWeapon {
 
   private createBlade(ctx: WeaponContext): { container: Phaser.GameObjects.Container; hilt: Phaser.GameObjects.Graphics } {
     const container = ctx.scene.add.container(ctx.playerX, ctx.playerY);
-    container.setDepth(5);
+    container.setDepth(DepthLayers.BLADE);
 
     const scale = this.stats.size;
     const bladeLength = 20 * scale;
@@ -293,7 +396,7 @@ export class OrbitingBladesWeapon extends BaseWeapon {
 
     // Blade graphics (triangle) - stays fixed
     const bladeGraphics = ctx.scene.add.graphics();
-    bladeGraphics.fillStyle(0x4488ff, 1);
+    bladeGraphics.fillStyle(WEAPON_COLORS.orbit.core, 1);
     bladeGraphics.beginPath();
     bladeGraphics.moveTo(0, -bladeLength - centerOffset);  // Tip
     bladeGraphics.lineTo(bladeWidth / 2, -centerOffset);   // Right base
@@ -306,7 +409,7 @@ export class OrbitingBladesWeapon extends BaseWeapon {
     bladeGraphics.strokePath();
 
     // Blade glow
-    bladeGraphics.lineStyle(3, 0x66aaff, 0.4);
+    bladeGraphics.lineStyle(3, WEAPON_COLORS.orbit.glow, 0.4);
     bladeGraphics.strokePath();
 
     // Hilt graphics (crossguard + handle) - will scale X for coin-flip effect
@@ -352,6 +455,15 @@ export class OrbitingBladesWeapon extends BaseWeapon {
     this.bladeHilts = []; // Hilts are destroyed with containers
     this.bladeAngles = [];
     this.bladeSpinAngles = [];
+    this.previousAngles = [];
+    if (this.trailGraphics) {
+      this.trailGraphics.destroy();
+      this.trailGraphics = null;
+    }
+    if (this.orbitRingGraphics) {
+      this.orbitRingGraphics.destroy();
+      this.orbitRingGraphics = null;
+    }
     this.hitCooldowns.clear();
     super.destroy();
   }

@@ -11,6 +11,9 @@ let effectsManager: EffectsManager | null = null;
 // Callback for enemy death
 let onEnemyDeath: ((entityId: number, x: number, y: number) => void) | null = null;
 
+// Callback for tracking damage dealt
+let onDamageCallback: ((damage: number) => void) | null = null;
+
 // Constants
 const BURN_TICK_INTERVAL = 500;   // ms between burn damage ticks
 const POISON_TICK_INTERVAL = 400; // ms between poison damage ticks
@@ -34,6 +37,23 @@ export function setStatusEffectSystemDeathCallback(
   callback: (entityId: number, x: number, y: number) => void
 ): void {
   onEnemyDeath = callback;
+}
+
+/**
+ * Sets the callback for tracking damage dealt by status effects.
+ */
+export function setStatusEffectDamageCallback(callback: (damage: number) => void): void {
+  onDamageCallback = callback;
+}
+
+/**
+ * Resets all module-level state in StatusEffectSystem.
+ * Must be called when starting a new game to clear state from previous runs.
+ */
+export function resetStatusEffectSystem(): void {
+  effectsManager = null;
+  onEnemyDeath = null;
+  onDamageCallback = null;
 }
 
 /**
@@ -192,6 +212,11 @@ export function statusEffectSystem(world: IWorld, deltaMs: number): IWorld {
         Health.current[entityId] -= burnDamage;
         StatusEffect.burnTickTimer[entityId] = BURN_TICK_INTERVAL;
 
+        // Track burn damage dealt
+        if (onDamageCallback) {
+          onDamageCallback(burnDamage);
+        }
+
         // Show damage number
         if (effectsManager) {
           effectsManager.showDamageNumber(x, y - 20, Math.round(burnDamage), BURN_COLOR);
@@ -226,6 +251,11 @@ export function statusEffectSystem(world: IWorld, deltaMs: number): IWorld {
         const poisonDamage = stacks * POISON_DAMAGE_PER_STACK;
         Health.current[entityId] -= poisonDamage;
         StatusEffect.poisonTickTimer[entityId] = POISON_TICK_INTERVAL;
+
+        // Track poison damage dealt
+        if (onDamageCallback) {
+          onDamageCallback(poisonDamage);
+        }
 
         // Show damage number
         if (effectsManager) {

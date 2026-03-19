@@ -180,6 +180,9 @@ export class UpgradeScene extends Phaser.Scene {
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
 
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
+
     // Animate entrance
     this.animateEntrance();
   }

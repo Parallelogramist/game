@@ -1,5 +1,6 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
+import { DepthLayers } from '../visual/DepthLayers';
 
 /**
  * LaserBeamWeapon fires a piercing beam that damages all enemies in a line.
@@ -131,6 +132,27 @@ export class LaserBeamWeapon extends BaseWeapon {
       const ex = Transform.x[enemyId];
       const ey = Transform.y[enemyId];
       ctx.effectsManager.playHitSparks(ex, ey, beamAngle);
+    }
+
+    // Hit flash rings at enemy positions (cap at 5 per beam)
+    let hitFlashCount = 0;
+    for (const enemyId of hitEnemies) {
+      if (hitFlashCount >= 5) break;
+      const flashX = Transform.x[enemyId];
+      const flashY = Transform.y[enemyId];
+
+      const hitRing = ctx.scene.add.circle(flashX, flashY, 5, 0x4488ff, 0);
+      hitRing.setStrokeStyle(2, 0x88ccff, 0.8);
+      hitRing.setDepth(DepthLayers.LASER);
+      ctx.scene.tweens.add({
+        targets: hitRing,
+        scaleX: 3,
+        scaleY: 3,
+        alpha: 0,
+        duration: 150,
+        onComplete: () => hitRing.destroy(),
+      });
+      hitFlashCount++;
     }
 
     if (hitEnemies.size > 0) {
@@ -275,6 +297,49 @@ export class LaserBeamWeapon extends BaseWeapon {
     // Start flash (smaller for refracted)
     graphics.fillStyle(coreColor, isRefracted ? 0.6 : 0.8);
     graphics.fillCircle(x1, y1, isRefracted ? width * 0.7 : width);
+
+    // End-point flare: expanding diamond at beam terminus
+    const endpointFlare = ctx.scene.add.graphics();
+    endpointFlare.setPosition(x2, y2);
+    endpointFlare.setDepth(isRefracted ? 11 : 12);
+    const flareSize = isRefracted ? 5 : 8;
+    endpointFlare.fillStyle(coreColor, 0.9);
+    endpointFlare.fillPoints([
+      { x: 0, y: -flareSize },
+      { x: flareSize, y: 0 },
+      { x: 0, y: flareSize },
+      { x: -flareSize, y: 0 },
+    ], true);
+    ctx.scene.tweens.add({
+      targets: endpointFlare,
+      scaleX: 2,
+      scaleY: 2,
+      alpha: 0,
+      duration: 120,
+      onComplete: () => endpointFlare.destroy(),
+    });
+
+    // Energy pulse dot: bright dot traveling along beam (main beams only)
+    if (!isRefracted) {
+      const pulseDot = ctx.scene.add.circle(x1, y1, 4, 0xffffff, 1);
+      pulseDot.setDepth(DepthLayers.LASER);
+      ctx.scene.tweens.addCounter({
+        from: 0,
+        to: 1,
+        duration: this.stats.duration * 1000 * 0.8,
+        onUpdate: (tween: Phaser.Tweens.Tween) => {
+          if (!pulseDot || !pulseDot.scene) return;
+          const progress = tween.getValue() ?? 0;
+          pulseDot.setPosition(
+            x1 + (x2 - x1) * progress,
+            y1 + (y2 - y1) * progress
+          );
+        },
+        onComplete: () => {
+          if (pulseDot && pulseDot.scene) pulseDot.destroy();
+        },
+      });
+    }
 
     // Fade out
     ctx.scene.tweens.add({

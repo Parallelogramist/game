@@ -1,6 +1,7 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Health } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
+import { DepthLayers } from '../visual/DepthLayers';
 
 /**
  * ProjectileWeapon fires auto-targeting projectiles at the nearest enemy.
@@ -11,6 +12,7 @@ const TRAIL_LENGTH = 6;
 
 export class ProjectileWeapon extends BaseWeapon {
   private projectiles: Phaser.GameObjects.Graphics[] = [];
+  private impactPuffsThisFrame: number = 0;
   private projectileData: Map<Phaser.GameObjects.Graphics, {
     x: number;
     y: number;
@@ -86,7 +88,7 @@ export class ProjectileWeapon extends BaseWeapon {
 
   private createProjectile(ctx: WeaponContext, angle: number): void {
     const projectile = ctx.scene.add.graphics();
-    projectile.setDepth(10);
+    projectile.setDepth(DepthLayers.PROJECTILES);
 
     const velocityX = Math.cos(angle) * this.stats.speed;
     const velocityY = Math.sin(angle) * this.stats.speed;
@@ -157,6 +159,7 @@ export class ProjectileWeapon extends BaseWeapon {
     const toRemove = new Set<Phaser.GameObjects.Graphics>();
     // Size reduced by 75% (from 6 to 1.5 base)
     const size = (this.stats.size * 0.25) + this.stats.piercing * 0.5;
+    this.impactPuffsThisFrame = 0;
 
     for (const projectile of this.projectiles) {
       const data = this.projectileData.get(projectile);
@@ -201,18 +204,24 @@ export class ProjectileWeapon extends BaseWeapon {
       const colorIdx = Math.min(data.killCount, soulColors.length - 1);
       const currentColors = soulColors[colorIdx];
 
-      // Draw sparkle trail first (behind the diamond)
+      // Draw streak trails (lines between consecutive trail positions)
       // OPTIMIZATION: Iterate circular buffer without creating new arrays
-      for (let i = 0; i < data.trailCount; i++) {
-        // Calculate the actual buffer index (oldest entries first for proper alpha)
-        const bufferIdx = (data.trailIndex - data.trailCount + i + TRAIL_LENGTH) % TRAIL_LENGTH;
-        const alpha = ((i + 1) / data.trailCount) * 0.5;
-        const trailSize = size * 0.8 * ((i + 1) / data.trailCount);
-        const relX = data.trailBuffer[bufferIdx].x - data.x;
-        const relY = data.trailBuffer[bufferIdx].y - data.y;
-        projectile.fillStyle(currentColors.trail, alpha);
-        projectile.fillCircle(relX, relY, trailSize);
+      for (let i = 0; i < data.trailCount - 1; i++) {
+        const bufferIdxA = (data.trailIndex - data.trailCount + i + TRAIL_LENGTH) % TRAIL_LENGTH;
+        const bufferIdxB = (data.trailIndex - data.trailCount + i + 1 + TRAIL_LENGTH) % TRAIL_LENGTH;
+        const trailAlpha = ((i + 1) / data.trailCount) * 0.5;
+        const trailWidth = Math.max(1, size * 0.8 * ((i + 1) / data.trailCount));
+        const relAX = data.trailBuffer[bufferIdxA].x - data.x;
+        const relAY = data.trailBuffer[bufferIdxA].y - data.y;
+        const relBX = data.trailBuffer[bufferIdxB].x - data.x;
+        const relBY = data.trailBuffer[bufferIdxB].y - data.y;
+        projectile.lineStyle(trailWidth, currentColors.trail, trailAlpha);
+        projectile.lineBetween(relAX, relAY, relBX, relBY);
       }
+
+      // Glow halo behind diamond
+      projectile.fillStyle(currentColors.trail, 0.25);
+      projectile.fillCircle(0, 0, size * 3);
 
       // Draw elongated diamond shape pointing in direction of travel
       const length = size * 4;  // Front to back
@@ -315,6 +324,22 @@ export class ProjectileWeapon extends BaseWeapon {
     // OPTIMIZATION: Single filter pass with O(1) Set.has() instead of indexOf + splice
     if (toRemove.size > 0) {
       for (const projectile of toRemove) {
+        const removedData = this.projectileData.get(projectile);
+        // Spawn impact puff (capped at 3 per frame for performance)
+        if (removedData && this.impactPuffsThisFrame < 3) {
+          this.impactPuffsThisFrame++;
+          const puffColor = removedData.killCount > 0 ? 0xffd700 : 0x66ccff;
+          const puff = ctx.scene.add.circle(removedData.x, removedData.y, size * 1.5, puffColor, 0.6);
+          puff.setDepth(DepthLayers.PROJECTILES);
+          ctx.scene.tweens.add({
+            targets: puff,
+            scaleX: 3,
+            scaleY: 3,
+            alpha: 0,
+            duration: 150,
+            onComplete: () => puff.destroy(),
+          });
+        }
         this.projectileData.delete(projectile);
         projectile.destroy();
       }

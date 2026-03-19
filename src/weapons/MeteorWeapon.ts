@@ -1,5 +1,7 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
+import { getJuiceManager } from '../effects/JuiceManager';
+import { DepthLayers } from '../visual/DepthLayers';
 
 /**
  * MeteorWeapon drops devastating meteors on enemy clusters.
@@ -73,7 +75,7 @@ export class MeteorWeapon extends BaseWeapon {
       const explosionRadius = 60 * this.stats.size;
       const warning = ctx.scene.add.circle(x, y, explosionRadius, 0x4488ff, 0.2);
       warning.setStrokeStyle(2, 0x2266dd, 0.5);
-      warning.setDepth(2);
+      warning.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
 
       // Pulsing warning
       ctx.scene.tweens.add({
@@ -184,6 +186,7 @@ export class MeteorWeapon extends BaseWeapon {
 
     // Visual explosion
     this.createExplosion(ctx, meteor.x, meteor.y, meteor.radius);
+    getJuiceManager().screenShake(0.004, 200);
 
     // Damage enemies in radius
     const enemies = ctx.getEnemies();
@@ -218,7 +221,7 @@ export class MeteorWeapon extends BaseWeapon {
     baseDamage: number
   ): void {
     const graphics = ctx.scene.add.graphics();
-    graphics.setDepth(2);
+    graphics.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
 
     this.burningZones.push({
       x,
@@ -324,9 +327,39 @@ export class MeteorWeapon extends BaseWeapon {
     y: number,
     radius: number
   ): void {
+    // Meteor falling trail streak — vertical line trail animating downward
+    const fallingTrailGraphics = ctx.scene.add.graphics();
+    fallingTrailGraphics.setDepth(DepthLayers.METEOR);
+
+    ctx.scene.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration: 100,
+      onUpdate: (tween) => {
+        const trailProgress = tween.getValue() ?? 0;
+        fallingTrailGraphics.clear();
+        const currentTrailY = (y - 200) + trailProgress * 200;
+
+        // Blue outer trail line
+        fallingTrailGraphics.lineStyle(6, 0x4488ff, 0.8 * (1 - trailProgress * 0.3));
+        fallingTrailGraphics.beginPath();
+        fallingTrailGraphics.moveTo(x, currentTrailY - 30);
+        fallingTrailGraphics.lineTo(x, currentTrailY);
+        fallingTrailGraphics.strokePath();
+
+        // White core trail line
+        fallingTrailGraphics.lineStyle(2, 0xffffff, 1);
+        fallingTrailGraphics.beginPath();
+        fallingTrailGraphics.moveTo(x, currentTrailY - 30);
+        fallingTrailGraphics.lineTo(x, currentTrailY);
+        fallingTrailGraphics.strokePath();
+      },
+      onComplete: () => fallingTrailGraphics.destroy(),
+    });
+
     // Meteor falling visual - blue
     const meteorSprite = ctx.scene.add.circle(x, y - 200, 15, 0x4488ff);
-    meteorSprite.setDepth(20);
+    meteorSprite.setDepth(DepthLayers.METEOR);
 
     ctx.scene.tweens.add({
       targets: meteorSprite,
@@ -335,6 +368,19 @@ export class MeteorWeapon extends BaseWeapon {
       scaleY: 1.5,
       duration: 100,
       onComplete: () => meteorSprite.destroy(),
+    });
+
+    // Center impact flash — white circle that expands and fades quickly
+    const impactFlash = ctx.scene.add.circle(x, y, 8, 0xffffff, 1);
+    impactFlash.setDepth(16);
+
+    ctx.scene.tweens.add({
+      targets: impactFlash,
+      scaleX: 4,
+      scaleY: 4,
+      alpha: 0,
+      duration: 60,
+      onComplete: () => impactFlash.destroy(),
     });
 
     // Main explosion - blue

@@ -2,14 +2,24 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Health } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { getEnemyIds } from '../ecs/FrameCache';
+import { getJuiceManager } from '../effects/JuiceManager';
+import { DepthLayers } from '../visual/DepthLayers';
+
+const MISSILE_TRAIL_LENGTH = 12;
 
 interface Missile {
   sprite: Phaser.GameObjects.Container;
+  actualX: number;
+  actualY: number;
   targetId: number;
   damage: number;
   speed: number;
   lifetime: number;
   isBomblet?: boolean; // Mastery: Cluster Ordnance - true for split projectiles
+  trailHistory: { x: number; y: number }[];
+  trailIndex: number;
+  trailCount: number;
+  wobblePhase: number;
 }
 
 /**
@@ -18,6 +28,7 @@ interface Missile {
  */
 export class HomingMissileWeapon extends BaseWeapon {
   private missiles: Missile[] = [];
+  private trailGraphics: Phaser.GameObjects.Graphics | null = null;
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -58,7 +69,7 @@ export class HomingMissileWeapon extends BaseWeapon {
 
   private createMissile(ctx: WeaponContext, targetId: number): void {
     const container = ctx.scene.add.container(ctx.playerX, ctx.playerY);
-    container.setDepth(10);
+    container.setDepth(DepthLayers.PROJECTILES);
 
     // Missile body - blue
     const body = ctx.scene.add.graphics();
@@ -80,15 +91,32 @@ export class HomingMissileWeapon extends BaseWeapon {
 
     this.missiles.push({
       sprite: container,
+      actualX: ctx.playerX,
+      actualY: ctx.playerY,
       targetId,
       damage: this.stats.damage,
       speed: this.stats.speed,
       lifetime: this.stats.duration,
+      trailHistory: new Array(MISSILE_TRAIL_LENGTH).fill(null).map(() => ({ x: 0, y: 0 })),
+      trailIndex: 0,
+      trailCount: 0,
+      wobblePhase: Math.random() * Math.PI * 2,
     });
   }
 
   protected updateEffects(ctx: WeaponContext): void {
     const toRemove: Missile[] = [];
+
+    // Ensure shared trail graphics exists
+    if (!this.trailGraphics && ctx.scene) {
+      this.trailGraphics = ctx.scene.add.graphics();
+      this.trailGraphics.setDepth(9);
+    }
+
+    // Clear shared trail graphics each frame
+    if (this.trailGraphics) {
+      this.trailGraphics.clear();
+    }
 
     for (const missile of this.missiles) {
       missile.lifetime -= ctx.deltaTime;
@@ -110,17 +138,23 @@ export class HomingMissileWeapon extends BaseWeapon {
         }
       }
 
+      // Record trail position from actual (non-wobbled) position
+      missile.trailHistory[missile.trailIndex].x = missile.actualX;
+      missile.trailHistory[missile.trailIndex].y = missile.actualY;
+      missile.trailIndex = (missile.trailIndex + 1) % MISSILE_TRAIL_LENGTH;
+      if (missile.trailCount < MISSILE_TRAIL_LENGTH) missile.trailCount++;
+
       const targetX = Transform.x[missile.targetId];
       const targetY = Transform.y[missile.targetId];
-      const mx = missile.sprite.x;
-      const my = missile.sprite.y;
+      const mx = missile.actualX;
+      const my = missile.actualY;
 
       const dx = targetX - mx;
       const dy = targetY - my;
       const dist = Math.sqrt(dx * dx + dy * dy);
       const angle = Math.atan2(dy, dx);
 
-      // Hit detection
+      // Hit detection (uses actual position, not visual)
       if (dist < 20) {
         ctx.damageEnemy(missile.targetId, missile.damage, 150);
         ctx.effectsManager.playHitSparks(mx, my, angle);
@@ -130,27 +164,78 @@ export class HomingMissileWeapon extends BaseWeapon {
           this.spawnClusterBomblets(ctx, mx, my, missile.targetId);
         }
 
-        // Explosion effect - blue (golden for mastery bomblets)
+        // Multi-layer explosion
+        const explosionRadius = missile.isBomblet ? 12 : 20;
         const explosionColor = missile.isBomblet ? 0xffaa44 : 0x66aaff;
-        const explosion = ctx.scene.add.circle(mx, my, missile.isBomblet ? 12 : 20, explosionColor, 0.6);
+
+        // Layer 1: White flash
+        const whiteFlash = ctx.scene.add.circle(mx, my, explosionRadius * 2, 0xffffff, 1);
+        whiteFlash.setDepth(12);
         ctx.scene.tweens.add({
-          targets: explosion,
+          targets: whiteFlash,
+          alpha: 0,
+          duration: 100,
+          onComplete: () => whiteFlash.destroy(),
+        });
+
+        // Layer 2: Colored expanding ring
+        const coloredRing = ctx.scene.add.circle(mx, my, explosionRadius, explosionColor, 0);
+        coloredRing.setStrokeStyle(3, explosionColor, 0.8);
+        coloredRing.setDepth(11);
+        ctx.scene.tweens.add({
+          targets: coloredRing,
+          scaleX: 2.5,
+          scaleY: 2.5,
+          alpha: 0,
+          duration: 250,
+          onComplete: () => coloredRing.destroy(),
+        });
+
+        // Layer 3: Expanding fill circle (extended duration)
+        const expandingFill = ctx.scene.add.circle(mx, my, explosionRadius, explosionColor, 0.6);
+        expandingFill.setDepth(DepthLayers.PROJECTILES);
+        ctx.scene.tweens.add({
+          targets: expandingFill,
           scaleX: 2,
           scaleY: 2,
           alpha: 0,
-          duration: 200,
-          onComplete: () => explosion.destroy(),
+          duration: 300,
+          onComplete: () => expandingFill.destroy(),
         });
+
+        // Screen shake for main missile impacts (not bomblets)
+        if (!missile.isBomblet) {
+          getJuiceManager().screenShake(0.003, 150);
+        }
 
         toRemove.push(missile);
         continue;
       }
 
-      // Move toward target with homing
+      // Move toward target with homing (actual position)
+      missile.actualX += (dx / dist) * missile.speed * ctx.deltaTime;
+      missile.actualY += (dy / dist) * missile.speed * ctx.deltaTime;
+
+      // Corkscrew wobble - purely visual perpendicular offset
+      missile.wobblePhase += ctx.deltaTime * 8;
+      const perpOffset = Math.sin(missile.wobblePhase) * 8;
+      const perpX = -Math.sin(angle) * perpOffset;
+      const perpY = Math.cos(angle) * perpOffset;
+
+      missile.sprite.setPosition(missile.actualX + perpX, missile.actualY + perpY);
       missile.sprite.setRotation(angle);
 
-      missile.sprite.x += (dx / dist) * missile.speed * ctx.deltaTime;
-      missile.sprite.y += (dy / dist) * missile.speed * ctx.deltaTime;
+      // Draw exhaust trails on shared graphics
+      if (this.trailGraphics) {
+        const trailColor = missile.isBomblet ? 0xffaa44 : 0x66ccff;
+        for (let i = 0; i < missile.trailCount; i++) {
+          const bufferIdx = (missile.trailIndex - missile.trailCount + i + MISSILE_TRAIL_LENGTH) % MISSILE_TRAIL_LENGTH;
+          const trailAlpha = ((i + 1) / missile.trailCount) * 0.4;
+          const trailRadius = 3 * ((i + 1) / missile.trailCount);
+          this.trailGraphics.fillStyle(trailColor, trailAlpha);
+          this.trailGraphics.fillCircle(missile.trailHistory[bufferIdx].x, missile.trailHistory[bufferIdx].y, trailRadius);
+        }
+      }
     }
 
     // Clean up
@@ -221,7 +306,7 @@ export class HomingMissileWeapon extends BaseWeapon {
     lifetime: number
   ): void {
     const container = ctx.scene.add.container(x, y);
-    container.setDepth(10);
+    container.setDepth(DepthLayers.PROJECTILES);
 
     // Smaller missile body - orange/gold tint for bomblets
     const body = ctx.scene.add.graphics();
@@ -247,11 +332,17 @@ export class HomingMissileWeapon extends BaseWeapon {
 
     this.missiles.push({
       sprite: container,
+      actualX: container.x,
+      actualY: container.y,
       targetId,
       damage,
       speed,
       lifetime,
       isBomblet: true,
+      trailHistory: new Array(MISSILE_TRAIL_LENGTH).fill(null).map(() => ({ x: 0, y: 0 })),
+      trailIndex: 0,
+      trailCount: 0,
+      wobblePhase: Math.random() * Math.PI * 2,
     });
   }
 
@@ -266,6 +357,10 @@ export class HomingMissileWeapon extends BaseWeapon {
       missile.sprite.destroy();
     }
     this.missiles = [];
+    if (this.trailGraphics) {
+      this.trailGraphics.destroy();
+      this.trailGraphics = null;
+    }
     super.destroy();
   }
 }

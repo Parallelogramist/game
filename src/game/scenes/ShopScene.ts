@@ -15,6 +15,8 @@ import {
 } from '../../data/PermanentUpgrades';
 import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
+import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { SoundManager } from '../../audio/SoundManager';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -51,6 +53,9 @@ export class ShopScene extends Phaser.Scene {
   private selectedCardIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 
+  // Audio
+  private soundManager!: SoundManager;
+
   // Grid constants
   private readonly columns = 4;
   private readonly cardWidth = 200;
@@ -62,6 +67,12 @@ export class ShopScene extends Phaser.Scene {
 
   create(): void {
     const centerX = GAME_WIDTH / 2;
+
+    // Fade in
+    fadeIn(this, 200);
+
+    // Sound manager for UI sounds
+    this.soundManager = new SoundManager(this);
 
     // Reset state
     this.upgradeCards = [];
@@ -145,8 +156,10 @@ export class ShopScene extends Phaser.Scene {
     });
     this.backButton.on('pointerout', () => this.updateFocusVisuals());
     this.backButton.on('pointerdown', () => {
-      this.scene.start('BootScene');
+      this.soundManager.playUIClick();
+      fadeOut(this, 150, () => this.scene.start('BootScene'));
     });
+    addButtonInteraction(this, this.backButton);
 
     // Setup scroll input
     this.setupScrollInput();
@@ -156,6 +169,9 @@ export class ShopScene extends Phaser.Scene {
 
     // Initial focus visuals
     this.updateFocusVisuals();
+
+    // Register shutdown listener for cleanup
+    this.events.once('shutdown', this.shutdown, this);
   }
 
   private createCategoryTabs(): void {
@@ -194,7 +210,7 @@ export class ShopScene extends Phaser.Scene {
 
       // Tab text
       const tabText = this.add.text(
-        tabWidth / 2 + 6,
+        (tabWidth + 28) / 2,
         tabHeight / 2,
         category.name,
         {
@@ -209,6 +225,7 @@ export class ShopScene extends Phaser.Scene {
 
       // Tab click handler
       tabBg.on('pointerdown', () => {
+        this.soundManager.playUIClick();
         this.selectedTabIndex = index;
         this.selectCategory(category.id);
       });
@@ -799,12 +816,32 @@ export class ShopScene extends Phaser.Scene {
     const success = metaManager.purchaseUpgrade(upgradeId);
 
     if (success) {
+      this.soundManager.playPurchase();
       this.updateGoldDisplay();
       this.updateAccountLevelDisplay();
       this.updateAllCards();
       // Refresh category to show newly unlocked upgrades
       this.displayCategoryUpgrades(this.currentCategory);
       this.updateFocusVisuals();
+
+      // Brief white flash on the selected card
+      const card = this.upgradeCards[this.selectedCardIndex];
+      if (card) {
+        card.cardBg.setFillStyle(0xffffff);
+        this.time.delayedCall(80, () => {
+          this.updateCardAppearance(this.selectedCardIndex);
+        });
+      }
+    } else {
+      // Insufficient gold feedback
+      this.soundManager.playError();
+      const card = this.upgradeCards[this.selectedCardIndex];
+      if (card) {
+        card.cardBg.setFillStyle(0x662222);
+        this.time.delayedCall(120, () => {
+          this.updateCardAppearance(this.selectedCardIndex);
+        });
+      }
     }
   }
 
@@ -905,5 +942,6 @@ export class ShopScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    this.tweens.killAll();
   }
 }

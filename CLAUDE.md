@@ -31,7 +31,7 @@ InputSystem → EnemyAISystem → MovementSystem → Knockback → WeaponManager
 XPGemSystem → HealthPickupSystem → MagnetPickupSystem → StatusEffectSystem →
 Enemy Projectiles → Player-Enemy Collision → SpriteSystem
 ```
-Note: Knockback and collision are processed inline in GameScene rather than as separate systems.
+Note: Knockback is processed inline in GameScene. CollisionSystem (`/src/ecs/systems/CollisionSystem.ts`) handles projectile-enemy collisions using `SpatialHash` for efficient proximity queries, and applies crits, elemental effects, knockback, life steal, execution bonuses, and overkill splash damage.
 
 ### Scene Flow
 
@@ -39,6 +39,8 @@ Note: Knockback and collision are processed inline in GameScene rather than as s
 BootScene (start screen + music)
   ├─→ GameScene (core gameplay) ─→ UpgradeScene (level-up modal, overlay)
   ├─→ ShopScene (permanent upgrades, returns to BootScene)
+  ├─→ AchievementScene (achievements & milestones, returns to BootScene)
+  ├─→ CodexScene (discovered weapons/enemies/upgrades, returns to BootScene)
   ├─→ SettingsScene (SFX, visual settings, returns to BootScene)
   ├─→ MusicSettingsScene (BGM settings, returns to BootScene)
   └─→ CreditsScene (attribution, returns to BootScene)
@@ -166,6 +168,26 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 - **PlayerPlasmaCore**: Player visual with squash/stretch, fins, and breathing animations
 - **ShieldBarrierVisual**: Shield effects for shielded enemies
 - **MasteryVisuals/MasteryIconEffectsManager**: Visual flair for mastered upgrades
+
+### Storage System
+
+`SecureStorage` (`/src/storage/`) is a drop-in localStorage replacement with async encryption. `StorageBootstrap.initializeStorage()` must be called in `main.ts` before creating any managers — it derives encryption keys and pre-loads all game storage keys. Managers read/write synchronously while encryption happens in the background.
+
+### Achievement & Codex Systems
+
+**AchievementManager** (`/src/achievements/`): Singleton tracking in-run milestones and persistent achievements with unlock rewards. Uses `recordXXX()` methods that feed into `checkMilestoneProgress()` and fire callbacks for UI notifications. State splits into run-scoped milestones and persistent lifetime stats via SecureStorage.
+
+**CodexManager** (`/src/codex/`): Singleton tracking discovered weapons, enemies, and upgrades across runs plus global stats. `discoverXXX()` methods return `boolean` (true if new discovery) and track usage stats. Calculates completion percentages.
+
+### SpatialHash
+
+`SpatialHash` (`/src/utils/SpatialHash.ts`): Grid-based spatial partitioning (80px cells) for O(1) enemy proximity queries. Singleton via `getEnemySpatialHash()`, populated once per frame in GameScene. Used by CollisionSystem and weapons for efficient nearby-enemy lookups.
+
+### UI Managers
+
+**JoystickManager** (`/src/ui/JoystickManager.ts`): Dynamic virtual joystick for mobile touch input. Scene-scoped (not a global singleton). Outputs normalized direction vector via `getDirection()`.
+
+**ToastManager** (`/src/ui/ToastManager.ts`): Queued toast notifications with slide-in/out animations. Scene-scoped via WeakMap, obtained via `getToastManager(scene)`. Used by achievement and codex systems for discovery notifications.
 
 ### Settings System
 

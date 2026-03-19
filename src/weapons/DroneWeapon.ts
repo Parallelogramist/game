@@ -1,9 +1,11 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
+import { DepthLayers } from '../visual/DepthLayers';
 
 interface Drone {
   container: Phaser.GameObjects.Container;
+  thrusterGraphics: Phaser.GameObjects.Graphics;
   orbitAngle: number;
   shootCooldown: number;
   targetId: number;
@@ -16,6 +18,8 @@ interface DroneProjectile {
   lifetime: number;
   damage: number;
   isSynchronized?: boolean; // Mastery: Combat Network - synchronized strike bonus
+  prevX: number;
+  prevY: number;
 }
 
 /**
@@ -27,6 +31,8 @@ export class DroneWeapon extends BaseWeapon {
   private projectiles: DroneProjectile[] = [];
   private orbitRadius: number = 70;
   private orbitSpeed: number = 1.5;
+  private projectileTrailGraphics: Phaser.GameObjects.Graphics | null = null;
+  private linkGraphics: Phaser.GameObjects.Graphics | null = null;
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -59,6 +65,20 @@ export class DroneWeapon extends BaseWeapon {
   protected updateEffects(ctx: WeaponContext): void {
     // Ensure correct drone count
     this.ensureDroneCount(ctx);
+
+    // Ensure shared graphics objects exist
+    if (!this.projectileTrailGraphics && ctx.scene) {
+      this.projectileTrailGraphics = ctx.scene.add.graphics();
+      this.projectileTrailGraphics.setDepth(DepthLayers.BLADE_HIT);
+    }
+    if (!this.linkGraphics && ctx.scene) {
+      this.linkGraphics = ctx.scene.add.graphics();
+      this.linkGraphics.setDepth(DepthLayers.BLADE);
+    }
+
+    // Clear shared graphics each frame
+    if (this.projectileTrailGraphics) this.projectileTrailGraphics.clear();
+    if (this.linkGraphics) this.linkGraphics.clear();
 
     // Mastery: Combat Network - check for drones targeting same enemy
     const targetCounts = new Map<number, number>();
@@ -109,15 +129,19 @@ export class DroneWeapon extends BaseWeapon {
     body.fillStyle(0x88ddff, 1);
     body.fillCircle(0, 0, size * 0.4);
 
-    // Thrusters
+    // Thrusters (static part)
     body.fillStyle(0x2288dd, 1);
     body.fillRect(-size * 0.8, size * 0.3, size * 0.4, size * 0.3);
     body.fillRect(size * 0.4, size * 0.3, size * 0.4, size * 0.3);
 
-    container.add(body);
+    // Animated thruster flames (separate graphics for per-frame redraw)
+    const thrusterGraphics = ctx.scene.add.graphics();
+
+    container.add([body, thrusterGraphics]);
 
     return {
       container,
+      thrusterGraphics,
       orbitAngle: startAngle,
       shootCooldown: 0,
       targetId: -1,
@@ -129,16 +153,43 @@ export class DroneWeapon extends BaseWeapon {
     const baseAngle = (index / this.stats.count) * Math.PI * 2;
     drone.orbitAngle += this.orbitSpeed * ctx.deltaTime;
 
-    const x = ctx.playerX + Math.cos(drone.orbitAngle + baseAngle) * this.orbitRadius;
-    const y = ctx.playerY + Math.sin(drone.orbitAngle + baseAngle) * this.orbitRadius;
+    const droneX = ctx.playerX + Math.cos(drone.orbitAngle + baseAngle) * this.orbitRadius;
+    const droneY = ctx.playerY + Math.sin(drone.orbitAngle + baseAngle) * this.orbitRadius;
 
-    drone.container.setPosition(x, y);
+    drone.container.setPosition(droneX, droneY);
 
     // Point toward target or movement direction
     const targetAngle = drone.targetId !== -1 ?
-      Math.atan2(Transform.y[drone.targetId] - y, Transform.x[drone.targetId] - x) :
+      Math.atan2(Transform.y[drone.targetId] - droneY, Transform.x[drone.targetId] - droneX) :
       drone.orbitAngle;
     drone.container.setRotation(targetAngle);
+
+    // Animate thruster flames (oscillating size)
+    const droneSize = 10 * this.stats.size;
+    const thrusterSize = 4 + Math.sin(ctx.gameTime * 15) * 2;
+    drone.thrusterGraphics.clear();
+    // Left thruster flame (orange outer, blue inner)
+    drone.thrusterGraphics.fillStyle(0xffaa44, 0.7);
+    drone.thrusterGraphics.fillCircle(-droneSize * 0.6, droneSize * 0.55, thrusterSize);
+    drone.thrusterGraphics.fillStyle(0x66ccff, 0.9);
+    drone.thrusterGraphics.fillCircle(-droneSize * 0.6, droneSize * 0.55, thrusterSize * 0.5);
+    // Right thruster flame
+    drone.thrusterGraphics.fillStyle(0xffaa44, 0.7);
+    drone.thrusterGraphics.fillCircle(droneSize * 0.6, droneSize * 0.55, thrusterSize);
+    drone.thrusterGraphics.fillStyle(0x66ccff, 0.9);
+    drone.thrusterGraphics.fillCircle(droneSize * 0.6, droneSize * 0.55, thrusterSize * 0.5);
+
+    // Draw player-drone link (faint dotted line) on shared linkGraphics
+    if (this.linkGraphics) {
+      const linkDotCount = 5;
+      this.linkGraphics.fillStyle(0x44aaff, 0.1);
+      for (let dotIdx = 0; dotIdx < linkDotCount; dotIdx++) {
+        const interpolation = (dotIdx + 1) / (linkDotCount + 1);
+        const linkDotX = ctx.playerX + (droneX - ctx.playerX) * interpolation;
+        const linkDotY = ctx.playerY + (droneY - ctx.playerY) * interpolation;
+        this.linkGraphics.fillCircle(linkDotX, linkDotY, 1.5);
+      }
+    }
 
     // Shooting logic
     drone.shootCooldown -= ctx.deltaTime;
@@ -146,7 +197,7 @@ export class DroneWeapon extends BaseWeapon {
     if (drone.shootCooldown <= 0) {
       // Find nearest target using spatial hash
       const spatialHash = getEnemySpatialHash();
-      const nearestEnemy = spatialHash.findNearest(x, y, this.stats.range);
+      const nearestEnemy = spatialHash.findNearest(droneX, droneY, this.stats.range);
 
       if (nearestEnemy) {
         const nearestId = nearestEnemy.id;
@@ -155,7 +206,7 @@ export class DroneWeapon extends BaseWeapon {
         // Mastery: Combat Network - synchronized strike bonus when 2+ drones target same enemy
         const isSynchronized = this.isMastered() && (targetCounts.get(nearestId) || 0) >= 2;
 
-        this.fireDroneProjectile(ctx, x, y, nearestId, isSynchronized);
+        this.fireDroneProjectile(ctx, droneX, droneY, nearestId, isSynchronized);
         drone.shootCooldown = this.stats.cooldown;
       }
     }
@@ -189,6 +240,8 @@ export class DroneWeapon extends BaseWeapon {
       lifetime: this.stats.duration,
       damage: projectileDamage,
       isSynchronized,
+      prevX: startX,
+      prevY: startY,
     });
 
     // Muzzle flash (gold for synchronized)
@@ -218,8 +271,19 @@ export class DroneWeapon extends BaseWeapon {
         continue;
       }
 
+      // Record previous position for trail drawing
+      proj.prevX = proj.sprite.x;
+      proj.prevY = proj.sprite.y;
+
       proj.sprite.x += proj.velocityX * ctx.deltaTime;
       proj.sprite.y += proj.velocityY * ctx.deltaTime;
+
+      // Draw trail line from previous to current position
+      if (this.projectileTrailGraphics) {
+        const trailColor = proj.isSynchronized ? 0xffd700 : 0x4488ff;
+        this.projectileTrailGraphics.lineStyle(2, trailColor, 0.4);
+        this.projectileTrailGraphics.lineBetween(proj.prevX, proj.prevY, proj.sprite.x, proj.sprite.y);
+      }
 
       // Bounds check
       if (proj.sprite.x < -50 || proj.sprite.x > 1330 ||
@@ -275,6 +339,14 @@ export class DroneWeapon extends BaseWeapon {
     }
     this.drones = [];
     this.projectiles = [];
+    if (this.projectileTrailGraphics) {
+      this.projectileTrailGraphics.destroy();
+      this.projectileTrailGraphics = null;
+    }
+    if (this.linkGraphics) {
+      this.linkGraphics.destroy();
+      this.linkGraphics = null;
+    }
     super.destroy();
   }
 }
