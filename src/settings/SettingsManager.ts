@@ -29,7 +29,7 @@ const DEFAULTS: GameSettings = {
   sfxVolume: 0.5,
   screenShakeEnabled: true,
   fpsCounterEnabled: false,
-  damageNumbersMode: 'all',
+  damageNumbersMode: 'perfect_crits',
   statusTextEnabled: true,
 };
 
