@@ -2,6 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
+import { VisualQuality } from '../visual/GlowGraphics';
 
 interface Drone {
   container: Phaser.GameObjects.Container;
@@ -12,7 +13,7 @@ interface Drone {
 }
 
 interface DroneProjectile {
-  sprite: Phaser.GameObjects.Arc;
+  sprite: Phaser.GameObjects.Arc | Phaser.GameObjects.Graphics;
   velocityX: number;
   velocityY: number;
   lifetime: number;
@@ -33,6 +34,7 @@ export class DroneWeapon extends BaseWeapon {
   private orbitSpeed: number = 1.5;
   private projectileTrailGraphics: Phaser.GameObjects.Graphics | null = null;
   private linkGraphics: Phaser.GameObjects.Graphics | null = null;
+  private currentQuality: VisualQuality = 'high';
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -63,6 +65,9 @@ export class DroneWeapon extends BaseWeapon {
   }
 
   protected updateEffects(ctx: WeaponContext): void {
+    // Update quality setting from context
+    this.currentQuality = ctx.visualQuality;
+
     // Ensure correct drone count
     this.ensureDroneCount(ctx);
 
@@ -95,6 +100,28 @@ export class DroneWeapon extends BaseWeapon {
       this.updateDrone(ctx, this.drones[i], i, targetCounts);
     }
 
+    // Sync strike visual: gold connections between synchronized drones + reticle on target
+    if (this.currentQuality === 'high' && this.isMastered() && this.linkGraphics) {
+      for (const [targetId, count] of targetCounts) {
+        if (count < 2) continue;
+        const syncedDrones = this.drones.filter(d => d.targetId === targetId);
+        // Draw lines between synced drones
+        for (let i = 0; i < syncedDrones.length - 1; i++) {
+          this.linkGraphics.lineStyle(1, 0xffd700, 0.3);
+          this.linkGraphics.lineBetween(
+            syncedDrones[i].container.x, syncedDrones[i].container.y,
+            syncedDrones[i + 1].container.x, syncedDrones[i + 1].container.y
+          );
+        }
+        // Gold reticle on target
+        const targetEnemyX = Transform.x[targetId];
+        const targetEnemyY = Transform.y[targetId];
+        const reticleSize = 12 + Math.sin(ctx.gameTime * 6) * 3;
+        this.linkGraphics.lineStyle(1, 0xffd700, 0.4);
+        this.linkGraphics.strokeCircle(targetEnemyX, targetEnemyY, reticleSize);
+      }
+    }
+
     // Update projectiles
     this.updateProjectiles(ctx);
   }
@@ -118,26 +145,61 @@ export class DroneWeapon extends BaseWeapon {
     container.setDepth(8);
 
     // Drone body
-    const body = ctx.scene.add.graphics();
+    const bodyGraphics = ctx.scene.add.graphics();
     const size = 10 * this.stats.size;
 
-    // Main body
-    body.fillStyle(0x44aaff, 1);
-    body.fillEllipse(0, 0, size * 2, size);
+    if (this.currentQuality === 'low') {
+      // Current ellipse body
+      bodyGraphics.fillStyle(0x44aaff, 1);
+      bodyGraphics.fillEllipse(0, 0, size * 2, size);
+      bodyGraphics.fillStyle(0x88ddff, 1);
+      bodyGraphics.fillCircle(0, 0, size * 0.4);
+    } else {
+      // Angular hull: 6-vertex polygon
+      bodyGraphics.fillStyle(0x44aaff, 1);
+      bodyGraphics.beginPath();
+      bodyGraphics.moveTo(size * 1.2, 0);            // nose
+      bodyGraphics.lineTo(size * 0.4, -size * 0.6);  // upper forward
+      bodyGraphics.lineTo(-size * 0.8, -size * 0.5); // upper rear
+      bodyGraphics.lineTo(-size * 1.0, 0);            // tail
+      bodyGraphics.lineTo(-size * 0.8, size * 0.5);   // lower rear
+      bodyGraphics.lineTo(size * 0.4, size * 0.6);    // lower forward
+      bodyGraphics.closePath();
+      bodyGraphics.fillPath();
 
-    // Cockpit
-    body.fillStyle(0x88ddff, 1);
-    body.fillCircle(0, 0, size * 0.4);
+      // Trapezoidal cockpit
+      bodyGraphics.fillStyle(0x88ddff, 1);
+      bodyGraphics.beginPath();
+      bodyGraphics.moveTo(size * 0.6, -size * 0.25);
+      bodyGraphics.lineTo(size * 0.1, -size * 0.35);
+      bodyGraphics.lineTo(size * 0.1, size * 0.35);
+      bodyGraphics.lineTo(size * 0.6, size * 0.25);
+      bodyGraphics.closePath();
+      bodyGraphics.fillPath();
 
-    // Thrusters (static part)
-    body.fillStyle(0x2288dd, 1);
-    body.fillRect(-size * 0.8, size * 0.3, size * 0.4, size * 0.3);
-    body.fillRect(size * 0.4, size * 0.3, size * 0.4, size * 0.3);
+      if (this.currentQuality === 'high') {
+        // Hull panel lines
+        bodyGraphics.lineStyle(1, 0x2288dd, 0.3);
+        bodyGraphics.lineBetween(-size * 0.3, -size * 0.45, -size * 0.3, size * 0.45);
+        bodyGraphics.lineBetween(size * 0.1, -size * 0.5, -size * 0.8, -size * 0.3);
+        bodyGraphics.lineBetween(size * 0.1, size * 0.5, -size * 0.8, size * 0.3);
+
+        // Wing nubs
+        bodyGraphics.fillStyle(0x3399dd, 1);
+        bodyGraphics.fillTriangle(0, -size * 0.6, -size * 0.4, -size * 0.5, -size * 0.2, -size * 0.8);
+        bodyGraphics.fillTriangle(0, size * 0.6, -size * 0.4, size * 0.5, -size * 0.2, size * 0.8);
+      }
+    }
+
+    // Thrusters (static mounting points)
+    bodyGraphics.fillStyle(0x2288dd, 1);
+    bodyGraphics.fillRect(-size * 0.8, size * 0.3, size * 0.4, size * 0.3);
+    bodyGraphics.fillRect(-size * 0.8, -size * 0.6, size * 0.4, size * 0.3);
 
     // Animated thruster flames (separate graphics for per-frame redraw)
     const thrusterGraphics = ctx.scene.add.graphics();
 
-    container.add([body, thrusterGraphics]);
+    container.add([bodyGraphics, thrusterGraphics]);
 
     return {
       container,
@@ -164,30 +226,74 @@ export class DroneWeapon extends BaseWeapon {
       drone.orbitAngle;
     drone.container.setRotation(targetAngle);
 
-    // Animate thruster flames (oscillating size)
+    // Animate thruster flames
     const droneSize = 10 * this.stats.size;
-    const thrusterSize = 4 + Math.sin(ctx.gameTime * 15) * 2;
     drone.thrusterGraphics.clear();
-    // Left thruster flame (orange outer, blue inner)
-    drone.thrusterGraphics.fillStyle(0xffaa44, 0.7);
-    drone.thrusterGraphics.fillCircle(-droneSize * 0.6, droneSize * 0.55, thrusterSize);
-    drone.thrusterGraphics.fillStyle(0x66ccff, 0.9);
-    drone.thrusterGraphics.fillCircle(-droneSize * 0.6, droneSize * 0.55, thrusterSize * 0.5);
-    // Right thruster flame
-    drone.thrusterGraphics.fillStyle(0xffaa44, 0.7);
-    drone.thrusterGraphics.fillCircle(droneSize * 0.6, droneSize * 0.55, thrusterSize);
-    drone.thrusterGraphics.fillStyle(0x66ccff, 0.9);
-    drone.thrusterGraphics.fillCircle(droneSize * 0.6, droneSize * 0.55, thrusterSize * 0.5);
 
-    // Draw player-drone link (faint dotted line) on shared linkGraphics
+    if (this.currentQuality === 'low') {
+      // Low: oscillating flame circles
+      const thrusterSize = 4 + Math.sin(ctx.gameTime * 15) * 2;
+      // Left thruster flame (orange outer, blue inner)
+      drone.thrusterGraphics.fillStyle(0xffaa44, 0.7);
+      drone.thrusterGraphics.fillCircle(-droneSize * 0.6, -droneSize * 0.45, thrusterSize);
+      drone.thrusterGraphics.fillStyle(0x66ccff, 0.9);
+      drone.thrusterGraphics.fillCircle(-droneSize * 0.6, -droneSize * 0.45, thrusterSize * 0.5);
+      // Right thruster flame
+      drone.thrusterGraphics.fillStyle(0xffaa44, 0.7);
+      drone.thrusterGraphics.fillCircle(-droneSize * 0.6, droneSize * 0.45, thrusterSize);
+      drone.thrusterGraphics.fillStyle(0x66ccff, 0.9);
+      drone.thrusterGraphics.fillCircle(-droneSize * 0.6, droneSize * 0.45, thrusterSize * 0.5);
+    } else {
+      // Medium/High: exhaust ellipses with flickering length
+      const exhaustLength = 6 + Math.sin(ctx.gameTime * 12) * 3;
+      // Left thruster
+      drone.thrusterGraphics.fillStyle(0xffaa44, 0.5);
+      drone.thrusterGraphics.fillEllipse(-droneSize * 0.6, -droneSize * 0.45, exhaustLength, droneSize * 0.35);
+      drone.thrusterGraphics.fillStyle(0x88ddff, 0.8);
+      drone.thrusterGraphics.fillEllipse(-droneSize * 0.6, -droneSize * 0.45, exhaustLength * 0.5, droneSize * 0.15);
+      // Right thruster
+      drone.thrusterGraphics.fillStyle(0xffaa44, 0.5);
+      drone.thrusterGraphics.fillEllipse(-droneSize * 0.6, droneSize * 0.45, exhaustLength, droneSize * 0.35);
+      drone.thrusterGraphics.fillStyle(0x88ddff, 0.8);
+      drone.thrusterGraphics.fillEllipse(-droneSize * 0.6, droneSize * 0.45, exhaustLength * 0.5, droneSize * 0.15);
+
+      if (this.currentQuality === 'high') {
+        // Hot center points
+        drone.thrusterGraphics.fillStyle(0xffffff, 0.9);
+        drone.thrusterGraphics.fillCircle(-droneSize * 0.5, -droneSize * 0.45, 1.5);
+        drone.thrusterGraphics.fillCircle(-droneSize * 0.5, droneSize * 0.45, 1.5);
+      }
+    }
+
+    // Draw player-drone energy link on shared linkGraphics
     if (this.linkGraphics) {
-      const linkDotCount = 5;
-      this.linkGraphics.fillStyle(0x44aaff, 0.1);
-      for (let dotIdx = 0; dotIdx < linkDotCount; dotIdx++) {
-        const interpolation = (dotIdx + 1) / (linkDotCount + 1);
-        const linkDotX = ctx.playerX + (droneX - ctx.playerX) * interpolation;
-        const linkDotY = ctx.playerY + (droneY - ctx.playerY) * interpolation;
-        this.linkGraphics.fillCircle(linkDotX, linkDotY, 1.5);
+      if (this.currentQuality === 'low') {
+        // Low: 5 static faint dots
+        const linkDotCount = 5;
+        this.linkGraphics.fillStyle(0x44aaff, 0.1);
+        for (let dotIdx = 0; dotIdx < linkDotCount; dotIdx++) {
+          const interpolation = (dotIdx + 1) / (linkDotCount + 1);
+          const linkDotX = ctx.playerX + (droneX - ctx.playerX) * interpolation;
+          const linkDotY = ctx.playerY + (droneY - ctx.playerY) * interpolation;
+          this.linkGraphics.fillCircle(linkDotX, linkDotY, 1.5);
+        }
+      } else {
+        // Medium/High: flowing dots cycling from player to drone
+        const flowDotCount = this.currentQuality === 'high' ? 8 : 5;
+
+        // Faint connecting line (high only)
+        if (this.currentQuality === 'high') {
+          this.linkGraphics.lineStyle(1, 0x44aaff, 0.05);
+          this.linkGraphics.lineBetween(ctx.playerX, ctx.playerY, droneX, droneY);
+        }
+
+        this.linkGraphics.fillStyle(0x44aaff, 0.15);
+        for (let dotIdx = 0; dotIdx < flowDotCount; dotIdx++) {
+          const interpolation = (dotIdx / flowDotCount + ctx.gameTime * 3) % 1.0;
+          const linkDotX = ctx.playerX + (droneX - ctx.playerX) * interpolation;
+          const linkDotY = ctx.playerY + (droneY - ctx.playerY) * interpolation;
+          this.linkGraphics.fillCircle(linkDotX, linkDotY, 1.5);
+        }
       }
     }
 
@@ -226,15 +332,42 @@ export class DroneWeapon extends BaseWeapon {
     const size = 4 * this.stats.size;
     // Gold color for synchronized strikes
     const projectileColor = isSynchronized ? 0xffd700 : 0x4488ff;
-    const sprite = ctx.scene.add.circle(startX, startY, isSynchronized ? size * 1.3 : size, projectileColor);
-    sprite.setStrokeStyle(2, 0xffffff); // White outline
-    sprite.setDepth(7);
 
     // Combat Network: +100% damage for synchronized strikes
     const projectileDamage = isSynchronized ? this.stats.damage * 2 : this.stats.damage;
 
+    let projectileSprite: Phaser.GameObjects.Arc | Phaser.GameObjects.Graphics;
+
+    if (this.currentQuality === 'low') {
+      // Low: simple circle
+      const circleSprite = ctx.scene.add.circle(startX, startY, isSynchronized ? size * 1.3 : size, projectileColor);
+      circleSprite.setStrokeStyle(2, 0xffffff);
+      circleSprite.setDepth(7);
+      projectileSprite = circleSprite;
+    } else {
+      // Medium/High: diamond shaped projectile
+      const projGraphics = ctx.scene.add.graphics();
+      projGraphics.setPosition(startX, startY);
+      projGraphics.setDepth(7);
+
+      const projSize = isSynchronized ? size * 1.3 : size;
+      projGraphics.fillStyle(projectileColor, 1);
+      projGraphics.beginPath();
+      projGraphics.moveTo(projSize * 1.5, 0);     // front
+      projGraphics.lineTo(0, -projSize * 0.8);     // top
+      projGraphics.lineTo(-projSize, 0);            // back
+      projGraphics.lineTo(0, projSize * 0.8);       // bottom
+      projGraphics.closePath();
+      projGraphics.fillPath();
+      projGraphics.lineStyle(1, 0xffffff, 0.8);
+      projGraphics.lineBetween(-projSize * 0.5, 0, projSize * 1.0, 0); // center line
+
+      projGraphics.setRotation(angle);
+      projectileSprite = projGraphics;
+    }
+
     this.projectiles.push({
-      sprite,
+      sprite: projectileSprite,
       velocityX: Math.cos(angle) * this.stats.speed,
       velocityY: Math.sin(angle) * this.stats.speed,
       lifetime: this.stats.duration,
@@ -281,8 +414,17 @@ export class DroneWeapon extends BaseWeapon {
       // Draw trail line from previous to current position
       if (this.projectileTrailGraphics) {
         const trailColor = proj.isSynchronized ? 0xffd700 : 0x4488ff;
-        this.projectileTrailGraphics.lineStyle(2, trailColor, 0.4);
-        this.projectileTrailGraphics.lineBetween(proj.prevX, proj.prevY, proj.sprite.x, proj.sprite.y);
+        if (this.currentQuality === 'high') {
+          // High: 2-layer trail - wider glow + thin white core
+          this.projectileTrailGraphics.lineStyle(4, trailColor, 0.2);
+          this.projectileTrailGraphics.lineBetween(proj.prevX, proj.prevY, proj.sprite.x, proj.sprite.y);
+          this.projectileTrailGraphics.lineStyle(1, 0xffffff, 0.5);
+          this.projectileTrailGraphics.lineBetween(proj.prevX, proj.prevY, proj.sprite.x, proj.sprite.y);
+        } else {
+          // Low/Medium: single line trail
+          this.projectileTrailGraphics.lineStyle(2, trailColor, 0.4);
+          this.projectileTrailGraphics.lineBetween(proj.prevX, proj.prevY, proj.sprite.x, proj.sprite.y);
+        }
       }
 
       // Bounds check

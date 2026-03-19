@@ -1,6 +1,7 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
+import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
  * ChainLightningWeapon fires a bolt that jumps between enemies.
@@ -213,9 +214,11 @@ export class ChainLightningWeapon extends BaseWeapon {
     this.lightningGraphics = ctx.scene.add.graphics();
     this.lightningGraphics.setDepth(15);
 
+    const currentQuality = ctx.visualQuality;
+
     // Initial draw of all connections
     for (const conn of connections) {
-      this.drawLightningBolt(conn.from.x, conn.from.y, conn.to.x, conn.to.y);
+      this.drawLightningBolt(conn.from.x, conn.from.y, conn.to.x, conn.to.y, currentQuality);
     }
 
     // Sparks at all hit points
@@ -239,13 +242,14 @@ export class ChainLightningWeapon extends BaseWeapon {
       });
     }
 
-    // Snapshot connections for re-randomization
+    // Snapshot connections and target positions for re-randomization
     const connectionSnapshot = connections.map(conn => ({
       fromX: conn.from.x,
       fromY: conn.from.y,
       toX: conn.to.x,
       toY: conn.to.y,
     }));
+    const targetPositionSnapshot = targets.map(target => ({ x: target.x, y: target.y }));
 
     // Animated bolt re-randomization
     const animatedGraphics = this.lightningGraphics;
@@ -259,7 +263,35 @@ export class ChainLightningWeapon extends BaseWeapon {
         animatedGraphics.clear();
         animatedGraphics.setAlpha(counterValue);
         for (const conn of connectionSnapshot) {
-          this.drawLightningBoltOn(animatedGraphics, conn.fromX, conn.fromY, conn.toX, conn.toY);
+          this.drawLightningBoltOn(animatedGraphics, conn.fromX, conn.fromY, conn.toX, conn.toY, currentQuality);
+        }
+
+        // High quality: impact sparks + radial pulse web + energy node dots
+        if (currentQuality === 'high') {
+          this.drawImpactSparks(animatedGraphics, targetPositionSnapshot, counterValue);
+
+          // Radial pulse: modulate connection width and alpha with sine wave
+          const pulsePhase = Math.sin(counterValue * Math.PI * 2);
+          const pulseAlpha = 0.15 + pulsePhase * 0.1;
+          const pulseWidth = 4 + pulsePhase * 2;
+          animatedGraphics.lineStyle(pulseWidth, 0x4488ff, pulseAlpha * counterValue);
+          for (const conn of connectionSnapshot) {
+            animatedGraphics.beginPath();
+            animatedGraphics.moveTo(conn.fromX, conn.fromY);
+            animatedGraphics.lineTo(conn.toX, conn.toY);
+            animatedGraphics.strokePath();
+          }
+
+          // Energy node dots at each target position
+          const nodeRadius = 3 + pulsePhase;
+          const nodeAlpha = (0.6 + pulsePhase * 0.3) * counterValue;
+          for (const targetPosition of targetPositionSnapshot) {
+            animatedGraphics.fillStyle(0xaaddff, nodeAlpha);
+            animatedGraphics.fillCircle(targetPosition.x, targetPosition.y, nodeRadius);
+            // Outer glow ring
+            animatedGraphics.lineStyle(1, 0x88ccff, nodeAlpha * 0.5);
+            animatedGraphics.strokeCircle(targetPosition.x, targetPosition.y, nodeRadius + 3);
+          }
         }
       },
       onComplete: () => {
@@ -295,9 +327,11 @@ export class ChainLightningWeapon extends BaseWeapon {
       segStartY = target.y;
     }
 
+    const currentQuality = ctx.visualQuality;
+
     // Initial draw
     for (const segment of segments) {
-      this.drawLightningBolt(segment.x1, segment.y1, segment.x2, segment.y2);
+      this.drawLightningBolt(segment.x1, segment.y1, segment.x2, segment.y2, currentQuality);
     }
 
     // Spark at each hit point
@@ -321,6 +355,9 @@ export class ChainLightningWeapon extends BaseWeapon {
       });
     }
 
+    // Snapshot target positions for impact sparks during animation
+    const targetPositionSnapshot = targets.map(target => ({ x: target.x, y: target.y }));
+
     // Animated bolt re-randomization: redraw with fresh random offsets each frame
     const animatedGraphics = this.lightningGraphics;
     ctx.scene.tweens.addCounter({
@@ -333,7 +370,12 @@ export class ChainLightningWeapon extends BaseWeapon {
         animatedGraphics.clear();
         animatedGraphics.setAlpha(counterValue);
         for (const segment of segments) {
-          this.drawLightningBoltOn(animatedGraphics, segment.x1, segment.y1, segment.x2, segment.y2);
+          this.drawLightningBoltOn(animatedGraphics, segment.x1, segment.y1, segment.x2, segment.y2, currentQuality);
+        }
+
+        // High quality: draw impact sparks at each hit point (re-randomized each frame for crackle)
+        if (currentQuality === 'high') {
+          this.drawImpactSparks(animatedGraphics, targetPositionSnapshot, counterValue);
         }
       },
       onComplete: () => {
@@ -347,16 +389,17 @@ export class ChainLightningWeapon extends BaseWeapon {
     });
   }
 
-  private drawLightningBolt(x1: number, y1: number, x2: number, y2: number): void {
+  private drawLightningBolt(x1: number, y1: number, x2: number, y2: number, quality: VisualQuality = 'medium'): void {
     if (!this.lightningGraphics) return;
-    this.drawLightningBoltOn(this.lightningGraphics, x1, y1, x2, y2);
+    this.drawLightningBoltOn(this.lightningGraphics, x1, y1, x2, y2, quality);
   }
 
   private drawLightningBoltOn(
     graphics: Phaser.GameObjects.Graphics,
-    x1: number, y1: number, x2: number, y2: number
+    x1: number, y1: number, x2: number, y2: number,
+    quality: VisualQuality = 'medium'
   ): void {
-    const segmentCount = 6;
+    const segmentCount = quality === 'high' ? 8 : quality === 'medium' ? 6 : 4;
     const dx = x2 - x1;
     const dy = y2 - y1;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -364,14 +407,8 @@ export class ChainLightningWeapon extends BaseWeapon {
     const perpX = -dy / dist;
     const perpY = dx / dist;
 
-    // Store segment midpoints for branching
+    // Build the jagged segment path once, shared by all 3 layers
     const segmentPoints: { x: number; y: number }[] = [{ x: x1, y: y1 }];
-
-    // Main bolt
-    graphics.lineStyle(3, 0x88ccff, 1);
-    graphics.beginPath();
-    graphics.moveTo(x1, y1);
-
     for (let segmentIndex = 1; segmentIndex < segmentCount; segmentIndex++) {
       const interpolation = segmentIndex / segmentCount;
       const baseX = x1 + dx * interpolation;
@@ -379,32 +416,45 @@ export class ChainLightningWeapon extends BaseWeapon {
       const offset = (Math.random() - 0.5) * 20 * this.stats.size;
       const pointX = baseX + perpX * offset;
       const pointY = baseY + perpY * offset;
-      graphics.lineTo(pointX, pointY);
       segmentPoints.push({ x: pointX, y: pointY });
     }
-
-    graphics.lineTo(x2, y2);
-    graphics.strokePath();
     segmentPoints.push({ x: x2, y: y2 });
 
-    // Glow effect
+    // Glow layer - follows the jagged path
     graphics.lineStyle(8, 0x4488ff, 0.3);
     graphics.beginPath();
-    graphics.moveTo(x1, y1);
-    graphics.lineTo(x2, y2);
+    graphics.moveTo(segmentPoints[0].x, segmentPoints[0].y);
+    for (let pointIndex = 1; pointIndex < segmentPoints.length; pointIndex++) {
+      graphics.lineTo(segmentPoints[pointIndex].x, segmentPoints[pointIndex].y);
+    }
     graphics.strokePath();
 
-    // Core
+    // Main bolt layer - follows the same jagged path
+    graphics.lineStyle(3, 0x88ccff, 1);
+    graphics.beginPath();
+    graphics.moveTo(segmentPoints[0].x, segmentPoints[0].y);
+    for (let pointIndex = 1; pointIndex < segmentPoints.length; pointIndex++) {
+      graphics.lineTo(segmentPoints[pointIndex].x, segmentPoints[pointIndex].y);
+    }
+    graphics.strokePath();
+
+    // Core layer - follows the same jagged path
     graphics.lineStyle(1, 0xffffff, 1);
     graphics.beginPath();
-    graphics.moveTo(x1, y1);
-    graphics.lineTo(x2, y2);
+    graphics.moveTo(segmentPoints[0].x, segmentPoints[0].y);
+    for (let pointIndex = 1; pointIndex < segmentPoints.length; pointIndex++) {
+      graphics.lineTo(segmentPoints[pointIndex].x, segmentPoints[pointIndex].y);
+    }
     graphics.strokePath();
 
-    // Branching micro-bolts: 50% chance per segment to spawn a 1-2 segment branch
+    // Branching micro-bolts: quality-dependent chance and complexity
+    const branchChance = quality === 'high' ? 0.65 : quality === 'medium' ? 0.50 : 0.40;
+    const maxBranchSegments = quality === 'high' ? 3 : quality === 'medium' ? 2 : 1;
+    const minBranchSegments = 1;
+
     graphics.lineStyle(1, 0xaaddff, 0.5);
     for (let segmentIndex = 1; segmentIndex < segmentPoints.length - 1; segmentIndex++) {
-      if (Math.random() < 0.5) continue;
+      if (Math.random() > branchChance) continue;
 
       const branchOrigin = segmentPoints[segmentIndex];
       const nextPoint = segmentPoints[segmentIndex + 1];
@@ -414,7 +464,7 @@ export class ChainLightningWeapon extends BaseWeapon {
 
       // Diverge at +/- 30 to 45 degrees
       const branchAngle = mainAngle + (Math.random() > 0.5 ? 1 : -1) * (Math.PI / 6 + Math.random() * Math.PI / 12);
-      const branchSegments = 1 + Math.floor(Math.random() * 2);
+      const branchSegments = minBranchSegments + Math.floor(Math.random() * (maxBranchSegments - minBranchSegments + 1));
       const branchLength = 15 + Math.random() * 15;
 
       graphics.beginPath();
@@ -422,13 +472,57 @@ export class ChainLightningWeapon extends BaseWeapon {
 
       let branchCurrentX = branchOrigin.x;
       let branchCurrentY = branchOrigin.y;
+      let lastBranchX = branchCurrentX;
+      let lastBranchY = branchCurrentY;
       for (let branchStep = 0; branchStep < branchSegments; branchStep++) {
         const stepLength = branchLength / branchSegments;
         branchCurrentX += Math.cos(branchAngle) * stepLength + (Math.random() - 0.5) * 6;
         branchCurrentY += Math.sin(branchAngle) * stepLength + (Math.random() - 0.5) * 6;
         graphics.lineTo(branchCurrentX, branchCurrentY);
+        lastBranchX = branchCurrentX;
+        lastBranchY = branchCurrentY;
       }
       graphics.strokePath();
+
+      // High quality: 20% chance of sub-fork from branch tip
+      if (quality === 'high' && Math.random() < 0.20) {
+        const subForkAngle = branchAngle + (Math.random() > 0.5 ? 1 : -1) * (Math.PI / 5 + Math.random() * Math.PI / 8);
+        const subForkLength = 8 + Math.random() * 10;
+        graphics.beginPath();
+        graphics.moveTo(lastBranchX, lastBranchY);
+        graphics.lineTo(
+          lastBranchX + Math.cos(subForkAngle) * subForkLength,
+          lastBranchY + Math.sin(subForkAngle) * subForkLength
+        );
+        graphics.strokePath();
+      }
+    }
+  }
+
+  /**
+   * Draw 4 spark lines per impact point, re-randomized each frame for a crackle effect.
+   * Used at high quality during the animated tween onUpdate.
+   */
+  private drawImpactSparks(
+    graphics: Phaser.GameObjects.Graphics,
+    targetPositions: { x: number; y: number }[],
+    alphaMultiplier: number
+  ): void {
+    const sparkCount = 4;
+    const sparkLength = 8;
+    graphics.lineStyle(1, 0xccddff, 0.7 * alphaMultiplier);
+    for (const targetPosition of targetPositions) {
+      for (let sparkIndex = 0; sparkIndex < sparkCount; sparkIndex++) {
+        const sparkAngle = Math.random() * Math.PI * 2;
+        const sparkDist = 3 + Math.random() * sparkLength;
+        graphics.beginPath();
+        graphics.moveTo(targetPosition.x, targetPosition.y);
+        graphics.lineTo(
+          targetPosition.x + Math.cos(sparkAngle) * sparkDist,
+          targetPosition.y + Math.sin(sparkAngle) * sparkDist
+        );
+        graphics.strokePath();
+      }
     }
   }
 

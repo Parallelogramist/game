@@ -2,6 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Velocity } from '../ecs/components';
 import { WEAPON_COLORS } from '../visual/NeonColors';
 import { DepthLayers } from '../visual/DepthLayers';
+import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
  * AuraWeapon creates a damaging field around the player.
@@ -10,10 +11,12 @@ import { DepthLayers } from '../visual/DepthLayers';
  */
 export class AuraWeapon extends BaseWeapon {
   private auraGraphics: Phaser.GameObjects.Graphics | null = null;
+  private rippleGraphics: Phaser.GameObjects.Graphics | null = null;
   private pulsePhase: number = 0;
   private hitCooldowns: Map<number, number> = new Map();
   private damageFlashIntensity: number = 0;
   private lastPulsePhase: number = 0;
+  private currentQuality: VisualQuality = 'high';
 
   // Mastery: Consecrated Ground
   private stillnessTimer: number = 0;
@@ -55,6 +58,9 @@ export class AuraWeapon extends BaseWeapon {
     const currentTime = ctx.gameTime;
     const radius = this.stats.range * this.stats.size;
 
+    // Track visual quality from context
+    this.currentQuality = ctx.visualQuality;
+
     // Mastery: Consecrated Ground - check if player is standing still
     let damageMultiplier = 1;
     if (this.isMastered()) {
@@ -78,7 +84,7 @@ export class AuraWeapon extends BaseWeapon {
       this.auraGraphics.setScale(pulseScale);
 
       // Redraw with current radius and consecrated state
-      this.drawAura(radius);
+      this.drawAura(radius, this.currentQuality);
     }
 
     // Deal damage to enemies in range
@@ -111,20 +117,30 @@ export class AuraWeapon extends BaseWeapon {
       }
     }
 
-    // Ripple ring on full pulse cycle
+    // Ripple ring on full pulse cycle (pooled Graphics object)
     if (Math.floor(this.pulsePhase / (Math.PI * 2)) > Math.floor(this.lastPulsePhase / (Math.PI * 2))) {
       const rippleColor = this.isConsecrated ? 0xffd700 : WEAPON_COLORS.auraRing.core;
-      const rippleRing = ctx.scene.add.circle(ctx.playerX, ctx.playerY, radius, rippleColor, 0);
-      rippleRing.setStrokeStyle(2, rippleColor, 0.5);
-      rippleRing.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
 
+      if (!this.rippleGraphics) {
+        this.rippleGraphics = ctx.scene.add.graphics();
+        this.rippleGraphics.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
+      }
+
+      // Reset and redraw the ripple ring
+      this.rippleGraphics.clear();
+      this.rippleGraphics.setPosition(ctx.playerX, ctx.playerY);
+      this.rippleGraphics.setScale(1);
+      this.rippleGraphics.setAlpha(1);
+      this.rippleGraphics.lineStyle(2, rippleColor, 0.5);
+      this.rippleGraphics.strokeCircle(0, 0, radius);
+
+      ctx.scene.tweens.killTweensOf(this.rippleGraphics);
       ctx.scene.tweens.add({
-        targets: rippleRing,
+        targets: this.rippleGraphics,
         scaleX: 1.3,
         scaleY: 1.3,
         alpha: 0,
         duration: 400,
-        onComplete: () => rippleRing.destroy(),
       });
     }
     this.lastPulsePhase = this.pulsePhase;
@@ -214,7 +230,7 @@ export class AuraWeapon extends BaseWeapon {
     }
   }
 
-  private drawAura(radius: number): void {
+  private drawAura(radius: number, quality: VisualQuality): void {
     if (!this.auraGraphics) return;
 
     this.auraGraphics.clear();
@@ -229,9 +245,29 @@ export class AuraWeapon extends BaseWeapon {
     // Decay damage flash
     this.damageFlashIntensity = Math.max(0, this.damageFlashIntensity - 0.05);
 
-    // Outer glow (boosted by damage flash)
-    this.auraGraphics.fillStyle(outerColor, (this.isConsecrated ? 0.15 : 0.1) + this.damageFlashIntensity * 0.3);
-    this.auraGraphics.fillCircle(0, 0, radius);
+    // Outer glow (wavy edge at high/medium, plain circle at low)
+    const outerAlpha = (this.isConsecrated ? 0.15 : 0.1) + this.damageFlashIntensity * 0.3;
+    if (quality === 'low') {
+      this.auraGraphics.fillStyle(outerColor, outerAlpha);
+      this.auraGraphics.fillCircle(0, 0, radius);
+    } else {
+      const vertexCount = quality === 'high' ? 24 : 16;
+      this.auraGraphics.fillStyle(outerColor, outerAlpha);
+      this.auraGraphics.beginPath();
+      for (let i = 0; i < vertexCount; i++) {
+        const vertexAngle = (i / vertexCount) * Math.PI * 2;
+        const wavyRadius = radius + Math.sin(this.pulsePhase * 3 + i * 0.7) * radius * 0.06;
+        const vertexX = Math.cos(vertexAngle) * wavyRadius;
+        const vertexY = Math.sin(vertexAngle) * wavyRadius;
+        if (i === 0) {
+          this.auraGraphics.moveTo(vertexX, vertexY);
+        } else {
+          this.auraGraphics.lineTo(vertexX, vertexY);
+        }
+      }
+      this.auraGraphics.closePath();
+      this.auraGraphics.fillPath();
+    }
 
     // Inner ring
     this.auraGraphics.fillStyle(midColor, this.isConsecrated ? 0.2 : 0.15);
@@ -250,26 +286,134 @@ export class AuraWeapon extends BaseWeapon {
     this.auraGraphics.lineStyle(1, detailColor, this.isConsecrated ? 0.3 : 0.2);
     this.auraGraphics.strokeCircle(0, 0, radius * 0.5);
 
-    // Orbiting edge particles — 6 bright dots rotating along aura perimeter
-    for (let i = 0; i < 6; i++) {
-      const particleAngle = (i / 6) * Math.PI * 2 + this.pulsePhase * 0.5;
+    // Orbiting edge particles — quality-scaled
+    const outerDotCount = quality === 'high' ? 8 : quality === 'medium' ? 6 : 4;
+    for (let i = 0; i < outerDotCount; i++) {
+      const particleAngle = (i / outerDotCount) * Math.PI * 2 + this.pulsePhase * 0.5;
       const particleX = Math.cos(particleAngle) * radius;
       const particleY = Math.sin(particleAngle) * radius;
       this.auraGraphics.fillStyle(ringColor, 0.8);
       this.auraGraphics.fillCircle(particleX, particleY, 3);
+
+      // High quality: trailing arc behind each outer dot (3 line segments)
+      if (quality === 'high') {
+        this.auraGraphics.lineStyle(1.5, ringColor, 0.4);
+        this.auraGraphics.beginPath();
+        for (let segmentIndex = 0; segmentIndex < 4; segmentIndex++) {
+          const trailAngle = particleAngle - segmentIndex * 0.08;
+          const trailX = Math.cos(trailAngle) * radius;
+          const trailY = Math.sin(trailAngle) * radius;
+          if (segmentIndex === 0) {
+            this.auraGraphics.moveTo(trailX, trailY);
+          } else {
+            this.auraGraphics.lineTo(trailX, trailY);
+          }
+        }
+        this.auraGraphics.strokePath();
+      }
     }
 
-    // Extra consecrated visual: radiant cross pattern
+    // High quality: 4 counter-rotating inner dots at 70% radius
+    if (quality === 'high') {
+      const innerDotRadius = radius * 0.7;
+      for (let i = 0; i < 4; i++) {
+        const innerDotAngle = (i / 4) * Math.PI * 2 - this.pulsePhase * 0.35;
+        const innerDotX = Math.cos(innerDotAngle) * innerDotRadius;
+        const innerDotY = Math.sin(innerDotAngle) * innerDotRadius;
+        this.auraGraphics.fillStyle(detailColor, 0.6);
+        this.auraGraphics.fillCircle(innerDotX, innerDotY, 2);
+      }
+    }
+
+    // Damage flash: sharp white stroke ring at high quality
+    if (quality === 'high' && this.damageFlashIntensity > 0.1) {
+      const flashRingRadius = radius * 1.05;
+      this.auraGraphics.lineStyle(2, 0xffffff, this.damageFlashIntensity);
+      this.auraGraphics.strokeCircle(0, 0, flashRingRadius);
+    }
+
+    // Extra consecrated visual — quality-scaled
     if (this.isConsecrated) {
-      const crossLength = radius * 0.6;
       const crossAlpha = 0.2 + Math.sin(this.pulsePhase * 3) * 0.1;
-      this.auraGraphics.lineStyle(2, 0xffffff, crossAlpha);
-      this.auraGraphics.beginPath();
-      this.auraGraphics.moveTo(-crossLength, 0);
-      this.auraGraphics.lineTo(crossLength, 0);
-      this.auraGraphics.moveTo(0, -crossLength);
-      this.auraGraphics.lineTo(0, crossLength);
-      this.auraGraphics.strokePath();
+
+      if (quality === 'high') {
+        // 8 radiant starburst lines from center outward (radius * 0.7)
+        const starburstOuterLength = radius * 0.7;
+        this.auraGraphics.lineStyle(2, 0xffffff, crossAlpha);
+        this.auraGraphics.beginPath();
+        for (let i = 0; i < 8; i++) {
+          const starburstAngle = (i / 8) * Math.PI * 2;
+          this.auraGraphics.moveTo(0, 0);
+          this.auraGraphics.lineTo(
+            Math.cos(starburstAngle) * starburstOuterLength,
+            Math.sin(starburstAngle) * starburstOuterLength
+          );
+        }
+        this.auraGraphics.strokePath();
+
+        // 8 inner lines from center (radius * 0.4)
+        const starburstInnerLength = radius * 0.4;
+        this.auraGraphics.lineStyle(1, 0xffd700, crossAlpha * 0.8);
+        this.auraGraphics.beginPath();
+        for (let i = 0; i < 8; i++) {
+          const innerStarAngle = (i / 8) * Math.PI * 2 + Math.PI / 8; // offset by half-step
+          this.auraGraphics.moveTo(0, 0);
+          this.auraGraphics.lineTo(
+            Math.cos(innerStarAngle) * starburstInnerLength,
+            Math.sin(innerStarAngle) * starburstInnerLength
+          );
+        }
+        this.auraGraphics.strokePath();
+
+        // 4 diamond shapes at cardinal tips (N/E/S/W at radius * 0.65)
+        const diamondDistance = radius * 0.65;
+        const diamondHalfWidth = 4;
+        const diamondHalfHeight = 8;
+        this.auraGraphics.fillStyle(0xffd700, crossAlpha);
+        const cardinalAngles = [
+          -Math.PI / 2, // North
+          0,            // East
+          Math.PI / 2,  // South
+          Math.PI,      // West
+        ];
+        for (const cardinalAngle of cardinalAngles) {
+          const diamondCenterX = Math.cos(cardinalAngle) * diamondDistance;
+          const diamondCenterY = Math.sin(cardinalAngle) * diamondDistance;
+          const cosAngle = Math.cos(cardinalAngle);
+          const sinAngle = Math.sin(cardinalAngle);
+          // Draw diamond rotated to face outward
+          this.auraGraphics.beginPath();
+          this.auraGraphics.moveTo(
+            diamondCenterX + cosAngle * diamondHalfHeight,
+            diamondCenterY + sinAngle * diamondHalfHeight
+          );
+          this.auraGraphics.lineTo(
+            diamondCenterX + -sinAngle * diamondHalfWidth,
+            diamondCenterY + cosAngle * diamondHalfWidth
+          );
+          this.auraGraphics.lineTo(
+            diamondCenterX - cosAngle * diamondHalfHeight,
+            diamondCenterY - sinAngle * diamondHalfHeight
+          );
+          this.auraGraphics.lineTo(
+            diamondCenterX + sinAngle * diamondHalfWidth,
+            diamondCenterY - cosAngle * diamondHalfWidth
+          );
+          this.auraGraphics.closePath();
+          this.auraGraphics.fillPath();
+        }
+      } else if (quality === 'medium') {
+        // Medium: simple cross (original behavior)
+        const crossLength = radius * 0.6;
+        this.auraGraphics.lineStyle(2, 0xffffff, crossAlpha);
+        this.auraGraphics.beginPath();
+        this.auraGraphics.moveTo(-crossLength, 0);
+        this.auraGraphics.lineTo(crossLength, 0);
+        this.auraGraphics.moveTo(0, -crossLength);
+        this.auraGraphics.lineTo(0, crossLength);
+        this.auraGraphics.strokePath();
+      }
+      // Low: skip consecrated visual entirely
     }
   }
 
@@ -287,6 +431,10 @@ export class AuraWeapon extends BaseWeapon {
     if (this.auraGraphics) {
       this.auraGraphics.destroy();
       this.auraGraphics = null;
+    }
+    if (this.rippleGraphics) {
+      this.rippleGraphics.destroy();
+      this.rippleGraphics = null;
     }
     this.hitCooldowns.clear();
     super.destroy();

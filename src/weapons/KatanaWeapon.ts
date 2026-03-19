@@ -3,6 +3,7 @@ import { Transform } from '../ecs/components';
 import { getJuiceManager } from '../effects/JuiceManager';
 import { WEAPON_COLORS } from '../visual/NeonColors';
 import { DepthLayers } from '../visual/DepthLayers';
+import type { VisualQuality } from '../visual/GlowGraphics';
 
 interface SlashArc {
   centerX: number;
@@ -247,13 +248,18 @@ export class KatanaWeapon extends BaseWeapon {
   /**
    * Draws a single crescent-shaped slash arc onto a Graphics object.
    * The shape is two quadratic bezier curves forming a lens that tapers to points.
+   * Quality controls bezier segment count and layer complexity.
    */
   private drawSlashArc(
     graphics: Phaser.GameObjects.Graphics,
     arc: SlashArc,
     sweepProgress: number,
-    alpha: number
+    alpha: number,
+    quality: VisualQuality
   ): void {
+    const bezierSegments = quality === 'high' ? 12 : quality === 'medium' ? 8 : 5;
+    const innerControlMultiplier = quality === 'high' ? 0.15 : 0.3;
+
     const halfLen = arc.length * 0.5;
     const cosA = Math.cos(arc.angle);
     const sinA = Math.sin(arc.angle);
@@ -279,53 +285,166 @@ export class KatanaWeapon extends BaseWeapon {
     // Control points for the two bezier curves (outer and inner arcs)
     const outerControlX = midX + perpX * arc.curvature;
     const outerControlY = midY + perpY * arc.curvature;
-    const innerControlX = midX - perpX * arc.curvature * 0.3;
-    const innerControlY = midY - perpY * arc.curvature * 0.3;
+    const innerControlX = midX - perpX * arc.curvature * innerControlMultiplier;
+    const innerControlY = midY - perpY * arc.curvature * innerControlMultiplier;
 
-    // -- Outer glow (wider filled crescent so it tapers to points, no round caps) --
-    const glowScale = 1.6;
-    const glowOuterControlX = midX + perpX * arc.curvature * glowScale;
-    const glowOuterControlY = midY + perpY * arc.curvature * glowScale;
-    const glowInnerControlX = midX - perpX * arc.curvature * 0.5;
-    const glowInnerControlY = midY - perpY * arc.curvature * 0.5;
+    if (quality === 'low') {
+      // Low: 2 layers — main fill + core
+      // -- Main filled crescent shape --
+      graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.4);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, innerControlX, innerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
 
-    graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.15);
-    graphics.beginPath();
-    graphics.moveTo(tipStartX, tipStartY);
-    this.quadBezierTo(graphics, tipStartX, tipStartY, glowOuterControlX, glowOuterControlY, currentEndX, currentEndY);
-    this.quadBezierTo(graphics, currentEndX, currentEndY, glowInnerControlX, glowInnerControlY, tipStartX, tipStartY);
-    graphics.closePath();
-    graphics.fillPath();
+      // -- White-hot core (thin filled sliver) --
+      const coreOuterControlX = midX + perpX * arc.curvature * 0.55;
+      const coreOuterControlY = midY + perpY * arc.curvature * 0.55;
+      const coreInnerControlX = midX + perpX * arc.curvature * 0.35;
+      const coreInnerControlY = midY + perpY * arc.curvature * 0.35;
 
-    // -- Main filled crescent shape --
-    graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.4);
-    graphics.beginPath();
-    graphics.moveTo(tipStartX, tipStartY);
-    this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY);
-    this.quadBezierTo(graphics, currentEndX, currentEndY, innerControlX, innerControlY, tipStartX, tipStartY);
-    graphics.closePath();
-    graphics.fillPath();
+      graphics.fillStyle(0xffffff, alpha * 0.9);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, coreOuterControlX, coreOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, coreInnerControlX, coreInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
+    } else if (quality === 'medium') {
+      // Medium: 3 layers — glow + fill + core
+      // -- Outer glow --
+      const glowScale = 1.6;
+      const glowOuterControlX = midX + perpX * arc.curvature * glowScale;
+      const glowOuterControlY = midY + perpY * arc.curvature * glowScale;
+      const glowInnerControlX = midX - perpX * arc.curvature * 0.5;
+      const glowInnerControlY = midY - perpY * arc.curvature * 0.5;
 
-    // -- Bright edge (thin stroke along outer arc, thin enough to avoid visible caps) --
-    graphics.lineStyle(1.5, WEAPON_COLORS.bladeGlow.core, alpha * 0.8);
-    graphics.beginPath();
-    graphics.moveTo(tipStartX, tipStartY);
-    this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY);
-    graphics.strokePath();
+      graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.15);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, glowOuterControlX, glowOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, glowInnerControlX, glowInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
 
-    // -- White-hot core (thin filled sliver through the center) --
-    const coreOuterControlX = midX + perpX * arc.curvature * 0.55;
-    const coreOuterControlY = midY + perpY * arc.curvature * 0.55;
-    const coreInnerControlX = midX + perpX * arc.curvature * 0.35;
-    const coreInnerControlY = midY + perpY * arc.curvature * 0.35;
+      // -- Main filled crescent shape --
+      graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.4);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, innerControlX, innerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
 
-    graphics.fillStyle(0xffffff, alpha * 0.9);
-    graphics.beginPath();
-    graphics.moveTo(tipStartX, tipStartY);
-    this.quadBezierTo(graphics, tipStartX, tipStartY, coreOuterControlX, coreOuterControlY, currentEndX, currentEndY);
-    this.quadBezierTo(graphics, currentEndX, currentEndY, coreInnerControlX, coreInnerControlY, tipStartX, tipStartY);
-    graphics.closePath();
-    graphics.fillPath();
+      // -- White-hot core --
+      const coreOuterControlX = midX + perpX * arc.curvature * 0.55;
+      const coreOuterControlY = midY + perpY * arc.curvature * 0.55;
+      const coreInnerControlX = midX + perpX * arc.curvature * 0.35;
+      const coreInnerControlY = midY + perpY * arc.curvature * 0.35;
+
+      graphics.fillStyle(0xffffff, alpha * 0.9);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, coreOuterControlX, coreOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, coreInnerControlX, coreInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
+
+      // -- Energy particle (1 dot at sweep progress position along outer bezier) --
+      const energyT = sweepProgress;
+      const energyInvT = 1 - energyT;
+      const energyDotX = energyInvT * energyInvT * tipStartX + 2 * energyInvT * energyT * outerControlX + energyT * energyT * currentEndX;
+      const energyDotY = energyInvT * energyInvT * tipStartY + 2 * energyInvT * energyT * outerControlY + energyT * energyT * currentEndY;
+
+      graphics.fillStyle(0xffffff, alpha * 0.8);
+      graphics.fillCircle(energyDotX, energyDotY, 2);
+    } else {
+      // High: 5 layers — outer glow + glow + fill + bright edge + white-hot core + white cutting-edge line
+
+      // -- Layer 1: Outer glow (widest, faintest) --
+      const outerGlowScale = 2.0;
+      const outerGlowOuterControlX = midX + perpX * arc.curvature * outerGlowScale;
+      const outerGlowOuterControlY = midY + perpY * arc.curvature * outerGlowScale;
+      const outerGlowInnerControlX = midX - perpX * arc.curvature * 0.6;
+      const outerGlowInnerControlY = midY - perpY * arc.curvature * 0.6;
+
+      graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.08);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, outerGlowOuterControlX, outerGlowOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, outerGlowInnerControlX, outerGlowInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
+
+      // -- Layer 2: Glow --
+      const glowScale = 1.6;
+      const glowOuterControlX = midX + perpX * arc.curvature * glowScale;
+      const glowOuterControlY = midY + perpY * arc.curvature * glowScale;
+      const glowInnerControlX = midX - perpX * arc.curvature * 0.5;
+      const glowInnerControlY = midY - perpY * arc.curvature * 0.5;
+
+      graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.15);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, glowOuterControlX, glowOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, glowInnerControlX, glowInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
+
+      // -- Layer 3: Main filled crescent shape --
+      graphics.fillStyle(WEAPON_COLORS.blade.core, alpha * 0.4);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, innerControlX, innerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
+
+      // -- Layer 4: Bright edge (thin stroke along outer arc) --
+      graphics.lineStyle(1.5, WEAPON_COLORS.bladeGlow.core, alpha * 0.8);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY, bezierSegments);
+      graphics.strokePath();
+
+      // -- Layer 5: White-hot core (thin filled sliver) --
+      const coreOuterControlX = midX + perpX * arc.curvature * 0.55;
+      const coreOuterControlY = midY + perpY * arc.curvature * 0.55;
+      const coreInnerControlX = midX + perpX * arc.curvature * 0.35;
+      const coreInnerControlY = midY + perpY * arc.curvature * 0.35;
+
+      graphics.fillStyle(0xffffff, alpha * 0.9);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, coreOuterControlX, coreOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, coreInnerControlX, coreInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
+
+      // -- White cutting-edge line (0.5px along outer bezier) --
+      graphics.lineStyle(0.5, 0xffffff, alpha * 0.95);
+      graphics.beginPath();
+      graphics.moveTo(tipStartX, tipStartY);
+      this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY, bezierSegments);
+      graphics.strokePath();
+
+      // -- Energy particles (2-3 dots sampled along outer bezier at sweep progress) --
+      const energyParticleCount = 2 + Math.floor(Math.random() * 2); // 2-3 particles
+      for (let particleIndex = 0; particleIndex < energyParticleCount; particleIndex++) {
+        const particleSpread = 0.15;
+        const particleT = Math.max(0, Math.min(1, sweepProgress + (particleIndex - 1) * particleSpread));
+        const particleInvT = 1 - particleT;
+        const particleDotX = particleInvT * particleInvT * tipStartX + 2 * particleInvT * particleT * outerControlX + particleT * particleT * currentEndX;
+        const particleDotY = particleInvT * particleInvT * tipStartY + 2 * particleInvT * particleT * outerControlY + particleT * particleT * currentEndY;
+
+        const particleAlpha = alpha * (0.6 + Math.random() * 0.4);
+        const particleRadius = 1.5 + Math.random() * 1.5;
+        graphics.fillStyle(0xffffff, particleAlpha);
+        graphics.fillCircle(particleDotX, particleDotY, particleRadius);
+      }
+    }
   }
 
   /**
@@ -353,6 +472,7 @@ export class KatanaWeapon extends BaseWeapon {
       this.slashGraphics.destroy();
     }
 
+    const currentQuality = ctx.visualQuality;
     const slashWidth = this.stats.range * this.stats.size;
     const slashHeight = 80 * this.stats.size;
     const slashCount = this.stats.count;
@@ -414,7 +534,7 @@ export class KatanaWeapon extends BaseWeapon {
         if (sweepProgress <= 0) continue;
 
         const arcAlpha = Math.min(1, sweepProgress * 1.5);
-        this.drawSlashArc(this.slashGraphics!, arc, sweepProgress, arcAlpha);
+        this.drawSlashArc(this.slashGraphics!, arc, sweepProgress, arcAlpha, currentQuality);
       }
     };
 
@@ -430,6 +550,7 @@ export class KatanaWeapon extends BaseWeapon {
       from: 0,
       to: 1,
       duration: drawPhase,
+      ease: 'Cubic.easeOut',
       onUpdate: (tween) => {
         drawArcs(tween.getValue() ?? 0);
       },
@@ -456,11 +577,27 @@ export class KatanaWeapon extends BaseWeapon {
       const markCtrlX = markCenterX + (-markSin) * markCurve;
       const markCtrlY = markCenterY + markCos * markCurve;
 
-      cutMarkGraphics.lineStyle(1, 0xffffff, 0.4);
-      cutMarkGraphics.beginPath();
-      cutMarkGraphics.moveTo(markStartX, markStartY);
-      this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
-      cutMarkGraphics.strokePath();
+      if (currentQuality === 'high') {
+        // Double-line pairs: wider glow outer + thin white inner
+        cutMarkGraphics.lineStyle(2, WEAPON_COLORS.blade.core, 0.3);
+        cutMarkGraphics.beginPath();
+        cutMarkGraphics.moveTo(markStartX, markStartY);
+        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
+        cutMarkGraphics.strokePath();
+
+        cutMarkGraphics.lineStyle(1, 0xffffff, 0.4);
+        cutMarkGraphics.beginPath();
+        cutMarkGraphics.moveTo(markStartX, markStartY);
+        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
+        cutMarkGraphics.strokePath();
+      } else {
+        // Single curved line for low/medium
+        cutMarkGraphics.lineStyle(1, 0xffffff, 0.4);
+        cutMarkGraphics.beginPath();
+        cutMarkGraphics.moveTo(markStartX, markStartY);
+        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
+        cutMarkGraphics.strokePath();
+      }
 
       ctx.scene.time.delayedCall(300, () => cutMarkGraphics.destroy());
     }

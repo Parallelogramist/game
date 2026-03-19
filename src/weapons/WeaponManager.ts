@@ -7,6 +7,7 @@ import { getSprite } from '../ecs/systems/SpriteSystem';
 import { applyFreeze } from '../ecs/systems/StatusEffectSystem';
 import { getCombatStats } from '../ecs/systems/CollisionSystem';
 import { getEnemyIds } from '../ecs/FrameCache';
+import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
  * WeaponManager handles all player weapons.
@@ -30,6 +31,9 @@ export class WeaponManager {
 
   // Overcharge stun duration (from permanent upgrades)
   private overchargeStunDuration: number = 0;
+
+  // Visual quality tier for weapon rendering
+  private visualQuality: VisualQuality = 'high';
 
   // Pooled context object - created once, updated each frame to avoid allocations
   private ctx: WeaponContext;
@@ -63,6 +67,7 @@ export class WeaponManager {
       stunEnemy: (enemyId, duration) => this.stunEnemy(enemyId, duration),
       overchargeStunDuration: 0,
       healPlayer: (amount) => this.healPlayer(amount),
+      visualQuality: this.visualQuality,
     };
   }
 
@@ -176,6 +181,7 @@ export class WeaponManager {
     this.ctx.gameTime = gameTime;
     this.ctx.deltaTime = deltaTime;
     this.ctx.overchargeStunDuration = this.overchargeStunDuration;
+    this.ctx.visualQuality = this.visualQuality;
 
     // Update all weapons with the reused context
     for (const weapon of this.weapons.values()) {
@@ -271,6 +277,13 @@ export class WeaponManager {
   public setPlayerId(playerId: number): void {
     this.playerId = playerId;
     this.ctx.playerId = playerId;  // Keep pooled context in sync
+  }
+
+  /**
+   * Set visual quality tier for weapon rendering.
+   */
+  public setVisualQuality(quality: VisualQuality): void {
+    this.visualQuality = quality;
   }
 
   /**

@@ -4,6 +4,7 @@ import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { getEnemyIds } from '../ecs/FrameCache';
 import { getJuiceManager } from '../effects/JuiceManager';
 import { DepthLayers } from '../visual/DepthLayers';
+import type { VisualQuality } from '../visual/GlowGraphics';
 
 const MISSILE_TRAIL_LENGTH = 12;
 
@@ -29,6 +30,7 @@ interface Missile {
 export class HomingMissileWeapon extends BaseWeapon {
   private missiles: Missile[] = [];
   private trailGraphics: Phaser.GameObjects.Graphics | null = null;
+  private currentQuality: VisualQuality = 'high';
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -71,21 +73,67 @@ export class HomingMissileWeapon extends BaseWeapon {
     const container = ctx.scene.add.container(ctx.playerX, ctx.playerY);
     container.setDepth(DepthLayers.PROJECTILES);
 
-    // Missile body - blue
     const body = ctx.scene.add.graphics();
     const size = 8 * this.stats.size;
 
-    body.fillStyle(0x4488ff, 1); // Blue body
-    body.fillRect(-size, -size / 2, size * 2, size);
-    body.fillStyle(0x2266dd, 1); // Dark blue nose
-    body.fillTriangle(-size, -size / 2, -size, size / 2, -size * 1.5, 0);
-
-    // Exhaust - blue glow
+    // Exhaust graphics (drawn per-frame at medium/high, static at low)
     const exhaust = ctx.scene.add.graphics();
-    exhaust.fillStyle(0x66ccff, 0.8); // Light blue
-    exhaust.fillCircle(-size * 1.5, 0, size / 2);
-    exhaust.fillStyle(0x4488ff, 0.5); // Blue core
-    exhaust.fillCircle(-size * 2, 0, size / 3);
+
+    if (this.currentQuality === 'low') {
+      // Low: simple rectangle + triangle body
+      body.fillStyle(0x4488ff, 1);
+      body.fillRect(-size, -size / 2, size * 2, size);
+      body.fillStyle(0x2266dd, 1);
+      body.fillTriangle(-size, -size / 2, -size, size / 2, -size * 1.5, 0);
+
+      // Low: static exhaust circles
+      exhaust.fillStyle(0x66ccff, 0.8);
+      exhaust.fillCircle(-size * 1.5, 0, size / 2);
+      exhaust.fillStyle(0x4488ff, 0.5);
+      exhaust.fillCircle(-size * 2, 0, size / 3);
+    } else {
+      // Medium/High: streamlined 7-vertex silhouette
+      body.clear();
+      body.fillStyle(0x4488ff, 1);
+      body.beginPath();
+      body.moveTo(size * 1.8, 0);            // nose tip
+      body.lineTo(size * 0.5, -size * 0.6);  // upper forward body
+      body.lineTo(-size * 0.8, -size * 0.5); // upper rear body
+      body.lineTo(-size * 1.2, -size * 0.9); // upper tail fin tip
+      body.lineTo(-size, 0);                 // rear center
+      body.lineTo(-size * 1.2, size * 0.9);  // lower tail fin tip
+      body.lineTo(-size * 0.8, size * 0.5);  // lower rear body
+      body.lineTo(size * 0.5, size * 0.6);   // lower forward body
+      body.closePath();
+      body.fillPath();
+      // White nose highlight
+      body.fillStyle(0xaaddff, 0.8);
+      body.fillTriangle(size * 1.8, 0, size * 1.0, -size * 0.3, size * 1.0, size * 0.3);
+
+      if (this.currentQuality === 'high') {
+        // High: hull panel lines
+        body.lineStyle(1, 0xffffff, 0.3);
+        body.beginPath();
+        body.moveTo(size * 0.5, -size * 0.6);
+        body.lineTo(size * 0.5, size * 0.6);
+        body.strokePath();
+        body.beginPath();
+        body.moveTo(-size * 0.2, -size * 0.55);
+        body.lineTo(-size * 0.2, size * 0.55);
+        body.strokePath();
+
+        // High: wing nubs at mid-body
+        body.fillStyle(0x3377dd, 1);
+        body.fillTriangle(0, -size * 0.6, -size * 0.4, -size * 0.6, -size * 0.2, -size * 1.0);
+        body.fillTriangle(0, size * 0.6, -size * 0.4, size * 0.6, -size * 0.2, size * 1.0);
+      }
+
+      // Exhaust drawn per-frame at medium/high (initial draw for first frame)
+      exhaust.fillStyle(0x4488ff, 0.4);
+      exhaust.fillEllipse(-size * 1.5, 0, size * 1.2, size * 0.8);
+      exhaust.fillStyle(0x88ccff, 0.7);
+      exhaust.fillEllipse(-size * 1.5, 0, size * 0.7, size * 0.4);
+    }
 
     container.add([exhaust, body]);
 
@@ -105,6 +153,7 @@ export class HomingMissileWeapon extends BaseWeapon {
   }
 
   protected updateEffects(ctx: WeaponContext): void {
+    this.currentQuality = ctx.visualQuality;
     const toRemove: Missile[] = [];
 
     // Ensure shared trail graphics exists
@@ -225,16 +274,65 @@ export class HomingMissileWeapon extends BaseWeapon {
       missile.sprite.setPosition(missile.actualX + perpX, missile.actualY + perpY);
       missile.sprite.setRotation(angle);
 
-      // Draw exhaust trails on shared graphics
+      // Flickering exhaust - redraw per frame at medium/high
+      const exhaustGraphics = missile.sprite.getAt(0) as Phaser.GameObjects.Graphics;
+      if (exhaustGraphics && this.currentQuality !== 'low') {
+        const missileSize = missile.isBomblet ? 5 * this.stats.size : 8 * this.stats.size;
+        exhaustGraphics.clear();
+        const flickerLength = missileSize * (1.2 + Math.sin(ctx.gameTime * 20 + missile.wobblePhase) * 0.4);
+        // Outer glow
+        exhaustGraphics.fillStyle(missile.isBomblet ? 0xffaa44 : 0x4488ff, 0.4);
+        exhaustGraphics.fillEllipse(-missileSize * 1.5, 0, flickerLength, missileSize * 0.8);
+        // Inner core
+        exhaustGraphics.fillStyle(missile.isBomblet ? 0xffcc66 : 0x88ccff, 0.7);
+        exhaustGraphics.fillEllipse(-missileSize * 1.5, 0, flickerLength * 0.6, missileSize * 0.4);
+        if (this.currentQuality === 'high') {
+          // Hot center
+          exhaustGraphics.fillStyle(0xffffff, 0.9);
+          exhaustGraphics.fillCircle(-missileSize * 1.3, 0, missileSize * 0.15);
+        }
+      }
+
+      // Draw trails on shared graphics
       if (this.trailGraphics) {
         const trailColor = missile.isBomblet ? 0xffaa44 : 0x66ccff;
-        for (let i = 0; i < missile.trailCount; i++) {
-          const bufferIdx = (missile.trailIndex - missile.trailCount + i + MISSILE_TRAIL_LENGTH) % MISSILE_TRAIL_LENGTH;
-          const trailAlpha = ((i + 1) / missile.trailCount) * 0.4;
-          const trailRadius = 3 * ((i + 1) / missile.trailCount);
-          this.trailGraphics.fillStyle(trailColor, trailAlpha);
-          this.trailGraphics.fillCircle(missile.trailHistory[bufferIdx].x, missile.trailHistory[bufferIdx].y, trailRadius);
+
+        if (this.currentQuality === 'high' && missile.trailCount > 1) {
+          // High: tapered ribbon quads
+          for (let i = 0; i < missile.trailCount - 1; i++) {
+            const idxA = (missile.trailIndex - missile.trailCount + i + MISSILE_TRAIL_LENGTH) % MISSILE_TRAIL_LENGTH;
+            const idxB = (missile.trailIndex - missile.trailCount + i + 1 + MISSILE_TRAIL_LENGTH) % MISSILE_TRAIL_LENGTH;
+            const tA = (i + 1) / missile.trailCount;
+            const tB = (i + 2) / missile.trailCount;
+            const ribbonWidthA = 4 * (1 - tA);
+            const ribbonWidthB = 4 * (1 - tB);
+
+            const pointAx = missile.trailHistory[idxA].x, pointAy = missile.trailHistory[idxA].y;
+            const pointBx = missile.trailHistory[idxB].x, pointBy = missile.trailHistory[idxB].y;
+            const segmentDx = pointBx - pointAx, segmentDy = pointBy - pointAy;
+            const segmentLength = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy) || 1;
+            const perpNormX = -segmentDy / segmentLength, perpNormY = segmentDx / segmentLength;
+
+            this.trailGraphics.fillStyle(trailColor, tA * 0.3);
+            this.trailGraphics.beginPath();
+            this.trailGraphics.moveTo(pointAx + perpNormX * ribbonWidthA, pointAy + perpNormY * ribbonWidthA);
+            this.trailGraphics.lineTo(pointBx + perpNormX * ribbonWidthB, pointBy + perpNormY * ribbonWidthB);
+            this.trailGraphics.lineTo(pointBx - perpNormX * ribbonWidthB, pointBy - perpNormY * ribbonWidthB);
+            this.trailGraphics.lineTo(pointAx - perpNormX * ribbonWidthA, pointAy - perpNormY * ribbonWidthA);
+            this.trailGraphics.closePath();
+            this.trailGraphics.fillPath();
+          }
+        } else if (this.currentQuality === 'medium') {
+          // Medium: fading circles (original behavior)
+          for (let i = 0; i < missile.trailCount; i++) {
+            const bufferIdx = (missile.trailIndex - missile.trailCount + i + MISSILE_TRAIL_LENGTH) % MISSILE_TRAIL_LENGTH;
+            const trailAlpha = ((i + 1) / missile.trailCount) * 0.4;
+            const trailRadius = 3 * ((i + 1) / missile.trailCount);
+            this.trailGraphics.fillStyle(trailColor, trailAlpha);
+            this.trailGraphics.fillCircle(missile.trailHistory[bufferIdx].x, missile.trailHistory[bufferIdx].y, trailRadius);
+          }
         }
+        // Low: no trail drawing
       }
     }
 
@@ -308,19 +406,36 @@ export class HomingMissileWeapon extends BaseWeapon {
     const container = ctx.scene.add.container(x, y);
     container.setDepth(DepthLayers.PROJECTILES);
 
-    // Smaller missile body - orange/gold tint for bomblets
     const body = ctx.scene.add.graphics();
     const size = 5 * this.stats.size;
-
-    body.fillStyle(0xffaa44, 1); // Orange body
-    body.fillRect(-size, -size / 2, size * 2, size);
-    body.fillStyle(0xff6622, 1); // Dark orange nose
-    body.fillTriangle(-size, -size / 2, -size, size / 2, -size * 1.2, 0);
-
-    // Small exhaust
     const exhaust = ctx.scene.add.graphics();
-    exhaust.fillStyle(0xffcc66, 0.8);
-    exhaust.fillCircle(-size * 1.2, 0, size / 3);
+
+    if (this.currentQuality === 'low') {
+      // Low: simple rectangle + triangle body
+      body.fillStyle(0xffaa44, 1);
+      body.fillRect(-size, -size / 2, size * 2, size);
+      body.fillStyle(0xff6622, 1);
+      body.fillTriangle(-size, -size / 2, -size, size / 2, -size * 1.2, 0);
+
+      // Low: static exhaust circle
+      exhaust.fillStyle(0xffcc66, 0.8);
+      exhaust.fillCircle(-size * 1.2, 0, size / 3);
+    } else {
+      // Medium/High: 5-vertex streamlined bomblet shape
+      body.fillStyle(0xffaa44, 1);
+      body.beginPath();
+      body.moveTo(size * 1.2, 0);           // nose
+      body.lineTo(size * 0.3, -size * 0.5);
+      body.lineTo(-size * 0.8, -size * 0.3);
+      body.lineTo(-size * 0.8, size * 0.3);
+      body.lineTo(size * 0.3, size * 0.5);
+      body.closePath();
+      body.fillPath();
+
+      // Single triangle exhaust (initial draw; redrawn per-frame in updateEffects)
+      exhaust.fillStyle(0xffcc66, 0.7);
+      exhaust.fillTriangle(-size * 0.8, -size * 0.2, -size * 0.8, size * 0.2, -size * 1.3, 0);
+    }
 
     container.add([exhaust, body]);
     container.setRotation(initialAngle);

@@ -65,61 +65,135 @@ export class FrostNovaWeapon extends BaseWeapon {
       }
     }
 
-    // Lingering frost ground circle at blast center
-    const groundFrost = ctx.scene.add.circle(ctx.playerX, ctx.playerY, radius * 0.8, WEAPON_COLORS.frost.core, 0.12);
-    groundFrost.setStrokeStyle(1, WEAPON_COLORS.frost.glow, 0.3);
-    groundFrost.setDepth(DepthLayers.GROUND_EFFECTS);
-
-    ctx.scene.tweens.add({
-      targets: groundFrost,
-      alpha: 0,
-      duration: this.stats.duration * 1000,
-      onComplete: () => groundFrost.destroy(),
-    });
+    // Lingering frost ground effect at blast center
+    this.createGroundFrost(ctx, radius);
 
     ctx.soundManager.playHit();
   }
 
   private createNovaVisual(ctx: WeaponContext, radius: number): void {
-    // Expanding ring - ice blue with white stroke
-    const ring = ctx.scene.add.circle(ctx.playerX, ctx.playerY, 10, WEAPON_COLORS.frost.core, 0);
-    ring.setStrokeStyle(4, 0xffffff, 1); // White outline
-    ring.setDepth(DepthLayers.FROST_NOVA_RING);
+    const quality = ctx.visualQuality;
 
-    ctx.scene.tweens.add({
-      targets: ring,
-      scaleX: radius / 10,
-      scaleY: radius / 10,
-      alpha: 0,
-      duration: 400,
-      ease: 'Cubic.easeOut',
-      onComplete: () => ring.destroy(),
-    });
+    // --- Expanding ring ---
+    if (quality === 'low') {
+      // Low: plain expanding arc
+      const ring = ctx.scene.add.circle(ctx.playerX, ctx.playerY, 10, WEAPON_COLORS.frost.core, 0);
+      ring.setStrokeStyle(4, 0xffffff, 1);
+      ring.setDepth(DepthLayers.FROST_NOVA_RING);
 
-    // Ice crystal particles — geometric 6-pointed stars
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * Math.PI * 2;
+      ctx.scene.tweens.add({
+        targets: ring,
+        scaleX: radius / 10,
+        scaleY: radius / 10,
+        alpha: 0,
+        duration: 400,
+        ease: 'Cubic.easeOut',
+        onComplete: () => ring.destroy(),
+      });
+    } else {
+      // Medium/High: crystalline polygon ring
+      const ringGraphics = ctx.scene.add.graphics();
+      ringGraphics.setPosition(ctx.playerX, ctx.playerY);
+      ringGraphics.setDepth(DepthLayers.FROST_NOVA_RING);
+
+      const vertexCount = quality === 'high' ? 24 : 16;
+      const spikeExtension = quality === 'high' ? 1.25 : 1.2;
+      ringGraphics.lineStyle(4, 0xffffff, 1);
+      ringGraphics.fillStyle(WEAPON_COLORS.frost.core, 0.15);
+      ringGraphics.beginPath();
+      for (let vertexIndex = 0; vertexIndex < vertexCount; vertexIndex++) {
+        const vertexAngle = (vertexIndex / vertexCount) * Math.PI * 2;
+        const vertexRadius = (vertexIndex % 3 === 0) ? 10 * spikeExtension : 10;
+        const vertexX = Math.cos(vertexAngle) * vertexRadius;
+        const vertexY = Math.sin(vertexAngle) * vertexRadius;
+        vertexIndex === 0 ? ringGraphics.moveTo(vertexX, vertexY) : ringGraphics.lineTo(vertexX, vertexY);
+      }
+      ringGraphics.closePath();
+      ringGraphics.strokePath();
+      ringGraphics.fillPath();
+
+      ctx.scene.tweens.add({
+        targets: ringGraphics,
+        scaleX: radius / 10,
+        scaleY: radius / 10,
+        alpha: 0,
+        duration: 400,
+        ease: 'Cubic.easeOut',
+        onComplete: () => ringGraphics.destroy(),
+      });
+    }
+
+    // --- Snowflake crystals ---
+    const crystalCount = quality === 'high' ? 8 : quality === 'medium' ? 6 : 4;
+
+    for (let crystalIndex = 0; crystalIndex < crystalCount; crystalIndex++) {
+      const spreadAngle = (crystalIndex / crystalCount) * Math.PI * 2;
       const crystal = ctx.scene.add.graphics();
       crystal.setPosition(ctx.playerX, ctx.playerY);
       crystal.setDepth(DepthLayers.FROST_NOVA_CRYSTAL);
 
-      // Draw 6-pointed star: 6 lines from center outward at 60-degree intervals
       crystal.lineStyle(1, 0xffffff, 0.8);
       crystal.fillStyle(WEAPON_COLORS.frost.core, 0.6);
-      for (let rayIndex = 0; rayIndex < 6; rayIndex++) {
-        const rayAngle = (rayIndex / 6) * Math.PI * 2;
-        const rayEndX = Math.cos(rayAngle) * 8;
-        const rayEndY = Math.sin(rayAngle) * 8;
-        crystal.beginPath();
-        crystal.moveTo(0, 0);
-        crystal.lineTo(rayEndX, rayEndY);
-        crystal.strokePath();
-      }
-      // Small center dot
-      crystal.fillCircle(0, 0, 2);
 
-      const targetX = ctx.playerX + Math.cos(angle) * radius;
-      const targetY = ctx.playerY + Math.sin(angle) * radius;
+      if (quality === 'high') {
+        // High: detailed snowflake with branches, barbs, and hexagonal center
+        const branchLength = 8;
+        for (let rayIndex = 0; rayIndex < 6; rayIndex++) {
+          const rayAngle = (rayIndex / 6) * Math.PI * 2;
+          const branchEndX = Math.cos(rayAngle) * branchLength;
+          const branchEndY = Math.sin(rayAngle) * branchLength;
+          // Main branch
+          crystal.lineBetween(0, 0, branchEndX, branchEndY);
+
+          // Barbs at 50% along branch
+          const midDistance = branchLength * 0.5;
+          const barbLength = 3;
+          const barbAngleLeft = rayAngle + Math.PI / 4;
+          const barbAngleRight = rayAngle - Math.PI / 4;
+          const midX = Math.cos(rayAngle) * midDistance;
+          const midY = Math.sin(rayAngle) * midDistance;
+          crystal.lineBetween(midX, midY,
+            midX + Math.cos(barbAngleLeft) * barbLength, midY + Math.sin(barbAngleLeft) * barbLength);
+          crystal.lineBetween(midX, midY,
+            midX + Math.cos(barbAngleRight) * barbLength, midY + Math.sin(barbAngleRight) * barbLength);
+
+          // Barbs at 75% along branch
+          const upperDistance = branchLength * 0.75;
+          const upperBarbLength = 2;
+          const upperX = Math.cos(rayAngle) * upperDistance;
+          const upperY = Math.sin(rayAngle) * upperDistance;
+          crystal.lineBetween(upperX, upperY,
+            upperX + Math.cos(barbAngleLeft) * upperBarbLength, upperY + Math.sin(barbAngleLeft) * upperBarbLength);
+          crystal.lineBetween(upperX, upperY,
+            upperX + Math.cos(barbAngleRight) * upperBarbLength, upperY + Math.sin(barbAngleRight) * upperBarbLength);
+        }
+        // Hexagonal center
+        crystal.lineStyle(1, 0xffffff, 0.6);
+        crystal.beginPath();
+        for (let hexIndex = 0; hexIndex < 6; hexIndex++) {
+          const hexAngle = (hexIndex / 6) * Math.PI * 2;
+          const hexX = Math.cos(hexAngle) * 2.5;
+          const hexY = Math.sin(hexAngle) * 2.5;
+          hexIndex === 0 ? crystal.moveTo(hexX, hexY) : crystal.lineTo(hexX, hexY);
+        }
+        crystal.closePath();
+        crystal.strokePath();
+      } else {
+        // Low/Medium: simple 6-line stars with center dot
+        for (let rayIndex = 0; rayIndex < 6; rayIndex++) {
+          const rayAngle = (rayIndex / 6) * Math.PI * 2;
+          const rayEndX = Math.cos(rayAngle) * 8;
+          const rayEndY = Math.sin(rayAngle) * 8;
+          crystal.beginPath();
+          crystal.moveTo(0, 0);
+          crystal.lineTo(rayEndX, rayEndY);
+          crystal.strokePath();
+        }
+        crystal.fillCircle(0, 0, 2);
+      }
+
+      const targetX = ctx.playerX + Math.cos(spreadAngle) * radius;
+      const targetY = ctx.playerY + Math.sin(spreadAngle) * radius;
 
       ctx.scene.tweens.add({
         targets: crystal,
@@ -129,6 +203,105 @@ export class FrostNovaWeapon extends BaseWeapon {
         duration: 500,
         ease: 'Cubic.easeOut',
         onComplete: () => crystal.destroy(),
+      });
+    }
+  }
+
+  private createGroundFrost(ctx: WeaponContext, radius: number): void {
+    const quality = ctx.visualQuality;
+    const frostRadius = radius * 0.8;
+
+    if (quality === 'high') {
+      // High: fractal frost pattern with branching lines and animated reveal
+      const fractalFrost = ctx.scene.add.graphics();
+      fractalFrost.setPosition(ctx.playerX, ctx.playerY);
+      fractalFrost.setDepth(DepthLayers.GROUND_EFFECTS);
+
+      const totalBranches = 6;
+      const branchDepthLevels = 2;
+
+      // Use a tween counter to progressively reveal the fractal pattern
+      const revealState = { progress: 0 };
+      ctx.scene.tweens.add({
+        targets: revealState,
+        progress: 1,
+        duration: 600,
+        ease: 'Cubic.easeOut',
+        onUpdate: () => {
+          fractalFrost.clear();
+
+          // Central circle
+          fractalFrost.fillStyle(WEAPON_COLORS.frost.core, 0.12 * revealState.progress);
+          fractalFrost.fillCircle(0, 0, frostRadius * 0.15 * revealState.progress);
+          fractalFrost.lineStyle(1, WEAPON_COLORS.frost.glow, 0.3 * revealState.progress);
+          fractalFrost.strokeCircle(0, 0, frostRadius * 0.15 * revealState.progress);
+
+          // Draw fractal branches
+          const visibleLength = frostRadius * revealState.progress;
+          for (let branchIndex = 0; branchIndex < totalBranches; branchIndex++) {
+            const branchAngle = (branchIndex / totalBranches) * Math.PI * 2;
+            const mainEndX = Math.cos(branchAngle) * visibleLength;
+            const mainEndY = Math.sin(branchAngle) * visibleLength;
+
+            // Main radial line
+            fractalFrost.lineStyle(1.5, WEAPON_COLORS.frost.glow, 0.25 * revealState.progress);
+            fractalFrost.lineBetween(0, 0, mainEndX, mainEndY);
+
+            // Level 1 sub-branches at 60% along main branch
+            if (revealState.progress > 0.4) {
+              const subBranchProgress = Math.min(1, (revealState.progress - 0.4) / 0.3);
+              const subOriginDistance = visibleLength * 0.6;
+              const subOriginX = Math.cos(branchAngle) * subOriginDistance;
+              const subOriginY = Math.sin(branchAngle) * subOriginDistance;
+              const subBranchLength = frostRadius * 0.35 * subBranchProgress;
+
+              for (let subDirection = -1; subDirection <= 1; subDirection += 2) {
+                const subAngle = branchAngle + subDirection * (Math.PI / 4);
+                const subEndX = subOriginX + Math.cos(subAngle) * subBranchLength;
+                const subEndY = subOriginY + Math.sin(subAngle) * subBranchLength;
+                fractalFrost.lineStyle(1, WEAPON_COLORS.frost.glow, 0.2 * subBranchProgress);
+                fractalFrost.lineBetween(subOriginX, subOriginY, subEndX, subEndY);
+
+                // Level 2 sub-sub-branches at 60% along sub-branch
+                if (branchDepthLevels >= 2 && revealState.progress > 0.7) {
+                  const subSubProgress = Math.min(1, (revealState.progress - 0.7) / 0.3);
+                  const subSubOriginX = subOriginX + Math.cos(subAngle) * subBranchLength * 0.6;
+                  const subSubOriginY = subOriginY + Math.sin(subAngle) * subBranchLength * 0.6;
+                  const subSubLength = frostRadius * 0.15 * subSubProgress;
+
+                  for (let subSubDir = -1; subSubDir <= 1; subSubDir += 2) {
+                    const subSubAngle = subAngle + subSubDir * (Math.PI / 4);
+                    const subSubEndX = subSubOriginX + Math.cos(subSubAngle) * subSubLength;
+                    const subSubEndY = subSubOriginY + Math.sin(subSubAngle) * subSubLength;
+                    fractalFrost.lineStyle(0.5, WEAPON_COLORS.frost.glow, 0.15 * subSubProgress);
+                    fractalFrost.lineBetween(subSubOriginX, subSubOriginY, subSubEndX, subSubEndY);
+                  }
+                }
+              }
+            }
+          }
+        },
+      });
+
+      // Fade out over the slow duration
+      ctx.scene.tweens.add({
+        targets: fractalFrost,
+        alpha: 0,
+        delay: 600,
+        duration: this.stats.duration * 1000 - 600,
+        onComplete: () => fractalFrost.destroy(),
+      });
+    } else {
+      // Low/Medium: plain circle ground frost
+      const groundFrost = ctx.scene.add.circle(ctx.playerX, ctx.playerY, frostRadius, WEAPON_COLORS.frost.core, 0.12);
+      groundFrost.setStrokeStyle(1, WEAPON_COLORS.frost.glow, 0.3);
+      groundFrost.setDepth(DepthLayers.GROUND_EFFECTS);
+
+      ctx.scene.tweens.add({
+        targets: groundFrost,
+        alpha: 0,
+        duration: this.stats.duration * 1000,
+        onComplete: () => groundFrost.destroy(),
       });
     }
   }
@@ -250,35 +423,53 @@ export class FrostNovaWeapon extends BaseWeapon {
    * Visual effect for the Absolute Zero shatter.
    */
   private createShatterVisual(ctx: WeaponContext, x: number, y: number): void {
-    // Create ice shard particles
-    const shardCount = 8;
-    for (let i = 0; i < shardCount; i++) {
-      const angle = (i / shardCount) * Math.PI * 2;
+    const quality = ctx.visualQuality;
+    const shardCount = quality === 'high' ? 12 : quality === 'medium' ? 6 : 4;
+
+    for (let shardIndex = 0; shardIndex < shardCount; shardIndex++) {
+      const shardAngle = (shardIndex / shardCount) * Math.PI * 2;
       const shard = ctx.scene.add.graphics();
       shard.setPosition(x, y);
       shard.setDepth(DepthLayers.SHATTER);
 
-      // Draw ice shard shape
       shard.fillStyle(WEAPON_COLORS.frost.glow, 1);
-      shard.beginPath();
-      shard.moveTo(0, -8);
-      shard.lineTo(3, 0);
-      shard.lineTo(0, 8);
-      shard.lineTo(-3, 0);
-      shard.closePath();
-      shard.fillPath();
       shard.lineStyle(1, 0xffffff, 1);
-      shard.strokePath();
 
-      shard.setRotation(angle);
+      if (quality === 'high') {
+        // High: asymmetric quadrilateral shards with randomized proportions
+        const shardHeight = 6 + Math.random() * 5;
+        const shardWidthLeft = 1.5 + Math.random() * 2.5;
+        const shardWidthRight = 1.5 + Math.random() * 2.5;
+        const shardMidOffset = (Math.random() - 0.5) * 3;
+        shard.beginPath();
+        shard.moveTo(0, -shardHeight);
+        shard.lineTo(shardWidthRight, shardMidOffset);
+        shard.lineTo(0, shardHeight * 0.7);
+        shard.lineTo(-shardWidthLeft, shardMidOffset * 0.5);
+        shard.closePath();
+        shard.fillPath();
+        shard.strokePath();
+      } else {
+        // Low/Medium: simple diamond shards
+        shard.beginPath();
+        shard.moveTo(0, -8);
+        shard.lineTo(3, 0);
+        shard.lineTo(0, 8);
+        shard.lineTo(-3, 0);
+        shard.closePath();
+        shard.fillPath();
+        shard.strokePath();
+      }
 
-      const targetX = x + Math.cos(angle) * 80;
-      const targetY = y + Math.sin(angle) * 80;
+      shard.setRotation(shardAngle);
+
+      const shardTargetX = x + Math.cos(shardAngle) * 80;
+      const shardTargetY = y + Math.sin(shardAngle) * 80;
 
       ctx.scene.tweens.add({
         targets: shard,
-        x: targetX,
-        y: targetY,
+        x: shardTargetX,
+        y: shardTargetY,
         alpha: 0,
         scaleX: 0.3,
         scaleY: 0.3,
@@ -286,6 +477,29 @@ export class FrostNovaWeapon extends BaseWeapon {
         ease: 'Cubic.easeOut',
         onComplete: () => shard.destroy(),
       });
+    }
+
+    // High quality: additional fast-moving dust circles
+    if (quality === 'high') {
+      const dustCount = 6;
+      for (let dustIndex = 0; dustIndex < dustCount; dustIndex++) {
+        const dustAngle = (dustIndex / dustCount) * Math.PI * 2 + Math.random() * 0.5;
+        const dustParticle = ctx.scene.add.circle(x, y, 1.5, 0xffffff, 0.8);
+        dustParticle.setDepth(DepthLayers.SHATTER);
+
+        const dustTargetX = x + Math.cos(dustAngle) * 100;
+        const dustTargetY = y + Math.sin(dustAngle) * 100;
+
+        ctx.scene.tweens.add({
+          targets: dustParticle,
+          x: dustTargetX,
+          y: dustTargetY,
+          alpha: 0,
+          duration: 250,
+          ease: 'Cubic.easeOut',
+          onComplete: () => dustParticle.destroy(),
+        });
+      }
     }
 
     // Central burst

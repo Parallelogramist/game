@@ -1,6 +1,7 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Health } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
+import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
  * FlamethrowerWeapon sprays fire in a cone toward enemies.
@@ -18,6 +19,13 @@ export class FlamethrowerWeapon extends BaseWeapon {
   private burnTime: Map<number, number> = new Map();      // How long enemy has been burning
   private ignitedEnemies: Set<number> = new Set();        // Enemies that reached 2s burn (Ignited)
   private readonly IGNITE_THRESHOLD = 2.0;                // Seconds to become Ignited
+
+  // Visual quality tracking
+  private currentQuality: VisualQuality = 'high';
+
+  // Ember ring buffer (high quality only)
+  private emberBuffer: { x: number; y: number; age: number }[] = [];
+  private readonly MAX_EMBERS = 12;
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -44,6 +52,9 @@ export class FlamethrowerWeapon extends BaseWeapon {
   }
 
   protected attack(ctx: WeaponContext): void {
+    // Update visual quality from context
+    this.currentQuality = ctx.visualQuality;
+
     const enemies = ctx.getEnemies();
     if (enemies.length === 0) return;
 
@@ -132,7 +143,10 @@ export class FlamethrowerWeapon extends BaseWeapon {
     }
     this.coneGraphics.clear();
 
-    // Filled cone wedge
+    // 4-layer gradient cone based on quality
+    this.drawGradientCone(ctx, coneAngleHalf, coneRange);
+
+    // Cone edge lines
     const coneLeftAngle = this.lastAimAngle - coneAngleHalf;
     const coneRightAngle = this.lastAimAngle + coneAngleHalf;
     const leftTipX = ctx.playerX + Math.cos(coneLeftAngle) * coneRange;
@@ -140,15 +154,6 @@ export class FlamethrowerWeapon extends BaseWeapon {
     const rightTipX = ctx.playerX + Math.cos(coneRightAngle) * coneRange;
     const rightTipY = ctx.playerY + Math.sin(coneRightAngle) * coneRange;
 
-    this.coneGraphics.fillStyle(0x4488ff, 0.08);
-    this.coneGraphics.beginPath();
-    this.coneGraphics.moveTo(ctx.playerX, ctx.playerY);
-    this.coneGraphics.lineTo(leftTipX, leftTipY);
-    this.coneGraphics.lineTo(rightTipX, rightTipY);
-    this.coneGraphics.closePath();
-    this.coneGraphics.fillPath();
-
-    // Cone edge lines
     this.coneGraphics.lineStyle(1, 0x66aaff, 0.15);
     this.coneGraphics.beginPath();
     this.coneGraphics.moveTo(ctx.playerX, ctx.playerY);
@@ -159,40 +164,186 @@ export class FlamethrowerWeapon extends BaseWeapon {
     this.coneGraphics.lineTo(rightTipX, rightTipY);
     this.coneGraphics.strokePath();
 
-    // Heat shimmer lines inside the cone
-    const perpAngle = this.lastAimAngle + Math.PI / 2;
-    const shimmerDistances = [0.3, 0.5, 0.7];
-    this.coneGraphics.lineStyle(1, 0x88ccff, 0.12);
-    for (let shimmerIndex = 0; shimmerIndex < shimmerDistances.length; shimmerIndex++) {
-      const distanceFraction = shimmerDistances[shimmerIndex];
-      const lineCenterX = ctx.playerX + Math.cos(this.lastAimAngle) * coneRange * distanceFraction;
-      const lineCenterY = ctx.playerY + Math.sin(this.lastAimAngle) * coneRange * distanceFraction;
-      const halfSpread = coneRange * distanceFraction * Math.sin(coneAngleHalf) * 0.8;
+    // Heat shimmer lines inside the cone (quality-scaled)
+    this.drawShimmerLines(ctx, coneAngleHalf, coneRange);
 
-      const shimmerSegments = 6;
-      this.coneGraphics.beginPath();
-      for (let segmentIndex = 0; segmentIndex <= shimmerSegments; segmentIndex++) {
-        const segmentFraction = segmentIndex / shimmerSegments;
-        const spreadOffset = (segmentFraction - 0.5) * 2 * halfSpread;
-        const sineWobble = Math.sin(ctx.gameTime * 4 + shimmerIndex * 2 + segmentFraction * Math.PI * 2) * 5;
-        const pointX = lineCenterX + Math.cos(perpAngle) * spreadOffset + Math.cos(this.lastAimAngle) * sineWobble;
-        const pointY = lineCenterY + Math.sin(perpAngle) * spreadOffset + Math.sin(this.lastAimAngle) * sineWobble;
-        if (segmentIndex === 0) {
-          this.coneGraphics.moveTo(pointX, pointY);
-        } else {
-          this.coneGraphics.lineTo(pointX, pointY);
-        }
+    // Ember ring buffer (high quality only)
+    if (this.currentQuality === 'high') {
+      this.updateAndDrawEmbers(ctx, coneAngleHalf, coneRange);
+    }
+
+    // Ignite aura on burning enemies (high quality only)
+    if (this.currentQuality === 'high') {
+      let igniteDrawCount = 0;
+      for (const enemyId of this.ignitedEnemies) {
+        if (igniteDrawCount >= 8) break;
+        const ex = Transform.x[enemyId];
+        const ey = Transform.y[enemyId];
+        // Only draw for enemies in range
+        const dx = ex - ctx.playerX, dy = ey - ctx.playerY;
+        if (dx * dx + dy * dy > rangeSq) continue;
+        const pulseSize = 12 + Math.sin(ctx.gameTime * 8) * 3;
+        this.coneGraphics.fillStyle(0xff6600, 0.2);
+        this.coneGraphics.fillCircle(ex, ey, pulseSize);
+        this.coneGraphics.lineStyle(1, 0xffaa00, 0.4);
+        this.coneGraphics.strokeCircle(ex, ey, pulseSize);
+        igniteDrawCount++;
       }
-      this.coneGraphics.strokePath();
     }
 
     // Create flame visual
     this.createFlameVisual(ctx);
   }
 
+  /**
+   * Draw multi-layer gradient cone based on visual quality.
+   */
+  private drawGradientCone(ctx: WeaponContext, coneAngleHalf: number, coneRange: number): void {
+    if (this.currentQuality === 'low') {
+      // Low: single cone layer with slightly boosted alpha
+      this.drawConeLayer(ctx, coneAngleHalf, coneRange, 0x4488ff, 0.12, 1.0);
+    } else if (this.currentQuality === 'medium') {
+      // Medium: 2-layer cone
+      this.drawConeLayer(ctx, coneAngleHalf, coneRange, 0xff4400, 0.06, 1.0);
+      this.drawConeLayer(ctx, coneAngleHalf, coneRange, 0xff6600, 0.10, 0.8);
+    } else {
+      // High: 4-layer gradient
+      this.drawConeLayer(ctx, coneAngleHalf, coneRange, 0xff4400, 0.06, 1.0);
+      this.drawConeLayer(ctx, coneAngleHalf, coneRange, 0xff6600, 0.10, 0.85);
+      this.drawConeLayer(ctx, coneAngleHalf, coneRange, 0xffaa00, 0.14, 0.70);
+      this.drawConeLayer(ctx, coneAngleHalf, coneRange, 0xffcc44, 0.18, 0.50);
+    }
+  }
+
+  /**
+   * Draw a single cone layer with the given width fraction.
+   */
+  private drawConeLayer(
+    ctx: WeaponContext,
+    coneAngleHalf: number,
+    coneRange: number,
+    color: number,
+    alpha: number,
+    widthFraction: number
+  ): void {
+    const narrowAngleHalf = coneAngleHalf * widthFraction;
+    const layerLeftAngle = this.lastAimAngle - narrowAngleHalf;
+    const layerRightAngle = this.lastAimAngle + narrowAngleHalf;
+    const layerLeftTipX = ctx.playerX + Math.cos(layerLeftAngle) * coneRange;
+    const layerLeftTipY = ctx.playerY + Math.sin(layerLeftAngle) * coneRange;
+    const layerRightTipX = ctx.playerX + Math.cos(layerRightAngle) * coneRange;
+    const layerRightTipY = ctx.playerY + Math.sin(layerRightAngle) * coneRange;
+
+    this.coneGraphics!.fillStyle(color, alpha);
+    this.coneGraphics!.beginPath();
+    this.coneGraphics!.moveTo(ctx.playerX, ctx.playerY);
+    this.coneGraphics!.lineTo(layerLeftTipX, layerLeftTipY);
+    this.coneGraphics!.lineTo(layerRightTipX, layerRightTipY);
+    this.coneGraphics!.closePath();
+    this.coneGraphics!.fillPath();
+  }
+
+  /**
+   * Draw heat shimmer lines scaled by visual quality.
+   */
+  private drawShimmerLines(ctx: WeaponContext, coneAngleHalf: number, coneRange: number): void {
+    const perpAngle = this.lastAimAngle + Math.PI / 2;
+
+    let shimmerDistances: number[];
+    let shimmerLineCount: number;
+    let shimmerAlpha: number;
+    let wobbleAmplitude: number;
+    let shimmerColors: number[] | null = null;
+
+    if (this.currentQuality === 'low') {
+      shimmerDistances = [0.35, 0.65];
+      shimmerLineCount = 2;
+      shimmerAlpha = 0.12;
+      wobbleAmplitude = 5;
+    } else if (this.currentQuality === 'medium') {
+      shimmerDistances = [0.3, 0.5, 0.7];
+      shimmerLineCount = 3;
+      shimmerAlpha = 0.18;
+      wobbleAmplitude = 5;
+    } else {
+      shimmerDistances = [0.2, 0.35, 0.5, 0.65, 0.8];
+      shimmerLineCount = 5;
+      shimmerAlpha = 0.22;
+      wobbleAmplitude = 8;
+      shimmerColors = [0xffaa66, 0x88ccff, 0xffaa66, 0x88ccff, 0xffaa66];
+    }
+
+    for (let shimmerIndex = 0; shimmerIndex < shimmerLineCount; shimmerIndex++) {
+      const distanceFraction = shimmerDistances[shimmerIndex];
+      const lineCenterX = ctx.playerX + Math.cos(this.lastAimAngle) * coneRange * distanceFraction;
+      const lineCenterY = ctx.playerY + Math.sin(this.lastAimAngle) * coneRange * distanceFraction;
+      const halfSpread = coneRange * distanceFraction * Math.sin(coneAngleHalf) * 0.8;
+
+      const lineColor = shimmerColors ? shimmerColors[shimmerIndex] : 0x88ccff;
+      this.coneGraphics!.lineStyle(1, lineColor, shimmerAlpha);
+
+      const shimmerSegments = 6;
+      this.coneGraphics!.beginPath();
+      for (let segmentIndex = 0; segmentIndex <= shimmerSegments; segmentIndex++) {
+        const segmentFraction = segmentIndex / shimmerSegments;
+        const spreadOffset = (segmentFraction - 0.5) * 2 * halfSpread;
+        const sineWobble = Math.sin(ctx.gameTime * 4 + shimmerIndex * 2 + segmentFraction * Math.PI * 2) * wobbleAmplitude;
+        const pointX = lineCenterX + Math.cos(perpAngle) * spreadOffset + Math.cos(this.lastAimAngle) * sineWobble;
+        const pointY = lineCenterY + Math.sin(perpAngle) * spreadOffset + Math.sin(this.lastAimAngle) * sineWobble;
+        if (segmentIndex === 0) {
+          this.coneGraphics!.moveTo(pointX, pointY);
+        } else {
+          this.coneGraphics!.lineTo(pointX, pointY);
+        }
+      }
+      this.coneGraphics!.strokePath();
+    }
+  }
+
+  /**
+   * Update and draw ember particles (high quality only).
+   * Embers spawn randomly in the cone and drift upward as they age.
+   */
+  private updateAndDrawEmbers(ctx: WeaponContext, coneAngleHalf: number, coneRange: number): void {
+    // Spawn new ember ~every 3rd frame
+    if (Math.random() < 0.33 && this.emberBuffer.length < this.MAX_EMBERS) {
+      const randomAngleOffset = (Math.random() - 0.5) * 2 * coneAngleHalf;
+      const randomDistance = 0.2 + Math.random() * 0.7; // 20%-90% of cone range
+      const emberAngle = this.lastAimAngle + randomAngleOffset;
+      const emberX = ctx.playerX + Math.cos(emberAngle) * coneRange * randomDistance;
+      const emberY = ctx.playerY + Math.sin(emberAngle) * coneRange * randomDistance;
+      this.emberBuffer.push({ x: emberX, y: emberY, age: 0 });
+    }
+
+    // Age and draw embers, remove old ones
+    const maxEmberAge = 0.6; // seconds
+    for (let emberIndex = this.emberBuffer.length - 1; emberIndex >= 0; emberIndex--) {
+      const ember = this.emberBuffer[emberIndex];
+      ember.age += ctx.deltaTime;
+      ember.y -= 20 * ctx.deltaTime; // Drift upward
+
+      if (ember.age >= maxEmberAge) {
+        this.emberBuffer.splice(emberIndex, 1);
+        continue;
+      }
+
+      const ageFraction = ember.age / maxEmberAge;
+      const emberAlpha = 0.5 * (1 - ageFraction);
+      this.coneGraphics!.fillStyle(0xffcc44, emberAlpha);
+      this.coneGraphics!.fillCircle(ember.x, ember.y, 1.5);
+    }
+  }
+
   private createFlameVisual(ctx: WeaponContext): void {
-    // Spawn flame particles
+    // Particle cap based on quality
+    const particleCap = this.currentQuality === 'low' ? 10
+      : this.currentQuality === 'medium' ? 20
+      : 30;
+
+    // Spawn flame particles (skip if at cap)
     for (let i = 0; i < 3; i++) {
+      if (this.particles.size >= particleCap) break;
+
       const spreadAngle = this.lastAimAngle + (Math.random() - 0.5) * (Math.PI / 3) * this.stats.size;
       const dist = 20 + Math.random() * this.stats.range * 0.8;
 
@@ -204,6 +355,12 @@ export class FlamethrowerWeapon extends BaseWeapon {
   }
 
   private createFlameParticle(ctx: WeaponContext, x: number, y: number, isIgnited: boolean = false): void {
+    // Respect particle cap
+    const particleCap = this.currentQuality === 'low' ? 10
+      : this.currentQuality === 'medium' ? 20
+      : 30;
+    if (this.particles.size >= particleCap) return;
+
     const size = 6 + Math.random() * 8;
     // Blue energy particles normally, orange/red for ignited
     const colors = isIgnited
@@ -396,6 +553,7 @@ export class FlamethrowerWeapon extends BaseWeapon {
     this.hitCooldowns.clear();
     this.burnTime.clear();
     this.ignitedEnemies.clear();
+    this.emberBuffer.length = 0;
     super.destroy();
   }
 }

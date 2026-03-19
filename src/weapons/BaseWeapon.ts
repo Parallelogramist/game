@@ -1,6 +1,7 @@
 import { IWorld } from 'bitecs';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
+import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
  * WeaponContext provides weapons access to game systems they need.
@@ -20,6 +21,7 @@ export interface WeaponContext {
   stunEnemy: (enemyId: number, duration: number) => void;  // Apply stun (freeze with 0 speed)
   overchargeStunDuration: number;  // Stun duration from chain lightning (0 = disabled)
   healPlayer: (amount: number) => void;  // Heal the player (for weapon mastery effects)
+  visualQuality: VisualQuality;
 }
 
 /**

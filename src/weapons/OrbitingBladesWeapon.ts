@@ -3,6 +3,7 @@ import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { WEAPON_COLORS } from '../visual/NeonColors';
 import { DepthLayers } from '../visual/DepthLayers';
+import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
  * OrbitingBladesWeapon creates blades that continuously orbit the player.
@@ -19,6 +20,9 @@ export class OrbitingBladesWeapon extends BaseWeapon {
   private trailGraphics: Phaser.GameObjects.Graphics | null = null;
   private orbitRingGraphics: Phaser.GameObjects.Graphics | null = null;
   private previousAngles: number[][] = []; // previousAngles[bladeIndex][historyIndex]
+
+  private currentQuality: VisualQuality = 'high';
+  private ringPulsePhase: number = 0;
 
   // Mastery: Blade Storm
   private bladeStormCooldown: number = 0;
@@ -63,6 +67,8 @@ export class OrbitingBladesWeapon extends BaseWeapon {
   }
 
   protected updateEffects(ctx: WeaponContext): void {
+    this.currentQuality = ctx.visualQuality;
+
     // Ensure we have the right number of blades
     this.ensureBladeCount(ctx);
 
@@ -80,10 +86,11 @@ export class OrbitingBladesWeapon extends BaseWeapon {
     }
 
     // Record current angles before updating (for trail)
+    const maxTrailHistory = this.currentQuality === 'low' ? 3 : 5;
     for (let bladeIndex = 0; bladeIndex < this.blades.length; bladeIndex++) {
       this.previousAngles[bladeIndex].unshift(this.bladeAngles[bladeIndex]);
-      if (this.previousAngles[bladeIndex].length > 3) {
-        this.previousAngles[bladeIndex].length = 3;
+      if (this.previousAngles[bladeIndex].length > maxTrailHistory) {
+        this.previousAngles[bladeIndex].length = maxTrailHistory;
       }
     }
 
@@ -139,31 +146,84 @@ export class OrbitingBladesWeapon extends BaseWeapon {
         this.bladeHilts[bladeIndex].setScale(hiltScaleX, 1);
       }
 
-      // Draw blade motion trail: fading afterimages at previous orbit positions
-      const trailAlphas = [0.15, 0.08, 0.03];
+      // Draw blade motion trail
       const bladeScale = this.stats.size;
-      const trailBladeLength = 20 * bladeScale;
       const trailBladeWidth = 10 * bladeScale;
 
-      for (let historyIndex = 0; historyIndex < this.previousAngles[bladeIndex].length; historyIndex++) {
-        const prevAngle = this.previousAngles[bladeIndex][historyIndex];
-        const trailRadius = this.isBladeStormActive
-          ? (this.bladeStormRadii[bladeIndex] || this.orbitRadius)
-          : this.orbitRadius;
-        const trailX = ctx.playerX + Math.cos(prevAngle) * trailRadius;
-        const trailY = ctx.playerY + Math.sin(prevAngle) * trailRadius;
-        const trailRotation = prevAngle + Math.PI / 2;
+      if (this.currentQuality === 'low') {
+        // Low: 2 afterimage triangles (simplified)
+        const trailAlphas = [0.15, 0.08];
+        const trailBladeLength = 20 * bladeScale;
+        const trailCount = Math.min(2, this.previousAngles[bladeIndex].length);
 
-        // Draw simplified triangle afterimage
-        this.trailGraphics.fillStyle(WEAPON_COLORS.orbit.core, trailAlphas[historyIndex]);
-        const tipX = trailX + Math.cos(trailRotation - Math.PI / 2) * trailBladeLength;
-        const tipY = trailY + Math.sin(trailRotation - Math.PI / 2) * trailBladeLength;
-        const rightBaseX = trailX + Math.cos(trailRotation) * (trailBladeWidth / 2);
-        const rightBaseY = trailY + Math.sin(trailRotation) * (trailBladeWidth / 2);
-        const leftBaseX = trailX - Math.cos(trailRotation) * (trailBladeWidth / 2);
-        const leftBaseY = trailY - Math.sin(trailRotation) * (trailBladeWidth / 2);
+        for (let historyIndex = 0; historyIndex < trailCount; historyIndex++) {
+          const prevAngle = this.previousAngles[bladeIndex][historyIndex];
+          const trailRadius = this.isBladeStormActive
+            ? (this.bladeStormRadii[bladeIndex] || this.orbitRadius)
+            : this.orbitRadius;
+          const trailX = ctx.playerX + Math.cos(prevAngle) * trailRadius;
+          const trailY = ctx.playerY + Math.sin(prevAngle) * trailRadius;
+          const trailRotation = prevAngle + Math.PI / 2;
 
-        this.trailGraphics.fillTriangle(tipX, tipY, rightBaseX, rightBaseY, leftBaseX, leftBaseY);
+          this.trailGraphics.fillStyle(WEAPON_COLORS.orbit.core, trailAlphas[historyIndex]);
+          const tipX = trailX + Math.cos(trailRotation - Math.PI / 2) * trailBladeLength;
+          const tipY = trailY + Math.sin(trailRotation - Math.PI / 2) * trailBladeLength;
+          const rightBaseX = trailX + Math.cos(trailRotation) * (trailBladeWidth / 2);
+          const rightBaseY = trailY + Math.sin(trailRotation) * (trailBladeWidth / 2);
+          const leftBaseX = trailX - Math.cos(trailRotation) * (trailBladeWidth / 2);
+          const leftBaseY = trailY - Math.sin(trailRotation) * (trailBladeWidth / 2);
+
+          this.trailGraphics.fillTriangle(tipX, tipY, rightBaseX, rightBaseY, leftBaseX, leftBaseY);
+        }
+      } else {
+        // Medium/High: filled arc wedge trail (ribbon-like sweep)
+        const oldestAngle = this.previousAngles[bladeIndex][this.previousAngles[bladeIndex].length - 1] || angle;
+        const arcSegments = this.currentQuality === 'high' ? 8 : 4;
+        const angleSpan = angle - oldestAngle;
+
+        this.trailGraphics.fillStyle(WEAPON_COLORS.orbit.core, 0.1);
+        this.trailGraphics.beginPath();
+
+        // Inner arc (closer to player)
+        for (let arcStep = 0; arcStep <= arcSegments; arcStep++) {
+          const interpolation = arcStep / arcSegments;
+          const arcAngle = oldestAngle + angleSpan * interpolation;
+          const innerRadius = currentRadius - trailBladeWidth * 0.3;
+          const innerArcX = ctx.playerX + Math.cos(arcAngle) * innerRadius;
+          const innerArcY = ctx.playerY + Math.sin(arcAngle) * innerRadius;
+          if (arcStep === 0) {
+            this.trailGraphics.moveTo(innerArcX, innerArcY);
+          } else {
+            this.trailGraphics.lineTo(innerArcX, innerArcY);
+          }
+        }
+
+        // Outer arc (further from player) - reverse direction
+        for (let arcStep = arcSegments; arcStep >= 0; arcStep--) {
+          const interpolation = arcStep / arcSegments;
+          const arcAngle = oldestAngle + angleSpan * interpolation;
+          const outerRadius = currentRadius + trailBladeWidth * 0.3;
+          const outerArcX = ctx.playerX + Math.cos(arcAngle) * outerRadius;
+          const outerArcY = ctx.playerY + Math.sin(arcAngle) * outerRadius;
+          this.trailGraphics.lineTo(outerArcX, outerArcY);
+        }
+
+        this.trailGraphics.closePath();
+        this.trailGraphics.fillPath();
+      }
+
+      // Blade Storm spiral trail (high quality only)
+      if (this.currentQuality === 'high' && this.isBladeStormActive && this.previousAngles[bladeIndex].length > 0) {
+        const prevStormAngle = this.previousAngles[bladeIndex][0];
+        const prevStormRadius = this.bladeStormRadii[bladeIndex] || this.orbitRadius;
+        const prevStormX = ctx.playerX + Math.cos(prevStormAngle) * prevStormRadius;
+        const prevStormY = ctx.playerY + Math.sin(prevStormAngle) * prevStormRadius;
+
+        this.trailGraphics.lineStyle(2, 0xffd700, 0.3);
+        this.trailGraphics.beginPath();
+        this.trailGraphics.moveTo(prevStormX, prevStormY);
+        this.trailGraphics.lineTo(bladeX, bladeY);
+        this.trailGraphics.strokePath();
       }
 
       // Check collision with nearby enemies using spatial hash
@@ -231,24 +291,50 @@ export class OrbitingBladesWeapon extends BaseWeapon {
     const dashCount = 16;
     const dashArcAngle = (Math.PI * 2 / dashCount) * 0.67; // ~15 degrees per dash
     const gapArcAngle = (Math.PI * 2 / dashCount) * 0.33;  // ~7.5 degrees gap
-    this.orbitRingGraphics.lineStyle(1, WEAPON_COLORS.orbit.core, 0.08);
 
-    for (let dashIndex = 0; dashIndex < dashCount; dashIndex++) {
-      const dashStartAngle = dashIndex * (dashArcAngle + gapArcAngle);
-      // Draw arc segment as a series of short line segments
-      const arcSegments = 4;
-      this.orbitRingGraphics.beginPath();
-      for (let arcStep = 0; arcStep <= arcSegments; arcStep++) {
-        const arcAngle = dashStartAngle + (dashArcAngle * arcStep / arcSegments);
-        const arcX = ctx.playerX + Math.cos(arcAngle) * this.orbitRadius;
-        const arcY = ctx.playerY + Math.sin(arcAngle) * this.orbitRadius;
-        if (arcStep === 0) {
-          this.orbitRingGraphics.moveTo(arcX, arcY);
-        } else {
-          this.orbitRingGraphics.lineTo(arcX, arcY);
+    if (this.currentQuality === 'high') {
+      // High: energy flow ring with pulsing alpha per segment
+      this.ringPulsePhase += ctx.deltaTime * 3;
+
+      for (let dashIndex = 0; dashIndex < dashCount; dashIndex++) {
+        const segmentAlpha = 0.05 + Math.sin(this.ringPulsePhase + dashIndex * 0.4) * 0.05;
+        this.orbitRingGraphics.lineStyle(1, WEAPON_COLORS.orbit.core, segmentAlpha);
+
+        const dashStartAngle = dashIndex * (dashArcAngle + gapArcAngle);
+        const ringArcSegments = 4;
+        this.orbitRingGraphics.beginPath();
+        for (let arcStep = 0; arcStep <= ringArcSegments; arcStep++) {
+          const arcAngle = dashStartAngle + (dashArcAngle * arcStep / ringArcSegments);
+          const arcX = ctx.playerX + Math.cos(arcAngle) * this.orbitRadius;
+          const arcY = ctx.playerY + Math.sin(arcAngle) * this.orbitRadius;
+          if (arcStep === 0) {
+            this.orbitRingGraphics.moveTo(arcX, arcY);
+          } else {
+            this.orbitRingGraphics.lineTo(arcX, arcY);
+          }
         }
+        this.orbitRingGraphics.strokePath();
       }
-      this.orbitRingGraphics.strokePath();
+    } else {
+      // Low/Medium: static dashed arcs
+      this.orbitRingGraphics.lineStyle(1, WEAPON_COLORS.orbit.core, 0.08);
+
+      for (let dashIndex = 0; dashIndex < dashCount; dashIndex++) {
+        const dashStartAngle = dashIndex * (dashArcAngle + gapArcAngle);
+        const ringArcSegments = 4;
+        this.orbitRingGraphics.beginPath();
+        for (let arcStep = 0; arcStep <= ringArcSegments; arcStep++) {
+          const arcAngle = dashStartAngle + (dashArcAngle * arcStep / ringArcSegments);
+          const arcX = ctx.playerX + Math.cos(arcAngle) * this.orbitRadius;
+          const arcY = ctx.playerY + Math.sin(arcAngle) * this.orbitRadius;
+          if (arcStep === 0) {
+            this.orbitRingGraphics.moveTo(arcX, arcY);
+          } else {
+            this.orbitRingGraphics.lineTo(arcX, arcY);
+          }
+        }
+        this.orbitRingGraphics.strokePath();
+      }
     }
 
     // Clean up old cooldowns
@@ -393,24 +479,61 @@ export class OrbitingBladesWeapon extends BaseWeapon {
     const centerOffset = 2 * scale;
 
     // Create separate graphics for blade and hilt (for independent scaling)
-
-    // Blade graphics (triangle) - stays fixed
     const bladeGraphics = ctx.scene.add.graphics();
-    bladeGraphics.fillStyle(WEAPON_COLORS.orbit.core, 1);
-    bladeGraphics.beginPath();
-    bladeGraphics.moveTo(0, -bladeLength - centerOffset);  // Tip
-    bladeGraphics.lineTo(bladeWidth / 2, -centerOffset);   // Right base
-    bladeGraphics.lineTo(-bladeWidth / 2, -centerOffset);  // Left base
-    bladeGraphics.closePath();
-    bladeGraphics.fillPath();
 
-    // Blade outline - white
-    bladeGraphics.lineStyle(2, 0xffffff, 1);
-    bladeGraphics.strokePath();
+    if (this.currentQuality === 'low') {
+      // Low: simple triangle blade
+      bladeGraphics.fillStyle(WEAPON_COLORS.orbit.core, 1);
+      bladeGraphics.beginPath();
+      bladeGraphics.moveTo(0, -bladeLength - centerOffset);  // Tip
+      bladeGraphics.lineTo(bladeWidth / 2, -centerOffset);   // Right base
+      bladeGraphics.lineTo(-bladeWidth / 2, -centerOffset);  // Left base
+      bladeGraphics.closePath();
+      bladeGraphics.fillPath();
 
-    // Blade glow
-    bladeGraphics.lineStyle(3, WEAPON_COLORS.orbit.glow, 0.4);
-    bladeGraphics.strokePath();
+      // Blade outline - white
+      bladeGraphics.lineStyle(2, 0xffffff, 1);
+      bladeGraphics.strokePath();
+
+      // Blade glow
+      bladeGraphics.lineStyle(3, WEAPON_COLORS.orbit.glow, 0.4);
+      bladeGraphics.strokePath();
+    } else {
+      // Medium/High: 7-vertex sword silhouette
+      const tipY = -bladeLength - centerOffset;
+      const shoulderY = -bladeLength * 0.65 - centerOffset;
+      const fullerY = -bladeLength * 0.3 - centerOffset;
+      const baseY = -centerOffset;
+
+      bladeGraphics.fillStyle(WEAPON_COLORS.orbit.core, 1);
+      bladeGraphics.beginPath();
+      bladeGraphics.moveTo(0, tipY);                           // tip
+      bladeGraphics.lineTo(bladeWidth * 0.4, shoulderY);       // right shoulder
+      bladeGraphics.lineTo(bladeWidth * 0.35, fullerY);        // right fuller (narrowing)
+      bladeGraphics.lineTo(bladeWidth * 0.5, baseY);           // right base (wider at guard)
+      bladeGraphics.lineTo(-bladeWidth * 0.5, baseY);          // left base
+      bladeGraphics.lineTo(-bladeWidth * 0.35, fullerY);       // left fuller
+      bladeGraphics.lineTo(-bladeWidth * 0.4, shoulderY);      // left shoulder
+      bladeGraphics.closePath();
+      bladeGraphics.fillPath();
+
+      // Blade outline - white
+      bladeGraphics.lineStyle(2, 0xffffff, 1);
+      bladeGraphics.strokePath();
+
+      // Blade glow
+      bladeGraphics.lineStyle(3, WEAPON_COLORS.orbit.glow, 0.4);
+      bladeGraphics.strokePath();
+
+      // High quality: center blood-groove line from tip to base
+      if (this.currentQuality === 'high') {
+        bladeGraphics.lineStyle(1, 0x1a1a4e, 0.4);
+        bladeGraphics.beginPath();
+        bladeGraphics.moveTo(0, tipY);
+        bladeGraphics.lineTo(0, baseY);
+        bladeGraphics.strokePath();
+      }
+    }
 
     // Hilt graphics (crossguard + handle) - will scale X for coin-flip effect
     const hiltGraphics = ctx.scene.add.graphics();

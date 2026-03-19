@@ -3,6 +3,7 @@ import { Transform } from '../ecs/components';
 import { GAME_WIDTH, GAME_HEIGHT } from '../GameConfig';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
+import type { VisualQuality } from '../visual/GlowGraphics';
 
 const RICOCHET_TRAIL_LENGTH = 6;
 
@@ -31,6 +32,8 @@ interface RicochetBall {
 export class RicochetWeapon extends BaseWeapon {
   private balls: RicochetBall[] = [];
   private trailGraphics: Phaser.GameObjects.Graphics | null = null;
+  private currentQuality: VisualQuality = 'high';
+  private currentGameTime: number = 0;
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -117,6 +120,9 @@ export class RicochetWeapon extends BaseWeapon {
   }
 
   protected updateEffects(ctx: WeaponContext): void {
+    this.currentQuality = ctx.visualQuality;
+    this.currentGameTime = ctx.gameTime;
+
     // OPTIMIZATION: Use Set for O(1) removal checks
     const toRemove = new Set<RicochetBall>();
     // OPTIMIZATION: Get spatial hash once per frame
@@ -201,6 +207,27 @@ export class RicochetWeapon extends BaseWeapon {
           onComplete: () => bounceFlash.destroy(),
         });
 
+        // High quality: directional spark fan facing the new travel direction
+        if (this.currentQuality === 'high') {
+          const travelAngle = Math.atan2(ball.velocityY, ball.velocityX);
+          const sparkFanGraphics = ctx.scene.add.graphics();
+          sparkFanGraphics.setPosition(ball.x, ball.y);
+          sparkFanGraphics.setDepth(11);
+          for (let sparkIndex = 0; sparkIndex < 5; sparkIndex++) {
+            const sparkAngle = travelAngle - Math.PI / 3 + (sparkIndex / 4) * Math.PI * 2 / 3;
+            sparkFanGraphics.lineStyle(2, 0xffffff, 0.8);
+            sparkFanGraphics.lineBetween(0, 0, Math.cos(sparkAngle) * 25, Math.sin(sparkAngle) * 25);
+          }
+          ctx.scene.tweens.add({
+            targets: sparkFanGraphics,
+            scaleX: 2,
+            scaleY: 2,
+            alpha: 0,
+            duration: 150,
+            onComplete: () => sparkFanGraphics.destroy(),
+          });
+        }
+
         // Bounce visual
         ctx.effectsManager.playHitSparks(ball.x, ball.y, Math.atan2(ball.velocityY, ball.velocityX));
 
@@ -210,14 +237,31 @@ export class RicochetWeapon extends BaseWeapon {
         }
       }
 
-      // Draw trail circles at previous positions using shared graphics
-      if (this.trailGraphics) {
-        for (let i = 0; i < ball.trailCount; i++) {
-          const bufferIdx = (ball.trailIndex - ball.trailCount + i + RICOCHET_TRAIL_LENGTH) % RICOCHET_TRAIL_LENGTH;
-          const trailAlpha = ((i + 1) / ball.trailCount) * 0.35;
-          const trailRadius = ball.ballSize * 0.6 * ((i + 1) / ball.trailCount);
-          this.trailGraphics.fillStyle(ball.ballColor, trailAlpha);
-          this.trailGraphics.fillCircle(ball.trailHistory[bufferIdx].x, ball.trailHistory[bufferIdx].y, trailRadius);
+      // Draw trail at previous positions using shared graphics
+      if (this.trailGraphics && this.currentQuality !== 'low') {
+        if (this.currentQuality === 'medium') {
+          // Medium: fading circles (original behavior)
+          for (let i = 0; i < ball.trailCount; i++) {
+            const bufferIdx = (ball.trailIndex - ball.trailCount + i + RICOCHET_TRAIL_LENGTH) % RICOCHET_TRAIL_LENGTH;
+            const trailAlpha = ((i + 1) / ball.trailCount) * 0.35;
+            const trailRadius = ball.ballSize * 0.6 * ((i + 1) / ball.trailCount);
+            this.trailGraphics.fillStyle(ball.ballColor, trailAlpha);
+            this.trailGraphics.fillCircle(ball.trailHistory[bufferIdx].x, ball.trailHistory[bufferIdx].y, trailRadius);
+          }
+        } else {
+          // High: connected polyline with graduated width/alpha
+          for (let i = 1; i < ball.trailCount; i++) {
+            const prevBufferIdx = (ball.trailIndex - ball.trailCount + i - 1 + RICOCHET_TRAIL_LENGTH) % RICOCHET_TRAIL_LENGTH;
+            const currentBufferIdx = (ball.trailIndex - ball.trailCount + i + RICOCHET_TRAIL_LENGTH) % RICOCHET_TRAIL_LENGTH;
+            const segmentProgress = (i + 1) / ball.trailCount;
+            const segmentAlpha = segmentProgress * 0.5;
+            const segmentWidth = Math.max(1, ball.ballSize * 1.2 * segmentProgress);
+            this.trailGraphics.lineStyle(segmentWidth, ball.ballColor, segmentAlpha);
+            this.trailGraphics.lineBetween(
+              ball.trailHistory[prevBufferIdx].x, ball.trailHistory[prevBufferIdx].y,
+              ball.trailHistory[currentBufferIdx].x, ball.trailHistory[currentBufferIdx].y
+            );
+          }
         }
       }
 
@@ -227,17 +271,62 @@ export class RicochetWeapon extends BaseWeapon {
       const stretchFactor = Math.min(1.5, currentSpeed / baseSpeed);
       const movementAngle = Math.atan2(ball.velocityY, ball.velocityX);
 
+      const ellipseWidth = ball.ballSize * 2 * stretchFactor;
+      const ellipseHeight = ball.ballSize * 2 / stretchFactor;
+
       ball.sprite.clear();
       ball.sprite.setPosition(ball.x, ball.y);
       ball.sprite.setRotation(movementAngle);
 
-      // Filled stretched ellipse
-      ball.sprite.fillStyle(ball.ballColor, 1);
-      ball.sprite.fillEllipse(0, 0, ball.ballSize * 2 * stretchFactor, ball.ballSize * 2 / stretchFactor);
-
-      // White stroke outline
-      ball.sprite.lineStyle(2, 0xffffff, 1);
-      ball.sprite.strokeEllipse(0, 0, ball.ballSize * 2 * stretchFactor, ball.ballSize * 2 / stretchFactor);
+      if (this.currentQuality === 'low') {
+        // Low: plain stretched ellipse (original)
+        ball.sprite.fillStyle(ball.ballColor, 1);
+        ball.sprite.fillEllipse(0, 0, ellipseWidth, ellipseHeight);
+        ball.sprite.lineStyle(2, 0xffffff, 1);
+        ball.sprite.strokeEllipse(0, 0, ellipseWidth, ellipseHeight);
+      } else if (ball.isEcho) {
+        // Echo balls at medium/high: dashed outline + faint outer ring
+        ball.sprite.lineStyle(2, ball.ballColor, 0.4);
+        ball.sprite.strokeEllipse(0, 0, ellipseWidth * 1.3, ellipseHeight * 1.3);
+        ball.sprite.lineStyle(2, ball.ballColor, 0.8);
+        ball.sprite.strokeEllipse(0, 0, ellipseWidth, ellipseHeight);
+      } else if (this.currentQuality === 'medium') {
+        // Medium: outer glow + solid core + center highlight
+        ball.sprite.fillStyle(ball.ballColor, 0.3);
+        ball.sprite.fillEllipse(0, 0, ellipseWidth * 1.3, ellipseHeight * 1.3);
+        ball.sprite.fillStyle(ball.ballColor, 1);
+        ball.sprite.fillEllipse(0, 0, ellipseWidth, ellipseHeight);
+        ball.sprite.lineStyle(2, 0xffffff, 1);
+        ball.sprite.strokeEllipse(0, 0, ellipseWidth, ellipseHeight);
+        const highlightSize = ball.ballSize * 0.3;
+        ball.sprite.fillStyle(0xffffff, 0.8);
+        ball.sprite.fillCircle(0, 0, highlightSize);
+      } else {
+        // High: outer glow + solid core + stroke + offset highlight + rotating crackle lines
+        ball.sprite.fillStyle(ball.ballColor, 0.3);
+        ball.sprite.fillEllipse(0, 0, ellipseWidth * 1.3, ellipseHeight * 1.3);
+        ball.sprite.fillStyle(ball.ballColor, 1);
+        ball.sprite.fillEllipse(0, 0, ellipseWidth, ellipseHeight);
+        ball.sprite.lineStyle(2, 0xffffff, 1);
+        ball.sprite.strokeEllipse(0, 0, ellipseWidth, ellipseHeight);
+        // Center highlight dot
+        const highlightSize = ball.ballSize * 0.3;
+        ball.sprite.fillStyle(0xffffff, 0.8);
+        ball.sprite.fillCircle(0, 0, highlightSize);
+        // White highlight spot offset toward top-left
+        ball.sprite.fillStyle(0xffffff, 0.8);
+        ball.sprite.fillCircle(-ball.ballSize * 0.2, -ball.ballSize * 0.2, highlightSize);
+        // Rotating energy crackle lines
+        const crackleAngle = this.currentGameTime * 10;
+        for (let line = 0; line < 2; line++) {
+          const lineAngle = crackleAngle + line * Math.PI / 2;
+          ball.sprite.lineStyle(1, 0xffffff, 0.5);
+          ball.sprite.lineBetween(
+            Math.cos(lineAngle) * ball.ballSize * 0.5, Math.sin(lineAngle) * ball.ballSize * 0.5,
+            Math.cos(lineAngle + Math.PI) * ball.ballSize * 0.5, Math.sin(lineAngle + Math.PI) * ball.ballSize * 0.5
+          );
+        }
+      }
 
       // OPTIMIZATION: Use spatial hash for O(1) proximity lookup instead of O(n) all enemies
       const collisionRadius = 20;

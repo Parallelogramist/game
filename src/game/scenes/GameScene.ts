@@ -5516,6 +5516,8 @@ export class GameScene extends Phaser.Scene {
       if (this.playerPlasmaCore) {
         this.playerPlasmaCore.setQuality(newQuality);
       }
+      // Update weapon visual quality
+      this.weaponManager.setVisualQuality(newQuality);
       // Note: Existing entities keep their current quality
       // New entities will be created with the new quality level
     }
