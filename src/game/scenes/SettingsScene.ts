@@ -9,8 +9,9 @@ import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
 import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
+import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 
-type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'gridEffects' | 'fpsCounter' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
+type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'gridEffects' | 'fpsCounter' | 'uiScale' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
 
 interface SettingsSceneData {
   returnTo: 'BootScene' | 'GameScene';
@@ -33,6 +34,9 @@ export class SettingsScene extends Phaser.Scene {
   private screenShakeToggle!: Phaser.GameObjects.Text;
   private gridEffectsToggle!: Phaser.GameObjects.Text;
   private fpsCounterToggle!: Phaser.GameObjects.Text;
+  private uiScaleDown!: Phaser.GameObjects.Text;
+  private uiScaleUp!: Phaser.GameObjects.Text;
+  private uiScaleText!: Phaser.GameObjects.Text;
   private damageNumberButtons: Phaser.GameObjects.Text[] = [];
   private statusTextToggle!: Phaser.GameObjects.Text;
   private resetDataButton!: Phaser.GameObjects.Text;
@@ -49,6 +53,8 @@ export class SettingsScene extends Phaser.Scene {
   private damageNumberIndex: number = 0;
   private playbackModeIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private layoutScale: number = 1;
+  private fontScale: number = 1;
 
   constructor() {
     super({ key: 'SettingsScene' });
@@ -62,6 +68,12 @@ export class SettingsScene extends Phaser.Scene {
     const centerX = this.cameras.main.centerX;
     const settingsManager = getSettingsManager();
     const musicManager = getMusicManager();
+
+    // Compute scaling for responsive layout on phones
+    this.layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
+    this.fontScale = computeMenuFontScale(this.scale.width, this.scale.height, settingsManager.getUiScale());
+    const ls = this.layoutScale;
+    const fs = this.fontScale;
 
     // Reset state
     this.damageNumberButtons = [];
@@ -83,75 +95,77 @@ export class SettingsScene extends Phaser.Scene {
     );
 
     // Title
-    this.add.text(centerX, 30, 'SETTINGS', {
-      fontSize: '36px',
+    this.add.text(centerX, scaledInt(ls, 30), 'SETTINGS', {
+      fontSize: scaledFontPx(fs, 36),
       color: '#ffdd44',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     }).setOrigin(0.5);
 
-    const contentLeftX = 340;
-    let currentY = 80;
+    const contentLeftX = scaledInt(ls, 340);
+    let currentY = scaledInt(ls, 80);
+    const rowSpacing = scaledInt(ls, 35);
+    const sectionSpacing = scaledInt(ls, 50);
 
     // ═══════════════════════════════════════════════════════════════════════
     // AUDIO Section
     // ═══════════════════════════════════════════════════════════════════════
     this.add.text(centerX, currentY, '═══════════════════ AUDIO ═══════════════════', {
-      fontSize: '14px',
+      fontSize: scaledFontPx(fs, 14),
       color: '#666666',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
-    currentY += 35;
+    currentY += rowSpacing;
 
     // SFX Toggle + Volume
     this.add.text(contentLeftX, currentY, 'SFX', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.sfxToggle = this.createToggle(contentLeftX + 100, currentY, settingsManager.isSfxEnabled(), () => {
+    this.sfxToggle = this.createToggle(contentLeftX + scaledInt(ls, 100), currentY, settingsManager.isSfxEnabled(), () => {
       const newValue = !settingsManager.isSfxEnabled();
       settingsManager.setSfxEnabled(newValue);
       this.updateSfxToggle();
     });
     this.sfxToggle.setData('zone', 'sfx');
 
-    this.add.text(contentLeftX + 250, currentY, 'Volume', {
-      fontSize: '16px',
+    this.add.text(contentLeftX + scaledInt(ls, 250), currentY, 'Volume', {
+      fontSize: scaledFontPx(fs, 16),
       color: '#aaaaaa',
       fontFamily: 'Arial',
     });
 
-    this.sfxVolumeDown = this.createButton(contentLeftX + 340, currentY, '[ - ]', () => {
+    this.sfxVolumeDown = this.createButton(contentLeftX + scaledInt(ls, 340), currentY, '[ - ]', () => {
       settingsManager.setSfxVolume(settingsManager.getSfxVolume() - 0.1);
       this.updateSfxVolume();
     });
     this.sfxVolumeDown.setData('zone', 'sfxVolume');
 
-    this.sfxVolumeText = this.add.text(contentLeftX + 400, currentY, `${Math.round(settingsManager.getSfxVolume() * 100)}%`, {
-      fontSize: '16px',
+    this.sfxVolumeText = this.add.text(contentLeftX + scaledInt(ls, 400), currentY, `${Math.round(settingsManager.getSfxVolume() * 100)}%`, {
+      fontSize: scaledFontPx(fs, 16),
       color: '#ffffff',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0);
 
-    this.sfxVolumeUp = this.createButton(contentLeftX + 460, currentY, '[ + ]', () => {
+    this.sfxVolumeUp = this.createButton(contentLeftX + scaledInt(ls, 460), currentY, '[ + ]', () => {
       settingsManager.setSfxVolume(settingsManager.getSfxVolume() + 0.1);
       this.updateSfxVolume();
     });
     this.sfxVolumeUp.setData('zone', 'sfxVolume');
 
-    currentY += 35;
+    currentY += rowSpacing;
 
     // BGM Toggle + Volume
     this.add.text(contentLeftX, currentY, 'BGM', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
     const bgmEnabled = musicManager.getPlaybackMode() !== 'off';
-    this.bgmToggle = this.createToggle(contentLeftX + 100, currentY, bgmEnabled, () => {
+    this.bgmToggle = this.createToggle(contentLeftX + scaledInt(ls, 100), currentY, bgmEnabled, () => {
       const currentMode = musicManager.getPlaybackMode();
       if (currentMode === 'off') {
         musicManager.setPlaybackMode('sequential');
@@ -164,35 +178,35 @@ export class SettingsScene extends Phaser.Scene {
     });
     this.bgmToggle.setData('zone', 'bgm');
 
-    this.add.text(contentLeftX + 250, currentY, 'Volume', {
-      fontSize: '16px',
+    this.add.text(contentLeftX + scaledInt(ls, 250), currentY, 'Volume', {
+      fontSize: scaledFontPx(fs, 16),
       color: '#aaaaaa',
       fontFamily: 'Arial',
     });
 
-    this.bgmVolumeDown = this.createButton(contentLeftX + 340, currentY, '[ - ]', () => {
+    this.bgmVolumeDown = this.createButton(contentLeftX + scaledInt(ls, 340), currentY, '[ - ]', () => {
       musicManager.setVolume(musicManager.getVolume() - 0.1);
       this.updateBgmVolume();
     });
     this.bgmVolumeDown.setData('zone', 'bgmVolume');
 
-    this.bgmVolumeText = this.add.text(contentLeftX + 400, currentY, `${Math.round(musicManager.getVolume() * 100)}%`, {
-      fontSize: '16px',
+    this.bgmVolumeText = this.add.text(contentLeftX + scaledInt(ls, 400), currentY, `${Math.round(musicManager.getVolume() * 100)}%`, {
+      fontSize: scaledFontPx(fs, 16),
       color: '#ffffff',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0);
 
-    this.bgmVolumeUp = this.createButton(contentLeftX + 460, currentY, '[ + ]', () => {
+    this.bgmVolumeUp = this.createButton(contentLeftX + scaledInt(ls, 460), currentY, '[ + ]', () => {
       musicManager.setVolume(musicManager.getVolume() + 0.1);
       this.updateBgmVolume();
     });
     this.bgmVolumeUp.setData('zone', 'bgmVolume');
 
-    currentY += 35;
+    currentY += rowSpacing;
 
     // Playback Mode selector (Sequential / Shuffle)
     this.add.text(contentLeftX, currentY, 'Playback', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
@@ -202,14 +216,14 @@ export class SettingsScene extends Phaser.Scene {
       { mode: 'shuffle', label: 'Shuffle' },
     ];
 
-    const playbackModeStartX = contentLeftX + 120;
+    const playbackModeStartX = contentLeftX + scaledInt(ls, 120);
     playbackModes.forEach((item, index) => {
-      const buttonX = playbackModeStartX + index * 100;
+      const buttonX = playbackModeStartX + index * scaledInt(ls, 100);
       const currentMode = musicManager.getPlaybackMode();
       const isActive = currentMode === item.mode || (currentMode === 'off' && item.mode === 'sequential');
 
       const button = this.add.text(buttonX, currentY, `[${item.label}]`, {
-        fontSize: '14px',
+        fontSize: scaledFontPx(fs, 14),
         color: isActive ? '#ffdd44' : '#888888',
         fontFamily: 'Arial',
       }).setInteractive({ useHandCursor: true });
@@ -238,11 +252,11 @@ export class SettingsScene extends Phaser.Scene {
       this.playbackModeButtons.push(button);
     });
 
-    currentY += 40;
+    currentY += scaledInt(ls, 40);
 
     // Music Track Selection button
     this.musicTracksButton = this.add.text(centerX, currentY, '[ Music Track Selection ]', {
-      fontSize: '16px',
+      fontSize: scaledFontPx(fs, 16),
       color: '#888888',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
@@ -256,79 +270,112 @@ export class SettingsScene extends Phaser.Scene {
       this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
     });
 
-    currentY += 50;
+    currentY += sectionSpacing;
 
     // ═══════════════════════════════════════════════════════════════════════
     // VISUALS Section
     // ═══════════════════════════════════════════════════════════════════════
     this.add.text(centerX, currentY, '═══════════════════ VISUALS ═════════════════', {
-      fontSize: '14px',
+      fontSize: scaledFontPx(fs, 14),
       color: '#666666',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
-    currentY += 35;
+    currentY += rowSpacing;
 
     // Screen Shake Toggle
     this.add.text(contentLeftX, currentY, 'Screen Shake', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.screenShakeToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isScreenShakeEnabled(), () => {
+    this.screenShakeToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isScreenShakeEnabled(), () => {
       const newValue = !settingsManager.isScreenShakeEnabled();
       settingsManager.setScreenShakeEnabled(newValue);
       this.updateScreenShakeToggle();
     });
     this.screenShakeToggle.setData('zone', 'screenShake');
 
-    currentY += 35;
+    currentY += rowSpacing;
 
     // Grid Effects Toggle
     this.add.text(contentLeftX, currentY, 'Grid Effects', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.gridEffectsToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isGridEffectsEnabled(), () => {
+    this.gridEffectsToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isGridEffectsEnabled(), () => {
       const newValue = !settingsManager.isGridEffectsEnabled();
       settingsManager.setGridEffectsEnabled(newValue);
       this.updateGridEffectsToggle();
     });
     this.gridEffectsToggle.setData('zone', 'gridEffects');
 
-    currentY += 35;
+    currentY += rowSpacing;
 
     // FPS Counter Toggle
     this.add.text(contentLeftX, currentY, 'FPS Counter', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.fpsCounterToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isFpsCounterEnabled(), () => {
+    this.fpsCounterToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isFpsCounterEnabled(), () => {
       const newValue = !settingsManager.isFpsCounterEnabled();
       settingsManager.setFpsCounterEnabled(newValue);
       this.updateFpsCounterToggle();
     });
     this.fpsCounterToggle.setData('zone', 'fpsCounter');
 
-    currentY += 50;
+    currentY += rowSpacing;
+
+    // UI Scale slider
+    this.add.text(contentLeftX, currentY, 'UI Scale', {
+      fontSize: scaledFontPx(fs, 18),
+      color: '#ffffff',
+      fontFamily: 'Arial',
+    });
+
+    this.uiScaleDown = this.createButton(contentLeftX + scaledInt(ls, 180), currentY, '[ - ]', () => {
+      settingsManager.setUiScale(settingsManager.getUiScale() - 0.1);
+      this.updateUiScaleText();
+    });
+    this.uiScaleDown.setData('zone', 'uiScale');
+
+    this.uiScaleText = this.add.text(contentLeftX + scaledInt(ls, 240), currentY, `${Math.round(settingsManager.getUiScale() * 100)}%`, {
+      fontSize: scaledFontPx(fs, 16),
+      color: '#ffffff',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5, 0);
+
+    this.uiScaleUp = this.createButton(contentLeftX + scaledInt(ls, 300), currentY, '[ + ]', () => {
+      settingsManager.setUiScale(settingsManager.getUiScale() + 0.1);
+      this.updateUiScaleText();
+    });
+    this.uiScaleUp.setData('zone', 'uiScale');
+
+    this.add.text(contentLeftX + scaledInt(ls, 370), currentY, '(applies next run)', {
+      fontSize: scaledFontPx(fs, 11),
+      color: '#666666',
+      fontFamily: 'Arial',
+    });
+
+    currentY += sectionSpacing;
 
     // ═══════════════════════════════════════════════════════════════════════
     // COMBAT TEXT Section
     // ═══════════════════════════════════════════════════════════════════════
     this.add.text(centerX, currentY, '═════════════════ COMBAT TEXT ═══════════════', {
-      fontSize: '14px',
+      fontSize: scaledFontPx(fs, 14),
       color: '#666666',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
-    currentY += 35;
+    currentY += rowSpacing;
 
     // Damage Numbers Mode
     this.add.text(contentLeftX, currentY, 'Damage Numbers', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
@@ -340,13 +387,13 @@ export class SettingsScene extends Phaser.Scene {
       { mode: 'off', label: 'Off' },
     ];
 
-    const modeStartX = contentLeftX + 180;
+    const modeStartX = contentLeftX + scaledInt(ls, 180);
     damageNumberModes.forEach((item, index) => {
-      const buttonX = modeStartX + index * 140;
+      const buttonX = modeStartX + index * scaledInt(ls, 140);
       const isActive = settingsManager.getDamageNumbersMode() === item.mode;
 
       const button = this.add.text(buttonX, currentY, `[${item.label}]`, {
-        fontSize: '14px',
+        fontSize: scaledFontPx(fs, 14),
         color: isActive ? '#ffdd44' : '#888888',
         fontFamily: 'Arial',
       }).setInteractive({ useHandCursor: true });
@@ -369,16 +416,16 @@ export class SettingsScene extends Phaser.Scene {
       this.damageNumberButtons.push(button);
     });
 
-    currentY += 35;
+    currentY += rowSpacing;
 
     // Status Text Toggle
     this.add.text(contentLeftX, currentY, 'Status Text', {
-      fontSize: '18px',
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     });
 
-    this.statusTextToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isStatusTextEnabled(), () => {
+    this.statusTextToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isStatusTextEnabled(), () => {
       const newValue = !settingsManager.isStatusTextEnabled();
       settingsManager.setStatusTextEnabled(newValue);
       this.updateStatusTextToggle();
@@ -386,26 +433,26 @@ export class SettingsScene extends Phaser.Scene {
     this.statusTextToggle.setData('zone', 'statusText');
 
     // Status Text hint
-    this.add.text(contentLeftX + 280, currentY, '(DODGE, BLOCKED, etc.)', {
-      fontSize: '12px',
+    this.add.text(contentLeftX + scaledInt(ls, 280), currentY, '(DODGE, BLOCKED, etc.)', {
+      fontSize: scaledFontPx(fs, 12),
       color: '#666666',
       fontFamily: 'Arial',
     });
 
-    currentY += 50;
+    currentY += sectionSpacing;
 
     // ═══════════════════════════════════════════════════════════════════════
     // DATA Section
     // ═══════════════════════════════════════════════════════════════════════
     this.add.text(centerX, currentY, '══════════════════ DATA ═════════════════════', {
-      fontSize: '14px',
+      fontSize: scaledFontPx(fs, 14),
       color: '#666666',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
-    currentY += 35;
+    currentY += rowSpacing;
 
     this.resetDataButton = this.add.text(centerX, currentY, '[ Reset All Data ]', {
-      fontSize: '16px',
+      fontSize: scaledFontPx(fs, 16),
       color: '#ff4444',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
@@ -419,19 +466,19 @@ export class SettingsScene extends Phaser.Scene {
       this.showResetConfirmation();
     });
 
-    this.add.text(centerX, currentY + 20, 'Erases all progress, upgrades, achievements, and settings', {
-      fontSize: '11px',
+    this.add.text(centerX, currentY + scaledInt(ls, 20), 'Erases all progress, upgrades, achievements, and settings', {
+      fontSize: scaledFontPx(fs, 11),
       color: '#666666',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
 
-    currentY += 50;
+    currentY += sectionSpacing;
 
     // ═══════════════════════════════════════════════════════════════════════
     // Back Button
     // ═══════════════════════════════════════════════════════════════════════
-    this.backButton = this.add.text(centerX, this.cameras.main.height - 30, '[ Back ]', {
-      fontSize: '20px',
+    this.backButton = this.add.text(centerX, this.cameras.main.height - scaledInt(ls, 30), '[ Back ]', {
+      fontSize: scaledFontPx(fs, 20),
       color: '#888888',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
@@ -458,10 +505,15 @@ export class SettingsScene extends Phaser.Scene {
   // UI Helpers
   // ═══════════════════════════════════════════════════════════════════════════
 
+  private updateUiScaleText(): void {
+    const uiScale = getSettingsManager().getUiScale();
+    this.uiScaleText.setText(`${Math.round(uiScale * 100)}%`);
+  }
+
   private createToggle(x: number, y: number, initialValue: boolean, onChange: () => void): Phaser.GameObjects.Text {
     const text = initialValue ? '[ ON ]  OFF' : '  ON  [OFF]';
     const toggle = this.add.text(x, y, text, {
-      fontSize: '16px',
+      fontSize: scaledFontPx(this.fontScale, 16),
       color: initialValue ? '#88ff88' : '#ff8888',
       fontFamily: 'Arial',
     }).setInteractive({ useHandCursor: true });
@@ -479,7 +531,7 @@ export class SettingsScene extends Phaser.Scene {
 
   private createButton(x: number, y: number, label: string, onClick: () => void): Phaser.GameObjects.Text {
     const button = this.add.text(x, y, label, {
-      fontSize: '16px',
+      fontSize: scaledFontPx(this.fontScale, 16),
       color: '#888888',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
@@ -619,6 +671,11 @@ export class SettingsScene extends Phaser.Scene {
     const fpsEnabled = settingsManager.isFpsCounterEnabled();
     this.fpsCounterToggle.setColor(this.focusZone === 'fpsCounter' ? '#ffffff' : fpsEnabled ? '#88ff88' : '#ff8888');
 
+    // UI Scale
+    const uiScaleFocused = this.focusZone === 'uiScale';
+    this.uiScaleDown.setColor(uiScaleFocused ? '#ffffff' : '#888888');
+    this.uiScaleUp.setColor(uiScaleFocused ? '#ffffff' : '#888888');
+
     // Damage Numbers
     this.updateDamageNumberButtons();
 
@@ -725,6 +782,8 @@ export class SettingsScene extends Phaser.Scene {
     } else if (this.focusZone === 'gridEffects') {
       this.focusZone = 'fpsCounter';
     } else if (this.focusZone === 'fpsCounter') {
+      this.focusZone = 'uiScale';
+    } else if (this.focusZone === 'uiScale') {
       this.focusZone = 'damageNumbers';
     } else if (this.focusZone === 'damageNumbers') {
       this.focusZone = 'statusText';
@@ -755,6 +814,8 @@ export class SettingsScene extends Phaser.Scene {
     } else if (this.focusZone === 'fpsCounter') {
       this.focusZone = 'gridEffects';
     } else if (this.focusZone === 'damageNumbers') {
+      this.focusZone = 'uiScale';
+    } else if (this.focusZone === 'uiScale') {
       this.focusZone = 'fpsCounter';
     } else if (this.focusZone === 'statusText') {
       this.focusZone = 'damageNumbers';
@@ -774,6 +835,9 @@ export class SettingsScene extends Phaser.Scene {
       this.focusZone = 'bgm';
     } else if (this.focusZone === 'playbackMode') {
       this.playbackModeIndex = Math.max(0, this.playbackModeIndex - 1);
+    } else if (this.focusZone === 'uiScale') {
+      getSettingsManager().setUiScale(getSettingsManager().getUiScale() - 0.1);
+      this.updateUiScaleText();
     } else if (this.focusZone === 'damageNumbers') {
       this.damageNumberIndex = Math.max(0, this.damageNumberIndex - 1);
     }
@@ -787,6 +851,9 @@ export class SettingsScene extends Phaser.Scene {
       this.focusZone = 'bgmVolume';
     } else if (this.focusZone === 'playbackMode') {
       this.playbackModeIndex = Math.min(1, this.playbackModeIndex + 1);
+    } else if (this.focusZone === 'uiScale') {
+      getSettingsManager().setUiScale(getSettingsManager().getUiScale() + 0.1);
+      this.updateUiScaleText();
     } else if (this.focusZone === 'damageNumbers') {
       this.damageNumberIndex = Math.min(3, this.damageNumberIndex + 1);
     }
@@ -845,6 +912,9 @@ export class SettingsScene extends Phaser.Scene {
         settingsManager.setFpsCounterEnabled(!settingsManager.isFpsCounterEnabled());
         this.updateFpsCounterToggle();
         break;
+      case 'uiScale':
+        // Adjustment via left/right arrows
+        break;
       case 'damageNumbers': {
         const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];
         settingsManager.setDamageNumbersMode(modes[this.damageNumberIndex]);
@@ -870,6 +940,8 @@ export class SettingsScene extends Phaser.Scene {
 
     const centerX = this.cameras.main.centerX;
     const centerY = this.cameras.main.centerY;
+    const ls = this.layoutScale;
+    const fs = this.fontScale;
 
     // Dim background
     const dimBg = this.add.rectangle(centerX, centerY, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.7)
@@ -877,26 +949,26 @@ export class SettingsScene extends Phaser.Scene {
       .setDepth(100);
 
     // Dialog box
-    const dialogBg = this.add.rectangle(centerX, centerY, 420, 200, 0x111111, 1)
+    const dialogBg = this.add.rectangle(centerX, centerY, scaledInt(ls, 420), scaledInt(ls, 200), 0x111111, 1)
       .setStrokeStyle(2, 0xff4444)
       .setDepth(101);
 
-    const titleText = this.add.text(centerX, centerY - 60, 'RESET ALL DATA?', {
-      fontSize: '22px',
+    const titleText = this.add.text(centerX, centerY - scaledInt(ls, 60), 'RESET ALL DATA?', {
+      fontSize: scaledFontPx(fs, 22),
       color: '#ff4444',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     }).setOrigin(0.5).setDepth(102);
 
-    const descText = this.add.text(centerX, centerY - 20, 'This will permanently erase all progress,\nupgrades, achievements, and settings.\nThis cannot be undone.', {
-      fontSize: '14px',
+    const descText = this.add.text(centerX, centerY - scaledInt(ls, 20), 'This will permanently erase all progress,\nupgrades, achievements, and settings.\nThis cannot be undone.', {
+      fontSize: scaledFontPx(fs, 14),
       color: '#cccccc',
       fontFamily: 'Arial',
       align: 'center',
     }).setOrigin(0.5).setDepth(102);
 
-    const confirmButton = this.add.text(centerX - 80, centerY + 50, '[ Confirm ]', {
-      fontSize: '18px',
+    const confirmButton = this.add.text(centerX - scaledInt(ls, 80), centerY + scaledInt(ls, 50), '[ Confirm ]', {
+      fontSize: scaledFontPx(fs, 18),
       color: '#ff4444',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);
@@ -911,8 +983,8 @@ export class SettingsScene extends Phaser.Scene {
       window.location.reload();
     });
 
-    const cancelButton = this.add.text(centerX + 80, centerY + 50, '[ Cancel ]', {
-      fontSize: '18px',
+    const cancelButton = this.add.text(centerX + scaledInt(ls, 80), centerY + scaledInt(ls, 50), '[ Cancel ]', {
+      fontSize: scaledFontPx(fs, 18),
       color: '#ffffff',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH } from '../../GameConfig';
+import { computeHudScale as computeHudScaleUtil } from '../../utils/HudScale';
 import { createWorld, addEntity, addComponent, removeEntity, IWorld, defineQuery, hasComponent } from 'bitecs';
 import {
   Transform,
@@ -1668,8 +1668,7 @@ export class GameScene extends Phaser.Scene {
    * Returns 1.0 on desktop (1280+), scales up on smaller screens (phones/tablets).
    */
   private computeHudScale(): number {
-    const longerSide = Math.max(this.scale.width, this.scale.height);
-    return Math.max(1.0, Math.min(2.5, GAME_WIDTH / longerSide));
+    return computeHudScaleUtil(this.scale.width, this.scale.height, getSettingsManager().getUiScale());
   }
 
   /** Returns a scaled font size string like '28px'. */

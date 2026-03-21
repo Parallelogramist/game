@@ -6,6 +6,8 @@ import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
 import { fadeOut, fadeIn } from '../../utils/SceneTransition';
+import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 /**
  * BootScene handles initial setup and asset loading.
@@ -70,6 +72,10 @@ export class BootScene extends Phaser.Scene {
     const centerY = this.cameras.main.centerY;
     const musicManager = getMusicManager();
 
+    // Compute scaling for responsive layout on phones
+    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
+    const fontScale = computeMenuFontScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale());
+
     // Fade in from black
     fadeIn(this, 200);
 
@@ -91,8 +97,8 @@ export class BootScene extends Phaser.Scene {
 
     // Title
     this.add
-      .text(centerX, centerY - 140, 'PEW PEW SURVIVOR', {
-        fontSize: '64px',
+      .text(centerX, centerY - scaledInt(layoutScale, 140), 'PEW PEW SURVIVOR', {
+        fontSize: scaledFontPx(fontScale, 64),
         color: '#ffdd44',
         fontFamily: 'Arial',
         fontStyle: 'bold',
@@ -106,8 +112,8 @@ export class BootScene extends Phaser.Scene {
       ? `Ascension ${ascensionLevel}  ·  World ${metaManager.getWorldLevel()}`
       : `World ${metaManager.getWorldLevel()}`;
     this.add
-      .text(centerX, centerY - 60, worldText, {
-        fontSize: '28px',
+      .text(centerX, centerY - scaledInt(layoutScale, 60), worldText, {
+        fontSize: scaledFontPx(fontScale, 28),
         color: '#88aaff',
         fontFamily: 'Arial',
         fontStyle: 'bold',
@@ -120,8 +126,8 @@ export class BootScene extends Phaser.Scene {
       const streakBonus = metaManager.getStreakBonusPercent();
       const fireEmoji = currentStreak >= 5 ? '🔥🔥' : '🔥';
       this.add
-        .text(centerX, centerY - 28, `${fireEmoji} Streak: ${currentStreak} (+${streakBonus}% gold)`, {
-          fontSize: '18px',
+        .text(centerX, centerY - scaledInt(layoutScale, 28), `${fireEmoji} Streak: ${currentStreak} (+${streakBonus}% gold)`, {
+          fontSize: scaledFontPx(fontScale, 18),
           color: '#ffaa44',
           fontFamily: 'Arial',
         })
@@ -176,7 +182,7 @@ export class BootScene extends Phaser.Scene {
 
     // Build dynamic menu config based on save state
     const menuConfig: { label: string; y: number; fontSize: string; action: () => void }[] = [];
-    let yOffset = centerY + 20;
+    let yOffset = centerY + scaledInt(layoutScale, 20);
 
     // CONTINUE button (only if save exists)
     let continueY = 0;
@@ -184,33 +190,33 @@ export class BootScene extends Phaser.Scene {
       menuConfig.push({
         label: 'CONTINUE',
         y: yOffset,
-        fontSize: '24px',
+        fontSize: scaledFontPx(fontScale, 24),
         action: continueGame,
       });
       continueY = yOffset;
-      yOffset += 50;
+      yOffset += scaledInt(layoutScale, 50);
     }
 
     // NEW GAME / START
     menuConfig.push({
       label: hasSave ? 'NEW GAME' : 'START',
       y: yOffset,
-      fontSize: hasSave ? '18px' : '24px',
+      fontSize: hasSave ? scaledFontPx(fontScale, 18) : scaledFontPx(fontScale, 24),
       action: startGameWithConfirmation,
     });
-    yOffset += hasSave ? 45 : 50;
+    yOffset += scaledInt(layoutScale, hasSave ? 45 : 50);
 
     // Other menu items
-    menuConfig.push({ label: 'SHOP', y: yOffset, fontSize: '18px', action: openShop });
+    menuConfig.push({ label: 'SHOP', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openShop });
     const shopY = yOffset;
-    yOffset += 45;
-    menuConfig.push({ label: 'ACHIEVEMENTS', y: yOffset, fontSize: '18px', action: openAchievements });
-    yOffset += 45;
-    menuConfig.push({ label: 'CODEX', y: yOffset, fontSize: '18px', action: openCodex });
-    yOffset += 45;
-    menuConfig.push({ label: 'SETTINGS', y: yOffset, fontSize: '18px', action: openSettings });
-    yOffset += 45;
-    menuConfig.push({ label: 'CREDITS', y: yOffset, fontSize: '18px', action: openCredits });
+    yOffset += scaledInt(layoutScale, 45);
+    menuConfig.push({ label: 'ACHIEVEMENTS', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openAchievements });
+    yOffset += scaledInt(layoutScale, 45);
+    menuConfig.push({ label: 'CODEX', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openCodex });
+    yOffset += scaledInt(layoutScale, 45);
+    menuConfig.push({ label: 'SETTINGS', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openSettings });
+    yOffset += scaledInt(layoutScale, 45);
+    menuConfig.push({ label: 'CREDITS', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openCredits });
 
     menuConfig.forEach((config, index) => {
       const menuItem = this.add
@@ -246,8 +252,8 @@ export class BootScene extends Phaser.Scene {
       const timeStr = saveInfo.gameTime ? this.formatTime(saveInfo.gameTime) : '0:00';
       const levelStr = saveInfo.level ? `Lv ${saveInfo.level}` : 'Lv 1';
       this.add
-        .text(centerX + 90, continueY, `${worldStr} - ${levelStr} - ${timeStr}`, {
-          fontSize: '14px',
+        .text(centerX + scaledInt(layoutScale, 90), continueY, `${worldStr} - ${levelStr} - ${timeStr}`, {
+          fontSize: scaledFontPx(fontScale, 14),
           color: '#666666',
           fontFamily: 'Arial',
         })
@@ -256,8 +262,8 @@ export class BootScene extends Phaser.Scene {
 
     // Gold balance indicator (next to SHOP)
     this.add
-      .text(centerX + 90, shopY, `Gold: ${metaManager.getGold()}`, {
-        fontSize: '14px',
+      .text(centerX + scaledInt(layoutScale, 90), shopY, `Gold: ${metaManager.getGold()}`, {
+        fontSize: scaledFontPx(fontScale, 14),
         color: '#666666',
         fontFamily: 'Arial',
       })
@@ -310,35 +316,37 @@ export class BootScene extends Phaser.Scene {
   private showNewGameConfirmation(onConfirm: () => void): void {
     const centerX = this.cameras.main.centerX;
     const centerY = this.cameras.main.centerY;
+    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
+    const fontScale = computeMenuFontScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale());
 
     // Create overlay container
     this.confirmationOverlay = this.add.container(0, 0);
     this.confirmationOverlay.setDepth(100);
 
     // Dark background
-    const bg = this.add.rectangle(centerX, centerY, 400, 200, 0x000000, 0.9);
+    const bg = this.add.rectangle(centerX, centerY, scaledInt(layoutScale, 400), scaledInt(layoutScale, 200), 0x000000, 0.9);
     bg.setStrokeStyle(2, 0xffdd44);
     this.confirmationOverlay.add(bg);
 
     // Warning text
-    const warningText = this.add.text(centerX, centerY - 50, 'START NEW GAME?', {
-      fontSize: '24px',
+    const warningText = this.add.text(centerX, centerY - scaledInt(layoutScale, 50), 'START NEW GAME?', {
+      fontSize: scaledFontPx(fontScale, 24),
       color: '#ffdd44',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     }).setOrigin(0.5);
     this.confirmationOverlay.add(warningText);
 
-    const subtextLine = this.add.text(centerX, centerY - 15, 'Your current progress will be lost.', {
-      fontSize: '16px',
+    const subtextLine = this.add.text(centerX, centerY - scaledInt(layoutScale, 15), 'Your current progress will be lost.', {
+      fontSize: scaledFontPx(fontScale, 16),
       color: '#aaaaaa',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
     this.confirmationOverlay.add(subtextLine);
 
     // YES button
-    const yesButton = this.add.text(centerX - 60, centerY + 40, '[ YES ]', {
-      fontSize: '20px',
+    const yesButton = this.add.text(centerX - scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), '[ YES ]', {
+      fontSize: scaledFontPx(fontScale, 20),
       color: '#ff4444',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
@@ -351,8 +359,8 @@ export class BootScene extends Phaser.Scene {
     this.confirmationOverlay.add(yesButton);
 
     // NO button
-    const noButton = this.add.text(centerX + 60, centerY + 40, '[ NO ]', {
-      fontSize: '20px',
+    const noButton = this.add.text(centerX + scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), '[ NO ]', {
+      fontSize: scaledFontPx(fontScale, 20),
       color: '#44ff44',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
@@ -364,8 +372,8 @@ export class BootScene extends Phaser.Scene {
     this.confirmationOverlay.add(noButton);
 
     // ESC hint
-    const escHint = this.add.text(centerX, centerY + 80, '(ESC to cancel)', {
-      fontSize: '12px',
+    const escHint = this.add.text(centerX, centerY + scaledInt(layoutScale, 80), '(ESC to cancel)', {
+      fontSize: scaledFontPx(fontScale, 12),
       color: '#666666',
       fontFamily: 'Arial',
     }).setOrigin(0.5);

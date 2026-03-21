@@ -13,6 +13,7 @@ const STORAGE_KEY_GRID_EFFECTS = 'settings-grid-effects';
 const STORAGE_KEY_FPS_COUNTER = 'settings-fps-counter';
 const STORAGE_KEY_DAMAGE_NUMBERS_MODE = 'settings-damage-numbers-mode';
 const STORAGE_KEY_STATUS_TEXT = 'settings-status-text';
+const STORAGE_KEY_UI_SCALE = 'settings-ui-scale';
 
 export type DamageNumbersMode = 'all' | 'crits' | 'perfect_crits' | 'off';
 
@@ -24,6 +25,7 @@ export interface GameSettings {
   fpsCounterEnabled: boolean;
   damageNumbersMode: DamageNumbersMode;
   statusTextEnabled: boolean;
+  uiScale: number;
 }
 
 const DEFAULTS: GameSettings = {
@@ -34,6 +36,7 @@ const DEFAULTS: GameSettings = {
   fpsCounterEnabled: false,
   damageNumbersMode: 'perfect_crits',
   statusTextEnabled: true,
+  uiScale: 1.0,
 };
 
 export class SettingsManager {
@@ -48,6 +51,7 @@ export class SettingsManager {
       fpsCounterEnabled: this.loadBoolean(STORAGE_KEY_FPS_COUNTER, DEFAULTS.fpsCounterEnabled),
       damageNumbersMode: this.loadDamageNumbersMode(),
       statusTextEnabled: this.loadBoolean(STORAGE_KEY_STATUS_TEXT, DEFAULTS.statusTextEnabled),
+      uiScale: this.loadNumber(STORAGE_KEY_UI_SCALE, DEFAULTS.uiScale),
     };
   }
 
@@ -198,6 +202,19 @@ export class SettingsManager {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // UI Scale Settings
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  getUiScale(): number {
+    return this.settings.uiScale;
+  }
+
+  setUiScale(scale: number): void {
+    this.settings.uiScale = Math.max(0.5, Math.min(2.0, Math.round(scale * 10) / 10));
+    this.saveNumber(STORAGE_KEY_UI_SCALE, this.settings.uiScale);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Utility
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -219,6 +236,7 @@ export class SettingsManager {
     this.setFpsCounterEnabled(DEFAULTS.fpsCounterEnabled);
     this.setDamageNumbersMode(DEFAULTS.damageNumbersMode);
     this.setStatusTextEnabled(DEFAULTS.statusTextEnabled);
+    this.setUiScale(DEFAULTS.uiScale);
   }
 }
 

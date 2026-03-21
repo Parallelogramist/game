@@ -8,7 +8,8 @@
 import Phaser from 'phaser';
 import { ToastConfig } from '../achievements/AchievementTypes';
 import { createIcon } from '../utils/IconRenderer';
-import { GAME_WIDTH } from '../GameConfig';
+import { computeHudScale } from '../utils/HudScale';
+import { getSettingsManager } from '../settings';
 
 // Base toast dimensions (scaled by hudScale on small screens)
 const BASE_TOAST_WIDTH = 280;
@@ -36,8 +37,7 @@ export class ToastManager {
 
   /** Compute HUD scale factor for mobile screens. */
   private getHudScale(): number {
-    const longerSide = Math.max(this.scene.scale.width, this.scene.scale.height);
-    return Math.max(1.0, Math.min(2.5, GAME_WIDTH / longerSide));
+    return computeHudScale(this.scene.scale.width, this.scene.scale.height, getSettingsManager().getUiScale());
   }
 
   /**

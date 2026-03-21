@@ -34,6 +34,7 @@ export const ALL_STORAGE_KEYS = [
   'settings-fps-counter',
   'settings-damage-numbers-mode',
   'settings-status-text',
+  'settings-ui-scale',
 
   // MusicManager
   'survivor-music-enabled',
