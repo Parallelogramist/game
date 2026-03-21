@@ -3,7 +3,6 @@ import { VisualQuality } from './GlowGraphics';
 import { spriteRegistry } from '../ecs/systems/SpriteSystem';
 import { Transform, EnemyTag } from '../ecs/components';
 import { defineQuery, IWorld } from 'bitecs';
-import { GAME_WIDTH, GAME_HEIGHT } from '../GameConfig';
 
 // Query for all enemies
 const enemyQuery = defineQuery([Transform, EnemyTag]);
@@ -174,8 +173,8 @@ export class DeathRippleManager {
     }
 
     // Calculate max radius needed to fully exit screen
-    const maxDistX = Math.max(x, GAME_WIDTH - x);
-    const maxDistY = Math.max(y, GAME_HEIGHT - y);
+    const maxDistX = Math.max(x, this.scene.scale.width - x);
+    const maxDistY = Math.max(y, this.scene.scale.height - y);
     const maxRadius = Math.sqrt(maxDistX * maxDistX + maxDistY * maxDistY) + this.RIPPLE_BAND_WIDTH;
 
     this.activeRipples.push({

@@ -17,7 +17,7 @@ import {
 import { inputSystem, InputState } from '../../ecs/systems/InputSystem';
 import { JoystickManager } from '../../ui/JoystickManager';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
-import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks } from '../../ecs/systems/EnemyAISystem';
+import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats, setLifeStealCallback, setCollisionDamageDealtCallback } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
@@ -27,7 +27,6 @@ import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, set
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
-import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMusicManager } from '../../audio/MusicManager';
@@ -307,6 +306,12 @@ export class GameScene extends Phaser.Scene {
     // Register shutdown event listener for proper cleanup on scene restart/stop
     // This is critical - Phaser doesn't automatically call shutdown() methods
     this.events.once('shutdown', this.shutdown, this);
+
+    // Set dynamic game bounds for systems that need screen dimensions
+    setEnemyAIBounds(this.scale.width, this.scale.height);
+
+    // Listen for resize events (orientation change, Safari address bar collapse)
+    this.scale.on('resize', this.handleResize, this);
 
     // Check for restore mode first
     if (this.shouldRestore) {
@@ -659,7 +664,7 @@ export class GameScene extends Phaser.Scene {
     this.joystickManager = new JoystickManager(this);
 
     // Create player at center of screen
-    this.playerId = this.createPlayer(GAME_WIDTH / 2, GAME_HEIGHT / 2);
+    this.playerId = this.createPlayer(this.scale.width / 2, this.scale.height / 2);
 
     // Initialize weapon system
     this.weaponManager = new WeaponManager(
@@ -1494,8 +1499,8 @@ export class GameScene extends Phaser.Scene {
       proj.sprite.y += proj.vy * deltaTime;
 
       // Bounds check
-      if (proj.sprite.x < -20 || proj.sprite.x > GAME_WIDTH + 20 ||
-          proj.sprite.y < -20 || proj.sprite.y > GAME_HEIGHT + 20) {
+      if (proj.sprite.x < -20 || proj.sprite.x > this.scale.width + 20 ||
+          proj.sprite.y < -20 || proj.sprite.y > this.scale.height + 20) {
         toRemove.push(proj);
         continue;
       }
@@ -1657,23 +1662,23 @@ export class GameScene extends Phaser.Scene {
 
     // Pause button (top right corner)
     const pauseButtonSize = 36;
-    const pauseButtonX = GAME_WIDTH - HUD_EDGE_PADDING - pauseButtonSize / 2;
+    const pauseButtonX = this.scale.width - HUD_EDGE_PADDING - pauseButtonSize / 2;
     const pauseButtonY = HUD_EDGE_PADDING + pauseButtonSize / 2;
 
     // Stats positioned below the pause button, right-aligned to screen edge
-    const statsRightX = GAME_WIDTH - HUD_EDGE_PADDING;
+    const statsRightX = this.scale.width - HUD_EDGE_PADDING;
     const statsTopY = pauseButtonY + pauseButtonSize / 2 + 8;
 
     // World level display (centered, above timer)
     const worldLevel = getMetaProgressionManager().getWorldLevel();
-    this.add.text(GAME_WIDTH / 2, HUD_EDGE_PADDING, `World ${worldLevel}`, {
+    this.add.text(this.scale.width / 2, HUD_EDGE_PADDING, `World ${worldLevel}`, {
       fontSize: '14px',
       color: '#88aaff',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Game time display (centered top, below world level)
-    this.add.text(GAME_WIDTH / 2, HUD_EDGE_PADDING + WORLD_LEVEL_TEXT_HEIGHT + HUD_ELEMENT_SPACING, '', {
+    this.add.text(this.scale.width / 2, HUD_EDGE_PADDING + WORLD_LEVEL_TEXT_HEIGHT + HUD_ELEMENT_SPACING, '', {
       fontSize: '28px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -1729,7 +1734,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Controls hint (bottom left)
-    this.add.text(HUD_EDGE_PADDING, GAME_HEIGHT - HUD_EDGE_PADDING, 'WASD / Arrows / Mouse to move', {
+    this.add.text(HUD_EDGE_PADDING, this.scale.height - HUD_EDGE_PADDING, 'WASD / Arrows / Mouse to move', {
       fontSize: '14px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -1747,8 +1752,8 @@ export class GameScene extends Phaser.Scene {
     // FPS counter (bottom right corner, above auto-buy toggle)
     // Auto-buy toggle is 26px tall, so FPS goes above it with spacing
     const autoBuyToggleHeight = 26;
-    const fpsY = GAME_HEIGHT - HUD_EDGE_PADDING - autoBuyToggleHeight - HUD_ELEMENT_SPACING;
-    this.fpsText = this.add.text(GAME_WIDTH - HUD_EDGE_PADDING, fpsY, 'FPS: --', {
+    const fpsY = this.scale.height - HUD_EDGE_PADDING - autoBuyToggleHeight - HUD_ELEMENT_SPACING;
+    this.fpsText = this.add.text(this.scale.width - HUD_EDGE_PADDING, fpsY, 'FPS: --', {
       fontSize: '14px',
       color: '#00ff00',
       fontFamily: 'monospace',
@@ -1782,9 +1787,9 @@ export class GameScene extends Phaser.Scene {
     const toggleWidth = 190;
     const toggleHeight = 26;
     // Position with right edge at HUD_EDGE_PADDING from screen edge
-    const toggleX = GAME_WIDTH - HUD_EDGE_PADDING - toggleWidth / 2;
+    const toggleX = this.scale.width - HUD_EDGE_PADDING - toggleWidth / 2;
     // Position with bottom edge at HUD_EDGE_PADDING from screen edge
-    const toggleY = GAME_HEIGHT - HUD_EDGE_PADDING - toggleHeight / 2;
+    const toggleY = this.scale.height - HUD_EDGE_PADDING - toggleHeight / 2;
 
     // Background rectangle for the toggle button
     this.autoBuyToggleBg = this.add.rectangle(
@@ -1877,8 +1882,8 @@ export class GameScene extends Phaser.Scene {
 
     // Show confirmation floating text at screen center
     const confirmText = this.add.text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2,
+      this.scale.width / 2,
+      this.scale.height / 2,
       this.isAutoBuyEnabled ? 'AUTO-UPGRADE ENABLED' : 'AUTO-UPGRADE DISABLED',
       {
         fontSize: '24px',
@@ -1894,7 +1899,7 @@ export class GameScene extends Phaser.Scene {
     // Animate: float up and fade out
     this.tweens.add({
       targets: confirmText,
-      y: GAME_HEIGHT / 2 - 50,
+      y: this.scale.height / 2 - 50,
       alpha: 0,
       duration: 1000,
       ease: 'Power2',
@@ -1910,7 +1915,7 @@ export class GameScene extends Phaser.Scene {
     // Controls hint is ~18px tall, BGM icons are ~14px, add double spacing for clarity
     const controlsHintHeight = 18;
     const bgmRowHeight = 14;
-    const bottomY = GAME_HEIGHT - HUD_EDGE_PADDING - controlsHintHeight - HUD_ELEMENT_SPACING * 2 - bgmRowHeight;
+    const bottomY = this.scale.height - HUD_EDGE_PADDING - controlsHintHeight - HUD_ELEMENT_SPACING * 2 - bgmRowHeight;
 
     // Container for all BGM elements
     this.bgmContainer = this.add.container(HUD_EDGE_PADDING, bottomY);
@@ -2236,7 +2241,7 @@ export class GameScene extends Phaser.Scene {
 
     // Keep player on screen
     if (this.playerId !== -1) {
-      clampPlayerToScreen(this.world, this.playerId);
+      clampPlayerToScreen(this.world, this.playerId, this.scale.width, this.scale.height);
     }
 
     // Weapon system (handles all player weapons)
@@ -2340,8 +2345,8 @@ export class GameScene extends Phaser.Scene {
       Transform.y[entityId] += velocityY * deltaSeconds;
 
       // Clamp to screen bounds so enemies can't be knocked off-screen
-      Transform.x[entityId] = Math.max(0, Math.min(GAME_WIDTH, Transform.x[entityId]));
-      Transform.y[entityId] = Math.max(0, Math.min(GAME_HEIGHT, Transform.y[entityId]));
+      Transform.x[entityId] = Math.max(0, Math.min(this.scale.width, Transform.x[entityId]));
+      Transform.y[entityId] = Math.max(0, Math.min(this.scale.height, Transform.y[entityId]));
 
       // Exponential decay (fast falloff)
       const decay = 0.001;
@@ -2642,8 +2647,8 @@ export class GameScene extends Phaser.Scene {
   private spawnTreasureChest(): void {
     // Spawn at random location within screen (avoiding edges)
     const padding = 80;
-    const x = padding + Math.random() * (GAME_WIDTH - padding * 2);
-    const y = padding + Math.random() * (GAME_HEIGHT - padding * 2);
+    const x = padding + Math.random() * (this.scale.width - padding * 2);
+    const y = padding + Math.random() * (this.scale.height - padding * 2);
 
     // 15% chance for a special chest with 3x rewards
     const isSpecial = Math.random() < 0.15;
@@ -2759,10 +2764,10 @@ export class GameScene extends Phaser.Scene {
 
     // Create pause overlay
     const overlay = this.add.rectangle(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2,
-      GAME_WIDTH,
-      GAME_HEIGHT,
+      this.scale.width / 2,
+      this.scale.height / 2,
+      this.scale.width,
+      this.scale.height,
       0x000000,
       0.75
     );
@@ -2770,11 +2775,11 @@ export class GameScene extends Phaser.Scene {
     overlay.setName('pauseOverlay');
 
     // 8px grid spacing for pause menu
-    const menuCenterY = GAME_HEIGHT / 2;
+    const menuCenterY = this.scale.height / 2;
     const buttonSpacing = 64; // 8px aligned gap between button centers
 
     // Pause title
-    const pauseTitle = this.add.text(GAME_WIDTH / 2, menuCenterY - 144, 'PAUSED', {
+    const pauseTitle = this.add.text(this.scale.width / 2, menuCenterY - 144, 'PAUSED', {
       fontSize: '56px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -2788,7 +2793,7 @@ export class GameScene extends Phaser.Scene {
     // Gold display in pause menu (48px below title)
     const metaManager = getMetaProgressionManager();
     const pauseGoldDisplay = this.add.text(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       menuCenterY - 88,
       `Gold: ${metaManager.getGold()}`,
       {
@@ -2807,7 +2812,7 @@ export class GameScene extends Phaser.Scene {
     const resumeButtonY = menuCenterY - 32;
 
     const resumeButtonBg = this.add.rectangle(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       resumeButtonY,
       resumeButtonWidth,
       resumeButtonHeight,
@@ -2818,7 +2823,7 @@ export class GameScene extends Phaser.Scene {
     resumeButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     resumeButtonBg.setName('resumeButtonBg');
 
-    const resumeButtonText = this.add.text(GAME_WIDTH / 2, resumeButtonY, 'Resume', {
+    const resumeButtonText = this.add.text(this.scale.width / 2, resumeButtonY, 'Resume', {
       fontSize: '24px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -2842,7 +2847,7 @@ export class GameScene extends Phaser.Scene {
     const settingsButtonY = resumeButtonY + buttonSpacing;
 
     const settingsButtonBg = this.add.rectangle(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       settingsButtonY,
       resumeButtonWidth,
       resumeButtonHeight,
@@ -2853,7 +2858,7 @@ export class GameScene extends Phaser.Scene {
     settingsButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     settingsButtonBg.setName('settingsButtonBg');
 
-    const settingsButtonText = this.add.text(GAME_WIDTH / 2, settingsButtonY, 'Settings', {
+    const settingsButtonText = this.add.text(this.scale.width / 2, settingsButtonY, 'Settings', {
       fontSize: '24px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -2880,7 +2885,7 @@ export class GameScene extends Phaser.Scene {
     const restartButtonY = settingsButtonY + buttonSpacing;
 
     const restartButtonBg = this.add.rectangle(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       restartButtonY,
       resumeButtonWidth,
       resumeButtonHeight,
@@ -2891,7 +2896,7 @@ export class GameScene extends Phaser.Scene {
     restartButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     restartButtonBg.setName('restartButtonBg');
 
-    const restartButtonText = this.add.text(GAME_WIDTH / 2, restartButtonY, 'Restart', {
+    const restartButtonText = this.add.text(this.scale.width / 2, restartButtonY, 'Restart', {
       fontSize: '24px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -2915,7 +2920,7 @@ export class GameScene extends Phaser.Scene {
     const quitMenuButtonY = restartButtonY + buttonSpacing;
 
     const quitMenuButtonBg = this.add.rectangle(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       quitMenuButtonY,
       resumeButtonWidth,
       resumeButtonHeight,
@@ -2926,7 +2931,7 @@ export class GameScene extends Phaser.Scene {
     quitMenuButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     quitMenuButtonBg.setName('quitMenuButtonBg');
 
-    const quitMenuButtonText = this.add.text(GAME_WIDTH / 2, quitMenuButtonY, 'Quit to Menu', {
+    const quitMenuButtonText = this.add.text(this.scale.width / 2, quitMenuButtonY, 'Quit to Menu', {
       fontSize: '24px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -2949,7 +2954,7 @@ export class GameScene extends Phaser.Scene {
     const quitShopButtonY = quitMenuButtonY + buttonSpacing;
 
     const quitShopButtonBg = this.add.rectangle(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       quitShopButtonY,
       resumeButtonWidth,
       resumeButtonHeight,
@@ -2960,7 +2965,7 @@ export class GameScene extends Phaser.Scene {
     quitShopButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     quitShopButtonBg.setName('quitShopButtonBg');
 
-    const quitShopButtonText = this.add.text(GAME_WIDTH / 2, quitShopButtonY, 'Quit to Shop', {
+    const quitShopButtonText = this.add.text(this.scale.width / 2, quitShopButtonY, 'Quit to Shop', {
       fontSize: '24px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -2980,7 +2985,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Hint text (48px below last button)
-    const hintText = this.add.text(GAME_WIDTH / 2, quitShopButtonY + 48, 'Press ESC to resume', {
+    const hintText = this.add.text(this.scale.width / 2, quitShopButtonY + 48, 'Press ESC to resume', {
       fontSize: '14px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -3054,10 +3059,10 @@ export class GameScene extends Phaser.Scene {
 
     // Create confirmation overlay
     const overlay = this.add.rectangle(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2,
-      GAME_WIDTH,
-      GAME_HEIGHT,
+      this.scale.width / 2,
+      this.scale.height / 2,
+      this.scale.width,
+      this.scale.height,
       0x000000,
       0.85
     );
@@ -3065,10 +3070,10 @@ export class GameScene extends Phaser.Scene {
     overlay.setName('shopConfirmOverlay');
 
     // 8px grid spacing for confirmation dialog
-    const dialogCenterY = GAME_HEIGHT / 2;
+    const dialogCenterY = this.scale.height / 2;
 
     // Title
-    const titleText = this.add.text(GAME_WIDTH / 2, dialogCenterY - 168, 'End Run?', {
+    const titleText = this.add.text(this.scale.width / 2, dialogCenterY - 168, 'End Run?', {
       fontSize: '48px',
       color: '#ffcc00',
       fontFamily: 'Arial',
@@ -3081,7 +3086,7 @@ export class GameScene extends Phaser.Scene {
 
     // Subtitle (56px below title)
     const subtitleText = this.add.text(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       dialogCenterY - 104,
       'You will earn the following gold:',
       {
@@ -3118,7 +3123,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const breakdownText = this.add.text(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       dialogCenterY - 64,
       breakdownLines.join('\n'),
       {
@@ -3136,7 +3141,7 @@ export class GameScene extends Phaser.Scene {
     // Total gold (24px below breakdown bottom)
     const totalY = breakdownText.y + breakdownText.height + 24;
     const totalText = this.add.text(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       totalY,
       `Total: +${finalTotal} gold`,
       {
@@ -3156,7 +3161,7 @@ export class GameScene extends Phaser.Scene {
     const buttonY = totalY + 48 + confirmButtonHeight / 2;
 
     const confirmButtonBg = this.add.rectangle(
-      GAME_WIDTH / 2 - 100,
+      this.scale.width / 2 - 100,
       buttonY,
       confirmButtonWidth,
       confirmButtonHeight,
@@ -3167,7 +3172,7 @@ export class GameScene extends Phaser.Scene {
     confirmButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     confirmButtonBg.setName('shopConfirmButtonBg');
 
-    const confirmButtonText = this.add.text(GAME_WIDTH / 2 - 100, buttonY, 'Confirm', {
+    const confirmButtonText = this.add.text(this.scale.width / 2 - 100, buttonY, 'Confirm', {
       fontSize: '24px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -3196,7 +3201,7 @@ export class GameScene extends Phaser.Scene {
 
     // Cancel button
     const cancelButtonBg = this.add.rectangle(
-      GAME_WIDTH / 2 + 100,
+      this.scale.width / 2 + 100,
       buttonY,
       confirmButtonWidth,
       confirmButtonHeight,
@@ -3207,7 +3212,7 @@ export class GameScene extends Phaser.Scene {
     cancelButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     cancelButtonBg.setName('shopCancelButtonBg');
 
-    const cancelButtonText = this.add.text(GAME_WIDTH / 2 + 100, buttonY, 'Cancel', {
+    const cancelButtonText = this.add.text(this.scale.width / 2 + 100, buttonY, 'Cancel', {
       fontSize: '24px',
       color: '#ffffff',
       fontFamily: 'Arial',
@@ -3306,10 +3311,10 @@ export class GameScene extends Phaser.Scene {
 
     // Create victory overlay
     const overlay = this.add.rectangle(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2,
-      GAME_WIDTH,
-      GAME_HEIGHT,
+      this.scale.width / 2,
+      this.scale.height / 2,
+      this.scale.width,
+      this.scale.height,
       0x000000,
       0.8
     );
@@ -3318,8 +3323,8 @@ export class GameScene extends Phaser.Scene {
 
     // World cleared text
     const worldClearedText = this.add.text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2 - 120,
+      this.scale.width / 2,
+      this.scale.height / 2 - 120,
       `WORLD ${clearedWorld} CLEARED!`,
       {
         fontSize: '32px',
@@ -3333,7 +3338,7 @@ export class GameScene extends Phaser.Scene {
     worldClearedText.setDepth(PAUSE_MENU_DEPTH + 1);
     worldClearedText.setName('victoryWorldCleared');
 
-    const victoryText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 60, 'VICTORY!', {
+    const victoryText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 60, 'VICTORY!', {
       fontSize: '72px',
       color: '#ffdd44',
       fontFamily: 'Arial',
@@ -3345,8 +3350,8 @@ export class GameScene extends Phaser.Scene {
     victoryText.setName('victoryText');
 
     const messageText = this.add.text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2 + 20,
+      this.scale.width / 2,
+      this.scale.height / 2 + 20,
       'Boss Defeated!',
       {
         fontSize: '28px',
@@ -3360,8 +3365,8 @@ export class GameScene extends Phaser.Scene {
 
     // Next world text
     const nextWorldText = this.add.text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2 + 60,
+      this.scale.width / 2,
+      this.scale.height / 2 + 60,
       `Next: World ${newWorldLevel}`,
       {
         fontSize: '22px',
@@ -3374,8 +3379,8 @@ export class GameScene extends Phaser.Scene {
     nextWorldText.setName('victoryNextWorld');
 
     const statsText = this.add.text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2 + 100,
+      this.scale.width / 2,
+      this.scale.height / 2 + 100,
       `Kills: ${this.killCount}  |  Level: ${this.playerStats.level}`,
       {
         fontSize: '20px',
@@ -3390,8 +3395,8 @@ export class GameScene extends Phaser.Scene {
     // Streak display
     const fireEmoji = newStreak >= 5 ? '🔥🔥' : '🔥';
     const streakText = this.add.text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2 + 125,
+      this.scale.width / 2,
+      this.scale.height / 2 + 125,
       `${fireEmoji} Streak: ${previousStreak} → ${newStreak}! (+${metaManager.getStreakBonusPercent()}% gold)`,
       {
         fontSize: '18px',
@@ -3414,9 +3419,9 @@ export class GameScene extends Phaser.Scene {
     // Button dimensions and positions
     const buttonWidth = 180;
     const buttonHeight = 45;
-    const buttonY = GAME_HEIGHT / 2 + 175;
-    const continueButtonX = GAME_WIDTH / 2 - 100;
-    const nextWorldButtonX = GAME_WIDTH / 2 + 100;
+    const buttonY = this.scale.height / 2 + 175;
+    const continueButtonX = this.scale.width / 2 - 100;
+    const nextWorldButtonX = this.scale.width / 2 + 100;
 
     // Continue Run button (green, left)
     const continueButtonBg = this.add.rectangle(
@@ -3464,7 +3469,7 @@ export class GameScene extends Phaser.Scene {
 
     // Gold preview centered below buttons
     const goldPreviewText = this.add.text(
-      GAME_WIDTH / 2,
+      this.scale.width / 2,
       buttonY + 38,
       `+${goldToEarn} gold`,
       {
@@ -3636,10 +3641,10 @@ export class GameScene extends Phaser.Scene {
 
     // Show game over UI
     const overlay = this.add.rectangle(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2,
-      GAME_WIDTH,
-      GAME_HEIGHT,
+      this.scale.width / 2,
+      this.scale.height / 2,
+      this.scale.width,
+      this.scale.height,
       0x000000,
       0.7
     );
@@ -3649,7 +3654,7 @@ export class GameScene extends Phaser.Scene {
     const titleText = this.hasWon ? 'VICTORY!' : 'GAME OVER';
     const titleColor = this.hasWon ? '#ffdd44' : '#ff4444';
 
-    const gameOverText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 80, titleText, {
+    const gameOverText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 80, titleText, {
       fontSize: '64px',
       color: titleColor,
       fontFamily: 'Arial',
@@ -3668,8 +3673,8 @@ export class GameScene extends Phaser.Scene {
       : '';
 
     const statsText = this.add.text(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2 + 30,
+      this.scale.width / 2,
+      this.scale.height / 2 + 30,
       `Survived: ${Math.floor(this.gameTime / 60)}:${Math.floor(this.gameTime % 60).toString().padStart(2, '0')}${bonusTimeStr}\nKills: ${this.killCount}\nLevel: ${this.playerStats.level}\nGold earned: +${goldEarned}${streakChangeText}`,
       {
         fontSize: '24px',
@@ -3681,7 +3686,7 @@ export class GameScene extends Phaser.Scene {
     statsText.setOrigin(0.5);
     statsText.setDepth(PAUSE_MENU_DEPTH + 1);
 
-    const restartText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 + 180, 'Press SPACE to restart', {
+    const restartText = this.add.text(this.scale.width / 2, this.scale.height / 2 + 180, 'Press SPACE to restart', {
       fontSize: '20px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -3842,19 +3847,19 @@ export class GameScene extends Phaser.Scene {
     switch (side) {
       case 0: // Left
         x = -spawnOffset;
-        y = Phaser.Math.Between(0, GAME_HEIGHT);
+        y = Phaser.Math.Between(0, this.scale.height);
         break;
       case 1: // Right
-        x = GAME_WIDTH + spawnOffset;
-        y = Phaser.Math.Between(0, GAME_HEIGHT);
+        x = this.scale.width + spawnOffset;
+        y = Phaser.Math.Between(0, this.scale.height);
         break;
       case 2: // Top
-        x = Phaser.Math.Between(0, GAME_WIDTH);
+        x = Phaser.Math.Between(0, this.scale.width);
         y = -spawnOffset;
         break;
       default: // Bottom
-        x = Phaser.Math.Between(0, GAME_WIDTH);
-        y = GAME_HEIGHT + spawnOffset;
+        x = Phaser.Math.Between(0, this.scale.width);
+        y = this.scale.height + spawnOffset;
         break;
     }
 
@@ -3985,10 +3990,10 @@ export class GameScene extends Phaser.Scene {
     const spawnOffset = 50;
 
     switch (side) {
-      case 0: x = -spawnOffset; y = Phaser.Math.Between(100, GAME_HEIGHT - 100); break;
-      case 1: x = GAME_WIDTH + spawnOffset; y = Phaser.Math.Between(100, GAME_HEIGHT - 100); break;
-      case 2: x = Phaser.Math.Between(100, GAME_WIDTH - 100); y = -spawnOffset; break;
-      default: x = Phaser.Math.Between(100, GAME_WIDTH - 100); y = GAME_HEIGHT + spawnOffset; break;
+      case 0: x = -spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
+      case 1: x = this.scale.width + spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
+      case 2: x = Phaser.Math.Between(100, this.scale.width - 100); y = -spawnOffset; break;
+      default: x = Phaser.Math.Between(100, this.scale.width - 100); y = this.scale.height + spawnOffset; break;
     }
 
     // Scale stats with both time and world level multipliers
@@ -4042,7 +4047,7 @@ export class GameScene extends Phaser.Scene {
    * Shows a warning when a miniboss spawns.
    */
   private showMinibossWarning(name: string): void {
-    const warningText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 50, `⚠️ ${name} approaches! ⚠️`, {
+    const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 50, `⚠️ ${name} approaches! ⚠️`, {
       fontSize: '24px',
       color: '#ff4444',
       fontFamily: 'Arial',
@@ -4055,7 +4060,7 @@ export class GameScene extends Phaser.Scene {
     // Animate and fade out
     this.tweens.add({
       targets: warningText,
-      y: GAME_HEIGHT / 2 - 100,
+      y: this.scale.height / 2 - 100,
       alpha: 0,
       duration: 2000,
       ease: 'Power2',
@@ -4099,7 +4104,7 @@ export class GameScene extends Phaser.Scene {
     if (!enemyType) return;
 
     // Boss spawns at top of screen
-    const x = GAME_WIDTH / 2;
+    const x = this.scale.width / 2;
     const y = -100;
 
     // Scale stats with both time and world level multipliers
@@ -4129,11 +4134,11 @@ export class GameScene extends Phaser.Scene {
    */
   private showBossEntrance(name: string): void {
     // Darken screen briefly
-    const overlay = this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.5);
+    const overlay = this.add.rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.5);
     overlay.setDepth(90);
 
     // Warning text
-    const warningText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 80, 'BOSS BATTLE', {
+    const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 80, 'BOSS BATTLE', {
       fontSize: '32px',
       color: '#ff0000',
       fontFamily: 'Arial',
@@ -4143,7 +4148,7 @@ export class GameScene extends Phaser.Scene {
     warningText.setOrigin(0.5);
     warningText.setDepth(100);
 
-    const nameText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2, name, {
+    const nameText = this.add.text(this.scale.width / 2, this.scale.height / 2, name, {
       fontSize: '48px',
       color: '#ffcc00',
       fontFamily: 'Arial',
@@ -4222,7 +4227,7 @@ export class GameScene extends Phaser.Scene {
    * The bar includes a pulsing glow effect and displays name + health.
    */
   private createBossHealthBar(entityId: number, name: string, isFinalBoss: boolean): BossHealthBar {
-    const centerX = GAME_WIDTH / 2;
+    const centerX = this.scale.width / 2;
     const barWidth = this.BOSS_HEALTH_BAR_WIDTH;
     const barHeight = 15;
 
@@ -5640,10 +5645,92 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Handles screen resize events (orientation change, Safari address bar, etc).
+   * Repositions all HUD elements anchored to screen edges or center.
+   */
+  private handleResize(gameSize: Phaser.Structs.Size): void {
+    const w = gameSize.width;
+    const h = gameSize.height;
+
+    // Update ECS system bounds
+    setEnemyAIBounds(w, h);
+
+    // --- Top-center elements ---
+    const worldLevelText = this.children.getByName('worldLevelText') as Phaser.GameObjects.Text;
+    if (worldLevelText) worldLevelText.setX(w / 2);
+
+    const timerText = this.children.getByName('timerText') as Phaser.GameObjects.Text;
+    if (timerText) timerText.setX(w / 2);
+
+    // --- Top-right elements ---
+    const pauseButtonSize = 36;
+    const pauseButtonX = w - HUD_EDGE_PADDING - pauseButtonSize / 2;
+    const pauseButtonY = HUD_EDGE_PADDING + pauseButtonSize / 2;
+
+    const pauseBg = this.children.getByName('pauseButtonBg') as Phaser.GameObjects.Rectangle;
+    if (pauseBg) pauseBg.setPosition(pauseButtonX, pauseButtonY);
+
+    const pauseIcon = this.children.getByName('pauseButtonIcon') as Phaser.GameObjects.Text;
+    if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
+
+    const statsRightX = w - HUD_EDGE_PADDING;
+    const statsTopY = pauseButtonY + pauseButtonSize / 2 + 8;
+
+    const killCountText = this.children.getByName('killCountText') as Phaser.GameObjects.Text;
+    if (killCountText) killCountText.setX(statsRightX);
+
+    const goldPreviewText = this.children.getByName('goldPreviewText') as Phaser.GameObjects.Text;
+    if (goldPreviewText) goldPreviewText.setX(statsRightX);
+
+    // --- Bottom-left elements ---
+    const controlsHint = this.children.getAll().find(
+      (child) => child instanceof Phaser.GameObjects.Text && (child as Phaser.GameObjects.Text).text?.includes('WASD')
+    ) as Phaser.GameObjects.Text;
+    if (controlsHint) controlsHint.setY(h - HUD_EDGE_PADDING);
+
+    // BGM container
+    if (this.bgmContainer) {
+      const controlsHintHeight = 18;
+      const bgmRowHeight = 14;
+      const bottomY = h - HUD_EDGE_PADDING - controlsHintHeight - HUD_ELEMENT_SPACING * 2 - bgmRowHeight;
+      this.bgmContainer.setY(bottomY);
+    }
+
+    // --- Bottom-right elements ---
+    if (this.fpsText) {
+      const autoBuyToggleHeight = 26;
+      const fpsY = h - HUD_EDGE_PADDING - autoBuyToggleHeight - HUD_ELEMENT_SPACING;
+      this.fpsText.setPosition(w - HUD_EDGE_PADDING, fpsY);
+    }
+
+    if (this.autoBuyToggleBg && this.autoBuyToggleText) {
+      const toggleWidth = 190;
+      const toggleHeight = 26;
+      const toggleX = w - HUD_EDGE_PADDING - toggleWidth / 2;
+      const toggleY = h - HUD_EDGE_PADDING - toggleHeight / 2;
+      this.autoBuyToggleBg.setPosition(toggleX, toggleY);
+      this.autoBuyToggleText.setPosition(toggleX, toggleY);
+    }
+
+    // --- Boss health bars ---
+    if (this.activeBossHealthBars) {
+      const centerX = w / 2;
+      for (const bar of this.activeBossHealthBars) {
+        if (bar.container) {
+          bar.container.setX(centerX);
+        }
+      }
+    }
+  }
+
+  /**
    * Clean up event listeners and resources when scene shuts down.
    * Critical for preventing input conflicts and memory leaks on restart.
    */
   shutdown(): void {
+    // Remove resize listener
+    this.scale.off('resize', this.handleResize, this);
+
     // Remove ESC key listener to prevent it persisting across restarts
     if (this.escKeyHandler) {
       this.input.keyboard?.off('keydown-ESC', this.escKeyHandler);

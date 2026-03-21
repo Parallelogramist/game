@@ -11,7 +11,6 @@ import {
   AchievementDefinition,
   AchievementCategory,
 } from '../../achievements';
-import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
@@ -63,7 +62,7 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   create(): void {
-    const centerX = GAME_WIDTH / 2;
+    const centerX = this.scale.width / 2;
 
     fadeIn(this, 200);
     this.soundManager = new SoundManager(this);
@@ -105,7 +104,7 @@ export class AchievementScene extends Phaser.Scene {
     }
 
     // Dark background
-    this.add.rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
+    this.add.rectangle(centerX, this.scale.height / 2, this.scale.width, this.scale.height, 0x1a1a2e);
 
     // Title
     this.add
@@ -124,7 +123,7 @@ export class AchievementScene extends Phaser.Scene {
     const totalCount = ACHIEVEMENTS.length;
 
     this.add
-      .text(GAME_WIDTH - 20, 20, 'COMPLETION:', {
+      .text(this.scale.width - 20, 20, 'COMPLETION:', {
         fontSize: '14px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -132,7 +131,7 @@ export class AchievementScene extends Phaser.Scene {
       .setOrigin(1, 0);
 
     this.add
-      .text(GAME_WIDTH - 20, 38, `${unlockedCount}/${totalCount} (${completionPercent}%)`, {
+      .text(this.scale.width - 20, 38, `${unlockedCount}/${totalCount} (${completionPercent}%)`, {
         fontSize: '20px',
         color: '#44ff88',
         fontFamily: 'Arial',
@@ -151,7 +150,7 @@ export class AchievementScene extends Phaser.Scene {
 
     // Back button
     this.backButton = this.add
-      .text(centerX, GAME_HEIGHT - 30, '[ Back to Menu ]', {
+      .text(centerX, this.scale.height - 30, '[ Back to Menu ]', {
         fontSize: '20px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -184,7 +183,7 @@ export class AchievementScene extends Phaser.Scene {
     const tabHeight = 36;
     const tabSpacing = 8;
     const totalTabs = ACHIEVEMENT_CATEGORIES.length;
-    const tabWidth = Math.floor((GAME_WIDTH - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
+    const tabWidth = Math.floor((this.scale.width - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
     const startX = 20;
 
     ACHIEVEMENT_CATEGORIES.forEach((category, index) => {
@@ -281,7 +280,7 @@ export class AchievementScene extends Phaser.Scene {
 
   private createAchievementContainer(): void {
     const containerY = 120;
-    const containerHeight = GAME_HEIGHT - 180;
+    const containerHeight = this.scale.height - 180;
 
     // Create container for achievements
     this.achievementContainer = this.add.container(0, containerY);
@@ -289,7 +288,7 @@ export class AchievementScene extends Phaser.Scene {
     // Create mask for scrolling
     const maskGraphics = this.make.graphics({ x: 0, y: 0 });
     maskGraphics.fillStyle(0xffffff);
-    maskGraphics.fillRect(0, containerY, GAME_WIDTH, containerHeight);
+    maskGraphics.fillRect(0, containerY, this.scale.width, containerHeight);
     const mask = maskGraphics.createGeometryMask();
     this.achievementContainer.setMask(mask);
   }
@@ -302,7 +301,7 @@ export class AchievementScene extends Phaser.Scene {
 
     const achievements = getAchievementsByCategory(category);
 
-    const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
+    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
 
     achievements.forEach((achievement, index) => {
@@ -318,7 +317,7 @@ export class AchievementScene extends Phaser.Scene {
     // Calculate max scroll
     const totalRows = Math.ceil(achievements.length / this.columns);
     const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
-    const viewHeight = GAME_HEIGHT - 180;
+    const viewHeight = this.scale.height - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
 
     // Update container scroll position
@@ -530,7 +529,7 @@ export class AchievementScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.isDown && pointer.y > 120 && pointer.y < GAME_HEIGHT - 60) {
+      if (pointer.isDown && pointer.y > 120 && pointer.y < this.scale.height - 60) {
         const deltaY = lastY - pointer.y;
         this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY, 0, this.maxScrollY);
         this.achievementContainer.y = 120 - this.scrollY;
@@ -691,7 +690,7 @@ export class AchievementScene extends Phaser.Scene {
     const row = Math.floor(this.selectedCardIndex / this.columns);
     const cardTopInContainer = 10 + row * (this.cardHeight + this.cardSpacing);
     const cardBottomInContainer = cardTopInContainer + this.cardHeight;
-    const viewHeight = GAME_HEIGHT - 180;
+    const viewHeight = this.scale.height - 180;
 
     if (cardTopInContainer < this.scrollY) {
       this.scrollY = cardTopInContainer;

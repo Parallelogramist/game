@@ -9,12 +9,9 @@ export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
   antialias: false,
   roundPixels: true,
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.EXPAND,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    min: {
-      width: 640,
-      height: 360,
-    },
+    expandParent: true,
   },
   physics: {
     default: 'arcade',

@@ -1,6 +1,5 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
-import { GAME_WIDTH, GAME_HEIGHT } from '../GameConfig';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
@@ -165,8 +164,8 @@ export class RicochetWeapon extends BaseWeapon {
         ball.x = margin;
         ball.velocityX = Math.abs(ball.velocityX);
         bounced = true;
-      } else if (ball.x >= GAME_WIDTH - margin) {
-        ball.x = GAME_WIDTH - margin;
+      } else if (ball.x >= ctx.scene.scale.width - margin) {
+        ball.x = ctx.scene.scale.width - margin;
         ball.velocityX = -Math.abs(ball.velocityX);
         bounced = true;
       }
@@ -175,8 +174,8 @@ export class RicochetWeapon extends BaseWeapon {
         ball.y = margin;
         ball.velocityY = Math.abs(ball.velocityY);
         bounced = true;
-      } else if (ball.y >= GAME_HEIGHT - margin) {
-        ball.y = GAME_HEIGHT - margin;
+      } else if (ball.y >= ctx.scene.scale.height - margin) {
+        ball.y = ctx.scene.scale.height - margin;
         ball.velocityY = -Math.abs(ball.velocityY);
         bounced = true;
       }

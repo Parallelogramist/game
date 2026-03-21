@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT } from '../GameConfig';
 import { GRID_COLORS } from './NeonColors';
 import { VisualQuality } from './GlowGraphics';
 
@@ -93,12 +92,14 @@ export class GridBackground {
     this.graphics = scene.add.graphics();
     this.graphics.setDepth(0);
 
-    this.centerX = GAME_WIDTH / 2;
-    this.centerY = GAME_HEIGHT / 2;
+    const sceneWidth = scene.scale.width;
+    const sceneHeight = scene.scale.height;
+    this.centerX = sceneWidth / 2;
+    this.centerY = sceneHeight / 2;
 
     // Grid dimensions — extend one cell beyond screen edges
-    this.numCols = Math.ceil(GAME_WIDTH / this.CELL_SIZE) + 1;
-    this.numRows = Math.ceil(GAME_HEIGHT / this.CELL_SIZE) + 1;
+    this.numCols = Math.ceil(sceneWidth / this.CELL_SIZE) + 1;
+    this.numRows = Math.ceil(sceneHeight / this.CELL_SIZE) + 1;
     this.totalPoints = this.numCols * this.numRows;
 
     this.initializePointMasses();

@@ -14,7 +14,6 @@ import {
   UPGRADE_CATEGORIES,
   UpgradeCategory,
 } from '../../data/PermanentUpgrades';
-import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
@@ -67,7 +66,7 @@ export class ShopScene extends Phaser.Scene {
   }
 
   create(): void {
-    const centerX = GAME_WIDTH / 2;
+    const centerX = this.scale.width / 2;
 
     // Fade in
     fadeIn(this, 200);
@@ -84,7 +83,7 @@ export class ShopScene extends Phaser.Scene {
     this.scrollY = 0;
 
     // Dark background
-    this.add.rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
+    this.add.rectangle(centerX, this.scale.height / 2, this.scale.width, this.scale.height, 0x1a1a2e);
 
     // Title
     this.add
@@ -115,7 +114,7 @@ export class ShopScene extends Phaser.Scene {
 
     // Gold display (top right)
     this.add
-      .text(GAME_WIDTH - 20, 20, 'GOLD:', {
+      .text(this.scale.width - 20, 20, 'GOLD:', {
         fontSize: '14px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -123,7 +122,7 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(1, 0);
 
     this.goldText = this.add
-      .text(GAME_WIDTH - 20, 38, '', {
+      .text(this.scale.width - 20, 38, '', {
         fontSize: '24px',
         color: '#ffcc00',
         fontFamily: 'Arial',
@@ -181,7 +180,7 @@ export class ShopScene extends Phaser.Scene {
 
     // Back button
     this.backButton = this.add
-      .text(centerX, GAME_HEIGHT - 30, '[ Back to Menu ]', {
+      .text(centerX, this.scale.height - 30, '[ Back to Menu ]', {
         fontSize: '20px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -218,7 +217,7 @@ export class ShopScene extends Phaser.Scene {
     const tabHeight = 36;
     const tabSpacing = 4;
     const totalTabs = UPGRADE_CATEGORIES.length;
-    const tabWidth = Math.floor((GAME_WIDTH - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
+    const tabWidth = Math.floor((this.scale.width - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
     const startX = 20;
 
     UPGRADE_CATEGORIES.forEach((category, index) => {
@@ -309,10 +308,10 @@ export class ShopScene extends Phaser.Scene {
 
     // Create mask for scrolling area
     const maskY = 115;
-    const maskHeight = GAME_HEIGHT - 170;
+    const maskHeight = this.scale.height - 170;
     const maskGraphics = this.add.graphics();
     maskGraphics.fillStyle(0xffffff);
-    maskGraphics.fillRect(0, maskY, GAME_WIDTH, maskHeight);
+    maskGraphics.fillRect(0, maskY, this.scale.width, maskHeight);
 
     const mask = maskGraphics.createGeometryMask();
     this.upgradeContainer.setMask(mask);
@@ -335,7 +334,7 @@ export class ShopScene extends Phaser.Scene {
 
     // Calculate starting X to center the grid
     const totalRowWidth = this.columns * this.cardWidth + (this.columns - 1) * horizontalSpacing;
-    const startX = (GAME_WIDTH - totalRowWidth) / 2 + this.cardWidth / 2;
+    const startX = (this.scale.width - totalRowWidth) / 2 + this.cardWidth / 2;
 
     upgrades.forEach((upgrade, index) => {
       const col = index % this.columns;
@@ -350,7 +349,7 @@ export class ShopScene extends Phaser.Scene {
     // Calculate max scroll
     const rows = Math.ceil(upgrades.length / this.columns);
     const contentHeight = rows * (this.cardHeight + verticalSpacing);
-    const visibleHeight = GAME_HEIGHT - 170;
+    const visibleHeight = this.scale.height - 170;
     this.maxScrollY = Math.max(0, contentHeight - visibleHeight + 20);
   }
 
@@ -583,7 +582,7 @@ export class ShopScene extends Phaser.Scene {
 
     // Touch/drag scrolling
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.y > 110 && pointer.y < GAME_HEIGHT - 60) {
+      if (pointer.y > 110 && pointer.y < this.scale.height - 60) {
         this.isDragging = true;
         this.lastPointerY = pointer.y;
       }
@@ -791,12 +790,12 @@ export class ShopScene extends Phaser.Scene {
     const row = Math.floor(this.selectedCardIndex / this.columns);
     const cardY = 125 + row * (this.cardHeight + 15) + this.cardHeight / 2;
     const visibleTop = this.scrollY + 115;
-    const visibleBottom = this.scrollY + GAME_HEIGHT - 55;
+    const visibleBottom = this.scrollY + this.scale.height - 55;
 
     if (cardY - this.cardHeight / 2 < visibleTop) {
       this.scrollY = Math.max(0, cardY - this.cardHeight / 2 - 115);
     } else if (cardY + this.cardHeight / 2 > visibleBottom) {
-      this.scrollY = Math.min(this.maxScrollY, cardY + this.cardHeight / 2 - (GAME_HEIGHT - 55));
+      this.scrollY = Math.min(this.maxScrollY, cardY + this.cardHeight / 2 - (this.scale.height - 55));
     }
 
     this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, this.maxScrollY);
@@ -990,10 +989,10 @@ export class ShopScene extends Phaser.Scene {
    */
   private showAscensionConfirmation(nextLevel: number, statBonus: number, goldBonus: number): void {
     const overlay = this.add.rectangle(
-      GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.9
+      this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.9
     ).setDepth(100).setInteractive();
 
-    const titleText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 120, `ASCEND TO LEVEL ${nextLevel}`, {
+    const titleText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 120, `ASCEND TO LEVEL ${nextLevel}`, {
       fontSize: '32px',
       color: '#ff88ff',
       fontFamily: 'Arial',
@@ -1012,7 +1011,7 @@ export class ShopScene extends Phaser.Scene {
     if (nextLevel >= 3) descLines.push('  +1 starting level');
     if (nextLevel >= 4) descLines.push('  2x XP gem value');
 
-    const descText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 30, descLines.join('\n'), {
+    const descText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 30, descLines.join('\n'), {
       fontSize: '16px',
       color: '#ccaacc',
       fontFamily: 'Arial',
@@ -1020,14 +1019,14 @@ export class ShopScene extends Phaser.Scene {
       lineSpacing: 4,
     }).setOrigin(0.5).setDepth(101);
 
-    const confirmButton = this.add.text(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 100, '[ ASCEND ]', {
+    const confirmButton = this.add.text(this.scale.width / 2 - 80, this.scale.height / 2 + 100, '[ ASCEND ]', {
       fontSize: '24px',
       color: '#ff44ff',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     }).setOrigin(0.5).setDepth(101).setInteractive({ useHandCursor: true });
 
-    const cancelButton = this.add.text(GAME_WIDTH / 2 + 80, GAME_HEIGHT / 2 + 100, '[ Cancel ]', {
+    const cancelButton = this.add.text(this.scale.width / 2 + 80, this.scale.height / 2 + 100, '[ Cancel ]', {
       fontSize: '24px',
       color: '#888888',
       fontFamily: 'Arial',

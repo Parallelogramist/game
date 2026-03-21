@@ -1,7 +1,5 @@
 import { defineQuery, IWorld } from 'bitecs';
 import { Transform, Velocity } from '../components';
-import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
-
 // Query for entities with transform and velocity
 const movementQuery = defineQuery([Transform, Velocity]);
 
@@ -26,7 +24,7 @@ export function movementSystem(world: IWorld, deltaTime: number): IWorld {
 /**
  * Clamps player position to screen boundaries
  */
-export function clampPlayerToScreen(_world: IWorld, playerId: number, padding: number = 16): void {
-  Transform.x[playerId] = Math.max(padding, Math.min(GAME_WIDTH - padding, Transform.x[playerId]));
-  Transform.y[playerId] = Math.max(padding, Math.min(GAME_HEIGHT - padding, Transform.y[playerId]));
+export function clampPlayerToScreen(_world: IWorld, playerId: number, gameWidth: number, gameHeight: number, padding: number = 16): void {
+  Transform.x[playerId] = Math.max(padding, Math.min(gameWidth - padding, Transform.x[playerId]));
+  Transform.y[playerId] = Math.max(padding, Math.min(gameHeight - padding, Transform.y[playerId]));
 }

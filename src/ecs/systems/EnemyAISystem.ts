@@ -2,7 +2,15 @@ import { defineQuery, IWorld, hasComponent } from 'bitecs';
 import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, EnemyType, Health, StatusEffect } from '../components';
 import { EnemyAIType } from '../../enemies/EnemyTypes';
 import { getEnemySpatialHash } from '../../utils/SpatialHash';
-import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
+// Dynamic game bounds (updated by GameScene on create and resize)
+let gameBoundsWidth = 1280;
+let gameBoundsHeight = 720;
+
+export function setEnemyAIBounds(w: number, h: number): void {
+  gameBoundsWidth = w;
+  gameBoundsHeight = h;
+}
+
 // OPTIMIZATION: Pre-computed Math constants to avoid repeated calculations
 const PI_HALF = Math.PI / 2;
 const PI_TWO = Math.PI * 2;
@@ -846,8 +854,8 @@ function updateTeleporterAI(
     Transform.y[enemyId] = playerY + Math.sin(teleportAngle) * teleportDist;
 
     // Keep on screen
-    Transform.x[enemyId] = Math.max(20, Math.min(GAME_WIDTH - 20, Transform.x[enemyId]));
-    Transform.y[enemyId] = Math.max(20, Math.min(GAME_HEIGHT - 20, Transform.y[enemyId]));
+    Transform.x[enemyId] = Math.max(20, Math.min(gameBoundsWidth - 20, Transform.x[enemyId]));
+    Transform.y[enemyId] = Math.max(20, Math.min(gameBoundsHeight - 20, Transform.y[enemyId]));
 
     EnemyAI.specialTimer[enemyId] = 2.0 + Math.random() * 1.5;
     // Brief pause after materializing
@@ -1440,7 +1448,7 @@ function updateChargerAI(
     Transform.rotation[enemyId] = angle + PI_HALF;
 
     // End charge after 1 second or if hitting edge
-    if (timer > 1.0 || enemyX < 30 || enemyX > GAME_WIDTH - 30 || enemyY < 30 || enemyY > GAME_HEIGHT - 30) {
+    if (timer > 1.0 || enemyX < 30 || enemyX > gameBoundsWidth - 30 || enemyY < 30 || enemyY > gameBoundsHeight - 30) {
       EnemyAI.state[enemyId] = 0;
       EnemyAI.timer[enemyId] = 0;
     }
