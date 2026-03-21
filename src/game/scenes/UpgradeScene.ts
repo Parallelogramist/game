@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { Upgrade } from '../../data/Upgrades';
-import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon } from '../../utils/IconRenderer';
 
 /**
@@ -78,17 +77,17 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Semi-transparent dark overlay
     const overlay = this.add.rectangle(
-      GAME_WIDTH / 2,
-      GAME_HEIGHT / 2,
-      GAME_WIDTH,
-      GAME_HEIGHT,
+      this.scale.width / 2,
+      this.scale.height / 2,
+      this.scale.width,
+      this.scale.height,
       0x000000,
       0.7
     );
     overlay.setDepth(0);
 
     // Title
-    const title = this.add.text(GAME_WIDTH / 2, 80, 'LEVEL UP!', {
+    const title = this.add.text(this.scale.width / 2, 80, 'LEVEL UP!', {
       fontSize: '48px',
       fontFamily: 'Arial',
       color: '#ffdd44',
@@ -99,7 +98,7 @@ export class UpgradeScene extends Phaser.Scene {
     title.setDepth(1);
 
     // Subtitle
-    const subtitle = this.add.text(GAME_WIDTH / 2, 130, 'Choose an upgrade', {
+    const subtitle = this.add.text(this.scale.width / 2, 130, 'Choose an upgrade', {
       fontSize: '24px',
       fontFamily: 'Arial',
       color: '#aaaaaa',
@@ -110,13 +109,13 @@ export class UpgradeScene extends Phaser.Scene {
     // Final weapon slot warning banner
     if (this.isLastWeaponSlot) {
       // Warning background
-      const warningBg = this.add.rectangle(GAME_WIDTH / 2, 165, 400, 36, 0x442200, 0.9);
+      const warningBg = this.add.rectangle(this.scale.width / 2, 165, 400, 36, 0x442200, 0.9);
       warningBg.setStrokeStyle(2, 0xffaa00);
       warningBg.setDepth(1);
 
       // Warning text
       const warningText = this.add.text(
-        GAME_WIDTH / 2,
+        this.scale.width / 2,
         165,
         '⚠ FINAL WEAPON SLOT - Choose wisely!',
         {
@@ -131,7 +130,7 @@ export class UpgradeScene extends Phaser.Scene {
       // Weapon slot counter
       if (this.weaponSlotsInfo) {
         const slotText = this.add.text(
-          GAME_WIDTH / 2,
+          this.scale.width / 2,
           188,
           `Weapons: ${this.weaponSlotsInfo.current}/${this.weaponSlotsInfo.max}`,
           {
@@ -191,9 +190,9 @@ export class UpgradeScene extends Phaser.Scene {
    * Creates the reroll, skip, and banish buttons at the bottom of the screen.
    */
   private createUtilityButtons(): void {
-    const buttonY = GAME_HEIGHT - 60;
+    const buttonY = this.scale.height - 60;
     const buttonSpacing = 180;
-    const startX = GAME_WIDTH / 2 - buttonSpacing;
+    const startX = this.scale.width / 2 - buttonSpacing;
 
     // Reroll button
     if (this.rerollsRemaining > 0 || true) { // Always show, but disabled if 0
@@ -327,7 +326,7 @@ export class UpgradeScene extends Phaser.Scene {
     if (this.isBanishMode) {
       // Show banish mode indicator
       this.banishModeText = this.add.text(
-        GAME_WIDTH / 2,
+        this.scale.width / 2,
         160,
         '🚫 BANISH MODE - Click an upgrade to remove it permanently',
         {
@@ -432,14 +431,14 @@ export class UpgradeScene extends Phaser.Scene {
     // Calculate scale factor based on the widest row
     const maxCardsInAnyRow = Math.max(...rows.map(row => row.length));
     const baseMaxRowWidth = maxCardsInAnyRow * baseCardWidth + (maxCardsInAnyRow - 1) * baseCardSpacing;
-    const availableWidth = GAME_WIDTH - (horizontalMargin * 2);
+    const availableWidth = this.scale.width - (horizontalMargin * 2);
     let scaleFactor = Math.min(1, availableWidth / baseMaxRowWidth);
 
     // For 2 rows, also constrain by vertical space (leave room for title and utility buttons)
     if (numRows > 1) {
       const verticalMarginTop = 180; // Below title/subtitle
       const verticalMarginBottom = 100; // Above utility buttons
-      const availableHeight = GAME_HEIGHT - verticalMarginTop - verticalMarginBottom;
+      const availableHeight = this.scale.height - verticalMarginTop - verticalMarginBottom;
       const baseTotalHeight = numRows * baseCardHeight + (numRows - 1) * baseRowSpacing;
       const verticalScaleFactor = availableHeight / baseTotalHeight;
       scaleFactor = Math.min(scaleFactor, verticalScaleFactor);
@@ -455,7 +454,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Calculate vertical positioning for all rows
     const totalRowsHeight = numRows * cardHeight + (numRows - 1) * rowSpacing;
-    const startY = (GAME_HEIGHT / 2) - (totalRowsHeight / 2) + (cardHeight / 2) + 20;
+    const startY = (this.scale.height / 2) - (totalRowsHeight / 2) + (cardHeight / 2) + 20;
 
     // Track global index for keybinds
     let globalIndex = 0;
@@ -463,7 +462,7 @@ export class UpgradeScene extends Phaser.Scene {
     rows.forEach((rowUpgrades, rowIndex) => {
       // Calculate horizontal positioning for this row (centered)
       const rowWidth = rowUpgrades.length * cardWidth + (rowUpgrades.length - 1) * cardSpacing;
-      const rowStartX = (GAME_WIDTH - rowWidth) / 2 + cardWidth / 2;
+      const rowStartX = (this.scale.width - rowWidth) / 2 + cardWidth / 2;
       const rowY = startY + rowIndex * (cardHeight + rowSpacing);
 
       rowUpgrades.forEach((upgrade, columnIndex) => {
@@ -701,7 +700,7 @@ export class UpgradeScene extends Phaser.Scene {
     // Animate cards sliding up
     this.upgradeCards.forEach((card, index) => {
       const targetY = card.y;
-      card.y = GAME_HEIGHT + 200;
+      card.y = this.scale.height + 200;
       card.alpha = 0;
 
       this.tweens.add({

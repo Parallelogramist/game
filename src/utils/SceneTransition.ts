@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH, GAME_HEIGHT } from '../GameConfig';
 
 /**
  * Scene transition helpers for fade effects.
@@ -9,11 +8,13 @@ import { GAME_WIDTH, GAME_HEIGHT } from '../GameConfig';
  * Fade out: black rectangle tweens alpha 0 -> 1, then calls callback.
  */
 export function fadeOut(scene: Phaser.Scene, duration: number, callback: () => void): void {
+  const w = scene.scale.width;
+  const h = scene.scale.height;
   const overlay = scene.add.rectangle(
-    GAME_WIDTH / 2,
-    GAME_HEIGHT / 2,
-    GAME_WIDTH,
-    GAME_HEIGHT,
+    w / 2,
+    h / 2,
+    w,
+    h,
     0x000000,
     0
   );
@@ -33,11 +34,13 @@ export function fadeOut(scene: Phaser.Scene, duration: number, callback: () => v
  * Fade in: black rectangle tweens alpha 1 -> 0, then self-destructs.
  */
 export function fadeIn(scene: Phaser.Scene, duration: number): void {
+  const w = scene.scale.width;
+  const h = scene.scale.height;
   const overlay = scene.add.rectangle(
-    GAME_WIDTH / 2,
-    GAME_HEIGHT / 2,
-    GAME_WIDTH,
-    GAME_HEIGHT,
+    w / 2,
+    h / 2,
+    w,
+    h,
     0x000000,
     1
   );

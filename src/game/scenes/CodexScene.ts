@@ -11,7 +11,6 @@ import {
   WeaponCodexEntry,
   EnemyCodexEntry,
 } from '../../codex';
-import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
@@ -52,7 +51,7 @@ export class CodexScene extends Phaser.Scene {
   }
 
   create(): void {
-    const centerX = GAME_WIDTH / 2;
+    const centerX = this.scale.width / 2;
 
     fadeIn(this, 200);
     this.soundManager = new SoundManager(this);
@@ -66,7 +65,7 @@ export class CodexScene extends Phaser.Scene {
     this.selectedCardIndex = 0;
 
     // Dark background
-    this.add.rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
+    this.add.rectangle(centerX, this.scale.height / 2, this.scale.width, this.scale.height, 0x1a1a2e);
 
     // Title
     this.add
@@ -87,7 +86,7 @@ export class CodexScene extends Phaser.Scene {
     const totalEnemies = codexManager.getTotalEnemyCount();
 
     this.add
-      .text(GAME_WIDTH - 20, 15, `CODEX ${completionPercent}% COMPLETE`, {
+      .text(this.scale.width - 20, 15, `CODEX ${completionPercent}% COMPLETE`, {
         fontSize: '12px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -95,7 +94,7 @@ export class CodexScene extends Phaser.Scene {
       .setOrigin(1, 0);
 
     this.add
-      .text(GAME_WIDTH - 20, 30, `${weaponCount}/${totalWeapons} Weapons`, {
+      .text(this.scale.width - 20, 30, `${weaponCount}/${totalWeapons} Weapons`, {
         fontSize: '14px',
         color: '#88aaff',
         fontFamily: 'Arial',
@@ -103,7 +102,7 @@ export class CodexScene extends Phaser.Scene {
       .setOrigin(1, 0);
 
     this.add
-      .text(GAME_WIDTH - 20, 48, `${enemyCount}/${totalEnemies} Enemies`, {
+      .text(this.scale.width - 20, 48, `${enemyCount}/${totalEnemies} Enemies`, {
         fontSize: '14px',
         color: '#ff8888',
         fontFamily: 'Arial',
@@ -121,7 +120,7 @@ export class CodexScene extends Phaser.Scene {
 
     // Back button
     this.backButton = this.add
-      .text(centerX, GAME_HEIGHT - 30, '[ Back to Menu ]', {
+      .text(centerX, this.scale.height - 30, '[ Back to Menu ]', {
         fontSize: '20px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -166,7 +165,7 @@ export class CodexScene extends Phaser.Scene {
     const tabHeight = 36;
     const tabSpacing = 8;
     const totalTabs = CODEX_CATEGORIES.length;
-    const tabWidth = Math.floor((GAME_WIDTH - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
+    const tabWidth = Math.floor((this.scale.width - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
     const startX = 20;
 
     const codexManager = getCodexManager();
@@ -292,13 +291,13 @@ export class CodexScene extends Phaser.Scene {
 
   private createContentContainer(): void {
     const containerY = 120;
-    const containerHeight = GAME_HEIGHT - 180;
+    const containerHeight = this.scale.height - 180;
 
     this.contentContainer = this.add.container(0, containerY);
 
     const maskGraphics = this.make.graphics({ x: 0, y: 0 });
     maskGraphics.fillStyle(0xffffff);
-    maskGraphics.fillRect(0, containerY, GAME_WIDTH, containerHeight);
+    maskGraphics.fillRect(0, containerY, this.scale.width, containerHeight);
     const mask = maskGraphics.createGeometryMask();
     this.contentContainer.setMask(mask);
   }
@@ -329,7 +328,7 @@ export class CodexScene extends Phaser.Scene {
     const codexManager = getCodexManager();
     const weaponInfoList = getWeaponInfoList();
 
-    const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
+    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
 
     weaponInfoList.forEach((weaponInfo, index) => {
@@ -344,7 +343,7 @@ export class CodexScene extends Phaser.Scene {
 
     const totalRows = Math.ceil(weaponInfoList.length / this.columns);
     const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
-    const viewHeight = GAME_HEIGHT - 180;
+    const viewHeight = this.scale.height - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
   }
 
@@ -456,7 +455,7 @@ export class CodexScene extends Phaser.Scene {
     const codexManager = getCodexManager();
     const enemyTypes = Object.values(ENEMY_TYPES);
 
-    const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
+    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
 
     enemyTypes.forEach((enemyType, index) => {
@@ -471,7 +470,7 @@ export class CodexScene extends Phaser.Scene {
 
     const totalRows = Math.ceil(enemyTypes.length / this.columns);
     const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
-    const viewHeight = GAME_HEIGHT - 180;
+    const viewHeight = this.scale.height - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
   }
 
@@ -589,7 +588,7 @@ export class CodexScene extends Phaser.Scene {
 
     if (upgradeEntries.length === 0) {
       const noDataText = this.add.text(
-        GAME_WIDTH / 2,
+        this.scale.width / 2,
         100,
         'No upgrades discovered yet.\nPlay more runs to discover upgrades!',
         {
@@ -605,7 +604,7 @@ export class CodexScene extends Phaser.Scene {
       return;
     }
 
-    const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
+    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
     const upgradeCardHeight = 60;
 
@@ -658,7 +657,7 @@ export class CodexScene extends Phaser.Scene {
 
     const totalRows = Math.ceil(upgradeEntries.length / this.columns);
     const contentHeight = totalRows * (upgradeCardHeight + this.cardSpacing);
-    const viewHeight = GAME_HEIGHT - 180;
+    const viewHeight = this.scale.height - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
   }
 
@@ -666,7 +665,7 @@ export class CodexScene extends Phaser.Scene {
     const codexManager = getCodexManager();
     const stats = codexManager.getStatistics();
 
-    const startX = GAME_WIDTH / 2;
+    const startX = this.scale.width / 2;
     const startY = 20;
     const lineHeight = 42;
 
@@ -683,14 +682,14 @@ export class CodexScene extends Phaser.Scene {
       { label: 'Highest Player Level', value: stats.highestPlayerLevel.toString() },
     ];
 
-    const rowWidth = GAME_WIDTH - 80;
+    const rowWidth = this.scale.width - 80;
 
     statLines.forEach((stat, index) => {
       const y = startY + index * lineHeight;
 
       // Row background (alternating)
       const rowBg = this.add.rectangle(
-        GAME_WIDTH / 2,
+        this.scale.width / 2,
         y + lineHeight / 2 - 4,
         rowWidth,
         lineHeight - 4,
@@ -744,7 +743,7 @@ export class CodexScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.isDown && pointer.y > 120 && pointer.y < GAME_HEIGHT - 60) {
+      if (pointer.isDown && pointer.y > 120 && pointer.y < this.scale.height - 60) {
         const deltaY = lastY - pointer.y;
         this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY, 0, this.maxScrollY);
         this.contentContainer.y = 120 - this.scrollY;
@@ -913,7 +912,7 @@ export class CodexScene extends Phaser.Scene {
     const row = Math.floor(this.selectedCardIndex / this.columns);
     const cardTopInContainer = 10 + row * (currentCardHeight + this.cardSpacing);
     const cardBottomInContainer = cardTopInContainer + currentCardHeight;
-    const viewHeight = GAME_HEIGHT - 180;
+    const viewHeight = this.scale.height - 180;
 
     if (cardTopInContainer < this.scrollY) {
       this.scrollY = cardTopInContainer;
