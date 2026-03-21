@@ -152,11 +152,11 @@ export class BootScene extends Phaser.Scene {
           await musicManager.play();
         }
         gameStateManager.clearSave();
-        fadeOut(this, 200, () => this.scene.start('GameScene', { restore: false }));
+        fadeOut(this, 200, () => this.scene.start('WeaponSelectScene'));
       } catch (error) {
         console.error('Could not start game:', error);
         gameStateManager.clearSave();
-        this.scene.start('GameScene', { restore: false });
+        this.scene.start('WeaponSelectScene');
       }
     };
 

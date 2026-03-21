@@ -196,7 +196,7 @@ export interface LifetimeStats {
 }
 
 /**
- * Persistent achievement state (stored in localStorage).
+ * Persistent achievement state (stored in SecureStorage).
  */
 export interface PersistentAchievementState {
   version: number;

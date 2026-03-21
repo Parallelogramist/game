@@ -10,10 +10,10 @@
 import { StorageEncryption } from './StorageEncryption';
 
 /**
- * All localStorage keys used by the game.
+ * All SecureStorage keys used by the game.
  * These are pre-loaded and decrypted during bootstrap.
  */
-const ALL_STORAGE_KEYS = [
+export const ALL_STORAGE_KEYS = [
   // MetaProgressionManager
   'survivor-meta-gold',
   'survivor-meta-upgrades',
@@ -30,6 +30,7 @@ const ALL_STORAGE_KEYS = [
   'settings-sfx-enabled',
   'settings-sfx-volume',
   'settings-screen-shake',
+  'settings-grid-effects',
   'settings-fps-counter',
   'settings-damage-numbers-mode',
   'settings-status-text',

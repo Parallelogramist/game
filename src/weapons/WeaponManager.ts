@@ -1,12 +1,14 @@
 import { IWorld } from 'bitecs';
 import { BaseWeapon, WeaponContext } from './BaseWeapon';
+import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
 import { Transform, Health, Knockback } from '../ecs/components';
 import { getSprite } from '../ecs/systems/SpriteSystem';
-import { applyFreeze } from '../ecs/systems/StatusEffectSystem';
+import { applyBurn, applyFreeze, applyPoison, getFreezeMultiplier } from '../ecs/systems/StatusEffectSystem';
 import { getCombatStats } from '../ecs/systems/CollisionSystem';
 import { getEnemyIds } from '../ecs/FrameCache';
+import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
@@ -143,6 +145,22 @@ export class WeaponManager {
   }
 
   /**
+   * Check all weapons for evolution readiness.
+   * Returns the first evolution that triggers, or null.
+   */
+  public checkEvolutions(statUpgrades: { id: string; currentLevel: number }[]): { weapon: BaseWeapon; evolution: WeaponEvolution } | null {
+    for (const weapon of this.weapons.values()) {
+      if (weapon.isEvolved) continue;
+      const evolution = checkEvolutionReady(weapon.id, weapon.getLevel(), statUpgrades);
+      if (evolution) {
+        weapon.evolve(evolution.evolvedName, evolution.statMultipliers);
+        return { weapon, evolution };
+      }
+    }
+    return null;
+  }
+
+  /**
    * Check if player can add another weapon.
    */
   public canAddWeapon(): boolean {
@@ -217,8 +235,44 @@ export class WeaponManager {
       isPerfectCrit = critVariance >= 0.99;
     }
 
+    // Execution bonus: extra damage to enemies below 25% HP
+    if (combatStats && combatStats.executionBonus > 0) {
+      const enemyHPPercent = Health.current[enemyId] / Health.max[enemyId];
+      if (enemyHPPercent < 0.25) {
+        actualDamage *= (1 + combatStats.executionBonus);
+      }
+    }
+
+    // Shatter bonus: extra damage to frozen enemies
+    if (combatStats && combatStats.shatterBonus > 0) {
+      const freezeMultiplier = getFreezeMultiplier(this.world, enemyId);
+      if (freezeMultiplier < 1) {
+        actualDamage *= (1 + combatStats.shatterBonus);
+      }
+    }
+
+    // Store HP before damage for overkill splash calculation
+    const hpBeforeDamage = Health.current[enemyId];
+
     // Apply damage
     Health.current[enemyId] -= actualDamage;
+
+    // Apply elemental status effects based on combat stats
+    if (combatStats) {
+      if (combatStats.burnChance > 0 && Math.random() < combatStats.burnChance) {
+        applyBurn(this.world, enemyId, actualDamage * 0.2, 3000, combatStats.burnDamageMultiplier);
+      }
+      if (combatStats.freezeChance > 0 && Math.random() < combatStats.freezeChance) {
+        applyFreeze(this.world, enemyId, 0.5, 2000, combatStats.freezeDurationMultiplier);
+      }
+      if (combatStats.poisonChance > 0 && Math.random() < combatStats.poisonChance) {
+        applyPoison(this.world, enemyId, 1, 4000, combatStats.poisonMaxStacks);
+      }
+      // Life steal: heal player by percentage of damage dealt
+      if (combatStats.lifeStealPercent > 0) {
+        this.healPlayer(actualDamage * combatStats.lifeStealPercent);
+      }
+    }
 
     // Apply knockback (with multiplier from combat stats)
     if (knockbackStrength > 0) {
@@ -234,7 +288,14 @@ export class WeaponManager {
     const damageColor = isPerfectCrit ? 0xffd700 : (isCrit ? 0xffff00 : 0xffffff);
     this.effectsManager.showDamageNumber(enemyX, enemyY, Math.round(actualDamage), damageColor, isCrit, isPerfectCrit);
 
-    // Flash enemy red
+    // Hit sparks (sparks fly back toward source)
+    const sparkAngle = Math.atan2(sourceY - enemyY, sourceX - enemyX);
+    this.effectsManager.playHitSparks(enemyX, enemyY, sparkAngle);
+
+    // Hit sound (SoundManager has built-in 50ms throttling)
+    this.soundManager.playHit();
+
+    // Flash enemy white briefly
     const sprite = getSprite(enemyId);
     if (sprite && sprite instanceof Phaser.GameObjects.Rectangle) {
       const originalColor = sprite.fillColor;
@@ -244,7 +305,7 @@ export class WeaponManager {
       });
     }
 
-    // Callback
+    // Callback for damage tracking
     if (this.onEnemyDamaged) {
       this.onEnemyDamaged(enemyId, actualDamage, isCrit);
     }
@@ -253,6 +314,32 @@ export class WeaponManager {
     if (Health.current[enemyId] <= 0) {
       if (this.onEnemyKilled) {
         this.onEnemyKilled(enemyId, enemyX, enemyY);
+      }
+
+      // Overkill splash: excess damage splashes to nearby enemies
+      if (combatStats && combatStats.overkillSplash > 0) {
+        const overkillDamage = actualDamage - hpBeforeDamage;
+        if (overkillDamage > 0) {
+          const splashDamage = overkillDamage * combatStats.overkillSplash;
+          const splashRadius = 80;
+          const spatialHash = getEnemySpatialHash();
+          const splashTargets = spatialHash.query(enemyX, enemyY, splashRadius);
+
+          for (const target of splashTargets) {
+            const nearbyId = target.id;
+            if (nearbyId === enemyId || Health.current[nearbyId] <= 0) continue;
+
+            Health.current[nearbyId] -= splashDamage;
+            this.effectsManager.showDamageNumber(
+              Transform.x[nearbyId], Transform.y[nearbyId],
+              Math.round(splashDamage), 0xff8800, false, false
+            );
+
+            if (Health.current[nearbyId] <= 0 && this.onEnemyKilled) {
+              this.onEnemyKilled(nearbyId, Transform.x[nearbyId], Transform.y[nearbyId]);
+            }
+          }
+        }
       }
     }
   }

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { VisualQuality } from './GlowGraphics';
-import { spriteRegistry } from '../ecs/systems/SpriteSystem';
+import { getSprite } from '../ecs/systems/SpriteSystem';
 import { Transform, EnemyTag } from '../ecs/components';
 import { defineQuery, IWorld } from 'bitecs';
 
@@ -103,9 +103,10 @@ export class DeathRippleManager {
    */
   private initOverlayPool(): void {
     for (let i = 0; i < this.OVERLAY_POOL_SIZE; i++) {
-      const graphics = this.scene.add.graphics();
+      // Create without adding to scene display list — overlays are added
+      // as children of enemy containers for pixel-perfect alignment
+      const graphics = new Phaser.GameObjects.Graphics(this.scene);
       graphics.setVisible(false);
-      graphics.setDepth(9); // Just above enemies (depth 8)
       this.overlayPool.push(graphics);
     }
   }
@@ -230,7 +231,7 @@ export class DeathRippleManager {
 
     for (let i = 0; i < enemies.length; i++) {
       const entityId = enemies[i];
-      const container = spriteRegistry.get(entityId) as Phaser.GameObjects.Container;
+      const container = getSprite(entityId) as Phaser.GameObjects.Container;
 
       if (!container) continue;
 
@@ -302,6 +303,10 @@ export class DeathRippleManager {
    * Start or restart an enemy's pulse animation.
    */
   private startEnemyPulse(entityId: number, rippleId: number, startTime: number): void {
+    // Get enemy container to parent the overlay inside it
+    const container = getSprite(entityId) as Phaser.GameObjects.Container;
+    if (!container) return;
+
     // Get or assign overlay
     let overlay = this.activeOverlays.get(entityId);
     if (!overlay) {
@@ -312,6 +317,13 @@ export class DeathRippleManager {
 
     // Draw the overlay shape for this enemy
     this.drawOverlayForEnemy(overlay, entityId);
+
+    // Add overlay as child of enemy container for pixel-perfect alignment
+    overlay.setPosition(0, 0);
+    if (!overlay.parentContainer) {
+      container.add(overlay);
+    }
+    overlay.setVisible(true);
 
     this.enemyPulseStates.set(entityId, {
       entityId,
@@ -407,27 +419,17 @@ export class DeathRippleManager {
         continue;
       }
 
-      // Get enemy position
-      const enemyX = Transform.x[entityId];
-      const enemyY = Transform.y[entityId];
-
-      // Position overlay at enemy location
+      // Overlay is a child of the enemy container — no manual positioning needed.
+      // Just update alpha for the flash effect.
       if (state.overlay) {
-        state.overlay.setPosition(enemyX, enemyY);
-        state.overlay.setVisible(true);
-
-        // Calculate alpha using sine wave for smooth red->white->red
-        // Progress 0->0.5: ramp up to white
-        // Progress 0.5->1: ramp down to red
         const progress = elapsed / this.PULSE_DURATION;
         const sineValue = Math.sin(progress * Math.PI); // 0->1->0 over the duration
         const alpha = sineValue * 0.8; // Peak at 80% alpha
-
         state.overlay.setAlpha(alpha);
       }
 
-      // Also scale up the enemy container slightly during ripple
-      const container = spriteRegistry.get(entityId) as Phaser.GameObjects.Container;
+      // Scale up the enemy container slightly during ripple
+      const container = getSprite(entityId) as Phaser.GameObjects.Container;
       if (container) {
         const progress = elapsed / this.PULSE_DURATION;
         const scaleBoost = Math.sin(progress * Math.PI) * 0.08; // 8% scale boost at peak
@@ -441,7 +443,7 @@ export class DeathRippleManager {
       this.enemyPulseStates.delete(entityId);
 
       // Reset enemy scale
-      const container = spriteRegistry.get(entityId) as Phaser.GameObjects.Container;
+      const container = getSprite(entityId) as Phaser.GameObjects.Container;
       if (container) {
         container.setScale(1);
       }
@@ -463,7 +465,8 @@ export class DeathRippleManager {
    */
   private getOverlayFromPool(): Phaser.GameObjects.Graphics | undefined {
     for (const overlay of this.overlayPool) {
-      if (!overlay.visible) {
+      // Available if not currently parented to an enemy container
+      if (!overlay.parentContainer) {
         return overlay;
       }
     }
@@ -476,6 +479,10 @@ export class DeathRippleManager {
   private returnOverlay(entityId: number): void {
     const overlay = this.activeOverlays.get(entityId);
     if (overlay) {
+      // Remove from parent enemy container before returning to pool
+      if (overlay.parentContainer) {
+        overlay.parentContainer.remove(overlay, false);
+      }
       overlay.setVisible(false);
       overlay.clear();
       this.activeOverlays.delete(entityId);
@@ -488,7 +495,7 @@ export class DeathRippleManager {
   clear(): void {
     this.activeRipples = [];
 
-    // Return all overlays to pool
+    // Return all overlays to pool (removes from parent containers)
     for (const [entityId] of this.activeOverlays) {
       this.returnOverlay(entityId);
     }

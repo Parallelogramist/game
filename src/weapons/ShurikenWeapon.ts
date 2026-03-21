@@ -536,7 +536,7 @@ export class ShurikenWeapon extends BaseWeapon {
   protected recalculateStats(): void {
     super.recalculateStats();
     this.stats.count = this.baseStats.count + Math.floor((this.level - 1) / 2) + this.externalBonusCount;
-    this.stats.piercing = this.baseStats.piercing + Math.floor(this.level / 3);
+    this.stats.piercing = this.baseStats.piercing + Math.floor(this.level / 3) + this.externalBonusPiercing;
     this.spiralAmplitude = 30 + (this.level - 1) * 5;
     this.stats.speed = this.baseStats.speed + (this.level - 1) * 20;
   }

@@ -40,9 +40,9 @@ InputSystem → EnemyAISystem → Wraith alpha → MovementSystem → processKno
 clampPlayerToScreen → WeaponManager.update → XPGemSystem → HealthPickupSystem →
 MagnetPickupSystem → StatusEffectSystem → Enemy Projectiles → Player-Enemy Collision →
 SpriteSystem → PlayerPlasmaCore → GridBackground → Trails → EffectsManager →
-VisualQuality → UI
+DeathRippleManager → VisualQuality → UI
 ```
-Note: Knockback is processed inline in GameScene. CollisionSystem (`/src/ecs/systems/CollisionSystem.ts`) handles projectile-enemy collisions using `SpatialHash` for efficient proximity queries, and applies crits, elemental effects, knockback, life steal, execution bonuses, and overkill splash damage.
+Note: Knockback is processed inline in GameScene. All weapon damage flows through `WeaponManager.damageEnemy()` which implements the full combat pipeline: crits, execution bonus (extra damage below 25% HP), shatter bonus (extra damage to frozen enemies), elemental effects (burn/freeze/poison), life steal, knockback, overkill splash to nearby enemies, hit sparks, and damage numbers. `CollisionSystem.ts` exports `CombatStats`/`setCombatStats()`/`resetCollisionSystem()` for combat stat management but contains no system loop function.
 
 ### Scene Flow
 
@@ -64,7 +64,7 @@ All 9 scenes live in `/src/game/scenes/`.
 The game features 14 unique weapons managed by `WeaponManager` (`/src/weapons/WeaponManager.ts`).
 
 **Architecture:**
-- `BaseWeapon` abstract class provides common functionality (cooldowns, upgrades, scene reference)
+- `BaseWeapon` abstract class provides common functionality (cooldowns, upgrades, scene reference, external multipliers for damage/cooldown/count/piercing)
 - Each weapon extends `BaseWeapon` and implements `fire()` and `update()` methods
 - WeaponManager stores active weapons and calls their update methods each frame
 
@@ -88,9 +88,20 @@ The game features 14 unique weapons managed by `WeaponManager` (`/src/weapons/We
 
 **Adding a new weapon:**
 1. Create a new class extending `BaseWeapon` in `/src/weapons/`
-2. Implement `fire()` for attack logic and `update(deltaTime)` for continuous effects
+2. Implement `fire()` for attack logic and `update(deltaTime)` for continuous effects. Include `this.externalBonusPiercing` in piercing calculations.
 3. Export from `/src/weapons/index.ts` and add to `WeaponRegistry`
 4. Add to the upgrades system in `src/data/Upgrades.ts` to make it unlockable
+
+**Damage Pipeline:**
+All weapon damage flows through `WeaponManager.damageEnemy()`:
+- Crit rolls with 80-100% variance (perfect crit at top 1%)
+- Execution bonus for enemies below 25% HP
+- Shatter bonus for frozen enemies
+- Elemental status effects (burn, freeze, poison) from CombatStats
+- Life steal (heal player by percentage of damage)
+- Knockback with combat stat multiplier
+- Overkill splash damage to nearby enemies via SpatialHash
+- Hit sparks, damage numbers, and hit sound (50ms throttle)
 
 **Weapon Factory:**
 `WeaponRegistry` in `/src/weapons/index.ts` maps weapon IDs to factory functions. Use `createWeapon(weaponId)` to instantiate weapons by string ID.
@@ -164,11 +175,11 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 
 ### Audio Architecture
 
-**Music** (`/src/audio/MusicManager.ts`): Uses IBXM library for tracker music (.mod/.xm files). Singleton pattern via `getMusicManager()`. Supports playlist modes (sequential/shuffle/off) with localStorage persistence.
+**Music** (`/src/audio/MusicManager.ts`): Uses IBXM library for tracker music (.mod/.xm files). Singleton pattern via `getMusicManager()`. Supports playlist modes (sequential/shuffle/off) with SecureStorage persistence.
 
 **Music Player** (`/src/audio/MusicPlayer.ts`): Low-level IBXM wrapper that handles AudioContext, GainNode, and ScriptProcessor for single track playback.
 
-**Music Catalog** (`/src/data/MusicCatalog.ts`): Track metadata for the 25 tracker music files in `public/music/`.
+**Music Catalog** (`/src/data/MusicCatalog.ts`): Track metadata for the 26 tracker music files in `public/music/`.
 
 **Sound Effects** (`/src/audio/SoundManager.ts`): Standard Phaser audio for SFX (hit, pickup, level-up sounds). Uses pentatonic scale for harmonious design. Sound throttling (50ms minimum between hits).
 
@@ -195,7 +206,7 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 - **ShieldBarrierVisual**: Honeycomb pattern shield effects for shielded enemies
 - **MasteryVisuals**: 9 unique orbital visual effects for maxed stats (orbiting sword, lightning sparks, etc.)
 - **MasteryIconEffectsManager**: Golden glow and sparkle particles for mastered upgrade icons in HUD
-- **DeathRippleManager**: Expanding ripple waves from enemy death locations with quality scaling
+- **DeathRippleManager**: Propagating ripple waves from enemy deaths; white flash overlays on enemies hit by the wavefront, ambient scale pulsing on all enemies. Quality-scaled (high: shape-matched overlays, medium: circle-only, low: no overlays). Pool of 50 overlay graphics, max 8 concurrent ripples. Tiered death effects: regular enemies get single ripple, minibosses get shockwave ring + flash, bosses get staggered radial explosions + triple shockwave rings + dual ripple waves + gold sparkles.
 - **Gem3DRenderer**: 3D octahedron rendering for XP gems using transformation matrices and painter's algorithm
 - **DepthLayers**: Named z-depth constants for consistent render ordering across all systems
 
@@ -203,7 +214,7 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 
 `SecureStorage` (`/src/storage/`) is a drop-in localStorage replacement with async encryption (anti-cheat). `StorageBootstrap.initializeStorage()` must be called in `main.ts` before creating any managers — it derives encryption keys and pre-loads all game storage keys. Managers read/write synchronously while encryption happens in the background.
 
-Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManager
+Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManager, MusicManager, GameStateManager, GameScene
 
 ### Achievement & Codex Systems
 
@@ -214,7 +225,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 ### UI Systems
 
 `/src/ui/` provides user interface components:
-- **JoystickManager**: Dynamic virtual joystick for mobile touch input. Scene-scoped (not a global singleton). Outputs normalized direction vector via `getDirection()`.
+- **JoystickManager**: Dynamic virtual joystick for mobile touch input. Scene-scoped (not a global singleton). Outputs normalized direction vector via `getDirection()`. Has `setEnabled()` to disable during pause, game over, and overlay screens.
 - **ToastManager**: Queue-based notification system for achievements, milestones, and events. Scene-scoped via WeakMap, obtained via `getToastManager(scene)`. Configurable styles and durations.
 
 ### Settings System
@@ -248,7 +259,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 ### Utility Systems
 
 `/src/utils/` provides shared utilities:
-- **SpatialHash**: O(1) spatial queries via grid bucketing (80px cells). Singleton via `getEnemySpatialHash()`, populated once per frame. Used by CollisionSystem, GridBackground, and weapons.
+- **SpatialHash**: O(1) spatial queries via grid bucketing (80px cells). Singleton via `getEnemySpatialHash()`, populated once per frame. Used by WeaponManager (damage pipeline, overkill splash), individual weapons (targeting), GridBackground, and FrameCache.
 - **IconRenderer/IconMap**: Icon sprite creation from the `public/icons/game-icons.png` atlas. IconMap provides semantic key-to-frame mappings for 60+ icons.
 - **SceneTransition**: `fadeIn`, `fadeOut`, and `addButtonInteraction` helpers used across all scene transitions.
 
@@ -260,6 +271,8 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 - Damage invincibility: 0.5 seconds
 - Miniboss spawn: First at 2 min, then every 1.5 min
 - Boss spawn: 10 minutes
+
+**Pause menu keyboard navigation:** Arrow Up/Down (or W/S) to navigate, Enter/Space to select. Handler registered on show, cleaned up on hide and shutdown.
 
 ## Tooling
 

@@ -19,7 +19,7 @@ import { JoystickManager } from '../../ui/JoystickManager';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
-import { resetCollisionSystem, setCombatStats, setLifeStealCallback, setCollisionDamageDealtCallback } from '../../ecs/systems/CollisionSystem';
+import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
 import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
@@ -33,11 +33,12 @@ import { getMusicManager } from '../../audio/MusicManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
-import { toNeonPair, PLAYER_NEON } from '../../visual/NeonColors';
+import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { createGlowingShape, VisualQuality } from '../../visual/GlowGraphics';
 import { PlayerPlasmaCore } from '../../visual/PlayerPlasmaCore';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
+import { DeathRippleManager } from '../../visual/DeathRippleManager';
 import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
 import { MasteryIconEffectsManager } from '../../visual/MasteryIconEffectsManager';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
@@ -50,12 +51,14 @@ import { resetEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
+import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, getComboState, restoreComboState } from '../../systems/ComboSystem';
+import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
 
 // Module-level queries (defined once, not per-frame)
 const enemyQueryForCollision = defineQuery([Transform, EnemyTag]);
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 
-// localStorage key for auto-buy setting persistence
+// SecureStorage key for auto-buy setting persistence
 const STORAGE_KEY_AUTO_BUY = 'game_autoBuyEnabled';
 
 // HUD layout constants for consistent padding
@@ -182,9 +185,13 @@ export class GameScene extends Phaser.Scene {
 
   // Shop confirmation state
   private isShopConfirmationOpen: boolean = false;
+  private shopConfirmKeyHandler: ((event: KeyboardEvent) => void) | null = null;
 
   // ESC key handler reference for cleanup
   private escKeyHandler: (() => void) | null = null;
+
+  // Pause menu keyboard navigation handler
+  private pauseMenuKeyHandler: ((event: KeyboardEvent) => void) | null = null;
 
   // Focus/visibility change handlers for auto-pause
   private handleVisibilityChange: (() => void) | null = null;
@@ -219,6 +226,11 @@ export class GameScene extends Phaser.Scene {
   private static currentBossIndex = 0;
   private bossSpawnTime = 600; // 10 minutes
   private bossSpawned = false;
+
+  // Boss warning sequence
+  private bossWarningPhase: number = 0; // 0=none, 1=stirs, 2=trembles, 3=incoming
+  private bossWarningText: Phaser.GameObjects.Text | null = null;
+  private bossWarningVignette: Phaser.GameObjects.Graphics | null = null;
 
   // Endless mode (post-victory continuation)
   private endlessModeActive = false;
@@ -255,6 +267,9 @@ export class GameScene extends Phaser.Scene {
   // Motion trail system for player and fast enemies
   private trailManager!: TrailManager;
 
+  // Death ripple waves propagating from enemy deaths
+  private deathRippleManager!: DeathRippleManager;
+
   // Mastery visuals for level 10 stat upgrades
   private masteryVisualsManager!: MasteryVisualsManager;
 
@@ -273,6 +288,12 @@ export class GameScene extends Phaser.Scene {
   private autoBuyToggleBg: Phaser.GameObjects.Rectangle | null = null;
   private autoBuyKeyHandler: (() => void) | null = null;
   private resumeHandler: (() => void) | null = null;
+
+  // Event duration indicator (bottom-right HUD for active timed events)
+  private eventIndicatorContainer: Phaser.GameObjects.Container | null = null;
+  private eventIndicatorBarFill: Phaser.GameObjects.Rectangle | null = null;
+  private eventIndicatorTimeText: Phaser.GameObjects.Text | null = null;
+  private eventIndicatorTotalDuration: number = 0;
 
   // Health-Adaptive intelligence tracking (for auto-upgrade tier 3)
   private recentDamageTaken: number = 0; // Reset each level-up
@@ -298,8 +319,11 @@ export class GameScene extends Phaser.Scene {
    * Called before create() to receive scene data.
    * Used to detect restore mode vs fresh start.
    */
-  init(data?: { restore?: boolean }): void {
+  private startingWeaponId: string = 'projectile';
+
+  init(data?: { restore?: boolean; startingWeapon?: string }): void {
     this.shouldRestore = data?.restore === true;
+    this.startingWeaponId = data?.startingWeapon || 'projectile';
   }
 
   create(): void {
@@ -338,6 +362,8 @@ export class GameScene extends Phaser.Scene {
     resetStatusEffectSystem();
     resetFrameCache();
     resetEnemySpatialHash();
+    resetComboSystem();
+    resetEventSystem();
 
     // Reset all instance properties for fresh game state
     // (Class property initializers only run once on instantiation, not on scene restart)
@@ -409,6 +435,7 @@ export class GameScene extends Phaser.Scene {
     this.hasWon = false;
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
+    this.bossWarningPhase = 0;
     this.endlessModeActive = false;
     this.endlessModeTime = 0;
     this.endlessMinibossTimer = 0;
@@ -443,6 +470,11 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize motion trail system
     this.trailManager = new TrailManager(this);
+
+    // Initialize death ripple system
+    this.deathRippleManager = new DeathRippleManager(this);
+    this.deathRippleManager.setWorld(this.world);
+    this.deathRippleManager.setQuality(this.visualQuality);
 
     // Initialize mastery visuals manager for level 10 stat indicators
     this.masteryVisualsManager = new MasteryVisualsManager(this);
@@ -644,16 +676,7 @@ export class GameScene extends Phaser.Scene {
       this.handleEnemyDeath(entityId, x, y);
     });
 
-    // Setup life steal callback for collision system
-    setLifeStealCallback((amount) => {
-      this.healPlayer(amount);
-    });
-
-    // Setup damage dealt tracking callbacks
-    setCollisionDamageDealtCallback((amount) => {
-      this.totalDamageDealt += amount;
-      getAchievementManager().recordDamageDealt(amount);
-    });
+    // Setup damage dealt tracking for status effects (burn/poison)
     setStatusEffectDamageCallback((amount) => {
       this.totalDamageDealt += amount;
       getAchievementManager().recordDamageDealt(amount);
@@ -696,12 +719,13 @@ export class GameScene extends Phaser.Scene {
     const baseWeaponSlots = 4;
     this.weaponManager.setMaxWeaponSlots(baseWeaponSlots + this.playerStats.weaponSlots);
 
-    // Give player the starting weapon
-    const startingWeapon = new ProjectileWeapon();
+    // Give player the starting weapon (selected in WeaponSelectScene or default projectile)
+    const startingWeapon = createWeapon(this.startingWeaponId) || new ProjectileWeapon();
     this.weaponManager.addWeapon(startingWeapon);
     // Discover the starting weapon in codex
-    getCodexManager().discoverWeapon('projectile', startingWeapon.name);
-    getCodexManager().recordWeaponUsage('projectile', 0, 0);
+    const startingWeaponActualId = this.startingWeaponId || 'projectile';
+    getCodexManager().discoverWeapon(startingWeaponActualId, startingWeapon.name);
+    getCodexManager().recordWeaponUsage(startingWeaponActualId, 0, 0);
 
     // Apply meta-progression stats to player and weapons
     this.syncStatsToPlayer();
@@ -769,7 +793,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Saves the current game state to localStorage.
+   * Saves the current game state via SecureStorage.
    * Called periodically during gameplay and on page unload.
    */
   private saveGameState(): void {
@@ -789,6 +813,9 @@ export class GameScene extends Phaser.Scene {
       dashCooldownTimer: this.dashCooldownTimer,
       damageCooldown: this.damageCooldown,
       bossSpawned: this.bossSpawned,
+      bossWarningPhase: this.bossWarningPhase,
+      comboState: getComboState(),
+      eventState: getEventState(),
       minibossSpawnTimes: this.minibossSpawnTimes,
       banishedUpgradeIds: this.banishedUpgradeIds,
       isAutoBuyEnabled: this.isAutoBuyEnabled,
@@ -836,6 +863,9 @@ export class GameScene extends Phaser.Scene {
     // Initialize visual systems
     this.gridBackground = new GridBackground(this);
     this.trailManager = new TrailManager(this);
+    this.deathRippleManager = new DeathRippleManager(this);
+    this.deathRippleManager.setWorld(this.world);
+    this.deathRippleManager.setQuality(this.visualQuality);
     this.masteryVisualsManager = new MasteryVisualsManager(this);
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
     this.masteryIconEffects = new MasteryIconEffectsManager(this);
@@ -856,6 +886,13 @@ export class GameScene extends Phaser.Scene {
 
     // Restore spawn tracking
     this.bossSpawned = state.bossSpawned;
+    this.bossWarningPhase = state.bossWarningPhase ?? 0;
+    if (state.comboState) {
+      restoreComboState(state.comboState);
+    }
+    if (state.eventState) {
+      restoreEventState(state.eventState);
+    }
     this.minibossSpawnTimes = state.minibossSpawnTimes;
 
     // Restore player state
@@ -863,12 +900,30 @@ export class GameScene extends Phaser.Scene {
     this.banishedUpgradeIds = new Set(state.banishedUpgradeIds);
     this.isAutoBuyEnabled = state.isAutoBuyEnabled;
 
-    // Restore world level and multipliers
-    this.worldLevel = state.worldLevel ?? 1;
-    this.worldLevelHealthMult = state.worldLevelHealthMult;
-    this.worldLevelDamageMult = state.worldLevelDamageMult;
-    this.worldLevelSpawnReduction = state.worldLevelSpawnReduction;
-    this.worldLevelXPMult = state.worldLevelXPMult;
+    // Clamp restored player stats to prevent save tampering
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
+    this.playerStats.maxHealth = clamp(this.playerStats.maxHealth, 1, 100_000);
+    this.playerStats.currentHealth = clamp(this.playerStats.currentHealth, 0, this.playerStats.maxHealth);
+    this.playerStats.level = clamp(this.playerStats.level, 1, 200);
+    this.playerStats.xp = clamp(this.playerStats.xp, 0, this.playerStats.xpToNextLevel);
+    this.playerStats.damageMultiplier = clamp(this.playerStats.damageMultiplier, 0, 100);
+    this.playerStats.moveSpeed = clamp(this.playerStats.moveSpeed, 0, 2000);
+    this.playerStats.attackSpeedMultiplier = clamp(this.playerStats.attackSpeedMultiplier, 0, 50);
+    this.playerStats.critChance = clamp(this.playerStats.critChance, 0, 1);
+    this.playerStats.critDamage = clamp(this.playerStats.critDamage, 0, 100);
+    this.playerStats.dodgeChance = clamp(this.playerStats.dodgeChance, 0, 1);
+    this.playerStats.lifeStealPercent = clamp(this.playerStats.lifeStealPercent, 0, 1);
+    this.playerStats.phaseChance = clamp(this.playerStats.phaseChance, 0, 1);
+    this.playerStats.armor = clamp(this.playerStats.armor, 0, 10_000);
+    this.playerStats.shield = clamp(this.playerStats.shield, 0, 100_000);
+    this.playerStats.maxShield = clamp(this.playerStats.maxShield, 0, 100_000);
+
+    // Restore world level and multipliers (clamped)
+    this.worldLevel = clamp(state.worldLevel ?? 1, 1, 50);
+    this.worldLevelHealthMult = clamp(state.worldLevelHealthMult, 0.1, 100);
+    this.worldLevelDamageMult = clamp(state.worldLevelDamageMult, 0.1, 100);
+    this.worldLevelSpawnReduction = clamp(state.worldLevelSpawnReduction, 0, 1);
+    this.worldLevelXPMult = clamp(state.worldLevelXPMult, 0.1, 100);
 
     // Reset other state
     this.isGameOver = false;
@@ -936,12 +991,13 @@ export class GameScene extends Phaser.Scene {
     // Set high limit temporarily for restoration (saved weapons are legitimate)
     this.weaponManager.setMaxWeaponSlots(999);
 
-    // Restore weapons
+    // Restore weapons (cap level to prevent save tampering)
+    const maxWeaponLevel = 10;
     for (const weaponData of state.weapons) {
       const weapon = createWeapon(weaponData.id);
       if (weapon) {
-        // Level up to saved level (weapons start at level 1)
-        for (let i = 1; i < weaponData.level; i++) {
+        const targetLevel = Math.min(weaponData.level, maxWeaponLevel);
+        for (let i = 1; i < targetLevel; i++) {
           weapon.levelUp();
         }
         this.weaponManager.addWeapon(weapon);
@@ -1049,16 +1105,7 @@ export class GameScene extends Phaser.Scene {
       this.handleEnemyDeath(entityId, x, y);
     });
 
-    // Setup life steal callback
-    setLifeStealCallback((amount) => {
-      this.healPlayer(amount);
-    });
-
-    // Setup damage dealt tracking callbacks
-    setCollisionDamageDealtCallback((amount) => {
-      this.totalDamageDealt += amount;
-      getAchievementManager().recordDamageDealt(amount);
-    });
+    // Setup damage dealt tracking for status effects (burn/poison)
     setStatusEffectDamageCallback((amount) => {
       this.totalDamageDealt += amount;
       getAchievementManager().recordDamageDealt(amount);
@@ -1219,6 +1266,7 @@ export class GameScene extends Phaser.Scene {
     // Create visual
     const sprite = this.createEnemyVisual(entity.transform.x, entity.transform.y, enemyType);
     registerSprite(entityId, sprite);
+    this.deathRippleManager.registerEnemy(entityId, enemyType.shape, 10 * enemyType.size);
 
     this.enemyCount++;
 
@@ -1258,6 +1306,12 @@ export class GameScene extends Phaser.Scene {
   private handleEnemyDeath(enemyId: number, x: number, y: number): void {
     this.enemyCount--;
     this.killCount++;
+
+    // Track combo kill and handle threshold rewards
+    const comboResult = recordComboKill();
+    if (comboResult.triggeredThreshold) {
+      this.handleComboThreshold(comboResult.triggeredThreshold);
+    }
 
     // Track kill for achievements
     const achievementManager = getAchievementManager();
@@ -1344,23 +1398,81 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Boss death has massive effect and triggers victory + world level advancement
+    // === TIERED DEATH EFFECTS ===
     if (xpValue >= 1000) {
-      // Multi-point explosion
-      this.effectsManager.playDeathBurst(x, y);
-      this.effectsManager.playDeathBurst(x + 20, y + 20);
-      this.effectsManager.playDeathBurst(x - 20, y - 20);
-      this.effectsManager.playDeathBurst(x + 20, y - 20);
-      this.effectsManager.playDeathBurst(x - 20, y + 20);
-      // Big screen shake and flash
-      if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(300, 0.025);
-      }
-      this.effectsManager.playImpactFlash(0.3, 120);
+      // ══════ BOSS DEATH — epic cascading explosion ══════
+      const enemySize = EnemyType.size[enemyId] || 5;
 
-      // Massive grid ripple + Z-axis punch for boss death
-      this.gridBackground.applyExplosiveForce(3000, x, y, 500);
-      this.gridBackground.applyDirectedForce(0, 0, 120, x, y, 300);
+      // Phase 1: Central explosion
+      this.effectsManager.playDeathBurst(x, y);
+
+      // Phase 2: Staggered radial bursts (spaced 20ms to bypass 16ms throttle)
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const innerOffset = enemySize * 6;
+        this.time.delayedCall(i * 20, () => {
+          this.effectsManager.playDeathBurst(
+            x + Math.cos(angle) * innerOffset,
+            y + Math.sin(angle) * innerOffset,
+            ENEMY_COLORS.boss.core
+          );
+        });
+      }
+      for (let i = 0; i < 4; i++) {
+        const angle = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        const outerOffset = enemySize * 12;
+        this.time.delayedCall(140 + i * 25, () => {
+          this.effectsManager.playDeathBurst(
+            x + Math.cos(angle) * outerOffset,
+            y + Math.sin(angle) * outerOffset,
+            ENEMY_COLORS.boss.glow
+          );
+        });
+      }
+
+      // Phase 3: Camera effects
+      if (getSettingsManager().isScreenShakeEnabled()) {
+        this.cameras.main.shake(500, 0.035);
+      }
+      this.cameras.main.flash(400, 255, 200, 200);
+      this.effectsManager.playImpactFlash(0.4, 150);
+
+      // Phase 4: Massive grid distortion
+      this.gridBackground.applyExplosiveForce(5000, x, y, 700);
+      this.gridBackground.applyDirectedForce(0, 0, 200, x, y, 500);
+
+      // Phase 5: Dual death ripple waves
+      this.deathRippleManager.spawnRipple(x, y);
+      this.time.delayedCall(150, () => {
+        this.deathRippleManager.spawnRipple(x, y);
+      });
+
+      // Phase 6: Triple expanding shockwave rings
+      const bossShockwaveRadius = 40 * enemySize;
+      for (let ringIndex = 0; ringIndex < 3; ringIndex++) {
+        this.time.delayedCall(ringIndex * 80, () => {
+          const ring = this.add.circle(x, y, 15, undefined, 0);
+          const strokeColor = ringIndex === 0 ? 0xffffff : ENEMY_COLORS.boss.glow;
+          ring.setStrokeStyle(4 - ringIndex, strokeColor);
+          ring.setDepth(15);
+          this.tweens.add({
+            targets: ring,
+            scaleX: bossShockwaveRadius / 15,
+            scaleY: bossShockwaveRadius / 15,
+            alpha: 0,
+            duration: 600 + ringIndex * 100,
+            ease: 'Power2',
+            onComplete: () => ring.destroy(),
+          });
+        });
+      }
+
+      // Phase 7: Gold sparkle reward feel
+      this.effectsManager.playGoldSparkle(x, y, 8);
+      this.time.delayedCall(100, () => {
+        this.effectsManager.playGoldSparkle(x - 20, y - 15, 5);
+        this.effectsManager.playGoldSparkle(x + 20, y + 15, 5);
+      });
 
       // Boss kill = Victory! Advance to next world level
       if (!this.hasWon) {
@@ -1368,28 +1480,43 @@ export class GameScene extends Phaser.Scene {
         metaManager.advanceWorldLevel();
         this.showVictory();
       }
-    }
-    // Miniboss death has bigger effect
-    else if (xpValue >= 30) {
-      this.effectsManager.playDeathBurst(x, y);
-      this.effectsManager.playDeathBurst(x + 10, y + 10);
-      this.effectsManager.playDeathBurst(x - 10, y - 10);
-      // Medium screen shake
+    } else if (xpValue >= 30) {
+      // ══════ MINIBOSS DEATH — shockwave ring + flash ══════
+      const enemySize = EnemyType.size[enemyId] || 2;
+
+      this.effectsManager.playDeathBurst(x, y, ENEMY_COLORS.miniboss.core);
+
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(200, 0.015);
+        this.cameras.main.shake(250, 0.018);
       }
+      this.effectsManager.playImpactFlash(0.15, 80);
 
-      // Medium grid ripple for miniboss death
-      this.gridBackground.applyExplosiveForce(1500, x, y, 300);
+      this.gridBackground.applyExplosiveForce(2000, x, y, 350);
+      this.deathRippleManager.spawnRipple(x, y);
+
+      // Expanding shockwave ring
+      const minibossShockwaveRadius = 30 * enemySize;
+      const shockwave = this.add.circle(x, y, 10, undefined, 0);
+      shockwave.setStrokeStyle(3, ENEMY_COLORS.miniboss.glow);
+      shockwave.setDepth(15);
+      this.tweens.add({
+        targets: shockwave,
+        scaleX: minibossShockwaveRadius / 10,
+        scaleY: minibossShockwaveRadius / 10,
+        alpha: 0,
+        duration: 500,
+        ease: 'Power2',
+        onComplete: () => shockwave.destroy(),
+      });
     } else {
-      // Normal death effect
+      // ══════ REGULAR ENEMY DEATH ══════
       this.effectsManager.playDeathBurst(x, y);
-
-      // Small grid ripple for normal enemy death
       this.gridBackground.applyExplosiveForce(500, x, y, 200);
+      this.deathRippleManager.spawnRipple(x, y);
     }
 
     // Clean up entity
+    this.deathRippleManager.unregisterEnemy(enemyId);
     const sprite = getSprite(enemyId);
     if (sprite) {
       sprite.destroy();
@@ -1701,6 +1828,16 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#00000080',
       padding: { x: 6, y: 2 },
     }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // Combo counter display (below gold preview, right-aligned)
+    this.add.text(statsRightX, statsTopY + 48, '', {
+      fontSize: '18px',
+      color: '#ffffff',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(1, 0).setName('comboText').setDepth(HUD_DEPTH).setAlpha(0);
 
     const pauseButtonBg = this.add.rectangle(
       pauseButtonX,
@@ -2014,6 +2151,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // Sync joystick enabled state (must run even when paused to disable during overlays)
+    if (this.joystickManager) {
+      this.joystickManager.setEnabled(!this.isPaused && !this.isGameOver);
+    }
+
     // Skip update when paused or game over
     if (this.isPaused || this.isGameOver) return;
 
@@ -2166,15 +2308,43 @@ export class GameScene extends Phaser.Scene {
     // Update spawn timer and spawn enemies
     this.spawnTimer += deltaSeconds;
     if (this.spawnTimer >= this.spawnInterval && this.enemyCount < this.maxEnemies) {
-      this.spawnEnemy();
+      // Batch spawning: late game spawns multiple enemies per tick
+      let spawnCount = 1;
+      if (this.gameTime >= 300) {
+        spawnCount = Math.random() < 0.3 ? 2 : 1;
+      }
+      if (this.gameTime >= 480) {
+        spawnCount = 1 + Math.floor(Math.random() * 3);
+      }
+      for (let spawnIndex = 0; spawnIndex < spawnCount; spawnIndex++) {
+        if (this.enemyCount < this.maxEnemies) {
+          this.spawnEnemy();
+        }
+      }
       this.spawnTimer = 0;
 
-      // Increase spawn rate over time (faster spawning as game progresses)
-      this.spawnInterval = Math.max(0.3, 1.0 - this.gameTime * 0.01);
+      // Multi-phase spawn rate curve (keeps accelerating throughout the run)
+      let baseInterval: number;
+      if (this.gameTime < 120) {
+        // Phase 1 (0-2min): Gentle ramp, 1.0s -> 0.5s
+        baseInterval = 1.0 - this.gameTime * (0.5 / 120);
+      } else if (this.gameTime < 360) {
+        // Phase 2 (2-6min): Accelerating, 0.5s -> 0.25s
+        const spawnPhaseProgress = (this.gameTime - 120) / 240;
+        baseInterval = 0.5 - spawnPhaseProgress * spawnPhaseProgress * 0.25;
+      } else {
+        // Phase 3 (6-10min): Intense, 0.25s -> 0.15s
+        const spawnPhaseProgress = Math.min((this.gameTime - 360) / 240, 1);
+        baseInterval = 0.25 - spawnPhaseProgress * 0.10;
+      }
+      this.spawnInterval = Math.max(0.15, baseInterval);
     }
 
     // Check for miniboss spawns
     this.checkMinibossSpawns();
+
+    // Update boss warning sequence
+    this.updateBossWarning(deltaSeconds);
 
     // Check for boss spawn
     this.checkBossSpawn();
@@ -2183,6 +2353,19 @@ export class GameScene extends Phaser.Scene {
     if (this.endlessModeActive) {
       this.checkEndlessModeSpawns(deltaSeconds);
     }
+
+    // Update combo system (decay timer, threshold effect timers)
+    updateComboSystem(deltaSeconds);
+
+    // Suppress events during boss warning phase 2+
+    setSuppressEvents(this.bossWarningPhase >= 2);
+
+    // Update event system and handle triggered events
+    const triggeredEvent = updateEventSystem(deltaSeconds, this.gameTime);
+    if (triggeredEvent) {
+      this.handleRunEvent(triggeredEvent);
+    }
+    this.updateEventIndicator();
 
     // Update laser beams
     this.updateLaserBeams(deltaSeconds);
@@ -2286,6 +2469,9 @@ export class GameScene extends Phaser.Scene {
     // Update effects (damage numbers, etc.)
     this.effectsManager.update(delta);
 
+    // Update death ripple waves
+    this.deathRippleManager.update(deltaSeconds);
+
     // Update visual quality based on FPS (auto-scaling)
     this.updateVisualQuality(delta);
 
@@ -2323,7 +2509,7 @@ export class GameScene extends Phaser.Scene {
 
       if (distanceSquared < collisionDistance * collisionDistance) {
         // Collision! Take damage
-        this.takeDamage(10); // 10 damage per hit
+        this.takeDamage(EnemyType.baseDamage[enemyId] || 10, enemyId);
         break; // Only one hit per frame
       }
     }
@@ -2985,7 +3171,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Hint text (48px below last button)
-    const hintText = this.add.text(this.scale.width / 2, quitShopButtonY + 48, 'Press ESC to resume', {
+    const hintText = this.add.text(this.scale.width / 2, quitShopButtonY + 48, 'Arrow keys to navigate, Enter to select', {
       fontSize: '14px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -2993,12 +3179,53 @@ export class GameScene extends Phaser.Scene {
     hintText.setOrigin(0.5);
     hintText.setDepth(PAUSE_MENU_DEPTH + 1);
     hintText.setName('pauseHintText');
+
+    // Keyboard navigation for pause menu
+    const pauseButtons = [
+      { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: 0x44aa44, hoverColor: 0x55bb55 },
+      { bg: settingsButtonBg, action: () => { this.hidePauseMenu(); this.isPaused = true; this.scene.launch('SettingsScene', { returnTo: 'GameScene' }); this.scene.pause(); }, baseColor: 0x446688, hoverColor: 0x5577aa },
+      { bg: restartButtonBg, action: () => this.showEndRunConfirmation('restart'), baseColor: 0x666666, hoverColor: 0x884444 },
+      { bg: quitMenuButtonBg, action: () => this.showEndRunConfirmation('menu'), baseColor: 0x664444, hoverColor: 0x885555 },
+      { bg: quitShopButtonBg, action: () => this.showEndRunConfirmation('shop'), baseColor: 0x666644, hoverColor: 0x888855 },
+    ];
+    let pauseSelectedIndex = 0;
+
+    const updatePauseSelection = (newIndex: number) => {
+      // Reset previous button to base color
+      pauseButtons[pauseSelectedIndex].bg.setFillStyle(pauseButtons[pauseSelectedIndex].baseColor);
+      pauseButtons[pauseSelectedIndex].bg.setStrokeStyle(3, pauseButtons[pauseSelectedIndex].baseColor + 0x224422);
+      // Set new button to hover color with bright stroke
+      pauseSelectedIndex = newIndex;
+      pauseButtons[pauseSelectedIndex].bg.setFillStyle(pauseButtons[pauseSelectedIndex].hoverColor);
+      pauseButtons[pauseSelectedIndex].bg.setStrokeStyle(3, 0xffffff);
+    };
+
+    // Highlight initial selection
+    updatePauseSelection(0);
+
+    this.pauseMenuKeyHandler = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowDown' || event.key === 's' || event.key === 'S') {
+        updatePauseSelection((pauseSelectedIndex + 1) % pauseButtons.length);
+      } else if (event.key === 'ArrowUp' || event.key === 'w' || event.key === 'W') {
+        updatePauseSelection((pauseSelectedIndex - 1 + pauseButtons.length) % pauseButtons.length);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        pauseButtons[pauseSelectedIndex].action();
+      }
+    };
+    this.input.keyboard?.on('keydown', this.pauseMenuKeyHandler);
   }
 
   /**
    * Hides the pause menu and resumes gameplay.
    */
   private hidePauseMenu(): void {
+    // Remove pause menu keyboard handler
+    if (this.pauseMenuKeyHandler) {
+      this.input.keyboard?.off('keydown', this.pauseMenuKeyHandler);
+      this.pauseMenuKeyHandler = null;
+    }
+
     // Remove all pause menu UI elements
     const elementsToRemove = [
       'pauseOverlay',
@@ -3231,12 +3458,47 @@ export class GameScene extends Phaser.Scene {
       this.hideShopConfirmation();
       this.showPauseMenu();
     });
+
+    // Keyboard navigation for confirm/cancel
+    const confirmButtons = [
+      { bg: confirmButtonBg, action: () => confirmButtonBg.emit('pointerdown'), baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeBase: 0x66cc66 },
+      { bg: cancelButtonBg, action: () => cancelButtonBg.emit('pointerdown'), baseColor: 0x664444, hoverColor: 0x885555, strokeBase: 0x886666 },
+    ];
+    let confirmSelectedIndex = 0;
+
+    const updateConfirmSelection = (newIndex: number) => {
+      confirmButtons[confirmSelectedIndex].bg.setFillStyle(confirmButtons[confirmSelectedIndex].baseColor);
+      confirmButtons[confirmSelectedIndex].bg.setStrokeStyle(3, confirmButtons[confirmSelectedIndex].strokeBase);
+      confirmSelectedIndex = newIndex;
+      confirmButtons[confirmSelectedIndex].bg.setFillStyle(confirmButtons[confirmSelectedIndex].hoverColor);
+      confirmButtons[confirmSelectedIndex].bg.setStrokeStyle(3, 0xffffff);
+    };
+
+    updateConfirmSelection(0);
+
+    this.shopConfirmKeyHandler = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D' ||
+          event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
+        updateConfirmSelection(confirmSelectedIndex === 0 ? 1 : 0);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        confirmButtons[confirmSelectedIndex].action();
+      } else if (event.key === 'Escape') {
+        cancelButtonBg.emit('pointerdown');
+      }
+    };
+    this.input.keyboard?.on('keydown', this.shopConfirmKeyHandler);
   }
 
   /**
    * Hides the shop confirmation dialog.
    */
   private hideShopConfirmation(): void {
+    if (this.shopConfirmKeyHandler) {
+      this.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
+      this.shopConfirmKeyHandler = null;
+    }
+
     const elementsToRemove = [
       'shopConfirmOverlay',
       'shopConfirmTitle',
@@ -3540,6 +3802,7 @@ export class GameScene extends Phaser.Scene {
       'victoryNextWorldButtonBg',
       'victoryNextWorldButtonText',
       'victoryGoldPreview',
+      'victoryStreak',
     ];
     elementsToRemove.forEach((name) => {
       const element = this.children.getByName(name);
@@ -3552,6 +3815,9 @@ export class GameScene extends Phaser.Scene {
     this.endlessMinibossTimer = 60;   // First miniboss in 60 seconds
     this.endlessBossTimer = 600;      // First boss wave in 10 minutes
     console.log('[Endless Mode] Activated - miniboss in 60s, boss in 600s');
+
+    // Reset grid physics — boss death applies massive forces that springs can't recover from
+    this.gridBackground.reset();
 
     // Resume gameplay
     this.isPaused = false;
@@ -3585,6 +3851,9 @@ export class GameScene extends Phaser.Scene {
    */
   private gameOver(): void {
     this.isGameOver = true;
+
+    // Clean up boss warning elements
+    this.cleanupBossWarning();
 
     // Clear saved game state (run is over)
     getGameStateManager().clearSave();
@@ -3653,50 +3922,113 @@ export class GameScene extends Phaser.Scene {
     // Different display for winners vs non-winners
     const titleText = this.hasWon ? 'VICTORY!' : 'GAME OVER';
     const titleColor = this.hasWon ? '#ffdd44' : '#ff4444';
+    const depth = PAUSE_MENU_DEPTH + 1;
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
 
-    const gameOverText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 80, titleText, {
+    this.add.text(centerX, centerY - 110, titleText, {
       fontSize: '64px',
       color: titleColor,
       fontFamily: 'Arial',
       stroke: '#000000',
       strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(depth);
+
+    // Run stats line
+    const minutes = Math.floor(this.gameTime / 60);
+    const seconds = Math.floor(this.gameTime % 60);
+    const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    const highestCombo = getHighestCombo();
+    const comboStr = highestCombo > 0 ? `  |  Best Combo: x${highestCombo}` : '';
+
+    this.add.text(centerX, centerY - 40, `Survived: ${timeStr}  |  Kills: ${this.killCount}${comboStr}`, {
+      fontSize: '18px',
+      color: '#aaaacc',
+      fontFamily: 'Arial',
+      align: 'center',
+    }).setOrigin(0.5).setDepth(depth);
+
+    this.add.text(centerX, centerY - 15, `Level: ${this.playerStats.level}`, {
+      fontSize: '16px',
+      color: '#8888aa',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(depth);
+
+    // Animated gold counter
+    const goldText = this.add.text(centerX, centerY + 20, 'Gold: +0', {
+      fontSize: '28px',
+      color: '#ffdd44',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(depth);
+
+    // Animate gold counting up
+    let goldCounterDone = false;
+    const goldCounter = this.tweens.addCounter({
+      from: 0,
+      to: goldEarned,
+      duration: Math.min(1500, goldEarned * 3),
+      ease: 'Sine.easeOut',
+      onUpdate: (tween) => {
+        const currentGold = Math.floor(tween.getValue() ?? 0);
+        goldText.setText(`Gold: +${currentGold}`);
+      },
+      onComplete: () => {
+        goldCounterDone = true;
+        goldText.setText(`Gold: +${goldEarned}`);
+      },
     });
-    gameOverText.setOrigin(0.5);
-    gameOverText.setDepth(PAUSE_MENU_DEPTH + 1);
 
-    // Calculate bonus time (time survived past 10 minutes)
-    const bonusTime = this.hasWon ? this.gameTime - 600 : 0;
-    const bonusMinutes = Math.floor(bonusTime / 60);
-    const bonusSeconds = Math.floor(bonusTime % 60);
-    const bonusTimeStr = bonusTime > 0
-      ? `\nBonus time: +${bonusMinutes}:${bonusSeconds.toString().padStart(2, '0')}`
-      : '';
-
-    const statsText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height / 2 + 30,
-      `Survived: ${Math.floor(this.gameTime / 60)}:${Math.floor(this.gameTime % 60).toString().padStart(2, '0')}${bonusTimeStr}\nKills: ${this.killCount}\nLevel: ${this.playerStats.level}\nGold earned: +${goldEarned}${streakChangeText}`,
-      {
-        fontSize: '24px',
-        color: '#ffffff',
+    // Streak text
+    if (streakChangeText) {
+      this.add.text(centerX, centerY + 55, streakChangeText.trim(), {
+        fontSize: '18px',
+        color: previousStreak > 0 && !this.hasWon ? '#ff6666' : '#ffdd44',
         fontFamily: 'Arial',
-        align: 'center',
-      }
-    );
-    statsText.setOrigin(0.5);
-    statsText.setDepth(PAUSE_MENU_DEPTH + 1);
+      }).setOrigin(0.5).setDepth(depth);
+    }
 
-    const restartText = this.add.text(this.scale.width / 2, this.scale.height / 2 + 180, 'Press SPACE to restart', {
+    // "You can now afford" teaser (appears after gold counter finishes)
+    this.time.delayedCall(Math.min(1800, goldEarned * 3 + 300), () => {
+      const nextUpgrade = metaManager.getNextAffordableUpgrade?.();
+      if (nextUpgrade) {
+        const affordText = nextUpgrade.canAfford
+          ? `You can now afford: ${nextUpgrade.name}`
+          : `${nextUpgrade.goldNeeded}g away from: ${nextUpgrade.name}`;
+        const affordColor = nextUpgrade.canAfford ? '#44ff88' : '#aaaacc';
+        this.add.text(centerX, centerY + 85, affordText, {
+          fontSize: '16px',
+          color: affordColor,
+          fontFamily: 'Arial',
+          fontStyle: 'italic',
+        }).setOrigin(0.5).setDepth(depth);
+      }
+    });
+
+    // Restart hint
+    const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+    const restartHint = isTouchDevice ? 'Tap to restart' : 'Press SPACE to restart';
+    this.add.text(centerX, centerY + 140, restartHint, {
       fontSize: '20px',
       color: '#888888',
       fontFamily: 'Arial',
-    });
-    restartText.setOrigin(0.5);
-    restartText.setDepth(PAUSE_MENU_DEPTH + 1);
+    }).setOrigin(0.5).setDepth(depth);
 
-    // Listen for restart
-    this.input.keyboard?.once('keydown-SPACE', () => {
+    // Skip gold animation on tap/space, then restart on second press
+    const handleRestart = () => {
+      if (!goldCounterDone) {
+        // First press: skip animation
+        goldCounter.complete();
+        return;
+      }
       this.scene.restart();
+    };
+
+    this.input.keyboard?.on('keydown-SPACE', handleRestart);
+    this.time.delayedCall(500, () => {
+      this.input.on('pointerdown', handleRestart);
     });
   }
 
@@ -3949,6 +4281,7 @@ export class GameScene extends Phaser.Scene {
     // Create visual based on type
     const sprite = this.createEnemyVisual(x, y, enemyType);
     registerSprite(entityId, sprite);
+    this.deathRippleManager.registerEnemy(entityId, enemyType.shape, 10 * enemyType.size);
 
     // Track enemy discovery in the codex (first encounter triggers discovery)
     getCodexManager().discoverEnemy(enemyType.id, enemyType.name);
@@ -4081,6 +4414,466 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Updates the boss warning sequence, showing escalating warnings as the boss spawn time approaches.
+   * Phase 1 at 2 min before boss, Phase 2 at 1 min, Phase 3 at 30 sec.
+   */
+  private updateBossWarning(_deltaSeconds: number): void {
+    if (this.endlessModeActive || this.bossSpawned || this.bossSpawnTime <= 0) return;
+
+    const warningDepth = PAUSE_MENU_DEPTH - 50;
+    const screenCenterX = this.scale.width / 2;
+    const screenCenterY = this.scale.height / 2;
+
+    // Phase 1: "Something stirs in the void..." at bossSpawnTime - 120 (e.g. 8:00)
+    if (this.bossWarningPhase < 1 && this.gameTime >= this.bossSpawnTime - 120) {
+      this.bossWarningPhase = 1;
+
+      // Destroy any existing warning text before creating new one
+      if (this.bossWarningText) {
+        this.bossWarningText.destroy();
+      }
+
+      this.bossWarningText = this.add.text(screenCenterX, screenCenterY, 'Something stirs in the void...', {
+        fontFamily: 'monospace',
+        fontSize: '28px',
+        color: '#ffdd44',
+        stroke: '#000000',
+        strokeThickness: 4,
+        align: 'center',
+      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0);
+
+      this.tweens.add({
+        targets: this.bossWarningText,
+        alpha: 1,
+        duration: 500,
+        ease: 'Sine.easeIn',
+        onComplete: () => {
+          // Hold for 2500ms then fade out
+          this.time.delayedCall(2500, () => {
+            if (this.bossWarningText) {
+              this.tweens.add({
+                targets: this.bossWarningText,
+                alpha: 0,
+                duration: 500,
+                ease: 'Sine.easeOut',
+              });
+            }
+          });
+        },
+      });
+    }
+
+    // Phase 2: "The ground trembles..." at bossSpawnTime - 60 (e.g. 9:00)
+    if (this.bossWarningPhase < 2 && this.gameTime >= this.bossSpawnTime - 60) {
+      this.bossWarningPhase = 2;
+
+      // Destroy any existing warning text before creating new one
+      if (this.bossWarningText) {
+        this.bossWarningText.destroy();
+      }
+
+      this.bossWarningText = this.add.text(screenCenterX, screenCenterY, 'The ground trembles...', {
+        fontFamily: 'monospace',
+        fontSize: '32px',
+        color: '#ff8844',
+        stroke: '#000000',
+        strokeThickness: 4,
+        align: 'center',
+      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0);
+
+      this.tweens.add({
+        targets: this.bossWarningText,
+        alpha: 1,
+        duration: 500,
+        ease: 'Sine.easeIn',
+        onComplete: () => {
+          this.time.delayedCall(2500, () => {
+            if (this.bossWarningText) {
+              this.tweens.add({
+                targets: this.bossWarningText,
+                alpha: 0,
+                duration: 500,
+                ease: 'Sine.easeOut',
+              });
+            }
+          });
+        },
+      });
+
+      // Create vignette overlay (semi-transparent dark edges)
+      if (!this.bossWarningVignette) {
+        this.bossWarningVignette = this.add.graphics();
+        this.bossWarningVignette.setDepth(warningDepth);
+      }
+      const vignetteThickness = 80;
+      const screenWidth = this.scale.width;
+      const screenHeight = this.scale.height;
+      this.bossWarningVignette.clear();
+      this.bossWarningVignette.fillStyle(0x000000, 0.15);
+      // Top edge
+      this.bossWarningVignette.fillRect(0, 0, screenWidth, vignetteThickness);
+      // Bottom edge
+      this.bossWarningVignette.fillRect(0, screenHeight - vignetteThickness, screenWidth, vignetteThickness);
+      // Left edge
+      this.bossWarningVignette.fillRect(0, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
+      // Right edge
+      this.bossWarningVignette.fillRect(screenWidth - vignetteThickness, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
+    }
+
+    // Phase 3: "BOSS INCOMING" at bossSpawnTime - 5
+    if (this.bossWarningPhase < 3 && this.gameTime >= this.bossSpawnTime - 5) {
+      this.bossWarningPhase = 3;
+
+      // Destroy any existing warning text before creating new one
+      if (this.bossWarningText) {
+        this.bossWarningText.destroy();
+      }
+
+      this.bossWarningText = this.add.text(screenCenterX, screenCenterY, 'BOSS INCOMING', {
+        fontFamily: 'monospace',
+        fontSize: '48px',
+        fontStyle: 'bold',
+        color: '#ff4444',
+        stroke: '#000000',
+        strokeThickness: 6,
+        align: 'center',
+      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0);
+
+      // Pulsing alpha tween (yoyo loop)
+      this.tweens.add({
+        targets: this.bossWarningText,
+        alpha: { from: 0.3, to: 1 },
+        duration: 600,
+        ease: 'Sine.easeInOut',
+        yoyo: true,
+        repeat: -1,
+      });
+
+      // Intensify vignette (increase alpha to 0.3)
+      if (this.bossWarningVignette) {
+        const vignetteThickness = 80;
+        const screenWidth = this.scale.width;
+        const screenHeight = this.scale.height;
+        this.bossWarningVignette.clear();
+        this.bossWarningVignette.fillStyle(0x000000, 0.3);
+        // Top edge
+        this.bossWarningVignette.fillRect(0, 0, screenWidth, vignetteThickness);
+        // Bottom edge
+        this.bossWarningVignette.fillRect(0, screenHeight - vignetteThickness, screenWidth, vignetteThickness);
+        // Left edge
+        this.bossWarningVignette.fillRect(0, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
+        // Right edge
+        this.bossWarningVignette.fillRect(screenWidth - vignetteThickness, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
+      }
+    }
+  }
+
+  /**
+   * Cleans up boss warning text, vignette, and related tweens.
+   */
+  private cleanupBossWarning(): void {
+    if (this.bossWarningText) {
+      this.tweens.killTweensOf(this.bossWarningText);
+      this.bossWarningText.destroy();
+      this.bossWarningText = null;
+    }
+    if (this.bossWarningVignette) {
+      this.bossWarningVignette.destroy();
+      this.bossWarningVignette = null;
+    }
+  }
+
+  /**
+   * Handles combo threshold rewards (XP burst, damage boost, annihilation pulse).
+   */
+  private handleComboThreshold(threshold: { count: number; type: string }): void {
+    if (!this.toastManager) return;
+    if (threshold.type === 'xp_burst') {
+      // Award bonus XP
+      this.playerStats.xp += 50;
+      this.toastManager.showToast({
+        title: `COMBO x${threshold.count}`,
+        description: 'XP Burst!',
+        icon: 'lightning',
+        color: 0xffdd44,
+        duration: 2000,
+      });
+      this.soundManager.playPickupXP(50);
+    } else if (threshold.type === 'damage_boost') {
+      // Damage buff is managed by ComboSystem's activeThresholdEffects
+      this.toastManager.showToast({
+        title: `COMBO x${threshold.count}`,
+        description: 'Power Surge! +50% damage',
+        icon: 'sword',
+        color: 0xff8844,
+        duration: 3000,
+      });
+      this.soundManager.playLevelUp();
+      if (getSettingsManager().isScreenShakeEnabled()) {
+        this.cameras.main.shake(150, 0.01);
+      }
+    } else if (threshold.type === 'annihilation') {
+      // Screen-wide damage pulse — apply damage directly via ECS
+      const enemies = getFrameCacheEnemyIds();
+      for (const enemyId of enemies) {
+        if (hasComponent(this.world, Health, enemyId)) {
+          Health.current[enemyId] -= 50;
+          if (Health.current[enemyId] <= 0) {
+            const enemyX = Transform.x[enemyId];
+            const enemyY = Transform.y[enemyId];
+            this.handleEnemyDeath(enemyId, enemyX, enemyY);
+            const sprite = getSprite(enemyId);
+            if (sprite) sprite.destroy();
+            unregisterSprite(enemyId);
+            removeEntity(this.world, enemyId);
+          }
+        }
+      }
+      this.toastManager.showToast({
+        title: `COMBO x${threshold.count}`,
+        description: 'ANNIHILATION!',
+        icon: 'explosion',
+        color: 0xff2244,
+        duration: 3000,
+      });
+      this.soundManager.playLevelUp();
+      if (getSettingsManager().isScreenShakeEnabled()) {
+        this.cameras.main.shake(300, 0.025);
+      }
+      this.effectsManager.playImpactFlash(0.2, 80);
+    }
+  }
+
+  /**
+   * Handles a triggered run event by applying its effects and showing a banner.
+   */
+  private handleRunEvent(event: RunEvent): void {
+    // Show event banner
+    this.showEventBanner(event);
+
+    // Show persistent duration indicator for timed events
+    if (event.duration > 0) {
+      this.createEventIndicator(event);
+    }
+
+    switch (event.id) {
+      case 'elite_surge':
+        // Double spawn rate for duration — halve spawn interval temporarily
+        this.spawnInterval = Math.max(0.15, this.spawnInterval * 0.5);
+        this.playerStats.xpMultiplier *= 2;
+        this.time.delayedCall(event.duration * 1000, () => {
+          this.spawnInterval = Math.max(0.3, 1.0 - this.gameTime * 0.01);
+          this.playerStats.xpMultiplier /= 2;
+        });
+        break;
+
+      case 'golden_tide':
+        // Triple gem value for duration
+        this.playerStats.gemValueMultiplier *= 3;
+        this.time.delayedCall(event.duration * 1000, () => {
+          this.playerStats.gemValueMultiplier /= 3;
+        });
+        break;
+
+      case 'magnetic_storm':
+        // Instant: magnetize all gems
+        magnetizeAllGems(this.world);
+        break;
+
+      case 'treasure_rain':
+        // Instant: spawn 3 treasure chests
+        for (let chestIndex = 0; chestIndex < 3; chestIndex++) {
+          this.time.delayedCall(chestIndex * 300, () => {
+            this.spawnTreasureChest();
+          });
+        }
+        break;
+
+      case 'power_surge':
+        // Temporary massive damage boost
+        this.playerStats.damageMultiplier *= 2;
+        this.syncStatsToPlayer();
+        this.time.delayedCall(event.duration * 1000, () => {
+          this.playerStats.damageMultiplier /= 2;
+          this.syncStatsToPlayer();
+        });
+        break;
+    }
+  }
+
+  /**
+   * Shows a sliding event banner at the top of the screen.
+   */
+  private showEventBanner(event: RunEvent): void {
+    const bannerWidth = 400;
+    const bannerHeight = 50;
+    const bannerX = this.scale.width / 2;
+    const bannerY = -bannerHeight;
+    const bannerDepth = PAUSE_MENU_DEPTH - 60;
+
+    const bannerBg = this.add.rectangle(bannerX, bannerY, bannerWidth, bannerHeight, 0x000000, 0.85);
+    bannerBg.setStrokeStyle(2, event.color);
+    bannerBg.setDepth(bannerDepth);
+
+    const eventNameText = this.add.text(bannerX, bannerY - 8, event.name, {
+      fontSize: '20px',
+      color: `#${event.color.toString(16).padStart(6, '0')}`,
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(bannerDepth + 1);
+
+    const eventDescText = this.add.text(bannerX, bannerY + 12, event.description, {
+      fontSize: '13px',
+      color: '#ccccdd',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(bannerDepth + 1);
+
+    const targetY = bannerHeight / 2 + 10;
+
+    // Slide in
+    this.tweens.add({
+      targets: [bannerBg, eventNameText, eventDescText],
+      y: `+=${targetY - bannerY}`,
+      duration: 300,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        // Hold then slide out
+        this.time.delayedCall(2000, () => {
+          this.tweens.add({
+            targets: [bannerBg, eventNameText, eventDescText],
+            y: `-=${targetY - bannerY}`,
+            alpha: 0,
+            duration: 300,
+            ease: 'Sine.easeIn',
+            onComplete: () => {
+              bannerBg.destroy();
+              eventNameText.destroy();
+              eventDescText.destroy();
+            },
+          });
+        });
+      },
+    });
+  }
+
+  /**
+   * Creates the persistent event duration indicator in the bottom-right corner.
+   */
+  private createEventIndicator(event: RunEvent): void {
+    this.destroyEventIndicator();
+
+    const panelWidth = 180;
+    const panelHeight = 48;
+    const barWidth = panelWidth - 16;
+    const colorHex = `#${event.color.toString(16).padStart(6, '0')}`;
+
+    // Position above FPS counter and auto-buy toggle in bottom-right
+    const panelX = this.scale.width - HUD_EDGE_PADDING - panelWidth / 2;
+    const panelY = this.scale.height - HUD_EDGE_PADDING - 70 - panelHeight / 2;
+
+    this.eventIndicatorContainer = this.add.container(panelX, panelY);
+    this.eventIndicatorContainer.setDepth(HUD_DEPTH);
+    this.eventIndicatorContainer.setAlpha(0);
+
+    // Dark background
+    const background = this.add.rectangle(0, 0, panelWidth, panelHeight, 0x1a1a2e, 0.9);
+    background.setStrokeStyle(1, event.color);
+    this.eventIndicatorContainer.add(background);
+
+    // Event name
+    const nameText = this.add.text(0, -12, event.name, {
+      fontSize: '12px',
+      fontFamily: 'Arial',
+      color: colorHex,
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.eventIndicatorContainer.add(nameText);
+
+    // Event description
+    const descriptionText = this.add.text(0, 2, event.description, {
+      fontSize: '10px',
+      fontFamily: 'Arial',
+      color: '#aaaaaa',
+    }).setOrigin(0.5);
+    this.eventIndicatorContainer.add(descriptionText);
+
+    // Progress bar background
+    const barBackground = this.add.rectangle(0, 16, barWidth, 4, 0x333355);
+    this.eventIndicatorContainer.add(barBackground);
+
+    // Progress bar fill
+    this.eventIndicatorBarFill = this.add.rectangle(
+      -barWidth / 2, 16, barWidth, 4, event.color
+    );
+    this.eventIndicatorBarFill.setOrigin(0, 0.5);
+    this.eventIndicatorContainer.add(this.eventIndicatorBarFill);
+
+    // Time remaining text
+    this.eventIndicatorTimeText = this.add.text(
+      barWidth / 2, 16, `${event.duration.toFixed(1)}s`,
+      { fontSize: '9px', fontFamily: 'monospace', color: '#888888' }
+    ).setOrigin(1, 0.5);
+    this.eventIndicatorContainer.add(this.eventIndicatorTimeText);
+
+    this.eventIndicatorTotalDuration = event.duration;
+
+    // Fade in
+    this.tweens.add({
+      targets: this.eventIndicatorContainer,
+      alpha: 1,
+      duration: 200,
+      ease: 'Sine.easeOut',
+    });
+  }
+
+  /**
+   * Updates the event indicator each frame — adjusts progress bar and time text.
+   */
+  private updateEventIndicator(): void {
+    if (!this.eventIndicatorContainer) return;
+
+    const activeEventState = getActiveEvent();
+    if (!activeEventState) {
+      // Event ended — fade out and destroy
+      const containerToDestroy = this.eventIndicatorContainer;
+      this.eventIndicatorContainer = null;
+      this.tweens.add({
+        targets: containerToDestroy,
+        alpha: 0,
+        duration: 200,
+        ease: 'Sine.easeIn',
+        onComplete: () => containerToDestroy.destroy(),
+      });
+      this.eventIndicatorBarFill = null;
+      this.eventIndicatorTimeText = null;
+      return;
+    }
+
+    const remainingTime = activeEventState.remainingTime;
+    const barWidth = 180 - 16; // panelWidth - padding
+    const fillWidth = Math.max(0, (remainingTime / this.eventIndicatorTotalDuration) * barWidth);
+
+    if (this.eventIndicatorBarFill) {
+      this.eventIndicatorBarFill.width = fillWidth;
+    }
+    if (this.eventIndicatorTimeText) {
+      this.eventIndicatorTimeText.setText(`${remainingTime.toFixed(1)}s`);
+    }
+  }
+
+  /**
+   * Destroys the event indicator and nulls references.
+   */
+  private destroyEventIndicator(): void {
+    if (this.eventIndicatorContainer) {
+      this.eventIndicatorContainer.destroy();
+      this.eventIndicatorContainer = null;
+      this.eventIndicatorBarFill = null;
+      this.eventIndicatorTimeText = null;
+    }
+  }
+
+  /**
    * Check if it's time to spawn the boss (at 10 minutes).
    * Bosses cycle through Horde King -> Void Wyrm -> The Machine each run.
    */
@@ -4088,6 +4881,9 @@ export class GameScene extends Phaser.Scene {
     if (this.bossSpawned || this.gameTime < this.bossSpawnTime) return;
 
     this.bossSpawned = true;
+
+    // Clean up boss warning elements
+    this.cleanupBossWarning();
 
     // Get current boss from cycle
     const bossTypeId = GameScene.bossOrder[GameScene.currentBossIndex];
@@ -4985,6 +5781,25 @@ export class GameScene extends Phaser.Scene {
     // Sync stats to ECS components and weapons
     this.syncStatsToPlayer();
 
+    // Check for weapon evolutions after every upgrade
+    const statUpgrades = this.upgrades.map(u => ({ id: u.id, currentLevel: u.currentLevel }));
+    const evolutionResult = this.weaponManager.checkEvolutions(statUpgrades);
+    if (evolutionResult && this.toastManager) {
+      this.toastManager.showToast({
+        title: `EVOLVED: ${evolutionResult.evolution.evolvedName}`,
+        description: evolutionResult.evolution.evolvedDescription,
+        icon: evolutionResult.weapon.icon,
+        color: 0xff88ff,
+        duration: 4000,
+        playSound: true,
+      });
+      this.soundManager.playLevelUp();
+      if (getSettingsManager().isScreenShakeEnabled()) {
+        this.cameras.main.shake(200, 0.015);
+      }
+      this.effectsManager.playImpactFlash(0.15, 60);
+    }
+
     // Highlight the upgrade icon for 5 seconds (also rebuilds icons)
     const highlightId = upgrade.upgradeType === 'stat' ? upgrade.id : upgrade.weaponId;
     this.highlightUpgradeIcon(highlightId);
@@ -5097,8 +5912,9 @@ export class GameScene extends Phaser.Scene {
     // Apply global stat multipliers and bonuses to all weapons
     // Note: projectileCount starts at 1, so bonus is (current - 1)
     // piercing starts at 0, so bonus is just the current value
+    const comboDamageBonus = getComboBuffDamageMultiplier();
     this.weaponManager.applyMultipliers(
-      this.playerStats.damageMultiplier,
+      this.playerStats.damageMultiplier * (1 + comboDamageBonus),
       this.playerStats.attackSpeedMultiplier,
       this.playerStats.projectileCount - 1, // Bonus count (base is 1)
       this.playerStats.piercing              // Bonus piercing (base is 0)
@@ -5395,6 +6211,28 @@ export class GameScene extends Phaser.Scene {
       goldPreviewText.setText(`Gold: ${deathGold} (win: ${victoryGold})`);
     }
 
+    // Update combo counter display
+    const comboText = this.children.getByName('comboText') as Phaser.GameObjects.Text;
+    if (comboText) {
+      const currentCombo = getComboCount();
+      if (currentCombo >= 5) {
+        const decayPercent = getComboDecayPercent();
+        const comboTier = getComboTier();
+        const tierColors: Record<string, string> = {
+          none: '#ffffff',
+          warm: '#ffdd44',
+          hot: '#ffaa00',
+          blazing: '#ff6622',
+          inferno: '#ff2244',
+        };
+        comboText.setText(`x${currentCombo}`);
+        comboText.setColor(tierColors[comboTier] || '#ffffff');
+        comboText.setAlpha(Math.max(0.3, decayPercent) * HUD_ALPHA);
+      } else {
+        comboText.setAlpha(0);
+      }
+    }
+
     // Update XP bar
     const xpBarMaxWidth = 178; // 180 - 2 for padding
     const xpProgress = this.playerStats.xp / this.playerStats.xpToNextLevel;
@@ -5540,6 +6378,10 @@ export class GameScene extends Phaser.Scene {
    * All entities contribute - weight is calculated from actual enemy size.
    */
   private updateGridBackground(deltaSeconds: number): void {
+    const gridEnabled = getSettingsManager().isGridEffectsEnabled();
+    this.gridBackground.setEnabled(gridEnabled);
+    if (!gridEnabled) return;
+
     // Get player position
     let playerPos: { x: number; y: number } | null = null;
     if (this.playerId !== -1) {
@@ -5633,6 +6475,10 @@ export class GameScene extends Phaser.Scene {
       this.gridBackground.setQuality(newQuality);
       // Update trail system quality
       this.trailManager.setQuality(newQuality);
+      // Update death ripple quality
+      if (this.deathRippleManager) {
+        this.deathRippleManager.setQuality(newQuality);
+      }
       // Update player plasma core quality
       if (this.playerPlasmaCore) {
         this.playerPlasmaCore.setQuality(newQuality);
@@ -5654,6 +6500,11 @@ export class GameScene extends Phaser.Scene {
 
     // Update ECS system bounds
     setEnemyAIBounds(w, h);
+
+    // Rebuild grid background for new screen dimensions
+    if (this.gridBackground) {
+      this.gridBackground.resize(w, h);
+    }
 
     // --- Top-center elements ---
     const worldLevelText = this.children.getByName('worldLevelText') as Phaser.GameObjects.Text;
@@ -5736,6 +6587,18 @@ export class GameScene extends Phaser.Scene {
       this.escKeyHandler = null;
     }
 
+    // Remove pause menu keyboard handler
+    if (this.pauseMenuKeyHandler) {
+      this.input.keyboard?.off('keydown', this.pauseMenuKeyHandler);
+      this.pauseMenuKeyHandler = null;
+    }
+
+    // Remove shop confirmation keyboard handler
+    if (this.shopConfirmKeyHandler) {
+      this.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
+      this.shopConfirmKeyHandler = null;
+    }
+
     // Remove auto-buy toggle key listener
     if (this.autoBuyKeyHandler) {
       this.input.keyboard?.off('keydown-T', this.autoBuyKeyHandler);
@@ -5780,6 +6643,9 @@ export class GameScene extends Phaser.Scene {
       this.handleWindowBlur = null;
     }
 
+    // Clean up event indicator
+    this.destroyEventIndicator();
+
     // Clean up weapon system
     if (this.weaponManager) {
       this.weaponManager.destroy();
@@ -5812,6 +6678,9 @@ export class GameScene extends Phaser.Scene {
     if (this.trailManager) {
       this.trailManager.destroy();
     }
+    if (this.deathRippleManager) {
+      this.deathRippleManager.destroy();
+    }
 
     // Hide any open menus/dialogs (removes their listeners)
     if (this.isPauseMenuOpen) {
@@ -5820,6 +6689,9 @@ export class GameScene extends Phaser.Scene {
     if (this.isShopConfirmationOpen) {
       this.hideShopConfirmation();
     }
+
+    // Clean up boss warning elements
+    this.cleanupBossWarning();
 
     // Kill all active tweens to prevent them from continuing
     this.tweens.killAll();

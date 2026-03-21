@@ -109,13 +109,16 @@ export class AscensionManager {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Perform an ascension. Returns the gold to refund.
+   * Perform an ascension if account level meets the threshold.
    * Caller is responsible for resetting upgrades and adding refunded gold.
+   * @returns true if ascension was performed, false if requirements not met
    */
-  performAscension(): void {
+  performAscension(accountLevel: number): boolean {
+    if (!this.canAscend(accountLevel)) return false;
     this.state.level++;
     this.state.totalAscensions++;
     this.saveState();
+    return true;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -129,8 +132,8 @@ export class AscensionManager {
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<AscensionState>;
         return {
-          level: parsed.level ?? 0,
-          totalAscensions: parsed.totalAscensions ?? 0,
+          level: Math.max(0, Math.min(parsed.level ?? 0, 50)),
+          totalAscensions: Math.max(0, Math.min(parsed.totalAscensions ?? 0, 50)),
         };
       }
     } catch {

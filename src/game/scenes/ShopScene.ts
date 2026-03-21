@@ -1063,11 +1063,11 @@ export class ShopScene extends Phaser.Scene {
     const metaManager = getMetaProgressionManager();
     const ascensionManager = getAscensionManager();
 
+    const accountLevel = metaManager.getAccountLevel();
+    if (!ascensionManager.performAscension(accountLevel)) return;
+
     // Refund all upgrade gold and reset levels
     metaManager.resetAllUpgradesAndRefund();
-
-    // Increment ascension level
-    ascensionManager.performAscension();
 
     // Restart shop scene to reflect changes
     this.scene.restart();

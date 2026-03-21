@@ -1,7 +1,7 @@
 /**
  * GameStateManager - Handles saving and loading game state for page reload recovery.
  *
- * Uses encrypted localStorage to persist game state, allowing players to resume
+ * Uses SecureStorage to persist game state, allowing players to resume
  * their game after accidental page reloads. Follows the singleton pattern similar to
  * MetaProgressionManager.
  */
@@ -194,6 +194,9 @@ export interface GameSaveState {
 
   // Spawn tracking
   bossSpawned: boolean;
+  bossWarningPhase?: number;
+  comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
+  eventState?: { eventTimer: number; nextEventInterval: number; lastEventId: string };
   minibossSpawnTimes: MinibossSpawnTime[];
 
   // Player state
@@ -321,6 +324,9 @@ export class GameStateManager {
     dashCooldownTimer: number;
     damageCooldown: number;
     bossSpawned: boolean;
+    bossWarningPhase: number;
+    comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
+    eventState?: { eventTimer: number; nextEventInterval: number; lastEventId: string };
     minibossSpawnTimes: MinibossSpawnTime[];
     banishedUpgradeIds: Set<string>;
     isAutoBuyEnabled: boolean;
@@ -354,6 +360,9 @@ export class GameStateManager {
 
         // Spawn tracking
         bossSpawned: gameData.bossSpawned,
+        bossWarningPhase: gameData.bossWarningPhase,
+        comboState: gameData.comboState,
+        eventState: gameData.eventState,
         minibossSpawnTimes: gameData.minibossSpawnTimes,
 
         // Player state

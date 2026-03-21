@@ -9,6 +9,7 @@ import { ShopScene } from './game/scenes/ShopScene';
 import { CreditsScene } from './game/scenes/CreditsScene';
 import { AchievementScene } from './game/scenes/AchievementScene';
 import { CodexScene } from './game/scenes/CodexScene';
+import { WeaponSelectScene } from './game/scenes/WeaponSelectScene';
 import { initializeStorage, flushStorage } from './storage';
 
 /**
@@ -29,14 +30,11 @@ import { initializeStorage, flushStorage } from './storage';
   // Create game configuration with scenes
   const config: Phaser.Types.Core.GameConfig = {
     ...GAME_CONFIG,
-    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene],
+    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, WeaponSelectScene],
   };
 
-  // Initialize the game!
-  const game = new Phaser.Game(config);
-
-  // Export for debugging in console
-  (window as unknown as { game: Phaser.Game }).game = game;
+  // Initialize the game
+  new Phaser.Game(config);
 
   // Flush pending encrypted writes before page unload
   window.addEventListener('beforeunload', () => {

@@ -1,5 +1,5 @@
 /**
- * SettingsManager - Centralized game settings with encrypted localStorage persistence.
+ * SettingsManager - Centralized game settings with SecureStorage persistence.
  * Handles SFX, screen shake, FPS counter, damage numbers, and status text settings.
  */
 
@@ -9,6 +9,7 @@ import { SecureStorage } from '../storage';
 const STORAGE_KEY_SFX_ENABLED = 'settings-sfx-enabled';
 const STORAGE_KEY_SFX_VOLUME = 'settings-sfx-volume';
 const STORAGE_KEY_SCREEN_SHAKE = 'settings-screen-shake';
+const STORAGE_KEY_GRID_EFFECTS = 'settings-grid-effects';
 const STORAGE_KEY_FPS_COUNTER = 'settings-fps-counter';
 const STORAGE_KEY_DAMAGE_NUMBERS_MODE = 'settings-damage-numbers-mode';
 const STORAGE_KEY_STATUS_TEXT = 'settings-status-text';
@@ -19,6 +20,7 @@ export interface GameSettings {
   sfxEnabled: boolean;
   sfxVolume: number;
   screenShakeEnabled: boolean;
+  gridEffectsEnabled: boolean;
   fpsCounterEnabled: boolean;
   damageNumbersMode: DamageNumbersMode;
   statusTextEnabled: boolean;
@@ -28,6 +30,7 @@ const DEFAULTS: GameSettings = {
   sfxEnabled: true,
   sfxVolume: 0.5,
   screenShakeEnabled: true,
+  gridEffectsEnabled: true,
   fpsCounterEnabled: false,
   damageNumbersMode: 'perfect_crits',
   statusTextEnabled: true,
@@ -41,6 +44,7 @@ export class SettingsManager {
       sfxEnabled: this.loadBoolean(STORAGE_KEY_SFX_ENABLED, DEFAULTS.sfxEnabled),
       sfxVolume: this.loadNumber(STORAGE_KEY_SFX_VOLUME, DEFAULTS.sfxVolume),
       screenShakeEnabled: this.loadBoolean(STORAGE_KEY_SCREEN_SHAKE, DEFAULTS.screenShakeEnabled),
+      gridEffectsEnabled: this.loadBoolean(STORAGE_KEY_GRID_EFFECTS, DEFAULTS.gridEffectsEnabled),
       fpsCounterEnabled: this.loadBoolean(STORAGE_KEY_FPS_COUNTER, DEFAULTS.fpsCounterEnabled),
       damageNumbersMode: this.loadDamageNumbersMode(),
       statusTextEnabled: this.loadBoolean(STORAGE_KEY_STATUS_TEXT, DEFAULTS.statusTextEnabled),
@@ -153,6 +157,15 @@ export class SettingsManager {
     this.saveBoolean(STORAGE_KEY_SCREEN_SHAKE, enabled);
   }
 
+  isGridEffectsEnabled(): boolean {
+    return this.settings.gridEffectsEnabled;
+  }
+
+  setGridEffectsEnabled(enabled: boolean): void {
+    this.settings.gridEffectsEnabled = enabled;
+    this.saveBoolean(STORAGE_KEY_GRID_EFFECTS, enabled);
+  }
+
   isFpsCounterEnabled(): boolean {
     return this.settings.fpsCounterEnabled;
   }
@@ -202,6 +215,7 @@ export class SettingsManager {
     this.setSfxEnabled(DEFAULTS.sfxEnabled);
     this.setSfxVolume(DEFAULTS.sfxVolume);
     this.setScreenShakeEnabled(DEFAULTS.screenShakeEnabled);
+    this.setGridEffectsEnabled(DEFAULTS.gridEffectsEnabled);
     this.setFpsCounterEnabled(DEFAULTS.fpsCounterEnabled);
     this.setDamageNumbersMode(DEFAULTS.damageNumbersMode);
     this.setStatusTextEnabled(DEFAULTS.statusTextEnabled);

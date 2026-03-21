@@ -28,6 +28,7 @@ export class JoystickManager {
   private baseCircle: Phaser.GameObjects.Arc | null = null;
   private knobCircle: Phaser.GameObjects.Arc | null = null;
   private activePointerId: number = -1;
+  private enabled: boolean = true;
 
   private state: JoystickState = {
     active: false,
@@ -47,6 +48,8 @@ export class JoystickManager {
     this.scene.input.on('pointermove', this.onPointerMove, this);
     this.scene.input.on('pointerup', this.onPointerUp, this);
     this.scene.input.on('pointerupoutside', this.onPointerUp, this);
+    // Reset joystick when pointer leaves the game canvas entirely
+    this.scene.input.on('gameout', this.onGameOut, this);
   }
 
   private isPointerOverUI(pointer: Phaser.Input.Pointer): boolean {
@@ -60,8 +63,15 @@ export class JoystickManager {
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
     // Only respond to touch input — mouse clicks are used for cursor-follow movement
     if (!pointer.wasTouch) return;
-    // Ignore if joystick already active or pointer is over UI
-    if (this.state.active) return;
+    // Don't spawn joystick when disabled (pause, game over, overlays)
+    if (!this.enabled) return;
+
+    // If joystick is already active from a stale pointer (missed pointerup),
+    // force-reset it and start fresh with this new touch
+    if (this.state.active) {
+      this.hideJoystick();
+    }
+
     if (this.isPointerOverUI(pointer)) return;
 
     this.activePointerId = pointer.id;
@@ -74,8 +84,28 @@ export class JoystickManager {
   }
 
   private onPointerUp(pointer: Phaser.Input.Pointer): void {
+    if (!this.state.active) return;
+    // Accept pointerup from the active pointer, OR from any touch if active pointer
+    // seems stale (handles cases where pointer ID changes between down and up)
+    if (pointer.id !== this.activePointerId && pointer.wasTouch) {
+      // Only reset if no other pointer is currently down
+      const activePointers = this.scene.input.manager?.pointers?.filter(
+        (p: Phaser.Input.Pointer) => p.isDown && p.wasTouch
+      );
+      if (!activePointers || activePointers.length === 0) {
+        this.hideJoystick();
+      }
+      return;
+    }
     if (pointer.id !== this.activePointerId) return;
     this.hideJoystick();
+  }
+
+  private onGameOut(): void {
+    // Pointer left the game canvas — reset joystick to prevent stuck state
+    if (this.state.active) {
+      this.hideJoystick();
+    }
   }
 
   private spawnJoystick(x: number, y: number): void {
@@ -147,6 +177,18 @@ export class JoystickManager {
   }
 
   /**
+   * Enable or disable joystick spawning.
+   * When disabled, hides any active joystick and ignores new touches.
+   * Call setEnabled(false) during pause, game over, and overlay screens.
+   */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled && this.state.active) {
+      this.hideJoystick();
+    }
+  }
+
+  /**
    * Get the current joystick direction vector.
    * Returns {x: 0, y: 0} if joystick is not active.
    */
@@ -172,6 +214,7 @@ export class JoystickManager {
     this.scene.input.off('pointermove', this.onPointerMove, this);
     this.scene.input.off('pointerup', this.onPointerUp, this);
     this.scene.input.off('pointerupoutside', this.onPointerUp, this);
+    this.scene.input.off('gameout', this.onGameOut, this);
     this.hideJoystick();
   }
 }

@@ -12,7 +12,7 @@ type SpriteGameObject =
   | Phaser.GameObjects.Container;
 
 // Global sprite registry: maps entity ID to Phaser game object
-export const spriteRegistry = new Map<number, SpriteGameObject>();
+const spriteRegistry = new Map<number, SpriteGameObject>();
 
 /**
  * SpriteSystem syncs ECS entity positions to Phaser sprite positions.

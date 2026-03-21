@@ -152,7 +152,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 2,
     minSpawnTime: 45,
     spawnWeight: 45,
-    minWorldLevel: 2, // Introduces dash-timing reads
+    minWorldLevel: 1, // Core dodge-timing mechanic
   },
 
   circler: {
@@ -170,7 +170,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 2,
     minSpawnTime: 60,
     spawnWeight: 40,
-    minWorldLevel: 2, // Introduces orbiting movement
+    minWorldLevel: 1, // Movement variety from the start
   },
 
   swarm: {
@@ -206,7 +206,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 5,
     minSpawnTime: 90,
     spawnWeight: 15,
-    minWorldLevel: 4, // First heavy — demands sustained DPS
+    minWorldLevel: 2, // DPS check
   },
 
   exploder: {
@@ -227,7 +227,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     explosionDamage: 20,
     minSpawnTime: 75,
     spawnWeight: 35,
-    minWorldLevel: 3, // Volatile — punishes melee-range play
+    minWorldLevel: 2, // Punishes melee-range play
   },
 
   splitter: {
@@ -248,7 +248,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     splitType: 'splitter_mini',
     minSpawnTime: 135,
     spawnWeight: 20,
-    minWorldLevel: 5, // Spawner mechanic — demands area control
+    minWorldLevel: 3, // Area control
   },
 
   splitter_mini: {
@@ -287,7 +287,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     projectileDamage: 12,
     minSpawnTime: 165,
     spawnWeight: 18,
-    minWorldLevel: 5, // First ranged threat — forces positioning awareness
+    minWorldLevel: 3, // First ranged threat
   },
 
   sniper: {
@@ -309,7 +309,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     projectileDamage: 20,
     minSpawnTime: 270,
     spawnWeight: 12,
-    minWorldLevel: 7, // Long-range sniper threat
+    minWorldLevel: 5, // Long-range threat
   },
 
   healer: {
@@ -330,7 +330,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     healAmount: 5,
     minSpawnTime: 240,
     spawnWeight: 10,
-    minWorldLevel: 6, // Priority targeting — must kill healer first
+    minWorldLevel: 4, // Priority targeting
   },
 
   shielded: {
@@ -351,7 +351,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     shieldRegenDelay: 5.0,
     minSpawnTime: 200,
     spawnWeight: 15,
-    minWorldLevel: 6, // Shield mechanic — requires burst damage or timing
+    minWorldLevel: 4, // Burst damage check
   },
 
   teleporter: {
@@ -369,7 +369,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 4,
     minSpawnTime: 300,
     spawnWeight: 12,
-    minWorldLevel: 8, // Unpredictable positioning
+    minWorldLevel: 6, // Unpredictable positioning
   },
 
   lurker: {
@@ -387,7 +387,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 2,
     minSpawnTime: 105,
     spawnWeight: 35,
-    minWorldLevel: 3, // Hit-and-run — teaches retreat awareness
+    minWorldLevel: 1, // Hit-and-run from the start
   },
 
   warden: {
@@ -405,7 +405,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 4,
     minSpawnTime: 330,
     spawnWeight: 12,
-    minWorldLevel: 8, // Zone denial — demands spatial awareness
+    minWorldLevel: 6, // Zone denial
   },
 
   wraith: {
@@ -423,7 +423,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 4,
     minSpawnTime: 360,
     spawnWeight: 10,
-    minWorldLevel: 9, // Phasing — advanced timing windows
+    minWorldLevel: 7, // Phasing — advanced timing windows
   },
 
   rallier: {
@@ -441,7 +441,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 5,
     minSpawnTime: 420,
     spawnWeight: 8,
-    minWorldLevel: 10, // Buff aura — the ultimate support threat
+    minWorldLevel: 8, // Buff aura — advanced support threat
   },
 
   giant: {
@@ -459,7 +459,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 10,
     minSpawnTime: 270,
     spawnWeight: 10,
-    minWorldLevel: 7, // Massive brute — screen-shaking stomp attacks
+    minWorldLevel: 5, // Major DPS check
   },
 
   // ═══════════════════════════════════════════════════════════════
@@ -748,11 +748,17 @@ export function getScaledStats(
   worldLevelHealthMult: number = 1,
   worldLevelDamageMult: number = 1
 ): { health: number; speed: number; damage: number } {
-  const timeMultiplier = 1 + gameTime * 0.01; // 1% increase per second
+  // Polynomial scaling: gentle early, accelerates in back half of run
+  // to keep pace with multiplicative player power stacking
+  const normalizedTime = gameTime / 600;
+
+  const healthMultiplier = 1 + gameTime * 0.008 + Math.pow(normalizedTime, 2) * 5;
+  const damageMultiplier = 1 + gameTime * 0.003 + Math.pow(normalizedTime, 2) * 2;
+  const speedMultiplier = 1 + gameTime * 0.001 + Math.pow(normalizedTime, 1.5) * 0.8;
 
   return {
-    health: Math.floor(type.baseHealth * timeMultiplier * worldLevelHealthMult),
-    speed: type.baseSpeed * (1 + gameTime * 0.002), // Speed scales slower (no world level scaling)
-    damage: Math.floor(type.baseDamage * (1 + gameTime * 0.005) * worldLevelDamageMult),
+    health: Math.floor(type.baseHealth * healthMultiplier * worldLevelHealthMult),
+    speed: type.baseSpeed * speedMultiplier,
+    damage: Math.floor(type.baseDamage * damageMultiplier * worldLevelDamageMult),
   };
 }

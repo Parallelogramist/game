@@ -526,16 +526,19 @@ export class UpgradeScene extends Phaser.Scene {
     levelIndicator.setPosition(0, 4); // Centered between name (-40) and description (32)
     container.add(levelIndicator);
 
-    // Description (40px below level)
+    // Description below level indicator
     // WordWrap scales with textBoost since font is larger, but capped to card width
     const wrapWidth = Math.min(maxTextWidth * textBoost, width - 24);
     // Strip [MASTERY] prefix when ★ MASTERED ★ indicator is already shown
     let descriptionString = upgrade.getDescription(upgrade.currentLevel);
-    if (upgrade.currentLevel + 1 >= upgrade.maxLevel && upgrade.maxLevel > 1) {
+    const isMastered = upgrade.currentLevel + 1 >= upgrade.maxLevel && upgrade.maxLevel > 1;
+    if (isMastered) {
       descriptionString = descriptionString.replace(/^\[MASTERY\]\s*/i, '');
     }
-    const descriptionText = this.add.text(0, 32, descriptionString, {
-      fontSize: `${Math.round(18 * textBoost)}px`,
+    const descriptionY = isMastered ? 58 : 32;
+    const descriptionFontSize = isMastered ? 16 : 18;
+    const descriptionText = this.add.text(0, descriptionY, descriptionString, {
+      fontSize: `${Math.round(descriptionFontSize * textBoost)}px`,
       fontFamily: 'Arial',
       color: '#88ff88',
       wordWrap: { width: wrapWidth },
@@ -545,8 +548,7 @@ export class UpgradeScene extends Phaser.Scene {
     container.add(descriptionText);
 
     // Flavor text — positioned dynamically below description to avoid overlap
-    const flavorY = 32 + descriptionText.height / 2 + 12;
-    const flavorText = this.add.text(0, flavorY, upgrade.description, {
+    const flavorText = this.add.text(0, 0, upgrade.description, {
       fontSize: `${Math.round(14 * textBoost)}px`,
       fontFamily: 'Arial',
       color: '#888888',
@@ -555,6 +557,8 @@ export class UpgradeScene extends Phaser.Scene {
       align: 'center',
     });
     flavorText.setOrigin(0.5);
+    const flavorY = descriptionY + descriptionText.height / 2 + flavorText.height / 2 + 8;
+    flavorText.setY(flavorY);
     container.add(flavorText);
 
     // Keybind hint — positioned dynamically below flavor text

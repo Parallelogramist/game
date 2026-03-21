@@ -56,6 +56,10 @@ export abstract class BaseWeapon {
   protected stats: WeaponStats;
   protected baseStats: WeaponStats;
 
+  // Evolution state
+  private _evolved: boolean = false;
+  private _evolvedName: string = '';
+
   // External multipliers from meta progression and upgrades
   protected externalDamageMultiplier: number = 1.0;
   protected externalCooldownMultiplier: number = 1.0;
@@ -159,6 +163,35 @@ export abstract class BaseWeapon {
     // Recalculate all stats with both level and external multipliers
     this.recalculateStats();
   }
+
+  /**
+   * Evolve this weapon, applying permanent stat multipliers to base stats.
+   */
+  public evolve(evolvedName: string, statMultipliers: {
+    damage?: number; cooldown?: number; range?: number;
+    count?: number; piercing?: number; size?: number; speed?: number;
+  }): void {
+    this._evolved = true;
+    this._evolvedName = evolvedName;
+
+    // Apply multipliers to base stats permanently
+    if (statMultipliers.damage) this.baseStats.damage *= statMultipliers.damage;
+    if (statMultipliers.cooldown) this.baseStats.cooldown *= statMultipliers.cooldown;
+    if (statMultipliers.range) this.baseStats.range *= statMultipliers.range;
+    if (statMultipliers.size) this.baseStats.size *= statMultipliers.size;
+    if (statMultipliers.speed) this.baseStats.speed *= statMultipliers.speed;
+    // Additive bonuses for count and piercing
+    if (statMultipliers.count) this.baseStats.count += statMultipliers.count;
+    if (statMultipliers.piercing) this.baseStats.piercing += statMultipliers.piercing;
+
+    this.recalculateStats();
+  }
+
+  /** Whether this weapon has evolved. */
+  public get isEvolved(): boolean { return this._evolved; }
+
+  /** The evolved weapon name, or original name if not evolved. */
+  public get displayName(): string { return this._evolved ? this._evolvedName : this.name; }
 
   /**
    * Get description for upgrade screen.

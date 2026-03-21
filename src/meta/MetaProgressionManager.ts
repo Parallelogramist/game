@@ -1,14 +1,14 @@
 /**
  * MetaProgressionManager handles persistent progression data across game runs.
  * Manages gold currency and permanent upgrade purchases.
- * Uses encrypted localStorage for persistence (anti-cheat protection).
+ * Uses SecureStorage for persistence (anti-cheat protection).
  */
 
 import { calculateUpgradeCost, getPermanentUpgradeById, PERMANENT_UPGRADES, calculateAccountLevel } from '../data/PermanentUpgrades';
 import { SecureStorage } from '../storage';
 import { getAscensionManager } from './AscensionManager';
 
-// localStorage keys
+// SecureStorage keys
 const STORAGE_KEY_GOLD = 'survivor-meta-gold';
 const STORAGE_KEY_UPGRADES = 'survivor-meta-upgrades';
 const STORAGE_KEY_WORLD_LEVEL = 'survivor-meta-world-level';
@@ -96,7 +96,8 @@ export class MetaProgressionManager {
   }
 
   addGold(amount: number): void {
-    this.goldBalance += amount;
+    if (amount <= 0 || !Number.isFinite(amount)) return;
+    this.goldBalance = Math.min(this.goldBalance + Math.floor(amount), 10_000_000);
     this.saveGold();
   }
 
@@ -412,10 +413,10 @@ export class MetaProgressionManager {
 
   /**
    * Returns the critical hit damage multiplier.
-   * Base is 2.0x (200%), each level adds +15%.
+   * Base is 1.5x (150%), each level adds +15%.
    */
   getStartingCritDamage(): number {
-    return 2.0 + (this.upgradeState['critDamageLevel'] ?? 0) * 0.15;
+    return 1.5 + (this.upgradeState['critDamageLevel'] ?? 0) * 0.15;
   }
 
   /**
@@ -1106,7 +1107,7 @@ export class MetaProgressionManager {
   }
 
   // ─────────────────────────────────────────────────────────────
-  // Persistence (localStorage)
+  // Persistence (SecureStorage)
   // ─────────────────────────────────────────────────────────────
 
   private loadGold(): number {
@@ -1115,7 +1116,7 @@ export class MetaProgressionManager {
       if (stored) {
         const parsed = parseInt(stored, 10);
         if (!isNaN(parsed)) {
-          return parsed;
+          return Math.max(0, Math.min(parsed, 10_000_000));
         }
       }
     } catch {
@@ -1139,10 +1140,17 @@ export class MetaProgressionManager {
       if (stored) {
         const parsed = JSON.parse(stored) as PermanentUpgradeState;
         // Merge with defaults to handle new upgrades
-        return {
+        const merged = {
           ...defaultState,
           ...parsed,
         };
+        // Clamp each upgrade level to valid range
+        for (const upgrade of PERMANENT_UPGRADES) {
+          if (merged[upgrade.id] !== undefined) {
+            merged[upgrade.id] = Math.max(0, Math.min(merged[upgrade.id], upgrade.maxLevel));
+          }
+        }
+        return merged;
       }
     } catch {
       console.warn('Could not load upgrade state from storage');
@@ -1164,7 +1172,7 @@ export class MetaProgressionManager {
       if (stored) {
         const parsed = parseInt(stored, 10);
         if (!isNaN(parsed) && parsed >= 1) {
-          return parsed;
+          return Math.min(parsed, 50);
         }
       }
     } catch {
@@ -1188,8 +1196,8 @@ export class MetaProgressionManager {
       if (stored) {
         const parsed = JSON.parse(stored) as StreakState;
         return {
-          currentStreak: parsed.currentStreak ?? 0,
-          bestStreak: parsed.bestStreak ?? 0,
+          currentStreak: Math.max(0, Math.min(parsed.currentStreak ?? 0, MAX_STREAK_BONUS)),
+          bestStreak: Math.max(0, Math.min(parsed.bestStreak ?? 0, MAX_STREAK_BONUS)),
         };
       }
     } catch {
@@ -1211,7 +1219,7 @@ export class MetaProgressionManager {
       const stored = SecureStorage.getItem(STORAGE_KEY_RUNS_COMPLETED);
       if (stored) {
         const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed)) return parsed;
+        if (!isNaN(parsed)) return Math.max(0, parsed);
       }
     } catch {
       console.warn('Could not load runs completed from storage');
@@ -1233,7 +1241,21 @@ export class MetaProgressionManager {
       const stored = SecureStorage.getItem(STORAGE_KEY_ACHIEVEMENT_BONUSES);
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<AchievementBonusState>;
-        return { ...defaults, ...parsed };
+        const merged = { ...defaults, ...parsed };
+        // Clamp all bonus fields to reasonable maximums
+        const maxBonus = 100;
+        merged.damage = Math.max(0, Math.min(merged.damage, maxBonus));
+        merged.health = Math.max(0, Math.min(merged.health, maxBonus));
+        merged.speed = Math.max(0, Math.min(merged.speed, maxBonus));
+        merged.xp = Math.max(0, Math.min(merged.xp, maxBonus));
+        merged.gold = Math.max(0, Math.min(merged.gold, maxBonus));
+        merged.critChance = Math.max(0, Math.min(merged.critChance, maxBonus));
+        merged.cooldown = Math.max(0, Math.min(merged.cooldown, maxBonus));
+        merged.dodge = Math.max(0, Math.min(merged.dodge, maxBonus));
+        merged.attackSpeed = Math.max(0, Math.min(merged.attackSpeed, maxBonus));
+        merged.allStats = Math.max(0, Math.min(merged.allStats, maxBonus));
+        merged.startingLevel = Math.max(0, Math.min(merged.startingLevel, 10));
+        return merged;
       }
     } catch {
       console.warn('Could not load achievement bonuses from storage');
@@ -1281,11 +1303,37 @@ export class MetaProgressionManager {
   }
 
   /**
-   * Add gold for debugging.
+   * Find the next affordable or nearest-to-affordable upgrade for post-run teaser.
+   * Returns the cheapest buyable upgrade, or the one closest to being affordable.
    */
-  debugAddGold(amount: number): void {
-    this.addGold(amount);
+  getNextAffordableUpgrade(): { name: string; cost: number; canAfford: boolean; goldNeeded: number } | null {
+    const currentGold = this.goldBalance;
+    const accountLevel = this.getAccountLevel();
+    let bestAffordable: { name: string; cost: number; canAfford: boolean; goldNeeded: number } | null = null;
+    let closestUnaffordable: { name: string; cost: number; canAfford: boolean; goldNeeded: number } | null = null;
+
+    for (const upgrade of PERMANENT_UPGRADES) {
+      const currentLevel = this.upgradeState[upgrade.id] ?? 0;
+      if (currentLevel >= upgrade.maxLevel) continue;
+      if (accountLevel < upgrade.unlockLevel) continue;
+
+      const cost = calculateUpgradeCost(upgrade, currentLevel);
+
+      if (currentGold >= cost) {
+        if (!bestAffordable || cost < bestAffordable.cost) {
+          bestAffordable = { name: upgrade.name, cost, canAfford: true, goldNeeded: 0 };
+        }
+      } else {
+        const goldNeeded = cost - currentGold;
+        if (!closestUnaffordable || goldNeeded < closestUnaffordable.goldNeeded) {
+          closestUnaffordable = { name: upgrade.name, cost, canAfford: false, goldNeeded };
+        }
+      }
+    }
+
+    return bestAffordable || closestUnaffordable;
   }
+
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -51,7 +51,7 @@ export class MusicManager {
   private hasLooped: boolean = false;
 
   constructor() {
-    // Load settings from localStorage
+    // Load settings from SecureStorage
     this.enabledTrackIds = this.loadEnabledTracks();
     this.playbackMode = this.loadPlaybackMode();
     this.volume = this.loadVolume();
@@ -61,7 +61,7 @@ export class MusicManager {
   }
 
   /**
-   * Loads enabled tracks from localStorage.
+   * Loads enabled tracks from SecureStorage.
    */
   private loadEnabledTracks(): Set<string> {
     try {
@@ -78,7 +78,7 @@ export class MusicManager {
   }
 
   /**
-   * Saves enabled tracks to localStorage.
+   * Saves enabled tracks to SecureStorage.
    */
   private saveEnabledTracks(): void {
     try {
@@ -90,7 +90,7 @@ export class MusicManager {
   }
 
   /**
-   * Loads playback mode from localStorage.
+   * Loads playback mode from SecureStorage.
    */
   private loadPlaybackMode(): PlaybackMode {
     try {
@@ -105,7 +105,7 @@ export class MusicManager {
   }
 
   /**
-   * Saves playback mode to localStorage.
+   * Saves playback mode to SecureStorage.
    */
   private savePlaybackMode(): void {
     try {
@@ -116,7 +116,7 @@ export class MusicManager {
   }
 
   /**
-   * Loads volume from localStorage.
+   * Loads volume from SecureStorage.
    */
   private loadVolume(): number {
     try {
@@ -131,7 +131,7 @@ export class MusicManager {
   }
 
   /**
-   * Saves volume to localStorage.
+   * Saves volume to SecureStorage.
    */
   private saveVolume(): void {
     try {

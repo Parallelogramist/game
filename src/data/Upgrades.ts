@@ -142,41 +142,41 @@ export interface PlayerStats {
  */
 export function createDefaultPlayerStats(): PlayerStats {
   return {
-    // Base stats
-    maxHealth: 100,
-    currentHealth: 100,
-    moveSpeed: 200,
+    // Base stats (lowered to make shop upgrades feel impactful)
+    maxHealth: 50,
+    currentHealth: 50,
+    moveSpeed: 150,
 
     // Combat multipliers
-    damageMultiplier: 1.0,
-    attackSpeedMultiplier: 1.0,
-    projectileSpeedMultiplier: 1.0,
-    rangeMultiplier: 1.0,
-    cooldownMultiplier: 1.0,
-    durationMultiplier: 1.0,
+    damageMultiplier: 0.75,
+    attackSpeedMultiplier: 0.8,
+    projectileSpeedMultiplier: 0.8,
+    rangeMultiplier: 0.85,
+    cooldownMultiplier: 1.15,
+    durationMultiplier: 0.85,
 
     // Critical hits
     critChance: 0,
-    critDamage: 2.0,  // 200% damage on crit
+    critDamage: 1.5,  // 50% bonus on crit; upgrades build toward 200%+
 
     // Special stats
     projectileCount: 1,
     piercing: 0,
-    pickupRange: 80,
-    knockbackMultiplier: 1.0,
+    pickupRange: 40,
+    knockbackMultiplier: 0.7,
 
     // Defense stats
     armor: 0,
     regenPerSecond: 0,
     dodgeChance: 0,
     lifeStealPercent: 0,
-    iframeDuration: 0.5,
+    iframeDuration: 0.3,
     revivals: 0,
     thornsPercent: 0,
     shield: 0,
     maxShield: 0,
     damageCap: 1.0,  // No cap by default
-    healingBoost: 1.0,
+    healingBoost: 0.8,
 
     // Shield Barrier system
     shieldBarrierEnabled: false,
@@ -197,7 +197,7 @@ export function createDefaultPlayerStats(): PlayerStats {
     xp: 0,
     level: 1,
     xpToNextLevel: 10,
-    xpMultiplier: 1.0,
+    xpMultiplier: 0.8,
     gemValueMultiplier: 1.0,
     dropRateMultiplier: 1.0,
     healthDropMultiplier: 1.0,

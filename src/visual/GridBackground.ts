@@ -24,9 +24,9 @@ export class GridBackground {
 
   // Grid topology
   private readonly CELL_SIZE = 40;
-  private readonly numCols: number;
-  private readonly numRows: number;
-  private readonly totalPoints: number;
+  private numCols: number;
+  private numRows: number;
+  private totalPoints: number;
 
   // ─── Point mass SoA arrays (spring physics layer) ───
   private restX!: Float32Array;
@@ -79,14 +79,17 @@ export class GridBackground {
   private chromaticDrawX: number[] = [];
   private chromaticDrawY: number[] = [];
 
+  // Enabled flag (settings toggle)
+  private enabled = true;
+
   // Quality settings
   private quality: VisualQuality = 'high';
   private catmullSubdivisions = 4;
   private frameCounter = 0;
 
   // Screen center for perspective projection
-  private readonly centerX: number;
-  private readonly centerY: number;
+  private centerX: number;
+  private centerY: number;
 
   constructor(scene: Phaser.Scene) {
     this.graphics = scene.add.graphics();
@@ -100,6 +103,28 @@ export class GridBackground {
     // Grid dimensions — extend one cell beyond screen edges
     this.numCols = Math.ceil(sceneWidth / this.CELL_SIZE) + 1;
     this.numRows = Math.ceil(sceneHeight / this.CELL_SIZE) + 1;
+    this.totalPoints = this.numCols * this.numRows;
+
+    this.initializePointMasses();
+    this.initializeSprings();
+  }
+
+  /**
+   * Rebuild grid topology for new screen dimensions.
+   * Called on window resize to keep the grid covering the full viewport.
+   */
+  resize(width: number, height: number): void {
+    this.centerX = width / 2;
+    this.centerY = height / 2;
+
+    const newCols = Math.ceil(width / this.CELL_SIZE) + 1;
+    const newRows = Math.ceil(height / this.CELL_SIZE) + 1;
+
+    // Skip full rebuild if grid cell counts haven't changed
+    if (newCols === this.numCols && newRows === this.numRows) return;
+
+    this.numCols = newCols;
+    this.numRows = newRows;
     this.totalPoints = this.numCols * this.numRows;
 
     this.initializePointMasses();
@@ -208,6 +233,13 @@ export class GridBackground {
   // ═══════════════════════════════════════════════════════════════════
   //  QUALITY CONTROL
   // ═══════════════════════════════════════════════════════════════════
+
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.graphics.clear();
+    }
+  }
 
   setQuality(quality: VisualQuality): void {
     this.quality = quality;
@@ -360,6 +392,8 @@ export class GridBackground {
   // ═══════════════════════════════════════════════════════════════════
 
   update(deltaSeconds: number): void {
+    if (!this.enabled) return;
+
     const clampedDelta = Math.min(deltaSeconds, 1 / 30);
     this.pulsePhase += clampedDelta * this.PULSE_SPEED;
     this.frameCounter++;

@@ -8,8 +8,9 @@ import { getSettingsManager, DamageNumbersMode } from '../../settings';
 import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
 import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
+import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
 
-type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'fpsCounter' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
+type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'gridEffects' | 'fpsCounter' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
 
 interface SettingsSceneData {
   returnTo: 'BootScene' | 'GameScene';
@@ -30,6 +31,7 @@ export class SettingsScene extends Phaser.Scene {
   private musicTracksButton!: Phaser.GameObjects.Text;
   private playbackModeButtons: Phaser.GameObjects.Text[] = [];
   private screenShakeToggle!: Phaser.GameObjects.Text;
+  private gridEffectsToggle!: Phaser.GameObjects.Text;
   private fpsCounterToggle!: Phaser.GameObjects.Text;
   private damageNumberButtons: Phaser.GameObjects.Text[] = [];
   private statusTextToggle!: Phaser.GameObjects.Text;
@@ -38,6 +40,9 @@ export class SettingsScene extends Phaser.Scene {
 
   // Confirmation overlay elements
   private confirmOverlay: Phaser.GameObjects.GameObject[] = [];
+  private confirmFocusIndex: number = 1; // 0 = Confirm, 1 = Cancel (default to Cancel for safety)
+  private confirmButtonRef: Phaser.GameObjects.Text | null = null;
+  private cancelButtonRef: Phaser.GameObjects.Text | null = null;
 
   // Navigation state
   private focusZone: FocusZone = 'sfx';
@@ -279,6 +284,22 @@ export class SettingsScene extends Phaser.Scene {
 
     currentY += 35;
 
+    // Grid Effects Toggle
+    this.add.text(contentLeftX, currentY, 'Grid Effects', {
+      fontSize: '18px',
+      color: '#ffffff',
+      fontFamily: 'Arial',
+    });
+
+    this.gridEffectsToggle = this.createToggle(contentLeftX + 180, currentY, settingsManager.isGridEffectsEnabled(), () => {
+      const newValue = !settingsManager.isGridEffectsEnabled();
+      settingsManager.setGridEffectsEnabled(newValue);
+      this.updateGridEffectsToggle();
+    });
+    this.gridEffectsToggle.setData('zone', 'gridEffects');
+
+    currentY += 35;
+
     // FPS Counter Toggle
     this.add.text(contentLeftX, currentY, 'FPS Counter', {
       fontSize: '18px',
@@ -517,6 +538,12 @@ export class SettingsScene extends Phaser.Scene {
     this.screenShakeToggle.setColor(enabled ? '#88ff88' : '#ff8888');
   }
 
+  private updateGridEffectsToggle(): void {
+    const enabled = getSettingsManager().isGridEffectsEnabled();
+    this.gridEffectsToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
+    this.gridEffectsToggle.setColor(enabled ? '#88ff88' : '#ff8888');
+  }
+
   private updateFpsCounterToggle(): void {
     const enabled = getSettingsManager().isFpsCounterEnabled();
     this.fpsCounterToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
@@ -584,6 +611,10 @@ export class SettingsScene extends Phaser.Scene {
     const shakeEnabled = settingsManager.isScreenShakeEnabled();
     this.screenShakeToggle.setColor(this.focusZone === 'screenShake' ? '#ffffff' : shakeEnabled ? '#88ff88' : '#ff8888');
 
+    // Grid Effects
+    const gridEnabled = settingsManager.isGridEffectsEnabled();
+    this.gridEffectsToggle.setColor(this.focusZone === 'gridEffects' ? '#ffffff' : gridEnabled ? '#88ff88' : '#ff8888');
+
     // FPS Counter
     const fpsEnabled = settingsManager.isFpsCounterEnabled();
     this.fpsCounterToggle.setColor(this.focusZone === 'fpsCounter' ? '#ffffff' : fpsEnabled ? '#88ff88' : '#ff8888');
@@ -608,6 +639,38 @@ export class SettingsScene extends Phaser.Scene {
 
   private setupKeyboardNavigation(): void {
     this.keydownHandler = (event: KeyboardEvent) => {
+      // When confirmation dialog is open, handle its own navigation
+      if (this.confirmOverlay.length > 0) {
+        switch (event.key) {
+          case 'ArrowLeft':
+          case 'a':
+          case 'A':
+          case 'ArrowRight':
+          case 'd':
+          case 'D':
+          case 'ArrowUp':
+          case 'w':
+          case 'W':
+          case 'ArrowDown':
+          case 's':
+          case 'S':
+            event.preventDefault();
+            this.confirmFocusIndex = this.confirmFocusIndex === 0 ? 1 : 0;
+            this.updateConfirmFocusVisuals();
+            break;
+          case 'Enter':
+          case ' ':
+            event.preventDefault();
+            this.activateConfirmSelection();
+            break;
+          case 'Escape':
+            event.preventDefault();
+            this.dismissResetConfirmation();
+            break;
+        }
+        return;
+      }
+
       switch (event.key) {
         case 'ArrowDown':
         case 's':
@@ -640,11 +703,7 @@ export class SettingsScene extends Phaser.Scene {
           break;
         case 'Escape':
           event.preventDefault();
-          if (this.confirmOverlay.length > 0) {
-            this.dismissResetConfirmation();
-          } else {
-            this.goBack();
-          }
+          this.goBack();
           break;
       }
     };
@@ -662,6 +721,8 @@ export class SettingsScene extends Phaser.Scene {
     } else if (this.focusZone === 'musicTracks') {
       this.focusZone = 'screenShake';
     } else if (this.focusZone === 'screenShake') {
+      this.focusZone = 'gridEffects';
+    } else if (this.focusZone === 'gridEffects') {
       this.focusZone = 'fpsCounter';
     } else if (this.focusZone === 'fpsCounter') {
       this.focusZone = 'damageNumbers';
@@ -689,8 +750,10 @@ export class SettingsScene extends Phaser.Scene {
       this.focusZone = 'playbackMode';
     } else if (this.focusZone === 'screenShake') {
       this.focusZone = 'musicTracks';
-    } else if (this.focusZone === 'fpsCounter') {
+    } else if (this.focusZone === 'gridEffects') {
       this.focusZone = 'screenShake';
+    } else if (this.focusZone === 'fpsCounter') {
+      this.focusZone = 'gridEffects';
     } else if (this.focusZone === 'damageNumbers') {
       this.focusZone = 'fpsCounter';
     } else if (this.focusZone === 'statusText') {
@@ -774,6 +837,10 @@ export class SettingsScene extends Phaser.Scene {
         settingsManager.setScreenShakeEnabled(!settingsManager.isScreenShakeEnabled());
         this.updateScreenShakeToggle();
         break;
+      case 'gridEffects':
+        settingsManager.setGridEffectsEnabled(!settingsManager.isGridEffectsEnabled());
+        this.updateGridEffectsToggle();
+        break;
       case 'fpsCounter':
         settingsManager.setFpsCounterEnabled(!settingsManager.isFpsCounterEnabled());
         this.updateFpsCounterToggle();
@@ -834,26 +901,55 @@ export class SettingsScene extends Phaser.Scene {
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);
 
-    confirmButton.on('pointerover', () => confirmButton.setColor('#ff6666'));
+    confirmButton.on('pointerover', () => { this.confirmFocusIndex = 0; this.updateConfirmFocusVisuals(); });
     confirmButton.on('pointerout', () => confirmButton.setColor('#ff4444'));
     confirmButton.on('pointerdown', () => {
+      for (const key of ALL_STORAGE_KEYS) {
+        SecureStorage.removeItem(key);
+      }
       localStorage.clear();
       window.location.reload();
     });
 
     const cancelButton = this.add.text(centerX + 80, centerY + 50, '[ Cancel ]', {
       fontSize: '18px',
-      color: '#888888',
+      color: '#ffffff',
       fontFamily: 'Arial',
     }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);
 
-    cancelButton.on('pointerover', () => cancelButton.setColor('#ffffff'));
-    cancelButton.on('pointerout', () => cancelButton.setColor('#888888'));
+    cancelButton.on('pointerover', () => { this.confirmFocusIndex = 1; this.updateConfirmFocusVisuals(); });
+    cancelButton.on('pointerout', () => this.updateConfirmFocusVisuals());
     cancelButton.on('pointerdown', () => {
       this.dismissResetConfirmation();
     });
 
+    this.confirmButtonRef = confirmButton;
+    this.cancelButtonRef = cancelButton;
+    this.confirmFocusIndex = 1; // Default to Cancel for safety
+    this.updateConfirmFocusVisuals();
+
     this.confirmOverlay = [dimBg, dialogBg, titleText, descText, confirmButton, cancelButton];
+  }
+
+  private updateConfirmFocusVisuals(): void {
+    if (this.confirmButtonRef) {
+      this.confirmButtonRef.setColor(this.confirmFocusIndex === 0 ? '#ff6666' : '#ff4444');
+    }
+    if (this.cancelButtonRef) {
+      this.cancelButtonRef.setColor(this.confirmFocusIndex === 1 ? '#ffffff' : '#888888');
+    }
+  }
+
+  private activateConfirmSelection(): void {
+    if (this.confirmFocusIndex === 0) {
+      for (const key of ALL_STORAGE_KEYS) {
+        SecureStorage.removeItem(key);
+      }
+      localStorage.clear();
+      window.location.reload();
+    } else {
+      this.dismissResetConfirmation();
+    }
   }
 
   private dismissResetConfirmation(): void {
@@ -861,6 +957,8 @@ export class SettingsScene extends Phaser.Scene {
       obj.destroy();
     }
     this.confirmOverlay = [];
+    this.confirmButtonRef = null;
+    this.cancelButtonRef = null;
   }
 
   private goBack(): void {

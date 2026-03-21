@@ -508,7 +508,7 @@ export class ProjectileWeapon extends BaseWeapon {
     super.recalculateStats();
     // Projectile weapon gets extra count scaling
     this.stats.count = this.baseStats.count + Math.floor(this.level / 3) + this.externalBonusCount;
-    this.stats.piercing = Math.floor(this.level / 2);
+    this.stats.piercing = this.baseStats.piercing + Math.floor(this.level / 2) + this.externalBonusPiercing;
   }
 
   public destroy(): void {

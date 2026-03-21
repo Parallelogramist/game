@@ -352,14 +352,6 @@ export class KatanaWeapon extends BaseWeapon {
       graphics.closePath();
       graphics.fillPath();
 
-      // -- Energy particle (1 dot at sweep progress position along outer bezier) --
-      const energyT = sweepProgress;
-      const energyInvT = 1 - energyT;
-      const energyDotX = energyInvT * energyInvT * tipStartX + 2 * energyInvT * energyT * outerControlX + energyT * energyT * currentEndX;
-      const energyDotY = energyInvT * energyInvT * tipStartY + 2 * energyInvT * energyT * outerControlY + energyT * energyT * currentEndY;
-
-      graphics.fillStyle(0xffffff, alpha * 0.8);
-      graphics.fillCircle(energyDotX, energyDotY, 2);
     } else {
       // High: 5 layers — outer glow + glow + fill + bright edge + white-hot core + white cutting-edge line
 
@@ -402,12 +394,19 @@ export class KatanaWeapon extends BaseWeapon {
       graphics.closePath();
       graphics.fillPath();
 
-      // -- Layer 4: Bright edge (thin stroke along outer arc) --
-      graphics.lineStyle(1.5, WEAPON_COLORS.bladeGlow.core, alpha * 0.8);
+      // -- Layer 4: Bright edge (thin filled crescent along outer arc) --
+      const brightEdgeOuterControlX = midX + perpX * arc.curvature * 1.06;
+      const brightEdgeOuterControlY = midY + perpY * arc.curvature * 1.06;
+      const brightEdgeInnerControlX = midX + perpX * arc.curvature * 0.98;
+      const brightEdgeInnerControlY = midY + perpY * arc.curvature * 0.98;
+
+      graphics.fillStyle(WEAPON_COLORS.bladeGlow.core, alpha * 0.8);
       graphics.beginPath();
       graphics.moveTo(tipStartX, tipStartY);
-      this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY, bezierSegments);
-      graphics.strokePath();
+      this.quadBezierTo(graphics, tipStartX, tipStartY, brightEdgeOuterControlX, brightEdgeOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, brightEdgeInnerControlX, brightEdgeInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
 
       // -- Layer 5: White-hot core (thin filled sliver) --
       const coreOuterControlX = midX + perpX * arc.curvature * 0.55;
@@ -423,27 +422,20 @@ export class KatanaWeapon extends BaseWeapon {
       graphics.closePath();
       graphics.fillPath();
 
-      // -- White cutting-edge line (0.5px along outer bezier) --
-      graphics.lineStyle(0.5, 0xffffff, alpha * 0.95);
+      // -- White cutting-edge line (ultra-thin filled crescent along outer bezier) --
+      const cuttingEdgeOuterControlX = midX + perpX * arc.curvature * 1.03;
+      const cuttingEdgeOuterControlY = midY + perpY * arc.curvature * 1.03;
+      const cuttingEdgeInnerControlX = midX + perpX * arc.curvature * 0.99;
+      const cuttingEdgeInnerControlY = midY + perpY * arc.curvature * 0.99;
+
+      graphics.fillStyle(0xffffff, alpha * 0.95);
       graphics.beginPath();
       graphics.moveTo(tipStartX, tipStartY);
-      this.quadBezierTo(graphics, tipStartX, tipStartY, outerControlX, outerControlY, currentEndX, currentEndY, bezierSegments);
-      graphics.strokePath();
+      this.quadBezierTo(graphics, tipStartX, tipStartY, cuttingEdgeOuterControlX, cuttingEdgeOuterControlY, currentEndX, currentEndY, bezierSegments);
+      this.quadBezierTo(graphics, currentEndX, currentEndY, cuttingEdgeInnerControlX, cuttingEdgeInnerControlY, tipStartX, tipStartY, bezierSegments);
+      graphics.closePath();
+      graphics.fillPath();
 
-      // -- Energy particles (2-3 dots sampled along outer bezier at sweep progress) --
-      const energyParticleCount = 2 + Math.floor(Math.random() * 2); // 2-3 particles
-      for (let particleIndex = 0; particleIndex < energyParticleCount; particleIndex++) {
-        const particleSpread = 0.15;
-        const particleT = Math.max(0, Math.min(1, sweepProgress + (particleIndex - 1) * particleSpread));
-        const particleInvT = 1 - particleT;
-        const particleDotX = particleInvT * particleInvT * tipStartX + 2 * particleInvT * particleT * outerControlX + particleT * particleT * currentEndX;
-        const particleDotY = particleInvT * particleInvT * tipStartY + 2 * particleInvT * particleT * outerControlY + particleT * particleT * currentEndY;
-
-        const particleAlpha = alpha * (0.6 + Math.random() * 0.4);
-        const particleRadius = 1.5 + Math.random() * 1.5;
-        graphics.fillStyle(0xffffff, particleAlpha);
-        graphics.fillCircle(particleDotX, particleDotY, particleRadius);
-      }
     }
   }
 
@@ -577,26 +569,51 @@ export class KatanaWeapon extends BaseWeapon {
       const markCtrlX = markCenterX + (-markSin) * markCurve;
       const markCtrlY = markCenterY + markCos * markCurve;
 
-      if (currentQuality === 'high') {
-        // Double-line pairs: wider glow outer + thin white inner
-        cutMarkGraphics.lineStyle(2, WEAPON_COLORS.blade.core, 0.3);
-        cutMarkGraphics.beginPath();
-        cutMarkGraphics.moveTo(markStartX, markStartY);
-        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
-        cutMarkGraphics.strokePath();
+      const cutMarkPerpX = -markSin;
+      const cutMarkPerpY = markCos;
 
-        cutMarkGraphics.lineStyle(1, 0xffffff, 0.4);
+      if (currentQuality === 'high') {
+        // Outer glow crescent (replaces 2px stroke)
+        const glowOuterCtrlX = markCtrlX + cutMarkPerpX * 1.5;
+        const glowOuterCtrlY = markCtrlY + cutMarkPerpY * 1.5;
+        const glowInnerCtrlX = markCtrlX - cutMarkPerpX * 1.5;
+        const glowInnerCtrlY = markCtrlY - cutMarkPerpY * 1.5;
+
+        cutMarkGraphics.fillStyle(WEAPON_COLORS.blade.core, 0.3);
         cutMarkGraphics.beginPath();
         cutMarkGraphics.moveTo(markStartX, markStartY);
-        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
-        cutMarkGraphics.strokePath();
+        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, glowOuterCtrlX, glowOuterCtrlY, markEndX, markEndY, 8);
+        this.quadBezierTo(cutMarkGraphics, markEndX, markEndY, glowInnerCtrlX, glowInnerCtrlY, markStartX, markStartY, 8);
+        cutMarkGraphics.closePath();
+        cutMarkGraphics.fillPath();
+
+        // White core crescent (replaces 1px stroke)
+        const coreOuterCtrlX = markCtrlX + cutMarkPerpX * 0.75;
+        const coreOuterCtrlY = markCtrlY + cutMarkPerpY * 0.75;
+        const coreInnerCtrlX = markCtrlX - cutMarkPerpX * 0.75;
+        const coreInnerCtrlY = markCtrlY - cutMarkPerpY * 0.75;
+
+        cutMarkGraphics.fillStyle(0xffffff, 0.4);
+        cutMarkGraphics.beginPath();
+        cutMarkGraphics.moveTo(markStartX, markStartY);
+        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, coreOuterCtrlX, coreOuterCtrlY, markEndX, markEndY, 8);
+        this.quadBezierTo(cutMarkGraphics, markEndX, markEndY, coreInnerCtrlX, coreInnerCtrlY, markStartX, markStartY, 8);
+        cutMarkGraphics.closePath();
+        cutMarkGraphics.fillPath();
       } else {
-        // Single curved line for low/medium
-        cutMarkGraphics.lineStyle(1, 0xffffff, 0.4);
+        // Low/medium: single thin crescent (replaces 1px stroke)
+        const cutCoreOuterCtrlX = markCtrlX + cutMarkPerpX * 0.75;
+        const cutCoreOuterCtrlY = markCtrlY + cutMarkPerpY * 0.75;
+        const cutCoreInnerCtrlX = markCtrlX - cutMarkPerpX * 0.75;
+        const cutCoreInnerCtrlY = markCtrlY - cutMarkPerpY * 0.75;
+
+        cutMarkGraphics.fillStyle(0xffffff, 0.4);
         cutMarkGraphics.beginPath();
         cutMarkGraphics.moveTo(markStartX, markStartY);
-        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, markCtrlX, markCtrlY, markEndX, markEndY, 8);
-        cutMarkGraphics.strokePath();
+        this.quadBezierTo(cutMarkGraphics, markStartX, markStartY, cutCoreOuterCtrlX, cutCoreOuterCtrlY, markEndX, markEndY, 8);
+        this.quadBezierTo(cutMarkGraphics, markEndX, markEndY, cutCoreInnerCtrlX, cutCoreInnerCtrlY, markStartX, markStartY, 8);
+        cutMarkGraphics.closePath();
+        cutMarkGraphics.fillPath();
       }
 
       ctx.scene.time.delayedCall(300, () => cutMarkGraphics.destroy());

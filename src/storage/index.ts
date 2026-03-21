@@ -1,5 +1,5 @@
 /**
- * Storage module - Encrypted localStorage for anti-cheat protection.
+ * Storage module - Encrypted storage for anti-cheat protection.
  *
  * Usage:
  * 1. Call initializeStorage() in main.ts before creating Phaser game
@@ -12,4 +12,4 @@
 
 export { StorageEncryption } from './StorageEncryption';
 export { SecureStorage } from './SecureStorage';
-export { initializeStorage, flushStorage } from './StorageBootstrap';
+export { initializeStorage, flushStorage, ALL_STORAGE_KEYS } from './StorageBootstrap';
