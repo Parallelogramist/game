@@ -169,6 +169,7 @@ export function healthPickupSystem(world: IWorld, deltaTime: number, gameTime: n
 
       // Only compute sqrt when we actually need to normalize
       const distance = Math.sqrt(distanceSq);
+      if (distance < 0.01) continue;
       const normalizedDirectionX = directionX / distance;
       const normalizedDirectionY = directionY / distance;
 

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { getMusicManager } from '../../audio/MusicManager';
 import { SoundKeys } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
 import { fadeOut, fadeIn } from '../../utils/SceneTransition';
@@ -100,8 +101,12 @@ export class BootScene extends Phaser.Scene {
 
     // World level indicator (below title)
     const metaManager = getMetaProgressionManager();
+    const ascensionLevel = getAscensionManager().getLevel();
+    const worldText = ascensionLevel > 0
+      ? `Ascension ${ascensionLevel}  ·  World ${metaManager.getWorldLevel()}`
+      : `World ${metaManager.getWorldLevel()}`;
     this.add
-      .text(centerX, centerY - 30, `World ${metaManager.getWorldLevel()}`, {
+      .text(centerX, centerY - 30, worldText, {
         fontSize: '28px',
         color: '#88aaff',
         fontFamily: 'Arial',

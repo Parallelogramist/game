@@ -275,6 +275,7 @@ export function xpGemSystem(world: IWorld, deltaTime: number): IWorld {
 
       // Only compute sqrt when we actually need to normalize
       const distance = Math.sqrt(distanceSq);
+      if (distance < 0.01) continue;
 
       // Move toward player with increasing speed as they get closer
       // Clamp to minimum 0.5 so distant gems (from magnet pickup) don't move away

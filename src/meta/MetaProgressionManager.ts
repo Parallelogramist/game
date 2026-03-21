@@ -6,12 +6,40 @@
 
 import { calculateUpgradeCost, getPermanentUpgradeById, PERMANENT_UPGRADES, calculateAccountLevel } from '../data/PermanentUpgrades';
 import { SecureStorage } from '../storage';
+import { getAscensionManager } from './AscensionManager';
 
 // localStorage keys
 const STORAGE_KEY_GOLD = 'survivor-meta-gold';
 const STORAGE_KEY_UPGRADES = 'survivor-meta-upgrades';
 const STORAGE_KEY_WORLD_LEVEL = 'survivor-meta-world-level';
 const STORAGE_KEY_STREAK = 'survivor-meta-streak';
+const STORAGE_KEY_RUNS_COMPLETED = 'survivor-meta-runs-completed';
+const STORAGE_KEY_ACHIEVEMENT_BONUSES = 'survivor-meta-achievement-bonuses';
+
+/**
+ * Cumulative permanent stat bonuses earned from achievements.
+ */
+interface AchievementBonusState {
+  damage: number;         // % bonus to all damage
+  health: number;         // Flat HP bonus
+  speed: number;          // % speed bonus
+  xp: number;             // % XP bonus
+  gold: number;           // % gold bonus
+  critChance: number;     // Flat crit chance bonus
+  cooldown: number;       // % cooldown reduction
+  dodge: number;          // % dodge bonus
+  attackSpeed: number;    // % attack speed bonus
+  allStats: number;       // % bonus to all stats
+  startingLevel: number;  // Extra starting levels
+}
+
+function createDefaultAchievementBonuses(): AchievementBonusState {
+  return {
+    damage: 0, health: 0, speed: 0, xp: 0, gold: 0,
+    critChance: 0, cooldown: 0, dodge: 0, attackSpeed: 0,
+    allStats: 0, startingLevel: 0,
+  };
+}
 
 // Streak constants
 const MAX_STREAK_BONUS = 10; // Cap streak bonus at 10 victories
@@ -47,12 +75,16 @@ export class MetaProgressionManager {
   private upgradeState: PermanentUpgradeState;
   private worldLevel: number;
   private streakState: StreakState;
+  private runsCompleted: number;
+  private achievementBonuses: AchievementBonusState;
 
   constructor() {
     this.goldBalance = this.loadGold();
     this.upgradeState = this.loadUpgradeState();
     this.worldLevel = this.loadWorldLevel();
     this.streakState = this.loadStreakState();
+    this.runsCompleted = this.loadRunsCompleted();
+    this.achievementBonuses = this.loadAchievementBonuses();
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -309,6 +341,25 @@ export class MetaProgressionManager {
     return totalRefund;
   }
 
+  /**
+   * Reset all upgrades and refund all gold spent. Used by Ascension system.
+   * Returns total gold refunded.
+   */
+  resetAllUpgradesAndRefund(): number {
+    let totalRefund = 0;
+    for (const upgrade of PERMANENT_UPGRADES) {
+      const currentLevel = this.upgradeState[upgrade.id] ?? 0;
+      for (let i = 0; i < currentLevel; i++) {
+        totalRefund += Math.floor(upgrade.baseCost * Math.pow(upgrade.costScaling, i));
+      }
+      this.upgradeState[upgrade.id] = 0;
+    }
+    this.goldBalance += totalRefund;
+    this.saveGold();
+    this.saveUpgradeState();
+    return totalRefund;
+  }
+
   // ─────────────────────────────────────────────────────────────
   // Starting Stat Calculations (applied at game start)
   // ─────────────────────────────────────────────────────────────
@@ -317,18 +368,22 @@ export class MetaProgressionManager {
 
   /**
    * Returns the damage multiplier bonus from permanent upgrades.
-   * Each level gives +5% (0.05) damage.
+   * Level 1 gives +10%, subsequent levels give +5% each.
    */
   getStartingDamageMultiplier(): number {
-    return 1 + (this.upgradeState['damageLevel'] ?? 0) * 0.05;
+    const level = this.upgradeState['damageLevel'] ?? 0;
+    if (level === 0) return 1;
+    return 1 + 0.10 + (level - 1) * 0.05;
   }
 
   /**
    * Returns the attack speed multiplier bonus from permanent upgrades.
-   * Each level gives +8% (0.08) attack speed.
+   * Level 1 gives +15%, subsequent levels give +8% each.
    */
   getStartingAttackSpeedMultiplier(): number {
-    return 1 + (this.upgradeState['attackSpeedLevel'] ?? 0) * 0.08;
+    const level = this.upgradeState['attackSpeedLevel'] ?? 0;
+    if (level === 0) return 1;
+    return 1 + 0.15 + (level - 1) * 0.08;
   }
 
   /**
@@ -399,26 +454,32 @@ export class MetaProgressionManager {
 
   /**
    * Returns the bonus HP from permanent upgrades.
-   * Each level gives +10 HP.
+   * Level 1 gives +25 HP, subsequent levels give +10 HP each.
    */
   getStartingBonusHealth(): number {
-    return (this.upgradeState['healthLevel'] ?? 0) * 10;
+    const level = this.upgradeState['healthLevel'] ?? 0;
+    if (level === 0) return 0;
+    return 25 + (level - 1) * 10;
   }
 
   /**
    * Returns the armor (flat damage reduction).
-   * Each level gives +1 armor.
+   * Level 1 gives 3 armor, subsequent levels give +1 each.
    */
   getStartingArmor(): number {
-    return this.upgradeState['armorLevel'] ?? 0;
+    const level = this.upgradeState['armorLevel'] ?? 0;
+    if (level === 0) return 0;
+    return 3 + (level - 1);
   }
 
   /**
    * Returns HP regeneration per second.
-   * Each level gives +0.5 HP/sec.
+   * Level 1 gives +1.5 HP/sec, subsequent levels give +0.5 HP/sec each.
    */
   getStartingRegen(): number {
-    return (this.upgradeState['regenLevel'] ?? 0) * 0.5;
+    const level = this.upgradeState['regenLevel'] ?? 0;
+    if (level === 0) return 0;
+    return 1.5 + (level - 1) * 0.5;
   }
 
   /**
@@ -456,28 +517,34 @@ export class MetaProgressionManager {
 
   /**
    * Returns the move speed multiplier bonus from permanent upgrades.
-   * Each level gives +5% (0.05) speed.
+   * Level 1 gives +10%, subsequent levels give +5% each.
    */
   getStartingMoveSpeedMultiplier(): number {
-    return 1 + (this.upgradeState['moveSpeedLevel'] ?? 0) * 0.05;
+    const level = this.upgradeState['moveSpeedLevel'] ?? 0;
+    if (level === 0) return 1;
+    return 1 + 0.10 + (level - 1) * 0.05;
   }
 
   // ═══ RESOURCES ═══
 
   /**
    * Returns the XP gain multiplier.
-   * Each level gives +5%.
+   * Level 1 gives +12%, subsequent levels give +5% each.
    */
   getStartingXPMultiplier(): number {
-    return 1 + (this.upgradeState['xpGainLevel'] ?? 0) * 0.05;
+    const level = this.upgradeState['xpGainLevel'] ?? 0;
+    if (level === 0) return 1;
+    return 1 + 0.12 + (level - 1) * 0.05;
   }
 
   /**
    * Returns the pickup range multiplier.
-   * Each level gives +15%.
+   * Level 1 gives +30%, subsequent levels give +15% each.
    */
   getStartingPickupRangeMultiplier(): number {
-    return 1 + (this.upgradeState['pickupRangeLevel'] ?? 0) * 0.15;
+    const level = this.upgradeState['pickupRangeLevel'] ?? 0;
+    if (level === 0) return 1;
+    return 1 + 0.30 + (level - 1) * 0.15;
   }
 
   /**
@@ -973,12 +1040,12 @@ export class MetaProgressionManager {
     playerLevel: number,
     hasWon: boolean
   ): number {
-    // No minimum - earn what you earn, prevents start-quit exploit
     const killGold = Math.floor(killCount * 2.5);
     const timeGold = Math.floor(gameTimeSeconds / 10);
     const levelGold = playerLevel * 10;
 
-    let totalGold = killGold + timeGold + levelGold;
+    // Minimum gold floor to prevent zero-progress runs
+    let totalGold = Math.max(killGold + timeGold + levelGold, 50);
 
     // Victory bonus (defeated boss)
     if (hasWon) {
@@ -994,7 +1061,48 @@ export class MetaProgressionManager {
     // Apply streak gold multiplier (+5% per streak, max +50%)
     totalGold = Math.floor(totalGold * this.getStreakGoldMultiplier());
 
+    // Apply achievement gold bonus
+    const achievementGoldBonus = this.achievementBonuses.gold;
+    if (achievementGoldBonus > 0) {
+      totalGold = Math.floor(totalGold * (1 + achievementGoldBonus / 100));
+    }
+
+    // Apply ascension gold multiplier
+    const ascensionGoldMult = getAscensionManager().getGoldMultiplier();
+    if (ascensionGoldMult > 1) {
+      totalGold = Math.floor(totalGold * ascensionGoldMult);
+    }
+
+    // Newcomer bonus for first 10 runs (tapering multiplier)
+    const newcomerMultiplier = this.getNewcomerMultiplier();
+    if (newcomerMultiplier > 1) {
+      totalGold = Math.floor(totalGold * newcomerMultiplier);
+    }
+
+    // Track completed runs for newcomer bonus
+    this.runsCompleted++;
+    this.saveRunsCompleted();
+
     return totalGold;
+  }
+
+  /**
+   * Returns the newcomer gold multiplier based on completed runs.
+   * Tapering bonus: 3x for first run down to 1.25x for runs 6-10, then 1x.
+   */
+  getNewcomerMultiplier(): number {
+    const completedRuns = this.runsCompleted;
+    if (completedRuns === 0) return 3.0;
+    if (completedRuns === 1) return 2.5;
+    if (completedRuns === 2) return 2.0;
+    if (completedRuns === 3) return 1.75;
+    if (completedRuns === 4) return 1.5;
+    if (completedRuns < 10) return 1.25;
+    return 1;
+  }
+
+  getRunsCompleted(): number {
+    return this.runsCompleted;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1096,6 +1204,66 @@ export class MetaProgressionManager {
     } catch {
       console.warn('Could not save streak state to storage');
     }
+  }
+
+  private loadRunsCompleted(): number {
+    try {
+      const stored = SecureStorage.getItem(STORAGE_KEY_RUNS_COMPLETED);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!isNaN(parsed)) return parsed;
+      }
+    } catch {
+      console.warn('Could not load runs completed from storage');
+    }
+    return 0;
+  }
+
+  private saveRunsCompleted(): void {
+    try {
+      SecureStorage.setItem(STORAGE_KEY_RUNS_COMPLETED, String(this.runsCompleted));
+    } catch {
+      console.warn('Could not save runs completed to storage');
+    }
+  }
+
+  private loadAchievementBonuses(): AchievementBonusState {
+    const defaults = createDefaultAchievementBonuses();
+    try {
+      const stored = SecureStorage.getItem(STORAGE_KEY_ACHIEVEMENT_BONUSES);
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<AchievementBonusState>;
+        return { ...defaults, ...parsed };
+      }
+    } catch {
+      console.warn('Could not load achievement bonuses from storage');
+    }
+    return defaults;
+  }
+
+  private saveAchievementBonuses(): void {
+    try {
+      SecureStorage.setItem(STORAGE_KEY_ACHIEVEMENT_BONUSES, JSON.stringify(this.achievementBonuses));
+    } catch {
+      console.warn('Could not save achievement bonuses to storage');
+    }
+  }
+
+  /**
+   * Add a permanent stat bonus from an achievement reward.
+   */
+  addAchievementBonus(bonusId: string, value: number): void {
+    if (bonusId in this.achievementBonuses) {
+      (this.achievementBonuses as unknown as Record<string, number>)[bonusId] += value;
+      this.saveAchievementBonuses();
+    }
+  }
+
+  /**
+   * Get all achievement stat bonuses for applying at run start.
+   */
+  getAchievementBonuses(): AchievementBonusState {
+    return { ...this.achievementBonuses };
   }
 
   /**

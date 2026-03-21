@@ -21,7 +21,7 @@ import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setX
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats, setLifeStealCallback, setCollisionDamageDealtCallback } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
-import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
+import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems } from '../../ecs/systems/XPGemSystem';
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem } from '../../ecs/systems/HealthPickupSystem';
@@ -32,6 +32,7 @@ import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMusicManager } from '../../audio/MusicManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
 import { toNeonPair, PLAYER_NEON } from '../../visual/NeonColors';
 import { createGlowingShape, VisualQuality } from '../../visual/GlowGraphics';
@@ -47,7 +48,7 @@ import { getSettingsManager } from '../../settings';
 import { SecureStorage } from '../../storage';
 import { updateFrameCache, resetFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
 import { resetEnemySpatialHash } from '../../utils/SpatialHash';
-import { getAchievementManager, MilestoneDefinition, MilestoneReward } from '../../achievements';
+import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
 
@@ -205,13 +206,13 @@ export class GameScene extends Phaser.Scene {
   // Weapon system
   private weaponManager!: WeaponManager;
 
-  // Miniboss spawn timing
+  // Miniboss spawn timing — typeIds are shuffled each run for variety
   private minibossSpawnTimes: { typeId: string; time: number; spawned: boolean }[] = [
-    { typeId: 'glutton', time: 180, spawned: false },      // 3 min
-    { typeId: 'swarm_mother', time: 240, spawned: false }, // 4 min
+    { typeId: 'glutton', time: 150, spawned: false },      // 2.5 min
+    { typeId: 'swarm_mother', time: 210, spawned: false }, // 3.5 min
     { typeId: 'charger', time: 300, spawned: false },      // 5 min
-    { typeId: 'necromancer', time: 360, spawned: false },  // 6 min
-    { typeId: 'twin_a', time: 420, spawned: false },       // 7 min (spawns both twins)
+    { typeId: 'necromancer', time: 390, spawned: false },  // 6.5 min
+    { typeId: 'twin_a', time: 480, spawned: false },       // 8 min (spawns both twins)
   ];
 
   // Boss cycling system - cycles through bosses each run
@@ -272,6 +273,7 @@ export class GameScene extends Phaser.Scene {
   private autoBuyToggleText: Phaser.GameObjects.Text | null = null;
   private autoBuyToggleBg: Phaser.GameObjects.Rectangle | null = null;
   private autoBuyKeyHandler: (() => void) | null = null;
+  private resumeHandler: (() => void) | null = null;
 
   // Health-Adaptive intelligence tracking (for auto-upgrade tier 3)
   private recentDamageTaken: number = 0; // Reset each level-up
@@ -360,6 +362,39 @@ export class GameScene extends Phaser.Scene {
         this.applyMilestoneReward(reward);
       }
     );
+
+    // Set up achievement unlock callback to show toast and deliver rewards
+    achievementManager.setAchievementUnlockCallback(
+      (achievement: AchievementDefinition) => {
+        const rewardParts: string[] = [];
+        const metaMgr = getMetaProgressionManager();
+
+        // Deliver primary reward
+        if (achievement.reward.type === 'gold') {
+          metaMgr.addGold(achievement.reward.value);
+          rewardParts.push(achievement.reward.description);
+        } else if (achievement.reward.type === 'stat_bonus' && achievement.reward.statBonusId) {
+          metaMgr.addAchievementBonus(achievement.reward.statBonusId, achievement.reward.value);
+          rewardParts.push(achievement.reward.description);
+        }
+
+        // Deliver bonus reward (achievements can have both gold + stat bonus)
+        if (achievement.bonusReward) {
+          if (achievement.bonusReward.type === 'gold') {
+            metaMgr.addGold(achievement.bonusReward.value);
+          } else if (achievement.bonusReward.type === 'stat_bonus' && achievement.bonusReward.statBonusId) {
+            metaMgr.addAchievementBonus(achievement.bonusReward.statBonusId, achievement.bonusReward.value);
+          }
+          rewardParts.push(achievement.bonusReward.description);
+        }
+
+        this.toastManager.showAchievementToast(
+          achievement.name,
+          rewardParts.join(' + '),
+          achievement.icon
+        );
+      }
+    );
     this.damageCooldown = 0;
     this.lastTrackId = '';
     this.isGameOver = false;
@@ -381,9 +416,18 @@ export class GameScene extends Phaser.Scene {
       bar.container.destroy();
     }
     this.activeBossHealthBars = [];
-    // Reset miniboss spawn tracking
+    // Reset miniboss spawn tracking and shuffle order for variety
     for (const miniboss of this.minibossSpawnTimes) {
       miniboss.spawned = false;
+    }
+    // Fisher-Yates shuffle of typeIds while keeping time slots fixed
+    const typeIds = this.minibossSpawnTimes.map(entry => entry.typeId);
+    for (let i = typeIds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [typeIds[i], typeIds[j]] = [typeIds[j], typeIds[i]];
+    }
+    for (let i = 0; i < this.minibossSpawnTimes.length; i++) {
+      this.minibossSpawnTimes[i].typeId = typeIds[i];
     }
 
     // Initialize ECS world
@@ -509,8 +553,34 @@ export class GameScene extends Phaser.Scene {
     // ═══ SPAWNING ═══
     this.playerStats.treasureInterval = metaManager.getStartingTreasureInterval();
 
+    // ═══ ACHIEVEMENT BONUSES ═══
+    const achievementBonuses = metaManager.getAchievementBonuses();
+    const allStatsMult = 1 + achievementBonuses.allStats / 100;
+    this.playerStats.damageMultiplier *= (1 + achievementBonuses.damage / 100) * allStatsMult;
+    this.playerStats.maxHealth += achievementBonuses.health;
+    this.playerStats.currentHealth = this.playerStats.maxHealth;
+    this.playerStats.moveSpeed *= (1 + achievementBonuses.speed / 100) * allStatsMult;
+    this.playerStats.xpMultiplier *= (1 + achievementBonuses.xp / 100);
+    this.playerStats.critChance += achievementBonuses.critChance / 100;
+    this.playerStats.cooldownMultiplier *= Math.max(0.5, 1 - achievementBonuses.cooldown / 100);
+    this.playerStats.dodgeChance += achievementBonuses.dodge / 100;
+    this.playerStats.attackSpeedMultiplier *= (1 + achievementBonuses.attackSpeed / 100) * allStatsMult;
+
+    // ═══ ASCENSION BONUSES ═══
+    const ascensionManager = getAscensionManager();
+    const ascensionStatMult = ascensionManager.getStatMultiplier();
+    if (ascensionStatMult > 1) {
+      this.playerStats.damageMultiplier *= ascensionStatMult;
+      this.playerStats.attackSpeedMultiplier *= ascensionStatMult;
+      this.playerStats.moveSpeed *= ascensionStatMult;
+    }
+    this.playerStats.weaponSlots += ascensionManager.getBonusWeaponSlots();
+    this.playerStats.gemValueMultiplier *= ascensionManager.getXPGemMultiplier();
+
     // ═══ STARTING LEVEL (triggers level-ups at start) ═══
-    const startingLevel = metaManager.getStartingLevel();
+    const achievementStartingLevelBonus = achievementBonuses.startingLevel;
+    const ascensionStartingLevelBonus = ascensionManager.getBonusStartingLevel();
+    const startingLevel = metaManager.getStartingLevel() + achievementStartingLevelBonus + ascensionStartingLevelBonus;
     if (startingLevel > 1) {
       // Queue up level-ups for starting level bonus
       for (let i = 1; i < startingLevel; i++) {
@@ -626,6 +696,7 @@ export class GameScene extends Phaser.Scene {
     this.weaponManager.addWeapon(startingWeapon);
     // Discover the starting weapon in codex
     getCodexManager().discoverWeapon('projectile', startingWeapon.name);
+    getCodexManager().recordWeaponUsage('projectile', 0, 0);
 
     // Apply meta-progression stats to player and weapons
     this.syncStatsToPlayer();
@@ -640,12 +711,12 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-ESC', this.escKeyHandler);
 
     // Setup scene resume handler to show pause menu when returning from settings
-    this.events.on('resume', () => {
-      // When resuming from SettingsScene, show pause menu again
+    this.resumeHandler = () => {
       if (this.isPaused && !this.isPauseMenuOpen) {
         this.showPauseMenu();
       }
-    });
+    };
+    this.events.on('resume', this.resumeHandler);
 
     // Setup auto-buy toggle key (T) - store handler reference for cleanup
     this.autoBuyKeyHandler = () => {
@@ -2146,6 +2217,18 @@ export class GameScene extends Phaser.Scene {
     // Run ECS systems
     inputSystem(this.world, this.inputState);
     enemyAISystem(this.world, deltaSeconds);
+
+    // Update Wraith sprite alpha based on phase state
+    const wraithCheckEnemies = getFrameCacheEnemyIds();
+    for (const enemyId of wraithCheckEnemies) {
+      if (EnemyAI.aiType[enemyId] === EnemyAIType.Wraith) {
+        const wraithSprite = getSprite(enemyId);
+        if (wraithSprite) {
+          wraithSprite.alpha = EnemyAI.state[enemyId] === 1 ? 0.2 : 1.0;
+        }
+      }
+    }
+
     movementSystem(this.world, deltaSeconds);
 
     // Process knockback for enemies
@@ -2220,6 +2303,11 @@ export class GameScene extends Phaser.Scene {
     const enemies = getFrameCacheEnemyIds();
 
     for (const enemyId of enemies) {
+      // Skip phased Wraiths (state 1 = phased, no contact damage)
+      if (EnemyAI.aiType[enemyId] === EnemyAIType.Wraith && EnemyAI.state[enemyId] === 1) {
+        continue;
+      }
+
       const enemyX = Transform.x[enemyId];
       const enemyY = Transform.y[enemyId];
 
@@ -2250,6 +2338,10 @@ export class GameScene extends Phaser.Scene {
       // Apply knockback to position
       Transform.x[entityId] += velocityX * deltaSeconds;
       Transform.y[entityId] += velocityY * deltaSeconds;
+
+      // Clamp to screen bounds so enemies can't be knocked off-screen
+      Transform.x[entityId] = Math.max(0, Math.min(GAME_WIDTH, Transform.x[entityId]));
+      Transform.y[entityId] = Math.max(0, Math.min(GAME_HEIGHT, Transform.y[entityId]));
 
       // Exponential decay (fast falloff)
       const decay = 0.001;
@@ -3020,6 +3112,10 @@ export class GameScene extends Phaser.Scene {
     if (streakMultiplier > 1) {
       breakdownLines.push(`Win Streak: ×${streakMultiplier.toFixed(2)}`);
     }
+    const newcomerMultiplier = metaManager.getNewcomerMultiplier();
+    if (newcomerMultiplier > 1) {
+      breakdownLines.push(`Newcomer Bonus: ×${newcomerMultiplier.toFixed(2)}`);
+    }
 
     const breakdownText = this.add.text(
       GAME_WIDTH / 2,
@@ -3037,10 +3133,11 @@ export class GameScene extends Phaser.Scene {
     breakdownText.setDepth(PAUSE_MENU_DEPTH + 1);
     breakdownText.setName('shopConfirmBreakdown');
 
-    // Total gold (40px below breakdown bottom)
+    // Total gold (24px below breakdown bottom)
+    const totalY = breakdownText.y + breakdownText.height + 24;
     const totalText = this.add.text(
       GAME_WIDTH / 2,
-      dialogCenterY + 72,
+      totalY,
       `Total: +${finalTotal} gold`,
       {
         fontSize: '32px',
@@ -3053,10 +3150,10 @@ export class GameScene extends Phaser.Scene {
     totalText.setDepth(PAUSE_MENU_DEPTH + 1);
     totalText.setName('shopConfirmTotal');
 
-    // Buttons (72px below total)
+    // Buttons (48px below total)
     const confirmButtonWidth = 160;
     const confirmButtonHeight = 50;
-    const buttonY = dialogCenterY + 152;
+    const buttonY = totalY + 48 + confirmButtonHeight / 2;
 
     const confirmButtonBg = this.add.rectangle(
       GAME_WIDTH / 2 - 100,
@@ -3182,6 +3279,8 @@ export class GameScene extends Phaser.Scene {
       damageDealt: this.totalDamageDealt,
       damageTaken: this.totalDamageTaken,
       goldEarned,
+      accountLevel: metaManager.getAccountLevel(),
+      bestStreak: metaManager.getBestStreak(),
     });
 
     // Record run end statistics in codex
@@ -3315,7 +3414,7 @@ export class GameScene extends Phaser.Scene {
     // Button dimensions and positions
     const buttonWidth = 180;
     const buttonHeight = 45;
-    const buttonY = GAME_HEIGHT / 2 + 150;
+    const buttonY = GAME_HEIGHT / 2 + 175;
     const continueButtonX = GAME_WIDTH / 2 - 100;
     const nextWorldButtonX = GAME_WIDTH / 2 + 100;
 
@@ -3363,10 +3462,10 @@ export class GameScene extends Phaser.Scene {
     nextWorldButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
     nextWorldButtonText.setName('victoryNextWorldButtonText');
 
-    // Gold preview below Next World button
+    // Gold preview centered below buttons
     const goldPreviewText = this.add.text(
-      nextWorldButtonX,
-      buttonY + 35,
+      GAME_WIDTH / 2,
+      buttonY + 38,
       `+${goldToEarn} gold`,
       {
         fontSize: '16px',
@@ -3506,8 +3605,21 @@ export class GameScene extends Phaser.Scene {
     );
     metaManager.addGold(goldEarned);
 
-    // Record run end statistics in codex (only if not already recorded in showVictory)
+    // Record run end statistics (only if not already recorded in showVictory)
     if (!this.hasWon) {
+      getAchievementManager().recordRunEnd({
+        wasVictory: false,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        survivalTimeSeconds: this.gameTime,
+        worldLevel: metaManager.getWorldLevel(),
+        damageDealt: this.totalDamageDealt,
+        damageTaken: this.totalDamageTaken,
+        goldEarned,
+        accountLevel: metaManager.getAccountLevel(),
+        bestStreak: metaManager.getBestStreak(),
+      });
+
       getCodexManager().recordRunEnd(
         this.gameTime,
         this.killCount,
@@ -3717,7 +3829,7 @@ export class GameScene extends Phaser.Scene {
 
   private spawnEnemy(typeOverride?: EnemyTypeDefinition): void {
     // Get enemy type based on game time or override (world level makes elites spawn earlier)
-    const enemyType = typeOverride || getRandomEnemyType(this.gameTime, this.worldLevelSpawnReduction);
+    const enemyType = typeOverride || getRandomEnemyType(this.gameTime, this.worldLevelSpawnReduction, this.worldLevel);
     // Scale stats with both time and world level multipliers
     const scaledStats = getScaledStats(enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
 
@@ -4829,6 +4941,9 @@ export class GameScene extends Phaser.Scene {
       // Track upgrade acquisition for achievements
       achievementManager.recordUpgradeAcquired(upgrade.id);
 
+      // Discover upgrade in codex
+      getCodexManager().discoverUpgrade(upgrade.id, upgrade.name);
+
       // Find and update the original upgrade by ID (not the copy)
       const originalUpgrade = this.upgrades.find(u => u.id === upgrade.id);
       if (originalUpgrade) {
@@ -4852,6 +4967,7 @@ export class GameScene extends Phaser.Scene {
           achievementManager.recordWeaponAcquired(upgrade.weaponId);
           // Discover weapon in codex
           getCodexManager().discoverWeapon(upgrade.weaponId, newWeapon.name);
+          getCodexManager().recordWeaponUsage(upgrade.weaponId, 0, 0);
         }
       } else {
         // Level up existing weapon
@@ -5540,6 +5656,22 @@ export class GameScene extends Phaser.Scene {
       this.autoBuyKeyHandler = null;
     }
 
+    // Remove resume handler
+    if (this.resumeHandler) {
+      this.events.off('resume', this.resumeHandler);
+      this.resumeHandler = null;
+    }
+
+    // Remove victory keyboard handlers (if victory overlay was showing)
+    if (this.victoryContinueHandler) {
+      this.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
+      this.victoryContinueHandler = null;
+    }
+    if (this.victoryNextWorldHandler) {
+      this.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
+      this.victoryNextWorldHandler = null;
+    }
+
     // Clean up joystick manager
     if (this.joystickManager) {
       this.joystickManager.destroy();
@@ -5585,6 +5717,14 @@ export class GameScene extends Phaser.Scene {
     // Clean up player plasma core visual
     if (this.playerPlasmaCore) {
       this.playerPlasmaCore.destroy();
+    }
+
+    // Clean up grid background and trail manager
+    if (this.gridBackground) {
+      this.gridBackground.destroy();
+    }
+    if (this.trailManager) {
+      this.trailManager.destroy();
     }
 
     // Hide any open menus/dialogs (removes their listeners)

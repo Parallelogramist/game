@@ -42,9 +42,9 @@ const OFFENSE_UPGRADES: PermanentUpgrade[] = [
     category: 'offense',
     unlockLevel: 0,
     maxLevel: 10,
-    baseCost: 75, // Reduced from 100 for smoother early progression
-    costScaling: 1.35, // Reduced from 1.5 for smoother curve
-    getEffect: (level) => (level > 0 ? `+${level * 5}% damage` : 'No bonus'),
+    baseCost: 75,
+    costScaling: 1.25,
+    getEffect: (level) => (level > 0 ? `+${10 + (level - 1) * 5}% damage` : 'No bonus'),
   },
   {
     id: 'attackSpeedLevel',
@@ -54,9 +54,9 @@ const OFFENSE_UPGRADES: PermanentUpgrade[] = [
     category: 'offense',
     unlockLevel: 0,
     maxLevel: 10,
-    baseCost: 80, // Reduced from 120 for smoother early progression
-    costScaling: 1.35, // Reduced from 1.6 for smoother curve
-    getEffect: (level) => (level > 0 ? `+${level * 8}% attack speed` : 'No bonus'),
+    baseCost: 80,
+    costScaling: 1.25,
+    getEffect: (level) => (level > 0 ? `+${15 + (level - 1) * 8}% attack speed` : 'No bonus'),
   },
   {
     id: 'projectileCountLevel',
@@ -224,9 +224,9 @@ const DEFENSE_UPGRADES: PermanentUpgrade[] = [
     category: 'defense',
     unlockLevel: 0,
     maxLevel: 10,
-    baseCost: 60, // Reduced from 80 for smoother early progression
-    costScaling: 1.35, // Reduced from 1.4 for smoother curve
-    getEffect: (level) => (level > 0 ? `+${level * 10} max HP` : 'No bonus'),
+    baseCost: 60,
+    costScaling: 1.25,
+    getEffect: (level) => (level > 0 ? `+${25 + (level - 1) * 10} max HP` : 'No bonus'),
   },
   {
     id: 'armorLevel',
@@ -236,9 +236,9 @@ const DEFENSE_UPGRADES: PermanentUpgrade[] = [
     category: 'defense',
     unlockLevel: 0,
     maxLevel: 8,
-    baseCost: 80, // Reduced from 100 for smoother early progression
-    costScaling: 1.4, // Reduced from 1.5 for smoother curve
-    getEffect: (level) => (level > 0 ? `-${level} damage taken` : 'No bonus'),
+    baseCost: 80,
+    costScaling: 1.3,
+    getEffect: (level) => (level > 0 ? `-${3 + (level - 1)} damage taken` : 'No bonus'),
   },
   {
     id: 'regenLevel',
@@ -248,9 +248,9 @@ const DEFENSE_UPGRADES: PermanentUpgrade[] = [
     category: 'defense',
     unlockLevel: 0,
     maxLevel: 10,
-    baseCost: 100, // Reduced from 120 for smoother early progression
-    costScaling: 1.4, // Reduced from 1.5 for smoother curve
-    getEffect: (level) => (level > 0 ? `+${level * 0.5} HP/sec` : 'No bonus'),
+    baseCost: 100,
+    costScaling: 1.3,
+    getEffect: (level) => (level > 0 ? `+${(1.5 + (level - 1) * 0.5).toFixed(1)} HP/sec` : 'No bonus'),
   },
 
   // Tier 2 - Unlock Level 10
@@ -395,9 +395,9 @@ const MOVEMENT_UPGRADES: PermanentUpgrade[] = [
     category: 'movement',
     unlockLevel: 0,
     maxLevel: 10,
-    baseCost: 70, // Reduced from 100 for smoother early progression
-    costScaling: 1.35, // Reduced from 1.5 for smoother curve
-    getEffect: (level) => (level > 0 ? `+${level * 5}% speed` : 'No bonus'),
+    baseCost: 70,
+    costScaling: 1.25,
+    getEffect: (level) => (level > 0 ? `+${10 + (level - 1) * 5}% speed` : 'No bonus'),
   },
 
   // Tier 2 - Unlock Level 10
@@ -493,9 +493,9 @@ const RESOURCE_UPGRADES: PermanentUpgrade[] = [
     category: 'resources',
     unlockLevel: 0,
     maxLevel: 10,
-    baseCost: 75, // Reduced from 100 for smoother early progression
-    costScaling: 1.35, // Reduced from 1.5 for smoother curve
-    getEffect: (level) => (level > 0 ? `+${level * 5}% XP` : 'No bonus'),
+    baseCost: 75,
+    costScaling: 1.25,
+    getEffect: (level) => (level > 0 ? `+${12 + (level - 1) * 5}% XP` : 'No bonus'),
   },
   {
     id: 'pickupRangeLevel',
@@ -505,9 +505,9 @@ const RESOURCE_UPGRADES: PermanentUpgrade[] = [
     category: 'resources',
     unlockLevel: 0,
     maxLevel: 8,
-    baseCost: 65, // Reduced from 80 for smoother early progression
-    costScaling: 1.35, // Reduced from 1.4 for smoother curve
-    getEffect: (level) => (level > 0 ? `+${level * 15}% pickup range` : 'No bonus'),
+    baseCost: 65,
+    costScaling: 1.25,
+    getEffect: (level) => (level > 0 ? `+${30 + (level - 1) * 15}% pickup range` : 'No bonus'),
   },
   {
     id: 'goldGainLevel',
@@ -627,8 +627,8 @@ const UTILITY_UPGRADES: PermanentUpgrade[] = [
     category: 'utility',
     unlockLevel: 0,
     maxLevel: 10,
-    baseCost: 80, // Reduced from 100 for smoother early progression
-    costScaling: 1.35, // Reduced from 1.4 for smoother curve
+    baseCost: 80,
+    costScaling: 1.25,
     getEffect: (level) => (level > 0 ? `+${level * 2} rerolls per run` : 'No bonus'),
   },
   {

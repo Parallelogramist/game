@@ -1,6 +1,8 @@
 import { defineQuery, IWorld, hasComponent } from 'bitecs';
 import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, EnemyType, Health, StatusEffect } from '../components';
 import { EnemyAIType } from '../../enemies/EnemyTypes';
+import { getEnemySpatialHash } from '../../utils/SpatialHash';
+import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 // OPTIMIZATION: Pre-computed Math constants to avoid repeated calculations
 const PI_HALF = Math.PI / 2;
 const PI_TWO = Math.PI * 2;
@@ -138,16 +140,16 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         updateCircleAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Swarm:
-        updateSwarmAI(enemyId, playerX, playerY);
+        updateSwarmAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Tank:
-        updateTankAI(enemyId, playerX, playerY);
+        updateTankAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Exploder:
-        updateExploderAI(enemyId, playerX, playerY);
+        updateExploderAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Splitter:
-        updateChaseAI(enemyId, playerX, playerY); // Same as chase
+        updateSplitterAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Shooter:
         updateShooterAI(enemyId, playerX, playerY, deltaTime);
@@ -165,7 +167,25 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         updateTeleporterAI(enemyId, playerX, playerY, deltaTime);
         break;
       case EnemyAIType.Giant:
-        updateGiantAI(enemyId, playerX, playerY);
+        updateGiantAI(enemyId, playerX, playerY, deltaTime);
+        break;
+      case EnemyAIType.Lurker:
+        updateLurkerAI(enemyId, playerX, playerY, deltaTime);
+        break;
+      case EnemyAIType.Warden:
+        updateWardenAI(enemyId, playerX, playerY, deltaTime);
+        break;
+      case EnemyAIType.Wraith:
+        updateWraithAI(enemyId, playerX, playerY, deltaTime);
+        break;
+      case EnemyAIType.Rallier:
+        updateRallierAI(enemyId, playerX, playerY, deltaTime);
+        break;
+      case EnemyAIType.Ghost:
+        updateGhostAI(enemyId, playerX, playerY, deltaTime);
+        break;
+      case EnemyAIType.SplitterMini:
+        updateSplitterMiniAI(enemyId, playerX, playerY, deltaTime);
         break;
       // Minibosses
       case EnemyAIType.Glutton:
@@ -226,8 +246,10 @@ function updateChaseAI(enemyId: number, playerX: number, playerY: number): void 
 
   if (distance > 1) {
     const speed = Velocity.speed[enemyId];
-    Velocity.x[enemyId] = (dx / distance) * speed;
-    Velocity.y[enemyId] = (dy / distance) * speed;
+    // Distance-aware speed: amble at range, lunge when close
+    const distanceScale = distance > 300 ? 0.9 : distance < 150 ? 1.1 : 1.0;
+    Velocity.x[enemyId] = (dx / distance) * speed * distanceScale;
+    Velocity.y[enemyId] = (dy / distance) * speed * distanceScale;
     Transform.rotation[enemyId] = Math.atan2(dy, dx);
   } else {
     Velocity.x[enemyId] = 0;
@@ -252,16 +274,20 @@ function updateZigzagAI(
 
   if (distance > 1) {
     const speed = Velocity.speed[enemyId];
+    const phase = EnemyAI.phase[enemyId];
 
-    // Update phase for zigzag pattern
-    EnemyAI.phase[enemyId] += deltaTime * 6; // Oscillation speed
+    // Variable phase speed: oscillates between 3-7 rad/s instead of constant 6
+    EnemyAI.phase[enemyId] += deltaTime * (5 + Math.sin(phase * 0.7) * 2);
 
     // Calculate perpendicular vector
     const perpX = -dy / distance;
     const perpY = dx / distance;
 
-    // Zigzag offset
-    const zigzagAmount = Math.sin(EnemyAI.phase[enemyId]) * 0.7;
+    // Layered oscillation — irrational ratio means it never exactly repeats
+    const rawZigzag = Math.sin(phase) * 0.5 + Math.sin(phase * 2.3) * 0.35;
+    // Distance-sensitive amplitude: full zigzag at range, tightens at close range
+    const amplitudeScale = 0.4 + Math.min(distance / 300, 1.0) * 0.6;
+    const zigzagAmount = rawZigzag * amplitudeScale;
 
     // Combine forward movement with zigzag
     const moveX = (dx / distance) + perpX * zigzagAmount;
@@ -294,6 +320,11 @@ function updateDashAI(
     // Pausing - slow movement
     Velocity.x[enemyId] *= 0.9;
     Velocity.y[enemyId] *= 0.9;
+
+    // Shake telegraph in final 0.5s before dash
+    if (timer > 1.0) {
+      Transform.x[enemyId] += (Math.random() - 0.5) * 3;
+    }
 
     if (timer > 1.5) {
       // Start dash - store target
@@ -337,7 +368,8 @@ function updateCircleAI(
   const distance = Math.sqrt(dx * dx + dy * dy);
   const speed = Velocity.speed[enemyId];
 
-  const preferredDistance = 150; // Preferred orbit distance
+  // Breathing orbit: oscillates between 120-180px
+  const preferredDistance = 150 + Math.sin(EnemyAI.phase[enemyId] * 0.5) * 30;
 
   if (distance > 1) {
     // Calculate tangent direction (perpendicular to radius)
@@ -367,27 +399,167 @@ function updateCircleAI(
 }
 
 /**
- * Swarm - very simple, fast direct chase
+ * Swarm - boids-inspired flocking toward player.
+ * Chase (60%) + Separation (25%) + Cohesion (15%) with nearby swarm neighbors.
  */
-function updateSwarmAI(enemyId: number, playerX: number, playerY: number): void {
-  updateChaseAI(enemyId, playerX, playerY);
-  // Swarm enemies just chase faster (speed is set in type definition)
+function updateSwarmAI(enemyId: number, playerX: number, playerY: number, _deltaTime: number): void {
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance <= 1) {
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+    return;
+  }
+
+  const speed = Velocity.speed[enemyId];
+
+  // Chase vector (normalized toward player)
+  let chaseX = dx / distance;
+  let chaseY = dy / distance;
+
+  // Query nearby entities via spatial hash
+  let separationX = 0, separationY = 0;
+  let cohesionX = 0, cohesionY = 0;
+  let neighborCount = 0;
+
+  const spatialHash = getEnemySpatialHash();
+  const nearby = spatialHash.query(enemyX, enemyY, 60);
+
+  for (let i = 0; i < nearby.length; i++) {
+    const neighbor = nearby[i];
+    if (neighbor.id === enemyId) continue;
+    // Only flock with other Swarm enemies
+    if (EnemyAI.aiType[neighbor.id] !== EnemyAIType.Swarm) continue;
+
+    const ox = neighbor.x;
+    const oy = neighbor.y;
+    const ndx = enemyX - ox;
+    const ndy = enemyY - oy;
+    const neighborDist = Math.sqrt(ndx * ndx + ndy * ndy);
+
+    if (neighborDist < 1) continue;
+
+    // Separation: push away from neighbors within 25px
+    if (neighborDist < 25) {
+      separationX += ndx / neighborDist;
+      separationY += ndy / neighborDist;
+    }
+
+    // Cohesion: accumulate positions for average
+    cohesionX += ox;
+    cohesionY += oy;
+    neighborCount++;
+  }
+
+  let moveX = chaseX * 0.6;
+  let moveY = chaseY * 0.6;
+
+  // Apply separation (25% weight)
+  const sepMag = Math.sqrt(separationX * separationX + separationY * separationY);
+  if (sepMag > 0) {
+    moveX += (separationX / sepMag) * 0.25;
+    moveY += (separationY / sepMag) * 0.25;
+  }
+
+  // Apply cohesion (15% weight) — steer toward average neighbor position
+  if (neighborCount > 0) {
+    const avgX = cohesionX / neighborCount;
+    const avgY = cohesionY / neighborCount;
+    const cohDx = avgX - enemyX;
+    const cohDy = avgY - enemyY;
+    const cohDist = Math.sqrt(cohDx * cohDx + cohDy * cohDy);
+    if (cohDist > 1) {
+      moveX += (cohDx / cohDist) * 0.15;
+      moveY += (cohDy / cohDist) * 0.15;
+    }
+  }
+
+  // Normalize and apply speed
+  const moveMag = Math.sqrt(moveX * moveX + moveY * moveY);
+  if (moveMag > 0) {
+    Velocity.x[enemyId] = (moveX / moveMag) * speed;
+    Velocity.y[enemyId] = (moveY / moveMag) * speed;
+    Transform.rotation[enemyId] = Math.atan2(moveY, moveX);
+  }
 }
 
 /**
- * Tank - slow, steady movement toward player
+ * Tank - slow march with periodic speed surges
+ * State 0: March at base speed, timer counts up to surge
+ * State 1: Surge at double speed for 0.8s
  */
-function updateTankAI(enemyId: number, playerX: number, playerY: number): void {
-  updateChaseAI(enemyId, playerX, playerY);
-  // Tank AI is same as chase but with slower speed defined in type
+function updateTankAI(enemyId: number, playerX: number, playerY: number, _deltaTime: number): void {
+  const state = EnemyAI.state[enemyId];
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance <= 1) {
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+    return;
+  }
+
+  const baseSpeed = Velocity.speed[enemyId];
+
+  if (state === 0) {
+    // March — chase at base speed
+    Velocity.x[enemyId] = (dx / distance) * baseSpeed;
+    Velocity.y[enemyId] = (dy / distance) * baseSpeed;
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+
+    // Transition to surge after 3.0-4.0s
+    if (EnemyAI.timer[enemyId] > 3.0 + EnemyAI.phase[enemyId]) {
+      EnemyAI.state[enemyId] = 1;
+      EnemyAI.timer[enemyId] = 0;
+      // Store a random offset for next surge timing
+      EnemyAI.phase[enemyId] = Math.random();
+    }
+  } else {
+    // Surge — double speed for 0.8s
+    const surgeSpeed = baseSpeed * 2;
+    Velocity.x[enemyId] = (dx / distance) * surgeSpeed;
+    Velocity.y[enemyId] = (dy / distance) * surgeSpeed;
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+
+    if (EnemyAI.timer[enemyId] > 0.8) {
+      EnemyAI.state[enemyId] = 0;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  }
 }
 
 /**
- * Exploder - fast chase, will explode on death (handled separately)
+ * Exploder - chase with acceleration ramp. Gets faster as it closes in.
+ * Uses phase as accumulator: speed ramps from 1x to 2.5x over time.
  */
-function updateExploderAI(enemyId: number, playerX: number, playerY: number): void {
-  // Chase quickly - the explosion is handled in death logic
-  updateChaseAI(enemyId, playerX, playerY);
+function updateExploderAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance > 1) {
+    // Accumulate acceleration over time
+    EnemyAI.phase[enemyId] = Math.min(EnemyAI.phase[enemyId] + deltaTime * 0.5, 1.5);
+    const speedMultiplier = 1.0 + EnemyAI.phase[enemyId]; // 1x → 2.5x
+
+    const baseSpeed = Velocity.speed[enemyId];
+    const currentSpeed = baseSpeed * speedMultiplier;
+    Velocity.x[enemyId] = (dx / distance) * currentSpeed;
+    Velocity.y[enemyId] = (dy / distance) * currentSpeed;
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+  } else {
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+  }
 }
 
 /**
@@ -418,11 +590,13 @@ function updateShooterAI(
     Velocity.x[enemyId] = (dx / distance) * speed * 0.7;
     Velocity.y[enemyId] = (dy / distance) * speed * 0.7;
   } else {
-    // In sweet spot - strafe slowly
+    // In sweet spot - strafe with direction reversal
     const perpX = -dy / distance;
     const perpY = dx / distance;
-    Velocity.x[enemyId] = perpX * speed * 0.3;
-    Velocity.y[enemyId] = perpY * speed * 0.3;
+    EnemyAI.phase[enemyId] += deltaTime;
+    const strafeDirection = Math.sin(EnemyAI.phase[enemyId] * 2.5) > 0 ? 1 : -1;
+    Velocity.x[enemyId] = perpX * speed * 0.5 * strafeDirection;
+    Velocity.y[enemyId] = perpY * speed * 0.5 * strafeDirection;
   }
 
   Transform.rotation[enemyId] = Math.atan2(dy, dx);
@@ -451,11 +625,30 @@ function updateSniperAI(
   const dy = playerY - enemyY;
   const distance = Math.sqrt(dx * dx + dy * dy);
   const speed = Velocity.speed[enemyId];
+  const state = EnemyAI.state[enemyId];
 
   // Stay at long range
   const preferredDistance = 350;
 
-  if (distance < preferredDistance - 50) {
+  if (distance < 1) {
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+    return;
+  }
+
+  if (state === 1) {
+    // Post-shot scoot: strafe at 1.5x speed for 0.5s
+    const perpX = -dy / distance;
+    const perpY = dx / distance;
+    const scootDirection = EnemyAI.phase[enemyId] > 0.5 ? 1 : -1;
+    Velocity.x[enemyId] = perpX * speed * 1.5 * scootDirection;
+    Velocity.y[enemyId] = perpY * speed * 1.5 * scootDirection;
+
+    if (EnemyAI.timer[enemyId] > 0.5) {
+      EnemyAI.state[enemyId] = 0;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else if (distance < preferredDistance - 50) {
     // Too close - retreat
     Velocity.x[enemyId] = -(dx / distance) * speed * 1.5;
     Velocity.y[enemyId] = -(dy / distance) * speed * 1.5;
@@ -472,10 +665,13 @@ function updateSniperAI(
 
   // Shooting - slower but more accurate
   EnemyAI.shootTimer[enemyId] -= deltaTime;
-  if (EnemyAI.shootTimer[enemyId] <= 0 && projectileSpawnCallback) {
+  if (EnemyAI.shootTimer[enemyId] <= 0 && projectileSpawnCallback && state === 0) {
     const angle = Math.atan2(dy, dx);
     projectileSpawnCallback(enemyX, enemyY, angle, 400, 20);
     EnemyAI.shootTimer[enemyId] = 3.0;
+    // Enter scoot state after firing
+    EnemyAI.state[enemyId] = 1;
+    EnemyAI.timer[enemyId] = 0;
   }
 }
 
@@ -550,15 +746,48 @@ function updateShieldedAI(
   playerY: number,
   deltaTime: number
 ): void {
-  updateChaseAI(enemyId, playerX, playerY);
+  const state = EnemyAI.state[enemyId];
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
 
-  // Shield regeneration logic
+  if (state === 0) {
+    // Advance — chase at 0.8x speed (heavier than Shambler)
+    if (distance > 1) {
+      const speed = Velocity.speed[enemyId] * 0.8;
+      Velocity.x[enemyId] = (dx / distance) * speed;
+      Velocity.y[enemyId] = (dy / distance) * speed;
+      Transform.rotation[enemyId] = Math.atan2(dy, dx);
+    }
+
+    // Transition to brace after 2.5-3.5s
+    if (EnemyAI.timer[enemyId] > 2.5 + EnemyAI.phase[enemyId]) {
+      EnemyAI.state[enemyId] = 1;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else {
+    // Brace — stop and regenerate shield faster
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+
+    if (EnemyAI.timer[enemyId] > 0.7) {
+      EnemyAI.state[enemyId] = 0;
+      EnemyAI.timer[enemyId] = 0;
+      EnemyAI.phase[enemyId] = Math.random(); // Randomize next brace timing
+    }
+  }
+
+  // Shield regeneration logic (3x faster during brace)
   const shieldMax = EnemyType.shieldMax[enemyId];
   if (shieldMax > 0 && EnemyType.shieldCurrent[enemyId] < shieldMax) {
     EnemyType.shieldRegenTimer[enemyId] -= deltaTime;
     if (EnemyType.shieldRegenTimer[enemyId] <= 0) {
+      const regenRate = state === 1 ? 15 : 5;
       EnemyType.shieldCurrent[enemyId] = Math.min(
-        EnemyType.shieldCurrent[enemyId] + 5 * deltaTime,
+        EnemyType.shieldCurrent[enemyId] + regenRate * deltaTime,
         shieldMax
       );
     }
@@ -574,8 +803,37 @@ function updateTeleporterAI(
   playerY: number,
   deltaTime: number
 ): void {
-  // Move toward player normally
-  updateChaseAI(enemyId, playerX, playerY);
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const speed = Velocity.speed[enemyId];
+
+  // Post-teleport pause (state 1)
+  if (EnemyAI.state[enemyId] === 1) {
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+    if (EnemyAI.timer[enemyId] > 0.2) {
+      EnemyAI.state[enemyId] = 0;
+    }
+  } else if (distance > 200) {
+    // Far — approach at 0.6x speed
+    Velocity.x[enemyId] = (dx / distance) * speed * 0.6;
+    Velocity.y[enemyId] = (dy / distance) * speed * 0.6;
+  } else if (distance > 80) {
+    // Mid range — strafe (tangent movement)
+    const tangentX = -dy / distance;
+    const tangentY = dx / distance;
+    Velocity.x[enemyId] = tangentX * speed;
+    Velocity.y[enemyId] = tangentY * speed;
+  } else {
+    // Too close — back away
+    Velocity.x[enemyId] = -(dx / distance) * speed * 0.8;
+    Velocity.y[enemyId] = -(dy / distance) * speed * 0.8;
+  }
+
+  Transform.rotation[enemyId] = Math.atan2(dy, dx);
 
   // Teleport logic
   EnemyAI.specialTimer[enemyId] -= deltaTime;
@@ -588,19 +846,425 @@ function updateTeleporterAI(
     Transform.y[enemyId] = playerY + Math.sin(teleportAngle) * teleportDist;
 
     // Keep on screen
-    Transform.x[enemyId] = Math.max(20, Math.min(1260, Transform.x[enemyId]));
-    Transform.y[enemyId] = Math.max(20, Math.min(700, Transform.y[enemyId]));
+    Transform.x[enemyId] = Math.max(20, Math.min(GAME_WIDTH - 20, Transform.x[enemyId]));
+    Transform.y[enemyId] = Math.max(20, Math.min(GAME_HEIGHT - 20, Transform.y[enemyId]));
 
-    EnemyAI.specialTimer[enemyId] = 2.0 + Math.random() * 1.5; // Random cooldown
+    EnemyAI.specialTimer[enemyId] = 2.0 + Math.random() * 1.5;
+    // Brief pause after materializing
+    EnemyAI.state[enemyId] = 1;
+    EnemyAI.timer[enemyId] = 0;
   }
 }
 
 /**
- * Giant - slow approach, area damage on attack
+ * Giant - slow approach with periodic seismic stomp.
+ * State 0: Lumber toward player
+ * State 1: Windup — stop and shake for 1.0s
+ * State 2: Stomp — deal AOE damage via groundSlamCallback, return to state 0
  */
-function updateGiantAI(enemyId: number, playerX: number, playerY: number): void {
-  // Same as chase but speed is very slow (defined in type)
-  updateChaseAI(enemyId, playerX, playerY);
+function updateGiantAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const state = EnemyAI.state[enemyId];
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (state === 0) {
+    // Lumber — chase at base speed
+    if (distance > 1) {
+      const speed = Velocity.speed[enemyId];
+      Velocity.x[enemyId] = (dx / distance) * speed;
+      Velocity.y[enemyId] = (dy / distance) * speed;
+      Transform.rotation[enemyId] = Math.atan2(dy, dx);
+    }
+
+    // Start stomp windup after 4.0-6.0s
+    if (EnemyAI.timer[enemyId] > 4.0 + EnemyAI.phase[enemyId] * 2.0) {
+      EnemyAI.state[enemyId] = 1;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else if (state === 1) {
+    // Windup — stop and shake for 1.0s (same pattern as Charger)
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+    Transform.x[enemyId] += (Math.random() - 0.5) * 4;
+
+    if (EnemyAI.timer[enemyId] > 1.0) {
+      EnemyAI.state[enemyId] = 2;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else {
+    // Stomp — deal AOE damage
+    if (EnemyAI.timer[enemyId] < deltaTime * 2 && groundSlamCallback) {
+      const stompDamage = EnemyType.baseDamage[enemyId] * 0.5;
+      groundSlamCallback(enemyX, enemyY, 80, stompDamage);
+    }
+
+    // Return to lumber
+    EnemyAI.state[enemyId] = 0;
+    EnemyAI.timer[enemyId] = 0;
+    EnemyAI.phase[enemyId] = Math.random(); // Randomize next stomp timing
+  }
+}
+
+/**
+ * Splitter - wobbling chase that pulses in speed.
+ * Gelatinous feel that hints at splitting mechanic.
+ */
+function updateSplitterAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance > 1) {
+    EnemyAI.phase[enemyId] += deltaTime;
+    const phase = EnemyAI.phase[enemyId];
+    const speed = Velocity.speed[enemyId];
+
+    // Pulsing speed: 0.6x to 1.2x
+    const speedMultiplier = 0.9 + Math.sin(phase * 3) * 0.3;
+
+    // Slight perpendicular drift for wobble
+    const perpX = -dy / distance;
+    const perpY = dx / distance;
+    const wobble = Math.sin(phase * 1.7) * 0.15;
+
+    const moveX = (dx / distance) + perpX * wobble;
+    const moveY = (dy / distance) + perpY * wobble;
+    const moveMag = Math.sqrt(moveX * moveX + moveY * moveY);
+
+    Velocity.x[enemyId] = (moveX / moveMag) * speed * speedMultiplier;
+    Velocity.y[enemyId] = (moveY / moveMag) * speed * speedMultiplier;
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+  }
+}
+
+/**
+ * Ghost - drifting wave chase with sinusoidal sweep.
+ * Ethereal and wavy, clearly distinct from basic chasers.
+ */
+function updateGhostAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance > 1) {
+    EnemyAI.phase[enemyId] += deltaTime * 2;
+    const phase = EnemyAI.phase[enemyId];
+    const speed = Velocity.speed[enemyId];
+
+    // Speed oscillates: faster on approach arcs, slower on drift-away
+    const speedMultiplier = 1.0 + Math.cos(phase) * 0.3;
+
+    // Large perpendicular sweep for ghostly drift
+    const perpX = -dy / distance;
+    const perpY = dx / distance;
+    const sweep = Math.sin(phase) * 0.4;
+
+    const moveX = (dx / distance) + perpX * sweep;
+    const moveY = (dy / distance) + perpY * sweep;
+    const moveMag = Math.sqrt(moveX * moveX + moveY * moveY);
+
+    Velocity.x[enemyId] = (moveX / moveMag) * speed * speedMultiplier;
+    Velocity.y[enemyId] = (moveY / moveMag) * speed * speedMultiplier;
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+  }
+}
+
+/**
+ * Splitter Mini - scatter burst then frantic chase.
+ * State 0: Scatter outward for 0.5s in random direction
+ * State 1: Chase with half-amplitude zigzag
+ */
+function updateSplitterMiniAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const state = EnemyAI.state[enemyId];
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const speed = Velocity.speed[enemyId];
+
+  if (state === 0) {
+    // Scatter — burst outward in direction set by phase at spawn
+    const scatterAngle = EnemyAI.phase[enemyId];
+    Velocity.x[enemyId] = Math.cos(scatterAngle) * speed * 1.5;
+    Velocity.y[enemyId] = Math.sin(scatterAngle) * speed * 1.5;
+    Transform.rotation[enemyId] = scatterAngle;
+
+    if (EnemyAI.timer[enemyId] > 0.5) {
+      EnemyAI.state[enemyId] = 1;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else {
+    // Frantic chase with half-amplitude zigzag
+    const dx = playerX - enemyX;
+    const dy = playerY - enemyY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance > 1) {
+      EnemyAI.phase[enemyId] += deltaTime * 5;
+      const phase = EnemyAI.phase[enemyId];
+
+      const perpX = -dy / distance;
+      const perpY = dx / distance;
+      const zigzag = Math.sin(phase) * 0.25; // Half amplitude
+
+      const moveX = (dx / distance) + perpX * zigzag;
+      const moveY = (dy / distance) + perpY * zigzag;
+      const moveMag = Math.sqrt(moveX * moveX + moveY * moveY);
+
+      Velocity.x[enemyId] = (moveX / moveMag) * speed;
+      Velocity.y[enemyId] = (moveY / moveMag) * speed;
+      Transform.rotation[enemyId] = Math.atan2(moveY, moveX);
+    }
+  }
+}
+
+/**
+ * Lurker - hit-and-run: cautious approach, quick lunge, retreat.
+ * State 0: Approach at 0.7x speed
+ * State 1: Lunge toward stored target at 3.5x speed
+ * State 2: Retreat away from player at 1.3x speed with lateral drift
+ */
+function updateLurkerAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const state = EnemyAI.state[enemyId];
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const speed = Velocity.speed[enemyId];
+
+  if (state === 0) {
+    // Approach cautiously
+    if (distance > 1) {
+      Velocity.x[enemyId] = (dx / distance) * speed * 0.7;
+      Velocity.y[enemyId] = (dy / distance) * speed * 0.7;
+      Transform.rotation[enemyId] = Math.atan2(dy, dx) + PI_HALF;
+    }
+
+    // Transition to lunge when close or after timeout
+    if (distance < 120 || EnemyAI.timer[enemyId] > 4.0) {
+      EnemyAI.targetX[enemyId] = playerX;
+      EnemyAI.targetY[enemyId] = playerY;
+      EnemyAI.state[enemyId] = 1;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else if (state === 1) {
+    // Lunge toward stored target
+    const lungeTargetDx = EnemyAI.targetX[enemyId] - enemyX;
+    const lungeTargetDy = EnemyAI.targetY[enemyId] - enemyY;
+    const lungeDistance = Math.sqrt(lungeTargetDx * lungeTargetDx + lungeTargetDy * lungeTargetDy);
+
+    if (lungeDistance > 10 && EnemyAI.timer[enemyId] < 0.4) {
+      const lungeSpeed = speed * 3.5;
+      Velocity.x[enemyId] = (lungeTargetDx / lungeDistance) * lungeSpeed;
+      Velocity.y[enemyId] = (lungeTargetDy / lungeDistance) * lungeSpeed;
+      Transform.rotation[enemyId] = Math.atan2(lungeTargetDy, lungeTargetDx) + PI_HALF;
+    } else {
+      EnemyAI.state[enemyId] = 2;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else {
+    // Retreat with lateral drift
+    if (distance > 1) {
+      EnemyAI.phase[enemyId] += deltaTime * 3;
+      const lateralDrift = Math.sin(EnemyAI.phase[enemyId]) * 0.3;
+      const perpX = -dy / distance;
+      const perpY = dx / distance;
+
+      const retreatX = -(dx / distance) + perpX * lateralDrift;
+      const retreatY = -(dy / distance) + perpY * lateralDrift;
+      const retreatMag = Math.sqrt(retreatX * retreatX + retreatY * retreatY);
+
+      Velocity.x[enemyId] = (retreatX / retreatMag) * speed * 1.3;
+      Velocity.y[enemyId] = (retreatY / retreatMag) * speed * 1.3;
+      Transform.rotation[enemyId] = Math.atan2(-dy, -dx) + PI_HALF;
+    }
+
+    if (EnemyAI.timer[enemyId] > 1.5) {
+      EnemyAI.state[enemyId] = 0;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  }
+}
+
+/**
+ * Warden - zone control: patrol near player, plant AOE hazards.
+ * State 0: Patrol toward offset point ~200px from player
+ * State 1: Plant — shake windup then fire ground slam AOE
+ * State 2: Reposition to opposite side of player
+ */
+function updateWardenAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const state = EnemyAI.state[enemyId];
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const speed = Velocity.speed[enemyId];
+
+  EnemyAI.specialTimer[enemyId] -= deltaTime;
+
+  if (state === 0) {
+    // Patrol — move toward offset point
+    const targetDx = EnemyAI.targetX[enemyId] - enemyX;
+    const targetDy = EnemyAI.targetY[enemyId] - enemyY;
+    const targetDist = Math.sqrt(targetDx * targetDx + targetDy * targetDy);
+
+    if (targetDist > 20) {
+      Velocity.x[enemyId] = (targetDx / targetDist) * speed;
+      Velocity.y[enemyId] = (targetDy / targetDist) * speed;
+    } else {
+      Velocity.x[enemyId] = 0;
+      Velocity.y[enemyId] = 0;
+    }
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+
+    // Recalculate patrol target every 3.5-4.5s
+    if (EnemyAI.timer[enemyId] > 3.5 + EnemyAI.phase[enemyId]) {
+      const offsetAngle = Math.random() * PI_TWO;
+      EnemyAI.targetX[enemyId] = playerX + Math.cos(offsetAngle) * 200;
+      EnemyAI.targetY[enemyId] = playerY + Math.sin(offsetAngle) * 200;
+      EnemyAI.timer[enemyId] = 0;
+      EnemyAI.phase[enemyId] = Math.random();
+
+      // Transition to plant if slam is ready
+      if (EnemyAI.specialTimer[enemyId] <= 0) {
+        EnemyAI.state[enemyId] = 1;
+        EnemyAI.timer[enemyId] = 0;
+      }
+    }
+  } else if (state === 1) {
+    // Plant — shake windup then AOE
+    Velocity.x[enemyId] = 0;
+    Velocity.y[enemyId] = 0;
+    Transform.x[enemyId] += (Math.random() - 0.5) * 3;
+
+    if (EnemyAI.timer[enemyId] > 0.8) {
+      // Fire ground slam at own position
+      if (groundSlamCallback) {
+        groundSlamCallback(enemyX, enemyY, 50, EnemyType.baseDamage[enemyId]);
+      }
+      EnemyAI.specialTimer[enemyId] = 5.0;
+      EnemyAI.state[enemyId] = 2;
+      EnemyAI.timer[enemyId] = 0;
+    }
+  } else {
+    // Reposition — move to opposite side of player
+    if (distance > 1) {
+      const awayX = -(dx / distance);
+      const awayY = -(dy / distance);
+      Velocity.x[enemyId] = awayX * speed * 1.2;
+      Velocity.y[enemyId] = awayY * speed * 1.2;
+    }
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+
+    if (EnemyAI.timer[enemyId] > 2.0) {
+      // Set new patrol target
+      const offsetAngle = Math.random() * PI_TWO;
+      EnemyAI.targetX[enemyId] = playerX + Math.cos(offsetAngle) * 200;
+      EnemyAI.targetY[enemyId] = playerY + Math.sin(offsetAngle) * 200;
+      EnemyAI.state[enemyId] = 0;
+      EnemyAI.timer[enemyId] = 0;
+      EnemyAI.phase[enemyId] = Math.random();
+    }
+  }
+}
+
+/**
+ * Wraith - phasing: alternates between corporeal and phased states.
+ * State 0: Corporeal — chase at full speed, deals contact damage
+ * State 1: Phased — chase at 0.5x speed, no contact damage (handled in GameScene)
+ */
+function updateWraithAI(enemyId: number, playerX: number, playerY: number, _deltaTime: number): void {
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const speed = Velocity.speed[enemyId];
+  const state = EnemyAI.state[enemyId];
+
+  if (distance > 1) {
+    const speedMultiplier = state === 0 ? 1.0 : 0.5;
+    Velocity.x[enemyId] = (dx / distance) * speed * speedMultiplier;
+    Velocity.y[enemyId] = (dy / distance) * speed * speedMultiplier;
+    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+  }
+
+  if (state === 0) {
+    // Corporeal — after 3-4s, phase out
+    if (EnemyAI.timer[enemyId] > 3.0 + EnemyAI.phase[enemyId]) {
+      EnemyAI.state[enemyId] = 1;
+      EnemyAI.timer[enemyId] = 0;
+      EnemyAI.phase[enemyId] = Math.random() * 0.5; // 1.5-2.0s phased
+    }
+  } else {
+    // Phased — after 1.5-2.0s, become corporeal
+    if (EnemyAI.timer[enemyId] > 1.5 + EnemyAI.phase[enemyId]) {
+      EnemyAI.state[enemyId] = 0;
+      EnemyAI.timer[enemyId] = 0;
+      EnemyAI.phase[enemyId] = Math.random(); // 3-4s corporeal
+    }
+  }
+}
+
+/**
+ * Rallier - offensive buff aura: maintains distance, speeds up nearby enemies.
+ * Stays ~180px from player, strafes when in range.
+ * Every 2s, boosts speed of nearby enemies by +15 (capped at 200).
+ */
+function updateRallierAI(enemyId: number, playerX: number, playerY: number, deltaTime: number): void {
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+  const dx = playerX - enemyX;
+  const dy = playerY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const speed = Velocity.speed[enemyId];
+
+  const preferredDistance = 180;
+
+  if (distance < preferredDistance - 30) {
+    // Too close — retreat
+    Velocity.x[enemyId] = -(dx / distance) * speed;
+    Velocity.y[enemyId] = -(dy / distance) * speed;
+  } else if (distance > preferredDistance + 40) {
+    // Too far — approach
+    Velocity.x[enemyId] = (dx / distance) * speed * 0.7;
+    Velocity.y[enemyId] = (dy / distance) * speed * 0.7;
+  } else {
+    // In range — strafe
+    const perpX = -dy / distance;
+    const perpY = dx / distance;
+    Velocity.x[enemyId] = perpX * speed * 0.5;
+    Velocity.y[enemyId] = perpY * speed * 0.5;
+  }
+
+  // Add π/2 so triangle tip leads
+  Transform.rotation[enemyId] = Math.atan2(dy, dx) + PI_HALF;
+
+  // Buff aura — speed boost nearby enemies every 2s
+  EnemyAI.specialTimer[enemyId] -= deltaTime;
+  if (EnemyAI.specialTimer[enemyId] <= 0) {
+    const spatialHash = getEnemySpatialHash();
+    const nearby = spatialHash.query(enemyX, enemyY, 80);
+
+    for (let i = 0; i < nearby.length; i++) {
+      const neighborId = nearby[i].id;
+      if (neighborId === enemyId) continue;
+      // Cap speed at 200 to prevent runaway stacking
+      const currentSpeed = Velocity.speed[neighborId];
+      if (currentSpeed < 200) {
+        Velocity.speed[neighborId] = Math.min(currentSpeed + 15, 200);
+      }
+    }
+
+    EnemyAI.specialTimer[enemyId] = 2.0;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -765,8 +1429,8 @@ function updateChargerAI(
     }
   } else if (state === 2) {
     // CHARGING!
-    const targetDx = EnemyAI.targetX[enemyId] - (enemyX - dx); // Original direction
-    const targetDy = EnemyAI.targetY[enemyId] - (enemyY - dy);
+    const targetDx = EnemyAI.targetX[enemyId] - enemyX;
+    const targetDy = EnemyAI.targetY[enemyId] - enemyY;
     const angle = Math.atan2(targetDy, targetDx);
 
     const chargeSpeed = baseSpeed * 6; // Very fast!
@@ -776,7 +1440,7 @@ function updateChargerAI(
     Transform.rotation[enemyId] = angle + PI_HALF;
 
     // End charge after 1 second or if hitting edge
-    if (timer > 1.0 || enemyX < 30 || enemyX > 1250 || enemyY < 30 || enemyY > 690) {
+    if (timer > 1.0 || enemyX < 30 || enemyX > GAME_WIDTH - 30 || enemyY < 30 || enemyY > GAME_HEIGHT - 30) {
       EnemyAI.state[enemyId] = 0;
       EnemyAI.timer[enemyId] = 0;
     }

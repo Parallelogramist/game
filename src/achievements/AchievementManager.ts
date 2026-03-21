@@ -53,6 +53,7 @@ function createDefaultLifetimeStats(): LifetimeStats {
     totalRunsStarted: 0,
     totalRunsCompleted: 0,
     totalVictories: 0,
+    totalBossesKilled: 0,
     totalGoldEarned: 0,
     highestLevel: 0,
     highestWorldLevel: 0,
@@ -140,6 +141,7 @@ export class AchievementManager {
     stats.totalKills += this.runState.runStats.kills;
     stats.totalDamageDealt += this.runState.runStats.damageDealt;
     stats.totalCriticalHits += this.runState.runStats.criticalHits;
+    stats.totalBossesKilled += this.runState.runStats.bossesKilled;
     stats.totalTimePlayedSeconds += data.survivalTimeSeconds;
     stats.totalRunsCompleted++;
     stats.totalGoldEarned += data.goldEarned;
@@ -177,10 +179,17 @@ export class AchievementManager {
     this.updateAchievementProgress('kills', stats.totalKills);
     this.updateAchievementProgress('time_survived', stats.totalTimePlayedSeconds);
     this.updateAchievementProgress('victories', stats.totalVictories);
-    this.updateAchievementProgress('bosses_killed', this.runState.runStats.bossesKilled);
+    this.updateAchievementProgress('bosses_killed', stats.totalBossesKilled);
     this.updateAchievementProgress('runs_started', stats.totalRunsStarted);
+    this.updateAchievementProgress('runs_completed', stats.totalRunsCompleted);
     this.updateAchievementProgress('world_level', data.worldLevel);
     this.updateAchievementProgress('level', data.levelReached);
+    if (data.accountLevel !== undefined) {
+      this.updateAchievementProgress('account_level', data.accountLevel);
+    }
+    if (data.bestStreak !== undefined) {
+      this.updateAchievementProgress('win_streak', data.bestStreak);
+    }
 
     this.savePersistentState();
   }
@@ -342,8 +351,10 @@ export class AchievementManager {
 
     progress.isUnlocked = true;
     progress.unlockedAt = Date.now();
+    // Auto-claim reward on unlock — gold delivery happens through the callback
+    progress.rewardClaimed = true;
 
-    // Trigger callback for UI notification
+    // Trigger callback for UI notification and reward delivery
     if (this.onAchievementUnlock) {
       this.onAchievementUnlock(achievement);
     }

@@ -227,7 +227,7 @@ export function collisionSystem(world: IWorld, deltaTime: number): IWorld {
         // Calculate hit direction (from projectile to enemy)
         const distance = Math.sqrt(distanceSquared);
         const dirX = distance > 0 ? (enemyX - projectileX) / distance : 0;
-        const dirY = distance > 0 ? (enemyY - projectileY) / distance : 1;
+        const dirY = distance > 0 ? (enemyY - projectileY) / distance : 0;
 
         // Apply knockback (push enemy away from projectile) with multiplier
         if (hasComponent(world, Knockback, enemyId)) {

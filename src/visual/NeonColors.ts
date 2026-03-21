@@ -17,14 +17,39 @@ export const PLAYER_NEON: NeonColorPair = {
 };
 
 /**
- * Enemy red color palette (darker = stronger threat)
+ * Enemy color palette — behavior archetype encoding.
+ * Colors indicate how an enemy behaves, not just its threat tier.
+ *
+ * Melee chasers: Red (0xff4444) — Shambler, Splitter Mini
+ * Fast/agile: Orange (0xff8833–0xffaa44) — Zigzag, Dasher, Circler, Tiny Swarm
+ * Ranged: Magenta (0xff44aa–0xff66bb) — Shooter, Sniper, Turret
+ * Support/special: Purple (0xaa44ff–0xcc66ff) — Healer, Shielded, Teleporter
+ * Brutes: Deep orange (0xdd4400–0xcc3300) — Tank, Giant
+ * Volatile: Yellow-orange (0xffaa00) — Exploder
+ * Spawner: Teal (0x44ddaa) — Splitter
+ * Ghostly: Pale cyan (0x88dddd) — Ghost
+ * Hit-and-run: Green (0x44cc44) — Lurker
+ * Zone control: Dark green (0x33bb66) — Warden
+ * Phasing: Bright cyan (0x44eedd) — Wraith
+ * Buff aura: Bright yellow (0xffdd44) — Rallier
+ * Minibosses: Deep red (0xcc0000)
+ * Bosses: Crimson (0x990000)
  */
 export const ENEMY_COLORS = {
-  weak: { core: 0xff6666, glow: 0xff9999 } as NeonColorPair,      // Light red - basic enemies
-  standard: { core: 0xff4444, glow: 0xff7777 } as NeonColorPair,  // Medium red - regular enemies
-  elite: { core: 0xdd2222, glow: 0xff5555 } as NeonColorPair,     // Darker red - elite enemies
-  miniboss: { core: 0xcc0000, glow: 0xff3333 } as NeonColorPair,  // Deep red - minibosses
-  boss: { core: 0x990000, glow: 0xcc2222 } as NeonColorPair,      // Crimson - bosses
+  meleChaser: { core: 0xff4444, glow: 0xff7777 } as NeonColorPair,   // Red - basic melee
+  fastAgile: { core: 0xff8833, glow: 0xffaa66 } as NeonColorPair,    // Orange - fast movers
+  ranged: { core: 0xff44aa, glow: 0xff77cc } as NeonColorPair,       // Magenta - ranged attackers
+  support: { core: 0xaa44ff, glow: 0xcc77ff } as NeonColorPair,      // Purple - support/special
+  brute: { core: 0xdd4400, glow: 0xff6622 } as NeonColorPair,        // Deep orange - heavy hitters
+  volatile: { core: 0xffaa00, glow: 0xffcc44 } as NeonColorPair,     // Yellow-orange - exploders
+  spawner: { core: 0x44ddaa, glow: 0x77ffcc } as NeonColorPair,      // Teal - spawning enemies
+  ghostly: { core: 0x88dddd, glow: 0xaaffff } as NeonColorPair,      // Pale cyan - ghostly
+  hitAndRun: { core: 0x44cc44, glow: 0x77ee77 } as NeonColorPair,   // Green - hit-and-run (Lurker)
+  zoneControl: { core: 0x33bb66, glow: 0x66dd88 } as NeonColorPair, // Dark green - zone control (Warden)
+  phasing: { core: 0x44eedd, glow: 0x77ffee } as NeonColorPair,     // Bright cyan - phasing (Wraith)
+  buffAura: { core: 0xffdd44, glow: 0xffee77 } as NeonColorPair,    // Bright yellow - buff aura (Rallier)
+  miniboss: { core: 0xcc0000, glow: 0xff3333 } as NeonColorPair,     // Deep red - minibosses
+  boss: { core: 0x990000, glow: 0xcc2222 } as NeonColorPair,         // Crimson - bosses
 } as const;
 
 /**

@@ -16,6 +16,12 @@ export enum EnemyAIType {
   Shielded = 11,    // Normal chase with shield mechanic
   Teleporter = 12,  // Blink around near player
   Giant = 13,       // Slow approach, area attacks
+  Lurker = 14,      // Hit-and-run: approach, lunge, retreat
+  Warden = 15,      // Zone control: patrol, plant AOE, reposition
+  Wraith = 16,      // Phasing: corporeal/phased cycle
+  Rallier = 17,     // Offensive buff aura: speed-boosts nearby enemies
+  Ghost = 18,       // Drifting wave chase (spawned by Necromancer)
+  SplitterMini = 19, // Scatter burst then frantic chase (spawned by Splitter)
   // Minibosses
   Glutton = 50,     // Seek XP gems, grow stronger
   SwarmMother = 51, // Spawn small enemies
@@ -87,6 +93,9 @@ export interface EnemyTypeDefinition {
   // Spawn timing (game time in seconds when they start appearing)
   minSpawnTime: number;
   spawnWeight: number;    // Higher = more common
+
+  // World level gating (enemies only appear at this world level or higher)
+  minWorldLevel?: number; // Default 1 — available from the start
 }
 
 /**
@@ -103,12 +112,12 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 70,
     baseDamage: 10,
     size: 1,
-    color: 0xff6666,         // Weak - light red
+    color: 0xff4444,         // Melee chaser - red
     secondaryColor: 0xffffff, // White outline
     shape: 'square',
     xpValue: 1,
     minSpawnTime: 0,
-    spawnWeight: 100,
+    spawnWeight: 80,
   },
 
   zigzag: {
@@ -120,12 +129,12 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 90,
     baseDamage: 8,
     size: 0.9,
-    color: 0xff6666,         // Weak - light red
+    color: 0xff8833,         // Fast/agile - orange
     secondaryColor: 0xffffff, // White outline
     shape: 'triangle',
     xpValue: 1,
-    minSpawnTime: 30,
-    spawnWeight: 60,
+    minSpawnTime: 15,
+    spawnWeight: 70,
   },
 
   dasher: {
@@ -137,12 +146,13 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 50,  // Base speed (slow), but dashes are fast
     baseDamage: 15,
     size: 1.1,
-    color: 0xff4444,         // Standard - medium red
+    color: 0xffaa44,         // Fast/agile - light orange
     secondaryColor: 0xffffff, // White outline
     shape: 'diamond',
     xpValue: 2,
-    minSpawnTime: 60,
-    spawnWeight: 40,
+    minSpawnTime: 45,
+    spawnWeight: 45,
+    minWorldLevel: 2, // Introduces dash-timing reads
   },
 
   circler: {
@@ -154,12 +164,13 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 100,
     baseDamage: 8,
     size: 0.85,
-    color: 0xff4444,         // Standard - medium red
+    color: 0xff9933,         // Fast/agile - orange
     secondaryColor: 0xffffff, // White outline
     shape: 'circle',
     xpValue: 2,
-    minSpawnTime: 90,
-    spawnWeight: 35,
+    minSpawnTime: 60,
+    spawnWeight: 40,
+    minWorldLevel: 2, // Introduces orbiting movement
   },
 
   swarm: {
@@ -171,12 +182,12 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 130,
     baseDamage: 5,
     size: 0.5,
-    color: 0xff6666,         // Weak - light red
+    color: 0xffaa44,         // Fast/agile - light orange
     secondaryColor: 0xffffff, // White outline
     shape: 'circle',
     xpValue: 1,
-    minSpawnTime: 45,
-    spawnWeight: 80,
+    minSpawnTime: 25,
+    spawnWeight: 70,
   },
 
   // Elite enemies
@@ -189,12 +200,13 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 35,
     baseDamage: 25,
     size: 2,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0xdd4400,         // Brute - deep orange
     secondaryColor: 0xffffff, // White outline
     shape: 'square',
     xpValue: 5,
-    minSpawnTime: 120,
+    minSpawnTime: 90,
     spawnWeight: 15,
+    minWorldLevel: 4, // First heavy — demands sustained DPS
   },
 
   exploder: {
@@ -206,15 +218,16 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 110,
     baseDamage: 8,
     size: 0.9,
-    color: 0xff4444,         // Standard - medium red
+    color: 0xffaa00,         // Volatile - yellow-orange
     secondaryColor: 0xffffff, // White outline
     shape: 'circle',
     xpValue: 2,
     explodeOnDeath: true,
     explosionRadius: 60,
     explosionDamage: 20,
-    minSpawnTime: 90,
-    spawnWeight: 30,
+    minSpawnTime: 75,
+    spawnWeight: 35,
+    minWorldLevel: 3, // Volatile — punishes melee-range play
   },
 
   splitter: {
@@ -226,27 +239,28 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 60,
     baseDamage: 12,
     size: 1.4,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0x44ddaa,         // Spawner - teal
     secondaryColor: 0xffffff, // White outline
     shape: 'hexagon',
     xpValue: 3,
     splitsOnDeath: true,
     splitCount: 2,
     splitType: 'splitter_mini',
-    minSpawnTime: 150,
+    minSpawnTime: 135,
     spawnWeight: 20,
+    minWorldLevel: 5, // Spawner mechanic — demands area control
   },
 
   splitter_mini: {
     id: 'splitter_mini',
     name: 'Splitter Mini',
-    aiType: EnemyAIType.Chase,
+    aiType: EnemyAIType.SplitterMini,
     category: EnemyCategory.Basic,
     baseHealth: 15,
     baseSpeed: 85,
     baseDamage: 8,
     size: 0.8,
-    color: 0xff6666,         // Weak - light red
+    color: 0xff4444,         // Melee chaser - red
     secondaryColor: 0xffffff, // White outline
     shape: 'hexagon',
     xpValue: 1,
@@ -263,7 +277,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 45,
     baseDamage: 5,
     size: 1.1,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0xff44aa,         // Ranged - magenta
     secondaryColor: 0xffffff, // White outline
     shape: 'square',
     xpValue: 3,
@@ -271,8 +285,9 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     shootCooldown: 2.0,
     projectileSpeed: 200,
     projectileDamage: 12,
-    minSpawnTime: 180,
+    minSpawnTime: 165,
     spawnWeight: 18,
+    minWorldLevel: 5, // First ranged threat — forces positioning awareness
   },
 
   sniper: {
@@ -284,7 +299,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 20,
     baseDamage: 5,
     size: 0.9,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0xff66bb,         // Ranged - light magenta
     secondaryColor: 0xffffff, // White outline
     shape: 'triangle',
     xpValue: 4,
@@ -292,8 +307,9 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     shootCooldown: 3.0,
     projectileSpeed: 400,
     projectileDamage: 20,
-    minSpawnTime: 240,
+    minSpawnTime: 270,
     spawnWeight: 12,
+    minWorldLevel: 7, // Long-range sniper threat
   },
 
   healer: {
@@ -305,15 +321,16 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 80,
     baseDamage: 5,
     size: 1,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0xaa44ff,         // Support - purple
     secondaryColor: 0xffffff, // White outline
     shape: 'diamond',
     xpValue: 4,
     healsAllies: true,
     healRadius: 100,
     healAmount: 5,
-    minSpawnTime: 210,
+    minSpawnTime: 240,
     spawnWeight: 10,
+    minWorldLevel: 6, // Priority targeting — must kill healer first
   },
 
   shielded: {
@@ -325,15 +342,16 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 55,
     baseDamage: 15,
     size: 1.2,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0xcc66ff,         // Support - light purple
     secondaryColor: 0xffffff, // White outline
     shape: 'circle',
     xpValue: 4,
     hasShield: true,
     shieldHealth: 30,
     shieldRegenDelay: 5.0,
-    minSpawnTime: 180,
+    minSpawnTime: 200,
     spawnWeight: 15,
+    minWorldLevel: 6, // Shield mechanic — requires burst damage or timing
   },
 
   teleporter: {
@@ -345,12 +363,85 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 60,
     baseDamage: 12,
     size: 0.9,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0xbb55ff,         // Support - mid purple
     secondaryColor: 0xffffff, // White outline
     shape: 'diamond',
     xpValue: 4,
-    minSpawnTime: 240,
+    minSpawnTime: 300,
     spawnWeight: 12,
+    minWorldLevel: 8, // Unpredictable positioning
+  },
+
+  lurker: {
+    id: 'lurker',
+    name: 'Lurker',
+    aiType: EnemyAIType.Lurker,
+    category: EnemyCategory.Basic,
+    baseHealth: 16,
+    baseSpeed: 95,
+    baseDamage: 14,
+    size: 0.95,
+    color: 0x44cc44,         // Green - hit-and-run
+    secondaryColor: 0xffffff, // White outline
+    shape: 'triangle',
+    xpValue: 2,
+    minSpawnTime: 105,
+    spawnWeight: 35,
+    minWorldLevel: 3, // Hit-and-run — teaches retreat awareness
+  },
+
+  warden: {
+    id: 'warden',
+    name: 'Warden',
+    aiType: EnemyAIType.Warden,
+    category: EnemyCategory.Elite,
+    baseHealth: 35,
+    baseSpeed: 50,
+    baseDamage: 8,
+    size: 1.3,
+    color: 0x33bb66,         // Dark green - zone control
+    secondaryColor: 0xffffff, // White outline
+    shape: 'hexagon',
+    xpValue: 4,
+    minSpawnTime: 330,
+    spawnWeight: 12,
+    minWorldLevel: 8, // Zone denial — demands spatial awareness
+  },
+
+  wraith: {
+    id: 'wraith',
+    name: 'Wraith',
+    aiType: EnemyAIType.Wraith,
+    category: EnemyCategory.Elite,
+    baseHealth: 22,
+    baseSpeed: 75,
+    baseDamage: 15,
+    size: 1.0,
+    color: 0x44eedd,         // Bright cyan - phasing
+    secondaryColor: 0xffffff, // White outline
+    shape: 'diamond',
+    xpValue: 4,
+    minSpawnTime: 360,
+    spawnWeight: 10,
+    minWorldLevel: 9, // Phasing — advanced timing windows
+  },
+
+  rallier: {
+    id: 'rallier',
+    name: 'Rallier',
+    aiType: EnemyAIType.Rallier,
+    category: EnemyCategory.Elite,
+    baseHealth: 18,
+    baseSpeed: 70,
+    baseDamage: 6,
+    size: 1.0,
+    color: 0xffdd44,         // Bright yellow - buff aura
+    secondaryColor: 0xffffff, // White outline
+    shape: 'triangle',
+    xpValue: 5,
+    minSpawnTime: 420,
+    spawnWeight: 8,
+    minWorldLevel: 10, // Buff aura — the ultimate support threat
   },
 
   giant: {
@@ -362,12 +453,13 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 25,
     baseDamage: 40,
     size: 3,
-    color: 0xdd2222,         // Elite - darker red
+    color: 0xcc3300,         // Brute - dark orange
     secondaryColor: 0xffffff, // White outline
     shape: 'square',
     xpValue: 10,
-    minSpawnTime: 300,
-    spawnWeight: 5,
+    minSpawnTime: 270,
+    spawnWeight: 10,
+    minWorldLevel: 7, // Massive brute — screen-shaking stomp attacks
   },
 
   // ═══════════════════════════════════════════════════════════════
@@ -484,13 +576,13 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
   ghost: {
     id: 'ghost',
     name: 'Ghost',
-    aiType: EnemyAIType.Chase,
+    aiType: EnemyAIType.Ghost,
     category: EnemyCategory.Basic,
     baseHealth: 20,
     baseSpeed: 100,
     baseDamage: 10,
     size: 0.8,
-    color: 0xff6666,         // Weak - light red
+    color: 0x88dddd,         // Ghostly - pale cyan
     secondaryColor: 0xffffff, // White outline
     shape: 'circle',
     xpValue: 1,
@@ -567,7 +659,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 0,  // Stationary
     baseDamage: 5,
     size: 0.8,
-    color: 0xff4444,         // Standard - medium red
+    color: 0xff44aa,         // Ranged - magenta
     secondaryColor: 0xffffff, // White outline
     shape: 'square',
     xpValue: 3,
@@ -581,13 +673,15 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
 };
 
 /**
- * Get weighted random enemy type based on game time.
+ * Get weighted random enemy type based on game time and world level.
  * @param gameTime - Current game time in seconds
  * @param spawnTimeReduction - Seconds to reduce minSpawnTime (for world level scaling)
+ * @param worldLevel - Current world level (default 1), gates enemy introductions
  */
 export function getRandomEnemyType(
   gameTime: number,
-  spawnTimeReduction: number = 0
+  spawnTimeReduction: number = 0,
+  worldLevel: number = 1
 ): EnemyTypeDefinition {
   // Apply spawn time reduction to make elites appear earlier at higher world levels
   const effectiveGameTime = gameTime + spawnTimeReduction;
@@ -596,7 +690,8 @@ export function getRandomEnemyType(
     type => type.minSpawnTime <= effectiveGameTime &&
             type.spawnWeight > 0 &&
             type.category !== EnemyCategory.Miniboss &&
-            type.category !== EnemyCategory.Boss
+            type.category !== EnemyCategory.Boss &&
+            (type.minWorldLevel ?? 1) <= worldLevel
   );
 
   if (availableTypes.length === 0) {

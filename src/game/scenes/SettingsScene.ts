@@ -9,7 +9,7 @@ import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
 import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 
-type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'fpsCounter' | 'damageNumbers' | 'statusText' | 'back';
+type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'fpsCounter' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
 
 interface SettingsSceneData {
   returnTo: 'BootScene' | 'GameScene';
@@ -33,7 +33,11 @@ export class SettingsScene extends Phaser.Scene {
   private fpsCounterToggle!: Phaser.GameObjects.Text;
   private damageNumberButtons: Phaser.GameObjects.Text[] = [];
   private statusTextToggle!: Phaser.GameObjects.Text;
+  private resetDataButton!: Phaser.GameObjects.Text;
   private backButton!: Phaser.GameObjects.Text;
+
+  // Confirmation overlay elements
+  private confirmOverlay: Phaser.GameObjects.GameObject[] = [];
 
   // Navigation state
   private focusZone: FocusZone = 'sfx';
@@ -367,7 +371,40 @@ export class SettingsScene extends Phaser.Scene {
       fontFamily: 'Arial',
     });
 
-    currentY += 60;
+    currentY += 50;
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // DATA Section
+    // ═══════════════════════════════════════════════════════════════════════
+    this.add.text(centerX, currentY, '══════════════════ DATA ═════════════════════', {
+      fontSize: '14px',
+      color: '#666666',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5);
+    currentY += 35;
+
+    this.resetDataButton = this.add.text(centerX, currentY, '[ Reset All Data ]', {
+      fontSize: '16px',
+      color: '#ff4444',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+    this.resetDataButton.setData('zone', 'resetData');
+    this.resetDataButton.on('pointerover', () => {
+      this.focusZone = 'resetData';
+      this.updateFocusVisuals();
+    });
+    this.resetDataButton.on('pointerdown', () => {
+      this.showResetConfirmation();
+    });
+
+    this.add.text(centerX, currentY + 20, 'Erases all progress, upgrades, achievements, and settings', {
+      fontSize: '11px',
+      color: '#666666',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5);
+
+    currentY += 50;
 
     // ═══════════════════════════════════════════════════════════════════════
     // Back Button
@@ -558,6 +595,9 @@ export class SettingsScene extends Phaser.Scene {
     const statusEnabled = settingsManager.isStatusTextEnabled();
     this.statusTextToggle.setColor(this.focusZone === 'statusText' ? '#ffffff' : statusEnabled ? '#88ff88' : '#ff8888');
 
+    // Reset Data button
+    this.resetDataButton.setColor(this.focusZone === 'resetData' ? '#ff6666' : '#ff4444');
+
     // Back button
     this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
   }
@@ -600,7 +640,11 @@ export class SettingsScene extends Phaser.Scene {
           break;
         case 'Escape':
           event.preventDefault();
-          this.goBack();
+          if (this.confirmOverlay.length > 0) {
+            this.dismissResetConfirmation();
+          } else {
+            this.goBack();
+          }
           break;
       }
     };
@@ -624,6 +668,8 @@ export class SettingsScene extends Phaser.Scene {
     } else if (this.focusZone === 'damageNumbers') {
       this.focusZone = 'statusText';
     } else if (this.focusZone === 'statusText') {
+      this.focusZone = 'resetData';
+    } else if (this.focusZone === 'resetData') {
       this.focusZone = 'back';
     } else if (this.focusZone === 'back') {
       this.focusZone = 'sfx';
@@ -649,8 +695,10 @@ export class SettingsScene extends Phaser.Scene {
       this.focusZone = 'fpsCounter';
     } else if (this.focusZone === 'statusText') {
       this.focusZone = 'damageNumbers';
-    } else if (this.focusZone === 'back') {
+    } else if (this.focusZone === 'resetData') {
       this.focusZone = 'statusText';
+    } else if (this.focusZone === 'back') {
+      this.focusZone = 'resetData';
     }
 
     this.updateFocusVisuals();
@@ -740,10 +788,79 @@ export class SettingsScene extends Phaser.Scene {
         settingsManager.setStatusTextEnabled(!settingsManager.isStatusTextEnabled());
         this.updateStatusTextToggle();
         break;
+      case 'resetData':
+        this.showResetConfirmation();
+        break;
       case 'back':
         this.goBack();
         break;
     }
+  }
+
+  private showResetConfirmation(): void {
+    // Prevent opening multiple overlays
+    if (this.confirmOverlay.length > 0) return;
+
+    const centerX = this.cameras.main.centerX;
+    const centerY = this.cameras.main.centerY;
+
+    // Dim background
+    const dimBg = this.add.rectangle(centerX, centerY, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.7)
+      .setInteractive() // Block clicks to elements behind
+      .setDepth(100);
+
+    // Dialog box
+    const dialogBg = this.add.rectangle(centerX, centerY, 420, 200, 0x111111, 1)
+      .setStrokeStyle(2, 0xff4444)
+      .setDepth(101);
+
+    const titleText = this.add.text(centerX, centerY - 60, 'RESET ALL DATA?', {
+      fontSize: '22px',
+      color: '#ff4444',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(102);
+
+    const descText = this.add.text(centerX, centerY - 20, 'This will permanently erase all progress,\nupgrades, achievements, and settings.\nThis cannot be undone.', {
+      fontSize: '14px',
+      color: '#cccccc',
+      fontFamily: 'Arial',
+      align: 'center',
+    }).setOrigin(0.5).setDepth(102);
+
+    const confirmButton = this.add.text(centerX - 80, centerY + 50, '[ Confirm ]', {
+      fontSize: '18px',
+      color: '#ff4444',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);
+
+    confirmButton.on('pointerover', () => confirmButton.setColor('#ff6666'));
+    confirmButton.on('pointerout', () => confirmButton.setColor('#ff4444'));
+    confirmButton.on('pointerdown', () => {
+      localStorage.clear();
+      window.location.reload();
+    });
+
+    const cancelButton = this.add.text(centerX + 80, centerY + 50, '[ Cancel ]', {
+      fontSize: '18px',
+      color: '#888888',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);
+
+    cancelButton.on('pointerover', () => cancelButton.setColor('#ffffff'));
+    cancelButton.on('pointerout', () => cancelButton.setColor('#888888'));
+    cancelButton.on('pointerdown', () => {
+      this.dismissResetConfirmation();
+    });
+
+    this.confirmOverlay = [dimBg, dialogBg, titleText, descText, confirmButton, cancelButton];
+  }
+
+  private dismissResetConfirmation(): void {
+    for (const obj of this.confirmOverlay) {
+      obj.destroy();
+    }
+    this.confirmOverlay = [];
   }
 
   private goBack(): void {

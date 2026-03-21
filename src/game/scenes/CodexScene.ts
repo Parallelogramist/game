@@ -1,6 +1,6 @@
 /**
  * CodexScene - UI for viewing discovered weapons, enemies, and upgrades.
- * Features category tabs and collection tracking.
+ * Features category tabs, collection tracking, and full keyboard navigation.
  */
 
 import Phaser from 'phaser';
@@ -18,23 +18,38 @@ import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 
+type FocusZone = 'tabs' | 'grid' | 'back';
+
+interface CodexCardElements {
+  container: Phaser.GameObjects.Container;
+  cardBg: Phaser.GameObjects.Rectangle;
+}
+
 export class CodexScene extends Phaser.Scene {
   private currentCategory: CodexCategory = 'weapons';
   private categoryTabs: Map<CodexCategory, Phaser.GameObjects.Container> = new Map();
   private contentContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
   private maxScrollY: number = 0;
+  private backButton!: Phaser.GameObjects.Text;
+  private codexCards: CodexCardElements[] = [];
 
   // Grid constants
-  private readonly cardWidth = 280;
-  private readonly cardHeight = 80;
-  private readonly cardSpacing = 10;
+  private readonly cardWidth = 340;
+  private readonly cardHeight = 95;
+  private readonly cardSpacing = 14;
+  private readonly columns = 2;
+
+  // Keyboard navigation state
+  private focusZone: FocusZone = 'tabs';
+  private selectedTabIndex: number = 0;
+  private selectedCardIndex: number = 0;
+  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private soundManager!: SoundManager;
 
   constructor() {
     super({ key: 'CodexScene' });
   }
-
-  private soundManager!: SoundManager;
 
   create(): void {
     const centerX = GAME_WIDTH / 2;
@@ -44,7 +59,11 @@ export class CodexScene extends Phaser.Scene {
 
     // Reset state
     this.categoryTabs.clear();
+    this.codexCards = [];
     this.scrollY = 0;
+    this.focusZone = 'tabs';
+    this.selectedTabIndex = 0;
+    this.selectedCardIndex = 0;
 
     // Dark background
     this.add.rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
@@ -101,7 +120,7 @@ export class CodexScene extends Phaser.Scene {
     this.displayCategoryContent(this.currentCategory);
 
     // Back button
-    const backButton = this.add
+    this.backButton = this.add
       .text(centerX, GAME_HEIGHT - 30, '[ Back to Menu ]', {
         fontSize: '20px',
         color: '#888888',
@@ -110,28 +129,35 @@ export class CodexScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setInteractive({ useHandCursor: true });
 
-    backButton.on('pointerover', () => backButton.setColor('#ffffff'));
-    backButton.on('pointerout', () => backButton.setColor('#888888'));
-    backButton.on('pointerdown', () => {
+    this.backButton.on('pointerover', () => {
+      this.focusZone = 'back';
+      this.updateFocusVisuals();
+    });
+    this.backButton.on('pointerout', () => this.updateFocusVisuals());
+    this.backButton.on('pointerdown', () => {
       this.soundManager.playUIClick();
       fadeOut(this, 150, () => this.scene.start('BootScene'));
     });
-    addButtonInteraction(this, backButton);
+    addButtonInteraction(this, this.backButton);
 
     // Setup scroll input
     this.setupScrollInput();
 
-    // ESC key to go back
-    this.input.keyboard?.on('keydown-ESC', () => {
-      fadeOut(this, 150, () => this.scene.start('BootScene'));
-    });
+    // Setup keyboard navigation
+    this.setupKeyboardNavigation();
+
+    // Initial focus visuals
+    this.updateFocusVisuals();
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
   }
 
   shutdown(): void {
-    this.input.keyboard?.removeAllListeners();
+    if (this.keydownHandler) {
+      this.input.keyboard?.off('keydown', this.keydownHandler);
+      this.keydownHandler = null;
+    }
     this.tweens.killAll();
   }
 
@@ -142,6 +168,8 @@ export class CodexScene extends Phaser.Scene {
     const totalTabs = CODEX_CATEGORIES.length;
     const tabWidth = Math.floor((GAME_WIDTH - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
     const startX = 20;
+
+    const codexManager = getCodexManager();
 
     CODEX_CATEGORIES.forEach((category, index) => {
       const tabX = startX + index * (tabWidth + tabSpacing);
@@ -177,35 +205,88 @@ export class CodexScene extends Phaser.Scene {
       });
       tabText.setOrigin(0.5);
 
-      tabContainer.add([tabBg, tabIcon, tabText]);
+      // Count text (discovered/total)
+      let countLabel = '';
+      if (category.id === 'weapons') {
+        countLabel = `${codexManager.getDiscoveredWeaponCount()}/${codexManager.getTotalWeaponCount()}`;
+      } else if (category.id === 'enemies') {
+        countLabel = `${codexManager.getDiscoveredEnemyCount()}/${codexManager.getTotalEnemyCount()}`;
+      } else if (category.id === 'upgrades') {
+        const upgradeEntries = codexManager.getAllUpgradeEntries();
+        countLabel = `${upgradeEntries.length}`;
+      }
+
+      if (countLabel) {
+        const countText = this.add.text(tabWidth - 8, tabHeight / 2, countLabel, {
+          fontSize: '11px',
+          color: isSelected ? '#88aaff' : '#666666',
+          fontFamily: 'Arial',
+        });
+        countText.setOrigin(1, 0.5);
+        tabContainer.add([tabBg, tabIcon, tabText, countText]);
+      } else {
+        tabContainer.add([tabBg, tabIcon, tabText]);
+      }
+
       this.categoryTabs.set(category.id, tabContainer);
 
       // Click handler
       tabBg.on('pointerdown', () => {
         if (category.id !== this.currentCategory) {
           this.soundManager.playUIClick();
-          this.currentCategory = category.id;
-          this.updateTabVisuals();
-          this.displayCategoryContent(category.id);
+          this.selectedTabIndex = index;
+          this.selectCategory(category.id);
         }
+      });
+
+      tabBg.on('pointerover', () => {
+        this.selectedTabIndex = index;
+        this.focusZone = 'tabs';
+        this.updateFocusVisuals();
       });
     });
   }
 
+  private selectCategory(categoryId: CodexCategory): void {
+    if (categoryId === this.currentCategory) return;
+    this.currentCategory = categoryId;
+    this.selectedCardIndex = 0;
+    this.scrollY = 0;
+    this.updateTabVisuals();
+    this.displayCategoryContent(categoryId);
+    this.updateFocusVisuals();
+  }
+
   private updateTabVisuals(): void {
-    CODEX_CATEGORIES.forEach((category) => {
+    CODEX_CATEGORIES.forEach((category, index) => {
       const container = this.categoryTabs.get(category.id);
       if (!container) return;
 
       const isSelected = category.id === this.currentCategory;
+      const isFocused = this.focusZone === 'tabs' && this.selectedTabIndex === index;
       const tabBg = container.list[0] as Phaser.GameObjects.Rectangle;
       const tabIcon = container.list[1] as Phaser.GameObjects.Image;
       const tabText = container.list[2] as Phaser.GameObjects.Text;
 
-      tabBg.setFillStyle(isSelected ? 0x3a4a6a : 0x2a2a4a);
-      tabBg.setStrokeStyle(2, isSelected ? 0x88aaff : 0x3a3a5a);
-      tabIcon.setTint(isSelected ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED);
-      tabText.setColor(isSelected ? '#ffffff' : '#888888');
+      if (isFocused) {
+        tabBg.setFillStyle(0x4a5a8a);
+        tabBg.setStrokeStyle(3, 0xffdd44);
+      } else if (isSelected) {
+        tabBg.setFillStyle(0x3a4a6a);
+        tabBg.setStrokeStyle(2, 0x88aaff);
+      } else {
+        tabBg.setFillStyle(0x2a2a4a);
+        tabBg.setStrokeStyle(2, 0x3a3a5a);
+      }
+
+      tabIcon.setTint(isSelected || isFocused ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED);
+      tabText.setColor(isSelected || isFocused ? '#ffffff' : '#888888');
+
+      // Update count text color if present
+      if (container.list.length > 3) {
+        const countText = container.list[3] as Phaser.GameObjects.Text;
+        countText.setColor(isSelected ? '#88aaff' : '#666666');
+      }
     });
   }
 
@@ -213,10 +294,8 @@ export class CodexScene extends Phaser.Scene {
     const containerY = 120;
     const containerHeight = GAME_HEIGHT - 180;
 
-    // Create container for content
     this.contentContainer = this.add.container(0, containerY);
 
-    // Create mask for scrolling
     const maskGraphics = this.make.graphics({ x: 0, y: 0 });
     maskGraphics.fillStyle(0xffffff);
     maskGraphics.fillRect(0, containerY, GAME_WIDTH, containerHeight);
@@ -225,8 +304,8 @@ export class CodexScene extends Phaser.Scene {
   }
 
   private displayCategoryContent(category: CodexCategory): void {
-    // Clear existing content
     this.contentContainer.removeAll(true);
+    this.codexCards = [];
     this.scrollY = 0;
     this.contentContainer.y = 120;
 
@@ -252,11 +331,10 @@ export class CodexScene extends Phaser.Scene {
 
     const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
-    const columns = 2;
 
     weaponInfoList.forEach((weaponInfo, index) => {
-      const col = index % columns;
-      const row = Math.floor(index / columns);
+      const col = index % this.columns;
+      const row = Math.floor(index / this.columns);
       const x = startX + col * (this.cardWidth + this.cardSpacing);
       const y = startY + row * (this.cardHeight + this.cardSpacing);
 
@@ -264,8 +342,7 @@ export class CodexScene extends Phaser.Scene {
       this.createWeaponCard(weaponInfo, entry, x, y);
     });
 
-    // Calculate max scroll
-    const totalRows = Math.ceil(weaponInfoList.length / columns);
+    const totalRows = Math.ceil(weaponInfoList.length / this.columns);
     const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
     const viewHeight = GAME_HEIGHT - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
@@ -290,24 +367,32 @@ export class CodexScene extends Phaser.Scene {
     cardBg.setStrokeStyle(2, borderColor);
     container.add(cardBg);
 
+    // Icon area
+    const iconCenterX = 38;
+    const iconCenterY = this.cardHeight / 2;
+
     if (isDiscovered) {
-      // Icon
+      // Icon background disc
+      const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+      iconDisc.setStrokeStyle(2, 0x88aaff);
+      container.add(iconDisc);
+
       try {
         const icon = createIcon(this, {
-          x: 30,
-          y: this.cardHeight / 2,
+          x: iconCenterX,
+          y: iconCenterY,
           iconKey: weaponInfo.icon,
-          size: 32,
+          size: 28,
           tint: 0x88aaff,
         });
         container.add(icon);
       } catch {
-        const fallback = this.add.circle(30, this.cardHeight / 2, 16, 0x88aaff);
+        const fallback = this.add.circle(iconCenterX, iconCenterY, 14, 0x88aaff);
         container.add(fallback);
       }
 
       // Weapon name
-      const nameText = this.add.text(60, 15, weaponInfo.name, {
+      const nameText = this.add.text(75, 16, weaponInfo.name, {
         fontSize: '16px',
         color: '#ffffff',
         fontFamily: 'Arial',
@@ -316,23 +401,23 @@ export class CodexScene extends Phaser.Scene {
       container.add(nameText);
 
       // Description
-      const descText = this.add.text(60, 35, weaponInfo.description, {
-        fontSize: '11px',
+      const descText = this.add.text(75, 38, weaponInfo.description, {
+        fontSize: '12px',
         color: '#aaaaaa',
         fontFamily: 'Arial',
-        wordWrap: { width: this.cardWidth - 80 },
+        wordWrap: { width: this.cardWidth - 90 },
       });
       container.add(descText);
 
       // Stats
       if (entry) {
         const statsText = this.add.text(
-          this.cardWidth - 10,
-          this.cardHeight - 15,
+          this.cardWidth - 12,
+          this.cardHeight - 16,
           `Used: ${entry.timesUsed} | Kills: ${entry.totalKills}`,
           {
             fontSize: '10px',
-            color: '#666666',
+            color: '#666688',
             fontFamily: 'Arial',
           }
         );
@@ -340,9 +425,13 @@ export class CodexScene extends Phaser.Scene {
         container.add(statsText);
       }
     } else {
-      // Undiscovered - show silhouette
-      const unknownIcon = this.add.text(30, this.cardHeight / 2, '?', {
-        fontSize: '32px',
+      // Undiscovered — question mark in disc
+      const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x111122);
+      iconDisc.setStrokeStyle(2, 0x2a2a3a);
+      container.add(iconDisc);
+
+      const unknownIcon = this.add.text(iconCenterX, iconCenterY, '?', {
+        fontSize: '28px',
         color: '#333344',
         fontFamily: 'Arial',
         fontStyle: 'bold',
@@ -359,6 +448,8 @@ export class CodexScene extends Phaser.Scene {
       unknownText.setOrigin(0.5);
       container.add(unknownText);
     }
+
+    this.codexCards.push({ container, cardBg });
   }
 
   private displayEnemies(): void {
@@ -367,11 +458,10 @@ export class CodexScene extends Phaser.Scene {
 
     const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
-    const columns = 2;
 
     enemyTypes.forEach((enemyType, index) => {
-      const col = index % columns;
-      const row = Math.floor(index / columns);
+      const col = index % this.columns;
+      const row = Math.floor(index / this.columns);
       const x = startX + col * (this.cardWidth + this.cardSpacing);
       const y = startY + row * (this.cardHeight + this.cardSpacing);
 
@@ -379,8 +469,7 @@ export class CodexScene extends Phaser.Scene {
       this.createEnemyCard(enemyType, entry, x, y);
     });
 
-    // Calculate max scroll
-    const totalRows = Math.ceil(enemyTypes.length / columns);
+    const totalRows = Math.ceil(enemyTypes.length / this.columns);
     const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
     const viewHeight = GAME_HEIGHT - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
@@ -405,30 +494,36 @@ export class CodexScene extends Phaser.Scene {
     cardBg.setStrokeStyle(2, borderColor);
     container.add(cardBg);
 
+    const iconCenterX = 38;
+    const iconCenterY = this.cardHeight / 2;
+
     if (isDiscovered) {
+      // Shape background disc
+      const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x2a1a1a);
+      iconDisc.setStrokeStyle(2, 0xff8888);
+      container.add(iconDisc);
+
       // Enemy shape representation
-      const shapeX = 30;
-      const shapeY = this.cardHeight / 2;
-      const shapeSize = 20 * (enemyType.size || 1);
+      const shapeSize = Math.min(20 * (enemyType.size || 1), 30);
 
       let shape: Phaser.GameObjects.Shape;
       switch (enemyType.shape) {
         case 'circle':
-          shape = this.add.circle(shapeX, shapeY, shapeSize / 2, enemyType.color);
+          shape = this.add.circle(iconCenterX, iconCenterY, shapeSize / 2, enemyType.color);
           break;
         case 'triangle':
-          shape = this.add.triangle(shapeX, shapeY, 0, shapeSize, shapeSize / 2, 0, shapeSize, shapeSize, enemyType.color);
+          shape = this.add.triangle(iconCenterX, iconCenterY, 0, shapeSize, shapeSize / 2, 0, shapeSize, shapeSize, enemyType.color);
           break;
         case 'diamond':
-          shape = this.add.polygon(shapeX, shapeY, [0, -shapeSize / 2, shapeSize / 2, 0, 0, shapeSize / 2, -shapeSize / 2, 0], enemyType.color);
+          shape = this.add.polygon(iconCenterX, iconCenterY, [0, -shapeSize / 2, shapeSize / 2, 0, 0, shapeSize / 2, -shapeSize / 2, 0], enemyType.color);
           break;
         default:
-          shape = this.add.rectangle(shapeX, shapeY, shapeSize, shapeSize, enemyType.color);
+          shape = this.add.rectangle(iconCenterX, iconCenterY, shapeSize, shapeSize, enemyType.color);
       }
       container.add(shape);
 
       // Enemy name
-      const nameText = this.add.text(60, 15, enemyType.name, {
+      const nameText = this.add.text(75, 16, enemyType.name, {
         fontSize: '16px',
         color: '#ffffff',
         fontFamily: 'Arial',
@@ -436,10 +531,10 @@ export class CodexScene extends Phaser.Scene {
       });
       container.add(nameText);
 
-      // Stats
-      const statsStr = `HP: ${enemyType.baseHealth} | DMG: ${enemyType.baseDamage} | XP: ${enemyType.xpValue}`;
-      const statsText = this.add.text(60, 35, statsStr, {
-        fontSize: '11px',
+      // Stats line
+      const statsStr = `HP: ${enemyType.baseHealth}  DMG: ${enemyType.baseDamage}  XP: ${enemyType.xpValue}`;
+      const statsText = this.add.text(75, 40, statsStr, {
+        fontSize: '12px',
         color: '#aaaaaa',
         fontFamily: 'Arial',
       });
@@ -448,8 +543,8 @@ export class CodexScene extends Phaser.Scene {
       // Kill count
       if (entry) {
         const killText = this.add.text(
-          this.cardWidth - 10,
-          this.cardHeight - 15,
+          this.cardWidth - 12,
+          this.cardHeight - 16,
           `Killed: ${entry.timesKilled}`,
           {
             fontSize: '10px',
@@ -462,8 +557,12 @@ export class CodexScene extends Phaser.Scene {
       }
     } else {
       // Undiscovered
-      const unknownIcon = this.add.text(30, this.cardHeight / 2, '?', {
-        fontSize: '32px',
+      const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x111122);
+      iconDisc.setStrokeStyle(2, 0x2a2a3a);
+      container.add(iconDisc);
+
+      const unknownIcon = this.add.text(iconCenterX, iconCenterY, '?', {
+        fontSize: '28px',
         color: '#333344',
         fontFamily: 'Arial',
         fontStyle: 'bold',
@@ -480,6 +579,8 @@ export class CodexScene extends Phaser.Scene {
       unknownText.setOrigin(0.5);
       container.add(unknownText);
     }
+
+    this.codexCards.push({ container, cardBg });
   }
 
   private displayUpgrades(): void {
@@ -504,43 +605,59 @@ export class CodexScene extends Phaser.Scene {
       return;
     }
 
-    const centerX = GAME_WIDTH / 2;
+    const startX = (GAME_WIDTH - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
-    const lineHeight = 30;
+    const upgradeCardHeight = 60;
 
     upgradeEntries.forEach((entry, index) => {
-      const y = startY + index * lineHeight;
+      const col = index % this.columns;
+      const row = Math.floor(index / this.columns);
+      const x = startX + col * (this.cardWidth + this.cardSpacing);
+      const y = startY + row * (upgradeCardHeight + this.cardSpacing);
 
-      // Name (right-aligned to center)
-      const nameText = this.add.text(
-        centerX - 20,
-        y,
-        entry.id,
-        {
-          fontSize: '14px',
-          color: '#aaaaaa',
-          fontFamily: 'Arial',
-        }
+      const container = this.add.container(x, y);
+      this.contentContainer.add(container);
+
+      // Card background
+      const cardBg = this.add.rectangle(
+        this.cardWidth / 2,
+        upgradeCardHeight / 2,
+        this.cardWidth,
+        upgradeCardHeight,
+        0x2a2a4a
       );
-      nameText.setOrigin(1, 0);
-      this.contentContainer.add(nameText);
+      cardBg.setStrokeStyle(2, 0x4a4a7a);
+      container.add(cardBg);
 
-      // Count (left-aligned from center)
+      // Upgrade name
+      const nameText = this.add.text(16, upgradeCardHeight / 2, entry.id, {
+        fontSize: '14px',
+        color: '#ffffff',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+      });
+      nameText.setOrigin(0, 0.5);
+      container.add(nameText);
+
+      // Times selected
       const countText = this.add.text(
-        centerX + 20,
-        y,
-        `Selected ${entry.timesSelected} time${entry.timesSelected !== 1 ? 's' : ''}`,
+        this.cardWidth - 16,
+        upgradeCardHeight / 2,
+        `Selected ${entry.timesSelected}x`,
         {
-          fontSize: '14px',
-          color: '#ffffff',
+          fontSize: '13px',
+          color: '#88aaff',
           fontFamily: 'Arial',
         }
       );
-      countText.setOrigin(0, 0);
-      this.contentContainer.add(countText);
+      countText.setOrigin(1, 0.5);
+      container.add(countText);
+
+      this.codexCards.push({ container, cardBg });
     });
 
-    const contentHeight = upgradeEntries.length * lineHeight + startY * 2;
+    const totalRows = Math.ceil(upgradeEntries.length / this.columns);
+    const contentHeight = totalRows * (upgradeCardHeight + this.cardSpacing);
     const viewHeight = GAME_HEIGHT - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
   }
@@ -551,7 +668,7 @@ export class CodexScene extends Phaser.Scene {
 
     const startX = GAME_WIDTH / 2;
     const startY = 20;
-    const lineHeight = 35;
+    const lineHeight = 42;
 
     const statLines = [
       { label: 'Total Runs', value: stats.totalRunsPlayed.toString() },
@@ -566,11 +683,23 @@ export class CodexScene extends Phaser.Scene {
       { label: 'Highest Player Level', value: stats.highestPlayerLevel.toString() },
     ];
 
+    const rowWidth = GAME_WIDTH - 80;
+
     statLines.forEach((stat, index) => {
       const y = startY + index * lineHeight;
 
+      // Row background (alternating)
+      const rowBg = this.add.rectangle(
+        GAME_WIDTH / 2,
+        y + lineHeight / 2 - 4,
+        rowWidth,
+        lineHeight - 4,
+        index % 2 === 0 ? 0x222244 : 0x1a1a2e
+      );
+      this.contentContainer.add(rowBg);
+
       // Label
-      const labelText = this.add.text(startX - 20, y, stat.label, {
+      const labelText = this.add.text(startX - 20, y + 8, stat.label, {
         fontSize: '16px',
         color: '#888888',
         fontFamily: 'Arial',
@@ -579,7 +708,7 @@ export class CodexScene extends Phaser.Scene {
       this.contentContainer.add(labelText);
 
       // Value
-      const valueText = this.add.text(startX + 20, y, stat.value, {
+      const valueText = this.add.text(startX + 20, y + 6, stat.value, {
         fontSize: '18px',
         color: '#ffffff',
         fontFamily: 'Arial',
@@ -589,7 +718,7 @@ export class CodexScene extends Phaser.Scene {
       this.contentContainer.add(valueText);
     });
 
-    this.maxScrollY = 0; // Stats fit on one screen
+    this.maxScrollY = 0;
   }
 
   private formatTime(seconds: number): string {
@@ -604,13 +733,11 @@ export class CodexScene extends Phaser.Scene {
   }
 
   private setupScrollInput(): void {
-    // Mouse wheel scrolling
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number) => {
       this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY * 0.5, 0, this.maxScrollY);
       this.contentContainer.y = 120 - this.scrollY;
     });
 
-    // Touch/drag scrolling
     let lastY = 0;
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       lastY = pointer.y;
@@ -624,5 +751,209 @@ export class CodexScene extends Phaser.Scene {
         lastY = pointer.y;
       }
     });
+  }
+
+  // --- Keyboard Navigation ---
+
+  private setupKeyboardNavigation(): void {
+    this.keydownHandler = (event: KeyboardEvent) => {
+      switch (event.key) {
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          event.preventDefault();
+          this.navigateDown();
+          break;
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          event.preventDefault();
+          this.navigateUp();
+          break;
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          event.preventDefault();
+          this.navigateLeft();
+          break;
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          event.preventDefault();
+          this.navigateRight();
+          break;
+        case 'Enter':
+        case ' ':
+          event.preventDefault();
+          this.activateCurrentSelection();
+          break;
+        case 'Escape':
+          event.preventDefault();
+          fadeOut(this, 150, () => this.scene.start('BootScene'));
+          break;
+      }
+    };
+    this.input.keyboard?.on('keydown', this.keydownHandler);
+  }
+
+  private hasGridCards(): boolean {
+    return this.codexCards.length > 0;
+  }
+
+  private navigateDown(): void {
+    if (this.focusZone === 'tabs') {
+      if (this.hasGridCards()) {
+        this.focusZone = 'grid';
+        this.selectedCardIndex = 0;
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'back';
+      }
+    } else if (this.focusZone === 'grid') {
+      const totalCards = this.codexCards.length;
+      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+      const totalRows = Math.ceil(totalCards / this.columns);
+
+      if (currentRow < totalRows - 1) {
+        const newIndex = this.selectedCardIndex + this.columns;
+        this.selectedCardIndex = Math.min(newIndex, totalCards - 1);
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'back';
+      }
+    } else if (this.focusZone === 'back') {
+      this.focusZone = 'tabs';
+    }
+    this.updateFocusVisuals();
+  }
+
+  private navigateUp(): void {
+    if (this.focusZone === 'tabs') {
+      this.focusZone = 'back';
+    } else if (this.focusZone === 'grid') {
+      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+
+      if (currentRow > 0) {
+        this.selectedCardIndex -= this.columns;
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'tabs';
+      }
+    } else if (this.focusZone === 'back') {
+      if (this.hasGridCards()) {
+        this.focusZone = 'grid';
+        const totalCards = this.codexCards.length;
+        const totalRows = Math.ceil(totalCards / this.columns);
+        const lastRowStart = (totalRows - 1) * this.columns;
+        this.selectedCardIndex = Math.min(lastRowStart, totalCards - 1);
+        this.ensureCardVisible();
+      } else {
+        this.focusZone = 'tabs';
+      }
+    }
+    this.updateFocusVisuals();
+  }
+
+  private navigateLeft(): void {
+    if (this.focusZone === 'tabs') {
+      this.selectedTabIndex = Math.max(0, this.selectedTabIndex - 1);
+      this.selectCategoryByIndex(this.selectedTabIndex);
+    } else if (this.focusZone === 'grid') {
+      const currentCol = this.selectedCardIndex % this.columns;
+      if (currentCol > 0) {
+        this.selectedCardIndex--;
+      } else {
+        const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+        const rowEnd = Math.min((currentRow + 1) * this.columns - 1, this.codexCards.length - 1);
+        this.selectedCardIndex = rowEnd;
+      }
+    }
+    this.updateFocusVisuals();
+  }
+
+  private navigateRight(): void {
+    if (this.focusZone === 'tabs') {
+      this.selectedTabIndex = Math.min(CODEX_CATEGORIES.length - 1, this.selectedTabIndex + 1);
+      this.selectCategoryByIndex(this.selectedTabIndex);
+    } else if (this.focusZone === 'grid') {
+      const currentCol = this.selectedCardIndex % this.columns;
+      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+      const rowStart = currentRow * this.columns;
+
+      if (currentCol < this.columns - 1 && this.selectedCardIndex < this.codexCards.length - 1) {
+        this.selectedCardIndex++;
+      } else {
+        this.selectedCardIndex = rowStart;
+      }
+    }
+    this.updateFocusVisuals();
+  }
+
+  private selectCategoryByIndex(tabIndex: number): void {
+    const category = CODEX_CATEGORIES[tabIndex];
+    if (category) {
+      this.selectCategory(category.id);
+    }
+  }
+
+  private activateCurrentSelection(): void {
+    if (this.focusZone === 'tabs') {
+      this.selectCategoryByIndex(this.selectedTabIndex);
+    } else if (this.focusZone === 'back') {
+      this.soundManager.playUIClick();
+      fadeOut(this, 150, () => this.scene.start('BootScene'));
+    }
+  }
+
+  private ensureCardVisible(): void {
+    if (this.codexCards.length === 0) return;
+
+    // Determine card height based on category (upgrades use smaller cards)
+    const currentCardHeight = this.currentCategory === 'upgrades' ? 60 : this.cardHeight;
+    const row = Math.floor(this.selectedCardIndex / this.columns);
+    const cardTopInContainer = 10 + row * (currentCardHeight + this.cardSpacing);
+    const cardBottomInContainer = cardTopInContainer + currentCardHeight;
+    const viewHeight = GAME_HEIGHT - 180;
+
+    if (cardTopInContainer < this.scrollY) {
+      this.scrollY = cardTopInContainer;
+    } else if (cardBottomInContainer > this.scrollY + viewHeight) {
+      this.scrollY = cardBottomInContainer - viewHeight;
+    }
+
+    this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, this.maxScrollY);
+    this.contentContainer.y = 120 - this.scrollY;
+  }
+
+  private updateFocusVisuals(): void {
+    // Update tab visuals
+    this.updateTabVisuals();
+
+    // Update card visuals
+    this.codexCards.forEach((card, index) => {
+      const isFocused = this.focusZone === 'grid' && this.selectedCardIndex === index;
+
+      if (isFocused) {
+        card.cardBg.setStrokeStyle(3, 0xffdd44);
+      } else {
+        // Restore original border based on category
+        const isWeaponOrEnemy = this.currentCategory === 'weapons' || this.currentCategory === 'enemies';
+        if (isWeaponOrEnemy) {
+          // Check if discovered by looking at bg color
+          const bgColor = card.cardBg.fillColor;
+          const isDiscovered = bgColor !== 0x1a1a2a;
+          if (this.currentCategory === 'weapons') {
+            card.cardBg.setStrokeStyle(2, isDiscovered ? 0x88aaff : 0x2a2a3a);
+          } else {
+            card.cardBg.setStrokeStyle(2, isDiscovered ? 0xff8888 : 0x2a2a3a);
+          }
+        } else {
+          card.cardBg.setStrokeStyle(2, 0x4a4a7a);
+        }
+      }
+    });
+
+    // Update back button
+    this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
   }
 }

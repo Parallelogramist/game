@@ -18,6 +18,10 @@ const ALL_STORAGE_KEYS = [
   'survivor-meta-gold',
   'survivor-meta-upgrades',
   'survivor-meta-world-level',
+  'survivor-meta-streak',
+  'survivor-meta-runs-completed',
+  'survivor-meta-achievement-bonuses',
+  'survivor-meta-ascension',
 
   // GameStateManager
   'survivor-game-state',
@@ -37,6 +41,12 @@ const ALL_STORAGE_KEYS = [
 
   // GameScene
   'game_autoBuyEnabled',
+
+  // CodexManager
+  'survivor-codex',
+
+  // AchievementManager
+  'survivor-achievements',
 ];
 
 /**

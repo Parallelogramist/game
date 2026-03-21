@@ -12,7 +12,7 @@ interface Shuriken {
   spiralPhase: number;    // Current position in spiral
   lifetime: number;
   damage: number;
-  hitEnemies: Set<number>;
+  hitEnemies: Map<number, number>;
   hitCooldown: Map<number, number>;
   isCyclone?: boolean;    // Mastery: Cyclone Convergence - merged shuriken
   pullRadius?: number;    // Mastery: Cyclone pull range
@@ -108,7 +108,7 @@ export class ShurikenWeapon extends BaseWeapon {
       spiralPhase: 0,
       lifetime: this.stats.duration,
       damage: this.stats.damage,
-      hitEnemies: new Set(),
+      hitEnemies: new Map(),
       hitCooldown: new Map(),
     });
   }
@@ -342,8 +342,8 @@ export class ShurikenWeapon extends BaseWeapon {
         if (ctx.gameTime - lastHit < 0.3) continue;
 
         // Check if we've exceeded piercing for this enemy
-        const hitCount = shuriken.hitEnemies.has(enemyId) ? 1 : 0;
-        if (hitCount > this.stats.piercing) continue;
+        const hitCount = shuriken.hitEnemies.get(enemyId) ?? 0;
+        if (hitCount >= this.stats.piercing) continue;
 
         const ex = Transform.x[enemyId];
         const ey = Transform.y[enemyId];
@@ -354,7 +354,7 @@ export class ShurikenWeapon extends BaseWeapon {
 
         if (distSq < collisionRadiusSq) {
           ctx.damageEnemy(enemyId, shuriken.damage, 100);
-          shuriken.hitEnemies.add(enemyId);
+          shuriken.hitEnemies.set(enemyId, hitCount + 1);
           shuriken.hitCooldown.set(enemyId, ctx.gameTime);
 
           ctx.effectsManager.playHitSparks(shuriken.x, shuriken.y, shuriken.baseAngle);
@@ -491,7 +491,7 @@ export class ShurikenWeapon extends BaseWeapon {
       spiralPhase: 0,
       lifetime: 5, // Extended lifetime
       damage: cycloneDamage,
-      hitEnemies: new Set(),
+      hitEnemies: new Map(),
       hitCooldown: new Map(),
       isCyclone: true,
       pullRadius: 80, // Pull enemies within this range

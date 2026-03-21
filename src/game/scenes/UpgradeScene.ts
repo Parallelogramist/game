@@ -530,7 +530,12 @@ export class UpgradeScene extends Phaser.Scene {
     // Description (40px below level)
     // WordWrap scales with textBoost since font is larger, but capped to card width
     const wrapWidth = Math.min(maxTextWidth * textBoost, width - 24);
-    const descriptionText = this.add.text(0, 32, upgrade.getDescription(upgrade.currentLevel), {
+    // Strip [MASTERY] prefix when ★ MASTERED ★ indicator is already shown
+    let descriptionString = upgrade.getDescription(upgrade.currentLevel);
+    if (upgrade.currentLevel + 1 >= upgrade.maxLevel && upgrade.maxLevel > 1) {
+      descriptionString = descriptionString.replace(/^\[MASTERY\]\s*/i, '');
+    }
+    const descriptionText = this.add.text(0, 32, descriptionString, {
       fontSize: `${Math.round(18 * textBoost)}px`,
       fontFamily: 'Arial',
       color: '#88ff88',
@@ -540,8 +545,9 @@ export class UpgradeScene extends Phaser.Scene {
     descriptionText.setOrigin(0.5);
     container.add(descriptionText);
 
-    // Flavor text (40px below description)
-    const flavorText = this.add.text(0, 72, upgrade.description, {
+    // Flavor text — positioned dynamically below description to avoid overlap
+    const flavorY = 32 + descriptionText.height / 2 + 12;
+    const flavorText = this.add.text(0, flavorY, upgrade.description, {
       fontSize: `${Math.round(14 * textBoost)}px`,
       fontFamily: 'Arial',
       color: '#888888',
@@ -552,8 +558,9 @@ export class UpgradeScene extends Phaser.Scene {
     flavorText.setOrigin(0.5);
     container.add(flavorText);
 
-    // Keybind hint (48px below flavor, near bottom)
-    const keybindText = this.add.text(0, 120, `Press ${index + 1}`, {
+    // Keybind hint — positioned dynamically below flavor text
+    const keybindY = flavorY + flavorText.height / 2 + 16;
+    const keybindText = this.add.text(0, keybindY, `Press ${index + 1}`, {
       fontSize: `${Math.round(16 * textBoost)}px`,
       fontFamily: 'Arial',
       color: '#666666',
@@ -592,11 +599,11 @@ export class UpgradeScene extends Phaser.Scene {
    * Returns either a container with rectangles or a text for mastered state.
    */
   private createLevelProgressBar(upgrade: Upgrade, textBoost: number): Phaser.GameObjects.Container | Phaser.GameObjects.Text {
-    const filled = upgrade.currentLevel;
+    const filled = upgrade.currentLevel + 1; // Show level AFTER selecting this upgrade
     const total = upgrade.maxLevel;
 
     // Special display for mastered skills - use text
-    if (filled === total && total > 1) {
+    if (filled >= total && total > 1) {
       const masteredText = this.add.text(0, 0, '★ MASTERED ★', {
         fontSize: `${Math.round(14 * textBoost)}px`,
         fontFamily: 'Arial',

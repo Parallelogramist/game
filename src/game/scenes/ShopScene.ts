@@ -6,6 +6,7 @@
 
 import Phaser from 'phaser';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { getAscensionManager } from '../../meta/AscensionManager';
 import {
   PermanentUpgrade,
   calculateUpgradeCost,
@@ -59,7 +60,7 @@ export class ShopScene extends Phaser.Scene {
   // Grid constants
   private readonly columns = 4;
   private readonly cardWidth = 200;
-  private readonly cardHeight = 160;
+  private readonly cardHeight = 190;
 
   constructor() {
     super({ key: 'ShopScene' });
@@ -130,6 +131,44 @@ export class ShopScene extends Phaser.Scene {
       })
       .setOrigin(1, 0);
     this.updateGoldDisplay();
+
+    // Ascension display / button
+    const ascensionManager = getAscensionManager();
+    const ascensionLevel = ascensionManager.getLevel();
+    const canAscend = ascensionManager.canAscend(metaManager.getAccountLevel());
+
+    if (ascensionLevel > 0) {
+      const statBonus = Math.round((ascensionManager.getStatMultiplier() - 1) * 100);
+      const goldBonus = Math.round((ascensionManager.getGoldMultiplier() - 1) * 100);
+      this.add.text(110, 44, `Asc. ${ascensionLevel} (+${statBonus}% stats, +${goldBonus}% gold)`, {
+        fontSize: '11px',
+        color: '#cc88cc',
+        fontFamily: 'Arial',
+      });
+    }
+
+    if (canAscend) {
+      const ascendButton = this.add.text(centerX + 140, 30, '[ ASCEND ]', {
+        fontSize: '14px',
+        color: '#ff44ff',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        stroke: '#440044',
+        strokeThickness: 2,
+      }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+
+      const nextLevel = ascensionLevel + 1;
+      const nextStatBonus = nextLevel * 10;
+      const nextGoldBonus = nextLevel * 15;
+
+      ascendButton.on('pointerover', () => ascendButton.setColor('#ff88ff'));
+      ascendButton.on('pointerout', () => ascendButton.setColor('#ff44ff'));
+      ascendButton.on('pointerdown', () => {
+        this.soundManager.playUIClick();
+        this.showAscensionConfirmation(nextLevel, nextStatBonus, nextGoldBonus);
+      });
+      addButtonInteraction(this, ascendButton);
+    }
 
     // Create category tabs
     this.createCategoryTabs();
@@ -341,7 +380,7 @@ export class ShopScene extends Phaser.Scene {
     // Icon (sprite from atlas)
     const icon = createIcon(this, {
       x: 0,
-      y: -50,
+      y: -70,
       iconKey: upgrade.icon,
       size: 28,
       tint: isUnlocked ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED,
@@ -350,7 +389,7 @@ export class ShopScene extends Phaser.Scene {
 
     // Name
     const nameText = this.add
-      .text(0, -22, upgrade.name, {
+      .text(0, -42, upgrade.name, {
         fontSize: '16px',
         color: isUnlocked ? '#ffffff' : '#666666',
         fontFamily: 'Arial',
@@ -359,22 +398,21 @@ export class ShopScene extends Phaser.Scene {
       .setOrigin(0.5);
     cardContainer.add(nameText);
 
-    // Description (truncated if needed)
-    const desc = upgrade.description.length > 25
-      ? upgrade.description.substring(0, 22) + '...'
-      : upgrade.description;
+    // Description with word wrap
     const descText = this.add
-      .text(0, 0, desc, {
+      .text(0, -20, upgrade.description, {
         fontSize: '11px',
         color: isUnlocked ? '#888888' : '#444444',
         fontFamily: 'Arial',
+        wordWrap: { width: width - 20 },
+        align: 'center',
       })
       .setOrigin(0.5);
     cardContainer.add(descText);
 
     // Level indicator
     const levelText = this.add
-      .text(0, 20, `Level ${currentLevel}/${upgrade.maxLevel}`, {
+      .text(0, 12, `Level ${currentLevel}/${upgrade.maxLevel}`, {
         fontSize: '12px',
         color: isUnlocked ? '#88aaff' : '#445566',
         fontFamily: 'Arial',
@@ -384,16 +422,18 @@ export class ShopScene extends Phaser.Scene {
 
     // Effect text
     const effectText = this.add
-      .text(0, 38, upgrade.getEffect(currentLevel), {
+      .text(0, 30, upgrade.getEffect(currentLevel), {
         fontSize: '11px',
         color: isUnlocked ? '#88ff88' : '#446644',
         fontFamily: 'Arial',
+        wordWrap: { width: width - 20 },
+        align: 'center',
       })
       .setOrigin(0.5);
     cardContainer.add(effectText);
 
     // Buy button (and optional refund button)
-    const buttonY = 60;
+    const buttonY = 68;
     const fullButtonWidth = width - 20;
     const buttonHeight = 26;
     const hasRefund = currentLevel > 0;
@@ -943,5 +983,94 @@ export class ShopScene extends Phaser.Scene {
       this.keydownHandler = null;
     }
     this.tweens.killAll();
+  }
+
+  /**
+   * Show a confirmation dialog for ascension.
+   */
+  private showAscensionConfirmation(nextLevel: number, statBonus: number, goldBonus: number): void {
+    const overlay = this.add.rectangle(
+      GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.9
+    ).setDepth(100).setInteractive();
+
+    const titleText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 120, `ASCEND TO LEVEL ${nextLevel}`, {
+      fontSize: '32px',
+      color: '#ff88ff',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101);
+
+    const descLines = [
+      'All shop upgrades will be reset to 0.',
+      'All spent gold will be refunded.',
+      '',
+      `You will gain permanently:`,
+      `  +${statBonus}% to all stats`,
+      `  +${goldBonus}% gold earned`,
+    ];
+    if (nextLevel >= 2) descLines.push('  +1 weapon slot');
+    if (nextLevel >= 3) descLines.push('  +1 starting level');
+    if (nextLevel >= 4) descLines.push('  2x XP gem value');
+
+    const descText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 30, descLines.join('\n'), {
+      fontSize: '16px',
+      color: '#ccaacc',
+      fontFamily: 'Arial',
+      align: 'center',
+      lineSpacing: 4,
+    }).setOrigin(0.5).setDepth(101);
+
+    const confirmButton = this.add.text(GAME_WIDTH / 2 - 80, GAME_HEIGHT / 2 + 100, '[ ASCEND ]', {
+      fontSize: '24px',
+      color: '#ff44ff',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(101).setInteractive({ useHandCursor: true });
+
+    const cancelButton = this.add.text(GAME_WIDTH / 2 + 80, GAME_HEIGHT / 2 + 100, '[ Cancel ]', {
+      fontSize: '24px',
+      color: '#888888',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5).setDepth(101).setInteractive({ useHandCursor: true });
+
+    const cleanup = () => {
+      overlay.destroy();
+      titleText.destroy();
+      descText.destroy();
+      confirmButton.destroy();
+      cancelButton.destroy();
+    };
+
+    confirmButton.on('pointerover', () => confirmButton.setColor('#ff88ff'));
+    confirmButton.on('pointerout', () => confirmButton.setColor('#ff44ff'));
+    confirmButton.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      cleanup();
+      this.performAscension();
+    });
+
+    cancelButton.on('pointerover', () => cancelButton.setColor('#ffffff'));
+    cancelButton.on('pointerout', () => cancelButton.setColor('#888888'));
+    cancelButton.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      cleanup();
+    });
+  }
+
+  /**
+   * Execute the ascension: refund gold, reset upgrades, increment ascension level.
+   */
+  private performAscension(): void {
+    const metaManager = getMetaProgressionManager();
+    const ascensionManager = getAscensionManager();
+
+    // Refund all upgrade gold and reset levels
+    metaManager.resetAllUpgradesAndRefund();
+
+    // Increment ascension level
+    ascensionManager.performAscension();
+
+    // Restart shop scene to reflect changes
+    this.scene.restart();
   }
 }

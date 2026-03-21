@@ -519,10 +519,10 @@ export function createUpgrades(): Upgrade[] {
           const rechargeTime = 8.0 - level * 1.25;
           return `1 shield, ${rechargeTime.toFixed(2)}s recharge`;
         }
-        if (level === 5) return '1 shield, 3.0s recharge';
-        const charges = level - 4;
-        if (level === 9) return `${charges + 1} shields, 3.0s [MASTERY]`;
-        return `${charges} shields, 3.0s recharge`;
+        // Levels 5+: show shield count for the NEXT level
+        const nextLevelCharges = (level + 1) - 4;
+        if (level === 9) return `${nextLevelCharges} shields, 3.0s [MASTERY]`;
+        return `${nextLevelCharges} shields, 3.0s recharge`;
       },
     },
   ];

@@ -15,6 +15,7 @@ import { GAME_WIDTH, GAME_HEIGHT } from '../../GameConfig';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
+import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 
 // Achievement categories with display names and icons
 const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: string }[] = [
@@ -45,9 +46,9 @@ export class AchievementScene extends Phaser.Scene {
   private backButton!: Phaser.GameObjects.Text;
 
   // Grid constants
-  private readonly cardWidth = 300;
-  private readonly cardHeight = 100;
-  private readonly cardSpacing = 12;
+  private readonly cardWidth = 360;
+  private readonly cardHeight = 115;
+  private readonly cardSpacing = 14;
   private readonly columns = 2;
 
   // Keyboard navigation state
@@ -74,6 +75,34 @@ export class AchievementScene extends Phaser.Scene {
     this.focusZone = 'tabs';
     this.selectedTabIndex = 0;
     this.selectedCardIndex = 0;
+
+    // Retroactively claim any unlocked-but-unclaimed achievement rewards
+    const unclaimedAchievements = getAchievementManager().getUnclaimedRewards();
+    if (unclaimedAchievements.length > 0) {
+      let totalGoldClaimed = 0;
+      const metaManager = getMetaProgressionManager();
+      for (const achievement of unclaimedAchievements) {
+        const reward = getAchievementManager().claimAchievementReward(achievement.id);
+        if (reward) {
+          if (reward.type === 'gold') {
+            totalGoldClaimed += reward.value;
+            metaManager.addGold(reward.value);
+          } else if (reward.type === 'stat_bonus' && reward.statBonusId) {
+            metaManager.addAchievementBonus(reward.statBonusId, reward.value);
+          }
+        }
+        // Also claim bonus reward if present
+        if (achievement.bonusReward) {
+          if (achievement.bonusReward.type === 'stat_bonus' && achievement.bonusReward.statBonusId) {
+            metaManager.addAchievementBonus(achievement.bonusReward.statBonusId, achievement.bonusReward.value);
+          }
+        }
+      }
+      if (totalGoldClaimed > 0) {
+        // Show brief notification about retroactive claims (will be visible at top of scene)
+        console.log(`Retroactively claimed ${totalGoldClaimed} gold from ${unclaimedAchievements.length} achievements`);
+      }
+    }
 
     // Dark background
     this.add.rectangle(centerX, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x1a1a2e);
@@ -323,24 +352,30 @@ export class AchievementScene extends Phaser.Scene {
     cardBg.setStrokeStyle(2, borderColor);
     container.add(cardBg);
 
+    // Icon background disc
+    const iconCenterX = 35;
+    const iconCenterY = this.cardHeight / 2 - 8;
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 22, isUnlocked ? 0x1a4a2a : 0x1a1a3a);
+    iconDisc.setStrokeStyle(2, isUnlocked ? 0x44ff88 : 0x3a3a5a);
+    container.add(iconDisc);
+
     // Icon
     try {
       const icon = createIcon(this, {
-        x: 30,
-        y: this.cardHeight / 2 - 10,
+        x: iconCenterX,
+        y: iconCenterY,
         iconKey: achievement.icon,
-        size: 32,
+        size: 28,
         tint: isUnlocked ? 0x44ff88 : 0x666666,
       });
       container.add(icon);
     } catch {
-      // Fallback circle if icon fails
-      const fallback = this.add.circle(30, this.cardHeight / 2 - 10, 16, isUnlocked ? 0x44ff88 : 0x666666);
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 14, isUnlocked ? 0x44ff88 : 0x666666);
       container.add(fallback);
     }
 
     // Achievement name
-    const nameText = this.add.text(60, 12, achievement.name, {
+    const nameText = this.add.text(70, 14, achievement.name, {
       fontSize: '16px',
       color: isUnlocked ? '#44ff88' : '#ffffff',
       fontFamily: 'Arial',
@@ -349,18 +384,18 @@ export class AchievementScene extends Phaser.Scene {
     container.add(nameText);
 
     // Achievement description
-    const descText = this.add.text(60, 32, achievement.description, {
-      fontSize: '12px',
+    const descText = this.add.text(70, 36, achievement.description, {
+      fontSize: '13px',
       color: '#aaaaaa',
       fontFamily: 'Arial',
-      wordWrap: { width: this.cardWidth - 80 },
+      wordWrap: { width: this.cardWidth - 90 },
     });
     container.add(descText);
 
     // Progress bar background
-    const barWidth = this.cardWidth - 80;
-    const barHeight = 12;
-    const barX = 60;
+    const barWidth = this.cardWidth - 90;
+    const barHeight = 16;
+    const barX = 70;
     const barY = this.cardHeight - 28;
 
     const progressBg = this.add.rectangle(
@@ -368,7 +403,7 @@ export class AchievementScene extends Phaser.Scene {
       barY,
       barWidth,
       barHeight,
-      0x1a1a2e
+      0x111122
     );
     progressBg.setStrokeStyle(1, 0x3a3a5a);
     container.add(progressBg);
@@ -384,32 +419,57 @@ export class AchievementScene extends Phaser.Scene {
     );
     container.add(progressBar);
 
-    // Progress text — right-aligned to stay within card boundary
+    // Progress text — right-aligned within the bar area
+    const progressLabel = isUnlocked
+      ? 'COMPLETE'
+      : `${currentValue}/${achievement.targetValue}`;
     const statusText = this.add.text(
-      this.cardWidth - 10,
+      barX + barWidth - 6,
       barY,
-      isUnlocked ? '✓' : `${currentValue}/${achievement.targetValue}`,
+      progressLabel,
       {
-        fontSize: '11px',
-        color: isUnlocked ? '#44ff88' : '#888888',
+        fontSize: '10px',
+        color: isUnlocked ? '#ffffff' : '#aaaaaa',
         fontFamily: 'Arial',
+        fontStyle: isUnlocked ? 'bold' : 'normal',
       }
     );
     statusText.setOrigin(1, 0.5);
     container.add(statusText);
 
-    // Reward display
-    const rewardText = this.add.text(
-      this.cardWidth - 10,
-      12,
-      this.formatReward(achievement),
-      {
-        fontSize: '11px',
-        color: '#ffcc00',
-        fontFamily: 'Arial',
-      }
+    // Reward display with gold coin icon + background pill
+    const rewardValue = this.getRewardValue(achievement);
+    const rewardLabel = rewardValue.text;
+    const rewardText = this.add.text(0, 0, rewardLabel, {
+      fontSize: '12px',
+      color: '#ffcc00',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    });
+    const coinSize = 14;
+    const coinGap = 4;
+    const rewardPillWidth = coinSize + coinGap + rewardText.width + 14;
+    const rewardPillHeight = 22;
+    const rewardPillX = this.cardWidth - 10 - rewardPillWidth / 2;
+    const rewardPillY = 16;
+    const rewardPill = this.add.rectangle(
+      rewardPillX,
+      rewardPillY,
+      rewardPillWidth,
+      rewardPillHeight,
+      0x3a3a1a
     );
-    rewardText.setOrigin(1, 0);
+    rewardPill.setStrokeStyle(1, 0x666622);
+    container.add(rewardPill);
+
+    // Gold coin circle
+    const coinX = rewardPillX - rewardPillWidth / 2 + 7 + coinSize / 2;
+    const coinCircle = this.add.circle(coinX, rewardPillY, coinSize / 2, 0xffcc00);
+    coinCircle.setStrokeStyle(1, 0xaa8800);
+    container.add(coinCircle);
+
+    rewardText.setPosition(coinX + coinSize / 2 + coinGap, rewardPillY);
+    rewardText.setOrigin(0, 0.5);
     container.add(rewardText);
 
     // Secret achievement blur effect (if hidden and not unlocked)
@@ -444,15 +504,15 @@ export class AchievementScene extends Phaser.Scene {
     };
   }
 
-  private formatReward(achievement: AchievementDefinition): string {
+  private getRewardValue(achievement: AchievementDefinition): { text: string; type: string } {
     const reward = achievement.reward;
     switch (reward.type) {
       case 'gold':
-        return `🪙 ${reward.value}`;
+        return { text: `${reward.value}`, type: 'gold' };
       case 'unlock':
-        return `🔓 ${reward.description}`;
+        return { text: reward.description ?? 'Unlock', type: 'unlock' };
       default:
-        return '';
+        return { text: '', type: '' };
     }
   }
 

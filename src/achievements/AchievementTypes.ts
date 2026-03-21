@@ -30,7 +30,10 @@ export type TrackingType =
   | 'runs_started'
   | 'world_level'
   | 'perfect_run'      // Special: no damage taken
-  | 'speed_run';       // Special: victory under time threshold
+  | 'speed_run'        // Special: victory under time threshold
+  | 'runs_completed'   // Total runs completed (win or loss)
+  | 'account_level'    // Sum of all upgrade levels
+  | 'win_streak';      // Best win streak achieved
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REWARD TYPES
@@ -41,7 +44,8 @@ export type RewardType =
   | 'reroll_token'     // Add reroll tokens
   | 'temp_buff'        // Temporary stat buff
   | 'gold'             // Permanent gold (for achievements)
-  | 'unlock';          // Unlock something (upgrade, etc.)
+  | 'unlock'           // Unlock something (upgrade, etc.)
+  | 'stat_bonus';      // Permanent stat bonus (for achievements)
 
 export interface MilestoneReward {
   type: 'xp_bonus' | 'reroll_token' | 'temp_buff';
@@ -52,10 +56,19 @@ export interface MilestoneReward {
 }
 
 export interface AchievementReward {
-  type: 'gold' | 'unlock';
+  type: 'gold' | 'unlock' | 'stat_bonus';
   value: number;
   description: string;
-  unlockId?: string;  // For unlock rewards
+  unlockId?: string;      // For unlock rewards
+  statBonusId?: string;   // For stat_bonus rewards (maps to a bonus key)
+}
+
+/**
+ * Multi-reward wrapper — an achievement can grant gold AND a stat bonus.
+ */
+export interface AchievementRewards {
+  gold?: number;
+  statBonus?: { id: string; value: number; description: string };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -96,8 +109,11 @@ export interface AchievementDefinition {
   targetValue: number;
   trackingType: TrackingType;
 
-  // Reward
+  // Reward (primary — usually gold)
   reward: AchievementReward;
+
+  // Optional secondary reward (stat bonus) — applied alongside primary reward
+  bonusReward?: AchievementReward;
 
   // Tiered achievements
   tier?: number;
@@ -169,6 +185,7 @@ export interface LifetimeStats {
   totalRunsStarted: number;
   totalRunsCompleted: number;
   totalVictories: number;
+  totalBossesKilled: number;
   totalGoldEarned: number;
   highestLevel: number;
   highestWorldLevel: number;
@@ -203,6 +220,8 @@ export interface RunEndData {
   damageDealt: number;
   damageTaken: number;
   goldEarned: number;
+  accountLevel?: number;
+  bestStreak?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
