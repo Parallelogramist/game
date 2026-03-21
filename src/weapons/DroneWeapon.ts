@@ -428,8 +428,8 @@ export class DroneWeapon extends BaseWeapon {
       }
 
       // Bounds check
-      if (proj.sprite.x < -50 || proj.sprite.x > 1330 ||
-          proj.sprite.y < -50 || proj.sprite.y > 770) {
+      if (proj.sprite.x < -50 || proj.sprite.x > ctx.scene.scale.width + 50 ||
+          proj.sprite.y < -50 || proj.sprite.y > ctx.scene.scale.height + 50) {
         toRemove.add(proj);
         continue;
       }

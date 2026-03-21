@@ -1848,8 +1848,8 @@ function updateTheMachineAI(
 
   if (state === 0) {
     // Move toward center-ish position, fire constantly
-    const targetX = 640; // Center of screen
-    const targetY = 360;
+    const targetX = gameBoundsWidth / 2;
+    const targetY = gameBoundsHeight / 2;
     const toDx = targetX - enemyX;
     const toDy = targetY - enemyY;
     const toDist = Math.sqrt(toDx * toDx + toDy * toDy);
@@ -1893,8 +1893,8 @@ function updateTheMachineAI(
       // Spawn turret at random position
       const spawnAngle = Math.random() * PI_TWO;
       const spawnDist = 150 + Math.random() * 100;
-      const spawnX = Math.min(1200, Math.max(80, enemyX + Math.cos(spawnAngle) * spawnDist));
-      const spawnY = Math.min(640, Math.max(80, enemyY + Math.sin(spawnAngle) * spawnDist));
+      const spawnX = Math.min(gameBoundsWidth - 80, Math.max(80, enemyX + Math.cos(spawnAngle) * spawnDist));
+      const spawnY = Math.min(gameBoundsHeight - 80, Math.max(80, enemyY + Math.sin(spawnAngle) * spawnDist));
       minionSpawnCallback(spawnX, spawnY, 'turret');
     }
 

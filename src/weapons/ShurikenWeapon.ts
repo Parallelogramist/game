@@ -324,8 +324,8 @@ export class ShurikenWeapon extends BaseWeapon {
       shuriken.sprite.strokeCircle(0, 0, size * 0.25);
 
       // Check bounds
-      if (shuriken.x < -50 || shuriken.x > 1330 ||
-          shuriken.y < -50 || shuriken.y > 770) {
+      if (shuriken.x < -50 || shuriken.x > ctx.scene.scale.width + 50 ||
+          shuriken.y < -50 || shuriken.y > ctx.scene.scale.height + 50) {
         toRemove.add(shuriken);
         continue;
       }

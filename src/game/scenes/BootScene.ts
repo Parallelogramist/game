@@ -91,7 +91,7 @@ export class BootScene extends Phaser.Scene {
 
     // Title
     this.add
-      .text(centerX, centerY - 100, 'PEW PEW SURVIVOR', {
+      .text(centerX, centerY - 140, 'PEW PEW SURVIVOR', {
         fontSize: '64px',
         color: '#ffdd44',
         fontFamily: 'Arial',
@@ -106,7 +106,7 @@ export class BootScene extends Phaser.Scene {
       ? `Ascension ${ascensionLevel}  ·  World ${metaManager.getWorldLevel()}`
       : `World ${metaManager.getWorldLevel()}`;
     this.add
-      .text(centerX, centerY - 30, worldText, {
+      .text(centerX, centerY - 60, worldText, {
         fontSize: '28px',
         color: '#88aaff',
         fontFamily: 'Arial',
@@ -120,7 +120,7 @@ export class BootScene extends Phaser.Scene {
       const streakBonus = metaManager.getStreakBonusPercent();
       const fireEmoji = currentStreak >= 5 ? '🔥🔥' : '🔥';
       this.add
-        .text(centerX, centerY, `${fireEmoji} Streak: ${currentStreak} (+${streakBonus}% gold)`, {
+        .text(centerX, centerY - 28, `${fireEmoji} Streak: ${currentStreak} (+${streakBonus}% gold)`, {
           fontSize: '18px',
           color: '#ffaa44',
           fontFamily: 'Arial',
@@ -176,7 +176,7 @@ export class BootScene extends Phaser.Scene {
 
     // Build dynamic menu config based on save state
     const menuConfig: { label: string; y: number; fontSize: string; action: () => void }[] = [];
-    let yOffset = centerY + 30;
+    let yOffset = centerY + 20;
 
     // CONTINUE button (only if save exists)
     let continueY = 0;
@@ -188,7 +188,7 @@ export class BootScene extends Phaser.Scene {
         action: continueGame,
       });
       continueY = yOffset;
-      yOffset += 40;
+      yOffset += 50;
     }
 
     // NEW GAME / START
@@ -198,18 +198,18 @@ export class BootScene extends Phaser.Scene {
       fontSize: hasSave ? '18px' : '24px',
       action: startGameWithConfirmation,
     });
-    yOffset += hasSave ? 35 : 40;
+    yOffset += hasSave ? 45 : 50;
 
     // Other menu items
     menuConfig.push({ label: 'SHOP', y: yOffset, fontSize: '18px', action: openShop });
     const shopY = yOffset;
-    yOffset += 35;
+    yOffset += 45;
     menuConfig.push({ label: 'ACHIEVEMENTS', y: yOffset, fontSize: '18px', action: openAchievements });
-    yOffset += 35;
+    yOffset += 45;
     menuConfig.push({ label: 'CODEX', y: yOffset, fontSize: '18px', action: openCodex });
-    yOffset += 35;
+    yOffset += 45;
     menuConfig.push({ label: 'SETTINGS', y: yOffset, fontSize: '18px', action: openSettings });
-    yOffset += 35;
+    yOffset += 45;
     menuConfig.push({ label: 'CREDITS', y: yOffset, fontSize: '18px', action: openCredits });
 
     menuConfig.forEach((config, index) => {

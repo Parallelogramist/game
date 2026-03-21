@@ -12,7 +12,7 @@ No lint or test commands are currently configured.
 
 ## Deployment
 
-- **GitHub Pages**: Auto-deploys on push to `main` via `.github/workflows/deploy.yml` (Node 20)
+- **GitHub Pages**: Auto-deploys on push to `master` via `.github/workflows/deploy.yml` (Node 20)
 - **Vite config**: Base path `/game/`, output to `dist/`
 
 ## Architecture Overview
@@ -26,17 +26,21 @@ The **player character IS the particle swarm** — a boids-physics plasma core r
 ### ECS Architecture
 
 The game uses an Entity-Component-System pattern where:
-- **Components** (`/src/ecs/components/index.ts`) define data schemas — 19 components total including Transform, Velocity, Health, Weapon, EnemyAI, EnemyType, Knockback, StatusEffect, and tag components
+- **Components** (`/src/ecs/components/index.ts`) define data schemas — 19 components total including Transform, Velocity, Health, Weapon, Projectile, EnemyAI, EnemyType, Knockback, StatusEffect, and tag components
 - **Systems** (`/src/ecs/systems/`) contain game logic that operates on entities with specific components
 - **SpriteRef** component bridges ECS entities to Phaser sprites for rendering
 
 Systems execute in this fixed order each frame (from `GameScene.update()`):
 ```
-updateFrameCache → Timer/spawn updates → Laser beams → Joystick input →
-InputSystem → EnemyAISystem → MovementSystem → processKnockback → clampPlayerToScreen →
-WeaponManager.update → XPGemSystem → HealthPickupSystem → MagnetPickupSystem →
-StatusEffectSystem → Enemy Projectiles → Player-Enemy Collision → SpriteSystem →
-PlayerPlasmaCore → GridBackground → Trails → EffectsManager → VisualQuality → UI
+updateFrameCache → Slow time → Achievement tracking → Auto-save →
+Shield barrier recharge → Dash ability → Gem magnet → Treasure chest spawning →
+HP regen → Emergency heal → Magnet spawn timer →
+Enemy/miniboss/boss/endless spawning → Laser beams → Joystick/keyboard/mouse input →
+InputSystem → EnemyAISystem → Wraith alpha → MovementSystem → processKnockback →
+clampPlayerToScreen → WeaponManager.update → XPGemSystem → HealthPickupSystem →
+MagnetPickupSystem → StatusEffectSystem → Enemy Projectiles → Player-Enemy Collision →
+SpriteSystem → PlayerPlasmaCore → GridBackground → Trails → EffectsManager →
+VisualQuality → UI
 ```
 Note: Knockback is processed inline in GameScene. CollisionSystem (`/src/ecs/systems/CollisionSystem.ts`) handles projectile-enemy collisions using `SpatialHash` for efficient proximity queries, and applies crits, elemental effects, knockback, life steal, execution bonuses, and overkill splash damage.
 
@@ -50,8 +54,6 @@ BootScene (start screen + music)
   ├─→ CodexScene (discovered weapons/enemies/upgrades, returns to BootScene)
   ├─→ SettingsScene (SFX, visual settings, returns to BootScene)
   ├─→ MusicSettingsScene (BGM settings, returns to BootScene)
-  ├─→ AchievementScene (achievement viewer, returns to BootScene)
-  ├─→ CodexScene (encyclopedia/bestiary, returns to BootScene)
   └─→ CreditsScene (attribution, returns to BootScene)
 ```
 
@@ -95,13 +97,14 @@ The game features 14 unique weapons managed by `WeaponManager` (`/src/weapons/We
 
 ### Enemy Variety System
 
-The game features 26 enemy type definitions in `/src/enemies/EnemyTypes.ts`:
-- **9 Basic** (Shambler, Zigzag Runner, Dasher, Circler, Tiny Swarm, Exploder, Splitter Mini, Ghost, Turret)
-- **8 Elite** (Tank, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Giant)
+The game features 30 enemy type definitions in `/src/enemies/EnemyTypes.ts`:
+- **5 Basic** (Shambler, Zigzag Runner, Dasher, Circler, Tiny Swarm)
+- **13 Elite** (Tank, Exploder, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Lurker, Warden, Wraith, Rallier, Giant)
+- **3 Spawned-only** (Splitter Mini, Ghost, Turret — created by other enemies, not natural spawns)
 - **6 Miniboss** (The Glutton, Swarm Mother, The Charger, Necromancer, Twin Alpha, Twin Beta)
 - **3 Boss** (The Horde King, Void Wyrm, The Machine)
 
-Note: Ghost and Turret are spawned-only types (created by minibosses/bosses, not natural spawns). Twins spawn as a linked pair.
+Twins spawn as a linked pair.
 
 **EnemyAI Component:**
 ```typescript
@@ -109,7 +112,8 @@ EnemyAI: { aiType, state, timer, targetX, targetY, shootTimer, specialTimer, pha
 ```
 
 **AI Types (EnemyAIType enum):**
-- **Regular (0-13):** Chase, Zigzag, Dash, Circle, Swarm, Tank, Exploder, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Giant
+- **Regular (0-17):** Chase, Zigzag, Dash, Circle, Swarm, Tank, Exploder, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Giant, Lurker, Warden, Wraith, Rallier
+- **Spawned-only (18-19):** Ghost, SplitterMini
 - **Miniboss (50-55):** Glutton, SwarmMother, Charger, Necromancer, TwinA, TwinB
 - **Boss (100-102):** HordeKing, VoidWyrm, TheMachine
 
@@ -117,6 +121,7 @@ EnemyAI: { aiType, state, timer, targetX, targetY, shootTimer, specialTimer, pha
 - Regular enemies spawn based on time-weighted probabilities via `getRandomEnemyType(elapsedTime)`
 - Minibosses spawn at fixed intervals (first at 2 min, then every 1.5 min)
 - Bosses spawn at 10 minutes with cycling system (different boss each run)
+- Endless mode activates after boss defeat with escalating spawns
 
 **Adding a new enemy type:**
 1. Add definition to `ENEMY_TYPES` in `/src/enemies/EnemyTypes.ts` with stats, visual, and spawn config
@@ -192,39 +197,13 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 - **MasteryIconEffectsManager**: Golden glow and sparkle particles for mastered upgrade icons in HUD
 - **DeathRippleManager**: Expanding ripple waves from enemy death locations with quality scaling
 - **Gem3DRenderer**: 3D octahedron rendering for XP gems using transformation matrices and painter's algorithm
-
-### UI Systems
-
-`/src/ui/` provides user interface components:
-- **JoystickManager**: Virtual joystick for mobile/touch input. Dynamic spawn at touch point, outputs normalized direction vector.
-- **ToastManager**: Queue-based notification system for achievements, milestones, and events. Configurable styles and durations.
-
-### Achievements System
-
-`/src/achievements/` tracks and unlocks 30+ achievements:
-- **AchievementManager**: Singleton that tracks progress, checks conditions, and unlocks achievements. Persistent via SecureStorage.
-- **AchievementDefinitions**: All achievement definitions with conditions and rewards
-- **MilestoneDefinitions**: Stat-based milestones (kills, time survived, etc.)
-- **AchievementScene**: UI scene accessible from BootScene for viewing unlocked achievements
-
-### Codex System
-
-`/src/codex/` provides an in-game encyclopedia:
-- **CodexManager**: Tracks discovered weapons, enemies, and upgrades. Records playtime, kills, damage, victories, and world level progression. Persistent via SecureStorage.
-- **CodexScene**: UI scene accessible from BootScene for browsing codex entries
+- **DepthLayers**: Named z-depth constants for consistent render ordering across all systems
 
 ### Storage System
 
-`/src/storage/` provides encrypted persistence (anti-cheat):
-- **SecureStorage**: Encrypted localStorage wrapper — all persistent game data flows through this
-- **StorageBootstrap**: Initialization and migration logic
-- **StorageEncryption**: Encryption/decryption utilities
+`SecureStorage` (`/src/storage/`) is a drop-in localStorage replacement with async encryption (anti-cheat). `StorageBootstrap.initializeStorage()` must be called in `main.ts` before creating any managers — it derives encryption keys and pre-loads all game storage keys. Managers read/write synchronously while encryption happens in the background.
 
 Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManager
-
-### Storage System
-
-`SecureStorage` (`/src/storage/`) is a drop-in localStorage replacement with async encryption. `StorageBootstrap.initializeStorage()` must be called in `main.ts` before creating any managers — it derives encryption keys and pre-loads all game storage keys. Managers read/write synchronously while encryption happens in the background.
 
 ### Achievement & Codex Systems
 
@@ -232,15 +211,11 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 **CodexManager** (`/src/codex/`): Singleton tracking discovered weapons, enemies, and upgrades across runs plus global stats. `discoverXXX()` methods return `boolean` (true if new discovery) and track usage stats. Calculates completion percentages.
 
-### SpatialHash
+### UI Systems
 
-`SpatialHash` (`/src/utils/SpatialHash.ts`): Grid-based spatial partitioning (80px cells) for O(1) enemy proximity queries. Singleton via `getEnemySpatialHash()`, populated once per frame in GameScene. Used by CollisionSystem and weapons for efficient nearby-enemy lookups.
-
-### UI Managers
-
-**JoystickManager** (`/src/ui/JoystickManager.ts`): Dynamic virtual joystick for mobile touch input. Scene-scoped (not a global singleton). Outputs normalized direction vector via `getDirection()`.
-
-**ToastManager** (`/src/ui/ToastManager.ts`): Queued toast notifications with slide-in/out animations. Scene-scoped via WeakMap, obtained via `getToastManager(scene)`. Used by achievement and codex systems for discovery notifications.
+`/src/ui/` provides user interface components:
+- **JoystickManager**: Dynamic virtual joystick for mobile touch input. Scene-scoped (not a global singleton). Outputs normalized direction vector via `getDirection()`.
+- **ToastManager**: Queue-based notification system for achievements, milestones, and events. Scene-scoped via WeakMap, obtained via `getToastManager(scene)`. Configurable styles and durations.
 
 ### Settings System
 
@@ -268,15 +243,18 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 - **Win Streak**: Bonus gold for consecutive victories, capped at 10 streaks (50% bonus)
 - **Account Level**: Sum of all permanent upgrade levels
 
+**AscensionManager** (`/src/meta/AscensionManager.ts`): Prestige system — when account level reaches a threshold (base 50, +15 per ascension), the player can reset all shop upgrades for a full gold refund and gain permanent stat (+10%) and gold (+15%) multipliers per ascension level.
+
 ### Utility Systems
 
 `/src/utils/` provides shared utilities:
-- **SpatialHash**: O(1) spatial queries via grid bucketing. Used by GridBackground and collision checks to avoid O(n²) comparisons.
+- **SpatialHash**: O(1) spatial queries via grid bucketing (80px cells). Singleton via `getEnemySpatialHash()`, populated once per frame. Used by CollisionSystem, GridBackground, and weapons.
 - **IconRenderer/IconMap**: Icon sprite creation from the `public/icons/game-icons.png` atlas. IconMap provides semantic key-to-frame mappings for 60+ icons.
+- **SceneTransition**: `fadeIn`, `fadeOut`, and `addButtonInteraction` helpers used across all scene transitions.
 
 ### Game Configuration
 
-- Screen: 1280×720 (defined in `GameConfig.ts`), scales with FIT mode (min 640×360)
+- Screen: 1280×720 (defined in `GameConfig.ts`), scales with EXPAND mode
 - Max enemies: 100 concurrent
 - XP formula: `10 × level^1.5` for next level
 - Damage invincibility: 0.5 seconds

@@ -186,8 +186,8 @@ export class ProjectileWeapon extends BaseWeapon {
       }
 
       // Check bounds
-      if (data.x < -50 || data.x > 1330 ||
-          data.y < -50 || data.y > 770) {
+      if (data.x < -50 || data.x > ctx.scene.scale.width + 50 ||
+          data.y < -50 || data.y > ctx.scene.scale.height + 50) {
         toRemove.add(projectile);
         continue;
       }

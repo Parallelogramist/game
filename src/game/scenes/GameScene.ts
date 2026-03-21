@@ -5674,7 +5674,6 @@ export class GameScene extends Phaser.Scene {
     if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
 
     const statsRightX = w - HUD_EDGE_PADDING;
-    const statsTopY = pauseButtonY + pauseButtonSize / 2 + 8;
 
     const killCountText = this.children.getByName('killCountText') as Phaser.GameObjects.Text;
     if (killCountText) killCountText.setX(statsRightX);
