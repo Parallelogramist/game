@@ -8,12 +8,13 @@
 import Phaser from 'phaser';
 import { ToastConfig } from '../achievements/AchievementTypes';
 import { createIcon } from '../utils/IconRenderer';
+import { GAME_WIDTH } from '../GameConfig';
 
-// Toast configuration
-const TOAST_WIDTH = 280;
-const TOAST_HEIGHT = 70;
-const TOAST_MARGIN = 16;
-const TOAST_PADDING = 12;
+// Base toast dimensions (scaled by hudScale on small screens)
+const BASE_TOAST_WIDTH = 280;
+const BASE_TOAST_HEIGHT = 70;
+const BASE_TOAST_MARGIN = 16;
+const BASE_TOAST_PADDING = 12;
 const SLIDE_DURATION = 300;
 const DEFAULT_DISPLAY_DURATION = 3000;
 
@@ -31,6 +32,12 @@ export class ToastManager {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+  }
+
+  /** Compute HUD scale factor for mobile screens. */
+  private getHudScale(): number {
+    const longerSide = Math.max(this.scene.scale.width, this.scene.scale.height);
+    return Math.max(1.0, Math.min(2.5, GAME_WIDTH / longerSide));
   }
 
   /**
@@ -86,15 +93,22 @@ export class ToastManager {
     const config = this.toastQueue.shift()!;
     this.isAnimating = true;
 
+    // Scale dimensions for mobile screens
+    const hudScale = this.getHudScale();
+    const toastWidth = Math.round(BASE_TOAST_WIDTH * hudScale);
+    const toastHeight = Math.round(BASE_TOAST_HEIGHT * hudScale);
+    const toastMargin = Math.round(BASE_TOAST_MARGIN * hudScale);
+    const toastPadding = Math.round(BASE_TOAST_PADDING * hudScale);
+
     // Create toast container
     const container = this.scene.add.container(0, 0);
     container.setDepth(1000); // Above most game elements
 
     // Position off-screen to the right
     const screenWidth = this.scene.cameras.main.width;
-    const startX = screenWidth + TOAST_WIDTH;
-    const endX = screenWidth - TOAST_WIDTH - TOAST_MARGIN;
-    const y = TOAST_MARGIN + TOAST_HEIGHT / 2;
+    const startX = screenWidth + toastWidth;
+    const endX = screenWidth - toastWidth - toastMargin;
+    const y = toastMargin + toastHeight / 2;
 
     container.setPosition(startX, y);
 
@@ -103,17 +117,17 @@ export class ToastManager {
     bg.fillStyle(TOAST_BG_COLOR, 0.95);
     bg.lineStyle(2, config.color || TOAST_BORDER_COLOR, 1);
     bg.fillRoundedRect(
-      -TOAST_WIDTH / 2,
-      -TOAST_HEIGHT / 2,
-      TOAST_WIDTH,
-      TOAST_HEIGHT,
+      -toastWidth / 2,
+      -toastHeight / 2,
+      toastWidth,
+      toastHeight,
       8
     );
     bg.strokeRoundedRect(
-      -TOAST_WIDTH / 2,
-      -TOAST_HEIGHT / 2,
-      TOAST_WIDTH,
-      TOAST_HEIGHT,
+      -toastWidth / 2,
+      -toastHeight / 2,
+      toastWidth,
+      toastHeight,
       8
     );
     container.add(bg);
@@ -122,16 +136,17 @@ export class ToastManager {
     const accent = this.scene.add.graphics();
     accent.fillStyle(config.color || 0xffdd44, 1);
     accent.fillRoundedRect(
-      -TOAST_WIDTH / 2,
-      -TOAST_HEIGHT / 2,
+      -toastWidth / 2,
+      -toastHeight / 2,
       4,
-      TOAST_HEIGHT,
+      toastHeight,
       { tl: 8, bl: 8, tr: 0, br: 0 }
     );
     container.add(accent);
 
     // Icon (if icon system is available)
-    const iconX = -TOAST_WIDTH / 2 + TOAST_PADDING + 20;
+    const iconSize = Math.round(32 * hudScale);
+    const iconX = -toastWidth / 2 + toastPadding + Math.round(20 * hudScale);
     const iconY = 0;
 
     try {
@@ -139,20 +154,20 @@ export class ToastManager {
         x: iconX,
         y: iconY,
         iconKey: config.icon,
-        size: 32,
+        size: iconSize,
         tint: config.color,
       });
       container.add(iconImage);
     } catch {
       // Fallback: simple colored circle if icon rendering fails
-      const fallbackIcon = this.scene.add.circle(iconX, iconY, 16, config.color || 0xffdd44);
+      const fallbackIcon = this.scene.add.circle(iconX, iconY, Math.round(16 * hudScale), config.color || 0xffdd44);
       container.add(fallbackIcon);
     }
 
     // Title text (create first to measure height)
-    const textX = -TOAST_WIDTH / 2 + TOAST_PADDING + 48;
+    const textX = -toastWidth / 2 + toastPadding + Math.round(48 * hudScale);
     const title = this.scene.add.text(textX, 0, config.title, {
-      fontSize: '14px',
+      fontSize: `${Math.round(14 * hudScale)}px`,
       color: TOAST_TITLE_COLOR,
       fontFamily: 'Arial',
       fontStyle: 'bold',
@@ -160,10 +175,10 @@ export class ToastManager {
 
     // Description text (can be multi-line)
     const desc = this.scene.add.text(textX, 0, config.description, {
-      fontSize: '11px',
+      fontSize: `${Math.round(11 * hudScale)}px`,
       color: TOAST_DESC_COLOR,
       fontFamily: 'Arial',
-      wordWrap: { width: TOAST_WIDTH - 80 },
+      wordWrap: { width: toastWidth - Math.round(80 * hudScale) },
     });
 
     // Calculate vertical centering based on actual text heights
@@ -210,10 +225,11 @@ export class ToastManager {
 
   private slideOutToast(container: Phaser.GameObjects.Container): void {
     const screenWidth = this.scene.cameras.main.width;
+    const toastWidth = Math.round(BASE_TOAST_WIDTH * this.getHudScale());
 
     this.scene.tweens.add({
       targets: container,
-      x: screenWidth + TOAST_WIDTH,
+      x: screenWidth + toastWidth,
       duration: SLIDE_DURATION,
       ease: 'Back.easeIn',
       onComplete: () => {

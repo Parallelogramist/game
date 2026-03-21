@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { GAME_WIDTH } from '../../GameConfig';
 import { createWorld, addEntity, addComponent, removeEntity, IWorld, defineQuery, hasComponent } from 'bitecs';
 import {
   Transform,
@@ -304,6 +305,9 @@ export class GameScene extends Phaser.Scene {
   private readonly AUTO_SAVE_INTERVAL: number = 30; // seconds
   private beforeUnloadHandler: (() => void) | null = null;
   private shouldRestore: boolean = false;
+
+  // HUD scale factor for mobile/small screens (1.0 on desktop, up to 2.5 on small phones)
+  private hudScale: number = 1;
 
   // Boss health bar UI tracking (stacked bars for multiple bosses)
   private activeBossHealthBars: BossHealthBar[] = [];
@@ -730,6 +734,9 @@ export class GameScene extends Phaser.Scene {
     // Apply meta-progression stats to player and weapons
     this.syncStatsToPlayer();
 
+    // Compute HUD scale for mobile/small screens before creating UI
+    this.hudScale = this.computeHudScale();
+
     // Create UI
     this.createUI();
 
@@ -1027,6 +1034,9 @@ export class GameScene extends Phaser.Scene {
 
     // Sync stats to player
     this.syncStatsToPlayer();
+
+    // Compute HUD scale for mobile/small screens before creating UI
+    this.hudScale = this.computeHudScale();
 
     // Create UI
     this.createUI();
@@ -1653,25 +1663,44 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Computes the HUD scale factor based on canvas dimensions.
+   * Returns 1.0 on desktop (1280+), scales up on smaller screens (phones/tablets).
+   */
+  private computeHudScale(): number {
+    const longerSide = Math.max(this.scale.width, this.scale.height);
+    return Math.max(1.0, Math.min(2.5, GAME_WIDTH / longerSide));
+  }
+
+  /** Returns a scaled font size string like '28px'. */
+  private scaledFontSize(basePixels: number): string {
+    return `${Math.round(basePixels * this.hudScale)}px`;
+  }
+
+  /** Returns a dimension scaled by hudScale, rounded to integer. */
+  private scaledSize(basePixels: number): number {
+    return Math.round(basePixels * this.hudScale);
+  }
+
   private createUI(): void {
-    const leftMargin = HUD_EDGE_PADDING;
-    let currentY = HUD_EDGE_PADDING;
+    const leftMargin = this.scaledSize(HUD_EDGE_PADDING);
+    let currentY = this.scaledSize(HUD_EDGE_PADDING);
 
     // === TOP LEFT: Level & Stats Panel ===
 
     // Level display (large)
     this.levelText = this.add.text(leftMargin, currentY, 'Level 1', {
-      fontSize: '28px',
+      fontSize: this.scaledFontSize(28),
       color: '#ffdd44',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     });
     this.levelText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-    currentY += 35;
+    currentY += this.scaledSize(35);
 
     // HP Bar (above XP bar)
-    const hpBarWidth = 180;
-    const hpBarHeight = 14;
+    const hpBarWidth = this.scaledSize(180);
+    const hpBarHeight = this.scaledSize(14);
 
     this.hpBarBackground = this.add.rectangle(
       leftMargin + hpBarWidth / 2,
@@ -1699,7 +1728,7 @@ export class GameScene extends Phaser.Scene {
       currentY + hpBarHeight / 2,
       '100/100',
       {
-        fontSize: '11px',
+        fontSize: this.scaledFontSize(11),
         color: '#000000',
         fontFamily: 'Arial',
         stroke: '#ffffff',
@@ -1710,17 +1739,17 @@ export class GameScene extends Phaser.Scene {
     this.hpText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // HP label
-    this.add.text(leftMargin + hpBarWidth + 8, currentY + hpBarHeight / 2, 'HP', {
-      fontSize: '12px',
+    this.add.text(leftMargin + hpBarWidth + this.scaledSize(8), currentY + hpBarHeight / 2, 'HP', {
+      fontSize: this.scaledFontSize(12),
       color: '#ff6666',
       fontFamily: 'Arial',
     }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    currentY += hpBarHeight + HUD_ELEMENT_SPACING;
+    currentY += hpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
 
     // XP Bar (below HP bar)
-    const xpBarWidth = 180;
-    const xpBarHeight = 12;
+    const xpBarWidth = this.scaledSize(180);
+    const xpBarHeight = this.scaledSize(12);
 
     this.xpBarBackground = this.add.rectangle(
       leftMargin + xpBarWidth / 2,
@@ -1743,13 +1772,13 @@ export class GameScene extends Phaser.Scene {
     this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // XP label
-    this.add.text(leftMargin + xpBarWidth + 8, currentY + xpBarHeight / 2, 'XP', {
-      fontSize: '12px',
+    this.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
+      fontSize: this.scaledFontSize(12),
       color: '#44ff44',
       fontFamily: 'Arial',
     }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    currentY += xpBarHeight + HUD_ELEMENT_SPACING * 2;
+    currentY += xpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING) * 2;
 
     // === Upgrade Icons Container ===
     this.upgradeIconsContainer = this.add.container(leftMargin, currentY);
@@ -1760,25 +1789,25 @@ export class GameScene extends Phaser.Scene {
     this.upgradeTooltip.setVisible(false);
     this.upgradeTooltip.setDepth(HUD_DEPTH + 1); // Slightly above other HUD elements
 
-    const tooltipBg = this.add.rectangle(0, 0, 180, 60, 0x222244, 0.95);
+    const tooltipBg = this.add.rectangle(0, 0, this.scaledSize(180), this.scaledSize(60), 0x222244, 0.95);
     tooltipBg.setStrokeStyle(2, 0x4444aa);
     tooltipBg.setOrigin(0, 0);
 
-    const tooltipTitle = this.add.text(10, 8, '', {
-      fontSize: '14px',
+    const tooltipTitle = this.add.text(this.scaledSize(10), this.scaledSize(8), '', {
+      fontSize: this.scaledFontSize(14),
       color: '#ffffff',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     }).setName('tooltipTitle');
 
-    const tooltipDesc = this.add.text(10, 28, '', {
-      fontSize: '11px',
+    const tooltipDesc = this.add.text(this.scaledSize(10), this.scaledSize(28), '', {
+      fontSize: this.scaledFontSize(11),
       color: '#aaaaaa',
       fontFamily: 'Arial',
     }).setName('tooltipDesc');
 
-    const tooltipLevel = this.add.text(10, 44, '', {
-      fontSize: '11px',
+    const tooltipLevel = this.add.text(this.scaledSize(10), this.scaledSize(44), '', {
+      fontSize: this.scaledFontSize(11),
       color: '#88aaff',
       fontFamily: 'Arial',
     }).setName('tooltipLevel');
@@ -1787,56 +1816,59 @@ export class GameScene extends Phaser.Scene {
 
     // === TOP RIGHT: Pause Button & Game Stats ===
 
-    // Pause button (top right corner)
-    const pauseButtonSize = 36;
-    const pauseButtonX = this.scale.width - HUD_EDGE_PADDING - pauseButtonSize / 2;
-    const pauseButtonY = HUD_EDGE_PADDING + pauseButtonSize / 2;
+    // Pause button (top right corner) — minimum 44px for touch accessibility
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
+    const pauseButtonSize = Math.max(this.scaledSize(36), 44);
+    const pauseButtonX = this.scale.width - scaledPadding - pauseButtonSize / 2;
+    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
 
     // Stats positioned below the pause button, right-aligned to screen edge
-    const statsRightX = this.scale.width - HUD_EDGE_PADDING;
-    const statsTopY = pauseButtonY + pauseButtonSize / 2 + 8;
+    const statsRightX = this.scale.width - scaledPadding;
+    const statsTopY = pauseButtonY + pauseButtonSize / 2 + scaledSpacing;
 
     // World level display (centered, above timer)
     const worldLevel = getMetaProgressionManager().getWorldLevel();
-    this.add.text(this.scale.width / 2, HUD_EDGE_PADDING, `World ${worldLevel}`, {
-      fontSize: '14px',
+    this.add.text(this.scale.width / 2, scaledPadding, `World ${worldLevel}`, {
+      fontSize: this.scaledFontSize(14),
       color: '#88aaff',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Game time display (centered top, below world level)
-    this.add.text(this.scale.width / 2, HUD_EDGE_PADDING + WORLD_LEVEL_TEXT_HEIGHT + HUD_ELEMENT_SPACING, '', {
-      fontSize: '28px',
+    const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
+    this.add.text(this.scale.width / 2, scaledPadding + scaledWorldLevelHeight + scaledSpacing, '', {
+      fontSize: this.scaledFontSize(28),
       color: '#ffffff',
       fontFamily: 'Arial',
     }).setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Kill count display (below pause button, right-aligned)
     this.add.text(statsRightX, statsTopY, '', {
-      fontSize: '16px',
+      fontSize: this.scaledFontSize(16),
       color: '#88ff88',
       fontFamily: 'Arial',
       backgroundColor: '#00000080',
-      padding: { x: 6, y: 3 },
+      padding: { x: this.scaledSize(6), y: this.scaledSize(3) },
     }).setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Gold preview display (below kill count, right-aligned)
-    this.add.text(statsRightX, statsTopY + 24, '', {
-      fontSize: '14px',
+    this.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
+      fontSize: this.scaledFontSize(14),
       color: '#ffdd44',
       fontFamily: 'Arial',
       backgroundColor: '#00000080',
-      padding: { x: 6, y: 2 },
+      padding: { x: this.scaledSize(6), y: this.scaledSize(2) },
     }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Combo counter display (below gold preview, right-aligned)
-    this.add.text(statsRightX, statsTopY + 48, '', {
-      fontSize: '18px',
+    this.add.text(statsRightX, statsTopY + this.scaledSize(48), '', {
+      fontSize: this.scaledFontSize(18),
       color: '#ffffff',
       fontFamily: 'Arial',
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: this.scaledSize(3),
     }).setOrigin(1, 0).setName('comboText').setDepth(HUD_DEPTH).setAlpha(0);
 
     const pauseButtonBg = this.add.rectangle(
@@ -1853,7 +1885,7 @@ export class GameScene extends Phaser.Scene {
     pauseButtonBg.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     const pauseButtonIcon = this.add.text(pauseButtonX, pauseButtonY, '⏸', {
-      fontSize: '20px',
+      fontSize: this.scaledFontSize(20),
     });
     pauseButtonIcon.setOrigin(0.5);
     pauseButtonIcon.setName('pauseButtonIcon');
@@ -1871,12 +1903,12 @@ export class GameScene extends Phaser.Scene {
     });
 
     // Controls hint (bottom left)
-    this.add.text(HUD_EDGE_PADDING, this.scale.height - HUD_EDGE_PADDING, 'WASD / Arrows / Mouse to move', {
-      fontSize: '14px',
+    this.add.text(scaledPadding, this.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
+      fontSize: this.scaledFontSize(14),
       color: '#888888',
       fontFamily: 'Arial',
       backgroundColor: '#00000080',
-      padding: { x: 6, y: 3 },
+      padding: { x: this.scaledSize(6), y: this.scaledSize(3) },
     }).setOrigin(0, 1).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // BGM info display (bottom left, above controls hint)
@@ -1887,15 +1919,14 @@ export class GameScene extends Phaser.Scene {
     this.createAutoBuyToggle();
 
     // FPS counter (bottom right corner, above auto-buy toggle)
-    // Auto-buy toggle is 26px tall, so FPS goes above it with spacing
-    const autoBuyToggleHeight = 26;
-    const fpsY = this.scale.height - HUD_EDGE_PADDING - autoBuyToggleHeight - HUD_ELEMENT_SPACING;
-    this.fpsText = this.add.text(this.scale.width - HUD_EDGE_PADDING, fpsY, 'FPS: --', {
-      fontSize: '14px',
+    const autoBuyToggleHeight = this.scaledSize(26);
+    const fpsY = this.scale.height - scaledPadding - autoBuyToggleHeight - scaledSpacing;
+    this.fpsText = this.add.text(this.scale.width - scaledPadding, fpsY, 'FPS: --', {
+      fontSize: this.scaledFontSize(14),
       color: '#00ff00',
       fontFamily: 'monospace',
       backgroundColor: '#000000aa',
-      padding: { x: 4, y: 2 },
+      padding: { x: this.scaledSize(4), y: this.scaledSize(2) },
     });
     this.fpsText.setOrigin(1, 1);
     this.fpsText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
@@ -1921,12 +1952,13 @@ export class GameScene extends Phaser.Scene {
       this.isAutoBuyEnabled = savedAutoBuy === 'true';
     }
 
-    const toggleWidth = 190;
-    const toggleHeight = 26;
-    // Position with right edge at HUD_EDGE_PADDING from screen edge
-    const toggleX = this.scale.width - HUD_EDGE_PADDING - toggleWidth / 2;
-    // Position with bottom edge at HUD_EDGE_PADDING from screen edge
-    const toggleY = this.scale.height - HUD_EDGE_PADDING - toggleHeight / 2;
+    const toggleWidth = this.scaledSize(190);
+    const toggleHeight = this.scaledSize(26);
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    // Position with right edge at scaled padding from screen edge
+    const toggleX = this.scale.width - scaledPadding - toggleWidth / 2;
+    // Position with bottom edge at scaled padding from screen edge
+    const toggleY = this.scale.height - scaledPadding - toggleHeight / 2;
 
     // Background rectangle for the toggle button
     this.autoBuyToggleBg = this.add.rectangle(
@@ -1947,7 +1979,7 @@ export class GameScene extends Phaser.Scene {
       toggleY,
       '[ AUTO-UPGRADE: OFF ]',
       {
-        fontSize: '14px',
+        fontSize: this.scaledFontSize(14),
         fontFamily: 'Arial',
         color: '#888888',
       }
@@ -2049,28 +2081,31 @@ export class GameScene extends Phaser.Scene {
    */
   private createBGMDisplay(): void {
     // Position BGM row above controls hint with consistent spacing
-    // Controls hint is ~18px tall, BGM icons are ~14px, add double spacing for clarity
-    const controlsHintHeight = 18;
-    const bgmRowHeight = 14;
-    const bottomY = this.scale.height - HUD_EDGE_PADDING - controlsHintHeight - HUD_ELEMENT_SPACING * 2 - bgmRowHeight;
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
+    const controlsHintHeight = this.scaledSize(18);
+    const bgmIconSize = this.scaledSize(14);
+    const bottomY = this.scale.height - scaledPadding - controlsHintHeight - scaledSpacing * 2 - bgmIconSize;
 
     // Container for all BGM elements
-    this.bgmContainer = this.add.container(HUD_EDGE_PADDING, bottomY);
+    this.bgmContainer = this.add.container(scaledPadding, bottomY);
     this.bgmContainer.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    const bgmIconScale = bgmIconSize / 64; // icon atlas is 64px
 
     // Mute button (sprite) - first element (always shows volume icon)
     this.bgmMuteButton = createIcon(this, {
-      x: 7,
-      y: 7,
+      x: this.scaledSize(7),
+      y: this.scaledSize(7),
       iconKey: 'volume',
-      size: 14,
+      size: bgmIconSize,
     });
     this.bgmMuteButton.setInteractive({ useHandCursor: true });
     this.bgmMuteButton.on('pointerover', () => {
       this.bgmMuteButton.setScale(this.bgmMuteButton.scaleX * 1.2);
     });
     this.bgmMuteButton.on('pointerout', () => {
-      this.bgmMuteButton.setScale(14 / 64); // Reset to original scale
+      this.bgmMuteButton.setScale(bgmIconScale);
     });
     this.bgmMuteButton.on('pointerdown', () => {
       this.toggleBGMMute();
@@ -2079,22 +2114,22 @@ export class GameScene extends Phaser.Scene {
     // Strikethrough line for muted state (diagonal from top-right to bottom-left)
     this.bgmMuteStrike = this.add.graphics();
     this.bgmMuteStrike.lineStyle(2, 0xff4444, 1);
-    this.bgmMuteStrike.lineBetween(14, 0, 0, 14);
+    this.bgmMuteStrike.lineBetween(bgmIconSize, 0, 0, bgmIconSize);
     this.bgmMuteStrike.setVisible(false);
 
     // Skip button (sprite) - after mute
     const skipButton = createIcon(this, {
-      x: 25,
-      y: 7,
+      x: this.scaledSize(25),
+      y: this.scaledSize(7),
       iconKey: 'forward',
-      size: 14,
+      size: bgmIconSize,
     });
     skipButton.setInteractive({ useHandCursor: true });
     skipButton.on('pointerover', () => {
       skipButton.setScale(skipButton.scaleX * 1.2);
     });
     skipButton.on('pointerout', () => {
-      skipButton.setScale(14 / 64); // Reset to original scale
+      skipButton.setScale(bgmIconScale);
     });
     skipButton.on('pointerdown', () => {
       this.skipToNextTrack();
@@ -2102,20 +2137,20 @@ export class GameScene extends Phaser.Scene {
 
     // Music note icon (sprite) - after controls with small gap
     const musicIcon = createIcon(this, {
-      x: 50,
-      y: 7,
+      x: this.scaledSize(50),
+      y: this.scaledSize(7),
       iconKey: 'music',
-      size: 14,
+      size: bgmIconSize,
       tint: 0x8888aa,
     });
 
     // Track info text - after music icon
-    this.bgmTrackText = this.add.text(65, 0, 'Loading...', {
-      fontSize: '12px',
+    this.bgmTrackText = this.add.text(this.scaledSize(65), 0, 'Loading...', {
+      fontSize: this.scaledFontSize(12),
       color: '#8888aa',
       fontFamily: 'Arial',
       backgroundColor: '#00000080',
-      padding: { x: 4, y: 2 },
+      padding: { x: this.scaledSize(4), y: this.scaledSize(2) },
     });
 
     this.bgmContainer.add([this.bgmMuteButton, this.bgmMuteStrike, skipButton, musicIcon, this.bgmTrackText]);
@@ -4762,14 +4797,15 @@ export class GameScene extends Phaser.Scene {
   private createEventIndicator(event: RunEvent): void {
     this.destroyEventIndicator();
 
-    const panelWidth = 180;
-    const panelHeight = 48;
-    const barWidth = panelWidth - 16;
+    const panelWidth = this.scaledSize(180);
+    const panelHeight = this.scaledSize(48);
+    const barWidth = panelWidth - this.scaledSize(16);
     const colorHex = `#${event.color.toString(16).padStart(6, '0')}`;
 
     // Position above FPS counter and auto-buy toggle in bottom-right
-    const panelX = this.scale.width - HUD_EDGE_PADDING - panelWidth / 2;
-    const panelY = this.scale.height - HUD_EDGE_PADDING - 70 - panelHeight / 2;
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    const panelX = this.scale.width - scaledPadding - panelWidth / 2;
+    const panelY = this.scale.height - scaledPadding - this.scaledSize(70) - panelHeight / 2;
 
     this.eventIndicatorContainer = this.add.container(panelX, panelY);
     this.eventIndicatorContainer.setDepth(HUD_DEPTH);
@@ -4781,8 +4817,8 @@ export class GameScene extends Phaser.Scene {
     this.eventIndicatorContainer.add(background);
 
     // Event name
-    const nameText = this.add.text(0, -12, event.name, {
-      fontSize: '12px',
+    const nameText = this.add.text(0, this.scaledSize(-12), event.name, {
+      fontSize: this.scaledFontSize(12),
       fontFamily: 'Arial',
       color: colorHex,
       fontStyle: 'bold',
@@ -4790,28 +4826,30 @@ export class GameScene extends Phaser.Scene {
     this.eventIndicatorContainer.add(nameText);
 
     // Event description
-    const descriptionText = this.add.text(0, 2, event.description, {
-      fontSize: '10px',
+    const descriptionText = this.add.text(0, this.scaledSize(2), event.description, {
+      fontSize: this.scaledFontSize(10),
       fontFamily: 'Arial',
       color: '#aaaaaa',
     }).setOrigin(0.5);
     this.eventIndicatorContainer.add(descriptionText);
 
     // Progress bar background
-    const barBackground = this.add.rectangle(0, 16, barWidth, 4, 0x333355);
+    const barY = this.scaledSize(16);
+    const barHeight = this.scaledSize(4);
+    const barBackground = this.add.rectangle(0, barY, barWidth, barHeight, 0x333355);
     this.eventIndicatorContainer.add(barBackground);
 
     // Progress bar fill
     this.eventIndicatorBarFill = this.add.rectangle(
-      -barWidth / 2, 16, barWidth, 4, event.color
+      -barWidth / 2, barY, barWidth, barHeight, event.color
     );
     this.eventIndicatorBarFill.setOrigin(0, 0.5);
     this.eventIndicatorContainer.add(this.eventIndicatorBarFill);
 
     // Time remaining text
     this.eventIndicatorTimeText = this.add.text(
-      barWidth / 2, 16, `${event.duration.toFixed(1)}s`,
-      { fontSize: '9px', fontFamily: 'monospace', color: '#888888' }
+      barWidth / 2, barY, `${event.duration.toFixed(1)}s`,
+      { fontSize: this.scaledFontSize(9), fontFamily: 'monospace', color: '#888888' }
     ).setOrigin(1, 0.5);
     this.eventIndicatorContainer.add(this.eventIndicatorTimeText);
 
@@ -5024,8 +5062,9 @@ export class GameScene extends Phaser.Scene {
    */
   private createBossHealthBar(entityId: number, name: string, isFinalBoss: boolean): BossHealthBar {
     const centerX = this.scale.width / 2;
-    const barWidth = this.BOSS_HEALTH_BAR_WIDTH;
-    const barHeight = 15;
+    const barWidth = this.scaledSize(this.BOSS_HEALTH_BAR_WIDTH);
+    const barHeight = this.scaledSize(15);
+    const barTopOffset = this.scaledSize(20);
 
     // Colors based on boss type
     const fillColor = isFinalBoss ? 0x990066 : 0xcc0000;
@@ -5038,41 +5077,41 @@ export class GameScene extends Phaser.Scene {
     // Glow graphics (pulsing effect behind bar)
     const glowGraphics = this.add.graphics();
     glowGraphics.fillStyle(glowColor, 0.3);
-    glowGraphics.fillRoundedRect(-barWidth / 2 - 6, 16, barWidth + 12, barHeight + 8, 6);
+    glowGraphics.fillRoundedRect(-barWidth / 2 - 6, barTopOffset - 4, barWidth + 12, barHeight + 8, 6);
     container.add(glowGraphics);
 
     // Name text with decorative elements
     const nameText = this.add.text(0, 0, `═══ ${name.toUpperCase()} ═══`, {
-      fontSize: '14px',
+      fontSize: this.scaledFontSize(14),
       color: isFinalBoss ? '#ff66cc' : '#ff6666',
       fontFamily: 'Arial',
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 3,
+      strokeThickness: this.scaledSize(3),
     });
     nameText.setOrigin(0.5, 0);
     container.add(nameText);
 
     // Bar background
-    const barBackground = this.add.rectangle(0, 20 + barHeight / 2, barWidth, barHeight, 0x222222);
+    const barBackground = this.add.rectangle(0, barTopOffset + barHeight / 2, barWidth, barHeight, 0x222222);
     barBackground.setStrokeStyle(1, 0x444444);
     container.add(barBackground);
 
     // Bar fill (starts at full width)
     const barFill = this.add.rectangle(
-      -barWidth / 2 + barWidth / 2, // Start from left
-      20 + barHeight / 2,
+      -barWidth / 2 + barWidth / 2,
+      barTopOffset + barHeight / 2,
       barWidth,
       barHeight - 2,
       fillColor
     );
-    barFill.setOrigin(0, 0.5); // Anchor left so it shrinks from right
+    barFill.setOrigin(0, 0.5);
     barFill.x = -barWidth / 2 + 1;
     container.add(barFill);
 
     // Health text (vertically centered in bar)
-    const healthText = this.add.text(0, 20 + barHeight / 2, '', {
-      fontSize: '11px',
+    const healthText = this.add.text(0, barTopOffset + barHeight / 2, '', {
+      fontSize: this.scaledFontSize(11),
       color: '#ffffff',
       fontFamily: 'Arial',
       fontStyle: 'bold',
@@ -5143,7 +5182,7 @@ export class GameScene extends Phaser.Scene {
   private repositionBossHealthBars(): void {
     for (let i = 0; i < this.activeBossHealthBars.length; i++) {
       const bar = this.activeBossHealthBars[i];
-      const targetY = this.BOSS_HEALTH_BAR_START_Y + i * this.BOSS_HEALTH_BAR_HEIGHT;
+      const targetY = this.scaledSize(this.BOSS_HEALTH_BAR_START_Y) + i * this.scaledSize(this.BOSS_HEALTH_BAR_HEIGHT);
 
       // Animate to new position
       this.tweens.add({
@@ -6000,10 +6039,10 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // Layout constants
+    // Layout constants (scaled for mobile)
     const iconsPerRow = 5;
-    const iconSize = 32;
-    const iconSpacing = 8;
+    const iconSize = this.scaledSize(32);
+    const iconSpacing = this.scaledSize(8);
 
     // Color schemes for different types
     const skillColors = { bg: 0x2a2a5a, stroke: 0x5a5a9a, hover: 0x3a3a7a, badge: '#88aaff' };
@@ -6044,8 +6083,8 @@ export class GameScene extends Phaser.Scene {
         glowRect = this.add.rectangle(
           iconX + iconSize / 2,
           iconY + iconSize / 2,
-          iconSize + 8,
-          iconSize + 8,
+          iconSize + this.scaledSize(8),
+          iconSize + this.scaledSize(8),
           0xffdd44,  // Gold glow color
           0.6
         );
@@ -6080,13 +6119,13 @@ export class GameScene extends Phaser.Scene {
         x: iconX + iconSize / 2,
         y: iconY + iconSize / 2,
         iconKey: upgrade.icon,
-        size: 18,
+        size: this.scaledSize(18),
       });
 
       // Level indicator badge with dark background for readability
       const badgeX = iconX + iconSize - 2;
       const badgeY = iconY + iconSize - 2;
-      const badgeSize = 14;
+      const badgeSize = this.scaledSize(14);
 
       const levelBadgeBg = this.add.rectangle(
         badgeX,
@@ -6103,7 +6142,7 @@ export class GameScene extends Phaser.Scene {
         badgeY,
         isMastered ? '★' : `${upgrade.currentLevel}`,
         {
-          fontSize: isMastered ? '14px' : '12px',
+          fontSize: isMastered ? this.scaledFontSize(14) : this.scaledFontSize(12),
           color: isMastered ? '#ffd700' : '#ffffff',
           fontFamily: 'Arial',
           fontStyle: 'bold',
@@ -6116,7 +6155,7 @@ export class GameScene extends Phaser.Scene {
       // Hover events with type-specific highlight
       iconBg.on('pointerover', () => {
         iconBg.setFillStyle(colors.hover);
-        this.showUpgradeTooltip(upgrade, iconX, iconY + iconSize + 10);
+        this.showUpgradeTooltip(upgrade, iconX, iconY + iconSize + this.scaledSize(10));
       });
 
       iconBg.on('pointerout', () => {
@@ -6234,7 +6273,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update XP bar
-    const xpBarMaxWidth = 178; // 180 - 2 for padding
+    const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
     const xpProgress = this.playerStats.xp / this.playerStats.xpToNextLevel;
     this.xpBarFill.width = xpBarMaxWidth * xpProgress;
 
@@ -6244,7 +6283,7 @@ export class GameScene extends Phaser.Scene {
     // Update HP bar
     const currentHP = Health.current[this.playerId];
     const maxHP = Health.max[this.playerId];
-    const hpBarMaxWidth = 178; // 180 - 2 for padding
+    const hpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
     const hpProgress = Math.max(0, currentHP / maxHP);
     this.hpBarFill.width = hpBarMaxWidth * hpProgress;
 
@@ -6261,7 +6300,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update boss health bars
-    const barMaxWidth = this.BOSS_HEALTH_BAR_WIDTH - 2; // Account for padding
+    const barMaxWidth = this.scaledSize(this.BOSS_HEALTH_BAR_WIDTH) - 2; // Account for padding
     for (const bossBar of this.activeBossHealthBars) {
       if (hasComponent(this.world, Health, bossBar.entityId)) {
         const bossCurrentHP = Health.current[bossBar.entityId];
@@ -6506,6 +6545,11 @@ export class GameScene extends Phaser.Scene {
       this.gridBackground.resize(w, h);
     }
 
+    // Recompute HUD scale for new dimensions
+    this.hudScale = this.computeHudScale();
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
+
     // --- Top-center elements ---
     const worldLevelText = this.children.getByName('worldLevelText') as Phaser.GameObjects.Text;
     if (worldLevelText) worldLevelText.setX(w / 2);
@@ -6514,9 +6558,9 @@ export class GameScene extends Phaser.Scene {
     if (timerText) timerText.setX(w / 2);
 
     // --- Top-right elements ---
-    const pauseButtonSize = 36;
-    const pauseButtonX = w - HUD_EDGE_PADDING - pauseButtonSize / 2;
-    const pauseButtonY = HUD_EDGE_PADDING + pauseButtonSize / 2;
+    const pauseButtonSize = Math.max(this.scaledSize(36), 44);
+    const pauseButtonX = w - scaledPadding - pauseButtonSize / 2;
+    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
 
     const pauseBg = this.children.getByName('pauseButtonBg') as Phaser.GameObjects.Rectangle;
     if (pauseBg) pauseBg.setPosition(pauseButtonX, pauseButtonY);
@@ -6524,7 +6568,7 @@ export class GameScene extends Phaser.Scene {
     const pauseIcon = this.children.getByName('pauseButtonIcon') as Phaser.GameObjects.Text;
     if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
 
-    const statsRightX = w - HUD_EDGE_PADDING;
+    const statsRightX = w - scaledPadding;
 
     const killCountText = this.children.getByName('killCountText') as Phaser.GameObjects.Text;
     if (killCountText) killCountText.setX(statsRightX);
@@ -6536,28 +6580,28 @@ export class GameScene extends Phaser.Scene {
     const controlsHint = this.children.getAll().find(
       (child) => child instanceof Phaser.GameObjects.Text && (child as Phaser.GameObjects.Text).text?.includes('WASD')
     ) as Phaser.GameObjects.Text;
-    if (controlsHint) controlsHint.setY(h - HUD_EDGE_PADDING);
+    if (controlsHint) controlsHint.setY(h - scaledPadding);
 
     // BGM container
     if (this.bgmContainer) {
-      const controlsHintHeight = 18;
-      const bgmRowHeight = 14;
-      const bottomY = h - HUD_EDGE_PADDING - controlsHintHeight - HUD_ELEMENT_SPACING * 2 - bgmRowHeight;
+      const controlsHintHeight = this.scaledSize(18);
+      const bgmRowHeight = this.scaledSize(14);
+      const bottomY = h - scaledPadding - controlsHintHeight - scaledSpacing * 2 - bgmRowHeight;
       this.bgmContainer.setY(bottomY);
     }
 
     // --- Bottom-right elements ---
     if (this.fpsText) {
-      const autoBuyToggleHeight = 26;
-      const fpsY = h - HUD_EDGE_PADDING - autoBuyToggleHeight - HUD_ELEMENT_SPACING;
-      this.fpsText.setPosition(w - HUD_EDGE_PADDING, fpsY);
+      const autoBuyToggleHeight = this.scaledSize(26);
+      const fpsY = h - scaledPadding - autoBuyToggleHeight - scaledSpacing;
+      this.fpsText.setPosition(w - scaledPadding, fpsY);
     }
 
     if (this.autoBuyToggleBg && this.autoBuyToggleText) {
-      const toggleWidth = 190;
-      const toggleHeight = 26;
-      const toggleX = w - HUD_EDGE_PADDING - toggleWidth / 2;
-      const toggleY = h - HUD_EDGE_PADDING - toggleHeight / 2;
+      const toggleWidth = this.scaledSize(190);
+      const toggleHeight = this.scaledSize(26);
+      const toggleX = w - scaledPadding - toggleWidth / 2;
+      const toggleY = h - scaledPadding - toggleHeight / 2;
       this.autoBuyToggleBg.setPosition(toggleX, toggleY);
       this.autoBuyToggleText.setPosition(toggleX, toggleY);
     }
