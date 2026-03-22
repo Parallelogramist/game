@@ -13,7 +13,7 @@ No lint or test commands are currently configured.
 ## Deployment
 
 - **GitHub Pages**: Auto-deploys on push to `master` via `.github/workflows/deploy.yml` (Node 20)
-- **Vite config**: Base path `/game/`, output to `dist/`
+- **Vite config**: Base path `/`, output to `dist/`
 
 ## Architecture Overview
 
@@ -35,7 +35,8 @@ Systems execute in this fixed order each frame (from `GameScene.update()`):
 updateFrameCache → Slow time → Achievement tracking → Auto-save →
 Shield barrier recharge → Dash ability → Gem magnet → Treasure chest spawning →
 HP regen → Emergency heal → Magnet spawn timer →
-Enemy/miniboss/boss/endless spawning → Laser beams → Joystick/keyboard/mouse input →
+Enemy/miniboss/boss/endless spawning → ComboSystem decay → EventSystem →
+Laser beams → Joystick/keyboard/mouse input →
 InputSystem → EnemyAISystem → Wraith alpha → MovementSystem → processKnockback →
 clampPlayerToScreen → WeaponManager.update → XPGemSystem → HealthPickupSystem →
 MagnetPickupSystem → StatusEffectSystem → Enemy Projectiles → Player-Enemy Collision →
@@ -48,7 +49,8 @@ Note: Knockback is processed inline in GameScene. All weapon damage flows throug
 
 ```
 BootScene (start screen + music)
-  ├─→ GameScene (core gameplay) ─→ UpgradeScene (level-up modal, overlay)
+  ├─→ WeaponSelectScene (pre-run weapon pick, skips if only default discovered)
+  │     └─→ GameScene (core gameplay) ─→ UpgradeScene (level-up modal, overlay)
   ├─→ ShopScene (permanent upgrades, returns to BootScene)
   ├─→ AchievementScene (achievements & milestones, returns to BootScene)
   ├─→ CodexScene (discovered weapons/enemies/upgrades, returns to BootScene)
@@ -57,7 +59,7 @@ BootScene (start screen + music)
   └─→ CreditsScene (attribution, returns to BootScene)
 ```
 
-All 9 scenes live in `/src/game/scenes/`.
+All 10 scenes live in `/src/game/scenes/`. `WeaponSelectScene` shows discovered weapons from the Codex and lets the player pick a starting weapon; it auto-skips to GameScene with the default projectile if only one weapon has been discovered.
 
 ### Weapon System
 
@@ -102,6 +104,9 @@ All weapon damage flows through `WeaponManager.damageEnemy()`:
 - Knockback with combat stat multiplier
 - Overkill splash damage to nearby enemies via SpatialHash
 - Hit sparks, damage numbers, and hit sound (50ms throttle)
+
+**Weapon Evolutions:**
+`/src/data/WeaponEvolutions.ts` defines 14 evolution recipes (one per weapon). When a weapon reaches level 5 AND the player has the required stat upgrade at level 5, the weapon evolves into a super form with boosted stats. Stat multipliers (damage, cooldown, range, count, piercing, size, speed) are applied to the evolved form. Use `getEvolutionForWeapon(weaponId)` for O(1) lookup and `checkEvolutionReady()` to test if requirements are met.
 
 **Weapon Factory:**
 `WeaponRegistry` in `/src/weapons/index.ts` maps weapon IDs to factory functions. Use `createWeapon(weaponId)` to instantiate weapons by string ID.
@@ -233,6 +238,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 `SettingsManager` (`/src/settings/`) persists user preferences via SecureStorage:
 - SFX enabled/volume, screen shake, FPS counter, status text
 - Damage numbers mode: `'all' | 'crits' | 'perfect_crits' | 'off'`
+- UI scale: `0.5–2.0` (default 1.0), used by HudScale for DPI-aware sizing
 - Music enabled/volume/playback mode
 - Singleton via `getSettingsManager()`
 
@@ -262,6 +268,27 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 - **SpatialHash**: O(1) spatial queries via grid bucketing (80px cells). Singleton via `getEnemySpatialHash()`, populated once per frame. Used by WeaponManager (damage pipeline, overkill splash), individual weapons (targeting), GridBackground, and FrameCache.
 - **IconRenderer/IconMap**: Icon sprite creation from the `public/icons/game-icons.png` atlas. IconMap provides semantic key-to-frame mappings for 60+ icons.
 - **SceneTransition**: `fadeIn`, `fadeOut`, and `addButtonInteraction` helpers used across all scene transitions.
+- **HudScale**: DPI-aware UI scaling (`/src/utils/HudScale.ts`). `computeHudScale()` for in-game HUD, `computeMenuLayoutScale()`/`computeMenuFontScale()` for menu scenes. Accounts for `devicePixelRatio` on high-DPI mobile devices (phones get largest boost, tablets moderate, desktop none). User-configurable multiplier (0.5–2.0) via Settings.
+
+### Combo System
+
+`ComboSystem` (`/src/systems/ComboSystem.ts`) tracks consecutive enemy kills with module-level state (no class):
+- **Decay**: 3-second grace period after last kill, then drains at 15 kills/sec
+- **Tiers**: none (0-9), warm (10-24), hot (25-49), blazing (50-99), inferno (100+)
+- **Thresholds**: 25 kills → XP burst, 50 kills → +50% damage for 8s, 100 kills → annihilation (each fires once per chain, resets when combo drops to 0)
+- **XP multiplier**: Scales linearly from 1.0, capped at 1.5
+- Save/restore via `getComboState()`/`restoreComboState()` for mid-run saves
+- Reset via `resetComboSystem()` in GameScene's `create()`
+
+### Event System
+
+`EventSystem` (`/src/systems/EventSystem.ts`) triggers random in-run events with module-level state:
+- **5 events**: Elite Surge (double spawns/XP), Golden Tide (3x gem value), Magnetic Storm (all gems magnetized), Treasure Rain (chest spawns), Power Surge (damage boost)
+- **Timing**: Random interval between 45-75 seconds, with minGameTime gates per event (45s–120s)
+- **Selection**: Weighted random with no-immediate-repeat logic
+- **Suppression**: Events suppressed during boss warning (phase 2+) via `setSuppressEvents()`
+- Save/restore via `getEventState()`/`restoreEventState()`
+- Reset via `resetEventSystem()` in GameScene's `create()`
 
 ### Game Configuration
 
