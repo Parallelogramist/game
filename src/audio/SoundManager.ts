@@ -248,6 +248,57 @@ export class SoundManager {
   }
 
   /**
+   * Play a boss/miniboss warning sound — ominous descending low tones.
+   * Uses player_hurt at low pitch + delayed descending hits for dramatic impact.
+   */
+  playBossWarning(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    // Low ominous tone (C3)
+    this.play(SoundKeys.PLAYER_HURT, {
+      rate: PENTATONIC_SCALE[0], // C3 = 0.500
+      volume: volume * 0.7,
+    });
+    // Descending impact hits: G3 → E3
+    this.scene.time.delayedCall(150, () => {
+      this.play(SoundKeys.HIT, {
+        rate: PENTATONIC_SCALE[3], // G3
+        volume: volume * 0.5,
+      });
+    });
+    this.scene.time.delayedCall(300, () => {
+      this.play(SoundKeys.HIT, {
+        rate: PENTATONIC_SCALE[2], // E3
+        volume: volume * 0.4,
+      });
+    });
+  }
+
+  /**
+   * Play achievement/milestone unlock sound — bright ascending sparkle chime.
+   * Uses pickup_xp at high pitches for a distinctive celebratory effect.
+   */
+  playAchievementUnlock(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    // Ascending sparkle: G4 → C5 → E5
+    this.play(SoundKeys.PICKUP_XP, {
+      rate: PENTATONIC_SCALE[8],  // G4
+      volume: volume * 0.5,
+    });
+    this.scene.time.delayedCall(100, () => {
+      this.play(SoundKeys.PICKUP_XP, {
+        rate: PENTATONIC_SCALE[10], // C5
+        volume: volume * 0.6,
+      });
+    });
+    this.scene.time.delayedCall(200, () => {
+      this.play(SoundKeys.PICKUP_XP, {
+        rate: PENTATONIC_SCALE[12], // E5
+        volume: volume * 0.7,
+      });
+    });
+  }
+
+  /**
    * Set the master volume for all sound effects.
    * Persists to SettingsManager.
    * @param volume - Volume from 0 to 1

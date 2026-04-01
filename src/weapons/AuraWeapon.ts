@@ -3,6 +3,7 @@ import { Transform, Velocity } from '../ecs/components';
 import { WEAPON_COLORS } from '../visual/NeonColors';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { HitCooldownTracker } from './WeaponUtils';
 
 /**
  * AuraWeapon creates a damaging field around the player.
@@ -13,7 +14,7 @@ export class AuraWeapon extends BaseWeapon {
   private auraGraphics: Phaser.GameObjects.Graphics | null = null;
   private rippleGraphics: Phaser.GameObjects.Graphics | null = null;
   private pulsePhase: number = 0;
-  private hitCooldowns: Map<number, number> = new Map();
+  private hitCooldowns = new HitCooldownTracker();
   private damageFlashIntensity: number = 0;
   private lastPulsePhase: number = 0;
   private currentQuality: VisualQuality = 'high';
@@ -90,8 +91,7 @@ export class AuraWeapon extends BaseWeapon {
     // Deal damage to enemies in range
     const enemies = ctx.getEnemies();
     for (const enemyId of enemies) {
-      const lastHit = this.hitCooldowns.get(enemyId) || 0;
-      if (currentTime - lastHit < this.stats.cooldown) continue;
+      if (!this.hitCooldowns.canHit(enemyId, currentTime, this.stats.cooldown)) continue;
 
       const ex = Transform.x[enemyId];
       const ey = Transform.y[enemyId];
@@ -102,7 +102,7 @@ export class AuraWeapon extends BaseWeapon {
       if (distSq <= radius * radius) {
         const finalDamage = this.stats.damage * damageMultiplier;
         ctx.damageEnemy(enemyId, finalDamage, 50); // Light knockback
-        this.hitCooldowns.set(enemyId, currentTime);
+        this.hitCooldowns.recordHit(enemyId, currentTime);
         this.damageFlashIntensity = 0.6;
 
         // Mastery: Slow enemies when consecrated
@@ -147,11 +147,7 @@ export class AuraWeapon extends BaseWeapon {
 
     // Clean up old cooldowns occasionally
     if (Math.random() < 0.01) {
-      for (const [enemyId, time] of this.hitCooldowns) {
-        if (currentTime - time > 5) {
-          this.hitCooldowns.delete(enemyId);
-        }
-      }
+      this.hitCooldowns.cleanup(currentTime, 5);
     }
   }
 

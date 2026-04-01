@@ -39,9 +39,13 @@ export class EffectsManager {
 
   // Damage number pool
   private damageNumberPool: PooledDamageNumber[] = [];
+  private nextFreeIndex = 0; // Circular scan pointer for O(1) amortized pool lookup
   private readonly POOL_SIZE = 50;
   private readonly DAMAGE_NUMBER_DURATION = 600; // ms
   private readonly DAMAGE_NUMBER_RISE = 30; // pixels
+
+  // Pre-computed color hex strings to avoid per-frame string allocation
+  private colorHexCache = new Map<number, string>();
 
   // Throttling for mass death events
   private lastDeathBurstTime: number = 0;
@@ -321,8 +325,16 @@ export class EffectsManager {
       // 'all' mode shows everything
     }
 
-    // Find an inactive damage number from pool
-    const pooledNumber = this.damageNumberPool.find(p => !p.active);
+    // Find an inactive damage number from pool using circular scan (O(1) amortized)
+    let pooledNumber: PooledDamageNumber | null = null;
+    for (let i = 0; i < this.POOL_SIZE; i++) {
+      const index = (this.nextFreeIndex + i) % this.POOL_SIZE;
+      if (!this.damageNumberPool[index].active) {
+        pooledNumber = this.damageNumberPool[index];
+        this.nextFreeIndex = (index + 1) % this.POOL_SIZE;
+        break;
+      }
+    }
     if (!pooledNumber) {
       return; // Pool exhausted, skip this number
     }
@@ -365,7 +377,12 @@ export class EffectsManager {
       // Normal hit: white, scale with damage
       scale = typeof value === 'number' ? Math.min(1 + value / 50, 1.5) : 1.0;
       pooledNumber.text.setFontSize('16px');
-      pooledNumber.text.setColor('#' + color.toString(16).padStart(6, '0'));
+      let hexColor = this.colorHexCache.get(color);
+      if (!hexColor) {
+        hexColor = '#' + color.toString(16).padStart(6, '0');
+        this.colorHexCache.set(color, hexColor);
+      }
+      pooledNumber.text.setColor(hexColor);
       pooledNumber.text.setStroke('#000000', 3);
     }
     pooledNumber.text.setScale(scale);

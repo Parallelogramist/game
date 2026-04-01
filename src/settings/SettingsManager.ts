@@ -14,6 +14,8 @@ const STORAGE_KEY_FPS_COUNTER = 'settings-fps-counter';
 const STORAGE_KEY_DAMAGE_NUMBERS_MODE = 'settings-damage-numbers-mode';
 const STORAGE_KEY_STATUS_TEXT = 'settings-status-text';
 const STORAGE_KEY_UI_SCALE = 'settings-ui-scale';
+const STORAGE_KEY_TUTORIAL_SEEN = 'settings-tutorial-seen';
+const STORAGE_KEY_REDUCED_MOTION = 'settings-reduced-motion';
 
 export type DamageNumbersMode = 'all' | 'crits' | 'perfect_crits' | 'off';
 
@@ -26,6 +28,8 @@ export interface GameSettings {
   damageNumbersMode: DamageNumbersMode;
   statusTextEnabled: boolean;
   uiScale: number;
+  tutorialSeen: boolean;
+  reducedMotion: boolean;
 }
 
 const DEFAULTS: GameSettings = {
@@ -37,6 +41,8 @@ const DEFAULTS: GameSettings = {
   damageNumbersMode: 'perfect_crits',
   statusTextEnabled: true,
   uiScale: 1.0,
+  tutorialSeen: false,
+  reducedMotion: false,
 };
 
 export class SettingsManager {
@@ -52,6 +58,8 @@ export class SettingsManager {
       damageNumbersMode: this.loadDamageNumbersMode(),
       statusTextEnabled: this.loadBoolean(STORAGE_KEY_STATUS_TEXT, DEFAULTS.statusTextEnabled),
       uiScale: this.loadNumber(STORAGE_KEY_UI_SCALE, DEFAULTS.uiScale),
+      tutorialSeen: this.loadBoolean(STORAGE_KEY_TUTORIAL_SEEN, DEFAULTS.tutorialSeen),
+      reducedMotion: this.loadBoolean(STORAGE_KEY_REDUCED_MOTION, DEFAULTS.reducedMotion),
     };
   }
 
@@ -215,6 +223,32 @@ export class SettingsManager {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Accessibility
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  isReducedMotionEnabled(): boolean {
+    return this.settings.reducedMotion;
+  }
+
+  setReducedMotion(enabled: boolean): void {
+    this.settings.reducedMotion = enabled;
+    this.saveBoolean(STORAGE_KEY_REDUCED_MOTION, enabled);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Tutorial
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  isTutorialSeen(): boolean {
+    return this.settings.tutorialSeen;
+  }
+
+  setTutorialSeen(seen: boolean): void {
+    this.settings.tutorialSeen = seen;
+    this.saveBoolean(STORAGE_KEY_TUTORIAL_SEEN, seen);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Utility
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -237,6 +271,8 @@ export class SettingsManager {
     this.setDamageNumbersMode(DEFAULTS.damageNumbersMode);
     this.setStatusTextEnabled(DEFAULTS.statusTextEnabled);
     this.setUiScale(DEFAULTS.uiScale);
+    this.setTutorialSeen(DEFAULTS.tutorialSeen);
+    this.setReducedMotion(DEFAULTS.reducedMotion);
   }
 }
 

@@ -21,6 +21,7 @@ interface GemSpinState {
   halfHeight: number;
   gemColor: number;
   outlineColor: number;
+  glintTween: Phaser.Tweens.Tween | null;  // Reference to stop on collection
 }
 
 const gemSpinStates = new Map<number, GemSpinState>();
@@ -194,7 +195,7 @@ export function spawnXPGem(world: IWorld, positionX: number, positionY: number, 
     container.setDepth(5);
 
     // Add subtle sparkle animation to the glint
-    sceneReference.tweens.add({
+    const glintTween = sceneReference.tweens.add({
       targets: glintGraphics,
       alpha: { from: 0.4, to: 0.9 },
       duration: 600,
@@ -212,6 +213,7 @@ export function spawnXPGem(world: IWorld, positionX: number, positionY: number, 
       halfHeight,
       gemColor,
       outlineColor,
+      glintTween,
     });
 
     registerSprite(gemId, container as unknown as Phaser.GameObjects.Shape);
@@ -311,16 +313,28 @@ export function xpGemSystem(world: IWorld, deltaTime: number): IWorld {
 
   // Remove collected gems
   for (const gemId of gemsToRemove) {
-    const sprite = getSprite(gemId);
-    if (sprite) {
-      sprite.destroy();
-      unregisterSprite(gemId);
-    }
-    gemSpinStates.delete(gemId);
+    cleanupGem(gemId);
     removeEntity(world, gemId);
   }
 
   return world;
+}
+
+/**
+ * Cleans up a gem's visual resources: stops glint tween, destroys sprite, removes spin state.
+ */
+function cleanupGem(gemId: number): void {
+  const spinState = gemSpinStates.get(gemId);
+  if (spinState?.glintTween) {
+    spinState.glintTween.stop();
+  }
+  gemSpinStates.delete(gemId);
+
+  const sprite = getSprite(gemId);
+  if (sprite) {
+    sprite.destroy();
+    unregisterSprite(gemId);
+  }
 }
 
 /**
@@ -352,15 +366,8 @@ export function collectAllGems(world: IWorld): number {
       effectsManager.playXPSparkle(Transform.x[gemId], Transform.y[gemId]);
     }
 
-    // Clean up sprite and spin state
-    const sprite = getSprite(gemId);
-    if (sprite) {
-      sprite.destroy();
-      unregisterSprite(gemId);
-    }
-    gemSpinStates.delete(gemId);
-
-    // Remove entity
+    // Clean up visual resources and remove entity
+    cleanupGem(gemId);
     removeEntity(world, gemId);
   }
 
@@ -412,12 +419,7 @@ export function getXPGemPositions(): { x: number; y: number; entityId: number }[
 export function consumeXPGem(gemId: number): void {
   if (!worldReference) return;
 
-  const sprite = getSprite(gemId);
-  if (sprite) {
-    sprite.destroy();
-    unregisterSprite(gemId);
-  }
-  gemSpinStates.delete(gemId);
+  cleanupGem(gemId);
   removeEntity(worldReference, gemId);
 }
 

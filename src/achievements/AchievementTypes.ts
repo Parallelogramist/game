@@ -234,5 +234,5 @@ export interface ToastConfig {
   icon: string;
   color: number;          // Phaser tint color
   duration: number;       // Display duration in ms
-  playSound?: boolean;    // Whether to play notification sound
+  playSound?: boolean;    // Deprecated — sound is now handled by the caller via SoundManager
 }

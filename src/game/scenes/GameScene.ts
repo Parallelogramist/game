@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { computeHudScale as computeHudScaleUtil } from '../../utils/HudScale';
 import { createWorld, addEntity, addComponent, removeEntity, IWorld, defineQuery, hasComponent } from 'bitecs';
 import {
   Transform,
@@ -15,10 +14,11 @@ import {
   EnemyFlags,
   StatusEffect,
 } from '../../ecs/components';
-import { inputSystem, InputState } from '../../ecs/systems/InputSystem';
-import { JoystickManager } from '../../ui/JoystickManager';
+import { inputSystem } from '../../ecs/systems/InputSystem';
+import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
-import { enemyAISystem, setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds } from '../../ecs/systems/EnemyAISystem';
+import { enemyAISystem } from '../../ecs/systems/EnemyAISystem';
+import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime } from '../../ecs/systems/enemy-ai/state';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
@@ -30,7 +30,6 @@ import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setM
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
-import { getMusicManager } from '../../audio/MusicManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
@@ -41,9 +40,7 @@ import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
 import { DeathRippleManager } from '../../visual/DeathRippleManager';
 import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
-import { MasteryIconEffectsManager } from '../../visual/MasteryIconEffectsManager';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
-import { createIcon } from '../../utils/IconRenderer';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage } from '../../storage';
@@ -54,36 +51,15 @@ import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, getComboState, restoreComboState } from '../../systems/ComboSystem';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
+import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
+import { HUDManager, UpgradeIconData } from '../managers/HUDManager';
+import { PauseMenuManager } from '../managers/PauseMenuManager';
 
 // Module-level queries (defined once, not per-frame)
 const enemyQueryForCollision = defineQuery([Transform, EnemyTag]);
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 
-// SecureStorage key for auto-buy setting persistence
-const STORAGE_KEY_AUTO_BUY = 'game_autoBuyEnabled';
-
-// HUD layout constants for consistent padding
-const HUD_EDGE_PADDING = 16;  // Padding from screen edges
-const HUD_ELEMENT_SPACING = 8; // Spacing between adjacent HUD elements
-const HUD_DEPTH = 1000;        // Depth for all HUD elements (renders on top)
-const WORLD_LEVEL_TEXT_HEIGHT = 18; // Height of world level text for layout calculations
-const HUD_ALPHA = 0.75;        // 75% opacity so gameplay is visible behind HUD
-const PAUSE_MENU_DEPTH = 1100; // Pause menu renders above HUD
-
-/**
- * Represents a boss/miniboss health bar UI element.
- */
-interface BossHealthBar {
-  entityId: number;
-  name: string;
-  isFinalBoss: boolean;
-  container: Phaser.GameObjects.Container;
-  nameText: Phaser.GameObjects.Text;
-  barBackground: Phaser.GameObjects.Rectangle;
-  barFill: Phaser.GameObjects.Rectangle;
-  healthText: Phaser.GameObjects.Text;
-  glowGraphics: Phaser.GameObjects.Graphics;
-}
+const PAUSE_MENU_DEPTH = 1100; // Shared depth constant for overlay rendering
 
 /**
  * GameScene is the main gameplay scene.
@@ -93,23 +69,22 @@ export class GameScene extends Phaser.Scene {
   // ECS World
   private world!: IWorld;
 
-  // Input
-  private inputState!: InputState;
-  private joystickManager: JoystickManager | null = null;
+  // Input (keyboard, mouse, joystick, dash)
+  private inputController!: InputController;
 
   // Player reference
   private playerId: number = -1;
 
   // Spawn timer
   private spawnTimer: number = 0;
-  private spawnInterval: number = 1.0; // Spawn enemy every second
+  private spawnInterval: number = TUNING.spawn.baseInterval;
 
   // Game time
   private gameTime: number = 0;
 
   // Enemy count (for difficulty scaling)
   private enemyCount: number = 0;
-  private maxEnemies: number = 1000;
+  private maxEnemies: number = TUNING.spawn.maxEnemies;
 
   // Kill counter
   private killCount: number = 0;
@@ -129,28 +104,6 @@ export class GameScene extends Phaser.Scene {
   private isPaused: boolean = false;
   private pendingLevelUps: number = 0;
 
-  // XP Bar UI elements
-  private xpBarBackground!: Phaser.GameObjects.Rectangle;
-  private xpBarFill!: Phaser.GameObjects.Rectangle;
-  private levelText!: Phaser.GameObjects.Text;
-
-  // HP Bar UI elements
-  private hpBarBackground!: Phaser.GameObjects.Rectangle;
-  private hpBarFill!: Phaser.GameObjects.Rectangle;
-  private hpText!: Phaser.GameObjects.Text;
-
-  // Upgrade icons UI
-  private upgradeIconsContainer!: Phaser.GameObjects.Container;
-  private upgradeTooltip!: Phaser.GameObjects.Container;
-  private activeIconHighlights: Map<string, number> = new Map(); // upgradeId -> expiration gameTime
-
-  // BGM UI elements
-  private bgmContainer!: Phaser.GameObjects.Container;
-  private bgmTrackText!: Phaser.GameObjects.Text;
-  private bgmMuteButton!: Phaser.GameObjects.Image;
-  private bgmMuteStrike!: Phaser.GameObjects.Graphics;
-  private lastTrackId: string = '';
-
   // Damage cooldown (invincibility frames)
   private damageCooldown: number = 0;
 
@@ -159,15 +112,6 @@ export class GameScene extends Phaser.Scene {
 
   // Banished upgrades (removed from pool permanently for this run)
   private banishedUpgradeIds: Set<string> = new Set();
-
-  // Dash ability state
-  private dashCooldownTimer: number = 0;     // Time until dash is available
-  private isDashing: boolean = false;        // Currently dashing?
-  private dashTimer: number = 0;             // Remaining dash duration
-  private dashDirectionX: number = 0;        // Dash direction
-  private dashDirectionY: number = 0;
-  private readonly DASH_DURATION = 0.15;     // 150ms dash
-  private readonly DASH_SPEED_MULT = 3.5;    // 3.5x speed during dash
 
   // Gem magnet timer (auto-vacuum interval)
   private gemMagnetTimer: number = 0;
@@ -181,29 +125,19 @@ export class GameScene extends Phaser.Scene {
   // Victory state (survived 10 minutes)
   private hasWon: boolean = false;
 
-  // Pause menu state (separate from isPaused which is used for upgrades/victory)
-  private isPauseMenuOpen: boolean = false;
-
-  // Shop confirmation state
-  private isShopConfirmationOpen: boolean = false;
-  private shopConfirmKeyHandler: ((event: KeyboardEvent) => void) | null = null;
+  // Pause menu manager (handles pause, victory, and game over screens)
+  private pauseMenuManager!: PauseMenuManager;
 
   // ESC key handler reference for cleanup
   private escKeyHandler: (() => void) | null = null;
-
-  // Pause menu keyboard navigation handler
-  private pauseMenuKeyHandler: ((event: KeyboardEvent) => void) | null = null;
-
-  // Focus/visibility change handlers for auto-pause
-  private handleVisibilityChange: (() => void) | null = null;
-  private handleWindowBlur: (() => void) | null = null;
+  private dashRequestHandler: (() => void) | null = null;
 
   // Health drop chance (percentage)
-  private readonly HEALTH_DROP_CHANCE: number = 0.08; // 8% chance
+  private readonly HEALTH_DROP_CHANCE: number = TUNING.pickups.healthDropChance;
 
   // Magnet pickup spawn timing (every 60 seconds, an enemy drops a magnet)
   private magnetSpawnTimer: number = 0;
-  private readonly MAGNET_SPAWN_INTERVAL: number = 60; // seconds
+  private readonly MAGNET_SPAWN_INTERVAL: number = TUNING.pickups.magnetSpawnInterval;
   private nextEnemyDropsMagnet: boolean = false;
 
   // Effects and sound managers for game juice
@@ -213,19 +147,17 @@ export class GameScene extends Phaser.Scene {
   // Weapon system
   private weaponManager!: WeaponManager;
 
+  // HUD management (extracted from GameScene)
+  private hudManager!: HUDManager;
+
   // Miniboss spawn timing — typeIds are shuffled each run for variety
-  private minibossSpawnTimes: { typeId: string; time: number; spawned: boolean }[] = [
-    { typeId: 'glutton', time: 150, spawned: false },      // 2.5 min
-    { typeId: 'swarm_mother', time: 210, spawned: false }, // 3.5 min
-    { typeId: 'charger', time: 300, spawned: false },      // 5 min
-    { typeId: 'necromancer', time: 390, spawned: false },  // 6.5 min
-    { typeId: 'twin_a', time: 480, spawned: false },       // 8 min (spawns both twins)
-  ];
+  private minibossSpawnTimes: { typeId: string; time: number; spawned: boolean }[] =
+    TUNING.minibosses.schedule.map(entry => ({ ...entry, spawned: false }));
 
   // Boss cycling system - cycles through bosses each run
-  private static bossOrder = ['horde_king', 'void_wyrm', 'the_machine'];
+  private static bossOrder = [...TUNING.bosses.order];
   private static currentBossIndex = 0;
-  private bossSpawnTime = 600; // 10 minutes
+  private bossSpawnTime = TUNING.bosses.spawnTime;
   private bossSpawned = false;
 
   // Boss warning sequence
@@ -251,16 +183,8 @@ export class GameScene extends Phaser.Scene {
   private worldLevelSpawnReduction: number = 0;
   private worldLevelXPMult: number = 1;
 
-  // Victory choice handlers (for cleanup)
-  private victoryContinueHandler: (() => void) | null = null;
-  private victoryNextWorldHandler: (() => void) | null = null;
-
   // Visual quality for Geometry Wars aesthetic (auto-scales based on FPS)
   private visualQuality: VisualQuality = 'high';
-  private fpsHistory: number[] = [];
-  private readonly FPS_HISTORY_SIZE = 30;
-  // FPS counter display in lower-right corner
-  private fpsText: Phaser.GameObjects.Text | null = null;
 
   // Geometry Wars style warping grid background
   private gridBackground!: GridBackground;
@@ -277,24 +201,13 @@ export class GameScene extends Phaser.Scene {
   // Shield barrier visual (honeycomb + charge dots)
   private shieldBarrierVisual!: ShieldBarrierVisual;
 
-  // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
-  private masteryIconEffects!: MasteryIconEffectsManager;
-
   // Animated player visual (velocity-responsive plasma core)
   private playerPlasmaCore!: PlayerPlasmaCore;
 
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
   private isAutoBuyEnabled: boolean = false;
-  private autoBuyToggleText: Phaser.GameObjects.Text | null = null;
-  private autoBuyToggleBg: Phaser.GameObjects.Rectangle | null = null;
   private autoBuyKeyHandler: (() => void) | null = null;
   private resumeHandler: (() => void) | null = null;
-
-  // Event duration indicator (bottom-right HUD for active timed events)
-  private eventIndicatorContainer: Phaser.GameObjects.Container | null = null;
-  private eventIndicatorBarFill: Phaser.GameObjects.Rectangle | null = null;
-  private eventIndicatorTimeText: Phaser.GameObjects.Text | null = null;
-  private eventIndicatorTotalDuration: number = 0;
 
   // Health-Adaptive intelligence tracking (for auto-upgrade tier 3)
   private recentDamageTaken: number = 0; // Reset each level-up
@@ -305,15 +218,6 @@ export class GameScene extends Phaser.Scene {
   private readonly AUTO_SAVE_INTERVAL: number = 30; // seconds
   private beforeUnloadHandler: (() => void) | null = null;
   private shouldRestore: boolean = false;
-
-  // HUD scale factor for mobile/small screens (1.0 on desktop, up to 2.5 on small phones)
-  private hudScale: number = 1;
-
-  // Boss health bar UI tracking (stacked bars for multiple bosses)
-  private activeBossHealthBars: BossHealthBar[] = [];
-  private readonly BOSS_HEALTH_BAR_START_Y = 75; // Below timer (timer ends ~70px)
-  private readonly BOSS_HEALTH_BAR_HEIGHT = 48;  // Height per bar (38) + 10px spacing between bars
-  private readonly BOSS_HEALTH_BAR_WIDTH = 350;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -387,6 +291,7 @@ export class GameScene extends Phaser.Scene {
     // Set up milestone completion callback to show toast notifications
     achievementManager.setMilestoneCompleteCallback(
       (milestone: MilestoneDefinition, reward: MilestoneReward) => {
+        this.soundManager.playAchievementUnlock();
         this.toastManager.showMilestoneToast(
           milestone.name,
           milestone.description,
@@ -423,6 +328,7 @@ export class GameScene extends Phaser.Scene {
           rewardParts.push(achievement.bonusReward.description);
         }
 
+        this.soundManager.playAchievementUnlock();
         this.toastManager.showAchievementToast(
           achievement.name,
           rewardParts.join(' + '),
@@ -430,12 +336,24 @@ export class GameScene extends Phaser.Scene {
         );
       }
     );
+    // Tutorial toast on first game start (touch-aware hint)
+    if (!getSettingsManager().isTutorialSeen()) {
+      const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+      const moveHint = isTouchDevice ? 'Touch to move. Survive!' : 'WASD or arrows to move. Survive!';
+      this.time.delayedCall(2000, () => {
+        this.toastManager.showToast({
+          title: 'Welcome!',
+          description: moveHint,
+          icon: 'run',
+          color: 0x44aaff,
+          duration: 4000,
+        });
+      });
+    }
+
     this.damageCooldown = 0;
-    this.lastTrackId = '';
     this.isGameOver = false;
     this.isPaused = false;
-    this.isPauseMenuOpen = false;
-    this.isShopConfirmationOpen = false;
     this.hasWon = false;
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
@@ -444,14 +362,8 @@ export class GameScene extends Phaser.Scene {
     this.endlessModeTime = 0;
     this.endlessMinibossTimer = 0;
     this.endlessBossTimer = 0;
-    this.fpsHistory = [];
     this.activeLasers = [];
     this.enemyProjectiles = [];
-    // Reset boss health bars (destroy any existing containers)
-    for (const bar of this.activeBossHealthBars) {
-      bar.container.destroy();
-    }
-    this.activeBossHealthBars = [];
     // Reset miniboss spawn tracking and shuffle order for variety
     for (const miniboss of this.minibossSpawnTimes) {
       miniboss.spawned = false;
@@ -485,9 +397,6 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize shield barrier visual (honeycomb + charge dots)
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
-
-    // Initialize mastery icon effects (HUD glow + particles for maxed weapons/skills)
-    this.masteryIconEffects = new MasteryIconEffectsManager(this);
 
     // Initialize player stats and upgrades
     this.playerStats = createDefaultPlayerStats();
@@ -686,9 +595,15 @@ export class GameScene extends Phaser.Scene {
       getAchievementManager().recordDamageDealt(amount);
     });
 
-    // Setup input
-    this.setupInput();
-    this.joystickManager = new JoystickManager(this);
+    // Setup input (keyboard, mouse, joystick, dash, focus-loss handlers)
+    this.inputController = new InputController(this, {
+      getDashCooldown: () => this.playerStats.dashCooldown,
+      onFocusLost: () => {
+        if (!this.isPaused && !this.isGameOver) {
+          this.pauseMenuManager.togglePauseMenu();
+        }
+      },
+    });
 
     // Create player at center of screen
     this.playerId = this.createPlayer(this.scale.width / 2, this.scale.height / 2);
@@ -734,11 +649,16 @@ export class GameScene extends Phaser.Scene {
     // Apply meta-progression stats to player and weapons
     this.syncStatsToPlayer();
 
-    // Compute HUD scale for mobile/small screens before creating UI
-    this.hudScale = this.computeHudScale();
+    // Create HUD manager and build all HUD elements
+    this.hudManager = new HUDManager(this, {
+      worldLevel: getMetaProgressionManager().getWorldLevel(),
+      onPauseClicked: () => this.togglePauseMenu(),
+      onAutoBuyToggled: () => this.toggleAutoBuy(),
+    });
+    this.hudManager.create();
 
-    // Create UI
-    this.createUI();
+    // Create pause menu manager
+    this.pauseMenuManager = this.createPauseMenuManager();
 
     // Setup pause key (ESC) - store handler reference for cleanup
     this.escKeyHandler = () => {
@@ -748,8 +668,8 @@ export class GameScene extends Phaser.Scene {
 
     // Setup scene resume handler to show pause menu when returning from settings
     this.resumeHandler = () => {
-      if (this.isPaused && !this.isPauseMenuOpen) {
-        this.showPauseMenu();
+      if (this.isPaused && !this.pauseMenuManager.isPauseMenuOpen) {
+        this.pauseMenuManager.showPauseMenuFromSettings();
       }
     };
     this.events.on('resume', this.resumeHandler);
@@ -763,8 +683,19 @@ export class GameScene extends Phaser.Scene {
     // Setup beforeunload handler to save game state on page close/refresh
     this.setupBeforeUnloadHandler();
 
-    // Setup auto-pause when tab/window loses focus
-    this.setupFocusLossHandlers();
+    // Initialize input controller (keyboard, mouse, joystick, focus-loss handlers)
+    // Must be after pauseMenuManager is created since onFocusLost references it
+    this.inputController.create();
+
+    // Listen for dash requests from InputController (triggered by Shift key)
+    this.dashRequestHandler = () => {
+      if (this.isPaused || this.isGameOver) return;
+      if (this.playerId === -1) return;
+      const playerX = Transform.x[this.playerId];
+      const playerY = Transform.y[this.playerId];
+      this.inputController.tryDash(playerX, playerY, this.playerId);
+    };
+    this.events.on('input-dash-requested', this.dashRequestHandler);
   }
 
   /**
@@ -777,26 +708,6 @@ export class GameScene extends Phaser.Scene {
       }
     };
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
-  }
-
-  /**
-   * Sets up handlers to pause the game when tab/window loses focus.
-   * Shows pause menu on focus loss, requiring manual resume.
-   */
-  private setupFocusLossHandlers(): void {
-    this.handleVisibilityChange = () => {
-      if (document.hidden && !this.isPaused && !this.isGameOver) {
-        this.showPauseMenu();
-      }
-    };
-    this.handleWindowBlur = () => {
-      if (!this.isPaused && !this.isGameOver) {
-        this.showPauseMenu();
-      }
-    };
-
-    document.addEventListener('visibilitychange', this.handleVisibilityChange);
-    window.addEventListener('blur', this.handleWindowBlur);
   }
 
   /**
@@ -817,7 +728,7 @@ export class GameScene extends Phaser.Scene {
       magnetSpawnTimer: this.magnetSpawnTimer,
       treasureSpawnTimer: this.treasureSpawnTimer,
       gemMagnetTimer: this.gemMagnetTimer,
-      dashCooldownTimer: this.dashCooldownTimer,
+      dashCooldownTimer: this.inputController.getDashCooldownRemaining(),
       damageCooldown: this.damageCooldown,
       bossSpawned: this.bossSpawned,
       bossWarningPhase: this.bossWarningPhase,
@@ -875,7 +786,6 @@ export class GameScene extends Phaser.Scene {
     this.deathRippleManager.setQuality(this.visualQuality);
     this.masteryVisualsManager = new MasteryVisualsManager(this);
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
-    this.masteryIconEffects = new MasteryIconEffectsManager(this);
 
     // Restore game progress
     this.gameTime = state.gameTime;
@@ -888,7 +798,7 @@ export class GameScene extends Phaser.Scene {
     this.magnetSpawnTimer = state.magnetSpawnTimer;
     this.treasureSpawnTimer = state.treasureSpawnTimer;
     this.gemMagnetTimer = state.gemMagnetTimer;
-    this.dashCooldownTimer = state.dashCooldownTimer;
+    // Note: dashCooldownTimer is restored after inputController.create() below
     this.damageCooldown = state.damageCooldown;
 
     // Restore spawn tracking
@@ -935,22 +845,11 @@ export class GameScene extends Phaser.Scene {
     // Reset other state
     this.isGameOver = false;
     this.isPaused = false;
-    this.isPauseMenuOpen = false;
-    this.isShopConfirmationOpen = false;
     this.hasWon = false;
-    this.isDashing = false;
-    this.dashTimer = 0;
-    this.dashDirectionX = 0;
-    this.dashDirectionY = 0;
     this.pendingLevelUps = 0;
     this.nextEnemyDropsMagnet = false;
-    this.fpsHistory = [];
     this.activeLasers = [];
     this.enemyProjectiles = [];
-    for (const bar of this.activeBossHealthBars) {
-      bar.container.destroy();
-    }
-    this.activeBossHealthBars = [];
 
     // Initialize upgrades list
     this.upgrades = createUpgrades();
@@ -974,8 +873,15 @@ export class GameScene extends Phaser.Scene {
     // Setup system callbacks
     this.setupSystemCallbacks();
 
-    // Setup input
-    this.setupInput();
+    // Setup input controller (keyboard, mouse, joystick, dash)
+    this.inputController = new InputController(this, {
+      getDashCooldown: () => this.playerStats.dashCooldown,
+      onFocusLost: () => {
+        if (!this.isPaused && !this.isGameOver) {
+          this.pauseMenuManager.togglePauseMenu();
+        }
+      },
+    });
 
     // Restore all entities
     this.restoreEntities(state);
@@ -1035,20 +941,33 @@ export class GameScene extends Phaser.Scene {
     // Sync stats to player
     this.syncStatsToPlayer();
 
-    // Compute HUD scale for mobile/small screens before creating UI
-    this.hudScale = this.computeHudScale();
-
-    // Create UI
-    this.createUI();
+    // Create HUD manager and build all HUD elements (restore path)
+    this.hudManager = new HUDManager(this, {
+      worldLevel: getMetaProgressionManager().getWorldLevel(),
+      onPauseClicked: () => this.togglePauseMenu(),
+      onAutoBuyToggled: () => this.toggleAutoBuy(),
+    });
+    this.hudManager.create();
 
     // Populate upgrade icons with restored weapons and upgrades
-    this.updateUpgradeIcons();
+    this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
+
+    // Create pause menu manager (restore path)
+    this.pauseMenuManager = this.createPauseMenuManager();
 
     // Setup pause key
     this.escKeyHandler = () => {
       this.togglePauseMenu();
     };
     this.input.keyboard?.on('keydown-ESC', this.escKeyHandler);
+
+    // Setup scene resume handler to show pause menu when returning from settings
+    this.resumeHandler = () => {
+      if (this.isPaused && !this.pauseMenuManager.isPauseMenuOpen) {
+        this.pauseMenuManager.showPauseMenuFromSettings();
+      }
+    };
+    this.events.on('resume', this.resumeHandler);
 
     // Setup auto-buy toggle key
     this.autoBuyKeyHandler = () => {
@@ -1059,8 +978,21 @@ export class GameScene extends Phaser.Scene {
     // Setup beforeunload handler
     this.setupBeforeUnloadHandler();
 
-    // Setup auto-pause when tab/window loses focus
-    this.setupFocusLossHandlers();
+    // Initialize input controller and restore dash state from save
+    // Must be after pauseMenuManager is created since onFocusLost references it
+    this.inputController.create();
+    this.inputController.setDashCooldownTimer(state.dashCooldownTimer);
+    this.inputController.resetDashState();
+
+    // Listen for dash requests from InputController (triggered by Shift key)
+    this.dashRequestHandler = () => {
+      if (this.isPaused || this.isGameOver) return;
+      if (this.playerId === -1) return;
+      const playerX = Transform.x[this.playerId];
+      const playerY = Transform.y[this.playerId];
+      this.inputController.tryDash(playerX, playerY, this.playerId);
+    };
+    this.events.on('input-dash-requested', this.dashRequestHandler);
   }
 
   /**
@@ -1147,8 +1079,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Reposition any boss health bars that were restored
-    if (this.activeBossHealthBars.length > 0) {
-      this.repositionBossHealthBars();
+    if (this.hudManager.getBossEntityIds().length > 0) {
+      this.hudManager.repositionBossHealthBars();
     }
   }
 
@@ -1282,8 +1214,7 @@ export class GameScene extends Phaser.Scene {
 
     // Create boss health bar if this is a boss/miniboss
     if (entity.enemyData.xpValue >= 30) {
-      const bossBar = this.createBossHealthBar(entityId, enemyType.name, entity.enemyData.xpValue >= 1000);
-      this.activeBossHealthBars.push(bossBar);
+      this.hudManager.createBossHealthBar(entityId, enemyType.name, entity.enemyData.xpValue >= 1000);
     }
   }
 
@@ -1343,7 +1274,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Remove boss health bar if this enemy had one
-    this.removeBossHealthBar(enemyId);
+    this.hudManager.removeBossHealthBar(enemyId);
 
     // Get enemy type info for XP value and special death effects
     const xpValue = EnemyType.xpValue[enemyId] || 1;
@@ -1663,367 +1594,31 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+
   /**
-   * Computes the HUD scale factor based on canvas dimensions.
-   * Returns 1.0 on desktop (1280+), scales up on smaller screens (phones/tablets).
+   * Builds the upgrade icon data array for the HUD manager.
+   * Combines active stat upgrades and weapon data into a unified format.
    */
-  private computeHudScale(): number {
-    return computeHudScaleUtil(this.scale.width, this.scale.height, getSettingsManager().getUiScale());
-  }
-
-  /** Returns a scaled font size string like '28px'. */
-  private scaledFontSize(basePixels: number): string {
-    return `${Math.round(basePixels * this.hudScale)}px`;
-  }
-
-  /** Returns a dimension scaled by hudScale, rounded to integer. */
-  private scaledSize(basePixels: number): number {
-    return Math.round(basePixels * this.hudScale);
-  }
-
-  private createUI(): void {
-    const leftMargin = this.scaledSize(HUD_EDGE_PADDING);
-    let currentY = this.scaledSize(HUD_EDGE_PADDING);
-
-    // === TOP LEFT: Level & Stats Panel ===
-
-    // Level display (large)
-    this.levelText = this.add.text(leftMargin, currentY, 'Level 1', {
-      fontSize: this.scaledFontSize(28),
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-    });
-    this.levelText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-    currentY += this.scaledSize(35);
-
-    // HP Bar (above XP bar)
-    const hpBarWidth = this.scaledSize(180);
-    const hpBarHeight = this.scaledSize(14);
-
-    this.hpBarBackground = this.add.rectangle(
-      leftMargin + hpBarWidth / 2,
-      currentY + hpBarHeight / 2,
-      hpBarWidth,
-      hpBarHeight,
-      0x333333
-    );
-    this.hpBarBackground.setStrokeStyle(1, 0x666666);
-    this.hpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    this.hpBarFill = this.add.rectangle(
-      leftMargin + 1,
-      currentY + hpBarHeight / 2,
-      hpBarWidth - 2,
-      hpBarHeight - 2,
-      0x44ff44
-    );
-    this.hpBarFill.setOrigin(0, 0.5);
-    this.hpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // HP Text overlay
-    this.hpText = this.add.text(
-      leftMargin + hpBarWidth / 2,
-      currentY + hpBarHeight / 2,
-      '100/100',
-      {
-        fontSize: this.scaledFontSize(11),
-        color: '#000000',
-        fontFamily: 'Arial',
-        stroke: '#ffffff',
-        strokeThickness: 2,
+  private buildUpgradeIconData(): UpgradeIconData[] {
+    const result: UpgradeIconData[] = [];
+    for (const upgrade of this.upgrades) {
+      if (upgrade.currentLevel > 0) {
+        result.push({
+          id: upgrade.id, icon: upgrade.icon, name: upgrade.name,
+          description: upgrade.description, currentLevel: upgrade.currentLevel,
+          maxLevel: upgrade.maxLevel, type: 'skill',
+        });
       }
-    );
-    this.hpText.setOrigin(0.5);
-    this.hpText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // HP label
-    this.add.text(leftMargin + hpBarWidth + this.scaledSize(8), currentY + hpBarHeight / 2, 'HP', {
-      fontSize: this.scaledFontSize(12),
-      color: '#ff6666',
-      fontFamily: 'Arial',
-    }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    currentY += hpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
-
-    // XP Bar (below HP bar)
-    const xpBarWidth = this.scaledSize(180);
-    const xpBarHeight = this.scaledSize(12);
-
-    this.xpBarBackground = this.add.rectangle(
-      leftMargin + xpBarWidth / 2,
-      currentY + xpBarHeight / 2,
-      xpBarWidth,
-      xpBarHeight,
-      0x333333
-    );
-    this.xpBarBackground.setStrokeStyle(1, 0x666666);
-    this.xpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    this.xpBarFill = this.add.rectangle(
-      leftMargin + 1,
-      currentY + xpBarHeight / 2,
-      0,
-      xpBarHeight - 2,
-      0x44ff44
-    );
-    this.xpBarFill.setOrigin(0, 0.5);
-    this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // XP label
-    this.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
-      fontSize: this.scaledFontSize(12),
-      color: '#44ff44',
-      fontFamily: 'Arial',
-    }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    currentY += xpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING) * 2;
-
-    // === Upgrade Icons Container ===
-    this.upgradeIconsContainer = this.add.container(leftMargin, currentY);
-    this.upgradeIconsContainer.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Create upgrade tooltip (hidden by default)
-    this.upgradeTooltip = this.add.container(0, 0);
-    this.upgradeTooltip.setVisible(false);
-    this.upgradeTooltip.setDepth(HUD_DEPTH + 1); // Slightly above other HUD elements
-
-    const tooltipBg = this.add.rectangle(0, 0, this.scaledSize(180), this.scaledSize(60), 0x222244, 0.95);
-    tooltipBg.setStrokeStyle(2, 0x4444aa);
-    tooltipBg.setOrigin(0, 0);
-
-    const tooltipTitle = this.add.text(this.scaledSize(10), this.scaledSize(8), '', {
-      fontSize: this.scaledFontSize(14),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-    }).setName('tooltipTitle');
-
-    const tooltipDesc = this.add.text(this.scaledSize(10), this.scaledSize(28), '', {
-      fontSize: this.scaledFontSize(11),
-      color: '#aaaaaa',
-      fontFamily: 'Arial',
-    }).setName('tooltipDesc');
-
-    const tooltipLevel = this.add.text(this.scaledSize(10), this.scaledSize(44), '', {
-      fontSize: this.scaledFontSize(11),
-      color: '#88aaff',
-      fontFamily: 'Arial',
-    }).setName('tooltipLevel');
-
-    this.upgradeTooltip.add([tooltipBg, tooltipTitle, tooltipDesc, tooltipLevel]);
-
-    // === TOP RIGHT: Pause Button & Game Stats ===
-
-    // Pause button (top right corner) — minimum 44px for touch accessibility
-    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
-    const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
-    const pauseButtonSize = Math.max(this.scaledSize(36), 44);
-    const pauseButtonX = this.scale.width - scaledPadding - pauseButtonSize / 2;
-    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
-
-    // Stats positioned below the pause button, right-aligned to screen edge
-    const statsRightX = this.scale.width - scaledPadding;
-    const statsTopY = pauseButtonY + pauseButtonSize / 2 + scaledSpacing;
-
-    // World level display (centered, above timer)
-    const worldLevel = getMetaProgressionManager().getWorldLevel();
-    this.add.text(this.scale.width / 2, scaledPadding, `World ${worldLevel}`, {
-      fontSize: this.scaledFontSize(14),
-      color: '#88aaff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Game time display (centered top, below world level)
-    const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
-    this.add.text(this.scale.width / 2, scaledPadding + scaledWorldLevelHeight + scaledSpacing, '', {
-      fontSize: this.scaledFontSize(28),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Kill count display (below pause button, right-aligned)
-    this.add.text(statsRightX, statsTopY, '', {
-      fontSize: this.scaledFontSize(16),
-      color: '#88ff88',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(6), y: this.scaledSize(3) },
-    }).setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Gold preview display (below kill count, right-aligned)
-    this.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
-      fontSize: this.scaledFontSize(14),
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(6), y: this.scaledSize(2) },
-    }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Combo counter display (below gold preview, right-aligned)
-    this.add.text(statsRightX, statsTopY + this.scaledSize(48), '', {
-      fontSize: this.scaledFontSize(18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: this.scaledSize(3),
-    }).setOrigin(1, 0).setName('comboText').setDepth(HUD_DEPTH).setAlpha(0);
-
-    const pauseButtonBg = this.add.rectangle(
-      pauseButtonX,
-      pauseButtonY,
-      pauseButtonSize,
-      pauseButtonSize,
-      0x333333,
-      0.8
-    );
-    pauseButtonBg.setStrokeStyle(2, 0x666666);
-    pauseButtonBg.setInteractive({ useHandCursor: true });
-    pauseButtonBg.setName('pauseButtonBg');
-    pauseButtonBg.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    const pauseButtonIcon = this.add.text(pauseButtonX, pauseButtonY, '⏸', {
-      fontSize: this.scaledFontSize(20),
-    });
-    pauseButtonIcon.setOrigin(0.5);
-    pauseButtonIcon.setName('pauseButtonIcon');
-    pauseButtonIcon.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Pause button hover effects
-    pauseButtonBg.on('pointerover', () => {
-      pauseButtonBg.setFillStyle(0x555555, 0.9);
-    });
-    pauseButtonBg.on('pointerout', () => {
-      pauseButtonBg.setFillStyle(0x333333, 0.8);
-    });
-    pauseButtonBg.on('pointerdown', () => {
-      this.togglePauseMenu();
-    });
-
-    // Controls hint (bottom left)
-    this.add.text(scaledPadding, this.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
-      fontSize: this.scaledFontSize(14),
-      color: '#888888',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(6), y: this.scaledSize(3) },
-    }).setOrigin(0, 1).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // BGM info display (bottom left, above controls hint)
-    this.createBGMDisplay();
-    this.updateBGMDisplay();
-
-    // Auto-buy toggle UI (bottom right, above music controls)
-    this.createAutoBuyToggle();
-
-    // FPS counter (bottom right corner, above auto-buy toggle)
-    const autoBuyToggleHeight = this.scaledSize(26);
-    const fpsY = this.scale.height - scaledPadding - autoBuyToggleHeight - scaledSpacing;
-    this.fpsText = this.add.text(this.scale.width - scaledPadding, fpsY, 'FPS: --', {
-      fontSize: this.scaledFontSize(14),
-      color: '#00ff00',
-      fontFamily: 'monospace',
-      backgroundColor: '#000000aa',
-      padding: { x: this.scaledSize(4), y: this.scaledSize(2) },
-    });
-    this.fpsText.setOrigin(1, 1);
-    this.fpsText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-    // Set initial visibility based on settings
-    this.fpsText.setVisible(getSettingsManager().isFpsCounterEnabled());
-  }
-
-  /**
-   * Creates the auto-buy toggle UI with clickable button.
-   * Position: Bottom-right corner, matching the game's bracket-style UI.
-   * Only shown if auto-upgrade is purchased from the shop.
-   */
-  private createAutoBuyToggle(): void {
-    // Only show toggle if auto-upgrade is purchased (level >= 1)
-    const autoUpgradeLevel = getMetaProgressionManager().getAutoUpgradeLevel();
-    if (autoUpgradeLevel < 1) {
-      return; // Toggle hidden until purchased
     }
-
-    // Load saved auto-buy preference from secure storage
-    const savedAutoBuy = SecureStorage.getItem(STORAGE_KEY_AUTO_BUY);
-    if (savedAutoBuy !== null) {
-      this.isAutoBuyEnabled = savedAutoBuy === 'true';
+    const weapons = this.weaponManager.getAllWeapons();
+    for (const weapon of weapons) {
+      result.push({
+        id: weapon.id, icon: weapon.icon, name: weapon.name,
+        description: weapon.description, currentLevel: weapon.getLevel(),
+        maxLevel: weapon.maxLevel, type: 'weapon',
+      });
     }
-
-    const toggleWidth = this.scaledSize(190);
-    const toggleHeight = this.scaledSize(26);
-    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
-    // Position with right edge at scaled padding from screen edge
-    const toggleX = this.scale.width - scaledPadding - toggleWidth / 2;
-    // Position with bottom edge at scaled padding from screen edge
-    const toggleY = this.scale.height - scaledPadding - toggleHeight / 2;
-
-    // Background rectangle for the toggle button
-    this.autoBuyToggleBg = this.add.rectangle(
-      toggleX,
-      toggleY,
-      toggleWidth,
-      toggleHeight,
-      0x2a2a4a
-    );
-    this.autoBuyToggleBg.setStrokeStyle(2, 0x4a4a7a);
-    this.autoBuyToggleBg.setInteractive({ useHandCursor: true });
-    this.autoBuyToggleBg.setName('autoBuyToggleBg');
-    this.autoBuyToggleBg.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Toggle text with bracket format matching existing UI
-    this.autoBuyToggleText = this.add.text(
-      toggleX,
-      toggleY,
-      '[ AUTO-UPGRADE: OFF ]',
-      {
-        fontSize: this.scaledFontSize(14),
-        fontFamily: 'Arial',
-        color: '#888888',
-      }
-    );
-    this.autoBuyToggleText.setOrigin(0.5);
-    this.autoBuyToggleText.setName('autoBuyToggleText');
-    this.autoBuyToggleText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Click handler
-    this.autoBuyToggleBg.on('pointerdown', () => {
-      this.toggleAutoBuy();
-    });
-
-    // Hover effects
-    this.autoBuyToggleBg.on('pointerover', () => {
-      this.autoBuyToggleBg?.setFillStyle(0x3a3a6a);
-    });
-    this.autoBuyToggleBg.on('pointerout', () => {
-      this.autoBuyToggleBg?.setFillStyle(0x2a2a4a);
-    });
-
-    // Update visual state based on initial setting
-    this.updateAutoBuyToggleVisual();
-  }
-
-  /**
-   * Updates the auto-buy toggle visual state based on current setting.
-   * Shows tier level when enabled (T2, T3, T4) for purchased intelligence upgrades.
-   */
-  private updateAutoBuyToggleVisual(): void {
-    if (!this.autoBuyToggleText) return;
-
-    const autoUpgradeLevel = getMetaProgressionManager().getAutoUpgradeLevel();
-
-    if (this.isAutoBuyEnabled) {
-      // Show tier indicator if level > 1 (has intelligence upgrades)
-      const tierText = autoUpgradeLevel > 1 ? ` T${autoUpgradeLevel}` : '';
-      this.autoBuyToggleText.setText(`[ AUTO${tierText}: ON ]`);
-      this.autoBuyToggleText.setColor('#ffdd44'); // Gold for active
-      this.autoBuyToggleBg?.setStrokeStyle(2, 0xffdd44);
-    } else {
-      this.autoBuyToggleText.setText('[ AUTO-UPGRADE: OFF ]');
-      this.autoBuyToggleText.setColor('#888888'); // Gray for inactive
-      this.autoBuyToggleBg?.setStrokeStyle(2, 0x4a4a7a);
-    }
+    return result;
   }
 
   /**
@@ -2033,7 +1628,7 @@ export class GameScene extends Phaser.Scene {
    */
   private toggleAutoBuy(): void {
     // Don't toggle during pause menu or upgrade selection
-    if (this.isPauseMenuOpen || this.scene.isActive('UpgradeScene')) {
+    if (this.pauseMenuManager.isPauseMenuOpen || this.scene.isActive('UpgradeScene')) {
       return;
     }
 
@@ -2043,7 +1638,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.isAutoBuyEnabled = !this.isAutoBuyEnabled;
-    this.updateAutoBuyToggleVisual();
+    this.hudManager.setAutoBuyEnabled(this.isAutoBuyEnabled);
 
     // Persist setting to secure storage
     SecureStorage.setItem(STORAGE_KEY_AUTO_BUY, String(this.isAutoBuyEnabled));
@@ -2075,120 +1670,9 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Creates the BGM info display with track info, mute, and skip controls.
-   */
-  private createBGMDisplay(): void {
-    // Position BGM row above controls hint with consistent spacing
-    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
-    const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
-    const controlsHintHeight = this.scaledSize(18);
-    const bgmIconSize = this.scaledSize(14);
-    const bottomY = this.scale.height - scaledPadding - controlsHintHeight - scaledSpacing * 2 - bgmIconSize;
-
-    // Container for all BGM elements
-    this.bgmContainer = this.add.container(scaledPadding, bottomY);
-    this.bgmContainer.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    const bgmIconScale = bgmIconSize / 64; // icon atlas is 64px
-
-    // Mute button (sprite) - first element (always shows volume icon)
-    this.bgmMuteButton = createIcon(this, {
-      x: this.scaledSize(7),
-      y: this.scaledSize(7),
-      iconKey: 'volume',
-      size: bgmIconSize,
-    });
-    this.bgmMuteButton.setInteractive({ useHandCursor: true });
-    this.bgmMuteButton.on('pointerover', () => {
-      this.bgmMuteButton.setScale(this.bgmMuteButton.scaleX * 1.2);
-    });
-    this.bgmMuteButton.on('pointerout', () => {
-      this.bgmMuteButton.setScale(bgmIconScale);
-    });
-    this.bgmMuteButton.on('pointerdown', () => {
-      this.toggleBGMMute();
-    });
-
-    // Strikethrough line for muted state (diagonal from top-right to bottom-left)
-    this.bgmMuteStrike = this.add.graphics();
-    this.bgmMuteStrike.lineStyle(2, 0xff4444, 1);
-    this.bgmMuteStrike.lineBetween(bgmIconSize, 0, 0, bgmIconSize);
-    this.bgmMuteStrike.setVisible(false);
-
-    // Skip button (sprite) - after mute
-    const skipButton = createIcon(this, {
-      x: this.scaledSize(25),
-      y: this.scaledSize(7),
-      iconKey: 'forward',
-      size: bgmIconSize,
-    });
-    skipButton.setInteractive({ useHandCursor: true });
-    skipButton.on('pointerover', () => {
-      skipButton.setScale(skipButton.scaleX * 1.2);
-    });
-    skipButton.on('pointerout', () => {
-      skipButton.setScale(bgmIconScale);
-    });
-    skipButton.on('pointerdown', () => {
-      this.skipToNextTrack();
-    });
-
-    // Music note icon (sprite) - after controls with small gap
-    const musicIcon = createIcon(this, {
-      x: this.scaledSize(50),
-      y: this.scaledSize(7),
-      iconKey: 'music',
-      size: bgmIconSize,
-      tint: 0x8888aa,
-    });
-
-    // Track info text - after music icon
-    this.bgmTrackText = this.add.text(this.scaledSize(65), 0, 'Loading...', {
-      fontSize: this.scaledFontSize(12),
-      color: '#8888aa',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(4), y: this.scaledSize(2) },
-    });
-
-    this.bgmContainer.add([this.bgmMuteButton, this.bgmMuteStrike, skipButton, musicIcon, this.bgmTrackText]);
-  }
-
-  /**
-   * Toggles BGM mute state.
-   */
-  private toggleBGMMute(): void {
-    const musicManager = getMusicManager();
-    const currentMode = musicManager.getPlaybackMode();
-
-    if (currentMode === 'off') {
-      // Unmute - restore to sequential
-      musicManager.setPlaybackMode('sequential');
-      musicManager.play();
-      this.bgmMuteStrike.setVisible(false);
-    } else {
-      // Mute
-      musicManager.setPlaybackMode('off');
-      this.bgmMuteStrike.setVisible(true);
-    }
-  }
-
-  /**
-   * Skips to the next track in the playlist.
-   */
-  private skipToNextTrack(): void {
-    const musicManager = getMusicManager();
-    if (musicManager.getPlaybackMode() !== 'off') {
-      musicManager.nextTrack();
-    }
-  }
-
   update(_time: number, delta: number): void {
     // Sync joystick enabled state (must run even when paused to disable during overlays)
-    if (this.joystickManager) {
-      this.joystickManager.setEnabled(!this.isPaused && !this.isGameOver);
-    }
+    this.inputController.setEnabled(!this.isPaused && !this.isGameOver);
 
     // Skip update when paused or game over
     if (this.isPaused || this.isGameOver) return;
@@ -2228,15 +1712,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ═══ UPGRADE ICON HIGHLIGHT EXPIRATION ═══
-    let highlightsExpired = false;
-    for (const [upgradeId, expiresAt] of this.activeIconHighlights) {
-      if (this.gameTime >= expiresAt) {
-        this.activeIconHighlights.delete(upgradeId);
-        highlightsExpired = true;
-      }
-    }
-    if (highlightsExpired) {
-      this.updateUpgradeIcons(); // Rebuild without expired glows
+    if (this.hudManager.expireHighlights(this.gameTime)) {
+      this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
     }
 
     // ═══ SHIELD BARRIER RECHARGE ═══
@@ -2257,24 +1734,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ═══ DASH ABILITY ═══
-    // Update dash cooldown
-    if (this.dashCooldownTimer > 0) {
-      this.dashCooldownTimer -= deltaSeconds;
-    }
-
-    // Process active dash
-    if (this.isDashing) {
-      this.dashTimer -= deltaSeconds;
-
-      // Apply dash velocity
-      const dashSpeed = this.playerStats.moveSpeed * this.DASH_SPEED_MULT;
-      Velocity.x[this.playerId] = this.dashDirectionX * dashSpeed;
-      Velocity.y[this.playerId] = this.dashDirectionY * dashSpeed;
-
-      // End dash when timer expires
-      if (this.dashTimer <= 0) {
-        this.isDashing = false;
-      }
+    const dashState = this.inputController.updateDash(deltaSeconds);
+    if (dashState.isDashing) {
+      // Apply dash velocity (dashState velocities are multipliers, scale by moveSpeed)
+      const dashSpeed = this.playerStats.moveSpeed;
+      Velocity.x[this.playerId] = dashState.velocityX * dashSpeed;
+      Velocity.y[this.playerId] = dashState.velocityY * dashSpeed;
     }
 
     // ═══ GEM MAGNET (auto-vacuum at intervals) ═══
@@ -2344,11 +1809,11 @@ export class GameScene extends Phaser.Scene {
     if (this.spawnTimer >= this.spawnInterval && this.enemyCount < this.maxEnemies) {
       // Batch spawning: late game spawns multiple enemies per tick
       let spawnCount = 1;
-      if (this.gameTime >= 300) {
-        spawnCount = Math.random() < 0.3 ? 2 : 1;
-      }
-      if (this.gameTime >= 480) {
-        spawnCount = 1 + Math.floor(Math.random() * 3);
+      const batchThresholds = TUNING.spawn.batchThresholds;
+      if (this.gameTime >= batchThresholds[1].time) {
+        spawnCount = 1 + Math.floor(Math.random() * batchThresholds[1].maxExtra);
+      } else if (this.gameTime >= batchThresholds[0].time) {
+        spawnCount = Math.random() < batchThresholds[0].extraChance ? 2 : 1;
       }
       for (let spawnIndex = 0; spawnIndex < spawnCount; spawnIndex++) {
         if (this.enemyCount < this.maxEnemies) {
@@ -2358,20 +1823,21 @@ export class GameScene extends Phaser.Scene {
       this.spawnTimer = 0;
 
       // Multi-phase spawn rate curve (keeps accelerating throughout the run)
+      const spawnPhases = TUNING.spawn.phases;
       let baseInterval: number;
-      if (this.gameTime < 120) {
-        // Phase 1 (0-2min): Gentle ramp, 1.0s -> 0.5s
-        baseInterval = 1.0 - this.gameTime * (0.5 / 120);
-      } else if (this.gameTime < 360) {
-        // Phase 2 (2-6min): Accelerating, 0.5s -> 0.25s
-        const spawnPhaseProgress = (this.gameTime - 120) / 240;
-        baseInterval = 0.5 - spawnPhaseProgress * spawnPhaseProgress * 0.25;
+      if (this.gameTime < spawnPhases[0].endTime) {
+        // Phase 1: Gentle ramp
+        baseInterval = spawnPhases[0].startInterval - this.gameTime * ((spawnPhases[0].startInterval - spawnPhases[0].endInterval) / spawnPhases[0].endTime);
+      } else if (this.gameTime < spawnPhases[1].endTime) {
+        // Phase 2: Accelerating (quadratic)
+        const spawnPhaseProgress = (this.gameTime - spawnPhases[0].endTime) / (spawnPhases[1].endTime - spawnPhases[0].endTime);
+        baseInterval = spawnPhases[1].startInterval - spawnPhaseProgress * spawnPhaseProgress * (spawnPhases[1].startInterval - spawnPhases[1].endInterval);
       } else {
-        // Phase 3 (6-10min): Intense, 0.25s -> 0.15s
-        const spawnPhaseProgress = Math.min((this.gameTime - 360) / 240, 1);
-        baseInterval = 0.25 - spawnPhaseProgress * 0.10;
+        // Phase 3: Intense
+        const spawnPhaseProgress = Math.min((this.gameTime - spawnPhases[1].endTime) / (spawnPhases[2].endTime - spawnPhases[1].endTime), 1);
+        baseInterval = spawnPhases[2].startInterval - spawnPhaseProgress * (spawnPhases[2].startInterval - spawnPhases[2].endInterval);
       }
-      this.spawnInterval = Math.max(0.15, baseInterval);
+      this.spawnInterval = Math.max(TUNING.spawn.minInterval, baseInterval);
     }
 
     // Check for miniboss spawns
@@ -2399,45 +1865,17 @@ export class GameScene extends Phaser.Scene {
     if (triggeredEvent) {
       this.handleRunEvent(triggeredEvent);
     }
-    this.updateEventIndicator();
+    this.hudManager.updateEventIndicator(getActiveEvent()?.event ?? null);
 
     // Update laser beams
     this.updateLaserBeams(deltaSeconds);
 
-    // Update joystick input
-    if (this.joystickManager) {
-      const joystickDirection = this.joystickManager.getDirection();
-      this.inputState.joystickX = joystickDirection.x;
-      this.inputState.joystickY = joystickDirection.y;
-    }
-
-    // Update control mode based on actual input device usage
-    const activePointer = this.input.activePointer;
-
-    const keyboardIsActive = this.inputState.cursors.left.isDown
-      || this.inputState.cursors.right.isDown
-      || this.inputState.cursors.up.isDown
-      || this.inputState.cursors.down.isDown
-      || this.inputState.wasd.W.isDown
-      || this.inputState.wasd.A.isDown
-      || this.inputState.wasd.S.isDown
-      || this.inputState.wasd.D.isDown;
-
-    if (this.inputState.joystickX !== 0 || this.inputState.joystickY !== 0) {
-      this.inputState.controlMode = 'joystick';
-      this.inputState.hasClickTarget = false;
-    } else if (keyboardIsActive) {
-      this.inputState.controlMode = 'keyboard';
-      this.inputState.hasClickTarget = false;
-    }
-    // Mouse control mode is set in the pointerdown handler
-
-    this.inputState.mouseX = activePointer.worldX;
-    this.inputState.mouseY = activePointer.worldY;
-    this.inputState.mouseActive = this.inputState.controlMode === 'mouse';
+    // Update input state (joystick, keyboard, mouse sync)
+    const inputState = this.inputController.update();
 
     // Run ECS systems
-    inputSystem(this.world, this.inputState);
+    inputSystem(this.world, inputState);
+    updateAIGameTime(this.gameTime);
     enemyAISystem(this.world, deltaSeconds);
 
     // Update Wraith sprite alpha based on phase state
@@ -2509,8 +1947,27 @@ export class GameScene extends Phaser.Scene {
     // Update visual quality based on FPS (auto-scaling)
     this.updateVisualQuality(delta);
 
-    // Update UI
-    this.updateUI();
+    // Update HUD
+    const bossEntityIds = this.hudManager.getBossEntityIds();
+    this.hudManager.update({
+      gameTime: this.gameTime,
+      deltaSeconds,
+      killCount: this.killCount,
+      playerLevel: this.playerStats.level,
+      xp: this.playerStats.xp,
+      xpToNextLevel: this.playerStats.xpToNextLevel,
+      currentHP: Health.current[this.playerId],
+      maxHP: Health.max[this.playerId],
+      hasWon: this.hasWon,
+      comboCount: getComboCount(),
+      comboTier: getComboTier(),
+      comboDecayPercent: getComboDecayPercent(),
+      bossHealthData: bossEntityIds.map(entityId => ({
+        entityId,
+        currentHP: Health.current[entityId],
+        maxHP: Health.max[entityId],
+      })),
+    });
   }
 
   /**
@@ -2609,7 +2066,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ═══ DASH INVINCIBILITY ═══
-    if (this.isDashing) {
+    if (this.inputController.isDashActive()) {
       return; // Invincible while dashing
     }
 
@@ -2953,15 +2410,68 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Creates a PauseMenuManager with appropriate callbacks.
+   * Used in both fresh start and restore create paths.
+   */
+  private createPauseMenuManager(): PauseMenuManager {
+    return new PauseMenuManager(this, {
+      onPauseStateChanged: (isPaused: boolean) => {
+        this.isPaused = isPaused;
+      },
+      onRestart: () => {
+        this.scene.restart();
+      },
+      onQuitToMenu: () => {
+        this.scene.start('BootScene');
+      },
+      onQuitToShop: () => {
+        this.scene.start('ShopScene');
+      },
+      onOpenSettings: () => {
+        this.isPaused = true; // Keep paused while in settings
+        this.scene.launch('SettingsScene', { returnTo: 'GameScene' });
+        this.scene.pause();
+      },
+      onContinueRun: () => {
+        // Enable endless mode spawning
+        this.endlessModeActive = true;
+        this.endlessModeTime = 0;
+        this.endlessMinibossTimer = 60;   // First miniboss in 60 seconds
+        this.endlessBossTimer = 600;      // First boss wave in 10 minutes
+        console.log('[Endless Mode] Activated - miniboss in 60s, boss in 600s');
+
+        // Reset grid physics - boss death applies massive forces that springs can't recover from
+        this.gridBackground.reset();
+
+        // Resume gameplay
+        this.isPaused = false;
+      },
+      onNextWorld: (goldAmount: number) => {
+        // Award gold (world level already advanced before showVictory was called)
+        const metaManager = getMetaProgressionManager();
+        metaManager.addGold(goldAmount);
+
+        // Restart scene for fresh run at new world level
+        this.scene.restart();
+      },
+      getGameState: () => ({
+        killCount: this.killCount,
+        gameTime: this.gameTime,
+        playerLevel: this.playerStats.level,
+        hasWon: this.hasWon,
+        isGameOver: this.isGameOver,
+        isPaused: this.isPaused,
+        isPauseMenuOpen: this.pauseMenuManager?.isPauseMenuOpen ?? false,
+      }),
+    });
+  }
+
+  /**
    * Toggles the pause menu on/off.
-   * Only works when not in upgrade selection, victory screen, or game over.
+   * Delegates to PauseMenuManager.
    */
   private togglePauseMenu(): void {
-    if (this.isPauseMenuOpen) {
-      this.hidePauseMenu();
-    } else if (!this.isPaused && !this.isGameOver) {
-      this.showPauseMenu();
-    }
+    this.pauseMenuManager.togglePauseMenu();
   }
 
   /**
@@ -2969,592 +2479,12 @@ export class GameScene extends Phaser.Scene {
    * Ensures the pause menu is shown reliably (doesn't rely on resume event).
    */
   public showPauseMenuFromSettings(): void {
-    if (!this.isPauseMenuOpen && !this.isGameOver) {
-      this.isPaused = true;
-      this.showPauseMenu();
-    }
+    this.pauseMenuManager.showPauseMenuFromSettings();
   }
 
   /**
-   * Shows the pause menu with Resume and Restart options.
-   */
-  private showPauseMenu(): void {
-    this.isPauseMenuOpen = true;
-    this.isPaused = true;
-
-    // Create pause overlay
-    const overlay = this.add.rectangle(
-      this.scale.width / 2,
-      this.scale.height / 2,
-      this.scale.width,
-      this.scale.height,
-      0x000000,
-      0.75
-    );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
-    overlay.setName('pauseOverlay');
-
-    // 8px grid spacing for pause menu
-    const menuCenterY = this.scale.height / 2;
-    const buttonSpacing = 64; // 8px aligned gap between button centers
-
-    // Pause title
-    const pauseTitle = this.add.text(this.scale.width / 2, menuCenterY - 144, 'PAUSED', {
-      fontSize: '56px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-      stroke: '#000000',
-      strokeThickness: 4,
-    });
-    pauseTitle.setOrigin(0.5);
-    pauseTitle.setDepth(PAUSE_MENU_DEPTH + 1);
-    pauseTitle.setName('pauseTitle');
-
-    // Gold display in pause menu (48px below title)
-    const metaManager = getMetaProgressionManager();
-    const pauseGoldDisplay = this.add.text(
-      this.scale.width / 2,
-      menuCenterY - 88,
-      `Gold: ${metaManager.getGold()}`,
-      {
-        fontSize: '24px',
-        color: '#ffcc00',
-        fontFamily: 'Arial',
-      }
-    );
-    pauseGoldDisplay.setOrigin(0.5);
-    pauseGoldDisplay.setDepth(PAUSE_MENU_DEPTH + 1);
-    pauseGoldDisplay.setName('pauseGoldText');
-
-    // Resume button (48px below gold)
-    const resumeButtonWidth = 180;
-    const resumeButtonHeight = 50;
-    const resumeButtonY = menuCenterY - 32;
-
-    const resumeButtonBg = this.add.rectangle(
-      this.scale.width / 2,
-      resumeButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x44aa44
-    );
-    resumeButtonBg.setStrokeStyle(3, 0x66cc66);
-    resumeButtonBg.setInteractive({ useHandCursor: true });
-    resumeButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    resumeButtonBg.setName('resumeButtonBg');
-
-    const resumeButtonText = this.add.text(this.scale.width / 2, resumeButtonY, 'Resume', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    resumeButtonText.setOrigin(0.5);
-    resumeButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    resumeButtonText.setName('resumeButtonText');
-
-    // Resume button hover effects
-    resumeButtonBg.on('pointerover', () => {
-      resumeButtonBg.setFillStyle(0x55bb55);
-    });
-    resumeButtonBg.on('pointerout', () => {
-      resumeButtonBg.setFillStyle(0x44aa44);
-    });
-    resumeButtonBg.on('pointerdown', () => {
-      this.hidePauseMenu();
-    });
-
-    // Settings button (64px below resume)
-    const settingsButtonY = resumeButtonY + buttonSpacing;
-
-    const settingsButtonBg = this.add.rectangle(
-      this.scale.width / 2,
-      settingsButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x446688
-    );
-    settingsButtonBg.setStrokeStyle(3, 0x6688aa);
-    settingsButtonBg.setInteractive({ useHandCursor: true });
-    settingsButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    settingsButtonBg.setName('settingsButtonBg');
-
-    const settingsButtonText = this.add.text(this.scale.width / 2, settingsButtonY, 'Settings', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    settingsButtonText.setOrigin(0.5);
-    settingsButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    settingsButtonText.setName('settingsButtonText');
-
-    // Settings button hover effects
-    settingsButtonBg.on('pointerover', () => {
-      settingsButtonBg.setFillStyle(0x5577aa);
-    });
-    settingsButtonBg.on('pointerout', () => {
-      settingsButtonBg.setFillStyle(0x446688);
-    });
-    settingsButtonBg.on('pointerdown', () => {
-      this.hidePauseMenu();
-      this.isPaused = true; // Keep paused while in settings
-      this.scene.launch('SettingsScene', { returnTo: 'GameScene' });
-      this.scene.pause();
-    });
-
-    // Restart button (64px below settings)
-    const restartButtonY = settingsButtonY + buttonSpacing;
-
-    const restartButtonBg = this.add.rectangle(
-      this.scale.width / 2,
-      restartButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x666666
-    );
-    restartButtonBg.setStrokeStyle(3, 0x888888);
-    restartButtonBg.setInteractive({ useHandCursor: true });
-    restartButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    restartButtonBg.setName('restartButtonBg');
-
-    const restartButtonText = this.add.text(this.scale.width / 2, restartButtonY, 'Restart', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    restartButtonText.setOrigin(0.5);
-    restartButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    restartButtonText.setName('restartButtonText');
-
-    // Restart button hover effects
-    restartButtonBg.on('pointerover', () => {
-      restartButtonBg.setFillStyle(0x884444);
-    });
-    restartButtonBg.on('pointerout', () => {
-      restartButtonBg.setFillStyle(0x666666);
-    });
-    restartButtonBg.on('pointerdown', () => {
-      this.showEndRunConfirmation('restart');
-    });
-
-    // Quit to Menu button (64px below restart)
-    const quitMenuButtonY = restartButtonY + buttonSpacing;
-
-    const quitMenuButtonBg = this.add.rectangle(
-      this.scale.width / 2,
-      quitMenuButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x664444
-    );
-    quitMenuButtonBg.setStrokeStyle(3, 0x886666);
-    quitMenuButtonBg.setInteractive({ useHandCursor: true });
-    quitMenuButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    quitMenuButtonBg.setName('quitMenuButtonBg');
-
-    const quitMenuButtonText = this.add.text(this.scale.width / 2, quitMenuButtonY, 'Quit to Menu', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    quitMenuButtonText.setOrigin(0.5);
-    quitMenuButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    quitMenuButtonText.setName('quitMenuButtonText');
-
-    quitMenuButtonBg.on('pointerover', () => {
-      quitMenuButtonBg.setFillStyle(0x885555);
-    });
-    quitMenuButtonBg.on('pointerout', () => {
-      quitMenuButtonBg.setFillStyle(0x664444);
-    });
-    quitMenuButtonBg.on('pointerdown', () => {
-      this.showEndRunConfirmation('menu');
-    });
-
-    // Quit to Shop button (64px below quit menu)
-    const quitShopButtonY = quitMenuButtonY + buttonSpacing;
-
-    const quitShopButtonBg = this.add.rectangle(
-      this.scale.width / 2,
-      quitShopButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x666644
-    );
-    quitShopButtonBg.setStrokeStyle(3, 0x888866);
-    quitShopButtonBg.setInteractive({ useHandCursor: true });
-    quitShopButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    quitShopButtonBg.setName('quitShopButtonBg');
-
-    const quitShopButtonText = this.add.text(this.scale.width / 2, quitShopButtonY, 'Quit to Shop', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    quitShopButtonText.setOrigin(0.5);
-    quitShopButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    quitShopButtonText.setName('quitShopButtonText');
-
-    quitShopButtonBg.on('pointerover', () => {
-      quitShopButtonBg.setFillStyle(0x888855);
-    });
-    quitShopButtonBg.on('pointerout', () => {
-      quitShopButtonBg.setFillStyle(0x666644);
-    });
-    quitShopButtonBg.on('pointerdown', () => {
-      this.showEndRunConfirmation('shop');
-    });
-
-    // Hint text (48px below last button)
-    const hintText = this.add.text(this.scale.width / 2, quitShopButtonY + 48, 'Arrow keys to navigate, Enter to select', {
-      fontSize: '14px',
-      color: '#888888',
-      fontFamily: 'Arial',
-    });
-    hintText.setOrigin(0.5);
-    hintText.setDepth(PAUSE_MENU_DEPTH + 1);
-    hintText.setName('pauseHintText');
-
-    // Keyboard navigation for pause menu
-    const pauseButtons = [
-      { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: 0x44aa44, hoverColor: 0x55bb55 },
-      { bg: settingsButtonBg, action: () => { this.hidePauseMenu(); this.isPaused = true; this.scene.launch('SettingsScene', { returnTo: 'GameScene' }); this.scene.pause(); }, baseColor: 0x446688, hoverColor: 0x5577aa },
-      { bg: restartButtonBg, action: () => this.showEndRunConfirmation('restart'), baseColor: 0x666666, hoverColor: 0x884444 },
-      { bg: quitMenuButtonBg, action: () => this.showEndRunConfirmation('menu'), baseColor: 0x664444, hoverColor: 0x885555 },
-      { bg: quitShopButtonBg, action: () => this.showEndRunConfirmation('shop'), baseColor: 0x666644, hoverColor: 0x888855 },
-    ];
-    let pauseSelectedIndex = 0;
-
-    const updatePauseSelection = (newIndex: number) => {
-      // Reset previous button to base color
-      pauseButtons[pauseSelectedIndex].bg.setFillStyle(pauseButtons[pauseSelectedIndex].baseColor);
-      pauseButtons[pauseSelectedIndex].bg.setStrokeStyle(3, pauseButtons[pauseSelectedIndex].baseColor + 0x224422);
-      // Set new button to hover color with bright stroke
-      pauseSelectedIndex = newIndex;
-      pauseButtons[pauseSelectedIndex].bg.setFillStyle(pauseButtons[pauseSelectedIndex].hoverColor);
-      pauseButtons[pauseSelectedIndex].bg.setStrokeStyle(3, 0xffffff);
-    };
-
-    // Highlight initial selection
-    updatePauseSelection(0);
-
-    this.pauseMenuKeyHandler = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowDown' || event.key === 's' || event.key === 'S') {
-        updatePauseSelection((pauseSelectedIndex + 1) % pauseButtons.length);
-      } else if (event.key === 'ArrowUp' || event.key === 'w' || event.key === 'W') {
-        updatePauseSelection((pauseSelectedIndex - 1 + pauseButtons.length) % pauseButtons.length);
-      } else if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        pauseButtons[pauseSelectedIndex].action();
-      }
-    };
-    this.input.keyboard?.on('keydown', this.pauseMenuKeyHandler);
-  }
-
-  /**
-   * Hides the pause menu and resumes gameplay.
-   */
-  private hidePauseMenu(): void {
-    // Remove pause menu keyboard handler
-    if (this.pauseMenuKeyHandler) {
-      this.input.keyboard?.off('keydown', this.pauseMenuKeyHandler);
-      this.pauseMenuKeyHandler = null;
-    }
-
-    // Remove all pause menu UI elements
-    const elementsToRemove = [
-      'pauseOverlay',
-      'pauseTitle',
-      'pauseGoldText',
-      'resumeButtonBg',
-      'resumeButtonText',
-      'settingsButtonBg',
-      'settingsButtonText',
-      'restartButtonBg',
-      'restartButtonText',
-      'quitMenuButtonBg',
-      'quitMenuButtonText',
-      'quitShopButtonBg',
-      'quitShopButtonText',
-      'pauseHintText',
-    ];
-    elementsToRemove.forEach((name) => {
-      const element = this.children.getByName(name);
-      if (element) element.destroy();
-    });
-
-    this.isPauseMenuOpen = false;
-    this.isPaused = false;
-
-    // Ensure scene is resumed at Phaser level (safe to call even if not paused)
-    this.scene.resume();
-  }
-
-  /**
-   * Shows the end run confirmation dialog with gold breakdown.
-   * Allows player to confirm or cancel ending the run.
-   * @param destination Where to go after confirming: 'shop', 'menu', or 'restart'
-   */
-  private showEndRunConfirmation(destination: 'shop' | 'menu' | 'restart'): void {
-    // Hide pause menu first
-    this.hidePauseMenu();
-    this.isPaused = true; // Keep game paused
-    this.isShopConfirmationOpen = true;
-
-    // Calculate gold using the same formula as death (hasWon=false)
-    const metaManager = getMetaProgressionManager();
-    const finalTotal = metaManager.calculateRunGold(
-      this.killCount,
-      this.gameTime,
-      this.playerStats.level,
-      false  // Same as death, no victory bonus
-    );
-
-    // Calculate breakdown components for display
-    const killGold = Math.floor(this.killCount * 2.5);
-    const timeGold = Math.floor(this.gameTime / 10);
-    const levelGold = this.playerStats.level * 10;
-    const baseTotal = killGold + timeGold + levelGold;
-    const goldMultiplier = metaManager.getStartingGoldMultiplier();
-    const worldLevelMultiplier = metaManager.getWorldLevelGoldMultiplier();
-    const streakMultiplier = metaManager.getStreakGoldMultiplier();
-
-    // Create confirmation overlay
-    const overlay = this.add.rectangle(
-      this.scale.width / 2,
-      this.scale.height / 2,
-      this.scale.width,
-      this.scale.height,
-      0x000000,
-      0.85
-    );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
-    overlay.setName('shopConfirmOverlay');
-
-    // 8px grid spacing for confirmation dialog
-    const dialogCenterY = this.scale.height / 2;
-
-    // Title
-    const titleText = this.add.text(this.scale.width / 2, dialogCenterY - 168, 'End Run?', {
-      fontSize: '48px',
-      color: '#ffcc00',
-      fontFamily: 'Arial',
-      stroke: '#000000',
-      strokeThickness: 4,
-    });
-    titleText.setOrigin(0.5);
-    titleText.setDepth(PAUSE_MENU_DEPTH + 1);
-    titleText.setName('shopConfirmTitle');
-
-    // Subtitle (56px below title)
-    const subtitleText = this.add.text(
-      this.scale.width / 2,
-      dialogCenterY - 104,
-      'You will earn the following gold:',
-      {
-        fontSize: '20px',
-        color: '#aaaaaa',
-        fontFamily: 'Arial',
-      }
-    );
-    subtitleText.setOrigin(0.5);
-    subtitleText.setDepth(PAUSE_MENU_DEPTH + 1);
-    subtitleText.setName('shopConfirmSubtitle');
-
-    // Gold breakdown (32px below subtitle, using top-center origin for multi-line text)
-    const breakdownLines = [
-      `Kills: ${this.killCount} × 2.5 = ${killGold} gold`,
-      `Time: ${Math.floor(this.gameTime)}s ÷ 10 = ${timeGold} gold`,
-      `Level: ${this.playerStats.level} × 10 = ${levelGold} gold`,
-      `Base: ${baseTotal} gold`,
-    ];
-
-    // Add multiplier lines if applicable
-    if (goldMultiplier > 1) {
-      breakdownLines.push(`Gold Bonus: ×${goldMultiplier.toFixed(2)}`);
-    }
-    if (worldLevelMultiplier > 1) {
-      breakdownLines.push(`World Level: ×${worldLevelMultiplier.toFixed(2)}`);
-    }
-    if (streakMultiplier > 1) {
-      breakdownLines.push(`Win Streak: ×${streakMultiplier.toFixed(2)}`);
-    }
-    const newcomerMultiplier = metaManager.getNewcomerMultiplier();
-    if (newcomerMultiplier > 1) {
-      breakdownLines.push(`Newcomer Bonus: ×${newcomerMultiplier.toFixed(2)}`);
-    }
-
-    const breakdownText = this.add.text(
-      this.scale.width / 2,
-      dialogCenterY - 64,
-      breakdownLines.join('\n'),
-      {
-        fontSize: '18px',
-        color: '#cccccc',
-        fontFamily: 'Arial',
-        align: 'center',
-        lineSpacing: 12,
-      }
-    );
-    breakdownText.setOrigin(0.5, 0); // Top-center origin for proper multi-line positioning
-    breakdownText.setDepth(PAUSE_MENU_DEPTH + 1);
-    breakdownText.setName('shopConfirmBreakdown');
-
-    // Total gold (24px below breakdown bottom)
-    const totalY = breakdownText.y + breakdownText.height + 24;
-    const totalText = this.add.text(
-      this.scale.width / 2,
-      totalY,
-      `Total: +${finalTotal} gold`,
-      {
-        fontSize: '32px',
-        color: '#ffdd44',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      }
-    );
-    totalText.setOrigin(0.5);
-    totalText.setDepth(PAUSE_MENU_DEPTH + 1);
-    totalText.setName('shopConfirmTotal');
-
-    // Buttons (48px below total)
-    const confirmButtonWidth = 160;
-    const confirmButtonHeight = 50;
-    const buttonY = totalY + 48 + confirmButtonHeight / 2;
-
-    const confirmButtonBg = this.add.rectangle(
-      this.scale.width / 2 - 100,
-      buttonY,
-      confirmButtonWidth,
-      confirmButtonHeight,
-      0x44aa44
-    );
-    confirmButtonBg.setStrokeStyle(3, 0x66cc66);
-    confirmButtonBg.setInteractive({ useHandCursor: true });
-    confirmButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    confirmButtonBg.setName('shopConfirmButtonBg');
-
-    const confirmButtonText = this.add.text(this.scale.width / 2 - 100, buttonY, 'Confirm', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    confirmButtonText.setOrigin(0.5);
-    confirmButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    confirmButtonText.setName('shopConfirmButtonText');
-
-    confirmButtonBg.on('pointerover', () => {
-      confirmButtonBg.setFillStyle(0x55bb55);
-    });
-    confirmButtonBg.on('pointerout', () => {
-      confirmButtonBg.setFillStyle(0x44aa44);
-    });
-    confirmButtonBg.on('pointerdown', () => {
-      // Clear the save to prevent exploit (continuing after intentionally ending)
-      getGameStateManager().clearSave();
-      // Award gold and go to destination
-      metaManager.addGold(finalTotal);
-      if (destination === 'restart') {
-        this.scene.restart();
-      } else {
-        this.scene.start(destination === 'shop' ? 'ShopScene' : 'BootScene');
-      }
-    });
-
-    // Cancel button
-    const cancelButtonBg = this.add.rectangle(
-      this.scale.width / 2 + 100,
-      buttonY,
-      confirmButtonWidth,
-      confirmButtonHeight,
-      0x664444
-    );
-    cancelButtonBg.setStrokeStyle(3, 0x886666);
-    cancelButtonBg.setInteractive({ useHandCursor: true });
-    cancelButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    cancelButtonBg.setName('shopCancelButtonBg');
-
-    const cancelButtonText = this.add.text(this.scale.width / 2 + 100, buttonY, 'Cancel', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    cancelButtonText.setOrigin(0.5);
-    cancelButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    cancelButtonText.setName('shopCancelButtonText');
-
-    cancelButtonBg.on('pointerover', () => {
-      cancelButtonBg.setFillStyle(0x885555);
-    });
-    cancelButtonBg.on('pointerout', () => {
-      cancelButtonBg.setFillStyle(0x664444);
-    });
-    cancelButtonBg.on('pointerdown', () => {
-      this.hideShopConfirmation();
-      this.showPauseMenu();
-    });
-
-    // Keyboard navigation for confirm/cancel
-    const confirmButtons = [
-      { bg: confirmButtonBg, action: () => confirmButtonBg.emit('pointerdown'), baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeBase: 0x66cc66 },
-      { bg: cancelButtonBg, action: () => cancelButtonBg.emit('pointerdown'), baseColor: 0x664444, hoverColor: 0x885555, strokeBase: 0x886666 },
-    ];
-    let confirmSelectedIndex = 0;
-
-    const updateConfirmSelection = (newIndex: number) => {
-      confirmButtons[confirmSelectedIndex].bg.setFillStyle(confirmButtons[confirmSelectedIndex].baseColor);
-      confirmButtons[confirmSelectedIndex].bg.setStrokeStyle(3, confirmButtons[confirmSelectedIndex].strokeBase);
-      confirmSelectedIndex = newIndex;
-      confirmButtons[confirmSelectedIndex].bg.setFillStyle(confirmButtons[confirmSelectedIndex].hoverColor);
-      confirmButtons[confirmSelectedIndex].bg.setStrokeStyle(3, 0xffffff);
-    };
-
-    updateConfirmSelection(0);
-
-    this.shopConfirmKeyHandler = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D' ||
-          event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
-        updateConfirmSelection(confirmSelectedIndex === 0 ? 1 : 0);
-      } else if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        confirmButtons[confirmSelectedIndex].action();
-      } else if (event.key === 'Escape') {
-        cancelButtonBg.emit('pointerdown');
-      }
-    };
-    this.input.keyboard?.on('keydown', this.shopConfirmKeyHandler);
-  }
-
-  /**
-   * Hides the shop confirmation dialog.
-   */
-  private hideShopConfirmation(): void {
-    if (this.shopConfirmKeyHandler) {
-      this.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
-      this.shopConfirmKeyHandler = null;
-    }
-
-    const elementsToRemove = [
-      'shopConfirmOverlay',
-      'shopConfirmTitle',
-      'shopConfirmSubtitle',
-      'shopConfirmBreakdown',
-      'shopConfirmTotal',
-      'shopConfirmButtonBg',
-      'shopConfirmButtonText',
-      'shopCancelButtonBg',
-      'shopCancelButtonText',
-    ];
-    elementsToRemove.forEach((name) => {
-      const element = this.children.getByName(name);
-      if (element) element.destroy();
-    });
-
-    this.isShopConfirmationOpen = false;
-  }
-
-  /**
-   * Shows victory screen when player survives 10 minutes.
-   * Game pauses to celebrate, then continues when player presses SPACE.
+   * Shows victory screen when player defeats boss.
+   * Handles achievement recording, streak management, and delegates UI to PauseMenuManager.
    */
   private showVictory(): void {
     this.hasWon = true;
@@ -3605,283 +2535,22 @@ export class GameScene extends Phaser.Scene {
     const newWorldLevel = metaManager.getWorldLevel();
     const clearedWorld = newWorldLevel - 1;
 
-    // Create victory overlay
-    const overlay = this.add.rectangle(
-      this.scale.width / 2,
-      this.scale.height / 2,
-      this.scale.width,
-      this.scale.height,
-      0x000000,
-      0.8
-    );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
-    overlay.setName('victoryOverlay');
-
-    // World cleared text
-    const worldClearedText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height / 2 - 120,
-      `WORLD ${clearedWorld} CLEARED!`,
-      {
-        fontSize: '32px',
-        color: '#88aaff',
-        fontFamily: 'Arial',
-        stroke: '#000000',
-        strokeThickness: 4,
-      }
-    );
-    worldClearedText.setOrigin(0.5);
-    worldClearedText.setDepth(PAUSE_MENU_DEPTH + 1);
-    worldClearedText.setName('victoryWorldCleared');
-
-    const victoryText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 60, 'VICTORY!', {
-      fontSize: '72px',
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      stroke: '#000000',
-      strokeThickness: 6,
+    this.pauseMenuManager.showVictory({
+      killCount: this.killCount,
+      gameTime: this.gameTime,
+      playerLevel: this.playerStats.level,
+      goldEarned,
+      clearedWorld,
+      newWorldLevel,
+      previousStreak,
+      newStreak,
+      streakBonusPercent: metaManager.getStreakBonusPercent(),
     });
-    victoryText.setOrigin(0.5);
-    victoryText.setDepth(PAUSE_MENU_DEPTH + 1);
-    victoryText.setName('victoryText');
-
-    const messageText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height / 2 + 20,
-      'Boss Defeated!',
-      {
-        fontSize: '28px',
-        color: '#88ff88',
-        fontFamily: 'Arial',
-      }
-    );
-    messageText.setOrigin(0.5);
-    messageText.setDepth(PAUSE_MENU_DEPTH + 1);
-    messageText.setName('victoryMessage');
-
-    // Next world text
-    const nextWorldText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height / 2 + 60,
-      `Next: World ${newWorldLevel}`,
-      {
-        fontSize: '22px',
-        color: '#aaddff',
-        fontFamily: 'Arial',
-      }
-    );
-    nextWorldText.setOrigin(0.5);
-    nextWorldText.setDepth(PAUSE_MENU_DEPTH + 1);
-    nextWorldText.setName('victoryNextWorld');
-
-    const statsText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height / 2 + 100,
-      `Kills: ${this.killCount}  |  Level: ${this.playerStats.level}`,
-      {
-        fontSize: '20px',
-        color: '#ffffff',
-        fontFamily: 'Arial',
-      }
-    );
-    statsText.setOrigin(0.5);
-    statsText.setDepth(PAUSE_MENU_DEPTH + 1);
-    statsText.setName('victoryStats');
-
-    // Streak display
-    const fireEmoji = newStreak >= 5 ? '🔥🔥' : '🔥';
-    const streakText = this.add.text(
-      this.scale.width / 2,
-      this.scale.height / 2 + 125,
-      `${fireEmoji} Streak: ${previousStreak} → ${newStreak}! (+${metaManager.getStreakBonusPercent()}% gold)`,
-      {
-        fontSize: '18px',
-        color: '#ffaa44',
-        fontFamily: 'Arial',
-      }
-    );
-    streakText.setOrigin(0.5);
-    streakText.setDepth(PAUSE_MENU_DEPTH + 1);
-    streakText.setName('victoryStreak');
-
-    // Calculate gold reward for preview (with victory 1.5x bonus)
-    const goldToEarn = metaManager.calculateRunGold(
-      this.killCount,
-      this.gameTime,
-      this.playerStats.level,
-      true // hasWon = true for victory bonus
-    );
-
-    // Button dimensions and positions
-    const buttonWidth = 180;
-    const buttonHeight = 45;
-    const buttonY = this.scale.height / 2 + 175;
-    const continueButtonX = this.scale.width / 2 - 100;
-    const nextWorldButtonX = this.scale.width / 2 + 100;
-
-    // Continue Run button (green, left)
-    const continueButtonBg = this.add.rectangle(
-      continueButtonX,
-      buttonY,
-      buttonWidth,
-      buttonHeight,
-      0x44aa44
-    );
-    continueButtonBg.setStrokeStyle(3, 0x66cc66);
-    continueButtonBg.setInteractive({ useHandCursor: true });
-    continueButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    continueButtonBg.setName('victoryContinueButtonBg');
-
-    const continueButtonText = this.add.text(continueButtonX, buttonY, 'Continue [C]', {
-      fontSize: '20px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    continueButtonText.setOrigin(0.5);
-    continueButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    continueButtonText.setName('victoryContinueButtonText');
-
-    // Next World button (blue, right)
-    const nextWorldButtonBg = this.add.rectangle(
-      nextWorldButtonX,
-      buttonY,
-      buttonWidth,
-      buttonHeight,
-      0x4488cc
-    );
-    nextWorldButtonBg.setStrokeStyle(3, 0x66aaee);
-    nextWorldButtonBg.setInteractive({ useHandCursor: true });
-    nextWorldButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    nextWorldButtonBg.setName('victoryNextWorldButtonBg');
-
-    const nextWorldButtonText = this.add.text(nextWorldButtonX, buttonY, 'Next World [N]', {
-      fontSize: '20px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    nextWorldButtonText.setOrigin(0.5);
-    nextWorldButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    nextWorldButtonText.setName('victoryNextWorldButtonText');
-
-    // Gold preview centered below buttons
-    const goldPreviewText = this.add.text(
-      this.scale.width / 2,
-      buttonY + 38,
-      `+${goldToEarn} gold`,
-      {
-        fontSize: '16px',
-        color: '#ffdd44',
-        fontFamily: 'Arial',
-      }
-    );
-    goldPreviewText.setOrigin(0.5);
-    goldPreviewText.setDepth(PAUSE_MENU_DEPTH + 1);
-    goldPreviewText.setName('victoryGoldPreview');
-
-    // Hover effects
-    continueButtonBg.on('pointerover', () => {
-      continueButtonBg.setFillStyle(0x55bb55);
-    });
-    continueButtonBg.on('pointerout', () => {
-      continueButtonBg.setFillStyle(0x44aa44);
-    });
-    nextWorldButtonBg.on('pointerover', () => {
-      nextWorldButtonBg.setFillStyle(0x5599dd);
-    });
-    nextWorldButtonBg.on('pointerout', () => {
-      nextWorldButtonBg.setFillStyle(0x4488cc);
-    });
-
-    // Click handlers
-    continueButtonBg.on('pointerdown', () => {
-      this.handleVictoryContinue();
-    });
-    nextWorldButtonBg.on('pointerdown', () => {
-      this.handleVictoryNextWorld(goldToEarn);
-    });
-
-    // Keyboard handlers (store for cleanup)
-    this.victoryContinueHandler = () => this.handleVictoryContinue();
-    this.victoryNextWorldHandler = () => this.handleVictoryNextWorld(goldToEarn);
-
-    this.input.keyboard?.on('keydown-C', this.victoryContinueHandler);
-    this.input.keyboard?.on('keydown-N', this.victoryNextWorldHandler);
-  }
-
-  /**
-   * Handles the "Continue Run" choice after boss victory.
-   * Dismisses the victory overlay and resumes gameplay.
-   */
-  private handleVictoryContinue(): void {
-    // Remove keyboard listeners first
-    if (this.victoryContinueHandler) {
-      this.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
-    }
-    if (this.victoryNextWorldHandler) {
-      this.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
-    }
-    this.victoryContinueHandler = null;
-    this.victoryNextWorldHandler = null;
-
-    // Remove all victory UI elements
-    const elementsToRemove = [
-      'victoryOverlay',
-      'victoryWorldCleared',
-      'victoryText',
-      'victoryMessage',
-      'victoryNextWorld',
-      'victoryStats',
-      'victoryContinueButtonBg',
-      'victoryContinueButtonText',
-      'victoryNextWorldButtonBg',
-      'victoryNextWorldButtonText',
-      'victoryGoldPreview',
-      'victoryStreak',
-    ];
-    elementsToRemove.forEach((name) => {
-      const element = this.children.getByName(name);
-      if (element) element.destroy();
-    });
-
-    // Enable endless mode spawning
-    this.endlessModeActive = true;
-    this.endlessModeTime = 0;
-    this.endlessMinibossTimer = 60;   // First miniboss in 60 seconds
-    this.endlessBossTimer = 600;      // First boss wave in 10 minutes
-    console.log('[Endless Mode] Activated - miniboss in 60s, boss in 600s');
-
-    // Reset grid physics — boss death applies massive forces that springs can't recover from
-    this.gridBackground.reset();
-
-    // Resume gameplay
-    this.isPaused = false;
-  }
-
-  /**
-   * Handles the "Next World" choice after boss victory.
-   * Awards gold and restarts the scene for a fresh run at the new world level.
-   */
-  private handleVictoryNextWorld(goldAmount: number): void {
-    // Remove keyboard listeners
-    if (this.victoryContinueHandler) {
-      this.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
-    }
-    if (this.victoryNextWorldHandler) {
-      this.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
-    }
-    this.victoryContinueHandler = null;
-    this.victoryNextWorldHandler = null;
-
-    // Award gold (world level already advanced before showVictory was called)
-    const metaManager = getMetaProgressionManager();
-    metaManager.addGold(goldAmount);
-
-    // Restart scene for fresh run at new world level
-    this.scene.restart();
   }
 
   /**
    * Handles game over state.
+   * Performs gold calculation, streak management, and delegates UI to PauseMenuManager.
    */
   private gameOver(): void {
     this.isGameOver = true;
@@ -3939,228 +2608,16 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // Prepare streak change text for display (only shown on death, not victory)
-    const streakChangeText = previousStreak > 0 ? '\n💔 Streak broken!' : '';
-
-    // Show game over UI
-    const overlay = this.add.rectangle(
-      this.scale.width / 2,
-      this.scale.height / 2,
-      this.scale.width,
-      this.scale.height,
-      0x000000,
-      0.7
-    );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
-
-    // Different display for winners vs non-winners
-    const titleText = this.hasWon ? 'VICTORY!' : 'GAME OVER';
-    const titleColor = this.hasWon ? '#ffdd44' : '#ff4444';
-    const depth = PAUSE_MENU_DEPTH + 1;
-    const centerX = this.scale.width / 2;
-    const centerY = this.scale.height / 2;
-
-    this.add.text(centerX, centerY - 110, titleText, {
-      fontSize: '64px',
-      color: titleColor,
-      fontFamily: 'Arial',
-      stroke: '#000000',
-      strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(depth);
-
-    // Run stats line
-    const minutes = Math.floor(this.gameTime / 60);
-    const seconds = Math.floor(this.gameTime % 60);
-    const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    const highestCombo = getHighestCombo();
-    const comboStr = highestCombo > 0 ? `  |  Best Combo: x${highestCombo}` : '';
-
-    this.add.text(centerX, centerY - 40, `Survived: ${timeStr}  |  Kills: ${this.killCount}${comboStr}`, {
-      fontSize: '18px',
-      color: '#aaaacc',
-      fontFamily: 'Arial',
-      align: 'center',
-    }).setOrigin(0.5).setDepth(depth);
-
-    this.add.text(centerX, centerY - 15, `Level: ${this.playerStats.level}`, {
-      fontSize: '16px',
-      color: '#8888aa',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setDepth(depth);
-
-    // Animated gold counter
-    const goldText = this.add.text(centerX, centerY + 20, 'Gold: +0', {
-      fontSize: '28px',
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(depth);
-
-    // Animate gold counting up
-    let goldCounterDone = false;
-    const goldCounter = this.tweens.addCounter({
-      from: 0,
-      to: goldEarned,
-      duration: Math.min(1500, goldEarned * 3),
-      ease: 'Sine.easeOut',
-      onUpdate: (tween) => {
-        const currentGold = Math.floor(tween.getValue() ?? 0);
-        goldText.setText(`Gold: +${currentGold}`);
-      },
-      onComplete: () => {
-        goldCounterDone = true;
-        goldText.setText(`Gold: +${goldEarned}`);
-      },
+    this.pauseMenuManager.gameOver({
+      killCount: this.killCount,
+      gameTime: this.gameTime,
+      playerLevel: this.playerStats.level,
+      goldEarned,
+      previousStreak,
+      highestCombo: getHighestCombo(),
+      totalDamageDealt: this.totalDamageDealt,
+      totalDamageTaken: this.totalDamageTaken,
     });
-
-    // Streak text
-    if (streakChangeText) {
-      this.add.text(centerX, centerY + 55, streakChangeText.trim(), {
-        fontSize: '18px',
-        color: previousStreak > 0 && !this.hasWon ? '#ff6666' : '#ffdd44',
-        fontFamily: 'Arial',
-      }).setOrigin(0.5).setDepth(depth);
-    }
-
-    // "You can now afford" teaser (appears after gold counter finishes)
-    this.time.delayedCall(Math.min(1800, goldEarned * 3 + 300), () => {
-      const nextUpgrade = metaManager.getNextAffordableUpgrade?.();
-      if (nextUpgrade) {
-        const affordText = nextUpgrade.canAfford
-          ? `You can now afford: ${nextUpgrade.name}`
-          : `${nextUpgrade.goldNeeded}g away from: ${nextUpgrade.name}`;
-        const affordColor = nextUpgrade.canAfford ? '#44ff88' : '#aaaacc';
-        this.add.text(centerX, centerY + 85, affordText, {
-          fontSize: '16px',
-          color: affordColor,
-          fontFamily: 'Arial',
-          fontStyle: 'italic',
-        }).setOrigin(0.5).setDepth(depth);
-      }
-    });
-
-    // Restart hint
-    const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
-    const restartHint = isTouchDevice ? 'Tap to restart' : 'Press SPACE to restart';
-    this.add.text(centerX, centerY + 140, restartHint, {
-      fontSize: '20px',
-      color: '#888888',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setDepth(depth);
-
-    // Skip gold animation on tap/space, then restart on second press
-    const handleRestart = () => {
-      if (!goldCounterDone) {
-        // First press: skip animation
-        goldCounter.complete();
-        return;
-      }
-      this.scene.restart();
-    };
-
-    this.input.keyboard?.on('keydown-SPACE', handleRestart);
-    this.time.delayedCall(500, () => {
-      this.input.on('pointerdown', handleRestart);
-    });
-  }
-
-  private setupInput(): void {
-    const keyboard = this.input.keyboard!;
-
-    this.inputState = {
-      cursors: keyboard.createCursorKeys(),
-      wasd: {
-        W: keyboard.addKey('W'),
-        A: keyboard.addKey('A'),
-        S: keyboard.addKey('S'),
-        D: keyboard.addKey('D'),
-      },
-      joystickX: 0,
-      joystickY: 0,
-      mouseX: 0,
-      mouseY: 0,
-      mouseActive: false,
-      controlMode: 'keyboard',
-      clickTargetX: 0,
-      clickTargetY: 0,
-      hasClickTarget: false,
-    };
-
-    // Point-and-click movement: click to set destination
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // Ignore touch input (handled by joystick) and UI interactions
-      if (pointer.wasTouch) return;
-      if (this.isPaused || this.isGameOver) return;
-
-      this.inputState.clickTargetX = pointer.worldX;
-      this.inputState.clickTargetY = pointer.worldY;
-      this.inputState.hasClickTarget = true;
-      this.inputState.controlMode = 'mouse';
-    });
-
-    // Shift key for dash ability
-    keyboard.on('keydown-SHIFT', () => {
-      this.tryDash();
-    });
-  }
-
-  /**
-   * Attempt to initiate a dash if the ability is available.
-   */
-  private tryDash(): void {
-    // Check if dash ability is available (dashCooldown > 0 means they have dash)
-    if (this.playerStats.dashCooldown <= 0) return;
-    if (this.isDashing) return;
-    if (this.dashCooldownTimer > 0) return;
-    if (this.isPaused || this.isGameOver) return;
-
-    // Get current movement direction
-    let dirX = 0;
-    let dirY = 0;
-
-    if (this.inputState.cursors.left.isDown || this.inputState.wasd.A.isDown) dirX -= 1;
-    if (this.inputState.cursors.right.isDown || this.inputState.wasd.D.isDown) dirX += 1;
-    if (this.inputState.cursors.up.isDown || this.inputState.wasd.W.isDown) dirY -= 1;
-    if (this.inputState.cursors.down.isDown || this.inputState.wasd.S.isDown) dirY += 1;
-
-    // If not moving, dash toward cursor
-    if (dirX === 0 && dirY === 0) {
-      const pointer = this.input.activePointer;
-      const playerX = Transform.x[this.playerId];
-      const playerY = Transform.y[this.playerId];
-      dirX = pointer.worldX - playerX;
-      dirY = pointer.worldY - playerY;
-    }
-
-    // Normalize direction
-    const mag = Math.sqrt(dirX * dirX + dirY * dirY);
-    if (mag > 0) {
-      dirX /= mag;
-      dirY /= mag;
-    } else {
-      return; // No direction to dash
-    }
-
-    // Start dash
-    this.isDashing = true;
-    this.dashTimer = this.DASH_DURATION;
-    this.dashDirectionX = dirX;
-    this.dashDirectionY = dirY;
-    this.dashCooldownTimer = this.playerStats.dashCooldown;
-
-    // Visual feedback - brief player flash
-    const playerSprite = getSprite(this.playerId);
-    if (playerSprite && 'setFillStyle' in playerSprite) {
-      const rect = playerSprite as Phaser.GameObjects.Rectangle;
-      rect.setFillStyle(0xffffff);
-      this.time.delayedCall(50, () => {
-        if (this.playerId !== -1) {
-          rect.setFillStyle(PLAYER_NEON.core);
-        }
-      });
-    }
   }
 
   private createPlayer(x: number, y: number): number {
@@ -4371,8 +2828,7 @@ export class GameScene extends Phaser.Scene {
       const twinA = this.createEnemy(x, y, enemyType, scaledStats);
 
       // Create health bar for Twin A
-      const twinABar = this.createBossHealthBar(twinA, enemyType.name, false);
-      this.activeBossHealthBars.push(twinABar);
+      this.hudManager.createBossHealthBar(twinA, enemyType.name, false);
 
       // Spawn Twin B nearby
       const twinBType = getEnemyType('twin_b');
@@ -4384,8 +2840,7 @@ export class GameScene extends Phaser.Scene {
         const twinB = this.createEnemy(twinBX, twinBY, twinBType, twinBStats);
 
         // Create health bar for Twin B
-        const twinBBar = this.createBossHealthBar(twinB, twinBType.name, false);
-        this.activeBossHealthBars.push(twinBBar);
+        this.hudManager.createBossHealthBar(twinB, twinBType.name, false);
 
         // Link the twins
         linkTwins(twinA, twinB);
@@ -4394,12 +2849,11 @@ export class GameScene extends Phaser.Scene {
       const entityId = this.createEnemy(x, y, enemyType, scaledStats);
 
       // Create health bar for the miniboss
-      const bossBar = this.createBossHealthBar(entityId, enemyType.name, false);
-      this.activeBossHealthBars.push(bossBar);
+      this.hudManager.createBossHealthBar(entityId, enemyType.name, false);
     }
 
     // Reposition all boss health bars
-    this.repositionBossHealthBars();
+    this.hudManager.repositionBossHealthBars();
 
     // Screen shake effect for miniboss spawn
     if (getSettingsManager().isScreenShakeEnabled()) {
@@ -4414,6 +2868,7 @@ export class GameScene extends Phaser.Scene {
    * Shows a warning when a miniboss spawns.
    */
   private showMinibossWarning(name: string): void {
+    this.soundManager.playBossWarning();
     const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 50, `⚠️ ${name} approaches! ⚠️`, {
       fontSize: '24px',
       color: '#ff4444',
@@ -4557,6 +3012,7 @@ export class GameScene extends Phaser.Scene {
     // Phase 3: "BOSS INCOMING" at bossSpawnTime - 5
     if (this.bossWarningPhase < 3 && this.gameTime >= this.bossSpawnTime - 5) {
       this.bossWarningPhase = 3;
+      this.soundManager.playBossWarning();
 
       // Destroy any existing warning text before creating new one
       if (this.bossWarningText) {
@@ -4687,7 +3143,7 @@ export class GameScene extends Phaser.Scene {
 
     // Show persistent duration indicator for timed events
     if (event.duration > 0) {
-      this.createEventIndicator(event);
+      this.hudManager.createEventIndicator(event);
     }
 
     switch (event.id) {
@@ -4791,126 +3247,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Creates the persistent event duration indicator in the bottom-right corner.
-   */
-  private createEventIndicator(event: RunEvent): void {
-    this.destroyEventIndicator();
-
-    const panelWidth = this.scaledSize(180);
-    const panelHeight = this.scaledSize(48);
-    const barWidth = panelWidth - this.scaledSize(16);
-    const colorHex = `#${event.color.toString(16).padStart(6, '0')}`;
-
-    // Position above FPS counter and auto-buy toggle in bottom-right
-    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
-    const panelX = this.scale.width - scaledPadding - panelWidth / 2;
-    const panelY = this.scale.height - scaledPadding - this.scaledSize(70) - panelHeight / 2;
-
-    this.eventIndicatorContainer = this.add.container(panelX, panelY);
-    this.eventIndicatorContainer.setDepth(HUD_DEPTH);
-    this.eventIndicatorContainer.setAlpha(0);
-
-    // Dark background
-    const background = this.add.rectangle(0, 0, panelWidth, panelHeight, 0x1a1a2e, 0.9);
-    background.setStrokeStyle(1, event.color);
-    this.eventIndicatorContainer.add(background);
-
-    // Event name
-    const nameText = this.add.text(0, this.scaledSize(-12), event.name, {
-      fontSize: this.scaledFontSize(12),
-      fontFamily: 'Arial',
-      color: colorHex,
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.eventIndicatorContainer.add(nameText);
-
-    // Event description
-    const descriptionText = this.add.text(0, this.scaledSize(2), event.description, {
-      fontSize: this.scaledFontSize(10),
-      fontFamily: 'Arial',
-      color: '#aaaaaa',
-    }).setOrigin(0.5);
-    this.eventIndicatorContainer.add(descriptionText);
-
-    // Progress bar background
-    const barY = this.scaledSize(16);
-    const barHeight = this.scaledSize(4);
-    const barBackground = this.add.rectangle(0, barY, barWidth, barHeight, 0x333355);
-    this.eventIndicatorContainer.add(barBackground);
-
-    // Progress bar fill
-    this.eventIndicatorBarFill = this.add.rectangle(
-      -barWidth / 2, barY, barWidth, barHeight, event.color
-    );
-    this.eventIndicatorBarFill.setOrigin(0, 0.5);
-    this.eventIndicatorContainer.add(this.eventIndicatorBarFill);
-
-    // Time remaining text
-    this.eventIndicatorTimeText = this.add.text(
-      barWidth / 2, barY, `${event.duration.toFixed(1)}s`,
-      { fontSize: this.scaledFontSize(9), fontFamily: 'monospace', color: '#888888' }
-    ).setOrigin(1, 0.5);
-    this.eventIndicatorContainer.add(this.eventIndicatorTimeText);
-
-    this.eventIndicatorTotalDuration = event.duration;
-
-    // Fade in
-    this.tweens.add({
-      targets: this.eventIndicatorContainer,
-      alpha: 1,
-      duration: 200,
-      ease: 'Sine.easeOut',
-    });
-  }
-
-  /**
-   * Updates the event indicator each frame — adjusts progress bar and time text.
-   */
-  private updateEventIndicator(): void {
-    if (!this.eventIndicatorContainer) return;
-
-    const activeEventState = getActiveEvent();
-    if (!activeEventState) {
-      // Event ended — fade out and destroy
-      const containerToDestroy = this.eventIndicatorContainer;
-      this.eventIndicatorContainer = null;
-      this.tweens.add({
-        targets: containerToDestroy,
-        alpha: 0,
-        duration: 200,
-        ease: 'Sine.easeIn',
-        onComplete: () => containerToDestroy.destroy(),
-      });
-      this.eventIndicatorBarFill = null;
-      this.eventIndicatorTimeText = null;
-      return;
-    }
-
-    const remainingTime = activeEventState.remainingTime;
-    const barWidth = 180 - 16; // panelWidth - padding
-    const fillWidth = Math.max(0, (remainingTime / this.eventIndicatorTotalDuration) * barWidth);
-
-    if (this.eventIndicatorBarFill) {
-      this.eventIndicatorBarFill.width = fillWidth;
-    }
-    if (this.eventIndicatorTimeText) {
-      this.eventIndicatorTimeText.setText(`${remainingTime.toFixed(1)}s`);
-    }
-  }
-
-  /**
-   * Destroys the event indicator and nulls references.
-   */
-  private destroyEventIndicator(): void {
-    if (this.eventIndicatorContainer) {
-      this.eventIndicatorContainer.destroy();
-      this.eventIndicatorContainer = null;
-      this.eventIndicatorBarFill = null;
-      this.eventIndicatorTimeText = null;
-    }
-  }
-
-  /**
    * Check if it's time to spawn the boss (at 10 minutes).
    * Bosses cycle through Horde King -> Void Wyrm -> The Machine each run.
    */
@@ -4949,9 +3285,8 @@ export class GameScene extends Phaser.Scene {
     const entityId = this.createEnemy(x, y, enemyType, scaledStats);
 
     // Create health bar for the boss (isFinalBoss = true for purple color)
-    const bossBar = this.createBossHealthBar(entityId, enemyType.name, true);
-    this.activeBossHealthBars.push(bossBar);
-    this.repositionBossHealthBars();
+    this.hudManager.createBossHealthBar(entityId, enemyType.name, true);
+    this.hudManager.repositionBossHealthBars();
 
     // Stronger screen shake for final boss
     if (getSettingsManager().isScreenShakeEnabled()) {
@@ -5053,144 +3388,6 @@ export class GameScene extends Phaser.Scene {
     const bossTypeId = GameScene.bossOrder[GameScene.currentBossIndex];
     GameScene.currentBossIndex = (GameScene.currentBossIndex + 1) % GameScene.bossOrder.length;
     this.spawnBoss(bossTypeId);
-  }
-
-  /**
-   * Creates a boss health bar UI element for a miniboss or boss.
-   * The bar includes a pulsing glow effect and displays name + health.
-   */
-  private createBossHealthBar(entityId: number, name: string, isFinalBoss: boolean): BossHealthBar {
-    const centerX = this.scale.width / 2;
-    const barWidth = this.scaledSize(this.BOSS_HEALTH_BAR_WIDTH);
-    const barHeight = this.scaledSize(15);
-    const barTopOffset = this.scaledSize(20);
-
-    // Colors based on boss type
-    const fillColor = isFinalBoss ? 0x990066 : 0xcc0000;
-    const glowColor = isFinalBoss ? 0xcc00aa : 0xff4444;
-
-    // Create container to hold all bar elements
-    const container = this.add.container(centerX, 0);
-    container.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Glow graphics (pulsing effect behind bar)
-    const glowGraphics = this.add.graphics();
-    glowGraphics.fillStyle(glowColor, 0.3);
-    glowGraphics.fillRoundedRect(-barWidth / 2 - 6, barTopOffset - 4, barWidth + 12, barHeight + 8, 6);
-    container.add(glowGraphics);
-
-    // Name text with decorative elements
-    const nameText = this.add.text(0, 0, `═══ ${name.toUpperCase()} ═══`, {
-      fontSize: this.scaledFontSize(14),
-      color: isFinalBoss ? '#ff66cc' : '#ff6666',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: this.scaledSize(3),
-    });
-    nameText.setOrigin(0.5, 0);
-    container.add(nameText);
-
-    // Bar background
-    const barBackground = this.add.rectangle(0, barTopOffset + barHeight / 2, barWidth, barHeight, 0x222222);
-    barBackground.setStrokeStyle(1, 0x444444);
-    container.add(barBackground);
-
-    // Bar fill (starts at full width)
-    const barFill = this.add.rectangle(
-      -barWidth / 2 + barWidth / 2,
-      barTopOffset + barHeight / 2,
-      barWidth,
-      barHeight - 2,
-      fillColor
-    );
-    barFill.setOrigin(0, 0.5);
-    barFill.x = -barWidth / 2 + 1;
-    container.add(barFill);
-
-    // Health text (vertically centered in bar)
-    const healthText = this.add.text(0, barTopOffset + barHeight / 2, '', {
-      fontSize: this.scaledFontSize(11),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 2,
-    });
-    healthText.setOrigin(0.5, 0.5);
-    container.add(healthText);
-
-    // Start pulsing glow tween (pronounced effect)
-    this.tweens.add({
-      targets: glowGraphics,
-      alpha: { from: 0.15, to: 0.9 },
-      duration: 700,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-
-    const bossBar: BossHealthBar = {
-      entityId,
-      name,
-      isFinalBoss,
-      container,
-      nameText,
-      barBackground,
-      barFill,
-      healthText,
-      glowGraphics,
-    };
-
-    return bossBar;
-  }
-
-  /**
-   * Removes a boss health bar when the boss dies.
-   */
-  private removeBossHealthBar(entityId: number): void {
-    const index = this.activeBossHealthBars.findIndex(bar => bar.entityId === entityId);
-    if (index === -1) return;
-
-    const bar = this.activeBossHealthBars[index];
-
-    // Stop any tweens on the glow
-    this.tweens.killTweensOf(bar.glowGraphics);
-
-    // Fade out and destroy
-    this.tweens.add({
-      targets: bar.container,
-      alpha: 0,
-      duration: 300,
-      ease: 'Power2',
-      onComplete: () => {
-        bar.container.destroy();
-      },
-    });
-
-    // Remove from array immediately so repositioning works
-    this.activeBossHealthBars.splice(index, 1);
-
-    // Reposition remaining bars
-    this.repositionBossHealthBars();
-  }
-
-  /**
-   * Repositions all boss health bars vertically (stacking).
-   */
-  private repositionBossHealthBars(): void {
-    for (let i = 0; i < this.activeBossHealthBars.length; i++) {
-      const bar = this.activeBossHealthBars[i];
-      const targetY = this.scaledSize(this.BOSS_HEALTH_BAR_START_Y) + i * this.scaledSize(this.BOSS_HEALTH_BAR_HEIGHT);
-
-      // Animate to new position
-      this.tweens.add({
-        targets: bar.container,
-        y: targetY,
-        duration: 200,
-        ease: 'Power2',
-      });
-    }
   }
 
   /**
@@ -5389,6 +3586,17 @@ export class GameScene extends Phaser.Scene {
 
     this.pendingLevelUps--;
     this.soundManager.playLevelUp();
+
+    // Tutorial toast on first level-up
+    if (!getSettingsManager().isTutorialSeen() && this.playerStats.level === 2) {
+      this.toastManager.showToast({
+        title: 'Level Up!',
+        description: 'Pick an upgrade to power up',
+        icon: 'star',
+        color: 0x44aaff,
+        duration: 3000,
+      });
+    }
 
     // Reset Health-Adaptive tracking for next level
     this.recentDamageTaken = 0;
@@ -5829,7 +4037,6 @@ export class GameScene extends Phaser.Scene {
         icon: evolutionResult.weapon.icon,
         color: 0xff88ff,
         duration: 4000,
-        playSound: true,
       });
       this.soundManager.playLevelUp();
       if (getSettingsManager().isScreenShakeEnabled()) {
@@ -5840,7 +4047,8 @@ export class GameScene extends Phaser.Scene {
 
     // Highlight the upgrade icon for 5 seconds (also rebuilds icons)
     const highlightId = upgrade.upgradeType === 'stat' ? upgrade.id : upgrade.weaponId;
-    this.highlightUpgradeIcon(highlightId);
+    this.hudManager.highlightUpgradeIcon(highlightId, this.gameTime);
+    this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
   }
 
   /**
@@ -5991,370 +4199,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Updates the upgrade icons display to show current upgrades.
-   * Skills have purple-blue backgrounds, weapons have gold backgrounds.
-   */
-  private updateUpgradeIcons(): void {
-    // Clear existing icons
-    this.upgradeIconsContainer.removeAll(true);
-
-    // Build combined list of displayable upgrades with type tracking
-    const displayableUpgrades: Array<{
-      id: string;
-      icon: string;
-      name: string;
-      description: string;
-      currentLevel: number;
-      maxLevel: number;
-      type: 'skill' | 'weapon';
-    }> = [];
-
-    // Add stat upgrades (skills) that have been taken (currentLevel > 0)
-    for (const upgrade of this.upgrades) {
-      if (upgrade.currentLevel > 0) {
-        displayableUpgrades.push({
-          id: upgrade.id,
-          icon: upgrade.icon,
-          name: upgrade.name,
-          description: upgrade.description,
-          currentLevel: upgrade.currentLevel,
-          maxLevel: upgrade.maxLevel,
-          type: 'skill',
-        });
-      }
-    }
-
-    // Add weapons from WeaponManager
-    const weapons = this.weaponManager.getAllWeapons();
-    for (const weapon of weapons) {
-      displayableUpgrades.push({
-        id: weapon.id,
-        icon: weapon.icon,
-        name: weapon.name,
-        description: weapon.description,
-        currentLevel: weapon.getLevel(),
-        maxLevel: weapon.maxLevel,
-        type: 'weapon',
-      });
-    }
-
-    // Layout constants (scaled for mobile)
-    const iconsPerRow = 5;
-    const iconSize = this.scaledSize(32);
-    const iconSpacing = this.scaledSize(8);
-
-    // Color schemes for different types
-    const skillColors = { bg: 0x2a2a5a, stroke: 0x5a5a9a, hover: 0x3a3a7a, badge: '#88aaff' };
-    const weaponColors = { bg: 0x4a3a2a, stroke: 0x8a6a4a, hover: 0x5a4a3a, badge: '#ffcc88' };
-    const masteryColors = { stroke: 0xffd700, badge: '#ffd700' }; // Gold for mastered icons
-
-    // Track mastered icon positions for visual effects
-    const masteredPositions = new Map<string, { x: number; y: number }>();
-
-    // Get container position for calculating screen coordinates
-    const containerX = this.upgradeIconsContainer.x;
-    const containerY = this.upgradeIconsContainer.y;
-
-    displayableUpgrades.forEach((upgrade, index) => {
-      const row = Math.floor(index / iconsPerRow);
-      const col = index % iconsPerRow;
-      const iconX = col * (iconSize + iconSpacing);
-      const iconY = row * (iconSize + iconSpacing);
-
-      // Get colors based on type
-      const colors = upgrade.type === 'weapon' ? weaponColors : skillColors;
-      const isMastered = upgrade.currentLevel >= upgrade.maxLevel;
-
-      // Track mastered icon positions for visual effects
-      if (isMastered) {
-        masteredPositions.set(upgrade.id, {
-          x: containerX + iconX + iconSize / 2,
-          y: containerY + iconY + iconSize / 2,
-        });
-      }
-
-      // Check if this icon should be highlighted (recently acquired)
-      const isHighlighted = this.activeIconHighlights.has(upgrade.id);
-      let glowRect: Phaser.GameObjects.Rectangle | null = null;
-
-      if (isHighlighted) {
-        // Create glow rectangle behind the icon
-        glowRect = this.add.rectangle(
-          iconX + iconSize / 2,
-          iconY + iconSize / 2,
-          iconSize + this.scaledSize(8),
-          iconSize + this.scaledSize(8),
-          0xffdd44,  // Gold glow color
-          0.6
-        );
-        glowRect.setStrokeStyle(3, 0xffffff, 0.8);
-
-        // Pulsing animation
-        this.tweens.add({
-          targets: glowRect,
-          alpha: { from: 0.6, to: 0.2 },
-          scaleX: { from: 1.0, to: 1.15 },
-          scaleY: { from: 1.0, to: 1.15 },
-          duration: 500,
-          yoyo: true,
-          repeat: -1,
-          ease: 'Sine.easeInOut',
-        });
-      }
-
-      // Icon background with type-specific color
-      const iconBg = this.add.rectangle(
-        iconX + iconSize / 2,
-        iconY + iconSize / 2,
-        iconSize,
-        iconSize,
-        colors.bg
-      );
-      iconBg.setStrokeStyle(2, isMastered ? masteryColors.stroke : colors.stroke);
-      iconBg.setInteractive({ useHandCursor: true });
-
-      // Icon sprite
-      const iconSprite = createIcon(this, {
-        x: iconX + iconSize / 2,
-        y: iconY + iconSize / 2,
-        iconKey: upgrade.icon,
-        size: this.scaledSize(18),
-      });
-
-      // Level indicator badge with dark background for readability
-      const badgeX = iconX + iconSize - 2;
-      const badgeY = iconY + iconSize - 2;
-      const badgeSize = this.scaledSize(14);
-
-      const levelBadgeBg = this.add.rectangle(
-        badgeX,
-        badgeY,
-        badgeSize,
-        badgeSize,
-        0x000000,
-        0.8
-      );
-      levelBadgeBg.setStrokeStyle(1, 0xffffff, 0.5);
-
-      const levelBadge = this.add.text(
-        badgeX,
-        badgeY,
-        isMastered ? '★' : `${upgrade.currentLevel}`,
-        {
-          fontSize: isMastered ? this.scaledFontSize(14) : this.scaledFontSize(12),
-          color: isMastered ? '#ffd700' : '#ffffff',
-          fontFamily: 'Arial',
-          fontStyle: 'bold',
-          stroke: '#000000',
-          strokeThickness: 2,
-        }
-      );
-      levelBadge.setOrigin(0.5, 0.5);
-
-      // Hover events with type-specific highlight
-      iconBg.on('pointerover', () => {
-        iconBg.setFillStyle(colors.hover);
-        this.showUpgradeTooltip(upgrade, iconX, iconY + iconSize + this.scaledSize(10));
-      });
-
-      iconBg.on('pointerout', () => {
-        iconBg.setFillStyle(colors.bg);
-        this.upgradeTooltip.setVisible(false);
-      });
-
-      // Add to container - glow first (behind), then icon elements
-      const elementsToAdd: Phaser.GameObjects.GameObject[] = [];
-      if (glowRect) elementsToAdd.push(glowRect);
-      elementsToAdd.push(iconBg, iconSprite, levelBadgeBg, levelBadge);
-      this.upgradeIconsContainer.add(elementsToAdd);
-    });
-
-    // Update mastery icon effects with new positions
-    this.masteryIconEffects.updateMasteredIcons(masteredPositions);
-  }
-
-  /**
-   * Highlights an upgrade icon for 5 seconds (visual feedback for acquired upgrades).
-   */
-  private highlightUpgradeIcon(upgradeId: string): void {
-    // Set expiration time (5 seconds from now)
-    this.activeIconHighlights.set(upgradeId, this.gameTime + 5.0);
-    // Rebuild icons to apply the highlight
-    this.updateUpgradeIcons();
-  }
-
-  /**
-   * Shows tooltip for an upgrade.
-   */
-  private showUpgradeTooltip(
-    upgrade: { icon: string; name: string; description: string; currentLevel: number; maxLevel: number },
-    offsetX: number,
-    offsetY: number
-  ): void {
-    const containerPos = this.upgradeIconsContainer.getBounds();
-
-    this.upgradeTooltip.setPosition(
-      containerPos.x + offsetX,
-      containerPos.y + offsetY
-    );
-
-    const titleText = this.upgradeTooltip.getByName('tooltipTitle') as Phaser.GameObjects.Text;
-    const descText = this.upgradeTooltip.getByName('tooltipDesc') as Phaser.GameObjects.Text;
-    const levelText = this.upgradeTooltip.getByName('tooltipLevel') as Phaser.GameObjects.Text;
-
-    if (titleText) titleText.setText(upgrade.name);
-    if (descText) descText.setText(upgrade.description);
-    const isMastered = upgrade.currentLevel >= upgrade.maxLevel;
-    if (levelText) levelText.setText(isMastered ? '★ MASTERED' : `Level ${upgrade.currentLevel}/${upgrade.maxLevel}`);
-
-    this.upgradeTooltip.setVisible(true);
-  }
-
-  private updateUI(): void {
-    // Update timer
-    const timerText = this.children.getByName('timerText') as Phaser.GameObjects.Text;
-    if (timerText) {
-      const minutes = Math.floor(this.gameTime / 60);
-      const seconds = Math.floor(this.gameTime % 60);
-      timerText.setText(`${minutes}:${seconds.toString().padStart(2, '0')}`);
-
-      // Gold timer after victory to indicate "bonus time"
-      if (this.hasWon) {
-        timerText.setColor('#ffdd44');
-      }
-    }
-
-    // Update kill count
-    const killCountText = this.children.getByName('killCountText') as Phaser.GameObjects.Text;
-    if (killCountText) {
-      killCountText.setText(`Kills: ${this.killCount}`);
-    }
-
-    // Update gold preview - show both death and victory amounts
-    const goldPreviewText = this.children.getByName('goldPreviewText') as Phaser.GameObjects.Text;
-    if (goldPreviewText) {
-      const metaManager = getMetaProgressionManager();
-      const deathGold = metaManager.calculateRunGold(
-        this.killCount,
-        this.gameTime,
-        this.playerStats.level,
-        false
-      );
-      const victoryGold = metaManager.calculateRunGold(
-        this.killCount,
-        this.gameTime,
-        this.playerStats.level,
-        true
-      );
-      goldPreviewText.setText(`Gold: ${deathGold} (win: ${victoryGold})`);
-    }
-
-    // Update combo counter display
-    const comboText = this.children.getByName('comboText') as Phaser.GameObjects.Text;
-    if (comboText) {
-      const currentCombo = getComboCount();
-      if (currentCombo >= 5) {
-        const decayPercent = getComboDecayPercent();
-        const comboTier = getComboTier();
-        const tierColors: Record<string, string> = {
-          none: '#ffffff',
-          warm: '#ffdd44',
-          hot: '#ffaa00',
-          blazing: '#ff6622',
-          inferno: '#ff2244',
-        };
-        comboText.setText(`x${currentCombo}`);
-        comboText.setColor(tierColors[comboTier] || '#ffffff');
-        comboText.setAlpha(Math.max(0.3, decayPercent) * HUD_ALPHA);
-      } else {
-        comboText.setAlpha(0);
-      }
-    }
-
-    // Update XP bar
-    const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
-    const xpProgress = this.playerStats.xp / this.playerStats.xpToNextLevel;
-    this.xpBarFill.width = xpBarMaxWidth * xpProgress;
-
-    // Update level text
-    this.levelText.setText(`Level ${this.playerStats.level}`);
-
-    // Update HP bar
-    const currentHP = Health.current[this.playerId];
-    const maxHP = Health.max[this.playerId];
-    const hpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
-    const hpProgress = Math.max(0, currentHP / maxHP);
-    this.hpBarFill.width = hpBarMaxWidth * hpProgress;
-
-    // Update HP text
-    this.hpText.setText(`${Math.ceil(currentHP)}/${Math.ceil(maxHP)}`);
-
-    // Change HP bar color based on health percentage
-    if (hpProgress > 0.5) {
-      this.hpBarFill.setFillStyle(0x44ff44); // Green
-    } else if (hpProgress > 0.25) {
-      this.hpBarFill.setFillStyle(0xffff44); // Yellow
-    } else {
-      this.hpBarFill.setFillStyle(0xff4444); // Red
-    }
-
-    // Update boss health bars
-    const barMaxWidth = this.scaledSize(this.BOSS_HEALTH_BAR_WIDTH) - 2; // Account for padding
-    for (const bossBar of this.activeBossHealthBars) {
-      if (hasComponent(this.world, Health, bossBar.entityId)) {
-        const bossCurrentHP = Health.current[bossBar.entityId];
-        const bossMaxHP = Health.max[bossBar.entityId];
-        const bossProgress = Math.max(0, bossCurrentHP / bossMaxHP);
-
-        // Smooth health bar decrease with lerp
-        const targetWidth = barMaxWidth * bossProgress;
-        bossBar.barFill.width = Phaser.Math.Linear(bossBar.barFill.width, targetWidth, 0.1);
-
-        // Update health text (pad current HP to match max HP width for alignment)
-        const maxHPStr = Math.ceil(bossMaxHP).toString();
-        const currentHPStr = Math.ceil(bossCurrentHP).toString().padStart(maxHPStr.length, ' ');
-        bossBar.healthText.setText(`${currentHPStr} / ${maxHPStr}`);
-      }
-    }
-
-    // Update BGM display
-    this.updateBGMDisplay();
-  }
-
-  /**
-   * Updates the BGM display with current track info and button states.
-   */
-  private updateBGMDisplay(): void {
-    const musicManager = getMusicManager();
-    const currentTrack = musicManager.getCurrentTrack();
-    const isPlaying = musicManager.getPlaybackMode() !== 'off';
-
-    // Update track text only when track changes (avoid unnecessary updates)
-    if (currentTrack) {
-      const trackId = currentTrack.id;
-      if (trackId !== this.lastTrackId) {
-        this.lastTrackId = trackId;
-        // Truncate long names to fit the display
-        const displayText = currentTrack.title;
-        const truncatedText = displayText.length > 24
-          ? displayText.substring(0, 22) + '...'
-          : displayText;
-        this.bgmTrackText.setText(truncatedText);
-      }
-    } else if (!isPlaying) {
-      this.bgmTrackText.setText('Music Off');
-      this.lastTrackId = '';
-    } else {
-      // Music is enabled but no track available (empty playlist)
-      this.bgmTrackText.setText('No Tracks');
-      this.lastTrackId = '';
-    }
-
-    // Sync mute button state (show/hide strikethrough line)
-    this.bgmMuteStrike.setVisible(!isPlaying);
-  }
-
-  /**
    * Updates motion trails for player and fast-moving enemies.
    */
   private updateTrails(deltaSeconds: number): void {
@@ -6407,8 +4251,6 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
-    // Update mastery icon effects (HUD glow + particles)
-    this.masteryIconEffects.update(deltaSeconds);
   }
 
   /**
@@ -6471,43 +4313,11 @@ export class GameScene extends Phaser.Scene {
    * Reduces glow layers and effects when performance drops.
    */
   private updateVisualQuality(delta: number): void {
-    // Calculate current FPS
-    const fps = 1000 / delta;
-
-    // Update FPS counter display and visibility
-    if (this.fpsText) {
-      const fpsEnabled = getSettingsManager().isFpsCounterEnabled();
-      this.fpsText.setVisible(fpsEnabled);
-      if (fpsEnabled) {
-        this.fpsText.setText(`FPS: ${Math.round(fps)}`);
-      }
-    }
-
-    // Add to history
-    this.fpsHistory.push(fps);
-    if (this.fpsHistory.length > this.FPS_HISTORY_SIZE) {
-      this.fpsHistory.shift();
-    }
-
-    // Only adjust after we have enough samples
-    if (this.fpsHistory.length < this.FPS_HISTORY_SIZE) return;
-
-    // Calculate average FPS
-    const avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
-
-    // Determine quality level based on FPS thresholds
-    let newQuality: VisualQuality = this.visualQuality;
-
-    if (avgFps < 40) {
-      newQuality = 'low';
-    } else if (avgFps < 50) {
-      newQuality = 'medium';
-    } else if (avgFps > 55) {
-      newQuality = 'high';
-    }
+    // Delegate FPS tracking and quality calculation to HUDManager
+    const newQuality = this.hudManager.updateFPS(delta);
 
     // Only update if quality changed (avoid unnecessary work)
-    if (newQuality !== this.visualQuality) {
+    if (newQuality !== null) {
       this.visualQuality = newQuality;
       // Update grid background quality
       this.gridBackground.setQuality(newQuality);
@@ -6544,76 +4354,8 @@ export class GameScene extends Phaser.Scene {
       this.gridBackground.resize(w, h);
     }
 
-    // Recompute HUD scale for new dimensions
-    this.hudScale = this.computeHudScale();
-    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
-    const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
-
-    // --- Top-center elements ---
-    const worldLevelText = this.children.getByName('worldLevelText') as Phaser.GameObjects.Text;
-    if (worldLevelText) worldLevelText.setX(w / 2);
-
-    const timerText = this.children.getByName('timerText') as Phaser.GameObjects.Text;
-    if (timerText) timerText.setX(w / 2);
-
-    // --- Top-right elements ---
-    const pauseButtonSize = Math.max(this.scaledSize(36), 44);
-    const pauseButtonX = w - scaledPadding - pauseButtonSize / 2;
-    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
-
-    const pauseBg = this.children.getByName('pauseButtonBg') as Phaser.GameObjects.Rectangle;
-    if (pauseBg) pauseBg.setPosition(pauseButtonX, pauseButtonY);
-
-    const pauseIcon = this.children.getByName('pauseButtonIcon') as Phaser.GameObjects.Text;
-    if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
-
-    const statsRightX = w - scaledPadding;
-
-    const killCountText = this.children.getByName('killCountText') as Phaser.GameObjects.Text;
-    if (killCountText) killCountText.setX(statsRightX);
-
-    const goldPreviewText = this.children.getByName('goldPreviewText') as Phaser.GameObjects.Text;
-    if (goldPreviewText) goldPreviewText.setX(statsRightX);
-
-    // --- Bottom-left elements ---
-    const controlsHint = this.children.getAll().find(
-      (child) => child instanceof Phaser.GameObjects.Text && (child as Phaser.GameObjects.Text).text?.includes('WASD')
-    ) as Phaser.GameObjects.Text;
-    if (controlsHint) controlsHint.setY(h - scaledPadding);
-
-    // BGM container
-    if (this.bgmContainer) {
-      const controlsHintHeight = this.scaledSize(18);
-      const bgmRowHeight = this.scaledSize(14);
-      const bottomY = h - scaledPadding - controlsHintHeight - scaledSpacing * 2 - bgmRowHeight;
-      this.bgmContainer.setY(bottomY);
-    }
-
-    // --- Bottom-right elements ---
-    if (this.fpsText) {
-      const autoBuyToggleHeight = this.scaledSize(26);
-      const fpsY = h - scaledPadding - autoBuyToggleHeight - scaledSpacing;
-      this.fpsText.setPosition(w - scaledPadding, fpsY);
-    }
-
-    if (this.autoBuyToggleBg && this.autoBuyToggleText) {
-      const toggleWidth = this.scaledSize(190);
-      const toggleHeight = this.scaledSize(26);
-      const toggleX = w - scaledPadding - toggleWidth / 2;
-      const toggleY = h - scaledPadding - toggleHeight / 2;
-      this.autoBuyToggleBg.setPosition(toggleX, toggleY);
-      this.autoBuyToggleText.setPosition(toggleX, toggleY);
-    }
-
-    // --- Boss health bars ---
-    if (this.activeBossHealthBars) {
-      const centerX = w / 2;
-      for (const bar of this.activeBossHealthBars) {
-        if (bar.container) {
-          bar.container.setX(centerX);
-        }
-      }
-    }
+    // Delegate all HUD repositioning to the HUD manager
+    this.hudManager.handleResize(w, h);
   }
 
   /**
@@ -6630,18 +4372,6 @@ export class GameScene extends Phaser.Scene {
       this.escKeyHandler = null;
     }
 
-    // Remove pause menu keyboard handler
-    if (this.pauseMenuKeyHandler) {
-      this.input.keyboard?.off('keydown', this.pauseMenuKeyHandler);
-      this.pauseMenuKeyHandler = null;
-    }
-
-    // Remove shop confirmation keyboard handler
-    if (this.shopConfirmKeyHandler) {
-      this.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
-      this.shopConfirmKeyHandler = null;
-    }
-
     // Remove auto-buy toggle key listener
     if (this.autoBuyKeyHandler) {
       this.input.keyboard?.off('keydown-T', this.autoBuyKeyHandler);
@@ -6654,20 +4384,15 @@ export class GameScene extends Phaser.Scene {
       this.resumeHandler = null;
     }
 
-    // Remove victory keyboard handlers (if victory overlay was showing)
-    if (this.victoryContinueHandler) {
-      this.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
-      this.victoryContinueHandler = null;
-    }
-    if (this.victoryNextWorldHandler) {
-      this.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
-      this.victoryNextWorldHandler = null;
+    // Remove dash request handler
+    if (this.dashRequestHandler) {
+      this.events.off('input-dash-requested', this.dashRequestHandler);
+      this.dashRequestHandler = null;
     }
 
-    // Clean up joystick manager
-    if (this.joystickManager) {
-      this.joystickManager.destroy();
-      this.joystickManager = null;
+    // Clean up input controller (joystick, focus handlers, shift key)
+    if (this.inputController) {
+      this.inputController.destroy();
     }
 
     // Remove beforeunload handler for game state persistence
@@ -6676,18 +4401,8 @@ export class GameScene extends Phaser.Scene {
       this.beforeUnloadHandler = null;
     }
 
-    // Remove focus/visibility change handlers
-    if (this.handleVisibilityChange) {
-      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
-      this.handleVisibilityChange = null;
-    }
-    if (this.handleWindowBlur) {
-      window.removeEventListener('blur', this.handleWindowBlur);
-      this.handleWindowBlur = null;
-    }
-
     // Clean up event indicator
-    this.destroyEventIndicator();
+    this.hudManager.destroyEventIndicator();
 
     // Clean up weapon system
     if (this.weaponManager) {
@@ -6704,10 +4419,6 @@ export class GameScene extends Phaser.Scene {
       this.shieldBarrierVisual.destroy();
     }
 
-    // Clean up mastery icon effects
-    if (this.masteryIconEffects) {
-      this.masteryIconEffects.destroy();
-    }
 
     // Clean up player plasma core visual
     if (this.playerPlasmaCore) {
@@ -6725,16 +4436,18 @@ export class GameScene extends Phaser.Scene {
       this.deathRippleManager.destroy();
     }
 
-    // Hide any open menus/dialogs (removes their listeners)
-    if (this.isPauseMenuOpen) {
-      this.hidePauseMenu();
-    }
-    if (this.isShopConfirmationOpen) {
-      this.hideShopConfirmation();
+    // Clean up pause menu manager (removes keyboard handlers and open dialogs)
+    if (this.pauseMenuManager) {
+      this.pauseMenuManager.destroy();
     }
 
     // Clean up boss warning elements
     this.cleanupBossWarning();
+
+    // Clean up HUD manager
+    if (this.hudManager) {
+      this.hudManager.destroy();
+    }
 
     // Kill all active tweens to prevent them from continuing
     this.tweens.killAll();
@@ -6757,10 +4470,5 @@ export class GameScene extends Phaser.Scene {
       this.effectsManager.destroy();
     }
 
-    // Clean up FPS counter
-    if (this.fpsText) {
-      this.fpsText.destroy();
-      this.fpsText = null;
-    }
   }
 }

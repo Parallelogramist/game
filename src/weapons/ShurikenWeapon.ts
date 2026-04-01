@@ -3,6 +3,7 @@ import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { findNearestEnemy } from './WeaponUtils';
 
 interface Shuriken {
   sprite: Phaser.GameObjects.Graphics;
@@ -57,26 +58,8 @@ export class ShurikenWeapon extends BaseWeapon {
     const enemies = ctx.getEnemies();
     if (enemies.length === 0) return;
 
-    // OPTIMIZATION: Pre-compute squared range
-    const rangeSq = this.stats.range * this.stats.range;
-
     // Find nearest enemy for initial direction
-    let nearestId = -1;
-    // OPTIMIZATION: Use squared distance comparison
-    let nearestDistSq = Infinity;
-
-    for (const enemyId of enemies) {
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-      const dx = ex - ctx.playerX;
-      const dy = ey - ctx.playerY;
-      const distSq = dx * dx + dy * dy;
-
-      if (distSq < nearestDistSq && distSq <= rangeSq) {
-        nearestDistSq = distSq;
-        nearestId = enemyId;
-      }
-    }
+    const nearestId = findNearestEnemy(ctx, ctx.playerX, ctx.playerY, this.stats.range);
 
     const baseAngle = nearestId !== -1 ?
       Math.atan2(Transform.y[nearestId] - ctx.playerY, Transform.x[nearestId] - ctx.playerX) :

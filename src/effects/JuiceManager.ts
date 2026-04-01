@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { getSettingsManager } from '../settings';
 
 /**
  * Configuration for weapon wind-up anticipation effects.
@@ -763,7 +764,7 @@ export class JuiceManager {
   // ============================================================
 
   public screenShake(intensity: number, duration: number): void {
-    if (!this.scene) return;
+    if (!this.scene || getSettingsManager().isReducedMotionEnabled()) return;
     this.scene.cameras.main.shake(duration, intensity);
   }
 

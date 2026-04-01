@@ -32,8 +32,8 @@ export const PLAYER_NEON: NeonColorPair = {
  * Zone control: Dark green (0x33bb66) — Warden
  * Phasing: Bright cyan (0x44eedd) — Wraith
  * Buff aura: Bright yellow (0xffdd44) — Rallier
- * Minibosses: Deep red (0xcc0000)
- * Bosses: Crimson (0x990000)
+ * Minibosses: Per-enemy unique colors (see EnemyTypes.ts)
+ * Bosses: Per-enemy unique colors (see EnemyTypes.ts)
  */
 export const ENEMY_COLORS = {
   meleChaser: { core: 0xff4444, glow: 0xff7777 } as NeonColorPair,   // Red - basic melee

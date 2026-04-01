@@ -3,6 +3,7 @@ import { VisualQuality } from './GlowGraphics';
 import { getSprite } from '../ecs/systems/SpriteSystem';
 import { Transform, EnemyTag } from '../ecs/components';
 import { defineQuery, IWorld } from 'bitecs';
+import { getSettingsManager } from '../settings';
 
 // Query for all enemies
 const enemyQuery = defineQuery([Transform, EnemyTag]);
@@ -166,7 +167,7 @@ export class DeathRippleManager {
    * Spawn a new death ripple at the given position.
    */
   spawnRipple(x: number, y: number): void {
-    if (!this.enabled) return;
+    if (!this.enabled || getSettingsManager().isReducedMotionEnabled()) return;
 
     // Remove oldest ripple if at capacity
     if (this.activeRipples.length >= this.MAX_RIPPLES) {

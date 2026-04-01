@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Upgrade } from '../../data/Upgrades';
 import { createIcon } from '../../utils/IconRenderer';
+import { SoundManager } from '../../audio/SoundManager';
 
 /**
  * Data passed to UpgradeScene for initialization.
@@ -30,6 +31,7 @@ export class UpgradeScene extends Phaser.Scene {
   private cardBackgrounds: Phaser.GameObjects.Rectangle[] = [];
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private cardScaleFactor: number = 1;
+  private soundManager!: SoundManager;
 
   // Utility tracking
   private rerollsRemaining: number = 0;
@@ -74,6 +76,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.upgradeCards = [];
     this.cardBackgrounds = [];
     this.cardScaleFactor = 1;
+    this.soundManager = new SoundManager(this);
 
     // Semi-transparent dark overlay
     const overlay = this.add.rectangle(
@@ -284,6 +287,7 @@ export class UpgradeScene extends Phaser.Scene {
    */
   private handleReroll(): void {
     if (this.rerollsRemaining <= 0 || !this.onRerollCallback) return;
+    this.soundManager.playUIClick();
 
     // Close scene and trigger reroll
     this.tweens.add({
@@ -302,6 +306,7 @@ export class UpgradeScene extends Phaser.Scene {
    */
   private handleSkip(): void {
     if (this.skipsRemaining <= 0 || !this.onSkipCallback) return;
+    this.soundManager.playUIClick();
 
     // Close scene and trigger skip
     this.tweens.add({
@@ -320,6 +325,7 @@ export class UpgradeScene extends Phaser.Scene {
    */
   private toggleBanishMode(): void {
     if (this.banishesRemaining <= 0 && !this.isBanishMode) return;
+    this.soundManager.playUIClick();
 
     this.isBanishMode = !this.isBanishMode;
 
@@ -656,6 +662,7 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private selectUpgrade(upgrade: Upgrade): void {
+    this.soundManager.playUIClick();
     // Prevent double selection
     this.input.keyboard?.removeAllListeners();
     this.upgradeCards.forEach((card) => {

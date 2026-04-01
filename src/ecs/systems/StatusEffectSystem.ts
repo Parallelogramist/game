@@ -71,10 +71,8 @@ export function applyBurn(
   duration: number,
   damageMultiplier: number = 1.0
 ): void {
-  // Ensure entity has StatusEffect component
-  if (!hasComponent(world, StatusEffect, entityId)) {
-    addComponent(world, StatusEffect, entityId);
-  }
+  // addComponent is idempotent in bitECS — no need to check hasComponent first
+  addComponent(world, StatusEffect, entityId);
 
   // Apply or refresh burn - use highest damage, refresh duration
   const newDamage = damage * damageMultiplier;
@@ -103,10 +101,7 @@ export function applyFreeze(
   duration: number,
   durationMultiplier: number = 1.0
 ): void {
-  // Ensure entity has StatusEffect component
-  if (!hasComponent(world, StatusEffect, entityId)) {
-    addComponent(world, StatusEffect, entityId);
-  }
+  addComponent(world, StatusEffect, entityId);
 
   // Apply or refresh freeze - use stronger slow, refresh duration
   const currentMultiplier = StatusEffect.freezeMultiplier[entityId];
@@ -131,10 +126,7 @@ export function applyPoison(
   duration: number,
   maxStacks: number = 10
 ): void {
-  // Ensure entity has StatusEffect component
-  if (!hasComponent(world, StatusEffect, entityId)) {
-    addComponent(world, StatusEffect, entityId);
-  }
+  addComponent(world, StatusEffect, entityId);
 
   // Add stacks up to max
   const currentStacks = StatusEffect.poisonStacks[entityId];
@@ -157,10 +149,7 @@ export function setChainImmunity(
   entityId: number,
   duration: number
 ): void {
-  // Ensure entity has StatusEffect component
-  if (!hasComponent(world, StatusEffect, entityId)) {
-    addComponent(world, StatusEffect, entityId);
-  }
+  addComponent(world, StatusEffect, entityId);
   StatusEffect.chainImmunity[entityId] = duration;
 }
 

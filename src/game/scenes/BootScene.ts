@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { getMusicManager } from '../../audio/MusicManager';
-import { SoundKeys } from '../../audio/SoundManager';
+import { SoundKeys, SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons } from '../../utils/IconRenderer';
@@ -21,6 +21,7 @@ export class BootScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private pulseTween: Phaser.Tweens.Tween | null = null;
   private confirmationOverlay: Phaser.GameObjects.Container | null = null;
+  private soundManager!: SoundManager;
 
   constructor() {
     super({ key: 'BootScene' });
@@ -80,6 +81,7 @@ export class BootScene extends Phaser.Scene {
     fadeIn(this, 200);
 
     // Reset state for scene restart
+    this.soundManager = new SoundManager(this);
     this.menuItems = [];
     this.menuActions = [];
     this.menuLabels = [];
@@ -237,6 +239,7 @@ export class BootScene extends Phaser.Scene {
 
       menuItem.on('pointerdown', () => {
         if (!this.confirmationOverlay) {
+          this.soundManager.playUIClick();
           config.action();
         }
       });
@@ -353,6 +356,7 @@ export class BootScene extends Phaser.Scene {
     yesButton.on('pointerover', () => yesButton.setColor('#ff8888'));
     yesButton.on('pointerout', () => yesButton.setColor('#ff4444'));
     yesButton.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.hideNewGameConfirmation();
       onConfirm();
     });
@@ -367,6 +371,7 @@ export class BootScene extends Phaser.Scene {
     noButton.on('pointerover', () => noButton.setColor('#88ff88'));
     noButton.on('pointerout', () => noButton.setColor('#44ff44'));
     noButton.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.hideNewGameConfirmation();
     });
     this.confirmationOverlay.add(noButton);

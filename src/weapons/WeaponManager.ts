@@ -180,7 +180,12 @@ export class WeaponManager {
   public levelUpWeapon(weaponId: string): boolean {
     const weapon = this.weapons.get(weaponId);
     if (weapon && !weapon.isMaxLevel()) {
+      const wasMastered = weapon.isMastered();
       weapon.levelUp();
+      // Play special sound when weapon reaches mastery (level 10)
+      if (!wasMastered && weapon.isMastered()) {
+        this.soundManager.playAchievementUnlock();
+      }
       return true;
     }
     return false;

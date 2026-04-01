@@ -2,6 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Velocity, Health } from '../ecs/components';
 import { WEAPON_COLORS } from '../visual/NeonColors';
 import { DepthLayers } from '../visual/DepthLayers';
+import { getJuiceManager } from '../effects/JuiceManager';
 
 /**
  * FrostNovaWeapon periodically releases a freezing blast.
@@ -69,6 +70,7 @@ export class FrostNovaWeapon extends BaseWeapon {
     this.createGroundFrost(ctx, radius);
 
     ctx.soundManager.playHit();
+    getJuiceManager().screenShake(0.003, 150);
   }
 
   private createNovaVisual(ctx: WeaponContext, radius: number): void {

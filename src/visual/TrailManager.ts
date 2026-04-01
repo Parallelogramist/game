@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { VisualQuality } from './GlowGraphics';
+import { getSettingsManager } from '../settings';
 
 interface TrailPoint {
   x: number;
@@ -92,7 +93,7 @@ export class TrailManager {
     color: number,
     size: number
   ): boolean {
-    if (!this.enabled) return false;
+    if (!this.enabled || getSettingsManager().isReducedMotionEnabled()) return false;
 
     // Check if entity has moved enough since last trail point
     const tracked = this.trackedEntities.get(entityId);

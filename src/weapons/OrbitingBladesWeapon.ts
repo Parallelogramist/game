@@ -3,6 +3,7 @@ import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { WEAPON_COLORS } from '../visual/NeonColors';
 import { DepthLayers } from '../visual/DepthLayers';
+import { HitCooldownTracker } from './WeaponUtils';
 import { VisualQuality } from '../visual/GlowGraphics';
 
 /**
@@ -16,7 +17,7 @@ export class OrbitingBladesWeapon extends BaseWeapon {
   private bladeHilts: Phaser.GameObjects.Graphics[] = []; // Separate hilt graphics for scaling
   private rotationSpeed: number = 2; // Radians per second
   private orbitRadius: number = 60;
-  private hitCooldowns: Map<number, number> = new Map(); // enemyId -> lastHitTime
+  private hitCooldowns = new HitCooldownTracker();
   private trailGraphics: Phaser.GameObjects.Graphics | null = null;
   private orbitRingGraphics: Phaser.GameObjects.Graphics | null = null;
   private previousAngles: number[][] = []; // previousAngles[bladeIndex][historyIndex]
@@ -241,8 +242,7 @@ export class OrbitingBladesWeapon extends BaseWeapon {
           if (this.bladeStormHitEnemies[bladeIndex]?.has(enemyId)) continue;
         } else {
           // Normal cooldown check
-          const lastHit = this.hitCooldowns.get(enemyId) || 0;
-          if (currentTime - lastHit < this.stats.cooldown) continue;
+          if (!this.hitCooldowns.canHit(enemyId, currentTime, this.stats.cooldown)) continue;
         }
 
         const enemyX = Transform.x[enemyId];
@@ -263,7 +263,7 @@ export class OrbitingBladesWeapon extends BaseWeapon {
           if (this.isBladeStormActive && this.bladeStormPhase === 'outward') {
             this.bladeStormHitEnemies[bladeIndex]?.add(enemyId);
           } else {
-            this.hitCooldowns.set(enemyId, currentTime);
+            this.hitCooldowns.recordHit(enemyId, currentTime);
           }
 
           // Spark effect (golden during storm)
@@ -339,11 +339,7 @@ export class OrbitingBladesWeapon extends BaseWeapon {
 
     // Clean up old cooldowns
     if (Math.random() < 0.01) {
-      for (const [enemyId, time] of this.hitCooldowns) {
-        if (currentTime - time > 5) {
-          this.hitCooldowns.delete(enemyId);
-        }
-      }
+      this.hitCooldowns.cleanup(currentTime, 5);
     }
   }
 

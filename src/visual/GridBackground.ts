@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GRID_COLORS } from './NeonColors';
 import { VisualQuality } from './GlowGraphics';
+import { getSettingsManager } from '../settings';
 
 interface GravityPoint {
   x: number;
@@ -265,6 +266,7 @@ export class GridBackground {
    * This is a one-shot impulse — call once, the springs propagate it.
    */
   applyExplosiveForce(force: number, worldX: number, worldY: number, radius: number): void {
+    if (getSettingsManager().isReducedMotionEnabled()) return;
     const radiusSq = radius * radius;
     const minCol = Math.max(0, Math.floor((worldX - radius) / this.CELL_SIZE));
     const maxCol = Math.min(this.numCols - 1, Math.ceil((worldX + radius) / this.CELL_SIZE));

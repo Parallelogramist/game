@@ -1,5 +1,6 @@
 import { WeaponManager } from '../weapons';
 import { getCodexManager } from '../codex';
+import { TUNING } from './GameTuning';
 
 /**
  * Break level gates - stat upgrades cannot pass these thresholds
@@ -254,10 +255,11 @@ export function createDefaultPlayerStats(): PlayerStats {
 
 /**
  * Calculates XP needed for the next level.
- * Formula: 10 * level^1.5 (rounded)
+ * Formula: base * level^exponent (rounded)
  */
 export function calculateXPForLevel(level: number): number {
-  return Math.round(10 * Math.pow(level, 1.5));
+  const { base, exponent } = TUNING.xp.levelFormula;
+  return Math.round(base * Math.pow(level, exponent));
 }
 
 /**

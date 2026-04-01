@@ -2,6 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { getJuiceManager } from '../effects/JuiceManager';
 
 /**
  * ChainLightningWeapon fires a bolt that jumps between enemies.
@@ -119,8 +120,11 @@ export class ChainLightningWeapon extends BaseWeapon {
     // Draw lightning visual
     this.drawLightning(ctx, this.chainTargetsTemp);
 
-    // Play sound
+    // Play sound + screen shake for multi-bounce chains
     ctx.soundManager.playHit();
+    if (this.chainTargetsTemp.length >= 3) {
+      getJuiceManager().screenShake(0.002, 80);
+    }
   }
 
   /**

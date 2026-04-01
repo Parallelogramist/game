@@ -3,6 +3,7 @@ import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
+import { findNearestEnemy } from './WeaponUtils';
 
 const RICOCHET_TRAIL_LENGTH = 6;
 
@@ -66,21 +67,7 @@ export class RicochetWeapon extends BaseWeapon {
 
       if (enemies.length > 0 && i === 0) {
         // First ball aims at nearest enemy
-        let nearestId = -1;
-        // OPTIMIZATION: Use squared distance for comparisons
-        let nearestDistSq = Infinity;
-
-        for (const enemyId of enemies) {
-          const ex = Transform.x[enemyId];
-          const ey = Transform.y[enemyId];
-          const dx = ex - ctx.playerX;
-          const dy = ey - ctx.playerY;
-          const distSq = dx * dx + dy * dy;
-          if (distSq < nearestDistSq) {
-            nearestDistSq = distSq;
-            nearestId = enemyId;
-          }
-        }
+        const nearestId = findNearestEnemy(ctx, ctx.playerX, ctx.playerY);
 
         const ex = Transform.x[nearestId];
         const ey = Transform.y[nearestId];

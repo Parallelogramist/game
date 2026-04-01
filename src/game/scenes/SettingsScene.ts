@@ -11,7 +11,7 @@ import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 
-type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'gridEffects' | 'fpsCounter' | 'uiScale' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
+type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter' | 'uiScale' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
 
 interface SettingsSceneData {
   returnTo: 'BootScene' | 'GameScene';
@@ -32,6 +32,7 @@ export class SettingsScene extends Phaser.Scene {
   private musicTracksButton!: Phaser.GameObjects.Text;
   private playbackModeButtons: Phaser.GameObjects.Text[] = [];
   private screenShakeToggle!: Phaser.GameObjects.Text;
+  private reducedMotionToggle!: Phaser.GameObjects.Text;
   private gridEffectsToggle!: Phaser.GameObjects.Text;
   private fpsCounterToggle!: Phaser.GameObjects.Text;
   private uiScaleDown!: Phaser.GameObjects.Text;
@@ -295,6 +296,22 @@ export class SettingsScene extends Phaser.Scene {
       this.updateScreenShakeToggle();
     });
     this.screenShakeToggle.setData('zone', 'screenShake');
+
+    currentY += rowSpacing;
+
+    // Reduced Motion Toggle
+    this.add.text(contentLeftX, currentY, 'Reduced Motion', {
+      fontSize: scaledFontPx(fs, 18),
+      color: '#ffffff',
+      fontFamily: 'Arial',
+    });
+
+    this.reducedMotionToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isReducedMotionEnabled(), () => {
+      const newValue = !settingsManager.isReducedMotionEnabled();
+      settingsManager.setReducedMotion(newValue);
+      this.updateReducedMotionToggle();
+    });
+    this.reducedMotionToggle.setData('zone', 'reducedMotion');
 
     currentY += rowSpacing;
 
@@ -590,6 +607,12 @@ export class SettingsScene extends Phaser.Scene {
     this.screenShakeToggle.setColor(enabled ? '#88ff88' : '#ff8888');
   }
 
+  private updateReducedMotionToggle(): void {
+    const enabled = getSettingsManager().isReducedMotionEnabled();
+    this.reducedMotionToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
+    this.reducedMotionToggle.setColor(enabled ? '#88ff88' : '#ff8888');
+  }
+
   private updateGridEffectsToggle(): void {
     const enabled = getSettingsManager().isGridEffectsEnabled();
     this.gridEffectsToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
@@ -662,6 +685,10 @@ export class SettingsScene extends Phaser.Scene {
     // Screen Shake
     const shakeEnabled = settingsManager.isScreenShakeEnabled();
     this.screenShakeToggle.setColor(this.focusZone === 'screenShake' ? '#ffffff' : shakeEnabled ? '#88ff88' : '#ff8888');
+
+    // Reduced Motion
+    const reducedMotionEnabled = settingsManager.isReducedMotionEnabled();
+    this.reducedMotionToggle.setColor(this.focusZone === 'reducedMotion' ? '#ffffff' : reducedMotionEnabled ? '#88ff88' : '#ff8888');
 
     // Grid Effects
     const gridEnabled = settingsManager.isGridEffectsEnabled();
@@ -778,6 +805,8 @@ export class SettingsScene extends Phaser.Scene {
     } else if (this.focusZone === 'musicTracks') {
       this.focusZone = 'screenShake';
     } else if (this.focusZone === 'screenShake') {
+      this.focusZone = 'reducedMotion';
+    } else if (this.focusZone === 'reducedMotion') {
       this.focusZone = 'gridEffects';
     } else if (this.focusZone === 'gridEffects') {
       this.focusZone = 'fpsCounter';
@@ -810,6 +839,8 @@ export class SettingsScene extends Phaser.Scene {
     } else if (this.focusZone === 'screenShake') {
       this.focusZone = 'musicTracks';
     } else if (this.focusZone === 'gridEffects') {
+      this.focusZone = 'reducedMotion';
+    } else if (this.focusZone === 'reducedMotion') {
       this.focusZone = 'screenShake';
     } else if (this.focusZone === 'fpsCounter') {
       this.focusZone = 'gridEffects';
@@ -903,6 +934,10 @@ export class SettingsScene extends Phaser.Scene {
       case 'screenShake':
         settingsManager.setScreenShakeEnabled(!settingsManager.isScreenShakeEnabled());
         this.updateScreenShakeToggle();
+        break;
+      case 'reducedMotion':
+        settingsManager.setReducedMotion(!settingsManager.isReducedMotionEnabled());
+        this.updateReducedMotionToggle();
         break;
       case 'gridEffects':
         settingsManager.setGridEffectsEnabled(!settingsManager.isGridEffectsEnabled());

@@ -2,14 +2,22 @@ import { defineQuery, IWorld, hasComponent } from 'bitecs';
 import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, EnemyType, Health, StatusEffect } from '../components';
 import { EnemyAIType } from '../../enemies/EnemyTypes';
 import { getEnemySpatialHash } from '../../utils/SpatialHash';
-// Dynamic game bounds (updated by GameScene on create and resize)
-let gameBoundsWidth = 1280;
-let gameBoundsHeight = 720;
+import {
+  gameBoundsWidth, gameBoundsHeight,
+  projectileSpawnCallback, minionSpawnCallback,
+  xpGemPositionsCallback, consumeXPGemCallback,
+  groundSlamCallback, laserBeamCallback,
+  deadEnemyPositions, deadPositionsReadPointer, advanceDeadPositionsPointer,
+  getLinkedTwin,
+} from './enemy-ai/state';
 
-export function setEnemyAIBounds(w: number, h: number): void {
-  gameBoundsWidth = w;
-  gameBoundsHeight = h;
-}
+// Re-export public API from state module for backwards compatibility
+export {
+  setEnemyAIBounds, setEnemyProjectileCallback, setMinionSpawnCallback,
+  setXPGemCallbacks, setBossCallbacks, resetBossCallbacks,
+  recordEnemyDeath, linkTwins, unlinkTwin, getLinkedTwin, getAllTwinLinks,
+  resetEnemyAISystem, updateAIGameTime,
+} from './enemy-ai/state';
 
 // OPTIMIZATION: Pre-computed Math constants to avoid repeated calculations
 const PI_HALF = Math.PI / 2;
@@ -18,101 +26,6 @@ const PI_TWO = Math.PI * 2;
 // Queries
 const enemyQuery = defineQuery([Transform, Velocity, EnemyTag, EnemyAI]);
 const playerQuery = defineQuery([Transform, PlayerTag]);
-
-// Callback for spawning enemy projectiles
-let projectileSpawnCallback: ((x: number, y: number, angle: number, speed: number, damage: number) => void) | null = null;
-
-// Callback for spawning minion enemies (for SwarmMother, Necromancer)
-let minionSpawnCallback: ((x: number, y: number, typeId: string) => void) | null = null;
-
-// Callback to get XP gem positions (for Glutton)
-let xpGemPositionsCallback: (() => { x: number; y: number; entityId: number }[]) | null = null;
-
-// Callback to consume an XP gem (for Glutton)
-let consumeXPGemCallback: ((entityId: number) => void) | null = null;
-
-// Dead enemy positions for Necromancer to revive
-const deadEnemyPositions: { x: number; y: number; time: number }[] = [];
-
-// Twin linking - stores the entity ID of the linked twin
-const twinLinks = new Map<number, number>();
-
-export function setEnemyProjectileCallback(
-  callback: (x: number, y: number, angle: number, speed: number, damage: number) => void
-): void {
-  projectileSpawnCallback = callback;
-}
-
-export function setMinionSpawnCallback(
-  callback: (x: number, y: number, typeId: string) => void
-): void {
-  minionSpawnCallback = callback;
-}
-
-export function setXPGemCallbacks(
-  getPositions: () => { x: number; y: number; entityId: number }[],
-  consumeGem: (entityId: number) => void
-): void {
-  xpGemPositionsCallback = getPositions;
-  consumeXPGemCallback = consumeGem;
-}
-
-export function recordEnemyDeath(x: number, y: number): void {
-  deadEnemyPositions.push({ x, y, time: Date.now() });
-  // Keep only recent deaths (last 10 seconds)
-  const now = Date.now();
-  while (deadEnemyPositions.length > 0 && now - deadEnemyPositions[0].time > 10000) {
-    deadEnemyPositions.shift();
-  }
-}
-
-export function linkTwins(twinA: number, twinB: number): void {
-  twinLinks.set(twinA, twinB);
-  twinLinks.set(twinB, twinA);
-}
-
-export function unlinkTwin(twinId: number): void {
-  const linkedId = twinLinks.get(twinId);
-  if (linkedId !== undefined) {
-    twinLinks.delete(linkedId);
-  }
-  twinLinks.delete(twinId);
-}
-
-export function getLinkedTwin(twinId: number): number | undefined {
-  return twinLinks.get(twinId);
-}
-
-/**
- * Get all twin links as pairs for serialization.
- * Returns unique pairs (avoids duplicates since links are bidirectional).
- */
-export function getAllTwinLinks(): [number, number][] {
-  const pairs: [number, number][] = [];
-  const seen = new Set<number>();
-  for (const [twinA, twinB] of twinLinks) {
-    if (!seen.has(twinA) && !seen.has(twinB)) {
-      pairs.push([twinA, twinB]);
-      seen.add(twinA);
-      seen.add(twinB);
-    }
-  }
-  return pairs;
-}
-
-/**
- * Resets all module-level state in EnemyAISystem.
- * Must be called when starting a new game to clear state from previous runs.
- */
-export function resetEnemyAISystem(): void {
-  deadEnemyPositions.length = 0;
-  twinLinks.clear();
-  // Clear all callbacks to prevent stale references
-  projectileSpawnCallback = null;
-  minionSpawnCallback = null;
-  xpGemPositionsCallback = null;
-  consumeXPGemCallback = null;
-}
 
 /**
  * EnemyAISystem handles different enemy behaviors based on their AI type.
@@ -1505,11 +1418,13 @@ function updateNecromancerAI(
 
   // Revive dead enemies as ghosts
   EnemyAI.specialTimer[enemyId] -= deltaTime;
-  if (EnemyAI.specialTimer[enemyId] <= 0 && minionSpawnCallback && deadEnemyPositions.length > 0) {
-    // Revive up to 2 dead enemies
-    const reviveCount = Math.min(2, deadEnemyPositions.length);
+  const availableDeadCount = deadEnemyPositions.length - deadPositionsReadPointer;
+  if (EnemyAI.specialTimer[enemyId] <= 0 && minionSpawnCallback && availableDeadCount > 0) {
+    // Revive up to 2 dead enemies (consume from read pointer forward)
+    const reviveCount = Math.min(2, availableDeadCount);
     for (let i = 0; i < reviveCount; i++) {
-      const deadPos = deadEnemyPositions.shift();
+      const deadPos = deadEnemyPositions[deadPositionsReadPointer];
+      advanceDeadPositionsPointer();
       if (deadPos) {
         minionSpawnCallback(deadPos.x, deadPos.y, 'ghost');
       }
@@ -1600,27 +1515,6 @@ function updateTwinAI(
 // ═══════════════════════════════════════════════════════════════════════════
 // BOSS AI FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════
-
-// Callbacks for boss-specific effects
-let groundSlamCallback: ((x: number, y: number, radius: number, damage: number) => void) | null = null;
-let laserBeamCallback: ((x1: number, y1: number, x2: number, y2: number, damage: number) => void) | null = null;
-
-export function setBossCallbacks(
-  groundSlam: (x: number, y: number, radius: number, damage: number) => void,
-  laserBeam: (x1: number, y1: number, x2: number, y2: number, damage: number) => void
-): void {
-  groundSlamCallback = groundSlam;
-  laserBeamCallback = laserBeam;
-}
-
-/**
- * Resets boss-specific callbacks.
- * Must be called when starting a new game to clear state from previous runs.
- */
-export function resetBossCallbacks(): void {
-  groundSlamCallback = null;
-  laserBeamCallback = null;
-}
 
 /**
  * The Horde King - Summons enemy waves, ground slam attack, 3 phases.

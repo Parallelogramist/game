@@ -17,6 +17,8 @@ import {
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
+import { getToastManager, ToastManager } from '../../ui';
+import { getSettingsManager } from '../../settings';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -55,6 +57,8 @@ export class ShopScene extends Phaser.Scene {
 
   // Audio
   private soundManager!: SoundManager;
+  private toastManager!: ToastManager;
+  private goldTween: Phaser.Tweens.Tween | null = null;
 
   // Grid constants
   private readonly columns = 4;
@@ -73,6 +77,7 @@ export class ShopScene extends Phaser.Scene {
 
     // Sound manager for UI sounds
     this.soundManager = new SoundManager(this);
+    this.toastManager = getToastManager(this);
 
     // Reset state
     this.upgradeCards = [];
@@ -207,6 +212,20 @@ export class ShopScene extends Phaser.Scene {
 
     // Initial focus visuals
     this.updateFocusVisuals();
+
+    // Tutorial toast on first shop visit
+    if (!getSettingsManager().isTutorialSeen()) {
+      this.time.delayedCall(800, () => {
+        this.toastManager.showToast({
+          title: 'Shop',
+          description: 'Spend gold on permanent upgrades',
+          icon: 'coins',
+          color: 0x44aaff,
+          duration: 3000,
+        });
+      });
+      getSettingsManager().setTutorialSeen(true);
+    }
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -863,12 +882,20 @@ export class ShopScene extends Phaser.Scene {
       this.displayCategoryUpgrades(this.currentCategory);
       this.updateFocusVisuals();
 
-      // Brief white flash on the selected card
+      // Purchase pop animation on the selected card
       const card = this.upgradeCards[this.selectedCardIndex];
       if (card) {
         card.cardBg.setFillStyle(0xffffff);
-        this.time.delayedCall(80, () => {
-          this.updateCardAppearance(this.selectedCardIndex);
+        this.tweens.add({
+          targets: card.container,
+          scaleX: 1.05,
+          scaleY: 1.05,
+          duration: 100,
+          yoyo: true,
+          ease: 'Sine.easeOut',
+          onComplete: () => {
+            this.updateCardAppearance(this.selectedCardIndex);
+          },
         });
       }
     } else {
@@ -879,6 +906,19 @@ export class ShopScene extends Phaser.Scene {
         card.cardBg.setFillStyle(0x662222);
         this.time.delayedCall(120, () => {
           this.updateCardAppearance(this.selectedCardIndex);
+        });
+      }
+
+      // Show deficit toast
+      const cost = metaManager.getUpgradeCost(upgradeId);
+      const deficit = cost - metaManager.getGold();
+      if (deficit > 0) {
+        this.toastManager.showToast({
+          title: 'Not Enough Gold',
+          description: `Need ${deficit} more gold`,
+          icon: 'coins',
+          color: 0xff6644,
+          duration: 2000,
         });
       }
     }
@@ -902,7 +942,30 @@ export class ShopScene extends Phaser.Scene {
 
   private updateGoldDisplay(): void {
     const metaManager = getMetaProgressionManager();
-    this.goldText.setText(String(metaManager.getGold()));
+    const newGold = metaManager.getGold();
+    const currentDisplayed = parseInt(this.goldText.text) || 0;
+
+    if (currentDisplayed === newGold) return;
+
+    // Kill previous tween to prevent stacking
+    if (this.goldTween) {
+      this.goldTween.remove();
+      this.goldTween = null;
+    }
+
+    this.goldTween = this.tweens.addCounter({
+      from: currentDisplayed,
+      to: newGold,
+      duration: 400,
+      ease: 'Sine.easeOut',
+      onUpdate: (tween) => {
+        this.goldText.setText(String(Math.floor(tween.getValue() ?? 0)));
+      },
+      onComplete: () => {
+        this.goldText.setText(String(newGold));
+        this.goldTween = null;
+      },
+    });
   }
 
   private updateAccountLevelDisplay(): void {
@@ -939,6 +1002,15 @@ export class ShopScene extends Phaser.Scene {
 
     card.buyButton.setFillStyle(buttonColor);
     card.buyButton.setStrokeStyle(2, buttonStroke);
+
+    // Subtle red tint on unaffordable cards
+    if (isUnlocked && !isMaxed && !canAfford) {
+      card.cardBg.setFillStyle(0x2a1a1a);
+    } else if (isUnlocked) {
+      card.cardBg.setFillStyle(0x2a2a4a); // Normal unlocked bg
+    } else {
+      card.cardBg.setFillStyle(0x1a1a2a); // Locked bg
+    }
   }
 
   private updateAllCards(): void {

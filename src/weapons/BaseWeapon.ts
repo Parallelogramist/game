@@ -2,6 +2,7 @@ import { IWorld } from 'bitecs';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { TUNING } from '../data/GameTuning';
 
 /**
  * WeaponContext provides weapons access to game systems they need.
@@ -132,13 +133,14 @@ export abstract class BaseWeapon {
    * Override for custom scaling.
    */
   protected recalculateStats(): void {
-    const levelMultiplier = 1 + (this.level - 1) * 0.2; // 20% increase per level
+    const { levelDamageBonus, levelSizeBonus, levelCooldownReduction } = TUNING.weapons;
+    const levelMultiplier = 1 + (this.level - 1) * levelDamageBonus;
 
     // Apply BOTH level multiplier AND external multiplier from meta progression
     this.stats.damage = this.baseStats.damage * levelMultiplier * this.externalDamageMultiplier;
-    this.stats.size = this.baseStats.size * (1 + (this.level - 1) * 0.1); // 10% size per level
+    this.stats.size = this.baseStats.size * (1 + (this.level - 1) * levelSizeBonus);
     // Apply cooldown reduction from both level and external multiplier
-    this.stats.cooldown = (this.baseStats.cooldown * Math.pow(0.9, this.level - 1)) / this.externalCooldownMultiplier;
+    this.stats.cooldown = (this.baseStats.cooldown * Math.pow(levelCooldownReduction, this.level - 1)) / this.externalCooldownMultiplier;
     // Apply count bonuses from both level and external sources
     this.stats.count = this.baseStats.count + Math.floor((this.level - 1) / 2) + this.externalBonusCount;
     // Apply piercing bonuses from both level and external sources
@@ -208,9 +210,9 @@ export abstract class BaseWeapon {
       return `[MASTERY] ${this.masteryDescription}`;
     }
 
-    // Standard scaling: +20% damage per level, -10% cooldown per level
+    // Standard scaling per level
     const nextLevel = this.level + 1;
-    const damagePerLevel = 20;
+    const damagePerLevel = TUNING.weapons.levelDamageBonus * 100;
     const nextDamageBonus = (nextLevel - 1) * damagePerLevel;
 
     if (this.level === 1) {

@@ -9,10 +9,10 @@
 import Phaser from 'phaser';
 
 // Configuration
-const JOYSTICK_BASE_RADIUS = 60;
+const JOYSTICK_BASE_RADIUS = 70;
 const JOYSTICK_KNOB_RADIUS = 25;
 const JOYSTICK_DEAD_ZONE = 10;
-const JOYSTICK_ALPHA = 0.4;
+const JOYSTICK_ALPHA = 0.55;
 const JOYSTICK_DEPTH = 999;
 
 interface JoystickState {

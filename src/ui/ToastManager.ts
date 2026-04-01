@@ -66,7 +66,6 @@ export class ToastManager {
       icon,
       color: 0xffdd44, // Gold for milestones
       duration: DEFAULT_DISPLAY_DURATION,
-      playSound: true,
     });
   }
 
@@ -80,7 +79,6 @@ export class ToastManager {
       icon,
       color: 0x44ff88, // Green for achievements
       duration: 4000, // Slightly longer for achievements
-      playSound: true,
     });
   }
 
@@ -198,15 +196,8 @@ export class ToastManager {
 
     this.activeToast = container;
 
-    // Play sound if requested
-    if (config.playSound) {
-      try {
-        // Try to play the level-up sound for milestone notifications
-        this.scene.sound.play('levelup', { volume: 0.5 });
-      } catch {
-        // Sound may not be loaded, ignore
-      }
-    }
+    // Sound is now handled by the caller via SoundManager
+    // (playAchievementUnlock in GameScene milestone/achievement callbacks)
 
     // Slide in animation
     this.scene.tweens.add({

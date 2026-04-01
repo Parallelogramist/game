@@ -1,3 +1,5 @@
+import { TUNING } from '../data/GameTuning';
+
 /**
  * Enemy AI behavior types.
  */
@@ -475,7 +477,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 80,
     baseDamage: 25,
     size: 2.5,
-    color: 0xcc0000,         // Miniboss - deep red
+    color: 0x8800aa,         // Miniboss - dark purple (gluttony)
     secondaryColor: 0xffffff, // White outline
     shape: 'circle',
     xpValue: 300,
@@ -492,7 +494,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 40,
     baseDamage: 15,
     size: 3,
-    color: 0xcc0000,         // Miniboss - deep red
+    color: 0x008888,         // Miniboss - dark teal (spawner)
     secondaryColor: 0xffffff, // White outline
     shape: 'hexagon',
     xpValue: 300,
@@ -509,7 +511,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 60,       // Base speed (charges are MUCH faster)
     baseDamage: 50,
     size: 3.5,
-    color: 0xcc0000,         // Miniboss - deep red
+    color: 0xcc4400,         // Miniboss - deep orange (aggressive)
     secondaryColor: 0xffffff, // White outline
     shape: 'triangle',
     xpValue: 300,
@@ -526,7 +528,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 50,
     baseDamage: 15,
     size: 2,
-    color: 0xcc0000,         // Miniboss - deep red
+    color: 0x6600aa,         // Miniboss - dark violet (undead magic)
     secondaryColor: 0xffffff, // White outline
     shape: 'diamond',
     xpValue: 300,
@@ -547,7 +549,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 90,
     baseDamage: 20,
     size: 1.8,
-    color: 0xcc0000,         // Miniboss - deep red
+    color: 0xaa0022,         // Miniboss - dark crimson (warm twin)
     secondaryColor: 0xffffff, // White outline
     shape: 'diamond',
     xpValue: 150,
@@ -564,7 +566,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 90,
     baseDamage: 20,
     size: 1.8,
-    color: 0xcc0000,         // Miniboss - deep red
+    color: 0x2200aa,         // Miniboss - dark blue (cool twin)
     secondaryColor: 0xffffff, // White outline
     shape: 'diamond',
     xpValue: 150,
@@ -603,7 +605,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 40,
     baseDamage: 40,
     size: 5,
-    color: 0x990000,         // Boss - crimson
+    color: 0xaa0000,         // Boss - deep crimson
     secondaryColor: 0xffffff, // White outline
     shape: 'square',
     xpValue: 1000,
@@ -620,7 +622,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 80,
     baseDamage: 35,
     size: 4,
-    color: 0x990000,         // Boss - crimson
+    color: 0x660088,         // Boss - deep purple (void)
     secondaryColor: 0xffffff, // White outline
     shape: 'circle',
     xpValue: 1000,
@@ -637,7 +639,7 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     baseSpeed: 30,
     baseDamage: 30,
     size: 6,
-    color: 0x990000,         // Boss - crimson
+    color: 0x4466aa,         // Boss - steel blue (mechanical)
     secondaryColor: 0xffffff, // White outline
     shape: 'hexagon',
     xpValue: 1000,
@@ -750,11 +752,12 @@ export function getScaledStats(
 ): { health: number; speed: number; damage: number } {
   // Polynomial scaling: gentle early, accelerates in back half of run
   // to keep pace with multiplicative player power stacking
-  const normalizedTime = gameTime / 600;
+  const { scaling } = TUNING;
+  const normalizedTime = gameTime / scaling.runDuration;
 
-  const healthMultiplier = 1 + gameTime * 0.008 + Math.pow(normalizedTime, 2) * 5;
-  const damageMultiplier = 1 + gameTime * 0.003 + Math.pow(normalizedTime, 2) * 2;
-  const speedMultiplier = 1 + gameTime * 0.001 + Math.pow(normalizedTime, 1.5) * 0.8;
+  const healthMultiplier = 1 + gameTime * scaling.health.linear + Math.pow(normalizedTime, 2) * scaling.health.quadratic;
+  const damageMultiplier = 1 + gameTime * scaling.damage.linear + Math.pow(normalizedTime, 2) * scaling.damage.quadratic;
+  const speedMultiplier = 1 + gameTime * scaling.speed.linear + Math.pow(normalizedTime, scaling.speed.power) * scaling.speed.quadratic;
 
   return {
     health: Math.floor(type.baseHealth * healthMultiplier * worldLevelHealthMult),
