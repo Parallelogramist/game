@@ -262,6 +262,39 @@ export class EffectsManager {
    * @param intensity - Alpha intensity of the flash (0.0-1.0, default 0.2)
    * @param duration - Duration of the flash in ms (default 80)
    */
+  /**
+   * Supersized death explosion for the player. Bypasses cooldown.
+   * More particles, longer lifespan, lingering embers.
+   */
+  playPlayerDeathExplosion(x: number, y: number, color: number = 0x4488ff): void {
+    // Layer 1: Bright flash burst
+    if (this.deathFlashEmitter) {
+      this.deathFlashEmitter.emitParticleAt(x, y, 12);
+    }
+    // Layer 2: Colored debris
+    if (this.deathBurstEmitter) {
+      this.deathBurstEmitter.particleTint = color;
+      this.deathBurstEmitter.emitParticleAt(x, y, 30);
+    }
+    // Layer 3: Soft glow
+    if (this.deathGlowEmitter) {
+      const lightRed = Math.min(255, ((color >> 16) & 0xff) + 80);
+      const lightGreen = Math.min(255, ((color >> 8) & 0xff) + 80);
+      const lightBlue = Math.min(255, (color & 0xff) + 80);
+      this.deathGlowEmitter.particleTint = (lightRed << 16) | (lightGreen << 8) | lightBlue;
+      this.deathGlowEmitter.emitParticleAt(x, y, 15);
+    }
+    // Layer 4: Delayed secondary burst for cascading effect
+    this.scene.time.delayedCall(100, () => {
+      if (this.deathBurstEmitter) {
+        this.deathBurstEmitter.emitParticleAt(x, y, 10);
+      }
+      if (this.deathFlashEmitter) {
+        this.deathFlashEmitter.emitParticleAt(x, y, 5);
+      }
+    });
+  }
+
   playImpactFlash(intensity: number = 0.2, duration: number = 80): void {
     const { width, height } = this.scene.scale;
     const flash = this.scene.add.rectangle(

@@ -45,6 +45,7 @@ import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
+import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
 import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
 import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
@@ -57,7 +58,7 @@ import { resetEnemySpatialHash, getEnemySpatialHash } from '../../utils/SpatialH
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
-import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
+import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
@@ -133,6 +134,7 @@ export class GameScene extends Phaser.Scene {
 
   // Game over state
   private isGameOver: boolean = false;
+  private deathSequenceActive: boolean = false;
 
   // Victory state (survived 10 minutes)
   private hasWon: boolean = false;
@@ -212,6 +214,7 @@ export class GameScene extends Phaser.Scene {
 
   // Post-processing pipelines (WebGL only)
   private distortionPipeline: DistortionPipeline | null = null;
+  private bloomPipeline: BloomPipeline | null = null;
   private lightingSystem: LightingSystem | null = null;
 
   // Geometry Wars style warping grid background
@@ -459,9 +462,20 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize post-processing pipelines (WebGL only)
     if (this.renderer.type === Phaser.WEBGL) {
-      this.cameras.main.setPostPipeline(['DistortionPipeline']);
+      const pipelines = ['DistortionPipeline'];
+      if (this.visualQuality !== 'low') {
+        pipelines.push('BloomPipeline');
+      }
+      this.cameras.main.setPostPipeline(pipelines);
       const postPipelines = this.cameras.main.postPipelines;
       this.distortionPipeline = postPipelines.find(p => p.name === 'DistortionPipeline') as DistortionPipeline ?? null;
+      this.bloomPipeline = postPipelines.find(p => p.name === 'BloomPipeline') as BloomPipeline ?? null;
+      if (this.bloomPipeline) {
+        const isHighQuality = this.visualQuality === 'high';
+        this.bloomPipeline.setBloomStrength(isHighQuality ? 0.35 : 0.2);
+        this.bloomPipeline.setBloomThreshold(isHighQuality ? 0.6 : 0.7);
+        this.bloomPipeline.setVignetteStrength(isHighQuality ? 0.3 : 0.15);
+      }
     }
 
     // Initialize dynamic lighting system
@@ -1841,6 +1855,14 @@ export class GameScene extends Phaser.Scene {
     // Skip update when paused or game over
     if (this.isPaused || this.isGameOver) return;
 
+    // During death sequence, only run visual systems so particles animate
+    if (this.deathSequenceActive) {
+      const deathDelta = delta / 1000;
+      if (this.deathRippleManager) this.deathRippleManager.update(deathDelta);
+      if (this.gridBackground) this.gridBackground.update(deathDelta);
+      return;
+    }
+
     // ═══ FRAME CACHE UPDATE (must be first - populates spatial hash for all systems) ═══
     updateFrameCache(this.world);
 
@@ -2222,6 +2244,8 @@ export class GameScene extends Phaser.Scene {
       comboCount: getComboCount(),
       comboTier: getComboTier(),
       comboDecayPercent: getComboDecayPercent(),
+      comboBuffActive: isComboBuffActive(),
+      comboBuffPercent: getComboBuffRemainingPercent(),
       bossHealthData: bossEntityIds.map(entityId => ({
         entityId,
         currentHP: Health.current[entityId],
@@ -2474,12 +2498,7 @@ export class GameScene extends Phaser.Scene {
 
       Health.current[this.playerId] = 0;
       this.playerStats.currentHealth = 0;
-      // Big shake on death
-      if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(400, 0.03);
-      }
-      this.effectsManager.playImpactFlash(0.4, 200);
-      this.gameOver();
+      this.playDeathSequence();
     }
   }
 
@@ -2517,6 +2536,7 @@ export class GameScene extends Phaser.Scene {
    */
   private triggerGemMagnet(): void {
     magnetizeAllGems(this.world);
+    this.soundManager.playMagnetActivation();
 
     // Visual feedback - brief screen pulse
     this.effectsManager.playImpactFlash(0.1, 100);
@@ -2757,6 +2777,7 @@ export class GameScene extends Phaser.Scene {
   private showVictory(): void {
     this.hasWon = true;
     this.isPaused = true;
+    this.soundManager.playVictoryFanfare();
 
     // Clear saved game state (run is over - victory!)
     getGameStateManager().clearSave();
@@ -2820,6 +2841,78 @@ export class GameScene extends Phaser.Scene {
    * Handles game over state.
    * Performs gold calculation, streak management, and delegates UI to PauseMenuManager.
    */
+  /**
+   * Plays a cinematic death sequence before showing the game over screen.
+   * Orchestrates hit-stop, slow-mo, particle explosion, and screen effects.
+   */
+  private playDeathSequence(): void {
+    if (this.deathSequenceActive) return;
+    this.deathSequenceActive = true;
+
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+    const juiceManager = getJuiceManager();
+
+    // t=0: Hit stop freeze frame on the killing blow
+    juiceManager.hitStop(120, 1);
+
+    // t=150: Deep slow-motion + death sound + ship flash
+    this.time.delayedCall(150, () => {
+      juiceManager.slowMotion(800, 0.15, 300);
+      this.soundManager.playGameOver();
+      if (this.playerSpaceship) {
+        this.playerSpaceship.playDeathFlash(150);
+      }
+    });
+
+    // t=300: Player explosion + distortion + ripples
+    this.time.delayedCall(300, () => {
+      if (this.playerSpaceship) {
+        this.playerSpaceship.explode();
+      }
+      this.effectsManager.playPlayerDeathExplosion(playerX, playerY);
+      this.distortionPipeline?.addDistortion(playerX, playerY, 300, 0.03, 500);
+      this.deathRippleManager.spawnRipple(playerX, playerY);
+      this.deathRippleManager.spawnRipple(playerX + 30, playerY);
+      this.gridBackground.applyExplosiveForce(8000, playerX, playerY, 900);
+    });
+
+    // t=500: Heavy screen shake + impact flash
+    this.time.delayedCall(500, () => {
+      if (getSettingsManager().isScreenShakeEnabled()) {
+        this.cameras.main.shake(600, 0.04);
+      }
+      this.effectsManager.playImpactFlash(0.5, 300);
+    });
+
+    // t=700: Dark vignette overlay fading in
+    this.time.delayedCall(700, () => {
+      const darkenOverlay = this.add.rectangle(
+        this.scale.width / 2, this.scale.height / 2,
+        this.scale.width, this.scale.height,
+        0x000000, 0
+      ).setDepth(900).setScrollFactor(0);
+      this.tweens.add({
+        targets: darkenOverlay,
+        alpha: 0.85,
+        duration: 800,
+        ease: 'Quad.easeIn',
+      });
+    });
+
+    // t=1500: Camera fade to black
+    this.time.delayedCall(1500, () => {
+      this.cameras.main.fadeOut(700, 0, 0, 0);
+    });
+
+    // t=2200: Show game over screen
+    this.time.delayedCall(2200, () => {
+      this.deathSequenceActive = false;
+      this.cameras.main.resetFX();
+      this.gameOver();
+    });
+  }
+
   private gameOver(): void {
     this.isGameOver = true;
 
@@ -3542,24 +3635,34 @@ export class GameScene extends Phaser.Scene {
         duration: 3000,
       });
       this.soundManager.playComboThreshold();
-      // Deep slow-motion: 20% speed for 500ms then restore
-      this.tweens.timeScale = 0.2;
-      this.time.delayedCall(500, () => {
-        this.tweens.timeScale = 1.0;
-      });
+      // Cinematic slow-motion with camera zoom
+      getJuiceManager().slowMotion(500, 0.2, 300);
       // Massive radial shockwave from player position
       this.deathRippleManager.spawnRipple(comboPlayerX, comboPlayerY);
       this.deathRippleManager.spawnRipple(comboPlayerX + 30, comboPlayerY);
       this.deathRippleManager.spawnRipple(comboPlayerX - 30, comboPlayerY);
-      // Screen distortion shockwave from annihilation
+      // Multi-wave screen distortion
       this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 350, 0.035, 450);
+      this.time.delayedCall(100, () => {
+        this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 500, 0.025, 400);
+      });
+      this.time.delayedCall(250, () => {
+        this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 650, 0.015, 350);
+      });
       // Grid shockwave
       this.gridBackground.applyExplosiveForce(6000, comboPlayerX, comboPlayerY, 800);
       this.gridBackground.setCombatIntensity(1.0);
       // White camera flash
       this.cameras.main.flash(500, 255, 255, 255);
+      // Multi-wave screen shake for cascading impact
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(400, 0.035);
+        this.cameras.main.shake(200, 0.035);
+        this.time.delayedCall(150, () => {
+          this.cameras.main.shake(200, 0.025);
+        });
+        this.time.delayedCall(300, () => {
+          this.cameras.main.shake(200, 0.015);
+        });
       }
       this.effectsManager.playImpactFlash(0.4, 150);
       this.effectsManager.playGoldSparkle(comboPlayerX, comboPlayerY, 15);
@@ -3598,6 +3701,18 @@ export class GameScene extends Phaser.Scene {
     // Audio stinger for tier-up
     if (tier !== 'none') {
       this.soundManager.playComboTierUp(tier as 'warm' | 'hot' | 'blazing' | 'inferno');
+
+      // Particle burst at player position with tier color
+      const tierColors: Record<string, number> = {
+        warm: 0xffdd44, hot: 0x00ddff, blazing: 0xff6622, inferno: 0xff2244,
+      };
+      const tierColor = tierColors[tier] ?? 0xffffff;
+      const playerX = Transform.x[this.playerId];
+      const playerY = Transform.y[this.playerId];
+      this.effectsManager.playDeathBurst(playerX, playerY, tierColor);
+
+      // Brief freeze-frame for "moment of power"
+      juiceManager.hitStop(40, 0.7);
     }
   }
 
@@ -3674,6 +3789,7 @@ export class GameScene extends Phaser.Scene {
       case 'magnetic_storm':
         // Instant: magnetize all gems
         magnetizeAllGems(this.world);
+        this.soundManager.playMagnetActivation();
         break;
 
       case 'treasure_rain':
@@ -4696,6 +4812,7 @@ export class GameScene extends Phaser.Scene {
       const evolvePlayerY = Transform.y[this.playerId];
 
       // --- Dramatic evolution visual overhaul ---
+      this.soundManager.playWeaponEvolution();
 
       // 1. Freeze-frame: near-pause for dramatic weight
       const previousTweenTimeScale = this.tweens.timeScale;
@@ -5045,14 +5162,59 @@ export class GameScene extends Phaser.Scene {
     // Update dynamic lighting — clear lights, add sources, render
     if (this.lightingSystem) {
       this.lightingSystem.clearLights();
-      // Player light (bright, large)
+      const playerX = Transform.x[this.playerId];
+      const playerY = Transform.y[this.playerId];
+
+      // Player light — scales with combo tier
       if (this.playerId !== -1) {
+        const comboTier = getComboTier();
+        const tierRadiusMap: Record<string, number> = {
+          none: 120, warm: 140, hot: 160, blazing: 180, inferno: 200,
+        };
+        const tierIntensityMap: Record<string, number> = {
+          none: 0.9, warm: 0.92, hot: 0.95, blazing: 0.97, inferno: 1.0,
+        };
         this.lightingSystem.addLight(
-          Transform.x[this.playerId], Transform.y[this.playerId],
-          120, 0.9
+          playerX, playerY,
+          tierRadiusMap[comboTier] ?? 120,
+          tierIntensityMap[comboTier] ?? 0.9
         );
       }
+
+      // Boss ambient light — ominous red glow
+      if (this.bossSpawned) {
+        for (const bossEntityId of this.hudManager.getBossEntityIds()) {
+          this.lightingSystem.addLight(
+            Transform.x[bossEntityId], Transform.y[bossEntityId],
+            250, 0.5, 0xff4444
+          );
+        }
+      }
+
+      // Weapon hit flash lights (high quality only)
+      if (this.visualQuality === 'high' && this.weaponManager.lightFlashes) {
+        const flashes = this.weaponManager.lightFlashes;
+        for (let flashIndex = flashes.length - 1; flashIndex >= 0; flashIndex--) {
+          const flash = flashes[flashIndex];
+          this.lightingSystem.addLight(flash.x, flash.y, flash.radius, flash.intensity);
+          flash.ttl -= deltaSeconds * 1000;
+          if (flash.ttl <= 0) {
+            flashes.splice(flashIndex, 1);
+          }
+        }
+      }
+
       this.lightingSystem.update();
+    }
+
+    // Modulate bloom based on game state
+    if (this.bloomPipeline) {
+      const comboTier = getComboTier();
+      const tierBloomStrength: Record<string, number> = {
+        none: 0.25, warm: 0.30, hot: 0.35, blazing: 0.40, inferno: 0.50,
+      };
+      this.bloomPipeline.setBloomStrength(tierBloomStrength[comboTier] ?? 0.25);
+      this.bloomPipeline.setVignetteStrength(this.bossSpawned ? 0.45 : 0.3);
     }
   }
 
@@ -5091,6 +5253,21 @@ export class GameScene extends Phaser.Scene {
       // Update lighting quality
       if (this.lightingSystem) {
         this.lightingSystem.setEnabled(newQuality !== 'low');
+      }
+      // Update bloom quality — remove on low, adjust parameters on medium/high
+      if (this.renderer.type === Phaser.WEBGL) {
+        if (newQuality === 'low' && this.bloomPipeline) {
+          this.cameras.main.removePostPipeline('BloomPipeline');
+          this.bloomPipeline = null;
+        } else if (newQuality !== 'low' && !this.bloomPipeline) {
+          this.cameras.main.setPostPipeline(['BloomPipeline']);
+          const postPipelines = this.cameras.main.postPipelines;
+          this.bloomPipeline = postPipelines.find(p => p.name === 'BloomPipeline') as BloomPipeline ?? null;
+        }
+        if (this.bloomPipeline) {
+          const isHighQuality = newQuality === 'high';
+          this.bloomPipeline.setBloomThreshold(isHighQuality ? 0.6 : 0.7);
+        }
       }
       // Note: Existing entities keep their current quality
       // New entities will be created with the new quality level

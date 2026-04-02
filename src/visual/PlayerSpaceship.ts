@@ -1,14 +1,16 @@
 /**
- * PlayerSpaceship - A procedurally-drawn neon spaceship that evolves as the player levels up
+ * PlayerSpaceship - Tron-style procedurally-drawn neon spaceship that evolves as the player levels up
  *
  * Features:
  * - 5 evolution tiers: Scout → Fighter → Striker → Warbird → Apex
- * - Each tier has unique hull geometry, engine count, and visual details
- * - Smooth evolution transition animation (flash + shape swap)
- * - Multi-layer neon glow with quality scaling (high/medium/low)
- * - Animated engine thrust that scales with movement speed
+ * - Dark hull defined by bright neon edge lines (Tron: Legacy aesthetic)
+ * - Circuit trace patterns increase in density per tier
+ * - Energy channels with animated light pulse (tier 3+)
+ * - Hexagonal cockpit with internal crosshairs (tier 3+)
+ * - Multi-layer neon glow with edge bloom, quality-scaled
+ * - Animated engine thrust (blue/cyan/white palette)
  * - Combo tier color shifts, low-HP danger red, invulnerability blink
- * - Level-up flash + scale pulse
+ * - Level-up flash + scale pulse, evolution animation
  * - Energy pods (tier 4+) and energy corona (tier 5)
  */
 
@@ -27,280 +29,451 @@ export interface EvolutionResult {
   tierName: string;
 }
 
-// --- Evolution Tier Data ---
+// --- Geometry types ---
 
-interface HullVertexSet {
-  nose: { x: number; y: number };
-  upperCheek: { x: number; y: number };
-  rightWingRoot: { x: number; y: number };
-  rightWingTip: { x: number; y: number };
-  rightWingTrail: { x: number; y: number };
-  rightBodyJoin: { x: number; y: number };
-  tailNotch: { x: number; y: number };
-  leftBodyJoin: { x: number; y: number };
-  leftWingTrail: { x: number; y: number };
-  leftWingTip: { x: number; y: number };
-  leftWingRoot: { x: number; y: number };
-  lowerCheek: { x: number; y: number };
+interface Point2D {
+  x: number;
+  y: number;
 }
 
-interface CockpitVertexSet {
-  front: { x: number; y: number };
-  right: { x: number; y: number };
-  back: { x: number; y: number };
-  left: { x: number; y: number };
+interface CircuitTrace {
+  path: Point2D[];
+  width: number;
+  alpha: number;
 }
 
-interface WingBladeExtension {
-  fromX: number; fromY: number;
-  toX: number; toY: number;
+interface EnergyChannel {
+  path: Point2D[];
+  width: number;
+  baseAlpha: number;
 }
+
+interface WingEdgeSegment {
+  from: Point2D;
+  to: Point2D;
+}
+
+// --- Evolution tier definition ---
 
 interface EvolutionTier {
   name: string;
   minLevel: number;
-  hull: HullVertexSet;
-  cockpit: CockpitVertexSet;
-  engineNozzles: { x: number; y: number }[];
-  wingTipAccents: { x: number; y: number }[];
-  energyPods: { x: number; y: number }[];
-  wingBladeExtensions: WingBladeExtension[];
+  hullOutline: Point2D[];
+  cockpit: Point2D[];
+  cockpitHasCrosshairs: boolean;
+  engineNozzles: Point2D[];
   engineNozzleRadius: number;
+  wingTipAccents: Point2D[];
   wingTipAccentRadius: number;
+  energyPods: Point2D[];
   energyPodRadius: number;
-  hasWingEdgeGlow: boolean;
-  hasTrailingEdgeAccent: boolean;
+  circuitTraces: CircuitTrace[];
+  energyChannels: EnergyChannel[];
+  wingEdgeSegments: WingEdgeSegment[];
+  hasEnergyPulse: boolean;
   hasEnergyCorona: boolean;
   coronaScale: number;
   coronaAlphaBase: number;
 }
 
+// --- Evolution Tier Data ---
+
 const EVOLUTION_TIERS: EvolutionTier[] = [
   // --- Tier 1: Scout (Levels 1-4) ---
+  // Clean angular arrowhead with faceted nose and split tail
   {
     name: 'Scout',
     minLevel: 1,
-    hull: {
-      nose:           { x:  20, y:   0 },
-      upperCheek:     { x:  10, y:  -3 },
-      rightWingRoot:  { x:  -1, y:  -4 },
-      rightWingTip:   { x: -12, y: -10 },
-      rightWingTrail: { x: -10, y:  -7 },
-      rightBodyJoin:  { x:  -6, y:  -3 },
-      tailNotch:      { x:  -8, y:   0 },
-      leftBodyJoin:   { x:  -6, y:   3 },
-      leftWingTrail:  { x: -10, y:   7 },
-      leftWingTip:    { x: -12, y:  10 },
-      leftWingRoot:   { x:  -1, y:   4 },
-      lowerCheek:     { x:  10, y:   3 },
-    },
-    cockpit: {
-      front: { x: 12, y:  0 },
-      right: { x:  3, y:  2 },
-      back:  { x: -1, y:  0 },
-      left:  { x:  3, y: -2 },
-    },
-    engineNozzles: [
-      { x: -7, y: 0 },
+    hullOutline: [
+      { x: 22, y: 0 },
+      { x: 14, y: -3 },
+      { x: 6, y: -5 },
+      { x: -2, y: -5.5 },
+      { x: -14, y: -11 },
+      { x: -10, y: -7.5 },
+      { x: -7, y: -4 },
+      { x: -10, y: -1.5 },
+      { x: -12, y: 0 },
+      { x: -10, y: 1.5 },
+      { x: -7, y: 4 },
+      { x: -10, y: 7.5 },
+      { x: -14, y: 11 },
+      { x: -2, y: 5.5 },
+      { x: 6, y: 5 },
+      { x: 14, y: 3 },
     ],
-    wingTipAccents: [],
-    energyPods: [],
-    wingBladeExtensions: [],
+    cockpit: [
+      { x: 12, y: 0 },
+      { x: 7, y: -2 },
+      { x: 2, y: -2 },
+      { x: -1, y: 0 },
+      { x: 2, y: 2 },
+      { x: 7, y: 2 },
+    ],
+    cockpitHasCrosshairs: false,
+    engineNozzles: [{ x: -9, y: 0 }],
     engineNozzleRadius: 2.0,
+    wingTipAccents: [],
     wingTipAccentRadius: 0,
+    energyPods: [],
     energyPodRadius: 0,
-    hasWingEdgeGlow: false,
-    hasTrailingEdgeAccent: false,
+    circuitTraces: [
+      { path: [{ x: 2, y: -3 }, { x: -4, y: -3 }, { x: -7, y: -5.5 }], width: 0.6, alpha: 0.3 },
+      { path: [{ x: 2, y: 3 }, { x: -4, y: 3 }, { x: -7, y: 5.5 }], width: 0.6, alpha: 0.3 },
+    ],
+    energyChannels: [
+      { path: [{ x: 8, y: 0 }, { x: -7, y: 0 }], width: 1.2, baseAlpha: 0.5 },
+    ],
+    wingEdgeSegments: [],
+    hasEnergyPulse: false,
     hasEnergyCorona: false,
     coronaScale: 1,
     coronaAlphaBase: 0,
   },
 
   // --- Tier 2: Fighter (Levels 5-9) ---
+  // Wider wings with angular intake scoops, dual engines
   {
     name: 'Fighter',
     minLevel: 5,
-    hull: {
-      nose:           { x:  24, y:   0 },
-      upperCheek:     { x:  12, y:  -4 },
-      rightWingRoot:  { x:  -2, y:  -5 },
-      rightWingTip:   { x: -16, y: -14 },
-      rightWingTrail: { x: -12, y: -10 },
-      rightBodyJoin:  { x:  -7, y:  -4 },
-      tailNotch:      { x: -10, y:   0 },
-      leftBodyJoin:   { x:  -7, y:   4 },
-      leftWingTrail:  { x: -12, y:  10 },
-      leftWingTip:    { x: -16, y:  14 },
-      leftWingRoot:   { x:  -2, y:   5 },
-      lowerCheek:     { x:  12, y:   4 },
-    },
-    cockpit: {
-      front: { x: 14, y:  0 },
-      right: { x:  4, y:  2.5 },
-      back:  { x: -2, y:  0 },
-      left:  { x:  4, y: -2.5 },
-    },
-    engineNozzles: [
+    hullOutline: [
+      { x: 26, y: 0 },
+      { x: 16, y: -4 },
+      { x: 8, y: -5 },
+      { x: 3, y: -6 },
+      { x: -3, y: -6.5 },
+      { x: -8, y: -13 },
+      { x: -18, y: -16 },
+      { x: -14, y: -11 },
       { x: -9, y: -5 },
-      { x: -9, y:  5 },
+      { x: -12, y: -2 },
+      { x: -14, y: 0 },
+      { x: -12, y: 2 },
+      { x: -9, y: 5 },
+      { x: -14, y: 11 },
+      { x: -18, y: 16 },
+      { x: -8, y: 13 },
+      { x: -3, y: 6.5 },
+      { x: 3, y: 6 },
+      { x: 8, y: 5 },
+      { x: 16, y: 4 },
     ],
-    wingTipAccents: [
-      { x: -16, y: -14 },
-      { x: -16, y:  14 },
+    cockpit: [
+      { x: 14, y: 0 },
+      { x: 9, y: -2.5 },
+      { x: 3, y: -2.5 },
+      { x: 0, y: 0 },
+      { x: 3, y: 2.5 },
+      { x: 9, y: 2.5 },
     ],
-    energyPods: [],
-    wingBladeExtensions: [],
+    cockpitHasCrosshairs: false,
+    engineNozzles: [
+      { x: -11, y: -5 },
+      { x: -11, y: 5 },
+    ],
     engineNozzleRadius: 2.2,
+    wingTipAccents: [
+      { x: -18, y: -16 },
+      { x: -18, y: 16 },
+    ],
     wingTipAccentRadius: 1.0,
+    energyPods: [],
     energyPodRadius: 0,
-    hasWingEdgeGlow: false,
-    hasTrailingEdgeAccent: false,
+    circuitTraces: [
+      { path: [{ x: 3, y: -4.5 }, { x: -3, y: -4.5 }, { x: -6, y: -9 }], width: 0.6, alpha: 0.3 },
+      { path: [{ x: 3, y: 4.5 }, { x: -3, y: 4.5 }, { x: -6, y: 9 }], width: 0.6, alpha: 0.3 },
+      { path: [{ x: 7, y: -3.5 }, { x: 5, y: -5 }], width: 0.5, alpha: 0.25 },
+      { path: [{ x: 7, y: 3.5 }, { x: 5, y: 5 }], width: 0.5, alpha: 0.25 },
+    ],
+    energyChannels: [
+      { path: [{ x: 10, y: 0 }, { x: 0, y: 0 }, { x: -8, y: -5 }], width: 1.2, baseAlpha: 0.5 },
+      { path: [{ x: 10, y: 0 }, { x: 0, y: 0 }, { x: -8, y: 5 }], width: 1.2, baseAlpha: 0.5 },
+    ],
+    wingEdgeSegments: [
+      { from: { x: 0, y: -6 }, to: { x: -6, y: -11 } },
+      { from: { x: 0, y: 6 }, to: { x: -6, y: 11 } },
+    ],
+    hasEnergyPulse: false,
     hasEnergyCorona: false,
     coronaScale: 1,
     coronaAlphaBase: 0,
   },
 
   // --- Tier 3: Striker (Levels 10-19) ---
+  // Forward-swept razor wings, needle nose, triple engines
   {
     name: 'Striker',
     minLevel: 10,
-    hull: {
-      nose:           { x:  26, y:   0 },
-      upperCheek:     { x:  12, y:  -4 },
-      rightWingRoot:  { x:  -2, y:  -6 },
-      rightWingTip:   { x: -18, y: -18 },
-      rightWingTrail: { x: -14, y: -12 },
-      rightBodyJoin:  { x:  -8, y:  -5 },
-      tailNotch:      { x: -12, y:   0 },
-      leftBodyJoin:   { x:  -8, y:   5 },
-      leftWingTrail:  { x: -14, y:  12 },
-      leftWingTip:    { x: -18, y:  18 },
-      leftWingRoot:   { x:  -2, y:   6 },
-      lowerCheek:     { x:  12, y:   4 },
-    },
-    cockpit: {
-      front: { x: 16, y:  0 },
-      right: { x:  4, y:  3 },
-      back:  { x: -2, y:  0 },
-      left:  { x:  4, y: -3 },
-    },
+    hullOutline: [
+      { x: 28, y: 0 },
+      { x: 18, y: -4 },
+      { x: 10, y: -5 },
+      { x: 5, y: -6.5 },
+      { x: 0, y: -7 },
+      { x: -5, y: -7.5 },
+      { x: -3, y: -13 },
+      { x: -10, y: -17 },
+      { x: -20, y: -20 },
+      { x: -16, y: -14 },
+      { x: -14, y: -11 },
+      { x: -10, y: -6 },
+      { x: -14, y: -2.5 },
+      { x: -16, y: 0 },
+      { x: -14, y: 2.5 },
+      { x: -10, y: 6 },
+      { x: -14, y: 11 },
+      { x: -16, y: 14 },
+      { x: -20, y: 20 },
+      { x: -10, y: 17 },
+      { x: -3, y: 13 },
+      { x: -5, y: 7.5 },
+      { x: 0, y: 7 },
+      { x: 5, y: 6.5 },
+      { x: 10, y: 5 },
+      { x: 18, y: 4 },
+    ],
+    cockpit: [
+      { x: 16, y: 0 },
+      { x: 10, y: -3 },
+      { x: 3, y: -3 },
+      { x: -1, y: 0 },
+      { x: 3, y: 3 },
+      { x: 10, y: 3 },
+    ],
+    cockpitHasCrosshairs: true,
     engineNozzles: [
-      { x: -10, y:  0 },
-      { x: -11, y:  6 },
-      { x: -11, y: -6 },
+      { x: -13, y: 0 },
+      { x: -14, y: 6 },
+      { x: -14, y: -6 },
     ],
-    wingTipAccents: [
-      { x: -18, y: -18 },
-      { x: -18, y:  18 },
-    ],
-    energyPods: [],
-    wingBladeExtensions: [],
     engineNozzleRadius: 2.5,
+    wingTipAccents: [
+      { x: -20, y: -20 },
+      { x: -20, y: 20 },
+    ],
     wingTipAccentRadius: 1.5,
+    energyPods: [],
     energyPodRadius: 0,
-    hasWingEdgeGlow: true,
-    hasTrailingEdgeAccent: false,
+    circuitTraces: [
+      { path: [{ x: 4, y: -5 }, { x: -2, y: -5 }, { x: -2, y: -10 }, { x: -8, y: -10 }], width: 0.6, alpha: 0.35 },
+      { path: [{ x: 4, y: 5 }, { x: -2, y: 5 }, { x: -2, y: 10 }, { x: -8, y: 10 }], width: 0.6, alpha: 0.35 },
+      { path: [{ x: 8, y: -4 }, { x: 3, y: -5.5 }], width: 0.5, alpha: 0.3 },
+      { path: [{ x: 8, y: 4 }, { x: 3, y: 5.5 }], width: 0.5, alpha: 0.3 },
+      { path: [{ x: -6, y: -8 }, { x: -12, y: -13 }], width: 0.5, alpha: 0.25 },
+      { path: [{ x: -6, y: 8 }, { x: -12, y: 13 }], width: 0.5, alpha: 0.25 },
+    ],
+    energyChannels: [
+      { path: [{ x: 12, y: 0 }, { x: -2, y: 0 }, { x: -11, y: 0 }], width: 1.3, baseAlpha: 0.55 },
+      { path: [{ x: 4, y: -4 }, { x: -4, y: -5.5 }, { x: -12, y: -6 }], width: 1.0, baseAlpha: 0.45 },
+      { path: [{ x: 4, y: 4 }, { x: -4, y: 5.5 }, { x: -12, y: 6 }], width: 1.0, baseAlpha: 0.45 },
+    ],
+    wingEdgeSegments: [
+      { from: { x: -1, y: -7.5 }, to: { x: -3, y: -11 } },
+      { from: { x: -5, y: -13 }, to: { x: -10, y: -16.5 } },
+      { from: { x: -1, y: 7.5 }, to: { x: -3, y: 11 } },
+      { from: { x: -5, y: 13 }, to: { x: -10, y: 16.5 } },
+    ],
+    hasEnergyPulse: true,
     hasEnergyCorona: false,
     coronaScale: 1,
     coronaAlphaBase: 0,
   },
 
   // --- Tier 4: Warbird (Levels 20-34) ---
+  // Double-faceted wings, deep angular intakes, energy pods
   {
     name: 'Warbird',
     minLevel: 20,
-    hull: {
-      nose:           { x:  28, y:   0 },
-      upperCheek:     { x:  14, y:  -5 },
-      rightWingRoot:  { x:  -2, y:  -7 },
-      rightWingTip:   { x: -20, y: -22 },
-      rightWingTrail: { x: -16, y: -15 },
-      rightBodyJoin:  { x: -10, y:  -6 },
-      tailNotch:      { x: -14, y:   0 },
-      leftBodyJoin:   { x: -10, y:   6 },
-      leftWingTrail:  { x: -16, y:  15 },
-      leftWingTip:    { x: -20, y:  22 },
-      leftWingRoot:   { x:  -2, y:   7 },
-      lowerCheek:     { x:  14, y:   5 },
-    },
-    cockpit: {
-      front: { x: 18, y:  0 },
-      right: { x:  5, y:  3.5 },
-      back:  { x: -2, y:  0 },
-      left:  { x:  5, y: -3.5 },
-    },
+    hullOutline: [
+      { x: 30, y: 0 },
+      { x: 20, y: -5 },
+      { x: 12, y: -5.5 },
+      { x: 6, y: -7 },
+      { x: 1, y: -7.5 },
+      { x: -4, y: -8 },
+      { x: -2, y: -14 },
+      { x: -8, y: -18 },
+      { x: -14, y: -21 },
+      { x: -22, y: -24 },
+      { x: -18, y: -17 },
+      { x: -16, y: -13 },
+      { x: -12, y: -7 },
+      { x: -16, y: -3 },
+      { x: -18, y: 0 },
+      { x: -16, y: 3 },
+      { x: -12, y: 7 },
+      { x: -16, y: 13 },
+      { x: -18, y: 17 },
+      { x: -22, y: 24 },
+      { x: -14, y: 21 },
+      { x: -8, y: 18 },
+      { x: -2, y: 14 },
+      { x: -4, y: 8 },
+      { x: 1, y: 7.5 },
+      { x: 6, y: 7 },
+      { x: 12, y: 5.5 },
+      { x: 20, y: 5 },
+    ],
+    cockpit: [
+      { x: 18, y: 0 },
+      { x: 12, y: -3.5 },
+      { x: 4, y: -3.5 },
+      { x: -1, y: 0 },
+      { x: 4, y: 3.5 },
+      { x: 12, y: 3.5 },
+    ],
+    cockpitHasCrosshairs: true,
     engineNozzles: [
-      { x: -12, y:  0 },
-      { x: -13, y:  7 },
-      { x: -13, y: -7 },
+      { x: -15, y: 0 },
+      { x: -16, y: 7 },
+      { x: -16, y: -7 },
     ],
-    wingTipAccents: [
-      { x: -20, y: -22 },
-      { x: -20, y:  22 },
-    ],
-    energyPods: [
-      { x: -8, y: -14 },
-      { x: -8, y:  14 },
-    ],
-    wingBladeExtensions: [],
     engineNozzleRadius: 3.0,
+    wingTipAccents: [
+      { x: -22, y: -24 },
+      { x: -22, y: 24 },
+    ],
     wingTipAccentRadius: 2.0,
+    energyPods: [
+      { x: -6, y: -15 },
+      { x: -6, y: 15 },
+    ],
     energyPodRadius: 2.0,
-    hasWingEdgeGlow: true,
-    hasTrailingEdgeAccent: true,
+    circuitTraces: [
+      { path: [{ x: 4, y: -5.5 }, { x: -2, y: -5.5 }, { x: -2, y: -11 }, { x: -8, y: -11 }], width: 0.6, alpha: 0.35 },
+      { path: [{ x: 4, y: 5.5 }, { x: -2, y: 5.5 }, { x: -2, y: 11 }, { x: -8, y: 11 }], width: 0.6, alpha: 0.35 },
+      { path: [{ x: -4, y: -8 }, { x: -5, y: -11.5 }, { x: -6, y: -15 }], width: 0.7, alpha: 0.4 },
+      { path: [{ x: -4, y: 8 }, { x: -5, y: 11.5 }, { x: -6, y: 15 }], width: 0.7, alpha: 0.4 },
+      { path: [{ x: 10, y: -4 }, { x: 4, y: -6 }], width: 0.5, alpha: 0.3 },
+      { path: [{ x: 10, y: 4 }, { x: 4, y: 6 }], width: 0.5, alpha: 0.3 },
+      { path: [{ x: -6, y: -10 }, { x: -12, y: -15 }], width: 0.5, alpha: 0.25 },
+      { path: [{ x: -6, y: 10 }, { x: -12, y: 15 }], width: 0.5, alpha: 0.25 },
+      { path: [{ x: 8, y: -2 }, { x: -4, y: -2 }], width: 0.4, alpha: 0.2 },
+      { path: [{ x: 8, y: 2 }, { x: -4, y: 2 }], width: 0.4, alpha: 0.2 },
+    ],
+    energyChannels: [
+      { path: [{ x: 14, y: 0 }, { x: -4, y: 0 }, { x: -13, y: 0 }], width: 1.4, baseAlpha: 0.55 },
+      { path: [{ x: 6, y: -5 }, { x: -2, y: -6.5 }, { x: -14, y: -7 }], width: 1.1, baseAlpha: 0.45 },
+      { path: [{ x: 6, y: 5 }, { x: -2, y: 6.5 }, { x: -14, y: 7 }], width: 1.1, baseAlpha: 0.45 },
+    ],
+    wingEdgeSegments: [
+      { from: { x: 0, y: -8 }, to: { x: -2, y: -12 } },
+      { from: { x: -4, y: -14.5 }, to: { x: -8, y: -17.5 } },
+      { from: { x: -10, y: -19 }, to: { x: -16, y: -22 } },
+      { from: { x: 0, y: 8 }, to: { x: -2, y: 12 } },
+      { from: { x: -4, y: 14.5 }, to: { x: -8, y: 17.5 } },
+      { from: { x: -10, y: 19 }, to: { x: -16, y: 22 } },
+    ],
+    hasEnergyPulse: true,
     hasEnergyCorona: false,
     coronaScale: 1,
     coronaAlphaBase: 0,
   },
 
   // --- Tier 5: Apex (Levels 35+) ---
+  // Maximum complexity: blade extensions in hull, 5 engines, energy corona
   {
     name: 'Apex',
     minLevel: 35,
-    hull: {
-      nose:           { x:  30, y:   0 },
-      upperCheek:     { x:  16, y:  -6 },
-      rightWingRoot:  { x:  -3, y:  -8 },
-      rightWingTip:   { x: -22, y: -24 },
-      rightWingTrail: { x: -18, y: -16 },
-      rightBodyJoin:  { x: -12, y:  -7 },
-      tailNotch:      { x: -16, y:   0 },
-      leftBodyJoin:   { x: -12, y:   7 },
-      leftWingTrail:  { x: -18, y:  16 },
-      leftWingTip:    { x: -22, y:  24 },
-      leftWingRoot:   { x:  -3, y:   8 },
-      lowerCheek:     { x:  16, y:   6 },
-    },
-    cockpit: {
-      front: { x: 20, y:  0 },
-      right: { x:  6, y:  4 },
-      back:  { x: -3, y:  0 },
-      left:  { x:  6, y: -4 },
-    },
+    hullOutline: [
+      { x: 32, y: 0 },
+      { x: 22, y: -5.5 },
+      { x: 14, y: -6 },
+      { x: 8, y: -7.5 },
+      { x: 2, y: -8 },
+      { x: -4, y: -8.5 },
+      { x: -1, y: -15 },
+      { x: -8, y: -19 },
+      { x: -14, y: -22 },
+      { x: -22, y: -25 },
+      { x: -27, y: -28 },
+      { x: -24, y: -24 },
+      { x: -20, y: -18 },
+      { x: -16, y: -14 },
+      { x: -14, y: -8 },
+      { x: -18, y: -3 },
+      { x: -20, y: 0 },
+      { x: -18, y: 3 },
+      { x: -14, y: 8 },
+      { x: -16, y: 14 },
+      { x: -20, y: 18 },
+      { x: -24, y: 24 },
+      { x: -27, y: 28 },
+      { x: -22, y: 25 },
+      { x: -14, y: 22 },
+      { x: -8, y: 19 },
+      { x: -1, y: 15 },
+      { x: -4, y: 8.5 },
+      { x: 2, y: 8 },
+      { x: 8, y: 7.5 },
+      { x: 14, y: 6 },
+      { x: 22, y: 5.5 },
+    ],
+    cockpit: [
+      { x: 20, y: 0 },
+      { x: 13, y: -4 },
+      { x: 4, y: -4 },
+      { x: -2, y: 0 },
+      { x: 4, y: 4 },
+      { x: 13, y: 4 },
+    ],
+    cockpitHasCrosshairs: true,
     engineNozzles: [
-      { x: -14, y:  0 },
-      { x: -15, y:  7 },
-      { x: -15, y: -7 },
-      { x: -13, y:  3 },
-      { x: -13, y: -3 },
-    ],
-    wingTipAccents: [
-      { x: -22, y: -24 },
-      { x: -22, y:  24 },
-    ],
-    energyPods: [
-      { x: -10, y: -16 },
-      { x: -10, y:  16 },
-    ],
-    wingBladeExtensions: [
-      { fromX: -22, fromY: -24, toX: -26, toY: -28 },
-      { fromX: -22, fromY:  24, toX: -26, toY:  28 },
+      { x: -17, y: 0 },
+      { x: -18, y: 7 },
+      { x: -18, y: -7 },
+      { x: -16, y: 3 },
+      { x: -16, y: -3 },
     ],
     engineNozzleRadius: 3.0,
+    wingTipAccents: [
+      { x: -27, y: -28 },
+      { x: -27, y: 28 },
+    ],
     wingTipAccentRadius: 2.5,
+    energyPods: [
+      { x: -8, y: -17 },
+      { x: -8, y: 17 },
+    ],
     energyPodRadius: 2.5,
-    hasWingEdgeGlow: true,
-    hasTrailingEdgeAccent: true,
+    circuitTraces: [
+      // Wing circuit grid
+      { path: [{ x: 6, y: -6 }, { x: 0, y: -6 }, { x: 0, y: -12 }, { x: -6, y: -12 }], width: 0.6, alpha: 0.35 },
+      { path: [{ x: 6, y: 6 }, { x: 0, y: 6 }, { x: 0, y: 12 }, { x: -6, y: 12 }], width: 0.6, alpha: 0.35 },
+      // Pod connections
+      { path: [{ x: -4, y: -8.5 }, { x: -6, y: -12.5 }, { x: -8, y: -17 }], width: 0.7, alpha: 0.4 },
+      { path: [{ x: -4, y: 8.5 }, { x: -6, y: 12.5 }, { x: -8, y: 17 }], width: 0.7, alpha: 0.4 },
+      // Blade extension traces
+      { path: [{ x: -20, y: -19 }, { x: -24, y: -24 }, { x: -27, y: -28 }], width: 0.8, alpha: 0.5 },
+      { path: [{ x: -20, y: 19 }, { x: -24, y: 24 }, { x: -27, y: 28 }], width: 0.8, alpha: 0.5 },
+      // Intake traces
+      { path: [{ x: 12, y: -5 }, { x: 6, y: -6.5 }], width: 0.5, alpha: 0.3 },
+      { path: [{ x: 12, y: 5 }, { x: 6, y: 6.5 }], width: 0.5, alpha: 0.3 },
+      // Cross-links
+      { path: [{ x: -6, y: -8 }, { x: -6, y: -12 }], width: 0.5, alpha: 0.25 },
+      { path: [{ x: -6, y: 8 }, { x: -6, y: 12 }], width: 0.5, alpha: 0.25 },
+      // Double fuselage parallels
+      { path: [{ x: 10, y: -2.5 }, { x: -6, y: -2.5 }], width: 0.4, alpha: 0.2 },
+      { path: [{ x: 10, y: 2.5 }, { x: -6, y: 2.5 }], width: 0.4, alpha: 0.2 },
+    ],
+    energyChannels: [
+      { path: [{ x: 16, y: 0 }, { x: -6, y: 0 }, { x: -15, y: 0 }], width: 1.5, baseAlpha: 0.6 },
+      { path: [{ x: 8, y: -6 }, { x: -2, y: -7 }, { x: -16, y: -7 }], width: 1.2, baseAlpha: 0.5 },
+      { path: [{ x: 8, y: 6 }, { x: -2, y: 7 }, { x: -16, y: 7 }], width: 1.2, baseAlpha: 0.5 },
+      { path: [{ x: 4, y: -3 }, { x: -6, y: -3 }, { x: -14, y: -3 }], width: 0.9, baseAlpha: 0.4 },
+      { path: [{ x: 4, y: 3 }, { x: -6, y: 3 }, { x: -14, y: 3 }], width: 0.9, baseAlpha: 0.4 },
+    ],
+    wingEdgeSegments: [
+      { from: { x: 0, y: -8.5 }, to: { x: -1, y: -13 } },
+      { from: { x: -3, y: -15.5 }, to: { x: -8, y: -18.5 } },
+      { from: { x: -10, y: -20 }, to: { x: -16, y: -23 } },
+      { from: { x: -19, y: -24 }, to: { x: -24, y: -26 } },
+      { from: { x: 0, y: 8.5 }, to: { x: -1, y: 13 } },
+      { from: { x: -3, y: 15.5 }, to: { x: -8, y: 18.5 } },
+      { from: { x: -10, y: 20 }, to: { x: -16, y: 23 } },
+      { from: { x: -19, y: 24 }, to: { x: -24, y: 26 } },
+    ],
+    hasEnergyPulse: true,
     hasEnergyCorona: true,
     coronaScale: 1.6,
     coronaAlphaBase: 0.06,
@@ -318,11 +491,12 @@ export class PlayerSpaceship {
   private container: Phaser.GameObjects.Container;
   private config: SpaceshipConfig;
 
-  // Graphics layers (children of container, drawn in order)
+  // Graphics layers (children of container, drawn back-to-front)
+  private thrustGraphics: Phaser.GameObjects.Graphics;
   private glowGraphics: Phaser.GameObjects.Graphics;
   private hullGraphics: Phaser.GameObjects.Graphics;
-  private thrustGraphics: Phaser.GameObjects.Graphics;
   private detailGraphics: Phaser.GameObjects.Graphics;
+  private overlayGraphics: Phaser.GameObjects.Graphics;
 
   // Evolution state
   private currentTierIndex: number = 0;
@@ -346,6 +520,9 @@ export class PlayerSpaceship {
   private thrustFlickerPhase1: number = Math.random() * Math.PI * 2;
   private thrustFlickerPhase2: number = Math.random() * Math.PI * 2;
   private thrustFlickerPhase3: number = Math.random() * Math.PI * 2;
+
+  // Energy pulse animation
+  private energyPulsePhase: number = 0;
 
   // Color state
   private dangerLevel: number = 0;
@@ -410,11 +587,14 @@ export class PlayerSpaceship {
 
   // Speed warmth
   private static readonly SPEED_WARMTH_COLOR = 0xffeedd;
-  private static readonly SPEED_WARMTH_AMOUNT = 0.12;
+  private static readonly SPEED_WARMTH_AMOUNT = 0.08;
 
   // Idle hover
   private static readonly HOVER_AMPLITUDE = 0.8;
   private static readonly HOVER_SPEED = 2.5;
+
+  // Energy pulse
+  private static readonly ENERGY_PULSE_SPEED = 0.8;
 
   constructor(scene: Phaser.Scene, x: number, y: number, config: SpaceshipConfig, startingLevel: number = 1) {
     this.config = { ...config };
@@ -429,11 +609,13 @@ export class PlayerSpaceship {
     this.glowGraphics = scene.add.graphics();
     this.hullGraphics = scene.add.graphics();
     this.detailGraphics = scene.add.graphics();
+    this.overlayGraphics = scene.add.graphics();
 
     this.container.add(this.thrustGraphics);
     this.container.add(this.glowGraphics);
     this.container.add(this.hullGraphics);
     this.container.add(this.detailGraphics);
+    this.container.add(this.overlayGraphics);
 
     this.lastHullColor = config.neonColor.core;
 
@@ -525,9 +707,10 @@ export class PlayerSpaceship {
     this.thrustFlickerPhase2 += dt * PlayerSpaceship.THRUST_FLICKER_SPEED_2;
     this.thrustFlickerPhase3 += dt * PlayerSpaceship.THRUST_FLICKER_SPEED_3;
 
-    // --- Energy pod and corona pulse ---
+    // --- Energy pod, corona, and pulse animation ---
     this.energyPodPulsePhase += dt * 3.0;
     this.coronaPulsePhase += dt * 1.5;
+    this.energyPulsePhase = (this.energyPulsePhase + dt * PlayerSpaceship.ENERGY_PULSE_SPEED) % 1.0;
 
     // --- Invulnerability flicker ---
     if (this.isInvulnerable) {
@@ -567,9 +750,13 @@ export class PlayerSpaceship {
     this.detailGraphics.setRotation(rotation);
     this.detailGraphics.setScale(scale);
     this.detailGraphics.setY(hoverOffset);
+    this.overlayGraphics.setRotation(rotation);
+    this.overlayGraphics.setScale(scale);
+    this.overlayGraphics.setY(hoverOffset);
 
-    // --- Redraw thrust every frame (animated) ---
+    // --- Redraw per-frame animated layers ---
     this.drawThrust(normalizedSpeed);
+    this.drawOverlay();
   }
 
   /**
@@ -603,170 +790,218 @@ export class PlayerSpaceship {
     return color;
   }
 
-  /**
-   * Draw the ship hull using current tier geometry
-   */
+  // ==============================
+  //  Hull Drawing (dark fill + bright edges)
+  // ==============================
+
   private drawHull(): void {
     const graphics = this.hullGraphics;
     graphics.clear();
 
     const currentTier = this.tier;
     const hullColor = this.lastHullColor;
-    const highlightColor = lightenColor(hullColor, 0.5);
-    const darkColor = darkenColor(hullColor, 0.3);
+    const darkHullColor = darkenColor(hullColor, 0.85);
+    const edgeBloomColor = lightenColor(hullColor, 0.3);
+    const cockpitDarkColor = darkenColor(hullColor, 0.9);
+    const nozzleDarkColor = darkenColor(hullColor, 0.8);
 
-    // Main hull fill
-    graphics.fillStyle(hullColor, 1);
-    this.drawHullPath(graphics, currentTier.hull);
+    // Dark hull fill
+    graphics.fillStyle(darkHullColor, 0.95);
+    this.drawHullPath(graphics, currentTier.hullOutline);
     graphics.fillPath();
 
-    // Hull edge stroke (bright neon outline)
-    graphics.lineStyle(1.5, lightenColor(hullColor, 0.7), 0.9);
-    this.drawHullPath(graphics, currentTier.hull);
+    // Bright neon edge stroke (the defining Tron line)
+    graphics.lineStyle(2.0, hullColor, 1.0);
+    this.drawHullPath(graphics, currentTier.hullOutline);
     graphics.strokePath();
 
-    // Cockpit canopy (bright highlight)
+    // Soft edge bloom stroke (wider, dimmer)
+    graphics.lineStyle(4.0, edgeBloomColor, 0.2);
+    this.drawHullPath(graphics, currentTier.hullOutline);
+    graphics.strokePath();
+
+    // --- Hexagonal cockpit ---
     const cockpit = currentTier.cockpit;
-    graphics.fillStyle(highlightColor, 0.9);
+
+    // Dark cockpit fill
+    graphics.fillStyle(cockpitDarkColor, 0.9);
     graphics.beginPath();
-    graphics.moveTo(cockpit.front.x, cockpit.front.y);
-    graphics.lineTo(cockpit.right.x, cockpit.right.y);
-    graphics.lineTo(cockpit.back.x, cockpit.back.y);
-    graphics.lineTo(cockpit.left.x, cockpit.left.y);
+    graphics.moveTo(cockpit[0].x, cockpit[0].y);
+    for (let i = 1; i < cockpit.length; i++) {
+      graphics.lineTo(cockpit[i].x, cockpit[i].y);
+    }
     graphics.closePath();
     graphics.fillPath();
 
-    // Cockpit bright center dot
-    const cockpitCenterX = (cockpit.front.x + cockpit.back.x) / 2;
-    graphics.fillStyle(0xffffff, 0.8);
+    // Cockpit edge stroke
+    graphics.lineStyle(1.2, hullColor, 0.9);
+    graphics.beginPath();
+    graphics.moveTo(cockpit[0].x, cockpit[0].y);
+    for (let i = 1; i < cockpit.length; i++) {
+      graphics.lineTo(cockpit[i].x, cockpit[i].y);
+    }
+    graphics.closePath();
+    graphics.strokePath();
+
+    // Cockpit center power indicator
+    const cockpitCenterX = (cockpit[0].x + cockpit[3].x) / 2;
+    graphics.fillStyle(0xffffff, 0.85);
     graphics.fillCircle(cockpitCenterX, 0, 1.5);
 
-    // Engine nozzle rims
+    // Cockpit crosshairs (tier 3+)
+    if (currentTier.cockpitHasCrosshairs) {
+      const crosshairColor = lightenColor(hullColor, 0.4);
+      graphics.lineStyle(0.5, crosshairColor, 0.4);
+      // Horizontal crosshair
+      graphics.beginPath();
+      graphics.moveTo(cockpit[3].x + 2, 0);
+      graphics.lineTo(cockpit[0].x - 2, 0);
+      graphics.strokePath();
+      // Vertical crosshair
+      const cockpitMidX = cockpitCenterX;
+      const cockpitHalfHeight = Math.abs(cockpit[1].y) - 0.5;
+      graphics.beginPath();
+      graphics.moveTo(cockpitMidX, -cockpitHalfHeight);
+      graphics.lineTo(cockpitMidX, cockpitHalfHeight);
+      graphics.strokePath();
+    }
+
+    // --- Engine nozzles (dark circles with bright edge rings) ---
     for (const nozzle of currentTier.engineNozzles) {
-      graphics.fillStyle(darkColor, 0.8);
+      graphics.fillStyle(nozzleDarkColor, 0.8);
       graphics.fillCircle(nozzle.x, nozzle.y, currentTier.engineNozzleRadius);
-      graphics.lineStyle(0.7, lightenColor(hullColor, 0.3), 0.6);
+      graphics.lineStyle(0.8, hullColor, 0.7);
       graphics.strokeCircle(nozzle.x, nozzle.y, currentTier.engineNozzleRadius);
     }
   }
 
   /**
-   * Draw the hull outline path using given vertex set
+   * Draw hull outline path from array of vertices
    */
-  private drawHullPath(graphics: Phaser.GameObjects.Graphics, hull: HullVertexSet): void {
+  private drawHullPath(graphics: Phaser.GameObjects.Graphics, hull: Point2D[]): void {
+    if (hull.length === 0) return;
     graphics.beginPath();
-    graphics.moveTo(hull.nose.x, hull.nose.y);
-    graphics.lineTo(hull.upperCheek.x, hull.upperCheek.y);
-    graphics.lineTo(hull.rightWingRoot.x, hull.rightWingRoot.y);
-    graphics.lineTo(hull.rightWingTip.x, hull.rightWingTip.y);
-    graphics.lineTo(hull.rightWingTrail.x, hull.rightWingTrail.y);
-    graphics.lineTo(hull.rightBodyJoin.x, hull.rightBodyJoin.y);
-    graphics.lineTo(hull.tailNotch.x, hull.tailNotch.y);
-    graphics.lineTo(hull.leftBodyJoin.x, hull.leftBodyJoin.y);
-    graphics.lineTo(hull.leftWingTrail.x, hull.leftWingTrail.y);
-    graphics.lineTo(hull.leftWingTip.x, hull.leftWingTip.y);
-    graphics.lineTo(hull.leftWingRoot.x, hull.leftWingRoot.y);
-    graphics.lineTo(hull.lowerCheek.x, hull.lowerCheek.y);
+    graphics.moveTo(hull[0].x, hull[0].y);
+    for (let i = 1; i < hull.length; i++) {
+      graphics.lineTo(hull[i].x, hull[i].y);
+    }
     graphics.closePath();
   }
 
   /**
-   * Draw hull detail lines (panel seams, wing accents, tier-specific features)
+   * Draw hull path scaled from center (for glow layers)
    */
+  private drawScaledHullPath(graphics: Phaser.GameObjects.Graphics, hull: Point2D[], scale: number): void {
+    if (hull.length === 0) return;
+    graphics.beginPath();
+    graphics.moveTo(hull[0].x * scale, hull[0].y * scale);
+    for (let i = 1; i < hull.length; i++) {
+      graphics.lineTo(hull[i].x * scale, hull[i].y * scale);
+    }
+    graphics.closePath();
+  }
+
+  // ==============================
+  //  Detail Drawing (circuit traces, wing edge segments)
+  // ==============================
+
   private drawDetails(): void {
     const graphics = this.detailGraphics;
     graphics.clear();
 
     const currentTier = this.tier;
     const hullColor = this.lastHullColor;
-    const darkColor = darkenColor(hullColor, 0.25);
     const accentColor = lightenColor(hullColor, 0.6);
-    const hull = currentTier.hull;
+    const traceGlowColor = lightenColor(hullColor, 0.4);
+    const isLowQuality = this.config.quality === 'low';
 
-    // Wing panel lines (dark seams for depth)
-    graphics.lineStyle(0.8, darkColor, 0.5);
-    // Right wing seam
-    graphics.beginPath();
-    graphics.moveTo(hull.upperCheek.x * 0.5, hull.upperCheek.y);
-    graphics.lineTo(hull.rightWingTrail.x, hull.rightWingTrail.y);
-    graphics.strokePath();
-    // Left wing seam
-    graphics.beginPath();
-    graphics.moveTo(hull.lowerCheek.x * 0.5, hull.lowerCheek.y);
-    graphics.lineTo(hull.leftWingTrail.x, hull.leftWingTrail.y);
-    graphics.strokePath();
+    // --- Circuit traces (bright neon lines on dark hull) ---
+    for (const trace of currentTier.circuitTraces) {
+      if (trace.path.length < 2) continue;
 
-    // Fuselage center line
-    graphics.lineStyle(0.6, darkColor, 0.3);
-    graphics.beginPath();
-    graphics.moveTo(hull.nose.x - 6, 0);
-    graphics.lineTo(hull.rightBodyJoin.x, 0);
-    graphics.strokePath();
+      // Glow pass (wider, dimmer) - skip on low quality
+      if (!isLowQuality) {
+        graphics.lineStyle(trace.width + 2.0, traceGlowColor, trace.alpha * 0.2);
+        graphics.beginPath();
+        graphics.moveTo(trace.path[0].x, trace.path[0].y);
+        for (let i = 1; i < trace.path.length; i++) {
+          graphics.lineTo(trace.path[i].x, trace.path[i].y);
+        }
+        graphics.strokePath();
+      }
 
-    // Wing-tip energy accents (bright dots)
+      // Core pass (narrow, bright)
+      graphics.lineStyle(trace.width, accentColor, trace.alpha);
+      graphics.beginPath();
+      graphics.moveTo(trace.path[0].x, trace.path[0].y);
+      for (let i = 1; i < trace.path.length; i++) {
+        graphics.lineTo(trace.path[i].x, trace.path[i].y);
+      }
+      graphics.strokePath();
+
+      // Endpoint dots (circuit board pad aesthetic)
+      const startPoint = trace.path[0];
+      const endPoint = trace.path[trace.path.length - 1];
+      graphics.fillStyle(accentColor, trace.alpha * 0.8);
+      graphics.fillCircle(startPoint.x, startPoint.y, 0.8);
+      graphics.fillCircle(endPoint.x, endPoint.y, 0.8);
+    }
+
+    // --- Energy channels (thicker power conduits) ---
+    for (const channel of currentTier.energyChannels) {
+      if (channel.path.length < 2) continue;
+
+      // Glow pass
+      if (!isLowQuality) {
+        graphics.lineStyle(channel.width + 3.0, traceGlowColor, channel.baseAlpha * 0.15);
+        graphics.beginPath();
+        graphics.moveTo(channel.path[0].x, channel.path[0].y);
+        for (let i = 1; i < channel.path.length; i++) {
+          graphics.lineTo(channel.path[i].x, channel.path[i].y);
+        }
+        graphics.strokePath();
+      }
+
+      // Core pass
+      graphics.lineStyle(channel.width, accentColor, channel.baseAlpha);
+      graphics.beginPath();
+      graphics.moveTo(channel.path[0].x, channel.path[0].y);
+      for (let i = 1; i < channel.path.length; i++) {
+        graphics.lineTo(channel.path[i].x, channel.path[i].y);
+      }
+      graphics.strokePath();
+    }
+
+    // --- Wing edge segments (dashed glow lines along leading edges) ---
+    for (const segment of currentTier.wingEdgeSegments) {
+      if (!isLowQuality) {
+        graphics.lineStyle(2.5, traceGlowColor, 0.15);
+        graphics.beginPath();
+        graphics.moveTo(segment.from.x, segment.from.y);
+        graphics.lineTo(segment.to.x, segment.to.y);
+        graphics.strokePath();
+      }
+
+      graphics.lineStyle(1.0, accentColor, 0.6);
+      graphics.beginPath();
+      graphics.moveTo(segment.from.x, segment.from.y);
+      graphics.lineTo(segment.to.x, segment.to.y);
+      graphics.strokePath();
+    }
+
+    // --- Wing-tip accents (bright dots with glow halo) ---
     for (const accent of currentTier.wingTipAccents) {
       graphics.fillStyle(accentColor, 0.9);
       graphics.fillCircle(accent.x, accent.y, currentTier.wingTipAccentRadius);
-      // Small glow around tip
       graphics.fillStyle(accentColor, 0.3);
       graphics.fillCircle(accent.x, accent.y, currentTier.wingTipAccentRadius + 2);
     }
-
-    // Nose accent line
-    graphics.lineStyle(0.8, accentColor, 0.4);
-    graphics.beginPath();
-    graphics.moveTo(hull.nose.x - 4, 0);
-    graphics.lineTo(hull.nose.x, 0);
-    graphics.strokePath();
-
-    // --- Tier 3+: Wing edge glow strips ---
-    if (currentTier.hasWingEdgeGlow) {
-      graphics.lineStyle(1.0, accentColor, 0.25);
-      // Right wing leading edge
-      graphics.beginPath();
-      graphics.moveTo(hull.upperCheek.x, hull.upperCheek.y);
-      graphics.lineTo(hull.rightWingRoot.x, hull.rightWingRoot.y);
-      graphics.lineTo(hull.rightWingTip.x, hull.rightWingTip.y);
-      graphics.strokePath();
-      // Left wing leading edge
-      graphics.beginPath();
-      graphics.moveTo(hull.lowerCheek.x, hull.lowerCheek.y);
-      graphics.lineTo(hull.leftWingRoot.x, hull.leftWingRoot.y);
-      graphics.lineTo(hull.leftWingTip.x, hull.leftWingTip.y);
-      graphics.strokePath();
-    }
-
-    // --- Tier 4+: Trailing edge accent ---
-    if (currentTier.hasTrailingEdgeAccent) {
-      graphics.lineStyle(0.8, accentColor, 0.35);
-      // Right wing trailing edge
-      graphics.beginPath();
-      graphics.moveTo(hull.rightWingTip.x, hull.rightWingTip.y);
-      graphics.lineTo(hull.rightWingTrail.x, hull.rightWingTrail.y);
-      graphics.strokePath();
-      // Left wing trailing edge
-      graphics.beginPath();
-      graphics.moveTo(hull.leftWingTip.x, hull.leftWingTip.y);
-      graphics.lineTo(hull.leftWingTrail.x, hull.leftWingTrail.y);
-      graphics.strokePath();
-    }
-
-    // --- Tier 5: Wing blade extensions ---
-    for (const blade of currentTier.wingBladeExtensions) {
-      graphics.lineStyle(1.5, accentColor, 0.7);
-      graphics.beginPath();
-      graphics.moveTo(blade.fromX, blade.fromY);
-      graphics.lineTo(blade.toX, blade.toY);
-      graphics.strokePath();
-      // Blade tip glow dot
-      graphics.fillStyle(accentColor, 0.6);
-      graphics.fillCircle(blade.toX, blade.toY, 1.5);
-    }
   }
 
-  /**
-   * Draw neon glow layers behind the hull
-   */
+  // ==============================
+  //  Glow Drawing (hull aura + edge bloom)
+  // ==============================
+
   private drawGlow(): void {
     const graphics = this.glowGraphics;
     graphics.clear();
@@ -776,12 +1011,22 @@ export class PlayerSpaceship {
     const multipliers = getGlowRadiusMultipliers(this.config.quality);
     const glowColor = lightenColor(this.lastHullColor, 0.35);
 
-    // Draw glow layers from outermost to innermost
+    // Draw glow layers from outermost to innermost (hull-shaped fills)
     for (let layerIndex = 0; layerIndex < alphas.length; layerIndex++) {
       const scale = multipliers[layerIndex];
       graphics.fillStyle(glowColor, alphas[layerIndex]);
-      this.drawScaledHullPath(graphics, currentTier.hull, scale);
+      this.drawScaledHullPath(graphics, currentTier.hullOutline, scale);
       graphics.fillPath();
+    }
+
+    // Edge bloom strokes (neon bleed on hull edges)
+    const edgeGlowLayers = this.config.quality === 'low' ? 1 : this.config.quality === 'medium' ? 2 : 3;
+    for (let i = 0; i < edgeGlowLayers; i++) {
+      const width = 6 - i * 1.5;
+      const alpha = 0.06 + i * 0.04;
+      graphics.lineStyle(width, glowColor, alpha);
+      this.drawHullPath(graphics, currentTier.hullOutline);
+      graphics.strokePath();
     }
 
     // --- Tier 5: Energy corona (pulsing outer aura) ---
@@ -793,35 +1038,16 @@ export class PlayerSpaceship {
         const layerScale = currentTier.coronaScale - i * 0.15;
         const layerAlpha = coronaPulse * (1 - i * 0.25);
         graphics.fillStyle(glowColor, Math.max(0.01, layerAlpha));
-        this.drawScaledHullPath(graphics, currentTier.hull, layerScale);
+        this.drawScaledHullPath(graphics, currentTier.hullOutline, layerScale);
         graphics.fillPath();
       }
     }
   }
 
-  /**
-   * Draw hull path scaled from center (for glow layers)
-   */
-  private drawScaledHullPath(graphics: Phaser.GameObjects.Graphics, hull: HullVertexSet, scale: number): void {
-    graphics.beginPath();
-    graphics.moveTo(hull.nose.x * scale, hull.nose.y * scale);
-    graphics.lineTo(hull.upperCheek.x * scale, hull.upperCheek.y * scale);
-    graphics.lineTo(hull.rightWingRoot.x * scale, hull.rightWingRoot.y * scale);
-    graphics.lineTo(hull.rightWingTip.x * scale, hull.rightWingTip.y * scale);
-    graphics.lineTo(hull.rightWingTrail.x * scale, hull.rightWingTrail.y * scale);
-    graphics.lineTo(hull.rightBodyJoin.x * scale, hull.rightBodyJoin.y * scale);
-    graphics.lineTo(hull.tailNotch.x * scale, hull.tailNotch.y * scale);
-    graphics.lineTo(hull.leftBodyJoin.x * scale, hull.leftBodyJoin.y * scale);
-    graphics.lineTo(hull.leftWingTrail.x * scale, hull.leftWingTrail.y * scale);
-    graphics.lineTo(hull.leftWingTip.x * scale, hull.leftWingTip.y * scale);
-    graphics.lineTo(hull.leftWingRoot.x * scale, hull.leftWingRoot.y * scale);
-    graphics.lineTo(hull.lowerCheek.x * scale, hull.lowerCheek.y * scale);
-    graphics.closePath();
-  }
+  // ==============================
+  //  Thrust Drawing (engine flames) - per frame
+  // ==============================
 
-  /**
-   * Draw engine thrust flames and energy pods (called every frame for animation)
-   */
   private drawThrust(normalizedSpeed: number): void {
     const graphics = this.thrustGraphics;
     graphics.clear();
@@ -842,11 +1068,11 @@ export class PlayerSpaceship {
     const thrustWidth = PlayerSpaceship.THRUST_WIDTH * (0.6 + thrustIntensity * 0.4);
     const thrustAlpha = 0.3 + thrustIntensity * 0.7;
 
-    // Thrust color shifts from blue to orange/white at high speed
+    // Tron thrust color: stays blue/cyan/white (not orange)
     const baseGlow = this.config.neonColor.glow;
-    const hotColor = 0xff8844;
+    const hotCyanColor = 0xaaddff;
     const thrustColor = normalizedSpeed > 0.4
-      ? this.lerpColor(baseGlow, hotColor, (normalizedSpeed - 0.4) * 1.2)
+      ? this.lerpColor(baseGlow, hotCyanColor, Math.min(1, (normalizedSpeed - 0.4) * 1.2))
       : baseGlow;
 
     // Draw each engine nozzle's flame
@@ -875,8 +1101,35 @@ export class PlayerSpaceship {
       this.drawFlamePath(graphics, nozzle.x, nozzle.y, length * 0.45, thrustWidth * 0.45);
       graphics.fillPath();
     }
+  }
 
-    // --- Energy pods (drawn on thrust layer for free per-frame animation) ---
+  /**
+   * Draw a single flame triangle (tapered, extending backward from nozzle)
+   */
+  private drawFlamePath(
+    graphics: Phaser.GameObjects.Graphics,
+    originX: number, originY: number,
+    length: number, width: number
+  ): void {
+    const halfWidth = width / 2;
+    graphics.beginPath();
+    graphics.moveTo(originX, originY - halfWidth);       // Top of nozzle
+    graphics.lineTo(originX - length, originY);           // Flame tip
+    graphics.lineTo(originX, originY + halfWidth);        // Bottom of nozzle
+    graphics.closePath();
+  }
+
+  // ==============================
+  //  Overlay Drawing (energy pods + pulse) - per frame, on top of hull
+  // ==============================
+
+  private drawOverlay(): void {
+    const graphics = this.overlayGraphics;
+    graphics.clear();
+
+    const currentTier = this.tier;
+
+    // --- Energy pods (pulsing glow orbs on wings) ---
     if (currentTier.energyPods.length > 0) {
       const podPulseAlpha = 0.6 + Math.sin(this.energyPodPulsePhase) * 0.25;
       const accentColor = lightenColor(this.lastHullColor, 0.6);
@@ -898,25 +1151,75 @@ export class PlayerSpaceship {
         graphics.fillCircle(pod.x, pod.y, currentTier.energyPodRadius * 0.4);
       }
     }
+
+    // --- Energy pulse animation (tier 3+) ---
+    if (currentTier.hasEnergyPulse && this.config.quality !== 'low') {
+      this.drawEnergyPulse(graphics);
+    }
   }
 
   /**
-   * Draw a single flame triangle (tapered, extending backward from nozzle)
+   * Draw animated energy pulse traveling along energy channels
    */
-  private drawFlamePath(
-    graphics: Phaser.GameObjects.Graphics,
-    originX: number, originY: number,
-    length: number, width: number
-  ): void {
-    const halfWidth = width / 2;
-    graphics.beginPath();
-    graphics.moveTo(originX, originY - halfWidth);       // Top of nozzle
-    graphics.lineTo(originX - length, originY);           // Flame tip
-    graphics.lineTo(originX, originY + halfWidth);        // Bottom of nozzle
-    graphics.closePath();
+  private drawEnergyPulse(graphics: Phaser.GameObjects.Graphics): void {
+    const currentTier = this.tier;
+    const accentColor = lightenColor(this.lastHullColor, 0.7);
+    const pulsePosition = this.energyPulsePhase;
+
+    for (const channel of currentTier.energyChannels) {
+      if (channel.path.length < 2) continue;
+
+      const totalLength = this.getPathLength(channel.path);
+      const pulseDistance = pulsePosition * totalLength;
+      const pulsePoint = this.getPointAlongPath(channel.path, pulseDistance);
+
+      // Bright pulse dot
+      graphics.fillStyle(accentColor, 0.9);
+      graphics.fillCircle(pulsePoint.x, pulsePoint.y, 2.0);
+
+      // Wider glow around pulse (high quality only)
+      if (this.config.quality === 'high') {
+        graphics.fillStyle(accentColor, 0.25);
+        graphics.fillCircle(pulsePoint.x, pulsePoint.y, 5.0);
+      }
+    }
   }
 
-  // --- Public API ---
+  // ==============================
+  //  Path utilities for energy pulse
+  // ==============================
+
+  private getPathLength(path: Point2D[]): number {
+    let totalLength = 0;
+    for (let i = 1; i < path.length; i++) {
+      const deltaX = path[i].x - path[i - 1].x;
+      const deltaY = path[i].y - path[i - 1].y;
+      totalLength += Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    }
+    return totalLength;
+  }
+
+  private getPointAlongPath(path: Point2D[], distance: number): Point2D {
+    let accumulatedLength = 0;
+    for (let i = 1; i < path.length; i++) {
+      const deltaX = path[i].x - path[i - 1].x;
+      const deltaY = path[i].y - path[i - 1].y;
+      const segmentLength = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      if (accumulatedLength + segmentLength >= distance) {
+        const interpolation = segmentLength > 0 ? (distance - accumulatedLength) / segmentLength : 0;
+        return {
+          x: path[i - 1].x + deltaX * interpolation,
+          y: path[i - 1].y + deltaY * interpolation,
+        };
+      }
+      accumulatedLength += segmentLength;
+    }
+    return path[path.length - 1];
+  }
+
+  // ==============================
+  //  Public API
+  // ==============================
 
   public onLevelUp(newLevel: number): EvolutionResult {
     const newTierIndex = getTierForLevel(newLevel);
@@ -999,7 +1302,9 @@ export class PlayerSpaceship {
     this.container.destroy();
   }
 
-  // --- Utility ---
+  // ==============================
+  //  Utilities
+  // ==============================
 
   private lerpColor(color1: number, color2: number, interpolationFactor: number): number {
     const red1 = (color1 >> 16) & 0xff;
@@ -1015,5 +1320,35 @@ export class PlayerSpaceship {
     const blendedBlue = Math.round(blue1 + (blue2 - blue1) * interpolationFactor);
 
     return (blendedRed << 16) | (blendedGreen << 8) | blendedBlue;
+  }
+
+  /**
+   * Flash the ship white for a brief moment (death/impact effect).
+   */
+  playDeathFlash(durationMs: number): void {
+    const scene = this.container.scene;
+    const bounds = this.container.getBounds();
+    const flashOverlay = scene.add.rectangle(
+      this.container.x, this.container.y,
+      bounds.width + 20, bounds.height + 20,
+      0xffffff, 0.9
+    );
+    flashOverlay.setDepth(this.container.depth + 1);
+    scene.tweens.add({
+      targets: flashOverlay,
+      alpha: 0,
+      duration: durationMs,
+      ease: 'Power2',
+      onComplete: () => flashOverlay.destroy(),
+    });
+  }
+
+  /**
+   * Hide the ship and return its world position (for death explosion).
+   */
+  explode(): { x: number; y: number } {
+    const worldPosition = { x: this.container.x, y: this.container.y };
+    this.container.setVisible(false);
+    return worldPosition;
   }
 }

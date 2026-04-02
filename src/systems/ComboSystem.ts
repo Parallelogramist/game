@@ -253,6 +253,18 @@ export function isComboBuffActive(): boolean {
 }
 
 /**
+ * Returns the remaining percentage (0-1) of the combo damage buff duration.
+ * Returns 0 when the buff is not active.
+ */
+export function getComboBuffRemainingPercent(): number {
+  const buffEffect = activeThresholdEffects.find(
+    (effect) => effect.type === 'damage_boost'
+  );
+  if (!buffEffect) return 0;
+  return Math.max(0, buffEffect.timer / COMBO_DAMAGE_BUFF_DURATION);
+}
+
+/**
  * Returns the additional damage multiplier granted by the combo damage buff.
  * 0.5 while active, 0 otherwise.
  */

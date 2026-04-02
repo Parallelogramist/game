@@ -29,6 +29,7 @@ export class WeaponManager {
 
   // Weapon slot limit system
   private maxWeaponSlots: number = 3;
+  private previousSynergyCount: number = 0;
 
   // Callbacks for game integration
   private onEnemyDamaged: ((enemyId: number, damage: number, isCrit: boolean) => void) | null = null;
@@ -40,6 +41,9 @@ export class WeaponManager {
 
   // Visual quality tier for weapon rendering
   private visualQuality: VisualQuality = 'high';
+
+  // Light flash sources for dynamic lighting (consumed by GameScene each frame)
+  lightFlashes: Array<{ x: number; y: number; radius: number; intensity: number; ttl: number }> = [];
 
   // Pooled context object - created once, updated each frame to avoid allocations
   private ctx: WeaponContext;
@@ -137,6 +141,12 @@ export class WeaponManager {
         weapon.applyMultipliers(synergyDamage, synergyCooldown);
       }
     }
+
+    // Play synergy sound when a new synergy is activated
+    if (this.activeSynergies.length > this.previousSynergyCount) {
+      this.soundManager.playSynergyActivation();
+    }
+    this.previousSynergyCount = this.activeSynergies.length;
   }
 
   /**
@@ -315,12 +325,15 @@ export class WeaponManager {
     if (combatStats) {
       if (combatStats.burnChance > 0 && Math.random() < combatStats.burnChance) {
         applyBurn(this.world, enemyId, actualDamage * 0.2, 3000, combatStats.burnDamageMultiplier);
+        this.soundManager.playBurnApply();
       }
       if (combatStats.freezeChance > 0 && Math.random() < combatStats.freezeChance) {
         applyFreeze(this.world, enemyId, 0.5, 2000, combatStats.freezeDurationMultiplier);
+        this.soundManager.playFreezeApply();
       }
       if (combatStats.poisonChance > 0 && Math.random() < combatStats.poisonChance) {
         applyPoison(this.world, enemyId, 1, 4000, combatStats.poisonMaxStacks);
+        this.soundManager.playPoisonApply();
       }
       // Life steal: heal player by percentage of damage dealt
       if (combatStats.lifeStealPercent > 0) {
@@ -353,6 +366,9 @@ export class WeaponManager {
     // Hit sparks (sparks fly back toward source)
     const sparkAngle = Math.atan2(sourceY - enemyY, sourceX - enemyX);
     this.effectsManager.playHitSparks(enemyX, enemyY, sparkAngle);
+
+    // Light flash for dynamic lighting
+    this.lightFlashes.push({ x: enemyX, y: enemyY, radius: 50, intensity: 0.6, ttl: 80 });
 
     // Hit sound (SoundManager has built-in 50ms throttling)
     this.soundManager.playHit();

@@ -3,6 +3,7 @@ import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrad
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
 import { TooltipManager } from '../../ui/TooltipManager';
+import { addButtonInteraction } from '../../utils/SceneTransition';
 
 /**
  * Data passed to UpgradeScene for initialization.
@@ -310,6 +311,7 @@ export class UpgradeScene extends Phaser.Scene {
         background.setFillStyle(0x3a3a6a);
       });
       background.on('pointerdown', onClick);
+      addButtonInteraction(this, background);
     }
 
     if (tooltip) {
@@ -471,6 +473,7 @@ export class UpgradeScene extends Phaser.Scene {
       this.destroyBanishConfirmation();
       onConfirm();
     });
+    addButtonInteraction(this, confirmBg);
 
     // Cancel button
     const cancelBg = this.add.rectangle(centerX + 60, centerY + 40, 100, 34, 0x2a2a4a)
@@ -486,6 +489,7 @@ export class UpgradeScene extends Phaser.Scene {
       this.soundManager.playUIClick();
       this.destroyBanishConfirmation();
     });
+    addButtonInteraction(this, cancelBg);
   }
 
   private destroyBanishConfirmation(): void {
@@ -823,7 +827,7 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private selectUpgrade(upgrade: Upgrade): void {
-    this.soundManager.playUIClick();
+    this.soundManager.playUpgradeSelect();
     // Prevent double selection
     this.input.keyboard?.removeAllListeners();
     this.upgradeCards.forEach((card) => {
@@ -852,15 +856,37 @@ export class UpgradeScene extends Phaser.Scene {
         }
       });
 
-      // Pulse selected card then close
+      // Flash card background white on selection
+      const cardBg = selectedCard.getAt(0);
+      if (cardBg instanceof Phaser.GameObjects.Rectangle) {
+        const originalFill = cardBg.fillColor;
+        cardBg.setFillStyle(0xffffff);
+        this.time.delayedCall(80, () => {
+          cardBg.setFillStyle(0x5a5aaa);
+          this.time.delayedCall(120, () => {
+            cardBg.setFillStyle(originalFill);
+          });
+        });
+      }
+
+      // Pulse selected card with bigger punch, then close
       this.tweens.add({
         targets: selectedCard,
-        scaleX: this.cardScaleFactor * 1.08,
-        scaleY: this.cardScaleFactor * 1.08,
-        duration: 120,
+        scaleX: this.cardScaleFactor * 1.12,
+        scaleY: this.cardScaleFactor * 1.12,
+        duration: 150,
         ease: 'Back.easeOut',
         onComplete: () => {
-          this.closeAndApply(upgrade);
+          this.tweens.add({
+            targets: selectedCard,
+            scaleX: this.cardScaleFactor * 1.05,
+            scaleY: this.cardScaleFactor * 1.05,
+            duration: 100,
+            ease: 'Quad.easeOut',
+            onComplete: () => {
+              this.closeAndApply(upgrade);
+            },
+          });
         },
       });
     } else {

@@ -5,7 +5,7 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
-import { fadeOut, fadeIn } from '../../utils/SceneTransition';
+import { fadeOut, fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 
@@ -292,6 +292,7 @@ export class BootScene extends Phaser.Scene {
         }
       });
 
+      addButtonInteraction(this, menuItem);
       this.menuItems.push(menuItem);
       this.menuActions.push(config.action);
       this.menuLabels.push(config.label);
@@ -385,6 +386,7 @@ export class BootScene extends Phaser.Scene {
       this.hideNewGameConfirmation();
       onConfirm();
     });
+    addButtonInteraction(this, yesButton);
     this.confirmationOverlay.add(yesButton);
 
     // NO button
@@ -399,6 +401,7 @@ export class BootScene extends Phaser.Scene {
       this.soundManager.playUIClick();
       this.hideNewGameConfirmation();
     });
+    addButtonInteraction(this, noButton);
     this.confirmationOverlay.add(noButton);
 
     // ESC hint

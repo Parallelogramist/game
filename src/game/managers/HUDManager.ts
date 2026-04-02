@@ -21,6 +21,7 @@ interface BossHealthBar {
   barFill: Phaser.GameObjects.Rectangle;
   healthText: Phaser.GameObjects.Text;
   glowGraphics: Phaser.GameObjects.Graphics;
+  lastHP: number;
 }
 
 export interface HUDUpdateState {
@@ -36,6 +37,8 @@ export interface HUDUpdateState {
   comboCount: number;
   comboTier: string;
   comboDecayPercent: number;
+  comboBuffActive: boolean;
+  comboBuffPercent: number;
   bossHealthData: Array<{ entityId: number; currentHP: number; maxHP: number }>;
 }
 
@@ -92,6 +95,7 @@ export class HUDManager {
   private hpText!: Phaser.GameObjects.Text;
   private hpGlowGraphics!: Phaser.GameObjects.Graphics;
   private lastHPThreshold: 'green' | 'yellow' | 'red' = 'green';
+  private lastPlayerHP: number = -1;
 
   // Upgrade icons UI
   private upgradeIconsContainer!: Phaser.GameObjects.Container;
@@ -132,6 +136,7 @@ export class HUDManager {
   private previousComboCount: number = 0;
   private previousComboTier: string = 'none';
   private comboEdgeGlow: Phaser.GameObjects.Graphics | null = null;
+  private comboBuffText: Phaser.GameObjects.Text | null = null;
 
   // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
   private masteryIconEffects: MasteryIconEffectsManager;
@@ -415,6 +420,21 @@ export class HUDManager {
     comboProgressBar.setDepth(HUD_DEPTH);
     comboProgressBar.setAlpha(0);
 
+    // Combo buff timer text (shows during 50-kill damage buff)
+    this.comboBuffText = this.scene.add.text(
+      this.scene.scale.width - this.scaledSize(10),
+      this.scaledSize(95),
+      '',
+      {
+        fontSize: this.scaledFontSize(12),
+        color: '#ff8844',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: this.scaledSize(2),
+      }
+    ).setOrigin(1, 0).setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
+
     // Screen-edge glow for combo feedback (below HUD, above gameplay)
     this.comboEdgeGlow = this.scene.add.graphics();
     this.comboEdgeGlow.setDepth(HUD_DEPTH - 2);
@@ -610,12 +630,30 @@ export class HUDManager {
         }
 
         // Screen-edge glow (redraw only on tier change, modulate alpha per frame)
+        // Override glow to pulsing orange during 50-kill damage buff
         if (this.comboEdgeGlow) {
-          if (state.comboTier !== this.previousComboTier) {
-            this.drawComboEdgeGlow(tierHexColors[state.comboTier] || 0xffffff);
+          if (state.comboBuffActive) {
+            this.drawComboEdgeGlow(0xff8844);
+            const pulseAlpha = 0.3 + 0.2 * Math.sin(Date.now() * 0.004);
+            this.comboEdgeGlow.setAlpha(pulseAlpha);
+          } else {
+            if (state.comboTier !== this.previousComboTier) {
+              this.drawComboEdgeGlow(tierHexColors[state.comboTier] || 0xffffff);
+            }
+            const edgeGlowAlpha = state.comboTier === 'none' ? 0 : comboAlpha * 0.6;
+            this.comboEdgeGlow.setAlpha(edgeGlowAlpha);
           }
-          const edgeGlowAlpha = state.comboTier === 'none' ? 0 : comboAlpha * 0.6;
-          this.comboEdgeGlow.setAlpha(edgeGlowAlpha);
+        }
+
+        // Combo buff timer text
+        if (this.comboBuffText) {
+          if (state.comboBuffActive) {
+            const remainingSeconds = (state.comboBuffPercent * 8).toFixed(1);
+            this.comboBuffText.setText(`POWER ${remainingSeconds}s`);
+            this.comboBuffText.setAlpha(0.7 + 0.3 * Math.sin(Date.now() * 0.005));
+          } else {
+            this.comboBuffText.setAlpha(0);
+          }
         }
       } else {
         comboText.setAlpha(0);
@@ -625,6 +663,9 @@ export class HUDManager {
         }
         if (this.comboEdgeGlow) {
           this.comboEdgeGlow.setAlpha(0);
+        }
+        if (this.comboBuffText) {
+          this.comboBuffText.setAlpha(0);
         }
       }
     }
@@ -684,6 +725,22 @@ export class HUDManager {
     const hpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
     const hpProgress = Math.max(0, state.currentHP / state.maxHP);
     this.hpBarFill.width = hpBarMaxWidth * hpProgress;
+
+    // HP damage flash: brief white pulse when player takes damage
+    if (this.lastPlayerHP >= 0 && state.currentHP < this.lastPlayerHP) {
+      this.hpBarFill.setFillStyle(0xffffff);
+      this.scene.time.delayedCall(80, () => {
+        // Restore threshold color (will be set below on next frame)
+        if (hpProgress > 0.5) {
+          this.hpBarFill.setFillStyle(0x44ff44);
+        } else if (hpProgress > 0.25) {
+          this.hpBarFill.setFillStyle(0xffff44);
+        } else {
+          this.hpBarFill.setFillStyle(0xff4444);
+        }
+      });
+    }
+    this.lastPlayerHP = state.currentHP;
 
     // Update HP text
     this.hpText.setText(`${Math.ceil(state.currentHP)}/${Math.ceil(state.maxHP)}`);
@@ -746,6 +803,19 @@ export class HUDManager {
       );
       if (bossData) {
         const bossProgress = Math.max(0, bossData.currentHP / bossData.maxHP);
+
+        // Damage flash: brief red-white pulse when boss takes significant damage
+        if (bossBar.lastHP >= 0 && bossData.currentHP < bossBar.lastHP) {
+          const damageFraction = (bossBar.lastHP - bossData.currentHP) / bossData.maxHP;
+          if (damageFraction > 0.01) {
+            const fillColor = bossBar.isFinalBoss ? 0x990066 : 0xcc0000;
+            bossBar.barFill.setFillStyle(0xff8888);
+            this.scene.time.delayedCall(80, () => {
+              bossBar.barFill.setFillStyle(fillColor);
+            });
+          }
+        }
+        bossBar.lastHP = bossData.currentHP;
 
         // Smooth health bar decrease with lerp
         const targetWidth = barMaxWidth * bossProgress;
@@ -1022,6 +1092,7 @@ export class HUDManager {
       barFill,
       healthText,
       glowGraphics,
+      lastHP: -1,
     };
 
     this.activeBossHealthBars.push(bossBar);
@@ -1393,10 +1464,14 @@ export class HUDManager {
   }
 
   destroy(): void {
-    // Destroy combo edge glow
+    // Destroy combo edge glow and buff text
     if (this.comboEdgeGlow) {
       this.comboEdgeGlow.destroy();
       this.comboEdgeGlow = null;
+    }
+    if (this.comboBuffText) {
+      this.comboBuffText.destroy();
+      this.comboBuffText = null;
     }
 
     // Destroy HUD bar glow tweens

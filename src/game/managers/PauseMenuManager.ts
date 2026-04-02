@@ -731,6 +731,37 @@ export class PauseMenuManager {
     victoryText.setDepth(PAUSE_MENU_DEPTH + 1);
     victoryText.setName('victoryText');
 
+    // Pulse animation on VICTORY! text
+    this.scene.tweens.add({
+      targets: victoryText,
+      scaleX: 1.05,
+      scaleY: 1.05,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    // Gold confetti particle rain
+    if (this.scene.textures.exists('particle')) {
+      const confettiEmitter = this.scene.add.particles(
+        this.scene.scale.width / 2, -10, 'particle', {
+          x: { min: -this.scene.scale.width / 2, max: this.scene.scale.width / 2 },
+          speed: { min: 40, max: 120 },
+          angle: { min: 70, max: 110 },
+          scale: { start: 1.5, end: 0.3 },
+          lifespan: { min: 2000, max: 3500 },
+          alpha: { start: 0.9, end: 0 },
+          tint: [0xffd700, 0xffec8b, 0xffffff, 0xffdd44, 0xff8800],
+          frequency: 60,
+          quantity: 2,
+        }
+      );
+      confettiEmitter.setDepth(PAUSE_MENU_DEPTH + 3);
+      confettiEmitter.setScrollFactor(0);
+      confettiEmitter.setName('victoryConfetti');
+    }
+
     const messageText = this.scene.add.text(
       this.scene.scale.width / 2,
       this.scene.scale.height / 2 + 20,
@@ -918,6 +949,7 @@ export class PauseMenuManager {
       'victoryNextWorldButtonText',
       'victoryGoldPreview',
       'victoryStreak',
+      'victoryConfetti',
     ];
     elementsToRemove.forEach((name) => {
       const element = this.scene.children.getByName(name);

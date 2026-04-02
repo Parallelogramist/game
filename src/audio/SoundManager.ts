@@ -55,6 +55,12 @@ export class SoundManager {
   // Throttling for rapid sounds
   private lastHitTime: number = 0;
   private readonly HIT_SOUND_COOLDOWN = 50; // ms between hit sounds
+  private lastBurnSoundTime: number = 0;
+  private lastFreezeSoundTime: number = 0;
+  private lastPoisonSoundTime: number = 0;
+  private readonly STATUS_SOUND_COOLDOWN = 100; // ms between status effect sounds
+  private lastMagnetSoundTime: number = 0;
+  private readonly MAGNET_SOUND_COOLDOWN = 500;
 
   // XP melody state - creates ascending/descending wind-chime patterns
   private xpNoteIndex: number = XP_SCALE_START;
@@ -349,6 +355,173 @@ export class SoundManager {
         volume: volume * 1.0,
       });
     });
+  }
+
+  /**
+   * Play game over stinger — descending dissonant doom chord.
+   * Bb3 (dissonant) → C3 (low) → sub-bass rumble for finality.
+   */
+  playGameOver(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.PLAYER_HURT, {
+      rate: DISSONANT_WARNING, // Bb3
+      volume: volume * 1.3,
+    });
+    this.scene.time.delayedCall(80, () => {
+      this.play(SoundKeys.HIT, {
+        rate: PENTATONIC_SCALE[0], // C3
+        volume: volume * 0.8,
+      });
+    });
+    this.scene.time.delayedCall(160, () => {
+      this.play(SoundKeys.HIT, {
+        rate: 0.4, // sub-bass below C3
+        volume: volume * 0.6,
+      });
+    });
+    this.scene.time.delayedCall(300, () => {
+      this.play(SoundKeys.PLAYER_HURT, {
+        rate: 0.35, // very low lingering rumble
+        volume: volume * 0.4,
+      });
+    });
+  }
+
+  /**
+   * Play victory fanfare — grand ascending arpeggio with sparkle accents.
+   * G3 → C4 → E4 → G4 → C5 with trailing sparkles.
+   */
+  playVictoryFanfare(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    const fanfareNotes = [
+      { key: SoundKeys.LEVEL_UP, rate: PENTATONIC_SCALE[3], delay: 0, vol: 0.6 },    // G3
+      { key: SoundKeys.LEVEL_UP, rate: PENTATONIC_SCALE[5], delay: 80, vol: 0.8 },   // C4
+      { key: SoundKeys.LEVEL_UP, rate: PENTATONIC_SCALE[7], delay: 160, vol: 1.0 },  // E4
+      { key: SoundKeys.LEVEL_UP, rate: PENTATONIC_SCALE[8], delay: 240, vol: 1.1 },  // G4
+      { key: SoundKeys.LEVEL_UP, rate: PENTATONIC_SCALE[10], delay: 360, vol: 1.3 }, // C5
+      { key: SoundKeys.PICKUP_XP, rate: PENTATONIC_SCALE[12], delay: 460, vol: 0.6 }, // E5 sparkle
+      { key: SoundKeys.PICKUP_XP, rate: PENTATONIC_SCALE[10], delay: 540, vol: 0.4 }, // C5 trailing
+    ];
+    for (const note of fanfareNotes) {
+      if (note.delay === 0) {
+        this.play(note.key, { rate: note.rate, volume: volume * note.vol });
+      } else {
+        this.scene.time.delayedCall(note.delay, () => {
+          this.play(note.key, { rate: note.rate, volume: volume * note.vol });
+        });
+      }
+    }
+  }
+
+  /**
+   * Play burn application — high-frequency crackling sizzle.
+   * Rapid descending E5 → D5 → C5 hits for fire feel.
+   */
+  playBurnApply(): void {
+    const now = Date.now();
+    if (now - this.lastBurnSoundTime < this.STATUS_SOUND_COOLDOWN) return;
+    this.lastBurnSoundTime = now;
+
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.HIT, { rate: PENTATONIC_SCALE[12], volume: volume * 0.25 }); // E5
+    this.scene.time.delayedCall(30, () => {
+      this.play(SoundKeys.HIT, { rate: PENTATONIC_SCALE[11], volume: volume * 0.2 }); // D5
+    });
+    this.scene.time.delayedCall(60, () => {
+      this.play(SoundKeys.HIT, { rate: PENTATONIC_SCALE[10], volume: volume * 0.15 }); // C5
+    });
+  }
+
+  /**
+   * Play freeze application — crystal clink chord.
+   * Simultaneous C5 + E5 using pickup chime for icy shimmer.
+   */
+  playFreezeApply(): void {
+    const now = Date.now();
+    if (now - this.lastFreezeSoundTime < this.STATUS_SOUND_COOLDOWN) return;
+    this.lastFreezeSoundTime = now;
+
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[10], volume: volume * 0.25 }); // C5
+    this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[12], volume: volume * 0.2 });  // E5
+  }
+
+  /**
+   * Play poison application — deep wet bubbles.
+   * Low C3 → D3 using health pickup for bubbly ominous feel.
+   */
+  playPoisonApply(): void {
+    const now = Date.now();
+    if (now - this.lastPoisonSoundTime < this.STATUS_SOUND_COOLDOWN) return;
+    this.lastPoisonSoundTime = now;
+
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.PICKUP_HEALTH, { rate: PENTATONIC_SCALE[0], volume: volume * 0.3 }); // C3
+    this.scene.time.delayedCall(50, () => {
+      this.play(SoundKeys.PICKUP_HEALTH, { rate: PENTATONIC_SCALE[1], volume: volume * 0.25 }); // D3
+    });
+  }
+
+  /**
+   * Play weapon evolution — dramatic ascending power chord fifths.
+   * C3+G3 → C4+G4 → C5+E5 for epic transformation feel.
+   */
+  playWeaponEvolution(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    // First power chord: C3 + G3
+    this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[0], volume: volume * 0.7 });
+    this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[3], volume: volume * 0.6 });
+    // Second power chord: C4 + G4
+    this.scene.time.delayedCall(120, () => {
+      this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[5], volume: volume * 0.9 });
+      this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[8], volume: volume * 0.8 });
+    });
+    // Final triumphant chord: C5 + E5
+    this.scene.time.delayedCall(240, () => {
+      this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[10], volume: volume * 1.1 });
+      this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[12], volume: volume * 0.7 });
+    });
+  }
+
+  /**
+   * Play upgrade selection — bright decisive confirmation.
+   * E4 → C5 using pickup chime, brighter than generic UI click.
+   */
+  playUpgradeSelect(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[7], volume: volume * 0.5 }); // E4
+    this.scene.time.delayedCall(40, () => {
+      this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[10], volume: volume * 0.5 }); // C5
+    });
+  }
+
+  /**
+   * Play magnet activation — ascending gathering whoosh.
+   * G4 → A4 → C5 rapid chime suggests items pulling inward.
+   */
+  playMagnetActivation(): void {
+    const now = Date.now();
+    if (now - this.lastMagnetSoundTime < this.MAGNET_SOUND_COOLDOWN) return;
+    this.lastMagnetSoundTime = now;
+
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[8], volume: volume * 0.4 });  // G4
+    this.scene.time.delayedCall(40, () => {
+      this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[9], volume: volume * 0.4 }); // A4
+    });
+    this.scene.time.delayedCall(80, () => {
+      this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[10], volume: volume * 0.45 }); // C5
+    });
+  }
+
+  /**
+   * Play weapon synergy activation — harmonic major third resonance.
+   * Simultaneous C4 + E4 chord for a "connection" feel.
+   */
+  playSynergyActivation(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[5], volume: volume * 0.4 }); // C4
+    this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[7], volume: volume * 0.4 }); // E4
   }
 
   /**

@@ -254,6 +254,7 @@ export class SettingsScene extends Phaser.Scene {
         }
       });
 
+      addButtonInteraction(this, button);
       this.playbackModeButtons.push(button);
     });
 
@@ -274,6 +275,7 @@ export class SettingsScene extends Phaser.Scene {
     this.musicTracksButton.on('pointerdown', () => {
       this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
     });
+    addButtonInteraction(this, this.musicTracksButton);
 
     currentY += sectionSpacing;
 
@@ -428,6 +430,7 @@ export class SettingsScene extends Phaser.Scene {
         this.updateDamageNumberButtons();
       });
 
+      addButtonInteraction(this, button);
       this.damageNumberButtons.push(button);
     });
 
@@ -480,6 +483,7 @@ export class SettingsScene extends Phaser.Scene {
     this.resetDataButton.on('pointerdown', () => {
       this.showResetConfirmation();
     });
+    addButtonInteraction(this, this.resetDataButton);
 
     this.add.text(centerX, currentY + scaledInt(ls, 20), 'Erases all progress, upgrades, achievements, and settings', {
       fontSize: scaledFontPx(fs, 11),
@@ -544,6 +548,7 @@ export class SettingsScene extends Phaser.Scene {
       onChange();
     });
 
+    addButtonInteraction(this, toggle);
     return toggle;
   }
 
@@ -565,6 +570,7 @@ export class SettingsScene extends Phaser.Scene {
       onClick();
     });
 
+    addButtonInteraction(this, button);
     return button;
   }
 
@@ -1021,6 +1027,7 @@ export class SettingsScene extends Phaser.Scene {
       localStorage.clear();
       window.location.reload();
     });
+    addButtonInteraction(this, confirmButton);
 
     const cancelButton = this.add.text(centerX + scaledInt(ls, 80), centerY + scaledInt(ls, 50), '[ Cancel ]', {
       fontSize: scaledFontPx(fs, 18),
@@ -1033,6 +1040,7 @@ export class SettingsScene extends Phaser.Scene {
     cancelButton.on('pointerdown', () => {
       this.dismissResetConfirmation();
     });
+    addButtonInteraction(this, cancelButton);
 
     this.confirmButtonRef = confirmButton;
     this.cancelButtonRef = cancelButton;

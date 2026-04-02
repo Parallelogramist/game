@@ -308,6 +308,7 @@ export class ShopScene extends Phaser.Scene {
         this.updateFocusVisuals();
       });
 
+      addButtonInteraction(this, tabBg);
       this.categoryTabs.set(category.id, tabContainer);
     });
   }
@@ -549,6 +550,7 @@ export class ShopScene extends Phaser.Scene {
         // Shift+click for full refund, normal click for single level
         this.refundUpgrade(upgrade.id, pointer.event.shiftKey);
       });
+      addButtonInteraction(this, refundButton);
     }
 
     // Add lock overlay for locked cards with unlock requirement
@@ -622,6 +624,7 @@ export class ShopScene extends Phaser.Scene {
       buyButton.on('pointerdown', () => {
         this.purchaseUpgrade(upgrade.id);
       });
+      addButtonInteraction(this, buyButton);
     }
 
     // Add to scrollable container
@@ -1157,6 +1160,7 @@ export class ShopScene extends Phaser.Scene {
       cleanup();
       this.performAscension();
     });
+    addButtonInteraction(this, confirmButton);
 
     cancelButton.on('pointerover', () => cancelButton.setColor('#ffffff'));
     cancelButton.on('pointerout', () => cancelButton.setColor('#888888'));
@@ -1164,6 +1168,7 @@ export class ShopScene extends Phaser.Scene {
       this.soundManager.playUIClick();
       cleanup();
     });
+    addButtonInteraction(this, cancelButton);
   }
 
   /**

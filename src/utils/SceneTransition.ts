@@ -76,7 +76,7 @@ export function fadeIn(scene: Phaser.Scene, duration: number): void {
  */
 export function addButtonInteraction(
   scene: Phaser.Scene,
-  button: Phaser.GameObjects.Text | Phaser.GameObjects.Rectangle
+  button: Phaser.GameObjects.GameObject & { scaleX?: number; scaleY?: number }
 ): void {
   button.on('pointerover', () => {
     scene.tweens.killTweensOf(button);
