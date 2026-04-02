@@ -536,6 +536,25 @@ export class ShopScene extends Phaser.Scene {
       });
     }
 
+    // Add lock overlay for locked cards with unlock requirement
+    let lockOverlay: Phaser.GameObjects.Rectangle | undefined;
+    let lockText: Phaser.GameObjects.Text | undefined;
+    if (!isUnlocked) {
+      lockOverlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.4);
+      cardContainer.add(lockOverlay);
+
+      const accountLevel = metaManager.getAccountLevel();
+      lockText = this.add.text(0, 0, `Requires\nAccount Lv. ${upgrade.unlockLevel}\n(${accountLevel}/${upgrade.unlockLevel})`, {
+        fontSize: '13px',
+        fontFamily: 'Arial',
+        color: '#ff8844',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 3,
+      }).setOrigin(0.5);
+      cardContainer.add(lockText);
+    }
+
     // Store card elements
     const cardElements: UpgradeCardElements = {
       container: cardContainer,
@@ -545,6 +564,8 @@ export class ShopScene extends Phaser.Scene {
       buyButton,
       cardBg,
       upgrade,
+      lockOverlay,
+      lockText,
       refundButton,
       refundText,
     };

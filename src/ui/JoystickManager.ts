@@ -10,9 +10,9 @@ import Phaser from 'phaser';
 
 // Configuration
 const JOYSTICK_BASE_RADIUS = 70;
-const JOYSTICK_KNOB_RADIUS = 25;
+const JOYSTICK_KNOB_RADIUS = 32;
 const JOYSTICK_DEAD_ZONE = 10;
-const JOYSTICK_ALPHA = 0.55;
+const JOYSTICK_ALPHA = 0.7;
 const JOYSTICK_DEPTH = 999;
 
 interface JoystickState {
@@ -27,6 +27,8 @@ export class JoystickManager {
   private scene: Phaser.Scene;
   private baseCircle: Phaser.GameObjects.Arc | null = null;
   private knobCircle: Phaser.GameObjects.Arc | null = null;
+  private baseShadow: Phaser.GameObjects.Arc | null = null;
+  private knobShadow: Phaser.GameObjects.Arc | null = null;
   private activePointerId: number = -1;
   private enabled: boolean = true;
 
@@ -115,11 +117,21 @@ export class JoystickManager {
     this.state.directionX = 0;
     this.state.directionY = 0;
 
+    // Create shadow behind base for contrast against light backgrounds
+    this.baseShadow = this.scene.add.circle(x + 2, y + 2, JOYSTICK_BASE_RADIUS, 0x000000, 0.3);
+    this.baseShadow.setDepth(JOYSTICK_DEPTH - 1);
+    this.baseShadow.setScrollFactor(0);
+
     // Create base circle (outer ring)
-    this.baseCircle = this.scene.add.circle(x, y, JOYSTICK_BASE_RADIUS, 0xffffff, 0.15);
-    this.baseCircle.setStrokeStyle(2, 0xffffff, JOYSTICK_ALPHA);
+    this.baseCircle = this.scene.add.circle(x, y, JOYSTICK_BASE_RADIUS, 0xffffff, 0.22);
+    this.baseCircle.setStrokeStyle(3, 0xffffff, JOYSTICK_ALPHA);
     this.baseCircle.setDepth(JOYSTICK_DEPTH);
     this.baseCircle.setScrollFactor(0);
+
+    // Create shadow behind knob for contrast
+    this.knobShadow = this.scene.add.circle(x + 2, y + 2, JOYSTICK_KNOB_RADIUS, 0x000000, 0.3);
+    this.knobShadow.setDepth(JOYSTICK_DEPTH);
+    this.knobShadow.setScrollFactor(0);
 
     // Create knob circle (inner thumb)
     this.knobCircle = this.scene.add.circle(x, y, JOYSTICK_KNOB_RADIUS, 0xffffff, JOYSTICK_ALPHA);
@@ -147,8 +159,13 @@ export class JoystickManager {
       clampedY = deltaY * scale;
     }
 
-    // Update knob visual position
-    this.knobCircle.setPosition(this.state.baseX + clampedX, this.state.baseY + clampedY);
+    // Update knob visual position (and shadow)
+    const knobX = this.state.baseX + clampedX;
+    const knobY = this.state.baseY + clampedY;
+    this.knobCircle.setPosition(knobX, knobY);
+    if (this.knobShadow) {
+      this.knobShadow.setPosition(knobX + 2, knobY + 2);
+    }
 
     // Calculate normalized direction (-1 to 1)
     if (distance > JOYSTICK_DEAD_ZONE) {
@@ -166,9 +183,17 @@ export class JoystickManager {
     this.state.directionY = 0;
     this.activePointerId = -1;
 
+    if (this.baseShadow) {
+      this.baseShadow.destroy();
+      this.baseShadow = null;
+    }
     if (this.baseCircle) {
       this.baseCircle.destroy();
       this.baseCircle = null;
+    }
+    if (this.knobShadow) {
+      this.knobShadow.destroy();
+      this.knobShadow = null;
     }
     if (this.knobCircle) {
       this.knobCircle.destroy();

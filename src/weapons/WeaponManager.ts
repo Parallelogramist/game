@@ -149,10 +149,10 @@ export class WeaponManager {
    * Check all weapons for evolution readiness.
    * Returns the first evolution that triggers, or null.
    */
-  public checkEvolutions(statUpgrades: { id: string; currentLevel: number }[]): { weapon: BaseWeapon; evolution: WeaponEvolution } | null {
+  public checkEvolutions(statUpgrades: { id: string; currentLevel: number }[], evolutionLevelReduction: number = 0): { weapon: BaseWeapon; evolution: WeaponEvolution } | null {
     for (const weapon of this.weapons.values()) {
       if (weapon.isEvolved) continue;
-      const evolution = checkEvolutionReady(weapon.id, weapon.getLevel(), statUpgrades);
+      const evolution = checkEvolutionReady(weapon.id, weapon.getLevel(), statUpgrades, evolutionLevelReduction);
       if (evolution) {
         weapon.evolve(evolution.evolvedName, evolution.statMultipliers);
         return { weapon, evolution };

@@ -55,7 +55,8 @@ import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, getComboState, restoreComboState } from '../../systems/ComboSystem';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
-import { HUDManager, UpgradeIconData } from '../managers/HUDManager';
+import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
+import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
 
 // Module-level queries (defined once, not per-frame)
@@ -163,10 +164,14 @@ export class GameScene extends Phaser.Scene {
   private bossSpawnTime = TUNING.bosses.spawnTime;
   private bossSpawned = false;
 
+  // Weapon evolution level reduction from shop upgrade
+  private evolutionLevelReduction: number = 0;
+
   // Boss warning sequence
   private bossWarningPhase: number = 0; // 0=none, 1=stirs, 2=trembles, 3=incoming
   private bossWarningText: Phaser.GameObjects.Text | null = null;
   private bossWarningVignette: Phaser.GameObjects.Graphics | null = null;
+  private bossCountdownText: Phaser.GameObjects.Text | null = null;
 
   // Endless mode (post-victory continuation)
   private endlessModeActive = false;
@@ -374,6 +379,7 @@ export class GameScene extends Phaser.Scene {
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
     this.bossWarningPhase = 0;
+    this.bossCountdownText = null;
     this.endlessModeActive = false;
     this.endlessModeTime = 0;
     this.endlessMinibossTimer = 0;
@@ -507,6 +513,7 @@ export class GameScene extends Phaser.Scene {
     this.playerStats.ultimateMastery *= metaManager.getStartingUltimateMastery();
     this.playerStats.weaponSlots += metaManager.getStartingWeaponSlots();
     this.playerStats.weaponSynergy += metaManager.getStartingSynergyBonus();
+    this.evolutionLevelReduction = metaManager.getStartingEvolutionBonus();
 
     // ═══ ADVANCED ELEMENTAL ═══
     this.playerStats.shatterBonus += metaManager.getStartingShatterBonus();
@@ -1679,10 +1686,24 @@ export class GameScene extends Phaser.Scene {
     }
     const weapons = this.weaponManager.getAllWeapons();
     for (const weapon of weapons) {
+      // Look up evolution requirements for this weapon
+      let evolutionInfo: EvolutionInfo | undefined;
+      const evolution = getEvolutionForWeapon(weapon.id);
+      if (evolution) {
+        const statUpgrade = this.upgrades.find(u => u.id === evolution.requiredStatId);
+        evolutionInfo = {
+          requiredWeaponLevel: Math.max(1, evolution.requiredWeaponLevel - this.evolutionLevelReduction),
+          requiredStatName: statUpgrade?.name ?? evolution.requiredStatId,
+          requiredStatLevel: evolution.requiredStatLevel,
+          currentStatLevel: statUpgrade?.currentLevel ?? 0,
+          isEvolved: weapon.isEvolved,
+          evolvedName: evolution.evolvedName,
+        };
+      }
       result.push({
         id: weapon.id, icon: weapon.icon, name: weapon.name,
         description: weapon.description, currentLevel: weapon.getLevel(),
-        maxLevel: weapon.maxLevel, type: 'weapon',
+        maxLevel: weapon.maxLevel, type: 'weapon', evolutionInfo,
       });
     }
     return result;
@@ -3161,6 +3182,31 @@ export class GameScene extends Phaser.Scene {
       this.bossWarningVignette.fillRect(screenWidth - vignetteThickness, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
     }
 
+    // Update countdown timer during phase 2+
+    if (this.bossWarningPhase >= 2 && !this.bossSpawned) {
+      const timeRemaining = Math.max(0, Math.ceil(this.bossSpawnTime - this.gameTime));
+      const countdownMinutes = Math.floor(timeRemaining / 60);
+      const countdownSeconds = timeRemaining % 60;
+      const countdownStr = `${countdownMinutes}:${countdownSeconds.toString().padStart(2, '0')}`;
+
+      if (!this.bossCountdownText) {
+        this.bossCountdownText = this.add.text(screenCenterX, screenCenterY + 50, '', {
+          fontFamily: 'monospace',
+          fontSize: '22px',
+          color: '#ff6644',
+          stroke: '#000000',
+          strokeThickness: 3,
+          align: 'center',
+        }).setOrigin(0.5).setDepth(warningDepth);
+      }
+      this.bossCountdownText.setText(countdownStr);
+      // Pulse red in last 10 seconds
+      if (timeRemaining <= 10) {
+        this.bossCountdownText.setColor('#ff2222');
+        this.bossCountdownText.setAlpha(0.6 + 0.4 * Math.abs(Math.sin(this.gameTime * 4)));
+      }
+    }
+
     // Phase 3: "BOSS INCOMING" at bossSpawnTime - 5
     if (this.bossWarningPhase < 3 && this.gameTime >= this.bossSpawnTime - 5) {
       this.bossWarningPhase = 3;
@@ -3223,6 +3269,10 @@ export class GameScene extends Phaser.Scene {
     if (this.bossWarningVignette) {
       this.bossWarningVignette.destroy();
       this.bossWarningVignette = null;
+    }
+    if (this.bossCountdownText) {
+      this.bossCountdownText.destroy();
+      this.bossCountdownText = null;
     }
   }
 
@@ -4198,6 +4248,9 @@ export class GameScene extends Phaser.Scene {
       // Weapon slot warning info
       isLastWeaponSlot,
       weaponSlotsInfo: { current: currentWeapons, max: maxWeapons },
+      // Break gate and milestone data
+      allStatUpgrades: this.upgrades,
+      playerLevel: this.playerStats.level,
       onSelect: (selectedUpgrade: CombinedUpgrade) => {
         this.applyCombinedUpgrade(selectedUpgrade);
         handleSelectionComplete();
@@ -4285,7 +4338,7 @@ export class GameScene extends Phaser.Scene {
 
     // Check for weapon evolutions after every upgrade
     const statUpgrades = this.upgrades.map(u => ({ id: u.id, currentLevel: u.currentLevel }));
-    const evolutionResult = this.weaponManager.checkEvolutions(statUpgrades);
+    const evolutionResult = this.weaponManager.checkEvolutions(statUpgrades, this.evolutionLevelReduction);
     if (evolutionResult && this.toastManager) {
       // Dramatic evolution celebration
       const evolutionJuice = getJuiceManager();

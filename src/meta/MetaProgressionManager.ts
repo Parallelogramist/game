@@ -845,7 +845,7 @@ export class MetaProgressionManager {
 
   /**
    * Returns curse level (harder enemies, better rewards).
-   * Each level: +20% enemy stats, +15% rewards.
+   * Each level: +15% enemy stats & rewards.
    */
   getStartingCurseLevel(): number {
     return this.upgradeState['curseLevel'] ?? 0;

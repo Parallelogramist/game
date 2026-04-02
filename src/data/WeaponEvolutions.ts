@@ -231,14 +231,16 @@ export function getAllEvolutions(): WeaponEvolution[] {
 export function checkEvolutionReady(
   weaponId: string,
   weaponLevel: number,
-  statUpgrades: { id: string; currentLevel: number }[]
+  statUpgrades: { id: string; currentLevel: number }[],
+  evolutionLevelReduction: number = 0
 ): WeaponEvolution | null {
   const evolution = evolutionsByWeaponId.get(weaponId);
   if (!evolution) {
     return null;
   }
 
-  if (weaponLevel < evolution.requiredWeaponLevel) {
+  const effectiveRequiredLevel = Math.max(1, evolution.requiredWeaponLevel - evolutionLevelReduction);
+  if (weaponLevel < effectiveRequiredLevel) {
     return null;
   }
 

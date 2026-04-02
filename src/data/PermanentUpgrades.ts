@@ -746,7 +746,7 @@ const UTILITY_UPGRADES: PermanentUpgrade[] = [
     maxLevel: 5,
     baseCost: 200,
     costScaling: 1.5,
-    getEffect: (level) => (level > 0 ? `+${level * 20}% enemy stats, +${level * 15}% rewards` : 'No bonus'),
+    getEffect: (level) => (level > 0 ? `+${level * 15}% enemy stats & rewards` : 'No bonus'),
   },
   {
     id: 'blessingLevel',

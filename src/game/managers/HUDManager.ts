@@ -9,6 +9,7 @@ import { VisualQuality } from '../../visual/GlowGraphics';
 import { STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { MasteryIconEffectsManager } from '../../visual/MasteryIconEffectsManager';
 import { RunEvent, getActiveEvent } from '../../systems/EventSystem';
+import { getNextComboThreshold } from '../../systems/ComboSystem';
 
 interface BossHealthBar {
   entityId: number;
@@ -38,6 +39,15 @@ export interface HUDUpdateState {
   bossHealthData: Array<{ entityId: number; currentHP: number; maxHP: number }>;
 }
 
+export interface EvolutionInfo {
+  requiredWeaponLevel: number;
+  requiredStatName: string;
+  requiredStatLevel: number;
+  currentStatLevel: number;
+  isEvolved: boolean;
+  evolvedName: string;
+}
+
 export interface UpgradeIconData {
   id: string;
   icon: string;
@@ -46,6 +56,7 @@ export interface UpgradeIconData {
   currentLevel: number;
   maxLevel: number;
   type: 'skill' | 'weapon';
+  evolutionInfo?: EvolutionInfo;
 }
 
 interface HUDManagerOptions {
@@ -71,6 +82,7 @@ export class HUDManager {
   private xpBarBackground!: Phaser.GameObjects.Rectangle;
   private xpBarFill!: Phaser.GameObjects.Rectangle;
   private levelText!: Phaser.GameObjects.Text;
+  private milestoneHintText!: Phaser.GameObjects.Text;
   private xpGlowGraphics!: Phaser.GameObjects.Graphics;
   private xpShimmerActive: boolean = false;
 
@@ -163,6 +175,15 @@ export class HUDManager {
       fontStyle: 'bold',
     });
     this.levelText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // Weapon milestone hint (shown when close to a milestone level)
+    this.milestoneHintText = this.scene.add.text(leftMargin, currentY + this.scaledSize(28), '', {
+      fontSize: this.scaledFontSize(11),
+      color: '#aaaaff',
+      fontFamily: 'Arial',
+    });
+    this.milestoneHintText.setDepth(HUD_DEPTH).setAlpha(0);
+
     currentY += this.scaledSize(35);
 
     // HP Bar (above XP bar)
@@ -290,9 +311,10 @@ export class HUDManager {
     this.upgradeTooltip.setVisible(false);
     this.upgradeTooltip.setDepth(HUD_DEPTH + 1); // Slightly above other HUD elements
 
-    const tooltipBg = this.scene.add.rectangle(0, 0, this.scaledSize(180), this.scaledSize(60), 0x222244, 0.95);
+    const tooltipBg = this.scene.add.rectangle(0, 0, this.scaledSize(200), this.scaledSize(76), 0x222244, 0.95);
     tooltipBg.setStrokeStyle(2, 0x4444aa);
     tooltipBg.setOrigin(0, 0);
+    tooltipBg.setName('tooltipBg');
 
     const tooltipTitle = this.scene.add.text(this.scaledSize(10), this.scaledSize(8), '', {
       fontSize: this.scaledFontSize(14),
@@ -313,7 +335,13 @@ export class HUDManager {
       fontFamily: 'Arial',
     }).setName('tooltipLevel');
 
-    this.upgradeTooltip.add([tooltipBg, tooltipTitle, tooltipDesc, tooltipLevel]);
+    const tooltipEvolution = this.scene.add.text(this.scaledSize(10), this.scaledSize(60), '', {
+      fontSize: this.scaledFontSize(10),
+      color: '#ffaa44',
+      fontFamily: 'Arial',
+    }).setName('tooltipEvolution');
+
+    this.upgradeTooltip.add([tooltipBg, tooltipTitle, tooltipDesc, tooltipLevel, tooltipEvolution]);
 
     // === TOP RIGHT: Pause Button & Game Stats ===
 
@@ -371,6 +399,12 @@ export class HUDManager {
       stroke: '#000000',
       strokeThickness: this.scaledSize(3),
     }).setOrigin(1, 0).setName('comboText').setDepth(HUD_DEPTH).setAlpha(0);
+
+    // Combo progress bar (thin bar below combo text showing progress to next threshold)
+    const comboProgressBar = this.scene.add.graphics();
+    comboProgressBar.setName('comboProgressBar');
+    comboProgressBar.setDepth(HUD_DEPTH);
+    comboProgressBar.setAlpha(0);
 
     const pauseButtonBg = this.scene.add.rectangle(
       pauseButtonX,
@@ -479,6 +513,7 @@ export class HUDManager {
 
     // Update combo counter display
     const comboText = this.scene.children.getByName('comboText') as Phaser.GameObjects.Text;
+    const comboProgressBar = this.scene.children.getByName('comboProgressBar') as Phaser.GameObjects.Graphics;
     if (comboText) {
       if (state.comboCount >= 5) {
         const tierColors: Record<string, string> = {
@@ -488,11 +523,44 @@ export class HUDManager {
           blazing: '#ff6622',
           inferno: '#ff2244',
         };
+        const tierHexColors: Record<string, number> = {
+          none: 0xffffff,
+          warm: 0xffdd44,
+          hot: 0xffaa00,
+          blazing: 0xff6622,
+          inferno: 0xff2244,
+        };
         comboText.setText(`x${state.comboCount}`);
         comboText.setColor(tierColors[state.comboTier] || '#ffffff');
-        comboText.setAlpha(Math.max(0.3, state.comboDecayPercent) * HUD_ALPHA);
+        const comboAlpha = Math.max(0.3, state.comboDecayPercent) * HUD_ALPHA;
+        comboText.setAlpha(comboAlpha);
+
+        // Draw combo progress bar toward next threshold
+        if (comboProgressBar) {
+          const nextThreshold = getNextComboThreshold();
+          comboProgressBar.clear();
+          if (nextThreshold) {
+            const barWidth = this.scaledSize(60);
+            const barHeight = this.scaledSize(3);
+            const barX = comboText.x - barWidth;
+            const barY = comboText.y + comboText.height + this.scaledSize(2);
+
+            // Background
+            comboProgressBar.fillStyle(0x222233, 0.6);
+            comboProgressBar.fillRect(barX, barY, barWidth, barHeight);
+            // Fill
+            const fillColor = tierHexColors[state.comboTier] || 0xffffff;
+            comboProgressBar.fillStyle(fillColor, 0.8);
+            comboProgressBar.fillRect(barX, barY, barWidth * nextThreshold.progress, barHeight);
+          }
+          comboProgressBar.setAlpha(comboAlpha);
+        }
       } else {
         comboText.setAlpha(0);
+        if (comboProgressBar) {
+          comboProgressBar.clear();
+          comboProgressBar.setAlpha(0);
+        }
       }
     }
 
@@ -528,8 +596,21 @@ export class HUDManager {
       });
     }
 
-    // Update level text
+    // Update level text and weapon milestone hint
     this.levelText.setText(`Level ${state.playerLevel}`);
+    const levelsToMilestone = 5 - (state.playerLevel % 5);
+    if (levelsToMilestone <= 2 && levelsToMilestone > 0 && state.playerLevel % 5 !== 0) {
+      const nextMilestone = state.playerLevel + levelsToMilestone;
+      this.milestoneHintText.setText(`Weapon at Lv.${nextMilestone}`);
+      this.milestoneHintText.setColor('#aaaaff');
+      this.milestoneHintText.setAlpha(HUD_ALPHA * 0.8);
+    } else if (state.playerLevel % 5 === 0 && state.playerLevel > 0) {
+      this.milestoneHintText.setText('Weapon milestone!');
+      this.milestoneHintText.setColor('#ffdd44');
+      this.milestoneHintText.setAlpha(HUD_ALPHA);
+    } else {
+      this.milestoneHintText.setAlpha(0);
+    }
 
     // Update HP bar
     const hpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
@@ -1486,7 +1567,7 @@ export class HUDManager {
    * Shows tooltip for an upgrade.
    */
   private showUpgradeTooltip(
-    upgrade: { icon: string; name: string; description: string; currentLevel: number; maxLevel: number },
+    upgrade: UpgradeIconData,
     offsetX: number,
     offsetY: number
   ): void {
@@ -1500,11 +1581,37 @@ export class HUDManager {
     const titleText = this.upgradeTooltip.getByName('tooltipTitle') as Phaser.GameObjects.Text;
     const descText = this.upgradeTooltip.getByName('tooltipDesc') as Phaser.GameObjects.Text;
     const levelText = this.upgradeTooltip.getByName('tooltipLevel') as Phaser.GameObjects.Text;
+    const evolutionText = this.upgradeTooltip.getByName('tooltipEvolution') as Phaser.GameObjects.Text;
+    const tooltipBg = this.upgradeTooltip.getByName('tooltipBg') as Phaser.GameObjects.Rectangle;
 
     if (titleText) titleText.setText(upgrade.name);
     if (descText) descText.setText(upgrade.description);
     const isMastered = upgrade.currentLevel >= upgrade.maxLevel;
     if (levelText) levelText.setText(isMastered ? '\u2605 MASTERED' : `Level ${upgrade.currentLevel}/${upgrade.maxLevel}`);
+
+    // Show evolution info for weapons
+    if (evolutionText) {
+      const evoInfo = upgrade.evolutionInfo;
+      if (evoInfo) {
+        if (evoInfo.isEvolved) {
+          evolutionText.setText(`Evolved: ${evoInfo.evolvedName}`);
+          evolutionText.setColor('#ffdd44');
+        } else {
+          const weaponMet = upgrade.currentLevel >= evoInfo.requiredWeaponLevel;
+          const statMet = evoInfo.currentStatLevel >= evoInfo.requiredStatLevel;
+          const wpnStatus = weaponMet ? '\u2713' : `${upgrade.currentLevel}/${evoInfo.requiredWeaponLevel}`;
+          const statStatus = statMet ? '\u2713' : `${evoInfo.currentStatLevel}/${evoInfo.requiredStatLevel}`;
+          evolutionText.setText(`Evolve: Wpn ${wpnStatus} + ${evoInfo.requiredStatName} ${statStatus}`);
+          evolutionText.setColor(weaponMet && statMet ? '#88ff88' : '#ffaa44');
+        }
+        // Expand tooltip to fit evolution text
+        if (tooltipBg) tooltipBg.setSize(this.scaledSize(200), this.scaledSize(76));
+      } else {
+        evolutionText.setText('');
+        // Shrink tooltip when no evolution info
+        if (tooltipBg) tooltipBg.setSize(this.scaledSize(200), this.scaledSize(60));
+      }
+    }
 
     this.upgradeTooltip.setVisible(true);
   }

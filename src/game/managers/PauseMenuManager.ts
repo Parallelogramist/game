@@ -1042,17 +1042,21 @@ export class PauseMenuManager {
 
     statRowY += statRowSpacing + 16;
 
-    // Row 3: Damage dealt & taken
+    // Row 3: Damage dealt (with DPS) & taken
     if (data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined) {
       const dmgDealt = formatLargeNumber(data.totalDamageDealt ?? 0);
       const dmgTaken = formatLargeNumber(data.totalDamageTaken ?? 0);
-      const damageText = this.scene.add.text(
-        centerX, statRowY,
-        `Dealt: ${dmgDealt}  |  Taken: ${dmgTaken}`,
-        { fontSize: '13px', color: '#777799', fontFamily: 'Arial' }
-      ).setOrigin(0.5).setDepth(depth);
-      animatedElements.push(damageText);
-      statRowY += 20;
+      const dps = data.gameTime > 0 ? formatLargeNumber(Math.floor((data.totalDamageDealt ?? 0) / data.gameTime)) : '0';
+
+      const dealtLabel = this.scene.add.text(leftColX, statRowY, 'Damage Dealt', statLabelStyle).setOrigin(0.5).setDepth(depth);
+      const dealtValue = this.scene.add.text(leftColX, statRowY + 16, `${dmgDealt} (${dps}/s)`, { ...statValueStyle, fontSize: '16px' }).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(dealtLabel, dealtValue);
+
+      const takenLabel = this.scene.add.text(rightColX, statRowY, 'Damage Taken', statLabelStyle).setOrigin(0.5).setDepth(depth);
+      const takenValue = this.scene.add.text(rightColX, statRowY + 16, dmgTaken, { ...statValueStyle, fontSize: '16px', color: '#ff8888' }).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(takenLabel, takenValue);
+
+      statRowY += statRowSpacing + 16;
     }
 
     // Divider line between stats and gold

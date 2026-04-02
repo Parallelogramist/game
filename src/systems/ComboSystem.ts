@@ -54,7 +54,7 @@ const MAX_XP_MULTIPLIER = 1.5;
 /** XP multiplier gained per combo kill (additive). */
 const XP_MULTIPLIER_PER_KILL = 0.002;
 
-const COMBO_THRESHOLDS: readonly ComboThreshold[] = [
+export const COMBO_THRESHOLDS: readonly ComboThreshold[] = [
   { count: 25, type: 'xp_burst' },
   { count: 50, type: 'damage_boost' },
   { count: 100, type: 'annihilation' },
@@ -231,6 +231,20 @@ export function isComboBuffActive(): boolean {
  */
 export function getComboBuffDamageMultiplier(): number {
   return isComboBuffActive() ? COMBO_DAMAGE_BUFF_AMOUNT : 0;
+}
+
+/**
+ * Returns the next combo threshold the player hasn't reached yet,
+ * or null if all thresholds have been passed.
+ */
+export function getNextComboThreshold(): { nextCount: number; progress: number } | null {
+  const currentCombo = Math.floor(comboCount);
+  for (const threshold of COMBO_THRESHOLDS) {
+    if (currentCombo < threshold.count) {
+      return { nextCount: threshold.count, progress: currentCombo / threshold.count };
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

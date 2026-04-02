@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Upgrade } from '../../data/Upgrades';
+import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrades';
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
 
@@ -18,6 +18,10 @@ export interface UpgradeSceneData {
   // Weapon slot system
   isLastWeaponSlot?: boolean;
   weaponSlotsInfo?: { current: number; max: number };
+  // All stat upgrades for break gate checking
+  allStatUpgrades?: Upgrade[];
+  // Current player level for milestone indicator
+  playerLevel?: number;
 }
 
 /**
@@ -44,10 +48,13 @@ export class UpgradeScene extends Phaser.Scene {
   // Banish mode state
   private isBanishMode: boolean = false;
   private banishModeText: Phaser.GameObjects.Text | null = null;
+  private banishConfirmElements: Phaser.GameObjects.GameObject[] = [];
 
   // Weapon slot tracking
   private isLastWeaponSlot: boolean = false;
   private weaponSlotsInfo: { current: number; max: number } | null = null;
+  private allStatUpgrades: Upgrade[] = [];
+  private playerLevel: number = 0;
 
   constructor() {
     super({ key: 'UpgradeScene' });
@@ -69,6 +76,8 @@ export class UpgradeScene extends Phaser.Scene {
     // Weapon slot system
     this.isLastWeaponSlot = data.isLastWeaponSlot ?? false;
     this.weaponSlotsInfo = data.weaponSlotsInfo ?? null;
+    this.allStatUpgrades = data.allStatUpgrades ?? [];
+    this.playerLevel = data.playerLevel ?? 0;
   }
 
   create(): void {
@@ -89,11 +98,14 @@ export class UpgradeScene extends Phaser.Scene {
     );
     overlay.setDepth(0);
 
-    // Title
-    const title = this.add.text(this.scale.width / 2, 80, 'LEVEL UP!', {
+    // Title — weapon milestone levels get special treatment
+    const isWeaponMilestone = this.playerLevel > 0 && this.playerLevel % 5 === 0;
+    const titleString = isWeaponMilestone ? 'WEAPON MILESTONE!' : 'LEVEL UP!';
+    const titleColor = isWeaponMilestone ? '#88aaff' : '#ffdd44';
+    const title = this.add.text(this.scale.width / 2, 80, titleString, {
       fontSize: '48px',
       fontFamily: 'Arial',
-      color: '#ffdd44',
+      color: titleColor,
       stroke: '#000000',
       strokeThickness: 4,
     });
@@ -101,10 +113,11 @@ export class UpgradeScene extends Phaser.Scene {
     title.setDepth(1);
 
     // Subtitle
-    const subtitle = this.add.text(this.scale.width / 2, 130, 'Choose an upgrade', {
+    const subtitleText = isWeaponMilestone ? 'Pick a new weapon!' : 'Choose an upgrade';
+    const subtitle = this.add.text(this.scale.width / 2, 130, subtitleText, {
       fontSize: '24px',
       fontFamily: 'Arial',
-      color: '#aaaaaa',
+      color: isWeaponMilestone ? '#88aaff' : '#aaaaaa',
     });
     subtitle.setOrigin(0.5);
     subtitle.setDepth(1);
@@ -155,6 +168,14 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Single keyboard listener for all cards (prevents listener accumulation)
     this.keydownHandler = (event: KeyboardEvent) => {
+      // Block all input while banish confirmation is open
+      if (this.banishConfirmElements.length > 0) {
+        if (event.key === 'Escape') {
+          this.destroyBanishConfirmation();
+        }
+        return;
+      }
+
       const keyNumber = parseInt(event.key, 10);
       if (keyNumber >= 1 && keyNumber <= this.upgrades.length) {
         if (this.isBanishMode) {
@@ -249,34 +270,37 @@ export class UpgradeScene extends Phaser.Scene {
       y,
       buttonWidth,
       buttonHeight,
-      enabled ? 0x3a3a5a : 0x2a2a3a
+      enabled ? 0x3a3a6a : 0x1a1a2a
     );
-    background.setStrokeStyle(2, enabled ? 0x6a6a8a : 0x3a3a4a);
+    background.setStrokeStyle(2, enabled ? 0x7a7aaa : 0x2a2a3a);
     background.setDepth(10);
+    background.setAlpha(enabled ? 1.0 : 0.4);
 
     const text = this.add.text(x, y, label, {
       fontSize: '14px',
       fontFamily: 'Arial',
-      color: enabled ? '#ffffff' : '#666666',
+      color: enabled ? '#ffffff' : '#444444',
     });
     text.setOrigin(0.5);
     text.setDepth(11);
+    text.setAlpha(enabled ? 1.0 : 0.4);
 
     const hotkeyText = this.add.text(x + buttonWidth / 2 - 8, y - buttonHeight / 2 + 8, hotkey, {
       fontSize: '10px',
       fontFamily: 'Arial',
-      color: enabled ? '#aaaaff' : '#444466',
+      color: enabled ? '#aaaaff' : '#333355',
     });
     hotkeyText.setOrigin(0.5);
     hotkeyText.setDepth(11);
+    hotkeyText.setAlpha(enabled ? 1.0 : 0.4);
 
     if (enabled) {
       background.setInteractive({ useHandCursor: true });
       background.on('pointerover', () => {
-        background.setFillStyle(0x4a4a6a);
+        background.setFillStyle(0x4a4a7a);
       });
       background.on('pointerout', () => {
-        background.setFillStyle(0x3a3a5a);
+        background.setFillStyle(0x3a3a6a);
       });
       background.on('pointerdown', onClick);
     }
@@ -364,27 +388,98 @@ export class UpgradeScene extends Phaser.Scene {
 
   /**
    * Banishes an upgrade (removes from pool permanently).
+   * Shows a confirmation dialog first since this is irreversible.
    */
   private banishUpgrade(upgrade: Upgrade): void {
     if (!this.isBanishMode || this.banishesRemaining <= 0 || !this.onBanishCallback) return;
 
-    // Visual feedback - flash red
-    const selectedIndex = this.upgrades.indexOf(upgrade);
-    if (selectedIndex >= 0 && this.upgradeCards[selectedIndex]) {
-      const card = this.upgradeCards[selectedIndex];
-      this.tweens.add({
-        targets: card,
-        scaleX: 0,
-        scaleY: 0,
-        alpha: 0,
-        duration: 300,
-        ease: 'Back.easeIn',
-        onComplete: () => {
-          this.onBanishCallback?.(upgrade);
-          this.scene.stop();
-        },
-      });
-    }
+    this.showBanishConfirmation(upgrade, () => {
+      const selectedIndex = this.upgrades.indexOf(upgrade);
+      if (selectedIndex >= 0 && this.upgradeCards[selectedIndex]) {
+        const card = this.upgradeCards[selectedIndex];
+        this.tweens.add({
+          targets: card,
+          scaleX: 0,
+          scaleY: 0,
+          alpha: 0,
+          duration: 300,
+          ease: 'Back.easeIn',
+          onComplete: () => {
+            this.onBanishCallback?.(upgrade);
+            this.scene.stop();
+          },
+        });
+      }
+    });
+  }
+
+  /**
+   * Shows a confirmation dialog before banishing an upgrade.
+   */
+  private showBanishConfirmation(upgrade: Upgrade, onConfirm: () => void): void {
+    // Dim existing UI
+    const dimOverlay = this.add.rectangle(
+      this.scale.width / 2, this.scale.height / 2,
+      this.scale.width, this.scale.height,
+      0x000000, 0.5
+    ).setDepth(30);
+    this.banishConfirmElements.push(dimOverlay);
+
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+
+    // Panel background
+    const panel = this.add.rectangle(centerX, centerY, 340, 150, 0x1a1a2e)
+      .setStrokeStyle(2, 0xff4444).setDepth(31);
+    this.banishConfirmElements.push(panel);
+
+    // Warning text
+    const warningText = this.add.text(centerX, centerY - 40,
+      `Permanently remove\n"${upgrade.name}"?`, {
+        fontSize: '16px', fontFamily: 'Arial', color: '#ff6666', align: 'center',
+      }).setOrigin(0.5).setDepth(31);
+    this.banishConfirmElements.push(warningText);
+
+    const subText = this.add.text(centerX, centerY - 5,
+      'This cannot be undone.', {
+        fontSize: '12px', fontFamily: 'Arial', color: '#888888',
+      }).setOrigin(0.5).setDepth(31);
+    this.banishConfirmElements.push(subText);
+
+    // Confirm button
+    const confirmBg = this.add.rectangle(centerX - 60, centerY + 40, 100, 34, 0x661111)
+      .setStrokeStyle(1, 0xff4444).setDepth(31).setInteractive({ useHandCursor: true });
+    const confirmText = this.add.text(centerX - 60, centerY + 40, 'Banish', {
+      fontSize: '14px', fontFamily: 'Arial', color: '#ff6666',
+    }).setOrigin(0.5).setDepth(31);
+    this.banishConfirmElements.push(confirmBg, confirmText);
+
+    confirmBg.on('pointerover', () => confirmBg.setFillStyle(0x882222));
+    confirmBg.on('pointerout', () => confirmBg.setFillStyle(0x661111));
+    confirmBg.on('pointerdown', () => {
+      this.destroyBanishConfirmation();
+      onConfirm();
+    });
+
+    // Cancel button
+    const cancelBg = this.add.rectangle(centerX + 60, centerY + 40, 100, 34, 0x2a2a4a)
+      .setStrokeStyle(1, 0x6a6a8a).setDepth(31).setInteractive({ useHandCursor: true });
+    const cancelText = this.add.text(centerX + 60, centerY + 40, 'Cancel', {
+      fontSize: '14px', fontFamily: 'Arial', color: '#aaaacc',
+    }).setOrigin(0.5).setDepth(31);
+    this.banishConfirmElements.push(cancelBg, cancelText);
+
+    cancelBg.on('pointerover', () => cancelBg.setFillStyle(0x3a3a5a));
+    cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x2a2a4a));
+    cancelBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      this.destroyBanishConfirmation();
+    });
+  }
+
+  private destroyBanishConfirmation(): void {
+    this.banishConfirmElements.forEach(el => el.destroy());
+    this.banishConfirmElements = [];
   }
 
   /**
@@ -402,6 +497,9 @@ export class UpgradeScene extends Phaser.Scene {
     for (const cardBackground of this.cardBackgrounds) {
       cardBackground.removeAllListeners();
     }
+
+    // Clean up banish confirmation if open
+    this.destroyBanishConfirmation();
 
     // Kill all active tweens to prevent them from continuing
     this.tweens.killAll();
@@ -553,6 +651,27 @@ export class UpgradeScene extends Phaser.Scene {
     descriptionText.setOrigin(0.5);
     container.add(descriptionText);
 
+    // Break level gate warning for stat upgrades
+    let gateWarningHeight = 0;
+    if (upgrade.isStatUpgrade && this.allStatUpgrades.length > 0) {
+      const blockingGate = getBlockingGate(upgrade.currentLevel, this.allStatUpgrades);
+      if (blockingGate !== null) {
+        const blockingUpgrades = getBlockingUpgrades(blockingGate, this.allStatUpgrades);
+        const blockingNames = blockingUpgrades.map(u => u.name).slice(0, 3).join(', ');
+        const gateText = this.add.text(0, descriptionY + descriptionText.height / 2 + 8,
+          `Gate Lv.${blockingGate} - Level up: ${blockingNames}`, {
+            fontSize: `${Math.round(12 * textBoost)}px`,
+            fontFamily: 'Arial',
+            color: '#ff8844',
+            wordWrap: { width: wrapWidth },
+            align: 'center',
+          });
+        gateText.setOrigin(0.5);
+        container.add(gateText);
+        gateWarningHeight = gateText.height + 8;
+      }
+    }
+
     // Flavor text — positioned dynamically below description to avoid overlap
     const flavorText = this.add.text(0, 0, upgrade.description, {
       fontSize: `${Math.round(14 * textBoost)}px`,
@@ -563,7 +682,7 @@ export class UpgradeScene extends Phaser.Scene {
       align: 'center',
     });
     flavorText.setOrigin(0.5);
-    const flavorY = descriptionY + descriptionText.height / 2 + flavorText.height / 2 + 8;
+    const flavorY = descriptionY + descriptionText.height / 2 + flavorText.height / 2 + 8 + gateWarningHeight;
     flavorText.setY(flavorY);
     container.add(flavorText);
 
