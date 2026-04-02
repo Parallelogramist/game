@@ -71,14 +71,18 @@ interface SwarmParticle {
   pulseSpeed: number;
   pulseOffset: number;
 
-  // Phaser display object
-  coreCircle: Phaser.GameObjects.Arc;
+  // Per-frame render state (computed during update, drawn in batch)
+  renderScale: number;
+  renderAlpha: number;
+  renderColor: number;
 }
 
 export class PlayerPlasmaCore {
-  private scene: Phaser.Scene;
   private container: Phaser.GameObjects.Container;
   private config: PlasmaConfig;
+
+  // Single Graphics object for batched rendering of all particles
+  private graphics: Phaser.GameObjects.Graphics;
 
   // Particle data
   private particles: SwarmParticle[] = [];
@@ -108,6 +112,17 @@ export class PlayerPlasmaCore {
   // Low-HP danger state (0 = safe, 1 = critical)
   private dangerLevel: number = 0;
   private static readonly DANGER_COLOR = 0xff4444;
+
+  // Combo intensity color shift (0 = none, blends toward tier color)
+  private comboBlend: number = 0;
+  private comboColor: number = 0xffffff;
+  private static readonly COMBO_TIER_COLORS: Record<string, number> = {
+    none: 0xffffff,
+    warm: 0xffdd44,
+    hot: 0xffaa00,
+    blazing: 0xff6622,
+    inferno: 0xff2244,
+  };
 
   // Invulnerability flash state
   private isInvulnerable: boolean = false;
@@ -209,10 +224,13 @@ export class PlayerPlasmaCore {
   private static readonly BURST_BRIGHTNESS_BOOST = 0.6;
 
   constructor(scene: Phaser.Scene, x: number, y: number, config: PlasmaConfig, startingLevel: number = 1) {
-    this.scene = scene;
     this.config = config;
     this.container = scene.add.container(x, y);
     this.container.setDepth(10);
+
+    // Single Graphics object for all particles — one batch instead of 100 GameObjects
+    this.graphics = scene.add.graphics();
+    this.container.add(this.graphics);
 
     this.lastContainerX = x;
     this.lastContainerY = y;
@@ -251,11 +269,7 @@ export class PlayerPlasmaCore {
       this.createParticle(baseAngle, baseDistance, particleRadius);
     }
 
-    // Hide particles beyond the current active count
-    for (let i = this.activeParticleCount; i < this.particles.length; i++) {
-      this.particles[i].coreCircle.setVisible(false);
-      this.particles[i].coreCircle.setAlpha(0);
-    }
+    // Particles beyond activeParticleCount are simply not drawn in the batch render
   }
 
   /**
@@ -268,6 +282,7 @@ export class PlayerPlasmaCore {
     const initialY = Math.sin(initialAngle) * baseDistance;
 
     const randomPhase = () => Math.random() * Math.PI * 2;
+    const alphaBase = 0.8 + Math.random() * 0.4;
 
     const particle: SwarmParticle = {
       posX: initialX,
@@ -300,24 +315,18 @@ export class PlayerPlasmaCore {
 
       radius: particleRadius,
       baseRadius: particleRadius,
-      alphaMultiplier: 0.8 + Math.random() * 0.4,
+      alphaMultiplier: alphaBase,
 
       pulsePhase: randomPhase(),
       pulseSpeed: PlayerPlasmaCore.PULSE_SPEED_MIN +
         Math.random() * (PlayerPlasmaCore.PULSE_SPEED_MAX - PlayerPlasmaCore.PULSE_SPEED_MIN),
       pulseOffset: randomPhase(),
 
-      coreCircle: null!,
+      // Render state (computed per frame, drawn in batch)
+      renderScale: 1,
+      renderAlpha: alphaBase,
+      renderColor: neonColor.core,
     };
-
-    particle.coreCircle = this.scene.add.circle(
-      initialX,
-      initialY,
-      particleRadius,
-      neonColor.core,
-      particle.alphaMultiplier
-    );
-    this.container.add(particle.coreCircle);
 
     this.particles.push(particle);
   }
@@ -341,12 +350,9 @@ export class PlayerPlasmaCore {
     this.burstNewStartIndex = previousActiveCount;
     this.burstNewEndIndex = newActiveCount;
 
-    // Make newly active particles visible at scale 0 (they'll scale in during burst)
+    // Set newly active particles to scale 0 (they'll scale in during burst)
     for (let i = previousActiveCount; i < newActiveCount; i++) {
-      const particle = this.particles[i];
-      particle.coreCircle.setVisible(true);
-      particle.coreCircle.setAlpha(particle.alphaMultiplier);
-      particle.coreCircle.setScale(0);
+      this.particles[i].renderScale = 0;
     }
 
     // Kick off burst animation
@@ -707,9 +713,6 @@ export class PlayerPlasmaCore {
       particle.posX += particle.velX * dt;
       particle.posY += particle.velY * dt;
 
-      // Set display position
-      particle.coreCircle.setPosition(particle.posX, particle.posY);
-
       // Compute leading/trailing visual differentiation factors
       let streamingScaleOffset = 0;
       let streamingAlphaOffset = 0;
@@ -733,8 +736,7 @@ export class PlayerPlasmaCore {
         // Scale in over the first 33% of burst duration using cubic ease-out
         const scaleInWindow = 0.33;
         const scaleProgress = Math.min(burstProgress / scaleInWindow, 1);
-        const easedScale = 1 - Math.pow(1 - scaleProgress, 3);
-        particle.coreCircle.setScale(easedScale);
+        particle.renderScale = 1 - Math.pow(1 - scaleProgress, 3);
       } else {
         // --- D10: Dynamic particle scale with streaming differentiation ---
         const particleSpeed = Math.sqrt(particleSpeedSq);
@@ -743,26 +745,35 @@ export class PlayerPlasmaCore {
           particleSpeed * PlayerPlasmaCore.PARTICLE_VELOCITY_SIZE_FACTOR,
           PlayerPlasmaCore.PARTICLE_VELOCITY_SIZE_MAX
         );
-        particle.coreCircle.setScale(1 + globalSpeedSizeBoost + velocitySizeBoost + streamingScaleOffset);
+        particle.renderScale = 1 + globalSpeedSizeBoost + velocitySizeBoost + streamingScaleOffset;
       }
 
       // --- D11: Alpha sparkle during movement with streaming differentiation ---
       const alphaFlicker = Math.sin(this.globalTime * 4 + particle.wanderPhase * 2) *
         PlayerPlasmaCore.SPEED_ALPHA_VARIATION * this.movementBlend;
-      const sparkleAlpha = Math.max(0.3, Math.min(1.0, particle.alphaMultiplier + alphaFlicker + streamingAlphaOffset));
-      particle.coreCircle.setAlpha(sparkleAlpha);
+      particle.renderAlpha = Math.max(0.3, Math.min(1.0, particle.alphaMultiplier + alphaFlicker + streamingAlphaOffset));
 
-      // Update color pulse
+      // Update color pulse (stores result in particle.renderColor)
       this.updateParticlePulse(particle, dt);
     }
 
     // Finalize burst: ensure new particles are at full scale when animation completes
     if (isBursting && this.burstTimer <= 0) {
       for (let i = this.burstNewStartIndex; i < this.burstNewEndIndex; i++) {
-        this.particles[i].coreCircle.setScale(1);
+        this.particles[i].renderScale = 1;
       }
       this.burstNewStartIndex = 0;
       this.burstNewEndIndex = 0;
+    }
+
+    // --- Batch render all particles in a single Graphics draw ---
+    this.graphics.clear();
+    for (let i = 0; i < activeCount; i++) {
+      const particle = this.particles[i];
+      const drawRadius = particle.baseRadius * particle.renderScale;
+      if (drawRadius <= 0) continue;
+      this.graphics.fillStyle(particle.renderColor, particle.renderAlpha);
+      this.graphics.fillCircle(particle.posX, particle.posY, drawRadius);
     }
 
     // I-frame invulnerability flicker (10Hz blink between 0.3 and 1.0)
@@ -808,12 +819,17 @@ export class PlayerPlasmaCore {
       );
     }
 
+    // Combo intensity shift — tint toward tier color during high combos
+    if (this.comboBlend > 0.01) {
+      finalColor = this.lerpColor(finalColor, this.comboColor, this.comboBlend);
+    }
+
     // Low-HP danger shift — tint toward red when health is critical
     if (this.dangerLevel > 0.01) {
       finalColor = this.lerpColor(finalColor, PlayerPlasmaCore.DANGER_COLOR, this.dangerLevel * 0.6);
     }
 
-    particle.coreCircle.setFillStyle(finalColor);
+    particle.renderColor = finalColor;
   }
 
   /**
@@ -856,6 +872,20 @@ export class PlayerPlasmaCore {
    */
   public setDangerLevel(level: number): void {
     this.dangerLevel = Math.max(0, Math.min(1, level));
+  }
+
+  /**
+   * Set combo tier for particle color shift.
+   * Higher tiers shift the swarm toward warm/hot colors.
+   */
+  public setComboTier(tier: string): void {
+    const targetColor = PlayerPlasmaCore.COMBO_TIER_COLORS[tier] ?? 0xffffff;
+    this.comboColor = targetColor;
+    // Blend intensity scales with tier
+    const blendMap: Record<string, number> = {
+      none: 0, warm: 0.08, hot: 0.15, blazing: 0.25, inferno: 0.4,
+    };
+    this.comboBlend = blendMap[tier] ?? 0;
   }
 
   /**

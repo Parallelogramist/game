@@ -287,6 +287,104 @@ export function createGlowingShape(
   }
 }
 
+// ============================================================================
+// Cached shape texture system — pre-renders glow shapes to textures so
+// enemies using the same (shape, color, size, quality) combo share ONE
+// texture. Image sprites batch together in WebGL, unlike per-enemy Graphics.
+// ============================================================================
+
+const shapeTextureCache = new Map<string, string>();
+let shapeTextureCacheIdCounter = 0;
+
+function getShapeCacheKey(
+  shape: string, coreColor: number, glowColor: number, size: number, quality: VisualQuality
+): string {
+  return `${shape}_${coreColor.toString(16)}_${glowColor.toString(16)}_${size}_${quality}`;
+}
+
+/**
+ * Ensure a cached texture exists for a given glow shape combo.
+ * Returns the Phaser texture key. Creates the texture on first call.
+ */
+function ensureCachedShapeTexture(
+  scene: Phaser.Scene,
+  size: number,
+  shape: 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon',
+  neonColor: NeonColorPair,
+  quality: VisualQuality
+): string {
+  const cacheKey = getShapeCacheKey(shape, neonColor.core, neonColor.glow, size, quality);
+  const existingTextureKey = shapeTextureCache.get(cacheKey);
+  if (existingTextureKey && scene.textures.exists(existingTextureKey)) {
+    return existingTextureKey;
+  }
+
+  // Render the shape at origin into a temporary container
+  const tempContainer = createGlowingShape(scene, 0, 0, size, shape, neonColor, quality);
+
+  // Calculate texture dimensions — glow extends beyond the shape
+  const radiusMultipliers = getGlowRadiusMultipliers(quality);
+  const maxMultiplier = radiusMultipliers[0]; // outermost glow layer
+  const padding = size * maxMultiplier + 4; // extra for stroke/outline
+  const textureWidth = Math.ceil(padding * 2);
+  const textureHeight = Math.ceil(padding * 2);
+
+  // Generate a unique texture key
+  const textureKey = `glow_shape_${shapeTextureCacheIdCounter++}`;
+
+  // Use RenderTexture to capture the container
+  const renderTexture = scene.add.renderTexture(0, 0, textureWidth, textureHeight);
+  renderTexture.draw(tempContainer, padding, padding);
+
+  // Save as a real texture so Image sprites can reference it
+  renderTexture.saveTexture(textureKey);
+
+  // Clean up the temporary objects
+  renderTexture.destroy();
+  tempContainer.destroy();
+
+  shapeTextureCache.set(cacheKey, textureKey);
+  return textureKey;
+}
+
+/**
+ * Creates a cached glowing shape — uses a pre-rendered texture if available,
+ * falling back to live Graphics rendering on first call.
+ *
+ * Returns a Container with either an Image (cached) or Graphics (first call)
+ * at the correct position. Image sprites batch in WebGL for massive perf gain.
+ */
+export function createCachedGlowingShape(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  size: number,
+  shape: 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon',
+  neonColor: NeonColorPair,
+  quality: VisualQuality = 'high'
+): Phaser.GameObjects.Container {
+  const textureKey = ensureCachedShapeTexture(scene, size, shape, neonColor, quality);
+
+  const container = scene.add.container(x, y);
+  const image = scene.add.image(0, 0, textureKey);
+  container.add(image);
+
+  return container;
+}
+
+/**
+ * Reset the shape texture cache — call when switching scenes or quality levels.
+ */
+export function resetShapeTextureCache(scene: Phaser.Scene): void {
+  for (const textureKey of shapeTextureCache.values()) {
+    if (scene.textures.exists(textureKey)) {
+      scene.textures.remove(textureKey);
+    }
+  }
+  shapeTextureCache.clear();
+  shapeTextureCacheIdCounter = 0;
+}
+
 /**
  * Updates the visual quality of a glow container by recreating its layers.
  * This is called when performance auto-scaling changes the quality level.

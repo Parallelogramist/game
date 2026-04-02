@@ -210,7 +210,7 @@ export class MetaProgressionManager {
    */
   getStreakBonusPercent(): number {
     const effectiveStreak = Math.min(this.streakState.currentStreak, MAX_STREAK_BONUS);
-    return effectiveStreak * STREAK_GOLD_BONUS_PER_LEVEL * 100;
+    return Math.round(effectiveStreak * STREAK_GOLD_BONUS_PER_LEVEL * 100);
   }
 
   /**

@@ -4,6 +4,7 @@ import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { createIcon } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
+import { selectRunModifiers } from '../../data/RunModifiers';
 
 /**
  * WeaponSelectScene - Pre-run weapon selection screen.
@@ -31,7 +32,12 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     // If only projectile (or nothing) discovered, skip straight to game
     if (discoveredWeapons.length <= 1) {
-      this.scene.start('GameScene', { restore: false, startingWeapon: 'projectile' });
+      const selectedModifiers = selectRunModifiers(2);
+      this.scene.start('GameScene', {
+        restore: false,
+        startingWeapon: 'projectile',
+        modifierIds: selectedModifiers.map(m => m.id),
+      });
       return;
     }
 
@@ -212,8 +218,13 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.input.keyboard?.removeAllListeners();
     this.input.removeAllListeners();
 
+    const selectedModifiers = selectRunModifiers(2);
     fadeOut(this, 150, () => {
-      this.scene.start('GameScene', { restore: false, startingWeapon: weaponId });
+      this.scene.start('GameScene', {
+        restore: false,
+        startingWeapon: weaponId,
+        modifierIds: selectedModifiers.map(m => m.id),
+      });
     });
   }
 

@@ -19,6 +19,14 @@ export {
   resetEnemyAISystem, updateAIGameTime,
 } from './enemy-ai/state';
 
+// ── Elite aura tracking ─────────────────────────────────────────────────────
+// Tracks which enemies are currently buffed by Tank damage reduction aura.
+// Rebuilt every frame by applyEliteAuras(). Consumed by WeaponManager.
+const tankAuraProtectedEnemies = new Set<number>();
+
+// Tracks cumulative Warden slow multiplier for the player, rebuilt each frame.
+let wardenSlowMultiplier = 1.0;
+
 // OPTIMIZATION: Pre-computed Math constants to avoid repeated calculations
 const PI_HALF = Math.PI / 2;
 const PI_TWO = Math.PI * 2;
@@ -27,8 +35,12 @@ const PI_TWO = Math.PI * 2;
 const enemyQuery = defineQuery([Transform, Velocity, EnemyTag, EnemyAI]);
 const playerQuery = defineQuery([Transform, PlayerTag]);
 
+// LOD frame counter for distance-based AI throttling
+let aiLodFrame = 0;
+
 /**
  * EnemyAISystem handles different enemy behaviors based on their AI type.
+ * Uses distance-based LOD: far enemies update less frequently to support 2000+ count.
  */
 export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld {
   const enemies = enemyQuery(world);
@@ -40,9 +52,31 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
   const playerX = Transform.x[playerId];
   const playerY = Transform.y[playerId];
 
+  aiLodFrame++;
+
   for (let i = 0; i < enemies.length; i++) {
     const enemyId = enemies[i];
     const aiType = EnemyAI.aiType[enemyId];
+
+    // LOD: distance-based AI throttling — far enemies update less often
+    // Bosses and minibosses always get full updates
+    if (aiType < 50) { // regular enemies only
+      const enemyX = Transform.x[enemyId];
+      const enemyY = Transform.y[enemyId];
+      const distanceSq = (playerX - enemyX) * (playerX - enemyX) + (playerY - enemyY) * (playerY - enemyY);
+
+      if (distanceSq > 640000) { // > 800px: update every 6th frame
+        if ((enemyId + aiLodFrame) % 6 !== 0) {
+          EnemyAI.timer[enemyId] += deltaTime; // still advance timers
+          continue;
+        }
+      } else if (distanceSq > 160000) { // > 400px: update every 3rd frame
+        if ((enemyId + aiLodFrame) % 3 !== 0) {
+          EnemyAI.timer[enemyId] += deltaTime;
+          continue;
+        }
+      }
+    }
 
     // Update timers
     EnemyAI.timer[enemyId] += deltaTime;
@@ -152,7 +186,98 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
     }
   }
 
+  // Apply elite auras after all AI has set velocities
+  applyEliteAuras(enemies, playerX, playerY);
+
   return world;
+}
+
+// ── Elite Aura Public API ─────────────────────────────────────────────────
+
+/**
+ * Returns true if the given enemy is within a Tank's damage reduction aura.
+ * Called by WeaponManager to reduce incoming damage by 25%.
+ */
+export function isNearTankAura(enemyId: number): boolean {
+  return tankAuraProtectedEnemies.has(enemyId);
+}
+
+/**
+ * Returns the cumulative Warden slow multiplier for the player.
+ * 1.0 = no slow, values < 1.0 mean the player is near one or more Wardens.
+ * Called by GameScene to scale player velocity after InputSystem runs.
+ */
+export function getWardenSlowMultiplier(): number {
+  return wardenSlowMultiplier;
+}
+
+/**
+ * Apply elite enemy proximity auras each frame.
+ *
+ * - Tank (aiType 5): Damage reduction aura — enemies within 120px are flagged
+ *   so WeaponManager can apply 25% damage reduction.
+ * - Rallier (aiType 17): Speed boost aura — enemies within 150px get +30%
+ *   velocity this frame (applied on top of whatever the AI already set).
+ * - Warden (aiType 15): Player slow aura — if the player is within 200px of
+ *   any Warden, the player's move speed is reduced by 15% (stacks multiplicatively).
+ */
+function applyEliteAuras(
+  enemies: number[],
+  playerX: number,
+  playerY: number
+): void {
+  // Reset per-frame aura state
+  tankAuraProtectedEnemies.clear();
+  wardenSlowMultiplier = 1.0;
+
+  const spatialHash = getEnemySpatialHash();
+
+  for (let i = 0; i < enemies.length; i++) {
+    const eliteId = enemies[i];
+    const aiType = EnemyAI.aiType[eliteId];
+
+    // ── Tank damage reduction aura (120px) ──
+    if (aiType === EnemyAIType.Tank) {
+      const tankX = Transform.x[eliteId];
+      const tankY = Transform.y[eliteId];
+      const nearbyEnemies = spatialHash.query(tankX, tankY, 120);
+
+      for (let j = 0; j < nearbyEnemies.length; j++) {
+        const nearbyId = nearbyEnemies[j].id;
+        if (nearbyId !== eliteId) {
+          tankAuraProtectedEnemies.add(nearbyId);
+        }
+      }
+    }
+
+    // ── Rallier speed boost aura (150px, +30% velocity) ──
+    if (aiType === EnemyAIType.Rallier) {
+      const rallierX = Transform.x[eliteId];
+      const rallierY = Transform.y[eliteId];
+      const nearbyEnemies = spatialHash.query(rallierX, rallierY, 150);
+
+      for (let j = 0; j < nearbyEnemies.length; j++) {
+        const nearbyId = nearbyEnemies[j].id;
+        if (nearbyId !== eliteId) {
+          Velocity.x[nearbyId] *= 1.3;
+          Velocity.y[nearbyId] *= 1.3;
+        }
+      }
+    }
+
+    // ── Warden player slow aura (200px, -15% per Warden) ──
+    if (aiType === EnemyAIType.Warden) {
+      const wardenX = Transform.x[eliteId];
+      const wardenY = Transform.y[eliteId];
+      const distanceToPlayerX = playerX - wardenX;
+      const distanceToPlayerY = playerY - wardenY;
+      const distanceSquared = distanceToPlayerX * distanceToPlayerX + distanceToPlayerY * distanceToPlayerY;
+
+      if (distanceSquared <= 40000) { // 200px radius: 200*200 = 40000
+        wardenSlowMultiplier *= 0.85;
+      }
+    }
+  }
 }
 
 /**
@@ -600,7 +725,7 @@ function updateSniperAI(
  * Healer - avoid player, heal nearby enemies
  */
 function updateHealerAI(
-  world: IWorld,
+  _world: IWorld,
   enemyId: number,
   playerX: number,
   playerY: number,
@@ -638,21 +763,15 @@ function updateHealerAI(
   // Healing logic
   EnemyAI.specialTimer[enemyId] -= deltaTime;
   if (EnemyAI.specialTimer[enemyId] <= 0) {
-    // Heal nearby enemies
-    const allEnemies = enemyQuery(world);
-    for (const otherEnemyId of allEnemies) {
-      if (otherEnemyId === enemyId) continue;
-
-      const ox = Transform.x[otherEnemyId];
-      const oy = Transform.y[otherEnemyId];
-      const healDist = Math.sqrt((ox - enemyX) ** 2 + (oy - enemyY) ** 2);
-
-      if (healDist < 100) {
-        Health.current[otherEnemyId] = Math.min(
-          Health.current[otherEnemyId] + 5,
-          Health.max[otherEnemyId]
-        );
-      }
+    // Heal nearby enemies using spatial hash for O(nearby) instead of O(all)
+    const spatialHash = getEnemySpatialHash();
+    const nearbyEnemies = spatialHash.query(enemyX, enemyY, 100);
+    for (const nearby of nearbyEnemies) {
+      if (nearby.id === enemyId) continue;
+      Health.current[nearby.id] = Math.min(
+        Health.current[nearby.id] + 5,
+        Health.max[nearby.id]
+      );
     }
     EnemyAI.specialTimer[enemyId] = 1.0; // Heal every second
   }

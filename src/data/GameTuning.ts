@@ -8,7 +8,7 @@ export const TUNING = {
   spawn: {
     baseInterval: 1.0,
     minInterval: 0.15,
-    maxEnemies: 1000,
+    maxEnemies: 2000,
     /** Multi-phase spawn rate curve — each phase linearly/quadratically ramps interval down */
     phases: [
       { endTime: 120, startInterval: 1.0, endInterval: 0.5 },   // 0-2min: gentle ramp

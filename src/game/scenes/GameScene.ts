@@ -17,7 +17,7 @@ import {
 import { inputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
-import { enemyAISystem } from '../../ecs/systems/EnemyAISystem';
+import { enemyAISystem, getWardenSlowMultiplier } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime } from '../../ecs/systems/enemy-ai/state';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
@@ -35,8 +35,8 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
-import { createGlowingShape, VisualQuality } from '../../visual/GlowGraphics';
-import { PlayerPlasmaCore } from '../../visual/PlayerPlasmaCore';
+import { createCachedGlowingShape, resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
+import { PlayerSpaceship } from '../../visual/PlayerSpaceship';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
 import { DeathRippleManager } from '../../visual/DeathRippleManager';
@@ -44,15 +44,20 @@ import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
+import { DistortionPipeline } from '../../visual/DistortionPipeline';
+import { LightingSystem } from '../../visual/LightingSystem';
+import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
+import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
+import { setHazardZoneScene, spawnHazardZone, updateHazardZones, resetHazardZoneSystem } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage } from '../../storage';
 import { updateFrameCache, resetFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
-import { resetEnemySpatialHash } from '../../utils/SpatialHash';
+import { resetEnemySpatialHash, getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
-import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, getComboState, restoreComboState } from '../../systems/ComboSystem';
+import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
@@ -89,6 +94,9 @@ export class GameScene extends Phaser.Scene {
   // Enemy count (for difficulty scaling)
   private enemyCount: number = 0;
   private maxEnemies: number = TUNING.spawn.maxEnemies;
+
+  // Deferred boss health bars (queued during restore before hudManager exists)
+  private pendingBossHealthBars: { entityId: number; name: string; isBoss: boolean }[] = [];
 
   // Kill counter
   private killCount: number = 0;
@@ -194,6 +202,18 @@ export class GameScene extends Phaser.Scene {
   // Visual quality for Geometry Wars aesthetic (auto-scales based on FPS)
   private visualQuality: VisualQuality = 'high';
 
+
+  // Active run modifiers
+  private activeModifiers: RunModifier[] = [];
+
+  // Boss arena hazard zone spawning
+  private activeBossType: string | null = null;
+  private bossHazardTimer: number = 0;
+
+  // Post-processing pipelines (WebGL only)
+  private distortionPipeline: DistortionPipeline | null = null;
+  private lightingSystem: LightingSystem | null = null;
+
   // Geometry Wars style warping grid background
   private gridBackground!: GridBackground;
 
@@ -209,8 +229,8 @@ export class GameScene extends Phaser.Scene {
   // Shield barrier visual (honeycomb + charge dots)
   private shieldBarrierVisual!: ShieldBarrierVisual;
 
-  // Animated player visual (velocity-responsive plasma core)
-  private playerPlasmaCore!: PlayerPlasmaCore;
+  // Animated player visual (procedural neon spaceship)
+  private playerSpaceship!: PlayerSpaceship;
 
   // Persistent low-HP danger vignette overlay
   private dangerVignette!: Phaser.GameObjects.Rectangle;
@@ -250,9 +270,17 @@ export class GameScene extends Phaser.Scene {
    */
   private startingWeaponId: string = 'projectile';
 
-  init(data?: { restore?: boolean; startingWeapon?: string }): void {
+  init(data?: { restore?: boolean; startingWeapon?: string; modifierIds?: string[] }): void {
     this.shouldRestore = data?.restore === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
+    // Restore modifiers by ID, or select new random ones for fresh runs
+    if (data?.modifierIds) {
+      this.activeModifiers = data.modifierIds
+        .map(id => getModifierById(id))
+        .filter((modifier): modifier is RunModifier => modifier !== undefined);
+    } else if (!this.shouldRestore) {
+      this.activeModifiers = selectRunModifiers(2);
+    }
   }
 
   create(): void {
@@ -291,8 +319,11 @@ export class GameScene extends Phaser.Scene {
     resetStatusEffectSystem();
     resetFrameCache();
     resetEnemySpatialHash();
+    resetShapeTextureCache(this);
     resetComboSystem();
     resetEventSystem();
+    resetBossArenaSystem();
+    resetHazardZoneSystem();
 
     // Reset all instance properties for fresh game state
     // (Class property initializers only run once on instantiation, not on scene restart)
@@ -303,6 +334,7 @@ export class GameScene extends Phaser.Scene {
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
     this.lastAchievementTimeCheck = 0;
+    this.pendingBossHealthBars = [];
 
     // Initialize achievement tracking for this run
     const achievementManager = getAchievementManager();
@@ -372,6 +404,11 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    // Show active run modifiers as a centered banner overlay
+    if (this.activeModifiers.length > 0) {
+      this.showModifierBanner();
+    }
+
     this.damageCooldown = 0;
     this.isGameOver = false;
     this.isPaused = false;
@@ -413,6 +450,26 @@ export class GameScene extends Phaser.Scene {
     this.deathRippleManager = new DeathRippleManager(this);
     this.deathRippleManager.setWorld(this.world);
     this.deathRippleManager.setQuality(this.visualQuality);
+
+    // Initialize boss arena and hazard zone systems
+    setBossArenaScene(this);
+    setHazardZoneScene(this);
+    this.activeBossType = null;
+    this.bossHazardTimer = 0;
+
+    // Initialize post-processing pipelines (WebGL only)
+    if (this.renderer.type === Phaser.WEBGL) {
+      this.cameras.main.setPostPipeline(['DistortionPipeline']);
+      const postPipelines = this.cameras.main.postPipelines;
+      this.distortionPipeline = postPipelines.find(p => p.name === 'DistortionPipeline') as DistortionPipeline ?? null;
+    }
+
+    // Initialize dynamic lighting system
+    this.lightingSystem = new LightingSystem(this);
+    // Start with quality-appropriate settings
+    if (this.visualQuality === 'low') {
+      this.lightingSystem.setEnabled(false);
+    }
 
     // Initialize status effect visual overlays (burn/freeze/poison on enemies)
     this.statusEffectVisualManager = new StatusEffectVisualManager(this);
@@ -524,6 +581,11 @@ export class GameScene extends Phaser.Scene {
     // ═══ TIME/DIFFICULTY ═══
     this.playerStats.slowTimeRemaining = metaManager.getStartingSlowTimeMinutes() * 60; // Convert minutes to seconds
     this.playerStats.curseMultiplier *= (1 + metaManager.getStartingCurseLevel() * 0.15); // 15% per curse level
+
+    // ═══ RUN MODIFIERS ═══
+    for (const modifier of this.activeModifiers) {
+      modifier.apply(this.playerStats);
+    }
 
     // ═══ WORLD LEVEL SCALING ═══
     this.worldLevel = metaManager.getWorldLevel();
@@ -700,7 +762,16 @@ export class GameScene extends Phaser.Scene {
     // Create pause menu manager
     this.pauseMenuManager = this.createPauseMenuManager();
 
-    // Setup pause key (ESC) - store handler reference for cleanup
+    // Setup all input event handlers and input controller
+    this.setupInputEventHandlers();
+  }
+
+  /**
+   * Sets up all input event handlers and initializes the input controller.
+   * Shared between fresh start and restore paths to avoid duplicate registration.
+   */
+  private setupInputEventHandlers(): void {
+    // Setup pause key (ESC)
     this.escKeyHandler = () => {
       this.togglePauseMenu();
     };
@@ -714,7 +785,7 @@ export class GameScene extends Phaser.Scene {
     };
     this.events.on('resume', this.resumeHandler);
 
-    // Setup auto-buy toggle key (T) - store handler reference for cleanup
+    // Setup auto-buy toggle key (T)
     this.autoBuyKeyHandler = () => {
       this.toggleAutoBuy();
     };
@@ -791,6 +862,7 @@ export class GameScene extends Phaser.Scene {
         currentLevel: u.currentLevel,
       })),
       twinLinks: getAllTwinLinks(),
+      modifierIds: this.activeModifiers.map(m => m.id),
     });
   }
 
@@ -799,6 +871,13 @@ export class GameScene extends Phaser.Scene {
    * Called when the game is loaded with a valid save from page reload.
    */
   private restoreGameState(state: GameSaveState): void {
+    // Restore run modifiers from save
+    if (state.modifierIds) {
+      this.activeModifiers = state.modifierIds
+        .map(id => getModifierById(id))
+        .filter((modifier): modifier is RunModifier => modifier !== undefined);
+    }
+
     // Reset all ECS systems
     resetSpriteSystem();
     resetEnemyAISystem();
@@ -831,6 +910,9 @@ export class GameScene extends Phaser.Scene {
     this.offScreenIndicatorManager.setWorld(this.world);
     this.masteryVisualsManager = new MasteryVisualsManager(this);
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
+
+    // Initialize toast manager early (needed before game loop starts)
+    this.toastManager = getToastManager(this);
 
     // Restore game progress
     this.gameTime = state.gameTime;
@@ -994,6 +1076,12 @@ export class GameScene extends Phaser.Scene {
     });
     this.hudManager.create();
 
+    // Create any boss health bars that were deferred during entity restoration
+    for (const pending of this.pendingBossHealthBars) {
+      this.hudManager.createBossHealthBar(pending.entityId, pending.name, pending.isBoss);
+    }
+    this.pendingBossHealthBars = [];
+
     // Persistent low-HP danger vignette (restore path)
     this.dangerVignette = this.add.rectangle(
       this.scale.width / 2, this.scale.height / 2,
@@ -1007,44 +1095,12 @@ export class GameScene extends Phaser.Scene {
     // Create pause menu manager (restore path)
     this.pauseMenuManager = this.createPauseMenuManager();
 
-    // Setup pause key
-    this.escKeyHandler = () => {
-      this.togglePauseMenu();
-    };
-    this.input.keyboard?.on('keydown-ESC', this.escKeyHandler);
+    // Setup all input event handlers and input controller
+    this.setupInputEventHandlers();
 
-    // Setup scene resume handler to show pause menu when returning from settings
-    this.resumeHandler = () => {
-      if (this.isPaused && !this.pauseMenuManager.isPauseMenuOpen) {
-        this.pauseMenuManager.showPauseMenuFromSettings();
-      }
-    };
-    this.events.on('resume', this.resumeHandler);
-
-    // Setup auto-buy toggle key
-    this.autoBuyKeyHandler = () => {
-      this.toggleAutoBuy();
-    };
-    this.input.keyboard?.on('keydown-T', this.autoBuyKeyHandler);
-
-    // Setup beforeunload handler
-    this.setupBeforeUnloadHandler();
-
-    // Initialize input controller and restore dash state from save
-    // Must be after pauseMenuManager is created since onFocusLost references it
-    this.inputController.create();
+    // Restore dash state from save
     this.inputController.setDashCooldownTimer(state.dashCooldownTimer);
     this.inputController.resetDashState();
-
-    // Listen for dash requests from InputController (triggered by Shift key)
-    this.dashRequestHandler = () => {
-      if (this.isPaused || this.isGameOver) return;
-      if (this.playerId === -1) return;
-      const playerX = Transform.x[this.playerId];
-      const playerY = Transform.y[this.playerId];
-      this.inputController.tryDash(playerX, playerY, this.playerId);
-    };
-    this.events.on('input-dash-requested', this.dashRequestHandler);
   }
 
   /**
@@ -1132,7 +1188,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Reposition any boss health bars that were restored
-    if (this.hudManager.getBossEntityIds().length > 0) {
+    // (hudManager may not exist yet during restoreGameState — it's created after restoreEntities)
+    if (this.hudManager?.getBossEntityIds().length > 0) {
       this.hudManager.repositionBossHealthBars();
     }
   }
@@ -1167,13 +1224,13 @@ export class GameScene extends Phaser.Scene {
     Health.current[entityId] = this.playerStats.currentHealth;
     Health.max[entityId] = this.playerStats.maxHealth;
 
-    // Create player visual (pass current level for particle growth system)
-    this.playerPlasmaCore = new PlayerPlasmaCore(this, entity.transform.x, entity.transform.y, {
+    // Create player visual (procedural neon spaceship)
+    this.playerSpaceship = new PlayerSpaceship(this, entity.transform.x, entity.transform.y, {
       baseRadius: 16,
       neonColor: PLAYER_NEON,
       quality: this.visualQuality,
     }, this.playerStats.level);
-    const playerVisual = this.playerPlasmaCore.getContainer();
+    const playerVisual = this.playerSpaceship.getContainer();
     playerVisual.setDepth(10);
     registerSprite(entityId, playerVisual);
   }
@@ -1265,9 +1322,14 @@ export class GameScene extends Phaser.Scene {
 
     this.enemyCount++;
 
-    // Create boss health bar if this is a boss/miniboss
+    // Queue boss health bar creation (hudManager may not exist yet during restore path)
     if (entity.enemyData.xpValue >= 30) {
-      this.hudManager.createBossHealthBar(entityId, enemyType.name, entity.enemyData.xpValue >= 1000);
+      if (this.hudManager) {
+        this.hudManager.createBossHealthBar(entityId, enemyType.name, entity.enemyData.xpValue >= 1000);
+      } else {
+        // Defer — will be created after hudManager initialization
+        this.pendingBossHealthBars.push({ entityId, name: enemyType.name, isBoss: entity.enemyData.xpValue >= 1000 });
+      }
     }
   }
 
@@ -1305,6 +1367,10 @@ export class GameScene extends Phaser.Scene {
     const comboResult = recordComboKill();
     if (comboResult.triggeredThreshold) {
       this.handleComboThreshold(comboResult.triggeredThreshold);
+    }
+    // Juice on combo tier transitions (separate from threshold rewards)
+    if (comboResult.tierChanged && !comboResult.triggeredThreshold) {
+      this.handleComboTierChange(comboResult.tierChanged);
     }
 
     // Track kill for achievements
@@ -1371,23 +1437,16 @@ export class GameScene extends Phaser.Scene {
     if (this.playerStats.pandemicSpread > 0 && hasComponent(this.world, StatusEffect, enemyId)) {
       const poisonStacks = StatusEffect.poisonStacks[enemyId];
       if (poisonStacks > 0) {
-        // Find nearby enemies and spread poison
+        // Find nearby enemies using spatial hash for O(nearby) instead of O(all)
         const spreadRadius = this.playerStats.pandemicSpread;
-        const enemies = enemyQueryForCollision(this.world);
-        for (const nearbyId of enemies) {
-          if (nearbyId === enemyId) continue;
-          const nearbyX = Transform.x[nearbyId];
-          const nearbyY = Transform.y[nearbyId];
-          const dx = nearbyX - x;
-          const dy = nearbyY - y;
-          const distSq = dx * dx + dy * dy;
-          if (distSq < spreadRadius * spreadRadius) {
-            // Spread half the stacks to nearby enemies
-            const spreadStacks = Math.max(1, Math.floor(poisonStacks / 2));
-            applyPoison(this.world, nearbyId, spreadStacks, 4000, this.playerStats.poisonMaxStacks);
-            // Visual feedback for poison spread
-            this.effectsManager.showDamageNumber(nearbyX, nearbyY - 10, spreadStacks, 0x66ff66);
-          }
+        const nearbyEnemies = getEnemySpatialHash().query(x, y, spreadRadius);
+        for (const nearby of nearbyEnemies) {
+          if (nearby.id === enemyId) continue;
+          // Spread half the stacks to nearby enemies
+          const spreadStacks = Math.max(1, Math.floor(poisonStacks / 2));
+          applyPoison(this.world, nearby.id, spreadStacks, 4000, this.playerStats.poisonMaxStacks);
+          // Visual feedback for poison spread
+          this.effectsManager.showDamageNumber(nearby.x, nearby.y - 10, spreadStacks, 0x66ff66);
         }
       }
     }
@@ -1431,6 +1490,8 @@ export class GameScene extends Phaser.Scene {
       }
       this.cameras.main.flash(400, 255, 200, 200);
       this.effectsManager.playImpactFlash(0.4, 150);
+      // Screen-space distortion shockwave from boss death
+      this.distortionPipeline?.addDistortion(x, y, 400, 0.04, 500);
 
       // Phase 4: Massive grid distortion
       this.gridBackground.applyExplosiveForce(5000, x, y, 700);
@@ -1469,6 +1530,19 @@ export class GameScene extends Phaser.Scene {
         this.effectsManager.playGoldSparkle(x + 20, y + 15, 5);
       });
 
+      // Deactivate boss arena atmosphere (plays cleansing flash)
+      deactivateBossArena();
+      this.activeBossType = null;
+
+      // Gold sparkle rain across screen for boss death celebration
+      for (let sparkleIndex = 0; sparkleIndex < 12; sparkleIndex++) {
+        this.time.delayedCall(sparkleIndex * 60, () => {
+          const rainX = Math.random() * this.scale.width;
+          const rainY = Math.random() * this.scale.height * 0.6;
+          this.effectsManager.playGoldSparkle(rainX, rainY, 4);
+        });
+      }
+
       // Boss kill = Victory! Advance to next world level
       if (!this.hasWon) {
         const metaManager = getMetaProgressionManager();
@@ -1486,6 +1560,8 @@ export class GameScene extends Phaser.Scene {
         this.cameras.main.shake(250, 0.018);
       }
       this.effectsManager.playImpactFlash(0.15, 80);
+      // Screen-space distortion shockwave from miniboss death
+      this.distortionPipeline?.addDistortion(x, y, 250, 0.025, 400);
 
       this.gridBackground.applyExplosiveForce(2000, x, y, 350);
       this.deathRippleManager.spawnRipple(x, y);
@@ -1803,12 +1879,11 @@ export class GameScene extends Phaser.Scene {
     if (this.playerId !== -1) {
       const hpRatio = this.playerStats.currentHealth / this.playerStats.maxHealth;
 
-      // Persistent red vignette pulse when below 25% HP
-      if (hpRatio < 0.25) {
-        const isCritical = hpRatio < 0.1;
-        const pulseSpeed = isCritical ? 5 : 3;
-        const baseAlpha = isCritical ? 0.12 : 0.08;
-        const pulseAmplitude = isCritical ? 0.08 : 0.06;
+      // Persistent red vignette pulse when below 10% HP
+      if (hpRatio < 0.1) {
+        const pulseSpeed = 5;
+        const baseAlpha = 0.12;
+        const pulseAmplitude = 0.08;
         const vignetteAlpha = baseAlpha + Math.sin(this.gameTime * pulseSpeed) * pulseAmplitude;
         this.dangerVignette.setAlpha(vignetteAlpha);
       } else if (this.dangerVignette.alpha > 0.001) {
@@ -1816,12 +1891,13 @@ export class GameScene extends Phaser.Scene {
         this.dangerVignette.setAlpha(this.dangerVignette.alpha * 0.9);
       }
 
-      // Plasma core color shift toward red at low HP
+      // Ship color shift toward red at low HP
       const dangerLevel = Math.max(0, 1 - hpRatio / 0.25); // 0 at 25%+, 1 at 0%
-      this.playerPlasmaCore.setDangerLevel(dangerLevel);
+      this.playerSpaceship.setDangerLevel(dangerLevel);
 
-      // I-frame blink on player plasma core
-      this.playerPlasmaCore.setInvulnerable(this.damageCooldown > 0);
+
+      // I-frame blink on player ship
+      this.playerSpaceship.setInvulnerable(this.damageCooldown > 0);
     }
 
     // ═══ UPGRADE ICON HIGHLIGHT EXPIRATION ═══
@@ -2005,6 +2081,25 @@ export class GameScene extends Phaser.Scene {
     // Update combo system (decay timer, threshold effect timers)
     updateComboSystem(deltaSeconds);
 
+    // Update boss arena atmosphere pulse
+    updateBossArena(deltaSeconds);
+
+    // Update hazard zones and apply effects
+    if (this.playerId !== -1) {
+      updateHazardZones(
+        deltaSeconds, this.playerId,
+        Transform.x[this.playerId], Transform.y[this.playerId]
+      );
+    }
+
+    // Spawn boss-specific hazard zones during boss fights
+    if (this.activeBossType) {
+      this.bossHazardTimer -= deltaSeconds;
+      if (this.bossHazardTimer <= 0) {
+        this.spawnBossHazard();
+      }
+    }
+
     // Suppress events during boss warning phase 2+
     setSuppressEvents(this.bossWarningPhase >= 2);
 
@@ -2025,6 +2120,15 @@ export class GameScene extends Phaser.Scene {
     inputSystem(this.world, inputState);
     updateAIGameTime(this.gameTime);
     enemyAISystem(this.world, deltaSeconds);
+
+    // Apply Warden slow aura to player velocity (computed inside enemyAISystem)
+    if (this.playerId !== -1) {
+      const wardenSlow = getWardenSlowMultiplier();
+      if (wardenSlow < 1.0) {
+        Velocity.x[this.playerId] *= wardenSlow;
+        Velocity.y[this.playerId] *= wardenSlow;
+      }
+    }
 
     // Update Wraith sprite alpha based on phase state
     const wraithCheckEnemies = getFrameCacheEnemyIds();
@@ -2072,8 +2176,9 @@ export class GameScene extends Phaser.Scene {
     spriteSystem(this.world);
 
     // Update player plasma core visual effects (squash/stretch, fins, breathing)
-    if (this.playerId !== -1 && this.playerPlasmaCore) {
-      this.playerPlasmaCore.update(
+    if (this.playerId !== -1 && this.playerSpaceship) {
+      this.playerSpaceship.setComboTier(getComboTier());
+      this.playerSpaceship.update(
         Velocity.x[this.playerId],
         Velocity.y[this.playerId],
         deltaSeconds
@@ -2100,6 +2205,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update visual quality based on FPS (auto-scaling)
     this.updateVisualQuality(delta);
+
 
     // Update HUD
     const bossEntityIds = this.hudManager.getBossEntityIds();
@@ -2324,21 +2430,6 @@ export class GameScene extends Phaser.Scene {
     }
     this.effectsManager.playImpactFlash(0.15, 60);
 
-    // Red vignette flash on hit
-    const redVignette = this.add.rectangle(
-      this.scale.width / 2, this.scale.height / 2,
-      this.scale.width, this.scale.height,
-      0xff0000, 0
-    ).setScrollFactor(0).setDepth(1999);
-    const vignetteAlpha = hpPercent < 0.25 ? 0.2 : 0.1;
-    this.tweens.add({
-      targets: redVignette,
-      alpha: vignetteAlpha,
-      duration: 50,
-      yoyo: true,
-      hold: 30,
-      onComplete: () => redVignette.destroy(),
-    });
 
     // ═══ THORNS DAMAGE ═══
     if (this.playerStats.thornsPercent > 0 && attackerEntity !== undefined) {
@@ -2590,6 +2681,10 @@ export class GameScene extends Phaser.Scene {
     return new PauseMenuManager(this, {
       onPauseStateChanged: (isPaused: boolean) => {
         this.isPaused = isPaused;
+        // Hide ship glow when paused so it doesn't bleed through the overlay
+        if (this.playerSpaceship) {
+          this.playerSpaceship.getContainer().setVisible(!isPaused);
+        }
       },
       onRestart: () => {
         this.scene.restart();
@@ -2815,13 +2910,13 @@ export class GameScene extends Phaser.Scene {
     Health.current[entityId] = 100;
     Health.max[entityId] = 100;
 
-    // Create visual - animated plasma core with velocity-responsive effects
-    this.playerPlasmaCore = new PlayerPlasmaCore(this, x, y, {
+    // Create visual - procedural neon spaceship
+    this.playerSpaceship = new PlayerSpaceship(this, x, y, {
       baseRadius: 16,
       neonColor: PLAYER_NEON,
       quality: this.visualQuality,
     }, this.playerStats.level);
-    const playerVisual = this.playerPlasmaCore.getContainer();
+    const playerVisual = this.playerSpaceship.getContainer();
     playerVisual.setDepth(10);
     registerSprite(entityId, playerVisual);
 
@@ -3162,24 +3257,6 @@ export class GameScene extends Phaser.Scene {
         },
       });
 
-      // Create vignette overlay (semi-transparent dark edges)
-      if (!this.bossWarningVignette) {
-        this.bossWarningVignette = this.add.graphics();
-        this.bossWarningVignette.setDepth(warningDepth);
-      }
-      const vignetteThickness = 80;
-      const screenWidth = this.scale.width;
-      const screenHeight = this.scale.height;
-      this.bossWarningVignette.clear();
-      this.bossWarningVignette.fillStyle(0x000000, 0.15);
-      // Top edge
-      this.bossWarningVignette.fillRect(0, 0, screenWidth, vignetteThickness);
-      // Bottom edge
-      this.bossWarningVignette.fillRect(0, screenHeight - vignetteThickness, screenWidth, vignetteThickness);
-      // Left edge
-      this.bossWarningVignette.fillRect(0, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
-      // Right edge
-      this.bossWarningVignette.fillRect(screenWidth - vignetteThickness, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
     }
 
     // Update countdown timer during phase 2+
@@ -3200,10 +3277,14 @@ export class GameScene extends Phaser.Scene {
         }).setOrigin(0.5).setDepth(warningDepth);
       }
       this.bossCountdownText.setText(countdownStr);
-      // Pulse red in last 10 seconds
+      // Pulse red in last 10 seconds with periodic rumble shakes
       if (timeRemaining <= 10) {
         this.bossCountdownText.setColor('#ff2222');
         this.bossCountdownText.setAlpha(0.6 + 0.4 * Math.abs(Math.sin(this.gameTime * 4)));
+        // Periodic mild rumble shakes (every ~2 seconds via sine check)
+        if (Math.abs(Math.sin(this.gameTime * 1.5)) < 0.05) {
+          getJuiceManager().screenShake(0.003, 150);
+        }
       }
     }
 
@@ -3211,7 +3292,12 @@ export class GameScene extends Phaser.Scene {
     if (this.bossWarningPhase < 3 && this.gameTime >= this.bossSpawnTime - 5) {
       this.bossWarningPhase = 3;
       this.soundManager.playBossWarning();
-      getJuiceManager().screenShake(0.005, 300);
+      getJuiceManager().screenShake(0.008, 400);
+      getJuiceManager().impactFlash(0.15, 100);
+      // Grid distortion pulse from screen center
+      this.gridBackground.applyExplosiveForce(2000, screenCenterX, screenCenterY, 400);
+      // Screen distortion shockwave
+      this.distortionPipeline?.addDistortion(screenCenterX, screenCenterY, 300, 0.02, 350);
 
       // Destroy any existing warning text before creating new one
       if (this.bossWarningText) {
@@ -3238,23 +3324,123 @@ export class GameScene extends Phaser.Scene {
         repeat: -1,
       });
 
-      // Intensify vignette (increase alpha to 0.3)
-      if (this.bossWarningVignette) {
-        const vignetteThickness = 80;
-        const screenWidth = this.scale.width;
-        const screenHeight = this.scale.height;
-        this.bossWarningVignette.clear();
-        this.bossWarningVignette.fillStyle(0x000000, 0.3);
-        // Top edge
-        this.bossWarningVignette.fillRect(0, 0, screenWidth, vignetteThickness);
-        // Bottom edge
-        this.bossWarningVignette.fillRect(0, screenHeight - vignetteThickness, screenWidth, vignetteThickness);
-        // Left edge
-        this.bossWarningVignette.fillRect(0, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
-        // Right edge
-        this.bossWarningVignette.fillRect(screenWidth - vignetteThickness, vignetteThickness, vignetteThickness, screenHeight - vignetteThickness * 2);
-      }
     }
+  }
+
+  /**
+   * Shows a centered banner displaying active run modifiers at game start.
+   * Each modifier shows its name, description, and category with color coding.
+   */
+  private showModifierBanner(): void {
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+    const bannerElements: Phaser.GameObjects.GameObject[] = [];
+
+    const categoryColors: Record<string, string> = {
+      offense: '#ff6644',
+      defense: '#44aaff',
+      resources: '#ffcc22',
+      chaos: '#aa44ff',
+    };
+
+    const categoryLabels: Record<string, string> = {
+      offense: 'OFFENSE',
+      defense: 'DEFENSE',
+      resources: 'RESOURCES',
+      chaos: 'CHAOS',
+    };
+
+    // Semi-transparent backdrop
+    const backdrop = this.add.rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.6);
+    backdrop.setScrollFactor(0).setDepth(1990);
+    bannerElements.push(backdrop);
+
+    // Title
+    const title = this.add.text(centerX, centerY - 120, 'RUN MODIFIERS', {
+      fontSize: '24px',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+      color: '#888888',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+    bannerElements.push(title);
+
+    // Modifier cards
+    const cardSpacing = 100;
+    const totalHeight = (this.activeModifiers.length - 1) * cardSpacing;
+    const startY = centerY - totalHeight / 2;
+
+    for (let modifierIndex = 0; modifierIndex < this.activeModifiers.length; modifierIndex++) {
+      const modifier = this.activeModifiers[modifierIndex];
+      const cardY = startY + modifierIndex * cardSpacing;
+      const categoryColor = categoryColors[modifier.category] ?? '#ffffff';
+      const categoryLabel = categoryLabels[modifier.category] ?? modifier.category.toUpperCase();
+
+      // Category tag
+      const tag = this.add.text(centerX, cardY - 18, categoryLabel, {
+        fontSize: '11px',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        color: categoryColor,
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      bannerElements.push(tag);
+
+      // Modifier name
+      const nameText = this.add.text(centerX, cardY + 2, modifier.name, {
+        fontSize: '22px',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      bannerElements.push(nameText);
+
+      // Description with effects breakdown
+      const descText = this.add.text(centerX, cardY + 28, modifier.description, {
+        fontSize: '16px',
+        fontFamily: 'Arial',
+        color: '#cccccc',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      bannerElements.push(descText);
+
+      // Decorative line under each card
+      const lineGraphics = this.add.graphics();
+      lineGraphics.setScrollFactor(0).setDepth(1991).setAlpha(0);
+      const lineColor = parseInt(categoryColor.replace('#', ''), 16);
+      lineGraphics.lineStyle(1, lineColor, 0.4);
+      lineGraphics.lineBetween(centerX - 140, cardY + 48, centerX + 140, cardY + 48);
+      bannerElements.push(lineGraphics);
+    }
+
+    // Fade in all elements
+    for (const element of bannerElements) {
+      if (element === backdrop) continue;
+      this.tweens.add({
+        targets: element,
+        alpha: 1,
+        duration: 400,
+        delay: 200,
+        ease: 'Cubic.easeOut',
+      });
+    }
+
+    // Fade out everything after display
+    this.time.delayedCall(3000, () => {
+      for (const element of bannerElements) {
+        this.tweens.add({
+          targets: element,
+          alpha: 0,
+          duration: 500,
+          onComplete: () => element.destroy(),
+        });
+      }
+    });
   }
 
   /**
@@ -3294,13 +3480,18 @@ export class GameScene extends Phaser.Scene {
         color: 0xffdd44,
         duration: 2000,
       });
-      this.soundManager.playPickupXP(50);
-      getJuiceManager().impactFlash(0.15, 60);
-      this.showComboText('HOT STREAK!', '#ffdd44', comboPlayerX, comboPlayerY);
+      this.soundManager.playComboThreshold();
+      getJuiceManager().impactFlash(0.25, 100);
+      // Death ripple cascade from the kill position
+      this.deathRippleManager.spawnRipple(comboPlayerX, comboPlayerY);
+      // Screen-wide cyan tint flash
+      this.cameras.main.flash(250, 0, 200, 255);
+      // Bigger text with scale-up
+      this.showComboText('HOT STREAK!', '#00ddff', comboPlayerX, comboPlayerY, 34, 1.6);
     } else if (threshold.type === 'damage_boost') {
       // Damage buff is managed by ComboSystem's activeThresholdEffects
       getJuiceManager().hitStop(50, 0.85);
-      getJuiceManager().impactFlash(0.25, 100);
+      getJuiceManager().impactFlash(0.35, 120);
       this.toastManager.showToast({
         title: `COMBO x${threshold.count}`,
         description: 'Power Surge! +50% damage',
@@ -3308,11 +3499,27 @@ export class GameScene extends Phaser.Scene {
         color: 0xff8844,
         duration: 3000,
       });
-      this.soundManager.playLevelUp();
+      this.soundManager.playComboThreshold();
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(150, 0.01);
+        this.cameras.main.shake(200, 0.015);
       }
-      this.showComboText('POWER SURGE!', '#ff8844', comboPlayerX, comboPlayerY);
+      // Orange particle burst at player position for power surge feel
+      this.effectsManager.playDeathBurst(comboPlayerX, comboPlayerY, 0xff8844);
+      // Screen distortion shockwave
+      this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 280, 0.025, 400);
+      // Chromatic aberration spike via grid combat intensity
+      this.gridBackground.setCombatIntensity(1.0);
+      // Grid shockwave from player position
+      this.gridBackground.applyExplosiveForce(4000, comboPlayerX, comboPlayerY, 600);
+      // Brief slow-motion: drop to 30% speed for 200ms then restore
+      this.tweens.timeScale = 0.3;
+      this.time.delayedCall(200, () => {
+        this.tweens.timeScale = 1.0;
+      });
+      // Orange flash
+      this.cameras.main.flash(200, 255, 136, 0);
+      // Bigger orange text with scale-up animation
+      this.showComboText('POWER SURGE!', '#ff8844', comboPlayerX, comboPlayerY, 38, 1.8);
     } else if (threshold.type === 'annihilation') {
       // Screen-wide damage pulse — apply damage directly via ECS
       const enemies = getFrameCacheEnemyIds();
@@ -3326,7 +3533,7 @@ export class GameScene extends Phaser.Scene {
           }
         }
       }
-      getJuiceManager().hitStop(60, 0.9);
+      getJuiceManager().hitStop(80, 0.95);
       this.toastManager.showToast({
         title: `COMBO x${threshold.count}`,
         description: 'ANNIHILATION!',
@@ -3334,23 +3541,80 @@ export class GameScene extends Phaser.Scene {
         color: 0xff2244,
         duration: 3000,
       });
-      this.soundManager.playLevelUp();
+      this.soundManager.playComboThreshold();
+      // Deep slow-motion: 20% speed for 500ms then restore
+      this.tweens.timeScale = 0.2;
+      this.time.delayedCall(500, () => {
+        this.tweens.timeScale = 1.0;
+      });
+      // Massive radial shockwave from player position
+      this.deathRippleManager.spawnRipple(comboPlayerX, comboPlayerY);
+      this.deathRippleManager.spawnRipple(comboPlayerX + 30, comboPlayerY);
+      this.deathRippleManager.spawnRipple(comboPlayerX - 30, comboPlayerY);
+      // Screen distortion shockwave from annihilation
+      this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 350, 0.035, 450);
+      // Grid shockwave
+      this.gridBackground.applyExplosiveForce(6000, comboPlayerX, comboPlayerY, 800);
+      this.gridBackground.setCombatIntensity(1.0);
+      // White camera flash
+      this.cameras.main.flash(500, 255, 255, 255);
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(300, 0.025);
+        this.cameras.main.shake(400, 0.035);
       }
-      this.effectsManager.playImpactFlash(0.2, 80);
-      this.effectsManager.playGoldSparkle(comboPlayerX, comboPlayerY, 8);
-      this.showComboText('ANNIHILATION!', '#ff2244', comboPlayerX, comboPlayerY);
+      this.effectsManager.playImpactFlash(0.4, 150);
+      this.effectsManager.playGoldSparkle(comboPlayerX, comboPlayerY, 15);
+      // Delayed secondary sparkle bursts for cascading effect
+      this.time.delayedCall(150, () => {
+        this.effectsManager.playGoldSparkle(comboPlayerX + 40, comboPlayerY - 20, 8);
+        this.effectsManager.playGoldSparkle(comboPlayerX - 40, comboPlayerY + 20, 8);
+      });
+      // Biggest text — starts red, with gold stroke for the red-to-gold feel
+      this.showComboText('ANNIHILATION!', '#ff2244', comboPlayerX, comboPlayerY, 48, 2.2);
+      // Delayed gold echo text for the color shift effect
+      this.time.delayedCall(200, () => {
+        this.showComboText('ANNIHILATION!', '#ffcc00', comboPlayerX, comboPlayerY, 44, 1.8);
+      });
+    }
+  }
+
+  /**
+   * Handles combo tier transitions with scaled juice effects.
+   * Separate from threshold rewards — fires when tier changes (e.g. none→warm).
+   */
+  private handleComboTierChange(tier: ComboTier): void {
+    const tierJuiceConfig: Record<string, { shakeIntensity: number; shakeDuration: number; flashIntensity: number; flashDuration: number }> = {
+      warm:    { shakeIntensity: 0.003, shakeDuration: 100, flashIntensity: 0.08, flashDuration: 50 },
+      hot:     { shakeIntensity: 0.006, shakeDuration: 150, flashIntensity: 0.15, flashDuration: 70 },
+      blazing: { shakeIntensity: 0.010, shakeDuration: 200, flashIntensity: 0.22, flashDuration: 90 },
+      inferno: { shakeIntensity: 0.015, shakeDuration: 300, flashIntensity: 0.30, flashDuration: 120 },
+    };
+    const config = tierJuiceConfig[tier];
+    if (!config) return;
+
+    const juiceManager = getJuiceManager();
+    juiceManager.screenShake(config.shakeIntensity, config.shakeDuration);
+    juiceManager.impactFlash(config.flashIntensity, config.flashDuration);
+
+    // Audio stinger for tier-up
+    if (tier !== 'none') {
+      this.soundManager.playComboTierUp(tier as 'warm' | 'hot' | 'blazing' | 'inferno');
     }
   }
 
   /**
    * Shows a dramatic combo milestone text popup at the player position.
    */
-  private showComboText(text: string, color: string, positionX: number, positionY: number): void {
+  private showComboText(
+    text: string,
+    color: string,
+    positionX: number,
+    positionY: number,
+    fontSize: number = 26,
+    finalScale: number = 1.3,
+  ): void {
     const comboText = this.add.text(positionX, positionY - 50, text, {
       fontFamily: 'monospace',
-      fontSize: '26px',
+      fontSize: `${fontSize}px`,
       color,
       stroke: '#000000',
       strokeThickness: 4,
@@ -3359,7 +3623,7 @@ export class GameScene extends Phaser.Scene {
 
     this.tweens.add({
       targets: comboText,
-      scale: 1.3,
+      scale: finalScale,
       y: positionY - 90,
       duration: 300,
       ease: 'Back.easeOut',
@@ -3537,6 +3801,70 @@ export class GameScene extends Phaser.Scene {
 
     // Show boss entrance
     this.showBossEntrance(enemyType.name);
+
+    // Activate boss arena atmosphere
+    activateBossArena(typeId);
+    this.activeBossType = typeId;
+    this.bossHazardTimer = 0;
+  }
+
+  /**
+   * Spawns boss-specific hazard zones during boss fights.
+   * Each boss type creates different hazard patterns.
+   */
+  private spawnBossHazard(): void {
+    if (!this.activeBossType) return;
+
+    const screenWidth = this.scale.width;
+    const screenHeight = this.scale.height;
+
+    switch (this.activeBossType) {
+      case 'horde_king':
+        // Burn zones at random positions — fire lord scorches the arena
+        spawnHazardZone(
+          100 + Math.random() * (screenWidth - 200),
+          100 + Math.random() * (screenHeight - 200),
+          80, 'burn', 6
+        );
+        this.bossHazardTimer = 4;
+        break;
+
+      case 'void_wyrm':
+        // Void rifts near player — pulls enemies into gravity wells
+        if (this.playerId !== -1) {
+          const offsetX = (Math.random() - 0.5) * 300;
+          const offsetY = (Math.random() - 0.5) * 300;
+          spawnHazardZone(
+            Transform.x[this.playerId] + offsetX,
+            Transform.y[this.playerId] + offsetY,
+            100, 'void', 8
+          );
+        }
+        this.bossHazardTimer = 5;
+        break;
+
+      case 'the_machine':
+        // Ice patches + energy wells — mechanical precision
+        spawnHazardZone(
+          100 + Math.random() * (screenWidth - 200),
+          100 + Math.random() * (screenHeight - 200),
+          70, 'ice', 8
+        );
+        // Occasional energy well (player buff zone)
+        if (Math.random() < 0.4) {
+          spawnHazardZone(
+            100 + Math.random() * (screenWidth - 200),
+            100 + Math.random() * (screenHeight - 200),
+            60, 'energy', 10
+          );
+        }
+        this.bossHazardTimer = 6;
+        break;
+
+      default:
+        this.bossHazardTimer = 5;
+        break;
+    }
   }
 
   /**
@@ -3549,6 +3877,7 @@ export class GameScene extends Phaser.Scene {
     bossJuice.hitStop(60, 0.9);
     bossJuice.impactFlash(0.35, 120);
     bossJuice.screenShake(0.012, 400);
+
 
     // Grid distortion pulse from spawn point (top center)
     this.gridBackground.applyExplosiveForce(3000, this.scale.width / 2, 0, 500);
@@ -3746,6 +4075,11 @@ export class GameScene extends Phaser.Scene {
 
         if (dist < 25) {
           this.takeDamage(damage);
+
+          // Screen shake on laser hit
+          if (getSettingsManager().isScreenShakeEnabled()) {
+            this.cameras.main.shake(150, 0.008);
+          }
         }
       }
     }
@@ -3799,8 +4133,8 @@ export class GameScene extends Phaser.Scene {
     // Convert enemy color to neon pair (bright core + soft glow)
     const neonColor = toNeonPair(enemyType.color);
 
-    // Create glowing shape using the visual system
-    const container = createGlowingShape(
+    // Create glowing shape using cached texture system (batches in WebGL)
+    const container = createCachedGlowingShape(
       this,
       x, y,
       baseSize,
@@ -3834,9 +4168,27 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.xpToNextLevel = calculateXPForLevel(this.playerStats.level);
       this.pendingLevelUps++;
 
-      // Grow player particle swarm on level-up
-      if (this.playerPlasmaCore) {
-        this.playerPlasmaCore.onLevelUp(this.playerStats.level);
+      // Trigger ship visual level-up (may trigger evolution)
+      if (this.playerSpaceship) {
+        const evolutionResult = this.playerSpaceship.onLevelUp(this.playerStats.level);
+        if (evolutionResult.evolved) {
+          // Extra celebration for ship evolution
+          const evolveX = Transform.x[this.playerId];
+          const evolveY = Transform.y[this.playerId];
+          const juiceManager = getJuiceManager();
+          juiceManager.impactFlash(0.4, 180);
+          juiceManager.screenShake(0.006, 300);
+          this.effectsManager.playGoldSparkle(evolveX, evolveY, 12);
+          this.effectsManager.playGoldSparkle(evolveX - 20, evolveY - 15, 6);
+          this.effectsManager.playGoldSparkle(evolveX + 20, evolveY + 15, 6);
+          this.toastManager.showToast({
+            title: 'Ship Evolved!',
+            description: `${evolutionResult.tierName} form achieved`,
+            icon: 'star',
+            color: 0x44ffff,
+            duration: 3000,
+          });
+        }
       }
 
       // Track level up for achievements
@@ -4340,19 +4692,77 @@ export class GameScene extends Phaser.Scene {
     const statUpgrades = this.upgrades.map(u => ({ id: u.id, currentLevel: u.currentLevel }));
     const evolutionResult = this.weaponManager.checkEvolutions(statUpgrades, this.evolutionLevelReduction);
     if (evolutionResult && this.toastManager) {
-      // Dramatic evolution celebration
-      const evolutionJuice = getJuiceManager();
-      evolutionJuice.hitStop(80, 0.9);
-      evolutionJuice.impactFlash(0.4, 150);
-      evolutionJuice.screenShake(0.008, 300);
-
-      // Gold particle burst at player
       const evolvePlayerX = Transform.x[this.playerId];
       const evolvePlayerY = Transform.y[this.playerId];
-      this.effectsManager.playGoldSparkle(evolvePlayerX, evolvePlayerY, 10);
-      this.effectsManager.playGoldSparkle(evolvePlayerX - 15, evolvePlayerY - 10, 6);
-      this.effectsManager.playGoldSparkle(evolvePlayerX + 15, evolvePlayerY + 10, 6);
 
+      // --- Dramatic evolution visual overhaul ---
+
+      // 1. Freeze-frame: near-pause for dramatic weight
+      const previousTweenTimeScale = this.tweens.timeScale;
+      this.tweens.timeScale = 0.05;
+      setTimeout(() => {
+        if (this.scene) this.tweens.timeScale = previousTweenTimeScale;
+      }, 500);
+
+      // 2. Bright white camera flash
+      this.cameras.main.flash(400, 255, 255, 200);
+
+      // 3. Screen shake for impact
+      this.cameras.main.shake(400, 0.02);
+
+      // 4. Shockwave ripple from player position
+      this.deathRippleManager.spawnRipple(evolvePlayerX, evolvePlayerY);
+
+      // 5. Generous gold sparkle burst around player
+      this.effectsManager.playGoldSparkle(evolvePlayerX, evolvePlayerY, 10);
+      this.effectsManager.playGoldSparkle(evolvePlayerX - 20, evolvePlayerY - 15, 6);
+      this.effectsManager.playGoldSparkle(evolvePlayerX + 20, evolvePlayerY + 15, 6);
+      this.effectsManager.playGoldSparkle(evolvePlayerX - 15, evolvePlayerY + 20, 6);
+      this.effectsManager.playGoldSparkle(evolvePlayerX + 15, evolvePlayerY - 20, 6);
+
+      // 6. Big "WEAPON EVOLVED!" announcement text
+      const evolvedAnnouncementText = this.add.text(
+        this.cameras.main.centerX,
+        this.cameras.main.centerY - 60,
+        'WEAPON EVOLVED!',
+        {
+          fontFamily: 'monospace',
+          fontSize: '48px',
+          color: '#FFD700',
+          stroke: '#000000',
+          strokeThickness: 6,
+          align: 'center',
+        }
+      );
+      evolvedAnnouncementText.setOrigin(0.5, 0.5);
+      evolvedAnnouncementText.setDepth(999);
+      evolvedAnnouncementText.setScale(0.3);
+      evolvedAnnouncementText.setScrollFactor(0);
+
+      // Scale up dramatically
+      this.tweens.add({
+        targets: evolvedAnnouncementText,
+        scaleX: 1.5,
+        scaleY: 1.5,
+        duration: 400,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          // Then fade out
+          this.tweens.add({
+            targets: evolvedAnnouncementText,
+            alpha: 0,
+            scaleX: 1.8,
+            scaleY: 1.8,
+            duration: 600,
+            ease: 'Quad.easeIn',
+            onComplete: () => {
+              evolvedAnnouncementText.destroy();
+            },
+          });
+        },
+      });
+
+      // 7. Existing toast + sound
       this.toastManager.showToast({
         title: `EVOLVED: ${evolutionResult.evolution.evolvedName}`,
         description: evolutionResult.evolution.evolvedDescription,
@@ -4631,7 +5041,21 @@ export class GameScene extends Phaser.Scene {
 
     // Update grid animation with actual delta for proper physics integration
     this.gridBackground.update(deltaSeconds);
+
+    // Update dynamic lighting — clear lights, add sources, render
+    if (this.lightingSystem) {
+      this.lightingSystem.clearLights();
+      // Player light (bright, large)
+      if (this.playerId !== -1) {
+        this.lightingSystem.addLight(
+          Transform.x[this.playerId], Transform.y[this.playerId],
+          120, 0.9
+        );
+      }
+      this.lightingSystem.update();
+    }
   }
+
 
   /**
    * Updates visual quality based on FPS for auto-scaling.
@@ -4657,11 +5081,17 @@ export class GameScene extends Phaser.Scene {
         this.statusEffectVisualManager.setQuality(newQuality);
       }
       // Update player plasma core quality
-      if (this.playerPlasmaCore) {
-        this.playerPlasmaCore.setQuality(newQuality);
+      if (this.playerSpaceship) {
+        this.playerSpaceship.setQuality(newQuality);
       }
       // Update weapon visual quality
       this.weaponManager.setVisualQuality(newQuality);
+      // Disable distortion on low quality
+      // (DistortionPipeline auto-skips when no active sources, so no explicit disable needed)
+      // Update lighting quality
+      if (this.lightingSystem) {
+        this.lightingSystem.setEnabled(newQuality !== 'low');
+      }
       // Note: Existing entities keep their current quality
       // New entities will be created with the new quality level
     }
@@ -4681,6 +5111,11 @@ export class GameScene extends Phaser.Scene {
     // Rebuild grid background for new screen dimensions
     if (this.gridBackground) {
       this.gridBackground.resize(w, h);
+    }
+
+    // Resize lighting render texture
+    if (this.lightingSystem) {
+      this.lightingSystem.resize(w, h);
     }
 
     // Delegate all HUD repositioning to the HUD manager
@@ -4750,8 +5185,23 @@ export class GameScene extends Phaser.Scene {
 
 
     // Clean up player plasma core visual
-    if (this.playerPlasmaCore) {
-      this.playerPlasmaCore.destroy();
+    if (this.playerSpaceship) {
+      this.playerSpaceship.destroy();
+    }
+
+    // Clean up boss arena and hazard zones
+    resetBossArenaSystem();
+    resetHazardZoneSystem();
+    this.activeBossType = null;
+
+    // Clean up post-processing and lighting
+    if (this.lightingSystem) {
+      this.lightingSystem.destroy();
+      this.lightingSystem = null;
+    }
+    this.distortionPipeline = null;
+    if (this.renderer.type === Phaser.WEBGL && this.cameras?.main) {
+      this.cameras.main.removePostPipeline('DistortionPipeline');
     }
 
     // Clean up grid background and trail manager

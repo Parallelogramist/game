@@ -9,6 +9,7 @@ interface TrailPoint {
   color: number;
   size: number;
   active: boolean;
+  entityId: number;
 }
 
 interface TrackedEntity {
@@ -52,6 +53,7 @@ export class TrailManager {
         color: 0xffffff,
         size: 5,
         active: false,
+        entityId: -1,
       });
     }
   }
@@ -125,19 +127,39 @@ export class TrailManager {
     point.color = color;
     point.size = size;
     point.active = true;
+    point.entityId = entityId;
 
     return true;
   }
 
   /**
    * Remove tracking for an entity (call when entity is destroyed).
+   * Trail points remain active and fade out naturally.
    */
   removeEntity(entityId: number): void {
     this.trackedEntities.delete(entityId);
   }
 
+  // Reusable map for grouping trail points by entity each frame (avoids allocation)
+  private entityTrailGroups: Map<number, TrailPoint[]> = new Map();
+  // Reusable arrays for entity grouping to avoid per-frame allocation
+  private groupArrayPool: TrailPoint[][] = [];
+  private groupArrayPoolIndex: number = 0;
+
+  private getGroupArray(): TrailPoint[] {
+    if (this.groupArrayPoolIndex < this.groupArrayPool.length) {
+      const arr = this.groupArrayPool[this.groupArrayPoolIndex++];
+      arr.length = 0;
+      return arr;
+    }
+    const arr: TrailPoint[] = [];
+    this.groupArrayPool.push(arr);
+    this.groupArrayPoolIndex++;
+    return arr;
+  }
+
   /**
-   * Update and render all active trail points.
+   * Update and render all active trail points as connected ribbon geometry.
    * @param deltaSeconds - Time since last frame in seconds
    */
   update(deltaSeconds: number): void {
@@ -146,7 +168,10 @@ export class TrailManager {
 
     this.graphics.clear();
 
-    let trailsDrawn = 0;
+    // Age all points and group active ones by entityId
+    this.entityTrailGroups.clear();
+    this.groupArrayPoolIndex = 0;
+    let activePointCount = 0;
 
     for (const point of this.trailPool) {
       if (!point.active) continue;
@@ -159,25 +184,104 @@ export class TrailManager {
         continue;
       }
 
-      // Limit trails per frame for performance
-      if (trailsDrawn >= this.maxTrailsPerFrame) continue;
-      trailsDrawn++;
+      activePointCount++;
+      if (activePointCount > this.maxTrailsPerFrame) continue;
 
-      // Calculate fade based on age
-      const lifeProgress = point.age / this.TRAIL_LIFETIME;
-      const alpha = (1 - lifeProgress) * 0.6;  // Max alpha 0.6 - brighter (was 0.4)
-      const shrink = 0.3 + (1 - lifeProgress) * 0.7;  // Shrink from 100% to 30%
+      let group = this.entityTrailGroups.get(point.entityId);
+      if (!group) {
+        group = this.getGroupArray();
+        this.entityTrailGroups.set(point.entityId, group);
+      }
+      group.push(point);
+    }
 
-      // Draw glowing trail point
-      const radius = point.size * shrink;
+    // Render each entity's trail as a ribbon
+    for (const [, trailPoints] of this.entityTrailGroups) {
+      // Sort by age descending so oldest points come first (tail) and newest last (head)
+      trailPoints.sort((a, b) => b.age - a.age);
 
-      // Outer glow
-      this.graphics.fillStyle(point.color, alpha * 0.5);  // Brighter glow (was 0.3)
-      this.graphics.fillCircle(point.x, point.y, radius * 1.5);
+      if (trailPoints.length < 2) {
+        // Single point: fall back to a simple circle
+        const singlePoint = trailPoints[0];
+        const lifeProgress = singlePoint.age / this.TRAIL_LIFETIME;
+        const singleAlpha = (1 - lifeProgress) * 0.6;
+        const singleShrink = 0.3 + (1 - lifeProgress) * 0.7;
+        const singleRadius = singlePoint.size * singleShrink;
+        this.graphics.fillStyle(singlePoint.color, singleAlpha * 0.5);
+        this.graphics.fillCircle(singlePoint.x, singlePoint.y, singleRadius * 1.5);
+        this.graphics.fillStyle(singlePoint.color, singleAlpha);
+        this.graphics.fillCircle(singlePoint.x, singlePoint.y, singleRadius);
+        continue;
+      }
 
-      // Core
-      this.graphics.fillStyle(point.color, alpha);
-      this.graphics.fillCircle(point.x, point.y, radius);
+      // Precompute perpendicular normals and widths/alphas for each point
+      const pointCount = trailPoints.length;
+
+      // Two-pass ribbon rendering: outer glow pass, then core pass
+      for (let pass = 0; pass < 2; pass++) {
+        const isGlowPass = pass === 0;
+        const widthScale = isGlowPass ? 1.5 : 1.0;
+        const alphaScale = isGlowPass ? 0.5 : 1.0;
+
+        for (let i = 0; i < pointCount - 1; i++) {
+          const currentPoint = trailPoints[i];
+          const nextPoint = trailPoints[i + 1];
+
+          // Direction vector from current to next
+          const segmentDx = nextPoint.x - currentPoint.x;
+          const segmentDy = nextPoint.y - currentPoint.y;
+          const segmentLength = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
+
+          if (segmentLength < 0.001) continue; // Skip zero-length segments
+
+          // Perpendicular normal (rotated 90 degrees)
+          const normalX = -segmentDy / segmentLength;
+          const normalY = segmentDx / segmentLength;
+
+          // Current point properties (older = thinner, more transparent)
+          const currentLifeProgress = currentPoint.age / this.TRAIL_LIFETIME;
+          const currentAlpha = (1 - currentLifeProgress) * 0.6 * alphaScale;
+          const currentShrink = 0.3 + (1 - currentLifeProgress) * 0.7;
+          const currentHalfWidth = currentPoint.size * currentShrink * widthScale;
+
+          // Next point properties (newer = wider, more opaque)
+          const nextLifeProgress = nextPoint.age / this.TRAIL_LIFETIME;
+          const nextAlpha = (1 - nextLifeProgress) * 0.6 * alphaScale;
+          const nextShrink = 0.3 + (1 - nextLifeProgress) * 0.7;
+          const nextHalfWidth = nextPoint.size * nextShrink * widthScale;
+
+          // Four corners of the ribbon quad
+          const currentLeftX = currentPoint.x + normalX * currentHalfWidth;
+          const currentLeftY = currentPoint.y + normalY * currentHalfWidth;
+          const currentRightX = currentPoint.x - normalX * currentHalfWidth;
+          const currentRightY = currentPoint.y - normalY * currentHalfWidth;
+
+          const nextLeftX = nextPoint.x + normalX * nextHalfWidth;
+          const nextLeftY = nextPoint.y + normalY * nextHalfWidth;
+          const nextRightX = nextPoint.x - normalX * nextHalfWidth;
+          const nextRightY = nextPoint.y - normalY * nextHalfWidth;
+
+          // Average alpha for this quad segment
+          const quadAlpha = (currentAlpha + nextAlpha) * 0.5;
+
+          // Draw quad as two triangles
+          this.graphics.fillStyle(currentPoint.color, quadAlpha);
+
+          // Triangle 1: currentLeft, currentRight, nextLeft
+          this.graphics.fillTriangle(
+            currentLeftX, currentLeftY,
+            currentRightX, currentRightY,
+            nextLeftX, nextLeftY
+          );
+
+          // Triangle 2: currentRight, nextRight, nextLeft
+          this.graphics.fillTriangle(
+            currentRightX, currentRightY,
+            nextRightX, nextRightY,
+            nextLeftX, nextLeftY
+          );
+        }
+      }
     }
   }
 

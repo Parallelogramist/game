@@ -90,6 +90,13 @@ export class GridBackground {
   // Enabled flag (settings toggle)
   private enabled = true;
 
+  // ─── Dirty-flag optimization ───
+  // When the grid is at rest (no springs moving, no nearby entities),
+  // skip the expensive render pass entirely and keep the previous frame.
+  private dirty = true;
+  private springsActive = false;
+  private readonly SPRING_VELOCITY_THRESHOLD = 0.01;
+
   // Quality settings
   private quality: VisualQuality = 'high';
   private catmullSubdivisions = 4;
@@ -137,6 +144,7 @@ export class GridBackground {
 
     this.initializePointMasses();
     this.initializeSprings();
+    this.dirty = true;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -251,6 +259,7 @@ export class GridBackground {
 
   setQuality(quality: VisualQuality): void {
     this.quality = quality;
+    this.dirty = true;
     switch (quality) {
       case 'high':
         this.catmullSubdivisions = 4;
@@ -274,6 +283,7 @@ export class GridBackground {
    */
   applyExplosiveForce(force: number, worldX: number, worldY: number, radius: number): void {
     if (getSettingsManager().isReducedMotionEnabled()) return;
+    this.dirty = true;
     const radiusSq = radius * radius;
     const minCol = Math.max(0, Math.floor((worldX - radius) / this.CELL_SIZE));
     const maxCol = Math.min(this.numCols - 1, Math.ceil((worldX + radius) / this.CELL_SIZE));
@@ -304,6 +314,7 @@ export class GridBackground {
    * Apply a directed force (specific direction). Used for Z-axis punch on boss death.
    */
   applyDirectedForce(forceX: number, forceY: number, forceZ: number, worldX: number, worldY: number, radius: number): void {
+    this.dirty = true;
     const radiusSq = radius * radius;
     const minCol = Math.max(0, Math.floor((worldX - radius) / this.CELL_SIZE));
     const maxCol = Math.min(this.numCols - 1, Math.ceil((worldX + radius) / this.CELL_SIZE));
@@ -348,10 +359,18 @@ export class GridBackground {
 
     if (playerPos) {
       this.gravityPoints.push({ x: playerPos.x, y: playerPos.y, weight: 1.5 });
+      // Player is always within the grid, so mark dirty
+      this.dirty = true;
     }
 
     for (let i = 0; i < entityData.length; i++) {
       this.gravityPoints.push(entityData[i]);
+    }
+
+    // Mark dirty if any entity data was provided (entities are pre-filtered
+    // to warp range by the caller via SpatialHash)
+    if (entityData.length > 0) {
+      this.dirty = true;
     }
   }
 
@@ -407,15 +426,45 @@ export class GridBackground {
     this.pulsePhase += clampedDelta * this.PULSE_SPEED;
     this.frameCounter++;
 
-    // Spring physics always runs
-    this.updateSprings();
-    this.integratePointMasses();
+    // Quick scan: check if any spring velocities are non-negligible
+    this.springsActive = this.checkSpringsActive();
+
+    // Spring physics always runs when springs are active
+    if (this.springsActive) {
+      this.updateSprings();
+      this.integratePointMasses();
+    }
+
+    // Skip render entirely when grid is at rest:
+    // no dirty flag, no active springs, and no gravity points warping the grid
+    if (!this.dirty && !this.springsActive) {
+      return;
+    }
 
     // Rendering may be throttled at low quality
     const shouldRender = this.quality !== 'low' || this.frameCounter % 2 === 0;
     if (shouldRender) {
       this.render();
+      // Clear dirty flag after a successful render — springs may still
+      // be settling, which is tracked separately via springsActive
+      this.dirty = false;
     }
+  }
+
+  /**
+   * Fast scan of spring velocity arrays. Returns true if any velocity
+   * component exceeds the threshold, meaning the grid hasn't settled yet.
+   */
+  private checkSpringsActive(): boolean {
+    const threshold = this.SPRING_VELOCITY_THRESHOLD;
+    for (let i = 0; i < this.totalPoints; i++) {
+      if (this.velX[i] > threshold || this.velX[i] < -threshold ||
+          this.velY[i] > threshold || this.velY[i] < -threshold ||
+          this.velZ[i] > threshold || this.velZ[i] < -threshold) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private updateSprings(): void {
@@ -751,6 +800,8 @@ export class GridBackground {
     this.gravityPoints.length = 0;
     this.pulsePhase = 0;
     this.frameCounter = 0;
+    this.dirty = true;
+    this.springsActive = false;
   }
 
   /**

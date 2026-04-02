@@ -1,6 +1,5 @@
 import { defineQuery, removeEntity, addEntity, addComponent, IWorld } from 'bitecs';
-import { Transform, XPGem, XPGemTag, PlayerTag, SpriteRef } from '../components';
-import { getSprite, unregisterSprite, registerSprite } from './SpriteSystem';
+import { Transform, XPGem, XPGemTag, PlayerTag } from '../components';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { renderGem3D, renderSimplifiedGem } from '../../visual/Gem3DRenderer';
@@ -17,22 +16,25 @@ const playerQuery = defineQuery([Transform, PlayerTag]);
 interface GemSpinState {
   spinPhase: number;           // Current rotation angle (0 to 2*PI)
   spinSpeed: number;           // Radians per second (randomized per gem)
-  gemGraphics: Phaser.GameObjects.Graphics;  // Graphics object for drawing the gem
   halfWidth: number;           // Base diamond dimensions
   halfHeight: number;
   gemColor: number;
   outlineColor: number;
-  glintTween: Phaser.Tweens.Tween | null;  // Reference to stop on collection
+  glintPhase: number;          // Phase for glint sparkle animation
 }
 
 const gemSpinStates = new Map<number, GemSpinState>();
+
+// Single shared Graphics object for batched gem rendering
+let batchGraphics: Phaser.GameObjects.Graphics | null = null;
 
 // Minimum scale for full 3D rendering (smaller gems use simplified 2D)
 const MIN_3D_SCALE = 6;
 
 /**
- * Redraws the gem as a true 3D rotating octahedron.
+ * Draws a gem as a true 3D rotating octahedron into a shared Graphics object.
  * For small gems (< 6px), falls back to simplified 2D diamond for clarity.
+ * NOTE: Does NOT call clear() — caller is responsible for clearing before batch.
  */
 function redrawRotatingGem(
   graphics: Phaser.GameObjects.Graphics,
@@ -42,8 +44,6 @@ function redrawRotatingGem(
   gemColor: number,
   outlineColor: number
 ): void {
-  graphics.clear();
-
   // Use halfHeight as the scale (vertical extent of the gem)
   const scale = halfHeight;
 
@@ -127,7 +127,6 @@ export function spawnXPGem(world: IWorld, positionX: number, positionY: number, 
   addComponent(world, Transform, gemId);
   addComponent(world, XPGem, gemId);
   addComponent(world, XPGemTag, gemId);
-  addComponent(world, SpriteRef, gemId);
 
   // Set position
   Transform.x[gemId] = positionX;
@@ -138,94 +137,44 @@ export function spawnXPGem(world: IWorld, positionX: number, positionY: number, 
   XPGem.value[gemId] = value;
   XPGem.magnetized[gemId] = 0;
 
-  // Create visual - enhanced diamond shape with size and color based on XP value
+  // Store gem visual state — all rendering is batched into a single Graphics object
   if (sceneReference) {
+    // Ensure batch graphics exists
+    if (!batchGraphics || !batchGraphics.scene) {
+      batchGraphics = sceneReference.add.graphics();
+      batchGraphics.setDepth(5);
+    }
+
     // Logarithmic size scaling: small for basic, huge for bosses
-    // value 1: size 4, value 10: size 9, value 300: size 17, value 1000: size 19
     const size = 4 + Math.log2(Math.max(value, 1)) * 1.5;
 
     // Color tiers based on XP value
     let gemColor: number;
     let outlineColor: number;
     if (value >= 500) {
-      // Legendary (boss) - golden
-      gemColor = 0xffdd44;
-      outlineColor = 0xffffff;
+      gemColor = 0xffdd44; outlineColor = 0xffffff;
     } else if (value >= 100) {
-      // Epic (miniboss) - orange
-      gemColor = 0xff9944;
-      outlineColor = 0xffffff;
+      gemColor = 0xff9944; outlineColor = 0xffffff;
     } else if (value >= 20) {
-      // Rare - purple
-      gemColor = 0xbb66ff;
-      outlineColor = 0xffffff;
+      gemColor = 0xbb66ff; outlineColor = 0xffffff;
     } else if (value >= 5) {
-      // Uncommon - blue
-      gemColor = 0x44aaff;
-      outlineColor = 0xffffff;
+      gemColor = 0x44aaff; outlineColor = 0xffffff;
     } else {
-      // Common - green
-      gemColor = 0x44ff44;
-      outlineColor = 0xffffff;
+      gemColor = 0x44ff44; outlineColor = 0xffffff;
     }
 
-    // Create main diamond gem dimensions
     const halfWidth = size * 0.5;
     const halfHeight = size * 1.1;
 
-    // Use Graphics for the gem so we can redraw each frame with rotation scaling
-    const gemGraphics = sceneReference.add.graphics();
-    gemGraphics.setDepth(5);
-
-    // Draw initial gem shape (will be redrawn each frame with rotation)
-    redrawRotatingGem(gemGraphics, halfWidth, halfHeight, 0, gemColor, outlineColor);
-
-    // Create glint highlight at RANDOM position around the gem
-    const glintSize = size * 0.2;
-    const glintAngle = Math.random() * Math.PI - Math.PI; // Upper half
-    const glintRadius = halfHeight * 0.35;
-    const glintX = Math.cos(glintAngle) * glintRadius * 0.6;
-    const glintY = Math.sin(glintAngle) * glintRadius;
-
-    const glintGraphics = sceneReference.add.graphics();
-    glintGraphics.fillStyle(0xffffff, 0.7);
-    glintGraphics.fillPoints([
-      { x: glintX, y: glintY - glintSize },
-      { x: glintX + glintSize * 0.5, y: glintY },
-      { x: glintX, y: glintY + glintSize * 0.5 },
-      { x: glintX - glintSize * 0.5, y: glintY },
-    ], true);
-    glintGraphics.setDepth(6);
-
-    // Create container to group all gem visuals for unified movement
-    const container = sceneReference.add.container(positionX, positionY, [
-      gemGraphics, glintGraphics
-    ]);
-    container.setDepth(5);
-
-    // Add subtle sparkle animation to the glint
-    const glintTween = sceneReference.tweens.add({
-      targets: glintGraphics,
-      alpha: { from: 0.4, to: 0.9 },
-      duration: 600,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-
-    // Register spin state with randomized phase and speed for visual variety
     gemSpinStates.set(gemId, {
-      spinPhase: Math.random() * Math.PI * 2,
-      spinSpeed: (0.3 + Math.random() * 0.2) * Math.PI * 2, // 0.3-0.5 rotations/sec
-      gemGraphics,
+      spinPhase: Math.random() * PI_TWO,
+      spinSpeed: (0.3 + Math.random() * 0.2) * PI_TWO,
       halfWidth,
       halfHeight,
       gemColor,
       outlineColor,
-      glintTween,
+      glintPhase: Math.random() * PI_TWO,
     });
-
-    registerSprite(gemId, container as unknown as Phaser.GameObjects.Shape);
   }
 
   return gemId;
@@ -308,23 +257,13 @@ export function xpGemSystem(world: IWorld, deltaTime: number): IWorld {
       }
     }
 
-    // Update spin animation for 360-degree rotation effect
+    // Update spin phase (rendering happens in batch below)
     const spinState = gemSpinStates.get(gemId);
     if (spinState) {
       spinState.spinPhase += spinState.spinSpeed * deltaTime;
       if (spinState.spinPhase > PI_TWO) {
         spinState.spinPhase -= PI_TWO;
       }
-
-      // Redraw gem with rotation-scaled width
-      redrawRotatingGem(
-        spinState.gemGraphics,
-        spinState.halfWidth,
-        spinState.halfHeight,
-        spinState.spinPhase,
-        spinState.gemColor,
-        spinState.outlineColor
-      );
     }
   }
 
@@ -334,24 +273,41 @@ export function xpGemSystem(world: IWorld, deltaTime: number): IWorld {
     removeEntity(world, gemId);
   }
 
+  // --- Batch render ALL gems into a single Graphics object ---
+  if (batchGraphics && batchGraphics.scene) {
+    batchGraphics.clear();
+    const remainingGems = xpGemQuery(world);
+    for (let i = 0; i < remainingGems.length; i++) {
+      const gemId = remainingGems[i];
+      const spinState = gemSpinStates.get(gemId);
+      if (!spinState) continue;
+
+      const worldX = Transform.x[gemId];
+      const worldY = Transform.y[gemId];
+
+      // Translate coordinate space and render gem
+      batchGraphics.save();
+      batchGraphics.translateCanvas(worldX, worldY);
+      redrawRotatingGem(
+        batchGraphics,
+        spinState.halfWidth,
+        spinState.halfHeight,
+        spinState.spinPhase,
+        spinState.gemColor,
+        spinState.outlineColor
+      );
+      batchGraphics.restore();
+    }
+  }
+
   return world;
 }
 
 /**
- * Cleans up a gem's visual resources: stops glint tween, destroys sprite, removes spin state.
+ * Cleans up a gem's state. No per-gem GameObjects to destroy — rendering is batched.
  */
 function cleanupGem(gemId: number): void {
-  const spinState = gemSpinStates.get(gemId);
-  if (spinState?.glintTween) {
-    spinState.glintTween.stop();
-  }
   gemSpinStates.delete(gemId);
-
-  const sprite = getSprite(gemId);
-  if (sprite) {
-    sprite.destroy();
-    unregisterSprite(gemId);
-  }
 }
 
 /**
@@ -450,4 +406,8 @@ export function resetXPGemSystem(): void {
   onXPCollectCallback = null;
   trailManager = null;
   gemSpinStates.clear();
+  if (batchGraphics) {
+    batchGraphics.destroy();
+    batchGraphics = null;
+  }
 }

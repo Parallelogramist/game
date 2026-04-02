@@ -360,7 +360,7 @@ export class SettingsScene extends Phaser.Scene {
 
     this.uiScaleDown = this.createButton(contentLeftX + scaledInt(ls, 180), currentY, '[ - ]', () => {
       settingsManager.setUiScale(settingsManager.getUiScale() - 0.1);
-      this.updateUiScaleText();
+      this.scene.restart({ returnTo: this.returnTo });
     });
     this.uiScaleDown.setData('zone', 'uiScale');
 
@@ -372,15 +372,9 @@ export class SettingsScene extends Phaser.Scene {
 
     this.uiScaleUp = this.createButton(contentLeftX + scaledInt(ls, 300), currentY, '[ + ]', () => {
       settingsManager.setUiScale(settingsManager.getUiScale() + 0.1);
-      this.updateUiScaleText();
+      this.scene.restart({ returnTo: this.returnTo });
     });
     this.uiScaleUp.setData('zone', 'uiScale');
-
-    this.add.text(contentLeftX + scaledInt(ls, 370), currentY, '(applies next run)', {
-      fontSize: scaledFontPx(fs, 11),
-      color: '#666666',
-      fontFamily: 'Arial',
-    });
 
     currentY += sectionSpacing;
 
@@ -403,14 +397,14 @@ export class SettingsScene extends Phaser.Scene {
 
     const damageNumberModes: { mode: DamageNumbersMode; label: string }[] = [
       { mode: 'all', label: 'All' },
-      { mode: 'crits', label: 'Critical Hits' },
-      { mode: 'perfect_crits', label: 'Perfect Critical Hits' },
+      { mode: 'crits', label: 'Crits' },
+      { mode: 'perfect_crits', label: 'Perfect Crits' },
       { mode: 'off', label: 'Off' },
     ];
 
     const modeStartX = contentLeftX + scaledInt(ls, 180);
     damageNumberModes.forEach((item, index) => {
-      const buttonX = modeStartX + index * scaledInt(ls, 140);
+      const buttonX = modeStartX + index * scaledInt(ls, 100);
       const isActive = settingsManager.getDamageNumbersMode() === item.mode;
 
       const button = this.add.text(buttonX, currentY, `[${item.label}]`, {

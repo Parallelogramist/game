@@ -299,6 +299,59 @@ export class SoundManager {
   }
 
   /**
+   * Play combo tier-up stinger — ascending two-note chime that rises per tier.
+   * Uses higher pitches for higher tiers to reflect escalating intensity.
+   */
+  playComboTierUp(tier: 'warm' | 'hot' | 'blazing' | 'inferno'): void {
+    const volume = getSettingsManager().getSfxVolume();
+    // Base note rises with tier for escalating intensity
+    const tierBaseNote: Record<string, number> = {
+      warm: 5,      // C4
+      hot: 7,       // E4
+      blazing: 8,   // G4
+      inferno: 10,  // C5
+    };
+    const baseIndex = tierBaseNote[tier] ?? 5;
+    const secondIndex = Math.min(baseIndex + 2, PENTATONIC_SCALE.length - 1);
+
+    this.play(SoundKeys.PICKUP_XP, {
+      rate: PENTATONIC_SCALE[baseIndex],
+      volume: volume * 0.5,
+    });
+    this.scene.time.delayedCall(60, () => {
+      this.play(SoundKeys.PICKUP_XP, {
+        rate: PENTATONIC_SCALE[secondIndex],
+        volume: volume * 0.6,
+      });
+    });
+  }
+
+  /**
+   * Play combo threshold reward stinger — dramatic power chord.
+   * Heavier than tier-up, signals a major gameplay reward.
+   */
+  playComboThreshold(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    // Power chord: root + fifth + octave in rapid succession
+    this.play(SoundKeys.LEVEL_UP, {
+      rate: PENTATONIC_SCALE[3], // G3 — low, punchy
+      volume: volume * 0.8,
+    });
+    this.scene.time.delayedCall(40, () => {
+      this.play(SoundKeys.LEVEL_UP, {
+        rate: PENTATONIC_SCALE[8], // G4 — fifth
+        volume: volume * 0.9,
+      });
+    });
+    this.scene.time.delayedCall(80, () => {
+      this.play(SoundKeys.LEVEL_UP, {
+        rate: PENTATONIC_SCALE[10], // C5 — bright top
+        volume: volume * 1.0,
+      });
+    });
+  }
+
+  /**
    * Set the master volume for all sound effects.
    * Persists to SettingsManager.
    * @param volume - Volume from 0 to 1

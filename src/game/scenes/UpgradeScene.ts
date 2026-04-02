@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrades';
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
+import { TooltipManager } from '../../ui/TooltipManager';
 
 /**
  * Data passed to UpgradeScene for initialization.
@@ -36,6 +37,7 @@ export class UpgradeScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private cardScaleFactor: number = 1;
   private soundManager!: SoundManager;
+  private tooltipManager!: TooltipManager;
 
   // Utility tracking
   private rerollsRemaining: number = 0;
@@ -86,6 +88,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.cardBackgrounds = [];
     this.cardScaleFactor = 1;
     this.soundManager = new SoundManager(this);
+    this.tooltipManager = new TooltipManager(this);
 
     // Semi-transparent dark overlay
     const overlay = this.add.rectangle(
@@ -226,7 +229,8 @@ export class UpgradeScene extends Phaser.Scene {
         `Reroll (${this.rerollsRemaining})`,
         'R',
         this.rerollsRemaining > 0,
-        () => this.handleReroll()
+        () => this.handleReroll(),
+        'Shuffle the upgrade choices. You get a limited number per run.'
       );
     }
 
@@ -237,7 +241,8 @@ export class UpgradeScene extends Phaser.Scene {
       `Skip (${this.skipsRemaining})`,
       'X',
       this.skipsRemaining > 0,
-      () => this.handleSkip()
+      () => this.handleSkip(),
+      'Skip this level-up entirely. The upgrades go back into the pool.'
     );
 
     // Banish button
@@ -247,7 +252,8 @@ export class UpgradeScene extends Phaser.Scene {
       `Banish (${this.banishesRemaining})`,
       'B',
       this.banishesRemaining > 0,
-      () => this.toggleBanishMode()
+      () => this.toggleBanishMode(),
+      'Permanently remove an upgrade from this run\'s pool. Click a card to banish it.'
     );
   }
 
@@ -260,7 +266,8 @@ export class UpgradeScene extends Phaser.Scene {
     label: string,
     hotkey: string,
     enabled: boolean,
-    onClick: () => void
+    onClick: () => void,
+    tooltip?: string
   ): void {
     const buttonWidth = 140;
     const buttonHeight = 40;
@@ -303,6 +310,10 @@ export class UpgradeScene extends Phaser.Scene {
         background.setFillStyle(0x3a3a6a);
       });
       background.on('pointerdown', onClick);
+    }
+
+    if (tooltip) {
+      this.tooltipManager.attach(background, tooltip);
     }
   }
 
@@ -487,6 +498,7 @@ export class UpgradeScene extends Phaser.Scene {
    * Critical for preventing memory leaks and performance degradation.
    */
   shutdown(): void {
+    this.tooltipManager.destroy();
     // Remove keyboard listener
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
@@ -767,8 +779,11 @@ export class UpgradeScene extends Phaser.Scene {
     const totalWidth = total * (segmentWidth + skew) + (total - 1) * segmentGap;
     const startX = -totalWidth / 2;
 
+    const previewIndex = filled - 1; // The segment that will fill if this upgrade is chosen
+
     for (let i = 0; i < total; i++) {
       const isFilled = i < filled;
+      const isPreview = i === previewIndex && previewIndex >= 0;
       const x = startX + i * (segmentWidth + skew + segmentGap);
 
       // Parallelogram points: top edge shifted right by skew
@@ -779,17 +794,29 @@ export class UpgradeScene extends Phaser.Scene {
         0, segmentHeight / 2                         // bottom-left
       ];
 
-      const segment = this.add.polygon(
-        x + segmentWidth / 2,
-        0,
-        points,
-        isFilled ? 0x88ff88 : 0x3a3a5a
-      );
+      if (isPreview) {
+        // Preview segment: outline only (green border indicates next level)
+        const segment = this.add.polygon(
+          x + segmentWidth / 2,
+          0,
+          points,
+          0x3a3a5a
+        );
+        segment.setStrokeStyle(1.5, 0x88ff88);
+        barContainer.add(segment);
+      } else {
+        const segment = this.add.polygon(
+          x + segmentWidth / 2,
+          0,
+          points,
+          isFilled ? 0x88ff88 : 0x3a3a5a
+        );
 
-      if (!isFilled) {
-        segment.setStrokeStyle(1, 0x5a5a7a);
+        if (!isFilled) {
+          segment.setStrokeStyle(1, 0x5a5a7a);
+        }
+        barContainer.add(segment);
       }
-      barContainer.add(segment);
     }
 
     return barContainer;

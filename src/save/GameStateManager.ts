@@ -227,6 +227,9 @@ export interface GameSaveState {
 
   // Twin links (for Necromancer twins)
   twinLinks: [number, number][];
+
+  // Run modifiers (IDs of active modifiers)
+  modifierIds?: string[];
 }
 
 /**
@@ -338,6 +341,7 @@ export class GameStateManager {
     weapons: { id: string; level: number }[];
     upgrades: { id: string; currentLevel: number }[];
     twinLinks: [number, number][];
+    modifierIds?: string[];
   }): void {
     try {
       const state: GameSaveState = {
@@ -390,6 +394,9 @@ export class GameStateManager {
 
         // Twin links
         twinLinks: gameData.twinLinks,
+
+        // Run modifiers
+        modifierIds: gameData.modifierIds,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

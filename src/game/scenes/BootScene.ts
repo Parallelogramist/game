@@ -182,53 +182,101 @@ export class BootScene extends Phaser.Scene {
     const openSettings = () => fadeOut(this, 150, () => this.scene.start('SettingsScene', { returnTo: 'BootScene' }));
     const openCredits = () => fadeOut(this, 150, () => this.scene.start('CreditsScene'));
 
-    // Build dynamic menu config based on save state
-    const menuConfig: { label: string; y: number; fontSize: string; action: () => void }[] = [];
-    let yOffset = centerY + scaledInt(layoutScale, 20);
+    // Build menu with visual grouping
+    const menuConfig: { label: string; y: number; fontSize: string; action: () => void; color?: string }[] = [];
+    let yOffset = centerY + scaledInt(layoutScale, 10);
 
-    // CONTINUE button (only if save exists)
-    let continueY = 0;
+    // ─── Primary: Play actions ───
     if (hasSave) {
       menuConfig.push({
         label: 'CONTINUE',
         y: yOffset,
-        fontSize: scaledFontPx(fontScale, 24),
+        fontSize: scaledFontPx(fontScale, 26),
         action: continueGame,
+        color: '#cccccc',
       });
-      continueY = yOffset;
-      yOffset += scaledInt(layoutScale, 50);
+      // Save info subtitle
+      const worldStr = saveInfo.worldLevel ? `W${saveInfo.worldLevel}` : 'W1';
+      const timeStr = saveInfo.gameTime ? this.formatTime(saveInfo.gameTime) : '0:00';
+      const levelStr = saveInfo.level ? `Lv ${saveInfo.level}` : 'Lv 1';
+      this.add
+        .text(centerX, yOffset + scaledInt(layoutScale, 18), `${worldStr}  ·  ${levelStr}  ·  ${timeStr}`, {
+          fontSize: scaledFontPx(fontScale, 12),
+          color: '#555555',
+          fontFamily: 'Arial',
+        })
+        .setOrigin(0.5);
+      yOffset += scaledInt(layoutScale, 48);
+
+      menuConfig.push({
+        label: 'NEW GAME',
+        y: yOffset,
+        fontSize: scaledFontPx(fontScale, 18),
+        action: startGameWithConfirmation,
+      });
+      yOffset += scaledInt(layoutScale, 38);
+    } else {
+      menuConfig.push({
+        label: 'START',
+        y: yOffset,
+        fontSize: scaledFontPx(fontScale, 26),
+        action: startGameWithConfirmation,
+        color: '#cccccc',
+      });
+      yOffset += scaledInt(layoutScale, 48);
     }
 
-    // NEW GAME / START
-    menuConfig.push({
-      label: hasSave ? 'NEW GAME' : 'START',
-      y: yOffset,
-      fontSize: hasSave ? scaledFontPx(fontScale, 18) : scaledFontPx(fontScale, 24),
-      action: startGameWithConfirmation,
-    });
-    yOffset += scaledInt(layoutScale, hasSave ? 45 : 50);
+    // ─── Divider ───
+    const dividerY = yOffset;
+    const dividerGraphics = this.add.graphics();
+    dividerGraphics.lineStyle(1, 0x333355, 0.5);
+    dividerGraphics.lineBetween(centerX - scaledInt(layoutScale, 80), dividerY, centerX + scaledInt(layoutScale, 80), dividerY);
+    yOffset += scaledInt(layoutScale, 18);
 
-    // Other menu items
-    menuConfig.push({ label: 'SHOP', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openShop });
-    const shopY = yOffset;
-    yOffset += scaledInt(layoutScale, 45);
+    // ─── Meta: Progression screens ───
+    menuConfig.push({
+      label: 'SHOP',
+      y: yOffset,
+      fontSize: scaledFontPx(fontScale, 18),
+      action: openShop,
+    });
+    // Gold subtitle
+    this.add
+      .text(centerX, yOffset + scaledInt(layoutScale, 16), `${metaManager.getGold()} gold`, {
+        fontSize: scaledFontPx(fontScale, 11),
+        color: '#666644',
+        fontFamily: 'Arial',
+      })
+      .setOrigin(0.5);
+    yOffset += scaledInt(layoutScale, 42);
+
     menuConfig.push({ label: 'ACHIEVEMENTS', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openAchievements });
-    yOffset += scaledInt(layoutScale, 45);
+    yOffset += scaledInt(layoutScale, 38);
     menuConfig.push({ label: 'CODEX', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openCodex });
-    yOffset += scaledInt(layoutScale, 45);
-    menuConfig.push({ label: 'SETTINGS', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openSettings });
-    yOffset += scaledInt(layoutScale, 45);
-    menuConfig.push({ label: 'CREDITS', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openCredits });
+    yOffset += scaledInt(layoutScale, 38);
+
+    // ─── Divider ───
+    const divider2Y = yOffset;
+    dividerGraphics.lineBetween(centerX - scaledInt(layoutScale, 50), divider2Y, centerX + scaledInt(layoutScale, 50), divider2Y);
+    yOffset += scaledInt(layoutScale, 16);
+
+    // ─── Utility: Secondary screens ───
+    menuConfig.push({ label: 'SETTINGS', y: yOffset, fontSize: scaledFontPx(fontScale, 15), action: openSettings, color: '#666666' });
+    yOffset += scaledInt(layoutScale, 32);
+    menuConfig.push({ label: 'CREDITS', y: yOffset, fontSize: scaledFontPx(fontScale, 15), action: openCredits, color: '#666666' });
 
     menuConfig.forEach((config, index) => {
+      const defaultColor = config.color ?? '#888888';
       const menuItem = this.add
         .text(centerX, config.y, `[ ${config.label} ]`, {
           fontSize: config.fontSize,
-          color: '#888888',
+          color: defaultColor,
           fontFamily: 'Arial',
         })
         .setOrigin(0.5)
         .setInteractive({ useHandCursor: true });
+
+      menuItem.setData('defaultColor', defaultColor);
 
       // Pointer events
       menuItem.on('pointerover', () => {
@@ -248,29 +296,6 @@ export class BootScene extends Phaser.Scene {
       this.menuActions.push(config.action);
       this.menuLabels.push(config.label);
     });
-
-    // World, level and time indicator (next to CONTINUE)
-    if (hasSave) {
-      const worldStr = saveInfo.worldLevel ? `W${saveInfo.worldLevel}` : 'W1';
-      const timeStr = saveInfo.gameTime ? this.formatTime(saveInfo.gameTime) : '0:00';
-      const levelStr = saveInfo.level ? `Lv ${saveInfo.level}` : 'Lv 1';
-      this.add
-        .text(centerX + scaledInt(layoutScale, 90), continueY, `${worldStr} - ${levelStr} - ${timeStr}`, {
-          fontSize: scaledFontPx(fontScale, 14),
-          color: '#666666',
-          fontFamily: 'Arial',
-        })
-        .setOrigin(0, 0.5);
-    }
-
-    // Gold balance indicator (next to SHOP)
-    this.add
-      .text(centerX + scaledInt(layoutScale, 90), shopY, `Gold: ${metaManager.getGold()}`, {
-        fontSize: scaledFontPx(fontScale, 14),
-        color: '#666666',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0, 0.5);
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -406,7 +431,7 @@ export class BootScene extends Phaser.Scene {
     const previousItem = this.menuItems[this.selectedIndex];
     if (previousItem && this.menuLabels[this.selectedIndex]) {
       previousItem.setText(`[ ${this.menuLabels[this.selectedIndex]} ]`);
-      previousItem.setColor('#888888');
+      previousItem.setColor(previousItem.getData('defaultColor') ?? '#888888');
       previousItem.setAlpha(1);
     }
 

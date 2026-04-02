@@ -107,8 +107,12 @@ export class HUDManager {
 
   // FPS counter
   private fpsText: Phaser.GameObjects.Text | null = null;
-  private fpsHistory: number[] = [];
-  private readonly FPS_HISTORY_SIZE = 30;
+  private fpsHistory: Float32Array = new Float32Array(60);
+  private fpsHistoryIndex: number = 0;
+  private fpsHistorySamples: number = 0;
+  private readonly FPS_HISTORY_SIZE = 60;
+  private qualityUpgradeTimer: number = 0;
+  private readonly QUALITY_UPGRADE_DELAY = 5.0; // seconds of sustained good FPS before upgrading
 
   // Auto-buy toggle
   private autoBuyToggleText: Phaser.GameObjects.Text | null = null;
@@ -123,6 +127,11 @@ export class HUDManager {
 
   // Visual quality (auto-scales based on FPS)
   private visualQuality: VisualQuality = 'high';
+
+  // Combo feedback state
+  private previousComboCount: number = 0;
+  private previousComboTier: string = 'none';
+  private comboEdgeGlow: Phaser.GameObjects.Graphics | null = null;
 
   // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
   private masteryIconEffects: MasteryIconEffectsManager;
@@ -406,6 +415,12 @@ export class HUDManager {
     comboProgressBar.setDepth(HUD_DEPTH);
     comboProgressBar.setAlpha(0);
 
+    // Screen-edge glow for combo feedback (below HUD, above gameplay)
+    this.comboEdgeGlow = this.scene.add.graphics();
+    this.comboEdgeGlow.setDepth(HUD_DEPTH - 2);
+    this.comboEdgeGlow.setScrollFactor(0);
+    this.comboEdgeGlow.setAlpha(0);
+
     const pauseButtonBg = this.scene.add.rectangle(
       pauseButtonX,
       pauseButtonY,
@@ -530,10 +545,30 @@ export class HUDManager {
           blazing: 0xff6622,
           inferno: 0xff2244,
         };
+
+        // Dynamic font size based on combo tier
+        const tierFontSizes: Record<string, number> = {
+          none: 18, warm: 20, hot: 24, blazing: 30, inferno: 38,
+        };
+        const targetFontSize = tierFontSizes[state.comboTier] ?? 18;
+        comboText.setFontSize(this.scaledFontSize(targetFontSize));
+
         comboText.setText(`x${state.comboCount}`);
         comboText.setColor(tierColors[state.comboTier] || '#ffffff');
         const comboAlpha = Math.max(0.3, state.comboDecayPercent) * HUD_ALPHA;
         comboText.setAlpha(comboAlpha);
+
+        // Scale-punch tween when combo count increases
+        if (state.comboCount > this.previousComboCount && state.comboCount > this.previousComboCount) {
+          this.scene.tweens.killTweensOf(comboText);
+          comboText.setScale(1.3);
+          this.scene.tweens.add({
+            targets: comboText,
+            scale: 1.0,
+            duration: 150,
+            ease: 'Back.easeOut',
+          });
+        }
 
         // Draw combo progress bar toward next threshold
         if (comboProgressBar) {
@@ -541,19 +576,46 @@ export class HUDManager {
           comboProgressBar.clear();
           if (nextThreshold) {
             const barWidth = this.scaledSize(60);
-            const barHeight = this.scaledSize(3);
+            const barHeight = this.scaledSize(5);
             const barX = comboText.x - barWidth;
             const barY = comboText.y + comboText.height + this.scaledSize(2);
+            const fillColor = tierHexColors[state.comboTier] || 0xffffff;
 
             // Background
             comboProgressBar.fillStyle(0x222233, 0.6);
             comboProgressBar.fillRect(barX, barY, barWidth, barHeight);
-            // Fill
-            const fillColor = tierHexColors[state.comboTier] || 0xffffff;
-            comboProgressBar.fillStyle(fillColor, 0.8);
+
+            // Fill — pulse alpha when close to next threshold (>80%)
+            const fillAlpha = nextThreshold.progress > 0.8
+              ? 0.7 + 0.3 * Math.abs(Math.sin(Date.now() * 0.005))
+              : 0.8;
+            comboProgressBar.fillStyle(fillColor, fillAlpha);
             comboProgressBar.fillRect(barX, barY, barWidth * nextThreshold.progress, barHeight);
+
+            // Outline so empty portion is visible
+            comboProgressBar.lineStyle(1, 0xffffff, 0.4);
+            comboProgressBar.strokeRect(barX, barY, barWidth, barHeight);
+
+            // Tick marks at threshold positions (25, 50, 100)
+            const maxThreshold = nextThreshold.nextCount;
+            for (const threshold of [25, 50, 100]) {
+              if (threshold < maxThreshold) {
+                const tickX = barX + (threshold / maxThreshold) * barWidth;
+                comboProgressBar.lineStyle(1, 0xffffff, 0.3);
+                comboProgressBar.lineBetween(tickX, barY, tickX, barY + barHeight);
+              }
+            }
           }
           comboProgressBar.setAlpha(comboAlpha);
+        }
+
+        // Screen-edge glow (redraw only on tier change, modulate alpha per frame)
+        if (this.comboEdgeGlow) {
+          if (state.comboTier !== this.previousComboTier) {
+            this.drawComboEdgeGlow(tierHexColors[state.comboTier] || 0xffffff);
+          }
+          const edgeGlowAlpha = state.comboTier === 'none' ? 0 : comboAlpha * 0.6;
+          this.comboEdgeGlow.setAlpha(edgeGlowAlpha);
         }
       } else {
         comboText.setAlpha(0);
@@ -561,8 +623,14 @@ export class HUDManager {
           comboProgressBar.clear();
           comboProgressBar.setAlpha(0);
         }
+        if (this.comboEdgeGlow) {
+          this.comboEdgeGlow.setAlpha(0);
+        }
       }
     }
+
+    this.previousComboCount = state.comboCount;
+    this.previousComboTier = state.comboTier;
 
     // Update XP bar
     const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
@@ -1218,6 +1286,9 @@ export class HUDManager {
         }
       }
     }
+
+    // Invalidate combo edge glow so it redraws at the new screen size
+    this.previousComboTier = '__invalidated__';
   }
 
   /**
@@ -1227,6 +1298,7 @@ export class HUDManager {
   updateFPS(delta: number): VisualQuality | null {
     // Calculate current FPS
     const fps = 1000 / delta;
+    const deltaSeconds = delta * 0.001;
 
     // Update FPS counter display and visibility
     if (this.fpsText) {
@@ -1237,33 +1309,52 @@ export class HUDManager {
       }
     }
 
-    // Add to history
-    this.fpsHistory.push(fps);
-    if (this.fpsHistory.length > this.FPS_HISTORY_SIZE) {
-      this.fpsHistory.shift();
+    // Circular buffer for FPS history (avoids O(n) shift)
+    this.fpsHistory[this.fpsHistoryIndex] = fps;
+    this.fpsHistoryIndex = (this.fpsHistoryIndex + 1) % this.FPS_HISTORY_SIZE;
+    if (this.fpsHistorySamples < this.FPS_HISTORY_SIZE) {
+      this.fpsHistorySamples++;
     }
 
     // Only adjust after we have enough samples
-    if (this.fpsHistory.length < this.FPS_HISTORY_SIZE) return null;
+    if (this.fpsHistorySamples < this.FPS_HISTORY_SIZE) return null;
 
-    // Calculate average FPS
-    const avgFps = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+    // Calculate average FPS from circular buffer
+    let fpsSum = 0;
+    for (let i = 0; i < this.FPS_HISTORY_SIZE; i++) {
+      fpsSum += this.fpsHistory[i];
+    }
+    const avgFps = fpsSum / this.FPS_HISTORY_SIZE;
 
-    // Determine quality level based on FPS thresholds
-    let newQuality: VisualQuality = this.visualQuality;
+    // Quality tiers with hysteresis:
+    // - Downgrade immediately when FPS drops (responsive to lag)
+    // - Upgrade only after sustained good FPS (prevents flapping)
+    const qualityOrder: VisualQuality[] = ['low', 'medium', 'high'];
+    const currentIndex = qualityOrder.indexOf(this.visualQuality);
+    let targetIndex = currentIndex;
 
-    if (avgFps < 40) {
-      newQuality = 'low';
-    } else if (avgFps < 50) {
-      newQuality = 'medium';
-    } else if (avgFps > 55) {
-      newQuality = 'high';
+    if (avgFps < 35) {
+      targetIndex = 0; // low
+    } else if (avgFps < 48) {
+      targetIndex = Math.min(currentIndex, 1); // medium or stay lower
+    } else if (avgFps > 56) {
+      targetIndex = Math.min(currentIndex + 1, 2); // step up one tier
     }
 
-    // Only report change if quality actually changed
-    if (newQuality !== this.visualQuality) {
-      this.visualQuality = newQuality;
-      return newQuality;
+    // Downgrade immediately, but upgrade requires sustained performance
+    if (targetIndex < currentIndex) {
+      this.qualityUpgradeTimer = 0;
+      this.visualQuality = qualityOrder[targetIndex];
+      return this.visualQuality;
+    } else if (targetIndex > currentIndex) {
+      this.qualityUpgradeTimer += deltaSeconds;
+      if (this.qualityUpgradeTimer >= this.QUALITY_UPGRADE_DELAY) {
+        this.qualityUpgradeTimer = 0;
+        this.visualQuality = qualityOrder[targetIndex];
+        return this.visualQuality;
+      }
+    } else {
+      this.qualityUpgradeTimer = 0;
     }
 
     return null;
@@ -1272,7 +1363,42 @@ export class HUDManager {
   /**
    * Destroys all HUD game objects and cleans up resources.
    */
+  /**
+   * Draws the screen-edge glow overlay for combo feedback.
+   * Only redrawn when combo tier changes (not every frame).
+   */
+  private drawComboEdgeGlow(color: number): void {
+    if (!this.comboEdgeGlow) return;
+    this.comboEdgeGlow.clear();
+
+    const screenWidth = this.scene.scale.width;
+    const screenHeight = this.scene.scale.height;
+    const edgeThickness = 40;
+
+    // Draw gradient-like edge glow using multiple rectangles with decreasing alpha
+    const layerCount = 4;
+    for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
+      const layerAlpha = 0.15 * (1 - layerIndex / layerCount);
+      const layerThickness = edgeThickness * (1 - layerIndex / layerCount);
+      this.comboEdgeGlow.fillStyle(color, layerAlpha);
+      // Top edge
+      this.comboEdgeGlow.fillRect(0, 0, screenWidth, layerThickness);
+      // Bottom edge
+      this.comboEdgeGlow.fillRect(0, screenHeight - layerThickness, screenWidth, layerThickness);
+      // Left edge
+      this.comboEdgeGlow.fillRect(0, 0, layerThickness, screenHeight);
+      // Right edge
+      this.comboEdgeGlow.fillRect(screenWidth - layerThickness, 0, layerThickness, screenHeight);
+    }
+  }
+
   destroy(): void {
+    // Destroy combo edge glow
+    if (this.comboEdgeGlow) {
+      this.comboEdgeGlow.destroy();
+      this.comboEdgeGlow = null;
+    }
+
     // Destroy HUD bar glow tweens
     this.scene.tweens.killTweensOf(this.hpGlowGraphics);
     this.scene.tweens.killTweensOf(this.xpGlowGraphics);

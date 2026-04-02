@@ -1089,10 +1089,16 @@ export class PauseMenuManager {
       animatedElements.push(streakDisplay);
     }
 
+    // Track the bottom of the content for dynamic positioning
+    let contentBottomY = goldY + 35;
+    if (streakChangeText) {
+      contentBottomY = goldY + 70;
+    }
+
     // Restart hint
     const isTouchDevice = this.scene.input.manager.touch !== null && this.scene.sys.game.device.input.touch;
     const restartHint = isTouchDevice ? 'Tap to restart' : 'Press SPACE to restart';
-    const restartText = this.scene.add.text(centerX, centerY + 165, restartHint, {
+    const restartText = this.scene.add.text(centerX, contentBottomY + 50, restartHint, {
       fontSize: '20px',
       color: '#888888',
       fontFamily: 'Arial',
@@ -1125,7 +1131,7 @@ export class PauseMenuManager {
             stat.text.setText(String(Math.floor(tween.getValue() ?? 0)));
           },
           onComplete: () => {
-            stat.text.setText(String(stat.target));
+            stat.text.setText(String(Math.round(stat.target)));
           },
         });
       }
@@ -1161,7 +1167,7 @@ export class PauseMenuManager {
           ? `You can now afford: ${nextUpgrade.name}`
           : `${nextUpgrade.goldNeeded}g away from: ${nextUpgrade.name}`;
         const affordColor = nextUpgrade.canAfford ? '#44ff88' : '#aaaacc';
-        this.scene.add.text(centerX, centerY + 110, affordLabel, {
+        this.scene.add.text(centerX, contentBottomY + 25, affordLabel, {
           fontSize: '16px',
           color: affordColor,
           fontFamily: 'Arial',

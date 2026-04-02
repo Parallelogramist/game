@@ -11,6 +11,8 @@ import { AchievementScene } from './game/scenes/AchievementScene';
 import { CodexScene } from './game/scenes/CodexScene';
 import { WeaponSelectScene } from './game/scenes/WeaponSelectScene';
 import { initializeStorage, flushStorage } from './storage';
+import { BloomPipeline } from './visual/BloomPipeline';
+import { DistortionPipeline } from './visual/DistortionPipeline';
 
 /**
  * Main entry point for the Survivor Game.
@@ -34,7 +36,14 @@ import { initializeStorage, flushStorage } from './storage';
   };
 
   // Initialize the game
-  new Phaser.Game(config);
+  const game = new Phaser.Game(config);
+
+  // Register post-processing pipelines (WebGL only)
+  if (game.renderer.type === Phaser.WEBGL) {
+    const renderer = game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+    renderer.pipelines.addPostPipeline('BloomPipeline', BloomPipeline);
+    renderer.pipelines.addPostPipeline('DistortionPipeline', DistortionPipeline);
+  }
 
   // Flush pending encrypted writes before page unload
   window.addEventListener('beforeunload', () => {

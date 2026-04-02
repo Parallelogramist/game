@@ -1,12 +1,14 @@
 import { IWorld } from 'bitecs';
 import { BaseWeapon, WeaponContext } from './BaseWeapon';
 import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
+import { getActiveSynergies, WeaponSynergy } from '../data/WeaponSynergies';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
 import { Transform, Health, Knockback, EnemyType } from '../ecs/components';
 import { getSprite } from '../ecs/systems/SpriteSystem';
 import { applyBurn, applyFreeze, applyPoison, getFreezeMultiplier } from '../ecs/systems/StatusEffectSystem';
 import { getCombatStats } from '../ecs/systems/CollisionSystem';
+import { isNearTankAura } from '../ecs/systems/EnemyAISystem';
 import { getEnemyIds } from '../ecs/FrameCache';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
@@ -18,6 +20,7 @@ import { getJuiceManager } from '../effects/JuiceManager';
  */
 export class WeaponManager {
   private weapons: Map<string, BaseWeapon> = new Map();
+  private activeSynergies: WeaponSynergy[] = [];
   private scene: Phaser.Scene;
   private world: IWorld;
   private playerId: number;
@@ -98,9 +101,49 @@ export class WeaponManager {
       return true;
     } else if (this.canAddWeapon()) {
       this.weapons.set(weapon.id, weapon);
+      this.recalculateSynergies();
       return true;
     }
     return false; // No slots available
+  }
+
+  /**
+   * Recalculate weapon synergies based on currently equipped weapons.
+   * Applies damage/cooldown multipliers to weapons in synergy pairs.
+   */
+  private recalculateSynergies(): void {
+    const equippedIds = Array.from(this.weapons.keys());
+    this.activeSynergies = getActiveSynergies(equippedIds);
+
+    // Build per-weapon synergy multipliers (stack multiplicatively)
+    const weaponDamageMult = new Map<string, number>();
+    const weaponCooldownMult = new Map<string, number>();
+
+    for (const synergy of this.activeSynergies) {
+      for (const weaponId of [synergy.weaponA, synergy.weaponB]) {
+        if (this.weapons.has(weaponId)) {
+          weaponDamageMult.set(weaponId, (weaponDamageMult.get(weaponId) ?? 1.0) * synergy.damageMultiplier);
+          weaponCooldownMult.set(weaponId, (weaponCooldownMult.get(weaponId) ?? 1.0) * synergy.cooldownMultiplier);
+        }
+      }
+    }
+
+    // Apply synergy multipliers to each weapon (combined with existing external multipliers)
+    for (const [weaponId, weapon] of this.weapons) {
+      const synergyDamage = weaponDamageMult.get(weaponId) ?? 1.0;
+      const synergyCooldown = weaponCooldownMult.get(weaponId) ?? 1.0;
+      // Only update if there's a synergy bonus to apply
+      if (synergyDamage !== 1.0 || synergyCooldown !== 1.0) {
+        weapon.applyMultipliers(synergyDamage, synergyCooldown);
+      }
+    }
+  }
+
+  /**
+   * Get the list of currently active weapon synergies.
+   */
+  public getActiveSynergies(): WeaponSynergy[] {
+    return this.activeSynergies;
   }
 
   /**
@@ -257,6 +300,11 @@ export class WeaponManager {
       }
     }
 
+    // Tank aura: enemies near a Tank take 25% less damage
+    if (isNearTankAura(enemyId)) {
+      actualDamage *= 0.75;
+    }
+
     // Store HP before damage for overkill splash calculation
     const hpBeforeDamage = Health.current[enemyId];
 
@@ -290,9 +338,12 @@ export class WeaponManager {
       Knockback.velocityY[enemyId] += (dy / dist) * knockbackStrength * knockbackMult;
     }
 
-    // Hit stop on perfect crits for impact weight
+    // Hit stop for impact weight — brief pause on crits, longer on perfect crits
     if (isPerfectCrit) {
       getJuiceManager().hitStop(40, 0.8);
+      getJuiceManager().impactFlash(0.15, 60);
+    } else if (isCrit) {
+      getJuiceManager().hitStop(20, 0.5);
     }
 
     // Visual feedback (gold for perfect crit, yellow for crit, white for normal)

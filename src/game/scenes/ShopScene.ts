@@ -19,6 +19,7 @@ import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransiti
 import { SoundManager } from '../../audio/SoundManager';
 import { getToastManager, ToastManager } from '../../ui';
 import { getSettingsManager } from '../../settings';
+import { TooltipManager } from '../../ui/TooltipManager';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -54,6 +55,9 @@ export class ShopScene extends Phaser.Scene {
   private selectedTabIndex: number = 0;
   private selectedCardIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+
+  // Tooltip system
+  private tooltipManager!: TooltipManager;
 
   // Audio
   private soundManager!: SoundManager;
@@ -100,14 +104,20 @@ export class ShopScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    // Initialize tooltip system
+    this.tooltipManager = new TooltipManager(this);
+
     // Account level display (top left)
     const metaManager = getMetaProgressionManager();
-    this.add
+    const accountLevelLabel = this.add
       .text(20, 20, 'Account Level:', {
         fontSize: '14px',
         color: '#888888',
         fontFamily: 'Arial',
       });
+
+    this.tooltipManager.attach(accountLevelLabel,
+      'Your Account Level is the sum of all shop upgrade levels. Higher account levels unlock more powerful upgrades.');
 
     this.accountLevelText = this.add
       .text(20, 38, `${metaManager.getAccountLevel()}`, {
@@ -118,13 +128,16 @@ export class ShopScene extends Phaser.Scene {
       });
 
     // Gold display (top right)
-    this.add
+    const goldLabel = this.add
       .text(this.scale.width - 20, 20, 'GOLD:', {
         fontSize: '14px',
         color: '#888888',
         fontFamily: 'Arial',
       })
       .setOrigin(1, 0);
+
+    this.tooltipManager.attach(goldLabel,
+      'Gold is earned after each run based on kills, time survived, and level. Spend it here on permanent upgrades.');
 
     this.goldText = this.add
       .text(this.scale.width - 20, 38, '', {
@@ -144,11 +157,13 @@ export class ShopScene extends Phaser.Scene {
     if (ascensionLevel > 0) {
       const statBonus = Math.round((ascensionManager.getStatMultiplier() - 1) * 100);
       const goldBonus = Math.round((ascensionManager.getGoldMultiplier() - 1) * 100);
-      this.add.text(110, 44, `Asc. ${ascensionLevel} (+${statBonus}% stats, +${goldBonus}% gold)`, {
+      const ascLabel = this.add.text(110, 44, `Asc. ${ascensionLevel} (+${statBonus}% stats, +${goldBonus}% gold)`, {
         fontSize: '11px',
         color: '#cc88cc',
         fontFamily: 'Arial',
       });
+      this.tooltipManager.attach(ascLabel,
+        'Ascension is a prestige system. Each ascension resets your shop upgrades (refunding all gold) but grants permanent stat and gold bonuses.');
     }
 
     if (canAscend) {
@@ -1071,6 +1086,7 @@ export class ShopScene extends Phaser.Scene {
    * Cleanup keyboard handlers when scene shuts down.
    */
   shutdown(): void {
+    this.tooltipManager.destroy();
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;

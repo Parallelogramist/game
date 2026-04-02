@@ -27,6 +27,9 @@ let cacheValid: boolean = false;
 // Pre-allocated arrays to avoid GC pressure
 const enemyPositionsArray: { id: number; x: number; y: number }[] = [];
 
+// O(1) lookup set for isActiveEnemy
+const activeEnemySet: Set<number> = new Set();
+
 /**
  * Update the frame cache with current enemy data.
  * Call this ONCE at the start of each game update loop.
@@ -45,10 +48,11 @@ export function updateFrameCache(world: IWorld): void {
   const spatialHash = getEnemySpatialHash();
   spatialHash.clear();
 
-  // Reuse position array to avoid allocation
+  // Reuse position array and active set to avoid allocation
   enemyPositionsArray.length = 0;
+  activeEnemySet.clear();
 
-  // Populate spatial hash and position cache
+  // Populate spatial hash, position cache, and active set
   for (let i = 0; i < cachedEnemyCount; i++) {
     const entityId = cachedEnemyIds[i];
     const x = Transform.x[entityId];
@@ -56,6 +60,9 @@ export function updateFrameCache(world: IWorld): void {
 
     // Add to spatial hash for O(1) proximity queries
     spatialHash.insert(entityId, x, y);
+
+    // O(1) active enemy lookup
+    activeEnemySet.add(entityId);
 
     // Cache position data
     enemyPositionsArray.push({ id: entityId, x, y });
@@ -117,6 +124,7 @@ export function resetFrameCache(): void {
   cachedEnemyIds = [];
   cachedEnemyCount = 0;
   enemyPositionsArray.length = 0;
+  activeEnemySet.clear();
   cacheValid = false;
 }
 
@@ -139,11 +147,11 @@ export function getEnemyPosition(entityId: number): { x: number; y: number } | n
 
 /**
  * Check if an entity is an active enemy.
- * Uses the cached ID list for quick lookup.
+ * Uses a Set for O(1) lookup instead of O(n) array scan.
  */
 export function isActiveEnemy(entityId: number): boolean {
   if (!cacheValid) return false;
-  return cachedEnemyIds.includes(entityId);
+  return activeEnemySet.has(entityId);
 }
 
 /**

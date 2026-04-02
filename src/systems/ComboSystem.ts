@@ -30,17 +30,20 @@ interface ActiveThresholdEffect {
 interface RecordKillResult {
   newCombo: number;
   triggeredThreshold: { count: number; type: string } | null;
+  tierChanged: ComboTier | null;
 }
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Seconds of inactivity before the combo begins to decay. */
-const COMBO_DECAY_DELAY = 3.0;
-
-/** Combos lost per second once decay has started. */
-const COMBO_DECAY_RATE = 15;
+/** Tiered decay rates — higher combos drain faster to make big combos a challenge. */
+const TIERED_DECAY = [
+  { minCombo: 100, decayRate: 60, graceDelay: 1.0 },  // inferno: brutal
+  { minCombo: 50,  decayRate: 40, graceDelay: 1.5 },  // blazing: demanding
+  { minCombo: 25,  decayRate: 25, graceDelay: 2.0 },  // hot: moderate
+  { minCombo: 0,   decayRate: 15, graceDelay: 3.0 },  // warm/none: forgiving
+] as const;
 
 /** Duration (seconds) of the damage buff granted at the 50-kill threshold. */
 const COMBO_DAMAGE_BUFF_DURATION = 8.0;
@@ -87,6 +90,20 @@ export function resetComboSystem(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Returns the decay rate and grace delay for the current combo count. */
+function getTieredDecayParams(combo: number): { decayRate: number; graceDelay: number } {
+  for (const tier of TIERED_DECAY) {
+    if (combo >= tier.minCombo) {
+      return { decayRate: tier.decayRate, graceDelay: tier.graceDelay };
+    }
+  }
+  return { decayRate: 15, graceDelay: 3.0 };
+}
+
+// ---------------------------------------------------------------------------
 // Core logic
 // ---------------------------------------------------------------------------
 
@@ -96,12 +113,20 @@ export function resetComboSystem(): void {
  * the combo drops back to 0).
  */
 export function recordComboKill(): RecordKillResult {
+  const previousTier = getComboTier();
+
   comboCount += 1;
-  comboDecayTimer = COMBO_DECAY_DELAY;
+  // Grace period scales with combo tier — harder to sustain big chains
+  const { graceDelay } = getTieredDecayParams(comboCount);
+  comboDecayTimer = graceDelay;
 
   if (comboCount > highestCombo) {
     highestCombo = comboCount;
   }
+
+  // Detect tier change (none→warm, warm→hot, etc.)
+  const currentTier = getComboTier();
+  const tierChanged = currentTier !== previousTier ? currentTier : null;
 
   // Check whether a threshold was just crossed
   let triggeredThreshold: { count: number; type: string } | null = null;
@@ -126,7 +151,7 @@ export function recordComboKill(): RecordKillResult {
     }
   }
 
-  return { newCombo: comboCount, triggeredThreshold };
+  return { newCombo: comboCount, triggeredThreshold, tierChanged };
 }
 
 /**
@@ -141,12 +166,13 @@ export function recordComboKill(): RecordKillResult {
  * @param deltaSeconds - Frame delta already converted to seconds.
  */
 export function updateComboSystem(deltaSeconds: number): void {
-  // --- Decay logic ---
+  // --- Decay logic (tiered — higher combos drain faster) ---
   if (comboCount > 0) {
     comboDecayTimer -= deltaSeconds;
 
     if (comboDecayTimer <= 0) {
-      comboCount -= COMBO_DECAY_RATE * deltaSeconds;
+      const { decayRate } = getTieredDecayParams(comboCount);
+      comboCount -= decayRate * deltaSeconds;
 
       if (comboCount <= 0) {
         comboCount = 0;
@@ -204,7 +230,8 @@ export function getComboTier(): ComboTier {
  */
 export function getComboDecayPercent(): number {
   if (comboCount <= 0) return 0;
-  return Math.max(0, Math.min(1, comboDecayTimer / COMBO_DECAY_DELAY));
+  const { graceDelay } = getTieredDecayParams(comboCount);
+  return Math.max(0, Math.min(1, comboDecayTimer / graceDelay));
 }
 
 /**

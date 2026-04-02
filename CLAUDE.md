@@ -21,7 +21,7 @@ This is a 2D roguelike survival game built with **Phaser 3** for rendering and *
 
 ### Player Visual Identity
 
-The **player character IS the particle swarm** — a boids-physics plasma core rendered by `PlayerPlasmaCore` (`/src/visual/PlayerPlasmaCore.ts`). There is no traditional sprite; the player is 20–100 glowing particles with separation, cohesion, alignment, center attraction, wander, and directional streaming forces. The swarm grows by 4 particles per level (starting at 20, maxing at 100 by level 21). When moving, particles stream forward in a teardrop shape with leading particles compressed/bright and trailing particles dispersed/dim.
+The **player character is a procedurally-drawn neon spaceship** rendered by `PlayerSpaceship` (`/src/visual/PlayerSpaceship.ts`). There is no sprite asset; the ship is a delta/arrow hull drawn with Phaser Graphics, featuring multi-layer neon glow, animated engine thrust flames that scale with movement speed, and smooth rotation toward the movement direction. The hull color shifts with combo tier (warm/hot/blazing/inferno), danger level (red at low HP), and speed (warm-white tint). Level-ups trigger a flash + scale pulse. Visual quality (glow layer count) scales with the quality setting.
 
 ### ECS Architecture
 
@@ -40,7 +40,7 @@ Laser beams → Joystick/keyboard/mouse input →
 InputSystem → EnemyAISystem → Wraith alpha → MovementSystem → processKnockback →
 clampPlayerToScreen → WeaponManager.update → XPGemSystem → HealthPickupSystem →
 MagnetPickupSystem → StatusEffectSystem → Enemy Projectiles → Player-Enemy Collision →
-SpriteSystem → PlayerPlasmaCore → GridBackground → Trails → EffectsManager →
+SpriteSystem → PlayerSpaceship → GridBackground → Trails → EffectsManager →
 DeathRippleManager → VisualQuality → UI
 ```
 Note: Knockback is processed inline in GameScene. All weapon damage flows through `WeaponManager.damageEnemy()` which implements the full combat pipeline: crits, execution bonus (extra damage below 25% HP), shatter bonus (extra damage to frozen enemies), elemental effects (burn/freeze/poison), life steal, knockback, overkill splash to nearby enemies, hit sparks, and damage numbers. `CollisionSystem.ts` exports `CombatStats`/`setCombatStats()`/`resetCollisionSystem()` for combat stat management but contains no system loop function.
@@ -207,7 +207,7 @@ The sprite registry uses union type `Phaser.GameObjects.Shape | Phaser.GameObjec
 - **TrailManager**: Motion trails behind player and fast enemies (pooled trail points, 500 max)
 - **GlowGraphics**: Neon glow rendering with quality levels (Low/Medium/High/Ultra). Single Graphics object per shape for performance.
 - **NeonColors**: Consistent color palette for the cyberpunk aesthetic, with utility functions for color manipulation
-- **PlayerPlasmaCore**: Player visual — 100 glowing particles in dual-ring formation with breathing, scatter, and speed-based glow effects
+- **PlayerSpaceship**: Player visual — procedurally-drawn neon spaceship with glow layers, engine thrust animation, smooth rotation, and combo/danger color shifts
 - **ShieldBarrierVisual**: Honeycomb pattern shield effects for shielded enemies
 - **MasteryVisuals**: 9 unique orbital visual effects for maxed stats (orbiting sword, lightning sparks, etc.)
 - **MasteryIconEffectsManager**: Golden glow and sparkle particles for mastered upgrade icons in HUD
