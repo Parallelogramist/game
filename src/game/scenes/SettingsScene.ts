@@ -10,6 +10,7 @@ import type { GameScene } from './GameScene';
 import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
+import { SoundManager } from '../../audio/SoundManager';
 
 type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter' | 'uiScale' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
 
@@ -43,6 +44,8 @@ export class SettingsScene extends Phaser.Scene {
   private resetDataButton!: Phaser.GameObjects.Text;
   private backButton!: Phaser.GameObjects.Text;
 
+  private soundManager!: SoundManager;
+
   // Confirmation overlay elements
   private confirmOverlay: Phaser.GameObjects.GameObject[] = [];
   private confirmFocusIndex: number = 1; // 0 = Confirm, 1 = Cancel (default to Cancel for safety)
@@ -66,6 +69,7 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.soundManager = new SoundManager(this);
     const centerX = this.cameras.main.centerX;
     const settingsManager = getSettingsManager();
     const musicManager = getMusicManager();
@@ -541,7 +545,10 @@ export class SettingsScene extends Phaser.Scene {
       this.updateFocusVisuals();
     });
 
-    toggle.on('pointerdown', onChange);
+    toggle.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      onChange();
+    });
 
     return toggle;
   }
@@ -559,7 +566,10 @@ export class SettingsScene extends Phaser.Scene {
       this.updateFocusVisuals();
     });
 
-    button.on('pointerdown', onClick);
+    button.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      onClick();
+    });
 
     return button;
   }

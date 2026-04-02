@@ -4,6 +4,7 @@ import { getSprite, unregisterSprite, registerSprite } from './SpriteSystem';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { renderGem3D, renderSimplifiedGem } from '../../visual/Gem3DRenderer';
+import { TrailManager } from '../../visual/TrailManager';
 
 // OPTIMIZATION: Pre-computed constants
 const PI_TWO = Math.PI * 2;
@@ -68,9 +69,10 @@ let onXPCollectCallback: XPCollectCallback | null = null;
 // Scene reference for creating gem sprites
 let sceneReference: Phaser.Scene | null = null;
 
-// Effects and sound managers
+// Effects, sound, and trail managers
 let effectsManager: EffectsManager | null = null;
 let soundManager: SoundManager | null = null;
+let trailManager: TrailManager | null = null;
 
 /**
  * Sets the Phaser scene reference for creating gem visuals.
@@ -91,6 +93,13 @@ export function setXPGemEffectsManager(manager: EffectsManager): void {
  */
 export function setXPGemSoundManager(manager: SoundManager): void {
   soundManager = manager;
+}
+
+/**
+ * Set the trail manager for gem magnetism trails.
+ */
+export function setXPGemTrailManager(manager: TrailManager): void {
+  trailManager = manager;
 }
 
 /**
@@ -289,6 +298,14 @@ export function xpGemSystem(world: IWorld, deltaTime: number): IWorld {
 
       Transform.x[gemId] += normalizedDirectionX * speed * deltaTime;
       Transform.y[gemId] += normalizedDirectionY * speed * deltaTime;
+
+      // Emit trail point for magnetized gems (visual streak toward player)
+      if (trailManager) {
+        const spinState = gemSpinStates.get(gemId);
+        const gemColor = spinState ? spinState.gemColor : 0x00ff88;
+        const trailSize = distance < 50 ? 3.0 : 2.0; // Brighten as gems converge
+        trailManager.addTrailPoint(gemId, Transform.x[gemId], Transform.y[gemId], gemColor, trailSize);
+      }
     }
 
     // Update spin animation for 360-degree rotation effect
@@ -431,5 +448,6 @@ export function resetXPGemSystem(): void {
   worldReference = null;
   currentMagnetRange = 80; // Reset to default
   onXPCollectCallback = null;
+  trailManager = null;
   gemSpinStates.clear();
 }

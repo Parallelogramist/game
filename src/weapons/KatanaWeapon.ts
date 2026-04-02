@@ -46,6 +46,7 @@ export class KatanaWeapon extends BaseWeapon {
       'Iai: Thousand Cuts',
       'Hitting 8+ enemies triggers a 360° Finishing Blow at 200% damage'
     );
+    this.windUpFraction = 0.15;
   }
 
   protected attack(ctx: WeaponContext): void {

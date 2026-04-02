@@ -3,13 +3,14 @@ import { BaseWeapon, WeaponContext } from './BaseWeapon';
 import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
-import { Transform, Health, Knockback } from '../ecs/components';
+import { Transform, Health, Knockback, EnemyType } from '../ecs/components';
 import { getSprite } from '../ecs/systems/SpriteSystem';
 import { applyBurn, applyFreeze, applyPoison, getFreezeMultiplier } from '../ecs/systems/StatusEffectSystem';
 import { getCombatStats } from '../ecs/systems/CollisionSystem';
 import { getEnemyIds } from '../ecs/FrameCache';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { getJuiceManager } from '../effects/JuiceManager';
 
 /**
  * WeaponManager handles all player weapons.
@@ -289,6 +290,11 @@ export class WeaponManager {
       Knockback.velocityY[enemyId] += (dy / dist) * knockbackStrength * knockbackMult;
     }
 
+    // Hit stop on perfect crits for impact weight
+    if (isPerfectCrit) {
+      getJuiceManager().hitStop(40, 0.8);
+    }
+
     // Visual feedback (gold for perfect crit, yellow for crit, white for normal)
     const damageColor = isPerfectCrit ? 0xffd700 : (isCrit ? 0xffff00 : 0xffffff);
     this.effectsManager.showDamageNumber(enemyX, enemyY, Math.round(actualDamage), damageColor, isCrit, isPerfectCrit);
@@ -300,14 +306,12 @@ export class WeaponManager {
     // Hit sound (SoundManager has built-in 50ms throttling)
     this.soundManager.playHit();
 
-    // Flash enemy white briefly
+    // Scale punch on hit — works on any sprite type (Container, Shape, etc.)
     const sprite = getSprite(enemyId);
-    if (sprite && sprite instanceof Phaser.GameObjects.Rectangle) {
-      const originalColor = sprite.fillColor;
-      sprite.setFillStyle(0xffffff);
-      this.scene.time.delayedCall(50, () => {
-        if (sprite.active) sprite.setFillStyle(originalColor);
-      });
+    if (sprite) {
+      const damageRatio = actualDamage / (Health.max[enemyId] || 1);
+      const punchScale = damageRatio > 0.2 ? 1.15 : 1.08;
+      getJuiceManager().squashStretch(sprite, punchScale, punchScale, 100);
     }
 
     // Callback for damage tracking
@@ -317,6 +321,14 @@ export class WeaponManager {
 
     // Check for death
     if (Health.current[enemyId] <= 0) {
+      // Hit stop on significant kills for dramatic weight
+      const xpValue = EnemyType.xpValue[enemyId] || 0;
+      if (xpValue >= 1000) {
+        getJuiceManager().hitStop(100, 1.0);   // Boss kill — heavy freeze
+      } else if (xpValue >= 30) {
+        getJuiceManager().hitStop(60, 0.9);    // Miniboss kill
+      }
+
       if (this.onEnemyKilled) {
         this.onEnemyKilled(enemyId, enemyX, enemyY);
       }

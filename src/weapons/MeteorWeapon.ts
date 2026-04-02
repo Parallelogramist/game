@@ -58,6 +58,7 @@ export class MeteorWeapon extends BaseWeapon {
       'Cataclysm',
       'Impacts create burning ground for 4s, dealing 20% damage/sec'
     );
+    this.windUpFraction = 0.2;
   }
 
   protected attack(ctx: WeaponContext): void {

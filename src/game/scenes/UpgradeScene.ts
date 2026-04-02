@@ -582,15 +582,30 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Hover effects (scale relative to cardScaleFactor)
     cardBackground.on('pointerover', () => {
+      this.soundManager.playUIClick();
       cardBackground.setFillStyle(0x3a3a6a);
       cardBackground.setStrokeStyle(3, 0x88aaff);
-      container.setScale(this.cardScaleFactor * 1.05);
+      this.tweens.killTweensOf(container);
+      this.tweens.add({
+        targets: container,
+        scaleX: this.cardScaleFactor * 1.05,
+        scaleY: this.cardScaleFactor * 1.05,
+        duration: 100,
+        ease: 'Back.easeOut',
+      });
     });
 
     cardBackground.on('pointerout', () => {
       cardBackground.setFillStyle(0x2a2a4a);
       cardBackground.setStrokeStyle(3, 0x4a4a7a);
-      container.setScale(this.cardScaleFactor);
+      this.tweens.killTweensOf(container);
+      this.tweens.add({
+        targets: container,
+        scaleX: this.cardScaleFactor,
+        scaleY: this.cardScaleFactor,
+        duration: 80,
+        ease: 'Quad.easeOut',
+      });
     });
 
     cardBackground.on('pointerdown', () => {
@@ -673,16 +688,31 @@ export class UpgradeScene extends Phaser.Scene {
       });
     });
 
-    // Flash selected card
     const selectedIndex = this.upgrades.indexOf(upgrade);
     if (selectedIndex >= 0 && this.upgradeCards[selectedIndex]) {
-      const card = this.upgradeCards[selectedIndex];
+      const selectedCard = this.upgradeCards[selectedIndex];
+
+      // Fade out unselected cards
+      this.upgradeCards.forEach((card, cardIndex) => {
+        if (cardIndex !== selectedIndex) {
+          this.tweens.add({
+            targets: card,
+            alpha: 0,
+            scaleX: this.cardScaleFactor * 0.9,
+            scaleY: this.cardScaleFactor * 0.9,
+            duration: 150,
+            ease: 'Quad.easeIn',
+          });
+        }
+      });
+
+      // Pulse selected card then close
       this.tweens.add({
-        targets: card,
-        scaleX: 1.005,
-        scaleY: 1.005,
-        duration: 15,
-        yoyo: true,
+        targets: selectedCard,
+        scaleX: this.cardScaleFactor * 1.08,
+        scaleY: this.cardScaleFactor * 1.08,
+        duration: 120,
+        ease: 'Back.easeOut',
         onComplete: () => {
           this.closeAndApply(upgrade);
         },

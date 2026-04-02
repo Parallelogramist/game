@@ -37,6 +37,7 @@ export class FrostNovaWeapon extends BaseWeapon {
       'Absolute Zero',
       'Frozen enemies shatter on death, dealing 50% max HP to nearby foes'
     );
+    this.windUpFraction = 0.2;
   }
 
   protected attack(ctx: WeaponContext): void {

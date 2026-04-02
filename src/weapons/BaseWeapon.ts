@@ -3,6 +3,7 @@ import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { TUNING } from '../data/GameTuning';
+import { getJuiceManager } from '../effects/JuiceManager';
 
 /**
  * WeaponContext provides weapons access to game systems they need.
@@ -70,6 +71,10 @@ export abstract class BaseWeapon {
   // Visual elements managed by the weapon
   protected sprites: Phaser.GameObjects.GameObject[] = [];
 
+  // Wind-up visual fraction (0 = disabled, e.g. 0.15 = wind-up starts at last 15% of cooldown)
+  protected windUpFraction: number = 0;
+  private windUpTriggered: boolean = false;
+
   constructor(
     id: string,
     name: string,
@@ -96,13 +101,40 @@ export abstract class BaseWeapon {
    * Handles cooldown and triggers attack when ready.
    */
   public update(ctx: WeaponContext): void {
-    if (ctx.gameTime - this.lastFired >= this.stats.cooldown) {
+    const elapsed = ctx.gameTime - this.lastFired;
+    const cooldown = this.stats.cooldown;
+
+    // Trigger wind-up visual near end of cooldown
+    if (this.windUpFraction > 0 && !this.windUpTriggered && elapsed >= cooldown * (1 - this.windUpFraction)) {
+      this.windUpTriggered = true;
+      const windUpDuration = cooldown * this.windUpFraction * 1000; // convert to ms
+      const windUpTarget = this.getWindUpTarget(ctx);
+      getJuiceManager().windUp({
+        weaponId: this.id,
+        x: ctx.playerX,
+        y: ctx.playerY,
+        targetX: windUpTarget?.x,
+        targetY: windUpTarget?.y,
+        duration: windUpDuration,
+      });
+    }
+
+    if (elapsed >= cooldown) {
       this.attack(ctx);
       this.lastFired = ctx.gameTime;
+      this.windUpTriggered = false;
     }
 
     // Update any persistent effects (orbiting blades, auras, etc.)
     this.updateEffects(ctx);
+  }
+
+  /**
+   * Override to provide a target position for directional wind-up effects.
+   * Returns null for non-directional weapons.
+   */
+  protected getWindUpTarget(_ctx: WeaponContext): { x: number; y: number } | null {
+    return null;
   }
 
   /**

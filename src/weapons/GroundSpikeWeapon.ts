@@ -49,6 +49,7 @@ export class GroundSpikeWeapon extends BaseWeapon {
       'Seismic Cascade',
       'Hitting 2+ enemies triggers aftershock spikes at 60% damage'
     );
+    this.windUpFraction = 0.2;
   }
 
   protected attack(ctx: WeaponContext): void {

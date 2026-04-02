@@ -399,6 +399,9 @@ export class BootScene extends Phaser.Scene {
    * Selects a menu item by index and updates visual state.
    */
   private selectItem(index: number): void {
+    if (index !== this.selectedIndex) {
+      this.soundManager.playUIClick();
+    }
     // Update previous selection (remove highlight)
     const previousItem = this.menuItems[this.selectedIndex];
     if (previousItem && this.menuLabels[this.selectedIndex]) {

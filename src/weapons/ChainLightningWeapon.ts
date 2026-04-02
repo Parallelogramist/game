@@ -40,6 +40,13 @@ export class ChainLightningWeapon extends BaseWeapon {
       'Lightning Conductor',
       'Lightning arcs to ALL enemies in chain range simultaneously'
     );
+    this.windUpFraction = 0.15;
+  }
+
+  protected getWindUpTarget(ctx: WeaponContext): { x: number; y: number } | null {
+    const nearest = getEnemySpatialHash().findNearest(ctx.playerX, ctx.playerY, this.stats.range);
+    if (!nearest) return null;
+    return { x: Transform.x[nearest.id], y: Transform.y[nearest.id] };
   }
 
   protected attack(ctx: WeaponContext): void {

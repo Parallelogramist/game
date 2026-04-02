@@ -774,6 +774,8 @@ export class JuiceManager {
 
   public squashStretch(target: Phaser.GameObjects.GameObject, squashX: number, squashY: number, duration: number): void {
     if (!this.scene) return;
+    // Kill existing scale tweens to prevent stacking when hit rapidly
+    this.scene.tweens.killTweensOf(target);
     this.scene.tweens.add({
       targets: target,
       scaleX: squashX,
@@ -785,11 +787,81 @@ export class JuiceManager {
   }
 
   // ============================================================
+  // SLOW MOTION (cinematic kill cam)
+  // ============================================================
+
+  private slowMotionActive: boolean = false;
+
+  /**
+   * Cinematic slow-motion effect — differs from hitStop by letting
+   * animations play in slow-motion rather than freezing completely.
+   * Used for boss/miniboss death moments.
+   */
+  public slowMotion(duration: number, timeScale: number = 0.3, easeBackDuration: number = 200): void {
+    if (!this.scene || this.slowMotionActive || this.hitStopActive) return;
+
+    this.slowMotionActive = true;
+    const previousTimeScale = this.scene.tweens.timeScale;
+    this.scene.tweens.timeScale = timeScale;
+    this.scene.physics?.world?.timeScale && (this.scene.physics.world.timeScale = 1 / timeScale);
+
+    // Subtle camera zoom-in for drama
+    const camera = this.scene.cameras.main;
+    const shouldZoom = !getSettingsManager().isReducedMotionEnabled();
+    if (shouldZoom) {
+      this.scene.tweens.add({
+        targets: camera,
+        zoom: 1.05,
+        duration: duration * 0.5 / timeScale, // compensate for time scale
+        ease: 'Sine.easeOut',
+      });
+    }
+
+    // Use real-time timeout since tweens are slowed
+    setTimeout(() => {
+      if (!this.scene) {
+        this.slowMotionActive = false;
+        return;
+      }
+
+      // Ease time scale back to normal
+      const restoreTween = this.scene.tweens.addCounter({
+        from: timeScale,
+        to: previousTimeScale,
+        duration: easeBackDuration,
+        ease: 'Quad.easeOut',
+        onUpdate: (tween) => {
+          if (this.scene) {
+            this.scene.tweens.timeScale = tween.getValue() ?? previousTimeScale;
+          }
+        },
+        onComplete: () => {
+          if (this.scene) this.scene.tweens.timeScale = previousTimeScale;
+          this.slowMotionActive = false;
+        },
+      });
+
+      // Restore the counter tween's own time scale so it runs at normal speed
+      restoreTween.timeScale = 1 / previousTimeScale;
+
+      // Zoom back out
+      if (shouldZoom && this.scene) {
+        this.scene.tweens.add({
+          targets: camera,
+          zoom: 1,
+          duration: easeBackDuration,
+          ease: 'Quad.easeOut',
+        });
+      }
+    }, duration);
+  }
+
+  // ============================================================
   // IMPACT FLASH
   // ============================================================
 
   public impactFlash(intensity: number = 0.3, duration: number = 80): void {
-    if (!this.scene) return;
+    if (!this.scene || getSettingsManager().isReducedMotionEnabled()) return;
 
     const flash = this.scene.add.rectangle(
       this.scene.cameras.main.width / 2,

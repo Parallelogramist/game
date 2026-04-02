@@ -24,11 +24,12 @@ import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/Collisio
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
 import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
-import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems } from '../../ecs/systems/XPGemSystem';
+import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems } from '../../ecs/systems/XPGemSystem';
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
 import { EffectsManager } from '../../effects/EffectsManager';
+import { getJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
@@ -41,6 +42,8 @@ import { TrailManager } from '../../visual/TrailManager';
 import { DeathRippleManager } from '../../visual/DeathRippleManager';
 import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
+import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
+import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage } from '../../storage';
@@ -203,6 +206,19 @@ export class GameScene extends Phaser.Scene {
 
   // Animated player visual (velocity-responsive plasma core)
   private playerPlasmaCore!: PlayerPlasmaCore;
+
+  // Persistent low-HP danger vignette overlay
+  private dangerVignette!: Phaser.GameObjects.Rectangle;
+
+  // Dash afterimage pool
+  private dashAfterimagePool: Phaser.GameObjects.Arc[] = [];
+  private dashAfterimageTimer: number = 0;
+
+  // Status effect visual overlays on enemies
+  private statusEffectVisualManager!: StatusEffectVisualManager;
+
+  // Off-screen threat directional arrows
+  private offScreenIndicatorManager!: OffScreenIndicatorManager;
 
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
   private isAutoBuyEnabled: boolean = false;
@@ -392,6 +408,15 @@ export class GameScene extends Phaser.Scene {
     this.deathRippleManager.setWorld(this.world);
     this.deathRippleManager.setQuality(this.visualQuality);
 
+    // Initialize status effect visual overlays (burn/freeze/poison on enemies)
+    this.statusEffectVisualManager = new StatusEffectVisualManager(this);
+    this.statusEffectVisualManager.setWorld(this.world);
+    this.statusEffectVisualManager.setQuality(this.visualQuality);
+
+    // Initialize off-screen threat indicators
+    this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
+    this.offScreenIndicatorManager.setWorld(this.world);
+
     // Initialize mastery visuals manager for level 10 stat indicators
     this.masteryVisualsManager = new MasteryVisualsManager(this);
 
@@ -546,6 +571,7 @@ export class GameScene extends Phaser.Scene {
     setXPGemSystemScene(this);
     setXPGemEffectsManager(this.effectsManager);
     setXPGemSoundManager(this.soundManager);
+    setXPGemTrailManager(this.trailManager);
     setXPCollectCallback((xpValue) => {
       this.collectXP(xpValue);
     });
@@ -656,6 +682,13 @@ export class GameScene extends Phaser.Scene {
       onAutoBuyToggled: () => this.toggleAutoBuy(),
     });
     this.hudManager.create();
+
+    // Persistent low-HP danger vignette (red screen-edge pulse)
+    this.dangerVignette = this.add.rectangle(
+      this.scale.width / 2, this.scale.height / 2,
+      this.scale.width, this.scale.height,
+      0xff0000, 0
+    ).setScrollFactor(0).setDepth(1998);
 
     // Create pause menu manager
     this.pauseMenuManager = this.createPauseMenuManager();
@@ -784,6 +817,11 @@ export class GameScene extends Phaser.Scene {
     this.deathRippleManager = new DeathRippleManager(this);
     this.deathRippleManager.setWorld(this.world);
     this.deathRippleManager.setQuality(this.visualQuality);
+    this.statusEffectVisualManager = new StatusEffectVisualManager(this);
+    this.statusEffectVisualManager.setWorld(this.world);
+    this.statusEffectVisualManager.setQuality(this.visualQuality);
+    this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
+    this.offScreenIndicatorManager.setWorld(this.world);
     this.masteryVisualsManager = new MasteryVisualsManager(this);
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
 
@@ -949,6 +987,13 @@ export class GameScene extends Phaser.Scene {
     });
     this.hudManager.create();
 
+    // Persistent low-HP danger vignette (restore path)
+    this.dangerVignette = this.add.rectangle(
+      this.scale.width / 2, this.scale.height / 2,
+      this.scale.width, this.scale.height,
+      0xff0000, 0
+    ).setScrollFactor(0).setDepth(1998);
+
     // Populate upgrade icons with restored weapons and upgrades
     this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
 
@@ -1004,6 +1049,7 @@ export class GameScene extends Phaser.Scene {
     setXPGemSystemScene(this);
     setXPGemEffectsManager(this.effectsManager);
     setXPGemSoundManager(this.soundManager);
+    setXPGemTrailManager(this.trailManager);
     setXPCollectCallback((xpValue) => {
       this.collectXP(xpValue);
     });
@@ -1371,7 +1417,8 @@ export class GameScene extends Phaser.Scene {
         });
       }
 
-      // Phase 3: Camera effects
+      // Phase 3: Camera effects + slow-motion cinematic
+      getJuiceManager().slowMotion(300, 0.25);
       if (getSettingsManager().isScreenShakeEnabled()) {
         this.cameras.main.shake(500, 0.035);
       }
@@ -1426,6 +1473,7 @@ export class GameScene extends Phaser.Scene {
       const enemySize = EnemyType.size[enemyId] || 2;
 
       this.effectsManager.playDeathBurst(x, y, ENEMY_COLORS.miniboss.core);
+      getJuiceManager().slowMotion(150, 0.4);
 
       if (getSettingsManager().isScreenShakeEnabled()) {
         this.cameras.main.shake(250, 0.018);
@@ -1456,14 +1504,33 @@ export class GameScene extends Phaser.Scene {
       this.deathRippleManager.spawnRipple(x, y);
     }
 
-    // Clean up entity
+    // Read enemy size before removing entity (ECS data wiped on removeEntity)
+    const killFlashSize = EnemyType.size[enemyId] || 1;
+
+    // Clean up entity — unregister from ECS immediately, but let visual linger for kill flash
     this.deathRippleManager.unregisterEnemy(enemyId);
+    this.statusEffectVisualManager.unregisterEnemy(enemyId);
     const sprite = getSprite(enemyId);
-    if (sprite) {
-      sprite.destroy();
-      unregisterSprite(enemyId);
-    }
+    unregisterSprite(enemyId);
     removeEntity(this.world, enemyId);
+
+    if (sprite) {
+      // Kill flash: white pop + scale burst before disappearing
+      const flashRadius = 10 * killFlashSize;
+      const flashOverlay = this.add.circle(0, 0, flashRadius, 0xffffff, 0.9);
+      if (sprite instanceof Phaser.GameObjects.Container) {
+        sprite.add(flashOverlay);
+      }
+      this.tweens.add({
+        targets: sprite,
+        scaleX: (sprite.scaleX || 1) * 1.3,
+        scaleY: (sprite.scaleY || 1) * 1.3,
+        alpha: 0,
+        duration: 60,
+        ease: 'Quad.easeOut',
+        onComplete: () => sprite.destroy(),
+      });
+    }
   }
 
   /**
@@ -1711,6 +1778,31 @@ export class GameScene extends Phaser.Scene {
       this.damageCooldown -= deltaSeconds;
     }
 
+    // ═══ LOW-HP DANGER STATE + I-FRAME VISUAL ═══
+    if (this.playerId !== -1) {
+      const hpRatio = this.playerStats.currentHealth / this.playerStats.maxHealth;
+
+      // Persistent red vignette pulse when below 25% HP
+      if (hpRatio < 0.25) {
+        const isCritical = hpRatio < 0.1;
+        const pulseSpeed = isCritical ? 5 : 3;
+        const baseAlpha = isCritical ? 0.12 : 0.08;
+        const pulseAmplitude = isCritical ? 0.08 : 0.06;
+        const vignetteAlpha = baseAlpha + Math.sin(this.gameTime * pulseSpeed) * pulseAmplitude;
+        this.dangerVignette.setAlpha(vignetteAlpha);
+      } else if (this.dangerVignette.alpha > 0.001) {
+        // Smooth fade-out when health recovers
+        this.dangerVignette.setAlpha(this.dangerVignette.alpha * 0.9);
+      }
+
+      // Plasma core color shift toward red at low HP
+      const dangerLevel = Math.max(0, 1 - hpRatio / 0.25); // 0 at 25%+, 1 at 0%
+      this.playerPlasmaCore.setDangerLevel(dangerLevel);
+
+      // I-frame blink on player plasma core
+      this.playerPlasmaCore.setInvulnerable(this.damageCooldown > 0);
+    }
+
     // ═══ UPGRADE ICON HIGHLIGHT EXPIRATION ═══
     if (this.hudManager.expireHighlights(this.gameTime)) {
       this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
@@ -1740,6 +1832,41 @@ export class GameScene extends Phaser.Scene {
       const dashSpeed = this.playerStats.moveSpeed;
       Velocity.x[this.playerId] = dashState.velocityX * dashSpeed;
       Velocity.y[this.playerId] = dashState.velocityY * dashSpeed;
+
+      // Spawn afterimage ghosts every 30ms during dash
+      this.dashAfterimageTimer += deltaSeconds;
+      if (this.dashAfterimageTimer >= 0.03) {
+        this.dashAfterimageTimer = 0;
+        const playerX = Transform.x[this.playerId];
+        const playerY = Transform.y[this.playerId];
+
+        // Reuse from pool or create new
+        let afterimage = this.dashAfterimagePool.pop();
+        if (!afterimage) {
+          afterimage = this.add.circle(playerX, playerY, 16, PLAYER_NEON.glow, 0.6);
+          afterimage.setDepth(9);
+        } else {
+          afterimage.setPosition(playerX, playerY);
+          afterimage.setAlpha(0.6);
+          afterimage.setScale(1);
+          afterimage.setVisible(true);
+        }
+
+        this.tweens.add({
+          targets: afterimage,
+          alpha: 0,
+          scaleX: 0.7,
+          scaleY: 0.7,
+          duration: 200,
+          ease: 'Quad.easeOut',
+          onComplete: () => {
+            afterimage!.setVisible(false);
+            this.dashAfterimagePool.push(afterimage!);
+          },
+        });
+      }
+    } else {
+      this.dashAfterimageTimer = 0;
     }
 
     // ═══ GEM MAGNET (auto-vacuum at intervals) ═══
@@ -1943,6 +2070,12 @@ export class GameScene extends Phaser.Scene {
 
     // Update death ripple waves
     this.deathRippleManager.update(deltaSeconds);
+
+    // Update status effect visuals (burn/freeze/poison overlays)
+    this.statusEffectVisualManager.update(deltaSeconds);
+
+    // Update off-screen threat indicators
+    this.offScreenIndicatorManager.update(deltaSeconds);
 
     // Update visual quality based on FPS (auto-scaling)
     this.updateVisualQuality(delta);
@@ -2161,11 +2294,30 @@ export class GameScene extends Phaser.Scene {
     // Play hurt sound
     this.soundManager.playPlayerHurt();
 
-    // Geometry Wars-style impact feedback
+    // Geometry Wars-style impact feedback — scaled by severity
+    const hpPercent = this.playerStats.currentHealth / this.playerStats.maxHealth;
     if (getSettingsManager().isScreenShakeEnabled()) {
-      this.cameras.main.shake(100, 0.008);
+      const shakeIntensity = hpPercent < 0.25 ? 0.012 : 0.008;
+      const shakeDuration = hpPercent < 0.25 ? 200 : 100;
+      this.cameras.main.shake(shakeDuration, shakeIntensity);
     }
     this.effectsManager.playImpactFlash(0.15, 60);
+
+    // Red vignette flash on hit
+    const redVignette = this.add.rectangle(
+      this.scale.width / 2, this.scale.height / 2,
+      this.scale.width, this.scale.height,
+      0xff0000, 0
+    ).setScrollFactor(0).setDepth(1999);
+    const vignetteAlpha = hpPercent < 0.25 ? 0.2 : 0.1;
+    this.tweens.add({
+      targets: redVignette,
+      alpha: vignetteAlpha,
+      duration: 50,
+      yoyo: true,
+      hold: 30,
+      onComplete: () => redVignette.destroy(),
+    });
 
     // ═══ THORNS DAMAGE ═══
     if (this.playerStats.thornsPercent > 0 && attackerEntity !== undefined) {
@@ -3013,6 +3165,7 @@ export class GameScene extends Phaser.Scene {
     if (this.bossWarningPhase < 3 && this.gameTime >= this.bossSpawnTime - 5) {
       this.bossWarningPhase = 3;
       this.soundManager.playBossWarning();
+      getJuiceManager().screenShake(0.005, 300);
 
       // Destroy any existing warning text before creating new one
       if (this.bossWarningText) {
@@ -3078,6 +3231,9 @@ export class GameScene extends Phaser.Scene {
    */
   private handleComboThreshold(threshold: { count: number; type: string }): void {
     if (!this.toastManager) return;
+    const comboPlayerX = Transform.x[this.playerId];
+    const comboPlayerY = Transform.y[this.playerId];
+
     if (threshold.type === 'xp_burst') {
       // Award bonus XP
       this.playerStats.xp += 50;
@@ -3089,8 +3245,12 @@ export class GameScene extends Phaser.Scene {
         duration: 2000,
       });
       this.soundManager.playPickupXP(50);
+      getJuiceManager().impactFlash(0.15, 60);
+      this.showComboText('HOT STREAK!', '#ffdd44', comboPlayerX, comboPlayerY);
     } else if (threshold.type === 'damage_boost') {
       // Damage buff is managed by ComboSystem's activeThresholdEffects
+      getJuiceManager().hitStop(50, 0.85);
+      getJuiceManager().impactFlash(0.25, 100);
       this.toastManager.showToast({
         title: `COMBO x${threshold.count}`,
         description: 'Power Surge! +50% damage',
@@ -3102,6 +3262,7 @@ export class GameScene extends Phaser.Scene {
       if (getSettingsManager().isScreenShakeEnabled()) {
         this.cameras.main.shake(150, 0.01);
       }
+      this.showComboText('POWER SURGE!', '#ff8844', comboPlayerX, comboPlayerY);
     } else if (threshold.type === 'annihilation') {
       // Screen-wide damage pulse — apply damage directly via ECS
       const enemies = getFrameCacheEnemyIds();
@@ -3112,13 +3273,10 @@ export class GameScene extends Phaser.Scene {
             const enemyX = Transform.x[enemyId];
             const enemyY = Transform.y[enemyId];
             this.handleEnemyDeath(enemyId, enemyX, enemyY);
-            const sprite = getSprite(enemyId);
-            if (sprite) sprite.destroy();
-            unregisterSprite(enemyId);
-            removeEntity(this.world, enemyId);
           }
         }
       }
+      getJuiceManager().hitStop(60, 0.9);
       this.toastManager.showToast({
         title: `COMBO x${threshold.count}`,
         description: 'ANNIHILATION!',
@@ -3131,7 +3289,41 @@ export class GameScene extends Phaser.Scene {
         this.cameras.main.shake(300, 0.025);
       }
       this.effectsManager.playImpactFlash(0.2, 80);
+      this.effectsManager.playGoldSparkle(comboPlayerX, comboPlayerY, 8);
+      this.showComboText('ANNIHILATION!', '#ff2244', comboPlayerX, comboPlayerY);
     }
+  }
+
+  /**
+   * Shows a dramatic combo milestone text popup at the player position.
+   */
+  private showComboText(text: string, color: string, positionX: number, positionY: number): void {
+    const comboText = this.add.text(positionX, positionY - 50, text, {
+      fontFamily: 'monospace',
+      fontSize: '26px',
+      color,
+      stroke: '#000000',
+      strokeThickness: 4,
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(1500).setScale(0.5);
+
+    this.tweens.add({
+      targets: comboText,
+      scale: 1.3,
+      y: positionY - 90,
+      duration: 300,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: comboText,
+          alpha: 0,
+          y: positionY - 110,
+          duration: 500,
+          ease: 'Quad.easeIn',
+          onComplete: () => comboText.destroy(),
+        });
+      },
+    });
   }
 
   /**
@@ -3301,47 +3493,77 @@ export class GameScene extends Phaser.Scene {
    * Shows dramatic boss entrance warning.
    */
   private showBossEntrance(name: string): void {
+    const bossJuice = getJuiceManager();
+
+    // Hit stop for dramatic pause at spawn moment
+    bossJuice.hitStop(60, 0.9);
+    bossJuice.impactFlash(0.35, 120);
+    bossJuice.screenShake(0.012, 400);
+
+    // Grid distortion pulse from spawn point (top center)
+    this.gridBackground.applyExplosiveForce(3000, this.scale.width / 2, 0, 500);
+
     // Darken screen briefly
-    const overlay = this.add.rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.5);
+    const overlay = this.add.rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.6);
     overlay.setDepth(90);
 
-    // Warning text
+    // Warning text — slam in from above with scale overshoot
     const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 80, 'BOSS BATTLE', {
       fontSize: '32px',
       color: '#ff0000',
-      fontFamily: 'Arial',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 6,
     });
-    warningText.setOrigin(0.5);
-    warningText.setDepth(100);
+    warningText.setOrigin(0.5).setDepth(100).setScale(2.5).setAlpha(0);
 
     const nameText = this.add.text(this.scale.width / 2, this.scale.height / 2, name, {
       fontSize: '48px',
       color: '#ffcc00',
-      fontFamily: 'Arial',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 6,
     });
-    nameText.setOrigin(0.5);
-    nameText.setDepth(100);
+    nameText.setOrigin(0.5).setDepth(100).setScale(0).setAlpha(0);
 
-    // Animate and fade
+    // "BOSS BATTLE" slams in from large scale
     this.tweens.add({
-      targets: [warningText, nameText],
-      alpha: 0,
-      duration: 3000,
-      ease: 'Power2',
+      targets: warningText,
+      scale: 1,
+      alpha: 1,
+      duration: 300,
+      ease: 'Back.easeOut',
       onComplete: () => {
-        warningText.destroy();
-        nameText.destroy();
+        // Then boss name scales up
+        this.tweens.add({
+          targets: nameText,
+          scale: 1,
+          alpha: 1,
+          duration: 400,
+          ease: 'Back.easeOut',
+        });
+        // Both fade out after hold
+        this.time.delayedCall(2500, () => {
+          this.tweens.add({
+            targets: [warningText, nameText],
+            alpha: 0,
+            duration: 500,
+            ease: 'Sine.easeOut',
+            onComplete: () => {
+              warningText.destroy();
+              nameText.destroy();
+            },
+          });
+        });
       },
     });
 
     this.tweens.add({
       targets: overlay,
       alpha: 0,
-      duration: 2000,
+      duration: 2500,
       ease: 'Power2',
       onComplete: () => overlay.destroy(),
     });
@@ -3586,6 +3808,40 @@ export class GameScene extends Phaser.Scene {
 
     this.pendingLevelUps--;
     this.soundManager.playLevelUp();
+
+    // Level-up celebration effects
+    const juiceManager = getJuiceManager();
+    juiceManager.impactFlash(0.25, 100);
+    const levelUpPlayerX = Transform.x[this.playerId];
+    const levelUpPlayerY = Transform.y[this.playerId];
+    this.effectsManager.playGoldSparkle(levelUpPlayerX, levelUpPlayerY, 6);
+
+    // "LEVEL UP" text burst
+    const levelUpText = this.add.text(levelUpPlayerX, levelUpPlayerY - 40, 'LEVEL UP', {
+      fontFamily: 'monospace',
+      fontSize: '22px',
+      color: '#44ddff',
+      stroke: '#000000',
+      strokeThickness: 3,
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(1500).setScale(0.3);
+    this.tweens.add({
+      targets: levelUpText,
+      scale: 1.2,
+      y: levelUpPlayerY - 70,
+      duration: 300,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: levelUpText,
+          alpha: 0,
+          y: levelUpPlayerY - 90,
+          duration: 400,
+          ease: 'Quad.easeIn',
+          onComplete: () => levelUpText.destroy(),
+        });
+      },
+    });
 
     // Tutorial toast on first level-up
     if (!getSettingsManager().isTutorialSeen() && this.playerStats.level === 2) {
@@ -4031,18 +4287,27 @@ export class GameScene extends Phaser.Scene {
     const statUpgrades = this.upgrades.map(u => ({ id: u.id, currentLevel: u.currentLevel }));
     const evolutionResult = this.weaponManager.checkEvolutions(statUpgrades);
     if (evolutionResult && this.toastManager) {
+      // Dramatic evolution celebration
+      const evolutionJuice = getJuiceManager();
+      evolutionJuice.hitStop(80, 0.9);
+      evolutionJuice.impactFlash(0.4, 150);
+      evolutionJuice.screenShake(0.008, 300);
+
+      // Gold particle burst at player
+      const evolvePlayerX = Transform.x[this.playerId];
+      const evolvePlayerY = Transform.y[this.playerId];
+      this.effectsManager.playGoldSparkle(evolvePlayerX, evolvePlayerY, 10);
+      this.effectsManager.playGoldSparkle(evolvePlayerX - 15, evolvePlayerY - 10, 6);
+      this.effectsManager.playGoldSparkle(evolvePlayerX + 15, evolvePlayerY + 10, 6);
+
       this.toastManager.showToast({
         title: `EVOLVED: ${evolutionResult.evolution.evolvedName}`,
         description: evolutionResult.evolution.evolvedDescription,
         icon: evolutionResult.weapon.icon,
-        color: 0xff88ff,
-        duration: 4000,
+        color: 0xffd700,
+        duration: 5000,
       });
-      this.soundManager.playLevelUp();
-      if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(200, 0.015);
-      }
-      this.effectsManager.playImpactFlash(0.15, 60);
+      this.soundManager.playAchievementUnlock();
     }
 
     // Highlight the upgrade icon for 5 seconds (also rebuilds icons)
@@ -4304,6 +4569,13 @@ export class GameScene extends Phaser.Scene {
     // Pass ALL enemies - no sorting, no limit for maximum visual effect
     this.gridBackground.setGravityPoints(playerPos, enemyData);
 
+    // Dynamic grid intensity — scales with combat state
+    const maxEnemies = 100;
+    const enemyRatio = this.enemyCount / maxEnemies;
+    const bossActive = this.bossSpawned ? 0.3 : 0;
+    const combatIntensity = Math.min(1, enemyRatio * 0.5 + bossActive);
+    this.gridBackground.setCombatIntensity(combatIntensity);
+
     // Update grid animation with actual delta for proper physics integration
     this.gridBackground.update(deltaSeconds);
   }
@@ -4326,6 +4598,10 @@ export class GameScene extends Phaser.Scene {
       // Update death ripple quality
       if (this.deathRippleManager) {
         this.deathRippleManager.setQuality(newQuality);
+      }
+      // Update status effect visual quality
+      if (this.statusEffectVisualManager) {
+        this.statusEffectVisualManager.setQuality(newQuality);
       }
       // Update player plasma core quality
       if (this.playerPlasmaCore) {
@@ -4434,6 +4710,12 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.deathRippleManager) {
       this.deathRippleManager.destroy();
+    }
+    if (this.statusEffectVisualManager) {
+      this.statusEffectVisualManager.destroy();
+    }
+    if (this.offScreenIndicatorManager) {
+      this.offScreenIndicatorManager.destroy();
     }
 
     // Clean up pause menu manager (removes keyboard handlers and open dialogs)

@@ -60,16 +60,23 @@ export class GridBackground {
   private readonly MAX_DISPLACEMENT = 80;
   private readonly MAX_Z = 500;
 
-  // ─── Rendering ───
-  private readonly LINE_ALPHA_BASE = 0.55;
+  // ─── Rendering (base values, scaled by combat intensity) ───
+  private readonly LINE_ALPHA_BASE_MIN = 0.55;
+  private LINE_ALPHA_BASE = 0.55;
   private pulsePhase: number = 0;
-  private readonly PULSE_SPEED = 1.5;
+  private readonly PULSE_SPEED_BASE = 1.5;
+  private PULSE_SPEED = 1.5;
 
   // ─── Chromatic aberration ("double vision") ───
   private readonly CHROMATIC_CYAN = 0x00eeff;
   private readonly CHROMATIC_MAGENTA = 0xff0088;
-  private readonly CHROMATIC_MAX_OFFSET = 3.0;
-  private readonly CHROMATIC_ALPHA = 0.25;
+  private readonly CHROMATIC_MAX_OFFSET_BASE = 3.0;
+  private CHROMATIC_MAX_OFFSET = 3.0;
+  private readonly CHROMATIC_ALPHA_BASE = 0.25;
+  private CHROMATIC_ALPHA = 0.25;
+
+  // ─── Combat intensity scaling ───
+  private smoothedCombatIntensity: number = 0;
 
   // Scratch arrays for line rendering (reused to avoid allocations)
   private lineScreenX: number[] = [];
@@ -744,6 +751,22 @@ export class GridBackground {
     this.gravityPoints.length = 0;
     this.pulsePhase = 0;
     this.frameCounter = 0;
+  }
+
+  /**
+   * Set combat intensity (0.0 = idle, 1.0 = maximum chaos).
+   * Scales grid brightness, chromatic aberration, and pulse speed.
+   */
+  setCombatIntensity(intensity: number): void {
+    const clamped = Math.max(0, Math.min(1, intensity));
+    // Smooth toward target to prevent jarring transitions
+    this.smoothedCombatIntensity += (clamped - this.smoothedCombatIntensity) * 0.02;
+
+    const t = this.smoothedCombatIntensity;
+    this.LINE_ALPHA_BASE = this.LINE_ALPHA_BASE_MIN + t * 0.15;       // 0.55 → 0.70
+    this.CHROMATIC_MAX_OFFSET = this.CHROMATIC_MAX_OFFSET_BASE + t * 1.0;  // 3.0 → 4.0
+    this.CHROMATIC_ALPHA = this.CHROMATIC_ALPHA_BASE + t * 0.1;       // 0.25 → 0.35
+    this.PULSE_SPEED = this.PULSE_SPEED_BASE + t * 1.0;               // 1.5 → 2.5
   }
 
   destroy(): void {

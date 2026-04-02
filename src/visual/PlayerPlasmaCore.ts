@@ -105,6 +105,14 @@ export class PlayerPlasmaCore {
   private burstNewStartIndex: number = 0;
   private burstNewEndIndex: number = 0;
 
+  // Low-HP danger state (0 = safe, 1 = critical)
+  private dangerLevel: number = 0;
+  private static readonly DANGER_COLOR = 0xff4444;
+
+  // Invulnerability flash state
+  private isInvulnerable: boolean = false;
+  private invulnerabilityFlickerPhase: number = 0;
+
   // --- Particle layout constants ---
   private static readonly PARTICLE_COUNT = 100;
   private static readonly INNER_RING_COUNT = 40;
@@ -756,6 +764,13 @@ export class PlayerPlasmaCore {
       this.burstNewStartIndex = 0;
       this.burstNewEndIndex = 0;
     }
+
+    // I-frame invulnerability flicker (10Hz blink between 0.3 and 1.0)
+    if (this.isInvulnerable) {
+      this.invulnerabilityFlickerPhase += dt * 10 * Math.PI * 2;
+      const flickerAlpha = Math.sin(this.invulnerabilityFlickerPhase) > 0 ? 1.0 : 0.3;
+      this.container.setAlpha(flickerAlpha);
+    }
   }
 
   /**
@@ -793,6 +808,11 @@ export class PlayerPlasmaCore {
       );
     }
 
+    // Low-HP danger shift — tint toward red when health is critical
+    if (this.dangerLevel > 0.01) {
+      finalColor = this.lerpColor(finalColor, PlayerPlasmaCore.DANGER_COLOR, this.dangerLevel * 0.6);
+    }
+
     particle.coreCircle.setFillStyle(finalColor);
   }
 
@@ -828,6 +848,27 @@ export class PlayerPlasmaCore {
   public setQuality(quality: VisualQuality): void {
     if (quality === this.config.quality) return;
     this.config.quality = quality;
+  }
+
+  /**
+   * Set low-HP danger level (0 = safe, 1 = critical).
+   * Shifts particle color toward red.
+   */
+  public setDangerLevel(level: number): void {
+    this.dangerLevel = Math.max(0, Math.min(1, level));
+  }
+
+  /**
+   * Set invulnerability flash state (i-frame blink).
+   */
+  public setInvulnerable(active: boolean): void {
+    if (this.isInvulnerable === active) return;
+    this.isInvulnerable = active;
+    if (!active) {
+      // Snap back to full visibility when i-frames end
+      this.container.setAlpha(1);
+      this.invulnerabilityFlickerPhase = 0;
+    }
   }
 
   /**

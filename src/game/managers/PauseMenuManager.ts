@@ -63,6 +63,9 @@ export class PauseMenuManager {
 
   // Shop confirmation state
   public isShopConfirmationOpen: boolean = false;
+
+  // Count-up animation targets for run summary
+  private countUpStats: { text: Phaser.GameObjects.Text; target: number }[] = [];
   private shopConfirmKeyHandler: ((event: KeyboardEvent) => void) | null = null;
 
   // Pause menu keyboard navigation handler
@@ -946,6 +949,7 @@ export class PauseMenuManager {
    * Handles game over state.
    */
   public gameOver(data: GameOverData): void {
+    this.countUpStats = [];
     const metaManager = getMetaProgressionManager();
 
     // Prepare streak change text for display (only shown on death, not victory)
@@ -991,52 +995,76 @@ export class PauseMenuManager {
     }).setOrigin(0.5).setDepth(depth);
     animatedElements.push(titleText);
 
-    // Run stats line
+    // Run stats — each stat gets its own line with count-up animation
     const minutes = Math.floor(data.gameTime / 60);
     const seconds = Math.floor(data.gameTime % 60);
     const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    const comboStr = data.highestCombo > 0 ? `  |  Best Combo: x${data.highestCombo}` : '';
 
-    const statsText = this.scene.add.text(centerX, centerY - 40, `Survived: ${timeStr}  |  Kills: ${data.killCount}${comboStr}`, {
-      fontSize: '18px',
-      color: '#aaaacc',
-      fontFamily: 'Arial',
-      align: 'center',
-    }).setOrigin(0.5).setDepth(depth);
-    animatedElements.push(statsText);
+    const statLabelStyle = { fontSize: '14px', color: '#8888aa', fontFamily: 'Arial' };
+    const statValueStyle = { fontSize: '20px', color: '#aaaacc', fontFamily: 'Arial', fontStyle: 'bold' };
 
-    const levelText = this.scene.add.text(centerX, centerY - 15, `Level: ${data.playerLevel}`, {
-      fontSize: '16px',
-      color: '#8888aa',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setDepth(depth);
-    animatedElements.push(levelText);
+    // Stat lines — compact 2-column layout
+    const leftColX = centerX - 100;
+    const rightColX = centerX + 100;
+    let statRowY = centerY - 45;
+    const statRowSpacing = 28;
 
-    // Damage stats (if available)
+    // Row 1: Time & Kills
+    const timeLabel = this.scene.add.text(leftColX, statRowY, 'Survived', statLabelStyle).setOrigin(0.5).setDepth(depth);
+    const timeValue = this.scene.add.text(leftColX, statRowY + 16, timeStr, statValueStyle).setOrigin(0.5).setDepth(depth);
+    animatedElements.push(timeLabel, timeValue);
+
+    const killLabel = this.scene.add.text(rightColX, statRowY, 'Kills', statLabelStyle).setOrigin(0.5).setDepth(depth);
+    const killValue = this.scene.add.text(rightColX, statRowY + 16, '0', statValueStyle).setOrigin(0.5).setDepth(depth);
+    animatedElements.push(killLabel, killValue);
+
+    statRowY += statRowSpacing + 16;
+
+    // Row 2: Level & Combo
+    const levelLabel = this.scene.add.text(leftColX, statRowY, 'Level', statLabelStyle).setOrigin(0.5).setDepth(depth);
+    const levelValue = this.scene.add.text(leftColX, statRowY + 16, '0', statValueStyle).setOrigin(0.5).setDepth(depth);
+    animatedElements.push(levelLabel, levelValue);
+
+    if (data.highestCombo > 0) {
+      const comboLabel = this.scene.add.text(rightColX, statRowY, 'Best Combo', statLabelStyle).setOrigin(0.5).setDepth(depth);
+      const comboValue = this.scene.add.text(rightColX, statRowY + 16, '0', { ...statValueStyle, color: '#ffdd44' }).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(comboLabel, comboValue);
+
+      // Combo count-up (delayed to appear after stagger)
+      this.countUpStats.push({ text: comboValue, target: data.highestCombo });
+    }
+
+    // Track count-up targets
+    this.countUpStats.push(
+      { text: killValue, target: data.killCount },
+      { text: levelValue, target: data.playerLevel },
+    );
+
+    statRowY += statRowSpacing + 16;
+
+    // Row 3: Damage dealt & taken
     if (data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined) {
       const dmgDealt = formatLargeNumber(data.totalDamageDealt ?? 0);
       const dmgTaken = formatLargeNumber(data.totalDamageTaken ?? 0);
       const damageText = this.scene.add.text(
-        centerX, centerY + 10,
-        `Damage Dealt: ${dmgDealt}  |  Damage Taken: ${dmgTaken}`,
-        {
-          fontSize: '14px',
-          color: '#8888aa',
-          fontFamily: 'Arial',
-        }
+        centerX, statRowY,
+        `Dealt: ${dmgDealt}  |  Taken: ${dmgTaken}`,
+        { fontSize: '13px', color: '#777799', fontFamily: 'Arial' }
       ).setOrigin(0.5).setDepth(depth);
       animatedElements.push(damageText);
+      statRowY += 20;
     }
 
     // Divider line between stats and gold
     const divider = this.scene.add.graphics();
     divider.setDepth(depth);
     divider.lineStyle(1, 0x4a4a7a, 0.6);
-    divider.lineBetween(centerX - 120, centerY + 30, centerX + 120, centerY + 30);
+    divider.lineBetween(centerX - 120, statRowY + 5, centerX + 120, statRowY + 5);
     animatedElements.push(divider);
 
     // Animated gold counter
-    const goldText = this.scene.add.text(centerX, centerY + 45, 'Gold: +0', {
+    const goldY = statRowY + 25;
+    const goldText = this.scene.add.text(centerX, goldY, 'Gold: +0', {
       fontSize: '28px',
       color: '#ffdd44',
       fontFamily: 'Arial',
@@ -1049,7 +1077,7 @@ export class PauseMenuManager {
 
     // Streak text
     if (streakChangeText) {
-      const streakDisplay = this.scene.add.text(centerX, centerY + 80, streakChangeText, {
+      const streakDisplay = this.scene.add.text(centerX, goldY + 35, streakChangeText, {
         fontSize: '18px',
         color: data.previousStreak > 0 && !hasWon ? '#ff6666' : '#ffdd44',
         fontFamily: 'Arial',
@@ -1078,6 +1106,26 @@ export class PauseMenuManager {
         delay: index * staggerDelay,
         ease: 'Sine.easeOut',
       });
+    });
+
+    // Stat count-up animations (start after stagger reveals them)
+    const statCountUpDelay = 4 * staggerDelay + 300; // After first stat values appear
+    this.scene.time.delayedCall(statCountUpDelay, () => {
+      for (const stat of this.countUpStats) {
+        this.scene.tweens.addCounter({
+          from: 0,
+          to: stat.target,
+          duration: Math.min(800, stat.target * 5 + 200),
+          ease: 'Sine.easeOut',
+          onUpdate: (tween) => {
+            stat.text.setText(String(Math.floor(tween.getValue() ?? 0)));
+          },
+          onComplete: () => {
+            stat.text.setText(String(stat.target));
+          },
+        });
+      }
+      this.countUpStats = [];
     });
 
     // Gold counter starts after gold text fades in

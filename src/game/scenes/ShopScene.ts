@@ -931,6 +931,7 @@ export class ShopScene extends Phaser.Scene {
       : metaManager.refundUpgradeLevel(upgradeId);
 
     if (refunded > 0) {
+      this.soundManager.playUIClick();
       this.updateGoldDisplay();
       this.updateAccountLevelDisplay();
       this.updateAllCards();

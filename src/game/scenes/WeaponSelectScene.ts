@@ -3,6 +3,7 @@ import { getCodexManager } from '../../codex';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { createIcon } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { SoundManager } from '../../audio/SoundManager';
 
 /**
  * WeaponSelectScene - Pre-run weapon selection screen.
@@ -10,12 +11,15 @@ import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransiti
  * Skips automatically if only the default Projectile has been discovered.
  */
 export class WeaponSelectScene extends Phaser.Scene {
+  private soundManager!: SoundManager;
+
   constructor() {
     super({ key: 'WeaponSelectScene' });
   }
 
   create(): void {
     this.events.once('shutdown', this.shutdown, this);
+    this.soundManager = new SoundManager(this);
 
     const codexManager = getCodexManager();
     const allWeapons = getWeaponInfoList();
@@ -177,6 +181,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     // Hover effects
     cardBackground.on('pointerover', () => {
+      this.soundManager.playUIClick();
       cardBackground.setFillStyle(0x2a2a4e, 0.9);
       cardBackground.setStrokeStyle(2, 0xffdd44);
       nameText.setColor('#ffdd44');
@@ -194,6 +199,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     // Select on click
     cardBackground.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.selectWeapon(weaponInfo.id);
     });
   }
