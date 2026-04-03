@@ -51,7 +51,7 @@ import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
 import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
 import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
-import { setHazardZoneScene, spawnHazardZone, updateHazardZones, resetHazardZoneSystem } from '../../systems/HazardZoneSystem';
+import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage } from '../../storage';
@@ -212,6 +212,7 @@ export class GameScene extends Phaser.Scene {
   // Boss arena hazard zone spawning
   private activeBossType: string | null = null;
   private bossHazardTimer: number = 0;
+  private hazardDamageMultiplier: number = 1.0;
 
   // Post-processing pipelines (WebGL only)
   private distortionPipeline: DistortionPipeline | null = null;
@@ -460,8 +461,10 @@ export class GameScene extends Phaser.Scene {
     // Initialize boss arena and hazard zone systems
     setBossArenaScene(this);
     setHazardZoneScene(this);
+    setHazardZoneQuality(this.visualQuality);
     this.activeBossType = null;
     this.bossHazardTimer = 0;
+    this.hazardDamageMultiplier = 1.0;
 
     // Initialize post-processing pipelines (WebGL only)
     if (this.renderer.type === Phaser.WEBGL) {
@@ -609,6 +612,7 @@ export class GameScene extends Phaser.Scene {
     this.worldLevelDamageMult = metaManager.getWorldLevelEnemyDamageMultiplier();
     this.worldLevelSpawnReduction = metaManager.getWorldLevelSpawnTimeReduction();
     this.worldLevelXPMult = metaManager.getWorldLevelXPMultiplier();
+    setHazardZoneWorldLevel(this.worldLevel);
 
     // ═══ SPAWNING ═══
     this.playerStats.treasureInterval = metaManager.getStartingTreasureInterval();
@@ -701,6 +705,7 @@ export class GameScene extends Phaser.Scene {
 
     // Setup status effect system
     setStatusEffectSystemEffectsManager(this.effectsManager);
+    setHazardZoneEffectsManager(this.effectsManager);
     setStatusEffectSystemDeathCallback((entityId, x, y) => {
       this.handleEnemyDeath(entityId, x, y);
     });
@@ -1177,6 +1182,7 @@ export class GameScene extends Phaser.Scene {
 
     // Setup status effect system
     setStatusEffectSystemEffectsManager(this.effectsManager);
+    setHazardZoneEffectsManager(this.effectsManager);
     setStatusEffectSystemDeathCallback((entityId, x, y) => {
       this.handleEnemyDeath(entityId, x, y);
     });
@@ -2130,10 +2136,25 @@ export class GameScene extends Phaser.Scene {
     updateBossArena(deltaSeconds);
 
     // Update hazard zones and apply effects
+    this.hazardDamageMultiplier = 1.0;
     if (this.playerId !== -1) {
-      updateHazardZones(
+      const hazardResult = updateHazardZones(
         deltaSeconds, this.playerId,
         Transform.x[this.playerId], Transform.y[this.playerId]
+      );
+      this.hazardDamageMultiplier = hazardResult.playerDamageMultiplier;
+
+      // Process enemies killed by hazard burn damage
+      for (let i = 0; i < hazardResult.killedEnemyIds.length; i++) {
+        const killedId = hazardResult.killedEnemyIds[i];
+        this.handleEnemyDeath(killedId, Transform.x[killedId], Transform.y[killedId]);
+      }
+
+      // General hazard spawning (time-based, escalates throughout run)
+      updateHazardSpawner(
+        deltaSeconds, this.gameTime,
+        Transform.x[this.playerId], Transform.y[this.playerId],
+        this.scale.width, this.scale.height
       );
     }
 
@@ -2174,6 +2195,9 @@ export class GameScene extends Phaser.Scene {
         Velocity.y[this.playerId] *= wardenSlow;
       }
     }
+
+    // Apply ice hazard slow to enemies (deferred from updateHazardZones, after AI sets velocities)
+    applyIceHazardSlow();
 
     // Update Wraith sprite alpha based on phase state
     const wraithCheckEnemies = getFrameCacheEnemyIds();
@@ -5028,7 +5052,7 @@ export class GameScene extends Phaser.Scene {
     // piercing starts at 0, so bonus is just the current value
     const comboDamageBonus = getComboBuffDamageMultiplier();
     this.weaponManager.applyMultipliers(
-      this.playerStats.damageMultiplier * (1 + comboDamageBonus),
+      this.playerStats.damageMultiplier * (1 + comboDamageBonus) * this.hazardDamageMultiplier,
       this.playerStats.attackSpeedMultiplier,
       this.playerStats.projectileCount - 1, // Bonus count (base is 1)
       this.playerStats.piercing              // Bonus piercing (base is 0)
@@ -5263,6 +5287,8 @@ export class GameScene extends Phaser.Scene {
       if (this.statusEffectVisualManager) {
         this.statusEffectVisualManager.setQuality(newQuality);
       }
+      // Update hazard zone visual quality
+      setHazardZoneQuality(newQuality);
       // Update player plasma core quality
       if (this.playerSpaceship) {
         this.playerSpaceship.setQuality(newQuality);

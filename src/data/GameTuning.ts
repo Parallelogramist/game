@@ -79,6 +79,45 @@ export const TUNING = {
     minibossInterval: 60,
     bossInterval: 600,
   },
+
+  /** Hazard zone system — environmental hazards during runs */
+  hazards: {
+    // Per-type effect values
+    burnTickInterval: 0.5,
+    burnTickDamage: 5,
+    iceSlowMultiplier: 0.5,
+    voidPullStrength: 120,
+    energyDamageMultiplier: 1.25,
+    fadeThreshold: 0.2,
+
+    // General spawner timing
+    spawnStartTime: 120,         // seconds before first hazard (2 min safe zone)
+    baseSpawnInterval: 12,       // seconds between spawns initially
+    minSpawnInterval: 4,         // fastest spawn rate (late game)
+    spawnRampDuration: 480,      // seconds over which interval ramps down
+    maxConcurrentZones: 10,
+    graphicsPoolSize: 12,        // slightly above maxConcurrentZones
+    playerExclusionRadius: 150,  // don't spawn on top of player
+    screenMargin: 100,           // pixels inset from screen edges
+
+    // Type unlock times (seconds into run)
+    typeUnlockTimes: {
+      burn: 120,
+      ice: 180,
+      energy: 240,
+      void: 300,
+    },
+
+    // Base zone radius per type (pixels)
+    baseRadius: { burn: 70, ice: 65, void: 90, energy: 55 },
+    // Base zone duration per type (seconds)
+    baseDuration: { burn: 6, ice: 7, void: 8, energy: 10 },
+
+    // World level scaling multipliers
+    worldLevelSpawnIntervalReduction: 0.08,  // 8% faster spawns per world level
+    worldLevelRadiusBonus: 0.05,             // 5% larger per world level
+    worldLevelDurationBonus: 0.03,           // 3% longer per world level
+  },
 } as const;
 
 /** Storage key for auto-buy preference (shared between GameScene and HUDManager) */
