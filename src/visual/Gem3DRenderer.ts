@@ -87,7 +87,14 @@ const AMBIENT_LIGHT = 0.35;
 // Reusable arrays for transformed data
 const transformedVerts: Vec3[] = OCTAHEDRON_VERTICES.map(() => ({ x: 0, y: 0, z: 0 }));
 const screenVerts: Vec2[] = OCTAHEDRON_VERTICES.map(() => ({ x: 0, y: 0 }));
-const visibleFaces: TransformedFace[] = [];
+
+// Pre-allocated face pool (max 8 faces for octahedron, avoids per-call allocation)
+const facePool: TransformedFace[] = OCTAHEDRON_FACES.map(() => ({
+  screenVerts: [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }],
+  centroidZ: 0,
+  brightness: 0,
+}));
+let visibleFaceCount = 0;
 
 // ============================================================================
 // Vector Math Utilities
@@ -202,7 +209,7 @@ export function renderGem3D(
   }
 
   // Process faces: cull backfaces, calculate shading, prepare for sorting
-  visibleFaces.length = 0;
+  visibleFaceCount = 0;
 
   for (let i = 0; i < OCTAHEDRON_FACES.length; i++) {
     const [i0, i1, i2] = OCTAHEDRON_FACES[i];
@@ -215,7 +222,6 @@ export function renderGem3D(
     const normal = calculateFaceNormal(v0, v1, v2);
 
     // Backface culling: skip faces pointing away from camera
-    // Camera looks down -Z axis, so visible faces have positive Z normal
     if (normal.z <= 0) continue;
 
     // Calculate lighting intensity
@@ -225,23 +231,35 @@ export function renderGem3D(
     // Calculate centroid Z for depth sorting
     const centroidZ = (v0.z + v1.z + v2.z) / 3;
 
-    // Store screen vertices for this face
-    visibleFaces.push({
-      screenVerts: [
-        { x: screenVerts[i0].x, y: screenVerts[i0].y },
-        { x: screenVerts[i1].x, y: screenVerts[i1].y },
-        { x: screenVerts[i2].x, y: screenVerts[i2].y },
-      ],
-      centroidZ,
-      brightness,
-    });
+    // Reuse pooled face object (avoids per-call allocation)
+    const face = facePool[visibleFaceCount];
+    face.screenVerts[0].x = screenVerts[i0].x;
+    face.screenVerts[0].y = screenVerts[i0].y;
+    face.screenVerts[1].x = screenVerts[i1].x;
+    face.screenVerts[1].y = screenVerts[i1].y;
+    face.screenVerts[2].x = screenVerts[i2].x;
+    face.screenVerts[2].y = screenVerts[i2].y;
+    face.centroidZ = centroidZ;
+    face.brightness = brightness;
+    visibleFaceCount++;
   }
 
-  // Sort faces back-to-front (painter's algorithm)
-  visibleFaces.sort((a, b) => a.centroidZ - b.centroidZ);
+  // Sort visible faces back-to-front (painter's algorithm)
+  // Sort only the active portion of the pool
+  for (let i = 1; i < visibleFaceCount; i++) {
+    const key = facePool[i];
+    const keyZ = key.centroidZ;
+    let j = i - 1;
+    while (j >= 0 && facePool[j].centroidZ > keyZ) {
+      facePool[j + 1] = facePool[j];
+      j--;
+    }
+    facePool[j + 1] = key;
+  }
 
   // Draw faces
-  for (const face of visibleFaces) {
+  for (let i = 0; i < visibleFaceCount; i++) {
+    const face = facePool[i];
     const shadedColor = shadeColor(gemColor, face.brightness);
 
     graphics.fillStyle(shadedColor, 1);
@@ -306,4 +324,131 @@ function lightenColorSimple(color: number, amount: number): number {
   const g = Math.min(255, ((color >> 8) & 0xff) + 255 * amount);
   const b = Math.min(255, (color & 0xff) + 255 * amount);
   return (Math.floor(r) << 16) | (Math.floor(g) << 8) | Math.floor(b);
+}
+
+// ============================================================================
+// Pre-rendered Gem Sprite Atlas
+// ============================================================================
+
+/** Reference scale used when rendering atlas frames. Gems scale relative to this. */
+export const GEM_ATLAS_REFERENCE_SCALE = 16;
+
+/** Number of rotation frames per color tier */
+export const GEM_ATLAS_FRAME_COUNT = 16;
+
+/** Color tier definitions matching XPGemSystem value thresholds */
+export const GEM_COLOR_TIERS = [
+  { name: 'green',  gemColor: 0x44ff44, outlineColor: 0xffffff, minValue: 0 },
+  { name: 'blue',   gemColor: 0x44aaff, outlineColor: 0xffffff, minValue: 5 },
+  { name: 'purple', gemColor: 0xbb66ff, outlineColor: 0xffffff, minValue: 20 },
+  { name: 'orange', gemColor: 0xff9944, outlineColor: 0xffffff, minValue: 100 },
+  { name: 'gold',   gemColor: 0xffdd44, outlineColor: 0xffffff, minValue: 500 },
+] as const;
+
+/** Single combined atlas key for all gem colors (eliminates WebGL batch breaks) */
+export const COMBINED_GEM_ATLAS_KEY = 'gem_atlas_combined';
+
+/** Get the tier index (0-4) for a given XP value */
+export function getValueTierIndex(value: number): number {
+  for (let i = GEM_COLOR_TIERS.length - 1; i >= 0; i--) {
+    if (value >= GEM_COLOR_TIERS[i].minValue) return i;
+  }
+  return 0;
+}
+
+/** Get the combined atlas frame for a 3D gem (tierIndex 0-4, rotation 0-15) */
+export function getCombinedGemFrame(tierIndex: number, rotationFrame: number): number {
+  return tierIndex * GEM_ATLAS_FRAME_COUNT + rotationFrame;
+}
+
+/** Get the combined atlas frame for a simplified gem (tierIndex 0-4) */
+export function getCombinedSimplifiedFrame(tierIndex: number): number {
+  return GEM_COLOR_TIERS.length * GEM_ATLAS_FRAME_COUNT + tierIndex;
+}
+
+/**
+ * Pre-renders gem rotation frames into texture atlases for GPU-batched rendering.
+ * Creates one spritesheet per color tier (16 rotation frames each) plus
+ * one static texture per tier for simplified small gems.
+ *
+ * Call once during scene initialization. After this, gems render as Image sprites
+ * instead of per-frame CPU Graphics calls.
+ */
+export function generateGemAtlases(scene: Phaser.Scene): void {
+  // Guard against double-generation (e.g., if both create paths run)
+  if (scene.textures.exists(COMBINED_GEM_ATLAS_KEY)) return;
+
+  const referenceScale = GEM_ATLAS_REFERENCE_SCALE;
+  const frameCount = GEM_ATLAS_FRAME_COUNT;
+  const padding = 4;
+  const frameSize = referenceScale * 2 + padding * 2;
+  const tiersCount = GEM_COLOR_TIERS.length;
+
+  const tempGraphics = scene.add.graphics();
+  tempGraphics.setVisible(false);
+
+  // Single combined atlas: 16 columns × (5 3D rows + 1 simplified row)
+  // All gem colors in one texture = zero WebGL batch breaks from gems
+  const atlasWidth = frameSize * frameCount;
+  const atlasHeight = frameSize * (tiersCount + 1);
+  const renderTexture = scene.add.renderTexture(0, 0, atlasWidth, atlasHeight);
+  renderTexture.setVisible(false);
+
+  // 3D gem frames (rows 0-4, one row per color tier)
+  for (let tierIdx = 0; tierIdx < tiersCount; tierIdx++) {
+    const tier = GEM_COLOR_TIERS[tierIdx];
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+      tempGraphics.clear();
+      const rotationAngle = (frameIndex / frameCount) * Math.PI * 2;
+      renderGem3D(tempGraphics, rotationAngle, referenceScale, tier.gemColor, tier.outlineColor);
+
+      const offsetX = frameSize * frameIndex + frameSize / 2;
+      const offsetY = frameSize * tierIdx + frameSize / 2;
+      renderTexture.draw(tempGraphics, offsetX, offsetY);
+    }
+  }
+
+  // Simplified gem frames (row 5, one column per color tier)
+  for (let tierIdx = 0; tierIdx < tiersCount; tierIdx++) {
+    const tier = GEM_COLOR_TIERS[tierIdx];
+    tempGraphics.clear();
+    const halfWidth = referenceScale * 0.5;
+    const halfHeight = referenceScale;
+    renderSimplifiedGem(tempGraphics, halfWidth, halfHeight, tier.gemColor, tier.outlineColor);
+
+    const offsetX = frameSize * tierIdx + frameSize / 2;
+    const offsetY = frameSize * tiersCount + frameSize / 2;
+    renderTexture.draw(tempGraphics, offsetX, offsetY);
+  }
+
+  renderTexture.saveTexture(COMBINED_GEM_ATLAS_KEY);
+
+  // Define named frames within the combined spritesheet
+  const texture = scene.textures.get(COMBINED_GEM_ATLAS_KEY);
+
+  // 3D frames: tierIndex * 16 + rotationFrame (indices 0-79)
+  for (let tierIdx = 0; tierIdx < tiersCount; tierIdx++) {
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+      const combinedFrame = tierIdx * frameCount + frameIndex;
+      texture.add(combinedFrame, 0, frameSize * frameIndex, frameSize * tierIdx, frameSize, frameSize);
+    }
+  }
+
+  // Simplified frames: tiersCount * frameCount + tierIndex (indices 80-84)
+  for (let tierIdx = 0; tierIdx < tiersCount; tierIdx++) {
+    const simplifiedFrame = tiersCount * frameCount + tierIdx;
+    texture.add(simplifiedFrame, 0, frameSize * tierIdx, frameSize * tiersCount, frameSize, frameSize);
+  }
+
+  renderTexture.destroy();
+  tempGraphics.destroy();
+}
+
+/**
+ * Destroys all cached gem atlas textures. Call on scene shutdown.
+ */
+export function destroyGemAtlases(scene: Phaser.Scene): void {
+  if (scene.textures.exists(COMBINED_GEM_ATLAS_KEY)) {
+    scene.textures.remove(COMBINED_GEM_ATLAS_KEY);
+  }
 }

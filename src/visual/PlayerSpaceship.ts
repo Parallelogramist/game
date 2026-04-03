@@ -488,15 +488,23 @@ function getTierForLevel(level: number): number {
 }
 
 export class PlayerSpaceship {
+  private scene: Phaser.Scene;
   private container: Phaser.GameObjects.Container;
   private config: SpaceshipConfig;
 
-  // Graphics layers (children of container, drawn back-to-front)
+  // Animated layers (in container, redrawn every frame)
   private thrustGraphics: Phaser.GameObjects.Graphics;
+  private overlayGraphics: Phaser.GameObjects.Graphics;
+
+  // Static drawing surfaces (offscreen, used to compose into cached RT)
   private glowGraphics: Phaser.GameObjects.Graphics;
   private hullGraphics: Phaser.GameObjects.Graphics;
   private detailGraphics: Phaser.GameObjects.Graphics;
-  private overlayGraphics: Phaser.GameObjects.Graphics;
+
+  // GPU-cached composite of hull + glow + details (replaces 3 live Graphics in render pipeline)
+  private cachedStaticImage: Phaser.GameObjects.Image;
+  private cachedStaticTextureKey: string;
+  private static readonly CACHE_SIZE = 200;  // Encompasses largest tier + corona + glow
 
   // Evolution state
   private currentTierIndex: number = 0;
@@ -597,6 +605,7 @@ export class PlayerSpaceship {
   private static readonly ENERGY_PULSE_SPEED = 0.8;
 
   constructor(scene: Phaser.Scene, x: number, y: number, config: SpaceshipConfig, startingLevel: number = 1) {
+    this.scene = scene;
     this.config = { ...config };
     this.container = scene.add.container(x, y);
     this.container.setDepth(10);
@@ -604,25 +613,32 @@ export class PlayerSpaceship {
     // Set initial evolution tier based on starting level (handles save restoration)
     this.currentTierIndex = getTierForLevel(startingLevel);
 
-    // Create graphics layers in draw order (back to front)
+    // Animated layers (added to container, redrawn every frame)
     this.thrustGraphics = scene.add.graphics();
+    this.overlayGraphics = scene.add.graphics();
+
+    // Static drawing surfaces (offscreen, NOT in container — used to compose cached texture)
     this.glowGraphics = scene.add.graphics();
     this.hullGraphics = scene.add.graphics();
     this.detailGraphics = scene.add.graphics();
-    this.overlayGraphics = scene.add.graphics();
+    this.glowGraphics.setVisible(false);
+    this.hullGraphics.setVisible(false);
+    this.detailGraphics.setVisible(false);
 
+    // GPU-cached composite image replaces 3 Graphics in the render pipeline
+    this.cachedStaticTextureKey = `player_ship_${Date.now()}`;
+    this.cachedStaticImage = scene.add.image(0, 0, '__DEFAULT');
+    this.cachedStaticImage.setVisible(false); // Hidden until first cache build
+
+    // Container draw order: thrust (back) → cached hull/glow/details → overlay (front)
     this.container.add(this.thrustGraphics);
-    this.container.add(this.glowGraphics);
-    this.container.add(this.hullGraphics);
-    this.container.add(this.detailGraphics);
+    this.container.add(this.cachedStaticImage);
     this.container.add(this.overlayGraphics);
 
     this.lastHullColor = config.neonColor.core;
 
-    // Initial draw
-    this.drawHull();
-    this.drawGlow();
-    this.drawDetails();
+    // Initial draw + cache to RenderTexture
+    this.rebuildStaticCache();
   }
 
   private get tier(): EvolutionTier {
@@ -724,9 +740,7 @@ export class PlayerSpaceship {
     if (hullColor !== this.lastHullColor || this.hullDirty) {
       this.lastHullColor = hullColor;
       this.hullDirty = false;
-      this.drawHull();
-      this.drawGlow();
-      this.drawDetails();
+      this.rebuildStaticCache();
     }
 
     // --- Idle hover bob ---
@@ -734,22 +748,16 @@ export class PlayerSpaceship {
       ? Math.sin(this.globalTime * PlayerSpaceship.HOVER_SPEED) * PlayerSpaceship.HOVER_AMPLITUDE * (1 - this.movementBlend * 2)
       : 0;
 
-    // --- Apply rotation and scale to all child graphics ---
+    // --- Apply rotation and scale to container children ---
     const scale = this.shipScale;
     const rotation = this.currentAngle;
 
-    this.hullGraphics.setRotation(rotation);
-    this.hullGraphics.setScale(scale);
-    this.hullGraphics.setY(hoverOffset);
-    this.glowGraphics.setRotation(rotation);
-    this.glowGraphics.setScale(scale);
-    this.glowGraphics.setY(hoverOffset);
+    this.cachedStaticImage.setRotation(rotation);
+    this.cachedStaticImage.setScale(scale);
+    this.cachedStaticImage.setY(hoverOffset);
     this.thrustGraphics.setRotation(rotation);
     this.thrustGraphics.setScale(scale);
     this.thrustGraphics.setY(hoverOffset);
-    this.detailGraphics.setRotation(rotation);
-    this.detailGraphics.setScale(scale);
-    this.detailGraphics.setY(hoverOffset);
     this.overlayGraphics.setRotation(rotation);
     this.overlayGraphics.setScale(scale);
     this.overlayGraphics.setY(hoverOffset);
@@ -995,6 +1003,46 @@ export class PlayerSpaceship {
       graphics.fillCircle(accent.x, accent.y, currentTier.wingTipAccentRadius);
       graphics.fillStyle(accentColor, 0.3);
       graphics.fillCircle(accent.x, accent.y, currentTier.wingTipAccentRadius + 2);
+    }
+  }
+
+  // ==============================
+  //  Static Layer Cache (hull + glow + details → RenderTexture)
+  // ==============================
+
+  /**
+   * Redraws hull, glow, and details into offscreen Graphics, then composites
+   * them into a single RenderTexture displayed as an Image sprite.
+   * Called only when hull color changes (not every frame).
+   */
+  private rebuildStaticCache(): void {
+    // Draw to offscreen Graphics surfaces
+    this.drawHull();
+    this.drawGlow();
+    this.drawDetails();
+
+    const cacheSize = PlayerSpaceship.CACHE_SIZE;
+    const halfSize = cacheSize / 2;
+
+    // Composite all three layers into a RenderTexture
+    const renderTexture = this.scene.add.renderTexture(0, 0, cacheSize, cacheSize);
+    renderTexture.setVisible(false);
+    renderTexture.draw(this.glowGraphics, halfSize, halfSize);
+    renderTexture.draw(this.hullGraphics, halfSize, halfSize);
+    renderTexture.draw(this.detailGraphics, halfSize, halfSize);
+
+    // Replace cached texture
+    if (this.scene.textures.exists(this.cachedStaticTextureKey)) {
+      this.scene.textures.remove(this.cachedStaticTextureKey);
+    }
+    renderTexture.saveTexture(this.cachedStaticTextureKey);
+    renderTexture.destroy();
+
+    // Update display Image
+    this.cachedStaticImage.setTexture(this.cachedStaticTextureKey);
+    this.cachedStaticImage.setOrigin(0.5, 0.5);
+    if (!this.cachedStaticImage.visible) {
+      this.cachedStaticImage.setVisible(true);
     }
   }
 
@@ -1299,6 +1347,14 @@ export class PlayerSpaceship {
   }
 
   public destroy(): void {
+    // Clean up offscreen drawing surfaces
+    this.glowGraphics.destroy();
+    this.hullGraphics.destroy();
+    this.detailGraphics.destroy();
+    // Clean up cached texture
+    if (this.scene.textures.exists(this.cachedStaticTextureKey)) {
+      this.scene.textures.remove(this.cachedStaticTextureKey);
+    }
     this.container.destroy();
   }
 

@@ -6,6 +6,10 @@
  * in nearby cells, reducing complexity to O(n) average case.
  *
  * Cell size should match typical query radius (80px for this game).
+ *
+ * PERF: Uses numeric cell keys (no string allocation per lookup),
+ * loop-based array concat (no spread operator allocation), and
+ * a callback-based queryPotentialForEach for zero-allocation iteration.
  */
 
 export interface SpatialEntity {
@@ -14,10 +18,14 @@ export interface SpatialEntity {
   y: number;
 }
 
+// Large prime for hashing cell coordinates into a single numeric key.
+// Must be larger than any expected cellY value to avoid collisions.
+const CELL_KEY_PRIME = 100003;
+
 export class SpatialHash {
   private cellSize: number;
-  private cells: Map<string, SpatialEntity[]>;
-  private entityCells: Map<number, string>; // Track which cell each entity is in
+  private cells: Map<number, SpatialEntity[]>;
+  private entityCells: Map<number, number>;
 
   constructor(cellSize: number = 80) {
     this.cellSize = cellSize;
@@ -25,69 +33,53 @@ export class SpatialHash {
     this.entityCells = new Map();
   }
 
-  /**
-   * Get the cell key for a position.
-   */
-  private getCellKey(x: number, y: number): string {
+  private getCellKey(x: number, y: number): number {
     const cellX = Math.floor(x / this.cellSize);
     const cellY = Math.floor(y / this.cellSize);
-    return `${cellX},${cellY}`;
+    return cellX * CELL_KEY_PRIME + cellY;
   }
 
-  /**
-   * Clear all entities from the hash.
-   * Call this at the start of each frame before re-inserting.
-   */
   clear(): void {
     this.cells.clear();
     this.entityCells.clear();
   }
 
-  /**
-   * Insert an entity into the spatial hash.
-   */
   insert(id: number, x: number, y: number): void {
     const key = this.getCellKey(x, y);
 
-    if (!this.cells.has(key)) {
-      this.cells.set(key, []);
+    let cell = this.cells.get(key);
+    if (!cell) {
+      cell = [];
+      this.cells.set(key, cell);
     }
 
-    this.cells.get(key)!.push({ id, x, y });
+    cell.push({ id, x, y });
     this.entityCells.set(id, key);
   }
 
-  /**
-   * Insert multiple entities at once (more efficient than individual inserts).
-   */
   insertMany(entities: SpatialEntity[]): void {
     for (const entity of entities) {
       this.insert(entity.id, entity.x, entity.y);
     }
   }
 
-  /**
-   * Query all entities within a radius of a point.
-   * Returns entities that are within the radius (actual distance check).
-   */
   query(x: number, y: number, radius: number): SpatialEntity[] {
     const results: SpatialEntity[] = [];
     const radiusSquared = radius * radius;
 
-    // Calculate which cells to check based on radius
     const minCellX = Math.floor((x - radius) / this.cellSize);
     const maxCellX = Math.floor((x + radius) / this.cellSize);
     const minCellY = Math.floor((y - radius) / this.cellSize);
     const maxCellY = Math.floor((y + radius) / this.cellSize);
 
-    // Check all cells that could contain entities within radius
     for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
       for (let cellY = minCellY; cellY <= maxCellY; cellY++) {
-        const key = `${cellX},${cellY}`;
+        const key = cellX * CELL_KEY_PRIME + cellY;
         const cell = this.cells.get(key);
 
         if (cell) {
-          for (const entity of cell) {
+          for (let i = 0; i < cell.length; i++) {
+            const entity = cell[i];
             const dx = entity.x - x;
             const dy = entity.y - y;
             const distSquared = dx * dx + dy * dy;
@@ -103,10 +95,6 @@ export class SpatialHash {
     return results;
   }
 
-  /**
-   * Query entities within radius, but only return their IDs.
-   * More memory efficient when you don't need positions.
-   */
   queryIds(x: number, y: number, radius: number): number[] {
     const results: number[] = [];
     const radiusSquared = radius * radius;
@@ -118,11 +106,12 @@ export class SpatialHash {
 
     for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
       for (let cellY = minCellY; cellY <= maxCellY; cellY++) {
-        const key = `${cellX},${cellY}`;
+        const key = cellX * CELL_KEY_PRIME + cellY;
         const cell = this.cells.get(key);
 
         if (cell) {
-          for (const entity of cell) {
+          for (let i = 0; i < cell.length; i++) {
+            const entity = cell[i];
             const dx = entity.x - x;
             const dy = entity.y - y;
             const distSquared = dx * dx + dy * dy;
@@ -153,11 +142,14 @@ export class SpatialHash {
 
     for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
       for (let cellY = minCellY; cellY <= maxCellY; cellY++) {
-        const key = `${cellX},${cellY}`;
+        const key = cellX * CELL_KEY_PRIME + cellY;
         const cell = this.cells.get(key);
 
         if (cell) {
-          results.push(...cell);
+          // PERF: Loop push instead of spread to avoid intermediate array allocation
+          for (let i = 0; i < cell.length; i++) {
+            results.push(cell[i]);
+          }
         }
       }
     }
@@ -166,9 +158,30 @@ export class SpatialHash {
   }
 
   /**
-   * Find the nearest entity to a point within a maximum radius.
-   * Returns null if no entity found within radius.
+   * Zero-allocation iteration over potential entities within radius.
+   * Calls the callback for each entity; avoids allocating a results array.
+   * Use this in hot paths (e.g., per-projectile collision checks).
    */
+  queryPotentialForEach(x: number, y: number, radius: number, callback: (entity: SpatialEntity) => void): void {
+    const minCellX = Math.floor((x - radius) / this.cellSize);
+    const maxCellX = Math.floor((x + radius) / this.cellSize);
+    const minCellY = Math.floor((y - radius) / this.cellSize);
+    const maxCellY = Math.floor((y + radius) / this.cellSize);
+
+    for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+      for (let cellY = minCellY; cellY <= maxCellY; cellY++) {
+        const key = cellX * CELL_KEY_PRIME + cellY;
+        const cell = this.cells.get(key);
+
+        if (cell) {
+          for (let i = 0; i < cell.length; i++) {
+            callback(cell[i]);
+          }
+        }
+      }
+    }
+  }
+
   findNearest(x: number, y: number, maxRadius: number, excludeId?: number): SpatialEntity | null {
     const candidates = this.query(x, y, maxRadius);
 
@@ -191,13 +204,9 @@ export class SpatialHash {
     return nearest;
   }
 
-  /**
-   * Find the N nearest entities to a point within a maximum radius.
-   */
   findNearestN(x: number, y: number, maxRadius: number, count: number, excludeIds?: Set<number>): SpatialEntity[] {
     const candidates = this.query(x, y, maxRadius);
 
-    // Calculate distances and sort
     const withDistances = candidates
       .filter(entity => !excludeIds || !excludeIds.has(entity.id))
       .map(entity => {
@@ -210,16 +219,10 @@ export class SpatialHash {
     return withDistances.slice(0, count).map(item => item.entity);
   }
 
-  /**
-   * Get the number of entities in the hash.
-   */
   get size(): number {
     return this.entityCells.size;
   }
 
-  /**
-   * Get the number of non-empty cells.
-   */
   get cellCount(): number {
     return this.cells.size;
   }
@@ -228,10 +231,6 @@ export class SpatialHash {
 // Global spatial hash instance for enemies (updated each frame)
 let globalEnemySpatialHash: SpatialHash | null = null;
 
-/**
- * Get the global enemy spatial hash.
- * This is populated once per frame in GameScene.
- */
 export function getEnemySpatialHash(): SpatialHash {
   if (!globalEnemySpatialHash) {
     globalEnemySpatialHash = new SpatialHash(80);
@@ -239,10 +238,6 @@ export function getEnemySpatialHash(): SpatialHash {
   return globalEnemySpatialHash;
 }
 
-/**
- * Reset the global enemy spatial hash.
- * Call this when starting a new game.
- */
 export function resetEnemySpatialHash(): void {
   if (globalEnemySpatialHash) {
     globalEnemySpatialHash.clear();

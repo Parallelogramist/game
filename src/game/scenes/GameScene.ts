@@ -24,7 +24,7 @@ import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/Collisio
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
 import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
-import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems } from '../../ecs/systems/XPGemSystem';
+import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
@@ -36,6 +36,8 @@ import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { createCachedGlowingShape, resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
+import { generateGemAtlases, destroyGemAtlases } from '../../visual/Gem3DRenderer';
+import { generateProjectileAtlases, destroyProjectileAtlases } from '../../visual/ProjectileAtlasRenderer';
 import { PlayerSpaceship } from '../../visual/PlayerSpaceship';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
@@ -66,7 +68,6 @@ import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
 
 // Module-level queries (defined once, not per-frame)
-const enemyQueryForCollision = defineQuery([Transform, EnemyTag]);
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 
 const PAUSE_MENU_DEPTH = 1100; // Shared depth constant for overlay rendering
@@ -323,6 +324,8 @@ export class GameScene extends Phaser.Scene {
     resetFrameCache();
     resetEnemySpatialHash();
     resetShapeTextureCache(this);
+    destroyGemAtlases(this);
+    destroyProjectileAtlases(this);
     resetComboSystem();
     resetEventSystem();
     resetBossArenaSystem();
@@ -474,7 +477,6 @@ export class GameScene extends Phaser.Scene {
         const isHighQuality = this.visualQuality === 'high';
         this.bloomPipeline.setBloomStrength(isHighQuality ? 0.35 : 0.2);
         this.bloomPipeline.setBloomThreshold(isHighQuality ? 0.6 : 0.7);
-        this.bloomPipeline.setVignetteStrength(isHighQuality ? 0.3 : 0.15);
       }
     }
 
@@ -649,6 +651,11 @@ export class GameScene extends Phaser.Scene {
     // Initialize effects and sound managers
     this.effectsManager = new EffectsManager(this);
     this.soundManager = new SoundManager(this);
+
+    // Pre-render gem rotation frames to GPU texture atlases
+    generateGemAtlases(this);
+    // Pre-render projectile shapes to GPU texture atlas
+    generateProjectileAtlases(this);
 
     // Setup XP gem system
     setXPGemSystemScene(this);
@@ -1122,6 +1129,10 @@ export class GameScene extends Phaser.Scene {
    * Extracted for reuse in both fresh start and restore.
    */
   private setupSystemCallbacks(): void {
+    // Pre-render gem atlases (needed for restore path)
+    generateGemAtlases(this);
+    generateProjectileAtlases(this);
+
     // Setup XP gem system
     setXPGemSystemScene(this);
     setXPGemEffectsManager(this.effectsManager);
@@ -1682,6 +1693,10 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // Pre-allocated pool for grid background enemy data (avoids per-frame allocation)
+  private gridEnemyDataPool: { x: number; y: number; weight: number }[] = [];
+  private gridEnemyDataLength: number = 0;
+
   // Enemy projectiles storage
   private enemyProjectiles: {
     sprite: Phaser.GameObjects.Arc;
@@ -1718,43 +1733,51 @@ export class GameScene extends Phaser.Scene {
    * Update enemy projectiles - move and check collision with player.
    */
   private updateEnemyProjectiles(deltaTime: number): void {
-    const toRemove: typeof this.enemyProjectiles = [];
+    const screenWidth = this.scale.width;
+    const screenHeight = this.scale.height;
+    const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : 0;
+    const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : 0;
+    const hasPlayer = this.playerId !== -1;
 
-    for (const proj of this.enemyProjectiles) {
+    // Reverse iteration with swap-and-pop for O(1) removal
+    for (let i = this.enemyProjectiles.length - 1; i >= 0; i--) {
+      const proj = this.enemyProjectiles[i];
       proj.lifetime -= deltaTime;
-      if (proj.lifetime <= 0) {
-        toRemove.push(proj);
-        continue;
-      }
 
-      proj.sprite.x += proj.vx * deltaTime;
-      proj.sprite.y += proj.vy * deltaTime;
+      let shouldRemove = proj.lifetime <= 0;
 
-      // Bounds check
-      if (proj.sprite.x < -20 || proj.sprite.x > this.scale.width + 20 ||
-          proj.sprite.y < -20 || proj.sprite.y > this.scale.height + 20) {
-        toRemove.push(proj);
-        continue;
-      }
+      if (!shouldRemove) {
+        proj.sprite.x += proj.vx * deltaTime;
+        proj.sprite.y += proj.vy * deltaTime;
 
-      // Check collision with player
-      if (this.playerId !== -1) {
-        const playerX = Transform.x[this.playerId];
-        const playerY = Transform.y[this.playerId];
-        const dist = Math.sqrt((playerX - proj.sprite.x) ** 2 + (playerY - proj.sprite.y) ** 2);
-
-        if (dist < 20) {
-          this.takeDamage(proj.damage);
-          toRemove.push(proj);
+        // Bounds check
+        if (proj.sprite.x < -20 || proj.sprite.x > screenWidth + 20 ||
+            proj.sprite.y < -20 || proj.sprite.y > screenHeight + 20) {
+          shouldRemove = true;
         }
       }
-    }
 
-    // Clean up
-    for (const proj of toRemove) {
-      const idx = this.enemyProjectiles.indexOf(proj);
-      if (idx !== -1) this.enemyProjectiles.splice(idx, 1);
-      proj.sprite.destroy();
+      // Check collision with player (squared distance avoids sqrt)
+      if (!shouldRemove && hasPlayer) {
+        const dx = playerX - proj.sprite.x;
+        const dy = playerY - proj.sprite.y;
+        const distSq = dx * dx + dy * dy;
+
+        if (distSq < 400) { // 20 * 20
+          this.takeDamage(proj.damage);
+          shouldRemove = true;
+        }
+      }
+
+      if (shouldRemove) {
+        proj.sprite.destroy();
+        // Swap with last element and pop — O(1) removal
+        const lastIndex = this.enemyProjectiles.length - 1;
+        if (i < lastIndex) {
+          this.enemyProjectiles[i] = this.enemyProjectiles[lastIndex];
+        }
+        this.enemyProjectiles.pop();
+      }
     }
   }
 
@@ -2176,8 +2199,8 @@ export class GameScene extends Phaser.Scene {
     // Weapon system (handles all player weapons)
     this.weaponManager.update(this.gameTime, deltaSeconds);
 
-    // XP gem system
-    xpGemSystem(this.world, deltaSeconds);
+    // XP gem system (with viewport culling)
+    xpGemSystem(this.world, deltaSeconds, this.scale.width, this.scale.height);
 
     // Health pickup system
     healthPickupSystem(this.world, deltaSeconds, this.gameTime);
@@ -2195,7 +2218,7 @@ export class GameScene extends Phaser.Scene {
     this.checkPlayerEnemyCollision();
 
     // Sync sprites to ECS positions
-    spriteSystem(this.world);
+    spriteSystem(this.world, this.scale.width, this.scale.height);
 
     // Update player plasma core visual effects (squash/stretch, fins, breathing)
     if (this.playerId !== -1 && this.playerSpaceship) {
@@ -5054,10 +5077,10 @@ export class GameScene extends Phaser.Scene {
       this.trailManager.addTrailPoint(this.playerId, px, py, PLAYER_NEON.glow, 8);
     }
 
-    // Add trails for fast-moving enemies
-    const enemies = enemyQueryForCollision(this.world);
-    for (let i = 0; i < enemies.length; i++) {
-      const enemyId = enemies[i];
+    // Add trails for fast-moving enemies (use FrameCache, avoid redundant query)
+    const trailEnemies = getFrameCacheEnemyIds();
+    for (let i = 0; i < trailEnemies.length; i++) {
+      const enemyId = trailEnemies[i];
 
       // Check velocity - only add trails for fast enemies
       const vx = Velocity.x[enemyId];
@@ -5116,38 +5139,37 @@ export class GameScene extends Phaser.Scene {
       };
     }
 
-    // Get ALL enemy positions with weight calculated from their actual size
-    const enemies = enemyQueryForCollision(this.world);
-    const enemyData: { x: number; y: number; weight: number }[] = [];
+    // Get ALL enemy positions with weight (reuse pooled objects to avoid per-frame allocation)
+    const enemies = getFrameCacheEnemyIds();
+    const enemyCount = enemies.length;
 
-    for (let i = 0; i < enemies.length; i++) {
+    // Grow pool if needed
+    while (this.gridEnemyDataPool.length < enemyCount) {
+      this.gridEnemyDataPool.push({ x: 0, y: 0, weight: 0 });
+    }
+    this.gridEnemyDataLength = enemyCount;
+
+    for (let i = 0; i < enemyCount; i++) {
       const enemyId = enemies[i];
-
-      // Weight formula based on actual size (0.5-6.0 range):
-      // Capped at 1.5 to prevent grid line crossing
-      // size 0.5 → 0.4 weight (subtle ripple)
-      // size 1.0 → 0.55 weight (normal warp)
-      // size 6.0 → 1.5 weight (strong gravity well, capped)
       const size = EnemyType.size[enemyId];
       const aiType = EnemyAI.aiType[enemyId];
       let weight = Math.min(1.5, 0.25 + (size * 0.3));
 
-      // Bosses (aiType >= 100) get 3x warp, minibosses (>= 50) get 2x
       if (aiType >= 100) {
         weight *= 3.0;
       } else if (aiType >= 50) {
         weight *= 2.0;
       }
 
-      enemyData.push({
-        x: Transform.x[enemyId],
-        y: Transform.y[enemyId],
-        weight,
-      });
+      // Reuse pooled object in-place
+      const entry = this.gridEnemyDataPool[i];
+      entry.x = Transform.x[enemyId];
+      entry.y = Transform.y[enemyId];
+      entry.weight = weight;
     }
 
-    // Pass ALL enemies - no sorting, no limit for maximum visual effect
-    this.gridBackground.setGravityPoints(playerPos, enemyData);
+    // Pass slice view of pool (only active entries)
+    this.gridBackground.setGravityPoints(playerPos, this.gridEnemyDataPool, this.gridEnemyDataLength);
 
     // Dynamic grid intensity — scales with combat state
     const maxEnemies = 100;
@@ -5214,7 +5236,6 @@ export class GameScene extends Phaser.Scene {
         none: 0.25, warm: 0.30, hot: 0.35, blazing: 0.40, inferno: 0.50,
       };
       this.bloomPipeline.setBloomStrength(tierBloomStrength[comboTier] ?? 0.25);
-      this.bloomPipeline.setVignetteStrength(this.bossSpawned ? 0.45 : 0.3);
     }
   }
 
@@ -5248,6 +5269,8 @@ export class GameScene extends Phaser.Scene {
       }
       // Update weapon visual quality
       this.weaponManager.setVisualQuality(newQuality);
+      // Update XP gem quality (spin animation, trail budget, merge aggressiveness)
+      setXPGemQuality(newQuality);
       // Disable distortion on low quality
       // (DistortionPipeline auto-skips when no active sources, so no explicit disable needed)
       // Update lighting quality
@@ -5293,6 +5316,11 @@ export class GameScene extends Phaser.Scene {
     // Resize lighting render texture
     if (this.lightingSystem) {
       this.lightingSystem.resize(w, h);
+    }
+
+    // Resize trail render texture
+    if (this.trailManager) {
+      this.trailManager.resize(w, h);
     }
 
     // Delegate all HUD repositioning to the HUD manager

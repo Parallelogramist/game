@@ -2,313 +2,587 @@ import { defineQuery, removeEntity, addEntity, addComponent, IWorld } from 'bite
 import { Transform, XPGem, XPGemTag, PlayerTag } from '../components';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
-import { renderGem3D, renderSimplifiedGem } from '../../visual/Gem3DRenderer';
+import {
+  GEM_ATLAS_REFERENCE_SCALE,
+  GEM_ATLAS_FRAME_COUNT,
+  COMBINED_GEM_ATLAS_KEY,
+  GEM_COLOR_TIERS,
+  getValueTierIndex,
+  getCombinedGemFrame,
+  getCombinedSimplifiedFrame,
+} from '../../visual/Gem3DRenderer';
 import { TrailManager } from '../../visual/TrailManager';
+import { VisualQuality } from '../../visual/GlowGraphics';
 
-// OPTIMIZATION: Pre-computed constants
+// ============================================================================
+// Constants
+// ============================================================================
+
 const PI_TWO = Math.PI * 2;
 
 // Queries
 const xpGemQuery = defineQuery([Transform, XPGem, XPGemTag]);
 const playerQuery = defineQuery([Transform, PlayerTag]);
 
-// Spin animation state for faux-3D Y-axis rotation effect
+// Minimum halfHeight for full 3D rendering (smaller gems use simplified 2D texture)
+const MIN_3D_SCALE = 6;
+
+// Movement & collection
+const MAGNET_SPEED = 350;
+const COLLECT_RANGE = 24;
+const COLLECT_RANGE_SQ = COLLECT_RANGE * COLLECT_RANGE;
+
+// Gem limits
+const MAX_GEMS = 300;
+
+// Viewport culling margin
+const CULL_MARGIN = 100;
+
+// Merge configuration
+const MERGE_INTERVAL = 2.0; // Seconds between batch merges
+const MERGE_RADIUS_BY_QUALITY = { high: 40, medium: 60, low: 80 };
+
+// Trail throttling
+const TRAIL_FRAME_SKIP = 3;
+const TRAIL_BUDGET_BY_QUALITY = { high: 20, medium: 8, low: 0 };
+
+// Spatial index cell size (must be >= max merge radius)
+const SPATIAL_CELL_SIZE = 80;
+
+const GEM_DEPTH = 5;
+
+// Pre-allocated removal buffers (avoid per-frame array allocations)
+const gemsToRemoveBuffer: number[] = [];
+const batchMergeRemoveBuffer: number[] = [];
+
+// ============================================================================
+// Spin State
+// ============================================================================
+
 interface GemSpinState {
-  spinPhase: number;           // Current rotation angle (0 to 2*PI)
-  spinSpeed: number;           // Radians per second (randomized per gem)
-  halfWidth: number;           // Base diamond dimensions
+  spinPhase: number;
+  spinSpeed: number;
   halfHeight: number;
   gemColor: number;
-  outlineColor: number;
-  glintPhase: number;          // Phase for glint sparkle animation
+  tierIndex: number;
+  image: Phaser.GameObjects.Image;
+  isSimplified: boolean;
+  cellKey: number; // Spatial index cell key (for efficient removal)
 }
 
 const gemSpinStates = new Map<number, GemSpinState>();
 
-// Single shared Graphics object for batched gem rendering
-let batchGraphics: Phaser.GameObjects.Graphics | null = null;
+// ============================================================================
+// Image Sprite Pool
+// ============================================================================
 
-// Minimum scale for full 3D rendering (smaller gems use simplified 2D)
-const MIN_3D_SCALE = 6;
+const gemImagePool: Phaser.GameObjects.Image[] = [];
 
-/**
- * Draws a gem as a true 3D rotating octahedron into a shared Graphics object.
- * For small gems (< 6px), falls back to simplified 2D diamond for clarity.
- * NOTE: Does NOT call clear() — caller is responsible for clearing before batch.
- */
-function redrawRotatingGem(
-  graphics: Phaser.GameObjects.Graphics,
-  halfWidth: number,
-  halfHeight: number,
-  spinPhase: number,
-  gemColor: number,
-  outlineColor: number
-): void {
-  // Use halfHeight as the scale (vertical extent of the gem)
-  const scale = halfHeight;
+// ============================================================================
+// Module State
+// ============================================================================
 
-  // For tiny gems, use simplified 2D rendering for performance and clarity
-  if (scale < MIN_3D_SCALE) {
-    renderSimplifiedGem(graphics, halfWidth, halfHeight, gemColor, outlineColor);
-    return;
-  }
+// Gem count tracking (avoids querying ECS just to count)
+let currentGemCount = 0;
 
-  // Full 3D octahedron rendering
-  renderGem3D(graphics, spinPhase, scale, gemColor, outlineColor);
-}
+// Magnet range (upgraded by player)
+let currentMagnetRange = 80;
 
-// Configuration
-let currentMagnetRange = 80; // Distance at which gems start moving toward player
-const MAGNET_SPEED = 350; // Speed gems move when magnetized
-const COLLECT_RANGE = 24; // Distance to collect gem
+// Quality settings
+let trailBudgetPerFrame = TRAIL_BUDGET_BY_QUALITY.high;
+let spinEveryFrame = true;
+let mergeRadius = MERGE_RADIUS_BY_QUALITY.high;
+let mergeRadiusSq = mergeRadius * mergeRadius;
 
-// Callback for XP collection
+// Frame counter for trail staggering
+let frameCounter = 0;
+
+// Periodic merge timer
+let mergeTimer = 0;
+
+// Callbacks
 type XPCollectCallback = (value: number) => void;
 let onXPCollectCallback: XPCollectCallback | null = null;
 
-// Scene reference for creating gem sprites
+// Scene reference
 let sceneReference: Phaser.Scene | null = null;
 
-// Effects, sound, and trail managers
+// Managers
 let effectsManager: EffectsManager | null = null;
 let soundManager: SoundManager | null = null;
 let trailManager: TrailManager | null = null;
 
+// ============================================================================
+// Spatial Index for Gem Merging
+// ============================================================================
+
+// Maps cellKey -> array of gem entity IDs in that cell
+const gemSpatialIndex = new Map<number, number[]>();
+
+function computeCellKey(x: number, y: number): number {
+  const cellX = Math.floor(x / SPATIAL_CELL_SIZE) & 0xFFFF;
+  const cellY = Math.floor(y / SPATIAL_CELL_SIZE) & 0xFFFF;
+  return (cellX << 16) | cellY;
+}
+
+function spatialIndexInsert(gemId: number, cellKey: number): void {
+  let cell = gemSpatialIndex.get(cellKey);
+  if (!cell) {
+    cell = [];
+    gemSpatialIndex.set(cellKey, cell);
+  }
+  cell.push(gemId);
+}
+
+function spatialIndexRemove(gemId: number, cellKey: number): void {
+  const cell = gemSpatialIndex.get(cellKey);
+  if (cell) {
+    const index = cell.indexOf(gemId);
+    if (index !== -1) {
+      // Swap-remove for O(1)
+      cell[index] = cell[cell.length - 1];
+      cell.pop();
+    }
+    if (cell.length === 0) {
+      gemSpatialIndex.delete(cellKey);
+    }
+  }
+}
+
 /**
- * Sets the Phaser scene reference for creating gem visuals.
+ * Find the nearest non-magnetized gem within mergeRadiusSq of (x, y).
+ * Searches the 3x3 neighborhood of spatial cells.
  */
+function findNearbyGemForMerge(x: number, y: number): number {
+  const cellX = Math.floor(x / SPATIAL_CELL_SIZE);
+  const cellY = Math.floor(y / SPATIAL_CELL_SIZE);
+
+  let nearestId = -1;
+  let nearestDistSq = mergeRadiusSq;
+
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      const neighborX = (cellX + dx) & 0xFFFF;
+      const neighborY = (cellY + dy) & 0xFFFF;
+      const key = (neighborX << 16) | neighborY;
+      const cell = gemSpatialIndex.get(key);
+      if (!cell) continue;
+
+      for (let i = 0; i < cell.length; i++) {
+        const candidateId = cell[i];
+        // Skip magnetized gems (they're moving and about to be collected)
+        if (XPGem.magnetized[candidateId] === 1) continue;
+
+        const candidateX = Transform.x[candidateId];
+        const candidateY = Transform.y[candidateId];
+        const distX = x - candidateX;
+        const distY = y - candidateY;
+        const distSq = distX * distX + distY * distY;
+        if (distSq < nearestDistSq) {
+          nearestDistSq = distSq;
+          nearestId = candidateId;
+        }
+      }
+    }
+  }
+
+  return nearestId;
+}
+
+// ============================================================================
+// Setters
+// ============================================================================
+
 export function setXPGemSystemScene(scene: Phaser.Scene): void {
   sceneReference = scene;
 }
 
-/**
- * Set the effects manager for visual feedback.
- */
 export function setXPGemEffectsManager(manager: EffectsManager): void {
   effectsManager = manager;
 }
 
-/**
- * Set the sound manager for audio feedback.
- */
 export function setXPGemSoundManager(manager: SoundManager): void {
   soundManager = manager;
 }
 
-/**
- * Set the trail manager for gem magnetism trails.
- */
 export function setXPGemTrailManager(manager: TrailManager): void {
   trailManager = manager;
 }
 
-/**
- * Set the magnet range for gem attraction.
- * Called when player upgrades the magnetism stat.
- */
 export function setXPGemMagnetRange(range: number): void {
   currentMagnetRange = range;
 }
 
-/**
- * Register a callback for when XP is collected.
- */
 export function setXPCollectCallback(callback: XPCollectCallback): void {
   onXPCollectCallback = callback;
 }
 
 /**
+ * Set visual quality level for gems. Affects spin animation, trail budget, and merge aggressiveness.
+ */
+export function setXPGemQuality(quality: VisualQuality): void {
+  trailBudgetPerFrame = TRAIL_BUDGET_BY_QUALITY[quality];
+  spinEveryFrame = quality === 'high';
+  mergeRadius = MERGE_RADIUS_BY_QUALITY[quality];
+  mergeRadiusSq = mergeRadius * mergeRadius;
+}
+
+// ============================================================================
+// Gem Visual Helpers
+// ============================================================================
+
+function computeGemSize(value: number): number {
+  return 4 + Math.log2(Math.max(value, 1)) * 1.5;
+}
+
+/**
+ * Update a gem's visual to match its current value (after merging).
+ * Recalculates tier, size, texture frame, and scale.
+ */
+function updateGemVisual(gemId: number, spinState: GemSpinState): void {
+  const value = XPGem.value[gemId];
+  const newTierIndex = getValueTierIndex(value);
+  const newSize = computeGemSize(value);
+  const newHalfHeight = newSize * 1.1;
+  const newIsSimplified = newHalfHeight < MIN_3D_SCALE;
+
+  spinState.tierIndex = newTierIndex;
+  spinState.gemColor = GEM_COLOR_TIERS[newTierIndex].gemColor;
+  spinState.halfHeight = newHalfHeight;
+  spinState.isSimplified = newIsSimplified;
+
+  // Update texture frame
+  if (newIsSimplified) {
+    spinState.image.setFrame(getCombinedSimplifiedFrame(newTierIndex));
+  } else {
+    const rotationFrame = Math.floor((spinState.spinPhase / PI_TWO) * GEM_ATLAS_FRAME_COUNT) % GEM_ATLAS_FRAME_COUNT;
+    spinState.image.setFrame(getCombinedGemFrame(newTierIndex, rotationFrame));
+  }
+
+  // Update scale
+  const displayScale = newHalfHeight / GEM_ATLAS_REFERENCE_SCALE;
+  spinState.image.setScale(displayScale);
+}
+
+// ============================================================================
+// Spawn
+// ============================================================================
+
+/**
  * Spawns an XP gem at the specified position.
+ * Merges with a nearby gem if one is within merge radius to limit gem count.
  */
 export function spawnXPGem(world: IWorld, positionX: number, positionY: number, value: number): number {
+  // Try to merge with a nearby existing gem
+  const mergeTargetId = findNearbyGemForMerge(positionX, positionY);
+  if (mergeTargetId !== -1) {
+    XPGem.value[mergeTargetId] += value;
+    const targetSpinState = gemSpinStates.get(mergeTargetId);
+    if (targetSpinState) {
+      updateGemVisual(mergeTargetId, targetSpinState);
+    }
+    return mergeTargetId;
+  }
+
+  // Hard cap: auto-collect the lowest-value gem if at limit
+  if (currentGemCount >= MAX_GEMS) {
+    autoCollectLowestValueGem(world);
+  }
+
   const gemId = addEntity(world);
 
-  // Add components
   addComponent(world, Transform, gemId);
   addComponent(world, XPGem, gemId);
   addComponent(world, XPGemTag, gemId);
 
-  // Set position
   Transform.x[gemId] = positionX;
   Transform.y[gemId] = positionY;
   Transform.rotation[gemId] = 0;
 
-  // Set gem value
   XPGem.value[gemId] = value;
   XPGem.magnetized[gemId] = 0;
 
-  // Store gem visual state — all rendering is batched into a single Graphics object
   if (sceneReference) {
-    // Ensure batch graphics exists
-    if (!batchGraphics || !batchGraphics.scene) {
-      batchGraphics = sceneReference.add.graphics();
-      batchGraphics.setDepth(5);
-    }
-
-    // Logarithmic size scaling: small for basic, huge for bosses
-    const size = 4 + Math.log2(Math.max(value, 1)) * 1.5;
-
-    // Color tiers based on XP value
-    let gemColor: number;
-    let outlineColor: number;
-    if (value >= 500) {
-      gemColor = 0xffdd44; outlineColor = 0xffffff;
-    } else if (value >= 100) {
-      gemColor = 0xff9944; outlineColor = 0xffffff;
-    } else if (value >= 20) {
-      gemColor = 0xbb66ff; outlineColor = 0xffffff;
-    } else if (value >= 5) {
-      gemColor = 0x44aaff; outlineColor = 0xffffff;
-    } else {
-      gemColor = 0x44ff44; outlineColor = 0xffffff;
-    }
-
-    const halfWidth = size * 0.5;
+    const size = computeGemSize(value);
     const halfHeight = size * 1.1;
+    const tierIndex = getValueTierIndex(value);
+    const gemColor = GEM_COLOR_TIERS[tierIndex].gemColor;
+    const isSimplified = halfHeight < MIN_3D_SCALE;
+    const initialFrame = isSimplified
+      ? getCombinedSimplifiedFrame(tierIndex)
+      : getCombinedGemFrame(tierIndex, Math.floor(Math.random() * GEM_ATLAS_FRAME_COUNT));
 
+    // Grab from pool or create new Image
+    let gemImage: Phaser.GameObjects.Image;
+    if (gemImagePool.length > 0) {
+      gemImage = gemImagePool.pop()!;
+      gemImage.setTexture(COMBINED_GEM_ATLAS_KEY, initialFrame);
+      gemImage.setVisible(true);
+      gemImage.setActive(true);
+    } else {
+      gemImage = sceneReference.add.image(positionX, positionY, COMBINED_GEM_ATLAS_KEY, initialFrame);
+    }
+
+    const displayScale = halfHeight / GEM_ATLAS_REFERENCE_SCALE;
+    gemImage.setScale(displayScale);
+    gemImage.setPosition(positionX, positionY);
+    gemImage.setDepth(GEM_DEPTH);
+
+    const cellKey = computeCellKey(positionX, positionY);
     gemSpinStates.set(gemId, {
       spinPhase: Math.random() * PI_TWO,
       spinSpeed: (0.3 + Math.random() * 0.2) * PI_TWO,
-      halfWidth,
       halfHeight,
       gemColor,
-      outlineColor,
-      glintPhase: Math.random() * PI_TWO,
+      tierIndex,
+      image: gemImage,
+      isSimplified,
+      cellKey,
     });
+
+    spatialIndexInsert(gemId, cellKey);
   }
 
+  currentGemCount++;
   return gemId;
 }
 
 /**
- * XPGemSystem handles gem magnetization toward player and collection.
+ * Auto-collect the lowest-value gem to make room for new spawns.
  */
-export function xpGemSystem(world: IWorld, deltaTime: number): IWorld {
+function autoCollectLowestValueGem(world: IWorld): void {
+  const gems = xpGemQuery(world);
+  if (gems.length === 0) return;
+
+  let lowestValueId = gems[0];
+  let lowestValue = XPGem.value[gems[0]];
+
+  for (let i = 1; i < gems.length; i++) {
+    const gemValue = XPGem.value[gems[i]];
+    if (gemValue < lowestValue) {
+      lowestValue = gemValue;
+      lowestValueId = gems[i];
+    }
+  }
+
+  // Award XP silently (no effects/sound to avoid spam)
+  if (onXPCollectCallback) {
+    onXPCollectCallback(lowestValue);
+  }
+
+  cleanupGem(lowestValueId);
+  removeEntity(world, lowestValueId);
+}
+
+// ============================================================================
+// Main Update Loop
+// ============================================================================
+
+/**
+ * XPGemSystem handles gem magnetization, collection, viewport culling,
+ * trail emission, spin animation, and periodic merging.
+ */
+export function xpGemSystem(
+  world: IWorld,
+  deltaTime: number,
+  screenWidth: number,
+  screenHeight: number
+): IWorld {
   const gems = xpGemQuery(world);
   const players = playerQuery(world);
 
-  // No player, no collection
   if (players.length === 0) return world;
 
   const playerId = players[0];
   const playerX = Transform.x[playerId];
   const playerY = Transform.y[playerId];
 
-  const gemsToRemove: number[] = [];
-
-  // OPTIMIZATION: Pre-compute squared thresholds
-  const collectRangeSq = COLLECT_RANGE * COLLECT_RANGE;
   const magnetRangeSq = currentMagnetRange * currentMagnetRange;
+  let removeCount = 0;
+
+  frameCounter++;
+  let trailBudget = trailBudgetPerFrame;
+
+  // Spin animation: on medium quality, only update every 2nd frame
+  const shouldUpdateSpin = spinEveryFrame || (frameCounter & 1) === 0;
 
   for (let i = 0; i < gems.length; i++) {
     const gemId = gems[i];
     const gemX = Transform.x[gemId];
     const gemY = Transform.y[gemId];
+    const isMagnetized = XPGem.magnetized[gemId] === 1;
+
+    // VIEWPORT CULLING: skip all processing for off-screen, non-magnetized gems
+    if (!isMagnetized) {
+      const onScreen = gemX >= -CULL_MARGIN && gemX <= screenWidth + CULL_MARGIN
+                    && gemY >= -CULL_MARGIN && gemY <= screenHeight + CULL_MARGIN;
+      if (!onScreen) {
+        // Hide sprite if visible
+        const spinState = gemSpinStates.get(gemId);
+        if (spinState && spinState.image.visible) {
+          spinState.image.setVisible(false);
+        }
+        continue;
+      }
+    }
 
     const directionX = playerX - gemX;
     const directionY = playerY - gemY;
-    // OPTIMIZATION: Use squared distance for comparisons
     const distanceSq = directionX * directionX + directionY * directionY;
 
-    // Collect gem if close enough (squared comparison)
-    if (distanceSq < collectRangeSq) {
+    // Collect gem if close enough
+    if (distanceSq < COLLECT_RANGE_SQ) {
       const gemValue = XPGem.value[gemId];
-      gemsToRemove.push(gemId);
+      gemsToRemoveBuffer[removeCount++] = gemId;
 
-      // Play collection effects
       if (effectsManager) {
         effectsManager.playXPSparkle(gemX, gemY);
       }
       if (soundManager) {
         soundManager.playPickupXP(gemValue);
       }
-
       if (onXPCollectCallback) {
         onXPCollectCallback(gemValue);
       }
       continue;
     }
 
-    // Magnetize if within range (or already magnetized) - squared comparison
-    if (distanceSq < magnetRangeSq || XPGem.magnetized[gemId] === 1) {
+    // Magnetize if within range (or already magnetized)
+    let movedThisFrame = false;
+    if (distanceSq < magnetRangeSq || isMagnetized) {
       XPGem.magnetized[gemId] = 1;
 
-      // Only compute sqrt when we actually need to normalize
       const distance = Math.sqrt(distanceSq);
-      if (distance < 0.01) continue;
+      if (distance > 0.01) {
+        const speedMultiplier = Math.max(0.5, 1 + (1 - distance / currentMagnetRange) * 0.5);
+        const speed = MAGNET_SPEED * speedMultiplier;
 
-      // Move toward player with increasing speed as they get closer
-      // Clamp to minimum 0.5 so distant gems (from magnet pickup) don't move away
-      const speedMultiplier = Math.max(0.5, 1 + (1 - distance / currentMagnetRange) * 0.5);
-      const speed = MAGNET_SPEED * speedMultiplier;
+        const normalizedDirectionX = directionX / distance;
+        const normalizedDirectionY = directionY / distance;
 
-      const normalizedDirectionX = directionX / distance;
-      const normalizedDirectionY = directionY / distance;
-
-      Transform.x[gemId] += normalizedDirectionX * speed * deltaTime;
-      Transform.y[gemId] += normalizedDirectionY * speed * deltaTime;
-
-      // Emit trail point for magnetized gems (visual streak toward player)
-      if (trailManager) {
-        const spinState = gemSpinStates.get(gemId);
-        const gemColor = spinState ? spinState.gemColor : 0x00ff88;
-        const trailSize = distance < 50 ? 3.0 : 2.0; // Brighten as gems converge
-        trailManager.addTrailPoint(gemId, Transform.x[gemId], Transform.y[gemId], gemColor, trailSize);
+        Transform.x[gemId] += normalizedDirectionX * speed * deltaTime;
+        Transform.y[gemId] += normalizedDirectionY * speed * deltaTime;
+        movedThisFrame = true;
       }
     }
 
-    // Update spin phase (rendering happens in batch below)
+    // Single Map lookup for all visual updates
     const spinState = gemSpinStates.get(gemId);
-    if (spinState) {
+    if (!spinState) continue;
+
+    // Ensure sprite is visible (may have been culled previously)
+    if (!spinState.image.visible) {
+      spinState.image.setVisible(true);
+    }
+
+    // Trail emission (throttled: staggered per-gem + budget cap)
+    if (movedThisFrame && trailManager && trailBudget > 0) {
+      if ((frameCounter + gemId) % TRAIL_FRAME_SKIP === 0) {
+        const distance = Math.sqrt(distanceSq);
+        const trailSize = distance < 50 ? 3.0 : 2.0;
+        trailManager.addTrailPoint(gemId, Transform.x[gemId], Transform.y[gemId], spinState.gemColor, trailSize);
+        trailBudget--;
+      }
+    }
+
+    // Position update: only for gems that moved
+    if (movedThisFrame) {
+      spinState.image.setPosition(Transform.x[gemId], Transform.y[gemId]);
+    }
+
+    // Spin animation update (quality-scaled)
+    if (!spinState.isSimplified && shouldUpdateSpin) {
       spinState.spinPhase += spinState.spinSpeed * deltaTime;
       if (spinState.spinPhase > PI_TWO) {
         spinState.spinPhase -= PI_TWO;
       }
+      const rotationFrame = Math.floor((spinState.spinPhase / PI_TWO) * GEM_ATLAS_FRAME_COUNT) % GEM_ATLAS_FRAME_COUNT;
+      spinState.image.setFrame(getCombinedGemFrame(spinState.tierIndex, rotationFrame));
     }
   }
 
   // Remove collected gems
-  for (const gemId of gemsToRemove) {
-    cleanupGem(gemId);
-    removeEntity(world, gemId);
+  for (let i = 0; i < removeCount; i++) {
+    cleanupGem(gemsToRemoveBuffer[i]);
+    removeEntity(world, gemsToRemoveBuffer[i]);
   }
 
-  // --- Batch render ALL gems into a single Graphics object ---
-  if (batchGraphics && batchGraphics.scene) {
-    batchGraphics.clear();
-    const remainingGems = xpGemQuery(world);
-    for (let i = 0; i < remainingGems.length; i++) {
-      const gemId = remainingGems[i];
-      const spinState = gemSpinStates.get(gemId);
-      if (!spinState) continue;
-
-      const worldX = Transform.x[gemId];
-      const worldY = Transform.y[gemId];
-
-      // Translate coordinate space and render gem
-      batchGraphics.save();
-      batchGraphics.translateCanvas(worldX, worldY);
-      redrawRotatingGem(
-        batchGraphics,
-        spinState.halfWidth,
-        spinState.halfHeight,
-        spinState.spinPhase,
-        spinState.gemColor,
-        spinState.outlineColor
-      );
-      batchGraphics.restore();
-    }
+  // Periodic batch merge (every 2 seconds)
+  mergeTimer += deltaTime;
+  if (mergeTimer >= MERGE_INTERVAL && currentGemCount > 50) {
+    mergeTimer = 0;
+    batchMergeNearbyGems(world);
   }
 
   return world;
 }
 
+// ============================================================================
+// Batch Merge
+// ============================================================================
+
 /**
- * Cleans up a gem's state. No per-gem GameObjects to destroy — rendering is batched.
+ * Iterates all non-magnetized gems and merges nearby pairs using the spatial index.
+ * Uses 3x3 neighbor search to handle cross-cell-boundary merging correctly.
+ */
+function batchMergeNearbyGems(world: IWorld): void {
+  const gems = xpGemQuery(world);
+  const mergedInto = new Set<number>(); // Gems that absorbed others (skip as merge targets)
+  let removeCount = 0;
+
+  for (let i = 0; i < gems.length; i++) {
+    const gemId = gems[i];
+    if (XPGem.magnetized[gemId] === 1) continue;
+    if (mergedInto.has(gemId)) continue;
+
+    // Use the spatial index 3x3 search to find a nearby merge partner
+    const gemX = Transform.x[gemId];
+    const gemY = Transform.y[gemId];
+    const nearbyId = findNearbyGemForMerge(gemX, gemY);
+
+    // findNearbyGemForMerge returns any nearby non-magnetized gem, which could be gemId itself
+    if (nearbyId === -1 || nearbyId === gemId) continue;
+    if (mergedInto.has(nearbyId)) continue;
+
+    // Merge gemId into nearbyId (absorb into the one already in the index)
+    XPGem.value[nearbyId] += XPGem.value[gemId];
+    const targetSpinState = gemSpinStates.get(nearbyId);
+    if (targetSpinState) {
+      updateGemVisual(nearbyId, targetSpinState);
+    }
+
+    mergedInto.add(nearbyId);
+    batchMergeRemoveBuffer[removeCount++] = gemId;
+  }
+
+  for (let i = 0; i < removeCount; i++) {
+    cleanupGem(batchMergeRemoveBuffer[i]);
+    removeEntity(world, batchMergeRemoveBuffer[i]);
+  }
+}
+
+// ============================================================================
+// Cleanup
+// ============================================================================
+
+/**
+ * Cleans up a gem's visual state. Returns the Image sprite to the pool for reuse.
  */
 function cleanupGem(gemId: number): void {
+  const spinState = gemSpinStates.get(gemId);
+  if (spinState) {
+    spinState.image.setVisible(false);
+    spinState.image.setActive(false);
+    gemImagePool.push(spinState.image);
+    spatialIndexRemove(gemId, spinState.cellKey);
+  }
   gemSpinStates.delete(gemId);
+  currentGemCount--;
 }
+
+// ============================================================================
+// Public Utilities
+// ============================================================================
 
 /**
  * Magnetizes all gems on screen (used for power-ups or level-up vacuum effect).
@@ -323,7 +597,6 @@ export function magnetizeAllGems(world: IWorld): void {
 /**
  * Instantly collects all XP gems on the field.
  * Awards the total XP value to the player and removes all gems.
- * Used by the magnet power-up for immediate collection.
  */
 export function collectAllGems(world: IWorld): number {
   const gems = xpGemQuery(world);
@@ -334,22 +607,18 @@ export function collectAllGems(world: IWorld): number {
     const gemValue = XPGem.value[gemId];
     totalXP += gemValue;
 
-    // Play collection effects for each gem
     if (effectsManager) {
       effectsManager.playXPSparkle(Transform.x[gemId], Transform.y[gemId]);
     }
 
-    // Clean up visual resources and remove entity
     cleanupGem(gemId);
     removeEntity(world, gemId);
   }
 
-  // Play pickup sound once for the whole collection
   if (soundManager && totalXP > 0) {
     soundManager.playPickupXP(totalXP);
   }
 
-  // Award all XP to the player
   if (onXPCollectCallback && totalXP > 0) {
     onXPCollectCallback(totalXP);
   }
@@ -357,16 +626,16 @@ export function collectAllGems(world: IWorld): number {
   return totalXP;
 }
 
-// World reference for Glutton gem consumption
+// ============================================================================
+// Glutton Miniboss Support
+// ============================================================================
+
 let worldReference: IWorld | null = null;
 
 export function setXPGemWorldReference(world: IWorld): void {
   worldReference = world;
 }
 
-/**
- * Gets all XP gem positions (for Glutton miniboss to seek).
- */
 export function getXPGemPositions(): { x: number; y: number; entityId: number }[] {
   if (!worldReference) return [];
 
@@ -385,10 +654,6 @@ export function getXPGemPositions(): { x: number; y: number; entityId: number }[
   return positions;
 }
 
-/**
- * Consume (destroy) an XP gem (for Glutton miniboss).
- * Does NOT trigger normal collection callback.
- */
 export function consumeXPGem(gemId: number): void {
   if (!worldReference) return;
 
@@ -396,18 +661,42 @@ export function consumeXPGem(gemId: number): void {
   removeEntity(worldReference, gemId);
 }
 
+// ============================================================================
+// Reset
+// ============================================================================
+
 /**
  * Resets all module-level state in XPGemSystem.
  * Must be called when starting a new game to clear state from previous runs.
  */
 export function resetXPGemSystem(): void {
   worldReference = null;
-  currentMagnetRange = 80; // Reset to default
+  sceneReference = null;
+  effectsManager = null;
+  soundManager = null;
+  currentMagnetRange = 80;
   onXPCollectCallback = null;
   trailManager = null;
-  gemSpinStates.clear();
-  if (batchGraphics) {
-    batchGraphics.destroy();
-    batchGraphics = null;
+  currentGemCount = 0;
+  frameCounter = 0;
+  mergeTimer = 0;
+  trailBudgetPerFrame = TRAIL_BUDGET_BY_QUALITY.high;
+  spinEveryFrame = true;
+  mergeRadius = MERGE_RADIUS_BY_QUALITY.high;
+  mergeRadiusSq = mergeRadius * mergeRadius;
+
+  // Destroy all active gem sprites
+  for (const spinState of gemSpinStates.values()) {
+    spinState.image.destroy();
   }
+  gemSpinStates.clear();
+
+  // Destroy pooled sprites
+  for (const pooledImage of gemImagePool) {
+    pooledImage.destroy();
+  }
+  gemImagePool.length = 0;
+
+  // Clear spatial index
+  gemSpatialIndex.clear();
 }

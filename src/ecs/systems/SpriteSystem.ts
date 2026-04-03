@@ -14,20 +14,43 @@ type SpriteGameObject =
 // Global sprite registry: maps entity ID to Phaser game object
 const spriteRegistry = new Map<number, SpriteGameObject>();
 
+// Viewport culling margin — entities within this distance of screen edge stay visible
+const CULL_MARGIN = 50;
+
 /**
  * SpriteSystem syncs ECS entity positions to Phaser sprite positions.
  * This is the bridge between our ECS data and Phaser's rendering.
+ *
+ * Performs viewport culling: entities outside the visible screen (plus margin)
+ * are set invisible so the WebGL renderer skips them entirely.
  */
-export function spriteSystem(world: IWorld): IWorld {
+export function spriteSystem(world: IWorld, screenWidth: number, screenHeight: number): IWorld {
   const entities = spriteQuery(world);
+
+  const minX = -CULL_MARGIN;
+  const minY = -CULL_MARGIN;
+  const maxX = screenWidth + CULL_MARGIN;
+  const maxY = screenHeight + CULL_MARGIN;
 
   for (let i = 0; i < entities.length; i++) {
     const entityId = entities[i];
     const sprite = spriteRegistry.get(entityId);
 
     if (sprite) {
-      sprite.setPosition(Transform.x[entityId], Transform.y[entityId]);
+      const entityX = Transform.x[entityId];
+      const entityY = Transform.y[entityId];
+
+      // Always sync position so sprite.x/y stays current (other systems may read it)
+      sprite.setPosition(entityX, entityY);
       sprite.setRotation(Transform.rotation[entityId]);
+
+      // Toggle visibility — WebGL renderer skips invisible objects entirely
+      const onScreen = entityX >= minX && entityX <= maxX && entityY >= minY && entityY <= maxY;
+      if (onScreen) {
+        if (!sprite.visible) sprite.setVisible(true);
+      } else {
+        if (sprite.visible) sprite.setVisible(false);
+      }
     }
   }
 

@@ -2,14 +2,13 @@ import Phaser from 'phaser';
 import { VisualQuality } from './GlowGraphics';
 import { getSettingsManager } from '../settings';
 
-interface TrailPoint {
+interface NewTrailSegment {
   x: number;
   y: number;
-  age: number;
+  prevX: number;
+  prevY: number;
   color: number;
   size: number;
-  active: boolean;
-  entityId: number;
 }
 
 interface TrackedEntity {
@@ -17,23 +16,29 @@ interface TrackedEntity {
   lastY: number;
 }
 
+// Background color for fade — matches GameConfig backgroundColor
+const FADE_BG_COLOR = 0x000008;
+
 /**
  * TrailManager creates glowing motion trails behind moving entities.
- * Uses a single Graphics object and pooled trail points for performance.
+ *
+ * GPU optimization: Uses a persistent RenderTexture that accumulates trail segments.
+ * Each frame only NEW segments are drawn (not all active ones), and a background-color
+ * fill fades existing content. This reduces per-frame draw calls from hundreds to ~5-10.
  */
 export class TrailManager {
-  private graphics: Phaser.GameObjects.Graphics;
+  private renderTexture: Phaser.GameObjects.RenderTexture;
+  private tempGraphics: Phaser.GameObjects.Graphics;
 
-  // Trail point pool
-  private readonly MAX_TRAIL_POINTS = 500;
-  private trailPool: TrailPoint[] = [];
-  private nextPoolIndex: number = 0;
+  // New segments queued this frame for drawing
+  private newSegments: NewTrailSegment[] = [];
+  private readonly MAX_NEW_SEGMENTS = 50;
 
   // Trail configuration
-  private readonly TRAIL_LIFETIME = 0.25;  // Seconds
   private readonly MIN_MOVE_DISTANCE = 5;  // Min distance to add new trail point
+  private readonly FADE_ALPHA = 0.12;      // Per-frame fade intensity (higher = faster fade)
 
-  // Track entity last positions to detect movement
+  // Track entity last positions to detect movement and connect segments
   private trackedEntities: Map<number, TrackedEntity> = new Map();
 
   // Quality settings
@@ -41,20 +46,23 @@ export class TrailManager {
   private maxTrailsPerFrame: number = 50;
 
   constructor(scene: Phaser.Scene) {
-    this.graphics = scene.add.graphics();
-    this.graphics.setDepth(1);  // Just above grid, below entities
+    const screenWidth = scene.scale.width;
+    const screenHeight = scene.scale.height;
 
-    // Pre-allocate trail point pool
-    for (let i = 0; i < this.MAX_TRAIL_POINTS; i++) {
-      this.trailPool.push({
-        x: 0,
-        y: 0,
-        age: this.TRAIL_LIFETIME,  // Start expired
-        color: 0xffffff,
-        size: 5,
-        active: false,
-        entityId: -1,
-      });
+    this.renderTexture = scene.add.renderTexture(0, 0, screenWidth, screenHeight);
+    this.renderTexture.setOrigin(0, 0);
+    this.renderTexture.setDepth(1);  // Just above grid, below entities
+    // ADD blend: accumulated near-black fill is invisible (adds ~0), bright trail
+    // segments add visible light. Prevents the RT from ever blocking the background.
+    this.renderTexture.setBlendMode(Phaser.BlendModes.ADD);
+
+    // Offscreen temp graphics for drawing new segments
+    this.tempGraphics = scene.add.graphics();
+    this.tempGraphics.setVisible(false);
+
+    // Pre-allocate segment buffer
+    for (let i = 0; i < this.MAX_NEW_SEGMENTS; i++) {
+      this.newSegments.push({ x: 0, y: 0, prevX: 0, prevY: 0, color: 0, size: 0 });
     }
   }
 
@@ -73,20 +81,24 @@ export class TrailManager {
         break;
       case 'low':
         this.enabled = false;  // Disable trails in low quality
+        this.newSegmentCount = 0;  // Discard queued segments
         break;
     }
   }
 
+  // Counter for queued segments this frame
+  private newSegmentCount: number = 0;
+
   /**
    * Add a trail point for an entity if it has moved enough.
-   * Call this each frame for entities that should leave trails.
+   * Queues a new segment connecting this position to the entity's last known position.
    *
    * @param entityId - Unique identifier for the entity
    * @param x - Current X position
    * @param y - Current Y position
    * @param color - Trail color
    * @param size - Trail point size
-   * @returns true if a trail point was added
+   * @returns true if a trail segment was queued
    */
   addTrailPoint(
     entityId: number,
@@ -95,7 +107,9 @@ export class TrailManager {
     color: number,
     size: number
   ): boolean {
-    if (!this.enabled || getSettingsManager().isReducedMotionEnabled()) return false;
+    // Early exit: skip Map lookup and distance check when budget is exhausted
+    if (!this.enabled || this.newSegmentCount >= this.maxTrailsPerFrame) return false;
+    if (getSettingsManager().isReducedMotionEnabled()) return false;
 
     // Check if entity has moved enough since last trail point
     const tracked = this.trackedEntities.get(entityId);
@@ -108,198 +122,135 @@ export class TrailManager {
         return false;  // Not moved enough
       }
 
+      // Queue a segment from previous position to current
+      if (this.newSegmentCount < this.maxTrailsPerFrame) {
+        // Grow buffer if needed
+        if (this.newSegmentCount >= this.newSegments.length) {
+          this.newSegments.push({ x: 0, y: 0, prevX: 0, prevY: 0, color: 0, size: 0 });
+        }
+        const segment = this.newSegments[this.newSegmentCount++];
+        segment.x = x;
+        segment.y = y;
+        segment.prevX = tracked.lastX;
+        segment.prevY = tracked.lastY;
+        segment.color = color;
+        segment.size = size;
+      }
+
       tracked.lastX = x;
       tracked.lastY = y;
     } else {
-      // First time seeing this entity
+      // First time seeing this entity — record position, no segment yet
       this.trackedEntities.set(entityId, { lastX: x, lastY: y });
-      return false;  // Don't add trail on first frame
+      return false;
     }
-
-    // Get a trail point from the pool (cycling through)
-    const point = this.trailPool[this.nextPoolIndex];
-    this.nextPoolIndex = (this.nextPoolIndex + 1) % this.MAX_TRAIL_POINTS;
-
-    // Configure the trail point
-    point.x = x;
-    point.y = y;
-    point.age = 0;
-    point.color = color;
-    point.size = size;
-    point.active = true;
-    point.entityId = entityId;
 
     return true;
   }
 
   /**
    * Remove tracking for an entity (call when entity is destroyed).
-   * Trail points remain active and fade out naturally.
+   * Existing trail content on the RenderTexture fades out naturally.
    */
   removeEntity(entityId: number): void {
     this.trackedEntities.delete(entityId);
   }
 
-  // Reusable map for grouping trail points by entity each frame (avoids allocation)
-  private entityTrailGroups: Map<number, TrailPoint[]> = new Map();
-  // Reusable arrays for entity grouping to avoid per-frame allocation
-  private groupArrayPool: TrailPoint[][] = [];
-  private groupArrayPoolIndex: number = 0;
-
-  private getGroupArray(): TrailPoint[] {
-    if (this.groupArrayPoolIndex < this.groupArrayPool.length) {
-      const arr = this.groupArrayPool[this.groupArrayPoolIndex++];
-      arr.length = 0;
-      return arr;
-    }
-    const arr: TrailPoint[] = [];
-    this.groupArrayPool.push(arr);
-    this.groupArrayPoolIndex++;
-    return arr;
-  }
-
   /**
-   * Update and render all active trail points as connected ribbon geometry.
-   * @param deltaSeconds - Time since last frame in seconds
+   * Update: fade existing trail content, then stamp new segments onto the RenderTexture.
+   * Only newly-queued segments are drawn each frame (not all active trails).
    */
-  update(deltaSeconds: number): void {
-    // OPTIMIZATION: Early exit before clear() when disabled
+  update(_deltaSeconds: number): void {
     if (!this.enabled) return;
 
-    this.graphics.clear();
+    // Fade existing content toward background color
+    this.renderTexture.fill(FADE_BG_COLOR, this.FADE_ALPHA);
 
-    // Age all points and group active ones by entityId
-    this.entityTrailGroups.clear();
-    this.groupArrayPoolIndex = 0;
-    let activePointCount = 0;
+    // Draw new segments if any were queued this frame
+    if (this.newSegmentCount > 0) {
+      this.tempGraphics.clear();
 
-    for (const point of this.trailPool) {
-      if (!point.active) continue;
+      for (let i = 0; i < this.newSegmentCount; i++) {
+        const segment = this.newSegments[i];
 
-      // Age the point
-      point.age += deltaSeconds;
+        const segmentDx = segment.x - segment.prevX;
+        const segmentDy = segment.y - segment.prevY;
+        const segmentLength = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
+        if (segmentLength < 0.001) continue;
 
-      if (point.age >= this.TRAIL_LIFETIME) {
-        point.active = false;
-        continue;
+        // Perpendicular normal
+        const normalX = -segmentDy / segmentLength;
+        const normalY = segmentDx / segmentLength;
+
+        const halfWidth = segment.size;
+
+        // Ribbon quad corners
+        const prevLeftX = segment.prevX + normalX * halfWidth * 0.3;
+        const prevLeftY = segment.prevY + normalY * halfWidth * 0.3;
+        const prevRightX = segment.prevX - normalX * halfWidth * 0.3;
+        const prevRightY = segment.prevY - normalY * halfWidth * 0.3;
+
+        const currLeftX = segment.x + normalX * halfWidth;
+        const currLeftY = segment.y + normalY * halfWidth;
+        const currRightX = segment.x - normalX * halfWidth;
+        const currRightY = segment.y - normalY * halfWidth;
+
+        // Glow pass (wider, dimmer)
+        this.tempGraphics.fillStyle(segment.color, 0.25);
+        this.tempGraphics.fillTriangle(
+          segment.prevX + normalX * halfWidth * 0.5, segment.prevY + normalY * halfWidth * 0.5,
+          segment.prevX - normalX * halfWidth * 0.5, segment.prevY - normalY * halfWidth * 0.5,
+          segment.x + normalX * halfWidth * 1.5, segment.y + normalY * halfWidth * 1.5
+        );
+        this.tempGraphics.fillTriangle(
+          segment.prevX - normalX * halfWidth * 0.5, segment.prevY - normalY * halfWidth * 0.5,
+          segment.x - normalX * halfWidth * 1.5, segment.y - normalY * halfWidth * 1.5,
+          segment.x + normalX * halfWidth * 1.5, segment.y + normalY * halfWidth * 1.5
+        );
+
+        // Core pass (narrow, bright)
+        this.tempGraphics.fillStyle(segment.color, 0.6);
+        this.tempGraphics.fillTriangle(
+          prevLeftX, prevLeftY,
+          prevRightX, prevRightY,
+          currLeftX, currLeftY
+        );
+        this.tempGraphics.fillTriangle(
+          prevRightX, prevRightY,
+          currRightX, currRightY,
+          currLeftX, currLeftY
+        );
       }
 
-      activePointCount++;
-      if (activePointCount > this.maxTrailsPerFrame) continue;
-
-      let group = this.entityTrailGroups.get(point.entityId);
-      if (!group) {
-        group = this.getGroupArray();
-        this.entityTrailGroups.set(point.entityId, group);
-      }
-      group.push(point);
-    }
-
-    // Render each entity's trail as a ribbon
-    for (const [, trailPoints] of this.entityTrailGroups) {
-      // Sort by age descending so oldest points come first (tail) and newest last (head)
-      trailPoints.sort((a, b) => b.age - a.age);
-
-      if (trailPoints.length < 2) {
-        // Single point: fall back to a simple circle
-        const singlePoint = trailPoints[0];
-        const lifeProgress = singlePoint.age / this.TRAIL_LIFETIME;
-        const singleAlpha = (1 - lifeProgress) * 0.6;
-        const singleShrink = 0.3 + (1 - lifeProgress) * 0.7;
-        const singleRadius = singlePoint.size * singleShrink;
-        this.graphics.fillStyle(singlePoint.color, singleAlpha * 0.5);
-        this.graphics.fillCircle(singlePoint.x, singlePoint.y, singleRadius * 1.5);
-        this.graphics.fillStyle(singlePoint.color, singleAlpha);
-        this.graphics.fillCircle(singlePoint.x, singlePoint.y, singleRadius);
-        continue;
-      }
-
-      // Precompute perpendicular normals and widths/alphas for each point
-      const pointCount = trailPoints.length;
-
-      // Two-pass ribbon rendering: outer glow pass, then core pass
-      for (let pass = 0; pass < 2; pass++) {
-        const isGlowPass = pass === 0;
-        const widthScale = isGlowPass ? 1.5 : 1.0;
-        const alphaScale = isGlowPass ? 0.5 : 1.0;
-
-        for (let i = 0; i < pointCount - 1; i++) {
-          const currentPoint = trailPoints[i];
-          const nextPoint = trailPoints[i + 1];
-
-          // Direction vector from current to next
-          const segmentDx = nextPoint.x - currentPoint.x;
-          const segmentDy = nextPoint.y - currentPoint.y;
-          const segmentLength = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
-
-          if (segmentLength < 0.001) continue; // Skip zero-length segments
-
-          // Perpendicular normal (rotated 90 degrees)
-          const normalX = -segmentDy / segmentLength;
-          const normalY = segmentDx / segmentLength;
-
-          // Current point properties (older = thinner, more transparent)
-          const currentLifeProgress = currentPoint.age / this.TRAIL_LIFETIME;
-          const currentAlpha = (1 - currentLifeProgress) * 0.6 * alphaScale;
-          const currentShrink = 0.3 + (1 - currentLifeProgress) * 0.7;
-          const currentHalfWidth = currentPoint.size * currentShrink * widthScale;
-
-          // Next point properties (newer = wider, more opaque)
-          const nextLifeProgress = nextPoint.age / this.TRAIL_LIFETIME;
-          const nextAlpha = (1 - nextLifeProgress) * 0.6 * alphaScale;
-          const nextShrink = 0.3 + (1 - nextLifeProgress) * 0.7;
-          const nextHalfWidth = nextPoint.size * nextShrink * widthScale;
-
-          // Four corners of the ribbon quad
-          const currentLeftX = currentPoint.x + normalX * currentHalfWidth;
-          const currentLeftY = currentPoint.y + normalY * currentHalfWidth;
-          const currentRightX = currentPoint.x - normalX * currentHalfWidth;
-          const currentRightY = currentPoint.y - normalY * currentHalfWidth;
-
-          const nextLeftX = nextPoint.x + normalX * nextHalfWidth;
-          const nextLeftY = nextPoint.y + normalY * nextHalfWidth;
-          const nextRightX = nextPoint.x - normalX * nextHalfWidth;
-          const nextRightY = nextPoint.y - normalY * nextHalfWidth;
-
-          // Average alpha for this quad segment
-          const quadAlpha = (currentAlpha + nextAlpha) * 0.5;
-
-          // Draw quad as two triangles
-          this.graphics.fillStyle(currentPoint.color, quadAlpha);
-
-          // Triangle 1: currentLeft, currentRight, nextLeft
-          this.graphics.fillTriangle(
-            currentLeftX, currentLeftY,
-            currentRightX, currentRightY,
-            nextLeftX, nextLeftY
-          );
-
-          // Triangle 2: currentRight, nextRight, nextLeft
-          this.graphics.fillTriangle(
-            currentRightX, currentRightY,
-            nextRightX, nextRightY,
-            nextLeftX, nextLeftY
-          );
-        }
-      }
+      // Stamp new segments onto the persistent RenderTexture
+      this.renderTexture.draw(this.tempGraphics);
+      this.newSegmentCount = 0;
     }
   }
 
   /**
-   * Clear all trail points and tracking data.
+   * Resize the RenderTexture to match new screen dimensions.
+   * Call from GameScene.handleResize().
+   */
+  resize(screenWidth: number, screenHeight: number): void {
+    this.renderTexture.resize(screenWidth, screenHeight);
+  }
+
+  /**
+   * Clear all trail content and tracking data.
    */
   clear(): void {
-    for (const point of this.trailPool) {
-      point.active = false;
-    }
+    this.renderTexture.clear();
     this.trackedEntities.clear();
+    this.newSegmentCount = 0;
   }
 
   /**
    * Clean up resources.
    */
   destroy(): void {
-    this.graphics.destroy();
+    this.renderTexture.destroy();
+    this.tempGraphics.destroy();
     this.trackedEntities.clear();
   }
 }

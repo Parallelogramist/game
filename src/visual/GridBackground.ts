@@ -87,6 +87,15 @@ export class GridBackground {
   private chromaticDrawX: number[] = [];
   private chromaticDrawY: number[] = [];
 
+  // Scratch fields for gravity displacement (avoids per-call object allocation)
+  private gravResultDx: number = 0;
+  private gravResultDy: number = 0;
+  private gravResultWarp: number = 0;
+
+  // Pre-filtered gravity point indices for the current line (avoids checking all points per grid node)
+  private filteredGravityIndices: number[] = [];
+  private filteredGravityCount: number = 0;
+
   // Enabled flag (settings toggle)
   private enabled = true;
 
@@ -353,23 +362,22 @@ export class GridBackground {
    */
   setGravityPoints(
     playerPos: { x: number; y: number } | null,
-    entityData: { x: number; y: number; weight: number }[]
+    entityData: { x: number; y: number; weight: number }[],
+    entityCount?: number
   ): void {
     this.gravityPoints.length = 0;
 
     if (playerPos) {
       this.gravityPoints.push({ x: playerPos.x, y: playerPos.y, weight: 1.5 });
-      // Player is always within the grid, so mark dirty
       this.dirty = true;
     }
 
-    for (let i = 0; i < entityData.length; i++) {
+    const count = entityCount ?? entityData.length;
+    for (let i = 0; i < count; i++) {
       this.gravityPoints.push(entityData[i]);
     }
 
-    // Mark dirty if any entity data was provided (entities are pre-filtered
-    // to warp range by the caller via SpatialHash)
-    if (entityData.length > 0) {
+    if (count > 0) {
       this.dirty = true;
     }
   }
@@ -378,41 +386,77 @@ export class GridBackground {
    * Compute gravity-well displacement for a given world position.
    * Uses smoothstep falloff — returns the (dx, dy) offset and warp intensity.
    */
-  private computeGravityDisplacement(worldX: number, worldY: number): { dx: number; dy: number; warpAmount: number } {
+  /**
+   * Pre-filter gravity points for a given line coordinate.
+   * Only keeps points within WARP_RADIUS of the fixed axis value.
+   * Call once per line before iterating points.
+   */
+  private preFilterGravityPoints(fixedAxisValue: number, isHorizontal: boolean): void {
+    this.filteredGravityCount = 0;
+    const warpRadiusSq = this.WARP_RADIUS * this.WARP_RADIUS;
+    for (let i = 0; i < this.gravityPoints.length; i++) {
+      const axisDistance = isHorizontal
+        ? this.gravityPoints[i].y - fixedAxisValue
+        : this.gravityPoints[i].x - fixedAxisValue;
+      // If the gravity point is too far on the fixed axis, it can't affect any point on this line
+      if (axisDistance * axisDistance < warpRadiusSq) {
+        if (this.filteredGravityCount >= this.filteredGravityIndices.length) {
+          this.filteredGravityIndices.push(i);
+        } else {
+          this.filteredGravityIndices[this.filteredGravityCount] = i;
+        }
+        this.filteredGravityCount++;
+      }
+    }
+  }
+
+  /**
+   * Compute gravity-well displacement for a given world position.
+   * Uses smoothstep falloff. Writes results to scratch fields gravResultDx/Dy/Warp.
+   * Uses pre-filtered gravity indices (call preFilterGravityPoints first).
+   */
+  private computeGravityDisplacement(worldX: number, worldY: number): void {
     let totalDx = 0;
     let totalDy = 0;
     let totalWarpAmount = 0;
+    const warpRadius = this.WARP_RADIUS;
+    const warpRadiusSq = warpRadius * warpRadius;
+    const maxWarp = this.MAX_WARP;
 
-    for (let i = 0; i < this.gravityPoints.length; i++) {
-      const gp = this.gravityPoints[i];
+    for (let f = 0; f < this.filteredGravityCount; f++) {
+      const gp = this.gravityPoints[this.filteredGravityIndices[f]];
       const dx = worldX - gp.x;
       const dy = worldY - gp.y;
       const distSq = dx * dx + dy * dy;
+
+      // Early exit: skip if outside warp radius (squared comparison avoids sqrt)
+      if (distSq >= warpRadiusSq || distSq < 0.0001) continue;
+
       const dist = Math.sqrt(distSq);
+      const normalizedDist = dist / warpRadius;
+      // Smoothstep falloff: t²(3 - 2t) where t = 1 - normalizedDist
+      const edge = 1 - normalizedDist;
+      const falloff = edge * edge * (3 - 2 * edge);
 
-      if (dist < this.WARP_RADIUS && dist > 0.01) {
-        const normalizedDist = dist / this.WARP_RADIUS;
-        // Smoothstep falloff: t²(3 - 2t) where t = 1 - normalizedDist
-        const edge = 1 - normalizedDist;
-        const falloff = edge * edge * (3 - 2 * edge);
-
-        const warpStrength = falloff * gp.weight * 0.5;
-        const warpAmount = warpStrength * this.MAX_WARP;
-        totalDx -= (dx / dist) * warpAmount;
-        totalDy -= (dy / dist) * warpAmount;
-        totalWarpAmount += warpStrength;
-      }
+      const warpStrength = falloff * gp.weight * 0.5;
+      const warpAmount = warpStrength * maxWarp;
+      const invDist = 1 / dist;
+      totalDx -= dx * invDist * warpAmount;
+      totalDy -= dy * invDist * warpAmount;
+      totalWarpAmount += warpStrength;
     }
 
     // Hard cap on total displacement
-    const totalDisplacement = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
-    if (totalDisplacement > this.MAX_TOTAL_WARP) {
-      const scale = this.MAX_TOTAL_WARP / totalDisplacement;
+    const totalDispSq = totalDx * totalDx + totalDy * totalDy;
+    if (totalDispSq > this.MAX_TOTAL_WARP * this.MAX_TOTAL_WARP) {
+      const scale = this.MAX_TOTAL_WARP / Math.sqrt(totalDispSq);
       totalDx *= scale;
       totalDy *= scale;
     }
 
-    return { dx: totalDx, dy: totalDy, warpAmount: totalWarpAmount / (1 + totalWarpAmount) };
+    this.gravResultDx = totalDx;
+    this.gravResultDy = totalDy;
+    this.gravResultWarp = totalWarpAmount / (1 + totalWarpAmount);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -625,6 +669,12 @@ export class GridBackground {
     this.lineDispY.length = lineLength;
     this.lineDisplacement.length = lineLength;
 
+    // Pre-filter gravity points for this line's fixed axis coordinate
+    // For horizontal line at row Y, filter by Y; for vertical line at col X, filter by X
+    const firstIndex = isHorizontal ? lineIndex * this.numCols : lineIndex;
+    const fixedAxisValue = isHorizontal ? this.restY[firstIndex] : this.restX[firstIndex];
+    this.preFilterGravityPoints(fixedAxisValue, isHorizontal);
+
     for (let pointIdx = 0; pointIdx < lineLength; pointIdx++) {
       const index = isHorizontal
         ? lineIndex * this.numCols + pointIdx
@@ -634,10 +684,10 @@ export class GridBackground {
       let renderX = this.posX[index];
       let renderY = this.posY[index];
 
-      // Layer on gravity-well displacement
-      const gravityWarp = this.computeGravityDisplacement(this.restX[index], this.restY[index]);
-      renderX += gravityWarp.dx;
-      renderY += gravityWarp.dy;
+      // Layer on gravity-well displacement (writes to scratch fields)
+      this.computeGravityDisplacement(this.restX[index], this.restY[index]);
+      renderX += this.gravResultDx;
+      renderY += this.gravResultDy;
 
       // Perspective projection using Z
       if (usePerspective && this.posZ[index] !== 0) {
@@ -655,7 +705,7 @@ export class GridBackground {
       this.lineScreenY[pointIdx] = renderY;
       this.lineDispX[pointIdx] = dispX;
       this.lineDispY[pointIdx] = dispY;
-      this.lineDisplacement[pointIdx] = displacement + gravityWarp.warpAmount * 10;
+      this.lineDisplacement[pointIdx] = displacement + this.gravResultWarp * 10;
     }
   }
 

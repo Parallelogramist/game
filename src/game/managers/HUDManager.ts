@@ -135,7 +135,6 @@ export class HUDManager {
   // Combo feedback state
   private previousComboCount: number = 0;
   private previousComboTier: string = 'none';
-  private comboEdgeGlow: Phaser.GameObjects.Graphics | null = null;
   private comboBuffText: Phaser.GameObjects.Text | null = null;
 
   // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
@@ -435,12 +434,6 @@ export class HUDManager {
       }
     ).setOrigin(1, 0).setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
 
-    // Screen-edge glow for combo feedback (below HUD, above gameplay)
-    this.comboEdgeGlow = this.scene.add.graphics();
-    this.comboEdgeGlow.setDepth(HUD_DEPTH - 2);
-    this.comboEdgeGlow.setScrollFactor(0);
-    this.comboEdgeGlow.setAlpha(0);
-
     const pauseButtonBg = this.scene.add.rectangle(
       pauseButtonX,
       pauseButtonY,
@@ -629,21 +622,6 @@ export class HUDManager {
           comboProgressBar.setAlpha(comboAlpha);
         }
 
-        // Screen-edge glow (redraw only on tier change, modulate alpha per frame)
-        // Override glow to pulsing orange during 50-kill damage buff
-        if (this.comboEdgeGlow) {
-          if (state.comboBuffActive) {
-            this.drawComboEdgeGlow(0xff8844);
-            const pulseAlpha = 0.3 + 0.2 * Math.sin(Date.now() * 0.004);
-            this.comboEdgeGlow.setAlpha(pulseAlpha);
-          } else {
-            if (state.comboTier !== this.previousComboTier) {
-              this.drawComboEdgeGlow(tierHexColors[state.comboTier] || 0xffffff);
-            }
-            const edgeGlowAlpha = state.comboTier === 'none' ? 0 : comboAlpha * 0.6;
-            this.comboEdgeGlow.setAlpha(edgeGlowAlpha);
-          }
-        }
 
         // Combo buff timer text
         if (this.comboBuffText) {
@@ -660,9 +638,6 @@ export class HUDManager {
         if (comboProgressBar) {
           comboProgressBar.clear();
           comboProgressBar.setAlpha(0);
-        }
-        if (this.comboEdgeGlow) {
-          this.comboEdgeGlow.setAlpha(0);
         }
         if (this.comboBuffText) {
           this.comboBuffText.setAlpha(0);
@@ -1358,8 +1333,6 @@ export class HUDManager {
       }
     }
 
-    // Invalidate combo edge glow so it redraws at the new screen size
-    this.previousComboTier = '__invalidated__';
   }
 
   /**
@@ -1434,41 +1407,8 @@ export class HUDManager {
   /**
    * Destroys all HUD game objects and cleans up resources.
    */
-  /**
-   * Draws the screen-edge glow overlay for combo feedback.
-   * Only redrawn when combo tier changes (not every frame).
-   */
-  private drawComboEdgeGlow(color: number): void {
-    if (!this.comboEdgeGlow) return;
-    this.comboEdgeGlow.clear();
-
-    const screenWidth = this.scene.scale.width;
-    const screenHeight = this.scene.scale.height;
-    const edgeThickness = 40;
-
-    // Draw gradient-like edge glow using multiple rectangles with decreasing alpha
-    const layerCount = 4;
-    for (let layerIndex = 0; layerIndex < layerCount; layerIndex++) {
-      const layerAlpha = 0.15 * (1 - layerIndex / layerCount);
-      const layerThickness = edgeThickness * (1 - layerIndex / layerCount);
-      this.comboEdgeGlow.fillStyle(color, layerAlpha);
-      // Top edge
-      this.comboEdgeGlow.fillRect(0, 0, screenWidth, layerThickness);
-      // Bottom edge
-      this.comboEdgeGlow.fillRect(0, screenHeight - layerThickness, screenWidth, layerThickness);
-      // Left edge
-      this.comboEdgeGlow.fillRect(0, 0, layerThickness, screenHeight);
-      // Right edge
-      this.comboEdgeGlow.fillRect(screenWidth - layerThickness, 0, layerThickness, screenHeight);
-    }
-  }
 
   destroy(): void {
-    // Destroy combo edge glow and buff text
-    if (this.comboEdgeGlow) {
-      this.comboEdgeGlow.destroy();
-      this.comboEdgeGlow = null;
-    }
     if (this.comboBuffText) {
       this.comboBuffText.destroy();
       this.comboBuffText = null;

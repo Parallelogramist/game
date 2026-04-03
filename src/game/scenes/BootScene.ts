@@ -97,51 +97,18 @@ export class BootScene extends Phaser.Scene {
     this.input.once('pointerdown', startMenuMusic);
     this.input.keyboard?.once('keydown', startMenuMusic);
 
-    // Title
-    this.add
-      .text(centerX, centerY - scaledInt(layoutScale, 140), 'PEW PEW SURVIVOR', {
-        fontSize: scaledFontPx(fontScale, 64),
-        color: '#ffdd44',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
+    // ═══════════════════════════════════════════════════════════════
+    //  DATA
+    // ═══════════════════════════════════════════════════════════════
 
-    // World level indicator (below title)
     const metaManager = getMetaProgressionManager();
     const ascensionLevel = getAscensionManager().getLevel();
-    const worldText = ascensionLevel > 0
-      ? `Ascension ${ascensionLevel}  ·  World ${metaManager.getWorldLevel()}`
-      : `World ${metaManager.getWorldLevel()}`;
-    this.add
-      .text(centerX, centerY - scaledInt(layoutScale, 60), worldText, {
-        fontSize: scaledFontPx(fontScale, 28),
-        color: '#88aaff',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
-
-    // Streak indicator (below world level, if player has a streak)
-    const currentStreak = metaManager.getCurrentStreak();
-    if (currentStreak > 0) {
-      const streakBonus = metaManager.getStreakBonusPercent();
-      const fireEmoji = currentStreak >= 5 ? '🔥🔥' : '🔥';
-      this.add
-        .text(centerX, centerY - scaledInt(layoutScale, 28), `${fireEmoji} Streak: ${currentStreak} (+${streakBonus}% gold)`, {
-          fontSize: scaledFontPx(fontScale, 18),
-          color: '#ffaa44',
-          fontFamily: 'Arial',
-        })
-        .setOrigin(0.5);
-    }
-
-    // Check for saved game
     const gameStateManager = getGameStateManager();
     const hasSave = gameStateManager.hasSave();
     const saveInfo = gameStateManager.getSaveInfo();
+    const currentStreak = metaManager.getCurrentStreak();
 
-    // Define menu actions
+    // ─── Actions ───
     const continueGame = async () => {
       try {
         if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
@@ -182,121 +149,230 @@ export class BootScene extends Phaser.Scene {
     const openSettings = () => fadeOut(this, 150, () => this.scene.start('SettingsScene', { returnTo: 'BootScene' }));
     const openCredits = () => fadeOut(this, 150, () => this.scene.start('CreditsScene'));
 
-    // Build menu with visual grouping
-    const menuConfig: { label: string; y: number; fontSize: string; action: () => void; color?: string }[] = [];
-    let yOffset = centerY + scaledInt(layoutScale, 10);
+    // ═══════════════════════════════════════════════════════════════
+    //  LAYOUT — build menu items by group, then vertically center
+    // ═══════════════════════════════════════════════════════════════
 
-    // ─── Primary: Play actions ───
+    // Spacing constants (all scaled)
+    const itemGap = scaledInt(layoutScale, 34);         // between items within a group
+    const groupGap = scaledInt(layoutScale, 20);        // between group containers
+    const containerPadY = scaledInt(layoutScale, 16);   // vertical padding inside containers
+    const containerWidth = scaledInt(layoutScale, 260);  // container width
+    const subtitleOffset = scaledInt(layoutScale, 15);  // gap from item to its subtitle
+
+    // Define menu structure as groups of items
+    interface MenuItem {
+      label: string;
+      action: () => void;
+      fontSize: number;       // unscaled px
+      color: string;          // default color
+      subtitle?: string;      // small text below
+      subtitleColor?: string;
+    }
+    interface MenuGroup { items: MenuItem[]; accentColor: number }
+
+    const playGroup: MenuGroup = { items: [], accentColor: 0x4488ff };
     if (hasSave) {
-      menuConfig.push({
-        label: 'CONTINUE',
-        y: yOffset,
-        fontSize: scaledFontPx(fontScale, 26),
-        action: continueGame,
-        color: '#cccccc',
-      });
-      // Save info subtitle
       const worldStr = saveInfo.worldLevel ? `W${saveInfo.worldLevel}` : 'W1';
       const timeStr = saveInfo.gameTime ? this.formatTime(saveInfo.gameTime) : '0:00';
       const levelStr = saveInfo.level ? `Lv ${saveInfo.level}` : 'Lv 1';
-      this.add
-        .text(centerX, yOffset + scaledInt(layoutScale, 18), `${worldStr}  ·  ${levelStr}  ·  ${timeStr}`, {
-          fontSize: scaledFontPx(fontScale, 12),
-          color: '#555555',
-          fontFamily: 'Arial',
-        })
-        .setOrigin(0.5);
-      yOffset += scaledInt(layoutScale, 48);
-
-      menuConfig.push({
+      playGroup.items.push({
+        label: 'CONTINUE',
+        action: continueGame,
+        fontSize: 24,
+        color: '#dddddd',
+        subtitle: `${worldStr}  ·  ${levelStr}  ·  ${timeStr}`,
+        subtitleColor: '#556677',
+      });
+      playGroup.items.push({
         label: 'NEW GAME',
-        y: yOffset,
-        fontSize: scaledFontPx(fontScale, 18),
         action: startGameWithConfirmation,
+        fontSize: 17,
+        color: '#888899',
       });
-      yOffset += scaledInt(layoutScale, 38);
     } else {
-      menuConfig.push({
+      playGroup.items.push({
         label: 'START',
-        y: yOffset,
-        fontSize: scaledFontPx(fontScale, 26),
         action: startGameWithConfirmation,
-        color: '#cccccc',
+        fontSize: 24,
+        color: '#dddddd',
       });
-      yOffset += scaledInt(layoutScale, 48);
     }
 
-    // ─── Divider ───
-    const dividerY = yOffset;
-    const dividerGraphics = this.add.graphics();
-    dividerGraphics.lineStyle(1, 0x333355, 0.5);
-    dividerGraphics.lineBetween(centerX - scaledInt(layoutScale, 80), dividerY, centerX + scaledInt(layoutScale, 80), dividerY);
-    yOffset += scaledInt(layoutScale, 18);
+    const goldAmount = metaManager.getGold();
+    const progressionGroup: MenuGroup = {
+      accentColor: 0xffaa33,
+      items: [
+        { label: 'SHOP', action: openShop, fontSize: 17, color: '#888899', subtitle: `${goldAmount} gold`, subtitleColor: '#887744' },
+        { label: 'ACHIEVEMENTS', action: openAchievements, fontSize: 17, color: '#888899' },
+        { label: 'CODEX', action: openCodex, fontSize: 17, color: '#888899' },
+      ],
+    };
 
-    // ─── Meta: Progression screens ───
-    menuConfig.push({
-      label: 'SHOP',
-      y: yOffset,
-      fontSize: scaledFontPx(fontScale, 18),
-      action: openShop,
+    const utilityGroup: MenuGroup = {
+      accentColor: 0x445566,
+      items: [
+        { label: 'SETTINGS', action: openSettings, fontSize: 15, color: '#667788' },
+        { label: 'CREDITS', action: openCredits, fontSize: 15, color: '#667788' },
+      ],
+    };
+
+    const groups = [playGroup, progressionGroup, utilityGroup];
+
+    // ─── Measure each group's height ───
+    const groupHeights: number[] = groups.map(group => {
+      let height = containerPadY * 2; // top + bottom padding
+      for (let i = 0; i < group.items.length; i++) {
+        const item = group.items[i];
+        const textHeight = scaledInt(fontScale, item.fontSize);
+        height += textHeight;
+        if (item.subtitle) {
+          height += subtitleOffset;
+        }
+        if (i < group.items.length - 1) {
+          height += item.subtitle ? scaledInt(layoutScale, 22) : itemGap;
+        }
+      }
+      return height;
     });
-    // Gold subtitle
-    this.add
-      .text(centerX, yOffset + scaledInt(layoutScale, 16), `${metaManager.getGold()} gold`, {
-        fontSize: scaledFontPx(fontScale, 11),
-        color: '#666644',
+
+    // Title block height
+    const titleFontSize = scaledInt(fontScale, 56);
+    const worldFontSize = scaledInt(fontScale, 24);
+    const titleBlockGap = scaledInt(layoutScale, 10);
+    let titleBlockHeight = titleFontSize + titleBlockGap + worldFontSize;
+    if (currentStreak > 0) {
+      titleBlockHeight += scaledInt(layoutScale, 6) + scaledInt(fontScale, 16);
+    }
+
+    const titleToMenuGap = scaledInt(layoutScale, 36);
+    const totalMenuHeight = groupHeights.reduce((sum, h) => sum + h, 0)
+      + groupGap * (groups.length - 1);
+    const totalHeight = titleBlockHeight + titleToMenuGap + totalMenuHeight;
+
+    // Center everything vertically
+    let cursorY = centerY - totalHeight / 2;
+
+    // ═══════════════════════════════════════════════════════════════
+    //  TITLE AREA
+    // ═══════════════════════════════════════════════════════════════
+
+    this.add.text(centerX, cursorY + titleFontSize / 2, 'PEW PEW SURVIVOR', {
+      fontSize: `${titleFontSize}px`,
+      color: '#ffdd44',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setShadow(0, 0, '#ffdd44', 4, false, true);
+    cursorY += titleFontSize + titleBlockGap;
+
+    // World / Ascension
+    const worldText = ascensionLevel > 0
+      ? `Ascension ${ascensionLevel}  ·  World ${metaManager.getWorldLevel()}`
+      : `World ${metaManager.getWorldLevel()}`;
+    this.add.text(centerX, cursorY + worldFontSize / 2, worldText, {
+      fontSize: `${worldFontSize}px`,
+      color: '#7799cc',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    cursorY += worldFontSize;
+
+    // Streak (if applicable)
+    if (currentStreak > 0) {
+      const streakBonus = metaManager.getStreakBonusPercent();
+      const streakFontSize = scaledInt(fontScale, 16);
+      cursorY += scaledInt(layoutScale, 6);
+      this.add.text(centerX, cursorY + streakFontSize / 2,
+        `Streak ${currentStreak}  ·  +${streakBonus}% gold`, {
+        fontSize: `${streakFontSize}px`,
+        color: '#cc8833',
         fontFamily: 'Arial',
-      })
-      .setOrigin(0.5);
-    yOffset += scaledInt(layoutScale, 42);
+      }).setOrigin(0.5);
+      cursorY += streakFontSize;
+    }
 
-    menuConfig.push({ label: 'ACHIEVEMENTS', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openAchievements });
-    yOffset += scaledInt(layoutScale, 38);
-    menuConfig.push({ label: 'CODEX', y: yOffset, fontSize: scaledFontPx(fontScale, 18), action: openCodex });
-    yOffset += scaledInt(layoutScale, 38);
+    cursorY += titleToMenuGap;
 
-    // ─── Divider ───
-    const divider2Y = yOffset;
-    dividerGraphics.lineBetween(centerX - scaledInt(layoutScale, 50), divider2Y, centerX + scaledInt(layoutScale, 50), divider2Y);
-    yOffset += scaledInt(layoutScale, 16);
+    // ═══════════════════════════════════════════════════════════════
+    //  MENU GROUPS — container panels with accent lines
+    // ═══════════════════════════════════════════════════════════════
 
-    // ─── Utility: Secondary screens ───
-    menuConfig.push({ label: 'SETTINGS', y: yOffset, fontSize: scaledFontPx(fontScale, 15), action: openSettings, color: '#666666' });
-    yOffset += scaledInt(layoutScale, 32);
-    menuConfig.push({ label: 'CREDITS', y: yOffset, fontSize: scaledFontPx(fontScale, 15), action: openCredits, color: '#666666' });
+    const panelGraphics = this.add.graphics();
+    let menuItemIndex = 0;
 
-    menuConfig.forEach((config, index) => {
-      const defaultColor = config.color ?? '#888888';
-      const menuItem = this.add
-        .text(centerX, config.y, `[ ${config.label} ]`, {
-          fontSize: config.fontSize,
-          color: defaultColor,
+    for (let g = 0; g < groups.length; g++) {
+      const group = groups[g];
+      const groupHeight = groupHeights[g];
+      const groupTop = cursorY;
+
+      // Container background — subtle dark panel
+      const panelLeft = centerX - containerWidth / 2;
+      panelGraphics.fillStyle(0x0c0c1e, 0.5);
+      panelGraphics.fillRoundedRect(panelLeft, groupTop, containerWidth, groupHeight, 6);
+
+      // Accent line on left edge
+      panelGraphics.fillStyle(group.accentColor, 0.35);
+      panelGraphics.fillRoundedRect(panelLeft, groupTop + 6, 2, groupHeight - 12, 1);
+
+      // Position items inside the container
+      let itemY = groupTop + containerPadY;
+
+      for (let i = 0; i < group.items.length; i++) {
+        const item = group.items[i];
+        const textHeight = scaledInt(fontScale, item.fontSize);
+
+        // Create menu item text (no brackets — clean look)
+        const menuItem = this.add.text(centerX, itemY + textHeight / 2, item.label, {
+          fontSize: scaledFontPx(fontScale, item.fontSize),
+          color: item.color,
           fontFamily: 'Arial',
-        })
-        .setOrigin(0.5)
-        .setInteractive({ useHandCursor: true });
+          letterSpacing: 2,
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
 
-      menuItem.setData('defaultColor', defaultColor);
+        menuItem.setData('defaultColor', item.color);
 
-      // Pointer events
-      menuItem.on('pointerover', () => {
-        if (this.selectedIndex !== index && !this.confirmationOverlay) {
-          this.selectItem(index);
+        // Subtitle (save info, gold amount)
+        if (item.subtitle) {
+          const subFontSize = scaledInt(fontScale, 11);
+          this.add.text(centerX, itemY + textHeight + subtitleOffset - subFontSize / 2, item.subtitle, {
+            fontSize: scaledFontPx(fontScale, 11),
+            color: item.subtitleColor ?? '#555555',
+            fontFamily: 'Arial',
+          }).setOrigin(0.5);
         }
-      });
 
-      menuItem.on('pointerdown', () => {
-        if (!this.confirmationOverlay) {
-          this.soundManager.playUIClick();
-          config.action();
+        // Pointer events
+        const capturedIndex = menuItemIndex;
+        menuItem.on('pointerover', () => {
+          if (this.selectedIndex !== capturedIndex && !this.confirmationOverlay) {
+            this.selectItem(capturedIndex);
+          }
+        });
+        menuItem.on('pointerdown', () => {
+          if (!this.confirmationOverlay) {
+            this.soundManager.playUIClick();
+            item.action();
+          }
+        });
+
+        addButtonInteraction(this, menuItem);
+        this.menuItems.push(menuItem);
+        this.menuActions.push(item.action);
+        this.menuLabels.push(item.label);
+        menuItemIndex++;
+
+        // Advance Y
+        itemY += textHeight;
+        if (item.subtitle) {
+          itemY += subtitleOffset;
         }
-      });
+        if (i < group.items.length - 1) {
+          itemY += item.subtitle ? scaledInt(layoutScale, 22) : itemGap;
+        }
+      }
 
-      addButtonInteraction(this, menuItem);
-      this.menuItems.push(menuItem);
-      this.menuActions.push(config.action);
-      this.menuLabels.push(config.label);
-    });
+      cursorY += groupHeight + groupGap;
+    }
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -374,13 +450,14 @@ export class BootScene extends Phaser.Scene {
     this.confirmationOverlay.add(subtextLine);
 
     // YES button
-    const yesButton = this.add.text(centerX - scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), '[ YES ]', {
+    const yesButton = this.add.text(centerX - scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), 'YES', {
       fontSize: scaledFontPx(fontScale, 20),
       color: '#ff4444',
       fontFamily: 'Arial',
+      letterSpacing: 2,
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    yesButton.on('pointerover', () => yesButton.setColor('#ff8888'));
-    yesButton.on('pointerout', () => yesButton.setColor('#ff4444'));
+    yesButton.on('pointerover', () => { yesButton.setColor('#ff8888'); yesButton.setShadow(0, 0, '#ff4444', 4, false, true); });
+    yesButton.on('pointerout', () => { yesButton.setColor('#ff4444'); yesButton.setShadow(0, 0, 'transparent', 0); });
     yesButton.on('pointerdown', () => {
       this.soundManager.playUIClick();
       this.hideNewGameConfirmation();
@@ -390,13 +467,14 @@ export class BootScene extends Phaser.Scene {
     this.confirmationOverlay.add(yesButton);
 
     // NO button
-    const noButton = this.add.text(centerX + scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), '[ NO ]', {
+    const noButton = this.add.text(centerX + scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), 'NO', {
       fontSize: scaledFontPx(fontScale, 20),
       color: '#44ff44',
       fontFamily: 'Arial',
+      letterSpacing: 2,
     }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    noButton.on('pointerover', () => noButton.setColor('#88ff88'));
-    noButton.on('pointerout', () => noButton.setColor('#44ff44'));
+    noButton.on('pointerover', () => { noButton.setColor('#88ff88'); noButton.setShadow(0, 0, '#44ff44', 4, false, true); });
+    noButton.on('pointerout', () => { noButton.setColor('#44ff44'); noButton.setShadow(0, 0, 'transparent', 0); });
     noButton.on('pointerdown', () => {
       this.soundManager.playUIClick();
       this.hideNewGameConfirmation();
@@ -432,28 +510,29 @@ export class BootScene extends Phaser.Scene {
     }
     // Update previous selection (remove highlight)
     const previousItem = this.menuItems[this.selectedIndex];
-    if (previousItem && this.menuLabels[this.selectedIndex]) {
-      previousItem.setText(`[ ${this.menuLabels[this.selectedIndex]} ]`);
-      previousItem.setColor(previousItem.getData('defaultColor') ?? '#888888');
+    if (previousItem) {
+      previousItem.setColor(previousItem.getData('defaultColor') ?? '#888899');
+      previousItem.setShadow(0, 0, 'transparent', 0);
       previousItem.setAlpha(1);
     }
 
-    // Update current selection
+    // Update current selection — yellow with glow shadow
     this.selectedIndex = index;
     const currentItem = this.menuItems[this.selectedIndex];
-    if (currentItem && this.menuLabels[this.selectedIndex]) {
-      currentItem.setText(`[ ${this.menuLabels[this.selectedIndex]} ]`);
+    if (currentItem) {
       currentItem.setColor('#ffdd44');
+      currentItem.setShadow(0, 0, '#ffdd44', 6, false, true);
 
-      // Update pulse animation to target new selection
+      // Subtle glow pulse (shadow blur oscillation via alpha)
       if (this.pulseTween) {
         this.pulseTween.stop();
       }
       currentItem.setAlpha(1);
       this.pulseTween = this.tweens.add({
         targets: currentItem,
-        alpha: 0.5,
-        duration: 800,
+        alpha: { from: 1, to: 0.75 },
+        duration: 1000,
+        ease: 'Sine.easeInOut',
         yoyo: true,
         repeat: -1,
       });

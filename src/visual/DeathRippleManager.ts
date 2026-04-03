@@ -84,6 +84,7 @@ export class DeathRippleManager {
   // Quality settings
   private enabled: boolean = true;
   private ambientPulseEnabled: boolean = true;
+  private ambientPulseFrameSkip: boolean = false;
   private rippleOverlaysEnabled: boolean = true;
   private useShapeMatchedOverlays: boolean = true;
 
@@ -199,8 +200,9 @@ export class DeathRippleManager {
     // Update ambient pulse time
     this.pulseTime += deltaSeconds;
 
-    // Update ambient pulsing on all enemies
-    if (this.ambientPulseEnabled) {
+    // Update ambient pulsing on all enemies (throttled to every 2nd frame — 3% scale change is imperceptible)
+    this.ambientPulseFrameSkip = !this.ambientPulseFrameSkip;
+    if (this.ambientPulseEnabled && this.ambientPulseFrameSkip) {
       this.updateAmbientPulse();
     }
 
@@ -281,10 +283,16 @@ export class DeathRippleManager {
       for (const ripple of this.activeRipples) {
         const dx = enemyX - ripple.originX;
         const dy = enemyY - ripple.originY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        const distSq = dx * dx + dy * dy;
 
-        // Inner edge of the ripple band
+        // Quick reject: skip if clearly outside outer radius (squared comparison avoids sqrt)
+        const outerRadiusSq = ripple.currentRadius * ripple.currentRadius;
         const innerEdge = ripple.currentRadius - ripple.bandWidth;
+        const innerEdgeSq = innerEdge * innerEdge;
+        if (distSq > outerRadiusSq || (innerEdge > 0 && distSq < innerEdgeSq)) continue;
+
+        // Only compute sqrt for enemies within the band
+        const distance = Math.sqrt(distSq);
 
         // Check if enemy is inside the band
         if (distance >= innerEdge && distance <= ripple.currentRadius) {

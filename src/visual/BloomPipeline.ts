@@ -15,7 +15,6 @@ uniform sampler2D uMainSampler;
 uniform vec2 uResolution;
 uniform float uBloomStrength;
 uniform float uBloomThreshold;
-uniform float uVignetteStrength;
 
 varying vec2 outTexCoord;
 
@@ -45,12 +44,6 @@ void main() {
 
   vec3 finalColor = color.rgb + bloomAccum * uBloomStrength;
 
-  // ── Vignette: darken edges ──
-  vec2 vignetteCoord = outTexCoord * 2.0 - 1.0;
-  float vignetteDist = length(vignetteCoord) * 0.7;
-  float vignette = 1.0 - vignetteDist * vignetteDist * uVignetteStrength;
-  finalColor *= clamp(vignette, 0.0, 1.0);
-
   gl_FragColor = vec4(finalColor, color.a);
 }
 `;
@@ -58,7 +51,6 @@ void main() {
 export class BloomPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
   private bloomStrength: number = 0.35;
   private bloomThreshold: number = 0.6;
-  private vignetteStrength: number = 0.3;
 
   constructor(game: Phaser.Game) {
     super({
@@ -72,7 +64,6 @@ export class BloomPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipelin
     this.set2f('uResolution', this.renderer.width, this.renderer.height);
     this.set1f('uBloomStrength', this.bloomStrength);
     this.set1f('uBloomThreshold', this.bloomThreshold);
-    this.set1f('uVignetteStrength', this.vignetteStrength);
   }
 
   /**
@@ -89,10 +80,4 @@ export class BloomPipeline extends Phaser.Renderer.WebGL.Pipelines.PostFXPipelin
     this.bloomThreshold = threshold;
   }
 
-  /**
-   * Adjust vignette darkening (0 = off, 1 = strong).
-   */
-  setVignetteStrength(strength: number): void {
-    this.vignetteStrength = strength;
-  }
 }

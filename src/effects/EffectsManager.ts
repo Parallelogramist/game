@@ -427,6 +427,7 @@ export class EffectsManager {
    * @param deltaMs - Delta time in milliseconds
    */
   update(deltaMs: number): void {
+    let sparkleEmissionsThisFrame = 0;
     for (const pooledNumber of this.damageNumberPool) {
       if (!pooledNumber.active) continue;
 
@@ -461,17 +462,16 @@ export class EffectsManager {
                                 blue.toString(16).padStart(2, '0');
         pooledNumber.text.setColor(hexColor);
 
-        // Emit gold sparkles at random intervals around the text
-        if (pooledNumber.elapsed >= pooledNumber.nextSparkleTime && this.goldSparkleEmitter) {
-          // Random position around the text (within ~30px radius)
+        // Emit gold sparkles at random intervals (capped at 5 emissions per frame to prevent particle explosion)
+        if (sparkleEmissionsThisFrame < 5 && pooledNumber.elapsed >= pooledNumber.nextSparkleTime && this.goldSparkleEmitter) {
           const currentY = pooledNumber.startY - yOffset;
           const sparkleX = pooledNumber.startX + Phaser.Math.Between(-30, 30);
           const sparkleY = currentY + Phaser.Math.Between(-20, 20);
 
-          // Emit 2-4 sparkles per burst
           this.goldSparkleEmitter.emitParticleAt(sparkleX, sparkleY, Phaser.Math.Between(2, 4));
+          sparkleEmissionsThisFrame++;
 
-          // Schedule next sparkle (random interval 60-120ms for more frequent sparkles)
+          // Schedule next sparkle (random interval 60-120ms)
           pooledNumber.nextSparkleTime = pooledNumber.elapsed + Phaser.Math.Between(60, 120);
         }
       }

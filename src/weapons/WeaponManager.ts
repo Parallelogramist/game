@@ -45,6 +45,13 @@ export class WeaponManager {
   // Light flash sources for dynamic lighting (consumed by GameScene each frame)
   lightFlashes: Array<{ x: number; y: number; radius: number; intensity: number; ttl: number }> = [];
 
+  // PERF: Per-frame effect budget to cap visual overhead during mass combat
+  private damageNumberBudget: number = 0;
+  private hitSparkBudget: number = 0;
+  private tweenBudget: number = 0;
+  // PERF: Cache combat stats once per frame instead of per-hit
+  private cachedCombatStats: ReturnType<typeof getCombatStats> = null;
+
   // Pooled context object - created once, updated each frame to avoid allocations
   private ctx: WeaponContext;
 
@@ -252,6 +259,13 @@ export class WeaponManager {
   public update(gameTime: number, deltaTime: number): void {
     if (this.playerId === -1) return;
 
+    // PERF: Reset per-frame effect budgets
+    this.damageNumberBudget = 15;
+    this.hitSparkBudget = 10;
+    this.tweenBudget = 8;
+    // PERF: Cache combat stats once per frame (avoids Object.freeze copy per hit)
+    this.cachedCombatStats = getCombatStats();
+
     // Update mutable fields in pooled context (no new object allocation!)
     this.ctx.playerX = Transform.x[this.playerId];
     this.ctx.playerY = Transform.y[this.playerId];
@@ -284,7 +298,8 @@ export class WeaponManager {
     let isCrit = false;
     let isPerfectCrit = false;
 
-    const combatStats = getCombatStats();
+    // PERF: Use per-frame cached combat stats instead of allocating a frozen copy per hit
+    const combatStats = this.cachedCombatStats;
     if (combatStats && combatStats.critChance > 0 && Math.random() < combatStats.critChance) {
       // Crit with 80-100% variance (±20% of crit damage)
       const critVariance = 0.8 + Math.random() * 0.2;
@@ -359,26 +374,36 @@ export class WeaponManager {
       getJuiceManager().hitStop(20, 0.5);
     }
 
-    // Visual feedback (gold for perfect crit, yellow for crit, white for normal)
-    const damageColor = isPerfectCrit ? 0xffd700 : (isCrit ? 0xffff00 : 0xffffff);
-    this.effectsManager.showDamageNumber(enemyX, enemyY, Math.round(actualDamage), damageColor, isCrit, isPerfectCrit);
+    // PERF: Visual effects gated behind per-frame budget (gameplay damage always applied above)
+    if (this.damageNumberBudget > 0) {
+      this.damageNumberBudget--;
+      const damageColor = isPerfectCrit ? 0xffd700 : (isCrit ? 0xffff00 : 0xffffff);
+      this.effectsManager.showDamageNumber(enemyX, enemyY, Math.round(actualDamage), damageColor, isCrit, isPerfectCrit);
+    }
 
-    // Hit sparks (sparks fly back toward source)
-    const sparkAngle = Math.atan2(sourceY - enemyY, sourceX - enemyX);
-    this.effectsManager.playHitSparks(enemyX, enemyY, sparkAngle);
+    if (this.hitSparkBudget > 0) {
+      this.hitSparkBudget--;
+      const sparkAngle = Math.atan2(sourceY - enemyY, sourceX - enemyX);
+      this.effectsManager.playHitSparks(enemyX, enemyY, sparkAngle);
+    }
 
-    // Light flash for dynamic lighting
-    this.lightFlashes.push({ x: enemyX, y: enemyY, radius: 50, intensity: 0.6, ttl: 80 });
+    // Light flash (capped at 10 per frame)
+    if (this.lightFlashes.length < 10) {
+      this.lightFlashes.push({ x: enemyX, y: enemyY, radius: 50, intensity: 0.6, ttl: 80 });
+    }
 
     // Hit sound (SoundManager has built-in 50ms throttling)
     this.soundManager.playHit();
 
-    // Scale punch on hit — works on any sprite type (Container, Shape, etc.)
-    const sprite = getSprite(enemyId);
-    if (sprite) {
-      const damageRatio = actualDamage / (Health.max[enemyId] || 1);
-      const punchScale = damageRatio > 0.2 ? 1.15 : 1.08;
-      getJuiceManager().squashStretch(sprite, punchScale, punchScale, 100);
+    // Scale punch on hit (budget-gated to prevent tween explosion)
+    if (this.tweenBudget > 0) {
+      const sprite = getSprite(enemyId);
+      if (sprite) {
+        this.tweenBudget--;
+        const damageRatio = actualDamage / (Health.max[enemyId] || 1);
+        const punchScale = damageRatio > 0.2 ? 1.15 : 1.08;
+        getJuiceManager().squashStretch(sprite, punchScale, punchScale, 100);
+      }
     }
 
     // Callback for damage tracking
@@ -414,10 +439,13 @@ export class WeaponManager {
             if (nearbyId === enemyId || Health.current[nearbyId] <= 0) continue;
 
             Health.current[nearbyId] -= splashDamage;
-            this.effectsManager.showDamageNumber(
-              Transform.x[nearbyId], Transform.y[nearbyId],
-              Math.round(splashDamage), 0xff8800, false, false
-            );
+            if (this.damageNumberBudget > 0) {
+              this.damageNumberBudget--;
+              this.effectsManager.showDamageNumber(
+                Transform.x[nearbyId], Transform.y[nearbyId],
+                Math.round(splashDamage), 0xff8800, false, false
+              );
+            }
 
             if (Health.current[nearbyId] <= 0 && this.onEnemyKilled) {
               this.onEnemyKilled(nearbyId, Transform.x[nearbyId], Transform.y[nearbyId]);
