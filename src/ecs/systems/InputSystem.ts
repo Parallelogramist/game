@@ -8,7 +8,7 @@ const playerQuery = defineQuery([Transform, Velocity, PlayerTag]);
 const MOUSE_DEAD_ZONE = 20;
 
 // Control mode tracks which input device the player is actively using
-export type ControlMode = 'keyboard' | 'mouse' | 'joystick';
+export type ControlMode = 'keyboard' | 'mouse' | 'joystick' | 'gamepad';
 
 // Input state interface
 export interface InputState {
@@ -21,6 +21,8 @@ export interface InputState {
   };
   joystickX: number;
   joystickY: number;
+  gamepadX: number;
+  gamepadY: number;
   mouseX: number;
   mouseY: number;
   mouseActive: boolean;
@@ -48,8 +50,12 @@ export function inputSystem(world: IWorld, input: InputState): IWorld {
     if (input.joystickX !== 0 || input.joystickY !== 0) {
       directionX = input.joystickX;
       directionY = input.joystickY;
+    } else if (input.gamepadX !== 0 || input.gamepadY !== 0) {
+      // Priority 2: Gamepad left stick
+      directionX = input.gamepadX;
+      directionY = input.gamepadY;
     } else {
-      // Priority 2: Keyboard (WASD / arrows)
+      // Priority 3: Keyboard (WASD / arrows)
       if (input.cursors.left.isDown || input.wasd.A.isDown) {
         directionX -= 1;
       }

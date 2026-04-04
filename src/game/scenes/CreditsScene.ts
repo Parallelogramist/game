@@ -5,9 +5,11 @@
 
 import Phaser from 'phaser';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { MenuNavigator } from '../../input/MenuNavigator';
 
 export class CreditsScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
 
   constructor() {
     super({ key: 'CreditsScene' });
@@ -111,13 +113,18 @@ export class CreditsScene extends Phaser.Scene {
     });
     addButtonInteraction(this, backButton);
 
-    // Keyboard handler for ESC, Enter, Space
-    this.keydownHandler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' || event.key === 'Enter' || event.key === ' ') {
-        this.returnToMenu();
-      }
-    };
-    this.input.keyboard?.on('keydown', this.keydownHandler);
+    // MenuNavigator for keyboard + gamepad navigation
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: [
+        {
+          onFocus: () => backButton.setColor('#ffdd44'),
+          onBlur: () => backButton.setColor('#888888'),
+          onActivate: () => this.returnToMenu(),
+        },
+      ],
+      onCancel: () => this.returnToMenu(),
+    });
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -134,6 +141,10 @@ export class CreditsScene extends Phaser.Scene {
    * Cleanup keyboard handlers when scene shuts down.
    */
   shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;

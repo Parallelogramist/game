@@ -11,6 +11,7 @@ import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { SoundManager } from '../../audio/SoundManager';
+import { MenuNavigator } from '../../input/MenuNavigator';
 
 type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter' | 'uiScale' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
 
@@ -57,6 +58,7 @@ export class SettingsScene extends Phaser.Scene {
   private damageNumberIndex: number = 0;
   private playbackModeIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
   private layoutScale: number = 1;
   private fontScale: number = 1;
 
@@ -514,6 +516,10 @@ export class SettingsScene extends Phaser.Scene {
 
     // Setup keyboard navigation
     this.setupKeyboardNavigation();
+
+    // Setup gamepad navigation via MenuNavigator
+    this.buildMenuNavigator();
+
     this.updateFocusVisuals();
 
     // Register shutdown listener for cleanup
@@ -728,10 +734,61 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Gamepad Navigation (MenuNavigator)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Builds a MenuNavigator that maps each settings focus zone to a navigable item,
+   * providing gamepad D-pad/stick/A/B support alongside the existing keyboard handler.
+   */
+  private buildMenuNavigator(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+    }
+
+    // Ordered list of focus zones matching the vertical layout
+    const orderedZones: FocusZone[] = [
+      'sfx', 'sfxVolume', 'bgm', 'bgmVolume', 'playbackMode', 'musicTracks',
+      'screenShake', 'reducedMotion', 'gridEffects', 'fpsCounter', 'uiScale',
+      'damageNumbers', 'statusText', 'resetData', 'back',
+    ];
+
+    const navigableItems = orderedZones.map((zone) => ({
+      onFocus: () => {
+        this.focusZone = zone;
+        this.updateFocusVisuals();
+      },
+      onBlur: () => {
+        this.updateFocusVisuals();
+      },
+      onActivate: () => {
+        this.activateCurrentSelection();
+      },
+    }));
+
+    const currentZoneIndex = orderedZones.indexOf(this.focusZone);
+
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: navigableItems,
+      columns: 1,
+      wrap: true,
+      onCancel: () => {
+        this.goBack();
+      },
+      initialIndex: currentZoneIndex >= 0 ? currentZoneIndex : 0,
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Keyboard Navigation
   // ═══════════════════════════════════════════════════════════════════════════
 
   private setupKeyboardNavigation(): void {
+    // This handler covers two things MenuNavigator doesn't:
+    // 1. Confirmation dialog keyboard navigation (when overlay is open)
+    // 2. Left/right value adjustment for settings zones (volume, damage numbers, etc.)
+    // Up/down/enter/escape for normal navigation are handled by MenuNavigator.
     this.keydownHandler = (event: KeyboardEvent) => {
       // When confirmation dialog is open, handle its own navigation
       if (this.confirmOverlay.length > 0) {
@@ -765,19 +822,8 @@ export class SettingsScene extends Phaser.Scene {
         return;
       }
 
+      // Left/right for value adjustment (not handled by MenuNavigator with columns=1)
       switch (event.key) {
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          event.preventDefault();
-          this.navigateDown();
-          break;
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          event.preventDefault();
-          this.navigateUp();
-          break;
         case 'ArrowLeft':
         case 'a':
         case 'A':
@@ -790,83 +836,9 @@ export class SettingsScene extends Phaser.Scene {
           event.preventDefault();
           this.navigateRight();
           break;
-        case 'Enter':
-        case ' ':
-          event.preventDefault();
-          this.activateCurrentSelection();
-          break;
-        case 'Escape':
-          event.preventDefault();
-          this.goBack();
-          break;
       }
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
-  }
-
-  private navigateDown(): void {
-    // Navigate to next row
-    if (this.focusZone === 'sfx' || this.focusZone === 'sfxVolume') {
-      this.focusZone = 'bgm';
-    } else if (this.focusZone === 'bgm' || this.focusZone === 'bgmVolume') {
-      this.focusZone = 'playbackMode';
-    } else if (this.focusZone === 'playbackMode') {
-      this.focusZone = 'musicTracks';
-    } else if (this.focusZone === 'musicTracks') {
-      this.focusZone = 'screenShake';
-    } else if (this.focusZone === 'screenShake') {
-      this.focusZone = 'reducedMotion';
-    } else if (this.focusZone === 'reducedMotion') {
-      this.focusZone = 'gridEffects';
-    } else if (this.focusZone === 'gridEffects') {
-      this.focusZone = 'fpsCounter';
-    } else if (this.focusZone === 'fpsCounter') {
-      this.focusZone = 'uiScale';
-    } else if (this.focusZone === 'uiScale') {
-      this.focusZone = 'damageNumbers';
-    } else if (this.focusZone === 'damageNumbers') {
-      this.focusZone = 'statusText';
-    } else if (this.focusZone === 'statusText') {
-      this.focusZone = 'resetData';
-    } else if (this.focusZone === 'resetData') {
-      this.focusZone = 'back';
-    } else if (this.focusZone === 'back') {
-      this.focusZone = 'sfx';
-    }
-
-    this.updateFocusVisuals();
-  }
-
-  private navigateUp(): void {
-    if (this.focusZone === 'sfx' || this.focusZone === 'sfxVolume') {
-      this.focusZone = 'back';
-    } else if (this.focusZone === 'bgm' || this.focusZone === 'bgmVolume') {
-      this.focusZone = 'sfx';
-    } else if (this.focusZone === 'playbackMode') {
-      this.focusZone = 'bgm';
-    } else if (this.focusZone === 'musicTracks') {
-      this.focusZone = 'playbackMode';
-    } else if (this.focusZone === 'screenShake') {
-      this.focusZone = 'musicTracks';
-    } else if (this.focusZone === 'gridEffects') {
-      this.focusZone = 'reducedMotion';
-    } else if (this.focusZone === 'reducedMotion') {
-      this.focusZone = 'screenShake';
-    } else if (this.focusZone === 'fpsCounter') {
-      this.focusZone = 'gridEffects';
-    } else if (this.focusZone === 'damageNumbers') {
-      this.focusZone = 'uiScale';
-    } else if (this.focusZone === 'uiScale') {
-      this.focusZone = 'fpsCounter';
-    } else if (this.focusZone === 'statusText') {
-      this.focusZone = 'damageNumbers';
-    } else if (this.focusZone === 'resetData') {
-      this.focusZone = 'statusText';
-    } else if (this.focusZone === 'back') {
-      this.focusZone = 'resetData';
-    }
-
-    this.updateFocusVisuals();
   }
 
   private navigateLeft(): void {
@@ -1096,6 +1068,10 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;

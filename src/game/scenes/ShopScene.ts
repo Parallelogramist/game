@@ -20,6 +20,7 @@ import { SoundManager } from '../../audio/SoundManager';
 import { getToastManager, ToastManager } from '../../ui';
 import { getSettingsManager } from '../../settings';
 import { TooltipManager } from '../../ui/TooltipManager';
+import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -55,6 +56,7 @@ export class ShopScene extends Phaser.Scene {
   private selectedTabIndex: number = 0;
   private selectedCardIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
 
   // Tooltip system
   private tooltipManager!: TooltipManager;
@@ -222,8 +224,9 @@ export class ShopScene extends Phaser.Scene {
     // Setup scroll input
     this.setupScrollInput();
 
-    // Setup keyboard navigation
-    this.setupKeyboardNavigation();
+    // Setup keyboard + gamepad navigation via MenuNavigator
+    // (replaces the old setupKeyboardNavigation for full keyboard + gamepad support)
+    this.buildMenuNavigator();
 
     // Initial focus visuals
     this.updateFocusVisuals();
@@ -334,6 +337,7 @@ export class ShopScene extends Phaser.Scene {
     this.upgradeContainer.y = 0;
     this.selectedCardIndex = 0;
     this.displayCategoryUpgrades(categoryId);
+    this.buildMenuNavigator();
     this.updateFocusVisuals();
   }
 
@@ -661,151 +665,93 @@ export class ShopScene extends Phaser.Scene {
   }
 
   /**
-   * Sets up keyboard navigation handlers.
+   * Builds a MenuNavigator that mirrors the existing zone-based focus system
+   * to provide gamepad D-pad/stick/A/B button support.
+   * The navigator items map to: [tabs...] + [grid cards...] + [back button].
+   * Zone transitions (tabs -> grid -> back) are handled by re-building items
+   * when the focus zone changes.
    */
-  private setupKeyboardNavigation(): void {
-    this.keydownHandler = (event: KeyboardEvent) => {
-      switch (event.key) {
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          event.preventDefault();
-          this.navigateDown();
-          break;
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          event.preventDefault();
-          this.navigateUp();
-          break;
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          event.preventDefault();
-          this.navigateLeft();
-          break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          event.preventDefault();
-          this.navigateRight();
-          break;
-        case 'Enter':
-        case ' ':
-          event.preventDefault();
-          this.activateCurrentSelection();
-          break;
-        case 'Escape':
-          event.preventDefault();
-          this.scene.start('BootScene');
-          break;
-      }
-    };
-    this.input.keyboard?.on('keydown', this.keydownHandler);
-  }
+  private buildMenuNavigator(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+    }
 
-  /**
-   * Navigate down through zones or within grid.
-   */
-  private navigateDown(): void {
-    if (this.focusZone === 'tabs') {
-      // Move to grid
-      this.focusZone = 'grid';
-      this.selectedCardIndex = 0;
-    } else if (this.focusZone === 'grid') {
-      const totalCards = this.upgradeCards.length;
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-      const totalRows = Math.ceil(totalCards / this.columns);
+    const navigableItems: NavigableItem[] = [];
 
-      if (currentRow < totalRows - 1) {
-        // Move down within grid
-        const newIndex = this.selectedCardIndex + this.columns;
-        if (newIndex < totalCards) {
-          this.selectedCardIndex = newIndex;
+    // Add tab items
+    UPGRADE_CATEGORIES.forEach((_category, tabIndex) => {
+      navigableItems.push({
+        onFocus: () => {
+          this.focusZone = 'tabs';
+          this.selectedTabIndex = tabIndex;
+          this.selectCategoryByIndex(tabIndex);
+          this.updateFocusVisuals();
+        },
+        onBlur: () => {
+          this.updateFocusVisuals();
+        },
+        onActivate: () => {
+          this.selectCategoryByIndex(tabIndex);
+        },
+      });
+    });
+
+    // Add grid card items
+    this.upgradeCards.forEach((_card, cardIndex) => {
+      navigableItems.push({
+        onFocus: () => {
+          this.focusZone = 'grid';
+          this.selectedCardIndex = cardIndex;
           this.ensureCardVisible();
-        }
-      } else {
-        // Move to back button
+          this.updateFocusVisuals();
+        },
+        onBlur: () => {
+          this.updateFocusVisuals();
+        },
+        onActivate: () => {
+          this.focusZone = 'grid';
+          this.selectedCardIndex = cardIndex;
+          this.activateCurrentSelection();
+        },
+      });
+    });
+
+    // Add back button
+    navigableItems.push({
+      onFocus: () => {
         this.focusZone = 'back';
-      }
-    } else if (this.focusZone === 'back') {
-      // Wrap to tabs
-      this.focusZone = 'tabs';
-    }
-    this.updateFocusVisuals();
-  }
+        this.updateFocusVisuals();
+      },
+      onBlur: () => {
+        this.updateFocusVisuals();
+      },
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+    });
 
-  /**
-   * Navigate up through zones or within grid.
-   */
-  private navigateUp(): void {
-    if (this.focusZone === 'tabs') {
-      // Wrap to back button
-      this.focusZone = 'back';
-    } else if (this.focusZone === 'grid') {
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
+    // The layout is: tabs (1 row) + grid (N rows of `columns` cols) + back (1 row).
+    // Use the grid column count so left/right navigation works within the grid.
+    // Tabs are a single row at the top, back is a single item at the bottom.
+    // We use the shop's column count to set up grid navigation.
+    const totalTabCount = UPGRADE_CATEGORIES.length;
+    const navigatorColumns = Math.max(totalTabCount, this.columns);
 
-      if (currentRow > 0) {
-        // Move up within grid
-        this.selectedCardIndex -= this.columns;
-        this.ensureCardVisible();
-      } else {
-        // Move to tabs
-        this.focusZone = 'tabs';
-      }
-    } else if (this.focusZone === 'back') {
-      // Move to grid (last row)
-      this.focusZone = 'grid';
-      const totalCards = this.upgradeCards.length;
-      const totalRows = Math.ceil(totalCards / this.columns);
-      const lastRowStart = (totalRows - 1) * this.columns;
-      this.selectedCardIndex = Math.min(lastRowStart, totalCards - 1);
-      this.ensureCardVisible();
-    }
-    this.updateFocusVisuals();
-  }
-
-  /**
-   * Navigate left within the current zone.
-   */
-  private navigateLeft(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectedTabIndex = Math.max(0, this.selectedTabIndex - 1);
-      this.selectCategoryByIndex(this.selectedTabIndex);
-    } else if (this.focusZone === 'grid') {
-      const currentCol = this.selectedCardIndex % this.columns;
-      if (currentCol > 0) {
-        this.selectedCardIndex--;
-      } else {
-        // Wrap to end of row
-        const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-        const rowEnd = Math.min((currentRow + 1) * this.columns - 1, this.upgradeCards.length - 1);
-        this.selectedCardIndex = rowEnd;
-      }
-    }
-    this.updateFocusVisuals();
-  }
-
-  /**
-   * Navigate right within the current zone.
-   */
-  private navigateRight(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectedTabIndex = Math.min(UPGRADE_CATEGORIES.length - 1, this.selectedTabIndex + 1);
-      this.selectCategoryByIndex(this.selectedTabIndex);
-    } else if (this.focusZone === 'grid') {
-      const currentCol = this.selectedCardIndex % this.columns;
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-      const rowStart = currentRow * this.columns;
-
-      if (currentCol < this.columns - 1 && this.selectedCardIndex < this.upgradeCards.length - 1) {
-        this.selectedCardIndex++;
-      } else {
-        // Wrap to start of row
-        this.selectedCardIndex = rowStart;
-      }
-    }
-    this.updateFocusVisuals();
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: navigableItems,
+      columns: navigatorColumns,
+      wrap: true,
+      onCancel: () => {
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+      initialIndex: this.focusZone === 'tabs'
+        ? this.selectedTabIndex
+        : this.focusZone === 'grid'
+          ? totalTabCount + this.selectedCardIndex
+          : navigableItems.length - 1,
+    });
   }
 
   /**
@@ -919,6 +865,7 @@ export class ShopScene extends Phaser.Scene {
       this.updateAllCards();
       // Refresh category to show newly unlocked upgrades
       this.displayCategoryUpgrades(this.currentCategory);
+      this.buildMenuNavigator();
       this.updateFocusVisuals();
 
       // Purchase pop animation on the selected card
@@ -976,6 +923,7 @@ export class ShopScene extends Phaser.Scene {
       this.updateAllCards();
       // Refresh category to show newly unlocked upgrades (or re-lock if account level dropped)
       this.displayCategoryUpgrades(this.currentCategory);
+      this.buildMenuNavigator();
       this.updateFocusVisuals();
     }
   }
@@ -1089,6 +1037,10 @@ export class ShopScene extends Phaser.Scene {
    * Cleanup keyboard handlers when scene shuts down.
    */
   shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
     this.tooltipManager.destroy();
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);

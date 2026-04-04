@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getGameStateManager } from '../../save/GameStateManager';
+import { MenuNavigator } from '../../input/MenuNavigator';
 
 const PAUSE_MENU_DEPTH = 1100;
 
@@ -68,13 +69,14 @@ export class PauseMenuManager {
   private countUpStats: { text: Phaser.GameObjects.Text; target: number }[] = [];
   private shopConfirmKeyHandler: ((event: KeyboardEvent) => void) | null = null;
 
-  // Pause menu keyboard navigation handler
-  private pauseMenuKeyHandler: ((event: KeyboardEvent) => void) | null = null;
+  // Pause menu keyboard + gamepad navigation
+  private pauseMenuNavigator: MenuNavigator | null = null;
 
   // Victory choice handlers (for cleanup)
   private victoryContinueHandler: (() => void) | null = null;
   private victoryNextWorldHandler: (() => void) | null = null;
   private gameOverRestartHandler: (() => void) | null = null;
+  private gameOverGamepadPoll: Phaser.Time.TimerEvent | null = null;
 
   constructor(scene: Phaser.Scene, options: PauseMenuOptions) {
     this.scene = scene;
@@ -345,7 +347,7 @@ export class PauseMenuManager {
     hintText.setDepth(PAUSE_MENU_DEPTH + 1);
     hintText.setName('pauseHintText');
 
-    // Keyboard navigation for pause menu
+    // Keyboard + gamepad navigation for pause menu
     const pauseButtons = [
       { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: 0x44aa44, hoverColor: 0x55bb55 },
       { bg: settingsButtonBg, action: () => { this.hidePauseMenu(); this.options.onOpenSettings(); }, baseColor: 0x446688, hoverColor: 0x5577aa },
@@ -353,42 +355,32 @@ export class PauseMenuManager {
       { bg: quitMenuButtonBg, action: () => this.showEndRunConfirmation('menu'), baseColor: 0x664444, hoverColor: 0x885555 },
       { bg: quitShopButtonBg, action: () => this.showEndRunConfirmation('shop'), baseColor: 0x666644, hoverColor: 0x888855 },
     ];
-    let pauseSelectedIndex = 0;
 
-    const updatePauseSelection = (newIndex: number) => {
-      // Reset previous button to base color
-      pauseButtons[pauseSelectedIndex].bg.setFillStyle(pauseButtons[pauseSelectedIndex].baseColor);
-      pauseButtons[pauseSelectedIndex].bg.setStrokeStyle(3, pauseButtons[pauseSelectedIndex].baseColor + 0x224422);
-      // Set new button to hover color with bright stroke
-      pauseSelectedIndex = newIndex;
-      pauseButtons[pauseSelectedIndex].bg.setFillStyle(pauseButtons[pauseSelectedIndex].hoverColor);
-      pauseButtons[pauseSelectedIndex].bg.setStrokeStyle(3, 0xffffff);
-    };
-
-    // Highlight initial selection
-    updatePauseSelection(0);
-
-    this.pauseMenuKeyHandler = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowDown' || event.key === 's' || event.key === 'S') {
-        updatePauseSelection((pauseSelectedIndex + 1) % pauseButtons.length);
-      } else if (event.key === 'ArrowUp' || event.key === 'w' || event.key === 'W') {
-        updatePauseSelection((pauseSelectedIndex - 1 + pauseButtons.length) % pauseButtons.length);
-      } else if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        pauseButtons[pauseSelectedIndex].action();
-      }
-    };
-    this.scene.input.keyboard?.on('keydown', this.pauseMenuKeyHandler);
+    this.pauseMenuNavigator = new MenuNavigator({
+      scene: this.scene,
+      items: pauseButtons.map((btn) => ({
+        onFocus: () => {
+          btn.bg.setFillStyle(btn.hoverColor);
+          btn.bg.setStrokeStyle(3, 0xffffff);
+        },
+        onBlur: () => {
+          btn.bg.setFillStyle(btn.baseColor);
+          btn.bg.setStrokeStyle(3, btn.baseColor + 0x224422);
+        },
+        onActivate: () => btn.action(),
+      })),
+      onCancel: () => this.hidePauseMenu(),
+    });
   }
 
   /**
    * Hides the pause menu and resumes gameplay.
    */
   public hidePauseMenu(): void {
-    // Remove pause menu keyboard handler
-    if (this.pauseMenuKeyHandler) {
-      this.scene.input.keyboard?.off('keydown', this.pauseMenuKeyHandler);
-      this.pauseMenuKeyHandler = null;
+    // Remove pause menu navigator
+    if (this.pauseMenuNavigator) {
+      this.pauseMenuNavigator.destroy();
+      this.pauseMenuNavigator = null;
     }
 
     // Remove all pause menu UI elements
@@ -1224,6 +1216,22 @@ export class PauseMenuManager {
     this.scene.time.delayedCall(500, () => {
       this.scene.input.on('pointerdown', handleRestart);
     });
+
+    // Gamepad A button to restart (edge-detected polling)
+    let previousAPressed = false;
+    this.gameOverGamepadPoll = this.scene.time.addEvent({
+      delay: 16,
+      loop: true,
+      callback: () => {
+        const pad = this.scene.input.gamepad?.pad1;
+        if (!pad || !pad.connected) return;
+        const aPressed = pad.buttons[0]?.pressed ?? false;
+        if (aPressed && !previousAPressed) {
+          handleRestart();
+        }
+        previousAPressed = aPressed;
+      },
+    });
   }
 
   /**
@@ -1231,10 +1239,10 @@ export class PauseMenuManager {
    * Must be called when the scene shuts down.
    */
   public destroy(): void {
-    // Remove pause menu keyboard handler
-    if (this.pauseMenuKeyHandler) {
-      this.scene.input.keyboard?.off('keydown', this.pauseMenuKeyHandler);
-      this.pauseMenuKeyHandler = null;
+    // Remove pause menu navigator
+    if (this.pauseMenuNavigator) {
+      this.pauseMenuNavigator.destroy();
+      this.pauseMenuNavigator = null;
     }
 
     // Remove shop confirmation keyboard handler
@@ -1253,11 +1261,15 @@ export class PauseMenuManager {
       this.victoryNextWorldHandler = null;
     }
 
-    // Remove game over keyboard/pointer handlers
+    // Remove game over keyboard/pointer/gamepad handlers
     if (this.gameOverRestartHandler) {
       this.scene.input.keyboard?.off('keydown-SPACE', this.gameOverRestartHandler);
       this.scene.input.off('pointerdown', this.gameOverRestartHandler);
       this.gameOverRestartHandler = null;
+    }
+    if (this.gameOverGamepadPoll) {
+      this.gameOverGamepadPoll.remove();
+      this.gameOverGamepadPoll = null;
     }
 
     // Hide any open menus/dialogs (removes their UI elements)

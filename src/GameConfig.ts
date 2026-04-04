@@ -8,6 +8,9 @@ export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
   parent: 'game-container',
   antialias: false,
   roundPixels: true,
+  input: {
+    gamepad: true,
+  },
   scale: {
     mode: Phaser.Scale.EXPAND,
     autoCenter: Phaser.Scale.CENTER_BOTH,

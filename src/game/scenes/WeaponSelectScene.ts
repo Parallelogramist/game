@@ -5,14 +5,24 @@ import { createIcon } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { selectRunModifiers } from '../../data/RunModifiers';
+import { MenuNavigator } from '../../input/MenuNavigator';
 
 /**
  * WeaponSelectScene - Pre-run weapon selection screen.
  * Shows discovered weapons from the Codex and lets the player pick a starting weapon.
  * Skips automatically if only the default Projectile has been discovered.
  */
+interface WeaponCardRef {
+  cardBackground: Phaser.GameObjects.Rectangle;
+  nameText: Phaser.GameObjects.Text;
+  iconSprite: Phaser.GameObjects.Image;
+  weaponId: string;
+}
+
 export class WeaponSelectScene extends Phaser.Scene {
   private soundManager!: SoundManager;
+  private menuNavigator: MenuNavigator | null = null;
+  private weaponCardRefs: WeaponCardRef[] = [];
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
@@ -66,6 +76,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // Build weapon cards
+    this.weaponCardRefs = [];
     this.buildWeaponCards(discoveredWeapons, centerX, centerY);
 
     // "Random" button at bottom
@@ -93,7 +104,35 @@ export class WeaponSelectScene extends Phaser.Scene {
       fontFamily: 'Arial',
     }).setOrigin(0.5);
 
-    // Keyboard input
+    // Build navigable items: weapon cards + random button at end
+    const gridColumns = Math.min(discoveredWeapons.length, 7);
+    const navigableItems = this.weaponCardRefs.map((cardRef) => ({
+      onFocus: () => this.focusWeaponCard(cardRef),
+      onBlur: () => this.blurWeaponCard(cardRef),
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        this.selectWeapon(cardRef.weaponId);
+      },
+    }));
+
+    // Add the "Random" button as a navigable item after the grid
+    navigableItems.push({
+      onFocus: () => randomText.setColor('#ffdd44'),
+      onBlur: () => randomText.setColor('#aaaacc'),
+      onActivate: () => {
+        const randomWeapon = discoveredWeapons[Math.floor(Math.random() * discoveredWeapons.length)];
+        this.selectWeapon(randomWeapon.id);
+      },
+    });
+
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: navigableItems,
+      columns: gridColumns,
+      wrap: true,
+    });
+
+    // Keyboard shortcuts for number keys and R (not handled by MenuNavigator)
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
       const keyNumber = parseInt(event.key);
       if (keyNumber >= 1 && keyNumber <= discoveredWeapons.length) {
@@ -130,6 +169,28 @@ export class WeaponSelectScene extends Phaser.Scene {
 
       this.createWeaponCard(weaponInfo, cardX, cardY, cardWidth, cardHeight, index + 1);
     });
+  }
+
+  /**
+   * Apply focused visual state to a weapon card.
+   */
+  private focusWeaponCard(cardRef: WeaponCardRef): void {
+    cardRef.cardBackground.setFillStyle(0x2a2a4e, 0.9);
+    cardRef.cardBackground.setStrokeStyle(2, 0xffdd44);
+    cardRef.nameText.setColor('#ffdd44');
+    const iconBaseScale = 40 / 64;
+    cardRef.iconSprite.setScale(iconBaseScale * 1.1);
+  }
+
+  /**
+   * Apply default (unfocused) visual state to a weapon card.
+   */
+  private blurWeaponCard(cardRef: WeaponCardRef): void {
+    cardRef.cardBackground.setFillStyle(0x1a1a2e, 0.8);
+    cardRef.cardBackground.setStrokeStyle(1, 0x333355);
+    cardRef.nameText.setColor('#ffffff');
+    const iconBaseScale = 40 / 64;
+    cardRef.iconSprite.setScale(iconBaseScale);
   }
 
   /**
@@ -185,22 +246,25 @@ export class WeaponSelectScene extends Phaser.Scene {
       }).setOrigin(0.5);
     }
 
+    // Store card reference for MenuNavigator
+    const cardRef: WeaponCardRef = { cardBackground, nameText, iconSprite, weaponId: weaponInfo.id };
+    this.weaponCardRefs.push(cardRef);
+
     // Hover effects
     cardBackground.on('pointerover', () => {
       this.soundManager.playUIClick();
-      cardBackground.setFillStyle(0x2a2a4e, 0.9);
-      cardBackground.setStrokeStyle(2, 0xffdd44);
-      nameText.setColor('#ffdd44');
-      iconSprite.setScale(iconSprite.scaleX * 1.1);
+      this.focusWeaponCard(cardRef);
+      // Sync navigator index with pointer hover
+      const cardIndex = this.weaponCardRefs.indexOf(cardRef);
+      if (cardIndex >= 0 && this.menuNavigator) {
+        // Use selectIndex to keep navigator in sync without re-triggering focus
+        // We manually focused above, so just update internal state
+        this.menuNavigator.selectIndex(cardIndex);
+      }
     });
 
     cardBackground.on('pointerout', () => {
-      cardBackground.setFillStyle(0x1a1a2e, 0.8);
-      cardBackground.setStrokeStyle(1, 0x333355);
-      nameText.setColor('#ffffff');
-      // Reset icon scale
-      const targetScale = 40 / 64;
-      iconSprite.setScale(targetScale);
+      this.blurWeaponCard(cardRef);
     });
 
     // Select on click
@@ -229,6 +293,10 @@ export class WeaponSelectScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
     this.input.keyboard?.removeAllListeners();
     this.tweens.killAll();
   }

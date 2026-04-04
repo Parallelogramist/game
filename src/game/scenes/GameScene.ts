@@ -146,6 +146,8 @@ export class GameScene extends Phaser.Scene {
   // ESC key handler reference for cleanup
   private escKeyHandler: (() => void) | null = null;
   private dashRequestHandler: (() => void) | null = null;
+  private pauseRequestHandler: (() => void) | null = null;
+  private autoBuyToggleHandler: (() => void) | null = null;
 
   // Health drop chance (percentage)
   private readonly HEALTH_DROP_CHANCE: number = TUNING.pickups.healthDropChance;
@@ -833,6 +835,18 @@ export class GameScene extends Phaser.Scene {
       this.inputController.tryDash(playerX, playerY, this.playerId);
     };
     this.events.on('input-dash-requested', this.dashRequestHandler);
+
+    // Listen for pause requests from gamepad (Start button)
+    this.pauseRequestHandler = () => {
+      this.togglePauseMenu();
+    };
+    this.events.on('input-pause-requested', this.pauseRequestHandler);
+
+    // Listen for auto-buy toggle from gamepad (Select button)
+    this.autoBuyToggleHandler = () => {
+      this.toggleAutoBuy();
+    };
+    this.events.on('input-autobuy-toggled', this.autoBuyToggleHandler);
   }
 
   /**
@@ -2017,6 +2031,12 @@ export class GameScene extends Phaser.Scene {
       this.dashAfterimageTimer = 0;
     }
 
+    // Update touch dash cooldown display
+    this.hudManager.updateDashCooldown(
+      dashState.cooldownRemaining,
+      this.playerStats.dashCooldown
+    );
+
     // ═══ GEM MAGNET (auto-vacuum at intervals) ═══
     const gemMagnetInterval = getMetaProgressionManager().getStartingGemMagnetInterval();
     if (gemMagnetInterval > 0 && this.playerId !== -1) {
@@ -2179,8 +2199,11 @@ export class GameScene extends Phaser.Scene {
     // Update laser beams
     this.updateLaserBeams(deltaSeconds);
 
-    // Update input state (joystick, keyboard, mouse sync)
+    // Update input state (joystick, keyboard, mouse, gamepad sync)
     const inputState = this.inputController.update();
+
+    // Update touch button visibility based on control mode
+    this.hudManager.updateTouchButtonVisibility(inputState.controlMode);
 
     // Run ECS systems
     inputSystem(this.world, inputState);
@@ -5383,6 +5406,18 @@ export class GameScene extends Phaser.Scene {
     if (this.dashRequestHandler) {
       this.events.off('input-dash-requested', this.dashRequestHandler);
       this.dashRequestHandler = null;
+    }
+
+    // Remove gamepad pause request handler
+    if (this.pauseRequestHandler) {
+      this.events.off('input-pause-requested', this.pauseRequestHandler);
+      this.pauseRequestHandler = null;
+    }
+
+    // Remove gamepad auto-buy toggle handler
+    if (this.autoBuyToggleHandler) {
+      this.events.off('input-autobuy-toggled', this.autoBuyToggleHandler);
+      this.autoBuyToggleHandler = null;
     }
 
     // Clean up input controller (joystick, focus handlers, shift key)

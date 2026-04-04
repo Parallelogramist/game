@@ -10,6 +10,7 @@ import { STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { MasteryIconEffectsManager } from '../../visual/MasteryIconEffectsManager';
 import { RunEvent, getActiveEvent } from '../../systems/EventSystem';
 import { getNextComboThreshold } from '../../systems/ComboSystem';
+import { TouchActionButtons } from '../../ui/TouchActionButtons';
 
 interface BossHealthBar {
   entityId: number;
@@ -122,6 +123,9 @@ export class HUDManager {
   private autoBuyToggleText: Phaser.GameObjects.Text | null = null;
   private autoBuyToggleBg: Phaser.GameObjects.Rectangle | null = null;
   private isAutoBuyEnabled: boolean = false;
+
+  // Touch action buttons (dash + fullscreen)
+  private touchActionButtons: TouchActionButtons | null = null;
 
   // Event indicator
   private eventIndicatorContainer: Phaser.GameObjects.Container | null = null;
@@ -481,8 +485,14 @@ export class HUDManager {
     // Auto-buy toggle UI (bottom right, above music controls)
     this.createAutoBuyToggle();
 
+    // Touch action buttons (dash + fullscreen, only visible for touch users)
+    this.touchActionButtons = new TouchActionButtons(this.scene, {
+      onDash: () => this.scene.events.emit('input-dash-requested'),
+      hudScale: this.hudScale,
+    });
+
     // FPS counter (bottom right corner, above auto-buy toggle)
-    const autoBuyToggleHeight = this.scaledSize(26);
+    const autoBuyToggleHeight = Math.max(this.scaledSize(26), 44);
     const fpsY = this.scene.scale.height - scaledPadding - autoBuyToggleHeight - scaledSpacing;
     this.fpsText = this.scene.add.text(this.scene.scale.width - scaledPadding, fpsY, 'FPS: --', {
       fontSize: this.scaledFontSize(14),
@@ -1309,14 +1319,14 @@ export class HUDManager {
 
     // --- Bottom-right elements ---
     if (this.fpsText) {
-      const autoBuyToggleHeight = this.scaledSize(26);
+      const autoBuyToggleHeight = Math.max(this.scaledSize(26), 44);
       const fpsY = height - scaledPadding - autoBuyToggleHeight - scaledSpacing;
       this.fpsText.setPosition(width - scaledPadding, fpsY);
     }
 
     if (this.autoBuyToggleBg && this.autoBuyToggleText) {
       const toggleWidth = this.scaledSize(190);
-      const toggleHeight = this.scaledSize(26);
+      const toggleHeight = Math.max(this.scaledSize(26), 44);
       const toggleX = width - scaledPadding - toggleWidth / 2;
       const toggleY = height - scaledPadding - toggleHeight / 2;
       this.autoBuyToggleBg.setPosition(toggleX, toggleY);
@@ -1331,6 +1341,11 @@ export class HUDManager {
           bar.container.setX(centerX);
         }
       }
+    }
+
+    // --- Touch action buttons ---
+    if (this.touchActionButtons) {
+      this.touchActionButtons.handleResize(width, height);
     }
 
   }
@@ -1463,6 +1478,12 @@ export class HUDManager {
       this.autoBuyToggleText.destroy();
       this.autoBuyToggleText = null;
     }
+
+    // Destroy touch action buttons
+    if (this.touchActionButtons) {
+      this.touchActionButtons.destroy();
+      this.touchActionButtons = null;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1488,7 +1509,7 @@ export class HUDManager {
     }
 
     const toggleWidth = this.scaledSize(190);
-    const toggleHeight = this.scaledSize(26);
+    const toggleHeight = Math.max(this.scaledSize(26), 44); // Min 44px for touch
     const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
     // Position with right edge at scaled padding from screen edge
     const toggleX = this.scene.scale.width - scaledPadding - toggleWidth / 2;
@@ -1559,6 +1580,34 @@ export class HUDManager {
       this.autoBuyToggleText.setText('[ AUTO-UPGRADE: OFF ]');
       this.autoBuyToggleText.setColor('#888888'); // Gray for inactive
       this.autoBuyToggleBg?.setStrokeStyle(2, 0x4a4a7a);
+    }
+  }
+
+  /**
+   * Update touch action button visibility based on current control mode.
+   * Shows buttons only when player is using touch input.
+   */
+  updateTouchButtonVisibility(controlMode: string): void {
+    if (this.touchActionButtons) {
+      this.touchActionButtons.setVisible(controlMode === 'joystick');
+    }
+  }
+
+  /**
+   * Update the dash cooldown visual on the touch dash button.
+   */
+  updateDashCooldown(remaining: number, total: number): void {
+    if (this.touchActionButtons) {
+      this.touchActionButtons.updateDashCooldown(remaining, total);
+    }
+  }
+
+  /**
+   * Enable or disable touch action buttons (e.g., during pause).
+   */
+  setTouchButtonsEnabled(isEnabled: boolean): void {
+    if (this.touchActionButtons) {
+      this.touchActionButtons.setEnabled(isEnabled);
     }
   }
 

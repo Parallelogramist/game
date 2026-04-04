@@ -8,6 +8,7 @@ import { getGameStateManager } from '../../save/GameStateManager';
 import { fadeOut, fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
+import { MenuNavigator } from '../../input/MenuNavigator';
 
 /**
  * BootScene handles initial setup and asset loading.
@@ -18,7 +19,7 @@ export class BootScene extends Phaser.Scene {
   private menuActions: (() => void)[] = [];
   private menuLabels: string[] = [];
   private selectedIndex: number = 0;
-  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
   private pulseTween: Phaser.Tweens.Tween | null = null;
   private confirmationOverlay: Phaser.GameObjects.Container | null = null;
   private soundManager!: SoundManager;
@@ -377,33 +378,23 @@ export class BootScene extends Phaser.Scene {
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
 
-    // Select first item by default
-    this.selectItem(0);
-
-    // Setup keyboard navigation (arrows + WASD)
-    this.keydownHandler = (event: KeyboardEvent) => {
-      // If confirmation dialog is open, handle it separately
-      if (this.confirmationOverlay) {
-        if (event.key === 'Escape') {
-          event.preventDefault();
+    // Setup keyboard + gamepad navigation via MenuNavigator
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: this.menuItems.map((_item, index) => ({
+        onFocus: () => this.selectItem(index),
+        onBlur: () => this.deselectItem(index),
+        onActivate: () => {
+          if (this.confirmationOverlay) return;
+          this.activateSelected();
+        },
+      })),
+      onCancel: () => {
+        if (this.confirmationOverlay) {
           this.hideNewGameConfirmation();
         }
-        return;
-      }
-
-      const key = event.key.toLowerCase();
-      if (event.key === 'ArrowDown' || key === 's') {
-        event.preventDefault();
-        this.selectNext();
-      } else if (event.key === 'ArrowUp' || key === 'w') {
-        event.preventDefault();
-        this.selectPrevious();
-      } else if (event.key === ' ' || event.key === 'Enter') {
-        event.preventDefault();
-        this.activateSelected();
-      }
-    };
-    this.input.keyboard?.on('keydown', this.keydownHandler);
+      },
+    });
   }
 
   /**
@@ -504,19 +495,19 @@ export class BootScene extends Phaser.Scene {
   /**
    * Selects a menu item by index and updates visual state.
    */
+  private deselectItem(index: number): void {
+    const item = this.menuItems[index];
+    if (item) {
+      item.setColor(item.getData('defaultColor') ?? '#888899');
+      item.setShadow(0, 0, 'transparent', 0);
+      item.setAlpha(1);
+    }
+  }
+
   private selectItem(index: number): void {
     if (index !== this.selectedIndex) {
       this.soundManager.playUIClick();
     }
-    // Update previous selection (remove highlight)
-    const previousItem = this.menuItems[this.selectedIndex];
-    if (previousItem) {
-      previousItem.setColor(previousItem.getData('defaultColor') ?? '#888899');
-      previousItem.setShadow(0, 0, 'transparent', 0);
-      previousItem.setAlpha(1);
-    }
-
-    // Update current selection — yellow with glow shadow
     this.selectedIndex = index;
     const currentItem = this.menuItems[this.selectedIndex];
     if (currentItem) {
@@ -540,22 +531,6 @@ export class BootScene extends Phaser.Scene {
   }
 
   /**
-   * Selects the next menu item (wraps around).
-   */
-  private selectNext(): void {
-    const nextIndex = (this.selectedIndex + 1) % this.menuItems.length;
-    this.selectItem(nextIndex);
-  }
-
-  /**
-   * Selects the previous menu item (wraps around).
-   */
-  private selectPrevious(): void {
-    const previousIndex = (this.selectedIndex - 1 + this.menuItems.length) % this.menuItems.length;
-    this.selectItem(previousIndex);
-  }
-
-  /**
    * Activates the currently selected menu item.
    */
   private activateSelected(): void {
@@ -569,9 +544,9 @@ export class BootScene extends Phaser.Scene {
    * Cleanup keyboard handlers when scene shuts down.
    */
   shutdown(): void {
-    if (this.keydownHandler) {
-      this.input.keyboard?.off('keydown', this.keydownHandler);
-      this.keydownHandler = null;
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
     }
     if (this.pulseTween) {
       this.pulseTween.stop();

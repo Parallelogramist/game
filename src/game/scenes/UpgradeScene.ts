@@ -4,6 +4,7 @@ import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
 import { TooltipManager } from '../../ui/TooltipManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
+import { MenuNavigator } from '../../input/MenuNavigator';
 
 /**
  * Data passed to UpgradeScene for initialization.
@@ -36,6 +37,7 @@ export class UpgradeScene extends Phaser.Scene {
   private upgradeCards: Phaser.GameObjects.Container[] = [];
   private cardBackgrounds: Phaser.GameObjects.Rectangle[] = [];
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private cardNavigator: MenuNavigator | null = null;
   private cardScaleFactor: number = 1;
   private soundManager!: SoundManager;
   private tooltipManager!: TooltipManager;
@@ -170,14 +172,63 @@ export class UpgradeScene extends Phaser.Scene {
     // Create utility buttons (reroll, skip, banish)
     this.createUtilityButtons();
 
-    // Single keyboard listener for all cards (prevents listener accumulation)
-    this.keydownHandler = (event: KeyboardEvent) => {
-      // Block all input while banish confirmation is open
-      if (this.banishConfirmElements.length > 0) {
-        if (event.key === 'Escape') {
+    // Gamepad/keyboard card navigation via MenuNavigator
+    this.cardNavigator = new MenuNavigator({
+      scene: this,
+      columns: this.upgrades.length, // Horizontal row of cards
+      items: this.upgradeCards.map((container, index) => ({
+        onFocus: () => {
+          const bg = this.cardBackgrounds[index];
+          if (bg) {
+            bg.setFillStyle(0x3a3a6a);
+            bg.setStrokeStyle(3, 0x88aaff);
+          }
+          this.tweens.killTweensOf(container);
+          this.tweens.add({
+            targets: container,
+            scaleX: this.cardScaleFactor * 1.05,
+            scaleY: this.cardScaleFactor * 1.05,
+            duration: 100,
+            ease: 'Back.easeOut',
+          });
+        },
+        onBlur: () => {
+          const bg = this.cardBackgrounds[index];
+          if (bg) {
+            bg.setFillStyle(0x2a2a4a);
+            bg.setStrokeStyle(3, 0x4a4a7a);
+          }
+          this.tweens.killTweensOf(container);
+          this.tweens.add({
+            targets: container,
+            scaleX: this.cardScaleFactor,
+            scaleY: this.cardScaleFactor,
+            duration: 80,
+            ease: 'Quad.easeOut',
+          });
+        },
+        onActivate: () => {
+          if (this.banishConfirmElements.length > 0) return;
+          if (this.isBanishMode) {
+            this.banishUpgrade(this.upgrades[index]);
+          } else {
+            this.selectUpgrade(this.upgrades[index]);
+          }
+        },
+      })),
+      onCancel: () => {
+        if (this.banishConfirmElements.length > 0) {
           this.destroyBanishConfirmation();
+        } else if (this.isBanishMode) {
+          this.toggleBanishMode();
         }
-        return;
+      },
+    });
+
+    // Additional keyboard shortcuts (number keys, R/X/B)
+    this.keydownHandler = (event: KeyboardEvent) => {
+      if (this.banishConfirmElements.length > 0) {
+        return; // MenuNavigator handles Escape via onCancel
       }
 
       const keyNumber = parseInt(event.key, 10);
@@ -188,20 +239,13 @@ export class UpgradeScene extends Phaser.Scene {
           this.selectUpgrade(this.upgrades[keyNumber - 1]);
         }
       }
-      // R for reroll
       if (event.key.toLowerCase() === 'r' && this.rerollsRemaining > 0) {
         this.handleReroll();
       }
-      // X for skip
       if (event.key.toLowerCase() === 'x' && this.skipsRemaining > 0) {
         this.handleSkip();
       }
-      // B for banish mode toggle
       if (event.key.toLowerCase() === 'b' && this.banishesRemaining > 0) {
-        this.toggleBanishMode();
-      }
-      // Escape to cancel banish mode
-      if (event.key === 'Escape' && this.isBanishMode) {
         this.toggleBanishMode();
       }
     };
@@ -271,7 +315,7 @@ export class UpgradeScene extends Phaser.Scene {
     tooltip?: string
   ): void {
     const buttonWidth = 140;
-    const buttonHeight = 40;
+    const buttonHeight = 44; // Min 44px for touch accessibility
 
     const background = this.add.rectangle(
       x,
@@ -503,6 +547,11 @@ export class UpgradeScene extends Phaser.Scene {
    */
   shutdown(): void {
     this.tooltipManager.destroy();
+    // Remove card navigator
+    if (this.cardNavigator) {
+      this.cardNavigator.destroy();
+      this.cardNavigator = null;
+    }
     // Remove keyboard listener
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);

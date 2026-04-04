@@ -16,6 +16,7 @@ import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
+import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -44,6 +45,7 @@ export class CodexScene extends Phaser.Scene {
   private selectedTabIndex: number = 0;
   private selectedCardIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
   private soundManager!: SoundManager;
 
   constructor() {
@@ -142,8 +144,9 @@ export class CodexScene extends Phaser.Scene {
     // Setup scroll input
     this.setupScrollInput();
 
-    // Setup keyboard navigation
-    this.setupKeyboardNavigation();
+    // Setup keyboard + gamepad navigation via MenuNavigator
+    // (replaces the old setupKeyboardNavigation for full keyboard + gamepad support)
+    this.buildMenuNavigator();
 
     // Initial focus visuals
     this.updateFocusVisuals();
@@ -153,6 +156,10 @@ export class CodexScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
@@ -253,6 +260,7 @@ export class CodexScene extends Phaser.Scene {
     this.scrollY = 0;
     this.updateTabVisuals();
     this.displayCategoryContent(categoryId);
+    this.buildMenuNavigator();
     this.updateFocusVisuals();
   }
 
@@ -752,155 +760,92 @@ export class CodexScene extends Phaser.Scene {
     });
   }
 
-  // --- Keyboard Navigation ---
+  /**
+   * Builds a MenuNavigator that mirrors the zone-based focus system
+   * to provide gamepad D-pad/stick/A/B button support.
+   * Items map to: [tabs...] + [grid cards...] + [back button].
+   */
+  private buildMenuNavigator(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+    }
 
-  private setupKeyboardNavigation(): void {
-    this.keydownHandler = (event: KeyboardEvent) => {
-      switch (event.key) {
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          event.preventDefault();
-          this.navigateDown();
-          break;
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          event.preventDefault();
-          this.navigateUp();
-          break;
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          event.preventDefault();
-          this.navigateLeft();
-          break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          event.preventDefault();
-          this.navigateRight();
-          break;
-        case 'Enter':
-        case ' ':
-          event.preventDefault();
-          this.activateCurrentSelection();
-          break;
-        case 'Escape':
-          event.preventDefault();
-          fadeOut(this, 150, () => this.scene.start('BootScene'));
-          break;
-      }
-    };
-    this.input.keyboard?.on('keydown', this.keydownHandler);
-  }
+    const navigableItems: NavigableItem[] = [];
 
-  private hasGridCards(): boolean {
-    return this.codexCards.length > 0;
-  }
+    // Add tab items
+    CODEX_CATEGORIES.forEach((_category, tabIndex) => {
+      navigableItems.push({
+        onFocus: () => {
+          this.focusZone = 'tabs';
+          this.selectedTabIndex = tabIndex;
+          this.selectCategoryByIndex(tabIndex);
+          this.updateFocusVisuals();
+        },
+        onBlur: () => {
+          this.updateFocusVisuals();
+        },
+        onActivate: () => {
+          this.selectCategoryByIndex(tabIndex);
+        },
+      });
+    });
 
-  private navigateDown(): void {
-    if (this.focusZone === 'tabs') {
-      if (this.hasGridCards()) {
-        this.focusZone = 'grid';
-        this.selectedCardIndex = 0;
-        this.ensureCardVisible();
-      } else {
+    // Add grid card items (codex cards are read-only, no activate action)
+    this.codexCards.forEach((_card, cardIndex) => {
+      navigableItems.push({
+        onFocus: () => {
+          this.focusZone = 'grid';
+          this.selectedCardIndex = cardIndex;
+          this.ensureCardVisible();
+          this.updateFocusVisuals();
+        },
+        onBlur: () => {
+          this.updateFocusVisuals();
+        },
+        onActivate: () => {
+          // Codex cards are informational only, no action on activate
+        },
+      });
+    });
+
+    // Add back button
+    navigableItems.push({
+      onFocus: () => {
         this.focusZone = 'back';
-      }
-    } else if (this.focusZone === 'grid') {
-      const totalCards = this.codexCards.length;
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-      const totalRows = Math.ceil(totalCards / this.columns);
+        this.updateFocusVisuals();
+      },
+      onBlur: () => {
+        this.updateFocusVisuals();
+      },
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+    });
 
-      if (currentRow < totalRows - 1) {
-        const newIndex = this.selectedCardIndex + this.columns;
-        this.selectedCardIndex = Math.min(newIndex, totalCards - 1);
-        this.ensureCardVisible();
-      } else {
-        this.focusZone = 'back';
-      }
-    } else if (this.focusZone === 'back') {
-      this.focusZone = 'tabs';
-    }
-    this.updateFocusVisuals();
-  }
+    const totalTabCount = CODEX_CATEGORIES.length;
+    const navigatorColumns = Math.max(totalTabCount, this.columns);
 
-  private navigateUp(): void {
-    if (this.focusZone === 'tabs') {
-      this.focusZone = 'back';
-    } else if (this.focusZone === 'grid') {
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-
-      if (currentRow > 0) {
-        this.selectedCardIndex -= this.columns;
-        this.ensureCardVisible();
-      } else {
-        this.focusZone = 'tabs';
-      }
-    } else if (this.focusZone === 'back') {
-      if (this.hasGridCards()) {
-        this.focusZone = 'grid';
-        const totalCards = this.codexCards.length;
-        const totalRows = Math.ceil(totalCards / this.columns);
-        const lastRowStart = (totalRows - 1) * this.columns;
-        this.selectedCardIndex = Math.min(lastRowStart, totalCards - 1);
-        this.ensureCardVisible();
-      } else {
-        this.focusZone = 'tabs';
-      }
-    }
-    this.updateFocusVisuals();
-  }
-
-  private navigateLeft(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectedTabIndex = Math.max(0, this.selectedTabIndex - 1);
-      this.selectCategoryByIndex(this.selectedTabIndex);
-    } else if (this.focusZone === 'grid') {
-      const currentCol = this.selectedCardIndex % this.columns;
-      if (currentCol > 0) {
-        this.selectedCardIndex--;
-      } else {
-        const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-        const rowEnd = Math.min((currentRow + 1) * this.columns - 1, this.codexCards.length - 1);
-        this.selectedCardIndex = rowEnd;
-      }
-    }
-    this.updateFocusVisuals();
-  }
-
-  private navigateRight(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectedTabIndex = Math.min(CODEX_CATEGORIES.length - 1, this.selectedTabIndex + 1);
-      this.selectCategoryByIndex(this.selectedTabIndex);
-    } else if (this.focusZone === 'grid') {
-      const currentCol = this.selectedCardIndex % this.columns;
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-      const rowStart = currentRow * this.columns;
-
-      if (currentCol < this.columns - 1 && this.selectedCardIndex < this.codexCards.length - 1) {
-        this.selectedCardIndex++;
-      } else {
-        this.selectedCardIndex = rowStart;
-      }
-    }
-    this.updateFocusVisuals();
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: navigableItems,
+      columns: navigatorColumns,
+      wrap: true,
+      onCancel: () => {
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+      initialIndex: this.focusZone === 'tabs'
+        ? this.selectedTabIndex
+        : this.focusZone === 'grid'
+          ? totalTabCount + this.selectedCardIndex
+          : navigableItems.length - 1,
+    });
   }
 
   private selectCategoryByIndex(tabIndex: number): void {
     const category = CODEX_CATEGORIES[tabIndex];
     if (category) {
       this.selectCategory(category.id);
-    }
-  }
-
-  private activateCurrentSelection(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectCategoryByIndex(this.selectedTabIndex);
-    } else if (this.focusZone === 'back') {
-      this.soundManager.playUIClick();
-      fadeOut(this, 150, () => this.scene.start('BootScene'));
     }
   }
 

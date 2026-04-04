@@ -8,12 +8,30 @@
 
 import Phaser from 'phaser';
 
-// Configuration
-const JOYSTICK_BASE_RADIUS = 70;
-const JOYSTICK_KNOB_RADIUS = 32;
-const JOYSTICK_DEAD_ZONE = 10;
+// Visual constants
 const JOYSTICK_ALPHA = 0.7;
 const JOYSTICK_DEPTH = 999;
+
+// Compute DPI-aware joystick sizing
+function computeJoystickSizes(): { baseRadius: number; knobRadius: number; deadZone: number } {
+  const devicePixelRatio = window.devicePixelRatio || 1;
+  const shorterSide = Math.min(window.innerWidth, window.innerHeight);
+
+  // Scale proportionally to screen size (70px base at 720px screen height)
+  const screenScale = shorterSide / 720;
+
+  // DPI boost for high-DPI phones (where CSS pixels are physically tiny)
+  const isPhone = shorterSide < 500;
+  const dpiBoost = isPhone && devicePixelRatio >= 2 ? 1.3 : 1.0;
+
+  const scaleFactor = screenScale * dpiBoost;
+
+  return {
+    baseRadius: Math.max(50, Math.min(120, Math.round(70 * scaleFactor))),
+    knobRadius: Math.max(20, Math.min(55, Math.round(32 * scaleFactor))),
+    deadZone: Math.max(6, Math.min(18, Math.round(10 * scaleFactor))),
+  };
+}
 
 interface JoystickState {
   active: boolean;
@@ -32,6 +50,11 @@ export class JoystickManager {
   private activePointerId: number = -1;
   private enabled: boolean = true;
 
+  // DPI-aware sizes computed at construction
+  private readonly baseRadius: number;
+  private readonly knobRadius: number;
+  private readonly deadZone: number;
+
   private state: JoystickState = {
     active: false,
     baseX: 0,
@@ -42,6 +65,10 @@ export class JoystickManager {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+    const sizes = computeJoystickSizes();
+    this.baseRadius = sizes.baseRadius;
+    this.knobRadius = sizes.knobRadius;
+    this.deadZone = sizes.deadZone;
     this.setupPointerEvents();
   }
 
@@ -118,23 +145,23 @@ export class JoystickManager {
     this.state.directionY = 0;
 
     // Create shadow behind base for contrast against light backgrounds
-    this.baseShadow = this.scene.add.circle(x + 2, y + 2, JOYSTICK_BASE_RADIUS, 0x000000, 0.3);
+    this.baseShadow = this.scene.add.circle(x + 2, y + 2, this.baseRadius, 0x000000, 0.3);
     this.baseShadow.setDepth(JOYSTICK_DEPTH - 1);
     this.baseShadow.setScrollFactor(0);
 
     // Create base circle (outer ring)
-    this.baseCircle = this.scene.add.circle(x, y, JOYSTICK_BASE_RADIUS, 0xffffff, 0.22);
+    this.baseCircle = this.scene.add.circle(x, y, this.baseRadius, 0xffffff, 0.22);
     this.baseCircle.setStrokeStyle(3, 0xffffff, JOYSTICK_ALPHA);
     this.baseCircle.setDepth(JOYSTICK_DEPTH);
     this.baseCircle.setScrollFactor(0);
 
     // Create shadow behind knob for contrast
-    this.knobShadow = this.scene.add.circle(x + 2, y + 2, JOYSTICK_KNOB_RADIUS, 0x000000, 0.3);
+    this.knobShadow = this.scene.add.circle(x + 2, y + 2, this.knobRadius, 0x000000, 0.3);
     this.knobShadow.setDepth(JOYSTICK_DEPTH);
     this.knobShadow.setScrollFactor(0);
 
     // Create knob circle (inner thumb)
-    this.knobCircle = this.scene.add.circle(x, y, JOYSTICK_KNOB_RADIUS, 0xffffff, JOYSTICK_ALPHA);
+    this.knobCircle = this.scene.add.circle(x, y, this.knobRadius, 0xffffff, JOYSTICK_ALPHA);
     this.knobCircle.setDepth(JOYSTICK_DEPTH + 1);
     this.knobCircle.setScrollFactor(0);
   }
@@ -147,7 +174,7 @@ export class JoystickManager {
     const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
     // Calculate max radius for knob movement
-    const maxRadius = JOYSTICK_BASE_RADIUS - JOYSTICK_KNOB_RADIUS;
+    const maxRadius = this.baseRadius - this.knobRadius;
 
     // Clamp knob position within the base circle
     let clampedX = deltaX;
@@ -168,7 +195,7 @@ export class JoystickManager {
     }
 
     // Calculate normalized direction (-1 to 1)
-    if (distance > JOYSTICK_DEAD_ZONE) {
+    if (distance > this.deadZone) {
       this.state.directionX = clampedX / maxRadius;
       this.state.directionY = clampedY / maxRadius;
     } else {

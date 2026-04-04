@@ -10,6 +10,7 @@
 import Phaser from 'phaser';
 import { InputState } from '../../ecs/systems/InputSystem';
 import { JoystickManager } from '../../ui/JoystickManager';
+import { GamepadManager, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START, GAMEPAD_BUTTON_SELECT } from '../../input/GamepadManager';
 import { TUNING } from '../../data/GameTuning';
 import { getSprite } from '../../ecs/systems/SpriteSystem';
 import { PLAYER_NEON } from '../../visual/NeonColors';
@@ -35,6 +36,9 @@ export class InputController {
 
   // Virtual joystick for touch devices
   private joystickManager: JoystickManager | null = null;
+
+  // Gamepad controller
+  private gamepadManager: GamepadManager | null = null;
 
   // Dash ability state
   private dashCooldownTimer: number = 0;
@@ -81,6 +85,27 @@ export class InputController {
       this.inputState.joystickY = joystickDirection.y;
     }
 
+    // Update gamepad input
+    if (this.gamepadManager) {
+      this.gamepadManager.update();
+      const stick = this.gamepadManager.getLeftStick();
+      this.inputState.gamepadX = stick.x;
+      this.inputState.gamepadY = stick.y;
+
+      // Gamepad dash: RB shoulder button
+      if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_RB)) {
+        this.scene.events.emit('input-dash-requested');
+      }
+      // Gamepad pause: Start button
+      if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_START)) {
+        this.scene.events.emit('input-pause-requested');
+      }
+      // Gamepad auto-buy toggle: Select/Back button
+      if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_SELECT)) {
+        this.scene.events.emit('input-autobuy-toggled');
+      }
+    }
+
     // Update control mode based on actual input device usage
     const activePointer = this.scene.input.activePointer;
 
@@ -95,6 +120,9 @@ export class InputController {
 
     if (this.inputState.joystickX !== 0 || this.inputState.joystickY !== 0) {
       this.inputState.controlMode = 'joystick';
+      this.inputState.hasClickTarget = false;
+    } else if (this.inputState.gamepadX !== 0 || this.inputState.gamepadY !== 0) {
+      this.inputState.controlMode = 'gamepad';
       this.inputState.hasClickTarget = false;
     } else if (keyboardIsActive) {
       this.inputState.controlMode = 'keyboard';
@@ -164,7 +192,14 @@ export class InputController {
     if (this.inputState.cursors.up.isDown || this.inputState.wasd.W.isDown) directionY -= 1;
     if (this.inputState.cursors.down.isDown || this.inputState.wasd.S.isDown) directionY += 1;
 
-    // If not moving, dash toward cursor
+    // If not moving via keyboard, try gamepad stick
+    if (directionX === 0 && directionY === 0 && this.gamepadManager) {
+      const stick = this.gamepadManager.getLeftStick();
+      directionX = stick.x;
+      directionY = stick.y;
+    }
+
+    // If still not moving, dash toward cursor
     if (directionX === 0 && directionY === 0) {
       const pointer = this.scene.input.activePointer;
       directionX = pointer.worldX - playerX;
@@ -214,6 +249,13 @@ export class InputController {
    */
   getInputState(): InputState {
     return this.inputState;
+  }
+
+  /**
+   * Returns the GamepadManager for use in menu navigation.
+   */
+  getGamepadManager(): GamepadManager | null {
+    return this.gamepadManager;
   }
 
   /**
@@ -269,6 +311,12 @@ export class InputController {
       this.joystickManager = null;
     }
 
+    // Clean up gamepad manager
+    if (this.gamepadManager) {
+      this.gamepadManager.destroy();
+      this.gamepadManager = null;
+    }
+
     // Remove focus/visibility change handlers
     if (this.handleVisibilityChange) {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
@@ -297,6 +345,8 @@ export class InputController {
       },
       joystickX: 0,
       joystickY: 0,
+      gamepadX: 0,
+      gamepadY: 0,
       mouseX: 0,
       mouseY: 0,
       mouseActive: false,
@@ -328,6 +378,9 @@ export class InputController {
 
     // Create virtual joystick for touch input
     this.joystickManager = new JoystickManager(this.scene);
+
+    // Create gamepad manager for controller input
+    this.gamepadManager = new GamepadManager(this.scene);
   }
 
   /**
