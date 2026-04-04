@@ -138,7 +138,6 @@ export class HUDManager {
 
   // Combo feedback state
   private previousComboCount: number = 0;
-  private previousComboTier: string = 'none';
   private comboBuffText: Phaser.GameObjects.Text | null = null;
 
   // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
@@ -656,7 +655,6 @@ export class HUDManager {
     }
 
     this.previousComboCount = state.comboCount;
-    this.previousComboTier = state.comboTier;
 
     // Update XP bar
     const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
