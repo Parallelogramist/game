@@ -39,6 +39,7 @@ export class UpgradeScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private cardNavigator: MenuNavigator | null = null;
   private cardScaleFactor: number = 1;
+  private entranceComplete: boolean = false;
   private soundManager!: SoundManager;
   private tooltipManager!: TooltipManager;
 
@@ -90,6 +91,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.upgradeCards = [];
     this.cardBackgrounds = [];
     this.cardScaleFactor = 1;
+    this.entranceComplete = false;
     this.soundManager = new SoundManager(this);
     this.tooltipManager = new TooltipManager(this);
 
@@ -178,6 +180,7 @@ export class UpgradeScene extends Phaser.Scene {
       columns: this.upgrades.length, // Horizontal row of cards
       items: this.upgradeCards.map((container, index) => ({
         onFocus: () => {
+          if (!this.entranceComplete) return;
           const bg = this.cardBackgrounds[index];
           if (bg) {
             bg.setFillStyle(0x3a3a6a);
@@ -193,6 +196,7 @@ export class UpgradeScene extends Phaser.Scene {
           });
         },
         onBlur: () => {
+          if (!this.entranceComplete) return;
           const bg = this.cardBackgrounds[index];
           if (bg) {
             bg.setFillStyle(0x2a2a4a);
@@ -208,6 +212,7 @@ export class UpgradeScene extends Phaser.Scene {
           });
         },
         onActivate: () => {
+          if (!this.entranceComplete) return;
           if (this.banishConfirmElements.length > 0) return;
           if (this.isBanishMode) {
             this.banishUpgrade(this.upgrades[index]);
@@ -227,6 +232,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Additional keyboard shortcuts (number keys, R/X/B)
     this.keydownHandler = (event: KeyboardEvent) => {
+      if (!this.entranceComplete) return;
       if (this.banishConfirmElements.length > 0) {
         return; // MenuNavigator handles Escape via onCancel
       }
@@ -766,6 +772,7 @@ export class UpgradeScene extends Phaser.Scene {
 
     // Hover effects (scale relative to cardScaleFactor)
     cardBackground.on('pointerover', () => {
+      if (!this.entranceComplete) return;
       this.soundManager.playUIClick();
       cardBackground.setFillStyle(0x3a3a6a);
       cardBackground.setStrokeStyle(3, 0x88aaff);
@@ -780,6 +787,7 @@ export class UpgradeScene extends Phaser.Scene {
     });
 
     cardBackground.on('pointerout', () => {
+      if (!this.entranceComplete) return;
       cardBackground.setFillStyle(0x2a2a4a);
       cardBackground.setStrokeStyle(3, 0x4a4a7a);
       this.tweens.killTweensOf(container);
@@ -793,6 +801,7 @@ export class UpgradeScene extends Phaser.Scene {
     });
 
     cardBackground.on('pointerdown', () => {
+      if (!this.entranceComplete) return;
       this.selectUpgrade(upgrade);
     });
 
@@ -959,7 +968,10 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private animateEntrance(): void {
-    // Animate cards sliding up
+    const lastCardIndex = this.upgradeCards.length - 1;
+    const entranceDuration = lastCardIndex * 100 + 400;
+
+    // Animate cards sliding up with staggered delays
     this.upgradeCards.forEach((card, index) => {
       const targetY = card.y;
       card.y = this.scale.height + 200;
@@ -973,6 +985,11 @@ export class UpgradeScene extends Phaser.Scene {
         delay: index * 100,
         ease: 'Back.easeOut',
       });
+    });
+
+    // Enable interaction after all cards have finished animating in
+    this.time.delayedCall(entranceDuration, () => {
+      this.entranceComplete = true;
     });
   }
 }
