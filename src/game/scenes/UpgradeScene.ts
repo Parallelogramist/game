@@ -361,7 +361,6 @@ export class UpgradeScene extends Phaser.Scene {
         background.setFillStyle(0x3a3a6a);
       });
       background.on('pointerdown', onClick);
-      addButtonInteraction(this, background);
     }
 
     if (tooltip) {

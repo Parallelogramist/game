@@ -200,10 +200,23 @@ export function healthPickupSystem(world: IWorld, deltaTime: number, gameTime: n
 }
 
 /**
+ * Magnetizes all health pickups on screen (used when magnet pickup is collected).
+ */
+export function magnetizeAllHealthPickups(world: IWorld): void {
+  const pickups = healthPickupQuery(world);
+  for (let i = 0; i < pickups.length; i++) {
+    HealthPickup.magnetized[pickups[i]] = 1;
+  }
+}
+
+/**
  * Resets all module-level state in HealthPickupSystem.
  * Must be called when starting a new game to clear state from previous runs.
  */
 export function resetHealthPickupSystem(): void {
   currentMagnetRange = 60; // Reset to default
   onHealthCollectCallback = null;
+  sceneReference = null;
+  effectsManager = null;
+  soundManager = null;
 }

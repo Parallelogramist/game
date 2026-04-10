@@ -37,6 +37,8 @@ export class ShurikenWeapon extends BaseWeapon {
   private spiralFrequency: number = 8;
   private currentQuality: VisualQuality = 'high';
   private poolInitialized: boolean = false;
+  // OPTIMIZATION: Reuse across checkForMerge calls instead of allocating per frame
+  private alreadyMerging: Set<Shuriken> = new Set();
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -384,34 +386,26 @@ export class ShurikenWeapon extends BaseWeapon {
   }
 
   private checkForMerge(ctx: WeaponContext): void {
-    const mergeDistanceSq = 20 * 20;
-    const toMerge: [Shuriken, Shuriken][] = [];
-    const alreadyMerging = new Set<Shuriken>();
+    const mergeDistanceSq = 400; // 20 * 20
+    this.alreadyMerging.clear();
 
-    const activeShurikens = this.pool.filter(s => s.active && !s.isCyclone);
+    for (let i = 0; i < this.pool.length; i++) {
+      const s1 = this.pool[i];
+      if (!s1.active || s1.isCyclone || this.alreadyMerging.has(s1)) continue;
 
-    for (let i = 0; i < activeShurikens.length; i++) {
-      const s1 = activeShurikens[i];
-      if (alreadyMerging.has(s1)) continue;
-
-      for (let j = i + 1; j < activeShurikens.length; j++) {
-        const s2 = activeShurikens[j];
-        if (alreadyMerging.has(s2)) continue;
+      for (let j = i + 1; j < this.pool.length; j++) {
+        const s2 = this.pool[j];
+        if (!s2.active || s2.isCyclone || this.alreadyMerging.has(s2)) continue;
 
         const dx = s1.x - s2.x;
         const dy = s1.y - s2.y;
-        const distSq = dx * dx + dy * dy;
-        if (distSq < mergeDistanceSq) {
-          toMerge.push([s1, s2]);
-          alreadyMerging.add(s1);
-          alreadyMerging.add(s2);
+        if (dx * dx + dy * dy < mergeDistanceSq) {
+          this.alreadyMerging.add(s1);
+          this.alreadyMerging.add(s2);
+          this.mergeToCyclone(ctx, s1, s2);
           break;
         }
       }
-    }
-
-    for (const [s1, s2] of toMerge) {
-      this.mergeToCyclone(ctx, s1, s2);
     }
   }
 

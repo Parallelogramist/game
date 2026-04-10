@@ -27,6 +27,9 @@ export class FlamethrowerWeapon extends BaseWeapon {
   private emberBuffer: { x: number; y: number; age: number }[] = [];
   private readonly MAX_EMBERS = 12;
 
+  // Deterministic cleanup timer (replaces random 1% check)
+  private cleanupTimer: number = 0;
+
   constructor() {
     const baseStats: WeaponStats = {
       damage: 8,
@@ -248,6 +251,12 @@ export class FlamethrowerWeapon extends BaseWeapon {
    */
   private drawShimmerLines(ctx: WeaponContext, coneAngleHalf: number, coneRange: number): void {
     const perpAngle = this.lastAimAngle + Math.PI / 2;
+    // Cache trig values used in every segment iteration
+    const cosPerp = Math.cos(perpAngle);
+    const sinPerp = Math.sin(perpAngle);
+    const cosAim = Math.cos(this.lastAimAngle);
+    const sinAim = Math.sin(this.lastAimAngle);
+    const sinConeHalf = Math.sin(coneAngleHalf);
 
     let shimmerDistances: number[];
     let shimmerLineCount: number;
@@ -275,9 +284,10 @@ export class FlamethrowerWeapon extends BaseWeapon {
 
     for (let shimmerIndex = 0; shimmerIndex < shimmerLineCount; shimmerIndex++) {
       const distanceFraction = shimmerDistances[shimmerIndex];
-      const lineCenterX = ctx.playerX + Math.cos(this.lastAimAngle) * coneRange * distanceFraction;
-      const lineCenterY = ctx.playerY + Math.sin(this.lastAimAngle) * coneRange * distanceFraction;
-      const halfSpread = coneRange * distanceFraction * Math.sin(coneAngleHalf) * 0.8;
+      const rangeFraction = coneRange * distanceFraction;
+      const lineCenterX = ctx.playerX + cosAim * rangeFraction;
+      const lineCenterY = ctx.playerY + sinAim * rangeFraction;
+      const halfSpread = rangeFraction * sinConeHalf * 0.8;
 
       const lineColor = shimmerColors ? shimmerColors[shimmerIndex] : 0x88ccff;
       this.coneGraphics!.lineStyle(1, lineColor, shimmerAlpha);
@@ -288,8 +298,8 @@ export class FlamethrowerWeapon extends BaseWeapon {
         const segmentFraction = segmentIndex / shimmerSegments;
         const spreadOffset = (segmentFraction - 0.5) * 2 * halfSpread;
         const sineWobble = Math.sin(ctx.gameTime * 4 + shimmerIndex * 2 + segmentFraction * Math.PI * 2) * wobbleAmplitude;
-        const pointX = lineCenterX + Math.cos(perpAngle) * spreadOffset + Math.cos(this.lastAimAngle) * sineWobble;
-        const pointY = lineCenterY + Math.sin(perpAngle) * spreadOffset + Math.sin(this.lastAimAngle) * sineWobble;
+        const pointX = lineCenterX + cosPerp * spreadOffset + cosAim * sineWobble;
+        const pointY = lineCenterY + sinPerp * spreadOffset + sinAim * sineWobble;
         if (segmentIndex === 0) {
           this.coneGraphics!.moveTo(pointX, pointY);
         } else {
@@ -447,15 +457,16 @@ export class FlamethrowerWeapon extends BaseWeapon {
       }
     }
 
-    // Clean up old cooldowns and burn times
-    if (Math.random() < 0.01) {
+    // Deterministic cleanup of old cooldowns, burn times, and dead ignited enemies
+    this.cleanupTimer += ctx.deltaTime;
+    if (this.cleanupTimer > 2.0) {
+      this.cleanupTimer = 0;
       for (const [enemyId, time] of this.hitCooldowns) {
         if (ctx.gameTime - time > 2) {
           this.hitCooldowns.delete(enemyId);
-          // Also decay burn time for enemies not being hit
           const currentBurn = this.burnTime.get(enemyId);
           if (currentBurn !== undefined) {
-            const newBurn = currentBurn - 0.5; // Decay burn time
+            const newBurn = currentBurn - 0.5;
             if (newBurn <= 0) {
               this.burnTime.delete(enemyId);
               this.ignitedEnemies.delete(enemyId);
@@ -463,6 +474,13 @@ export class FlamethrowerWeapon extends BaseWeapon {
               this.burnTime.set(enemyId, newBurn);
             }
           }
+        }
+      }
+      // Prune dead enemies from ignited set
+      for (const enemyId of this.ignitedEnemies) {
+        if (Health.current[enemyId] <= 0) {
+          this.ignitedEnemies.delete(enemyId);
+          this.burnTime.delete(enemyId);
         }
       }
     }

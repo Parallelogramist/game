@@ -415,9 +415,12 @@ export class DeathRippleManager {
   /**
    * Update overlay positions and alpha for all pulsing enemies.
    */
+  private overlayRemoveBuffer: number[] = [];
+
   private updateEnemyOverlays(_deltaSeconds: number): void {
     const currentTime = this.pulseTime;
-    const toRemove: number[] = [];
+    this.overlayRemoveBuffer.length = 0;
+    const toRemove = this.overlayRemoveBuffer;
 
     for (const [entityId, state] of this.enemyPulseStates) {
       const elapsed = currentTime - state.startTime;

@@ -181,9 +181,12 @@ export function getFreezeMultiplier(world: IWorld, entityId: number): number {
  * - Freezes slow movement (handled in EnemyAISystem)
  * - Poisons deal stacking damage over time
  */
+const enemiesToKillBuffer: number[] = [];
+
 export function statusEffectSystem(world: IWorld, deltaMs: number): IWorld {
   const entities = statusEffectQuery(world);
-  const enemiesToKill: number[] = [];
+  enemiesToKillBuffer.length = 0;
+  const enemiesToKill = enemiesToKillBuffer;
 
   for (let i = 0; i < entities.length; i++) {
     const entityId = entities[i];

@@ -65,6 +65,15 @@ export class SpatialHash {
 
   query(x: number, y: number, radius: number): SpatialEntity[] {
     const results: SpatialEntity[] = [];
+    this.queryInto(x, y, radius, results);
+    return results;
+  }
+
+  /**
+   * Query entities into a caller-provided buffer to avoid allocation.
+   * Buffer is NOT cleared — caller must set .length = 0 before calling if reusing.
+   */
+  queryInto(x: number, y: number, radius: number, results: SpatialEntity[]): void {
     const radiusSquared = radius * radius;
 
     const minCellX = Math.floor((x - radius) / this.cellSize);
@@ -91,12 +100,19 @@ export class SpatialHash {
         }
       }
     }
-
-    return results;
   }
 
   queryIds(x: number, y: number, radius: number): number[] {
     const results: number[] = [];
+    this.queryIdsInto(x, y, radius, results);
+    return results;
+  }
+
+  /**
+   * Query entity IDs into a caller-provided buffer to avoid allocation.
+   * Buffer is NOT cleared — caller must set .length = 0 before calling if reusing.
+   */
+  queryIdsInto(x: number, y: number, radius: number, results: number[]): void {
     const radiusSquared = radius * radius;
 
     const minCellX = Math.floor((x - radius) / this.cellSize);
@@ -123,8 +139,6 @@ export class SpatialHash {
         }
       }
     }
-
-    return results;
   }
 
   /**
@@ -207,16 +221,20 @@ export class SpatialHash {
   findNearestN(x: number, y: number, maxRadius: number, count: number, excludeIds?: Set<number>): SpatialEntity[] {
     const candidates = this.query(x, y, maxRadius);
 
-    const withDistances = candidates
-      .filter(entity => !excludeIds || !excludeIds.has(entity.id))
-      .map(entity => {
-        const dx = entity.x - x;
-        const dy = entity.y - y;
-        return { entity, distSquared: dx * dx + dy * dy };
-      })
-      .sort((a, b) => a.distSquared - b.distSquared);
-
-    return withDistances.slice(0, count).map(item => item.entity);
+    // Single pass: filter + annotate distance in-place (query() returns a fresh array)
+    let validCount = 0;
+    for (let i = 0; i < candidates.length; i++) {
+      const entity = candidates[i];
+      if (excludeIds && excludeIds.has(entity.id)) continue;
+      const dx = entity.x - x;
+      const dy = entity.y - y;
+      (entity as any)._distSq = dx * dx + dy * dy;
+      candidates[validCount++] = entity;
+    }
+    candidates.length = validCount;
+    candidates.sort((a, b) => (a as any)._distSq - (b as any)._distSq);
+    if (candidates.length > count) candidates.length = count;
+    return candidates;
   }
 
   get size(): number {

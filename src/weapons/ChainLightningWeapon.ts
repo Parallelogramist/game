@@ -11,12 +11,13 @@ import { getJuiceManager } from '../effects/JuiceManager';
 export class ChainLightningWeapon extends BaseWeapon {
   private lightningGraphics: Phaser.GameObjects.Graphics | null = null;
 
-  // OPTIMIZATION: Pre-allocated arrays to avoid per-attack allocations
+  // OPTIMIZATION: Pre-allocated arrays/sets to avoid per-attack allocations
   private chainTargetsTemp: { id: number; x: number; y: number }[] = [];
   private allConnectionsTemp: { from: { x: number; y: number }; to: { x: number; y: number } }[] = [];
   private allTargetsTemp: { id: number; x: number; y: number }[] = [];
   private currentSourcesTemp: { x: number; y: number }[] = [];
   private nextSourcesTemp: { x: number; y: number }[] = [];
+  private hitEnemiesSet = new Set<number>();
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -64,9 +65,10 @@ export class ChainLightningWeapon extends BaseWeapon {
       return;
     }
 
-    // OPTIMIZATION: Reuse pre-allocated array
+    // OPTIMIZATION: Reuse pre-allocated array and set
     this.chainTargetsTemp.length = 0;
-    const hitEnemies = new Set<number>();
+    this.hitEnemiesSet.clear();
+    const hitEnemies = this.hitEnemiesSet;
 
     // Add first target
     this.chainTargetsTemp.push({
@@ -144,7 +146,8 @@ export class ChainLightningWeapon extends BaseWeapon {
     firstTargetId: number
   ): void {
     const spatialHash = getEnemySpatialHash();
-    const hitEnemies = new Set<number>();
+    this.hitEnemiesSet.clear();
+    const hitEnemies = this.hitEnemiesSet;
     // OPTIMIZATION: Reuse pre-allocated arrays
     this.allConnectionsTemp.length = 0;
     this.allTargetsTemp.length = 0;

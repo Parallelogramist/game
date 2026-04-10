@@ -2,6 +2,7 @@ import { defineQuery, removeEntity, addEntity, addComponent, IWorld } from 'bite
 import { Transform, MagnetPickup, MagnetPickupTag, PlayerTag, SpriteRef } from '../components';
 import { getSprite, unregisterSprite, registerSprite } from './SpriteSystem';
 import { magnetizeAllGems } from './XPGemSystem';
+import { magnetizeAllHealthPickups } from './HealthPickupSystem';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
 
@@ -224,8 +225,9 @@ export function magnetPickupSystem(world: IWorld, deltaTime: number, gameTime: n
     if (distanceSq < collectRangeSq) {
       pickupsToRemove.push(pickupId);
 
-      // Magnetize ALL XP gems to home toward the player!
+      // Magnetize ALL XP gems and health pickups to home toward the player!
       magnetizeAllGems(world);
+      magnetizeAllHealthPickups(world);
 
       // Play collection effects
       if (effectsManager) {
@@ -285,6 +287,7 @@ export function magnetPickupSystem(world: IWorld, deltaTime: number, gameTime: n
  * Must be called when starting a new game to clear state from previous runs.
  */
 export function resetMagnetPickupSystem(): void {
-  // No critical state to reset, but included for consistency
-  // Scene/effects/sound refs get overwritten in create() anyway
+  sceneReference = null;
+  effectsManager = null;
+  soundManager = null;
 }

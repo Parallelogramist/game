@@ -193,11 +193,11 @@ export class HomingMissileWeapon extends BaseWeapon {
 
       const dx = targetX - mx;
       const dy = targetY - my;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const angle = Math.atan2(dy, dx);
+      const distSq = dx * dx + dy * dy;
 
-      // Hit detection
-      if (dist < 20) {
+      // Hit detection (distSq avoids sqrt)
+      if (distSq < 400) { // 20^2
+        const angle = Math.atan2(dy, dx);
         ctx.damageEnemy(missile.targetId, missile.damage, 150);
         ctx.effectsManager.playHitSparks(mx, my, angle);
 
@@ -245,7 +245,9 @@ export class HomingMissileWeapon extends BaseWeapon {
         continue;
       }
 
-      // Move toward target
+      // Move toward target (sqrt needed for normalization)
+      const dist = Math.sqrt(distSq);
+      const angle = Math.atan2(dy, dx);
       missile.actualX += (dx / dist) * missile.speed * ctx.deltaTime;
       missile.actualY += (dy / dist) * missile.speed * ctx.deltaTime;
 

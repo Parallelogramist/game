@@ -220,8 +220,8 @@ export class MasteryVisualsManager {
             Math.cos(angle) * radius,
             Math.sin(angle) * radius
           );
-          // Flicker by redrawing occasionally
-          if (Math.random() < 0.3) {
+          // Deterministic flicker based on time instead of random
+          if (Math.sin(time * 3.7 + i * 2.1) > 0.4) {
             drawLightningBolt(spark, time + i);
           }
         });

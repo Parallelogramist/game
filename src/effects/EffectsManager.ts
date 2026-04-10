@@ -47,6 +47,18 @@ export class EffectsManager {
   // Pre-computed color hex strings to avoid per-frame string allocation
   private colorHexCache = new Map<number, string>();
 
+  // Pre-computed shimmer palette for perfect crit color animation (gold → white → gold)
+  private static readonly SHIMMER_PALETTE: string[] = (() => {
+    const palette: string[] = [];
+    for (let i = 0; i < 32; i++) {
+      const shimmerIntensity = i / 31;
+      const green = Math.round(215 + (255 - 215) * shimmerIntensity);
+      const blue = Math.round(255 * shimmerIntensity);
+      palette.push('#ff' + green.toString(16).padStart(2, '0') + blue.toString(16).padStart(2, '0'));
+    }
+    return palette;
+  })();
+
   // Throttling for mass death events
   private lastDeathBurstTime: number = 0;
   private readonly DEATH_BURST_COOLDOWN = 16; // ~60fps max
@@ -176,7 +188,7 @@ export class EffectsManager {
    * @param color - Optional tint color for the explosion (default: red)
    */
   playDeathBurst(x: number, y: number, color?: number): void {
-    const now = Date.now();
+    const now = this.scene.time.now;
     if (now - this.lastDeathBurstTime < this.DEATH_BURST_COOLDOWN) {
       return; // Skip to maintain framerate
     }
@@ -450,17 +462,10 @@ export class EffectsManager {
       if (pooledNumber.isPerfectCrit) {
         pooledNumber.shimmerPhase += deltaMs * 0.005; // Smooth pulse speed
 
-        // Smooth sine wave for color shimmer (gold → white → gold)
+        // Smooth sine wave for color shimmer (gold → white → gold) via pre-computed palette
         const shimmerIntensity = (Math.sin(pooledNumber.shimmerPhase * Math.PI * 2) + 1) * 0.5;
-
-        // Interpolate between gold (#ffd700: R=255, G=215, B=0) and white (#ffffff)
-        const red = 255;
-        const green = Math.round(215 + (255 - 215) * shimmerIntensity);
-        const blue = Math.round(0 + 255 * shimmerIntensity);
-        const hexColor = '#' + red.toString(16).padStart(2, '0') +
-                                green.toString(16).padStart(2, '0') +
-                                blue.toString(16).padStart(2, '0');
-        pooledNumber.text.setColor(hexColor);
+        const paletteIndex = Math.floor(shimmerIntensity * 31);
+        pooledNumber.text.setColor(EffectsManager.SHIMMER_PALETTE[paletteIndex]);
 
         // Emit gold sparkles at random intervals (capped at 5 emissions per frame to prevent particle explosion)
         if (sparkleEmissionsThisFrame < 5 && pooledNumber.elapsed >= pooledNumber.nextSparkleTime && this.goldSparkleEmitter) {
@@ -491,6 +496,14 @@ export class EffectsManager {
    * Clean up all effects resources.
    */
   destroy(): void {
+    // Stop emitters before destroying to prevent stray particles during shutdown
+    this.deathFlashEmitter?.stop();
+    this.deathBurstEmitter?.stop();
+    this.deathGlowEmitter?.stop();
+    this.hitSparkEmitter?.stop();
+    this.xpSparkleEmitter?.stop();
+    this.goldSparkleEmitter?.stop();
+
     this.deathFlashEmitter?.destroy();
     this.deathBurstEmitter?.destroy();
     this.deathGlowEmitter?.destroy();

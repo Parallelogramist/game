@@ -506,6 +506,7 @@ export class BootScene extends Phaser.Scene {
 
   private selectItem(index: number): void {
     if (index !== this.selectedIndex) {
+      this.deselectItem(this.selectedIndex);
       this.soundManager.playUIClick();
     }
     this.selectedIndex = index;

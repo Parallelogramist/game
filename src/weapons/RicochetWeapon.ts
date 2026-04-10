@@ -1,5 +1,5 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
-import { Transform } from '../ecs/components';
+import { Transform, Health } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
@@ -330,6 +330,7 @@ export class RicochetWeapon extends BaseWeapon {
         const distSq = dx * dx + dy * dy;
 
         if (distSq < collisionRadiusSq) {
+          if (Health.current[enemyId] <= 0) continue;
           ctx.damageEnemy(enemyId, ball.damage, 100);
           ball.hitEnemies.add(enemyId);
           hitsThisFrame++;

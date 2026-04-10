@@ -734,6 +734,23 @@ const UTILITY_UPGRADES: PermanentUpgrade[] = [
     costScaling: 2.2,
     getEffect: (level) => (level > 0 ? `First ${level} min at 75% speed` : 'No bonus'),
   },
+  {
+    id: 'chestDroneLevel',
+    name: 'Chest Drone',
+    description: 'Chests fly to you automatically',
+    icon: 'sunbeam',
+    category: 'utility',
+    unlockLevel: 20,
+    maxLevel: 3,
+    baseCost: 300,
+    costScaling: 2.0,
+    getEffect: (level) => {
+      if (level === 1) return 'Chests fly to you after 5s';
+      if (level === 2) return 'Chests fly to you after 2s';
+      if (level === 3) return 'Chests fly to you immediately';
+      return 'No bonus';
+    },
+  },
 
   // Tier 4 - Unlock Level 30
   {

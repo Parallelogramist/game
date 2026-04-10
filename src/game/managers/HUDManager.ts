@@ -75,6 +75,25 @@ const HUD_EDGE_PADDING = 16;
 const HUD_ELEMENT_SPACING = 8;
 const WORLD_LEVEL_TEXT_HEIGHT = 18;
 
+// Module-level constants to avoid per-frame allocation
+const TIER_COLORS: Record<string, string> = {
+  none: '#ffffff',
+  warm: '#ffdd44',
+  hot: '#ffaa00',
+  blazing: '#ff6622',
+  inferno: '#ff2244',
+};
+const TIER_HEX_COLORS: Record<string, number> = {
+  none: 0xffffff,
+  warm: 0xffdd44,
+  hot: 0xffaa00,
+  blazing: 0xff6622,
+  inferno: 0xff2244,
+};
+const TIER_FONT_SIZES: Record<string, number> = {
+  none: 18, warm: 20, hot: 24, blazing: 30, inferno: 38,
+};
+
 export class HUDManager {
   private scene: Phaser.Scene;
   private options: HUDManagerOptions;
@@ -138,7 +157,23 @@ export class HUDManager {
 
   // Combo feedback state
   private previousComboCount: number = 0;
+  private previousComboTier: string = '';
   private comboBuffText: Phaser.GameObjects.Text | null = null;
+
+  // Cached text references (avoid getByName() O(n) scan per frame)
+  private timerTextRef: Phaser.GameObjects.Text | null = null;
+  private killCountTextRef: Phaser.GameObjects.Text | null = null;
+  private goldPreviewTextRef: Phaser.GameObjects.Text | null = null;
+  private comboTextRef: Phaser.GameObjects.Text | null = null;
+  private comboProgressBarRef: Phaser.GameObjects.Graphics | null = null;
+
+  // Dirty-check previous values to skip redundant setText calls
+  private lastTimerMinutes: number = -1;
+  private lastTimerSeconds: number = -1;
+  private lastKillCount: number = -1;
+  private lastDeathGold: number = -1;
+  private lastVictoryGold: number = -1;
+  private lastPlayerLevel: number = -1;
 
   // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
   private masteryIconEffects: MasteryIconEffectsManager;
@@ -190,7 +225,7 @@ export class HUDManager {
       fontFamily: 'Arial',
       fontStyle: 'bold',
     });
-    this.levelText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.levelText.setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
     // Weapon milestone hint (shown when close to a milestone level)
     this.milestoneHintText = this.scene.add.text(leftMargin, currentY + this.scaledSize(28), '', {
@@ -198,9 +233,9 @@ export class HUDManager {
       color: '#aaaaff',
       fontFamily: 'Arial',
     });
-    this.milestoneHintText.setDepth(HUD_DEPTH).setAlpha(0);
+    this.milestoneHintText.setDepth(HUD_DEPTH + 1).setAlpha(0);
 
-    currentY += this.scaledSize(35);
+    currentY += this.scaledSize(46);
 
     // HP Bar (above XP bar)
     const hpBarWidth = this.scaledSize(180);
@@ -504,18 +539,29 @@ export class HUDManager {
     this.fpsText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
     // Set initial visibility based on settings
     this.fpsText.setVisible(getSettingsManager().isFpsCounterEnabled());
+
+    // Cache text references to avoid O(n) getByName() per frame
+    this.timerTextRef = this.scene.children.getByName('timerText') as Phaser.GameObjects.Text;
+    this.killCountTextRef = this.scene.children.getByName('killCountText') as Phaser.GameObjects.Text;
+    this.goldPreviewTextRef = this.scene.children.getByName('goldPreviewText') as Phaser.GameObjects.Text;
+    this.comboTextRef = this.scene.children.getByName('comboText') as Phaser.GameObjects.Text;
+    this.comboProgressBarRef = this.scene.children.getByName('comboProgressBar') as Phaser.GameObjects.Graphics;
   }
 
   /**
    * Updates all HUD elements each frame.
    */
   update(state: HUDUpdateState): void {
-    // Update timer
-    const timerText = this.scene.children.getByName('timerText') as Phaser.GameObjects.Text;
+    // Update timer (only when seconds change)
+    const timerText = this.timerTextRef;
     if (timerText) {
       const minutes = Math.floor(state.gameTime / 60);
       const seconds = Math.floor(state.gameTime % 60);
-      timerText.setText(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      if (minutes !== this.lastTimerMinutes || seconds !== this.lastTimerSeconds) {
+        this.lastTimerMinutes = minutes;
+        this.lastTimerSeconds = seconds;
+        timerText.setText(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      }
 
       // Gold timer after victory to indicate "bonus time"
       if (state.hasWon) {
@@ -523,14 +569,15 @@ export class HUDManager {
       }
     }
 
-    // Update kill count
-    const killCountText = this.scene.children.getByName('killCountText') as Phaser.GameObjects.Text;
-    if (killCountText) {
+    // Update kill count (only when changed)
+    const killCountText = this.killCountTextRef;
+    if (killCountText && state.killCount !== this.lastKillCount) {
+      this.lastKillCount = state.killCount;
       killCountText.setText(`Kills: ${state.killCount}`);
     }
 
-    // Update gold preview - show both death and victory amounts
-    const goldPreviewText = this.scene.children.getByName('goldPreviewText') as Phaser.GameObjects.Text;
+    // Update gold preview (only when values change)
+    const goldPreviewText = this.goldPreviewTextRef;
     if (goldPreviewText) {
       const metaManager = getMetaProgressionManager();
       const deathGold = metaManager.calculateRunGold(
@@ -545,43 +592,34 @@ export class HUDManager {
         state.playerLevel,
         true
       );
-      goldPreviewText.setText(`Gold: ${deathGold} (win: ${victoryGold})`);
+      if (deathGold !== this.lastDeathGold || victoryGold !== this.lastVictoryGold) {
+        this.lastDeathGold = deathGold;
+        this.lastVictoryGold = victoryGold;
+        goldPreviewText.setText(`Gold: ${deathGold} (win: ${victoryGold})`);
+      }
     }
 
     // Update combo counter display
-    const comboText = this.scene.children.getByName('comboText') as Phaser.GameObjects.Text;
-    const comboProgressBar = this.scene.children.getByName('comboProgressBar') as Phaser.GameObjects.Graphics;
+    const comboText = this.comboTextRef;
+    const comboProgressBar = this.comboProgressBarRef;
     if (comboText) {
       if (state.comboCount >= 5) {
-        const tierColors: Record<string, string> = {
-          none: '#ffffff',
-          warm: '#ffdd44',
-          hot: '#ffaa00',
-          blazing: '#ff6622',
-          inferno: '#ff2244',
-        };
-        const tierHexColors: Record<string, number> = {
-          none: 0xffffff,
-          warm: 0xffdd44,
-          hot: 0xffaa00,
-          blazing: 0xff6622,
-          inferno: 0xff2244,
-        };
+        const comboCountChanged = state.comboCount !== this.previousComboCount;
+        const comboTierChanged = state.comboTier !== this.previousComboTier;
 
-        // Dynamic font size based on combo tier
-        const tierFontSizes: Record<string, number> = {
-          none: 18, warm: 20, hot: 24, blazing: 30, inferno: 38,
-        };
-        const targetFontSize = tierFontSizes[state.comboTier] ?? 18;
-        comboText.setFontSize(this.scaledFontSize(targetFontSize));
+        // Only update text/font/color when combo count or tier changes
+        if (comboCountChanged || comboTierChanged) {
+          const targetFontSize = TIER_FONT_SIZES[state.comboTier] ?? 18;
+          comboText.setFontSize(this.scaledFontSize(targetFontSize));
+          comboText.setText(`x${state.comboCount}`);
+          comboText.setColor(TIER_COLORS[state.comboTier] || '#ffffff');
+        }
 
-        comboText.setText(`x${state.comboCount}`);
-        comboText.setColor(tierColors[state.comboTier] || '#ffffff');
         const comboAlpha = Math.max(0.3, state.comboDecayPercent) * HUD_ALPHA;
         comboText.setAlpha(comboAlpha);
 
         // Scale-punch tween when combo count increases
-        if (state.comboCount > this.previousComboCount && state.comboCount > this.previousComboCount) {
+        if (state.comboCount > this.previousComboCount) {
           this.scene.tweens.killTweensOf(comboText);
           comboText.setScale(1.3);
           this.scene.tweens.add({
@@ -592,58 +630,65 @@ export class HUDManager {
           });
         }
 
-        // Draw combo progress bar toward next threshold
+        // Draw combo progress bar (redraw when combo changes OR when pulsing near threshold)
         if (comboProgressBar) {
           const nextThreshold = getNextComboThreshold();
-          comboProgressBar.clear();
-          if (nextThreshold) {
-            const barWidth = this.scaledSize(60);
-            const barHeight = this.scaledSize(5);
-            const barX = comboText.x - barWidth;
-            const barY = comboText.y + comboText.height + this.scaledSize(2);
-            const fillColor = tierHexColors[state.comboTier] || 0xffffff;
+          const needsPulse = nextThreshold && nextThreshold.progress > 0.8;
+          if (comboCountChanged || comboTierChanged || needsPulse) {
+            comboProgressBar.clear();
+            if (nextThreshold) {
+              const barWidth = this.scaledSize(60);
+              const barHeight = this.scaledSize(5);
+              const barX = comboText.x - barWidth;
+              const barY = comboText.y + comboText.height + this.scaledSize(2);
+              const fillColor = TIER_HEX_COLORS[state.comboTier] || 0xffffff;
 
-            // Background
-            comboProgressBar.fillStyle(0x222233, 0.6);
-            comboProgressBar.fillRect(barX, barY, barWidth, barHeight);
+              // Background
+              comboProgressBar.fillStyle(0x222233, 0.6);
+              comboProgressBar.fillRect(barX, barY, barWidth, barHeight);
 
-            // Fill — pulse alpha when close to next threshold (>80%)
-            const fillAlpha = nextThreshold.progress > 0.8
-              ? 0.7 + 0.3 * Math.abs(Math.sin(Date.now() * 0.005))
-              : 0.8;
-            comboProgressBar.fillStyle(fillColor, fillAlpha);
-            comboProgressBar.fillRect(barX, barY, barWidth * nextThreshold.progress, barHeight);
+              // Fill
+              const fillAlpha = nextThreshold.progress > 0.8
+                ? 0.7 + 0.3 * Math.abs(Math.sin(state.gameTime * 5))
+                : 0.8;
+              comboProgressBar.fillStyle(fillColor, fillAlpha);
+              comboProgressBar.fillRect(barX, barY, barWidth * nextThreshold.progress, barHeight);
 
-            // Outline so empty portion is visible
-            comboProgressBar.lineStyle(1, 0xffffff, 0.4);
-            comboProgressBar.strokeRect(barX, barY, barWidth, barHeight);
+              // Outline
+              comboProgressBar.lineStyle(1, 0xffffff, 0.4);
+              comboProgressBar.strokeRect(barX, barY, barWidth, barHeight);
 
-            // Tick marks at threshold positions (25, 50, 100)
-            const maxThreshold = nextThreshold.nextCount;
-            for (const threshold of [25, 50, 100]) {
-              if (threshold < maxThreshold) {
-                const tickX = barX + (threshold / maxThreshold) * barWidth;
-                comboProgressBar.lineStyle(1, 0xffffff, 0.3);
-                comboProgressBar.lineBetween(tickX, barY, tickX, barY + barHeight);
+              // Tick marks at threshold positions (25, 50, 100)
+              const maxThreshold = nextThreshold.nextCount;
+              for (const threshold of [25, 50, 100]) {
+                if (threshold < maxThreshold) {
+                  const tickX = barX + (threshold / maxThreshold) * barWidth;
+                  comboProgressBar.lineStyle(1, 0xffffff, 0.3);
+                  comboProgressBar.lineBetween(tickX, barY, tickX, barY + barHeight);
+                }
               }
             }
           }
           comboProgressBar.setAlpha(comboAlpha);
         }
 
+        this.previousComboTier = state.comboTier;
 
-        // Combo buff timer text
+        // Combo buff timer text — position below combo text + progress bar
         if (this.comboBuffText) {
           if (state.comboBuffActive) {
             const remainingSeconds = (state.comboBuffPercent * 8).toFixed(1);
             this.comboBuffText.setText(`POWER ${remainingSeconds}s`);
-            this.comboBuffText.setAlpha(0.7 + 0.3 * Math.sin(Date.now() * 0.005));
+            const buffY = comboText.y + comboText.height + this.scaledSize(12);
+            this.comboBuffText.setY(buffY);
+            this.comboBuffText.setAlpha(0.7 + 0.3 * Math.sin(state.gameTime * 5));
           } else {
             this.comboBuffText.setAlpha(0);
           }
         }
       } else {
         comboText.setAlpha(0);
+        this.previousComboTier = '';
         if (comboProgressBar) {
           comboProgressBar.clear();
           comboProgressBar.setAlpha(0);
@@ -688,20 +733,23 @@ export class HUDManager {
       });
     }
 
-    // Update level text and weapon milestone hint
-    this.levelText.setText(`Level ${state.playerLevel}`);
-    const levelsToMilestone = 5 - (state.playerLevel % 5);
-    if (levelsToMilestone <= 2 && levelsToMilestone > 0 && state.playerLevel % 5 !== 0) {
-      const nextMilestone = state.playerLevel + levelsToMilestone;
-      this.milestoneHintText.setText(`Weapon at Lv.${nextMilestone}`);
-      this.milestoneHintText.setColor('#aaaaff');
-      this.milestoneHintText.setAlpha(HUD_ALPHA * 0.8);
-    } else if (state.playerLevel % 5 === 0 && state.playerLevel > 0) {
-      this.milestoneHintText.setText('Weapon milestone!');
-      this.milestoneHintText.setColor('#ffdd44');
-      this.milestoneHintText.setAlpha(HUD_ALPHA);
-    } else {
-      this.milestoneHintText.setAlpha(0);
+    // Update level text and weapon milestone hint (only when level changes)
+    if (state.playerLevel !== this.lastPlayerLevel) {
+      this.lastPlayerLevel = state.playerLevel;
+      this.levelText.setText(`Level ${state.playerLevel}`);
+      const levelsToMilestone = 5 - (state.playerLevel % 5);
+      if (levelsToMilestone <= 2 && levelsToMilestone > 0 && state.playerLevel % 5 !== 0) {
+        const nextMilestone = state.playerLevel + levelsToMilestone;
+        this.milestoneHintText.setText(`Weapon at Lv.${nextMilestone}`);
+        this.milestoneHintText.setColor('#aaaaff');
+        this.milestoneHintText.setAlpha(HUD_ALPHA * 0.8);
+      } else if (state.playerLevel % 5 === 0 && state.playerLevel > 0) {
+        this.milestoneHintText.setText('Weapon milestone!');
+        this.milestoneHintText.setColor('#ffdd44');
+        this.milestoneHintText.setAlpha(HUD_ALPHA);
+      } else {
+        this.milestoneHintText.setAlpha(0);
+      }
     }
 
     // Update HP bar

@@ -436,17 +436,15 @@ export class OrbitingBladesWeapon extends BaseWeapon {
 
   private ensureBladeCount(ctx: WeaponContext): void {
     const targetCount = this.stats.count;
+    const countChanged = this.blades.length !== targetCount;
 
     // Add blades if needed
     while (this.blades.length < targetCount) {
       const { container, hilt } = this.createBlade(ctx);
       this.blades.push(container);
       this.bladeHilts.push(hilt);
-
-      // Distribute blades evenly
-      const angle = (2 * Math.PI / targetCount) * this.blades.length;
-      this.bladeAngles.push(angle);
-      this.bladeSpinAngles.push(0); // Initialize axial spin rotation
+      this.bladeAngles.push(0); // Placeholder — rebalanced below
+      this.bladeSpinAngles.push(0);
     }
 
     // Remove excess blades
@@ -456,6 +454,15 @@ export class OrbitingBladesWeapon extends BaseWeapon {
       this.bladeHilts.pop(); // Hilt is destroyed with container
       this.bladeAngles.pop();
       this.bladeSpinAngles.pop();
+    }
+
+    // Rebalance all blade angles evenly after any count change
+    if (countChanged && this.blades.length > 0) {
+      const baseAngle = this.bladeAngles[0];
+      const angleStep = (2 * Math.PI) / this.blades.length;
+      for (let i = 0; i < this.blades.length; i++) {
+        this.bladeAngles[i] = baseAngle + angleStep * i;
+      }
     }
   }
 

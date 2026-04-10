@@ -811,6 +811,18 @@ export class MetaProgressionManager {
   }
 
   /**
+   * Returns chest drone magnetization delay in seconds.
+   * Level 0 = disabled (-1), levels 1-3: 5s, 2s, 0s delay.
+   */
+  getStartingChestDroneDelay(): number {
+    const level = this.upgradeState['chestDroneLevel'] ?? 0;
+    if (level === 1) return 5;
+    if (level === 2) return 2;
+    if (level >= 3) return 0;
+    return -1;
+  }
+
+  /**
    * Returns boss gold multiplier.
    * Each level gives +50% gold from bosses.
    */

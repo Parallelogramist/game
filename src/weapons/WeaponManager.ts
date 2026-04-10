@@ -1,10 +1,10 @@
-import { IWorld } from 'bitecs';
+import { IWorld, hasComponent } from 'bitecs';
 import { BaseWeapon, WeaponContext } from './BaseWeapon';
 import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
 import { getActiveSynergies, WeaponSynergy } from '../data/WeaponSynergies';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
-import { Transform, Health, Knockback, EnemyType } from '../ecs/components';
+import { Transform, Health, Knockback, EnemyType, EnemyTag } from '../ecs/components';
 import { getSprite } from '../ecs/systems/SpriteSystem';
 import { applyBurn, applyFreeze, applyPoison, getFreezeMultiplier } from '../ecs/systems/StatusEffectSystem';
 import { getCombatStats } from '../ecs/systems/CollisionSystem';
@@ -290,6 +290,9 @@ export class WeaponManager {
     sourceY: number,
     knockbackStrength: number = 200
   ): void {
+    // Guard: entity may have been removed by overkill splash from a prior hit in the same AOE loop
+    if (!hasComponent(this.world, EnemyTag, enemyId)) return;
+
     const enemyX = Transform.x[enemyId];
     const enemyY = Transform.y[enemyId];
 
@@ -436,7 +439,7 @@ export class WeaponManager {
 
           for (const target of splashTargets) {
             const nearbyId = target.id;
-            if (nearbyId === enemyId || Health.current[nearbyId] <= 0) continue;
+            if (nearbyId === enemyId || !hasComponent(this.world, EnemyTag, nearbyId) || Health.current[nearbyId] <= 0) continue;
 
             Health.current[nearbyId] -= splashDamage;
             if (this.damageNumberBudget > 0) {

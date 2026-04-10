@@ -25,6 +25,10 @@ export class LaserBeamWeapon extends BaseWeapon {
   // Mastery: Prismatic Convergence - track refracted beams
   private refractedBeamCount: number = 0;
   private readonly MAX_REFRACTED_BEAMS = 5;
+  private refractedBeamGraphics: Phaser.GameObjects.Graphics[] = [];
+
+  // OPTIMIZATION: Pre-allocated set and array for hit tracking
+  private hitEnemiesSet = new Set<number>();
 
   // OPTIMIZATION: Pre-allocated array for hit positions
   private hitPositionsTemp: { id: number; x: number; y: number }[] = [];
@@ -56,6 +60,12 @@ export class LaserBeamWeapon extends BaseWeapon {
   protected attack(ctx: WeaponContext): void {
     const enemies = ctx.getEnemies();
     if (enemies.length === 0) return;
+
+    // Clean up previous refracted beam graphics
+    for (const refractedGraphic of this.refractedBeamGraphics) {
+      refractedGraphic.destroy();
+    }
+    this.refractedBeamGraphics.length = 0;
 
     // Reset refracted beam counter for this attack cycle
     this.refractedBeamCount = 0;
@@ -112,7 +122,8 @@ export class LaserBeamWeapon extends BaseWeapon {
     isRefracted: boolean
   ): void {
     const beamWidth = isRefracted ? 8 * this.stats.size : 12 * this.stats.size;
-    const hitEnemies = new Set<number>();
+    if (!isRefracted) this.hitEnemiesSet.clear();
+    const hitEnemies = this.hitEnemiesSet;
     // OPTIMIZATION: Reuse pre-allocated array for main beams
     if (!isRefracted) {
       this.hitPositionsTemp.length = 0;
@@ -282,6 +293,8 @@ export class LaserBeamWeapon extends BaseWeapon {
         this.beamGraphics.destroy();
       }
       this.beamGraphics = graphics;
+    } else {
+      this.refractedBeamGraphics.push(graphics);
     }
 
     // --- Prismatic colors for refracted beams at high quality ---
@@ -643,6 +656,10 @@ export class LaserBeamWeapon extends BaseWeapon {
       this.beamGraphics.destroy();
       this.beamGraphics = null;
     }
+    for (const refractedGraphic of this.refractedBeamGraphics) {
+      refractedGraphic.destroy();
+    }
+    this.refractedBeamGraphics.length = 0;
     super.destroy();
   }
 }

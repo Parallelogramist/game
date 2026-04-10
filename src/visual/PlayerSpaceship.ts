@@ -735,9 +735,9 @@ export class PlayerSpaceship {
       this.container.setAlpha(flickerAlpha);
     }
 
-    // --- Compute hull color ---
+    // --- Compute hull color (threshold to avoid constant cache rebuilds) ---
     const hullColor = this.computeHullColor(normalizedSpeed);
-    if (hullColor !== this.lastHullColor || this.hullDirty) {
+    if (this.hullDirty || (hullColor !== this.lastHullColor && this.colorDistanceExceedsThreshold(hullColor, this.lastHullColor))) {
       this.lastHullColor = hullColor;
       this.hullDirty = false;
       this.rebuildStaticCache();
@@ -796,6 +796,20 @@ export class PlayerSpaceship {
     }
 
     return color;
+  }
+
+  /**
+   * Check if two colors differ by more than a threshold per channel.
+   * Avoids constant cache rebuilds from tiny speed-warmth blending changes.
+   */
+  private colorDistanceExceedsThreshold(colorA: number, colorB: number): boolean {
+    const threshold = 6; // per-channel difference threshold (out of 255)
+    const rA = (colorA >> 16) & 0xff, rB = (colorB >> 16) & 0xff;
+    if (Math.abs(rA - rB) > threshold) return true;
+    const gA = (colorA >> 8) & 0xff, gB = (colorB >> 8) & 0xff;
+    if (Math.abs(gA - gB) > threshold) return true;
+    const bA = colorA & 0xff, bB = colorB & 0xff;
+    return Math.abs(bA - bB) > threshold;
   }
 
   // ==============================

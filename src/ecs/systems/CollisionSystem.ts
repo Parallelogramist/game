@@ -32,10 +32,9 @@ export function setCombatStats(stats: CombatStats): void {
 
 /**
  * Get the current combat stats (for use by WeaponManager).
- * Returns a frozen copy to prevent external mutation.
  */
 export function getCombatStats(): Readonly<CombatStats> | null {
-  return combatStats ? Object.freeze({ ...combatStats }) : null;
+  return combatStats;
 }
 
 /**

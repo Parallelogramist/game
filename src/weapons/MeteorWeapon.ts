@@ -204,25 +204,31 @@ export class MeteorWeapon extends BaseWeapon {
     let bestScore = 0;
 
     const sampleSize = Math.min(10, enemies.length);
-    const sampled = enemies.slice().sort(() => Math.random() - 0.5).slice(0, sampleSize);
+    const rangeSq = this.stats.range * this.stats.range;
+    const clusterRadiusSq = 80 * 80;
 
-    for (const enemyId of sampled) {
+    // Random index selection — O(sampleSize) instead of O(n log n) shuffle
+    const sampledIndices = new Set<number>();
+    while (sampledIndices.size < sampleSize) {
+      sampledIndices.add(Math.floor(Math.random() * enemies.length));
+    }
+
+    for (const sampleIndex of sampledIndices) {
+      const enemyId = enemies[sampleIndex];
       const ex = Transform.x[enemyId];
       const ey = Transform.y[enemyId];
 
-      // Check distance from player
-      const playerDist = Math.sqrt(
-        (ex - ctx.playerX) ** 2 + (ey - ctx.playerY) ** 2
-      );
-      if (playerDist > this.stats.range) continue;
+      // Check distance from player (squared, no sqrt needed)
+      const playerDistSq = (ex - ctx.playerX) ** 2 + (ey - ctx.playerY) ** 2;
+      if (playerDistSq > rangeSq) continue;
 
-      // Count nearby enemies
+      // Count nearby enemies (squared distance)
       let score = 0;
       for (const otherId of enemies) {
         const ox = Transform.x[otherId];
         const oy = Transform.y[otherId];
-        const dist = Math.sqrt((ex - ox) ** 2 + (ey - oy) ** 2);
-        if (dist < 80) score += 1;
+        const distSq = (ex - ox) ** 2 + (ey - oy) ** 2;
+        if (distSq < clusterRadiusSq) score += 1;
       }
 
       if (score > bestScore) {
@@ -293,14 +299,17 @@ export class MeteorWeapon extends BaseWeapon {
 
     // Damage enemies in radius
     const enemies = ctx.getEnemies();
+    const radiusSq = meteor.radius * meteor.radius;
+    const invRadius = 1 / meteor.radius;
     for (const enemyId of enemies) {
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-      const dist = Math.sqrt((ex - meteor.x) ** 2 + (ey - meteor.y) ** 2);
+      const dx = Transform.x[enemyId] - meteor.x;
+      const dy = Transform.y[enemyId] - meteor.y;
+      const distSq = dx * dx + dy * dy;
 
-      if (dist <= meteor.radius) {
-        // Damage falls off with distance
-        const falloff = 1 - (dist / meteor.radius) * 0.5;
+      if (distSq <= radiusSq) {
+        // Only sqrt when in range (for falloff calculation)
+        const dist = Math.sqrt(distSq);
+        const falloff = 1 - (dist * invRadius) * 0.5;
         ctx.damageEnemy(enemyId, meteor.damage * falloff, 300);
       }
     }
@@ -359,19 +368,25 @@ export class MeteorWeapon extends BaseWeapon {
 
       // Deal damage to enemies in zone
       const enemies = ctx.getEnemies();
+      const zoneRadiusSq = zone.radius * zone.radius;
       for (const enemyId of enemies) {
         // Per-enemy tick cooldown (0.5s between hits)
         const lastHit = zone.hitCooldowns.get(enemyId) || 0;
         if (ctx.gameTime - lastHit < 0.5) continue;
 
-        const ex = Transform.x[enemyId];
-        const ey = Transform.y[enemyId];
-        const dist = Math.sqrt((ex - zone.x) ** 2 + (ey - zone.y) ** 2);
+        const dx = Transform.x[enemyId] - zone.x;
+        const dy = Transform.y[enemyId] - zone.y;
 
-        if (dist <= zone.radius) {
-          // Deal tick damage (0.5s worth)
+        if (dx * dx + dy * dy <= zoneRadiusSq) {
           ctx.damageEnemy(enemyId, zone.damagePerSecond * 0.5, 0);
           zone.hitCooldowns.set(enemyId, ctx.gameTime);
+        }
+      }
+
+      // Prune stale cooldown entries to prevent unbounded Map growth
+      if (zone.hitCooldowns.size > 50) {
+        for (const [entityId, lastHitTime] of zone.hitCooldowns) {
+          if (ctx.gameTime - lastHitTime > 1.0) zone.hitCooldowns.delete(entityId);
         }
       }
     }

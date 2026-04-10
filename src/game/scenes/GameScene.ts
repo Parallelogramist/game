@@ -25,7 +25,7 @@ import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffec
 import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
-import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem } from '../../ecs/systems/HealthPickupSystem';
+import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
 import { EffectsManager } from '../../effects/EffectsManager';
@@ -144,7 +144,7 @@ export class GameScene extends Phaser.Scene {
   private pauseMenuManager!: PauseMenuManager;
 
   // ESC key handler reference for cleanup
-  private escKeyHandler: (() => void) | null = null;
+  private escKey: Phaser.Input.Keyboard.Key | null = null;
   private dashRequestHandler: (() => void) | null = null;
   private pauseRequestHandler: (() => void) | null = null;
   private autoBuyToggleHandler: (() => void) | null = null;
@@ -618,6 +618,7 @@ export class GameScene extends Phaser.Scene {
 
     // ═══ SPAWNING ═══
     this.playerStats.treasureInterval = metaManager.getStartingTreasureInterval();
+    this.playerStats.chestDroneDelay = metaManager.getStartingChestDroneDelay();
 
     // ═══ ACHIEVEMENT BONUSES ═══
     const achievementBonuses = metaManager.getAchievementBonuses();
@@ -799,11 +800,8 @@ export class GameScene extends Phaser.Scene {
    * Shared between fresh start and restore paths to avoid duplicate registration.
    */
   private setupInputEventHandlers(): void {
-    // Setup pause key (ESC)
-    this.escKeyHandler = () => {
-      this.togglePauseMenu();
-    };
-    this.input.keyboard?.on('keydown-ESC', this.escKeyHandler);
+    // Setup pause key (ESC) — polling via addKey is more reliable than keydown events
+    this.escKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC) ?? null;
 
     // Setup scene resume handler to show pause menu when returning from settings
     this.resumeHandler = () => {
@@ -1487,6 +1485,8 @@ export class GameScene extends Phaser.Scene {
         const nearbyEnemies = getEnemySpatialHash().query(x, y, spreadRadius);
         for (const nearby of nearbyEnemies) {
           if (nearby.id === enemyId) continue;
+          // Skip entities already removed this frame (stale spatial hash entries)
+          if (!hasComponent(this.world, EnemyTag, nearby.id)) continue;
           // Spread half the stacks to nearby enemies
           const spreadStacks = Math.max(1, Math.floor(poisonStacks / 2));
           applyPoison(this.world, nearby.id, spreadStacks, 4000, this.playerStats.poisonMaxStacks);
@@ -1892,6 +1892,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // Poll ESC key before pause/gameover guard so it can both open and close the menu
+    if (this.escKey && Phaser.Input.Keyboard.JustDown(this.escKey)) {
+      this.togglePauseMenu();
+    }
+
     // Sync joystick enabled state (must run even when paused to disable during overlays)
     this.inputController.setEnabled(!this.isPaused && !this.isGameOver);
 
@@ -2366,6 +2371,10 @@ export class GameScene extends Phaser.Scene {
    */
   private processKnockback(deltaSeconds: number): void {
     const entities = knockbackEnemyQuery(this.world);
+    if (entities.length === 0) return;
+
+    // Cache decay factor once per frame (same deltaSeconds for all entities)
+    const decayFactor = Math.pow(0.001, deltaSeconds);
 
     for (const entityId of entities) {
       const velocityX = Knockback.velocityX[entityId];
@@ -2380,8 +2389,6 @@ export class GameScene extends Phaser.Scene {
       Transform.y[entityId] = Math.max(0, Math.min(this.scale.height, Transform.y[entityId]));
 
       // Exponential decay (fast falloff)
-      const decay = 0.001;
-      const decayFactor = Math.pow(decay, deltaSeconds);
       Knockback.velocityX[entityId] *= decayFactor;
       Knockback.velocityY[entityId] *= decayFactor;
 
@@ -2606,6 +2613,7 @@ export class GameScene extends Phaser.Scene {
    */
   private triggerGemMagnet(): void {
     magnetizeAllGems(this.world);
+    magnetizeAllHealthPickups(this.world);
     this.soundManager.playMagnetActivation();
 
     // Visual feedback - brief screen pulse
@@ -2707,6 +2715,32 @@ export class GameScene extends Phaser.Scene {
       loop: true,
     });
 
+    // Chest drone: magnetize chest toward player after delay
+    let magnetTimer: Phaser.Time.TimerEvent | null = null;
+    if (this.playerStats.chestDroneDelay >= 0) {
+      const magnetDelay = this.playerStats.chestDroneDelay * 1000;
+      this.time.delayedCall(magnetDelay, () => {
+        if (!chestGraphics.active || this.playerId === -1) return;
+        magnetTimer = this.time.addEvent({
+          delay: 16,
+          callback: () => {
+            if (!chestGraphics.active || this.playerId === -1) return;
+            const playerX = Transform.x[this.playerId];
+            const playerY = Transform.y[this.playerId];
+            const dx = playerX - chestGraphics.x;
+            const dy = playerY - chestGraphics.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 1) {
+              const moveStep = 250 * 0.016;
+              chestGraphics.x += (dx / dist) * moveStep;
+              chestGraphics.y += (dy / dist) * moveStep;
+            }
+          },
+          loop: true,
+        });
+      });
+    }
+
     // Check for player collection each frame
     const collectCheck = this.time.addEvent({
       delay: 100,
@@ -2747,6 +2781,7 @@ export class GameScene extends Phaser.Scene {
           // Clean up
           pulseTimer.destroy();
           collectCheck.destroy();
+          if (magnetTimer) magnetTimer.destroy();
           chestGraphics.destroy();
         }
       },
@@ -2758,6 +2793,7 @@ export class GameScene extends Phaser.Scene {
       if (chestGraphics.active) {
         pulseTimer.destroy();
         collectCheck.destroy();
+        if (magnetTimer) magnetTimer.destroy();
         chestGraphics.destroy();
       }
     });
@@ -2821,7 +2857,7 @@ export class GameScene extends Phaser.Scene {
         isPaused: this.isPaused,
         isPauseMenuOpen: this.pauseMenuManager?.isPauseMenuOpen ?? false,
       }),
-    });
+    }, this.soundManager);
   }
 
   /**
@@ -3422,29 +3458,10 @@ export class GameScene extends Phaser.Scene {
 
     }
 
-    // Update countdown timer during phase 2+
+    // Periodic rumble shakes in last 10 seconds before boss
     if (this.bossWarningPhase >= 2 && !this.bossSpawned) {
       const timeRemaining = Math.max(0, Math.ceil(this.bossSpawnTime - this.gameTime));
-      const countdownMinutes = Math.floor(timeRemaining / 60);
-      const countdownSeconds = timeRemaining % 60;
-      const countdownStr = `${countdownMinutes}:${countdownSeconds.toString().padStart(2, '0')}`;
-
-      if (!this.bossCountdownText) {
-        this.bossCountdownText = this.add.text(screenCenterX, screenCenterY + 50, '', {
-          fontFamily: 'monospace',
-          fontSize: '22px',
-          color: '#ff6644',
-          stroke: '#000000',
-          strokeThickness: 3,
-          align: 'center',
-        }).setOrigin(0.5).setDepth(warningDepth);
-      }
-      this.bossCountdownText.setText(countdownStr);
-      // Pulse red in last 10 seconds with periodic rumble shakes
       if (timeRemaining <= 10) {
-        this.bossCountdownText.setColor('#ff2222');
-        this.bossCountdownText.setAlpha(0.6 + 0.4 * Math.abs(Math.sin(this.gameTime * 4)));
-        // Periodic mild rumble shakes (every ~2 seconds via sine check)
         if (Math.abs(Math.sin(this.gameTime * 1.5)) < 0.05) {
           getJuiceManager().screenShake(0.003, 150);
         }
@@ -3857,8 +3874,9 @@ export class GameScene extends Phaser.Scene {
         break;
 
       case 'magnetic_storm':
-        // Instant: magnetize all gems
+        // Instant: magnetize all gems and health pickups
         magnetizeAllGems(this.world);
+        magnetizeAllHealthPickups(this.world);
         this.soundManager.playMagnetActivation();
         break;
 
@@ -4887,9 +4905,9 @@ export class GameScene extends Phaser.Scene {
       // 1. Freeze-frame: near-pause for dramatic weight
       const previousTweenTimeScale = this.tweens.timeScale;
       this.tweens.timeScale = 0.05;
-      setTimeout(() => {
-        if (this.scene) this.tweens.timeScale = previousTweenTimeScale;
-      }, 500);
+      this.time.delayedCall(500, () => {
+        this.tweens.timeScale = previousTweenTimeScale;
+      });
 
       // 2. Bright white camera flash
       this.cameras.main.flash(400, 255, 255, 200);
@@ -5384,10 +5402,10 @@ export class GameScene extends Phaser.Scene {
     // Remove resize listener
     this.scale.off('resize', this.handleResize, this);
 
-    // Remove ESC key listener to prevent it persisting across restarts
-    if (this.escKeyHandler) {
-      this.input.keyboard?.off('keydown-ESC', this.escKeyHandler);
-      this.escKeyHandler = null;
+    // Remove ESC key to prevent it persisting across restarts
+    if (this.escKey) {
+      this.escKey.destroy();
+      this.escKey = null;
     }
 
     // Remove auto-buy toggle key listener

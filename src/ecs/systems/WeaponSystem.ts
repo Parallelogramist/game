@@ -81,21 +81,19 @@ export function weaponSystem(world: IWorld, gameTime: number): IWorld {
     // Check if weapon is ready to fire
     if (gameTime - lastFired < weaponCooldown) continue;
 
-    // Find nearest enemy within range
+    // Find nearest enemy within range (squared distance to avoid sqrt per enemy)
     let nearestEnemyId = -1;
-    let nearestDistance = Infinity;
+    let nearestDistanceSq = Infinity;
+    const weaponRangeSq = weaponRange * weaponRange;
 
     for (let j = 0; j < enemies.length; j++) {
       const enemyId = enemies[j];
-      const enemyX = Transform.x[enemyId];
-      const enemyY = Transform.y[enemyId];
+      const distanceX = Transform.x[enemyId] - playerX;
+      const distanceY = Transform.y[enemyId] - playerY;
+      const distanceSq = distanceX * distanceX + distanceY * distanceY;
 
-      const distanceX = enemyX - playerX;
-      const distanceY = enemyY - playerY;
-      const distance = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
-
-      if (distance < nearestDistance && distance <= weaponRange) {
-        nearestDistance = distance;
+      if (distanceSq < nearestDistanceSq && distanceSq <= weaponRangeSq) {
+        nearestDistanceSq = distanceSq;
         nearestEnemyId = enemyId;
       }
     }

@@ -24,12 +24,18 @@ interface StatusOverlay {
  * StatusEffectVisualManager renders burn/freeze/poison visual overlays on enemies.
  * Uses object pooling for performance with many simultaneous status effects.
  */
+// Reusable set to avoid per-frame allocation
+const activeEntityIdsBuffer = new Set<number>();
+
 export class StatusEffectVisualManager {
   private world: IWorld | null = null;
   private overlayPool: StatusOverlay[] = [];
   private activeOverlays: Map<number, StatusOverlay> = new Map();
   private quality: VisualQuality = 'high';
   private globalTime: number = 0;
+
+  // Track last-drawn state per entity to skip redundant redraws
+  private lastDrawnState: Map<number, number> = new Map(); // entityId -> packed state
 
   private static readonly POOL_SIZE = 60;
 
@@ -57,14 +63,15 @@ export class StatusEffectVisualManager {
     this.globalTime += deltaSeconds;
 
     const entities = statusVisualQuery(this.world);
-    const activeEntityIds = new Set<number>();
+    activeEntityIdsBuffer.clear();
 
     for (let i = 0; i < entities.length; i++) {
       const entityId = entities[i];
 
       const hasBurn = StatusEffect.burnDuration[entityId] > 0;
       const hasFreeze = StatusEffect.freezeDuration[entityId] > 0;
-      const hasPoison = StatusEffect.poisonStacks[entityId] > 0;
+      const poisonStacks = StatusEffect.poisonStacks[entityId];
+      const hasPoison = poisonStacks > 0;
 
       if (!hasBurn && !hasFreeze && !hasPoison) continue;
 
@@ -72,7 +79,7 @@ export class StatusEffectVisualManager {
       const sprite = getSprite(entityId);
       if (!sprite) continue;
 
-      activeEntityIds.add(entityId);
+      activeEntityIdsBuffer.add(entityId);
 
       // Get or allocate overlay
       let overlay = this.activeOverlays.get(entityId);
@@ -84,25 +91,36 @@ export class StatusEffectVisualManager {
 
       const enemySize = (EnemyType.size[entityId] || 1) * 10;
       const overlayGraphics = overlay.graphics;
-      overlayGraphics.clear();
+
+      // Always update position (cheap)
       overlayGraphics.setPosition(Transform.x[entityId], Transform.y[entityId]);
       overlayGraphics.setVisible(true);
 
-      // Draw status overlays (stacks if multiple effects active)
-      if (hasFreeze) {
-        this.drawFreezeOverlay(overlayGraphics, enemySize);
-      }
-      if (hasBurn) {
-        this.drawBurnOverlay(overlayGraphics, enemySize);
-      }
-      if (hasPoison) {
-        this.drawPoisonOverlay(overlayGraphics, enemySize, StatusEffect.poisonStacks[entityId]);
+      // Pack state to detect changes: burn(1bit) | freeze(1bit) | poisonStacks(8bits) | size(16bits)
+      const packedState = ((hasBurn ? 1 : 0) << 25) | ((hasFreeze ? 1 : 0) << 24) | ((poisonStacks & 0xff) << 16) | (enemySize & 0xffff);
+      const lastState = this.lastDrawnState.get(entityId);
+
+      // Only redraw when status effect state changes
+      if (packedState !== lastState) {
+        this.lastDrawnState.set(entityId, packedState);
+        overlayGraphics.clear();
+
+        if (hasFreeze) {
+          this.drawFreezeOverlay(overlayGraphics, enemySize);
+        }
+        if (hasBurn) {
+          this.drawBurnOverlay(overlayGraphics, enemySize);
+        }
+        if (hasPoison) {
+          this.drawPoisonOverlay(overlayGraphics, enemySize, poisonStacks);
+        }
       }
     }
 
     // Release overlays for entities no longer affected
     for (const [entityId, overlay] of this.activeOverlays) {
-      if (!activeEntityIds.has(entityId)) {
+      if (!activeEntityIdsBuffer.has(entityId)) {
+        this.lastDrawnState.delete(entityId);
         this.releaseOverlay(entityId, overlay);
       }
     }

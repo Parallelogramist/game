@@ -1,7 +1,10 @@
 import Phaser from 'phaser';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { getAscensionManager } from '../../meta/AscensionManager';
 import { getGameStateManager } from '../../save/GameStateManager';
 import { MenuNavigator } from '../../input/MenuNavigator';
+import { SoundManager } from '../../audio/SoundManager';
+import { addButtonInteraction } from '../../utils/SceneTransition';
 
 const PAUSE_MENU_DEPTH = 1100;
 
@@ -58,6 +61,7 @@ export interface GameOverData {
 export class PauseMenuManager {
   private scene: Phaser.Scene;
   private options: PauseMenuOptions;
+  private soundManager: SoundManager;
 
   // Pause menu state (separate from isPaused which is used for upgrades/victory)
   public isPauseMenuOpen: boolean = false;
@@ -78,9 +82,10 @@ export class PauseMenuManager {
   private gameOverRestartHandler: (() => void) | null = null;
   private gameOverGamepadPoll: Phaser.Time.TimerEvent | null = null;
 
-  constructor(scene: Phaser.Scene, options: PauseMenuOptions) {
+  constructor(scene: Phaser.Scene, options: PauseMenuOptions, soundManager: SoundManager) {
     this.scene = scene;
     this.options = options;
+    this.soundManager = soundManager;
   }
 
   /**
@@ -117,17 +122,19 @@ export class PauseMenuManager {
     this.isPauseMenuOpen = true;
     this.options.onPauseStateChanged(true);
 
-    // Create pause overlay
+    // Create pause overlay with fade-in
     const overlay = this.scene.add.rectangle(
       this.scene.scale.width / 2,
       this.scene.scale.height / 2,
       this.scene.scale.width,
       this.scene.scale.height,
       0x000000,
-      0.75
+      1
     );
     overlay.setDepth(PAUSE_MENU_DEPTH);
     overlay.setName('pauseOverlay');
+    overlay.setAlpha(0);
+    this.scene.tweens.add({ targets: overlay, alpha: 0.7, duration: 115, ease: 'Sine.easeOut' });
 
     // 8px grid spacing for pause menu
     const menuCenterY = this.scene.scale.height / 2;
@@ -144,6 +151,17 @@ export class PauseMenuManager {
     pauseTitle.setOrigin(0.5);
     pauseTitle.setDepth(PAUSE_MENU_DEPTH + 1);
     pauseTitle.setName('pauseTitle');
+
+    // Subtle pulse on title
+    this.scene.tweens.add({
+      targets: pauseTitle,
+      scaleX: 1.03,
+      scaleY: 1.03,
+      duration: 575,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
 
     // Gold display in pause menu (48px below title)
     const metaManager = getMetaProgressionManager();
@@ -177,6 +195,7 @@ export class PauseMenuManager {
     resumeButtonBg.setInteractive({ useHandCursor: true });
     resumeButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     resumeButtonBg.setName('resumeButtonBg');
+    addButtonInteraction(this.scene, resumeButtonBg);
 
     const resumeButtonText = this.scene.add.text(this.scene.scale.width / 2, resumeButtonY, 'Resume', {
       fontSize: '24px',
@@ -195,6 +214,7 @@ export class PauseMenuManager {
       resumeButtonBg.setFillStyle(0x44aa44);
     });
     resumeButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.hidePauseMenu();
     });
 
@@ -212,6 +232,7 @@ export class PauseMenuManager {
     settingsButtonBg.setInteractive({ useHandCursor: true });
     settingsButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     settingsButtonBg.setName('settingsButtonBg');
+    addButtonInteraction(this.scene, settingsButtonBg);
 
     const settingsButtonText = this.scene.add.text(this.scene.scale.width / 2, settingsButtonY, 'Settings', {
       fontSize: '24px',
@@ -230,6 +251,7 @@ export class PauseMenuManager {
       settingsButtonBg.setFillStyle(0x446688);
     });
     settingsButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.hidePauseMenu();
       this.options.onOpenSettings();
     });
@@ -248,6 +270,7 @@ export class PauseMenuManager {
     restartButtonBg.setInteractive({ useHandCursor: true });
     restartButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     restartButtonBg.setName('restartButtonBg');
+    addButtonInteraction(this.scene, restartButtonBg);
 
     const restartButtonText = this.scene.add.text(this.scene.scale.width / 2, restartButtonY, 'Restart', {
       fontSize: '24px',
@@ -266,6 +289,7 @@ export class PauseMenuManager {
       restartButtonBg.setFillStyle(0x666666);
     });
     restartButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.showEndRunConfirmation('restart');
     });
 
@@ -283,6 +307,7 @@ export class PauseMenuManager {
     quitMenuButtonBg.setInteractive({ useHandCursor: true });
     quitMenuButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     quitMenuButtonBg.setName('quitMenuButtonBg');
+    addButtonInteraction(this.scene, quitMenuButtonBg);
 
     const quitMenuButtonText = this.scene.add.text(this.scene.scale.width / 2, quitMenuButtonY, 'Quit to Menu', {
       fontSize: '24px',
@@ -300,6 +325,7 @@ export class PauseMenuManager {
       quitMenuButtonBg.setFillStyle(0x664444);
     });
     quitMenuButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.showEndRunConfirmation('menu');
     });
 
@@ -317,6 +343,7 @@ export class PauseMenuManager {
     quitShopButtonBg.setInteractive({ useHandCursor: true });
     quitShopButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     quitShopButtonBg.setName('quitShopButtonBg');
+    addButtonInteraction(this.scene, quitShopButtonBg);
 
     const quitShopButtonText = this.scene.add.text(this.scene.scale.width / 2, quitShopButtonY, 'Quit to Shop', {
       fontSize: '24px',
@@ -334,6 +361,7 @@ export class PauseMenuManager {
       quitShopButtonBg.setFillStyle(0x666644);
     });
     quitShopButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.showEndRunConfirmation('shop');
     });
 
@@ -346,6 +374,9 @@ export class PauseMenuManager {
     hintText.setOrigin(0.5);
     hintText.setDepth(PAUSE_MENU_DEPTH + 1);
     hintText.setName('pauseHintText');
+
+    // Run modifiers panel (right side)
+    const runModifiersElements = this.createRunModifiersPanel();
 
     // Keyboard + gamepad navigation for pause menu
     const pauseButtons = [
@@ -367,9 +398,45 @@ export class PauseMenuManager {
           btn.bg.setFillStyle(btn.baseColor);
           btn.bg.setStrokeStyle(3, btn.baseColor + 0x224422);
         },
-        onActivate: () => btn.action(),
+        onActivate: () => { this.soundManager.playUIClick(); btn.action(); },
       })),
-      onCancel: () => this.hidePauseMenu(),
+      // ESC closing is handled by GameScene's polling-based ESC key check
+
+    });
+
+    // Staggered entrance animation
+    const animatedElements = [
+      pauseTitle, pauseGoldDisplay,
+      resumeButtonBg, resumeButtonText,
+      settingsButtonBg, settingsButtonText,
+      restartButtonBg, restartButtonText,
+      quitMenuButtonBg, quitMenuButtonText,
+      quitShopButtonBg, quitShopButtonText,
+      hintText,
+      ...runModifiersElements,
+    ];
+    // Disable buttons during stagger to prevent addButtonInteraction's killTweensOf
+    // from canceling the alpha fade-in tween on hover
+    const interactiveButtons = [resumeButtonBg, settingsButtonBg, restartButtonBg, quitMenuButtonBg, quitShopButtonBg];
+    interactiveButtons.forEach((btn) => btn.disableInteractive());
+
+    const staggerDelay = 35;
+    animatedElements.forEach((element, index) => {
+      element.setAlpha(0);
+      this.scene.tweens.add({
+        targets: element,
+        alpha: 1,
+        duration: 85,
+        delay: index * staggerDelay,
+        ease: 'Sine.easeOut',
+      });
+    });
+    // Re-enable buttons after all stagger animations complete
+    const totalStaggerTime = (animatedElements.length - 1) * staggerDelay + 85;
+    this.scene.time.delayedCall(totalStaggerTime, () => {
+      interactiveButtons.forEach((btn) => {
+        if (btn.scene) btn.setInteractive({ useHandCursor: true });
+      });
     });
   }
 
@@ -399,6 +466,9 @@ export class PauseMenuManager {
       'quitShopButtonBg',
       'quitShopButtonText',
       'pauseHintText',
+      'runModifiersTitle',
+      'runModifiersBg',
+      'runModifiersText',
     ];
     elementsToRemove.forEach((name) => {
       const element = this.scene.children.getByName(name);
@@ -410,6 +480,117 @@ export class PauseMenuManager {
 
     // Ensure scene is resumed at Phaser level (safe to call even if not paused)
     this.scene.scene.resume();
+  }
+
+  /**
+   * Creates a panel showing active run modifiers (world level, ascension, streak, curse).
+   * Returns the created game objects for inclusion in stagger animation.
+   */
+  private createRunModifiersPanel(): (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[] {
+    const metaManager = getMetaProgressionManager();
+    const ascensionManager = getAscensionManager();
+
+    const lines: { label: string; value: string; color: string }[] = [];
+
+    // World Level
+    const worldLevel = metaManager.getWorldLevel();
+    if (worldLevel > 0) {
+      const enemyHpPercent = Math.round((metaManager.getWorldLevelEnemyHealthMultiplier() - 1) * 100);
+      const enemyDmgPercent = Math.round((metaManager.getWorldLevelEnemyDamageMultiplier() - 1) * 100);
+      const goldPercent = Math.round((metaManager.getWorldLevelGoldMultiplier() - 1) * 100);
+      const xpPercent = Math.round((metaManager.getWorldLevelXPMultiplier() - 1) * 100);
+      lines.push({ label: `World ${worldLevel}`, value: '', color: '#88ccff' });
+      lines.push({ label: '  Enemy HP', value: `+${enemyHpPercent}%`, color: '#ff8888' });
+      lines.push({ label: '  Enemy DMG', value: `+${enemyDmgPercent}%`, color: '#ff8888' });
+      lines.push({ label: '  Gold', value: `+${goldPercent}%`, color: '#88ff88' });
+      lines.push({ label: '  XP', value: `+${xpPercent}%`, color: '#88ff88' });
+    }
+
+    // Ascension
+    const ascensionLevel = ascensionManager.getLevel();
+    if (ascensionLevel > 0) {
+      const statsPercent = Math.round((ascensionManager.getStatMultiplier() - 1) * 100);
+      const goldPercent = Math.round((ascensionManager.getGoldMultiplier() - 1) * 100);
+      lines.push({ label: `Ascension ${ascensionLevel}`, value: '', color: '#ffcc44' });
+      lines.push({ label: '  All Stats', value: `+${statsPercent}%`, color: '#88ff88' });
+      lines.push({ label: '  Gold', value: `+${goldPercent}%`, color: '#88ff88' });
+      if (ascensionManager.getBonusWeaponSlots() > 0) {
+        lines.push({ label: '  Weapon Slots', value: `+${ascensionManager.getBonusWeaponSlots()}`, color: '#88ff88' });
+      }
+    }
+
+    // Win Streak
+    const streakPercent = metaManager.getStreakBonusPercent();
+    if (streakPercent > 0) {
+      lines.push({ label: `Win Streak x${metaManager.getCurrentStreak()}`, value: `+${streakPercent}% Gold`, color: '#88ff88' });
+    }
+
+    // Curse
+    const curseLevel = metaManager.getStartingCurseLevel();
+    if (curseLevel > 0) {
+      const cursePercent = curseLevel * 15;
+      lines.push({ label: `Curse ${curseLevel}`, value: `+${cursePercent}% Enemy & Rewards`, color: '#ff66ff' });
+    }
+
+    // Newcomer bonus
+    const newcomerMultiplier = metaManager.getNewcomerMultiplier();
+    if (newcomerMultiplier > 1) {
+      lines.push({ label: 'Newcomer Bonus', value: `${newcomerMultiplier.toFixed(1)}x Gold`, color: '#88ff88' });
+    }
+
+    // If nothing active, show a simple message
+    if (lines.length === 0) {
+      lines.push({ label: 'No active modifiers', value: '', color: '#666666' });
+    }
+
+    const panelX = this.scene.scale.width * 0.82;
+    const panelTopY = this.scene.scale.height / 2 - 144;
+    const lineHeight = 20;
+    const panelWidth = 220;
+    const panelHeight = lines.length * lineHeight + 40;
+
+    // Panel background
+    const panelBg = this.scene.add.graphics();
+    panelBg.fillStyle(0x111122, 0.85);
+    panelBg.fillRoundedRect(panelX - panelWidth / 2 - 12, panelTopY - 10, panelWidth + 24, panelHeight, 8);
+    panelBg.lineStyle(1, 0x444466, 0.6);
+    panelBg.strokeRoundedRect(panelX - panelWidth / 2 - 12, panelTopY - 10, panelWidth + 24, panelHeight, 8);
+    panelBg.setDepth(PAUSE_MENU_DEPTH + 1);
+    panelBg.setName('runModifiersBg');
+
+    // Title
+    const titleText = this.scene.add.text(panelX, panelTopY + 4, 'RUN MODIFIERS', {
+      fontSize: '14px',
+      color: '#aaaacc',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    });
+    titleText.setOrigin(0.5, 0);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 2);
+    titleText.setName('runModifiersTitle');
+
+    // Modifier lines
+    let modifierTextContent = '';
+    for (const line of lines) {
+      if (line.value) {
+        modifierTextContent += `${line.label}  ${line.value}\n`;
+      } else {
+        modifierTextContent += `${line.label}\n`;
+      }
+    }
+
+    const modifiersText = this.scene.add.text(panelX, panelTopY + 26, modifierTextContent.trim(), {
+      fontSize: '13px',
+      color: '#ccccdd',
+      fontFamily: 'Arial',
+      lineSpacing: 4,
+      align: 'center',
+    });
+    modifiersText.setOrigin(0.5, 0);
+    modifiersText.setDepth(PAUSE_MENU_DEPTH + 2);
+    modifiersText.setName('runModifiersText');
+
+    return [panelBg, titleText, modifiersText];
   }
 
   /**
@@ -442,17 +623,19 @@ export class PauseMenuManager {
     const worldLevelMultiplier = metaManager.getWorldLevelGoldMultiplier();
     const streakMultiplier = metaManager.getStreakGoldMultiplier();
 
-    // Create confirmation overlay
+    // Create confirmation overlay with fade-in
     const overlay = this.scene.add.rectangle(
       this.scene.scale.width / 2,
       this.scene.scale.height / 2,
       this.scene.scale.width,
       this.scene.scale.height,
       0x000000,
-      0.85
+      1
     );
     overlay.setDepth(PAUSE_MENU_DEPTH);
     overlay.setName('shopConfirmOverlay');
+    overlay.setAlpha(0);
+    this.scene.tweens.add({ targets: overlay, alpha: 0.85, duration: 200, ease: 'Sine.easeOut' });
 
     // 8px grid spacing for confirmation dialog
     const dialogCenterY = this.scene.scale.height / 2;
@@ -556,6 +739,7 @@ export class PauseMenuManager {
     confirmButtonBg.setInteractive({ useHandCursor: true });
     confirmButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     confirmButtonBg.setName('shopConfirmButtonBg');
+    addButtonInteraction(this.scene, confirmButtonBg);
 
     const confirmButtonText = this.scene.add.text(this.scene.scale.width / 2 - 100, buttonY, 'Confirm', {
       fontSize: '24px',
@@ -573,6 +757,7 @@ export class PauseMenuManager {
       confirmButtonBg.setFillStyle(0x44aa44);
     });
     confirmButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       // Clear the save to prevent exploit (continuing after intentionally ending)
       getGameStateManager().clearSave();
       // Award gold and go to destination
@@ -598,6 +783,7 @@ export class PauseMenuManager {
     cancelButtonBg.setInteractive({ useHandCursor: true });
     cancelButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     cancelButtonBg.setName('shopCancelButtonBg');
+    addButtonInteraction(this.scene, cancelButtonBg);
 
     const cancelButtonText = this.scene.add.text(this.scene.scale.width / 2 + 100, buttonY, 'Cancel', {
       fontSize: '24px',
@@ -615,6 +801,7 @@ export class PauseMenuManager {
       cancelButtonBg.setFillStyle(0x664444);
     });
     cancelButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.hideShopConfirmation();
       this.showPauseMenu();
     });
@@ -683,17 +870,19 @@ export class PauseMenuManager {
    * Game pauses to celebrate, then continues when player presses SPACE.
    */
   public showVictory(data: VictoryData): void {
-    // Create victory overlay
+    // Create victory overlay with fade-in
     const overlay = this.scene.add.rectangle(
       this.scene.scale.width / 2,
       this.scene.scale.height / 2,
       this.scene.scale.width,
       this.scene.scale.height,
       0x000000,
-      0.8
+      1
     );
     overlay.setDepth(PAUSE_MENU_DEPTH);
     overlay.setName('victoryOverlay');
+    overlay.setAlpha(0);
+    this.scene.tweens.add({ targets: overlay, alpha: 0.8, duration: 200, ease: 'Sine.easeOut' });
 
     // World cleared text
     const worldClearedText = this.scene.add.text(
@@ -835,6 +1024,7 @@ export class PauseMenuManager {
     continueButtonBg.setInteractive({ useHandCursor: true });
     continueButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     continueButtonBg.setName('victoryContinueButtonBg');
+    addButtonInteraction(this.scene, continueButtonBg);
 
     const continueButtonText = this.scene.add.text(continueButtonX, buttonY, 'Continue [C]', {
       fontSize: '20px',
@@ -857,6 +1047,7 @@ export class PauseMenuManager {
     nextWorldButtonBg.setInteractive({ useHandCursor: true });
     nextWorldButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
     nextWorldButtonBg.setName('victoryNextWorldButtonBg');
+    addButtonInteraction(this.scene, nextWorldButtonBg);
 
     const nextWorldButtonText = this.scene.add.text(nextWorldButtonX, buttonY, 'Next World [N]', {
       fontSize: '20px',
@@ -898,9 +1089,11 @@ export class PauseMenuManager {
 
     // Click handlers
     continueButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.handleVictoryContinue();
     });
     nextWorldButtonBg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
       this.handleVictoryNextWorld(goldToEarn);
     });
 

@@ -136,6 +136,7 @@ export interface PlayerStats {
   // Spawning
   explosionDamageMultiplier: number; // Bonus damage for explosive weapons
   treasureInterval: number;        // Seconds between treasure chest spawns (0 = disabled)
+  chestDroneDelay: number;         // Seconds before chests magnetize to player (-1 = disabled)
 }
 
 /**
@@ -250,6 +251,7 @@ export function createDefaultPlayerStats(): PlayerStats {
     // Spawning
     explosionDamageMultiplier: 1.0,
     treasureInterval: 0,  // 0 = disabled
+    chestDroneDelay: -1,  // -1 = disabled
   };
 }
 

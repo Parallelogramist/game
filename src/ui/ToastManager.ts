@@ -242,6 +242,7 @@ export class ToastManager {
   clearAll(): void {
     this.toastQueue = [];
     if (this.activeToast) {
+      this.scene.tweens.killTweensOf(this.activeToast);
       this.activeToast.destroy();
       this.activeToast = null;
     }
@@ -260,6 +261,13 @@ export class ToastManager {
    */
   isActive(): boolean {
     return this.activeToast !== null || this.isAnimating;
+  }
+
+  /**
+   * Destroy the manager and clean up all resources.
+   */
+  destroy(): void {
+    this.clearAll();
   }
 }
 
