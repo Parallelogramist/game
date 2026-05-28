@@ -431,6 +431,15 @@ export class WeaponManager {
       actualDamage *= combatStats.bossDamageMultiplier;
     }
 
+    // Enemy armor: flat damage reduction applied last, reduced by the player's
+    // armor penetration. Clamped so a hit always deals at least 1 damage.
+    const enemyArmor = EnemyType.armor[enemyId];
+    if (enemyArmor > 0) {
+      const penetration = combatStats ? Math.min(1, combatStats.armorPenetration) : 0;
+      const effectiveArmor = enemyArmor * (1 - penetration);
+      actualDamage = Math.max(1, actualDamage - effectiveArmor);
+    }
+
     // Store HP before damage for overkill splash calculation
     const hpBeforeDamage = Health.current[enemyId];
 

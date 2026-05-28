@@ -15,7 +15,7 @@ import {
   EnemyFlags,
   StatusEffect,
 } from '../../ecs/components';
-import { inputSystem } from '../../ecs/systems/InputSystem';
+import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, getWardenSlowMultiplier } from '../../ecs/systems/EnemyAISystem';
@@ -24,7 +24,7 @@ import { resetBossPhaseTracking } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
-import { getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
+import { getScaledStats, getEnemyType, getEnemyArmor, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
@@ -93,6 +93,12 @@ const COMBO_TIER_LIGHT_INTENSITY: Record<string, number> = {
 const COMBO_TIER_BLOOM_STRENGTH: Record<string, number> = {
   none: 0.25, warm: 0.30, hot: 0.35, blazing: 0.40, inferno: 0.50,
 };
+
+// Radius around the player used to decide "in combat" for the Sprint (idle) vs
+// Battle Flow (per-nearby-enemy) movement upgrades.
+const PLAYER_COMBAT_RADIUS = 220;
+// Battle Flow caps its bonus at +25% regardless of how many enemies are nearby.
+const COMBAT_SPEED_BONUS_CAP = 0.25;
 
 /**
  * GameScene is the main gameplay scene.
@@ -1568,6 +1574,8 @@ export class GameScene extends Phaser.Scene {
     EnemyType.baseDamage[entityId] = entity.enemyData.baseDamage;
     EnemyType.baseHealth[entityId] = entity.enemyData.baseHealth;
     EnemyType.size[entityId] = entity.enemyData.size;
+    // Armor is static per type — re-derive from the saved type id (not serialized separately)
+    EnemyType.armor[entityId] = getEnemyArmor(entity.enemyData.typeId);
     EnemyType.shieldCurrent[entityId] = entity.enemyData.shieldCurrent;
     EnemyType.shieldMax[entityId] = entity.enemyData.shieldMax;
     EnemyType.shieldRegenTimer[entityId] = entity.enemyData.shieldRegenTimer;
@@ -2480,7 +2488,8 @@ export class GameScene extends Phaser.Scene {
     this.hudManager.updateTouchButtonVisibility(inputState.controlMode);
 
     // Run ECS systems
-    inputSystem(this.world, inputState);
+    this.updatePlayerEffectiveMoveSpeed();
+    inputSystem(this.world, inputState, deltaSeconds, this.playerStats.accelerationMultiplier);
     updateAIGameTime(this.gameTime);
     enemyAISystem(this.world, deltaSeconds);
 
@@ -3599,6 +3608,7 @@ export class GameScene extends Phaser.Scene {
     EnemyType.baseDamage[entityId] = cursedDamage;
     EnemyType.xpValue[entityId] = enemyType.xpValue;
     EnemyType.size[entityId] = enemyType.size;  // Store visual size for grid warping weight
+    EnemyType.armor[entityId] = getEnemyArmor(enemyType.id);  // Flat damage reduction for tanky types
 
     // Build flags
     let flags = 0;
@@ -5946,6 +5956,7 @@ export class GameScene extends Phaser.Scene {
    * stale-state bug CLAUDE.md explicitly warns about).
    */
   private resetAllRunSystems(): void {
+    resetInputSystem();
     resetSpriteSystem();
     resetEnemyAISystem();
     resetBossCallbacks();
@@ -6042,6 +6053,45 @@ export class GameScene extends Phaser.Scene {
       shatterBonus: this.playerStats.shatterBonus,
       bossDamageMultiplier: this.playerStats.bossDamageMultiplier,
     });
+  }
+
+  /**
+   * Recomputes the player's effective move speed each frame for the Sprint and
+   * Battle Flow movement upgrades, then writes it to Velocity.speed (consumed by
+   * inputSystem). Sprint adds a flat bonus when no enemies are nearby; Battle
+   * Flow adds a per-nearby-enemy bonus (capped) while in combat. Recomputed from
+   * the authoritative base (playerStats.moveSpeed) so it never compounds.
+   */
+  private updatePlayerEffectiveMoveSpeed(): void {
+    if (this.playerId === -1) return;
+
+    const sprintBonus = this.playerStats.sprintBonus;
+    const combatSpeedBonus = this.playerStats.combatSpeedBonus;
+
+    // No movement upgrades owned — base speed, no spatial query.
+    if (sprintBonus <= 0 && combatSpeedBonus <= 0) {
+      Velocity.speed[this.playerId] = this.playerStats.moveSpeed;
+      return;
+    }
+
+    // Count nearby enemies (zero-allocation iteration).
+    let nearbyEnemyCount = 0;
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+    getEnemySpatialHash().queryPotentialForEach(playerX, playerY, PLAYER_COMBAT_RADIUS, () => {
+      nearbyEnemyCount++;
+    });
+
+    let speedFactor = 1;
+    if (nearbyEnemyCount > 0) {
+      // Battle Flow: faster the more enemies surround you, capped.
+      speedFactor += Math.min(combatSpeedBonus * nearbyEnemyCount, COMBAT_SPEED_BONUS_CAP);
+    } else {
+      // Sprint: bonus speed when out of combat.
+      speedFactor += sprintBonus;
+    }
+
+    Velocity.speed[this.playerId] = this.playerStats.moveSpeed * speedFactor;
   }
 
   /**

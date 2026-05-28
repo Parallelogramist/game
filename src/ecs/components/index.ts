@@ -88,6 +88,7 @@ export const EnemyType = defineComponent({
   baseDamage: Types.f32,    // Original damage
   xpValue: Types.ui16,      // XP dropped on death (ui16 supports boss values up to 65535)
   size: Types.f32,          // Visual size multiplier (0.5-6.0) for grid warping weight
+  armor: Types.f32,         // Flat damage reduction per hit (0 = none); reduced by player armor penetration
   // Shield properties
   shieldCurrent: Types.f32, // Current shield HP (0 if no shield)
   shieldMax: Types.f32,     // Max shield HP

@@ -723,6 +723,39 @@ export function getEnemyType(id: string): EnemyTypeDefinition | undefined {
 }
 
 /**
+ * Flat armor (damage reduction per hit) for tanky enemy types. The player's
+ * Armor Piercing upgrade ignores a percentage of this. Kept as a central table
+ * (rather than per-def fields) so the values are easy to tune for balance.
+ * Types not listed have no armor. Deliberately small so it matters early/mid
+ * game but is dwarfed by late-game player damage.
+ */
+const ENEMY_ARMOR: Record<string, number> = {
+  // Tanky elites
+  tank: 5,
+  shielded: 4,
+  warden: 4,
+  giant: 8,
+  // Minibosses
+  glutton: 6,
+  swarm_mother: 6,
+  charger: 6,
+  necromancer: 6,
+  twin_a: 6,
+  twin_b: 6,
+  // Bosses
+  horde_king: 12,
+  void_wyrm: 12,
+  the_machine: 12,
+};
+
+/**
+ * Flat armor for an enemy type id (0 if the type has none).
+ */
+export function getEnemyArmor(id: string): number {
+  return ENEMY_ARMOR[id] ?? 0;
+}
+
+/**
  * Get the type ID string from an EnemyAIType enum value.
  * Used for serialization - maps the numeric aiType back to the string ID.
  * @param aiType - The EnemyAIType value to look up

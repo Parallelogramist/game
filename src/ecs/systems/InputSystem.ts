@@ -7,6 +7,28 @@ const playerQuery = defineQuery([Transform, Velocity, PlayerTag]);
 // Dead zone radius — player stops moving when within this distance of the cursor
 const MOUSE_DEAD_ZONE = 20;
 
+// Base velocity-approach rate (per second) for the acceleration/momentum model.
+// Higher = snappier (less momentum). The player's accelerationMultiplier (Quick
+// Start upgrade) scales this up so top speed is reached faster.
+// TUNING: 30 ≈ ~0.10s to 95% speed by default, ~0.06s with the maxed upgrade.
+// Raise it toward instant if the default movement feels floaty; lower it for
+// weightier momentum. This is the single knob for player movement feel.
+const PLAYER_ACCEL_BASE = 30;
+
+// Smoothed player velocity (module state — survives between frames to model
+// acceleration). Reset per run via resetInputSystem() to avoid stale carry-over.
+let smoothedVelX = 0;
+let smoothedVelY = 0;
+
+/**
+ * Reset the smoothed-velocity state. Call in GameScene create() like other
+ * module-level system state (see CLAUDE.md "System state reset").
+ */
+export function resetInputSystem(): void {
+  smoothedVelX = 0;
+  smoothedVelY = 0;
+}
+
 // Control mode tracks which input device the player is actively using
 export type ControlMode = 'keyboard' | 'mouse' | 'joystick' | 'gamepad';
 
@@ -37,7 +59,12 @@ export interface InputState {
  * Supports arrow keys, WASD, and virtual joystick.
  * Normalizes diagonal movement to prevent faster diagonal speed.
  */
-export function inputSystem(world: IWorld, input: InputState): IWorld {
+export function inputSystem(
+  world: IWorld,
+  input: InputState,
+  deltaSeconds: number = 0,
+  accelerationMultiplier: number = 1,
+): IWorld {
   const players = playerQuery(world);
 
   for (let i = 0; i < players.length; i++) {
@@ -94,8 +121,24 @@ export function inputSystem(world: IWorld, input: InputState): IWorld {
 
     // Apply speed to direction
     const speed = Velocity.speed[playerId];
-    Velocity.x[playerId] = directionX * speed;
-    Velocity.y[playerId] = directionY * speed;
+    const targetVelX = directionX * speed;
+    const targetVelY = directionY * speed;
+
+    // Acceleration/momentum: ease the actual velocity toward the target rather
+    // than snapping. Frame-rate-independent exponential approach; the rate
+    // scales with the player's acceleration upgrade so top speed is reached
+    // faster. deltaSeconds <= 0 (or a paused frame) snaps instantly.
+    if (deltaSeconds > 0) {
+      const approach = 1 - Math.exp(-PLAYER_ACCEL_BASE * accelerationMultiplier * deltaSeconds);
+      smoothedVelX += (targetVelX - smoothedVelX) * approach;
+      smoothedVelY += (targetVelY - smoothedVelY) * approach;
+    } else {
+      smoothedVelX = targetVelX;
+      smoothedVelY = targetVelY;
+    }
+
+    Velocity.x[playerId] = smoothedVelX;
+    Velocity.y[playerId] = smoothedVelY;
   }
 
   return world;
