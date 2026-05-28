@@ -3118,6 +3118,16 @@ export class GameScene extends Phaser.Scene {
         if (this.playerSpaceship) {
           this.playerSpaceship.getContainer().setVisible(!isPaused);
         }
+        // Suspend bloom while paused. The update loop (which sets bloom strength
+        // per combo tier) halts when paused, so the last strength would keep
+        // blooming the static menu — its box-blur smears a glow/halo over the
+        // crisp button text. Restore explicitly on resume (updateGridBackground
+        // can't be relied on — it early-returns when grid effects are disabled).
+        if (this.bloomPipeline) {
+          this.bloomPipeline.setBloomStrength(
+            isPaused ? 0 : (COMBO_TIER_BLOOM_STRENGTH[getComboTier()] ?? 0.25)
+          );
+        }
       },
       onRestart: () => {
         this.scene.restart();

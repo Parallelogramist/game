@@ -66,10 +66,11 @@ function paintPillBackground(
   const halfW = width / 2;
   const halfH = height / 2;
   const radius = Math.min(height * 0.4, 14);
-  // Body sits 2px inside the accent border. Its corner radius must shrink by the
-  // same 2px so the two arcs stay concentric — otherwise the body's corners
-  // overrun the border's rounded curve and read as sharp.
-  const bodyRadius = Math.max(0, radius - 2);
+  // 3px accent ring. The body sits `BORDER` px inside it, so the body's corner
+  // radius shrinks by the same amount to keep the two arcs concentric —
+  // otherwise the body's corners overrun the border's curve and read as sharp.
+  const BORDER = 3;
+  const bodyRadius = Math.max(0, radius - BORDER);
 
   graphics.clear();
 
@@ -77,11 +78,12 @@ function paintPillBackground(
   graphics.fillStyle(0x000000, 0.45);
   graphics.fillRoundedRect(centerX - halfW + 4, centerY - halfH + 6, width, height, radius + 1);
 
-  // Accent border.
+  // Accent border (rounded). This is also the focus/hover indicator — repainted
+  // white when a button is focused (see createLabeledButton's setStrokeStyle shim).
   graphics.fillStyle(accentColor, 1);
-  graphics.fillRoundedRect(centerX - halfW - 2, centerY - halfH - 2, width + 4, height + 4, radius);
+  graphics.fillRoundedRect(centerX - halfW - BORDER, centerY - halfH - BORDER, width + BORDER * 2, height + BORDER * 2, radius);
 
-  // Body fill (radius reduced by the border inset so its corners nest inside the border).
+  // Body fill (radius reduced by the border width so its corners nest inside the border).
   graphics.fillStyle(bodyColor, 1);
   graphics.fillRoundedRect(centerX - halfW, centerY - halfH, width, height, bodyRadius);
 
@@ -98,7 +100,9 @@ function paintPillBackground(
 void MENU_COLORS;
 void ACCENT_COLORS_STR;
 
-const PAUSE_MENU_DEPTH = 1100;
+// Above the LightingSystem glow texture (depth 1999) so frozen game lights/bloom
+// don't bleed over the menu. The pause menu is top-most UI.
+const PAUSE_MENU_DEPTH = 2100;
 
 function formatLargeNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -263,19 +267,28 @@ export class PauseMenuManager {
     // graphics layer instead of the (transparent) Rectangle. Keeps existing
     // call sites working without surgery.
     const originalSetFill = bg.setFillStyle.bind(bg);
-    (bg as Phaser.GameObjects.Rectangle).setFillStyle = ((color?: number, alpha?: number) => {
+    (bg as Phaser.GameObjects.Rectangle).setFillStyle = ((color?: number, _alpha?: number) => {
       if (color !== undefined) {
         paintPillBackground(pillGfx, params.x, params.y, params.width, params.height, color, params.strokeColor);
       }
-      return originalSetFill(color, alpha);
+      // Keep the hit-zone Rectangle fully transparent. Phaser's setFillStyle
+      // defaults alpha to 1 when omitted, which would turn this invisible hit
+      // zone into an OPAQUE SHARP-cornered rectangle drawn over the rounded pill
+      // (the "sharp corners on hover" bug). Force alpha 0; the color is still
+      // recorded on bg.fillColor for the setStrokeStyle shim to read.
+      return originalSetFill(color, 0);
     }) as typeof bg.setFillStyle;
-    // Same for setStrokeStyle — re-paint with the new stroke color.
+    // Same for setStrokeStyle — re-paint the pill's (rounded) accent border with
+    // the new color. The hit-zone Rectangle itself stays strokeless: a real
+    // rectangle stroke has SHARP corners that overrun the rounded pill and bleed
+    // past it (the focus/blur "border" bug). The rounded border lives in pillGfx.
     const originalSetStroke = bg.setStrokeStyle.bind(bg);
-    (bg as Phaser.GameObjects.Rectangle).setStrokeStyle = ((lineWidth?: number, color?: number, alpha?: number) => {
+    (bg as Phaser.GameObjects.Rectangle).setStrokeStyle = ((_lineWidth?: number, color?: number, _alpha?: number) => {
       if (color !== undefined) {
         paintPillBackground(pillGfx, params.x, params.y, params.width, params.height, bg.fillColor, color);
       }
-      return originalSetStroke(lineWidth, color, alpha);
+      // No-arg form sets isStroked=false; passing 0 would leave a stroke enabled.
+      return originalSetStroke();
     }) as typeof bg.setStrokeStyle;
 
     bg.on('pointerover', () => bg.setFillStyle(params.hoverColor));
@@ -364,8 +377,8 @@ export class PauseMenuManager {
     this.isPauseMenuOpen = true;
     this.options.onPauseStateChanged(true);
 
-    // Create pause overlay with fade-in
-    this.createFadeInOverlay('pauseOverlay', 0.7, 115);
+    // Create pause overlay with fade-in (opaque enough to mute the frozen game scene behind the menu)
+    this.createFadeInOverlay('pauseOverlay', 0.82, 115);
 
     // 8px grid spacing for pause menu
     const menuCenterY = this.scene.scale.height / 2;
