@@ -61,6 +61,8 @@ function createDefaultLifetimeStats(): LifetimeStats {
     fastestVictorySeconds: Infinity,
     perfectRuns: 0,
     speedRuns: 0,
+    mostKillsInRun: 0,
+    highestComboInRun: 0,
   };
 }
 
@@ -154,6 +156,12 @@ export class AchievementManager {
     }
     if (data.survivalTimeSeconds > stats.longestSurvivalSeconds) {
       stats.longestSurvivalSeconds = data.survivalTimeSeconds;
+    }
+    if (this.runState.runStats.kills > stats.mostKillsInRun) {
+      stats.mostKillsInRun = this.runState.runStats.kills;
+    }
+    if (data.highestCombo !== undefined && data.highestCombo > stats.highestComboInRun) {
+      stats.highestComboInRun = data.highestCombo;
     }
 
     if (data.wasVictory) {

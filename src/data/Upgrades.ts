@@ -51,6 +51,8 @@ export interface PlayerStats {
   piercing: number;
   pickupRange: number;
   knockbackMultiplier: number;     // Knockback force multiplier
+  knockbackImmunity: boolean;      // If true, player ignores all knockback (Juggernaut ship)
+  bossDamageMultiplier: number;    // Bonus multiplier against boss-tier enemies (Boss Hunter ship)
 
   // Defense stats
   armor: number;                   // Flat damage reduction
@@ -166,6 +168,8 @@ export function createDefaultPlayerStats(): PlayerStats {
     piercing: 0,
     pickupRange: 40,
     knockbackMultiplier: 0.7,
+    knockbackImmunity: false,
+    bossDamageMultiplier: 1.0,
 
     // Defense stats
     armor: 0,
@@ -530,18 +534,6 @@ export function createUpgrades(): Upgrade[] {
       },
     },
   ];
-}
-
-/**
- * Gets N random upgrades that haven't reached max level.
- */
-export function getRandomUpgrades(upgrades: Upgrade[], count: number): Upgrade[] {
-  // Filter to upgrades that can still be leveled
-  const availableUpgrades = upgrades.filter((u) => u.currentLevel < u.maxLevel);
-
-  // Shuffle and take first N
-  const shuffled = [...availableUpgrades].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, Math.min(count, shuffled.length));
 }
 
 /**

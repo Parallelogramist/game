@@ -34,6 +34,9 @@ interface ProjectileData {
   maxRetargets: number;
   active: boolean;
   sprite: Phaser.GameObjects.Image | null;
+  // Bullet Storm evolution: sub-projectiles spawned on kill cannot themselves split,
+  // otherwise a single kill would cascade into an exponential chain.
+  isSubProjectile: boolean;
 }
 
 export class ProjectileWeapon extends BaseWeapon {
@@ -90,6 +93,7 @@ export class ProjectileWeapon extends BaseWeapon {
         killCount: 0, maxRetargets: 0,
         active: false,
         sprite,
+        isSubProjectile: false,
       });
     }
   }
@@ -166,6 +170,7 @@ export class ProjectileWeapon extends BaseWeapon {
     data.killCount = 0;
     data.maxRetargets = this.isMastered() ? 3 : 0;
     data.active = true;
+    data.isSubProjectile = false;
 
     if (data.sprite) {
       data.sprite.setFrame(getProjectileFrame(0, ctx.visualQuality));
@@ -173,6 +178,44 @@ export class ProjectileWeapon extends BaseWeapon {
       data.sprite.setRotation(angle);
       data.sprite.setVisible(true);
       data.sprite.setActive(true);
+    }
+  }
+
+  /**
+   * Bullet Storm evolution: spawn 2 sub-projectiles perpendicular to parent's
+   * velocity. Sub-projectiles deal 60% damage, cannot further split, and have
+   * reduced lifetime so they don't linger.
+   */
+  private spawnSubProjectilesFromKill(ctx: WeaponContext, parent: ProjectileData): void {
+    const perpendicularAngleA = parent.angle + Math.PI / 2;
+    const perpendicularAngleB = parent.angle - Math.PI / 2;
+    for (const subAngle of [perpendicularAngleA, perpendicularAngleB]) {
+      const child = this.acquireProjectile(ctx);
+      if (!child) break;
+
+      child.x = parent.x;
+      child.y = parent.y;
+      child.velocityX = Math.cos(subAngle) * this.stats.speed * 0.85;
+      child.velocityY = Math.sin(subAngle) * this.stats.speed * 0.85;
+      child.angle = subAngle;
+      child.piercing = 0;
+      child.damage = parent.damage * 0.6;
+      child.lifetime = this.stats.duration * 0.4;
+      child.hitEnemies.clear();
+      child.trailIndex = 0;
+      child.trailCount = 0;
+      child.killCount = 0;
+      child.maxRetargets = 0;
+      child.active = true;
+      child.isSubProjectile = true;
+
+      if (child.sprite) {
+        child.sprite.setFrame(getProjectileFrame(0, ctx.visualQuality));
+        child.sprite.setPosition(child.x, child.y);
+        child.sprite.setRotation(subAngle);
+        child.sprite.setVisible(true);
+        child.sprite.setActive(true);
+      }
     }
   }
 
@@ -332,6 +375,13 @@ export class ProjectileWeapon extends BaseWeapon {
           const enemyKilled = enemyHealthBefore > 0 && Health.current[enemyId] <= 0;
 
           ctx.effectsManager.playHitSparks(data.x, data.y, Math.atan2(data.velocityY, data.velocityX));
+
+          // Evolution (Bullet Storm): on kill, spawn 2 sub-projectiles perpendicular
+          // to the impact direction — creates cascading chain-kill patterns through
+          // packs of weak enemies without needing more cooldown reductions.
+          if (this.isEvolved && enemyKilled && !data.isSubProjectile) {
+            this.spawnSubProjectilesFromKill(ctx, data);
+          }
 
           // Soul Seeker mastery: retarget on kill
           if (enemyKilled && data.maxRetargets > 0 && data.killCount < data.maxRetargets) {

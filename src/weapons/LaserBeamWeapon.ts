@@ -80,10 +80,8 @@ export class LaserBeamWeapon extends BaseWeapon {
       // For first beam, target nearest. For others, spread out
       if (b === 0) {
         for (const enemyId of enemies) {
-          const ex = Transform.x[enemyId];
-          const ey = Transform.y[enemyId];
-          const dx = ex - ctx.playerX;
-          const dy = ey - ctx.playerY;
+          const dx = Transform.x[enemyId] - ctx.playerX;
+          const dy = Transform.y[enemyId] - ctx.playerY;
           const distSq = dx * dx + dy * dy;
 
           if (distSq < targetDistSq) {
@@ -98,9 +96,7 @@ export class LaserBeamWeapon extends BaseWeapon {
 
       if (targetId === -1) continue;
 
-      const targetX = Transform.x[targetId];
-      const targetY = Transform.y[targetId];
-      const angle = Math.atan2(targetY - ctx.playerY, targetX - ctx.playerX);
+      const angle = Math.atan2(Transform.y[targetId] - ctx.playerY, Transform.x[targetId] - ctx.playerX);
 
       // Calculate beam end point
       const endX = ctx.playerX + Math.cos(angle) * this.stats.range;
@@ -216,10 +212,8 @@ export class LaserBeamWeapon extends BaseWeapon {
       for (const enemyId of enemies) {
         if (usedTargets.has(enemyId)) continue;
 
-        const ex = Transform.x[enemyId];
-        const ey = Transform.y[enemyId];
-        const dx = ex - hitPos.x;
-        const dy = ey - hitPos.y;
+        const dx = Transform.x[enemyId] - hitPos.x;
+        const dy = Transform.y[enemyId] - hitPos.y;
         const distSq = dx * dx + dy * dy;
 
         if (distSq < nearestDistSq) {
@@ -232,9 +226,7 @@ export class LaserBeamWeapon extends BaseWeapon {
         usedTargets.add(nearestId);
         this.refractedBeamCount++;
 
-        const targetX = Transform.x[nearestId];
-        const targetY = Transform.y[nearestId];
-        const angle = Math.atan2(targetY - hitPos.y, targetX - hitPos.x);
+        const angle = Math.atan2(Transform.y[nearestId] - hitPos.y, Transform.x[nearestId] - hitPos.x);
 
         // Shorter range for refracted beams
         const refractRange = 150;
@@ -289,9 +281,7 @@ export class LaserBeamWeapon extends BaseWeapon {
     graphics.setDepth(isRefracted ? 11 : 12);
 
     if (!isRefracted) {
-      if (this.beamGraphics) {
-        this.beamGraphics.destroy();
-      }
+      if (this.beamGraphics) this.beamGraphics.destroy();
       this.beamGraphics = graphics;
     } else {
       this.refractedBeamGraphics.push(graphics);

@@ -27,6 +27,7 @@ export let xpGemPositionsCallback: (() => { x: number; y: number; entityId: numb
 export let consumeXPGemCallback: ((entityId: number) => void) | null = null;
 export let groundSlamCallback: ((x: number, y: number, radius: number, damage: number) => void) | null = null;
 export let laserBeamCallback: ((x1: number, y1: number, x2: number, y2: number, damage: number) => void) | null = null;
+export let bossPhaseTransitionCallback: ((bossId: number, newPhase: number) => void) | null = null;
 
 export function setEnemyProjectileCallback(
   callback: (x: number, y: number, angle: number, speed: number, damage: number) => void
@@ -59,6 +60,13 @@ export function setBossCallbacks(
 export function resetBossCallbacks(): void {
   groundSlamCallback = null;
   laserBeamCallback = null;
+  bossPhaseTransitionCallback = null;
+}
+
+export function setBossPhaseTransitionCallback(
+  callback: (bossId: number, newPhase: number) => void
+): void {
+  bossPhaseTransitionCallback = callback;
 }
 
 // ── Dead enemy positions (for Necromancer revive) ───────────────────────────

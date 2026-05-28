@@ -126,11 +126,10 @@ export class StatusEffectVisualManager {
     }
   }
 
-  /**
-   * Burn: flickering orange glow that oscillates in alpha.
-   */
+  /** Burn: flickering orange glow that oscillates in alpha. */
   private drawBurnOverlay(graphics: Phaser.GameObjects.Graphics, enemySize: number): void {
-    const flickerAlpha = 0.15 + Math.sin(this.globalTime * 8) * 0.1;
+    const flickerAlpha = 0.2 + Math.sin(this.globalTime * 8) * 0.12;
+
     graphics.fillStyle(BURN_OVERLAY_COLOR, flickerAlpha);
     graphics.fillCircle(0, 0, enemySize * 1.2);
 
@@ -147,9 +146,7 @@ export class StatusEffectVisualManager {
     }
   }
 
-  /**
-   * Freeze: static cyan tint with ice crystal accents.
-   */
+  /** Freeze: static cyan tint with ice crystal accents. */
   private drawFreezeOverlay(graphics: Phaser.GameObjects.Graphics, enemySize: number): void {
     // Solid cyan overlay (frozen = rigid, no pulsing)
     graphics.fillStyle(FREEZE_OVERLAY_COLOR, 0.35);
@@ -173,11 +170,9 @@ export class StatusEffectVisualManager {
     }
   }
 
-  /**
-   * Poison: pulsing green overlay that intensifies with stacks.
-   */
+  /** Poison: pulsing green overlay that intensifies with stacks. */
   private drawPoisonOverlay(graphics: Phaser.GameObjects.Graphics, enemySize: number, stacks: number): void {
-    const stackIntensity = Math.min(1, stacks / 5); // Brighter with more stacks
+    const stackIntensity = Math.min(1, stacks / 5);
     const pulseAlpha = (0.1 + stackIntensity * 0.15) + Math.sin(this.globalTime * 4) * 0.05;
     graphics.fillStyle(POISON_OVERLAY_COLOR, pulseAlpha);
     graphics.fillCircle(0, 0, enemySize * 1.15);

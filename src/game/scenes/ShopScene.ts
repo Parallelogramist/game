@@ -1,7 +1,10 @@
 /**
- * ShopScene - UI for purchasing permanent upgrades with gold.
- * Features category tabs, scrolling, and progressive unlocking.
- * Full keyboard navigation support with zone-based focus system.
+ * ShopScene — Balatro-style permanent upgrade shop.
+ *
+ * Tab strip across the top, card grid below, buy + refund pill buttons on
+ * each card, MenuButton back/ascend in the chrome. All logic (purchase,
+ * refund, ascension, scroll, tooltips, focus zones, gamepad nav) preserved
+ * from the original; only the visual primitives changed.
  */
 
 import Phaser from 'phaser';
@@ -9,67 +12,111 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import {
   PermanentUpgrade,
+  PERMANENT_UPGRADES,
   calculateUpgradeCost,
+  getPermanentUpgradeById,
   getUpgradesByCategory,
   UPGRADE_CATEGORIES,
   UpgradeCategory,
 } from '../../data/PermanentUpgrades';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { fadeIn, fadeOut } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { getToastManager, ToastManager } from '../../ui';
 import { getSettingsManager } from '../../settings';
 import { TooltipManager } from '../../ui/TooltipManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
+import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { createMenuTabs, MenuTabs } from '../../visual/MenuTab';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import {
+  ACCENT_COLORS,
+  ACCENT_COLORS_STR,
+  BODY_COLORS,
+  CARD_TILT_PRESETS,
+  MENU_FONT,
+  RoleColorKey,
+  TEXT_COLORS,
+} from '../../visual/MenuStyle';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
 interface UpgradeCardElements {
-  container: Phaser.GameObjects.Container;
+  card: MenuCard;
   levelText: Phaser.GameObjects.Text;
   effectText: Phaser.GameObjects.Text;
-  costText: Phaser.GameObjects.Text;
-  buyButton: Phaser.GameObjects.Rectangle;
-  cardBg: Phaser.GameObjects.Rectangle;
+  buyButton: MenuButton;
+  refundButton?: MenuButton;
   upgrade: PermanentUpgrade;
   lockOverlay?: Phaser.GameObjects.Rectangle;
   lockText?: Phaser.GameObjects.Text;
-  refundButton?: Phaser.GameObjects.Rectangle;
-  refundText?: Phaser.GameObjects.Text;
+  isUnlocked: boolean;
+  isMaxed: boolean;
+  affordableStar?: Phaser.GameObjects.Text;
+  cardIndex: number;
 }
+
+interface TabBadgeElements {
+  background: Phaser.GameObjects.Graphics;
+  text: Phaser.GameObjects.Text;
+  container: Phaser.GameObjects.Container;
+}
+
+const CATEGORY_ROLES: Record<UpgradeCategory, RoleColorKey> = {
+  offense: 'magenta',
+  defense: 'teal',
+  movement: 'primary',
+  resources: 'gold',
+  utility: 'neutral',
+  elemental: 'magenta',
+  mastery: 'gold',
+};
 
 export class ShopScene extends Phaser.Scene {
   private goldText!: Phaser.GameObjects.Text;
   private accountLevelText!: Phaser.GameObjects.Text;
   private upgradeCards: UpgradeCardElements[] = [];
   private currentCategory: UpgradeCategory = 'offense';
-  private categoryTabs: Map<UpgradeCategory, Phaser.GameObjects.Container> = new Map();
+  private menuTabs: MenuTabs | null = null;
   private upgradeContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
   private maxScrollY: number = 0;
   private isDragging: boolean = false;
   private lastPointerY: number = 0;
-  private backButton!: Phaser.GameObjects.Text;
 
-  // Keyboard navigation state
   private focusZone: FocusZone = 'tabs';
   private selectedTabIndex: number = 0;
   private selectedCardIndex: number = 0;
-  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
 
-  // Tooltip system
   private tooltipManager!: TooltipManager;
-
-  // Audio
   private soundManager!: SoundManager;
   private toastManager!: ToastManager;
   private goldTween: Phaser.Tweens.Tween | null = null;
 
-  // Grid constants
+  private menuBackground: MenuBackground | null = null;
+  private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+  private chromeButtons: MenuButton[] = [];
+  private backButton!: MenuButton;
+  private ascendButton: MenuButton | null = null;
+
+  private tabBadges: Map<UpgradeCategory, TabBadgeElements> = new Map();
+  private affordableOnlyFilter: boolean = false;
+  private filterButton: MenuButton | null = null;
+  private buyClickIgnoreUntil: number = 0;
+
+  private accountProgressBarBg: Phaser.GameObjects.Graphics | null = null;
+  private accountProgressBarFill: Phaser.GameObjects.Graphics | null = null;
+  private accountNextUnlockText: Phaser.GameObjects.Text | null = null;
+
+  private emptyStateText: Phaser.GameObjects.Text | null = null;
+
   private readonly columns = 4;
-  private readonly cardWidth = 200;
-  private readonly cardHeight = 190;
+  private readonly cardWidth = 220;
+  private readonly cardHeight = 220;
+  private readonly accountChipWidth = 200;
 
   constructor() {
     super({ key: 'ShopScene' });
@@ -78,80 +125,145 @@ export class ShopScene extends Phaser.Scene {
   create(): void {
     const centerX = this.scale.width / 2;
 
-    // Fade in
     fadeIn(this, 200);
 
-    // Sound manager for UI sounds
     this.soundManager = new SoundManager(this);
     this.toastManager = getToastManager(this);
 
-    // Reset state
     this.upgradeCards = [];
-    this.categoryTabs.clear();
+    this.chromeButtons = [];
+    this.tabBadges = new Map();
     this.focusZone = 'tabs';
     this.selectedTabIndex = 0;
     this.selectedCardIndex = 0;
     this.scrollY = 0;
 
-    // Dark background
-    this.add.rectangle(centerX, this.scale.height / 2, this.scale.width, this.scale.height, 0x1a1a2e);
+    // Balatro backdrop.
+    this.menuBackground = createMenuBackground(this);
+    this.bgUpdateHandler = (time, delta) => {
+      this.menuBackground?.update(delta);
+      const seconds = time / 1000;
+      this.menuTabs?.tickIdle(seconds);
+      for (const btn of this.chromeButtons) btn.tickIdle(seconds);
+      this.filterButton?.tickIdle(seconds);
+      for (const card of this.upgradeCards) {
+        card.card.tickIdle(seconds);
+        card.buyButton.tickIdle(seconds);
+        card.refundButton?.tickIdle(seconds);
+        if (card.affordableStar) {
+          const pulse = 0.55 + 0.45 * Math.sin(seconds * 3.2 + card.cardIndex * 0.7);
+          card.affordableStar.setAlpha(pulse);
+        }
+      }
+    };
+    this.events.on('update', this.bgUpdateHandler);
 
-    // Title
-    this.add
-      .text(centerX, 30, 'SHOP', {
-        fontSize: '36px',
-        color: '#ffdd44',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
+    // Title sticker.
+    const title = makeStickerText(this, centerX, 32, 'SHOP', {
+      fontSize: 36,
+      color: ACCENT_COLORS_STR.gold,
+      strokeWidth: 5,
+      letterSpacing: 3,
+    });
+    title.setDepth(2);
 
-    // Initialize tooltip system
     this.tooltipManager = new TooltipManager(this);
 
-    // Account level display (top left)
+    // Account level chip (top-left).
     const metaManager = getMetaProgressionManager();
-    const accountLevelLabel = this.add
-      .text(20, 20, 'Account Level:', {
-        fontSize: '14px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      });
+    const accountLevelChip = createMenuCard(this, {
+      x: 110,
+      y: 38,
+      width: this.accountChipWidth,
+      height: 50,
+      bodyFillColor: BODY_COLORS.primary,
+      accentColor: ACCENT_COLORS.primary,
+      bannerHeight: 0,
+      borderWidth: 2,
+      borderColor: ACCENT_COLORS.primary,
+      cornerRadius: 12,
+      wobble: false,
+      interactive: true,
+      shadowOffsetY: 5,
+      shadowAlpha: 0.4,
+    });
+    accountLevelChip.container.setDepth(2);
 
-    this.tooltipManager.attach(accountLevelLabel,
-      'Your Account Level is the sum of all shop upgrade levels. Higher account levels unlock more powerful upgrades.');
+    const accountLabel = makeBodyText(this, -85, -10, 'ACCOUNT LV', {
+      fontSize: 11,
+      color: TEXT_COLORS.muted,
+      align: 'left',
+    });
+    accountLabel.setOrigin(0, 0.5);
+    accountLevelChip.frame.add(accountLabel);
+    this.accountLevelText = makeStickerText(this, -85, 8, `${metaManager.getAccountLevel()}`, {
+      fontSize: 22,
+      color: ACCENT_COLORS_STR.primary,
+      letterSpacing: 1,
+    });
+    this.accountLevelText.setOrigin(0, 0.5);
+    accountLevelChip.frame.add(this.accountLevelText);
 
-    this.accountLevelText = this.add
-      .text(20, 38, `${metaManager.getAccountLevel()}`, {
-        fontSize: '24px',
-        color: '#88aaff',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      });
+    // Next-unlock hint + progress bar (right side of chip).
+    this.accountNextUnlockText = makeStickerText(this, 85, 0, '', {
+      fontSize: 13,
+      color: ACCENT_COLORS_STR.gold,
+      letterSpacing: 0.5,
+    });
+    this.accountNextUnlockText.setOrigin(1, 0.5);
+    accountLevelChip.frame.add(this.accountNextUnlockText);
 
-    // Gold display (top right)
-    const goldLabel = this.add
-      .text(this.scale.width - 20, 20, 'GOLD:', {
-        fontSize: '14px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(1, 0);
+    this.accountProgressBarBg = this.add.graphics();
+    this.accountProgressBarFill = this.add.graphics();
+    accountLevelChip.frame.add(this.accountProgressBarBg);
+    accountLevelChip.frame.add(this.accountProgressBarFill);
 
-    this.tooltipManager.attach(goldLabel,
-      'Gold is earned after each run based on kills, time survived, and level. Spend it here on permanent upgrades.');
+    this.refreshAccountLevelProgress();
 
-    this.goldText = this.add
-      .text(this.scale.width - 20, 38, '', {
-        fontSize: '24px',
-        color: '#ffcc00',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(1, 0);
+    this.tooltipManager.attach(
+      accountLevelChip.hitZone,
+      'Your Account Level is the sum of all shop upgrade levels. Higher account levels unlock more powerful upgrades. The bar shows your progress to the next unlock tier.',
+    );
+
+    // Gold chip (top-right).
+    const goldChip = createMenuCard(this, {
+      x: this.scale.width - 130,
+      y: 38,
+      width: 200,
+      height: 50,
+      bodyFillColor: BODY_COLORS.gold,
+      accentColor: ACCENT_COLORS.gold,
+      bannerHeight: 0,
+      borderWidth: 2,
+      borderColor: ACCENT_COLORS.gold,
+      cornerRadius: 12,
+      wobble: false,
+      interactive: true,
+      shadowOffsetY: 5,
+      shadowAlpha: 0.4,
+    });
+    goldChip.container.setDepth(2);
+    const goldLabel = makeBodyText(this, -85, -8, 'GOLD', {
+      fontSize: 11,
+      color: TEXT_COLORS.muted,
+      align: 'left',
+    });
+    goldLabel.setOrigin(0, 0.5);
+    goldChip.frame.add(goldLabel);
+    this.goldText = makeStickerText(this, -85, 12, '0', {
+      fontSize: 22,
+      color: ACCENT_COLORS_STR.gold,
+      letterSpacing: 1,
+    });
+    this.goldText.setOrigin(0, 0.5);
+    goldChip.frame.add(this.goldText);
+    this.tooltipManager.attach(
+      goldChip.hitZone,
+      'Gold is earned after each run based on kills, time survived, and level. Spend it here on permanent upgrades.',
+    );
     this.updateGoldDisplay();
 
-    // Ascension display / button
+    // Ascension chip / button.
     const ascensionManager = getAscensionManager();
     const ascensionLevel = ascensionManager.getLevel();
     const canAscend = ascensionManager.canAscend(metaManager.getAccountLevel());
@@ -159,79 +271,80 @@ export class ShopScene extends Phaser.Scene {
     if (ascensionLevel > 0) {
       const statBonus = Math.round((ascensionManager.getStatMultiplier() - 1) * 100);
       const goldBonus = Math.round((ascensionManager.getGoldMultiplier() - 1) * 100);
-      const ascLabel = this.add.text(110, 44, `Asc. ${ascensionLevel} (+${statBonus}% stats, +${goldBonus}% gold)`, {
-        fontSize: '11px',
-        color: '#cc88cc',
-        fontFamily: 'Arial',
-      });
-      this.tooltipManager.attach(ascLabel,
-        'Ascension is a prestige system. Each ascension resets your shop upgrades (refunding all gold) but grants permanent stat and gold bonuses.');
+      const ascText = makeBodyText(this, centerX, 56,
+        `Asc. ${ascensionLevel}  ·  +${statBonus}% stats  ·  +${goldBonus}% gold`, {
+          fontSize: 11,
+          color: ACCENT_COLORS_STR.magenta,
+        });
+      ascText.setDepth(2);
+      this.tooltipManager.attach(
+        ascText,
+        'Ascension is a prestige system. Each ascension resets your shop upgrades (refunding all gold) but grants permanent stat and gold bonuses.',
+      );
     }
 
     if (canAscend) {
-      const ascendButton = this.add.text(centerX + 140, 30, '[ ASCEND ]', {
-        fontSize: '14px',
-        color: '#ff44ff',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-        stroke: '#440044',
-        strokeThickness: 2,
-      }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
       const nextLevel = ascensionLevel + 1;
       const nextStatBonus = nextLevel * 10;
       const nextGoldBonus = nextLevel * 15;
 
-      ascendButton.on('pointerover', () => ascendButton.setColor('#ff88ff'));
-      ascendButton.on('pointerout', () => ascendButton.setColor('#ff44ff'));
-      ascendButton.on('pointerdown', () => {
-        this.soundManager.playUIClick();
-        this.showAscensionConfirmation(nextLevel, nextStatBonus, nextGoldBonus);
+      this.ascendButton = createMenuButton({
+        scene: this,
+        x: centerX,
+        y: 78,
+        width: 200,
+        height: 36,
+        label: '✦ ASCEND ✦',
+        variant: 'magenta',
+        fontSize: 14,
+        onActivate: () => {
+          this.soundManager.playUIClick();
+          this.showAscensionConfirmation(nextLevel, nextStatBonus, nextGoldBonus);
+        },
       });
-      addButtonInteraction(this, ascendButton);
+      this.ascendButton.card.hitZone.on('pointerover', () => this.ascendButton!.setHoverState(true));
+      this.ascendButton.card.hitZone.on('pointerout', () => this.ascendButton!.setHoverState(false));
+      this.ascendButton.container.setDepth(3);
+      this.chromeButtons.push(this.ascendButton);
     }
 
-    // Create category tabs
     this.createCategoryTabs();
-
-    // Create scrollable upgrade container with mask
+    this.createFilterButton();
     this.createUpgradeContainer();
-
-    // Display upgrades for default category
     this.displayCategoryUpgrades(this.currentCategory);
+    this.refreshTabBadges();
 
-    // Back button
-    this.backButton = this.add
-      .text(centerX, this.scale.height - 30, '[ Back to Menu ]', {
-        fontSize: '20px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    this.backButton.on('pointerover', () => {
+    // Back button.
+    this.backButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: this.scale.height - 32,
+      width: 220,
+      height: 40,
+      label: '← BACK TO MENU',
+      variant: 'neutral',
+      fontSize: 14,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+    });
+    this.backButton.container.setDepth(3);
+    this.backButton.card.hitZone.on('pointerover', () => {
       this.focusZone = 'back';
       this.updateFocusVisuals();
+      this.backButton.setHoverState(true);
     });
-    this.backButton.on('pointerout', () => this.updateFocusVisuals());
-    this.backButton.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      fadeOut(this, 150, () => this.scene.start('BootScene'));
+    this.backButton.card.hitZone.on('pointerout', () => {
+      this.backButton.setHoverState(false);
+      this.updateFocusVisuals();
     });
-    addButtonInteraction(this, this.backButton);
+    this.chromeButtons.push(this.backButton);
 
-    // Setup scroll input
     this.setupScrollInput();
-
-    // Setup keyboard + gamepad navigation via MenuNavigator
-    // (replaces the old setupKeyboardNavigation for full keyboard + gamepad support)
     this.buildMenuNavigator();
-
-    // Initial focus visuals
     this.updateFocusVisuals();
 
-    // Tutorial toast on first shop visit
     if (!getSettingsManager().isTutorialSeen()) {
       this.time.delayedCall(800, () => {
         this.toastManager.showToast({
@@ -245,94 +358,159 @@ export class ShopScene extends Phaser.Scene {
       getSettingsManager().setTutorialSeen(true);
     }
 
-    // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
   }
 
   private createCategoryTabs(): void {
-    const tabY = 70;
-    const tabHeight = 36;
-    const tabSpacing = 4;
+    const tabY = 130;
+    const tabHeight = 38;
     const totalTabs = UPGRADE_CATEGORIES.length;
-    const tabWidth = Math.floor((this.scale.width - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
-    const startX = 20;
+    const desiredWidth = Math.floor((this.scale.width - 60) / totalTabs);
+    const tabWidth = Math.min(desiredWidth, 180);
 
-    UPGRADE_CATEGORIES.forEach((category, index) => {
-      const tabX = startX + index * (tabWidth + tabSpacing);
-      const isSelected = category.id === this.currentCategory;
-
-      const tabContainer = this.add.container(tabX, tabY);
-
-      // Tab background
-      const tabBg = this.add.rectangle(
-        tabWidth / 2,
-        tabHeight / 2,
-        tabWidth,
-        tabHeight,
-        isSelected ? 0x4a4a7a : 0x2a2a4a
-      );
-      tabBg.setStrokeStyle(2, isSelected ? 0x6a6aaa : 0x3a3a5a);
-      tabBg.setInteractive({ useHandCursor: true });
-
-      // Tab icon
-      const tabIcon = createIcon(this, {
-        x: 14,
-        y: tabHeight / 2,
-        iconKey: category.icon,
-        size: 16,
-        tint: isSelected ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED,
-      });
-
-      // Tab text
-      const tabText = this.add.text(
-        (tabWidth + 28) / 2,
-        tabHeight / 2,
-        category.name,
-        {
-          fontSize: '12px',
-          color: isSelected ? '#ffffff' : '#888888',
-          fontFamily: 'Arial',
+    this.menuTabs = createMenuTabs({
+      scene: this,
+      x: this.scale.width / 2,
+      y: tabY,
+      tabs: UPGRADE_CATEGORIES.map((category) => ({
+        id: category.id,
+        label: category.name.toUpperCase(),
+        accentRole: CATEGORY_ROLES[category.id] ?? 'neutral',
+      })),
+      tabWidth,
+      tabHeight,
+      spacing: 8,
+      fontSize: 12,
+      initialActiveId: this.currentCategory,
+      onChange: (id) => {
+        const idx = UPGRADE_CATEGORIES.findIndex((c) => c.id === id);
+        if (idx >= 0) {
+          this.selectedTabIndex = idx;
+          this.selectCategory(id as UpgradeCategory);
         }
-      );
-      tabText.setOrigin(0.5);
-
-      tabContainer.add([tabBg, tabIcon, tabText]);
-
-      // Tab click handler
-      tabBg.on('pointerdown', () => {
-        this.soundManager.playUIClick();
-        this.selectedTabIndex = index;
-        this.selectCategory(category.id);
-      });
-
-      tabBg.on('pointerover', () => {
-        this.selectedTabIndex = index;
-        this.focusZone = 'tabs';
-        this.updateFocusVisuals();
-      });
-
-      addButtonInteraction(this, tabBg);
-      this.categoryTabs.set(category.id, tabContainer);
+      },
     });
+    this.menuTabs.container.setDepth(3);
+  }
+
+  private createFilterButton(): void {
+    const buttonWidth = 200;
+    const buttonHeight = 28;
+    const buttonX = this.scale.width - 130;
+    const buttonY = 92;
+
+    this.filterButton = createMenuButton({
+      scene: this,
+      x: buttonX,
+      y: buttonY,
+      width: buttonWidth,
+      height: buttonHeight,
+      label: this.affordableOnlyFilter ? '✓ AFFORDABLE ONLY' : '◯ AFFORDABLE ONLY',
+      variant: this.affordableOnlyFilter ? 'safe' : 'neutral',
+      fontSize: 11,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        this.toggleAffordableFilter();
+      },
+    });
+    this.filterButton.container.setDepth(3);
+    this.filterButton.card.hitZone.on('pointerover', () => this.filterButton?.setHoverState(true));
+    this.filterButton.card.hitZone.on('pointerout', () => this.filterButton?.setHoverState(false));
+    this.tooltipManager.attach(
+      this.filterButton.card.hitZone,
+      'Hide locked, maxed, and unaffordable upgrades. Helps you focus on what you can buy right now.',
+    );
+  }
+
+  private toggleAffordableFilter(): void {
+    this.affordableOnlyFilter = !this.affordableOnlyFilter;
+    // Recreate the filter button so its label/variant reflect the new state.
+    this.filterButton?.destroy();
+    this.filterButton = null;
+    this.createFilterButton();
+    this.scrollY = 0;
+    this.upgradeContainer.y = 0;
+    this.selectedCardIndex = 0;
+    this.displayCategoryUpgrades(this.currentCategory);
+    this.refreshTabBadges();
+    this.buildMenuNavigator();
+    this.updateFocusVisuals();
+  }
+
+  private getAffordableCountForCategory(category: UpgradeCategory): number {
+    const meta = getMetaProgressionManager();
+    const accountLevel = meta.getAccountLevel();
+    const gold = meta.getGold();
+    let count = 0;
+    for (const upgrade of getUpgradesByCategory(category)) {
+      if (accountLevel < upgrade.unlockLevel) continue;
+      const level = meta.getUpgradeLevel(upgrade.id);
+      if (level >= upgrade.maxLevel) continue;
+      if (gold < calculateUpgradeCost(upgrade, level)) continue;
+      count++;
+    }
+    return count;
+  }
+
+  private refreshTabBadges(): void {
+    if (!this.menuTabs) return;
+
+    for (const category of UPGRADE_CATEGORIES) {
+      const button = this.menuTabs.getButton(category.id);
+      if (!button) continue;
+
+      const count = this.getAffordableCountForCategory(category.id);
+      let badge = this.tabBadges.get(category.id);
+
+      if (count <= 0) {
+        if (badge) {
+          badge.container.setVisible(false);
+        }
+        continue;
+      }
+
+      if (!badge) {
+        const container = this.add.container(0, 0);
+        const background = this.add.graphics();
+        const text = makeStickerText(this, 0, 0, '', {
+          fontSize: 11,
+          color: '#0a1018',
+          letterSpacing: 0.5,
+        });
+        text.setOrigin(0.5);
+        container.add(background);
+        container.add(text);
+        container.setDepth(4);
+        button.card.frame.add(container);
+        badge = { background, text, container };
+        this.tabBadges.set(category.id, badge);
+      }
+
+      badge.text.setText(String(count));
+      const labelWidth = badge.text.width;
+      const padding = 6;
+      const badgeWidth = Math.max(18, labelWidth + padding * 2);
+      const badgeHeight = 16;
+
+      // Pin badge to the top-right corner of the tab button.
+      const tabHalfWidth = button.card.width / 2;
+      const tabHalfHeight = button.card.height / 2;
+      badge.container.setPosition(tabHalfWidth - 6, -tabHalfHeight + 2);
+      badge.container.setVisible(true);
+
+      badge.background.clear();
+      badge.background.fillStyle(ACCENT_COLORS.gold, 1);
+      badge.background.fillRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 7);
+      badge.background.lineStyle(1.5, 0x0a1018, 1);
+      badge.background.strokeRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 7);
+    }
   }
 
   private selectCategory(categoryId: UpgradeCategory): void {
     if (categoryId === this.currentCategory) return;
 
-    // Update tab visuals
-    this.categoryTabs.forEach((container, id) => {
-      const tabBg = container.getAt(0) as Phaser.GameObjects.Rectangle;
-      const tabIcon = container.getAt(1) as Phaser.GameObjects.Image;
-      const tabText = container.getAt(2) as Phaser.GameObjects.Text;
-      const isSelected = id === categoryId;
-
-      tabBg.setFillStyle(isSelected ? 0x4a4a7a : 0x2a2a4a);
-      tabBg.setStrokeStyle(2, isSelected ? 0x6a6aaa : 0x3a3a5a);
-      tabIcon.setTint(isSelected ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED);
-      tabText.setColor(isSelected ? '#ffffff' : '#888888');
-    });
-
     this.currentCategory = categoryId;
+    this.menuTabs?.setActive(categoryId);
     this.scrollY = 0;
     this.upgradeContainer.y = 0;
     this.selectedCardIndex = 0;
@@ -342,36 +520,68 @@ export class ShopScene extends Phaser.Scene {
   }
 
   private createUpgradeContainer(): void {
-    // Create container for upgrades
     this.upgradeContainer = this.add.container(0, 0);
+    this.upgradeContainer.setDepth(2);
 
-    // Create mask for scrolling area
-    const maskY = 115;
-    const maskHeight = this.scale.height - 170;
+    const maskY = 170;
+    const maskHeight = this.scale.height - 230;
     const maskGraphics = this.add.graphics();
     maskGraphics.fillStyle(0xffffff);
     maskGraphics.fillRect(0, maskY, this.scale.width, maskHeight);
 
-    const mask = maskGraphics.createGeometryMask();
-    this.upgradeContainer.setMask(mask);
+    this.upgradeContainer.setMask(maskGraphics.createGeometryMask());
     maskGraphics.setVisible(false);
   }
 
   private displayCategoryUpgrades(category: UpgradeCategory): void {
-    // Clear existing cards
+    // Tear down old card structure (cards/buttons aren't normal display objects so we have to destroy them explicitly).
+    for (const card of this.upgradeCards) {
+      card.buyButton.destroy();
+      card.refundButton?.destroy();
+      card.card.destroy();
+    }
     this.upgradeContainer.removeAll(true);
     this.upgradeCards = [];
+    if (this.emptyStateText) {
+      this.emptyStateText.destroy();
+      this.emptyStateText = null;
+    }
 
-    const upgrades = getUpgradesByCategory(category);
-    const metaManager = getMetaProgressionManager();
-    const accountLevel = metaManager.getAccountLevel();
+    const meta = getMetaProgressionManager();
+    const accountLevel = meta.getAccountLevel();
+    const gold = meta.getGold();
 
-    // Layout constants
-    const startY = 125;
-    const horizontalSpacing = 20;
-    const verticalSpacing = 15;
+    let upgrades = getUpgradesByCategory(category);
+    if (this.affordableOnlyFilter) {
+      upgrades = upgrades.filter((upgrade) => {
+        if (accountLevel < upgrade.unlockLevel) return false;
+        const level = meta.getUpgradeLevel(upgrade.id);
+        if (level >= upgrade.maxLevel) return false;
+        return gold >= calculateUpgradeCost(upgrade, level);
+      });
+    }
 
-    // Calculate starting X to center the grid
+    if (upgrades.length === 0) {
+      const message = this.affordableOnlyFilter
+        ? 'No affordable upgrades in this category.\nEarn more gold or toggle the filter off.'
+        : 'No upgrades available.';
+      this.emptyStateText = this.add.text(this.scale.width / 2, 320, message, {
+        fontSize: '16px',
+        fontFamily: MENU_FONT,
+        color: TEXT_COLORS.muted,
+        align: 'center',
+        lineSpacing: 6,
+      });
+      this.emptyStateText.setOrigin(0.5);
+      this.emptyStateText.setDepth(2);
+      this.maxScrollY = 0;
+      return;
+    }
+
+    const startY = 188;
+    const horizontalSpacing = 24;
+    const verticalSpacing = 18;
+
     const totalRowWidth = this.columns * this.cardWidth + (this.columns - 1) * horizontalSpacing;
     const startX = (this.scale.width - totalRowWidth) / 2 + this.cardWidth / 2;
 
@@ -380,16 +590,14 @@ export class ShopScene extends Phaser.Scene {
       const row = Math.floor(index / this.columns);
       const cardX = startX + col * (this.cardWidth + horizontalSpacing);
       const cardY = startY + row * (this.cardHeight + verticalSpacing) + this.cardHeight / 2;
-
       const isUnlocked = accountLevel >= upgrade.unlockLevel;
       this.createUpgradeCard(cardX, cardY, this.cardWidth, this.cardHeight, upgrade, isUnlocked, index);
     });
 
-    // Calculate max scroll
     const rows = Math.ceil(upgrades.length / this.columns);
     const contentHeight = rows * (this.cardHeight + verticalSpacing);
-    const visibleHeight = this.scale.height - 170;
-    this.maxScrollY = Math.max(0, contentHeight - visibleHeight + 20);
+    const visibleHeight = this.scale.height - 230;
+    this.maxScrollY = Math.max(0, contentHeight - visibleHeight + 30);
   }
 
   private createUpgradeCard(
@@ -399,7 +607,7 @@ export class ShopScene extends Phaser.Scene {
     height: number,
     upgrade: PermanentUpgrade,
     isUnlocked: boolean,
-    cardIndex: number
+    cardIndex: number,
   ): void {
     const metaManager = getMetaProgressionManager();
     const currentLevel = metaManager.getUpgradeLevel(upgrade.id);
@@ -407,256 +615,257 @@ export class ShopScene extends Phaser.Scene {
     const cost = calculateUpgradeCost(upgrade, currentLevel);
     const canAfford = metaManager.getGold() >= cost;
 
-    const cardContainer = this.add.container(positionX, positionY);
+    const role: RoleColorKey = isUnlocked ? CATEGORY_ROLES[this.currentCategory] ?? 'neutral' : 'neutral';
+    const bodyColor = role === 'neutral' ? BODY_COLORS.neutral : BODY_COLORS[role as keyof typeof BODY_COLORS] ?? BODY_COLORS.neutral;
+    const accent = role === 'neutral' ? ACCENT_COLORS.neutral : ACCENT_COLORS[role as keyof typeof ACCENT_COLORS] ?? ACCENT_COLORS.neutral;
 
-    // Card background
-    const bgColor = isUnlocked ? 0x2a2a4a : 0x1a1a2a;
-    const cardBg = this.add.rectangle(0, 0, width, height, bgColor);
-    cardBg.setStrokeStyle(2, isUnlocked ? 0x4a4a7a : 0x2a2a3a);
-    cardContainer.add(cardBg);
+    const tiltOptions = [CARD_TILT_PRESETS.leftLean, CARD_TILT_PRESETS.hero, CARD_TILT_PRESETS.rightLean, CARD_TILT_PRESETS.rest];
+    const baseTilt = tiltOptions[cardIndex % tiltOptions.length] * 0.4;
 
-    // Icon (sprite from atlas)
-    const icon = createIcon(this, {
-      x: 0,
-      y: -70,
-      iconKey: upgrade.icon,
-      size: 28,
-      tint: isUnlocked ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED,
+    const card = createMenuCard(this, {
+      x: positionX,
+      y: positionY,
+      width,
+      height,
+      tilt: baseTilt,
+      wobbleSeed: cardIndex * 0.6 + 0.2,
+      bodyFillColor: isUnlocked ? bodyColor : BODY_COLORS.neutral,
+      accentColor: isUnlocked ? accent : ACCENT_COLORS.neutral,
+      bannerHeight: 36,
+      borderWidth: 3,
+      borderColor: isUnlocked ? accent : ACCENT_COLORS.neutral,
+      cornerRadius: 14,
     });
-    cardContainer.add(icon);
 
-    // Name
-    const nameText = this.add
-      .text(0, -42, upgrade.name, {
-        fontSize: '16px',
-        color: isUnlocked ? '#ffffff' : '#666666',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
-    cardContainer.add(nameText);
+    if (!isUnlocked) card.container.setAlpha(0.7);
+    this.upgradeContainer.add(card.container);
 
-    // Description with word wrap
-    const descText = this.add
-      .text(0, -20, upgrade.description, {
-        fontSize: '11px',
-        color: isUnlocked ? '#888888' : '#444444',
-        fontFamily: 'Arial',
-        wordWrap: { width: width - 20 },
-        align: 'center',
-      })
-      .setOrigin(0.5);
-    cardContainer.add(descText);
+    // Banner sticker.
+    const nameText = makeStickerText(this, 0, card.bannerTopY + 18, upgrade.name.toUpperCase(), {
+      fontSize: 14,
+      color: TEXT_COLORS.sticker,
+      letterSpacing: 1.5,
+    });
+    card.frame.add(nameText);
 
-    // Level indicator
-    const levelText = this.add
-      .text(0, 12, `Level ${currentLevel}/${upgrade.maxLevel}`, {
-        fontSize: '12px',
-        color: isUnlocked ? '#88aaff' : '#445566',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5);
-    cardContainer.add(levelText);
+    // Icon.
+    const iconY = -height / 2 + 70;
+    card.frame.add(
+      createIcon(this, {
+        x: 0,
+        y: iconY,
+        iconKey: upgrade.icon,
+        size: 28,
+        tint: isUnlocked ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED,
+      }),
+    );
 
-    // Effect text
-    const effectText = this.add
-      .text(0, 30, upgrade.getEffect(currentLevel), {
-        fontSize: '11px',
-        color: isUnlocked ? '#88ff88' : '#446644',
-        fontFamily: 'Arial',
-        wordWrap: { width: width - 20 },
-        align: 'center',
-      })
-      .setOrigin(0.5);
-    cardContainer.add(effectText);
+    // Description.
+    const descriptionText = this.add.text(0, iconY + 30, upgrade.description, {
+      fontSize: '11px',
+      fontFamily: MENU_FONT,
+      color: isUnlocked ? TEXT_COLORS.body : TEXT_COLORS.dim,
+      wordWrap: { width: width - 24 },
+      align: 'center',
+    });
+    descriptionText.setOrigin(0.5);
+    card.frame.add(descriptionText);
 
-    // Buy button (and optional refund button)
-    const buttonY = 68;
-    const fullButtonWidth = width - 20;
-    const buttonHeight = 26;
+    // Level pill.
+    const levelText = makeBodyText(this, 0, 18, `Level ${currentLevel} / ${upgrade.maxLevel}`, {
+      fontSize: 12,
+      color: isUnlocked ? ACCENT_COLORS_STR.primary : TEXT_COLORS.dim,
+    });
+    card.frame.add(levelText);
+
+    // Effect.
+    const effectText = this.add.text(0, 38, upgrade.getEffect(currentLevel), {
+      fontSize: '11px',
+      fontFamily: MENU_FONT,
+      color: isUnlocked ? ACCENT_COLORS_STR.safe : TEXT_COLORS.dim,
+      wordWrap: { width: width - 24 },
+      align: 'center',
+    });
+    effectText.setOrigin(0.5);
+    card.frame.add(effectText);
+
+    // Buy button + optional refund button at the card's foot.
+    const buttonY = height / 2 - 28;
     const hasRefund = currentLevel > 0;
-    const buttonGap = 4;
-    // When refund exists: buy button takes most space, refund button is smaller
-    const buyButtonWidth = hasRefund ? fullButtonWidth - 55 - buttonGap : fullButtonWidth;
-    const refundButtonWidth = 55;
+    const buttonHeight = 36;
+    const buyWidth = hasRefund ? width - 84 : width - 28;
+    const refundWidth = 64;
 
-    let buttonColor = 0x444444;
-    let buttonStroke = 0x666666;
-    let buttonText = 'LOCKED';
+    const buyState = this.resolveBuyButtonVariant(isUnlocked, isMaxed, canAfford);
+    const buyLabel = !isUnlocked
+      ? `Lv.${upgrade.unlockLevel}`
+      : isMaxed
+        ? 'MAXED'
+        : `${cost}g`;
 
-    if (isUnlocked) {
-      if (isMaxed) {
-        buttonColor = 0x444444;
-        buttonStroke = 0x666666;
-        buttonText = 'MAXED';
-      } else if (canAfford) {
-        buttonColor = 0x44aa44;
-        buttonStroke = 0x66cc66;
-        buttonText = `${cost} gold`;
-      } else {
-        buttonColor = 0x664444;
-        buttonStroke = 0x886666;
-        buttonText = `${cost} gold`;
-      }
-    } else {
-      buttonText = `Unlock at Lv.${upgrade.unlockLevel}`;
+    const buyButton = createMenuButton({
+      scene: this,
+      x: hasRefund ? -(width - 28) / 2 + buyWidth / 2 : 0,
+      y: buttonY,
+      width: buyWidth,
+      height: buttonHeight,
+      label: buyLabel,
+      variant: buyState,
+      fontSize: 13,
+      // No-op onActivate — the actual buy logic runs in the custom pointerup
+      // handler below so we can inspect the shift key on the underlying event.
+      onActivate: () => {},
+    });
+    buyButton.setEnabled(isUnlocked && !isMaxed);
+    card.frame.add(buyButton.container);
+
+    if (isUnlocked && !isMaxed) {
+      buyButton.card.hitZone.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+        if (this.time.now < this.buyClickIgnoreUntil) return;
+        if (pointer.event.shiftKey) {
+          this.purchaseUpgradeMax(upgrade.id);
+        } else {
+          this.purchaseUpgrade(upgrade.id);
+        }
+      });
+      this.tooltipManager.attach(
+        buyButton.card.hitZone,
+        `${upgrade.name} — Click to buy 1 level. Shift+Click to buy as many as you can afford.`,
+      );
     }
 
-    // Position buy button (centered when no refund, left-aligned when refund exists)
-    const buyButtonX = hasRefund ? -(fullButtonWidth - buyButtonWidth) / 2 : 0;
-    const buyButton = this.add.rectangle(buyButtonX, buttonY, buyButtonWidth, buttonHeight, buttonColor);
-    buyButton.setStrokeStyle(2, buttonStroke);
-    cardContainer.add(buyButton);
-
-    const costText = this.add
-      .text(buyButtonX, buttonY, buttonText, {
-        fontSize: '12px',
-        color: '#ffffff',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5);
-    cardContainer.add(costText);
-
-    // Create refund button if player has levels in this upgrade
-    let refundButton: Phaser.GameObjects.Rectangle | undefined;
-    let refundText: Phaser.GameObjects.Text | undefined;
+    let refundButton: MenuButton | undefined;
     if (hasRefund) {
-      const refundButtonX = (fullButtonWidth - refundButtonWidth) / 2;
       const refundAmount = metaManager.getRefundAmount(upgrade.id);
-      refundButton = this.add.rectangle(refundButtonX, buttonY, refundButtonWidth, buttonHeight, 0x997722);
-      refundButton.setStrokeStyle(2, 0xbbaa44);
-      cardContainer.add(refundButton);
-
-      refundText = this.add
-        .text(refundButtonX, buttonY, `↩${refundAmount}`, {
-          fontSize: '11px',
-          color: '#ffffff',
-          fontFamily: 'Arial',
-        })
-        .setOrigin(0.5);
-      cardContainer.add(refundText);
-
-      // Make refund button interactive
-      refundButton.setInteractive({ useHandCursor: true });
-
-      refundButton.on('pointerover', () => {
-        this.selectedCardIndex = cardIndex;
-        this.focusZone = 'grid';
-        this.updateFocusVisuals();
-        refundButton!.setFillStyle(0xbbaa44);
+      const refundX = (width - 28) / 2 - refundWidth / 2;
+      refundButton = createMenuButton({
+        scene: this,
+        x: refundX,
+        y: buttonY,
+        width: refundWidth,
+        height: buttonHeight,
+        label: `↩${refundAmount}`,
+        variant: 'gold',
+        fontSize: 12,
+        onActivate: () => this.refundUpgrade(upgrade.id, false),
       });
-
-      refundButton.on('pointerout', () => {
-        refundButton!.setFillStyle(0x997722);
+      refundButton.card.hitZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        // Shift+click for full refund — onActivate already runs single-level path,
+        // so override with shift detection here.
+        if (pointer.event.shiftKey) {
+          this.refundUpgrade(upgrade.id, true);
+        }
       });
-
-      refundButton.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-        // Shift+click for full refund, normal click for single level
-        this.refundUpgrade(upgrade.id, pointer.event.shiftKey);
-      });
-      addButtonInteraction(this, refundButton);
+      refundButton.card.hitZone.on('pointerover', () => refundButton!.setHoverState(true));
+      refundButton.card.hitZone.on('pointerout', () => refundButton!.setHoverState(false));
+      card.frame.add(refundButton.container);
     }
 
-    // Add lock overlay for locked cards with unlock requirement
+    // Lock overlay.
     let lockOverlay: Phaser.GameObjects.Rectangle | undefined;
     let lockText: Phaser.GameObjects.Text | undefined;
     if (!isUnlocked) {
-      lockOverlay = this.add.rectangle(0, 0, width, height, 0x000000, 0.4);
-      cardContainer.add(lockOverlay);
-
+      lockOverlay = this.add.rectangle(0, 0, width - 8, height - 8, 0x000000, 0.45);
+      card.frame.add(lockOverlay);
       const accountLevel = metaManager.getAccountLevel();
-      lockText = this.add.text(0, 0, `Requires\nAccount Lv. ${upgrade.unlockLevel}\n(${accountLevel}/${upgrade.unlockLevel})`, {
-        fontSize: '13px',
-        fontFamily: 'Arial',
-        color: '#ff8844',
-        align: 'center',
-        stroke: '#000000',
-        strokeThickness: 3,
-      }).setOrigin(0.5);
-      cardContainer.add(lockText);
+      lockText = makeStickerText(
+        this,
+        0,
+        0,
+        `🔒 LV. ${upgrade.unlockLevel}\n( ${accountLevel} / ${upgrade.unlockLevel} )`,
+        {
+          fontSize: 13,
+          color: ACCENT_COLORS_STR.danger,
+          letterSpacing: 1,
+        },
+      );
+      lockText.setLineSpacing(4);
+      card.frame.add(lockText);
     }
 
-    // Store card elements
-    const cardElements: UpgradeCardElements = {
-      container: cardContainer,
+    // Affordable signal — pulsing gold sparkle in the top-right card corner
+    // for upgrades the player can buy *right now*. Cuts scan time when
+    // hopping across categories with a full purse.
+    let affordableStar: Phaser.GameObjects.Text | undefined;
+    if (isUnlocked && !isMaxed && canAfford) {
+      affordableStar = makeStickerText(this, width / 2 - 16, -height / 2 + 16, '✦', {
+        fontSize: 18,
+        color: ACCENT_COLORS_STR.gold,
+        letterSpacing: 0,
+      });
+      affordableStar.setOrigin(0.5);
+      card.frame.add(affordableStar);
+    }
+
+    this.upgradeCards.push({
+      card,
       levelText,
       effectText,
-      costText,
       buyButton,
-      cardBg,
+      refundButton,
       upgrade,
       lockOverlay,
       lockText,
-      refundButton,
-      refundText,
-    };
-    this.upgradeCards.push(cardElements);
+      isUnlocked,
+      isMaxed,
+      affordableStar,
+      cardIndex,
+    });
 
-    // Make card interactive
-    cardBg.setInteractive({ useHandCursor: true });
+    // Pointer routing — hover focuses the cell, clicking the body activates buy.
+    card.hitZone.on('pointerover', () => {
+      this.selectedCardIndex = cardIndex;
+      this.focusZone = 'grid';
+      this.updateFocusVisuals();
+      card.setHoverState(true);
+    });
+    card.hitZone.on('pointerout', () => card.setHoverState(false));
+    card.hitZone.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (!isUnlocked || isMaxed) return;
+      if (this.time.now < this.buyClickIgnoreUntil) return;
+      if (pointer.event.shiftKey) {
+        this.purchaseUpgradeMax(upgrade.id);
+      } else {
+        this.purchaseUpgrade(upgrade.id);
+      }
+    });
 
-    cardBg.on('pointerover', () => {
+    buyButton.card.hitZone.on('pointerover', () => {
+      buyButton.setHoverState(true);
       this.selectedCardIndex = cardIndex;
       this.focusZone = 'grid';
       this.updateFocusVisuals();
     });
+    buyButton.card.hitZone.on('pointerout', () => buyButton.setHoverState(false));
+  }
 
-    cardBg.on('pointerdown', () => {
-      if (isUnlocked && !isMaxed) {
-        this.purchaseUpgrade(upgrade.id);
-      }
-    });
-
-    // Also make buy button interactive
-    if (isUnlocked && !isMaxed) {
-      buyButton.setInteractive({ useHandCursor: true });
-
-      buyButton.on('pointerover', () => {
-        this.selectedCardIndex = cardIndex;
-        this.focusZone = 'grid';
-        this.updateFocusVisuals();
-        const currentCost = metaManager.getUpgradeCost(upgrade.id);
-        if (metaManager.getGold() >= currentCost) {
-          buyButton.setFillStyle(0x55bb55);
-        }
-      });
-
-      buyButton.on('pointerout', () => {
-        this.updateCardAppearance(cardIndex);
-      });
-
-      buyButton.on('pointerdown', () => {
-        this.purchaseUpgrade(upgrade.id);
-      });
-      addButtonInteraction(this, buyButton);
-    }
-
-    // Add to scrollable container
-    this.upgradeContainer.add(cardContainer);
+  private resolveBuyButtonVariant(isUnlocked: boolean, isMaxed: boolean, canAfford: boolean): 'safe' | 'neutral' | 'danger' {
+    if (!isUnlocked || isMaxed) return 'neutral';
+    return canAfford ? 'safe' : 'danger';
   }
 
   private setupScrollInput(): void {
-    // Mouse wheel scrolling
-    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: unknown[], _deltaX: number, deltaY: number) => {
-      this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY * 0.5, 0, this.maxScrollY);
-      this.upgradeContainer.y = -this.scrollY;
-    });
+    this.input.on(
+      'wheel',
+      (_pointer: Phaser.Input.Pointer, _gameObjects: unknown[], _deltaX: number, deltaY: number) => {
+        this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY * 0.5, 0, this.maxScrollY);
+        this.upgradeContainer.y = -this.scrollY;
+      },
+    );
 
-    // Touch/drag scrolling
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.y > 110 && pointer.y < this.scale.height - 60) {
+      if (pointer.y > 170 && pointer.y < this.scale.height - 80) {
         this.isDragging = true;
         this.lastPointerY = pointer.y;
       }
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (this.isDragging) {
-        const deltaY = this.lastPointerY - pointer.y;
-        this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY, 0, this.maxScrollY);
-        this.upgradeContainer.y = -this.scrollY;
-        this.lastPointerY = pointer.y;
-      }
+      if (!this.isDragging) return;
+      const deltaY = this.lastPointerY - pointer.y;
+      this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY, 0, this.maxScrollY);
+      this.upgradeContainer.y = -this.scrollY;
+      this.lastPointerY = pointer.y;
     });
 
     this.input.on('pointerup', () => {
@@ -664,21 +873,11 @@ export class ShopScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Builds a MenuNavigator that mirrors the existing zone-based focus system
-   * to provide gamepad D-pad/stick/A/B button support.
-   * The navigator items map to: [tabs...] + [grid cards...] + [back button].
-   * Zone transitions (tabs -> grid -> back) are handled by re-building items
-   * when the focus zone changes.
-   */
   private buildMenuNavigator(): void {
-    if (this.menuNavigator) {
-      this.menuNavigator.destroy();
-    }
+    this.menuNavigator?.destroy();
 
     const navigableItems: NavigableItem[] = [];
 
-    // Add tab items
     UPGRADE_CATEGORIES.forEach((_category, tabIndex) => {
       navigableItems.push({
         onFocus: () => {
@@ -687,16 +886,11 @@ export class ShopScene extends Phaser.Scene {
           this.selectCategoryByIndex(tabIndex);
           this.updateFocusVisuals();
         },
-        onBlur: () => {
-          this.updateFocusVisuals();
-        },
-        onActivate: () => {
-          this.selectCategoryByIndex(tabIndex);
-        },
+        onBlur: () => this.updateFocusVisuals(),
+        onActivate: () => this.selectCategoryByIndex(tabIndex),
       });
     });
 
-    // Add grid card items
     this.upgradeCards.forEach((_card, cardIndex) => {
       navigableItems.push({
         onFocus: () => {
@@ -705,9 +899,7 @@ export class ShopScene extends Phaser.Scene {
           this.ensureCardVisible();
           this.updateFocusVisuals();
         },
-        onBlur: () => {
-          this.updateFocusVisuals();
-        },
+        onBlur: () => this.updateFocusVisuals(),
         onActivate: () => {
           this.focusZone = 'grid';
           this.selectedCardIndex = cardIndex;
@@ -716,27 +908,25 @@ export class ShopScene extends Phaser.Scene {
       });
     });
 
-    // Add back button
     navigableItems.push({
       onFocus: () => {
         this.focusZone = 'back';
         this.updateFocusVisuals();
       },
-      onBlur: () => {
-        this.updateFocusVisuals();
-      },
+      onBlur: () => this.updateFocusVisuals(),
       onActivate: () => {
         this.soundManager.playUIClick();
         fadeOut(this, 150, () => this.scene.start('BootScene'));
       },
     });
 
-    // The layout is: tabs (1 row) + grid (N rows of `columns` cols) + back (1 row).
-    // Use the grid column count so left/right navigation works within the grid.
-    // Tabs are a single row at the top, back is a single item at the bottom.
-    // We use the shop's column count to set up grid navigation.
     const totalTabCount = UPGRADE_CATEGORIES.length;
     const navigatorColumns = Math.max(totalTabCount, this.columns);
+
+    let initialIndex: number;
+    if (this.focusZone === 'tabs') initialIndex = this.selectedTabIndex;
+    else if (this.focusZone === 'grid') initialIndex = totalTabCount + this.selectedCardIndex;
+    else initialIndex = navigableItems.length - 1;
 
     this.menuNavigator = new MenuNavigator({
       scene: this,
@@ -746,112 +936,56 @@ export class ShopScene extends Phaser.Scene {
       onCancel: () => {
         fadeOut(this, 150, () => this.scene.start('BootScene'));
       },
-      initialIndex: this.focusZone === 'tabs'
-        ? this.selectedTabIndex
-        : this.focusZone === 'grid'
-          ? totalTabCount + this.selectedCardIndex
-          : navigableItems.length - 1,
+      initialIndex,
     });
   }
 
-  /**
-   * Selects a category by tab index.
-   */
   private selectCategoryByIndex(index: number): void {
     const category = UPGRADE_CATEGORIES[index];
-    if (category) {
-      this.selectCategory(category.id);
-    }
+    if (category) this.selectCategory(category.id);
   }
 
-  /**
-   * Activate the currently selected item.
-   */
   private activateCurrentSelection(): void {
-    if (this.focusZone === 'tabs') {
-      // Already handled by selectCategoryByIndex in navigation
-    } else if (this.focusZone === 'grid') {
+    if (this.focusZone === 'grid') {
       const card = this.upgradeCards[this.selectedCardIndex];
-      if (card) {
-        const metaManager = getMetaProgressionManager();
-        const currentLevel = metaManager.getUpgradeLevel(card.upgrade.id);
-        const isMaxed = currentLevel >= card.upgrade.maxLevel;
-        const isUnlocked = metaManager.getAccountLevel() >= card.upgrade.unlockLevel;
+      if (!card) return;
 
-        if (isUnlocked && !isMaxed) {
-          this.purchaseUpgrade(card.upgrade.id);
-        }
-      }
+      const metaManager = getMetaProgressionManager();
+      const currentLevel = metaManager.getUpgradeLevel(card.upgrade.id);
+      const isMaxed = currentLevel >= card.upgrade.maxLevel;
+      const isUnlocked = metaManager.getAccountLevel() >= card.upgrade.unlockLevel;
+
+      if (isUnlocked && !isMaxed) this.purchaseUpgrade(card.upgrade.id);
     } else if (this.focusZone === 'back') {
       this.scene.start('BootScene');
     }
   }
 
-  /**
-   * Ensures the selected card is visible in the scroll area.
-   */
   private ensureCardVisible(): void {
     const row = Math.floor(this.selectedCardIndex / this.columns);
-    const cardY = 125 + row * (this.cardHeight + 15) + this.cardHeight / 2;
-    const visibleTop = this.scrollY + 115;
-    const visibleBottom = this.scrollY + this.scale.height - 55;
+    const cardY = 188 + row * (this.cardHeight + 18) + this.cardHeight / 2;
+    const visibleTop = this.scrollY + 170;
+    const visibleBottom = this.scrollY + this.scale.height - 80;
 
     if (cardY - this.cardHeight / 2 < visibleTop) {
-      this.scrollY = Math.max(0, cardY - this.cardHeight / 2 - 115);
+      this.scrollY = Math.max(0, cardY - this.cardHeight / 2 - 170);
     } else if (cardY + this.cardHeight / 2 > visibleBottom) {
-      this.scrollY = Math.min(this.maxScrollY, cardY + this.cardHeight / 2 - (this.scale.height - 55));
+      this.scrollY = Math.min(this.maxScrollY, cardY + this.cardHeight / 2 - (this.scale.height - 80));
     }
 
     this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, this.maxScrollY);
     this.upgradeContainer.y = -this.scrollY;
   }
 
-  /**
-   * Updates visual feedback for the current focus state.
-   */
   private updateFocusVisuals(): void {
-    // Update tab visuals
-    UPGRADE_CATEGORIES.forEach((category, index) => {
-      const tabContainer = this.categoryTabs.get(category.id);
-      if (!tabContainer) return;
-
-      const tabBg = tabContainer.getAt(0) as Phaser.GameObjects.Rectangle;
-      const tabIcon = tabContainer.getAt(1) as Phaser.GameObjects.Image;
-      const tabText = tabContainer.getAt(2) as Phaser.GameObjects.Text;
-
-      const isSelected = category.id === this.currentCategory;
-      const isFocused = this.focusZone === 'tabs' && this.selectedTabIndex === index;
-
-      if (isFocused) {
-        tabBg.setFillStyle(0x5a5a9a);
-        tabBg.setStrokeStyle(3, 0xffdd44);
-      } else if (isSelected) {
-        tabBg.setFillStyle(0x4a4a7a);
-        tabBg.setStrokeStyle(2, 0x6a6aaa);
-      } else {
-        tabBg.setFillStyle(0x2a2a4a);
-        tabBg.setStrokeStyle(2, 0x3a3a5a);
-      }
-
-      tabIcon.setTint(isSelected || isFocused ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED);
-      tabText.setColor(isSelected || isFocused ? '#ffffff' : '#888888');
-    });
-
-    // Update card visuals
+    // Card focus pop — MenuCard's setFocusState handles the lift.
     this.upgradeCards.forEach((card, index) => {
       const isFocused = this.focusZone === 'grid' && this.selectedCardIndex === index;
-      const metaManager = getMetaProgressionManager();
-      const isUnlocked = metaManager.getAccountLevel() >= card.upgrade.unlockLevel;
-
-      if (isFocused) {
-        card.cardBg.setStrokeStyle(3, 0xffdd44);
-      } else {
-        card.cardBg.setStrokeStyle(2, isUnlocked ? 0x4a4a7a : 0x2a2a3a);
-      }
+      card.card.setFocusState(isFocused);
     });
 
-    // Update back button
-    this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
+    // Back button highlight.
+    this.backButton.setFocusState(this.focusZone === 'back');
   }
 
   private purchaseUpgrade(upgradeId: string): void {
@@ -862,40 +996,50 @@ export class ShopScene extends Phaser.Scene {
       this.soundManager.playPurchase();
       this.updateGoldDisplay();
       this.updateAccountLevelDisplay();
-      this.updateAllCards();
-      // Refresh category to show newly unlocked upgrades
       this.displayCategoryUpgrades(this.currentCategory);
+      this.clampSelectedCardIndex();
+      this.refreshTabBadges();
       this.buildMenuNavigator();
       this.updateFocusVisuals();
+      this.pulseCardForUpgrade(upgradeId);
+      return;
+    }
 
-      // Purchase pop animation on the selected card
-      const card = this.upgradeCards[this.selectedCardIndex];
-      if (card) {
-        card.cardBg.setFillStyle(0xffffff);
-        this.tweens.add({
-          targets: card.container,
-          scaleX: 1.05,
-          scaleY: 1.05,
-          duration: 100,
-          yoyo: true,
-          ease: 'Sine.easeOut',
-          onComplete: () => {
-            this.updateCardAppearance(this.selectedCardIndex);
-          },
-        });
-      }
-    } else {
-      // Insufficient gold feedback
+    this.soundManager.playError();
+
+    const cost = metaManager.getUpgradeCost(upgradeId);
+    const deficit = cost - metaManager.getGold();
+    if (deficit > 0) {
+      this.toastManager.showToast({
+        title: 'Not Enough Gold',
+        description: `Need ${deficit} more gold`,
+        icon: 'coins',
+        color: 0xff6644,
+        duration: 2000,
+      });
+    }
+  }
+
+  /**
+   * Buy as many levels of the given upgrade as gold allows. Stops when out of
+   * gold, at max level, or when the upgrade re-locks (account level can drop
+   * if refunds are happening concurrently — defensive). The 99-iteration
+   * safety cap matches the largest realistic maxLevel × 10 headroom.
+   */
+  private purchaseUpgradeMax(upgradeId: string): void {
+    const metaManager = getMetaProgressionManager();
+    let bought = 0;
+    const safetyLimit = 99;
+    while (bought < safetyLimit && metaManager.purchaseUpgrade(upgradeId)) {
+      bought++;
+    }
+
+    // Lock the next ~120ms of buy clicks so the pointerup that triggered this
+    // shift+click can't queue a second purchase on the rebuilt card.
+    this.buyClickIgnoreUntil = this.time.now + 120;
+
+    if (bought <= 0) {
       this.soundManager.playError();
-      const card = this.upgradeCards[this.selectedCardIndex];
-      if (card) {
-        card.cardBg.setFillStyle(0x662222);
-        this.time.delayedCall(120, () => {
-          this.updateCardAppearance(this.selectedCardIndex);
-        });
-      }
-
-      // Show deficit toast
       const cost = metaManager.getUpgradeCost(upgradeId);
       const deficit = cost - metaManager.getGold();
       if (deficit > 0) {
@@ -907,7 +1051,42 @@ export class ShopScene extends Phaser.Scene {
           duration: 2000,
         });
       }
+      return;
     }
+
+    this.soundManager.playPurchase();
+    this.updateGoldDisplay();
+    this.updateAccountLevelDisplay();
+    this.displayCategoryUpgrades(this.currentCategory);
+    this.clampSelectedCardIndex();
+    this.refreshTabBadges();
+    this.buildMenuNavigator();
+    this.updateFocusVisuals();
+    this.pulseCardForUpgrade(upgradeId);
+
+    if (bought > 1) {
+      const upgradeName = getPermanentUpgradeById(upgradeId)?.name ?? 'Upgrade';
+      this.toastManager.showToast({
+        title: `+${bought} ${upgradeName}`,
+        description: 'Bought max levels',
+        icon: 'coins',
+        color: 0xffd166,
+        duration: 1800,
+      });
+    }
+  }
+
+  private pulseCardForUpgrade(upgradeId: string): void {
+    const card = this.upgradeCards.find((c) => c.upgrade.id === upgradeId);
+    if (!card) return;
+    this.tweens.add({
+      targets: card.card.container,
+      scaleX: 1.06,
+      scaleY: 1.06,
+      duration: 110,
+      yoyo: true,
+      ease: 'Sine.easeOut',
+    });
   }
 
   private refundUpgrade(upgradeId: string, fullRefund: boolean): void {
@@ -916,30 +1095,37 @@ export class ShopScene extends Phaser.Scene {
       ? metaManager.refundUpgradeFully(upgradeId)
       : metaManager.refundUpgradeLevel(upgradeId);
 
-    if (refunded > 0) {
-      this.soundManager.playUIClick();
-      this.updateGoldDisplay();
-      this.updateAccountLevelDisplay();
-      this.updateAllCards();
-      // Refresh category to show newly unlocked upgrades (or re-lock if account level dropped)
-      this.displayCategoryUpgrades(this.currentCategory);
-      this.buildMenuNavigator();
-      this.updateFocusVisuals();
+    if (refunded <= 0) return;
+
+    this.soundManager.playUIClick();
+    this.updateGoldDisplay();
+    this.updateAccountLevelDisplay();
+    this.displayCategoryUpgrades(this.currentCategory);
+    this.clampSelectedCardIndex();
+    this.refreshTabBadges();
+    this.buildMenuNavigator();
+    this.updateFocusVisuals();
+  }
+
+  private clampSelectedCardIndex(): void {
+    if (this.upgradeCards.length === 0) {
+      this.selectedCardIndex = 0;
+      return;
     }
+    if (this.selectedCardIndex >= this.upgradeCards.length) {
+      this.selectedCardIndex = this.upgradeCards.length - 1;
+    }
+    if (this.selectedCardIndex < 0) this.selectedCardIndex = 0;
   }
 
   private updateGoldDisplay(): void {
-    const metaManager = getMetaProgressionManager();
-    const newGold = metaManager.getGold();
+    const newGold = getMetaProgressionManager().getGold();
     const currentDisplayed = parseInt(this.goldText.text) || 0;
 
     if (currentDisplayed === newGold) return;
 
-    // Kill previous tween to prevent stacking
-    if (this.goldTween) {
-      this.goldTween.remove();
-      this.goldTween = null;
-    }
+    this.goldTween?.remove();
+    this.goldTween = null;
 
     this.goldTween = this.tweens.addCounter({
       from: currentDisplayed,
@@ -957,118 +1143,161 @@ export class ShopScene extends Phaser.Scene {
   }
 
   private updateAccountLevelDisplay(): void {
-    const metaManager = getMetaProgressionManager();
-    this.accountLevelText.setText(`${metaManager.getAccountLevel()}`);
-  }
-
-  private updateCardAppearance(cardIndex: number): void {
-    const card = this.upgradeCards[cardIndex];
-    if (!card) return;
-
-    const metaManager = getMetaProgressionManager();
-    const currentLevel = metaManager.getUpgradeLevel(card.upgrade.id);
-    const isMaxed = currentLevel >= card.upgrade.maxLevel;
-    const cost = calculateUpgradeCost(card.upgrade, currentLevel);
-    const canAfford = metaManager.getGold() >= cost;
-    const isUnlocked = metaManager.getAccountLevel() >= card.upgrade.unlockLevel;
-
-    let buttonColor = 0x444444;
-    let buttonStroke = 0x666666;
-
-    if (isUnlocked) {
-      if (isMaxed) {
-        buttonColor = 0x444444;
-        buttonStroke = 0x666666;
-      } else if (canAfford) {
-        buttonColor = 0x44aa44;
-        buttonStroke = 0x66cc66;
-      } else {
-        buttonColor = 0x664444;
-        buttonStroke = 0x886666;
-      }
-    }
-
-    card.buyButton.setFillStyle(buttonColor);
-    card.buyButton.setStrokeStyle(2, buttonStroke);
-
-    // Subtle red tint on unaffordable cards
-    if (isUnlocked && !isMaxed && !canAfford) {
-      card.cardBg.setFillStyle(0x2a1a1a);
-    } else if (isUnlocked) {
-      card.cardBg.setFillStyle(0x2a2a4a); // Normal unlocked bg
-    } else {
-      card.cardBg.setFillStyle(0x1a1a2a); // Locked bg
-    }
-  }
-
-  private updateAllCards(): void {
-    const metaManager = getMetaProgressionManager();
-
-    this.upgradeCards.forEach((card, index) => {
-      const currentLevel = metaManager.getUpgradeLevel(card.upgrade.id);
-      const isMaxed = currentLevel >= card.upgrade.maxLevel;
-      const cost = calculateUpgradeCost(card.upgrade, currentLevel);
-      const isUnlocked = metaManager.getAccountLevel() >= card.upgrade.unlockLevel;
-
-      // Update text
-      card.levelText.setText(`Level ${currentLevel}/${card.upgrade.maxLevel}`);
-      card.effectText.setText(card.upgrade.getEffect(currentLevel));
-
-      let buttonText = 'LOCKED';
-      if (isUnlocked) {
-        buttonText = isMaxed ? 'MAXED' : `${cost} gold`;
-      } else {
-        buttonText = `Unlock at Lv.${card.upgrade.unlockLevel}`;
-      }
-      card.costText.setText(buttonText);
-
-      // Update button appearance
-      this.updateCardAppearance(index);
-
-      // Disable interaction if maxed
-      if (isMaxed) {
-        card.buyButton.removeAllListeners();
-        card.buyButton.disableInteractive();
-      }
-    });
+    this.accountLevelText.setText(`${getMetaProgressionManager().getAccountLevel()}`);
+    this.refreshAccountLevelProgress();
   }
 
   /**
-   * Cleanup keyboard handlers when scene shuts down.
+   * Find the smallest unlock-level tier strictly above the current account
+   * level. Returns null when every upgrade tier is already unlocked.
    */
+  private getNextUnlockTier(currentAccountLevel: number): number | null {
+    let nextTier: number | null = null;
+    for (const upgrade of PERMANENT_UPGRADES) {
+      if (upgrade.unlockLevel > currentAccountLevel) {
+        if (nextTier === null || upgrade.unlockLevel < nextTier) {
+          nextTier = upgrade.unlockLevel;
+        }
+      }
+    }
+    return nextTier;
+  }
+
+  /**
+   * Find the highest unlock-level tier at or below the current account level,
+   * used as the lower bound for progress-bar fill.
+   */
+  private getPreviousUnlockTier(currentAccountLevel: number): number {
+    let prevTier = 0;
+    for (const upgrade of PERMANENT_UPGRADES) {
+      if (upgrade.unlockLevel <= currentAccountLevel && upgrade.unlockLevel > prevTier) {
+        prevTier = upgrade.unlockLevel;
+      }
+    }
+    return prevTier;
+  }
+
+  private refreshAccountLevelProgress(): void {
+    if (!this.accountProgressBarBg || !this.accountProgressBarFill || !this.accountNextUnlockText) return;
+
+    const accountLevel = getMetaProgressionManager().getAccountLevel();
+    const nextTier = this.getNextUnlockTier(accountLevel);
+
+    // Bar geometry — sits at the bottom of the chip's interior.
+    const barWidth = this.accountChipWidth - 24;
+    const barHeight = 4;
+    const barLeftX = -barWidth / 2;
+    const barY = 19;
+
+    this.accountProgressBarBg.clear();
+    this.accountProgressBarFill.clear();
+
+    if (nextTier === null) {
+      this.accountNextUnlockText.setText('ALL\nUNLOCKED');
+      this.accountNextUnlockText.setFontSize(10);
+      this.accountNextUnlockText.setLineSpacing(0);
+      // Full-bar gold cap to signal "done".
+      this.accountProgressBarBg.fillStyle(0x000000, 0.45);
+      this.accountProgressBarBg.fillRoundedRect(barLeftX, barY, barWidth, barHeight, 2);
+      this.accountProgressBarFill.fillStyle(ACCENT_COLORS.gold, 1);
+      this.accountProgressBarFill.fillRoundedRect(barLeftX, barY, barWidth, barHeight, 2);
+      return;
+    }
+
+    const prevTier = this.getPreviousUnlockTier(accountLevel);
+    const span = Math.max(1, nextTier - prevTier);
+    const progress = Phaser.Math.Clamp((accountLevel - prevTier) / span, 0, 1);
+
+    this.accountNextUnlockText.setText(`▶ Lv.${nextTier}`);
+    this.accountNextUnlockText.setFontSize(13);
+    this.accountNextUnlockText.setLineSpacing(0);
+
+    // Background track.
+    this.accountProgressBarBg.fillStyle(0x000000, 0.45);
+    this.accountProgressBarBg.fillRoundedRect(barLeftX, barY, barWidth, barHeight, 2);
+
+    // Filled portion in primary cyan, capped in gold at the right edge.
+    const fillWidth = Math.max(0, barWidth * progress);
+    if (fillWidth > 0) {
+      this.accountProgressBarFill.fillStyle(ACCENT_COLORS.primary, 1);
+      this.accountProgressBarFill.fillRoundedRect(barLeftX, barY, fillWidth, barHeight, 2);
+    }
+  }
+
   shutdown(): void {
     if (this.menuNavigator) {
       this.menuNavigator.destroy();
       this.menuNavigator = null;
     }
     this.tooltipManager.destroy();
-    if (this.keydownHandler) {
-      this.input.keyboard?.off('keydown', this.keydownHandler);
-      this.keydownHandler = null;
+    if (this.bgUpdateHandler) {
+      this.events.off('update', this.bgUpdateHandler);
+      this.bgUpdateHandler = null;
     }
+    this.menuBackground?.destroy();
+    this.menuBackground = null;
+    // Tabs own their button containers; the badges live inside those buttons
+    // and get destroyed transitively. Just clear our tracking map.
+    this.menuTabs?.destroy();
+    this.menuTabs = null;
+    this.tabBadges.clear();
+    this.filterButton?.destroy();
+    this.filterButton = null;
+    this.accountProgressBarBg?.destroy();
+    this.accountProgressBarBg = null;
+    this.accountProgressBarFill?.destroy();
+    this.accountProgressBarFill = null;
+    this.accountNextUnlockText = null;
+    this.emptyStateText?.destroy();
+    this.emptyStateText = null;
+    for (const btn of this.chromeButtons) btn.destroy();
+    this.chromeButtons = [];
+    for (const card of this.upgradeCards) {
+      card.buyButton.destroy();
+      card.refundButton?.destroy();
+      card.card.destroy();
+    }
+    this.upgradeCards = [];
     this.tweens.killAll();
   }
 
-  /**
-   * Show a confirmation dialog for ascension.
-   */
   private showAscensionConfirmation(nextLevel: number, statBonus: number, goldBonus: number): void {
-    const overlay = this.add.rectangle(
-      this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.9
-    ).setDepth(100).setInteractive();
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
 
-    const titleText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 120, `ASCEND TO LEVEL ${nextLevel}`, {
-      fontSize: '32px',
-      color: '#ff88ff',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(101);
+    const overlay = this.add
+      .rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.85)
+      .setDepth(100)
+      .setInteractive();
+
+    const confirmCard = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width: 460,
+      height: 360,
+      bodyFillColor: BODY_COLORS.magenta,
+      accentColor: ACCENT_COLORS.magenta,
+      bannerHeight: 48,
+      borderWidth: 4,
+      borderColor: ACCENT_COLORS.magenta,
+      cornerRadius: 16,
+      wobble: false,
+      interactive: false,
+    });
+    confirmCard.container.setDepth(101);
+
+    const banner = makeStickerText(this, 0, confirmCard.bannerTopY + 24, `ASCEND TO LEVEL ${nextLevel}`, {
+      fontSize: 20,
+      color: TEXT_COLORS.sticker,
+      letterSpacing: 2,
+    });
+    confirmCard.frame.add(banner);
 
     const descLines = [
       'All shop upgrades will be reset to 0.',
       'All spent gold will be refunded.',
       '',
-      `You will gain permanently:`,
+      'You will gain permanently:',
       `  +${statBonus}% to all stats`,
       `  +${goldBonus}% gold earned`,
     ];
@@ -1076,56 +1305,61 @@ export class ShopScene extends Phaser.Scene {
     if (nextLevel >= 3) descLines.push('  +1 starting level');
     if (nextLevel >= 4) descLines.push('  2x XP gem value');
 
-    const descText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 30, descLines.join('\n'), {
-      fontSize: '16px',
-      color: '#ccaacc',
-      fontFamily: 'Arial',
+    const descText = this.add.text(0, -20, descLines.join('\n'), {
+      fontSize: '15px',
+      fontFamily: MENU_FONT,
+      color: TEXT_COLORS.body,
       align: 'center',
       lineSpacing: 4,
-    }).setOrigin(0.5).setDepth(101);
+    });
+    descText.setOrigin(0.5);
+    confirmCard.frame.add(descText);
 
-    const confirmButton = this.add.text(this.scale.width / 2 - 80, this.scale.height / 2 + 100, '[ ASCEND ]', {
-      fontSize: '24px',
-      color: '#ff44ff',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(101).setInteractive({ useHandCursor: true });
+    const confirmButton = createMenuButton({
+      scene: this,
+      x: centerX - 80,
+      y: centerY + 130,
+      width: 140,
+      height: 44,
+      label: '✦ ASCEND ✦',
+      variant: 'magenta',
+      fontSize: 15,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        cleanup();
+        this.performAscension();
+      },
+    });
+    confirmButton.container.setDepth(102);
+    confirmButton.card.hitZone.on('pointerover', () => confirmButton.setHoverState(true));
+    confirmButton.card.hitZone.on('pointerout', () => confirmButton.setHoverState(false));
 
-    const cancelButton = this.add.text(this.scale.width / 2 + 80, this.scale.height / 2 + 100, '[ Cancel ]', {
-      fontSize: '24px',
-      color: '#888888',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setDepth(101).setInteractive({ useHandCursor: true });
+    const cancelButton = createMenuButton({
+      scene: this,
+      x: centerX + 80,
+      y: centerY + 130,
+      width: 140,
+      height: 44,
+      label: 'Cancel',
+      variant: 'neutral',
+      fontSize: 15,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        cleanup();
+      },
+    });
+    cancelButton.container.setDepth(102);
+    cancelButton.card.hitZone.on('pointerover', () => cancelButton.setHoverState(true));
+    cancelButton.card.hitZone.on('pointerout', () => cancelButton.setHoverState(false));
 
     const cleanup = () => {
       overlay.destroy();
-      titleText.destroy();
-      descText.destroy();
+      confirmCard.destroy();
       confirmButton.destroy();
       cancelButton.destroy();
     };
-
-    confirmButton.on('pointerover', () => confirmButton.setColor('#ff88ff'));
-    confirmButton.on('pointerout', () => confirmButton.setColor('#ff44ff'));
-    confirmButton.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      cleanup();
-      this.performAscension();
-    });
-    addButtonInteraction(this, confirmButton);
-
-    cancelButton.on('pointerover', () => cancelButton.setColor('#ffffff'));
-    cancelButton.on('pointerout', () => cancelButton.setColor('#888888'));
-    cancelButton.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      cleanup();
-    });
-    addButtonInteraction(this, cancelButton);
   }
 
-  /**
-   * Execute the ascension: refund gold, reset upgrades, increment ascension level.
-   */
   private performAscension(): void {
     const metaManager = getMetaProgressionManager();
     const ascensionManager = getAscensionManager();
@@ -1133,10 +1367,7 @@ export class ShopScene extends Phaser.Scene {
     const accountLevel = metaManager.getAccountLevel();
     if (!ascensionManager.performAscension(accountLevel)) return;
 
-    // Refund all upgrade gold and reset levels
     metaManager.resetAllUpgradesAndRefund();
-
-    // Restart shop scene to reflect changes
     this.scene.restart();
   }
 }

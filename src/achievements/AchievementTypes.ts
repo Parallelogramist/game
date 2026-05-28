@@ -193,6 +193,8 @@ export interface LifetimeStats {
   fastestVictorySeconds: number;
   perfectRuns: number;      // Wins without taking damage
   speedRuns: number;        // Wins under 8 minutes
+  mostKillsInRun: number;   // Single-run kill record
+  highestComboInRun: number; // Single-run combo record
 }
 
 /**
@@ -222,6 +224,7 @@ export interface RunEndData {
   goldEarned: number;
   accountLevel?: number;
   bestStreak?: number;
+  highestCombo?: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

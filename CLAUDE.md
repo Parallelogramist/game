@@ -26,7 +26,7 @@ No lint/test commands configured.
 ### ECS Architecture
 
 Entity-Component-System pattern:
-- **Components** (`/src/ecs/components/index.ts`) — 19 data schemas: Transform, Velocity, Health, Weapon, Projectile, EnemyAI, EnemyType, Knockback, StatusEffect, tag components
+- **Components** (`/src/ecs/components/index.ts`) — 20 data schemas: Transform, Velocity, Health, Weapon, Projectile, EnemyAI, EnemyType, Knockback, StatusEffect, tag components
 - **Systems** (`/src/ecs/systems/`) — game logic operating on entities with specific components
 - **SpriteRef** bridges ECS entities to Phaser sprites
 
@@ -35,7 +35,8 @@ Fixed system execution order per frame (from `GameScene.update()`):
 updateFrameCache → Slow time → Achievement tracking → Auto-save →
 Shield barrier recharge → Dash ability → Gem magnet → Treasure chest spawning →
 HP regen → Emergency heal → Magnet spawn timer →
-Enemy/miniboss/boss/endless spawning → ComboSystem decay → EventSystem →
+Enemy/miniboss/boss/endless spawning → ComboSystem decay →
+updateBossArena → updateHazardZones → updateHazardSpawner → EventSystem →
 Laser beams → Joystick/keyboard/mouse input →
 InputSystem → EnemyAISystem → Wraith alpha → MovementSystem → processKnockback →
 clampPlayerToScreen → WeaponManager.update → XPGemSystem → HealthPickupSystem →
@@ -48,18 +49,19 @@ Knockback processed inline in GameScene. All weapon damage flows through `Weapon
 ### Scene Flow
 
 ```
-BootScene (start screen + music)
+BootScene (start screen + music + daily challenge + ship picker)
   ├─→ WeaponSelectScene (pre-run weapon pick, skips if only default discovered)
   │     └─→ GameScene (core gameplay) ─→ UpgradeScene (level-up modal, overlay)
   ├─→ ShopScene (permanent upgrades, returns to BootScene)
   ├─→ AchievementScene (achievements & milestones, returns to BootScene)
   ├─→ CodexScene (discovered weapons/enemies/upgrades, returns to BootScene)
+  ├─→ LeaderboardScene (daily challenge leaderboard, returns to BootScene)
   ├─→ SettingsScene (SFX, visual settings, returns to BootScene)
   ├─→ MusicSettingsScene (BGM settings, returns to BootScene)
   └─→ CreditsScene (attribution, returns to BootScene)
 ```
 
-10 scenes in `/src/game/scenes/`. `WeaponSelectScene` shows discovered weapons from Codex for starting weapon pick; auto-skips to GameScene with default projectile if only one discovered.
+11 scenes in `/src/game/scenes/`, registered in `src/main.ts`. `WeaponSelectScene` shows discovered weapons from Codex for starting weapon pick; auto-skips to GameScene with default projectile if only one discovered.
 
 ### Weapon System
 
@@ -134,7 +136,7 @@ EnemyAI: { aiType, state, timer, targetX, targetY, shootTimer, specialTimer, pha
 - **Boss (100-102):** HordeKing, VoidWyrm, TheMachine
 
 **Spawn System:**
-- Regular: time-weighted probabilities via `getRandomEnemyType(elapsedTime)`
+- Regular: `DirectorSystem` (`/src/systems/DirectorSystem.ts`) — credit-budget director (Risk of Rain 2 inspired). Credits accrue per second; each enemy has a spawn cost. Strategy randomized per run (`swarm` / `elite` / `balanced` / `chaos`) for variance. Module-level state — call `resetDirectorSystem()` in GameScene `create()`. Falls back to `getRandomEnemyType(elapsedTime)` weights scaled by strategy's basic/elite multipliers.
 - Miniboss: fixed intervals (first at 2 min, then every 1.5 min)
 - Boss: 10 min with cycling system (different boss each run)
 - Endless mode after boss defeat with escalating spawns
@@ -180,9 +182,7 @@ Union type `Phaser.GameObjects.Shape | Phaser.GameObjects.Graphics` — supports
 
 ### Audio Architecture
 
-**Music** (`/src/audio/MusicManager.ts`): IBXM library for tracker music (.mod/.xm). Singleton via `getMusicManager()`. Playlist modes (sequential/shuffle/off) with SecureStorage persistence.
-
-**Music Player** (`/src/audio/MusicPlayer.ts`): Low-level IBXM wrapper — AudioContext, GainNode, ScriptProcessor for single track.
+**Music** (`/src/audio/MusicManager.ts`): IBXM library for tracker music (.mod/.xm). Singleton via `getMusicManager()`. Owns AudioContext + ScriptProcessor + GainNode directly. Playlist modes (sequential/shuffle/off) with SecureStorage persistence. IBXM itself is loaded as a non-module global from `public/lib/IBXM.js` via a `<script>` tag in `index.html` (before the main module), so `MusicManager` consumes it through ambient `declare class` declarations.
 
 **Music Catalog** (`/src/data/MusicCatalog.ts`): Metadata for 26 tracker files in `public/music/`.
 
@@ -200,6 +200,8 @@ Union type `Phaser.GameObjects.Shape | Phaser.GameObjects.Graphics` — supports
 - Hit stop (time scale manipulation)
 - Screen shake coordination
 
+`ImpactCallouts` (`/src/effects/ImpactCallouts.ts`) — punchy "BAM!/POW!/CRIT!" starburst + text manager. Pooled, rate-limited (`hit` kind throttled). Kinds: `hit`, `crit`, `perfect`, `kill`, `comboTier`, `levelUp`, `bossSpawn`, `evolution`, `eventStart`. Hooked via `WeaponManager.damageEnemy`, `ComboSystem`, `GameScene`.
+
 ### Visual System
 
 `/src/visual/` — specialized visual managers:
@@ -215,6 +217,11 @@ Union type `Phaser.GameObjects.Shape | Phaser.GameObjects.Graphics` — supports
 - **DeathRippleManager**: Ripple waves from enemy deaths; flash overlays on hit enemies, ambient pulse on all. Quality-scaled (high: shape-matched, med: circle-only, low: no overlays). 50 pooled overlays, max 8 concurrent ripples. Tiered: regular→single ripple, miniboss→shockwave+flash, boss→staggered explosions+triple shockwaves+dual ripples+gold sparkles.
 - **Gem3DRenderer**: 3D octahedron XP gems via transform matrices + painter's algorithm
 - **DepthLayers**: Z-depth constants for render ordering
+- **OffScreenIndicatorManager**: Edge arrows pointing to off-screen bosses/minibosses/pickups
+- **LightingSystem**: Dynamic lighting overlay for entities
+- **EnemyVisuals**: Centralized per-enemy procedural draw routines (25 enemy types)
+- **ProjectileAtlasRenderer**: Pre-renders projectile shapes into texture atlases via `generateProjectileAtlases(scene)`. Projectiles become Image sprites using shared frames so hundreds batch into a single draw call (mirrors `Gem3DRenderer` pattern). `destroyProjectileAtlases(scene)` on shutdown.
+- **StatusEffectVisualManager**: Pooled burn/freeze/poison overlays on enemies. Queries `[EnemyTag, StatusEffect, Transform]`, packs draw state per entity to skip redundant redraws. Quality-aware.
 
 ### Storage System
 
@@ -224,7 +231,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 ### Achievement & Codex Systems
 
-**AchievementManager** (`/src/achievements/`): Singleton — run milestones + persistent achievements with rewards. `recordXXX()` → `checkMilestoneProgress()` → UI callbacks. Run-scoped milestones + persistent lifetime stats via SecureStorage.
+**AchievementManager** (`/src/achievements/`): Singleton — run milestones + persistent achievements with rewards. Definitions live in `AchievementDefinitions.ts` (persistent) and `MilestoneDefinitions.ts` (run-scoped). `recordXXX()` → `checkMilestoneProgress()` → UI callbacks. Persistent lifetime stats via SecureStorage.
 
 **CodexManager** (`/src/codex/`): Singleton — discovered weapons/enemies/upgrades + global stats. `discoverXXX()` returns `boolean` (true if new), tracks usage. Calculates completion %.
 
@@ -232,7 +239,18 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 `/src/ui/`:
 - **JoystickManager**: Virtual joystick for mobile touch. Scene-scoped. `getDirection()` for normalized vector. `setEnabled()` for pause/gameover/overlay.
+- **TouchActionButtons**: Mobile touch action buttons (dash, etc.). Scene-scoped, mirrors JoystickManager lifecycle.
 - **ToastManager**: Queue-based notifications for achievements/milestones/events. Scene-scoped via WeakMap, `getToastManager(scene)`. Configurable styles/durations.
+- **TooltipManager**: Hover/long-press tooltips for menu items.
+
+`/src/input/`:
+- **GamepadManager**: Standard gamepad support — left stick → movement, face buttons → menu nav.
+- **MenuNavigator**: Shared keyboard/gamepad navigation logic for menu-style scenes (Shop, Codex, Settings, etc.).
+
+`/src/game/managers/`:
+- **HUDManager**: Owns HUD layer (HP bar, XP bar, timer, combo, weapon icons). Lifecycle tied to GameScene.
+- **InputController**: Per-frame input aggregation — keyboard, mouse, joystick, gamepad — into a unified movement/action vector consumed by `InputSystem`.
+- **PauseMenuManager**: Pause menu state and navigation handler (Arrow/W-S nav, Enter/Space select). Handler attached on show, cleaned on hide + scene shutdown.
 
 ### Settings System
 
@@ -263,6 +281,20 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 **AscensionManager** (`/src/meta/AscensionManager.ts`): Prestige — account level hits threshold (base 50, +15/ascension) → reset shop for full refund + permanent stat (+10%) and gold (+15%) multipliers per level.
 
+**RelicManager** (`/src/meta/RelicManager.ts`) + `src/data/Relics.ts`: Per-run passive items, max 6 equipped. Dropped by chests/minibosses/events. Rarity weights (common/rare/epic/legendary). `apply(stats)` mutates `PlayerStats` on pickup. Not persisted — resets each run via `reset()` in GameScene `create()`.
+
+**HiddenUnlockManager** (`/src/meta/HiddenUnlocks.ts`): Secret-condition unlocks for weapons, ships, cosmetics, stages. `evaluatePostRun(context, lifetimeStats)` checks predicates after each run; fires toast callback on new unlock. Progress-tracking variant surfaces "closest to unlock" post-run panel. Persisted via SecureStorage.
+
+**DailyChallengeManager** (`/src/meta/DailyChallengeManager.ts`): Date-seeded daily runs with local leaderboard. UTC-date → deterministic seed (FNV-1a + mulberry32) → picks 3 modifiers + starting weapon + ship + difficulty. Weekly challenge (Monday) uses 4 modifiers. Leaderboard rolls over at UTC midnight.
+
+**Ships / Characters** (`src/data/ShipCharacters.ts`): Playable ship definitions — starting weapon, stat multipliers (HP/speed/damage/cooldown/XP/gold), neon color palette (`cyan` / `red` / `green` / `gold` / `purple` / `white` / `pink`) applied to `PlayerSpaceship`. Unlocked via account level or `HiddenUnlockManager`.
+
+**Stages / Biomes** (`src/data/Stages.ts`): Selectable biomes — grid colors, ambient overlay, enemy HP/damage multipliers, XP/gold multipliers. Default always available; others gated by `hidden:<id>` or `worldLevel:<n>`.
+
+**Run Modifiers** (`src/data/RunModifiers.ts`): Pool of per-run modifiers (`offense` / `defense` / `resources` / `chaos`). Each run selects 1-2; each `apply(stats: PlayerStats)` mutates `PlayerStats` at run start. Surfaced briefly during run intro.
+
+**Weapon Synergies** (`src/data/WeaponSynergies.ts`): Passive bonuses when a specific weapon pair is equipped (damage and cooldown multipliers applied to both weapons). Build-crafting layer beyond raw DPS.
+
 ### Utility Systems
 
 `/src/utils/`:
@@ -281,6 +313,14 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 - Save/restore: `getComboState()`/`restoreComboState()`
 - Reset: `resetComboSystem()` in GameScene `create()`
 
+### Hazard Zone System
+
+`HazardZoneSystem` (`/src/systems/HazardZoneSystem.ts`) — module-level state, no class. Temporary battlefield zones with 4 types: `burn` (DoT), `ice` (slows enemies, returns slow multiplier per frame via `applyIceHazardSlow()` during enemy movement), `void` (pulls enemies inward), `energy` (player damage boost while inside). Spawned via `spawnHazardZone()`. Per-frame `updateHazardZones()` returns `HazardUpdateResult` consumed by `GameScene`. `updateHazardSpawner()` runs the auto-spawn pacing. Quality-aware (`setHazardZoneQuality`), stage-aware (`setHazardZoneStage`), world-level-aware (`setHazardZoneWorldLevel`). Reset: `resetHazardZoneSystem()` in GameScene `create()`.
+
+### Boss Arena System
+
+`BossArenaSystem` (`/src/systems/BossArenaSystem.ts`) — module-level state. On boss spawn, fades in a tinted overlay with a sine-wave alpha pulse (per-boss themes: red Horde King, purple Void Wyrm, blue The Machine). On boss death, white cleansing flash + fade-out. `activateBossArena(bossId)` / `deactivateBossArena()` / `updateBossArena()`. Reset: `resetBossArenaSystem()` in GameScene `create()`.
+
 ### Event System
 
 `EventSystem` (`/src/systems/EventSystem.ts`) — random in-run events, module-level state:
@@ -293,7 +333,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 ### Post-Processing Pipelines
 
-Two WebGL pipelines in `main.ts` (conditional on WebGL):
+WebGL pipelines in `main.ts` (conditional on WebGL):
 - **BloomPipeline** (`/src/visual/BloomPipeline.ts`): Bloom glow + vignette, 9-tap box blur
 - **DistortionPipeline** (`/src/visual/DistortionPipeline.ts`): Screen distortion
 
@@ -305,13 +345,11 @@ Two WebGL pipelines in `main.ts` (conditional on WebGL):
 
 - **Game tuning**: Balance constants in `/src/data/GameTuning.ts` (`TUNING`) — spawn curves, boss timing, thresholds. Per-enemy stats in `EnemyTypes.ts`; per-weapon mastery in weapon classes.
 - Screen: 1280×720 (`GameConfig.ts`), EXPAND mode
-- Max enemies: 100
+- Max enemies: 2000 (`TUNING.spawn.maxEnemies`)
 - XP: `10 × level^1.5` per level
-- Damage invincibility: 0.5s
+- Damage invincibility: 0.3s base (extended via TitanCore permanent upgrade)
 - Miniboss: first 2 min, then every 1.5 min
 - Boss: 10 min
-
-**Pause menu nav:** Arrow Up/Down or W/S navigate, Enter/Space select. Handler on show, cleanup on hide+shutdown.
 
 ## Tooling
 

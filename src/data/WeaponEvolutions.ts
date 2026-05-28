@@ -216,11 +216,6 @@ export function getEvolutionForWeapon(weaponId: string): WeaponEvolution | undef
   return evolutionsByWeaponId.get(weaponId);
 }
 
-/** Returns all evolution recipes. */
-export function getAllEvolutions(): WeaponEvolution[] {
-  return [...weaponEvolutionDefinitions];
-}
-
 /**
  * Checks whether a weapon evolution is ready to trigger.
  * @param weaponId The weapon's ID

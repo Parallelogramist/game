@@ -17,8 +17,9 @@ export class MeteorWeapon extends BaseWeapon {
     delay: number;
     damage: number;
     radius: number;
-    warning: Phaser.GameObjects.Arc;
-    warningOverlay?: Phaser.GameObjects.Graphics;
+    warning: Phaser.GameObjects.Arc | Phaser.GameObjects.Graphics;
+    warningOverlay?: Phaser.GameObjects.Graphics | null;
+    isAftershock?: boolean;
   }[] = [];
 
   // Mastery: Cataclysm - burning ground zones
@@ -73,10 +74,8 @@ export class MeteorWeapon extends BaseWeapon {
       if (!targetPos) continue;
 
       // Add some randomness
-      const offsetX = (Math.random() - 0.5) * 40;
-      const offsetY = (Math.random() - 0.5) * 40;
-      const x = targetPos.x + offsetX;
-      const y = targetPos.y + offsetY;
+      const x = targetPos.x + (Math.random() - 0.5) * 40;
+      const y = targetPos.y + (Math.random() - 0.5) * 40;
 
       const explosionRadius = 60 * this.stats.size;
 
@@ -129,7 +128,6 @@ export class MeteorWeapon extends BaseWeapon {
         warningOverlay.setDepth(DepthLayers.GROUND_SPIKE_WARNING);
 
         // Animated reticle redrawn each frame via addCounter
-        const reticleStartTime = ctx.gameTime;
         ctx.scene.tweens.addCounter({
           from: 0,
           to: 1,
@@ -138,7 +136,7 @@ export class MeteorWeapon extends BaseWeapon {
             if (!warningOverlay || !warningOverlay.scene) return;
             warningOverlay.clear();
 
-            const elapsedTime = reticleStartTime + (Date.now() * 0.001 - reticleStartTime);
+            const elapsedTime = Date.now() * 0.001;
             const rotAngle = elapsedTime * 2;
 
             // Outer ring
@@ -282,9 +280,7 @@ export class MeteorWeapon extends BaseWeapon {
   ): void {
     // Remove warning and overlay
     meteor.warning.destroy();
-    if (meteor.warningOverlay) {
-      meteor.warningOverlay.destroy();
-    }
+    if (meteor.warningOverlay) meteor.warningOverlay.destroy();
 
     // Visual explosion
     this.createExplosion(ctx, meteor.x, meteor.y, meteor.radius, this.currentQuality);
@@ -319,7 +315,47 @@ export class MeteorWeapon extends BaseWeapon {
       this.createBurningZone(ctx, meteor.x, meteor.y, meteor.radius, meteor.damage);
     }
 
+    // Evolution (Apocalypse): queue a secondary aftershock meteor at the same
+    // impact site — smaller radius, half damage, 400ms delay. Transforms each
+    // cast from a single boom into a 1-2 punch.
+    if (this.isEvolved && !meteor.isAftershock) {
+      const aftershockRadius = meteor.radius * 0.65;
+      this.pendingMeteors.push({
+        x: meteor.x,
+        y: meteor.y,
+        delay: 0.4,
+        damage: meteor.damage * 0.5,
+        radius: aftershockRadius,
+        warning: this.createAftershockWarning(ctx, meteor.x, meteor.y, aftershockRadius),
+        warningOverlay: null,
+        isAftershock: true,
+      });
+    }
+
     ctx.soundManager.playHit();
+  }
+
+  /**
+   * Draws a tiny telegraph ring for an aftershock impact.
+   * Kept lean: single arc graphic that fades with the meteor's delay.
+   */
+  private createAftershockWarning(
+    ctx: WeaponContext,
+    x: number,
+    y: number,
+    radius: number
+  ): Phaser.GameObjects.Graphics {
+    const warningGraphics = ctx.scene.add.graphics();
+    warningGraphics.lineStyle(2, 0xff6644, 0.7);
+    warningGraphics.strokeCircle(x, y, radius);
+    warningGraphics.setDepth(10);
+    ctx.scene.tweens.add({
+      targets: warningGraphics,
+      alpha: 0.3,
+      duration: 400,
+      ease: 'Sine.easeOut',
+    });
+    return warningGraphics;
   }
 
   /**
@@ -756,9 +792,7 @@ export class MeteorWeapon extends BaseWeapon {
   public destroy(): void {
     for (const meteor of this.pendingMeteors) {
       meteor.warning.destroy();
-      if (meteor.warningOverlay) {
-        meteor.warningOverlay.destroy();
-      }
+      if (meteor.warningOverlay) meteor.warningOverlay.destroy();
     }
     this.pendingMeteors = [];
 

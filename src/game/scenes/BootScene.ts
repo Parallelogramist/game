@@ -3,52 +3,69 @@ import { getMusicManager } from '../../audio/MusicManager';
 import { SoundKeys, SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
-import { preloadIcons } from '../../utils/IconRenderer';
+import { preloadIcons, createIcon, setIconFrame } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
 import { fadeOut, fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 import { MenuNavigator } from '../../input/MenuNavigator';
+import {
+  generateDailyChallenge,
+  generateWeeklyChallenge,
+  getDailyBest,
+  DailyChallengeConfig,
+  DailyLeaderboardEntry,
+} from '../../meta/DailyChallengeManager';
+import { getModifierById } from '../../data/RunModifiers';
+import { getWeaponInfoList } from '../../weapons';
+import { SHIP_CHARACTERS } from '../../data/ShipCharacters';
+import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
+import { MENU_COLORS as COLORS, MENU_FONT } from '../../visual/MenuStyle';
+import { makeStickerText } from '../../visual/StickerText';
 
-/**
- * BootScene handles initial setup and asset loading.
- * Shows a click-to-start screen (required for audio).
- */
+interface FocusEntry {
+  onFocus: () => void;
+  onBlur: () => void;
+  onActivate: () => void;
+}
+
 export class BootScene extends Phaser.Scene {
-  private menuItems: Phaser.GameObjects.Text[] = [];
-  private menuActions: (() => void)[] = [];
-  private menuLabels: string[] = [];
-  private selectedIndex: number = 0;
-  private menuNavigator: MenuNavigator | null = null;
-  private pulseTween: Phaser.Tweens.Tween | null = null;
-  private confirmationOverlay: Phaser.GameObjects.Container | null = null;
   private soundManager!: SoundManager;
+  private menuNavigator: MenuNavigator | null = null;
+  private confirmationOverlay: Phaser.GameObjects.Container | null = null;
+  private confirmationNavigator: MenuNavigator | null = null;
+  private metaTooltip: Phaser.GameObjects.Container | null = null;
+  private tooltipEscHandler: ((event: KeyboardEvent) => void) | null = null;
+  private selectedFocusIndex: number = 0;
+  private focusEntries: FocusEntry[] = [];
+
+  private menuBackground: MenuBackground | null = null;
+  private cards: MenuCard[] = [];
+  private titleTicker: ((timeSeconds: number) => void) | null = null;
+  private updateHandler: ((time: number, delta: number) => void) | null = null;
 
   constructor() {
     super({ key: 'BootScene' });
   }
 
   preload(): void {
-    // Generate particle texture programmatically (4x4 white square)
     const particleGraphics = this.make.graphics({});
     particleGraphics.fillStyle(0xffffff);
     particleGraphics.fillRect(0, 0, 4, 4);
     particleGraphics.generateTexture('particle', 4, 4);
     particleGraphics.destroy();
 
-    // Generate soft glow particle (radial gradient circle for Geometry Wars effects)
     const glowSize = 16;
     const glowGraphics = this.make.graphics({});
-    // Draw concentric circles to simulate radial gradient
-    for (let r = glowSize; r > 0; r -= 2) {
-      const alpha = (r / glowSize) * 0.8;
+    for (let radius = glowSize; radius > 0; radius -= 2) {
+      const alpha = (radius / glowSize) * 0.8;
       glowGraphics.fillStyle(0xffffff, alpha);
-      glowGraphics.fillCircle(glowSize, glowSize, r);
+      glowGraphics.fillCircle(glowSize, glowSize, radius);
     }
     glowGraphics.generateTexture('particle_glow', glowSize * 2, glowSize * 2);
     glowGraphics.destroy();
 
-    // Generate streak particle (elongated for motion blur effect)
     const streakGraphics = this.make.graphics({});
     streakGraphics.fillStyle(0xffffff, 1);
     streakGraphics.fillRect(0, 1, 12, 2);
@@ -58,38 +75,30 @@ export class BootScene extends Phaser.Scene {
     streakGraphics.generateTexture('particle_streak', 12, 4);
     streakGraphics.destroy();
 
-    // Load sound effects (Kenney.nl CC0 licensed)
     this.load.audio(SoundKeys.HIT, 'sfx/hit.ogg');
     this.load.audio(SoundKeys.PICKUP_XP, 'sfx/pickup_xp.ogg');
     this.load.audio(SoundKeys.PICKUP_HEALTH, 'sfx/pickup_health.ogg');
     this.load.audio(SoundKeys.LEVEL_UP, 'sfx/levelup.ogg');
     this.load.audio(SoundKeys.PLAYER_HURT, 'sfx/player_hurt.ogg');
 
-    // Load icon sprite atlas (game-icons.net CC BY 3.0)
     preloadIcons(this);
   }
 
   create(): void {
-    const centerX = this.cameras.main.centerX;
-    const centerY = this.cameras.main.centerY;
-    const musicManager = getMusicManager();
-
-    // Compute scaling for responsive layout on phones
-    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    const fontScale = computeMenuFontScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale());
-
-    // Fade in from black
-    fadeIn(this, 200);
-
-    // Reset state for scene restart
     this.soundManager = new SoundManager(this);
-    this.menuItems = [];
-    this.menuActions = [];
-    this.menuLabels = [];
-    this.selectedIndex = 0;
+    this.focusEntries = [];
+    this.cards = [];
+    this.selectedFocusIndex = 0;
     this.confirmationOverlay = null;
+    this.confirmationNavigator = null;
+    this.metaTooltip = null;
+    this.tooltipEscHandler = null;
+    this.titleTicker = null;
+    this.updateHandler = null;
 
-    // Start music on first user interaction (required for Web Audio)
+    fadeIn(this, 220);
+
+    const musicManager = getMusicManager();
     const startMenuMusic = async () => {
       if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
         await musicManager.play();
@@ -98,18 +107,25 @@ export class BootScene extends Phaser.Scene {
     this.input.once('pointerdown', startMenuMusic);
     this.input.keyboard?.once('keydown', startMenuMusic);
 
-    // ═══════════════════════════════════════════════════════════════
-    //  DATA
-    // ═══════════════════════════════════════════════════════════════
-
+    // ─── data ───────────────────────────────────────────────────────────
     const metaManager = getMetaProgressionManager();
-    const ascensionLevel = getAscensionManager().getLevel();
+    const ascensionManager = getAscensionManager();
+    const ascensionLevel = ascensionManager.getLevel();
+    const worldLevel = metaManager.getWorldLevel();
+    const currentStreak = metaManager.getCurrentStreak();
+    const streakBonus = metaManager.getStreakBonusPercent();
+    const goldAmount = metaManager.getGold();
+
     const gameStateManager = getGameStateManager();
     const hasSave = gameStateManager.hasSave();
     const saveInfo = gameStateManager.getSaveInfo();
-    const currentStreak = metaManager.getCurrentStreak();
 
-    // ─── Actions ───
+    const dailyChallenge = generateDailyChallenge();
+    const weeklyChallenge = generateWeeklyChallenge();
+    const bestDaily = getDailyBest('daily', dailyChallenge.dateString);
+    const bestWeekly = getDailyBest('weekly', weeklyChallenge.dateString);
+
+    // ─── actions ────────────────────────────────────────────────────────
     const continueGame = async () => {
       try {
         if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
@@ -147,412 +163,1314 @@ export class BootScene extends Phaser.Scene {
     const openShop = () => fadeOut(this, 150, () => this.scene.start('ShopScene'));
     const openAchievements = () => fadeOut(this, 150, () => this.scene.start('AchievementScene'));
     const openCodex = () => fadeOut(this, 150, () => this.scene.start('CodexScene'));
-    const openSettings = () => fadeOut(this, 150, () => this.scene.start('SettingsScene', { returnTo: 'BootScene' }));
+    const openLeaderboard = () => fadeOut(this, 150, () => this.scene.start('LeaderboardScene'));
+    const openSettings = () =>
+      fadeOut(this, 150, () => this.scene.start('SettingsScene', { returnTo: 'BootScene' }));
     const openCredits = () => fadeOut(this, 150, () => this.scene.start('CreditsScene'));
 
-    // ═══════════════════════════════════════════════════════════════
-    //  LAYOUT — build menu items by group, then vertically center
-    // ═══════════════════════════════════════════════════════════════
-
-    // Spacing constants (all scaled)
-    const itemGap = scaledInt(layoutScale, 34);         // between items within a group
-    const groupGap = scaledInt(layoutScale, 20);        // between group containers
-    const containerPadY = scaledInt(layoutScale, 16);   // vertical padding inside containers
-    const containerWidth = scaledInt(layoutScale, 260);  // container width
-    const subtitleOffset = scaledInt(layoutScale, 15);  // gap from item to its subtitle
-
-    // Define menu structure as groups of items
-    interface MenuItem {
-      label: string;
-      action: () => void;
-      fontSize: number;       // unscaled px
-      color: string;          // default color
-      subtitle?: string;      // small text below
-      subtitleColor?: string;
-    }
-    interface MenuGroup { items: MenuItem[]; accentColor: number }
-
-    const playGroup: MenuGroup = { items: [], accentColor: 0x4488ff };
-    if (hasSave) {
-      const worldStr = saveInfo.worldLevel ? `W${saveInfo.worldLevel}` : 'W1';
-      const timeStr = saveInfo.gameTime ? this.formatTime(saveInfo.gameTime) : '0:00';
-      const levelStr = saveInfo.level ? `Lv ${saveInfo.level}` : 'Lv 1';
-      playGroup.items.push({
-        label: 'CONTINUE',
-        action: continueGame,
-        fontSize: 24,
-        color: '#dddddd',
-        subtitle: `${worldStr}  ·  ${levelStr}  ·  ${timeStr}`,
-        subtitleColor: '#556677',
-      });
-      playGroup.items.push({
-        label: 'NEW GAME',
-        action: startGameWithConfirmation,
-        fontSize: 17,
-        color: '#888899',
-      });
-    } else {
-      playGroup.items.push({
-        label: 'START',
-        action: startGameWithConfirmation,
-        fontSize: 24,
-        color: '#dddddd',
-      });
-    }
-
-    const goldAmount = metaManager.getGold();
-    const progressionGroup: MenuGroup = {
-      accentColor: 0xffaa33,
-      items: [
-        { label: 'SHOP', action: openShop, fontSize: 17, color: '#888899', subtitle: `${goldAmount} gold`, subtitleColor: '#887744' },
-        { label: 'ACHIEVEMENTS', action: openAchievements, fontSize: 17, color: '#888899' },
-        { label: 'CODEX', action: openCodex, fontSize: 17, color: '#888899' },
-      ],
-    };
-
-    const utilityGroup: MenuGroup = {
-      accentColor: 0x445566,
-      items: [
-        { label: 'SETTINGS', action: openSettings, fontSize: 15, color: '#667788' },
-        { label: 'CREDITS', action: openCredits, fontSize: 15, color: '#667788' },
-      ],
-    };
-
-    const groups = [playGroup, progressionGroup, utilityGroup];
-
-    // ─── Measure each group's height ───
-    const groupHeights: number[] = groups.map(group => {
-      let height = containerPadY * 2; // top + bottom padding
-      for (let i = 0; i < group.items.length; i++) {
-        const item = group.items[i];
-        const textHeight = scaledInt(fontScale, item.fontSize);
-        height += textHeight;
-        if (item.subtitle) {
-          height += subtitleOffset;
+    const launchChallenge = async (challenge: DailyChallengeConfig) => {
+      try {
+        if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
+          await musicManager.play();
         }
-        if (i < group.items.length - 1) {
-          height += item.subtitle ? scaledInt(layoutScale, 22) : itemGap;
-        }
+        gameStateManager.clearSave();
+        fadeOut(this, 200, () => {
+          this.scene.start('GameScene', {
+            restore: false,
+            startingWeapon: challenge.startingWeaponId,
+            shipId: challenge.shipId,
+            modifierIds: challenge.modifierIds,
+            dailyMode: true,
+            dailyDate: challenge.dateString,
+            dailyChallengeType: challenge.challengeType,
+          });
+        });
+      } catch (error) {
+        console.error(`Could not start ${challenge.challengeType} run:`, error);
       }
-      return height;
+    };
+
+    const startDailyRun = () => launchChallenge(dailyChallenge);
+    const startWeeklyRun = () => launchChallenge(weeklyChallenge);
+
+    // ─── scaling ────────────────────────────────────────────────────────
+    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
+    const fontScale = computeMenuFontScale(
+      this.scale.width,
+      this.scale.height,
+      getSettingsManager().getUiScale(),
+    );
+    const centerX = this.cameras.main.centerX;
+
+    // ─── felted backdrop ────────────────────────────────────────────────
+    this.menuBackground = createMenuBackground(this);
+
+    // ─── title sticker ──────────────────────────────────────────────────
+    const titleY = scaledInt(layoutScale, 100);
+    this.createTitleSticker(centerX, titleY, fontScale);
+
+    // ─── meta-stack mini cards (top-left) ───────────────────────────────
+    this.createMetaStack({
+      worldLevel,
+      ascensionLevel,
+      currentStreak,
+      streakBonus,
+      layoutScale,
+      fontScale,
     });
 
-    // Title block height
-    const titleFontSize = scaledInt(fontScale, 56);
-    const worldFontSize = scaledInt(fontScale, 24);
-    const titleBlockGap = scaledInt(layoutScale, 10);
-    let titleBlockHeight = titleFontSize + titleBlockGap + worldFontSize;
-    if (currentStreak > 0) {
-      titleBlockHeight += scaledInt(layoutScale, 6) + scaledInt(fontScale, 16);
+    // ─── hero card (CONTINUE / START) ───────────────────────────────────
+    const heroWidth = scaledInt(layoutScale, 360);
+    const heroHeight = scaledInt(layoutScale, 170);
+    const heroCenterY = scaledInt(layoutScale, 280);
+    this.createHeroCard({
+      centerX,
+      centerY: heroCenterY,
+      width: heroWidth,
+      height: heroHeight,
+      fontScale,
+      layoutScale,
+      hasSave,
+      saveInfo,
+      onActivate: hasSave ? continueGame : startGameWithConfirmation,
+    });
+
+    // ─── new-run sticker (only when a save exists) ──────────────────────
+    let belowHeroY = heroCenterY + heroHeight / 2 + scaledInt(layoutScale, 22);
+    if (hasSave) {
+      this.createNewRunSticker({
+        centerX,
+        centerY: belowHeroY,
+        layoutScale,
+        fontScale,
+        onActivate: startGameWithConfirmation,
+      });
+      belowHeroY += scaledInt(layoutScale, 36);
     }
 
-    const titleToMenuGap = scaledInt(layoutScale, 36);
-    const totalMenuHeight = groupHeights.reduce((sum, h) => sum + h, 0)
-      + groupGap * (groups.length - 1);
-    const totalHeight = titleBlockHeight + titleToMenuGap + totalMenuHeight;
+    // ─── challenge cards (daily + weekly side by side) ──────────────────
+    const challengeWidth = scaledInt(layoutScale, 280);
+    const challengeHeight = scaledInt(layoutScale, 130);
+    const challengeGap = scaledInt(layoutScale, 36);
+    const challengeRowY = belowHeroY + challengeHeight / 2 + scaledInt(layoutScale, 6);
 
-    // Center everything vertically
-    let cursorY = centerY - totalHeight / 2;
+    this.createChallengeCard({
+      centerX: centerX - (challengeWidth + challengeGap) / 2,
+      centerY: challengeRowY,
+      width: challengeWidth,
+      height: challengeHeight,
+      tilt: -0.045,
+      label: 'DAILY',
+      bodyHex: COLORS.bodyGold,
+      accentHex: COLORS.accentGold,
+      accentTextStr: COLORS.accentGoldStr,
+      challenge: dailyChallenge,
+      best: bestDaily,
+      layoutScale,
+      fontScale,
+      onActivate: startDailyRun,
+    });
 
-    // ═══════════════════════════════════════════════════════════════
-    //  TITLE AREA
-    // ═══════════════════════════════════════════════════════════════
+    this.createChallengeCard({
+      centerX: centerX + (challengeWidth + challengeGap) / 2,
+      centerY: challengeRowY,
+      width: challengeWidth,
+      height: challengeHeight,
+      tilt: 0.045,
+      label: 'WEEKLY',
+      bodyHex: COLORS.bodyMagenta,
+      accentHex: COLORS.accentMagenta,
+      accentTextStr: COLORS.accentMagentaStr,
+      challenge: weeklyChallenge,
+      best: bestWeekly,
+      layoutScale,
+      fontScale,
+      onActivate: startWeeklyRun,
+    });
 
-    this.add.text(centerX, cursorY + titleFontSize / 2, 'PEW PEW SURVIVOR', {
-      fontSize: `${titleFontSize}px`,
-      color: '#ffdd44',
-      fontFamily: 'Arial',
+    // ─── progression deck (Shop / Ach / Codex / Leaderboard) ────────────
+    const deckCardWidth = scaledInt(layoutScale, 96);
+    const deckCardHeight = scaledInt(layoutScale, 110);
+    const deckGap = scaledInt(layoutScale, 22);
+    const naturalDeckY = challengeRowY + challengeHeight / 2 + scaledInt(layoutScale, 32) + deckCardHeight / 2;
+
+    // Reserve space for the footer pill so the deck never overlaps it on
+    // short viewports — pill height must match createFooterStrip
+    // (fontSize + padY * 2).
+    const footerFontSize = scaledInt(fontScale, 12);
+    const footerPadY = scaledInt(layoutScale, 8);
+    const footerPillHeight = footerFontSize + footerPadY * 2;
+    const footerBottomY = this.scale.height - scaledInt(layoutScale, 18);
+    const footerTopY = footerBottomY - footerPillHeight;
+    const footerClearance = scaledInt(layoutScale, 14);
+    const maxDeckY = footerTopY - footerClearance - deckCardHeight / 2;
+    const deckY = Math.min(naturalDeckY, maxDeckY);
+
+    this.createProgressionDeck({
+      centerX,
+      centerY: deckY,
+      cardWidth: deckCardWidth,
+      cardHeight: deckCardHeight,
+      gap: deckGap,
+      layoutScale,
+      fontScale,
+      goldAmount,
+      onShop: openShop,
+      onAchievements: openAchievements,
+      onCodex: openCodex,
+      onLeaderboard: openLeaderboard,
+    });
+
+    // ─── footer strip ───────────────────────────────────────────────────
+    this.createFooterStrip({
+      centerX,
+      bottomY: footerBottomY,
+      layoutScale,
+      fontScale,
+      onSettings: openSettings,
+      onCredits: openCredits,
+    });
+
+    // ─── per-frame idle driver ──────────────────────────────────────────
+    this.updateHandler = (time: number, delta: number) => {
+      const seconds = time / 1000;
+      this.menuBackground?.update(delta);
+      for (const card of this.cards) card.tickIdle(seconds);
+      this.titleTicker?.(seconds);
+    };
+    this.events.on(Phaser.Scenes.Events.UPDATE, this.updateHandler);
+
+    // ─── menu nav ───────────────────────────────────────────────────────
+    this.buildMainNavigator(this.selectedFocusIndex);
+
+    this.events.once('shutdown', this.shutdown, this);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  TITLE STICKER — chunky tilted text with thick outline + drop shadow.
+  //  Replaces the old chromatic-ghost title that read like a render glitch.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private createTitleSticker(centerX: number, centerY: number, fontScale: number): void {
+    const fontSize = scaledInt(fontScale, 56);
+    const restTilt = -0.03;
+
+    const container = this.add.container(centerX, centerY);
+
+    // Drop-shadow ghost gives the sticker some bulk but stays subtle so it
+    // doesn't double the letterforms.
+    const shadow = this.add.text(5, 7, 'PEW PEW SURVIVOR', {
+      fontSize: `${fontSize}px`,
+      color: '#000000',
+      fontFamily: MENU_FONT,
       fontStyle: 'bold',
-    }).setOrigin(0.5).setShadow(0, 0, '#ffdd44', 4, false, true);
-    cursorY += titleFontSize + titleBlockGap;
+      letterSpacing: 3,
+    }).setOrigin(0.5).setAlpha(0.55);
+    container.add(shadow);
 
-    // World / Ascension
-    const worldText = ascensionLevel > 0
-      ? `Ascension ${ascensionLevel}  ·  World ${metaManager.getWorldLevel()}`
-      : `World ${metaManager.getWorldLevel()}`;
-    this.add.text(centerX, cursorY + worldFontSize / 2, worldText, {
-      fontSize: `${worldFontSize}px`,
-      color: '#7799cc',
-      fontFamily: 'Arial',
+    const text = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
+      fontSize: `${fontSize}px`,
+      color: COLORS.stickerYellow,
+      fontFamily: MENU_FONT,
       fontStyle: 'bold',
+      stroke: COLORS.stickerBlack,
+      strokeThickness: 6,
+      letterSpacing: 3,
     }).setOrigin(0.5);
-    cursorY += worldFontSize;
+    container.add(text);
 
-    // Streak (if applicable)
+    container.setScale(0.6);
+    container.setAlpha(0);
+    this.tweens.add({
+      targets: container,
+      scale: 1,
+      alpha: 1,
+      duration: 480,
+      ease: 'Back.Out',
+    });
+
+    const seed = Math.random() * 10;
+    this.titleTicker = (timeSeconds: number) => {
+      const phase = timeSeconds * 1.1 + seed;
+      container.rotation = restTilt + Math.sin(phase) * 0.018;
+      container.y = centerY + Math.sin(phase * 0.8 + 2) * 2.5;
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  META STACK — small overlapping mini-cards in the top-left corner.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private createMetaStack(opts: {
+    worldLevel: number;
+    ascensionLevel: number;
+    currentStreak: number;
+    streakBonus: number;
+    layoutScale: number;
+    fontScale: number;
+  }): void {
+    const { worldLevel, ascensionLevel, currentStreak, streakBonus, layoutScale, fontScale } = opts;
+    const stackOriginX = scaledInt(layoutScale, 30);
+    const stackOriginY = scaledInt(layoutScale, 32);
+    const cardWidth = scaledInt(layoutScale, 110);
+    const cardHeight = scaledInt(layoutScale, 56);
+
+    interface ChipData {
+      label: string;
+      sub?: string;
+      accentHex: number;
+      bodyHex: number;
+      tilt: number;
+    }
+    const chips: ChipData[] = [];
+    chips.push({
+      label: `WORLD ${worldLevel}`,
+      accentHex: COLORS.accentPrimary,
+      bodyHex: COLORS.bodyPrimary,
+      tilt: -0.08,
+    });
+    if (ascensionLevel > 0) {
+      chips.push({
+        label: `ASC ${ascensionLevel}`,
+        accentHex: COLORS.accentGold,
+        bodyHex: COLORS.bodyGold,
+        tilt: 0.05,
+      });
+    }
     if (currentStreak > 0) {
-      const streakBonus = metaManager.getStreakBonusPercent();
-      const streakFontSize = scaledInt(fontScale, 16);
-      cursorY += scaledInt(layoutScale, 6);
-      this.add.text(centerX, cursorY + streakFontSize / 2,
-        `Streak ${currentStreak}  ·  +${streakBonus}% gold`, {
-        fontSize: `${streakFontSize}px`,
-        color: '#cc8833',
-        fontFamily: 'Arial',
-      }).setOrigin(0.5);
-      cursorY += streakFontSize;
+      chips.push({
+        label: `STREAK ${currentStreak}`,
+        sub: `+${streakBonus}%`,
+        accentHex: COLORS.accentMagenta,
+        bodyHex: COLORS.bodyMagenta,
+        tilt: -0.03,
+      });
     }
 
-    cursorY += titleToMenuGap;
+    // Spread chips horizontally — back cards must show enough of themselves
+    // (label + accent strip) to be readable, not just a thin sliver.
+    const stepX = scaledInt(layoutScale, 78);
+    const stepY = scaledInt(layoutScale, 8);
 
-    // ═══════════════════════════════════════════════════════════════
-    //  MENU GROUPS — container panels with accent lines
-    // ═══════════════════════════════════════════════════════════════
+    const createdCards: MenuCard[] = [];
+    chips.forEach((chip, index) => {
+      const card = createMenuCard(this, {
+        x: stackOriginX + cardWidth / 2 + index * stepX,
+        y: stackOriginY + cardHeight / 2 + index * stepY,
+        width: cardWidth,
+        height: cardHeight,
+        tilt: chip.tilt,
+        wobbleSeed: index * 1.7,
+        wobbleRotation: 0.012,
+        wobbleY: 1.2,
+        bodyFillColor: chip.bodyHex,
+        accentColor: chip.accentHex,
+        bannerHeight: scaledInt(layoutScale, 7),
+        shadowOffsetY: scaledInt(layoutScale, 8),
+        shadowOffsetX: scaledInt(layoutScale, 4),
+        liftOnHover: false,
+        interactive: index === chips.length - 1, // front card is the click target
+      });
+      this.cards.push(card);
+      createdCards.push(card);
 
-    const panelGraphics = this.add.graphics();
-    let menuItemIndex = 0;
+      // Plain bold label centered in the body region (below banner).
+      const labelY = chip.sub ? -scaledInt(layoutScale, 2) : scaledInt(layoutScale, 4);
+      const label = this.add.text(0, labelY, chip.label, {
+        fontSize: scaledFontPx(fontScale, 14),
+        color: COLORS.textBody,
+        fontFamily: MENU_FONT,
+        fontStyle: 'bold',
+        letterSpacing: 1.5,
+      }).setOrigin(0.5);
+      card.frame.add(label);
 
-    for (let g = 0; g < groups.length; g++) {
-      const group = groups[g];
-      const groupHeight = groupHeights[g];
-      const groupTop = cursorY;
+      if (chip.sub) {
+        const sub = this.add.text(0, labelY + scaledInt(layoutScale, 14), chip.sub, {
+          fontSize: scaledFontPx(fontScale, 11),
+          color: COLORS.accentGoldStr,
+          fontFamily: MENU_FONT,
+          fontStyle: 'bold',
+          letterSpacing: 0.5,
+        }).setOrigin(0.5);
+        card.frame.add(sub);
+      }
+    });
 
-      // Container background — subtle dark panel
-      const panelLeft = centerX - containerWidth / 2;
-      panelGraphics.fillStyle(0x0c0c1e, 0.5);
-      panelGraphics.fillRoundedRect(panelLeft, groupTop, containerWidth, groupHeight, 6);
-
-      // Accent line on left edge
-      panelGraphics.fillStyle(group.accentColor, 0.35);
-      panelGraphics.fillRoundedRect(panelLeft, groupTop + 6, 2, groupHeight - 12, 1);
-
-      // Position items inside the container
-      let itemY = groupTop + containerPadY;
-
-      for (let i = 0; i < group.items.length; i++) {
-        const item = group.items[i];
-        const textHeight = scaledInt(fontScale, item.fontSize);
-
-        // Create menu item text (no brackets — clean look)
-        const menuItem = this.add.text(centerX, itemY + textHeight / 2, item.label, {
-          fontSize: scaledFontPx(fontScale, item.fontSize),
-          color: item.color,
-          fontFamily: 'Arial',
-          letterSpacing: 2,
-        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-        menuItem.setData('defaultColor', item.color);
-
-        // Subtitle (save info, gold amount)
-        if (item.subtitle) {
-          const subFontSize = scaledInt(fontScale, 11);
-          this.add.text(centerX, itemY + textHeight + subtitleOffset - subFontSize / 2, item.subtitle, {
-            fontSize: scaledFontPx(fontScale, 11),
-            color: item.subtitleColor ?? '#555555',
-            fontFamily: 'Arial',
-          }).setOrigin(0.5);
+    // Front card opens the progression explainer tooltip.
+    const front = createdCards[createdCards.length - 1];
+    if (front) {
+      front.hitZone.on('pointerover', () => front.setHoverState(true));
+      front.hitZone.on('pointerout', () => front.setHoverState(false));
+      front.hitZone.on('pointerdown', () => {
+        this.soundManager.playUIClick();
+        if (this.metaTooltip) {
+          this.hideMetaTooltip();
+        } else {
+          this.showMetaTooltip(worldLevel, ascensionLevel, currentStreak, streakBonus, layoutScale, fontScale);
         }
+      });
+    }
+  }
 
-        // Pointer events
-        const capturedIndex = menuItemIndex;
-        menuItem.on('pointerover', () => {
-          if (this.selectedIndex !== capturedIndex && !this.confirmationOverlay) {
-            this.selectItem(capturedIndex);
-          }
-        });
-        menuItem.on('pointerdown', () => {
-          if (!this.confirmationOverlay) {
-            this.soundManager.playUIClick();
-            item.action();
-          }
-        });
+  // ═══════════════════════════════════════════════════════════════════════
+  //  HERO CARD — the big CONTINUE / START card with run summary.
+  // ═══════════════════════════════════════════════════════════════════════
 
-        addButtonInteraction(this, menuItem);
-        this.menuItems.push(menuItem);
-        this.menuActions.push(item.action);
-        this.menuLabels.push(item.label);
-        menuItemIndex++;
+  private createHeroCard(opts: {
+    centerX: number;
+    centerY: number;
+    width: number;
+    height: number;
+    fontScale: number;
+    layoutScale: number;
+    hasSave: boolean;
+    saveInfo: { worldLevel?: number; level?: number; gameTime?: number };
+    onActivate: () => void;
+  }): void {
+    const { centerX, centerY, width, height, fontScale, layoutScale, hasSave, saveInfo, onActivate } = opts;
 
-        // Advance Y
-        itemY += textHeight;
-        if (item.subtitle) {
-          itemY += subtitleOffset;
-        }
-        if (i < group.items.length - 1) {
-          itemY += item.subtitle ? scaledInt(layoutScale, 22) : itemGap;
-        }
+    const bannerHeight = scaledInt(layoutScale, 36);
+
+    const card = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width,
+      height,
+      tilt: -0.035,
+      wobbleSeed: 12,
+      wobbleRotation: 0.01,
+      wobbleY: 1.6,
+      bodyFillColor: COLORS.bodyPrimary,
+      accentColor: COLORS.accentPrimary,
+      bannerHeight,
+      shadowOffsetY: scaledInt(layoutScale, 16),
+      shadowOffsetX: scaledInt(layoutScale, 7),
+    });
+    this.cards.push(card);
+
+    // Banner label — sticker-style "MAIN MENU" or run identifier on the strip.
+    const bannerCenterY = -height / 2 + bannerHeight / 2;
+    const bannerLabel = makeStickerText(
+      this,
+      0,
+      bannerCenterY,
+      hasSave ? 'YOUR RUN' : 'NEW JOURNEY',
+      {
+        fontSize: scaledInt(fontScale, 16),
+        color: COLORS.stickerWhite,
+        strokeWidth: 2,
+        letterSpacing: 4,
+      },
+    );
+    card.frame.add(bannerLabel);
+
+    // Big primary label — CONTINUE / START in chunky yellow sticker text.
+    const primaryLabel = hasSave ? 'CONTINUE' : 'START';
+    const primaryY = -height / 2 + bannerHeight + scaledInt(layoutScale, 30);
+    const primaryText = makeStickerText(this, 0, primaryY, primaryLabel, {
+      fontSize: scaledInt(fontScale, 36),
+      color: COLORS.stickerYellow,
+      strokeWidth: 4,
+      letterSpacing: 4,
+    });
+    card.frame.add(primaryText);
+
+    // Bottom row: ship icon (left) + run summary chip (right).
+    const rowY = height / 2 - scaledInt(layoutScale, 26);
+    const iconSize = scaledInt(layoutScale, 38);
+    const iconX = -width / 2 + scaledInt(layoutScale, 38);
+
+    // Glow halo behind ship icon.
+    const glow = this.add.graphics();
+    glow.fillStyle(COLORS.accentPrimary, 0.16);
+    glow.fillCircle(iconX, rowY, iconSize * 0.85);
+    glow.fillStyle(COLORS.accentPrimary, 0.3);
+    glow.fillCircle(iconX, rowY, iconSize * 0.55);
+    card.frame.add(glow);
+
+    const shipIcon = createIcon(this, {
+      x: iconX,
+      y: rowY,
+      iconKey: 'rocket',
+      size: iconSize,
+      tint: 0xffffff,
+    });
+    card.frame.add(shipIcon);
+
+    // Run summary "chip" — a small accent-tinted pill on the right side.
+    if (hasSave) {
+      const summary = `W${saveInfo.worldLevel ?? 1}  ·  Lv ${saveInfo.level ?? 1}  ·  ${
+        saveInfo.gameTime ? this.formatTime(saveInfo.gameTime) : '0:00'
+      }`;
+      const probe = this.add.text(0, 0, summary, {
+        fontSize: scaledFontPx(fontScale, 14),
+        fontFamily: MENU_FONT,
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      });
+      const chipPadX = scaledInt(layoutScale, 14);
+      const chipPadY = scaledInt(layoutScale, 7);
+      const chipWidth = probe.width + chipPadX * 2;
+      const chipHeight = probe.height + chipPadY * 2;
+      probe.destroy();
+      const chipX = width / 2 - chipWidth / 2 - scaledInt(layoutScale, 16);
+      const chipBg = this.add.graphics();
+      chipBg.fillStyle(0x000000, 0.45);
+      chipBg.fillRoundedRect(
+        chipX - chipWidth / 2,
+        rowY - chipHeight / 2,
+        chipWidth,
+        chipHeight,
+        8,
+      );
+      chipBg.lineStyle(2, COLORS.accentPrimary, 0.85);
+      chipBg.strokeRoundedRect(
+        chipX - chipWidth / 2,
+        rowY - chipHeight / 2,
+        chipWidth,
+        chipHeight,
+        8,
+      );
+      card.frame.add(chipBg);
+      const chipText = this.add.text(chipX, rowY, summary, {
+        fontSize: scaledFontPx(fontScale, 14),
+        color: COLORS.textBody,
+        fontFamily: MENU_FONT,
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }).setOrigin(0.5);
+      card.frame.add(chipText);
+    } else {
+      const tag = this.add.text(width / 2 - scaledInt(layoutScale, 16), rowY, 'press to launch', {
+        fontSize: scaledFontPx(fontScale, 14),
+        color: COLORS.textMuted,
+        fontFamily: MENU_FONT,
+        fontStyle: 'italic',
+      }).setOrigin(1, 0.5);
+      card.frame.add(tag);
+    }
+
+    this.registerFocusable(card, onActivate);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  NEW RUN STICKER — small italic ribbon below the hero card.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private createNewRunSticker(opts: {
+    centerX: number;
+    centerY: number;
+    layoutScale: number;
+    fontScale: number;
+    onActivate: () => void;
+  }): void {
+    const { centerX, centerY, layoutScale, fontScale, onActivate } = opts;
+    const width = scaledInt(layoutScale, 138);
+    const height = scaledInt(layoutScale, 26);
+    const card = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width,
+      height,
+      tilt: -0.07,
+      wobbleSeed: 22,
+      wobbleRotation: 0.01,
+      wobbleY: 0.8,
+      bodyFillColor: COLORS.bodyNeutral,
+      accentColor: COLORS.accentFocus,
+      bannerHeight: 0,
+      borderColor: COLORS.accentFocus,
+      borderWidth: 2,
+      cornerRadius: scaledInt(layoutScale, 8),
+      shadowOffsetY: scaledInt(layoutScale, 6),
+      shadowOffsetX: scaledInt(layoutScale, 3),
+    });
+    this.cards.push(card);
+
+    const text = this.add.text(0, 0, '✦  NEW RUN  ✦', {
+      fontSize: scaledFontPx(fontScale, 12),
+      color: COLORS.accentFocusStr,
+      fontFamily: MENU_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 3,
+    }).setOrigin(0.5);
+    card.frame.add(text);
+
+    this.registerFocusable(card, onActivate);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  CHALLENGE CARD — Daily / Weekly side-by-side cards.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private createChallengeCard(opts: {
+    centerX: number;
+    centerY: number;
+    width: number;
+    height: number;
+    tilt: number;
+    label: string;
+    bodyHex: number;
+    accentHex: number;
+    accentTextStr: string;
+    challenge: DailyChallengeConfig;
+    best?: DailyLeaderboardEntry;
+    layoutScale: number;
+    fontScale: number;
+    onActivate: () => void;
+  }): void {
+    const {
+      centerX, centerY, width, height, tilt, label, bodyHex, accentHex, accentTextStr,
+      challenge, best, layoutScale, fontScale, onActivate,
+    } = opts;
+
+    const bannerHeight = scaledInt(layoutScale, 30);
+
+    const card = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width,
+      height,
+      tilt,
+      wobbleSeed: tilt * 50 + label.length,
+      wobbleRotation: 0.014,
+      wobbleY: 1.4,
+      bodyFillColor: bodyHex,
+      accentColor: accentHex,
+      bannerHeight,
+      shadowOffsetY: scaledInt(layoutScale, 12),
+      shadowOffsetX: scaledInt(layoutScale, 5),
+    });
+    this.cards.push(card);
+
+    // Banner sticker label (DAILY / WEEKLY) centered in the colored strip.
+    const bannerCenterY = -height / 2 + bannerHeight / 2;
+    const bannerLabel = makeStickerText(this, 0, bannerCenterY, `${label} CHALLENGE`, {
+      fontSize: scaledInt(fontScale, 14),
+      color: COLORS.stickerWhite,
+      strokeWidth: 2,
+      letterSpacing: 3,
+    });
+    card.frame.add(bannerLabel);
+
+    // Body lines: ship + weapon + mod summary.
+    const ship = SHIP_CHARACTERS.find((s) => s.id === challenge.shipId)?.name ?? 'Default';
+    const weapon = getWeaponInfoList().find((w) => w.id === challenge.startingWeaponId)?.name ?? 'Random';
+    const modCount = challenge.modifierIds.filter((id) => Boolean(getModifierById(id))).length;
+    const modSummary = modCount > 0 ? `${modCount} MOD${modCount === 1 ? '' : 'S'}` : 'NO MODS';
+
+    const bodyTopY = -height / 2 + bannerHeight + scaledInt(layoutScale, 14);
+    const shipText = this.add.text(
+      -width / 2 + scaledInt(layoutScale, 14),
+      bodyTopY,
+      ship.toUpperCase(),
+      {
+        fontSize: scaledFontPx(fontScale, 14),
+        color: COLORS.textBody,
+        fontFamily: MENU_FONT,
+        fontStyle: 'bold',
+        letterSpacing: 2,
+      },
+    ).setOrigin(0, 0);
+    card.frame.add(shipText);
+
+    const weaponText = this.add.text(
+      -width / 2 + scaledInt(layoutScale, 14),
+      bodyTopY + scaledInt(layoutScale, 18),
+      `${weapon.toUpperCase()}  ·  ${modSummary}`,
+      {
+        fontSize: scaledFontPx(fontScale, 11),
+        color: COLORS.textMuted,
+        fontFamily: MENU_FONT,
+        letterSpacing: 1,
+      },
+    ).setOrigin(0, 0);
+    card.frame.add(weaponText);
+
+    // Best-score chip (bottom-right). Lives in a tinted pill so it reads as a
+    // discrete badge rather than dim placeholder text.
+    const badgeY = height / 2 - scaledInt(layoutScale, 18);
+    const badgeText = best
+      ? `★ ${best.killCount}k · ${this.formatTime(best.survivalSeconds)}${best.wasVictory ? '  W' : ''}`
+      : 'NEW';
+    const badgeFontSize = scaledInt(fontScale, 11);
+    const probe = this.add.text(0, 0, badgeText, {
+      fontSize: `${badgeFontSize}px`,
+      fontFamily: MENU_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 1,
+    });
+    const padX = scaledInt(layoutScale, 10);
+    const padY = scaledInt(layoutScale, 5);
+    const badgeWidth = probe.width + padX * 2;
+    const badgeHeight = probe.height + padY * 2;
+    probe.destroy();
+
+    const badgeX = width / 2 - badgeWidth / 2 - scaledInt(layoutScale, 12);
+    const badgeBg = this.add.graphics();
+    badgeBg.fillStyle(best ? accentHex : 0x000000, best ? 0.25 : 0.4);
+    badgeBg.fillRoundedRect(
+      badgeX - badgeWidth / 2,
+      badgeY - badgeHeight / 2,
+      badgeWidth,
+      badgeHeight,
+      6,
+    );
+    badgeBg.lineStyle(2, accentHex, best ? 0.9 : 0.5);
+    badgeBg.strokeRoundedRect(
+      badgeX - badgeWidth / 2,
+      badgeY - badgeHeight / 2,
+      badgeWidth,
+      badgeHeight,
+      6,
+    );
+    card.frame.add(badgeBg);
+
+    const badge = this.add.text(badgeX, badgeY, badgeText, {
+      fontSize: `${badgeFontSize}px`,
+      color: best ? accentTextStr : COLORS.textDim,
+      fontFamily: MENU_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 1,
+    }).setOrigin(0.5);
+    card.frame.add(badge);
+
+    this.registerFocusable(card, onActivate);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  PROGRESSION DECK — 4 small square cards in a row.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private createProgressionDeck(opts: {
+    centerX: number;
+    centerY: number;
+    cardWidth: number;
+    cardHeight: number;
+    gap: number;
+    layoutScale: number;
+    fontScale: number;
+    goldAmount: number;
+    onShop: () => void;
+    onAchievements: () => void;
+    onCodex: () => void;
+    onLeaderboard: () => void;
+  }): void {
+    const {
+      centerX, centerY, cardWidth, cardHeight, gap, layoutScale, fontScale, goldAmount,
+      onShop, onAchievements, onCodex, onLeaderboard,
+    } = opts;
+
+    interface DeckEntry {
+      label: string;
+      iconKey: string;
+      bodyHex: number;
+      accentHex: number;
+      tilt: number;
+      action: () => void;
+      badge?: string;
+      iconTint: number;
+    }
+    const entries: DeckEntry[] = [
+      {
+        label: 'SHOP',
+        iconKey: 'coins',
+        bodyHex: COLORS.bodyGold,
+        accentHex: COLORS.accentGold,
+        tilt: -0.06,
+        action: onShop,
+        badge: `${goldAmount}`,
+        iconTint: 0xffe2a0,
+      },
+      {
+        label: 'ACHIEVE',
+        iconKey: 'trophy',
+        bodyHex: COLORS.bodyTeal,
+        accentHex: COLORS.accentTeal,
+        tilt: 0.04,
+        action: onAchievements,
+        iconTint: 0xaaffee,
+      },
+      {
+        label: 'CODEX',
+        iconKey: 'book',
+        bodyHex: COLORS.bodyMagenta,
+        accentHex: COLORS.accentMagenta,
+        tilt: -0.035,
+        action: onCodex,
+        iconTint: 0xeebbff,
+      },
+      {
+        label: 'LEADERS',
+        iconKey: 'crown',
+        bodyHex: COLORS.bodyPrimary,
+        accentHex: COLORS.accentPrimary,
+        tilt: 0.05,
+        action: onLeaderboard,
+        iconTint: 0xbbddff,
+      },
+    ];
+
+    const totalWidth = entries.length * cardWidth + (entries.length - 1) * gap;
+    const startX = centerX - totalWidth / 2 + cardWidth / 2;
+    const bannerHeight = scaledInt(layoutScale, 18);
+
+    entries.forEach((entry, index) => {
+      const cardX = startX + index * (cardWidth + gap);
+      const card = createMenuCard(this, {
+        x: cardX,
+        y: centerY,
+        width: cardWidth,
+        height: cardHeight,
+        tilt: entry.tilt,
+        wobbleSeed: index * 0.93,
+        wobbleRotation: 0.016,
+        wobbleY: 2.0,
+        bodyFillColor: entry.bodyHex,
+        accentColor: entry.accentHex,
+        bannerHeight,
+        shadowOffsetY: scaledInt(layoutScale, 10),
+        shadowOffsetX: scaledInt(layoutScale, 4),
+      });
+      this.cards.push(card);
+
+      // Sticker label rides the banner (bold, white, outlined).
+      const bannerCenterY = -cardHeight / 2 + bannerHeight / 2;
+      const bannerLabel = makeStickerText(this, 0, bannerCenterY, entry.label, {
+        fontSize: scaledInt(fontScale, 11),
+        color: COLORS.stickerWhite,
+        strokeWidth: 2,
+        letterSpacing: 2,
+      });
+      card.frame.add(bannerLabel);
+
+      // Icon — large, centered in the body region.
+      const bodyCenterY = -cardHeight / 2 + bannerHeight + (cardHeight - bannerHeight) / 2;
+      const iconSize = scaledInt(layoutScale, 42);
+      const iconOffset = entry.badge ? -scaledInt(layoutScale, 6) : 0;
+      const icon = createIcon(this, {
+        x: 0,
+        y: bodyCenterY + iconOffset,
+        iconKey: entry.iconKey,
+        size: iconSize,
+        tint: entry.iconTint,
+      });
+      card.frame.add(icon);
+
+      // Bottom strip badge — gold count for SHOP, lives BELOW the icon so it
+      // doesn't clip into it. Painted as a tinted pill for emphasis.
+      if (entry.badge) {
+        const badgeY = cardHeight / 2 - scaledInt(layoutScale, 14);
+        const badgeBg = this.add.graphics();
+        const badgeWidth = cardWidth - scaledInt(layoutScale, 16);
+        const badgeHeight = scaledInt(layoutScale, 18);
+        badgeBg.fillStyle(0x000000, 0.45);
+        badgeBg.fillRoundedRect(-badgeWidth / 2, badgeY - badgeHeight / 2, badgeWidth, badgeHeight, 6);
+        badgeBg.lineStyle(1.5, entry.accentHex, 0.7);
+        badgeBg.strokeRoundedRect(-badgeWidth / 2, badgeY - badgeHeight / 2, badgeWidth, badgeHeight, 6);
+        card.frame.add(badgeBg);
+
+        const badgeText = this.add.text(0, badgeY, entry.badge, {
+          fontSize: scaledFontPx(fontScale, 11),
+          color: COLORS.accentGoldStr,
+          fontFamily: MENU_FONT,
+          fontStyle: 'bold',
+          letterSpacing: 1,
+        }).setOrigin(0.5);
+        card.frame.add(badgeText);
       }
 
-      cursorY += groupHeight + groupGap;
-    }
+      this.registerFocusable(card, entry.action);
+    });
+  }
 
-    // Register shutdown listener for cleanup
-    this.events.once('shutdown', this.shutdown, this);
+  // ═══════════════════════════════════════════════════════════════════════
+  //  FOOTER STRIP — settings · credits · mute, low visual weight.
+  // ═══════════════════════════════════════════════════════════════════════
 
-    // Setup keyboard + gamepad navigation via MenuNavigator
+  private createFooterStrip(opts: {
+    centerX: number;
+    bottomY: number;
+    layoutScale: number;
+    fontScale: number;
+    onSettings: () => void;
+    onCredits: () => void;
+  }): void {
+    const { centerX, bottomY, layoutScale, fontScale, onSettings, onCredits } = opts;
+    const fontSize = scaledInt(fontScale, 12);
+
+    const items: Array<{ label: string; action: () => void }> = [
+      { label: 'SETTINGS', action: onSettings },
+      { label: 'CREDITS', action: onCredits },
+    ];
+
+    const style = {
+      fontSize: `${fontSize}px`,
+      fontFamily: MENU_FONT,
+      fontStyle: 'bold' as const,
+      letterSpacing: 2,
+    };
+    const probes = items.map((item) => this.add.text(0, 0, item.label, style));
+    const widths = probes.map((p) => p.width);
+    probes.forEach((p) => p.destroy());
+
+    const sepWidth = scaledInt(layoutScale, 18);
+    const muteSize = scaledInt(fontScale, 18);
+    const muteSpace = muteSize + scaledInt(layoutScale, 18);
+
+    const padX = scaledInt(layoutScale, 22);
+    const padY = scaledInt(layoutScale, 8);
+    const innerWidth = widths.reduce((a, b) => a + b, 0) + sepWidth * items.length + muteSpace;
+    const pillWidth = innerWidth + padX * 2;
+    const pillHeight = fontSize + padY * 2;
+    const rowY = bottomY - pillHeight / 2;
+
+    // Pill background — low-key dim sticker so the footer feels like a single
+    // unit instead of three floating items.
+    const pill = this.add.graphics();
+    pill.fillStyle(0x000000, 0.45);
+    pill.fillRoundedRect(centerX - pillWidth / 2, rowY - pillHeight / 2, pillWidth, pillHeight, pillHeight / 2);
+    pill.lineStyle(1, 0x4a5a78, 0.55);
+    pill.strokeRoundedRect(centerX - pillWidth / 2, rowY - pillHeight / 2, pillWidth, pillHeight, pillHeight / 2);
+
+    let cursorX = centerX - innerWidth / 2;
+
+    items.forEach((item, index) => {
+      const text = this.add.text(cursorX, rowY, item.label, {
+        ...style,
+        color: COLORS.textMuted,
+      }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true });
+
+      const localIndex = this.focusEntries.length;
+      this.attachFocusableInteraction(text, localIndex, item.action);
+      addButtonInteraction(this, text);
+
+      this.focusEntries.push({
+        onFocus: () => {
+          text.setColor(COLORS.accentFocusStr);
+          text.setShadow(0, 0, COLORS.accentFocusStr, 6, false, true);
+        },
+        onBlur: () => {
+          text.setColor(COLORS.textMuted);
+          text.setShadow(0, 0, 'transparent', 0);
+        },
+        onActivate: item.action,
+      });
+
+      cursorX += widths[index];
+      this.add.text(cursorX + sepWidth / 2, rowY, '·', {
+        ...style,
+        color: COLORS.textDim,
+      }).setOrigin(0.5);
+      cursorX += sepWidth;
+    });
+
+    cursorX += scaledInt(layoutScale, 6);
+    this.createMuteToggle(cursorX + muteSize / 2, rowY, muteSize);
+  }
+
+  private createMuteToggle(x: number, y: number, size: number): void {
+    const musicManager = getMusicManager();
+    const icon = createIcon(this, {
+      x,
+      y,
+      iconKey: musicManager.getPlaybackMode() === 'off' ? 'mute' : 'music',
+      size: Math.round(size * 1.4),
+    });
+
+    const hit = this.add.zone(x, y, 44, 44).setInteractive({ useHandCursor: true });
+
+    const syncIcon = () => {
+      const isMuted = musicManager.getPlaybackMode() === 'off';
+      setIconFrame(icon, isMuted ? 'mute' : 'music');
+      icon.setTint(isMuted ? 0x8899aa : 0xaabbcc);
+    };
+    syncIcon();
+
+    hit.on('pointerover', () => icon.setTint(0xffdd44));
+    hit.on('pointerout', () => syncIcon());
+    hit.on('pointerdown', async () => {
+      this.soundManager.playUIClick();
+      const isMuted = musicManager.getPlaybackMode() === 'off';
+      if (isMuted) {
+        musicManager.setPlaybackMode('sequential');
+        if (!musicManager.getIsPlaying()) {
+          try { await musicManager.play(); } catch { /* AudioContext may still be locked */ }
+        }
+      } else {
+        musicManager.setPlaybackMode('off');
+        musicManager.stop();
+      }
+      syncIcon();
+    });
+    addButtonInteraction(this, icon);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Focus / nav / interaction plumbing
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Wire a MenuCard into the hover/focus/click pipeline. Hovering or focusing
+   * the card triggers the lift animation; clicking activates. Adding to
+   * focusEntries lets MenuNavigator step through cards with arrows/gamepad.
+   */
+  private registerFocusable(card: MenuCard, onActivate: () => void): void {
+    const localIndex = this.focusEntries.length;
+
+    card.hitZone.on('pointerover', () => {
+      card.setHoverState(true);
+      if (this.selectedFocusIndex !== localIndex && !this.isOverlayOpen()) {
+        this.requestFocus(localIndex);
+      }
+    });
+    card.hitZone.on('pointerout', () => {
+      card.setHoverState(false);
+    });
+    card.hitZone.on('pointerdown', () => {
+      if (this.isOverlayOpen()) return;
+      this.soundManager.playUIClick();
+      onActivate();
+    });
+
+    this.focusEntries.push({
+      onFocus: () => card.setFocusState(true),
+      onBlur: () => card.setFocusState(false),
+      onActivate,
+    });
+  }
+
+  private buildMainNavigator(initialIndex: number): void {
     this.menuNavigator = new MenuNavigator({
       scene: this,
-      items: this.menuItems.map((_item, index) => ({
-        onFocus: () => this.selectItem(index),
-        onBlur: () => this.deselectItem(index),
+      initialIndex,
+      items: this.focusEntries.map((entry, index) => ({
+        onFocus: () => this.focusIndex(index),
+        onBlur: () => this.blurIndex(index),
         onActivate: () => {
-          if (this.confirmationOverlay) return;
-          this.activateSelected();
+          if (this.confirmationOverlay || this.metaTooltip) return;
+          entry.onActivate();
         },
       })),
       onCancel: () => {
         if (this.confirmationOverlay) {
           this.hideNewGameConfirmation();
+        } else if (this.metaTooltip) {
+          this.hideMetaTooltip();
         }
       },
     });
   }
 
-  /**
-   * Formats seconds into M:SS format.
-   */
+  private pauseMainNavigator(): void {
+    this.menuNavigator?.destroy();
+    this.menuNavigator = null;
+  }
+
+  private resumeMainNavigator(): void {
+    if (!this.menuNavigator && this.focusEntries.length > 0) {
+      this.buildMainNavigator(this.selectedFocusIndex);
+    }
+  }
+
+  private isOverlayOpen(): boolean {
+    return this.confirmationOverlay !== null || this.metaTooltip !== null;
+  }
+
+  private attachFocusableInteraction(
+    target: Phaser.GameObjects.GameObject,
+    localIndex: number,
+    onActivate: () => void,
+  ): void {
+    target.on('pointerover', () => {
+      if (this.selectedFocusIndex !== localIndex && !this.isOverlayOpen()) {
+        this.requestFocus(localIndex);
+      }
+    });
+    target.on('pointerdown', () => {
+      if (this.isOverlayOpen()) return;
+      this.soundManager.playUIClick();
+      onActivate();
+    });
+  }
+
+  private requestFocus(index: number): void {
+    if (this.confirmationOverlay || this.metaTooltip) return;
+    if (this.menuNavigator) {
+      this.menuNavigator.selectIndex(index);
+    } else {
+      this.focusIndex(index);
+    }
+  }
+
+  private focusIndex(index: number): void {
+    if (this.confirmationOverlay || this.metaTooltip) return;
+    if (index < 0 || index >= this.focusEntries.length) return;
+    if (this.selectedFocusIndex !== index) {
+      this.soundManager.playUIClick();
+    }
+    this.selectedFocusIndex = index;
+    this.focusEntries[this.selectedFocusIndex]?.onFocus();
+  }
+
+  private blurIndex(index: number): void {
+    this.focusEntries[index]?.onBlur();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  META TOOLTIP — explainer panel reached by clicking the meta stack.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private showMetaTooltip(
+    worldLevel: number,
+    ascensionLevel: number,
+    currentStreak: number,
+    streakBonus: number,
+    layoutScale: number,
+    fontScale: number,
+  ): void {
+    const centerX = this.cameras.main.centerX;
+    const centerY = this.cameras.main.centerY;
+    const width = scaledInt(layoutScale, 440);
+    const padding = scaledInt(layoutScale, 20);
+
+    const container = this.add.container(0, 0);
+    container.setDepth(200);
+
+    const dim = this.add.rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.55);
+    dim.setInteractive();
+    dim.on('pointerdown', () => this.hideMetaTooltip());
+    container.add(dim);
+
+    const title = this.add.text(centerX, centerY - scaledInt(layoutScale, 70), 'PROGRESSION', {
+      fontSize: scaledFontPx(fontScale, 22),
+      color: COLORS.accentFocusStr,
+      fontFamily: MENU_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 3,
+    }).setOrigin(0.5);
+    container.add(title);
+
+    const lines: string[] = [
+      `World ${worldLevel}   +${((worldLevel - 1) * 15).toFixed(0)}% enemy HP, +${((worldLevel - 1) * 10).toFixed(0)}% damage`,
+    ];
+    if (ascensionLevel > 0) {
+      lines.push(
+        `Ascension ${ascensionLevel}   +${ascensionLevel * 10}% stats, +${ascensionLevel * 15}% gold`,
+      );
+    }
+    if (currentStreak > 0) {
+      lines.push(`Streak ${currentStreak}   +${streakBonus}% gold (cap 10 wins)`);
+    }
+    lines.push('');
+    lines.push('Click anywhere or press ESC to close.');
+
+    const body = this.add.text(centerX, centerY - scaledInt(layoutScale, 20), lines.join('\n'), {
+      fontSize: scaledFontPx(fontScale, 14),
+      color: '#ddeeff',
+      fontFamily: MENU_FONT,
+      align: 'center',
+      lineSpacing: 6,
+      wordWrap: { width: width - padding * 2 },
+    }).setOrigin(0.5, 0);
+    container.add(body);
+
+    const height = body.height + scaledInt(layoutScale, 120);
+    const frame = this.add.graphics();
+    frame.fillStyle(0x06080f, 0.95);
+    frame.fillRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 8);
+    frame.lineStyle(1, 0x4488cc, 0.9);
+    frame.strokeRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 8);
+    container.addAt(frame, 1);
+
+    this.metaTooltip = container;
+    this.pauseMainNavigator();
+
+    this.tooltipEscHandler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this.hideMetaTooltip();
+      }
+    };
+    this.input.keyboard?.on('keydown', this.tooltipEscHandler);
+  }
+
+  private hideMetaTooltip(): void {
+    if (this.tooltipEscHandler) {
+      this.input.keyboard?.off('keydown', this.tooltipEscHandler);
+      this.tooltipEscHandler = null;
+    }
+    if (!this.metaTooltip) return;
+    this.metaTooltip.destroy();
+    this.metaTooltip = null;
+    this.resumeMainNavigator();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  NEW-GAME CONFIRMATION
+  // ═══════════════════════════════════════════════════════════════════════
+
+  private showNewGameConfirmation(onConfirm: () => void): void {
+    const centerX = this.cameras.main.centerX;
+    const centerY = this.cameras.main.centerY;
+    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
+    const fontScale = computeMenuFontScale(
+      this.scale.width,
+      this.scale.height,
+      getSettingsManager().getUiScale(),
+    );
+
+    this.pauseMainNavigator();
+
+    this.confirmationOverlay = this.add.container(0, 0);
+    this.confirmationOverlay.setDepth(100);
+
+    const dim = this.add.rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.6);
+    dim.setInteractive();
+    this.confirmationOverlay.add(dim);
+
+    const width = scaledInt(layoutScale, 420);
+    const height = scaledInt(layoutScale, 200);
+    const frame = this.add.graphics();
+    frame.fillStyle(0x0a0a14, 0.98);
+    frame.fillRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 10);
+    frame.lineStyle(2, 0xff5566, 0.8);
+    frame.strokeRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 10);
+    this.confirmationOverlay.add(frame);
+
+    const title = this.add.text(centerX, centerY - scaledInt(layoutScale, 55), 'START NEW RUN?', {
+      fontSize: scaledFontPx(fontScale, 22),
+      color: '#ffffff',
+      fontFamily: MENU_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 3,
+    }).setOrigin(0.5);
+    this.confirmationOverlay.add(title);
+
+    const body = this.add.text(centerX, centerY - scaledInt(layoutScale, 15), 'Your current run will be lost.', {
+      fontSize: scaledFontPx(fontScale, 14),
+      color: '#aabbcc',
+      fontFamily: MENU_FONT,
+    }).setOrigin(0.5);
+    this.confirmationOverlay.add(body);
+
+    const makeButton = (label: string, color: string, offsetX: number, action: () => void) => {
+      const button = this.add.text(centerX + offsetX, centerY + scaledInt(layoutScale, 40), label, {
+        fontSize: scaledFontPx(fontScale, 20),
+        color,
+        fontFamily: MENU_FONT,
+        fontStyle: 'bold',
+        letterSpacing: 3,
+      }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      button.setData('defaultColor', color);
+      button.on('pointerdown', () => {
+        this.soundManager.playUIClick();
+        action();
+      });
+      addButtonInteraction(this, button);
+      this.confirmationOverlay!.add(button);
+      return button;
+    };
+
+    const yesButton = makeButton('YES', COLORS.danger, -scaledInt(layoutScale, 70), () => {
+      this.hideNewGameConfirmation();
+      onConfirm();
+    });
+    const noButton = makeButton('NO', COLORS.safe, scaledInt(layoutScale, 70), () => {
+      this.hideNewGameConfirmation();
+    });
+
+    const hint = this.add.text(centerX, centerY + scaledInt(layoutScale, 80), 'ESC cancels  ·  ← → to choose  ·  Enter to confirm', {
+      fontSize: scaledFontPx(fontScale, 11),
+      color: '#8899aa',
+      fontFamily: MENU_FONT,
+    }).setOrigin(0.5);
+    this.confirmationOverlay.add(hint);
+
+    const highlightButton = (button: Phaser.GameObjects.Text, highlighted: boolean) => {
+      const baseColor = button.getData('defaultColor') as string;
+      if (highlighted) {
+        button.setColor(COLORS.accentFocusStr);
+        button.setShadow(0, 0, '#ffdd44', 6, false, true);
+      } else {
+        button.setColor(baseColor);
+        button.setShadow(0, 0, 'transparent', 0);
+      }
+    };
+
+    this.confirmationNavigator = new MenuNavigator({
+      scene: this,
+      columns: 2,
+      initialIndex: 1,
+      items: [
+        {
+          onFocus: () => highlightButton(yesButton, true),
+          onBlur: () => highlightButton(yesButton, false),
+          onActivate: () => {
+            this.soundManager.playUIClick();
+            this.hideNewGameConfirmation();
+            onConfirm();
+          },
+        },
+        {
+          onFocus: () => highlightButton(noButton, true),
+          onBlur: () => highlightButton(noButton, false),
+          onActivate: () => {
+            this.soundManager.playUIClick();
+            this.hideNewGameConfirmation();
+          },
+        },
+      ],
+      onCancel: () => this.hideNewGameConfirmation(),
+    });
+  }
+
+  private hideNewGameConfirmation(): void {
+    if (!this.confirmationOverlay) return;
+    this.confirmationNavigator?.destroy();
+    this.confirmationNavigator = null;
+    this.confirmationOverlay.destroy();
+    this.confirmationOverlay = null;
+    this.resumeMainNavigator();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Utility
+  // ═══════════════════════════════════════════════════════════════════════
+
   private formatTime(seconds: number): string {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
-  /**
-   * Shows confirmation dialog for starting a new game when save exists.
-   */
-  private showNewGameConfirmation(onConfirm: () => void): void {
-    const centerX = this.cameras.main.centerX;
-    const centerY = this.cameras.main.centerY;
-    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    const fontScale = computeMenuFontScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale());
-
-    // Create overlay container
-    this.confirmationOverlay = this.add.container(0, 0);
-    this.confirmationOverlay.setDepth(100);
-
-    // Dark background
-    const bg = this.add.rectangle(centerX, centerY, scaledInt(layoutScale, 400), scaledInt(layoutScale, 200), 0x000000, 0.9);
-    bg.setStrokeStyle(2, 0xffdd44);
-    this.confirmationOverlay.add(bg);
-
-    // Warning text
-    const warningText = this.add.text(centerX, centerY - scaledInt(layoutScale, 50), 'START NEW GAME?', {
-      fontSize: scaledFontPx(fontScale, 24),
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
-    this.confirmationOverlay.add(warningText);
-
-    const subtextLine = this.add.text(centerX, centerY - scaledInt(layoutScale, 15), 'Your current progress will be lost.', {
-      fontSize: scaledFontPx(fontScale, 16),
-      color: '#aaaaaa',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
-    this.confirmationOverlay.add(subtextLine);
-
-    // YES button
-    const yesButton = this.add.text(centerX - scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), 'YES', {
-      fontSize: scaledFontPx(fontScale, 20),
-      color: '#ff4444',
-      fontFamily: 'Arial',
-      letterSpacing: 2,
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    yesButton.on('pointerover', () => { yesButton.setColor('#ff8888'); yesButton.setShadow(0, 0, '#ff4444', 4, false, true); });
-    yesButton.on('pointerout', () => { yesButton.setColor('#ff4444'); yesButton.setShadow(0, 0, 'transparent', 0); });
-    yesButton.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.hideNewGameConfirmation();
-      onConfirm();
-    });
-    addButtonInteraction(this, yesButton);
-    this.confirmationOverlay.add(yesButton);
-
-    // NO button
-    const noButton = this.add.text(centerX + scaledInt(layoutScale, 60), centerY + scaledInt(layoutScale, 40), 'NO', {
-      fontSize: scaledFontPx(fontScale, 20),
-      color: '#44ff44',
-      fontFamily: 'Arial',
-      letterSpacing: 2,
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    noButton.on('pointerover', () => { noButton.setColor('#88ff88'); noButton.setShadow(0, 0, '#44ff44', 4, false, true); });
-    noButton.on('pointerout', () => { noButton.setColor('#44ff44'); noButton.setShadow(0, 0, 'transparent', 0); });
-    noButton.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.hideNewGameConfirmation();
-    });
-    addButtonInteraction(this, noButton);
-    this.confirmationOverlay.add(noButton);
-
-    // ESC hint
-    const escHint = this.add.text(centerX, centerY + scaledInt(layoutScale, 80), '(ESC to cancel)', {
-      fontSize: scaledFontPx(fontScale, 12),
-      color: '#666666',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
-    this.confirmationOverlay.add(escHint);
-  }
-
-  /**
-   * Hides the new game confirmation dialog.
-   */
-  private hideNewGameConfirmation(): void {
-    if (this.confirmationOverlay) {
-      this.confirmationOverlay.destroy();
-      this.confirmationOverlay = null;
-    }
-  }
-
-  /**
-   * Selects a menu item by index and updates visual state.
-   */
-  private deselectItem(index: number): void {
-    const item = this.menuItems[index];
-    if (item) {
-      item.setColor(item.getData('defaultColor') ?? '#888899');
-      item.setShadow(0, 0, 'transparent', 0);
-      item.setAlpha(1);
-    }
-  }
-
-  private selectItem(index: number): void {
-    if (index !== this.selectedIndex) {
-      this.deselectItem(this.selectedIndex);
-      this.soundManager.playUIClick();
-    }
-    this.selectedIndex = index;
-    const currentItem = this.menuItems[this.selectedIndex];
-    if (currentItem) {
-      currentItem.setColor('#ffdd44');
-      currentItem.setShadow(0, 0, '#ffdd44', 6, false, true);
-
-      // Subtle glow pulse (shadow blur oscillation via alpha)
-      if (this.pulseTween) {
-        this.pulseTween.stop();
-      }
-      currentItem.setAlpha(1);
-      this.pulseTween = this.tweens.add({
-        targets: currentItem,
-        alpha: { from: 1, to: 0.75 },
-        duration: 1000,
-        ease: 'Sine.easeInOut',
-        yoyo: true,
-        repeat: -1,
-      });
-    }
-  }
-
-  /**
-   * Activates the currently selected menu item.
-   */
-  private activateSelected(): void {
-    const action = this.menuActions[this.selectedIndex];
-    if (action) {
-      action();
-    }
-  }
-
-  /**
-   * Cleanup keyboard handlers when scene shuts down.
-   */
   shutdown(): void {
-    if (this.menuNavigator) {
-      this.menuNavigator.destroy();
-      this.menuNavigator = null;
+    if (this.updateHandler) {
+      this.events.off(Phaser.Scenes.Events.UPDATE, this.updateHandler);
+      this.updateHandler = null;
     }
-    if (this.pulseTween) {
-      this.pulseTween.stop();
-      this.pulseTween = null;
+    this.titleTicker = null;
+
+    this.menuNavigator?.destroy();
+    this.menuNavigator = null;
+    this.confirmationNavigator?.destroy();
+    this.confirmationNavigator = null;
+    this.confirmationOverlay?.destroy();
+    this.confirmationOverlay = null;
+    if (this.tooltipEscHandler) {
+      this.input.keyboard?.off('keydown', this.tooltipEscHandler);
+      this.tooltipEscHandler = null;
     }
+    this.metaTooltip?.destroy();
+    this.metaTooltip = null;
+
+    for (const card of this.cards) card.destroy();
+    this.cards = [];
+
+    this.menuBackground?.destroy();
+    this.menuBackground = null;
+
     this.tweens.killAll();
   }
 }

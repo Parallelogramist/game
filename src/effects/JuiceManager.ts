@@ -35,13 +35,14 @@ export class JuiceManager {
   private activeWindUps: Map<string, ActiveWindUp> = new Map();
   private hitStopActive: boolean = false;
   private originalTimeScale: number = 1;
+  private hitStopCooldownUntil: number = 0;
 
-  public setScene(scene: Phaser.Scene): void {
+  public setScene(scene: Phaser.Scene | null): void {
     this.scene = scene;
   }
 
   public update(_deltaMs: number): void {
-    // Reserved for continuous effects
+    // No-op kept for callsite stability; reserved for future per-frame juice work.
   }
 
   public destroy(): void {
@@ -745,6 +746,11 @@ export class JuiceManager {
   public hitStop(duration: number, intensity: number = 1): void {
     if (!this.scene || this.hitStopActive) return;
 
+    // Cooldown prevents rapid consecutive hitStops (e.g. AoE crit spam)
+    // from keeping tween timeScale pinned near zero, which freezes UI text animations
+    const now = this.scene.time.now;
+    if (now < this.hitStopCooldownUntil) return;
+
     this.hitStopActive = true;
     this.originalTimeScale = this.scene.tweens.timeScale;
     this.scene.tweens.timeScale = 0.01 * (1 - intensity * 0.99);
@@ -752,6 +758,7 @@ export class JuiceManager {
     this.scene.time.delayedCall(duration, () => {
       if (this.scene) this.scene.tweens.timeScale = this.originalTimeScale;
       this.hitStopActive = false;
+      this.hitStopCooldownUntil = (this.scene?.time?.now ?? 0) + duration * 4;
     });
   }
 

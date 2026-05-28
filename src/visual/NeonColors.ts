@@ -17,6 +17,19 @@ export const PLAYER_NEON: NeonColorPair = {
 };
 
 /**
+ * Ship-character neon palettes (for playable ship selection).
+ */
+export const SHIP_NEON_PALETTES: Record<string, NeonColorPair> = {
+  cyan:   { core: 0x4488ff, glow: 0x66aaff },   // Default Sparrow blue
+  red:    { core: 0xff4444, glow: 0xff8888 },
+  green:  { core: 0x44ff88, glow: 0x88ffaa },
+  gold:   { core: 0xffcc44, glow: 0xffdd88 },
+  purple: { core: 0xaa44ff, glow: 0xcc77ff },
+  white:  { core: 0xeeeeff, glow: 0xffffff },
+  pink:   { core: 0xff66cc, glow: 0xff99dd },
+};
+
+/**
  * Enemy color palette — behavior archetype encoding.
  * Colors indicate how an enemy behaves, not just its threat tier.
  *
@@ -82,11 +95,17 @@ export const GRID_COLORS = {
 };
 
 /**
- * Projectile colors
+ * Projectile colors.
+ *
+ * Player projectiles live in the COOL zone (cyan / violet / blue). Enemy
+ * projectiles live in the HOT zone (crimson + warm-gold ring). The gold ring
+ * deliberately falls outside the player weapon palette — even fire-themed
+ * player weapons (orange) don't overlap with it. This lets the player instantly
+ * identify incoming damage in high-density combat.
  */
 export const PROJECTILE_NEON = {
   player: { core: 0x66ccff, glow: 0x88ddff } as NeonColorPair,  // Light blue player projectiles
-  enemy: { core: 0xff4444, glow: 0xff8888 } as NeonColorPair,   // Red enemy projectiles
+  enemy: { core: 0xff2233, glow: 0xffcc66 } as NeonColorPair,   // Crimson core, warm-gold glow
 };
 
 /**
@@ -242,3 +261,18 @@ export function getGlowRadiusMultipliers(quality: 'high' | 'medium' | 'low'): nu
       return [1.20, 1.16, 1.12, 1.08, 1.04];
   }
 }
+
+export const CALLOUT_COLORS = {
+  hit: 0xffffff,
+  crit: 0xffd93d,
+  perfect: 0xffffff,
+  kill: 0xff4444,
+  comboWarm: 0xffaa44,
+  comboHot: 0xff6622,
+  comboBlaze: 0xff3322,
+  comboInferno: 0xff0000,
+  levelUp: 0xffd93d,
+  bossSpawn: 0xff2233,
+  evolution: 0xaa44ff,
+  eventDefault: 0x44ccff,
+} as const;

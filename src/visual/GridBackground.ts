@@ -99,6 +99,10 @@ export class GridBackground {
   // Enabled flag (settings toggle)
   private enabled = true;
 
+  // Stage-configurable colors (default to global GRID_COLORS).
+  private stageLineColor: number = GRID_COLORS.line;
+  private stageWarpHighlightColor: number = GRID_COLORS.warpHighlight;
+
   // ─── Dirty-flag optimization ───
   // When the grid is at rest (no springs moving, no nearby entities),
   // skip the expensive render pass entirely and keep the previous frame.
@@ -623,17 +627,15 @@ export class GridBackground {
       const isMajor = row % 3 === 0;
       this.computeLinePositions(row, true, usePerspective);
 
-      // Chromatic ghost layers (behind main line)
       if (useChromaticAberration) {
         this.strokeLinePath(this.CHROMATIC_MAX_OFFSET, 0.8, this.CHROMATIC_CYAN, this.CHROMATIC_ALPHA, useSubdivisions);
         this.strokeLinePath(-this.CHROMATIC_MAX_OFFSET, 0.8, this.CHROMATIC_MAGENTA, this.CHROMATIC_ALPHA, useSubdivisions);
       }
 
-      // Main grid line
       const normalizedWarp = this.computeLineWarp();
       const lineWidth = (isMajor ? 1.3 : 1.0) + normalizedWarp * 0.8;
       const alpha = pulseAlpha + normalizedWarp * 0.3;
-      const lineColor = this.lerpColor(GRID_COLORS.line, GRID_COLORS.warpHighlight, normalizedWarp);
+      const lineColor = this.lerpColor(this.stageLineColor, this.stageWarpHighlightColor, normalizedWarp);
       this.strokeLinePath(0, lineWidth, lineColor, alpha, useSubdivisions);
     }
 
@@ -649,7 +651,7 @@ export class GridBackground {
       const normalizedWarp = this.computeLineWarp();
       const lineWidth = (isMajor ? 1.3 : 1.0) + normalizedWarp * 0.8;
       const alpha = pulseAlpha + normalizedWarp * 0.3;
-      const lineColor = this.lerpColor(GRID_COLORS.line, GRID_COLORS.warpHighlight, normalizedWarp);
+      const lineColor = this.lerpColor(this.stageLineColor, this.stageWarpHighlightColor, normalizedWarp);
       this.strokeLinePath(0, lineWidth, lineColor, alpha, useSubdivisions);
     }
   }
@@ -836,6 +838,16 @@ export class GridBackground {
   // ═══════════════════════════════════════════════════════════════════
   //  RESET / CLEANUP
   // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Override the grid's color palette (used by stage selection).
+   * Pass undefined to restore the global defaults.
+   */
+  setColorPalette(lineColor?: number, _pulseColor?: number, warpHighlightColor?: number): void {
+    this.stageLineColor = lineColor ?? GRID_COLORS.line;
+    this.stageWarpHighlightColor = warpHighlightColor ?? GRID_COLORS.warpHighlight;
+    this.dirty = true;
+  }
 
   reset(): void {
     for (let i = 0; i < this.totalPoints; i++) {

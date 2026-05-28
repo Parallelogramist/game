@@ -226,10 +226,6 @@ export function renderGem3D(
 
     // Calculate lighting intensity
     const lightIntensity = Math.max(0, dotProduct(normal, LIGHT_DIR));
-    const brightness = AMBIENT_LIGHT + (1 - AMBIENT_LIGHT) * lightIntensity;
-
-    // Calculate centroid Z for depth sorting
-    const centroidZ = (v0.z + v1.z + v2.z) / 3;
 
     // Reuse pooled face object (avoids per-call allocation)
     const face = facePool[visibleFaceCount];
@@ -239,8 +235,8 @@ export function renderGem3D(
     face.screenVerts[1].y = screenVerts[i1].y;
     face.screenVerts[2].x = screenVerts[i2].x;
     face.screenVerts[2].y = screenVerts[i2].y;
-    face.centroidZ = centroidZ;
-    face.brightness = brightness;
+    face.centroidZ = (v0.z + v1.z + v2.z) / 3;
+    face.brightness = AMBIENT_LIGHT + (1 - AMBIENT_LIGHT) * lightIntensity;
     visibleFaceCount++;
   }
 

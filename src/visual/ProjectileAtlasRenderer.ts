@@ -112,7 +112,7 @@ function drawProjectileShape(
   const length = size * 4;
   const width = size * 2;
 
-  // Glow halo
+  // Neon glow halo
   g.fillStyle(fillColor, 0.25);
   g.fillCircle(0, 0, size * 3);
 
@@ -303,18 +303,18 @@ function drawShurikenShape(
     const pointAngle = (i * Math.PI * 2) / bladeCount;
 
     if (quality === 'low') {
+      const bladePoints = [
+        { x: 0, y: 0 },
+        { x: Math.cos(pointAngle - 0.3) * size * 0.4, y: Math.sin(pointAngle - 0.3) * size * 0.4 },
+        { x: Math.cos(pointAngle) * size, y: Math.sin(pointAngle) * size },
+        { x: Math.cos(pointAngle + 0.3) * size * 0.4, y: Math.sin(pointAngle + 0.3) * size * 0.4 },
+      ];
       g.fillStyle(bladeColor, 1);
       g.beginPath();
       g.moveTo(0, 0);
-      g.lineTo(
-        Math.cos(pointAngle - 0.3) * size * 0.4,
-        Math.sin(pointAngle - 0.3) * size * 0.4,
-      );
-      g.lineTo(Math.cos(pointAngle) * size, Math.sin(pointAngle) * size);
-      g.lineTo(
-        Math.cos(pointAngle + 0.3) * size * 0.4,
-        Math.sin(pointAngle + 0.3) * size * 0.4,
-      );
+      g.lineTo(bladePoints[1].x, bladePoints[1].y);
+      g.lineTo(bladePoints[2].x, bladePoints[2].y);
+      g.lineTo(bladePoints[3].x, bladePoints[3].y);
       g.closePath();
       g.fillPath();
     } else {

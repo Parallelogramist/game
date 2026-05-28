@@ -12,9 +12,13 @@ import {
   AchievementCategory,
 } from '../../achievements';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { fadeIn, fadeOut } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 
 // Achievement categories with display names and icons
 const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: string }[] = [
@@ -23,6 +27,8 @@ const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: str
   { id: 'progression', name: 'Progression', icon: 'star' },
   { id: 'challenge', name: 'Challenge', icon: 'trophy' },
 ];
+
+const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -42,7 +48,6 @@ export class AchievementScene extends Phaser.Scene {
   private achievementContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
   private maxScrollY: number = 0;
-  private backButton!: Phaser.GameObjects.Text;
 
   // Grid constants
   private readonly cardWidth = 360;
@@ -56,6 +61,9 @@ export class AchievementScene extends Phaser.Scene {
   private selectedCardIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private soundManager!: SoundManager;
+  private menuBackground: MenuBackground | null = null;
+  private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+  private balatroBackButton: MenuButton | null = null;
 
   constructor() {
     super({ key: 'AchievementScene' });
@@ -103,41 +111,41 @@ export class AchievementScene extends Phaser.Scene {
       }
     }
 
-    // Dark background
-    this.add.rectangle(centerX, this.scale.height / 2, this.scale.width, this.scale.height, 0x1a1a2e);
+    // Balatro backdrop.
+    this.menuBackground = createMenuBackground(this);
+    this.bgUpdateHandler = (_time, delta) => {
+      this.menuBackground?.update(delta);
+      this.balatroBackButton?.tickIdle(_time / 1000);
+    };
+    this.events.on('update', this.bgUpdateHandler);
 
-    // Title
-    this.add
-      .text(centerX, 30, 'ACHIEVEMENTS', {
-        fontSize: '36px',
-        color: '#44ff88',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
+    // Title sticker.
+    makeStickerText(this, centerX, 36, 'ACHIEVEMENTS', {
+      fontSize: 32,
+      color: ACCENT_COLORS_STR.safe,
+      strokeWidth: 5,
+      letterSpacing: 4,
+    });
 
-    // Completion percentage display (top right)
+    // Completion percentage display (top right).
     const achievementManager = getAchievementManager();
     const completionPercent = achievementManager.getAchievementCompletionPercent();
     const unlockedCount = achievementManager.getUnlockedAchievements().length;
     const totalCount = ACHIEVEMENTS.length;
 
-    this.add
-      .text(this.scale.width - 20, 20, 'COMPLETION:', {
-        fontSize: '14px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(1, 0);
+    const completionLabel = makeBodyText(this, this.scale.width - 20, 22, 'COMPLETION', {
+      fontSize: 11,
+      color: TEXT_COLORS.muted,
+    });
+    completionLabel.setOrigin(1, 0);
 
-    this.add
-      .text(this.scale.width - 20, 38, `${unlockedCount}/${totalCount} (${completionPercent}%)`, {
-        fontSize: '20px',
-        color: '#44ff88',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(1, 0);
+    const completionValue = makeStickerText(this, this.scale.width - 20, 44,
+      `${unlockedCount} / ${totalCount}  ·  ${completionPercent}%`, {
+        fontSize: 16,
+        color: ACCENT_COLORS_STR.safe,
+        letterSpacing: 1,
+      });
+    completionValue.setOrigin(1, 0.5);
 
     // Create category tabs
     this.createCategoryTabs();
@@ -148,25 +156,24 @@ export class AchievementScene extends Phaser.Scene {
     // Display achievements for default category
     this.displayCategoryAchievements(this.currentCategory);
 
-    // Back button
-    this.backButton = this.add
-      .text(centerX, this.scale.height - 30, '[ Back to Menu ]', {
-        fontSize: '20px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
+    // Back button — Balatro pill.
+    this.balatroBackButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: this.scale.height - 36,
+      width: 220,
+      height: 44,
+      label: '← BACK TO MENU',
+      variant: 'neutral',
+      fontSize: 14,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+    });
+    this.balatroBackButton.card.hitZone.on('pointerover', () => this.balatroBackButton!.setHoverState(true));
+    this.balatroBackButton.card.hitZone.on('pointerout', () => this.balatroBackButton!.setHoverState(false));
 
-    this.backButton.on('pointerover', () => this.backButton.setColor('#ffffff'));
-    this.backButton.on('pointerout', () => {
-      this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
-    });
-    this.backButton.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      fadeOut(this, 150, () => this.scene.start('BootScene'));
-    });
-    addButtonInteraction(this, this.backButton);
 
     // Setup scroll input
     this.setupScrollInput();
@@ -216,7 +223,7 @@ export class AchievementScene extends Phaser.Scene {
       const tabText = this.add.text((tabWidth + 28) / 2, tabHeight / 2, category.name, {
         fontSize: '14px',
         color: isSelected ? '#ffffff' : '#888888',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
       });
       tabText.setOrigin(0.5);
 
@@ -232,7 +239,7 @@ export class AchievementScene extends Phaser.Scene {
         {
           fontSize: '12px',
           color: isSelected ? '#44ff88' : '#666666',
-          fontFamily: 'Arial',
+          fontFamily: FONT_FAMILY,
         }
       );
       countText.setOrigin(1, 0.5);
@@ -377,7 +384,7 @@ export class AchievementScene extends Phaser.Scene {
     const nameText = this.add.text(70, 14, achievement.name, {
       fontSize: '16px',
       color: isUnlocked ? '#44ff88' : '#ffffff',
-      fontFamily: 'Arial',
+      fontFamily: FONT_FAMILY,
       fontStyle: 'bold',
     });
     container.add(nameText);
@@ -386,7 +393,7 @@ export class AchievementScene extends Phaser.Scene {
     const descText = this.add.text(70, 36, achievement.description, {
       fontSize: '13px',
       color: '#aaaaaa',
-      fontFamily: 'Arial',
+      fontFamily: FONT_FAMILY,
       wordWrap: { width: this.cardWidth - 90 },
     });
     container.add(descText);
@@ -429,7 +436,7 @@ export class AchievementScene extends Phaser.Scene {
       {
         fontSize: '10px',
         color: isUnlocked ? '#ffffff' : '#aaaaaa',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
         fontStyle: isUnlocked ? 'bold' : 'normal',
       }
     );
@@ -442,7 +449,7 @@ export class AchievementScene extends Phaser.Scene {
     const rewardText = this.add.text(0, 0, rewardLabel, {
       fontSize: '12px',
       color: '#ffcc00',
-      fontFamily: 'Arial',
+      fontFamily: FONT_FAMILY,
       fontStyle: 'bold',
     });
     const coinSize = 14;
@@ -485,9 +492,9 @@ export class AchievementScene extends Phaser.Scene {
 
       const secretText = this.add.text(this.cardWidth / 2, this.cardHeight / 2, '? SECRET ?', {
         fontSize: '16px',
-        color: '#666666',
-        fontFamily: 'Arial',
-        fontStyle: 'italic',
+        color: '#99aabb',
+        fontFamily: FONT_FAMILY,
+        fontStyle: 'bold',
       });
       secretText.setOrigin(0.5);
       container.add(secretText);
@@ -718,8 +725,8 @@ export class AchievementScene extends Phaser.Scene {
       }
     });
 
-    // Update back button
-    this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
+    // Back button focus pop on Balatro pill.
+    this.balatroBackButton?.setFocusState(this.focusZone === 'back');
   }
 
   shutdown(): void {
@@ -727,6 +734,14 @@ export class AchievementScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    if (this.bgUpdateHandler) {
+      this.events.off('update', this.bgUpdateHandler);
+      this.bgUpdateHandler = null;
+    }
+    this.menuBackground?.destroy();
+    this.menuBackground = null;
+    this.balatroBackButton?.destroy();
+    this.balatroBackButton = null;
     this.tweens.killAll();
   }
 }

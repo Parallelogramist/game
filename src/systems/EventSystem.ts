@@ -74,6 +74,15 @@ const EVENT_POOL: readonly RunEvent[] = [
     minGameTime: 60,
     duration: 8,
   },
+  {
+    id: 'shrine_bargain',
+    name: 'Shrine of Sacrifice',
+    description: 'A pact is struck — power for a price.',
+    color: 0xcc44ff,
+    weight: 10,
+    minGameTime: 120,
+    duration: 0,
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------

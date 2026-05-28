@@ -18,6 +18,7 @@ export interface CombatStats {
   armorPenetration: number;    // Ignore enemy armor percentage
   knockbackMultiplier: number; // Knockback force multiplier
   shatterBonus: number;        // Bonus damage to frozen enemies
+  bossDamageMultiplier: number; // Bonus damage against boss-tier enemies (Boss Hunter ship)
 }
 
 // Combat stats from player (elemental chances, crit, etc.)

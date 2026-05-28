@@ -41,21 +41,24 @@ export class FrostNovaWeapon extends BaseWeapon {
   }
 
   protected attack(ctx: WeaponContext): void {
-    const radius = this.stats.range * this.stats.size;
+    // Evolution (Absolute Zero): 1.5x base radius + secondary pulse that hits
+    // stragglers outside the initial blast, extending effective coverage.
+    const effectiveSizeMultiplier = this.isEvolved ? 1.5 : 1;
+    const radius = this.stats.range * this.stats.size * effectiveSizeMultiplier;
 
     // Visual nova effect
     this.createNovaVisual(ctx, radius);
 
     // Hit all enemies in range
     const enemies = ctx.getEnemies();
+    const radiusSq = radius * radius;
     for (const enemyId of enemies) {
       const ex = Transform.x[enemyId];
       const ey = Transform.y[enemyId];
       const dx = ex - ctx.playerX;
       const dy = ey - ctx.playerY;
-      const distSq = dx * dx + dy * dy;
 
-      if (distSq <= radius * radius) {
+      if (dx * dx + dy * dy <= radiusSq) {
         // Deal damage
         ctx.damageEnemy(enemyId, this.stats.damage, 100);
 
@@ -69,6 +72,24 @@ export class FrostNovaWeapon extends BaseWeapon {
 
     // Lingering frost ground effect at blast center
     this.createGroundFrost(ctx, radius);
+
+    // Evolution secondary pulse — fires 350ms later at same center, half damage.
+    if (this.isEvolved) {
+      ctx.scene.time.delayedCall(350, () => {
+        const secondaryRadius = radius * 0.9;
+        const secondaryRadiusSq = secondaryRadius * secondaryRadius;
+        this.createNovaVisual(ctx, secondaryRadius);
+        const secondaryEnemies = ctx.getEnemies();
+        for (const enemyId of secondaryEnemies) {
+          const deltaX = Transform.x[enemyId] - ctx.playerX;
+          const deltaY = Transform.y[enemyId] - ctx.playerY;
+          if (deltaX * deltaX + deltaY * deltaY <= secondaryRadiusSq) {
+            ctx.damageEnemy(enemyId, this.stats.damage * 0.5, 80);
+            this.applySlowToEnemy(ctx, enemyId);
+          }
+        }
+      });
+    }
 
     ctx.soundManager.playHit();
     getJuiceManager().screenShake(0.003, 150);
@@ -173,11 +194,10 @@ export class FrostNovaWeapon extends BaseWeapon {
         // Hexagonal center
         crystal.lineStyle(1, 0xffffff, 0.6);
         crystal.beginPath();
-        for (let hexIndex = 0; hexIndex < 6; hexIndex++) {
+        crystal.moveTo(2.5, 0);
+        for (let hexIndex = 1; hexIndex < 6; hexIndex++) {
           const hexAngle = (hexIndex / 6) * Math.PI * 2;
-          const hexX = Math.cos(hexAngle) * 2.5;
-          const hexY = Math.sin(hexAngle) * 2.5;
-          hexIndex === 0 ? crystal.moveTo(hexX, hexY) : crystal.lineTo(hexX, hexY);
+          crystal.lineTo(Math.cos(hexAngle) * 2.5, Math.sin(hexAngle) * 2.5);
         }
         crystal.closePath();
         crystal.strokePath();
@@ -403,16 +423,15 @@ export class FrostNovaWeapon extends BaseWeapon {
 
     // Damage nearby enemies
     const enemies = ctx.getEnemies();
+    const shatterRadiusSq = shatterRadius * shatterRadius;
     for (const enemyId of enemies) {
       if (Health.current[enemyId] <= 0) continue; // Skip already dead
 
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-      const dx = ex - x;
-      const dy = ey - y;
+      const dx = Transform.x[enemyId] - x;
+      const dy = Transform.y[enemyId] - y;
       const distSq = dx * dx + dy * dy;
 
-      if (distSq <= shatterRadius * shatterRadius && distSq > 0) {
+      if (distSq <= shatterRadiusSq && distSq > 0) {
         // Deal shatter damage
         ctx.damageEnemy(enemyId, shatterDamage, 250);
 

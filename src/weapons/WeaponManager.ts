@@ -15,6 +15,19 @@ import { VisualQuality } from '../visual/GlowGraphics';
 import { getJuiceManager } from '../effects/JuiceManager';
 
 /**
+ * Per-weapon aggregate stats for end-of-run breakdown.
+ */
+export interface WeaponRunStats {
+  weaponId: string;
+  weaponName: string;
+  totalDamage: number;
+  kills: number;
+  hits: number;
+  crits: number;
+  maxSingleHit: number;
+}
+
+/**
  * WeaponManager handles all player weapons.
  * Updates weapons each frame and provides context for attacks.
  */
@@ -54,6 +67,10 @@ export class WeaponManager {
 
   // Pooled context object - created once, updated each frame to avoid allocations
   private ctx: WeaponContext;
+
+  // Per-weapon run stats for end-of-run breakdown
+  private weaponRunStats: Map<string, WeaponRunStats> = new Map();
+  private currentFiringWeaponId: string | null = null;
 
   constructor(
     scene: Phaser.Scene,
@@ -275,9 +292,45 @@ export class WeaponManager {
     this.ctx.visualQuality = this.visualQuality;
 
     // Update all weapons with the reused context
+    // Set currentFiringWeaponId before each weapon so damageEnemy can attribute damage
     for (const weapon of this.weapons.values()) {
+      this.currentFiringWeaponId = weapon.id;
       weapon.update(this.ctx);
     }
+    this.currentFiringWeaponId = null;
+  }
+
+  /**
+   * Get per-weapon run stats map, for end-of-run summary.
+   */
+  public getWeaponRunStats(): WeaponRunStats[] {
+    return Array.from(this.weaponRunStats.values());
+  }
+
+  /**
+   * Reset per-weapon run stats (call on new run).
+   */
+  public resetWeaponRunStats(): void {
+    this.weaponRunStats.clear();
+    this.currentFiringWeaponId = null;
+  }
+
+  private getOrCreateWeaponStats(weaponId: string): WeaponRunStats {
+    let entry = this.weaponRunStats.get(weaponId);
+    if (!entry) {
+      const weapon = this.weapons.get(weaponId);
+      entry = {
+        weaponId,
+        weaponName: weapon?.name ?? weaponId,
+        totalDamage: 0,
+        kills: 0,
+        hits: 0,
+        crits: 0,
+        maxSingleHit: 0,
+      };
+      this.weaponRunStats.set(weaponId, entry);
+    }
+    return entry;
   }
 
   /**
@@ -333,11 +386,27 @@ export class WeaponManager {
       actualDamage *= 0.75;
     }
 
+    // Boss Hunter ship: bonus damage against boss-tier enemies (xpValue >= 1000 marks bosses)
+    if (combatStats && combatStats.bossDamageMultiplier > 1 && EnemyType.xpValue[enemyId] >= 1000) {
+      actualDamage *= combatStats.bossDamageMultiplier;
+    }
+
     // Store HP before damage for overkill splash calculation
     const hpBeforeDamage = Health.current[enemyId];
 
     // Apply damage
     Health.current[enemyId] -= actualDamage;
+
+    // Per-weapon run stats tracking (attributed to whichever weapon is currently firing)
+    if (this.currentFiringWeaponId) {
+      const statsEntry = this.getOrCreateWeaponStats(this.currentFiringWeaponId);
+      const damageApplied = Math.min(actualDamage, hpBeforeDamage);
+      statsEntry.totalDamage += damageApplied;
+      statsEntry.hits += 1;
+      if (isCrit) statsEntry.crits += 1;
+      if (actualDamage > statsEntry.maxSingleHit) statsEntry.maxSingleHit = actualDamage;
+      if (Health.current[enemyId] <= 0) statsEntry.kills += 1;
+    }
 
     // Apply elemental status effects based on combat stats
     if (combatStats) {
@@ -410,9 +479,7 @@ export class WeaponManager {
     }
 
     // Callback for damage tracking
-    if (this.onEnemyDamaged) {
-      this.onEnemyDamaged(enemyId, actualDamage, isCrit);
-    }
+    if (this.onEnemyDamaged) this.onEnemyDamaged(enemyId, actualDamage, isCrit);
 
     // Check for death
     if (Health.current[enemyId] <= 0) {
@@ -424,9 +491,7 @@ export class WeaponManager {
         getJuiceManager().hitStop(60, 0.9);    // Miniboss kill
       }
 
-      if (this.onEnemyKilled) {
-        this.onEnemyKilled(enemyId, enemyX, enemyY);
-      }
+      if (this.onEnemyKilled) this.onEnemyKilled(enemyId, enemyX, enemyY);
 
       // Overkill splash: excess damage splashes to nearby enemies
       if (combatStats && combatStats.overkillSplash > 0) {
@@ -510,9 +575,7 @@ export class WeaponManager {
    * Heal the player (for weapon mastery effects like Consecrated Ground).
    */
   private healPlayer(amount: number): void {
-    if (this.onPlayerHealed) {
-      this.onPlayerHealed(amount);
-    }
+    if (this.onPlayerHealed) this.onPlayerHealed(amount);
   }
 
   /**

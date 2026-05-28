@@ -9,6 +9,7 @@ import {
   groundSlamCallback, laserBeamCallback,
   deadEnemyPositions, deadPositionsReadPointer, advanceDeadPositionsPointer,
   getLinkedTwin,
+  bossPhaseTransitionCallback,
 } from './enemy-ai/state';
 
 // Re-export public API from state module for backwards compatibility
@@ -17,7 +18,38 @@ export {
   setXPGemCallbacks, setBossCallbacks, resetBossCallbacks,
   recordEnemyDeath, linkTwins, unlinkTwin, getLinkedTwin, getAllTwinLinks,
   resetEnemyAISystem, updateAIGameTime,
+  setBossPhaseTransitionCallback,
 } from './enemy-ai/state';
+
+/**
+ * Boss phase tracker — stored externally from EnemyAI.phase because some
+ * bosses (e.g. Void Wyrm) repurpose the `phase` field as a serpentine timer.
+ * Cleared on enemy despawn via resetBossPhaseTracking (called in reset flow).
+ */
+const bossPhaseByEntity = new Map<number, number>();
+
+/**
+ * Checks whether the boss just crossed a phase boundary (66% / 33% HP).
+ * Fires the transition callback on change. Returns the current phase (1-3).
+ */
+function checkBossPhaseTransition(bossId: number): number {
+  const healthPercent = Health.current[bossId] / Math.max(1, Health.max[bossId]);
+  const currentPhase = healthPercent > 0.66 ? 1 : healthPercent > 0.33 ? 2 : 3;
+  const storedPhase = bossPhaseByEntity.get(bossId) ?? 1;
+  if (currentPhase > storedPhase) {
+    bossPhaseByEntity.set(bossId, currentPhase);
+    if (bossPhaseTransitionCallback) {
+      bossPhaseTransitionCallback(bossId, currentPhase);
+    }
+  } else if (!bossPhaseByEntity.has(bossId)) {
+    bossPhaseByEntity.set(bossId, currentPhase);
+  }
+  return currentPhase;
+}
+
+export function resetBossPhaseTracking(): void {
+  bossPhaseByEntity.clear();
+}
 
 // ── Elite aura tracking ─────────────────────────────────────────────────────
 // Tracks which enemies are currently buffed by Tank damage reduction aura.
@@ -1649,9 +1681,8 @@ function updateHordeKingAI(
   const baseSpeed = Velocity.speed[enemyId];
   const state = EnemyAI.state[enemyId];
 
-  // Determine phase based on health
-  const healthPercent = Health.current[enemyId] / Health.max[enemyId];
-  const phase = healthPercent > 0.66 ? 1 : healthPercent > 0.33 ? 2 : 3;
+  // Determine phase (and fire transition callback on boundary crossings)
+  const phase = checkBossPhaseTransition(enemyId);
 
   // Phase modifies behavior intensity
   const phaseSpeedMult = 1 + (3 - phase) * 0.2; // Faster in later phases
@@ -1749,6 +1780,10 @@ function updateVoidWyrmAI(
   const baseSpeed = Velocity.speed[enemyId];
   const state = EnemyAI.state[enemyId];
 
+  // Detect HP-based phase transitions (serpentine timer uses EnemyAI.phase,
+  // so we track boss phases in a side-map instead).
+  const voidWyrmPhase = checkBossPhaseTransition(enemyId);
+
   if (state === 0) {
     // Circling around player at distance
     const preferredDist = 200;
@@ -1820,11 +1855,16 @@ function updateVoidWyrmAI(
 
     const timer = EnemyAI.timer[enemyId];
     if (timer > 0.3 && timer < 0.4 && projectileSpawnCallback) {
-      // Fire ring of projectiles
+      // Fire ring of projectiles — phase 2 adds an offset second ring,
+      // phase 3 fires three interleaved rings for dense bullet-hell pressure.
+      const ringCount = voidWyrmPhase === 3 ? 3 : voidWyrmPhase === 2 ? 2 : 1;
       const projectileCount = 12;
-      for (let i = 0; i < projectileCount; i++) {
-        const angle = (i / projectileCount) * PI_TWO;
-        projectileSpawnCallback(enemyX, enemyY, angle, 150, 15);
+      for (let ringIndex = 0; ringIndex < ringCount; ringIndex++) {
+        const ringAngleOffset = (ringIndex / ringCount) * (PI_TWO / projectileCount);
+        for (let projectileIndex = 0; projectileIndex < projectileCount; projectileIndex++) {
+          const angle = (projectileIndex / projectileCount) * PI_TWO + ringAngleOffset;
+          projectileSpawnCallback(enemyX, enemyY, angle, 150, 15);
+        }
       }
     }
 
@@ -1853,6 +1893,11 @@ function updateTheMachineAI(
   const dy = playerY - enemyY;
   const baseSpeed = Velocity.speed[enemyId];
   const state = EnemyAI.state[enemyId];
+
+  // Detect HP phase transitions. Phase 3 shortens special cooldowns and widens
+  // the laser fan for a more desperate final-stand feel.
+  const machinePhase = checkBossPhaseTransition(enemyId);
+  const specialCooldownForPhase = machinePhase === 3 ? 3.0 : machinePhase === 2 ? 4.0 : 5.0;
 
   if (state === 0) {
     // Move toward center-ish position, fire constantly
@@ -1908,7 +1953,7 @@ function updateTheMachineAI(
 
     if (timer > 1.0) {
       EnemyAI.state[enemyId] = 0;
-      EnemyAI.specialTimer[enemyId] = 5.0;
+      EnemyAI.specialTimer[enemyId] = specialCooldownForPhase;
     }
   } else if (state === 2) {
     // Charging laser

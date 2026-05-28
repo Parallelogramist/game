@@ -1,10 +1,22 @@
 import Phaser from 'phaser';
 import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrades';
+import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
 import { TooltipManager } from '../../ui/TooltipManager';
-import { addButtonInteraction } from '../../utils/SceneTransition';
 import { MenuNavigator } from '../../input/MenuNavigator';
+import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import {
+  ACCENT_COLORS,
+  ACCENT_COLORS_STR,
+  BODY_COLORS,
+  CARD_TILT_PRESETS,
+  MENU_FONT,
+  TEXT_COLORS,
+} from '../../visual/MenuStyle';
 
 /**
  * Data passed to UpgradeScene for initialization.
@@ -18,32 +30,45 @@ export interface UpgradeSceneData {
   onReroll: () => void;
   onSkip: () => void;
   onBanish: (upgrade: Upgrade) => void;
-  // Weapon slot system
   isLastWeaponSlot?: boolean;
   weaponSlotsInfo?: { current: number; max: number };
-  // All stat upgrades for break gate checking
   allStatUpgrades?: Upgrade[];
-  // Current player level for milestone indicator
   playerLevel?: number;
 }
 
+interface CardEntry {
+  card: MenuCard;
+  upgrade: Upgrade;
+  baseTilt: number;
+  index: number;
+}
+
 /**
- * UpgradeScene displays upgrade choices when the player levels up.
- * Launched as an overlay on top of GameScene.
+ * UpgradeScene — Balatro-style level-up card pick.
+ *
+ * Each upgrade is a tilted card with a colored body + sticker banner. Cards
+ * lift on hover, wobble idle, and slide in from below on entry. Reroll/Skip/
+ * Banish are pill buttons in the footer; banish confirmation is a centered
+ * card-style dialog.
+ *
+ * Role coding:
+ *  - Weapon level-ups → magenta body / magenta accent (offense flavor)
+ *  - Stat upgrades  → teal body / teal accent (defense/utility flavor)
+ *  - Weapon unlocks → primary body / primary accent (new toy)
+ *  - Mastered upgrade banner → focus accent (golden punch)
  */
 export class UpgradeScene extends Phaser.Scene {
   private upgrades: Upgrade[] = [];
   private onSelectCallback: ((upgrade: Upgrade) => void) | null = null;
-  private upgradeCards: Phaser.GameObjects.Container[] = [];
-  private cardBackgrounds: Phaser.GameObjects.Rectangle[] = [];
+  private cardEntries: CardEntry[] = [];
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private cardNavigator: MenuNavigator | null = null;
   private cardScaleFactor: number = 1;
   private entranceComplete: boolean = false;
+  private cardEntranceDone: boolean[] = [];
   private soundManager!: SoundManager;
   private tooltipManager!: TooltipManager;
 
-  // Utility tracking
   private rerollsRemaining: number = 0;
   private skipsRemaining: number = 0;
   private banishesRemaining: number = 0;
@@ -51,24 +76,23 @@ export class UpgradeScene extends Phaser.Scene {
   private onSkipCallback: (() => void) | null = null;
   private onBanishCallback: ((upgrade: Upgrade) => void) | null = null;
 
-  // Banish mode state
   private isBanishMode: boolean = false;
   private banishModeText: Phaser.GameObjects.Text | null = null;
   private banishConfirmElements: Phaser.GameObjects.GameObject[] = [];
 
-  // Weapon slot tracking
   private isLastWeaponSlot: boolean = false;
   private weaponSlotsInfo: { current: number; max: number } | null = null;
   private allStatUpgrades: Upgrade[] = [];
   private playerLevel: number = 0;
 
+  private menuOverlay: MenuOverlay | null = null;
+  private utilityButtons: MenuButton[] = [];
+  private overlayUpdateHandler: ((time: number, delta: number) => void) | null = null;
+
   constructor() {
     super({ key: 'UpgradeScene' });
   }
 
-  /**
-   * Initialize with upgrade choices and callbacks.
-   */
   init(data: UpgradeSceneData): void {
     this.upgrades = data.upgrades;
     this.onSelectCallback = data.onSelect;
@@ -79,7 +103,6 @@ export class UpgradeScene extends Phaser.Scene {
     this.onSkipCallback = data.onSkip ?? null;
     this.onBanishCallback = data.onBanish ?? null;
     this.isBanishMode = false;
-    // Weapon slot system
     this.isLastWeaponSlot = data.isLastWeaponSlot ?? false;
     this.weaponSlotsInfo = data.weaponSlotsInfo ?? null;
     this.allStatUpgrades = data.allStatUpgrades ?? [];
@@ -87,137 +110,91 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Clear arrays from previous invocations
-    this.upgradeCards = [];
-    this.cardBackgrounds = [];
+    this.cardEntries = [];
+    this.utilityButtons = [];
     this.cardScaleFactor = 1;
     this.entranceComplete = false;
     this.soundManager = new SoundManager(this);
     this.tooltipManager = new TooltipManager(this);
 
-    // Semi-transparent dark overlay
-    const overlay = this.add.rectangle(
-      this.scale.width / 2,
-      this.scale.height / 2,
-      this.scale.width,
-      this.scale.height,
-      0x000000,
-      0.7
-    );
-    overlay.setDepth(0);
+    // Balatro overlay backdrop — gameplay still bleeds through but cards pop.
+    this.menuOverlay = createMenuOverlay(this, { dim: 0.7, drifterCount: 4 });
+    this.overlayUpdateHandler = (_time, delta) => {
+      this.menuOverlay?.update(delta);
+      const seconds = _time / 1000;
+      for (const entry of this.cardEntries) entry.card.tickIdle(seconds);
+      for (const btn of this.utilityButtons) btn.tickIdle(seconds);
+    };
+    this.events.on('update', this.overlayUpdateHandler);
 
-    // Title — weapon milestone levels get special treatment
     const isWeaponMilestone = this.playerLevel > 0 && this.playerLevel % 5 === 0;
     const titleString = isWeaponMilestone ? 'WEAPON MILESTONE!' : 'LEVEL UP!';
-    const titleColor = isWeaponMilestone ? '#88aaff' : '#ffdd44';
-    const title = this.add.text(this.scale.width / 2, 80, titleString, {
-      fontSize: '48px',
-      fontFamily: 'Arial',
+    const titleColor = isWeaponMilestone ? ACCENT_COLORS_STR.primary : ACCENT_COLORS_STR.focus;
+    const title = makeStickerText(this, this.scale.width / 2, 80, titleString, {
+      fontSize: 48,
       color: titleColor,
-      stroke: '#000000',
-      strokeThickness: 4,
+      strokeWidth: 6,
+      letterSpacing: 3,
     });
-    title.setOrigin(0.5);
     title.setDepth(1);
 
-    // Subtitle
     const subtitleText = isWeaponMilestone ? 'Pick a new weapon!' : 'Choose an upgrade';
-    const subtitle = this.add.text(this.scale.width / 2, 130, subtitleText, {
-      fontSize: '24px',
-      fontFamily: 'Arial',
-      color: isWeaponMilestone ? '#88aaff' : '#aaaaaa',
+    const subtitle = makeBodyText(this, this.scale.width / 2, 130, subtitleText, {
+      fontSize: 22,
+      color: isWeaponMilestone ? ACCENT_COLORS_STR.primary : TEXT_COLORS.muted,
     });
-    subtitle.setOrigin(0.5);
     subtitle.setDepth(1);
 
-    // Final weapon slot warning banner
     if (this.isLastWeaponSlot) {
-      // Warning background
-      const warningBg = this.add.rectangle(this.scale.width / 2, 165, 400, 36, 0x442200, 0.9);
-      warningBg.setStrokeStyle(2, 0xffaa00);
-      warningBg.setDepth(1);
-
-      // Warning text
-      const warningText = this.add.text(
-        this.scale.width / 2,
-        165,
-        '⚠ FINAL WEAPON SLOT - Choose wisely!',
-        {
-          fontSize: '18px',
-          fontFamily: 'Arial',
-          color: '#ffaa00',
-        }
-      );
-      warningText.setOrigin(0.5);
-      warningText.setDepth(2);
-
-      // Weapon slot counter
+      const warningCard = createMenuCard(this, {
+        x: this.scale.width / 2,
+        y: 175,
+        width: 460,
+        height: 50,
+        bodyFillColor: BODY_COLORS.danger,
+        accentColor: ACCENT_COLORS.focus,
+        bannerHeight: 0,
+        borderWidth: 2,
+        borderColor: ACCENT_COLORS.focus,
+        cornerRadius: 12,
+        wobble: false,
+        interactive: false,
+        shadowOffsetY: 6,
+        shadowAlpha: 0.4,
+      });
+      warningCard.container.setDepth(2);
+      const warningLabel = makeStickerText(this, 0, this.weaponSlotsInfo ? -8 : 0,
+        '⚠ FINAL WEAPON SLOT — Choose wisely!', {
+          fontSize: 16,
+          color: ACCENT_COLORS_STR.focus,
+        });
+      warningCard.frame.add(warningLabel);
       if (this.weaponSlotsInfo) {
-        const slotText = this.add.text(
-          this.scale.width / 2,
-          188,
-          `Weapons: ${this.weaponSlotsInfo.current}/${this.weaponSlotsInfo.max}`,
-          {
-            fontSize: '14px',
-            fontFamily: 'Arial',
-            color: '#888888',
-          }
-        );
-        slotText.setOrigin(0.5);
-        slotText.setDepth(2);
+        const slotText = makeBodyText(this, 0, 10,
+          `Weapons: ${this.weaponSlotsInfo.current}/${this.weaponSlotsInfo.max}`, {
+            fontSize: 12,
+            color: TEXT_COLORS.muted,
+          });
+        warningCard.frame.add(slotText);
       }
     }
 
-    // Create upgrade cards
     this.createUpgradeCards();
-
-    // Create utility buttons (reroll, skip, banish)
     this.createUtilityButtons();
 
-    // Gamepad/keyboard card navigation via MenuNavigator
     this.cardNavigator = new MenuNavigator({
       scene: this,
-      columns: this.upgrades.length, // Horizontal row of cards
-      items: this.upgradeCards.map((container, index) => ({
-        onFocus: () => {
-          if (!this.entranceComplete) return;
-          const bg = this.cardBackgrounds[index];
-          if (bg) {
-            bg.setFillStyle(0x3a3a6a);
-            bg.setStrokeStyle(3, 0x88aaff);
-          }
-          this.tweens.killTweensOf(container);
-          this.tweens.add({
-            targets: container,
-            scaleX: this.cardScaleFactor * 1.05,
-            scaleY: this.cardScaleFactor * 1.05,
-            duration: 100,
-            ease: 'Back.easeOut',
-          });
-        },
-        onBlur: () => {
-          if (!this.entranceComplete) return;
-          const bg = this.cardBackgrounds[index];
-          if (bg) {
-            bg.setFillStyle(0x2a2a4a);
-            bg.setStrokeStyle(3, 0x4a4a7a);
-          }
-          this.tweens.killTweensOf(container);
-          this.tweens.add({
-            targets: container,
-            scaleX: this.cardScaleFactor,
-            scaleY: this.cardScaleFactor,
-            duration: 80,
-            ease: 'Quad.easeOut',
-          });
-        },
+      columns: this.upgrades.length,
+      items: this.cardEntries.map((entry) => ({
+        onFocus: () => this.applyCardHover(entry.index),
+        onBlur: () => this.applyCardUnhover(entry.index),
         onActivate: () => {
           if (!this.entranceComplete) return;
           if (this.banishConfirmElements.length > 0) return;
           if (this.isBanishMode) {
-            this.banishUpgrade(this.upgrades[index]);
+            this.banishUpgrade(entry.upgrade);
           } else {
-            this.selectUpgrade(this.upgrades[index]);
+            this.selectUpgrade(entry.upgrade);
           }
         },
       })),
@@ -230,12 +207,9 @@ export class UpgradeScene extends Phaser.Scene {
       },
     });
 
-    // Additional keyboard shortcuts (number keys, R/X/B)
     this.keydownHandler = (event: KeyboardEvent) => {
       if (!this.entranceComplete) return;
-      if (this.banishConfirmElements.length > 0) {
-        return; // MenuNavigator handles Escape via onCancel
-      }
+      if (this.banishConfirmElements.length > 0) return;
 
       const keyNumber = parseInt(event.key, 10);
       if (keyNumber >= 1 && keyNumber <= this.upgrades.length) {
@@ -245,222 +219,155 @@ export class UpgradeScene extends Phaser.Scene {
           this.selectUpgrade(this.upgrades[keyNumber - 1]);
         }
       }
-      if (event.key.toLowerCase() === 'r' && this.rerollsRemaining > 0) {
-        this.handleReroll();
-      }
-      if (event.key.toLowerCase() === 'x' && this.skipsRemaining > 0) {
-        this.handleSkip();
-      }
-      if (event.key.toLowerCase() === 'b' && this.banishesRemaining > 0) {
-        this.toggleBanishMode();
-      }
+      if (event.key.toLowerCase() === 'r' && this.rerollsRemaining > 0) this.handleReroll();
+      if (event.key.toLowerCase() === 'x' && this.skipsRemaining > 0) this.handleSkip();
+      if (event.key.toLowerCase() === 'b' && this.banishesRemaining > 0) this.toggleBanishMode();
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
 
-    // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
-
-    // Animate entrance
     this.animateEntrance();
   }
 
-  /**
-   * Creates the reroll, skip, and banish buttons at the bottom of the screen.
-   */
+  /** Hover effect — delegated to MenuCard.setFocusState for visual lift. */
+  private applyCardHover(index: number): void {
+    if (!this.entranceComplete) return;
+    const entry = this.cardEntries[index];
+    if (!entry) return;
+    if (!this.cardEntranceDone[index]) return;
+    entry.card.setHoverState(true);
+  }
+
+  private applyCardUnhover(index: number): void {
+    if (!this.entranceComplete) return;
+    const entry = this.cardEntries[index];
+    if (!entry) return;
+    if (!this.cardEntranceDone[index]) return;
+    entry.card.setHoverState(false);
+  }
+
+  private fadeOutAndInvoke(callback: (() => void) | null): void {
+    this.tweens.add({
+      targets: this.children.list,
+      alpha: 0,
+      duration: 150,
+      onComplete: () => {
+        callback?.();
+        this.scene.stop();
+      },
+    });
+  }
+
   private createUtilityButtons(): void {
     const buttonY = this.scale.height - 60;
-    const buttonSpacing = 180;
+    const buttonSpacing = 200;
     const startX = this.scale.width / 2 - buttonSpacing;
 
-    // Reroll button
-    if (this.rerollsRemaining > 0 || true) { // Always show, but disabled if 0
+    this.utilityButtons.push(
       this.createUtilityButton(
-        startX,
-        buttonY,
-        `Reroll (${this.rerollsRemaining})`,
-        'R',
+        startX, buttonY,
+        `Reroll (${this.rerollsRemaining})  [R]`,
+        'primary',
         this.rerollsRemaining > 0,
         () => this.handleReroll(),
-        'Shuffle the upgrade choices. You get a limited number per run.'
-      );
-    }
-
-    // Skip button
-    this.createUtilityButton(
-      startX + buttonSpacing,
-      buttonY,
-      `Skip (${this.skipsRemaining})`,
-      'X',
-      this.skipsRemaining > 0,
-      () => this.handleSkip(),
-      'Skip this level-up entirely. The upgrades go back into the pool.'
+        'Shuffle the upgrade choices. You get a limited number per run.',
+      ),
     );
-
-    // Banish button
-    this.createUtilityButton(
-      startX + buttonSpacing * 2,
-      buttonY,
-      `Banish (${this.banishesRemaining})`,
-      'B',
-      this.banishesRemaining > 0,
-      () => this.toggleBanishMode(),
-      'Permanently remove an upgrade from this run\'s pool. Click a card to banish it.'
+    this.utilityButtons.push(
+      this.createUtilityButton(
+        startX + buttonSpacing, buttonY,
+        `Skip (${this.skipsRemaining})  [X]`,
+        'neutral',
+        this.skipsRemaining > 0,
+        () => this.handleSkip(),
+        'Skip this level-up entirely. The upgrades go back into the pool.',
+      ),
+    );
+    this.utilityButtons.push(
+      this.createUtilityButton(
+        startX + buttonSpacing * 2, buttonY,
+        `Banish (${this.banishesRemaining})  [B]`,
+        this.isBanishMode ? 'danger' : 'magenta',
+        this.banishesRemaining > 0,
+        () => this.toggleBanishMode(),
+        'Permanently remove an upgrade from this run\'s pool. Click a card to banish it.',
+      ),
     );
   }
 
-  /**
-   * Creates a single utility button.
-   */
   private createUtilityButton(
     x: number,
     y: number,
     label: string,
-    hotkey: string,
+    variant: 'primary' | 'neutral' | 'magenta' | 'danger',
     enabled: boolean,
     onClick: () => void,
-    tooltip?: string
-  ): void {
-    const buttonWidth = 140;
-    const buttonHeight = 44; // Min 44px for touch accessibility
-
-    const background = this.add.rectangle(
-      x,
-      y,
-      buttonWidth,
-      buttonHeight,
-      enabled ? 0x3a3a6a : 0x1a1a2a
-    );
-    background.setStrokeStyle(2, enabled ? 0x7a7aaa : 0x2a2a3a);
-    background.setDepth(10);
-    background.setAlpha(enabled ? 1.0 : 0.4);
-
-    const text = this.add.text(x, y, label, {
-      fontSize: '14px',
-      fontFamily: 'Arial',
-      color: enabled ? '#ffffff' : '#444444',
+    tooltip?: string,
+  ): MenuButton {
+    const button = createMenuButton({
+      scene: this,
+      x, y,
+      width: 180,
+      height: 46,
+      label,
+      variant,
+      fontSize: 14,
+      onActivate: () => {
+        if (enabled) onClick();
+      },
     });
-    text.setOrigin(0.5);
-    text.setDepth(11);
-    text.setAlpha(enabled ? 1.0 : 0.4);
+    button.setEnabled(enabled);
+    button.container.setDepth(10);
 
-    const hotkeyText = this.add.text(x + buttonWidth / 2 - 8, y - buttonHeight / 2 + 8, hotkey, {
-      fontSize: '10px',
-      fontFamily: 'Arial',
-      color: enabled ? '#aaaaff' : '#333355',
+    button.card.hitZone.on('pointerover', () => {
+      this.soundManager.playUIClick();
+      button.setHoverState(true);
     });
-    hotkeyText.setOrigin(0.5);
-    hotkeyText.setDepth(11);
-    hotkeyText.setAlpha(enabled ? 1.0 : 0.4);
+    button.card.hitZone.on('pointerout', () => button.setHoverState(false));
 
-    if (enabled) {
-      background.setInteractive({ useHandCursor: true });
-      background.on('pointerover', () => {
-        background.setFillStyle(0x4a4a7a);
-      });
-      background.on('pointerout', () => {
-        background.setFillStyle(0x3a3a6a);
-      });
-      background.on('pointerdown', onClick);
-    }
-
-    if (tooltip) {
-      this.tooltipManager.attach(background, tooltip);
-    }
+    if (tooltip) this.tooltipManager.attach(button.card.hitZone, tooltip);
+    return button;
   }
 
-  /**
-   * Handles the reroll action.
-   */
   private handleReroll(): void {
     if (this.rerollsRemaining <= 0 || !this.onRerollCallback) return;
     this.soundManager.playUIClick();
-
-    // Close scene and trigger reroll
-    this.tweens.add({
-      targets: this.children.list,
-      alpha: 0,
-      duration: 150,
-      onComplete: () => {
-        this.onRerollCallback?.();
-        this.scene.stop();
-      },
-    });
+    this.fadeOutAndInvoke(this.onRerollCallback);
   }
 
-  /**
-   * Handles the skip action.
-   */
   private handleSkip(): void {
     if (this.skipsRemaining <= 0 || !this.onSkipCallback) return;
     this.soundManager.playUIClick();
-
-    // Close scene and trigger skip
-    this.tweens.add({
-      targets: this.children.list,
-      alpha: 0,
-      duration: 150,
-      onComplete: () => {
-        this.onSkipCallback?.();
-        this.scene.stop();
-      },
-    });
+    this.fadeOutAndInvoke(this.onSkipCallback);
   }
 
-  /**
-   * Toggles banish mode on/off.
-   */
   private toggleBanishMode(): void {
     if (this.banishesRemaining <= 0 && !this.isBanishMode) return;
     this.soundManager.playUIClick();
-
     this.isBanishMode = !this.isBanishMode;
 
     if (this.isBanishMode) {
-      // Show banish mode indicator
-      this.banishModeText = this.add.text(
-        this.scale.width / 2,
-        160,
-        '🚫 BANISH MODE - Click an upgrade to remove it permanently',
-        {
-          fontSize: '18px',
-          fontFamily: 'Arial',
-          color: '#ff6666',
-          backgroundColor: '#330000',
-          padding: { x: 16, y: 8 },
-        }
-      );
-      this.banishModeText.setOrigin(0.5);
+      this.banishModeText = makeStickerText(this, this.scale.width / 2, 215,
+        '🚫 BANISH MODE — Click an upgrade to remove it permanently', {
+          fontSize: 16,
+          color: ACCENT_COLORS_STR.danger,
+        });
       this.banishModeText.setDepth(20);
-
-      // Update card borders to red
-      this.cardBackgrounds.forEach((bg) => {
-        bg.setStrokeStyle(3, 0xff4444);
-      });
     } else {
-      // Remove banish mode indicator
       this.banishModeText?.destroy();
       this.banishModeText = null;
-
-      // Reset card borders
-      this.cardBackgrounds.forEach((bg) => {
-        bg.setStrokeStyle(3, 0x4a4a7a);
-      });
     }
   }
 
-  /**
-   * Banishes an upgrade (removes from pool permanently).
-   * Shows a confirmation dialog first since this is irreversible.
-   */
   private banishUpgrade(upgrade: Upgrade): void {
     if (!this.isBanishMode || this.banishesRemaining <= 0 || !this.onBanishCallback) return;
 
     this.showBanishConfirmation(upgrade, () => {
       const selectedIndex = this.upgrades.indexOf(upgrade);
-      if (selectedIndex >= 0 && this.upgradeCards[selectedIndex]) {
-        const card = this.upgradeCards[selectedIndex];
+      const entry = this.cardEntries[selectedIndex];
+      if (entry) {
         this.tweens.add({
-          targets: card,
+          targets: entry.card.container,
           scaleX: 0,
           scaleY: 0,
           alpha: 0,
@@ -475,409 +382,436 @@ export class UpgradeScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Shows a confirmation dialog before banishing an upgrade.
-   */
   private showBanishConfirmation(upgrade: Upgrade, onConfirm: () => void): void {
-    // Dim existing UI
-    const dimOverlay = this.add.rectangle(
-      this.scale.width / 2, this.scale.height / 2,
-      this.scale.width, this.scale.height,
-      0x000000, 0.5
-    ).setDepth(30);
-    this.banishConfirmElements.push(dimOverlay);
-
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
 
-    // Panel background
-    const panel = this.add.rectangle(centerX, centerY, 340, 150, 0x1a1a2e)
-      .setStrokeStyle(2, 0xff4444).setDepth(31);
-    this.banishConfirmElements.push(panel);
+    const dimOverlay = this.add.rectangle(
+      centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.6,
+    ).setDepth(30);
+    this.banishConfirmElements.push(dimOverlay);
 
-    // Warning text
-    const warningText = this.add.text(centerX, centerY - 40,
-      `Permanently remove\n"${upgrade.name}"?`, {
-        fontSize: '16px', fontFamily: 'Arial', color: '#ff6666', align: 'center',
-      }).setOrigin(0.5).setDepth(31);
-    this.banishConfirmElements.push(warningText);
-
-    const subText = this.add.text(centerX, centerY - 5,
-      'This cannot be undone.', {
-        fontSize: '12px', fontFamily: 'Arial', color: '#888888',
-      }).setOrigin(0.5).setDepth(31);
-    this.banishConfirmElements.push(subText);
-
-    // Confirm button
-    const confirmBg = this.add.rectangle(centerX - 60, centerY + 40, 100, 34, 0x661111)
-      .setStrokeStyle(1, 0xff4444).setDepth(31).setInteractive({ useHandCursor: true });
-    const confirmText = this.add.text(centerX - 60, centerY + 40, 'Banish', {
-      fontSize: '14px', fontFamily: 'Arial', color: '#ff6666',
-    }).setOrigin(0.5).setDepth(31);
-    this.banishConfirmElements.push(confirmBg, confirmText);
-
-    confirmBg.on('pointerover', () => confirmBg.setFillStyle(0x882222));
-    confirmBg.on('pointerout', () => confirmBg.setFillStyle(0x661111));
-    confirmBg.on('pointerdown', () => {
-      this.destroyBanishConfirmation();
-      onConfirm();
+    const confirmCard = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width: 380,
+      height: 200,
+      bodyFillColor: BODY_COLORS.danger,
+      accentColor: ACCENT_COLORS.danger,
+      bannerHeight: 36,
+      borderWidth: 3,
+      borderColor: ACCENT_COLORS.danger,
+      cornerRadius: 14,
+      wobble: false,
+      interactive: false,
     });
-    addButtonInteraction(this, confirmBg);
+    confirmCard.container.setDepth(31);
 
-    // Cancel button
-    const cancelBg = this.add.rectangle(centerX + 60, centerY + 40, 100, 34, 0x2a2a4a)
-      .setStrokeStyle(1, 0x6a6a8a).setDepth(31).setInteractive({ useHandCursor: true });
-    const cancelText = this.add.text(centerX + 60, centerY + 40, 'Cancel', {
-      fontSize: '14px', fontFamily: 'Arial', color: '#aaaacc',
-    }).setOrigin(0.5).setDepth(31);
-    this.banishConfirmElements.push(cancelBg, cancelText);
-
-    cancelBg.on('pointerover', () => cancelBg.setFillStyle(0x3a3a5a));
-    cancelBg.on('pointerout', () => cancelBg.setFillStyle(0x2a2a4a));
-    cancelBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.destroyBanishConfirmation();
+    const banner = makeStickerText(this, 0, confirmCard.bannerTopY + 18, 'BANISH UPGRADE', {
+      fontSize: 18,
+      color: TEXT_COLORS.sticker,
+      letterSpacing: 2,
     });
-    addButtonInteraction(this, cancelBg);
+    confirmCard.frame.add(banner);
+
+    const warningText = makeBodyText(this, 0, -20, `Permanently remove\n"${upgrade.name}"?`, {
+      fontSize: 18,
+      color: ACCENT_COLORS_STR.focus,
+    });
+    warningText.setLineSpacing(4);
+    confirmCard.frame.add(warningText);
+
+    const subText = makeBodyText(this, 0, 26, 'This cannot be undone.', {
+      fontSize: 12,
+      color: TEXT_COLORS.muted,
+    });
+    confirmCard.frame.add(subText);
+
+    this.banishConfirmElements.push(confirmCard.container);
+
+    const confirmButton = createMenuButton({
+      scene: this,
+      x: centerX - 70,
+      y: centerY + 70,
+      width: 130,
+      height: 42,
+      label: 'Banish',
+      variant: 'danger',
+      fontSize: 15,
+      onActivate: () => {
+        this.destroyBanishConfirmation();
+        onConfirm();
+      },
+    });
+    confirmButton.container.setDepth(32);
+    confirmButton.card.hitZone.on('pointerover', () => confirmButton.setHoverState(true));
+    confirmButton.card.hitZone.on('pointerout', () => confirmButton.setHoverState(false));
+    this.banishConfirmElements.push(confirmButton.container);
+
+    const cancelButton = createMenuButton({
+      scene: this,
+      x: centerX + 70,
+      y: centerY + 70,
+      width: 130,
+      height: 42,
+      label: 'Cancel',
+      variant: 'neutral',
+      fontSize: 15,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        this.destroyBanishConfirmation();
+      },
+    });
+    cancelButton.container.setDepth(32);
+    cancelButton.card.hitZone.on('pointerover', () => cancelButton.setHoverState(true));
+    cancelButton.card.hitZone.on('pointerout', () => cancelButton.setHoverState(false));
+    this.banishConfirmElements.push(cancelButton.container);
   }
 
   private destroyBanishConfirmation(): void {
-    this.banishConfirmElements.forEach(el => el.destroy());
+    this.banishConfirmElements.forEach((el) => el.destroy());
     this.banishConfirmElements = [];
   }
 
-  /**
-   * Clean up event listeners and tweens when scene shuts down.
-   * Critical for preventing memory leaks and performance degradation.
-   */
   shutdown(): void {
     this.tooltipManager.destroy();
-    // Remove card navigator
+
+    if (this.overlayUpdateHandler) {
+      this.events.off('update', this.overlayUpdateHandler);
+      this.overlayUpdateHandler = null;
+    }
+    this.menuOverlay?.destroy();
+    this.menuOverlay = null;
+
     if (this.cardNavigator) {
       this.cardNavigator.destroy();
       this.cardNavigator = null;
     }
-    // Remove keyboard listener
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
 
-    // Remove all pointer listeners from card backgrounds
-    for (const cardBackground of this.cardBackgrounds) {
-      cardBackground.removeAllListeners();
-    }
+    for (const entry of this.cardEntries) entry.card.destroy();
+    for (const btn of this.utilityButtons) btn.destroy();
 
-    // Clean up banish confirmation if open
     this.destroyBanishConfirmation();
-
-    // Kill all active tweens to prevent them from continuing
     this.tweens.killAll();
 
-    // Clear arrays
-    this.upgradeCards = [];
-    this.cardBackgrounds = [];
+    this.cardEntries = [];
+    this.utilityButtons = [];
   }
 
   private createUpgradeCards(): void {
     const baseCardWidth = 280;
-    const baseCardHeight = 320;
-    const baseCardSpacing = 40;
-    const baseRowSpacing = 30;
+    const baseCardHeight = 340;
+    const baseCardSpacing = 36;
+    const baseRowSpacing = 28;
     const horizontalMargin = 60;
 
-    // Split upgrades into rows with balanced distribution
     const numCards = this.upgrades.length;
     const rows: Upgrade[][] = [];
 
     if (numCards <= 4) {
-      // Single row for 4 or fewer cards
       rows.push(this.upgrades.slice());
     } else {
-      // Two rows with balanced split: ceil(n/2) on first row, floor(n/2) on second
       const firstRowCount = Math.ceil(numCards / 2);
       rows.push(this.upgrades.slice(0, firstRowCount));
       rows.push(this.upgrades.slice(firstRowCount));
     }
 
     const numRows = rows.length;
-
-    // Calculate scale factor based on the widest row
-    const maxCardsInAnyRow = Math.max(...rows.map(row => row.length));
+    const maxCardsInAnyRow = Math.max(...rows.map((row) => row.length));
     const baseMaxRowWidth = maxCardsInAnyRow * baseCardWidth + (maxCardsInAnyRow - 1) * baseCardSpacing;
-    const availableWidth = this.scale.width - (horizontalMargin * 2);
+    const availableWidth = this.scale.width - horizontalMargin * 2;
     let scaleFactor = Math.min(1, availableWidth / baseMaxRowWidth);
 
-    // For 2 rows, also constrain by vertical space (leave room for title and utility buttons)
     if (numRows > 1) {
-      const verticalMarginTop = 180; // Below title/subtitle
-      const verticalMarginBottom = 100; // Above utility buttons
+      const verticalMarginTop = 200;
+      const verticalMarginBottom = 110;
       const availableHeight = this.scale.height - verticalMarginTop - verticalMarginBottom;
       const baseTotalHeight = numRows * baseCardHeight + (numRows - 1) * baseRowSpacing;
-      const verticalScaleFactor = availableHeight / baseTotalHeight;
-      scaleFactor = Math.min(scaleFactor, verticalScaleFactor);
+      scaleFactor = Math.min(scaleFactor, availableHeight / baseTotalHeight);
     }
 
     this.cardScaleFactor = scaleFactor;
-
-    // Calculate scaled dimensions
     const cardWidth = baseCardWidth * scaleFactor;
     const cardHeight = baseCardHeight * scaleFactor;
     const cardSpacing = baseCardSpacing * scaleFactor;
     const rowSpacing = baseRowSpacing * scaleFactor;
 
-    // Calculate vertical positioning for all rows
     const totalRowsHeight = numRows * cardHeight + (numRows - 1) * rowSpacing;
-    const startY = (this.scale.height / 2) - (totalRowsHeight / 2) + (cardHeight / 2) + 20;
+    const startY = this.scale.height / 2 - totalRowsHeight / 2 + cardHeight / 2 + 30;
 
-    // Track global index for keybinds
     let globalIndex = 0;
 
     rows.forEach((rowUpgrades, rowIndex) => {
-      // Calculate horizontal positioning for this row (centered)
       const rowWidth = rowUpgrades.length * cardWidth + (rowUpgrades.length - 1) * cardSpacing;
       const rowStartX = (this.scale.width - rowWidth) / 2 + cardWidth / 2;
       const rowY = startY + rowIndex * (cardHeight + rowSpacing);
 
       rowUpgrades.forEach((upgrade, columnIndex) => {
         const cardX = rowStartX + columnIndex * (cardWidth + cardSpacing);
-        const card = this.createCard(cardX, rowY, baseCardWidth, baseCardHeight, upgrade, globalIndex);
-        card.setScale(scaleFactor);
-        this.upgradeCards.push(card);
+        const entry = this.createCardEntry(cardX, rowY, baseCardWidth, baseCardHeight, upgrade, globalIndex);
+        entry.card.container.setScale(scaleFactor);
+        this.cardEntries.push(entry);
         globalIndex++;
       });
     });
   }
 
-  private createCard(
+  /** Pick a body+accent color role for an upgrade based on its type. */
+  private resolveUpgradeRole(upgrade: Upgrade): { body: number; accent: number; accentStr: string } {
+    const isWeaponLevel = upgrade.id.startsWith('level_');
+    const isMastered = upgrade.currentLevel + 1 >= upgrade.maxLevel && upgrade.maxLevel > 1;
+    if (isMastered) {
+      return { body: BODY_COLORS.gold, accent: ACCENT_COLORS.focus, accentStr: ACCENT_COLORS_STR.focus };
+    }
+    if (isWeaponLevel) {
+      return { body: BODY_COLORS.magenta, accent: ACCENT_COLORS.magenta, accentStr: ACCENT_COLORS_STR.magenta };
+    }
+    if (upgrade.isStatUpgrade) {
+      return { body: BODY_COLORS.teal, accent: ACCENT_COLORS.teal, accentStr: ACCENT_COLORS_STR.teal };
+    }
+    return { body: BODY_COLORS.primary, accent: ACCENT_COLORS.primary, accentStr: ACCENT_COLORS_STR.primary };
+  }
+
+  private createCardEntry(
     positionX: number,
     positionY: number,
     width: number,
     height: number,
     upgrade: Upgrade,
-    index: number
-  ): Phaser.GameObjects.Container {
-    const container = this.add.container(positionX, positionY);
-    container.setDepth(2);
+    index: number,
+  ): CardEntry {
+    const role = this.resolveUpgradeRole(upgrade);
+    // Cards sit flat so every line of upgrade text reads cleanly.
+    const baseTilt = CARD_TILT_PRESETS.flat;
 
-    // Calculate text scale boost to compensate for card scaling (capped to avoid overflow)
-    // Lower cap (1.2) prevents text from becoming too large and wrapping excessively
+    const card = createMenuCard(this, {
+      x: positionX,
+      y: positionY,
+      width,
+      height,
+      tilt: baseTilt,
+      wobbleSeed: index * 0.7,
+      bodyFillColor: role.body,
+      accentColor: role.accent,
+      bannerHeight: 44,
+      borderWidth: 3,
+      borderColor: role.accent,
+      cornerRadius: 14,
+    });
+    card.container.setDepth(2);
+
     const textBoost = Math.min(1.2, 1 / this.cardScaleFactor);
+    const halfH = height / 2;
+    const halfW = width / 2;
 
-    // Card background
-    const cardBackground = this.add.rectangle(0, 0, width, height, 0x2a2a4a);
-    cardBackground.setStrokeStyle(3, 0x4a4a7a);
-    container.add(cardBackground);
-
-    // 8px grid spacing: icon at -96, then elements with consistent gaps
-    const maxTextWidth = width - 48; // 24px padding on each side
-
-    // Icon background circle
-    const iconBackground = this.add.circle(0, -96, 40, 0x3a3a5a);
-    container.add(iconBackground);
-
-    // Icon (sprite from atlas)
-    const icon = createIcon(this, {
-      x: 0,
-      y: -96,
-      iconKey: upgrade.icon,
-      size: 48,
+    // Banner sticker — upgrade name.
+    const bannerLabel = makeStickerText(this, 0, card.bannerTopY + 22, upgrade.name.toUpperCase(), {
+      fontSize: Math.round(18 * textBoost),
+      color: TEXT_COLORS.sticker,
+      letterSpacing: 2,
     });
-    container.add(icon);
+    card.frame.add(bannerLabel);
 
-    // Upgrade name (56px below icon center)
-    const nameText = this.add.text(0, -40, upgrade.name, {
-      fontSize: `${Math.round(24 * textBoost)}px`,
-      fontFamily: 'Arial',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    });
-    nameText.setOrigin(0.5);
-    container.add(nameText);
+    // Icon disc — sits below the banner.
+    const iconY = -halfH + 88;
+    const iconBackground = this.add.circle(0, iconY, 38, 0x000000, 0.35);
+    iconBackground.setStrokeStyle(2, role.accent);
+    card.frame.add(iconBackground);
 
-    // Current level indicator - graphics-based progress bar for perfect alignment
-    const levelIndicator = this.createLevelProgressBar(upgrade, textBoost);
-    levelIndicator.setPosition(0, 4); // Centered between name (-40) and description (32)
-    container.add(levelIndicator);
+    const icon = createIcon(this, { x: 0, y: iconY, iconKey: upgrade.icon, size: 48 });
+    card.frame.add(icon);
 
-    // Description below level indicator
-    // WordWrap scales with textBoost since font is larger, but capped to card width
+    // Level progress bar centered between icon and description.
+    const levelIndicator = this.createLevelProgressBar(upgrade, textBoost, role.accent);
+    levelIndicator.setPosition(0, iconY + 56);
+    card.frame.add(levelIndicator);
+
+    // Description.
+    const maxTextWidth = width - 36;
     const wrapWidth = Math.min(maxTextWidth * textBoost, width - 24);
-    // Strip [MASTERY] prefix when ★ MASTERED ★ indicator is already shown
     let descriptionString = upgrade.getDescription(upgrade.currentLevel);
     const isMastered = upgrade.currentLevel + 1 >= upgrade.maxLevel && upgrade.maxLevel > 1;
-    if (isMastered) {
-      descriptionString = descriptionString.replace(/^\[MASTERY\]\s*/i, '');
-    }
-    const descriptionY = isMastered ? 58 : 32;
-    const descriptionFontSize = isMastered ? 16 : 18;
+    if (isMastered) descriptionString = descriptionString.replace(/^\[MASTERY\]\s*/i, '');
+
+    const descriptionY = iconY + (isMastered ? 100 : 88);
+    const descriptionFontSize = isMastered ? 15 : 17;
     const descriptionText = this.add.text(0, descriptionY, descriptionString, {
       fontSize: `${Math.round(descriptionFontSize * textBoost)}px`,
-      fontFamily: 'Arial',
-      color: '#88ff88',
+      fontFamily: MENU_FONT,
+      color: TEXT_COLORS.body,
       wordWrap: { width: wrapWidth },
       align: 'center',
     });
     descriptionText.setOrigin(0.5);
-    container.add(descriptionText);
+    card.frame.add(descriptionText);
 
-    // Break level gate warning for stat upgrades
+    // Break level gate warning.
     let gateWarningHeight = 0;
     if (upgrade.isStatUpgrade && this.allStatUpgrades.length > 0) {
       const blockingGate = getBlockingGate(upgrade.currentLevel, this.allStatUpgrades);
       if (blockingGate !== null) {
         const blockingUpgrades = getBlockingUpgrades(blockingGate, this.allStatUpgrades);
-        const blockingNames = blockingUpgrades.map(u => u.name).slice(0, 3).join(', ');
-        const gateText = this.add.text(0, descriptionY + descriptionText.height / 2 + 8,
-          `Gate Lv.${blockingGate} - Level up: ${blockingNames}`, {
-            fontSize: `${Math.round(12 * textBoost)}px`,
-            fontFamily: 'Arial',
-            color: '#ff8844',
+        const blockingNames = blockingUpgrades.map((u) => u.name).slice(0, 3).join(', ');
+        const gateText = this.add.text(
+          0,
+          descriptionY + descriptionText.height / 2 + 10,
+          `Gate Lv.${blockingGate} — Level up: ${blockingNames}`,
+          {
+            fontSize: `${Math.round(11 * textBoost)}px`,
+            fontFamily: MENU_FONT,
+            color: TEXT_COLORS.danger,
             wordWrap: { width: wrapWidth },
             align: 'center',
-          });
+          },
+        );
         gateText.setOrigin(0.5);
-        container.add(gateText);
+        card.frame.add(gateText);
         gateWarningHeight = gateText.height + 8;
       }
     }
 
-    // Flavor text — positioned dynamically below description to avoid overlap
+    // Flavor text.
     const flavorText = this.add.text(0, 0, upgrade.description, {
-      fontSize: `${Math.round(14 * textBoost)}px`,
-      fontFamily: 'Arial',
-      color: '#888888',
-      fontStyle: 'italic',
+      fontSize: `${Math.round(13 * textBoost)}px`,
+      fontFamily: MENU_FONT,
+      color: TEXT_COLORS.dim,
       wordWrap: { width: wrapWidth },
       align: 'center',
     });
     flavorText.setOrigin(0.5);
-    const flavorY = descriptionY + descriptionText.height / 2 + flavorText.height / 2 + 8 + gateWarningHeight;
+    const flavorY =
+      descriptionY + descriptionText.height / 2 + flavorText.height / 2 + 8 + gateWarningHeight;
     flavorText.setY(flavorY);
-    container.add(flavorText);
+    card.frame.add(flavorText);
 
-    // Keybind hint — positioned dynamically below flavor text
-    const keybindY = flavorY + flavorText.height / 2 + 16;
-    const keybindText = this.add.text(0, keybindY, `Press ${index + 1}`, {
-      fontSize: `${Math.round(16 * textBoost)}px`,
-      fontFamily: 'Arial',
-      color: '#666666',
-    });
-    keybindText.setOrigin(0.5);
-    container.add(keybindText);
-
-    // Make interactive
-    cardBackground.setInteractive({ useHandCursor: true });
-
-    // Hover effects (scale relative to cardScaleFactor)
-    cardBackground.on('pointerover', () => {
-      if (!this.entranceComplete) return;
-      this.soundManager.playUIClick();
-      cardBackground.setFillStyle(0x3a3a6a);
-      cardBackground.setStrokeStyle(3, 0x88aaff);
-      this.tweens.killTweensOf(container);
-      this.tweens.add({
-        targets: container,
-        scaleX: this.cardScaleFactor * 1.05,
-        scaleY: this.cardScaleFactor * 1.05,
-        duration: 100,
-        ease: 'Back.easeOut',
-      });
-    });
-
-    cardBackground.on('pointerout', () => {
-      if (!this.entranceComplete) return;
-      cardBackground.setFillStyle(0x2a2a4a);
-      cardBackground.setStrokeStyle(3, 0x4a4a7a);
-      this.tweens.killTweensOf(container);
-      this.tweens.add({
-        targets: container,
-        scaleX: this.cardScaleFactor,
-        scaleY: this.cardScaleFactor,
-        duration: 80,
-        ease: 'Quad.easeOut',
-      });
-    });
-
-    cardBackground.on('pointerdown', () => {
-      if (!this.entranceComplete) return;
-      this.selectUpgrade(upgrade);
-    });
-
-    // Store reference for cleanup
-    this.cardBackgrounds.push(cardBackground);
-
-    return container;
-  }
-
-  /**
-   * Creates a graphics-based level progress bar for perfect alignment.
-   * Returns either a container with rectangles or a text for mastered state.
-   */
-  private createLevelProgressBar(upgrade: Upgrade, textBoost: number): Phaser.GameObjects.Container | Phaser.GameObjects.Text {
-    const filled = upgrade.currentLevel + 1; // Show level AFTER selecting this upgrade
-    const total = upgrade.maxLevel;
-
-    // Special display for mastered skills - use text
-    if (filled >= total && total > 1) {
-      const masteredText = this.add.text(0, 0, '★ MASTERED ★', {
-        fontSize: `${Math.round(14 * textBoost)}px`,
-        fontFamily: 'Arial',
-        color: '#ffdd44',
-      });
-      masteredText.setOrigin(0.5);
-      return masteredText;
+    // Evolution preview.
+    let evolutionHintHeight = 0;
+    const evolutionHintY = flavorY + flavorText.height / 2 + 12;
+    if (upgrade.id.startsWith('level_') && upgrade.currentLevel >= 2) {
+      const targetWeaponId = upgrade.id.slice('level_'.length);
+      const evolutionRecipe = getEvolutionForWeapon(targetWeaponId);
+      if (evolutionRecipe) {
+        const requiredStatName = this.getStatDisplayName(evolutionRecipe.requiredStatId);
+        const currentStatLevel = this.findStatLevel(evolutionRecipe.requiredStatId);
+        const statReady = currentStatLevel >= evolutionRecipe.requiredStatLevel;
+        const weaponWillBeReady = upgrade.currentLevel + 1 >= evolutionRecipe.requiredWeaponLevel;
+        const bothReady = statReady && weaponWillBeReady;
+        const hintLabel = bothReady
+          ? `✦ EVOLUTION READY: ${evolutionRecipe.evolvedName}`
+          : `✦ Evolves: Lv${evolutionRecipe.requiredWeaponLevel}  ·  ${requiredStatName} ${currentStatLevel}/${evolutionRecipe.requiredStatLevel}`;
+        const evolutionText = bothReady
+          ? makeStickerText(this, 0, evolutionHintY, hintLabel, {
+              fontSize: Math.round(13 * textBoost),
+              color: ACCENT_COLORS_STR.focus,
+              letterSpacing: 1,
+            })
+          : this.add
+              .text(0, evolutionHintY, hintLabel, {
+                fontSize: `${Math.round(12 * textBoost)}px`,
+                fontFamily: MENU_FONT,
+                color: ACCENT_COLORS_STR.primary,
+                wordWrap: { width: wrapWidth },
+                align: 'center',
+              })
+              .setOrigin(0.5);
+        card.frame.add(evolutionText);
+        evolutionHintHeight = evolutionText.height + 8;
+      }
     }
 
-    // Graphics-based progress bar with parallelogram segments (slanted right)
+    // Keybind chip — small sticker pill at card bottom.
+    const keybindY = halfH - 20;
+    const keybindText = makeStickerText(this, 0, keybindY, `[ ${index + 1} ]`, {
+      fontSize: Math.round(13 * textBoost),
+      color: TEXT_COLORS.muted,
+      letterSpacing: 1,
+    });
+    card.frame.add(keybindText);
+    void evolutionHintHeight;
+    void halfW;
+
+    // Pointer interactivity — defer to entranceComplete gating.
+    card.hitZone.on('pointerover', () => {
+      if (!this.entranceComplete) return;
+      this.soundManager.playUIClick();
+      card.setHoverState(true);
+    });
+    card.hitZone.on('pointerout', () => card.setHoverState(false));
+    card.hitZone.on('pointerdown', () => {
+      if (!this.entranceComplete) return;
+      if (this.banishConfirmElements.length > 0) return;
+      if (this.isBanishMode) {
+        this.banishUpgrade(upgrade);
+      } else {
+        this.selectUpgrade(upgrade);
+      }
+    });
+
+    return { card, upgrade, baseTilt, index };
+  }
+
+  private getStatDisplayName(statId: string): string {
+    const matching = this.allStatUpgrades.find((candidate) => candidate.id === statId);
+    if (matching) return matching.name;
+    return statId.charAt(0).toUpperCase() + statId.slice(1);
+  }
+
+  private findStatLevel(statId: string): number {
+    const matching = this.allStatUpgrades.find((candidate) => candidate.id === statId);
+    return matching ? matching.currentLevel : 0;
+  }
+
+  private createLevelProgressBar(
+    upgrade: Upgrade,
+    textBoost: number,
+    accentColor: number,
+  ): Phaser.GameObjects.Container | Phaser.GameObjects.Text {
+    const filled = upgrade.currentLevel + 1;
+    const total = upgrade.maxLevel;
+
+    if (filled >= total && total > 1) {
+      return makeStickerText(this, 0, 0, '★ MASTERED ★', {
+        fontSize: Math.round(15 * textBoost),
+        color: ACCENT_COLORS_STR.focus,
+        letterSpacing: 1.5,
+      });
+    }
+
     const barContainer = this.add.container(0, 0);
     const segmentWidth = 12 * textBoost;
     const segmentHeight = 8 * textBoost;
     const segmentGap = 3 * textBoost;
-    const skew = 3 * textBoost; // Slant amount for parallelogram effect
+    const skew = 3 * textBoost;
 
-    // Account for skew in total width calculation
     const totalWidth = total * (segmentWidth + skew) + (total - 1) * segmentGap;
     const startX = -totalWidth / 2;
-
-    const previewIndex = filled - 1; // The segment that will fill if this upgrade is chosen
+    const previewIndex = filled - 1;
 
     for (let i = 0; i < total; i++) {
       const isFilled = i < filled;
       const isPreview = i === previewIndex && previewIndex >= 0;
       const x = startX + i * (segmentWidth + skew + segmentGap);
 
-      // Parallelogram points: top edge shifted right by skew
       const points = [
-        skew, -segmentHeight / 2,                    // top-left
-        segmentWidth + skew, -segmentHeight / 2,     // top-right
-        segmentWidth, segmentHeight / 2,             // bottom-right
-        0, segmentHeight / 2                         // bottom-left
+        skew, -segmentHeight / 2,
+        segmentWidth + skew, -segmentHeight / 2,
+        segmentWidth, segmentHeight / 2,
+        0, segmentHeight / 2,
       ];
 
-      if (isPreview) {
-        // Preview segment: outline only (green border indicates next level)
-        const segment = this.add.polygon(
-          x + segmentWidth / 2,
-          0,
-          points,
-          0x3a3a5a
-        );
-        segment.setStrokeStyle(1.5, 0x88ff88);
-        barContainer.add(segment);
-      } else {
-        const segment = this.add.polygon(
-          x + segmentWidth / 2,
-          0,
-          points,
-          isFilled ? 0x88ff88 : 0x3a3a5a
-        );
+      const fillColor = isFilled ? accentColor : 0x000000;
+      const segment = this.add.polygon(x + segmentWidth / 2, 0, points, fillColor, isFilled ? 1 : 0.4);
 
-        if (!isFilled) {
-          segment.setStrokeStyle(1, 0x5a5a7a);
-        }
-        barContainer.add(segment);
+      if (isPreview) {
+        segment.setStrokeStyle(1.5, accentColor);
+      } else if (!isFilled) {
+        segment.setStrokeStyle(1, 0x5a5a7a);
       }
+      barContainer.add(segment);
     }
 
     return barContainer;
@@ -885,25 +819,18 @@ export class UpgradeScene extends Phaser.Scene {
 
   private selectUpgrade(upgrade: Upgrade): void {
     this.soundManager.playUpgradeSelect();
-    // Prevent double selection
     this.input.keyboard?.removeAllListeners();
-    this.upgradeCards.forEach((card) => {
-      card.getAll().forEach((child) => {
-        if (child instanceof Phaser.GameObjects.Rectangle) {
-          child.removeAllListeners();
-        }
-      });
-    });
+    for (const entry of this.cardEntries) entry.card.hitZone.removeAllListeners();
 
     const selectedIndex = this.upgrades.indexOf(upgrade);
-    if (selectedIndex >= 0 && this.upgradeCards[selectedIndex]) {
-      const selectedCard = this.upgradeCards[selectedIndex];
+    const selectedEntry = this.cardEntries[selectedIndex];
 
-      // Fade out unselected cards
-      this.upgradeCards.forEach((card, cardIndex) => {
-        if (cardIndex !== selectedIndex) {
+    if (selectedEntry) {
+      // Fade out unselected cards.
+      this.cardEntries.forEach((entry, idx) => {
+        if (idx !== selectedIndex) {
           this.tweens.add({
-            targets: card,
+            targets: entry.card.container,
             alpha: 0,
             scaleX: this.cardScaleFactor * 0.9,
             scaleY: this.cardScaleFactor * 0.9,
@@ -913,36 +840,21 @@ export class UpgradeScene extends Phaser.Scene {
         }
       });
 
-      // Flash card background white on selection
-      const cardBg = selectedCard.getAt(0);
-      if (cardBg instanceof Phaser.GameObjects.Rectangle) {
-        const originalFill = cardBg.fillColor;
-        cardBg.setFillStyle(0xffffff);
-        this.time.delayedCall(80, () => {
-          cardBg.setFillStyle(0x5a5aaa);
-          this.time.delayedCall(120, () => {
-            cardBg.setFillStyle(originalFill);
-          });
-        });
-      }
-
-      // Pulse selected card with bigger punch, then close
+      // Selected card punch + close.
       this.tweens.add({
-        targets: selectedCard,
+        targets: selectedEntry.card.container,
         scaleX: this.cardScaleFactor * 1.12,
         scaleY: this.cardScaleFactor * 1.12,
         duration: 150,
         ease: 'Back.easeOut',
         onComplete: () => {
           this.tweens.add({
-            targets: selectedCard,
+            targets: selectedEntry.card.container,
             scaleX: this.cardScaleFactor * 1.05,
             scaleY: this.cardScaleFactor * 1.05,
             duration: 100,
             ease: 'Quad.easeOut',
-            onComplete: () => {
-              this.closeAndApply(upgrade);
-            },
+            onComplete: () => this.closeAndApply(upgrade),
           });
         },
       });
@@ -952,43 +864,40 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private closeAndApply(upgrade: Upgrade): void {
-    // Fade out
     this.tweens.add({
       targets: this.children.list,
       alpha: 0,
       duration: 20,
       onComplete: () => {
-        if (this.onSelectCallback) {
-          this.onSelectCallback(upgrade);
-        }
+        this.onSelectCallback?.(upgrade);
         this.scene.stop();
       },
     });
   }
 
   private animateEntrance(): void {
-    const lastCardIndex = this.upgradeCards.length - 1;
-    const entranceDuration = lastCardIndex * 100 + 400;
+    this.time.delayedCall(80, () => {
+      this.entranceComplete = true;
+    });
 
-    // Animate cards sliding up with staggered delays
-    this.upgradeCards.forEach((card, index) => {
-      const targetY = card.y;
-      card.y = this.scale.height + 200;
-      card.alpha = 0;
+    this.cardEntranceDone = this.cardEntries.map(() => false);
+
+    this.cardEntries.forEach((entry, index) => {
+      const targetY = entry.card.container.y;
+      entry.card.container.y = this.scale.height + 200;
+      entry.card.container.alpha = 0;
 
       this.tweens.add({
-        targets: card,
+        targets: entry.card.container,
         y: targetY,
         alpha: 1,
         duration: 400,
-        delay: index * 100,
+        delay: index * 90,
         ease: 'Back.easeOut',
+        onComplete: () => {
+          this.cardEntranceDone[index] = true;
+        },
       });
-    });
-
-    // Enable interaction after all cards have finished animating in
-    this.time.delayedCall(entranceDuration, () => {
-      this.entranceComplete = true;
     });
   }
 }

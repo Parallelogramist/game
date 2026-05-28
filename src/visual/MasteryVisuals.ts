@@ -595,12 +595,15 @@ export class MasteryVisualsManager {
           const radius = this.baseOrbitRadius * (0.3 + cyclePhase * 0.8);
           const alpha = Math.max(0, 1 - cyclePhase * 0.6);
 
-          const x = Math.cos(streak.angle) * radius;
-          const y = Math.sin(streak.angle) * radius;
+          const cosAngle = Math.cos(streak.angle);
+          const sinAngle = Math.sin(streak.angle);
+          const x = cosAngle * radius;
+          const y = sinAngle * radius;
 
           // Draw streak line
-          const tailX = Math.cos(streak.angle) * (radius - streak.length);
-          const tailY = Math.sin(streak.angle) * (radius - streak.length);
+          const tailRadius = radius - streak.length;
+          const tailX = cosAngle * tailRadius;
+          const tailY = sinAngle * tailRadius;
 
           streakGraphics.lineStyle(2, color.core, alpha * 0.8);
           streakGraphics.beginPath();

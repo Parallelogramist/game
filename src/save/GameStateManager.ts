@@ -27,6 +27,7 @@ import {
 } from '../ecs/components';
 import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
+import { DirectorState } from '../systems/DirectorSystem';
 
 // Storage key and version
 const STORAGE_KEY = 'survivor-game-state';
@@ -230,6 +231,17 @@ export interface GameSaveState {
 
   // Run modifiers (IDs of active modifiers)
   modifierIds?: string[];
+
+  // Stage/biome selected for this run — needed to restore visuals + enemy scaling.
+  stageId?: string;
+
+  // Equipped relics — so restoring mid-run shows inventory in the HUD strip
+  // and keeps the inventory cap honored on subsequent drops.
+  relicIds?: string[];
+
+  // Director credit-budget state — preserves mid-run strategy + credit balance
+  // so a reload doesn't re-roll the strategy or reset spawn economy.
+  directorState?: DirectorState;
 }
 
 /**
@@ -269,43 +281,41 @@ export class GameStateManager {
   }
 
   /**
+   * Read and validate the persisted save. Returns null on missing/invalid/unsupported versions.
+   */
+  private readValidSaveState(warnOnError = false): GameSaveState | null {
+    try {
+      const stored = SecureStorage.getItem(STORAGE_KEY);
+      if (!stored) return null;
+      const parsed = JSON.parse(stored) as GameSaveState;
+      if (parsed.version === undefined || parsed.version > SAVE_VERSION) return null;
+      return parsed;
+    } catch (error) {
+      if (warnOnError) console.warn('Could not load game state from storage:', error);
+      return null;
+    }
+  }
+
+  /**
    * Check if a valid save exists.
    */
   hasSave(): boolean {
-    try {
-      const stored = SecureStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as GameSaveState;
-        return parsed.version !== undefined && parsed.version <= SAVE_VERSION;
-      }
-    } catch {
-      // Invalid or corrupted save
-    }
-    return false;
+    return this.readValidSaveState() !== null;
   }
 
   /**
    * Get save metadata for menu display.
    */
   getSaveInfo(): SaveInfo {
-    try {
-      const stored = SecureStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as GameSaveState;
-        if (parsed.version !== undefined && parsed.version <= SAVE_VERSION) {
-          return {
-            exists: true,
-            gameTime: parsed.gameTime,
-            level: parsed.playerStats?.level,
-            worldLevel: parsed.worldLevel,
-            timestamp: parsed.timestamp,
-          };
-        }
-      }
-    } catch {
-      // Invalid save
-    }
-    return { exists: false };
+    const saveState = this.readValidSaveState();
+    if (!saveState) return { exists: false };
+    return {
+      exists: true,
+      gameTime: saveState.gameTime,
+      level: saveState.playerStats?.level,
+      worldLevel: saveState.worldLevel,
+      timestamp: saveState.timestamp,
+    };
   }
 
   /**
@@ -342,6 +352,9 @@ export class GameStateManager {
     upgrades: { id: string; currentLevel: number }[];
     twinLinks: [number, number][];
     modifierIds?: string[];
+    stageId?: string;
+    relicIds?: string[];
+    directorState?: DirectorState;
   }): void {
     try {
       const state: GameSaveState = {
@@ -397,6 +410,11 @@ export class GameStateManager {
 
         // Run modifiers
         modifierIds: gameData.modifierIds,
+
+        // Stage + relics
+        stageId: gameData.stageId,
+        relicIds: gameData.relicIds,
+        directorState: gameData.directorState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -410,18 +428,8 @@ export class GameStateManager {
    * @returns The saved state or null if no valid save exists
    */
   load(): GameSaveState | null {
-    try {
-      const stored = SecureStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as GameSaveState;
-        if (parsed.version !== undefined && parsed.version <= SAVE_VERSION) {
-          return this.migrateState(parsed);
-        }
-      }
-    } catch (error) {
-      console.warn('Could not load game state from storage:', error);
-    }
-    return null;
+    const saveState = this.readValidSaveState(true);
+    return saveState ? this.migrateState(saveState) : null;
   }
 
   /**
@@ -446,41 +454,37 @@ export class GameStateManager {
   }
 
   /**
+   * Read Transform component into a plain serialized object.
+   */
+  private readTransform(entityId: number): SerializedTransform {
+    return {
+      x: Transform.x[entityId],
+      y: Transform.y[entityId],
+      rotation: Transform.rotation[entityId],
+    };
+  }
+
+  /**
+   * Read Velocity component into a plain serialized object.
+   */
+  private readVelocity(entityId: number): SerializedVelocity {
+    return {
+      x: Velocity.x[entityId],
+      y: Velocity.y[entityId],
+      speed: Velocity.speed[entityId],
+    };
+  }
+
+  /**
    * Serialize all ECS entities to JSON-compatible format.
    */
   private serializeEntities(world: IWorld, _playerId: number): SerializedEntity[] {
     const entities: SerializedEntity[] = [];
-
-    // Serialize player
-    const players = playerQuery(world);
-    for (const entityId of players) {
-      entities.push(this.serializePlayer(world, entityId));
-    }
-
-    // Serialize enemies
-    const enemies = enemyQuery(world);
-    for (const entityId of enemies) {
-      entities.push(this.serializeEnemy(world, entityId));
-    }
-
-    // Serialize XP gems
-    const xpGems = xpGemQuery(world);
-    for (const entityId of xpGems) {
-      entities.push(this.serializeXPGem(world, entityId));
-    }
-
-    // Serialize health pickups
-    const healthPickups = healthPickupQuery(world);
-    for (const entityId of healthPickups) {
-      entities.push(this.serializeHealthPickup(world, entityId));
-    }
-
-    // Serialize magnet pickups
-    const magnetPickups = magnetPickupQuery(world);
-    for (const entityId of magnetPickups) {
-      entities.push(this.serializeMagnetPickup(world, entityId));
-    }
-
+    for (const entityId of playerQuery(world)) entities.push(this.serializePlayer(world, entityId));
+    for (const entityId of enemyQuery(world)) entities.push(this.serializeEnemy(world, entityId));
+    for (const entityId of xpGemQuery(world)) entities.push(this.serializeXPGem(world, entityId));
+    for (const entityId of healthPickupQuery(world)) entities.push(this.serializeHealthPickup(world, entityId));
+    for (const entityId of magnetPickupQuery(world)) entities.push(this.serializeMagnetPickup(world, entityId));
     return entities;
   }
 
@@ -490,16 +494,8 @@ export class GameStateManager {
   private serializePlayer(_world: IWorld, entityId: number): SerializedEntity {
     return {
       tag: 'player',
-      transform: {
-        x: Transform.x[entityId],
-        y: Transform.y[entityId],
-        rotation: Transform.rotation[entityId],
-      },
-      velocity: {
-        x: Velocity.x[entityId],
-        y: Velocity.y[entityId],
-        speed: Velocity.speed[entityId],
-      },
+      transform: this.readTransform(entityId),
+      velocity: this.readVelocity(entityId),
       health: {
         current: Health.current[entityId],
         max: Health.max[entityId],
@@ -513,16 +509,8 @@ export class GameStateManager {
   private serializeEnemy(world: IWorld, entityId: number): SerializedEntity {
     const entity: SerializedEntity = {
       tag: 'enemy',
-      transform: {
-        x: Transform.x[entityId],
-        y: Transform.y[entityId],
-        rotation: Transform.rotation[entityId],
-      },
-      velocity: {
-        x: Velocity.x[entityId],
-        y: Velocity.y[entityId],
-        speed: Velocity.speed[entityId],
-      },
+      transform: this.readTransform(entityId),
+      velocity: this.readVelocity(entityId),
       health: {
         current: Health.current[entityId],
         max: Health.max[entityId],
@@ -553,7 +541,6 @@ export class GameStateManager {
       },
     };
 
-    // Add status effects if present
     if (hasComponent(world, StatusEffect, entityId)) {
       entity.statusEffect = {
         burnDamage: StatusEffect.burnDamage[entityId],
@@ -577,16 +564,8 @@ export class GameStateManager {
   private serializeXPGem(_world: IWorld, entityId: number): SerializedEntity {
     return {
       tag: 'xpGem',
-      transform: {
-        x: Transform.x[entityId],
-        y: Transform.y[entityId],
-        rotation: Transform.rotation[entityId],
-      },
-      velocity: {
-        x: Velocity.x[entityId],
-        y: Velocity.y[entityId],
-        speed: Velocity.speed[entityId],
-      },
+      transform: this.readTransform(entityId),
+      velocity: this.readVelocity(entityId),
       xpGemData: {
         value: XPGem.value[entityId],
         magnetized: XPGem.magnetized[entityId],
@@ -600,16 +579,8 @@ export class GameStateManager {
   private serializeHealthPickup(_world: IWorld, entityId: number): SerializedEntity {
     return {
       tag: 'healthPickup',
-      transform: {
-        x: Transform.x[entityId],
-        y: Transform.y[entityId],
-        rotation: Transform.rotation[entityId],
-      },
-      velocity: {
-        x: Velocity.x[entityId],
-        y: Velocity.y[entityId],
-        speed: Velocity.speed[entityId],
-      },
+      transform: this.readTransform(entityId),
+      velocity: this.readVelocity(entityId),
       healthPickupData: {
         healAmount: HealthPickup.healAmount[entityId],
         magnetized: HealthPickup.magnetized[entityId],
@@ -623,16 +594,8 @@ export class GameStateManager {
   private serializeMagnetPickup(_world: IWorld, entityId: number): SerializedEntity {
     return {
       tag: 'magnetPickup',
-      transform: {
-        x: Transform.x[entityId],
-        y: Transform.y[entityId],
-        rotation: Transform.rotation[entityId],
-      },
-      velocity: {
-        x: Velocity.x[entityId],
-        y: Velocity.y[entityId],
-        speed: Velocity.speed[entityId],
-      },
+      transform: this.readTransform(entityId),
+      velocity: this.readVelocity(entityId),
       magnetPickupData: {
         magnetized: MagnetPickup.magnetized[entityId],
       },

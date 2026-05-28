@@ -90,6 +90,50 @@ let nextSpawnInterval = 0;
 let worldLevel = 1;
 
 // ---------------------------------------------------------------------------
+// Stage-specific hazard biasing
+//
+// Each stage leans its hazard spawner toward a signature hazard type so the
+// biomes feel mechanically different from the default "random hazards" mix.
+// Weights are applied multiplicatively *on top of* the base weights in
+// pickHazardType — 2.0 doubles odds, 0.5 halves them. A weight of 0 disables
+// the type entirely for that stage.
+// ---------------------------------------------------------------------------
+
+interface StageHazardBias {
+  readonly weightMultipliers: Readonly<Record<HazardType, number>>;
+  readonly spawnIntervalMultiplier: number;
+}
+
+const DEFAULT_STAGE_BIAS: StageHazardBias = {
+  weightMultipliers: { burn: 1.0, ice: 1.0, void: 1.0, energy: 1.0 },
+  spawnIntervalMultiplier: 1.0,
+};
+
+const STAGE_HAZARD_BIASES: Record<string, StageHazardBias> = {
+  stage_deep_void: DEFAULT_STAGE_BIAS,
+  // Inferno: scorched cosmos leans HEAVILY into burn zones, with rare energy
+  // pockets and suppressed ice (the heat won't sustain it).
+  stage_inferno: {
+    weightMultipliers: { burn: 3.0, ice: 0.2, void: 0.5, energy: 1.2 },
+    spawnIntervalMultiplier: 0.8,
+  },
+  // Crystal Caves: ice dominates, void present (rifts in the crystal), energy
+  // rare, burn suppressed.
+  stage_crystal_caves: {
+    weightMultipliers: { burn: 0.3, ice: 3.0, void: 1.4, energy: 0.5 },
+    spawnIntervalMultiplier: 0.9,
+  },
+  // Endless Void: void + energy dominate, with burn/ice suppressed. Hazards
+  // spawn more frequently to match the escalating endgame pressure.
+  stage_endless_void: {
+    weightMultipliers: { burn: 0.5, ice: 0.5, void: 3.0, energy: 2.0 },
+    spawnIntervalMultiplier: 0.7,
+  },
+};
+
+let activeStageBias: StageHazardBias = DEFAULT_STAGE_BIAS;
+
+// ---------------------------------------------------------------------------
 // Graphics pool helpers
 // ---------------------------------------------------------------------------
 
@@ -146,6 +190,16 @@ export function setHazardZoneQuality(quality: 'high' | 'medium' | 'low'): void {
 /** Set the world level for difficulty scaling. */
 export function setHazardZoneWorldLevel(level: number): void {
   worldLevel = level;
+}
+
+/**
+ * Apply a stage-specific bias to the hazard spawner. Each stage has a signature
+ * hazard mix (Inferno → burn, Crystal Caves → ice, Endless Void → void+energy).
+ * Pass a known stage id to take the biased weights; anything else falls back
+ * to the default balanced mix.
+ */
+export function setHazardZoneStage(stageId: string): void {
+  activeStageBias = STAGE_HAZARD_BIASES[stageId] ?? DEFAULT_STAGE_BIAS;
 }
 
 /**
@@ -398,18 +452,24 @@ function computeSpawnInterval(gameTime: number): number {
   const progress = Math.min(elapsedSinceStart / config.spawnRampDuration, 1);
   const baseInterval = config.baseSpawnInterval + (config.minSpawnInterval - config.baseSpawnInterval) * progress;
   const worldReduction = 1 - (worldLevel - 1) * config.worldLevelSpawnIntervalReduction;
-  return Math.max(config.minSpawnInterval, baseInterval * Math.max(0.3, worldReduction));
+  const stageMultiplier = activeStageBias.spawnIntervalMultiplier;
+  return Math.max(
+    config.minSpawnInterval * stageMultiplier,
+    baseInterval * Math.max(0.3, worldReduction) * stageMultiplier,
+  );
 }
 
 function pickHazardType(gameTime: number): HazardType | null {
   const unlockTimes = TUNING.hazards.typeUnlockTimes;
+  const biases = activeStageBias.weightMultipliers;
   const eligible: { type: HazardType; weight: number }[] = [];
 
-  // Build weighted pool from unlocked types
-  if (gameTime >= unlockTimes.burn)   eligible.push({ type: 'burn',   weight: 35 });
-  if (gameTime >= unlockTimes.ice)    eligible.push({ type: 'ice',    weight: 25 });
-  if (gameTime >= unlockTimes.energy) eligible.push({ type: 'energy', weight: 20 });
-  if (gameTime >= unlockTimes.void)   eligible.push({ type: 'void',   weight: 20 });
+  // Base weights, modulated by the active stage bias. A stage can suppress a
+  // type entirely by setting its multiplier to 0.
+  if (gameTime >= unlockTimes.burn   && biases.burn   > 0) eligible.push({ type: 'burn',   weight: 35 * biases.burn   });
+  if (gameTime >= unlockTimes.ice    && biases.ice    > 0) eligible.push({ type: 'ice',    weight: 25 * biases.ice    });
+  if (gameTime >= unlockTimes.energy && biases.energy > 0) eligible.push({ type: 'energy', weight: 20 * biases.energy });
+  if (gameTime >= unlockTimes.void   && biases.void   > 0) eligible.push({ type: 'void',   weight: 20 * biases.void   });
 
   if (eligible.length === 0) return null;
 
@@ -455,6 +515,7 @@ export function resetHazardZoneSystem(): void {
   hazardSpawnTimer = 0;
   nextSpawnInterval = 0;
   iceSlowedThisFrame.clear();
+  activeStageBias = DEFAULT_STAGE_BIAS;
 }
 
 /**

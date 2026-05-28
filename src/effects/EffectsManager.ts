@@ -47,6 +47,9 @@ export class EffectsManager {
   // Pre-computed color hex strings to avoid per-frame string allocation
   private colorHexCache = new Map<number, string>();
 
+  // Helper at module scope — define after class via const trick
+  // (placed inside the class for clarity but only used by showDamageNumber)
+
   // Pre-computed shimmer palette for perfect crit color animation (gold → white → gold)
   private static readonly SHIMMER_PALETTE: string[] = (() => {
     const palette: string[] = [];
@@ -268,13 +271,6 @@ export class EffectsManager {
   }
 
   /**
-   * Play a screen-wide impact flash effect.
-   * Creates a brief white overlay that fades out quickly.
-   *
-   * @param intensity - Alpha intensity of the flash (0.0-1.0, default 0.2)
-   * @param duration - Duration of the flash in ms (default 80)
-   */
-  /**
    * Supersized death explosion for the player. Bypasses cooldown.
    * More particles, longer lifespan, lingering embers.
    */
@@ -307,6 +303,13 @@ export class EffectsManager {
     });
   }
 
+  /**
+   * Play a screen-wide impact flash effect.
+   * Creates a brief white overlay that fades out quickly.
+   *
+   * @param intensity - Alpha intensity of the flash (0.0-1.0, default 0.2)
+   * @param duration - Duration of the flash in ms (default 80)
+   */
   playImpactFlash(intensity: number = 0.2, duration: number = 80): void {
     const { width, height } = this.scene.scale;
     const flash = this.scene.add.rectangle(
@@ -395,7 +398,8 @@ export class EffectsManager {
     pooledNumber.duration = isPerfectCrit ? 3000 : (isCrit ? 2000 : this.DAMAGE_NUMBER_DURATION);
 
     // Set text based on value type
-    const displayText = typeof value === 'number' ? Math.round(value).toString() : value;
+    const numericValue = typeof value === 'number' ? Math.round(value) : null;
+    const displayText = numericValue !== null ? numericValue.toString() : value as string;
     pooledNumber.text.setText(displayText);
     const posX = x + Phaser.Math.Between(-10, 10);
     pooledNumber.startX = posX;
@@ -407,19 +411,16 @@ export class EffectsManager {
     // Set styling based on crit type
     let scale: number;
     if (isPerfectCrit) {
-      // Perfect crit: gold color, moderately larger, thick stroke
       scale = 1.75;
       pooledNumber.text.setFontSize('22px');
-      pooledNumber.text.setColor('#ffd700'); // Gold
-      pooledNumber.text.setStroke('#8b6914', 4); // Dark gold stroke
+      pooledNumber.text.setColor('#ffd700');
+      pooledNumber.text.setStroke('#8b6914', 4);
     } else if (isCrit) {
-      // Regular crit: yellow, slightly larger than normal
       scale = 1.4;
       pooledNumber.text.setFontSize('19px');
-      pooledNumber.text.setColor('#ffff00'); // Yellow
+      pooledNumber.text.setColor('#ffff00');
       pooledNumber.text.setStroke('#000000', 3);
     } else {
-      // Normal hit: white, scale with damage
       scale = typeof value === 'number' ? Math.min(1 + value / 50, 1.5) : 1.0;
       pooledNumber.text.setFontSize('16px');
       let hexColor = this.colorHexCache.get(color);
@@ -430,6 +431,7 @@ export class EffectsManager {
       pooledNumber.text.setColor(hexColor);
       pooledNumber.text.setStroke('#000000', 3);
     }
+
     pooledNumber.text.setScale(scale);
   }
 

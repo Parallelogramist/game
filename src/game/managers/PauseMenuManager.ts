@@ -5,6 +5,93 @@ import { getGameStateManager } from '../../save/GameStateManager';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import { SoundManager } from '../../audio/SoundManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
+import { WeaponRunStats } from '../../weapons/WeaponManager';
+import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
+import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS } from '../../visual/MenuStyle';
+
+/**
+ * Paint a Balatro-style panel: drop shadow + dark navy body + thick accent
+ * border + thin highlight stripe across the top. Replaces the prior flat
+ * dark-rectangle look so end-of-run / pause panels read as the same family
+ * as the BootScene cards.
+ */
+function paintPanelBackground(
+  graphics: Phaser.GameObjects.Graphics,
+  topLeftX: number,
+  topLeftY: number,
+  width: number,
+  height: number,
+  _opts: { withPanelBreaks?: boolean; accentColor?: number } = {}
+): void {
+  const radius = 12;
+  const accent = _opts.accentColor ?? ACCENT_COLORS.primary;
+
+  // Drop shadow (offset down-right).
+  graphics.fillStyle(0x000000, 0.45);
+  graphics.fillRoundedRect(topLeftX + 5, topLeftY + 7, width, height, radius + 2);
+
+  // Accent border layer.
+  graphics.fillStyle(accent, 1);
+  graphics.fillRoundedRect(topLeftX - 2, topLeftY - 2, width + 4, height + 4, radius + 1);
+
+  // Body fill (deep saturated navy).
+  graphics.fillStyle(BODY_COLORS.primary, 0.94);
+  graphics.fillRoundedRect(topLeftX, topLeftY, width, height, radius);
+
+  // Thin top highlight stripe — sells the "card with banner" feel.
+  graphics.fillStyle(accent, 0.55);
+  graphics.fillRect(topLeftX + 3, topLeftY + 2, width - 6, 2);
+
+  // Subtle bottom inner shadow.
+  graphics.fillStyle(0x000000, 0.22);
+  graphics.fillRoundedRect(topLeftX, topLeftY + height - 4, width, 4, {
+    tl: 0, tr: 0, bl: radius, br: radius,
+  });
+}
+
+/**
+ * Paint a Balatro-style pill button: drop shadow + accent border + body fill +
+ * thin top banner highlight. Drawn into a fresh graphics layer behind the
+ * provided rectangle so the rectangle stays as the interactive hit zone.
+ */
+function paintPillBackground(
+  graphics: Phaser.GameObjects.Graphics,
+  centerX: number,
+  centerY: number,
+  width: number,
+  height: number,
+  bodyColor: number,
+  accentColor: number,
+): void {
+  const halfW = width / 2;
+  const halfH = height / 2;
+  const radius = Math.min(height * 0.4, 14);
+
+  graphics.clear();
+
+  // Drop shadow.
+  graphics.fillStyle(0x000000, 0.45);
+  graphics.fillRoundedRect(centerX - halfW + 4, centerY - halfH + 6, width, height, radius + 1);
+
+  // Accent border.
+  graphics.fillStyle(accentColor, 1);
+  graphics.fillRoundedRect(centerX - halfW - 2, centerY - halfH - 2, width + 4, height + 4, radius);
+
+  // Body fill.
+  graphics.fillStyle(bodyColor, 1);
+  graphics.fillRoundedRect(centerX - halfW, centerY - halfH, width, height, radius);
+
+  // Top highlight stripe (the Balatro banner feel).
+  graphics.fillStyle(accentColor, 0.7);
+  graphics.fillRect(centerX - halfW + 4, centerY - halfH + 2, width - 8, 3);
+
+  // Bottom inner shadow.
+  graphics.fillStyle(0x000000, 0.25);
+  graphics.fillRect(centerX - halfW + 4, centerY + halfH - 3, width - 8, 2);
+}
+
+void MENU_COLORS;
+void ACCENT_COLORS_STR;
 
 const PAUSE_MENU_DEPTH = 1100;
 
@@ -12,6 +99,20 @@ function formatLargeNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(Math.floor(n));
+}
+
+function formatTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainderSeconds = Math.floor(seconds % 60);
+  return `${minutes}:${remainderSeconds.toString().padStart(2, '0')}`;
+}
+
+/** Formats unlock progress as "current/target" with units hinted by target size. */
+function formatProgressText(current: number, target: number): string {
+  const fmt = target >= 10_000
+    ? formatLargeNumber
+    : (n: number) => String(Math.floor(n));
+  return `${fmt(current)} / ${fmt(target)}`;
 }
 
 export interface PauseMenuOptions {
@@ -56,6 +157,15 @@ export interface GameOverData {
   highestCombo: number;
   totalDamageDealt?: number;
   totalDamageTaken?: number;
+  weaponStats?: WeaponRunStats[];
+  personalBests?: {
+    longestSurvival: number;
+    mostKills: number;
+    highestLevel: number;
+    highestCombo: number;
+  };
+  /** Top locked unlocks the player is closest to — surfaced as retention hook. */
+  unlockProgress?: UnlockProgressEntry[];
 }
 
 export class PauseMenuManager {
@@ -86,6 +196,133 @@ export class PauseMenuManager {
     this.scene = scene;
     this.options = options;
     this.soundManager = soundManager;
+  }
+
+  /**
+   * Destroys scene children whose names are in the list. Missing names are
+   * silently ignored — safe to call when the overlay was never shown.
+   */
+  private destroyElementsByName(names: string[]): void {
+    for (const name of names) {
+      const element = this.scene.children.getByName(name);
+      if (element) element.destroy();
+    }
+  }
+
+  /**
+   * Creates a button (bg rectangle + centered label). Wires hover fill swap,
+   * pointerdown -> UI click sound -> onActivate, and standard depth/interaction.
+   * Returns the bg + text so callers can reference them for nav or cleanup.
+   */
+  private createLabeledButton(params: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    label: string;
+    fontSize: string;
+    baseColor: number;
+    hoverColor: number;
+    strokeColor: number;
+    bgName: string;
+    textName: string;
+    onActivate: () => void;
+  }): { bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text } {
+    // Balatro pill: a graphics layer paints the shadow / accent border / body /
+    // banner stripe; the Rectangle stays as the hit zone (kept fully transparent).
+    const pillGfx = this.scene.add.graphics();
+    pillGfx.setDepth(PAUSE_MENU_DEPTH + 0.5);
+    pillGfx.setName(`${params.bgName}_gfx`);
+    paintPillBackground(pillGfx, params.x, params.y, params.width, params.height, params.baseColor, params.strokeColor);
+
+    const bg = this.scene.add.rectangle(params.x, params.y, params.width, params.height, params.baseColor, 0);
+    bg.setStrokeStyle(0);
+    bg.setInteractive({ useHandCursor: true });
+    bg.setDepth(PAUSE_MENU_DEPTH + 1);
+    bg.setName(params.bgName);
+    addButtonInteraction(this.scene, bg);
+
+    const text = this.scene.add.text(params.x, params.y, params.label, {
+      fontSize: params.fontSize,
+      color: '#ffffff',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    });
+    text.setOrigin(0.5);
+    text.setDepth(PAUSE_MENU_DEPTH + 2);
+    text.setName(params.textName);
+
+    // Shim: setFillStyle calls from existing focus/hover code repaint the pill
+    // graphics layer instead of the (transparent) Rectangle. Keeps existing
+    // call sites working without surgery.
+    const originalSetFill = bg.setFillStyle.bind(bg);
+    (bg as Phaser.GameObjects.Rectangle).setFillStyle = ((color?: number, alpha?: number) => {
+      if (color !== undefined) {
+        paintPillBackground(pillGfx, params.x, params.y, params.width, params.height, color, params.strokeColor);
+      }
+      return originalSetFill(color, alpha);
+    }) as typeof bg.setFillStyle;
+    // Same for setStrokeStyle — re-paint with the new stroke color.
+    const originalSetStroke = bg.setStrokeStyle.bind(bg);
+    (bg as Phaser.GameObjects.Rectangle).setStrokeStyle = ((lineWidth?: number, color?: number, alpha?: number) => {
+      if (color !== undefined) {
+        paintPillBackground(pillGfx, params.x, params.y, params.width, params.height, bg.fillColor, color);
+      }
+      return originalSetStroke(lineWidth, color, alpha);
+    }) as typeof bg.setStrokeStyle;
+
+    bg.on('pointerover', () => bg.setFillStyle(params.hoverColor));
+    bg.on('pointerout', () => bg.setFillStyle(params.baseColor));
+    bg.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      params.onActivate();
+    });
+
+    // When the rectangle gets destroyed, take the graphics with it.
+    bg.once('destroy', () => pillGfx.destroy());
+
+    return { bg, text };
+  }
+
+  /**
+   * Tears down the C / N keyboard listeners wired up by showVictory. Safe to
+   * call multiple times — nulls the refs once removed.
+   */
+  private clearVictoryKeyboardHandlers(): void {
+    if (this.victoryContinueHandler) {
+      this.scene.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
+      this.victoryContinueHandler = null;
+    }
+    if (this.victoryNextWorldHandler) {
+      this.scene.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
+      this.victoryNextWorldHandler = null;
+    }
+  }
+
+  /**
+   * Full-screen dark overlay used by pause menu / victory / confirmation dialogs.
+   * Fades in from 0 to targetAlpha. Caller sets the name for later cleanup.
+   */
+  private createFadeInOverlay(
+    name: string,
+    targetAlpha: number,
+    fadeDuration: number
+  ): Phaser.GameObjects.Rectangle {
+    const overlay = this.scene.add.rectangle(
+      this.scene.scale.width / 2,
+      this.scene.scale.height / 2,
+      this.scene.scale.width,
+      this.scene.scale.height,
+      0x000000,
+      1
+    );
+    overlay.setDepth(PAUSE_MENU_DEPTH);
+    overlay.setName(name);
+    overlay.setAlpha(0);
+    this.scene.tweens.add({ targets: overlay, alpha: targetAlpha, duration: fadeDuration, ease: 'Sine.easeOut' });
+    return overlay;
   }
 
   /**
@@ -123,31 +360,22 @@ export class PauseMenuManager {
     this.options.onPauseStateChanged(true);
 
     // Create pause overlay with fade-in
-    const overlay = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2,
-      this.scene.scale.width,
-      this.scene.scale.height,
-      0x000000,
-      1
-    );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
-    overlay.setName('pauseOverlay');
-    overlay.setAlpha(0);
-    this.scene.tweens.add({ targets: overlay, alpha: 0.7, duration: 115, ease: 'Sine.easeOut' });
+    this.createFadeInOverlay('pauseOverlay', 0.7, 115);
 
     // 8px grid spacing for pause menu
     const menuCenterY = this.scene.scale.height / 2;
     const buttonSpacing = 64; // 8px aligned gap between button centers
 
-    // Pause title
+    // Pause title — sticker style for Balatro punch.
     const pauseTitle = this.scene.add.text(this.scene.scale.width / 2, menuCenterY - 144, 'PAUSED', {
       fontSize: '56px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
+      color: ACCENT_COLORS_STR.focus,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 4,
+      strokeThickness: 6,
     });
+    pauseTitle.setLetterSpacing(4);
     pauseTitle.setOrigin(0.5);
     pauseTitle.setDepth(PAUSE_MENU_DEPTH + 1);
     pauseTitle.setName('pauseTitle');
@@ -172,7 +400,7 @@ export class PauseMenuManager {
       {
         fontSize: '24px',
         color: '#ffcc00',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }
     );
     pauseGoldDisplay.setOrigin(0.5);
@@ -180,196 +408,79 @@ export class PauseMenuManager {
     pauseGoldDisplay.setName('pauseGoldText');
 
     // Resume button (48px below gold)
-    const resumeButtonWidth = 180;
+    const resumeButtonWidth = 320;
     const resumeButtonHeight = 50;
     const resumeButtonY = menuCenterY - 32;
+    const buttonCenterX = this.scene.scale.width / 2;
 
-    const resumeButtonBg = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      resumeButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x44aa44
-    );
-    resumeButtonBg.setStrokeStyle(3, 0x66cc66);
-    resumeButtonBg.setInteractive({ useHandCursor: true });
-    resumeButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    resumeButtonBg.setName('resumeButtonBg');
-    addButtonInteraction(this.scene, resumeButtonBg);
-
-    const resumeButtonText = this.scene.add.text(this.scene.scale.width / 2, resumeButtonY, 'Resume', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    resumeButtonText.setOrigin(0.5);
-    resumeButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    resumeButtonText.setName('resumeButtonText');
-
-    // Resume button hover effects
-    resumeButtonBg.on('pointerover', () => {
-      resumeButtonBg.setFillStyle(0x55bb55);
-    });
-    resumeButtonBg.on('pointerout', () => {
-      resumeButtonBg.setFillStyle(0x44aa44);
-    });
-    resumeButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.hidePauseMenu();
+    const resumeBaseColor = 0x44aa44;
+    const resumeHoverColor = 0x55bb55;
+    const { bg: resumeButtonBg, text: resumeButtonText } = this.createLabeledButton({
+      x: buttonCenterX, y: resumeButtonY,
+      width: resumeButtonWidth, height: resumeButtonHeight,
+      label: 'Resume', fontSize: '24px',
+      baseColor: resumeBaseColor, hoverColor: resumeHoverColor, strokeColor: 0x66cc66,
+      bgName: 'resumeButtonBg', textName: 'resumeButtonText',
+      onActivate: () => this.hidePauseMenu(),
     });
 
     // Settings button (64px below resume)
     const settingsButtonY = resumeButtonY + buttonSpacing;
-
-    const settingsButtonBg = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      settingsButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x446688
-    );
-    settingsButtonBg.setStrokeStyle(3, 0x6688aa);
-    settingsButtonBg.setInteractive({ useHandCursor: true });
-    settingsButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    settingsButtonBg.setName('settingsButtonBg');
-    addButtonInteraction(this.scene, settingsButtonBg);
-
-    const settingsButtonText = this.scene.add.text(this.scene.scale.width / 2, settingsButtonY, 'Settings', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    settingsButtonText.setOrigin(0.5);
-    settingsButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    settingsButtonText.setName('settingsButtonText');
-
-    // Settings button hover effects
-    settingsButtonBg.on('pointerover', () => {
-      settingsButtonBg.setFillStyle(0x5577aa);
-    });
-    settingsButtonBg.on('pointerout', () => {
-      settingsButtonBg.setFillStyle(0x446688);
-    });
-    settingsButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.hidePauseMenu();
-      this.options.onOpenSettings();
+    const settingsBaseColor = 0x446688;
+    const settingsHoverColor = 0x5577aa;
+    const { bg: settingsButtonBg, text: settingsButtonText } = this.createLabeledButton({
+      x: buttonCenterX, y: settingsButtonY,
+      width: resumeButtonWidth, height: resumeButtonHeight,
+      label: 'Settings', fontSize: '24px',
+      baseColor: settingsBaseColor, hoverColor: settingsHoverColor, strokeColor: 0x6688aa,
+      bgName: 'settingsButtonBg', textName: 'settingsButtonText',
+      onActivate: () => { this.hidePauseMenu(); this.options.onOpenSettings(); },
     });
 
-    // Restart button (64px below settings)
+    // Restart button (neutral slate — non-destructive intent)
     const restartButtonY = settingsButtonY + buttonSpacing;
-
-    const restartButtonBg = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      restartButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x666666
-    );
-    restartButtonBg.setStrokeStyle(3, 0x888888);
-    restartButtonBg.setInteractive({ useHandCursor: true });
-    restartButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    restartButtonBg.setName('restartButtonBg');
-    addButtonInteraction(this.scene, restartButtonBg);
-
-    const restartButtonText = this.scene.add.text(this.scene.scale.width / 2, restartButtonY, 'Restart', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    restartButtonText.setOrigin(0.5);
-    restartButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    restartButtonText.setName('restartButtonText');
-
-    // Restart button hover effects
-    restartButtonBg.on('pointerover', () => {
-      restartButtonBg.setFillStyle(0x884444);
-    });
-    restartButtonBg.on('pointerout', () => {
-      restartButtonBg.setFillStyle(0x666666);
-    });
-    restartButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.showEndRunConfirmation('restart');
+    const restartBaseColor = 0x3a3a5a;
+    const restartHoverColor = 0x55558a;
+    const { bg: restartButtonBg, text: restartButtonText } = this.createLabeledButton({
+      x: buttonCenterX, y: restartButtonY,
+      width: resumeButtonWidth, height: resumeButtonHeight,
+      label: '↻  Restart Run', fontSize: '24px',
+      baseColor: restartBaseColor, hoverColor: restartHoverColor, strokeColor: 0x7878aa,
+      bgName: 'restartButtonBg', textName: 'restartButtonText',
+      onActivate: () => this.showEndRunConfirmation('restart'),
     });
 
-    // Quit to Menu button (64px below restart)
+    // Quit to Menu button (red — destructive, aborts the run)
     const quitMenuButtonY = restartButtonY + buttonSpacing;
-
-    const quitMenuButtonBg = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      quitMenuButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x664444
-    );
-    quitMenuButtonBg.setStrokeStyle(3, 0x886666);
-    quitMenuButtonBg.setInteractive({ useHandCursor: true });
-    quitMenuButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    quitMenuButtonBg.setName('quitMenuButtonBg');
-    addButtonInteraction(this.scene, quitMenuButtonBg);
-
-    const quitMenuButtonText = this.scene.add.text(this.scene.scale.width / 2, quitMenuButtonY, 'Quit to Menu', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    quitMenuButtonText.setOrigin(0.5);
-    quitMenuButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    quitMenuButtonText.setName('quitMenuButtonText');
-
-    quitMenuButtonBg.on('pointerover', () => {
-      quitMenuButtonBg.setFillStyle(0x885555);
-    });
-    quitMenuButtonBg.on('pointerout', () => {
-      quitMenuButtonBg.setFillStyle(0x664444);
-    });
-    quitMenuButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.showEndRunConfirmation('menu');
+    const quitMenuBaseColor = 0x802020;
+    const quitMenuHoverColor = 0xaa2f2f;
+    const { bg: quitMenuButtonBg, text: quitMenuButtonText } = this.createLabeledButton({
+      x: buttonCenterX, y: quitMenuButtonY,
+      width: resumeButtonWidth, height: resumeButtonHeight,
+      label: '⌂  Quit to Menu', fontSize: '24px',
+      baseColor: quitMenuBaseColor, hoverColor: quitMenuHoverColor, strokeColor: 0xcc4444,
+      bgName: 'quitMenuButtonBg', textName: 'quitMenuButtonText',
+      onActivate: () => this.showEndRunConfirmation('menu'),
     });
 
-    // Quit to Shop button (64px below quit menu)
+    // Quit to Shop button (gold — destructive but the "cash out" intent)
     const quitShopButtonY = quitMenuButtonY + buttonSpacing;
-
-    const quitShopButtonBg = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      quitShopButtonY,
-      resumeButtonWidth,
-      resumeButtonHeight,
-      0x666644
-    );
-    quitShopButtonBg.setStrokeStyle(3, 0x888866);
-    quitShopButtonBg.setInteractive({ useHandCursor: true });
-    quitShopButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    quitShopButtonBg.setName('quitShopButtonBg');
-    addButtonInteraction(this.scene, quitShopButtonBg);
-
-    const quitShopButtonText = this.scene.add.text(this.scene.scale.width / 2, quitShopButtonY, 'Quit to Shop', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    quitShopButtonText.setOrigin(0.5);
-    quitShopButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    quitShopButtonText.setName('quitShopButtonText');
-
-    quitShopButtonBg.on('pointerover', () => {
-      quitShopButtonBg.setFillStyle(0x888855);
-    });
-    quitShopButtonBg.on('pointerout', () => {
-      quitShopButtonBg.setFillStyle(0x666644);
-    });
-    quitShopButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.showEndRunConfirmation('shop');
+    const quitShopBaseColor = 0x8a6a14;
+    const quitShopHoverColor = 0xbb8e1e;
+    const { bg: quitShopButtonBg, text: quitShopButtonText } = this.createLabeledButton({
+      x: buttonCenterX, y: quitShopButtonY,
+      width: resumeButtonWidth, height: resumeButtonHeight,
+      label: '$  Cash Out (Shop)', fontSize: '24px',
+      baseColor: quitShopBaseColor, hoverColor: quitShopHoverColor, strokeColor: 0xddaa33,
+      bgName: 'quitShopButtonBg', textName: 'quitShopButtonText',
+      onActivate: () => this.showEndRunConfirmation('shop'),
     });
 
     // Hint text (48px below last button)
     const hintText = this.scene.add.text(this.scene.scale.width / 2, quitShopButtonY + 48, 'Arrow keys to navigate, Enter to select', {
       fontSize: '14px',
       color: '#888888',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
     });
     hintText.setOrigin(0.5);
     hintText.setDepth(PAUSE_MENU_DEPTH + 1);
@@ -380,11 +491,11 @@ export class PauseMenuManager {
 
     // Keyboard + gamepad navigation for pause menu
     const pauseButtons = [
-      { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: 0x44aa44, hoverColor: 0x55bb55 },
-      { bg: settingsButtonBg, action: () => { this.hidePauseMenu(); this.options.onOpenSettings(); }, baseColor: 0x446688, hoverColor: 0x5577aa },
-      { bg: restartButtonBg, action: () => this.showEndRunConfirmation('restart'), baseColor: 0x666666, hoverColor: 0x884444 },
-      { bg: quitMenuButtonBg, action: () => this.showEndRunConfirmation('menu'), baseColor: 0x664444, hoverColor: 0x885555 },
-      { bg: quitShopButtonBg, action: () => this.showEndRunConfirmation('shop'), baseColor: 0x666644, hoverColor: 0x888855 },
+      { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: resumeBaseColor, hoverColor: resumeHoverColor },
+      { bg: settingsButtonBg, action: () => { this.hidePauseMenu(); this.options.onOpenSettings(); }, baseColor: settingsBaseColor, hoverColor: settingsHoverColor },
+      { bg: restartButtonBg, action: () => this.showEndRunConfirmation('restart'), baseColor: restartBaseColor, hoverColor: restartHoverColor },
+      { bg: quitMenuButtonBg, action: () => this.showEndRunConfirmation('menu'), baseColor: quitMenuBaseColor, hoverColor: quitMenuHoverColor },
+      { bg: quitShopButtonBg, action: () => this.showEndRunConfirmation('shop'), baseColor: quitShopBaseColor, hoverColor: quitShopHoverColor },
     ];
 
     this.pauseMenuNavigator = new MenuNavigator({
@@ -451,7 +562,7 @@ export class PauseMenuManager {
     }
 
     // Remove all pause menu UI elements
-    const elementsToRemove = [
+    this.destroyElementsByName([
       'pauseOverlay',
       'pauseTitle',
       'pauseGoldText',
@@ -469,11 +580,7 @@ export class PauseMenuManager {
       'runModifiersTitle',
       'runModifiersBg',
       'runModifiersText',
-    ];
-    elementsToRemove.forEach((name) => {
-      const element = this.scene.children.getByName(name);
-      if (element) element.destroy();
-    });
+    ]);
 
     this.isPauseMenuOpen = false;
     this.options.onPauseStateChanged(false);
@@ -551,10 +658,13 @@ export class PauseMenuManager {
 
     // Panel background
     const panelBg = this.scene.add.graphics();
-    panelBg.fillStyle(0x111122, 0.85);
-    panelBg.fillRoundedRect(panelX - panelWidth / 2 - 12, panelTopY - 10, panelWidth + 24, panelHeight, 8);
-    panelBg.lineStyle(1, 0x444466, 0.6);
-    panelBg.strokeRoundedRect(panelX - panelWidth / 2 - 12, panelTopY - 10, panelWidth + 24, panelHeight, 8);
+    paintPanelBackground(
+      panelBg,
+      panelX - panelWidth / 2 - 12,
+      panelTopY - 10,
+      panelWidth + 24,
+      panelHeight
+    );
     panelBg.setDepth(PAUSE_MENU_DEPTH + 1);
     panelBg.setName('runModifiersBg');
 
@@ -562,7 +672,7 @@ export class PauseMenuManager {
     const titleText = this.scene.add.text(panelX, panelTopY + 4, 'RUN MODIFIERS', {
       fontSize: '14px',
       color: '#aaaacc',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
     });
     titleText.setOrigin(0.5, 0);
@@ -582,7 +692,7 @@ export class PauseMenuManager {
     const modifiersText = this.scene.add.text(panelX, panelTopY + 26, modifierTextContent.trim(), {
       fontSize: '13px',
       color: '#ccccdd',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       lineSpacing: 4,
       align: 'center',
     });
@@ -624,30 +734,21 @@ export class PauseMenuManager {
     const streakMultiplier = metaManager.getStreakGoldMultiplier();
 
     // Create confirmation overlay with fade-in
-    const overlay = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2,
-      this.scene.scale.width,
-      this.scene.scale.height,
-      0x000000,
-      1
-    );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
-    overlay.setName('shopConfirmOverlay');
-    overlay.setAlpha(0);
-    this.scene.tweens.add({ targets: overlay, alpha: 0.85, duration: 200, ease: 'Sine.easeOut' });
+    this.createFadeInOverlay('shopConfirmOverlay', 0.85, 200);
 
     // 8px grid spacing for confirmation dialog
     const dialogCenterY = this.scene.scale.height / 2;
 
-    // Title
-    const titleText = this.scene.add.text(this.scene.scale.width / 2, dialogCenterY - 168, 'End Run?', {
+    // Title — sticker style.
+    const titleText = this.scene.add.text(this.scene.scale.width / 2, dialogCenterY - 168, 'END RUN?', {
       fontSize: '48px',
-      color: '#ffcc00',
-      fontFamily: 'Arial',
+      color: ACCENT_COLORS_STR.gold,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 4,
+      strokeThickness: 6,
     });
+    titleText.setLetterSpacing(3);
     titleText.setOrigin(0.5);
     titleText.setDepth(PAUSE_MENU_DEPTH + 1);
     titleText.setName('shopConfirmTitle');
@@ -660,7 +761,7 @@ export class PauseMenuManager {
       {
         fontSize: '20px',
         color: '#aaaaaa',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }
     );
     subtitleText.setOrigin(0.5);
@@ -697,7 +798,7 @@ export class PauseMenuManager {
       {
         fontSize: '18px',
         color: '#cccccc',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         align: 'center',
         lineSpacing: 12,
       }
@@ -715,7 +816,7 @@ export class PauseMenuManager {
       {
         fontSize: '32px',
         color: '#ffdd44',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: 'bold',
       }
     );
@@ -728,82 +829,38 @@ export class PauseMenuManager {
     const confirmButtonHeight = 50;
     const buttonY = totalY + 48 + confirmButtonHeight / 2;
 
-    const confirmButtonBg = this.scene.add.rectangle(
-      this.scene.scale.width / 2 - 100,
-      buttonY,
-      confirmButtonWidth,
-      confirmButtonHeight,
-      0x44aa44
-    );
-    confirmButtonBg.setStrokeStyle(3, 0x66cc66);
-    confirmButtonBg.setInteractive({ useHandCursor: true });
-    confirmButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    confirmButtonBg.setName('shopConfirmButtonBg');
-    addButtonInteraction(this.scene, confirmButtonBg);
-
-    const confirmButtonText = this.scene.add.text(this.scene.scale.width / 2 - 100, buttonY, 'Confirm', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    confirmButtonText.setOrigin(0.5);
-    confirmButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    confirmButtonText.setName('shopConfirmButtonText');
-
-    confirmButtonBg.on('pointerover', () => {
-      confirmButtonBg.setFillStyle(0x55bb55);
-    });
-    confirmButtonBg.on('pointerout', () => {
-      confirmButtonBg.setFillStyle(0x44aa44);
-    });
-    confirmButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      // Clear the save to prevent exploit (continuing after intentionally ending)
-      getGameStateManager().clearSave();
-      // Award gold and go to destination
-      metaManager.addGold(finalTotal);
-      if (destination === 'restart') {
-        this.options.onRestart();
-      } else if (destination === 'shop') {
-        this.options.onQuitToShop(finalTotal);
-      } else {
-        this.options.onQuitToMenu();
-      }
+    const { bg: confirmButtonBg } = this.createLabeledButton({
+      x: this.scene.scale.width / 2 - 100, y: buttonY,
+      width: confirmButtonWidth, height: confirmButtonHeight,
+      label: 'Confirm', fontSize: '24px',
+      baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeColor: 0x66cc66,
+      bgName: 'shopConfirmButtonBg', textName: 'shopConfirmButtonText',
+      onActivate: () => {
+        // Clear the save to prevent exploit (continuing after intentionally ending)
+        getGameStateManager().clearSave();
+        // Award gold and go to destination
+        metaManager.addGold(finalTotal);
+        if (destination === 'restart') {
+          this.options.onRestart();
+        } else if (destination === 'shop') {
+          this.options.onQuitToShop(finalTotal);
+        } else {
+          this.options.onQuitToMenu();
+        }
+      },
     });
 
     // Cancel button
-    const cancelButtonBg = this.scene.add.rectangle(
-      this.scene.scale.width / 2 + 100,
-      buttonY,
-      confirmButtonWidth,
-      confirmButtonHeight,
-      0x664444
-    );
-    cancelButtonBg.setStrokeStyle(3, 0x886666);
-    cancelButtonBg.setInteractive({ useHandCursor: true });
-    cancelButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    cancelButtonBg.setName('shopCancelButtonBg');
-    addButtonInteraction(this.scene, cancelButtonBg);
-
-    const cancelButtonText = this.scene.add.text(this.scene.scale.width / 2 + 100, buttonY, 'Cancel', {
-      fontSize: '24px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-    cancelButtonText.setOrigin(0.5);
-    cancelButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    cancelButtonText.setName('shopCancelButtonText');
-
-    cancelButtonBg.on('pointerover', () => {
-      cancelButtonBg.setFillStyle(0x885555);
-    });
-    cancelButtonBg.on('pointerout', () => {
-      cancelButtonBg.setFillStyle(0x664444);
-    });
-    cancelButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.hideShopConfirmation();
-      this.showPauseMenu();
+    const { bg: cancelButtonBg } = this.createLabeledButton({
+      x: this.scene.scale.width / 2 + 100, y: buttonY,
+      width: confirmButtonWidth, height: confirmButtonHeight,
+      label: 'Cancel', fontSize: '24px',
+      baseColor: 0x664444, hoverColor: 0x885555, strokeColor: 0x886666,
+      bgName: 'shopCancelButtonBg', textName: 'shopCancelButtonText',
+      onActivate: () => {
+        this.hideShopConfirmation();
+        this.showPauseMenu();
+      },
     });
 
     // Keyboard navigation for confirm/cancel
@@ -846,7 +903,7 @@ export class PauseMenuManager {
       this.shopConfirmKeyHandler = null;
     }
 
-    const elementsToRemove = [
+    this.destroyElementsByName([
       'shopConfirmOverlay',
       'shopConfirmTitle',
       'shopConfirmSubtitle',
@@ -856,11 +913,7 @@ export class PauseMenuManager {
       'shopConfirmButtonText',
       'shopCancelButtonBg',
       'shopCancelButtonText',
-    ];
-    elementsToRemove.forEach((name) => {
-      const element = this.scene.children.getByName(name);
-      if (element) element.destroy();
-    });
+    ]);
 
     this.isShopConfirmationOpen = false;
   }
@@ -871,18 +924,7 @@ export class PauseMenuManager {
    */
   public showVictory(data: VictoryData): void {
     // Create victory overlay with fade-in
-    const overlay = this.scene.add.rectangle(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2,
-      this.scene.scale.width,
-      this.scene.scale.height,
-      0x000000,
-      1
-    );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
-    overlay.setName('victoryOverlay');
-    overlay.setAlpha(0);
-    this.scene.tweens.add({ targets: overlay, alpha: 0.8, duration: 200, ease: 'Sine.easeOut' });
+    this.createFadeInOverlay('victoryOverlay', 0.8, 200);
 
     // World cleared text
     const worldClearedText = this.scene.add.text(
@@ -892,7 +934,7 @@ export class PauseMenuManager {
       {
         fontSize: '32px',
         color: '#88aaff',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         stroke: '#000000',
         strokeThickness: 4,
       }
@@ -903,11 +945,13 @@ export class PauseMenuManager {
 
     const victoryText = this.scene.add.text(this.scene.scale.width / 2, this.scene.scale.height / 2 - 60, 'VICTORY!', {
       fontSize: '72px',
-      color: '#ffdd44',
-      fontFamily: 'Arial',
+      color: ACCENT_COLORS_STR.focus,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
+      strokeThickness: 8,
     });
+    victoryText.setLetterSpacing(5);
     victoryText.setOrigin(0.5);
     victoryText.setDepth(PAUSE_MENU_DEPTH + 1);
     victoryText.setName('victoryText');
@@ -950,7 +994,7 @@ export class PauseMenuManager {
       {
         fontSize: '28px',
         color: '#88ff88',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }
     );
     messageText.setOrigin(0.5);
@@ -965,7 +1009,7 @@ export class PauseMenuManager {
       {
         fontSize: '22px',
         color: '#aaddff',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }
     );
     nextWorldText.setOrigin(0.5);
@@ -979,7 +1023,7 @@ export class PauseMenuManager {
       {
         fontSize: '20px',
         color: '#ffffff',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }
     );
     statsText.setOrigin(0.5);
@@ -995,7 +1039,7 @@ export class PauseMenuManager {
       {
         fontSize: '18px',
         color: '#ffaa44',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }
     );
     streakText.setOrigin(0.5);
@@ -1013,50 +1057,24 @@ export class PauseMenuManager {
     const nextWorldButtonX = this.scene.scale.width / 2 + 100;
 
     // Continue Run button (green, left)
-    const continueButtonBg = this.scene.add.rectangle(
-      continueButtonX,
-      buttonY,
-      buttonWidth,
-      buttonHeight,
-      0x44aa44
-    );
-    continueButtonBg.setStrokeStyle(3, 0x66cc66);
-    continueButtonBg.setInteractive({ useHandCursor: true });
-    continueButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    continueButtonBg.setName('victoryContinueButtonBg');
-    addButtonInteraction(this.scene, continueButtonBg);
-
-    const continueButtonText = this.scene.add.text(continueButtonX, buttonY, 'Continue [C]', {
-      fontSize: '20px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
+    this.createLabeledButton({
+      x: continueButtonX, y: buttonY,
+      width: buttonWidth, height: buttonHeight,
+      label: 'Continue [C]', fontSize: '20px',
+      baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeColor: 0x66cc66,
+      bgName: 'victoryContinueButtonBg', textName: 'victoryContinueButtonText',
+      onActivate: () => this.handleVictoryContinue(),
     });
-    continueButtonText.setOrigin(0.5);
-    continueButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    continueButtonText.setName('victoryContinueButtonText');
 
     // Next World button (blue, right)
-    const nextWorldButtonBg = this.scene.add.rectangle(
-      nextWorldButtonX,
-      buttonY,
-      buttonWidth,
-      buttonHeight,
-      0x4488cc
-    );
-    nextWorldButtonBg.setStrokeStyle(3, 0x66aaee);
-    nextWorldButtonBg.setInteractive({ useHandCursor: true });
-    nextWorldButtonBg.setDepth(PAUSE_MENU_DEPTH + 1);
-    nextWorldButtonBg.setName('victoryNextWorldButtonBg');
-    addButtonInteraction(this.scene, nextWorldButtonBg);
-
-    const nextWorldButtonText = this.scene.add.text(nextWorldButtonX, buttonY, 'Next World [N]', {
-      fontSize: '20px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
+    this.createLabeledButton({
+      x: nextWorldButtonX, y: buttonY,
+      width: buttonWidth, height: buttonHeight,
+      label: 'Next World [N]', fontSize: '20px',
+      baseColor: 0x4488cc, hoverColor: 0x5599dd, strokeColor: 0x66aaee,
+      bgName: 'victoryNextWorldButtonBg', textName: 'victoryNextWorldButtonText',
+      onActivate: () => this.handleVictoryNextWorld(goldToEarn),
     });
-    nextWorldButtonText.setOrigin(0.5);
-    nextWorldButtonText.setDepth(PAUSE_MENU_DEPTH + 2);
-    nextWorldButtonText.setName('victoryNextWorldButtonText');
 
     // Gold preview centered below buttons
     const goldPreviewText = this.scene.add.text(
@@ -1066,38 +1084,15 @@ export class PauseMenuManager {
       {
         fontSize: '16px',
         color: '#ffdd44',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }
     );
     goldPreviewText.setOrigin(0.5);
     goldPreviewText.setDepth(PAUSE_MENU_DEPTH + 1);
     goldPreviewText.setName('victoryGoldPreview');
 
-    // Hover effects
-    continueButtonBg.on('pointerover', () => {
-      continueButtonBg.setFillStyle(0x55bb55);
-    });
-    continueButtonBg.on('pointerout', () => {
-      continueButtonBg.setFillStyle(0x44aa44);
-    });
-    nextWorldButtonBg.on('pointerover', () => {
-      nextWorldButtonBg.setFillStyle(0x5599dd);
-    });
-    nextWorldButtonBg.on('pointerout', () => {
-      nextWorldButtonBg.setFillStyle(0x4488cc);
-    });
-
-    // Click handlers
-    continueButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.handleVictoryContinue();
-    });
-    nextWorldButtonBg.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      this.handleVictoryNextWorld(goldToEarn);
-    });
-
-    // Keyboard handlers (store for cleanup)
+    // Keyboard handlers (store for cleanup). Pointer click handlers are wired
+    // by createLabeledButton above.
     this.victoryContinueHandler = () => this.handleVictoryContinue();
     this.victoryNextWorldHandler = () => this.handleVictoryNextWorld(goldToEarn);
 
@@ -1111,17 +1106,10 @@ export class PauseMenuManager {
    */
   private handleVictoryContinue(): void {
     // Remove keyboard listeners first
-    if (this.victoryContinueHandler) {
-      this.scene.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
-    }
-    if (this.victoryNextWorldHandler) {
-      this.scene.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
-    }
-    this.victoryContinueHandler = null;
-    this.victoryNextWorldHandler = null;
+    this.clearVictoryKeyboardHandlers();
 
     // Remove all victory UI elements
-    const elementsToRemove = [
+    this.destroyElementsByName([
       'victoryOverlay',
       'victoryWorldCleared',
       'victoryText',
@@ -1135,11 +1123,7 @@ export class PauseMenuManager {
       'victoryGoldPreview',
       'victoryStreak',
       'victoryConfetti',
-    ];
-    elementsToRemove.forEach((name) => {
-      const element = this.scene.children.getByName(name);
-      if (element) element.destroy();
-    });
+    ]);
 
     this.options.onContinueRun();
   }
@@ -1150,14 +1134,7 @@ export class PauseMenuManager {
    */
   private handleVictoryNextWorld(goldAmount: number): void {
     // Remove keyboard listeners
-    if (this.victoryContinueHandler) {
-      this.scene.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
-    }
-    if (this.victoryNextWorldHandler) {
-      this.scene.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
-    }
-    this.victoryContinueHandler = null;
-    this.victoryNextWorldHandler = null;
+    this.clearVictoryKeyboardHandlers();
 
     this.options.onNextWorld(goldAmount);
   }
@@ -1206,10 +1183,13 @@ export class PauseMenuManager {
     const titleText = this.scene.add.text(centerX, centerY - 110, titleLabel, {
       fontSize: '64px',
       color: titleColor,
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 4,
-    }).setOrigin(0.5).setDepth(depth);
+      strokeThickness: 7,
+    });
+    titleText.setLetterSpacing(4);
+    titleText.setOrigin(0.5).setDepth(depth);
     animatedElements.push(titleText);
 
     // Run stats — each stat gets its own line with count-up animation
@@ -1218,7 +1198,7 @@ export class PauseMenuManager {
     const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
     const statLabelStyle = { fontSize: '14px', color: '#8888aa', fontFamily: 'Arial' };
-    const statValueStyle = { fontSize: '20px', color: '#aaaacc', fontFamily: 'Arial', fontStyle: 'bold' };
+    const statValueStyle = { fontSize: '20px', color: '#aaaacc', fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif', fontStyle: 'bold' };
 
     // Stat lines — compact 2-column layout
     const leftColX = centerX - 100;
@@ -1226,27 +1206,37 @@ export class PauseMenuManager {
     let statRowY = centerY - 45;
     const statRowSpacing = 28;
 
-    // Row 1: Time & Kills
-    const timeLabel = this.scene.add.text(leftColX, statRowY, 'Survived', statLabelStyle).setOrigin(0.5).setDepth(depth);
-    const timeValue = this.scene.add.text(leftColX, statRowY + 16, timeStr, statValueStyle).setOrigin(0.5).setDepth(depth);
-    animatedElements.push(timeLabel, timeValue);
+    // Adds a (label, value) pair centered at (x, y) with value directly below.
+    // Returns the value text so callers can attach count-up animations.
+    const addStatPair = (
+      x: number,
+      y: number,
+      label: string,
+      value: string,
+      valueStyleOverrides: Partial<Phaser.Types.GameObjects.Text.TextStyle> = {}
+    ): Phaser.GameObjects.Text => {
+      const labelText = this.scene.add.text(x, y, label, statLabelStyle).setOrigin(0.5).setDepth(depth);
+      const valueText = this.scene.add.text(
+        x,
+        y + 16,
+        value,
+        { ...statValueStyle, ...valueStyleOverrides }
+      ).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(labelText, valueText);
+      return valueText;
+    };
 
-    const killLabel = this.scene.add.text(rightColX, statRowY, 'Kills', statLabelStyle).setOrigin(0.5).setDepth(depth);
-    const killValue = this.scene.add.text(rightColX, statRowY + 16, '0', statValueStyle).setOrigin(0.5).setDepth(depth);
-    animatedElements.push(killLabel, killValue);
+    // Row 1: Time & Kills
+    addStatPair(leftColX, statRowY, 'Survived', timeStr);
+    const killValue = addStatPair(rightColX, statRowY, 'Kills', '0');
 
     statRowY += statRowSpacing + 16;
 
     // Row 2: Level & Combo
-    const levelLabel = this.scene.add.text(leftColX, statRowY, 'Level', statLabelStyle).setOrigin(0.5).setDepth(depth);
-    const levelValue = this.scene.add.text(leftColX, statRowY + 16, '0', statValueStyle).setOrigin(0.5).setDepth(depth);
-    animatedElements.push(levelLabel, levelValue);
+    const levelValue = addStatPair(leftColX, statRowY, 'Level', '0');
 
     if (data.highestCombo > 0) {
-      const comboLabel = this.scene.add.text(rightColX, statRowY, 'Best Combo', statLabelStyle).setOrigin(0.5).setDepth(depth);
-      const comboValue = this.scene.add.text(rightColX, statRowY + 16, '0', { ...statValueStyle, color: '#ffdd44' }).setOrigin(0.5).setDepth(depth);
-      animatedElements.push(comboLabel, comboValue);
-
+      const comboValue = addStatPair(rightColX, statRowY, 'Best Combo', '0', { color: '#ffdd44' });
       // Combo count-up (delayed to appear after stagger)
       this.countUpStats.push({ text: comboValue, target: data.highestCombo });
     }
@@ -1265,13 +1255,8 @@ export class PauseMenuManager {
       const dmgTaken = formatLargeNumber(data.totalDamageTaken ?? 0);
       const dps = data.gameTime > 0 ? formatLargeNumber(Math.floor((data.totalDamageDealt ?? 0) / data.gameTime)) : '0';
 
-      const dealtLabel = this.scene.add.text(leftColX, statRowY, 'Damage Dealt', statLabelStyle).setOrigin(0.5).setDepth(depth);
-      const dealtValue = this.scene.add.text(leftColX, statRowY + 16, `${dmgDealt} (${dps}/s)`, { ...statValueStyle, fontSize: '16px' }).setOrigin(0.5).setDepth(depth);
-      animatedElements.push(dealtLabel, dealtValue);
-
-      const takenLabel = this.scene.add.text(rightColX, statRowY, 'Damage Taken', statLabelStyle).setOrigin(0.5).setDepth(depth);
-      const takenValue = this.scene.add.text(rightColX, statRowY + 16, dmgTaken, { ...statValueStyle, fontSize: '16px', color: '#ff8888' }).setOrigin(0.5).setDepth(depth);
-      animatedElements.push(takenLabel, takenValue);
+      addStatPair(leftColX, statRowY, 'Damage Dealt', `${dmgDealt} (${dps}/s)`, { fontSize: '16px' });
+      addStatPair(rightColX, statRowY, 'Damage Taken', dmgTaken, { fontSize: '16px', color: '#ff8888' });
 
       statRowY += statRowSpacing + 16;
     }
@@ -1288,7 +1273,7 @@ export class PauseMenuManager {
     const goldText = this.scene.add.text(centerX, goldY, 'Gold: +0', {
       fontSize: '28px',
       color: '#ffdd44',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
@@ -1301,7 +1286,7 @@ export class PauseMenuManager {
       const streakDisplay = this.scene.add.text(centerX, goldY + 35, streakChangeText, {
         fontSize: '18px',
         color: data.previousStreak > 0 && !hasWon ? '#ff6666' : '#ffdd44',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }).setOrigin(0.5).setDepth(depth);
       animatedElements.push(streakDisplay);
     }
@@ -1312,13 +1297,33 @@ export class PauseMenuManager {
       contentBottomY = goldY + 70;
     }
 
+    // Weapon breakdown panel (right side) + personal bests panel (left side)
+    if (data.weaponStats && data.weaponStats.length > 0) {
+      this.createWeaponBreakdownPanel(data.weaponStats, depth, animatedElements);
+    }
+    if (data.personalBests) {
+      this.createPersonalBestsPanel(data, depth, animatedElements);
+    }
+
+    // "Progress toward unlocks" panel — turns wasted runs into forward motion
+    // by surfacing the top 3 locked hidden unlocks the player is closest to.
+    if (data.unlockProgress && data.unlockProgress.length > 0) {
+      contentBottomY = this.createUnlockProgressPanel(
+        data.unlockProgress,
+        centerX,
+        contentBottomY + 30,
+        depth,
+        animatedElements
+      );
+    }
+
     // Restart hint
     const isTouchDevice = this.scene.input.manager.touch !== null && this.scene.sys.game.device.input.touch;
     const restartHint = isTouchDevice ? 'Tap to restart' : 'Press SPACE to restart';
     const restartText = this.scene.add.text(centerX, contentBottomY + 50, restartHint, {
       fontSize: '20px',
       color: '#888888',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
     }).setOrigin(0.5).setDepth(depth);
     animatedElements.push(restartText);
 
@@ -1387,7 +1392,7 @@ export class PauseMenuManager {
         this.scene.add.text(centerX, contentBottomY + 25, affordLabel, {
           fontSize: '16px',
           color: affordColor,
-          fontFamily: 'Arial',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
           fontStyle: 'italic',
         }).setOrigin(0.5).setDepth(depth);
       }
@@ -1428,6 +1433,283 @@ export class PauseMenuManager {
   }
 
   /**
+   * Creates the per-weapon damage breakdown panel shown on the right side of game over.
+   * Sorted by total damage descending. Top-5 weapons displayed.
+   */
+  private createWeaponBreakdownPanel(
+    weaponStats: WeaponRunStats[],
+    depth: number,
+    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
+  ): void {
+    const sortedWeapons = [...weaponStats]
+      .filter((stat) => stat.totalDamage > 0)
+      .sort((a, b) => b.totalDamage - a.totalDamage)
+      .slice(0, 5);
+
+    if (sortedWeapons.length === 0) return;
+
+    const totalDamageAll = sortedWeapons.reduce((sum, stat) => sum + stat.totalDamage, 0);
+
+    const panelX = this.scene.scale.width * 0.82;
+    const panelTopY = this.scene.scale.height / 2 - 150;
+    const panelWidth = 240;
+    const rowHeight = 36;
+    const panelHeight = sortedWeapons.length * rowHeight + 52;
+
+    // Background
+    const panelBackground = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBackground,
+      panelX - panelWidth / 2,
+      panelTopY,
+      panelWidth,
+      panelHeight
+    );
+    panelBackground.setDepth(depth);
+    animatedElements.push(panelBackground);
+
+    // Title
+    const titleText = this.scene.add.text(panelX, panelTopY + 8, 'WEAPON DAMAGE', {
+      fontSize: '14px',
+      color: '#aaaacc',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0).setDepth(depth);
+    animatedElements.push(titleText);
+
+    // Per-weapon rows
+    sortedWeapons.forEach((weaponStat, index) => {
+      const rowY = panelTopY + 32 + index * rowHeight;
+      const damagePercentage = totalDamageAll > 0 ? (weaponStat.totalDamage / totalDamageAll) * 100 : 0;
+
+      // Weapon name (left-aligned)
+      const nameText = this.scene.add.text(panelX - panelWidth / 2 + 10, rowY + 2, weaponStat.weaponName, {
+        fontSize: '13px',
+        color: '#ddddee',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(nameText);
+
+      // Damage value (right-aligned)
+      const damageText = this.scene.add.text(
+        panelX + panelWidth / 2 - 10,
+        rowY + 2,
+        `${formatLargeNumber(weaponStat.totalDamage)}  ${damagePercentage.toFixed(0)}%`,
+        {
+          fontSize: '12px',
+          color: '#ffcc66',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(1, 0).setDepth(depth);
+      animatedElements.push(damageText);
+
+      // Horizontal bar
+      const barBackground = this.scene.add.graphics();
+      barBackground.fillStyle(0x222233, 0.8);
+      barBackground.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, panelWidth - 20, 5);
+      barBackground.setDepth(depth);
+      animatedElements.push(barBackground);
+
+      const barFill = this.scene.add.graphics();
+      const barFillWidth = ((panelWidth - 20) * damagePercentage) / 100;
+      const barColor = index === 0 ? 0xffcc44 : 0x8888bb;
+      barFill.fillStyle(barColor, 1);
+      barFill.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, barFillWidth, 5);
+      barFill.setDepth(depth);
+      animatedElements.push(barFill);
+    });
+  }
+
+  /**
+   * Creates a panel showing personal bests comparison on the left side.
+   * Flags records that were broken during this run.
+   */
+  private createPersonalBestsPanel(
+    data: GameOverData,
+    depth: number,
+    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
+  ): void {
+    const bests = data.personalBests!;
+    const panelX = this.scene.scale.width * 0.18;
+    const panelTopY = this.scene.scale.height / 2 - 150;
+    const panelWidth = 220;
+    const rowHeight = 32;
+
+    interface BestRow {
+      label: string;
+      current: string;
+      record: string;
+      broke: boolean;
+    }
+
+    const rows: BestRow[] = [];
+
+    const survivalBroke = data.gameTime > bests.longestSurvival;
+    rows.push({
+      label: 'Survival',
+      current: formatTime(data.gameTime),
+      record: formatTime(bests.longestSurvival),
+      broke: survivalBroke,
+    });
+
+    const killsBroke = data.killCount > bests.mostKills;
+    rows.push({
+      label: 'Kills',
+      current: String(data.killCount),
+      record: String(bests.mostKills),
+      broke: killsBroke,
+    });
+
+    const levelBroke = data.playerLevel > bests.highestLevel;
+    rows.push({
+      label: 'Level',
+      current: String(data.playerLevel),
+      record: String(bests.highestLevel),
+      broke: levelBroke,
+    });
+
+    const comboBroke = data.highestCombo > bests.highestCombo;
+    rows.push({
+      label: 'Combo',
+      current: String(data.highestCombo),
+      record: String(bests.highestCombo),
+      broke: comboBroke,
+    });
+
+    const panelHeight = rows.length * rowHeight + 48;
+
+    const panelBackground = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBackground,
+      panelX - panelWidth / 2,
+      panelTopY,
+      panelWidth,
+      panelHeight
+    );
+    panelBackground.setDepth(depth);
+    animatedElements.push(panelBackground);
+
+    const titleText = this.scene.add.text(panelX, panelTopY + 8, 'PERSONAL BESTS', {
+      fontSize: '14px',
+      color: '#aaaacc',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0).setDepth(depth);
+    animatedElements.push(titleText);
+
+    rows.forEach((row, index) => {
+      const rowY = panelTopY + 32 + index * rowHeight;
+
+      const labelColor = row.broke ? '#ffdd44' : '#8888aa';
+      const valueColor = row.broke ? '#ffdd44' : '#ccccdd';
+      const labelPrefix = row.broke ? '[NEW] ' : '';
+
+      const labelText = this.scene.add.text(panelX - panelWidth / 2 + 10, rowY + 2, `${labelPrefix}${row.label}`, {
+        fontSize: '13px',
+        color: labelColor,
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: row.broke ? 'bold' : 'normal',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(labelText);
+
+      const valueText = this.scene.add.text(
+        panelX + panelWidth / 2 - 10,
+        rowY + 2,
+        `${row.current}  /  ${row.record}`,
+        {
+          fontSize: '12px',
+          color: valueColor,
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(1, 0).setDepth(depth);
+      animatedElements.push(valueText);
+    });
+  }
+
+  /**
+   * Renders a compact "Progress Toward Unlocks" panel below the main stats.
+   * Each row shows the unlock's display name + a thin progress bar.
+   * Returns the new content bottom Y so the restart hint can stack below it.
+   */
+  private createUnlockProgressPanel(
+    entries: UnlockProgressEntry[],
+    centerX: number,
+    startY: number,
+    depth: number,
+    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
+  ): number {
+    const panelWidth = 340;
+    const rowHeight = 22;
+    const headerOffset = 18;
+    const panelHeight = headerOffset + entries.length * rowHeight + 14;
+
+    // Panel background
+    const panelBackground = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBackground,
+      centerX - panelWidth / 2,
+      startY,
+      panelWidth,
+      panelHeight
+    );
+    panelBackground.setDepth(depth);
+    animatedElements.push(panelBackground);
+
+    const header = this.scene.add.text(centerX, startY + 6, 'CLOSEST TO UNLOCK', {
+      fontSize: '12px',
+      color: '#cc99ff',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0).setDepth(depth);
+    animatedElements.push(header);
+
+    const barWidth = 110;
+    const barHeight = 6;
+    const leftTextX = centerX - panelWidth / 2 + 14;
+    const barX = centerX + panelWidth / 2 - barWidth - 14;
+
+    entries.forEach((entry, index) => {
+      const rowY = startY + headerOffset + 8 + index * rowHeight;
+      const percent = Math.round(entry.ratio * 100);
+      const progressText = formatProgressText(entry.current, entry.target);
+
+      const nameText = this.scene.add.text(leftTextX, rowY, entry.condition.displayName, {
+        fontSize: '13px',
+        color: '#ccccdd',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(nameText);
+
+      // Background bar
+      const barGraphics = this.scene.add.graphics();
+      barGraphics.fillStyle(0x2a2a44, 0.9);
+      barGraphics.fillRoundedRect(barX, rowY + 4, barWidth, barHeight, 3);
+      // Fill portion
+      const fillWidth = Math.max(2, barWidth * entry.ratio);
+      barGraphics.fillStyle(0xaa44ff, 1.0);
+      barGraphics.fillRoundedRect(barX, rowY + 4, fillWidth, barHeight, 3);
+      barGraphics.setDepth(depth);
+      animatedElements.push(barGraphics);
+
+      const percentText = this.scene.add.text(barX + barWidth + 6, rowY, `${percent}%`, {
+        fontSize: '11px',
+        color: percent >= 90 ? '#ffdd44' : '#888899',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(percentText);
+
+      const detailText = this.scene.add.text(leftTextX, rowY + 11, progressText, {
+        fontSize: '10px',
+        color: '#6677aa',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(detailText);
+    });
+
+    return startY + panelHeight;
+  }
+
+  /**
    * Cleans up all keyboard handlers and destroys any visible overlays.
    * Must be called when the scene shuts down.
    */
@@ -1445,14 +1727,7 @@ export class PauseMenuManager {
     }
 
     // Remove victory keyboard handlers (if victory overlay was showing)
-    if (this.victoryContinueHandler) {
-      this.scene.input.keyboard?.off('keydown-C', this.victoryContinueHandler);
-      this.victoryContinueHandler = null;
-    }
-    if (this.victoryNextWorldHandler) {
-      this.scene.input.keyboard?.off('keydown-N', this.victoryNextWorldHandler);
-      this.victoryNextWorldHandler = null;
-    }
+    this.clearVictoryKeyboardHandlers();
 
     // Remove game over keyboard/pointer/gamepad handlers
     if (this.gameOverRestartHandler) {

@@ -21,6 +21,7 @@ export const DepthLayers = {
   FINISHING_BLOW: 11,
   LASER: 13,
   METEOR: 20,
+  IMPACT_CALLOUTS: 85,
   UI_OVERLAY: 100,
   TRANSITION: 1000,
 } as const;

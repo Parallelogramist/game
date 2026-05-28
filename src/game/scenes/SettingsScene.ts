@@ -1,6 +1,10 @@
 /**
- * SettingsScene - Unified settings UI accessible from both BootScene and GameScene pause menu.
- * Uses an overlay approach so it doesn't interrupt gameplay when accessed during a run.
+ * SettingsScene — card grid layout.
+ *
+ * Four panels: AUDIO, VISUALS, COMBAT/HUD, DATA. Each panel is a MenuCard with
+ * an accent banner header. Toggles render as ON/OFF pill segments; multi-select
+ * options (playback mode, damage numbers) render as segmented pills. Volume
+ * rows show a 10-segment bar between -/+ buttons.
  */
 
 import Phaser from 'phaser';
@@ -12,55 +16,96 @@ import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator } from '../../input/MenuNavigator';
+import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
+import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
 
-type FocusZone = 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks' | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter' | 'uiScale' | 'damageNumbers' | 'statusText' | 'resetData' | 'back';
+type FocusZone =
+  | 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks'
+  | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter'
+  | 'uiScale'
+  | 'damageNumbers' | 'statusText'
+  | 'resetData' | 'back';
 
 interface SettingsSceneData {
   returnTo: 'BootScene' | 'GameScene';
 }
 
+interface PillHandle {
+  container: Phaser.GameObjects.Container;
+  background: Phaser.GameObjects.Graphics;
+  label: Phaser.GameObjects.Text;
+  width: number;
+  height: number;
+}
+
+interface ToggleControl {
+  refresh(enabled: boolean): void;
+  setFocused(focused: boolean): void;
+}
+
+interface VolumeControl {
+  refresh(percent01: number): void;
+  setFocused(focused: boolean): void;
+}
+
+interface SegmentedControl<T extends string> {
+  refresh(activeValue: T, focusedIndex: number | null): void;
+}
+
+interface StepperHandles {
+  minusButton: Phaser.GameObjects.Text;
+  plusButton: Phaser.GameObjects.Text;
+  valueLabel: Phaser.GameObjects.Text;
+}
+
+const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
+
+const PILL_PALETTE = {
+  on: { fill: 0x143924, border: ACCENT_COLORS.safe, text: '#a8f5c4' },
+  onActive: { fill: ACCENT_COLORS.safe, border: ACCENT_COLORS.safe, text: '#0a1a12' },
+  off: { fill: 0x3a1620, border: ACCENT_COLORS.danger, text: '#ffb3bd' },
+  offActive: { fill: ACCENT_COLORS.danger, border: ACCENT_COLORS.danger, text: '#1a0a0d' },
+  neutral: { fill: 0x1c2538, border: ACCENT_COLORS.neutral, text: TEXT_COLORS.muted },
+  neutralActive: { fill: ACCENT_COLORS.focus, border: ACCENT_COLORS.focus, text: '#1a1408' },
+  focusBorder: ACCENT_COLORS.focus,
+} as const;
+
 export class SettingsScene extends Phaser.Scene {
   private returnTo: 'BootScene' | 'GameScene' = 'BootScene';
 
-  // UI Elements
-  private sfxToggle!: Phaser.GameObjects.Text;
-  private sfxVolumeDown!: Phaser.GameObjects.Text;
-  private sfxVolumeUp!: Phaser.GameObjects.Text;
-  private sfxVolumeText!: Phaser.GameObjects.Text;
-  private bgmToggle!: Phaser.GameObjects.Text;
-  private bgmVolumeDown!: Phaser.GameObjects.Text;
-  private bgmVolumeUp!: Phaser.GameObjects.Text;
-  private bgmVolumeText!: Phaser.GameObjects.Text;
-  private musicTracksButton!: Phaser.GameObjects.Text;
-  private playbackModeButtons: Phaser.GameObjects.Text[] = [];
-  private screenShakeToggle!: Phaser.GameObjects.Text;
-  private reducedMotionToggle!: Phaser.GameObjects.Text;
-  private gridEffectsToggle!: Phaser.GameObjects.Text;
-  private fpsCounterToggle!: Phaser.GameObjects.Text;
-  private uiScaleDown!: Phaser.GameObjects.Text;
-  private uiScaleUp!: Phaser.GameObjects.Text;
-  private uiScaleText!: Phaser.GameObjects.Text;
-  private damageNumberButtons: Phaser.GameObjects.Text[] = [];
-  private statusTextToggle!: Phaser.GameObjects.Text;
-  private resetDataButton!: Phaser.GameObjects.Text;
-  private backButton!: Phaser.GameObjects.Text;
+  private toggles: Partial<Record<FocusZone, ToggleControl>> = {};
+  private volumes: Partial<Record<FocusZone, VolumeControl>> = {};
+  private playbackSegmented!: SegmentedControl<'sequential' | 'shuffle'>;
+  private damageNumbersSegmented!: SegmentedControl<DamageNumbersMode>;
+
+  private uiScaleHandles!: StepperHandles;
+
+  private musicTracksButton!: MenuButton;
+  private resetDataButton!: MenuButton;
+  private backButton!: MenuButton;
 
   private soundManager!: SoundManager;
+  private menuButtons: MenuButton[] = [];
 
-  // Confirmation overlay elements
   private confirmOverlay: Phaser.GameObjects.GameObject[] = [];
-  private confirmFocusIndex: number = 1; // 0 = Confirm, 1 = Cancel (default to Cancel for safety)
-  private confirmButtonRef: Phaser.GameObjects.Text | null = null;
-  private cancelButtonRef: Phaser.GameObjects.Text | null = null;
+  private confirmFocusIndex: number = 1;
+  private confirmButtonRef: MenuButton | null = null;
+  private cancelButtonRef: MenuButton | null = null;
 
-  // Navigation state
   private focusZone: FocusZone = 'sfx';
   private damageNumberIndex: number = 0;
   private playbackModeIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
+
   private layoutScale: number = 1;
   private fontScale: number = 1;
+  private menuOverlay: MenuOverlay | null = null;
+  private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+  private idleCards: MenuCard[] = [];
 
   constructor() {
     super({ key: 'SettingsScene' });
@@ -76,690 +121,708 @@ export class SettingsScene extends Phaser.Scene {
     const settingsManager = getSettingsManager();
     const musicManager = getMusicManager();
 
-    // Compute scaling for responsive layout on phones
     this.layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
     this.fontScale = computeMenuFontScale(this.scale.width, this.scale.height, settingsManager.getUiScale());
-    const ls = this.layoutScale;
-    const fs = this.fontScale;
 
-    // Reset state
-    this.damageNumberButtons = [];
-    this.playbackModeButtons = [];
+    this.toggles = {};
+    this.volumes = {};
+    this.menuButtons = [];
+    this.idleCards = [];
     this.focusZone = 'sfx';
-    this.damageNumberIndex = this.getDamageNumberModeIndex(settingsManager.getDamageNumbersMode());
-    this.playbackModeIndex = this.getPlaybackModeIndex(musicManager.getPlaybackMode());
+    this.damageNumberIndex = this.indexOfDamageMode(settingsManager.getDamageNumbersMode());
+    this.playbackModeIndex = musicManager.getPlaybackMode() === 'shuffle' ? 1 : 0;
 
     fadeIn(this, 150);
 
-    // Semi-transparent background
-    this.add.rectangle(
-      this.cameras.main.centerX,
-      this.cameras.main.centerY,
-      this.cameras.main.width,
-      this.cameras.main.height,
-      0x000000,
-      0.85
-    );
+    this.menuOverlay = createMenuOverlay(this, { dim: 0.85, drifterCount: 4 });
+    this.bgUpdateHandler = (time, delta) => {
+      this.menuOverlay?.update(delta);
+      const seconds = time / 1000;
+      for (const card of this.idleCards) card.tickIdle(seconds);
+      for (const btn of this.menuButtons) btn.tickIdle(seconds);
+    };
+    this.events.on('update', this.bgUpdateHandler);
 
-    // Title
-    this.add.text(centerX, scaledInt(ls, 30), 'SETTINGS', {
-      fontSize: scaledFontPx(fs, 36),
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-    }).setOrigin(0.5);
+    const titleSticker = makeStickerText(this, centerX, scaledInt(this.layoutScale, 36), 'SETTINGS', {
+      fontSize: 38,
+      color: ACCENT_COLORS_STR.gold,
+      strokeWidth: 6,
+      letterSpacing: 4,
+    });
+    titleSticker.setFontSize(scaledFontPx(this.fontScale, 38));
 
-    const contentLeftX = scaledInt(ls, 340);
-    let currentY = scaledInt(ls, 80);
-    const rowSpacing = scaledInt(ls, 35);
-    const sectionSpacing = scaledInt(ls, 50);
+    // ── Card grid ──────────────────────────────────────────────────────────
+    const cardWidth = scaledInt(this.layoutScale, 560);
+    const gapX = scaledInt(this.layoutScale, 24);
+    const gapY = scaledInt(this.layoutScale, 18);
+    const leftCenterX = centerX - cardWidth / 2 - gapX / 2;
+    const rightCenterX = centerX + cardWidth / 2 + gapX / 2;
+    const topRowY = scaledInt(this.layoutScale, 80);
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // AUDIO Section
-    // ═══════════════════════════════════════════════════════════════════════
-    this.add.text(centerX, currentY, '═══════════════════ AUDIO ═══════════════════', {
-      fontSize: scaledFontPx(fs, 14),
-      color: '#666666',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
-    currentY += rowSpacing;
+    const audioCardHeight = scaledInt(this.layoutScale, 320);
+    const combatCardHeight = scaledInt(this.layoutScale, 160);
+    const visualsCardHeight = scaledInt(this.layoutScale, 360);
+    const dataCardHeight = scaledInt(this.layoutScale, 120);
 
-    // SFX Toggle + Volume
-    this.add.text(contentLeftX, currentY, 'SFX', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
+    const audioTopY = topRowY + audioCardHeight / 2;
+    const combatTopY = topRowY + audioCardHeight + gapY + combatCardHeight / 2;
+    const visualsTopY = topRowY + visualsCardHeight / 2;
+    const dataTopY = topRowY + visualsCardHeight + gapY + dataCardHeight / 2;
+
+    this.buildAudioCard(leftCenterX, audioTopY, cardWidth, audioCardHeight);
+    this.buildCombatCard(leftCenterX, combatTopY, cardWidth, combatCardHeight);
+    this.buildVisualsCard(rightCenterX, visualsTopY, cardWidth, visualsCardHeight);
+    this.buildDataCard(rightCenterX, dataTopY, cardWidth, dataCardHeight);
+
+    const backButtonY = this.cameras.main.height - scaledInt(this.layoutScale, 38);
+    this.backButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: backButtonY,
+      width: scaledInt(this.layoutScale, 220),
+      height: scaledInt(this.layoutScale, 50),
+      label: 'BACK',
+      variant: 'neutral',
+      fontSize: scaledInt(this.fontScale, 20),
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        this.goBack();
+      },
+    });
+    this.menuButtons.push(this.backButton);
+
+    this.setupKeyboardNavigation();
+    this.buildMenuNavigator();
+    this.refreshAllFocusVisuals();
+
+    this.events.once('shutdown', this.shutdown, this);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Card builders
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private buildAudioCard(centerX: number, centerY: number, width: number, height: number): void {
+    const card = this.makeSectionCard(centerX, centerY, width, height, 'AUDIO', ACCENT_COLORS.gold, BODY_COLORS.primary);
+
+    const settingsManager = getSettingsManager();
+    const musicManager = getMusicManager();
+
+    const labelX = -width / 2 + scaledInt(this.layoutScale, 28);
+    const controlX = width / 2 - scaledInt(this.layoutScale, 28);
+    const startY = -height / 2 + scaledInt(this.layoutScale, 70);
+    const rowGap = scaledInt(this.layoutScale, 38);
+
+    this.addRowLabel(card, labelX, startY, 'SFX');
+    this.toggles['sfx'] = this.addToggle(card, controlX, startY, 'sfx', settingsManager.isSfxEnabled(), () => {
+      const next = !settingsManager.isSfxEnabled();
+      settingsManager.setSfxEnabled(next);
+      this.refreshAllFocusVisuals();
     });
 
-    this.sfxToggle = this.createToggle(contentLeftX + scaledInt(ls, 100), currentY, settingsManager.isSfxEnabled(), () => {
-      const newValue = !settingsManager.isSfxEnabled();
-      settingsManager.setSfxEnabled(newValue);
-      this.updateSfxToggle();
-    });
-    this.sfxToggle.setData('zone', 'sfx');
+    this.addRowLabel(card, labelX, startY + rowGap, 'SFX Volume');
+    this.volumes['sfxVolume'] = this.addVolumeRow(card, controlX, startY + rowGap, 'sfxVolume',
+      settingsManager.getSfxVolume(),
+      (delta) => {
+        settingsManager.setSfxVolume(settingsManager.getSfxVolume() + delta);
+        this.refreshAllFocusVisuals();
+      });
 
-    this.add.text(contentLeftX + scaledInt(ls, 250), currentY, 'Volume', {
-      fontSize: scaledFontPx(fs, 16),
-      color: '#aaaaaa',
-      fontFamily: 'Arial',
-    });
-
-    this.sfxVolumeDown = this.createButton(contentLeftX + scaledInt(ls, 340), currentY, '[ - ]', () => {
-      settingsManager.setSfxVolume(settingsManager.getSfxVolume() - 0.1);
-      this.updateSfxVolume();
-    });
-    this.sfxVolumeDown.setData('zone', 'sfxVolume');
-
-    this.sfxVolumeText = this.add.text(contentLeftX + scaledInt(ls, 400), currentY, `${Math.round(settingsManager.getSfxVolume() * 100)}%`, {
-      fontSize: scaledFontPx(fs, 16),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0);
-
-    this.sfxVolumeUp = this.createButton(contentLeftX + scaledInt(ls, 460), currentY, '[ + ]', () => {
-      settingsManager.setSfxVolume(settingsManager.getSfxVolume() + 0.1);
-      this.updateSfxVolume();
-    });
-    this.sfxVolumeUp.setData('zone', 'sfxVolume');
-
-    currentY += rowSpacing;
-
-    // BGM Toggle + Volume
-    this.add.text(contentLeftX, currentY, 'BGM', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-
+    this.addRowLabel(card, labelX, startY + rowGap * 2, 'Music');
     const bgmEnabled = musicManager.getPlaybackMode() !== 'off';
-    this.bgmToggle = this.createToggle(contentLeftX + scaledInt(ls, 100), currentY, bgmEnabled, () => {
-      const currentMode = musicManager.getPlaybackMode();
-      if (currentMode === 'off') {
+    this.toggles['bgm'] = this.addToggle(card, controlX, startY + rowGap * 2, 'bgm', bgmEnabled, () => {
+      if (musicManager.getPlaybackMode() === 'off') {
         musicManager.setPlaybackMode('sequential');
         musicManager.play();
       } else {
         musicManager.setPlaybackMode('off');
         musicManager.stop();
       }
-      this.updateBgmToggle();
-    });
-    this.bgmToggle.setData('zone', 'bgm');
-
-    this.add.text(contentLeftX + scaledInt(ls, 250), currentY, 'Volume', {
-      fontSize: scaledFontPx(fs, 16),
-      color: '#aaaaaa',
-      fontFamily: 'Arial',
+      this.refreshAllFocusVisuals();
     });
 
-    this.bgmVolumeDown = this.createButton(contentLeftX + scaledInt(ls, 340), currentY, '[ - ]', () => {
-      musicManager.setVolume(musicManager.getVolume() - 0.1);
-      this.updateBgmVolume();
-    });
-    this.bgmVolumeDown.setData('zone', 'bgmVolume');
-
-    this.bgmVolumeText = this.add.text(contentLeftX + scaledInt(ls, 400), currentY, `${Math.round(musicManager.getVolume() * 100)}%`, {
-      fontSize: scaledFontPx(fs, 16),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0);
-
-    this.bgmVolumeUp = this.createButton(contentLeftX + scaledInt(ls, 460), currentY, '[ + ]', () => {
-      musicManager.setVolume(musicManager.getVolume() + 0.1);
-      this.updateBgmVolume();
-    });
-    this.bgmVolumeUp.setData('zone', 'bgmVolume');
-
-    currentY += rowSpacing;
-
-    // Playback Mode selector (Sequential / Shuffle)
-    this.add.text(contentLeftX, currentY, 'Playback', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-
-    const playbackModes: { mode: 'sequential' | 'shuffle' | 'off'; label: string }[] = [
-      { mode: 'sequential', label: 'Sequential' },
-      { mode: 'shuffle', label: 'Shuffle' },
-    ];
-
-    const playbackModeStartX = contentLeftX + scaledInt(ls, 120);
-    playbackModes.forEach((item, index) => {
-      const buttonX = playbackModeStartX + index * scaledInt(ls, 100);
-      const currentMode = musicManager.getPlaybackMode();
-      const isActive = currentMode === item.mode || (currentMode === 'off' && item.mode === 'sequential');
-
-      const button = this.add.text(buttonX, currentY, `[${item.label}]`, {
-        fontSize: scaledFontPx(fs, 14),
-        color: isActive ? '#ffdd44' : '#888888',
-        fontFamily: 'Arial',
-      }).setInteractive({ useHandCursor: true });
-
-      button.setData('zone', 'playbackMode');
-      button.setData('index', index);
-
-      button.on('pointerover', () => {
-        this.focusZone = 'playbackMode';
-        this.playbackModeIndex = index;
-        this.updateFocusVisuals();
+    this.addRowLabel(card, labelX, startY + rowGap * 3, 'Music Volume');
+    this.volumes['bgmVolume'] = this.addVolumeRow(card, controlX, startY + rowGap * 3, 'bgmVolume',
+      musicManager.getVolume(),
+      (delta) => {
+        musicManager.setVolume(musicManager.getVolume() + delta);
+        this.refreshAllFocusVisuals();
       });
 
-      button.on('pointerdown', () => {
+    this.addRowLabel(card, labelX, startY + rowGap * 4, 'Playback');
+    this.playbackSegmented = this.addSegmented<'sequential' | 'shuffle'>(
+      card, controlX, startY + rowGap * 4, 'playbackMode',
+      [
+        { value: 'sequential', label: 'Sequential' },
+        { value: 'shuffle', label: 'Shuffle' },
+      ],
+      this.resolvePlaybackValue(),
+      (value, index) => {
         const wasOff = musicManager.getPlaybackMode() === 'off';
-        musicManager.setPlaybackMode(item.mode);
+        musicManager.setPlaybackMode(value);
         this.playbackModeIndex = index;
-        this.updatePlaybackModeButtons();
-        // If music was off, also start playing
-        if (wasOff) {
-          musicManager.play();
-          this.updateBgmToggle();
-        }
-      });
+        if (wasOff) musicManager.play();
+        this.refreshAllFocusVisuals();
+      },
+    );
 
-      addButtonInteraction(this, button);
-      this.playbackModeButtons.push(button);
+    const trackButtonY = startY + rowGap * 5 + scaledInt(this.layoutScale, 14);
+    this.musicTracksButton = createMenuButton({
+      scene: this,
+      x: 0,
+      y: trackButtonY,
+      width: width - scaledInt(this.layoutScale, 80),
+      height: scaledInt(this.layoutScale, 42),
+      label: 'BROWSE TRACKS',
+      variant: 'gold',
+      fontSize: scaledInt(this.fontScale, 16),
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
+      },
     });
-
-    currentY += scaledInt(ls, 40);
-
-    // Music Track Selection button
-    this.musicTracksButton = this.add.text(centerX, currentY, '[ Music Track Selection ]', {
-      fontSize: scaledFontPx(fs, 16),
-      color: '#888888',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-    this.musicTracksButton.setData('zone', 'musicTracks');
-    this.musicTracksButton.on('pointerover', () => {
+    card.frame.add(this.musicTracksButton.container);
+    this.menuButtons.push(this.musicTracksButton);
+    this.musicTracksButton.card.hitZone.on('pointerover', () => {
       this.focusZone = 'musicTracks';
-      this.updateFocusVisuals();
+      this.refreshAllFocusVisuals();
     });
-    this.musicTracksButton.on('pointerdown', () => {
-      this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
-    });
-    addButtonInteraction(this, this.musicTracksButton);
+  }
 
-    currentY += sectionSpacing;
+  private buildVisualsCard(centerX: number, centerY: number, width: number, height: number): void {
+    const card = this.makeSectionCard(centerX, centerY, width, height, 'VISUALS', ACCENT_COLORS.primary, BODY_COLORS.primary);
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // VISUALS Section
-    // ═══════════════════════════════════════════════════════════════════════
-    this.add.text(centerX, currentY, '═══════════════════ VISUALS ═════════════════', {
-      fontSize: scaledFontPx(fs, 14),
-      color: '#666666',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
-    currentY += rowSpacing;
+    const settingsManager = getSettingsManager();
 
-    // Screen Shake Toggle
-    this.add.text(contentLeftX, currentY, 'Screen Shake', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
+    const labelX = -width / 2 + scaledInt(this.layoutScale, 28);
+    const controlX = width / 2 - scaledInt(this.layoutScale, 28);
+    const startY = -height / 2 + scaledInt(this.layoutScale, 70);
+    const rowGap = scaledInt(this.layoutScale, 36);
 
-    this.screenShakeToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isScreenShakeEnabled(), () => {
-      const newValue = !settingsManager.isScreenShakeEnabled();
-      settingsManager.setScreenShakeEnabled(newValue);
-      this.updateScreenShakeToggle();
-    });
-    this.screenShakeToggle.setData('zone', 'screenShake');
+    const buildToggleRow = (offsetRow: number, label: string, zone: FocusZone, getter: () => boolean, setter: (value: boolean) => void) => {
+      const rowY = startY + rowGap * offsetRow;
+      this.addRowLabel(card, labelX, rowY, label);
+      this.toggles[zone] = this.addToggle(card, controlX, rowY, zone, getter(), () => {
+        setter(!getter());
+        this.refreshAllFocusVisuals();
+      });
+    };
 
-    currentY += rowSpacing;
+    buildToggleRow(0, 'Screen Shake', 'screenShake',
+      () => settingsManager.isScreenShakeEnabled(),
+      (v) => settingsManager.setScreenShakeEnabled(v));
 
-    // Reduced Motion Toggle
-    this.add.text(contentLeftX, currentY, 'Reduced Motion', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
+    buildToggleRow(1, 'Reduced Motion', 'reducedMotion',
+      () => settingsManager.isReducedMotionEnabled(),
+      (v) => settingsManager.setReducedMotion(v));
 
-    this.reducedMotionToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isReducedMotionEnabled(), () => {
-      const newValue = !settingsManager.isReducedMotionEnabled();
-      settingsManager.setReducedMotion(newValue);
-      this.updateReducedMotionToggle();
-    });
-    this.reducedMotionToggle.setData('zone', 'reducedMotion');
+    buildToggleRow(2, 'Grid Effects', 'gridEffects',
+      () => settingsManager.isGridEffectsEnabled(),
+      (v) => settingsManager.setGridEffectsEnabled(v));
 
-    currentY += rowSpacing;
+    buildToggleRow(3, 'FPS Counter', 'fpsCounter',
+      () => settingsManager.isFpsCounterEnabled(),
+      (v) => settingsManager.setFpsCounterEnabled(v));
 
-    // Grid Effects Toggle
-    this.add.text(contentLeftX, currentY, 'Grid Effects', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
+    const uiScaleY = startY + rowGap * 4;
+    this.addRowLabel(card, labelX, uiScaleY, 'UI Scale');
+    this.uiScaleHandles = this.addStepperRow(card, controlX, uiScaleY, 'uiScale',
+      () => `${Math.round(settingsManager.getUiScale() * 100)}%`,
+      (delta) => {
+        settingsManager.setUiScale(settingsManager.getUiScale() + delta);
+        this.scene.restart({ returnTo: this.returnTo });
+      },
+    );
 
-    this.gridEffectsToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isGridEffectsEnabled(), () => {
-      const newValue = !settingsManager.isGridEffectsEnabled();
-      settingsManager.setGridEffectsEnabled(newValue);
-      this.updateGridEffectsToggle();
-    });
-    this.gridEffectsToggle.setData('zone', 'gridEffects');
+  }
 
-    currentY += rowSpacing;
+  private buildCombatCard(centerX: number, centerY: number, width: number, height: number): void {
+    const card = this.makeSectionCard(centerX, centerY, width, height, 'COMBAT TEXT', ACCENT_COLORS.magenta, BODY_COLORS.magenta);
 
-    // FPS Counter Toggle
-    this.add.text(contentLeftX, currentY, 'FPS Counter', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
+    const settingsManager = getSettingsManager();
 
-    this.fpsCounterToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isFpsCounterEnabled(), () => {
-      const newValue = !settingsManager.isFpsCounterEnabled();
-      settingsManager.setFpsCounterEnabled(newValue);
-      this.updateFpsCounterToggle();
-    });
-    this.fpsCounterToggle.setData('zone', 'fpsCounter');
+    const labelX = -width / 2 + scaledInt(this.layoutScale, 28);
+    const controlX = width / 2 - scaledInt(this.layoutScale, 28);
+    const startY = -height / 2 + scaledInt(this.layoutScale, 70);
+    const rowGap = scaledInt(this.layoutScale, 36);
 
-    currentY += rowSpacing;
-
-    // UI Scale slider
-    this.add.text(contentLeftX, currentY, 'UI Scale', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-
-    this.uiScaleDown = this.createButton(contentLeftX + scaledInt(ls, 180), currentY, '[ - ]', () => {
-      settingsManager.setUiScale(settingsManager.getUiScale() - 0.1);
-      this.scene.restart({ returnTo: this.returnTo });
-    });
-    this.uiScaleDown.setData('zone', 'uiScale');
-
-    this.uiScaleText = this.add.text(contentLeftX + scaledInt(ls, 240), currentY, `${Math.round(settingsManager.getUiScale() * 100)}%`, {
-      fontSize: scaledFontPx(fs, 16),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0);
-
-    this.uiScaleUp = this.createButton(contentLeftX + scaledInt(ls, 300), currentY, '[ + ]', () => {
-      settingsManager.setUiScale(settingsManager.getUiScale() + 0.1);
-      this.scene.restart({ returnTo: this.returnTo });
-    });
-    this.uiScaleUp.setData('zone', 'uiScale');
-
-    currentY += sectionSpacing;
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // COMBAT TEXT Section
-    // ═══════════════════════════════════════════════════════════════════════
-    this.add.text(centerX, currentY, '═════════════════ COMBAT TEXT ═══════════════', {
-      fontSize: scaledFontPx(fs, 14),
-      color: '#666666',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
-    currentY += rowSpacing;
-
-    // Damage Numbers Mode
-    this.add.text(contentLeftX, currentY, 'Damage Numbers', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    });
-
-    const damageNumberModes: { mode: DamageNumbersMode; label: string }[] = [
-      { mode: 'all', label: 'All' },
-      { mode: 'crits', label: 'Crits' },
-      { mode: 'perfect_crits', label: 'Perfect Crits' },
-      { mode: 'off', label: 'Off' },
-    ];
-
-    const modeStartX = contentLeftX + scaledInt(ls, 180);
-    damageNumberModes.forEach((item, index) => {
-      const buttonX = modeStartX + index * scaledInt(ls, 100);
-      const isActive = settingsManager.getDamageNumbersMode() === item.mode;
-
-      const button = this.add.text(buttonX, currentY, `[${item.label}]`, {
-        fontSize: scaledFontPx(fs, 14),
-        color: isActive ? '#ffdd44' : '#888888',
-        fontFamily: 'Arial',
-      }).setInteractive({ useHandCursor: true });
-
-      button.setData('zone', 'damageNumbers');
-      button.setData('index', index);
-
-      button.on('pointerover', () => {
-        this.focusZone = 'damageNumbers';
+    this.addRowLabel(card, labelX, startY, 'Damage Numbers');
+    this.damageNumbersSegmented = this.addSegmented<DamageNumbersMode>(
+      card, controlX, startY, 'damageNumbers',
+      [
+        { value: 'all', label: 'All' },
+        { value: 'crits', label: 'Crits' },
+        { value: 'perfect_crits', label: 'Perfect' },
+        { value: 'off', label: 'Off' },
+      ],
+      settingsManager.getDamageNumbersMode(),
+      (value, index) => {
+        settingsManager.setDamageNumbersMode(value);
         this.damageNumberIndex = index;
-        this.updateFocusVisuals();
+        this.refreshAllFocusVisuals();
+      },
+    );
+
+    const statusY = startY + rowGap;
+    this.addRowLabel(card, labelX, statusY, 'Status Text');
+    this.toggles['statusText'] = this.addToggle(card, controlX, statusY, 'statusText',
+      settingsManager.isStatusTextEnabled(),
+      () => {
+        settingsManager.setStatusTextEnabled(!settingsManager.isStatusTextEnabled());
+        this.refreshAllFocusVisuals();
       });
 
-      button.on('pointerdown', () => {
-        settingsManager.setDamageNumbersMode(item.mode);
-        this.damageNumberIndex = index;
-        this.updateDamageNumberButtons();
-      });
-
-      addButtonInteraction(this, button);
-      this.damageNumberButtons.push(button);
+    const hintText = makeBodyText(this, labelX, statusY + scaledInt(this.layoutScale, 22), 'DODGE, BLOCKED, IMMUNE, etc.', {
+      fontSize: scaledInt(this.fontScale, 11),
+      color: TEXT_COLORS.dim,
+      align: 'left',
     });
+    card.frame.add(hintText);
+  }
 
-    currentY += rowSpacing;
+  private buildDataCard(centerX: number, centerY: number, width: number, height: number): void {
+    const card = this.makeSectionCard(centerX, centerY, width, height, 'DATA', ACCENT_COLORS.danger, BODY_COLORS.danger);
 
-    // Status Text Toggle
-    this.add.text(contentLeftX, currentY, 'Status Text', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
+    const resetY = -height / 2 + scaledInt(this.layoutScale, 60);
+    this.resetDataButton = createMenuButton({
+      scene: this,
+      x: 0,
+      y: resetY,
+      width: width - scaledInt(this.layoutScale, 80),
+      height: scaledInt(this.layoutScale, 42),
+      label: 'RESET ALL DATA',
+      variant: 'danger',
+      fontSize: scaledInt(this.fontScale, 16),
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        this.showResetConfirmation();
+      },
     });
-
-    this.statusTextToggle = this.createToggle(contentLeftX + scaledInt(ls, 180), currentY, settingsManager.isStatusTextEnabled(), () => {
-      const newValue = !settingsManager.isStatusTextEnabled();
-      settingsManager.setStatusTextEnabled(newValue);
-      this.updateStatusTextToggle();
-    });
-    this.statusTextToggle.setData('zone', 'statusText');
-
-    // Status Text hint
-    this.add.text(contentLeftX + scaledInt(ls, 280), currentY, '(DODGE, BLOCKED, etc.)', {
-      fontSize: scaledFontPx(fs, 12),
-      color: '#666666',
-      fontFamily: 'Arial',
-    });
-
-    currentY += sectionSpacing;
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // DATA Section
-    // ═══════════════════════════════════════════════════════════════════════
-    this.add.text(centerX, currentY, '══════════════════ DATA ═════════════════════', {
-      fontSize: scaledFontPx(fs, 14),
-      color: '#666666',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
-    currentY += rowSpacing;
-
-    this.resetDataButton = this.add.text(centerX, currentY, '[ Reset All Data ]', {
-      fontSize: scaledFontPx(fs, 16),
-      color: '#ff4444',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-    this.resetDataButton.setData('zone', 'resetData');
-    this.resetDataButton.on('pointerover', () => {
+    card.frame.add(this.resetDataButton.container);
+    this.menuButtons.push(this.resetDataButton);
+    this.resetDataButton.card.hitZone.on('pointerover', () => {
       this.focusZone = 'resetData';
-      this.updateFocusVisuals();
+      this.refreshAllFocusVisuals();
     });
-    this.resetDataButton.on('pointerdown', () => {
-      this.showResetConfirmation();
-    });
-    addButtonInteraction(this, this.resetDataButton);
 
-    this.add.text(centerX, currentY + scaledInt(ls, 20), 'Erases all progress, upgrades, achievements, and settings', {
-      fontSize: scaledFontPx(fs, 11),
-      color: '#666666',
-      fontFamily: 'Arial',
+    const warning = makeBodyText(this, 0, resetY + scaledInt(this.layoutScale, 32),
+      'Erases progress, upgrades, achievements, settings.', {
+        fontSize: scaledInt(this.fontScale, 11),
+        color: TEXT_COLORS.dim,
+        align: 'center',
+      });
+    card.frame.add(warning);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Layout primitives
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private makeSectionCard(
+    centerX: number,
+    centerY: number,
+    width: number,
+    height: number,
+    title: string,
+    accentColor: number,
+    bodyColor: number,
+  ): MenuCard {
+    const bannerHeight = scaledInt(this.layoutScale, 34);
+    const card = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width,
+      height,
+      tilt: 0,
+      bodyFillColor: bodyColor,
+      bodyFillAlpha: 0.96,
+      accentColor,
+      bannerHeight,
+      borderWidth: 2,
+      borderColor: accentColor,
+      cornerRadius: 14,
+      shadowOffsetX: 4,
+      shadowOffsetY: 10,
+      shadowAlpha: 0.6,
+      interactive: false,
+    });
+    this.idleCards.push(card);
+
+    const bannerLabel = makeStickerText(this, 0, -height / 2 + bannerHeight / 2 - scaledInt(this.layoutScale, 1), title, {
+      fontSize: 18,
+      color: '#101018',
+      strokeWidth: 0,
+      letterSpacing: 3,
+    });
+    bannerLabel.setFontSize(scaledFontPx(this.fontScale, 18));
+    card.frame.add(bannerLabel);
+
+    return card;
+  }
+
+  private addRowLabel(card: MenuCard, x: number, y: number, label: string): Phaser.GameObjects.Text {
+    const text = this.add.text(x, y, label, {
+      fontSize: scaledFontPx(this.fontScale, 15),
+      color: TEXT_COLORS.body,
+      fontFamily: FONT_FAMILY,
+    }).setOrigin(0, 0.5);
+    card.frame.add(text);
+    return text;
+  }
+
+  // ── Pill primitive ────────────────────────────────────────────────────────
+
+  private createPill(
+    parent: Phaser.GameObjects.Container,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    label: string,
+    initialPalette: { fill: number; border: number; text: string },
+    onClick: () => void,
+    onHover: () => void,
+  ): PillHandle {
+    const container = this.add.container(x, y);
+    parent.add(container);
+
+    const background = this.add.graphics();
+    this.drawPill(background, width, height, initialPalette.fill, initialPalette.border, false);
+    container.add(background);
+
+    const labelText = this.add.text(0, 0, label, {
+      fontSize: scaledFontPx(this.fontScale, 12),
+      color: initialPalette.text,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
     }).setOrigin(0.5);
+    container.add(labelText);
 
-    currentY += sectionSpacing;
+    const hitZone = this.add.zone(0, 0, width, height).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    container.add(hitZone);
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Back Button
-    // ═══════════════════════════════════════════════════════════════════════
-    this.backButton = this.add.text(centerX, this.cameras.main.height - scaledInt(ls, 30), '[ Back ]', {
-      fontSize: scaledFontPx(fs, 20),
-      color: '#888888',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-
-    this.backButton.setData('zone', 'back');
-    this.backButton.on('pointerover', () => {
-      this.focusZone = 'back';
-      this.updateFocusVisuals();
-    });
-    this.backButton.on('pointerdown', () => {
-      this.goBack();
-    });
-    addButtonInteraction(this, this.backButton);
-
-    // Setup keyboard navigation
-    this.setupKeyboardNavigation();
-
-    // Setup gamepad navigation via MenuNavigator
-    this.buildMenuNavigator();
-
-    this.updateFocusVisuals();
-
-    // Register shutdown listener for cleanup
-    this.events.once('shutdown', this.shutdown, this);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // UI Helpers
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  private updateUiScaleText(): void {
-    const uiScale = getSettingsManager().getUiScale();
-    this.uiScaleText.setText(`${Math.round(uiScale * 100)}%`);
-  }
-
-  private createToggle(x: number, y: number, initialValue: boolean, onChange: () => void): Phaser.GameObjects.Text {
-    const text = initialValue ? '[ ON ]  OFF' : '  ON  [OFF]';
-    const toggle = this.add.text(x, y, text, {
-      fontSize: scaledFontPx(this.fontScale, 16),
-      color: initialValue ? '#88ff88' : '#ff8888',
-      fontFamily: 'Arial',
-    }).setInteractive({ useHandCursor: true });
-
-    toggle.on('pointerover', () => {
-      const zone = toggle.getData('zone') as FocusZone;
-      this.focusZone = zone;
-      this.updateFocusVisuals();
-    });
-
-    toggle.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      onChange();
-    });
-
-    addButtonInteraction(this, toggle);
-    return toggle;
-  }
-
-  private createButton(x: number, y: number, label: string, onClick: () => void): Phaser.GameObjects.Text {
-    const button = this.add.text(x, y, label, {
-      fontSize: scaledFontPx(this.fontScale, 16),
-      color: '#888888',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
-
-    button.on('pointerover', () => {
-      const zone = button.getData('zone') as FocusZone;
-      this.focusZone = zone;
-      this.updateFocusVisuals();
-    });
-
-    button.on('pointerdown', () => {
+    hitZone.on('pointerdown', () => {
       this.soundManager.playUIClick();
       onClick();
     });
+    hitZone.on('pointerover', onHover);
 
-    addButtonInteraction(this, button);
-    return button;
+    return { container, background, label: labelText, width, height };
   }
 
-  private getDamageNumberModeIndex(mode: DamageNumbersMode): number {
-    const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];
-    return modes.indexOf(mode);
+  private drawPill(graphics: Phaser.GameObjects.Graphics, width: number, height: number, fill: number, border: number, glow: boolean): void {
+    graphics.clear();
+    const radius = Math.min(height / 2, 14);
+    const halfW = width / 2;
+    const halfH = height / 2;
+
+    if (glow) {
+      graphics.fillStyle(border, 0.35);
+      graphics.fillRoundedRect(-halfW - 3, -halfH - 3, width + 6, height + 6, radius + 3);
+    }
+
+    graphics.lineStyle(2, border, 1);
+    graphics.fillStyle(fill, 1);
+    graphics.fillRoundedRect(-halfW, -halfH, width, height, radius);
+    graphics.strokeRoundedRect(-halfW, -halfH, width, height, radius);
   }
 
-  private getPlaybackModeIndex(mode: string): number {
-    // Map modes to button index: sequential=0, shuffle=1, off defaults to sequential=0
-    if (mode === 'shuffle') return 1;
-    return 0; // sequential or off
+  // ── ON/OFF toggle ─────────────────────────────────────────────────────────
+
+  private addToggle(card: MenuCard, rightAlignX: number, y: number, zone: FocusZone, initialEnabled: boolean, onToggle: () => void): ToggleControl {
+    const pillWidth = scaledInt(this.layoutScale, 58);
+    const pillHeight = scaledInt(this.layoutScale, 26);
+    const gap = scaledInt(this.layoutScale, 6);
+
+    const offPillX = rightAlignX - pillWidth / 2;
+    const onPillX = offPillX - pillWidth - gap;
+
+    const handleSelect = () => {
+      this.focusZone = zone;
+      onToggle();
+    };
+    const hoverHandler = () => {
+      this.focusZone = zone;
+      this.refreshAllFocusVisuals();
+    };
+
+    const onPill = this.createPill(card.frame, onPillX, y, pillWidth, pillHeight, 'ON',
+      PILL_PALETTE.on, handleSelect, hoverHandler);
+    const offPill = this.createPill(card.frame, offPillX, y, pillWidth, pillHeight, 'OFF',
+      PILL_PALETTE.off, handleSelect, hoverHandler);
+
+    const applyState = (enabled: boolean, focused: boolean) => {
+      const onPalette = enabled ? PILL_PALETTE.onActive : PILL_PALETTE.on;
+      const offPalette = !enabled ? PILL_PALETTE.offActive : PILL_PALETTE.off;
+      this.drawPill(onPill.background, onPill.width, onPill.height, onPalette.fill,
+        focused ? PILL_PALETTE.focusBorder : onPalette.border, focused);
+      onPill.label.setColor(onPalette.text);
+      this.drawPill(offPill.background, offPill.width, offPill.height, offPalette.fill,
+        focused ? PILL_PALETTE.focusBorder : offPalette.border, focused);
+      offPill.label.setColor(offPalette.text);
+    };
+
+    applyState(initialEnabled, false);
+
+    let currentEnabled = initialEnabled;
+    let currentFocused = false;
+
+    return {
+      refresh(enabled: boolean) {
+        currentEnabled = enabled;
+        applyState(currentEnabled, currentFocused);
+      },
+      setFocused(focused: boolean) {
+        currentFocused = focused;
+        applyState(currentEnabled, currentFocused);
+      },
+    };
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Update Methods
-  // ═══════════════════════════════════════════════════════════════════════════
+  // ── Volume row ────────────────────────────────────────────────────────────
 
-  private updateSfxToggle(): void {
-    const enabled = getSettingsManager().isSfxEnabled();
-    this.sfxToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
-    this.sfxToggle.setColor(enabled ? '#88ff88' : '#ff8888');
+  private addVolumeRow(card: MenuCard, rightAlignX: number, y: number, zone: FocusZone, initial01: number, onChange: (delta: number) => void): VolumeControl {
+    const buttonWidth = scaledInt(this.layoutScale, 24);
+    const buttonHeight = scaledInt(this.layoutScale, 26);
+    const barWidth = scaledInt(this.layoutScale, 130);
+    const barHeight = scaledInt(this.layoutScale, 10);
+    const percentTextWidth = scaledInt(this.layoutScale, 44);
+    const gap = scaledInt(this.layoutScale, 8);
+
+    const plusX = rightAlignX - buttonWidth / 2;
+    const percentX = plusX - buttonWidth / 2 - gap - percentTextWidth / 2;
+    const barEndX = percentX - percentTextWidth / 2 - gap;
+    const barCenterX = barEndX - barWidth / 2;
+    const minusX = barCenterX - barWidth / 2 - gap - buttonWidth / 2;
+
+    const minusButton = this.makeStepperButton(card, minusX, y, zone, '−', () => onChange(-0.1));
+    const plusButton = this.makeStepperButton(card, plusX, y, zone, '+', () => onChange(0.1));
+
+    const bar = this.add.graphics();
+    card.frame.add(bar);
+
+    const percentLabel = this.add.text(percentX, y, '', {
+      fontSize: scaledFontPx(this.fontScale, 13),
+      color: TEXT_COLORS.body,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    card.frame.add(percentLabel);
+
+    const drawBar = (percent01: number, focused: boolean) => {
+      bar.clear();
+      const segments = 10;
+      const filled = Math.round(Phaser.Math.Clamp(percent01, 0, 1) * segments);
+      const segGap = scaledInt(this.layoutScale, 2);
+      const segWidth = (barWidth - segGap * (segments - 1)) / segments;
+      for (let i = 0; i < segments; i++) {
+        const segX = barCenterX - barWidth / 2 + i * (segWidth + segGap);
+        const isFilled = i < filled;
+        bar.fillStyle(isFilled ? (focused ? ACCENT_COLORS.focus : ACCENT_COLORS.primary) : 0x2a3450, 1);
+        bar.fillRoundedRect(segX, y - barHeight / 2, segWidth, barHeight, 2);
+      }
+    };
+
+    let currentPercent = Phaser.Math.Clamp(initial01, 0, 1);
+    let currentFocused = false;
+
+    const applyState = () => {
+      drawBar(currentPercent, currentFocused);
+      percentLabel.setText(`${Math.round(currentPercent * 100)}%`);
+      const color = currentFocused ? ACCENT_COLORS_STR.focus : TEXT_COLORS.muted;
+      minusButton.setColor(color);
+      plusButton.setColor(color);
+    };
+    applyState();
+    void buttonWidth; void buttonHeight;
+
+    return {
+      refresh(percent01: number) {
+        currentPercent = Phaser.Math.Clamp(percent01, 0, 1);
+        applyState();
+      },
+      setFocused(focused: boolean) {
+        currentFocused = focused;
+        applyState();
+      },
+    };
   }
 
-  private updateSfxVolume(): void {
-    const volume = getSettingsManager().getSfxVolume();
-    this.sfxVolumeText.setText(`${Math.round(volume * 100)}%`);
+  private addStepperRow(card: MenuCard, rightAlignX: number, y: number, zone: FocusZone, getValueLabel: () => string, onChange: (delta: number) => void): StepperHandles {
+    const buttonWidth = scaledInt(this.layoutScale, 24);
+    const valueWidth = scaledInt(this.layoutScale, 62);
+    const gap = scaledInt(this.layoutScale, 6);
+
+    const plusX = rightAlignX - buttonWidth / 2;
+    const valueX = plusX - buttonWidth / 2 - gap - valueWidth / 2;
+    const minusX = valueX - valueWidth / 2 - gap - buttonWidth / 2;
+
+    const minusButton = this.makeStepperButton(card, minusX, y, zone, '−', () => onChange(-0.1));
+    const plusButton = this.makeStepperButton(card, plusX, y, zone, '+', () => onChange(0.1));
+
+    const valueLabel = this.add.text(valueX, y, getValueLabel(), {
+      fontSize: scaledFontPx(this.fontScale, 14),
+      color: TEXT_COLORS.body,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    card.frame.add(valueLabel);
+
+    return { minusButton, plusButton, valueLabel };
   }
 
-  private updateBgmToggle(): void {
-    const enabled = getMusicManager().getPlaybackMode() !== 'off';
-    this.bgmToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
-    this.bgmToggle.setColor(enabled ? '#88ff88' : '#ff8888');
-  }
+  private makeStepperButton(card: MenuCard, x: number, y: number, zone: FocusZone, label: string, onClick: () => void): Phaser.GameObjects.Text {
+    const text = this.add.text(x, y, label, {
+      fontSize: scaledFontPx(this.fontScale, 18),
+      color: TEXT_COLORS.muted,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+      backgroundColor: '#1c2538',
+      padding: { left: 6, right: 6, top: 1, bottom: 1 },
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    card.frame.add(text);
 
-  private updateBgmVolume(): void {
-    const volume = getMusicManager().getVolume();
-    this.bgmVolumeText.setText(`${Math.round(volume * 100)}%`);
-  }
-
-  private updateScreenShakeToggle(): void {
-    const enabled = getSettingsManager().isScreenShakeEnabled();
-    this.screenShakeToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
-    this.screenShakeToggle.setColor(enabled ? '#88ff88' : '#ff8888');
-  }
-
-  private updateReducedMotionToggle(): void {
-    const enabled = getSettingsManager().isReducedMotionEnabled();
-    this.reducedMotionToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
-    this.reducedMotionToggle.setColor(enabled ? '#88ff88' : '#ff8888');
-  }
-
-  private updateGridEffectsToggle(): void {
-    const enabled = getSettingsManager().isGridEffectsEnabled();
-    this.gridEffectsToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
-    this.gridEffectsToggle.setColor(enabled ? '#88ff88' : '#ff8888');
-  }
-
-  private updateFpsCounterToggle(): void {
-    const enabled = getSettingsManager().isFpsCounterEnabled();
-    this.fpsCounterToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
-    this.fpsCounterToggle.setColor(enabled ? '#88ff88' : '#ff8888');
-  }
-
-  private updateDamageNumberButtons(): void {
-    const currentMode = getSettingsManager().getDamageNumbersMode();
-    const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];
-
-    this.damageNumberButtons.forEach((button, index) => {
-      const isActive = modes[index] === currentMode;
-      const isFocused = this.focusZone === 'damageNumbers' && this.damageNumberIndex === index;
-      button.setColor(isFocused ? '#ffffff' : isActive ? '#ffdd44' : '#888888');
+    text.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      this.focusZone = zone;
+      onClick();
     });
-  }
-
-  private updatePlaybackModeButtons(): void {
-    const currentMode = getMusicManager().getPlaybackMode();
-    const modes: ('sequential' | 'shuffle')[] = ['sequential', 'shuffle'];
-
-    this.playbackModeButtons.forEach((button, index) => {
-      const isActive = modes[index] === currentMode || (currentMode === 'off' && modes[index] === 'sequential');
-      const isFocused = this.focusZone === 'playbackMode' && this.playbackModeIndex === index;
-      button.setColor(isFocused ? '#ffffff' : isActive ? '#ffdd44' : '#888888');
+    text.on('pointerover', () => {
+      this.focusZone = zone;
+      this.refreshAllFocusVisuals();
     });
+    addButtonInteraction(this, text);
+    return text;
   }
 
-  private updateStatusTextToggle(): void {
-    const enabled = getSettingsManager().isStatusTextEnabled();
-    this.statusTextToggle.setText(enabled ? '[ ON ]  OFF' : '  ON  [OFF]');
-    this.statusTextToggle.setColor(enabled ? '#88ff88' : '#ff8888');
+  // ── Segmented control ─────────────────────────────────────────────────────
+
+  private addSegmented<T extends string>(
+    card: MenuCard,
+    rightAlignX: number,
+    y: number,
+    zone: FocusZone,
+    options: { value: T; label: string }[],
+    initialValue: T,
+    onSelect: (value: T, index: number) => void,
+  ): SegmentedControl<T> {
+    const totalWidth = scaledInt(this.layoutScale, 256);
+    const gap = scaledInt(this.layoutScale, 5);
+    const pillHeight = scaledInt(this.layoutScale, 24);
+    const pillWidth = (totalWidth - gap * (options.length - 1)) / options.length;
+
+    const pills: { value: T; pill: PillHandle }[] = [];
+    const startX = rightAlignX - totalWidth;
+
+    options.forEach((option, index) => {
+      const px = startX + index * (pillWidth + gap) + pillWidth / 2;
+      const pill = this.createPill(card.frame, px, y, pillWidth, pillHeight, option.label,
+        PILL_PALETTE.neutral,
+        () => {
+          this.focusZone = zone;
+          onSelect(option.value, index);
+        },
+        () => {
+          this.focusZone = zone;
+          this.setSegmentedFocusIndex(zone, index);
+          this.refreshAllFocusVisuals();
+        });
+      pills.push({ value: option.value, pill });
+    });
+
+    const applyState = (activeValue: T, focusedIndex: number | null) => {
+      pills.forEach(({ value, pill }, index) => {
+        const isActive = value === activeValue;
+        const isFocused = focusedIndex === index;
+        const palette = isActive ? PILL_PALETTE.neutralActive : PILL_PALETTE.neutral;
+        this.drawPill(pill.background, pill.width, pill.height, palette.fill,
+          isFocused ? PILL_PALETTE.focusBorder : palette.border, isFocused);
+        pill.label.setColor(palette.text);
+      });
+    };
+
+    applyState(initialValue, null);
+
+    return {
+      refresh(activeValue: T, focusedIndex: number | null) {
+        applyState(activeValue, focusedIndex);
+      },
+    };
   }
 
-  private updateFocusVisuals(): void {
-    // Reset all elements to their default state
+  // ──────────────────────────────────────────────────────────────────────────
+  // Focus refresh
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private refreshAllFocusVisuals(): void {
     const settingsManager = getSettingsManager();
     const musicManager = getMusicManager();
 
-    // SFX Toggle
-    const sfxEnabled = settingsManager.isSfxEnabled();
-    this.sfxToggle.setColor(this.focusZone === 'sfx' ? '#ffffff' : sfxEnabled ? '#88ff88' : '#ff8888');
-
-    // SFX Volume
-    const sfxVolumeFocused = this.focusZone === 'sfxVolume';
-    this.sfxVolumeDown.setColor(sfxVolumeFocused ? '#ffffff' : '#888888');
-    this.sfxVolumeUp.setColor(sfxVolumeFocused ? '#ffffff' : '#888888');
-
-    // BGM Toggle
-    const bgmEnabled = musicManager.getPlaybackMode() !== 'off';
-    this.bgmToggle.setColor(this.focusZone === 'bgm' ? '#ffffff' : bgmEnabled ? '#88ff88' : '#ff8888');
-
-    // BGM Volume
-    const bgmVolumeFocused = this.focusZone === 'bgmVolume';
-    this.bgmVolumeDown.setColor(bgmVolumeFocused ? '#ffffff' : '#888888');
-    this.bgmVolumeUp.setColor(bgmVolumeFocused ? '#ffffff' : '#888888');
-
-    // Playback Mode buttons
-    this.updatePlaybackModeButtons();
-
-    // Music Tracks button
-    this.musicTracksButton.setColor(this.focusZone === 'musicTracks' ? '#ffffff' : '#888888');
-
-    // Screen Shake
-    const shakeEnabled = settingsManager.isScreenShakeEnabled();
-    this.screenShakeToggle.setColor(this.focusZone === 'screenShake' ? '#ffffff' : shakeEnabled ? '#88ff88' : '#ff8888');
-
-    // Reduced Motion
-    const reducedMotionEnabled = settingsManager.isReducedMotionEnabled();
-    this.reducedMotionToggle.setColor(this.focusZone === 'reducedMotion' ? '#ffffff' : reducedMotionEnabled ? '#88ff88' : '#ff8888');
-
-    // Grid Effects
-    const gridEnabled = settingsManager.isGridEffectsEnabled();
-    this.gridEffectsToggle.setColor(this.focusZone === 'gridEffects' ? '#ffffff' : gridEnabled ? '#88ff88' : '#ff8888');
-
-    // FPS Counter
-    const fpsEnabled = settingsManager.isFpsCounterEnabled();
-    this.fpsCounterToggle.setColor(this.focusZone === 'fpsCounter' ? '#ffffff' : fpsEnabled ? '#88ff88' : '#ff8888');
-
-    // UI Scale
-    const uiScaleFocused = this.focusZone === 'uiScale';
-    this.uiScaleDown.setColor(uiScaleFocused ? '#ffffff' : '#888888');
-    this.uiScaleUp.setColor(uiScaleFocused ? '#ffffff' : '#888888');
-
-    // Damage Numbers
-    this.updateDamageNumberButtons();
-
-    // Status Text
-    const statusEnabled = settingsManager.isStatusTextEnabled();
-    this.statusTextToggle.setColor(this.focusZone === 'statusText' ? '#ffffff' : statusEnabled ? '#88ff88' : '#ff8888');
-
-    // Reset Data button
-    this.resetDataButton.setColor(this.focusZone === 'resetData' ? '#ff6666' : '#ff4444');
-
-    // Back button
-    this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Gamepad Navigation (MenuNavigator)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /**
-   * Builds a MenuNavigator that maps each settings focus zone to a navigable item,
-   * providing gamepad D-pad/stick/A/B support alongside the existing keyboard handler.
-   */
-  private buildMenuNavigator(): void {
-    if (this.menuNavigator) {
-      this.menuNavigator.destroy();
+    const toggleStates: { zone: FocusZone; enabled: boolean }[] = [
+      { zone: 'sfx', enabled: settingsManager.isSfxEnabled() },
+      { zone: 'bgm', enabled: musicManager.getPlaybackMode() !== 'off' },
+      { zone: 'screenShake', enabled: settingsManager.isScreenShakeEnabled() },
+      { zone: 'reducedMotion', enabled: settingsManager.isReducedMotionEnabled() },
+      { zone: 'gridEffects', enabled: settingsManager.isGridEffectsEnabled() },
+      { zone: 'fpsCounter', enabled: settingsManager.isFpsCounterEnabled() },
+      { zone: 'statusText', enabled: settingsManager.isStatusTextEnabled() },
+    ];
+    for (const { zone, enabled } of toggleStates) {
+      const toggle = this.toggles[zone];
+      if (!toggle) continue;
+      toggle.setFocused(this.focusZone === zone);
+      toggle.refresh(enabled);
     }
 
-    // Ordered list of focus zones matching the vertical layout
+    this.volumes['sfxVolume']?.setFocused(this.focusZone === 'sfxVolume');
+    this.volumes['sfxVolume']?.refresh(settingsManager.getSfxVolume());
+    this.volumes['bgmVolume']?.setFocused(this.focusZone === 'bgmVolume');
+    this.volumes['bgmVolume']?.refresh(musicManager.getVolume());
+
+    if (this.uiScaleHandles) {
+      this.uiScaleHandles.valueLabel.setText(`${Math.round(settingsManager.getUiScale() * 100)}%`);
+      const focused = this.focusZone === 'uiScale';
+      this.uiScaleHandles.minusButton.setColor(focused ? ACCENT_COLORS_STR.focus : TEXT_COLORS.muted);
+      this.uiScaleHandles.plusButton.setColor(focused ? ACCENT_COLORS_STR.focus : TEXT_COLORS.muted);
+    }
+
+    this.playbackSegmented?.refresh(this.resolvePlaybackValue(),
+      this.focusZone === 'playbackMode' ? this.playbackModeIndex : null);
+    this.damageNumbersSegmented?.refresh(settingsManager.getDamageNumbersMode(),
+      this.focusZone === 'damageNumbers' ? this.damageNumberIndex : null);
+
+    this.musicTracksButton?.setFocusState(this.focusZone === 'musicTracks');
+    this.resetDataButton?.setFocusState(this.focusZone === 'resetData');
+    this.backButton?.setFocusState(this.focusZone === 'back');
+  }
+
+  private setSegmentedFocusIndex(zone: FocusZone, index: number): void {
+    if (zone === 'playbackMode') this.playbackModeIndex = index;
+    else if (zone === 'damageNumbers') this.damageNumberIndex = index;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Navigation
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private buildMenuNavigator(): void {
+    if (this.menuNavigator) this.menuNavigator.destroy();
+
     const orderedZones: FocusZone[] = [
       'sfx', 'sfxVolume', 'bgm', 'bgmVolume', 'playbackMode', 'musicTracks',
-      'screenShake', 'reducedMotion', 'gridEffects', 'fpsCounter', 'uiScale',
-      'damageNumbers', 'statusText', 'resetData', 'back',
+      'damageNumbers', 'statusText',
+      'screenShake', 'reducedMotion', 'gridEffects', 'fpsCounter',
+      'uiScale', 'resetData',
+      'back',
     ];
 
     const navigableItems = orderedZones.map((zone) => ({
       onFocus: () => {
         this.focusZone = zone;
-        this.updateFocusVisuals();
+        this.refreshAllFocusVisuals();
       },
       onBlur: () => {
-        this.updateFocusVisuals();
+        this.refreshAllFocusVisuals();
       },
       onActivate: () => {
         this.activateCurrentSelection();
@@ -773,44 +836,24 @@ export class SettingsScene extends Phaser.Scene {
       items: navigableItems,
       columns: 1,
       wrap: true,
-      onCancel: () => {
-        this.goBack();
-      },
+      onCancel: () => this.goBack(),
       initialIndex: currentZoneIndex >= 0 ? currentZoneIndex : 0,
     });
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Keyboard Navigation
-  // ═══════════════════════════════════════════════════════════════════════════
-
   private setupKeyboardNavigation(): void {
-    // This handler covers two things MenuNavigator doesn't:
-    // 1. Confirmation dialog keyboard navigation (when overlay is open)
-    // 2. Left/right value adjustment for settings zones (volume, damage numbers, etc.)
-    // Up/down/enter/escape for normal navigation are handled by MenuNavigator.
     this.keydownHandler = (event: KeyboardEvent) => {
-      // When confirmation dialog is open, handle its own navigation
       if (this.confirmOverlay.length > 0) {
         switch (event.key) {
-          case 'ArrowLeft':
-          case 'a':
-          case 'A':
-          case 'ArrowRight':
-          case 'd':
-          case 'D':
-          case 'ArrowUp':
-          case 'w':
-          case 'W':
-          case 'ArrowDown':
-          case 's':
-          case 'S':
+          case 'ArrowLeft': case 'a': case 'A':
+          case 'ArrowRight': case 'd': case 'D':
+          case 'ArrowUp': case 'w': case 'W':
+          case 'ArrowDown': case 's': case 'S':
             event.preventDefault();
             this.confirmFocusIndex = this.confirmFocusIndex === 0 ? 1 : 0;
             this.updateConfirmFocusVisuals();
             break;
-          case 'Enter':
-          case ' ':
+          case 'Enter': case ' ':
             event.preventDefault();
             this.activateConfirmSelection();
             break;
@@ -822,17 +865,12 @@ export class SettingsScene extends Phaser.Scene {
         return;
       }
 
-      // Left/right for value adjustment (not handled by MenuNavigator with columns=1)
       switch (event.key) {
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
+        case 'ArrowLeft': case 'a': case 'A':
           event.preventDefault();
           this.navigateLeft();
           break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
+        case 'ArrowRight': case 'd': case 'D':
           event.preventDefault();
           this.navigateRight();
           break;
@@ -842,35 +880,51 @@ export class SettingsScene extends Phaser.Scene {
   }
 
   private navigateLeft(): void {
-    if (this.focusZone === 'sfxVolume') {
-      this.focusZone = 'sfx';
-    } else if (this.focusZone === 'bgmVolume') {
-      this.focusZone = 'bgm';
-    } else if (this.focusZone === 'playbackMode') {
-      this.playbackModeIndex = Math.max(0, this.playbackModeIndex - 1);
-    } else if (this.focusZone === 'uiScale') {
-      getSettingsManager().setUiScale(getSettingsManager().getUiScale() - 0.1);
-      this.updateUiScaleText();
-    } else if (this.focusZone === 'damageNumbers') {
-      this.damageNumberIndex = Math.max(0, this.damageNumberIndex - 1);
+    const settingsManager = getSettingsManager();
+    const musicManager = getMusicManager();
+    switch (this.focusZone) {
+      case 'sfxVolume':
+        settingsManager.setSfxVolume(settingsManager.getSfxVolume() - 0.1);
+        break;
+      case 'bgmVolume':
+        musicManager.setVolume(musicManager.getVolume() - 0.1);
+        break;
+      case 'uiScale':
+        settingsManager.setUiScale(settingsManager.getUiScale() - 0.1);
+        this.scene.restart({ returnTo: this.returnTo });
+        return;
+      case 'playbackMode':
+        this.playbackModeIndex = Math.max(0, this.playbackModeIndex - 1);
+        break;
+      case 'damageNumbers':
+        this.damageNumberIndex = Math.max(0, this.damageNumberIndex - 1);
+        break;
     }
-    this.updateFocusVisuals();
+    this.refreshAllFocusVisuals();
   }
 
   private navigateRight(): void {
-    if (this.focusZone === 'sfx') {
-      this.focusZone = 'sfxVolume';
-    } else if (this.focusZone === 'bgm') {
-      this.focusZone = 'bgmVolume';
-    } else if (this.focusZone === 'playbackMode') {
-      this.playbackModeIndex = Math.min(1, this.playbackModeIndex + 1);
-    } else if (this.focusZone === 'uiScale') {
-      getSettingsManager().setUiScale(getSettingsManager().getUiScale() + 0.1);
-      this.updateUiScaleText();
-    } else if (this.focusZone === 'damageNumbers') {
-      this.damageNumberIndex = Math.min(3, this.damageNumberIndex + 1);
+    const settingsManager = getSettingsManager();
+    const musicManager = getMusicManager();
+    switch (this.focusZone) {
+      case 'sfxVolume':
+        settingsManager.setSfxVolume(settingsManager.getSfxVolume() + 0.1);
+        break;
+      case 'bgmVolume':
+        musicManager.setVolume(musicManager.getVolume() + 0.1);
+        break;
+      case 'uiScale':
+        settingsManager.setUiScale(settingsManager.getUiScale() + 0.1);
+        this.scene.restart({ returnTo: this.returnTo });
+        return;
+      case 'playbackMode':
+        this.playbackModeIndex = Math.min(1, this.playbackModeIndex + 1);
+        break;
+      case 'damageNumbers':
+        this.damageNumberIndex = Math.min(3, this.damageNumberIndex + 1);
+        break;
     }
-    this.updateFocusVisuals();
+    this.refreshAllFocusVisuals();
   }
 
   private activateCurrentSelection(): void {
@@ -880,10 +934,6 @@ export class SettingsScene extends Phaser.Scene {
     switch (this.focusZone) {
       case 'sfx':
         settingsManager.setSfxEnabled(!settingsManager.isSfxEnabled());
-        this.updateSfxToggle();
-        break;
-      case 'sfxVolume':
-        // Volume adjustment via left/right arrows
         break;
       case 'bgm':
         if (musicManager.getPlaybackMode() === 'off') {
@@ -893,169 +943,182 @@ export class SettingsScene extends Phaser.Scene {
           musicManager.setPlaybackMode('off');
           musicManager.stop();
         }
-        this.updateBgmToggle();
-        break;
-      case 'bgmVolume':
-        // Volume adjustment via left/right arrows
         break;
       case 'playbackMode': {
-        const playbackModes: ('sequential' | 'shuffle')[] = ['sequential', 'shuffle'];
+        const modes: ('sequential' | 'shuffle')[] = ['sequential', 'shuffle'];
         const wasOff = musicManager.getPlaybackMode() === 'off';
-        musicManager.setPlaybackMode(playbackModes[this.playbackModeIndex]);
-        this.updatePlaybackModeButtons();
-        // If music was off, also start playing
-        if (wasOff) {
-          musicManager.play();
-          this.updateBgmToggle();
-        }
+        musicManager.setPlaybackMode(modes[this.playbackModeIndex]);
+        if (wasOff) musicManager.play();
         break;
       }
       case 'musicTracks':
         this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
-        break;
+        return;
       case 'screenShake':
         settingsManager.setScreenShakeEnabled(!settingsManager.isScreenShakeEnabled());
-        this.updateScreenShakeToggle();
         break;
       case 'reducedMotion':
         settingsManager.setReducedMotion(!settingsManager.isReducedMotionEnabled());
-        this.updateReducedMotionToggle();
         break;
       case 'gridEffects':
         settingsManager.setGridEffectsEnabled(!settingsManager.isGridEffectsEnabled());
-        this.updateGridEffectsToggle();
         break;
       case 'fpsCounter':
         settingsManager.setFpsCounterEnabled(!settingsManager.isFpsCounterEnabled());
-        this.updateFpsCounterToggle();
-        break;
-      case 'uiScale':
-        // Adjustment via left/right arrows
         break;
       case 'damageNumbers': {
         const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];
         settingsManager.setDamageNumbersMode(modes[this.damageNumberIndex]);
-        this.updateDamageNumberButtons();
         break;
       }
       case 'statusText':
         settingsManager.setStatusTextEnabled(!settingsManager.isStatusTextEnabled());
-        this.updateStatusTextToggle();
         break;
       case 'resetData':
         this.showResetConfirmation();
-        break;
+        return;
       case 'back':
         this.goBack();
-        break;
+        return;
     }
+    this.refreshAllFocusVisuals();
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Reset confirmation overlay
+  // ──────────────────────────────────────────────────────────────────────────
+
   private showResetConfirmation(): void {
-    // Prevent opening multiple overlays
     if (this.confirmOverlay.length > 0) return;
 
     const centerX = this.cameras.main.centerX;
     const centerY = this.cameras.main.centerY;
-    const ls = this.layoutScale;
-    const fs = this.fontScale;
 
-    // Dim background
-    const dimBg = this.add.rectangle(centerX, centerY, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.7)
-      .setInteractive() // Block clicks to elements behind
+    const dimBg = this.add.rectangle(centerX, centerY, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.75)
+      .setInteractive()
       .setDepth(100);
 
-    // Dialog box
-    const dialogBg = this.add.rectangle(centerX, centerY, scaledInt(ls, 420), scaledInt(ls, 200), 0x111111, 1)
-      .setStrokeStyle(2, 0xff4444)
-      .setDepth(101);
-
-    const titleText = this.add.text(centerX, centerY - scaledInt(ls, 60), 'RESET ALL DATA?', {
-      fontSize: scaledFontPx(fs, 22),
-      color: '#ff4444',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(102);
-
-    const descText = this.add.text(centerX, centerY - scaledInt(ls, 20), 'This will permanently erase all progress,\nupgrades, achievements, and settings.\nThis cannot be undone.', {
-      fontSize: scaledFontPx(fs, 14),
-      color: '#cccccc',
-      fontFamily: 'Arial',
-      align: 'center',
-    }).setOrigin(0.5).setDepth(102);
-
-    const confirmButton = this.add.text(centerX - scaledInt(ls, 80), centerY + scaledInt(ls, 50), '[ Confirm ]', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ff4444',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);
-
-    confirmButton.on('pointerover', () => { this.confirmFocusIndex = 0; this.updateConfirmFocusVisuals(); });
-    confirmButton.on('pointerout', () => confirmButton.setColor('#ff4444'));
-    confirmButton.on('pointerdown', () => {
-      for (const key of ALL_STORAGE_KEYS) {
-        SecureStorage.removeItem(key);
-      }
-      localStorage.clear();
-      window.location.reload();
+    const dialogCard = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width: scaledInt(this.layoutScale, 460),
+      height: scaledInt(this.layoutScale, 240),
+      bodyFillColor: BODY_COLORS.danger,
+      accentColor: ACCENT_COLORS.danger,
+      bannerHeight: scaledInt(this.layoutScale, 38),
+      borderWidth: 3,
+      borderColor: ACCENT_COLORS.danger,
+      cornerRadius: 16,
+      shadowOffsetX: 6,
+      shadowOffsetY: 14,
+      shadowAlpha: 0.7,
+      interactive: false,
     });
-    addButtonInteraction(this, confirmButton);
+    dialogCard.container.setDepth(101);
 
-    const cancelButton = this.add.text(centerX + scaledInt(ls, 80), centerY + scaledInt(ls, 50), '[ Cancel ]', {
-      fontSize: scaledFontPx(fs, 18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true }).setDepth(102);
-
-    cancelButton.on('pointerover', () => { this.confirmFocusIndex = 1; this.updateConfirmFocusVisuals(); });
-    cancelButton.on('pointerout', () => this.updateConfirmFocusVisuals());
-    cancelButton.on('pointerdown', () => {
-      this.dismissResetConfirmation();
+    const title = makeStickerText(this, 0, -dialogCard.height / 2 + scaledInt(this.layoutScale, 19), 'RESET ALL DATA?', {
+      fontSize: 20,
+      color: '#101018',
+      strokeWidth: 0,
+      letterSpacing: 3,
     });
-    addButtonInteraction(this, cancelButton);
+    title.setFontSize(scaledFontPx(this.fontScale, 20));
+    dialogCard.frame.add(title);
+
+    const description = makeBodyText(this, 0, -scaledInt(this.layoutScale, 10),
+      'This will permanently erase all progress,\nupgrades, achievements, and settings.\nThis cannot be undone.', {
+        fontSize: scaledInt(this.fontScale, 13),
+        color: TEXT_COLORS.body,
+        align: 'center',
+      });
+    description.setOrigin(0.5, 0.5);
+    description.setLineSpacing(2);
+    dialogCard.frame.add(description);
+
+    const confirmButton = createMenuButton({
+      scene: this,
+      x: -scaledInt(this.layoutScale, 90),
+      y: scaledInt(this.layoutScale, 68),
+      width: scaledInt(this.layoutScale, 150),
+      height: scaledInt(this.layoutScale, 44),
+      label: 'CONFIRM',
+      variant: 'danger',
+      fontSize: scaledInt(this.fontScale, 16),
+      onActivate: () => this.resetAllStorageAndReload(),
+    });
+    dialogCard.frame.add(confirmButton.container);
+    confirmButton.card.container.setDepth(102);
+
+    const cancelButton = createMenuButton({
+      scene: this,
+      x: scaledInt(this.layoutScale, 90),
+      y: scaledInt(this.layoutScale, 68),
+      width: scaledInt(this.layoutScale, 150),
+      height: scaledInt(this.layoutScale, 44),
+      label: 'CANCEL',
+      variant: 'neutral',
+      fontSize: scaledInt(this.fontScale, 16),
+      onActivate: () => this.dismissResetConfirmation(),
+    });
+    dialogCard.frame.add(cancelButton.container);
+    cancelButton.card.container.setDepth(102);
 
     this.confirmButtonRef = confirmButton;
     this.cancelButtonRef = cancelButton;
-    this.confirmFocusIndex = 1; // Default to Cancel for safety
+    this.confirmFocusIndex = 1;
     this.updateConfirmFocusVisuals();
 
-    this.confirmOverlay = [dimBg, dialogBg, titleText, descText, confirmButton, cancelButton];
+    this.confirmOverlay = [dimBg, dialogCard.container];
+    this.menuButtons.push(confirmButton, cancelButton);
   }
 
   private updateConfirmFocusVisuals(): void {
-    if (this.confirmButtonRef) {
-      this.confirmButtonRef.setColor(this.confirmFocusIndex === 0 ? '#ff6666' : '#ff4444');
-    }
-    if (this.cancelButtonRef) {
-      this.cancelButtonRef.setColor(this.confirmFocusIndex === 1 ? '#ffffff' : '#888888');
-    }
+    this.confirmButtonRef?.setFocusState(this.confirmFocusIndex === 0);
+    this.cancelButtonRef?.setFocusState(this.confirmFocusIndex === 1);
   }
 
   private activateConfirmSelection(): void {
     if (this.confirmFocusIndex === 0) {
-      for (const key of ALL_STORAGE_KEYS) {
-        SecureStorage.removeItem(key);
-      }
-      localStorage.clear();
-      window.location.reload();
+      this.resetAllStorageAndReload();
     } else {
       this.dismissResetConfirmation();
     }
   }
 
   private dismissResetConfirmation(): void {
-    for (const obj of this.confirmOverlay) {
-      obj.destroy();
-    }
+    for (const obj of this.confirmOverlay) obj.destroy();
     this.confirmOverlay = [];
+    if (this.confirmButtonRef) {
+      this.menuButtons = this.menuButtons.filter((b) => b !== this.confirmButtonRef && b !== this.cancelButtonRef);
+      this.confirmButtonRef.destroy();
+      this.cancelButtonRef?.destroy();
+    }
     this.confirmButtonRef = null;
     this.cancelButtonRef = null;
   }
 
+  private resetAllStorageAndReload(): void {
+    for (const key of ALL_STORAGE_KEYS) SecureStorage.removeItem(key);
+    localStorage.clear();
+    window.location.reload();
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Helpers
+  // ──────────────────────────────────────────────────────────────────────────
+
+  private indexOfDamageMode(mode: DamageNumbersMode): number {
+    const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];
+    return modes.indexOf(mode);
+  }
+
+  private resolvePlaybackValue(): 'sequential' | 'shuffle' {
+    const mode = getMusicManager().getPlaybackMode();
+    return mode === 'shuffle' ? 'shuffle' : 'sequential';
+  }
+
   private goBack(): void {
     if (this.returnTo === 'GameScene') {
-      // Directly tell GameScene to show pause menu before resuming
-      // (more reliable than relying on the 'resume' event)
       const gameScene = this.scene.get('GameScene') as GameScene;
       if (gameScene?.showPauseMenuFromSettings) {
         gameScene.showPauseMenuFromSettings();
@@ -1076,6 +1139,15 @@ export class SettingsScene extends Phaser.Scene {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    if (this.bgUpdateHandler) {
+      this.events.off('update', this.bgUpdateHandler);
+      this.bgUpdateHandler = null;
+    }
+    this.menuOverlay?.destroy();
+    this.menuOverlay = null;
+    for (const btn of this.menuButtons) btn.destroy();
+    this.menuButtons = [];
+    this.idleCards = [];
     this.tweens.killAll();
   }
 }

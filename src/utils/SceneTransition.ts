@@ -4,30 +4,20 @@ import Phaser from 'phaser';
  * Scene transition helpers for fade effects.
  */
 
+function createFullscreenOverlay(scene: Phaser.Scene, alpha: number): Phaser.GameObjects.Rectangle {
+  const width = scene.scale.width;
+  const height = scene.scale.height;
+  const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x000000, alpha);
+  overlay.setDepth(1000);
+  return overlay;
+}
+
 /**
  * Fade out: black rectangle tweens alpha 0 -> 1, then calls callback.
  */
 export function fadeOut(scene: Phaser.Scene, duration: number, callback: () => void): void {
-  const w = scene.scale.width;
-  const h = scene.scale.height;
-  const overlay = scene.add.rectangle(
-    w / 2,
-    h / 2,
-    w,
-    h,
-    0x000000,
-    0
-  );
-  overlay.setDepth(1000);
-
-  scene.tweens.add({
-    targets: overlay,
-    alpha: 1,
-    duration,
-    onComplete: () => {
-      callback();
-    },
-  });
+  const overlay = createFullscreenOverlay(scene, 0);
+  scene.tweens.add({ targets: overlay, alpha: 1, duration, onComplete: callback });
 }
 
 /**
@@ -35,28 +25,14 @@ export function fadeOut(scene: Phaser.Scene, duration: number, callback: () => v
  * Includes a subtle camera zoom-in (0.98 → 1.0) for a more dynamic entrance.
  */
 export function fadeIn(scene: Phaser.Scene, duration: number): void {
-  const w = scene.scale.width;
-  const h = scene.scale.height;
-  const overlay = scene.add.rectangle(
-    w / 2,
-    h / 2,
-    w,
-    h,
-    0x000000,
-    1
-  );
-  overlay.setDepth(1000);
-
+  const overlay = createFullscreenOverlay(scene, 1);
   scene.tweens.add({
     targets: overlay,
     alpha: 0,
     duration,
-    onComplete: () => {
-      overlay.destroy();
-    },
+    onComplete: () => overlay.destroy(),
   });
 
-  // Subtle zoom-in for a more dynamic entrance
   scene.cameras.main.zoom = 0.98;
   scene.tweens.add({
     targets: scene.cameras.main,
@@ -68,53 +44,20 @@ export function fadeIn(scene: Phaser.Scene, duration: number): void {
 
 /**
  * Adds hover + press animation to an interactive game object (button feedback).
- * pointerover: scale to 1.03 (subtle hover lift)
- * pointerdown: scale to 0.95 (press)
- * pointerup: scale to 1.03 (return to hover state)
- * pointerout: scale to 1.0 (return to normal)
+ * pointerover/up: scale to 1.03 (hover lift), pointerdown: 0.95 (press), pointerout: 1.0.
  * Uses killTweensOf to prevent tween stacking on rapid pointer events.
  */
 export function addButtonInteraction(
   scene: Phaser.Scene,
   button: Phaser.GameObjects.GameObject & { scaleX?: number; scaleY?: number }
 ): void {
-  button.on('pointerover', () => {
+  const scaleTween = (targetScale: number, duration: number) => {
     scene.tweens.killTweensOf(button);
-    scene.tweens.add({
-      targets: button,
-      scaleX: 1.03,
-      scaleY: 1.03,
-      duration: 80,
-    });
-  });
+    scene.tweens.add({ targets: button, scaleX: targetScale, scaleY: targetScale, duration });
+  };
 
-  button.on('pointerdown', () => {
-    scene.tweens.killTweensOf(button);
-    scene.tweens.add({
-      targets: button,
-      scaleX: 0.95,
-      scaleY: 0.95,
-      duration: 50,
-    });
-  });
-
-  button.on('pointerup', () => {
-    scene.tweens.killTweensOf(button);
-    scene.tweens.add({
-      targets: button,
-      scaleX: 1.03,
-      scaleY: 1.03,
-      duration: 80,
-    });
-  });
-
-  button.on('pointerout', () => {
-    scene.tweens.killTweensOf(button);
-    scene.tweens.add({
-      targets: button,
-      scaleX: 1.0,
-      scaleY: 1.0,
-      duration: 80,
-    });
-  });
+  button.on('pointerover', () => scaleTween(1.03, 80));
+  button.on('pointerdown', () => scaleTween(0.95, 50));
+  button.on('pointerup', () => scaleTween(1.03, 80));
+  button.on('pointerout', () => scaleTween(1.0, 80));
 }

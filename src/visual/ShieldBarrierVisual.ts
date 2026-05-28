@@ -217,11 +217,10 @@ export class ShieldBarrierVisual {
     }
   }
 
-  /**
-   * Create a single hexagon graphic.
-   */
+  /** Create a single hexagon graphic with neon glow + stroke. */
   private createSingleHexagon(): Phaser.GameObjects.Graphics {
     const graphics = this.scene.add.graphics();
+
 
     // Draw glow layer
     graphics.fillStyle(SHIELD_NEON.glow, 0.3);
@@ -292,14 +291,11 @@ export class ShieldBarrierVisual {
    * Recreate charge dots when max charges changes.
    */
   private recreateChargeDots(maxCharges: number): void {
-    // Destroy existing dots
+    // Destroy existing dots (createChargeDots resets the array).
     if (this.chargeDotsContainer) {
       this.chargeDotsContainer.destroy();
       this.chargeDotsContainer = null;
     }
-    this.chargeDots = [];
-
-    // Create new dots
     this.createChargeDots(maxCharges);
   }
 
@@ -364,7 +360,7 @@ export class ShieldBarrierVisual {
     const startAngle = -Math.PI / 2; // Top (12 o'clock)
     const endAngle = startAngle + rechargeProgress * Math.PI * 2; // Clockwise progress
 
-    // Draw glow layer (thicker, lower alpha)
+    // Neon glow + core pass.
     this.rechargeCircleGraphics.lineStyle(6, SHIELD_NEON.glow, 0.4);
     this.rechargeCircleGraphics.beginPath();
     this.rechargeCircleGraphics.arc(
@@ -377,7 +373,6 @@ export class ShieldBarrierVisual {
     );
     this.rechargeCircleGraphics.strokePath();
 
-    // Draw core line (thinner, full opacity)
     this.rechargeCircleGraphics.lineStyle(2, SHIELD_NEON.core, 0.9);
     this.rechargeCircleGraphics.beginPath();
     this.rechargeCircleGraphics.arc(

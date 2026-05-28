@@ -88,6 +88,62 @@ export class MetaProgressionManager {
   }
 
   // ─────────────────────────────────────────────────────────────
+  // Private helpers
+  // ─────────────────────────────────────────────────────────────
+
+  /** Read the level of a permanent upgrade (defaulting to 0). */
+  private level(upgradeId: string): number {
+    return this.upgradeState[upgradeId] ?? 0;
+  }
+
+  /**
+   * "Big first level, smaller subsequent levels" bonus pattern.
+   * Returns 0 when level is 0, else `firstLevelBonus + (level - 1) * perLevelBonus`.
+   */
+  private tieredBonus(upgradeId: string, firstLevelBonus: number, perLevelBonus: number): number {
+    const upgradeLevel = this.level(upgradeId);
+    if (upgradeLevel === 0) return 0;
+    return firstLevelBonus + (upgradeLevel - 1) * perLevelBonus;
+  }
+
+  /** Gold cost of the `levelIndex`-th purchase of an upgrade (0-indexed). */
+  private upgradeLevelCost(baseCost: number, costScaling: number, levelIndex: number): number {
+    return Math.floor(baseCost * Math.pow(costScaling, levelIndex));
+  }
+
+  /** Sum of costs for levels 0..currentLevel-1 (total spent on an upgrade). */
+  private totalSpentOnUpgrade(baseCost: number, costScaling: number, currentLevel: number): number {
+    let total = 0;
+    for (let levelIndex = 0; levelIndex < currentLevel; levelIndex++) {
+      total += this.upgradeLevelCost(baseCost, costScaling, levelIndex);
+    }
+    return total;
+  }
+
+  /** Read and parse a stored integer, clamped to [min, max]. Returns fallback on any failure. */
+  private readStoredInt(storageKey: string, fallback: number, min: number, max: number, warning: string): number {
+    try {
+      const stored = SecureStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!isNaN(parsed)) return Math.max(min, Math.min(parsed, max));
+      }
+    } catch {
+      console.warn(warning);
+    }
+    return fallback;
+  }
+
+  /** Write a primitive to SecureStorage, swallowing errors with a warning. */
+  private writeStored(storageKey: string, value: string, warning: string): void {
+    try {
+      SecureStorage.setItem(storageKey, value);
+    } catch {
+      console.warn(warning);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
   // Gold Management
   // ─────────────────────────────────────────────────────────────
 
@@ -245,30 +301,26 @@ export class MetaProgressionManager {
   // ─────────────────────────────────────────────────────────────
 
   getUpgradeLevel(upgradeId: string): number {
-    return this.upgradeState[upgradeId] ?? 0;
+    return this.level(upgradeId);
   }
 
   getUpgradeCost(upgradeId: string): number {
     const upgrade = getPermanentUpgradeById(upgradeId);
     if (!upgrade) return Infinity;
-    return calculateUpgradeCost(upgrade, this.upgradeState[upgradeId] ?? 0);
+    return calculateUpgradeCost(upgrade, this.level(upgradeId));
   }
 
   purchaseUpgrade(upgradeId: string): boolean {
     const upgrade = getPermanentUpgradeById(upgradeId);
     if (!upgrade) return false;
 
-    const currentLevel = this.upgradeState[upgradeId] ?? 0;
+    const currentLevel = this.level(upgradeId);
     if (currentLevel >= upgrade.maxLevel) return false;
-
-    // Check account level requirement
-    const accountLevel = this.getAccountLevel();
-    if (accountLevel < upgrade.unlockLevel) return false;
+    if (this.getAccountLevel() < upgrade.unlockLevel) return false;
 
     const cost = calculateUpgradeCost(upgrade, currentLevel);
     if (this.goldBalance < cost) return false;
 
-    // Purchase successful
     this.goldBalance -= cost;
     this.upgradeState[upgradeId] = currentLevel + 1;
     this.saveGold();
@@ -292,9 +344,9 @@ export class MetaProgressionManager {
   getRefundAmount(upgradeId: string): number {
     const upgrade = getPermanentUpgradeById(upgradeId);
     if (!upgrade) return 0;
-    const currentLevel = this.upgradeState[upgradeId] ?? 0;
+    const currentLevel = this.level(upgradeId);
     if (currentLevel <= 0) return 0;
-    return Math.floor(upgrade.baseCost * Math.pow(upgrade.costScaling, currentLevel - 1));
+    return this.upgradeLevelCost(upgrade.baseCost, upgrade.costScaling, currentLevel - 1);
   }
 
   /**
@@ -305,11 +357,10 @@ export class MetaProgressionManager {
     const upgrade = getPermanentUpgradeById(upgradeId);
     if (!upgrade) return 0;
 
-    const currentLevel = this.upgradeState[upgradeId] ?? 0;
+    const currentLevel = this.level(upgradeId);
     if (currentLevel <= 0) return 0;
 
-    // Refund = cost of the last purchased level = baseCost × costScaling^(currentLevel-1)
-    const refundAmount = Math.floor(upgrade.baseCost * Math.pow(upgrade.costScaling, currentLevel - 1));
+    const refundAmount = this.upgradeLevelCost(upgrade.baseCost, upgrade.costScaling, currentLevel - 1);
 
     this.goldBalance += refundAmount;
     this.upgradeState[upgradeId] = currentLevel - 1;
@@ -326,14 +377,10 @@ export class MetaProgressionManager {
     const upgrade = getPermanentUpgradeById(upgradeId);
     if (!upgrade) return 0;
 
-    const currentLevel = this.upgradeState[upgradeId] ?? 0;
+    const currentLevel = this.level(upgradeId);
     if (currentLevel <= 0) return 0;
 
-    // Sum all costs: baseCost × costScaling^i for i = 0 to currentLevel-1
-    let totalRefund = 0;
-    for (let i = 0; i < currentLevel; i++) {
-      totalRefund += Math.floor(upgrade.baseCost * Math.pow(upgrade.costScaling, i));
-    }
+    const totalRefund = this.totalSpentOnUpgrade(upgrade.baseCost, upgrade.costScaling, currentLevel);
 
     this.goldBalance += totalRefund;
     this.upgradeState[upgradeId] = 0;
@@ -349,10 +396,7 @@ export class MetaProgressionManager {
   resetAllUpgradesAndRefund(): number {
     let totalRefund = 0;
     for (const upgrade of PERMANENT_UPGRADES) {
-      const currentLevel = this.upgradeState[upgrade.id] ?? 0;
-      for (let i = 0; i < currentLevel; i++) {
-        totalRefund += Math.floor(upgrade.baseCost * Math.pow(upgrade.costScaling, i));
-      }
+      totalRefund += this.totalSpentOnUpgrade(upgrade.baseCost, upgrade.costScaling, this.level(upgrade.id));
       this.upgradeState[upgrade.id] = 0;
     }
     this.goldBalance += totalRefund;
@@ -372,9 +416,7 @@ export class MetaProgressionManager {
    * Level 1 gives +10%, subsequent levels give +5% each.
    */
   getStartingDamageMultiplier(): number {
-    const level = this.upgradeState['damageLevel'] ?? 0;
-    if (level === 0) return 1;
-    return 1 + 0.10 + (level - 1) * 0.05;
+    return 1 + this.tieredBonus('damageLevel', 0.10, 0.05);
   }
 
   /**
@@ -382,9 +424,7 @@ export class MetaProgressionManager {
    * Level 1 gives +15%, subsequent levels give +8% each.
    */
   getStartingAttackSpeedMultiplier(): number {
-    const level = this.upgradeState['attackSpeedLevel'] ?? 0;
-    if (level === 0) return 1;
-    return 1 + 0.15 + (level - 1) * 0.08;
+    return 1 + this.tieredBonus('attackSpeedLevel', 0.15, 0.08);
   }
 
   /**
@@ -392,7 +432,7 @@ export class MetaProgressionManager {
    * Each level gives +1 projectile.
    */
   getStartingProjectileCount(): number {
-    return this.upgradeState['projectileCountLevel'] ?? 0;
+    return this.level('projectileCountLevel');
   }
 
   /**
@@ -400,7 +440,7 @@ export class MetaProgressionManager {
    * Each level gives +1 piercing.
    */
   getStartingPiercing(): number {
-    return this.upgradeState['piercingLevel'] ?? 0;
+    return this.level('piercingLevel');
   }
 
   /**
@@ -408,7 +448,7 @@ export class MetaProgressionManager {
    * Each level gives +3% crit chance.
    */
   getStartingCritChance(): number {
-    return (this.upgradeState['critChanceLevel'] ?? 0) * 0.03;
+    return this.level('critChanceLevel') * 0.03;
   }
 
   /**
@@ -416,7 +456,7 @@ export class MetaProgressionManager {
    * Base is 1.5x (150%), each level adds +15%.
    */
   getStartingCritDamage(): number {
-    return 1.5 + (this.upgradeState['critDamageLevel'] ?? 0) * 0.15;
+    return 1.5 + this.level('critDamageLevel') * 0.15;
   }
 
   /**
@@ -424,7 +464,7 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingProjectileSpeed(): number {
-    return 1 + (this.upgradeState['projectileSpeedLevel'] ?? 0) * 0.1;
+    return 1 + this.level('projectileSpeedLevel') * 0.1;
   }
 
   /**
@@ -432,7 +472,7 @@ export class MetaProgressionManager {
    * Each level gives +8%.
    */
   getStartingArea(): number {
-    return 1 + (this.upgradeState['areaLevel'] ?? 0) * 0.08;
+    return 1 + this.level('areaLevel') * 0.08;
   }
 
   /**
@@ -440,7 +480,7 @@ export class MetaProgressionManager {
    * Each level gives +12%.
    */
   getStartingDuration(): number {
-    return 1 + (this.upgradeState['durationLevel'] ?? 0) * 0.12;
+    return 1 + this.level('durationLevel') * 0.12;
   }
 
   /**
@@ -448,7 +488,7 @@ export class MetaProgressionManager {
    * Each level gives -5%.
    */
   getStartingCooldownMultiplier(): number {
-    return Math.max(0.5, 1 - (this.upgradeState['cooldownLevel'] ?? 0) * 0.05);
+    return Math.max(0.5, 1 - this.level('cooldownLevel') * 0.05);
   }
 
   // ═══ DEFENSE ═══
@@ -458,9 +498,7 @@ export class MetaProgressionManager {
    * Level 1 gives +25 HP, subsequent levels give +10 HP each.
    */
   getStartingBonusHealth(): number {
-    const level = this.upgradeState['healthLevel'] ?? 0;
-    if (level === 0) return 0;
-    return 25 + (level - 1) * 10;
+    return this.tieredBonus('healthLevel', 25, 10);
   }
 
   /**
@@ -468,9 +506,7 @@ export class MetaProgressionManager {
    * Level 1 gives 3 armor, subsequent levels give +1 each.
    */
   getStartingArmor(): number {
-    const level = this.upgradeState['armorLevel'] ?? 0;
-    if (level === 0) return 0;
-    return 3 + (level - 1);
+    return this.tieredBonus('armorLevel', 3, 1);
   }
 
   /**
@@ -478,9 +514,7 @@ export class MetaProgressionManager {
    * Level 1 gives +1.5 HP/sec, subsequent levels give +0.5 HP/sec each.
    */
   getStartingRegen(): number {
-    const level = this.upgradeState['regenLevel'] ?? 0;
-    if (level === 0) return 0;
-    return 1.5 + (level - 1) * 0.5;
+    return this.tieredBonus('regenLevel', 1.5, 0.5);
   }
 
   /**
@@ -488,7 +522,7 @@ export class MetaProgressionManager {
    * Each level gives +5%, max 30%.
    */
   getStartingDodgeChance(): number {
-    return Math.min(0.3, (this.upgradeState['dodgeLevel'] ?? 0) * 0.05);
+    return Math.min(0.3, this.level('dodgeLevel') * 0.05);
   }
 
   /**
@@ -496,7 +530,7 @@ export class MetaProgressionManager {
    * Each level gives +1%.
    */
   getStartingLifeSteal(): number {
-    return (this.upgradeState['lifeStealLevel'] ?? 0) * 0.01;
+    return this.level('lifeStealLevel') * 0.01;
   }
 
   /**
@@ -504,14 +538,14 @@ export class MetaProgressionManager {
    * Each level gives +0.1s.
    */
   getStartingIFrameBonus(): number {
-    return (this.upgradeState['iframeLevel'] ?? 0) * 0.1;
+    return this.level('iframeLevel') * 0.1;
   }
 
   /**
    * Returns revival count per run.
    */
   getStartingRevivals(): number {
-    return this.upgradeState['revivalLevel'] ?? 0;
+    return this.level('revivalLevel');
   }
 
   // ═══ MOVEMENT ═══
@@ -521,9 +555,7 @@ export class MetaProgressionManager {
    * Level 1 gives +10%, subsequent levels give +5% each.
    */
   getStartingMoveSpeedMultiplier(): number {
-    const level = this.upgradeState['moveSpeedLevel'] ?? 0;
-    if (level === 0) return 1;
-    return 1 + 0.10 + (level - 1) * 0.05;
+    return 1 + this.tieredBonus('moveSpeedLevel', 0.10, 0.05);
   }
 
   // ═══ RESOURCES ═══
@@ -533,9 +565,7 @@ export class MetaProgressionManager {
    * Level 1 gives +12%, subsequent levels give +5% each.
    */
   getStartingXPMultiplier(): number {
-    const level = this.upgradeState['xpGainLevel'] ?? 0;
-    if (level === 0) return 1;
-    return 1 + 0.12 + (level - 1) * 0.05;
+    return 1 + this.tieredBonus('xpGainLevel', 0.12, 0.05);
   }
 
   /**
@@ -543,9 +573,7 @@ export class MetaProgressionManager {
    * Level 1 gives +30%, subsequent levels give +15% each.
    */
   getStartingPickupRangeMultiplier(): number {
-    const level = this.upgradeState['pickupRangeLevel'] ?? 0;
-    if (level === 0) return 1;
-    return 1 + 0.30 + (level - 1) * 0.15;
+    return 1 + this.tieredBonus('pickupRangeLevel', 0.30, 0.15);
   }
 
   /**
@@ -553,14 +581,14 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingGoldMultiplier(): number {
-    return 1 + (this.upgradeState['goldGainLevel'] ?? 0) * 0.1;
+    return 1 + this.level('goldGainLevel') * 0.1;
   }
 
   /**
    * Returns the starting level bonus.
    */
   getStartingLevel(): number {
-    return 1 + (this.upgradeState['startingXPLevel'] ?? 0);
+    return 1 + this.level('startingXPLevel');
   }
 
   // ═══ UTILITY ═══
@@ -570,7 +598,7 @@ export class MetaProgressionManager {
    * Each level gives +2 rerolls.
    */
   getStartingRerolls(): number {
-    return (this.upgradeState['rerollLevel'] ?? 0) * 2;
+    return this.level('rerollLevel') * 2;
   }
 
   /**
@@ -578,21 +606,21 @@ export class MetaProgressionManager {
    * Each level gives +1 choice.
    */
   getStartingExtraChoices(): number {
-    return this.upgradeState['choiceLevel'] ?? 0;
+    return this.level('choiceLevel');
   }
 
   /**
    * Returns the number of skips per run.
    */
   getStartingSkips(): number {
-    return this.upgradeState['skipLevel'] ?? 0;
+    return this.level('skipLevel');
   }
 
   /**
    * Returns the number of banishes per run.
    */
   getStartingBanishes(): number {
-    return this.upgradeState['banishLevel'] ?? 0;
+    return this.level('banishLevel');
   }
 
   // ═══ ELEMENTAL ═══
@@ -602,7 +630,7 @@ export class MetaProgressionManager {
    * Each level gives +5%.
    */
   getStartingBurnChance(): number {
-    return (this.upgradeState['fireLevel'] ?? 0) * 0.05;
+    return this.level('fireLevel') * 0.05;
   }
 
   /**
@@ -610,7 +638,7 @@ export class MetaProgressionManager {
    * Each level gives +3%.
    */
   getStartingFreezeChance(): number {
-    return (this.upgradeState['iceLevel'] ?? 0) * 0.03;
+    return this.level('iceLevel') * 0.03;
   }
 
   /**
@@ -618,7 +646,7 @@ export class MetaProgressionManager {
    * Each level gives +4%.
    */
   getStartingChainLightningChance(): number {
-    return (this.upgradeState['lightningLevel'] ?? 0) * 0.04;
+    return this.level('lightningLevel') * 0.04;
   }
 
   /**
@@ -626,7 +654,7 @@ export class MetaProgressionManager {
    * Each level gives +5%.
    */
   getStartingPoisonChance(): number {
-    return (this.upgradeState['poisonLevel'] ?? 0) * 0.05;
+    return this.level('poisonLevel') * 0.05;
   }
 
   // ═══ OFFENSE (ADVANCED) ═══
@@ -636,7 +664,7 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingKnockback(): number {
-    return 1 + (this.upgradeState['knockbackLevel'] ?? 0) * 0.1;
+    return 1 + this.level('knockbackLevel') * 0.1;
   }
 
   /**
@@ -644,7 +672,7 @@ export class MetaProgressionManager {
    * Each level gives +10% bonus damage to enemies below 25% HP.
    */
   getStartingExecutionBonus(): number {
-    return (this.upgradeState['executionLevel'] ?? 0) * 0.1;
+    return this.level('executionLevel') * 0.1;
   }
 
   /**
@@ -652,7 +680,7 @@ export class MetaProgressionManager {
    * Each level gives 25% overkill splash.
    */
   getStartingOverkillSplash(): number {
-    return (this.upgradeState['overkillLevel'] ?? 0) * 0.25;
+    return this.level('overkillLevel') * 0.25;
   }
 
   /**
@@ -660,7 +688,7 @@ export class MetaProgressionManager {
    * Each level ignores 10% enemy armor.
    */
   getStartingArmorPen(): number {
-    return (this.upgradeState['armorPenLevel'] ?? 0) * 0.1;
+    return this.level('armorPenLevel') * 0.1;
   }
 
   // ═══ DEFENSE (ADVANCED) ═══
@@ -670,7 +698,7 @@ export class MetaProgressionManager {
    * Each level reflects 10% damage.
    */
   getStartingThorns(): number {
-    return (this.upgradeState['thornLevel'] ?? 0) * 0.1;
+    return this.level('thornLevel') * 0.1;
   }
 
   /**
@@ -678,7 +706,7 @@ export class MetaProgressionManager {
    * Each level gives +20 shield.
    */
   getStartingShield(): number {
-    return (this.upgradeState['shieldLevel'] ?? 0) * 20;
+    return this.level('shieldLevel') * 20;
   }
 
   /**
@@ -686,7 +714,7 @@ export class MetaProgressionManager {
    * Each level gives +20% healing received.
    */
   getStartingHealingBoost(): number {
-    return 1 + (this.upgradeState['healingBoostLevel'] ?? 0) * 0.2;
+    return 1 + this.level('healingBoostLevel') * 0.2;
   }
 
   /**
@@ -694,7 +722,7 @@ export class MetaProgressionManager {
    * Each level heals 15% when below 20% HP.
    */
   getStartingEmergencyHeal(): number {
-    return (this.upgradeState['emergencyHealLevel'] ?? 0) * 0.15;
+    return this.level('emergencyHealLevel') * 0.15;
   }
 
   /**
@@ -702,8 +730,7 @@ export class MetaProgressionManager {
    * Each level reduces cap by 15% (1.0 = 100%, 0.85 = 85%, etc.)
    */
   getStartingDamageCap(): number {
-    const level = this.upgradeState['damageCapLevel'] ?? 0;
-    return level > 0 ? 1 - level * 0.15 : 1.0;
+    return 1 - this.level('damageCapLevel') * 0.15;
   }
 
   /**
@@ -711,7 +738,7 @@ export class MetaProgressionManager {
    * Each level gives +1 max shield charge.
    */
   getStartingBarrierCapacity(): number {
-    return this.upgradeState['barrierCapacityLevel'] ?? 0;
+    return this.level('barrierCapacityLevel');
   }
 
   // ═══ MOVEMENT (ADVANCED) ═══
@@ -721,7 +748,7 @@ export class MetaProgressionManager {
    * Each level gives +20% acceleration.
    */
   getStartingAcceleration(): number {
-    return 1 + (this.upgradeState['accelerationLevel'] ?? 0) * 0.2;
+    return 1 + this.level('accelerationLevel') * 0.2;
   }
 
   /**
@@ -729,7 +756,7 @@ export class MetaProgressionManager {
    * Each level gives 15% slow resistance.
    */
   getStartingSlowResist(): number {
-    return (this.upgradeState['slowResistLevel'] ?? 0) * 0.15;
+    return this.level('slowResistLevel') * 0.15;
   }
 
   /**
@@ -737,7 +764,7 @@ export class MetaProgressionManager {
    * Each level gives +8% speed when idle.
    */
   getStartingSprint(): number {
-    return (this.upgradeState['sprintLevel'] ?? 0) * 0.08;
+    return this.level('sprintLevel') * 0.08;
   }
 
   /**
@@ -745,7 +772,7 @@ export class MetaProgressionManager {
    * Each level gives +5% speed per enemy (max 25%).
    */
   getStartingCombatSpeed(): number {
-    return (this.upgradeState['combatSpeedLevel'] ?? 0) * 0.05;
+    return this.level('combatSpeedLevel') * 0.05;
   }
 
   /**
@@ -754,8 +781,8 @@ export class MetaProgressionManager {
    * Returns 0 if no dash ability.
    */
   getStartingDashCooldown(): number {
-    const level = this.upgradeState['dashLevel'] ?? 0;
-    return level > 0 ? 8 - level : 0;
+    const dashLevel = this.level('dashLevel');
+    return dashLevel > 0 ? 8 - dashLevel : 0;
   }
 
   /**
@@ -763,7 +790,7 @@ export class MetaProgressionManager {
    * Each level gives 3% chance to phase through attacks.
    */
   getStartingPhaseChance(): number {
-    return (this.upgradeState['phaseLevel'] ?? 0) * 0.03;
+    return this.level('phaseLevel') * 0.03;
   }
 
   // ═══ RESOURCES (ADVANCED) ═══
@@ -773,7 +800,7 @@ export class MetaProgressionManager {
    * Each level gives +10% gem value.
    */
   getStartingGemValueBonus(): number {
-    return 1 + (this.upgradeState['gemValueLevel'] ?? 0) * 0.1;
+    return 1 + this.level('gemValueLevel') * 0.1;
   }
 
   /**
@@ -781,7 +808,7 @@ export class MetaProgressionManager {
    * Each level gives +5% drop rate.
    */
   getStartingDropRateBonus(): number {
-    return 1 + (this.upgradeState['dropRateLevel'] ?? 0) * 0.05;
+    return 1 + this.level('dropRateLevel') * 0.05;
   }
 
   /**
@@ -789,7 +816,7 @@ export class MetaProgressionManager {
    * Each level gives +20% health drop rate.
    */
   getStartingHealthDropBonus(): number {
-    return 1 + (this.upgradeState['healthDropLevel'] ?? 0) * 0.2;
+    return 1 + this.level('healthDropLevel') * 0.2;
   }
 
   /**
@@ -797,8 +824,8 @@ export class MetaProgressionManager {
    * Level 0 = no magnet, each level: 15s, 12s, 9s.
    */
   getStartingGemMagnetInterval(): number {
-    const level = this.upgradeState['gemMagnetLevel'] ?? 0;
-    return level > 0 ? 15 - level * 3 : 0;
+    const magnetLevel = this.level('gemMagnetLevel');
+    return magnetLevel > 0 ? 15 - magnetLevel * 3 : 0;
   }
 
   /**
@@ -806,8 +833,8 @@ export class MetaProgressionManager {
    * Level 0 = no chests, each level: 120s, 100s, 80s.
    */
   getStartingTreasureInterval(): number {
-    const level = this.upgradeState['treasureLevel'] ?? 0;
-    return level > 0 ? 120 - level * 20 : 0;
+    const treasureLevel = this.level('treasureLevel');
+    return treasureLevel > 0 ? 120 - treasureLevel * 20 : 0;
   }
 
   /**
@@ -815,10 +842,10 @@ export class MetaProgressionManager {
    * Level 0 = disabled (-1), levels 1-3: 5s, 2s, 0s delay.
    */
   getStartingChestDroneDelay(): number {
-    const level = this.upgradeState['chestDroneLevel'] ?? 0;
-    if (level === 1) return 5;
-    if (level === 2) return 2;
-    if (level >= 3) return 0;
+    const droneLevel = this.level('chestDroneLevel');
+    if (droneLevel >= 3) return 0;
+    if (droneLevel === 2) return 2;
+    if (droneLevel === 1) return 5;
     return -1;
   }
 
@@ -827,7 +854,7 @@ export class MetaProgressionManager {
    * Each level gives +50% gold from bosses.
    */
   getStartingBossGoldBonus(): number {
-    return 1 + (this.upgradeState['bossGoldLevel'] ?? 0) * 0.5;
+    return 1 + this.level('bossGoldLevel') * 0.5;
   }
 
   // ═══ UTILITY (ADVANCED) ═══
@@ -837,14 +864,14 @@ export class MetaProgressionManager {
    * Each level gives +10% rare upgrade chance.
    */
   getStartingLuckBonus(): number {
-    return (this.upgradeState['luckLevel'] ?? 0) * 0.1;
+    return this.level('luckLevel') * 0.1;
   }
 
   /**
    * Returns number of upgrades to keep between runs.
    */
   getStartingUpgradeKeep(): number {
-    return this.upgradeState['upgradeKeepLevel'] ?? 0;
+    return this.level('upgradeKeepLevel');
   }
 
   /**
@@ -852,7 +879,7 @@ export class MetaProgressionManager {
    * First N minutes at 75% speed.
    */
   getStartingSlowTimeMinutes(): number {
-    return this.upgradeState['slowTimeLevel'] ?? 0;
+    return this.level('slowTimeLevel');
   }
 
   /**
@@ -860,14 +887,14 @@ export class MetaProgressionManager {
    * Each level: +15% enemy stats & rewards.
    */
   getStartingCurseLevel(): number {
-    return this.upgradeState['curseLevel'] ?? 0;
+    return this.level('curseLevel');
   }
 
   /**
    * Returns blessing count (random buffs at run start).
    */
   getStartingBlessingCount(): number {
-    return this.upgradeState['blessingLevel'] ?? 0;
+    return this.level('blessingLevel');
   }
 
   /**
@@ -879,7 +906,7 @@ export class MetaProgressionManager {
    * 4 = +weapon synergy intelligence
    */
   getAutoUpgradeLevel(): number {
-    return this.upgradeState['autoUpgrade'] ?? 0;
+    return this.level('autoUpgrade');
   }
 
   // ═══ ELEMENTAL (ADVANCED) ═══
@@ -889,7 +916,7 @@ export class MetaProgressionManager {
    * Each level gives +25% burn damage.
    */
   getStartingBurnDamageBonus(): number {
-    return 1 + (this.upgradeState['burnDamageLevel'] ?? 0) * 0.25;
+    return 1 + this.level('burnDamageLevel') * 0.25;
   }
 
   /**
@@ -897,21 +924,21 @@ export class MetaProgressionManager {
    * Each level gives +20% freeze duration.
    */
   getStartingFreezeDurationBonus(): number {
-    return 1 + (this.upgradeState['freezeDurationLevel'] ?? 0) * 0.2;
+    return 1 + this.level('freezeDurationLevel') * 0.2;
   }
 
   /**
    * Returns extra chain lightning targets.
    */
   getStartingChainCount(): number {
-    return this.upgradeState['chainCountLevel'] ?? 0;
+    return this.level('chainCountLevel');
   }
 
   /**
    * Returns extra max poison stacks.
    */
   getStartingPoisonMaxStacks(): number {
-    return this.upgradeState['poisonStackLevel'] ?? 0;
+    return this.level('poisonStackLevel');
   }
 
   /**
@@ -919,7 +946,7 @@ export class MetaProgressionManager {
    * Each level gives 50% of max HP as explosion damage.
    */
   getStartingExplosionDamage(): number {
-    return (this.upgradeState['explosionLevel'] ?? 0) * 0.5;
+    return this.level('explosionLevel') * 0.5;
   }
 
   /**
@@ -927,7 +954,7 @@ export class MetaProgressionManager {
    * Each level gives +30% damage to frozen.
    */
   getStartingShatterBonus(): number {
-    return (this.upgradeState['shatterLevel'] ?? 0) * 0.3;
+    return this.level('shatterLevel') * 0.3;
   }
 
   /**
@@ -935,14 +962,14 @@ export class MetaProgressionManager {
    * Each level gives 0.3s stun on lightning chain.
    */
   getStartingOverchargeStun(): number {
-    return (this.upgradeState['overchargeLevel'] ?? 0) * 0.3;
+    return this.level('overchargeLevel') * 0.3;
   }
 
   /**
    * Returns pandemic spread count on poison death.
    */
   getStartingPandemicSpread(): number {
-    return this.upgradeState['pandemicLevel'] ?? 0;
+    return this.level('pandemicLevel');
   }
 
   // ═══ MASTERY ═══
@@ -952,7 +979,7 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingProjectileMastery(): number {
-    return 1 + (this.upgradeState['projectileMasteryLevel'] ?? 0) * 0.1;
+    return 1 + this.level('projectileMasteryLevel') * 0.1;
   }
 
   /**
@@ -960,7 +987,7 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingMeleeMastery(): number {
-    return 1 + (this.upgradeState['meleeMasteryLevel'] ?? 0) * 0.1;
+    return 1 + this.level('meleeMasteryLevel') * 0.1;
   }
 
   /**
@@ -968,7 +995,7 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingAuraMastery(): number {
-    return 1 + (this.upgradeState['auraMasteryLevel'] ?? 0) * 0.1;
+    return 1 + this.level('auraMasteryLevel') * 0.1;
   }
 
   /**
@@ -976,14 +1003,14 @@ export class MetaProgressionManager {
    * Each level gives +15%.
    */
   getStartingSummonMastery(): number {
-    return 1 + (this.upgradeState['summonMasteryLevel'] ?? 0) * 0.15;
+    return 1 + this.level('summonMasteryLevel') * 0.15;
   }
 
   /**
    * Returns extra weapon slots.
    */
   getStartingWeaponSlots(): number {
-    return this.upgradeState['weaponSlotLevel'] ?? 0;
+    return this.level('weaponSlotLevel');
   }
 
   /**
@@ -991,7 +1018,7 @@ export class MetaProgressionManager {
    * Each level gives +15%.
    */
   getStartingOrbitalMastery(): number {
-    return 1 + (this.upgradeState['orbitalMasteryLevel'] ?? 0) * 0.15;
+    return 1 + this.level('orbitalMasteryLevel') * 0.15;
   }
 
   /**
@@ -999,7 +1026,7 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingExplosiveMastery(): number {
-    return 1 + (this.upgradeState['explosiveMasteryLevel'] ?? 0) * 0.1;
+    return 1 + this.level('explosiveMasteryLevel') * 0.1;
   }
 
   /**
@@ -1007,7 +1034,7 @@ export class MetaProgressionManager {
    * Each level gives +10%.
    */
   getStartingBeamMastery(): number {
-    return 1 + (this.upgradeState['beamMasteryLevel'] ?? 0) * 0.1;
+    return 1 + this.level('beamMasteryLevel') * 0.1;
   }
 
   /**
@@ -1015,7 +1042,7 @@ export class MetaProgressionManager {
    * Each level reduces evolution requirement by 1.
    */
   getStartingEvolutionBonus(): number {
-    return this.upgradeState['weaponEvolutionLevel'] ?? 0;
+    return this.level('weaponEvolutionLevel');
   }
 
   /**
@@ -1023,7 +1050,7 @@ export class MetaProgressionManager {
    * Each level gives +3% damage per weapon owned.
    */
   getStartingSynergyBonus(): number {
-    return (this.upgradeState['weaponSynergyLevel'] ?? 0) * 0.03;
+    return this.level('weaponSynergyLevel') * 0.03;
   }
 
   /**
@@ -1031,7 +1058,7 @@ export class MetaProgressionManager {
    * Each level gives +5% to all weapon stats.
    */
   getStartingUltimateMastery(): number {
-    return 1 + (this.upgradeState['ultimateMasteryLevel'] ?? 0) * 0.05;
+    return 1 + this.level('ultimateMasteryLevel') * 0.05;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -1104,12 +1131,9 @@ export class MetaProgressionManager {
    * Tapering bonus: 3x for first run down to 1.25x for runs 6-10, then 1x.
    */
   getNewcomerMultiplier(): number {
+    const NEWCOMER_TIERS = [3.0, 2.5, 2.0, 1.75, 1.5];
     const completedRuns = this.runsCompleted;
-    if (completedRuns === 0) return 3.0;
-    if (completedRuns === 1) return 2.5;
-    if (completedRuns === 2) return 2.0;
-    if (completedRuns === 3) return 1.75;
-    if (completedRuns === 4) return 1.5;
+    if (completedRuns < NEWCOMER_TIERS.length) return NEWCOMER_TIERS[completedRuns];
     if (completedRuns < 10) return 1.25;
     return 1;
   }
@@ -1123,26 +1147,11 @@ export class MetaProgressionManager {
   // ─────────────────────────────────────────────────────────────
 
   private loadGold(): number {
-    try {
-      const stored = SecureStorage.getItem(STORAGE_KEY_GOLD);
-      if (stored) {
-        const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed)) {
-          return Math.max(0, Math.min(parsed, 10_000_000));
-        }
-      }
-    } catch {
-      console.warn('Could not load gold from storage');
-    }
-    return 0;
+    return this.readStoredInt(STORAGE_KEY_GOLD, 0, 0, 10_000_000, 'Could not load gold from storage');
   }
 
   private saveGold(): void {
-    try {
-      SecureStorage.setItem(STORAGE_KEY_GOLD, String(this.goldBalance));
-    } catch {
-      console.warn('Could not save gold to storage');
-    }
+    this.writeStored(STORAGE_KEY_GOLD, String(this.goldBalance), 'Could not save gold to storage');
   }
 
   private loadUpgradeState(): PermanentUpgradeState {
@@ -1171,34 +1180,15 @@ export class MetaProgressionManager {
   }
 
   private saveUpgradeState(): void {
-    try {
-      SecureStorage.setItem(STORAGE_KEY_UPGRADES, JSON.stringify(this.upgradeState));
-    } catch {
-      console.warn('Could not save upgrade state to storage');
-    }
+    this.writeStored(STORAGE_KEY_UPGRADES, JSON.stringify(this.upgradeState), 'Could not save upgrade state to storage');
   }
 
   private loadWorldLevel(): number {
-    try {
-      const stored = SecureStorage.getItem(STORAGE_KEY_WORLD_LEVEL);
-      if (stored) {
-        const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed) && parsed >= 1) {
-          return Math.min(parsed, 50);
-        }
-      }
-    } catch {
-      console.warn('Could not load world level from storage');
-    }
-    return 1; // Default to world level 1
+    return this.readStoredInt(STORAGE_KEY_WORLD_LEVEL, 1, 1, 50, 'Could not load world level from storage');
   }
 
   private saveWorldLevel(): void {
-    try {
-      SecureStorage.setItem(STORAGE_KEY_WORLD_LEVEL, String(this.worldLevel));
-    } catch {
-      console.warn('Could not save world level to storage');
-    }
+    this.writeStored(STORAGE_KEY_WORLD_LEVEL, String(this.worldLevel), 'Could not save world level to storage');
   }
 
   private loadStreakState(): StreakState {
@@ -1219,32 +1209,15 @@ export class MetaProgressionManager {
   }
 
   private saveStreakState(): void {
-    try {
-      SecureStorage.setItem(STORAGE_KEY_STREAK, JSON.stringify(this.streakState));
-    } catch {
-      console.warn('Could not save streak state to storage');
-    }
+    this.writeStored(STORAGE_KEY_STREAK, JSON.stringify(this.streakState), 'Could not save streak state to storage');
   }
 
   private loadRunsCompleted(): number {
-    try {
-      const stored = SecureStorage.getItem(STORAGE_KEY_RUNS_COMPLETED);
-      if (stored) {
-        const parsed = parseInt(stored, 10);
-        if (!isNaN(parsed)) return Math.max(0, parsed);
-      }
-    } catch {
-      console.warn('Could not load runs completed from storage');
-    }
-    return 0;
+    return this.readStoredInt(STORAGE_KEY_RUNS_COMPLETED, 0, 0, Number.MAX_SAFE_INTEGER, 'Could not load runs completed from storage');
   }
 
   private saveRunsCompleted(): void {
-    try {
-      SecureStorage.setItem(STORAGE_KEY_RUNS_COMPLETED, String(this.runsCompleted));
-    } catch {
-      console.warn('Could not save runs completed to storage');
-    }
+    this.writeStored(STORAGE_KEY_RUNS_COMPLETED, String(this.runsCompleted), 'Could not save runs completed to storage');
   }
 
   private loadAchievementBonuses(): AchievementBonusState {
@@ -1254,19 +1227,16 @@ export class MetaProgressionManager {
       if (stored) {
         const parsed = JSON.parse(stored) as Partial<AchievementBonusState>;
         const merged = { ...defaults, ...parsed };
-        // Clamp all bonus fields to reasonable maximums
-        const maxBonus = 100;
-        merged.damage = Math.max(0, Math.min(merged.damage, maxBonus));
-        merged.health = Math.max(0, Math.min(merged.health, maxBonus));
-        merged.speed = Math.max(0, Math.min(merged.speed, maxBonus));
-        merged.xp = Math.max(0, Math.min(merged.xp, maxBonus));
-        merged.gold = Math.max(0, Math.min(merged.gold, maxBonus));
-        merged.critChance = Math.max(0, Math.min(merged.critChance, maxBonus));
-        merged.cooldown = Math.max(0, Math.min(merged.cooldown, maxBonus));
-        merged.dodge = Math.max(0, Math.min(merged.dodge, maxBonus));
-        merged.attackSpeed = Math.max(0, Math.min(merged.attackSpeed, maxBonus));
-        merged.allStats = Math.max(0, Math.min(merged.allStats, maxBonus));
-        merged.startingLevel = Math.max(0, Math.min(merged.startingLevel, 10));
+        const clamp = (value: number, max: number) => Math.max(0, Math.min(value, max));
+        const MAX_PERCENT_BONUS = 100;
+        const percentFields: (keyof AchievementBonusState)[] = [
+          'damage', 'health', 'speed', 'xp', 'gold',
+          'critChance', 'cooldown', 'dodge', 'attackSpeed', 'allStats',
+        ];
+        for (const field of percentFields) {
+          merged[field] = clamp(merged[field], MAX_PERCENT_BONUS);
+        }
+        merged.startingLevel = clamp(merged.startingLevel, 10);
         return merged;
       }
     } catch {
@@ -1276,11 +1246,7 @@ export class MetaProgressionManager {
   }
 
   private saveAchievementBonuses(): void {
-    try {
-      SecureStorage.setItem(STORAGE_KEY_ACHIEVEMENT_BONUSES, JSON.stringify(this.achievementBonuses));
-    } catch {
-      console.warn('Could not save achievement bonuses to storage');
-    }
+    this.writeStored(STORAGE_KEY_ACHIEVEMENT_BONUSES, JSON.stringify(this.achievementBonuses), 'Could not save achievement bonuses to storage');
   }
 
   /**
@@ -1319,13 +1285,15 @@ export class MetaProgressionManager {
    * Returns the cheapest buyable upgrade, or the one closest to being affordable.
    */
   getNextAffordableUpgrade(): { name: string; cost: number; canAfford: boolean; goldNeeded: number } | null {
+    type UpgradeTeaser = { name: string; cost: number; canAfford: boolean; goldNeeded: number };
+
     const currentGold = this.goldBalance;
     const accountLevel = this.getAccountLevel();
-    let bestAffordable: { name: string; cost: number; canAfford: boolean; goldNeeded: number } | null = null;
-    let closestUnaffordable: { name: string; cost: number; canAfford: boolean; goldNeeded: number } | null = null;
+    let bestAffordable: UpgradeTeaser | null = null;
+    let closestUnaffordable: UpgradeTeaser | null = null;
 
     for (const upgrade of PERMANENT_UPGRADES) {
-      const currentLevel = this.upgradeState[upgrade.id] ?? 0;
+      const currentLevel = this.level(upgrade.id);
       if (currentLevel >= upgrade.maxLevel) continue;
       if (accountLevel < upgrade.unlockLevel) continue;
 

@@ -11,6 +11,47 @@ import { MasteryIconEffectsManager } from '../../visual/MasteryIconEffectsManage
 import { RunEvent, getActiveEvent } from '../../systems/EventSystem';
 import { getNextComboThreshold } from '../../systems/ComboSystem';
 import { TouchActionButtons } from '../../ui/TouchActionButtons';
+import { Relic, getRelicRarityColor } from '../../data/Relics';
+import { RunModifier } from '../../data/RunModifiers';
+import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS } from '../../visual/MenuStyle';
+
+/**
+ * Draws a Balatro-style HUD panel into the supplied Graphics object: drop
+ * shadow + accent ink border + dark body + thin top highlight stripe. Same
+ * visual language as `MenuCard` but cheap (single redraw per refresh, no
+ * tweens), so per-frame HUD widgets can adopt the menu look without paying
+ * MenuCard's hover/wisp overhead.
+ */
+function paintHudPanel(
+  graphics: Phaser.GameObjects.Graphics,
+  centerX: number,
+  centerY: number,
+  width: number,
+  height: number,
+  bodyColor: number,
+  accentColor: number,
+  cornerRadius: number = 10,
+  alpha: number = 1,
+): void {
+  graphics.clear();
+  const halfW = width / 2;
+  const halfH = height / 2;
+  // Drop shadow.
+  graphics.fillStyle(0x000000, 0.45 * alpha);
+  graphics.fillRoundedRect(centerX - halfW + 3, centerY - halfH + 4, width, height, cornerRadius + 1);
+  // Accent border.
+  graphics.fillStyle(accentColor, alpha);
+  graphics.fillRoundedRect(centerX - halfW - 2, centerY - halfH - 2, width + 4, height + 4, cornerRadius);
+  // Body fill.
+  graphics.fillStyle(bodyColor, alpha);
+  graphics.fillRoundedRect(centerX - halfW, centerY - halfH, width, height, cornerRadius);
+  // Top highlight stripe.
+  graphics.fillStyle(accentColor, 0.65 * alpha);
+  graphics.fillRect(centerX - halfW + 4, centerY - halfH + 2, width - 8, 2);
+  // Bottom inner shadow.
+  graphics.fillStyle(0x000000, 0.22 * alpha);
+  graphics.fillRect(centerX - halfW + 4, centerY + halfH - 3, width - 8, 2);
+}
 
 interface BossHealthBar {
   entityId: number;
@@ -93,6 +134,14 @@ const TIER_HEX_COLORS: Record<string, number> = {
 const TIER_FONT_SIZES: Record<string, number> = {
   none: 18, warm: 20, hot: 24, blazing: 30, inferno: 38,
 };
+type HPThreshold = 'green' | 'yellow' | 'red';
+const HP_THRESHOLD_COLORS: Record<HPThreshold, number> = {
+  green: 0x44ff44,
+  yellow: 0xffff44,
+  red: 0xff4444,
+};
+const getHPThreshold = (progress: number): HPThreshold =>
+  progress > 0.5 ? 'green' : progress > 0.25 ? 'yellow' : 'red';
 
 export class HUDManager {
   private scene: Phaser.Scene;
@@ -114,7 +163,7 @@ export class HUDManager {
   private hpBarFill!: Phaser.GameObjects.Rectangle;
   private hpText!: Phaser.GameObjects.Text;
   private hpGlowGraphics!: Phaser.GameObjects.Graphics;
-  private lastHPThreshold: 'green' | 'yellow' | 'red' = 'green';
+  private lastHPThreshold: HPThreshold = 'green';
   private lastPlayerHP: number = -1;
 
   // Upgrade icons UI
@@ -152,6 +201,14 @@ export class HUDManager {
   private eventIndicatorTimeText: Phaser.GameObjects.Text | null = null;
   private eventIndicatorTotalDuration: number = 0;
 
+  // Relic/modifier strip — persistent icon row for active run modifiers and
+  // equipped relics. Tooltip shows on hover/tap. Rebuilt on pickup.
+  private relicStripContainer: Phaser.GameObjects.Container | null = null;
+  private relicStripTooltip: Phaser.GameObjects.Container | null = null;
+  private relicStripTooltipBg: Phaser.GameObjects.Rectangle | null = null;
+  private relicStripTooltipTitle: Phaser.GameObjects.Text | null = null;
+  private relicStripTooltipDesc: Phaser.GameObjects.Text | null = null;
+
   // Visual quality (auto-scales based on FPS)
   private visualQuality: VisualQuality = 'high';
 
@@ -172,7 +229,6 @@ export class HUDManager {
   private lastTimerSeconds: number = -1;
   private lastKillCount: number = -1;
   private lastDeathGold: number = -1;
-  private lastVictoryGold: number = -1;
   private lastPlayerLevel: number = -1;
 
   // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
@@ -218,20 +274,23 @@ export class HUDManager {
 
     // === TOP LEFT: Level & Stats Panel ===
 
-    // Level display (large)
-    this.levelText = this.scene.add.text(leftMargin, currentY, 'Level 1', {
+    // Level display — sticker style for menu-Balatro coherence.
+    this.levelText = this.scene.add.text(leftMargin, currentY, 'LEVEL 1', {
       fontSize: this.scaledFontSize(28),
-      color: '#ffdd44',
-      fontFamily: 'Arial',
+      color: ACCENT_COLORS_STR.gold,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: this.scaledSize(4),
     });
+    this.levelText.setLetterSpacing(2);
     this.levelText.setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
     // Weapon milestone hint (shown when close to a milestone level)
     this.milestoneHintText = this.scene.add.text(leftMargin, currentY + this.scaledSize(28), '', {
       fontSize: this.scaledFontSize(11),
       color: '#aaaaff',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
     });
     this.milestoneHintText.setDepth(HUD_DEPTH + 1).setAlpha(0);
 
@@ -263,9 +322,9 @@ export class HUDManager {
       currentY + hpBarHeight / 2,
       hpBarWidth,
       hpBarHeight,
-      0x333333
+      BODY_COLORS.primary
     );
-    this.hpBarBackground.setStrokeStyle(1, 0x666666);
+    this.hpBarBackground.setStrokeStyle(2, ACCENT_COLORS.danger);
     this.hpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     this.hpBarFill = this.scene.add.rectangle(
@@ -286,7 +345,7 @@ export class HUDManager {
       {
         fontSize: this.scaledFontSize(11),
         color: '#000000',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         stroke: '#ffffff',
         strokeThickness: 2,
       }
@@ -294,11 +353,14 @@ export class HUDManager {
     this.hpText.setOrigin(0.5);
     this.hpText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // HP label
+    // HP label — sticker style.
     this.scene.add.text(leftMargin + hpBarWidth + this.scaledSize(8), currentY + hpBarHeight / 2, 'HP', {
       fontSize: this.scaledFontSize(12),
-      color: '#ff6666',
-      fontFamily: 'Arial',
+      color: ACCENT_COLORS_STR.danger,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
     }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     currentY += hpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
@@ -329,9 +391,9 @@ export class HUDManager {
       currentY + xpBarHeight / 2,
       xpBarWidth,
       xpBarHeight,
-      0x333333
+      BODY_COLORS.primary
     );
-    this.xpBarBackground.setStrokeStyle(1, 0x666666);
+    this.xpBarBackground.setStrokeStyle(2, ACCENT_COLORS.safe);
     this.xpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     this.xpBarFill = this.scene.add.rectangle(
@@ -344,11 +406,14 @@ export class HUDManager {
     this.xpBarFill.setOrigin(0, 0.5);
     this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // XP label
+    // XP label — sticker style.
     this.scene.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
       fontSize: this.scaledFontSize(12),
-      color: '#44ff44',
-      fontFamily: 'Arial',
+      color: ACCENT_COLORS_STR.safe,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
     }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     currentY += xpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING) * 2;
@@ -362,37 +427,44 @@ export class HUDManager {
     this.upgradeTooltip.setVisible(false);
     this.upgradeTooltip.setDepth(HUD_DEPTH + 1); // Slightly above other HUD elements
 
-    const tooltipBg = this.scene.add.rectangle(0, 0, this.scaledSize(200), this.scaledSize(76), 0x222244, 0.95);
-    tooltipBg.setStrokeStyle(2, 0x4444aa);
+    // Tooltip background — Balatro panel painted via graphics. Sized dynamically per-show in showUpgradeTooltip.
+    const tooltipPanel = this.scene.add.graphics();
+    tooltipPanel.setName('tooltipPanel');
+    const tooltipBg = this.scene.add.rectangle(0, 0, 0, 0, 0x000000, 0);
     tooltipBg.setOrigin(0, 0);
     tooltipBg.setName('tooltipBg');
 
-    const tooltipTitle = this.scene.add.text(this.scaledSize(10), this.scaledSize(8), '', {
+    const upgradeTooltipMaxWidth = this.scaledSize(240);
+
+    const tooltipTitle = this.scene.add.text(0, 0, '', {
       fontSize: this.scaledFontSize(14),
       color: '#ffffff',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
+      wordWrap: { width: upgradeTooltipMaxWidth - this.scaledSize(20) },
     }).setName('tooltipTitle');
 
-    const tooltipDesc = this.scene.add.text(this.scaledSize(10), this.scaledSize(28), '', {
+    const tooltipDesc = this.scene.add.text(0, 0, '', {
       fontSize: this.scaledFontSize(11),
       color: '#aaaaaa',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      wordWrap: { width: upgradeTooltipMaxWidth - this.scaledSize(20) },
     }).setName('tooltipDesc');
 
-    const tooltipLevel = this.scene.add.text(this.scaledSize(10), this.scaledSize(44), '', {
+    const tooltipLevel = this.scene.add.text(0, 0, '', {
       fontSize: this.scaledFontSize(11),
       color: '#88aaff',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
     }).setName('tooltipLevel');
 
-    const tooltipEvolution = this.scene.add.text(this.scaledSize(10), this.scaledSize(60), '', {
+    const tooltipEvolution = this.scene.add.text(0, 0, '', {
       fontSize: this.scaledFontSize(10),
       color: '#ffaa44',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      wordWrap: { width: upgradeTooltipMaxWidth - this.scaledSize(20) },
     }).setName('tooltipEvolution');
 
-    this.upgradeTooltip.add([tooltipBg, tooltipTitle, tooltipDesc, tooltipLevel, tooltipEvolution]);
+    this.upgradeTooltip.add([tooltipPanel, tooltipBg, tooltipTitle, tooltipDesc, tooltipLevel, tooltipEvolution]);
 
     // === TOP RIGHT: Pause Button & Game Stats ===
 
@@ -407,49 +479,65 @@ export class HUDManager {
     const statsRightX = this.scene.scale.width - scaledPadding;
     const statsTopY = pauseButtonY + pauseButtonSize / 2 + scaledSpacing;
 
-    // World level display (centered, above timer)
+    // World level display — sticker style.
     const worldLevel = this.options.worldLevel;
-    this.scene.add.text(this.scene.scale.width / 2, scaledPadding, `World ${worldLevel}`, {
+    this.scene.add.text(this.scene.scale.width / 2, scaledPadding, `WORLD ${worldLevel}`, {
       fontSize: this.scaledFontSize(14),
-      color: '#88aaff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Game time display (centered top, below world level)
-    const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
-    this.scene.add.text(this.scene.scale.width / 2, scaledPadding + scaledWorldLevelHeight + scaledSpacing, '', {
-      fontSize: this.scaledFontSize(28),
-      color: '#ffffff',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Kill count display (below pause button, right-aligned)
-    this.scene.add.text(statsRightX, statsTopY, '', {
-      fontSize: this.scaledFontSize(16),
-      color: '#88ff88',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(6), y: this.scaledSize(3) },
-    }).setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Gold preview display (below kill count, right-aligned)
-    this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
-      fontSize: this.scaledFontSize(14),
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(6), y: this.scaledSize(2) },
-    }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
-
-    // Combo counter display (below gold preview, right-aligned)
-    this.scene.add.text(statsRightX, statsTopY + this.scaledSize(48), '', {
-      fontSize: this.scaledFontSize(18),
-      color: '#ffffff',
-      fontFamily: 'Arial',
+      color: ACCENT_COLORS_STR.primary,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: this.scaledSize(3),
-    }).setOrigin(1, 0).setName('comboText').setDepth(HUD_DEPTH).setAlpha(0);
+      strokeThickness: 2,
+    }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // Game time display — sticker style, big + chunky for the timer.
+    const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
+    const timerLabel = this.scene.add.text(this.scene.scale.width / 2, scaledPadding + scaledWorldLevelHeight + scaledSpacing, '', {
+      fontSize: this.scaledFontSize(28),
+      color: '#ffffff',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: this.scaledSize(4),
+    });
+    timerLabel.setLetterSpacing(2);
+    timerLabel.setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // Kill count display — sticker on Balatro pill.
+    this.scene.add.text(statsRightX, statsTopY, '', {
+      fontSize: this.scaledFontSize(16),
+      color: ACCENT_COLORS_STR.safe,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+
+    // Gold preview display — sticker on Balatro pill.
+    this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
+      fontSize: this.scaledFontSize(14),
+      color: ACCENT_COLORS_STR.gold,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+
+    // Combo counter display — anchored bottom-center above the controls hint
+    // so it doesn't compete with pause/kills/gold in the top-right. Sticker
+    // typography (bold + thick stroke + letter-spaced) so it feels like the
+    // big crit callouts in the menu.
+    const comboAnchorY = this.scene.scale.height - this.scaledSize(96);
+    const comboTextNode = this.scene.add.text(this.scene.scale.width / 2, comboAnchorY, '', {
+      fontSize: this.scaledFontSize(18),
+      color: '#ffffff',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: this.scaledSize(4),
+    });
+    comboTextNode.setLetterSpacing(3);
+    comboTextNode.setOrigin(0.5, 1).setName('comboText').setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
 
     // Combo progress bar (thin bar below combo text showing progress to next threshold)
     const comboProgressBar = this.scene.add.graphics();
@@ -457,59 +545,69 @@ export class HUDManager {
     comboProgressBar.setDepth(HUD_DEPTH);
     comboProgressBar.setAlpha(0);
 
-    // Combo buff timer text (shows during 50-kill damage buff)
+    // Combo buff timer text — anchored beneath the combo counter (bottom-center).
     this.comboBuffText = this.scene.add.text(
-      this.scene.scale.width - this.scaledSize(10),
-      this.scaledSize(95),
+      this.scene.scale.width / 2,
+      comboAnchorY + this.scaledSize(4),
       '',
       {
         fontSize: this.scaledFontSize(12),
         color: '#ff8844',
-        fontFamily: 'Arial',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: 'bold',
         stroke: '#000000',
         strokeThickness: this.scaledSize(2),
       }
-    ).setOrigin(1, 0).setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
+    ).setOrigin(0.5, 0).setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
+
+    // Pause button \u2014 Balatro pill (graphics back-layer + transparent rect hit zone).
+    const pauseGfx = this.scene.add.graphics();
+    pauseGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
+    paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
 
     const pauseButtonBg = this.scene.add.rectangle(
       pauseButtonX,
       pauseButtonY,
       pauseButtonSize,
       pauseButtonSize,
-      0x333333,
-      0.8
+      0x000000,
+      0
     );
-    pauseButtonBg.setStrokeStyle(2, 0x666666);
     pauseButtonBg.setInteractive({ useHandCursor: true });
     pauseButtonBg.setName('pauseButtonBg');
-    pauseButtonBg.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    pauseButtonBg.setDepth(HUD_DEPTH);
 
     const pauseButtonIcon = this.scene.add.text(pauseButtonX, pauseButtonY, '\u23F8', {
       fontSize: this.scaledFontSize(20),
+      color: '#ffffff',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
     });
     pauseButtonIcon.setOrigin(0.5);
     pauseButtonIcon.setName('pauseButtonIcon');
     pauseButtonIcon.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // Pause button hover effects
+    // Pause button hover \u2014 repaint the pill with brighter accent.
     pauseButtonBg.on('pointerover', () => {
-      pauseButtonBg.setFillStyle(0x555555, 0.9);
+      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.focus, 12);
     });
     pauseButtonBg.on('pointerout', () => {
-      pauseButtonBg.setFillStyle(0x333333, 0.8);
+      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
     });
     pauseButtonBg.on('pointerdown', () => {
       this.options.onPauseClicked();
     });
+    pauseButtonBg.once('destroy', () => pauseGfx.destroy());
 
-    // Controls hint (bottom left)
+    // Controls hint (bottom left) — sticker style.
     this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
-      fontSize: this.scaledFontSize(14),
-      color: '#888888',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(6), y: this.scaledSize(3) },
+      fontSize: this.scaledFontSize(13),
+      color: '#aaaaaa',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
     }).setOrigin(0, 1).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // BGM info display (bottom left, above controls hint)
@@ -525,15 +623,16 @@ export class HUDManager {
       hudScale: this.hudScale,
     });
 
-    // FPS counter (bottom right corner, above auto-buy toggle)
+    // FPS counter — sticker style (bottom right corner, above auto-buy toggle).
     const autoBuyToggleHeight = Math.max(this.scaledSize(26), 44);
     const fpsY = this.scene.scale.height - scaledPadding - autoBuyToggleHeight - scaledSpacing;
     this.fpsText = this.scene.add.text(this.scene.scale.width - scaledPadding, fpsY, 'FPS: --', {
       fontSize: this.scaledFontSize(14),
-      color: '#00ff00',
-      fontFamily: 'monospace',
-      backgroundColor: '#000000aa',
-      padding: { x: this.scaledSize(4), y: this.scaledSize(2) },
+      color: ACCENT_COLORS_STR.safe,
+      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
     });
     this.fpsText.setOrigin(1, 1);
     this.fpsText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
@@ -541,11 +640,12 @@ export class HUDManager {
     this.fpsText.setVisible(getSettingsManager().isFpsCounterEnabled());
 
     // Cache text references to avoid O(n) getByName() per frame
-    this.timerTextRef = this.scene.children.getByName('timerText') as Phaser.GameObjects.Text;
-    this.killCountTextRef = this.scene.children.getByName('killCountText') as Phaser.GameObjects.Text;
-    this.goldPreviewTextRef = this.scene.children.getByName('goldPreviewText') as Phaser.GameObjects.Text;
-    this.comboTextRef = this.scene.children.getByName('comboText') as Phaser.GameObjects.Text;
-    this.comboProgressBarRef = this.scene.children.getByName('comboProgressBar') as Phaser.GameObjects.Graphics;
+    const findByName = <T>(name: string): T => this.scene.children.getByName(name) as unknown as T;
+    this.timerTextRef = findByName<Phaser.GameObjects.Text>('timerText');
+    this.killCountTextRef = findByName<Phaser.GameObjects.Text>('killCountText');
+    this.goldPreviewTextRef = findByName<Phaser.GameObjects.Text>('goldPreviewText');
+    this.comboTextRef = findByName<Phaser.GameObjects.Text>('comboText');
+    this.comboProgressBarRef = findByName<Phaser.GameObjects.Graphics>('comboProgressBar');
   }
 
   /**
@@ -553,49 +653,39 @@ export class HUDManager {
    */
   update(state: HUDUpdateState): void {
     // Update timer (only when seconds change)
-    const timerText = this.timerTextRef;
-    if (timerText) {
+    if (this.timerTextRef) {
       const minutes = Math.floor(state.gameTime / 60);
       const seconds = Math.floor(state.gameTime % 60);
       if (minutes !== this.lastTimerMinutes || seconds !== this.lastTimerSeconds) {
         this.lastTimerMinutes = minutes;
         this.lastTimerSeconds = seconds;
-        timerText.setText(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+        this.timerTextRef.setText(`${minutes}:${seconds.toString().padStart(2, '0')}`);
       }
 
       // Gold timer after victory to indicate "bonus time"
       if (state.hasWon) {
-        timerText.setColor('#ffdd44');
+        this.timerTextRef.setColor('#ffdd44');
       }
     }
 
     // Update kill count (only when changed)
-    const killCountText = this.killCountTextRef;
-    if (killCountText && state.killCount !== this.lastKillCount) {
+    if (this.killCountTextRef && state.killCount !== this.lastKillCount) {
       this.lastKillCount = state.killCount;
-      killCountText.setText(`Kills: ${state.killCount}`);
+      this.killCountTextRef.setText(`Kills: ${state.killCount}`);
     }
 
-    // Update gold preview (only when values change)
-    const goldPreviewText = this.goldPreviewTextRef;
-    if (goldPreviewText) {
-      const metaManager = getMetaProgressionManager();
-      const deathGold = metaManager.calculateRunGold(
+    // Update gold preview — single compact number to reduce HUD clutter.
+    // Victory bonus is implicit to the player; they'll see it in the end screen.
+    if (this.goldPreviewTextRef) {
+      const deathGold = getMetaProgressionManager().calculateRunGold(
         state.killCount,
         state.gameTime,
         state.playerLevel,
         false
       );
-      const victoryGold = metaManager.calculateRunGold(
-        state.killCount,
-        state.gameTime,
-        state.playerLevel,
-        true
-      );
-      if (deathGold !== this.lastDeathGold || victoryGold !== this.lastVictoryGold) {
+      if (deathGold !== this.lastDeathGold) {
         this.lastDeathGold = deathGold;
-        this.lastVictoryGold = victoryGold;
-        goldPreviewText.setText(`Gold: ${deathGold} (win: ${victoryGold})`);
+        this.goldPreviewTextRef.setText(`⟁ ${deathGold}`);
       }
     }
 
@@ -609,10 +699,9 @@ export class HUDManager {
 
         // Only update text/font/color when combo count or tier changes
         if (comboCountChanged || comboTierChanged) {
-          const targetFontSize = TIER_FONT_SIZES[state.comboTier] ?? 18;
-          comboText.setFontSize(this.scaledFontSize(targetFontSize));
+          comboText.setFontSize(this.scaledFontSize(TIER_FONT_SIZES[state.comboTier] ?? 18));
           comboText.setText(`x${state.comboCount}`);
-          comboText.setColor(TIER_COLORS[state.comboTier] || '#ffffff');
+          comboText.setColor(TIER_COLORS[state.comboTier] ?? '#ffffff');
         }
 
         const comboAlpha = Math.max(0.3, state.comboDecayPercent) * HUD_ALPHA;
@@ -637,10 +726,11 @@ export class HUDManager {
           if (comboCountChanged || comboTierChanged || needsPulse) {
             comboProgressBar.clear();
             if (nextThreshold) {
-              const barWidth = this.scaledSize(60);
+              const barWidth = this.scaledSize(80);
               const barHeight = this.scaledSize(5);
-              const barX = comboText.x - barWidth;
-              const barY = comboText.y + comboText.height + this.scaledSize(2);
+              // Combo text is bottom-center-anchored now; draw the bar right below it.
+              const barX = comboText.x - barWidth / 2;
+              const barY = comboText.y + this.scaledSize(4);
               const fillColor = TIER_HEX_COLORS[state.comboTier] || 0xffffff;
 
               // Background
@@ -679,7 +769,7 @@ export class HUDManager {
           if (state.comboBuffActive) {
             const remainingSeconds = (state.comboBuffPercent * 8).toFixed(1);
             this.comboBuffText.setText(`POWER ${remainingSeconds}s`);
-            const buffY = comboText.y + comboText.height + this.scaledSize(12);
+            const buffY = comboText.y + this.scaledSize(14);
             this.comboBuffText.setY(buffY);
             this.comboBuffText.setAlpha(0.7 + 0.3 * Math.sin(state.gameTime * 5));
           } else {
@@ -736,7 +826,7 @@ export class HUDManager {
     // Update level text and weapon milestone hint (only when level changes)
     if (state.playerLevel !== this.lastPlayerLevel) {
       this.lastPlayerLevel = state.playerLevel;
-      this.levelText.setText(`Level ${state.playerLevel}`);
+      this.levelText.setText(`LEVEL ${state.playerLevel}`);
       const levelsToMilestone = 5 - (state.playerLevel % 5);
       if (levelsToMilestone <= 2 && levelsToMilestone > 0 && state.playerLevel % 5 !== 0) {
         const nextMilestone = state.playerLevel + levelsToMilestone;
@@ -762,13 +852,7 @@ export class HUDManager {
       this.hpBarFill.setFillStyle(0xffffff);
       this.scene.time.delayedCall(80, () => {
         // Restore threshold color (will be set below on next frame)
-        if (hpProgress > 0.5) {
-          this.hpBarFill.setFillStyle(0x44ff44);
-        } else if (hpProgress > 0.25) {
-          this.hpBarFill.setFillStyle(0xffff44);
-        } else {
-          this.hpBarFill.setFillStyle(0xff4444);
-        }
+        this.hpBarFill.setFillStyle(HP_THRESHOLD_COLORS[getHPThreshold(hpProgress)]);
       });
     }
     this.lastPlayerHP = state.currentHP;
@@ -776,24 +860,13 @@ export class HUDManager {
     // Update HP text
     this.hpText.setText(`${Math.ceil(state.currentHP)}/${Math.ceil(state.maxHP)}`);
 
-    // Change HP bar color based on health percentage
-    const currentHPThreshold: 'green' | 'yellow' | 'red' =
-      hpProgress > 0.5 ? 'green' : hpProgress > 0.25 ? 'yellow' : 'red';
-
-    if (hpProgress > 0.5) {
-      this.hpBarFill.setFillStyle(0x44ff44); // Green
-    } else if (hpProgress > 0.25) {
-      this.hpBarFill.setFillStyle(0xffff44); // Yellow
-    } else {
-      this.hpBarFill.setFillStyle(0xff4444); // Red
-    }
+    const currentHPThreshold = getHPThreshold(hpProgress);
+    this.hpBarFill.setFillStyle(HP_THRESHOLD_COLORS[currentHPThreshold]);
 
     // Pulse HP glow on threshold change
     if (currentHPThreshold !== this.lastHPThreshold) {
       this.lastHPThreshold = currentHPThreshold;
-      const glowColor = currentHPThreshold === 'green' ? 0x44ff44
-        : currentHPThreshold === 'yellow' ? 0xffff44
-        : 0xff4444;
+      const glowColor = HP_THRESHOLD_COLORS[currentHPThreshold];
 
       // Redraw glow with new color
       const hpGlowWidth = this.scaledSize(180);
@@ -938,16 +1011,20 @@ export class HUDManager {
         });
       }
 
-      // Icon background with type-specific color
+      // Icon background — Balatro pill chip via graphics + transparent hit rect.
+      const chipPanel = this.scene.add.graphics();
+      const chipAccent = isMastered ? masteryColors.stroke : colors.stroke;
+      paintHudPanel(chipPanel, iconX + iconSize / 2, iconY + iconSize / 2, iconSize, iconSize, colors.bg, chipAccent, 6);
       const iconBg = this.scene.add.rectangle(
         iconX + iconSize / 2,
         iconY + iconSize / 2,
         iconSize,
         iconSize,
-        colors.bg
+        0x000000,
+        0,
       );
-      iconBg.setStrokeStyle(2, isMastered ? masteryColors.stroke : colors.stroke);
       iconBg.setInteractive({ useHandCursor: true });
+      iconBg.once('destroy', () => chipPanel.destroy());
 
       // Icon sprite
       const iconSprite = createIcon(this.scene, {
@@ -979,7 +1056,7 @@ export class HUDManager {
         {
           fontSize: isMastered ? this.scaledFontSize(14) : this.scaledFontSize(12),
           color: isMastered ? '#ffd700' : '#ffffff',
-          fontFamily: 'Arial',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
           fontStyle: 'bold',
           stroke: '#000000',
           strokeThickness: 2,
@@ -987,19 +1064,19 @@ export class HUDManager {
       );
       levelBadge.setOrigin(0.5, 0.5);
 
-      // Hover events with type-specific highlight
+      // Hover events with Balatro pill repaint (brighter accent on hover).
       iconBg.on('pointerover', () => {
-        iconBg.setFillStyle(colors.hover);
+        paintHudPanel(chipPanel, iconX + iconSize / 2, iconY + iconSize / 2, iconSize, iconSize, colors.hover, ACCENT_COLORS.focus, 6);
         this.showUpgradeTooltip(upgrade, iconX, iconY + iconSize + this.scaledSize(10));
       });
 
       iconBg.on('pointerout', () => {
-        iconBg.setFillStyle(colors.bg);
+        paintHudPanel(chipPanel, iconX + iconSize / 2, iconY + iconSize / 2, iconSize, iconSize, colors.bg, chipAccent, 6);
         this.upgradeTooltip.setVisible(false);
       });
 
-      // Add to container - glow first (behind), then icon elements
-      const elementsToAdd: Phaser.GameObjects.GameObject[] = [];
+      // Add to container — chip panel first (behind icon), then glow if present, then icon elements.
+      const elementsToAdd: Phaser.GameObjects.GameObject[] = [chipPanel];
       if (glowRect) elementsToAdd.push(glowRect);
       elementsToAdd.push(iconBg, iconSprite, levelBadgeBg, levelBadge);
       this.upgradeIconsContainer.add(elementsToAdd);
@@ -1062,21 +1139,28 @@ export class HUDManager {
     glowGraphics.fillRoundedRect(-barWidth / 2 - 6, barTopOffset - 4, barWidth + 12, barHeight + 8, 6);
     container.add(glowGraphics);
 
-    // Name text with decorative elements
-    const nameText = this.scene.add.text(0, 0, `\u2550\u2550\u2550 ${name.toUpperCase()} \u2550\u2550\u2550`, {
-      fontSize: this.scaledFontSize(14),
+    // Name text \u2014 sticker banner with chunky outline.
+    const nameText = this.scene.add.text(0, 0, name.toUpperCase(), {
+      fontSize: this.scaledFontSize(16),
       color: isFinalBoss ? '#ff66cc' : '#ff6666',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: this.scaledSize(3),
+      strokeThickness: this.scaledSize(5),
     });
+    nameText.setLetterSpacing(4);
     nameText.setOrigin(0.5, 0);
     container.add(nameText);
 
-    // Bar background
-    const barBackground = this.scene.add.rectangle(0, barTopOffset + barHeight / 2, barWidth, barHeight, 0x222222);
-    barBackground.setStrokeStyle(1, 0x444444);
+    // Bar background \u2014 Balatro panel.
+    const barPanel = this.scene.add.graphics();
+    paintHudPanel(
+      barPanel, 0, barTopOffset + barHeight / 2, barWidth, barHeight,
+      BODY_COLORS.primary, isFinalBoss ? ACCENT_COLORS.magenta : ACCENT_COLORS.danger,
+      8, 1,
+    );
+    container.add(barPanel);
+    const barBackground = this.scene.add.rectangle(0, barTopOffset + barHeight / 2, barWidth, barHeight, 0x000000, 0);
     container.add(barBackground);
 
     // Bar fill (starts at full width)
@@ -1095,7 +1179,7 @@ export class HUDManager {
     const healthText = this.scene.add.text(0, barTopOffset + barHeight / 2, '', {
       fontSize: this.scaledFontSize(11),
       color: '#ffffff',
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -1165,18 +1249,16 @@ export class HUDManager {
    * Repositions all boss health bars vertically (stacking).
    */
   repositionBossHealthBars(): void {
-    for (let barIndex = 0; barIndex < this.activeBossHealthBars.length; barIndex++) {
-      const bar = this.activeBossHealthBars[barIndex];
-      const targetY = this.scaledSize(this.BOSS_HEALTH_BAR_START_Y) + barIndex * this.scaledSize(this.BOSS_HEALTH_BAR_HEIGHT);
-
-      // Animate to new position
+    const startY = this.scaledSize(this.BOSS_HEALTH_BAR_START_Y);
+    const rowHeight = this.scaledSize(this.BOSS_HEALTH_BAR_HEIGHT);
+    this.activeBossHealthBars.forEach((bar, barIndex) => {
       this.scene.tweens.add({
         targets: bar.container,
-        y: targetY,
+        y: startY + barIndex * rowHeight,
         duration: 200,
         ease: 'Power2',
       });
-    }
+    });
   }
 
   /**
@@ -1199,24 +1281,30 @@ export class HUDManager {
     this.eventIndicatorContainer.setDepth(HUD_DEPTH);
     this.eventIndicatorContainer.setAlpha(0);
 
-    // Dark background
-    const background = this.scene.add.rectangle(0, 0, panelWidth, panelHeight, 0x1a1a2e, 0.9);
-    background.setStrokeStyle(1, event.color);
+    // Balatro panel background.
+    const panelGfx = this.scene.add.graphics();
+    paintHudPanel(panelGfx, 0, 0, panelWidth, panelHeight, BODY_COLORS.primary, event.color, 10);
+    this.eventIndicatorContainer.add(panelGfx);
+    const background = this.scene.add.rectangle(0, 0, panelWidth, panelHeight, 0x000000, 0);
     this.eventIndicatorContainer.add(background);
 
-    // Event name
-    const nameText = this.scene.add.text(0, this.scaledSize(-12), event.name, {
-      fontSize: this.scaledFontSize(12),
-      fontFamily: 'Arial',
+    // Event name — sticker style.
+    const nameText = this.scene.add.text(0, this.scaledSize(-12), event.name.toUpperCase(), {
+      fontSize: this.scaledFontSize(13),
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       color: colorHex,
       fontStyle: 'bold',
-    }).setOrigin(0.5);
+      stroke: '#000000',
+      strokeThickness: 2,
+    });
+    nameText.setLetterSpacing(2);
+    nameText.setOrigin(0.5);
     this.eventIndicatorContainer.add(nameText);
 
     // Event description
     const descriptionText = this.scene.add.text(0, this.scaledSize(2), event.description, {
       fontSize: this.scaledFontSize(10),
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       color: '#aaaaaa',
     }).setOrigin(0.5);
     this.eventIndicatorContainer.add(descriptionText);
@@ -1237,7 +1325,7 @@ export class HUDManager {
     // Time remaining text
     this.eventIndicatorTimeText = this.scene.add.text(
       barWidth / 2, barY, `${event.duration.toFixed(1)}s`,
-      { fontSize: this.scaledFontSize(9), fontFamily: 'monospace', color: '#888888' }
+      { fontSize: this.scaledFontSize(9), fontFamily: '"Atkinson Hyperlegible", Arial, monospace', color: '#888888' }
     ).setOrigin(1, 0.5);
     this.eventIndicatorContainer.add(this.eventIndicatorTimeText);
 
@@ -1300,6 +1388,198 @@ export class HUDManager {
   }
 
   /**
+   * Rebuilds the relic/modifier icon strip. Called whenever the player picks up
+   * a new relic or at run start when modifiers are applied. Modifiers show
+   * with a category-colored border; relics use rarity color.
+   */
+  updateRelicModifierStrip(modifiers: readonly RunModifier[], relics: readonly Relic[]): void {
+    if (!this.relicStripContainer) {
+      this.createRelicModifierStrip();
+    }
+    const container = this.relicStripContainer!;
+    container.removeAll(true);
+
+    const iconSize = this.scaledSize(26);
+    const iconSpacing = this.scaledSize(4);
+    const modifierCategoryColors: Record<string, number> = {
+      offense: 0xff6644,
+      defense: 0x44aaff,
+      resources: 0xffcc22,
+      chaos: 0xaa44ff,
+    };
+
+    type StripEntry = {
+      iconKey: string;
+      borderColor: number;
+      tooltipTitle: string;
+      tooltipBody: string;
+      isModifier: boolean;
+    };
+    const entries: StripEntry[] = [];
+
+    // Modifiers first so they sit on the right side (anchored origin 1,0 means
+    // leftmost slot is rightmost icon). We reverse the visual order later.
+    for (const modifier of modifiers) {
+      entries.push({
+        iconKey: 'warning',
+        borderColor: modifierCategoryColors[modifier.category] ?? 0xffffff,
+        tooltipTitle: `${modifier.name} (${modifier.category})`,
+        tooltipBody: modifier.description,
+        isModifier: true,
+      });
+    }
+    for (const relic of relics) {
+      entries.push({
+        iconKey: relic.icon,
+        borderColor: getRelicRarityColor(relic.rarity),
+        tooltipTitle: `${relic.name} · ${relic.rarity}`,
+        tooltipBody: relic.description,
+        isModifier: false,
+      });
+    }
+
+    // Icons extend leftward from the container anchor (right edge).
+    // Index 0 sits rightmost; each subsequent icon shifts left.
+    entries.forEach((entry, index) => {
+      const x = -(iconSize / 2) - index * (iconSize + iconSpacing);
+      const y = iconSize / 2;
+
+      // Balatro pill slot — graphics back-layer + transparent hit zone.
+      const slotPanel = this.scene.add.graphics();
+      paintHudPanel(slotPanel, x, y, iconSize, iconSize, BODY_COLORS.primary, entry.borderColor, 8);
+      container.add(slotPanel);
+      const slotBackground = this.scene.add.rectangle(x, y, iconSize, iconSize, 0x000000, 0);
+      slotBackground.setInteractive({ useHandCursor: true });
+      container.add(slotBackground);
+
+      const slotIcon = createIcon(this.scene, {
+        x, y,
+        iconKey: entry.iconKey,
+        size: Math.floor(iconSize * 0.7),
+        tint: 0xffffff,
+      });
+      container.add(slotIcon);
+
+      // Modifier marker — tiny dot in top-right corner to distinguish from relics
+      if (entry.isModifier) {
+        const marker = this.scene.add.circle(
+          x + iconSize / 2 - 3, y - iconSize / 2 + 3, 3, entry.borderColor, 1
+        );
+        marker.setStrokeStyle(1, 0x000000);
+        container.add(marker);
+      }
+
+      slotBackground.on('pointerover', () => {
+        this.showRelicTooltip(entry.tooltipTitle, entry.tooltipBody, entry.borderColor, x + container.x, y + container.y + iconSize);
+      });
+      slotBackground.on('pointerout', () => {
+        this.hideRelicTooltip();
+      });
+      slotBackground.on('pointerdown', () => {
+        this.showRelicTooltip(entry.tooltipTitle, entry.tooltipBody, entry.borderColor, x + container.x, y + container.y + iconSize);
+      });
+    });
+  }
+
+  /** Creates the persistent strip container + tooltip (lazy-init). */
+  private createRelicModifierStrip(): void {
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    // Anchor at right edge, just below the gold preview row (gold + kill count
+    // together are ~48px tall from the top of the pause button area).
+    const pauseButtonSize = Math.max(this.scaledSize(36), 44);
+    const topY = scaledPadding + pauseButtonSize + this.scaledSize(HUD_ELEMENT_SPACING) + this.scaledSize(48);
+    const rightX = this.scene.scale.width - scaledPadding;
+
+    this.relicStripContainer = this.scene.add.container(rightX, topY);
+    this.relicStripContainer.setDepth(HUD_DEPTH);
+    this.relicStripContainer.setScrollFactor(0);
+    this.relicStripContainer.setAlpha(HUD_ALPHA);
+
+    // Tooltip (hidden by default, positioned per-hover)
+    this.relicStripTooltip = this.scene.add.container(0, 0);
+    this.relicStripTooltip.setDepth(HUD_DEPTH + 2);
+    this.relicStripTooltip.setScrollFactor(0);
+    this.relicStripTooltip.setVisible(false);
+
+    // Panel sized dynamically per-show to hug text. Init at zero; showRelicTooltip repaints.
+    const relicTooltipPanel = this.scene.add.graphics();
+    relicTooltipPanel.setName('relicStripTooltipPanel');
+    this.relicStripTooltip.add(relicTooltipPanel);
+
+    this.relicStripTooltipBg = this.scene.add.rectangle(0, 0, 0, 0, 0x000000, 0);
+    this.relicStripTooltipBg.setOrigin(1, 0);
+    this.relicStripTooltip.add(this.relicStripTooltipBg);
+
+    const tooltipMaxWidth = this.scaledSize(240);
+
+    this.relicStripTooltipTitle = this.scene.add.text(0, 0, '', {
+      fontSize: this.scaledFontSize(13),
+      color: '#ffffff',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(1, 0);
+    this.relicStripTooltip.add(this.relicStripTooltipTitle);
+
+    this.relicStripTooltipDesc = this.scene.add.text(0, 0, '', {
+      fontSize: this.scaledFontSize(11),
+      color: '#bbbbcc',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      wordWrap: { width: tooltipMaxWidth - this.scaledSize(20) },
+      align: 'right',
+    }).setOrigin(1, 0);
+    this.relicStripTooltip.add(this.relicStripTooltipDesc);
+  }
+
+  private showRelicTooltip(title: string, body: string, accentColor: number, anchorX: number, anchorY: number): void {
+    if (!this.relicStripTooltip || !this.relicStripTooltipBg
+      || !this.relicStripTooltipTitle || !this.relicStripTooltipDesc) return;
+
+    const horizontalPadding = this.scaledSize(10);
+    const verticalPadding = this.scaledSize(6);
+    const titleDescGap = this.scaledSize(4);
+    const tooltipMaxWidth = this.scaledSize(240);
+
+    this.relicStripTooltipTitle.setText(title);
+    this.relicStripTooltipDesc.setText(body);
+
+    const contentWidth = Math.max(this.relicStripTooltipTitle.width, this.relicStripTooltipDesc.width);
+    const tooltipWidth = Math.min(tooltipMaxWidth, Math.ceil(contentWidth + horizontalPadding * 2));
+    const tooltipHeight = Math.ceil(
+      this.relicStripTooltipTitle.height + titleDescGap + this.relicStripTooltipDesc.height + verticalPadding * 2,
+    );
+
+    // Position text inside the panel. Container origin is the panel's top-right.
+    this.relicStripTooltipTitle.setPosition(-horizontalPadding, verticalPadding);
+    this.relicStripTooltipDesc.setPosition(
+      -horizontalPadding,
+      verticalPadding + this.relicStripTooltipTitle.height + titleDescGap,
+    );
+
+    this.relicStripTooltipBg.setSize(tooltipWidth, tooltipHeight);
+
+    const panel = this.relicStripTooltip.getByName('relicStripTooltipPanel') as Phaser.GameObjects.Graphics | null;
+    if (panel) {
+      paintHudPanel(
+        panel,
+        -tooltipWidth / 2, tooltipHeight / 2,
+        tooltipWidth, tooltipHeight,
+        BODY_COLORS.primary, accentColor, 10, 0.95,
+      );
+    }
+
+    // Position tooltip so its right edge aligns with the icon's right edge,
+    // extending leftward and downward below the icon.
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    const rightEdge = Math.min(anchorX + this.scaledSize(13), this.scene.scale.width - scaledPadding);
+    this.relicStripTooltip.setPosition(rightEdge, anchorY + this.scaledSize(4));
+    this.relicStripTooltip.setVisible(true);
+  }
+
+  private hideRelicTooltip(): void {
+    if (this.relicStripTooltip) this.relicStripTooltip.setVisible(false);
+  }
+
+  /**
    * Sets the auto-buy enabled state and updates the visual.
    */
   setAutoBuyEnabled(enabled: boolean): void {
@@ -1323,11 +1603,14 @@ export class HUDManager {
     const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
     const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
 
+    const findByName = <T>(name: string): T | null =>
+      this.scene.children.getByName(name) as unknown as T | null;
+
     // --- Top-center elements ---
-    const worldLevelText = this.scene.children.getByName('worldLevelText') as Phaser.GameObjects.Text;
+    const worldLevelText = findByName<Phaser.GameObjects.Text>('worldLevelText');
     if (worldLevelText) worldLevelText.setX(width / 2);
 
-    const timerText = this.scene.children.getByName('timerText') as Phaser.GameObjects.Text;
+    const timerText = findByName<Phaser.GameObjects.Text>('timerText');
     if (timerText) timerText.setX(width / 2);
 
     // --- Top-right elements ---
@@ -1335,19 +1618,26 @@ export class HUDManager {
     const pauseButtonX = width - scaledPadding - pauseButtonSize / 2;
     const pauseButtonY = scaledPadding + pauseButtonSize / 2;
 
-    const pauseBg = this.scene.children.getByName('pauseButtonBg') as Phaser.GameObjects.Rectangle;
+    const pauseBg = findByName<Phaser.GameObjects.Rectangle>('pauseButtonBg');
     if (pauseBg) pauseBg.setPosition(pauseButtonX, pauseButtonY);
 
-    const pauseIcon = this.scene.children.getByName('pauseButtonIcon') as Phaser.GameObjects.Text;
+    const pauseIcon = findByName<Phaser.GameObjects.Text>('pauseButtonIcon');
     if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
 
     const statsRightX = width - scaledPadding;
 
-    const killCountText = this.scene.children.getByName('killCountText') as Phaser.GameObjects.Text;
+    const killCountText = findByName<Phaser.GameObjects.Text>('killCountText');
     if (killCountText) killCountText.setX(statsRightX);
 
-    const goldPreviewText = this.scene.children.getByName('goldPreviewText') as Phaser.GameObjects.Text;
+    const goldPreviewText = findByName<Phaser.GameObjects.Text>('goldPreviewText');
     if (goldPreviewText) goldPreviewText.setX(statsRightX);
+
+    const comboText = findByName<Phaser.GameObjects.Text>('comboText');
+    if (comboText) comboText.setX(statsRightX);
+
+    if (this.comboBuffText) {
+      this.comboBuffText.setX(width - this.scaledSize(10));
+    }
 
     // --- Bottom-left elements ---
     const controlsHint = this.scene.children.getAll().find(
@@ -1377,6 +1667,15 @@ export class HUDManager {
       const toggleY = height - scaledPadding - toggleHeight / 2;
       this.autoBuyToggleBg.setPosition(toggleX, toggleY);
       this.autoBuyToggleText.setPosition(toggleX, toggleY);
+    }
+
+    // --- Event indicator ---
+    if (this.eventIndicatorContainer) {
+      const panelWidth = this.scaledSize(180);
+      const panelHeight = this.scaledSize(48);
+      const eventPanelX = width - scaledPadding - panelWidth / 2;
+      const eventPanelY = height - scaledPadding - this.scaledSize(70) - panelHeight / 2;
+      this.eventIndicatorContainer.setPosition(eventPanelX, eventPanelY);
     }
 
     // --- Boss health bars ---
@@ -1409,9 +1708,7 @@ export class HUDManager {
     if (this.fpsText) {
       const fpsEnabled = getSettingsManager().isFpsCounterEnabled();
       this.fpsText.setVisible(fpsEnabled);
-      if (fpsEnabled) {
-        this.fpsText.setText(`FPS: ${Math.round(fps)}`);
-      }
+      if (fpsEnabled) this.fpsText.setText(`FPS: ${Math.round(fps)}`);
     }
 
     // Circular buffer for FPS history (avoids O(n) shift)
@@ -1470,10 +1767,8 @@ export class HUDManager {
    */
 
   destroy(): void {
-    if (this.comboBuffText) {
-      this.comboBuffText.destroy();
-      this.comboBuffText = null;
-    }
+    this.comboBuffText?.destroy();
+    this.comboBuffText = null;
 
     // Destroy HUD bar glow tweens
     this.scene.tweens.killTweensOf(this.hpGlowGraphics);
@@ -1483,9 +1778,7 @@ export class HUDManager {
     this.destroyEventIndicator();
 
     // Destroy mastery icon effects
-    if (this.masteryIconEffects) {
-      this.masteryIconEffects.destroy();
-    }
+    this.masteryIconEffects?.destroy();
 
     // Destroy boss health bars
     for (const bar of this.activeBossHealthBars) {
@@ -1494,42 +1787,24 @@ export class HUDManager {
     }
     this.activeBossHealthBars = [];
 
-    // Destroy upgrade tooltip
-    if (this.upgradeTooltip) {
-      this.upgradeTooltip.destroy();
-    }
-
-    // Destroy upgrade icons container
-    if (this.upgradeIconsContainer) {
-      this.upgradeIconsContainer.destroy();
-    }
-
-    // Destroy BGM container
-    if (this.bgmContainer) {
-      this.bgmContainer.destroy();
-    }
+    // Destroy upgrade tooltip, icons container, BGM container
+    this.upgradeTooltip?.destroy();
+    this.upgradeIconsContainer?.destroy();
+    this.bgmContainer?.destroy();
 
     // Destroy FPS text
-    if (this.fpsText) {
-      this.fpsText.destroy();
-      this.fpsText = null;
-    }
+    this.fpsText?.destroy();
+    this.fpsText = null;
 
     // Destroy auto-buy toggle elements
-    if (this.autoBuyToggleBg) {
-      this.autoBuyToggleBg.destroy();
-      this.autoBuyToggleBg = null;
-    }
-    if (this.autoBuyToggleText) {
-      this.autoBuyToggleText.destroy();
-      this.autoBuyToggleText = null;
-    }
+    this.autoBuyToggleBg?.destroy();
+    this.autoBuyToggleBg = null;
+    this.autoBuyToggleText?.destroy();
+    this.autoBuyToggleText = null;
 
     // Destroy touch action buttons
-    if (this.touchActionButtons) {
-      this.touchActionButtons.destroy();
-      this.touchActionButtons = null;
-    }
+    this.touchActionButtons?.destroy();
+    this.touchActionButtons = null;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1562,46 +1837,53 @@ export class HUDManager {
     // Position with bottom edge at scaled padding from screen edge
     const toggleY = this.scene.scale.height - scaledPadding - toggleHeight / 2;
 
-    // Background rectangle for the toggle button
+    // Balatro pill — graphics back-layer + transparent hit zone.
+    const autoBuyGfx = this.scene.add.graphics();
+    autoBuyGfx.setName('autoBuyToggleGfx');
+    autoBuyGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
+    paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
+
     this.autoBuyToggleBg = this.scene.add.rectangle(
-      toggleX,
-      toggleY,
-      toggleWidth,
-      toggleHeight,
-      0x2a2a4a
+      toggleX, toggleY, toggleWidth, toggleHeight, 0x000000, 0,
     );
-    this.autoBuyToggleBg.setStrokeStyle(2, 0x4a4a7a);
     this.autoBuyToggleBg.setInteractive({ useHandCursor: true });
     this.autoBuyToggleBg.setName('autoBuyToggleBg');
-    this.autoBuyToggleBg.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.autoBuyToggleBg.setDepth(HUD_DEPTH);
 
-    // Toggle text with bracket format matching existing UI
+    // Toggle text — sticker style.
     this.autoBuyToggleText = this.scene.add.text(
-      toggleX,
-      toggleY,
-      '[ AUTO-UPGRADE: OFF ]',
+      toggleX, toggleY, 'AUTO-UPGRADE  OFF',
       {
-        fontSize: this.scaledFontSize(14),
-        fontFamily: 'Arial',
+        fontSize: this.scaledFontSize(13),
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         color: '#888888',
-      }
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 2,
+      },
     );
+    this.autoBuyToggleText.setLetterSpacing(2);
     this.autoBuyToggleText.setOrigin(0.5);
     this.autoBuyToggleText.setName('autoBuyToggleText');
     this.autoBuyToggleText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // Click handler
     this.autoBuyToggleBg.on('pointerdown', () => {
       this.options.onAutoBuyToggled();
     });
-
-    // Hover effects
     this.autoBuyToggleBg.on('pointerover', () => {
-      this.autoBuyToggleBg?.setFillStyle(0x3a3a6a);
+      paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.focus, 12);
     });
     this.autoBuyToggleBg.on('pointerout', () => {
-      this.autoBuyToggleBg?.setFillStyle(0x2a2a4a);
+      this.refreshAutoBuyPanel();
     });
+    this.autoBuyToggleBg.once('destroy', () => autoBuyGfx.destroy());
+
+    // Stash refs for `updateAutoBuyToggleVisual` to call repaint on state change.
+    this.autoBuyToggleBg.setData('panelGfx', autoBuyGfx);
+    this.autoBuyToggleBg.setData('toggleX', toggleX);
+    this.autoBuyToggleBg.setData('toggleY', toggleY);
+    this.autoBuyToggleBg.setData('toggleW', toggleWidth);
+    this.autoBuyToggleBg.setData('toggleH', toggleHeight);
 
     // Update visual state based on initial setting
     this.updateAutoBuyToggleVisual();
@@ -1617,16 +1899,31 @@ export class HUDManager {
     const autoUpgradeLevel = getMetaProgressionManager().getAutoUpgradeLevel();
 
     if (this.isAutoBuyEnabled) {
-      // Show tier indicator if level > 1 (has intelligence upgrades)
-      const tierText = autoUpgradeLevel > 1 ? ` T${autoUpgradeLevel}` : '';
-      this.autoBuyToggleText.setText(`[ AUTO${tierText}: ON ]`);
-      this.autoBuyToggleText.setColor('#ffdd44'); // Gold for active
-      this.autoBuyToggleBg?.setStrokeStyle(2, 0xffdd44);
+      // Show tier indicator if level > 1 (has intelligence upgrades).
+      const tierText = autoUpgradeLevel > 1 ? `  T${autoUpgradeLevel}` : '';
+      this.autoBuyToggleText.setText(`AUTO${tierText}  ON`);
+      this.autoBuyToggleText.setColor(ACCENT_COLORS_STR.gold);
     } else {
-      this.autoBuyToggleText.setText('[ AUTO-UPGRADE: OFF ]');
-      this.autoBuyToggleText.setColor('#888888'); // Gray for inactive
-      this.autoBuyToggleBg?.setStrokeStyle(2, 0x4a4a7a);
+      this.autoBuyToggleText.setText('AUTO-UPGRADE  OFF');
+      this.autoBuyToggleText.setColor('#888888');
     }
+    this.refreshAutoBuyPanel();
+  }
+
+  /**
+   * Repaints the auto-buy pill background with the right accent for the
+   * current state (gold when enabled, neutral when off).
+   */
+  private refreshAutoBuyPanel(): void {
+    if (!this.autoBuyToggleBg) return;
+    const gfx = this.autoBuyToggleBg.getData('panelGfx') as Phaser.GameObjects.Graphics | undefined;
+    if (!gfx) return;
+    const x = this.autoBuyToggleBg.getData('toggleX') as number;
+    const y = this.autoBuyToggleBg.getData('toggleY') as number;
+    const w = this.autoBuyToggleBg.getData('toggleW') as number;
+    const h = this.autoBuyToggleBg.getData('toggleH') as number;
+    const accent = this.isAutoBuyEnabled ? ACCENT_COLORS.gold : ACCENT_COLORS.neutral;
+    paintHudPanel(gfx, x, y, w, h, BODY_COLORS.primary, accent, 12);
   }
 
   /**
@@ -1634,27 +1931,29 @@ export class HUDManager {
    * Shows buttons only when player is using touch input.
    */
   updateTouchButtonVisibility(controlMode: string): void {
-    if (this.touchActionButtons) {
-      this.touchActionButtons.setVisible(controlMode === 'joystick');
-    }
+    this.touchActionButtons?.setVisible(controlMode === 'joystick');
+  }
+
+  /**
+   * Returns the touch action buttons instance so input managers can query
+   * button zones for joystick exclusion.
+   */
+  getTouchActionButtons(): TouchActionButtons | null {
+    return this.touchActionButtons;
   }
 
   /**
    * Update the dash cooldown visual on the touch dash button.
    */
   updateDashCooldown(remaining: number, total: number): void {
-    if (this.touchActionButtons) {
-      this.touchActionButtons.updateDashCooldown(remaining, total);
-    }
+    this.touchActionButtons?.updateDashCooldown(remaining, total);
   }
 
   /**
    * Enable or disable touch action buttons (e.g., during pause).
    */
   setTouchButtonsEnabled(isEnabled: boolean): void {
-    if (this.touchActionButtons) {
-      this.touchActionButtons.setEnabled(isEnabled);
-    }
+    this.touchActionButtons?.setEnabled(isEnabled);
   }
 
   /**
@@ -1725,13 +2024,14 @@ export class HUDManager {
       tint: 0x8888aa,
     });
 
-    // Track info text - after music icon
+    // Track info text — sticker style on accent color.
     this.bgmTrackText = this.scene.add.text(this.scaledSize(65), 0, 'Loading...', {
       fontSize: this.scaledFontSize(12),
-      color: '#8888aa',
-      fontFamily: 'Arial',
-      backgroundColor: '#00000080',
-      padding: { x: this.scaledSize(4), y: this.scaledSize(2) },
+      color: ACCENT_COLORS_STR.primary,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
     });
 
     this.bgmContainer.add([this.bgmMuteButton, this.bgmMuteStrike, skipButton, musicIcon, this.bgmTrackText]);
@@ -1742,18 +2042,16 @@ export class HUDManager {
    */
   private toggleBGMMute(): void {
     const musicManager = getMusicManager();
-    const currentMode = musicManager.getPlaybackMode();
+    const isCurrentlyMuted = musicManager.getPlaybackMode() === 'off';
 
-    if (currentMode === 'off') {
+    if (isCurrentlyMuted) {
       // Unmute - restore to sequential
       musicManager.setPlaybackMode('sequential');
       musicManager.play();
-      this.bgmMuteStrike.setVisible(false);
     } else {
-      // Mute
       musicManager.setPlaybackMode('off');
-      this.bgmMuteStrike.setVisible(true);
     }
+    this.bgmMuteStrike.setVisible(!isCurrentlyMuted);
   }
 
   /**
@@ -1776,22 +2074,15 @@ export class HUDManager {
 
     // Update track text only when track changes (avoid unnecessary updates)
     if (currentTrack) {
-      const trackId = currentTrack.id;
-      if (trackId !== this.lastTrackId) {
-        this.lastTrackId = trackId;
+      if (currentTrack.id !== this.lastTrackId) {
+        this.lastTrackId = currentTrack.id;
         // Truncate long names to fit the display
-        const displayText = currentTrack.title;
-        const truncatedText = displayText.length > 24
-          ? displayText.substring(0, 22) + '...'
-          : displayText;
-        this.bgmTrackText.setText(truncatedText);
+        const title = currentTrack.title;
+        this.bgmTrackText.setText(title.length > 24 ? title.substring(0, 22) + '...' : title);
       }
-    } else if (!isPlaying) {
-      this.bgmTrackText.setText('Music Off');
-      this.lastTrackId = '';
     } else {
-      // Music is enabled but no track available (empty playlist)
-      this.bgmTrackText.setText('No Tracks');
+      // Music Off when disabled, No Tracks when enabled but playlist empty
+      this.bgmTrackText.setText(isPlaying ? 'No Tracks' : 'Music Off');
       this.lastTrackId = '';
     }
 
@@ -1814,21 +2105,25 @@ export class HUDManager {
       containerPos.y + offsetY
     );
 
-    const titleText = this.upgradeTooltip.getByName('tooltipTitle') as Phaser.GameObjects.Text;
-    const descText = this.upgradeTooltip.getByName('tooltipDesc') as Phaser.GameObjects.Text;
-    const levelText = this.upgradeTooltip.getByName('tooltipLevel') as Phaser.GameObjects.Text;
-    const evolutionText = this.upgradeTooltip.getByName('tooltipEvolution') as Phaser.GameObjects.Text;
-    const tooltipBg = this.upgradeTooltip.getByName('tooltipBg') as Phaser.GameObjects.Rectangle;
+    const findInTooltip = <T>(name: string): T | null =>
+      this.upgradeTooltip.getByName(name) as unknown as T | null;
+    const titleText = findInTooltip<Phaser.GameObjects.Text>('tooltipTitle');
+    const descText = findInTooltip<Phaser.GameObjects.Text>('tooltipDesc');
+    const levelText = findInTooltip<Phaser.GameObjects.Text>('tooltipLevel');
+    const evolutionText = findInTooltip<Phaser.GameObjects.Text>('tooltipEvolution');
+    const tooltipBg = findInTooltip<Phaser.GameObjects.Rectangle>('tooltipBg');
+    const tooltipPanel = findInTooltip<Phaser.GameObjects.Graphics>('tooltipPanel');
 
     if (titleText) titleText.setText(upgrade.name);
     if (descText) descText.setText(upgrade.description);
     const isMastered = upgrade.currentLevel >= upgrade.maxLevel;
     if (levelText) levelText.setText(isMastered ? '\u2605 MASTERED' : `Level ${upgrade.currentLevel}/${upgrade.maxLevel}`);
 
-    // Show evolution info for weapons
+    let hasEvolution = false;
     if (evolutionText) {
       const evoInfo = upgrade.evolutionInfo;
       if (evoInfo) {
+        hasEvolution = true;
         if (evoInfo.isEvolved) {
           evolutionText.setText(`Evolved: ${evoInfo.evolvedName}`);
           evolutionText.setColor('#ffdd44');
@@ -1840,13 +2135,44 @@ export class HUDManager {
           evolutionText.setText(`Evolve: Wpn ${wpnStatus} + ${evoInfo.requiredStatName} ${statStatus}`);
           evolutionText.setColor(weaponMet && statMet ? '#88ff88' : '#ffaa44');
         }
-        // Expand tooltip to fit evolution text
-        if (tooltipBg) tooltipBg.setSize(this.scaledSize(200), this.scaledSize(76));
       } else {
         evolutionText.setText('');
-        // Shrink tooltip when no evolution info
-        if (tooltipBg) tooltipBg.setSize(this.scaledSize(200), this.scaledSize(60));
       }
+    }
+
+    // Stack rows vertically with dynamic widths. Each row uses its measured height.
+    const horizontalPadding = this.scaledSize(10);
+    const verticalPadding = this.scaledSize(8);
+    const rowGap = this.scaledSize(4);
+    const maxTooltipWidth = this.scaledSize(240);
+
+    let cursorY = verticalPadding;
+    let maxContentWidth = 0;
+    const layoutRow = (row: Phaser.GameObjects.Text | null, visible: boolean): void => {
+      if (!row) return;
+      row.setVisible(visible);
+      if (!visible) return;
+      row.setPosition(horizontalPadding, cursorY);
+      cursorY += row.height + rowGap;
+      maxContentWidth = Math.max(maxContentWidth, row.width);
+    };
+
+    layoutRow(titleText, true);
+    layoutRow(descText, true);
+    layoutRow(levelText, true);
+    layoutRow(evolutionText, hasEvolution);
+
+    const tooltipWidth = Math.min(maxTooltipWidth, Math.ceil(maxContentWidth + horizontalPadding * 2));
+    const tooltipHeight = Math.ceil(cursorY - rowGap + verticalPadding);
+
+    if (tooltipBg) tooltipBg.setSize(tooltipWidth, tooltipHeight);
+    if (tooltipPanel) {
+      paintHudPanel(
+        tooltipPanel,
+        tooltipWidth / 2, tooltipHeight / 2,
+        tooltipWidth, tooltipHeight,
+        BODY_COLORS.primary, ACCENT_COLORS.primary, 10, 0.95,
+      );
     }
 
     this.upgradeTooltip.setVisible(true);

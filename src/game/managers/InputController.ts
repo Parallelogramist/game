@@ -245,6 +245,17 @@ export class InputController {
   }
 
   /**
+   * Registers an exclusion zone check on the joystick — touches inside this
+   * zone won't spawn the joystick. Used to reserve screen space for
+   * on-screen buttons (dash button) so the joystick doesn't steal the tap.
+   */
+  addJoystickExclusionCheck(check: (x: number, y: number) => boolean): void {
+    if (this.joystickManager) {
+      this.joystickManager.addExclusionCheck(check);
+    }
+  }
+
+  /**
    * Returns the current input state.
    */
   getInputState(): InputState {

@@ -10,20 +10,20 @@ import { ToastConfig } from '../achievements/AchievementTypes';
 import { createIcon } from '../utils/IconRenderer';
 import { computeHudScale } from '../utils/HudScale';
 import { getSettingsManager } from '../settings';
+import { ACCENT_COLORS, BODY_COLORS, MENU_COLORS } from '../visual/MenuStyle';
 
-// Base toast dimensions (scaled by hudScale on small screens)
-const BASE_TOAST_WIDTH = 280;
-const BASE_TOAST_HEIGHT = 70;
+// Base toast dimensions (scaled by hudScale on small screens).
+const BASE_TOAST_WIDTH = 300;
+const BASE_TOAST_HEIGHT = 78;
 const BASE_TOAST_MARGIN = 16;
-const BASE_TOAST_PADDING = 12;
+const BASE_TOAST_PADDING = 14;
 const SLIDE_DURATION = 300;
 const DEFAULT_DISPLAY_DURATION = 3000;
 
-// Visual styling
-const TOAST_BG_COLOR = 0x1a1a2e;
-const TOAST_BORDER_COLOR = 0x4a4a7a;
-const TOAST_TITLE_COLOR = '#ffdd44';
-const TOAST_DESC_COLOR = '#aaaacc';
+const TOAST_BG_COLOR = BODY_COLORS.primary;
+const TOAST_BORDER_COLOR = ACCENT_COLORS.neutral;
+const TOAST_TITLE_COLOR = MENU_COLORS.stickerWhite;
+const TOAST_DESC_COLOR = MENU_COLORS.textBody;
 
 export class ToastManager {
   private scene: Phaser.Scene;
@@ -110,35 +110,38 @@ export class ToastManager {
 
     container.setPosition(startX, y);
 
-    // Background
+    // Balatro-style panel: drop shadow + accent border + dark body + top stripe.
+    const accentColor = config.color || TOAST_BORDER_COLOR;
     const bg = this.scene.add.graphics();
+    const halfW = toastWidth / 2;
+    const halfH = toastHeight / 2;
+    const radius = 12;
+    // Drop shadow.
+    bg.fillStyle(0x000000, 0.45);
+    bg.fillRoundedRect(-halfW + 4, -halfH + 6, toastWidth, toastHeight, radius);
+    // Accent ink border layer.
+    bg.fillStyle(accentColor, 1);
+    bg.fillRoundedRect(-halfW - 2, -halfH - 2, toastWidth + 4, toastHeight + 4, radius);
+    // Body fill.
     bg.fillStyle(TOAST_BG_COLOR, 0.95);
-    bg.lineStyle(2, config.color || TOAST_BORDER_COLOR, 1);
-    bg.fillRoundedRect(
-      -toastWidth / 2,
-      -toastHeight / 2,
-      toastWidth,
-      toastHeight,
-      8
-    );
-    bg.strokeRoundedRect(
-      -toastWidth / 2,
-      -toastHeight / 2,
-      toastWidth,
-      toastHeight,
-      8
-    );
+    bg.fillRoundedRect(-halfW, -halfH, toastWidth, toastHeight, radius);
+    // Top accent stripe.
+    bg.fillStyle(accentColor, 0.65);
+    bg.fillRect(-halfW + 4, -halfH + 2, toastWidth - 8, 3);
+    // Bottom inner shadow.
+    bg.fillStyle(0x000000, 0.22);
+    bg.fillRect(-halfW + 4, halfH - 3, toastWidth - 8, 2);
     container.add(bg);
 
-    // Accent line on left
+    // Wide accent strip down the left edge — color-channel identifier.
     const accent = this.scene.add.graphics();
-    accent.fillStyle(config.color || 0xffdd44, 1);
+    accent.fillStyle(accentColor, 1);
     accent.fillRoundedRect(
-      -toastWidth / 2,
-      -toastHeight / 2,
-      4,
+      -halfW,
+      -halfH,
+      6,
       toastHeight,
-      { tl: 8, bl: 8, tr: 0, br: 0 }
+      { tl: radius, bl: radius, tr: 0, br: 0 },
     );
     container.add(accent);
 
@@ -162,20 +165,23 @@ export class ToastManager {
       container.add(fallbackIcon);
     }
 
-    // Title text (create first to measure height)
+    // Title — sticker style for Balatro punch.
     const textX = -toastWidth / 2 + toastPadding + Math.round(48 * hudScale);
     const title = this.scene.add.text(textX, 0, config.title, {
-      fontSize: `${Math.round(14 * hudScale)}px`,
+      fontSize: `${Math.round(15 * hudScale)}px`,
       color: TOAST_TITLE_COLOR,
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
     });
+    title.setLetterSpacing(1.5);
 
-    // Description text (can be multi-line)
+    // Description text (can be multi-line).
     const desc = this.scene.add.text(textX, 0, config.description, {
       fontSize: `${Math.round(11 * hudScale)}px`,
       color: TOAST_DESC_COLOR,
-      fontFamily: 'Arial',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       wordWrap: { width: toastWidth - Math.round(80 * hudScale) },
     });
 

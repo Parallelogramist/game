@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { createIcon } from '../../utils/IconRenderer';
 import { createWorld, addEntity, addComponent, removeEntity, IWorld, defineQuery, hasComponent } from 'bitecs';
 import {
   Transform,
@@ -18,11 +19,12 @@ import { inputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, getWardenSlowMultiplier } from '../../ecs/systems/EnemyAISystem';
-import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime } from '../../ecs/systems/enemy-ai/state';
+import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
+import { resetBossPhaseTracking } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
-import { getRandomEnemyType, getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
+import { getScaledStats, getEnemyType, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
@@ -35,11 +37,12 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
-import { createCachedGlowingShape, resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
+import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
+import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
 import { generateGemAtlases, destroyGemAtlases } from '../../visual/Gem3DRenderer';
 import { generateProjectileAtlases, destroyProjectileAtlases } from '../../visual/ProjectileAtlasRenderer';
-import { PlayerSpaceship } from '../../visual/PlayerSpaceship';
 import { GridBackground } from '../../visual/GridBackground';
+import { PlayerSpaceship } from '../../visual/PlayerSpaceship';
 import { TrailManager } from '../../visual/TrailManager';
 import { DeathRippleManager } from '../../visual/DeathRippleManager';
 import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
@@ -51,7 +54,7 @@ import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
 import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
 import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
-import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality } from '../../systems/HazardZoneSystem';
+import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage } from '../../storage';
@@ -62,6 +65,14 @@ import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
+import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
+import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
+import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
+import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
+import { recordDailyRun } from '../../meta/DailyChallengeManager';
+import { getRelicManager } from '../../meta/RelicManager';
+import { getRelicRarityColor } from '../../data/Relics';
+import { getStageById, getDefaultStage } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
@@ -145,7 +156,15 @@ export class GameScene extends Phaser.Scene {
 
   // ESC key handler reference for cleanup
   private escKey: Phaser.Input.Keyboard.Key | null = null;
+  // Director debug overlay — toggled with F10, shows current spend strategy
+  // and credit balance. Guarded behind a settings flag to avoid shipping noise.
+  private directorDebugText: Phaser.GameObjects.Text | null = null;
+  private directorDebugRefreshAccumulator: number = 0;
+  private directorDebugKeyHandler: (() => void) | null = null;
   private dashRequestHandler: (() => void) | null = null;
+  // First-run coach marks: cleanup hook exposed so shutdown can tear down
+  // listeners and timers if the player restarts mid-tutorial.
+  private coachMarksCleanup: (() => void) | null = null;
   private pauseRequestHandler: (() => void) | null = null;
   private autoBuyToggleHandler: (() => void) | null = null;
 
@@ -190,7 +209,9 @@ export class GameScene extends Phaser.Scene {
   private endlessModeActive = false;
   private endlessModeTime = 0;           // Time elapsed since continue was chosen
   private endlessMinibossTimer = 0;      // Countdown to next miniboss (60s intervals)
-  private endlessBossTimer = 0;          // Countdown to next boss wave (600s intervals)
+  private endlessBossTimer = 0;          // Countdown to next boss wave (escalating intervals)
+  private endlessCycleNumber = 0;        // How many endless boss waves have been defeated
+  private endlessBossIntervalSeconds = 300; // Starts at 5 min between waves, shortens per cycle
 
   // Active laser beams (for visual rendering)
   private activeLasers: { x1: number; y1: number; x2: number; y2: number; lifetime: number }[] = [];
@@ -276,10 +297,29 @@ export class GameScene extends Phaser.Scene {
    * Used to detect restore mode vs fresh start.
    */
   private startingWeaponId: string = 'projectile';
+  private selectedShipId: string = 'ship_default';
+  private dailyModeActive: boolean = false;
+  private dailyDateString: string = '';
+  private dailyChallengeType: 'daily' | 'weekly' = 'daily';
+  private selectedStageId: string = 'stage_deep_void';
 
-  init(data?: { restore?: boolean; startingWeapon?: string; modifierIds?: string[] }): void {
+  init(data?: {
+    restore?: boolean;
+    startingWeapon?: string;
+    modifierIds?: string[];
+    shipId?: string;
+    stageId?: string;
+    dailyMode?: boolean;
+    dailyDate?: string;
+    dailyChallengeType?: 'daily' | 'weekly';
+  }): void {
     this.shouldRestore = data?.restore === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
+    this.selectedShipId = data?.shipId || 'ship_default';
+    this.selectedStageId = data?.stageId || 'stage_deep_void';
+    this.dailyModeActive = data?.dailyMode === true;
+    this.dailyDateString = data?.dailyDate ?? '';
+    this.dailyChallengeType = data?.dailyChallengeType ?? 'daily';
     // Restore modifiers by ID, or select new random ones for fresh runs
     if (data?.modifierIds) {
       this.activeModifiers = data.modifierIds
@@ -327,12 +367,16 @@ export class GameScene extends Phaser.Scene {
     resetFrameCache();
     resetEnemySpatialHash();
     resetShapeTextureCache(this);
+    resetEnemyTextureCache(this);
     destroyGemAtlases(this);
     destroyProjectileAtlases(this);
     resetComboSystem();
     resetEventSystem();
+    resetDirectorSystem();
+    resetBossPhaseTracking();
     resetBossArenaSystem();
     resetHazardZoneSystem();
+    getRelicManager().reset();
 
     // Reset all instance properties for fresh game state
     // (Class property initializers only run once on instantiation, not on scene restart)
@@ -349,6 +393,18 @@ export class GameScene extends Phaser.Scene {
     const achievementManager = getAchievementManager();
     achievementManager.startNewRun();
     this.toastManager = getToastManager(this);
+
+    // Single-source hidden unlock toasts. Evaluator fires this per new unlock,
+    // so the end-of-run loop no longer needs to iterate results itself.
+    getHiddenUnlockManager().setOnNewUnlock((condition) => {
+      this.toastManager.showToast({
+        title: 'Hidden Unlock!',
+        description: `${condition.displayName} — ${condition.hintText}`,
+        icon: 'star',
+        color: 0xffcc44,
+        duration: 5500,
+      });
+    });
 
     // Set up milestone completion callback to show toast notifications
     achievementManager.setMilestoneCompleteCallback(
@@ -398,19 +454,10 @@ export class GameScene extends Phaser.Scene {
         );
       }
     );
-    // Tutorial toast on first game start (touch-aware hint)
+    // First-run coach marks replace the old single welcome toast. They cover
+    // move, dash, XP, pause, and combos — each dismissible.
     if (!getSettingsManager().isTutorialSeen()) {
-      const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
-      const moveHint = isTouchDevice ? 'Touch to move. Survive!' : 'WASD or arrows to move. Survive!';
-      this.time.delayedCall(2000, () => {
-        this.toastManager.showToast({
-          title: 'Welcome!',
-          description: moveHint,
-          icon: 'run',
-          color: 0x44aaff,
-          duration: 4000,
-        });
-      });
+      this.time.delayedCall(1200, () => this.showFirstRunCoachMarks());
     }
 
     // Show active run modifiers as a centered banner overlay
@@ -430,6 +477,8 @@ export class GameScene extends Phaser.Scene {
     this.endlessModeTime = 0;
     this.endlessMinibossTimer = 0;
     this.endlessBossTimer = 0;
+    this.endlessCycleNumber = 0;
+    this.endlessBossIntervalSeconds = 300;
     this.activeLasers = [];
     this.enemyProjectiles = [];
     // Reset miniboss spawn tracking and shuffle order for variety
@@ -442,15 +491,14 @@ export class GameScene extends Phaser.Scene {
       const j = Math.floor(Math.random() * (i + 1));
       [typeIds[i], typeIds[j]] = [typeIds[j], typeIds[i]];
     }
-    for (let i = 0; i < this.minibossSpawnTimes.length; i++) {
-      this.minibossSpawnTimes[i].typeId = typeIds[i];
-    }
+    this.minibossSpawnTimes.forEach((entry, i) => { entry.typeId = typeIds[i]; });
 
     // Initialize ECS world
     this.world = createWorld();
 
     // Initialize Geometry Wars style warping grid background
     this.gridBackground = new GridBackground(this);
+    this.applyStageVisuals();
 
     // Initialize motion trail system
     this.trailManager = new TrailManager(this);
@@ -608,6 +656,48 @@ export class GameScene extends Phaser.Scene {
       modifier.apply(this.playerStats);
     }
 
+    // ═══ SHIP / CHARACTER BONUSES ═══
+    const selectedShip = getShipById(this.selectedShipId) ?? getDefaultShip();
+    this.playerStats.maxHealth = Math.round(this.playerStats.maxHealth * selectedShip.healthMultiplier);
+    this.playerStats.currentHealth = this.playerStats.maxHealth;
+    this.playerStats.moveSpeed *= selectedShip.moveSpeedMultiplier;
+    this.playerStats.damageMultiplier *= selectedShip.damageMultiplier;
+    this.playerStats.cooldownMultiplier *= selectedShip.cooldownMultiplier;
+    this.playerStats.xpMultiplier *= selectedShip.xpMultiplier;
+    this.playerStats.goldMultiplier *= selectedShip.goldMultiplier;
+    if (selectedShip.knockbackImmune) {
+      this.playerStats.knockbackImmunity = true;
+    }
+    if (selectedShip.bossDamageMultiplier !== undefined) {
+      this.playerStats.bossDamageMultiplier = selectedShip.bossDamageMultiplier;
+    }
+    // Signature mechanics — each field maps to an existing PlayerStats channel
+    // so the ship identity feels earned without introducing new combat code.
+    if (selectedShip.critChanceBonus !== undefined) {
+      this.playerStats.critChance += selectedShip.critChanceBonus;
+    }
+    if (selectedShip.regenPerSecondBonus !== undefined) {
+      this.playerStats.regenPerSecond += selectedShip.regenPerSecondBonus;
+    }
+    if (selectedShip.armorBonus !== undefined) {
+      this.playerStats.armor += selectedShip.armorBonus;
+    }
+    if (selectedShip.lifeStealBonus !== undefined) {
+      this.playerStats.lifeStealPercent += selectedShip.lifeStealBonus;
+    }
+    if (selectedShip.startingRerollBonus !== undefined) {
+      this.playerStats.rerollsRemaining += selectedShip.startingRerollBonus;
+    }
+    if (selectedShip.startingSkipBonus !== undefined) {
+      this.playerStats.skipsRemaining += selectedShip.startingSkipBonus;
+    }
+    // Use the ship's starting weapon only when the player hasn't explicitly
+    // picked a weapon (i.e. fell through the default path). This keeps
+    // WeaponSelectScene's pick authoritative when it's provided.
+    if (this.startingWeaponId === 'projectile' && selectedShip.startingWeaponId !== 'projectile') {
+      this.startingWeaponId = selectedShip.startingWeaponId;
+    }
+
     // ═══ WORLD LEVEL SCALING ═══
     this.worldLevel = metaManager.getWorldLevel();
     this.worldLevelHealthMult = metaManager.getWorldLevelEnemyHealthMultiplier();
@@ -615,6 +705,16 @@ export class GameScene extends Phaser.Scene {
     this.worldLevelSpawnReduction = metaManager.getWorldLevelSpawnTimeReduction();
     this.worldLevelXPMult = metaManager.getWorldLevelXPMultiplier();
     setHazardZoneWorldLevel(this.worldLevel);
+
+    // ═══ STAGE MODIFIERS ═══
+    const activeStage = getStageById(this.selectedStageId) ?? getDefaultStage();
+    this.worldLevelHealthMult *= activeStage.enemyHealthMultiplier;
+    this.worldLevelDamageMult *= activeStage.enemyDamageMultiplier;
+    this.worldLevelXPMult *= activeStage.xpMultiplier;
+    this.playerStats.goldMultiplier *= activeStage.goldMultiplier;
+    // Bias the hazard spawner so each biome has a signature mix (Inferno →
+    // burn, Crystal Caves → ice, Endless Void → void+energy).
+    setHazardZoneStage(activeStage.id);
 
     // ═══ SPAWNING ═══
     this.playerStats.treasureInterval = metaManager.getStartingTreasureInterval();
@@ -645,19 +745,23 @@ export class GameScene extends Phaser.Scene {
     this.playerStats.gemValueMultiplier *= ascensionManager.getXPGemMultiplier();
 
     // ═══ STARTING LEVEL (triggers level-ups at start) ═══
-    const achievementStartingLevelBonus = achievementBonuses.startingLevel;
-    const ascensionStartingLevelBonus = ascensionManager.getBonusStartingLevel();
-    const startingLevel = metaManager.getStartingLevel() + achievementStartingLevelBonus + ascensionStartingLevelBonus;
+    const startingLevel = metaManager.getStartingLevel()
+      + achievementBonuses.startingLevel
+      + ascensionManager.getBonusStartingLevel();
     if (startingLevel > 1) {
-      // Queue up level-ups for starting level bonus
-      for (let i = 1; i < startingLevel; i++) {
-        this.pendingLevelUps++;
-      }
+      this.pendingLevelUps += startingLevel - 1;
     }
 
     // Initialize effects and sound managers
     this.effectsManager = new EffectsManager(this);
     this.soundManager = new SoundManager(this);
+    // Bind the shared JuiceManager to this scene so hitStop/screenShake/
+    // impactFlash all have a scene context. Unbind on
+    // scene shutdown so stale scene references don't leak into future runs.
+    getJuiceManager().setScene(this);
+    this.events.once('shutdown', () => {
+      getJuiceManager().setScene(null);
+    });
 
     // Pre-render gem rotation frames to GPU texture atlases
     generateGemAtlases(this);
@@ -705,6 +809,9 @@ export class GameScene extends Phaser.Scene {
       (x, y, radius, damage) => this.handleGroundSlam(x, y, radius, damage),
       (x1, y1, x2, y2, damage) => this.handleLaserBeam(x1, y1, x2, y2, damage)
     );
+
+    // Fire a phase-transition effect when a boss crosses 66% / 33% HP.
+    setBossPhaseTransitionCallback((bossId, newPhase) => this.handleBossPhaseTransition(bossId, newPhase));
 
     // Setup status effect system
     setStatusEffectSystemEffectsManager(this.effectsManager);
@@ -781,6 +888,9 @@ export class GameScene extends Phaser.Scene {
     });
     this.hudManager.create();
 
+    // Persistent strip of active modifiers and relics in the HUD
+    this.refreshRelicStrip();
+
     // Persistent low-HP danger vignette (red screen-edge pulse)
     this.dangerVignette = this.add.rectangle(
       this.scale.width / 2, this.scale.height / 2,
@@ -793,6 +903,58 @@ export class GameScene extends Phaser.Scene {
 
     // Setup all input event handlers and input controller
     this.setupInputEventHandlers();
+
+    // Director debug overlay — created once, toggled by settings flag (F10).
+    this.createDirectorDebugOverlay();
+  }
+
+  /**
+   * Builds the director debug text object (always present, visibility toggled).
+   * Shows current spend strategy + credit balance so the developer can verify
+   * the director is producing the variance the design intends.
+   */
+  private createDirectorDebugOverlay(): void {
+    this.directorDebugText = this.add.text(8, 8, '', {
+      fontSize: '12px',
+      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+      color: '#44ff99',
+      backgroundColor: '#00000099',
+      padding: { x: 6, y: 4 },
+    });
+    this.directorDebugText.setDepth(2500);
+    this.directorDebugText.setScrollFactor(0);
+    this.applyDirectorDebugVisibility(getSettingsManager().isDirectorDebugEnabled());
+  }
+
+  /** Show/hide the director debug overlay. */
+  private applyDirectorDebugVisibility(visible: boolean): void {
+    if (!this.directorDebugText) return;
+    this.directorDebugText.setVisible(visible);
+  }
+
+  /** Refreshes the overlay text when active. Throttled to keep HUD cost trivial. */
+  private updateDirectorDebugOverlay(deltaSeconds: number): void {
+    if (!this.directorDebugText || !this.directorDebugText.visible) return;
+    this.directorDebugRefreshAccumulator += deltaSeconds;
+    if (this.directorDebugRefreshAccumulator < 0.25) return;
+    this.directorDebugRefreshAccumulator = 0;
+
+    const state = getDirectorState();
+    const strategy = getCurrentStrategy().toUpperCase();
+    this.directorDebugText.setText(
+      `DIRECTOR  [${strategy}]\n` +
+      `credits: ${state.creditBalance.toFixed(0)}  (earned ${state.creditsEarned.toFixed(0)})\n` +
+      `enemies alive: ${this.enemyCount}   t=${this.gameTime.toFixed(0)}s   F10 to hide`
+    );
+  }
+
+  /** Rebuilds the HUD's active-modifier/relic icon strip from current state. */
+  private refreshRelicStrip(): void {
+    if (!this.hudManager) return;
+    this.hudManager.updateRelicModifierStrip(
+      this.activeModifiers,
+      getRelicManager().getEquippedRelics()
+    );
   }
 
   /**
@@ -817,12 +979,30 @@ export class GameScene extends Phaser.Scene {
     };
     this.input.keyboard?.on('keydown-T', this.autoBuyKeyHandler);
 
+    // F10 toggles the director debug overlay and persists the choice.
+    this.directorDebugKeyHandler = () => {
+      const settingsManager = getSettingsManager();
+      const nextEnabled = !settingsManager.isDirectorDebugEnabled();
+      settingsManager.setDirectorDebugEnabled(nextEnabled);
+      this.applyDirectorDebugVisibility(nextEnabled);
+    };
+    this.input.keyboard?.on('keydown-F10', this.directorDebugKeyHandler);
+
     // Setup beforeunload handler to save game state on page close/refresh
     this.setupBeforeUnloadHandler();
 
     // Initialize input controller (keyboard, mouse, joystick, focus-loss handlers)
     // Must be after pauseMenuManager is created since onFocusLost references it
     this.inputController.create();
+
+    // Reserve the dash button region from joystick spawn so a finger tap on
+    // dash doesn't also drop a joystick base there.
+    this.inputController.addJoystickExclusionCheck((x, y) => {
+      return this.hudManager.getTouchActionButtons()?.isPointInDashButton(x, y) ?? false;
+    });
+    // While first-run coach marks are showing, taps to advance shouldn't also
+    // spawn the joystick (would leave ghost joysticks on screen).
+    this.inputController.addJoystickExclusionCheck(() => !!this.coachMarksCleanup);
 
     // Listen for dash requests from InputController (triggered by Shift key)
     this.dashRequestHandler = () => {
@@ -901,6 +1081,9 @@ export class GameScene extends Phaser.Scene {
       })),
       twinLinks: getAllTwinLinks(),
       modifierIds: this.activeModifiers.map(m => m.id),
+      stageId: this.selectedStageId,
+      relicIds: getRelicManager().getEquippedRelics().map(r => r.id),
+      directorState: getDirectorState(),
     });
   }
 
@@ -916,7 +1099,13 @@ export class GameScene extends Phaser.Scene {
         .filter((modifier): modifier is RunModifier => modifier !== undefined);
     }
 
-    // Reset all ECS systems
+    // Restore stage selection before anything that reads it (enemy scaling,
+    // grid palette). Falls back to default if the save is pre-stageId.
+    this.selectedStageId = state.stageId || 'stage_deep_void';
+
+    // Reset all ECS systems — mirror the fresh-path reset block so stale
+    // singleton state (director credit, boss phase tracker, cached textures,
+    // combo/event counters, relic inventory) doesn't carry across restores.
     resetSpriteSystem();
     resetEnemyAISystem();
     resetBossCallbacks();
@@ -928,6 +1117,20 @@ export class GameScene extends Phaser.Scene {
     resetStatusEffectSystem();
     resetFrameCache();
     resetEnemySpatialHash();
+    resetShapeTextureCache(this);
+    resetEnemyTextureCache(this);
+    destroyGemAtlases(this);
+    destroyProjectileAtlases(this);
+    resetComboSystem();
+    resetEventSystem();
+    resetDirectorSystem();
+    resetBossPhaseTracking();
+    resetBossArenaSystem();
+    resetHazardZoneSystem();
+    getRelicManager().reset();
+
+    // Combo/event systems are overridden below when state.comboState / eventState
+    // are applied; the resets above just give us a known baseline first.
 
     // Reset timers
     this.autoSaveTimer = 0;
@@ -937,10 +1140,19 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize visual systems
     this.gridBackground = new GridBackground(this);
+    this.applyStageVisuals();
     this.trailManager = new TrailManager(this);
     this.deathRippleManager = new DeathRippleManager(this);
     this.deathRippleManager.setWorld(this.world);
     this.deathRippleManager.setQuality(this.visualQuality);
+
+    // Re-bind scene refs on the boss-arena/hazard-zone modules. Our reset
+    // block above nulled their sceneRef; without these, any post-reload boss
+    // arena or hazard zone would silently no-op.
+    setBossArenaScene(this);
+    setHazardZoneScene(this);
+    setHazardZoneQuality(this.visualQuality);
+
     this.statusEffectVisualManager = new StatusEffectVisualManager(this);
     this.statusEffectVisualManager.setWorld(this.world);
     this.statusEffectVisualManager.setQuality(this.visualQuality);
@@ -975,12 +1187,24 @@ export class GameScene extends Phaser.Scene {
     if (state.eventState) {
       restoreEventState(state.eventState);
     }
+    // Director strategy + credit balance restore — without this, the reload
+    // re-picks a random strategy, breaking mid-run spawn continuity.
+    if (state.directorState) {
+      restoreDirectorState(state.directorState);
+    }
     this.minibossSpawnTimes = state.minibossSpawnTimes;
 
     // Restore player state
     this.playerStats = state.playerStats;
     this.banishedUpgradeIds = new Set(state.banishedUpgradeIds);
     this.isAutoBuyEnabled = state.isAutoBuyEnabled;
+
+    // Rehydrate relic inventory without re-applying stats — the saved
+    // playerStats already includes the relic bonuses, so we only restore the
+    // inventory list for UI display + future drop dedup/cap.
+    if (state.relicIds && state.relicIds.length > 0) {
+      getRelicManager().restoreFromSave(state.relicIds);
+    }
 
     // Clamp restored player stats to prevent save tampering
     const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
@@ -1006,6 +1230,12 @@ export class GameScene extends Phaser.Scene {
     this.worldLevelDamageMult = clamp(state.worldLevelDamageMult, 0.1, 100);
     this.worldLevelSpawnReduction = clamp(state.worldLevelSpawnReduction, 0, 1);
     this.worldLevelXPMult = clamp(state.worldLevelXPMult, 0.1, 100);
+    // Hazard-zone scaling tracks world level; must be re-pushed after a
+    // restore since the module was reset above. The stage bias also resets,
+    // so re-apply it from the restored selected stage.
+    setHazardZoneWorldLevel(this.worldLevel);
+    const restoredStage = getStageById(this.selectedStageId) ?? getDefaultStage();
+    setHazardZoneStage(restoredStage.id);
 
     // Reset other state
     this.isGameOver = false;
@@ -1034,6 +1264,9 @@ export class GameScene extends Phaser.Scene {
     // Initialize effects and sound managers
     this.effectsManager = new EffectsManager(this);
     this.soundManager = new SoundManager(this);
+    // Bind the shared JuiceManager to this scene so hitStop/screenShake/
+    // impactFlash all have a scene context.
+    getJuiceManager().setScene(this);
 
     // Setup system callbacks
     this.setupSystemCallbacks();
@@ -1114,6 +1347,9 @@ export class GameScene extends Phaser.Scene {
     });
     this.hudManager.create();
 
+    // Persistent strip of active modifiers and relics in the HUD (restore path)
+    this.refreshRelicStrip();
+
     // Create any boss health bars that were deferred during entity restoration
     for (const pending of this.pendingBossHealthBars) {
       this.hudManager.createBossHealthBar(pending.entityId, pending.name, pending.isBoss);
@@ -1191,6 +1427,11 @@ export class GameScene extends Phaser.Scene {
       (x, y, radius, damage) => this.handleGroundSlam(x, y, radius, damage),
       (x1, y1, x2, y2, damage) => this.handleLaserBeam(x1, y1, x2, y2, damage)
     );
+
+    // Fire a phase-transition effect when a boss crosses 66% / 33% HP.
+    // Registered here (not only in the fresh path) so mid-boss reloads still
+    // trigger phase VFX on the restored encounter.
+    setBossPhaseTransitionCallback((bossId, newPhase) => this.handleBossPhaseTransition(bossId, newPhase));
 
     // Setup status effect system
     setStatusEffectSystemEffectsManager(this.effectsManager);
@@ -1270,7 +1511,7 @@ export class GameScene extends Phaser.Scene {
     // Create player visual (procedural neon spaceship)
     this.playerSpaceship = new PlayerSpaceship(this, entity.transform.x, entity.transform.y, {
       baseRadius: 16,
-      neonColor: PLAYER_NEON,
+      neonColor: this.getShipNeonColor(),
       quality: this.visualQuality,
     }, this.playerStats.level);
     const playerVisual = this.playerSpaceship.getContainer();
@@ -1686,10 +1927,12 @@ export class GameScene extends Phaser.Scene {
         // Damage player
         this.takeDamage(damage);
 
-        // Knockback from explosion
-        const knockbackDir = Math.atan2(playerY - y, playerX - x);
-        Knockback.velocityX[this.playerId] = Math.cos(knockbackDir) * 300;
-        Knockback.velocityY[this.playerId] = Math.sin(knockbackDir) * 300;
+        // Knockback from explosion (skipped when Juggernaut ship's immunity is active)
+        if (!this.playerStats.knockbackImmunity) {
+          const knockbackDir = Math.atan2(playerY - y, playerX - x);
+          Knockback.velocityX[this.playerId] = Math.cos(knockbackDir) * 300;
+          Knockback.velocityY[this.playerId] = Math.sin(knockbackDir) * 300;
+        }
       }
     }
   }
@@ -1736,8 +1979,12 @@ export class GameScene extends Phaser.Scene {
     speed: number,
     damage: number
   ): void {
-    const sprite = this.add.circle(x, y, 6, 0xff4444);
-    sprite.setStrokeStyle(2, 0xffaaaa);
+    // Enemy projectiles use a distinct signature: saturated crimson core with a
+    // warm-gold ring. Ring color lies outside the player weapon palette (cyan /
+    // violet / blue) so the player can recognize incoming threats even in dense
+    // combat where orange fire weapons are active.
+    const sprite = this.add.circle(x, y, 8, 0xff2233);
+    sprite.setStrokeStyle(3, 0xffcc66);
     sprite.setDepth(5);
 
     this.enemyProjectiles.push({
@@ -1892,8 +2139,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
-    // Poll ESC key before pause/gameover guard so it can both open and close the menu
-    if (this.escKey && Phaser.Input.Keyboard.JustDown(this.escKey)) {
+    // Poll ESC key before pause/gameover guard so it can both open and close the menu.
+    // Suppress while first-run coach marks are visible — ESC there skips the tutorial
+    // and must not also trigger the pause menu.
+    if (this.escKey && Phaser.Input.Keyboard.JustDown(this.escKey) && !this.coachMarksCleanup) {
       this.togglePauseMenu();
     }
 
@@ -1913,6 +2162,9 @@ export class GameScene extends Phaser.Scene {
 
     // ═══ FRAME CACHE UPDATE (must be first - populates spatial hash for all systems) ═══
     updateFrameCache(this.world);
+
+    // Tick juice manager (reserved per-frame hook).
+    getJuiceManager().update(delta);
 
     let deltaSeconds = delta / 1000;
 
@@ -2160,6 +2412,9 @@ export class GameScene extends Phaser.Scene {
     // Update boss arena atmosphere pulse
     updateBossArena(deltaSeconds);
 
+    // Refresh director debug overlay (no-op when hidden)
+    this.updateDirectorDebugOverlay(deltaSeconds);
+
     // Update hazard zones and apply effects
     this.hazardDamageMultiplier = 1.0;
     if (this.playerId !== -1) {
@@ -2193,6 +2448,9 @@ export class GameScene extends Phaser.Scene {
 
     // Suppress events during boss warning phase 2+
     setSuppressEvents(this.bossWarningPhase >= 2);
+
+    // Advance director credit budget (used by spawnEnemy to pick enemy types)
+    updateDirector(this.gameTime, this.worldLevel);
 
     // Update event system and handle triggered events
     const triggeredEvent = updateEventSystem(deltaSeconds, this.gameTime);
@@ -2778,6 +3036,24 @@ export class GameScene extends Phaser.Scene {
           }
           this.soundManager.playLevelUp();
 
+          // Relic drop: 35% chance from regular chests, 100% from special chests.
+          // Caps at 6 relics per run; additional drops convert back to XP.
+          const shouldDropRelic = isSpecial || Math.random() < 0.35;
+          if (shouldDropRelic) {
+            const relic = getRelicManager().rollAndEquipRandomRelic(this.playerStats);
+            if (relic) {
+              this.syncStatsToPlayer();
+              this.toastManager.showToast({
+                title: `Relic: ${relic.name}`,
+                description: relic.description,
+                icon: relic.icon,
+                color: getRelicRarityColor(relic.rarity),
+                duration: 4500,
+              });
+              this.refreshRelicStrip();
+            }
+          }
+
           // Clean up
           pulseTimer.destroy();
           collectCheck.destroy();
@@ -2830,8 +3106,9 @@ export class GameScene extends Phaser.Scene {
         // Enable endless mode spawning
         this.endlessModeActive = true;
         this.endlessModeTime = 0;
-        this.endlessMinibossTimer = 60;   // First miniboss in 60 seconds
-        this.endlessBossTimer = 600;      // First boss wave in 10 minutes
+        this.endlessMinibossTimer = 45;   // First miniboss in 45 seconds (faster than old 60)
+        this.endlessBossTimer = this.endlessBossIntervalSeconds; // First post-victory boss in 5 min
+        this.endlessCycleNumber = 0;
         console.log('[Endless Mode] Activated - miniboss in 60s, boss in 600s');
 
         // Reset grid physics - boss death applies massive forces that springs can't recover from
@@ -2907,7 +3184,11 @@ export class GameScene extends Phaser.Scene {
       goldEarned,
       accountLevel: metaManager.getAccountLevel(),
       bestStreak: metaManager.getBestStreak(),
+      highestCombo: getHighestCombo(),
     });
+
+    // Evaluate hidden unlocks for victory path too
+    this.evaluateHiddenUnlocks(getHighestCombo(), true);
 
     // Record run end statistics in codex
     getCodexManager().recordRunEnd(
@@ -3049,6 +3330,18 @@ export class GameScene extends Phaser.Scene {
     );
     metaManager.addGold(goldEarned);
 
+    // Snapshot personal bests BEFORE recordRunEnd mutates them, so the summary
+    // screen can compare this run against prior records.
+    const lifetimeStatsBeforeUpdate = getAchievementManager().getLifetimeStats();
+    const personalBestsSnapshot = {
+      longestSurvival: lifetimeStatsBeforeUpdate.longestSurvivalSeconds,
+      mostKills: lifetimeStatsBeforeUpdate.mostKillsInRun,
+      highestLevel: lifetimeStatsBeforeUpdate.highestLevel,
+      highestCombo: lifetimeStatsBeforeUpdate.highestComboInRun,
+    };
+
+    const highestComboThisRun = getHighestCombo();
+
     // Record run end statistics (only if not already recorded in showVictory)
     if (!this.hasWon) {
       getAchievementManager().recordRunEnd({
@@ -3062,6 +3355,7 @@ export class GameScene extends Phaser.Scene {
         goldEarned,
         accountLevel: metaManager.getAccountLevel(),
         bestStreak: metaManager.getBestStreak(),
+        highestCombo: highestComboThisRun,
       });
 
       getCodexManager().recordRunEnd(
@@ -3075,15 +3369,74 @@ export class GameScene extends Phaser.Scene {
       );
     }
 
+    // Evaluate hidden unlocks and queue toast notifications for each new one.
+    // After evaluation runs, compute the top locked-unlock progress entries so
+    // the game over screen can surface "closest to unlocking" motivation.
+    this.evaluateHiddenUnlocks(highestComboThisRun, this.hasWon);
+    const unlockProgressForPanel = getHiddenUnlockManager().getTopProgress({
+      run: {
+        wasVictory: this.hasWon,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        survivalTimeSeconds: this.gameTime,
+        highestCombo: highestComboThisRun,
+        damageTaken: this.totalDamageTaken,
+        damageDealt: this.totalDamageDealt,
+        weaponIdsUsed: this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? [],
+        worldLevel: metaManager.getWorldLevel(),
+        noDamageTaken: this.totalDamageTaken === 0,
+      },
+      lifetime: getAchievementManager().getLifetimeStats(),
+    }, 3);
+
+    // Record daily leaderboard entry (only stores if it beats the prior best)
+    if (this.dailyModeActive && this.dailyDateString) {
+      recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
+        survivalSeconds: this.gameTime,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        wasVictory: this.hasWon,
+      });
+    }
+
     this.pauseMenuManager.gameOver({
       killCount: this.killCount,
       gameTime: this.gameTime,
       playerLevel: this.playerStats.level,
       goldEarned,
       previousStreak,
-      highestCombo: getHighestCombo(),
+      highestCombo: highestComboThisRun,
       totalDamageDealt: this.totalDamageDealt,
       totalDamageTaken: this.totalDamageTaken,
+      weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
+      personalBests: personalBestsSnapshot,
+      unlockProgress: unlockProgressForPanel,
+    });
+  }
+
+  /**
+   * Evaluates hidden unlock conditions after a run and fires toast notifications
+   * for any newly earned unlocks.
+   */
+  private evaluateHiddenUnlocks(highestComboValue: number, wasVictory: boolean): void {
+    const weaponIdsUsedThisRun = this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? [];
+    const lifetimeStats = getAchievementManager().getLifetimeStats();
+    // Toast dispatch lives on the onNewUnlock callback registered in create();
+    // evaluatePostRun returns the list but we no longer iterate it here.
+    getHiddenUnlockManager().evaluatePostRun({
+      run: {
+        wasVictory,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        survivalTimeSeconds: this.gameTime,
+        highestCombo: highestComboValue,
+        damageTaken: this.totalDamageTaken,
+        damageDealt: this.totalDamageDealt,
+        weaponIdsUsed: weaponIdsUsedThisRun,
+        worldLevel: getMetaProgressionManager().getWorldLevel(),
+        noDamageTaken: this.totalDamageTaken === 0,
+      },
+      lifetime: lifetimeStats,
     });
   }
 
@@ -3112,7 +3465,7 @@ export class GameScene extends Phaser.Scene {
     // Create visual - procedural neon spaceship
     this.playerSpaceship = new PlayerSpaceship(this, x, y, {
       baseRadius: 16,
-      neonColor: PLAYER_NEON,
+      neonColor: this.getShipNeonColor(),
       quality: this.visualQuality,
     }, this.playerStats.level);
     const playerVisual = this.playerSpaceship.getContainer();
@@ -3123,8 +3476,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemy(typeOverride?: EnemyTypeDefinition): void {
-    // Get enemy type based on game time or override (world level makes elites spawn earlier)
-    const enemyType = typeOverride || getRandomEnemyType(this.gameTime, this.worldLevelSpawnReduction, this.worldLevel);
+    // Get enemy type:
+    //  1) explicit override wins
+    //  2) director picks from credit budget (may return null to save credits)
+    //  3) fall back to legacy weighted random so we never skip a spawn slot
+    let enemyType: EnemyTypeDefinition | null = typeOverride ?? null;
+    if (!enemyType) {
+      enemyType = pickEnemyFromDirector(this.gameTime, this.worldLevelSpawnReduction, this.worldLevel);
+    }
+    if (!enemyType) {
+      // Director chose to save credits — skip this spawn slot entirely.
+      return;
+    }
     // Scale stats with both time and world level multipliers
     const scaledStats = getScaledStats(enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
 
@@ -3332,28 +3695,64 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Shows a warning when a miniboss spawns.
+   * Shows a warning when a miniboss spawns. Depth/size matches boss warnings
+   * so the alert isn't buried under other HUD elements mid-combat.
    */
   private showMinibossWarning(name: string): void {
     this.soundManager.playBossWarning();
-    const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 50, `⚠️ ${name} approaches! ⚠️`, {
-      fontSize: '24px',
-      color: '#ff4444',
-      fontFamily: 'Arial',
+    const warningDepth = PAUSE_MENU_DEPTH - 50;
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+
+    // Red screen-edge vignette pulse to draw attention
+    const edgeVignette = this.add.rectangle(
+      centerX, centerY, this.scale.width, this.scale.height, 0xff3333, 0
+    ).setScrollFactor(0).setDepth(warningDepth - 1);
+    this.tweens.add({
+      targets: edgeVignette,
+      alpha: { from: 0, to: 0.22 },
+      duration: 250,
+      yoyo: true,
+      repeat: 1,
+      ease: 'Sine.easeInOut',
+      onComplete: () => edgeVignette.destroy(),
+    });
+
+    const warningText = this.add.text(centerX, centerY - 50, `⚠ ${name.toUpperCase()} ⚠`, {
+      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+      fontSize: '32px',
+      fontStyle: 'bold',
+      color: '#ff6644',
       stroke: '#000000',
-      strokeThickness: 4,
+      strokeThickness: 5,
+      align: 'center',
     });
     warningText.setOrigin(0.5);
-    warningText.setDepth(100);
+    warningText.setDepth(warningDepth);
+    warningText.setScrollFactor(0);
+    warningText.setAlpha(0);
 
-    // Animate and fade out
+    // Punchy entrance, hold, then fade
     this.tweens.add({
       targets: warningText,
-      y: this.scale.height / 2 - 100,
-      alpha: 0,
-      duration: 2000,
-      ease: 'Power2',
-      onComplete: () => warningText.destroy(),
+      alpha: 1,
+      scale: { from: 0.6, to: 1 },
+      duration: 220,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.time.delayedCall(1800, () => {
+          if (warningText.scene) {
+            this.tweens.add({
+              targets: warningText,
+              alpha: 0,
+              y: centerY - 110,
+              duration: 500,
+              ease: 'Sine.easeOut',
+              onComplete: () => warningText.destroy(),
+            });
+          }
+        });
+      },
     });
   }
 
@@ -3390,7 +3789,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.bossWarningText = this.add.text(screenCenterX, screenCenterY, 'Something stirs in the void...', {
-        fontFamily: 'monospace',
+        fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
         fontSize: '28px',
         color: '#ffdd44',
         stroke: '#000000',
@@ -3429,7 +3828,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.bossWarningText = this.add.text(screenCenterX, screenCenterY, 'The ground trembles...', {
-        fontFamily: 'monospace',
+        fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
         fontSize: '32px',
         color: '#ff8844',
         stroke: '#000000',
@@ -3485,7 +3884,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.bossWarningText = this.add.text(screenCenterX, screenCenterY, 'BOSS INCOMING', {
-        fontFamily: 'monospace',
+        fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
         fontSize: '48px',
         fontStyle: 'bold',
         color: '#ff4444',
@@ -3621,6 +4020,170 @@ export class GameScene extends Phaser.Scene {
         });
       }
     });
+  }
+
+  /**
+   * First-run coach-mark overlay. Shows a sequence of brief "card" tips
+   * covering core controls. Each card advances on tap/click/enter, or
+   * auto-advances after a timeout. Marks the tutorial as seen on completion.
+   */
+  private showFirstRunCoachMarks(): void {
+    // Mark tutorial seen as soon as the overlay appears — if the player dies
+    // or restarts mid-tutorial, we don't want to replay forever.
+    getSettingsManager().setTutorialSeen(true);
+
+    const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+    type Card = { title: string; body: string; icon: string };
+    const cards: Card[] = [
+      {
+        title: 'MOVE',
+        body: isTouchDevice ? 'Tap and drag anywhere to move. Survive the swarm.' : 'WASD or arrows to move. Mouse to aim cursor weapons.',
+        icon: 'run',
+      },
+      {
+        title: 'DASH',
+        body: isTouchDevice ? 'Tap the dash button (bottom-right) for a quick blink through enemies.' : 'Shift to dash — a short burst that avoids damage.',
+        icon: 'wind',
+      },
+      {
+        title: 'COLLECT XP',
+        body: 'Grab gems to level up. Every 5th level lets you pick a new weapon.',
+        icon: 'gem',
+      },
+      {
+        title: 'COMBOS',
+        body: 'Chain kills to build combo. Thresholds at 25/50/100 unlock XP bursts, damage, and screen-clearing blasts.',
+        icon: 'lightning',
+      },
+      {
+        title: 'PAUSE',
+        body: isTouchDevice ? 'Tap the pause button (top-right) anytime. Settings, shop, and run info live there.' : 'Escape or P to pause. Restart, settings, and shop live in the pause menu.',
+        icon: 'clock',
+      },
+    ];
+
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+    const coachDepth = PAUSE_MENU_DEPTH - 60;
+    let cardIndex = 0;
+    let currentElements: Phaser.GameObjects.GameObject[] = [];
+    let autoAdvanceTimer: Phaser.Time.TimerEvent | null = null;
+    let keyHandler: ((event: KeyboardEvent) => void) | null = null;
+    let pointerHandler: (() => void) | null = null;
+
+    const cleanup = () => {
+      if (autoAdvanceTimer) { autoAdvanceTimer.destroy(); autoAdvanceTimer = null; }
+      if (keyHandler) { this.input.keyboard?.off('keydown', keyHandler); keyHandler = null; }
+      if (pointerHandler) { this.input.off('pointerdown', pointerHandler); pointerHandler = null; }
+      for (const element of currentElements) {
+        if (element && (element as Phaser.GameObjects.GameObject).active) element.destroy();
+      }
+      currentElements = [];
+      this.coachMarksCleanup = null;
+    };
+    this.coachMarksCleanup = cleanup;
+
+    const renderCard = (index: number) => {
+      // Clear any current card elements first
+      for (const element of currentElements) {
+        if (element && (element as Phaser.GameObjects.GameObject).active) element.destroy();
+      }
+      currentElements = [];
+
+      const card = cards[index];
+
+      const dim = this.add.rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.55)
+        .setScrollFactor(0).setDepth(coachDepth);
+      currentElements.push(dim);
+
+      const panelWidth = Math.min(480, this.scale.width - 80);
+      const panelHeight = 210;
+      const panel = this.add.rectangle(centerX, centerY, panelWidth, panelHeight, 0x1a1a2e, 0.96)
+        .setScrollFactor(0).setDepth(coachDepth + 1).setStrokeStyle(2, 0x5588ff);
+      currentElements.push(panel);
+
+      const iconSprite = createIcon(this, {
+        x: centerX - panelWidth / 2 + 48,
+        y: centerY - 38,
+        iconKey: card.icon,
+        size: 56,
+        tint: 0x88ccff,
+      });
+      iconSprite.setScrollFactor(0).setDepth(coachDepth + 2);
+      currentElements.push(iconSprite);
+
+      const titleText = this.add.text(centerX - panelWidth / 2 + 90, centerY - 62, card.title, {
+        fontSize: '28px',
+        color: '#88ccff',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+      }).setOrigin(0, 0).setScrollFactor(0).setDepth(coachDepth + 2);
+      currentElements.push(titleText);
+
+      const bodyText = this.add.text(centerX, centerY + 4, card.body, {
+        fontSize: '17px',
+        color: '#dddddd',
+        fontFamily: 'Arial',
+        align: 'center',
+        wordWrap: { width: panelWidth - 40 },
+      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(coachDepth + 2);
+      currentElements.push(bodyText);
+
+      const progressText = this.add.text(centerX, centerY + panelHeight / 2 - 30, `${index + 1} / ${cards.length}`, {
+        fontSize: '13px',
+        color: '#888899',
+        fontFamily: 'Arial',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(coachDepth + 2);
+      currentElements.push(progressText);
+
+      const hint = isTouchDevice ? 'Tap anywhere to continue' : 'Click or press SPACE to continue  ·  ESC to skip';
+      const hintText = this.add.text(centerX, centerY + panelHeight / 2 - 10, hint, {
+        fontSize: '12px',
+        color: '#667788',
+        fontFamily: 'Arial',
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(coachDepth + 2);
+      currentElements.push(hintText);
+
+      // Fade in panel contents
+      for (const element of currentElements) {
+        if (element === dim) continue;
+        (element as unknown as { setAlpha: (a: number) => void }).setAlpha(0);
+        this.tweens.add({ targets: element, alpha: 1, duration: 150, ease: 'Sine.easeOut' });
+      }
+    };
+
+    const advance = () => {
+      cardIndex++;
+      if (cardIndex >= cards.length) {
+        cleanup();
+        return;
+      }
+      // Reset auto-advance timer for the new card
+      if (autoAdvanceTimer) { autoAdvanceTimer.destroy(); }
+      autoAdvanceTimer = this.time.delayedCall(6000, () => advance());
+      renderCard(cardIndex);
+    };
+
+    const skipAll = () => {
+      cleanup();
+    };
+
+    keyHandler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        skipAll();
+      } else if (event.key === ' ' || event.key === 'Enter') {
+        event.preventDefault();
+        advance();
+      }
+    };
+    this.input.keyboard?.on('keydown', keyHandler);
+
+    pointerHandler = () => advance();
+    this.input.on('pointerdown', pointerHandler);
+
+    // Kick off
+    renderCard(cardIndex);
+    autoAdvanceTimer = this.time.delayedCall(6000, () => advance());
   }
 
   /**
@@ -3815,7 +4378,7 @@ export class GameScene extends Phaser.Scene {
     finalScale: number = 1.3,
   ): void {
     const comboText = this.add.text(positionX, positionY - 50, text, {
-      fontFamily: 'monospace',
+      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
       fontSize: `${fontSize}px`,
       color,
       stroke: '#000000',
@@ -3898,7 +4461,78 @@ export class GameScene extends Phaser.Scene {
           this.syncStatsToPlayer();
         });
         break;
+
+      case 'shrine_bargain':
+        // Rolls one of three permanent-for-the-rest-of-this-run trade-offs.
+        // Picked randomly to keep event surface small — the design intent is
+        // to force a build-shaping decision *mid-run* that pure +stat picks
+        // can't replicate.
+        this.applyShrineBargain();
+        break;
     }
+  }
+
+  /**
+   * Fires a Shrine of Sacrifice bargain: rolls one of three trade-offs, applies
+   * it immediately, and surfaces the specific deal via a toast so the player
+   * can see what changed. Deals are permanent for the remainder of the run.
+   */
+  private applyShrineBargain(): void {
+    const availableDeals: {
+      id: string;
+      title: string;
+      detail: string;
+      apply: () => void;
+    }[] = [
+      {
+        id: 'blood_pact',
+        title: 'Blood Pact',
+        detail: 'HP halved, damage doubled',
+        apply: () => {
+          const halvedCurrent = Math.max(1, Math.floor(this.playerStats.currentHealth / 2));
+          this.playerStats.currentHealth = halvedCurrent;
+          this.playerStats.maxHealth = Math.max(halvedCurrent, Math.floor(this.playerStats.maxHealth / 2));
+          this.playerStats.damageMultiplier *= 2;
+        },
+      },
+      {
+        id: 'frenzy',
+        title: 'Frenzy Ritual',
+        detail: '+60% attack speed, -25% move speed',
+        apply: () => {
+          this.playerStats.attackSpeedMultiplier *= 1.6;
+          this.playerStats.moveSpeed = Math.max(60, this.playerStats.moveSpeed * 0.75);
+        },
+      },
+      {
+        id: 'relic_vow',
+        title: 'Relic Vow',
+        detail: 'Damage reduced 25%, two relics granted',
+        apply: () => {
+          this.playerStats.damageMultiplier *= 0.75;
+          const relicManager = getRelicManager();
+          const firstRelic = relicManager.rollAndEquipRandomRelic(this.playerStats);
+          const secondRelic = relicManager.rollAndEquipRandomRelic(this.playerStats);
+          const relicsGranted = [firstRelic, secondRelic].filter((relic) => relic !== null);
+          if (relicsGranted.length > 0) {
+            this.refreshRelicStrip();
+          }
+        },
+      },
+    ];
+
+    const pickedDeal = availableDeals[Math.floor(Math.random() * availableDeals.length)];
+    pickedDeal.apply();
+    this.syncStatsToPlayer();
+
+    // Surface exactly which deal fired so the player knows what changed.
+    this.toastManager.showToast({
+      title: pickedDeal.title,
+      description: pickedDeal.detail,
+      icon: 'star',
+      color: 0xcc44ff,
+      duration: 4000,
+    });
   }
 
   /**
@@ -4094,7 +4728,7 @@ export class GameScene extends Phaser.Scene {
     const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 80, 'BOSS BATTLE', {
       fontSize: '32px',
       color: '#ff0000',
-      fontFamily: 'monospace',
+      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 6,
@@ -4104,7 +4738,7 @@ export class GameScene extends Phaser.Scene {
     const nameText = this.add.text(this.scale.width / 2, this.scale.height / 2, name, {
       fontSize: '48px',
       color: '#ffcc00',
-      fontFamily: 'monospace',
+      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 6,
@@ -4162,18 +4796,88 @@ export class GameScene extends Phaser.Scene {
     this.endlessMinibossTimer -= deltaSeconds;
     this.endlessBossTimer -= deltaSeconds;
 
-    // Every 60 seconds: spawn random miniboss
+    // Miniboss cadence: starts at 45s, tightens by 5s per cycle (floor 20s).
+    const minibossIntervalSeconds = Math.max(20, 45 - this.endlessCycleNumber * 5);
     if (this.endlessMinibossTimer <= 0) {
-      this.endlessMinibossTimer = 60;
+      this.endlessMinibossTimer = minibossIntervalSeconds;
       this.spawnRandomMiniboss();
+      // Cycle 2+: spawn a second miniboss after a short delay for density.
+      if (this.endlessCycleNumber >= 2) {
+        this.time.delayedCall(3000, () => this.spawnRandomMiniboss());
+      }
     }
 
-    // Every 600 seconds: spawn boss + miniboss
+    // Boss waves: interval shortens each cycle (5min → 4min → 3min → 2min floor).
     if (this.endlessBossTimer <= 0) {
-      this.endlessBossTimer = 600;
-      this.spawnRandomMiniboss();
-      this.spawnNextBoss();
+      this.endlessCycleNumber += 1;
+      // Each cycle tightens the next interval by 45s (minimum 120s = 2 min).
+      this.endlessBossIntervalSeconds = Math.max(120, 300 - this.endlessCycleNumber * 45);
+      this.endlessBossTimer = this.endlessBossIntervalSeconds;
+
+      // Ramp world-level-style multipliers per cycle so each wave hits harder.
+      this.worldLevelHealthMult *= 1.25;
+      this.worldLevelDamageMult *= 1.15;
+      this.worldLevelXPMult *= 1.10;
+
+      this.showEndlessCycleBanner(this.endlessCycleNumber);
+
+      // Boss wave composition escalates:
+      //   cycle 1: +1 miniboss + boss
+      //   cycle 2: +2 minibosses + boss
+      //   cycle 3+: +3 minibosses + TWO bosses back-to-back
+      const minibossCountPerWave = Math.min(3, 1 + this.endlessCycleNumber);
+      for (let spawnIndex = 0; spawnIndex < minibossCountPerWave; spawnIndex++) {
+        this.time.delayedCall(spawnIndex * 1500, () => this.spawnRandomMiniboss());
+      }
+
+      this.time.delayedCall(2500, () => this.spawnNextBoss());
+      if (this.endlessCycleNumber >= 3) {
+        this.time.delayedCall(7000, () => this.spawnNextBoss());
+      }
     }
+  }
+
+  /**
+   * Displays a large "CYCLE N — escalated" banner when a new endless wave starts.
+   * Gives the player a clear landmark for their post-victory progression.
+   */
+  private showEndlessCycleBanner(cycleNumber: number): void {
+    const bannerDepth = 1200;
+    const bannerText = this.add.text(
+      this.scale.width / 2,
+      this.scale.height / 4,
+      `CYCLE ${cycleNumber}\nESCALATION`,
+      {
+        fontSize: '48px',
+        color: cycleNumber >= 3 ? '#ff3366' : '#ffaa44',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        align: 'center',
+        stroke: '#000000',
+        strokeThickness: 5,
+      }
+    );
+    bannerText.setOrigin(0.5);
+    bannerText.setDepth(bannerDepth);
+    bannerText.setScrollFactor(0);
+    bannerText.setAlpha(0);
+
+    this.tweens.add({
+      targets: bannerText,
+      alpha: 1,
+      scale: 1.1,
+      duration: 400,
+      yoyo: true,
+      hold: 1200,
+      ease: 'Sine.easeOut',
+      onComplete: () => bannerText.destroy(),
+    });
+
+    if (getSettingsManager().isScreenShakeEnabled()) {
+      this.cameras.main.shake(400, 0.015);
+    }
+    this.effectsManager.playImpactFlash(0.18, 220);
+    this.soundManager.playSynergyActivation();
   }
 
   /**
@@ -4242,16 +4946,127 @@ export class GameScene extends Phaser.Scene {
       if (dist < radius) {
         this.takeDamage(damage);
 
-        // Knockback from slam
-        const knockbackDir = Math.atan2(playerY - y, playerX - x);
-        Knockback.velocityX[this.playerId] = Math.cos(knockbackDir) * 400;
-        Knockback.velocityY[this.playerId] = Math.sin(knockbackDir) * 400;
+        // Knockback from slam (skipped when Juggernaut ship's immunity is active)
+        if (!this.playerStats.knockbackImmunity) {
+          const knockbackDir = Math.atan2(playerY - y, playerX - x);
+          Knockback.velocityX[this.playerId] = Math.cos(knockbackDir) * 400;
+          Knockback.velocityY[this.playerId] = Math.sin(knockbackDir) * 400;
+        }
       }
     }
 
     // Screen shake
     if (getSettingsManager().isScreenShakeEnabled()) {
       this.cameras.main.shake(200, 0.02);
+    }
+  }
+
+  /**
+   * Fire a cinematic moment when a boss crosses a phase boundary (66% / 33% HP).
+   * Triggers: heavy screen shake, impact flash, slow-mo hit-stop, expanding shockwave
+   * ring centered on the boss, and a "PHASE N" floating text banner.
+   */
+  private handleBossPhaseTransition(bossId: number, newPhase: number): void {
+    const bossX = Transform.x[bossId];
+    const bossY = Transform.y[bossId];
+
+    // Hit-stop feel
+    getJuiceManager().hitStop(100, 0.2);
+    getJuiceManager().slowMotion(450, 0.45, 250);
+
+    // Heavy screen shake + chromatic flash
+    if (getSettingsManager().isScreenShakeEnabled()) {
+      this.cameras.main.shake(260, 0.018);
+    }
+    this.effectsManager.playImpactFlash(0.22, 180);
+
+    // Phase-gated arena hazards: phase 2 drops one hazard near the boss,
+    // phase 3 drops two plus a ring of hazards at cardinal offsets. This
+    // forces repositioning instead of simple circle-strafing and gives the
+    // boss fights mechanical texture beyond raw HP + projectile patterns.
+    this.spawnBossPhaseHazards(bossX, bossY, newPhase);
+
+    // Expanding shockwave ring at boss position
+    const transitionRing = this.add.circle(bossX, bossY, 40, 0xff3388, 0);
+    transitionRing.setStrokeStyle(5, 0xffaa44);
+    transitionRing.setDepth(20);
+    this.tweens.add({
+      targets: transitionRing,
+      scaleX: 10,
+      scaleY: 10,
+      alpha: 0,
+      duration: 600,
+      ease: 'Cubic.easeOut',
+      onComplete: () => transitionRing.destroy(),
+    });
+
+    // Phase banner
+    const phaseBannerText = this.add.text(
+      this.scale.width / 2,
+      this.scale.height / 3,
+      `PHASE ${newPhase}`,
+      {
+        fontSize: '64px',
+        color: newPhase === 3 ? '#ff3366' : '#ffaa44',
+        fontFamily: 'Arial',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 6,
+      }
+    );
+    phaseBannerText.setOrigin(0.5);
+    phaseBannerText.setDepth(1200);
+    phaseBannerText.setScrollFactor(0);
+    phaseBannerText.setAlpha(0);
+
+    this.tweens.add({
+      targets: phaseBannerText,
+      alpha: 1,
+      scale: 1.2,
+      duration: 200,
+      yoyo: true,
+      hold: 400,
+      ease: 'Sine.easeOut',
+      onComplete: () => phaseBannerText.destroy(),
+    });
+
+    this.soundManager.playSynergyActivation();
+  }
+
+  /**
+   * Spawns arena hazards on boss phase transitions. Phase 2 drops a single
+   * hazard near the boss; phase 3 drops three spaced around the arena so the
+   * player has to manage positioning through the final-stand pressure.
+   *
+   * Hazard type rotates (burn for phase 2, void for phase 3) to give each
+   * phase a distinct mechanical feel.
+   */
+  private spawnBossPhaseHazards(bossX: number, bossY: number, phase: number): void {
+    if (phase < 2) return;
+
+    const arenaMargin = 120;
+    const minX = arenaMargin;
+    const maxX = this.scale.width - arenaMargin;
+    const minY = arenaMargin;
+    const maxY = this.scale.height - arenaMargin;
+
+    if (phase === 2) {
+      // One burn pool near the boss telegraphs escalating pressure.
+      const offsetAngle = Math.random() * Math.PI * 2;
+      const offsetDistance = 140;
+      const hazardX = Math.max(minX, Math.min(maxX, bossX + Math.cos(offsetAngle) * offsetDistance));
+      const hazardY = Math.max(minY, Math.min(maxY, bossY + Math.sin(offsetAngle) * offsetDistance));
+      spawnHazardZone(hazardX, hazardY, 110, 'burn', 12);
+    } else {
+      // Phase 3: triangle of void pools across the arena forces the player
+      // through narrower safe lanes.
+      const ringRadius = 260;
+      for (let offsetIndex = 0; offsetIndex < 3; offsetIndex++) {
+        const ringAngle = (offsetIndex / 3) * Math.PI * 2 + Math.random() * 0.5;
+        const hazardX = Math.max(minX, Math.min(maxX, bossX + Math.cos(ringAngle) * ringRadius));
+        const hazardY = Math.max(minY, Math.min(maxY, bossY + Math.sin(ringAngle) * ringRadius));
+        spawnHazardZone(hazardX, hazardY, 130, 'void', 15);
+      }
     }
   }
 
@@ -4337,14 +5152,15 @@ export class GameScene extends Phaser.Scene {
     // Convert enemy color to neon pair (bright core + soft glow)
     const neonColor = toNeonPair(enemyType.color);
 
-    // Create glowing shape using cached texture system (batches in WebGL)
-    const container = createCachedGlowingShape(
+    // Create custom enemy visual using cached texture system (batches in WebGL)
+    const container = createCachedEnemyVisual(
       this,
       x, y,
+      enemyType.id,
       baseSize,
       enemyType.shape,
       neonColor,
-      this.visualQuality
+      this.visualQuality,
     );
 
     // Set depth based on enemy category
@@ -4424,7 +5240,7 @@ export class GameScene extends Phaser.Scene {
 
     // "LEVEL UP" text burst
     const levelUpText = this.add.text(levelUpPlayerX, levelUpPlayerY - 40, 'LEVEL UP', {
-      fontFamily: 'monospace',
+      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
       fontSize: '22px',
       color: '#44ddff',
       stroke: '#000000',
@@ -4903,10 +5719,9 @@ export class GameScene extends Phaser.Scene {
       this.soundManager.playWeaponEvolution();
 
       // 1. Freeze-frame: near-pause for dramatic weight
-      const previousTweenTimeScale = this.tweens.timeScale;
       this.tweens.timeScale = 0.05;
       this.time.delayedCall(500, () => {
-        this.tweens.timeScale = previousTweenTimeScale;
+        this.tweens.timeScale = 1.0;
       });
 
       // 2. Bright white camera flash
@@ -4931,7 +5746,7 @@ export class GameScene extends Phaser.Scene {
         this.cameras.main.centerY - 60,
         'WEAPON EVOLVED!',
         {
-          fontFamily: 'monospace',
+          fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
           fontSize: '48px',
           color: '#FFD700',
           stroke: '#000000',
@@ -5073,6 +5888,45 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Applies the selected stage's visual palette to the grid background and
+   * adds an ambient color overlay. Safe to call after GridBackground is created.
+   */
+  private applyStageVisuals(): void {
+    const stage = getStageById(this.selectedStageId) ?? getDefaultStage();
+    if (this.gridBackground) {
+      this.gridBackground.setColorPalette(
+        stage.gridLineColor,
+        stage.gridPulseColor,
+        stage.gridWarpHighlightColor
+      );
+    }
+    if (stage.ambientOverlayAlpha > 0) {
+      const overlayDepth = 2; // above grid (depth 0-1), below gameplay
+      this.add
+        .rectangle(
+          this.scale.width / 2,
+          this.scale.height / 2,
+          this.scale.width,
+          this.scale.height,
+          stage.ambientOverlayColor,
+          stage.ambientOverlayAlpha
+        )
+        .setDepth(overlayDepth)
+        .setScrollFactor(0)
+        .setName('stageAmbientOverlay');
+    }
+  }
+
+  /**
+   * Resolves the neon color palette for the currently-selected ship,
+   * falling back to default blue on unknown/missing ships.
+   */
+  private getShipNeonColor() {
+    const ship = getShipById(this.selectedShipId) ?? getDefaultShip();
+    return SHIP_NEON_PALETTES[ship.neonColorId] ?? SHIP_NEON_PALETTES.cyan;
+  }
+
+  /**
    * Syncs PlayerStats to the player's ECS components and weapon system.
    */
   private syncStatsToPlayer(): void {
@@ -5128,6 +5982,7 @@ export class GameScene extends Phaser.Scene {
       armorPenetration: this.playerStats.armorPenetration,
       knockbackMultiplier: this.playerStats.knockbackMultiplier,
       shatterBonus: this.playerStats.shatterBonus,
+      bossDamageMultiplier: this.playerStats.bossDamageMultiplier,
     });
   }
 
@@ -5402,6 +6257,13 @@ export class GameScene extends Phaser.Scene {
     // Remove resize listener
     this.scale.off('resize', this.handleResize, this);
 
+    // Tear down coach marks overlay + its listeners if the scene exits
+    // before the player finished dismissing them.
+    if (this.coachMarksCleanup) {
+      this.coachMarksCleanup();
+      this.coachMarksCleanup = null;
+    }
+
     // Remove ESC key to prevent it persisting across restarts
     if (this.escKey) {
       this.escKey.destroy();
@@ -5412,6 +6274,16 @@ export class GameScene extends Phaser.Scene {
     if (this.autoBuyKeyHandler) {
       this.input.keyboard?.off('keydown-T', this.autoBuyKeyHandler);
       this.autoBuyKeyHandler = null;
+    }
+
+    // Remove director debug hotkey + text
+    if (this.directorDebugKeyHandler) {
+      this.input.keyboard?.off('keydown-F10', this.directorDebugKeyHandler);
+      this.directorDebugKeyHandler = null;
+    }
+    if (this.directorDebugText) {
+      this.directorDebugText.destroy();
+      this.directorDebugText = null;
     }
 
     // Remove resume handler

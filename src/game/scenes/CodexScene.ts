@@ -14,9 +14,13 @@ import {
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
-import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { fadeIn, fadeOut } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
+import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -25,14 +29,18 @@ interface CodexCardElements {
   cardBg: Phaser.GameObjects.Rectangle;
 }
 
+const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
+
 export class CodexScene extends Phaser.Scene {
   private currentCategory: CodexCategory = 'weapons';
   private categoryTabs: Map<CodexCategory, Phaser.GameObjects.Container> = new Map();
   private contentContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
   private maxScrollY: number = 0;
-  private backButton!: Phaser.GameObjects.Text;
   private codexCards: CodexCardElements[] = [];
+  private menuBackground: MenuBackground | null = null;
+  private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+  private balatroBackButton: MenuButton | null = null;
 
   // Grid constants
   private readonly cardWidth = 340;
@@ -44,7 +52,6 @@ export class CodexScene extends Phaser.Scene {
   private focusZone: FocusZone = 'tabs';
   private selectedTabIndex: number = 0;
   private selectedCardIndex: number = 0;
-  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
   private soundManager!: SoundManager;
 
@@ -66,20 +73,23 @@ export class CodexScene extends Phaser.Scene {
     this.selectedTabIndex = 0;
     this.selectedCardIndex = 0;
 
-    // Dark background
-    this.add.rectangle(centerX, this.scale.height / 2, this.scale.width, this.scale.height, 0x1a1a2e);
+    // Balatro backdrop.
+    this.menuBackground = createMenuBackground(this);
+    this.bgUpdateHandler = (time, delta) => {
+      this.menuBackground?.update(delta);
+      this.balatroBackButton?.tickIdle(time / 1000);
+    };
+    this.events.on('update', this.bgUpdateHandler);
 
-    // Title
-    this.add
-      .text(centerX, 30, 'CODEX', {
-        fontSize: '36px',
-        color: '#88aaff',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
+    // Title sticker.
+    makeStickerText(this, centerX, 36, 'CODEX', {
+      fontSize: 32,
+      color: ACCENT_COLORS_STR.primary,
+      strokeWidth: 5,
+      letterSpacing: 4,
+    });
 
-    // Completion percentage display (top right)
+    // Completion percentage display (top right).
     const codexManager = getCodexManager();
     const completionPercent = codexManager.getCompletionPercent();
     const weaponCount = codexManager.getDiscoveredWeaponCount();
@@ -87,29 +97,26 @@ export class CodexScene extends Phaser.Scene {
     const enemyCount = codexManager.getDiscoveredEnemyCount();
     const totalEnemies = codexManager.getTotalEnemyCount();
 
-    this.add
-      .text(this.scale.width - 20, 15, `CODEX ${completionPercent}% COMPLETE`, {
-        fontSize: '12px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(1, 0);
+    const completionLabel = makeBodyText(this, this.scale.width - 20, 18, 'COMPLETION', {
+      fontSize: 11,
+      color: TEXT_COLORS.muted,
+    });
+    completionLabel.setOrigin(1, 0);
 
-    this.add
-      .text(this.scale.width - 20, 30, `${weaponCount}/${totalWeapons} Weapons`, {
-        fontSize: '14px',
-        color: '#88aaff',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(1, 0);
+    const completionValue = makeStickerText(this, this.scale.width - 20, 36,
+      `${completionPercent}%`, {
+        fontSize: 18,
+        color: ACCENT_COLORS_STR.primary,
+        letterSpacing: 1,
+      });
+    completionValue.setOrigin(1, 0.5);
 
-    this.add
-      .text(this.scale.width - 20, 48, `${enemyCount}/${totalEnemies} Enemies`, {
-        fontSize: '14px',
-        color: '#ff8888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(1, 0);
+    const subStats = makeBodyText(this, this.scale.width - 20, 56,
+      `${weaponCount}/${totalWeapons} weapons   ·   ${enemyCount}/${totalEnemies} enemies`, {
+        fontSize: 11,
+        color: TEXT_COLORS.muted,
+      });
+    subStats.setOrigin(1, 0);
 
     // Create category tabs
     this.createCategoryTabs();
@@ -120,26 +127,31 @@ export class CodexScene extends Phaser.Scene {
     // Display content for default category
     this.displayCategoryContent(this.currentCategory);
 
-    // Back button
-    this.backButton = this.add
-      .text(centerX, this.scale.height - 30, '[ Back to Menu ]', {
-        fontSize: '20px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    this.backButton.on('pointerover', () => {
+    // Back button — Balatro pill.
+    this.balatroBackButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: this.scale.height - 36,
+      width: 220,
+      height: 44,
+      label: '← BACK TO MENU',
+      variant: 'neutral',
+      fontSize: 14,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+    });
+    this.balatroBackButton.card.hitZone.on('pointerover', () => {
       this.focusZone = 'back';
       this.updateFocusVisuals();
+      this.balatroBackButton!.setHoverState(true);
     });
-    this.backButton.on('pointerout', () => this.updateFocusVisuals());
-    this.backButton.on('pointerdown', () => {
-      this.soundManager.playUIClick();
-      fadeOut(this, 150, () => this.scene.start('BootScene'));
+    this.balatroBackButton.card.hitZone.on('pointerout', () => {
+      this.balatroBackButton!.setHoverState(false);
+      this.updateFocusVisuals();
     });
-    addButtonInteraction(this, this.backButton);
+
 
     // Setup scroll input
     this.setupScrollInput();
@@ -153,18 +165,6 @@ export class CodexScene extends Phaser.Scene {
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
-  }
-
-  shutdown(): void {
-    if (this.menuNavigator) {
-      this.menuNavigator.destroy();
-      this.menuNavigator = null;
-    }
-    if (this.keydownHandler) {
-      this.input.keyboard?.off('keydown', this.keydownHandler);
-      this.keydownHandler = null;
-    }
-    this.tweens.killAll();
   }
 
   private createCategoryTabs(): void {
@@ -207,7 +207,7 @@ export class CodexScene extends Phaser.Scene {
       const tabText = this.add.text((tabWidth + 28) / 2, tabHeight / 2, category.name, {
         fontSize: '14px',
         color: isSelected ? '#ffffff' : '#888888',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
       });
       tabText.setOrigin(0.5);
 
@@ -226,7 +226,7 @@ export class CodexScene extends Phaser.Scene {
         const countText = this.add.text(tabWidth - 8, tabHeight / 2, countLabel, {
           fontSize: '11px',
           color: isSelected ? '#88aaff' : '#666666',
-          fontFamily: 'Arial',
+          fontFamily: FONT_FAMILY,
         });
         countText.setOrigin(1, 0.5);
         tabContainer.add([tabBg, tabIcon, tabText, countText]);
@@ -332,27 +332,35 @@ export class CodexScene extends Phaser.Scene {
     }
   }
 
-  private displayWeapons(): void {
-    const codexManager = getCodexManager();
-    const weaponInfoList = getWeaponInfoList();
-
+  /**
+   * Lays out cards in a 2-column grid and updates maxScrollY. `render` builds
+   * one card at the given (x,y) position.
+   */
+  private layoutCardGrid<T>(items: T[], cardHeight: number, render: (item: T, x: number, y: number) => void): void {
     const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
     const startY = 10;
 
-    weaponInfoList.forEach((weaponInfo, index) => {
+    items.forEach((item, index) => {
       const col = index % this.columns;
       const row = Math.floor(index / this.columns);
       const x = startX + col * (this.cardWidth + this.cardSpacing);
-      const y = startY + row * (this.cardHeight + this.cardSpacing);
+      const y = startY + row * (cardHeight + this.cardSpacing);
+      render(item, x, y);
+    });
 
+    const totalRows = Math.ceil(items.length / this.columns);
+    const contentHeight = totalRows * (cardHeight + this.cardSpacing);
+    const viewHeight = this.scale.height - 180;
+    this.maxScrollY = Math.max(0, contentHeight - viewHeight);
+  }
+
+  private displayWeapons(): void {
+    const codexManager = getCodexManager();
+    const weaponInfoList = getWeaponInfoList();
+    this.layoutCardGrid(weaponInfoList, this.cardHeight, (weaponInfo, x, y) => {
       const entry = codexManager.getWeaponEntry(weaponInfo.id);
       this.createWeaponCard(weaponInfo, entry, x, y);
     });
-
-    const totalRows = Math.ceil(weaponInfoList.length / this.columns);
-    const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
-    const viewHeight = this.scale.height - 180;
-    this.maxScrollY = Math.max(0, contentHeight - viewHeight);
   }
 
   private createWeaponCard(weaponInfo: WeaponInfo, entry: WeaponCodexEntry | undefined, x: number, y: number): void {
@@ -402,7 +410,7 @@ export class CodexScene extends Phaser.Scene {
       const nameText = this.add.text(75, 16, weaponInfo.name, {
         fontSize: '16px',
         color: '#ffffff',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
         fontStyle: 'bold',
       });
       container.add(nameText);
@@ -411,7 +419,7 @@ export class CodexScene extends Phaser.Scene {
       const descText = this.add.text(75, 38, weaponInfo.description, {
         fontSize: '12px',
         color: '#aaaaaa',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
         wordWrap: { width: this.cardWidth - 90 },
       });
       container.add(descText);
@@ -425,61 +433,56 @@ export class CodexScene extends Phaser.Scene {
           {
             fontSize: '10px',
             color: '#666688',
-            fontFamily: 'Arial',
+            fontFamily: FONT_FAMILY,
           }
         );
         statsText.setOrigin(1, 0.5);
         container.add(statsText);
       }
     } else {
-      // Undiscovered — question mark in disc
-      const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x111122);
-      iconDisc.setStrokeStyle(2, 0x2a2a3a);
-      container.add(iconDisc);
-
-      const unknownIcon = this.add.text(iconCenterX, iconCenterY, '?', {
-        fontSize: '28px',
-        color: '#333344',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      });
-      unknownIcon.setOrigin(0.5);
-      container.add(unknownIcon);
-
-      const unknownText = this.add.text(this.cardWidth / 2 + 20, this.cardHeight / 2, 'Unknown Weapon', {
-        fontSize: '16px',
-        color: '#333344',
-        fontFamily: 'Arial',
-        fontStyle: 'italic',
-      });
-      unknownText.setOrigin(0.5);
-      container.add(unknownText);
+      this.addUnknownPlaceholder(container, iconCenterX, iconCenterY, 'Unknown Weapon');
     }
 
     this.codexCards.push({ container, cardBg });
   }
 
+  /** Adds "?" icon-disc + "Unknown ..." label for undiscovered entries. */
+  private addUnknownPlaceholder(
+    container: Phaser.GameObjects.Container,
+    iconCenterX: number,
+    iconCenterY: number,
+    labelText: string,
+  ): void {
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x111122);
+    iconDisc.setStrokeStyle(2, 0x2a2a3a);
+    container.add(iconDisc);
+
+    const unknownIcon = this.add.text(iconCenterX, iconCenterY, '?', {
+      fontSize: '28px',
+      color: '#333344',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    unknownIcon.setOrigin(0.5);
+    container.add(unknownIcon);
+
+    const unknownLabel = this.add.text(this.cardWidth / 2 + 20, this.cardHeight / 2, labelText, {
+      fontSize: '16px',
+      color: '#333344',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'italic',
+    });
+    unknownLabel.setOrigin(0.5);
+    container.add(unknownLabel);
+  }
+
   private displayEnemies(): void {
     const codexManager = getCodexManager();
     const enemyTypes = Object.values(ENEMY_TYPES);
-
-    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
-    const startY = 10;
-
-    enemyTypes.forEach((enemyType, index) => {
-      const col = index % this.columns;
-      const row = Math.floor(index / this.columns);
-      const x = startX + col * (this.cardWidth + this.cardSpacing);
-      const y = startY + row * (this.cardHeight + this.cardSpacing);
-
+    this.layoutCardGrid(enemyTypes, this.cardHeight, (enemyType, x, y) => {
       const entry = codexManager.getEnemyEntry(enemyType.id);
       this.createEnemyCard(enemyType, entry, x, y);
     });
-
-    const totalRows = Math.ceil(enemyTypes.length / this.columns);
-    const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
-    const viewHeight = this.scale.height - 180;
-    this.maxScrollY = Math.max(0, contentHeight - viewHeight);
   }
 
   private createEnemyCard(enemyType: EnemyTypeDefinition, entry: EnemyCodexEntry | undefined, x: number, y: number): void {
@@ -533,7 +536,7 @@ export class CodexScene extends Phaser.Scene {
       const nameText = this.add.text(75, 16, enemyType.name, {
         fontSize: '16px',
         color: '#ffffff',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
         fontStyle: 'bold',
       });
       container.add(nameText);
@@ -543,7 +546,7 @@ export class CodexScene extends Phaser.Scene {
       const statsText = this.add.text(75, 40, statsStr, {
         fontSize: '12px',
         color: '#aaaaaa',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
       });
       container.add(statsText);
 
@@ -556,35 +559,14 @@ export class CodexScene extends Phaser.Scene {
           {
             fontSize: '10px',
             color: '#666666',
-            fontFamily: 'Arial',
+            fontFamily: FONT_FAMILY,
           }
         );
         killText.setOrigin(1, 0.5);
         container.add(killText);
       }
     } else {
-      // Undiscovered
-      const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x111122);
-      iconDisc.setStrokeStyle(2, 0x2a2a3a);
-      container.add(iconDisc);
-
-      const unknownIcon = this.add.text(iconCenterX, iconCenterY, '?', {
-        fontSize: '28px',
-        color: '#333344',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      });
-      unknownIcon.setOrigin(0.5);
-      container.add(unknownIcon);
-
-      const unknownText = this.add.text(this.cardWidth / 2 + 20, this.cardHeight / 2, 'Unknown Enemy', {
-        fontSize: '16px',
-        color: '#333344',
-        fontFamily: 'Arial',
-        fontStyle: 'italic',
-      });
-      unknownText.setOrigin(0.5);
-      container.add(unknownText);
+      this.addUnknownPlaceholder(container, iconCenterX, iconCenterY, 'Unknown Enemy');
     }
 
     this.codexCards.push({ container, cardBg });
@@ -602,7 +584,7 @@ export class CodexScene extends Phaser.Scene {
         {
           fontSize: '18px',
           color: '#666666',
-          fontFamily: 'Arial',
+          fontFamily: FONT_FAMILY,
           align: 'center',
         }
       );
@@ -612,20 +594,12 @@ export class CodexScene extends Phaser.Scene {
       return;
     }
 
-    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
-    const startY = 10;
     const upgradeCardHeight = 60;
 
-    upgradeEntries.forEach((entry, index) => {
-      const col = index % this.columns;
-      const row = Math.floor(index / this.columns);
-      const x = startX + col * (this.cardWidth + this.cardSpacing);
-      const y = startY + row * (upgradeCardHeight + this.cardSpacing);
-
+    this.layoutCardGrid(upgradeEntries, upgradeCardHeight, (entry, x, y) => {
       const container = this.add.container(x, y);
       this.contentContainer.add(container);
 
-      // Card background
       const cardBg = this.add.rectangle(
         this.cardWidth / 2,
         upgradeCardHeight / 2,
@@ -636,17 +610,15 @@ export class CodexScene extends Phaser.Scene {
       cardBg.setStrokeStyle(2, 0x4a4a7a);
       container.add(cardBg);
 
-      // Upgrade name
       const nameText = this.add.text(16, upgradeCardHeight / 2, entry.id, {
         fontSize: '14px',
         color: '#ffffff',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
         fontStyle: 'bold',
       });
       nameText.setOrigin(0, 0.5);
       container.add(nameText);
 
-      // Times selected
       const countText = this.add.text(
         this.cardWidth - 16,
         upgradeCardHeight / 2,
@@ -654,7 +626,7 @@ export class CodexScene extends Phaser.Scene {
         {
           fontSize: '13px',
           color: '#88aaff',
-          fontFamily: 'Arial',
+          fontFamily: FONT_FAMILY,
         }
       );
       countText.setOrigin(1, 0.5);
@@ -662,11 +634,6 @@ export class CodexScene extends Phaser.Scene {
 
       this.codexCards.push({ container, cardBg });
     });
-
-    const totalRows = Math.ceil(upgradeEntries.length / this.columns);
-    const contentHeight = totalRows * (upgradeCardHeight + this.cardSpacing);
-    const viewHeight = this.scale.height - 180;
-    this.maxScrollY = Math.max(0, contentHeight - viewHeight);
   }
 
   private displayStatistics(): void {
@@ -709,7 +676,7 @@ export class CodexScene extends Phaser.Scene {
       const labelText = this.add.text(startX - 20, y + 8, stat.label, {
         fontSize: '16px',
         color: '#888888',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
       });
       labelText.setOrigin(1, 0);
       this.contentContainer.add(labelText);
@@ -718,7 +685,7 @@ export class CodexScene extends Phaser.Scene {
       const valueText = this.add.text(startX + 20, y + 6, stat.value, {
         fontSize: '18px',
         color: '#ffffff',
-        fontFamily: 'Arial',
+        fontFamily: FONT_FAMILY,
         fontStyle: 'bold',
       });
       valueText.setOrigin(0, 0);
@@ -897,7 +864,23 @@ export class CodexScene extends Phaser.Scene {
       }
     });
 
-    // Update back button
-    this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
+    // Update back button — Balatro pill focus pop.
+    this.balatroBackButton?.setFocusState(this.focusZone === 'back');
+  }
+
+  shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
+    if (this.bgUpdateHandler) {
+      this.events.off('update', this.bgUpdateHandler);
+      this.bgUpdateHandler = null;
+    }
+    this.menuBackground?.destroy();
+    this.menuBackground = null;
+    this.balatroBackButton?.destroy();
+    this.balatroBackButton = null;
+    this.tweens.killAll();
   }
 }

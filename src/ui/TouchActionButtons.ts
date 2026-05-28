@@ -45,12 +45,22 @@ export class TouchActionButtons {
     this.dashContainer.setDepth(BUTTON_DEPTH);
     this.dashContainer.setScrollFactor(0);
 
-    // Background circle
-    const backgroundCircle = this.scene.add.circle(0, 0, scaledRadius, 0x222244, 0.6);
-    backgroundCircle.setStrokeStyle(2, 0x6688cc, 0.8);
+    // Black ink silhouette behind body — Balatro cel-shading depth.
+    const inkSilhouette = this.scene.add.circle(3, 4, scaledRadius + 4, 0x000000, 0.55);
+    this.dashContainer.add(inkSilhouette);
+
+    // Body — deep navy with bright accent border.
+    const backgroundCircle = this.scene.add.circle(0, 0, scaledRadius, 0x1c2a4a, 0.85);
+    backgroundCircle.setStrokeStyle(4, 0x66bbff, 0.95);
     this.dashContainer.add(backgroundCircle);
 
-    // Cooldown arc overlay (drawn dynamically)
+    // Top highlight stripe — Balatro banner feel.
+    const dashHighlight = this.scene.add.graphics();
+    dashHighlight.fillStyle(0x66bbff, 0.45);
+    dashHighlight.fillEllipse(0, -scaledRadius * 0.7, scaledRadius * 1.1, 6);
+    this.dashContainer.add(dashHighlight);
+
+    // Cooldown arc overlay (drawn dynamically).
     this.dashCooldownArc = this.scene.add.graphics();
     this.dashCooldownArc.setScrollFactor(0);
     this.dashCooldownArc.setDepth(BUTTON_DEPTH + 1);
@@ -58,9 +68,11 @@ export class TouchActionButtons {
     // Dash icon — a simple arrow/bolt symbol
     const dashIcon = this.scene.add.text(0, 0, '\u21E8', {
       fontSize: `${Math.round(scaledRadius * 1.1)}px`,
-      color: '#aaccff',
-      fontFamily: 'Arial',
+      color: '#ffdd44',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 4,
     });
     dashIcon.setOrigin(0.5);
     this.dashContainer.add(dashIcon);
@@ -96,16 +108,25 @@ export class TouchActionButtons {
     this.fullscreenContainer.setDepth(BUTTON_DEPTH);
     this.fullscreenContainer.setScrollFactor(0);
 
-    // Background
-    const backgroundRect = this.scene.add.rectangle(0, 0, buttonSize * 2, buttonSize * 2, 0x222244, 0.5);
-    backgroundRect.setStrokeStyle(1.5, 0x4a4a7a, 0.7);
+    // Black ink silhouette under panel (Balatro cel-shading depth).
+    const fsInkLayer = this.scene.add.graphics();
+    fsInkLayer.fillStyle(0x000000, 0.55);
+    fsInkLayer.fillRoundedRect(-buttonSize + 2, -buttonSize + 3, buttonSize * 2, buttonSize * 2, 8);
+    this.fullscreenContainer.add(fsInkLayer);
+
+    // Body: deep navy with bright accent border.
+    const backgroundRect = this.scene.add.rectangle(0, 0, buttonSize * 2, buttonSize * 2, 0x1c2a4a, 0.85);
+    backgroundRect.setStrokeStyle(3, 0x8898b0, 0.85);
     this.fullscreenContainer.add(backgroundRect);
 
     // Fullscreen icon — expand brackets
     const fsIcon = this.scene.add.text(0, 0, '\u26F6', {
       fontSize: `${Math.round(buttonSize * 1.2)}px`,
-      color: '#888888',
-      fontFamily: 'Arial',
+      color: '#f0eedf',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
     });
     fsIcon.setOrigin(0.5);
     this.fullscreenContainer.add(fsIcon);
@@ -122,12 +143,6 @@ export class TouchActionButtons {
         this.scene.scale.stopFullscreen();
       } else {
         this.scene.scale.startFullscreen();
-        // Attempt landscape lock when entering fullscreen
-        try {
-          (screen.orientation as any)?.lock?.('landscape').catch(() => {});
-        } catch {
-          // Not supported — ignore
-        }
       }
     });
 
@@ -212,6 +227,20 @@ export class TouchActionButtons {
   handleResize(_width: number, _height: number): void {
     this.positionDashButton();
     this.positionFullscreenButton();
+  }
+
+  /**
+   * Returns true if the given screen point falls inside the dash button's touch
+   * area — with an expanded buffer so finger roll-in to the joystick doesn't
+   * accidentally press dash. Used by JoystickManager to skip spawning there.
+   */
+  isPointInDashButton(pointerX: number, pointerY: number): boolean {
+    if (!this.dashContainer || !this.dashContainer.visible) return false;
+    const buffer = this.dashButtonRadius * 0.5;
+    const dx = pointerX - this.dashContainer.x;
+    const dy = pointerY - this.dashContainer.y;
+    const radius = this.dashButtonRadius + buffer;
+    return dx * dx + dy * dy <= radius * radius;
   }
 
   /**

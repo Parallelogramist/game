@@ -50,6 +50,10 @@ export class JoystickManager {
   private activePointerId: number = -1;
   private enabled: boolean = true;
 
+  // Additional exclusion checks (e.g., dash button buffer zone). If any returns
+  // true, the joystick will not spawn at that point.
+  private exclusionChecks: Array<(pointerX: number, pointerY: number) => boolean> = [];
+
   // DPI-aware sizes computed at construction
   private readonly baseRadius: number;
   private readonly knobRadius: number;
@@ -103,8 +107,24 @@ export class JoystickManager {
 
     if (this.isPointerOverUI(pointer)) return;
 
+    // Skip spawn if this touch lands inside a registered exclusion zone
+    // (e.g., the dash button area, so finger-down there doesn't also trigger
+    // joystick movement).
+    for (const check of this.exclusionChecks) {
+      if (check(pointer.x, pointer.y)) return;
+    }
+
     this.activePointerId = pointer.id;
     this.spawnJoystick(pointer.x, pointer.y);
+  }
+
+  /**
+   * Registers a zone check that blocks joystick spawning at the given point.
+   * Used to reserve space for on-screen buttons (dash, fullscreen) so the
+   * joystick doesn't fight for the same touch.
+   */
+  addExclusionCheck(check: (pointerX: number, pointerY: number) => boolean): void {
+    this.exclusionChecks.push(check);
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
@@ -144,24 +164,25 @@ export class JoystickManager {
     this.state.directionX = 0;
     this.state.directionY = 0;
 
-    // Create shadow behind base for contrast against light backgrounds
-    this.baseShadow = this.scene.add.circle(x + 2, y + 2, this.baseRadius, 0x000000, 0.3);
+    // Black ink silhouette behind base — Balatro cel-shading look (chunky outline).
+    this.baseShadow = this.scene.add.circle(x + 3, y + 4, this.baseRadius + 4, 0x000000, 0.55);
     this.baseShadow.setDepth(JOYSTICK_DEPTH - 1);
     this.baseShadow.setScrollFactor(0);
 
-    // Create base circle (outer ring)
-    this.baseCircle = this.scene.add.circle(x, y, this.baseRadius, 0xffffff, 0.22);
-    this.baseCircle.setStrokeStyle(3, 0xffffff, JOYSTICK_ALPHA);
+    // Base ring — bright cyan accent on cool dark body, thick ink outline.
+    this.baseCircle = this.scene.add.circle(x, y, this.baseRadius, 0x1c2a4a, 0.5);
+    this.baseCircle.setStrokeStyle(4, 0x66bbff, JOYSTICK_ALPHA);
     this.baseCircle.setDepth(JOYSTICK_DEPTH);
     this.baseCircle.setScrollFactor(0);
 
-    // Create shadow behind knob for contrast
-    this.knobShadow = this.scene.add.circle(x + 2, y + 2, this.knobRadius, 0x000000, 0.3);
+    // Knob silhouette — chunky ink under knob.
+    this.knobShadow = this.scene.add.circle(x + 2, y + 3, this.knobRadius + 3, 0x000000, 0.55);
     this.knobShadow.setDepth(JOYSTICK_DEPTH);
     this.knobShadow.setScrollFactor(0);
 
-    // Create knob circle (inner thumb)
-    this.knobCircle = this.scene.add.circle(x, y, this.knobRadius, 0xffffff, JOYSTICK_ALPHA);
+    // Knob — bright accent core with thick black outline (cel-shading).
+    this.knobCircle = this.scene.add.circle(x, y, this.knobRadius, 0xffdd44, JOYSTICK_ALPHA);
+    this.knobCircle.setStrokeStyle(3, 0x000000, 0.85);
     this.knobCircle.setDepth(JOYSTICK_DEPTH + 1);
     this.knobCircle.setScrollFactor(0);
   }

@@ -16,7 +16,7 @@ const STORAGE_KEY_STATUS_TEXT = 'settings-status-text';
 const STORAGE_KEY_UI_SCALE = 'settings-ui-scale';
 const STORAGE_KEY_TUTORIAL_SEEN = 'settings-tutorial-seen';
 const STORAGE_KEY_REDUCED_MOTION = 'settings-reduced-motion';
-
+const STORAGE_KEY_DIRECTOR_DEBUG = 'settings-director-debug';
 export type DamageNumbersMode = 'all' | 'crits' | 'perfect_crits' | 'off';
 
 export interface GameSettings {
@@ -30,6 +30,7 @@ export interface GameSettings {
   uiScale: number;
   tutorialSeen: boolean;
   reducedMotion: boolean;
+  directorDebugEnabled: boolean;
 }
 
 const DEFAULTS: GameSettings = {
@@ -43,6 +44,7 @@ const DEFAULTS: GameSettings = {
   uiScale: 1.0,
   tutorialSeen: false,
   reducedMotion: false,
+  directorDebugEnabled: false,
 };
 
 export class SettingsManager {
@@ -60,6 +62,7 @@ export class SettingsManager {
       uiScale: this.loadNumber(STORAGE_KEY_UI_SCALE, DEFAULTS.uiScale),
       tutorialSeen: this.loadBoolean(STORAGE_KEY_TUTORIAL_SEEN, DEFAULTS.tutorialSeen),
       reducedMotion: this.loadBoolean(STORAGE_KEY_REDUCED_MOTION, DEFAULTS.reducedMotion),
+      directorDebugEnabled: this.loadBoolean(STORAGE_KEY_DIRECTOR_DEBUG, DEFAULTS.directorDebugEnabled),
     };
   }
 
@@ -236,6 +239,20 @@ export class SettingsManager {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Debug Overlays
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Toggle for the in-run director debug overlay (strategy + credit balance). */
+  isDirectorDebugEnabled(): boolean {
+    return this.settings.directorDebugEnabled;
+  }
+
+  setDirectorDebugEnabled(enabled: boolean): void {
+    this.settings.directorDebugEnabled = enabled;
+    this.saveBoolean(STORAGE_KEY_DIRECTOR_DEBUG, enabled);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Tutorial
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -273,6 +290,7 @@ export class SettingsManager {
     this.setUiScale(DEFAULTS.uiScale);
     this.setTutorialSeen(DEFAULTS.tutorialSeen);
     this.setReducedMotion(DEFAULTS.reducedMotion);
+    this.setDirectorDebugEnabled(DEFAULTS.directorDebugEnabled);
   }
 }
 

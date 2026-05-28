@@ -431,21 +431,19 @@ export class DeathRippleManager {
         continue;
       }
 
+      const progress = elapsed / this.PULSE_DURATION;
+      const sineValue = Math.sin(progress * Math.PI); // 0->1->0 over the duration
+
       // Overlay is a child of the enemy container — no manual positioning needed.
       // Just update alpha for the flash effect.
       if (state.overlay) {
-        const progress = elapsed / this.PULSE_DURATION;
-        const sineValue = Math.sin(progress * Math.PI); // 0->1->0 over the duration
-        const alpha = sineValue * 0.8; // Peak at 80% alpha
-        state.overlay.setAlpha(alpha);
+        state.overlay.setAlpha(sineValue * 0.8); // Peak at 80% alpha
       }
 
       // Scale up the enemy container slightly during ripple
       const container = getSprite(entityId) as Phaser.GameObjects.Container;
       if (container) {
-        const progress = elapsed / this.PULSE_DURATION;
-        const scaleBoost = Math.sin(progress * Math.PI) * 0.08; // 8% scale boost at peak
-        container.setScale(1 + scaleBoost);
+        container.setScale(1 + sineValue * 0.08); // 8% scale boost at peak
       }
     }
 

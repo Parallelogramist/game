@@ -62,10 +62,8 @@ export class KatanaWeapon extends BaseWeapon {
     let nearestDist = Infinity;
 
     for (const enemyId of enemies) {
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-      const dx = ex - ctx.playerX;
-      const dy = ey - ctx.playerY;
+      const dx = Transform.x[enemyId] - ctx.playerX;
+      const dy = Transform.y[enemyId] - ctx.playerY;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist < nearestDist) {
@@ -76,8 +74,7 @@ export class KatanaWeapon extends BaseWeapon {
 
     // Determine slash direction based on nearest enemy
     if (nearestId !== -1) {
-      const ex = Transform.x[nearestId];
-      this.lastDirection = ex > ctx.playerX ? 1 : -1;
+      this.lastDirection = Transform.x[nearestId] > ctx.playerX ? 1 : -1;
     }
 
     // Create visual
@@ -88,23 +85,17 @@ export class KatanaWeapon extends BaseWeapon {
     const slashHeight = 80 * this.stats.size;
 
     let hitCount = 0;
+    const slashHalfHeight = slashHeight / 2;
     for (const enemyId of enemies) {
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-
       // Check if enemy is in the slash zone
-      const dx = ex - ctx.playerX;
-      const dy = ey - ctx.playerY;
+      const dx = Transform.x[enemyId] - ctx.playerX;
+      const dy = Transform.y[enemyId] - ctx.playerY;
 
       // Must be in correct direction
       if (this.lastDirection > 0 && dx < 0) continue;
       if (this.lastDirection < 0 && dx > 0) continue;
 
-      // Check distance
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-
-      if (absDx <= slashWidth && absDy <= slashHeight / 2) {
+      if (Math.abs(dx) <= slashWidth && Math.abs(dy) <= slashHalfHeight) {
         ctx.damageEnemy(enemyId, this.stats.damage, 300);
         hitCount++;
       }
@@ -149,6 +140,29 @@ export class KatanaWeapon extends BaseWeapon {
     if (this.isMastered() && hitCount >= 8) {
       this.triggerFinishingBlow(ctx);
     }
+
+    // Evolution (Blade Dancer): two afterimage slashes fire at 120ms and 240ms
+    // after the initial slash, dealing 50% damage each. Turns a single-tap
+    // weapon into a flurry that clears lanes rather than single points.
+    if (this.isEvolved) {
+      const afterimageDirection = this.lastDirection;
+      const afterimageDamage = this.stats.damage * 0.5;
+      for (const afterimageDelay of [120, 240]) {
+        ctx.scene.time.delayedCall(afterimageDelay, () => {
+          this.createSlashVisual(ctx, afterimageDirection);
+          const afterimageEnemies = ctx.getEnemies();
+          for (const enemyId of afterimageEnemies) {
+            const dx = Transform.x[enemyId] - ctx.playerX;
+            const dy = Transform.y[enemyId] - ctx.playerY;
+            if (afterimageDirection > 0 && dx < 0) continue;
+            if (afterimageDirection < 0 && dx > 0) continue;
+            if (Math.abs(dx) <= slashWidth && Math.abs(dy) <= slashHalfHeight) {
+              ctx.damageEnemy(enemyId, afterimageDamage, 150);
+            }
+          }
+        });
+      }
+    }
   }
 
   /**
@@ -162,14 +176,12 @@ export class KatanaWeapon extends BaseWeapon {
 
     // Hit ALL enemies in 360° radius
     let finishingHits = 0;
+    const finishingRangeSq = finishingRange * finishingRange;
     for (const enemyId of enemies) {
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-      const dx = ex - ctx.playerX;
-      const dy = ey - ctx.playerY;
-      const distSq = dx * dx + dy * dy;
+      const dx = Transform.x[enemyId] - ctx.playerX;
+      const dy = Transform.y[enemyId] - ctx.playerY;
 
-      if (distSq <= finishingRange * finishingRange) {
+      if (dx * dx + dy * dy <= finishingRangeSq) {
         ctx.damageEnemy(enemyId, finishingDamage, 500);
         finishingHits++;
       }
@@ -461,9 +473,7 @@ export class KatanaWeapon extends BaseWeapon {
 
   private createSlashVisual(ctx: WeaponContext, direction: number): void {
     // Clean up previous slash
-    if (this.slashGraphics) {
-      this.slashGraphics.destroy();
-    }
+    if (this.slashGraphics) this.slashGraphics.destroy();
 
     const currentQuality = ctx.visualQuality;
     const slashWidth = this.stats.range * this.stats.size;

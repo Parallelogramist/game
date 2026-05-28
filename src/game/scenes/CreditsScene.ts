@@ -1,154 +1,174 @@
 /**
- * CreditsScene - Displays game credits and attributions.
- * Uses a two-column layout to fit all content on screen.
+ * CreditsScene — Balatro-style two-card credits panel.
  */
 
 import Phaser from 'phaser';
-import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { fadeIn, fadeOut } from '../../utils/SceneTransition';
 import { MenuNavigator } from '../../input/MenuNavigator';
+import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import {
+  ACCENT_COLORS,
+  ACCENT_COLORS_STR,
+  BODY_COLORS,
+  CARD_TILT_PRESETS,
+  TEXT_COLORS,
+} from '../../visual/MenuStyle';
 
 export class CreditsScene extends Phaser.Scene {
-  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
+  private menuBackground: MenuBackground | null = null;
+  private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+  private cards: MenuCard[] = [];
+  private backButton!: MenuButton;
 
   constructor() {
     super({ key: 'CreditsScene' });
   }
 
   create(): void {
-    const centerX = this.cameras.main.centerX;
     const screenWidth = this.cameras.main.width;
     const screenHeight = this.cameras.main.height;
+    const centerX = this.cameras.main.centerX;
 
     fadeIn(this, 200);
 
-    // Title
-    this.add
-      .text(centerX, 30, 'CREDITS', {
-        fontSize: '42px',
-        color: '#ffdd44',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
-
-    // Define column positions (2 columns)
-    const leftColumnX = screenWidth * 0.35;
-    const rightColumnX = screenWidth * 0.65;
-    const contentStartY = 110;
-    const lineHeight = 28;
-    const sectionGap = 20;
-
-    // Helper to add section header
-    const addHeader = (x: number, y: number, text: string): number => {
-      this.add
-        .text(x, y, text, {
-          fontSize: '18px',
-          color: '#ffdd44',
-          fontFamily: 'Arial',
-          fontStyle: 'bold',
-        })
-        .setOrigin(0.5);
-      return y + lineHeight;
+    this.menuBackground = createMenuBackground(this);
+    this.bgUpdateHandler = (time, delta) => {
+      this.menuBackground?.update(delta);
+      const seconds = time / 1000;
+      for (const card of this.cards) card.tickIdle(seconds);
+      this.backButton?.tickIdle(seconds);
     };
+    this.events.on('update', this.bgUpdateHandler);
 
-    // Helper to add content line
-    const addLine = (x: number, y: number, text: string, color: string = '#ffffff'): number => {
-      this.add
-        .text(x, y, text, {
-          fontSize: '14px',
-          color: color,
-          fontFamily: 'Arial',
-        })
-        .setOrigin(0.5);
-      return y + lineHeight - 4;
-    };
-
-    // LEFT COLUMN - Developer & Built With
-    let leftY = contentStartY;
-
-    leftY = addHeader(leftColumnX, leftY, 'DEVELOPED BY');
-    leftY = addLine(leftColumnX, leftY, 'George');
-    leftY += sectionGap;
-
-    leftY = addHeader(leftColumnX, leftY, 'BUILT WITH');
-    leftY = addLine(leftColumnX, leftY, 'Phaser 3');
-    leftY = addLine(leftColumnX, leftY, 'Game Framework', '#888888');
-    leftY += 10;
-    leftY = addLine(leftColumnX, leftY, 'bitECS');
-    leftY = addLine(leftColumnX, leftY, 'Entity Component System', '#888888');
-
-    // RIGHT COLUMN - Sound Effects & Icons
-    let rightY = contentStartY;
-
-    rightY = addHeader(rightColumnX, rightY, 'SOUND EFFECTS');
-    rightY = addLine(rightColumnX, rightY, 'Kenney.nl');
-    rightY = addLine(rightColumnX, rightY, 'CC0 License', '#888888');
-    rightY += sectionGap;
-
-    rightY = addHeader(rightColumnX, rightY, 'ICONS');
-    rightY = addLine(rightColumnX, rightY, 'game-icons.net');
-    rightY = addLine(rightColumnX, rightY, 'CC BY 3.0', '#888888');
-
-    // Decorative separator line
-    const separatorY = screenHeight - 70;
-    const separatorGraphics = this.add.graphics();
-    separatorGraphics.lineStyle(1, 0x444444);
-    separatorGraphics.lineBetween(screenWidth * 0.2, separatorY, screenWidth * 0.8, separatorY);
-
-    // Back button
-    const backButton = this.add
-      .text(centerX, screenHeight - 30, '[ Back ]', {
-        fontSize: '20px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    backButton.on('pointerover', () => backButton.setColor('#ffdd44'));
-    backButton.on('pointerout', () => backButton.setColor('#888888'));
-    backButton.on('pointerdown', () => {
-      this.returnToMenu();
+    // Title sticker.
+    makeStickerText(this, centerX, 60, 'CREDITS', {
+      fontSize: 44,
+      color: ACCENT_COLORS_STR.gold,
+      strokeWidth: 6,
+      letterSpacing: 4,
     });
-    addButtonInteraction(this, backButton);
 
-    // MenuNavigator for keyboard + gamepad navigation
+    const cardWidth = 360;
+    const cardHeight = 360;
+    const cardY = screenHeight / 2 + 10;
+    const leftCardX = screenWidth * 0.32;
+    const rightCardX = screenWidth * 0.68;
+
+    this.buildCreditCard(leftCardX, cardY, cardWidth, cardHeight, 'CREDITS', 'gold', [
+      { header: 'DEVELOPED BY', body: 'George' },
+      { header: 'BUILT WITH', body: 'Phaser 3 — Game Framework\nbitECS — Entity Component System' },
+    ]);
+
+    this.buildCreditCard(rightCardX, cardY, cardWidth, cardHeight, 'ASSETS', 'magenta', [
+      { header: 'SOUND EFFECTS', body: 'Kenney.nl\nCC0 License' },
+      { header: 'ICONS', body: 'game-icons.net\nCC BY 3.0' },
+    ]);
+
+    this.backButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: screenHeight - 38,
+      width: 220,
+      height: 44,
+      label: '← BACK',
+      variant: 'neutral',
+      fontSize: 16,
+      onActivate: () => this.returnToMenu(),
+    });
+    this.backButton.card.hitZone.on('pointerover', () => this.backButton.setHoverState(true));
+    this.backButton.card.hitZone.on('pointerout', () => this.backButton.setHoverState(false));
+
     this.menuNavigator = new MenuNavigator({
       scene: this,
       items: [
         {
-          onFocus: () => backButton.setColor('#ffdd44'),
-          onBlur: () => backButton.setColor('#888888'),
+          onFocus: () => this.backButton.setFocusState(true),
+          onBlur: () => this.backButton.setFocusState(false),
           onActivate: () => this.returnToMenu(),
         },
       ],
       onCancel: () => this.returnToMenu(),
     });
 
-    // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
   }
 
-  /**
-   * Returns to the main menu.
-   */
+  private buildCreditCard(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    bannerLabel: string,
+    role: 'gold' | 'magenta',
+    sections: { header: string; body: string }[],
+  ): void {
+    const tilt = role === 'gold' ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean;
+    const card = createMenuCard(this, {
+      x,
+      y,
+      width,
+      height,
+      tilt: tilt * 0.4,
+      bodyFillColor: role === 'gold' ? BODY_COLORS.gold : BODY_COLORS.magenta,
+      accentColor: role === 'gold' ? ACCENT_COLORS.gold : ACCENT_COLORS.magenta,
+      bannerHeight: 50,
+      borderWidth: 3,
+      borderColor: role === 'gold' ? ACCENT_COLORS.gold : ACCENT_COLORS.magenta,
+      cornerRadius: 16,
+    });
+
+    const banner = makeStickerText(this, 0, card.bannerTopY + 25, bannerLabel, {
+      fontSize: 22,
+      color: TEXT_COLORS.sticker,
+      letterSpacing: 3,
+    });
+    card.frame.add(banner);
+
+    let yOffset = -height / 2 + 75;
+    for (const section of sections) {
+      const header = makeStickerText(this, 0, yOffset, section.header, {
+        fontSize: 14,
+        color: role === 'gold' ? ACCENT_COLORS_STR.gold : ACCENT_COLORS_STR.magenta,
+        letterSpacing: 2,
+      });
+      card.frame.add(header);
+      yOffset += 26;
+
+      const body = makeBodyText(this, 0, yOffset, section.body, {
+        fontSize: 14,
+        color: TEXT_COLORS.body,
+        wordWrapWidth: width - 32,
+      });
+      body.setLineSpacing(4);
+      card.frame.add(body);
+      yOffset += body.height + 22;
+    }
+
+    this.cards.push(card);
+  }
+
   private returnToMenu(): void {
     fadeOut(this, 150, () => this.scene.start('BootScene'));
   }
 
-  /**
-   * Cleanup keyboard handlers when scene shuts down.
-   */
   shutdown(): void {
     if (this.menuNavigator) {
       this.menuNavigator.destroy();
       this.menuNavigator = null;
     }
-    if (this.keydownHandler) {
-      this.input.keyboard?.off('keydown', this.keydownHandler);
-      this.keydownHandler = null;
+    if (this.bgUpdateHandler) {
+      this.events.off('update', this.bgUpdateHandler);
+      this.bgUpdateHandler = null;
     }
+    this.menuBackground?.destroy();
+    this.menuBackground = null;
+    for (const card of this.cards) card.destroy();
+    this.cards = [];
+    this.backButton?.destroy();
     this.tweens.killAll();
   }
 }

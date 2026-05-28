@@ -3,6 +3,8 @@ import { NeonColorPair, getGlowAlphas, getGlowRadiusMultipliers } from './NeonCo
 
 export type VisualQuality = 'high' | 'medium' | 'low';
 
+type ShapeName = 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon';
+
 // OPTIMIZATION: Pre-compute hexagon unit vectors at module level (constant trig values)
 const HEX_POINTS: readonly { cos: number; sin: number }[] = (() => {
   const points: { cos: number; sin: number }[] = [];
@@ -13,11 +15,111 @@ const HEX_POINTS: readonly { cos: number; sin: number }[] = (() => {
   return points;
 })();
 
-/**
- * Creates a glowing circle using a single Graphics object for all layers.
- * OPTIMIZED: Draws all 15+ glow layers into ONE Graphics object instead of
- * creating 17 separate GameObjects per shape. This reduces object count by 17x.
- */
+// =====================================================================
+// Neon shape drawing
+// =====================================================================
+
+function drawNeonCircle(
+  graphics: Phaser.GameObjects.Graphics,
+  radius: number,
+  neonColor: NeonColorPair,
+  quality: VisualQuality
+): void {
+  const alphas = getGlowAlphas(quality);
+  const radiusMultipliers = getGlowRadiusMultipliers(quality);
+
+  for (let i = 0; i < alphas.length; i++) {
+    const glowRadius = radius * radiusMultipliers[i];
+    graphics.fillStyle(neonColor.glow, alphas[i]);
+    graphics.fillCircle(0, 0, glowRadius);
+  }
+  graphics.fillStyle(neonColor.core, 1);
+  graphics.fillCircle(0, 0, radius);
+  graphics.lineStyle(2, 0xffffff, 0.85);
+  graphics.strokeCircle(0, 0, radius);
+  graphics.fillStyle(0xffffff, 0.6);
+  graphics.fillCircle(0, 0, radius * 0.35);
+}
+
+function drawNeonShape(
+  graphics: Phaser.GameObjects.Graphics,
+  size: number,
+  shape: ShapeName,
+  neonColor: NeonColorPair,
+  quality: VisualQuality
+): void {
+  if (shape === 'circle') {
+    drawNeonCircle(graphics, size, neonColor, quality);
+    return;
+  }
+  const alphas = getGlowAlphas(quality);
+  const mults = getGlowRadiusMultipliers(quality);
+
+  const drawPath = (sz: number) => {
+    graphics.beginPath();
+    switch (shape) {
+      case 'square':
+        graphics.moveTo(-sz, -sz);
+        graphics.lineTo(sz, -sz);
+        graphics.lineTo(sz, sz);
+        graphics.lineTo(-sz, sz);
+        graphics.closePath();
+        break;
+      case 'triangle': {
+        const h = sz * 1.5;
+        graphics.moveTo(0, -h * 0.5);
+        graphics.lineTo(sz, h * 0.5);
+        graphics.lineTo(-sz, h * 0.5);
+        graphics.closePath();
+        break;
+      }
+      case 'diamond':
+        graphics.moveTo(0, -sz);
+        graphics.lineTo(sz, 0);
+        graphics.lineTo(0, sz);
+        graphics.lineTo(-sz, 0);
+        graphics.closePath();
+        break;
+      case 'hexagon':
+        for (let i = 0; i < 6; i++) {
+          const px = HEX_POINTS[i].cos * sz;
+          const py = HEX_POINTS[i].sin * sz;
+          if (i === 0) graphics.moveTo(px, py);
+          else graphics.lineTo(px, py);
+        }
+        graphics.closePath();
+        break;
+    }
+  };
+
+  for (let i = 0; i < alphas.length; i++) {
+    graphics.fillStyle(neonColor.glow, alphas[i]);
+    drawPath(size * mults[i]);
+    graphics.fillPath();
+  }
+  graphics.fillStyle(neonColor.core, 1);
+  drawPath(size);
+  graphics.fillPath();
+  graphics.lineStyle(2, 0xffffff, 0.85);
+  drawPath(size);
+  graphics.strokePath();
+}
+
+// =====================================================================
+// Public API — creates a container with a Graphics object. Comic/neon
+// routing happens at draw time so the two paths stay in sync.
+// =====================================================================
+
+function drawShapeIntoGraphics(
+  graphics: Phaser.GameObjects.Graphics,
+  size: number,
+  shape: ShapeName,
+  neonColor: NeonColorPair,
+  quality: VisualQuality
+): void {
+  drawNeonShape(graphics, size, shape, neonColor, quality);
+}
+
 export function createGlowingCircle(
   scene: Phaser.Scene,
   x: number,
@@ -26,40 +128,9 @@ export function createGlowingCircle(
   neonColor: NeonColorPair,
   quality: VisualQuality = 'high'
 ): Phaser.GameObjects.Container {
-  const container = scene.add.container(x, y);
-  const alphas = getGlowAlphas(quality);
-  const radiusMultipliers = getGlowRadiusMultipliers(quality);
-
-  // Single graphics object for ALL layers (massive object count reduction!)
-  const graphics = scene.add.graphics();
-
-  // Draw glow layers (outermost first) - all to same graphics object
-  for (let i = 0; i < alphas.length; i++) {
-    const glowRadius = radius * radiusMultipliers[i];
-    graphics.fillStyle(neonColor.glow, alphas[i]);
-    graphics.fillCircle(0, 0, glowRadius);
-  }
-
-  // Core circle
-  graphics.fillStyle(neonColor.core, 1);
-  graphics.fillCircle(0, 0, radius);
-
-  // White outline on core
-  graphics.lineStyle(2, 0xffffff, 0.85);
-  graphics.strokeCircle(0, 0, radius);
-
-  // Bright center highlight
-  graphics.fillStyle(0xffffff, 0.6);
-  graphics.fillCircle(0, 0, radius * 0.35);
-
-  container.add(graphics);
-  return container;
+  return createGlowingShape(scene, x, y, radius, 'circle', neonColor, quality);
 }
 
-/**
- * Creates a glowing triangle using a single Graphics object.
- * OPTIMIZED: All layers drawn to one Graphics object.
- */
 export function createGlowingTriangle(
   scene: Phaser.Scene,
   x: number,
@@ -68,50 +139,9 @@ export function createGlowingTriangle(
   neonColor: NeonColorPair,
   quality: VisualQuality = 'high'
 ): Phaser.GameObjects.Container {
-  const container = scene.add.container(x, y);
-  const alphas = getGlowAlphas(quality);
-  const radiusMultipliers = getGlowRadiusMultipliers(quality);
-
-  // Single graphics object for all layers
-  const graphics = scene.add.graphics();
-  const baseSize = size;
-
-  // Helper to draw triangle path
-  const drawTrianglePath = (triangleSize: number) => {
-    const triangleH = triangleSize * 1.5;
-    graphics.beginPath();
-    graphics.moveTo(0, -triangleH * 0.5);           // Top
-    graphics.lineTo(triangleSize, triangleH * 0.5);  // Bottom right
-    graphics.lineTo(-triangleSize, triangleH * 0.5); // Bottom left
-    graphics.closePath();
-  };
-
-  // Draw glow layers using stroked outlines
-  for (let i = 0; i < alphas.length; i++) {
-    const strokeWidth = (radiusMultipliers[i] - 1) * baseSize * 2;
-    graphics.lineStyle(strokeWidth, neonColor.glow, alphas[i]);
-    drawTrianglePath(baseSize);
-    graphics.strokePath();
-  }
-
-  // Core triangle with fill
-  graphics.fillStyle(neonColor.core, 1);
-  drawTrianglePath(baseSize);
-  graphics.fillPath();
-
-  // White outline
-  graphics.lineStyle(2, 0xffffff, 0.85);
-  drawTrianglePath(baseSize);
-  graphics.strokePath();
-
-  container.add(graphics);
-  return container;
+  return createGlowingShape(scene, x, y, size, 'triangle', neonColor, quality);
 }
 
-/**
- * Creates a glowing square/rectangle using a single Graphics object.
- * OPTIMIZED: All layers drawn to one Graphics object.
- */
 export function createGlowingSquare(
   scene: Phaser.Scene,
   x: number,
@@ -120,41 +150,9 @@ export function createGlowingSquare(
   neonColor: NeonColorPair,
   quality: VisualQuality = 'high'
 ): Phaser.GameObjects.Container {
-  const container = scene.add.container(x, y);
-  const alphas = getGlowAlphas(quality);
-  const radiusMultipliers = getGlowRadiusMultipliers(quality);
-
-  const baseWidth = size * 2;
-  const baseHeight = size * 2;
-
-  // Single graphics object for all layers
-  const graphics = scene.add.graphics();
-
-  // Draw glow layers
-  for (let i = 0; i < alphas.length; i++) {
-    const mult = radiusMultipliers[i];
-    const w = baseWidth * mult;
-    const h = baseHeight * mult;
-    graphics.fillStyle(neonColor.glow, alphas[i]);
-    graphics.fillRect(-w / 2, -h / 2, w, h);
-  }
-
-  // Core rectangle
-  graphics.fillStyle(neonColor.core, 1);
-  graphics.fillRect(-baseWidth / 2, -baseHeight / 2, baseWidth, baseHeight);
-
-  // White outline
-  graphics.lineStyle(2, 0xffffff, 0.85);
-  graphics.strokeRect(-baseWidth / 2, -baseHeight / 2, baseWidth, baseHeight);
-
-  container.add(graphics);
-  return container;
+  return createGlowingShape(scene, x, y, size, 'square', neonColor, quality);
 }
 
-/**
- * Creates a glowing diamond shape using a single Graphics object.
- * OPTIMIZED: All layers drawn to one Graphics object.
- */
 export function createGlowingDiamond(
   scene: Phaser.Scene,
   x: number,
@@ -163,49 +161,9 @@ export function createGlowingDiamond(
   neonColor: NeonColorPair,
   quality: VisualQuality = 'high'
 ): Phaser.GameObjects.Container {
-  const container = scene.add.container(x, y);
-  const alphas = getGlowAlphas(quality);
-  const radiusMultipliers = getGlowRadiusMultipliers(quality);
-
-  // Single graphics object for all layers
-  const graphics = scene.add.graphics();
-
-  // Helper to draw diamond path
-  const drawDiamond = (s: number) => {
-    graphics.beginPath();
-    graphics.moveTo(0, -s);   // Top
-    graphics.lineTo(s, 0);    // Right
-    graphics.lineTo(0, s);    // Bottom
-    graphics.lineTo(-s, 0);   // Left
-    graphics.closePath();
-  };
-
-  // Draw glow layers
-  for (let i = 0; i < alphas.length; i++) {
-    const layerSize = size * radiusMultipliers[i];
-    graphics.fillStyle(neonColor.glow, alphas[i]);
-    drawDiamond(layerSize);
-    graphics.fillPath();
-  }
-
-  // Core diamond
-  graphics.fillStyle(neonColor.core, 1);
-  drawDiamond(size);
-  graphics.fillPath();
-
-  // White outline
-  graphics.lineStyle(2, 0xffffff, 0.85);
-  drawDiamond(size);
-  graphics.strokePath();
-
-  container.add(graphics);
-  return container;
+  return createGlowingShape(scene, x, y, size, 'diamond', neonColor, quality);
 }
 
-/**
- * Creates a glowing hexagon shape using a single Graphics object.
- * OPTIMIZED: All layers drawn to one Graphics object.
- */
 export function createGlowingHexagon(
   scene: Phaser.Scene,
   x: number,
@@ -214,102 +172,44 @@ export function createGlowingHexagon(
   neonColor: NeonColorPair,
   quality: VisualQuality = 'high'
 ): Phaser.GameObjects.Container {
-  const container = scene.add.container(x, y);
-  const alphas = getGlowAlphas(quality);
-  const radiusMultipliers = getGlowRadiusMultipliers(quality);
-
-  // Single graphics object for all layers
-  const graphics = scene.add.graphics();
-
-  // Helper to draw hexagon path at given radius
-  // OPTIMIZATION: Uses module-level HEX_POINTS instead of recalculating trig each call
-  const drawHexagon = (radius: number) => {
-    graphics.beginPath();
-    for (let i = 0; i < 6; i++) {
-      const px = HEX_POINTS[i].cos * radius;
-      const py = HEX_POINTS[i].sin * radius;
-      if (i === 0) {
-        graphics.moveTo(px, py);
-      } else {
-        graphics.lineTo(px, py);
-      }
-    }
-    graphics.closePath();
-  };
-
-  // Draw glow layers
-  for (let i = 0; i < alphas.length; i++) {
-    const layerSize = size * radiusMultipliers[i];
-    graphics.fillStyle(neonColor.glow, alphas[i]);
-    drawHexagon(layerSize);
-    graphics.fillPath();
-  }
-
-  // Core hexagon
-  graphics.fillStyle(neonColor.core, 1);
-  drawHexagon(size);
-  graphics.fillPath();
-
-  // White outline
-  graphics.lineStyle(2, 0xffffff, 0.85);
-  drawHexagon(size);
-  graphics.strokePath();
-
-  container.add(graphics);
-  return container;
+  return createGlowingShape(scene, x, y, size, 'hexagon', neonColor, quality);
 }
 
-/**
- * Factory function to create any glowing shape based on shape type.
- */
 export function createGlowingShape(
   scene: Phaser.Scene,
   x: number,
   y: number,
   size: number,
-  shape: 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon',
+  shape: ShapeName,
   neonColor: NeonColorPair,
   quality: VisualQuality = 'high'
 ): Phaser.GameObjects.Container {
-  switch (shape) {
-    case 'circle':
-      return createGlowingCircle(scene, x, y, size, neonColor, quality);
-    case 'square':
-      return createGlowingSquare(scene, x, y, size, neonColor, quality);
-    case 'triangle':
-      return createGlowingTriangle(scene, x, y, size, neonColor, quality);
-    case 'diamond':
-      return createGlowingDiamond(scene, x, y, size, neonColor, quality);
-    case 'hexagon':
-      return createGlowingHexagon(scene, x, y, size, neonColor, quality);
-    default:
-      return createGlowingCircle(scene, x, y, size, neonColor, quality);
-  }
+  const container = scene.add.container(x, y);
+  const graphics = scene.add.graphics();
+  drawShapeIntoGraphics(graphics, size, shape, neonColor, quality);
+  container.add(graphics);
+  return container;
 }
 
-// ============================================================================
-// Cached shape texture system — pre-renders glow shapes to textures so
-// enemies using the same (shape, color, size, quality) combo share ONE
-// texture. Image sprites batch together in WebGL, unlike per-enemy Graphics.
-// ============================================================================
+// =====================================================================
+// Cached shape texture system — pre-renders shapes to textures so enemies
+// using the same combo share ONE texture.
+// =====================================================================
 
 const shapeTextureCache = new Map<string, string>();
 let shapeTextureCacheIdCounter = 0;
 
 function getShapeCacheKey(
-  shape: string, coreColor: number, glowColor: number, size: number, quality: VisualQuality
+  shape: string, coreColor: number, glowColor: number, size: number,
+  quality: VisualQuality
 ): string {
   return `${shape}_${coreColor.toString(16)}_${glowColor.toString(16)}_${size}_${quality}`;
 }
 
-/**
- * Ensure a cached texture exists for a given glow shape combo.
- * Returns the Phaser texture key. Creates the texture on first call.
- */
 function ensureCachedShapeTexture(
   scene: Phaser.Scene,
   size: number,
-  shape: 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon',
+  shape: ShapeName,
   neonColor: NeonColorPair,
   quality: VisualQuality
 ): string {
@@ -319,27 +219,19 @@ function ensureCachedShapeTexture(
     return existingTextureKey;
   }
 
-  // Render the shape at origin into a temporary container
   const tempContainer = createGlowingShape(scene, 0, 0, size, shape, neonColor, quality);
 
-  // Calculate texture dimensions — glow extends beyond the shape
-  const radiusMultipliers = getGlowRadiusMultipliers(quality);
-  const maxMultiplier = radiusMultipliers[0]; // outermost glow layer
-  const padding = size * maxMultiplier + 4; // extra for stroke/outline
+  // Calculate texture dimensions — glow extends beyond shape.
+  const outlinePadding = size * getGlowRadiusMultipliers(quality)[0] - size + 4;
+  const padding = size + outlinePadding + 4;
   const textureWidth = Math.ceil(padding * 2);
   const textureHeight = Math.ceil(padding * 2);
 
-  // Generate a unique texture key
   const textureKey = `glow_shape_${shapeTextureCacheIdCounter++}`;
-
-  // Use RenderTexture to capture the container
   const renderTexture = scene.add.renderTexture(0, 0, textureWidth, textureHeight);
   renderTexture.draw(tempContainer, padding, padding);
-
-  // Save as a real texture so Image sprites can reference it
   renderTexture.saveTexture(textureKey);
 
-  // Clean up the temporary objects
   renderTexture.destroy();
   tempContainer.destroy();
 
@@ -347,19 +239,12 @@ function ensureCachedShapeTexture(
   return textureKey;
 }
 
-/**
- * Creates a cached glowing shape — uses a pre-rendered texture if available,
- * falling back to live Graphics rendering on first call.
- *
- * Returns a Container with either an Image (cached) or Graphics (first call)
- * at the correct position. Image sprites batch in WebGL for massive perf gain.
- */
 export function createCachedGlowingShape(
   scene: Phaser.Scene,
   x: number,
   y: number,
   size: number,
-  shape: 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon',
+  shape: ShapeName,
   neonColor: NeonColorPair,
   quality: VisualQuality = 'high'
 ): Phaser.GameObjects.Container {
@@ -368,13 +253,9 @@ export function createCachedGlowingShape(
   const container = scene.add.container(x, y);
   const image = scene.add.image(0, 0, textureKey);
   container.add(image);
-
   return container;
 }
 
-/**
- * Reset the shape texture cache — call when switching scenes or quality levels.
- */
 export function resetShapeTextureCache(scene: Phaser.Scene): void {
   for (const textureKey of shapeTextureCache.values()) {
     if (scene.textures.exists(textureKey)) {
@@ -385,16 +266,11 @@ export function resetShapeTextureCache(scene: Phaser.Scene): void {
   shapeTextureCacheIdCounter = 0;
 }
 
-/**
- * Updates the visual quality of a glow container by recreating its layers.
- * This is called when performance auto-scaling changes the quality level.
- * Note: This destroys and recreates children, use sparingly.
- */
 export function updateGlowQuality(
   container: Phaser.GameObjects.Container,
   scene: Phaser.Scene,
   size: number,
-  shape: 'circle' | 'square' | 'triangle' | 'diamond' | 'hexagon',
+  shape: ShapeName,
   neonColor: NeonColorPair,
   newQuality: VisualQuality
 ): void {
@@ -403,12 +279,10 @@ export function updateGlowQuality(
   const rotation = container.rotation;
   const depth = container.depth;
 
-  // Create new container with updated quality
   const newContainer = createGlowingShape(scene, x, y, size, shape, neonColor, newQuality);
   newContainer.setRotation(rotation);
   newContainer.setDepth(depth);
 
-  // Copy position to parent container
   container.removeAll(true);
   container.add(newContainer.getAll());
   newContainer.destroy();

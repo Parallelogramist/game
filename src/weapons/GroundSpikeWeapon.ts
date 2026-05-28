@@ -58,14 +58,12 @@ export class GroundSpikeWeapon extends BaseWeapon {
 
     // Target random enemies within range
     const validTargets: number[] = [];
+    const rangeSq = this.stats.range * this.stats.range;
     for (const enemyId of enemies) {
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-      const dx = ex - ctx.playerX;
-      const dy = ey - ctx.playerY;
-      const distSq = dx * dx + dy * dy;
+      const dx = Transform.x[enemyId] - ctx.playerX;
+      const dy = Transform.y[enemyId] - ctx.playerY;
 
-      if (distSq <= this.stats.range * this.stats.range) {
+      if (dx * dx + dy * dy <= rangeSq) {
         validTargets.push(enemyId);
       }
     }
@@ -78,14 +76,11 @@ export class GroundSpikeWeapon extends BaseWeapon {
 
     for (let i = 0; i < targetCount; i++) {
       const targetId = shuffled[i];
-      const x = Transform.x[targetId];
-      const y = Transform.y[targetId];
-
       // Add slight offset for visual variety
-      const offsetX = (Math.random() - 0.5) * 30;
-      const offsetY = (Math.random() - 0.5) * 30;
+      const spawnX = Transform.x[targetId] + (Math.random() - 0.5) * 30;
+      const spawnY = Transform.y[targetId] + (Math.random() - 0.5) * 30;
 
-      this.createSpike(ctx, x + offsetX, y + offsetY);
+      this.createSpike(ctx, spawnX, spawnY);
     }
   }
 
@@ -375,28 +370,24 @@ export class GroundSpikeWeapon extends BaseWeapon {
 
         // Hit enemies in range
         const enemies = ctx.getEnemies();
+        const hitRange = adjustedRadius + 12;
+        const hitRangeSq = hitRange * hitRange;
         for (const enemyId of enemies) {
           if (spike.hitEnemies.has(enemyId)) continue;
 
-          const ex = Transform.x[enemyId];
-          const ey = Transform.y[enemyId];
-          const dx = ex - spike.x;
-          const dy = ey - spike.y;
-          const distSq = dx * dx + dy * dy;
-          const hitRange = adjustedRadius + 12;
+          const dx = Transform.x[enemyId] - spike.x;
+          const dy = Transform.y[enemyId] - spike.y;
 
-          if (distSq < hitRange * hitRange) {
+          if (dx * dx + dy * dy < hitRangeSq) {
             ctx.damageEnemy(enemyId, spike.damage, spike.isAftershock ? 80 : 120);
             spike.hitEnemies.add(enemyId);
           }
         }
 
         // Mastery: Seismic Cascade - trigger aftershock when 2+ enemies hit
-        if (this.isMastered() && !spike.isAftershock && !spike.triggeredAftershock) {
-          if (spike.hitEnemies.size >= 2) {
-            spike.triggeredAftershock = true;
-            this.triggerAftershock(ctx, spike.x, spike.y);
-          }
+        if (this.isMastered() && !spike.isAftershock && !spike.triggeredAftershock && spike.hitEnemies.size >= 2) {
+          spike.triggeredAftershock = true;
+          this.triggerAftershock(ctx, spike.x, spike.y);
         }
 
       } else {

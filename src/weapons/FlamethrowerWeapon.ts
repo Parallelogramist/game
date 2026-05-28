@@ -70,10 +70,8 @@ export class FlamethrowerWeapon extends BaseWeapon {
     let nearestDistSq = Infinity;
 
     for (const enemyId of enemies) {
-      const ex = Transform.x[enemyId];
-      const ey = Transform.y[enemyId];
-      const dx = ex - ctx.playerX;
-      const dy = ey - ctx.playerY;
+      const dx = Transform.x[enemyId] - ctx.playerX;
+      const dy = Transform.y[enemyId] - ctx.playerY;
       const distSq = dx * dx + dy * dy;
 
       if (distSq < nearestDistSq) {
@@ -83,9 +81,7 @@ export class FlamethrowerWeapon extends BaseWeapon {
     }
 
     if (nearestId !== -1) {
-      const ex = Transform.x[nearestId];
-      const ey = Transform.y[nearestId];
-      this.lastAimAngle = Math.atan2(ey - ctx.playerY, ex - ctx.playerX);
+      this.lastAimAngle = Math.atan2(Transform.y[nearestId] - ctx.playerY, Transform.x[nearestId] - ctx.playerX);
     }
 
     // Damage enemies in cone
@@ -564,9 +560,7 @@ export class FlamethrowerWeapon extends BaseWeapon {
       this.coneGraphics.destroy();
       this.coneGraphics = null;
     }
-    for (const particle of this.particles) {
-      particle.destroy();
-    }
+    for (const particle of this.particles) particle.destroy();
     this.particles.clear();
     this.hitCooldowns.clear();
     this.burnTime.clear();

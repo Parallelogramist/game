@@ -1107,13 +1107,6 @@ export function getUpgradesByCategory(category: UpgradeCategory): PermanentUpgra
 }
 
 /**
- * Get upgrades available at a given account level.
- */
-export function getUpgradesForLevel(accountLevel: number): PermanentUpgrade[] {
-  return PERMANENT_UPGRADES.filter(u => u.unlockLevel <= accountLevel);
-}
-
-/**
  * Get all category names with their display info.
  */
 export const UPGRADE_CATEGORIES: { id: UpgradeCategory; name: string; icon: string }[] = [

@@ -116,6 +116,9 @@ export class ChainLightningWeapon extends BaseWeapon {
 
     // Deal damage with falloff
     let currentDamage = this.stats.damage;
+    // Evolution (Tesla Coil): each arc heals the player a trickle — turns the
+    // weapon into a group-fight life-steal engine.
+    const healPerArcOnEvolved = this.isEvolved ? Math.max(0.5, this.stats.damage * 0.05) : 0;
     for (let i = 0; i < this.chainTargetsTemp.length; i++) {
       ctx.damageEnemy(this.chainTargetsTemp[i].id, currentDamage, 100);
       currentDamage *= 0.8; // 20% damage reduction per jump
@@ -124,6 +127,8 @@ export class ChainLightningWeapon extends BaseWeapon {
       if (ctx.overchargeStunDuration > 0) {
         ctx.stunEnemy(this.chainTargetsTemp[i].id, ctx.overchargeStunDuration);
       }
+
+      if (healPerArcOnEvolved > 0) ctx.healPlayer(healPerArcOnEvolved);
     }
 
     // Draw lightning visual
@@ -221,9 +226,7 @@ export class ChainLightningWeapon extends BaseWeapon {
     targets: { id: number; x: number; y: number }[]
   ): void {
     // Clean up previous lightning
-    if (this.lightningGraphics) {
-      this.lightningGraphics.destroy();
-    }
+    if (this.lightningGraphics) this.lightningGraphics.destroy();
 
     this.lightningGraphics = ctx.scene.add.graphics();
     this.lightningGraphics.setDepth(15);
@@ -324,9 +327,7 @@ export class ChainLightningWeapon extends BaseWeapon {
     targets: { id: number; x: number; y: number }[]
   ): void {
     // Clean up previous lightning
-    if (this.lightningGraphics) {
-      this.lightningGraphics.destroy();
-    }
+    if (this.lightningGraphics) this.lightningGraphics.destroy();
 
     this.lightningGraphics = ctx.scene.add.graphics();
     this.lightningGraphics.setDepth(15);

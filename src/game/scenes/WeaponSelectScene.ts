@@ -2,27 +2,57 @@ import Phaser from 'phaser';
 import { getCodexManager } from '../../codex';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { createIcon } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
+import { fadeIn, fadeOut } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { selectRunModifiers } from '../../data/RunModifiers';
 import { MenuNavigator } from '../../input/MenuNavigator';
+import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
+import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
+import { STAGES, StageDefinition } from '../../data/Stages';
+import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import {
+  ACCENT_COLORS,
+  ACCENT_COLORS_STR,
+  BODY_COLORS,
+  CARD_TILT_PRESETS,
+  MENU_FONT,
+  TEXT_COLORS,
+} from '../../visual/MenuStyle';
 
-/**
- * WeaponSelectScene - Pre-run weapon selection screen.
- * Shows discovered weapons from the Codex and lets the player pick a starting weapon.
- * Skips automatically if only the default Projectile has been discovered.
- */
 interface WeaponCardRef {
-  cardBackground: Phaser.GameObjects.Rectangle;
+  card: MenuCard;
   nameText: Phaser.GameObjects.Text;
   iconSprite: Phaser.GameObjects.Image;
   weaponId: string;
 }
 
+type WeaponSelectStep = 'stage' | 'ship' | 'weapon';
+
+/**
+ * Pre-run picker — Balatro-style 3-step card flow:
+ * stage → ship → weapon. Each step is a card grid with role-coded accents.
+ * Steps with only one option auto-skip; back-nav respects skipped steps.
+ */
 export class WeaponSelectScene extends Phaser.Scene {
   private soundManager!: SoundManager;
   private menuNavigator: MenuNavigator | null = null;
   private weaponCardRefs: WeaponCardRef[] = [];
+  private selectedShipId: string = 'ship_default';
+  private selectedStageId: string = 'stage_deep_void';
+  private discoveredWeaponsCache: WeaponInfo[] = [];
+  private stepCards: MenuCard[] = [];
+  private stepButtons: MenuButton[] = [];
+  private stepObjects: Phaser.GameObjects.GameObject[] = [];
+  private currentStep: WeaponSelectStep = 'stage';
+  private availableSteps: WeaponSelectStep[] = [];
+  private weaponStepKeyHandler: ((event: KeyboardEvent) => void) | null = null;
+
+  private menuBackground: MenuBackground | null = null;
+  private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
@@ -34,79 +64,435 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     const codexManager = getCodexManager();
     const allWeapons = getWeaponInfoList();
+    this.discoveredWeaponsCache = allWeapons.filter((w) => codexManager.isWeaponDiscovered(w.id));
 
-    // Filter to only discovered weapons
-    const discoveredWeapons = allWeapons.filter(
-      weaponInfo => codexManager.isWeaponDiscovered(weaponInfo.id)
-    );
+    // Balatro backdrop.
+    this.menuBackground = createMenuBackground(this);
+    this.bgUpdateHandler = (time, delta) => {
+      this.menuBackground?.update(delta);
+      const seconds = time / 1000;
+      for (const card of this.stepCards) card.tickIdle(seconds);
+      for (const btn of this.stepButtons) btn.tickIdle(seconds);
+    };
+    this.events.on('update', this.bgUpdateHandler);
 
-    // If only projectile (or nothing) discovered, skip straight to game
-    if (discoveredWeapons.length <= 1) {
+    fadeIn(this, 200);
+
+    this.availableSteps = [];
+    const availableStages = this.getAvailableStages();
+    if (availableStages.length > 1) this.availableSteps.push('stage');
+    if (this.getAvailableShips().length > 1) this.availableSteps.push('ship');
+    this.availableSteps.push('weapon');
+
+    if (availableStages.length > 1) {
+      this.renderStageSelectionStep(availableStages);
+    } else {
+      this.selectedStageId = 'stage_deep_void';
+      this.proceedToShipStep();
+    }
+  }
+
+  private goBack(): void {
+    const currentIndex = this.availableSteps.indexOf(this.currentStep);
+    if (currentIndex <= 0) {
+      this.soundManager.playUIClick();
+      this.destroyMenuNavigator();
+      this.input.keyboard?.removeAllListeners();
+      fadeOut(this, 150, () => this.scene.start('BootScene'));
+      return;
+    }
+    this.soundManager.playUIClick();
+    if (this.weaponStepKeyHandler) {
+      this.input.keyboard?.off('keydown', this.weaponStepKeyHandler);
+      this.weaponStepKeyHandler = null;
+    }
+    const previousStep = this.availableSteps[currentIndex - 1];
+    if (previousStep === 'stage') {
+      this.clearStepUI();
+      this.destroyMenuNavigator();
+      this.currentStep = 'stage';
+      this.renderStageSelectionStep(this.getAvailableStages());
+    } else if (previousStep === 'ship') {
+      this.clearStepUI();
+      this.destroyMenuNavigator();
+      this.currentStep = 'ship';
+      this.renderShipSelectionStep(this.getAvailableShips());
+    }
+  }
+
+  /** Breadcrumb chip strip + back button at the top. */
+  private renderStepHeader(): void {
+    const stepIndex = this.availableSteps.indexOf(this.currentStep);
+    const totalSteps = this.availableSteps.length;
+    const currentIndex = stepIndex >= 0 ? stepIndex : 0;
+    const crumbLabels: Record<WeaponSelectStep, string> = {
+      stage: 'STAGE',
+      ship: 'SHIP',
+      weapon: 'WEAPON',
+    };
+
+    const chipWidth = 110;
+    const chipHeight = 34;
+    const spacing = 12;
+    const totalWidth = this.availableSteps.length * chipWidth + (this.availableSteps.length - 1) * spacing;
+    const startX = this.scale.width / 2 - totalWidth / 2 + chipWidth / 2;
+
+    this.availableSteps.forEach((step, index) => {
+      const cx = startX + index * (chipWidth + spacing);
+      const isActive = index === currentIndex;
+      const button = createMenuButton({
+        scene: this,
+        x: cx,
+        y: 28,
+        width: chipWidth,
+        height: chipHeight,
+        label: crumbLabels[step],
+        variant: isActive ? 'primary' : 'neutral',
+        fontSize: 13,
+      });
+      if (!isActive) button.container.setAlpha(0.65);
+      this.stepButtons.push(button);
+    });
+
+    const counter = makeBodyText(this, this.scale.width / 2, 56, `${currentIndex + 1} / ${totalSteps}`, {
+      fontSize: 11,
+      color: TEXT_COLORS.dim,
+    });
+    this.stepObjects.push(counter);
+
+    const isFirstStep = currentIndex === 0;
+    const backButton = createMenuButton({
+      scene: this,
+      x: 80,
+      y: 28,
+      width: 130,
+      height: chipHeight,
+      label: isFirstStep ? '← MAIN MENU' : '← BACK',
+      variant: 'neutral',
+      fontSize: 12,
+      onActivate: () => this.goBack(),
+    });
+    backButton.card.hitZone.on('pointerover', () => backButton.setHoverState(true));
+    backButton.card.hitZone.on('pointerout', () => backButton.setHoverState(false));
+    this.stepButtons.push(backButton);
+  }
+
+  private getAvailableStages(): StageDefinition[] {
+    const hiddenUnlockManager = getHiddenUnlockManager();
+    const metaManager = getMetaProgressionManager();
+    const currentWorldLevel = metaManager.getWorldLevel();
+    return STAGES.filter((stage) => {
+      if (!stage.unlockRequirement) return true;
+      if (stage.unlockRequirement.startsWith('hidden:')) {
+        const conditionId = stage.unlockRequirement.slice('hidden:'.length);
+        return hiddenUnlockManager.getUnlockedConditionIds().includes(conditionId);
+      }
+      if (stage.unlockRequirement.startsWith('worldLevel:')) {
+        const requiredLevel = Number(stage.unlockRequirement.slice('worldLevel:'.length)) || 0;
+        return currentWorldLevel >= requiredLevel;
+      }
+      return true;
+    });
+  }
+
+  private renderStageSelectionStep(stages: StageDefinition[]): void {
+    this.clearStepUI();
+    this.currentStep = 'stage';
+    this.renderStepHeader();
+    this.renderStepTitle('CHOOSE YOUR STAGE', 'Each stage changes visuals, difficulty, and rewards', ACCENT_COLORS_STR.magenta);
+
+    const cardWidth = 220;
+    const cardHeight = 160;
+    const cardSpacing = 24;
+    const layout = this.computeGridLayout(stages.length, cardWidth, cardHeight, cardSpacing, 4, 30);
+
+    const focusable: { card: MenuCard; nameText: Phaser.GameObjects.Text; stage: StageDefinition }[] = [];
+    stages.forEach((stage, index) => {
+      const { x: cardX, y: cardY } = layout.positionAt(index);
+      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.6;
+
+      const card = createMenuCard(this, {
+        x: cardX,
+        y: cardY,
+        width: cardWidth,
+        height: cardHeight,
+        tilt,
+        wobbleSeed: index * 0.7,
+        bodyFillColor: BODY_COLORS.magenta,
+        accentColor: stage.gridLineColor,
+        bannerHeight: 40,
+        borderWidth: 3,
+        borderColor: stage.gridLineColor,
+        cornerRadius: 14,
+      });
+
+      const nameText = makeStickerText(this, 0, card.bannerTopY + 20, stage.name.toUpperCase(), {
+        fontSize: 16,
+        color: TEXT_COLORS.sticker,
+        letterSpacing: 1.5,
+      });
+      card.frame.add(nameText);
+
+      const description = makeBodyText(this, 0, 18, stage.description, {
+        fontSize: 13,
+        color: TEXT_COLORS.body,
+        wordWrapWidth: cardWidth - 28,
+      });
+      description.setLineSpacing(2);
+      card.frame.add(description);
+
+      this.stepCards.push(card);
+      focusable.push({ card, nameText, stage });
+
+      card.hitZone.on('pointerdown', () => {
+        this.soundManager.playUIClick();
+        this.selectedStageId = stage.id;
+        this.proceedToShipStep();
+      });
+      card.hitZone.on('pointerover', () => {
+        this.soundManager.playUIClick();
+        card.setHoverState(true);
+      });
+      card.hitZone.on('pointerout', () => card.setHoverState(false));
+    });
+
+    this.destroyMenuNavigator();
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: focusable.map((entry) => ({
+        onFocus: () => entry.card.setFocusState(true),
+        onBlur: () => entry.card.setFocusState(false),
+        onActivate: () => {
+          this.soundManager.playUIClick();
+          this.selectedStageId = entry.stage.id;
+          this.proceedToShipStep();
+        },
+      })),
+      columns: layout.columns,
+      wrap: true,
+      onCancel: () => this.goBack(),
+    });
+  }
+
+  private proceedToShipStep(): void {
+    this.clearStepUI();
+    this.destroyMenuNavigator();
+    const availableShips = this.getAvailableShips();
+    if (availableShips.length > 1) {
+      this.renderShipSelectionStep(availableShips);
+    } else {
+      this.selectedShipId = 'ship_default';
+      this.proceedToWeaponStep();
+    }
+  }
+
+  private getAvailableShips(): ShipCharacter[] {
+    const hiddenUnlockManager = getHiddenUnlockManager();
+    return SHIP_CHARACTERS.filter((ship) => {
+      if (!ship.unlockRequirement) return true;
+      if (ship.unlockRequirement.startsWith('hidden:')) {
+        const conditionId = ship.unlockRequirement.slice('hidden:'.length);
+        return hiddenUnlockManager.getUnlockedConditionIds().includes(conditionId);
+      }
+      return true;
+    });
+  }
+
+  private renderShipSelectionStep(ships: ShipCharacter[]): void {
+    this.clearStepUI();
+    this.currentStep = 'ship';
+    this.renderStepHeader();
+    this.renderStepTitle('CHOOSE YOUR SHIP', 'Each ship grants unique starting gear and stat tradeoffs', ACCENT_COLORS_STR.primary);
+
+    const cardWidth = 200;
+    const cardHeight = 160;
+    const cardSpacing = 22;
+    const layout = this.computeGridLayout(ships.length, cardWidth, cardHeight, cardSpacing, 4, 30);
+
+    const focusable: { card: MenuCard; ship: ShipCharacter }[] = [];
+    ships.forEach((ship, index) => {
+      const { x: cardX, y: cardY } = layout.positionAt(index);
+      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.5;
+
+      const card = createMenuCard(this, {
+        x: cardX,
+        y: cardY,
+        width: cardWidth,
+        height: cardHeight,
+        tilt,
+        wobbleSeed: index * 0.9 + 0.3,
+        bodyFillColor: BODY_COLORS.primary,
+        accentColor: ACCENT_COLORS.primary,
+        bannerHeight: 40,
+        borderWidth: 3,
+        borderColor: ACCENT_COLORS.primary,
+        cornerRadius: 14,
+      });
+
+      const nameText = makeStickerText(this, 0, card.bannerTopY + 20, ship.name.toUpperCase(), {
+        fontSize: 15,
+        color: TEXT_COLORS.sticker,
+        letterSpacing: 1.5,
+      });
+      card.frame.add(nameText);
+
+      const description = makeBodyText(this, 0, 18, ship.description, {
+        fontSize: 12,
+        color: TEXT_COLORS.body,
+        wordWrapWidth: cardWidth - 28,
+      });
+      description.setLineSpacing(2);
+      card.frame.add(description);
+
+      this.stepCards.push(card);
+      focusable.push({ card, ship });
+
+      card.hitZone.on('pointerover', () => {
+        this.soundManager.playUIClick();
+        card.setHoverState(true);
+      });
+      card.hitZone.on('pointerout', () => card.setHoverState(false));
+      card.hitZone.on('pointerdown', () => {
+        this.soundManager.playUIClick();
+        this.selectedShipId = ship.id;
+        this.proceedToWeaponStep();
+      });
+    });
+
+    this.destroyMenuNavigator();
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: focusable.map((entry) => ({
+        onFocus: () => entry.card.setFocusState(true),
+        onBlur: () => entry.card.setFocusState(false),
+        onActivate: () => {
+          this.soundManager.playUIClick();
+          this.selectedShipId = entry.ship.id;
+          this.proceedToWeaponStep();
+        },
+      })),
+      columns: layout.columns,
+      wrap: true,
+      onCancel: () => this.goBack(),
+    });
+  }
+
+  private clearStepUI(): void {
+    for (const card of this.stepCards) card.destroy();
+    this.stepCards = [];
+    for (const btn of this.stepButtons) btn.destroy();
+    this.stepButtons = [];
+    for (const obj of this.stepObjects) obj.destroy();
+    this.stepObjects = [];
+    this.weaponCardRefs = [];
+  }
+
+  private destroyMenuNavigator(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
+  }
+
+  private renderStepTitle(title: string, subtitle: string, titleColor: string): void {
+    const centerX = this.scale.width / 2;
+    const titleText = makeStickerText(this, centerX, 90, title, {
+      fontSize: 36,
+      color: titleColor,
+      strokeWidth: 5,
+      letterSpacing: 3,
+    });
+    this.stepObjects.push(titleText);
+
+    const subtitleText = makeBodyText(this, centerX, 130, subtitle, {
+      fontSize: 14,
+      color: TEXT_COLORS.muted,
+    });
+    this.stepObjects.push(subtitleText);
+  }
+
+  private computeGridLayout(
+    count: number,
+    cardWidth: number,
+    cardHeight: number,
+    cardSpacing: number,
+    maxColumns: number,
+    yOffset: number = 0,
+  ) {
+    const centerX = this.scale.width / 2;
+    const columns = Math.min(count, maxColumns);
+    const rows = Math.ceil(count / columns);
+    const totalGridWidth = columns * cardWidth + (columns - 1) * cardSpacing;
+    const totalGridHeight = rows * cardHeight + (rows - 1) * cardSpacing;
+    const startX = centerX - totalGridWidth / 2 + cardWidth / 2;
+    const startY = this.scale.height / 2 - totalGridHeight / 2 + yOffset;
+
+    return {
+      columns,
+      positionAt: (index: number) => ({
+        x: startX + (index % columns) * (cardWidth + cardSpacing),
+        y: startY + Math.floor(index / columns) * (cardHeight + cardSpacing),
+      }),
+    };
+  }
+
+  private proceedToWeaponStep(): void {
+    this.clearStepUI();
+    this.destroyMenuNavigator();
+
+    if (this.discoveredWeaponsCache.length <= 1) {
       const selectedModifiers = selectRunModifiers(2);
       this.scene.start('GameScene', {
         restore: false,
         startingWeapon: 'projectile',
-        modifierIds: selectedModifiers.map(m => m.id),
+        shipId: this.selectedShipId,
+        stageId: this.selectedStageId,
+        modifierIds: selectedModifiers.map((m) => m.id),
       });
       return;
     }
 
-    fadeIn(this, 200);
+    this.renderWeaponSelectionStep(this.discoveredWeaponsCache);
+  }
+
+  private renderWeaponSelectionStep(discoveredWeapons: WeaponInfo[]): void {
+    this.currentStep = 'weapon';
+    this.renderStepHeader();
+    this.renderStepTitle('CHOOSE YOUR WEAPON', 'Select the weapon you want to start your run with', ACCENT_COLORS_STR.gold);
+
+    this.weaponCardRefs = [];
+    this.buildWeaponCards(discoveredWeapons);
 
     const centerX = this.scale.width / 2;
-    const centerY = this.scale.height / 2;
-
-    // Background
-    this.add.rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x0a0a1a);
-
-    // Title
-    this.add.text(centerX, 50, 'CHOOSE YOUR WEAPON', {
-      fontSize: '36px',
-      color: '#ffdd44',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
-    }).setOrigin(0.5);
-
-    this.add.text(centerX, 90, 'Select the weapon you want to start your run with', {
-      fontSize: '16px',
-      color: '#888899',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
-
-    // Build weapon cards
-    this.weaponCardRefs = [];
-    this.buildWeaponCards(discoveredWeapons, centerX, centerY);
-
-    // "Random" button at bottom
-    const randomButtonY = this.scale.height - 50;
-    const randomText = this.add.text(centerX, randomButtonY, '[ RANDOM ]', {
-      fontSize: '20px',
-      color: '#aaaacc',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 2,
-    }).setOrigin(0.5);
-
-    randomText.setInteractive({ useHandCursor: true });
-    addButtonInteraction(this, randomText);
-    randomText.on('pointerdown', () => {
+    const randomButtonY = this.scale.height - 60;
+    const randomButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: randomButtonY,
+      width: 200,
+      height: 48,
+      label: '🎲 RANDOM',
+      variant: 'gold',
+      fontSize: 18,
+    });
+    randomButton.card.hitZone.on('pointerover', () => randomButton.setHoverState(true));
+    randomButton.card.hitZone.on('pointerout', () => randomButton.setHoverState(false));
+    const pickRandom = () => {
       const randomWeapon = discoveredWeapons[Math.floor(Math.random() * discoveredWeapons.length)];
       this.selectWeapon(randomWeapon.id);
-    });
+    };
+    randomButton.card.hitZone.on('pointerdown', pickRandom);
+    this.stepButtons.push(randomButton);
 
-    // Keyboard shortcuts hint
-    this.add.text(centerX, this.scale.height - 20, 'Press 1-9 to quick select  |  R for random', {
-      fontSize: '12px',
-      color: '#555566',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
+    const hint = makeBodyText(this, centerX, this.scale.height - 22,
+      'Press 1-9 to quick select  |  R for random', {
+        fontSize: 11,
+        color: TEXT_COLORS.dim,
+      });
+    this.stepObjects.push(hint);
 
-    // Build navigable items: weapon cards + random button at end
     const gridColumns = Math.min(discoveredWeapons.length, 7);
-    const navigableItems = this.weaponCardRefs.map((cardRef) => ({
+    const navigableItems: { onFocus: () => void; onBlur: () => void; onActivate: () => void }[] = this.weaponCardRefs.map((cardRef) => ({
       onFocus: () => this.focusWeaponCard(cardRef),
       onBlur: () => this.blurWeaponCard(cardRef),
       onActivate: () => {
@@ -115,14 +501,10 @@ export class WeaponSelectScene extends Phaser.Scene {
       },
     }));
 
-    // Add the "Random" button as a navigable item after the grid
     navigableItems.push({
-      onFocus: () => randomText.setColor('#ffdd44'),
-      onBlur: () => randomText.setColor('#aaaacc'),
-      onActivate: () => {
-        const randomWeapon = discoveredWeapons[Math.floor(Math.random() * discoveredWeapons.length)];
-        this.selectWeapon(randomWeapon.id);
-      },
+      onFocus: () => randomButton.setFocusState(true),
+      onBlur: () => randomButton.setFocusState(false),
+      onActivate: pickRandom,
     });
 
     this.menuNavigator = new MenuNavigator({
@@ -130,72 +512,47 @@ export class WeaponSelectScene extends Phaser.Scene {
       items: navigableItems,
       columns: gridColumns,
       wrap: true,
+      onCancel: () => this.goBack(),
     });
 
-    // Keyboard shortcuts for number keys and R (not handled by MenuNavigator)
-    this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
+    if (this.weaponStepKeyHandler) {
+      this.input.keyboard?.off('keydown', this.weaponStepKeyHandler);
+      this.weaponStepKeyHandler = null;
+    }
+    this.weaponStepKeyHandler = (event: KeyboardEvent) => {
       const keyNumber = parseInt(event.key);
       if (keyNumber >= 1 && keyNumber <= discoveredWeapons.length) {
         this.selectWeapon(discoveredWeapons[keyNumber - 1].id);
       }
-      if (event.key === 'r' || event.key === 'R') {
-        const randomWeapon = discoveredWeapons[Math.floor(Math.random() * discoveredWeapons.length)];
-        this.selectWeapon(randomWeapon.id);
-      }
-    });
+      if (event.key === 'r' || event.key === 'R') pickRandom();
+    };
+    this.input.keyboard?.on('keydown', this.weaponStepKeyHandler);
   }
 
-  /**
-   * Build weapon selection cards in a responsive grid layout.
-   */
-  private buildWeaponCards(weapons: WeaponInfo[], centerX: number, _centerY: number): void {
-    const cardWidth = 140;
-    const cardHeight = 160;
-    const cardSpacing = 12;
-    const maxColumns = Math.min(weapons.length, 7);
-    const columns = Math.min(weapons.length, maxColumns);
-    const rows = Math.ceil(weapons.length / columns);
-
-    const totalGridWidth = columns * cardWidth + (columns - 1) * cardSpacing;
-    const totalGridHeight = rows * cardHeight + (rows - 1) * cardSpacing;
-    const startX = centerX - totalGridWidth / 2 + cardWidth / 2;
-    const startY = (this.scale.height / 2) - totalGridHeight / 2 + 20;
+  private buildWeaponCards(weapons: WeaponInfo[]): void {
+    const cardWidth = 150;
+    const cardHeight = 180;
+    const cardSpacing = 14;
+    const layout = this.computeGridLayout(weapons.length, cardWidth, cardHeight, cardSpacing, 7, 30);
 
     weapons.forEach((weaponInfo, index) => {
-      const column = index % columns;
-      const row = Math.floor(index / columns);
-      const cardX = startX + column * (cardWidth + cardSpacing);
-      const cardY = startY + row * (cardHeight + cardSpacing);
-
+      const { x: cardX, y: cardY } = layout.positionAt(index);
       this.createWeaponCard(weaponInfo, cardX, cardY, cardWidth, cardHeight, index + 1);
     });
   }
 
-  /**
-   * Apply focused visual state to a weapon card.
-   */
   private focusWeaponCard(cardRef: WeaponCardRef): void {
-    cardRef.cardBackground.setFillStyle(0x2a2a4e, 0.9);
-    cardRef.cardBackground.setStrokeStyle(2, 0xffdd44);
-    cardRef.nameText.setColor('#ffdd44');
+    cardRef.card.setFocusState(true);
     const iconBaseScale = 40 / 64;
-    cardRef.iconSprite.setScale(iconBaseScale * 1.1);
+    cardRef.iconSprite.setScale(iconBaseScale * 1.12);
   }
 
-  /**
-   * Apply default (unfocused) visual state to a weapon card.
-   */
   private blurWeaponCard(cardRef: WeaponCardRef): void {
-    cardRef.cardBackground.setFillStyle(0x1a1a2e, 0.8);
-    cardRef.cardBackground.setStrokeStyle(1, 0x333355);
-    cardRef.nameText.setColor('#ffffff');
+    cardRef.card.setFocusState(false);
     const iconBaseScale = 40 / 64;
     cardRef.iconSprite.setScale(iconBaseScale);
   }
 
-  /**
-   * Create a single weapon selection card.
-   */
   private createWeaponCard(
     weaponInfo: WeaponInfo,
     x: number,
@@ -204,81 +561,79 @@ export class WeaponSelectScene extends Phaser.Scene {
     height: number,
     keyNumber: number,
   ): void {
-    // Card background
-    const cardBackground = this.add.rectangle(x, y, width, height, 0x1a1a2e, 0.8);
-    cardBackground.setStrokeStyle(1, 0x333355);
-    cardBackground.setInteractive({ useHandCursor: true });
+    const tiltOptions = [
+      CARD_TILT_PRESETS.leftLean,
+      CARD_TILT_PRESETS.hero,
+      CARD_TILT_PRESETS.rightLean,
+      CARD_TILT_PRESETS.rest,
+    ];
+    const baseTilt = tiltOptions[keyNumber % tiltOptions.length] * 0.6;
 
-    // Weapon icon
-    const iconSprite = createIcon(this, {
+    const card = createMenuCard(this, {
       x,
-      y: y - 35,
-      iconKey: weaponInfo.icon,
-      size: 40,
-      tint: 0xffffff,
+      y,
+      width,
+      height,
+      tilt: baseTilt,
+      wobbleSeed: keyNumber * 0.5 + 0.1,
+      bodyFillColor: BODY_COLORS.gold,
+      accentColor: ACCENT_COLORS.gold,
+      bannerHeight: 32,
+      borderWidth: 3,
+      borderColor: ACCENT_COLORS.gold,
+      cornerRadius: 12,
     });
 
-    // Weapon name
-    const nameText = this.add.text(x, y + 10, weaponInfo.name, {
-      fontSize: '14px',
-      color: '#ffffff',
-      fontFamily: 'Arial',
-      fontStyle: 'bold',
-      align: 'center',
-      wordWrap: { width: width - 16 },
-    }).setOrigin(0.5);
+    const nameText = makeStickerText(this, 0, card.bannerTopY + 16, weaponInfo.name.toUpperCase(), {
+      fontSize: 12,
+      color: TEXT_COLORS.sticker,
+      letterSpacing: 1,
+    });
+    card.frame.add(nameText);
 
-    // Short description
-    this.add.text(x, y + 35, weaponInfo.description, {
+    const iconY = -height / 2 + 70;
+    const iconSprite = createIcon(this, { x: 0, y: iconY, iconKey: weaponInfo.icon, size: 40, tint: 0xffffff });
+    card.frame.add(iconSprite);
+
+    const descriptionText = this.add.text(0, iconY + 36, weaponInfo.description, {
       fontSize: '10px',
-      color: '#8888aa',
-      fontFamily: 'Arial',
+      fontFamily: MENU_FONT,
+      color: TEXT_COLORS.body,
       align: 'center',
-      wordWrap: { width: width - 12 },
-    }).setOrigin(0.5);
+      wordWrap: { width: width - 14 },
+    });
+    descriptionText.setOrigin(0.5);
+    card.frame.add(descriptionText);
 
-    // Key hint
     if (keyNumber <= 9) {
-      this.add.text(x, y + height / 2 - 12, `[${keyNumber}]`, {
-        fontSize: '11px',
-        color: '#555577',
-        fontFamily: 'Arial',
-      }).setOrigin(0.5);
+      const keyChip = makeStickerText(this, 0, height / 2 - 16, `[ ${keyNumber} ]`, {
+        fontSize: 11,
+        color: TEXT_COLORS.muted,
+        letterSpacing: 1,
+      });
+      card.frame.add(keyChip);
     }
 
-    // Store card reference for MenuNavigator
-    const cardRef: WeaponCardRef = { cardBackground, nameText, iconSprite, weaponId: weaponInfo.id };
+    const cardRef: WeaponCardRef = { card, nameText, iconSprite, weaponId: weaponInfo.id };
     this.weaponCardRefs.push(cardRef);
+    this.stepCards.push(card);
 
-    // Hover effects
-    cardBackground.on('pointerover', () => {
+    card.hitZone.on('pointerover', () => {
       this.soundManager.playUIClick();
       this.focusWeaponCard(cardRef);
-      // Sync navigator index with pointer hover
       const cardIndex = this.weaponCardRefs.indexOf(cardRef);
       if (cardIndex >= 0 && this.menuNavigator) {
-        // Use selectIndex to keep navigator in sync without re-triggering focus
-        // We manually focused above, so just update internal state
         this.menuNavigator.selectIndex(cardIndex);
       }
     });
-
-    cardBackground.on('pointerout', () => {
-      this.blurWeaponCard(cardRef);
-    });
-
-    // Select on click
-    cardBackground.on('pointerdown', () => {
+    card.hitZone.on('pointerout', () => this.blurWeaponCard(cardRef));
+    card.hitZone.on('pointerdown', () => {
       this.soundManager.playUIClick();
       this.selectWeapon(weaponInfo.id);
     });
   }
 
-  /**
-   * Transition to GameScene with the selected starting weapon.
-   */
   private selectWeapon(weaponId: string): void {
-    // Prevent double-selection
     this.input.keyboard?.removeAllListeners();
     this.input.removeAllListeners();
 
@@ -287,17 +642,23 @@ export class WeaponSelectScene extends Phaser.Scene {
       this.scene.start('GameScene', {
         restore: false,
         startingWeapon: weaponId,
-        modifierIds: selectedModifiers.map(m => m.id),
+        shipId: this.selectedShipId,
+        stageId: this.selectedStageId,
+        modifierIds: selectedModifiers.map((m) => m.id),
       });
     });
   }
 
   shutdown(): void {
-    if (this.menuNavigator) {
-      this.menuNavigator.destroy();
-      this.menuNavigator = null;
-    }
+    this.destroyMenuNavigator();
     this.input.keyboard?.removeAllListeners();
     this.tweens.killAll();
+    if (this.bgUpdateHandler) {
+      this.events.off('update', this.bgUpdateHandler);
+      this.bgUpdateHandler = null;
+    }
+    this.menuBackground?.destroy();
+    this.menuBackground = null;
+    this.clearStepUI();
   }
 }

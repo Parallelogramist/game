@@ -1,13 +1,22 @@
 /**
- * MusicSettingsScene - UI for selecting music tracks.
- * Allows enabling/disabling individual tracks in the playlist.
- * Full keyboard navigation support with zone-based focus system.
+ * MusicSettingsScene — Balatro-style track picker. Each track is a slim
+ * card row in a scrollable list. Toggle by click; "P" plays focused track.
  */
 
 import Phaser from 'phaser';
 import { getMusicManager } from '../../audio/MusicManager';
 import { MUSIC_CATALOG, Track } from '../../data/MusicCatalog';
-import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
+import { fadeIn } from '../../utils/SceneTransition';
+import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
+import { createMenuButton, MenuButton } from '../../visual/MenuButton';
+import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import {
+  ACCENT_COLORS,
+  ACCENT_COLORS_STR,
+  BODY_COLORS,
+  TEXT_COLORS,
+} from '../../visual/MenuStyle';
 
 type FocusZone = 'actions' | 'tracks' | 'back';
 
@@ -16,27 +25,36 @@ interface MusicSettingsSceneData {
   originalReturnTo?: 'BootScene' | 'GameScene';
 }
 
+interface TrackRow {
+  card: MenuCard;
+  selector: Phaser.GameObjects.Text;
+  checkbox: Phaser.GameObjects.Text;
+  label: Phaser.GameObjects.Text;
+  playingIndicator: Phaser.GameObjects.Text;
+}
+
 export class MusicSettingsScene extends Phaser.Scene {
   private returnTo: 'BootScene' | 'SettingsScene' = 'BootScene';
   private originalReturnTo: 'BootScene' | 'GameScene' = 'BootScene';
-  private trackCheckboxes: Map<string, { checkbox: Phaser.GameObjects.Text; label: Phaser.GameObjects.Text; selector: Phaser.GameObjects.Text; playingIndicator: Phaser.GameObjects.Text }> = new Map();
-  private actionButtons: Phaser.GameObjects.Text[] = [];
-  private backButton!: Phaser.GameObjects.Text;
+  private trackRows: Map<string, TrackRow> = new Map();
+  private actionButtons: MenuButton[] = [];
+  private backButton!: MenuButton;
   private nowPlayingText!: Phaser.GameObjects.Text;
   private scrollY: number = 0;
   private trackContainer!: Phaser.GameObjects.Container;
   private maxScrollY: number = 0;
 
-  // Keyboard navigation state
+  private menuOverlay: MenuOverlay | null = null;
+  private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+
   private focusZone: FocusZone = 'actions';
   private selectedActionIndex: number = 0;
   private selectedTrackIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 
-  // Track list constants - positioned higher since we removed mode/volume
-  private readonly trackListY = 130;
-  private readonly trackHeight = 28;
-  private readonly visibleHeight = 420;
+  private readonly trackListY = 170;
+  private readonly trackHeight = 38;
+  private readonly visibleHeight = 380;
 
   constructor() {
     super({ key: 'MusicSettingsScene' });
@@ -51,158 +69,127 @@ export class MusicSettingsScene extends Phaser.Scene {
     const centerX = this.cameras.main.centerX;
     const musicManager = getMusicManager();
 
-    // Reset state
     this.actionButtons = [];
-    this.trackCheckboxes.clear();
+    this.trackRows.clear();
     this.focusZone = 'actions';
     this.selectedActionIndex = 0;
     this.selectedTrackIndex = 0;
     this.scrollY = 0;
 
-    // Start music if not already playing (user has already interacted to get here)
     if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
       musicManager.play();
     }
 
     fadeIn(this, 150);
 
-    // Semi-transparent background
-    this.add.rectangle(
-      this.cameras.main.centerX,
-      this.cameras.main.centerY,
-      this.cameras.main.width,
-      this.cameras.main.height,
-      0x000000,
-      0.85
-    );
+    this.menuOverlay = createMenuOverlay(this, { dim: 0.85, drifterCount: 4 });
+    this.bgUpdateHandler = (time, delta) => {
+      this.menuOverlay?.update(delta);
+      const seconds = time / 1000;
+      for (const btn of this.actionButtons) btn.tickIdle(seconds);
+      this.backButton?.tickIdle(seconds);
+    };
+    this.events.on('update', this.bgUpdateHandler);
 
-    // Title
-    this.add
-      .text(centerX, 30, 'MUSIC TRACKS', {
-        fontSize: '36px',
-        color: '#ffdd44',
-        fontFamily: 'Arial',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
+    makeStickerText(this, centerX, 36, 'MUSIC TRACKS', {
+      fontSize: 32,
+      color: ACCENT_COLORS_STR.gold,
+      strokeWidth: 5,
+      letterSpacing: 4,
+    });
 
-    // Now Playing indicator
-    this.nowPlayingText = this.add
-      .text(centerX, 70, '', {
-        fontSize: '16px',
-        color: '#88ff88',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5);
+    this.nowPlayingText = makeBodyText(this, centerX, 78, '', {
+      fontSize: 14,
+      color: ACCENT_COLORS_STR.safe,
+    });
     this.updateNowPlaying();
 
-    // Select All / Deselect All buttons
-    const selectAllButton = this.add
-      .text(centerX - 80, 100, '[ Select All ]', {
-        fontSize: '14px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    selectAllButton.on('pointerover', () => {
+    // Action buttons.
+    const selectAllButton = createMenuButton({
+      scene: this,
+      x: centerX - 110,
+      y: 120,
+      width: 180,
+      height: 36,
+      label: 'SELECT ALL',
+      variant: 'primary',
+      fontSize: 13,
+      onActivate: () => this.activateActionButton(0),
+    });
+    selectAllButton.card.hitZone.on('pointerover', () => {
       this.selectedActionIndex = 0;
       this.focusZone = 'actions';
       this.updateFocusVisuals();
     });
-    selectAllButton.on('pointerdown', () => {
-      this.activateActionButton(0);
+    const deselectAllButton = createMenuButton({
+      scene: this,
+      x: centerX + 110,
+      y: 120,
+      width: 180,
+      height: 36,
+      label: 'DESELECT ALL',
+      variant: 'neutral',
+      fontSize: 13,
+      onActivate: () => this.activateActionButton(1),
     });
-
-    const deselectAllButton = this.add
-      .text(centerX + 80, 100, '[ Deselect All ]', {
-        fontSize: '14px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    deselectAllButton.on('pointerover', () => {
+    deselectAllButton.card.hitZone.on('pointerover', () => {
       this.selectedActionIndex = 1;
       this.focusZone = 'actions';
       this.updateFocusVisuals();
     });
-    deselectAllButton.on('pointerdown', () => {
-      this.activateActionButton(1);
-    });
-
     this.actionButtons = [selectAllButton, deselectAllButton];
 
-    // Create scrollable track list
-    // Mask for scrollable area
+    // Scrollable track list.
     const maskGraphics = this.make.graphics({});
     maskGraphics.fillRect(20, this.trackListY, this.cameras.main.width - 40, this.visibleHeight);
     const mask = maskGraphics.createGeometryMask();
 
-    // Container for tracks
     this.trackContainer = this.add.container(0, this.trackListY);
     this.trackContainer.setMask(mask);
 
-    // Add tracks to container
     MUSIC_CATALOG.forEach((track, index) => {
-      const trackY = index * this.trackHeight;
-      this.createTrackRow(track, trackY, centerX, this.trackHeight, index);
+      const trackY = index * this.trackHeight + this.trackHeight / 2;
+      this.createTrackRow(track, trackY, centerX, index);
     });
 
-    // Calculate max scroll
     const totalHeight = MUSIC_CATALOG.length * this.trackHeight;
     this.maxScrollY = Math.max(0, totalHeight - this.visibleHeight);
 
-    // Scroll instructions and P key hint
-    const hintY = this.trackListY + this.visibleHeight + 10;
+    const hintY = this.trackListY + this.visibleHeight + 14;
     if (this.maxScrollY > 0) {
-      this.add
-        .text(centerX, hintY, '[ Scroll with mouse wheel or arrow keys ]', {
-          fontSize: '12px',
-          color: '#555555',
-          fontFamily: 'Arial',
-        })
-        .setOrigin(0.5);
+      makeBodyText(this, centerX, hintY, 'Scroll with mouse wheel or arrow keys', {
+        fontSize: 11,
+        color: TEXT_COLORS.dim,
+      });
     }
+    makeBodyText(this, centerX, hintY + (this.maxScrollY > 0 ? 18 : 0),
+      'Press P to play selected track', {
+        fontSize: 11,
+        color: TEXT_COLORS.dim,
+      });
 
-    // P key hint
-    this.add
-      .text(centerX, hintY + (this.maxScrollY > 0 ? 18 : 0), '[ Press P to play selected track ]', {
-        fontSize: '12px',
-        color: '#555555',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5);
-
-    // Mouse wheel scrolling
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number) => {
       this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY * 0.5, 0, this.maxScrollY);
       this.trackContainer.setY(this.trackListY - this.scrollY);
     });
 
-    // Back button
-    this.backButton = this.add
-      .text(centerX, this.cameras.main.height - 30, '[ Back ]', {
-        fontSize: '20px',
-        color: '#888888',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0.5)
-      .setInteractive({ useHandCursor: true });
-
-    this.backButton.on('pointerover', () => {
+    this.backButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: this.cameras.main.height - 36,
+      width: 200,
+      height: 44,
+      label: '← BACK',
+      variant: 'neutral',
+      fontSize: 16,
+      onActivate: () => this.goBack(),
+    });
+    this.backButton.card.hitZone.on('pointerover', () => {
       this.focusZone = 'back';
       this.updateFocusVisuals();
     });
-    this.backButton.on('pointerout', () => this.updateFocusVisuals());
-    this.backButton.on('pointerdown', () => {
-      this.goBack();
-    });
-    addButtonInteraction(this, this.backButton);
+    this.backButton.card.hitZone.on('pointerout', () => this.updateFocusVisuals());
 
-    // Update interval for now playing
     this.time.addEvent({
       delay: 1000,
       callback: this.updateNowPlaying,
@@ -210,86 +197,80 @@ export class MusicSettingsScene extends Phaser.Scene {
       loop: true,
     });
 
-    // Setup keyboard navigation
     this.setupKeyboardNavigation();
-
-    // Initial focus visuals
     this.updateFocusVisuals();
 
-    // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
   }
 
-  /**
-   * Creates a row for a track in the list.
-   */
-  private createTrackRow(track: Track, y: number, centerX: number, rowHeight: number, index: number): void {
+  private createTrackRow(track: Track, y: number, centerX: number, index: number): void {
     const musicManager = getMusicManager();
     const isEnabled = musicManager.isTrackEnabled(track.id);
     const currentTrack = musicManager.getCurrentTrack();
     const isPlaying = currentTrack?.id === track.id && musicManager.getIsPlaying();
 
-    // Selection indicator (>) - shows when track is focused
-    const selector = this.add
-      .text(40, y + rowHeight / 2, '', {
-        fontSize: '14px',
-        color: '#ffdd44',
-        fontFamily: 'monospace',
-      })
-      .setOrigin(0, 0.5);
+    const accent = isEnabled ? ACCENT_COLORS.primary : ACCENT_COLORS.neutral;
+    const card = createMenuCard(this, {
+      x: centerX,
+      y,
+      width: this.cameras.main.width - 60,
+      height: this.trackHeight - 6,
+      bodyFillColor: BODY_COLORS.primary,
+      accentColor: accent,
+      bannerHeight: 0,
+      borderWidth: 2,
+      borderColor: accent,
+      cornerRadius: 8,
+      wobble: false,
+      shadowOffsetY: 4,
+      shadowAlpha: 0.3,
+    });
+    if (!isEnabled) card.container.setAlpha(0.7);
 
-    // Checkbox
-    const checkbox = this.add
-      .text(60, y + rowHeight / 2, isEnabled ? '[x]' : '[ ]', {
-        fontSize: '14px',
-        color: isEnabled ? '#88ff88' : '#666666',
-        fontFamily: 'monospace',
-      })
-      .setOrigin(0, 0.5);
+    const halfWidth = (this.cameras.main.width - 60) / 2;
 
-    // Track title
-    const label = this.add
-      .text(100, y + rowHeight / 2, track.title, {
-        fontSize: '14px',
-        color: isPlaying ? '#ffdd44' : isEnabled ? '#ffffff' : '#666666',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0, 0.5);
+    const selector = makeStickerText(this, -halfWidth + 16, 0, '', {
+      fontSize: 14,
+      color: ACCENT_COLORS_STR.focus,
+      letterSpacing: 1,
+    });
+    selector.setOrigin(0, 0.5);
+    card.frame.add(selector);
 
-    // Playing indicator
-    const playingIndicator = this.add
-      .text(this.cameras.main.width - 80, y + rowHeight / 2, isPlaying ? 'PLAYING' : '', {
-        fontSize: '12px',
-        color: '#ffdd44',
-        fontFamily: 'Arial',
-      })
-      .setOrigin(0, 0.5);
+    const checkbox = makeStickerText(this, -halfWidth + 36, 0, isEnabled ? '[x]' : '[ ]', {
+      fontSize: 14,
+      color: isEnabled ? ACCENT_COLORS_STR.safe : TEXT_COLORS.dim,
+      letterSpacing: 1,
+    });
+    checkbox.setOrigin(0, 0.5);
+    card.frame.add(checkbox);
 
-    // Make row interactive
-    const hitArea = this.add
-      .rectangle(centerX, y + rowHeight / 2, this.cameras.main.width - 60, rowHeight - 4, 0x000000, 0)
-      .setInteractive({ useHandCursor: true });
+    const label = makeBodyText(this, -halfWidth + 80, 0, track.title, {
+      fontSize: 14,
+      color: isPlaying ? ACCENT_COLORS_STR.focus : isEnabled ? TEXT_COLORS.body : TEXT_COLORS.dim,
+      align: 'left',
+    });
+    card.frame.add(label);
 
-    hitArea.on('pointerover', () => {
+    const playingIndicator = makeStickerText(this, halfWidth - 60, 0, isPlaying ? 'PLAYING' : '', {
+      fontSize: 11,
+      color: ACCENT_COLORS_STR.focus,
+      letterSpacing: 1,
+    });
+    playingIndicator.setOrigin(1, 0.5);
+    card.frame.add(playingIndicator);
+
+    card.hitZone.on('pointerover', () => {
       this.selectedTrackIndex = index;
       this.focusZone = 'tracks';
       this.updateFocusVisuals();
     });
+    card.hitZone.on('pointerdown', () => this.toggleTrack(index));
 
-    hitArea.on('pointerdown', () => {
-      this.toggleTrack(index);
-    });
-
-    // Add to container
-    this.trackContainer.add([selector, checkbox, label, playingIndicator, hitArea]);
-
-    // Store references for updates
-    this.trackCheckboxes.set(track.id, { checkbox, label, selector, playingIndicator });
+    this.trackContainer.add(card.container);
+    this.trackRows.set(track.id, { card, selector, checkbox, label, playingIndicator });
   }
 
-  /**
-   * Sets up keyboard navigation handlers.
-   */
   private setupKeyboardNavigation(): void {
     this.keydownHandler = (event: KeyboardEvent) => {
       switch (event.key) {
@@ -336,58 +317,42 @@ export class MusicSettingsScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this.keydownHandler);
   }
 
-  /**
-   * Navigate down through zones or within tracks.
-   */
   private navigateDown(): void {
     if (this.focusZone === 'tracks') {
-      // Navigate within track list
       if (this.selectedTrackIndex < MUSIC_CATALOG.length - 1) {
         this.selectedTrackIndex++;
         this.ensureTrackVisible();
       } else {
-        // Move to back button
         this.focusZone = 'back';
       }
     } else if (this.focusZone === 'actions') {
-      // Move to tracks
       this.focusZone = 'tracks';
       this.selectedTrackIndex = 0;
       this.ensureTrackVisible();
     } else if (this.focusZone === 'back') {
-      // Wrap to actions
       this.focusZone = 'actions';
     }
     this.updateFocusVisuals();
   }
 
-  /**
-   * Navigate up through zones or within tracks.
-   */
   private navigateUp(): void {
     if (this.focusZone === 'tracks') {
       if (this.selectedTrackIndex > 0) {
         this.selectedTrackIndex--;
         this.ensureTrackVisible();
       } else {
-        // Move to actions
         this.focusZone = 'actions';
       }
     } else if (this.focusZone === 'back') {
-      // Move to tracks (last item)
       this.focusZone = 'tracks';
       this.selectedTrackIndex = MUSIC_CATALOG.length - 1;
       this.ensureTrackVisible();
     } else if (this.focusZone === 'actions') {
-      // Wrap to back
       this.focusZone = 'back';
     }
     this.updateFocusVisuals();
   }
 
-  /**
-   * Navigate left within zones.
-   */
   private navigateLeft(): void {
     if (this.focusZone === 'actions' && this.selectedActionIndex > 0) {
       this.selectedActionIndex--;
@@ -395,9 +360,6 @@ export class MusicSettingsScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Navigate right within zones.
-   */
   private navigateRight(): void {
     if (this.focusZone === 'actions' && this.selectedActionIndex < this.actionButtons.length - 1) {
       this.selectedActionIndex++;
@@ -405,9 +367,6 @@ export class MusicSettingsScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Activates the currently focused element.
-   */
   private activateCurrentSelection(): void {
     switch (this.focusZone) {
       case 'actions':
@@ -422,9 +381,6 @@ export class MusicSettingsScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Returns to the appropriate scene based on returnTo parameter.
-   */
   private goBack(): void {
     if (this.returnTo === 'SettingsScene') {
       this.scene.start('SettingsScene', { returnTo: this.originalReturnTo });
@@ -433,75 +389,48 @@ export class MusicSettingsScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Activates an action button (Select All / Deselect All).
-   */
   private activateActionButton(index: number): void {
     const musicManager = getMusicManager();
-    if (index === 0) {
-      // Select All
-      musicManager.enableAllTracks();
-    } else {
-      // Deselect All
-      musicManager.disableAllTracks();
-    }
+    if (index === 0) musicManager.enableAllTracks();
+    else musicManager.disableAllTracks();
     this.updateAllTrackDisplays();
   }
 
-  /**
-   * Toggles a track's enabled state.
-   */
   private toggleTrack(index: number): void {
     const track = MUSIC_CATALOG[index];
     if (!track) return;
-
     const musicManager = getMusicManager();
     musicManager.toggleTrack(track.id);
     this.updateTrackDisplay(track);
   }
 
-  /**
-   * Updates the display for a single track.
-   */
   private updateTrackDisplay(track: Track): void {
     const musicManager = getMusicManager();
-    const elements = this.trackCheckboxes.get(track.id);
-    if (elements) {
-      const nowEnabled = musicManager.isTrackEnabled(track.id);
-      elements.checkbox.setText(nowEnabled ? '[x]' : '[ ]');
-      elements.checkbox.setColor(nowEnabled ? '#88ff88' : '#666666');
+    const elements = this.trackRows.get(track.id);
+    if (!elements) return;
+    const nowEnabled = musicManager.isTrackEnabled(track.id);
+    elements.checkbox.setText(nowEnabled ? '[x]' : '[ ]');
+    elements.checkbox.setColor(nowEnabled ? ACCENT_COLORS_STR.safe : TEXT_COLORS.dim);
 
-      const playing = musicManager.getCurrentTrack()?.id === track.id && musicManager.getIsPlaying();
-      elements.label.setColor(playing ? '#ffdd44' : nowEnabled ? '#ffffff' : '#666666');
-      elements.playingIndicator.setText(playing ? 'PLAYING' : '');
-    }
+    const playing = musicManager.getCurrentTrack()?.id === track.id && musicManager.getIsPlaying();
+    elements.label.setColor(playing ? ACCENT_COLORS_STR.focus : nowEnabled ? TEXT_COLORS.body : TEXT_COLORS.dim);
+    elements.playingIndicator.setText(playing ? 'PLAYING' : '');
+    elements.card.container.setAlpha(nowEnabled ? 1 : 0.7);
   }
 
-  /**
-   * Plays the currently focused track (P key).
-   */
   private async playFocusedTrack(): Promise<void> {
     if (this.focusZone !== 'tracks') return;
-
     const track = MUSIC_CATALOG[this.selectedTrackIndex];
     if (!track) return;
-
     const musicManager = getMusicManager();
-
-    // If mode is 'off', switch to sequential so we can hear the track
     if (musicManager.getPlaybackMode() === 'off') {
       musicManager.setPlaybackMode('sequential');
     }
-
-    // Play the selected track and wait for it to start
     await musicManager.playTrack(track.id);
     this.updateNowPlaying();
     this.updateAllTrackDisplays();
   }
 
-  /**
-   * Ensures the selected track is visible in the scroll area.
-   */
   private ensureTrackVisible(): void {
     const trackY = this.selectedTrackIndex * this.trackHeight;
     const visibleTop = this.scrollY;
@@ -517,83 +446,75 @@ export class MusicSettingsScene extends Phaser.Scene {
     this.trackContainer.setY(this.trackListY - this.scrollY);
   }
 
-  /**
-   * Updates visual feedback for the current focus state.
-   */
   private updateFocusVisuals(): void {
-    const musicManager = getMusicManager();
-
-    // Reset action buttons
     this.actionButtons.forEach((button, index) => {
       const isFocused = this.focusZone === 'actions' && this.selectedActionIndex === index;
-      button.setColor(isFocused ? '#ffffff' : '#888888');
+      button.setFocusState(isFocused);
     });
 
-    // Reset track highlights and selection indicators
-    this.trackCheckboxes.forEach((elements, trackId) => {
-      const track = MUSIC_CATALOG.find(t => t.id === trackId);
+    const musicManager = getMusicManager();
+    this.trackRows.forEach((elements, trackId) => {
+      const track = MUSIC_CATALOG.find((t) => t.id === trackId);
       if (!track) return;
       const trackIndex = MUSIC_CATALOG.indexOf(track);
       const isFocused = this.focusZone === 'tracks' && this.selectedTrackIndex === trackIndex;
       const isEnabled = musicManager.isTrackEnabled(trackId);
       const isPlaying = musicManager.getCurrentTrack()?.id === trackId && musicManager.getIsPlaying();
 
-      // Show/hide the ">" selector indicator
       elements.selector.setText(isFocused ? '>' : '');
-
-      // Set colors based on state
-      elements.checkbox.setColor(isEnabled ? '#88ff88' : '#666666');
-      elements.label.setColor(isPlaying ? '#ffdd44' : isEnabled ? '#ffffff' : '#666666');
+      elements.checkbox.setColor(isEnabled ? ACCENT_COLORS_STR.safe : TEXT_COLORS.dim);
+      elements.label.setColor(isPlaying ? ACCENT_COLORS_STR.focus : isEnabled ? TEXT_COLORS.body : TEXT_COLORS.dim);
+      elements.card.setFocusState(isFocused);
     });
 
-    // Back button
-    this.backButton.setColor(this.focusZone === 'back' ? '#ffdd44' : '#888888');
+    this.backButton.setFocusState(this.focusZone === 'back');
   }
 
-  /**
-   * Updates the now playing display.
-   */
   private updateNowPlaying(): void {
     const musicManager = getMusicManager();
     const track = musicManager.getCurrentTrack();
 
     if (musicManager.getPlaybackMode() === 'off') {
       this.nowPlayingText.setText('Music: OFF');
-      this.nowPlayingText.setColor('#888888');
+      this.nowPlayingText.setColor(TEXT_COLORS.muted);
     } else if (track && musicManager.getIsPlaying()) {
       this.nowPlayingText.setText(`Now Playing: ${track.title}`);
-      this.nowPlayingText.setColor('#88ff88');
+      this.nowPlayingText.setColor(ACCENT_COLORS_STR.safe);
     } else {
       this.nowPlayingText.setText('Not playing');
-      this.nowPlayingText.setColor('#888888');
+      this.nowPlayingText.setColor(TEXT_COLORS.muted);
     }
   }
 
-  /**
-   * Updates all track checkbox and label displays.
-   */
   private updateAllTrackDisplays(): void {
     const musicManager = getMusicManager();
-
-    this.trackCheckboxes.forEach((elements, trackId) => {
+    this.trackRows.forEach((elements, trackId) => {
       const isEnabled = musicManager.isTrackEnabled(trackId);
       const isPlaying = musicManager.getCurrentTrack()?.id === trackId && musicManager.getIsPlaying();
-
       elements.checkbox.setText(isEnabled ? '[x]' : '[ ]');
-      elements.checkbox.setColor(isEnabled ? '#88ff88' : '#666666');
-      elements.label.setColor(isPlaying ? '#ffdd44' : isEnabled ? '#ffffff' : '#666666');
+      elements.checkbox.setColor(isEnabled ? ACCENT_COLORS_STR.safe : TEXT_COLORS.dim);
+      elements.label.setColor(isPlaying ? ACCENT_COLORS_STR.focus : isEnabled ? TEXT_COLORS.body : TEXT_COLORS.dim);
       elements.playingIndicator.setText(isPlaying ? 'PLAYING' : '');
+      elements.card.container.setAlpha(isEnabled ? 1 : 0.7);
     });
   }
 
-  /**
-   * Cleanup keyboard handlers when scene shuts down.
-   */
   shutdown(): void {
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;
     }
+    if (this.bgUpdateHandler) {
+      this.events.off('update', this.bgUpdateHandler);
+      this.bgUpdateHandler = null;
+    }
+    this.menuOverlay?.destroy();
+    this.menuOverlay = null;
+    for (const btn of this.actionButtons) btn.destroy();
+    this.actionButtons = [];
+    this.backButton?.destroy();
+    for (const row of this.trackRows.values()) row.card.destroy();
+    this.trackRows.clear();
     this.tweens.killAll();
   }
 }

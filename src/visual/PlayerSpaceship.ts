@@ -749,18 +749,9 @@ export class PlayerSpaceship {
       : 0;
 
     // --- Apply rotation and scale to container children ---
-    const scale = this.shipScale;
-    const rotation = this.currentAngle;
-
-    this.cachedStaticImage.setRotation(rotation);
-    this.cachedStaticImage.setScale(scale);
-    this.cachedStaticImage.setY(hoverOffset);
-    this.thrustGraphics.setRotation(rotation);
-    this.thrustGraphics.setScale(scale);
-    this.thrustGraphics.setY(hoverOffset);
-    this.overlayGraphics.setRotation(rotation);
-    this.overlayGraphics.setScale(scale);
-    this.overlayGraphics.setY(hoverOffset);
+    this.applyTransform(this.cachedStaticImage, this.currentAngle, this.shipScale, hoverOffset);
+    this.applyTransform(this.thrustGraphics, this.currentAngle, this.shipScale, hoverOffset);
+    this.applyTransform(this.overlayGraphics, this.currentAngle, this.shipScale, hoverOffset);
 
     // --- Redraw per-frame animated layers ---
     this.drawThrust(normalizedSpeed);
@@ -823,7 +814,6 @@ export class PlayerSpaceship {
     const currentTier = this.tier;
     const hullColor = this.lastHullColor;
     const darkHullColor = darkenColor(hullColor, 0.85);
-    const edgeBloomColor = lightenColor(hullColor, 0.3);
     const cockpitDarkColor = darkenColor(hullColor, 0.9);
     const nozzleDarkColor = darkenColor(hullColor, 0.8);
 
@@ -832,13 +822,11 @@ export class PlayerSpaceship {
     this.drawHullPath(graphics, currentTier.hullOutline);
     graphics.fillPath();
 
-    // Bright neon edge stroke (the defining Tron line)
+    // Edge stroke — defining Tron neon line + soft bloom layer.
     graphics.lineStyle(2.0, hullColor, 1.0);
     this.drawHullPath(graphics, currentTier.hullOutline);
     graphics.strokePath();
-
-    // Soft edge bloom stroke (wider, dimmer)
-    graphics.lineStyle(4.0, edgeBloomColor, 0.2);
+    graphics.lineStyle(4.0, lightenColor(hullColor, 0.3), 0.2);
     this.drawHullPath(graphics, currentTier.hullOutline);
     graphics.strokePath();
 
@@ -847,22 +835,12 @@ export class PlayerSpaceship {
 
     // Dark cockpit fill
     graphics.fillStyle(cockpitDarkColor, 0.9);
-    graphics.beginPath();
-    graphics.moveTo(cockpit[0].x, cockpit[0].y);
-    for (let i = 1; i < cockpit.length; i++) {
-      graphics.lineTo(cockpit[i].x, cockpit[i].y);
-    }
-    graphics.closePath();
+    this.tracePolygon(graphics, cockpit);
     graphics.fillPath();
 
     // Cockpit edge stroke
     graphics.lineStyle(1.2, hullColor, 0.9);
-    graphics.beginPath();
-    graphics.moveTo(cockpit[0].x, cockpit[0].y);
-    for (let i = 1; i < cockpit.length; i++) {
-      graphics.lineTo(cockpit[i].x, cockpit[i].y);
-    }
-    graphics.closePath();
+    this.tracePolygon(graphics, cockpit);
     graphics.strokePath();
 
     // Cockpit center power indicator
@@ -872,28 +850,53 @@ export class PlayerSpaceship {
 
     // Cockpit crosshairs (tier 3+)
     if (currentTier.cockpitHasCrosshairs) {
-      const crosshairColor = lightenColor(hullColor, 0.4);
-      graphics.lineStyle(0.5, crosshairColor, 0.4);
+      graphics.lineStyle(0.5, lightenColor(hullColor, 0.4), 0.4);
       // Horizontal crosshair
       graphics.beginPath();
       graphics.moveTo(cockpit[3].x + 2, 0);
       graphics.lineTo(cockpit[0].x - 2, 0);
       graphics.strokePath();
       // Vertical crosshair
-      const cockpitMidX = cockpitCenterX;
       const cockpitHalfHeight = Math.abs(cockpit[1].y) - 0.5;
       graphics.beginPath();
-      graphics.moveTo(cockpitMidX, -cockpitHalfHeight);
-      graphics.lineTo(cockpitMidX, cockpitHalfHeight);
+      graphics.moveTo(cockpitCenterX, -cockpitHalfHeight);
+      graphics.lineTo(cockpitCenterX, cockpitHalfHeight);
       graphics.strokePath();
     }
 
     // --- Engine nozzles (dark circles with bright edge rings) ---
+    const nozzleRadius = currentTier.engineNozzleRadius;
     for (const nozzle of currentTier.engineNozzles) {
       graphics.fillStyle(nozzleDarkColor, 0.8);
-      graphics.fillCircle(nozzle.x, nozzle.y, currentTier.engineNozzleRadius);
+      graphics.fillCircle(nozzle.x, nozzle.y, nozzleRadius);
       graphics.lineStyle(0.8, hullColor, 0.7);
-      graphics.strokeCircle(nozzle.x, nozzle.y, currentTier.engineNozzleRadius);
+      graphics.strokeCircle(nozzle.x, nozzle.y, nozzleRadius);
+    }
+  }
+
+  /**
+   * Trace a closed polygon path from an array of vertices.
+   * Caller is responsible for calling fillPath()/strokePath() after.
+   */
+  private tracePolygon(graphics: Phaser.GameObjects.Graphics, points: Point2D[]): void {
+    if (points.length === 0) return;
+    graphics.beginPath();
+    graphics.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      graphics.lineTo(points[i].x, points[i].y);
+    }
+    graphics.closePath();
+  }
+
+  /**
+   * Trace an open path (no closePath) from an array of vertices.
+   * Caller is responsible for calling strokePath() after.
+   */
+  private traceOpenPath(graphics: Phaser.GameObjects.Graphics, points: Point2D[]): void {
+    graphics.beginPath();
+    graphics.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      graphics.lineTo(points[i].x, points[i].y);
     }
   }
 
@@ -901,13 +904,7 @@ export class PlayerSpaceship {
    * Draw hull outline path from array of vertices
    */
   private drawHullPath(graphics: Phaser.GameObjects.Graphics, hull: Point2D[]): void {
-    if (hull.length === 0) return;
-    graphics.beginPath();
-    graphics.moveTo(hull[0].x, hull[0].y);
-    for (let i = 1; i < hull.length; i++) {
-      graphics.lineTo(hull[i].x, hull[i].y);
-    }
-    graphics.closePath();
+    this.tracePolygon(graphics, hull);
   }
 
   /**
@@ -935,30 +932,22 @@ export class PlayerSpaceship {
     const hullColor = this.lastHullColor;
     const accentColor = lightenColor(hullColor, 0.6);
     const traceGlowColor = lightenColor(hullColor, 0.4);
-    const isLowQuality = this.config.quality === 'low';
+    const drawGlowPass = this.config.quality !== 'low';
 
     // --- Circuit traces (bright neon lines on dark hull) ---
     for (const trace of currentTier.circuitTraces) {
       if (trace.path.length < 2) continue;
 
       // Glow pass (wider, dimmer) - skip on low quality
-      if (!isLowQuality) {
+      if (drawGlowPass) {
         graphics.lineStyle(trace.width + 2.0, traceGlowColor, trace.alpha * 0.2);
-        graphics.beginPath();
-        graphics.moveTo(trace.path[0].x, trace.path[0].y);
-        for (let i = 1; i < trace.path.length; i++) {
-          graphics.lineTo(trace.path[i].x, trace.path[i].y);
-        }
+        this.traceOpenPath(graphics, trace.path);
         graphics.strokePath();
       }
 
       // Core pass (narrow, bright)
       graphics.lineStyle(trace.width, accentColor, trace.alpha);
-      graphics.beginPath();
-      graphics.moveTo(trace.path[0].x, trace.path[0].y);
-      for (let i = 1; i < trace.path.length; i++) {
-        graphics.lineTo(trace.path[i].x, trace.path[i].y);
-      }
+      this.traceOpenPath(graphics, trace.path);
       graphics.strokePath();
 
       // Endpoint dots (circuit board pad aesthetic)
@@ -974,29 +963,21 @@ export class PlayerSpaceship {
       if (channel.path.length < 2) continue;
 
       // Glow pass
-      if (!isLowQuality) {
+      if (drawGlowPass) {
         graphics.lineStyle(channel.width + 3.0, traceGlowColor, channel.baseAlpha * 0.15);
-        graphics.beginPath();
-        graphics.moveTo(channel.path[0].x, channel.path[0].y);
-        for (let i = 1; i < channel.path.length; i++) {
-          graphics.lineTo(channel.path[i].x, channel.path[i].y);
-        }
+        this.traceOpenPath(graphics, channel.path);
         graphics.strokePath();
       }
 
       // Core pass
       graphics.lineStyle(channel.width, accentColor, channel.baseAlpha);
-      graphics.beginPath();
-      graphics.moveTo(channel.path[0].x, channel.path[0].y);
-      for (let i = 1; i < channel.path.length; i++) {
-        graphics.lineTo(channel.path[i].x, channel.path[i].y);
-      }
+      this.traceOpenPath(graphics, channel.path);
       graphics.strokePath();
     }
 
     // --- Wing edge segments (dashed glow lines along leading edges) ---
     for (const segment of currentTier.wingEdgeSegments) {
-      if (!isLowQuality) {
+      if (drawGlowPass) {
         graphics.lineStyle(2.5, traceGlowColor, 0.15);
         graphics.beginPath();
         graphics.moveTo(segment.from.x, segment.from.y);
@@ -1012,11 +993,12 @@ export class PlayerSpaceship {
     }
 
     // --- Wing-tip accents (bright dots with glow halo) ---
+    const accentRadius = currentTier.wingTipAccentRadius;
     for (const accent of currentTier.wingTipAccents) {
       graphics.fillStyle(accentColor, 0.9);
-      graphics.fillCircle(accent.x, accent.y, currentTier.wingTipAccentRadius);
+      graphics.fillCircle(accent.x, accent.y, accentRadius);
       graphics.fillStyle(accentColor, 0.3);
-      graphics.fillCircle(accent.x, accent.y, currentTier.wingTipAccentRadius + 2);
+      graphics.fillCircle(accent.x, accent.y, accentRadius + 2);
     }
   }
 
@@ -1069,9 +1051,10 @@ export class PlayerSpaceship {
     graphics.clear();
 
     const currentTier = this.tier;
+    const glowColor = lightenColor(this.lastHullColor, 0.35);
+
     const alphas = getGlowAlphas(this.config.quality);
     const multipliers = getGlowRadiusMultipliers(this.config.quality);
-    const glowColor = lightenColor(this.lastHullColor, 0.35);
 
     // Draw glow layers from outermost to innermost (hull-shaped fills)
     for (let layerIndex = 0; layerIndex < alphas.length; layerIndex++) {
@@ -1091,7 +1074,7 @@ export class PlayerSpaceship {
       graphics.strokePath();
     }
 
-    // --- Tier 5: Energy corona (pulsing outer aura) ---
+    // --- Tier 5: Energy corona (pulsing outer aura) — neon mode only ---
     if (currentTier.hasEnergyCorona) {
       const coronaPulse = currentTier.coronaAlphaBase +
         Math.sin(this.coronaPulsePhase) * 0.02;
@@ -1142,33 +1125,30 @@ export class PlayerSpaceship {
     for (let nozzleIndex = 0; nozzleIndex < nozzles.length; nozzleIndex++) {
       const nozzle = nozzles[nozzleIndex];
       // Per-nozzle flicker variation
-      const nozzlePhaseOffset = nozzleIndex * 1.2;
-      const nozzleFlicker = 1 + Math.sin(this.thrustFlickerPhase1 + nozzlePhaseOffset) * 0.12;
+      const nozzleFlicker = 1 + Math.sin(this.thrustFlickerPhase1 + nozzleIndex * 1.2) * 0.12;
       // First nozzle is slightly longer; inner nozzles (index 3+) are shorter
       const lengthMultiplier = nozzleIndex === 0 ? 1.15 : nozzleIndex >= 3 ? 0.85 : 1.0;
       const length = baseLength * nozzleFlicker * lengthMultiplier;
 
       // Outer glow (wide, dim)
       graphics.fillStyle(thrustColor, thrustAlpha * 0.25);
-      this.drawFlamePath(graphics, nozzle.x, nozzle.y, length * 1.4, thrustWidth * 2.0);
-      graphics.fillPath();
+      this.fillFlame(graphics, nozzle.x, nozzle.y, length * 1.4, thrustWidth * 2.0);
 
       // Mid layer
       graphics.fillStyle(thrustColor, thrustAlpha * 0.55);
-      this.drawFlamePath(graphics, nozzle.x, nozzle.y, length, thrustWidth);
-      graphics.fillPath();
+      this.fillFlame(graphics, nozzle.x, nozzle.y, length, thrustWidth);
 
       // Hot core (white)
       graphics.fillStyle(0xffffff, thrustAlpha * 0.75);
-      this.drawFlamePath(graphics, nozzle.x, nozzle.y, length * 0.45, thrustWidth * 0.45);
-      graphics.fillPath();
+      this.fillFlame(graphics, nozzle.x, nozzle.y, length * 0.45, thrustWidth * 0.45);
     }
   }
 
   /**
-   * Draw a single flame triangle (tapered, extending backward from nozzle)
+   * Draw and fill a single flame triangle (tapered, extending backward from nozzle).
+   * Assumes fillStyle has been set by caller.
    */
-  private drawFlamePath(
+  private fillFlame(
     graphics: Phaser.GameObjects.Graphics,
     originX: number, originY: number,
     length: number, width: number
@@ -1179,6 +1159,7 @@ export class PlayerSpaceship {
     graphics.lineTo(originX - length, originY);           // Flame tip
     graphics.lineTo(originX, originY + halfWidth);        // Bottom of nozzle
     graphics.closePath();
+    graphics.fillPath();
   }
 
   // ==============================
@@ -1279,6 +1260,21 @@ export class PlayerSpaceship {
     return path[path.length - 1];
   }
 
+  /**
+   * Apply ship rotation + scale + hover bob to a Phaser display object.
+   * Extracted to collapse 3 identical 3-line blocks in update().
+   */
+  private applyTransform(
+    target: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics,
+    rotation: number,
+    scale: number,
+    hoverY: number
+  ): void {
+    target.setRotation(rotation);
+    target.setScale(scale);
+    target.setY(hoverY);
+  }
+
   // ==============================
   //  Public API
   // ==============================
@@ -1333,7 +1329,7 @@ export class PlayerSpaceship {
   }
 
   public setDangerLevel(level: number): void {
-    const clamped = Math.max(0, Math.min(1, level));
+    const clamped = level < 0 ? 0 : level > 1 ? 1 : level;
     if (clamped !== this.dangerLevel) {
       this.dangerLevel = clamped;
       this.hullDirty = true;
@@ -1380,7 +1376,6 @@ export class PlayerSpaceship {
     const red1 = (color1 >> 16) & 0xff;
     const green1 = (color1 >> 8) & 0xff;
     const blue1 = color1 & 0xff;
-
     const red2 = (color2 >> 16) & 0xff;
     const green2 = (color2 >> 8) & 0xff;
     const blue2 = color2 & 0xff;
@@ -1388,7 +1383,6 @@ export class PlayerSpaceship {
     const blendedRed = Math.round(red1 + (red2 - red1) * interpolationFactor);
     const blendedGreen = Math.round(green1 + (green2 - green1) * interpolationFactor);
     const blendedBlue = Math.round(blue1 + (blue2 - blue1) * interpolationFactor);
-
     return (blendedRed << 16) | (blendedGreen << 8) | blendedBlue;
   }
 

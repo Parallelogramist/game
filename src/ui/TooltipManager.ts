@@ -11,16 +11,16 @@
  *   // Call tooltip.destroy() in scene shutdown
  */
 import Phaser from 'phaser';
+import { ACCENT_COLORS, BODY_COLORS, MENU_COLORS } from '../visual/MenuStyle';
 
 const TOOLTIP_DEPTH = 2000;
 const KEYBOARD_DELAY_MS = 2000;
 const TOOLTIP_MAX_WIDTH = 280;
-const TOOLTIP_PADDING = 10;
-const TOOLTIP_OFFSET_Y = 12;
-const TOOLTIP_BG_COLOR = 0x111122;
-const TOOLTIP_BG_ALPHA = 0.95;
-const TOOLTIP_BORDER_COLOR = 0x4488ff;
-const TOOLTIP_BORDER_ALPHA = 0.6;
+const TOOLTIP_PADDING = 12;
+const TOOLTIP_OFFSET_Y = 14;
+const TOOLTIP_BG_COLOR = BODY_COLORS.primary;
+const TOOLTIP_BG_ALPHA = 0.96;
+const TOOLTIP_ACCENT_COLOR = ACCENT_COLORS.primary;
 
 interface TooltipBinding {
   target: Phaser.GameObjects.GameObject;
@@ -131,8 +131,8 @@ export class TooltipManager {
 
     this.label = this.scene.add.text(0, 0, text, {
       fontSize: '13px',
-      fontFamily: 'Arial',
-      color: '#ccddff',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      color: MENU_COLORS.textBody,
       wordWrap: { width: TOOLTIP_MAX_WIDTH - TOOLTIP_PADDING * 2 },
       lineSpacing: 3,
     });
@@ -141,13 +141,25 @@ export class TooltipManager {
     const textHeight = this.label.height;
     const boxWidth = textWidth + TOOLTIP_PADDING * 2;
     const boxHeight = textHeight + TOOLTIP_PADDING * 2;
+    const radius = 10;
 
+    // Balatro panel: drop shadow + accent border + body fill + top stripe.
     this.background = this.scene.add.graphics();
-    // Border
-    this.background.lineStyle(1, TOOLTIP_BORDER_COLOR, TOOLTIP_BORDER_ALPHA);
+    // Drop shadow.
+    this.background.fillStyle(0x000000, 0.45);
+    this.background.fillRoundedRect(3, 4, boxWidth, boxHeight, radius);
+    // Accent ink border.
+    this.background.fillStyle(TOOLTIP_ACCENT_COLOR, 1);
+    this.background.fillRoundedRect(-2, -2, boxWidth + 4, boxHeight + 4, radius);
+    // Body fill.
     this.background.fillStyle(TOOLTIP_BG_COLOR, TOOLTIP_BG_ALPHA);
-    this.background.fillRoundedRect(0, 0, boxWidth, boxHeight, 4);
-    this.background.strokeRoundedRect(0, 0, boxWidth, boxHeight, 4);
+    this.background.fillRoundedRect(0, 0, boxWidth, boxHeight, radius);
+    // Top accent stripe.
+    this.background.fillStyle(TOOLTIP_ACCENT_COLOR, 0.65);
+    this.background.fillRect(4, 2, boxWidth - 8, 2);
+    // Bottom inner shadow.
+    this.background.fillStyle(0x000000, 0.22);
+    this.background.fillRect(4, boxHeight - 3, boxWidth - 8, 2);
 
     this.label.setPosition(TOOLTIP_PADDING, TOOLTIP_PADDING);
 
