@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Backlog & Task Tracking
+
+`BACKLOG.md` (repo root) is the single source of truth for deferred work, known
+issues, and improvement ideas. **At the start of a session, read it** and propose
+which items to tackle. When you finish work, move the item to its Changelog with
+the commit hash; when you discover new follow-ups or cuts, append them immediately
+so nothing lives only in conversation. The human drives prioritization.
+
 ## Build & Development Commands
 
 - `npm run dev` - Start Vite dev server with hot reload
