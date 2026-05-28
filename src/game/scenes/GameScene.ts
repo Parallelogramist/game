@@ -83,6 +83,17 @@ const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 
 const PAUSE_MENU_DEPTH = 1100; // Shared depth constant for overlay rendering
 
+// Combo-tier → visual intensity lookups (module-level to avoid per-frame literal allocation in updateGridBackground)
+const COMBO_TIER_LIGHT_RADIUS: Record<string, number> = {
+  none: 120, warm: 140, hot: 160, blazing: 180, inferno: 200,
+};
+const COMBO_TIER_LIGHT_INTENSITY: Record<string, number> = {
+  none: 0.9, warm: 0.92, hot: 0.95, blazing: 0.97, inferno: 1.0,
+};
+const COMBO_TIER_BLOOM_STRENGTH: Record<string, number> = {
+  none: 0.25, warm: 0.30, hot: 0.35, blazing: 0.40, inferno: 0.50,
+};
+
 /**
  * GameScene is the main gameplay scene.
  * Manages the ECS world, player, enemies, and game loop.
@@ -143,6 +154,13 @@ export class GameScene extends Phaser.Scene {
 
   // Treasure chest spawn timer
   private treasureSpawnTimer: number = 0;
+
+  // Cached per-run meta-progression values (set once in create(); cannot change mid-run)
+  private cachedGemMagnetInterval: number = 0;
+  private cachedEmergencyHealPercent: number = 0;
+
+  // Pooled boss-health HUD payload (reused each frame to avoid map() + object-literal allocation)
+  private bossHealthPayload: Array<{ entityId: number; currentHP: number; maxHP: number }> = [];
 
   // Game over state
   private isGameOver: boolean = false;
@@ -629,6 +647,10 @@ export class GameScene extends Phaser.Scene {
     // ═══ TIME/DIFFICULTY ═══
     this.playerStats.slowTimeRemaining = metaManager.getStartingSlowTimeMinutes() * 60; // Convert minutes to seconds
     this.playerStats.curseMultiplier *= (1 + metaManager.getStartingCurseLevel() * 0.15); // 15% per curse level
+
+    // Cache per-run meta values read every frame in update() (shop upgrades are fixed at run start)
+    this.cachedGemMagnetInterval = metaManager.getStartingGemMagnetInterval();
+    this.cachedEmergencyHealPercent = metaManager.getStartingEmergencyHeal();
 
     // ═══ RUN MODIFIERS ═══
     for (const modifier of this.activeModifiers) {
@@ -2259,7 +2281,7 @@ export class GameScene extends Phaser.Scene {
     );
 
     // ═══ GEM MAGNET (auto-vacuum at intervals) ═══
-    const gemMagnetInterval = getMetaProgressionManager().getStartingGemMagnetInterval();
+    const gemMagnetInterval = this.cachedGemMagnetInterval;
     if (gemMagnetInterval > 0 && this.playerId !== -1) {
       this.gemMagnetTimer -= deltaSeconds;
       if (this.gemMagnetTimer <= 0) {
@@ -2293,7 +2315,7 @@ export class GameScene extends Phaser.Scene {
     if (this.emergencyHealCooldown > 0) {
       this.emergencyHealCooldown -= deltaSeconds;
     }
-    const emergencyHealPercent = getMetaProgressionManager().getStartingEmergencyHeal();
+    const emergencyHealPercent = this.cachedEmergencyHealPercent;
     if (emergencyHealPercent > 0 && this.emergencyHealCooldown <= 0 && this.playerId !== -1) {
       const currentHP = Health.current[this.playerId];
       const maxHP = Health.max[this.playerId];
@@ -2528,6 +2550,21 @@ export class GameScene extends Phaser.Scene {
 
     // Update HUD
     const bossEntityIds = this.hudManager.getBossEntityIds();
+    // Reuse pooled payload objects in-place; truncate to active boss count (HUD consumes synchronously)
+    const bossHealthPayload = this.bossHealthPayload;
+    for (let i = 0; i < bossEntityIds.length; i++) {
+      const bossEntityId = bossEntityIds[i];
+      let entry = bossHealthPayload[i];
+      if (!entry) {
+        entry = { entityId: 0, currentHP: 0, maxHP: 0 };
+        bossHealthPayload[i] = entry;
+      }
+      entry.entityId = bossEntityId;
+      entry.currentHP = Health.current[bossEntityId];
+      entry.maxHP = Health.max[bossEntityId];
+    }
+    bossHealthPayload.length = bossEntityIds.length;
+
     this.hudManager.update({
       gameTime: this.gameTime,
       deltaSeconds,
@@ -2543,11 +2580,7 @@ export class GameScene extends Phaser.Scene {
       comboDecayPercent: getComboDecayPercent(),
       comboBuffActive: isComboBuffActive(),
       comboBuffPercent: getComboBuffRemainingPercent(),
-      bossHealthData: bossEntityIds.map(entityId => ({
-        entityId,
-        currentHP: Health.current[entityId],
-        maxHP: Health.max[entityId],
-      })),
+      bossHealthData: bossHealthPayload,
     });
   }
 
@@ -6108,16 +6141,10 @@ export class GameScene extends Phaser.Scene {
       // Player light — scales with combo tier
       if (this.playerId !== -1) {
         const comboTier = getComboTier();
-        const tierRadiusMap: Record<string, number> = {
-          none: 120, warm: 140, hot: 160, blazing: 180, inferno: 200,
-        };
-        const tierIntensityMap: Record<string, number> = {
-          none: 0.9, warm: 0.92, hot: 0.95, blazing: 0.97, inferno: 1.0,
-        };
         this.lightingSystem.addLight(
           playerX, playerY,
-          tierRadiusMap[comboTier] ?? 120,
-          tierIntensityMap[comboTier] ?? 0.9
+          COMBO_TIER_LIGHT_RADIUS[comboTier] ?? 120,
+          COMBO_TIER_LIGHT_INTENSITY[comboTier] ?? 0.9
         );
       }
 
@@ -6150,10 +6177,7 @@ export class GameScene extends Phaser.Scene {
     // Modulate bloom based on game state
     if (this.bloomPipeline) {
       const comboTier = getComboTier();
-      const tierBloomStrength: Record<string, number> = {
-        none: 0.25, warm: 0.30, hot: 0.35, blazing: 0.40, inferno: 0.50,
-      };
-      this.bloomPipeline.setBloomStrength(tierBloomStrength[comboTier] ?? 0.25);
+      this.bloomPipeline.setBloomStrength(COMBO_TIER_BLOOM_STRENGTH[comboTier] ?? 0.25);
     }
   }
 

@@ -44,6 +44,9 @@ export class DroneWeapon extends BaseWeapon {
   private thrusterGraphics: Phaser.GameObjects.Graphics | null = null;
   private currentQuality: VisualQuality = 'high';
   private poolInitialized: boolean = false;
+  // Reused per-frame scratch buffers (avoid Map/array allocation each update)
+  private targetCounts = new Map<number, number>();
+  private syncedDronesScratch: Drone[] = [];
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -135,7 +138,8 @@ export class DroneWeapon extends BaseWeapon {
     if (this.thrusterGraphics) this.thrusterGraphics.clear();
 
     // Mastery: Combat Network - check for drones targeting same enemy
-    const targetCounts = new Map<number, number>();
+    const targetCounts = this.targetCounts;
+    targetCounts.clear();
     if (this.isMastered()) {
       for (const drone of this.drones) {
         if (drone.targetId !== -1) {
@@ -153,7 +157,11 @@ export class DroneWeapon extends BaseWeapon {
     if (this.currentQuality === 'high' && this.isMastered() && this.linkGraphics) {
       for (const [targetId, count] of targetCounts) {
         if (count < 2) continue;
-        const syncedDrones = this.drones.filter(d => d.targetId === targetId);
+        const syncedDrones = this.syncedDronesScratch;
+        syncedDrones.length = 0;
+        for (const drone of this.drones) {
+          if (drone.targetId === targetId) syncedDrones.push(drone);
+        }
         for (let i = 0; i < syncedDrones.length - 1; i++) {
           this.linkGraphics.lineStyle(1, 0xffd700, 0.3);
           this.linkGraphics.lineBetween(

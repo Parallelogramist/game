@@ -555,8 +555,14 @@ export class WeaponManager {
               );
             }
 
-            if (Health.current[nearbyId] <= 0 && this.onEnemyKilled) {
-              this.onEnemyKilled(nearbyId, Transform.x[nearbyId], Transform.y[nearbyId]);
+            if (Health.current[nearbyId] <= 0) {
+              // Attribute splash kills to the firing weapon (mirrors the direct-hit kill tally above)
+              if (this.currentFiringWeaponId) {
+                this.getOrCreateWeaponStats(this.currentFiringWeaponId).kills += 1;
+              }
+              if (this.onEnemyKilled) {
+                this.onEnemyKilled(nearbyId, Transform.x[nearbyId], Transform.y[nearbyId]);
+              }
             }
           }
         }
