@@ -35,6 +35,8 @@ interface RicochetBall {
  * Velocity-stretch is approximated via setScale(stretchFactor, 1/stretchFactor).
  */
 export class RicochetWeapon extends BaseWeapon {
+  // `speed` is projectile velocity, so the global projectile-speed multiplier applies.
+  protected scalesProjectileSpeed = true;
   private pool: RicochetBall[] = [];
   private trailGraphics: Phaser.GameObjects.Graphics | null = null;
   private currentQuality: VisualQuality = 'high';

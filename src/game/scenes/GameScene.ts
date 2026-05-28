@@ -355,28 +355,7 @@ export class GameScene extends Phaser.Scene {
 
     // Reset all ECS systems to clear state from previous runs
     // This is critical for ensuring each new game starts fresh
-    resetSpriteSystem();
-    resetEnemyAISystem();
-    resetBossCallbacks();
-    resetXPGemSystem();
-    resetHealthPickupSystem();
-    resetMagnetPickupSystem();
-    resetWeaponSystem();
-    resetCollisionSystem();
-    resetStatusEffectSystem();
-    resetFrameCache();
-    resetEnemySpatialHash();
-    resetShapeTextureCache(this);
-    resetEnemyTextureCache(this);
-    destroyGemAtlases(this);
-    destroyProjectileAtlases(this);
-    resetComboSystem();
-    resetEventSystem();
-    resetDirectorSystem();
-    resetBossPhaseTracking();
-    resetBossArenaSystem();
-    resetHazardZoneSystem();
-    getRelicManager().reset();
+    this.resetAllRunSystems();
 
     // Reset all instance properties for fresh game state
     // (Class property initializers only run once on instantiation, not on scene restart)
@@ -1106,28 +1085,7 @@ export class GameScene extends Phaser.Scene {
     // Reset all ECS systems — mirror the fresh-path reset block so stale
     // singleton state (director credit, boss phase tracker, cached textures,
     // combo/event counters, relic inventory) doesn't carry across restores.
-    resetSpriteSystem();
-    resetEnemyAISystem();
-    resetBossCallbacks();
-    resetXPGemSystem();
-    resetHealthPickupSystem();
-    resetMagnetPickupSystem();
-    resetWeaponSystem();
-    resetCollisionSystem();
-    resetStatusEffectSystem();
-    resetFrameCache();
-    resetEnemySpatialHash();
-    resetShapeTextureCache(this);
-    resetEnemyTextureCache(this);
-    destroyGemAtlases(this);
-    destroyProjectileAtlases(this);
-    resetComboSystem();
-    resetEventSystem();
-    resetDirectorSystem();
-    resetBossPhaseTracking();
-    resetBossArenaSystem();
-    resetHazardZoneSystem();
-    getRelicManager().reset();
+    this.resetAllRunSystems();
 
     // Combo/event systems are overridden below when state.comboState / eventState
     // are applied; the resets above just give us a known baseline first.
@@ -1644,6 +1602,12 @@ export class GameScene extends Phaser.Scene {
    * Handle enemy death - spawns XP, health pickups, special effects, and cleans up entity.
    */
   private handleEnemyDeath(enemyId: number, x: number, y: number): void {
+    // Idempotency guard: bail if this entity is no longer a live enemy. All
+    // current callers pre-check liveness, but this prevents double-processing
+    // (double XP/combo/kill-count, removeEntity on a freed id) if a future
+    // caller ever fires twice for the same death.
+    if (!hasComponent(this.world, EnemyTag, enemyId)) return;
+
     this.enemyCount--;
     this.killCount++;
 
@@ -2530,7 +2494,7 @@ export class GameScene extends Phaser.Scene {
     // Sync sprites to ECS positions
     spriteSystem(this.world, this.scale.width, this.scale.height);
 
-    // Update player plasma core visual effects (squash/stretch, fins, breathing)
+    // Update player spaceship visual effects (squash/stretch, fins, breathing)
     if (this.playerId !== -1 && this.playerSpaceship) {
       this.playerSpaceship.setComboTier(getComboTier());
       this.playerSpaceship.update(
@@ -5847,13 +5811,8 @@ export class GameScene extends Phaser.Scene {
         break;
     }
 
-    // Sync to weapons
-    this.weaponManager.applyMultipliers(
-      this.playerStats.damageMultiplier,
-      this.playerStats.attackSpeedMultiplier,
-      this.playerStats.projectileCount - 1,
-      this.playerStats.piercing
-    );
+    // Sync to weapons (canonical path also applies range/speed/mastery + combo/hazard)
+    this.syncStatsToPlayer();
 
     // Schedule buff removal
     this.time.delayedCall(durationMs, () => {
@@ -5877,13 +5836,8 @@ export class GameScene extends Phaser.Scene {
           break;
       }
 
-      // Sync to weapons after buff expires
-      this.weaponManager.applyMultipliers(
-        this.playerStats.damageMultiplier,
-        this.playerStats.attackSpeedMultiplier,
-        this.playerStats.projectileCount - 1,
-        this.playerStats.piercing
-      );
+      // Sync to weapons after buff expires (canonical path)
+      this.syncStatsToPlayer();
     });
   }
 
@@ -5927,6 +5881,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Resets every module-level / singleton system that holds run-scoped state so
+   * a new run starts clean. Called from BOTH the fresh-start and save-restore
+   * paths in create() — keep this the single source of truth so a newly added
+   * system can never be reset on one path but not the other (a class of
+   * stale-state bug CLAUDE.md explicitly warns about).
+   */
+  private resetAllRunSystems(): void {
+    resetSpriteSystem();
+    resetEnemyAISystem();
+    resetBossCallbacks();
+    resetXPGemSystem();
+    resetHealthPickupSystem();
+    resetMagnetPickupSystem();
+    resetWeaponSystem();
+    resetCollisionSystem();
+    resetStatusEffectSystem();
+    resetFrameCache();
+    resetEnemySpatialHash();
+    resetShapeTextureCache(this);
+    resetEnemyTextureCache(this);
+    destroyGemAtlases(this);
+    destroyProjectileAtlases(this);
+    resetComboSystem();
+    resetEventSystem();
+    resetDirectorSystem();
+    resetBossPhaseTracking();
+    resetBossArenaSystem();
+    resetHazardZoneSystem();
+    getRelicManager().reset();
+  }
+
+  /**
    * Syncs PlayerStats to the player's ECS components and weapon system.
    */
   private syncStatsToPlayer(): void {
@@ -5950,7 +5936,19 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.damageMultiplier * (1 + comboDamageBonus) * this.hazardDamageMultiplier,
       this.playerStats.attackSpeedMultiplier,
       this.playerStats.projectileCount - 1, // Bonus count (base is 1)
-      this.playerStats.piercing              // Bonus piercing (base is 0)
+      this.playerStats.piercing,             // Bonus piercing (base is 0)
+      this.playerStats.rangeMultiplier,      // Universal reach/area multiplier
+      this.playerStats.projectileSpeedMultiplier, // Projectile-velocity multiplier
+      {
+        projectile: this.playerStats.projectileMastery,
+        melee: this.playerStats.meleeMastery,
+        aura: this.playerStats.auraMastery,
+        summon: this.playerStats.summonMastery,
+        orbital: this.playerStats.orbitalMastery,
+        explosive: this.playerStats.explosiveMastery,
+        beam: this.playerStats.beamMastery,
+        ultimate: this.playerStats.ultimateMastery,
+      }
     );
 
     // Set overcharge stun duration for chain lightning
@@ -6185,7 +6183,7 @@ export class GameScene extends Phaser.Scene {
       }
       // Update hazard zone visual quality
       setHazardZoneQuality(newQuality);
-      // Update player plasma core quality
+      // Update player spaceship quality
       if (this.playerSpaceship) {
         this.playerSpaceship.setQuality(newQuality);
       }
@@ -6340,7 +6338,7 @@ export class GameScene extends Phaser.Scene {
     }
 
 
-    // Clean up player plasma core visual
+    // Clean up player spaceship visual
     if (this.playerSpaceship) {
       this.playerSpaceship.destroy();
     }

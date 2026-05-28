@@ -30,6 +30,8 @@ interface Shuriken {
  * Cyclone effects and afterimages on shared effectsGraphics.
  */
 export class ShurikenWeapon extends BaseWeapon {
+  // `speed` is projectile velocity, so the global projectile-speed multiplier applies.
+  protected scalesProjectileSpeed = true;
   private pool: Shuriken[] = [];
   private effectsGraphics: Phaser.GameObjects.Graphics | null = null;
   private spinSpeed: number = 15;

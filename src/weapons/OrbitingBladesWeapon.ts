@@ -573,6 +573,16 @@ export class OrbitingBladesWeapon extends BaseWeapon {
     this.rotationSpeed = this.stats.speed;
   }
 
+  protected applyExternalScaling(): void {
+    super.applyExternalScaling();
+    // Re-derive the cached orbit fields from the post-scaling stats. The blades'
+    // gameplay/visual radius is driven by orbitRadius, not stats.range directly,
+    // so without this the universal range (Reach) multiplier would never reach
+    // the orbit. recalculateStats() caches pre-scaling values; this corrects them.
+    this.orbitRadius = this.stats.range;
+    this.rotationSpeed = this.stats.speed;
+  }
+
   public destroy(): void {
     for (const blade of this.blades) {
       blade.destroy();

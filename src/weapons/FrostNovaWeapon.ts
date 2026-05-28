@@ -412,11 +412,14 @@ export class FrostNovaWeapon extends BaseWeapon {
 
   /**
    * Mastery: Absolute Zero - Shatter effect when frozen enemy dies.
-   * Deals 50% of the dead enemy's max HP to nearby enemies.
+   * Deals 50% of the dead enemy's max HP to nearby enemies, capped at 5× this
+   * weapon's damage. The cap stops the shatter from scaling without bound
+   * against tanks/bosses (a positive-feedback loop where tankier enemies make
+   * the shatter hit harder) while leaving it satisfying for normal enemies.
    */
   private triggerShatterEffect(ctx: WeaponContext, x: number, y: number, deadEnemyMaxHealth: number): void {
     const shatterRadius = 80;
-    const shatterDamage = deadEnemyMaxHealth * 0.5;
+    const shatterDamage = Math.min(deadEnemyMaxHealth * 0.5, this.stats.damage * 5);
 
     // Visual: ice shards flying outward
     this.createShatterVisual(ctx, x, y);

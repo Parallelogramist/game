@@ -15,6 +15,45 @@ import { VisualQuality } from '../visual/GlowGraphics';
 import { getJuiceManager } from '../effects/JuiceManager';
 
 /**
+ * Per-weapon-type damage multipliers from the player's mastery upgrades.
+ * `ultimate` is a global multiplier applied to every weapon on top of its
+ * category multiplier. Values are multipliers (1.0 = no bonus).
+ */
+export interface WeaponMasteryMultipliers {
+  projectile: number;
+  melee: number;
+  aura: number;
+  summon: number;
+  orbital: number;
+  explosive: number;
+  beam: number;
+  ultimate: number;
+}
+
+type MasteryCategory = Exclude<keyof WeaponMasteryMultipliers, 'ultimate'>;
+
+/**
+ * Maps each weapon id (see WeaponRegistry) to the mastery category whose bonus
+ * applies to it. Weapons not listed receive only the global `ultimate` bonus.
+ */
+const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
+  projectile: 'projectile',
+  shuriken: 'projectile',
+  ricochet: 'projectile',
+  katana: 'melee',
+  aura: 'aura',
+  frost_nova: 'aura',
+  drone: 'summon',
+  orbiting_blades: 'orbital',
+  homing_missile: 'explosive',
+  meteor: 'explosive',
+  ground_spike: 'explosive',
+  laser_beam: 'beam',
+  chain_lightning: 'beam',
+  flamethrower: 'beam',
+};
+
+/**
  * Per-weapon aggregate stats for end-of-run breakdown.
  */
 export interface WeaponRunStats {
@@ -156,14 +195,15 @@ export class WeaponManager {
       }
     }
 
-    // Apply synergy multipliers to each weapon (combined with existing external multipliers)
+    // Apply synergy multipliers to every weapon (1.0 when not in a synergy).
+    // Setting all weapons — not just synergized ones — ensures a weapon that
+    // loses its synergy resets, and these stack with (rather than clobber) the
+    // global external multipliers from applyMultipliers().
     for (const [weaponId, weapon] of this.weapons) {
-      const synergyDamage = weaponDamageMult.get(weaponId) ?? 1.0;
-      const synergyCooldown = weaponCooldownMult.get(weaponId) ?? 1.0;
-      // Only update if there's a synergy bonus to apply
-      if (synergyDamage !== 1.0 || synergyCooldown !== 1.0) {
-        weapon.applyMultipliers(synergyDamage, synergyCooldown);
-      }
+      weapon.setSynergyMultipliers(
+        weaponDamageMult.get(weaponId) ?? 1.0,
+        weaponCooldownMult.get(weaponId) ?? 1.0
+      );
     }
 
     // Play synergy sound when a new synergy is activated
@@ -531,10 +571,28 @@ export class WeaponManager {
     damageMultiplier: number,
     cooldownMultiplier: number,
     bonusCount: number = 0,
-    bonusPiercing: number = 0
+    bonusPiercing: number = 0,
+    rangeMultiplier: number = 1.0,
+    projectileSpeedMultiplier: number = 1.0,
+    mastery?: WeaponMasteryMultipliers
   ): void {
     for (const weapon of this.weapons.values()) {
-      weapon.applyMultipliers(damageMultiplier, cooldownMultiplier, bonusCount, bonusPiercing);
+      // Per-weapon mastery damage = its category bonus × the global ultimate bonus.
+      let masteryDamageMultiplier = 1.0;
+      if (mastery) {
+        const category = WEAPON_MASTERY_CATEGORY[weapon.id];
+        const categoryMultiplier = category ? mastery[category] : 1.0;
+        masteryDamageMultiplier = categoryMultiplier * mastery.ultimate;
+      }
+      weapon.applyMultipliers(
+        damageMultiplier,
+        cooldownMultiplier,
+        bonusCount,
+        bonusPiercing,
+        rangeMultiplier,
+        projectileSpeedMultiplier,
+        masteryDamageMultiplier
+      );
     }
   }
 

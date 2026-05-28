@@ -33,6 +33,8 @@ interface Missile {
  * drawn on a single shared Graphics object.
  */
 export class HomingMissileWeapon extends BaseWeapon {
+  // `speed` is projectile velocity, so the global projectile-speed multiplier applies.
+  protected scalesProjectileSpeed = true;
   private pool: Missile[] = [];
   private trailGraphics: Phaser.GameObjects.Graphics | null = null;
   private currentQuality: VisualQuality = 'high';

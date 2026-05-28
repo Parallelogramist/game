@@ -154,8 +154,11 @@ export function createDefaultPlayerStats(): PlayerStats {
     // Combat multipliers
     damageMultiplier: 0.75,
     attackSpeedMultiplier: 0.8,
-    projectileSpeedMultiplier: 0.8,
-    rangeMultiplier: 0.85,
+    // range/speed start at 1.0 (neutral): they are now consumed by weapons, and
+    // their Reach/Velocity upgrades are defined as additive bonuses from 1.0
+    // (e.g. "+20% range"). A <1.0 default would silently shrink every weapon.
+    projectileSpeedMultiplier: 1.0,
+    rangeMultiplier: 1.0,
     cooldownMultiplier: 1.15,
     durationMultiplier: 0.85,
 

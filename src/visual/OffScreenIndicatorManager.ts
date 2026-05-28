@@ -1,11 +1,9 @@
 import Phaser from 'phaser';
-import { defineQuery, IWorld } from 'bitecs';
-import { EnemyTag, Transform, EnemyType } from '../ecs/components';
+import { IWorld } from 'bitecs';
+import { Transform, EnemyType } from '../ecs/components';
+import { getEnemyIds } from '../ecs/FrameCache';
 import { ENEMY_COLORS } from './NeonColors';
 import { getSettingsManager } from '../settings';
-
-// Query for all enemies
-const enemyQuery = defineQuery([EnemyTag, Transform, EnemyType]);
 
 // Pre-computed arrow triangle (pointing right, rotated later)
 const ARROW_HALF_WIDTH = 5;
@@ -23,9 +21,23 @@ const MINIBOSS_XP_THRESHOLD = 30;
 const BOSS_XP_THRESHOLD = 1000;
 const EDGE_PROXIMITY = 200; // Show regular enemies within this distance of edge
 
+// Priority key = tier * TIER_WEIGHT + distFromEdge. Lower = shown first.
+// TIER_WEIGHT dwarfs any possible distance so tier always dominates ordering.
+const TIER_WEIGHT = 1e7;
+
 interface IndicatorArrow {
   graphics: Phaser.GameObjects.Graphics;
   inUse: boolean;
+}
+
+// Reusable candidate slot — pooled so the per-frame scan allocates nothing.
+interface OffScreenCandidate {
+  worldX: number;
+  worldY: number;
+  xpValue: number;
+  color: number;
+  distance: number;
+  priority: number;
 }
 
 /**
@@ -37,6 +49,9 @@ export class OffScreenIndicatorManager {
   private scene: Phaser.Scene;
   private world: IWorld | null = null;
   private arrowPool: IndicatorArrow[] = [];
+  // Fixed-size, pre-allocated buffer holding the current best candidates in
+  // ascending-priority order. Reused every frame — never re-allocated.
+  private candidates: OffScreenCandidate[] = [];
   private globalTime: number = 0;
 
   constructor(scene: Phaser.Scene) {
@@ -49,6 +64,11 @@ export class OffScreenIndicatorManager {
       graphics.setDepth(1900); // Below HUD (2000) but above gameplay
       graphics.setVisible(false);
       this.arrowPool.push({ graphics, inUse: false });
+
+      // Pre-allocate the matching candidate slot.
+      this.candidates.push({
+        worldX: 0, worldY: 0, xpValue: 0, color: 0, distance: 0, priority: 0,
+      });
     }
   }
 
@@ -76,20 +96,15 @@ export class OffScreenIndicatorManager {
     const screenCenterX = camera.worldView.width / 2;
     const screenCenterY = camera.worldView.height / 2;
 
-    const entities = enemyQuery(this.world);
+    // Reuse the shared per-frame enemy query (CLAUDE.md: query once per frame).
+    const enemyIds = getEnemyIds();
+    const candidates = this.candidates;
+    let candidateCount = 0;
 
-    // Collect off-screen threats, prioritized by danger
-    interface OffScreenEnemy {
-      worldX: number;
-      worldY: number;
-      xpValue: number;
-      color: number;
-      distance: number;
-    }
-    const offScreenEnemies: OffScreenEnemy[] = [];
-
-    for (let i = 0; i < entities.length; i++) {
-      const entityId = entities[i];
+    // Collect the highest-priority off-screen threats via bounded insertion into
+    // the fixed buffer — no per-frame array allocation and no full sort.
+    for (let i = 0; i < enemyIds.length; i++) {
+      const entityId = enemyIds[i];
       const worldX = Transform.x[entityId];
       const worldY = Transform.y[entityId];
 
@@ -105,40 +120,60 @@ export class OffScreenIndicatorManager {
       const distFromEdge = Math.sqrt(distFromEdgeX * distFromEdgeX + distFromEdgeY * distFromEdgeY);
 
       // Always show bosses/minibosses; regular enemies only if close to edge
-      if (xpValue >= MINIBOSS_XP_THRESHOLD || distFromEdge < EDGE_PROXIMITY) {
-        // Determine color based on enemy type
-        let arrowColor: number;
-        if (xpValue >= BOSS_XP_THRESHOLD) {
-          arrowColor = ENEMY_COLORS.boss.core;
-        } else if (xpValue >= MINIBOSS_XP_THRESHOLD) {
-          arrowColor = ENEMY_COLORS.miniboss.core;
-        } else {
-          arrowColor = 0xff4444; // Generic enemy red
-        }
-
-        offScreenEnemies.push({
-          worldX, worldY, xpValue,
-          color: arrowColor,
-          distance: distFromEdge,
-        });
+      if (xpValue < MINIBOSS_XP_THRESHOLD && distFromEdge >= EDGE_PROXIMITY) {
+        continue;
       }
+
+      // Tier + color by threat (boss = 0 = highest priority).
+      let tier: number;
+      let arrowColor: number;
+      if (xpValue >= BOSS_XP_THRESHOLD) {
+        tier = 0;
+        arrowColor = ENEMY_COLORS.boss.core;
+      } else if (xpValue >= MINIBOSS_XP_THRESHOLD) {
+        tier = 1;
+        arrowColor = ENEMY_COLORS.miniboss.core;
+      } else {
+        tier = 2;
+        arrowColor = 0xff4444; // Generic enemy red
+      }
+      const priority = tier * TIER_WEIGHT + distFromEdge;
+
+      // Bounded insertion sort: keep the MAX_INDICATORS lowest-priority entries.
+      const full = candidateCount === MAX_INDICATORS;
+      if (full && priority >= candidates[candidateCount - 1].priority) {
+        continue; // Not better than the current worst kept candidate.
+      }
+      // Start at the append slot (or reuse the worst slot when full) and shift
+      // any higher-priority entries right to open the insertion point.
+      let insertAt = full ? candidateCount - 1 : candidateCount;
+      while (insertAt > 0 && candidates[insertAt - 1].priority > priority) {
+        const dst = candidates[insertAt];
+        const src = candidates[insertAt - 1];
+        dst.worldX = src.worldX;
+        dst.worldY = src.worldY;
+        dst.xpValue = src.xpValue;
+        dst.color = src.color;
+        dst.distance = src.distance;
+        dst.priority = src.priority;
+        insertAt--;
+      }
+      const slot = candidates[insertAt];
+      slot.worldX = worldX;
+      slot.worldY = worldY;
+      slot.xpValue = xpValue;
+      slot.color = arrowColor;
+      slot.distance = distFromEdge;
+      slot.priority = priority;
+      if (!full) candidateCount++;
     }
 
-    // Sort by priority: bosses first, then by proximity
-    offScreenEnemies.sort((a, b) => {
-      if (a.xpValue >= BOSS_XP_THRESHOLD && b.xpValue < BOSS_XP_THRESHOLD) return -1;
-      if (b.xpValue >= BOSS_XP_THRESHOLD && a.xpValue < BOSS_XP_THRESHOLD) return 1;
-      if (a.xpValue >= MINIBOSS_XP_THRESHOLD && b.xpValue < MINIBOSS_XP_THRESHOLD) return -1;
-      if (b.xpValue >= MINIBOSS_XP_THRESHOLD && a.xpValue < MINIBOSS_XP_THRESHOLD) return 1;
-      return a.distance - b.distance;
-    });
-
-    // Draw up to MAX_INDICATORS arrows
-    const count = Math.min(offScreenEnemies.length, MAX_INDICATORS);
+    // Draw the kept candidates (already ordered by priority).
+    const count = candidateCount;
     const isReducedMotion = getSettingsManager().isReducedMotionEnabled();
 
     for (let i = 0; i < count; i++) {
-      const enemy = offScreenEnemies[i];
+      const enemy = candidates[i];
       const arrow = this.arrowPool[i];
       arrow.inUse = true;
 

@@ -114,11 +114,12 @@ export const RELICS: readonly Relic[] = [
   {
     id: 'relic_berserker_rage',
     name: 'Berserker Rage',
-    description: '+20% damage when HP below 50%',
+    description: '+10% damage',
     rarity: 'rare',
     icon: 'sword',
     apply: (stats) => {
-      // Simplified: always-on +10% damage (the conditional would need combat-stat hooks)
+      // Always-on +10% damage. (An HP-conditional version would need per-frame
+      // combat-stat hooks; relics apply once at pickup, so it stays flat.)
       stats.damageMultiplier *= 1.1;
     },
   },

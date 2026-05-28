@@ -33,6 +33,8 @@ interface DroneProjectile {
  * Trails, links, and thruster flames on shared Graphics objects.
  */
 export class DroneWeapon extends BaseWeapon {
+  // Drone shots use `speed` as projectile velocity, so the global multiplier applies.
+  protected scalesProjectileSpeed = true;
   private drones: Drone[] = [];
   private projectilePool: DroneProjectile[] = [];
   private orbitRadius: number = 70;
