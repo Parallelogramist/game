@@ -889,6 +889,10 @@ export class GameScene extends Phaser.Scene {
     });
     this.hudManager.create();
 
+    // Load the persisted auto-buy preference and force the HUD to match the gameplay flag
+    this.initAutoBuyFromStorage();
+    this.hudManager.setAutoBuyEnabled(this.isAutoBuyEnabled);
+
     // Persistent strip of active modifiers and relics in the HUD
     this.refreshRelicStrip();
 
@@ -1326,6 +1330,9 @@ export class GameScene extends Phaser.Scene {
       onAutoBuyToggled: () => this.toggleAutoBuy(),
     });
     this.hudManager.create();
+
+    // Restored runs already loaded isAutoBuyEnabled from save state; keep the HUD toggle in sync
+    this.hudManager.setAutoBuyEnabled(this.isAutoBuyEnabled);
 
     // Persistent strip of active modifiers and relics in the HUD (restore path)
     this.refreshRelicStrip();
@@ -2080,6 +2087,24 @@ export class GameScene extends Phaser.Scene {
    * Shows confirmation text and updates the UI.
    * Requires auto-upgrade to be purchased from the shop.
    */
+  /**
+   * Loads the persisted auto-buy preference into the gameplay flag for a fresh run.
+   * HUDManager reads the same storage key for its toggle indicator, so without this
+   * the HUD could show "AUTO-UPGRADE ON" while level-ups still opened the manual
+   * prompt (the gameplay flag defaulted to false). Only applies when the Auto-Upgrade
+   * shop upgrade is owned; otherwise the feature stays off.
+   */
+  private initAutoBuyFromStorage(): void {
+    if (getMetaProgressionManager().getAutoUpgradeLevel() < 1) {
+      this.isAutoBuyEnabled = false;
+      return;
+    }
+    const savedAutoBuy = SecureStorage.getItem(STORAGE_KEY_AUTO_BUY);
+    if (savedAutoBuy !== null) {
+      this.isAutoBuyEnabled = savedAutoBuy === 'true';
+    }
+  }
+
   private toggleAutoBuy(): void {
     // Don't toggle during pause menu or upgrade selection
     if (this.pauseMenuManager.isPauseMenuOpen || this.scene.isActive('UpgradeScene')) {
