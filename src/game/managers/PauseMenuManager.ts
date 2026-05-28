@@ -66,6 +66,10 @@ function paintPillBackground(
   const halfW = width / 2;
   const halfH = height / 2;
   const radius = Math.min(height * 0.4, 14);
+  // Body sits 2px inside the accent border. Its corner radius must shrink by the
+  // same 2px so the two arcs stay concentric — otherwise the body's corners
+  // overrun the border's rounded curve and read as sharp.
+  const bodyRadius = Math.max(0, radius - 2);
 
   graphics.clear();
 
@@ -77,17 +81,18 @@ function paintPillBackground(
   graphics.fillStyle(accentColor, 1);
   graphics.fillRoundedRect(centerX - halfW - 2, centerY - halfH - 2, width + 4, height + 4, radius);
 
-  // Body fill.
+  // Body fill (radius reduced by the border inset so its corners nest inside the border).
   graphics.fillStyle(bodyColor, 1);
-  graphics.fillRoundedRect(centerX - halfW, centerY - halfH, width, height, radius);
+  graphics.fillRoundedRect(centerX - halfW, centerY - halfH, width, height, bodyRadius);
 
-  // Top highlight stripe (the Balatro banner feel).
+  // Top highlight stripe (the Balatro banner feel). Inset past the rounded
+  // corners so the sharp stripe never overruns them.
   graphics.fillStyle(accentColor, 0.7);
-  graphics.fillRect(centerX - halfW + 4, centerY - halfH + 2, width - 8, 3);
+  graphics.fillRect(centerX - halfW + radius, centerY - halfH + 2, width - radius * 2, 3);
 
-  // Bottom inner shadow.
+  // Bottom inner shadow — same corner-safe inset.
   graphics.fillStyle(0x000000, 0.25);
-  graphics.fillRect(centerX - halfW + 4, centerY + halfH - 3, width - 8, 2);
+  graphics.fillRect(centerX - halfW + radius, centerY + halfH - 3, width - radius * 2, 2);
 }
 
 void MENU_COLORS;
