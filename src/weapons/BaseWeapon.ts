@@ -85,6 +85,15 @@ export abstract class BaseWeapon {
   // leave this false so the global projectile-speed multiplier skips them.
   protected scalesProjectileSpeed: boolean = false;
 
+  // Player-global effect-duration multiplier (from the Duration stat/upgrade).
+  protected externalDurationMultiplier: number = 1.0;
+
+  // Whether this weapon's `duration` stat is an effect lifetime where "longer is
+  // better" (projectile/spike/visual lifetime). Weapons where `duration` is an
+  // impact delay or an inverted timer (Meteor, Frost Nova) leave this false so
+  // the duration multiplier skips them.
+  protected scalesEffectDuration: boolean = false;
+
   // Visual elements managed by the weapon
   protected sprites: Phaser.GameObjects.GameObject[] = [];
 
@@ -194,11 +203,12 @@ export abstract class BaseWeapon {
     this.stats.count = this.baseStats.count + Math.floor((this.level - 1) / 2) + this.externalBonusCount;
     // Apply piercing bonuses from both level and external sources
     this.stats.piercing = this.baseStats.piercing + Math.floor((this.level - 1) / 2) + this.externalBonusPiercing;
-    // Reset range/speed to base so post-recalc external scaling is idempotent
-    // rather than compounding. Subclasses that override recalculateStats set
-    // their own absolute range/speed values after calling super().
+    // Reset range/speed/duration to base so post-recalc external scaling is
+    // idempotent rather than compounding. Subclasses that override
+    // recalculateStats set their own absolute values after calling super().
     this.stats.range = this.baseStats.range;
     this.stats.speed = this.baseStats.speed;
+    this.stats.duration = this.baseStats.duration;
   }
 
   /**
@@ -231,6 +241,10 @@ export abstract class BaseWeapon {
     if (this.scalesProjectileSpeed) {
       this.stats.speed *= this.externalSpeedMultiplier;
     }
+    // Effect duration only applies where `duration` is a "longer is better" lifetime.
+    if (this.scalesEffectDuration) {
+      this.stats.duration *= this.externalDurationMultiplier;
+    }
   }
 
   /**
@@ -244,7 +258,8 @@ export abstract class BaseWeapon {
     bonusPiercing: number = 0,
     rangeMultiplier: number = 1.0,
     speedMultiplier: number = 1.0,
-    masteryDamageMultiplier: number = 1.0
+    masteryDamageMultiplier: number = 1.0,
+    durationMultiplier: number = 1.0
   ): void {
     // Store external multipliers
     this.externalDamageMultiplier = damageMultiplier;
@@ -254,6 +269,7 @@ export abstract class BaseWeapon {
     this.externalRangeMultiplier = rangeMultiplier;
     this.externalSpeedMultiplier = speedMultiplier;
     this.externalMasteryDamageMultiplier = masteryDamageMultiplier;
+    this.externalDurationMultiplier = durationMultiplier;
     // Recalculate all stats with both level and external multipliers
     this.refreshStats();
   }

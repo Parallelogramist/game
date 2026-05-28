@@ -35,6 +35,8 @@ interface DroneProjectile {
 export class DroneWeapon extends BaseWeapon {
   // Drone shots use `speed` as projectile velocity, so the global multiplier applies.
   protected scalesProjectileSpeed = true;
+  // Drone shots use `duration` as projectile lifetime — longer is fine.
+  protected scalesEffectDuration = true;
   private drones: Drone[] = [];
   private projectilePool: DroneProjectile[] = [];
   private orbitRadius: number = 70;

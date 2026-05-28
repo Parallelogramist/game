@@ -21,6 +21,8 @@ interface SlashArc {
  * Visual shows rapid slashes at random angles like a master swordsman.
  */
 export class KatanaWeapon extends BaseWeapon {
+  // `duration` is the slash visual lifetime — longer is fine.
+  protected scalesEffectDuration = true;
   private lastDirection: number = 1; // 1 = right, -1 = left
   private slashGraphics: Phaser.GameObjects.Graphics | null = null;
 

@@ -9,6 +9,8 @@ import { getJuiceManager } from '../effects/JuiceManager';
  * Great for hitting clustered enemies. Damage reduces per jump.
  */
 export class ChainLightningWeapon extends BaseWeapon {
+  // `duration` is the lightning-arc visual lifetime — longer is fine.
+  protected scalesEffectDuration = true;
   private lightningGraphics: Phaser.GameObjects.Graphics | null = null;
 
   // OPTIMIZATION: Pre-allocated arrays/sets to avoid per-attack allocations

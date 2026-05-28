@@ -32,6 +32,8 @@ interface Shuriken {
 export class ShurikenWeapon extends BaseWeapon {
   // `speed` is projectile velocity, so the global projectile-speed multiplier applies.
   protected scalesProjectileSpeed = true;
+  // `duration` is shuriken lifetime — longer is fine.
+  protected scalesEffectDuration = true;
   private pool: Shuriken[] = [];
   private effectsGraphics: Phaser.GameObjects.Graphics | null = null;
   private spinSpeed: number = 15;

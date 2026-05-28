@@ -20,6 +20,8 @@ const PRISMATIC_PALETTE = [0xff4488, 0xffaa44, 0x44ff88, 0x44aaff, 0xaa44ff] as 
  * High damage, pierces everything, but narrow and directional.
  */
 export class LaserBeamWeapon extends BaseWeapon {
+  // `duration` is the beam visual lifetime — longer is fine.
+  protected scalesEffectDuration = true;
   private beamGraphics: Phaser.GameObjects.Graphics | null = null;
 
   // Mastery: Prismatic Convergence - track refracted beams

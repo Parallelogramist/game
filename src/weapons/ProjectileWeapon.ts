@@ -42,6 +42,8 @@ interface ProjectileData {
 export class ProjectileWeapon extends BaseWeapon {
   // `speed` is projectile velocity, so the global projectile-speed multiplier applies.
   protected scalesProjectileSpeed = true;
+  // `duration` is projectile lifetime — longer is fine.
+  protected scalesEffectDuration = true;
   private pool: ProjectileData[] = [];
   private trailGraphics: Phaser.GameObjects.Graphics | null = null;
   private impactPuffsThisFrame: number = 0;

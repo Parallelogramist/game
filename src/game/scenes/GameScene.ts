@@ -6006,7 +6006,9 @@ export class GameScene extends Phaser.Scene {
         explosive: this.playerStats.explosiveMastery,
         beam: this.playerStats.beamMastery,
         ultimate: this.playerStats.ultimateMastery,
-      }
+      },
+      this.playerStats.explosionDamageMultiplier, // Explosive-weapon damage bonus
+      this.playerStats.durationMultiplier          // Effect-lifetime multiplier
     );
 
     // Set overcharge stun duration for chain lightning

@@ -580,15 +580,21 @@ export class WeaponManager {
     bonusPiercing: number = 0,
     rangeMultiplier: number = 1.0,
     projectileSpeedMultiplier: number = 1.0,
-    mastery?: WeaponMasteryMultipliers
+    mastery?: WeaponMasteryMultipliers,
+    explosionDamageMultiplier: number = 1.0,
+    durationMultiplier: number = 1.0
   ): void {
     for (const weapon of this.weapons.values()) {
+      const category = WEAPON_MASTERY_CATEGORY[weapon.id];
       // Per-weapon mastery damage = its category bonus × the global ultimate bonus.
       let masteryDamageMultiplier = 1.0;
       if (mastery) {
-        const category = WEAPON_MASTERY_CATEGORY[weapon.id];
         const categoryMultiplier = category ? mastery[category] : 1.0;
         masteryDamageMultiplier = categoryMultiplier * mastery.ultimate;
+      }
+      // Explosive-category weapons also scale with the explosion-damage stat.
+      if (category === 'explosive') {
+        masteryDamageMultiplier *= explosionDamageMultiplier;
       }
       weapon.applyMultipliers(
         damageMultiplier,
@@ -597,7 +603,8 @@ export class WeaponManager {
         bonusPiercing,
         rangeMultiplier,
         projectileSpeedMultiplier,
-        masteryDamageMultiplier
+        masteryDamageMultiplier,
+        durationMultiplier
       );
     }
   }

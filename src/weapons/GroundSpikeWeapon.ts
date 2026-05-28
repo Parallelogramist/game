@@ -24,6 +24,8 @@ interface GroundSpike {
  * Has a brief warning phase before damage, rewarding observant players.
  */
 export class GroundSpikeWeapon extends BaseWeapon {
+  // `duration` is the spike active lifetime — longer is fine.
+  protected scalesEffectDuration = true;
   private spikes: GroundSpike[] = [];
   private currentQuality: VisualQuality = 'high';
 
