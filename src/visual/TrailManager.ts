@@ -82,6 +82,12 @@ export class TrailManager {
       case 'low':
         this.enabled = false;  // Disable trails in low quality
         this.newSegmentCount = 0;  // Discard queued segments
+        // Clear the persistent RenderTexture. update() early-returns while
+        // disabled, so without this the last-stamped segments would stay
+        // frozen on screen forever as ghost trails. Reset position tracking
+        // too so re-enabling doesn't draw a long segment across the gap.
+        this.renderTexture.clear();
+        this.trackedEntities.clear();
         break;
     }
   }
