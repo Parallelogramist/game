@@ -1,6 +1,7 @@
 import { WeaponManager } from '../weapons';
 import { getCodexManager } from '../codex';
 import { TUNING } from './GameTuning';
+import { createLimitBreakUpgrades } from './LimitBreakUpgrades';
 
 /**
  * Break level gates - stat upgrades cannot pass these thresholds
@@ -282,6 +283,9 @@ export interface Upgrade {
   maxLevel: number;
   currentLevel: number;
   isStatUpgrade: boolean; // True for stat upgrades (subject to break level gates)
+  /** Limit Break overflow upgrade: repeatable, gate-free, only offered once the
+   *  normal pool is exhausted. Styled gold in the level-up modal. */
+  isOverflow?: boolean;
   apply: (stats: PlayerStats, level: number) => void; // Level param for dynamic scaling
   getDescription: (level: number) => string;
 }
@@ -536,6 +540,9 @@ export function createUpgrades(): Upgrade[] {
         return `${nextLevelCharges} shields, 3.0s recharge`;
       },
     },
+    // Limit Break overflow pool — repeatable, gate-free, surfaced only when the
+    // normal pool is exhausted (see getRandomCombinedUpgrades).
+    ...createLimitBreakUpgrades(),
   ];
 }
 
@@ -710,6 +717,28 @@ export type CombinedUpgrade =
   | (WeaponUpgrade & { upgradeType: 'weapon' });
 
 /**
+ * Pads an upgrade result with repeatable Limit Break overflow upgrades when the
+ * normal pool can't fill the modal (everything maxed/banished), so a level-up
+ * is never dead. Mutates `result` in place.
+ */
+function padWithOverflow(
+  result: CombinedUpgrade[],
+  statUpgrades: Upgrade[],
+  banishedIds: Set<string>,
+  count: number,
+): void {
+  if (result.length >= count) return;
+  const overflowPool: CombinedUpgrade[] = statUpgrades
+    .filter(u => u.isOverflow && !banishedIds.has(u.id))
+    .map(u => ({ ...u, upgradeType: 'stat' as const }))
+    .sort(() => Math.random() - 0.5);
+  for (const overflow of overflowPool) {
+    if (result.length >= count) break;
+    if (!result.some(r => r.id === overflow.id)) result.push(overflow);
+  }
+}
+
+/**
  * Gets random upgrades from both stat and weapon pools.
  * Every 5th level (5, 10, 15, etc.) ALL options are weapons.
  * New weapons (type: 'add') are only offered on those milestone levels.
@@ -780,13 +809,18 @@ export function getRandomCombinedUpgrades(
     // Combine with shuffled level-ups and return
     const shuffledLevelUps = levelUps.sort(() => Math.random() - 0.5);
     const result: CombinedUpgrade[] = [...selectedNew, ...shuffledLevelUps];
-    return result.sort(() => Math.random() - 0.5).slice(0, Math.min(count, result.length));
+    const milestoneResult = result.sort(() => Math.random() - 0.5).slice(0, Math.min(count, result.length));
+    // If every weapon is owned + maxed, the milestone would be empty — pad it.
+    padWithOverflow(milestoneResult, statUpgrades, banishedIds, count);
+    return milestoneResult;
   }
 
   // Normal levels: mix of stats and weapon level-ups
   // Get available stat upgrades - filter by max level, gate validation, and banished
   const availableStats: CombinedUpgrade[] = statUpgrades
     .filter(u => {
+      // Overflow upgrades are a fallback only — never part of normal selection
+      if (u.isOverflow) return false;
       // Must not be banished
       if (banishedIds.has(u.id)) return false;
       // Must not be at max level
@@ -823,6 +857,10 @@ export function getRandomCombinedUpgrades(
       result.push(upgrade);
     }
   }
+
+  // Limit Break fallback: pad with repeatable overflow upgrades if the normal
+  // pool is exhausted (everything maxed/banished) so a level-up is never dead.
+  padWithOverflow(result, statUpgrades, banishedIds, count);
 
   // Final shuffle for presentation randomness
   return result.sort(() => Math.random() - 0.5).slice(0, count);

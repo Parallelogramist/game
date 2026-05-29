@@ -564,6 +564,10 @@ export class UpgradeScene extends Phaser.Scene {
   private resolveUpgradeRole(upgrade: Upgrade): { body: number; accent: number; accentStr: string } {
     const isWeaponLevel = upgrade.id.startsWith('level_');
     const isMastered = upgrade.currentLevel + 1 >= upgrade.maxLevel && upgrade.maxLevel > 1;
+    // Limit Break overflow upgrades get the gold treatment to signal late-game power.
+    if (upgrade.isOverflow) {
+      return { body: BODY_COLORS.gold, accent: ACCENT_COLORS.focus, accentStr: ACCENT_COLORS_STR.focus };
+    }
     if (isMastered) {
       return { body: BODY_COLORS.gold, accent: ACCENT_COLORS.focus, accentStr: ACCENT_COLORS_STR.focus };
     }
@@ -772,6 +776,16 @@ export class UpgradeScene extends Phaser.Scene {
   ): Phaser.GameObjects.Container | Phaser.GameObjects.Text {
     const filled = upgrade.currentLevel + 1;
     const total = upgrade.maxLevel;
+
+    // Overflow upgrades stack without a meaningful cap — show the stack count
+    // rather than a (potentially huge) segmented bar.
+    if (upgrade.isOverflow) {
+      return makeStickerText(this, 0, 0, `LIMIT BREAK · Lv.${filled}`, {
+        fontSize: Math.round(14 * textBoost),
+        color: ACCENT_COLORS_STR.focus,
+        letterSpacing: 1.2,
+      });
+    }
 
     if (filled >= total && total > 1) {
       return makeStickerText(this, 0, 0, '★ MASTERED ★', {
