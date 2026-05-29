@@ -51,6 +51,28 @@ nothing to commit. Run `rmdir` in the main checkout locally; purely cosmetic.
 subsequent work (perf batch, fixes, stat wiring) branches on top of it. Decide
 merge order / squash strategy before pushing to remote.
 
+### CHORE-3 — Foreign files swept into the top-10 branch · OPEN · area: housekeeping
+A concurrent session running the same "top 10 features" prompt wrote accessibility
+files into the `worktree-top10-features` working dir; commit `a76fcf4`'s `git add -A`
+swept them in: `src/visual/ColorblindPipeline.ts`, `src/settings/SettingsManager.ts`
+(+74), `src/settings/index.ts`, `FEATURE_PLAN.md` (the other plan, vs our
+`FEATURES_PLAN.md`). They are unrelated to the 10 features here and build clean, but
+were left in place (not deleted) to avoid destroying the other effort's work. Decide
+at merge time: keep, drop, or hand back to the accessibility branch.
+
+### FEAT-PERSIST — New field systems not saved on refresh · OPEN · area: save
+Refresh-recovery (`GameStateManager`) does not persist: elite **affixes** (affixed
+enemies restore as normal-but-tanky), floor **consumables** lying on the ground, and
+the temporary **Power shrine** damage buff (its revert `delayedCall` dies on reload).
+All non-crash, refresh-only. Mirror the magnet-pickup serialize/restore pattern (or
+make consumables explicitly transient like destructibles) when worth it.
+
+### FEAT-VICTORY-GRADE — Show grade on the victory screen · OPEN · area: ui
+The death/game-over overlay shows the S–F performance grade + best score; the
+separate `PauseMenuManager.showVictory` celebratory screen does not (the score IS
+recorded). Add `performanceGrade`/`runScore`/`bestScore`/`isNewBest` to `VictoryData`
+and render the badge there for parity.
+
 ---
 
 ## Needs playtest (code complete, feel/balance unverified)
@@ -78,12 +100,37 @@ default doesn't feel floaty for dodging; raise toward instant or lower for weigh
 Also sanity-check Sprint / Battle Flow magnitudes
 (`updatePlayerEffectiveMoveSpeed` in GameScene; `PLAYER_COMBAT_RADIUS`).
 
+### BALANCE-5 — Top-10 feature tuning · NEEDS PLAYTEST · area: balance · (new, this session)
+All 10 new features are code-complete + build-clean but balance is unverified. Tune:
+consumable drop rates + BOMB/FREEZE strength (`spawnRandomConsumable`/`activateConsumable`);
+affix roll chance + per-affix scaling (`src/data/Affixes.ts`); Limit Break per-level
+bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
+(`GameScene`); pact difficulty-vs-reward (`src/data/Pacts.ts`); music intensity range
+(`MusicIntensityDriver.ts`); grade thresholds (`PerformanceGrade.ts`).
+
 ---
 
 ## Changelog
 
 (most recent first; see `git log` for full detail)
 
+- `e60d28e` Fix review findings across the 10 new features (gold-mult dead write,
+  shrine HP no-op, ripple crash on crates, restore-path resets, victory world-level,
+  auto-buy overflow scoring, minion affixes, volatile recursion, aura/heal on crates).
+- `562da73` FEAT pre-run Pacts mutator picker (PactSelectScene + `src/data/Pacts.ts`).
+- `2d0824c` FEAT post-run performance grade + per-run best score (`PerformanceGrade`,
+  `BestScoreManager`) on the results overlay.
+- `468a883` FEAT dynamic music intensity (`MusicIntensityDriver` + `MusicManager.setIntensity`).
+- `e7a67a7` FEAT in-run bounties (rotating objectives + HUD banner + reward).
+- `ecf82bc` FEAT walk-in field shrines (Cleanse/Power/Fortune/Sacrifice).
+- `fcc1921` FEAT environmental destructibles (crates, `Destructible` component).
+- `b032b3b` FEAT attack telegraphs (`TelegraphManager`; dash/charge/slam windups).
+- `a76fcf4` FEAT elite affixes + floating elite HP bars (`src/data/Affixes.ts`,
+  `EliteAffixVisualManager`). NOTE: this commit also swept in unrelated accessibility
+  files via `git add -A` — see CHORE-3.
+- `522d188` FEAT Limit Break overflow upgrades (`src/data/LimitBreakUpgrades.ts`).
+- `2ebc173` FEAT floor consumables — bomb/freeze/vacuum/gold (`ConsumablePickupSystem`,
+  `WeaponManager.detonateArea`).
 - `4365943` Wire armor penetration + 3 movement stats (C9 armor, C10 accel/sprint/combat).
 - `d768284` Wire explosionDamage + duration stats into weapon scaling (C7, C8).
 - `0bcbbdc` Fix pause-menu pill corners bleeding past rounded border.

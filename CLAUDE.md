@@ -34,7 +34,7 @@ No lint/test commands configured.
 ### ECS Architecture
 
 Entity-Component-System pattern:
-- **Components** (`/src/ecs/components/index.ts`) — 20 data schemas: Transform, Velocity, Health, Weapon, Projectile, EnemyAI, EnemyType, Knockback, StatusEffect, tag components
+- **Components** (`/src/ecs/components/index.ts`) — data schemas: Transform, Velocity, Health, Weapon, Projectile, EnemyAI, EnemyType, Knockback, StatusEffect, `EnemyAffix` (elite affix), `Consumable`/`ConsumablePickupTag` (floor power-ups), `Destructible` (crates), tag components
 - **Systems** (`/src/ecs/systems/`) — game logic operating on entities with specific components
 - **SpriteRef** bridges ECS entities to Phaser sprites
 
@@ -59,7 +59,8 @@ Knockback processed inline in GameScene. All weapon damage flows through `Weapon
 ```
 BootScene (start screen + music + daily challenge + ship picker)
   ├─→ WeaponSelectScene (pre-run weapon pick, skips if only default discovered)
-  │     └─→ GameScene (core gameplay) ─→ UpgradeScene (level-up modal, overlay)
+  │     └─→ PactSelectScene (optional pre-run curses for bigger rewards)
+  │           └─→ GameScene (core gameplay) ─→ UpgradeScene (level-up modal, overlay)
   ├─→ ShopScene (permanent upgrades, returns to BootScene)
   ├─→ AchievementScene (achievements & milestones, returns to BootScene)
   ├─→ CodexScene (discovered weapons/enemies/upgrades, returns to BootScene)
@@ -69,7 +70,7 @@ BootScene (start screen + music + daily challenge + ship picker)
   └─→ CreditsScene (attribution, returns to BootScene)
 ```
 
-11 scenes in `/src/game/scenes/`, registered in `src/main.ts`. `WeaponSelectScene` shows discovered weapons from Codex for starting weapon pick; auto-skips to GameScene with default projectile if only one discovered.
+12 scenes in `/src/game/scenes/`, registered in `src/main.ts`. `WeaponSelectScene` shows discovered weapons from Codex for starting weapon pick; auto-skips to GameScene with default projectile if only one discovered. Both weapon-select exits route through `PactSelectScene` (player may pick 0–3 pacts, then it starts GameScene with `pactIds`). Daily-challenge / save-restore paths bypass the pact picker.
 
 ### Weapon System
 
@@ -132,6 +133,44 @@ All damage through `WeaponManager.damageEnemy()`:
 
 Twins spawn as linked pair.
 
+**Elite Affix System** (`src/data/Affixes.ts` + `EnemyAffix` component): natural
+regular spawns (xp < 30, excluding spawned-only minions) have ~12% chance to roll one
+affix — SWIFT / VOLATILE (explodes on death) / VAMPIRIC (heals on hitting player) /
+TITAN (tanky) / BLESSED (guaranteed consumable drop). Rolled in `GameScene.createEnemy`
+(scales HP/XP/speed/armor); vampiric in `checkPlayerEnemyCollision`; volatile/blessed in
+`handleEnemyDeath` (volatile detonations are drained iteratively via `volatileQueue` to
+avoid recursion). Marked by `EliteAffixVisualManager` (`/src/visual/`) — pooled ring +
+floating mini HP bar + label (the only non-boss enemies with a health bar). Reset: the
+manager is recreated per scene; no module reset needed.
+
+**Attack Telegraphs** (`/src/effects/TelegraphManager.ts`): pooled, quality-aware windup
+indicators (swept lines for dash/charge, rings for AOE slams) drawn before dangerous
+enemy attacks. Injected into `EnemyAISystem` via `setTelegraphManager`; hooked at the
+Dasher dash-start, Charger charge-prep, and Warden ground-slam windups. Pure readability
+(no damage/timing change). `DepthLayers.ATTACK_TELEGRAPH`.
+
+**Environmental Destructibles** (`Destructible` component): crates spawn on the field
+(GameScene `spawnDestructible`, capped at 6). They reuse the EnemyTag pipeline so weapons
+auto-target + destroy them, but have **no EnemyAI** (stationary) and deal no contact
+damage. Special-cased early in `handleEnemyDeath` (loot + AOE, no kill/combo/XP), skipped
+in `checkPlayerEnemyCollision`, in `DeathRippleManager` (bare Graphics, not a Container),
+in Healer/Tank/Rallier auras (`EnemyAISystem.isDestructible`), and excluded from save
+serialization. On destruction they burst (`WeaponManager.detonateArea`) + drop loot.
+
+**Floor Consumables** (`/src/ecs/systems/ConsumablePickupSystem.ts` + `Consumable`):
+rare pooled walk-to pickups mirroring HealthPickup/MagnetPickup — BOMB (screen AOE via
+`WeaponManager.detonateArea`), FREEZE (freeze all on-screen), VACUUM (magnetize gems +
+health), GOLD (instant gold cache). Dropped on enemy death + bosses + destructibles +
+blessed elites + bounty rewards + the Fortune shrine. GameScene owns activation via
+`setConsumableCollectCallback`; reset via `resetConsumablePickupSystem`.
+
+**Field Shrines & Bounties** (GameScene-owned, reset in `resetInRunFeatureState`, called
+on BOTH fresh + restore paths): walk-in shrines (`SHRINE_DEFS`: Cleanse/Power/Fortune/
+Sacrifice — Sacrifice mutates ECS `Health.current`, not just PlayerStats) and rotating
+bounties (`BountyKind`: kills / elites / flawless) with a HUD banner and consumable+gold
+rewards. Both mirror the treasure-chest pattern (Phaser graphics + proximity polling).
+These are **distinct** from the random "Shrine of Sacrifice" EventSystem event.
+
 **EnemyAI Component:**
 ```typescript
 EnemyAI: { aiType, state, timer, targetX, targetY, shootTimer, specialTimer, phase }
@@ -168,6 +207,13 @@ Static class property persists across scene reloads. Each run faces different bo
 **Adding in-run upgrades:**
 Add object to `upgrades` array in `src/data/Upgrades.ts` with `name`, `description`, `maxLevel`, `apply`. Break level gates at 3, 6, 9 (need player level thresholds). Level 10 grants mastery bonuses.
 
+**Limit Break / Overflow upgrades** (`src/data/LimitBreakUpgrades.ts`): repeatable,
+gate-free upgrades (`isOverflow: true`, `maxLevel` 999) folded into the run upgrade pool
+by `createUpgrades()`. `getRandomCombinedUpgrades` filters them out of normal selection and
+only surfaces them via `padWithOverflow` when the normal pool can't fill the modal (so a
+late-game level-up is never dead). Styled gold "LIMIT BREAK" in UpgradeScene. Auto-buy
+scores them modestly so they don't starve weapon level-ups.
+
 **Adding permanent upgrades (shop):**
 1. Add upgrade object to `PERMANENT_UPGRADES` in `src/data/PermanentUpgrades.ts` (categories: offense, defense, movement, resources, utility, elemental, mastery)
 2. Add level field to `PermanentUpgradeState` in `src/meta/MetaProgressionManager.ts`
@@ -195,6 +241,8 @@ Union type `Phaser.GameObjects.Shape | Phaser.GameObjects.Graphics` — supports
 **Music Catalog** (`/src/data/MusicCatalog.ts`): Metadata for 26 tracker files in `public/music/`.
 
 **Sound Effects** (`/src/audio/SoundManager.ts`): Phaser audio for SFX. Pentatonic scale design. 50ms throttle between hits.
+
+**Dynamic Music Intensity** (`/src/audio/MusicIntensityDriver.ts`): per-frame driver reads combo/enemy-density/player-danger/boss-active and ramps `MusicManager.setIntensity()` — a multiplier *layered on top of* the user volume (effective gain = volume × intensity), never persisted. `resetMusicIntensityDriver()` (in `resetAllRunSystems` + shutdown) restores intensity to 1.0 so menus play at the user's volume.
 
 ### Effects System
 
@@ -300,6 +348,10 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 **Stages / Biomes** (`src/data/Stages.ts`): Selectable biomes — grid colors, ambient overlay, enemy HP/damage multipliers, XP/gold multipliers. Default always available; others gated by `hidden:<id>` or `worldLevel:<n>`.
 
 **Run Modifiers** (`src/data/RunModifiers.ts`): Pool of per-run modifiers (`offense` / `defense` / `resources` / `chaos`). Each run selects 1-2; each `apply(stats: PlayerStats)` mutates `PlayerStats` at run start. Surfaced briefly during run intro.
+
+**Pacts** (`src/data/Pacts.ts` + `PactSelectScene`): player-chosen pre-run curses (up to `MAX_PACTS`=3) — harder run for bigger rewards. Each `apply(stats)` works purely through existing `PlayerStats` fields (`curseMultiplier` scales enemy HP/damage/XP; `goldMultiplier`/`xpMultiplier` scale rewards; maxHealth/healingBoost/iframeDuration tune fragility) — no spawn-director/enemy-stat surgery. Applied on fresh runs only (restore keeps the baked-in PlayerStats). **Note:** `PlayerStats.goldMultiplier` is read by `MetaProgressionManager.calculateRunGold(..., runGoldMultiplier)` (also carries ship/stage gold bonuses).
+
+**Performance Grade + Best Score** (`src/utils/PerformanceGrade.ts` + `src/meta/BestScoreManager.ts`): the game-over results overlay (`PauseMenuManager.gameOver`) shows an S–F grade (baseline-scaled by world level, +1 tier on victory) and a per-run best score persisted by world level via SecureStorage (key `survivor-best-scores`, registered in `StorageBootstrap.ALL_STORAGE_KEYS`).
 
 **Weapon Synergies** (`src/data/WeaponSynergies.ts`): Passive bonuses when a specific weapon pair is equipped (damage and cooldown multipliers applied to both weapons). Build-crafting layer beyond raw DPS.
 
