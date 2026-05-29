@@ -19,7 +19,7 @@ import {
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
-import { enemyAISystem, getWardenSlowMultiplier } from '../../ecs/systems/EnemyAISystem';
+import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { resetBossPhaseTracking } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
@@ -52,6 +52,7 @@ import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
 import { rollAffix, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
+import { TelegraphManager } from '../../effects/TelegraphManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
@@ -298,6 +299,7 @@ export class GameScene extends Phaser.Scene {
   // Status effect visual overlays on enemies
   private statusEffectVisualManager!: StatusEffectVisualManager;
   private eliteAffixVisualManager!: EliteAffixVisualManager;
+  private telegraphManager!: TelegraphManager;
 
   // Off-screen threat directional arrows
   private offScreenIndicatorManager!: OffScreenIndicatorManager;
@@ -559,6 +561,10 @@ export class GameScene extends Phaser.Scene {
     this.eliteAffixVisualManager = new EliteAffixVisualManager(this);
     this.eliteAffixVisualManager.setWorld(this.world);
     this.eliteAffixVisualManager.setQuality(this.visualQuality);
+
+    this.telegraphManager = new TelegraphManager(this);
+    this.telegraphManager.setQuality(this.visualQuality);
+    setTelegraphManager(this.telegraphManager);
 
     // Initialize off-screen threat indicators
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
@@ -1167,6 +1173,10 @@ export class GameScene extends Phaser.Scene {
     this.eliteAffixVisualManager = new EliteAffixVisualManager(this);
     this.eliteAffixVisualManager.setWorld(this.world);
     this.eliteAffixVisualManager.setQuality(this.visualQuality);
+
+    this.telegraphManager = new TelegraphManager(this);
+    this.telegraphManager.setQuality(this.visualQuality);
+    setTelegraphManager(this.telegraphManager);
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
     this.masteryVisualsManager = new MasteryVisualsManager(this);
@@ -2606,6 +2616,9 @@ export class GameScene extends Phaser.Scene {
     inputSystem(this.world, inputState, deltaSeconds, this.playerStats.accelerationMultiplier);
     updateAIGameTime(this.gameTime);
     enemyAISystem(this.world, deltaSeconds);
+
+    // Update attack telegraphs (spawned by enemy AI windups above)
+    this.telegraphManager.update(deltaSeconds);
 
     // Apply Warden slow aura to player velocity (computed inside enemyAISystem)
     if (this.playerId !== -1) {
@@ -6446,6 +6459,10 @@ export class GameScene extends Phaser.Scene {
       if (this.eliteAffixVisualManager) {
         this.eliteAffixVisualManager.setQuality(newQuality);
       }
+      // Update attack telegraph quality
+      if (this.telegraphManager) {
+        this.telegraphManager.setQuality(newQuality);
+      }
       // Update hazard zone visual quality
       setHazardZoneQuality(newQuality);
       // Update player spaceship quality
@@ -6636,6 +6653,8 @@ export class GameScene extends Phaser.Scene {
     if (this.statusEffectVisualManager) {
       this.statusEffectVisualManager.destroy();
       this.eliteAffixVisualManager.destroy();
+      this.telegraphManager.destroy();
+      setTelegraphManager(null);
     }
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();

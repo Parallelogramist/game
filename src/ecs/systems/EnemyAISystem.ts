@@ -11,6 +11,15 @@ import {
   getLinkedTwin,
   bossPhaseTransitionCallback,
 } from './enemy-ai/state';
+import type { TelegraphManager } from '../../effects/TelegraphManager';
+
+// Attack telegraph manager (injected by GameScene). Draws windup indicators
+// before dangerous enemy attacks (dash / charge / ground slam). Pure
+// readability — never affects damage or timing.
+let telegraphManager: TelegraphManager | null = null;
+export function setTelegraphManager(manager: TelegraphManager | null): void {
+  telegraphManager = manager;
+}
 
 // Re-export public API from state module for backwards compatibility
 export {
@@ -405,6 +414,8 @@ function updateDashAI(
       EnemyAI.targetY[enemyId] = playerY;
       EnemyAI.state[enemyId] = 1;
       EnemyAI.timer[enemyId] = 0;
+      // Telegraph the dash trajectory.
+      telegraphManager?.spawnLine(enemyX, enemyY, Math.atan2(playerY - enemyY, playerX - enemyX), 360, 0.5, 0xff9933, 16);
     }
   } else {
     // Dashing toward stored target
@@ -1203,6 +1214,8 @@ function updateWardenAI(enemyId: number, playerX: number, playerY: number, delta
       if (EnemyAI.specialTimer[enemyId] <= 0) {
         EnemyAI.state[enemyId] = 1;
         EnemyAI.timer[enemyId] = 0;
+        // Telegraph the AOE footprint during the 0.8s plant windup.
+        telegraphManager?.spawnRing(enemyX, enemyY, 56, 0.8, 0xff5555);
       }
     }
   } else if (state === 1) {
@@ -1484,6 +1497,8 @@ function updateChargerAI(
     if (timer < 0.1) {
       EnemyAI.targetX[enemyId] = playerX;
       EnemyAI.targetY[enemyId] = playerY;
+      // Telegraph the charge lane across the screen during the 0.8s windup.
+      telegraphManager?.spawnLine(enemyX, enemyY, Math.atan2(playerY - enemyY, playerX - enemyX), 520, 0.8, 0xff5533, 26);
     }
 
     // Visual cue: shake slightly

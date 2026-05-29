@@ -12,6 +12,7 @@ export const DepthLayers = {
   TRAIL: 4,
   BLADE: 5,
   BLADE_HIT: 6,
+  ATTACK_TELEGRAPH: 7,
   FROST_NOVA_RING: 8,
   FROST_NOVA_CRYSTAL: 9,
   PROJECTILES: 10,
