@@ -67,6 +67,11 @@ export class GridBackground {
   private readonly PULSE_SPEED_BASE = 1.5;
   private PULSE_SPEED = 1.5;
 
+  // ─── Ambient drift ─── subtle whole-grid sway, cohesive with the parallax layers.
+  // Applied as a graphics-transform offset only; the warp simulation is untouched.
+  private driftPhase: number = 0;
+  private readonly GRID_DRIFT_AMPLITUDE = 6; // px, subtle
+
   // ─── Chromatic aberration ("double vision") ───
   private readonly CHROMATIC_CYAN = 0x00eeff;
   private readonly CHROMATIC_MAGENTA = 0xff0088;
@@ -474,6 +479,14 @@ export class GridBackground {
     this.pulsePhase += clampedDelta * this.PULSE_SPEED;
     this.frameCounter++;
 
+    // Subtle ambient sway of the whole grid (transform only — does not touch the sim).
+    // A gentle circular drift so the grid never walks off and stays cohesive with parallax.
+    this.driftPhase += clampedDelta * 0.15;
+    this.graphics.setPosition(
+      Math.cos(this.driftPhase) * this.GRID_DRIFT_AMPLITUDE,
+      Math.sin(this.driftPhase * 0.8) * this.GRID_DRIFT_AMPLITUDE,
+    );
+
     // Quick scan: check if any spring velocities are non-negligible
     this.springsActive = this.checkSpringsActive();
 
@@ -861,6 +874,8 @@ export class GridBackground {
     }
     this.gravityPoints.length = 0;
     this.pulsePhase = 0;
+    this.driftPhase = 0;
+    this.graphics.setPosition(0, 0);
     this.frameCounter = 0;
     this.dirty = true;
     this.springsActive = false;
