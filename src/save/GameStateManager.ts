@@ -24,6 +24,7 @@ import {
   XPGem,
   HealthPickup,
   MagnetPickup,
+  Destructible,
 } from '../ecs/components';
 import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
@@ -481,7 +482,11 @@ export class GameStateManager {
   private serializeEntities(world: IWorld, _playerId: number): SerializedEntity[] {
     const entities: SerializedEntity[] = [];
     for (const entityId of playerQuery(world)) entities.push(this.serializePlayer(world, entityId));
-    for (const entityId of enemyQuery(world)) entities.push(this.serializeEnemy(world, entityId));
+    for (const entityId of enemyQuery(world)) {
+      // Destructibles share EnemyTag but are transient — don't persist them.
+      if (hasComponent(world, Destructible, entityId)) continue;
+      entities.push(this.serializeEnemy(world, entityId));
+    }
     for (const entityId of xpGemQuery(world)) entities.push(this.serializeXPGem(world, entityId));
     for (const entityId of healthPickupQuery(world)) entities.push(this.serializeHealthPickup(world, entityId));
     for (const entityId of magnetPickupQuery(world)) entities.push(this.serializeMagnetPickup(world, entityId));

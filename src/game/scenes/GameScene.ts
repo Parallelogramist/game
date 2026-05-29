@@ -14,6 +14,7 @@ import {
   EnemyType,
   EnemyFlags,
   EnemyAffix,
+  Destructible,
   StatusEffect,
 } from '../../ecs/components';
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
@@ -165,6 +166,12 @@ export class GameScene extends Phaser.Scene {
 
   // Treasure chest spawn timer
   private treasureSpawnTimer: number = 0;
+
+  // Environmental destructibles (barrels/crates)
+  private destructibleSpawnTimer: number = 12;
+  private destructibleCount: number = 0;
+  private static readonly DESTRUCTIBLE_INTERVAL = 14;
+  private static readonly MAX_DESTRUCTIBLES = 6;
 
   // Cached per-run meta-progression values (set once in create(); cannot change mid-run)
   private cachedGemMagnetInterval: number = 0;
@@ -394,6 +401,8 @@ export class GameScene extends Phaser.Scene {
     this.spawnTimer = 0;
     this.enemyCount = 0;
     this.killCount = 0;
+    this.destructibleCount = 0;
+    this.destructibleSpawnTimer = 12;
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
     this.lastAchievementTimeCheck = 0;
@@ -1681,6 +1690,13 @@ export class GameScene extends Phaser.Scene {
     // caller ever fires twice for the same death.
     if (!hasComponent(this.world, EnemyTag, enemyId)) return;
 
+    // Destructibles share the EnemyTag pipeline (so weapons can hit them) but
+    // are not kills — drop loot + AOE and bail before any combo/XP/kill logic.
+    if (hasComponent(this.world, Destructible, enemyId)) {
+      this.handleDestructibleDestroyed(enemyId, x, y);
+      return;
+    }
+
     this.enemyCount--;
     this.killCount++;
 
@@ -2081,6 +2097,91 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Spawns an environmental destructible (crate). It shares the EnemyTag
+   * pipeline so weapons auto-target and destroy it, but has no EnemyAI
+   * (stationary) and deals no contact damage. On destruction it bursts for AOE
+   * + drops loot.
+   */
+  private spawnDestructible(): void {
+    const padding = 70;
+    const x = padding + Math.random() * (this.scale.width - padding * 2);
+    const y = padding + Math.random() * (this.scale.height - padding * 2);
+    // Don't spawn right on top of the player.
+    if (this.playerId !== -1) {
+      const pdx = x - Transform.x[this.playerId];
+      const pdy = y - Transform.y[this.playerId];
+      if (pdx * pdx + pdy * pdy < 120 * 120) return; // retry next tick
+    }
+
+    const entityId = addEntity(this.world);
+    addComponent(this.world, Transform, entityId);
+    addComponent(this.world, Health, entityId);
+    addComponent(this.world, EnemyTag, entityId);
+    addComponent(this.world, EnemyType, entityId);
+    addComponent(this.world, SpriteRef, entityId);
+    addComponent(this.world, Destructible, entityId);
+
+    Transform.x[entityId] = x;
+    Transform.y[entityId] = y;
+    Transform.rotation[entityId] = 0;
+
+    const hp = 30 + this.gameTime * 0.6;
+    Health.current[entityId] = hp;
+    Health.max[entityId] = hp;
+    EnemyType.typeId[entityId] = 0;
+    EnemyType.baseHealth[entityId] = hp;
+    EnemyType.baseDamage[entityId] = 0;
+    EnemyType.xpValue[entityId] = 0;
+    EnemyType.size[entityId] = 1.2;
+    EnemyType.armor[entityId] = 0;
+    EnemyType.shieldCurrent[entityId] = 0;
+    EnemyType.shieldMax[entityId] = 0;
+    EnemyType.flags[entityId] = 0;
+
+    // Crate visual: wooden box with cross-bracing.
+    const crate = this.add.graphics();
+    crate.setPosition(x, y);
+    const half = 13;
+    crate.fillStyle(0x7a4a22, 1);
+    crate.fillRect(-half, -half, half * 2, half * 2);
+    crate.lineStyle(2, 0xc98a48, 1);
+    crate.strokeRect(-half, -half, half * 2, half * 2);
+    crate.lineBetween(-half, -half, half, half);
+    crate.lineBetween(half, -half, -half, half);
+    crate.setDepth(5);
+    registerSprite(entityId, crate);
+
+    this.destructibleCount++;
+  }
+
+  /** Destroys a destructible: AOE damage to nearby enemies + a loot drop. */
+  private handleDestructibleDestroyed(enemyId: number, x: number, y: number): void {
+    this.destructibleCount = Math.max(0, this.destructibleCount - 1);
+
+    // Burst damages nearby enemies — the payoff for shooting a crate.
+    this.weaponManager.detonateArea(x, y, 110, 60 + this.gameTime * 1.5, 260);
+    this.effectsManager.playDeathBurst(x, y, 0xffaa44);
+    this.cameras.main.shake(120, 0.008);
+    this.soundManager.playComboThreshold();
+
+    // Loot: always a gem, frequently a floor consumable or health pack.
+    spawnXPGem(this.world, x, y, 8 + Math.floor(this.gameTime * 0.05));
+    if (Math.random() < 0.5) {
+      this.spawnRandomConsumable(x, y);
+    } else if (Math.random() < 0.4) {
+      spawnHealthPickup(this.world, x, y, 15 + Math.floor(Math.random() * 10));
+    }
+
+    // Cleanup (destructibles aren't registered with ripple/affix systems).
+    const sprite = getSprite(enemyId);
+    if (sprite) {
+      sprite.destroy();
+      unregisterSprite(enemyId);
+    }
+    removeEntity(this.world, enemyId);
+  }
+
   // Pre-allocated pool for grid background enemy data (avoids per-frame allocation)
   private gridEnemyDataPool: { x: number; y: number; weight: number }[] = [];
   private gridEnemyDataLength: number = 0;
@@ -2457,6 +2558,15 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // ═══ DESTRUCTIBLE SPAWNING (barrels/crates) ═══
+    if (this.playerId !== -1 && this.destructibleCount < GameScene.MAX_DESTRUCTIBLES) {
+      this.destructibleSpawnTimer -= deltaSeconds;
+      if (this.destructibleSpawnTimer <= 0) {
+        this.spawnDestructible();
+        this.destructibleSpawnTimer = GameScene.DESTRUCTIBLE_INTERVAL;
+      }
+    }
+
     // ═══ HP REGENERATION ═══
     if (this.playerStats.regenPerSecond > 0 && this.playerId !== -1) {
       const currentHP = Health.current[this.playerId];
@@ -2764,6 +2874,10 @@ export class GameScene extends Phaser.Scene {
     const enemies = getFrameCacheEnemyIds();
 
     for (const enemyId of enemies) {
+      // Destructibles (barrels/crates) deal no contact damage.
+      if (hasComponent(this.world, Destructible, enemyId)) {
+        continue;
+      }
       // Skip phased Wraiths (state 1 = phased, no contact damage)
       if (EnemyAI.aiType[enemyId] === EnemyAIType.Wraith && EnemyAI.state[enemyId] === 1) {
         continue;

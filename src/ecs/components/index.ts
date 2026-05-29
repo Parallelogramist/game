@@ -113,6 +113,12 @@ export const EnemyAffix = defineComponent({
   affixType: Types.ui8,
 });
 
+// Destructible tag - environmental objects (barrels/crates) that share the
+// EnemyTag pipeline so weapons can damage them, but on death drop loot + AOE
+// instead of counting as a kill. They have NO EnemyAI (stationary) and deal no
+// contact damage (see GameScene.checkPlayerEnemyCollision / handleEnemyDeath).
+export const Destructible = defineComponent();
+
 // Enemy flags (bit positions)
 export const EnemyFlags = {
   EXPLODES_ON_DEATH: 1 << 0,
