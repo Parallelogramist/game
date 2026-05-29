@@ -63,6 +63,7 @@ import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
 import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
 import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
+import { getPactById, type Pact } from '../../data/Pacts';
 import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
@@ -297,6 +298,7 @@ export class GameScene extends Phaser.Scene {
 
   // Active run modifiers
   private activeModifiers: RunModifier[] = [];
+  private activePacts: Pact[] = [];
 
   // Boss arena hazard zone spawning
   private activeBossType: string | null = null;
@@ -375,6 +377,7 @@ export class GameScene extends Phaser.Scene {
     restore?: boolean;
     startingWeapon?: string;
     modifierIds?: string[];
+    pactIds?: string[];
     shipId?: string;
     stageId?: string;
     dailyMode?: boolean;
@@ -396,6 +399,11 @@ export class GameScene extends Phaser.Scene {
     } else if (!this.shouldRestore) {
       this.activeModifiers = selectRunModifiers(2);
     }
+    // Player-chosen pacts (PactSelectScene). Applied on fresh runs only; on
+    // restore the pact effects are already baked into the saved PlayerStats.
+    this.activePacts = (data?.pactIds ?? [])
+      .map(id => getPactById(id))
+      .filter((pact): pact is Pact => pact !== undefined);
   }
 
   create(): void {
@@ -726,6 +734,11 @@ export class GameScene extends Phaser.Scene {
     // ═══ RUN MODIFIERS ═══
     for (const modifier of this.activeModifiers) {
       modifier.apply(this.playerStats);
+    }
+
+    // ═══ PRE-RUN PACTS (player-chosen curses for bigger rewards) ═══
+    for (const pact of this.activePacts) {
+      pact.apply(this.playerStats);
     }
 
     // ═══ SHIP / CHARACTER BONUSES ═══

@@ -10,6 +10,7 @@ import { CreditsScene } from './game/scenes/CreditsScene';
 import { AchievementScene } from './game/scenes/AchievementScene';
 import { CodexScene } from './game/scenes/CodexScene';
 import { WeaponSelectScene } from './game/scenes/WeaponSelectScene';
+import { PactSelectScene } from './game/scenes/PactSelectScene';
 import { LeaderboardScene } from './game/scenes/LeaderboardScene';
 import { initializeStorage, flushStorage } from './storage';
 import { BloomPipeline } from './visual/BloomPipeline';
@@ -34,7 +35,7 @@ import { ColorblindPipeline } from './visual/ColorblindPipeline';
   // Create game configuration with scenes
   const config: Phaser.Types.Core.GameConfig = {
     ...GAME_CONFIG,
-    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, WeaponSelectScene, LeaderboardScene],
+    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
   };
 
   // Initialize the game

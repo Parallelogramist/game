@@ -442,8 +442,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     if (this.discoveredWeaponsCache.length <= 1) {
       const selectedModifiers = selectRunModifiers(2);
-      this.scene.start('GameScene', {
-        restore: false,
+      this.scene.start('PactSelectScene', {
         startingWeapon: 'projectile',
         shipId: this.selectedShipId,
         stageId: this.selectedStageId,
@@ -639,8 +638,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     const selectedModifiers = selectRunModifiers(2);
     fadeOut(this, 150, () => {
-      this.scene.start('GameScene', {
-        restore: false,
+      this.scene.start('PactSelectScene', {
         startingWeapon: weaponId,
         shipId: this.selectedShipId,
         stageId: this.selectedStageId,
