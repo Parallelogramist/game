@@ -107,6 +107,12 @@ export const EnemyType = defineComponent({
   flags: Types.ui8,         // Bit flags for special abilities
 });
 
+// Elite affix component - marks an enemy as an elite with one affix
+// (see src/data/Affixes.ts for EnemyAffixType + behaviour).
+export const EnemyAffix = defineComponent({
+  affixType: Types.ui8,
+});
+
 // Enemy flags (bit positions)
 export const EnemyFlags = {
   EXPLODES_ON_DEATH: 1 << 0,

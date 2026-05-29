@@ -13,6 +13,7 @@ import {
   EnemyAI,
   EnemyType,
   EnemyFlags,
+  EnemyAffix,
   StatusEffect,
 } from '../../ecs/components';
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
@@ -49,6 +50,8 @@ import { DeathRippleManager } from '../../visual/DeathRippleManager';
 import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
+import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
+import { rollAffix, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
@@ -294,6 +297,7 @@ export class GameScene extends Phaser.Scene {
 
   // Status effect visual overlays on enemies
   private statusEffectVisualManager!: StatusEffectVisualManager;
+  private eliteAffixVisualManager!: EliteAffixVisualManager;
 
   // Off-screen threat directional arrows
   private offScreenIndicatorManager!: OffScreenIndicatorManager;
@@ -551,6 +555,10 @@ export class GameScene extends Phaser.Scene {
     this.statusEffectVisualManager = new StatusEffectVisualManager(this);
     this.statusEffectVisualManager.setWorld(this.world);
     this.statusEffectVisualManager.setQuality(this.visualQuality);
+
+    this.eliteAffixVisualManager = new EliteAffixVisualManager(this);
+    this.eliteAffixVisualManager.setWorld(this.world);
+    this.eliteAffixVisualManager.setQuality(this.visualQuality);
 
     // Initialize off-screen threat indicators
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
@@ -1155,6 +1163,10 @@ export class GameScene extends Phaser.Scene {
     this.statusEffectVisualManager = new StatusEffectVisualManager(this);
     this.statusEffectVisualManager.setWorld(this.world);
     this.statusEffectVisualManager.setQuality(this.visualQuality);
+
+    this.eliteAffixVisualManager = new EliteAffixVisualManager(this);
+    this.eliteAffixVisualManager.setWorld(this.world);
+    this.eliteAffixVisualManager.setQuality(this.visualQuality);
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
     this.masteryVisualsManager = new MasteryVisualsManager(this);
@@ -1739,6 +1751,18 @@ export class GameScene extends Phaser.Scene {
       this.handleSplit(x, y);
     }
 
+    // ═══ ELITE AFFIX DEATH EFFECTS ═══
+    if (hasComponent(this.world, EnemyAffix, enemyId)) {
+      const deathAffix = EnemyAffix.affixType[enemyId];
+      if (deathAffix === EnemyAffixType.VOLATILE) {
+        this.handleExplosion(x, y, 95, 22);                  // hurt the player if close
+        this.weaponManager.detonateArea(x, y, 95, 45, 220);  // chain damage to nearby enemies
+        this.effectsManager.playDeathBurst(x, y, 0xffaa00);
+      } else if (deathAffix === EnemyAffixType.BLESSED) {
+        this.spawnRandomConsumable(x, y);                    // guaranteed power-up
+      }
+    }
+
     // ═══ PANDEMIC SPREAD (poison spreads to nearby enemies on death) ═══
     if (this.playerStats.pandemicSpread > 0 && hasComponent(this.world, StatusEffect, enemyId)) {
       const poisonStacks = StatusEffect.poisonStacks[enemyId];
@@ -1901,6 +1925,7 @@ export class GameScene extends Phaser.Scene {
     // Clean up entity — unregister from ECS immediately, but let visual linger for kill flash
     this.deathRippleManager.unregisterEnemy(enemyId);
     this.statusEffectVisualManager.unregisterEnemy(enemyId);
+    this.eliteAffixVisualManager.unregisterEnemy(enemyId);
     const sprite = getSprite(enemyId);
     unregisterSprite(enemyId);
     removeEntity(this.world, enemyId);
@@ -2666,6 +2691,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update status effect visuals (burn/freeze/poison overlays)
     this.statusEffectVisualManager.update(deltaSeconds);
+    this.eliteAffixVisualManager.update(deltaSeconds);
 
     // Update off-screen threat indicators
     this.offScreenIndicatorManager.update(deltaSeconds);
@@ -2741,6 +2767,10 @@ export class GameScene extends Phaser.Scene {
       if (distanceSquared < collisionDistance * collisionDistance) {
         // Collision! Take damage
         this.takeDamage(EnemyType.baseDamage[enemyId] || 10, enemyId);
+        // Vampiric elites heal a chunk when they land a hit on the player.
+        if (hasComponent(this.world, EnemyAffix, enemyId) && EnemyAffix.affixType[enemyId] === EnemyAffixType.VAMPIRIC) {
+          Health.current[enemyId] = Math.min(Health.max[enemyId], Health.current[enemyId] + Health.max[enemyId] * 0.2);
+        }
         break; // Only one hit per frame
       }
     }
@@ -3731,6 +3761,22 @@ export class GameScene extends Phaser.Scene {
     } else {
       EnemyType.shieldCurrent[entityId] = 0;
       EnemyType.shieldMax[entityId] = 0;
+    }
+
+    // ═══ ELITE AFFIX (regular enemies only — minibosses/bosses excluded) ═══
+    if (enemyType.xpValue < 30) {
+      const affix = rollAffix();
+      if (affix !== EnemyAffixType.NONE) {
+        const affixMeta = AFFIX_META[affix];
+        addComponent(this.world, EnemyAffix, entityId);
+        EnemyAffix.affixType[entityId] = affix;
+        Health.max[entityId] *= affixMeta.healthScale;
+        Health.current[entityId] = Health.max[entityId];
+        EnemyType.baseHealth[entityId] *= affixMeta.healthScale;
+        EnemyType.xpValue[entityId] = Math.min(65535, Math.round(EnemyType.xpValue[entityId] * affixMeta.xpScale));
+        EnemyType.armor[entityId] += affixMeta.bonusArmor;
+        Velocity.speed[entityId] *= affixMeta.speedScale;
+      }
     }
 
     // Create visual based on type
@@ -6396,6 +6442,10 @@ export class GameScene extends Phaser.Scene {
       if (this.statusEffectVisualManager) {
         this.statusEffectVisualManager.setQuality(newQuality);
       }
+      // Update elite affix visual quality
+      if (this.eliteAffixVisualManager) {
+        this.eliteAffixVisualManager.setQuality(newQuality);
+      }
       // Update hazard zone visual quality
       setHazardZoneQuality(newQuality);
       // Update player spaceship quality
@@ -6585,6 +6635,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.statusEffectVisualManager) {
       this.statusEffectVisualManager.destroy();
+      this.eliteAffixVisualManager.destroy();
     }
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();

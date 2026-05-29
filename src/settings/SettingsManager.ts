@@ -17,7 +17,13 @@ const STORAGE_KEY_UI_SCALE = 'settings-ui-scale';
 const STORAGE_KEY_TUTORIAL_SEEN = 'settings-tutorial-seen';
 const STORAGE_KEY_REDUCED_MOTION = 'settings-reduced-motion';
 const STORAGE_KEY_DIRECTOR_DEBUG = 'settings-director-debug';
+const STORAGE_KEY_SCREEN_SHAKE_INTENSITY = 'settings-screen-shake-intensity';
+const STORAGE_KEY_COLORBLIND_MODE = 'settings-colorblind-mode';
+const STORAGE_KEY_HIGH_CONTRAST = 'settings-high-contrast';
 export type DamageNumbersMode = 'all' | 'crits' | 'perfect_crits' | 'off';
+
+/** Color-vision-deficiency correction modes applied as a full-screen post-FX filter. */
+export type ColorblindMode = 'off' | 'protanopia' | 'deuteranopia' | 'tritanopia';
 
 export interface GameSettings {
   sfxEnabled: boolean;
@@ -31,6 +37,11 @@ export interface GameSettings {
   tutorialSeen: boolean;
   reducedMotion: boolean;
   directorDebugEnabled: boolean;
+  /** Screen-shake intensity multiplier, 0 (off) to 1 (full). Replaces the old on/off toggle. */
+  screenShakeIntensity: number;
+  colorblindMode: ColorblindMode;
+  /** Boosts gameplay contrast (brighter enemy projectiles, stronger danger vignette). */
+  highContrast: boolean;
 }
 
 const DEFAULTS: GameSettings = {
@@ -45,6 +56,9 @@ const DEFAULTS: GameSettings = {
   tutorialSeen: false,
   reducedMotion: false,
   directorDebugEnabled: false,
+  screenShakeIntensity: 1.0,
+  colorblindMode: 'off',
+  highContrast: false,
 };
 
 export class SettingsManager {
@@ -63,7 +77,26 @@ export class SettingsManager {
       tutorialSeen: this.loadBoolean(STORAGE_KEY_TUTORIAL_SEEN, DEFAULTS.tutorialSeen),
       reducedMotion: this.loadBoolean(STORAGE_KEY_REDUCED_MOTION, DEFAULTS.reducedMotion),
       directorDebugEnabled: this.loadBoolean(STORAGE_KEY_DIRECTOR_DEBUG, DEFAULTS.directorDebugEnabled),
+      // Migrate from the legacy on/off shake toggle: if the player had shake off, start at 0 intensity.
+      screenShakeIntensity: this.loadNumber(
+        STORAGE_KEY_SCREEN_SHAKE_INTENSITY,
+        this.loadBoolean(STORAGE_KEY_SCREEN_SHAKE, true) ? DEFAULTS.screenShakeIntensity : 0
+      ),
+      colorblindMode: this.loadColorblindMode(),
+      highContrast: this.loadBoolean(STORAGE_KEY_HIGH_CONTRAST, DEFAULTS.highContrast),
     };
+  }
+
+  private loadColorblindMode(): ColorblindMode {
+    try {
+      const stored = SecureStorage.getItem(STORAGE_KEY_COLORBLIND_MODE);
+      if (stored && ['off', 'protanopia', 'deuteranopia', 'tritanopia'].includes(stored)) {
+        return stored as ColorblindMode;
+      }
+    } catch {
+      console.warn('Could not load colorblind mode setting');
+    }
+    return DEFAULTS.colorblindMode;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -163,13 +196,27 @@ export class SettingsManager {
   // Visual Settings
   // ═══════════════════════════════════════════════════════════════════════════
 
+  /** True when shake intensity is above zero. Kept for call sites that only need on/off. */
   isScreenShakeEnabled(): boolean {
-    return this.settings.screenShakeEnabled;
+    return this.settings.screenShakeIntensity > 0;
   }
 
   setScreenShakeEnabled(enabled: boolean): void {
-    this.settings.screenShakeEnabled = enabled;
-    this.saveBoolean(STORAGE_KEY_SCREEN_SHAKE, enabled);
+    this.setScreenShakeIntensity(enabled ? 1.0 : 0);
+  }
+
+  /** Screen-shake intensity multiplier, 0 (off) to 1 (full). */
+  getScreenShakeIntensity(): number {
+    return this.settings.screenShakeIntensity;
+  }
+
+  setScreenShakeIntensity(intensity: number): void {
+    const clamped = Math.max(0, Math.min(1, Math.round(intensity * 100) / 100));
+    this.settings.screenShakeIntensity = clamped;
+    // Keep the legacy boolean in sync so older save data / call sites stay consistent.
+    this.settings.screenShakeEnabled = clamped > 0;
+    this.saveNumber(STORAGE_KEY_SCREEN_SHAKE_INTENSITY, clamped);
+    this.saveBoolean(STORAGE_KEY_SCREEN_SHAKE, clamped > 0);
   }
 
   isGridEffectsEnabled(): boolean {
@@ -238,6 +285,24 @@ export class SettingsManager {
     this.saveBoolean(STORAGE_KEY_REDUCED_MOTION, enabled);
   }
 
+  getColorblindMode(): ColorblindMode {
+    return this.settings.colorblindMode;
+  }
+
+  setColorblindMode(mode: ColorblindMode): void {
+    this.settings.colorblindMode = mode;
+    this.saveString(STORAGE_KEY_COLORBLIND_MODE, mode);
+  }
+
+  isHighContrastEnabled(): boolean {
+    return this.settings.highContrast;
+  }
+
+  setHighContrast(enabled: boolean): void {
+    this.settings.highContrast = enabled;
+    this.saveBoolean(STORAGE_KEY_HIGH_CONTRAST, enabled);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Debug Overlays
   // ═══════════════════════════════════════════════════════════════════════════
@@ -291,6 +356,9 @@ export class SettingsManager {
     this.setTutorialSeen(DEFAULTS.tutorialSeen);
     this.setReducedMotion(DEFAULTS.reducedMotion);
     this.setDirectorDebugEnabled(DEFAULTS.directorDebugEnabled);
+    this.setScreenShakeIntensity(DEFAULTS.screenShakeIntensity);
+    this.setColorblindMode(DEFAULTS.colorblindMode);
+    this.setHighContrast(DEFAULTS.highContrast);
   }
 }
 

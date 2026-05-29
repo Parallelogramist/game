@@ -14,6 +14,7 @@ import { LeaderboardScene } from './game/scenes/LeaderboardScene';
 import { initializeStorage, flushStorage } from './storage';
 import { BloomPipeline } from './visual/BloomPipeline';
 import { DistortionPipeline } from './visual/DistortionPipeline';
+import { ColorblindPipeline } from './visual/ColorblindPipeline';
 
 /**
  * Main entry point for the Survivor Game.
@@ -44,6 +45,7 @@ import { DistortionPipeline } from './visual/DistortionPipeline';
     const renderer = game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
     renderer.pipelines.addPostPipeline('BloomPipeline', BloomPipeline);
     renderer.pipelines.addPostPipeline('DistortionPipeline', DistortionPipeline);
+    renderer.pipelines.addPostPipeline('ColorblindPipeline', ColorblindPipeline);
   }
 
   // Flush pending encrypted writes before page unload
