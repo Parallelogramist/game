@@ -105,6 +105,8 @@ void ACCENT_COLORS_STR;
 const PAUSE_MENU_DEPTH = 2100;
 
 function formatLargeNumber(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(Math.floor(n));
@@ -1594,7 +1596,7 @@ export class PauseMenuManager {
     const bests = data.personalBests!;
     const panelX = this.scene.scale.width * 0.18;
     const panelTopY = this.scene.scale.height / 2 - 150;
-    const panelWidth = 220;
+    const panelWidth = 240;
     const rowHeight = 32;
 
     interface BestRow {
@@ -1617,24 +1619,24 @@ export class PauseMenuManager {
     const killsBroke = data.killCount > bests.mostKills;
     rows.push({
       label: 'Kills',
-      current: String(data.killCount),
-      record: String(bests.mostKills),
+      current: formatLargeNumber(data.killCount),
+      record: formatLargeNumber(bests.mostKills),
       broke: killsBroke,
     });
 
     const levelBroke = data.playerLevel > bests.highestLevel;
     rows.push({
       label: 'Level',
-      current: String(data.playerLevel),
-      record: String(bests.highestLevel),
+      current: formatLargeNumber(data.playerLevel),
+      record: formatLargeNumber(bests.highestLevel),
       broke: levelBroke,
     });
 
     const comboBroke = data.highestCombo > bests.highestCombo;
     rows.push({
       label: 'Combo',
-      current: String(data.highestCombo),
-      record: String(bests.highestCombo),
+      current: formatLargeNumber(data.highestCombo),
+      record: formatLargeNumber(bests.highestCombo),
       broke: comboBroke,
     });
 

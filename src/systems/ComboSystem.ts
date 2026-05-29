@@ -120,8 +120,12 @@ export function recordComboKill(): RecordKillResult {
   const { graceDelay } = getTieredDecayParams(comboCount);
   comboDecayTimer = graceDelay;
 
-  if (comboCount > highestCombo) {
-    highestCombo = comboCount;
+  // Floor when recording the record: comboCount carries a fractional remainder
+  // from per-frame decay (line ~175), so storing it raw would yield a non-integer
+  // highest-combo (e.g. 18.5865). The displayed combo is always floored.
+  const flooredCombo = Math.floor(comboCount);
+  if (flooredCombo > highestCombo) {
+    highestCombo = flooredCombo;
   }
 
   // Detect tier change (none→warm, warm→hot, etc.)

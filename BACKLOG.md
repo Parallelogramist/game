@@ -114,6 +114,7 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `15e2797` Fix game-over best-panel overflow (combo int at source + renderer hardening) + gate run start on intro overlay dismissal.
 - `e60d28e` Fix review findings across the 10 new features (gold-mult dead write,
   shrine HP no-op, ripple crash on crates, restore-path resets, victory world-level,
   auto-buy overflow scoring, minion affixes, volatile recursion, aura/heal on crates).
