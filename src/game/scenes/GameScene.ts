@@ -45,6 +45,7 @@ import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/En
 import { generateGemAtlases, destroyGemAtlases } from '../../visual/Gem3DRenderer';
 import { generateProjectileAtlases, destroyProjectileAtlases } from '../../visual/ProjectileAtlasRenderer';
 import { GridBackground } from '../../visual/GridBackground';
+import { ParallaxBackground } from '../../visual/ParallaxBackground';
 import { PlayerSpaceship } from '../../visual/PlayerSpaceship';
 import { TrailManager } from '../../visual/TrailManager';
 import { DeathRippleManager } from '../../visual/DeathRippleManager';
@@ -323,6 +324,7 @@ export class GameScene extends Phaser.Scene {
 
   // Geometry Wars style warping grid background
   private gridBackground!: GridBackground;
+  private parallaxBackground!: ParallaxBackground;
 
   // Motion trail system for player and fast enemies
   private trailManager!: TrailManager;
@@ -556,6 +558,9 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize Geometry Wars style warping grid background
     this.gridBackground = new GridBackground(this);
+    // Parallax depth layers behind the grid (fixed camera → driven by player offset)
+    this.parallaxBackground = new ParallaxBackground(this);
+    this.parallaxBackground.setQuality(this.visualQuality);
     this.applyStageVisuals();
 
     // Initialize motion trail system
@@ -1211,6 +1216,9 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize visual systems
     this.gridBackground = new GridBackground(this);
+    // Parallax depth layers behind the grid (fixed camera → driven by player offset)
+    this.parallaxBackground = new ParallaxBackground(this);
+    this.parallaxBackground.setQuality(this.visualQuality);
     this.applyStageVisuals();
     this.trailManager = new TrailManager(this);
     this.deathRippleManager = new DeathRippleManager(this);
@@ -3166,6 +3174,11 @@ export class GameScene extends Phaser.Scene {
         Velocity.y[this.playerId],
         deltaSeconds
       );
+    }
+
+    // Update parallax depth layers (behind grid) from player position
+    if (this.parallaxBackground && this.playerId !== -1) {
+      this.parallaxBackground.update(deltaSeconds, Transform.x[this.playerId], Transform.y[this.playerId]);
     }
 
     // Update grid background with entity positions for warping effect
@@ -6911,8 +6924,12 @@ export class GameScene extends Phaser.Scene {
         const ex = Transform.x[enemyId];
         const ey = Transform.y[enemyId];
 
-        // Use a neon version of red for enemy trails
-        this.trailManager.addTrailPoint(enemyId, ex, ey, 0xff6666, 5);
+        // Zigzag Runner gets a brighter orange engine wash; other fast enemies stay red.
+        if (EnemyAI.aiType[enemyId] === EnemyAIType.Zigzag) {
+          this.trailManager.addTrailPoint(enemyId, ex, ey, 0xff8833, 7);
+        } else {
+          this.trailManager.addTrailPoint(enemyId, ex, ey, 0xff6666, 5);
+        }
       }
     }
 
@@ -6977,6 +6994,13 @@ export class GameScene extends Phaser.Scene {
         weight *= 3.0;
       } else if (aiType >= 50) {
         weight *= 2.0;
+      }
+
+      // Fast movers (e.g. darting Zigzags) disturb the field a touch more.
+      const evx = Velocity.x[enemyId];
+      const evy = Velocity.y[enemyId];
+      if (evx * evx + evy * evy > 14400) { // speed > 120
+        weight *= 1.3;
       }
 
       // Reuse pooled object in-place
@@ -7064,6 +7088,8 @@ export class GameScene extends Phaser.Scene {
       this.gridBackground.setQuality(newQuality);
       // Update trail system quality
       this.trailManager.setQuality(newQuality);
+      // Update parallax background quality
+      if (this.parallaxBackground) this.parallaxBackground.setQuality(newQuality);
       // Update death ripple quality
       if (this.deathRippleManager) {
         this.deathRippleManager.setQuality(newQuality);
@@ -7140,6 +7166,13 @@ export class GameScene extends Phaser.Scene {
     // Resize trail render texture
     if (this.trailManager) {
       this.trailManager.resize(w, h);
+    }
+
+    // Parallax field is sized at construction; recreate to pick up new dimensions
+    if (this.parallaxBackground) {
+      this.parallaxBackground.destroy();
+      this.parallaxBackground = new ParallaxBackground(this);
+      this.parallaxBackground.setQuality(this.visualQuality);
     }
 
     // Delegate all HUD repositioning to the HUD manager
@@ -7269,6 +7302,9 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.trailManager) {
       this.trailManager.destroy();
+    }
+    if (this.parallaxBackground) {
+      this.parallaxBackground.destroy();
     }
     if (this.deathRippleManager) {
       this.deathRippleManager.destroy();
