@@ -55,6 +55,8 @@ import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
 import { rollAffix, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers } from '../../visual/DepthLayers';
+import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
+import { recordScore } from '../../meta/BestScoreManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
@@ -3774,6 +3776,15 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.level,
       true // hasWon
     );
+    // Record the run's best score (victories count too — see results grade).
+    recordScore(metaManager.getWorldLevel(), computeRunScore({
+      killCount: this.killCount,
+      survivalSeconds: this.gameTime,
+      level: this.playerStats.level,
+      damageDealt: this.totalDamageDealt,
+      highestCombo: getHighestCombo(),
+      wasVictory: true,
+    }));
     getAchievementManager().recordRunEnd({
       wasVictory: true,
       killCount: this.killCount,
@@ -4000,6 +4011,19 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    // Performance grade + per-run best score (persisted by world level).
+    const runWorldLevel = metaManager.getWorldLevel();
+    const runScore = computeRunScore({
+      killCount: this.killCount,
+      survivalSeconds: this.gameTime,
+      level: this.playerStats.level,
+      damageDealt: this.totalDamageDealt,
+      highestCombo: highestComboThisRun,
+      wasVictory: this.hasWon,
+    });
+    const scoreResult = recordScore(runWorldLevel, runScore);
+    const performanceGrade = computePerformanceGrade(runScore, runWorldLevel, this.hasWon);
+
     this.pauseMenuManager.gameOver({
       killCount: this.killCount,
       gameTime: this.gameTime,
@@ -4012,6 +4036,10 @@ export class GameScene extends Phaser.Scene {
       weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
       personalBests: personalBestsSnapshot,
       unlockProgress: unlockProgressForPanel,
+      performanceGrade,
+      runScore: scoreResult.score,
+      bestScore: scoreResult.best,
+      isNewBest: scoreResult.isNewBest,
     });
   }
 

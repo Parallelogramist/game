@@ -175,6 +175,12 @@ export interface GameOverData {
   };
   /** Top locked unlocks the player is closest to — surfaced as retention hook. */
   unlockProgress?: UnlockProgressEntry[];
+  /** S–F performance grade for this run. */
+  performanceGrade?: { grade: string; color: string };
+  /** Composite run score + persisted best (by world level). */
+  runScore?: number;
+  bestScore?: number;
+  isNewBest?: boolean;
 }
 
 export class PauseMenuManager {
@@ -1209,6 +1215,44 @@ export class PauseMenuManager {
     titleText.setLetterSpacing(4);
     titleText.setOrigin(0.5).setDepth(depth);
     animatedElements.push(titleText);
+
+    // Performance grade badge (left of the title).
+    if (data.performanceGrade) {
+      const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
+      const badgeX = centerX - 185;
+      const badgeGraphics = this.scene.add.graphics();
+      badgeGraphics.setDepth(depth - 1);
+      badgeGraphics.fillStyle(0x000000, 0.55);
+      badgeGraphics.fillCircle(badgeX, centerY - 110, 36);
+      badgeGraphics.lineStyle(3, gradeColorHex, 1);
+      badgeGraphics.strokeCircle(badgeX, centerY - 110, 36);
+      const gradeText = this.scene.add.text(badgeX, centerY - 110, data.performanceGrade.grade, {
+        fontSize: '46px',
+        color: data.performanceGrade.color,
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 4,
+      }).setOrigin(0.5).setDepth(depth);
+      const gradeLabel = this.scene.add.text(badgeX, centerY - 66, 'GRADE', {
+        fontSize: '11px', color: '#8888aa', fontFamily: 'Arial',
+      }).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(badgeGraphics, gradeText, gradeLabel);
+    }
+
+    // Score line (below the title).
+    if (data.runScore !== undefined) {
+      const scoreStr = data.isNewBest
+        ? `★ NEW BEST  ${data.runScore.toLocaleString()}`
+        : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
+      const scoreText = this.scene.add.text(centerX, centerY - 66, scoreStr, {
+        fontSize: '16px',
+        color: data.isNewBest ? '#ffdd44' : '#9999bb',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(scoreText);
+    }
 
     // Run stats — each stat gets its own line with count-up animation
     const minutes = Math.floor(data.gameTime / 60);

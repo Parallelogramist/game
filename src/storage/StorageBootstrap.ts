@@ -49,6 +49,9 @@ export const ALL_STORAGE_KEYS = [
 
   // AchievementManager
   'survivor-achievements',
+
+  // BestScoreManager (per-run best score by world level)
+  'survivor-best-scores',
 ];
 
 /**
