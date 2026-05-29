@@ -84,6 +84,7 @@ Also sanity-check Sprint / Battle Flow magnitudes
 
 (most recent first; see `git log` for full detail)
 
+- `15e2797` Fix game-over best-panel overflow (combo int at source + renderer hardening) + gate run start on intro overlay dismissal.
 - `4365943` Wire armor penetration + 3 movement stats (C9 armor, C10 accel/sprint/combat).
 - `d768284` Wire explosionDamage + duration stats into weapon scaling (C7, C8).
 - `0bcbbdc` Fix pause-menu pill corners bleeding past rounded border.
