@@ -39,6 +39,16 @@ export const MagnetPickup = defineComponent({
   magnetized: Types.ui8,
 });
 
+// Consumable pickup tag - floor power-ups (bomb/freeze/vacuum/gold cache)
+export const ConsumablePickupTag = defineComponent();
+
+// Consumable pickup component - rare battlefield power-ups
+export const Consumable = defineComponent({
+  kind: Types.ui8,       // ConsumableKind enum (see ConsumablePickupSystem)
+  magnetized: Types.ui8,
+  value: Types.f32,      // payload amount (e.g. gold granted by a GOLD cache)
+});
+
 // Weapon component - player's weapon stats
 export const Weapon = defineComponent({
   damage: Types.f32,

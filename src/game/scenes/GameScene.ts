@@ -23,12 +23,13 @@ import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, 
 import { resetBossPhaseTracking } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
-import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
+import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
 import { getScaledStats, getEnemyType, getEnemyArmor, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
+import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind } from '../../ecs/systems/ConsumablePickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { getJuiceManager } from '../../effects/JuiceManager';
@@ -525,6 +526,9 @@ export class GameScene extends Phaser.Scene {
       if (this.visualQuality !== 'low') {
         pipelines.push('BloomPipeline');
       }
+      // ColorblindPipeline runs last so CVD correction / contrast applies to the
+      // fully composited frame. It is a pass-through when the setting is off.
+      pipelines.push('ColorblindPipeline');
       this.cameras.main.setPostPipeline(pipelines);
       const postPipelines = this.cameras.main.postPipelines;
       this.distortionPipeline = postPipelines.find(p => p.name === 'DistortionPipeline') as DistortionPipeline ?? null;
@@ -796,6 +800,11 @@ export class GameScene extends Phaser.Scene {
     setMagnetPickupSystemScene(this);
     setMagnetPickupEffectsManager(this.effectsManager);
     setMagnetPickupSoundManager(this.soundManager);
+
+    // Setup floor consumable system
+    setConsumablePickupSystemScene(this);
+    setConsumablePickupEffectsManager(this.effectsManager);
+    setConsumableCollectCallback((kind, x, y, value) => this.activateConsumable(kind, x, y, value));
 
     // Setup enemy projectile callback for shooter/sniper enemies
     setEnemyProjectileCallback((x, y, angle, speed, damage) => {
@@ -1401,6 +1410,11 @@ export class GameScene extends Phaser.Scene {
     setMagnetPickupEffectsManager(this.effectsManager);
     setMagnetPickupSoundManager(this.soundManager);
 
+    // Setup floor consumable system
+    setConsumablePickupSystemScene(this);
+    setConsumablePickupEffectsManager(this.effectsManager);
+    setConsumableCollectCallback((kind, x, y, value) => this.activateConsumable(kind, x, y, value));
+
     // Setup enemy projectile callback
     setEnemyProjectileCallback((x, y, angle, speed, damage) => {
       this.spawnEnemyProjectile(x, y, angle, speed, damage);
@@ -1708,6 +1722,13 @@ export class GameScene extends Phaser.Scene {
       this.nextEnemyDropsMagnet = false;
     }
 
+    // Rare floor-consumable drop. Tougher enemies drop more often; bosses/
+    // minibosses are guaranteed a power-up.
+    const consumableChance = xpValue >= 1000 ? 1 : xpValue >= 30 ? 0.18 : 0.012;
+    if (Math.random() < consumableChance) {
+      this.spawnRandomConsumable(x, y);
+    }
+
     // Check for explosion on death
     if (flags & EnemyFlags.EXPLODES_ON_DEATH) {
       this.handleExplosion(x, y, 60, 20);
@@ -1773,7 +1794,7 @@ export class GameScene extends Phaser.Scene {
       // Phase 3: Camera effects + slow-motion cinematic
       getJuiceManager().slowMotion(300, 0.25);
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(500, 0.035);
+        this.shakeCamera(500, 0.035);
       }
       this.cameras.main.flash(400, 255, 200, 200);
       this.effectsManager.playImpactFlash(0.4, 150);
@@ -1844,7 +1865,7 @@ export class GameScene extends Phaser.Scene {
       getJuiceManager().slowMotion(150, 0.4);
 
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(250, 0.018);
+        this.shakeCamera(250, 0.018);
       }
       this.effectsManager.playImpactFlash(0.15, 80);
       // Screen-space distortion shockwave from miniboss death
@@ -1954,6 +1975,74 @@ export class GameScene extends Phaser.Scene {
       // Scale stats with both time and world level multipliers
       const scaledStats = getScaledStats(miniType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
       this.createEnemy(x + offsetX, y + offsetY, miniType, scaledStats);
+    }
+  }
+
+  /**
+   * Spawns a weighted-random floor consumable at a position. GOLD caches carry
+   * a payload that scales with run progress so they stay relevant late game.
+   */
+  private spawnRandomConsumable(x: number, y: number): void {
+    const roll = Math.random();
+    let kind: ConsumableKind;
+    if (roll < 0.30) kind = ConsumableKind.BOMB;
+    else if (roll < 0.58) kind = ConsumableKind.FREEZE;
+    else if (roll < 0.80) kind = ConsumableKind.VACUUM;
+    else kind = ConsumableKind.GOLD;
+
+    const goldValue = kind === ConsumableKind.GOLD
+      ? 25 + Math.floor(this.gameTime * 0.5) + this.worldLevel * 10
+      : 0;
+    spawnConsumablePickup(this.world, x, y, kind, goldValue);
+  }
+
+  /**
+   * Applies a collected floor consumable's effect. Owned by GameScene because
+   * activation needs the weapon/meta managers and run state.
+   */
+  private activateConsumable(kind: ConsumableKind, x: number, y: number, value: number): void {
+    switch (kind) {
+      case ConsumableKind.BOMB: {
+        const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : x;
+        const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : y;
+        const bombDamage = 250 + this.gameTime * 3;
+        this.weaponManager.detonateArea(playerX, playerY, 720, bombDamage, 320);
+        this.effectsManager.playDeathBurst(playerX, playerY, 0xff7733);
+        this.cameras.main.shake(280, 0.02);
+        getJuiceManager().slowMotion(150, 0.45);
+        this.soundManager.playComboThreshold();
+        break;
+      }
+      case ConsumableKind.FREEZE: {
+        const enemyIds = getFrameCacheEnemyIds();
+        for (let i = 0; i < enemyIds.length; i++) {
+          applyFreeze(this.world, enemyIds[i], 0.12, 2800);
+        }
+        this.cameras.main.flash(180, 120, 200, 255);
+        this.soundManager.playFreezeApply();
+        break;
+      }
+      case ConsumableKind.VACUUM: {
+        magnetizeAllGems(this.world);
+        magnetizeAllHealthPickups(this.world);
+        this.soundManager.playMagnetActivation();
+        break;
+      }
+      case ConsumableKind.GOLD: {
+        const amount = value > 0 ? value : 50;
+        getMetaProgressionManager().addGold(amount);
+        this.soundManager.playPurchase();
+        if (this.toastManager) {
+          this.toastManager.showToast({
+            title: `Gold Cache +${amount}`,
+            description: 'Bonus gold banked for the shop.',
+            icon: 'coins',
+            color: 0xffd24a,
+            duration: 2500,
+          });
+        }
+        break;
+      }
     }
   }
 
@@ -2538,6 +2627,9 @@ export class GameScene extends Phaser.Scene {
     // Magnet pickup system
     magnetPickupSystem(this.world, deltaSeconds, this.gameTime);
 
+    // Floor consumable system (bomb/freeze/vacuum/gold)
+    consumablePickupSystem(this.world, deltaSeconds, this.gameTime);
+
     // Status effect system (burn, freeze, poison damage over time)
     statusEffectSystem(this.world, delta);
 
@@ -2816,7 +2908,7 @@ export class GameScene extends Phaser.Scene {
     if (getSettingsManager().isScreenShakeEnabled()) {
       const shakeIntensity = hpPercent < 0.25 ? 0.012 : 0.008;
       const shakeDuration = hpPercent < 0.25 ? 200 : 100;
-      this.cameras.main.shake(shakeDuration, shakeIntensity);
+      this.shakeCamera(shakeDuration, shakeIntensity);
     }
     this.effectsManager.playImpactFlash(0.15, 60);
 
@@ -3308,7 +3400,7 @@ export class GameScene extends Phaser.Scene {
     // t=500: Heavy screen shake + impact flash
     this.time.delayedCall(500, () => {
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(600, 0.04);
+        this.shakeCamera(600, 0.04);
       }
       this.effectsManager.playImpactFlash(0.5, 300);
     });
@@ -3729,7 +3821,7 @@ export class GameScene extends Phaser.Scene {
 
     // Screen shake effect for miniboss spawn
     if (getSettingsManager().isScreenShakeEnabled()) {
-      this.cameras.main.shake(200, 0.005);
+      this.shakeCamera(200, 0.005);
     }
 
     // Announce miniboss spawn with visual effect
@@ -4286,7 +4378,7 @@ export class GameScene extends Phaser.Scene {
       });
       this.soundManager.playComboThreshold();
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(200, 0.015);
+        this.shakeCamera(200, 0.015);
       }
       // Orange particle burst at player position for power surge feel
       this.effectsManager.playDeathBurst(comboPlayerX, comboPlayerY, 0xff8844);
@@ -4348,12 +4440,12 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.flash(500, 255, 255, 255);
       // Multi-wave screen shake for cascading impact
       if (getSettingsManager().isScreenShakeEnabled()) {
-        this.cameras.main.shake(200, 0.035);
+        this.shakeCamera(200, 0.035);
         this.time.delayedCall(150, () => {
-          this.cameras.main.shake(200, 0.025);
+          this.shakeCamera(200, 0.025);
         });
         this.time.delayedCall(300, () => {
-          this.cameras.main.shake(200, 0.015);
+          this.shakeCamera(200, 0.015);
         });
       }
       this.effectsManager.playImpactFlash(0.4, 150);
@@ -4376,6 +4468,17 @@ export class GameScene extends Phaser.Scene {
    * Handles combo tier transitions with scaled juice effects.
    * Separate from threshold rewards — fires when tier changes (e.g. none→warm).
    */
+  /**
+   * Shake the main camera, scaled by the player's screen-shake intensity
+   * setting (0–1). All gameplay shakes route through here so the
+   * accessibility slider applies globally; zero intensity becomes a no-op.
+   */
+  private shakeCamera(duration: number, intensity: number): void {
+    const shakeScale = getSettingsManager().getScreenShakeIntensity();
+    if (shakeScale <= 0) return;
+    this.cameras.main.shake(duration, intensity * shakeScale);
+  }
+
   private handleComboTierChange(tier: ComboTier): void {
     const tierJuiceConfig: Record<string, { shakeIntensity: number; shakeDuration: number; flashIntensity: number; flashDuration: number }> = {
       warm:    { shakeIntensity: 0.003, shakeDuration: 100, flashIntensity: 0.08, flashDuration: 50 },
@@ -4676,7 +4779,7 @@ export class GameScene extends Phaser.Scene {
 
     // Stronger screen shake for final boss
     if (getSettingsManager().isScreenShakeEnabled()) {
-      this.cameras.main.shake(400, 0.01);
+      this.shakeCamera(400, 0.01);
     }
 
     // Show boss entrance
@@ -4916,7 +5019,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (getSettingsManager().isScreenShakeEnabled()) {
-      this.cameras.main.shake(400, 0.015);
+      this.shakeCamera(400, 0.015);
     }
     this.effectsManager.playImpactFlash(0.18, 220);
     this.soundManager.playSynergyActivation();
@@ -4999,7 +5102,7 @@ export class GameScene extends Phaser.Scene {
 
     // Screen shake
     if (getSettingsManager().isScreenShakeEnabled()) {
-      this.cameras.main.shake(200, 0.02);
+      this.shakeCamera(200, 0.02);
     }
   }
 
@@ -5018,7 +5121,7 @@ export class GameScene extends Phaser.Scene {
 
     // Heavy screen shake + chromatic flash
     if (getSettingsManager().isScreenShakeEnabled()) {
-      this.cameras.main.shake(260, 0.018);
+      this.shakeCamera(260, 0.018);
     }
     this.effectsManager.playImpactFlash(0.22, 180);
 
@@ -5139,7 +5242,7 @@ export class GameScene extends Phaser.Scene {
 
           // Screen shake on laser hit
           if (getSettingsManager().isScreenShakeEnabled()) {
-            this.cameras.main.shake(150, 0.008);
+            this.shakeCamera(150, 0.008);
           }
         }
       }
@@ -5770,7 +5873,7 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.flash(400, 255, 255, 200);
 
       // 3. Screen shake for impact
-      this.cameras.main.shake(400, 0.02);
+      this.shakeCamera(400, 0.02);
 
       // 4. Shockwave ripple from player position
       this.deathRippleManager.spawnRipple(evolvePlayerX, evolvePlayerY);
@@ -5973,6 +6076,7 @@ export class GameScene extends Phaser.Scene {
     resetXPGemSystem();
     resetHealthPickupSystem();
     resetMagnetPickupSystem();
+    resetConsumablePickupSystem();
     resetWeaponSystem();
     resetCollisionSystem();
     resetStatusEffectSystem();

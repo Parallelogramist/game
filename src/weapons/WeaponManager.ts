@@ -580,6 +580,24 @@ export class WeaponManager {
   }
 
   /**
+   * Public area-of-effect damage routed through the full damage pipeline
+   * (crits, status, life steal, knockback, death handling). Used by floor
+   * consumables (BOMB) and environmental destructibles. Returns the number of
+   * enemies hit. Relies on the per-frame spatial hash being current.
+   */
+  public detonateArea(centerX: number, centerY: number, radius: number, damage: number, knockback: number = 200): number {
+    const targets = getEnemySpatialHash().query(centerX, centerY, radius);
+    let hits = 0;
+    for (const target of targets) {
+      const enemyId = target.id;
+      if (!hasComponent(this.world, EnemyTag, enemyId) || Health.current[enemyId] <= 0) continue;
+      this.damageEnemy(enemyId, damage, centerX, centerY, knockback);
+      hits++;
+    }
+    return hits;
+  }
+
+  /**
    * Apply global stat multipliers and bonuses to all weapons.
    */
   public applyMultipliers(
