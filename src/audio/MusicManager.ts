@@ -40,6 +40,8 @@ export class MusicManager {
 
   private isPlaying: boolean = false;
   private volume: number = 0.4;
+  // Runtime dynamic-intensity multiplier (see setIntensity); not persisted.
+  private intensity: number = 1.0;
 
   private enabledTrackIds: Set<string>;
   private playbackMode: PlaybackMode = 'sequential';
@@ -475,9 +477,22 @@ export class MusicManager {
   setVolume(volume: number): void {
     this.volume = Math.max(0, Math.min(1, volume));
     if (this.gainNode) {
-      this.gainNode.gain.value = this.volume;
+      this.gainNode.gain.value = this.volume * this.intensity;
     }
     this.saveVolume();
+  }
+
+  /**
+   * Dynamic-intensity multiplier layered on top of the user volume. Driven by
+   * MusicIntensityDriver so the soundtrack swells during high-combat moments
+   * (combo, enemy density, low HP, boss) and settles when calm. Subtle by
+   * design (~0.5x..1.15x). Does not persist — purely a runtime envelope.
+   */
+  setIntensity(multiplier: number): void {
+    this.intensity = Math.max(0, multiplier);
+    if (this.gainNode) {
+      this.gainNode.gain.value = this.volume * this.intensity;
+    }
   }
 
   /**

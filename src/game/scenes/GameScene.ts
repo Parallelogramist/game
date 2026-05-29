@@ -71,6 +71,7 @@ import { getAchievementManager, AchievementDefinition, MilestoneDefinition, Mile
 import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
+import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
@@ -2861,6 +2862,16 @@ export class GameScene extends Phaser.Scene {
 
     // ═══ IN-RUN BOUNTIES ═══
     this.updateBounties(deltaSeconds);
+
+    // ═══ DYNAMIC MUSIC INTENSITY ═══
+    updateMusicIntensity(deltaSeconds, {
+      comboCount: getComboCount(),
+      enemyCount: this.enemyCount,
+      hpFraction: this.playerId !== -1 && Health.max[this.playerId] > 0
+        ? Health.current[this.playerId] / Health.max[this.playerId]
+        : 1,
+      bossActive: this.activeBossType !== null,
+    });
 
     // ═══ HP REGENERATION ═══
     if (this.playerStats.regenPerSecond > 0 && this.playerId !== -1) {
@@ -6565,6 +6576,7 @@ export class GameScene extends Phaser.Scene {
     resetBossPhaseTracking();
     resetBossArenaSystem();
     resetHazardZoneSystem();
+    resetMusicIntensityDriver();
     getRelicManager().reset();
   }
 
@@ -7078,6 +7090,8 @@ export class GameScene extends Phaser.Scene {
     this.activeShrines = [];
     this.bountyText?.destroy();
     this.bountyText = null;
+    // Restore music to the user's volume (clears any combat-intensity lift).
+    resetMusicIntensityDriver();
 
     // Clean up pause menu manager (removes keyboard handlers and open dialogs)
     if (this.pauseMenuManager) {
