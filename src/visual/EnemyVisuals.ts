@@ -179,10 +179,21 @@ function drawShambler(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColor
   g.fillCircle(s * 0.35, -s * 0.2, eyeR);
 }
 
-/** Zigzag Runner — swept-back chevron/arrow, looks fast */
+/** Zigzag Runner — swept-back chevron/arrow with engine thrust glow, looks fast */
 function drawZigzag(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPair, quality: VisualQuality): void {
   triangleGlow(g, s, neon, quality);
-  // Chevron shape (nose at top = forward for triangles)
+
+  // Baked engine thrust glow behind the tail. Static (texture is cached + shared across
+  // instances); the speed-reactive wash is the motion trail added in GameScene.updateTrails.
+  if (quality !== 'low') {
+    const thrustColor = 0xff8833;
+    g.fillStyle(thrustColor, 0.20);
+    g.fillTriangle(-s * 0.38, s * 0.5, s * 0.38, s * 0.5, 0, s * 0.95);
+    g.fillStyle(thrustColor, 0.42);
+    g.fillTriangle(-s * 0.2, s * 0.45, s * 0.2, s * 0.45, 0, s * 0.8);
+  }
+
+  // Chevron core (nose at top = forward for triangles)
   g.fillStyle(neon.core, 1);
   g.beginPath();
   g.moveTo(0, -s * 1.1);        // sharp nose
@@ -193,8 +204,14 @@ function drawZigzag(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPa
   g.lineTo(-s * 0.85, s * 0.65);
   g.closePath();
   g.fillPath();
-  g.lineStyle(2, 0xffffff, 0.85);
+
+  // Double outline: crisp white edge + faint neon halo for definition
+  g.lineStyle(2.5, 0xffffff, 0.9);
   g.strokePath();
+  if (quality !== 'low') {
+    g.lineStyle(1, neon.glow, 0.5);
+    g.strokePath();
+  }
 }
 
 /** Dasher — elongated diamond with central speed streak */
