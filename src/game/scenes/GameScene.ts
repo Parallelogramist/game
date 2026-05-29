@@ -189,6 +189,13 @@ export class GameScene extends Phaser.Scene {
   // First-run coach marks: cleanup hook exposed so shutdown can tear down
   // listeners and timers if the player restarts mid-tutorial.
   private coachMarksCleanup: (() => void) | null = null;
+  // Run-modifier banner: cleanup hook so shutdown can tear it down if the
+  // player restarts before dismissing it.
+  private modifierBannerCleanup: (() => void) | null = null;
+  // True while any blocking pre-run intro overlay (coach marks / modifier
+  // banner) is on screen. Gameplay stays soft-paused until it clears, and
+  // input gating (ESC→pause, joystick) is suppressed for the duration.
+  private introOverlayActive: boolean = false;
   private pauseRequestHandler: (() => void) | null = null;
   private autoBuyToggleHandler: (() => void) | null = null;
 
@@ -457,20 +464,11 @@ export class GameScene extends Phaser.Scene {
         );
       }
     );
-    // First-run coach marks replace the old single welcome toast. They cover
-    // move, dash, XP, pause, and combos — each dismissible.
-    if (!getSettingsManager().isTutorialSeen()) {
-      this.time.delayedCall(1200, () => this.showFirstRunCoachMarks());
-    }
-
-    // Show active run modifiers as a centered banner overlay
-    if (this.activeModifiers.length > 0) {
-      this.showModifierBanner();
-    }
 
     this.damageCooldown = 0;
     this.isGameOver = false;
     this.isPaused = false;
+    this.introOverlayActive = false;
     this.hasWon = false;
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
@@ -917,6 +915,11 @@ export class GameScene extends Phaser.Scene {
 
     // Director debug overlay — created once, toggled by settings flag (F10).
     this.createDirectorDebugOverlay();
+
+    // Pre-run intro overlays (first-run coach marks + active run modifiers).
+    // Runs last so all systems exist; soft-pauses gameplay until the player
+    // has acknowledged and dismissed every overlay, so no tips are missed.
+    this.startRunIntro();
   }
 
   /**
@@ -1011,9 +1014,9 @@ export class GameScene extends Phaser.Scene {
     this.inputController.addJoystickExclusionCheck((x, y) => {
       return this.hudManager.getTouchActionButtons()?.isPointInDashButton(x, y) ?? false;
     });
-    // While first-run coach marks are showing, taps to advance shouldn't also
-    // spawn the joystick (would leave ghost joysticks on screen).
-    this.inputController.addJoystickExclusionCheck(() => !!this.coachMarksCleanup);
+    // While any intro overlay (coach marks / modifier banner) is showing, taps
+    // to dismiss shouldn't also spawn the joystick (would leave ghost joysticks).
+    this.inputController.addJoystickExclusionCheck(() => this.introOverlayActive);
 
     // Listen for dash requests from InputController (triggered by Shift key)
     this.dashRequestHandler = () => {
@@ -2159,9 +2162,9 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     // Poll ESC key before pause/gameover guard so it can both open and close the menu.
-    // Suppress while first-run coach marks are visible — ESC there skips the tutorial
-    // and must not also trigger the pause menu.
-    if (this.escKey && Phaser.Input.Keyboard.JustDown(this.escKey) && !this.coachMarksCleanup) {
+    // Suppress while an intro overlay is visible — ESC there dismisses the overlay
+    // (skips coach marks / closes the modifier banner) and must not also open pause.
+    if (this.escKey && Phaser.Input.Keyboard.JustDown(this.escKey) && !this.introOverlayActive) {
       this.togglePauseMenu();
     }
 
@@ -3952,7 +3955,45 @@ export class GameScene extends Phaser.Scene {
    * Shows a centered banner displaying active run modifiers at game start.
    * Each modifier shows its name, description, and category with color coding.
    */
-  private showModifierBanner(): void {
+  /**
+   * Runs the pre-run intro overlays in sequence and keeps the simulation
+   * soft-paused until the player has dismissed every one of them. Coach marks
+   * (first run only) come first, then the active run-modifier banner. If there
+   * is nothing to show, the game starts immediately with no added friction.
+   */
+  private startRunIntro(): void {
+    const steps: Array<(done: () => void) => void> = [];
+
+    if (!getSettingsManager().isTutorialSeen()) {
+      steps.push((done) => this.showFirstRunCoachMarks(done));
+    }
+    if (this.activeModifiers.length > 0) {
+      steps.push((done) => this.showModifierBanner(done));
+    }
+
+    if (steps.length === 0) return;
+
+    // Soft-pause: the update loop early-returns while isPaused, so no enemies
+    // spawn and the player takes no damage behind the overlays.
+    this.isPaused = true;
+    this.introOverlayActive = true;
+
+    let stepIndex = 0;
+    const runNext = () => {
+      if (stepIndex >= steps.length) {
+        this.introOverlayActive = false;
+        this.isPaused = false;
+        return;
+      }
+      const step = steps[stepIndex++];
+      step(runNext);
+    };
+
+    // Brief beat so the scene fade-in settles before the first overlay appears.
+    this.time.delayedCall(400, runNext);
+  }
+
+  private showModifierBanner(onComplete?: () => void): void {
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
     const bannerElements: Phaser.GameObjects.GameObject[] = [];
@@ -4039,6 +4080,22 @@ export class GameScene extends Phaser.Scene {
       bannerElements.push(lineGraphics);
     }
 
+    // Dismissal prompt — the banner stays up until the player acknowledges it.
+    const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+    const promptText = this.add.text(
+      centerX,
+      startY + totalHeight + 90,
+      isTouchDevice ? 'Tap anywhere to start' : 'Click or press SPACE to start',
+      {
+        fontSize: '15px',
+        fontFamily: 'Arial',
+        color: '#99ccff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+    bannerElements.push(promptText);
+
     // Fade in all elements
     for (const element of bannerElements) {
       if (element === backdrop) continue;
@@ -4051,25 +4108,58 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // Fade out everything after display
-    this.time.delayedCall(3000, () => {
+    let dismissed = false;
+    let keyHandler: ((event: KeyboardEvent) => void) | null = null;
+    let pointerHandler: (() => void) | null = null;
+
+    // Teardown: remove listeners + destroy elements. Idempotent. Called either
+    // on dismissal (after the fade-out) or directly from scene shutdown.
+    const teardown = () => {
+      if (keyHandler) { this.input.keyboard?.off('keydown', keyHandler); keyHandler = null; }
+      if (pointerHandler) { this.input.off('pointerdown', pointerHandler); pointerHandler = null; }
       for (const element of bannerElements) {
-        this.tweens.add({
-          targets: element,
-          alpha: 0,
-          duration: 500,
-          onComplete: () => element.destroy(),
-        });
+        if (element && (element as Phaser.GameObjects.GameObject).active) element.destroy();
       }
-    });
+      this.modifierBannerCleanup = null;
+    };
+    this.modifierBannerCleanup = teardown;
+
+    const dismiss = () => {
+      if (dismissed) return;
+      dismissed = true;
+      if (keyHandler) { this.input.keyboard?.off('keydown', keyHandler); keyHandler = null; }
+      if (pointerHandler) { this.input.off('pointerdown', pointerHandler); pointerHandler = null; }
+      this.tweens.add({
+        targets: bannerElements,
+        alpha: 0,
+        duration: 350,
+        onComplete: () => {
+          teardown();
+          onComplete?.();
+        },
+      });
+    };
+
+    keyHandler = (event: KeyboardEvent) => {
+      if (event.key === ' ' || event.key === 'Enter' || event.key === 'Escape') {
+        event.preventDefault();
+        dismiss();
+      }
+    };
+    this.input.keyboard?.on('keydown', keyHandler);
+
+    pointerHandler = () => dismiss();
+    this.input.on('pointerdown', pointerHandler);
   }
 
   /**
    * First-run coach-mark overlay. Shows a sequence of brief "card" tips
-   * covering core controls. Each card advances on tap/click/enter, or
-   * auto-advances after a timeout. Marks the tutorial as seen on completion.
+   * covering core controls. Each card requires an explicit tap/click/Enter to
+   * advance (ESC skips the rest); there is no auto-advance, so the player must
+   * acknowledge each tip. Marks the tutorial as seen on appearance and invokes
+   * `onComplete` once the player has dismissed the sequence.
    */
-  private showFirstRunCoachMarks(): void {
+  private showFirstRunCoachMarks(onComplete?: () => void): void {
     // Mark tutorial seen as soon as the overlay appears — if the player dies
     // or restarts mid-tutorial, we don't want to replay forever.
     getSettingsManager().setTutorialSeen(true);
@@ -4109,12 +4199,12 @@ export class GameScene extends Phaser.Scene {
     const coachDepth = PAUSE_MENU_DEPTH - 60;
     let cardIndex = 0;
     let currentElements: Phaser.GameObjects.GameObject[] = [];
-    let autoAdvanceTimer: Phaser.Time.TimerEvent | null = null;
     let keyHandler: ((event: KeyboardEvent) => void) | null = null;
     let pointerHandler: (() => void) | null = null;
 
+    // Teardown only — removes listeners + visuals. Idempotent. Used directly by
+    // scene shutdown, which must NOT trigger onComplete (the run is ending).
     const cleanup = () => {
-      if (autoAdvanceTimer) { autoAdvanceTimer.destroy(); autoAdvanceTimer = null; }
       if (keyHandler) { this.input.keyboard?.off('keydown', keyHandler); keyHandler = null; }
       if (pointerHandler) { this.input.off('pointerdown', pointerHandler); pointerHandler = null; }
       for (const element of currentElements) {
@@ -4124,6 +4214,12 @@ export class GameScene extends Phaser.Scene {
       this.coachMarksCleanup = null;
     };
     this.coachMarksCleanup = cleanup;
+
+    // Natural dismissal (finished all cards or skipped) → teardown + start game.
+    const finish = () => {
+      cleanup();
+      onComplete?.();
+    };
 
     const renderCard = (index: number) => {
       // Clear any current card elements first
@@ -4197,17 +4293,14 @@ export class GameScene extends Phaser.Scene {
     const advance = () => {
       cardIndex++;
       if (cardIndex >= cards.length) {
-        cleanup();
+        finish();
         return;
       }
-      // Reset auto-advance timer for the new card
-      if (autoAdvanceTimer) { autoAdvanceTimer.destroy(); }
-      autoAdvanceTimer = this.time.delayedCall(6000, () => advance());
       renderCard(cardIndex);
     };
 
     const skipAll = () => {
-      cleanup();
+      finish();
     };
 
     keyHandler = (event: KeyboardEvent) => {
@@ -4223,9 +4316,8 @@ export class GameScene extends Phaser.Scene {
     pointerHandler = () => advance();
     this.input.on('pointerdown', pointerHandler);
 
-    // Kick off
+    // Kick off — no auto-advance; each card waits for an explicit dismissal.
     renderCard(cardIndex);
-    autoAdvanceTimer = this.time.delayedCall(6000, () => advance());
   }
 
   /**
@@ -6366,12 +6458,18 @@ export class GameScene extends Phaser.Scene {
     // Remove resize listener
     this.scale.off('resize', this.handleResize, this);
 
-    // Tear down coach marks overlay + its listeners if the scene exits
-    // before the player finished dismissing them.
+    // Tear down intro overlays + their listeners if the scene exits before the
+    // player finished dismissing them. These teardowns do NOT fire the
+    // start-game callback — the run is ending, not starting.
     if (this.coachMarksCleanup) {
       this.coachMarksCleanup();
       this.coachMarksCleanup = null;
     }
+    if (this.modifierBannerCleanup) {
+      this.modifierBannerCleanup();
+      this.modifierBannerCleanup = null;
+    }
+    this.introOverlayActive = false;
 
     // Remove ESC key to prevent it persisting across restarts
     if (this.escKey) {
