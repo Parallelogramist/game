@@ -73,9 +73,27 @@ separate `PauseMenuManager.showVictory` celebratory screen does not (the score I
 recorded). Add `performanceGrade`/`runScore`/`bestScore`/`isNewBest` to `VictoryData`
 and render the badge there for parity.
 
+### FEAT-RUNNER-MODE — New endless-runner game mode · OPEN · area: gameplay
+Designed (Area C) but deferred during the scroll-runner-polish session. A separate
+`RunnerScene` with a forced auto-scroll (world/hazard wall advances), dodge-and-survive
+instead of stationary arena survival. Reuses the existing enemy roster, `WeaponManager`,
+`EffectsManager`, the new `ParallaxBackground`, and `HUDManager`; scoring feeds
+`BestScoreManager`/leaderboard. Open questions: constrained lanes vs free vertical
+movement; entry point from `BootScene`. **Pointers:** spec
+`docs/superpowers/specs/2026-05-29-scroll-runner-polish-design.md` (Area C). Needs its
+own brainstorm → plan cycle (full new scene, large).
+
 ---
 
 ## Needs playtest (code complete, feel/balance unverified)
+
+### POLISH-RUNNER — Scroll-runner polish feel · NEEDS PLAYTEST · area: feel · (new, this session)
+Zigzag Runner (banking lean, dart-burst + telegraph, orange trail, baked thrust glow) and
+background (parallax depth layers + warp-grid ambient sway + stronger fast-enemy warp) are
+code-complete + build-clean but **not visually verified** (no browser in the bg session).
+Check: dart cadence/speed feel, telegraph readability, parallax drift amount + no edge
+seam from the 6px grid sway (`GRID_DRIFT_AMPLITUDE` in `src/visual/GridBackground.ts`),
+parallax density/colors (`src/visual/ParallaxBackground.ts`), FPS at high enemy counts.
 
 ### BALANCE-1 — Range/speed rebaseline side effects · NEEDS PLAYTEST · area: balance
 Re-baselining range/speed to 1.0 (prior session) reactivated a dormant
