@@ -54,6 +54,7 @@ import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManage
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
 import { rollAffix, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { TelegraphManager } from '../../effects/TelegraphManager';
+import { DepthLayers } from '../../visual/DepthLayers';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
@@ -110,6 +111,9 @@ const COMBAT_SPEED_BONUS_CAP = 0.25;
 // from the random "Shrine of Sacrifice" event: these are placed objects the
 // player chooses to seek out, each a small risk/reward or boon.
 type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice';
+
+// In-run bounty objectives: rotating goals that reward a power-up burst.
+type BountyKind = 'kills' | 'elites' | 'flawless';
 const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
   { type: 'cleanse', color: 0x66ff99, label: 'Font of Cleansing' },
   { type: 'power', color: 0xff8833, label: 'Altar of Power' },
@@ -189,6 +193,12 @@ export class GameScene extends Phaser.Scene {
   private shrineSpawnTimer: number = 25;
   private static readonly SHRINE_INTERVAL = 38;
   private static readonly MAX_SHRINES = 2;
+
+  // In-run bounties (rotating objectives with rewards)
+  private bounty: { kind: BountyKind; target: number; progress: number; timeLeft: number } | null = null;
+  private bountyCooldown: number = 20;
+  private bountyText: Phaser.GameObjects.Text | null = null;
+  private bountyFlawlessBroken: boolean = false;
 
   // Cached per-run meta-progression values (set once in create(); cannot change mid-run)
   private cachedGemMagnetInterval: number = 0;
@@ -423,6 +433,11 @@ export class GameScene extends Phaser.Scene {
     this.activeShrines.forEach(shrine => shrine.graphics.destroy());
     this.activeShrines = [];
     this.shrineSpawnTimer = 25;
+    this.bounty = null;
+    this.bountyCooldown = 20;
+    this.bountyFlawlessBroken = false;
+    this.bountyText?.destroy();
+    this.bountyText = null;
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
     this.lastAchievementTimeCheck = 0;
@@ -1720,6 +1735,9 @@ export class GameScene extends Phaser.Scene {
     this.enemyCount--;
     this.killCount++;
 
+    // Track bounty progress (elite kills detected via the affix component).
+    this.recordBountyKill(hasComponent(this.world, EnemyAffix, enemyId));
+
     // Track combo kill and handle threshold rewards
     const comboResult = recordComboKill();
     if (comboResult.triggeredThreshold) {
@@ -2340,6 +2358,119 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Per-frame bounty update: paces a rotating objective, tracks its timer, and
+   * resolves success/failure. Progress for kill objectives is incremented in
+   * handleEnemyDeath; flawless failure is flagged in takeDamage.
+   */
+  private updateBounties(deltaSeconds: number): void {
+    if (this.playerId === -1) return;
+
+    if (!this.bountyText) {
+      this.bountyText = this.add.text(this.scale.width / 2, 96, '', {
+        fontSize: '15px',
+        fontFamily: 'monospace',
+        color: '#ffe26a',
+        align: 'center',
+      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DepthLayers.UI_OVERLAY);
+    }
+
+    if (this.bounty === null) {
+      this.bountyText.setText('');
+      this.bountyCooldown -= deltaSeconds;
+      if (this.bountyCooldown <= 0) this.startBounty();
+      return;
+    }
+
+    this.bounty.timeLeft -= deltaSeconds;
+
+    if (this.bounty.kind === 'flawless') {
+      if (this.bountyFlawlessBroken) { this.failBounty(); return; }
+      if (this.bounty.timeLeft <= 0) { this.completeBounty(); return; }
+    } else {
+      if (this.bounty.progress >= this.bounty.target) { this.completeBounty(); return; }
+      if (this.bounty.timeLeft <= 0) { this.failBounty(); return; }
+    }
+
+    const seconds = Math.ceil(this.bounty.timeLeft);
+    if (this.bounty.kind === 'flawless') {
+      this.bountyText.setText(`BOUNTY · Flawless — avoid damage for ${seconds}s`);
+    } else {
+      const label = this.bounty.kind === 'elites' ? 'Slay elites' : 'Slay enemies';
+      this.bountyText.setText(`BOUNTY · ${label} ${this.bounty.progress}/${this.bounty.target} · ${seconds}s`);
+    }
+  }
+
+  /** Starts a fresh random bounty. */
+  private startBounty(): void {
+    const kinds: BountyKind[] = ['kills', 'elites', 'flawless'];
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    this.bountyFlawlessBroken = false;
+    if (kind === 'kills') {
+      this.bounty = { kind, target: 25 + this.worldLevel * 5, progress: 0, timeLeft: 25 };
+    } else if (kind === 'elites') {
+      this.bounty = { kind, target: 3, progress: 0, timeLeft: 45 };
+    } else {
+      this.bounty = { kind, target: 0, progress: 0, timeLeft: 15 };
+    }
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: 'New Bounty',
+        description: kind === 'flawless'
+          ? 'Survive 15s without taking damage.'
+          : kind === 'elites'
+            ? 'Slay 3 elite enemies.'
+            : `Slay ${this.bounty.target} enemies in 25s.`,
+        icon: 'skull',
+        color: 0xffe26a,
+        duration: 3000,
+      });
+    }
+  }
+
+  /** Records a kill toward the active bounty (called from handleEnemyDeath). */
+  private recordBountyKill(wasElite: boolean): void {
+    if (!this.bounty) return;
+    if (this.bounty.kind === 'kills') this.bounty.progress++;
+    else if (this.bounty.kind === 'elites' && wasElite) this.bounty.progress++;
+  }
+
+  private completeBounty(): void {
+    const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : this.scale.width / 2;
+    const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : this.scale.height / 2;
+    // Reward: two power-ups + a gold + XP burst.
+    this.spawnRandomConsumable(playerX - 30, playerY);
+    this.spawnRandomConsumable(playerX + 30, playerY);
+    getMetaProgressionManager().addGold(60 + this.worldLevel * 12);
+    this.effectsManager.playGoldSparkle(playerX, playerY, 12);
+    this.soundManager.playComboThreshold();
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: 'Bounty Complete!',
+        description: 'Reward dropped: power-ups + gold.',
+        icon: 'star',
+        color: 0x66ff99,
+        duration: 3000,
+      });
+    }
+    this.bounty = null;
+    this.bountyCooldown = 18;
+  }
+
+  private failBounty(): void {
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: 'Bounty Failed',
+        description: 'Another will appear shortly.',
+        icon: 'skull',
+        color: 0xff6666,
+        duration: 2200,
+      });
+    }
+    this.bounty = null;
+    this.bountyCooldown = 12;
+  }
+
   // Pre-allocated pool for grid background enemy data (avoids per-frame allocation)
   private gridEnemyDataPool: { x: number; y: number; weight: number }[] = [];
   private gridEnemyDataLength: number = 0;
@@ -2727,6 +2858,9 @@ export class GameScene extends Phaser.Scene {
 
     // ═══ FIELD SHRINES ═══
     this.updateShrines(deltaSeconds);
+
+    // ═══ IN-RUN BOUNTIES ═══
+    this.updateBounties(deltaSeconds);
 
     // ═══ HP REGENERATION ═══
     if (this.playerStats.regenPerSecond > 0 && this.playerId !== -1) {
@@ -3205,6 +3339,11 @@ export class GameScene extends Phaser.Scene {
     // ═══ APPLY DAMAGE ═══
     Health.current[this.playerId] -= reducedDamage;
     this.playerStats.currentHealth = Health.current[this.playerId];
+
+    // A flawless bounty fails the moment real damage lands.
+    if (this.bounty?.kind === 'flawless') {
+      this.bountyFlawlessBroken = true;
+    }
 
     // Track damage for Health-Adaptive auto-upgrade intelligence (tier 3)
     this.recentDamageTaken += reducedDamage;
@@ -6934,6 +7073,11 @@ export class GameScene extends Phaser.Scene {
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();
     }
+    // Field shrine + bounty cleanup (plain Phaser objects).
+    this.activeShrines.forEach(shrine => shrine.graphics.destroy());
+    this.activeShrines = [];
+    this.bountyText?.destroy();
+    this.bountyText = null;
 
     // Clean up pause menu manager (removes keyboard handlers and open dialogs)
     if (this.pauseMenuManager) {
