@@ -1,5 +1,5 @@
-import { defineQuery, IWorld } from 'bitecs';
-import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, EnemyType, Health, StatusEffect } from '../components';
+import { defineQuery, IWorld, hasComponent } from 'bitecs';
+import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, EnemyType, Health, StatusEffect, Destructible } from '../components';
 import { EnemyAIType } from '../../enemies/EnemyTypes';
 import { getEnemySpatialHash } from '../../utils/SpatialHash';
 import {
@@ -19,6 +19,14 @@ import type { TelegraphManager } from '../../effects/TelegraphManager';
 let telegraphManager: TelegraphManager | null = null;
 export function setTelegraphManager(manager: TelegraphManager | null): void {
   telegraphManager = manager;
+}
+
+// Current world ref for the frame, set at the top of enemyAISystem() so AI
+// sub-functions (healer, auras) can test for Destructible (crates share the
+// EnemyTag spatial hash but must be excluded from heals/auras).
+let aiWorld: IWorld | null = null;
+function isDestructible(entityId: number): boolean {
+  return aiWorld !== null && hasComponent(aiWorld, Destructible, entityId);
 }
 
 // Re-export public API from state module for backwards compatibility
@@ -84,6 +92,7 @@ let aiLodFrame = 0;
  * Uses distance-based LOD: far enemies update less frequently to support 2000+ count.
  */
 export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld {
+  aiWorld = world;
   const enemies = enemyQuery(world);
   const players = playerQuery(world);
 
@@ -280,7 +289,7 @@ function applyEliteAuras(
 
       for (let j = 0; j < nearbyEnemies.length; j++) {
         const nearbyId = nearbyEnemies[j].id;
-        if (nearbyId !== eliteId) {
+        if (nearbyId !== eliteId && !isDestructible(nearbyId)) {
           tankAuraProtectedEnemies.add(nearbyId);
         }
       }
@@ -294,7 +303,7 @@ function applyEliteAuras(
 
       for (let j = 0; j < nearbyEnemies.length; j++) {
         const nearbyId = nearbyEnemies[j].id;
-        if (nearbyId !== eliteId) {
+        if (nearbyId !== eliteId && !isDestructible(nearbyId)) {
           Velocity.x[nearbyId] *= 1.3;
           Velocity.y[nearbyId] *= 1.3;
         }
@@ -805,7 +814,7 @@ function updateHealerAI(
     const spatialHash = getEnemySpatialHash();
     const nearbyEnemies = spatialHash.query(enemyX, enemyY, 100);
     for (const nearby of nearbyEnemies) {
-      if (nearby.id === enemyId) continue;
+      if (nearby.id === enemyId || isDestructible(nearby.id)) continue;
       Health.current[nearby.id] = Math.min(
         Health.current[nearby.id] + 5,
         Health.max[nearby.id]

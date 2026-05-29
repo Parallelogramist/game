@@ -28,6 +28,7 @@ export class PactSelectScene extends Phaser.Scene {
   private selectedIds: Set<string> = new Set();
   private cards: PactCard[] = [];
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private isStarting: boolean = false;
 
   constructor() {
     super({ key: 'PactSelectScene' });
@@ -37,6 +38,7 @@ export class PactSelectScene extends Phaser.Scene {
     this.passthrough = data ?? { startingWeapon: 'projectile' };
     this.selectedIds = new Set();
     this.cards = [];
+    this.isStarting = false;
   }
 
   create(): void {
@@ -162,6 +164,8 @@ export class PactSelectScene extends Phaser.Scene {
   }
 
   private beginRun(): void {
+    if (this.isStarting) return; // guard against a second click during the fade
+    this.isStarting = true;
     this.input.keyboard?.removeAllListeners();
     const pactIds = [...this.selectedIds];
     this.cameras.main.fadeOut(150, 0, 0, 0);

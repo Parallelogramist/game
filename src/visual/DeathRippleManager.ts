@@ -234,6 +234,8 @@ export class DeathRippleManager {
 
     for (let i = 0; i < enemies.length; i++) {
       const entityId = enemies[i];
+      // Skip unregistered EnemyTag entities (e.g. destructibles).
+      if (!this.enemyShapes.has(entityId)) continue;
       const container = getSprite(entityId) as Phaser.GameObjects.Container;
 
       if (!container) continue;
@@ -312,6 +314,11 @@ export class DeathRippleManager {
    * Start or restart an enemy's pulse animation.
    */
   private startEnemyPulse(entityId: number, rippleId: number, startTime: number): void {
+    // Only enemies registered via registerEnemy get ripple pulses. Other
+    // EnemyTag entities (e.g. destructibles) are bare Graphics, not Containers,
+    // so container.add() below would throw — skip them.
+    if (!this.enemyShapes.has(entityId)) return;
+
     // Get enemy container to parent the overlay inside it
     const container = getSprite(entityId) as Phaser.GameObjects.Container;
     if (!container) return;

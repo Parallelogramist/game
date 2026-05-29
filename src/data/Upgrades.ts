@@ -810,8 +810,12 @@ export function getRandomCombinedUpgrades(
     const shuffledLevelUps = levelUps.sort(() => Math.random() - 0.5);
     const result: CombinedUpgrade[] = [...selectedNew, ...shuffledLevelUps];
     const milestoneResult = result.sort(() => Math.random() - 0.5).slice(0, Math.min(count, result.length));
-    // If every weapon is owned + maxed, the milestone would be empty — pad it.
-    padWithOverflow(milestoneResult, statUpgrades, banishedIds, count);
+    // Only pad when the milestone would otherwise be empty (every weapon owned +
+    // maxed) — keep overflow strictly as the dead-level fallback, not a filler
+    // that displaces still-useful weapon level-ups.
+    if (milestoneResult.length === 0) {
+      padWithOverflow(milestoneResult, statUpgrades, banishedIds, count);
+    }
     return milestoneResult;
   }
 

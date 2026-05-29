@@ -198,6 +198,10 @@ export class GameScene extends Phaser.Scene {
   private static readonly SHRINE_INTERVAL = 38;
   private static readonly MAX_SHRINES = 2;
 
+  // Volatile-affix explosion queue (drained iteratively to avoid recursion)
+  private volatileQueue: { x: number; y: number }[] = [];
+  private drainingVolatile: boolean = false;
+
   // In-run bounties (rotating objectives with rewards)
   private bounty: { kind: BountyKind; target: number; progress: number; timeLeft: number } | null = null;
   private bountyCooldown: number = 20;
@@ -439,16 +443,7 @@ export class GameScene extends Phaser.Scene {
     this.spawnTimer = 0;
     this.enemyCount = 0;
     this.killCount = 0;
-    this.destructibleCount = 0;
-    this.destructibleSpawnTimer = 12;
-    this.activeShrines.forEach(shrine => shrine.graphics.destroy());
-    this.activeShrines = [];
-    this.shrineSpawnTimer = 25;
-    this.bounty = null;
-    this.bountyCooldown = 20;
-    this.bountyFlawlessBroken = false;
-    this.bountyText?.destroy();
-    this.bountyText = null;
+    this.resetInRunFeatureState();
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
     this.lastAchievementTimeCheck = 0;
@@ -1249,6 +1244,7 @@ export class GameScene extends Phaser.Scene {
     this.gameTime = state.gameTime;
     this.killCount = state.killCount;
     this.enemyCount = 0; // Will be incremented as we restore enemies
+    this.resetInRunFeatureState(); // destructibles/shrines/bounties (not persisted)
 
     // Restore timers
     this.spawnTimer = state.spawnTimer;
@@ -1835,9 +1831,11 @@ export class GameScene extends Phaser.Scene {
     if (hasComponent(this.world, EnemyAffix, enemyId)) {
       const deathAffix = EnemyAffix.affixType[enemyId];
       if (deathAffix === EnemyAffixType.VOLATILE) {
-        this.handleExplosion(x, y, 95, 22);                  // hurt the player if close
-        this.weaponManager.detonateArea(x, y, 95, 45, 220);  // chain damage to nearby enemies
-        this.effectsManager.playDeathBurst(x, y, 0xffaa00);
+        // Queue the detonation and drain iteratively — detonateArea can kill
+        // other volatile elites, which would otherwise re-enter handleEnemyDeath
+        // recursively. The drain serializes any chain reaction.
+        this.volatileQueue.push({ x, y });
+        this.drainVolatileExplosions();
       } else if (deathAffix === EnemyAffixType.BLESSED) {
         this.spawnRandomConsumable(x, y);                    // guaranteed power-up
       }
@@ -2157,7 +2155,7 @@ export class GameScene extends Phaser.Scene {
    * (stationary) and deals no contact damage. On destruction it bursts for AOE
    * + drops loot.
    */
-  private spawnDestructible(): void {
+  private spawnDestructible(): boolean {
     const padding = 70;
     const x = padding + Math.random() * (this.scale.width - padding * 2);
     const y = padding + Math.random() * (this.scale.height - padding * 2);
@@ -2165,7 +2163,7 @@ export class GameScene extends Phaser.Scene {
     if (this.playerId !== -1) {
       const pdx = x - Transform.x[this.playerId];
       const pdy = y - Transform.y[this.playerId];
-      if (pdx * pdx + pdy * pdy < 120 * 120) return; // retry next tick
+      if (pdx * pdx + pdy * pdy < 120 * 120) return false; // retry soon
     }
 
     const entityId = addEntity(this.world);
@@ -2207,6 +2205,27 @@ export class GameScene extends Phaser.Scene {
     registerSprite(entityId, crate);
 
     this.destructibleCount++;
+    return true;
+  }
+
+  /**
+   * Drains queued VOLATILE-affix explosions iteratively. detonateArea can kill
+   * other volatile elites whose deaths enqueue more explosions; the re-entrancy
+   * guard funnels those into this single loop instead of recursing.
+   */
+  private drainVolatileExplosions(): void {
+    if (this.drainingVolatile) return;
+    this.drainingVolatile = true;
+    let processed = 0;
+    while (this.volatileQueue.length > 0 && processed < 64) {
+      const blast = this.volatileQueue.shift()!;
+      processed++;
+      this.handleExplosion(blast.x, blast.y, 95, 22);           // hurt the player if close
+      this.effectsManager.playDeathBurst(blast.x, blast.y, 0xffaa00);
+      this.weaponManager.detonateArea(blast.x, blast.y, 95, 45, 220); // chains to nearby enemies
+    }
+    this.volatileQueue.length = 0; // safety: drop any overflow past the cap
+    this.drainingVolatile = false;
   }
 
   /** Destroys a destructible: AOE damage to nearby enemies + a loot drop. */
@@ -2234,6 +2253,24 @@ export class GameScene extends Phaser.Scene {
       unregisterSprite(enemyId);
     }
     removeEntity(this.world, enemyId);
+  }
+
+  /**
+   * Resets per-run state for the session's new field systems (destructibles,
+   * shrines, bounties). Called on BOTH the fresh-start and restore paths so
+   * stale graphics/timers/counters never carry across runs.
+   */
+  private resetInRunFeatureState(): void {
+    this.destructibleCount = 0;
+    this.destructibleSpawnTimer = 12;
+    this.activeShrines.forEach(shrine => shrine.graphics.destroy());
+    this.activeShrines = [];
+    this.shrineSpawnTimer = 25;
+    this.bounty = null;
+    this.bountyCooldown = 20;
+    this.bountyFlawlessBroken = false;
+    this.bountyText?.destroy();
+    this.bountyText = null;
   }
 
   /**
@@ -2360,8 +2397,13 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case 'sacrifice': {
-        const cost = Math.max(1, Math.floor(this.playerStats.currentHealth * 0.25));
-        this.playerStats.currentHealth = Math.max(1, this.playerStats.currentHealth - cost);
+        // Authoritative HP is the ECS Health component — mutate it directly.
+        let cost = 1;
+        if (this.playerId !== -1) {
+          cost = Math.max(1, Math.floor(Health.current[this.playerId] * 0.25));
+          Health.current[this.playerId] = Math.max(1, Health.current[this.playerId] - cost);
+          this.playerStats.currentHealth = Health.current[this.playerId];
+        }
         this.playerStats.damageMultiplier *= 1.18;
         this.syncStatsToPlayer();
         description = `Sacrificed ${cost} HP for +18% damage (rest of run).`;
@@ -2706,6 +2748,7 @@ export class GameScene extends Phaser.Scene {
       const deathDelta = delta / 1000;
       if (this.deathRippleManager) this.deathRippleManager.update(deathDelta);
       if (this.gridBackground) this.gridBackground.update(deathDelta);
+      if (this.telegraphManager) this.telegraphManager.update(deathDelta); // let telegraphs fade out
       return;
     }
 
@@ -2867,8 +2910,9 @@ export class GameScene extends Phaser.Scene {
     if (this.playerId !== -1 && this.destructibleCount < GameScene.MAX_DESTRUCTIBLES) {
       this.destructibleSpawnTimer -= deltaSeconds;
       if (this.destructibleSpawnTimer <= 0) {
-        this.spawnDestructible();
-        this.destructibleSpawnTimer = GameScene.DESTRUCTIBLE_INTERVAL;
+        // Only reset the full interval on a successful spawn; a player-proximity
+        // skip retries shortly instead of wasting the whole interval.
+        this.destructibleSpawnTimer = this.spawnDestructible() ? GameScene.DESTRUCTIBLE_INTERVAL : 1.5;
       }
     }
 
@@ -3787,10 +3831,13 @@ export class GameScene extends Phaser.Scene {
       this.killCount,
       this.gameTime,
       this.playerStats.level,
-      true // hasWon
+      true, // hasWon
+      this.playerStats.goldMultiplier // ship/stage/pact/modifier gold bonuses
     );
     // Record the run's best score (victories count too — see results grade).
-    recordScore(metaManager.getWorldLevel(), computeRunScore({
+    // World level was already advanced at the boss-kill site, so record against
+    // the level the run was actually played at.
+    recordScore(Math.max(1, metaManager.getWorldLevel() - 1), computeRunScore({
       killCount: this.killCount,
       survivalSeconds: this.gameTime,
       level: this.playerStats.level,
@@ -3951,7 +3998,8 @@ export class GameScene extends Phaser.Scene {
       this.killCount,
       this.gameTime,
       this.playerStats.level,
-      this.hasWon
+      this.hasWon,
+      this.playerStats.goldMultiplier // ship/stage/pact/modifier gold bonuses
     );
     metaManager.addGold(goldEarned);
 
@@ -4242,8 +4290,11 @@ export class GameScene extends Phaser.Scene {
       EnemyType.shieldMax[entityId] = 0;
     }
 
-    // ═══ ELITE AFFIX (regular enemies only — minibosses/bosses excluded) ═══
-    if (enemyType.xpValue < 30) {
+    // ═══ ELITE AFFIX (natural regular spawns only) ═══
+    // Exclude minibosses/bosses (xp >= 30) AND spawned-only minions, which route
+    // through createEnemy too (ghost/splitter_mini/turret) — an elite ghost is odd.
+    const isSpawnedOnly = enemyType.id === 'ghost' || enemyType.id === 'splitter_mini' || enemyType.id === 'turret';
+    if (enemyType.xpValue < 30 && !isSpawnedOnly) {
       const affix = rollAffix();
       if (affix !== EnemyAffixType.NONE) {
         const affixMeta = AFFIX_META[affix];
@@ -6090,6 +6141,13 @@ export class GameScene extends Phaser.Scene {
       if (isWeaponMilestone) {
         score = 0; // Should not appear on weapon milestones, but safety
       } else {
+        // Limit Break overflow upgrades have maxLevel 999; a raw deficit score
+        // would dwarf everything and starve weapon level-ups. Score them modestly
+        // (they're a fallback only).
+        const overflowUpgrade = this.upgrades.find(u => u.id === upgrade.id);
+        if (overflowUpgrade?.isOverflow) {
+          return 35;
+        }
         // Balance stats - prefer lower level stats for even distribution
         const levelDeficit = upgrade.maxLevel - upgrade.currentLevel;
         score = 30 + levelDeficit * 5;

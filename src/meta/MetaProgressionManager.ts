@@ -1078,7 +1078,8 @@ export class MetaProgressionManager {
     killCount: number,
     gameTimeSeconds: number,
     playerLevel: number,
-    hasWon: boolean
+    hasWon: boolean,
+    runGoldMultiplier: number = 1
   ): number {
     const killGold = Math.floor(killCount * 2.5);
     const timeGold = Math.floor(gameTimeSeconds / 10);
@@ -1090,6 +1091,12 @@ export class MetaProgressionManager {
     // Victory bonus (defeated boss)
     if (hasWon) {
       totalGold = Math.floor(totalGold * 1.5);
+    }
+
+    // Run-level gold multiplier (ship + stage + pacts + run modifiers, carried
+    // on PlayerStats.goldMultiplier). Shop/world/streak/etc. are applied below.
+    if (runGoldMultiplier !== 1) {
+      totalGold = Math.floor(totalGold * runGoldMultiplier);
     }
 
     // Apply gold gain multiplier from upgrades
