@@ -106,6 +106,17 @@ const PLAYER_COMBAT_RADIUS = 220;
 // Battle Flow caps its bonus at +25% regardless of how many enemies are nearby.
 const COMBAT_SPEED_BONUS_CAP = 0.25;
 
+// Field shrine archetypes — walk-in altars that auto-trigger on touch. Distinct
+// from the random "Shrine of Sacrifice" event: these are placed objects the
+// player chooses to seek out, each a small risk/reward or boon.
+type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice';
+const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
+  { type: 'cleanse', color: 0x66ff99, label: 'Font of Cleansing' },
+  { type: 'power', color: 0xff8833, label: 'Altar of Power' },
+  { type: 'fortune', color: 0xffd24a, label: 'Shrine of Fortune' },
+  { type: 'sacrifice', color: 0xff4466, label: 'Blood Altar' },
+];
+
 /**
  * GameScene is the main gameplay scene.
  * Manages the ECS world, player, enemies, and game loop.
@@ -172,6 +183,12 @@ export class GameScene extends Phaser.Scene {
   private destructibleCount: number = 0;
   private static readonly DESTRUCTIBLE_INTERVAL = 14;
   private static readonly MAX_DESTRUCTIBLES = 6;
+
+  // Field shrines (walk-in altars — distinct from the random Shrine of Sacrifice event)
+  private activeShrines: { type: ShrineType; graphics: Phaser.GameObjects.Graphics; x: number; y: number }[] = [];
+  private shrineSpawnTimer: number = 25;
+  private static readonly SHRINE_INTERVAL = 38;
+  private static readonly MAX_SHRINES = 2;
 
   // Cached per-run meta-progression values (set once in create(); cannot change mid-run)
   private cachedGemMagnetInterval: number = 0;
@@ -403,6 +420,9 @@ export class GameScene extends Phaser.Scene {
     this.killCount = 0;
     this.destructibleCount = 0;
     this.destructibleSpawnTimer = 12;
+    this.activeShrines.forEach(shrine => shrine.graphics.destroy());
+    this.activeShrines = [];
+    this.shrineSpawnTimer = 25;
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
     this.lastAchievementTimeCheck = 0;
@@ -2182,6 +2202,144 @@ export class GameScene extends Phaser.Scene {
     removeEntity(this.world, enemyId);
   }
 
+  /**
+   * Per-frame field-shrine update: paces spawning and auto-triggers a shrine
+   * when the player walks into it.
+   */
+  private updateShrines(deltaSeconds: number): void {
+    if (this.playerId === -1) return;
+
+    // Spawn pacing.
+    if (this.activeShrines.length < GameScene.MAX_SHRINES) {
+      this.shrineSpawnTimer -= deltaSeconds;
+      if (this.shrineSpawnTimer <= 0) {
+        this.spawnShrine();
+        this.shrineSpawnTimer = GameScene.SHRINE_INTERVAL;
+      }
+    }
+
+    if (this.activeShrines.length === 0) return;
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+    const pulse = 1 + Math.sin(this.gameTime * 3) * 0.12;
+
+    for (let i = this.activeShrines.length - 1; i >= 0; i--) {
+      const shrine = this.activeShrines[i];
+      shrine.graphics.setScale(pulse);
+      const dx = playerX - shrine.x;
+      const dy = playerY - shrine.y;
+      if (dx * dx + dy * dy < 36 * 36) {
+        this.triggerShrine(shrine);
+        shrine.graphics.destroy();
+        this.activeShrines.splice(i, 1);
+      }
+    }
+  }
+
+  /** Spawns a random shrine within the play area, away from the player. */
+  private spawnShrine(): void {
+    const def = SHRINE_DEFS[Math.floor(Math.random() * SHRINE_DEFS.length)];
+    const padding = 90;
+    let x = 0;
+    let y = 0;
+    // A few attempts to land clear of the player.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      x = padding + Math.random() * (this.scale.width - padding * 2);
+      y = padding + Math.random() * (this.scale.height - padding * 2);
+      if (this.playerId === -1) break;
+      const dx = x - Transform.x[this.playerId];
+      const dy = y - Transform.y[this.playerId];
+      if (dx * dx + dy * dy > 160 * 160) break;
+    }
+
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    this.drawShrine(graphics, def.color);
+    graphics.setDepth(4);
+    this.activeShrines.push({ type: def.type, graphics, x, y });
+
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: def.label,
+        description: 'A shrine has appeared — walk into it.',
+        icon: 'star',
+        color: def.color,
+        duration: 2600,
+      });
+    }
+  }
+
+  /** Draws a glowing diamond altar with an inner glyph. */
+  private drawShrine(graphics: Phaser.GameObjects.Graphics, color: number): void {
+    graphics.fillStyle(color, 0.15);
+    graphics.fillCircle(0, 0, 26);
+    graphics.lineStyle(3, color, 0.95);
+    const diamond = [
+      new Phaser.Geom.Point(0, -22),
+      new Phaser.Geom.Point(16, 0),
+      new Phaser.Geom.Point(0, 22),
+      new Phaser.Geom.Point(-16, 0),
+    ];
+    graphics.strokePoints(diamond, true);
+    graphics.fillStyle(color, 0.85);
+    graphics.fillCircle(0, 0, 6);
+  }
+
+  /** Applies a shrine's effect on touch. */
+  private triggerShrine(shrine: { type: ShrineType; x: number; y: number }): void {
+    const def = SHRINE_DEFS.find(d => d.type === shrine.type)!;
+    this.effectsManager.playDeathBurst(shrine.x, shrine.y, def.color);
+    this.soundManager.playLevelUp();
+
+    let title = def.label;
+    let description = '';
+
+    switch (shrine.type) {
+      case 'cleanse': {
+        this.healPlayer(this.playerStats.maxHealth * 0.45);
+        description = 'Restored 45% of your health.';
+        break;
+      }
+      case 'power': {
+        this.playerStats.damageMultiplier *= 2;
+        this.syncStatsToPlayer();
+        this.time.delayedCall(8000, () => {
+          this.playerStats.damageMultiplier /= 2;
+          this.syncStatsToPlayer();
+        });
+        description = 'Double damage for 8 seconds!';
+        break;
+      }
+      case 'fortune': {
+        const relic = getRelicManager().rollAndEquipRandomRelic(this.playerStats);
+        if (relic) {
+          this.syncStatsToPlayer();
+          title = `Relic: ${relic.name}`;
+          description = relic.description;
+        } else {
+          // Relic slots full — pay out gold + consumables instead.
+          getMetaProgressionManager().addGold(80 + this.worldLevel * 15);
+          this.spawnRandomConsumable(shrine.x - 20, shrine.y);
+          this.spawnRandomConsumable(shrine.x + 20, shrine.y);
+          description = 'Relic slots full — fortune paid in gold + power-ups.';
+        }
+        break;
+      }
+      case 'sacrifice': {
+        const cost = Math.max(1, Math.floor(this.playerStats.currentHealth * 0.25));
+        this.playerStats.currentHealth = Math.max(1, this.playerStats.currentHealth - cost);
+        this.playerStats.damageMultiplier *= 1.18;
+        this.syncStatsToPlayer();
+        description = `Sacrificed ${cost} HP for +18% damage (rest of run).`;
+        break;
+      }
+    }
+
+    if (this.toastManager) {
+      this.toastManager.showToast({ title, description, icon: 'star', color: def.color, duration: 3200 });
+    }
+  }
+
   // Pre-allocated pool for grid background enemy data (avoids per-frame allocation)
   private gridEnemyDataPool: { x: number; y: number; weight: number }[] = [];
   private gridEnemyDataLength: number = 0;
@@ -2566,6 +2724,9 @@ export class GameScene extends Phaser.Scene {
         this.destructibleSpawnTimer = GameScene.DESTRUCTIBLE_INTERVAL;
       }
     }
+
+    // ═══ FIELD SHRINES ═══
+    this.updateShrines(deltaSeconds);
 
     // ═══ HP REGENERATION ═══
     if (this.playerStats.regenPerSecond > 0 && this.playerId !== -1) {
