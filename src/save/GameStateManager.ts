@@ -262,6 +262,11 @@ export interface GameSaveState {
   // Director credit-budget state — preserves mid-run strategy + credit balance
   // so a reload doesn't re-roll the strategy or reset spawn economy.
   directorState?: DirectorState;
+
+  // Active temporary timed damage buffs (e.g. Power shrine). `expiresAt` is an
+  // absolute run `gameTime`; since gameTime is restored verbatim, the buff
+  // reverts at the right moment after a refresh instead of sticking forever.
+  timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
 }
 
 /**
@@ -376,6 +381,7 @@ export class GameStateManager {
     stageId?: string;
     relicIds?: string[];
     directorState?: DirectorState;
+    timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
   }): void {
     try {
       const state: GameSaveState = {
@@ -436,6 +442,7 @@ export class GameStateManager {
         stageId: gameData.stageId,
         relicIds: gameData.relicIds,
         directorState: gameData.directorState,
+        timedDamageBuffs: gameData.timedDamageBuffs,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

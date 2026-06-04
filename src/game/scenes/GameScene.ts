@@ -77,6 +77,7 @@ import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
+import { expireTimedDamageBuffs, type TimedDamageBuff } from '../../systems/TimedDamageBuffs';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
@@ -125,6 +126,11 @@ const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
   { type: 'fortune', color: 0xffd24a, label: 'Shrine of Fortune' },
   { type: 'sacrifice', color: 0xff4466, label: 'Blood Altar' },
 ];
+
+// Power shrine: temporary damage buff. Persisted + reverted via gameTime (see
+// TimedDamageBuffs) so it survives refresh-recovery instead of sticking forever.
+const POWER_SHRINE_BUFF_MULT = 2;
+const POWER_SHRINE_BUFF_SECONDS = 8;
 
 /**
  * GameScene is the main gameplay scene.
@@ -195,6 +201,9 @@ export class GameScene extends Phaser.Scene {
 
   // Field shrines (walk-in altars — distinct from the random Shrine of Sacrifice event)
   private activeShrines: { type: ShrineType; graphics: Phaser.GameObjects.Graphics; x: number; y: number }[] = [];
+  // Active temporary timed damage buffs (Power shrine). Driven off gameTime so
+  // they persist across refresh and revert at the correct moment.
+  private timedDamageBuffs: TimedDamageBuff[] = [];
   private shrineSpawnTimer: number = 25;
   private static readonly SHRINE_INTERVAL = 38;
   private static readonly MAX_SHRINES = 2;
@@ -1181,6 +1190,7 @@ export class GameScene extends Phaser.Scene {
       stageId: this.selectedStageId,
       relicIds: getRelicManager().getEquippedRelics().map(r => r.id),
       directorState: getDirectorState(),
+      timedDamageBuffs: this.timedDamageBuffs,
     });
   }
 
@@ -1265,6 +1275,12 @@ export class GameScene extends Phaser.Scene {
     this.gemMagnetTimer = state.gemMagnetTimer;
     // Note: dashCooldownTimer is restored after inputController.create() below
     this.damageCooldown = state.damageCooldown;
+
+    // Restore active timed damage buffs. The restored playerStats already carry
+    // the buffed damageMultiplier; updateTimedDamageBuffs reverts it once
+    // gameTime passes each buff's (absolute) expiry — fixing the stuck-forever
+    // buff after a mid-buff refresh. Absent on legacy saves → no buffs.
+    this.timedDamageBuffs = state.timedDamageBuffs ?? [];
 
     // Restore spawn tracking
     this.bossSpawned = state.bossSpawned;
@@ -2317,6 +2333,8 @@ export class GameScene extends Phaser.Scene {
     this.bountyFlawlessBroken = false;
     this.bountyText?.destroy();
     this.bountyText = null;
+    // Cleared on fresh start; the restore path re-populates from the save after.
+    this.timedDamageBuffs = [];
   }
 
   /**
@@ -2418,13 +2436,8 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case 'power': {
-        this.playerStats.damageMultiplier *= 2;
-        this.syncStatsToPlayer();
-        this.time.delayedCall(8000, () => {
-          this.playerStats.damageMultiplier /= 2;
-          this.syncStatsToPlayer();
-        });
-        description = 'Double damage for 8 seconds!';
+        this.applyTimedDamageBuff(POWER_SHRINE_BUFF_MULT, POWER_SHRINE_BUFF_SECONDS);
+        description = `Double damage for ${POWER_SHRINE_BUFF_SECONDS} seconds!`;
         break;
       }
       case 'fortune': {
@@ -2459,6 +2472,28 @@ export class GameScene extends Phaser.Scene {
 
     if (this.toastManager) {
       this.toastManager.showToast({ title, description, icon: 'star', color: def.color, duration: 3200 });
+    }
+  }
+
+  /**
+   * Applies a temporary multiplicative damage buff that reverts after
+   * `durationSeconds` of run time. Tracked against gameTime (not a Phaser
+   * timer) so it survives refresh-recovery — see updateTimedDamageBuffs.
+   */
+  private applyTimedDamageBuff(magnitude: number, durationSeconds: number): void {
+    this.playerStats.damageMultiplier *= magnitude;
+    this.syncStatsToPlayer();
+    this.timedDamageBuffs.push({ magnitude, expiresAt: this.gameTime + durationSeconds });
+  }
+
+  /** Per-frame: reverts any timed damage buffs whose gameTime expiry has passed. */
+  private updateTimedDamageBuffs(): void {
+    if (this.timedDamageBuffs.length === 0) return;
+    const { active, revertDivisor } = expireTimedDamageBuffs(this.timedDamageBuffs, this.gameTime);
+    if (revertDivisor !== 1) {
+      this.playerStats.damageMultiplier /= revertDivisor;
+      this.timedDamageBuffs = active;
+      this.syncStatsToPlayer();
     }
   }
 
@@ -2967,6 +3002,9 @@ export class GameScene extends Phaser.Scene {
 
     // ═══ IN-RUN BOUNTIES ═══
     this.updateBounties(deltaSeconds);
+
+    // ═══ TIMED DAMAGE BUFFS (Power shrine) ═══
+    this.updateTimedDamageBuffs();
 
     // ═══ DYNAMIC MUSIC INTENSITY ═══
     updateMusicIntensity(deltaSeconds, {
