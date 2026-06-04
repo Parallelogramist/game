@@ -157,6 +157,12 @@ export interface VictoryData {
   previousStreak: number;
   newStreak: number;
   streakBonusPercent: number;
+  /** S–F performance grade for this run (parity with the game-over overlay). */
+  performanceGrade?: { grade: string; color: string };
+  /** Composite run score + persisted best (by world level). */
+  runScore?: number;
+  bestScore?: number;
+  isNewBest?: boolean;
 }
 
 export interface GameOverData {
@@ -1072,6 +1078,61 @@ export class PauseMenuManager {
     streakText.setDepth(PAUSE_MENU_DEPTH + 1);
     streakText.setName('victoryStreak');
 
+    const victoryCenterX = this.scene.scale.width / 2;
+    const victoryTitleY = this.scene.scale.height / 2 - 60;
+
+    // Performance grade badge (left of the VICTORY! title) — mirrors the
+    // game-over overlay so both end screens surface the same S–F grade.
+    if (data.performanceGrade) {
+      const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
+      const badgeX = victoryCenterX - 205;
+      const gradeBadge = this.scene.add.graphics();
+      gradeBadge.setDepth(PAUSE_MENU_DEPTH + 1);
+      gradeBadge.fillStyle(0x000000, 0.55);
+      gradeBadge.fillCircle(badgeX, victoryTitleY, 34);
+      gradeBadge.lineStyle(3, gradeColorHex, 1);
+      gradeBadge.strokeCircle(badgeX, victoryTitleY, 34);
+      gradeBadge.setName('victoryGradeBadge');
+      const gradeText = this.scene.add.text(badgeX, victoryTitleY, data.performanceGrade.grade, {
+        fontSize: '44px',
+        color: data.performanceGrade.color,
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 4,
+      });
+      gradeText.setOrigin(0.5);
+      gradeText.setDepth(PAUSE_MENU_DEPTH + 2);
+      gradeText.setName('victoryGradeText');
+      const gradeLabel = this.scene.add.text(badgeX, victoryTitleY + 46, 'GRADE', {
+        fontSize: '11px', color: '#8888aa', fontFamily: 'Arial',
+      });
+      gradeLabel.setOrigin(0.5);
+      gradeLabel.setDepth(PAUSE_MENU_DEPTH + 2);
+      gradeLabel.setName('victoryGradeLabel');
+    }
+
+    // Score line (between the streak readout and the action buttons).
+    if (data.runScore !== undefined) {
+      const scoreStr = data.isNewBest
+        ? `★ NEW BEST  ${data.runScore.toLocaleString()}`
+        : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
+      const scoreText = this.scene.add.text(
+        victoryCenterX,
+        this.scene.scale.height / 2 + 150,
+        scoreStr,
+        {
+          fontSize: '16px',
+          color: data.isNewBest ? '#ffdd44' : '#9999bb',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+          fontStyle: 'bold',
+        }
+      );
+      scoreText.setOrigin(0.5);
+      scoreText.setDepth(PAUSE_MENU_DEPTH + 1);
+      scoreText.setName('victoryScore');
+    }
+
     // Calculate gold reward for preview (with victory 1.5x bonus)
     const goldToEarn = data.goldEarned;
 
@@ -1149,6 +1210,10 @@ export class PauseMenuManager {
       'victoryGoldPreview',
       'victoryStreak',
       'victoryConfetti',
+      'victoryGradeBadge',
+      'victoryGradeText',
+      'victoryGradeLabel',
+      'victoryScore',
     ]);
 
     this.options.onContinueRun();

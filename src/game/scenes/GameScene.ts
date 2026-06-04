@@ -3852,15 +3852,19 @@ export class GameScene extends Phaser.Scene {
     );
     // Record the run's best score (victories count too — see results grade).
     // World level was already advanced at the boss-kill site, so record against
-    // the level the run was actually played at.
-    recordScore(Math.max(1, metaManager.getWorldLevel() - 1), computeRunScore({
+    // the level the run was actually played at. Capture the result + grade so the
+    // victory overlay can show them (parity with the game-over overlay).
+    const victoryWorldLevel = Math.max(1, metaManager.getWorldLevel() - 1);
+    const victoryRunScore = computeRunScore({
       killCount: this.killCount,
       survivalSeconds: this.gameTime,
       level: this.playerStats.level,
       damageDealt: this.totalDamageDealt,
       highestCombo: getHighestCombo(),
       wasVictory: true,
-    }));
+    });
+    const victoryScoreResult = recordScore(victoryWorldLevel, victoryRunScore);
+    const victoryGrade = computePerformanceGrade(victoryRunScore, victoryWorldLevel, true);
     getAchievementManager().recordRunEnd({
       wasVictory: true,
       killCount: this.killCount,
@@ -3909,6 +3913,10 @@ export class GameScene extends Phaser.Scene {
       previousStreak,
       newStreak,
       streakBonusPercent: metaManager.getStreakBonusPercent(),
+      performanceGrade: victoryGrade,
+      runScore: victoryScoreResult.score,
+      bestScore: victoryScoreResult.best,
+      isNewBest: victoryScoreResult.isNewBest,
     });
   }
 
