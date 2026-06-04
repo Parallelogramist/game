@@ -174,6 +174,14 @@ interface SerializedEntity {
 interface SerializedWeapon {
   id: string;
   level: number;
+  // Whether this weapon has evolved to its super-form. Persisted so a mid-run
+  // refresh keeps the evolution instead of reverting to the base weapon. The
+  // evolved name + permanent base-stat multipliers are re-derived from the
+  // WeaponEvolutions recipe by id on restore (not serialized), keeping the save
+  // small and the recipe the single source of truth — mirrors how restored
+  // elite affixes re-derive their stats from the affix def. Absent on legacy
+  // saves → treated as not evolved.
+  evolved?: boolean;
 }
 
 /**
@@ -214,6 +222,19 @@ interface SerializedBountyState {
 interface SerializedShrineState {
   shrines: { type: string; x: number; y: number }[];
   spawnTimer: number;
+}
+
+/**
+ * Serialized on-field treasure chest. Chests are GameScene-owned Phaser graphics
+ * (the pattern shrines/bounties mirror) and were the last walk-in reward NOT
+ * persisted — a mid-run refresh despawned any uncollected chest, losing its XP
+ * burst and (35%/100%) relic. `x`/`y` are the chest's live position (it drifts
+ * toward the player via the chest-drone); `isSpecial` is the rare 3x-reward flag.
+ */
+interface SerializedChestEntry {
+  x: number;
+  y: number;
+  isSpecial: boolean;
 }
 
 /**
@@ -304,6 +325,13 @@ export interface GameSaveState {
   // spawn clock. Persisted so the altars + pacing survive refresh-recovery.
   // Absent on legacy saves → no shrines restored (resetInRunFeatureState wins).
   shrineState?: SerializedShrineState;
+
+  // On-field treasure chests (uncollected XP/relic caches) + their live
+  // positions and the rare "special" flag. GameScene-owned Phaser graphics
+  // cleared by resetInRunFeatureState on restore, so a mid-run refresh would
+  // otherwise despawn them and lose the reward. Persisted so the chests survive
+  // refresh-recovery. Absent on legacy saves → no chests restored.
+  chestState?: SerializedChestEntry[];
 }
 
 /**
@@ -411,7 +439,7 @@ export class GameStateManager {
     worldLevelDamageMult: number;
     worldLevelSpawnReduction: number;
     worldLevelXPMult: number;
-    weapons: { id: string; level: number }[];
+    weapons: { id: string; level: number; evolved?: boolean }[];
     upgrades: { id: string; currentLevel: number }[];
     twinLinks: [number, number][];
     modifierIds?: string[];
@@ -421,6 +449,7 @@ export class GameStateManager {
     timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
     bountyState?: SerializedBountyState;
     shrineState?: SerializedShrineState;
+    chestState?: SerializedChestEntry[];
   }): void {
     try {
       const state: GameSaveState = {
@@ -484,6 +513,7 @@ export class GameStateManager {
         timedDamageBuffs: gameData.timedDamageBuffs,
         bountyState: gameData.bountyState,
         shrineState: gameData.shrineState,
+        chestState: gameData.chestState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

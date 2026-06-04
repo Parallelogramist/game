@@ -2,5 +2,6 @@ node_modules/
 dist/
 .DS_Store
 logs/
+*.log
 # Local Claude Code state: personal settings + transient git worktrees
 .claude/

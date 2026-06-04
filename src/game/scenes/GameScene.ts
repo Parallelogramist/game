@@ -192,6 +192,11 @@ export class GameScene extends Phaser.Scene {
 
   // Treasure chest spawn timer
   private treasureSpawnTimer: number = 0;
+  // On-field treasure chests (walk-in XP/relic caches). Tracked so they can be
+  // persisted across refresh-recovery (mirrors activeShrines) and torn down on
+  // reset/shutdown. Position is read live from the graphics (chests drift toward
+  // the player via the chest-drone), `isSpecial` is the rare 3x-reward flag.
+  private activeChests: { graphics: Phaser.GameObjects.Graphics; isSpecial: boolean }[] = [];
 
   // Environmental destructibles (barrels/crates)
   private destructibleSpawnTimer: number = 12;
@@ -1180,6 +1185,7 @@ export class GameScene extends Phaser.Scene {
       weapons: this.weaponManager.getAllWeapons().map(w => ({
         id: w.id,
         level: w.getLevel(),
+        evolved: w.isEvolved,
       })),
       upgrades: this.upgrades.map(u => ({
         id: u.id,
@@ -1200,6 +1206,13 @@ export class GameScene extends Phaser.Scene {
         shrines: this.activeShrines.map(shrine => ({ type: shrine.type, x: shrine.x, y: shrine.y })),
         spawnTimer: this.shrineSpawnTimer,
       },
+      // Read each chest's live position from its graphics (chests drift toward
+      // the player via the chest-drone, so the spawn coords would be stale).
+      chestState: this.activeChests.map(chest => ({
+        x: chest.graphics.x,
+        y: chest.graphics.y,
+        isSpecial: chest.isSpecial,
+      })),
     });
   }
 
@@ -1377,6 +1390,22 @@ export class GameScene extends Phaser.Scene {
     const restoredStage = getStageById(this.selectedStageId) ?? getDefaultStage();
     setHazardZoneStage(restoredStage.id);
 
+    // Restore on-field treasure chests. resetInRunFeatureState above destroyed
+    // any chests and cleared activeChests; re-add the saved ones at their last
+    // position so a mid-run refresh doesn't despawn an uncollected XP/relic cache
+    // and restart the spawn clock (treasureSpawnTimer already restored above).
+    // Deferred to here (vs the shrine block) because addTreasureChest reads
+    // playerStats.chestDroneDelay, which is only set after playerStats is applied.
+    // Coords are sanitized to guard against a tampered/corrupt save. Absent on
+    // legacy saves → no chests restored (resetInRunFeatureState wins).
+    if (state.chestState) {
+      for (const chest of state.chestState) {
+        if (Number.isFinite(chest.x) && Number.isFinite(chest.y)) {
+          this.addTreasureChest(chest.x, chest.y, chest.isSpecial === true);
+        }
+      }
+    }
+
     // Reset other state
     this.isGameOver = false;
     this.isPaused = false;
@@ -1450,6 +1479,20 @@ export class GameScene extends Phaser.Scene {
         const targetLevel = Math.min(weaponData.level, maxWeaponLevel);
         for (let i = 1; i < targetLevel; i++) {
           weapon.levelUp();
+        }
+        // Re-apply the evolution if this weapon was evolved before the refresh.
+        // The recipe (evolved name + permanent base-stat multipliers) is looked
+        // up by id rather than serialized, so the save stays small and the
+        // multipliers can't drift from the source-of-truth recipe. evolve()
+        // mutates baseStats independent of level, so applying it after the
+        // levelUp loop yields the same final stats regardless of the order it
+        // happened during play. Marking the weapon evolved also stops the next
+        // level-up's checkEvolutions from spuriously re-firing the EVOLVED modal.
+        if (weaponData.evolved) {
+          const evolution = getEvolutionForWeapon(weaponData.id);
+          if (evolution) {
+            weapon.evolve(evolution.evolvedName, evolution.statMultipliers);
+          }
         }
         this.weaponManager.addWeapon(weapon);
       }
@@ -2363,6 +2406,8 @@ export class GameScene extends Phaser.Scene {
     this.destructibleSpawnTimer = 12;
     this.activeShrines.forEach(shrine => shrine.graphics.destroy());
     this.activeShrines = [];
+    this.activeChests.forEach(chest => chest.graphics.destroy());
+    this.activeChests = [];
     this.shrineSpawnTimer = 25;
     this.bounty = null;
     this.bountyCooldown = 20;
@@ -3736,11 +3781,27 @@ export class GameScene extends Phaser.Scene {
     // 15% chance for a special chest with 3x rewards
     const isSpecial = Math.random() < 0.15;
 
+    this.addTreasureChest(x, y, isSpecial);
+  }
+
+  /**
+   * Builds a treasure chest's graphics + timers at a fixed position and registers
+   * it in activeChests. Shared by fresh spawns (spawnTreasureChest) and refresh-
+   * restore (restoreGameState) so both paths produce an identical collectable
+   * chest. When collected (player gets close) it spawns XP gems and may drop a
+   * relic; uncollected it auto-despawns after 30s. Tracking in activeChests lets
+   * the chest survive refresh-recovery (mirrors addShrine).
+   */
+  private addTreasureChest(x: number, y: number, isSpecial: boolean): void {
     // Create visual chest using Graphics for detailed drawing
     const chestGraphics = this.add.graphics();
     chestGraphics.setPosition(x, y);
     this.drawTreasureChest(chestGraphics);
     chestGraphics.setDepth(5);
+
+    // Register for persistence (saved by position + special flag) and teardown.
+    const chestRecord = { graphics: chestGraphics, isSpecial };
+    this.activeChests.push(chestRecord);
 
     // Pulsating effect (and gold sparkles for special chests)
     const updatePulse = () => {
@@ -3841,23 +3902,27 @@ export class GameScene extends Phaser.Scene {
           }
 
           // Clean up
-          pulseTimer.destroy();
-          collectCheck.destroy();
-          if (magnetTimer) magnetTimer.destroy();
-          chestGraphics.destroy();
+          cleanup();
         }
       },
       loop: true,
     });
 
+    // Destroys the chest's timers + graphics and unregisters it from
+    // activeChests. Shared by the collect and auto-despawn paths; idempotent
+    // (a second call no-ops since indexOf returns -1 and destroy() is guarded).
+    const cleanup = () => {
+      pulseTimer.destroy();
+      collectCheck.destroy();
+      if (magnetTimer) magnetTimer.destroy();
+      const chestIndex = this.activeChests.indexOf(chestRecord);
+      if (chestIndex !== -1) this.activeChests.splice(chestIndex, 1);
+      chestGraphics.destroy();
+    };
+
     // Auto-despawn after 30 seconds if not collected
     this.time.delayedCall(30000, () => {
-      if (chestGraphics.active) {
-        pulseTimer.destroy();
-        collectCheck.destroy();
-        if (magnetTimer) magnetTimer.destroy();
-        chestGraphics.destroy();
-      }
+      if (chestGraphics.active) cleanup();
     });
   }
 
@@ -7446,9 +7511,11 @@ export class GameScene extends Phaser.Scene {
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();
     }
-    // Field shrine + bounty cleanup (plain Phaser objects).
+    // Field shrine + chest + bounty cleanup (plain Phaser objects).
     this.activeShrines.forEach(shrine => shrine.graphics.destroy());
     this.activeShrines = [];
+    this.activeChests.forEach(chest => chest.graphics.destroy());
+    this.activeChests = [];
     this.bountyText?.destroy();
     this.bountyText = null;
     // Restore music to the user's volume (clears any combat-intensity lift).
