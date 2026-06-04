@@ -145,7 +145,7 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
-- `2262d2d` FEAT-PERSIST (affix part) — persist elite **affixes** across refresh.
+- `ecc372a` FEAT-PERSIST (affix part) — persist elite **affixes** across refresh.
   `restoreEnemy` now re-attaches the `EnemyAffix` component (was lost → affixed enemies
   came back as normal-but-tanky: no ring/HP-bar, no volatile/vampiric/blessed behaviour,
   missed elite-kill bounties). Serialize `affixType` in `SerializedEnemyData`; restore
