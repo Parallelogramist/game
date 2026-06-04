@@ -137,7 +137,7 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
-- `_pending_` FEAT-PERSIST-CONSUMABLES — persist floor **consumables** (BOMB/FREEZE/
+- `f481aff` FEAT-PERSIST-CONSUMABLES — persist floor **consumables** (BOMB/FREEZE/
   VACUUM/GOLD) across refresh-recovery. New `'consumable'` EntityTag +
   `consumablePickupQuery` + `serializeConsumable` in `GameStateManager` (round-trips
   `kind`/`value`/`magnetized`); `restoreConsumable` in GameScene re-spawns via
