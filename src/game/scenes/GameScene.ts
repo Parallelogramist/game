@@ -1683,6 +1683,21 @@ export class GameScene extends Phaser.Scene {
     EnemyType.shieldMax[entityId] = entity.enemyData.shieldMax;
     EnemyType.shieldRegenTimer[entityId] = entity.enemyData.shieldRegenTimer;
 
+    // Restore elite affix. Stats (HP/XP/armor/speed) are already baked into the
+    // saved values above, so we only re-attach the component + type — this is
+    // enough for the query-driven EliteAffixVisualManager to redraw the
+    // ring/HP-bar/label, and for volatile/vampiric/blessed death + contact
+    // behaviours and elite-kill bounty tracking to recognise it again.
+    const restoredAffix = entity.enemyData.affixType ?? EnemyAffixType.NONE;
+    if (restoredAffix !== EnemyAffixType.NONE) {
+      addComponent(this.world, EnemyAffix, entityId);
+      EnemyAffix.affixType[entityId] = restoredAffix;
+      // HP/XP/speed are captured in the serialized Health/EnemyType/Velocity, but
+      // armor was re-derived from the base type above — so re-apply the affix's
+      // flat armor bonus (only TITAN is non-zero; a no-op for the others).
+      EnemyType.armor[entityId] += AFFIX_META[restoredAffix as EnemyAffixType].bonusArmor;
+    }
+
     // Restore status effects if present
     if (entity.statusEffect) {
       addComponent(this.world, StatusEffect, entityId);

@@ -71,12 +71,20 @@ won't follow a fresh clone.** It persists on disk so future bg agents *in this c
 won't re-hit the guard; a fresh clone (or a different machine) would need it re-created.
 Purely informational — no action needed unless the fleet runs from a clean clone.
 
-### FEAT-PERSIST — New field systems not saved on refresh · OPEN · area: save
-Refresh-recovery (`GameStateManager`) does not persist: elite **affixes** (affixed
-enemies restore as normal-but-tanky), floor **consumables** lying on the ground, and
-the temporary **Power shrine** damage buff (its revert `delayedCall` dies on reload).
-All non-crash, refresh-only. Mirror the magnet-pickup serialize/restore pattern (or
-make consumables explicitly transient like destructibles) when worth it.
+### FEAT-PERSIST-CONSUMABLES — Floor consumables not saved on refresh · OPEN · area: save
+Refresh-recovery (`GameStateManager`) does not persist floor **consumables** lying on
+the ground (BOMB/FREEZE/VACUUM/GOLD) — they vanish on reload. Mirror the magnet-pickup
+serialize/restore pattern (new `'consumable'` EntityTag + query in `serializeEntities`,
+a `restoreConsumable` in GameScene, `Consumable.kind` round-trip) — or make them
+explicitly transient like destructibles if not worth the round-trip. Non-crash,
+refresh-only. Pointers: `src/ecs/systems/ConsumablePickupSystem.ts`, `Consumable` component.
+
+### FEAT-PERSIST-POWERBUFF — Power-shrine damage buff not saved on refresh · OPEN · area: save
+The temporary **Power shrine** damage buff's revert `delayedCall` dies on reload, so a
+reload mid-buff leaves the boost applied forever (or, depending on how it's stored, drops
+it instantly). Persist remaining buff duration + magnitude and re-schedule the revert on
+restore. Non-crash, refresh-only. Pointers: `SHRINE_DEFS` Power case + its `delayedCall`
+in `GameScene`. (Split out of the former FEAT-PERSIST; affix persistence shipped — see Changelog.)
 
 ### FEAT-RUNNER-MODE — New endless-runner game mode · OPEN · area: gameplay
 Designed (Area C) but deferred during the scroll-runner-polish session. A separate
@@ -137,6 +145,13 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `2262d2d` FEAT-PERSIST (affix part) — persist elite **affixes** across refresh.
+  `restoreEnemy` now re-attaches the `EnemyAffix` component (was lost → affixed enemies
+  came back as normal-but-tanky: no ring/HP-bar, no volatile/vampiric/blessed behaviour,
+  missed elite-kill bounties). Serialize `affixType` in `SerializedEnemyData`; restore
+  re-applies the affix's flat armor (only stat re-derived from base type, not serialized).
+  Backward-compatible (absent/0 = no affix; no save-version bump). Remaining FEAT-PERSIST
+  parts split into FEAT-PERSIST-CONSUMABLES + FEAT-PERSIST-POWERBUFF.
 - `dc6d2a3` FEAT-VICTORY-GRADE — show S–F performance grade badge + run/best
   score on the victory screen (parity with the game-over overlay). `VictoryData`
   extended; `GameScene.showVictory` now captures the `recordScore` result + grade.

@@ -25,6 +25,7 @@ import {
   HealthPickup,
   MagnetPickup,
   Destructible,
+  EnemyAffix,
 } from '../ecs/components';
 import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
@@ -108,6 +109,9 @@ interface SerializedEnemyData {
   shieldCurrent: number;
   shieldMax: number;
   shieldRegenTimer: number;
+  // Elite affix type (EnemyAffixType). Optional for backward-compat with saves
+  // written before affix persistence existed — absent/0 means "no affix".
+  affixType?: number;
 }
 
 /**
@@ -543,6 +547,11 @@ export class GameStateManager {
         shieldCurrent: EnemyType.shieldCurrent[entityId],
         shieldMax: EnemyType.shieldMax[entityId],
         shieldRegenTimer: EnemyType.shieldRegenTimer[entityId],
+        // Elite affix (volatile/vampiric/blessed/titan/swift). Stat scaling is
+        // already baked into the saved Health/EnemyType/Velocity above, so only
+        // the type id needs persisting — the restore re-attaches the component
+        // (which revives the ring/HP-bar visual + death/contact behaviours).
+        affixType: hasComponent(world, EnemyAffix, entityId) ? EnemyAffix.affixType[entityId] : 0,
       },
     };
 
