@@ -194,6 +194,17 @@ interface MinibossSpawnTime {
 }
 
 /**
+ * Serialized in-run bounty state. `kind` mirrors GameScene's `BountyKind`
+ * ('kills' | 'elites' | 'flawless') but is typed as a plain string here to keep
+ * the save layer decoupled from the scene; GameScene casts it back on restore.
+ */
+interface SerializedBountyState {
+  bounty: { kind: string; target: number; progress: number; timeLeft: number } | null;
+  cooldown: number;
+  flawlessBroken: boolean;
+}
+
+/**
  * Complete game save state.
  */
 export interface GameSaveState {
@@ -267,6 +278,13 @@ export interface GameSaveState {
   // absolute run `gameTime`; since gameTime is restored verbatim, the buff
   // reverts at the right moment after a refresh instead of sticking forever.
   timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
+
+  // In-run bounty objective (rotating goal + reward) — `bounty` holds the live
+  // objective or null during the inter-bounty cooldown; `cooldown`/`flawlessBroken`
+  // carry the pacing + flawless-failure flag. Persisted so a mid-bounty refresh
+  // keeps the player's progress instead of wiping it and restarting the timer.
+  // Absent on legacy saves → no bounty restored (resetInRunFeatureState wins).
+  bountyState?: SerializedBountyState;
 }
 
 /**
@@ -382,6 +400,7 @@ export class GameStateManager {
     relicIds?: string[];
     directorState?: DirectorState;
     timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
+    bountyState?: SerializedBountyState;
   }): void {
     try {
       const state: GameSaveState = {
@@ -443,6 +462,7 @@ export class GameStateManager {
         relicIds: gameData.relicIds,
         directorState: gameData.directorState,
         timedDamageBuffs: gameData.timedDamageBuffs,
+        bountyState: gameData.bountyState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

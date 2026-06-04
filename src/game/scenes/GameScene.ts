@@ -1191,6 +1191,11 @@ export class GameScene extends Phaser.Scene {
       relicIds: getRelicManager().getEquippedRelics().map(r => r.id),
       directorState: getDirectorState(),
       timedDamageBuffs: this.timedDamageBuffs,
+      bountyState: {
+        bounty: this.bounty,
+        cooldown: this.bountyCooldown,
+        flawlessBroken: this.bountyFlawlessBroken,
+      },
     });
   }
 
@@ -1281,6 +1286,19 @@ export class GameScene extends Phaser.Scene {
     // gameTime passes each buff's (absolute) expiry — fixing the stuck-forever
     // buff after a mid-buff refresh. Absent on legacy saves → no buffs.
     this.timedDamageBuffs = state.timedDamageBuffs ?? [];
+
+    // Restore the in-run bounty objective + pacing. resetInRunFeatureState above
+    // cleared it to fresh-run defaults; re-apply the saved progress so a refresh
+    // mid-bounty keeps the player's tally instead of wiping it and restarting the
+    // cooldown. Absent on legacy saves → keep the reset defaults. The bountyText
+    // HUD label is recreated lazily by updateBounties on the next frame.
+    if (state.bountyState) {
+      this.bounty = state.bountyState.bounty
+        ? { ...state.bountyState.bounty, kind: state.bountyState.bounty.kind as BountyKind }
+        : null;
+      this.bountyCooldown = state.bountyState.cooldown;
+      this.bountyFlawlessBroken = state.bountyState.flawlessBroken;
+    }
 
     // Restore spawn tracking
     this.bossSpawned = state.bossSpawned;
