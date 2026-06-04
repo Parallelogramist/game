@@ -261,16 +261,36 @@ export function getEventHistory(): string[] {
 // Save / Restore
 // ---------------------------------------------------------------------------
 
+/**
+ * Serialised form of the live timed event. Only the event id + its remaining
+ * time are persisted; the full RunEvent definition is re-derived from
+ * EVENT_POOL by id on restore (the pool is the source of truth — mirrors how
+ * restored elite affixes / weapon evolutions re-derive their data from their
+ * defs rather than serialising it).
+ */
+export interface SerializedActiveEvent {
+  id: string;
+  remainingTime: number;
+}
+
 /** Serialises the event state for mid-run saves. */
 export function getEventState(): {
   eventTimer: number;
   nextEventInterval: number;
   lastEventId: string;
+  activeEvent: SerializedActiveEvent | null;
 } {
   return {
     eventTimer,
     nextEventInterval,
     lastEventId,
+    // Persist the currently-running timed event (elite surge / golden tide /
+    // power surge) so a mid-event refresh keeps the remainder of the boon the
+    // player earned instead of silently dropping it — and so the event-trigger
+    // timer stays correctly suppressed until it expires.
+    activeEvent: activeEvent
+      ? { id: activeEvent.event.id, remainingTime: activeEvent.remainingTime }
+      : null,
   };
 }
 
@@ -279,8 +299,25 @@ export function restoreEventState(state: {
   eventTimer: number;
   nextEventInterval: number;
   lastEventId: string;
+  // Optional so saves written before active-event persistence existed still
+  // load (absent → no event restored, matching the pre-feature behaviour).
+  activeEvent?: SerializedActiveEvent | null;
 }): void {
   eventTimer = state.eventTimer;
   nextEventInterval = state.nextEventInterval;
   lastEventId = state.lastEventId;
+
+  // Re-attach the live timed event by re-deriving its definition from the pool.
+  // An unknown id (corrupt / forward-incompatible save) or a non-positive
+  // remaining time clears the active event rather than restoring a broken one.
+  const savedActiveEvent = state.activeEvent;
+  if (savedActiveEvent && savedActiveEvent.remainingTime > 0) {
+    const eventDefinition =
+      EVENT_POOL.find((candidate) => candidate.id === savedActiveEvent.id) ?? null;
+    activeEvent = eventDefinition
+      ? { event: eventDefinition, remainingTime: savedActiveEvent.remainingTime }
+      : null;
+  } else {
+    activeEvent = null;
+  }
 }

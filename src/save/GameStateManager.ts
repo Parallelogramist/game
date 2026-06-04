@@ -261,7 +261,17 @@ export interface GameSaveState {
   bossSpawned: boolean;
   bossWarningPhase?: number;
   comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
-  eventState?: { eventTimer: number; nextEventInterval: number; lastEventId: string };
+  // `activeEvent` carries the currently-running timed event (id + remaining
+  // time) so a mid-event refresh keeps the rest of the boon instead of dropping
+  // it. Optional → legacy saves (written before active-event persistence) load
+  // with no active event restored. The event def is re-derived from EventSystem's
+  // pool by id (not serialised), keeping the save small and the pool authoritative.
+  eventState?: {
+    eventTimer: number;
+    nextEventInterval: number;
+    lastEventId: string;
+    activeEvent?: { id: string; remainingTime: number } | null;
+  };
   minibossSpawnTimes: MinibossSpawnTime[];
 
   // Player state
@@ -430,7 +440,12 @@ export class GameStateManager {
     bossSpawned: boolean;
     bossWarningPhase: number;
     comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
-    eventState?: { eventTimer: number; nextEventInterval: number; lastEventId: string };
+    eventState?: {
+      eventTimer: number;
+      nextEventInterval: number;
+      lastEventId: string;
+      activeEvent?: { id: string; remainingTime: number } | null;
+    };
     minibossSpawnTimes: MinibossSpawnTime[];
     banishedUpgradeIds: Set<string>;
     isAutoBuyEnabled: boolean;
