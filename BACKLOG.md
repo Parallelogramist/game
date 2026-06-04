@@ -137,7 +137,7 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
-- `26f6d7e` FEAT-VICTORY-GRADE — show S–F performance grade badge + run/best
+- `dc6d2a3` FEAT-VICTORY-GRADE — show S–F performance grade badge + run/best
   score on the victory screen (parity with the game-over overlay). `VictoryData`
   extended; `GameScene.showVictory` now captures the `recordScore` result + grade.
 - `15e2797` Fix game-over best-panel overflow (combo int at source + renderer hardening) + gate run start on intro overlay dismissal.
