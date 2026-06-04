@@ -23,6 +23,23 @@ ID prefixes: `REFACTOR-` (structure), `BALANCE-` (tuning/feel), `FEAT-` (new),
 
 ## Open
 
+### FEAT-PERSIST-SHRINES — persist field shrine positions across refresh · OPEN · area: save · (proposed)
+Sibling gap to the now-shipped FEAT-PERSIST-BOUNTY (`869a146`): active walk-in field
+shrines (`activeShrines`, `GameScene.ts:203`) + `shrineSpawnTimer` are also cleared by
+`resetInRunFeatureState` on restore, so a refresh despawns any on-field shrines (they
+re-spawn on the 25s timer). Lower value than bounty (shrines are transient, low cost to
+lose) but the same clean pattern: serialize `{ type, x, y }[]` + timer on `GameSaveState`,
+re-draw via `spawnShrine`/`drawShrine` on restore. **Why deferred:** smaller payoff.
+
+> ⚠ **Env note for fleet agents (bg session, 2026-06-04):** Vitest cannot be run in the
+> sandboxed continuous-build shell — sandboxed it is killed (no subprocess spawning for its
+> worker/fork pool), and unsandboxed it hangs on exit, orphaning workers that wedge the
+> serial bash queue for ~10–15 min at a time. `tsc --noEmit` works (pure node, sandbox-OK,
+> just slow). FEAT-PERSIST-BOUNTY was committed after a clean `tsc`; its Vitest round-trip
+> (`src/save/GameStateManager.bounty.test.ts`) is **still unrun** — verify with `npm run
+> test` on a normal shell. If you must run vitest in-session, try `vitest run --pool=forks
+> --poolOptions.forks.singleFork` and never `TaskStop` a vitest run mid-flight.
+
 ### REFACTOR-1 — Split the GameScene god object · OPEN · area: architecture
 `src/game/scenes/GameScene.ts` is ~6.5k lines. `create()` ≈ 590 lines,
 `update()` ≈ 450, `handleEnemyDeath` ≈ 260.
@@ -130,6 +147,17 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `869a146` FEAT-PERSIST-BOUNTY — persist the **in-run bounty** (objective kind/target/
+  progress/time-left + inter-bounty cooldown + flawless-broken flag) across refresh-recovery.
+  Bounty state was GameScene-owned and cleared by `resetInRunFeatureState` on the restore
+  path, so a refresh mid-bounty wiped progress and restarted the cooldown. Now serialized as
+  optional `bountyState` on `GameSaveState`, mirroring the `comboState`/`eventState`/
+  `timedDamageBuffs` round-trip: `saveGameState` emits it; `restoreGameState` re-applies it
+  after `resetInRunFeatureState` (guarded → legacy saves keep reset defaults; no save-version
+  bump). `bountyText` HUD label re-creates lazily. Unit tests: 3 round-trip cases
+  (`GameStateManager.bounty.test.ts`). Verified `tsc --noEmit` clean; **Vitest round-trip
+  still unrun** (sandboxed bg shell can't run it — see the env note under FEAT-PERSIST-SHRINES;
+  confirm with `npm run test` on a normal shell).
 - `eb16e16` FEAT-PERSIST-POWERBUFF — persist the **Power-shrine damage buff** across
   refresh-recovery. The buff's revert was a Phaser `delayedCall` that dies on reload,
   while the save serialized the already-doubled `damageMultiplier` → reload mid-buff left
