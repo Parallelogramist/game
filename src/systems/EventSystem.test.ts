@@ -6,7 +6,22 @@ import {
   getActiveEvent,
   isEventActive,
   updateEventSystem,
+  getEventDamageBuff,
+  type RunEvent,
 } from './EventSystem';
+
+/** Minimal RunEvent stub for the pure event→buff mapping tests. */
+function makeRunEvent(id: string, duration: number): RunEvent {
+  return {
+    id,
+    name: id,
+    description: '',
+    color: 0,
+    weight: 1,
+    minGameTime: 0,
+    duration,
+  };
+}
 
 /**
  * Active timed events (Elite Surge / Golden Tide / Power Surge) used to be lost
@@ -122,4 +137,33 @@ describe('EventSystem active-event persistence', () => {
     expect(getActiveEvent()).toBeNull();
     expect(getEventState().activeEvent).toBeNull();
   });
+});
+
+/**
+ * power_surge's damage boost was applied as a raw `damageMultiplier *= 2` with a
+ * Phaser `delayedCall` revert — a timer that dies on page reload while the save
+ * bakes the already-doubled multiplier, so a mid-event refresh left the player
+ * with permanent double damage. The fix routes it through the gameTime-keyed
+ * timed-damage-buff list (which survives refresh). `getEventDamageBuff` is the
+ * pure mapping that drives that wiring: which events grant a timed damage buff
+ * and by how much / for how long.
+ */
+describe('getEventDamageBuff', () => {
+  test('power_surge grants a 2x damage buff for the event duration', () => {
+    expect(getEventDamageBuff(makeRunEvent('power_surge', 8))).toEqual({
+      magnitude: 2,
+      durationSeconds: 8,
+    });
+  });
+
+  test('the buff duration tracks the event def (not a hard-coded value)', () => {
+    expect(getEventDamageBuff(makeRunEvent('power_surge', 12))?.durationSeconds).toBe(12);
+  });
+
+  test.each(['elite_surge', 'golden_tide', 'magnetic_storm', 'treasure_rain', 'shrine_bargain'])(
+    '%s grants no timed damage buff',
+    (eventId) => {
+      expect(getEventDamageBuff(makeRunEvent(eventId, 10))).toBeNull();
+    },
+  );
 });

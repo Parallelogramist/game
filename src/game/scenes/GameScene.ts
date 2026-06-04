@@ -76,7 +76,7 @@ import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
-import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, RunEvent } from '../../systems/EventSystem';
+import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventDamageBuff, RunEvent } from '../../systems/EventSystem';
 import { expireTimedDamageBuffs, type TimedDamageBuff } from '../../systems/TimedDamageBuffs';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
@@ -5471,15 +5471,18 @@ export class GameScene extends Phaser.Scene {
         }
         break;
 
-      case 'power_surge':
-        // Temporary massive damage boost
-        this.playerStats.damageMultiplier *= 2;
-        this.syncStatsToPlayer();
-        this.time.delayedCall(event.duration * 1000, () => {
-          this.playerStats.damageMultiplier /= 2;
-          this.syncStatsToPlayer();
-        });
+      case 'power_surge': {
+        // Temporary massive damage boost. Routed through the gameTime-keyed
+        // timed-damage-buff list (not a Phaser delayedCall) so the boost reverts
+        // at the right moment even across a mid-event refresh — a delayedCall
+        // dies on reload while the save bakes the already-doubled multiplier,
+        // which used to leave permanent double damage (cf. eb16e16 power-shrine).
+        const damageBuff = getEventDamageBuff(event);
+        if (damageBuff) {
+          this.applyTimedDamageBuff(damageBuff.magnitude, damageBuff.durationSeconds);
+        }
         break;
+      }
 
       case 'shrine_bargain':
         // Rolls one of three permanent-for-the-rest-of-this-run trade-offs.

@@ -92,6 +92,9 @@ const EVENT_POOL: readonly RunEvent[] = [
 const MIN_EVENT_INTERVAL = 45;
 const MAX_EVENT_INTERVAL = 75;
 
+/** Damage multiplier granted by the Power Surge event for its duration. */
+export const POWER_SURGE_DAMAGE_MULT = 2;
+
 // ---------------------------------------------------------------------------
 // Module-level state
 // ---------------------------------------------------------------------------
@@ -245,6 +248,24 @@ export function getActiveEvent(): ActiveEventState | null {
 /** Returns true if a timed event is currently active. */
 export function isEventActive(): boolean {
   return activeEvent !== null;
+}
+
+/**
+ * Maps a run event to the temporary damage buff it grants, or null if it grants
+ * none. Currently only Power Surge does. Callers apply the returned magnitude via
+ * the gameTime-keyed timed-damage-buff list (NOT a Phaser `delayedCall`) so the
+ * boost reverts at the right moment even across a mid-event refresh — otherwise
+ * the save bakes the doubled multiplier and the revert timer dies on reload,
+ * leaving permanent double damage (same bug class as the eb16e16 power-shrine fix).
+ * The duration is read from the event def so it stays the single source of truth.
+ */
+export function getEventDamageBuff(
+  event: RunEvent,
+): { magnitude: number; durationSeconds: number } | null {
+  if (event.id === 'power_surge') {
+    return { magnitude: POWER_SURGE_DAMAGE_MULT, durationSeconds: event.duration };
+  }
+  return null;
 }
 
 /** Suppresses or un-suppresses event triggering (used during boss warnings). */
