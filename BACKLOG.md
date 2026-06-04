@@ -31,8 +31,13 @@ ID prefixes: `REFACTOR-` (structure), `BALANCE-` (tuning/feel), `FEAT-` (new),
 > queue until killed. This host is **shared by other fleet agents** running their own vitest, so
 > do NOT `pkill -f vitest` broadly — it kills their runs too (this session did so by accident);
 > if you must kill, target your own PID. `tsc --noEmit` works (pure node, sandbox-OK, slow
-> ~1–3 min). The save round-trip tests (`GameStateManager.{bounty,shrine}.test.ts`) are committed
-> but **still unrun** — verify with `npm run test` on a normal shell.
+> ~1–3 min).
+> **Update 2026-06-04 (later bg session):** `npm run test` ran to completion in *this* session's
+> shell — `7 files / 21 tests passed` in ~0.3s, exited normally, no hang or orphaned workers. So
+> vitest **is** runnable here now (prior hang may have been a transient sandbox state or a
+> different shell mode). The whole save round-trip suite (bounty/shrine/consumable/powerbuff/
+> bounty + new evolution/chest) is now actually green, not just `tsc`-checked. Still worth a
+> re-run on a normal shell if a future session sees a hang.
 
 ### REFACTOR-1 — Split the GameScene god object · OPEN · area: architecture
 `src/game/scenes/GameScene.ts` is ~6.5k lines. `create()` ≈ 590 lines,
@@ -141,6 +146,26 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `d2a425a` FEAT-PERSIST-EVOLUTION + FEAT-PERSIST-CHEST — persist **weapon evolutions** and
+  **on-field treasure chests** across refresh-recovery (same vein as the FEAT-PERSIST-* chain).
+  *Evolutions:* `SerializedWeapon` saved only `{id, level}`, so restore re-created + leveled
+  weapons but never re-applied `evolve()` — an evolved super-form (permanent dmg/cooldown/count
+  multipliers + evolved name) reverted to base form and came back `isEvolved=false`, so the next
+  level-up spuriously re-fired the EVOLVED modal. Now serialize `evolved?: boolean`; restore
+  re-derives the recipe by id via `getEvolutionForWeapon()` and calls `evolve()` after the
+  levelUp loop (order-independent — `evolve()` mutates `baseStats`, not level). Multipliers
+  re-derived from recipe, not serialized (mirrors affix-restore `ecc372a`). *Chests:* on-field
+  XP/relic caches were GameScene-owned graphics cleared by `resetInRunFeatureState`, so a refresh
+  despawned uncollected chests (lost XP burst + 35%/100% relic) and restarted the spawn clock.
+  Now tracked in `activeChests`, serialized `{x, y, isSpecial}` (live drifting position), re-added
+  via new shared `addTreasureChest()` helper (extracted from `spawnTreasureChest` so fresh +
+  restore build identical chests); restore deferred past playerStats (reads `chestDroneDelay`),
+  coords sanitized; collect/despawn unified into one idempotent `cleanup()`. Both
+  backward-compatible (absent = not evolved / no chests; no save-version bump). Unit tests:
+  evolution round-trip + legacy (`GameStateManager.evolution.test.ts`), chest round-trip + empty
+  + legacy (`GameStateManager.chest.test.ts`). Verified **`npm run test` green (21 passed)** and
+  `tsc --noEmit` clean — vitest ran to completion this session (see env note). Also gitignore
+  `*.log`.
 - `5c40cc1` FEAT-PERSIST-SHRINES — persist on-field **walk-in shrines**
   (Cleanse/Power/Fortune/Sacrifice) + their spawn timer across refresh-recovery. Sibling gap to
   FEAT-PERSIST-BOUNTY (`869a146`): shrines are GameScene-owned and cleared by
