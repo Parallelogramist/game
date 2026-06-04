@@ -205,6 +205,18 @@ interface SerializedBountyState {
 }
 
 /**
+ * Serialized field-shrine state. `type` mirrors GameScene's `ShrineType`
+ * ('cleanse' | 'power' | 'fortune' | 'sacrifice') but is typed as a plain string
+ * here to keep the save layer decoupled from the scene; GameScene casts it back
+ * (and validates against SHRINE_DEFS) on restore. `spawnTimer` carries the
+ * inter-shrine spawn pacing so a refresh doesn't restart the spawn clock.
+ */
+interface SerializedShrineState {
+  shrines: { type: string; x: number; y: number }[];
+  spawnTimer: number;
+}
+
+/**
  * Complete game save state.
  */
 export interface GameSaveState {
@@ -285,6 +297,13 @@ export interface GameSaveState {
   // keeps the player's progress instead of wiping it and restarting the timer.
   // Absent on legacy saves → no bounty restored (resetInRunFeatureState wins).
   bountyState?: SerializedBountyState;
+
+  // On-field walk-in shrines (Cleanse/Power/Fortune/Sacrifice) + their spawn
+  // timer. GameScene-owned and cleared by resetInRunFeatureState on restore, so
+  // a mid-run refresh would otherwise despawn any placed shrines and restart the
+  // spawn clock. Persisted so the altars + pacing survive refresh-recovery.
+  // Absent on legacy saves → no shrines restored (resetInRunFeatureState wins).
+  shrineState?: SerializedShrineState;
 }
 
 /**
@@ -401,6 +420,7 @@ export class GameStateManager {
     directorState?: DirectorState;
     timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
     bountyState?: SerializedBountyState;
+    shrineState?: SerializedShrineState;
   }): void {
     try {
       const state: GameSaveState = {
@@ -463,6 +483,7 @@ export class GameStateManager {
         directorState: gameData.directorState,
         timedDamageBuffs: gameData.timedDamageBuffs,
         bountyState: gameData.bountyState,
+        shrineState: gameData.shrineState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

@@ -1196,6 +1196,10 @@ export class GameScene extends Phaser.Scene {
         cooldown: this.bountyCooldown,
         flawlessBroken: this.bountyFlawlessBroken,
       },
+      shrineState: {
+        shrines: this.activeShrines.map(shrine => ({ type: shrine.type, x: shrine.x, y: shrine.y })),
+        spawnTimer: this.shrineSpawnTimer,
+      },
     });
   }
 
@@ -1298,6 +1302,20 @@ export class GameScene extends Phaser.Scene {
         : null;
       this.bountyCooldown = state.bountyState.cooldown;
       this.bountyFlawlessBroken = state.bountyState.flawlessBroken;
+    }
+
+    // Restore on-field shrines + spawn pacing. resetInRunFeatureState above
+    // destroyed any altars and reset the timer to fresh-run defaults; re-draw the
+    // saved ones at their positions so a mid-run refresh doesn't despawn them and
+    // restart the spawn clock. The type is validated against SHRINE_DEFS to guard
+    // against a corrupted save. Absent on legacy saves → keep the reset defaults.
+    if (state.shrineState) {
+      for (const saved of state.shrineState.shrines) {
+        if (SHRINE_DEFS.some(def => def.type === saved.type)) {
+          this.addShrine(saved.type as ShrineType, saved.x, saved.y);
+        }
+      }
+      this.shrineSpawnTimer = state.shrineState.spawnTimer;
     }
 
     // Restore spawn tracking
@@ -2405,11 +2423,7 @@ export class GameScene extends Phaser.Scene {
       if (dx * dx + dy * dy > 160 * 160) break;
     }
 
-    const graphics = this.add.graphics();
-    graphics.setPosition(x, y);
-    this.drawShrine(graphics, def.color);
-    graphics.setDepth(4);
-    this.activeShrines.push({ type: def.type, graphics, x, y });
+    this.addShrine(def.type, x, y);
 
     if (this.toastManager) {
       this.toastManager.showToast({
@@ -2420,6 +2434,21 @@ export class GameScene extends Phaser.Scene {
         duration: 2600,
       });
     }
+  }
+
+  /**
+   * Creates the shrine graphics at a fixed position and registers it in
+   * activeShrines. Shared by fresh spawns (spawnShrine) and refresh-restore
+   * (restoreGameState) so both paths draw identical altars; restore skips the
+   * "appeared" toast and the random placement.
+   */
+  private addShrine(type: ShrineType, x: number, y: number): void {
+    const def = SHRINE_DEFS.find(d => d.type === type)!;
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    this.drawShrine(graphics, def.color);
+    graphics.setDepth(4);
+    this.activeShrines.push({ type, graphics, x, y });
   }
 
   /** Draws a glowing diamond altar with an inner glyph. */
