@@ -26,6 +26,8 @@ import {
   MagnetPickup,
   Destructible,
   EnemyAffix,
+  Consumable,
+  ConsumablePickupTag,
 } from '../ecs/components';
 import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
@@ -36,7 +38,7 @@ const STORAGE_KEY = 'survivor-game-state';
 const SAVE_VERSION = 1;
 
 // Serialized entity types
-type EntityTag = 'player' | 'enemy' | 'xpGem' | 'healthPickup' | 'magnetPickup';
+type EntityTag = 'player' | 'enemy' | 'xpGem' | 'healthPickup' | 'magnetPickup' | 'consumable';
 
 /**
  * Serialized transform data.
@@ -138,6 +140,18 @@ interface SerializedMagnetPickupData {
 }
 
 /**
+ * Serialized floor-consumable data (bomb/freeze/vacuum/gold cache).
+ */
+interface SerializedConsumableData {
+  // ConsumableKind enum value (see ConsumablePickupSystem).
+  kind: number;
+  // GOLD payload amount; 0 for the effect kinds.
+  value: number;
+  // Whether the pickup was already homing toward the player.
+  magnetized: number;
+}
+
+/**
  * Serialized entity with all possible component data.
  */
 interface SerializedEntity {
@@ -151,6 +165,7 @@ interface SerializedEntity {
   xpGemData?: SerializedXPGemData;
   healthPickupData?: SerializedHealthPickupData;
   magnetPickupData?: SerializedMagnetPickupData;
+  consumableData?: SerializedConsumableData;
 }
 
 /**
@@ -266,6 +281,7 @@ const enemyQuery = defineQuery([EnemyTag, Transform]);
 const xpGemQuery = defineQuery([XPGemTag, Transform]);
 const healthPickupQuery = defineQuery([HealthPickupTag, Transform]);
 const magnetPickupQuery = defineQuery([MagnetPickupTag, Transform]);
+const consumablePickupQuery = defineQuery([ConsumablePickupTag, Transform]);
 
 /**
  * GameStateManager singleton for save/load operations.
@@ -494,6 +510,7 @@ export class GameStateManager {
     for (const entityId of xpGemQuery(world)) entities.push(this.serializeXPGem(world, entityId));
     for (const entityId of healthPickupQuery(world)) entities.push(this.serializeHealthPickup(world, entityId));
     for (const entityId of magnetPickupQuery(world)) entities.push(this.serializeMagnetPickup(world, entityId));
+    for (const entityId of consumablePickupQuery(world)) entities.push(this.serializeConsumable(world, entityId));
     return entities;
   }
 
@@ -612,6 +629,21 @@ export class GameStateManager {
       velocity: this.readVelocity(entityId),
       magnetPickupData: {
         magnetized: MagnetPickup.magnetized[entityId],
+      },
+    };
+  }
+
+  /**
+   * Serialize floor-consumable entity (bomb/freeze/vacuum/gold cache).
+   */
+  private serializeConsumable(_world: IWorld, entityId: number): SerializedEntity {
+    return {
+      tag: 'consumable',
+      transform: this.readTransform(entityId),
+      consumableData: {
+        kind: Consumable.kind[entityId],
+        value: Consumable.value[entityId],
+        magnetized: Consumable.magnetized[entityId],
       },
     };
   }

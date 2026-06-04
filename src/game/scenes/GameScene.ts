@@ -1564,6 +1564,9 @@ export class GameScene extends Phaser.Scene {
         case 'magnetPickup':
           this.restoreMagnetPickup(entity);
           break;
+        case 'consumable':
+          this.restoreConsumable(entity);
+          break;
       }
     }
 
@@ -1751,6 +1754,23 @@ export class GameScene extends Phaser.Scene {
    */
   private restoreMagnetPickup(entity: GameSaveState['entities'][0]): void {
     spawnMagnetPickup(this.world, entity.transform.x, entity.transform.y);
+  }
+
+  /**
+   * Restores a floor consumable (bomb/freeze/vacuum/gold cache) from saved state.
+   * Mirrors the magnet/health pickup pattern: re-spawn at the saved position with
+   * its kind + gold payload. The magnetized flag is intentionally not restored —
+   * like the sibling pickups, it simply re-arms when the player nears it.
+   */
+  private restoreConsumable(entity: GameSaveState['entities'][0]): void {
+    if (!entity.consumableData) return;
+    spawnConsumablePickup(
+      this.world,
+      entity.transform.x,
+      entity.transform.y,
+      entity.consumableData.kind as ConsumableKind,
+      entity.consumableData.value,
+    );
   }
 
   /**

@@ -71,14 +71,6 @@ won't follow a fresh clone.** It persists on disk so future bg agents *in this c
 won't re-hit the guard; a fresh clone (or a different machine) would need it re-created.
 Purely informational — no action needed unless the fleet runs from a clean clone.
 
-### FEAT-PERSIST-CONSUMABLES — Floor consumables not saved on refresh · OPEN · area: save
-Refresh-recovery (`GameStateManager`) does not persist floor **consumables** lying on
-the ground (BOMB/FREEZE/VACUUM/GOLD) — they vanish on reload. Mirror the magnet-pickup
-serialize/restore pattern (new `'consumable'` EntityTag + query in `serializeEntities`,
-a `restoreConsumable` in GameScene, `Consumable.kind` round-trip) — or make them
-explicitly transient like destructibles if not worth the round-trip. Non-crash,
-refresh-only. Pointers: `src/ecs/systems/ConsumablePickupSystem.ts`, `Consumable` component.
-
 ### FEAT-PERSIST-POWERBUFF — Power-shrine damage buff not saved on refresh · OPEN · area: save
 The temporary **Power shrine** damage buff's revert `delayedCall` dies on reload, so a
 reload mid-buff leaves the boost applied forever (or, depending on how it's stored, drops
@@ -145,6 +137,15 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `_pending_` FEAT-PERSIST-CONSUMABLES — persist floor **consumables** (BOMB/FREEZE/
+  VACUUM/GOLD) across refresh-recovery. New `'consumable'` EntityTag +
+  `consumablePickupQuery` + `serializeConsumable` in `GameStateManager` (round-trips
+  `kind`/`value`/`magnetized`); `restoreConsumable` in GameScene re-spawns via
+  `spawnConsumablePickup`. Mirrors the magnet-pickup serialize/restore pattern;
+  magnetized flag re-arms on proximity (not restored, matching siblings).
+  Backward-compatible (absent `consumableData` = none restored; no save-version bump).
+  Also introduces the repo's first **Vitest** harness (`vitest.config.ts`, 3 round-trip
+  tests in `src/save/GameStateManager.consumable.test.ts`, storage module mocked).
 - `ecc372a` FEAT-PERSIST (affix part) — persist elite **affixes** across refresh.
   `restoreEnemy` now re-attaches the `EnemyAffix` component (was lost → affixed enemies
   came back as normal-but-tanky: no ring/HP-bar, no volatile/vampiric/blessed behaviour,
