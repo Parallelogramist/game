@@ -23,22 +23,16 @@ ID prefixes: `REFACTOR-` (structure), `BALANCE-` (tuning/feel), `FEAT-` (new),
 
 ## Open
 
-### FEAT-PERSIST-SHRINES — persist field shrine positions across refresh · OPEN · area: save · (proposed)
-Sibling gap to the now-shipped FEAT-PERSIST-BOUNTY (`869a146`): active walk-in field
-shrines (`activeShrines`, `GameScene.ts:203`) + `shrineSpawnTimer` are also cleared by
-`resetInRunFeatureState` on restore, so a refresh despawns any on-field shrines (they
-re-spawn on the 25s timer). Lower value than bounty (shrines are transient, low cost to
-lose) but the same clean pattern: serialize `{ type, x, y }[]` + timer on `GameSaveState`,
-re-draw via `spawnShrine`/`drawShrine` on restore. **Why deferred:** smaller payoff.
-
-> ⚠ **Env note for fleet agents (bg session, 2026-06-04):** Vitest cannot be run in the
-> sandboxed continuous-build shell — sandboxed it is killed (no subprocess spawning for its
-> worker/fork pool), and unsandboxed it hangs on exit, orphaning workers that wedge the
-> serial bash queue for ~10–15 min at a time. `tsc --noEmit` works (pure node, sandbox-OK,
-> just slow). FEAT-PERSIST-BOUNTY was committed after a clean `tsc`; its Vitest round-trip
-> (`src/save/GameStateManager.bounty.test.ts`) is **still unrun** — verify with `npm run
-> test` on a normal shell. If you must run vitest in-session, try `vitest run --pool=forks
-> --poolOptions.forks.singleFork` and never `TaskStop` a vitest run mid-flight.
+> ⚠ **Env note for fleet agents (bg session, reconfirmed 2026-06-04):** Vitest cannot be run in
+> the sandboxed continuous-build shell — sandboxed it is killed (no subprocess spawning for its
+> worker/fork pool), and unsandboxed it hangs on exit, orphaning workers that wedge the serial
+> bash queue for ~10–15 min at a time. **Reconfirmed this session:** a backgrounded
+> `vitest run --pool=forks --poolOptions.forks.singleFork` never produced output and wedged the
+> queue until killed. This host is **shared by other fleet agents** running their own vitest, so
+> do NOT `pkill -f vitest` broadly — it kills their runs too (this session did so by accident);
+> if you must kill, target your own PID. `tsc --noEmit` works (pure node, sandbox-OK, slow
+> ~1–3 min). The save round-trip tests (`GameStateManager.{bounty,shrine}.test.ts`) are committed
+> but **still unrun** — verify with `npm run test` on a normal shell.
 
 ### REFACTOR-1 — Split the GameScene god object · OPEN · area: architecture
 `src/game/scenes/GameScene.ts` is ~6.5k lines. `create()` ≈ 590 lines,
@@ -147,6 +141,18 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `5c40cc1` FEAT-PERSIST-SHRINES — persist on-field **walk-in shrines**
+  (Cleanse/Power/Fortune/Sacrifice) + their spawn timer across refresh-recovery. Sibling gap to
+  FEAT-PERSIST-BOUNTY (`869a146`): shrines are GameScene-owned and cleared by
+  `resetInRunFeatureState` on the restore path, so a mid-run refresh despawned placed altars and
+  restarted the 38s spawn clock. Serialized as optional `shrineState` (`{ type, x, y }[]` +
+  `spawnTimer`) on `GameSaveState`, mirroring the `bountyState`/`comboState` round-trip;
+  `restoreGameState` re-draws each altar after `resetInRunFeatureState` via a new shared
+  `addShrine()` helper extracted from `spawnShrine` (so fresh + restore draw identical shrines).
+  Restored types validated against `SHRINE_DEFS`; absent on legacy saves → reset defaults win
+  (backward-compatible, no save-version bump). Unit tests: 3 round-trip cases
+  (`GameStateManager.shrine.test.ts`). Verified `tsc --noEmit` clean; Vitest round-trip **unrun**
+  in the sandboxed bg shell (see env note) — confirm with `npm run test` on a normal shell.
 - `869a146` FEAT-PERSIST-BOUNTY — persist the **in-run bounty** (objective kind/target/
   progress/time-left + inter-bounty cooldown + flawless-broken flag) across refresh-recovery.
   Bounty state was GameScene-owned and cleared by `resetInRunFeatureState` on the restore
