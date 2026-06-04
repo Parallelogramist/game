@@ -2,6 +2,7 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { createWorld, addEntity, addComponent } from 'bitecs';
 import { Transform, PlayerTag } from '../ecs/components';
 import type { PlayerStats } from '../data/Upgrades';
+import type { SerializedTimedStatBuff } from '../systems/TimedStatBuffs';
 
 // In-memory stand-in for the encrypted storage so save()/load() round-trips
 // without touching crypto/localStorage (mirrors the consumable persistence test).
@@ -21,7 +22,7 @@ import { getGameStateManager } from './GameStateManager';
 function makeSaveData(
   world: ReturnType<typeof createWorld>,
   playerId: number,
-  timedDamageBuffs?: { magnitude: number; expiresAt: number }[],
+  timedDamageBuffs?: SerializedTimedStatBuff[],
 ) {
   return {
     world,
@@ -61,15 +62,34 @@ function makePlayer(world: ReturnType<typeof createWorld>): number {
   return playerId;
 }
 
-describe('GameStateManager timed-damage-buff persistence', () => {
+describe('GameStateManager timed-stat-buff persistence', () => {
   beforeEach(() => {
     getGameStateManager().clearSave();
   });
 
-  test('round-trips an active timed damage buff across save/load', () => {
+  test('round-trips a stat-keyed timed buff (xp / gem / damage) across save/load', () => {
     const world = createWorld();
     const playerId = makePlayer(world);
 
+    const buffs: SerializedTimedStatBuff[] = [
+      { stat: 'xpMultiplier', magnitude: 2, expiresAt: 14 },
+      { stat: 'gemValueMultiplier', magnitude: 3, expiresAt: 14 },
+      { stat: 'damageMultiplier', magnitude: 2, expiresAt: 12 },
+    ];
+    getGameStateManager().save(makeSaveData(world, playerId, buffs));
+    const loaded = getGameStateManager().load();
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.timedDamageBuffs).toEqual(buffs);
+  });
+
+  test('round-trips a legacy damage buff entry that has no stat field', () => {
+    const world = createWorld();
+    const playerId = makePlayer(world);
+
+    // Saves written before the system was generalised omit `stat`; the manager
+    // passes the array through verbatim — GameScene's normalizer defaults the
+    // missing stat to damageMultiplier on restore.
     getGameStateManager().save(makeSaveData(world, playerId, [{ magnitude: 2, expiresAt: 8 }]));
     const loaded = getGameStateManager().load();
 

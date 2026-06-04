@@ -76,8 +76,8 @@ import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
-import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventDamageBuff, RunEvent } from '../../systems/EventSystem';
-import { expireTimedDamageBuffs, type TimedDamageBuff } from '../../systems/TimedDamageBuffs';
+import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
+import { expireTimedStatBuffs, normalizeTimedStatBuffs, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
@@ -128,7 +128,7 @@ const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
 ];
 
 // Power shrine: temporary damage buff. Persisted + reverted via gameTime (see
-// TimedDamageBuffs) so it survives refresh-recovery instead of sticking forever.
+// TimedStatBuffs) so it survives refresh-recovery instead of sticking forever.
 const POWER_SHRINE_BUFF_MULT = 2;
 const POWER_SHRINE_BUFF_SECONDS = 8;
 
@@ -206,9 +206,10 @@ export class GameScene extends Phaser.Scene {
 
   // Field shrines (walk-in altars — distinct from the random Shrine of Sacrifice event)
   private activeShrines: { type: ShrineType; graphics: Phaser.GameObjects.Graphics; x: number; y: number }[] = [];
-  // Active temporary timed damage buffs (Power shrine). Driven off gameTime so
-  // they persist across refresh and revert at the correct moment.
-  private timedDamageBuffs: TimedDamageBuff[] = [];
+  // Active temporary timed stat buffs (Power shrine + Power Surge damage, Elite
+  // Surge XP, Golden Tide gem value). Driven off gameTime so they persist across
+  // refresh and revert at the correct moment.
+  private timedStatBuffs: TimedStatBuff[] = [];
   private shrineSpawnTimer: number = 25;
   private static readonly SHRINE_INTERVAL = 38;
   private static readonly MAX_SHRINES = 2;
@@ -1196,7 +1197,9 @@ export class GameScene extends Phaser.Scene {
       stageId: this.selectedStageId,
       relicIds: getRelicManager().getEquippedRelics().map(r => r.id),
       directorState: getDirectorState(),
-      timedDamageBuffs: this.timedDamageBuffs,
+      // Save key kept as `timedDamageBuffs` for back-compat (the list was
+      // damage-only before generalisation); entries now carry a `stat` field.
+      timedDamageBuffs: this.timedStatBuffs,
       bountyState: {
         bounty: this.bounty,
         cooldown: this.bountyCooldown,
@@ -1298,11 +1301,14 @@ export class GameScene extends Phaser.Scene {
     // Note: dashCooldownTimer is restored after inputController.create() below
     this.damageCooldown = state.damageCooldown;
 
-    // Restore active timed damage buffs. The restored playerStats already carry
-    // the buffed damageMultiplier; updateTimedDamageBuffs reverts it once
-    // gameTime passes each buff's (absolute) expiry — fixing the stuck-forever
-    // buff after a mid-buff refresh. Absent on legacy saves → no buffs.
-    this.timedDamageBuffs = state.timedDamageBuffs ?? [];
+    // Restore active timed stat buffs (Power Surge damage / Elite Surge XP /
+    // Golden Tide gem value / Power shrine). The restored playerStats already
+    // carry the multiplied stat; updateTimedStatBuffs reverts it once gameTime
+    // passes each buff's (absolute) expiry — fixing the stuck-forever boon after
+    // a mid-buff refresh. normalizeTimedStatBuffs defaults a missing `stat` to
+    // damageMultiplier so legacy (damage-only) saves keep working. Absent on
+    // legacy saves → no buffs.
+    this.timedStatBuffs = normalizeTimedStatBuffs(state.timedDamageBuffs);
 
     // Restore the in-run bounty objective + pacing. resetInRunFeatureState above
     // cleared it to fresh-run defaults; re-apply the saved progress so a refresh
@@ -2415,7 +2421,7 @@ export class GameScene extends Phaser.Scene {
     this.bountyText?.destroy();
     this.bountyText = null;
     // Cleared on fresh start; the restore path re-populates from the save after.
-    this.timedDamageBuffs = [];
+    this.timedStatBuffs = [];
   }
 
   /**
@@ -2528,7 +2534,7 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case 'power': {
-        this.applyTimedDamageBuff(POWER_SHRINE_BUFF_MULT, POWER_SHRINE_BUFF_SECONDS);
+        this.applyTimedStatBuff('damageMultiplier', POWER_SHRINE_BUFF_MULT, POWER_SHRINE_BUFF_SECONDS);
         description = `Double damage for ${POWER_SHRINE_BUFF_SECONDS} seconds!`;
         break;
       }
@@ -2568,25 +2574,28 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Applies a temporary multiplicative damage buff that reverts after
-   * `durationSeconds` of run time. Tracked against gameTime (not a Phaser
-   * timer) so it survives refresh-recovery — see updateTimedDamageBuffs.
+   * Applies a temporary multiplicative buff to a PlayerStats multiplier field
+   * (damage / XP / gem value) that reverts after `durationSeconds` of run time.
+   * Tracked against gameTime (not a Phaser timer) so it survives refresh-recovery
+   * — see updateTimedStatBuffs.
    */
-  private applyTimedDamageBuff(magnitude: number, durationSeconds: number): void {
-    this.playerStats.damageMultiplier *= magnitude;
+  private applyTimedStatBuff(stat: TimedStatField, magnitude: number, durationSeconds: number): void {
+    this.playerStats[stat] *= magnitude;
     this.syncStatsToPlayer();
-    this.timedDamageBuffs.push({ magnitude, expiresAt: this.gameTime + durationSeconds });
+    this.timedStatBuffs.push({ stat, magnitude, expiresAt: this.gameTime + durationSeconds });
   }
 
-  /** Per-frame: reverts any timed damage buffs whose gameTime expiry has passed. */
-  private updateTimedDamageBuffs(): void {
-    if (this.timedDamageBuffs.length === 0) return;
-    const { active, revertDivisor } = expireTimedDamageBuffs(this.timedDamageBuffs, this.gameTime);
-    if (revertDivisor !== 1) {
-      this.playerStats.damageMultiplier /= revertDivisor;
-      this.timedDamageBuffs = active;
-      this.syncStatsToPlayer();
+  /** Per-frame: reverts any timed stat buffs whose gameTime expiry has passed. */
+  private updateTimedStatBuffs(): void {
+    if (this.timedStatBuffs.length === 0) return;
+    const { active, revertByStat } = expireTimedStatBuffs(this.timedStatBuffs, this.gameTime);
+    const expiredStats = Object.keys(revertByStat) as TimedStatField[];
+    if (expiredStats.length === 0) return;
+    for (const stat of expiredStats) {
+      this.playerStats[stat] /= revertByStat[stat]!;
     }
+    this.timedStatBuffs = active;
+    this.syncStatsToPlayer();
   }
 
   /**
@@ -3095,8 +3104,8 @@ export class GameScene extends Phaser.Scene {
     // ═══ IN-RUN BOUNTIES ═══
     this.updateBounties(deltaSeconds);
 
-    // ═══ TIMED DAMAGE BUFFS (Power shrine) ═══
-    this.updateTimedDamageBuffs();
+    // ═══ TIMED STAT BUFFS (Power shrine / Power Surge / Elite Surge / Golden Tide) ═══
+    this.updateTimedStatBuffs();
 
     // ═══ DYNAMIC MUSIC INTENSITY ═══
     updateMusicIntensity(deltaSeconds, {
@@ -5436,23 +5445,25 @@ export class GameScene extends Phaser.Scene {
       this.hudManager.createEventIndicator(event);
     }
 
+    // Timed multiplicative stat boons (Power Surge → damage, Elite Surge → XP,
+    // Golden Tide → gem value) all route through the gameTime-keyed timed-stat-
+    // buff list — NOT a Phaser delayedCall — so they revert at the right moment
+    // even across a mid-event refresh. A delayedCall dies on reload while the
+    // save bakes the already-multiplied stat, which used to leave the boon
+    // permanent (BUG-EVENT-BUFF-REVERT; cf. eb16e16 power-shrine, d7ab577 Power
+    // Surge). getEventStatBuff is the single source of which stat / how much.
+    const statBuff = getEventStatBuff(event);
+    if (statBuff) {
+      this.applyTimedStatBuff(statBuff.stat, statBuff.magnitude, statBuff.durationSeconds);
+    }
+
     switch (event.id) {
       case 'elite_surge':
-        // Double spawn rate for duration — halve spawn interval temporarily
+        // Transient spawn-rate kick: pull the next wave in sooner. Not persisted
+        // and needs no revert timer — the spawn loop recomputes spawnInterval
+        // from the phase curve on its next spawn tick, so this self-corrects in
+        // ~1 tick. (The XP boon is handled by getEventStatBuff above.)
         this.spawnInterval = Math.max(0.15, this.spawnInterval * 0.5);
-        this.playerStats.xpMultiplier *= 2;
-        this.time.delayedCall(event.duration * 1000, () => {
-          this.spawnInterval = Math.max(0.3, 1.0 - this.gameTime * 0.01);
-          this.playerStats.xpMultiplier /= 2;
-        });
-        break;
-
-      case 'golden_tide':
-        // Triple gem value for duration
-        this.playerStats.gemValueMultiplier *= 3;
-        this.time.delayedCall(event.duration * 1000, () => {
-          this.playerStats.gemValueMultiplier /= 3;
-        });
         break;
 
       case 'magnetic_storm':
@@ -5471,18 +5482,8 @@ export class GameScene extends Phaser.Scene {
         }
         break;
 
-      case 'power_surge': {
-        // Temporary massive damage boost. Routed through the gameTime-keyed
-        // timed-damage-buff list (not a Phaser delayedCall) so the boost reverts
-        // at the right moment even across a mid-event refresh — a delayedCall
-        // dies on reload while the save bakes the already-doubled multiplier,
-        // which used to leave permanent double damage (cf. eb16e16 power-shrine).
-        const damageBuff = getEventDamageBuff(event);
-        if (damageBuff) {
-          this.applyTimedDamageBuff(damageBuff.magnitude, damageBuff.durationSeconds);
-        }
-        break;
-      }
+      // power_surge & golden_tide: the timed stat boon is fully applied by
+      // getEventStatBuff above — no extra side effects, so no case needed here.
 
       case 'shrine_bargain':
         // Rolls one of three permanent-for-the-rest-of-this-run trade-offs.

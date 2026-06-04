@@ -6,7 +6,7 @@ import {
   getActiveEvent,
   isEventActive,
   updateEventSystem,
-  getEventDamageBuff,
+  getEventStatBuff,
   type RunEvent,
 } from './EventSystem';
 
@@ -140,30 +140,49 @@ describe('EventSystem active-event persistence', () => {
 });
 
 /**
- * power_surge's damage boost was applied as a raw `damageMultiplier *= 2` with a
- * Phaser `delayedCall` revert — a timer that dies on page reload while the save
- * bakes the already-doubled multiplier, so a mid-event refresh left the player
- * with permanent double damage. The fix routes it through the gameTime-keyed
- * timed-damage-buff list (which survives refresh). `getEventDamageBuff` is the
- * pure mapping that drives that wiring: which events grant a timed damage buff
- * and by how much / for how long.
+ * The three timed *stat* events (Power Surge → damage, Elite Surge → XP, Golden
+ * Tide → gem value) used to multiply their PlayerStats field and schedule the
+ * revert via a Phaser `delayedCall` — a timer that dies on page reload while the
+ * save bakes the already-multiplied stat, so a mid-event refresh left the boon
+ * permanent (BUG-EVENT-BUFF-REVERT). The fix routes all three through the
+ * gameTime-keyed timed-stat-buff list (which survives refresh). `getEventStatBuff`
+ * is the pure mapping that drives that wiring: which events grant a timed stat
+ * buff, on which stat, by how much, and for how long.
  */
-describe('getEventDamageBuff', () => {
+describe('getEventStatBuff', () => {
   test('power_surge grants a 2x damage buff for the event duration', () => {
-    expect(getEventDamageBuff(makeRunEvent('power_surge', 8))).toEqual({
+    expect(getEventStatBuff(makeRunEvent('power_surge', 8))).toEqual({
+      stat: 'damageMultiplier',
       magnitude: 2,
       durationSeconds: 8,
     });
   });
 
-  test('the buff duration tracks the event def (not a hard-coded value)', () => {
-    expect(getEventDamageBuff(makeRunEvent('power_surge', 12))?.durationSeconds).toBe(12);
+  test('elite_surge grants a 2x XP buff for the event duration', () => {
+    expect(getEventStatBuff(makeRunEvent('elite_surge', 10))).toEqual({
+      stat: 'xpMultiplier',
+      magnitude: 2,
+      durationSeconds: 10,
+    });
   });
 
-  test.each(['elite_surge', 'golden_tide', 'magnetic_storm', 'treasure_rain', 'shrine_bargain'])(
-    '%s grants no timed damage buff',
+  test('golden_tide grants a 3x gem-value buff for the event duration', () => {
+    expect(getEventStatBuff(makeRunEvent('golden_tide', 10))).toEqual({
+      stat: 'gemValueMultiplier',
+      magnitude: 3,
+      durationSeconds: 10,
+    });
+  });
+
+  test('the buff duration tracks the event def (not a hard-coded value)', () => {
+    expect(getEventStatBuff(makeRunEvent('power_surge', 12))?.durationSeconds).toBe(12);
+    expect(getEventStatBuff(makeRunEvent('elite_surge', 7))?.durationSeconds).toBe(7);
+  });
+
+  test.each(['magnetic_storm', 'treasure_rain', 'shrine_bargain'])(
+    '%s grants no timed stat buff',
     (eventId) => {
-      expect(getEventDamageBuff(makeRunEvent(eventId, 10))).toBeNull();
+      expect(getEventStatBuff(makeRunEvent(eventId, 10))).toBeNull();
     },
   );
 });

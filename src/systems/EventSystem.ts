@@ -5,6 +5,8 @@
  * Call resetEventSystem() in GameScene.create() to clear state between runs.
  */
 
+import type { TimedStatField } from './TimedStatBuffs';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -94,6 +96,12 @@ const MAX_EVENT_INTERVAL = 75;
 
 /** Damage multiplier granted by the Power Surge event for its duration. */
 export const POWER_SURGE_DAMAGE_MULT = 2;
+
+/** XP multiplier granted by the Elite Surge event for its duration. */
+export const ELITE_SURGE_XP_MULT = 2;
+
+/** Gem-value multiplier granted by the Golden Tide event for its duration. */
+export const GOLDEN_TIDE_GEM_MULT = 3;
 
 // ---------------------------------------------------------------------------
 // Module-level state
@@ -251,21 +259,29 @@ export function isEventActive(): boolean {
 }
 
 /**
- * Maps a run event to the temporary damage buff it grants, or null if it grants
- * none. Currently only Power Surge does. Callers apply the returned magnitude via
- * the gameTime-keyed timed-damage-buff list (NOT a Phaser `delayedCall`) so the
- * boost reverts at the right moment even across a mid-event refresh — otherwise
- * the save bakes the doubled multiplier and the revert timer dies on reload,
- * leaving permanent double damage (same bug class as the eb16e16 power-shrine fix).
- * The duration is read from the event def so it stays the single source of truth.
+ * Maps a run event to the temporary multiplicative stat buff it grants, or null
+ * if it grants none. Power Surge boosts damage, Elite Surge boosts XP, Golden
+ * Tide boosts gem value. Callers apply the returned magnitude via the
+ * gameTime-keyed timed-stat-buff list (NOT a Phaser `delayedCall`) so the boost
+ * reverts at the right moment even across a mid-event refresh — otherwise the
+ * save bakes the already-multiplied stat and the revert timer dies on reload,
+ * leaving the boon permanent (BUG-EVENT-BUFF-REVERT; cf. the eb16e16 power-shrine
+ * and d7ab577 Power Surge fixes). The duration is read from the event def so it
+ * stays the single source of truth.
  */
-export function getEventDamageBuff(
+export function getEventStatBuff(
   event: RunEvent,
-): { magnitude: number; durationSeconds: number } | null {
-  if (event.id === 'power_surge') {
-    return { magnitude: POWER_SURGE_DAMAGE_MULT, durationSeconds: event.duration };
+): { stat: TimedStatField; magnitude: number; durationSeconds: number } | null {
+  switch (event.id) {
+    case 'power_surge':
+      return { stat: 'damageMultiplier', magnitude: POWER_SURGE_DAMAGE_MULT, durationSeconds: event.duration };
+    case 'elite_surge':
+      return { stat: 'xpMultiplier', magnitude: ELITE_SURGE_XP_MULT, durationSeconds: event.duration };
+    case 'golden_tide':
+      return { stat: 'gemValueMultiplier', magnitude: GOLDEN_TIDE_GEM_MULT, durationSeconds: event.duration };
+    default:
+      return null;
   }
-  return null;
 }
 
 /** Suppresses or un-suppresses event triggering (used during boss warnings). */

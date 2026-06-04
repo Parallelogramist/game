@@ -32,6 +32,7 @@ import {
 import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
 import { DirectorState } from '../systems/DirectorSystem';
+import type { SerializedTimedStatBuff } from '../systems/TimedStatBuffs';
 
 // Storage key and version
 const STORAGE_KEY = 'survivor-game-state';
@@ -317,10 +318,13 @@ export interface GameSaveState {
   // so a reload doesn't re-roll the strategy or reset spawn economy.
   directorState?: DirectorState;
 
-  // Active temporary timed damage buffs (e.g. Power shrine). `expiresAt` is an
-  // absolute run `gameTime`; since gameTime is restored verbatim, the buff
-  // reverts at the right moment after a refresh instead of sticking forever.
-  timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
+  // Active temporary timed stat buffs (Power Surge damage / Elite Surge XP /
+  // Golden Tide gem value / Power shrine damage). `expiresAt` is an absolute run
+  // `gameTime`; since gameTime is restored verbatim, each buff reverts at the
+  // right moment after a refresh instead of sticking forever. `stat` is optional
+  // for legacy saves written when this list was damage-only (restore defaults it
+  // to damageMultiplier). Key kept as `timedDamageBuffs` for save back-compat.
+  timedDamageBuffs?: SerializedTimedStatBuff[];
 
   // In-run bounty objective (rotating goal + reward) — `bounty` holds the live
   // objective or null during the inter-bounty cooldown; `cooldown`/`flawlessBroken`
@@ -461,7 +465,7 @@ export class GameStateManager {
     stageId?: string;
     relicIds?: string[];
     directorState?: DirectorState;
-    timedDamageBuffs?: { magnitude: number; expiresAt: number }[];
+    timedDamageBuffs?: SerializedTimedStatBuff[];
     bountyState?: SerializedBountyState;
     shrineState?: SerializedShrineState;
     chestState?: SerializedChestEntry[];
