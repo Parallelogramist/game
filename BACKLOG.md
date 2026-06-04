@@ -32,12 +32,33 @@ ID prefixes: `REFACTOR-` (structure), `BALANCE-` (tuning/feel), `FEAT-` (new),
 > do NOT `pkill -f vitest` broadly — it kills their runs too (this session did so by accident);
 > if you must kill, target your own PID. `tsc --noEmit` works (pure node, sandbox-OK, slow
 > ~1–3 min).
-> **Update 2026-06-04 (later bg session):** `npm run test` ran to completion in *this* session's
-> shell — `7 files / 21 tests passed` in ~0.3s, exited normally, no hang or orphaned workers. So
-> vitest **is** runnable here now (prior hang may have been a transient sandbox state or a
-> different shell mode). The whole save round-trip suite (bounty/shrine/consumable/powerbuff/
-> bounty + new evolution/chest) is now actually green, not just `tsc`-checked. Still worth a
-> re-run on a normal shell if a future session sees a hang.
+> **Update 2026-06-04 (most recent bg session):** `npm run test`, `npx tsc --noEmit`, and
+> `npm run build` all ran to completion normally in this session — full suite **38 tests / 9 files
+> green** in ~0.3s, no hang or orphaned workers. The earlier "TOTAL bash outage" (a wedged serial
+> executor where even `echo` hung) did **not** recur — a fresh fleet-keeper-spawned shell cleared
+> it, as predicted. **Guidance:** vitest/tsc/build are runnable here; if a future session *does*
+> hit a full bash hang (even `echo` never returns), don't burn the session retrying — a fresh
+> agent clears it. Don't `pkill -f vitest` broadly (other fleet agents share this host).
+
+### BUG-EVENT-BUFF-REVERT — Elite Surge / Golden Tide boons stick permanently on refresh · OPEN · area: save
+Same bug class as the now-fixed `power_surge` (`d7ab577`) and power-shrine (`eb16e16`): both
+remaining *timed* events revert their boon with a Phaser `this.time.delayedCall(...)` in
+`GameScene.handleRunEvent` (`src/game/scenes/GameScene.ts` ~L5440 / ~L5450), a timer that dies on
+page reload while the save bakes the already-buffed stat — so a mid-event refresh leaves the boon
+**permanent**:
+- **`elite_surge`** — `xpMultiplier *= 2` **and** `spawnInterval *= 0.5` (the revert also recomputes
+  `spawnInterval` from a `1.0 - gameTime*0.01` formula, so it's not a clean divide — messier than
+  power_surge). Permanent 2× XP on refresh.
+- **`golden_tide`** — `gemValueMultiplier *= 3`. Permanent 3× gem value on refresh.
+**Why deferred (not bundled with d7ab577):** these touch `xpMultiplier`/`gemValueMultiplier`/
+`spawnInterval`, none of which the damage-only `timedDamageBuffs` list covers. A clean fix
+generalizes that list into a `timedStatBuffs` system keyed by which field it scales (and a special
+case / separate timer-snapshot for `spawnInterval`), then serializes it — a real (test-driven)
+refactor, larger than the one-line power_surge reuse. Milder impact than power_surge (economy
+buffs, not a combat faceroll), so lower priority. The active-event *metadata* already round-trips
+(`b94d020`), so the HUD indicator is correct; only the stat revert is missing.
+**Acceptance:** refresh mid-elite_surge / mid-golden_tide → boon ends at its original expiry, not
+permanently; backward-compatible save; pure-logic unit tests for the generalized buff expiry.
 
 ### REFACTOR-1 — Split the GameScene god object · OPEN · area: architecture
 `src/game/scenes/GameScene.ts` is ~6.5k lines. `create()` ≈ 590 lines,
@@ -146,6 +167,28 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `d7ab577` FIX BUG-EVENT-BUFF-REVERT (power_surge part) — make the **Power Surge** event's 2×
+  damage boost survive refresh-recovery. It applied `damageMultiplier *= 2` reverted by a Phaser
+  `delayedCall` — a timer that dies on reload while the save bakes the doubled multiplier, so a
+  mid-event refresh left **permanent** double damage (same class as the `eb16e16` power-shrine fix).
+  Now routed through the gameTime-keyed `timedDamageBuffs` list: new pure `getEventDamageBuff(event)`
+  maps power_surge → `{magnitude: 2, durationSeconds: event.duration}` (duration sourced from the
+  event def via new `POWER_SURGE_DAMAGE_MULT`); `handleRunEvent` applies it via the existing
+  `applyTimedDamageBuff`, so it serializes, restores, and reverts at the correct absolute `gameTime`.
+  With `b94d020`, both the HUD indicator and the stat revert now survive reload. Unit tests for the
+  mapping (`EventSystem.test.ts`). `tsc` + `npm run build` + 38-test suite green. Elite Surge /
+  Golden Tide have the same latent bug → filed BUG-EVENT-BUFF-REVERT (Open).
+- `b94d020` FEAT-PERSIST-ACTIVE-EVENT — persist the **live in-run event** (Elite Surge / Golden
+  Tide / Power Surge) across refresh-recovery. EventSystem save/restore only round-tripped the
+  event-trigger timer, so a mid-event refresh dropped the remainder of the active boon and let the
+  trigger timer resume early. `getEventState()` now also emits the live event as
+  `{id, remainingTime}`; `restoreEventState()` re-derives the full `RunEvent` def from `EVENT_POOL`
+  by id (unknown id / non-positive time → cleared), mirroring how restored affixes/evolutions
+  re-derive from their defs. `GameStateManager.eventState` type widened for the optional
+  `activeEvent` (pure pass-through). Backward-compatible (absent → none restored, no version bump).
+  Unit tests: EventSystem round-trip/legacy/null/unknown-id/non-positive/tick-down/reset, plus a
+  GameStateManager save→load round-trip. (Was uncommitted WIP from a bash-dead session; verified +
+  committed this session — `npm run test` green.)
 - `d2a425a` FEAT-PERSIST-EVOLUTION + FEAT-PERSIST-CHEST — persist **weapon evolutions** and
   **on-field treasure chests** across refresh-recovery (same vein as the FEAT-PERSIST-* chain).
   *Evolutions:* `SerializedWeapon` saved only `{id, level}`, so restore re-created + leveled
