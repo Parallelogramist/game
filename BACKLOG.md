@@ -40,26 +40,6 @@ ID prefixes: `REFACTOR-` (structure), `BALANCE-` (tuning/feel), `FEAT-` (new),
 > hit a full bash hang (even `echo` never returns), don't burn the session retrying — a fresh
 > agent clears it. Don't `pkill -f vitest` broadly (other fleet agents share this host).
 
-### BUG-EVENT-BUFF-REVERT — Elite Surge / Golden Tide boons stick permanently on refresh · OPEN · area: save
-Same bug class as the now-fixed `power_surge` (`d7ab577`) and power-shrine (`eb16e16`): both
-remaining *timed* events revert their boon with a Phaser `this.time.delayedCall(...)` in
-`GameScene.handleRunEvent` (`src/game/scenes/GameScene.ts` ~L5440 / ~L5450), a timer that dies on
-page reload while the save bakes the already-buffed stat — so a mid-event refresh leaves the boon
-**permanent**:
-- **`elite_surge`** — `xpMultiplier *= 2` **and** `spawnInterval *= 0.5` (the revert also recomputes
-  `spawnInterval` from a `1.0 - gameTime*0.01` formula, so it's not a clean divide — messier than
-  power_surge). Permanent 2× XP on refresh.
-- **`golden_tide`** — `gemValueMultiplier *= 3`. Permanent 3× gem value on refresh.
-**Why deferred (not bundled with d7ab577):** these touch `xpMultiplier`/`gemValueMultiplier`/
-`spawnInterval`, none of which the damage-only `timedDamageBuffs` list covers. A clean fix
-generalizes that list into a `timedStatBuffs` system keyed by which field it scales (and a special
-case / separate timer-snapshot for `spawnInterval`), then serializes it — a real (test-driven)
-refactor, larger than the one-line power_surge reuse. Milder impact than power_surge (economy
-buffs, not a combat faceroll), so lower priority. The active-event *metadata* already round-trips
-(`b94d020`), so the HUD indicator is correct; only the stat revert is missing.
-**Acceptance:** refresh mid-elite_surge / mid-golden_tide → boon ends at its original expiry, not
-permanently; backward-compatible save; pure-logic unit tests for the generalized buff expiry.
-
 ### REFACTOR-1 — Split the GameScene god object · OPEN · area: architecture
 `src/game/scenes/GameScene.ts` is ~6.5k lines. `create()` ≈ 590 lines,
 `update()` ≈ 450, `handleEnemyDeath` ≈ 260.
@@ -167,6 +147,26 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `b209617` FIX BUG-EVENT-BUFF-REVERT (Elite Surge / Golden Tide part) — the last two timed
+  events now survive refresh-recovery, closing the whole bug class. Both applied a raw
+  `xpMultiplier *= 2` (Elite Surge) / `gemValueMultiplier *= 3` (Golden Tide) reverted by a Phaser
+  `delayedCall` — a timer that dies on reload while the save bakes the already-multiplied stat, so a
+  mid-event refresh left the boon **permanent** (same class as `d7ab577` Power Surge / `eb16e16`
+  power-shrine). Fix **generalised** the damage-only `TimedDamageBuffs` system into a stat-keyed
+  `TimedStatBuffs` (`src/systems/TimedStatBuffs.ts`): each buff now carries a `stat`
+  (`damageMultiplier` | `xpMultiplier` | `gemValueMultiplier`), `expireTimedStatBuffs` groups the
+  revert divisor per stat, and `normalizeTimedStatBuffs` defaults a missing `stat` →
+  `damageMultiplier` for legacy saves. `EventSystem.getEventDamageBuff` → `getEventStatBuff` now
+  maps power_surge/elite_surge/golden_tide → `{stat, magnitude, durationSeconds}` (new
+  `ELITE_SURGE_XP_MULT`/`GOLDEN_TIDE_GEM_MULT` consts). `GameScene.handleRunEvent` routes all three
+  boons through the gameTime-keyed list (deleting the dead delayedCalls); Elite Surge keeps only its
+  transient `spawnInterval *= 0.5` kick (no revert needed — the spawn loop recomputes spawnInterval
+  from the phase curve each spawn tick, so it self-corrects; the old `1.0 - gameTime*0.01` revert
+  formula was already overwritten anyway). Save key stays `timedDamageBuffs` for back-compat; entries
+  now serialise `stat`. Backward-compatible (no save-version bump). Unit tests: `TimedStatBuffs.test.ts`
+  (per-stat expiry + legacy normalize), `EventSystem.test.ts` (getEventStatBuff for all 3 + nulls),
+  `GameStateManager.statbuff.test.ts` (stat-keyed + legacy round-trip). **`npm run test` 43/43 green,
+  `tsc --noEmit` exit 0, `npm run build` clean.**
 - `d7ab577` FIX BUG-EVENT-BUFF-REVERT (power_surge part) — make the **Power Surge** event's 2×
   damage boost survive refresh-recovery. It applied `damageMultiplier *= 2` reverted by a Phaser
   `delayedCall` — a timer that dies on reload while the save bakes the doubled multiplier, so a
