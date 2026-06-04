@@ -71,13 +71,6 @@ won't follow a fresh clone.** It persists on disk so future bg agents *in this c
 won't re-hit the guard; a fresh clone (or a different machine) would need it re-created.
 Purely informational — no action needed unless the fleet runs from a clean clone.
 
-### FEAT-PERSIST-POWERBUFF — Power-shrine damage buff not saved on refresh · OPEN · area: save
-The temporary **Power shrine** damage buff's revert `delayedCall` dies on reload, so a
-reload mid-buff leaves the boost applied forever (or, depending on how it's stored, drops
-it instantly). Persist remaining buff duration + magnitude and re-schedule the revert on
-restore. Non-crash, refresh-only. Pointers: `SHRINE_DEFS` Power case + its `delayedCall`
-in `GameScene`. (Split out of the former FEAT-PERSIST; affix persistence shipped — see Changelog.)
-
 ### FEAT-RUNNER-MODE — New endless-runner game mode · OPEN · area: gameplay
 Designed (Area C) but deferred during the scroll-runner-polish session. A separate
 `RunnerScene` with a forced auto-scroll (world/hazard wall advances), dodge-and-survive
@@ -137,6 +130,16 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `eb16e16` FEAT-PERSIST-POWERBUFF — persist the **Power-shrine damage buff** across
+  refresh-recovery. The buff's revert was a Phaser `delayedCall` that dies on reload,
+  while the save serialized the already-doubled `damageMultiplier` → reload mid-buff left
+  the player permanently double-damage. Replaced the one-shot timer with gameTime-driven
+  timed buffs: each records magnitude + an absolute `gameTime` expiry, reverted per frame
+  by new pure helper `expireTimedDamageBuffs` (`src/systems/TimedDamageBuffs.ts`).
+  Serialized as `timedDamageBuffs` in `GameSaveState`; since `gameTime` restores verbatim,
+  the list round-trips and reverts at the right moment (no re-schedule, no re-apply).
+  Stacking handled; buff now pauses with the game. Backward-compatible (`?? []`, no
+  version bump). Unit tests: pure expiry helper + GameStateManager round-trip.
 - `f481aff` FEAT-PERSIST-CONSUMABLES — persist floor **consumables** (BOMB/FREEZE/
   VACUUM/GOLD) across refresh-recovery. New `'consumable'` EntityTag +
   `consumablePickupQuery` + `serializeConsumable` in `GameStateManager` (round-trips
