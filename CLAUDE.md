@@ -15,8 +15,12 @@ so nothing lives only in conversation. The human drives prioritization.
 - `npm run dev` - Start Vite dev server with hot reload
 - `npm run build` - TypeScript check + production build
 - `npm run preview` - Preview production build locally
+- `npm run test` - Run the Vitest unit suite once (`test:watch` for watch mode)
 
-No lint/test commands configured.
+No lint command configured. Tests use **Vitest** (`vitest.config.ts`, Node env). Coverage
+is thin — pure logic only (e.g. ECS save/load serialization); Phaser-coupled code is
+exercised by mocking its module boundary, not a live scene. Add a failing test first for
+new logic where it can run without a real Phaser scene.
 
 ## Deployment
 
