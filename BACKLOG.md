@@ -107,15 +107,8 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-BESTSCORE-CORRUPT shipped as `0b81956`.)_
-
-### PROPOSE-PERFGRADE-TEST — direct unit coverage for PerformanceGrade · OPEN · area: test
-`src/utils/PerformanceGrade.ts` (`computeRunScore` + `computePerformanceGrade`) is the
-central scoring used by BestScoreManager, DailyChallengeManager ranking, RunHistoryManager,
-and the S–F results badge, yet has **no direct test file** (only exercised indirectly).
-**Value:** a regression lock on the scoring/grade contract that four consumers depend on, so
-a future tuning tweak can't silently shift leaderboard ranking or grade thresholds. Pure,
-fast, browser-free (precedent: `9a70746` test-only commit).
+most recent self-discovered fix BUG-BESTSCORE-CORRUPT shipped as `0b81956`;
+most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
 
 ---
 
@@ -187,6 +180,21 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `5940c9a` PROPOSE-PERFGRADE-TEST — **add the missing direct unit coverage for PerformanceGrade.**
+  `computeRunScore` + `computePerformanceGrade` (`src/utils/PerformanceGrade.ts`) are the canonical
+  run-scoring + grade contract shared by four consumers — `BestScoreManager` (persisted best),
+  `DailyChallengeManager` (leaderboard rank), `RunHistoryManager` (recorded run summaries), and the
+  S–F results badge (`GameScene` victory + game-over paths) — yet had **no direct test file** (only
+  exercised indirectly), so a tuning tweak to a weight or threshold could silently shift leaderboard
+  ordering or grade cutoffs. New `PerformanceGrade.test.ts` (34 cases, pure/browser-free, no Phaser
+  or storage mock): `computeRunScore` — all-zero=0, each term's documented weight (kills×10/survival×3/
+  level×50/damage÷100/combo×5), victory +5000 exactly, `Math.round` half-up rounding, determinism, full
+  composite; `computePerformanceGrade` — every grade cutoff + just-below boundary at world level 1,
+  world-level baseline scaling (same score grades lower at higher WL; S at WL5 needs 5× the score),
+  `worldLevel<=0` clamp to baseline 4000, victory +1-tier bump (F→D, A→S) capped at S (no overflow),
+  palette color per grade, defensive numeric edges (negative→F, NaN→F no-throw, Infinity→S). No
+  production code changed — pure regression lock (precedent: `9a70746`). `npm run test` **165/165 green**
+  (+34), `tsc && vite build` clean.
 - `0b81956` BUG-BESTSCORE-CORRUPT — **harden BestScoreManager against corrupt/tampered
   best-score storage.** `load()` parsed `survivor-best-scores` with no shape check
   (`cache = JSON.parse(stored) as BestScoreMap`), so a corrupt/tampered/truncated payload
