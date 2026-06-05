@@ -100,6 +100,40 @@ own brainstorm → plan cycle (full new scene, large).
 
 ---
 
+## Proposed (auto)
+
+> Appended by a continuous-build agent when the actionable backlog ran thin
+> (remaining Open items are large refactors, human-gated chores, or need playtest).
+> One-line value rationale each; human reprioritizes freely.
+
+### FEAT-RUN-HISTORY — Persistent recent-run history · IN PROGRESS · area: meta
+**Value:** the game tracks *aggregate* lifetime stats (AchievementManager) and a
+daily-only leaderboard, but nothing remembers your **individual recent runs** — so a
+player can't see "how did my last few runs go?" at a glance.
+**Plan:** new pure `RunHistoryManager` (`src/meta/RunHistoryManager.ts`) mirroring
+`BestScoreManager`'s SecureStorage+cache idiom — `recordRun(summary, timestamp)` prepends
+a capped (10) newest-first list; `getRecentRuns(n)`; corrupt-storage → `[]`. Register key
+`survivor-run-history` in `StorageBootstrap.ALL_STORAGE_KEYS`. Wire `recordRun` into BOTH
+run-end paths in `GameScene` (victory ~4060 + game-over ~4303, next to `recordScore`) for
+parallel-path consistency. Surface a compact "RECENT" readout on the results overlay
+(`PauseMenuManager`). Fully test-first (manager is pure logic).
+
+### FEAT-DIRECTOR-PERSIST — Persist spawn-director state across refresh · OPEN · area: gameplay
+**Value:** `DirectorSystem` accrues spawn credits + picks a per-run strategy; on
+refresh-recovery neither is restored, so the back half of a run re-randomizes its spawn
+pacing/strategy (subtle difficulty discontinuity). Same proven refresh-persistence vein,
+pure-logic + testable, no UI. Pointers: `src/systems/DirectorSystem.ts` (module state),
+`GameStateManager` save/restore round-trip.
+
+### FEAT-SAVE-VALIDATE — Harden restore against corrupt/partial saves · OPEN · area: robustness
+**Value:** `loadGameState` guards `version` but a structurally-malformed-but-version-valid
+save (NaN coords, missing arrays from a quota-truncated write) can still crash the
+GameScene restore path → player can't even start. Add shape validation/sanitize that
+rejects → clean fresh start. Pure-logic, testable, no UI. Pointers:
+`src/save/GameStateManager.ts:389` load, GameScene restore path.
+
+---
+
 ## Needs playtest (code complete, feel/balance unverified)
 
 ### POLISH-RUNNER — Scroll-runner polish feel · NEEDS PLAYTEST · area: feel · (new, this session)

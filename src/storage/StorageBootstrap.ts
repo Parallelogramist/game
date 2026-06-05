@@ -52,6 +52,9 @@ export const ALL_STORAGE_KEYS = [
 
   // BestScoreManager (per-run best score by world level)
   'survivor-best-scores',
+
+  // RunHistoryManager (recent run summaries)
+  'survivor-run-history',
 ];
 
 /**
