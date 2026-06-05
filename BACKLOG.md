@@ -106,18 +106,6 @@ own brainstorm → plan cycle (full new scene, large).
 > (remaining Open items are large refactors, human-gated chores, or need playtest).
 > One-line value rationale each; human reprioritizes freely.
 
-### FEAT-RUN-HISTORY — Persistent recent-run history · IN PROGRESS · area: meta
-**Value:** the game tracks *aggregate* lifetime stats (AchievementManager) and a
-daily-only leaderboard, but nothing remembers your **individual recent runs** — so a
-player can't see "how did my last few runs go?" at a glance.
-**Plan:** new pure `RunHistoryManager` (`src/meta/RunHistoryManager.ts`) mirroring
-`BestScoreManager`'s SecureStorage+cache idiom — `recordRun(summary, timestamp)` prepends
-a capped (10) newest-first list; `getRecentRuns(n)`; corrupt-storage → `[]`. Register key
-`survivor-run-history` in `StorageBootstrap.ALL_STORAGE_KEYS`. Wire `recordRun` into BOTH
-run-end paths in `GameScene` (victory ~4060 + game-over ~4303, next to `recordScore`) for
-parallel-path consistency. Surface a compact "RECENT" readout on the results overlay
-(`PauseMenuManager`). Fully test-first (manager is pure logic).
-
 ### FEAT-DIRECTOR-PERSIST — Persist spawn-director state across refresh · OPEN · area: gameplay
 **Value:** `DirectorSystem` accrues spawn credits + picks a per-run strategy; on
 refresh-recovery neither is restored, so the back half of a run re-randomizes its spawn
@@ -135,6 +123,16 @@ rejects → clean fresh start. Pure-logic, testable, no UI. Pointers:
 ---
 
 ## Needs playtest (code complete, feel/balance unverified)
+
+### POLISH-RUN-HISTORY — "RECENT" results-overlay strip placement · NEEDS PLAYTEST · area: ui · (new, this session)
+`RunHistoryManager` + recording are tested + build-clean, but the new "RECENT" trend
+strip on the game-over + victory overlays (`PauseMenuManager.createRecentRunsStrip`,
+left margin at `x=28`, vertically near `centerY`) was **not visually verified** (no
+browser in the bg session). Check: no overlap with the centered stat column / weapon &
+unlock side panels at various run lengths; readable contrast of the grade-tinted rows on
+the dark overlay; placement on the victory screen vs confetti/message; sensible at UI
+scale extremes (overlay text is absolute-positioned in 1280×720, so EXPAND-scaled only).
+Tune row count (currently 3), `x`/`topY`, or font size if it crowds.
 
 ### POLISH-RUNNER — Scroll-runner polish feel · NEEDS PLAYTEST · area: feel · (new, this session)
 Zigzag Runner (banking lean, dart-burst + telegraph, orange trail, baked thrust glow) and
@@ -181,6 +179,23 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `899a4c7` + `606be11` FEAT-RUN-HISTORY — persistent **recent-run history** + a "RECENT"
+  trend strip on the end screens. The game tracked aggregate lifetime stats
+  (AchievementManager) and a daily-only leaderboard, but nothing remembered individual
+  recent runs. New pure `RunHistoryManager` (`src/meta/RunHistoryManager.ts`) persists a
+  capped (`MAX_RUN_HISTORY`=10) newest-first list of run summaries (timestamp / duration /
+  kills / level / score / grade / victory / worldLevel) via SecureStorage, mirroring
+  `BestScoreManager`. Read-through (no cache → store is the single source of truth);
+  `load()` validates each entry (`isRunSummary`) and tolerates corrupt / non-array /
+  partial payloads (→ `[]`). Key `survivor-run-history` registered in `StorageBootstrap`.
+  Both `GameScene` run-end paths (victory + game over) record next to `recordScore`,
+  reading the prior runs first so the overlay shows the runs *leading up to* this one.
+  `PauseMenuManager.createRecentRunsStrip` (shared by both overlays) draws a compact
+  left-margin strip — grade letter, duration, score per row, grade-tinted, ✓ for prior
+  wins; no-op on empty history. **Fully test-first: 12 manager tests** (ordering, cap,
+  limit clamp, persistence, corrupt-JSON / non-array / malformed-entry resilience).
+  `npm run test` **55/55 green**, `tsc --noEmit` exit 0, `npm run build` clean. Visual
+  placement unverified in bg → POLISH-RUN-HISTORY (Needs playtest).
 - `b209617` FIX BUG-EVENT-BUFF-REVERT (Elite Surge / Golden Tide part) — the last two timed
   events now survive refresh-recovery, closing the whole bug class. Both applied a raw
   `xpMultiplier *= 2` (Elite Surge) / `gemValueMultiplier *= 3` (Golden Tide) reverted by a Phaser
