@@ -107,7 +107,15 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-STREAKER-NOTASTREAK shipped as `2b82b20`.)_
+most recent self-discovered fix BUG-BESTSCORE-CORRUPT shipped as `0b81956`.)_
+
+### PROPOSE-PERFGRADE-TEST — direct unit coverage for PerformanceGrade · OPEN · area: test
+`src/utils/PerformanceGrade.ts` (`computeRunScore` + `computePerformanceGrade`) is the
+central scoring used by BestScoreManager, DailyChallengeManager ranking, RunHistoryManager,
+and the S–F results badge, yet has **no direct test file** (only exercised indirectly).
+**Value:** a regression lock on the scoring/grade contract that four consumers depend on, so
+a future tuning tweak can't silently shift leaderboard ranking or grade thresholds. Pure,
+fast, browser-free (precedent: `9a70746` test-only commit).
 
 ---
 
@@ -179,6 +187,26 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `0b81956` BUG-BESTSCORE-CORRUPT — **harden BestScoreManager against corrupt/tampered
+  best-score storage.** `load()` parsed `survivor-best-scores` with no shape check
+  (`cache = JSON.parse(stored) as BestScoreMap`), so a corrupt/tampered/truncated payload
+  broke the post-run results screen: a `"null"` payload made `load()` return null, then
+  `recordScore`'s `map[key] = score` (run via `showVictory`/`gameOver` at **every** run end —
+  `GameScene:4061`/`:4335`) threw a TypeError so the overlay never rendered; an array/primitive
+  payload got indexed by world-level keys, and non-numeric/NaN entries surfaced a garbage/NaN
+  "best". SecureStorage is the anti-cheat layer, so a non-object payload is exactly the threat
+  model — this was the lone scoring-persistence module without the FEAT-SAVE-VALIDATE
+  (`4dccd79`) / RunHistoryManager hardening. Fix: `load()` validates the parsed value is a plain
+  object and keeps only finite non-negative numeric entries; `recordScore` sanitizes its score
+  to a finite non-negative integer. Also dropped the stale module cache for **read-through**
+  reads (single source of truth, mirroring RunHistoryManager) — removes a secondary foot-gun
+  where a falsy-parsed cache silently re-parsed every call, and self-heals the stored payload on
+  the next write. Byte-identical on the real path (`computeRunScore` always yields a finite
+  non-negative int), so pure hardening, no balance change. **Test-first: the module's first
+  coverage** — `BestScoreManager.test.ts` (15 cases): record/read-back, strictly-greater
+  overwrite, per-world-level isolation, persistence, + corruption locks (null/array/primitive/
+  non-JSON payloads, dropped invalid entries, NaN/Infinity sanitization). `npm run test`
+  **131/131 green** (+15), `tsc && vite build` clean.
 - `2b82b20` BUG-STREAKER-NOTASTREAK — **make the Streak Flame hidden unlock require a real
   5-win streak instead of 5 total victories.** The `unlock_streaker` condition (hint: "Win 5
   runs in a row") gated on `run.wasVictory && lifetime.totalVictories % 5 === 0 &&
