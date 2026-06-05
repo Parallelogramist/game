@@ -359,6 +359,80 @@ export interface SaveInfo {
   timestamp?: number;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Structural validation for a parsed save. A save can pass the version check yet
+ * still be corrupt — a quota-truncated write, NaN coordinates, a missing entity
+ * array — and restoring such a save crashes the GameScene restore path, leaving
+ * the player unable to start a run at all. We reject corrupt saves here so the
+ * caller falls back to a clean fresh start instead of a broken restore.
+ *
+ * Only the always-written (non-optional) fields the restore path dereferences
+ * unguarded are validated. Newer optional fields (directorState, eventState,
+ * relicIds, …) are guarded at their own use sites and must stay optional here so
+ * legacy saves keep loading.
+ */
+export function isStructurallyValidSaveState(parsed: unknown): parsed is GameSaveState {
+  if (!isPlainObject(parsed)) return false;
+
+  // Version: absent, non-numeric, or from a newer save format → unsupported.
+  if (!isFiniteNumber(parsed.version) || parsed.version > SAVE_VERSION) return false;
+
+  // Core run progress, timers, and world scaling — every one drives the game
+  // loop, HUD, or enemy math, and a NaN propagates silently into a broken run.
+  const requiredNumbers: (keyof GameSaveState)[] = [
+    'gameTime', 'killCount', 'enemyCount',
+    'spawnTimer', 'spawnInterval', 'magnetSpawnTimer', 'treasureSpawnTimer',
+    'gemMagnetTimer', 'dashCooldownTimer', 'damageCooldown',
+    'worldLevel', 'worldLevelHealthMult', 'worldLevelDamageMult',
+    'worldLevelSpawnReduction', 'worldLevelXPMult',
+  ];
+  for (const key of requiredNumbers) {
+    if (!isFiniteNumber(parsed[key])) return false;
+  }
+
+  // Player snapshot — dereferenced field-by-field across the whole restore path
+  // (health bar, HUD, combat). A null or NaN-vital playerStats is fatal.
+  const playerStats = parsed.playerStats;
+  if (!isPlainObject(playerStats)) return false;
+  if (!isFiniteNumber(playerStats.level) ||
+      !isFiniteNumber(playerStats.maxHealth) ||
+      !isFiniteNumber(playerStats.currentHealth)) {
+    return false;
+  }
+
+  // Collections the restore path iterates — a non-array throws on for..of/forEach.
+  const requiredArrays: (keyof GameSaveState)[] = [
+    'entities', 'weapons', 'upgrades', 'twinLinks',
+    'minibossSpawnTimes', 'banishedUpgradeIds',
+  ];
+  for (const key of requiredArrays) {
+    if (!Array.isArray(parsed[key])) return false;
+  }
+
+  // Each entity must carry a transform with finite coordinates — a NaN here
+  // propagates into Phaser positioning + physics, corrupting the whole run.
+  for (const entity of parsed.entities as unknown[]) {
+    if (!isPlainObject(entity)) return false;
+    const transform = entity.transform;
+    if (!isPlainObject(transform)) return false;
+    if (!isFiniteNumber(transform.x) ||
+        !isFiniteNumber(transform.y) ||
+        !isFiniteNumber(transform.rotation)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // Define queries for serialization
 const playerQuery = defineQuery([PlayerTag, Transform]);
 const enemyQuery = defineQuery([EnemyTag, Transform]);
@@ -392,8 +466,14 @@ export class GameStateManager {
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY);
       if (!stored) return null;
-      const parsed = JSON.parse(stored) as GameSaveState;
-      if (parsed.version === undefined || parsed.version > SAVE_VERSION) return null;
+      const parsed = JSON.parse(stored) as unknown;
+      // Reject not just unsupported versions but structurally corrupt saves
+      // (truncated writes, NaN coords, missing arrays) — restoring one crashes
+      // the GameScene restore path. A rejected save → clean fresh start.
+      if (!isStructurallyValidSaveState(parsed)) {
+        if (warnOnError) console.warn('Discarding corrupt or unsupported save state.');
+        return null;
+      }
       return parsed;
     } catch (error) {
       if (warnOnError) console.warn('Could not load game state from storage:', error);
