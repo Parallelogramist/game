@@ -792,7 +792,7 @@ export class BootScene extends Phaser.Scene {
     // discrete badge rather than dim placeholder text.
     const badgeY = height / 2 - scaledInt(layoutScale, 18);
     const badgeText = best
-      ? `★ ${best.killCount}k · ${this.formatTime(best.survivalSeconds)}${best.wasVictory ? '  W' : ''}`
+      ? `★ ${best.score.toLocaleString()} · ${best.killCount}k · ${this.formatTime(best.survivalSeconds)}${best.wasVictory ? '  W' : ''}`
       : 'NEW';
     const badgeFontSize = scaledInt(fontScale, 11);
     const probe = this.add.text(0, 0, badgeText, {

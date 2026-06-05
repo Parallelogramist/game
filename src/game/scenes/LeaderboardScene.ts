@@ -234,7 +234,7 @@ export class LeaderboardScene extends Phaser.Scene {
     const rowHeight = 36;
     const maxRows = 12;
     const displayEntries = entries.slice(0, maxRows);
-    const rowWidth = 720;
+    const rowWidth = 800;
     const leftX = centerX - rowWidth / 2;
 
     // Header sticker.
@@ -245,6 +245,7 @@ export class LeaderboardScene extends Phaser.Scene {
       { x: leftX + 410, text: 'KILLS', width: 70 },
       { x: leftX + 510, text: 'TIME', width: 70 },
       { x: leftX + 620, text: 'LEVEL', width: 70 },
+      { x: leftX + 720, text: 'SCORE', width: 80 },
     ];
     for (const header of headerLabels) {
       const t = makeStickerText(this, header.x, listStartY, header.text, {
@@ -288,6 +289,7 @@ export class LeaderboardScene extends Phaser.Scene {
         { x: leftX + 410 - centerX, text: String(entry.killCount), color: valueColor, sticker: false },
         { x: leftX + 510 - centerX, text: formatTime(entry.survivalSeconds), color: valueColor, sticker: false },
         { x: leftX + 620 - centerX, text: `Lv ${entry.levelReached}`, color: valueColor, sticker: false },
+        { x: leftX + 720 - centerX, text: entry.score.toLocaleString(), color: valueColor, sticker: false },
       ];
       for (const cell of cells) {
         const t = cell.sticker

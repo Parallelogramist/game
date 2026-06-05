@@ -4060,6 +4060,20 @@ export class GameScene extends Phaser.Scene {
     });
     const victoryScoreResult = recordScore(victoryWorldLevel, victoryRunScore);
     const victoryGrade = computePerformanceGrade(victoryRunScore, victoryWorldLevel, true);
+
+    // Record the daily-challenge leaderboard entry on victory too. Victories flow
+    // through showVictory (not gameOver), so without this a won daily run — the
+    // best possible outcome — would never post a score. Ranked by composite score.
+    if (this.dailyModeActive && this.dailyDateString) {
+      recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
+        survivalSeconds: this.gameTime,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        wasVictory: true,
+        score: victoryRunScore,
+      });
+    }
+
     getAchievementManager().recordRunEnd({
       wasVictory: true,
       killCount: this.killCount,
@@ -4296,16 +4310,6 @@ export class GameScene extends Phaser.Scene {
       lifetime: getAchievementManager().getLifetimeStats(),
     }, 3);
 
-    // Record daily leaderboard entry (only stores if it beats the prior best)
-    if (this.dailyModeActive && this.dailyDateString) {
-      recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
-        survivalSeconds: this.gameTime,
-        killCount: this.killCount,
-        levelReached: this.playerStats.level,
-        wasVictory: this.hasWon,
-      });
-    }
-
     // Performance grade + per-run best score (persisted by world level).
     const runWorldLevel = metaManager.getWorldLevel();
     const runScore = computeRunScore({
@@ -4318,6 +4322,18 @@ export class GameScene extends Phaser.Scene {
     });
     const scoreResult = recordScore(runWorldLevel, runScore);
     const performanceGrade = computePerformanceGrade(runScore, runWorldLevel, this.hasWon);
+
+    // Record daily leaderboard entry (only stores if it beats the prior best).
+    // Ranked by the same composite score used for the grade/best-score above.
+    if (this.dailyModeActive && this.dailyDateString) {
+      recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
+        survivalSeconds: this.gameTime,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        wasVictory: this.hasWon,
+        score: runScore,
+      });
+    }
 
     // Recent-run history: read prior runs (for the "RECENT" overlay strip) before
     // recording this one, so the strip shows the runs leading up to it.

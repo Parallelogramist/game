@@ -18,6 +18,7 @@ import { SecureStorage } from '../storage/SecureStorage';
 import { RUN_MODIFIERS } from '../data/RunModifiers';
 import { SHIP_CHARACTERS } from '../data/ShipCharacters';
 import { getWeaponInfoList } from '../weapons';
+import { computeRunScore } from '../utils/PerformanceGrade';
 
 const STORAGE_KEY_DAILY_LEADERBOARD = 'dailyLeaderboardV1';
 
@@ -167,6 +168,13 @@ export interface DailyLeaderboardEntry {
   killCount: number;
   levelReached: number;
   wasVictory: boolean;
+  /**
+   * Composite run score (PerformanceGrade.computeRunScore) — the canonical
+   * ranking key, shared with the grade, BestScoreManager, and run history so
+   * the daily "best" matches the score shown everywhere else. Legacy entries
+   * written before this field existed are backfilled on load (see normalizeEntry).
+   */
+  score: number;
   timestamp: number;
 }
 
@@ -181,13 +189,44 @@ function makeLeaderboardKey(challengeType: 'daily' | 'weekly', dateString: strin
   return `${challengeType}:${dateString}`;
 }
 
+/**
+ * Backfills the composite `score` on a stored entry. Entries written before the
+ * score field existed (or any partial write) are given a comparable score derived
+ * from the fields they do carry, so old and new runs rank against each other
+ * fairly. Combo/damage are unknown for legacy entries → treated as 0.
+ */
+function normalizeEntry(entry: DailyLeaderboardEntry): DailyLeaderboardEntry {
+  if (typeof entry.score === 'number' && Number.isFinite(entry.score)) {
+    return entry;
+  }
+  return {
+    ...entry,
+    score: computeRunScore({
+      killCount: entry.killCount ?? 0,
+      survivalSeconds: entry.survivalSeconds ?? 0,
+      level: entry.levelReached ?? 0,
+      damageDealt: 0,
+      highestCombo: 0,
+      wasVictory: entry.wasVictory ?? false,
+    }),
+  };
+}
+
 function loadLeaderboard(): LeaderboardState {
   const defaults: LeaderboardState = { version: LEADERBOARD_VERSION, entries: {} };
   try {
     const stored = SecureStorage.getItem(STORAGE_KEY_DAILY_LEADERBOARD);
     if (stored) {
       const parsed = JSON.parse(stored) as LeaderboardState;
-      return { version: LEADERBOARD_VERSION, entries: { ...defaults.entries, ...parsed.entries } };
+      const merged = { ...defaults.entries, ...parsed.entries };
+      const normalized: Record<string, DailyLeaderboardEntry> = {};
+      for (const [key, value] of Object.entries(merged)) {
+        // Drop non-object junk; backfill score on everything else.
+        if (value && typeof value === 'object') {
+          normalized[key] = normalizeEntry(value as DailyLeaderboardEntry);
+        }
+      }
+      return { version: LEADERBOARD_VERSION, entries: normalized };
     }
   } catch {
     console.warn('DailyChallenge: leaderboard load failed');
@@ -234,6 +273,12 @@ export function getDailyBest(challengeType: 'daily' | 'weekly', dateString: stri
 }
 
 function isRunBetter(a: DailyLeaderboardEntry, b: DailyLeaderboardEntry): boolean {
+  // Composite score is the canonical ranking key (matches grade / best-score /
+  // run-history). Kills → survival → level only break exact score ties so the
+  // result stays deterministic.
+  const scoreA = a.score ?? 0;
+  const scoreB = b.score ?? 0;
+  if (scoreA !== scoreB) return scoreA > scoreB;
   if (a.killCount !== b.killCount) return a.killCount > b.killCount;
   if (a.survivalSeconds !== b.survivalSeconds) return a.survivalSeconds > b.survivalSeconds;
   return a.levelReached > b.levelReached;
