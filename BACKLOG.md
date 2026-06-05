@@ -106,19 +106,18 @@ own brainstorm → plan cycle (full new scene, large).
 > (remaining Open items are large refactors, human-gated chores, or need playtest).
 > One-line value rationale each; human reprioritizes freely.
 
-### FEAT-DIRECTOR-PERSIST — Persist spawn-director state across refresh · OPEN · area: gameplay
-**Value:** `DirectorSystem` accrues spawn credits + picks a per-run strategy; on
-refresh-recovery neither is restored, so the back half of a run re-randomizes its spawn
-pacing/strategy (subtle difficulty discontinuity). Same proven refresh-persistence vein,
-pure-logic + testable, no UI. Pointers: `src/systems/DirectorSystem.ts` (module state),
-`GameStateManager` save/restore round-trip.
-
-### FEAT-SAVE-VALIDATE — Harden restore against corrupt/partial saves · OPEN · area: robustness
-**Value:** `loadGameState` guards `version` but a structurally-malformed-but-version-valid
-save (NaN coords, missing arrays from a quota-truncated write) can still crash the
-GameScene restore path → player can't even start. Add shape validation/sanitize that
-rejects → clean fresh start. Pure-logic, testable, no UI. Pointers:
-`src/save/GameStateManager.ts:389` load, GameScene restore path.
+### FEAT-DIRECTOR-PERSIST — Add the missing round-trip test · OPEN · area: gameplay · (code already shipped)
+**Status correction (found this session):** the persistence itself is **already
+wired** — `DirectorSystem` exposes `getDirectorState()`/`restoreDirectorState()`,
+`GameScene` saves it (`directorState: getDirectorState()`, ~`:1200`) and restores it
+(`restoreDirectorState(state.directorState)`, ~`:1353`), and `GameStateManager` carries
+the `directorState?: DirectorState` field through the save round-trip. All fields are
+JSON-safe primitives, so credit balance + strategy survive a refresh today. **Do NOT
+re-implement.** The only gap: it's the lone refresh-persist feature without a
+`GameStateManager.<feature>.test.ts` (siblings: bounty/shrine/chest/event/statbuff/…).
+**Remaining work:** add `GameStateManager.director.test.ts` — a save→load round-trip
+asserting `directorState` survives, plus a legacy-save (absent → undefined) case.
+Small, mechanical, mirrors the sibling tests.
 
 ---
 
@@ -179,6 +178,23 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `4dccd79` FEAT-SAVE-VALIDATE — **reject structurally corrupt saves on load.**
+  `readValidSaveState` only checked `version`, so a version-valid but structurally
+  broken save (a quota-truncated write, NaN coordinates, a missing entity array) passed
+  straight into the GameScene restore path and crashed it — the player couldn't even
+  start a run. New pure, exported `isStructurallyValidSaveState(parsed)` validates the
+  always-written fields the restore path dereferences unguarded: core/timer/world-scale
+  numbers (finite), `playerStats` + its vitals (`level`/`maxHealth`/`currentHealth`), the
+  iterated collections (`entities`/`weapons`/`upgrades`/`twinLinks`/`minibossSpawnTimes`/
+  `banishedUpgradeIds` must be arrays), and each entity's transform coords (finite).
+  Anything broken → `null` → clean fresh start instead of a crashing restore; `hasSave()`/
+  `getSaveInfo()` go false too, so BootScene never offers a broken restore. Newer optional
+  fields (directorState/eventState/relicIds/…) stay optional — guarded at their use sites —
+  so legacy saves keep loading (no over-rejection). **Test-first: 19 cases**
+  (`GameStateManager.validate.test.ts`) — pure validator shape checks incl. a complete
+  save accepted, version/number/array/playerStats/transform corruption rejected, plus
+  manager-level `load()`/`hasSave()` rejection of truncated + version-valid-but-corrupt
+  payloads. `npm run test` **74/74 green**, `tsc --noEmit` exit 0, `npm run build` clean.
 - `899a4c7` + `606be11` FEAT-RUN-HISTORY — persistent **recent-run history** + a "RECENT"
   trend strip on the end screens. The game tracked aggregate lifetime stats
   (AchievementManager) and a daily-only leaderboard, but nothing remembered individual
