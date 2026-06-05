@@ -106,18 +106,7 @@ own brainstorm → plan cycle (full new scene, large).
 > (remaining Open items are large refactors, human-gated chores, or need playtest).
 > One-line value rationale each; human reprioritizes freely.
 
-### FEAT-DIRECTOR-PERSIST — Add the missing round-trip test · OPEN · area: gameplay · (code already shipped)
-**Status correction (found this session):** the persistence itself is **already
-wired** — `DirectorSystem` exposes `getDirectorState()`/`restoreDirectorState()`,
-`GameScene` saves it (`directorState: getDirectorState()`, ~`:1200`) and restores it
-(`restoreDirectorState(state.directorState)`, ~`:1353`), and `GameStateManager` carries
-the `directorState?: DirectorState` field through the save round-trip. All fields are
-JSON-safe primitives, so credit balance + strategy survive a refresh today. **Do NOT
-re-implement.** The only gap: it's the lone refresh-persist feature without a
-`GameStateManager.<feature>.test.ts` (siblings: bounty/shrine/chest/event/statbuff/…).
-**Remaining work:** add `GameStateManager.director.test.ts` — a save→load round-trip
-asserting `directorState` survives, plus a legacy-save (absent → undefined) case.
-Small, mechanical, mirrors the sibling tests.
+_(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`.)_
 
 ---
 
@@ -178,6 +167,17 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `9a70746` FEAT-DIRECTOR-PERSIST — **add the missing director-state round-trip test.**
+  `DirectorSystem`'s credit-budget state (`creditBalance`/`creditsEarned`/`currentStrategy`/
+  `lastGameTime`) was already serialized end-to-end — `GameStateManager` carries
+  `directorState?` as a pass-through (`:319`/`:547`/`:611`), `GameScene` saves (`:1200`) +
+  restores (`:1352`) it — but it was the lone refresh-persist feature without a
+  `GameStateManager.<feature>.test.ts` guarding it (siblings: bounty/shrine/chest/event/
+  statbuff/evolution/consumable). New `GameStateManager.director.test.ts` (3 cases) mirrors
+  the siblings: a mid-run round-trip (rolled strategy not reset, accrued credits preserved),
+  faithful round-trip of all four strategy values, and a legacy absent→undefined backward-compat
+  case. No production code changed — pure regression lock on already-shipped wiring.
+  `npm run test` **77/77 green** (+3), `tsc && vite build` clean.
 - `4dccd79` FEAT-SAVE-VALIDATE — **reject structurally corrupt saves on load.**
   `readValidSaveState` only checked `version`, so a version-valid but structurally
   broken save (a quota-truncated write, NaN coordinates, a missing entity array) passed
