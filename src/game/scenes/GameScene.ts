@@ -4142,6 +4142,13 @@ export class GameScene extends Phaser.Scene {
       isNewBest: victoryScoreResult.isNewBest,
       recentRuns: victoryPriorRuns,
     });
+
+    // Count this run toward the newcomer-bonus taper exactly once. showVictory()
+    // fires at most once per run (guarded by !hasWon at the boss-kill site), so a
+    // win that continues into endless mode and later dies is only counted here —
+    // the gameOver() path skips the count when hasWon. Done after the result is
+    // shown so the displayed newcomer multiplier matches the gold just computed.
+    metaManager.recordRunCompleted();
   }
 
   /**
@@ -4367,6 +4374,15 @@ export class GameScene extends Phaser.Scene {
       isNewBest: scoreResult.isNewBest,
       recentRuns: gameOverPriorRuns,
     });
+
+    // Count this run toward the newcomer-bonus taper exactly once. A won run that
+    // continued into endless mode and then died was already counted in
+    // showVictory(), so only count here on a loss (mirrors the streak/recordRunEnd
+    // guards above). Done after the result is shown so the displayed newcomer
+    // multiplier matches the gold just computed.
+    if (!this.hasWon) {
+      metaManager.recordRunCompleted();
+    }
   }
 
   /**

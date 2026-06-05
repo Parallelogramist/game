@@ -70,6 +70,91 @@ function createDefaultUpgradeState(): PermanentUpgradeState {
   return state;
 }
 
+/**
+ * Per-run newcomer gold multiplier tiers, indexed by the number of runs the
+ * player has completed *before* the current one. New players get a big early
+ * boost that tapers so progression doesn't stall on run one.
+ */
+const NEWCOMER_TIERS = [3.0, 2.5, 2.0, 1.75, 1.5] as const;
+
+/**
+ * Newcomer gold multiplier for a player who has completed `runsCompleted` runs.
+ * Tapers 3.0 → 1.5 over the first five runs, holds 1.25 through run nine, then
+ * 1.0 (no bonus) from run ten on. Pure so it can be unit-tested and shared by the
+ * results-screen display and the gold formula.
+ */
+export function newcomerMultiplierForRuns(runsCompleted: number): number {
+  if (runsCompleted < NEWCOMER_TIERS.length) return NEWCOMER_TIERS[runsCompleted];
+  if (runsCompleted < 10) return 1.25;
+  return 1;
+}
+
+/**
+ * Pure run-gold formula. All run inputs and meta multipliers are passed in
+ * explicitly so the calculation has no side effects and can be unit-tested in
+ * isolation (mirrors PerformanceGrade.computeRunScore). The instance method
+ * `calculateRunGold` is the thin wrapper that gathers the live multipliers.
+ *
+ * Order matters: each multiplier is applied then floored in sequence so the
+ * result exactly matches the historical formula.
+ */
+export function computeRunGold(params: {
+  killCount: number;
+  gameTimeSeconds: number;
+  playerLevel: number;
+  hasWon: boolean;
+  runGoldMultiplier: number;
+  goldUpgradeMultiplier: number;
+  worldLevelMultiplier: number;
+  streakMultiplier: number;
+  achievementGoldBonusPercent: number;
+  ascensionMultiplier: number;
+  newcomerMultiplier: number;
+}): number {
+  const killGold = Math.floor(params.killCount * 2.5);
+  const timeGold = Math.floor(params.gameTimeSeconds / 10);
+  const levelGold = params.playerLevel * 10;
+
+  // Minimum gold floor to prevent zero-progress runs.
+  let totalGold = Math.max(killGold + timeGold + levelGold, 50);
+
+  // Victory bonus (defeated boss).
+  if (params.hasWon) {
+    totalGold = Math.floor(totalGold * 1.5);
+  }
+
+  // Run-level gold multiplier (ship + stage + pacts + run modifiers).
+  if (params.runGoldMultiplier !== 1) {
+    totalGold = Math.floor(totalGold * params.runGoldMultiplier);
+  }
+
+  // Permanent gold-gain upgrade.
+  totalGold = Math.floor(totalGold * params.goldUpgradeMultiplier);
+
+  // World level gold multiplier.
+  totalGold = Math.floor(totalGold * params.worldLevelMultiplier);
+
+  // Win-streak gold multiplier (+5% per streak, max +50%).
+  totalGold = Math.floor(totalGold * params.streakMultiplier);
+
+  // Achievement gold bonus (percent).
+  if (params.achievementGoldBonusPercent > 0) {
+    totalGold = Math.floor(totalGold * (1 + params.achievementGoldBonusPercent / 100));
+  }
+
+  // Ascension gold multiplier.
+  if (params.ascensionMultiplier > 1) {
+    totalGold = Math.floor(totalGold * params.ascensionMultiplier);
+  }
+
+  // Newcomer bonus for the first ten runs (tapering multiplier).
+  if (params.newcomerMultiplier > 1) {
+    totalGold = Math.floor(totalGold * params.newcomerMultiplier);
+  }
+
+  return totalGold;
+}
+
 export class MetaProgressionManager {
   private goldBalance: number;
   private upgradeState: PermanentUpgradeState;
@@ -1081,68 +1166,43 @@ export class MetaProgressionManager {
     hasWon: boolean,
     runGoldMultiplier: number = 1
   ): number {
-    const killGold = Math.floor(killCount * 2.5);
-    const timeGold = Math.floor(gameTimeSeconds / 10);
-    const levelGold = playerLevel * 10;
+    // Pure formula — gathers the live meta multipliers, no side effects. Run
+    // completion is tracked separately via recordRunCompleted() so previewing
+    // gold (e.g. on the victory screen before the player continues into endless
+    // mode and later dies) never advances the newcomer taper. Both run-end paths
+    // in GameScene call recordRunCompleted() once after the result is shown.
+    return computeRunGold({
+      killCount,
+      gameTimeSeconds,
+      playerLevel,
+      hasWon,
+      runGoldMultiplier,
+      goldUpgradeMultiplier: this.getStartingGoldMultiplier(),
+      worldLevelMultiplier: this.getWorldLevelGoldMultiplier(),
+      streakMultiplier: this.getStreakGoldMultiplier(),
+      achievementGoldBonusPercent: this.achievementBonuses.gold,
+      ascensionMultiplier: getAscensionManager().getGoldMultiplier(),
+      newcomerMultiplier: this.getNewcomerMultiplier(),
+    });
+  }
 
-    // Minimum gold floor to prevent zero-progress runs
-    let totalGold = Math.max(killGold + timeGold + levelGold, 50);
-
-    // Victory bonus (defeated boss)
-    if (hasWon) {
-      totalGold = Math.floor(totalGold * 1.5);
-    }
-
-    // Run-level gold multiplier (ship + stage + pacts + run modifiers, carried
-    // on PlayerStats.goldMultiplier). Shop/world/streak/etc. are applied below.
-    if (runGoldMultiplier !== 1) {
-      totalGold = Math.floor(totalGold * runGoldMultiplier);
-    }
-
-    // Apply gold gain multiplier from upgrades
-    totalGold = Math.floor(totalGold * this.getStartingGoldMultiplier());
-
-    // Apply world level gold multiplier
-    totalGold = Math.floor(totalGold * this.getWorldLevelGoldMultiplier());
-
-    // Apply streak gold multiplier (+5% per streak, max +50%)
-    totalGold = Math.floor(totalGold * this.getStreakGoldMultiplier());
-
-    // Apply achievement gold bonus
-    const achievementGoldBonus = this.achievementBonuses.gold;
-    if (achievementGoldBonus > 0) {
-      totalGold = Math.floor(totalGold * (1 + achievementGoldBonus / 100));
-    }
-
-    // Apply ascension gold multiplier
-    const ascensionGoldMult = getAscensionManager().getGoldMultiplier();
-    if (ascensionGoldMult > 1) {
-      totalGold = Math.floor(totalGold * ascensionGoldMult);
-    }
-
-    // Newcomer bonus for first 10 runs (tapering multiplier)
-    const newcomerMultiplier = this.getNewcomerMultiplier();
-    if (newcomerMultiplier > 1) {
-      totalGold = Math.floor(totalGold * newcomerMultiplier);
-    }
-
-    // Track completed runs for newcomer bonus
+  /**
+   * Record that a run has finished, advancing the newcomer-bonus taper by one.
+   * Kept separate from calculateRunGold (which is a pure read) so a gold preview
+   * never burns the taper — GameScene calls this exactly once per completed run,
+   * after the result screen is shown.
+   */
+  recordRunCompleted(): void {
     this.runsCompleted++;
     this.saveRunsCompleted();
-
-    return totalGold;
   }
 
   /**
    * Returns the newcomer gold multiplier based on completed runs.
-   * Tapering bonus: 3x for first run down to 1.25x for runs 6-10, then 1x.
+   * Tapering bonus: 3x for the first run down to 1.25x for runs 6-10, then 1x.
    */
   getNewcomerMultiplier(): number {
-    const NEWCOMER_TIERS = [3.0, 2.5, 2.0, 1.75, 1.5];
-    const completedRuns = this.runsCompleted;
-    if (completedRuns < NEWCOMER_TIERS.length) return NEWCOMER_TIERS[completedRuns];
-    if (completedRuns < 10) return 1.25;
-    return 1;
+    return newcomerMultiplierForRuns(this.runsCompleted);
   }
 
   getRunsCompleted(): number {
