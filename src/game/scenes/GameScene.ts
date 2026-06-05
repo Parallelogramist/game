@@ -58,6 +58,7 @@ import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
+import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
@@ -4097,6 +4098,20 @@ export class GameScene extends Phaser.Scene {
     const newWorldLevel = metaManager.getWorldLevel();
     const clearedWorld = newWorldLevel - 1;
 
+    // Recent-run history: read the prior runs (for the "RECENT" overlay strip)
+    // before recording this one, so the strip shows the runs leading up to it.
+    const victoryPriorRuns = getRecentRuns(3);
+    recordRun({
+      timestamp: Date.now(),
+      durationSeconds: this.gameTime,
+      kills: this.killCount,
+      level: this.playerStats.level,
+      score: victoryScoreResult.score,
+      grade: victoryGrade.grade,
+      victory: true,
+      worldLevel: victoryWorldLevel,
+    });
+
     this.pauseMenuManager.showVictory({
       killCount: this.killCount,
       gameTime: this.gameTime,
@@ -4111,6 +4126,7 @@ export class GameScene extends Phaser.Scene {
       runScore: victoryScoreResult.score,
       bestScore: victoryScoreResult.best,
       isNewBest: victoryScoreResult.isNewBest,
+      recentRuns: victoryPriorRuns,
     });
   }
 
@@ -4303,6 +4319,20 @@ export class GameScene extends Phaser.Scene {
     const scoreResult = recordScore(runWorldLevel, runScore);
     const performanceGrade = computePerformanceGrade(runScore, runWorldLevel, this.hasWon);
 
+    // Recent-run history: read prior runs (for the "RECENT" overlay strip) before
+    // recording this one, so the strip shows the runs leading up to it.
+    const gameOverPriorRuns = getRecentRuns(3);
+    recordRun({
+      timestamp: Date.now(),
+      durationSeconds: this.gameTime,
+      kills: this.killCount,
+      level: this.playerStats.level,
+      score: scoreResult.score,
+      grade: performanceGrade.grade,
+      victory: this.hasWon,
+      worldLevel: runWorldLevel,
+    });
+
     this.pauseMenuManager.gameOver({
       killCount: this.killCount,
       gameTime: this.gameTime,
@@ -4319,6 +4349,7 @@ export class GameScene extends Phaser.Scene {
       runScore: scoreResult.score,
       bestScore: scoreResult.best,
       isNewBest: scoreResult.isNewBest,
+      recentRuns: gameOverPriorRuns,
     });
   }
 

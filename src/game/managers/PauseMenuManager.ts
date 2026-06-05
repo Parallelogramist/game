@@ -7,6 +7,7 @@ import { SoundManager } from '../../audio/SoundManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
+import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS } from '../../visual/MenuStyle';
 
 /**
@@ -163,6 +164,8 @@ export interface VictoryData {
   runScore?: number;
   bestScore?: number;
   isNewBest?: boolean;
+  /** Prior runs (newest-first) for the "RECENT" trend strip. */
+  recentRuns?: RunSummary[];
 }
 
 export interface GameOverData {
@@ -189,6 +192,8 @@ export interface GameOverData {
   runScore?: number;
   bestScore?: number;
   isNewBest?: boolean;
+  /** Prior runs (newest-first) for the "RECENT" trend strip. */
+  recentRuns?: RunSummary[];
 }
 
 export class PauseMenuManager {
@@ -1133,6 +1138,15 @@ export class PauseMenuManager {
       scoreText.setName('victoryScore');
     }
 
+    // Recent-run trend strip (left margin, clear of the centered title/buttons).
+    this.createRecentRunsStrip(
+      data.recentRuns,
+      28,
+      this.scene.scale.height / 2 - 40,
+      PAUSE_MENU_DEPTH + 1,
+      { namePrefix: 'victoryRecent' }
+    );
+
     // Calculate gold reward for preview (with victory 1.5x bonus)
     const goldToEarn = data.goldEarned;
 
@@ -1456,6 +1470,12 @@ export class PauseMenuManager {
     }).setOrigin(0.5).setDepth(depth);
     animatedElements.push(restartText);
 
+    // Recent-run trend strip (left margin, vertically centered — clear of the
+    // centered stat column and side panels).
+    this.createRecentRunsStrip(data.recentRuns, 28, centerY - 30, depth, {
+      collector: animatedElements,
+    });
+
     // Staggered entrance animations
     const staggerDelay = 120;
     animatedElements.forEach((element, index) => {
@@ -1559,6 +1579,58 @@ export class PauseMenuManager {
         previousAPressed = aPressed;
       },
     });
+  }
+
+  /**
+   * Renders a compact left-margin "RECENT" strip listing the player's prior runs
+   * (newest-first): grade letter, duration, and score per row, tinted by grade so
+   * the trend reads at a glance. No-op when there is no history. Shared by the
+   * game-over overlay (fades in via `collector`) and the victory overlay (named
+   * elements, torn down with the scene). A ✓ marks prior victories.
+   */
+  private createRecentRunsStrip(
+    runs: RunSummary[] | undefined,
+    x: number,
+    topY: number,
+    depth: number,
+    options: {
+      namePrefix?: string;
+      collector?: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[];
+    } = {}
+  ): void {
+    if (!runs || runs.length === 0) return;
+
+    const gradeColors: Record<string, string> = {
+      S: '#ffd24a', A: '#66ff99', B: '#66ccff', C: '#bbbbdd', D: '#cc9966', F: '#ff6666',
+    };
+    const register = (element: Phaser.GameObjects.Text, name: string): void => {
+      element.setDepth(depth);
+      if (options.namePrefix) element.setName(`${options.namePrefix}${name}`);
+      options.collector?.push(element);
+    };
+
+    const header = this.scene.add.text(x, topY, 'RECENT', {
+      fontSize: '12px', color: '#7777aa', fontFamily: 'Arial', fontStyle: 'bold',
+    }).setOrigin(0, 0);
+    header.setLetterSpacing(2);
+    register(header, 'Header');
+
+    let rowY = topY + 20;
+    for (let index = 0; index < Math.min(3, runs.length); index++) {
+      const run = runs[index];
+      const minutes = Math.floor(run.durationSeconds / 60);
+      const seconds = Math.floor(run.durationSeconds % 60);
+      const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      const victoryMark = run.victory ? '✓ ' : '';
+      const rowLabel = `${run.grade}   ${victoryMark}${timeStr}   ${run.score.toLocaleString()}`;
+      const rowText = this.scene.add.text(x, rowY, rowLabel, {
+        fontSize: '13px',
+        color: gradeColors[run.grade] ?? '#9999bb',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0);
+      register(rowText, `Row${index}`);
+      rowY += 18;
+    }
   }
 
   /**
