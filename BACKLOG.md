@@ -107,7 +107,7 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix FEAT-DAILY-SCORE shipped as `45fdd74`.)_
+most recent self-discovered fix BUG-NEWCOMER-DOUBLEBURN shipped as `d0b2a5b`.)_
 
 ---
 
@@ -179,6 +179,27 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `d0b2a5b` BUG-NEWCOMER-DOUBLEBURN — **count each run once for the newcomer gold bonus +
+  make the run-gold formula pure.** `MetaProgressionManager.calculateRunGold` mutated
+  `runsCompleted` (++ and save) as a side effect — a "calculate" method advancing state.
+  It is called once in `showVictory()` (boss kill) and once in `gameOver()` (death); for a
+  **win that continues into endless mode and then dies, BOTH fire for the same run**, so the
+  run counted twice and burned the first-runs newcomer gold taper (3.0×→1.5× over the first
+  five runs, 1.25× through run nine) twice as fast — quietly cutting a new player's early
+  gold. Also a latent landmine: any future gold *preview* would double-count. Fix splits the
+  concern: extracted pure exported `computeRunGold(params)` (all meta multipliers passed in
+  explicitly) + `newcomerMultiplierForRuns(runs)`, mirroring `PerformanceGrade.computeRunScore`;
+  the flooring sequence + per-multiplier conditionals are preserved exactly so awarded gold is
+  byte-for-byte unchanged on every path. `calculateRunGold` is now a pure read; new
+  `recordRunCompleted()` owns the counter advance, called once per run by GameScene **after**
+  the result render — unconditional in `showVictory()` (fires ≤once/run), guarded by `!hasWon`
+  in `gameOver()` (a won-then-died endless run was already counted). After-render placement
+  also fixes a pre-existing display bug: the victory screen's "Newcomer Bonus N×" line read the
+  post-increment tier while the gold used the pre-increment tier. **Test-first: 14 cases**
+  (`MetaProgressionManager.gold.test.ts`) — base formula, 50-gold floor, victory ×1.5, each
+  multiplier, full stack with per-step flooring, taper tiers, + regression locks (calculate
+  doesn't advance the counter; recordRunCompleted advances by exactly one). `npm run test`
+  **102/102 green** (+14), `tsc && vite build` clean.
 - `45fdd74` FEAT-DAILY-SCORE — **rank the daily-challenge leaderboard by composite run
   score + record daily victories.** Two self-discovered correctness bugs in
   `DailyChallengeManager`: (1) `recordDailyRun` was only called from `gameOver()` (the
