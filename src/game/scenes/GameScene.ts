@@ -4088,9 +4088,6 @@ export class GameScene extends Phaser.Scene {
       highestCombo: getHighestCombo(),
     });
 
-    // Evaluate hidden unlocks for victory path too
-    this.evaluateHiddenUnlocks(getHighestCombo(), true);
-
     // Record run end statistics in codex
     getCodexManager().recordRunEnd(
       this.gameTime,
@@ -4107,6 +4104,11 @@ export class GameScene extends Phaser.Scene {
     // Increment win streak on victory
     metaManager.incrementStreak();
     const newStreak = metaManager.getCurrentStreak();
+
+    // Evaluate hidden unlocks for the victory path. Done *after* incrementStreak()
+    // so streak-based unlocks (e.g. Streak Flame) see the streak this win produced
+    // rather than the pre-victory value.
+    this.evaluateHiddenUnlocks(getHighestCombo(), true, newStreak);
 
     // Get world level (already advanced before showVictory is called)
     const newWorldLevel = metaManager.getWorldLevel();
@@ -4300,7 +4302,9 @@ export class GameScene extends Phaser.Scene {
     // Evaluate hidden unlocks and queue toast notifications for each new one.
     // After evaluation runs, compute the top locked-unlock progress entries so
     // the game over screen can surface "closest to unlocking" motivation.
-    this.evaluateHiddenUnlocks(highestComboThisRun, this.hasWon);
+    // Streak is already broken above on a loss, or intact for a won-then-died
+    // endless run, so getCurrentStreak() reflects this run's true streak here.
+    this.evaluateHiddenUnlocks(highestComboThisRun, this.hasWon, metaManager.getCurrentStreak());
     const unlockProgressForPanel = getHiddenUnlockManager().getTopProgress({
       run: {
         wasVictory: this.hasWon,
@@ -4313,6 +4317,7 @@ export class GameScene extends Phaser.Scene {
         weaponIdsUsed: this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? [],
         worldLevel: metaManager.getWorldLevel(),
         noDamageTaken: this.totalDamageTaken === 0,
+        winStreak: metaManager.getCurrentStreak(),
       },
       lifetime: getAchievementManager().getLifetimeStats(),
     }, 3);
@@ -4389,7 +4394,7 @@ export class GameScene extends Phaser.Scene {
    * Evaluates hidden unlock conditions after a run and fires toast notifications
    * for any newly earned unlocks.
    */
-  private evaluateHiddenUnlocks(highestComboValue: number, wasVictory: boolean): void {
+  private evaluateHiddenUnlocks(highestComboValue: number, wasVictory: boolean, winStreak: number): void {
     const weaponIdsUsedThisRun = this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? [];
     const lifetimeStats = getAchievementManager().getLifetimeStats();
     // Toast dispatch lives on the onNewUnlock callback registered in create();
@@ -4406,6 +4411,7 @@ export class GameScene extends Phaser.Scene {
         weaponIdsUsed: weaponIdsUsedThisRun,
         worldLevel: getMetaProgressionManager().getWorldLevel(),
         noDamageTaken: this.totalDamageTaken === 0,
+        winStreak,
       },
       lifetime: lifetimeStats,
     });

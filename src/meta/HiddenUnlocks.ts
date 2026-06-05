@@ -62,6 +62,8 @@ export interface UnlockEvaluationContext {
     weaponIdsUsed: string[];
     worldLevel: number;
     noDamageTaken: boolean;
+    /** Consecutive-win streak as of this run's end (0 on a loss). */
+    winStreak: number;
   };
   lifetime: LifetimeStats;
 }
@@ -193,7 +195,10 @@ export const HIDDEN_UNLOCKS: HiddenUnlockCondition[] = [
     unlockId: 'cosmetic_streak_flame',
     displayName: 'Streak Flame',
     hintText: 'Win 5 runs in a row',
-    predicate: ({ lifetime, run }) => run.wasVictory && (lifetime.totalVictories % 5 === 0) && lifetime.totalVictories >= 5,
+    // A genuine 5-win streak — the consecutive-win counter as of this victory, not
+    // total lifetime wins. (The previous `totalVictories % 5` check unlocked on the
+    // 5th win *ever*, regardless of losses in between, contradicting the hint.)
+    predicate: ({ run }) => run.wasVictory && run.winStreak >= 5,
   },
   {
     id: 'unlock_maximalist',
