@@ -107,7 +107,7 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-NEWCOMER-DOUBLEBURN shipped as `d0b2a5b`.)_
+most recent self-discovered fix BUG-STREAKER-NOTASTREAK shipped as `2b82b20`.)_
 
 ---
 
@@ -179,6 +179,24 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `2b82b20` BUG-STREAKER-NOTASTREAK — **make the Streak Flame hidden unlock require a real
+  5-win streak instead of 5 total victories.** The `unlock_streaker` condition (hint: "Win 5
+  runs in a row") gated on `run.wasVictory && lifetime.totalVictories % 5 === 0 &&
+  totalVictories >= 5` — total lifetime wins, not consecutive. It unlocked the Streak Flame
+  cosmetic on the 5th win *ever* regardless of losses between them, contradicting its own hint;
+  and because `evaluatePostRun` fires each condition at most once (dedupe), the `% 5` modulo was
+  dead logic (could only match at the first multiple reached). Fix threads the actual
+  consecutive-win count into the unlock-eval context as `run.winStreak` (sourced from
+  `MetaProgressionManager.getCurrentStreak()` — `LifetimeStats` has no streak field, so it must
+  be passed explicitly) and gates on `winStreak >= 5`. Both run-end call sites fixed for correct
+  ordering: `showVictory()` now evaluates unlocks *after* `incrementStreak()` so it sees the
+  streak the win produced (was off-by-one — saw 4 on the 5th consecutive win); `gameOver()`
+  passes `getCurrentStreak()` (0 after `breakStreak()` on a loss, intact for a won-then-died
+  endless run, `wasVictory` double-guards the loss). **Test-first: the module's first coverage**
+  — `HiddenUnlocks.test.ts` (14 cases): streaker at streak 5 / not 4 / not on loss / not from
+  scattered lifetime wins (old-bug regression lock), evaluatePostRun unlock + dedupe + callback,
+  sibling predicate guards, getTopProgress sort / boolean-only exclusion / zero-progress skip.
+  `npm run test` **116/116 green** (+14), `tsc && vite build` clean.
 - `d0b2a5b` BUG-NEWCOMER-DOUBLEBURN — **count each run once for the newcomer gold bonus +
   make the run-gold formula pure.** `MetaProgressionManager.calculateRunGold` mutated
   `runsCompleted` (++ and save) as a side effect — a "calculate" method advancing state.
