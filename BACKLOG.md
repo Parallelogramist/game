@@ -106,11 +106,23 @@ own brainstorm → plan cycle (full new scene, large).
 > (remaining Open items are large refactors, human-gated chores, or need playtest).
 > One-line value rationale each; human reprioritizes freely.
 
-_(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`.)_
+_(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
+most recent self-discovered fix FEAT-DAILY-SCORE shipped as `45fdd74`.)_
 
 ---
 
 ## Needs playtest (code complete, feel/balance unverified)
+
+### POLISH-DAILY-SCORE-COL — leaderboard SCORE column + Boot chip width · NEEDS PLAYTEST · area: ui · (new, this session)
+FEAT-DAILY-SCORE (`45fdd74`) added a SCORE column to the daily leaderboard table
+(`LeaderboardScene.renderEntries` — row widened `720→800`, new column at `leftX+720`) and
+made the BootScene daily best-chip lead with the score (`★ {score} · {kills}k · {time}{W}`,
+`BootScene.ts:~795`). Layout math is self-consistent (all columns derived from `leftX`/
+`centerX`) and build-clean, but **not visually verified** (no browser in the bg session).
+Check: the 800-wide centered row fits without crowding the SCORE cell against the card edge
+at various UI scales; `toLocaleString()` scores (e.g. `12,345`) don't overflow the chip pill
+on BootScene; header/column alignment still reads cleanly. Tighten column x-offsets or font
+size if it crowds.
 
 ### POLISH-RUN-HISTORY — "RECENT" results-overlay strip placement · NEEDS PLAYTEST · area: ui · (new, this session)
 `RunHistoryManager` + recording are tested + build-clean, but the new "RECENT" trend
@@ -167,6 +179,24 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `45fdd74` FEAT-DAILY-SCORE — **rank the daily-challenge leaderboard by composite run
+  score + record daily victories.** Two self-discovered correctness bugs in
+  `DailyChallengeManager`: (1) `recordDailyRun` was only called from `gameOver()` (the
+  death path), so a **won** daily run — which flows through `showVictory()` — never posted
+  to the leaderboard at all; added the record call to the victory path (guarded by daily
+  mode). (2) "Best" used an ad-hoc `kills > survival > level` comparison, diverging from
+  the unified `computeRunScore` (PerformanceGrade) used by the grade / BestScoreManager /
+  run history — so a clearly better run (victory, high combo/damage, one fewer kill) could
+  lose. `DailyLeaderboardEntry` now carries `score`; `isRunBetter` ranks by it (kills/
+  survival/level only break exact ties). Both GameScene run-end paths pass `runScore`.
+  Legacy entries (pre-`score`) are backfilled on load via `computeRunScore` (combo/damage
+  unknown → 0) so old/new rank fairly; `loadLeaderboard` also drops non-object junk.
+  Display: LeaderboardScene gains a SCORE column (row widened 720→800), BootScene best-chip
+  leads with the score. **Test-first: 11 cases** (`DailyChallengeManager.test.ts`) — score
+  ranking, fewer-kills-higher-score wins, tie-breaks, legacy normalization, corrupt payload,
+  recents ordering, deterministic generation. `npm run test` **88/88 green** (+11), `tsc`
+  + `vite build` clean. Display placement (new column / longer chip) not visually verified
+  in bg → see POLISH note below if it crowds at UI-scale extremes.
 - `9a70746` FEAT-DIRECTOR-PERSIST — **add the missing director-state round-trip test.**
   `DirectorSystem`'s credit-budget state (`creditBalance`/`creditsEarned`/`currentStrategy`/
   `lastGameTime`) was already serialized end-to-end — `GameStateManager` carries
