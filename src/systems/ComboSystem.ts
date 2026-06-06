@@ -303,11 +303,35 @@ export function getComboState(): ComboSnapshot {
   };
 }
 
-/** Restores combo state from a previous save. */
+/** Coerces a persisted value to a finite, non-negative number (0 if invalid). */
+function toFiniteNonNegative(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+/**
+ * Restores combo state from a previous save.
+ *
+ * The save payload is persisted via SecureStorage and is therefore a
+ * tamper/corruption surface (cf. BUG-BESTSCORE-CORRUPT). GameStateManager's
+ * structural validator deliberately leaves optional fields like `comboState` to
+ * be "guarded at their own use sites" — this is that guard. Every field is
+ * coerced to a safe finite value so a garbage snapshot degrades to a zeroed
+ * combo instead of poisoning the live XP-multiplier pipeline (a NaN comboCount
+ * cascades into NaN XP gain) or inflating the run score / achievement records
+ * that read `highestCombo`.
+ */
 export function restoreComboState(state: ComboSnapshot): void {
-  comboCount = state.comboCount;
-  comboDecayTimer = state.comboDecayTimer;
-  highestCombo = state.highestCombo;
+  comboCount = Math.floor(toFiniteNonNegative(state?.comboCount));
+  // A combo can never exceed its own grace delay's worth of decay timer; clamp
+  // so a tampered "infinite grace" value can't freeze a combo alive forever.
+  comboDecayTimer = Math.min(
+    toFiniteNonNegative(state?.comboDecayTimer),
+    getTieredDecayParams(comboCount).graceDelay,
+  );
+  // highestCombo >= comboCount is an invariant recordComboKill maintains; a
+  // tampered snapshot that violates it must not let the current combo exceed the
+  // recorded peak (which feeds the run score and achievement records).
+  highestCombo = Math.max(Math.floor(toFiniteNonNegative(state?.highestCombo)), comboCount);
 
   // Rebuild triggered thresholds based on restored combo count so thresholds
   // that were already passed do not re-fire.
