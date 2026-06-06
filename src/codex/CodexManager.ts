@@ -81,6 +81,144 @@ function createDefaultCodexState(): CodexState {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// LOAD-TIME SANITIZATION
+// ═══════════════════════════════════════════════════════════════════════════
+// SecureStorage is the anti-cheat layer, so a corrupt/tampered codex payload is
+// the threat model. The old loadState spread `...parsed.weapons` (etc.) straight
+// over defaults: junk ids inflated totals (skewing completion %), a truthy
+// non-boolean faked a discovery (unlocking starting weapons in WeaponSelectScene),
+// and a non-numeric/Infinity field surfaced "NaN" / garbage in CodexScene. The
+// sanitizers below rebuild from the known ids/fields only and coerce every value.
+// Mirrors the hardening applied to AchievementManager / MetaProgressionManager.
+
+/** Degrade arrays / null / primitives to `{}` so junk payloads fall back to
+ *  defaults instead of leaking string indices or unknown keys via spread. */
+function asStoredRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+interface StoredNumberSpec {
+  floor: boolean; // integer counters floor; fractional fields (seconds/damage) don't
+  allowInfinity: boolean; // only fastestVictorySeconds keeps +Infinity as its "none yet" sentinel
+}
+
+/** Coerce a stored numeric field: a finite, non-negative number (optionally
+ *  +Infinity) survives; anything else (string/object/NaN/-Infinity/negative)
+ *  falls back. Floors when the field is an integer counter. */
+function boundedStoredNumber(value: unknown, fallback: number, spec: StoredNumberSpec): number {
+  if (typeof value !== 'number') return fallback;
+  if (spec.allowInfinity && value === Infinity) return value;
+  if (!Number.isFinite(value)) return fallback; // NaN, ±Infinity (when not allowed)
+  if (value < 0) return fallback;
+  return spec.floor ? Math.floor(value) : value;
+}
+
+const COUNT_SPEC: StoredNumberSpec = { floor: true, allowInfinity: false };
+const FRACTION_SPEC: StoredNumberSpec = { floor: false, allowInfinity: false };
+
+// Per-field rules. A `Record<keyof CodexStatistics, …>` makes the compiler force
+// every field to be covered, so this can never silently drift from the type.
+const CODEX_STAT_SPECS: Record<keyof CodexStatistics, StoredNumberSpec> = {
+  totalRunsPlayed: COUNT_SPEC,
+  totalPlayTimeSeconds: FRACTION_SPEC,
+  totalKills: COUNT_SPEC,
+  totalDamageDealt: FRACTION_SPEC,
+  totalGoldEarned: COUNT_SPEC,
+  totalVictories: COUNT_SPEC,
+  fastestVictorySeconds: { floor: false, allowInfinity: true },
+  highestWorldLevel: COUNT_SPEC,
+  highestPlayerLevel: COUNT_SPEC,
+};
+
+/** Pull an optional `discoveredAt` timestamp only when it is a real finite,
+ *  non-negative number; otherwise leave it absent (matches the default factory). */
+function sanitizeDiscoveredAt(record: Record<string, unknown>): number | undefined {
+  const at = record.discoveredAt;
+  return typeof at === 'number' && Number.isFinite(at) && at >= 0 ? at : undefined;
+}
+
+/** Rebuild weapon entries from the known weapon ids only, coercing each field.
+ *  Drops junk ids (so totals stay stable) and forces `discovered` to a real
+ *  boolean (so a truthy tamper can't fake a starting-weapon unlock). */
+function sanitizeWeapons(raw: unknown): Record<string, WeaponCodexEntry> {
+  const record = asStoredRecord(raw);
+  const result: Record<string, WeaponCodexEntry> = {};
+  for (const id of getAllWeaponIds()) {
+    const stored = asStoredRecord(record[id]);
+    const entry: WeaponCodexEntry = {
+      id,
+      discovered: stored.discovered === true,
+      timesUsed: boundedStoredNumber(stored.timesUsed, 0, COUNT_SPEC),
+      totalDamageDealt: boundedStoredNumber(stored.totalDamageDealt, 0, FRACTION_SPEC),
+      totalKills: boundedStoredNumber(stored.totalKills, 0, COUNT_SPEC),
+    };
+    const discoveredAt = sanitizeDiscoveredAt(stored);
+    if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
+    result[id] = entry;
+  }
+  return result;
+}
+
+/** Rebuild enemy (bestiary) entries from the known enemy ids only. */
+function sanitizeEnemies(raw: unknown): Record<string, EnemyCodexEntry> {
+  const record = asStoredRecord(raw);
+  const result: Record<string, EnemyCodexEntry> = {};
+  for (const id of Object.keys(ENEMY_TYPES)) {
+    const stored = asStoredRecord(record[id]);
+    const entry: EnemyCodexEntry = {
+      id,
+      discovered: stored.discovered === true,
+      timesKilled: boundedStoredNumber(stored.timesKilled, 0, COUNT_SPEC),
+      timesEncountered: boundedStoredNumber(stored.timesEncountered, 0, COUNT_SPEC),
+    };
+    const discoveredAt = sanitizeDiscoveredAt(stored);
+    if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
+    result[id] = entry;
+  }
+  return result;
+}
+
+/** Upgrades use dynamic ids (no fixed known set — populated as encountered), so
+ *  keep every entry whose value is a real object (id taken from the map key, the
+ *  authoritative source) and drop scalar/array junk. Each field still coerced. */
+function sanitizeUpgrades(raw: unknown): Record<string, UpgradeCodexEntry> {
+  const record = asStoredRecord(raw);
+  const result: Record<string, UpgradeCodexEntry> = {};
+  for (const id of Object.keys(record)) {
+    const stored = record[id];
+    if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) continue;
+    const rec = stored as Record<string, unknown>;
+    const entry: UpgradeCodexEntry = {
+      id,
+      discovered: rec.discovered === true,
+      timesSelected: boundedStoredNumber(rec.timesSelected, 0, COUNT_SPEC),
+    };
+    const discoveredAt = sanitizeDiscoveredAt(rec);
+    if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
+    result[id] = entry;
+  }
+  return result;
+}
+
+/** Rebuild statistics from the known fields only, coercing each value. Note the
+ *  Infinity carve-out for `fastestVictorySeconds`: JSON.stringify(Infinity) is
+ *  "null", so a saved default round-trips to null here and must restore to the
+ *  Infinity sentinel — otherwise `null < Infinity` is true and CodexScene shows a
+ *  garbage "fastest victory" instead of "--:--". */
+function sanitizeStatistics(raw: unknown): CodexStatistics {
+  const defaults = createDefaultStatistics();
+  const record = asStoredRecord(raw);
+  const result = createDefaultStatistics();
+  for (const key of Object.keys(defaults) as (keyof CodexStatistics)[]) {
+    result[key] = boundedStoredNumber(record[key], defaults[key], CODEX_STAT_SPECS[key]);
+  }
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // CODEX MANAGER CLASS
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -404,24 +542,28 @@ export class CodexManager {
   // ─────────────────────────────────────────────────────────────────────────
 
   private loadState(): CodexState {
-    const defaultState = createDefaultCodexState();
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_CODEX);
       if (stored) {
-        const parsed = JSON.parse(stored) as CodexState;
-        // Merge with defaults to handle new entries added in updates
+        // Sanitize, don't trust: rebuild weapons/enemies/statistics from the
+        // known ids/fields only and coerce every value, so a corrupt/tampered
+        // payload can't inflate totals, fake a discovery, or leak NaN/null into
+        // the codex. New weapon/enemy ids added in an update still default in
+        // (and dropped/junk ids drop out); dynamic upgrade ids are kept when
+        // their entry is a real object.
+        const parsed = asStoredRecord(JSON.parse(stored));
         return {
           version: CODEX_VERSION,
-          weapons: { ...defaultState.weapons, ...parsed.weapons },
-          enemies: { ...defaultState.enemies, ...parsed.enemies },
-          upgrades: { ...defaultState.upgrades, ...parsed.upgrades },
-          statistics: { ...defaultState.statistics, ...parsed.statistics },
+          weapons: sanitizeWeapons(parsed.weapons),
+          enemies: sanitizeEnemies(parsed.enemies),
+          upgrades: sanitizeUpgrades(parsed.upgrades),
+          statistics: sanitizeStatistics(parsed.statistics),
         };
       }
     } catch {
       console.warn('Could not load codex state from storage');
     }
-    return defaultState;
+    return createDefaultCodexState();
   }
 
   private saveState(): void {
