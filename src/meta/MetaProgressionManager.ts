@@ -71,6 +71,35 @@ function createDefaultUpgradeState(): PermanentUpgradeState {
 }
 
 /**
+ * Coerce an untrusted numeric field parsed from SecureStorage into a safe bounded
+ * value. SecureStorage is the anti-cheat layer, so a corrupt/tampered JSON field
+ * that is not a finite number must never poison a stat with NaN: the historical
+ * `Math.max(min, Math.min(value, max))` clamp leaks NaN because `Math.min("abc",
+ * max)` is NaN and `Math.max(min, NaN)` stays NaN (same class as
+ * BUG-ASCENSION-CORRUPT / BUG-COMBO-RESTORE-CORRUPT). Any non-number / NaN /
+ * Infinity falls back to `fallback`; otherwise the value is floored (for integer
+ * counts) and clamped to [min, max].
+ */
+function boundedStoredNumber(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+  floorToInt: boolean,
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  const bounded = floorToInt ? Math.floor(value) : value;
+  return Math.max(min, Math.min(bounded, max));
+}
+
+/** Narrow a JSON-parsed value to an indexable record (rejecting null/arrays/primitives). */
+function asStoredRecord(parsed: unknown): Record<string, unknown> {
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+/**
  * Per-run newcomer gold multiplier tiers, indexed by the number of runs the
  * player has completed *before* the current one. New players get a big early
  * boost that tapers so progression doesn't stall on run one.
@@ -1226,19 +1255,18 @@ export class MetaProgressionManager {
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_UPGRADES);
       if (stored) {
-        const parsed = JSON.parse(stored) as PermanentUpgradeState;
-        // Merge with defaults to handle new upgrades
-        const merged = {
-          ...defaultState,
-          ...parsed,
-        };
-        // Clamp each upgrade level to valid range
+        const parsed = asStoredRecord(JSON.parse(stored));
+        // Rebuild from the known upgrade ids only: this both adds a 0 default for
+        // any new upgrade and DROPS unknown/junk keys — calculateAccountLevel sums
+        // Object.values(state), so a tampered payload with huge unknown keys would
+        // otherwise inflate the account level and spuriously unlock everything.
+        // Each level is coerced finite, floored, and clamped to its valid range so
+        // a non-numeric value can't become a NaN level.
+        const rebuilt: PermanentUpgradeState = {};
         for (const upgrade of PERMANENT_UPGRADES) {
-          if (merged[upgrade.id] !== undefined) {
-            merged[upgrade.id] = Math.max(0, Math.min(merged[upgrade.id], upgrade.maxLevel));
-          }
+          rebuilt[upgrade.id] = boundedStoredNumber(parsed[upgrade.id], 0, upgrade.maxLevel, 0, true);
         }
-        return merged;
+        return rebuilt;
       }
     } catch {
       console.warn('Could not load upgrade state from storage');
@@ -1263,10 +1291,10 @@ export class MetaProgressionManager {
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_STREAK);
       if (stored) {
-        const parsed = JSON.parse(stored) as StreakState;
+        const parsed = asStoredRecord(JSON.parse(stored));
         return {
-          currentStreak: Math.max(0, Math.min(parsed.currentStreak ?? 0, MAX_STREAK_BONUS)),
-          bestStreak: Math.max(0, Math.min(parsed.bestStreak ?? 0, MAX_STREAK_BONUS)),
+          currentStreak: boundedStoredNumber(parsed.currentStreak, 0, MAX_STREAK_BONUS, 0, true),
+          bestStreak: boundedStoredNumber(parsed.bestStreak, 0, MAX_STREAK_BONUS, 0, true),
         };
       }
     } catch {
@@ -1292,19 +1320,21 @@ export class MetaProgressionManager {
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_ACHIEVEMENT_BONUSES);
       if (stored) {
-        const parsed = JSON.parse(stored) as Partial<AchievementBonusState>;
-        const merged = { ...defaults, ...parsed };
-        const clamp = (value: number, max: number) => Math.max(0, Math.min(value, max));
+        const parsed = asStoredRecord(JSON.parse(stored));
+        // Rebuild from the known fields only (dropping junk keys), coercing each to
+        // a finite, clamped percent. Not floored — percent bonuses are summed from
+        // rewards and may legitimately be fractional, so the real path is unchanged.
+        const result = { ...defaults };
         const MAX_PERCENT_BONUS = 100;
         const percentFields: (keyof AchievementBonusState)[] = [
           'damage', 'health', 'speed', 'xp', 'gold',
           'critChance', 'cooldown', 'dodge', 'attackSpeed', 'allStats',
         ];
         for (const field of percentFields) {
-          merged[field] = clamp(merged[field], MAX_PERCENT_BONUS);
+          result[field] = boundedStoredNumber(parsed[field], 0, MAX_PERCENT_BONUS, defaults[field], false);
         }
-        merged.startingLevel = clamp(merged.startingLevel, 10);
-        return merged;
+        result.startingLevel = boundedStoredNumber(parsed.startingLevel, 0, 10, defaults.startingLevel, false);
+        return result;
       }
     } catch {
       console.warn('Could not load achievement bonuses from storage');
