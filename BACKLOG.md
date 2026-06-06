@@ -107,17 +107,18 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-CODEX-CORRUPT shipped as `38599e4`;
+most recent self-discovered fix BUG-SETTINGS-CORRUPT shipped as `b0377f7`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
 
 > **Note on the corruption-hardening vein:** the central scoring/meta/codex
 > persistence loaders backed by SecureStorage are now hardened + tested
 > (BestScore `0b81956`, Combo-restore `2a283e0`, Ascension `bb7e00f`, MetaProg
-> `1232d43`, Achievement `6de57f7`, Codex `38599e4`). Remaining un-hardened
-> SecureStorage loaders are **`SettingsManager`** and **`MusicManager`** —
-> low-impact (UX prefs only: SFX/volume/visual settings, BGM volume/playback
-> mode; no scoring/unlock/discovery poisoning). Harden if a future session wants
-> to close the vein fully, but the high-value targets are done.
+> `1232d43`, Achievement `6de57f7`, Codex `38599e4`, Settings `b0377f7`). The
+> **only** remaining un-hardened SecureStorage loader is **`MusicManager`** —
+> genuinely low-impact (BGM volume/playback-mode UX prefs only; no scoring/
+> unlock/discovery poisoning, and no whole-UI/camera blast radius like Settings
+> had). Harden if a future session wants to close the vein fully, but every
+> high-value target — and now Settings — is done.
 
 ---
 
@@ -189,6 +190,33 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `b0377f7` BUG-SETTINGS-CORRUPT — **harden `SettingsManager`'s numeric loaders against
+  out-of-range/Infinity storage.** The setters clamp every numeric setting (sfxVolume `[0,1]`,
+  uiScale `[0.5,2.0]` in 0.1 steps, screenShakeIntensity `[0,1]` in 0.01 steps), but the **load
+  path did not** — `loadNumber` (`src/settings/SettingsManager.ts`) only rejected NaN (`parseFloat`
+  + `!isNaN`) with no range check. Since `parseFloat('1e999')` is `Infinity` and `!isNaN(Infinity)`
+  is `true`, a corrupt/tampered value (Infinity, a huge finite, or a negative) loaded straight past
+  the setters' clamps. SecureStorage is the anti-cheat layer, so an out-of-range payload is the
+  threat model (same vein as `38599e4`/`6de57f7`/`bb7e00f`). **Worst case is screenShakeIntensity:**
+  `GameScene.shakeCamera` (`:5429`) does `cameras.main.shake(d, intensity * shakeScale)` with no
+  clamp, so an Infinity/huge stored intensity drives an Infinity camera-shake offset → NaN camera
+  scroll → the render breaks for the rest of the run, unrecoverable — a crash-class bug, not the
+  "UX prefs only" the vein note had assumed. uiScale feeds `HudScale` (every HUD/menu layout;
+  partly self-defended by HudScale's own final clamp) and sfxVolume feeds the audio gain on 26
+  `SoundManager` call sites — fixing at the load source is the vein principle, not relying on each
+  scattered consumer to re-clamp. Fix replaces `loadNumber` with `loadBoundedNumber(key, default,
+  min, max, roundFactor)`: rejects non-finite (`Number.isFinite` gate) + unparseable → default,
+  rounds finite values to the setter's step, then clamps to `[min,max]`; bounds + round factor per
+  call mirror each setter exactly, so the loaded value is always one the setter could itself have
+  produced. Byte-identical on the real path (saved values are already clamped + rounded → re-applying
+  is a no-op), so pure hardening, no behaviour change for valid data. Booleans (`=== 'true'`) and the
+  damage-numbers / colorblind enum loaders (whitelist) were already junk-immune. **Test-first: the
+  module's first coverage** — `SettingsManager.test.ts` (19 cases): Infinity/huge/negative/non-numeric
+  tamper for all three numeric settings, off-step rounding, the camera-can't-blow-up invariant,
+  boolean + enum junk-immunity characterization, the legacy shake-toggle migration, and a valid-value
+  round-trip locking the real path unchanged. Full suite **295 green** (+19), `tsc --noEmit` + `vite
+  build` clean. Self-discovered. **Closes all high-value hardening; only `MusicManager` (BGM prefs,
+  genuinely low-impact) remains un-hardened — see the Proposed-auto vein note.**
 - `38599e4` BUG-CODEX-CORRUPT — **harden `CodexManager` against corrupt/tampered codex storage.**
   `loadState` (`src/codex/CodexManager.ts`) spread `...parsed.weapons` / `...parsed.enemies` /
   `...parsed.upgrades` / `...parsed.statistics` straight over the seeded defaults. SecureStorage is
