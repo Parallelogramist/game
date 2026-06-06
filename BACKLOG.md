@@ -107,8 +107,16 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-METAPROG-CORRUPT shipped as `1232d43`;
+most recent self-discovered fix BUG-ACHIEVE-CORRUPT shipped as `6de57f7`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
+
+> **Note on the corruption-hardening vein:** the four central scoring/meta
+> persistence loaders backed by SecureStorage are now hardened + tested
+> (BestScore `0b81956`, Combo-restore `2a283e0`, Ascension `bb7e00f`, MetaProg
+> `1232d43`, Achievement `6de57f7`). Remaining un-hardened SecureStorage loaders
+> are lower-impact (no scoring/unlock poisoning): `SettingsManager`,
+> `CodexManager`, `MusicManager`. Harden if a future session wants the vein, but
+> the high-value targets are done.
 
 ---
 
@@ -180,6 +188,34 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `6de57f7` BUG-ACHIEVE-CORRUPT — **harden `AchievementManager` against corrupt/tampered
+  achievement storage.** `loadPersistentState` (`src/achievements/AchievementManager.ts`) spread
+  `...parsed.lifetimeStats` / `...parsed.achievements` straight over defaults, so a corrupt/tampered
+  `survivor-achievements` payload leaked junk into gameplay (SecureStorage is the anti-cheat layer →
+  a non-object/non-numeric payload is the threat model; siblings BUG-METAPROG-CORRUPT `1232d43`,
+  BUG-ASCENSION-CORRUPT `bb7e00f`). The damage is amplified by `recordRunEnd`'s
+  `stats.totalKills += ...` accumulation: a single NaN/string lifetime stat poisons the **persisted**
+  total forever (NaN, or string-concat like `"abc100"`), then every `currentValue >= targetValue`
+  check goes false → the achievement is **permanently bricked**; the same lifetime totals feed
+  `HiddenUnlocks` predicates (a NaN dead-locks an unlock; an inflated `1e999` spuriously unlocks
+  ships/cosmetics/stages — `totalRunsCompleted >= 1`, `totalKills >= 10_000`, `highestWorldLevel >= 5`,
+  …) and render as `"NaN"` in the Achievement/Leaderboard UI. A second hole: `isUnlocked` was never
+  coerced, so a truthy non-boolean tamper (`"yes"`) faked an unlock — inflating completion % +
+  re-delivering rewards — and the wholesale spread retained unknown junk ids. Fix: a
+  `boundedStoredNumber` helper coerces each field through a finite, non-negative check (per-field floor
+  for integer counters via a compiler-enforced `Record<keyof LifetimeStats,…>` spec table; an
+  `allowInfinity` carve-out for `fastestVictorySeconds`' "none yet" sentinel), and both loaders
+  **rebuild from the known fields/ids only** — dropping junk keys and forcing `isUnlocked`/
+  `rewardClaimed` to real booleans. Byte-identical on the real path (valid ints floor-noop, fractional
+  damage/seconds preserved, Infinity preserved), so pure hardening, no balance change. **Also fixes a
+  latent real-path bug:** `JSON.stringify(Infinity) === "null"`, so after any saved run
+  `fastestVictorySeconds` round-tripped to `null`, making `survivalTimeSeconds < null` (→ `< 0`) false
+  forever and silently disabling all future fastest-victory tracking — the sanitizer restores the
+  Infinity default. **Test-first: the module's first coverage** — `AchievementManager.corruption.test.ts`
+  (24 cases): per-field numeric coercion, the Infinity sentinel, junk-key drop, the boolean-unlock guard,
+  the un-brick regression (tampered string `totalKills` + 100 kills → unlocks `lifetime_kills_100`),
+  top-level payload guards, + characterization locking the valid round-trip and the null→Infinity fix.
+  Full suite **255 green** (+24), `tsc` + `vite build` clean. Self-discovered.
 - `1232d43` BUG-METAPROG-CORRUPT — **harden `MetaProgressionManager`'s three JSON loaders against
   corrupt/tampered storage.** `loadStreakState`, `loadUpgradeState`, and `loadAchievementBonuses`
   (`src/meta/MetaProgressionManager.ts`) each hand-rolled the `Math.max(0, Math.min(value, cap))`
