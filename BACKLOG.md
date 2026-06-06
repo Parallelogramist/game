@@ -107,7 +107,7 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-BESTSCORE-CORRUPT shipped as `0b81956`;
+most recent self-discovered fix BUG-COMBO-RESTORE-CORRUPT shipped as `2a283e0`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
 
 ---
@@ -180,6 +180,21 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `2a283e0` BUG-COMBO-RESTORE-CORRUPT — **harden `restoreComboState` against corrupt/tampered save
+  state.** `restoreComboState` (`src/systems/ComboSystem.ts`) assigned `comboCount`/`comboDecayTimer`/
+  `highestCombo` straight from the save snapshot with no validation. `comboState` is an *optional* save
+  field, so `GameStateManager.isStructurallyValidSaveState` deliberately skips it ("newer optional fields
+  are guarded at their own use sites") — but this use site did no guarding. Since the save is persisted via
+  SecureStorage (a tamper/corruption surface — the reason the store is encrypted), a garbage snapshot set
+  `comboCount` to NaN/undefined/string → `getComboXPMultiplier()` returns NaN, poisoning live XP gain
+  mid-run, and set `highestCombo` to a NaN/inflated value that flows into `PerformanceGrade.computeRunScore`
+  (`highestCombo × 5`) → the persisted best score, the daily-challenge leaderboard rank, and achievement /
+  hidden-unlock records. Fix coerces every field through `toFiniteNonNegative` (mirrors
+  `BestScoreManager.isValidStoredScore` from BUG-BESTSCORE-CORRUPT): combo + highest floored to finite
+  non-negative ints, decay timer clamped to the combo's grace delay (a tampered "infinite grace" can't
+  freeze a combo), `highestCombo >= comboCount` invariant held. Valid saves unchanged. New
+  `ComboSystem.test.ts` (16 cases): 10 corruption/tamper + 6 characterization locking the
+  tier/threshold/XP-multiplier contract. Full suite **181 green**, build clean. Self-discovered.
 - `5940c9a` PROPOSE-PERFGRADE-TEST — **add the missing direct unit coverage for PerformanceGrade.**
   `computeRunScore` + `computePerformanceGrade` (`src/utils/PerformanceGrade.ts`) are the canonical
   run-scoring + grade contract shared by four consumers — `BestScoreManager` (persisted best),
