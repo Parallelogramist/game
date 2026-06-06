@@ -107,7 +107,7 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-ASCENSION-CORRUPT shipped as `bb7e00f`;
+most recent self-discovered fix BUG-METAPROG-CORRUPT shipped as `1232d43`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
 
 ---
@@ -180,6 +180,36 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `1232d43` BUG-METAPROG-CORRUPT — **harden `MetaProgressionManager`'s three JSON loaders against
+  corrupt/tampered storage.** `loadStreakState`, `loadUpgradeState`, and `loadAchievementBonuses`
+  (`src/meta/MetaProgressionManager.ts`) each hand-rolled the `Math.max(0, Math.min(value, cap))`
+  clamp that leaks NaN — `Math.min("abc", cap)` is NaN, `Math.max(0, NaN)` stays NaN (the exact
+  BUG-ASCENSION-CORRUPT `bb7e00f` / BUG-COMBO-RESTORE-CORRUPT `2a283e0` class). Streak used
+  `parsed.currentStreak ?? 0` (`?? 0` only catches null/undefined, so a non-numeric field slips
+  through); upgrades + achievement bonuses spread `{...defaults, ...parsed}` then clamped, so a
+  non-numeric field became a NaN level/bonus. SecureStorage is the anti-cheat layer, so a
+  non-object/non-numeric payload is the threat model — this manager (gold, all permanent upgrades,
+  world level, streak, achievement stat bonuses) is the most central one and was the last scoring/meta
+  module without load-time hardening. Impact of a NaN: a NaN streak → `getStreakGoldMultiplier` NaN →
+  `calculateRunGold` streakMultiplier NaN → `Math.floor(gold × NaN)` = NaN run gold → corrupt
+  *persisted* balance + `×NaN` in the pause/shop UI; a NaN upgrade level → `level()` returns it (`?? 0`
+  misses NaN too) → `getAccountLevel` NaN (breaks unlock + ascension-threshold gating) and every
+  `getStartingXXX()` NaN → NaN PlayerStats at run start; a NaN achievement bonus → NaN PlayerStats via
+  GameScene's run-start apply (`:823`). A **second, distinct** hole: `calculateAccountLevel` sums
+  `Object.values(upgradeState)`, and the old wholesale spread kept *unknown* keys — a tampered
+  array/extra-key payload (e.g. `{"__hack":999999}`) inflated the account level and spuriously
+  unlocked everything / met the ascension threshold. Fix: a `boundedStoredNumber(value, min, max,
+  fallback, floorToInt)` helper coerces each field through a finite check (non-number/NaN/Infinity →
+  fallback) then floors (counts) + clamps; an `asStoredRecord` guard degrades non-objects to `{}`; and
+  both object loaders now **rebuild from the known ids/fields only**, dropping junk keys. Byte-identical
+  on the real path (saved keys are exactly the current upgrade ids; valid int levels floor-noop +
+  clamp the same; percent bonuses left unfloored), so pure hardening, no balance change — the shared
+  `MetaProgressionManager.gold.test.ts` still passes unchanged. **Test-first: the module's first
+  corruption coverage** — `MetaProgressionManager.corruption.test.ts` (26 cases): per-loader
+  non-numeric/object/Infinity/negative/over-cap/fractional/non-object-payload tamper locks, the
+  junk-key account-level-inflation regression, + characterization that valid streak/levels/bonuses
+  round-trip unchanged and a missing newer upgrade id still defaults to 0. Full suite **231 green**
+  (+26), `tsc` + `vite build` clean. Self-discovered.
 - `bb7e00f` BUG-ASCENSION-CORRUPT — **harden `AscensionManager` against corrupt/tampered ascension
   state.** `loadState` (`src/meta/AscensionManager.ts`) parsed `survivor-meta-ascension` with
   `Math.max(0, Math.min(parsed.level ?? 0, 50))`. `?? 0` only catches null/undefined, so a
