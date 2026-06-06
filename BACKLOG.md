@@ -107,16 +107,17 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-ACHIEVE-CORRUPT shipped as `6de57f7`;
+most recent self-discovered fix BUG-CODEX-CORRUPT shipped as `38599e4`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
 
-> **Note on the corruption-hardening vein:** the four central scoring/meta
+> **Note on the corruption-hardening vein:** the central scoring/meta/codex
 > persistence loaders backed by SecureStorage are now hardened + tested
 > (BestScore `0b81956`, Combo-restore `2a283e0`, Ascension `bb7e00f`, MetaProg
-> `1232d43`, Achievement `6de57f7`). Remaining un-hardened SecureStorage loaders
-> are lower-impact (no scoring/unlock poisoning): `SettingsManager`,
-> `CodexManager`, `MusicManager`. Harden if a future session wants the vein, but
-> the high-value targets are done.
+> `1232d43`, Achievement `6de57f7`, Codex `38599e4`). Remaining un-hardened
+> SecureStorage loaders are **`SettingsManager`** and **`MusicManager`** —
+> low-impact (UX prefs only: SFX/volume/visual settings, BGM volume/playback
+> mode; no scoring/unlock/discovery poisoning). Harden if a future session wants
+> to close the vein fully, but the high-value targets are done.
 
 ---
 
@@ -188,6 +189,34 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `38599e4` BUG-CODEX-CORRUPT — **harden `CodexManager` against corrupt/tampered codex storage.**
+  `loadState` (`src/codex/CodexManager.ts`) spread `...parsed.weapons` / `...parsed.enemies` /
+  `...parsed.upgrades` / `...parsed.statistics` straight over the seeded defaults. SecureStorage is
+  the anti-cheat layer, so a corrupt/tampered/non-object `survivor-codex` payload is the threat model
+  (siblings BUG-ACHIEVE-CORRUPT `6de57f7`, BUG-METAPROG-CORRUPT `1232d43`, BUG-ASCENSION-CORRUPT
+  `bb7e00f`). Three holes: (1) injected weapon/enemy ids were retained, inflating
+  `getTotalWeaponCount`/`getTotalEnemyCount` → skewing `getCompletionPercent` (the codex %); (2)
+  `discovered` was never coerced, so a truthy non-boolean (`"yes"`/`1`) faked a discovery — and weapon
+  discovery **gates the starting-weapon picks in `WeaponSelectScene`**, so this is unlock-poisoning, not
+  just display; (3) non-numeric/Infinity/negative entry + statistics fields leaked NaN/garbage into the
+  CodexScene stats panel. **Also fixes a latent real-path bug:** `JSON.stringify(Infinity) === "null"`,
+  so `fastestVictorySeconds` (default Infinity) round-tripped to `null` after the first saved run;
+  `CodexScene.ts:655` renders `fastestVictorySeconds < Infinity ? formatTime : '--:--'` and
+  `null < Infinity` is true → it showed a garbage fastest-victory time instead of `--:--`, and
+  fastest-victory tracking silently broke (same class as `6de57f7`). Fix mirrors the vein: an
+  `asStoredRecord` guard degrades non-objects to `{}`, a `boundedStoredNumber(value, fallback, spec)`
+  helper coerces each field through a finite, non-negative check (per-field floor via a
+  compiler-enforced `Record<keyof CodexStatistics,…>` spec table; an `allowInfinity` carve-out for the
+  fastest-victory sentinel), and `loadState` **rebuilds weapons/enemies/statistics from the known
+  ids/fields only** — dropping junk keys and forcing `discovered` to a real boolean. Dynamic upgrade ids
+  (no fixed known set) keep every entry whose value is a real object (id from the authoritative map key),
+  dropping scalar/array junk. Byte-identical on the real path (valid ints floor-noop, fractional
+  damage/seconds preserved, Infinity restored), so pure hardening, no balance change. **Test-first: the
+  module's first coverage** — `CodexManager.corruption.test.ts` (21 cases): valid round-trip +
+  completion-% characterization, non-object/malformed-payload fallbacks, junk-id drop (stable totals),
+  the strict-boolean discovery guard, per-field numeric coercion, the Infinity sentinel, the
+  null→Infinity real-path regression (save+reload through the real save path), and dynamic upgrade-id
+  handling. Full suite **276 green** (+21), `tsc` + `vite build` clean. Self-discovered.
 - `6de57f7` BUG-ACHIEVE-CORRUPT — **harden `AchievementManager` against corrupt/tampered
   achievement storage.** `loadPersistentState` (`src/achievements/AchievementManager.ts`) spread
   `...parsed.lifetimeStats` / `...parsed.achievements` straight over defaults, so a corrupt/tampered
