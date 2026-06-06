@@ -87,6 +87,106 @@ function createDefaultPersistentState(): PersistentAchievementState {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// LOAD-TIME SANITIZATION
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// SecureStorage is the anti-cheat layer, so a corrupt/tampered persisted payload
+// is the threat model. The loader must coerce every field through a finite check
+// and rebuild from known keys only — a single NaN/string lifetime stat is
+// catastrophic because recordRunEnd does `stats.totalKills += ...`, so a bad
+// value poisons the *persisted* total forever (NaN or string-concat), every
+// `currentValue >= targetValue` comparison goes false (achievements bricked), and
+// the same totals feed HiddenUnlocks predicates + the Achievement UI. Mirrors the
+// hardening applied to MetaProgressionManager / AscensionManager.
+
+/** Degrade arrays / null / primitives to `{}` so junk payloads fall back to
+ *  defaults instead of leaking string indices or unknown keys via spread. */
+function asStoredRecord(value: unknown): Record<string, unknown> {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+interface StoredNumberSpec {
+  floor: boolean;          // integer counters floor; fractional fields (seconds/damage) don't
+  allowInfinity: boolean;  // only fastestVictorySeconds keeps +Infinity as its "none yet" sentinel
+}
+
+/** Coerce a stored numeric field: a finite, non-negative number (optionally
+ *  +Infinity) survives; anything else (string/object/NaN/-Infinity/negative)
+ *  falls back. Floors when the field is an integer counter. */
+function boundedStoredNumber(value: unknown, fallback: number, spec: StoredNumberSpec): number {
+  if (typeof value !== 'number') return fallback;
+  if (spec.allowInfinity && value === Infinity) return value;
+  if (!Number.isFinite(value)) return fallback; // NaN, ±Infinity (when not allowed)
+  if (value < 0) return fallback;
+  return spec.floor ? Math.floor(value) : value;
+}
+
+// Per-field rules. A `Record<keyof LifetimeStats, …>` makes the compiler force
+// every field to be covered, so this can never silently drift from the type.
+const LIFETIME_STAT_SPECS: Record<keyof LifetimeStats, StoredNumberSpec> = {
+  totalKills: { floor: true, allowInfinity: false },
+  totalDamageDealt: { floor: false, allowInfinity: false },
+  totalCriticalHits: { floor: true, allowInfinity: false },
+  totalTimePlayedSeconds: { floor: false, allowInfinity: false },
+  totalRunsStarted: { floor: true, allowInfinity: false },
+  totalRunsCompleted: { floor: true, allowInfinity: false },
+  totalVictories: { floor: true, allowInfinity: false },
+  totalBossesKilled: { floor: true, allowInfinity: false },
+  totalGoldEarned: { floor: true, allowInfinity: false },
+  highestLevel: { floor: true, allowInfinity: false },
+  highestWorldLevel: { floor: true, allowInfinity: false },
+  longestSurvivalSeconds: { floor: false, allowInfinity: false },
+  fastestVictorySeconds: { floor: false, allowInfinity: true },
+  perfectRuns: { floor: true, allowInfinity: false },
+  speedRuns: { floor: true, allowInfinity: false },
+  mostKillsInRun: { floor: true, allowInfinity: false },
+  highestComboInRun: { floor: true, allowInfinity: false },
+};
+
+/** Rebuild lifetime stats from the known fields only, coercing each value.
+ *  Unknown injected keys are dropped; missing/garbage fields take their default.
+ *  Byte-identical on the real path (valid ints floor-noop, fractions preserved,
+ *  Infinity preserved — and JSON.stringify's Infinity→null round-trips back to
+ *  the Infinity default). */
+function sanitizeLifetimeStats(raw: unknown): LifetimeStats {
+  const defaults = createDefaultLifetimeStats();
+  const record = asStoredRecord(raw);
+  const result = createDefaultLifetimeStats();
+  for (const key of Object.keys(defaults) as (keyof LifetimeStats)[]) {
+    result[key] = boundedStoredNumber(record[key], defaults[key], LIFETIME_STAT_SPECS[key]);
+  }
+  return result;
+}
+
+const PROGRESS_VALUE_SPEC: StoredNumberSpec = { floor: false, allowInfinity: false };
+
+/** Rebuild achievement progress from the known achievement ids only. Drops junk
+ *  ids, coerces currentValue to a finite number, and forces isUnlocked /
+ *  rewardClaimed to real booleans so a truthy-but-not-true tamper (e.g. "yes")
+ *  can't fake an unlock, inflate completion %, or re-deliver a reward. */
+function sanitizeAchievements(raw: unknown): Record<string, AchievementProgress> {
+  const record = asStoredRecord(raw);
+  const result = createDefaultAchievementProgress();
+  for (const achievement of ACHIEVEMENTS) {
+    const stored = record[achievement.id];
+    if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) continue;
+    const storedEntry = stored as Record<string, unknown>;
+    const entry = result[achievement.id];
+    entry.currentValue = boundedStoredNumber(storedEntry.currentValue, 0, PROGRESS_VALUE_SPEC);
+    entry.isUnlocked = storedEntry.isUnlocked === true;
+    entry.rewardClaimed = storedEntry.rewardClaimed === true;
+    const unlockedAt = storedEntry.unlockedAt;
+    if (typeof unlockedAt === 'number' && Number.isFinite(unlockedAt) && unlockedAt >= 0) {
+      entry.unlockedAt = unlockedAt;
+    }
+  }
+  return result;
+}
+
 function createFreshRunState(): RunMilestoneState {
   const milestones: Record<string, MilestoneProgress> = {};
   for (const milestone of MILESTONES) {
@@ -463,28 +563,24 @@ export class AchievementManager {
   // ─────────────────────────────────────────────────────────────────────────
 
   private loadPersistentState(): PersistentAchievementState {
-    const defaultState = createDefaultPersistentState();
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_ACHIEVEMENTS);
       if (stored) {
-        const parsed = JSON.parse(stored) as PersistentAchievementState;
-        // Merge with defaults to handle new achievements added in updates
+        // Sanitize, don't trust: a corrupt/tampered payload must not leak a
+        // NaN/string into lifetime totals or a fake unlock. sanitize* rebuild
+        // from known keys/fields only, so new achievements added in an update
+        // still default in (and dropped/junk ids drop out).
+        const parsed = asStoredRecord(JSON.parse(stored));
         return {
           version: ACHIEVEMENT_VERSION,
-          achievements: {
-            ...defaultState.achievements,
-            ...parsed.achievements,
-          },
-          lifetimeStats: {
-            ...defaultState.lifetimeStats,
-            ...parsed.lifetimeStats,
-          },
+          achievements: sanitizeAchievements(parsed.achievements),
+          lifetimeStats: sanitizeLifetimeStats(parsed.lifetimeStats),
         };
       }
     } catch {
       console.warn('Could not load achievement state from storage');
     }
-    return defaultState;
+    return createDefaultPersistentState();
   }
 
   private savePersistentState(): void {
