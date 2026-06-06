@@ -31,6 +31,11 @@ const STORAGE_KEY_ENABLED = 'survivor-music-enabled';
 const STORAGE_KEY_MODE = 'survivor-music-mode';
 const STORAGE_KEY_VOLUME = 'survivor-music-volume';
 
+const DEFAULT_VOLUME = 0.4;
+
+// O(1) membership for load-time validation: the set of real catalog track ids.
+const CATALOG_IDS = new Set(MUSIC_CATALOG.map((track) => track.id));
+
 export class MusicManager {
   private audioContext: AudioContext | null = null;
   private scriptProcessor: ScriptProcessorNode | null = null;
@@ -39,7 +44,7 @@ export class MusicManager {
   private gainNode: GainNode | null = null;
 
   private isPlaying: boolean = false;
-  private volume: number = 0.4;
+  private volume: number = DEFAULT_VOLUME;
   // Runtime dynamic-intensity multiplier (see setIntensity); not persisted.
   private intensity: number = 1.0;
 
@@ -68,15 +73,29 @@ export class MusicManager {
   private loadEnabledTracks(): Set<string> {
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_ENABLED);
-      if (stored) {
-        const ids = JSON.parse(stored) as string[];
-        return new Set(ids);
+      if (stored !== null) {
+        const parsed = JSON.parse(stored);
+        // SecureStorage is the anti-cheat layer, so a tampered payload is the
+        // threat model. The old `new Set(JSON.parse(...))` accepted anything
+        // iterable: a JSON STRING ("hello") is iterable and did NOT throw, so it
+        // became a Set of single characters (garbage ids → empty playlist),
+        // re-persisted on the next toggle. Rebuild from KNOWN catalog ids only —
+        // keep string members that exist in the catalog, dropping non-string
+        // junk and stale ids for removed tracks. No-op on the real path (saved
+        // ids are always catalog ids). An empty array is a valid "all disabled"
+        // state (disableAllTracks writes []) and is preserved; a non-array
+        // payload carries no intent → fall through to the all-enabled default.
+        if (Array.isArray(parsed)) {
+          return new Set(
+            parsed.filter((id): id is string => typeof id === 'string' && CATALOG_IDS.has(id))
+          );
+        }
       }
     } catch {
       console.warn('Could not load music settings');
     }
     // Default: all tracks enabled
-    return new Set(MUSIC_CATALOG.map((track) => track.id));
+    return new Set(CATALOG_IDS);
   }
 
   /**
@@ -123,13 +142,27 @@ export class MusicManager {
   private loadVolume(): number {
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_VOLUME);
-      if (stored) {
-        return parseFloat(stored);
+      if (stored !== null) {
+        const parsed = parseFloat(stored);
+        // SecureStorage is the anti-cheat layer, so an out-of-range/tampered
+        // value is the threat model. setVolume clamps to [0,1], but this loader
+        // used to return parseFloat(stored) raw — and parseFloat('1e999') is
+        // Infinity, parseFloat('loud') is NaN. A non-finite volume reaches
+        // `gainNode.gain.value = volume * intensity` (loadTrack/setVolume/
+        // setIntensity), where a non-finite AudioParam value throws a TypeError
+        // in Web Audio; setIntensity runs every frame via MusicIntensityDriver,
+        // so it would be a per-frame exception storm, and getVolume() would feed
+        // NaN to the settings slider. Gate on finiteness (→ default), then clamp
+        // finite values to the same [0,1] the setter enforces, so the loaded
+        // volume is always one setVolume could itself have produced.
+        if (Number.isFinite(parsed)) {
+          return Math.max(0, Math.min(1, parsed));
+        }
       }
     } catch {
       console.warn('Could not load volume');
     }
-    return 0.4;
+    return DEFAULT_VOLUME;
   }
 
   /**
