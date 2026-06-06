@@ -67,20 +67,25 @@ export class SettingsManager {
   constructor() {
     this.settings = {
       sfxEnabled: this.loadBoolean(STORAGE_KEY_SFX_ENABLED, DEFAULTS.sfxEnabled),
-      sfxVolume: this.loadNumber(STORAGE_KEY_SFX_VOLUME, DEFAULTS.sfxVolume),
+      // Bounds mirror each setter's clamp: volume [0,1], uiScale [0.5,2.0] in
+      // 0.1 steps, shake intensity [0,1] in 0.01 steps.
+      sfxVolume: this.loadBoundedNumber(STORAGE_KEY_SFX_VOLUME, DEFAULTS.sfxVolume, 0, 1),
       screenShakeEnabled: this.loadBoolean(STORAGE_KEY_SCREEN_SHAKE, DEFAULTS.screenShakeEnabled),
       gridEffectsEnabled: this.loadBoolean(STORAGE_KEY_GRID_EFFECTS, DEFAULTS.gridEffectsEnabled),
       fpsCounterEnabled: this.loadBoolean(STORAGE_KEY_FPS_COUNTER, DEFAULTS.fpsCounterEnabled),
       damageNumbersMode: this.loadDamageNumbersMode(),
       statusTextEnabled: this.loadBoolean(STORAGE_KEY_STATUS_TEXT, DEFAULTS.statusTextEnabled),
-      uiScale: this.loadNumber(STORAGE_KEY_UI_SCALE, DEFAULTS.uiScale),
+      uiScale: this.loadBoundedNumber(STORAGE_KEY_UI_SCALE, DEFAULTS.uiScale, 0.5, 2.0, 10),
       tutorialSeen: this.loadBoolean(STORAGE_KEY_TUTORIAL_SEEN, DEFAULTS.tutorialSeen),
       reducedMotion: this.loadBoolean(STORAGE_KEY_REDUCED_MOTION, DEFAULTS.reducedMotion),
       directorDebugEnabled: this.loadBoolean(STORAGE_KEY_DIRECTOR_DEBUG, DEFAULTS.directorDebugEnabled),
       // Migrate from the legacy on/off shake toggle: if the player had shake off, start at 0 intensity.
-      screenShakeIntensity: this.loadNumber(
+      screenShakeIntensity: this.loadBoundedNumber(
         STORAGE_KEY_SCREEN_SHAKE_INTENSITY,
-        this.loadBoolean(STORAGE_KEY_SCREEN_SHAKE, true) ? DEFAULTS.screenShakeIntensity : 0
+        this.loadBoolean(STORAGE_KEY_SCREEN_SHAKE, true) ? DEFAULTS.screenShakeIntensity : 0,
+        0,
+        1,
+        100
       ),
       colorblindMode: this.loadColorblindMode(),
       highContrast: this.loadBoolean(STORAGE_KEY_HIGH_CONTRAST, DEFAULTS.highContrast),
@@ -115,13 +120,38 @@ export class SettingsManager {
     return defaultValue;
   }
 
-  private loadNumber(key: string, defaultValue: number): number {
+  /**
+   * Load a numeric setting, enforcing the SAME bounds (and rounding) its setter
+   * applies. The setters all clamp, but the load path used to only reject NaN
+   * (`parseFloat` + `!isNaN`) with no range check — so a corrupt/tampered
+   * SecureStorage value outside the valid range loaded straight past the
+   * clamps. Crucially `parseFloat('1e999')` is `Infinity`, which `!isNaN` lets
+   * through; an Infinity/huge `screenShakeIntensity` then reaches
+   * `cameras.main.shake(d, intensity * shakeScale)` unclamped → an Infinity
+   * shake offset → NaN camera scroll → the render breaks for the rest of the
+   * run. SecureStorage is the anti-cheat layer, so an out-of-range payload is
+   * the threat model. Clamping here keeps every loaded value to one the setter
+   * could itself have produced, so no consumer is ever fed a malformed
+   * scale/volume/shake amplitude.
+   *
+   * `roundFactor` mirrors the setter's rounding step (e.g. 10 → 0.1, 100 →
+   * 0.01); 0 = no rounding. On the real path this is a no-op (saved values are
+   * already clamped + rounded by the setter), so loading stays byte-identical.
+   */
+  private loadBoundedNumber(
+    key: string,
+    defaultValue: number,
+    min: number,
+    max: number,
+    roundFactor = 0
+  ): number {
     try {
       const stored = SecureStorage.getItem(key);
       if (stored !== null) {
-        const value = parseFloat(stored);
-        if (!isNaN(value)) {
-          return value;
+        const parsed = parseFloat(stored);
+        if (Number.isFinite(parsed)) {
+          const rounded = roundFactor > 0 ? Math.round(parsed * roundFactor) / roundFactor : parsed;
+          return Math.max(min, Math.min(max, rounded));
         }
       }
     } catch {
