@@ -22,6 +22,9 @@ const THRESHOLD_INCREMENT = 15;
 const STAT_MULTIPLIER_PER_LEVEL = 0.10;    // +10% all stats per ascension
 const GOLD_MULTIPLIER_PER_LEVEL = 0.15;    // +15% gold earn per ascension
 
+/** Hard cap on stored ascension level — a defensive clamp applied on load. */
+const MAX_ASCENSION_LEVEL = 50;
+
 interface AscensionState {
   level: number;
   totalAscensions: number;
@@ -29,6 +32,22 @@ interface AscensionState {
 
 function createDefaultAscensionState(): AscensionState {
   return { level: 0, totalAscensions: 0 };
+}
+
+/**
+ * Coerce a persisted ascension counter to a finite non-negative integer within
+ * [0, MAX_ASCENSION_LEVEL]. SecureStorage is the anti-cheat layer, so a corrupt
+ * or tampered payload is the threat model: a non-numeric value (a string/object)
+ * or a `1e999` overflow (which JSON.parse reads back as Infinity) must never
+ * survive load. The old `?? 0` guard only caught null/undefined, so a string
+ * slipped through and `Math.max(0, Math.min("abc", 50))` is NaN — and a NaN level
+ * poisons every consumer: getStatMultiplier/getGoldMultiplier → NaN (which feeds
+ * run gold and the shop/boot/pause UI) and getAscensionThreshold → NaN, making
+ * `accountLevel >= NaN` false forever, so re-ascension is bricked.
+ */
+function toBoundedCount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(Math.floor(value), MAX_ASCENSION_LEVEL));
 }
 
 export class AscensionManager {
@@ -130,10 +149,10 @@ export class AscensionManager {
     try {
       const stored = SecureStorage.getItem(STORAGE_KEY_ASCENSION);
       if (stored) {
-        const parsed = JSON.parse(stored) as Partial<AscensionState>;
+        const parsed = JSON.parse(stored) as Partial<AscensionState> | null;
         return {
-          level: Math.max(0, Math.min(parsed.level ?? 0, 50)),
-          totalAscensions: Math.max(0, Math.min(parsed.totalAscensions ?? 0, 50)),
+          level: toBoundedCount(parsed?.level),
+          totalAscensions: toBoundedCount(parsed?.totalAscensions),
         };
       }
     } catch {
