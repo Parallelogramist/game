@@ -125,7 +125,7 @@ export interface PlayerStats {
   overkillSplash: number;          // 0-1, overkill damage splash percent
   armorPenetration: number;        // 0-1, ignore enemy armor percent
   weaponSlots: number;             // Extra weapon slots
-  weaponSynergy: number;           // Bonus per weapon owned
+  weaponSynergy: number;           // Amplifies weapon-pair synergy bonuses (e.g. 0.2 = +20%)
 
   // Advanced elemental effects
   shatterBonus: number;            // Bonus damage to frozen enemies (e.g., 0.5 = +50%)

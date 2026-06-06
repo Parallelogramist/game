@@ -7091,6 +7091,11 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.durationMultiplier          // Effect-lifetime multiplier
     );
 
+    // Amplify weapon-pair synergy bonuses by the weaponSynergy stat (Synergy
+    // meta upgrade + Synergy Chain relic). Change-guarded, so a mid-run relic
+    // pickup re-applies synergies and the per-frame call is otherwise a no-op.
+    this.weaponManager.setSynergyBonus(this.playerStats.weaponSynergy);
+
     // Set overcharge stun duration for chain lightning
     this.weaponManager.setOverchargeStunDuration(this.playerStats.overchargeStunDuration);
 

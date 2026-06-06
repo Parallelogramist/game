@@ -1066,7 +1066,7 @@ const MASTERY_UPGRADES: PermanentUpgrade[] = [
     maxLevel: 5,
     baseCost: 300,
     costScaling: 2.0,
-    getEffect: (level) => (level > 0 ? `+${level * 3}% damage per weapon` : 'No bonus'),
+    getEffect: (level) => (level > 0 ? `+${level * 3}% weapon synergy bonus` : 'No bonus'),
   },
   {
     id: 'ultimateMasteryLevel',

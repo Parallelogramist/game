@@ -142,3 +142,49 @@ export function getActiveSynergies(equippedWeaponIds: string[]): WeaponSynergy[]
 
   return activeSynergies;
 }
+
+/** Per-weapon synergy multipliers (1.0 = no effect). */
+export interface SynergyMultiplier {
+  /** Damage multiplier (>= 1.0 for the current synergy table). */
+  damage: number;
+  /** Cooldown multiplier (<= 1.0 means faster). */
+  cooldown: number;
+}
+
+/**
+ * Compute the per-weapon synergy multipliers for an equipped weapon set.
+ *
+ * `synergyBonus` is the player's `weaponSynergy` stat (e.g. 0.2 = +20%), granted
+ * by the "Synergy" meta upgrade and the "Synergy Chain" relic. It amplifies the
+ * *bonus portion* of every active synergy: a +30% damage synergy becomes +36%
+ * at a 0.2 bonus, and a 15%-faster cooldown becomes 18% faster. A bonus of 0
+ * leaves the raw synergy multipliers untouched. Non-finite or negative bonuses
+ * are treated as 0 so synergies are never inverted below their base values.
+ *
+ * Returns a Map of weaponId → { damage, cooldown }, stacking multiplicatively
+ * when a weapon belongs to more than one active synergy. Weapons with no active
+ * synergy are absent from the map (callers default them to 1.0).
+ */
+export function computeSynergyMultipliers(
+  equippedWeaponIds: string[],
+  synergyBonus: number = 0
+): Map<string, SynergyMultiplier> {
+  const amplification = 1 + (Number.isFinite(synergyBonus) ? Math.max(0, synergyBonus) : 0);
+  const multipliers = new Map<string, SynergyMultiplier>();
+
+  for (const synergy of getActiveSynergies(equippedWeaponIds)) {
+    // Scale only the deviation from 1.0 (the bonus) so a no-op dimension
+    // (multiplier exactly 1.0) stays 1.0 regardless of the bonus.
+    const amplifiedDamage = 1 + (synergy.damageMultiplier - 1) * amplification;
+    const amplifiedCooldown = 1 - (1 - synergy.cooldownMultiplier) * amplification;
+
+    for (const weaponId of [synergy.weaponA, synergy.weaponB]) {
+      const existing = multipliers.get(weaponId) ?? { damage: 1.0, cooldown: 1.0 };
+      existing.damage *= amplifiedDamage;
+      existing.cooldown *= amplifiedCooldown;
+      multipliers.set(weaponId, existing);
+    }
+  }
+
+  return multipliers;
+}

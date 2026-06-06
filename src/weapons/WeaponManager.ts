@@ -1,7 +1,7 @@
 import { IWorld, hasComponent } from 'bitecs';
 import { BaseWeapon, WeaponContext } from './BaseWeapon';
 import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
-import { getActiveSynergies, WeaponSynergy } from '../data/WeaponSynergies';
+import { getActiveSynergies, computeSynergyMultipliers, WeaponSynergy } from '../data/WeaponSynergies';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
 import { Transform, Health, Knockback, EnemyType, EnemyTag } from '../ecs/components';
@@ -82,6 +82,9 @@ export class WeaponManager {
   // Weapon slot limit system
   private maxWeaponSlots: number = 3;
   private previousSynergyCount: number = 0;
+  // Player `weaponSynergy` stat — amplifies the bonus portion of active
+  // synergies (Synergy meta upgrade + Synergy Chain relic). 0 = raw synergies.
+  private externalSynergyBonus: number = 0;
 
   // Callbacks for game integration
   private onEnemyDamaged: ((enemyId: number, damage: number, isCrit: boolean) => void) | null = null;
@@ -182,28 +185,17 @@ export class WeaponManager {
     const equippedIds = Array.from(this.weapons.keys());
     this.activeSynergies = getActiveSynergies(equippedIds);
 
-    // Build per-weapon synergy multipliers (stack multiplicatively)
-    const weaponDamageMult = new Map<string, number>();
-    const weaponCooldownMult = new Map<string, number>();
-
-    for (const synergy of this.activeSynergies) {
-      for (const weaponId of [synergy.weaponA, synergy.weaponB]) {
-        if (this.weapons.has(weaponId)) {
-          weaponDamageMult.set(weaponId, (weaponDamageMult.get(weaponId) ?? 1.0) * synergy.damageMultiplier);
-          weaponCooldownMult.set(weaponId, (weaponCooldownMult.get(weaponId) ?? 1.0) * synergy.cooldownMultiplier);
-        }
-      }
-    }
+    // Per-weapon damage/cooldown multipliers, with the bonus portion amplified
+    // by the player's weaponSynergy stat (stacks multiplicatively per weapon).
+    const synergyMultipliers = computeSynergyMultipliers(equippedIds, this.externalSynergyBonus);
 
     // Apply synergy multipliers to every weapon (1.0 when not in a synergy).
     // Setting all weapons — not just synergized ones — ensures a weapon that
     // loses its synergy resets, and these stack with (rather than clobber) the
     // global external multipliers from applyMultipliers().
     for (const [weaponId, weapon] of this.weapons) {
-      weapon.setSynergyMultipliers(
-        weaponDamageMult.get(weaponId) ?? 1.0,
-        weaponCooldownMult.get(weaponId) ?? 1.0
-      );
+      const multiplier = synergyMultipliers.get(weaponId);
+      weapon.setSynergyMultipliers(multiplier?.damage ?? 1.0, multiplier?.cooldown ?? 1.0);
     }
 
     // Play synergy sound when a new synergy is activated
@@ -211,6 +203,19 @@ export class WeaponManager {
       this.soundManager.playSynergyActivation();
     }
     this.previousSynergyCount = this.activeSynergies.length;
+  }
+
+  /**
+   * Set the player's weapon-synergy bonus (the `weaponSynergy` stat) and
+   * re-apply synergy multipliers if it changed. Called from GameScene's stat
+   * sync, so a mid-run pickup (e.g. the Synergy Chain relic) takes effect
+   * immediately. Cheap on the common no-change path (early return).
+   */
+  public setSynergyBonus(bonus: number): void {
+    const safeBonus = Number.isFinite(bonus) ? Math.max(0, bonus) : 0;
+    if (safeBonus === this.externalSynergyBonus) return;
+    this.externalSynergyBonus = safeBonus;
+    this.recalculateSynergies();
   }
 
   /**
