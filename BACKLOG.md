@@ -107,7 +107,7 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-COMBO-RESTORE-CORRUPT shipped as `2a283e0`;
+most recent self-discovered fix BUG-ASCENSION-CORRUPT shipped as `bb7e00f`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
 
 ---
@@ -180,6 +180,28 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `bb7e00f` BUG-ASCENSION-CORRUPT — **harden `AscensionManager` against corrupt/tampered ascension
+  state.** `loadState` (`src/meta/AscensionManager.ts`) parsed `survivor-meta-ascension` with
+  `Math.max(0, Math.min(parsed.level ?? 0, 50))`. `?? 0` only catches null/undefined, so a
+  non-numeric tampered value (a string/object) slipped through and `Math.min("abc", 50)` is NaN →
+  `Math.max(0, NaN)` is NaN → the loaded `level` became NaN (`1e999`, which JSON.parse reads back as
+  Infinity, also leaked through as a max-grant). SecureStorage is the anti-cheat layer, so a
+  non-numeric/overflow payload is exactly the threat model (siblings: BUG-BESTSCORE-CORRUPT `0b81956`,
+  BUG-COMBO-RESTORE-CORRUPT `2a283e0`). A NaN ascension level poisons the whole prestige system:
+  `getStatMultiplier()`/`getGoldMultiplier()` return NaN — the gold multiplier feeds
+  `MetaProgressionManager.calculateRunGold` (`ascensionMultiplier`, `:1184`) → NaN run gold → corrupt
+  persisted balance, and both render as "NaN" in the shop/boot/pause UI; `getAscensionThreshold()`
+  returns NaN, so `canAscend()` (`accountLevel >= NaN`) is false **forever** → re-ascension permanently
+  bricked. (GameScene's run-start stat apply happens to guard with `if (mult > 1)`, but the gold path,
+  threshold/canAscend, and the UI displays are all unguarded — so the fix is at the load source, not
+  per-consumer.) Fix: a `toBoundedCount` helper coerces each counter through a finite check (rejecting
+  non-numbers and Infinity → 0), floors it, and clamps to `[0, MAX_ASCENSION_LEVEL]` (the magic 50,
+  now named). Byte-identical on the real path (saved levels are always finite ints in range), so pure
+  hardening, no balance change. **Test-first: the module's first coverage** — `AscensionManager.test.ts`
+  (24 cases): tamper locks (non-numeric string/object → 0, `1e999`/`-1e999` → 0, fractional floored,
+  negative/over-cap clamped, null-field/null/array/primitive/non-JSON → defaults) + characterization of
+  the multiplier/threshold/canAscend/bonus-tier/performAscension contract. Full suite **205 green**
+  (+24), `tsc` + `vite build` clean. Self-discovered.
 - `2a283e0` BUG-COMBO-RESTORE-CORRUPT — **harden `restoreComboState` against corrupt/tampered save
   state.** `restoreComboState` (`src/systems/ComboSystem.ts`) assigned `comboCount`/`comboDecayTimer`/
   `highestCombo` straight from the save snapshot with no validation. `comboState` is an *optional* save
