@@ -107,18 +107,17 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-SETTINGS-CORRUPT shipped as `b0377f7`;
+most recent self-discovered fix BUG-MUSIC-CORRUPT shipped as `15cdf16`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
 
-> **Note on the corruption-hardening vein:** the central scoring/meta/codex
-> persistence loaders backed by SecureStorage are now hardened + tested
-> (BestScore `0b81956`, Combo-restore `2a283e0`, Ascension `bb7e00f`, MetaProg
-> `1232d43`, Achievement `6de57f7`, Codex `38599e4`, Settings `b0377f7`). The
-> **only** remaining un-hardened SecureStorage loader is **`MusicManager`** —
-> genuinely low-impact (BGM volume/playback-mode UX prefs only; no scoring/
-> unlock/discovery poisoning, and no whole-UI/camera blast radius like Settings
-> had). Harden if a future session wants to close the vein fully, but every
-> high-value target — and now Settings — is done.
+> **The corruption-hardening vein is CLOSED (2026-06-06).** Every SecureStorage
+> loader in the codebase is now hardened + tested: BestScore `0b81956`,
+> Combo-restore `2a283e0`, Ascension `bb7e00f`, MetaProg `1232d43`, Achievement
+> `6de57f7`, Codex `38599e4`, Settings `b0377f7`, and the final one **MusicManager
+> `15cdf16`** (which turned out crash-class, not the "low-impact BGM prefs" this
+> note had assumed — a non-finite stored volume throws on the Web Audio gain node,
+> per-frame via the intensity driver). No un-hardened persistence loader remains;
+> a future tamper-resilience need would be a *new* surface, not this vein.
 
 ---
 
@@ -190,6 +189,30 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `15cdf16` BUG-MUSIC-CORRUPT — **harden `MusicManager`'s SecureStorage loaders against
+  corrupt/tampered storage** — the **last** un-hardened loader, closing the corruption vein.
+  Two real holes (`src/audio/MusicManager.ts`): (1) `loadVolume` returned `parseFloat(stored)`
+  with no finite/range check — the exact BUG-SETTINGS-CORRUPT (`b0377f7`) class: `parseFloat('1e999')`
+  is `Infinity`, `parseFloat('loud')` is `NaN`, negatives pass — loading straight into `this.volume`.
+  This is **crash-class, not the "BGM prefs only / low-impact" the Proposed-auto vein note assumed:**
+  a non-finite volume reaches `gainNode.gain.value = volume * intensity` (`loadTrack:287`/`setVolume:480`/
+  `setIntensity:494`), and a non-finite Web Audio `AudioParam` value **throws a TypeError** — and
+  `setIntensity` runs **every frame** via `MusicIntensityDriver`, so a NaN/Infinity volume is a per-frame
+  exception storm; `getVolume()` also feeds NaN to the MusicSettings slider. Fixed by gating on
+  `Number.isFinite` (→ `0.4` default) then clamping `[0,1]`, mirroring `setVolume`. (2) `loadEnabledTracks`
+  did `new Set(JSON.parse(stored))` with no shape check — a JSON **string** payload (`"hello"`) is
+  iterable and did **not** throw, becoming a `Set` of single chars (garbage ids → empty playlist,
+  re-persisted on the next toggle); non-string/unknown array members leaked the same way. Fixed by
+  rebuilding from **known catalog ids only** (module-level `CATALOG_IDS` set): keep string members present
+  in `MUSIC_CATALOG`, drop non-string junk + stale ids; an **empty array is preserved** as the valid
+  "all disabled" state (`disableAllTracks` writes `[]`), a non-array payload falls back to all-enabled.
+  `loadPlaybackMode` was already whitelisted (junk-immune) — a characterization test locks it.
+  Byte-identical on the real path (valid volumes clamp-noop, valid id arrays are all catalog ids), so
+  pure hardening, no behaviour change. **Test-first: the module's first coverage** —
+  `MusicManager.test.ts` (15 cases): volume Infinity/NaN/out-of-range/valid-round-trip, the char-Set
+  regression, junk-id drop, empty-array preservation, mode whitelist, defaults + setter round-trips.
+  Full suite **310 green** (+15), `tsc --noEmit` + `vite build` clean. Self-discovered. **Closes the
+  corruption-hardening vein — every SecureStorage loader in the codebase is now hardened.**
 - `b0377f7` BUG-SETTINGS-CORRUPT — **harden `SettingsManager`'s numeric loaders against
   out-of-range/Infinity storage.** The setters clamp every numeric setting (sfxVolume `[0,1]`,
   uiScale `[0.5,2.0]` in 0.1 steps, screenShakeIntensity `[0,1]` in 0.01 steps), but the **load
