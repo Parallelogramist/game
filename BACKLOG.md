@@ -107,8 +107,16 @@ own brainstorm → plan cycle (full new scene, large).
 > One-line value rationale each; human reprioritizes freely.
 
 _(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-MUSIC-CORRUPT shipped as `15cdf16`;
+most recent self-discovered fix BUG-SYNERGY-DEADSTAT shipped as `501b5bc`;
 most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
+
+> **Dead-stat vein (re-opened 2026-06-06):** `weaponSynergy` was wired in
+> `501b5bc`. A grep for PlayerStats fields written but never read is a good
+> next hunt — the "wire dead weapon stats" commits (`3db4e75`/`d768284`/
+> `4365943`) closed the weapon-multiplier ones, and `501b5bc` closed synergy,
+> but other advertised upgrades/relics may still be no-ops. Cross-check every
+> `stats.X +=`/`stats.X *=` site in `Relics.ts`/`Upgrades.ts`/`PermanentUpgrades.ts`
+> against a read of `playerStats.X` in a system/weapon/collision path.
 
 > **The corruption-hardening vein is CLOSED (2026-06-06).** Every SecureStorage
 > loader in the codebase is now hardened + tested: BestScore `0b81956`,
@@ -189,6 +197,33 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `501b5bc` BUG-SYNERGY-DEADSTAT — **wire the dead `weaponSynergy` stat so the "Synergy"
+  meta upgrade and "Synergy Chain" legendary relic actually do something.** `weaponSynergy`
+  (`PlayerStats`) was written but **never read** — `recalculateSynergies` (`WeaponManager.ts`)
+  built its per-weapon damage/cooldown multipliers purely from the raw `WEAPON_SYNERGIES` table
+  and ignored the stat. So both its sources were no-ops: the `weaponSynergyLevel` meta upgrade
+  (+3%/level, a maxed late-game gold sink) and the legendary `relic_synergy_chain` (+20% weapon
+  synergy bonus) — a player spending gold or picking up the legendary got **zero** effect. Same
+  class as the "wire dead weapon stats" vein (`3db4e75`/`d768284`/`4365943`). Now `weaponSynergy`
+  amplifies the **bonus portion** of every active synergy: a +30% damage synergy → +36% at a 0.2
+  bonus, a 15%-faster cooldown → 18% faster; only the deviation from 1.0 is scaled so a no-op
+  dimension (multiplier exactly 1.0) stays 1.0, and per-weapon bonuses stack multiplicatively
+  (matches existing behaviour). **At bonus 0 the output is byte-identical to the old code** — pure
+  regression-safe wiring. Math extracted into a pure exported `computeSynergyMultipliers(ids, bonus)`
+  (`WeaponSynergies.ts`, mirrors `computeRunScore`/`computeRunGold`) so it's testable without a live
+  Phaser scene. New `WeaponManager.setSynergyBonus()` stores the stat + recalculates only on change;
+  GameScene's per-frame `syncStatsToPlayer` feeds it `playerStats.weaponSynergy`, so the meta starting
+  bonus applies at run start and a mid-run Synergy Chain pickup re-applies synergies immediately (all
+  three relic-grant paths call `syncStatsToPlayer` right after). Round-trips on save-restore via the
+  baked `playerStats.weaponSynergy` (relic restore only repopulates the list, never re-applies), so no
+  double-application. Non-finite/negative bonuses clamp to 0 (synergies can't invert below base).
+  Updated the now-accurate shop effect text (`+X% weapon synergy bonus`, was the misleading
+  `+X% damage per weapon`) + the `PlayerStats` field comment. **Test-first: the module's first
+  coverage** — `WeaponSynergies.test.ts` (15 cases): getSynergy order-independence + getActiveSynergies
+  characterization, then computeSynergyMultipliers — empty/no-pair maps, raw-multiplier baseline
+  (bonus 0 = no-op regression lock), damage/cooldown/combined amplification, multi-synergy stacking,
+  negative + non-finite clamping. Full suite **325 green** (+15), `tsc --noEmit` exit 0, `vite build`
+  clean. Self-discovered.
 - `15cdf16` BUG-MUSIC-CORRUPT — **harden `MusicManager`'s SecureStorage loaders against
   corrupt/tampered storage** — the **last** un-hardened loader, closing the corruption vein.
   Two real holes (`src/audio/MusicManager.ts`): (1) `loadVolume` returned `parseFloat(stored)`
