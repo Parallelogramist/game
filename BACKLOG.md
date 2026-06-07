@@ -118,19 +118,23 @@ the weighting/`luck` curve. Value: deeper build variety + a richer payoff for th
 
 ### PROPOSE-PURE-DATA-TESTS — regression-lock the untested pure data modules · OPEN · area: testing
 The "add missing coverage for a pure, marquee, multi-consumer module" vein (PerformanceGrade
-`5940c9a`, DirectorSystem round-trip `9a70746`, **WeaponEvolutions `5a00de6`**) still has
-clean, bg-friendly (no browser, node-safe) candidates — each is a pure module whose `apply`/
-selection math silently mutates `PlayerStats` or drives spawns, where a typo'd field, wrong
-sign, or unreachable id ships as a quiet balance/dead-feature bug with nothing to catch it:
+`5940c9a`, DirectorSystem round-trip `9a70746`, WeaponEvolutions `5a00de6`,
+**RunModifiers `706e823`**) still has clean, bg-friendly (no browser, node-safe) candidates —
+each is a pure module whose `apply`/selection math silently mutates `PlayerStats` or drives
+spawns, where a typo'd field, wrong sign, or unreachable id ships as a quiet balance/dead-feature
+bug with nothing to catch it. **Two candidates remain:**
 - **`src/data/Pacts.ts`** (7 `apply` fns, Phaser-free) — pre-run curses mutating PlayerStats.
   Lock: ids unique, `MAX_PACTS` honoured, each `apply` moves the documented field in the
   documented direction (e.g. `curseMultiplier` up, fragility knobs down), reward fields
   (gold/xp mult) scale as advertised.
-- **`src/data/RunModifiers.ts`** (17 `apply` fns, Phaser-free) — per-run modifiers mutating
-  PlayerStats. Same shape of lock; biggest surface, highest payoff.
 - **`src/systems/DirectorSystem.ts`** (Phaser-free) — only its save round-trip is tested
   (`9a70746`); the credit-accrual / spawn-cost / per-strategy multiplier logic that actually
   paces every run is uncovered. Lock the credit budget math + strategy scaling.
+- ✅ **`src/data/RunModifiers.ts`** — **DONE `706e823`** (48 cases). 15 (not 17) `apply` fns,
+  Phaser-free; biggest surface, highest payoff. Locked data integrity + `selectRunModifiers`
+  invariants + each `apply`'s exact factor/delta vs the real `createDefaultPlayerStats`
+  baseline, with a `changedKeys` no-stray-write guard and a coverage lock so a new modifier
+  without a spec fails the suite.
 
 Pattern is proven and low-risk: import the module (stub `'../weapons'` only if it transitively
 pulls `Upgrades.ts`), assert data integrity + `apply`/selection behaviour against `PlayerStats`.
@@ -236,6 +240,26 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `706e823` PROPOSE-PURE-DATA-TESTS (RunModifiers) — **regression-lock the untested
+  `RunModifiers.ts`**, the biggest-surface candidate in the "add coverage for a pure,
+  marquee, multi-consumer module" vein (after PerformanceGrade `5940c9a`, DirectorSystem
+  round-trip `9a70746`, WeaponEvolutions `5a00de6`). The module's 15 per-run modifiers each
+  mutate `PlayerStats` at run start via `apply`, plus `selectRunModifiers` / `getModifierById`
+  — all uncovered, so a typo'd field, wrong sign, or wrong factor shipped as a silent balance
+  bug. New `RunModifiers.test.ts` (48 cases): **data integrity** (unique ids, non-empty
+  id/name/description, valid category, `apply` is a fn, all four categories present);
+  **`getModifierById`** exact by-reference round-trip + undefined on unknown/empty id;
+  **`selectRunModifiers`** invariants that are total over any shuffle (so non-flaky against the
+  real `Math.random`): two distinct-category picks by default, count 0/1/negative bounds, caps
+  at one-per-category when count exceeds variety, source pool unmutated; **per-modifier `apply`
+  lock** (table-driven, one case each) — every documented field hits its exact factor/delta
+  computed from the real `createDefaultPlayerStats` baseline, with a `changedKeys` guard that
+  fails on any undocumented write and a coverage lock that fails if a modifier lacks a spec;
+  **cross-modifier invariants** — no `apply` yields a non-finite stat or leaves
+  `currentHealth > maxHealth` / `maxHealth <= 0`. Stubs the `'../weapons'` boundary (documented
+  vitest pattern) so the real `Upgrades.ts` baseline loads in Node. Teeth verified by mutation
+  (wrong factor + stray write both caught) then reverted. Pure test addition — no production
+  change. Full suite **422 green** (+48), `tsc --noEmit` exit 0.
 - `5a00de6` PROPOSE-EVOLUTION-TEST — **add the missing direct unit coverage + a
   data-integrity lock for the weapon-evolution system.** `WeaponEvolutions.ts` (14
   recipes, one per weapon — `getEvolutionForWeapon` / `checkEvolutionReady`) is a
