@@ -116,6 +116,26 @@ likewise bias the modal toward higher-rarity upgrades). **Net-new feature, not a
 fix:** needs a brainstorm → plan cycle to assign rarities across the ~40 upgrades and decide
 the weighting/`luck` curve. Value: deeper build variety + a richer payoff for the Lucky stat.
 
+### PROPOSE-PURE-DATA-TESTS — regression-lock the untested pure data modules · OPEN · area: testing
+The "add missing coverage for a pure, marquee, multi-consumer module" vein (PerformanceGrade
+`5940c9a`, DirectorSystem round-trip `9a70746`, **WeaponEvolutions `5a00de6`**) still has
+clean, bg-friendly (no browser, node-safe) candidates — each is a pure module whose `apply`/
+selection math silently mutates `PlayerStats` or drives spawns, where a typo'd field, wrong
+sign, or unreachable id ships as a quiet balance/dead-feature bug with nothing to catch it:
+- **`src/data/Pacts.ts`** (7 `apply` fns, Phaser-free) — pre-run curses mutating PlayerStats.
+  Lock: ids unique, `MAX_PACTS` honoured, each `apply` moves the documented field in the
+  documented direction (e.g. `curseMultiplier` up, fragility knobs down), reward fields
+  (gold/xp mult) scale as advertised.
+- **`src/data/RunModifiers.ts`** (17 `apply` fns, Phaser-free) — per-run modifiers mutating
+  PlayerStats. Same shape of lock; biggest surface, highest payoff.
+- **`src/systems/DirectorSystem.ts`** (Phaser-free) — only its save round-trip is tested
+  (`9a70746`); the credit-accrual / spawn-cost / per-strategy multiplier logic that actually
+  paces every run is uncovered. Lock the credit budget math + strategy scaling.
+
+Pattern is proven and low-risk: import the module (stub `'../weapons'` only if it transitively
+pulls `Upgrades.ts`), assert data integrity + `apply`/selection behaviour against `PlayerStats`.
+One module per session, test-first, ~15-25 cases each.
+
 > **Dead-stat vein — FULLY CLOSED (2026-06-06).** A full grep of every PlayerStats field
 > written by a data file (`Relics`/`Upgrades`/`LimitBreakUpgrades`/`PermanentUpgrades`/
 > `Pacts`/`RunModifiers`/`ShipCharacters`) against reads in any system/weapon/collision
@@ -216,6 +236,29 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `5a00de6` PROPOSE-EVOLUTION-TEST — **add the missing direct unit coverage + a
+  data-integrity lock for the weapon-evolution system.** `WeaponEvolutions.ts` (14
+  recipes, one per weapon — `getEvolutionForWeapon` / `checkEvolutionReady`) is a
+  marquee, pure, multi-consumer module (`WeaponManager.checkEvolutions`, the GameScene
+  HUD evolution hint + evolve trigger, `UpgradeScene`) yet had **no test file** — a
+  tuning tweak or a typo'd `requiredStatId` could silently ship a weapon that can
+  **never evolve**, with nothing to catch it (same "add missing coverage for a pure
+  marquee module" vein as PROPOSE-PERFGRADE-TEST `5940c9a` / FEAT-DIRECTOR-PERSIST
+  `9a70746`). New `WeaponEvolutions.test.ts` (20 cases): `getEvolutionForWeapon`
+  lookup/unknown; `checkEvolutionReady` gating (both gates met, exceeded, unknown
+  weapon, weapon-level short, stat absent / below-level, empty stats, match-by-id among
+  unrelated upgrades); `evolutionLevelReduction` (lowers only the weapon gate **not**
+  the stat gate, floors the effective requirement at 1, default-0 no-op); and the
+  durable part — **every recipe is achievable**: exactly one evolution per registry
+  weapon (no missing / no orphan), unique weaponIds, every `requiredStatId` resolves to
+  a real `createUpgrades()` upgrade reachable to its `requiredStatLevel`,
+  requiredWeaponLevel >= 1, non-empty name/desc, >= 1 finite positive multiplier per
+  recipe. Integrity cases cross-check the **real** `Upgrades.ts` list (which imports
+  WeaponManager for a type → the test stubs `'../weapons'`, the documented vitest
+  boundary mock). One-word production change: `export weaponEvolutionDefinitions` so the
+  integrity loop can iterate it — no behaviour change. All 14 recipes confirmed
+  achievable. Full suite **374 green** (+20), `tsc --noEmit` exit 0, `vite build` clean.
+  Self-discovered.
 - `2a094e0` PROPOSE-DEADSTAT-LUCK — **wire the dead `luck` stat to bias relic-drop rarity** —
   the **last** write-only PlayerStats field, closing the dead-stat vein. `luck` (`PlayerStats`,
   "chance for better quality upgrades") was written but **never read**: the `luckLevel` shop
