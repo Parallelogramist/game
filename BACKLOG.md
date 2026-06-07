@@ -106,17 +106,39 @@ own brainstorm → plan cycle (full new scene, large).
 > (remaining Open items are large refactors, human-gated chores, or need playtest).
 > One-line value rationale each; human reprioritizes freely.
 
-_(none currently — last actionable proposal FEAT-DIRECTOR-PERSIST shipped as `9a70746`;
-most recent self-discovered fix BUG-SYNERGY-DEADSTAT shipped as `501b5bc`;
-most recent test-lock PROPOSE-PERFGRADE-TEST shipped as `5940c9a`.)_
+### PROPOSE-DEADSTAT-CHAINCOUNT — wire dead `chainLightningCount` stat · OPEN · area: weapons
+`chainLightningCount` ("Extra chain targets", `PlayerStats`) is **written but never read** —
+the meta `getStartingChainCount()` (`GameScene.ts:717`) and a relic (`Relics.ts:253`, `+2`)
+feed it, but `ChainLightningWeapon` derives its jump count purely from `this.stats.count`
+(`= baseStats.count + level/2 + externalBonusCount`, the generic projectile-count bonus) and
+ignores the dedicated stat. **Value:** a real no-op for the relic + meta upgrade. **Plan:**
+add an `externalBonusChainCount` to `ChainLightningWeapon` (mirror `externalBonusCount`/
+`externalBonusPiercing` in `BaseWeapon`), have `WeaponManager` feed it
+`playerStats.chainLightningCount`, and add it to the `this.stats.count` calc in the weapon's
+stat-update (`ChainLightningWeapon.ts:549`) **and** the mastery `attackLightningConductor`
+wave count. Phaser-coupled, so unit-test the small count derivation if it can be extracted;
+otherwise verify via build + the plumbing pattern. Same vein as BUG-SLOWRESIST-DEADSTAT.
 
-> **Dead-stat vein (re-opened 2026-06-06):** `weaponSynergy` was wired in
-> `501b5bc`. A grep for PlayerStats fields written but never read is a good
-> next hunt — the "wire dead weapon stats" commits (`3db4e75`/`d768284`/
-> `4365943`) closed the weapon-multiplier ones, and `501b5bc` closed synergy,
-> but other advertised upgrades/relics may still be no-ops. Cross-check every
-> `stats.X +=`/`stats.X *=` site in `Relics.ts`/`Upgrades.ts`/`PermanentUpgrades.ts`
-> against a read of `playerStats.X` in a system/weapon/collision path.
+### PROPOSE-DEADSTAT-LUCK — wire dead `luck` stat (needs design) · OPEN · area: progression
+`luck` ("0-1, chance for better quality upgrades", `PlayerStats`) is **written but never
+read** — meta `getStartingLuckBonus()` (`GameScene.ts:709`) + `relic_lucky_charm` (`+0.1`)
+feed it, but nothing consumes it. **Blocker:** the in-run upgrade pool (`getRandomCombinedUpgrades`,
+`Upgrades.ts`) has **no rarity/quality tier** to bias — only a codex-discovery `weight` for
+*new-weapon* picks. Wiring `luck` first needs a design decision: introduce upgrade rarity
+tiers and have `luck` bias selection toward higher tiers, or repurpose `luck` to bias the
+existing reroll/banish economy or drop quality. **Needs a brainstorm → plan cycle** before
+build (unlike the other dead stats, this one has no existing consumer to wire into). Two
+real no-op sources in the meantime (Lucky Charm relic + the luck shop upgrade).
+
+> **Dead-stat vein — hunt EXHAUSTED (2026-06-06).** Ran a full grep of every PlayerStats
+> field written by a data file (`Relics`/`Upgrades`/`LimitBreakUpgrades`/`PermanentUpgrades`/
+> `Pacts`/`RunModifiers`/`ShipCharacters`) against reads in any system/weapon/collision path.
+> Exactly **three** were write-only no-ops: `weaponSynergy` (wired `501b5bc`), `slowResistance`
+> (wired this session, BUG-SLOWRESIST-DEADSTAT), and the two filed above
+> (`chainLightningCount`, `luck`). Every other field — including the heuristic's low-read
+> `attackSpeedMultiplier`/`gemValueMultiplier`/`iframeDuration`/`rangeMultiplier`/
+> `projectileSpeedMultiplier` — was verified genuinely consumed. After the two filed items
+> ship, this vein is fully closed; a new dead stat would only appear with a *new* upgrade/relic.
 
 > **The corruption-hardening vein is CLOSED (2026-06-06).** Every SecureStorage
 > loader in the codebase is now hardened + tested: BestScore `0b81956`,
@@ -197,6 +219,39 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `457a755` BUG-SLOWRESIST-DEADSTAT — **wire the dead `slowResistance` stat into the
+  Warden slow aura** — the player's only slow source. `slowResistance` (`PlayerStats`) was
+  written but **never read**: the only thing that slows the *player* is the Warden enemy's
+  aura (`getWardenSlowMultiplier()`, `EnemyAISystem.ts:322` — `*= 0.85` per nearby Warden),
+  applied to player `Velocity` in `GameScene` (`:3288`), and that site multiplied by the raw
+  slow with no resistance term. So both advertised sources were no-ops: the `slowResistLevel`
+  ("Steadfast", +15%/level, a maxed late-game gold sink) permanent upgrade and the
+  `relic_frost_ward` ("Frost Ward", +20% slow resist) relic — a player who bought Steadfast or
+  picked up Frost Ward got **zero** slow resistance. Same dead-stat vein as `501b5bc`
+  (synergy) / `3db4e75`/`d768284`/`4365943` (weapon stats). Now the Warden-slow site routes
+  `wardenSlow` through a new pure `resolveSlowAfterResistance(rawSlow, slowResistance)` that
+  scales back **only the slow penalty** (the deviation of the multiplier from 1.0): a 0.85
+  slow at 0.4 resistance → keeps 60% of the 0.15 penalty → 0.91; resistance 1.0 → full
+  immunity (1.0). **At resistance 0 the output is byte-identical to the old `wardenSlow`** —
+  pure regression-safe wiring. Resistance clamped `[0,1]` (stacked relic+upgrade can exceed
+  1 → caps at immune, never inverts into a speed boost); non-finite resistance (incl. legacy
+  saves missing the field → `undefined`) → 0; the `wardenSlow < 1.0` fast-path and a new
+  `resistedSlow < 1.0` guard skip the function call / no-op multiply when not slowed / fully
+  immune. Shop + relic descriptions ("Resist slow effects" / "X% slow resistance" /
+  "+20% slow resist") are now **accurate** — no text change needed (unlike synergy). Round-trips
+  on save-restore via the baked `playerStats.slowResistance` (read each frame, never
+  accumulated → no double-application). Math kept in a pure browser-free module
+  (`src/systems/SlowResistance.ts`, mirrors `TimedStatBuffs`/`computeSynergyMultipliers`) so it
+  is unit-testable without a live Phaser scene. **Test-first: the module's first coverage** —
+  `SlowResistance.test.ts` (10 cases): resistance-0 regression lock (byte-identical), full
+  immunity at 1.0, partial penalty-scaling, >1 clamp, negative clamp, non-finite resistance →
+  0, non-slow (raw≥1.0) pass-through, non-finite raw → 1.0, stacked-Warden compounding, output
+  bounded `[0,1]`. Full suite **335 green** (+10), `tsc --noEmit` exit 0, `vite build` clean.
+  Self-discovered via the dead-stat hunt (see vein note). The hunt is now **exhausted**: of
+  every PlayerStats field written by a data file, only `chainLightningCount` and `luck` remain
+  write-only (filed as PROPOSE-DEADSTAT-* below); all other low-read fields
+  (`attackSpeedMultiplier`/`gemValueMultiplier`/`iframeDuration`/`rangeMultiplier`/
+  `projectileSpeedMultiplier`) were verified genuinely consumed.
 - `501b5bc` BUG-SYNERGY-DEADSTAT — **wire the dead `weaponSynergy` stat so the "Synergy"
   meta upgrade and "Synergy Chain" legendary relic actually do something.** `weaponSynergy`
   (`PlayerStats`) was written but **never read** — `recalculateSynergies` (`WeaponManager.ts`)
