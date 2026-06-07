@@ -122,14 +122,18 @@ The "add missing coverage for a pure, marquee, multi-consumer module" vein (Perf
 **RunModifiers `706e823`**) still has clean, bg-friendly (no browser, node-safe) candidates —
 each is a pure module whose `apply`/selection math silently mutates `PlayerStats` or drives
 spawns, where a typo'd field, wrong sign, or unreachable id ships as a quiet balance/dead-feature
-bug with nothing to catch it. **Two candidates remain:**
+bug with nothing to catch it. **One candidate remains:**
 - **`src/data/Pacts.ts`** (7 `apply` fns, Phaser-free) — pre-run curses mutating PlayerStats.
   Lock: ids unique, `MAX_PACTS` honoured, each `apply` moves the documented field in the
   documented direction (e.g. `curseMultiplier` up, fragility knobs down), reward fields
   (gold/xp mult) scale as advertised.
-- **`src/systems/DirectorSystem.ts`** (Phaser-free) — only its save round-trip is tested
-  (`9a70746`); the credit-accrual / spawn-cost / per-strategy multiplier logic that actually
-  paces every run is uncovered. Lock the credit budget math + strategy scaling.
+- ✅ **`src/systems/DirectorSystem.ts`** — **DONE `c0ab86d`** (22 cases). Only the save
+  round-trip was tested (`9a70746`); now the credit-accrual rate, the per-enemy spawn-cost
+  formula (component weights + category multipliers + sqrt/floor + id-keyed cache), the
+  per-strategy biasing, and the affordability/no-candidate/save branches of
+  `pickEnemyFromDirector` are locked, plus a real-data integrity check (every `ENEMY_TYPES`
+  cost a finite int ≥ 1, tiers cost-ordered). Strategy pinned + `Math.random` mocked per
+  branch for determinism; teeth verified by mutation.
 - ✅ **`src/data/RunModifiers.ts`** — **DONE `706e823`** (48 cases). 15 (not 17) `apply` fns,
   Phaser-free; biggest surface, highest payoff. Locked data integrity + `selectRunModifiers`
   invariants + each `apply`'s exact factor/delta vs the real `createDefaultPlayerStats`
@@ -240,6 +244,29 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `c0ab86d` PROPOSE-PURE-DATA-TESTS (DirectorSystem) — **regression-lock the credit/cost/
+  selection math of `DirectorSystem.ts`**, the credit-budget spawn director that paces every
+  run (same "add coverage for a pure, marquee, multi-consumer module" vein as RunModifiers
+  `706e823` / WeaponEvolutions `5a00de6` / PerformanceGrade `5940c9a`). Only its save
+  round-trip was covered (`9a70746`); the accrual rate, the spawn-cost formula, the
+  per-strategy biasing, and the branch logic that actually decides what spawns were all
+  untested — a typo'd coefficient or sign would ship as a silent, invisible balance bug. New
+  `DirectorSystem.test.ts` (22 cases): **`getEnemyCost`** — exact component weights
+  (health, 1.5× damage, sqrt(xp)), category multipliers (Elite ×2 / Miniboss ×8 / Boss ×30),
+  the sqrt/`Math.max(1,…)` floor, finite-integer post-condition, and the id-keyed cost cache
+  + its clear on reset; **credit accrual** via `updateDirector`/`getDirectorState` — exact
+  `rate(gameTime,worldLevel) × delta`, +15%/level world scaling (and <1× below level 1),
+  time-rising rate, the backward-time / no-negative-credits clamp, disabled-director no-op;
+  **strategy selection** — forced set/return, the RNG→4-strategy mapping, reset re-roll;
+  **`pickEnemyFromDirector`** — disabled fallback delegation, save→null, exact-cost
+  deduction, unaffordable→cheapest balance-floor, no-candidate→basic (no deduction); plus
+  direct state get/restore/reset round-trips and a real-data integrity lock (every
+  `ENEMY_TYPES` cost a finite int ≥ 1; tiers stay cost-ordered). Strategy pinned and
+  `Math.random` mocked per branch so the suite is deterministic against the real RNG. Teeth
+  verified by mutation (damage coefficient, Elite multiplier, credit timeScale) → 5 failures,
+  then reverted. Pure test addition, no production change. Full suite **444 green** (+22),
+  `tsc --noEmit` exit 0. Self-discovered. **PROPOSE-PURE-DATA-TESTS now has one candidate
+  left (`Pacts.ts`).**
 - `706e823` PROPOSE-PURE-DATA-TESTS (RunModifiers) — **regression-lock the untested
   `RunModifiers.ts`**, the biggest-surface candidate in the "add coverage for a pure,
   marquee, multi-consumer module" vein (after PerformanceGrade `5940c9a`, DirectorSystem
