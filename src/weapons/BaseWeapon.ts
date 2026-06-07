@@ -217,7 +217,7 @@ export abstract class BaseWeapon {
    * applyMultipliers / setSynergyMultipliers so that scaling always survives a
    * subclass's recalculateStats() override.
    */
-  private refreshStats(): void {
+  protected refreshStats(): void {
     this.recalculateStats();
     this.applyExternalScaling();
   }

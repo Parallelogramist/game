@@ -1,4 +1,5 @@
 import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
+import { resolveChainJumpCount } from './ChainJumpCount';
 import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
@@ -20,6 +21,11 @@ export class ChainLightningWeapon extends BaseWeapon {
   private currentSourcesTemp: { x: number; y: number }[] = [];
   private nextSourcesTemp: { x: number; y: number }[] = [];
   private hitEnemiesSet = new Set<number>();
+
+  // Dedicated extra-jump bonus from the player's `chainLightningCount` stat
+  // (Chain Catalyst relic +2, chainCountLevel meta upgrade). Fed by WeaponManager
+  // and folded into the jump count on top of the generic projectile-count bonus.
+  private externalBonusChainCount: number = 0;
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -543,10 +549,29 @@ export class ChainLightningWeapon extends BaseWeapon {
     }
   }
 
+  /**
+   * Set the dedicated extra-jump bonus from the player's `chainLightningCount`
+   * stat. Stored separately from the generic projectile-count bonus so the two
+   * stack, and re-applied to the live stats. Called by WeaponManager from the
+   * per-frame stat sync, so a mid-run Chain Catalyst pickup takes effect at once.
+   */
+  public setExternalBonusChainCount(count: number): void {
+    const safeCount = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    if (safeCount === this.externalBonusChainCount) return;
+    this.externalBonusChainCount = safeCount;
+    this.refreshStats();
+  }
+
   protected recalculateStats(): void {
     super.recalculateStats();
-    // More jumps at higher levels
-    this.stats.count = this.baseStats.count + Math.floor(this.level / 2) + this.externalBonusCount;
+    // More jumps at higher levels, plus the generic projectile-count bonus and
+    // the dedicated chainLightningCount stat (relic + meta upgrade).
+    this.stats.count = resolveChainJumpCount(
+      this.baseStats.count,
+      this.level,
+      this.externalBonusCount,
+      this.externalBonusChainCount
+    );
     // Longer chain range
     this.stats.speed = this.baseStats.speed + (this.level - 1) * 20;
   }

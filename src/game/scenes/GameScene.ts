@@ -7105,6 +7105,11 @@ export class GameScene extends Phaser.Scene {
     // Set overcharge stun duration for chain lightning
     this.weaponManager.setOverchargeStunDuration(this.playerStats.overchargeStunDuration);
 
+    // Feed the dedicated chain-lightning jump count (chainLightningCount stat —
+    // Chain Catalyst relic + chainCountLevel meta upgrade). Change-guarded, so a
+    // mid-run relic pickup adds jumps immediately and the per-frame call is a no-op.
+    this.weaponManager.setChainLightningBonusCount(this.playerStats.chainLightningCount);
+
     // Also sync to ECS Weapon component for systems that read from there
     Weapon.projectileCount[this.playerId] = this.playerStats.projectileCount;
     Weapon.piercing[this.playerId] = this.playerStats.piercing;

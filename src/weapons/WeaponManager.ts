@@ -1,5 +1,6 @@
 import { IWorld, hasComponent } from 'bitecs';
 import { BaseWeapon, WeaponContext } from './BaseWeapon';
+import { ChainLightningWeapon } from './ChainLightningWeapon';
 import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
 import { getActiveSynergies, computeSynergyMultipliers, WeaponSynergy } from '../data/WeaponSynergies';
 import { EffectsManager } from '../effects/EffectsManager';
@@ -85,6 +86,10 @@ export class WeaponManager {
   // Player `weaponSynergy` stat — amplifies the bonus portion of active
   // synergies (Synergy meta upgrade + Synergy Chain relic). 0 = raw synergies.
   private externalSynergyBonus: number = 0;
+  // Player `chainLightningCount` stat — dedicated extra jumps for Chain Lightning
+  // (Chain Catalyst relic +2, chainCountLevel meta upgrade). Stored so it can be
+  // re-applied when the chain weapon is added after the bonus is already set.
+  private externalChainBonusCount: number = 0;
 
   // Callbacks for game integration
   private onEnemyDamaged: ((enemyId: number, damage: number, isCrit: boolean) => void) | null = null;
@@ -172,6 +177,9 @@ export class WeaponManager {
     } else if (this.canAddWeapon()) {
       this.weapons.set(weapon.id, weapon);
       this.recalculateSynergies();
+      // A chain weapon added after the chainLightningCount bonus was already set
+      // (e.g. Chain Catalyst picked up first) must still receive that bonus.
+      this.applyChainLightningBonusCount();
       return true;
     }
     return false; // No slots available
@@ -216,6 +224,33 @@ export class WeaponManager {
     if (safeBonus === this.externalSynergyBonus) return;
     this.externalSynergyBonus = safeBonus;
     this.recalculateSynergies();
+  }
+
+  /**
+   * Set the player's dedicated chain-lightning extra-jump count (the
+   * `chainLightningCount` stat — Chain Catalyst relic + chainCountLevel meta
+   * upgrade). Stored and pushed to the chain weapon if equipped. Called from
+   * GameScene's per-frame stat sync; change-guarded so the common no-change path
+   * is free and a mid-run relic pickup applies immediately.
+   */
+  public setChainLightningBonusCount(count: number): void {
+    const safeCount = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    if (safeCount === this.externalChainBonusCount) return;
+    this.externalChainBonusCount = safeCount;
+    this.applyChainLightningBonusCount();
+  }
+
+  /**
+   * Push the stored chain-jump bonus to the chain-lightning weapon if it is
+   * equipped. Also called when a weapon is added so a chain weapon picked up
+   * *after* the bonus was set still receives it (the change-guarded setter above
+   * won't re-fire for it).
+   */
+  private applyChainLightningBonusCount(): void {
+    const chainWeapon = this.weapons.get('chain_lightning');
+    if (chainWeapon instanceof ChainLightningWeapon) {
+      chainWeapon.setExternalBonusChainCount(this.externalChainBonusCount);
+    }
   }
 
   /**
