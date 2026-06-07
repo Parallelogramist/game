@@ -116,17 +116,24 @@ likewise bias the modal toward higher-rarity upgrades). **Net-new feature, not a
 fix:** needs a brainstorm → plan cycle to assign rarities across the ~40 upgrades and decide
 the weighting/`luck` curve. Value: deeper build variety + a richer payoff for the Lucky stat.
 
-### PROPOSE-PURE-DATA-TESTS — regression-lock the untested pure data modules · OPEN · area: testing
+### PROPOSE-PURE-DATA-TESTS — regression-lock the untested pure data modules · DONE · area: testing
 The "add missing coverage for a pure, marquee, multi-consumer module" vein (PerformanceGrade
 `5940c9a`, DirectorSystem round-trip `9a70746`, WeaponEvolutions `5a00de6`,
-**RunModifiers `706e823`**) still has clean, bg-friendly (no browser, node-safe) candidates —
-each is a pure module whose `apply`/selection math silently mutates `PlayerStats` or drives
-spawns, where a typo'd field, wrong sign, or unreachable id ships as a quiet balance/dead-feature
-bug with nothing to catch it. **One candidate remains:**
-- **`src/data/Pacts.ts`** (7 `apply` fns, Phaser-free) — pre-run curses mutating PlayerStats.
-  Lock: ids unique, `MAX_PACTS` honoured, each `apply` moves the documented field in the
-  documented direction (e.g. `curseMultiplier` up, fragility knobs down), reward fields
-  (gold/xp mult) scale as advertised.
+**RunModifiers `706e823`**) covered each pure module whose `apply`/selection math silently
+mutates `PlayerStats` or drives spawns, where a typo'd field, wrong sign, or unreachable id
+ships as a quiet balance/dead-feature bug with nothing to catch it. **VEIN CLOSED
+(2026-06-07) — every candidate is now covered; no pure, browser-free `apply`/selection data
+module remains untested.** A future need here would be a *new* data module, not this vein.
+- ✅ **`src/data/Pacts.ts`** — **DONE `9a17001`** (29 cases). 5 `apply` fns (pre-run curses),
+  Phaser-free. Locked data integrity (unique ids, non-empty id/name/description/reward, finite
+  color); `MAX_PACTS` is a positive integer AND reachable (pool ≥ MAX_PACTS, since
+  PactSelectScene caps distinct picks at MAX_PACTS); `getPactById` round-trip; each `apply`'s
+  exact factor/delta vs the real `createDefaultPlayerStats` baseline with a `changedKeys`
+  no-stray-write guard + coverage lock; a direction lock (gold reward always rises, no reward
+  regresses, curse pacts raise `curseMultiplier`, fragility pacts drop their knob — catches a
+  flipped sign independent of the factor spec); a stacking lock (additive curses sum,
+  multiplicative rewards compound — pacts are the one selection that stacks, up to MAX_PACTS);
+  and finite/health invariants. Teeth verified by mutation.
 - ✅ **`src/systems/DirectorSystem.ts`** — **DONE `c0ab86d`** (22 cases). Only the save
   round-trip was tested (`9a70746`); now the credit-accrual rate, the per-enemy spawn-cost
   formula (component weights + category multipliers + sqrt/floor + id-keyed cache), the
@@ -244,6 +251,32 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `9a17001` PROPOSE-PURE-DATA-TESTS (Pacts) — **regression-lock `Pacts.ts`**, the **final**
+  candidate in the "add coverage for a pure, marquee, multi-consumer module" vein (after
+  DirectorSystem `c0ab86d` / RunModifiers `706e823` / WeaponEvolutions `5a00de6` /
+  PerformanceGrade `5940c9a`) — **vein now CLOSED**. The 5 pre-run pacts (player-chosen
+  curses) each `apply` a curse + reward to `PlayerStats` at run start and had **no test file**,
+  so a typo'd field, flipped sign, or wrong factor would ship as a quiet balance bug — a curse
+  that helps the player or a reward that shrinks, with nothing to catch it. New `Pacts.test.ts`
+  (29 cases): **data integrity** (unique ids, non-empty id/name/description(downside)/
+  reward(upside), finite numeric color, `apply` is a fn); **`MAX_PACTS`** is a positive integer
+  AND reachable (pool ≥ MAX_PACTS distinct pacts — PactSelectScene caps distinct picks at
+  MAX_PACTS, so a smaller pool would make the cap unreachable); **`getPactById`** by-reference
+  round-trip + undefined on unknown/empty; **per-pact `apply` lock** (table-driven) — every
+  documented field hits its exact factor/delta computed from the real `createDefaultPlayerStats`
+  baseline, with a `changedKeys` guard failing on any undocumented write and a coverage lock
+  failing if a pact lacks a spec, plus `apply` returns undefined (mutates in place);
+  **direction lock** — gold reward always rises, no reward (gold/xp) ever regresses, curse pacts
+  raise `curseMultiplier`, fragility pacts drop their documented knob (catches a flipped sign
+  independent of the factor spec); **stacking lock** — pacts are the one selection that
+  explicitly stacks (up to `MAX_PACTS`, unlike RunModifiers' one-per-category): additive curses
+  sum, multiplicative rewards compound, and a full MAX_PACTS stack stays finite + health-valid;
+  **invariants** — no pact yields a non-finite stat or leaves `currentHealth > maxHealth` /
+  `maxHealth <= 0`. Stubs the `'../weapons'` boundary (documented vitest pattern) so the real
+  `Upgrades.ts` baseline loads in Node. Teeth verified by mutation (curse sign flip, iframe
+  factor flip, stray `armor` write → 6 failures) then reverted. Pure test addition, no
+  production change. Full suite **473 green** (+29), `tsc --noEmit` exit 0. Self-discovered.
+  **PROPOSE-PURE-DATA-TESTS is now fully closed — no untested pure data module remains.**
 - `c0ab86d` PROPOSE-PURE-DATA-TESTS (DirectorSystem) — **regression-lock the credit/cost/
   selection math of `DirectorSystem.ts`**, the credit-budget spawn director that paces every
   run (same "add coverage for a pure, marquee, multi-consumer module" vein as RunModifiers
