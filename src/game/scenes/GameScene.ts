@@ -79,6 +79,7 @@ import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, ge
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
 import { expireTimedStatBuffs, normalizeTimedStatBuffs, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
+import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
@@ -3281,12 +3282,17 @@ export class GameScene extends Phaser.Scene {
     // Update attack telegraphs (spawned by enemy AI windups above)
     this.telegraphManager.update(deltaSeconds);
 
-    // Apply Warden slow aura to player velocity (computed inside enemyAISystem)
+    // Apply Warden slow aura to player velocity (computed inside enemyAISystem),
+    // reduced by the player's slowResistance stat (slowResistLevel upgrade + Frost
+    // Ward relic). At slowResistance 0 the resisted value equals wardenSlow exactly.
     if (this.playerId !== -1) {
       const wardenSlow = getWardenSlowMultiplier();
       if (wardenSlow < 1.0) {
-        Velocity.x[this.playerId] *= wardenSlow;
-        Velocity.y[this.playerId] *= wardenSlow;
+        const resistedSlow = resolveSlowAfterResistance(wardenSlow, this.playerStats.slowResistance);
+        if (resistedSlow < 1.0) {
+          Velocity.x[this.playerId] *= resistedSlow;
+          Velocity.y[this.playerId] *= resistedSlow;
+        }
       }
     }
 
