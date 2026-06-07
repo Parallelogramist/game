@@ -106,28 +106,27 @@ own brainstorm → plan cycle (full new scene, large).
 > (remaining Open items are large refactors, human-gated chores, or need playtest).
 > One-line value rationale each; human reprioritizes freely.
 
-### PROPOSE-DEADSTAT-LUCK — wire dead `luck` stat (needs design) · OPEN · area: progression
-`luck` ("0-1, chance for better quality upgrades", `PlayerStats`) is **written but never
-read** — meta `getStartingLuckBonus()` (`GameScene.ts:709`) + `relic_lucky_charm` (`+0.1`)
-feed it, but nothing consumes it. **Blocker:** the in-run upgrade pool (`getRandomCombinedUpgrades`,
-`Upgrades.ts`) has **no rarity/quality tier** to bias — only a codex-discovery `weight` for
-*new-weapon* picks. Wiring `luck` first needs a design decision: introduce upgrade rarity
-tiers and have `luck` bias selection toward higher tiers, or repurpose `luck` to bias the
-existing reroll/banish economy or drop quality. **Needs a brainstorm → plan cycle** before
-build (unlike the other dead stats, this one has no existing consumer to wire into). Two
-real no-op sources in the meantime (Lucky Charm relic + the luck shop upgrade).
+### PROPOSE-UPGRADE-RARITY-TIERS — rarity-tiered level-up upgrades · OPEN · area: progression
+The in-run level-up modal (`getRandomCombinedUpgrades`, `Upgrades.ts`) has **no rarity/
+quality tier** — every offered upgrade is equally weighted (only a codex-discovery `weight`
+biases *new-weapon* picks). Introducing per-upgrade rarity (common/rare/epic) with a weighted
+roll would (a) make level-ups feel more varied/exciting and (b) give `luck` a **second**
+consumer beyond relic drops (luck already biases relic rarity as of `2a094e0` — it could
+likewise bias the modal toward higher-rarity upgrades). **Net-new feature, not a dead-stat
+fix:** needs a brainstorm → plan cycle to assign rarities across the ~40 upgrades and decide
+the weighting/`luck` curve. Value: deeper build variety + a richer payoff for the Lucky stat.
 
-> **Dead-stat vein — all but one shipped (last updated 2026-06-06).** A full grep of every
-> PlayerStats field written by a data file (`Relics`/`Upgrades`/`LimitBreakUpgrades`/
-> `PermanentUpgrades`/`Pacts`/`RunModifiers`/`ShipCharacters`) against reads in any
-> system/weapon/collision path found exactly **four** write-only no-ops: `weaponSynergy`
-> (wired `501b5bc`), `slowResistance` (wired `457a755`), `chainLightningCount` (wired
-> `4d4386e`), and `luck` (still **OPEN** above — needs a design cycle, no existing consumer
-> to wire into). Every other field — including the heuristic's low-read
+> **Dead-stat vein — FULLY CLOSED (2026-06-06).** A full grep of every PlayerStats field
+> written by a data file (`Relics`/`Upgrades`/`LimitBreakUpgrades`/`PermanentUpgrades`/
+> `Pacts`/`RunModifiers`/`ShipCharacters`) against reads in any system/weapon/collision
+> path found exactly **four** write-only no-ops, now **all shipped**: `weaponSynergy`
+> (`501b5bc`), `slowResistance` (`457a755`), `chainLightningCount` (`4d4386e`), and the
+> last one **`luck` (`2a094e0`)** — wired to bias relic-drop rarity via the existing rarity
+> system (not the upgrade modal, which has no tiers — see PROPOSE-UPGRADE-RARITY-TIERS above
+> for that net-new option). Every other field — including the heuristic's low-read
 > `attackSpeedMultiplier`/`gemValueMultiplier`/`iframeDuration`/`rangeMultiplier`/
-> `projectileSpeedMultiplier` — was verified genuinely consumed. **Only `luck` remains;**
-> once it ships this vein is fully closed and a new dead stat would only appear with a *new*
-> upgrade/relic.
+> `projectileSpeedMultiplier` — was verified genuinely consumed. **No write-only PlayerStats
+> field remains;** a new dead stat would only appear with a *new* upgrade/relic.
 
 > **The corruption-hardening vein is CLOSED (2026-06-06).** Every SecureStorage
 > loader in the codebase is now hardened + tested: BestScore `0b81956`,
@@ -141,6 +140,15 @@ real no-op sources in the meantime (Lucky Charm relic + the luck shop upgrade).
 ---
 
 ## Needs playtest (code complete, feel/balance unverified)
+
+### BALANCE-LUCK-DROPS — luck → relic-rarity bias strength · NEEDS PLAYTEST · area: balance · (new, this session)
+`luck` now biases relic drops toward higher rarity (`2a094e0`), tuned by
+`LUCK_RARITY_WEIGHT_BONUS` in `src/data/Relics.ts` (common 0 / rare .5 / epic 1.5 /
+legendary 3). Math is unit-tested but the **feel** is unverified in the bg session. At the
+realistic max luck (shop `luckLevel` 5 = +0.5, plus Lucky Charm +0.1 = ~0.6) legendary share
+roughly triples (~0.8%→~2.4%); at the clamped max 1.0 it ~3×'s. Check it's a noticeable-but-
+not-broken payoff for investing in Lucky / Lucky Charm, and that legendary relics don't become
+too common in long runs (6-relic cap limits exposure). Tune the bonus table if weak/strong.
 
 ### POLISH-DAILY-SCORE-COL — leaderboard SCORE column + Boot chip width · NEEDS PLAYTEST · area: ui · (new, this session)
 FEAT-DAILY-SCORE (`45fdd74`) added a SCORE column to the daily leaderboard table
@@ -208,6 +216,32 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `2a094e0` PROPOSE-DEADSTAT-LUCK — **wire the dead `luck` stat to bias relic-drop rarity** —
+  the **last** write-only PlayerStats field, closing the dead-stat vein. `luck` (`PlayerStats`,
+  "chance for better quality upgrades") was written but **never read**: the `luckLevel` shop
+  upgrade (+10%/level, maxLevel 5) and the Lucky Charm relic (+10%) both fed it for zero effect,
+  so the shop's "+X% rare upgrade chance" text was a lie (same vein as `501b5bc`/`457a755`/
+  `4d4386e`). **Design call:** the in-run upgrade modal has no rarity tiers to bias (wiring there
+  would be a net-new feature — filed as PROPOSE-UPGRADE-RARITY-TIERS), but the **relic** system
+  already has rarity tiers + a weighted roll, so `luck` now biases *that*: the faithful, smallest
+  "better quality loot" slice. New pure `luckBiasedRarityWeights(luck)` (`Relics.ts`) scales each
+  rarity's base drop weight by `1 + clamp(luck,0,1) * LUCK_RARITY_WEIGHT_BONUS[rarity]` (common 0 /
+  rare .5 / epic 1.5 / legendary 3 — higher tiers grow faster; common's absolute weight is
+  unchanged so its *share* only shrinks as the good tiers grow). `pickRandomRelic` takes an
+  optional `luck` (default 0); `RelicManager.rollAndEquipRandomRelic` passes `stats.luck`, which
+  covers **all four** GameScene drop paths through the single roll chokepoint (the direct
+  `equipRelic` path has no roll, correctly unaffected). **At luck 0 the weights are byte-identical
+  to the old behaviour** — regression-safe for runs without luck; luck clamped `[0,1]`, non-finite/
+  undefined (incl. legacy saves missing the field → default param / `Number.isFinite` guard) → 0;
+  read live each roll, never accumulated → no double-application on save-restore. Updated the now-
+  accurate `PlayerStats.luck` comment. **Test-first: the module's first coverage** —
+  `Relics.test.ts` (12 cases): luck-0 regression lock, common-never-boosted, monotonic per-rarity
+  boost factor, strictly-rising legendary share, `[0,1]` clamp, non-finite→0, + `pickRandomRelic`
+  default-param lock, exclude-id respect across the whole roll range, all-excluded→null, and a
+  deterministic common→legendary selection shift at a fixed roll (proves luck biases the real pick
+  path). Full suite **354 green** (+12), `tsc --noEmit` exit 0, `vite build` clean. Self-discovered.
+  **Closes the dead-stat vein — no write-only PlayerStats field remains.** Drop-rate *feel* unverified
+  in bg → see BALANCE-LUCK-DROPS.
 - `4d4386e` PROPOSE-DEADSTAT-CHAINCOUNT — **wire the dead `chainLightningCount` stat into
   Chain Lightning's jump count** so the Chain Catalyst relic (+2) and the `chainCountLevel`
   meta upgrade finally add jumps. The stat (`PlayerStats`, "Extra chain targets") was written
