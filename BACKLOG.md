@@ -106,19 +106,6 @@ own brainstorm → plan cycle (full new scene, large).
 > (remaining Open items are large refactors, human-gated chores, or need playtest).
 > One-line value rationale each; human reprioritizes freely.
 
-### PROPOSE-DEADSTAT-CHAINCOUNT — wire dead `chainLightningCount` stat · OPEN · area: weapons
-`chainLightningCount` ("Extra chain targets", `PlayerStats`) is **written but never read** —
-the meta `getStartingChainCount()` (`GameScene.ts:717`) and a relic (`Relics.ts:253`, `+2`)
-feed it, but `ChainLightningWeapon` derives its jump count purely from `this.stats.count`
-(`= baseStats.count + level/2 + externalBonusCount`, the generic projectile-count bonus) and
-ignores the dedicated stat. **Value:** a real no-op for the relic + meta upgrade. **Plan:**
-add an `externalBonusChainCount` to `ChainLightningWeapon` (mirror `externalBonusCount`/
-`externalBonusPiercing` in `BaseWeapon`), have `WeaponManager` feed it
-`playerStats.chainLightningCount`, and add it to the `this.stats.count` calc in the weapon's
-stat-update (`ChainLightningWeapon.ts:549`) **and** the mastery `attackLightningConductor`
-wave count. Phaser-coupled, so unit-test the small count derivation if it can be extracted;
-otherwise verify via build + the plumbing pattern. Same vein as BUG-SLOWRESIST-DEADSTAT.
-
 ### PROPOSE-DEADSTAT-LUCK — wire dead `luck` stat (needs design) · OPEN · area: progression
 `luck` ("0-1, chance for better quality upgrades", `PlayerStats`) is **written but never
 read** — meta `getStartingLuckBonus()` (`GameScene.ts:709`) + `relic_lucky_charm` (`+0.1`)
@@ -130,15 +117,17 @@ existing reroll/banish economy or drop quality. **Needs a brainstorm → plan cy
 build (unlike the other dead stats, this one has no existing consumer to wire into). Two
 real no-op sources in the meantime (Lucky Charm relic + the luck shop upgrade).
 
-> **Dead-stat vein — hunt EXHAUSTED (2026-06-06).** Ran a full grep of every PlayerStats
-> field written by a data file (`Relics`/`Upgrades`/`LimitBreakUpgrades`/`PermanentUpgrades`/
-> `Pacts`/`RunModifiers`/`ShipCharacters`) against reads in any system/weapon/collision path.
-> Exactly **three** were write-only no-ops: `weaponSynergy` (wired `501b5bc`), `slowResistance`
-> (wired this session, BUG-SLOWRESIST-DEADSTAT), and the two filed above
-> (`chainLightningCount`, `luck`). Every other field — including the heuristic's low-read
+> **Dead-stat vein — all but one shipped (last updated 2026-06-06).** A full grep of every
+> PlayerStats field written by a data file (`Relics`/`Upgrades`/`LimitBreakUpgrades`/
+> `PermanentUpgrades`/`Pacts`/`RunModifiers`/`ShipCharacters`) against reads in any
+> system/weapon/collision path found exactly **four** write-only no-ops: `weaponSynergy`
+> (wired `501b5bc`), `slowResistance` (wired `457a755`), `chainLightningCount` (wired
+> `4d4386e`), and `luck` (still **OPEN** above — needs a design cycle, no existing consumer
+> to wire into). Every other field — including the heuristic's low-read
 > `attackSpeedMultiplier`/`gemValueMultiplier`/`iframeDuration`/`rangeMultiplier`/
-> `projectileSpeedMultiplier` — was verified genuinely consumed. After the two filed items
-> ship, this vein is fully closed; a new dead stat would only appear with a *new* upgrade/relic.
+> `projectileSpeedMultiplier` — was verified genuinely consumed. **Only `luck` remains;**
+> once it ships this vein is fully closed and a new dead stat would only appear with a *new*
+> upgrade/relic.
 
 > **The corruption-hardening vein is CLOSED (2026-06-06).** Every SecureStorage
 > loader in the codebase is now hardened + tested: BestScore `0b81956`,
@@ -219,6 +208,28 @@ bonuses (`LimitBreakUpgrades.ts`); destructible/shrine/bounty cadence + rewards
 
 (most recent first; see `git log` for full detail)
 
+- `4d4386e` PROPOSE-DEADSTAT-CHAINCOUNT — **wire the dead `chainLightningCount` stat into
+  Chain Lightning's jump count** so the Chain Catalyst relic (+2) and the `chainCountLevel`
+  meta upgrade finally add jumps. The stat (`PlayerStats`, "Extra chain targets") was written
+  but **never read** — `ChainLightningWeapon.recalculateStats` derived its count purely from
+  `base + floor(level/2) + externalBonusCount` (the generic projectile-count bonus) and ignored
+  the dedicated stat, so both advertised sources were no-ops (same vein as `501b5bc` synergy /
+  `457a755` slowResistance). Now folded in as a fourth additive term that feeds **both** the
+  regular chain (`attack`) and the Lightning Conductor mastery web (`attackLightningConductor`,
+  which reads `stats.count`). Wired with the established per-frame-sync pattern: a change-guarded
+  `WeaponManager.setChainLightningBonusCount` (mirrors `setSynergyBonus`) pushes the stat to the
+  chain weapon, re-applied on `addWeapon` so a chain weapon picked up *after* the relic still
+  gets the bonus; GameScene's `syncStatsToPlayer` feeds `playerStats.chainLightningCount`. Stored
+  separately from the generic count bonus so the two stack. Round-trips on save-restore via the
+  baked playerStats (read-and-set each frame, never accumulated → no double-application). **At
+  chainLightningCount 0 the jump count is byte-identical to the old formula** — regression-safe
+  for runs without the relic/upgrade; the bonus clamps to a finite non-negative integer (a
+  corrupt/negative stat is inert, never below the level+generic baseline). Math kept in a pure
+  browser-free module (`ChainJumpCount.ts`, mirrors `SlowResistance`/`WeaponSynergies`);
+  `BaseWeapon.refreshStats` widened private→protected so the subclass setter can re-trigger a
+  refresh. **Test-first:** `ChainJumpCount.test.ts` (7 cases) — chain-bonus-0 regression lock,
+  additive stacking, level-flooring, fractional-bonus floor, negative clamp, non-finite inertness.
+  Full suite **342 green** (+7), `tsc --noEmit` exit 0, `vite build` clean. Self-discovered.
 - `457a755` BUG-SLOWRESIST-DEADSTAT — **wire the dead `slowResistance` stat into the
   Warden slow aura** — the player's only slow source. `slowResistance` (`PlayerStats`) was
   written but **never read**: the only thing that slows the *player* is the Warden enemy's
