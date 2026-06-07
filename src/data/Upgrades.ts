@@ -98,7 +98,7 @@ export interface PlayerStats {
   rerollsRemaining: number;        // Rerolls available for upgrade selection
   skipsRemaining: number;          // Skips available to bank XP
   banishesRemaining: number;       // Banishes to remove upgrades from pool
-  luck: number;                    // 0-1, chance for better quality upgrades
+  luck: number;                    // 0-1, biases relic drops toward higher rarity (luckBiasedRarityWeights)
 
   // Elemental chances (applied on hit)
   burnChance: number;              // Chance to ignite enemies

@@ -11,6 +11,9 @@ import { PlayerStats } from './Upgrades';
 
 export type RelicRarity = 'common' | 'rare' | 'epic' | 'legendary';
 
+/** Rarities in ascending quality order (lowest → highest). */
+export const RELIC_RARITIES: readonly RelicRarity[] = ['common', 'rare', 'epic', 'legendary'];
+
 /** Drop weights per rarity — higher = more common. */
 export const RELIC_RARITY_DROP_WEIGHTS: Record<RelicRarity, number> = {
   common: 60,
@@ -18,6 +21,36 @@ export const RELIC_RARITY_DROP_WEIGHTS: Record<RelicRarity, number> = {
   epic: 9,
   legendary: 1,
 };
+
+/**
+ * Per-rarity luck sensitivity. At luck `L` (0–1) each rarity's drop weight is
+ * scaled by `1 + L * bonus`, so higher tiers grow faster than lower ones and
+ * common (bonus 0) is never boosted — its *share* shrinks only because the
+ * better tiers grow around it. Tune here to rebalance how strongly `luck`
+ * favours rare loot.
+ */
+export const LUCK_RARITY_WEIGHT_BONUS: Record<RelicRarity, number> = {
+  common: 0,
+  rare: 0.5,
+  epic: 1.5,
+  legendary: 3,
+};
+
+/**
+ * Rarity drop weights biased by the player's `luck` stat (`PlayerStats.luck`,
+ * 0–1). Scales each base weight by `1 + clampedLuck * LUCK_RARITY_WEIGHT_BONUS`,
+ * shifting the distribution toward higher-quality relics. At luck 0 the result
+ * is byte-identical to RELIC_RARITY_DROP_WEIGHTS, so a run without luck is
+ * unaffected. Luck is clamped to [0, 1]; a non-finite luck is treated as 0.
+ */
+export function luckBiasedRarityWeights(luck: number): Record<RelicRarity, number> {
+  const safeLuck = Number.isFinite(luck) ? Math.max(0, Math.min(1, luck)) : 0;
+  const weights = {} as Record<RelicRarity, number>;
+  for (const rarity of RELIC_RARITIES) {
+    weights[rarity] = RELIC_RARITY_DROP_WEIGHTS[rarity] * (1 + safeLuck * LUCK_RARITY_WEIGHT_BONUS[rarity]);
+  }
+  return weights;
+}
 
 export interface Relic {
   id: string;
@@ -344,15 +377,18 @@ export const RELICS: readonly Relic[] = [
 
 /**
  * Weighted random pick of a relic. Respects equipped relic exclusion.
+ * `luck` (0–1, the player's `PlayerStats.luck`) biases the rarity roll toward
+ * higher-quality relics; at the default luck 0 the weighting is unchanged.
  */
-export function pickRandomRelic(excludeIds: string[] = []): Relic | null {
+export function pickRandomRelic(excludeIds: string[] = [], luck = 0): Relic | null {
   const available = RELICS.filter((relic) => !excludeIds.includes(relic.id));
   if (available.length === 0) return null;
 
-  // Weight by rarity
+  // Weight by rarity, biased by luck (luck 0 → base drop weights).
+  const rarityWeights = luckBiasedRarityWeights(luck);
   const weighted = available.map((relic) => ({
     relic,
-    weight: RELIC_RARITY_DROP_WEIGHTS[relic.rarity],
+    weight: rarityWeights[relic.rarity],
   }));
   const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
   let roll = Math.random() * totalWeight;

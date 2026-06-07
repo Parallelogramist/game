@@ -53,7 +53,8 @@ export class RelicManager {
   rollAndEquipRandomRelic(stats: PlayerStats): Relic | null {
     if (this.isFull()) return null;
     const excludeIds = this.equippedRelics.map((relic) => relic.id);
-    const rolled = pickRandomRelic(excludeIds);
+    // Luck biases the rarity roll toward higher-quality relics (luck 0 = base odds).
+    const rolled = pickRandomRelic(excludeIds, stats.luck);
     if (!rolled) return null;
     return this.equipRelic(rolled, stats);
   }
