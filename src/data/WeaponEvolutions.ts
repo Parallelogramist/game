@@ -22,7 +22,7 @@ export interface WeaponEvolution {
   };
 }
 
-const weaponEvolutionDefinitions: WeaponEvolution[] = [
+export const weaponEvolutionDefinitions: WeaponEvolution[] = [
   {
     weaponId: 'projectile',
     requiredWeaponLevel: 5,
