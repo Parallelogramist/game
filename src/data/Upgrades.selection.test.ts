@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Upgrades.ts imports WeaponManager from '../weapons' (Phaser-coupled) purely
 // for a type, and reads codex discovery state for new-weapon offer weighting.
@@ -28,6 +28,7 @@ import {
   type Upgrade,
   type CombinedUpgrade,
 } from './Upgrades';
+import { UPGRADE_RARITIES, type UpgradeRarity } from './UpgradeRarity';
 
 /**
  * Regression lock for the level-up offer engine — the logic that decides what
@@ -112,8 +113,25 @@ function resultIds(result: CombinedUpgrade[]): string[] {
   return result.map(u => u.id);
 }
 
+/** Deterministic PRNG (same algorithm as DailyChallengeManager) so the
+ *  luck-bias tests are seeded, not flaky-statistical. */
+function mulberry32(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 beforeEach(() => {
   codexState.entries.clear();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('calculateXPForLevel — the 10 × level^1.5 curve', () => {
@@ -444,6 +462,119 @@ describe('getRandomCombinedUpgrades — Limit Break overflow fallback', () => {
       );
       expect(result).toHaveLength(OVERFLOW_IDS.length);
       expect(new Set(resultIds(result)).size).toBe(OVERFLOW_IDS.length);
+    }
+  });
+});
+
+describe('upgrade rarity tiers — pool assignments', () => {
+  test('every upgrade declares a valid rarity', () => {
+    const validRarities = new Set<string>(UPGRADE_RARITIES);
+    for (const upgrade of createUpgrades()) {
+      expect(validRarities.has(upgrade.rarity), `${upgrade.id} rarity`).toBe(true);
+    }
+  });
+
+  test('locks the per-upgrade rarity assignments', () => {
+    const expected: Record<string, UpgradeRarity> = {
+      might: 'common',
+      haste: 'common',
+      swiftness: 'common',
+      vitality: 'common',
+      multishot: 'epic',
+      piercing: 'rare',
+      reach: 'common',
+      magnetism: 'common',
+      velocity: 'common',
+      shieldBarrier: 'rare',
+      overflow_might: 'common',
+      overflow_vitality: 'common',
+      overflow_swiftness: 'common',
+      overflow_insight: 'common',
+      overflow_allure: 'common',
+    };
+    const actual = Object.fromEntries(createUpgrades().map(u => [u.id, u.rarity]));
+    expect(actual).toEqual(expected);
+  });
+
+  test('overflow fallback upgrades are all common so padding stays unbiased', () => {
+    const overflow = createUpgrades().filter(u => u.isOverflow);
+    expect(overflow.every(u => u.rarity === 'common')).toBe(true);
+  });
+});
+
+describe('getRandomCombinedUpgrades — luck-biased rarity roll', () => {
+  /** Seeded offer count for one upgrade id across many rolls. */
+  function countOffers(targetId: string, luck: number, seed: number, rolls: number): number {
+    vi.spyOn(Math, 'random').mockImplementation(mulberry32(seed));
+    let offers = 0;
+    for (let roll = 0; roll < rolls; roll++) {
+      const result = getRandomCombinedUpgrades(
+        createUpgrades(), makeWeaponManager([]), 3, 2, new Set(), luck,
+      );
+      if (resultIds(result).includes(targetId)) offers++;
+    }
+    vi.restoreAllMocks(); // each call needs a fresh seed, not the prior call's sequence
+    return offers;
+  }
+
+  test('high luck surfaces the epic upgrade noticeably more often', () => {
+    const rolls = 600;
+    const atLuckZero = countOffers('multishot', 0, 1234, rolls);
+    const atLuckMax = countOffers('multishot', 1, 1234, rolls);
+    // luck 0 → uniform 3-of-10 ≈ 30%; luck 1 → epic weighs 2.5× a common
+    expect(atLuckZero).toBeGreaterThan(rolls * 0.2);
+    expect(atLuckZero).toBeLessThan(rolls * 0.4);
+    expect(atLuckMax).toBeGreaterThan(atLuckZero * 1.2);
+  });
+
+  test('high luck boosts rare upgrades too, less than epic', () => {
+    const rolls = 600;
+    const rareZero = countOffers('piercing', 0, 99, rolls);
+    const rareMax = countOffers('piercing', 1, 99, rolls);
+    expect(rareMax).toBeGreaterThan(rareZero);
+  });
+
+  test('omitting luck behaves exactly like luck 0 (same seed → same offers)', () => {
+    vi.spyOn(Math, 'random').mockImplementation(mulberry32(42));
+    const implicitRuns: string[][] = [];
+    for (let roll = 0; roll < 20; roll++) {
+      implicitRuns.push(resultIds(getRandomCombinedUpgrades(
+        createUpgrades(), makeWeaponManager([{ id: 'katana' }]), 3, 2,
+      )));
+    }
+    vi.spyOn(Math, 'random').mockImplementation(mulberry32(42));
+    const explicitRuns: string[][] = [];
+    for (let roll = 0; roll < 20; roll++) {
+      explicitRuns.push(resultIds(getRandomCombinedUpgrades(
+        createUpgrades(), makeWeaponManager([{ id: 'katana' }]), 3, 2, new Set(), 0,
+      )));
+    }
+    expect(explicitRuns).toEqual(implicitRuns);
+  });
+
+  test('luck does not change modal composition: still 1 weapon + 2 stats', () => {
+    for (let roll = 0; roll < ROLLS; roll++) {
+      const result = getRandomCombinedUpgrades(
+        createUpgrades(),
+        makeWeaponManager([{ id: 'katana' }, { id: 'aura' }]),
+        3, 2, new Set(), 1,
+      );
+      expect(result.filter(u => u.upgradeType === 'weapon')).toHaveLength(1);
+      expect(result.filter(u => u.upgradeType === 'stat')).toHaveLength(2);
+    }
+  });
+
+  test('max luck never resurfaces banished, maxed, or gate-blocked upgrades', () => {
+    const banished = new Set(['piercing']);
+    // multishot maxed; might gate-blocked at 3 while haste lags
+    const upgrades = upgradesWithLevels({ multishot: 10, might: 3, haste: 1 });
+    for (let roll = 0; roll < ROLLS; roll++) {
+      const ids = resultIds(getRandomCombinedUpgrades(
+        upgrades, makeWeaponManager([]), 3, 2, banished, 1,
+      ));
+      expect(ids).not.toContain('piercing');
+      expect(ids).not.toContain('multishot');
+      expect(ids).not.toContain('might');
     }
   });
 });

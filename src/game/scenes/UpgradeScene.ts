@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrades';
+import { getUpgradeRarityCardStyle } from '../../data/UpgradeRarity';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
@@ -571,6 +572,12 @@ export class UpgradeScene extends Phaser.Scene {
     if (isMastered) {
       return { body: BODY_COLORS.gold, accent: ACCENT_COLORS.focus, accentStr: ACCENT_COLORS_STR.focus };
     }
+    // Rare/epic stat upgrades wear their rarity colors (blue/purple, matching
+    // the relic rarity language). Weapon entries carry no rarity — unaffected.
+    const rarityStyle = getUpgradeRarityCardStyle(upgrade.rarity);
+    if (rarityStyle) {
+      return { body: rarityStyle.body, accent: rarityStyle.accent, accentStr: rarityStyle.accentStr };
+    }
     if (isWeaponLevel) {
       return { body: BODY_COLORS.magenta, accent: ACCENT_COLORS.magenta, accentStr: ACCENT_COLORS_STR.magenta };
     }
@@ -725,6 +732,18 @@ export class UpgradeScene extends Phaser.Scene {
         card.frame.add(evolutionText);
         evolutionHintHeight = evolutionText.height + 8;
       }
+    }
+
+    // Rarity tag — small sticker above the keybind chip on rare/epic cards.
+    // Skipped when the gold treatment (overflow / mastered) owns the card.
+    const rarityStyle = getUpgradeRarityCardStyle(upgrade.rarity);
+    if (rarityStyle && !upgrade.isOverflow && !isMastered) {
+      const rarityTag = makeStickerText(this, 0, halfH - 44, rarityStyle.label, {
+        fontSize: Math.round(12 * textBoost),
+        color: rarityStyle.accentStr,
+        letterSpacing: 1.5,
+      });
+      card.frame.add(rarityTag);
     }
 
     // Keybind chip — small sticker pill at card bottom.

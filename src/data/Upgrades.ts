@@ -2,6 +2,7 @@ import { WeaponManager } from '../weapons';
 import { getCodexManager } from '../codex';
 import { TUNING } from './GameTuning';
 import { createLimitBreakUpgrades } from './LimitBreakUpgrades';
+import { UpgradeRarity, luckBiasedUpgradeWeight, weightedOrder } from './UpgradeRarity';
 
 /**
  * Break level gates - stat upgrades cannot pass these thresholds
@@ -98,7 +99,7 @@ export interface PlayerStats {
   rerollsRemaining: number;        // Rerolls available for upgrade selection
   skipsRemaining: number;          // Skips available to bank XP
   banishesRemaining: number;       // Banishes to remove upgrades from pool
-  luck: number;                    // 0-1, biases relic drops toward higher rarity (luckBiasedRarityWeights)
+  luck: number;                    // 0-1, biases relic drops (luckBiasedRarityWeights) and level-up offers (luckBiasedUpgradeWeight) toward higher rarity
 
   // Elemental chances (applied on hit)
   burnChance: number;              // Chance to ignite enemies
@@ -283,6 +284,9 @@ export interface Upgrade {
   maxLevel: number;
   currentLevel: number;
   isStatUpgrade: boolean; // True for stat upgrades (subject to break level gates)
+  /** Quality tier. At luck 0 rarity is purely cosmetic (every tier weighs the
+   *  same in selection); luck boosts how often rare/epic offers surface. */
+  rarity: UpgradeRarity;
   /** Limit Break overflow upgrade: repeatable, gate-free, only offered once the
    *  normal pool is exhausted. Styled gold in the level-up modal. */
   isOverflow?: boolean;
@@ -304,6 +308,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'common',
       apply: (stats, level) => {
         if (level === 10) {
           stats.damageMultiplier += LEVEL_10_BONUSES.might;
@@ -327,6 +332,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'common',
       apply: (stats, level) => {
         if (level === 10) {
           stats.attackSpeedMultiplier += LEVEL_10_BONUSES.haste;
@@ -350,6 +356,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'common',
       apply: (stats, level) => {
         if (level === 10) {
           stats.moveSpeed += LEVEL_10_BONUSES.swiftness;
@@ -373,6 +380,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'common',
       apply: (stats, level) => {
         if (level === 10) {
           stats.maxHealth += LEVEL_10_BONUSES.vitality;
@@ -398,6 +406,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'epic',
       apply: (stats, level) => {
         if (level === 10) {
           stats.projectileCount += LEVEL_10_BONUSES.multishot;
@@ -420,6 +429,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'rare',
       apply: (stats, level) => {
         if (level === 10) {
           stats.piercing += LEVEL_10_BONUSES.piercing;
@@ -442,6 +452,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'common',
       apply: (stats, level) => {
         if (level === 10) {
           stats.rangeMultiplier += LEVEL_10_BONUSES.reach;
@@ -465,6 +476,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'common',
       apply: (stats, level) => {
         if (level === 10) {
           stats.pickupRange += LEVEL_10_BONUSES.magnetism;
@@ -488,6 +500,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: true,
+      rarity: 'common',
       apply: (stats, level) => {
         if (level === 10) {
           stats.projectileSpeedMultiplier += LEVEL_10_BONUSES.velocity;
@@ -511,6 +524,7 @@ export function createUpgrades(): Upgrade[] {
       maxLevel: 10,
       currentLevel: 0,
       isStatUpgrade: false,  // Not subject to break level gates
+      rarity: 'rare',
       apply: (stats, level) => {
         stats.shieldBarrierEnabled = true;
 
@@ -743,13 +757,18 @@ function padWithOverflow(
  * Every 5th level (5, 10, 15, etc.) ALL options are weapons.
  * New weapons (type: 'add') are only offered on those milestone levels.
  * Stat upgrades at break level gates (3, 6, 9) are filtered if not all owned stats are at the gate.
+ * `luck` (0–1, the player's PlayerStats.luck) biases normal-level offers toward
+ * rare/epic upgrades; at the default luck 0 selection is unbiased — every
+ * upgrade weighs 1 and the ordering is a true uniform shuffle (see the
+ * UpgradeRarity.ts header note on the pre-rarity sort-comparator shuffle).
  */
 export function getRandomCombinedUpgrades(
   statUpgrades: Upgrade[],
   weaponManager: WeaponManager,
   count: number,
   playerLevel: number,
-  banishedIds: Set<string> = new Set()
+  banishedIds: Set<string> = new Set(),
+  luck: number = 0
 ): CombinedUpgrade[] {
   // Every 5th level is a weapon milestone - ALL options are weapons
   const isWeaponMilestone = playerLevel % 5 === 0;
@@ -835,9 +854,14 @@ export function getRandomCombinedUpgrades(
     })
     .map(u => ({ ...u, upgradeType: 'stat' as const }));
 
-  // Combine and shuffle
+  // Combine and shuffle. The shuffle is a luck-weighted ordering: stat
+  // upgrades weigh by rarity (rare/epic surface more as luck rises), weapon
+  // level-ups carry no rarity and always weigh 1. At luck 0 every weight is 1
+  // and this degenerates to a plain uniform shuffle.
   const allUpgrades = [...availableStats, ...availableWeapons];
-  const shuffled = allUpgrades.sort(() => Math.random() - 0.5);
+  const shuffled = weightedOrder(allUpgrades, u =>
+    u.upgradeType === 'stat' ? luckBiasedUpgradeWeight(u.rarity, luck) : 1
+  );
 
   // Ensure at least one weapon upgrade if available (for variety)
   const result: CombinedUpgrade[] = [];

@@ -6407,13 +6407,15 @@ export class GameScene extends Phaser.Scene {
     const extraChoices = getMetaProgressionManager().getStartingExtraChoices();
     const totalChoices = baseChoices + extraChoices;
 
-    // Get random combined upgrades (stats + weapons), excluding banished
+    // Get random combined upgrades (stats + weapons), excluding banished;
+    // luck biases offers toward rare/epic upgrades
     const availableUpgrades = getRandomCombinedUpgrades(
       this.upgrades,
       this.weaponManager,
       totalChoices,
       this.playerStats.level,
-      this.banishedUpgradeIds
+      this.banishedUpgradeIds,
+      this.playerStats.luck
     );
 
     // If no upgrades available, continue without pausing
@@ -6694,13 +6696,15 @@ export class GameScene extends Phaser.Scene {
     const extraChoices = getMetaProgressionManager().getStartingExtraChoices();
     const totalChoices = baseChoices + extraChoices;
 
-    // Get random combined upgrades (stats + weapons), excluding banished
+    // Get random combined upgrades (stats + weapons), excluding banished;
+    // luck biases offers toward rare/epic upgrades
     const availableUpgrades = getRandomCombinedUpgrades(
       this.upgrades,
       this.weaponManager,
       totalChoices,
       this.playerStats.level,
-      this.banishedUpgradeIds
+      this.banishedUpgradeIds,
+      this.playerStats.luck
     );
 
     // If no upgrades available (all maxed), just continue
