@@ -12,9 +12,16 @@ import {
   bossPhaseTransitionCallback,
 } from './enemy-ai/state';
 import type { TelegraphManager } from '../../effects/TelegraphManager';
+import {
+  zigzagDartTelegraph, dasherDashTelegraph, chargerChargeTelegraph,
+  wardenSlamTelegraph, giantStompTelegraph, hordeKingSlamTelegraph,
+  voidWyrmSweepTelegraph, voidWyrmRingTelegraph, theMachineLaserTelegraphs,
+  spawnTelegraph,
+} from './enemy-ai/telegraphs';
 
 // Attack telegraph manager (injected by GameScene). Draws windup indicators
-// before dangerous enemy attacks (dash / charge / ground slam). Pure
+// before dangerous enemy attacks (dash / charge / ground slam / boss AOEs).
+// Geometry + timing live in ./enemy-ai/telegraphs (pure, unit-tested). Pure
 // readability — never affects damage or timing.
 let telegraphManager: TelegraphManager | null = null;
 export function setTelegraphManager(manager: TelegraphManager | null): void {
@@ -377,7 +384,7 @@ function updateZigzagAI(
     // Begin windup; telegraph the lunge lane toward the player.
     EnemyAI.state[enemyId] = 1;
     EnemyAI.timer[enemyId] = 0.35;
-    telegraphManager?.spawnLine(enemyX, enemyY, Math.atan2(dy, dx), 140, 0.35, 0xff8833, 8);
+    spawnTelegraph(telegraphManager, enemyX, enemyY, zigzagDartTelegraph(Math.atan2(dy, dx)));
   } else if (state === 1 && EnemyAI.timer[enemyId] <= 0) {
     EnemyAI.state[enemyId] = 2;
     EnemyAI.timer[enemyId] = 0.4;
@@ -453,7 +460,7 @@ function updateDashAI(
       EnemyAI.state[enemyId] = 1;
       EnemyAI.timer[enemyId] = 0;
       // Telegraph the dash trajectory.
-      telegraphManager?.spawnLine(enemyX, enemyY, Math.atan2(playerY - enemyY, playerX - enemyX), 360, 0.5, 0xff9933, 16);
+      spawnTelegraph(telegraphManager, enemyX, enemyY, dasherDashTelegraph(Math.atan2(playerY - enemyY, playerX - enemyX)));
     }
   } else {
     // Dashing toward stored target
@@ -999,6 +1006,8 @@ function updateGiantAI(enemyId: number, playerX: number, playerY: number, deltaT
     if (EnemyAI.timer[enemyId] > 4.0 + EnemyAI.phase[enemyId] * 2.0) {
       EnemyAI.state[enemyId] = 1;
       EnemyAI.timer[enemyId] = 0;
+      // Telegraph the stomp footprint during the 1.0s shake windup.
+      spawnTelegraph(telegraphManager, enemyX, enemyY, giantStompTelegraph());
     }
   } else if (state === 1) {
     // Windup — stop and shake for 1.0s (same pattern as Charger)
@@ -1253,7 +1262,7 @@ function updateWardenAI(enemyId: number, playerX: number, playerY: number, delta
         EnemyAI.state[enemyId] = 1;
         EnemyAI.timer[enemyId] = 0;
         // Telegraph the AOE footprint during the 0.8s plant windup.
-        telegraphManager?.spawnRing(enemyX, enemyY, 56, 0.8, 0xff5555);
+        spawnTelegraph(telegraphManager, enemyX, enemyY, wardenSlamTelegraph());
       }
     }
   } else if (state === 1) {
@@ -1536,7 +1545,7 @@ function updateChargerAI(
       EnemyAI.targetX[enemyId] = playerX;
       EnemyAI.targetY[enemyId] = playerY;
       // Telegraph the charge lane across the screen during the 0.8s windup.
-      telegraphManager?.spawnLine(enemyX, enemyY, Math.atan2(playerY - enemyY, playerX - enemyX), 520, 0.8, 0xff5533, 26);
+      spawnTelegraph(telegraphManager, enemyX, enemyY, chargerChargeTelegraph(Math.atan2(playerY - enemyY, playerX - enemyX)));
     }
 
     // Visual cue: shake slightly
@@ -1759,6 +1768,8 @@ function updateHordeKingAI(
         EnemyAI.state[enemyId] = 1; // Summon
       } else {
         EnemyAI.state[enemyId] = 2; // Ground slam windup
+        // Telegraph the phase-scaled slam footprint during the 1.0s windup.
+        spawnTelegraph(telegraphManager, enemyX, enemyY, hordeKingSlamTelegraph(phase));
       }
       EnemyAI.timer[enemyId] = 0;
     }
@@ -1867,8 +1878,13 @@ function updateVoidWyrmAI(
     if (EnemyAI.specialTimer[enemyId] <= 0) {
       if (Math.random() < 0.4) {
         EnemyAI.state[enemyId] = 1; // Prepare sweep
+        // Telegraph the sweep lane during the 0.8s prepare. The actual target
+        // is stored one frame into state 1; the player moves negligibly by then.
+        spawnTelegraph(telegraphManager, enemyX, enemyY, voidWyrmSweepTelegraph(enemyX, enemyY, playerX, playerY));
       } else {
         EnemyAI.state[enemyId] = 3; // Fire ring
+        // Telegraph the projectile burst before it fires at t=0.3.
+        spawnTelegraph(telegraphManager, enemyX, enemyY, voidWyrmRingTelegraph());
       }
       EnemyAI.timer[enemyId] = 0;
     }
@@ -1986,6 +2002,12 @@ function updateTheMachineAI(
         EnemyAI.state[enemyId] = 1; // Spawn turret
       } else {
         EnemyAI.state[enemyId] = 2; // Charge laser
+        // Telegraph the laser grid (main + cross beams) for the 1.5s charge.
+        // The actual target is stored one frame into state 2; the boss is
+        // stationary while charging so the beam origins hold.
+        for (const beamSpec of theMachineLaserTelegraphs(enemyX, enemyY, playerX, playerY)) {
+          spawnTelegraph(telegraphManager, enemyX, enemyY, beamSpec);
+        }
       }
       EnemyAI.timer[enemyId] = 0;
     }

@@ -148,10 +148,14 @@ floating mini HP bar + label (the only non-boss enemies with a health bar). Rese
 manager is recreated per scene; no module reset needed.
 
 **Attack Telegraphs** (`/src/effects/TelegraphManager.ts`): pooled, quality-aware windup
-indicators (swept lines for dash/charge, rings for AOE slams) drawn before dangerous
-enemy attacks. Injected into `EnemyAISystem` via `setTelegraphManager`; hooked at the
-Dasher dash-start, Charger charge-prep, and Warden ground-slam windups. Pure readability
-(no damage/timing change). `DepthLayers.ATTACK_TELEGRAPH`.
+indicators (swept lines for dash/charge/laser, rings for AOE slams) drawn before dangerous
+enemy attacks. Injected into `EnemyAISystem` via `setTelegraphManager`. All specs live in
+the pure module `src/ecs/systems/enemy-ai/telegraphs.ts` (unit-tested: duration = windup,
+ring footprint covers damage radius); hooked at the Zigzag dart, Dasher dash, Charger
+charge, Warden slam, Giant stomp, Horde King slam, Void Wyrm sweep + projectile ring, and
+The Machine laser-grid windups. Pure readability (no damage/timing change). Exploder
+detonation is intentionally untelegraphed — it explodes instantly on death, so a warning
+would require a fuse delay (behavior change). `DepthLayers.ATTACK_TELEGRAPH`.
 
 **Environmental Destructibles** (`Destructible` component): crates spawn on the field
 (GameScene `spawnDestructible`, capped at 6). They reuse the EnemyTag pipeline so weapons

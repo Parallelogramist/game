@@ -1,0 +1,131 @@
+import type { TelegraphManager } from '../../../effects/TelegraphManager';
+
+/**
+ * Pure "AI windup → telegraph spec" mapping — the single source of truth for
+ * attack-telegraph geometry, timing, and color. EnemyAISystem feeds these
+ * specs to the injected TelegraphManager at windup-state transitions.
+ *
+ * Contract (locked by telegraphs.test.ts): a telegraph's duration equals the
+ * windup it warns about, and a ring's footprint covers the attack's damage
+ * radius (rings overshoot slightly so the warning is conservative). Specs are
+ * pure readability — nothing here feeds back into damage or attack timing.
+ */
+
+export interface RingTelegraphSpec {
+  shape: 'ring';
+  radius: number;
+  duration: number;
+  color: number;
+}
+
+export interface LineTelegraphSpec {
+  shape: 'line';
+  angle: number;
+  length: number;
+  thickness: number;
+  duration: number;
+  color: number;
+}
+
+export type TelegraphSpec = RingTelegraphSpec | LineTelegraphSpec;
+
+/** Zigzag Runner dart lunge — lane toward the player during the 0.35s windup. */
+export function zigzagDartTelegraph(angle: number): LineTelegraphSpec {
+  return { shape: 'line', angle, length: 140, thickness: 8, duration: 0.35, color: 0xff8833 };
+}
+
+/** Dasher dash — trajectory overlay drawn as the 0.5s lunge starts. */
+export function dasherDashTelegraph(angle: number): LineTelegraphSpec {
+  return { shape: 'line', angle, length: 360, thickness: 16, duration: 0.5, color: 0xff9933 };
+}
+
+/** Charger miniboss — charge lane across the screen during the 0.8s windup. */
+export function chargerChargeTelegraph(angle: number): LineTelegraphSpec {
+  return { shape: 'line', angle, length: 520, thickness: 26, duration: 0.8, color: 0xff5533 };
+}
+
+/** Warden ground slam — AOE footprint during the 0.8s plant (damage radius 50). */
+export function wardenSlamTelegraph(): RingTelegraphSpec {
+  return { shape: 'ring', radius: 56, duration: 0.8, color: 0xff5555 };
+}
+
+/** Giant stomp — AOE footprint during the 1.0s shake windup (damage radius 80). */
+export function giantStompTelegraph(): RingTelegraphSpec {
+  return { shape: 'ring', radius: 88, duration: 1.0, color: 0xff5555 };
+}
+
+/**
+ * Horde King ground slam — phase-scaled footprint during the 1.0s windup.
+ * Damage radius at execute is 150 + phase × 30; the +10 overshoot also absorbs
+ * the boss's shake-jitter drift between windup start and the slam.
+ */
+export function hordeKingSlamTelegraph(phase: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 160 + phase * 30, duration: 1.0, color: 0xff5555 };
+}
+
+/**
+ * Void Wyrm sweep — lane from the wyrm to its stored sweep target during the
+ * 0.8s prepare state. The +80 overshoot covers the wyrm carrying past the
+ * target before the sweep state ends.
+ */
+export function voidWyrmSweepTelegraph(
+  enemyX: number,
+  enemyY: number,
+  targetX: number,
+  targetY: number
+): LineTelegraphSpec {
+  const dx = targetX - enemyX;
+  const dy = targetY - enemyY;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  return {
+    shape: 'line',
+    angle: Math.atan2(dy, dx),
+    length: distance + 80,
+    thickness: 30,
+    duration: 0.8,
+    color: 0xff5533,
+  };
+}
+
+/** Void Wyrm projectile ring — pulse around the wyrm before the t=0.3 burst. */
+export function voidWyrmRingTelegraph(): RingTelegraphSpec {
+  return { shape: 'ring', radius: 90, duration: 0.3, color: 0xff5555 };
+}
+
+/**
+ * The Machine laser grid — main beam toward the stored target plus the two
+ * perpendicular cross beams, drawn for the full 1.5s charge. Length matches
+ * the in-game laser (800).
+ */
+export function theMachineLaserTelegraphs(
+  enemyX: number,
+  enemyY: number,
+  targetX: number,
+  targetY: number
+): LineTelegraphSpec[] {
+  const mainAngle = Math.atan2(targetY - enemyY, targetX - enemyX);
+  const beam = (angle: number): LineTelegraphSpec => ({
+    shape: 'line',
+    angle,
+    length: 800,
+    thickness: 12,
+    duration: 1.5,
+    color: 0xff3366,
+  });
+  return [beam(mainAngle), beam(mainAngle + Math.PI / 2), beam(mainAngle - Math.PI / 2)];
+}
+
+/** Routes a spec to the manager's ring/line spawner. No-op when manager is null. */
+export function spawnTelegraph(
+  manager: Pick<TelegraphManager, 'spawnRing' | 'spawnLine'> | null,
+  x: number,
+  y: number,
+  spec: TelegraphSpec
+): void {
+  if (!manager) return;
+  if (spec.shape === 'ring') {
+    manager.spawnRing(x, y, spec.radius, spec.duration, spec.color);
+  } else {
+    manager.spawnLine(x, y, spec.angle, spec.length, spec.duration, spec.color, spec.thickness);
+  }
+}
