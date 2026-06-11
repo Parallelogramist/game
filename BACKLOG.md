@@ -30,19 +30,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Now
 
-- [ ] **FEAT-HAZARD-PERSIST — persist live hazard zones across refresh-recovery** · area: save
-  **Value:** the last known gap in the proven refresh-persistence vein — a mid-run refresh
-  silently despawns active burn/ice/void/energy zones and restarts the hazard spawn clock
-  (bounties/shrines/chests/events/stat-buffs/director all round-trip; `GameStateManager.ts`
-  has zero hazard fields).
-  **Plan:** serialize each active zone (`type`, `x`, `y`, remaining time — see the zone
-  struct in `src/systems/HazardZoneSystem.ts`) + the spawner timer as an optional
-  `hazardState` on `GameSaveState`, mirroring `shrineState` (`5c40cc1`); restore after
-  `resetHazardZoneSystem()` via the existing `spawnHazardZone` path; absent on legacy
-  saves → reset defaults, no save-version bump.
-  **Test-first:** `GameStateManager.hazard.test.ts` round-trip + legacy cases (mirror the
-  bounty/shrine/chest siblings). Acceptance: suite green, `tsc` + `vite build` clean.
-
 - [ ] **FEAT-COLORBLIND-UI — surface the shipped-but-unreachable colorblind mode** · area: accessibility
   **Value:** the accessibility pipeline is fully built and *dead to players* — no UI sets it.
   `ColorblindPipeline` is registered (`src/main.ts`, `src/visual/ColorblindPipeline.ts`,
@@ -201,6 +188,11 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-HAZARD-PERSIST** — live hazard zones + spawner pacing persist across
+  refresh-recovery (done — `d4bb744`). Optional `hazardState` on `GameSaveState` mirrors
+  `shrineState`; `getHazardState()`/`restoreHazardState()` in `HazardZoneSystem.ts`
+  (corrupt/tampered entries skipped, pool-capped); legacy saves → reset defaults. 11 new
+  tests (save round-trip + module persistence). **Refresh-persistence vein now closed.**
 - [x] **CHORE-1** — five empty src dirs removed (done — 2026-06-09 groom; untracked, no commit).
 - [x] **CHORE-2** — branch chain resolved (done — verified 2026-06-09: `3db4e75` + `a76fcf4`
   are master ancestors; worktree branches gone).
@@ -215,6 +207,6 @@ Never agent work. The fleet must not do any of these.
   field remains.
 - [x] **Corruption-hardening vein closed** (done — `15cdf16` MusicManager final; every
   SecureStorage loader hardened + tested).
-- [x] **Refresh-persistence vein** — bounty/shrine/chest/event/stat-buff/evolution/
-  consumable/affix/director all round-trip (see archive). Last known gap re-filed as
-  FEAT-HAZARD-PERSIST (Now).
+- [x] **Refresh-persistence vein closed** — bounty/shrine/chest/event/stat-buff/evolution/
+  consumable/affix/director all round-trip (see archive); hazard zones were the last gap
+  (`d4bb744`, FEAT-HAZARD-PERSIST above).
