@@ -30,17 +30,7 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Now
 
-- [ ] **TEST-UPGRADE-SELECTION — regression-lock the level-up offer engine** · area: testing
-  **Value:** `src/data/Upgrades.ts` selection logic decides every level-up modal of every
-  run and has **no test** (the closed pure-data vein covered `apply()` modules, never this
-  engine). A regression ships as dead/duplicate/illegal offers with nothing to catch it.
-  **Lock:** `getRandomCombinedUpgrades` (`:747` — weapon-milestone every 5th level,
-  new-weapon gating on `canAddWeapon`, banished filtering, no duplicate ids),
-  `padWithOverflow` (`:724` — the "late-game level-up is never dead" guarantee),
-  `canLevelUpgrade`/`getBlockingGate`/`getBlockingUpgrades` (`BREAK_LEVEL_GATES` 3/6/9),
-  and `calculateXPForLevel` (`:270` — the `10 × level^1.5` curve).
-  **How:** stub `'../weapons'` (documented vitest pattern) + a minimal fake weaponManager;
-  mock storage for the codex weighting. ~20–30 cases, mutation-check the teeth.
+(empty — next agent: take the topmost Next item)
 
 ## Next
 
@@ -183,6 +173,14 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **TEST-UPGRADE-SELECTION** — level-up offer engine regression-locked
+  (done — `c864929`). 36 invariant tests in `src/data/Upgrades.selection.test.ts`
+  (selection is random → set-membership/exclusion asserts across 30 rolls per case):
+  `10 × level^1.5` XP curve, break gates 3/6/9 (`canLevelUpgrade`/`getBlockingGate`/
+  `getBlockingUpgrades`), codex-weighted new-weapon offers (10/+15/+1-per-5-capped),
+  milestone-only NEW weapons gated on `canAddWeapon`, banish filtering everywhere, no
+  duplicate ids, and the `padWithOverflow` never-dead-level fallback (incl. milestone
+  pad-only-when-empty). Teeth verified by 6 hand mutations — all killed.
 - [x] **FEAT-COLORBLIND-UI** — colorblind mode + high contrast surfaced in SettingsScene
   (done — `389edef`). 4-segment Colorblind row (Off/Protan/Deutan/Tritan) + High Contrast
   toggle in the VISUALS card, full MenuNavigator/keyboard wiring; pure
