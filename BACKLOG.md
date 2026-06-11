@@ -34,15 +34,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Next
 
-- [ ] **FEAT-TELEGRAPH-COVERAGE — telegraph the remaining heavy attacks** · area: readability
-  **Value:** fairness — Dasher/Charger/Warden windups are telegraphed (`b032b3b`), but the
-  deadliest hits are not: Exploder detonation, Giant slam, and the three bosses' heavy
-  AOEs. Pure readability, zero damage/timing change (same contract as the original).
-  **Plan:** hook the existing windup states in `src/ecs/systems/EnemyAISystem.ts` via the
-  injected `TelegraphManager` (`src/effects/TelegraphManager.ts` — pooled, quality-aware).
-  **Test-first:** extract a pure "AI state → telegraph spec (shape/radius/duration)"
-  mapping and unit-test it; the manager hookup is mechanical.
-
 - [ ] **FEAT-TUTORIAL-HINTS — first-run contextual hints** · area: onboarding
   **Value:** onboarding is near-absent and the `tutorialSeen` settings flag is dead
   (persisted in `SettingsManager.ts:37` but read nowhere). New players meet break gates,
@@ -111,6 +102,16 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   kills/min, damage taken, top weapons by damage. **Test-first:** pure stat-derivation
   helpers (per-minute rates, top-N ordering).
 
+- [ ] **BALANCE-EXPLODER-FUSE — telegraphed fuse for the Exploder death explosion**
+  · area: readability/balance · **BLOCKED on human sign-off — behavior change**
+  **Why parked:** FEAT-TELEGRAPH-COVERAGE (`4f18ac4`) covered every *windup-based* heavy
+  hit, but the Exploder explodes instantly on death (`GameScene.handleEnemyDeath` →
+  `handleExplosion(x, y, 60, 20)`, same frame) — there is no windup to telegraph. Warning
+  the player requires adding a fuse delay (e.g. 0.4s armed state before detonation),
+  which changes combat timing and Exploder lethality. Same question applies to VOLATILE
+  affix detonations (`drainVolatileExplosions`, radius 95). If approved: fuse state in
+  `handleEnemyDeath`, ring spec in `src/ecs/systems/enemy-ai/telegraphs.ts`, test-first.
+
 **Parked — bigger than one fleet session; needs its own plan cycle + human kickoff:**
 
 - [ ] **REFACTOR-1 — split the GameScene god object** · area: architecture
@@ -133,6 +134,12 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-TELEGRAPH-BOSSES** — new windup telegraphs (`4f18ac4`; specs in
+    `src/ecs/systems/enemy-ai/telegraphs.ts`). Check: (a) The Machine's 3-beam laser grid
+    (800px lines, 1.5s) isn't visual noise over its bullet spam, (b) Void Wyrm sweep lane
+    matches where the sweep actually goes (target stored 1 frame after telegraph), (c)
+    Horde King ring legibility against the red arena tint, (d) telegraph pool (32) holds
+    up in dense Dasher/Zigzag waves with a boss active.
   - **BALANCE-UPGRADE-RARITY** — rarity-tiered level-up offers (`ea51123`;
     `UPGRADE_LUCK_RARITY_BONUS` in `src/data/UpgradeRarity.ts`, assignments in
     `Upgrades.ts`). Check: (a) luck-bias strength feels right at realistic max luck
@@ -169,6 +176,16 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-TELEGRAPH-COVERAGE** — telegraphed Giant stomp + all boss heavy AOEs
+  (done — `4f18ac4`). Pure spec module `src/ecs/systems/enemy-ai/telegraphs.ts` (duration
+  = windup, ring footprint ≥ damage radius; 23 tests) now holds ALL telegraph geometry —
+  the four existing inline call sites (Zigzag/Dasher/Charger/Warden) migrated to it. New
+  hookups: Giant stomp ring (88/1.0s), Horde King slam ring (160+phase×30/1.0s), Void
+  Wyrm sweep lane (dist+80 overshoot/0.8s) + pre-burst ring (90/0.3s), The Machine laser
+  grid (3 beams × 800/1.5s). Zero damage/timing change. **Exploder deliberately excluded**
+  — explodes instantly on death, no windup exists; telegraphing needs a fuse delay =
+  behavior change → parked as BALANCE-EXPLODER-FUSE (Later, human sign-off). Visual feel
+  → playtest queue (POLISH-TELEGRAPH-BOSSES).
 - [x] **PROPOSE-UPGRADE-RARITY-TIERS** — rarity-tiered level-up offers biased by luck
   (done — `ea51123`). Pure module `src/data/UpgradeRarity.ts` (3 tiers, weight =
   `1 + clampedLuck × bonus` mirroring Relics.ts, weighted-order sampler); required
