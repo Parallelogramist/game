@@ -209,7 +209,14 @@ Static class property persists across scene reloads. Each run faces different bo
 4. Register system call in GameScene update loop
 
 **Adding in-run upgrades:**
-Add object to `upgrades` array in `src/data/Upgrades.ts` with `name`, `description`, `maxLevel`, `apply`. Break level gates at 3, 6, 9 (need player level thresholds). Level 10 grants mastery bonuses.
+Add object to `upgrades` array in `src/data/Upgrades.ts` with `name`, `description`, `maxLevel`, `rarity`, `apply`. Break level gates at 3, 6, 9 (need player level thresholds). Level 10 grants mastery bonuses.
+
+**Upgrade rarity tiers** (`src/data/UpgradeRarity.ts`): every upgrade declares
+`rarity: 'common' | 'rare' | 'epic'`. At luck 0 all tiers weigh equally (selection
+unbiased); `PlayerStats.luck` boosts rare/epic offer frequency via
+`luckBiasedUpgradeWeight` (weight = `1 + clampedLuck × per-rarity bonus`, mirroring
+relics). Rare/epic cards get blue/purple styling + a rarity sticker in `UpgradeScene`;
+gold overflow/mastered treatment takes precedence. Weapon offers carry no rarity.
 
 **Limit Break / Overflow upgrades** (`src/data/LimitBreakUpgrades.ts`): repeatable,
 gate-free upgrades (`isOverflow: true`, `maxLevel` 999) folded into the run upgrade pool

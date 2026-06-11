@@ -34,16 +34,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Next
 
-- [ ] **PROPOSE-UPGRADE-RARITY-TIERS — rarity-tiered level-up upgrades** · area: progression
-  **Value:** deeper build variety + a second consumer for `luck` (today it only biases
-  relic rarity, `2a094e0`). The modal (`getRandomCombinedUpgrades`) has no quality tiers —
-  every offer is equally weighted.
-  **Plan:** per-upgrade rarity (common/rare/epic) with a luck-biased weighted roll +
-  distinct card styling in `UpgradeScene` (the gold "LIMIT BREAK" styling is the
-  precedent). Assign rarities across the ~40 upgrades in `Upgrades.ts`; reuse the
-  `luckBiasedRarityWeights` shape from `src/data/Relics.ts`. Test-first on the pure
-  roll/weights module; keep luck-0 byte-identical to today.
-
 - [ ] **FEAT-TELEGRAPH-COVERAGE — telegraph the remaining heavy attacks** · area: readability
   **Value:** fairness — Dasher/Charger/Warden windups are telegraphed (`b032b3b`), but the
   deadliest hits are not: Exploder detonation, Giant slam, and the three bosses' heavy
@@ -143,6 +133,12 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **BALANCE-UPGRADE-RARITY** — rarity-tiered level-up offers (`ea51123`;
+    `UPGRADE_LUCK_RARITY_BONUS` in `src/data/UpgradeRarity.ts`, assignments in
+    `Upgrades.ts`). Check: (a) luck-bias strength feels right at realistic max luck
+    (~0.6 → epic weighs 1.9× a common), (b) epic purple card vs weapon-level-up magenta
+    card legibility on the same modal, (c) the rarity tag (`halfH - 44`) doesn't collide
+    with the gate-warning text on tall cards.
   - **BALANCE-LUCK-DROPS** — luck → relic-rarity bias strength (`2a094e0`;
     `LUCK_RARITY_WEIGHT_BONUS` in `src/data/Relics.ts`). At realistic max luck (~0.6)
     legendary share ~3×'s — confirm noticeable-but-not-broken.
@@ -173,6 +169,17 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **PROPOSE-UPGRADE-RARITY-TIERS** — rarity-tiered level-up offers biased by luck
+  (done — `ea51123`). Pure module `src/data/UpgradeRarity.ts` (3 tiers, weight =
+  `1 + clampedLuck × bonus` mirroring Relics.ts, weighted-order sampler); required
+  `rarity` on `Upgrade` (multishot epic, piercing + shieldBarrier rare, rest + overflow
+  common); optional `luck` param on `getRandomCombinedUpgrades` fed from
+  `PlayerStats.luck` at both GameScene call sites; blue/purple card styling + rarity
+  sticker in UpgradeScene (gold overflow/mastered wins). 27 new seeded-deterministic
+  tests. **Interpretation note:** luck-0 is preserved as *unbiased* (true uniform
+  shuffle) rather than bit-identical — the old `sort(() => Math.random() - 0.5)` was an
+  approximately-uniform random-comparator sort, so per-stat offer rates shift
+  microscopically (strictly fairer). Tuning → playtest queue (BALANCE-UPGRADE-RARITY).
 - [x] **TEST-UPGRADE-SELECTION** — level-up offer engine regression-locked
   (done — `c864929`). 36 invariant tests in `src/data/Upgrades.selection.test.ts`
   (selection is random → set-membership/exclusion asserts across 30 rolls per case):
