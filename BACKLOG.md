@@ -30,16 +30,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Now
 
-- [ ] **FEAT-COLORBLIND-UI — surface the shipped-but-unreachable colorblind mode** · area: accessibility
-  **Value:** the accessibility pipeline is fully built and *dead to players* — no UI sets it.
-  `ColorblindPipeline` is registered (`src/main.ts`, `src/visual/ColorblindPipeline.ts`,
-  `GameScene`), `SettingsManager` persists `colorblindMode`
-  (off/protanopia/deuteranopia/tritanopia, junk-immune loader already tested) — but
-  `grep colorblind src/game/scenes/` returns nothing.
-  **Plan:** add a mode-cycling row to `SettingsScene` (mirror the damage-numbers enum row),
-  MenuNavigator-aware, label + current value; apply on change via the existing setter.
-  **Test-first:** extract the pure cycle-order/label helper and unit-test it; rest is wiring.
-
 - [ ] **TEST-UPGRADE-SELECTION — regression-lock the level-up offer engine** · area: testing
   **Value:** `src/data/Upgrades.ts` selection logic decides every level-up modal of every
   run and has **no test** (the closed pure-data vein covered `apply()` modules, never this
@@ -98,6 +88,11 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `MenuNavigator`, `src/input/MenuNavigator.ts`).
   **Plan:** wire `MenuNavigator` into the three scenes, mirroring `WeaponSelectScene`.
   **Test-first:** `MenuNavigator`'s pure nav-order/wrap logic gets its first unit test.
+  **Follow-up (from FEAT-COLORBLIND-UI review):** gamepad d-pad left/right can't move
+  segmented-pill selection anywhere — `MenuNavigator` is built `columns: 1` so it ignores
+  left/right (`src/input/MenuNavigator.ts:77–86`), and scenes' own keydown handlers cover
+  keyboard only. Affects SettingsScene playbackMode/damageNumbers/colorblind rows; a
+  controller-only player can focus a segmented row but only commit the current index.
 
 ## Later
 
@@ -188,6 +183,12 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-COLORBLIND-UI** — colorblind mode + high contrast surfaced in SettingsScene
+  (done — `389edef`). 4-segment Colorblind row (Off/Protan/Deutan/Tritan) + High Contrast
+  toggle in the VISUALS card, full MenuNavigator/keyboard wiring; pure
+  `ColorblindModeOptions` helper (order/labels/index clamping) with 7 unit tests. Both
+  `colorblindMode` and `highContrast` were persisted + consumed by `ColorblindPipeline`
+  but set by no UI. Gamepad segmented-row gap filed under FEAT-MENU-NAV-GAPS.
 - [x] **FEAT-HAZARD-PERSIST** — live hazard zones + spawner pacing persist across
   refresh-recovery (done — `d4bb744`). Optional `hazardState` on `GameSaveState` mirrors
   `shrineState`; `getHazardState()`/`restoreHazardState()` in `HazardZoneSystem.ts`
