@@ -8,7 +8,14 @@
  */
 
 import Phaser from 'phaser';
-import { getSettingsManager, DamageNumbersMode } from '../../settings';
+import {
+  getSettingsManager,
+  DamageNumbersMode,
+  ColorblindMode,
+  COLORBLIND_MODE_OPTIONS,
+  indexOfColorblindMode,
+  colorblindModeAtIndex,
+} from '../../settings';
 import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
 import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
@@ -25,6 +32,7 @@ import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../.
 type FocusZone =
   | 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks'
   | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter'
+  | 'colorblind' | 'highContrast'
   | 'uiScale'
   | 'damageNumbers' | 'statusText'
   | 'resetData' | 'back';
@@ -80,6 +88,7 @@ export class SettingsScene extends Phaser.Scene {
   private volumes: Partial<Record<FocusZone, VolumeControl>> = {};
   private playbackSegmented!: SegmentedControl<'sequential' | 'shuffle'>;
   private damageNumbersSegmented!: SegmentedControl<DamageNumbersMode>;
+  private colorblindSegmented!: SegmentedControl<ColorblindMode>;
 
   private uiScaleHandles!: StepperHandles;
 
@@ -98,6 +107,7 @@ export class SettingsScene extends Phaser.Scene {
   private focusZone: FocusZone = 'sfx';
   private damageNumberIndex: number = 0;
   private playbackModeIndex: number = 0;
+  private colorblindModeIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
 
@@ -131,6 +141,7 @@ export class SettingsScene extends Phaser.Scene {
     this.focusZone = 'sfx';
     this.damageNumberIndex = this.indexOfDamageMode(settingsManager.getDamageNumbersMode());
     this.playbackModeIndex = musicManager.getPlaybackMode() === 'shuffle' ? 1 : 0;
+    this.colorblindModeIndex = indexOfColorblindMode(settingsManager.getColorblindMode());
 
     fadeIn(this, 150);
 
@@ -324,7 +335,24 @@ export class SettingsScene extends Phaser.Scene {
       () => settingsManager.isFpsCounterEnabled(),
       (v) => settingsManager.setFpsCounterEnabled(v));
 
-    const uiScaleY = startY + rowGap * 4;
+    const colorblindY = startY + rowGap * 4;
+    this.addRowLabel(card, labelX, colorblindY, 'Colorblind');
+    this.colorblindSegmented = this.addSegmented<ColorblindMode>(
+      card, controlX, colorblindY, 'colorblind',
+      [...COLORBLIND_MODE_OPTIONS],
+      settingsManager.getColorblindMode(),
+      (value, index) => {
+        settingsManager.setColorblindMode(value);
+        this.colorblindModeIndex = index;
+        this.refreshAllFocusVisuals();
+      },
+    );
+
+    buildToggleRow(5, 'High Contrast', 'highContrast',
+      () => settingsManager.isHighContrastEnabled(),
+      (v) => settingsManager.setHighContrast(v));
+
+    const uiScaleY = startY + rowGap * 6;
     this.addRowLabel(card, labelX, uiScaleY, 'UI Scale');
     this.uiScaleHandles = this.addStepperRow(card, controlX, uiScaleY, 'uiScale',
       () => `${Math.round(settingsManager.getUiScale() * 100)}%`,
@@ -765,6 +793,7 @@ export class SettingsScene extends Phaser.Scene {
       { zone: 'reducedMotion', enabled: settingsManager.isReducedMotionEnabled() },
       { zone: 'gridEffects', enabled: settingsManager.isGridEffectsEnabled() },
       { zone: 'fpsCounter', enabled: settingsManager.isFpsCounterEnabled() },
+      { zone: 'highContrast', enabled: settingsManager.isHighContrastEnabled() },
       { zone: 'statusText', enabled: settingsManager.isStatusTextEnabled() },
     ];
     for (const { zone, enabled } of toggleStates) {
@@ -790,6 +819,8 @@ export class SettingsScene extends Phaser.Scene {
       this.focusZone === 'playbackMode' ? this.playbackModeIndex : null);
     this.damageNumbersSegmented?.refresh(settingsManager.getDamageNumbersMode(),
       this.focusZone === 'damageNumbers' ? this.damageNumberIndex : null);
+    this.colorblindSegmented?.refresh(settingsManager.getColorblindMode(),
+      this.focusZone === 'colorblind' ? this.colorblindModeIndex : null);
 
     this.musicTracksButton?.setFocusState(this.focusZone === 'musicTracks');
     this.resetDataButton?.setFocusState(this.focusZone === 'resetData');
@@ -799,6 +830,7 @@ export class SettingsScene extends Phaser.Scene {
   private setSegmentedFocusIndex(zone: FocusZone, index: number): void {
     if (zone === 'playbackMode') this.playbackModeIndex = index;
     else if (zone === 'damageNumbers') this.damageNumberIndex = index;
+    else if (zone === 'colorblind') this.colorblindModeIndex = index;
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -812,6 +844,7 @@ export class SettingsScene extends Phaser.Scene {
       'sfx', 'sfxVolume', 'bgm', 'bgmVolume', 'playbackMode', 'musicTracks',
       'damageNumbers', 'statusText',
       'screenShake', 'reducedMotion', 'gridEffects', 'fpsCounter',
+      'colorblind', 'highContrast',
       'uiScale', 'resetData',
       'back',
     ];
@@ -899,6 +932,9 @@ export class SettingsScene extends Phaser.Scene {
       case 'damageNumbers':
         this.damageNumberIndex = Math.max(0, this.damageNumberIndex - 1);
         break;
+      case 'colorblind':
+        this.colorblindModeIndex = Math.max(0, this.colorblindModeIndex - 1);
+        break;
     }
     this.refreshAllFocusVisuals();
   }
@@ -922,6 +958,9 @@ export class SettingsScene extends Phaser.Scene {
         break;
       case 'damageNumbers':
         this.damageNumberIndex = Math.min(3, this.damageNumberIndex + 1);
+        break;
+      case 'colorblind':
+        this.colorblindModeIndex = Math.min(COLORBLIND_MODE_OPTIONS.length - 1, this.colorblindModeIndex + 1);
         break;
     }
     this.refreshAllFocusVisuals();
@@ -965,6 +1004,12 @@ export class SettingsScene extends Phaser.Scene {
         break;
       case 'fpsCounter':
         settingsManager.setFpsCounterEnabled(!settingsManager.isFpsCounterEnabled());
+        break;
+      case 'colorblind':
+        settingsManager.setColorblindMode(colorblindModeAtIndex(this.colorblindModeIndex));
+        break;
+      case 'highContrast':
+        settingsManager.setHighContrast(!settingsManager.isHighContrastEnabled());
         break;
       case 'damageNumbers': {
         const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];
