@@ -66,7 +66,7 @@ import { LightingSystem } from '../../visual/LightingSystem';
 import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
 import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
 import { getPactById, type Pact } from '../../data/Pacts';
-import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage } from '../../systems/HazardZoneSystem';
+import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage } from '../../storage';
@@ -1218,6 +1218,7 @@ export class GameScene extends Phaser.Scene {
         y: chest.graphics.y,
         isSpecial: chest.isSpecial,
       })),
+      hazardState: getHazardState(),
     });
   }
 
@@ -1397,6 +1398,17 @@ export class GameScene extends Phaser.Scene {
     setHazardZoneWorldLevel(this.worldLevel);
     const restoredStage = getStageById(this.selectedStageId) ?? getDefaultStage();
     setHazardZoneStage(restoredStage.id);
+
+    // Restore live hazard zones + the auto-spawner pacing. resetAllRunSystems
+    // above wiped the module (setHazardZoneScene re-initialized the pool), so a
+    // mid-run refresh would otherwise despawn every active burn/ice/void/energy
+    // zone and restart the hazard spawn clock. Zone radius/duration were
+    // world-level-scaled at spawn time and round-trip verbatim; corrupt entries
+    // are skipped inside restoreHazardState. Absent on legacy saves → reset
+    // defaults win (no zones, fresh spawn timer).
+    if (state.hazardState) {
+      restoreHazardState(state.hazardState);
+    }
 
     // Restore on-field treasure chests. resetInRunFeatureState above destroyed
     // any chests and cleared activeChests; re-add the saved ones at their last

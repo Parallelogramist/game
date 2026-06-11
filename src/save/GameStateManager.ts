@@ -33,6 +33,9 @@ import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
 import { DirectorState } from '../systems/DirectorSystem';
 import type { SerializedTimedStatBuff } from '../systems/TimedStatBuffs';
+// Type-only import — HazardZoneSystem imports Phaser at runtime, but a type
+// import is erased at compile time, keeping the save layer Phaser-free.
+import type { SerializedHazardState } from '../systems/HazardZoneSystem';
 
 // Storage key and version
 const STORAGE_KEY = 'survivor-game-state';
@@ -346,6 +349,13 @@ export interface GameSaveState {
   // otherwise despawn them and lose the reward. Persisted so the chests survive
   // refresh-recovery. Absent on legacy saves → no chests restored.
   chestState?: SerializedChestEntry[];
+
+  // Live hazard zones (burn/ice/void/energy) + the auto-spawner pacing.
+  // Module-owned by HazardZoneSystem and wiped by resetAllRunSystems on
+  // restore, so a mid-run refresh would otherwise despawn every active zone
+  // and restart the hazard spawn clock. Persisted so zones + pacing survive
+  // refresh-recovery. Absent on legacy saves → reset defaults win.
+  hazardState?: SerializedHazardState;
 }
 
 /**
@@ -549,6 +559,7 @@ export class GameStateManager {
     bountyState?: SerializedBountyState;
     shrineState?: SerializedShrineState;
     chestState?: SerializedChestEntry[];
+    hazardState?: SerializedHazardState;
   }): void {
     try {
       const state: GameSaveState = {
@@ -613,6 +624,7 @@ export class GameStateManager {
         bountyState: gameData.bountyState,
         shrineState: gameData.shrineState,
         chestState: gameData.chestState,
+        hazardState: gameData.hazardState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

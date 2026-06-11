@@ -44,6 +44,30 @@ export interface HazardUpdateResult {
   killedEnemyIds: number[];
 }
 
+/**
+ * One active zone in JSON-safe form for refresh-recovery saves. `type` is a
+ * plain string (not HazardType) so the save layer stays decoupled from this
+ * module; restoreHazardState validates it against the known types. Radius and
+ * duration were world-level-scaled at spawn time, so they round-trip verbatim —
+ * no re-derivation needed. `maxDuration` is kept separately from the remaining
+ * `duration` so the fade-out visuals stay correct for zones saved mid-life.
+ */
+export interface SerializedHazardZoneEntry {
+  type: string;
+  x: number;
+  y: number;
+  radius: number;
+  duration: number;
+  maxDuration: number;
+}
+
+/** Active zones + spawner pacing, as persisted in the refresh-recovery save. */
+export interface SerializedHazardState {
+  zones: SerializedHazardZoneEntry[];
+  spawnTimer: number;
+  nextSpawnInterval: number;
+}
+
 // ---------------------------------------------------------------------------
 // Visual constants — neon color pairs per hazard type
 // ---------------------------------------------------------------------------
@@ -483,6 +507,76 @@ function pickHazardType(gameTime: number): HazardType | null {
     if (roll <= 0) return eligible[i].type;
   }
   return eligible[eligible.length - 1].type;
+}
+
+// ---------------------------------------------------------------------------
+// Save / restore (refresh-recovery)
+// ---------------------------------------------------------------------------
+
+const VALID_HAZARD_TYPES: readonly HazardType[] = ['burn', 'ice', 'void', 'energy'];
+
+function isHazardType(value: string): value is HazardType {
+  return (VALID_HAZARD_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * Snapshot the active zones + spawner pacing for the refresh-recovery save.
+ * Graphics are not serialized — restoreHazardState re-acquires them from the pool.
+ */
+export function getHazardState(): SerializedHazardState {
+  return {
+    zones: activeZones.map(zone => ({
+      type: zone.type,
+      x: zone.x,
+      y: zone.y,
+      radius: zone.radius,
+      duration: zone.duration,
+      maxDuration: zone.maxDuration,
+    })),
+    spawnTimer: hazardSpawnTimer,
+    nextSpawnInterval,
+  };
+}
+
+/**
+ * Recreate saved zones + spawner pacing after a refresh-recovery restore.
+ * Call AFTER setHazardZoneScene() (the graphics pool must exist). Entries with
+ * unknown types or non-finite numbers are skipped (tampered/corrupt save), and
+ * pool exhaustion caps the restored count — same natural cap as live spawning.
+ */
+export function restoreHazardState(state: SerializedHazardState): void {
+  if (!sceneRef) return;
+  // Saves are encrypted, but guard anyway — a truncated/tampered payload must
+  // degrade to "no zones restored", never crash the whole restore path.
+  if (!state || !Array.isArray(state.zones)) return;
+
+  for (const saved of state.zones) {
+    if (!saved || typeof saved.type !== 'string' || !isHazardType(saved.type)) continue;
+    if (!Number.isFinite(saved.x) || !Number.isFinite(saved.y) ||
+        !Number.isFinite(saved.radius) || !Number.isFinite(saved.duration) ||
+        !Number.isFinite(saved.maxDuration)) {
+      continue;
+    }
+
+    const zoneGraphics = acquireGraphics();
+    if (!zoneGraphics) break; // Pool exhausted — natural cap enforcement
+
+    activeZones.push({
+      x: saved.x,
+      y: saved.y,
+      radius: saved.radius,
+      type: saved.type,
+      duration: saved.duration,
+      // Guard against duration > maxDuration in a tampered save so the fade
+      // math (duration / (maxDuration × threshold)) never exceeds design range.
+      maxDuration: Math.max(saved.maxDuration, saved.duration),
+      tickTimer: 0,
+      graphics: zoneGraphics,
+    });
+  }
+
+  if (Number.isFinite(state.spawnTimer)) hazardSpawnTimer = state.spawnTimer;
+  if (Number.isFinite(state.nextSpawnInterval)) nextSpawnInterval = state.nextSpawnInterval;
 }
 
 // ---------------------------------------------------------------------------
