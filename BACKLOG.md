@@ -34,15 +34,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Next
 
-- [ ] **FEAT-TUTORIAL-HINTS — first-run contextual hints** · area: onboarding
-  **Value:** onboarding is near-absent and the `tutorialSeen` settings flag is dead
-  (persisted in `SettingsManager.ts:37` but read nowhere). New players meet break gates,
-  dash, evolutions, and pacts cold.
-  **Plan:** small `TutorialHintManager` — one-time hints (move, first level-up, first dash,
-  evolution-ready, first miniboss) via the existing `ToastManager`, gated by per-hint
-  SecureStorage flags; never repeats, dismissible, wire or retire `tutorialSeen`.
-  **Test-first:** the pure "which hint fires given (event, seen-set)" logic.
-
 - [ ] **TEST-SPATIALHASH — first coverage for the spatial-query foundation** · area: testing
   **Value:** `src/utils/SpatialHash.ts` underpins weapon targeting, overkill splash,
   GridBackground warping, and FrameCache — pure, zero-dependency, and untested. A subtle
@@ -134,6 +125,12 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-TUTORIAL-HINTS** — one-time contextual hints (`7036e29`; defs in
+    `src/tutorial/TutorialHints.ts`). Check: (a) dash-danger toast lands at a readable
+    moment (fires on first damage with dash ready — mid-swarm it may be missed), (b)
+    first-miniboss toast + warning banner together aren't noise, (c) touch wording shows
+    on actual phones, (d) evolution-progress toast doesn't stack awkwardly over the
+    upgrade-modal close. To re-test as a new player: clear `survivor-tutorial-hints`.
   - **POLISH-TELEGRAPH-BOSSES** — new windup telegraphs (`4f18ac4`; specs in
     `src/ecs/systems/enemy-ai/telegraphs.ts`). Check: (a) The Machine's 3-beam laser grid
     (800px lines, 1.5s) isn't visual noise over its bullet spam, (b) Void Wyrm sweep lane
@@ -176,6 +173,18 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-TUTORIAL-HINTS** — one-time contextual tutorial hints (done — `7036e29`).
+  New `src/tutorial/`: `TutorialHintManager` (one SecureStorage key `survivor-tutorial-hints`,
+  JSON array of seen ids, corruption-hardened load, singleton + test reset) and pure
+  `TutorialHints` (defs table + dash-hint outcome `show/defer/dismiss` +
+  `findBlockedEvolution` mirroring checkEvolutions threshold math; 27 tests). Five hints
+  wired: first-level-up (was dead — gated on `!isTutorialSeen()` which coach marks set true
+  at run start), dash-danger (first damage with dash ready; defers on cooldown, silently
+  dismissed once the player dashes; touch wording variant), evolution-progress (on upgrade
+  pick, names the lagging stat), first-miniboss (reward framing beside the warning banner),
+  shop (migrated off `tutorialSeen` — a pre-run shop visit used to set it and silently kill
+  the first-run coach marks; `tutorialSeen` now belongs to coach marks only). 'move' hint
+  skipped — coach marks already teach movement. Wording/timing feel → playtest queue.
 - [x] **FEAT-TELEGRAPH-COVERAGE** — telegraphed Giant stomp + all boss heavy AOEs
   (done — `4f18ac4`). Pure spec module `src/ecs/systems/enemy-ai/telegraphs.ts` (duration
   = windup, ring footprint ≥ damage radius; 23 tests) now holds ALL telegraph geometry —
