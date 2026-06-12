@@ -38,15 +38,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **TEST-SHOP-ECONOMY — lock the permanent-upgrade economy math** · area: testing
-  **Value:** persistent gold spend + unlock/ascension gating ride on
-  `src/data/PermanentUpgrades.ts` (~1,100 lines of data) with no direct test: a typo'd
-  `costScaling` silently wrecks the meta-game.
-  **Lock:** `calculateUpgradeCost` (`baseCost × costScaling^level`, rounding),
-  `calculateAccountLevel`, `getUpgradesByCategory` totality, and data integrity over
-  `PERMANENT_UPGRADES` (unique ids, valid categories, finite costs, scaling > 1,
-  maxLevel ≥ 1, every entry's stat field exists in `PermanentUpgradeState`).
-
 - [ ] **TEST-CONTENT-DATA-INTEGRITY — Affixes / Stages / Ships table locks** · area: testing
   **Value:** the three content tables the closed pure-data vein never reached; same silent
   balance-bug class (a malformed unlock gate or non-finite multiplier ships invisibly).
@@ -161,6 +152,22 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **TEST-SHOP-ECONOMY** — permanent-upgrade economy math locked (done — `2b5860f`).
+  28 tests in `src/data/PermanentUpgrades.test.ts`: `calculateUpgradeCost` (floor
+  rounding, Infinity at/past maxLevel, last level finite, every real upgrade's full
+  price ladder finite/positive-integer/non-decreasing), `calculateAccountLevel`,
+  `getUpgradesByCategory` partition totality, table integrity (unique ids, valid
+  categories, positive-integer baseCost, costScaling > 1, maxLevel ≥ 1, getEffect
+  total over levels 0..max, icons resolve in `IconMap` without the warn-fallback),
+  `getPermanentUpgradeById` round-trip. The "stat field exists" clause translated to a
+  **bidirectional shop↔manager id consistency lock** (`PermanentUpgradeState` is
+  `Record<string, number>` — untypeable): a `?raw` source scan of
+  `MetaProgressionManager.ts` asserts every sold id is consumed
+  (`level`/`tieredBonus`/`getUpgradeLevel`) and every consumed id is sold, with a ≥50-id
+  extraction-sanity floor so a helper rename fails loudly. Added missing standard
+  `src/vite-env.d.ts` (vite/client types) for the `?raw` import. Teeth: 6 hand
+  mutations (floor→round, ≥→> guard, sum→count, id rename, icon typo, filter
+  inversion) — all killed.
 - [x] **FEAT-MENU-NAV-GAPS** — keyboard/gamepad nav for the unwired scenes
   (done — `abf7c58`). `MenuNavigator` nav math extracted to pure
   `src/input/menuNavigation.ts` (`computeNextNavIndex` wrap/clamp/last-row-clamp +
