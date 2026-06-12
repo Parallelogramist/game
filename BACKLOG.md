@@ -34,18 +34,7 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Next
 
-- [ ] **FEAT-MENU-NAV-GAPS — keyboard/gamepad nav for the unwired scenes** · area: ux
-  **Value:** every run routes through `PactSelectScene` (both weapon-select exits), yet it
-  is pointer-only — gamepad/keyboard players hit a wall pre-run. `AchievementScene` and
-  `MusicSettingsScene` have the same gap (every other menu scene already uses the shared
-  `MenuNavigator`, `src/input/MenuNavigator.ts`).
-  **Plan:** wire `MenuNavigator` into the three scenes, mirroring `WeaponSelectScene`.
-  **Test-first:** `MenuNavigator`'s pure nav-order/wrap logic gets its first unit test.
-  **Follow-up (from FEAT-COLORBLIND-UI review):** gamepad d-pad left/right can't move
-  segmented-pill selection anywhere — `MenuNavigator` is built `columns: 1` so it ignores
-  left/right (`src/input/MenuNavigator.ts:77–86`), and scenes' own keydown handlers cover
-  keyboard only. Affects SettingsScene playbackMode/damageNumbers/colorblind rows; a
-  controller-only player can focus a segmented row but only commit the current index.
+(empty — next agent: take the topmost Later item)
 
 ## Later
 
@@ -116,6 +105,14 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MENU-NAV** — keyboard/gamepad nav on the newly wired scenes (`abf7c58`).
+    Check with a controller: (a) PactSelect — yellow focus ring vs pact-color selected
+    border legibility; B = skip-pacts-and-begin feels right (it's not "back"), (b)
+    Achievement — d-pad down moves one visual card row at a time and scroll follows
+    focus, (c) MusicSettings — held d-pad walks the 26-track list at a comfortable rate
+    (200ms repeat), (d) Settings — stick/d-pad left/right volume-adjust speed; segmented
+    pills (playback/damage numbers/colorblind) step one option per press; reset-confirm
+    dialog fully drivable by pad (left/right + A/B).
   - **POLISH-TUTORIAL-HINTS** — one-time contextual hints (`7036e29`; defs in
     `src/tutorial/TutorialHints.ts`). Check: (a) dash-danger toast lands at a readable
     moment (fires on first damage with dash ready — mid-swarm it may be missed), (b)
@@ -164,6 +161,23 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-MENU-NAV-GAPS** — keyboard/gamepad nav for the unwired scenes
+  (done — `abf7c58`). `MenuNavigator` nav math extracted to pure
+  `src/input/menuNavigation.ts` (`computeNextNavIndex` wrap/clamp/last-row-clamp +
+  `resolveHorizontalNav`; 23 tests) and the navigator got its first dispatch tests (19,
+  mocked-Phaser fake scene). New API: optional per-item `onLeft`/`onRight` (columns-1
+  lists route horizontal input — arrows/AD, d-pad, stick — to the focused item),
+  `setEnabled()` (suspend while a modal owns input), and gamepad edge state primed at
+  construction (the A-press that opens a confirmation can't instantly activate it —
+  latent BootScene confirmation bug, fixed for all navigators). Wired: PactSelectScene
+  (flat 5-cards+BEGIN grid; number keys stay; Esc/B = skip-and-begin),
+  MusicSettingsScene + AchievementScene (columns-1 zone rows — actions/tabs rows via
+  onLeft/onRight, per-card-row items preserve column; scene keydown nav deleted; 'P'
+  shortcut kept), SettingsScene (volume/uiScale/segmented zones pad-adjustable;
+  reset-confirm overlay suspends the main navigator + gets its own CONFIRM/CANCEL
+  navigator). Teeth: 2 hand mutations (last-row clamp, item-routing) both killed; the
+  stale-edge bug was caught in self-review and fixed test-first. Feel → playtest queue
+  (POLISH-MENU-NAV).
 - [x] **TEST-SPATIALHASH** — first coverage for the spatial-query foundation
   (done — `a712b46`). 22 tests in `src/utils/SpatialHash.test.ts`: insert/query radius
   correctness (80px cell-boundary straddling, inclusive radius edge), negative-coord
