@@ -38,14 +38,14 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **TEST-CONTENT-DATA-INTEGRITY — Affixes / Stages / Ships table locks** · area: testing
-  **Value:** the three content tables the closed pure-data vein never reached; same silent
-  balance-bug class (a malformed unlock gate or non-finite multiplier ships invisibly).
-  **Lock:** `rollAffix` (`src/data/Affixes.ts:78` — `AFFIX_ROLL_CHANCE` honored,
-  chanceMultiplier scaling/clamp, distribution over `AFFIX_META`, none on failed roll);
-  `Stages.ts` + `ShipCharacters.ts` integrity (unique ids, finite multipliers, unlock gate
-  syntax `hidden:<id>` / `worldLevel:<n>` parses, `getDefaultStage`/`getDefaultShip`
-  resolve, `getStageById`/`getShipById` round-trip).
+- [ ] **FEAT-SHIP-ACCOUNT-GATE — implement or drop the documented `account:<level>` ship gate**
+  · area: consistency · **Value:** `ShipCharacter.unlockRequirement` docs
+  (`src/data/ShipCharacters.ts:~57`) promise `'account:<level>'` gating, but
+  `WeaponSelectScene.getAvailableShips()` (line ~292) only parses `hidden:` — any
+  `account:` gate would silently ship always-unlocked. No ship uses it today;
+  `ShipCharacters.test.ts` locks gates to hidden-only so adding one fails loudly.
+  Either wire account-level parsing (MetaProgressionManager has account level) + relax
+  the test, or delete the doc claim. Tiny session.
 
 - [ ] **REFACTOR-2 (phase 1) — extract regular-enemy AI handlers** · area: architecture
   **Value:** `EnemyAISystem.ts` is 2,076 lines around one ~29-case switch;
@@ -152,6 +152,19 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **TEST-CONTENT-DATA-INTEGRITY** — Affixes/Stages/Ships table locks (done — `f93e1d8`).
+  39 tests in `Affixes.test.ts` / `Stages.test.ts` / `ShipCharacters.test.ts`: rollAffix
+  gate (12% base, inclusive boundary, linear chanceMultiplier, **no upper clamp** —
+  documented as current behavior), hardcoded weighted-band probes, AFFIX_META integrity +
+  tuned weight ladder; stage/ship table integrity (unique ids, finite positive
+  multipliers, 24-bit colors, alpha range), unlock-gate syntax locked to what
+  `WeaponSelectScene` actually parses, **bidirectional** gate↔`HIDDEN_UNLOCKS`
+  consistency (condition exists, `target` + `unlockId` match, every ship/stage-targeting
+  condition gates a real entry), registry-mirror weapon-id check, load-bearing
+  `ship_default` fallback id, ≥1 ungated ship for the daily pool. Teeth: 7 hand
+  mutations — all killed. Found + filed FEAT-SHIP-ACCOUNT-GATE (`account:` gate
+  documented but unparsed); fixed stale "8 ships" comment (roster is 11). Pure-data
+  content tables now fully locked.
 - [x] **TEST-SHOP-ECONOMY** — permanent-upgrade economy math locked (done — `2b5860f`).
   28 tests in `src/data/PermanentUpgrades.test.ts`: `calculateUpgradeCost` (floor
   rounding, Infinity at/past maxLevel, last level finite, every real upgrade's full
