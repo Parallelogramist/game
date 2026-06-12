@@ -38,15 +38,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **FEAT-SHIP-ACCOUNT-GATE — implement or drop the documented `account:<level>` ship gate**
-  · area: consistency · **Value:** `ShipCharacter.unlockRequirement` docs
-  (`src/data/ShipCharacters.ts:~57`) promise `'account:<level>'` gating, but
-  `WeaponSelectScene.getAvailableShips()` (line ~292) only parses `hidden:` — any
-  `account:` gate would silently ship always-unlocked. No ship uses it today;
-  `ShipCharacters.test.ts` locks gates to hidden-only so adding one fails loudly.
-  Either wire account-level parsing (MetaProgressionManager has account level) + relax
-  the test, or delete the doc claim. Tiny session.
-
 - [ ] **REFACTOR-2 (phase 1) — extract regular-enemy AI handlers** · area: architecture
   **Value:** `EnemyAISystem.ts` is 2,076 lines around one ~29-case switch;
   `src/ecs/systems/enemy-ai/` exists but holds only `state.ts` + `index.ts`. Extraction
@@ -63,6 +54,15 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   **Plan:** a stats panel on the pause overlay (`PauseMenuManager`): DPS, crit %,
   kills/min, damage taken, top weapons by damage. **Test-first:** pure stat-derivation
   helpers (per-minute rates, top-N ordering).
+
+- [ ] **POLISH-ACCOUNT-GATE-TOAST — unlock feedback when an account: ship gate opens**
+  · area: ux · **Value:** hidden-gated ships toast on unlock via HiddenUnlockManager;
+  an `account:<n>` gate (`src/data/UnlockGates.ts`, wired `a41c64e`) crosses its
+  threshold silently mid-shop-purchase — the player never learns a ship appeared.
+  **Do only once a ship actually uses `account:`** (none does today; roster gating is
+  a human balance call). Hook: ShopScene purchase path already reads
+  `getAccountLevel()`; compare before/after against `SHIP_CHARACTERS` account gates,
+  toast via ToastManager. Tiny session.
 
 - [ ] **BALANCE-EXPLODER-FUSE — telegraphed fuse for the Exploder death explosion**
   · area: readability/balance · **BLOCKED on human sign-off — behavior change**
@@ -152,6 +152,22 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-SHIP-ACCOUNT-GATE** — documented `account:<level>` ship gate wired
+  (done — `a41c64e`). New pure `src/data/UnlockGates.ts`:
+  `isUnlockRequirementMet(requirement, {unlockedConditionIds, worldLevel,
+  accountLevel})` — single parser for ship + stage gates, exact legacy semantics
+  (falsy/unknown-prefix → unlocked, `Number(...) || 0` malformed levels); 17 tests.
+  Both `WeaponSelectScene` availability filters delegate to it; ships gain
+  `account:<n>` via `getAccountLevel()`. Ship gate lock widened to
+  `hidden:|account:\d+`; stage lock deliberately stays `hidden:|worldLevel:` (doc
+  promises only those — widen consciously). Roster unchanged: gating an existing
+  ship strips live content (human balance call) — adding an account-gated ship is
+  now a one-line data edit. Note: account-gated ships re-lock after ascension
+  reset (consistent with account-gated shop upgrades). Teeth: 3 mutations/controls
+  (`>=`→`>`, junk `account:abc` gate, valid `account:5` positive control) — all
+  behaved. Follow-up filed: account-gate unlocks are silent (no toast — hidden
+  unlocks toast via HiddenUnlockManager; account thresholds cross silently in the
+  shop). Only matters once a ship actually uses `account:`.
 - [x] **TEST-CONTENT-DATA-INTEGRITY** — Affixes/Stages/Ships table locks (done — `f93e1d8`).
   39 tests in `Affixes.test.ts` / `Stages.test.ts` / `ShipCharacters.test.ts`: rollAffix
   gate (12% base, inclusive boundary, linear chanceMultiplier, **no upper clamp** —
