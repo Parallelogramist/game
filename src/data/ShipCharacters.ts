@@ -62,7 +62,7 @@ export interface ShipCharacter {
 }
 
 // ---------------------------------------------------------------------------
-// Ship roster (8 ships)
+// Ship roster
 // ---------------------------------------------------------------------------
 
 export const SHIP_CHARACTERS: ShipCharacter[] = [
