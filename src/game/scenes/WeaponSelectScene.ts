@@ -10,6 +10,7 @@ import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
@@ -177,22 +178,18 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.stepButtons.push(backButton);
   }
 
-  private getAvailableStages(): StageDefinition[] {
-    const hiddenUnlockManager = getHiddenUnlockManager();
+  private buildUnlockGateContext(): UnlockGateContext {
     const metaManager = getMetaProgressionManager();
-    const currentWorldLevel = metaManager.getWorldLevel();
-    return STAGES.filter((stage) => {
-      if (!stage.unlockRequirement) return true;
-      if (stage.unlockRequirement.startsWith('hidden:')) {
-        const conditionId = stage.unlockRequirement.slice('hidden:'.length);
-        return hiddenUnlockManager.getUnlockedConditionIds().includes(conditionId);
-      }
-      if (stage.unlockRequirement.startsWith('worldLevel:')) {
-        const requiredLevel = Number(stage.unlockRequirement.slice('worldLevel:'.length)) || 0;
-        return currentWorldLevel >= requiredLevel;
-      }
-      return true;
-    });
+    return {
+      unlockedConditionIds: getHiddenUnlockManager().getUnlockedConditionIds(),
+      worldLevel: metaManager.getWorldLevel(),
+      accountLevel: metaManager.getAccountLevel(),
+    };
+  }
+
+  private getAvailableStages(): StageDefinition[] {
+    const gateContext = this.buildUnlockGateContext();
+    return STAGES.filter((stage) => isUnlockRequirementMet(stage.unlockRequirement, gateContext));
   }
 
   private renderStageSelectionStep(stages: StageDefinition[]): void {
@@ -287,15 +284,8 @@ export class WeaponSelectScene extends Phaser.Scene {
   }
 
   private getAvailableShips(): ShipCharacter[] {
-    const hiddenUnlockManager = getHiddenUnlockManager();
-    return SHIP_CHARACTERS.filter((ship) => {
-      if (!ship.unlockRequirement) return true;
-      if (ship.unlockRequirement.startsWith('hidden:')) {
-        const conditionId = ship.unlockRequirement.slice('hidden:'.length);
-        return hiddenUnlockManager.getUnlockedConditionIds().includes(conditionId);
-      }
-      return true;
-    });
+    const gateContext = this.buildUnlockGateContext();
+    return SHIP_CHARACTERS.filter((ship) => isUnlockRequirementMet(ship.unlockRequirement, gateContext));
   }
 
   private renderShipSelectionStep(ships: ShipCharacter[]): void {

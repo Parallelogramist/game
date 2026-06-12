@@ -56,7 +56,9 @@ export interface ShipCharacter {
   /**
    * Unlock requirement. If undefined, ship is available from run 1.
    * If 'hidden:<conditionId>', unlock gated via HiddenUnlockManager.
-   * If 'account:<level>', unlock gated via account level.
+   * If 'account:<level>', unlock gated via account level (re-locks after an
+   * ascension reset, like account-gated shop upgrades).
+   * Parsed by isUnlockRequirementMet (src/data/UnlockGates.ts).
    */
   unlockRequirement?: string;
 }

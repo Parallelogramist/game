@@ -12,11 +12,13 @@ const REGISTRY_WEAPON_IDS = [
   'ricochet', 'ground_spike', 'drone', 'shuriken',
 ];
 
-// WeaponSelectScene.getAvailableShips() only understands 'hidden:<conditionId>'.
-// The interface doc also mentions 'account:<level>' but no consumer parses it —
-// an account: gate would silently ship always-unlocked. Lock hidden-only until
-// account gating is actually implemented.
+// WeaponSelectScene.getAvailableShips() resolves gates via
+// isUnlockRequirementMet (src/data/UnlockGates.ts), which parses
+// 'hidden:<conditionId>' and 'account:<level>' for ships. Lock the table to
+// exactly those syntaxes — anything else would silently ship always-unlocked
+// (the parser treats unknown prefixes as unlocked).
 const HIDDEN_GATE_PATTERN = /^hidden:([a-z0-9_]+)$/;
+const ACCOUNT_GATE_PATTERN = /^account:(\d+)$/;
 
 describe('SHIP_CHARACTERS — table integrity', () => {
   test('ship ids are unique and non-empty', () => {
@@ -78,13 +80,13 @@ describe('SHIP_CHARACTERS — table integrity', () => {
 });
 
 describe('SHIP_CHARACTERS — unlock gates', () => {
-  test('every gate uses the hidden: syntax the unlock filter actually parses', () => {
+  test('every gate uses a syntax the unlock filter actually parses', () => {
     for (const ship of SHIP_CHARACTERS) {
       if (!ship.unlockRequirement) continue;
-      expect(
-        HIDDEN_GATE_PATTERN.test(ship.unlockRequirement),
-        `${ship.id} gate "${ship.unlockRequirement}"`
-      ).toBe(true);
+      const parses =
+        HIDDEN_GATE_PATTERN.test(ship.unlockRequirement) ||
+        ACCOUNT_GATE_PATTERN.test(ship.unlockRequirement);
+      expect(parses, `${ship.id} gate "${ship.unlockRequirement}"`).toBe(true);
     }
   });
 

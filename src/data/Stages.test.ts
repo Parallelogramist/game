@@ -2,9 +2,11 @@ import { describe, test, expect } from 'vitest';
 import { STAGES, getStageById, getDefaultStage } from './Stages';
 import { HIDDEN_UNLOCKS } from '../meta/HiddenUnlocks';
 
-// The exact gate syntaxes WeaponSelectScene.getAvailableStages() understands.
-// Anything else falls through to "always unlocked" silently — so a typo'd gate
-// ships as a free stage. These patterns keep that failure loud.
+// The gate syntaxes the StageDefinition doc promises (the shared parser in
+// src/data/UnlockGates.ts also accepts 'account:<n>', but no stage uses it —
+// widen this lock consciously if one ever should). Anything else falls through
+// to "always unlocked" silently — so a typo'd gate ships as a free stage.
+// These patterns keep that failure loud.
 const HIDDEN_GATE_PATTERN = /^hidden:([a-z0-9_]+)$/;
 const WORLD_LEVEL_GATE_PATTERN = /^worldLevel:([1-9][0-9]*)$/;
 
