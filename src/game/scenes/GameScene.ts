@@ -91,6 +91,8 @@ import { getStageById, getDefaultStage } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
+import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
+import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
 
 // Module-level queries (defined once, not per-frame)
@@ -364,6 +366,8 @@ export class GameScene extends Phaser.Scene {
   // Dash afterimage pool
   private dashAfterimagePool: Phaser.GameObjects.Arc[] = [];
   private dashAfterimageTimer: number = 0;
+  // True once the player has dashed this run — silences the dash tutorial hint.
+  private hasDashedThisRun: boolean = false;
 
   // Status effect visual overlays on enemies
   private statusEffectVisualManager!: StatusEffectVisualManager;
@@ -2422,6 +2426,7 @@ export class GameScene extends Phaser.Scene {
    * stale graphics/timers/counters never carry across runs.
    */
   private resetInRunFeatureState(): void {
+    this.hasDashedThisRun = false;
     this.destructibleCount = 0;
     this.destructibleSpawnTimer = 12;
     this.activeShrines.forEach(shrine => shrine.graphics.destroy());
@@ -3035,6 +3040,7 @@ export class GameScene extends Phaser.Scene {
     // ═══ DASH ABILITY ═══
     const dashState = this.inputController.updateDash(deltaSeconds);
     if (dashState.isDashing) {
+      this.hasDashedThisRun = true;
       // Apply dash velocity (dashState velocities are multipliers, scale by moveSpeed)
       const dashSpeed = this.playerStats.moveSpeed;
       Velocity.x[this.playerId] = dashState.velocityX * dashSpeed;
@@ -3515,6 +3521,35 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * One-time dash tutorial hint, fired the first time real damage lands while
+   * dash sits ready. Defers while dash is cooling down (the hit that finally
+   * lands with dash available teaches the lesson); dismisses silently once the
+   * player dashes on their own.
+   */
+  private maybeShowDashHint(): void {
+    const hintManager = getTutorialHintManager();
+    if (hintManager.hasSeen('dash-danger')) return;
+
+    const outcome = evaluateDashDangerHint({
+      dashReady: this.inputController.getDashCooldownRemaining() <= 0,
+      hasDashedThisRun: this.hasDashedThisRun,
+    });
+    if (outcome === 'dismiss') {
+      hintManager.markSeen('dash-danger');
+    } else if (outcome === 'show' && hintManager.maybeShow('dash-danger')) {
+      const def = getTutorialHintDef('dash-danger');
+      const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+      this.toastManager.showToast({
+        title: def.title,
+        description: getHintDescription(def, isTouchDevice),
+        icon: def.icon,
+        color: def.color,
+        duration: def.duration,
+      });
+    }
+  }
+
+  /**
    * Applies damage to the player with full defensive stat calculations.
    * @param amount Base damage amount
    * @param attackerEntity Optional entity ID for thorns damage
@@ -3648,6 +3683,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.effectsManager.playImpactFlash(0.15, 60);
 
+    this.maybeShowDashHint();
 
     // ═══ THORNS DAMAGE ═══
     if (this.playerStats.thornsPercent > 0 && attackerEntity !== undefined) {
@@ -4707,6 +4743,19 @@ export class GameScene extends Phaser.Scene {
 
     // Announce miniboss spawn with visual effect
     this.showMinibossWarning(enemyType.name);
+
+    // One-time teach on the very first miniboss ever: the warning banner says
+    // "danger", this toast says "worth fighting" (relic/consumable rewards).
+    if (getTutorialHintManager().maybeShow('first-miniboss')) {
+      const minibossHint = getTutorialHintDef('first-miniboss');
+      this.toastManager.showToast({
+        title: minibossHint.title,
+        description: minibossHint.description,
+        icon: minibossHint.icon,
+        color: minibossHint.color,
+        duration: minibossHint.duration,
+      });
+    }
   }
 
   /**
@@ -6375,14 +6424,17 @@ export class GameScene extends Phaser.Scene {
       },
     });
 
-    // Tutorial toast on first level-up
-    if (!getSettingsManager().isTutorialSeen() && this.playerStats.level === 2) {
+    // One-time tutorial toast on the first level-up ever. Previously gated on
+    // !isTutorialSeen(), which the coach marks set true at run start — so it
+    // never fired. The per-hint flag actually shows it once.
+    if (this.playerStats.level === 2 && getTutorialHintManager().maybeShow('first-level-up')) {
+      const levelUpHint = getTutorialHintDef('first-level-up');
       this.toastManager.showToast({
-        title: 'Level Up!',
-        description: 'Pick an upgrade to power up',
-        icon: 'star',
-        color: 0x44aaff,
-        duration: 3000,
+        title: levelUpHint.title,
+        description: levelUpHint.description,
+        icon: levelUpHint.icon,
+        color: levelUpHint.color,
+        duration: levelUpHint.duration,
       });
     }
 
@@ -6912,6 +6964,26 @@ export class GameScene extends Phaser.Scene {
         duration: 5000,
       });
       this.soundManager.playAchievementUnlock();
+    } else if (this.toastManager && !getTutorialHintManager().hasSeen('evolution-progress')) {
+      // One-time teach: a weapon just reached its evolution level but the
+      // required stat lags — point the player at the missing half.
+      const blocked = findBlockedEvolution(
+        this.weaponManager.getAllWeapons().map(w => ({
+          id: w.id, name: w.name, level: w.getLevel(), isEvolved: w.isEvolved,
+        })),
+        this.upgrades.map(u => ({ id: u.id, name: u.name, currentLevel: u.currentLevel })),
+        this.evolutionLevelReduction
+      );
+      if (blocked && getTutorialHintManager().maybeShow('evolution-progress')) {
+        const evolutionHint = getTutorialHintDef('evolution-progress');
+        this.toastManager.showToast({
+          title: evolutionHint.title,
+          description: formatEvolutionHint(blocked),
+          icon: evolutionHint.icon,
+          color: evolutionHint.color,
+          duration: evolutionHint.duration,
+        });
+      }
     }
 
     // Highlight the upgrade icon for 5 seconds (also rebuilds icons)

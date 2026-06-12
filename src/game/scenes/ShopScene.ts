@@ -23,7 +23,8 @@ import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { fadeIn, fadeOut } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { getToastManager, ToastManager } from '../../ui';
-import { getSettingsManager } from '../../settings';
+import { getTutorialHintDef } from '../../tutorial/TutorialHints';
+import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { TooltipManager } from '../../ui/TooltipManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
@@ -345,17 +346,20 @@ export class ShopScene extends Phaser.Scene {
     this.buildMenuNavigator();
     this.updateFocusVisuals();
 
-    if (!getSettingsManager().isTutorialSeen()) {
+    // One-time shop hint via the per-hint flag. Previously this read AND set
+    // the global `tutorialSeen` flag, so visiting the shop before a first run
+    // silently killed the first-run coach marks in GameScene.
+    if (getTutorialHintManager().maybeShow('shop')) {
+      const shopHint = getTutorialHintDef('shop');
       this.time.delayedCall(800, () => {
         this.toastManager.showToast({
-          title: 'Shop',
-          description: 'Spend gold on permanent upgrades',
-          icon: 'coins',
-          color: 0x44aaff,
-          duration: 3000,
+          title: shopHint.title,
+          description: shopHint.description,
+          icon: shopHint.icon,
+          color: shopHint.color,
+          duration: shopHint.duration,
         });
       });
-      getSettingsManager().setTutorialSeen(true);
     }
 
     this.events.once('shutdown', this.shutdown, this);
