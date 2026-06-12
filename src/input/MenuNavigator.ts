@@ -15,11 +15,19 @@ import {
   GAMEPAD_DPAD_LEFT,
   GAMEPAD_DPAD_RIGHT,
 } from './GamepadManager';
+import { computeNextNavIndex, resolveHorizontalNav } from './menuNavigation';
 
 export interface NavigableItem {
   onFocus: () => void;
   onBlur: () => void;
   onActivate: () => void;
+  /**
+   * Optional horizontal handlers for single-column lists: when columns is 1,
+   * left/right input (arrows, A/D, D-pad, stick) is routed to the focused
+   * item instead of grid navigation — segmented pills, volume rows, tab rows.
+   */
+  onLeft?: () => void;
+  onRight?: () => void;
 }
 
 export interface MenuNavigatorConfig {
@@ -46,6 +54,7 @@ export class MenuNavigator {
   private gamepadPollTimer: Phaser.Time.TimerEvent | null = null;
   private lastNavTime: number = 0;
   private previousGamepadButtons: boolean[] = new Array(16).fill(false);
+  private enabled: boolean = true;
 
   constructor(config: MenuNavigatorConfig) {
     this.scene = config.scene;
@@ -57,6 +66,7 @@ export class MenuNavigator {
 
     this.setupKeyboard();
     this.setupGamepadPolling();
+    this.primeGamepadButtonState();
 
     // Focus initial item
     if (this.items.length > 0 && this.selectedIndex < this.items.length) {
@@ -64,8 +74,23 @@ export class MenuNavigator {
     }
   }
 
+  /**
+   * Seed edge detection with the pad's current state so a button still held
+   * from the interaction that created this navigator (e.g. the A-press that
+   * opened a confirmation dialog) doesn't fire a stale press edge.
+   */
+  private primeGamepadButtonState(): void {
+    const pad = this.scene.input.gamepad?.pad1;
+    if (!pad || !pad.connected) return;
+    for (let i = 0; i < 16; i++) {
+      const button = pad.buttons[i];
+      this.previousGamepadButtons[i] = button ? button.pressed : false;
+    }
+  }
+
   private setupKeyboard(): void {
     this.keydownHandler = (event: KeyboardEvent) => {
+      if (!this.enabled) return;
       const key = event.key.toLowerCase();
 
       if (event.key === 'ArrowDown' || key === 's') {
@@ -75,14 +100,12 @@ export class MenuNavigator {
         event.preventDefault();
         this.navigate(0, -1);
       } else if (event.key === 'ArrowRight' || key === 'd') {
-        if (this.columns > 1) {
+        if (this.handleHorizontal(1)) {
           event.preventDefault();
-          this.navigate(1, 0);
         }
       } else if (event.key === 'ArrowLeft' || key === 'a') {
-        if (this.columns > 1) {
+        if (this.handleHorizontal(-1)) {
           event.preventDefault();
-          this.navigate(-1, 0);
         }
       } else if (event.key === ' ' || event.key === 'Enter') {
         event.preventDefault();
@@ -93,6 +116,27 @@ export class MenuNavigator {
       }
     };
     this.scene.input.keyboard?.on('keydown', this.keydownHandler);
+  }
+
+  /**
+   * Route a horizontal input: grid navigation in multi-column layouts, the
+   * focused item's onLeft/onRight in single-column lists. Returns true when
+   * the input was consumed.
+   */
+  private handleHorizontal(direction: -1 | 1): boolean {
+    const currentItem = this.items[this.selectedIndex];
+    const handler = direction === 1 ? currentItem?.onRight : currentItem?.onLeft;
+    const mode = resolveHorizontalNav(this.columns, handler !== undefined);
+
+    if (mode === 'grid') {
+      this.navigate(direction, 0);
+      return true;
+    }
+    if (mode === 'item') {
+      handler!();
+      return true;
+    }
+    return false;
   }
 
   private setupGamepadPolling(): void {
@@ -119,7 +163,7 @@ export class MenuNavigator {
     }
 
     // D-pad navigation (with repeat delay)
-    if (canRepeat) {
+    if (this.enabled && canRepeat) {
       const stickX = pad.leftStick.x;
       const stickY = pad.leftStick.y;
 
@@ -129,22 +173,20 @@ export class MenuNavigator {
       } else if (currentButtons[GAMEPAD_DPAD_UP] || stickY < -STICK_NAV_THRESHOLD) {
         this.navigate(0, -1);
         this.lastNavTime = now;
-      } else if (this.columns > 1 && (currentButtons[GAMEPAD_DPAD_RIGHT] || stickX > STICK_NAV_THRESHOLD)) {
-        this.navigate(1, 0);
-        this.lastNavTime = now;
-      } else if (this.columns > 1 && (currentButtons[GAMEPAD_DPAD_LEFT] || stickX < -STICK_NAV_THRESHOLD)) {
-        this.navigate(-1, 0);
-        this.lastNavTime = now;
+      } else if (currentButtons[GAMEPAD_DPAD_RIGHT] || stickX > STICK_NAV_THRESHOLD) {
+        if (this.handleHorizontal(1)) this.lastNavTime = now;
+      } else if (currentButtons[GAMEPAD_DPAD_LEFT] || stickX < -STICK_NAV_THRESHOLD) {
+        if (this.handleHorizontal(-1)) this.lastNavTime = now;
       }
     }
 
     // A button — activate (edge-detected: only on press, not hold)
-    if (currentButtons[GAMEPAD_BUTTON_A] && !this.previousGamepadButtons[GAMEPAD_BUTTON_A]) {
+    if (this.enabled && currentButtons[GAMEPAD_BUTTON_A] && !this.previousGamepadButtons[GAMEPAD_BUTTON_A]) {
       this.activate();
     }
 
     // B button — cancel (edge-detected)
-    if (currentButtons[GAMEPAD_BUTTON_B] && !this.previousGamepadButtons[GAMEPAD_BUTTON_B]) {
+    if (this.enabled && currentButtons[GAMEPAD_BUTTON_B] && !this.previousGamepadButtons[GAMEPAD_BUTTON_B]) {
       this.cancel();
     }
 
@@ -159,34 +201,9 @@ export class MenuNavigator {
    * For vertical lists (columns=1), only dy matters.
    */
   private navigate(dx: number, dy: number): void {
-    if (this.items.length === 0) return;
-
-    const columns = this.columns;
-    const totalItems = this.items.length;
-
-    // Calculate current row/col
-    const currentCol = this.selectedIndex % columns;
-    const currentRow = Math.floor(this.selectedIndex / columns);
-    const totalRows = Math.ceil(totalItems / columns);
-
-    let newCol = currentCol + dx;
-    let newRow = currentRow + dy;
-
-    if (this.wrap) {
-      newCol = ((newCol % columns) + columns) % columns;
-      newRow = ((newRow % totalRows) + totalRows) % totalRows;
-    } else {
-      newCol = Math.max(0, Math.min(columns - 1, newCol));
-      newRow = Math.max(0, Math.min(totalRows - 1, newRow));
-    }
-
-    let newIndex = newRow * columns + newCol;
-
-    // Clamp to valid range (last row may not be full)
-    if (newIndex >= totalItems) {
-      newIndex = totalItems - 1;
-    }
-
+    const newIndex = computeNextNavIndex(
+      this.selectedIndex, dx, dy, this.items.length, this.columns, this.wrap,
+    );
     if (newIndex !== this.selectedIndex) {
       this.selectIndex(newIndex);
     }
@@ -252,6 +269,16 @@ export class MenuNavigator {
    */
   setColumns(columns: number): void {
     this.columns = columns;
+  }
+
+  /**
+   * Suspend / resume all input handling without tearing the navigator down —
+   * e.g. while a modal confirmation overlay owns the input. While disabled,
+   * gamepad button state keeps polling so re-enabling never fires a stale
+   * press edge.
+   */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
   }
 
   /**

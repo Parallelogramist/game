@@ -7,6 +7,7 @@ import Phaser from 'phaser';
 import { getMusicManager } from '../../audio/MusicManager';
 import { MUSIC_CATALOG, Track } from '../../data/MusicCatalog';
 import { fadeIn } from '../../utils/SceneTransition';
+import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
@@ -51,6 +52,7 @@ export class MusicSettingsScene extends Phaser.Scene {
   private selectedActionIndex: number = 0;
   private selectedTrackIndex: number = 0;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
 
   private readonly trackListY = 170;
   private readonly trackHeight = 38;
@@ -118,8 +120,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     });
     selectAllButton.card.hitZone.on('pointerover', () => {
       this.selectedActionIndex = 0;
-      this.focusZone = 'actions';
-      this.updateFocusVisuals();
+      this.menuNavigator?.selectIndex(0);
     });
     const deselectAllButton = createMenuButton({
       scene: this,
@@ -134,8 +135,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     });
     deselectAllButton.card.hitZone.on('pointerover', () => {
       this.selectedActionIndex = 1;
-      this.focusZone = 'actions';
-      this.updateFocusVisuals();
+      this.menuNavigator?.selectIndex(0);
     });
     this.actionButtons = [selectAllButton, deselectAllButton];
 
@@ -185,10 +185,8 @@ export class MusicSettingsScene extends Phaser.Scene {
       onActivate: () => this.goBack(),
     });
     this.backButton.card.hitZone.on('pointerover', () => {
-      this.focusZone = 'back';
-      this.updateFocusVisuals();
+      this.menuNavigator?.selectIndex(1 + MUSIC_CATALOG.length);
     });
-    this.backButton.card.hitZone.on('pointerout', () => this.updateFocusVisuals());
 
     this.time.addEvent({
       delay: 1000,
@@ -197,10 +195,73 @@ export class MusicSettingsScene extends Phaser.Scene {
       loop: true,
     });
 
-    this.setupKeyboardNavigation();
+    this.buildMenuNavigator();
+    this.setupKeyboardShortcuts();
     this.updateFocusVisuals();
 
     this.events.once('shutdown', this.shutdown, this);
+  }
+
+  /**
+   * Keyboard + gamepad navigation. Items map to:
+   * [actions row (left/right swaps SELECT ALL / DESELECT ALL)] +
+   * [track rows...] + [back button].
+   */
+  private buildMenuNavigator(): void {
+    this.menuNavigator?.destroy();
+
+    const navigableItems: NavigableItem[] = [];
+
+    navigableItems.push({
+      onFocus: () => {
+        this.focusZone = 'actions';
+        this.updateFocusVisuals();
+      },
+      onBlur: () => this.updateFocusVisuals(),
+      onActivate: () => this.activateActionButton(this.selectedActionIndex),
+      onLeft: () => {
+        if (this.selectedActionIndex > 0) {
+          this.selectedActionIndex--;
+          this.updateFocusVisuals();
+        }
+      },
+      onRight: () => {
+        if (this.selectedActionIndex < this.actionButtons.length - 1) {
+          this.selectedActionIndex++;
+          this.updateFocusVisuals();
+        }
+      },
+    });
+
+    MUSIC_CATALOG.forEach((_track, index) => {
+      navigableItems.push({
+        onFocus: () => {
+          this.focusZone = 'tracks';
+          this.selectedTrackIndex = index;
+          this.ensureTrackVisible();
+          this.updateFocusVisuals();
+        },
+        onBlur: () => this.updateFocusVisuals(),
+        onActivate: () => this.toggleTrack(index),
+      });
+    });
+
+    navigableItems.push({
+      onFocus: () => {
+        this.focusZone = 'back';
+        this.updateFocusVisuals();
+      },
+      onBlur: () => this.updateFocusVisuals(),
+      onActivate: () => this.goBack(),
+    });
+
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: navigableItems,
+      columns: 1,
+      wrap: true,
+      onCancel: () => this.goBack(),
+    });
   }
 
   private createTrackRow(track: Track, y: number, centerX: number, index: number): void {
@@ -260,125 +321,23 @@ export class MusicSettingsScene extends Phaser.Scene {
     playingIndicator.setOrigin(1, 0.5);
     card.frame.add(playingIndicator);
 
-    card.hitZone.on('pointerover', () => {
-      this.selectedTrackIndex = index;
-      this.focusZone = 'tracks';
-      this.updateFocusVisuals();
-    });
+    card.hitZone.on('pointerover', () => this.menuNavigator?.selectIndex(index + 1));
     card.hitZone.on('pointerdown', () => this.toggleTrack(index));
 
     this.trackContainer.add(card.container);
     this.trackRows.set(track.id, { card, selector, checkbox, label, playingIndicator });
   }
 
-  private setupKeyboardNavigation(): void {
+  private setupKeyboardShortcuts(): void {
+    // Navigation/activation lives in MenuNavigator; only the play shortcut
+    // stays scene-level.
     this.keydownHandler = (event: KeyboardEvent) => {
-      switch (event.key) {
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          event.preventDefault();
-          this.navigateDown();
-          break;
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          event.preventDefault();
-          this.navigateUp();
-          break;
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          event.preventDefault();
-          this.navigateLeft();
-          break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          event.preventDefault();
-          this.navigateRight();
-          break;
-        case 'Enter':
-        case ' ':
-          event.preventDefault();
-          this.activateCurrentSelection();
-          break;
-        case 'p':
-        case 'P':
-          event.preventDefault();
-          this.playFocusedTrack();
-          break;
-        case 'Escape':
-          event.preventDefault();
-          this.goBack();
-          break;
+      if (event.key === 'p' || event.key === 'P') {
+        event.preventDefault();
+        this.playFocusedTrack();
       }
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
-  }
-
-  private navigateDown(): void {
-    if (this.focusZone === 'tracks') {
-      if (this.selectedTrackIndex < MUSIC_CATALOG.length - 1) {
-        this.selectedTrackIndex++;
-        this.ensureTrackVisible();
-      } else {
-        this.focusZone = 'back';
-      }
-    } else if (this.focusZone === 'actions') {
-      this.focusZone = 'tracks';
-      this.selectedTrackIndex = 0;
-      this.ensureTrackVisible();
-    } else if (this.focusZone === 'back') {
-      this.focusZone = 'actions';
-    }
-    this.updateFocusVisuals();
-  }
-
-  private navigateUp(): void {
-    if (this.focusZone === 'tracks') {
-      if (this.selectedTrackIndex > 0) {
-        this.selectedTrackIndex--;
-        this.ensureTrackVisible();
-      } else {
-        this.focusZone = 'actions';
-      }
-    } else if (this.focusZone === 'back') {
-      this.focusZone = 'tracks';
-      this.selectedTrackIndex = MUSIC_CATALOG.length - 1;
-      this.ensureTrackVisible();
-    } else if (this.focusZone === 'actions') {
-      this.focusZone = 'back';
-    }
-    this.updateFocusVisuals();
-  }
-
-  private navigateLeft(): void {
-    if (this.focusZone === 'actions' && this.selectedActionIndex > 0) {
-      this.selectedActionIndex--;
-      this.updateFocusVisuals();
-    }
-  }
-
-  private navigateRight(): void {
-    if (this.focusZone === 'actions' && this.selectedActionIndex < this.actionButtons.length - 1) {
-      this.selectedActionIndex++;
-      this.updateFocusVisuals();
-    }
-  }
-
-  private activateCurrentSelection(): void {
-    switch (this.focusZone) {
-      case 'actions':
-        this.activateActionButton(this.selectedActionIndex);
-        break;
-      case 'tracks':
-        this.toggleTrack(this.selectedTrackIndex);
-        break;
-      case 'back':
-        this.goBack();
-        break;
-    }
   }
 
   private goBack(): void {
@@ -500,6 +459,10 @@ export class MusicSettingsScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;

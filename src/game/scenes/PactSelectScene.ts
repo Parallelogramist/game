@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { PACTS, MAX_PACTS, Pact } from '../../data/Pacts';
+import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 
 /**
  * Data threaded through from WeaponSelectScene; forwarded verbatim to GameScene
@@ -16,6 +17,7 @@ interface PactCard {
   pact: Pact;
   container: Phaser.GameObjects.Container;
   border: Phaser.GameObjects.Rectangle;
+  bg: Phaser.GameObjects.Rectangle;
 }
 
 /**
@@ -28,6 +30,7 @@ export class PactSelectScene extends Phaser.Scene {
   private selectedIds: Set<string> = new Set();
   private cards: PactCard[] = [];
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
   private isStarting: boolean = false;
 
   constructor() {
@@ -38,6 +41,7 @@ export class PactSelectScene extends Phaser.Scene {
     this.passthrough = data ?? { startingWeapon: 'projectile' };
     this.selectedIds = new Set();
     this.cards = [];
+    this.menuNavigator = null;
     this.isStarting = false;
   }
 
@@ -85,20 +89,46 @@ export class PactSelectScene extends Phaser.Scene {
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
     }).setOrigin(0.5);
-    beginButton.on('pointerover', () => beginButton.setFillStyle(0x2e4a2e));
-    beginButton.on('pointerout', () => beginButton.setFillStyle(0x223322));
+    beginButton.on('pointerover', () => this.menuNavigator?.selectIndex(PACTS.length));
     beginButton.on('pointerup', () => this.beginRun());
     void beginLabel;
 
+    // Keyboard + gamepad navigation: pact cards in a row, BEGIN RUN below.
+    // Enter/Space/A activates the focused element; Escape/B skips pacts.
+    const navigableItems: NavigableItem[] = this.cards.map((card, index) => ({
+      onFocus: () => this.setCardFocus(card, true),
+      onBlur: () => this.setCardFocus(card, false),
+      onActivate: () => this.togglePact(index),
+    }));
+    navigableItems.push({
+      onFocus: () => beginButton.setFillStyle(0x2e4a2e),
+      onBlur: () => beginButton.setFillStyle(0x223322),
+      onActivate: () => this.beginRun(),
+    });
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: navigableItems,
+      columns: PACTS.length,
+      wrap: true,
+      onCancel: () => { this.selectedIds.clear(); this.beginRun(); },
+    });
+
+    // Number keys stay as quick-toggle shortcuts; the navigator owns the rest.
     this.keydownHandler = (event: KeyboardEvent) => {
       const num = parseInt(event.key, 10);
       if (num >= 1 && num <= PACTS.length) this.togglePact(num - 1);
-      else if (event.key === 'Enter' || event.key === ' ') this.beginRun();
-      else if (event.key === 'Escape') { this.selectedIds.clear(); this.beginRun(); }
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
 
     this.events.once('shutdown', this.shutdown, this);
+  }
+
+  private setCardFocus(card: PactCard, focused: boolean): void {
+    if (focused) {
+      card.bg.setStrokeStyle(3, 0xffdd44);
+    } else {
+      card.bg.setStrokeStyle(2, 0x333344);
+    }
   }
 
   private createCard(pact: Pact, x: number, y: number, w: number, h: number, index: number): PactCard {
@@ -140,11 +170,10 @@ export class PactSelectScene extends Phaser.Scene {
     container.add([bg, border, name, downside, reward, keyHint]);
 
     bg.setInteractive({ useHandCursor: true });
-    bg.on('pointerover', () => { if (!this.selectedIds.has(pact.id)) bg.setStrokeStyle(2, 0x6666aa); });
-    bg.on('pointerout', () => { if (!this.selectedIds.has(pact.id)) bg.setStrokeStyle(2, 0x333344); });
+    bg.on('pointerover', () => this.menuNavigator?.selectIndex(index));
     bg.on('pointerup', () => this.togglePact(index));
 
-    return { pact, container, border };
+    return { pact, container, border, bg };
   }
 
   private togglePact(index: number): void {
@@ -182,6 +211,10 @@ export class PactSelectScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
+    }
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;

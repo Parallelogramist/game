@@ -22,7 +22,7 @@ import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { SoundManager } from '../../audio/SoundManager';
-import { MenuNavigator } from '../../input/MenuNavigator';
+import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
@@ -108,8 +108,8 @@ export class SettingsScene extends Phaser.Scene {
   private damageNumberIndex: number = 0;
   private playbackModeIndex: number = 0;
   private colorblindModeIndex: number = 0;
-  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
+  private confirmNavigator: MenuNavigator | null = null;
 
   private layoutScale: number = 1;
   private fontScale: number = 1;
@@ -202,7 +202,6 @@ export class SettingsScene extends Phaser.Scene {
     });
     this.menuButtons.push(this.backButton);
 
-    this.setupKeyboardNavigation();
     this.buildMenuNavigator();
     this.refreshAllFocusVisuals();
 
@@ -849,18 +848,32 @@ export class SettingsScene extends Phaser.Scene {
       'back',
     ];
 
-    const navigableItems = orderedZones.map((zone) => ({
-      onFocus: () => {
-        this.focusZone = zone;
-        this.refreshAllFocusVisuals();
-      },
-      onBlur: () => {
-        this.refreshAllFocusVisuals();
-      },
-      onActivate: () => {
-        this.activateCurrentSelection();
-      },
-    }));
+    // Zones whose value is adjusted with left/right (volume rows, UI scale,
+    // segmented pills). Routed through the navigator so keyboard AND
+    // gamepad D-pad/stick horizontal input both work.
+    const horizontalZones = new Set<FocusZone>([
+      'sfxVolume', 'bgmVolume', 'uiScale', 'playbackMode', 'damageNumbers', 'colorblind',
+    ]);
+
+    const navigableItems = orderedZones.map((zone) => {
+      const item: NavigableItem = {
+        onFocus: () => {
+          this.focusZone = zone;
+          this.refreshAllFocusVisuals();
+        },
+        onBlur: () => {
+          this.refreshAllFocusVisuals();
+        },
+        onActivate: () => {
+          this.activateCurrentSelection();
+        },
+      };
+      if (horizontalZones.has(zone)) {
+        item.onLeft = () => this.navigateLeft();
+        item.onRight = () => this.navigateRight();
+      }
+      return item;
+    });
 
     const currentZoneIndex = orderedZones.indexOf(this.focusZone);
 
@@ -872,44 +885,6 @@ export class SettingsScene extends Phaser.Scene {
       onCancel: () => this.goBack(),
       initialIndex: currentZoneIndex >= 0 ? currentZoneIndex : 0,
     });
-  }
-
-  private setupKeyboardNavigation(): void {
-    this.keydownHandler = (event: KeyboardEvent) => {
-      if (this.confirmOverlay.length > 0) {
-        switch (event.key) {
-          case 'ArrowLeft': case 'a': case 'A':
-          case 'ArrowRight': case 'd': case 'D':
-          case 'ArrowUp': case 'w': case 'W':
-          case 'ArrowDown': case 's': case 'S':
-            event.preventDefault();
-            this.confirmFocusIndex = this.confirmFocusIndex === 0 ? 1 : 0;
-            this.updateConfirmFocusVisuals();
-            break;
-          case 'Enter': case ' ':
-            event.preventDefault();
-            this.activateConfirmSelection();
-            break;
-          case 'Escape':
-            event.preventDefault();
-            this.dismissResetConfirmation();
-            break;
-        }
-        return;
-      }
-
-      switch (event.key) {
-        case 'ArrowLeft': case 'a': case 'A':
-          event.preventDefault();
-          this.navigateLeft();
-          break;
-        case 'ArrowRight': case 'd': case 'D':
-          event.preventDefault();
-          this.navigateRight();
-          break;
-      }
-    };
-    this.input.keyboard?.on('keydown', this.keydownHandler);
   }
 
   private navigateLeft(): void {
@@ -1110,11 +1085,38 @@ export class SettingsScene extends Phaser.Scene {
 
     this.confirmButtonRef = confirmButton;
     this.cancelButtonRef = cancelButton;
-    this.confirmFocusIndex = 1;
-    this.updateConfirmFocusVisuals();
 
     this.confirmOverlay = [dimBg, dialogCard.container];
     this.menuButtons.push(confirmButton, cancelButton);
+
+    // The overlay owns input until dismissed — suspend the main navigator and
+    // hand keyboard + gamepad to a dedicated CONFIRM/CANCEL navigator
+    // (mirrors BootScene's new-game confirmation).
+    this.menuNavigator?.setEnabled(false);
+    this.confirmNavigator = new MenuNavigator({
+      scene: this,
+      columns: 2,
+      initialIndex: 1,
+      items: [
+        {
+          onFocus: () => {
+            this.confirmFocusIndex = 0;
+            this.updateConfirmFocusVisuals();
+          },
+          onBlur: () => this.updateConfirmFocusVisuals(),
+          onActivate: () => this.resetAllStorageAndReload(),
+        },
+        {
+          onFocus: () => {
+            this.confirmFocusIndex = 1;
+            this.updateConfirmFocusVisuals();
+          },
+          onBlur: () => this.updateConfirmFocusVisuals(),
+          onActivate: () => this.dismissResetConfirmation(),
+        },
+      ],
+      onCancel: () => this.dismissResetConfirmation(),
+    });
   }
 
   private updateConfirmFocusVisuals(): void {
@@ -1122,15 +1124,9 @@ export class SettingsScene extends Phaser.Scene {
     this.cancelButtonRef?.setFocusState(this.confirmFocusIndex === 1);
   }
 
-  private activateConfirmSelection(): void {
-    if (this.confirmFocusIndex === 0) {
-      this.resetAllStorageAndReload();
-    } else {
-      this.dismissResetConfirmation();
-    }
-  }
-
   private dismissResetConfirmation(): void {
+    this.confirmNavigator?.destroy();
+    this.confirmNavigator = null;
     for (const obj of this.confirmOverlay) obj.destroy();
     this.confirmOverlay = [];
     if (this.confirmButtonRef) {
@@ -1140,6 +1136,7 @@ export class SettingsScene extends Phaser.Scene {
     }
     this.confirmButtonRef = null;
     this.cancelButtonRef = null;
+    this.menuNavigator?.setEnabled(true);
   }
 
   private resetAllStorageAndReload(): void {
@@ -1180,9 +1177,9 @@ export class SettingsScene extends Phaser.Scene {
       this.menuNavigator.destroy();
       this.menuNavigator = null;
     }
-    if (this.keydownHandler) {
-      this.input.keyboard?.off('keydown', this.keydownHandler);
-      this.keydownHandler = null;
+    if (this.confirmNavigator) {
+      this.confirmNavigator.destroy();
+      this.confirmNavigator = null;
     }
     if (this.bgUpdateHandler) {
       this.events.off('update', this.bgUpdateHandler);

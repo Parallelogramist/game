@@ -19,6 +19,7 @@ import { createMenuBackground, MenuBackground } from '../../visual/MenuBackgroun
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeStickerText, makeBodyText } from '../../visual/StickerText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
+import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 
 // Achievement categories with display names and icons
 const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: string }[] = [
@@ -55,11 +56,11 @@ export class AchievementScene extends Phaser.Scene {
   private readonly cardSpacing = 14;
   private readonly columns = 2;
 
-  // Keyboard navigation state
+  // Keyboard + gamepad navigation state
   private focusZone: FocusZone = 'tabs';
   private selectedTabIndex: number = 0;
   private selectedCardIndex: number = 0;
-  private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
+  private menuNavigator: MenuNavigator | null = null;
   private soundManager!: SoundManager;
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
@@ -178,11 +179,100 @@ export class AchievementScene extends Phaser.Scene {
     // Setup scroll input
     this.setupScrollInput();
 
-    // Setup keyboard navigation
-    this.setupKeyboardNavigation();
+    // Setup keyboard + gamepad navigation
+    this.buildMenuNavigator();
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
+  }
+
+  /**
+   * Keyboard + gamepad navigation. The vertical item list mirrors the visual
+   * layout: [tabs row (left/right moves between categories)] +
+   * [one item per card row (left/right moves within the row)] + [back].
+   * Rebuilt whenever the category changes (card count differs).
+   */
+  private buildMenuNavigator(): void {
+    this.menuNavigator?.destroy();
+
+    const navigableItems: NavigableItem[] = [];
+
+    navigableItems.push({
+      onFocus: () => {
+        this.focusZone = 'tabs';
+        this.updateFocusVisuals();
+      },
+      onBlur: () => this.updateFocusVisuals(),
+      onActivate: () => {
+        this.selectCategoryByIndex(this.selectedTabIndex);
+        this.updateFocusVisuals();
+      },
+      onLeft: () => {
+        this.selectedTabIndex = Math.max(0, this.selectedTabIndex - 1);
+        this.selectCategoryByIndex(this.selectedTabIndex);
+        this.updateFocusVisuals();
+      },
+      onRight: () => {
+        this.selectedTabIndex = Math.min(ACHIEVEMENT_CATEGORIES.length - 1, this.selectedTabIndex + 1);
+        this.selectCategoryByIndex(this.selectedTabIndex);
+        this.updateFocusVisuals();
+      },
+    });
+
+    const totalCards = this.achievementCards.length;
+    const totalRows = Math.ceil(totalCards / this.columns);
+    for (let row = 0; row < totalRows; row++) {
+      const rowStart = row * this.columns;
+      const rowEnd = Math.min(rowStart + this.columns - 1, totalCards - 1);
+      navigableItems.push({
+        onFocus: () => {
+          this.focusZone = 'grid';
+          const preferredCol = this.selectedCardIndex % this.columns;
+          this.selectedCardIndex = Math.min(rowStart + preferredCol, rowEnd);
+          this.ensureCardVisible();
+          this.updateFocusVisuals();
+        },
+        onBlur: () => this.updateFocusVisuals(),
+        onActivate: () => {
+          // Achievement cards are informational only.
+        },
+        onLeft: () => {
+          const col = this.selectedCardIndex % this.columns;
+          this.selectedCardIndex = col > 0 ? this.selectedCardIndex - 1 : rowEnd;
+          this.updateFocusVisuals();
+        },
+        onRight: () => {
+          const col = this.selectedCardIndex % this.columns;
+          this.selectedCardIndex =
+            col < this.columns - 1 && this.selectedCardIndex < rowEnd
+              ? this.selectedCardIndex + 1
+              : rowStart;
+          this.updateFocusVisuals();
+        },
+      });
+    }
+
+    navigableItems.push({
+      onFocus: () => {
+        this.focusZone = 'back';
+        this.updateFocusVisuals();
+      },
+      onBlur: () => this.updateFocusVisuals(),
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+    });
+
+    this.menuNavigator = new MenuNavigator({
+      scene: this,
+      items: navigableItems,
+      columns: 1,
+      wrap: true,
+      onCancel: () => {
+        fadeOut(this, 150, () => this.scene.start('BootScene'));
+      },
+    });
   }
 
   private createCategoryTabs(): void {
@@ -251,11 +341,9 @@ export class AchievementScene extends Phaser.Scene {
       tabBg.on('pointerdown', () => {
         if (category.id !== this.currentCategory) {
           this.soundManager.playUIClick();
-          this.currentCategory = category.id;
           this.selectedTabIndex = index;
-          this.selectedCardIndex = 0;
+          this.selectCategoryByIndex(index);
           this.updateTabVisuals();
-          this.displayCategoryAchievements(category.id);
         }
       });
     });
@@ -545,151 +633,14 @@ export class AchievementScene extends Phaser.Scene {
     });
   }
 
-  private setupKeyboardNavigation(): void {
-    this.keydownHandler = (event: KeyboardEvent) => {
-      switch (event.key) {
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          event.preventDefault();
-          this.navigateDown();
-          break;
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          event.preventDefault();
-          this.navigateUp();
-          break;
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          event.preventDefault();
-          this.navigateLeft();
-          break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          event.preventDefault();
-          this.navigateRight();
-          break;
-        case 'Enter':
-        case ' ':
-          event.preventDefault();
-          this.activateCurrentSelection();
-          break;
-        case 'Escape':
-          event.preventDefault();
-          this.scene.start('BootScene');
-          break;
-      }
-    };
-    this.input.keyboard?.on('keydown', this.keydownHandler);
-  }
-
-  private navigateDown(): void {
-    if (this.focusZone === 'tabs') {
-      if (this.achievementCards.length > 0) {
-        this.focusZone = 'grid';
-        this.selectedCardIndex = 0;
-        this.ensureCardVisible();
-      } else {
-        this.focusZone = 'back';
-      }
-    } else if (this.focusZone === 'grid') {
-      const totalCards = this.achievementCards.length;
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-      const totalRows = Math.ceil(totalCards / this.columns);
-
-      if (currentRow < totalRows - 1) {
-        const newIndex = this.selectedCardIndex + this.columns;
-        this.selectedCardIndex = Math.min(newIndex, totalCards - 1);
-        this.ensureCardVisible();
-      } else {
-        this.focusZone = 'back';
-      }
-    } else if (this.focusZone === 'back') {
-      this.focusZone = 'tabs';
-    }
-    this.updateFocusVisuals();
-  }
-
-  private navigateUp(): void {
-    if (this.focusZone === 'tabs') {
-      this.focusZone = 'back';
-    } else if (this.focusZone === 'grid') {
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-
-      if (currentRow > 0) {
-        this.selectedCardIndex -= this.columns;
-        this.ensureCardVisible();
-      } else {
-        this.focusZone = 'tabs';
-      }
-    } else if (this.focusZone === 'back') {
-      if (this.achievementCards.length > 0) {
-        this.focusZone = 'grid';
-        const totalCards = this.achievementCards.length;
-        const totalRows = Math.ceil(totalCards / this.columns);
-        const lastRowStart = (totalRows - 1) * this.columns;
-        this.selectedCardIndex = Math.min(lastRowStart, totalCards - 1);
-        this.ensureCardVisible();
-      } else {
-        this.focusZone = 'tabs';
-      }
-    }
-    this.updateFocusVisuals();
-  }
-
-  private navigateLeft(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectedTabIndex = Math.max(0, this.selectedTabIndex - 1);
-      this.selectCategoryByIndex(this.selectedTabIndex);
-    } else if (this.focusZone === 'grid') {
-      const currentCol = this.selectedCardIndex % this.columns;
-      if (currentCol > 0) {
-        this.selectedCardIndex--;
-      } else {
-        const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-        const rowEnd = Math.min((currentRow + 1) * this.columns - 1, this.achievementCards.length - 1);
-        this.selectedCardIndex = rowEnd;
-      }
-    }
-    this.updateFocusVisuals();
-  }
-
-  private navigateRight(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectedTabIndex = Math.min(ACHIEVEMENT_CATEGORIES.length - 1, this.selectedTabIndex + 1);
-      this.selectCategoryByIndex(this.selectedTabIndex);
-    } else if (this.focusZone === 'grid') {
-      const currentCol = this.selectedCardIndex % this.columns;
-      const currentRow = Math.floor(this.selectedCardIndex / this.columns);
-      const rowStart = currentRow * this.columns;
-
-      if (currentCol < this.columns - 1 && this.selectedCardIndex < this.achievementCards.length - 1) {
-        this.selectedCardIndex++;
-      } else {
-        this.selectedCardIndex = rowStart;
-      }
-    }
-    this.updateFocusVisuals();
-  }
-
   private selectCategoryByIndex(tabIndex: number): void {
     const category = ACHIEVEMENT_CATEGORIES[tabIndex];
     if (category && category.id !== this.currentCategory) {
       this.currentCategory = category.id;
       this.selectedCardIndex = 0;
       this.displayCategoryAchievements(category.id);
-    }
-  }
-
-  private activateCurrentSelection(): void {
-    if (this.focusZone === 'tabs') {
-      this.selectCategoryByIndex(this.selectedTabIndex);
-      this.updateFocusVisuals();
-    } else if (this.focusZone === 'back') {
-      this.scene.start('BootScene');
+      // Card-row count changed — rebuild the navigator (focus returns to tabs).
+      this.buildMenuNavigator();
     }
   }
 
@@ -730,9 +681,9 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   shutdown(): void {
-    if (this.keydownHandler) {
-      this.input.keyboard?.off('keydown', this.keydownHandler);
-      this.keydownHandler = null;
+    if (this.menuNavigator) {
+      this.menuNavigator.destroy();
+      this.menuNavigator = null;
     }
     if (this.bgUpdateHandler) {
       this.events.off('update', this.bgUpdateHandler);
