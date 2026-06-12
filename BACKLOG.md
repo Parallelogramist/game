@@ -34,15 +34,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Next
 
-- [ ] **TEST-SPATIALHASH — first coverage for the spatial-query foundation** · area: testing
-  **Value:** `src/utils/SpatialHash.ts` underpins weapon targeting, overkill splash,
-  GridBackground warping, and FrameCache — pure, zero-dependency, and untested. A subtle
-  cell-math bug is invisible mistargeting everywhere.
-  **Lock:** insert/query-radius correctness incl. entities straddling 80px cell boundaries,
-  numeric key uniqueness for negative coords, `queryPotentialForEach` parity with the
-  allocating query, clear/rebuild, and the `getEnemySpatialHash`/`resetEnemySpatialHash`
-  singleton contract. ~15 cases.
-
 - [ ] **FEAT-MENU-NAV-GAPS — keyboard/gamepad nav for the unwired scenes** · area: ux
   **Value:** every run routes through `PactSelectScene` (both weapon-select exits), yet it
   is pointer-only — gamepad/keyboard players hit a wall pre-run. `AchievementScene` and
@@ -173,6 +164,16 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **TEST-SPATIALHASH** — first coverage for the spatial-query foundation
+  (done — `a712b46`). 22 tests in `src/utils/SpatialHash.test.ts`: insert/query radius
+  correctness (80px cell-boundary straddling, inclusive radius edge), negative-coord
+  cell keys (floor-vs-trunc), `queryInto` append-only buffer semantics, `queryIds`/
+  `queryPotential`/`queryPotentialForEach` parity, clear/rebuild + `size`/`cellCount`,
+  `findNearest` (strict maxRadius bound — exactly-at-radius is excluded, now locked —
+  and excludeId), `findNearestN` (ascending-distance order, excludeIds, count
+  truncation), and the `getEnemySpatialHash`/`resetEnemySpatialHash` singleton contract.
+  Teeth verified by 5 hand mutations (floor→trunc, `<=`→`<` distance check, cell-loop
+  bound, sort removal, reset no-op) — all killed.
 - [x] **FEAT-TUTORIAL-HINTS** — one-time contextual tutorial hints (done — `7036e29`).
   New `src/tutorial/`: `TutorialHintManager` (one SecureStorage key `survivor-tutorial-hints`,
   JSON array of seen ids, corruption-hardened load, singleton + test reset) and pure
