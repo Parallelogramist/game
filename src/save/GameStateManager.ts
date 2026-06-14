@@ -242,6 +242,26 @@ interface SerializedChestEntry {
 }
 
 /**
+ * Serialized post-victory endless-mode progression. `active` is the master flag
+ * (false for a won run that hasn't chosen "continue"); `cycleNumber` +
+ * `bossIntervalSeconds` capture the escalation state (each boss wave tightens the
+ * interval toward a 120s floor) and the timers carry the countdowns to the next
+ * miniboss/boss wave. GameScene-owned instance fields wiped by the reset block on
+ * restore, so a mid-endless refresh would otherwise drop the wave cadence +
+ * escalation and revert to plain spawns. Absent on legacy + normal mid-run saves
+ * → reset defaults win (endless inactive). The difficulty ramp itself rides on
+ * the separately-persisted worldLevel*Mult fields.
+ */
+interface SerializedEndlessState {
+  active: boolean;
+  time: number;
+  minibossTimer: number;
+  bossTimer: number;
+  cycleNumber: number;
+  bossIntervalSeconds: number;
+}
+
+/**
  * Complete game save state.
  */
 export interface GameSaveState {
@@ -359,6 +379,17 @@ export interface GameSaveState {
   // and restart the hazard spawn clock. Persisted so zones + pacing survive
   // refresh-recovery. Absent on legacy saves → reset defaults win.
   hazardState?: SerializedHazardState;
+
+  // Whether the run has been won (boss defeated). Stays true through the
+  // post-victory "continue" into endless mode. Drives victory-vs-loss accounting
+  // on a later death and gates the beforeunload save. Was never persisted, so a
+  // refresh during endless reset it to false and risked a victory miscount.
+  // Absent on legacy + normal mid-run saves → false (not yet won).
+  hasWon?: boolean;
+
+  // Post-victory endless-mode progression (see SerializedEndlessState). Absent
+  // on legacy + normal mid-run saves → reset defaults win (endless inactive).
+  endlessState?: SerializedEndlessState;
 }
 
 /**
@@ -564,6 +595,8 @@ export class GameStateManager {
     shrineState?: SerializedShrineState;
     chestState?: SerializedChestEntry[];
     hazardState?: SerializedHazardState;
+    hasWon?: boolean;
+    endlessState?: SerializedEndlessState;
   }): void {
     try {
       const state: GameSaveState = {
@@ -632,6 +665,8 @@ export class GameStateManager {
         shrineState: gameData.shrineState,
         chestState: gameData.chestState,
         hazardState: gameData.hazardState,
+        hasWon: gameData.hasWon,
+        endlessState: gameData.endlessState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

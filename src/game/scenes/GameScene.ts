@@ -1254,6 +1254,15 @@ export class GameScene extends Phaser.Scene {
         isSpecial: chest.isSpecial,
       })),
       hazardState: getHazardState(),
+      hasWon: this.hasWon,
+      endlessState: {
+        active: this.endlessModeActive,
+        time: this.endlessModeTime,
+        minibossTimer: this.endlessMinibossTimer,
+        bossTimer: this.endlessBossTimer,
+        cycleNumber: this.endlessCycleNumber,
+        bossIntervalSeconds: this.endlessBossIntervalSeconds,
+      },
     });
   }
 
@@ -1393,6 +1402,30 @@ export class GameScene extends Phaser.Scene {
     }
     this.minibossSpawnTimes = state.minibossSpawnTimes;
 
+    // Restore post-victory / endless-mode progression. These are GameScene-local
+    // instance fields (reset to fresh defaults above), so without this a refresh
+    // deep in endless mode reverts to plain spawns — losing the boss/miniboss
+    // wave cadence + cycle escalation — and drops the won flag, which would let a
+    // later death be miscounted as a fresh loss. The difficulty ramp itself rides
+    // on worldLevel*Mult (restored below). Absent on legacy + normal mid-run
+    // saves → endless stays inactive. Values are sanitized (corruption/tamper):
+    // a non-finite entry falls back to its fresh default instead of poisoning the
+    // run loop with NaN timers.
+    this.hasWon = state.hasWon === true;
+    const savedEndless = state.endlessState;
+    if (savedEndless && typeof savedEndless === 'object') {
+      const sanitizeEndless = (value: unknown, fallback: number, min: number, max: number): number =>
+        (typeof value === 'number' && Number.isFinite(value))
+          ? Math.max(min, Math.min(max, value))
+          : fallback;
+      this.endlessModeActive = savedEndless.active === true;
+      this.endlessModeTime = sanitizeEndless(savedEndless.time, 0, 0, 1e9);
+      this.endlessCycleNumber = sanitizeEndless(savedEndless.cycleNumber, 0, 0, 10_000);
+      this.endlessBossIntervalSeconds = sanitizeEndless(savedEndless.bossIntervalSeconds, 300, 120, 300);
+      this.endlessMinibossTimer = sanitizeEndless(savedEndless.minibossTimer, 45, 0, 600);
+      this.endlessBossTimer = sanitizeEndless(savedEndless.bossTimer, this.endlessBossIntervalSeconds, 0, 600);
+    }
+
     // Restore player state
     this.playerStats = state.playerStats;
     this.banishedUpgradeIds = new Set(state.banishedUpgradeIds);
@@ -1463,10 +1496,11 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Reset other state
+    // Reset other state. Note: hasWon is NOT reset here — it was restored from
+    // the save above (a refresh during post-victory endless mode must keep the
+    // won flag) and resetting it here would clobber that.
     this.isGameOver = false;
     this.isPaused = false;
-    this.hasWon = false;
     this.pendingLevelUps = 0;
     this.nextEnemyDropsMagnet = false;
     this.activeLasers = [];
