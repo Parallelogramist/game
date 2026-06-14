@@ -588,6 +588,9 @@ export class GameStateManager {
         bossSpawned: gameData.bossSpawned,
         bossWarningPhase: gameData.bossWarningPhase,
         comboState: gameData.comboState,
+        // ultimateCharge was declared + accepted but never written here, so the
+        // Overdrive meter silently emptied on every refresh. Persist it now.
+        ultimateCharge: gameData.ultimateCharge,
         eventState: gameData.eventState,
         minibossSpawnTimes: gameData.minibossSpawnTimes,
 
