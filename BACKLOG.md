@@ -126,6 +126,16 @@ Never agent work. The fleet must not do any of these.
   - **BALANCE-LUCK-DROPS** — luck → relic-rarity bias strength (`2a094e0`;
     `LUCK_RARITY_WEIGHT_BONUS` in `src/data/Relics.ts`). At realistic max luck (~0.6)
     legendary share ~3×'s — confirm noticeable-but-not-broken.
+  - **POLISH-MINIMAP-PLACEMENT** — tactical radar placement + feel (`7efc392`;
+    `MinimapManager.ts` anchors mid-right via `BASE_RADAR_RADIUS`/`BASE_EDGE_PADDING`;
+    feed in `GameScene.updateMinimap`). Check on real devices: (a) the mid-right disc
+    doesn't collide with the relic strip / boss health panel at UI-scale extremes
+    (0.5–2.0) or on phones; (b) blip legibility — boss/miniboss/elite vs the red
+    enemy swarm against the arena tint + bloom; (c) the rotating sweep reads as radar
+    not noise (off under reduced motion); (d) the 48-blip enemy cap conveys density
+    convincingly in 1000+ enemy endless waves without lag; (e) chest + consumable gold
+    blips are distinguishable from threats. Tuning knobs: `MINIMAP_WORLD_RANGE` (radar
+    zoom), `MINIMAP_MAX_ENEMY_BLIPS`, blip colors/sizes in `minimapProjection.ts`.
   - **POLISH-DAILY-SCORE-COL** — leaderboard SCORE column + Boot chip width (`45fdd74`;
     `LeaderboardScene.renderEntries` row 720→800, `BootScene.ts:~795`). Check crowding at
     UI-scale extremes.
@@ -152,6 +162,30 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-MINIMAP-RADAR** — tactical minimap / threat radar
+  (done — `7efc392`). The last unbuilt item from the operator's own rated top-10
+  (`FEATURE_PLAN.md` #5, "awareness gap"); #1–4,6,7,10 already shipped. A
+  player-centered radar disc on the mid-right HUD edge (the only HUD zone free of
+  the top-right pause/stats row, the bottom-right touch buttons, and the
+  center combo readouts). Blips: bosses/minibosses/elites + the enemy swarm
+  (stride-sampled to a 48-blip cap so dense waves stay readable + cheap; high-value
+  threats bypass the stride and always show) + pickups (treasure chests + floor
+  consumables). Off-radar contacts clamp to the rim with direction preserved —
+  strictly more than the edge-arrow `OffScreenIndicatorManager` conveys. Pure
+  projection/classification core `src/visual/minimapProjection.ts`
+  (`projectToRadar`/`classifyEnemyKind`/`blipStyle`) unit-tested (16 tests:
+  linear scale, exact-rim boundary, rim clamp, diagonal-on-rim, negative dirs,
+  NaN/Infinity + zero-radius guards, tier-vs-elite classification, style tier
+  ordering). `MinimapManager` owns only Phaser drawing: static chrome drawn once,
+  blips redrawn into one pooled Graphics (single draw call), reduced-motion-aware
+  sweep, HUD-scale aware, depth 1895 (matches the sibling indicator). GameScene
+  `updateMinimap()` feeds it from the shared frame cache + a pooled, never-
+  reallocated entry buffer; constructed once per run (fresh + restore), torn down
+  in shutdown. New persisted `minimapEnabled` setting (default on) + VISUALS-card
+  toggle, fully kbd/gamepad-nav wired. tsc + vite build clean, 823 tests green
+  (807 + 16). Placement/feel on real devices → playtest queue
+  (POLISH-MINIMAP-PLACEMENT).
 
 - [x] **BUG-SAVE-DROPPED-FIELDS** — run save stopped silently dropping fields
   (done — `1f83a3d` ultimate charge + `d58223f` endless/won state). Two real
