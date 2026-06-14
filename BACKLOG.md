@@ -153,6 +153,28 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **BUG-SAVE-DROPPED-FIELDS** — run save stopped silently dropping fields
+  (done — `1f83a3d` ultimate charge + `d58223f` endless/won state). Two real
+  refresh-recovery gaps in `GameStateManager.save()`, both "the field is declared
+  but the serialized `state` literal never writes it". (1) **Overdrive charge:**
+  `ultimateCharge` was an interface field + a `save()` param + read on restore
+  (`state.ultimateCharge ?? 0`) but never assigned into `state` → the meter
+  silently emptied on every reload despite FEAT-ULTIMATE-OVERDRIVE claiming
+  persistence. One-line fix. (2) **Endless mode:** the 6 endless fields
+  (active/time/miniboss+boss timers/cycle/ramped interval) + `hasWon` were never
+  saved → a refresh deep in post-victory endless reverted to plain director
+  spawns (losing wave cadence + cycle escalation; the difficulty ramp survived
+  only via the already-persisted `worldLevel*Mult`) AND reset `hasWon=false`, so
+  killing the next endless boss re-fired `showVictory()`+`advanceWorldLevel()` —
+  a duplicate victory / extra world level / double gold+streak. Grouped
+  `endlessState` like bountyState/shrineState; restore sanitizes each value
+  (non-finite → fresh default, no NaN timers) and the later "reset other state"
+  block no longer clobbers the restored `hasWon`. 10 new round-trip tests
+  (`GameStateManager.ultimate.test.ts` ×4, `GameStateManager.endless.test.ts` ×6:
+  partial/full/zero/legacy charge; active/inactive/legacy endless+won). tsc +
+  vite build clean, 807 tests green. **This is what the "refresh-persistence vein
+  closed" claim below actually missed** — the vein is now genuinely closed.
+
 - [x] **FEAT-ULTIMATE-OVERDRIVE** — net-new active player ability "Overdrive"
   (done — `895c4be` pure core + `cd18cd9` wiring). Closed the biggest gameplay gap
   (the old FEATURE_PLAN.md rated player abilities 1/5; only the *passive*
@@ -165,7 +187,9 @@ Never agent work. The fleet must not do any of these.
   own `detonateArea` damage can't recharge the meter (locked by test). HUD gold bar
   below the XP bar (whitens/glows/[Q] when ready), mirrored on the mobile button.
   Persistence: `GameSaveState.ultimateCharge?` (corruption-hardened restore; legacy
-  saves start empty). One-time `ultimate-ready` tutorial hint on the rising edge.
+  saves start empty). **Note:** the save path silently dropped this field at ship
+  time — the meter never actually survived a refresh until BUG-SAVE-DROPPED-FIELDS
+  (`1f83a3d`) wired the missing `state` assignment. One-time `ultimate-ready` tutorial hint on the rising edge.
   19 pure-core tests + 1 hint test (TDD: RED→GREEN throughout). tsc/build clean, 800
   tests green. Tuning (charge rates `ULTIMATE_CHARGE_PER_KILL`=2.5 /
   `_PER_DAMAGE`=0.012, nova damage/radius, slow-time window) + feel → playtest queue
@@ -327,5 +351,7 @@ Never agent work. The fleet must not do any of these.
 - [x] **Corruption-hardening vein closed** (done — `15cdf16` MusicManager final; every
   SecureStorage loader hardened + tested).
 - [x] **Refresh-persistence vein closed** — bounty/shrine/chest/event/stat-buff/evolution/
-  consumable/affix/director all round-trip (see archive); hazard zones were the last gap
-  (`d4bb744`, FEAT-HAZARD-PERSIST above).
+  consumable/affix/director all round-trip (see archive); hazard zones (`d4bb744`,
+  FEAT-HAZARD-PERSIST) then ultimate charge + endless/won state
+  (BUG-SAVE-DROPPED-FIELDS, `1f83a3d`+`d58223f`) were the last gaps. Vein now
+  genuinely closed (the earlier "closed" claim missed two silently-dropped fields).
