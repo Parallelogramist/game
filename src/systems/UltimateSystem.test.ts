@@ -159,7 +159,6 @@ describe('UltimateSystem — save / restore', () => {
 
   test('restore tolerates a missing or malformed snapshot', () => {
     addUltimateCharge(30);
-    // @ts-expect-error — exercising the corruption-hardening path
     restoreUltimateState(undefined);
     expect(getUltimateCharge()).toBe(0);
 

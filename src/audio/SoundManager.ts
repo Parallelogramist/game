@@ -484,6 +484,28 @@ export class SoundManager {
   }
 
   /**
+   * Play the Overdrive ultimate — a deep detonation boom that resolves up into a
+   * triumphant rising chord. Heavier and more distinctive than any other cue so
+   * the screen-clearing nova reads as a big moment.
+   */
+  playUltimate(): void {
+    const volume = getSettingsManager().getSfxVolume();
+    // Deep impact boom (C3 + G3) on the detonation frame.
+    this.play(SoundKeys.PLAYER_HURT, { rate: PENTATONIC_SCALE[0], volume: volume * 0.9 });
+    this.play(SoundKeys.HIT, { rate: PENTATONIC_SCALE[0], volume: volume * 0.7 });
+    // Rising power chord: C4 + G4.
+    this.scene.time.delayedCall(110, () => {
+      this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[5], volume: volume * 0.9 });
+      this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[8], volume: volume * 0.8 });
+    });
+    // Triumphant peak: C5 + E5 sparkle.
+    this.scene.time.delayedCall(230, () => {
+      this.play(SoundKeys.LEVEL_UP, { rate: PENTATONIC_SCALE[10], volume: volume * 1.1 });
+      this.play(SoundKeys.PICKUP_XP, { rate: PENTATONIC_SCALE[12], volume: volume * 0.8 });
+    });
+  }
+
+  /**
    * Play upgrade selection — bright decisive confirmation.
    * E4 → C5 using pickup chime, brighter than generic UI click.
    */

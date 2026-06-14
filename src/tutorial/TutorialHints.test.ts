@@ -36,6 +36,14 @@ describe('TUTORIAL_HINT_DEFS integrity', () => {
     expect(dashDef.descriptionTouch).toBeTruthy();
   });
 
+  test('the ultimate-ready hint exists and carries a touch-device variant', () => {
+    const ultDef = getTutorialHintDef('ultimate-ready');
+    expect(ultDef.title.length).toBeGreaterThan(0);
+    // Mentions the key on desktop, the button on touch.
+    expect(ultDef.description).toMatch(/Q/);
+    expect(ultDef.descriptionTouch).toBeTruthy();
+  });
+
   test('getHintDescription picks the touch variant only on touch devices', () => {
     const dashDef = getTutorialHintDef('dash-danger');
     expect(getHintDescription(dashDef, true)).toBe(dashDef.descriptionTouch);

@@ -265,6 +265,9 @@ export interface GameSaveState {
   bossSpawned: boolean;
   bossWarningPhase?: number;
   comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
+  // Ultimate ("Overdrive") charge, 0..MAX. Optional → legacy saves (written
+  // before the ultimate ability) restore with an empty meter.
+  ultimateCharge?: number;
   // `activeEvent` carries the currently-running timed event (id + remaining
   // time) so a mid-event refresh keeps the rest of the boon instead of dropping
   // it. Optional → legacy saves (written before active-event persistence) load
@@ -534,6 +537,7 @@ export class GameStateManager {
     bossSpawned: boolean;
     bossWarningPhase: number;
     comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
+    ultimateCharge?: number;
     eventState?: {
       eventTimer: number;
       nextEventInterval: number;

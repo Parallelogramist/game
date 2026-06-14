@@ -14,6 +14,7 @@ export type TutorialHintId =
   | 'dash-danger'
   | 'evolution-progress'
   | 'first-miniboss'
+  | 'ultimate-ready'
   | 'shop';
 
 export interface TutorialHintDef {
@@ -59,6 +60,15 @@ export const TUTORIAL_HINT_DEFS: readonly TutorialHintDef[] = [
     description: 'Minibosses are tough but drop powerful rewards',
     icon: 'skull',
     color: 0xff8844,
+    duration: 3500,
+  },
+  {
+    id: 'ultimate-ready',
+    title: 'Overdrive Ready!',
+    description: 'Press Q to unleash a screen-clearing nova',
+    descriptionTouch: 'Tap the glowing gold button (bottom-right) to unleash your nova',
+    icon: 'star',
+    color: 0xffcc33,
     duration: 3500,
   },
   {

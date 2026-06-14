@@ -10,7 +10,7 @@
 import Phaser from 'phaser';
 import { InputState } from '../../ecs/systems/InputSystem';
 import { JoystickManager } from '../../ui/JoystickManager';
-import { GamepadManager, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START, GAMEPAD_BUTTON_SELECT } from '../../input/GamepadManager';
+import { GamepadManager, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_Y, GAMEPAD_BUTTON_START, GAMEPAD_BUTTON_SELECT } from '../../input/GamepadManager';
 import { TUNING } from '../../data/GameTuning';
 import { getSprite } from '../../ecs/systems/SpriteSystem';
 import { PLAYER_NEON } from '../../visual/NeonColors';
@@ -56,6 +56,9 @@ export class InputController {
   // Shift key handler reference for cleanup
   private shiftKeyHandler: (() => void) | null = null;
 
+  // Q key handler reference for cleanup (ultimate ability)
+  private ultimateKeyHandler: (() => void) | null = null;
+
   // Pointerdown handler reference for cleanup
   private pointerDownHandler: ((pointer: Phaser.Input.Pointer) => void) | null = null;
 
@@ -95,6 +98,10 @@ export class InputController {
       // Gamepad dash: RB shoulder button
       if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_RB)) {
         this.scene.events.emit('input-dash-requested');
+      }
+      // Gamepad ultimate: Y face button
+      if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_Y)) {
+        this.scene.events.emit('input-ultimate-requested');
       }
       // Gamepad pause: Start button
       if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_START)) {
@@ -310,6 +317,12 @@ export class InputController {
       this.shiftKeyHandler = null;
     }
 
+    // Remove ultimate (Q) key handler
+    if (this.ultimateKeyHandler) {
+      this.scene.input.keyboard?.off('keydown-Q', this.ultimateKeyHandler);
+      this.ultimateKeyHandler = null;
+    }
+
     // Remove pointerdown handler
     if (this.pointerDownHandler) {
       this.scene.input.off('pointerdown', this.pointerDownHandler);
@@ -386,6 +399,13 @@ export class InputController {
       this.scene.events.emit('input-dash-requested');
     };
     keyboard.on('keydown-SHIFT', this.shiftKeyHandler);
+
+    // Q key for the ultimate ability — store reference for cleanup. The ult is
+    // triggered externally in GameScene (which checks readiness); we just emit.
+    this.ultimateKeyHandler = () => {
+      this.scene.events.emit('input-ultimate-requested');
+    };
+    keyboard.on('keydown-Q', this.ultimateKeyHandler);
 
     // Create virtual joystick for touch input
     this.joystickManager = new JoystickManager(this.scene);

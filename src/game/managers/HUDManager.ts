@@ -81,6 +81,8 @@ export interface HUDUpdateState {
   comboDecayPercent: number;
   comboBuffActive: boolean;
   comboBuffPercent: number;
+  ultimateChargeRatio: number;
+  ultimateReady: boolean;
   bossHealthData: Array<{ entityId: number; currentHP: number; maxHP: number }>;
 }
 
@@ -165,6 +167,14 @@ export class HUDManager {
   private hpGlowGraphics!: Phaser.GameObjects.Graphics;
   private lastHPThreshold: HPThreshold = 'green';
   private lastPlayerHP: number = -1;
+
+  // Ultimate ("Overdrive") charge meter — below the XP bar.
+  private ultBarBackground: Phaser.GameObjects.Rectangle | null = null;
+  private ultBarFill: Phaser.GameObjects.Rectangle | null = null;
+  private ultBarGlow: Phaser.GameObjects.Graphics | null = null;
+  private ultLabel: Phaser.GameObjects.Text | null = null;
+  private ultBarWidth: number = 0;
+  private wasUltimateReady: boolean = false;
 
   // Upgrade icons UI
   private upgradeIconsContainer!: Phaser.GameObjects.Container;
@@ -416,7 +426,51 @@ export class HUDManager {
       strokeThickness: 2,
     }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    currentY += xpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING) * 2;
+    currentY += xpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
+
+    // Ultimate ("Overdrive") charge bar (below XP bar) — fills from kills +
+    // damage; glows gold when ready to fire (Q / gamepad Y / touch button).
+    const ultBarWidth = this.scaledSize(180);
+    const ultBarHeight = this.scaledSize(8);
+    this.ultBarWidth = ultBarWidth - 2;
+
+    this.ultBarGlow = this.scene.add.graphics();
+    this.ultBarGlow.fillStyle(0xffcc33, 0.0);
+    this.ultBarGlow.fillRoundedRect(leftMargin - 3, currentY - 2, ultBarWidth + 6, ultBarHeight + 4, 3);
+    this.ultBarGlow.setDepth(HUD_DEPTH - 1);
+
+    this.ultBarBackground = this.scene.add.rectangle(
+      leftMargin + ultBarWidth / 2,
+      currentY + ultBarHeight / 2,
+      ultBarWidth,
+      ultBarHeight,
+      BODY_COLORS.primary
+    );
+    this.ultBarBackground.setStrokeStyle(2, 0xffcc33);
+    this.ultBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    this.ultBarFill = this.scene.add.rectangle(
+      leftMargin + 1,
+      currentY + ultBarHeight / 2,
+      0,
+      ultBarHeight - 2,
+      0xffcc33
+    );
+    this.ultBarFill.setOrigin(0, 0.5);
+    this.ultBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // ULT label — sticker style (shows the [Q] hotkey when ready).
+    this.ultLabel = this.scene.add.text(leftMargin + ultBarWidth + this.scaledSize(8), currentY + ultBarHeight / 2, 'ULT', {
+      fontSize: this.scaledFontSize(12),
+      color: '#ffcc33',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 2,
+    });
+    this.ultLabel.setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    currentY += ultBarHeight + this.scaledSize(HUD_ELEMENT_SPACING) * 2;
 
     // === Upgrade Icons Container ===
     this.upgradeIconsContainer = this.scene.add.container(leftMargin, currentY);
@@ -620,6 +674,7 @@ export class HUDManager {
     // Touch action buttons (dash + fullscreen, only visible for touch users)
     this.touchActionButtons = new TouchActionButtons(this.scene, {
       onDash: () => this.scene.events.emit('input-dash-requested'),
+      onUltimate: () => this.scene.events.emit('input-ultimate-requested'),
       hudScale: this.hudScale,
     });
 
@@ -790,6 +845,46 @@ export class HUDManager {
     }
 
     this.previousComboCount = state.comboCount;
+
+    // Update ultimate charge bar
+    if (this.ultBarFill && this.ultLabel && this.ultBarGlow) {
+      const ratio = Phaser.Math.Clamp(state.ultimateChargeRatio, 0, 1);
+      this.ultBarFill.width = this.ultBarWidth * ratio;
+
+      if (state.ultimateReady) {
+        this.ultBarFill.setFillStyle(0xffffff);
+        this.ultLabel.setText('ULT [Q]');
+        // One-shot pulse + glow ramp the moment it becomes ready.
+        if (!this.wasUltimateReady) {
+          this.ultBarGlow.clear();
+          this.ultBarGlow.fillStyle(0xffcc33, 0.55);
+          this.ultBarGlow.fillRoundedRect(
+            this.ultBarFill.x - 4, this.ultBarFill.y - this.scaledSize(7),
+            this.ultBarWidth + 8, this.scaledSize(14), 3
+          );
+          this.scene.tweens.killTweensOf(this.ultBarGlow);
+          this.scene.tweens.add({
+            targets: this.ultBarGlow,
+            alpha: { from: 0.5, to: 1 },
+            duration: 600,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+          });
+        }
+      } else {
+        this.ultBarFill.setFillStyle(0xffcc33);
+        if (this.wasUltimateReady) {
+          this.ultLabel.setText('ULT');
+          this.scene.tweens.killTweensOf(this.ultBarGlow);
+          this.ultBarGlow.setAlpha(1);
+          this.ultBarGlow.clear();
+        }
+      }
+      this.wasUltimateReady = state.ultimateReady;
+    }
+    // Mirror the charge onto the mobile ultimate button.
+    this.touchActionButtons?.updateUltimateCharge(state.ultimateChargeRatio, state.ultimateReady);
 
     // Update XP bar
     const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding

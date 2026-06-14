@@ -12,6 +12,7 @@ const MIN_TOUCH_SIZE = 44;
 
 export interface TouchActionButtonsOptions {
   onDash: () => void;
+  onUltimate: () => void;
   hudScale: number;
 }
 
@@ -27,12 +28,19 @@ export class TouchActionButtons {
   // Fullscreen button elements
   private fullscreenContainer: Phaser.GameObjects.Container | null = null;
 
+  // Ultimate button elements
+  private ultimateContainer: Phaser.GameObjects.Container | null = null;
+  private ultimateBody: Phaser.GameObjects.Arc | null = null;
+  private ultimateButtonRadius: number = 30;
+  private ultimateReady: boolean = false;
+
   private enabled: boolean = true;
 
   constructor(scene: Phaser.Scene, options: TouchActionButtonsOptions) {
     this.scene = scene;
     this.options = options;
     this.createDashButton();
+    this.createUltimateButton();
     this.createFullscreenButton();
     this.setVisible(false);
   }
@@ -96,6 +104,63 @@ export class TouchActionButtons {
     });
 
     this.positionDashButton();
+  }
+
+  private createUltimateButton(): void {
+    const scaledRadius = Math.max(30 * this.options.hudScale, MIN_TOUCH_SIZE / 2);
+    this.ultimateButtonRadius = scaledRadius;
+
+    this.ultimateContainer = this.scene.add.container(0, 0);
+    this.ultimateContainer.setDepth(BUTTON_DEPTH);
+    this.ultimateContainer.setScrollFactor(0);
+
+    // Black ink silhouette behind body — Balatro cel-shading depth.
+    const inkSilhouette = this.scene.add.circle(3, 4, scaledRadius + 4, 0x000000, 0.55);
+    this.ultimateContainer.add(inkSilhouette);
+
+    // Body — deep navy with a gold accent border (matches the HUD ult meter).
+    this.ultimateBody = this.scene.add.circle(0, 0, scaledRadius, 0x2a2410, 0.85);
+    this.ultimateBody.setStrokeStyle(4, 0xffcc33, 0.95);
+    this.ultimateContainer.add(this.ultimateBody);
+
+    // Top highlight stripe — Balatro banner feel.
+    const ultHighlight = this.scene.add.graphics();
+    ultHighlight.fillStyle(0xffcc33, 0.45);
+    ultHighlight.fillEllipse(0, -scaledRadius * 0.7, scaledRadius * 1.1, 6);
+    this.ultimateContainer.add(ultHighlight);
+
+    // Ultimate icon — a star/burst symbol.
+    const ultIcon = this.scene.add.text(0, 0, '❖', {
+      fontSize: `${Math.round(scaledRadius * 1.0)}px`,
+      color: '#ffe9a8',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 4,
+    });
+    ultIcon.setOrigin(0.5);
+    this.ultimateContainer.add(ultIcon);
+
+    // Interactive hit area
+    const hitArea = new Phaser.Geom.Circle(0, 0, scaledRadius);
+    this.ultimateContainer.setInteractive(hitArea, Phaser.Geom.Circle.Contains);
+    this.ultimateContainer.setName('ultimateButton');
+
+    this.ultimateContainer.on('pointerdown', () => {
+      if (!this.enabled) return;
+      this.options.onUltimate();
+      this.scene.tweens.add({
+        targets: this.ultimateContainer,
+        scaleX: 0.85,
+        scaleY: 0.85,
+        duration: 50,
+        yoyo: true,
+      });
+    });
+
+    // Starts dimmed until charged.
+    this.ultimateContainer.setAlpha(0.45);
+    this.positionUltimateButton();
   }
 
   private createFullscreenButton(): void {
@@ -167,6 +232,44 @@ export class TouchActionButtons {
     }
   }
 
+  private positionUltimateButton(): void {
+    if (!this.ultimateContainer) return;
+    const width = this.scene.scale.width;
+    const height = this.scene.scale.height;
+    const padding = Math.max(20 * this.options.hudScale, 16);
+    // Bottom-right, stacked above the dash button.
+    this.ultimateContainer.setPosition(
+      width - padding - this.ultimateButtonRadius,
+      height - padding - this.ultimateButtonRadius - (60 + 78) * this.options.hudScale
+    );
+  }
+
+  /**
+   * Update the ultimate button's charge visual: dimmed while filling, fully
+   * bright once ready. Pulses on the transition into the ready state.
+   */
+  updateUltimateCharge(ratio: number, ready: boolean): void {
+    if (!this.ultimateContainer) return;
+    if (ready) {
+      this.ultimateContainer.setAlpha(1);
+      if (!this.ultimateReady) {
+        // One-shot pop the moment it becomes ready.
+        this.scene.tweens.killTweensOf(this.ultimateContainer);
+        this.ultimateContainer.setScale(1.25);
+        this.scene.tweens.add({
+          targets: this.ultimateContainer,
+          scale: 1.0,
+          duration: 220,
+          ease: 'Back.easeOut',
+        });
+      }
+    } else {
+      // Fade in as the meter fills (0.4 empty → ~0.85 nearly full).
+      this.ultimateContainer.setAlpha(0.4 + Phaser.Math.Clamp(ratio, 0, 1) * 0.45);
+    }
+    this.ultimateReady = ready;
+  }
+
   private positionFullscreenButton(): void {
     if (!this.fullscreenContainer) return;
     const width = this.scene.scale.width;
@@ -211,6 +314,7 @@ export class TouchActionButtons {
   setVisible(isVisible: boolean): void {
     if (this.dashContainer) this.dashContainer.setVisible(isVisible);
     if (this.dashCooldownArc) this.dashCooldownArc.setVisible(isVisible);
+    if (this.ultimateContainer) this.ultimateContainer.setVisible(isVisible);
     if (this.fullscreenContainer) this.fullscreenContainer.setVisible(isVisible);
   }
 
@@ -226,6 +330,7 @@ export class TouchActionButtons {
    */
   handleResize(_width: number, _height: number): void {
     this.positionDashButton();
+    this.positionUltimateButton();
     this.positionFullscreenButton();
   }
 
@@ -244,6 +349,20 @@ export class TouchActionButtons {
   }
 
   /**
+   * Returns true if the given screen point falls inside the ultimate button's
+   * touch area (with the same finger-roll buffer as the dash button). Used by
+   * JoystickManager to skip spawning a joystick there.
+   */
+  isPointInUltimateButton(pointerX: number, pointerY: number): boolean {
+    if (!this.ultimateContainer || !this.ultimateContainer.visible) return false;
+    const buffer = this.ultimateButtonRadius * 0.5;
+    const dx = pointerX - this.ultimateContainer.x;
+    const dy = pointerY - this.ultimateContainer.y;
+    const radius = this.ultimateButtonRadius + buffer;
+    return dx * dx + dy * dy <= radius * radius;
+  }
+
+  /**
    * Clean up all game objects.
    */
   destroy(): void {
@@ -254,6 +373,11 @@ export class TouchActionButtons {
     if (this.dashCooldownArc) {
       this.dashCooldownArc.destroy();
       this.dashCooldownArc = null;
+    }
+    if (this.ultimateContainer) {
+      this.ultimateContainer.destroy();
+      this.ultimateContainer = null;
+      this.ultimateBody = null;
     }
     if (this.fullscreenContainer) {
       this.fullscreenContainer.destroy();

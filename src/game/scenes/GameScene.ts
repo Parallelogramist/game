@@ -76,6 +76,21 @@ import { getAchievementManager, AchievementDefinition, MilestoneDefinition, Mile
 import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
 import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
+import {
+  resetUltimateSystem,
+  addUltimateChargeFromKill,
+  addUltimateChargeFromDamage,
+  getUltimateChargeRatio,
+  isUltimateReady,
+  tryActivateUltimate,
+  setUltimateChargeSuppressed,
+  computeUltimateNova,
+  getUltimateState,
+  restoreUltimateState,
+  ULTIMATE_SLOWMO_DURATION_MS,
+  ULTIMATE_SLOWMO_SCALE,
+  ULTIMATE_SLOWMO_RAMP_MS,
+} from '../../systems/UltimateSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
 import { expireTimedStatBuffs, normalizeTimedStatBuffs, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
@@ -253,6 +268,9 @@ export class GameScene extends Phaser.Scene {
   private directorDebugRefreshAccumulator: number = 0;
   private directorDebugKeyHandler: (() => void) | null = null;
   private dashRequestHandler: (() => void) | null = null;
+  private ultimateRequestHandler: (() => void) | null = null;
+  // Rising-edge tracker for the one-time "ultimate ready" tutorial hint.
+  private ultimateWasReady: boolean = false;
   // First-run coach marks: cleanup hook exposed so shutdown can tear down
   // listeners and timers if the player restarts mid-tutorial.
   private coachMarksCleanup: (() => void) | null = null;
@@ -962,10 +980,12 @@ export class GameScene extends Phaser.Scene {
       // onDamaged - track total damage dealt
       (_enemyId, damage, isCrit) => {
         this.totalDamageDealt += damage;
+        addUltimateChargeFromDamage(damage);
         getAchievementManager().recordDamageDealt(damage, isCrit);
       },
       // onKilled - handle death
       (enemyId, x, y) => {
+        addUltimateChargeFromKill();
         this.handleEnemyDeath(enemyId, x, y);
       },
       // onHealed - heal player (for weapon mastery effects)
@@ -1113,10 +1133,12 @@ export class GameScene extends Phaser.Scene {
     // Must be after pauseMenuManager is created since onFocusLost references it
     this.inputController.create();
 
-    // Reserve the dash button region from joystick spawn so a finger tap on
-    // dash doesn't also drop a joystick base there.
+    // Reserve the dash + ultimate button regions from joystick spawn so a finger
+    // tap on a button doesn't also drop a joystick base there.
     this.inputController.addJoystickExclusionCheck((x, y) => {
-      return this.hudManager.getTouchActionButtons()?.isPointInDashButton(x, y) ?? false;
+      const buttons = this.hudManager.getTouchActionButtons();
+      return (buttons?.isPointInDashButton(x, y) ?? false)
+        || (buttons?.isPointInUltimateButton(x, y) ?? false);
     });
     // While any intro overlay (coach marks / modifier banner) is showing, taps
     // to dismiss shouldn't also spawn the joystick (would leave ghost joysticks).
@@ -1131,6 +1153,14 @@ export class GameScene extends Phaser.Scene {
       this.inputController.tryDash(playerX, playerY, this.playerId);
     };
     this.events.on('input-dash-requested', this.dashRequestHandler);
+
+    // Listen for ultimate requests from InputController (Q / gamepad Y / touch)
+    this.ultimateRequestHandler = () => {
+      if (this.isPaused || this.isGameOver) return;
+      if (this.playerId === -1) return;
+      this.activateUltimate();
+    };
+    this.events.on('input-ultimate-requested', this.ultimateRequestHandler);
 
     // Listen for pause requests from gamepad (Start button)
     this.pauseRequestHandler = () => {
@@ -1180,6 +1210,7 @@ export class GameScene extends Phaser.Scene {
       bossSpawned: this.bossSpawned,
       bossWarningPhase: this.bossWarningPhase,
       comboState: getComboState(),
+      ultimateCharge: getUltimateState().charge,
       eventState: getEventState(),
       minibossSpawnTimes: this.minibossSpawnTimes,
       banishedUpgradeIds: this.banishedUpgradeIds,
@@ -1350,6 +1381,8 @@ export class GameScene extends Phaser.Scene {
     if (state.comboState) {
       restoreComboState(state.comboState);
     }
+    // Legacy saves predate the ultimate meter → start empty.
+    restoreUltimateState({ charge: state.ultimateCharge ?? 0 });
     if (state.eventState) {
       restoreEventState(state.eventState);
     }
@@ -1533,9 +1566,11 @@ export class GameScene extends Phaser.Scene {
     this.weaponManager.setCallbacks(
       (_enemyId, damage, isCrit) => {
         this.totalDamageDealt += damage;
+        addUltimateChargeFromDamage(damage);
         getAchievementManager().recordDamageDealt(damage, isCrit);
       },
       (enemyId, x, y) => {
+        addUltimateChargeFromKill();
         this.handleEnemyDeath(enemyId, x, y);
       },
       (amount) => {
@@ -2315,6 +2350,34 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Fires the Overdrive ultimate if the charge meter is full: a screen-clearing
+   * nova scaling with the player's damage, plus a brief slow-time window and
+   * gold flash. Charge gain is suppressed during the nova so its own damage
+   * (which routes back through damageEnemy) cannot instantly refill the meter.
+   * No-op when not ready — the input event fires on every Q/Y press.
+   */
+  private activateUltimate(): void {
+    if (this.playerId === -1) return;
+    if (!tryActivateUltimate()) return;
+
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+    const nova = computeUltimateNova(this.playerStats.damageMultiplier, this.gameTime);
+
+    setUltimateChargeSuppressed(true);
+    this.weaponManager.detonateArea(playerX, playerY, nova.radius, nova.damage, nova.knockback);
+    setUltimateChargeSuppressed(false);
+
+    // Juice — mirrors the BOMB consumable, dialed up: gold flash, expanding
+    // burst, screen shake, slow-time, and a punchy sound.
+    this.effectsManager.playDeathBurst(playerX, playerY, 0xffcc33);
+    this.cameras.main.flash(450, 255, 220, 120);
+    this.cameras.main.shake(320, 0.022);
+    getJuiceManager().slowMotion(ULTIMATE_SLOWMO_DURATION_MS, ULTIMATE_SLOWMO_SCALE, ULTIMATE_SLOWMO_RAMP_MS);
+    this.soundManager.playUltimate();
+  }
+
+  /**
    * Spawns an environmental destructible (crate). It shares the EnemyTag
    * pipeline so weapons auto-target and destroy it, but has no EnemyAI
    * (stationary) and deals no contact damage. On destruction it bursts for AOE
@@ -2427,6 +2490,7 @@ export class GameScene extends Phaser.Scene {
    */
   private resetInRunFeatureState(): void {
     this.hasDashedThisRun = false;
+    this.ultimateWasReady = false;
     this.destructibleCount = 0;
     this.destructibleSpawnTimer = 12;
     this.activeShrines.forEach(shrine => shrine.graphics.destroy());
@@ -3435,8 +3499,27 @@ export class GameScene extends Phaser.Scene {
       comboDecayPercent: getComboDecayPercent(),
       comboBuffActive: isComboBuffActive(),
       comboBuffPercent: getComboBuffRemainingPercent(),
+      ultimateChargeRatio: getUltimateChargeRatio(),
+      ultimateReady: isUltimateReady(),
       bossHealthData: bossHealthPayload,
     });
+
+    // One-time teach on the rising edge: the first time the ultimate charges,
+    // tell the player which key/button fires it (a brand-new control).
+    const ultimateReadyNow = isUltimateReady();
+    if (ultimateReadyNow && !this.ultimateWasReady && !this.isGameOver && this.toastManager
+        && getTutorialHintManager().maybeShow('ultimate-ready')) {
+      const ultHint = getTutorialHintDef('ultimate-ready');
+      const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
+      this.toastManager.showToast({
+        title: ultHint.title,
+        description: getHintDescription(ultHint, isTouchDevice),
+        icon: ultHint.icon,
+        color: ultHint.color,
+        duration: ultHint.duration,
+      });
+    }
+    this.ultimateWasReady = ultimateReadyNow;
   }
 
   /**
@@ -7137,6 +7220,7 @@ export class GameScene extends Phaser.Scene {
     destroyGemAtlases(this);
     destroyProjectileAtlases(this);
     resetComboSystem();
+    resetUltimateSystem();
     resetEventSystem();
     resetDirectorSystem();
     resetBossPhaseTracking();
@@ -7604,6 +7688,12 @@ export class GameScene extends Phaser.Scene {
     if (this.dashRequestHandler) {
       this.events.off('input-dash-requested', this.dashRequestHandler);
       this.dashRequestHandler = null;
+    }
+
+    // Remove ultimate request handler
+    if (this.ultimateRequestHandler) {
+      this.events.off('input-ultimate-requested', this.ultimateRequestHandler);
+      this.ultimateRequestHandler = null;
     }
 
     // Remove gamepad pause request handler
