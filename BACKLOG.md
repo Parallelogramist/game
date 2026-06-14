@@ -47,14 +47,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   behavior-identical; `tsc` + `vite build` clean; suite green. File phase 2
   (minibosses 50–55) and phase 3 (bosses 100–102) when this lands.
 
-- [ ] **FEAT-PAUSE-RUN-STATS — live build dashboard on the pause overlay** · area: ux
-  **Value:** the results overlay shows DPS/damage rows post-run, but mid-run there is no
-  way to inspect a build — "is my Katana or my Drone carrying?" is unanswerable while it
-  matters. `WeaponManager.getWeaponRunStats()` already exists (used once, GameScene:4379).
-  **Plan:** a stats panel on the pause overlay (`PauseMenuManager`): DPS, crit %,
-  kills/min, damage taken, top weapons by damage. **Test-first:** pure stat-derivation
-  helpers (per-minute rates, top-N ordering).
-
 - [ ] **POLISH-ACCOUNT-GATE-TOAST — unlock feedback when an account: ship gate opens**
   · area: ux · **Value:** hidden-gated ships toast on unlock via HiddenUnlockManager;
   an `account:<n>` gate (`src/data/UnlockGates.ts`, wired `a41c64e`) crosses its
@@ -152,6 +144,24 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-PAUSE-RUN-STATS** — live build dashboard on the pause overlay
+  (done — `7d153bd`). New pure module `src/game/managers/buildStats.ts`
+  (`deriveBuildStats` + primitives `perMinuteRate`/`perSecondRate`/`safeRatio`/
+  `orderWeaponsByDamage`) turns the run's per-weapon stats + elapsed time +
+  kill count + damage taken into the dashboard numbers — Phaser-free so it's
+  unit-testable (28 tests). Every rate guards divide-by-zero: the pause menu can
+  open one frame in (time ~ 0, no hits) → must never render NaN/Infinity (locked
+  by the "empty run" + "one frame in" tests). `PauseGameState` gained
+  `weaponStats` + `totalDamageTaken` (fed from `WeaponManager.getWeaponRunStats()`
+  / `this.totalDamageTaken` in GameScene's `getGameState`). New `BUILD STATS`
+  panel on the **left** of the pause overlay (run-modifiers stays on the right —
+  no collision): headline DPS / crit % / kills-min / dmg taken, then top-5
+  weapons by damage with each weapon's share, as a two-column label/value text
+  pair (aligns columns without one named object per cell). Mirrors the
+  run-modifiers panel lifecycle exactly — stagger-animated in, torn down by
+  registered name in `hidePauseMenu` (4 names added). Weapon-attributed kills can
+  differ from run kills, so kills/min uses the run `killCount`, not the weapon
+  sum. Visual placement/feel → playtest (no balance/timing change).
 - [x] **FEAT-SHIP-ACCOUNT-GATE** — documented `account:<level>` ship gate wired
   (done — `a41c64e`). New pure `src/data/UnlockGates.ts`:
   `isUnlockRequirementMet(requirement, {unlockedConditionIds, worldLevel,
