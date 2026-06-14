@@ -108,6 +108,15 @@ Never agent work. The fleet must not do any of these.
     matches where the sweep actually goes (target stored 1 frame after telegraph), (c)
     Horde King ring legibility against the red arena tint, (d) telegraph pool (32) holds
     up in dense Dasher/Zigzag waves with a boss active.
+  - **BALANCE-ULTIMATE** — new Overdrive ultimate (`895c4be`+`cd18cd9`). Check with a
+    real run: (a) charge cadence — does the meter fill at a satisfying rate (~40 kills
+    or ~8.3k damage)? rates are `ULTIMATE_CHARGE_PER_KILL`/`_PER_DAMAGE` in
+    `UltimateSystem.ts`; (b) nova power vs the BOMB consumable (ult scales with player
+    damage, bomb doesn't) — too weak early / too strong late? (`computeUltimateNova`);
+    (c) HUD gold bar legibility below the XP bar + the ready pulse/glow not being noise;
+    (d) mobile: gold button placement above dash, no joystick-spawn conflict, dim→bright
+    fill readable; (e) slow-time window (900ms/0.2) feel on activation; (f) the
+    `ultimate-ready` hint timing (fires the first time it charges).
   - **BALANCE-UPGRADE-RARITY** — rarity-tiered level-up offers (`ea51123`;
     `UPGRADE_LUCK_RARITY_BONUS` in `src/data/UpgradeRarity.ts`, assignments in
     `Upgrades.ts`). Check: (a) luck-bias strength feels right at realistic max luck
@@ -144,6 +153,23 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-ULTIMATE-OVERDRIVE** — net-new active player ability "Overdrive"
+  (done — `895c4be` pure core + `cd18cd9` wiring). Closed the biggest gameplay gap
+  (the old FEATURE_PLAN.md rated player abilities 1/5; only the *passive*
+  `ultimateMastery` weapon multiplier existed — no active ability but dash). New
+  module-state `src/systems/UltimateSystem.ts` (mirrors ComboSystem): a charge meter
+  fills from kills + damage dealt; once full, Q / gamepad Y / a new mobile touch
+  button fires a screen-clearing nova (damage scales with `damageMultiplier` + game
+  time via pure `computeUltimateNova`) plus gold flash, shake, brief slow-time, and a
+  new `SoundManager.playUltimate()`. Charge is **suppressed** around the nova so its
+  own `detonateArea` damage can't recharge the meter (locked by test). HUD gold bar
+  below the XP bar (whitens/glows/[Q] when ready), mirrored on the mobile button.
+  Persistence: `GameSaveState.ultimateCharge?` (corruption-hardened restore; legacy
+  saves start empty). One-time `ultimate-ready` tutorial hint on the rising edge.
+  19 pure-core tests + 1 hint test (TDD: RED→GREEN throughout). tsc/build clean, 800
+  tests green. Tuning (charge rates `ULTIMATE_CHARGE_PER_KILL`=2.5 /
+  `_PER_DAMAGE`=0.012, nova damage/radius, slow-time window) + feel → playtest queue
+  (BALANCE-ULTIMATE below).
 - [x] **FEAT-PAUSE-RUN-STATS** — live build dashboard on the pause overlay
   (done — `7d153bd`). New pure module `src/game/managers/buildStats.ts`
   (`deriveBuildStats` + primitives `perMinuteRate`/`perSecondRate`/`safeRatio`/

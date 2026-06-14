@@ -388,6 +388,31 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 - Save/restore: `getComboState()`/`restoreComboState()`
 - Reset: `resetComboSystem()` in GameScene `create()`
 
+### Ultimate Ability System ("Overdrive")
+
+`UltimateSystem` (`/src/systems/UltimateSystem.ts`) — the player's charged active
+ability, module-level state (mirrors ComboSystem). The **only** active ability
+besides dash. Pure, unit-tested core; Phaser wiring lives in GameScene.
+- **Charge**: 0..`MAX_ULTIMATE_CHARGE` (100). Fills from kills
+  (`addUltimateChargeFromKill`) + damage dealt (`addUltimateChargeFromDamage`),
+  fed from both `WeaponManager.setCallbacks` paths (fresh + restore).
+- **Activation** (`GameScene.activateUltimate`): when full, `tryActivateUltimate()`
+  consumes the meter and fires a screen-clearing nova via
+  `WeaponManager.detonateArea` (damage scales with `PlayerStats.damageMultiplier`
+  + game time via pure `computeUltimateNova`), plus gold flash, screen shake,
+  brief slow-time, and `SoundManager.playUltimate()`. Charge is **suppressed**
+  (`setUltimateChargeSuppressed`) around the nova so its own damage can't recharge
+  the meter.
+- **Input**: Q key / gamepad Y / mobile touch button → `input-ultimate-requested`
+  (InputController emits; GameScene handler activates). Touch button in
+  `TouchActionButtons` (gold, above dash; has a joystick-exclusion zone).
+- **HUD**: gold charge bar below the XP bar (whitens + glows + shows `[Q]` when
+  ready); mirrored onto the mobile button via `updateUltimateCharge`.
+- **Discoverability**: one-time `ultimate-ready` tutorial hint on the rising edge.
+- Save/restore: `getUltimateState()`/`restoreUltimateState()` (corruption-hardened;
+  `GameSaveState.ultimateCharge?` — legacy saves start empty).
+- Reset: `resetUltimateSystem()` in `resetAllRunSystems()`.
+
 ### Hazard Zone System
 
 `HazardZoneSystem` (`/src/systems/HazardZoneSystem.ts`) — module-level state, no class. Temporary battlefield zones with 4 types: `burn` (DoT), `ice` (slows enemies, returns slow multiplier per frame via `applyIceHazardSlow()` during enemy movement), `void` (pulls enemies inward), `energy` (player damage boost while inside). Spawned via `spawnHazardZone()`. Per-frame `updateHazardZones()` returns `HazardUpdateResult` consumed by `GameScene`. `updateHazardSpawner()` runs the auto-spawn pacing. Quality-aware (`setHazardZoneQuality`), stage-aware (`setHazardZoneStage`), world-level-aware (`setHazardZoneWorldLevel`). Reset: `resetHazardZoneSystem()` in GameScene `create()`.
