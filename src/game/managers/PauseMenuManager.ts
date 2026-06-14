@@ -6,6 +6,7 @@ import { MenuNavigator } from '../../input/MenuNavigator';
 import { SoundManager } from '../../audio/SoundManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
+import { deriveBuildStats } from './buildStats';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS } from '../../visual/MenuStyle';
@@ -146,6 +147,10 @@ export interface PauseGameState {
   isGameOver: boolean;
   isPaused: boolean;
   isPauseMenuOpen: boolean;
+  /** Per-weapon run stats, for the live build dashboard on the pause overlay. */
+  weaponStats: WeaponRunStats[];
+  /** Total damage the player has taken this run (build dashboard). */
+  totalDamageTaken: number;
 }
 
 export interface VictoryData {
@@ -526,6 +531,10 @@ export class PauseMenuManager {
     // Run modifiers panel (right side)
     const runModifiersElements = this.createRunModifiersPanel();
 
+    // Live build dashboard (left side) — DPS / crit % / kills-min / damage taken
+    // and the top weapons by damage, so a build can be inspected mid-run.
+    const buildStatsElements = this.createBuildStatsPanel();
+
     // Keyboard + gamepad navigation for pause menu
     const pauseButtons = [
       { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: resumeBaseColor, hoverColor: resumeHoverColor },
@@ -562,6 +571,7 @@ export class PauseMenuManager {
       quitShopButtonBg, quitShopButtonText,
       hintText,
       ...runModifiersElements,
+      ...buildStatsElements,
     ];
     // Disable buttons during stagger to prevent addButtonInteraction's killTweensOf
     // from canceling the alpha fade-in tween on hover
@@ -617,6 +627,10 @@ export class PauseMenuManager {
       'runModifiersTitle',
       'runModifiersBg',
       'runModifiersText',
+      'buildStatsTitle',
+      'buildStatsBg',
+      'buildStatsSummary',
+      'buildStatsWeapons',
     ]);
 
     this.isPauseMenuOpen = false;
@@ -738,6 +752,107 @@ export class PauseMenuManager {
     modifiersText.setName('runModifiersText');
 
     return [panelBg, titleText, modifiersText];
+  }
+
+  /**
+   * Creates the live build dashboard on the left side of the pause overlay:
+   * headline DPS / crit % / kills-per-minute / damage taken, plus the top
+   * weapons by damage with each weapon's share. Lets a player answer "which
+   * weapon is carrying?" mid-run, not just on the results screen. Built from a
+   * two-column pair of text objects (left labels, right values) so the columns
+   * align without one named game object per cell.
+   * Returns the created game objects for inclusion in the stagger animation.
+   */
+  private createBuildStatsPanel(): (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[] {
+    const gameState = this.options.getGameState();
+    const stats = deriveBuildStats({
+      weaponStats: gameState.weaponStats ?? [],
+      gameTimeSeconds: gameState.gameTime,
+      killCount: gameState.killCount,
+      totalDamageTaken: gameState.totalDamageTaken ?? 0,
+    });
+
+    const formatPercent = (rate: number): string => `${Math.round(rate * 100)}%`;
+
+    // Two parallel columns: left = labels, right = values. Same line index ⇒
+    // same row, so they read as an aligned table.
+    const leftLines: string[] = ['DPS', 'Crit', 'Kills/min', 'Dmg Taken'];
+    const rightLines: string[] = [
+      formatLargeNumber(stats.dps),
+      formatPercent(stats.critRate),
+      String(Math.round(stats.killsPerMinute)),
+      formatLargeNumber(stats.totalDamageTaken),
+    ];
+
+    if (stats.topWeapons.length > 0) {
+      leftLines.push('', 'TOP WEAPONS');
+      rightLines.push('', '');
+      for (const weapon of stats.topWeapons) {
+        leftLines.push(weapon.weaponName);
+        rightLines.push(`${formatLargeNumber(weapon.totalDamage)}  ${formatPercent(weapon.damageShare)}`);
+      }
+    } else {
+      leftLines.push('', 'No damage yet');
+      rightLines.push('', '');
+    }
+
+    const lineCount = leftLines.length;
+    const lineHeight = 20;
+    const panelX = this.scene.scale.width * 0.18;
+    const panelTopY = this.scene.scale.height / 2 - 144;
+    const panelWidth = 220;
+    const panelHeight = lineCount * lineHeight + 40;
+    const contentLeftX = panelX - panelWidth / 2;
+    const contentRightX = panelX + panelWidth / 2;
+    const contentTopY = panelTopY + 26;
+
+    // Panel background
+    const panelBg = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBg,
+      panelX - panelWidth / 2 - 12,
+      panelTopY - 10,
+      panelWidth + 24,
+      panelHeight,
+    );
+    panelBg.setDepth(PAUSE_MENU_DEPTH + 1);
+    panelBg.setName('buildStatsBg');
+
+    // Title
+    const titleText = this.scene.add.text(panelX, panelTopY + 4, 'BUILD STATS', {
+      fontSize: '14px',
+      color: '#aaaacc',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    });
+    titleText.setOrigin(0.5, 0);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 2);
+    titleText.setName('buildStatsTitle');
+
+    // Left column: labels (and weapon names).
+    const summaryText = this.scene.add.text(contentLeftX, contentTopY, leftLines.join('\n'), {
+      fontSize: '13px',
+      color: '#ccccdd',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      lineSpacing: 4,
+    });
+    summaryText.setOrigin(0, 0);
+    summaryText.setDepth(PAUSE_MENU_DEPTH + 2);
+    summaryText.setName('buildStatsSummary');
+
+    // Right column: values, right-aligned to the panel edge.
+    const valuesText = this.scene.add.text(contentRightX, contentTopY, rightLines.join('\n'), {
+      fontSize: '13px',
+      color: '#ffcc66',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      lineSpacing: 4,
+      align: 'right',
+    });
+    valuesText.setOrigin(1, 0);
+    valuesText.setDepth(PAUSE_MENU_DEPTH + 2);
+    valuesText.setName('buildStatsWeapons');
+
+    return [panelBg, titleText, summaryText, valuesText];
   }
 
   /**

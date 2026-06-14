@@ -4058,6 +4058,8 @@ export class GameScene extends Phaser.Scene {
         isGameOver: this.isGameOver,
         isPaused: this.isPaused,
         isPauseMenuOpen: this.pauseMenuManager?.isPauseMenuOpen ?? false,
+        weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
+        totalDamageTaken: this.totalDamageTaken,
       }),
     }, this.soundManager);
   }
