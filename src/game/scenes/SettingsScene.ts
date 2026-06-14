@@ -32,7 +32,7 @@ import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../.
 type FocusZone =
   | 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks'
   | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter'
-  | 'colorblind' | 'highContrast'
+  | 'colorblind' | 'highContrast' | 'minimap'
   | 'uiScale'
   | 'damageNumbers' | 'statusText'
   | 'resetData' | 'back';
@@ -351,7 +351,11 @@ export class SettingsScene extends Phaser.Scene {
       () => settingsManager.isHighContrastEnabled(),
       (v) => settingsManager.setHighContrast(v));
 
-    const uiScaleY = startY + rowGap * 6;
+    buildToggleRow(6, 'Minimap', 'minimap',
+      () => settingsManager.isMinimapEnabled(),
+      (v) => settingsManager.setMinimapEnabled(v));
+
+    const uiScaleY = startY + rowGap * 7;
     this.addRowLabel(card, labelX, uiScaleY, 'UI Scale');
     this.uiScaleHandles = this.addStepperRow(card, controlX, uiScaleY, 'uiScale',
       () => `${Math.round(settingsManager.getUiScale() * 100)}%`,
@@ -793,6 +797,7 @@ export class SettingsScene extends Phaser.Scene {
       { zone: 'gridEffects', enabled: settingsManager.isGridEffectsEnabled() },
       { zone: 'fpsCounter', enabled: settingsManager.isFpsCounterEnabled() },
       { zone: 'highContrast', enabled: settingsManager.isHighContrastEnabled() },
+      { zone: 'minimap', enabled: settingsManager.isMinimapEnabled() },
       { zone: 'statusText', enabled: settingsManager.isStatusTextEnabled() },
     ];
     for (const { zone, enabled } of toggleStates) {
@@ -843,7 +848,7 @@ export class SettingsScene extends Phaser.Scene {
       'sfx', 'sfxVolume', 'bgm', 'bgmVolume', 'playbackMode', 'musicTracks',
       'damageNumbers', 'statusText',
       'screenShake', 'reducedMotion', 'gridEffects', 'fpsCounter',
-      'colorblind', 'highContrast',
+      'colorblind', 'highContrast', 'minimap',
       'uiScale', 'resetData',
       'back',
     ];
@@ -985,6 +990,9 @@ export class SettingsScene extends Phaser.Scene {
         break;
       case 'highContrast':
         settingsManager.setHighContrast(!settingsManager.isHighContrastEnabled());
+        break;
+      case 'minimap':
+        settingsManager.setMinimapEnabled(!settingsManager.isMinimapEnabled());
         break;
       case 'damageNumbers': {
         const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];

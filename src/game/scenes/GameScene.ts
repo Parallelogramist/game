@@ -16,6 +16,7 @@ import {
   EnemyAffix,
   Destructible,
   StatusEffect,
+  ConsumablePickupTag,
 } from '../../ecs/components';
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
@@ -60,6 +61,8 @@ import { computeRunScore, computePerformanceGrade } from '../../utils/Performanc
 import { recordScore } from '../../meta/BestScoreManager';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
+import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
+import { classifyEnemyKind, type MinimapBlipKind } from '../../visual/minimapProjection';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
@@ -112,6 +115,7 @@ import { PauseMenuManager } from '../managers/PauseMenuManager';
 
 // Module-level queries (defined once, not per-frame)
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
+const minimapConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
 
 const PAUSE_MENU_DEPTH = 1100; // Shared depth constant for overlay rendering
 
@@ -395,6 +399,12 @@ export class GameScene extends Phaser.Scene {
   // Off-screen threat directional arrows
   private offScreenIndicatorManager!: OffScreenIndicatorManager;
 
+  // Tactical minimap / threat radar (mid-right HUD edge)
+  private minimapManager!: MinimapManager;
+  // Reusable per-frame radar contact buffer — grown once, never re-allocated.
+  private minimapEntries: MinimapEntry[] = [];
+  private static readonly MINIMAP_MAX_ENEMY_BLIPS = 48;
+
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
   private isAutoBuyEnabled: boolean = false;
   private autoBuyKeyHandler: (() => void) | null = null;
@@ -661,6 +671,9 @@ export class GameScene extends Phaser.Scene {
     // Initialize off-screen threat indicators
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
+
+    // Initialize the tactical minimap / threat radar
+    this.minimapManager = new MinimapManager(this);
 
     // Initialize mastery visuals manager for level 10 stat indicators
     this.masteryVisualsManager = new MasteryVisualsManager(this);
@@ -1327,6 +1340,7 @@ export class GameScene extends Phaser.Scene {
     setTelegraphManager(this.telegraphManager);
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
+    this.minimapManager = new MinimapManager(this);
     this.masteryVisualsManager = new MasteryVisualsManager(this);
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
 
@@ -3497,6 +3511,9 @@ export class GameScene extends Phaser.Scene {
     // Update off-screen threat indicators
     this.offScreenIndicatorManager.update(deltaSeconds);
 
+    // Update the tactical minimap / threat radar
+    this.updateMinimap(deltaSeconds);
+
     // Update visual quality based on FPS (auto-scaling)
     this.updateVisualQuality(delta);
 
@@ -3875,6 +3892,86 @@ export class GameScene extends Phaser.Scene {
         playerSprite.setFillStyle(0x4488ff); // Return to normal blue
       });
     }
+  }
+
+  /**
+   * Writes a radar contact into the reusable buffer at `index`, growing it by one
+   * slot on first use of that index. Returns nothing — caller tracks the count.
+   */
+  private writeMinimapEntry(index: number, worldX: number, worldY: number, kind: MinimapBlipKind): void {
+    let slot = this.minimapEntries[index];
+    if (!slot) {
+      slot = { worldX: 0, worldY: 0, kind: 'enemy' };
+      this.minimapEntries.push(slot);
+    }
+    slot.worldX = worldX;
+    slot.worldY = worldY;
+    slot.kind = kind;
+  }
+
+  /**
+   * Gathers this frame's radar contacts (bosses/minibosses/elites always shown;
+   * regular enemies sampled to a cap to keep the radar readable + cheap; treasure
+   * chests as pickups) and hands them to the MinimapManager. Reuses the shared
+   * per-frame enemy query and a pooled entry buffer — allocates nothing per frame.
+   */
+  private updateMinimap(deltaSeconds: number): void {
+    if (!this.minimapManager) return;
+
+    // Keep the manager's enabled state in sync with the live settings toggle.
+    const minimapEnabled = getSettingsManager().isMinimapEnabled();
+    if (minimapEnabled !== this.minimapManager.isEnabled()) {
+      this.minimapManager.setEnabled(minimapEnabled);
+    }
+    if (!minimapEnabled || this.playerId === -1) {
+      this.minimapManager.update(0, 0, this.minimapEntries, 0, deltaSeconds);
+      return;
+    }
+
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+
+    const enemyIds = getFrameCacheEnemyIds();
+    // Stride-sample regular enemies so dense swarms stay near the blip cap while
+    // still conveying density; high-value threats (boss/miniboss/elite) bypass it.
+    const stride = Math.max(1, Math.ceil(enemyIds.length / GameScene.MINIMAP_MAX_ENEMY_BLIPS));
+    let count = 0;
+    let regularSeen = 0;
+
+    for (let i = 0; i < enemyIds.length; i++) {
+      const entityId = enemyIds[i];
+      // Crates share the enemy pipeline but are stationary props, not threats.
+      if (hasComponent(this.world, Destructible, entityId)) continue;
+
+      const xpValue = EnemyType.xpValue[entityId] || 1;
+      const isElite = hasComponent(this.world, EnemyAffix, entityId);
+      const kind = classifyEnemyKind(xpValue, isElite);
+
+      if (kind === 'enemy') {
+        // Sample regular enemies to the cap.
+        if (regularSeen % stride !== 0) {
+          regularSeen++;
+          continue;
+        }
+        regularSeen++;
+      }
+      this.writeMinimapEntry(count++, Transform.x[entityId], Transform.y[entityId], kind);
+    }
+
+    // Pickups: treasure chests + floor consumables (bomb/freeze/vacuum/gold) are
+    // the "go grab this" radar contacts.
+    for (let i = 0; i < this.activeChests.length; i++) {
+      const chest = this.activeChests[i].graphics;
+      if (!chest.active) continue;
+      this.writeMinimapEntry(count++, chest.x, chest.y, 'pickup');
+    }
+    const consumableIds = minimapConsumableQuery(this.world);
+    for (let i = 0; i < consumableIds.length; i++) {
+      const consumableId = consumableIds[i];
+      this.writeMinimapEntry(count++, Transform.x[consumableId], Transform.y[consumableId], 'pickup');
+    }
+
+    this.minimapManager.update(playerX, playerY, this.minimapEntries, count, deltaSeconds);
   }
 
   /**
@@ -7813,6 +7910,9 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();
+    }
+    if (this.minimapManager) {
+      this.minimapManager.destroy();
     }
     // Field shrine + chest + bounty cleanup (plain Phaser objects).
     this.activeShrines.forEach(shrine => shrine.graphics.destroy());

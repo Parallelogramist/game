@@ -20,6 +20,7 @@ const STORAGE_KEY_DIRECTOR_DEBUG = 'settings-director-debug';
 const STORAGE_KEY_SCREEN_SHAKE_INTENSITY = 'settings-screen-shake-intensity';
 const STORAGE_KEY_COLORBLIND_MODE = 'settings-colorblind-mode';
 const STORAGE_KEY_HIGH_CONTRAST = 'settings-high-contrast';
+const STORAGE_KEY_MINIMAP = 'settings-minimap-enabled';
 export type DamageNumbersMode = 'all' | 'crits' | 'perfect_crits' | 'off';
 
 /** Color-vision-deficiency correction modes applied as a full-screen post-FX filter. */
@@ -42,6 +43,8 @@ export interface GameSettings {
   colorblindMode: ColorblindMode;
   /** Boosts gameplay contrast (brighter enemy projectiles, stronger danger vignette). */
   highContrast: boolean;
+  /** Tactical minimap / threat radar on the right HUD edge. */
+  minimapEnabled: boolean;
 }
 
 const DEFAULTS: GameSettings = {
@@ -59,6 +62,7 @@ const DEFAULTS: GameSettings = {
   screenShakeIntensity: 1.0,
   colorblindMode: 'off',
   highContrast: false,
+  minimapEnabled: true,
 };
 
 export class SettingsManager {
@@ -89,6 +93,7 @@ export class SettingsManager {
       ),
       colorblindMode: this.loadColorblindMode(),
       highContrast: this.loadBoolean(STORAGE_KEY_HIGH_CONTRAST, DEFAULTS.highContrast),
+      minimapEnabled: this.loadBoolean(STORAGE_KEY_MINIMAP, DEFAULTS.minimapEnabled),
     };
   }
 
@@ -267,6 +272,15 @@ export class SettingsManager {
     this.saveBoolean(STORAGE_KEY_FPS_COUNTER, enabled);
   }
 
+  isMinimapEnabled(): boolean {
+    return this.settings.minimapEnabled;
+  }
+
+  setMinimapEnabled(enabled: boolean): void {
+    this.settings.minimapEnabled = enabled;
+    this.saveBoolean(STORAGE_KEY_MINIMAP, enabled);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Combat Text Settings
   // ═══════════════════════════════════════════════════════════════════════════
@@ -389,6 +403,7 @@ export class SettingsManager {
     this.setScreenShakeIntensity(DEFAULTS.screenShakeIntensity);
     this.setColorblindMode(DEFAULTS.colorblindMode);
     this.setHighContrast(DEFAULTS.highContrast);
+    this.setMinimapEnabled(DEFAULTS.minimapEnabled);
   }
 }
 

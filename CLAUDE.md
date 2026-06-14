@@ -289,6 +289,7 @@ Union type `Phaser.GameObjects.Shape | Phaser.GameObjects.Graphics` — supports
 - **Gem3DRenderer**: 3D octahedron XP gems via transform matrices + painter's algorithm
 - **DepthLayers**: Z-depth constants for render ordering
 - **OffScreenIndicatorManager**: Edge arrows pointing to off-screen bosses/minibosses/pickups
+- **MinimapManager** (`/src/visual/MinimapManager.ts`): player-centered tactical radar disc on the mid-right HUD edge. Blips for bosses/minibosses/elites/enemy-swarm (stride-sampled to a cap) + pickups (chests + floor consumables); off-radar contacts clamp to the rim. Pure projection/classification math in `src/visual/minimapProjection.ts` (`projectToRadar`/`classifyEnemyKind`/`blipStyle`, unit-tested); GameScene `updateMinimap()` feeds it from the shared frame cache + a pooled entry buffer. Toggle: `SettingsManager.isMinimapEnabled()` (default on, VISUALS card). Quality/HUD-scale + reduced-motion aware. Instance-only state (no module reset).
 - **LightingSystem**: Dynamic lighting overlay for entities
 - **EnemyVisuals**: Centralized per-enemy procedural draw routines (25 enemy types)
 - **ProjectileAtlasRenderer**: Pre-renders projectile shapes into texture atlases via `generateProjectileAtlases(scene)`. Projectiles become Image sprites using shared frames so hundreds batch into a single draw call (mirrors `Gem3DRenderer` pattern). `destroyProjectileAtlases(scene)` on shutdown.
@@ -326,7 +327,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 ### Settings System
 
 `SettingsManager` (`/src/settings/`) — SecureStorage persistence:
-- SFX enabled/volume, screen shake, FPS counter, status text
+- SFX enabled/volume, screen shake, FPS counter, status text, minimap (radar) toggle
 - Damage numbers: `'all' | 'crits' | 'perfect_crits' | 'off'`
 - UI scale: `0.5–2.0` (default 1.0), used by HudScale
 - Music enabled/volume/playback mode
