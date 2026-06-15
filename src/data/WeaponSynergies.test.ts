@@ -3,6 +3,7 @@ import {
   getSynergy,
   getActiveSynergies,
   computeSynergyMultipliers,
+  diffActivatedSynergies,
 } from './WeaponSynergies';
 
 /**
@@ -38,6 +39,57 @@ describe('getActiveSynergies', () => {
   it('finds the synergy when both members of a pair are equipped', () => {
     const active = getActiveSynergies(['frost_nova', 'meteor', 'projectile']);
     expect(active.map((s) => s.name)).toEqual(['Thermal Shock']);
+  });
+});
+
+describe('diffActivatedSynergies', () => {
+  // Drives the "a new synergy just activated" feedback (toast + sound). The
+  // function answers "which synergies are in `current` that were not in
+  // `previous`?" so a level-up/pickup that completes a pair can be announced —
+  // and only newly-completed pairs, never ones that were already active.
+  const active = (...ids: string[]) => getActiveSynergies(ids);
+
+  it('reports nothing when neither set has synergies', () => {
+    expect(diffActivatedSynergies([], [])).toEqual([]);
+  });
+
+  it('reports a synergy that is newly present', () => {
+    const current = active('frost_nova', 'meteor'); // Thermal Shock
+    const newly = diffActivatedSynergies([], current);
+    expect(newly.map((s) => s.name)).toEqual(['Thermal Shock']);
+  });
+
+  it('reports nothing when the synergy set is unchanged (no re-fire)', () => {
+    const set = active('frost_nova', 'meteor');
+    expect(diffActivatedSynergies(set, set)).toEqual([]);
+  });
+
+  it('reports nothing when a synergy is lost rather than gained', () => {
+    const previous = active('frost_nova', 'meteor');
+    expect(diffActivatedSynergies(previous, [])).toEqual([]);
+  });
+
+  it('reports only the gained synergy when one is swapped for another', () => {
+    // previous: Thermal Shock (frost_nova+meteor)
+    // current:  Blade Dance (katana+orbiting_blades) — count is unchanged (1→1),
+    // so a count-based check would miss this; the diff must still fire.
+    const previous = active('frost_nova', 'meteor');
+    const current = active('katana', 'orbiting_blades');
+    const newly = diffActivatedSynergies(previous, current);
+    expect(newly.map((s) => s.name)).toEqual(['Blade Dance']);
+  });
+
+  it('reports every synergy gained at once when several appear together', () => {
+    const current = active('frost_nova', 'meteor', 'katana', 'orbiting_blades');
+    const names = diffActivatedSynergies([], current).map((s) => s.name).sort();
+    expect(names).toEqual(['Blade Dance', 'Thermal Shock']);
+  });
+
+  it('keeps an already-active synergy and reports only the addition', () => {
+    const previous = active('frost_nova', 'meteor'); // Thermal Shock
+    const current = active('frost_nova', 'meteor', 'katana', 'orbiting_blades');
+    const newly = diffActivatedSynergies(previous, current);
+    expect(newly.map((s) => s.name)).toEqual(['Blade Dance']);
   });
 });
 

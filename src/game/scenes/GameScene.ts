@@ -40,6 +40,7 @@ import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
+import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
 import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
@@ -1004,6 +1005,10 @@ export class GameScene extends Phaser.Scene {
       // onHealed - heal player (for weapon mastery effects)
       (amount) => {
         this.healPlayer(amount);
+      },
+      // onSynergyActivated - announce a newly-completed weapon synergy
+      (synergy) => {
+        this.showSynergyToast(synergy);
       }
     );
 
@@ -1623,6 +1628,11 @@ export class GameScene extends Phaser.Scene {
       },
       (amount) => {
         this.healPlayer(amount);
+      },
+      // Wired after the restore weapon loop above, so re-equipping a synergized
+      // build on save-restore does not fire activation toasts.
+      (synergy) => {
+        this.showSynergyToast(synergy);
       }
     );
 
@@ -2840,6 +2850,25 @@ export class GameScene extends Phaser.Scene {
     }
     this.bounty = null;
     this.bountyCooldown = 12;
+  }
+
+  /**
+   * Announce a weapon synergy the moment its pair completes. Until now the
+   * synergy system (real passive damage/cooldown bonuses) was invisible — only
+   * a sound played — so players couldn't tell a synergy had triggered or what it
+   * did. Surfacing the name + effect turns it into a legible build-crafting
+   * moment. Fired from the WeaponManager `onSynergyActivated` callback, which
+   * only reports pairs that newly completed (never re-fires for active ones).
+   */
+  private showSynergyToast(synergy: WeaponSynergy): void {
+    if (!this.toastManager) return;
+    this.toastManager.showToast({
+      title: `⚡ ${synergy.name}`,
+      description: synergy.description,
+      icon: 'chain',
+      color: 0x66ddff,
+      duration: 3200,
+    });
   }
 
   // Pre-allocated pool for grid background enemy data (avoids per-frame allocation)
@@ -4274,6 +4303,7 @@ export class GameScene extends Phaser.Scene {
         isPauseMenuOpen: this.pauseMenuManager?.isPauseMenuOpen ?? false,
         weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
         totalDamageTaken: this.totalDamageTaken,
+        activeSynergies: this.weaponManager?.getActiveSynergies() ?? [],
       }),
     }, this.soundManager);
   }

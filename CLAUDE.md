@@ -369,7 +369,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 **Performance Grade + Best Score** (`src/utils/PerformanceGrade.ts` + `src/meta/BestScoreManager.ts`): the game-over results overlay (`PauseMenuManager.gameOver`) shows an S–F grade (baseline-scaled by world level, +1 tier on victory) and a per-run best score persisted by world level via SecureStorage (key `survivor-best-scores`, registered in `StorageBootstrap.ALL_STORAGE_KEYS`).
 
-**Weapon Synergies** (`src/data/WeaponSynergies.ts`): Passive bonuses when a specific weapon pair is equipped (damage and cooldown multipliers applied to both weapons). Build-crafting layer beyond raw DPS.
+**Weapon Synergies** (`src/data/WeaponSynergies.ts`): Passive bonuses when a specific weapon pair is equipped (damage and cooldown multipliers applied to both weapons). Build-crafting layer beyond raw DPS. **Surfaced to the player** (FEAT-SYNERGY-VISIBILITY): completing a pair fires a `⚡ <name>` activation toast via `WeaponManager.onSynergyActivated` (set through `setCallbacks`' 4th arg, wired on both fresh + restore GameScene paths — restore wires it *after* the weapon re-add loop so a save-restore doesn't re-toast already-active synergies), and the pause **BUILD STATS** dashboard lists active synergies + their `+x% dmg / +y% spd` magnitude. `diffActivatedSynergies(prev, current)` (pure, unit-tested) reports only newly-completed pairs, keyed by unique name (diffs the sets, so a same-frame swap still fires).
 
 ### Utility Systems
 

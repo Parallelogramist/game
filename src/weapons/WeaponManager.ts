@@ -2,7 +2,12 @@ import { IWorld, hasComponent } from 'bitecs';
 import { BaseWeapon, WeaponContext } from './BaseWeapon';
 import { ChainLightningWeapon } from './ChainLightningWeapon';
 import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
-import { getActiveSynergies, computeSynergyMultipliers, WeaponSynergy } from '../data/WeaponSynergies';
+import {
+  getActiveSynergies,
+  computeSynergyMultipliers,
+  diffActivatedSynergies,
+  WeaponSynergy,
+} from '../data/WeaponSynergies';
 import { EffectsManager } from '../effects/EffectsManager';
 import { SoundManager } from '../audio/SoundManager';
 import { Transform, Health, Knockback, EnemyType, EnemyTag } from '../ecs/components';
@@ -82,7 +87,10 @@ export class WeaponManager {
 
   // Weapon slot limit system
   private maxWeaponSlots: number = 3;
-  private previousSynergyCount: number = 0;
+  // Synergies active as of the last recalculation, so we can announce only the
+  // pairs that newly completed (diff against this) rather than re-firing for
+  // every still-active synergy.
+  private previousSynergies: WeaponSynergy[] = [];
   // Player `weaponSynergy` stat — amplifies the bonus portion of active
   // synergies (Synergy meta upgrade + Synergy Chain relic). 0 = raw synergies.
   private externalSynergyBonus: number = 0;
@@ -95,6 +103,11 @@ export class WeaponManager {
   private onEnemyDamaged: ((enemyId: number, damage: number, isCrit: boolean) => void) | null = null;
   private onEnemyKilled: ((enemyId: number, x: number, y: number) => void) | null = null;
   private onPlayerHealed: ((amount: number) => void) | null = null;
+  // Fired once per synergy when a weapon change newly completes a synergy pair,
+  // so GameScene can surface it (toast). Not fired for synergies that were
+  // already active. Wired after weapons are restored, so a save-restore that
+  // re-equips a synergized build does not spam toasts.
+  private onSynergyActivated: ((synergy: WeaponSynergy) => void) | null = null;
 
   // Overcharge stun duration (from permanent upgrades)
   private overchargeStunDuration: number = 0;
@@ -158,11 +171,13 @@ export class WeaponManager {
   public setCallbacks(
     onDamaged: (enemyId: number, damage: number, isCrit: boolean) => void,
     onKilled: (enemyId: number, x: number, y: number) => void,
-    onHealed?: (amount: number) => void
+    onHealed?: (amount: number) => void,
+    onSynergyActivated?: (synergy: WeaponSynergy) => void
   ): void {
     this.onEnemyDamaged = onDamaged;
     this.onEnemyKilled = onKilled;
     this.onPlayerHealed = onHealed || null;
+    this.onSynergyActivated = onSynergyActivated || null;
   }
 
   /**
@@ -206,11 +221,19 @@ export class WeaponManager {
       weapon.setSynergyMultipliers(multiplier?.damage ?? 1.0, multiplier?.cooldown ?? 1.0);
     }
 
-    // Play synergy sound when a new synergy is activated
-    if (this.activeSynergies.length > this.previousSynergyCount) {
+    // Announce synergies that newly completed this recalculation. Diffing the
+    // sets (not comparing counts) catches a same-frame lose-one/gain-one swap,
+    // which leaves the count unchanged but is still a new activation.
+    const newlyActivated = diffActivatedSynergies(this.previousSynergies, this.activeSynergies);
+    if (newlyActivated.length > 0) {
       this.soundManager.playSynergyActivation();
+      if (this.onSynergyActivated) {
+        for (const synergy of newlyActivated) {
+          this.onSynergyActivated(synergy);
+        }
+      }
     }
-    this.previousSynergyCount = this.activeSynergies.length;
+    this.previousSynergies = this.activeSynergies;
   }
 
   /**
