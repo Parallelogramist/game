@@ -136,6 +136,17 @@ Never agent work. The fleet must not do any of these.
     convincingly in 1000+ enemy endless waves without lag; (e) chest + consumable gold
     blips are distinguishable from threats. Tuning knobs: `MINIMAP_WORLD_RANGE` (radar
     zoom), `MINIMAP_MAX_ENEMY_BLIPS`, blip colors/sizes in `minimapProjection.ts`.
+  - **POLISH-SYNERGY-VISIBILITY** — synergy toast + pause-dashboard surfacing
+    (FEAT-SYNERGY-VISIBILITY; `GameScene.showSynergyToast`, `formatSynergyBonus` +
+    `createBuildStatsPanel` in `PauseMenuManager.ts`). Check with a real run that
+    equips a synergy pair: (a) the `⚡ <name>` activation toast lands at a readable
+    moment when a pickup/level completes a pair (and isn't lost under the upgrade
+    modal that's open when a weapon is chosen); (b) the ACTIVE SYNERGIES rows on the
+    pause BUILD STATS panel don't overflow the 220px panel for the longest synergy
+    names + `+x% dmg  +y% spd` values at UI-scale extremes; (c) with a 6-weapon build
+    hitting 3–4 synergies, the panel (capped at 4 synergy rows + 5 weapon rows) stays
+    on-screen below the stat rows. Tuning: toast color `0x66ddff`/duration 3200, the
+    `.slice(0, 4)` synergy cap, bonus format in `formatSynergyBonus`.
   - **POLISH-DAILY-SCORE-COL** — leaderboard SCORE column + Boot chip width (`45fdd74`;
     `LeaderboardScene.renderEntries` row 720→800, `BootScene.ts:~795`). Check crowding at
     UI-scale extremes.
@@ -162,6 +173,32 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-SYNERGY-VISIBILITY** — surface weapon synergies to the player
+  (done — `ccc79f8`). Proposed (auto) + built this session: the Now/Next queues
+  were empty and the Later items were refactors (busy-work) / blocked / playtest-only.
+  **Value:** the weapon-synergy system (`src/data/WeaponSynergies.ts`, 10 named pairs
+  like *Thermal Shock* / *Blade Dance* granting real passive damage + cooldown
+  bonuses to both weapons) was **completely invisible** — `getActiveSynergies()` had
+  **zero consumers** and the only activation feedback was a generic sound (in fact the
+  same `playSynergyActivation()` sound is reused for the miniboss/boss-phase banners,
+  so even that wasn't synergy-specific). Players could never tell a synergy fired, what
+  it did, or which were active, so they couldn't intentionally build around the
+  build-crafting layer. Now surfaced in two places: **(1)** an activation toast the
+  moment a weapon pickup/level completes a pair (`⚡ <name> — <description>`, cyan,
+  3.2s) via a new `WeaponManager.onSynergyActivated` callback; **(2)** an **ACTIVE
+  SYNERGIES** section on the pause BUILD STATS dashboard listing each active synergy +
+  its `+x% dmg / +y% spd` magnitude. Pure core `diffActivatedSynergies(prev, current)`
+  in `WeaponSynergies.ts` reports only newly-completed pairs (keyed by unique name;
+  diffs the sets so a same-frame lose-one/gain-one swap still fires — a count check
+  would miss it), unit-tested (7 tests: empty, new, unchanged/no-refire, lost-not-gained,
+  swap, multiple-at-once, addition-keeps-existing). Wiring: callback added to
+  `WeaponManager.setCallbacks` (4th optional arg), wired on **both** fresh + restore
+  GameScene paths — restore wires it *after* the weapon re-add loop so re-equipping a
+  synergized build on save-restore doesn't spam toasts; fresh path starts with one
+  weapon so no pair exists at run start. `activeSynergies` added to the pause payload
+  (`PauseGameState`). tsc + vite build clean, 830 tests green (823 + 7). Placement/feel
+  on real devices → playtest queue (POLISH-SYNERGY-VISIBILITY).
 
 - [x] **FEAT-MINIMAP-RADAR** — tactical minimap / threat radar
   (done — `7efc392`). The last unbuilt item from the operator's own rated top-10
