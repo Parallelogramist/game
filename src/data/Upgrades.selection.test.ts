@@ -37,12 +37,12 @@ import { UPGRADE_RARITIES, type UpgradeRarity } from './UpgradeRarity';
  * rolls rather than exact picks.
  */
 
-// Mirrors UNLOCKABLE_WEAPONS in Upgrades.ts (the 13 weapons offerable as NEW
+// Mirrors UNLOCKABLE_WEAPONS in Upgrades.ts (the 14 weapons offerable as NEW
 // WEAPON cards; the default 'projectile' is not in the unlockable pool).
 const UNLOCKABLE_IDS = [
   'katana', 'orbiting_blades', 'aura', 'chain_lightning', 'homing_missile',
   'frost_nova', 'laser_beam', 'meteor', 'flamethrower', 'ricochet',
-  'ground_spike', 'drone', 'shuriken',
+  'ground_spike', 'drone', 'shuriken', 'boomerang',
 ];
 
 const OVERFLOW_IDS = [

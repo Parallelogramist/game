@@ -78,7 +78,7 @@ BootScene (start screen + music + daily challenge + ship picker)
 
 ### Weapon System
 
-14 weapons managed by `WeaponManager` (`/src/weapons/WeaponManager.ts`).
+15 weapons managed by `WeaponManager` (`/src/weapons/WeaponManager.ts`).
 
 **Architecture:**
 - `BaseWeapon` abstract class — common functionality (cooldowns, upgrades, scene ref, external multipliers for damage/cooldown/count/piercing)
@@ -102,6 +102,7 @@ BootScene (start screen + music + daily challenge + ship picker)
 | GroundSpikeWeapon | Spikes erupt at enemy positions |
 | DroneWeapon | Autonomous helper that orbits and shoots |
 | ShurikenWeapon | Spiral pattern projectiles |
+| BoomerangWeapon | Glaive that carves out to max range and homes back, hitting on both legs |
 
 **Adding new weapon:**
 1. Create class extending `BaseWeapon` in `/src/weapons/`
@@ -121,7 +122,7 @@ All damage through `WeaponManager.damageEnemy()`:
 - Hit sparks, damage numbers, hit sound (50ms throttle)
 
 **Weapon Evolutions:**
-`/src/data/WeaponEvolutions.ts` — 14 recipes (one per weapon). Weapon at level 5 + required stat upgrade at level 5 → evolves to super form with boosted stats. Multipliers (damage, cooldown, range, count, piercing, size, speed) applied. `getEvolutionForWeapon(weaponId)` for O(1) lookup, `checkEvolutionReady()` to test readiness.
+`/src/data/WeaponEvolutions.ts` — 15 recipes (one per weapon). Weapon at level 5 + required stat upgrade at level 5 → evolves to super form with boosted stats. Multipliers (damage, cooldown, range, count, piercing, size, speed) applied. `getEvolutionForWeapon(weaponId)` for O(1) lookup, `checkEvolutionReady()` to test readiness.
 
 **Weapon Factory:**
 `WeaponRegistry` in `/src/weapons/index.ts` maps IDs to factory functions. `createWeapon(weaponId)` instantiates by string ID.

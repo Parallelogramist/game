@@ -46,6 +46,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   projectile: 'projectile',
   shuriken: 'projectile',
   ricochet: 'projectile',
+  boomerang: 'projectile',
   katana: 'melee',
   aura: 'aura',
   frost_nova: 'aura',
