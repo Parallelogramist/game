@@ -136,6 +136,24 @@ Never agent work. The fleet must not do any of these.
     convincingly in 1000+ enemy endless waves without lag; (e) chest + consumable gold
     blips are distinguishable from threats. Tuning knobs: `MINIMAP_WORLD_RANGE` (radar
     zoom), `MINIMAP_MAX_ENEMY_BLIPS`, blip colors/sizes in `minimapProjection.ts`.
+  - **POLISH-WEAPON-BOOMERANG** — new Boomerang Glaive weapon feel/balance
+    (FEAT-WEAPON-BOOMERANG; `src/weapons/BoomerangWeapon.ts` + pure
+    `src/weapons/boomerangMotion.ts`). Check with a real run that picks it up: (a)
+    **throw cadence + reach** — base damage 17 / cooldown 1.4s / range 280 / piercing 2;
+    does the out-and-back arc feel satisfying and is the apex (== `range`) where you'd
+    expect? (b) **return-catch reliability** while moving fast — the glaive homes to your
+    *current* position at 1.2× outbound speed; does it visibly chase and catch you, or
+    lag awkwardly when you sprint away? (c) **both-legs damage** reads — an enemy in the
+    lane should take an out-hit and a return-hit (0.35s per-enemy re-hit cooldown,
+    capped at `piercing` total); is the double-tap legible? (d) **spinning-glaive
+    visual** — crossed cyan blades brighten (0xbbeeff) on the return leg; readable over
+    bloom + the projectile swarm, or noise? (e) **Twin Glaives mastery** (L10) fires a
+    mirrored volley behind you — does the 32-glaive pool hold up with high count +
+    mastery in dense waves? (f) **Eclipse Glaive evolution** (`reach` L5) power level
+    vs other evolved weapons; (g) **Rebound Theory** synergy with ricochet magnitude.
+    Tuning knobs: baseStats in `BoomerangWeapon` ctor, `RETURN_SPEED_FACTOR` (1.2),
+    `CATCH_RADIUS` (22), `HIT_COOLDOWN` (0.35), `POOL_SIZE` (32); evolution multipliers
+    in `WeaponEvolutions.ts`; synergy in `WeaponSynergies.ts`.
   - **POLISH-SYNERGY-VISIBILITY** — synergy toast + pause-dashboard surfacing
     (FEAT-SYNERGY-VISIBILITY; `GameScene.showSynergyToast`, `formatSynergyBonus` +
     `createBuildStatsPanel` in `PauseMenuManager.ts`). Check with a real run that
@@ -173,6 +191,39 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-WEAPON-BOOMERANG** — new 15th weapon "Boomerang Glaive"
+  (done — `eae930d`). Proposed (auto) + built this session: the Now/Next queues
+  were empty and every Later item was a refactor (busy-work per the value gate),
+  blocked on human sign-off, or a multi-session epic. **Value:** build variety is the
+  core appeal of a survivor-like, and all 14 prior weapons fire-and-forget (straight /
+  orbit / spiral / homing / beam / bounce-between-enemies) — **none return.** The
+  Boomerang Glaive carves *out* to `range` (decelerating to an apex) then homes *back*
+  to the player's CURRENT position (chases a player who has walked away), striking
+  enemies on **both** legs (one enemy hittable up to `piercing` times across the
+  out + back passes). It rewards positioning — the return path sweeps the lane you
+  retreat through — and gives George a new build to chase. **Novel mechanic = the
+  trajectory**, extracted to the pure, Phaser-free `src/weapons/boomerangMotion.ts`
+  (`createBoomerangState`/`maxOutboundDistance`/`stepBoomerang`: outbound trapezoidal
+  decel ramp → apex == `range` → return-homing with no-overshoot clamp + zero-distance
+  guard → caught within `catchRadius`), **13 unit tests** (TDD: RED first; the RED run
+  drove two real design fixes — angle moved onto per-glaive state since one volley
+  shares a stat-derived params object, and catch made same-frame-responsive instead of
+  one frame late). `BoomerangWeapon` extends BaseWeapon (32-glaive pool, shared-Graphics
+  spinning-glaive visual brightening on the return leg so the carved lane reads — **no
+  projectile-atlas change**, quality-aware). Safety lifetime is derived from the actual
+  round-trip (`2·range/speed` outbound + return estimate), NOT a flat constant, so a
+  long-range/evolved glaive is never culled mid-return (self-review catch). Mastery
+  **Twin Glaives**: every throw also fires a mirrored volley behind you. Fully wired into
+  the ecosystem: `WeaponRegistry`, `UNLOCKABLE_WEAPONS` (level-up unlock card), evolution
+  recipe **Eclipse Glaive** (`reach` L5 → +70% dmg / +40% range / +1 count / +40% size),
+  `boomerang`→`star-swirl` icon, `projectile` mastery category, and a new **Rebound
+  Theory** synergy with ricochet (+20% dmg / 10% faster — both "comeback" projectiles).
+  Codex + weapon-select picker render it automatically (registry-derived metadata). The
+  three content-integrity test mirror-lists synced (`WeaponEvolutions.test`,
+  `ShipCharacters.test`, `Upgrades.selection.test`) so "one evolution per weapon" etc.
+  stay accurate. tsc + vite build clean, 843 tests green (830 + 13). Visual placement/
+  feel + balance → playtest queue (POLISH-WEAPON-BOOMERANG below).
 
 - [x] **FEAT-SYNERGY-VISIBILITY** — surface weapon synergies to the player
   (done — `ccc79f8`). Proposed (auto) + built this session: the Now/Next queues
