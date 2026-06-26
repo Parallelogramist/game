@@ -154,6 +154,21 @@ Never agent work. The fleet must not do any of these.
     Tuning knobs: baseStats in `BoomerangWeapon` ctor, `RETURN_SPEED_FACTOR` (1.2),
     `CATCH_RADIUS` (22), `HIT_COOLDOWN` (0.35), `POOL_SIZE` (32); evolution multipliers
     in `WeaponEvolutions.ts`; synergy in `WeaponSynergies.ts`.
+  - **POLISH-UPGRADE-LOCK** — level-up card lock feel (FEAT-UPGRADE-LOCK;
+    `UpgradeScene.createLockToggle`/`drawPadlock`/`toggleLockForUpgrade`, pure core
+    `src/data/upgradeLocks.ts`). Check with a real run that has rerolls available: (a) the
+    **gold padlock pip** (top-right of each card) reads as locked-vs-unlocked at UI-scale
+    extremes and over the rarity/mastery card colors — and the drawn shackle arc actually
+    looks like a padlock (screen-y-down arc direction is reasoned, not eyeballed); (b) the
+    **front-pin reorder** — locked cards jump to the front on reroll; does that feel right
+    or should locked cards hold their slot? (c) clicking the pip never also selects the
+    card (topOnly + stopPropagation) on touch + mouse; (d) `[L]` toggles the
+    keyboard-focused card and gamepad **West/✗** toggles the focused card (new
+    `MenuNavigator.onSecondary`) — no conflict with select(A)/cancel(B); (e) the hint line
+    (`buttonY − 40`) doesn't crowd the bottom row in 5–6-card (two-row) layouts; (f) with
+    `rerollsRemaining` hitting 0 after the last reroll, pinned cards show with no pip —
+    confusing or fine? Tuning: pip radius/position in `createLockToggle`, padlock geometry
+    in `drawPadlock`, `lockCapacity` (= count−1).
   - **POLISH-SYNERGY-VISIBILITY** — synergy toast + pause-dashboard surfacing
     (FEAT-SYNERGY-VISIBILITY; `GameScene.showSynergyToast`, `formatSynergyBonus` +
     `createBuildStatsPanel` in `PauseMenuManager.ts`). Check with a real run that
@@ -191,6 +206,34 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-UPGRADE-LOCK** — lock a level-up card so reroll keeps it
+  (done — `<pending>`). Proposed (auto) + built this session: the Now/Next queues were
+  empty and every Later item was a refactor (busy-work per the value gate), blocked on
+  human sign-off, or a multi-session epic. **Value:** the level-up modal already had
+  reroll / skip / banish but **not lock** — the one canonical survivor-like upgrade-modal
+  staple it lacked. Locking lets George *pin* the card he wants (a weapon level he needs
+  for an evolution, a key passive) and reroll only the **other** slots, so he can commit
+  to a build target instead of gambling the whole hand on every reroll — it makes the
+  existing reroll economy (permanent-upgrade rerolls + ship `startingRerollBonus` + event
+  reroll rewards) *strategic*. **Mechanic = reroll-pinning within one level-up:** locks
+  carry across that modal's rerolls/banishes and reset on the next fresh level-up (no save
+  field — transient modal state). Pure core `src/data/upgradeLocks.ts`
+  (`mergeLockedIntoOffers` pins locked cards to the front + dedups + fills from the fresh
+  roll; `lockCapacity` = count−1 so a reroll always changes ≥1 card; `toggleLockedId`
+  add/remove with the cap, never mutates input) — **18 unit tests** (TDD: RED→GREEN;
+  identity-preservation, dedup vs fresh, in-list dedup, count cap, no-mutation). Input on
+  all three surfaces: per-card gold padlock pip (mouse/touch, drawn with Graphics — no new
+  atlas), `[L]` on the keyboard-focused card, and gamepad **West/✗** via a new reusable
+  `MenuNavigator.onSecondary` (edge-detected X button; 3 tests incl. disabled-no-stale-edge).
+  The pip sits above the card hit-zone with `input.setTopOnly(true)` + `stopPropagation`
+  so clicking it never also selects. Gated on `rerollsRemaining > 0` (lock is meaningless
+  without a reroll to pin against) + a discoverability hint line. GameScene owns the locked
+  set: `mergeLockedIntoOffers(this.lockedUpgrades, fresh, totalChoices)` in
+  `showUpgradeSelection`, pinned ids passed to/from the scene on reroll/banish, reset in
+  `processNextLevelUp`. Banishing a locked card drops only it (others survive). tsc + vite
+  build clean, 864 tests green (843 + 18 + 3). Pip placement / hint legibility / front-pin
+  reorder feel → playtest queue (POLISH-UPGRADE-LOCK).
 
 - [x] **FEAT-WEAPON-BOOMERANG** — new 15th weapon "Boomerang Glaive"
   (done — `eae930d`). Proposed (auto) + built this session: the Now/Next queues
