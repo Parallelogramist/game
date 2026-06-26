@@ -208,7 +208,7 @@ Never agent work. The fleet must not do any of these.
 **`BACKLOG-archive.md`**.)
 
 - [x] **FEAT-UPGRADE-LOCK** — lock a level-up card so reroll keeps it
-  (done — `<pending>`). Proposed (auto) + built this session: the Now/Next queues were
+  (done — `b5ac24e`). Proposed (auto) + built this session: the Now/Next queues were
   empty and every Later item was a refactor (busy-work per the value gate), blocked on
   human sign-off, or a multi-session epic. **Value:** the level-up modal already had
   reroll / skip / banish but **not lock** — the one canonical survivor-like upgrade-modal
