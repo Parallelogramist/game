@@ -207,6 +207,43 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **BUG-STORAGE-PRELOAD-GAPS** — 9 SecureStorage keys silently never
+  persisted across a reload (done — `1e8467a`). Found this session while
+  scouting for the next item (Now/Next empty, Later all busy-work/blocked —
+  see FEAT-UPGRADE-LOCK etc. below for that same pattern). **Root cause:**
+  `SecureStorage.getItem` answers only from `StorageEncryption`'s in-memory
+  cache; `initializeStorage()` (awaited before the Phaser game is even
+  constructed, `main.ts`) populates that cache **only** for keys listed in
+  `StorageBootstrap.ALL_STORAGE_KEYS`. A key missing from that list still
+  writes fine (`setItem` populates the cache immediately, so same-session
+  reads look correct) but reads back as `null` on every fresh page load,
+  because the encrypted value sitting in real `localStorage` is never loaded
+  into cache. Source-scanned every `STORAGE_KEY*` constant in `src/` against
+  the list and found **9 silently orphaned**: `settings-colorblind-mode` /
+  `settings-high-contrast` / `settings-reduced-motion` (three shipped
+  accessibility settings — FEAT-COLORBLIND-UI — revert to default every
+  reload, defeating the point for a player who set them), `settings-tutorial-seen`
+  (first-run coach marks replay every session instead of once),
+  `settings-screen-shake-intensity` / `settings-minimap-enabled` /
+  `settings-director-debug` (drop back to their pre-tune default each reload),
+  and — the largest blast radius — `hiddenUnlocksV1` (hidden-gated
+  ship/content unlock progress resets) and `dailyLeaderboardV1` (the
+  **entire** daily/weekly challenge leaderboard, `LeaderboardScene`'s
+  "Balatro-style personal bests + challenge history", reset to empty on
+  every reload — it never actually persisted day-to-day in practice).
+  **Fix is additive-only:** register all 9 in `ALL_STORAGE_KEYS`; no manager
+  read/write logic changed. New `src/storage/StorageBootstrap.test.ts`
+  source-scans `src/` (via `import.meta.glob('?raw')`, mirroring the
+  `?raw`-source-scan idiom in `PermanentUpgrades.test.ts`) for the
+  `STORAGE_KEY*` naming convention and locks **both** directions (nothing
+  declared is unregistered, nothing registered is orphaned) so a future
+  manager can't repeat this silently — confirmed `SettingsManager.test.ts`
+  structurally could never have caught this (it mocks `SecureStorage` as a
+  flat map with no preload gate to violate). Teeth verified by hand: removing
+  one key from the list fails the test naming exactly that key; adding a fake
+  extra key fails the orphan check naming it. tsc + vite build clean, 868
+  tests green (864 + 4).
+
 - [x] **FEAT-UPGRADE-LOCK** — lock a level-up card so reroll keeps it
   (done — `b5ac24e`). Proposed (auto) + built this session: the Now/Next queues were
   empty and every Later item was a refactor (busy-work per the value gate), blocked on
