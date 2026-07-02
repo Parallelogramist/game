@@ -21,8 +21,8 @@ import { getWeaponInfoList } from '../../weapons';
 import { SHIP_CHARACTERS } from '../../data/ShipCharacters';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
-import { MENU_COLORS as COLORS, MENU_FONT } from '../../visual/MenuStyle';
-import { makeStickerText } from '../../visual/StickerText';
+import { MENU_COLORS as COLORS, MENU_FONT, DISPLAY_FONT } from '../../visual/MenuStyle';
+import { makeDisplayText } from '../../visual/DisplayText';
 
 interface FocusEntry {
   onFocus: () => void;
@@ -202,12 +202,12 @@ export class BootScene extends Phaser.Scene {
     );
     const centerX = this.cameras.main.centerX;
 
-    // ─── felted backdrop ────────────────────────────────────────────────
+    // ─── menu backdrop ──────────────────────────────────────────────────
     this.menuBackground = createMenuBackground(this);
 
-    // ─── title sticker ──────────────────────────────────────────────────
+    // ─── title block ────────────────────────────────────────────────────
     const titleY = scaledInt(layoutScale, 100);
-    this.createTitleSticker(centerX, titleY, fontScale);
+    this.createTitleBlock(centerX, titleY, fontScale);
 
     // ─── meta-stack mini cards (top-left) ───────────────────────────────
     this.createMetaStack({
@@ -235,10 +235,10 @@ export class BootScene extends Phaser.Scene {
       onActivate: hasSave ? continueGame : startGameWithConfirmation,
     });
 
-    // ─── new-run sticker (only when a save exists) ──────────────────────
+    // ─── new-run link (only when a save exists) ─────────────────────────
     let belowHeroY = heroCenterY + heroHeight / 2 + scaledInt(layoutScale, 22);
     if (hasSave) {
-      this.createNewRunSticker({
+      this.createNewRunLink({
         centerX,
         centerY: belowHeroY,
         layoutScale,
@@ -259,7 +259,6 @@ export class BootScene extends Phaser.Scene {
       centerY: challengeRowY,
       width: challengeWidth,
       height: challengeHeight,
-      tilt: -0.045,
       label: 'DAILY',
       bodyHex: COLORS.bodyGold,
       accentHex: COLORS.accentGold,
@@ -276,7 +275,6 @@ export class BootScene extends Phaser.Scene {
       centerY: challengeRowY,
       width: challengeWidth,
       height: challengeHeight,
-      tilt: 0.045,
       label: 'WEEKLY',
       bodyHex: COLORS.bodyMagenta,
       accentHex: COLORS.accentMagenta,
@@ -347,53 +345,59 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  TITLE STICKER — chunky tilted text with thick outline + drop shadow.
-  //  Replaces the old chromatic-ghost title that read like a render glitch.
+  //  TITLE BLOCK — sharp display type over an accent rule. Flat, no sway.
   // ═══════════════════════════════════════════════════════════════════════
 
-  private createTitleSticker(centerX: number, centerY: number, fontScale: number): void {
-    const fontSize = scaledInt(fontScale, 56);
-    const restTilt = -0.03;
+  private createTitleBlock(centerX: number, centerY: number, fontScale: number): void {
+    const fontSize = scaledInt(fontScale, 58);
 
     const container = this.add.container(centerX, centerY);
 
-    // Drop-shadow ghost gives the sticker some bulk but stays subtle so it
-    // doesn't double the letterforms.
-    const shadow = this.add.text(5, 7, 'PEW PEW SURVIVOR', {
+    // Soft glow ghost behind the letterforms — subtle neon halo, not a
+    // cartoon drop shadow.
+    const glow = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
       fontSize: `${fontSize}px`,
-      color: '#000000',
-      fontFamily: MENU_FONT,
+      color: COLORS.accentGoldStr,
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-      letterSpacing: 3,
-    }).setOrigin(0.5).setAlpha(0.55);
-    container.add(shadow);
+      letterSpacing: 6,
+    }).setOrigin(0.5).setAlpha(0.22).setScale(1.015);
+    container.add(glow);
 
     const text = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
       fontSize: `${fontSize}px`,
-      color: COLORS.stickerYellow,
-      fontFamily: MENU_FONT,
+      color: COLORS.headingGold,
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-      stroke: COLORS.stickerBlack,
-      strokeThickness: 6,
-      letterSpacing: 3,
+      stroke: COLORS.outline,
+      strokeThickness: 2,
+      letterSpacing: 6,
     }).setOrigin(0.5);
     container.add(text);
 
-    container.setScale(0.6);
+    // Thin accent rule under the wordmark — clean underline, sells the
+    // sharp tech look.
+    const rule = this.add.graphics();
+    const ruleHalf = text.width * 0.52;
+    const ruleY = text.height * 0.56;
+    rule.fillStyle(COLORS.accentGold, 0.9);
+    rule.fillRect(-ruleHalf, ruleY, ruleHalf * 2, 2);
+    rule.fillStyle(COLORS.accentGold, 0.35);
+    rule.fillRect(-ruleHalf, ruleY + 3, ruleHalf * 2, 1);
+    container.add(rule);
+
     container.setAlpha(0);
     this.tweens.add({
       targets: container,
-      scale: 1,
       alpha: 1,
-      duration: 480,
-      ease: 'Back.Out',
+      duration: 420,
+      ease: 'Sine.Out',
     });
 
+    // Slow glow breathe — brightness only, geometry stays locked.
     const seed = Math.random() * 10;
     this.titleTicker = (timeSeconds: number) => {
-      const phase = timeSeconds * 1.1 + seed;
-      container.rotation = restTilt + Math.sin(phase) * 0.018;
-      container.y = centerY + Math.sin(phase * 0.8 + 2) * 2.5;
+      glow.setAlpha(0.16 + (Math.sin(timeSeconds * 1.4 + seed) + 1) * 0.05);
     };
   }
 
@@ -420,21 +424,18 @@ export class BootScene extends Phaser.Scene {
       sub?: string;
       accentHex: number;
       bodyHex: number;
-      tilt: number;
     }
     const chips: ChipData[] = [];
     chips.push({
       label: `WORLD ${worldLevel}`,
       accentHex: COLORS.accentPrimary,
       bodyHex: COLORS.bodyPrimary,
-      tilt: -0.08,
     });
     if (ascensionLevel > 0) {
       chips.push({
         label: `ASC ${ascensionLevel}`,
         accentHex: COLORS.accentGold,
         bodyHex: COLORS.bodyGold,
-        tilt: 0.05,
       });
     }
     if (currentStreak > 0) {
@@ -443,7 +444,6 @@ export class BootScene extends Phaser.Scene {
         sub: `+${streakBonus}%`,
         accentHex: COLORS.accentMagenta,
         bodyHex: COLORS.bodyMagenta,
-        tilt: -0.03,
       });
     }
 
@@ -459,16 +459,12 @@ export class BootScene extends Phaser.Scene {
         y: stackOriginY + cardHeight / 2 + index * stepY,
         width: cardWidth,
         height: cardHeight,
-        tilt: chip.tilt,
-        wobbleSeed: index * 1.7,
-        wobbleRotation: 0.012,
-        wobbleY: 1.2,
+        pulseSeed: index * 1.7,
         bodyFillColor: chip.bodyHex,
         accentColor: chip.accentHex,
         bannerHeight: scaledInt(layoutScale, 7),
-        shadowOffsetY: scaledInt(layoutScale, 8),
-        shadowOffsetX: scaledInt(layoutScale, 4),
-        liftOnHover: false,
+        shadowOffsetY: scaledInt(layoutScale, 5),
+        shadowOffsetX: 0,
         interactive: index === chips.length - 1, // front card is the click target
       });
       this.cards.push(card);
@@ -537,10 +533,7 @@ export class BootScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt: -0.035,
-      wobbleSeed: 12,
-      wobbleRotation: 0.01,
-      wobbleY: 1.6,
+      pulseSeed: 12,
       bodyFillColor: COLORS.bodyPrimary,
       accentColor: COLORS.accentPrimary,
       bannerHeight,
@@ -549,28 +542,28 @@ export class BootScene extends Phaser.Scene {
     });
     this.cards.push(card);
 
-    // Banner label — sticker-style "MAIN MENU" or run identifier on the strip.
+    // Banner label — "MAIN MENU" or run identifier on the strip.
     const bannerCenterY = -height / 2 + bannerHeight / 2;
-    const bannerLabel = makeStickerText(
+    const bannerLabel = makeDisplayText(
       this,
       0,
       bannerCenterY,
       hasSave ? 'YOUR RUN' : 'NEW JOURNEY',
       {
         fontSize: scaledInt(fontScale, 16),
-        color: COLORS.stickerWhite,
+        color: COLORS.headingWhite,
         strokeWidth: 2,
         letterSpacing: 4,
       },
     );
     card.frame.add(bannerLabel);
 
-    // Big primary label — CONTINUE / START in chunky yellow sticker text.
+    // Big primary label — CONTINUE / START in gold display text.
     const primaryLabel = hasSave ? 'CONTINUE' : 'START';
     const primaryY = -height / 2 + bannerHeight + scaledInt(layoutScale, 30);
-    const primaryText = makeStickerText(this, 0, primaryY, primaryLabel, {
+    const primaryText = makeDisplayText(this, 0, primaryY, primaryLabel, {
       fontSize: scaledInt(fontScale, 36),
-      color: COLORS.stickerYellow,
+      color: COLORS.headingGold,
       strokeWidth: 4,
       letterSpacing: 4,
     });
@@ -655,10 +648,10 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  NEW RUN STICKER — small italic ribbon below the hero card.
+  //  NEW RUN LINK — small italic ribbon below the hero card.
   // ═══════════════════════════════════════════════════════════════════════
 
-  private createNewRunSticker(opts: {
+  private createNewRunLink(opts: {
     centerX: number;
     centerY: number;
     layoutScale: number;
@@ -673,10 +666,7 @@ export class BootScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt: -0.07,
-      wobbleSeed: 22,
-      wobbleRotation: 0.01,
-      wobbleY: 0.8,
+      pulseSeed: 22,
       bodyFillColor: COLORS.bodyNeutral,
       accentColor: COLORS.accentFocus,
       bannerHeight: 0,
@@ -709,7 +699,6 @@ export class BootScene extends Phaser.Scene {
     centerY: number;
     width: number;
     height: number;
-    tilt: number;
     label: string;
     bodyHex: number;
     accentHex: number;
@@ -721,7 +710,7 @@ export class BootScene extends Phaser.Scene {
     onActivate: () => void;
   }): void {
     const {
-      centerX, centerY, width, height, tilt, label, bodyHex, accentHex, accentTextStr,
+      centerX, centerY, width, height, label, bodyHex, accentHex, accentTextStr,
       challenge, best, layoutScale, fontScale, onActivate,
     } = opts;
 
@@ -732,23 +721,20 @@ export class BootScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt,
-      wobbleSeed: tilt * 50 + label.length,
-      wobbleRotation: 0.014,
-      wobbleY: 1.4,
+      pulseSeed: label.length,
       bodyFillColor: bodyHex,
       accentColor: accentHex,
       bannerHeight,
-      shadowOffsetY: scaledInt(layoutScale, 12),
-      shadowOffsetX: scaledInt(layoutScale, 5),
+      shadowOffsetY: scaledInt(layoutScale, 6),
+      shadowOffsetX: 0,
     });
     this.cards.push(card);
 
-    // Banner sticker label (DAILY / WEEKLY) centered in the colored strip.
+    // Banner label (DAILY / WEEKLY) centered in the colored strip.
     const bannerCenterY = -height / 2 + bannerHeight / 2;
-    const bannerLabel = makeStickerText(this, 0, bannerCenterY, `${label} CHALLENGE`, {
+    const bannerLabel = makeDisplayText(this, 0, bannerCenterY, `${label} CHALLENGE`, {
       fontSize: scaledInt(fontScale, 14),
-      color: COLORS.stickerWhite,
+      color: COLORS.headingWhite,
       strokeWidth: 2,
       letterSpacing: 3,
     });
@@ -867,7 +853,6 @@ export class BootScene extends Phaser.Scene {
       iconKey: string;
       bodyHex: number;
       accentHex: number;
-      tilt: number;
       action: () => void;
       badge?: string;
       iconTint: number;
@@ -878,7 +863,6 @@ export class BootScene extends Phaser.Scene {
         iconKey: 'coins',
         bodyHex: COLORS.bodyGold,
         accentHex: COLORS.accentGold,
-        tilt: -0.06,
         action: onShop,
         badge: `${goldAmount}`,
         iconTint: 0xffe2a0,
@@ -888,7 +872,6 @@ export class BootScene extends Phaser.Scene {
         iconKey: 'trophy',
         bodyHex: COLORS.bodyTeal,
         accentHex: COLORS.accentTeal,
-        tilt: 0.04,
         action: onAchievements,
         iconTint: 0xaaffee,
       },
@@ -897,7 +880,6 @@ export class BootScene extends Phaser.Scene {
         iconKey: 'book',
         bodyHex: COLORS.bodyMagenta,
         accentHex: COLORS.accentMagenta,
-        tilt: -0.035,
         action: onCodex,
         iconTint: 0xeebbff,
       },
@@ -906,7 +888,6 @@ export class BootScene extends Phaser.Scene {
         iconKey: 'crown',
         bodyHex: COLORS.bodyPrimary,
         accentHex: COLORS.accentPrimary,
-        tilt: 0.05,
         action: onLeaderboard,
         iconTint: 0xbbddff,
       },
@@ -923,23 +904,20 @@ export class BootScene extends Phaser.Scene {
         y: centerY,
         width: cardWidth,
         height: cardHeight,
-        tilt: entry.tilt,
-        wobbleSeed: index * 0.93,
-        wobbleRotation: 0.016,
-        wobbleY: 2.0,
+        pulseSeed: index * 0.93,
         bodyFillColor: entry.bodyHex,
         accentColor: entry.accentHex,
         bannerHeight,
-        shadowOffsetY: scaledInt(layoutScale, 10),
-        shadowOffsetX: scaledInt(layoutScale, 4),
+        shadowOffsetY: scaledInt(layoutScale, 5),
+        shadowOffsetX: 0,
       });
       this.cards.push(card);
 
-      // Sticker label rides the banner (bold, white, outlined).
+      // Display label rides the banner (bold, white).
       const bannerCenterY = -cardHeight / 2 + bannerHeight / 2;
-      const bannerLabel = makeStickerText(this, 0, bannerCenterY, entry.label, {
+      const bannerLabel = makeDisplayText(this, 0, bannerCenterY, entry.label, {
         fontSize: scaledInt(fontScale, 11),
-        color: COLORS.stickerWhite,
+        color: COLORS.headingWhite,
         strokeWidth: 2,
         letterSpacing: 2,
       });
@@ -1026,7 +1004,7 @@ export class BootScene extends Phaser.Scene {
     const pillHeight = fontSize + padY * 2;
     const rowY = bottomY - pillHeight / 2;
 
-    // Pill background — low-key dim sticker so the footer feels like a single
+    // Pill background — low-key dim pill so the footer feels like a single
     // unit instead of three floating items.
     const pill = this.add.graphics();
     pill.fillStyle(0x000000, 0.45);

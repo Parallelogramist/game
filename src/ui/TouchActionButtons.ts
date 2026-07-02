@@ -53,8 +53,8 @@ export class TouchActionButtons {
     this.dashContainer.setDepth(BUTTON_DEPTH);
     this.dashContainer.setScrollFactor(0);
 
-    // Black ink silhouette behind body — Balatro cel-shading depth.
-    const inkSilhouette = this.scene.add.circle(3, 4, scaledRadius + 4, 0x000000, 0.55);
+    // Soft shadow behind body.
+    const inkSilhouette = this.scene.add.circle(0, 3, scaledRadius + 2, 0x000000, 0.45);
     this.dashContainer.add(inkSilhouette);
 
     // Body — deep navy with bright accent border.
@@ -62,7 +62,7 @@ export class TouchActionButtons {
     backgroundCircle.setStrokeStyle(4, 0x66bbff, 0.95);
     this.dashContainer.add(backgroundCircle);
 
-    // Top highlight stripe — Balatro banner feel.
+    // Top highlight — subtle accent sheen.
     const dashHighlight = this.scene.add.graphics();
     dashHighlight.fillStyle(0x66bbff, 0.45);
     dashHighlight.fillEllipse(0, -scaledRadius * 0.7, scaledRadius * 1.1, 6);
@@ -114,8 +114,8 @@ export class TouchActionButtons {
     this.ultimateContainer.setDepth(BUTTON_DEPTH);
     this.ultimateContainer.setScrollFactor(0);
 
-    // Black ink silhouette behind body — Balatro cel-shading depth.
-    const inkSilhouette = this.scene.add.circle(3, 4, scaledRadius + 4, 0x000000, 0.55);
+    // Soft shadow behind body.
+    const inkSilhouette = this.scene.add.circle(0, 3, scaledRadius + 2, 0x000000, 0.45);
     this.ultimateContainer.add(inkSilhouette);
 
     // Body — deep navy with a gold accent border (matches the HUD ult meter).
@@ -123,7 +123,7 @@ export class TouchActionButtons {
     this.ultimateBody.setStrokeStyle(4, 0xffcc33, 0.95);
     this.ultimateContainer.add(this.ultimateBody);
 
-    // Top highlight stripe — Balatro banner feel.
+    // Top highlight — subtle accent sheen.
     const ultHighlight = this.scene.add.graphics();
     ultHighlight.fillStyle(0xffcc33, 0.45);
     ultHighlight.fillEllipse(0, -scaledRadius * 0.7, scaledRadius * 1.1, 6);
@@ -173,7 +173,7 @@ export class TouchActionButtons {
     this.fullscreenContainer.setDepth(BUTTON_DEPTH);
     this.fullscreenContainer.setScrollFactor(0);
 
-    // Black ink silhouette under panel (Balatro cel-shading depth).
+    // Soft shadow under panel.
     const fsInkLayer = this.scene.add.graphics();
     fsInkLayer.fillStyle(0x000000, 0.55);
     fsInkLayer.fillRoundedRect(-buttonSize + 2, -buttonSize + 3, buttonSize * 2, buttonSize * 2, 8);

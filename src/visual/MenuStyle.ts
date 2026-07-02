@@ -1,19 +1,23 @@
 /**
- * MenuStyle — shared Balatro-style menu palette, fonts, and tilt presets.
+ * MenuStyle — shared design tokens for the sleek neon-tech UI.
  *
- * Every menu scene reads from this module so role-coding (gold for daily/shop,
- * magenta for codex/weekly, cyan for primary, teal for achievements) stays
- * consistent across the game. Originally inlined in BootScene; extracted so
- * UpgradeScene, ShopScene, etc. don't copy-paste the palette.
+ * Sharp, flat, clean: squared-off technical display type, thin accent
+ * borders, no tilt, no cartoon shadows. Every menu scene reads from this
+ * module so role-coding (gold for daily/shop, magenta for codex/weekly,
+ * cyan for primary, teal for achievements) stays consistent across the game.
  */
 
+/** Body copy — high-legibility humanist sans. */
 export const MENU_FONT = '"Atkinson Hyperlegible", Arial, sans-serif';
 
+/** Display face — sharp, semi-condensed technical sans for headings/labels. */
+export const DISPLAY_FONT = '"Rajdhani", "Atkinson Hyperlegible", Arial, sans-serif';
+
 export const MENU_COLORS = {
-  // Sticker-style label colors
-  stickerYellow: '#ffd93d',
-  stickerWhite: '#fff8e8',
-  stickerBlack: '#000000',
+  // Heading/label colors — cool whites, no cream.
+  headingWhite: '#f2f6ff',
+  headingGold: '#ffd94a',
+  outline: '#050810',
 
   // Body fill (deep saturated tints)
   bodyPrimary: 0x1c2a4a,
@@ -43,7 +47,7 @@ export const MENU_COLORS = {
   accentNeutralStr: '#8898b0',
 
   // Body text (light on dark cards)
-  textBody: '#f0eedf',
+  textBody: '#e8ecf4',
   textMuted: '#a0a8b8',
   textDim: '#7a8090',
 
@@ -88,19 +92,10 @@ export const TEXT_COLORS = {
   body: MENU_COLORS.textBody,
   muted: MENU_COLORS.textMuted,
   dim: MENU_COLORS.textDim,
-  sticker: MENU_COLORS.stickerWhite,
-  stickerYellow: MENU_COLORS.stickerYellow,
+  heading: MENU_COLORS.headingWhite,
+  headingGold: MENU_COLORS.headingGold,
   danger: MENU_COLORS.danger,
   safe: MENU_COLORS.safe,
-} as const;
-
-/** Resting card rotations (radians). Sampled from BootScene lay-out. */
-export const CARD_TILT_PRESETS = {
-  hero: -0.012,
-  rest: -0.02,
-  leftLean: -0.045,
-  rightLean: 0.045,
-  flat: 0,
 } as const;
 
 export type RoleColorKey = keyof typeof BODY_COLORS;

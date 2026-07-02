@@ -1,8 +1,8 @@
 /**
- * MenuButton — Balatro-style pill/card button.
+ * MenuButton — sharp flat button for menu scenes.
  *
  * Wraps a `MenuCard` with a fixed body color, optional thin banner, and a
- * sticker-text label. Variants: `primary` (cyan), `confirm` (safe-green),
+ * display-text label. Variants: `primary` (cyan), `confirm` (safe-green),
  * `danger` (red), `neutral` (slate), `gold` (cash-out), `magenta`.
  *
  * Drop-in replacement for the dozens of ad-hoc rect+text buttons across
@@ -11,7 +11,7 @@
 
 import Phaser from 'phaser';
 import { createMenuCard, MenuCard } from './MenuCard';
-import { makeStickerText } from './StickerText';
+import { makeDisplayText } from './DisplayText';
 import { ACCENT_COLORS, BODY_COLORS, MENU_COLORS, RoleColorKey } from './MenuStyle';
 
 export type MenuButtonVariant = RoleColorKey | 'focus';
@@ -31,11 +31,7 @@ export interface MenuButtonOptions {
   /** Banner thickness (0 = no banner, body fully fills). Default 0 — pill style. */
   bannerHeight?: number;
   fontSize?: number;
-  /** Optional resting tilt (radians). Default 0. */
-  tilt?: number;
-  /** Disable wobble for tightly-packed UI strips. */
-  wobble?: boolean;
-  /** Label color override (otherwise white sticker). */
+  /** Label color override (otherwise heading white). */
   labelColor?: string;
   onActivate?: () => void;
 }
@@ -66,8 +62,6 @@ export function createMenuButton(opts: MenuButtonOptions): MenuButton {
     accentColor,
     bannerHeight = 0,
     fontSize = Math.max(13, Math.round(height * 0.34)),
-    tilt = 0,
-    wobble = false,
     labelColor,
     onActivate,
   } = opts;
@@ -81,22 +75,20 @@ export function createMenuButton(opts: MenuButtonOptions): MenuButton {
     y,
     width,
     height,
-    tilt,
-    wobble,
     bodyFillColor: finalBody,
     accentColor: finalAccent,
     bannerHeight,
     borderWidth: 2,
     borderColor: finalAccent,
-    cornerRadius: Math.min(height * 0.35, 14),
-    shadowOffsetX: 4,
-    shadowOffsetY: 6,
+    cornerRadius: Math.min(height * 0.22, 8),
+    shadowOffsetX: 0,
+    shadowOffsetY: 4,
     shadowAlpha: 0.45,
   });
 
-  const labelText = makeStickerText(scene, 0, 0, label, {
+  const labelText = makeDisplayText(scene, 0, 0, label, {
     fontSize,
-    color: labelColor ?? MENU_COLORS.stickerWhite,
+    color: labelColor ?? MENU_COLORS.headingWhite,
     letterSpacing: 1.5,
   });
   card.frame.add(labelText);

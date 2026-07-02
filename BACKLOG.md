@@ -9,8 +9,8 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 - Every item has a stable **ID**, a one-line **value** rationale, and **pointers**
   (files / line hints) so any session can pick it up cold.
-- `- [ ]` = open, `- [x]` = done. When you finish, check it off in place with
-  `(done — <hash>)` and move it to **## Done** (full write-ups → `BACKLOG-archive.md`).
+- `- [ ]` = open, `- [x]` = done. When you finish, check it off with
+  `(done — <hash>)` and move it to `BACKLOG-archive.md` (full write-ups live there).
 - New ideas/cuts discovered mid-task get appended immediately (Next or Later), so
   nothing lives only in conversation.
 - **Never agent work:** anything under **## Human gates** — pushing, deploys,
@@ -18,7 +18,7 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 - ID prefixes: `FEAT-` (new), `TEST-` (coverage), `REFACTOR-`, `BALANCE-`/`POLISH-`
   (tuning/feel), `BUG-`, `CHORE-`.
 
-> **Env note for fleet agents (2026-06-09):** `npm run test`, `npx tsc --noEmit`, and
+> **Env note for fleet agents:** `npm run test`, `npx tsc --noEmit`, and
 > `npm run build` all run to completion in recent bg sessions (full suite ~473 green in
 > <1s). If a session hits a *total* bash hang (even `echo` never returns), don't burn the
 > session retrying — a fresh agent clears it. Never `pkill -f vitest` broadly (other fleet
@@ -69,7 +69,7 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 **Parked — bigger than one fleet session; needs its own plan cycle + human kickoff:**
 
 - [ ] **REFACTOR-1 — split the GameScene god object** · area: architecture
-  Now **7,648 lines** (grew from ~6.5k since filed). Extract cohesive managers
+  Now **7,648 lines**. Extract cohesive managers
   (run/meta-bonus application, pickup + level-up flow, spawn-director glue, HUD payload);
   `resetAllRunSystems()` is the model. Multi-session; each extraction its own commit.
 - [ ] **FEAT-RUNNER-MODE — new endless-runner game mode** · area: gameplay
@@ -88,6 +88,17 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SLEEK-REDESIGN** — sleek neon-tech visual pass (branch
+    `claude/game-design-visual-polish-q134lf`): Rajdhani display font replaces the
+    sticker look (comic fonts dropped from `index.html`), cards flattened (no
+    tilt/wobble), sharper corners + centered soft shadows, thin hairline accents,
+    light-streak menu backdrop replaces playing-card drifters, BootScene wordmark
+    restyled (flat, accent underline, glow breathe). Check: (a) Rajdhani legibility at
+    small banner sizes (14px) and on phones; (b) HUD label contrast over dense combat
+    with the thinner strokes; (c) BootScene title/underline spacing at UI-scale
+    extremes; (d) hover glow + rim flecks still read well on the sharper 6px-radius
+    cards; (e) touch-button shadow (now centered, softer) still separates from the
+    arena background.
   - **POLISH-MENU-NAV** — keyboard/gamepad nav on the newly wired scenes (`abf7c58`).
     Check with a controller: (a) PactSelect — yellow focus ring vs pact-color selected
     border legibility; B = skip-pacts-and-begin feels right (it's not "back"), (b)

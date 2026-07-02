@@ -1,5 +1,5 @@
 /**
- * CreditsScene — Balatro-style two-card credits panel.
+ * CreditsScene — two-card credits panel.
  */
 
 import Phaser from 'phaser';
@@ -8,12 +8,11 @@ import { MenuNavigator } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
 
@@ -44,8 +43,8 @@ export class CreditsScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    // Title sticker.
-    makeStickerText(this, centerX, 60, 'CREDITS', {
+    // Title heading.
+    makeDisplayText(this, centerX, 60, 'CREDITS', {
       fontSize: 44,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 6,
@@ -106,31 +105,29 @@ export class CreditsScene extends Phaser.Scene {
     role: 'gold' | 'magenta',
     sections: { header: string; body: string }[],
   ): void {
-    const tilt = role === 'gold' ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean;
     const card = createMenuCard(this, {
       x,
       y,
       width,
       height,
-      tilt: tilt * 0.4,
       bodyFillColor: role === 'gold' ? BODY_COLORS.gold : BODY_COLORS.magenta,
       accentColor: role === 'gold' ? ACCENT_COLORS.gold : ACCENT_COLORS.magenta,
       bannerHeight: 50,
       borderWidth: 3,
       borderColor: role === 'gold' ? ACCENT_COLORS.gold : ACCENT_COLORS.magenta,
-      cornerRadius: 16,
+      cornerRadius: 8,
     });
 
-    const banner = makeStickerText(this, 0, card.bannerTopY + 25, bannerLabel, {
+    const banner = makeDisplayText(this, 0, card.bannerTopY + 25, bannerLabel, {
       fontSize: 22,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 3,
     });
     card.frame.add(banner);
 
     let yOffset = -height / 2 + 75;
     for (const section of sections) {
-      const header = makeStickerText(this, 0, yOffset, section.header, {
+      const header = makeDisplayText(this, 0, yOffset, section.header, {
         fontSize: 14,
         color: role === 'gold' ? ACCENT_COLORS_STR.gold : ACCENT_COLORS_STR.magenta,
         letterSpacing: 2,

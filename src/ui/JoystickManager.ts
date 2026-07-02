@@ -164,12 +164,12 @@ export class JoystickManager {
     this.state.directionX = 0;
     this.state.directionY = 0;
 
-    // Black ink silhouette behind base — Balatro cel-shading look (chunky outline).
-    this.baseShadow = this.scene.add.circle(x + 3, y + 4, this.baseRadius + 4, 0x000000, 0.55);
+    // Soft shadow behind base.
+    this.baseShadow = this.scene.add.circle(x, y + 3, this.baseRadius + 2, 0x000000, 0.45);
     this.baseShadow.setDepth(JOYSTICK_DEPTH - 1);
     this.baseShadow.setScrollFactor(0);
 
-    // Base ring — bright cyan accent on cool dark body, thick ink outline.
+    // Base ring — bright cyan accent on cool dark body.
     this.baseCircle = this.scene.add.circle(x, y, this.baseRadius, 0x1c2a4a, 0.5);
     this.baseCircle.setStrokeStyle(4, 0x66bbff, JOYSTICK_ALPHA);
     this.baseCircle.setDepth(JOYSTICK_DEPTH);
@@ -180,7 +180,7 @@ export class JoystickManager {
     this.knobShadow.setDepth(JOYSTICK_DEPTH);
     this.knobShadow.setScrollFactor(0);
 
-    // Knob — bright accent core with thick black outline (cel-shading).
+    // Knob — bright accent core with dark outline for contrast.
     this.knobCircle = this.scene.add.circle(x, y, this.knobRadius, 0xffdd44, JOYSTICK_ALPHA);
     this.knobCircle.setStrokeStyle(3, 0x000000, 0.85);
     this.knobCircle.setDepth(JOYSTICK_DEPTH + 1);

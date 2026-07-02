@@ -75,7 +75,7 @@ export interface UpgradeRarityCardStyle {
   accent: number;
   /** Accent as a CSS string for text. */
   accentStr: string;
-  /** Sticker label naming the tier. */
+  /** Tag label naming the tier. */
   label: string;
 }
 

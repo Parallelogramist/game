@@ -14,12 +14,11 @@ import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGate
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   MENU_FONT,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
@@ -34,7 +33,7 @@ interface WeaponCardRef {
 type WeaponSelectStep = 'stage' | 'ship' | 'weapon';
 
 /**
- * Pre-run picker — Balatro-style 3-step card flow:
+ * Pre-run picker — 3-step card flow:
  * stage → ship → weapon. Each step is a card grid with role-coded accents.
  * Steps with only one option auto-skip; back-nav respects skipped steps.
  */
@@ -67,7 +66,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     const allWeapons = getWeaponInfoList();
     this.discoveredWeaponsCache = allWeapons.filter((w) => codexManager.isWeaponDiscovered(w.id));
 
-    // Balatro backdrop.
+    // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
@@ -206,26 +205,24 @@ export class WeaponSelectScene extends Phaser.Scene {
     const focusable: { card: MenuCard; nameText: Phaser.GameObjects.Text; stage: StageDefinition }[] = [];
     stages.forEach((stage, index) => {
       const { x: cardX, y: cardY } = layout.positionAt(index);
-      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.6;
 
       const card = createMenuCard(this, {
         x: cardX,
         y: cardY,
         width: cardWidth,
         height: cardHeight,
-        tilt,
-        wobbleSeed: index * 0.7,
+        pulseSeed: index * 0.7,
         bodyFillColor: BODY_COLORS.magenta,
         accentColor: stage.gridLineColor,
         bannerHeight: 40,
         borderWidth: 3,
         borderColor: stage.gridLineColor,
-        cornerRadius: 14,
+        cornerRadius: 8,
       });
 
-      const nameText = makeStickerText(this, 0, card.bannerTopY + 20, stage.name.toUpperCase(), {
+      const nameText = makeDisplayText(this, 0, card.bannerTopY + 20, stage.name.toUpperCase(), {
         fontSize: 16,
-        color: TEXT_COLORS.sticker,
+        color: TEXT_COLORS.heading,
         letterSpacing: 1.5,
       });
       card.frame.add(nameText);
@@ -302,26 +299,24 @@ export class WeaponSelectScene extends Phaser.Scene {
     const focusable: { card: MenuCard; ship: ShipCharacter }[] = [];
     ships.forEach((ship, index) => {
       const { x: cardX, y: cardY } = layout.positionAt(index);
-      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.5;
 
       const card = createMenuCard(this, {
         x: cardX,
         y: cardY,
         width: cardWidth,
         height: cardHeight,
-        tilt,
-        wobbleSeed: index * 0.9 + 0.3,
+        pulseSeed: index * 0.9 + 0.3,
         bodyFillColor: BODY_COLORS.primary,
         accentColor: ACCENT_COLORS.primary,
         bannerHeight: 40,
         borderWidth: 3,
         borderColor: ACCENT_COLORS.primary,
-        cornerRadius: 14,
+        cornerRadius: 8,
       });
 
-      const nameText = makeStickerText(this, 0, card.bannerTopY + 20, ship.name.toUpperCase(), {
+      const nameText = makeDisplayText(this, 0, card.bannerTopY + 20, ship.name.toUpperCase(), {
         fontSize: 15,
-        color: TEXT_COLORS.sticker,
+        color: TEXT_COLORS.heading,
         letterSpacing: 1.5,
       });
       card.frame.add(nameText);
@@ -386,7 +381,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
   private renderStepTitle(title: string, subtitle: string, titleColor: string): void {
     const centerX = this.scale.width / 2;
-    const titleText = makeStickerText(this, centerX, 90, title, {
+    const titleText = makeDisplayText(this, centerX, 90, title, {
       fontSize: 36,
       color: titleColor,
       strokeWidth: 5,
@@ -550,32 +545,24 @@ export class WeaponSelectScene extends Phaser.Scene {
     height: number,
     keyNumber: number,
   ): void {
-    const tiltOptions = [
-      CARD_TILT_PRESETS.leftLean,
-      CARD_TILT_PRESETS.hero,
-      CARD_TILT_PRESETS.rightLean,
-      CARD_TILT_PRESETS.rest,
-    ];
-    const baseTilt = tiltOptions[keyNumber % tiltOptions.length] * 0.6;
 
     const card = createMenuCard(this, {
       x,
       y,
       width,
       height,
-      tilt: baseTilt,
-      wobbleSeed: keyNumber * 0.5 + 0.1,
+      pulseSeed: keyNumber * 0.5 + 0.1,
       bodyFillColor: BODY_COLORS.gold,
       accentColor: ACCENT_COLORS.gold,
       bannerHeight: 32,
       borderWidth: 3,
       borderColor: ACCENT_COLORS.gold,
-      cornerRadius: 12,
+      cornerRadius: 6,
     });
 
-    const nameText = makeStickerText(this, 0, card.bannerTopY + 16, weaponInfo.name.toUpperCase(), {
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 16, weaponInfo.name.toUpperCase(), {
       fontSize: 12,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 1,
     });
     card.frame.add(nameText);
@@ -595,7 +582,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     card.frame.add(descriptionText);
 
     if (keyNumber <= 9) {
-      const keyChip = makeStickerText(this, 0, height / 2 - 16, `[ ${keyNumber} ]`, {
+      const keyChip = makeDisplayText(this, 0, height / 2 - 16, `[ ${keyNumber} ]`, {
         fontSize: 11,
         color: TEXT_COLORS.muted,
         letterSpacing: 1,

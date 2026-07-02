@@ -1,19 +1,16 @@
 /**
- * StickerText — Balatro-style sticker label.
+ * DisplayText — sharp heading/label text for the neon-tech UI.
  *
- * Bold sans-serif with a tight black outline. Reads as a punchy banner label
- * without sacrificing legibility. Deliberately does NOT pull in the
- * Bangers/comic display font; that face mangles short glyphs (W, S, M) at
- * the small banner sizes used here.
- *
- * Originally inlined in BootScene as `makeStickerText`; extracted so
- * UpgradeScene, ShopScene, PauseMenu, etc. share the exact same look.
+ * Technical display face (Rajdhani) with wide tracking and a hairline dark
+ * stroke — enough contrast to sit over gameplay or busy panels while keeping
+ * the letterforms crisp. Shared by every menu scene so headings, banners,
+ * and button labels render identically.
  */
 
 import Phaser from 'phaser';
-import { MENU_FONT, MENU_COLORS } from './MenuStyle';
+import { DISPLAY_FONT, MENU_FONT, MENU_COLORS } from './MenuStyle';
 
-export interface StickerTextOptions {
+export interface DisplayTextOptions {
   fontSize: number;
   color?: string;
   strokeWidth?: number;
@@ -21,42 +18,42 @@ export interface StickerTextOptions {
   fontStyle?: string;
 }
 
-/** Create a new sticker-styled text object centered at (x, y). */
-export function makeStickerText(
+/** Create a new display-styled text object centered at (x, y). */
+export function makeDisplayText(
   scene: Phaser.Scene,
   x: number,
   y: number,
   text: string,
-  opts: StickerTextOptions,
+  opts: DisplayTextOptions,
 ): Phaser.GameObjects.Text {
-  const stroke = opts.strokeWidth ?? Math.max(2, Math.round(opts.fontSize * 0.08));
+  const stroke = opts.strokeWidth ?? Math.max(1, Math.round(opts.fontSize * 0.04));
   return scene.add
     .text(x, y, text, {
       fontSize: `${opts.fontSize}px`,
-      color: opts.color ?? MENU_COLORS.stickerWhite,
-      fontFamily: MENU_FONT,
+      color: opts.color ?? MENU_COLORS.headingWhite,
+      fontFamily: DISPLAY_FONT,
       fontStyle: opts.fontStyle ?? 'bold',
-      stroke: MENU_COLORS.stickerBlack,
+      stroke: MENU_COLORS.outline,
       strokeThickness: stroke,
-      letterSpacing: opts.letterSpacing ?? 1.5,
+      letterSpacing: opts.letterSpacing ?? 2,
     })
     .setOrigin(0.5);
 }
 
-/** Apply sticker styling to an existing text object (in-place). */
-export function applyStickerStyle(
+/** Apply display styling to an existing text object (in-place). */
+export function applyDisplayStyle(
   textObj: Phaser.GameObjects.Text,
-  opts: StickerTextOptions,
+  opts: DisplayTextOptions,
 ): void {
-  const stroke = opts.strokeWidth ?? Math.max(2, Math.round(opts.fontSize * 0.08));
+  const stroke = opts.strokeWidth ?? Math.max(1, Math.round(opts.fontSize * 0.04));
   textObj.setStyle({
     fontSize: `${opts.fontSize}px`,
-    color: opts.color ?? MENU_COLORS.stickerWhite,
-    fontFamily: MENU_FONT,
+    color: opts.color ?? MENU_COLORS.headingWhite,
+    fontFamily: DISPLAY_FONT,
     fontStyle: opts.fontStyle ?? 'bold',
-    stroke: MENU_COLORS.stickerBlack,
+    stroke: MENU_COLORS.outline,
     strokeThickness: stroke,
-    letterSpacing: opts.letterSpacing ?? 1.5,
+    letterSpacing: opts.letterSpacing ?? 2,
   });
 }
 
