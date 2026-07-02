@@ -172,6 +172,23 @@ export class HUDManager {
   private ultBarBackground: Phaser.GameObjects.Rectangle | null = null;
   private ultBarFill: Phaser.GameObjects.Rectangle | null = null;
   private ultBarGlow: Phaser.GameObjects.Graphics | null = null;
+
+  // Bar juice — gradient sheen overlays track their fill widths; the HP chip
+  // holds the pre-hit fill edge then drains; the ult sheen sweeps once on
+  // ready. All rectangles, zero per-frame allocations.
+  private hpBarSheen!: Phaser.GameObjects.Rectangle;
+  private xpBarSheen!: Phaser.GameObjects.Rectangle;
+  private ultBarSheen: Phaser.GameObjects.Rectangle | null = null;
+  private hpChip!: Phaser.GameObjects.Rectangle;
+  private hpChipFromRatio: number = 0;
+  private hpChipDrainFrom: number = 0;
+  private hpChipHoldMs: number = 0;
+  private hpChipDrainElapsedMs: number = 0;
+  private xpPulse: number = 0;
+  private lastXpProgress: number = 0;
+  private lastXpLevel: number = -1;
+  private ultReadySweep: Phaser.GameObjects.Rectangle | null = null;
+  private barMotionReduced: boolean = false;
   private ultLabel: Phaser.GameObjects.Text | null = null;
   private ultBarWidth: number = 0;
   private wasUltimateReady: boolean = false;
@@ -347,6 +364,22 @@ export class HUDManager {
     this.hpBarFill.setOrigin(0, 0.5);
     this.hpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
+    this.barMotionReduced = getSettingsManager().isReducedMotionEnabled();
+
+    // Damage chip — spans old→new fill edge after a hit, drains after a hold.
+    this.hpChip = this.scene.add.rectangle(
+      leftMargin + 1, currentY + hpBarHeight / 2, 0, hpBarHeight - 2, 0xf2f6ff, 0.85,
+    );
+    this.hpChip.setOrigin(0, 0.5);
+    this.hpChip.setDepth(HUD_DEPTH).setAlpha(0);
+
+    // Top-half lighten — cheap two-tone gradient over the fill.
+    this.hpBarSheen = this.scene.add.rectangle(
+      leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((hpBarHeight - 2) / 2)), 0xffffff, 0.16,
+    );
+    this.hpBarSheen.setOrigin(0, 0);
+    this.hpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
     // HP Text overlay
     this.hpText = this.scene.add.text(
       leftMargin + hpBarWidth / 2,
@@ -416,6 +449,12 @@ export class HUDManager {
     this.xpBarFill.setOrigin(0, 0.5);
     this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
+    this.xpBarSheen = this.scene.add.rectangle(
+      leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((xpBarHeight - 2) / 2)), 0xffffff, 0.16,
+    );
+    this.xpBarSheen.setOrigin(0, 0);
+    this.xpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
     // XP label — display style.
     this.scene.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
       fontSize: this.scaledFontSize(12),
@@ -458,6 +497,20 @@ export class HUDManager {
     );
     this.ultBarFill.setOrigin(0, 0.5);
     this.ultBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    this.ultBarSheen = this.scene.add.rectangle(
+      leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((ultBarHeight - 2) / 2)), 0xffffff, 0.16,
+    );
+    this.ultBarSheen.setOrigin(0, 0);
+    this.ultBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // Ready sweep — a narrow bright band that crosses the bar once when the
+    // ultimate charges. Hidden until then.
+    this.ultReadySweep = this.scene.add.rectangle(
+      leftMargin + 1, currentY + ultBarHeight / 2, this.scaledSize(16), ultBarHeight - 2, 0xffffff, 0.75,
+    );
+    this.ultReadySweep.setOrigin(0, 0.5);
+    this.ultReadySweep.setDepth(HUD_DEPTH + 1).setAlpha(0);
 
     // ULT label — display style (shows the [Q] hotkey when ready).
     this.ultLabel = this.scene.add.text(leftMargin + ultBarWidth + this.scaledSize(8), currentY + ultBarHeight / 2, 'ULT', {
@@ -851,11 +904,27 @@ export class HUDManager {
       const ratio = Phaser.Math.Clamp(state.ultimateChargeRatio, 0, 1);
       this.ultBarFill.width = this.ultBarWidth * ratio;
 
+      if (this.ultBarSheen) this.ultBarSheen.width = this.ultBarWidth * ratio;
+
       if (state.ultimateReady) {
         this.ultBarFill.setFillStyle(0xffffff);
         this.ultLabel.setText('ULT [Q]');
         // One-shot pulse + glow ramp the moment it becomes ready.
         if (!this.wasUltimateReady) {
+          // Ready sweep — one bright band across the bar, then gone.
+          if (!this.barMotionReduced && this.ultReadySweep) {
+            const sweep = this.ultReadySweep;
+            this.scene.tweens.killTweensOf(sweep);
+            sweep.x = this.ultBarFill.x;
+            sweep.setAlpha(0.75);
+            this.scene.tweens.add({
+              targets: sweep,
+              x: this.ultBarFill.x + this.ultBarWidth - sweep.width,
+              alpha: 0,
+              duration: 350,
+              ease: 'Cubic.easeOut',
+            });
+          }
           this.ultBarGlow.clear();
           this.ultBarGlow.fillStyle(0xffcc33, 0.55);
           this.ultBarGlow.fillRoundedRect(
@@ -879,6 +948,11 @@ export class HUDManager {
           this.scene.tweens.killTweensOf(this.ultBarGlow);
           this.ultBarGlow.setAlpha(1);
           this.ultBarGlow.clear();
+          // Ult fired/reset — retire any in-flight ready sweep.
+          if (this.ultReadySweep) {
+            this.scene.tweens.killTweensOf(this.ultReadySweep);
+            this.ultReadySweep.setAlpha(0);
+          }
         }
       }
       this.wasUltimateReady = state.ultimateReady;
@@ -890,6 +964,19 @@ export class HUDManager {
     const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
     const xpProgress = state.xp / state.xpToNextLevel;
     this.xpBarFill.width = xpBarMaxWidth * xpProgress;
+
+    // Gain pulse — brief brightening of the sheen on same-level XP gain,
+    // decaying over ~120ms. Level-up wraps skip it (progress drops).
+    if (state.playerLevel === this.lastXpLevel && xpProgress > this.lastXpProgress && !this.barMotionReduced) {
+      this.xpPulse = 1;
+    }
+    this.lastXpLevel = state.playerLevel;
+    this.lastXpProgress = xpProgress;
+    if (this.xpPulse > 0) {
+      this.xpPulse = Math.max(0, this.xpPulse - state.deltaSeconds / 0.12);
+    }
+    this.xpBarSheen.width = xpBarMaxWidth * Math.min(1, xpProgress);
+    this.xpBarSheen.setFillStyle(0xffffff, 0.16 + this.xpPulse * 0.38);
 
     // XP shimmer when approaching level-up (>85% full)
     if (xpProgress > 0.85) {
@@ -940,7 +1027,9 @@ export class HUDManager {
     // Update HP bar
     const hpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
     const hpProgress = Math.max(0, state.currentHP / state.maxHP);
+    const previousHpProgress = this.lastPlayerHP >= 0 ? Math.max(0, this.lastPlayerHP / state.maxHP) : hpProgress;
     this.hpBarFill.width = hpBarMaxWidth * hpProgress;
+    this.hpBarSheen.width = hpBarMaxWidth * hpProgress;
 
     // HP damage flash: brief white pulse when player takes damage
     if (this.lastPlayerHP >= 0 && state.currentHP < this.lastPlayerHP) {
@@ -949,8 +1038,37 @@ export class HUDManager {
         // Restore threshold color (will be set below on next frame)
         this.hpBarFill.setFillStyle(HP_THRESHOLD_COLORS[getHPThreshold(hpProgress)]);
       });
+      // Damage chip: hold the pre-hit edge, then drain onto the new edge.
+      // Consecutive hits mid-drain extend the chip from the older edge.
+      if (!this.barMotionReduced) {
+        this.hpChipFromRatio = Math.max(this.hpChipFromRatio, previousHpProgress);
+        this.hpChipDrainFrom = this.hpChipFromRatio;
+        this.hpChipHoldMs = 250;
+        this.hpChipDrainElapsedMs = 0;
+      }
+    } else if (state.currentHP > this.lastPlayerHP) {
+      // Healed — the chip no longer describes lost health.
+      this.hpChipFromRatio = 0;
     }
     this.lastPlayerHP = state.currentHP;
+
+    // Advance the chip lifecycle. Quad ease-in drain over 400ms after a
+    // 250ms hold; hidden when it has fully drained onto the live edge.
+    if (this.hpChipFromRatio > hpProgress) {
+      if (this.hpChipHoldMs > 0) {
+        this.hpChipHoldMs = Math.max(0, this.hpChipHoldMs - state.deltaSeconds * 1000);
+      } else {
+        this.hpChipDrainElapsedMs += state.deltaSeconds * 1000;
+        const t = Math.min(1, this.hpChipDrainElapsedMs / 400);
+        this.hpChipFromRatio = this.hpChipDrainFrom + (hpProgress - this.hpChipDrainFrom) * t * t;
+      }
+      this.hpChip.x = this.hpBarFill.x + hpBarMaxWidth * hpProgress;
+      this.hpChip.width = hpBarMaxWidth * (this.hpChipFromRatio - hpProgress);
+      this.hpChip.setAlpha(HUD_ALPHA);
+    } else {
+      this.hpChipFromRatio = hpProgress;
+      this.hpChip.setAlpha(0);
+    }
 
     // Update HP text
     this.hpText.setText(`${Math.ceil(state.currentHP)}/${Math.ceil(state.maxHP)}`);

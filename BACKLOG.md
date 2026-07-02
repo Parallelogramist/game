@@ -107,6 +107,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-10PACK** — ten-feature visual polish drop (scene sweep transitions +
+    staggered menu entrances, button press micro-interaction, reduced-motion gating
+    across menus, HUD bar juice [damage chip / gradients / XP pulse / ult ready
+    sweep], victory-screen parity with the death screen, Rajdhani damage-number
+    tiers, boss letterbox intro, minimap glass framing, HTML boot loader). Check:
+    (a) menu nav transitions never strand a black overlay on rapid double-clicks or
+    gamepad spam; (b) entrance stagger doesn't fight keyboard/gamepad focus on
+    Shop/Codex/Achievements; (c) HP damage chip reads under rapid multi-hits and
+    heals; (d) ult ready sweep + glow aren't noise mid-swarm; (e) boss letterbox is
+    legible over arena tint and cleans up if you die during it; (f) crit damage
+    numbers pop without overwhelming; (g) victory stats panel at UI-scale extremes;
+    (h) boot loader hands off smoothly (no flash of black) on slow connections;
+    (i) reduced-motion: menus static but fully readable, no missing state. Known
+    minor edge (agent-flagged): disabling a MenuButton while a pointer is held
+    leaves it at pressed scale until re-enabled — no current call site does this.
   - **POLISH-MOBILE-IPHONE** — mobile/Safari polish pass (multitouch
     `activePointers: 4`, safe-area container via fixed insets, portrait rotate
     overlay, iOS lifecycle saves on pagehide/visibilitychange, AudioContext

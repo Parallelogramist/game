@@ -3,7 +3,7 @@
  */
 
 import Phaser from 'phaser';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
@@ -32,8 +32,6 @@ export class CreditsScene extends Phaser.Scene {
     const screenHeight = this.cameras.main.height;
     const centerX = this.cameras.main.centerX;
 
-    fadeIn(this, 200);
-
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
@@ -44,7 +42,7 @@ export class CreditsScene extends Phaser.Scene {
     this.events.on('update', this.bgUpdateHandler);
 
     // Title heading.
-    makeDisplayText(this, centerX, 60, 'CREDITS', {
+    const title = makeDisplayText(this, centerX, 60, 'CREDITS', {
       fontSize: 44,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 6,
@@ -92,6 +90,10 @@ export class CreditsScene extends Phaser.Scene {
       ],
       onCancel: () => this.returnToMenu(),
     });
+
+    // Entrance choreography: title, then the two cards, then the back button.
+    staggerEntrance(this, [title, ...this.cards.map((c) => c.container), this.backButton.container]);
+    sweepIn(this);
 
     this.events.once('shutdown', this.shutdown, this);
   }
@@ -149,7 +151,7 @@ export class CreditsScene extends Phaser.Scene {
   }
 
   private returnToMenu(): void {
-    fadeOut(this, 150, () => this.scene.start('BootScene'));
+    transitionToScene(this, 'BootScene');
   }
 
   shutdown(): void {

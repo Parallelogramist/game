@@ -14,7 +14,7 @@ import {
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
@@ -62,7 +62,6 @@ export class CodexScene extends Phaser.Scene {
   create(): void {
     const centerX = this.scale.width / 2;
 
-    fadeIn(this, 200);
     this.soundManager = new SoundManager(this);
 
     // Reset state
@@ -82,7 +81,7 @@ export class CodexScene extends Phaser.Scene {
     this.events.on('update', this.bgUpdateHandler);
 
     // Title heading.
-    makeDisplayText(this, centerX, 36, 'CODEX', {
+    const title = makeDisplayText(this, centerX, 36, 'CODEX', {
       fontSize: 32,
       color: ACCENT_COLORS_STR.primary,
       strokeWidth: 5,
@@ -139,7 +138,7 @@ export class CodexScene extends Phaser.Scene {
       fontSize: 14,
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
     this.backButton.card.hitZone.on('pointerover', () => {
@@ -162,6 +161,19 @@ export class CodexScene extends Phaser.Scene {
 
     // Initial focus visuals
     this.updateFocusVisuals();
+
+    // Entrance choreography: title + completion first, tabs next, then the
+    // content list rises in as one block (rows scroll inside the mask).
+    staggerEntrance(this, [
+      title,
+      completionLabel,
+      completionValue,
+      subStats,
+      ...this.categoryTabs.values(),
+      this.contentContainer,
+      this.backButton.container,
+    ]);
+    sweepIn(this);
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -786,7 +798,7 @@ export class CodexScene extends Phaser.Scene {
       },
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
 
@@ -799,7 +811,7 @@ export class CodexScene extends Phaser.Scene {
       columns: navigatorColumns,
       wrap: true,
       onCancel: () => {
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
       initialIndex: this.focusZone === 'tabs'
         ? this.selectedTabIndex

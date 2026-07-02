@@ -9,10 +9,12 @@
  *   5. Thin rising light streaks for ambient motion.
  *   6. Edge vignette darkening the corners.
  *
- * One update() advances every streak; no per-streak tweens.
+ * One update() advances every streak; no per-streak tweens. Under reduced
+ * motion the streaks render as a static field at their seeded positions.
  */
 
 import Phaser from 'phaser';
+import { getSettingsManager } from '../settings';
 
 const DRIFT_DEPTH = -20;
 const SPOTLIGHT_DEPTH = -22;
@@ -35,6 +37,8 @@ export interface MenuBackground {
 }
 
 export function createMenuBackground(scene: Phaser.Scene): MenuBackground {
+  // Read once at creation — settings changes take effect on next scene entry.
+  const reducedMotion = getSettingsManager().isReducedMotionEnabled();
   const screenWidth = scene.scale.width;
   const screenHeight = scene.scale.height;
 
@@ -121,6 +125,8 @@ export function createMenuBackground(scene: Phaser.Scene): MenuBackground {
 
   return {
     update(deltaMs: number) {
+      // Reduced motion: streaks stay a static field at their seeded positions.
+      if (reducedMotion) return;
       const dt = deltaMs / 1000;
       for (const drifter of drifters) {
         drifter.x += drifter.vx * dt;

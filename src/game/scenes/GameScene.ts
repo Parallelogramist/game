@@ -114,6 +114,7 @@ import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
+import { DISPLAY_FONT } from '../../visual/MenuStyle';
 
 // Module-level queries (defined once, not per-frame)
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
@@ -329,6 +330,7 @@ export class GameScene extends Phaser.Scene {
   private bossWarningPhase: number = 0; // 0=none, 1=stirs, 2=trembles, 3=incoming
   private bossWarningText: Phaser.GameObjects.Text | null = null;
   private bossWarningVignette: Phaser.GameObjects.Graphics | null = null;
+  private bossIntroObjects: Array<Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text | Phaser.GameObjects.Graphics> = [];
   private bossCountdownText: Phaser.GameObjects.Text | null = null;
 
   // Endless mode (post-victory continuation)
@@ -588,6 +590,9 @@ export class GameScene extends Phaser.Scene {
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
     this.bossWarningPhase = 0;
+    // Scene restarts reuse this instance — drop refs to intro objects the
+    // previous run's shutdown already destroyed.
+    this.bossIntroObjects = [];
     this.bossCountdownText = null;
     this.endlessModeActive = false;
     this.endlessModeTime = 0;
@@ -5626,6 +5631,7 @@ export class GameScene extends Phaser.Scene {
       this.bossCountdownText.destroy();
       this.bossCountdownText = null;
     }
+    this.cleanupBossIntro();
   }
 
   /**
@@ -6145,74 +6151,143 @@ export class GameScene extends Phaser.Scene {
     bossJuice.impactFlash(0.35, 120);
     bossJuice.screenShake(0.012, 400);
 
-
     // Grid distortion pulse from spawn point (top center)
     this.gridBackground.applyExplosiveForce(3000, this.scale.width / 2, 0, 500);
 
-    // Darken screen briefly
-    const overlay = this.add.rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.6);
-    overlay.setDepth(90);
+    // ── Letterboxed intro ───────────────────────────────────────────────
+    // Bars slide in from the screen edges, the boss name lands between them
+    // flanked by expanding accent rules, everything holds then slides away.
+    // Lives in the HUD-warning band (above lighting/flashes, below minimap).
+    const introDepth = HUD_OVERLAY_DEPTH - 50;
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+    const barHeight = 54;
+    const reducedMotion = getSettingsManager().isReducedMotionEnabled();
 
-    // Warning text — slam in from above with scale overshoot
-    const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 80, 'BOSS BATTLE', {
-      fontSize: '32px',
-      color: '#ff0000',
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+    const topBar = this.add.rectangle(centerX, -barHeight / 2, this.scale.width, barHeight, 0x000008, 0.85)
+      .setScrollFactor(0).setDepth(introDepth);
+    const bottomBar = this.add.rectangle(centerX, this.scale.height + barHeight / 2, this.scale.width, barHeight, 0x000008, 0.85)
+      .setScrollFactor(0).setDepth(introDepth);
+
+    const kicker = this.add.text(centerX, centerY - 44, 'WARNING', {
+      fontSize: '14px',
+      color: '#ff9999',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    });
-    warningText.setOrigin(0.5).setDepth(100).setScale(2.5).setAlpha(0);
+      strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(introDepth + 1).setScrollFactor(0).setAlpha(0);
+    kicker.setLetterSpacing(6);
 
-    const nameText = this.add.text(this.scale.width / 2, this.scale.height / 2, name, {
-      fontSize: '48px',
-      color: '#ffcc00',
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+    const nameText = this.add.text(centerX, centerY, name.toUpperCase(), {
+      fontSize: '40px',
+      color: '#ff5566',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    });
-    nameText.setOrigin(0.5).setDepth(100).setScale(0).setAlpha(0);
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(introDepth + 1).setScrollFactor(0).setAlpha(0);
+    nameText.setLetterSpacing(8);
 
-    // "BOSS BATTLE" slams in from large scale
-    this.tweens.add({
-      targets: warningText,
-      scale: 1,
-      alpha: 1,
-      duration: 300,
-      ease: 'Back.easeOut',
-      onComplete: () => {
-        // Then boss name scales up
-        this.tweens.add({
-          targets: nameText,
-          scale: 1,
-          alpha: 1,
-          duration: 400,
-          ease: 'Back.easeOut',
-        });
-        // Both fade out after hold
-        this.time.delayedCall(2500, () => {
+    // Accent rules flanking the name — expand from the center outward.
+    const rules = this.add.graphics().setDepth(introDepth + 1).setScrollFactor(0);
+    const ruleY = centerY + 34;
+    const ruleMax = Math.min(260, this.scale.width * 0.2);
+    const ruleState = { spread: reducedMotion ? ruleMax : 0 };
+    const drawRules = () => {
+      rules.clear();
+      rules.fillStyle(0xff5566, 0.8);
+      rules.fillRect(centerX - ruleState.spread, ruleY, ruleState.spread * 2, 2);
+    };
+    drawRules();
+    rules.setAlpha(0);
+
+    this.bossIntroObjects = [topBar, bottomBar, kicker, nameText, rules];
+
+    const holdThenExit = () => {
+      this.time.delayedCall(1400, () => {
+        if (!topBar.scene) return; // already cleaned up (death / restart)
+        if (reducedMotion) {
           this.tweens.add({
-            targets: [warningText, nameText],
+            targets: [topBar, bottomBar, kicker, nameText, rules],
             alpha: 0,
-            duration: 500,
-            ease: 'Sine.easeOut',
-            onComplete: () => {
-              warningText.destroy();
-              nameText.destroy();
-            },
+            duration: 150,
+            onComplete: () => this.cleanupBossIntro(),
           });
+          return;
+        }
+        this.tweens.add({
+          targets: topBar,
+          y: -barHeight / 2,
+          duration: 300,
+          ease: 'Cubic.easeIn',
         });
-      },
-    });
+        this.tweens.add({
+          targets: bottomBar,
+          y: this.scale.height + barHeight / 2,
+          duration: 300,
+          ease: 'Cubic.easeIn',
+        });
+        this.tweens.add({
+          targets: [kicker, nameText, rules],
+          alpha: 0,
+          duration: 260,
+          ease: 'Sine.easeIn',
+          onComplete: () => this.cleanupBossIntro(),
+        });
+      });
+    };
+
+    if (reducedMotion) {
+      topBar.setY(barHeight / 2);
+      bottomBar.setY(this.scale.height - barHeight / 2);
+      this.tweens.add({
+        targets: [kicker, nameText, rules],
+        alpha: 1,
+        duration: 150,
+        onComplete: holdThenExit,
+      });
+      return;
+    }
 
     this.tweens.add({
-      targets: overlay,
-      alpha: 0,
-      duration: 2500,
-      ease: 'Power2',
-      onComplete: () => overlay.destroy(),
+      targets: topBar,
+      y: barHeight / 2,
+      duration: 260,
+      ease: 'Cubic.easeOut',
     });
+    this.tweens.add({
+      targets: bottomBar,
+      y: this.scale.height - barHeight / 2,
+      duration: 260,
+      ease: 'Cubic.easeOut',
+    });
+    this.tweens.add({
+      targets: [kicker, nameText],
+      alpha: 1,
+      duration: 240,
+      delay: 140,
+      ease: 'Sine.easeOut',
+    });
+    rules.setAlpha(1);
+    this.tweens.add({
+      targets: ruleState,
+      spread: ruleMax,
+      duration: 300,
+      delay: 180,
+      ease: 'Cubic.easeOut',
+      onUpdate: drawRules,
+      onComplete: holdThenExit,
+    });
+  }
+
+  /** Tears down the boss-intro letterbox (also runs on death/restart via cleanupBossWarning). */
+  private cleanupBossIntro(): void {
+    for (const obj of this.bossIntroObjects) {
+      this.tweens.killTweensOf(obj);
+      obj.destroy();
+    }
+    this.bossIntroObjects = [];
   }
 
   /**

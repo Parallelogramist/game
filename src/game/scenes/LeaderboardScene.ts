@@ -3,7 +3,7 @@
  */
 
 import Phaser from 'phaser';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance, type EntranceItem } from '../../utils/SceneTransition';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import {
   getRecentLeaderboardEntries,
@@ -60,8 +60,6 @@ export class LeaderboardScene extends Phaser.Scene {
     const centerX = this.cameras.main.centerX;
     const screenHeight = this.cameras.main.height;
 
-    fadeIn(this, 200);
-
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
@@ -73,14 +71,14 @@ export class LeaderboardScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    makeDisplayText(this, centerX, 32, 'LEADERBOARD', {
+    const title = makeDisplayText(this, centerX, 32, 'LEADERBOARD', {
       fontSize: 30,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 5,
       letterSpacing: 4,
     });
 
-    makeBodyText(this, centerX, 64, 'Personal bests + challenge history', {
+    const subtitle = makeBodyText(this, centerX, 64, 'Personal bests + challenge history', {
       fontSize: 12,
       color: TEXT_COLORS.muted,
     });
@@ -116,6 +114,22 @@ export class LeaderboardScene extends Phaser.Scene {
       ],
       onCancel: () => this.returnToMenu(),
     });
+
+    // Entrance choreography: title, bests tiles, tabs, then the history rows.
+    // Rows re-rendered by later filter changes appear without the stagger.
+    const entranceItems: EntranceItem[] = [
+      title,
+      subtitle,
+      ...this.bestsCards.map((card) => card.container),
+    ];
+    if (this.menuTabs) entranceItems.push(this.menuTabs.container);
+    entranceItems.push(
+      ...(this.entryListChildren as EntranceItem[]),
+      ...this.entryCards.map((card) => card.container),
+      this.backButton.container,
+    );
+    staggerEntrance(this, entranceItems, { stepMs: 25 });
+    sweepIn(this);
 
     this.events.once('shutdown', this.shutdown, this);
   }
@@ -303,7 +317,7 @@ export class LeaderboardScene extends Phaser.Scene {
   }
 
   private returnToMenu(): void {
-    fadeOut(this, 150, () => this.scene.start('BootScene'));
+    transitionToScene(this, 'BootScene');
   }
 
   shutdown(): void {

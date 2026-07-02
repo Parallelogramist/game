@@ -20,7 +20,7 @@ import {
   UpgradeCategory,
 } from '../../data/PermanentUpgrades';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { getToastManager, ToastManager } from '../../ui';
 import { getTutorialHintDef } from '../../tutorial/TutorialHints';
@@ -124,8 +124,6 @@ export class ShopScene extends Phaser.Scene {
 
   create(): void {
     const centerX = this.scale.width / 2;
-
-    fadeIn(this, 200);
 
     this.soundManager = new SoundManager(this);
     this.toastManager = getToastManager(this);
@@ -324,7 +322,7 @@ export class ShopScene extends Phaser.Scene {
       fontSize: 14,
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
     this.backButton.container.setDepth(3);
@@ -342,6 +340,16 @@ export class ShopScene extends Phaser.Scene {
     this.setupScrollInput();
     this.buildMenuNavigator();
     this.updateFocusVisuals();
+
+    // Entrance choreography: title + chrome chips first, then tabs and the
+    // card grid rise into place.
+    const entranceItems = [title, accountLevelChip.container, goldChip.container];
+    if (this.ascendButton) entranceItems.push(this.ascendButton.container);
+    if (this.menuTabs) entranceItems.push(this.menuTabs.container);
+    if (this.filterButton) entranceItems.push(this.filterButton.container);
+    entranceItems.push(this.upgradeContainer, this.backButton.container);
+    staggerEntrance(this, entranceItems);
+    sweepIn(this);
 
     // One-time shop hint via the per-hint flag. Previously this read AND set
     // the global `tutorialSeen` flag, so visiting the shop before a first run
@@ -914,7 +922,7 @@ export class ShopScene extends Phaser.Scene {
       onBlur: () => this.updateFocusVisuals(),
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
 
@@ -932,7 +940,7 @@ export class ShopScene extends Phaser.Scene {
       columns: navigatorColumns,
       wrap: true,
       onCancel: () => {
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
       initialIndex,
     });
@@ -955,7 +963,7 @@ export class ShopScene extends Phaser.Scene {
 
       if (isUnlocked && !isMaxed) this.purchaseUpgrade(card.upgrade.id);
     } else if (this.focusZone === 'back') {
-      this.scene.start('BootScene');
+      transitionToScene(this, 'BootScene');
     }
   }
 

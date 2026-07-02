@@ -11,6 +11,7 @@ import { deriveBuildStats } from './buildStats';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
+import { getSettingsManager } from '../../settings';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -1110,46 +1111,51 @@ export class PauseMenuManager {
     // Create victory overlay with fade-in
     this.createFadeInOverlay('victoryOverlay', 0.8, 200);
 
-    // World cleared text
+    // Kicker — world + boss context above the title, display style.
     const worldClearedText = this.scene.add.text(
       this.scene.scale.width / 2,
-      this.scene.scale.height / 2 - 120,
-      `WORLD ${data.clearedWorld} CLEARED!`,
+      this.scene.scale.height / 2 - 214,
+      `WORLD ${data.clearedWorld} CLEARED  ·  BOSS DEFEATED`,
       {
-        fontSize: '32px',
+        fontSize: '16px',
         color: '#88aaff',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 2,
       }
     );
+    worldClearedText.setLetterSpacing(6);
     worldClearedText.setOrigin(0.5);
     worldClearedText.setDepth(PAUSE_MENU_DEPTH + 1);
     worldClearedText.setName('victoryWorldCleared');
 
-    const victoryText = this.scene.add.text(this.scene.scale.width / 2, this.scene.scale.height / 2 - 60, 'VICTORY!', {
-      fontSize: '72px',
+    // Title — same slot/styling as the game-over screen for end-screen parity.
+    const victoryText = this.scene.add.text(this.scene.scale.width / 2, this.scene.scale.height / 2 - 172, 'VICTORY!', {
+      fontSize: '58px',
       color: ACCENT_COLORS_STR.focus,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 8,
+      strokeThickness: 3,
     });
-    victoryText.setLetterSpacing(5);
+    victoryText.setLetterSpacing(6);
     victoryText.setOrigin(0.5);
     victoryText.setDepth(PAUSE_MENU_DEPTH + 1);
     victoryText.setName('victoryText');
 
-    // Pulse animation on VICTORY! text
-    this.scene.tweens.add({
-      targets: victoryText,
-      scaleX: 1.05,
-      scaleY: 1.05,
-      duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+    // Gentle breathe — skipped under reduced motion.
+    if (!getSettingsManager().isReducedMotionEnabled()) {
+      this.scene.tweens.add({
+        targets: victoryText,
+        scaleX: 1.02,
+        scaleY: 1.02,
+        duration: 900,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
 
     // Gold confetti particle rain
     if (this.scene.textures.exists('particle')) {
@@ -1171,54 +1177,55 @@ export class PauseMenuManager {
       confettiEmitter.setName('victoryConfetti');
     }
 
-    const messageText = this.scene.add.text(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 20,
-      'Boss Defeated!',
-      {
-        fontSize: '28px',
-        color: '#88ff88',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }
-    );
-    messageText.setOrigin(0.5);
-    messageText.setDepth(PAUSE_MENU_DEPTH + 1);
-    messageText.setName('victoryMessage');
+    // Run stats — contained two-column panel matching the game-over grid:
+    // labels flush left, values flush right per cell.
+    const victoryCX = this.scene.scale.width / 2;
+    const victoryStatsTop = this.scene.scale.height / 2 - 12;
+    const victoryStatsWidth = 400;
+    const victoryStatsHeight = 56;
+    const statsPanelGfx = this.scene.add.graphics();
+    paintPanelBackground(statsPanelGfx, victoryCX - victoryStatsWidth / 2, victoryStatsTop, victoryStatsWidth, victoryStatsHeight);
+    statsPanelGfx.fillStyle(0x8898b0, 0.18);
+    statsPanelGfx.fillRect(victoryCX, victoryStatsTop + 12, 1, victoryStatsHeight - 24);
+    statsPanelGfx.setDepth(PAUSE_MENU_DEPTH + 1);
+    statsPanelGfx.setName('victoryStatsPanel');
 
-    // Next world text
+    const victoryCellRow = victoryStatsTop + victoryStatsHeight / 2 + 3;
+    const addVictoryCell = (leftX: number, rightX: number, label: string, value: string): void => {
+      const l = this.scene.add.text(leftX, victoryCellRow, label, {
+        fontSize: '13px', color: '#8898b0', fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+      l.setName(`victoryStatsCell-${label}-label`);
+      const v = this.scene.add.text(rightX, victoryCellRow, value, {
+        fontSize: '20px', color: '#e8ecf4', fontFamily: DISPLAY_FONT, fontStyle: 'bold',
+      }).setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+      v.setName(`victoryStatsCell-${label}-value`);
+    };
+    addVictoryCell(victoryCX - victoryStatsWidth / 2 + 18, victoryCX - 22, 'Kills', String(data.killCount));
+    addVictoryCell(victoryCX + 22, victoryCX + victoryStatsWidth / 2 - 18, 'Level', String(data.playerLevel));
+
+    // Next world line below the stats panel.
     const nextWorldText = this.scene.add.text(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 60,
+      victoryCX,
+      victoryStatsTop + victoryStatsHeight + 24,
       `Next: World ${data.newWorldLevel}`,
       {
-        fontSize: '22px',
+        fontSize: '20px',
         color: '#aaddff',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
       }
     );
+    nextWorldText.setLetterSpacing(2);
     nextWorldText.setOrigin(0.5);
     nextWorldText.setDepth(PAUSE_MENU_DEPTH + 1);
     nextWorldText.setName('victoryNextWorld');
-
-    const statsText = this.scene.add.text(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 100,
-      `Kills: ${data.killCount}  |  Level: ${data.playerLevel}`,
-      {
-        fontSize: '20px',
-        color: '#ffffff',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }
-    );
-    statsText.setOrigin(0.5);
-    statsText.setDepth(PAUSE_MENU_DEPTH + 1);
-    statsText.setName('victoryStats');
 
     // Streak display
     const fireEmoji = data.newStreak >= 5 ? '\u{1F525}\u{1F525}' : '\u{1F525}';
     const streakText = this.scene.add.text(
       this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 125,
+      victoryStatsTop + victoryStatsHeight + 52,
       `${fireEmoji} Streak: ${data.previousStreak} \u2192 ${data.newStreak}! (+${data.streakBonusPercent}% gold)`,
       {
         fontSize: '18px',
@@ -1231,13 +1238,13 @@ export class PauseMenuManager {
     streakText.setName('victoryStreak');
 
     const victoryCenterX = this.scene.scale.width / 2;
-    const victoryTitleY = this.scene.scale.height / 2 - 60;
+    const victoryTitleY = this.scene.scale.height / 2 - 172;
 
     // Performance grade badge (left of the VICTORY! title) — mirrors the
     // game-over overlay so both end screens surface the same S–F grade.
     if (data.performanceGrade) {
       const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
-      const badgeX = victoryCenterX - 205;
+      const badgeX = victoryCenterX - victoryText.displayWidth / 2 - 58;
       const gradeBadge = this.scene.add.graphics();
       gradeBadge.setDepth(PAUSE_MENU_DEPTH + 1);
       gradeBadge.fillStyle(0x000000, 0.55);
@@ -1246,12 +1253,12 @@ export class PauseMenuManager {
       gradeBadge.strokeCircle(badgeX, victoryTitleY, 34);
       gradeBadge.setName('victoryGradeBadge');
       const gradeText = this.scene.add.text(badgeX, victoryTitleY, data.performanceGrade.grade, {
-        fontSize: '44px',
+        fontSize: '40px',
         color: data.performanceGrade.color,
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 3,
       });
       gradeText.setOrigin(0.5);
       gradeText.setDepth(PAUSE_MENU_DEPTH + 2);
@@ -1271,7 +1278,7 @@ export class PauseMenuManager {
         : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
       const scoreText = this.scene.add.text(
         victoryCenterX,
-        this.scene.scale.height / 2 + 150,
+        victoryTitleY + 48,
         scoreStr,
         {
           fontSize: '16px',
@@ -1361,9 +1368,12 @@ export class PauseMenuManager {
       'victoryOverlay',
       'victoryWorldCleared',
       'victoryText',
-      'victoryMessage',
       'victoryNextWorld',
-      'victoryStats',
+      'victoryStatsPanel',
+      'victoryStatsCell-Kills-label',
+      'victoryStatsCell-Kills-value',
+      'victoryStatsCell-Level-label',
+      'victoryStatsCell-Level-value',
       'victoryContinueButtonBg',
       'victoryContinueButtonText',
       'victoryNextWorldButtonBg',
