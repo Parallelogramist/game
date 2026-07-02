@@ -6,6 +6,7 @@ import { MenuNavigator } from '../../input/MenuNavigator';
 import { SoundManager } from '../../audio/SoundManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
+import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { deriveBuildStats } from './buildStats';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
@@ -119,6 +120,23 @@ function formatTime(seconds: number): string {
   return `${minutes}:${remainderSeconds.toString().padStart(2, '0')}`;
 }
 
+/**
+ * Compact bonus readout for an active synergy on the build dashboard, e.g.
+ * "+30% dmg", "+15% spd", or both. Each synergy multiplier is applied to both
+ * weapons in the pair; this surfaces the magnitude the player is gaining so the
+ * synergy is no longer an invisible buff.
+ */
+function formatSynergyBonus(synergy: WeaponSynergy): string {
+  const parts: string[] = [];
+  if (synergy.damageMultiplier > 1) {
+    parts.push(`+${Math.round((synergy.damageMultiplier - 1) * 100)}% dmg`);
+  }
+  if (synergy.cooldownMultiplier < 1) {
+    parts.push(`+${Math.round((1 - synergy.cooldownMultiplier) * 100)}% spd`);
+  }
+  return parts.length > 0 ? parts.join('  ') : 'active';
+}
+
 /** Formats unlock progress as "current/target" with units hinted by target size. */
 function formatProgressText(current: number, target: number): string {
   const fmt = target >= 10_000
@@ -150,6 +168,8 @@ export interface PauseGameState {
   weaponStats: WeaponRunStats[];
   /** Total damage the player has taken this run (build dashboard). */
   totalDamageTaken: number;
+  /** Currently-active weapon synergies, listed on the build dashboard. */
+  activeSynergies?: WeaponSynergy[];
 }
 
 export interface VictoryData {
@@ -793,6 +813,19 @@ export class PauseMenuManager {
     } else {
       leftLines.push('', 'No damage yet');
       rightLines.push('', '');
+    }
+
+    // Active weapon synergies — otherwise an invisible build layer. Shows the
+    // player which weapon pairs are buffing each other and by how much, so the
+    // pause dashboard answers "what is my build actually doing?" in full.
+    const activeSynergies = (gameState.activeSynergies ?? []).slice(0, 4);
+    if (activeSynergies.length > 0) {
+      leftLines.push('', 'SYNERGIES');
+      rightLines.push('', '');
+      for (const synergy of activeSynergies) {
+        leftLines.push(synergy.name);
+        rightLines.push(formatSynergyBonus(synergy));
+      }
     }
 
     const lineCount = leftLines.length;

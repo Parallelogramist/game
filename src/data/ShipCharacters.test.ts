@@ -9,7 +9,7 @@ import { HIDDEN_UNLOCKS } from '../meta/HiddenUnlocks';
 const REGISTRY_WEAPON_IDS = [
   'projectile', 'katana', 'orbiting_blades', 'aura', 'chain_lightning',
   'homing_missile', 'frost_nova', 'laser_beam', 'meteor', 'flamethrower',
-  'ricochet', 'ground_spike', 'drone', 'shuriken',
+  'ricochet', 'ground_spike', 'drone', 'shuriken', 'boomerang',
 ];
 
 // WeaponSelectScene.getAvailableShips() resolves gates via

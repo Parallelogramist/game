@@ -101,6 +101,14 @@ export const WEAPON_SYNERGIES: readonly WeaponSynergy[] = [
     damageMultiplier: 1.15,
     cooldownMultiplier: 0.9,
   },
+  {
+    weaponA: 'boomerang',
+    weaponB: 'ricochet',
+    name: 'Rebound Theory',
+    description: 'Returning projectiles strike +20% harder and 10% faster',
+    damageMultiplier: 1.2,
+    cooldownMultiplier: 0.9,
+  },
 ] as const;
 
 // Pre-built lookup for O(1) synergy checks
@@ -141,6 +149,26 @@ export function getActiveSynergies(equippedWeaponIds: string[]): WeaponSynergy[]
   }
 
   return activeSynergies;
+}
+
+/**
+ * Given the previously-active and currently-active synergy lists, return the
+ * synergies that are newly active (present in `current`, absent from
+ * `previous`). Synergies are identified by their unique `name`.
+ *
+ * Drives the "a synergy just activated" feedback: WeaponManager recomputes
+ * active synergies whenever the equipped set changes, and announces only the
+ * pairs that just completed — never re-announcing ones that were already active.
+ * Diffing the sets (rather than comparing counts) correctly catches the case
+ * where one synergy is lost and another gained in the same recalculation, which
+ * leaves the count unchanged.
+ */
+export function diffActivatedSynergies(
+  previous: readonly WeaponSynergy[],
+  current: readonly WeaponSynergy[]
+): WeaponSynergy[] {
+  const previousNames = new Set(previous.map((s) => s.name));
+  return current.filter((s) => !previousNames.has(s.name));
 }
 
 /** Per-weapon synergy multipliers (1.0 = no effect). */

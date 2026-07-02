@@ -657,6 +657,7 @@ const UNLOCKABLE_WEAPONS = [
   { id: 'ground_spike', name: 'Ground Spikes', icon: 'spikes', description: 'Spikes erupt beneath enemies' },
   { id: 'drone', name: 'Combat Drone', icon: 'drone', description: 'Autonomous shooting helper' },
   { id: 'shuriken', name: 'Spiral Shuriken', icon: 'shuriken', description: 'Spinning spiral projectiles' },
+  { id: 'boomerang', name: 'Boomerang Glaive', icon: 'boomerang', description: 'Carves out and homes back, hitting twice' },
 ];
 
 /**

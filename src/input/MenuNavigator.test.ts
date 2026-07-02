@@ -12,6 +12,7 @@ const DPAD_LEFT = 14;
 const DPAD_RIGHT = 15;
 const BUTTON_A = 0;
 const BUTTON_B = 1;
+const BUTTON_X = 2;
 
 interface FakePad {
   connected: boolean;
@@ -315,6 +316,42 @@ describe('MenuNavigator gamepad dispatch', () => {
     fake.pad.buttons[BUTTON_B].pressed = true;
     fake.pollGamepad();
     expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  test('X button fires onSecondary once per press (edge-detected)', () => {
+    const fake = makeFakeScene();
+    const a = makeItem();
+    const onSecondary = vi.fn();
+    new MenuNavigator({ scene: fake.scene, items: [a.item], onSecondary });
+    fake.pad.buttons[BUTTON_X].pressed = true;
+    fake.pollGamepad();
+    fake.pollGamepad(); // still held — no second fire
+    expect(onSecondary).toHaveBeenCalledTimes(1);
+  });
+
+  test('X button does nothing when no onSecondary is supplied', () => {
+    const fake = makeFakeScene();
+    const a = makeItem();
+    // No throw, no activate — just a no-op.
+    new MenuNavigator({ scene: fake.scene, items: [a.item] });
+    fake.pad.buttons[BUTTON_X].pressed = true;
+    expect(() => fake.pollGamepad()).not.toThrow();
+    expect(a.log.activate).toBe(0);
+  });
+
+  test('onSecondary does not fire while the navigator is disabled', () => {
+    const fake = makeFakeScene();
+    const a = makeItem();
+    const onSecondary = vi.fn();
+    const nav = new MenuNavigator({ scene: fake.scene, items: [a.item], onSecondary });
+    nav.setEnabled(false);
+    fake.pad.buttons[BUTTON_X].pressed = true;
+    fake.pollGamepad();
+    expect(onSecondary).not.toHaveBeenCalled();
+    // Re-enabling does not replay the stale held press as an edge.
+    nav.setEnabled(true);
+    fake.pollGamepad();
+    expect(onSecondary).not.toHaveBeenCalled();
   });
 });
 

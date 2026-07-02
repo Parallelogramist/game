@@ -34,12 +34,14 @@ import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setH
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
 import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind } from '../../ecs/systems/ConsumablePickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
+import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { getJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
+import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
 import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
@@ -209,6 +211,10 @@ export class GameScene extends Phaser.Scene {
 
   // Banished upgrades (removed from pool permanently for this run)
   private banishedUpgradeIds: Set<string> = new Set();
+
+  // Cards the player locked in the current level-up modal — pinned across rerolls
+  // and banishes of that same level-up, cleared when a fresh level-up begins.
+  private lockedUpgrades: CombinedUpgrade[] = [];
 
   // Gem magnet timer (auto-vacuum interval)
   private gemMagnetTimer: number = 0;
@@ -1004,6 +1010,10 @@ export class GameScene extends Phaser.Scene {
       // onHealed - heal player (for weapon mastery effects)
       (amount) => {
         this.healPlayer(amount);
+      },
+      // onSynergyActivated - announce a newly-completed weapon synergy
+      (synergy) => {
+        this.showSynergyToast(synergy);
       }
     );
 
@@ -1623,6 +1633,11 @@ export class GameScene extends Phaser.Scene {
       },
       (amount) => {
         this.healPlayer(amount);
+      },
+      // Wired after the restore weapon loop above, so re-equipping a synergized
+      // build on save-restore does not fire activation toasts.
+      (synergy) => {
+        this.showSynergyToast(synergy);
       }
     );
 
@@ -2840,6 +2855,25 @@ export class GameScene extends Phaser.Scene {
     }
     this.bounty = null;
     this.bountyCooldown = 12;
+  }
+
+  /**
+   * Announce a weapon synergy the moment its pair completes. Until now the
+   * synergy system (real passive damage/cooldown bonuses) was invisible — only
+   * a sound played — so players couldn't tell a synergy had triggered or what it
+   * did. Surfacing the name + effect turns it into a legible build-crafting
+   * moment. Fired from the WeaponManager `onSynergyActivated` callback, which
+   * only reports pairs that newly completed (never re-fires for active ones).
+   */
+  private showSynergyToast(synergy: WeaponSynergy): void {
+    if (!this.toastManager) return;
+    this.toastManager.showToast({
+      title: `⚡ ${synergy.name}`,
+      description: synergy.description,
+      icon: 'chain',
+      color: 0x66ddff,
+      duration: 3200,
+    });
   }
 
   // Pre-allocated pool for grid background enemy data (avoids per-frame allocation)
@@ -4274,6 +4308,7 @@ export class GameScene extends Phaser.Scene {
         isPauseMenuOpen: this.pauseMenuManager?.isPauseMenuOpen ?? false,
         weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
         totalDamageTaken: this.totalDamageTaken,
+        activeSynergies: this.weaponManager?.getActiveSynergies() ?? [],
       }),
     }, this.soundManager);
   }
@@ -6606,6 +6641,10 @@ export class GameScene extends Phaser.Scene {
     this.pendingLevelUps--;
     this.soundManager.playLevelUp();
 
+    // A fresh level-up starts with an unlocked hand — locks only pin across the
+    // reroll/banish refreshes of one modal session.
+    this.lockedUpgrades = [];
+
     // Level-up celebration effects
     const juiceManager = getJuiceManager();
     juiceManager.impactFlash(0.25, 100);
@@ -6966,7 +7005,7 @@ export class GameScene extends Phaser.Scene {
 
     // Get random combined upgrades (stats + weapons), excluding banished;
     // luck biases offers toward rare/epic upgrades
-    const availableUpgrades = getRandomCombinedUpgrades(
+    const freshUpgrades = getRandomCombinedUpgrades(
       this.upgrades,
       this.weaponManager,
       totalChoices,
@@ -6974,6 +7013,10 @@ export class GameScene extends Phaser.Scene {
       this.banishedUpgradeIds,
       this.playerStats.luck
     );
+
+    // Pin any locked cards from a prior reroll/banish of this same level-up to
+    // the front, then fill the rest from the fresh roll.
+    const availableUpgrades = mergeLockedIntoOffers(this.lockedUpgrades, freshUpgrades, totalChoices);
 
     // If no upgrades available (all maxed), just continue
     if (availableUpgrades.length === 0) {
@@ -7006,6 +7049,7 @@ export class GameScene extends Phaser.Scene {
       rerollsRemaining: this.playerStats.rerollsRemaining,
       skipsRemaining: this.playerStats.skipsRemaining,
       banishesRemaining: this.playerStats.banishesRemaining,
+      lockedUpgradeIds: this.lockedUpgrades.map(u => u.id),
       // Weapon slot warning info
       isLastWeaponSlot,
       weaponSlotsInfo: { current: currentWeapons, max: maxWeapons },
@@ -7016,8 +7060,9 @@ export class GameScene extends Phaser.Scene {
         this.applyCombinedUpgrade(selectedUpgrade);
         handleSelectionComplete();
       },
-      onReroll: () => {
-        // Decrement rerolls and refresh with new options
+      onReroll: (lockedUpgrades: Upgrade[]) => {
+        // Keep the player's locked cards, decrement rerolls, refresh the rest.
+        this.lockedUpgrades = lockedUpgrades as CombinedUpgrade[];
         this.playerStats.rerollsRemaining--;
         this.scene.stop('UpgradeScene');
         this.time.delayedCall(50, () => {
@@ -7030,9 +7075,10 @@ export class GameScene extends Phaser.Scene {
         this.scene.stop('UpgradeScene');
         handleSelectionComplete();
       },
-      onBanish: (upgrade: CombinedUpgrade) => {
-        // Add to banished set and refresh with new options
+      onBanish: (upgrade: CombinedUpgrade, lockedUpgrades: Upgrade[]) => {
+        // Add to banished set, keep surviving locks, refresh with new options.
         this.banishedUpgradeIds.add(upgrade.id);
+        this.lockedUpgrades = lockedUpgrades as CombinedUpgrade[];
         this.playerStats.banishesRemaining--;
         this.scene.stop('UpgradeScene');
         this.time.delayedCall(50, () => {
