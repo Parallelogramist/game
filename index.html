@@ -113,10 +113,72 @@
           transform: rotate(90deg);
         }
       }
+
+      /* Boot loader — first paint while fonts/JS/Phaser load. Below the
+         rotate overlay (z-index 100). */
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        background: #000008;
+        opacity: 1;
+        transition: opacity 320ms ease-out;
+      }
+      #boot-loader.boot-loader-hidden {
+        opacity: 0;
+        visibility: hidden;
+      }
+      #boot-loader .boot-wordmark {
+        font-family: "Rajdhani", "Atkinson Hyperlegible", Arial, sans-serif;
+        font-weight: 700;
+        font-size: clamp(20px, 4vw, 34px);
+        letter-spacing: 6px;
+        color: #ffd94a;
+      }
+      #boot-loader .boot-track {
+        position: relative;
+        width: 140px;
+        height: 2px;
+        background: rgba(102, 187, 255, 0.18);
+        overflow: hidden;
+      }
+      #boot-loader .boot-track::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 40px;
+        height: 2px;
+        background: #66bbff;
+        animation: boot-sweep 1.1s ease-in-out infinite alternate;
+      }
+      @keyframes boot-sweep {
+        from { transform: translateX(0); }
+        to { transform: translateX(100px); }
+      }
+      @keyframes boot-pulse {
+        from { opacity: 0.4; }
+        to { opacity: 1; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-loader .boot-track::after {
+          transform: translateX(50px);
+          animation: boot-pulse 1.6s ease-in-out infinite alternate;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="game-container"></div>
+    <div id="boot-loader">
+      <div class="boot-wordmark">PEW PEW SURVIVOR</div>
+      <div class="boot-track"></div>
+    </div>
     <div id="rotate-overlay">
       <div class="rotate-inner">
         <div class="rotate-phone"></div>

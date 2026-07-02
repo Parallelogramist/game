@@ -76,11 +76,25 @@ export class MinimapManager {
     graphics.clear();
     graphics.setPosition(this.centerX, this.centerY);
 
+    // Soft outer glow — three widening halos in the HUD accent, drawn once.
+    graphics.fillStyle(0x66bbff, 0.03);
+    graphics.fillCircle(0, 0, radius + 14);
+    graphics.fillStyle(0x66bbff, 0.06);
+    graphics.fillCircle(0, 0, radius + 8);
+    graphics.fillStyle(0x66bbff, 0.1);
+    graphics.fillCircle(0, 0, radius + 3);
+
+    // Dark glass backing under the disc — matches the HUD panel language.
+    graphics.fillStyle(0x0a1020, 0.55);
+    graphics.fillCircle(0, 0, radius + 2);
+
     // Translucent disc.
     graphics.fillStyle(0x05101a, 0.55);
     graphics.fillCircle(0, 0, radius);
 
-    // Concentric range rings.
+    // Hairline outer accent ring over the glass edge, radar rings inside.
+    graphics.lineStyle(1.5, 0x66bbff, 0.5);
+    graphics.strokeCircle(0, 0, radius + 2);
     graphics.lineStyle(1, 0x33ffff, 0.35);
     graphics.strokeCircle(0, 0, radius);
     graphics.lineStyle(1, 0x33ffff, 0.15);
@@ -160,8 +174,15 @@ export class MinimapManager {
         if (entry.kind !== drawKind) continue;
         const projected = projectToRadar(entry.worldX - playerX, entry.worldY - playerY, radius, MINIMAP_WORLD_RANGE);
         const style = blipStyle(drawKind);
-        // Rim contacts (off-radar) draw slightly dimmer so on-radar threats pop.
-        graphics.fillStyle(style.color, projected.atRim ? 0.6 : 0.95);
+        // Rim contacts (off-radar) draw dimmer so on-radar threats pop, and
+        // blips ease down toward the disc edge (blips are stateless per-frame
+        // redraws, so the falloff stands in for a per-blip fade-out).
+        let alpha = projected.atRim ? 0.6 : 0.95;
+        const edgeDistance = Math.sqrt(projected.x * projected.x + projected.y * projected.y) / radius;
+        if (!projected.atRim && edgeDistance > 0.85) {
+          alpha *= 1 - ((edgeDistance - 0.85) / 0.15) * 0.45;
+        }
+        graphics.fillStyle(style.color, alpha);
         graphics.fillCircle(projected.x, projected.y, style.radius);
       }
     }

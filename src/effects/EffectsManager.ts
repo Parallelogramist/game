@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getSettingsManager } from '../settings';
+import { DISPLAY_FONT } from '../visual/MenuStyle';
 
 /**
  * Pooled damage number for performance optimization.
@@ -17,6 +18,10 @@ interface PooledDamageNumber {
   duration: number;
   shimmerPhase: number;
   nextSparkleTime: number; // When to emit next sparkle
+  /** Resting scale for this show — the crit spawn pop decays onto it. */
+  baseScale: number;
+  /** Per-show horizontal drift across the float (px at progress=1). */
+  driftX: number;
 }
 
 /**
@@ -154,12 +159,15 @@ export class EffectsManager {
    */
   private initDamageNumberPool(): void {
     for (let i = 0; i < this.POOL_SIZE; i++) {
+      // Style is set once here; per-show mutation is text/color/scale only
+      // (setScale is cheap — setFontSize re-renders glyphs).
       const text = this.scene.add.text(0, 0, '', {
-        fontSize: '16px',
-        fontFamily: 'Arial',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
+        fontSize: '18px',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
+        color: '#e8ecf4',
+        stroke: '#050810',
+        strokeThickness: 2,
       });
       text.setOrigin(0.5, 0.5);
       text.setVisible(false);
@@ -177,6 +185,8 @@ export class EffectsManager {
         duration: this.DAMAGE_NUMBER_DURATION,
         shimmerPhase: 0,
         nextSparkleTime: 0,
+        baseScale: 1,
+        driftX: 0,
       });
     }
   }
@@ -410,31 +420,36 @@ export class EffectsManager {
     pooledNumber.text.setAlpha(1);
     pooledNumber.text.setVisible(true);
 
-    // Set styling based on crit type
+    // Tier styling — scale only (pooled font size is fixed at 18px).
+    // Perfect crit: largest, gold shimmer handled per-frame in update().
+    // Crit: gold, spawn pop decays in update(). Normal: weapon color.
     let scale: number;
     if (isPerfectCrit) {
-      scale = 1.75;
-      pooledNumber.text.setFontSize('22px');
+      scale = 1.9;
       pooledNumber.text.setColor('#ffd700');
-      pooledNumber.text.setStroke('#8b6914', 4);
+      pooledNumber.text.setStroke('#050810', 2);
     } else if (isCrit) {
-      scale = 1.4;
-      pooledNumber.text.setFontSize('19px');
-      pooledNumber.text.setColor('#ffff00');
-      pooledNumber.text.setStroke('#000000', 3);
+      scale = 1.5;
+      pooledNumber.text.setColor('#ffd94a');
+      pooledNumber.text.setStroke('#050810', 2);
     } else {
-      scale = typeof value === 'number' ? Math.min(1 + value / 50, 1.5) : 1.0;
-      pooledNumber.text.setFontSize('16px');
+      scale = typeof value === 'number' ? 0.9 * Math.min(1 + value / 50, 1.4) : 0.9;
       let hexColor = this.colorHexCache.get(color);
       if (!hexColor) {
         hexColor = '#' + color.toString(16).padStart(6, '0');
         this.colorHexCache.set(color, hexColor);
       }
       pooledNumber.text.setColor(hexColor);
-      pooledNumber.text.setStroke('#000000', 3);
+      pooledNumber.text.setStroke('#050810', 2);
     }
 
-    pooledNumber.text.setScale(scale);
+    pooledNumber.baseScale = scale;
+    pooledNumber.driftX = Phaser.Math.Between(-8, 8);
+    pooledNumber.text.setScale(
+      (isCrit || isPerfectCrit) && !getSettingsManager().isReducedMotionEnabled()
+        ? scale * 1.3
+        : scale,
+    );
   }
 
   /**
@@ -485,8 +500,19 @@ export class EffectsManager {
         }
       }
 
-      // Float upward for all damage numbers
+      // Float upward with a slight horizontal drift.
       pooledNumber.text.setY(pooledNumber.startY - yOffset);
+      pooledNumber.text.setX(pooledNumber.startX + pooledNumber.driftX * progress);
+
+      // Crit spawn pop: 1.3x decays onto the resting scale over the first
+      // 120ms. Reduced-motion shows spawn at baseScale so this is a no-op
+      // (scale already equals baseScale).
+      if ((pooledNumber.isCrit || pooledNumber.isPerfectCrit) && pooledNumber.elapsed < 120) {
+        const pop = 1 + 0.3 * (1 - pooledNumber.elapsed / 120);
+        pooledNumber.text.setScale(pooledNumber.baseScale * pop);
+      } else if (pooledNumber.text.scaleX !== pooledNumber.baseScale) {
+        pooledNumber.text.setScale(pooledNumber.baseScale);
+      }
 
       // Fade out in last 30%
       if (progress > 0.7) {

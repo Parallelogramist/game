@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { getCodexManager } from '../../codex';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { createIcon } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { selectRunModifiers } from '../../data/RunModifiers';
 import { MenuNavigator } from '../../input/MenuNavigator';
@@ -76,7 +76,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    fadeIn(this, 200);
+    sweepIn(this);
 
     this.availableSteps = [];
     const availableStages = this.getAvailableStages();
@@ -98,7 +98,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       this.soundManager.playUIClick();
       this.destroyMenuNavigator();
       this.input.keyboard?.removeAllListeners();
-      fadeOut(this, 150, () => this.scene.start('BootScene'));
+      transitionToScene(this, 'BootScene');
       return;
     }
     this.soundManager.playUIClick();
@@ -614,13 +614,11 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.input.removeAllListeners();
 
     const selectedModifiers = selectRunModifiers(2);
-    fadeOut(this, 150, () => {
-      this.scene.start('PactSelectScene', {
-        startingWeapon: weaponId,
-        shipId: this.selectedShipId,
-        stageId: this.selectedStageId,
-        modifierIds: selectedModifiers.map((m) => m.id),
-      });
+    transitionToScene(this, 'PactSelectScene', {
+      startingWeapon: weaponId,
+      shipId: this.selectedShipId,
+      stageId: this.selectedStageId,
+      modifierIds: selectedModifiers.map((m) => m.id),
     });
   }
 

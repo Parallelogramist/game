@@ -5,7 +5,13 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons, createIcon, setIconFrame } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
-import { fadeOut, fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
+import {
+  fadeOut,
+  addButtonInteraction,
+  transitionToScene,
+  sweepIn,
+  staggerEntrance,
+} from '../../utils/SceneTransition';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 import { MenuNavigator } from '../../input/MenuNavigator';
@@ -96,8 +102,6 @@ export class BootScene extends Phaser.Scene {
     this.titleTicker = null;
     this.updateHandler = null;
 
-    fadeIn(this, 220);
-
     const musicManager = getMusicManager();
     const startMenuMusic = async () => {
       if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
@@ -144,7 +148,7 @@ export class BootScene extends Phaser.Scene {
           await musicManager.play();
         }
         gameStateManager.clearSave();
-        fadeOut(this, 200, () => this.scene.start('WeaponSelectScene'));
+        transitionToScene(this, 'WeaponSelectScene');
       } catch (error) {
         console.error('Could not start game:', error);
         gameStateManager.clearSave();
@@ -160,13 +164,12 @@ export class BootScene extends Phaser.Scene {
       }
     };
 
-    const openShop = () => fadeOut(this, 150, () => this.scene.start('ShopScene'));
-    const openAchievements = () => fadeOut(this, 150, () => this.scene.start('AchievementScene'));
-    const openCodex = () => fadeOut(this, 150, () => this.scene.start('CodexScene'));
-    const openLeaderboard = () => fadeOut(this, 150, () => this.scene.start('LeaderboardScene'));
-    const openSettings = () =>
-      fadeOut(this, 150, () => this.scene.start('SettingsScene', { returnTo: 'BootScene' }));
-    const openCredits = () => fadeOut(this, 150, () => this.scene.start('CreditsScene'));
+    const openShop = () => transitionToScene(this, 'ShopScene');
+    const openAchievements = () => transitionToScene(this, 'AchievementScene');
+    const openCodex = () => transitionToScene(this, 'CodexScene');
+    const openLeaderboard = () => transitionToScene(this, 'LeaderboardScene');
+    const openSettings = () => transitionToScene(this, 'SettingsScene', { returnTo: 'BootScene' });
+    const openCredits = () => transitionToScene(this, 'CreditsScene');
 
     const launchChallenge = async (challenge: DailyChallengeConfig) => {
       try {
@@ -329,6 +332,12 @@ export class BootScene extends Phaser.Scene {
       onCredits: openCredits,
     });
 
+    // ─── entrance choreography ──────────────────────────────────────────
+    // Cards rise into place top-to-bottom (creation order matches visual
+    // order); the title block runs its own fade in createTitleBlock.
+    staggerEntrance(this, this.cards.map((card) => card.container));
+    sweepIn(this);
+
     // ─── per-frame idle driver ──────────────────────────────────────────
     this.updateHandler = (time: number, delta: number) => {
       const seconds = time / 1000;
@@ -393,6 +402,15 @@ export class BootScene extends Phaser.Scene {
     rule.fillStyle(COLORS.accentGold, 0.35);
     rule.fillRect(-ruleHalf, ruleY + 3, ruleHalf * 2, 1);
     container.add(rule);
+
+    // Reduced motion: no entrance fade, no shimmer — glow and rule hold the
+    // breathe midpoint so the title still reads as lit.
+    if (getSettingsManager().isReducedMotionEnabled()) {
+      glow.setAlpha(0.21);
+      glowWide.setAlpha(0.1);
+      rule.setAlpha(0.86);
+      return;
+    }
 
     container.setAlpha(0);
     this.tweens.add({

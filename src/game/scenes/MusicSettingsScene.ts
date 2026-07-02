@@ -6,7 +6,7 @@
 import Phaser from 'phaser';
 import { getMusicManager } from '../../audio/MusicManager';
 import { MUSIC_CATALOG, Track } from '../../data/MusicCatalog';
-import { fadeIn } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn } from '../../utils/SceneTransition';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
@@ -82,7 +82,7 @@ export class MusicSettingsScene extends Phaser.Scene {
       musicManager.play();
     }
 
-    fadeIn(this, 150);
+    sweepIn(this);
 
     this.menuOverlay = createMenuOverlay(this, { dim: 0.85, drifterCount: 4 });
     this.bgUpdateHandler = (time, delta) => {
@@ -341,9 +341,9 @@ export class MusicSettingsScene extends Phaser.Scene {
 
   private goBack(): void {
     if (this.returnTo === 'SettingsScene') {
-      this.scene.start('SettingsScene', { returnTo: this.originalReturnTo });
+      transitionToScene(this, 'SettingsScene', { returnTo: this.originalReturnTo });
     } else {
-      this.scene.start('BootScene');
+      transitionToScene(this, 'BootScene');
     }
   }
 

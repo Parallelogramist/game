@@ -13,10 +13,15 @@
  *
  * Hover/focus behavior: subtle scale + brightened accent ring + a soft glow
  * pulse + light flecks that briefly ride along the rim then peel off
- * outward and fade.
+ * outward and fade. Pointer press sinks the frame slightly and springs back
+ * on release — wired on the hit zone so every button/tab/card shares it.
+ *
+ * Reduced motion (read once at creation): press/hover scale changes apply
+ * instantly, glow/rim hold static alphas, and fleck emission is disabled.
  */
 
 import Phaser from 'phaser';
+import { getSettingsManager } from '../settings';
 
 export interface MenuCardOptions {
   x: number;
@@ -66,6 +71,20 @@ const DEFAULT_CORNER_RADIUS = 6;
 const HOVER_SCALE = 1.03;
 const HOVER_TWEEN_MS = 140;
 
+// ── Press micro-interaction ──────────────────────────────────────────────
+// Quick sink on pointerdown, mild spring back on release. Composes with the
+// hover scale: release returns to HOVER_SCALE while still hovered, else 1.0.
+const PRESS_SCALE = 0.97;
+const PRESS_IN_MS = 70;
+const PRESS_OUT_MS = 160;
+/** Back.easeOut overshoot — Phaser default is 1.70158; keep the spring mild. */
+const PRESS_OUT_OVERSHOOT = 1.4;
+
+// Static hover/focus alphas under reduced motion — glow and rim stay lit
+// without the per-frame pulse so state information survives.
+const REDUCED_MOTION_GLOW_ALPHA = 0.5;
+const REDUCED_MOTION_RIM_ALPHA = 0.55;
+
 // ── Fleck emission tuning ────────────────────────────────────────────────
 // Sparks spawn at a random point on the rounded-rect border, slide
 // tangentially along the rim for a moment, and accelerate outward along
@@ -107,6 +126,9 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     shadowAlpha = DEFAULT_SHADOW_ALPHA,
     interactive = true,
   } = options;
+
+  // Read once at creation — settings changes take effect on next scene entry.
+  const reducedMotion = getSettingsManager().isReducedMotionEnabled();
 
   const container = scene.add.container(x, y);
 
@@ -307,10 +329,14 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   // Live inside `frame` so emission tracks the card's hover scale —
   // sparks should peel off the visual rim, not an axis-aligned bbox.
   const accentTint = accentColor ?? 0x88ccff;
-  const fleckPoolSize = Math.max(
-    FLECK_POOL_MIN,
-    Math.min(FLECK_POOL_MAX, Math.round(borderPerimeter * FLECK_POOL_PER_PERIMETER_PX)),
-  );
+  // Reduced motion suppresses fleck emission entirely — skip the pool so the
+  // card carries zero per-object Graphics overhead for it.
+  const fleckPoolSize = reducedMotion
+    ? 0
+    : Math.max(
+        FLECK_POOL_MIN,
+        Math.min(FLECK_POOL_MAX, Math.round(borderPerimeter * FLECK_POOL_PER_PERIMETER_PX)),
+      );
   interface FleckState {
     active: boolean;
     spawnX: number;
@@ -389,37 +415,63 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   // ── State ────────────────────────────────────────────────────────────────
   let isHovered = false;
   let isFocused = false;
+  let isPressed = false;
   let lastTickSeconds = 0;
   /** Smoothed 0..1 — gates fleck emission rate + halo alpha. */
   let fleckActivity = 0;
   const baseShadowAlpha = shadowAlpha;
 
+  /** Frame scale the card should sit at, given all current input state. */
+  const currentFrameScale = () =>
+    isPressed ? PRESS_SCALE : isHovered || isFocused ? HOVER_SCALE : 1;
+
   const applyHoverPose = () => {
     scene.tweens.killTweensOf([frame, shadow, glow, rim]);
-    scene.tweens.add({
-      targets: frame,
-      scaleX: HOVER_SCALE,
-      scaleY: HOVER_SCALE,
-      duration: HOVER_TWEEN_MS,
-      ease: 'Sine.Out',
-    });
-    scene.tweens.add({
-      targets: shadow,
-      alpha: 1,
-      duration: HOVER_TWEEN_MS,
-      ease: 'Sine.Out',
-    });
+    const frameScale = currentFrameScale();
+    if (reducedMotion) {
+      // Scale change is state information — keep it, but instant.
+      frame.setScale(frameScale);
+      shadow.setAlpha(1);
+    } else {
+      scene.tweens.add({
+        targets: frame,
+        scaleX: frameScale,
+        scaleY: frameScale,
+        duration: HOVER_TWEEN_MS,
+        ease: 'Sine.Out',
+      });
+      scene.tweens.add({
+        targets: shadow,
+        alpha: 1,
+        duration: HOVER_TWEEN_MS,
+        ease: 'Sine.Out',
+      });
+    }
     drawCardGlow(glow, width, height, accentTint, cornerRadius);
     drawCardRim(rim, width, height, accentTint, cornerRadius);
-    fleckLayer.setVisible(true);
+    if (reducedMotion) {
+      // Static glow/rim — no per-frame pulse, no flecks.
+      glow.setAlpha(REDUCED_MOTION_GLOW_ALPHA);
+      rim.setAlpha(REDUCED_MOTION_RIM_ALPHA);
+    } else {
+      fleckLayer.setVisible(true);
+    }
   };
 
   const releaseHoverPose = () => {
     scene.tweens.killTweensOf([frame, shadow, glow, rim]);
+    const frameScale = currentFrameScale();
+    if (reducedMotion) {
+      frame.setScale(frameScale);
+      shadow.setAlpha(baseShadowAlpha);
+      glow.setAlpha(0);
+      rim.setAlpha(0);
+      return;
+    }
     scene.tweens.add({
       targets: frame,
-      scaleX: 1,
-      scaleY: 1,
+      scaleX: frameScale,
+      scaleY: frameScale,
       duration: HOVER_TWEEN_MS,
       ease: 'Sine.Out',
     });
@@ -435,6 +487,50 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     if (isHovered || isFocused) applyHoverPose();
     else releaseHoverPose();
   };
+
+  // ── Press micro-interaction ───────────────────────────────────────────────
+  // Wired here so every MenuButton/MenuTab/card gets it for free. Kills frame
+  // tweens before each pose (matching applyHoverPose/releaseHoverPose) so
+  // press/hover tweens never stack.
+  const applyPressPose = () => {
+    isPressed = true;
+    scene.tweens.killTweensOf(frame);
+    if (reducedMotion) {
+      frame.setScale(PRESS_SCALE);
+      return;
+    }
+    scene.tweens.add({
+      targets: frame,
+      scaleX: PRESS_SCALE,
+      scaleY: PRESS_SCALE,
+      duration: PRESS_IN_MS,
+      ease: 'Sine.easeOut',
+    });
+  };
+
+  const releasePressPose = () => {
+    if (!isPressed) return;
+    isPressed = false;
+    // Spring back to whatever the hover/rest scale currently is.
+    const frameScale = currentFrameScale();
+    scene.tweens.killTweensOf(frame);
+    if (reducedMotion) {
+      frame.setScale(frameScale);
+      return;
+    }
+    scene.tweens.add({
+      targets: frame,
+      scaleX: frameScale,
+      scaleY: frameScale,
+      duration: PRESS_OUT_MS,
+      ease: 'Back.easeOut',
+      easeParams: [PRESS_OUT_OVERSHOOT],
+    });
+  };
+
+  hitZone.on('pointerdown', applyPressPose);
+  hitZone.on('pointerup', releasePressPose);
+  hitZone.on('pointerout', releasePressPose);
 
   shadow.setAlpha(baseShadowAlpha);
 
@@ -457,6 +553,9 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       refreshActive();
     },
     tickIdle(timeSeconds) {
+      // Reduced motion: glow/rim hold the static alphas set by the hover
+      // poses — no halo/rim pulsing, no fleck emission (pool is empty).
+      if (reducedMotion) return;
       const dt = Math.max(0, Math.min(0.08, timeSeconds - lastTickSeconds));
       lastTickSeconds = timeSeconds;
       const target = isHovered || isFocused ? 1 : 0;

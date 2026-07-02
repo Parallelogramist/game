@@ -12,7 +12,7 @@ import {
   AchievementCategory,
 } from '../../achievements';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
@@ -73,7 +73,6 @@ export class AchievementScene extends Phaser.Scene {
   create(): void {
     const centerX = this.scale.width / 2;
 
-    fadeIn(this, 200);
     this.soundManager = new SoundManager(this);
 
     // Reset state
@@ -121,7 +120,7 @@ export class AchievementScene extends Phaser.Scene {
     this.events.on('update', this.bgUpdateHandler);
 
     // Title heading.
-    makeDisplayText(this, centerX, 36, 'ACHIEVEMENTS', {
+    const title = makeDisplayText(this, centerX, 36, 'ACHIEVEMENTS', {
       fontSize: 32,
       color: ACCENT_COLORS_STR.safe,
       strokeWidth: 5,
@@ -169,7 +168,7 @@ export class AchievementScene extends Phaser.Scene {
       fontSize: 14,
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
     this.backButton.card.hitZone.on('pointerover', () => this.backButton!.setHoverState(true));
@@ -181,6 +180,18 @@ export class AchievementScene extends Phaser.Scene {
 
     // Setup keyboard + gamepad navigation
     this.buildMenuNavigator();
+
+    // Entrance choreography: title + completion first, tabs next, then the
+    // card list rises in as one block (rows scroll inside the mask).
+    staggerEntrance(this, [
+      title,
+      completionLabel,
+      completionValue,
+      ...this.categoryTabs.values(),
+      this.achievementContainer,
+      this.backButton.container,
+    ]);
+    sweepIn(this);
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -260,7 +271,7 @@ export class AchievementScene extends Phaser.Scene {
       onBlur: () => this.updateFocusVisuals(),
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
 
@@ -270,7 +281,7 @@ export class AchievementScene extends Phaser.Scene {
       columns: 1,
       wrap: true,
       onCancel: () => {
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
   }

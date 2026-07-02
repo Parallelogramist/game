@@ -41,6 +41,21 @@ import { ColorblindPipeline } from './visual/ColorblindPipeline';
   // Initialize the game
   const game = new Phaser.Game(config);
 
+  // Dismiss the HTML boot loader once Phaser is presenting. READY fires when
+  // the renderer + first scene are up; one extra rAF-after-delay ensures a
+  // painted frame is actually on screen before the 320ms fade starts.
+  const dismissBootLoader = () => {
+    const loader = document.getElementById('boot-loader');
+    if (!loader) return;
+    loader.classList.add('boot-loader-hidden');
+    setTimeout(() => loader.remove(), 400);
+  };
+  game.events.once(Phaser.Core.Events.READY, () => {
+    setTimeout(() => requestAnimationFrame(dismissBootLoader), 400);
+  });
+  // Hard fallback — never strand the loader if READY is missed.
+  setTimeout(dismissBootLoader, 12000);
+
   // Register post-processing pipelines (WebGL only)
   if (game.renderer.type === Phaser.WEBGL) {
     const renderer = game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;

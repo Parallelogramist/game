@@ -9,10 +9,12 @@
  * vignette stack on top.
  *
  * Same `update(deltaMs)` / `destroy()` shape as MenuBackground so callers can
- * swap them without other code changes.
+ * swap them without other code changes. Under reduced motion the streaks
+ * render as a static field at their seeded positions.
  */
 
 import Phaser from 'phaser';
+import { getSettingsManager } from '../settings';
 
 const DRIFT_DEPTH = -20;
 const SPOTLIGHT_DEPTH = -22;
@@ -48,6 +50,8 @@ export function createMenuOverlay(
   options: MenuOverlayOptions = {},
 ): MenuOverlay {
   const { dim = 0.65, drifterCount = 5, drifters = true } = options;
+  // Read once at creation — settings changes take effect on next scene entry.
+  const reducedMotion = getSettingsManager().isReducedMotionEnabled();
   const screenWidth = scene.scale.width;
   const screenHeight = scene.scale.height;
 
@@ -111,6 +115,8 @@ export function createMenuOverlay(
 
   return {
     update(deltaMs: number) {
+      // Reduced motion: streaks stay a static field at their seeded positions.
+      if (reducedMotion) return;
       const dt = deltaMs / 1000;
       for (const drifter of drifterPool) {
         drifter.x += drifter.vx * dt;

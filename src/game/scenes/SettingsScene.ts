@@ -18,7 +18,7 @@ import {
 } from '../../settings';
 import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
-import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
+import { addButtonInteraction, transitionToScene, sweepIn } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
 import { SoundManager } from '../../audio/SoundManager';
@@ -143,7 +143,7 @@ export class SettingsScene extends Phaser.Scene {
     this.playbackModeIndex = musicManager.getPlaybackMode() === 'shuffle' ? 1 : 0;
     this.colorblindModeIndex = indexOfColorblindMode(settingsManager.getColorblindMode());
 
-    fadeIn(this, 150);
+    sweepIn(this);
 
     this.menuOverlay = createMenuOverlay(this, { dim: 0.85, drifterCount: 4 });
     this.bgUpdateHandler = (time, delta) => {
@@ -288,7 +288,7 @@ export class SettingsScene extends Phaser.Scene {
       fontSize: scaledInt(this.fontScale, 16),
       onActivate: () => {
         this.soundManager.playUIClick();
-        this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
+        transitionToScene(this, 'MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
       },
     });
     card.frame.add(this.musicTracksButton.container);
@@ -970,7 +970,7 @@ export class SettingsScene extends Phaser.Scene {
         break;
       }
       case 'musicTracks':
-        this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
+        transitionToScene(this, 'MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
         return;
       case 'screenShake':
         settingsManager.setScreenShakeEnabled(!settingsManager.isScreenShakeEnabled());
@@ -1175,7 +1175,7 @@ export class SettingsScene extends Phaser.Scene {
       this.scene.resume('GameScene');
       this.scene.stop();
     } else {
-      this.scene.start('BootScene');
+      transitionToScene(this, 'BootScene');
     }
   }
 
