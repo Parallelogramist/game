@@ -1039,7 +1039,9 @@ export class HUDManager {
    * Skills have purple-blue backgrounds, weapons have gold backgrounds.
    */
   updateUpgradeIcons(upgrades: UpgradeIconData[]): void {
-    // Clear existing icons
+    // Clear existing icons. Destroying a hovered icon never fires pointerout,
+    // so force-hide the tooltip or it lingers with stale text.
+    this.upgradeTooltip?.setVisible(false);
     this.upgradeIconsContainer.removeAll(true);
 
     // Layout constants (scaled for mobile)
@@ -1492,6 +1494,9 @@ export class HUDManager {
       this.createRelicModifierStrip();
     }
     const container = this.relicStripContainer!;
+    // Rebuild destroys any hovered slot without a pointerout — force-hide the
+    // tooltip so it can't float with stale relic text.
+    this.hideRelicTooltip();
     container.removeAll(true);
 
     const iconSize = this.scaledSize(26);
