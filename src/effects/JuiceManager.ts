@@ -878,7 +878,10 @@ export class JuiceManager {
       0xffffff, 0
     );
     flash.setScrollFactor(0);
-    flash.setDepth(2000);
+    // Gameplay-flash band: above the field and lighting, below every UI
+    // element (999+) — a hit flash must not white-out the HUD or z-fight
+    // tooltips (2000).
+    flash.setDepth(950);
 
     this.scene.tweens.add({
       targets: flash,

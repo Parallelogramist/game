@@ -38,6 +38,15 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
+- [ ] **POLISH-UI-CAMERA — exclude UI from postFX pipelines and camera flash/fade**
+  · area: visual · **Why:** HUD/minimap/overlays render through `cameras.main`, so
+  BloomPipeline blooms bright HUD pixels, DistortionPipeline shockwaves warp HUD
+  text they cross, and `camera.flash`/`fadeOut` composite over UI. Depth-band fixes
+  (see DepthLayers header) removed the overlay-class artifacts; the remaining fix
+  is a dedicated UI camera (`cameras.add` + per-camera `ignore` lists on every UI
+  container vs world object) — invasive, needs runtime verification of input
+  hit-testing and both scale-mode paths before landing. Audited 2026-07-02.
+
 - [ ] **POLISH-CANVAS-DPR — render the canvas at device resolution on phones**
   · area: visual/mobile · **BLOCKED on on-device verification — do not land blind**
   **Why:** Phaser sizes the canvas backing store in CSS pixels, so a 3× iPhone

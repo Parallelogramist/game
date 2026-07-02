@@ -70,13 +70,13 @@ const HOVER_TWEEN_MS = 140;
 // Sparks spawn at a random point on the rounded-rect border, slide
 // tangentially along the rim for a moment, and accelerate outward along
 // the local normal before fading — a subtle energy shimmer on the rim.
-const FLECK_BASE_RADIUS = 2.6;
-const FLECK_POOL_MIN = 16;
-const FLECK_POOL_MAX = 36;
-/** Roughly one fleck slot per 70 px of perimeter so density is consistent. */
-const FLECK_POOL_PER_PERIMETER_PX = 1 / 70;
+const FLECK_BASE_RADIUS = 2.4;
+const FLECK_POOL_MIN = 20;
+const FLECK_POOL_MAX = 48;
+/** Roughly one fleck slot per 55 px of perimeter so density is consistent. */
+const FLECK_POOL_PER_PERIMETER_PX = 1 / 55;
 /** Emissions per second when hover/focus is fully active. */
-const FLECK_SPAWN_RATE_PER_SEC = 34;
+const FLECK_SPAWN_RATE_PER_SEC = 46;
 const FLECK_LIFETIME_MIN = 0.5;
 const FLECK_LIFETIME_MAX = 1.05;
 const FLECK_TANGENT_SPEED_MIN = 35;
@@ -134,6 +134,13 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     cornerRadius,
   });
   frame.add(panel);
+
+  // Rim light — a crisp bright stroke hugging the border, faded in with
+  // hover/focus activity. Added after the panel so it renders above the
+  // border fill; sits inside `frame` so it tracks the hover scale.
+  const rim = scene.add.graphics();
+  rim.setAlpha(0);
+  frame.add(rim);
 
   const halfH = height / 2;
   const bannerTopY = -halfH;
@@ -388,7 +395,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   const baseShadowAlpha = shadowAlpha;
 
   const applyHoverPose = () => {
-    scene.tweens.killTweensOf([frame, shadow, glow]);
+    scene.tweens.killTweensOf([frame, shadow, glow, rim]);
     scene.tweens.add({
       targets: frame,
       scaleX: HOVER_SCALE,
@@ -403,11 +410,12 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       ease: 'Sine.Out',
     });
     drawCardGlow(glow, width, height, accentTint, cornerRadius);
+    drawCardRim(rim, width, height, accentTint, cornerRadius);
     fleckLayer.setVisible(true);
   };
 
   const releaseHoverPose = () => {
-    scene.tweens.killTweensOf([frame, shadow, glow]);
+    scene.tweens.killTweensOf([frame, shadow, glow, rim]);
     scene.tweens.add({
       targets: frame,
       scaleX: 1,
@@ -458,6 +466,10 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       // Halo pulse: 1.0 ± 0.18 over ~1.6s, attenuated by current activity.
       const haloPulse = 0.85 + Math.sin(timeSeconds * 4 + pulseSeed) * 0.18;
       glow.setAlpha(fleckActivity * haloPulse);
+      // Rim light breathes slightly out of phase so the edge feels alive
+      // rather than strobing with the halo.
+      const rimPulse = 0.8 + Math.sin(timeSeconds * 3.1 + pulseSeed + 1.7) * 0.2;
+      rim.setAlpha(fleckActivity * rimPulse);
 
       // Emit new flecks proportional to activity. Accumulator keeps spawn
       // cadence smooth across variable frame times.
@@ -515,7 +527,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       }
     },
     destroy() {
-      scene.tweens.killTweensOf([container, frame, shadow, glow]);
+      scene.tweens.killTweensOf([container, frame, shadow, glow, rim]);
       container.destroy();
     },
   };
@@ -565,22 +577,46 @@ function drawCardGlow(
   const halfH = height / 2;
   graphics.clear();
 
-  // Three concentric expanding halos — outermost faint + inner stronger.
-  const layers = [
-    { spread: 18, alpha: 0.12 },
-    { spread: 10, alpha: 0.22 },
-    { spread: 4, alpha: 0.36 },
-  ];
-  for (const layer of layers) {
-    graphics.fillStyle(accentColor, layer.alpha);
+  // Seven concentric halos with quadratic falloff — reads as one smooth
+  // bloom instead of three visible bands.
+  const layerCount = 7;
+  const maxSpread = 26;
+  for (let i = 0; i < layerCount; i++) {
+    const t = i / (layerCount - 1);
+    const spread = 3 + (maxSpread - 3) * t;
+    const alpha = 0.34 * (1 - t) * (1 - t) + 0.03;
+    graphics.fillStyle(accentColor, alpha);
     graphics.fillRoundedRect(
-      -halfW - layer.spread,
-      -halfH - layer.spread,
-      width + layer.spread * 2,
-      height + layer.spread * 2,
-      radius + layer.spread,
+      -halfW - spread,
+      -halfH - spread,
+      width + spread * 2,
+      height + spread * 2,
+      radius + spread,
     );
   }
+}
+
+/**
+ * Crisp rim light hugging the panel border — a bright accent stroke with a
+ * near-white core line. Alpha is driven per-frame in tickIdle.
+ */
+function drawCardRim(
+  graphics: Phaser.GameObjects.Graphics,
+  width: number,
+  height: number,
+  accentColor: number,
+  cornerRadius?: number,
+): void {
+  const radius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
+  const halfW = width / 2;
+  const halfH = height / 2;
+  graphics.clear();
+  // Soft accent underlay stroke.
+  graphics.lineStyle(3, accentColor, 0.5);
+  graphics.strokeRoundedRect(-halfW - 1, -halfH - 1, width + 2, height + 2, radius + 1);
+  // Bright core line.
+  graphics.lineStyle(1.2, 0xf4f9ff, 0.9);
+  graphics.strokeRoundedRect(-halfW - 1, -halfH - 1, width + 2, height + 2, radius + 1);
 }
 
 function drawFleck(graphics: Phaser.GameObjects.Graphics, accentColor: number, baseRadius: number): void {
