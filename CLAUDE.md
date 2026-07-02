@@ -219,7 +219,7 @@ Add object to `upgrades` array in `src/data/Upgrades.ts` with `name`, `descripti
 `rarity: 'common' | 'rare' | 'epic'`. At luck 0 all tiers weigh equally (selection
 unbiased); `PlayerStats.luck` boosts rare/epic offer frequency via
 `luckBiasedUpgradeWeight` (weight = `1 + clampedLuck × per-rarity bonus`, mirroring
-relics). Rare/epic cards get blue/purple styling + a rarity sticker in `UpgradeScene`;
+relics). Rare/epic cards get blue/purple styling + a rarity tag in `UpgradeScene`;
 gold overflow/mastered treatment takes precedence. Weapon offers carry no rarity.
 
 **Limit Break / Overflow upgrades** (`src/data/LimitBreakUpgrades.ts`): repeatable,
@@ -271,9 +271,19 @@ Union type `Phaser.GameObjects.Shape | Phaser.GameObjects.Graphics` — supports
 - Hit stop (time scale manipulation)
 - Screen shake coordination
 
-`ImpactCallouts` (`/src/effects/ImpactCallouts.ts`) — punchy "BAM!/POW!/CRIT!" starburst + text manager. Pooled, rate-limited (`hit` kind throttled). Kinds: `hit`, `crit`, `perfect`, `kill`, `comboTier`, `levelUp`, `bossSpawn`, `evolution`, `eventStart`. Hooked via `WeaponManager.damageEnemy`, `ComboSystem`, `GameScene`.
-
 ### Visual System
+
+**UI design language — sleek neon-tech.** Shared tokens live in
+`/src/visual/MenuStyle.ts` (`DISPLAY_FONT` = Rajdhani for headings/labels, `MENU_FONT` =
+Atkinson Hyperlegible for body copy, role-coded accent/body palettes). Headings and
+button labels are created via `makeDisplayText`/`makeBodyText`
+(`/src/visual/DisplayText.ts`) — sharp tracking-caps with a hairline dark stroke.
+Panels/buttons come from `MenuCard`/`MenuButton` (flat, no tilt/wobble; small corner
+radii, thin accent borders, soft centered shadows, hover glow + rim flecks) and menu
+scenes sit on `MenuBackground`/`MenuOverlay` (gradient + faint grid + spotlight + thin
+rising light streaks + vignette). HUD widgets mirror the look via `paintHudPanel` in
+`HUDManager`. Fonts load from Google Fonts in `index.html`. Keep new UI inside this
+system — no tilted cards, thick cartoon outlines, or novelty display fonts.
 
 `/src/visual/` — specialized visual managers:
 - **GridBackground**: Animated grid with entity-reactive warping (SpatialHash O(1) lookups)

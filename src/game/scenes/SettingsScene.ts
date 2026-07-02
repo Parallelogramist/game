@@ -26,7 +26,7 @@ import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
 
 type FocusZone =
@@ -154,13 +154,13 @@ export class SettingsScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    const titleSticker = makeStickerText(this, centerX, scaledInt(this.layoutScale, 36), 'SETTINGS', {
+    const titleText = makeDisplayText(this, centerX, scaledInt(this.layoutScale, 36), 'SETTINGS', {
       fontSize: 38,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 6,
       letterSpacing: 4,
     });
-    titleSticker.setFontSize(scaledFontPx(this.fontScale, 38));
+    titleText.setFontSize(scaledFontPx(this.fontScale, 38));
 
     // ── Card grid ──────────────────────────────────────────────────────────
     const cardWidth = scaledInt(this.layoutScale, 560);
@@ -464,14 +464,13 @@ export class SettingsScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt: 0,
       bodyFillColor: bodyColor,
       bodyFillAlpha: 0.96,
       accentColor,
       bannerHeight,
       borderWidth: 2,
       borderColor: accentColor,
-      cornerRadius: 14,
+      cornerRadius: 8,
       shadowOffsetX: 4,
       shadowOffsetY: 10,
       shadowAlpha: 0.6,
@@ -479,7 +478,7 @@ export class SettingsScene extends Phaser.Scene {
     });
     this.idleCards.push(card);
 
-    const bannerLabel = makeStickerText(this, 0, -height / 2 + bannerHeight / 2 - scaledInt(this.layoutScale, 1), title, {
+    const bannerLabel = makeDisplayText(this, 0, -height / 2 + bannerHeight / 2 - scaledInt(this.layoutScale, 1), title, {
       fontSize: 18,
       color: '#101018',
       strokeWidth: 0,
@@ -1036,7 +1035,7 @@ export class SettingsScene extends Phaser.Scene {
       bannerHeight: scaledInt(this.layoutScale, 38),
       borderWidth: 3,
       borderColor: ACCENT_COLORS.danger,
-      cornerRadius: 16,
+      cornerRadius: 8,
       shadowOffsetX: 6,
       shadowOffsetY: 14,
       shadowAlpha: 0.7,
@@ -1044,7 +1043,7 @@ export class SettingsScene extends Phaser.Scene {
     });
     dialogCard.container.setDepth(101);
 
-    const title = makeStickerText(this, 0, -dialogCard.height / 2 + scaledInt(this.layoutScale, 19), 'RESET ALL DATA?', {
+    const title = makeDisplayText(this, 0, -dialogCard.height / 2 + scaledInt(this.layoutScale, 19), 'RESET ALL DATA?', {
       fontSize: 20,
       color: '#101018',
       strokeWidth: 0,

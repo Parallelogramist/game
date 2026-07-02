@@ -22,7 +22,7 @@ const DEFAULT_DISPLAY_DURATION = 3000;
 
 const TOAST_BG_COLOR = BODY_COLORS.primary;
 const TOAST_BORDER_COLOR = ACCENT_COLORS.neutral;
-const TOAST_TITLE_COLOR = MENU_COLORS.stickerWhite;
+const TOAST_TITLE_COLOR = MENU_COLORS.headingWhite;
 const TOAST_DESC_COLOR = MENU_COLORS.textBody;
 
 export class ToastManager {
@@ -110,24 +110,24 @@ export class ToastManager {
 
     container.setPosition(startX, y);
 
-    // Balatro-style panel: drop shadow + accent border + dark body + top stripe.
+    // Panel: soft shadow + accent border + dark body + top accent line.
     const accentColor = config.color || TOAST_BORDER_COLOR;
     const bg = this.scene.add.graphics();
     const halfW = toastWidth / 2;
     const halfH = toastHeight / 2;
-    const radius = 12;
-    // Drop shadow.
-    bg.fillStyle(0x000000, 0.45);
-    bg.fillRoundedRect(-halfW + 4, -halfH + 6, toastWidth, toastHeight, radius);
+    const radius = 6;
+    // Soft drop shadow.
+    bg.fillStyle(0x000000, 0.4);
+    bg.fillRoundedRect(-halfW, -halfH + 3, toastWidth, toastHeight, radius);
     // Accent ink border layer.
     bg.fillStyle(accentColor, 1);
     bg.fillRoundedRect(-halfW - 2, -halfH - 2, toastWidth + 4, toastHeight + 4, radius);
     // Body fill.
     bg.fillStyle(TOAST_BG_COLOR, 0.95);
     bg.fillRoundedRect(-halfW, -halfH, toastWidth, toastHeight, radius);
-    // Top accent stripe.
+    // Hairline top accent.
     bg.fillStyle(accentColor, 0.65);
-    bg.fillRect(-halfW + 4, -halfH + 2, toastWidth - 8, 3);
+    bg.fillRect(-halfW + 4, -halfH + 2, toastWidth - 8, 2);
     // Bottom inner shadow.
     bg.fillStyle(0x000000, 0.22);
     bg.fillRect(-halfW + 4, halfH - 3, toastWidth - 8, 2);
@@ -165,7 +165,7 @@ export class ToastManager {
       container.add(fallbackIcon);
     }
 
-    // Title — sticker style for Balatro punch.
+    // Title — display style.
     const textX = -toastWidth / 2 + toastPadding + Math.round(48 * hudScale);
     const title = this.scene.add.text(textX, 0, config.title, {
       fontSize: `${Math.round(15 * hudScale)}px`,

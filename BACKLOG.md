@@ -88,6 +88,17 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SLEEK-REDESIGN** — sleek neon-tech visual pass (branch
+    `claude/game-design-visual-polish-q134lf`): Rajdhani display font replaces the
+    sticker look (comic fonts dropped from `index.html`), cards flattened (no
+    tilt/wobble), sharper corners + centered soft shadows, thin hairline accents,
+    light-streak menu backdrop replaces playing-card drifters, BootScene wordmark
+    restyled (flat, accent underline, glow breathe). Check: (a) Rajdhani legibility at
+    small banner sizes (14px) and on phones; (b) HUD label contrast over dense combat
+    with the thinner strokes; (c) BootScene title/underline spacing at UI-scale
+    extremes; (d) hover glow + rim flecks still read well on the sharper 6px-radius
+    cards; (e) touch-button shadow (now centered, softer) still separates from the
+    arena background.
   - **POLISH-MENU-NAV** — keyboard/gamepad nav on the newly wired scenes (`abf7c58`).
     Check with a controller: (a) PactSelect — yellow focus ring vs pact-color selected
     border legibility; B = skip-pacts-and-begin feels right (it's not "back"), (b)

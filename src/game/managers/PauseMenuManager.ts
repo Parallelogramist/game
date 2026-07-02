@@ -12,10 +12,9 @@ import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS } from '../../visual/MenuStyle';
 
 /**
- * Paint a Balatro-style panel: drop shadow + dark navy body + thick accent
- * border + thin highlight stripe across the top. Replaces the prior flat
- * dark-rectangle look so end-of-run / pause panels read as the same family
- * as the BootScene cards.
+ * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
+ * border + hairline accent across the top — the same family as the
+ * BootScene cards.
  */
 function paintPanelBackground(
   graphics: Phaser.GameObjects.Graphics,
@@ -25,12 +24,12 @@ function paintPanelBackground(
   height: number,
   _opts: { withPanelBreaks?: boolean; accentColor?: number } = {}
 ): void {
-  const radius = 12;
+  const radius = 6;
   const accent = _opts.accentColor ?? ACCENT_COLORS.primary;
 
-  // Drop shadow (offset down-right).
-  graphics.fillStyle(0x000000, 0.45);
-  graphics.fillRoundedRect(topLeftX + 5, topLeftY + 7, width, height, radius + 2);
+  // Soft drop shadow directly beneath the panel.
+  graphics.fillStyle(0x000000, 0.4);
+  graphics.fillRoundedRect(topLeftX, topLeftY + 4, width, height, radius + 2);
 
   // Accent border layer.
   graphics.fillStyle(accent, 1);
@@ -52,9 +51,9 @@ function paintPanelBackground(
 }
 
 /**
- * Paint a Balatro-style pill button: drop shadow + accent border + body fill +
- * thin top banner highlight. Drawn into a fresh graphics layer behind the
- * provided rectangle so the rectangle stays as the interactive hit zone.
+ * Paint a sharp pill button: soft shadow + accent border + body fill + thin
+ * top accent line. Drawn into a fresh graphics layer behind the provided
+ * rectangle so the rectangle stays as the interactive hit zone.
  */
 function paintPillBackground(
   graphics: Phaser.GameObjects.Graphics,
@@ -67,18 +66,18 @@ function paintPillBackground(
 ): void {
   const halfW = width / 2;
   const halfH = height / 2;
-  const radius = Math.min(height * 0.4, 14);
-  // 3px accent ring. The body sits `BORDER` px inside it, so the body's corner
+  const radius = Math.min(height * 0.25, 8);
+  // 2px accent ring. The body sits `BORDER` px inside it, so the body's corner
   // radius shrinks by the same amount to keep the two arcs concentric —
   // otherwise the body's corners overrun the border's curve and read as sharp.
-  const BORDER = 3;
+  const BORDER = 2;
   const bodyRadius = Math.max(0, radius - BORDER);
 
   graphics.clear();
 
-  // Drop shadow.
-  graphics.fillStyle(0x000000, 0.45);
-  graphics.fillRoundedRect(centerX - halfW + 4, centerY - halfH + 6, width, height, radius + 1);
+  // Soft drop shadow.
+  graphics.fillStyle(0x000000, 0.4);
+  graphics.fillRoundedRect(centerX - halfW, centerY - halfH + 3, width, height, radius + 1);
 
   // Accent border (rounded). This is also the focus/hover indicator — repainted
   // white when a button is focused (see createLabeledButton's setStrokeStyle shim).
@@ -89,10 +88,10 @@ function paintPillBackground(
   graphics.fillStyle(bodyColor, 1);
   graphics.fillRoundedRect(centerX - halfW, centerY - halfH, width, height, bodyRadius);
 
-  // Top highlight stripe (the Balatro banner feel). Inset past the rounded
-  // corners so the sharp stripe never overruns them.
+  // Hairline top accent, inset past the rounded corners so it never
+  // overruns them.
   graphics.fillStyle(accentColor, 0.7);
-  graphics.fillRect(centerX - halfW + radius, centerY - halfH + 2, width - radius * 2, 3);
+  graphics.fillRect(centerX - halfW + radius, centerY - halfH + 2, width - radius * 2, 2);
 
   // Bottom inner shadow — same corner-safe inset.
   graphics.fillStyle(0x000000, 0.25);
@@ -261,7 +260,7 @@ export class PauseMenuManager {
     textName: string;
     onActivate: () => void;
   }): { bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text } {
-    // Balatro pill: a graphics layer paints the shadow / accent border / body /
+    // Pill button: a graphics layer paints the shadow / accent border / body /
     // banner stripe; the Rectangle stays as the hit zone (kept fully transparent).
     const pillGfx = this.scene.add.graphics();
     pillGfx.setDepth(PAUSE_MENU_DEPTH + 0.5);
@@ -408,7 +407,7 @@ export class PauseMenuManager {
     const menuCenterY = this.scene.scale.height / 2;
     const buttonSpacing = 64; // 8px aligned gap between button centers
 
-    // Pause title — sticker style for Balatro punch.
+    // Pause title — display style.
     const pauseTitle = this.scene.add.text(this.scene.scale.width / 2, menuCenterY - 144, 'PAUSED', {
       fontSize: '56px',
       color: ACCENT_COLORS_STR.focus,
@@ -891,7 +890,7 @@ export class PauseMenuManager {
     // 8px grid spacing for confirmation dialog
     const dialogCenterY = this.scene.scale.height / 2;
 
-    // Title — sticker style.
+    // Title — display style.
     const titleText = this.scene.add.text(this.scene.scale.width / 2, dialogCenterY - 168, 'END RUN?', {
       fontSize: '48px',
       color: ACCENT_COLORS_STR.gold,

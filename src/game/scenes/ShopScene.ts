@@ -1,5 +1,5 @@
 /**
- * ShopScene — Balatro-style permanent upgrade shop.
+ * ShopScene — permanent upgrade shop.
  *
  * Tab strip across the top, card grid below, buy + refund pill buttons on
  * each card, MenuButton back/ascend in the chrome. All logic (purchase,
@@ -31,12 +31,11 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuTabs, MenuTabs } from '../../visual/MenuTab';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   MENU_FONT,
   RoleColorKey,
   TEXT_COLORS,
@@ -139,7 +138,7 @@ export class ShopScene extends Phaser.Scene {
     this.selectedCardIndex = 0;
     this.scrollY = 0;
 
-    // Balatro backdrop.
+    // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
@@ -159,8 +158,8 @@ export class ShopScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    // Title sticker.
-    const title = makeStickerText(this, centerX, 32, 'SHOP', {
+    // Title heading.
+    const title = makeDisplayText(this, centerX, 32, 'SHOP', {
       fontSize: 36,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 5,
@@ -182,8 +181,7 @@ export class ShopScene extends Phaser.Scene {
       bannerHeight: 0,
       borderWidth: 2,
       borderColor: ACCENT_COLORS.primary,
-      cornerRadius: 12,
-      wobble: false,
+      cornerRadius: 6,
       interactive: true,
       shadowOffsetY: 5,
       shadowAlpha: 0.4,
@@ -197,7 +195,7 @@ export class ShopScene extends Phaser.Scene {
     });
     accountLabel.setOrigin(0, 0.5);
     accountLevelChip.frame.add(accountLabel);
-    this.accountLevelText = makeStickerText(this, -85, 8, `${metaManager.getAccountLevel()}`, {
+    this.accountLevelText = makeDisplayText(this, -85, 8, `${metaManager.getAccountLevel()}`, {
       fontSize: 22,
       color: ACCENT_COLORS_STR.primary,
       letterSpacing: 1,
@@ -206,7 +204,7 @@ export class ShopScene extends Phaser.Scene {
     accountLevelChip.frame.add(this.accountLevelText);
 
     // Next-unlock hint + progress bar (right side of chip).
-    this.accountNextUnlockText = makeStickerText(this, 85, 0, '', {
+    this.accountNextUnlockText = makeDisplayText(this, 85, 0, '', {
       fontSize: 13,
       color: ACCENT_COLORS_STR.gold,
       letterSpacing: 0.5,
@@ -237,8 +235,7 @@ export class ShopScene extends Phaser.Scene {
       bannerHeight: 0,
       borderWidth: 2,
       borderColor: ACCENT_COLORS.gold,
-      cornerRadius: 12,
-      wobble: false,
+      cornerRadius: 6,
       interactive: true,
       shadowOffsetY: 5,
       shadowAlpha: 0.4,
@@ -251,7 +248,7 @@ export class ShopScene extends Phaser.Scene {
     });
     goldLabel.setOrigin(0, 0.5);
     goldChip.frame.add(goldLabel);
-    this.goldText = makeStickerText(this, -85, 12, '0', {
+    this.goldText = makeDisplayText(this, -85, 12, '0', {
       fontSize: 22,
       color: ACCENT_COLORS_STR.gold,
       letterSpacing: 1,
@@ -476,7 +473,7 @@ export class ShopScene extends Phaser.Scene {
       if (!badge) {
         const container = this.add.container(0, 0);
         const background = this.add.graphics();
-        const text = makeStickerText(this, 0, 0, '', {
+        const text = makeDisplayText(this, 0, 0, '', {
           fontSize: 11,
           color: '#0a1018',
           letterSpacing: 0.5,
@@ -623,31 +620,28 @@ export class ShopScene extends Phaser.Scene {
     const bodyColor = role === 'neutral' ? BODY_COLORS.neutral : BODY_COLORS[role as keyof typeof BODY_COLORS] ?? BODY_COLORS.neutral;
     const accent = role === 'neutral' ? ACCENT_COLORS.neutral : ACCENT_COLORS[role as keyof typeof ACCENT_COLORS] ?? ACCENT_COLORS.neutral;
 
-    const tiltOptions = [CARD_TILT_PRESETS.leftLean, CARD_TILT_PRESETS.hero, CARD_TILT_PRESETS.rightLean, CARD_TILT_PRESETS.rest];
-    const baseTilt = tiltOptions[cardIndex % tiltOptions.length] * 0.4;
 
     const card = createMenuCard(this, {
       x: positionX,
       y: positionY,
       width,
       height,
-      tilt: baseTilt,
-      wobbleSeed: cardIndex * 0.6 + 0.2,
+      pulseSeed: cardIndex * 0.6 + 0.2,
       bodyFillColor: isUnlocked ? bodyColor : BODY_COLORS.neutral,
       accentColor: isUnlocked ? accent : ACCENT_COLORS.neutral,
       bannerHeight: 36,
       borderWidth: 3,
       borderColor: isUnlocked ? accent : ACCENT_COLORS.neutral,
-      cornerRadius: 14,
+      cornerRadius: 8,
     });
 
     if (!isUnlocked) card.container.setAlpha(0.7);
     this.upgradeContainer.add(card.container);
 
-    // Banner sticker.
-    const nameText = makeStickerText(this, 0, card.bannerTopY + 18, upgrade.name.toUpperCase(), {
+    // Banner label.
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 18, upgrade.name.toUpperCase(), {
       fontSize: 14,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 1.5,
     });
     card.frame.add(nameText);
@@ -772,7 +766,7 @@ export class ShopScene extends Phaser.Scene {
       lockOverlay = this.add.rectangle(0, 0, width - 8, height - 8, 0x000000, 0.45);
       card.frame.add(lockOverlay);
       const accountLevel = metaManager.getAccountLevel();
-      lockText = makeStickerText(
+      lockText = makeDisplayText(
         this,
         0,
         0,
@@ -792,7 +786,7 @@ export class ShopScene extends Phaser.Scene {
     // hopping across categories with a full purse.
     let affordableStar: Phaser.GameObjects.Text | undefined;
     if (isUnlocked && !isMaxed && canAfford) {
-      affordableStar = makeStickerText(this, width / 2 - 16, -height / 2 + 16, '✦', {
+      affordableStar = makeDisplayText(this, width / 2 - 16, -height / 2 + 16, '✦', {
         fontSize: 18,
         color: ACCENT_COLORS_STR.gold,
         letterSpacing: 0,
@@ -1284,15 +1278,14 @@ export class ShopScene extends Phaser.Scene {
       bannerHeight: 48,
       borderWidth: 4,
       borderColor: ACCENT_COLORS.magenta,
-      cornerRadius: 16,
-      wobble: false,
+      cornerRadius: 8,
       interactive: false,
     });
     confirmCard.container.setDepth(101);
 
-    const banner = makeStickerText(this, 0, confirmCard.bannerTopY + 24, `ASCEND TO LEVEL ${nextLevel}`, {
+    const banner = makeDisplayText(this, 0, confirmCard.bannerTopY + 24, `ASCEND TO LEVEL ${nextLevel}`, {
       fontSize: 20,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 2,
     });
     confirmCard.frame.add(banner);

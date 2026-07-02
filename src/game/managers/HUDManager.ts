@@ -16,10 +16,10 @@ import { RunModifier } from '../../data/RunModifiers';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS } from '../../visual/MenuStyle';
 
 /**
- * Draws a Balatro-style HUD panel into the supplied Graphics object: drop
- * shadow + accent ink border + dark body + thin top highlight stripe. Same
- * visual language as `MenuCard` but cheap (single redraw per refresh, no
- * tweens), so per-frame HUD widgets can adopt the menu look without paying
+ * Draws a sharp HUD panel into the supplied Graphics object: soft shadow +
+ * thin accent border + dark body + hairline top accent. Same visual
+ * language as `MenuCard` but cheap (single redraw per refresh, no tweens),
+ * so per-frame HUD widgets can adopt the menu look without paying
  * MenuCard's hover/wisp overhead.
  */
 function paintHudPanel(
@@ -30,15 +30,15 @@ function paintHudPanel(
   height: number,
   bodyColor: number,
   accentColor: number,
-  cornerRadius: number = 10,
+  cornerRadius: number = 6,
   alpha: number = 1,
 ): void {
   graphics.clear();
   const halfW = width / 2;
   const halfH = height / 2;
-  // Drop shadow.
-  graphics.fillStyle(0x000000, 0.45 * alpha);
-  graphics.fillRoundedRect(centerX - halfW + 3, centerY - halfH + 4, width, height, cornerRadius + 1);
+  // Soft drop shadow directly beneath the panel.
+  graphics.fillStyle(0x000000, 0.4 * alpha);
+  graphics.fillRoundedRect(centerX - halfW, centerY - halfH + 3, width, height, cornerRadius + 1);
   // Accent border.
   graphics.fillStyle(accentColor, alpha);
   graphics.fillRoundedRect(centerX - halfW - 2, centerY - halfH - 2, width + 4, height + 4, cornerRadius);
@@ -284,7 +284,7 @@ export class HUDManager {
 
     // === TOP LEFT: Level & Stats Panel ===
 
-    // Level display — sticker style for menu-Balatro coherence.
+    // Level display — display style for menu coherence.
     this.levelText = this.scene.add.text(leftMargin, currentY, 'LEVEL 1', {
       fontSize: this.scaledFontSize(28),
       color: ACCENT_COLORS_STR.gold,
@@ -363,7 +363,7 @@ export class HUDManager {
     this.hpText.setOrigin(0.5);
     this.hpText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // HP label — sticker style.
+    // HP label — display style.
     this.scene.add.text(leftMargin + hpBarWidth + this.scaledSize(8), currentY + hpBarHeight / 2, 'HP', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.danger,
@@ -416,7 +416,7 @@ export class HUDManager {
     this.xpBarFill.setOrigin(0, 0.5);
     this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // XP label — sticker style.
+    // XP label — display style.
     this.scene.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.safe,
@@ -459,7 +459,7 @@ export class HUDManager {
     this.ultBarFill.setOrigin(0, 0.5);
     this.ultBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // ULT label — sticker style (shows the [Q] hotkey when ready).
+    // ULT label — display style (shows the [Q] hotkey when ready).
     this.ultLabel = this.scene.add.text(leftMargin + ultBarWidth + this.scaledSize(8), currentY + ultBarHeight / 2, 'ULT', {
       fontSize: this.scaledFontSize(12),
       color: '#ffcc33',
@@ -481,7 +481,7 @@ export class HUDManager {
     this.upgradeTooltip.setVisible(false);
     this.upgradeTooltip.setDepth(HUD_DEPTH + 1); // Slightly above other HUD elements
 
-    // Tooltip background — Balatro panel painted via graphics. Sized dynamically per-show in showUpgradeTooltip.
+    // Tooltip background — HUD panel painted via graphics. Sized dynamically per-show in showUpgradeTooltip.
     const tooltipPanel = this.scene.add.graphics();
     tooltipPanel.setName('tooltipPanel');
     const tooltipBg = this.scene.add.rectangle(0, 0, 0, 0, 0x000000, 0);
@@ -533,7 +533,7 @@ export class HUDManager {
     const statsRightX = this.scene.scale.width - scaledPadding;
     const statsTopY = pauseButtonY + pauseButtonSize / 2 + scaledSpacing;
 
-    // World level display — sticker style.
+    // World level display — display style.
     const worldLevel = this.options.worldLevel;
     this.scene.add.text(this.scene.scale.width / 2, scaledPadding, `WORLD ${worldLevel}`, {
       fontSize: this.scaledFontSize(14),
@@ -544,7 +544,7 @@ export class HUDManager {
       strokeThickness: 2,
     }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // Game time display — sticker style, big + chunky for the timer.
+    // Game time display — display style, large for the timer.
     const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
     const timerLabel = this.scene.add.text(this.scene.scale.width / 2, scaledPadding + scaledWorldLevelHeight + scaledSpacing, '', {
       fontSize: this.scaledFontSize(28),
@@ -557,7 +557,7 @@ export class HUDManager {
     timerLabel.setLetterSpacing(2);
     timerLabel.setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // Kill count display — sticker on Balatro pill.
+    // Kill count display — label on HUD pill.
     this.scene.add.text(statsRightX, statsTopY, '', {
       fontSize: this.scaledFontSize(16),
       color: ACCENT_COLORS_STR.safe,
@@ -567,7 +567,7 @@ export class HUDManager {
       strokeThickness: 3,
     }).setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
-    // Gold preview display — sticker on Balatro pill.
+    // Gold preview display — label on HUD pill.
     this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
       fontSize: this.scaledFontSize(14),
       color: ACCENT_COLORS_STR.gold,
@@ -578,8 +578,8 @@ export class HUDManager {
     }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
     // Combo counter display — anchored bottom-center above the controls hint
-    // so it doesn't compete with pause/kills/gold in the top-right. Sticker
-    // typography (bold + thick stroke + letter-spaced) so it feels like the
+    // so it doesn't compete with pause/kills/gold in the top-right. Display
+    // typography (bold + letter-spaced) so it feels like the
     // big crit callouts in the menu.
     const comboAnchorY = this.scene.scale.height - this.scaledSize(96);
     const comboTextNode = this.scene.add.text(this.scene.scale.width / 2, comboAnchorY, '', {
@@ -614,10 +614,10 @@ export class HUDManager {
       }
     ).setOrigin(0.5, 0).setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
 
-    // Pause button \u2014 Balatro pill (graphics back-layer + transparent rect hit zone).
+    // Pause button \u2014 HUD pill (graphics back-layer + transparent rect hit zone).
     const pauseGfx = this.scene.add.graphics();
     pauseGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
-    paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
+    paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
 
     const pauseButtonBg = this.scene.add.rectangle(
       pauseButtonX,
@@ -644,17 +644,17 @@ export class HUDManager {
 
     // Pause button hover \u2014 repaint the pill with brighter accent.
     pauseButtonBg.on('pointerover', () => {
-      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.focus, 12);
+      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.focus, 8);
     });
     pauseButtonBg.on('pointerout', () => {
-      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
+      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
     });
     pauseButtonBg.on('pointerdown', () => {
       this.options.onPauseClicked();
     });
     pauseButtonBg.once('destroy', () => pauseGfx.destroy());
 
-    // Controls hint (bottom left) — sticker style.
+    // Controls hint (bottom left) — display style.
     this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
       fontSize: this.scaledFontSize(13),
       color: '#aaaaaa',
@@ -678,7 +678,7 @@ export class HUDManager {
       hudScale: this.hudScale,
     });
 
-    // FPS counter — sticker style (bottom right corner, above auto-buy toggle).
+    // FPS counter — display style (bottom right corner, above auto-buy toggle).
     const autoBuyToggleHeight = Math.max(this.scaledSize(26), 44);
     const fpsY = this.scene.scale.height - scaledPadding - autoBuyToggleHeight - scaledSpacing;
     this.fpsText = this.scene.add.text(this.scene.scale.width - scaledPadding, fpsY, 'FPS: --', {
@@ -1106,7 +1106,7 @@ export class HUDManager {
         });
       }
 
-      // Icon background — Balatro pill chip via graphics + transparent hit rect.
+      // Icon background — HUD pill chip via graphics + transparent hit rect.
       const chipPanel = this.scene.add.graphics();
       const chipAccent = isMastered ? masteryColors.stroke : colors.stroke;
       paintHudPanel(chipPanel, iconX + iconSize / 2, iconY + iconSize / 2, iconSize, iconSize, colors.bg, chipAccent, 6);
@@ -1159,7 +1159,7 @@ export class HUDManager {
       );
       levelBadge.setOrigin(0.5, 0.5);
 
-      // Hover events with Balatro pill repaint (brighter accent on hover).
+      // Hover events with pill repaint (brighter accent on hover).
       iconBg.on('pointerover', () => {
         paintHudPanel(chipPanel, iconX + iconSize / 2, iconY + iconSize / 2, iconSize, iconSize, colors.hover, ACCENT_COLORS.focus, 6);
         this.showUpgradeTooltip(upgrade, iconX, iconY + iconSize + this.scaledSize(10));
@@ -1234,7 +1234,7 @@ export class HUDManager {
     glowGraphics.fillRoundedRect(-barWidth / 2 - 6, barTopOffset - 4, barWidth + 12, barHeight + 8, 6);
     container.add(glowGraphics);
 
-    // Name text \u2014 sticker banner with chunky outline.
+    // Name text \u2014 display banner label.
     const nameText = this.scene.add.text(0, 0, name.toUpperCase(), {
       fontSize: this.scaledFontSize(16),
       color: isFinalBoss ? '#ff66cc' : '#ff6666',
@@ -1247,7 +1247,7 @@ export class HUDManager {
     nameText.setOrigin(0.5, 0);
     container.add(nameText);
 
-    // Bar background \u2014 Balatro panel.
+    // Bar background \u2014 HUD panel.
     const barPanel = this.scene.add.graphics();
     paintHudPanel(
       barPanel, 0, barTopOffset + barHeight / 2, barWidth, barHeight,
@@ -1376,14 +1376,14 @@ export class HUDManager {
     this.eventIndicatorContainer.setDepth(HUD_DEPTH);
     this.eventIndicatorContainer.setAlpha(0);
 
-    // Balatro panel background.
+    // Panel background.
     const panelGfx = this.scene.add.graphics();
-    paintHudPanel(panelGfx, 0, 0, panelWidth, panelHeight, BODY_COLORS.primary, event.color, 10);
+    paintHudPanel(panelGfx, 0, 0, panelWidth, panelHeight, BODY_COLORS.primary, event.color, 6);
     this.eventIndicatorContainer.add(panelGfx);
     const background = this.scene.add.rectangle(0, 0, panelWidth, panelHeight, 0x000000, 0);
     this.eventIndicatorContainer.add(background);
 
-    // Event name — sticker style.
+    // Event name — display style.
     const nameText = this.scene.add.text(0, this.scaledSize(-12), event.name.toUpperCase(), {
       fontSize: this.scaledFontSize(13),
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1539,7 +1539,7 @@ export class HUDManager {
       const x = -(iconSize / 2) - index * (iconSize + iconSpacing);
       const y = iconSize / 2;
 
-      // Balatro pill slot — graphics back-layer + transparent hit zone.
+      // HUD pill slot — graphics back-layer + transparent hit zone.
       const slotPanel = this.scene.add.graphics();
       paintHudPanel(slotPanel, x, y, iconSize, iconSize, BODY_COLORS.primary, entry.borderColor, 8);
       container.add(slotPanel);
@@ -1932,11 +1932,11 @@ export class HUDManager {
     // Position with bottom edge at scaled padding from screen edge
     const toggleY = this.scene.scale.height - scaledPadding - toggleHeight / 2;
 
-    // Balatro pill — graphics back-layer + transparent hit zone.
+    // HUD pill — graphics back-layer + transparent hit zone.
     const autoBuyGfx = this.scene.add.graphics();
     autoBuyGfx.setName('autoBuyToggleGfx');
     autoBuyGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
-    paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
+    paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
 
     this.autoBuyToggleBg = this.scene.add.rectangle(
       toggleX, toggleY, toggleWidth, toggleHeight, 0x000000, 0,
@@ -1945,7 +1945,7 @@ export class HUDManager {
     this.autoBuyToggleBg.setName('autoBuyToggleBg');
     this.autoBuyToggleBg.setDepth(HUD_DEPTH);
 
-    // Toggle text — sticker style.
+    // Toggle text — display style.
     this.autoBuyToggleText = this.scene.add.text(
       toggleX, toggleY, 'AUTO-UPGRADE  OFF',
       {
@@ -1966,7 +1966,7 @@ export class HUDManager {
       this.options.onAutoBuyToggled();
     });
     this.autoBuyToggleBg.on('pointerover', () => {
-      paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.focus, 12);
+      paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.focus, 8);
     });
     this.autoBuyToggleBg.on('pointerout', () => {
       this.refreshAutoBuyPanel();
@@ -2018,7 +2018,7 @@ export class HUDManager {
     const w = this.autoBuyToggleBg.getData('toggleW') as number;
     const h = this.autoBuyToggleBg.getData('toggleH') as number;
     const accent = this.isAutoBuyEnabled ? ACCENT_COLORS.gold : ACCENT_COLORS.neutral;
-    paintHudPanel(gfx, x, y, w, h, BODY_COLORS.primary, accent, 12);
+    paintHudPanel(gfx, x, y, w, h, BODY_COLORS.primary, accent, 8);
   }
 
   /**
@@ -2119,7 +2119,7 @@ export class HUDManager {
       tint: 0x8888aa,
     });
 
-    // Track info text — sticker style on accent color.
+    // Track info text — display style on accent color.
     this.bgmTrackText = this.scene.add.text(this.scaledSize(65), 0, 'Loading...', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.primary,

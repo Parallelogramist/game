@@ -1,5 +1,5 @@
 /**
- * MenuOverlay — Balatro backdrop variant for scenes that overlay GameScene.
+ * MenuOverlay — backdrop variant for scenes that overlay GameScene.
  *
  * MenuBackground covers the full screen with a solid base; that's correct for
  * fullscreen menu scenes (BootScene, ShopScene), but UpgradeScene and the
@@ -22,9 +22,9 @@ const GRID_DEPTH = -23;
 export interface MenuOverlayOptions {
   /** Fill alpha for the dim overlay over gameplay. 0 = transparent, 1 = opaque. */
   dim?: number;
-  /** Drift particle count. Defaults to 5 (lighter than MenuBackground's 7). */
+  /** Light-streak count. Defaults to 5 (lighter than MenuBackground's 7). */
   drifterCount?: number;
-  /** Disable drifters entirely (e.g. on low-quality machines). */
+  /** Disable streaks entirely (e.g. on low-quality machines). */
   drifters?: boolean;
 }
 
@@ -143,34 +143,30 @@ function createDrifter(
   screenHeight: number,
   phaseSeed: number,
 ): Drifter {
-  const width = 70 + Math.round(phaseSeed * 60);
-  const height = Math.round(width * 1.35);
-  const halfW = width / 2;
-  const halfH = height / 2;
-  const radius = 12;
+  const streakLength = 50 + Math.round(phaseSeed * 80);
+  const halfLen = streakLength / 2;
 
   const graphics = scene.add.graphics();
   graphics.setDepth(DRIFT_DEPTH);
 
-  graphics.fillStyle(0x4a6ba8, 0.06);
-  graphics.fillRoundedRect(-halfW, -halfH, width, height, radius);
-  graphics.lineStyle(1, 0x88aacc, 0.14);
-  graphics.strokeRoundedRect(-halfW, -halfH, width, height, radius);
-  graphics.fillStyle(0xaaccee, 0.22);
-  graphics.fillCircle(-halfW + 14, -halfH + 14, 4);
-  graphics.fillCircle(halfW - 14, halfH - 14, 4);
+  // Thin vertical light streak — dimmer than MenuBackground's since gameplay
+  // bleeds through beneath the overlay.
+  graphics.fillStyle(0x4a6ba8, 0.08);
+  graphics.fillRect(-1.5, -halfLen, 3, streakLength);
+  graphics.fillStyle(0xaaccee, 0.2);
+  graphics.fillRect(-0.5, -halfLen, 1, streakLength);
+  graphics.fillStyle(0xcfe4ff, 0.3);
+  graphics.fillRect(-1, -halfLen, 2, 8);
 
   const x = phaseSeed * screenWidth + (Math.random() - 0.5) * 200;
   const y = ((phaseSeed * 1.7) % 1) * screenHeight + (Math.random() - 0.5) * 200;
-  const speed = 8 + Math.random() * 12;
-  const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.7;
-  const vx = Math.cos(angle) * speed;
-  const vy = Math.sin(angle) * speed;
-  const rotation = (Math.random() - 0.5) * 0.7;
-  const rotationVel = (Math.random() - 0.5) * 0.04;
+  const speed = 11 + Math.random() * 14;
+  const vx = 0;
+  const vy = -speed;
+  const rotation = 0;
+  const rotationVel = 0;
 
   graphics.setPosition(x, y);
-  graphics.setRotation(rotation);
 
   return { graphics, x, y, vx, vy, rotation, rotationVel };
 }

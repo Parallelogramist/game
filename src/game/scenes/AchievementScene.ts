@@ -17,7 +17,7 @@ import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 
@@ -64,7 +64,7 @@ export class AchievementScene extends Phaser.Scene {
   private soundManager!: SoundManager;
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
-  private balatroBackButton: MenuButton | null = null;
+  private backButton: MenuButton | null = null;
 
   constructor() {
     super({ key: 'AchievementScene' });
@@ -112,16 +112,16 @@ export class AchievementScene extends Phaser.Scene {
       }
     }
 
-    // Balatro backdrop.
+    // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (_time, delta) => {
       this.menuBackground?.update(delta);
-      this.balatroBackButton?.tickIdle(_time / 1000);
+      this.backButton?.tickIdle(_time / 1000);
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    // Title sticker.
-    makeStickerText(this, centerX, 36, 'ACHIEVEMENTS', {
+    // Title heading.
+    makeDisplayText(this, centerX, 36, 'ACHIEVEMENTS', {
       fontSize: 32,
       color: ACCENT_COLORS_STR.safe,
       strokeWidth: 5,
@@ -140,7 +140,7 @@ export class AchievementScene extends Phaser.Scene {
     });
     completionLabel.setOrigin(1, 0);
 
-    const completionValue = makeStickerText(this, this.scale.width - 20, 44,
+    const completionValue = makeDisplayText(this, this.scale.width - 20, 44,
       `${unlockedCount} / ${totalCount}  ·  ${completionPercent}%`, {
         fontSize: 16,
         color: ACCENT_COLORS_STR.safe,
@@ -157,8 +157,8 @@ export class AchievementScene extends Phaser.Scene {
     // Display achievements for default category
     this.displayCategoryAchievements(this.currentCategory);
 
-    // Back button — Balatro pill.
-    this.balatroBackButton = createMenuButton({
+    // Back button.
+    this.backButton = createMenuButton({
       scene: this,
       x: centerX,
       y: this.scale.height - 36,
@@ -172,8 +172,8 @@ export class AchievementScene extends Phaser.Scene {
         fadeOut(this, 150, () => this.scene.start('BootScene'));
       },
     });
-    this.balatroBackButton.card.hitZone.on('pointerover', () => this.balatroBackButton!.setHoverState(true));
-    this.balatroBackButton.card.hitZone.on('pointerout', () => this.balatroBackButton!.setHoverState(false));
+    this.backButton.card.hitZone.on('pointerover', () => this.backButton!.setHoverState(true));
+    this.backButton.card.hitZone.on('pointerout', () => this.backButton!.setHoverState(false));
 
 
     // Setup scroll input
@@ -676,8 +676,8 @@ export class AchievementScene extends Phaser.Scene {
       }
     });
 
-    // Back button focus pop on Balatro pill.
-    this.balatroBackButton?.setFocusState(this.focusZone === 'back');
+    // Back button focus pop.
+    this.backButton?.setFocusState(this.focusZone === 'back');
   }
 
   shutdown(): void {
@@ -691,8 +691,8 @@ export class AchievementScene extends Phaser.Scene {
     }
     this.menuBackground?.destroy();
     this.menuBackground = null;
-    this.balatroBackButton?.destroy();
-    this.balatroBackButton = null;
+    this.backButton?.destroy();
+    this.backButton = null;
     this.tweens.killAll();
   }
 }

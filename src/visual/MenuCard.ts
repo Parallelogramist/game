@@ -1,19 +1,19 @@
 /**
- * MenuCard — Balatro-style card primitive for menu scenes.
+ * MenuCard — flat, sharp panel primitive for menu scenes.
  *
- * A rounded panel with a chunky drop shadow, optional resting tilt, and a
- * "light up" hover state. Each card can be styled with an accent banner
- * across the top and an arbitrary body fill — caller supplies the colors so
- * role-coding (gold for daily, blue for primary, etc.) reads across the menu.
+ * A crisp rounded panel with a soft ambient shadow and a "light up" hover
+ * state. Each card can be styled with an accent banner across the top and
+ * an arbitrary body fill — caller supplies the colors so role-coding (gold
+ * for daily, blue for primary, etc.) reads across the menu. Cards sit flat:
+ * no tilt, no wobble — clean lines only.
  *
  * The card exposes its `frame` container so callers can drop arbitrary
  * children (text, icons, ship previews) inside, and a `tickIdle(now)` hook
  * that the host scene drives on each UPDATE event.
  *
  * Hover/focus behavior: subtle scale + brightened accent ring + a soft glow
- * pulse + Hearthstone-style flecks that briefly ride along the rim then
- * peel off outward and fade. No vertical lift, no idle wobble — calmer
- * reading experience.
+ * pulse + light flecks that briefly ride along the rim then peel off
+ * outward and fade.
  */
 
 import Phaser from 'phaser';
@@ -23,35 +23,23 @@ export interface MenuCardOptions {
   y: number;
   width: number;
   height: number;
-  /** Resting rotation in radians. */
-  tilt?: number;
   /** Per-card phase seed so halo pulses stay out of sync across cards. */
-  wobbleSeed?: number;
-  /** @deprecated Kept for back-compat; idle wobble is no longer applied. */
-  wobbleRotation?: number;
-  /** @deprecated Kept for back-compat; idle wobble is no longer applied. */
-  wobbleY?: number;
-  /** @deprecated Kept for back-compat; idle wobble is no longer applied. */
-  wobbleFrequency?: number;
-  /** Body fill — overrides the default cream-paper / dark-glass fill. */
+  pulseSeed?: number;
+  /** Body fill — overrides the default dark-glass fill. */
   bodyFillColor?: number;
   bodyFillAlpha?: number;
   /** Accent color for the top banner + border. */
   accentColor?: number;
   /** Banner thickness across the card top in pixels. */
   bannerHeight?: number;
-  /** Border thickness (the dark ink line around the card). */
+  /** Border thickness (the accent line around the card). */
   borderWidth?: number;
-  /** Border color override — defaults to ink black, accent if not provided. */
+  /** Border color override — defaults to the accent color. */
   borderColor?: number;
   cornerRadius?: number;
   shadowOffsetX?: number;
   shadowOffsetY?: number;
   shadowAlpha?: number;
-  /** @deprecated kept for back-compat — now toggles light-up + flecks. */
-  liftOnHover?: boolean;
-  /** When false, idle wobble is suppressed. Now also a no-op (always calm). */
-  wobble?: boolean;
   interactive?: boolean;
 }
 
@@ -71,16 +59,17 @@ export interface MenuCard {
   destroy(): void;
 }
 
-const DEFAULT_SHADOW_OFFSET_X = 6;
-const DEFAULT_SHADOW_OFFSET_Y = 14;
-const DEFAULT_SHADOW_ALPHA = 0.55;
+const DEFAULT_SHADOW_OFFSET_X = 0;
+const DEFAULT_SHADOW_OFFSET_Y = 6;
+const DEFAULT_SHADOW_ALPHA = 0.5;
+const DEFAULT_CORNER_RADIUS = 6;
 const HOVER_SCALE = 1.03;
 const HOVER_TWEEN_MS = 140;
 
 // ── Fleck emission tuning ────────────────────────────────────────────────
 // Sparks spawn at a random point on the rounded-rect border, slide
 // tangentially along the rim for a moment, and accelerate outward along
-// the local normal before fading — same vibe as Hearthstone card sparkles.
+// the local normal before fading — a subtle energy shimmer on the rim.
 const FLECK_BASE_RADIUS = 2.6;
 const FLECK_POOL_MIN = 16;
 const FLECK_POOL_MAX = 36;
@@ -105,8 +94,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     y,
     width,
     height,
-    tilt = 0,
-    wobbleSeed = Math.random() * 1000,
+    pulseSeed = Math.random() * 1000,
     bodyFillColor,
     bodyFillAlpha,
     accentColor,
@@ -119,17 +107,10 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     shadowAlpha = DEFAULT_SHADOW_ALPHA,
     interactive = true,
   } = options;
-  // Other deprecated options accepted but ignored.
-  void options.wobble;
-  void options.wobbleRotation;
-  void options.wobbleY;
-  void options.wobbleFrequency;
-  void options.liftOnHover;
 
   const container = scene.add.container(x, y);
 
-  // Drop shadow stays gravity-aligned (unrotated) so cards feel grounded
-  // even when tilted.
+  // Soft ambient drop shadow directly beneath the panel.
   const shadow = scene.add.graphics();
   drawCardShadow(shadow, width, height, shadowOffsetX, shadowOffsetY, shadowAlpha, cornerRadius);
   container.add(shadow);
@@ -169,7 +150,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   // perimeter as 8 segments (4 straights + 4 quarter-arcs) gives every
   // sample a precise position plus an outward normal + tangent, so each
   // spark can ride the rim tangentially then accelerate outward.
-  const resolvedCornerRadius = cornerRadius ?? 12;
+  const resolvedCornerRadius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const halfWidthInner = width / 2;
   const halfHeightInner = height / 2;
   const straightHorizontalLength = Math.max(0, width - 2 * resolvedCornerRadius);
@@ -316,7 +297,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   };
 
   // ── Fleck pool ──────────────────────────────────────────────────────────
-  // Live inside `frame` so emission tracks the card's tilt + hover scale —
+  // Live inside `frame` so emission tracks the card's hover scale —
   // sparks should peel off the visual rim, not an axis-aligned bbox.
   const accentTint = accentColor ?? 0x88ccff;
   const fleckPoolSize = Math.max(
@@ -447,7 +428,6 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     else releaseHoverPose();
   };
 
-  frame.rotation = tilt;
   shadow.setAlpha(baseShadowAlpha);
 
   return {
@@ -476,7 +456,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       fleckActivity = fleckActivity + (target - fleckActivity) * Math.min(1, dt * 7.5);
 
       // Halo pulse: 1.0 ± 0.18 over ~1.6s, attenuated by current activity.
-      const haloPulse = 0.85 + Math.sin(timeSeconds * 4 + wobbleSeed) * 0.18;
+      const haloPulse = 0.85 + Math.sin(timeSeconds * 4 + pulseSeed) * 0.18;
       glow.setAlpha(fleckActivity * haloPulse);
 
       // Emit new flecks proportional to activity. Accumulator keeps spawn
@@ -552,7 +532,7 @@ function drawCardShadow(
   alpha: number,
   cornerRadius?: number,
 ): void {
-  const radius = cornerRadius ?? 12;
+  const radius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const halfW = width / 2;
   const halfH = height / 2;
   graphics.clear();
@@ -580,7 +560,7 @@ function drawCardGlow(
   accentColor: number,
   cornerRadius?: number,
 ): void {
-  const radius = cornerRadius ?? 12;
+  const radius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const halfW = width / 2;
   const halfH = height / 2;
   graphics.clear();
@@ -630,7 +610,7 @@ function drawCardPanel(
     cornerRadius?: number;
   },
 ): void {
-  const radius = opts.cornerRadius ?? 12;
+  const radius = opts.cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const borderWidth = opts.borderWidth ?? 2;
   const borderColor = opts.borderColor ?? (opts.accentColor ?? 0x4488cc);
   const bodyColor = opts.bodyFillColor ?? DEFAULT_BODY;

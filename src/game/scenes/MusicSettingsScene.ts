@@ -1,5 +1,5 @@
 /**
- * MusicSettingsScene — Balatro-style track picker. Each track is a slim
+ * MusicSettingsScene — track picker. Each track is a slim
  * card row in a scrollable list. Toggle by click; "P" plays focused track.
  */
 
@@ -11,7 +11,7 @@ import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
@@ -93,7 +93,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    makeStickerText(this, centerX, 36, 'MUSIC TRACKS', {
+    makeDisplayText(this, centerX, 36, 'MUSIC TRACKS', {
       fontSize: 32,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 5,
@@ -282,7 +282,6 @@ export class MusicSettingsScene extends Phaser.Scene {
       borderWidth: 2,
       borderColor: accent,
       cornerRadius: 8,
-      wobble: false,
       shadowOffsetY: 4,
       shadowAlpha: 0.3,
     });
@@ -290,7 +289,7 @@ export class MusicSettingsScene extends Phaser.Scene {
 
     const halfWidth = (this.cameras.main.width - 60) / 2;
 
-    const selector = makeStickerText(this, -halfWidth + 16, 0, '', {
+    const selector = makeDisplayText(this, -halfWidth + 16, 0, '', {
       fontSize: 14,
       color: ACCENT_COLORS_STR.focus,
       letterSpacing: 1,
@@ -298,7 +297,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     selector.setOrigin(0, 0.5);
     card.frame.add(selector);
 
-    const checkbox = makeStickerText(this, -halfWidth + 36, 0, isEnabled ? '[x]' : '[ ]', {
+    const checkbox = makeDisplayText(this, -halfWidth + 36, 0, isEnabled ? '[x]' : '[ ]', {
       fontSize: 14,
       color: isEnabled ? ACCENT_COLORS_STR.safe : TEXT_COLORS.dim,
       letterSpacing: 1,
@@ -313,7 +312,7 @@ export class MusicSettingsScene extends Phaser.Scene {
     });
     card.frame.add(label);
 
-    const playingIndicator = makeStickerText(this, halfWidth - 60, 0, isPlaying ? 'PLAYING' : '', {
+    const playingIndicator = makeDisplayText(this, halfWidth - 60, 0, isPlaying ? 'PLAYING' : '', {
       fontSize: 11,
       color: ACCENT_COLORS_STR.focus,
       letterSpacing: 1,
