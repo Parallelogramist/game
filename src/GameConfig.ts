@@ -10,6 +10,9 @@ export const GAME_CONFIG: Phaser.Types.Core.GameConfig = {
   roundPixels: true,
   input: {
     gamepad: true,
+    // Phaser's default is a single touch pointer — the second finger (dash /
+    // ultimate taps while the joystick thumb is down) would never register.
+    activePointers: 4,
   },
   scale: {
     mode: Phaser.Scale.EXPAND,

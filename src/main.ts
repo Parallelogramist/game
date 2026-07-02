@@ -49,8 +49,15 @@ import { ColorblindPipeline } from './visual/ColorblindPipeline';
     renderer.pipelines.addPostPipeline('ColorblindPipeline', ColorblindPipeline);
   }
 
-  // Flush pending encrypted writes before page unload
-  window.addEventListener('beforeunload', () => {
+  // Flush pending encrypted writes when the page goes away. iOS Safari
+  // rarely fires beforeunload — pagehide and visibilitychange(hidden) are
+  // the reliable lifecycle signals there. flushStorage is idempotent.
+  const flushOnExit = () => {
     flushStorage();
+  };
+  window.addEventListener('beforeunload', flushOnExit);
+  window.addEventListener('pagehide', flushOnExit);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOnExit();
   });
 })();

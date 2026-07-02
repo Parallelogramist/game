@@ -12,19 +12,18 @@ import Phaser from 'phaser';
 const JOYSTICK_ALPHA = 0.7;
 const JOYSTICK_DEPTH = 999;
 
-// Compute DPI-aware joystick sizing
-function computeJoystickSizes(): { baseRadius: number; knobRadius: number; deadZone: number } {
-  const devicePixelRatio = window.devicePixelRatio || 1;
-  const shorterSide = Math.min(window.innerWidth, window.innerHeight);
-
-  // Scale proportionally to screen size (70px base at 720px screen height)
-  const screenScale = shorterSide / 720;
-
-  // DPI boost for high-DPI phones (where CSS pixels are physically tiny)
-  const isPhone = shorterSide < 500;
-  const dpiBoost = isPhone && devicePixelRatio >= 2 ? 1.3 : 1.0;
-
-  const scaleFactor = screenScale * dpiBoost;
+// Compute joystick sizing in game units.
+//
+// The joystick is drawn in game coordinates, but "comfortable under a thumb"
+// is a physical-size question. Under Phaser's EXPAND mode a phone viewport
+// packs far more game units per CSS point than a desktop window (e.g. the
+// 720-unit-tall game on a ~345pt-tall Safari landscape viewport), so raw
+// game-unit radii render small. Scale by game-units-per-CSS-point (floored
+// at 1) to keep the on-screen size steady across devices.
+function computeJoystickSizes(scene: Phaser.Scene): { baseRadius: number; knobRadius: number; deadZone: number } {
+  const cssShorterSide = Math.min(window.innerWidth, window.innerHeight);
+  const gameShorterSide = Math.min(scene.scale.width, scene.scale.height);
+  const scaleFactor = cssShorterSide > 0 ? Math.max(1, gameShorterSide / cssShorterSide) : 1;
 
   return {
     baseRadius: Math.max(50, Math.min(120, Math.round(70 * scaleFactor))),
@@ -69,7 +68,7 @@ export class JoystickManager {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    const sizes = computeJoystickSizes();
+    const sizes = computeJoystickSizes(scene);
     this.baseRadius = sizes.baseRadius;
     this.knobRadius = sizes.knobRadius;
     this.deadZone = sizes.deadZone;

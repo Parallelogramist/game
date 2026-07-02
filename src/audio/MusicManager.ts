@@ -65,6 +65,25 @@ export class MusicManager {
 
     // Build initial playlist
     this.rebuildPlaylist();
+
+    // iOS suspends (or "interrupts") the AudioContext on phone calls, Siri,
+    // and backgrounding, and does not always resume it when the game comes
+    // back — kick it awake on return to the foreground. document is guarded
+    // for the Node test environment.
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => {
+        if (
+          document.visibilityState === 'visible' &&
+          this.isPlaying &&
+          this.audioContext &&
+          this.audioContext.state !== 'running'
+        ) {
+          void this.audioContext.resume().catch(() => {
+            /* still locked — the next user gesture will unlock it */
+          });
+        }
+      });
+    }
   }
 
   /**

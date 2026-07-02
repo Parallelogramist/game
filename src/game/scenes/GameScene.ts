@@ -74,7 +74,7 @@ import { getPactById, type Pact } from '../../data/Pacts';
 import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
-import { SecureStorage } from '../../storage';
+import { SecureStorage, flushStorage } from '../../storage';
 import { updateFrameCache, resetFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
 import { resetEnemySpatialHash, getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
@@ -424,6 +424,7 @@ export class GameScene extends Phaser.Scene {
   private autoSaveTimer: number = 0;
   private readonly AUTO_SAVE_INTERVAL: number = 30; // seconds
   private beforeUnloadHandler: (() => void) | null = null;
+  private visibilitySaveHandler: (() => void) | null = null;
   private shouldRestore: boolean = false;
 
   constructor() {
@@ -1205,9 +1206,21 @@ export class GameScene extends Phaser.Scene {
     this.beforeUnloadHandler = () => {
       if (!this.isGameOver && !this.hasWon) {
         this.saveGameState();
+        // Force pending encrypted writes out now — on iOS the page may be
+        // frozen or killed the moment this handler returns.
+        flushStorage();
       }
     };
+    // iOS Safari rarely fires beforeunload; pagehide + visibilitychange
+    // (hidden) cover backgrounding, tab switches, and swipe-away there.
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
+    window.addEventListener('pagehide', this.beforeUnloadHandler);
+    this.visibilitySaveHandler = () => {
+      if (document.visibilityState === 'hidden') {
+        this.beforeUnloadHandler?.();
+      }
+    };
+    document.addEventListener('visibilitychange', this.visibilitySaveHandler);
   }
 
   /**
@@ -7890,10 +7903,15 @@ export class GameScene extends Phaser.Scene {
       this.inputController.destroy();
     }
 
-    // Remove beforeunload handler for game state persistence
+    // Remove page-lifecycle save handlers for game state persistence
     if (this.beforeUnloadHandler) {
       window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      window.removeEventListener('pagehide', this.beforeUnloadHandler);
       this.beforeUnloadHandler = null;
+    }
+    if (this.visibilitySaveHandler) {
+      document.removeEventListener('visibilitychange', this.visibilitySaveHandler);
+      this.visibilitySaveHandler = null;
     }
 
     // Clean up event indicator
