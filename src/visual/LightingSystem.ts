@@ -39,7 +39,13 @@ export class LightingSystem {
     );
     this.lightTexture.setOrigin(0, 0);
     this.lightTexture.setScrollFactor(0);
-    this.lightTexture.setDepth(1999); // Just below UI
+    // Above all world-space content (grid 0 … gold sparkles 151) but below
+    // every screen-space UI layer (joystick/buttons 999, HUD/toasts 1000,
+    // minimap 1895, off-screen arrows 1900, intro overlays 1991, tooltips
+    // 2000, pause menu 2100). At its old depth (1999) the MULTIPLY darkness
+    // pass rendered on top of the HUD, so moving light pools visibly slid
+    // across UI text — the atmosphere layer must never touch UI.
+    this.lightTexture.setDepth(500);
     this.lightTexture.setBlendMode(Phaser.BlendModes.MULTIPLY);
 
     // Graphics used to draw light circles onto the render texture

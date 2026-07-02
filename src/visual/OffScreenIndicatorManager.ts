@@ -61,7 +61,7 @@ export class OffScreenIndicatorManager {
     for (let i = 0; i < MAX_INDICATORS; i++) {
       const graphics = scene.add.graphics();
       graphics.setScrollFactor(0);
-      graphics.setDepth(1900); // Below HUD (2000) but above gameplay
+      graphics.setDepth(1900); // Above the HUD pills (1000), below intro overlays (1991)
       graphics.setVisible(false);
       this.arrowPool.push({ graphics, inUse: false });
 

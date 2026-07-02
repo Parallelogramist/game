@@ -100,7 +100,7 @@ export function createMenuBackground(scene: Phaser.Scene): MenuBackground {
 
   // 5. Rising light streaks — ambient parallax motion.
   const drifters: Drifter[] = [];
-  const drifterCount = 7;
+  const drifterCount = 10;
   for (let i = 0; i < drifterCount; i++) {
     drifters.push(createDrifter(scene, screenWidth, screenHeight, i / drifterCount));
   }
@@ -161,14 +161,15 @@ function createDrifter(
   graphics.setDepth(DRIFT_DEPTH);
 
   // Thin vertical light streak — a soft wide pass under a bright core line.
-  // Visible enough to register as background life, faint enough to recede
-  // behind the menu UI.
-  graphics.fillStyle(0x4a6ba8, 0.10);
+  // Per-streak brightness varies with the seed so the field reads as depth
+  // layers rather than a uniform grid of lines.
+  const brightness = 0.7 + ((phaseSeed * 7.3) % 1) * 0.6;
+  graphics.fillStyle(0x4a6ba8, 0.10 * brightness);
   graphics.fillRect(-1.5, -halfLen, 3, streakLength);
-  graphics.fillStyle(0xaaccee, 0.28);
+  graphics.fillStyle(0xaaccee, 0.28 * brightness);
   graphics.fillRect(-0.5, -halfLen, 1, streakLength);
   // Bright head where the streak leads its climb.
-  graphics.fillStyle(0xcfe4ff, 0.4);
+  graphics.fillStyle(0xcfe4ff, 0.4 * brightness);
   graphics.fillRect(-1, -halfLen, 2, 10);
 
   const x = phaseSeed * screenWidth + (Math.random() - 0.5) * 200;

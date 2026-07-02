@@ -92,6 +92,10 @@ export function createMenuTabs(opts: MenuTabsOptions): MenuTabs {
   });
 
   function setActiveInternal(id: string) {
+    applyActiveVisuals(id);
+  }
+
+  function applyActiveVisuals(id: string) {
     activeId = id;
     for (const entry of entries) {
       const becomingActive = entry.spec.id === id;
@@ -100,6 +104,10 @@ export function createMenuTabs(opts: MenuTabsOptions): MenuTabs {
       entry.button.card.setFocusState(becomingActive);
     }
   }
+
+  // The active tab glows from the moment the strip appears — previously the
+  // selection treatment only kicked in after the first click.
+  applyActiveVisuals(activeId);
 
   return {
     container,

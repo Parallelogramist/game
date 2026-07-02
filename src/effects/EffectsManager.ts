@@ -320,7 +320,9 @@ export class EffectsManager {
       0xffffff,
       intensity
     );
-    flash.setDepth(1000);
+    // Gameplay-flash band (950): above the field, below all UI — at its old
+    // depth (1000 == HUD_DEPTH) it rendered over the HP/XP bars and toasts.
+    flash.setDepth(950);
     flash.setScrollFactor(0);  // Stay fixed to camera
 
     this.scene.tweens.add({

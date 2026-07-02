@@ -353,8 +353,16 @@ export class BootScene extends Phaser.Scene {
 
     const container = this.add.container(centerX, centerY);
 
-    // Soft glow ghost behind the letterforms — subtle neon halo, not a
-    // cartoon drop shadow.
+    // Soft glow ghosts behind the letterforms — two stacked layers make a
+    // smooth neon halo (wide faint pass + tight brighter pass).
+    const glowWide = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
+      fontSize: `${fontSize}px`,
+      color: COLORS.accentGoldStr,
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 6,
+    }).setOrigin(0.5).setAlpha(0.1).setScale(1.045);
+    container.add(glowWide);
     const glow = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
       fontSize: `${fontSize}px`,
       color: COLORS.accentGoldStr,
@@ -394,10 +402,15 @@ export class BootScene extends Phaser.Scene {
       ease: 'Sine.Out',
     });
 
-    // Slow glow breathe — brightness only, geometry stays locked.
+    // Slow glow breathe — brightness only, geometry stays locked. The rule
+    // shimmers slightly out of phase with the halo so the block feels lit,
+    // not blinking.
     const seed = Math.random() * 10;
     this.titleTicker = (timeSeconds: number) => {
-      glow.setAlpha(0.16 + (Math.sin(timeSeconds * 1.4 + seed) + 1) * 0.05);
+      const breathe = (Math.sin(timeSeconds * 1.4 + seed) + 1) * 0.5;
+      glow.setAlpha(0.16 + breathe * 0.1);
+      glowWide.setAlpha(0.07 + breathe * 0.06);
+      rule.setAlpha(0.72 + (Math.sin(timeSeconds * 1.4 + seed + 1.3) + 1) * 0.14);
     };
   }
 

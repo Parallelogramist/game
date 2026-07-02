@@ -102,8 +102,8 @@ function paintPillBackground(
 void MENU_COLORS;
 void ACCENT_COLORS_STR;
 
-// Above the LightingSystem glow texture (depth 1999) so frozen game lights/bloom
-// don't bleed over the menu. The pause menu is top-most UI.
+// Top-most UI layer — above the HUD (1000), minimap (1895), off-screen
+// arrows (1900), intro overlays (1991), and tooltips (2000).
 const PAUSE_MENU_DEPTH = 2100;
 
 function formatLargeNumber(n: number): string {

@@ -119,7 +119,7 @@ import { PauseMenuManager } from '../managers/PauseMenuManager';
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 const minimapConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
 
-const PAUSE_MENU_DEPTH = 1100; // Shared depth constant for overlay rendering
+const HUD_OVERLAY_DEPTH = 1100; // Warnings / notifications / coach marks — above HUD (1000), below minimap (1895). NOT the pause menu (2100, PauseMenuManager).
 
 // Combo-tier → visual intensity lookups (module-level to avoid per-frame literal allocation in updateGridBackground)
 const COMBO_TIER_LIGHT_RADIUS: Record<string, number> = {
@@ -1053,7 +1053,9 @@ export class GameScene extends Phaser.Scene {
       this.scale.width / 2, this.scale.height / 2,
       this.scale.width, this.scale.height,
       0xff0000, 0
-    ).setScrollFactor(0).setDepth(1998);
+      // Atmosphere band: above the lighting layer (500), below all UI
+      // (999+) — the low-HP pulse must not tint the HP bar it points at.
+    ).setScrollFactor(0).setDepth(850);
 
     // Create pause menu manager
     this.pauseMenuManager = this.createPauseMenuManager();
@@ -1682,7 +1684,9 @@ export class GameScene extends Phaser.Scene {
       this.scale.width / 2, this.scale.height / 2,
       this.scale.width, this.scale.height,
       0xff0000, 0
-    ).setScrollFactor(0).setDepth(1998);
+      // Atmosphere band: above the lighting layer (500), below all UI
+      // (999+) — the low-HP pulse must not tint the HP bar it points at.
+    ).setScrollFactor(0).setDepth(850);
 
     // Populate upgrade icons with restored weapons and upgrades
     this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
@@ -4521,11 +4525,13 @@ export class GameScene extends Phaser.Scene {
 
     // t=700: Dark vignette overlay fading in
     this.time.delayedCall(700, () => {
+      // Above all in-run UI (HUD 1000, minimap 1895, arrows 1900) so the
+      // whole frame dims together; below the game-over overlay (2100+).
       const darkenOverlay = this.add.rectangle(
         this.scale.width / 2, this.scale.height / 2,
         this.scale.width, this.scale.height,
         0x000000, 0
-      ).setDepth(900).setScrollFactor(0);
+      ).setDepth(2050).setScrollFactor(0);
       this.tweens.add({
         targets: darkenOverlay,
         alpha: 0.85,
@@ -5028,7 +5034,7 @@ export class GameScene extends Phaser.Scene {
    */
   private showMinibossWarning(name: string): void {
     this.soundManager.playBossWarning();
-    const warningDepth = PAUSE_MENU_DEPTH - 50;
+    const warningDepth = HUD_OVERLAY_DEPTH - 50;
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
 
@@ -5103,7 +5109,7 @@ export class GameScene extends Phaser.Scene {
   private updateBossWarning(_deltaSeconds: number): void {
     if (this.endlessModeActive || this.bossSpawned || this.bossSpawnTime <= 0) return;
 
-    const warningDepth = PAUSE_MENU_DEPTH - 50;
+    const warningDepth = HUD_OVERLAY_DEPTH - 50;
     const screenCenterX = this.scale.width / 2;
     const screenCenterY = this.scale.height / 2;
 
@@ -5479,7 +5485,7 @@ export class GameScene extends Phaser.Scene {
 
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
-    const coachDepth = PAUSE_MENU_DEPTH - 60;
+    const coachDepth = HUD_OVERLAY_DEPTH - 60;
     let cardIndex = 0;
     let currentElements: Phaser.GameObjects.GameObject[] = [];
     let keyHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -5966,7 +5972,7 @@ export class GameScene extends Phaser.Scene {
     const bannerHeight = 50;
     const bannerX = this.scale.width / 2;
     const bannerY = -bannerHeight;
-    const bannerDepth = PAUSE_MENU_DEPTH - 60;
+    const bannerDepth = HUD_OVERLAY_DEPTH - 60;
 
     const bannerBg = this.add.rectangle(bannerX, bannerY, bannerWidth, bannerHeight, 0x000000, 0.85);
     bannerBg.setStrokeStyle(2, event.color);
@@ -6990,7 +6996,7 @@ export class GameScene extends Phaser.Scene {
       }
     );
     notification.setOrigin(0.5);
-    notification.setDepth(PAUSE_MENU_DEPTH);
+    notification.setDepth(HUD_OVERLAY_DEPTH);
 
     // Animate: float up and fade out
     this.tweens.add({
