@@ -245,6 +245,16 @@ Union type `Phaser.GameObjects.Shape | Phaser.GameObjects.Graphics` — supports
 
 ### Visual System
 
+**Mobile/UI scaling.** `HudScale.ts` measures game-units-per-CSS-point
+(`densityCompensation`) — under EXPAND a phone viewport packs ~2× more game units
+per point than desktop, so HUD, menu fonts (capped 1.6×), and the virtual joystick
+scale back up to a stable physical size. `index.html` owns the iOS shell: safe-area
+container (fixed insets, not padding — Phaser measures border boxes), portrait
+rotate overlay, and pinch/double-tap/overscroll suppression. Multitouch needs
+`activePointers` in `GameConfig` (joystick + buttons are concurrent touches).
+Page-lifecycle saves listen to `pagehide`/`visibilitychange`, not just
+`beforeunload` (iOS rarely fires it).
+
 **UI design language — sleek neon-tech.** Shared tokens live in
 `/src/visual/MenuStyle.ts` (`DISPLAY_FONT` = Rajdhani for headings/labels, `MENU_FONT` =
 Atkinson Hyperlegible for body copy, role-coded accent/body palettes). Headings and

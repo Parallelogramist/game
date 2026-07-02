@@ -10,7 +10,7 @@ import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { deriveBuildStats } from './buildStats';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
-import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS } from '../../visual/MenuStyle';
+import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -1422,49 +1422,52 @@ export class PauseMenuManager {
     const centerY = this.scene.scale.height / 2;
 
     // Title glow (two concentric circles behind title)
+    const titleY = centerY - 172;
     const glowGraphics = this.scene.add.graphics();
     glowGraphics.setDepth(depth - 1);
     glowGraphics.fillStyle(titleColorHex, 0.08);
-    glowGraphics.fillCircle(centerX, centerY - 110, 120);
+    glowGraphics.fillCircle(centerX, titleY, 120);
     glowGraphics.fillStyle(titleColorHex, 0.15);
-    glowGraphics.fillCircle(centerX, centerY - 110, 70);
+    glowGraphics.fillCircle(centerX, titleY, 70);
 
     // Collect elements for staggered entrance animation
     const animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [glowGraphics];
 
-    const titleText = this.scene.add.text(centerX, centerY - 110, titleLabel, {
-      fontSize: '64px',
+    const titleText = this.scene.add.text(centerX, titleY, titleLabel, {
+      fontSize: '58px',
       color: titleColor,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 7,
+      strokeThickness: 3,
     });
-    titleText.setLetterSpacing(4);
+    titleText.setLetterSpacing(6);
     titleText.setOrigin(0.5).setDepth(depth);
     animatedElements.push(titleText);
 
-    // Performance grade badge (left of the title).
+    // Performance grade badge — positioned off the measured title width so it
+    // never overlaps the letterforms.
     if (data.performanceGrade) {
       const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
-      const badgeX = centerX - 185;
+      const badgeX = centerX - titleText.displayWidth / 2 - 58;
       const badgeGraphics = this.scene.add.graphics();
       badgeGraphics.setDepth(depth - 1);
       badgeGraphics.fillStyle(0x000000, 0.55);
-      badgeGraphics.fillCircle(badgeX, centerY - 110, 36);
-      badgeGraphics.lineStyle(3, gradeColorHex, 1);
-      badgeGraphics.strokeCircle(badgeX, centerY - 110, 36);
-      const gradeText = this.scene.add.text(badgeX, centerY - 110, data.performanceGrade.grade, {
-        fontSize: '46px',
+      badgeGraphics.fillCircle(badgeX, titleY, 32);
+      badgeGraphics.lineStyle(2, gradeColorHex, 1);
+      badgeGraphics.strokeCircle(badgeX, titleY, 32);
+      const gradeText = this.scene.add.text(badgeX, titleY, data.performanceGrade.grade, {
+        fontSize: '40px',
         color: data.performanceGrade.color,
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 3,
       }).setOrigin(0.5).setDepth(depth);
-      const gradeLabel = this.scene.add.text(badgeX, centerY - 66, 'GRADE', {
-        fontSize: '11px', color: '#8888aa', fontFamily: 'Arial',
+      const gradeLabel = this.scene.add.text(badgeX, titleY + 44, 'GRADE', {
+        fontSize: '11px', color: '#8888aa', fontFamily: DISPLAY_FONT, fontStyle: 'bold',
       }).setOrigin(0.5).setDepth(depth);
+      gradeLabel.setLetterSpacing(2);
       animatedElements.push(badgeGraphics, gradeText, gradeLabel);
     }
 
@@ -1473,7 +1476,7 @@ export class PauseMenuManager {
       const scoreStr = data.isNewBest
         ? `★ NEW BEST  ${data.runScore.toLocaleString()}`
         : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
-      const scoreText = this.scene.add.text(centerX, centerY - 66, scoreStr, {
+      const scoreText = this.scene.add.text(centerX, titleY + 48, scoreStr, {
         fontSize: '16px',
         color: data.isNewBest ? '#ffdd44' : '#9999bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1482,52 +1485,87 @@ export class PauseMenuManager {
       animatedElements.push(scoreText);
     }
 
-    // Run stats — each stat gets its own line with count-up animation
+    // ── Run stats panel ────────────────────────────────────────────────────
+    // Two-column grid inside one container: labels flush left, values flush
+    // right per cell, so every number lines up regardless of digit count.
     const minutes = Math.floor(data.gameTime / 60);
     const seconds = Math.floor(data.gameTime % 60);
     const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
-    const statLabelStyle = { fontSize: '14px', color: '#8888aa', fontFamily: 'Arial' };
-    const statValueStyle = { fontSize: '20px', color: '#aaaacc', fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif', fontStyle: 'bold' };
+    const hasDamageRow = data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined;
+    const statRowCount = hasDamageRow ? 3 : 2;
+    const statRowHeight = 34;
+    const statsPanelWidth = 480;
+    const statsPanelHeight = statRowCount * statRowHeight + 22;
+    const statsPanelTop = centerY - 104;
 
-    // Stat lines — compact 2-column layout
-    const leftColX = centerX - 100;
-    const rightColX = centerX + 100;
-    let statRowY = centerY - 45;
-    const statRowSpacing = 28;
+    const statsPanel = this.scene.add.graphics();
+    paintPanelBackground(
+      statsPanel,
+      centerX - statsPanelWidth / 2,
+      statsPanelTop,
+      statsPanelWidth,
+      statsPanelHeight
+    );
+    // Hairline column divider down the middle of the grid.
+    statsPanel.fillStyle(0x8898b0, 0.18);
+    statsPanel.fillRect(centerX, statsPanelTop + 12, 1, statsPanelHeight - 24);
+    statsPanel.setDepth(depth);
+    animatedElements.push(statsPanel);
 
-    // Adds a (label, value) pair centered at (x, y) with value directly below.
-    // Returns the value text so callers can attach count-up animations.
-    const addStatPair = (
-      x: number,
+    const statLabelStyle = {
+      fontSize: '13px',
+      color: '#8898b0',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+    };
+    const statValueStyle = {
+      fontSize: '20px',
+      color: '#e8ecf4',
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+    };
+
+    const cellInset = 20;
+    const cellGutter = 26;
+    const leftCellLeftX = centerX - statsPanelWidth / 2 + cellInset;
+    const leftCellRightX = centerX - cellGutter;
+    const rightCellLeftX = centerX + cellGutter;
+    const rightCellRightX = centerX + statsPanelWidth / 2 - cellInset;
+
+    // Adds a stat row cell: label flush left, value flush right on the same
+    // baseline. Returns the value text (right-anchored, so count-up digits
+    // grow leftward and stay aligned).
+    const addStatCell = (
+      cellLeftX: number,
+      cellRightX: number,
       y: number,
       label: string,
       value: string,
       valueStyleOverrides: Partial<Phaser.Types.GameObjects.Text.TextStyle> = {}
     ): Phaser.GameObjects.Text => {
-      const labelText = this.scene.add.text(x, y, label, statLabelStyle).setOrigin(0.5).setDepth(depth);
+      const labelText = this.scene.add.text(cellLeftX, y, label, statLabelStyle)
+        .setOrigin(0, 0.5).setDepth(depth);
       const valueText = this.scene.add.text(
-        x,
-        y + 16,
+        cellRightX,
+        y,
         value,
         { ...statValueStyle, ...valueStyleOverrides }
-      ).setOrigin(0.5).setDepth(depth);
+      ).setOrigin(1, 0.5).setDepth(depth);
       animatedElements.push(labelText, valueText);
       return valueText;
     };
 
-    // Row 1: Time & Kills
-    addStatPair(leftColX, statRowY, 'Survived', timeStr);
-    const killValue = addStatPair(rightColX, statRowY, 'Kills', '0');
+    const statRowY = (row: number): number =>
+      statsPanelTop + 11 + statRowHeight * row + statRowHeight / 2;
 
-    statRowY += statRowSpacing + 16;
+    // Row 1: Time & Kills
+    addStatCell(leftCellLeftX, leftCellRightX, statRowY(0), 'Survived', timeStr);
+    const killValue = addStatCell(rightCellLeftX, rightCellRightX, statRowY(0), 'Kills', '0');
 
     // Row 2: Level & Combo
-    const levelValue = addStatPair(leftColX, statRowY, 'Level', '0');
-
+    const levelValue = addStatCell(leftCellLeftX, leftCellRightX, statRowY(1), 'Level', '0');
     if (data.highestCombo > 0) {
-      const comboValue = addStatPair(rightColX, statRowY, 'Best Combo', '0', { color: '#ffdd44' });
-      // Combo count-up (delayed to appear after stagger)
+      const comboValue = addStatCell(rightCellLeftX, rightCellRightX, statRowY(1), 'Best Combo', '0', { color: '#ffdd44' });
       this.countUpStats.push({ text: comboValue, target: data.highestCombo });
     }
 
@@ -1537,43 +1575,36 @@ export class PauseMenuManager {
       { text: levelValue, target: data.playerLevel },
     );
 
-    statRowY += statRowSpacing + 16;
-
     // Row 3: Damage dealt (with DPS) & taken
-    if (data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined) {
+    if (hasDamageRow) {
       const dmgDealt = formatLargeNumber(data.totalDamageDealt ?? 0);
       const dmgTaken = formatLargeNumber(data.totalDamageTaken ?? 0);
       const dps = data.gameTime > 0 ? formatLargeNumber(Math.floor((data.totalDamageDealt ?? 0) / data.gameTime)) : '0';
 
-      addStatPair(leftColX, statRowY, 'Damage Dealt', `${dmgDealt} (${dps}/s)`, { fontSize: '16px' });
-      addStatPair(rightColX, statRowY, 'Damage Taken', dmgTaken, { fontSize: '16px', color: '#ff8888' });
-
-      statRowY += statRowSpacing + 16;
+      addStatCell(leftCellLeftX, leftCellRightX, statRowY(2), 'Damage Dealt', `${dmgDealt} (${dps}/s)`, { fontSize: '16px' });
+      addStatCell(rightCellLeftX, rightCellRightX, statRowY(2), 'Damage Taken', dmgTaken, { fontSize: '16px', color: '#ff8888' });
     }
 
-    // Divider line between stats and gold
-    const divider = this.scene.add.graphics();
-    divider.setDepth(depth);
-    divider.lineStyle(1, 0x4a4a7a, 0.6);
-    divider.lineBetween(centerX - 120, statRowY + 5, centerX + 120, statRowY + 5);
-    animatedElements.push(divider);
+    // ── Gold pill ──────────────────────────────────────────────────────────
+    const goldPillHeight = 40;
+    const goldY = statsPanelTop + statsPanelHeight + 14 + goldPillHeight / 2;
+    const goldPill = this.scene.add.graphics();
+    paintPillBackground(goldPill, centerX, goldY, 250, goldPillHeight, BODY_COLORS.gold, ACCENT_COLORS.gold);
+    goldPill.setDepth(depth);
+    animatedElements.push(goldPill);
 
-    // Animated gold counter
-    const goldY = statRowY + 25;
     const goldText = this.scene.add.text(centerX, goldY, 'Gold: +0', {
-      fontSize: '28px',
+      fontSize: '22px',
       color: '#ffdd44',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
     }).setOrigin(0.5).setDepth(depth);
     const goldElementIndex = animatedElements.length;
     animatedElements.push(goldText);
 
     // Streak text
     if (streakChangeText) {
-      const streakDisplay = this.scene.add.text(centerX, goldY + 35, streakChangeText, {
+      const streakDisplay = this.scene.add.text(centerX, goldY + 38, streakChangeText, {
         fontSize: '18px',
         color: data.previousStreak > 0 && !hasWon ? '#ff6666' : '#ffdd44',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1582,9 +1613,9 @@ export class PauseMenuManager {
     }
 
     // Track the bottom of the content for dynamic positioning
-    let contentBottomY = goldY + 35;
+    let contentBottomY = goldY + goldPillHeight / 2;
     if (streakChangeText) {
-      contentBottomY = goldY + 70;
+      contentBottomY = goldY + 52;
     }
 
     // Weapon breakdown panel (right side) + personal bests panel (left side)
@@ -1601,16 +1632,19 @@ export class PauseMenuManager {
       contentBottomY = this.createUnlockProgressPanel(
         data.unlockProgress,
         centerX,
-        contentBottomY + 30,
+        contentBottomY + 18,
         depth,
         animatedElements
       );
     }
 
-    // Restart hint
+    // Restart hint — clamped above the bottom edge so it never sits under
+    // the iOS home indicator or off-screen on short landscape viewports.
     const isTouchDevice = this.scene.input.manager.touch !== null && this.scene.sys.game.device.input.touch;
     const restartHint = isTouchDevice ? 'Tap to restart' : 'Press SPACE to restart';
-    const restartText = this.scene.add.text(centerX, contentBottomY + 50, restartHint, {
+    const restartY = Math.min(contentBottomY + 56, this.scene.scale.height - 24);
+    const affordY = restartY - 28;
+    const restartText = this.scene.add.text(centerX, restartY, restartHint, {
       fontSize: '20px',
       color: '#888888',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1685,7 +1719,7 @@ export class PauseMenuManager {
           ? `You can now afford: ${nextUpgrade.name}`
           : `${nextUpgrade.goldNeeded}g away from: ${nextUpgrade.name}`;
         const affordColor = nextUpgrade.canAfford ? '#44ff88' : '#aaaacc';
-        this.scene.add.text(centerX, contentBottomY + 25, affordLabel, {
+        this.scene.add.text(centerX, affordY, affordLabel, {
           fontSize: '16px',
           color: affordColor,
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1798,9 +1832,9 @@ export class PauseMenuManager {
 
     const totalDamageAll = sortedWeapons.reduce((sum, stat) => sum + stat.totalDamage, 0);
 
-    const panelX = this.scene.scale.width * 0.82;
-    const panelTopY = this.scene.scale.height / 2 - 150;
     const panelWidth = 240;
+    const panelX = Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - panelWidth / 2 - 24);
+    const panelTopY = this.scene.scale.height / 2 - 150;
     const rowHeight = 36;
     const panelHeight = sortedWeapons.length * rowHeight + 52;
 
@@ -1878,9 +1912,9 @@ export class PauseMenuManager {
     animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
   ): void {
     const bests = data.personalBests!;
-    const panelX = this.scene.scale.width * 0.18;
-    const panelTopY = this.scene.scale.height / 2 - 150;
     const panelWidth = 240;
+    const panelX = Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
+    const panelTopY = this.scene.scale.height / 2 - 150;
     const rowHeight = 32;
 
     interface BestRow {
@@ -2014,7 +2048,8 @@ export class PauseMenuManager {
     const barWidth = 110;
     const barHeight = 6;
     const leftTextX = centerX - panelWidth / 2 + 14;
-    const barX = centerX + panelWidth / 2 - barWidth - 14;
+    const percentRightX = centerX + panelWidth / 2 - 12;
+    const barX = percentRightX - 34 - barWidth;
 
     entries.forEach((entry, index) => {
       const rowY = startY + headerOffset + 8 + index * rowHeight;
@@ -2039,11 +2074,11 @@ export class PauseMenuManager {
       barGraphics.setDepth(depth);
       animatedElements.push(barGraphics);
 
-      const percentText = this.scene.add.text(barX + barWidth + 6, rowY, `${percent}%`, {
+      const percentText = this.scene.add.text(percentRightX, rowY, `${percent}%`, {
         fontSize: '11px',
         color: percent >= 90 ? '#ffdd44' : '#888899',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(1, 0).setDepth(depth);
       animatedElements.push(percentText);
 
       const detailText = this.scene.add.text(leftTextX, rowY + 11, progressText, {

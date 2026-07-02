@@ -38,6 +38,16 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
+- [ ] **POLISH-CANVAS-DPR — render the canvas at device resolution on phones**
+  · area: visual/mobile · **BLOCKED on on-device verification — do not land blind**
+  **Why:** Phaser sizes the canvas backing store in CSS pixels, so a 3× iPhone
+  renders at 1/3 physical resolution and upscales (soft edges on the neon lines).
+  Candidate: EXPAND mode + `zoom: 1/Math.min(devicePixelRatio, 2)` (or manual canvas
+  resize on the ScaleManager resize event) — but EXPAND×zoom interaction is
+  undocumented and input-coordinate mapping + HUD density compensation
+  (`HudScale.densityCompensation`) both depend on the resulting game-unit size.
+  Needs a real iPhone/iPad to validate before landing.
+
 - [ ] **REFACTOR-2 (phase 1) — extract regular-enemy AI handlers** · area: architecture
   **Value:** `EnemyAISystem.ts` is 2,076 lines around one ~29-case switch;
   `src/ecs/systems/enemy-ai/` exists but holds only `state.ts` + `index.ts`. Extraction
@@ -88,6 +98,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MOBILE-IPHONE** — mobile/Safari polish pass (multitouch
+    `activePointers: 4`, safe-area container via fixed insets, portrait rotate
+    overlay, iOS lifecycle saves on pagehide/visibilitychange, AudioContext
+    foreground resume, density-compensated HUD/menu/joystick scaling, death-screen
+    stats panel). Check on an iPhone (16 Pro Max especially), Safari landscape:
+    (a) dash/ult taps register while the joystick thumb is down; (b) nothing renders
+    under the Dynamic Island or home indicator, no black-bar mismatch; (c) HUD/menu
+    text physical size feels right with the toolbar shown vs hidden (minimal UI);
+    (d) pull-to-refresh, pinch zoom, double-tap zoom, long-press callout all inert;
+    (e) kill the tab mid-run → save restores; take a phone call mid-run → music
+    resumes; (f) death screen: grade badge clear of the title, stat numbers flush
+    right in their cells, unlock panel + afford teaser + tap-to-restart all visible
+    above the bottom edge; (g) portrait shows the rotate overlay, rotating back
+    resumes cleanly.
   - **POLISH-SLEEK-REDESIGN** — sleek neon-tech visual pass (branch
     `claude/game-design-visual-polish-q134lf`): Rajdhani display font replaces the
     sticker look (comic fonts dropped from `index.html`), cards flattened (no
