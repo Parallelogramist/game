@@ -72,13 +72,21 @@ interface StepperHandles {
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
 
 const PILL_PALETTE = {
-  on: { fill: 0x143924, border: ACCENT_COLORS.safe, text: '#a8f5c4' },
-  onActive: { fill: ACCENT_COLORS.safe, border: ACCENT_COLORS.safe, text: '#0a1a12' },
-  off: { fill: 0x3a1620, border: ACCENT_COLORS.danger, text: '#ffb3bd' },
-  offActive: { fill: ACCENT_COLORS.danger, border: ACCENT_COLORS.danger, text: '#1a0a0d' },
   neutral: { fill: 0x1c2538, border: ACCENT_COLORS.neutral, text: TEXT_COLORS.muted },
   neutralActive: { fill: ACCENT_COLORS.focus, border: ACCENT_COLORS.focus, text: '#1a1408' },
   focusBorder: ACCENT_COLORS.focus,
+} as const;
+
+// Sliding-switch colors for boolean settings. Green track = enabled reads
+// unambiguously; the old twin ON/OFF pills made users guess whether the
+// highlighted pill was the state or the button.
+const SWITCH_COLORS = {
+  trackOn: ACCENT_COLORS.safe,
+  trackOff: 0x2a3450,
+  trackBorderOff: 0x46527a,
+  knobOn: 0xf2f6ff,
+  knobOff: 0x8898b0,
+  labelOn: '#a8f5c4',
 } as const;
 
 export class SettingsScene extends Phaser.Scene {
@@ -560,51 +568,113 @@ export class SettingsScene extends Phaser.Scene {
   // ── ON/OFF toggle ─────────────────────────────────────────────────────────
 
   private addToggle(card: MenuCard, rightAlignX: number, y: number, zone: FocusZone, initialEnabled: boolean, onToggle: () => void): ToggleControl {
-    const pillWidth = scaledInt(this.layoutScale, 58);
-    const pillHeight = scaledInt(this.layoutScale, 26);
-    const gap = scaledInt(this.layoutScale, 6);
+    // One sliding switch per setting: filled green track + knob right = on,
+    // dim track + knob left = off, with the state spelled out beside it.
+    // Replaces the twin ON/OFF pills, where BOTH pills fired the same toggle
+    // (clicking “OFF” while off turned the setting on) and the highlighted
+    // pill was ambiguous between current-state and call-to-action.
+    const trackWidth = scaledInt(this.layoutScale, 46);
+    const trackHeight = scaledInt(this.layoutScale, 24);
+    const knobInset = scaledInt(this.layoutScale, 3);
+    const knobRadius = Math.max(6, Math.round(trackHeight / 2) - knobInset);
+    const trackCenterX = rightAlignX - trackWidth / 2;
+    const knobTravel = trackWidth / 2 - knobInset - knobRadius;
 
-    const offPillX = rightAlignX - pillWidth / 2;
-    const onPillX = offPillX - pillWidth - gap;
+    const track = this.add.graphics();
+    card.frame.add(track);
 
-    const handleSelect = () => {
-      this.focusZone = zone;
-      onToggle();
+    const knob = this.add.graphics();
+    knob.fillStyle(0x000000, 0.3);
+    knob.fillCircle(0, scaledInt(this.layoutScale, 1), knobRadius + 1);
+    knob.fillStyle(SWITCH_COLORS.knobOff, 1);
+    knob.fillCircle(0, 0, knobRadius);
+    card.frame.add(knob);
+
+    // State word — the switch never reads ambiguously even at a glance.
+    const stateLabel = this.add.text(
+      trackCenterX - trackWidth / 2 - scaledInt(this.layoutScale, 10), y, '', {
+        fontSize: scaledFontPx(this.fontScale, 12),
+        color: TEXT_COLORS.muted,
+        fontFamily: FONT_FAMILY,
+        fontStyle: 'bold',
+      }).setOrigin(1, 0.5);
+    card.frame.add(stateLabel);
+
+    const drawTrack = (enabled: boolean, focused: boolean) => {
+      const halfW = trackWidth / 2;
+      const halfH = trackHeight / 2;
+      track.clear();
+      track.fillStyle(enabled ? SWITCH_COLORS.trackOn : SWITCH_COLORS.trackOff, 1);
+      track.fillRoundedRect(trackCenterX - halfW, y - halfH, trackWidth, trackHeight, halfH);
+      if (focused) {
+        track.lineStyle(2, PILL_PALETTE.focusBorder, 1);
+      } else {
+        track.lineStyle(1, enabled ? SWITCH_COLORS.trackOn : SWITCH_COLORS.trackBorderOff, 0.9);
+      }
+      track.strokeRoundedRect(trackCenterX - halfW, y - halfH, trackWidth, trackHeight, halfH);
     };
-    const hoverHandler = () => {
-      this.focusZone = zone;
-      this.refreshAllFocusVisuals();
+
+    const drawKnob = (enabled: boolean) => {
+      knob.clear();
+      knob.fillStyle(0x000000, 0.3);
+      knob.fillCircle(0, scaledInt(this.layoutScale, 1), knobRadius + 1);
+      knob.fillStyle(enabled ? SWITCH_COLORS.knobOn : SWITCH_COLORS.knobOff, 1);
+      knob.fillCircle(0, 0, knobRadius);
     };
 
-    const onPill = this.createPill(card.frame, onPillX, y, pillWidth, pillHeight, 'ON',
-      PILL_PALETTE.on, handleSelect, hoverHandler);
-    const offPill = this.createPill(card.frame, offPillX, y, pillWidth, pillHeight, 'OFF',
-      PILL_PALETTE.off, handleSelect, hoverHandler);
-
-    const applyState = (enabled: boolean, focused: boolean) => {
-      const onPalette = enabled ? PILL_PALETTE.onActive : PILL_PALETTE.on;
-      const offPalette = !enabled ? PILL_PALETTE.offActive : PILL_PALETTE.off;
-      this.drawPill(onPill.background, onPill.width, onPill.height, onPalette.fill,
-        focused ? PILL_PALETTE.focusBorder : onPalette.border, focused);
-      onPill.label.setColor(onPalette.text);
-      this.drawPill(offPill.background, offPill.width, offPill.height, offPalette.fill,
-        focused ? PILL_PALETTE.focusBorder : offPalette.border, focused);
-      offPill.label.setColor(offPalette.text);
-    };
-
-    applyState(initialEnabled, false);
+    const knobX = (enabled: boolean) => trackCenterX + (enabled ? knobTravel : -knobTravel);
 
     let currentEnabled = initialEnabled;
     let currentFocused = false;
 
+    const applyState = (animateKnob: boolean) => {
+      drawTrack(currentEnabled, currentFocused);
+      drawKnob(currentEnabled);
+      stateLabel.setText(currentEnabled ? 'ON' : 'OFF');
+      stateLabel.setColor(currentEnabled ? SWITCH_COLORS.labelOn : TEXT_COLORS.muted);
+      // Read reduced motion live — this very control toggles it, and the
+      // switch should honor the value the click just committed.
+      if (animateKnob && !getSettingsManager().isReducedMotionEnabled()) {
+        this.tweens.killTweensOf(knob);
+        this.tweens.add({
+          targets: knob,
+          x: knobX(currentEnabled),
+          duration: 120,
+          ease: 'Sine.easeOut',
+        });
+      } else if (this.tweens.getTweensOf(knob).length === 0) {
+        // Focus repaints call through here every hover — don't snap a knob
+        // that's mid-slide (any in-flight tween already targets this state).
+        knob.setX(knobX(currentEnabled));
+      }
+    };
+
+    knob.setPosition(knobX(initialEnabled), y);
+    applyState(false);
+
+    const hitZone = this.add.zone(trackCenterX, y, trackWidth + scaledInt(this.layoutScale, 12), trackHeight + scaledInt(this.layoutScale, 10))
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    card.frame.add(hitZone);
+    hitZone.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      this.focusZone = zone;
+      onToggle();
+    });
+    hitZone.on('pointerover', () => {
+      this.focusZone = zone;
+      this.refreshAllFocusVisuals();
+    });
+
     return {
-      refresh(enabled: boolean) {
+      refresh: (enabled: boolean) => {
+        const changed = enabled !== currentEnabled;
         currentEnabled = enabled;
-        applyState(currentEnabled, currentFocused);
+        applyState(changed);
       },
-      setFocused(focused: boolean) {
+      setFocused: (focused: boolean) => {
         currentFocused = focused;
-        applyState(currentEnabled, currentFocused);
+        applyState(false);
       },
     };
   }
