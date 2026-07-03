@@ -59,6 +59,9 @@ export const ALL_STORAGE_KEYS = [
   // GameScene
   'game_autoBuyEnabled',
 
+  // CardCollectionManager
+  'survivor-meta-cards',
+
   // CodexManager
   'survivor-codex',
 

@@ -71,7 +71,16 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   source of truth — read it before touching cards). Follow-ups: reveal-moment
   juice (flip animation polish + sfx), a proper per-card icon pass, collection
   milestone achievements, and a drop-rate/cost balance pass after real play
-  (SCAN_COST, cache chances, pity threshold are the knobs).
+  (SCAN_COST, cache chances, pity threshold are the knobs). Also: render the
+  aggregate bonus summary in the CardsScene header (spec asks for it; omitted
+  in phase 1 for layout room), and consider deferring `rollCacheDiscovery`'s
+  `discoverCard` to reveal-consumption time — today a cache pickup discovers
+  immediately (per the spec contract), so abandoning the run shows the card
+  in the archive (bonus already active) before its end-screen reveal ever
+  plays, deflating the SFR reveal moment. Accepted phase-1 deviations from
+  the spec sketch: tiles are 148×134, not ~150×190 (4 rows must fit 720px
+  without scrolling); Scanner `scan()` reveals immediately in-scene rather
+  than queueing a pending reveal.
 
 - [ ] **FEAT-CARDS-3 — timed / next-run boost cards** · area: meta · **needs design**
   SFR-style temporary cards (boost active for the next run). Interacts with
@@ -157,6 +166,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CARDS** — card collection + scanner lottery (FEAT-CARDS-1; spec in
+    `docs/superpowers/specs/2026-07-03-card-collection-meta-design.md`, feel
+    checklist at the bottom). Check: (a) CARD ARCHIVE grid legibility — '?'
+    slots vs discovered mini-cards, rarity hairlines at 40% blend, detail line
+    on hover/focus, full keyboard/gamepad walk; (b) DECRYPT flow — gold spend,
+    pity countdown ("EPIC+ GUARANTEED IN N"), reveal flip + glow (and its
+    reduced-motion fade), ARCHIVE COMPLETE end state; (c) in-run cache drops —
+    boss 100% / miniboss 20% / elite 2% cadence feels right, pickup toast
+    reads, once-per-run guard holds; (d) end-screen reveal panel placement on
+    BOTH death and victory at UI-scale extremes and phone landscape; (e)
+    bonuses small enough that a full archive ≈ one shop tier (aggregate is
+    visible per-card; magnitudes in `src/data/Cards.ts`); (f) Surge Array:
+    Overdrive meter visibly fills ~10% faster. Knobs: SCAN_COST/PITY_THRESHOLD
+    (`CardCollectionManager.ts`), cache chances (`GameScene.handleEnemyDeath`).
   - **POLISH-SETTINGS-UX** — sliding-switch toggles (`03716d2`) + mid-run UI-scale
     apply (`3ebb815`). Check: (a) switches read instantly (green/right = on) at every
     UI scale, knob slide is clean, gamepad focus ring visible; (b) mid-run UI-scale

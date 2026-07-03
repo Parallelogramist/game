@@ -89,6 +89,7 @@ import {
   isUltimateReady,
   tryActivateUltimate,
   setUltimateChargeSuppressed,
+  setUltimateChargeRateMultiplier,
   computeUltimateNova,
   getUltimateState,
   restoreUltimateState,
@@ -106,6 +107,7 @@ import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import { recordDailyRun } from '../../meta/DailyChallengeManager';
 import { getRelicManager } from '../../meta/RelicManager';
+import { getCardCollectionManager } from '../../meta/CardCollectionManager';
 import { getRelicRarityColor } from '../../data/Relics';
 import { getStageById, getDefaultStage } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
@@ -302,6 +304,11 @@ export class GameScene extends Phaser.Scene {
   private magnetSpawnTimer: number = 0;
   private readonly MAGNET_SPAWN_INTERVAL: number = TUNING.pickups.magnetSpawnInterval;
   private nextEnemyDropsMagnet: boolean = false;
+
+  // Card-collection data cache guard: at most ONE cache pickup per run (the
+  // reveal is a single end-screen moment). Synced with the manager's persisted
+  // pending reveal in both create paths — see syncCacheGuardWithPendingReveal.
+  private cacheFoundThisRun: boolean = false;
 
   // Effects and sound managers for game juice
   private effectsManager!: EffectsManager;
@@ -593,6 +600,7 @@ export class GameScene extends Phaser.Scene {
     this.isPaused = false;
     this.introOverlayActive = false;
     this.hasWon = false;
+    this.syncCacheGuardWithPendingReveal();
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
     this.bossWarningPhase = 0;
@@ -800,6 +808,26 @@ export class GameScene extends Phaser.Scene {
     this.cachedGemMagnetInterval = metaManager.getStartingGemMagnetInterval();
     this.cachedEmergencyHealPercent = metaManager.getStartingEmergencyHeal();
 
+    // ═══ CARD COLLECTION BONUSES ═══
+    // Small permanent passives from discovered cards, layered multiplicatively
+    // on top of the shop tracks (cards are seasoning, the shop is the meal).
+    // startAtLevel feeds the STARTING LEVEL block below.
+    const cardBonuses = getCardCollectionManager().getAggregatedBonuses();
+    setUltimateChargeRateMultiplier(cardBonuses.ultChargeRateMult);
+    this.playerStats.damageMultiplier *= cardBonuses.damageMult;
+    this.playerStats.attackSpeedMultiplier *= cardBonuses.attackSpeedMult;
+    this.playerStats.goldMultiplier *= cardBonuses.goldMult;
+    this.playerStats.xpMultiplier *= cardBonuses.xpMult;
+    this.playerStats.pickupRange *= cardBonuses.magnetRadiusMult;
+    this.playerStats.moveSpeed *= cardBonuses.moveSpeedMult;
+    this.playerStats.maxHealth += cardBonuses.maxHealthAdd;
+    this.playerStats.currentHealth = this.playerStats.maxHealth;
+    this.playerStats.critChance += cardBonuses.critChanceAdd;
+    this.playerStats.armor += cardBonuses.armorAdd;
+    this.playerStats.luck += cardBonuses.luckAdd;
+    this.playerStats.rerollsRemaining += cardBonuses.rerollsAdd;
+    this.playerStats.banishesRemaining += cardBonuses.banishesAdd;
+
     // ═══ RUN MODIFIERS ═══
     for (const modifier of this.activeModifiers) {
       modifier.apply(this.playerStats);
@@ -901,7 +929,8 @@ export class GameScene extends Phaser.Scene {
     // ═══ STARTING LEVEL (triggers level-ups at start) ═══
     const startingLevel = metaManager.getStartingLevel()
       + achievementBonuses.startingLevel
-      + ascensionManager.getBonusStartingLevel();
+      + ascensionManager.getBonusStartingLevel()
+      + Math.max(0, cardBonuses.startAtLevel - 1);
     if (startingLevel > 1) {
       this.pendingLevelUps += startingLevel - 1;
     }
@@ -1258,6 +1287,7 @@ export class GameScene extends Phaser.Scene {
       bossWarningPhase: this.bossWarningPhase,
       comboState: getComboState(),
       ultimateCharge: getUltimateState().charge,
+      cacheFoundThisRun: this.cacheFoundThisRun,
       eventState: getEventState(),
       minibossSpawnTimes: this.minibossSpawnTimes,
       banishedUpgradeIds: this.banishedUpgradeIds,
@@ -1440,6 +1470,10 @@ export class GameScene extends Phaser.Scene {
     }
     // Legacy saves predate the ultimate meter → start empty.
     restoreUltimateState({ charge: state.ultimateCharge ?? 0 });
+    // Card charge-rate bonus is meta state, not save state — resetAllRunSystems
+    // above zeroed it back to 1, so re-derive it or the card goes inert on
+    // restored runs (the fresh path sets it in the meta-progression block).
+    setUltimateChargeRateMultiplier(getCardCollectionManager().getAggregatedBonuses().ultChargeRateMult);
     if (state.eventState) {
       restoreEventState(state.eventState);
     }
@@ -1551,6 +1585,13 @@ export class GameScene extends Phaser.Scene {
     this.isPaused = false;
     this.pendingLevelUps = 0;
     this.nextEnemyDropsMagnet = false;
+    // Cache-drop guard: the pending reveal persisted by CardCollectionManager
+    // is one authority, but showVictory() consumes it while the run continues
+    // into endless — the saved flag covers that window so a reload can't
+    // re-arm the once-per-run cache. OR the two sources (legacy saves lack
+    // the flag; an abandoned-run pending reveal lacks the save).
+    this.syncCacheGuardWithPendingReveal();
+    this.cacheFoundThisRun = this.cacheFoundThisRun || state.cacheFoundThisRun === true;
     this.activeLasers = [];
     this.enemyProjectiles = [];
 
@@ -2029,6 +2070,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Syncs the per-run cache-drop guard with CardCollectionManager's persisted
+   * pending reveal. The manager is authoritative (it survives refresh and
+   * abandoned runs); the contract exposes no peek, so we consume + requeue.
+   * A leftover pending card keeps its end-screen reveal and blocks this run
+   * from rolling a second cache over it.
+   */
+  private syncCacheGuardWithPendingReveal(): void {
+    const cardManager = getCardCollectionManager();
+    const pendingCard = cardManager.consumePendingReveal();
+    if (pendingCard) {
+      cardManager.queuePendingReveal(pendingCard.id);
+    }
+    this.cacheFoundThisRun = pendingCard !== null;
+  }
+
+  /**
    * Handle enemy death - spawns XP, health pickups, special effects, and cleans up entity.
    */
   private handleEnemyDeath(enemyId: number, x: number, y: number): void {
@@ -2139,6 +2196,41 @@ export class GameScene extends Phaser.Scene {
         this.drainVolatileExplosions();
       } else if (deathAffix === EnemyAffixType.BLESSED) {
         this.spawnRandomConsumable(x, y);                    // guaranteed power-up
+      }
+    }
+
+    // ═══ DATA CACHE DROPS (card collection discovery) ═══
+    // One roll per death at the highest applicable tier only: boss always,
+    // miniboss 20%, elite 2%. At most one cache per run — the reveal is a
+    // single end-screen moment (SFR-style), so the card itself stays hidden
+    // behind a teaser toast until death/victory.
+    if (!this.cacheFoundThisRun) {
+      const cacheChance = xpValue >= 1000 ? 1
+        : xpValue >= 30 ? 0.2
+        : hasComponent(this.world, EnemyAffix, enemyId) ? 0.02
+        : 0;
+      if (cacheChance > 0 && Math.random() < cacheChance) {
+        this.cacheFoundThisRun = true;
+        const cacheCard = getCardCollectionManager().rollCacheDiscovery();
+        if (cacheCard) {
+          this.toastManager?.showToast({
+            title: 'DATA CACHE RECOVERED',
+            description: 'Decrypting at run end…',
+            icon: 'star',
+            color: 0x66ddff,
+            duration: 3200,
+          });
+        } else {
+          // Archive complete — pay the cache out in gold instead.
+          getMetaProgressionManager().addGold(250);
+          this.toastManager?.showToast({
+            title: 'DATA CACHE RECOVERED',
+            description: 'Archive complete — salvaged for +250 gold.',
+            icon: 'coins',
+            color: 0xffd24a,
+            duration: 3200,
+          });
+        }
       }
     }
 
@@ -4495,6 +4587,10 @@ export class GameScene extends Phaser.Scene {
       newStreak,
       streakBonusPercent: metaManager.getStreakBonusPercent(),
       performanceGrade: victoryGrade,
+      // Reveal (and consume) the data-cache card here. A won run that continues
+      // into endless and later dies hits gameOver() with the reveal already
+      // consumed, so it can't double-fire.
+      discoveredCard: getCardCollectionManager().consumePendingReveal(),
       runScore: victoryScoreResult.score,
       bestScore: victoryScoreResult.best,
       isNewBest: victoryScoreResult.isNewBest,
@@ -4732,6 +4828,10 @@ export class GameScene extends Phaser.Scene {
       personalBests: personalBestsSnapshot,
       unlockProgress: unlockProgressForPanel,
       performanceGrade,
+      // Reveal (and consume) the data-cache card. Null on a post-victory
+      // endless death — showVictory() already consumed it, and the per-run
+      // guard stops endless play from queueing a second one.
+      discoveredCard: getCardCollectionManager().consumePendingReveal(),
       runScore: scoreResult.score,
       bestScore: scoreResult.best,
       isNewBest: scoreResult.isNewBest,

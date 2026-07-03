@@ -12,6 +12,7 @@ import { CodexScene } from './game/scenes/CodexScene';
 import { WeaponSelectScene } from './game/scenes/WeaponSelectScene';
 import { PactSelectScene } from './game/scenes/PactSelectScene';
 import { LeaderboardScene } from './game/scenes/LeaderboardScene';
+import { CardsScene } from './game/scenes/CardsScene';
 import { initializeStorage, flushStorage } from './storage';
 import { BloomPipeline } from './visual/BloomPipeline';
 import { DistortionPipeline } from './visual/DistortionPipeline';
@@ -71,7 +72,7 @@ window.addEventListener('unhandledrejection', (event) => {
   // Create game configuration with scenes
   const config: Phaser.Types.Core.GameConfig = {
     ...GAME_CONFIG,
-    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
+    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, CardsScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
   };
 
   // Initialize the game
