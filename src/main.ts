@@ -27,6 +27,36 @@ import { ColorblindPipeline } from './visual/ColorblindPipeline';
  * - Encrypted localStorage for anti-cheat protection
  */
 
+// ─── Crash recovery ──────────────────────────────────────────────────────
+// Phaser only reschedules its next requestAnimationFrame after a step
+// completes without throwing — any uncaught exception inside a scene's
+// update()/create() silently freezes the whole game on the last-rendered
+// frame, with zero feedback to the player. Registered before the async
+// bootstrap below so it also covers boot-time failures (storage init,
+// Phaser construction), not just in-game ones.
+let crashHandled = false;
+function showCrashOverlay(source: string, error: unknown): void {
+  if (crashHandled) return;
+  crashHandled = true;
+
+  console.error(`[fatal:${source}]`, error);
+
+  // Best-effort — the storage layer itself may be what's broken, and this
+  // must never throw past this point or the overlay below won't show.
+  try {
+    flushStorage();
+  } catch (flushError) {
+    console.error('[fatal] flushStorage failed during crash handling', flushError);
+  }
+
+  const overlay = document.getElementById('crash-overlay');
+  if (!overlay) return;
+  overlay.classList.add('crash-overlay-visible');
+  overlay.addEventListener('click', () => window.location.reload(), { once: true });
+}
+window.addEventListener('error', (event) => showCrashOverlay('error', event.error ?? event.message));
+window.addEventListener('unhandledrejection', (event) => showCrashOverlay('unhandledrejection', event.reason));
+
 // Async bootstrap wrapper - ensures encrypted storage is ready before game starts
 (async () => {
   // Initialize encrypted storage and migrate any legacy plaintext data

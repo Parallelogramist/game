@@ -1385,6 +1385,10 @@ export class PauseMenuManager {
       'victoryGradeText',
       'victoryGradeLabel',
       'victoryScore',
+      'victoryRecentHeader',
+      'victoryRecentRow0',
+      'victoryRecentRow1',
+      'victoryRecentRow2',
     ]);
 
     this.options.onContinueRun();

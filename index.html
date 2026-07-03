@@ -171,6 +171,66 @@
           animation: boot-pulse 1.6s ease-in-out infinite alternate;
         }
       }
+
+      /* Crash recovery overlay — a game frame frozen by an uncaught
+         exception stops rendering entirely (Phaser only reschedules its
+         next requestAnimationFrame after a step completes without
+         throwing), so this is the only way the player finds out something
+         went wrong instead of staring at a dead frame. Top of the stack —
+         above the rotate overlay (100) and boot loader (50) — since a
+         crash can happen in any state. */
+      #crash-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        background: rgba(0, 0, 8, 0.94);
+        color: #f2f6ff;
+        font-family: "Rajdhani", "Atkinson Hyperlegible", Arial, sans-serif;
+        text-align: center;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+      #crash-overlay.crash-overlay-visible {
+        display: flex;
+      }
+      #crash-overlay .crash-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding: 24px;
+      }
+      #crash-overlay .crash-title {
+        font-weight: 700;
+        font-size: clamp(18px, 3.6vw, 28px);
+        letter-spacing: 4px;
+        color: #ff5566;
+      }
+      #crash-overlay .crash-rule {
+        width: 120px;
+        height: 2px;
+        background: #ff5566;
+        opacity: 0.6;
+      }
+      #crash-overlay .crash-sub {
+        font-family: "Atkinson Hyperlegible", Arial, sans-serif;
+        font-size: 13px;
+        color: #a0a8b8;
+        max-width: 320px;
+      }
+      #crash-overlay .crash-action {
+        margin-top: 6px;
+        font-family: "Rajdhani", "Atkinson Hyperlegible", Arial, sans-serif;
+        font-weight: 700;
+        font-size: 15px;
+        letter-spacing: 2px;
+        color: #66bbff;
+        border: 1.5px solid #66bbff;
+        border-radius: 6px;
+        padding: 8px 20px;
+      }
     </style>
   </head>
   <body>
@@ -185,6 +245,14 @@
         <div class="rotate-title">ROTATE YOUR DEVICE</div>
         <div class="rotate-rule"></div>
         <div class="rotate-sub">This game plays in landscape</div>
+      </div>
+    </div>
+    <div id="crash-overlay">
+      <div class="crash-inner">
+        <div class="crash-title">SOMETHING WENT WRONG</div>
+        <div class="crash-rule"></div>
+        <div class="crash-sub">The game hit an unexpected error and needs to reload. Your last save is safe.</div>
+        <div class="crash-action">TAP TO RELOAD</div>
       </div>
     </div>
     <script>

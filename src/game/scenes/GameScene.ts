@@ -331,6 +331,8 @@ export class GameScene extends Phaser.Scene {
   private bossWarningText: Phaser.GameObjects.Text | null = null;
   private bossWarningVignette: Phaser.GameObjects.Graphics | null = null;
   private bossIntroObjects: Array<Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text | Phaser.GameObjects.Graphics> = [];
+  /** Tween target proxy for the boss-intro accent rules (see showBossEntrance) — tracked separately since it isn't a GameObject. */
+  private bossIntroRuleState: { spread: number } | null = null;
   private bossCountdownText: Phaser.GameObjects.Text | null = null;
 
   // Endless mode (post-victory continuation)
@@ -593,6 +595,7 @@ export class GameScene extends Phaser.Scene {
     // Scene restarts reuse this instance — drop refs to intro objects the
     // previous run's shutdown already destroyed.
     this.bossIntroObjects = [];
+    this.bossIntroRuleState = null;
     this.bossCountdownText = null;
     this.endlessModeActive = false;
     this.endlessModeTime = 0;
@@ -5693,16 +5696,24 @@ export class GameScene extends Phaser.Scene {
       // Bigger orange text with scale-up animation
       this.showComboText('POWER SURGE!', '#ff8844', comboPlayerX, comboPlayerY, 38, 1.8);
     } else if (threshold.type === 'annihilation') {
-      // Screen-wide damage pulse — apply damage directly via ECS
-      const enemies = getFrameCacheEnemyIds();
+      // Screen-wide damage pulse — apply damage directly via ECS.
+      // getFrameCacheEnemyIds() returns bitECS's LIVE query array (see the
+      // "do NOT modify this array!" warning in FrameCache.ts); handleEnemyDeath
+      // can both remove the dying entity and — for Splitter enemies — spawn new
+      // ones via handleSplit synchronously. Snapshot into a plain copy first
+      // (the safe pattern already used by StatusEffectSystem/HazardZoneSystem
+      // for this exact hazard) and re-check liveness per entry, since an id in
+      // the snapshot may already have died to a domino effect (poison spread,
+      // chained explosion) earlier in this same loop.
+      const enemies = [...getFrameCacheEnemyIds()];
       for (const enemyId of enemies) {
-        if (hasComponent(this.world, Health, enemyId)) {
-          Health.current[enemyId] -= 50;
-          if (Health.current[enemyId] <= 0) {
-            const enemyX = Transform.x[enemyId];
-            const enemyY = Transform.y[enemyId];
-            this.handleEnemyDeath(enemyId, enemyX, enemyY);
-          }
+        if (!hasComponent(this.world, EnemyTag, enemyId)) continue;
+        if (!hasComponent(this.world, Health, enemyId)) continue;
+        Health.current[enemyId] -= 50;
+        if (Health.current[enemyId] <= 0) {
+          const enemyX = Transform.x[enemyId];
+          const enemyY = Transform.y[enemyId];
+          this.handleEnemyDeath(enemyId, enemyX, enemyY);
         }
       }
       getJuiceManager().hitStop(80, 0.95);
@@ -6144,6 +6155,16 @@ export class GameScene extends Phaser.Scene {
    * Shows dramatic boss entrance warning.
    */
   private showBossEntrance(name: string): void {
+    // Defense-in-depth: if a previous intro's objects are still alive (e.g.
+    // two boss spawns land close enough together that the first intro's
+    // ~2.1s runtime hasn't finished — endless mode, or slow-motion/hit-stop
+    // stretching it), tear them down instead of overwriting the reference
+    // and orphaning them (leak) plus leaving their tweens targeting whatever
+    // this call reassigns bossIntroObjects/bossIntroRuleState to.
+    if (this.bossIntroObjects.length > 0) {
+      this.cleanupBossIntro();
+    }
+
     const bossJuice = getJuiceManager();
 
     // Hit stop for dramatic pause at spawn moment
@@ -6193,7 +6214,15 @@ export class GameScene extends Phaser.Scene {
     const rules = this.add.graphics().setDepth(introDepth + 1).setScrollFactor(0);
     const ruleY = centerY + 34;
     const ruleMax = Math.min(260, this.scale.width * 0.2);
+    // Tween target is this plain proxy (Graphics has no tweenable "spread"
+    // property) — NOT `rules` itself, so it must be tracked and killed
+    // separately from the bossIntroObjects array below. Missing this was a
+    // real bug: if the intro was torn down (player death) while this tween
+    // was running, drawRules kept calling .clear()/.fillStyle()/.fillRect()
+    // on the already-destroyed `rules` Graphics every frame until the tween
+    // finished.
     const ruleState = { spread: reducedMotion ? ruleMax : 0 };
+    this.bossIntroRuleState = ruleState;
     const drawRules = () => {
       rules.clear();
       rules.fillStyle(0xff5566, 0.8);
@@ -6283,6 +6312,10 @@ export class GameScene extends Phaser.Scene {
 
   /** Tears down the boss-intro letterbox (also runs on death/restart via cleanupBossWarning). */
   private cleanupBossIntro(): void {
+    if (this.bossIntroRuleState) {
+      this.tweens.killTweensOf(this.bossIntroRuleState);
+      this.bossIntroRuleState = null;
+    }
     for (const obj of this.bossIntroObjects) {
       this.tweens.killTweensOf(obj);
       obj.destroy();
