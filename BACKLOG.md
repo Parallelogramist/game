@@ -64,6 +64,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   the crash overlay should now at least surface something in the console to
   triage from.**
 
+- [ ] **FEAT-CARDS-2 — card collection follow-ups** · area: meta/feel
+  **Context:** FEAT-CARDS-1 (Sky Force Reloaded-inspired card collection +
+  scanner lottery) ships the core loop; full design in
+  `docs/superpowers/specs/2026-07-03-card-collection-meta-design.md` (the durable
+  source of truth — read it before touching cards). Follow-ups: reveal-moment
+  juice (flip animation polish + sfx), a proper per-card icon pass, collection
+  milestone achievements, and a drop-rate/cost balance pass after real play
+  (SCAN_COST, cache chances, pity threshold are the knobs).
+
+- [ ] **FEAT-CARDS-3 — timed / next-run boost cards** · area: meta · **needs design**
+  SFR-style temporary cards (boost active for the next run). Interacts with
+  save-restore; design in the spec's phase notes before building.
+
+- [ ] **FEAT-SHIP-MODS — per-ship mod tracks** · area: meta · **BLOCKED on human
+  economy sign-off.** Per-ship short upgrade tracks that reinforce each ship's
+  identity (the SFR "ship upgrades" feel beyond the existing global shop). See
+  the card spec's mapping section for why the global shop already covers most
+  of this — scope carefully to avoid duplication.
+
 - [ ] **POLISH-UI-CAMERA — exclude UI from postFX pipelines and camera flash/fade**
   · area: visual · **Why:** HUD/minimap/overlays render through `cameras.main`, so
   BloomPipeline blooms bright HUD pixels, DistortionPipeline shockwaves warp HUD
@@ -138,6 +157,13 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SETTINGS-UX** — sliding-switch toggles (`03716d2`) + mid-run UI-scale
+    apply (`3ebb815`). Check: (a) switches read instantly (green/right = on) at every
+    UI scale, knob slide is clean, gamepad focus ring visible; (b) mid-run UI-scale
+    change round-trips save-restore correctly — adjust from pause → settings → back:
+    brief restart, pause menu reopens, HUD/minimap/touch controls resized, and the
+    run state (kills, level, boss bars, weapon levels, relics, combo) is intact;
+    (c) same flow during endless-after-victory keeps won/endless state.
   - **POLISH-10PACK** — ten-feature visual polish drop (scene sweep transitions +
     staggered menu entrances, button press micro-interaction, reduced-motion gating
     across menus, HUD bar juice [damage chip / gradients / XP pulse / ult ready
