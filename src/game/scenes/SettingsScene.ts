@@ -91,6 +91,8 @@ const SWITCH_COLORS = {
 
 export class SettingsScene extends Phaser.Scene {
   private returnTo: 'BootScene' | 'GameScene' = 'BootScene';
+  /** UI scale at scene entry — a change on exit triggers the in-run rebuild. */
+  private uiScaleOnEntry: number = 1;
 
   private toggles: Partial<Record<FocusZone, ToggleControl>> = {};
   private volumes: Partial<Record<FocusZone, VolumeControl>> = {};
@@ -141,6 +143,7 @@ export class SettingsScene extends Phaser.Scene {
 
     this.layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
     this.fontScale = computeMenuFontScale(this.scale.width, this.scale.height, settingsManager.getUiScale());
+    this.uiScaleOnEntry = settingsManager.getUiScale();
 
     this.toggles = {};
     this.volumes = {};
@@ -1239,6 +1242,15 @@ export class SettingsScene extends Phaser.Scene {
   private goBack(): void {
     if (this.returnTo === 'GameScene') {
       const gameScene = this.scene.get('GameScene') as GameScene;
+      // A changed UI scale can't be applied to the live HUD in place —
+      // GameScene round-trips its save-restore path to rebuild every in-run
+      // surface at the new scale, then reopens the pause menu.
+      const uiScaleChanged = getSettingsManager().getUiScale() !== this.uiScaleOnEntry;
+      if (uiScaleChanged && gameScene?.applyUiScaleChange) {
+        gameScene.applyUiScaleChange();
+        this.scene.stop();
+        return;
+      }
       if (gameScene?.showPauseMenuFromSettings) {
         gameScene.showPauseMenuFromSettings();
       }

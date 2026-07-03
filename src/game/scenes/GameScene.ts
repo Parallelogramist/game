@@ -430,6 +430,7 @@ export class GameScene extends Phaser.Scene {
   private beforeUnloadHandler: (() => void) | null = null;
   private visibilitySaveHandler: (() => void) | null = null;
   private shouldRestore: boolean = false;
+  private resumeIntoPauseMenu: boolean = false;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -448,6 +449,8 @@ export class GameScene extends Phaser.Scene {
 
   init(data?: {
     restore?: boolean;
+    /** After a restore, come back up inside the pause menu (UI-scale flow). */
+    resumePaused?: boolean;
     startingWeapon?: string;
     modifierIds?: string[];
     pactIds?: string[];
@@ -458,6 +461,7 @@ export class GameScene extends Phaser.Scene {
     dailyChallengeType?: 'daily' | 'weekly';
   }): void {
     this.shouldRestore = data?.restore === true;
+    this.resumeIntoPauseMenu = data?.resumePaused === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
     this.selectedShipId = data?.shipId || 'ship_default';
     this.selectedStageId = data?.stageId || 'stage_deep_void';
@@ -1710,6 +1714,13 @@ export class GameScene extends Phaser.Scene {
     // Restore dash state from save
     this.inputController.setDashCooldownTimer(state.dashCooldownTimer);
     this.inputController.resetDashState();
+
+    // UI-scale flow: the player was inside the pause menu when the scale
+    // changed — don't ambush them with live combat after the rebuild.
+    if (this.resumeIntoPauseMenu) {
+      this.resumeIntoPauseMenu = false;
+      this.togglePauseMenu();
+    }
   }
 
   /**
@@ -4346,6 +4357,19 @@ export class GameScene extends Phaser.Scene {
    */
   private togglePauseMenu(): void {
     this.pauseMenuManager.togglePauseMenu();
+  }
+
+  /**
+   * Called by SettingsScene when the UI-scale setting changed mid-run.
+   * HUD, minimap, and touch-control sizes are baked at creation, so the
+   * change can't be applied in place — round-trip the proven save-restore
+   * path instead: persist the run, restart the scene, and restore at the
+   * new scale, coming back up inside the pause menu the player left.
+   */
+  public applyUiScaleChange(): void {
+    if (this.isGameOver) return;
+    this.saveGameState();
+    this.scene.restart({ restore: true, resumePaused: true });
   }
 
   /**
