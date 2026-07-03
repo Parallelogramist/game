@@ -21,6 +21,7 @@ import {
 } from '../../data/PermanentUpgrades';
 import { getShipModTracks, getShipModCost, ShipModTrack } from '../../data/ShipMods';
 import { getShipModManager } from '../../meta/ShipModManager';
+import { getAchievementManager } from '../../achievements';
 import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
 import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
@@ -438,6 +439,33 @@ export class ShopScene extends Phaser.Scene {
         });
       });
     }
+
+    // Hangar-mastery achievements can unlock from a HANGAR purchase. The
+    // manager auto-claims rewards only when a delivery callback is wired
+    // (menu-context banking rule) — wire it here like CardsScene does;
+    // shutdown detaches, GameScene re-wires its own at run start.
+    getAchievementManager().setAchievementUnlockCallback((achievement) => {
+      const metaManager = getMetaProgressionManager();
+      const rewardParts: string[] = [];
+      if (achievement.reward.type === 'gold') {
+        metaManager.addGold(achievement.reward.value);
+        rewardParts.push(achievement.reward.description);
+      } else if (achievement.reward.type === 'stat_bonus' && achievement.reward.statBonusId) {
+        metaManager.addAchievementBonus(achievement.reward.statBonusId, achievement.reward.value);
+        rewardParts.push(achievement.reward.description);
+      }
+      if (achievement.bonusReward) {
+        if (achievement.bonusReward.type === 'gold') {
+          metaManager.addGold(achievement.bonusReward.value);
+        } else if (achievement.bonusReward.type === 'stat_bonus' && achievement.bonusReward.statBonusId) {
+          metaManager.addAchievementBonus(achievement.bonusReward.statBonusId, achievement.bonusReward.value);
+        }
+        rewardParts.push(achievement.bonusReward.description);
+      }
+      this.soundManager.playAchievementUnlock();
+      this.toastManager.showAchievementToast(achievement.name, rewardParts.join(' + '), achievement.icon);
+      this.updateGoldDisplay();
+    });
 
     this.events.once('shutdown', this.shutdown, this);
   }
@@ -1119,6 +1147,16 @@ export class ShopScene extends Phaser.Scene {
     });
     card.frame.add(kickerText);
 
+    // Archetype icon — same atlas pipeline as the upgrade cards.
+    const trackIcon = createIcon(this, {
+      x: 0,
+      y: -38,
+      iconKey: track.icon,
+      size: 28,
+      tint: isMaxed ? ACCENT_COLORS.gold : 0xffffff,
+    });
+    card.frame.add(trackIcon);
+
     // Description: the per-level effect.
     const descriptionText = this.add.text(0, -14, track.description, {
       fontSize: '11px',
@@ -1340,6 +1378,10 @@ export class ShopScene extends Phaser.Scene {
     }
 
     this.soundManager.playPurchase();
+    // Feed the hangar-mastery achievements (may fire an unlock, delivered by
+    // this scene's callback) BEFORE refreshing readouts so the gold line
+    // includes any reward.
+    getAchievementManager().recordShipsFullyModded(shipModManager.getFullyModdedShipCount());
     this.updateGoldDisplay();
     this.displayHangarMods();
     this.clampSelectedCardIndex();
@@ -1763,6 +1805,9 @@ export class ShopScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    // Detach the menu-context delivery closure — a dead scene must not
+    // receive unlocks (unclaimed rewards bank for AchievementScene instead).
+    getAchievementManager().setAchievementUnlockCallback(null);
     if (this.menuNavigator) {
       this.menuNavigator.destroy();
       this.menuNavigator = null;

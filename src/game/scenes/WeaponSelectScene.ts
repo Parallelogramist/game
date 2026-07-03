@@ -10,6 +10,7 @@ import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { getShipModManager } from '../../meta/ShipModManager';
 import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
@@ -320,6 +321,32 @@ export class WeaponSelectScene extends Phaser.Scene {
         letterSpacing: 1.5,
       });
       card.frame.add(nameText);
+
+      // HANGAR mod progress — sits in the gap between the banner and the
+      // description block (which grows downward from y=18), so even the
+      // wordiest ship description can't collide with it.
+      const modManager = getShipModManager();
+      const modLevels = modManager.getTotalLevels(ship.id);
+      const modMax = modManager.getMaxTotalLevels(ship.id);
+      if (modMax > 0) {
+        const maxed = modLevels >= modMax;
+        const modsText = makeDisplayText(
+          this,
+          0,
+          -28,
+          maxed ? 'MODS MAXED' : `MODS ${modLevels}/${modMax}`,
+          {
+            fontSize: 10,
+            color: maxed
+              ? ACCENT_COLORS_STR.gold
+              : modLevels > 0
+                ? ACCENT_COLORS_STR.primary
+                : TEXT_COLORS.dim,
+            letterSpacing: 2,
+          },
+        );
+        card.frame.add(modsText);
+      }
 
       const description = makeBodyText(this, 0, 18, ship.description, {
         fontSize: 12,

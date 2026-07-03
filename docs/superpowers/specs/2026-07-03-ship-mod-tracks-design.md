@@ -54,7 +54,7 @@ sitting between the scanner's 500/roll and the shop's deep tracks).
 
 `src/data/ShipMods.ts`:
 - `type ShipModEffect = Partial<{ maxHealthMult, moveSpeedMult, damageMult, cooldownMult, goldMult, xpMult, critChanceAdd, armorAdd, regenAdd, lifeStealAdd, bossDamageAdd, luckAdd }>` (all numbers; the *Mult fields are PER-LEVEL multipliers, e.g. hull = 1.04)
-- `interface ShipModTrack { id: string; name: string; description: string; maxLevel: number; costs: readonly number[]; effectPerLevel: ShipModEffect }` (`costs.length === maxLevel`; description states the per-level effect)
+- `interface ShipModTrack { id: string; name: string; description: string; icon: string; maxLevel: number; costs: readonly number[]; effectPerLevel: ShipModEffect }` (`costs.length === maxLevel`; description states the per-level effect; `icon` resolves through IconMap — test-locked)
 - `const SHIP_MOD_TRACKS: Readonly<Record<string, readonly ShipModTrack[]>>` keyed by ship id — EVERY id in `SHIP_CHARACTERS` present, exactly 3 tracks each
 - `function getShipModTracks(shipId: string): readonly ShipModTrack[]` ([] for unknown ships)
 - `function getShipModCost(track: ShipModTrack, currentLevel: number): number` (costs[currentLevel]; `Infinity` at/past maxLevel)
@@ -96,7 +96,15 @@ feedback).
 
 - **FEAT-SHIP-MODS-1**: data + manager + tests, run-start application,
   HANGAR tab. (Built 2026-07-03.)
-- **FEAT-SHIP-MODS-2**: ship-select integration (show mod levels on the ship
-  card in WeaponSelectScene), mod-icon art pass, maybe per-ship mod
-  achievements. Needs FEAT-SHIP-MODS-1 playtest feedback first.
+- **FEAT-SHIP-MODS-2** (built 2026-07-03, on direct operator request ahead of
+  the playtest): archetype icons on HANGAR cards (`ShipModTrack.icon`),
+  "MODS n/9" readout on the WeaponSelectScene ship card (gold MODS MAXED at
+  cap; sits in the banner-to-description gap so wordy ships can't collide),
+  and hangar-mastery achievements — `ships_fully_modded` tracking type,
+  `ship_mods_first` (Ace Mechanic, 1 ship, +500g) → `ship_mods_fleet`
+  (Fleet Admiral, all 11, +5,000g +5% gold). Fed by
+  `ShipModManager.getFullyModdedShipCount()` from HANGAR purchases;
+  ShopScene wires its own unlock delivery callback (toast + gold) and
+  detaches on shutdown, per the menu-context banking rule. A test locks
+  Fleet Admiral's target to the roster size.
 - **BALANCE-SHIP-MODS**: costs/magnitudes after real play (playtest queue).

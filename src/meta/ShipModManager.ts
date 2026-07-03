@@ -12,6 +12,7 @@
  */
 
 import {
+  SHIP_MOD_TRACKS,
   ShipModEffect,
   aggregateShipModBonuses,
   getShipModTracks,
@@ -82,6 +83,20 @@ export class ShipModManager {
       total += track.maxLevel;
     }
     return total;
+  }
+
+  /**
+   * Ships whose every track is at cap — feeds the ship-mastery achievements.
+   * Counted against the CURRENT catalog, so a ship with no tracks (unknown
+   * id) never counts as "fully modded".
+   */
+  getFullyModdedShipCount(): number {
+    let count = 0;
+    for (const shipId of Object.keys(SHIP_MOD_TRACKS)) {
+      const max = this.getMaxTotalLevels(shipId);
+      if (max > 0 && this.getTotalLevels(shipId) >= max) count++;
+    }
+    return count;
   }
 
   private levelsRecord(shipId: string): Record<string, number> {

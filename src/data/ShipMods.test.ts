@@ -8,6 +8,7 @@ import {
   type ShipModTrack,
 } from './ShipMods';
 import { SHIP_CHARACTERS } from './ShipCharacters';
+import { ICON_MAP } from '../utils/IconMap';
 
 /**
  * Pure mod-track catalog + aggregation logic behind the per-ship hangar meta
@@ -218,5 +219,15 @@ describe('aggregateShipModBonuses', () => {
     const levels = { hull: 2 };
     aggregateShipModBonuses('ship_default', levels);
     expect(levels).toEqual({ hull: 2 });
+  });
+});
+
+describe('track icons', () => {
+  test('every archetype icon resolves through the icon atlas map (no fallback glyphs)', () => {
+    for (const tracks of Object.values(SHIP_MOD_TRACKS)) {
+      for (const track of tracks) {
+        expect(ICON_MAP[track.icon], `icon "${track.icon}" on track ${track.id}`).toBeDefined();
+      }
+    }
   });
 });

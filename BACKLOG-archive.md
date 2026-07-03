@@ -85,6 +85,31 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `ec6c47a` FEAT-SHIP-MODS-2 — **ship mod follow-ups**, same-day completion of
+  the FEAT-SHIP-MODS-1 follow-up list on direct operator request (ahead of
+  the BALANCE-SHIP-MODS playtest — the numbers may still move, the plumbing
+  won't). **Icons:** `ShipModTrack.icon` added to the contract (spec
+  updated); the 12 archetypes map to existing atlas keys
+  (hull→heart, thrusters→rocket, weapons→sword, targeting→target,
+  salvage→coins, datalink→brain, cooldown→timer, armor→shield,
+  regen→bandage, lifesteal→vampire, boss→skull, luck→clover), rendered on
+  the HANGAR card between the ship kicker and effect line (gold tint at
+  MAXED), test-locked against ICON_MAP. **Ship select:** WeaponSelectScene
+  ship cards show `MODS n/9` (dim at 0 / accent in progress / gold `MODS
+  MAXED`), positioned at y=−28 in the banner-to-description gap — the
+  description block grows DOWNWARD from y=18, so even Apex's wordy blurb
+  can't collide. **Achievements:** new `ships_fully_modded` tracking type +
+  `ship_mods_first` "Ace Mechanic" (1 ship, +500g) → `ship_mods_fleet`
+  "Fleet Admiral" (all 11, +5,000g + 5% gold stat bonus). Fed by new
+  `ShipModManager.getFullyModdedShipCount()` (counts against the CURRENT
+  catalog; a test locks Fleet Admiral's targetValue to
+  SHIP_CHARACTERS.length so a roster addition can't make it unlock early).
+  ShopScene records after each successful HANGAR purchase and wires its own
+  unlock-delivery callback (gold/stat via MetaProgressionManager +
+  achievement toast + gold readout refresh), detached in shutdown — per the
+  menu-context reward-banking rule from FEAT-CARDS-2 (no-callback unlocks
+  bank as unclaimed for AchievementScene's retro-claim).
+
 - `261d9dc` FEAT-SHIP-MODS-1 — **per-ship mod tracks + HANGAR shop tab**, the
   last unbuilt piece of the Sky Force Reloaded meta loop (cards + scanner
   shipped as FEAT-CARDS-1/2 the same day). Previously parked as "BLOCKED on
