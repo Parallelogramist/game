@@ -372,6 +372,14 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-SHIP-MODS-2 — ship mod follow-ups** (done — `ec6c47a`).
+  Archetype icons on HANGAR cards (test-locked to ICON_MAP), "MODS n/9"
+  readout on ship-select cards (gold MODS MAXED at cap), hangar-mastery
+  achievements (Ace Mechanic → Fleet Admiral, fed by
+  `getFullyModdedShipCount()`, ShopScene wires unlock delivery + detaches
+  on shutdown; Fleet Admiral's target test-locked to the roster size).
+  Built on direct operator request ahead of the BALANCE-SHIP-MODS playtest.
+
 - [x] **FEAT-SHIP-MODS-1 — per-ship mod tracks + HANGAR shop tab**
   (done — `261d9dc`). 3 identity tracks per ship (12 shared archetypes),
   3 levels each at 400/700/1200 gold, HANGAR tab in the shop (compact tab
