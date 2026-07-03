@@ -7,10 +7,11 @@
  */
 
 import Phaser from 'phaser';
+import { OverlayDepths } from '../visual/DepthLayers';
 
 // Visual constants
 const JOYSTICK_ALPHA = 0.7;
-const JOYSTICK_DEPTH = 999;
+const JOYSTICK_DEPTH = OverlayDepths.JOYSTICK;
 
 // Compute joystick sizing in game units.
 //

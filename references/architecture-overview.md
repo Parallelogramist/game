@@ -134,7 +134,7 @@ would require a fuse delay (behavior change). `DepthLayers.ATTACK_TELEGRAPH`.
 auto-target + destroy them, but have **no EnemyAI** (stationary) and deal no contact
 damage. Special-cased early in `handleEnemyDeath` (loot + AOE, no kill/combo/XP), skipped
 in `checkPlayerEnemyCollision`, in `DeathRippleManager` (bare Graphics, not a Container),
-in Healer/Tank/Rallier auras (`EnemyAISystem.isDestructible`), and excluded from save
+in Healer/Tank/Rallier auras (`enemy-ai/common.ts` `isDestructible`), and excluded from save
 serialization. On destruction they burst (`WeaponManager.detonateArea`) + drop loot.
 
 **Floor Consumables** (`/src/ecs/systems/ConsumablePickupSystem.ts` + `Consumable`):
@@ -170,8 +170,8 @@ EnemyAI: { aiType, state, timer, targetX, targetY, shootTimer, specialTimer, pha
 
 **Adding new enemy:**
 1. Add definition to `ENEMY_TYPES` in `/src/enemies/EnemyTypes.ts` with stats, visual, spawn config
-2. Add AI behavior in `/src/ecs/systems/EnemyAISystem.ts`
-3. Add case to main AI update switch
+2. Add AI behavior module under `/src/ecs/systems/enemy-ai/` (regular enemies; miniboss/boss handlers live in `EnemyAISystem.ts`)
+3. Add case to main AI update switch in `/src/ecs/systems/EnemyAISystem.ts`
 
 **Boss Cycling:**
 Static class property persists across scene reloads. Each run faces different boss in sequence.

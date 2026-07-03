@@ -734,3 +734,16 @@ One module per session, test-first, ~15-25 cases each.
 - `0c7381b` Fix auto-upgrade: load persisted enable flag on fresh runs.
 - `43c43e0` Perf/correctness batch: pool HUD payload, cache meta, split aura draw, etc.
 - `3db4e75` Wire dead weapon stats + perf/correctness cleanup (prior session, unmerged).
+
+- [x] **REFACTOR-2 (phase 1) — extract regular-enemy AI handlers** (done — `ee33c19`)
+  Moved all 20 regular AI handlers (types 0–17) out of `EnemyAISystem.ts` (2,098 → 1,038
+  lines) into one module per handler under `src/ecs/systems/enemy-ai/` (splitter.ts holds
+  splitter + splitterMini). New `enemy-ai/common.ts` carries the cross-boundary
+  scaffolding: PI constants, mutable `telegraphManager` + setter (re-exported so
+  GameScene's import is unchanged), `aiWorld`/`setAIWorld`/`isDestructible`. Dispatcher
+  switch, LOD throttling, elite auras, and miniboss/boss handlers untouched (phases 2–3
+  filed). Every moved body verified byte-identical against the pre-move git blob by an
+  independent transcription diff; public API surface unchanged (barrel re-exports).
+  Suite could not run in the remote sandbox — verification was typecheck fingerprint +
+  the transcription diff. Follow-up phases must import `telegraphManager` as a live
+  binding, never copy it to a local.

@@ -55,7 +55,13 @@ function showCrashOverlay(source: string, error: unknown): void {
   overlay.addEventListener('click', () => window.location.reload(), { once: true });
 }
 window.addEventListener('error', (event) => showCrashOverlay('error', event.error ?? event.message));
-window.addEventListener('unhandledrejection', (event) => showCrashOverlay('unhandledrejection', event.reason));
+// Rejected promises never abort Phaser's step — the game keeps running — and
+// several fire-and-forget async paths reject routinely (music track fetch
+// while offline, iOS AudioContext.resume before a user gesture). Those must
+// not raise the fatal overlay over a healthy game; log for diagnosis only.
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[unhandledrejection]', event.reason);
+});
 
 // Async bootstrap wrapper - ensures encrypted storage is ready before game starts
 (async () => {

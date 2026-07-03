@@ -12,6 +12,7 @@ import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 import { getSettingsManager } from '../../settings';
+import { OverlayDepths } from '../../visual/DepthLayers';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -103,9 +104,23 @@ function paintPillBackground(
 void MENU_COLORS;
 void ACCENT_COLORS_STR;
 
-// Top-most UI layer — above the HUD (1000), minimap (1895), off-screen
-// arrows (1900), intro overlays (1991), and tooltips (2000).
-const PAUSE_MENU_DEPTH = 2100;
+// Shared stat-cell typography for the two end screens (game over + victory).
+// One definition so the label/value treatment can't drift between them.
+const END_STAT_LABEL_STYLE = {
+  fontSize: '13px',
+  color: '#8898b0',
+  fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+} as const;
+const END_STAT_VALUE_STYLE = {
+  fontSize: '20px',
+  color: '#e8ecf4',
+  fontFamily: DISPLAY_FONT,
+  fontStyle: 'bold',
+} as const;
+
+// Top-most UI layer — above the HUD, minimap, off-screen arrows, intro
+// overlays, and tooltips.
+const PAUSE_MENU_DEPTH = OverlayDepths.PAUSE_MENU;
 
 function formatLargeNumber(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
@@ -242,6 +257,8 @@ export class PauseMenuManager {
   // Victory choice handlers (for cleanup)
   private victoryContinueHandler: (() => void) | null = null;
   private victoryNextWorldHandler: (() => void) | null = null;
+  /** Victory stat-cell texts — collector-torn-down (see addVictoryCell). */
+  private victoryStatCellElements: Phaser.GameObjects.Text[] = [];
   private gameOverRestartHandler: (() => void) | null = null;
   private gameOverGamepadPoll: Phaser.Time.TimerEvent | null = null;
 
@@ -258,7 +275,12 @@ export class PauseMenuManager {
   private destroyElementsByName(names: string[]): void {
     for (const name of names) {
       const element = this.scene.children.getByName(name);
-      if (element) element.destroy();
+      if (element) {
+        // Infinite tweens (pause-title pulse, victory breathe) outlive their
+        // target otherwise — destroy() never detaches a tween from its target.
+        this.scene.tweens.killTweensOf(element);
+        element.destroy();
+      }
     }
   }
 
@@ -1191,15 +1213,15 @@ export class PauseMenuManager {
     statsPanelGfx.setName('victoryStatsPanel');
 
     const victoryCellRow = victoryStatsTop + victoryStatsHeight / 2 + 3;
+    // Cells register into a collector destroyed by handleVictoryContinue —
+    // no per-cell name to hand-mirror into a teardown list, so adding a
+    // stat cell can't silently leak into the endless run.
     const addVictoryCell = (leftX: number, rightX: number, label: string, value: string): void => {
-      const l = this.scene.add.text(leftX, victoryCellRow, label, {
-        fontSize: '13px', color: '#8898b0', fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
-      l.setName(`victoryStatsCell-${label}-label`);
-      const v = this.scene.add.text(rightX, victoryCellRow, value, {
-        fontSize: '20px', color: '#e8ecf4', fontFamily: DISPLAY_FONT, fontStyle: 'bold',
-      }).setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
-      v.setName(`victoryStatsCell-${label}-value`);
+      const l = this.scene.add.text(leftX, victoryCellRow, label, END_STAT_LABEL_STYLE)
+        .setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+      const v = this.scene.add.text(rightX, victoryCellRow, value, END_STAT_VALUE_STYLE)
+        .setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+      this.victoryStatCellElements.push(l, v);
     };
     addVictoryCell(victoryCX - victoryStatsWidth / 2 + 18, victoryCX - 22, 'Kills', String(data.killCount));
     addVictoryCell(victoryCX + 22, victoryCX + victoryStatsWidth / 2 - 18, 'Level', String(data.playerLevel));
@@ -1364,16 +1386,18 @@ export class PauseMenuManager {
     this.clearVictoryKeyboardHandlers();
 
     // Remove all victory UI elements
+    for (const cellText of this.victoryStatCellElements) {
+      this.scene.tweens.killTweensOf(cellText);
+      cellText.destroy();
+    }
+    this.victoryStatCellElements = [];
+
     this.destroyElementsByName([
       'victoryOverlay',
       'victoryWorldCleared',
       'victoryText',
       'victoryNextWorld',
       'victoryStatsPanel',
-      'victoryStatsCell-Kills-label',
-      'victoryStatsCell-Kills-value',
-      'victoryStatsCell-Level-label',
-      'victoryStatsCell-Level-value',
       'victoryContinueButtonBg',
       'victoryContinueButtonText',
       'victoryNextWorldButtonBg',
@@ -1527,17 +1551,8 @@ export class PauseMenuManager {
     statsPanel.setDepth(depth);
     animatedElements.push(statsPanel);
 
-    const statLabelStyle = {
-      fontSize: '13px',
-      color: '#8898b0',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-    };
-    const statValueStyle = {
-      fontSize: '20px',
-      color: '#e8ecf4',
-      fontFamily: DISPLAY_FONT,
-      fontStyle: 'bold',
-    };
+    const statLabelStyle = END_STAT_LABEL_STYLE;
+    const statValueStyle = END_STAT_VALUE_STYLE;
 
     const cellInset = 20;
     const cellGutter = 26;

@@ -83,14 +83,19 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   (`HudScale.densityCompensation`) both depend on the resulting game-unit size.
   Needs a real iPhone/iPad to validate before landing.
 
-- [ ] **REFACTOR-2 (phase 1) — extract regular-enemy AI handlers** · area: architecture
-  **Value:** `EnemyAISystem.ts` is 2,076 lines around one ~29-case switch;
-  `src/ecs/systems/enemy-ai/` exists but holds only `state.ts` + `index.ts`. Extraction
-  unlocks per-handler tests and shrinks the regression blast radius.
-  **Plan (this session):** move the **regular** AI handlers (types 0–17) into one module
-  per handler under `enemy-ai/`, keep the switch as a thin dispatcher. Mechanical,
-  behavior-identical; `tsc` + `vite build` clean; suite green. File phase 2
-  (minibosses 50–55) and phase 3 (bosses 100–102) when this lands.
+- [ ] **REFACTOR-2 (phase 2) — extract miniboss AI handlers** · area: architecture
+  **Value:** phase 1 (done — `ee33c19`) moved the 20 regular handlers into
+  `src/ecs/systems/enemy-ai/`; EnemyAISystem.ts is now 1,038 lines. Next: the miniboss
+  handlers (Glutton, SwarmMother, Charger, Necromancer, TwinA/TwinB) move the same way —
+  verbatim bodies, shared scaffolding via `enemy-ai/common.ts` (note: handler modules
+  must read `telegraphManager` via live ES-module import binding, never copy to a local).
+  Behavior-identical; verify with the byte-identity diff vs the pre-move blob + suite
+  green (suite runnable only outside the remote sandbox).
+
+- [ ] **REFACTOR-2 (phase 3) — extract boss AI handlers + dispatcher slim-down** · area:
+  architecture. HordeKing, VoidWyrm, TheMachine handlers plus `applyEliteAuras` and the
+  boss-phase tracking move out after phase 2; EnemyAISystem.ts ends as dispatcher + LOD
+  only. Same verification regime as phase 2.
 
 - [ ] **POLISH-ACCOUNT-GATE-TOAST — unlock feedback when an account: ship gate opens**
   · area: ux · **Value:** hidden-gated ships toast on unlock via HiddenUnlockManager;

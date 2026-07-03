@@ -11,6 +11,7 @@ import { createIcon } from '../utils/IconRenderer';
 import { computeHudScale } from '../utils/HudScale';
 import { getSettingsManager } from '../settings';
 import { ACCENT_COLORS, BODY_COLORS, MENU_COLORS } from '../visual/MenuStyle';
+import { OverlayDepths } from '../visual/DepthLayers';
 
 // Base toast dimensions (scaled by hudScale on small screens).
 const BASE_TOAST_WIDTH = 300;
@@ -100,7 +101,7 @@ export class ToastManager {
 
     // Create toast container
     const container = this.scene.add.container(0, 0);
-    container.setDepth(1000); // Above most game elements
+    container.setDepth(OverlayDepths.HUD); // Toasts share the HUD band — above most game elements
 
     // Position off-screen to the right
     const screenWidth = this.scene.cameras.main.width;

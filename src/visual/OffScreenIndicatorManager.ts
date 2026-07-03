@@ -4,6 +4,7 @@ import { Transform, EnemyType } from '../ecs/components';
 import { getEnemyIds } from '../ecs/FrameCache';
 import { ENEMY_COLORS } from './NeonColors';
 import { getSettingsManager } from '../settings';
+import { OverlayDepths } from './DepthLayers';
 
 // Pre-computed arrow triangle (pointing right, rotated later)
 const ARROW_HALF_WIDTH = 5;
@@ -61,7 +62,7 @@ export class OffScreenIndicatorManager {
     for (let i = 0; i < MAX_INDICATORS; i++) {
       const graphics = scene.add.graphics();
       graphics.setScrollFactor(0);
-      graphics.setDepth(1900); // Above the HUD pills (1000), below intro overlays (1991)
+      graphics.setDepth(OverlayDepths.OFFSCREEN_ARROWS); // Above the HUD pills, below intro overlays
       graphics.setVisible(false);
       this.arrowPool.push({ graphics, inUse: false });
 
