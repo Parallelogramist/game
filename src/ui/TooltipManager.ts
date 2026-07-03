@@ -12,8 +12,9 @@
  */
 import Phaser from 'phaser';
 import { ACCENT_COLORS, BODY_COLORS, MENU_COLORS } from '../visual/MenuStyle';
+import { OverlayDepths } from '../visual/DepthLayers';
 
-const TOOLTIP_DEPTH = 2000;
+const TOOLTIP_DEPTH = OverlayDepths.TOOLTIP;
 const KEYBOARD_DELAY_MS = 2000;
 const TOOLTIP_MAX_WIDTH = 280;
 const TOOLTIP_PADDING = 12;

@@ -6,8 +6,9 @@
  */
 
 import Phaser from 'phaser';
+import { OverlayDepths } from '../visual/DepthLayers';
 
-const BUTTON_DEPTH = 999; // Same depth level as joystick
+const BUTTON_DEPTH = OverlayDepths.TOUCH_BUTTONS; // Same depth level as joystick
 const MIN_TOUCH_SIZE = 44;
 
 export interface TouchActionButtonsOptions {

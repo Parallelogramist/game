@@ -104,8 +104,13 @@ export class BootScene extends Phaser.Scene {
 
     const musicManager = getMusicManager();
     const startMenuMusic = async () => {
-      if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
-        await musicManager.play();
+      try {
+        if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
+          await musicManager.play();
+        }
+      } catch {
+        // AudioContext may still be locked or the track fetch failed — menu
+        // music is best-effort; the next gesture path can retry.
       }
     };
     this.input.once('pointerdown', startMenuMusic);

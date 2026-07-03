@@ -58,7 +58,7 @@ import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManage
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
 import { rollAffix, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { TelegraphManager } from '../../effects/TelegraphManager';
-import { DepthLayers } from '../../visual/DepthLayers';
+import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
@@ -120,7 +120,7 @@ import { DISPLAY_FONT } from '../../visual/MenuStyle';
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 const minimapConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
 
-const HUD_OVERLAY_DEPTH = 1100; // Warnings / notifications / coach marks — above HUD (1000), below minimap (1895). NOT the pause menu (2100, PauseMenuManager).
+const HUD_OVERLAY_DEPTH = OverlayDepths.HUD_OVERLAY; // Warnings / notifications / coach marks — above HUD, below minimap. NOT the pause menu (PauseMenuManager).
 
 // Combo-tier → visual intensity lookups (module-level to avoid per-frame literal allocation in updateGridBackground)
 const COMBO_TIER_LIGHT_RADIUS: Record<string, number> = {
@@ -906,12 +906,9 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager = new EffectsManager(this);
     this.soundManager = new SoundManager(this);
     // Bind the shared JuiceManager to this scene so hitStop/screenShake/
-    // impactFlash all have a scene context. Unbind on
-    // scene shutdown so stale scene references don't leak into future runs.
+    // impactFlash all have a scene context. The unbind lives in shutdown()
+    // proper so the fresh and restore create paths share one teardown.
     getJuiceManager().setScene(this);
-    this.events.once('shutdown', () => {
-      getJuiceManager().setScene(null);
-    });
 
     // Pre-render gem rotation frames to GPU texture atlases
     generateGemAtlases(this);
@@ -1061,9 +1058,9 @@ export class GameScene extends Phaser.Scene {
       this.scale.width / 2, this.scale.height / 2,
       this.scale.width, this.scale.height,
       0xff0000, 0
-      // Atmosphere band: above the lighting layer (500), below all UI
-      // (999+) — the low-HP pulse must not tint the HP bar it points at.
-    ).setScrollFactor(0).setDepth(850);
+      // Atmosphere band: above the lighting layer, below all UI — the
+      // low-HP pulse must not tint the HP bar it points at.
+    ).setScrollFactor(0).setDepth(OverlayDepths.DANGER_VIGNETTE);
 
     // Create pause menu manager
     this.pauseMenuManager = this.createPauseMenuManager();
@@ -1093,7 +1090,7 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#00000099',
       padding: { x: 6, y: 4 },
     });
-    this.directorDebugText.setDepth(2500);
+    this.directorDebugText.setDepth(OverlayDepths.DEBUG);
     this.directorDebugText.setScrollFactor(0);
     this.applyDirectorDebugVisibility(getSettingsManager().isDirectorDebugEnabled());
   }
@@ -1692,9 +1689,9 @@ export class GameScene extends Phaser.Scene {
       this.scale.width / 2, this.scale.height / 2,
       this.scale.width, this.scale.height,
       0xff0000, 0
-      // Atmosphere band: above the lighting layer (500), below all UI
-      // (999+) — the low-HP pulse must not tint the HP bar it points at.
-    ).setScrollFactor(0).setDepth(850);
+      // Atmosphere band: above the lighting layer, below all UI — the
+      // low-HP pulse must not tint the HP bar it points at.
+    ).setScrollFactor(0).setDepth(OverlayDepths.DANGER_VIGNETTE);
 
     // Populate upgrade icons with restored weapons and upgrades
     this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
@@ -1704,6 +1701,11 @@ export class GameScene extends Phaser.Scene {
 
     // Setup all input event handlers and input controller
     this.setupInputEventHandlers();
+
+    // Mirror the fresh path: without this, F10 flips the persisted setting
+    // but applyDirectorDebugVisibility null-guards and shows nothing for the
+    // entire restored run.
+    this.createDirectorDebugOverlay();
 
     // Restore dash state from save
     this.inputController.setDashCooldownTimer(state.dashCooldownTimer);
@@ -4533,13 +4535,13 @@ export class GameScene extends Phaser.Scene {
 
     // t=700: Dark vignette overlay fading in
     this.time.delayedCall(700, () => {
-      // Above all in-run UI (HUD 1000, minimap 1895, arrows 1900) so the
-      // whole frame dims together; below the game-over overlay (2100+).
+      // Above all in-run UI (HUD, minimap, arrows) so the whole frame dims
+      // together; below the game-over overlay.
       const darkenOverlay = this.add.rectangle(
         this.scale.width / 2, this.scale.height / 2,
         this.scale.width, this.scale.height,
         0x000000, 0
-      ).setDepth(2050).setScrollFactor(0);
+      ).setDepth(OverlayDepths.DEATH_DARKEN).setScrollFactor(0);
       this.tweens.add({
         targets: darkenOverlay,
         alpha: 0.85,
@@ -5311,7 +5313,7 @@ export class GameScene extends Phaser.Scene {
 
     // Semi-transparent backdrop
     const backdrop = this.add.rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.6);
-    backdrop.setScrollFactor(0).setDepth(1990);
+    backdrop.setScrollFactor(0).setDepth(OverlayDepths.INTRO_BACKDROP);
     bannerElements.push(backdrop);
 
     // Title
@@ -5322,7 +5324,7 @@ export class GameScene extends Phaser.Scene {
       color: '#888888',
       stroke: '#000000',
       strokeThickness: 2,
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
     bannerElements.push(title);
 
     // Modifier cards
@@ -5344,7 +5346,7 @@ export class GameScene extends Phaser.Scene {
         color: categoryColor,
         stroke: '#000000',
         strokeThickness: 2,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       bannerElements.push(tag);
 
       // Modifier name
@@ -5355,7 +5357,7 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 3,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       bannerElements.push(nameText);
 
       // Description with effects breakdown
@@ -5365,12 +5367,12 @@ export class GameScene extends Phaser.Scene {
         color: '#cccccc',
         stroke: '#000000',
         strokeThickness: 2,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       bannerElements.push(descText);
 
       // Decorative line under each card
       const lineGraphics = this.add.graphics();
-      lineGraphics.setScrollFactor(0).setDepth(1991).setAlpha(0);
+      lineGraphics.setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       const lineColor = parseInt(categoryColor.replace('#', ''), 16);
       lineGraphics.lineStyle(1, lineColor, 0.4);
       lineGraphics.lineBetween(centerX - 140, cardY + 48, centerX + 140, cardY + 48);
@@ -5390,7 +5392,7 @@ export class GameScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 2,
       }
-    ).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
     bannerElements.push(promptText);
 
     // Fade in all elements
@@ -7944,6 +7946,11 @@ export class GameScene extends Phaser.Scene {
    * Critical for preventing input conflicts and memory leaks on restart.
    */
   shutdown(): void {
+    // Unbind the shared JuiceManager so stale scene references don't leak
+    // into the menu session or future runs. Covers both create paths
+    // (fresh and save-restore) — each binds, only this releases.
+    getJuiceManager().setScene(null);
+
     // Remove resize listener
     this.scale.off('resize', this.handleResize, this);
 

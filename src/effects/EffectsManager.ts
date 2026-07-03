@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { getSettingsManager } from '../settings';
 import { DISPLAY_FONT } from '../visual/MenuStyle';
+import { OverlayDepths } from '../visual/DepthLayers';
 
 /**
  * Pooled damage number for performance optimization.
@@ -330,9 +331,9 @@ export class EffectsManager {
       0xffffff,
       intensity
     );
-    // Gameplay-flash band (950): above the field, below all UI — at its old
-    // depth (1000 == HUD_DEPTH) it rendered over the HP/XP bars and toasts.
-    flash.setDepth(950);
+    // Gameplay-flash band: above the field, below all UI — at its old depth
+    // (HUD band) it rendered over the HP/XP bars and toasts.
+    flash.setDepth(OverlayDepths.SCREEN_FLASH);
     flash.setScrollFactor(0);  // Stay fixed to camera
 
     this.scene.tweens.add({

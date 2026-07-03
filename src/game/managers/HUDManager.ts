@@ -14,6 +14,7 @@ import { TouchActionButtons } from '../../ui/TouchActionButtons';
 import { Relic, getRelicRarityColor } from '../../data/Relics';
 import { RunModifier } from '../../data/RunModifiers';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS } from '../../visual/MenuStyle';
+import { OverlayDepths } from '../../visual/DepthLayers';
 
 /**
  * Draws a sharp HUD panel into the supplied Graphics object: soft shadow +
@@ -112,7 +113,7 @@ interface HUDManagerOptions {
   onAutoBuyToggled: () => void;
 }
 
-const HUD_DEPTH = 1000;
+const HUD_DEPTH = OverlayDepths.HUD;
 const HUD_ALPHA = 0.75;
 const HUD_EDGE_PADDING = 16;
 const HUD_ELEMENT_SPACING = 8;
@@ -760,6 +761,10 @@ export class HUDManager {
    * Updates all HUD elements each frame.
    */
   update(state: HUDUpdateState): void {
+    // Track the live setting — the in-run Settings scene toggles it while
+    // this HUD instance survives (scene.launch + pause, no restart), and
+    // every sibling consumer (minimap sweep, trails, ripples) reads live.
+    this.barMotionReduced = getSettingsManager().isReducedMotionEnabled();
     // Update timer (only when seconds change)
     if (this.timerTextRef) {
       const minutes = Math.floor(state.gameTime / 60);

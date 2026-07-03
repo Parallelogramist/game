@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getSettingsManager } from '../settings';
+import { OverlayDepths } from '../visual/DepthLayers';
 
 /**
  * Configuration for weapon wind-up anticipation effects.
@@ -879,9 +880,8 @@ export class JuiceManager {
     );
     flash.setScrollFactor(0);
     // Gameplay-flash band: above the field and lighting, below every UI
-    // element (999+) — a hit flash must not white-out the HUD or z-fight
-    // tooltips (2000).
-    flash.setDepth(950);
+    // element — a hit flash must not white-out the HUD or z-fight tooltips.
+    flash.setDepth(OverlayDepths.SCREEN_FLASH);
 
     this.scene.tweens.add({
       targets: flash,

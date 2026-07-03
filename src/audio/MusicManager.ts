@@ -421,7 +421,11 @@ export class MusicManager {
       if (currentPos < this.lastSequencePos - 1 && this.lastSequencePos > 2) {
         if (!this.hasLooped) {
           this.hasLooped = true;
-          this.nextTrack();
+          // Fire-and-forget from an interval — a failed fetch (offline) must
+          // not surface as an unhandled rejection; music just stays stopped.
+          this.nextTrack().catch((error) => {
+            console.error('Failed to advance to next track:', error);
+          });
         }
       }
 

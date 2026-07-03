@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getSettingsManager } from '../settings';
+import { OverlayDepths } from '../visual/DepthLayers';
 
 /**
  * Scene transition helpers.
@@ -9,11 +10,11 @@ import { getSettingsManager } from '../settings';
  * reverse on the arriving scene. Gameplay flow (into/out of GameScene)
  * keeps the plain `fadeOut`/`fadeIn` helpers.
  *
- * All transition objects live at depth 3000 — the whole-frame transition
- * band — so they cover every UI layer for the handful of frames they exist.
+ * All transition objects live in the whole-frame transition band, covering
+ * every UI layer for the handful of frames they exist.
  */
 
-const TRANSITION_DEPTH = 3000;
+const TRANSITION_DEPTH = OverlayDepths.TRANSITION;
 const SWEEP_ACCENT = 0x66bbff;
 /** Sweep geometry extends past the core line — offset start/end so the glow clears the screen. */
 const SWEEP_PAD = 16;

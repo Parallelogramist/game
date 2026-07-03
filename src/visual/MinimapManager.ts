@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { computeHudScale } from '../utils/HudScale';
 import { getSettingsManager } from '../settings';
+import { OverlayDepths } from './DepthLayers';
 import {
   projectToRadar,
   blipStyle,
@@ -12,8 +13,8 @@ import {
 const BASE_RADAR_RADIUS = 56;
 /** Inset from the screen edge (px) at HUD scale 1.0. */
 const BASE_EDGE_PADDING = 16;
-/** Depth: above gameplay, below the HUD (2000) — matches OffScreenIndicatorManager. */
-const MINIMAP_DEPTH = 1895;
+/** Above gameplay and the HUD, just below the off-screen enemy arrows. */
+const MINIMAP_DEPTH = OverlayDepths.MINIMAP;
 
 /** Ascending draw priority — bosses paint over the enemy swarm. */
 const DRAW_ORDER: MinimapBlipKind[] = ['enemy', 'pickup', 'elite', 'miniboss', 'boss'];
