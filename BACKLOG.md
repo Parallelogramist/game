@@ -68,13 +68,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   SFR-style temporary cards (boost active for the next run). Interacts with
   save-restore; design in the spec's phase notes before building.
 
-- [ ] **FEAT-SHIP-MODS-2 — ship mod follow-ups** · area: meta
-  FEAT-SHIP-MODS-1 (spec:
-  `docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md`) shipped the
-  core: 3 identity tracks per ship, HANGAR shop tab, run-start application.
-  Follow-ups: show mod levels on the WeaponSelectScene ship card, a mod-icon
-  art pass, possibly per-ship mastery achievements. Wait for
-  BALANCE-SHIP-MODS playtest feedback first.
 
 - [ ] **POLISH-UI-CAMERA — exclude UI from postFX pipelines and camera flash/fade**
   · area: visual · **Why:** HUD/minimap/overlays render through `cameras.main`, so

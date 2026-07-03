@@ -46,6 +46,8 @@ export interface ShipModTrack {
   name: string;
   /** States the per-level effect ('+4% max HP per level') for the HANGAR card. */
   description: string;
+  /** Semantic icon key resolved through IconMap.getIconFrame (HANGAR card art). */
+  icon: string;
   maxLevel: number;
   /** Gold cost of each level; costs.length === maxLevel. */
   costs: readonly number[];
@@ -70,9 +72,10 @@ function makeTrack(
   id: string,
   name: string,
   description: string,
+  icon: string,
   effectPerLevel: ShipModEffect,
 ): ShipModTrack {
-  return { id, name, description, maxLevel: TRACK_MAX_LEVEL, costs: TRACK_COSTS, effectPerLevel };
+  return { id, name, description, icon, maxLevel: TRACK_MAX_LEVEL, costs: TRACK_COSTS, effectPerLevel };
 }
 
 /**
@@ -88,28 +91,28 @@ function makeTrack(
  * BALANCE-SHIP-MODS's tuning noise floor.
  */
 const ARCHETYPES = {
-  hull: makeTrack('hull', 'Reinforced Hull', '+4% max HP per level', { maxHealthMult: 1.04 }),
-  thrusters: makeTrack('thrusters', 'Vector Thrusters', '+2% move speed per level', {
+  hull: makeTrack('hull', 'Reinforced Hull', '+4% max HP per level', 'heart', { maxHealthMult: 1.04 }),
+  thrusters: makeTrack('thrusters', 'Vector Thrusters', '+2% move speed per level', 'rocket', {
     moveSpeedMult: 1.02,
   }),
-  weapons: makeTrack('weapons', 'Weapon Tuning', '+2% damage per level', { damageMult: 1.02 }),
-  targeting: makeTrack('targeting', 'Targeting Suite', '+1% crit chance per level', {
+  weapons: makeTrack('weapons', 'Weapon Tuning', '+2% damage per level', 'sword', { damageMult: 1.02 }),
+  targeting: makeTrack('targeting', 'Targeting Suite', '+1% crit chance per level', 'target', {
     critChanceAdd: 0.01,
   }),
-  salvage: makeTrack('salvage', 'Salvage Rig', '+3% gold per level', { goldMult: 1.03 }),
-  datalink: makeTrack('datalink', 'Data Uplink', '+3% XP per level', { xpMult: 1.03 }),
-  cooldown: makeTrack('cooldown', 'Cycler Coils', '-1.5% weapon cooldown per level', {
+  salvage: makeTrack('salvage', 'Salvage Rig', '+3% gold per level', 'coins', { goldMult: 1.03 }),
+  datalink: makeTrack('datalink', 'Data Uplink', '+3% XP per level', 'brain', { xpMult: 1.03 }),
+  cooldown: makeTrack('cooldown', 'Cycler Coils', '-1.5% weapon cooldown per level', 'timer', {
     cooldownMult: 0.985,
   }),
-  armor: makeTrack('armor', 'Ablative Plating', '+1 armor per level', { armorAdd: 1 }),
-  regen: makeTrack('regen', 'Nanite Weave', '+0.2 HP/s regen per level', { regenAdd: 0.2 }),
-  lifesteal: makeTrack('lifesteal', 'Siphon Array', '+0.5% life steal per level', {
+  armor: makeTrack('armor', 'Ablative Plating', '+1 armor per level', 'shield', { armorAdd: 1 }),
+  regen: makeTrack('regen', 'Nanite Weave', '+0.2 HP/s regen per level', 'bandage', { regenAdd: 0.2 }),
+  lifesteal: makeTrack('lifesteal', 'Siphon Array', '+0.5% life steal per level', 'vampire', {
     lifeStealAdd: 0.005,
   }),
-  boss: makeTrack('boss', 'Executioner Protocol', '+5% boss damage per level', {
+  boss: makeTrack('boss', 'Executioner Protocol', '+5% boss damage per level', 'skull', {
     bossDamageAdd: 0.05,
   }),
-  luck: makeTrack('luck', 'Fortune Core', '+1% luck per level', { luckAdd: 0.01 }),
+  luck: makeTrack('luck', 'Fortune Core', '+1% luck per level', 'clover', { luckAdd: 0.01 }),
 } as const satisfies Record<string, ShipModTrack>;
 
 // ---------------------------------------------------------------------------

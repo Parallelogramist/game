@@ -392,6 +392,15 @@ export class AchievementManager {
     this.savePersistentState();
   }
 
+  /**
+   * Hangar mastery changed (a ship's last mod level was purchased). `count`
+   * is the absolute number of fully-modded ships, not an increment.
+   */
+  recordShipsFullyModded(count: number): void {
+    this.updateAchievementProgress('ships_fully_modded', count);
+    this.savePersistentState();
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // MILESTONE CHECKING
   // ─────────────────────────────────────────────────────────────────────────

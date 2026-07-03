@@ -254,3 +254,33 @@ describe('singleton access', () => {
     expect(second.getLevel(SHIP, TRACK)).toBe(1);
   });
 });
+
+describe('getFullyModdedShipCount', () => {
+  test('counts only ships with every track at cap', () => {
+    const manager = getShipModManager();
+    expect(manager.getFullyModdedShipCount()).toBe(0);
+
+    // Max every track of one ship.
+    for (const track of getShipModTracks(SHIP)) {
+      for (let i = 0; i < track.maxLevel; i++) manager.purchase(SHIP, track.id);
+    }
+    expect(manager.getFullyModdedShipCount()).toBe(1);
+
+    // A partially modded second ship does not count.
+    const other = SHIP_CHARACTERS.find((ship) => ship.id !== SHIP)!.id;
+    const otherTrack = getShipModTracks(other)[0];
+    manager.purchase(other, otherTrack.id);
+    expect(manager.getFullyModdedShipCount()).toBe(1);
+  });
+});
+
+describe('fleet-mastery achievement lockstep', () => {
+  test('ship_mods_fleet targets exactly the current roster size', async () => {
+    // A new ship added to the roster must bump the Fleet Admiral target, or
+    // the achievement unlocks one ship early.
+    const { ACHIEVEMENTS } = await import('../achievements/AchievementDefinitions');
+    const fleet = ACHIEVEMENTS.find((achievement) => achievement.id === 'ship_mods_fleet');
+    expect(fleet).toBeDefined();
+    expect(fleet!.targetValue).toBe(SHIP_CHARACTERS.length);
+  });
+});
