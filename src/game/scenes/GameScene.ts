@@ -108,6 +108,7 @@ import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import { recordDailyRun } from '../../meta/DailyChallengeManager';
 import { getRelicManager } from '../../meta/RelicManager';
 import { getCardCollectionManager } from '../../meta/CardCollectionManager';
+import type { CardDefinition } from '../../data/Cards';
 import { getRelicRarityColor } from '../../data/Relics';
 import { getStageById, getDefaultStage } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
@@ -2072,17 +2073,26 @@ export class GameScene extends Phaser.Scene {
   /**
    * Syncs the per-run cache-drop guard with CardCollectionManager's persisted
    * pending reveal. The manager is authoritative (it survives refresh and
-   * abandoned runs); the contract exposes no peek, so we consume + requeue.
-   * A leftover pending card keeps its end-screen reveal and blocks this run
-   * from rolling a second cache over it.
+   * abandoned runs): a leftover pending card keeps its end-screen reveal and
+   * blocks this run from rolling a second cache over it.
    */
   private syncCacheGuardWithPendingReveal(): void {
+    this.cacheFoundThisRun = getCardCollectionManager().peekPendingReveal() !== null;
+  }
+
+  /**
+   * Consume the queued data-cache reveal for an end screen. Consumption IS
+   * the discovery moment (the card becomes visible in the archive and its
+   * bonus starts counting), so the collection milestones are fed here — while
+   * this scene's achievement unlock callback is wired to deliver toast+gold.
+   */
+  private consumeCardRevealForEndScreen(): CardDefinition | null {
     const cardManager = getCardCollectionManager();
-    const pendingCard = cardManager.consumePendingReveal();
-    if (pendingCard) {
-      cardManager.queuePendingReveal(pendingCard.id);
+    const card = cardManager.consumePendingReveal();
+    if (card) {
+      getAchievementManager().recordCardsDiscovered(cardManager.getDiscoveredIds().size);
     }
-    this.cacheFoundThisRun = pendingCard !== null;
+    return card;
   }
 
   /**
@@ -4590,7 +4600,7 @@ export class GameScene extends Phaser.Scene {
       // Reveal (and consume) the data-cache card here. A won run that continues
       // into endless and later dies hits gameOver() with the reveal already
       // consumed, so it can't double-fire.
-      discoveredCard: getCardCollectionManager().consumePendingReveal(),
+      discoveredCard: this.consumeCardRevealForEndScreen(),
       runScore: victoryScoreResult.score,
       bestScore: victoryScoreResult.best,
       isNewBest: victoryScoreResult.isNewBest,
@@ -4831,7 +4841,7 @@ export class GameScene extends Phaser.Scene {
       // Reveal (and consume) the data-cache card. Null on a post-victory
       // endless death — showVictory() already consumed it, and the per-run
       // guard stops endless play from queueing a second one.
-      discoveredCard: getCardCollectionManager().consumePendingReveal(),
+      discoveredCard: this.consumeCardRevealForEndScreen(),
       runScore: scoreResult.score,
       bestScore: scoreResult.best,
       isNewBest: scoreResult.isNewBest,

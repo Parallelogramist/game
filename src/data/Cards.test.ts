@@ -4,6 +4,7 @@ import {
   CARD_RARITIES,
   CARD_RARITY_DROP_WEIGHTS,
   aggregateCardBonuses,
+  formatCardBonusSummary,
   getCardById,
   getCardRarityColor,
   pickUndiscoveredCard,
@@ -266,5 +267,36 @@ describe('aggregateCardBonuses', () => {
     const discovered = new Set(['card_hull_patch']);
     aggregateCardBonuses(discovered);
     expect([...discovered]).toEqual(['card_hull_patch']);
+  });
+});
+
+describe('formatCardBonusSummary', () => {
+  test('an empty collection formats to an empty string', () => {
+    expect(formatCardBonusSummary(aggregateCardBonuses(new Set()))).toBe('');
+  });
+
+  test('renders compounded multipliers as rounded percentage points', () => {
+    // +2% and +5% damage compound to 1.071 → '+7%'.
+    const bonuses = aggregateCardBonuses(
+      new Set(['card_overtuned_coils', 'card_void_capacitor']),
+    );
+    expect(formatCardBonusSummary(bonuses)).toBe('+7% DMG');
+  });
+
+  test('joins mixed multiplier / additive / level bonuses with separators', () => {
+    const bonuses = aggregateCardBonuses(
+      new Set(['card_hull_patch', 'card_targeting_assist', 'card_spare_processor', 'card_head_start']),
+    );
+    expect(formatCardBonusSummary(bonuses)).toBe(
+      '+10 HP · +1% CRIT · +1 REROLLS · START LV 2',
+    );
+  });
+
+  test('a full archive summary mentions every bonus channel', () => {
+    const bonuses = aggregateCardBonuses(new Set(ALL_CARDS.map((card) => card.id)));
+    const summary = formatCardBonusSummary(bonuses);
+    for (const label of ['DMG', 'ATK SPD', 'GOLD', 'XP', 'MAGNET', 'SPEED', 'ULT RATE', 'HP', 'CRIT', 'ARMOR', 'LUCK', 'REROLLS', 'BANISHES', 'START LV 2']) {
+      expect(summary, `label ${label}`).toContain(label);
+    }
   });
 });

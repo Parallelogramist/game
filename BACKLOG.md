@@ -64,24 +64,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   the crash overlay should now at least surface something in the console to
   triage from.**
 
-- [ ] **FEAT-CARDS-2 — card collection follow-ups** · area: meta/feel
-  **Context:** FEAT-CARDS-1 (Sky Force Reloaded-inspired card collection +
-  scanner lottery) ships the core loop; full design in
-  `docs/superpowers/specs/2026-07-03-card-collection-meta-design.md` (the durable
-  source of truth — read it before touching cards). Follow-ups: reveal-moment
-  juice (flip animation polish + sfx), a proper per-card icon pass, collection
-  milestone achievements, and a drop-rate/cost balance pass after real play
-  (SCAN_COST, cache chances, pity threshold are the knobs). Also: render the
-  aggregate bonus summary in the CardsScene header (spec asks for it; omitted
-  in phase 1 for layout room), and consider deferring `rollCacheDiscovery`'s
-  `discoverCard` to reveal-consumption time — today a cache pickup discovers
-  immediately (per the spec contract), so abandoning the run shows the card
-  in the archive (bonus already active) before its end-screen reveal ever
-  plays, deflating the SFR reveal moment. Accepted phase-1 deviations from
-  the spec sketch: tiles are 148×134, not ~150×190 (4 rows must fit 720px
-  without scrolling); Scanner `scan()` reveals immediately in-scene rather
-  than queueing a pending reveal.
-
 - [ ] **FEAT-CARDS-3 — timed / next-run boost cards** · area: meta · **needs design**
   SFR-style temporary cards (boost active for the next run). Interacts with
   save-restore; design in the spec's phase notes before building.
@@ -171,15 +153,23 @@ Never agent work. The fleet must not do any of these.
     checklist at the bottom). Check: (a) CARD ARCHIVE grid legibility — '?'
     slots vs discovered mini-cards, rarity hairlines at 40% blend, detail line
     on hover/focus, full keyboard/gamepad walk; (b) DECRYPT flow — gold spend,
-    pity countdown ("EPIC+ GUARANTEED IN N"), reveal flip + glow (and its
-    reduced-motion fade), ARCHIVE COMPLETE end state; (c) in-run cache drops —
-    boss 100% / miniboss 20% / elite 2% cadence feels right, pickup toast
-    reads, once-per-run guard holds; (d) end-screen reveal panel placement on
-    BOTH death and victory at UI-scale extremes and phone landscape; (e)
-    bonuses small enough that a full archive ≈ one shop tier (aggregate is
-    visible per-card; magnitudes in `src/data/Cards.ts`); (f) Surge Array:
-    Overdrive meter visibly fills ~10% faster. Knobs: SCAN_COST/PITY_THRESHOLD
-    (`CardCollectionManager.ts`), cache chances (`GameScene.handleEnemyDeath`).
+    pity countdown ("EPIC+ GUARANTEED IN N"), reveal flip + glow + evolution
+    flourish sfx (and the reduced-motion fade), ARCHIVE COMPLETE end state;
+    (c) in-run cache drops — boss 100% / miniboss 20% / elite 2% cadence feels
+    right, pickup toast reads, once-per-run guard holds, and a cache from an
+    ABANDONED run stays hidden ('?' slot, bonus inactive) until the next
+    end-screen reveal (FEAT-CARDS-2 deferred discovery); (d) end-screen reveal
+    panel placement + discovery chime timing on BOTH death and victory at
+    UI-scale extremes and phone landscape; (e) bonuses small enough that a
+    full archive ≈ one shop tier — the idle detail line shows the live
+    ARCHIVE BONUS aggregate (magnitudes in `src/data/Cards.ts`); (f) Surge
+    Array: Overdrive meter visibly fills ~10% faster; (g) collection
+    milestones (1/6/12/24 cards → gold) — banner + chime on unlock from a
+    decrypt, toast when a tier crosses on an end-screen reveal, retro-credit
+    on first CARD ARCHIVE visit for pre-milestone collections. Balance knobs:
+    SCAN_COST/PITY_THRESHOLD (`CardCollectionManager.ts`), cache chances
+    (`GameScene.handleEnemyDeath`), milestone gold
+    (`AchievementDefinitions.ts` `cards_discovered_*`).
   - **POLISH-SETTINGS-UX** — sliding-switch toggles (`03716d2`) + mid-run UI-scale
     apply (`3ebb815`). Check: (a) switches read instantly (green/right = on) at every
     UI scale, knob slide is clean, gamepad focus ring visible; (b) mid-run UI-scale
@@ -345,6 +335,20 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-CARDS-2 — card collection follow-ups** (done — `08a196c`).
+  Deferred discovery (cache cards stay hidden until the end-screen reveal —
+  `peekPendingReveal` added, consumption is now the discovery moment),
+  ARCHIVE BONUS aggregate summary on the CardsScene idle detail line
+  (`formatCardBonusSummary`, pure + tested), four `cards_discovered`
+  milestone achievements (1/6/12/24 → gold; entry sync retro-credits
+  pre-milestone collections), menu-context reward banking fix in
+  AchievementManager (no-callback unlocks stay unclaimed for the
+  AchievementScene retro-claim instead of silently eating gold), reveal
+  sfx on scanner flips and end-screen reveals, icon pass verified
+  (all 24 keys resolve, test-locked). Full write-up in
+  `BACKLOG-archive.md`. Drop-rate/cost balance pass stays a human call →
+  playtest queue (POLISH-CARDS).
 
 - [x] **FEAT-CARDS-1 — card collection + scanner lottery meta-progression**
   (done — `caaba4e`). Sky Force Reloaded-inspired card loop per the durable

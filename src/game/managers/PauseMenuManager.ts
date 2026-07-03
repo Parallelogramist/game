@@ -1420,6 +1420,9 @@ export class PauseMenuManager {
         // overlay having been dismissed before this fires.
         this.scene.time.delayedCall(320, () => cardReveal.playGlowPulse());
       }
+      // Discovery chime rides the reveal, not the panel creation, so it lands
+      // after the victory fanfare instead of colliding with it.
+      this.scene.time.delayedCall(320, () => this.soundManager.playAchievementUnlock());
     }
 
     // Keyboard handlers (store for cleanup). Pointer click handlers are wired
@@ -1787,7 +1790,11 @@ export class PauseMenuManager {
       // `let` narrowing doesn't survive into the closure — pin to a const.
       const reveal = cardReveal;
       const revealDone = cardRevealLastIndex * staggerDelay + 300;
-      this.scene.time.delayedCall(revealDone, () => reveal.playGlowPulse());
+      this.scene.time.delayedCall(revealDone, () => {
+        reveal.playGlowPulse();
+        // Discovery chime lands with the halo, well after the game-over sting.
+        this.soundManager.playAchievementUnlock();
+      });
     }
 
     // Stat count-up animations (start after stagger reveals them)
