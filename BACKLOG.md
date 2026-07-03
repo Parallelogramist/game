@@ -38,6 +38,32 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
+- [ ] **BUG-FREEZE-VERIFY — confirm the reported game freeze is fixed** · area: stability
+  **Context:** user reported the game "sometimes just freezes up." No error handling
+  existed anywhere, so any uncaught exception during a Phaser scene update() silently
+  halted the game with zero diagnostics — Phaser only reschedules its next
+  `requestAnimationFrame` after a step completes without throwing. Two fixes landed
+  without a live repro (network sandboxed, couldn't run a browser): (1) the 100-kill
+  "annihilation" combo pulse (`GameScene.ts`, `handleComboThreshold`) iterated
+  bitECS's LIVE enemy query array while calling `handleEnemyDeath` — which removes
+  the dying entity and, for Splitter enemies, synchronously spawns 2 new ones via
+  `handleSplit`/`addEntity` — mutating the very array being iterated; now snapshotted
+  first, matching the safe pattern already used by StatusEffectSystem/
+  HazardZoneSystem for this exact hazard. (2) The new boss-intro letterbox
+  (session's polish drop) had a tween whose target was a plain proxy object
+  (`ruleState`), not the `rules` Graphics object in the cleanup array — if the
+  player died within ~180-480ms of a boss spawning, `cleanupBossIntro()` destroyed
+  `rules` but the orphaned tween kept calling `.clear()/.fillStyle()/.fillRect()` on
+  it every frame for the rest of its run. Also added a global `window.error`/
+  `unhandledrejection` handler (`main.ts`) + `#crash-overlay` (`index.html`) so ANY
+  future uncaught exception surfaces a "tap to reload" recovery screen instead of a
+  silent frozen frame — this alone should turn future rare freezes into diagnosable,
+  reportable events (check the console) rather than mystery hangs. **Needs a human
+  session or two of normal play (ideally including a 100+ kill combo chain and a
+  death timed near a boss spawn) to confirm the freeze doesn't recur; if it does,
+  the crash overlay should now at least surface something in the console to
+  triage from.**
+
 - [ ] **POLISH-UI-CAMERA — exclude UI from postFX pipelines and camera flash/fade**
   · area: visual · **Why:** HUD/minimap/overlays render through `cameras.main`, so
   BloomPipeline blooms bright HUD pixels, DistortionPipeline shockwaves warp HUD
