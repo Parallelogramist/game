@@ -85,6 +85,51 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `261d9dc` FEAT-SHIP-MODS-1 — **per-ship mod tracks + HANGAR shop tab**, the
+  last unbuilt piece of the Sky Force Reloaded meta loop (cards + scanner
+  shipped as FEAT-CARDS-1/2 the same day). Previously parked as "BLOCKED on
+  human economy sign-off"; the operator requested the work directly, so a
+  conservative first-pass economy shipped with tuning explicitly owned by
+  BALANCE-SHIP-MODS in the playtest queue. **Design:** spec at
+  `docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md` (durable
+  source of truth — frozen API contract, archetype table, per-ship
+  assignments, economy). Each of the 11 ships gets 3 short tracks (3 levels,
+  400/700/1200 gold; 6,900/ship, ~76k full fleet) picked from 12 shared
+  archetypes to REINFORCE that ship's identity (Interceptor:
+  thrusters/cooldown/targeting; Juggernaut: hull/armor/regen; Boss Hunter:
+  boss/salvage/lifesteal; …). Magnitudes deliberately flavor-sized (a maxed
+  track ≈ one mid shop tier; a test literally guards the band). **Data**
+  (`src/data/ShipMods.ts` + tests): catalog + `getShipModTracks` /
+  `getShipModCost` (Infinity at/past cap, corrupt level input fails safe) /
+  `aggregateShipModBonuses` (identity defaults; *Mult fields compound
+  value^level, adds linear; non-finite levels rejected as corruption).
+  Shared archetype object references guarantee same-id-same-effect (locked
+  by test). **Persistence** (`src/meta/ShipModManager.ts` + tests):
+  singleton, `survivor-meta-ship-mods` → `{ [shipId]: { [trackId]: level } }`
+  via SecureStorage, loader rebuilds from the catalog only (junk
+  ships/tracks dropped, levels integer-clamped [0,3]), key registered in
+  `StorageBootstrap.ALL_STORAGE_KEYS`; `purchase()` spends NOTHING itself —
+  the caller spends gold via MetaProgressionManager first (scanner
+  pattern). **UI:** ShopScene HANGAR tab after the 7 upgrade categories —
+  one 220×220 card per unlocked-ship×track (ship kicker, per-level effect,
+  ◆◆◇ pips + LV n/3, cost button / MAXED gold state, affordable star +
+  tab badge), ONE trailing teaser card when ships are locked (availability
+  = the WeaponSelectScene rule via `isUnlockRequirementMet`), purchases
+  mirror the shop flow exactly (deficit toast, purchase sound, gold tween,
+  defensive refund if the guarded purchase() somehow returns false). Tab
+  strip: 8 tabs at 720 wide = 82px/tab → compact labels
+  (ATK/DEF/SPD/GOLD/UTIL/ELEM/MSTRY/HANGAR) engage below 85px; 1280 keeps
+  full labels (1272 ≤ 1280). Keyboard/gamepad nav extended through the
+  existing MenuNavigator wiring (8-column tab row, grid rows from the
+  active card count) — no fork. **Run start:** GameScene applies aggregated
+  mod bonuses immediately AFTER the ship's own bonuses (maxHealth ×= +
+  round + currentHealth resync, move/damage/cooldown/gold/xp ×=,
+  crit/armor/regen/lifesteal/luck +=, bossDamageMultiplier +=). Built by
+  two parallel file-disjoint agents against the frozen spec contract
+  (data+manager / ShopScene) with GameScene wired inline; filtered
+  typecheck clean. Follow-ups → FEAT-SHIP-MODS-2 (ship-select mod display,
+  icon pass, achievements).
+
 - `c433efc` FEAT-PORTRAIT — **portrait mode support**. The game previously
   hard-blocked portrait phones with an HTML "rotate your device" overlay; it
   now plays in both orientations. **Core mechanism** (`src/utils/Orientation.ts`

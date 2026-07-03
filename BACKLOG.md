@@ -379,6 +379,17 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-SHIP-MODS-1 — per-ship mod tracks + HANGAR shop tab**
+  (done — `261d9dc`). 3 identity tracks per ship (12 shared archetypes),
+  3 levels each at 400/700/1200 gold, HANGAR tab in the shop (compact tab
+  labels below 85px/tab so 8 tabs fit portrait), run-start application after
+  ship bonuses, SecureStorage persistence + corruption-hardened loader,
+  ~40 unit tests. Spec (frozen API contract + economy):
+  `docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md`. Economy is a
+  first pass shipped on direct operator request (the old human-gate) —
+  tuning owned by BALANCE-SHIP-MODS (playtest queue); follow-ups in
+  FEAT-SHIP-MODS-2. Full write-up in `BACKLOG-archive.md`.
+
 - [x] **FEAT-PORTRAIT — portrait mode support** (done — `c433efc`).
   Orientation-aware base game size (1280×720 ↔ 720×1280 under EXPAND, so the
   shorter side is always 720 game units), debounced flip watcher in main.ts
