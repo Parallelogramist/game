@@ -148,6 +148,33 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PORTRAIT** — portrait mode support (FEAT-PORTRAIT). The base game
+    size is now orientation-aware (1280×720 landscape / 720×1280 portrait,
+    `src/utils/Orientation.ts` + watcher in `main.ts`); menus restart on flips,
+    GameScene does the UI-scale save-restore round trip (resumes into pause).
+    **Needs a real phone, BOTH orientations, and live rotations:** (a) rotate
+    on the main menu / shop / codex / achievements / cards / weapon select /
+    pact select / leaderboard / settings / music / credits — every scene
+    re-lays-out, nothing overflows or overlaps, gamepad/keyboard nav still
+    tracks the visual grid (columns change in portrait); (b) rotate MID-RUN —
+    brief restart, pause menu reopens, run state intact, HUD/minimap/touch
+    buttons correctly placed for the new orientation; (c) rotate while the
+    level-up modal is open — modal stays usable, relayout settles after the
+    last queued selection; (d) rotate on death/victory screens — cosmetic
+    only (by design, no relayout; run-over states can't save-restore);
+    (e) portrait death screen: WEAPON DAMAGE + PERSONAL BESTS sit side by
+    side BELOW the stat column (recent-runs strip is hidden in portrait —
+    follow-up); (f) portrait pause: BUILD STATS + RUN MODIFIERS below the
+    buttons — check the tallest build (6 weapons + 4 synergies) for bottom
+    clipping at exactly 720×1280; (g) portrait CARD ARCHIVE: 4-col grid +
+    compact scanner bar, decrypt flow + reveal; (h) verify
+    `scale.setGameSize` under EXPAND actually re-bases on rotation on iOS
+    Safari (blind-implemented — cannot be runtime-verified in the sandbox);
+    (i) iOS toolbar show/hide and keyboard must NOT trigger spurious scene
+    restarts (250ms debounce + orientation-class comparison should absorb
+    them). Known v1 cuts: victory card-reveal panel may graze the stats
+    panel edge in portrait; SettingsScene content clusters at the top
+    (fits, just sparse); Codex margins run 13px.
   - **POLISH-CARDS** — card collection + scanner lottery (FEAT-CARDS-1; spec in
     `docs/superpowers/specs/2026-07-03-card-collection-meta-design.md`, feel
     checklist at the bottom). Check: (a) CARD ARCHIVE grid legibility — '?'
@@ -335,6 +362,17 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-PORTRAIT — portrait mode support** (done — `c433efc`).
+  Orientation-aware base game size (1280×720 ↔ 720×1280 under EXPAND, so the
+  shorter side is always 720 game units), debounced flip watcher in main.ts
+  (menus restart with original payload; GameScene save-restore round trip;
+  level-up modal defers), HTML rotate-blocker removed, and portrait reflows
+  for Shop/Credits/Achievements/WeaponSelect/PactSelect/Leaderboard/Music/
+  Cards/Upgrade plus pause + game-over panel stacking. Landscape math
+  verified unchanged everywhere (grep-level + arithmetic). Full write-up in
+  `BACKLOG-archive.md`. On-device verification → POLISH-PORTRAIT (playtest
+  queue); known cuts listed there.
 
 - [x] **FEAT-CARDS-2 — card collection follow-ups** (done — `08a196c`).
   Deferred discovery (cache cards stay hidden until the end-screen reveal —

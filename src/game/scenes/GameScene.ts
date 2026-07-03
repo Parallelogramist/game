@@ -310,6 +310,8 @@ export class GameScene extends Phaser.Scene {
   // reveal is a single end-screen moment). Synced with the manager's persisted
   // pending reveal in both create paths — see syncCacheGuardWithPendingReveal.
   private cacheFoundThisRun: boolean = false;
+  /** Orientation flipped while the level-up modal was open — relayout deferred. */
+  private pendingOrientationRelayout: boolean = false;
 
   // Effects and sound managers for game juice
   private effectsManager!: EffectsManager;
@@ -599,6 +601,9 @@ export class GameScene extends Phaser.Scene {
     this.damageCooldown = 0;
     this.isGameOver = false;
     this.isPaused = false;
+    // Scene restarts reuse this instance — a restart IS the flip's relayout,
+    // so any deferred-orientation flag is stale by definition here.
+    this.pendingOrientationRelayout = false;
     this.introOverlayActive = false;
     this.hasWon = false;
     this.syncCacheGuardWithPendingReveal();
@@ -1585,6 +1590,7 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = false;
     this.isPaused = false;
     this.pendingLevelUps = 0;
+    this.pendingOrientationRelayout = false;
     this.nextEnemyDropsMagnet = false;
     // Cache-drop guard: the pending reveal persisted by CardCollectionManager
     // is one authority, but showVictory() consumes it while the run continues
@@ -4475,6 +4481,33 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Device orientation flipped (main.ts watcher swapped the base game size).
+   * The live resize path repositions HUD anchors, but creation-baked sizes
+   * and layout groupings are only fully consistent after a rebuild — reuse
+   * the UI-scale save-restore round trip, which also resumes into the pause
+   * menu (the player is mid-rotation; silently continuing combat would be
+   * hostile).
+   */
+  public handleOrientationFlip(): void {
+    // End screens are run-over states: the death path has no save to
+    // round-trip and the victory path already CLEARED the save — restarting
+    // with restore would resurrect a finished run. Their overlays are
+    // center-anchored, so a flip there is cosmetic only.
+    if (this.isGameOver) return;
+    if (this.hasWon && this.isPaused && !this.pauseMenuManager.isPauseMenuOpen) return;
+    // Level-up modal open: a GameScene restart underneath would orphan it.
+    // Defer — the HUD keeps itself anchored via the live resize path
+    // meanwhile, and the selection-complete handler settles the relayout
+    // once the (last queued) modal closes.
+    if (this.scene.isActive('UpgradeScene')) {
+      this.pendingOrientationRelayout = true;
+      return;
+    }
+    this.saveGameState();
+    this.scene.restart({ restore: true, resumePaused: true });
+  }
+
+  /**
    * Called by SettingsScene when returning to GameScene.
    * Ensures the pause menu is shown reliably (doesn't rely on resume event).
    */
@@ -7295,6 +7328,13 @@ export class GameScene extends Phaser.Scene {
         this.time.delayedCall(100, () => {
           this.processNextLevelUp();
         });
+        return;
+      }
+      // An orientation flip during the modal deferred its relayout (a
+      // restart underneath would have orphaned the modal) — settle it now.
+      if (this.pendingOrientationRelayout) {
+        this.pendingOrientationRelayout = false;
+        this.handleOrientationFlip();
       }
     };
 

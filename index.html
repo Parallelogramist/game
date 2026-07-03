@@ -55,67 +55,7 @@
         touch-action: none;
       }
 
-      /* Portrait rotation prompt — phones only. The game is landscape-first;
-         tablets and desktops in portrait are left alone. */
-      #rotate-overlay {
-        display: none;
-        position: fixed;
-        inset: 0;
-        z-index: 100;
-        background: #000008;
-        color: #f2f6ff;
-        font-family: "Rajdhani", "Atkinson Hyperlegible", Arial, sans-serif;
-        text-align: center;
-        align-items: center;
-        justify-content: center;
-      }
-      @media (orientation: portrait) and (pointer: coarse) and (max-width: 767px) {
-        #rotate-overlay {
-          display: flex;
-        }
-      }
-      #rotate-overlay .rotate-inner {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 18px;
-      }
-      #rotate-overlay .rotate-phone {
-        width: 34px;
-        height: 58px;
-        border: 2px solid #66bbff;
-        border-radius: 6px;
-        animation: rotate-hint 2.4s ease-in-out infinite;
-      }
-      #rotate-overlay .rotate-title {
-        font-size: 20px;
-        font-weight: 700;
-        letter-spacing: 3px;
-      }
-      #rotate-overlay .rotate-sub {
-        font-family: "Atkinson Hyperlegible", Arial, sans-serif;
-        font-size: 13px;
-        color: #a0a8b8;
-      }
-      #rotate-overlay .rotate-rule {
-        width: 120px;
-        height: 2px;
-        background: #66bbff;
-        opacity: 0.6;
-      }
-      @keyframes rotate-hint {
-        0%, 20% { transform: rotate(0deg); }
-        55%, 100% { transform: rotate(90deg); }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        #rotate-overlay .rotate-phone {
-          animation: none;
-          transform: rotate(90deg);
-        }
-      }
-
-      /* Boot loader — first paint while fonts/JS/Phaser load. Below the
-         rotate overlay (z-index 100). */
+      /* Boot loader — first paint while fonts/JS/Phaser load. */
       #boot-loader {
         position: fixed;
         inset: 0;
@@ -238,14 +178,6 @@
     <div id="boot-loader">
       <div class="boot-wordmark">PEW PEW SURVIVOR</div>
       <div class="boot-track"></div>
-    </div>
-    <div id="rotate-overlay">
-      <div class="rotate-inner">
-        <div class="rotate-phone"></div>
-        <div class="rotate-title">ROTATE YOUR DEVICE</div>
-        <div class="rotate-rule"></div>
-        <div class="rotate-sub">This game plays in landscape</div>
-      </div>
     </div>
     <div id="crash-overlay">
       <div class="crash-inner">

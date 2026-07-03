@@ -54,7 +54,8 @@ export class AchievementScene extends Phaser.Scene {
   private readonly cardWidth = 360;
   private readonly cardHeight = 115;
   private readonly cardSpacing = 14;
-  private readonly columns = 2;
+  /** 2 on wide viewports; 1 when two 360px cards can't fit (portrait 720). */
+  private columns = 2;
 
   // Keyboard + gamepad navigation state
   private focusZone: FocusZone = 'tabs';
@@ -72,6 +73,10 @@ export class AchievementScene extends Phaser.Scene {
 
   create(): void {
     const centerX = this.scale.width / 2;
+
+    // Two-column grid needs 360×2+14 = 734 plus margins; portrait (720)
+    // drops to a single centered column — rows scroll, so height is free.
+    this.columns = this.scale.width < this.cardWidth * 2 + this.cardSpacing + 32 ? 1 : 2;
 
     this.soundManager = new SoundManager(this);
 
@@ -407,7 +412,8 @@ export class AchievementScene extends Phaser.Scene {
 
     const achievements = getAchievementsByCategory(category);
 
-    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
+    const gridWidth = this.cardWidth * this.columns + this.cardSpacing * (this.columns - 1);
+    const startX = (this.scale.width - gridWidth) / 2;
     const startY = 10;
 
     achievements.forEach((achievement, index) => {

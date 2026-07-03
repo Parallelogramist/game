@@ -85,6 +85,51 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `c433efc` FEAT-PORTRAIT — **portrait mode support**. The game previously
+  hard-blocked portrait phones with an HTML "rotate your device" overlay; it
+  now plays in both orientations. **Core mechanism** (`src/utils/Orientation.ts`
+  + `main.ts`): the Phaser base size is orientation-aware — 1280×720 landscape,
+  720×1280 portrait — so under Scale.EXPAND the SHORTER side stays 720 game
+  units in both orientations and world/UI objects hold a steady physical size
+  (a landscape-only base pinned 1280 units across a ~390pt portrait phone,
+  rendering everything ~3× too small). A debounced watcher (250ms, compares
+  orientation CLASS not raw size, so iOS toolbar/keyboard resize bursts don't
+  churn) swaps the base via `scale.setGameSize` on flips and re-lays-out live
+  scenes: menu scenes `restart(sys.settings.data)` (stateless creates, original
+  launch payload preserved); GameScene runs the UI-scale save-restore round
+  trip (`handleOrientationFlip` → saveGameState + restart{restore,resumePaused}
+  → resumes into the pause menu — rotating mid-combat deliberately pauses);
+  end screens skip (run-over states — victory already CLEARED the save, a
+  restore would resurrect a finished run); a flip during the level-up modal
+  defers (flag settled by the selection-complete handler after the LAST queued
+  modal, since a restart underneath would orphan the modal and regress
+  rerolls/locks). **Audits first** (3 read-only agents): every menu scene's
+  layout math at 720×1280, in-run HUD/pause/game-over/victory overlap math,
+  and the simulation layer — spawns (4-edge, live scale), AI bounds,
+  clamps, camera all confirmed orientation-agnostic; no gameplay change
+  needed. **Reflows at width 720** (landscape 1280 arithmetic verified
+  unchanged in every file): ShopScene width-aware grid columns (2 portrait);
+  CreditsScene cards stack; AchievementScene single-column grid;
+  WeaponSelectScene fit-capped columns in computeGridLayout (stages 2 /
+  ships 3 / weapons 4 portrait) + weapon-step navigator columns now derive
+  from the real grid; PactSelectScene row wrap (3+2) + navigator match;
+  LeaderboardScene bests strip wraps to rows (tabs/list shift down) and
+  history rows clamp to viewport width with proportional column anchors;
+  MusicSettingsScene list height derives from viewport (landscape resolves
+  to the legacy 380 exactly); CardsScene gets a dedicated 720×1280 design
+  space (4-col grid, compact full-width scanner bar, bottom back button);
+  UpgradeScene wraps 4 cards 2×2 below 800 width (0.49× shrink was
+  unreadable); pause BUILD STATS + RUN MODIFIERS pair below the buttons;
+  game-over WEAPON DAMAGE + PERSONAL BESTS pair below the stat column
+  (144px overlaps each side otherwise); recent-runs strip hidden in
+  portrait (no clear home — follow-up). **Drive-by fix:** HUDManager's
+  live-resize moved the bottom-center combo readout to the right screen
+  edge (half-clipped) on ANY resize — re-anchored to bottom-center.
+  Everything blind-implemented (no runtime in the sandbox) — on-device
+  checklist (incl. verifying setGameSize-under-EXPAND on iOS Safari and
+  worst-case pause-panel height at exactly 720×1280) filed as
+  POLISH-PORTRAIT.
+
 - `08a196c` FEAT-CARDS-2 — **card-collection follow-ups**, closing every
   non-playtest item from the follow-up list the same day FEAT-CARDS-1
   (`caaba4e`) shipped. **Deferred discovery (reveal-deflation fix):**

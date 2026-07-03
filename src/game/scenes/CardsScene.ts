@@ -1,13 +1,14 @@
 /**
  * CardsScene — the CARD ARCHIVE collection screen + Scanner lottery.
  *
- * Left: 6-column grid of the 24 collectible cards. Undiscovered slots are
- * dark with a rarity-colored hairline frame and a "?" glyph; discovered
- * slots are mini MenuCards with icon, name banner, bonus line, and rarity
- * tag. Right: the Scanner panel — gold readout, pity hint, and the DECRYPT
- * button (spends gold via MetaProgressionManager, then rolls via
- * CardCollectionManager.scan()). A successful scan flips the revealed tile
- * on with a rarity glow pulse (reduced motion: instant + static glow).
+ * Grid of the 24 collectible cards (landscape: 6 columns with the Scanner
+ * panel as a right-hand column; portrait: 4 columns with a compact Scanner
+ * bar below). Undiscovered slots are dark with a rarity-colored hairline
+ * frame and a "?" glyph; discovered slots are mini MenuCards with icon,
+ * name banner, bonus line, and rarity tag. The Scanner shows gold reserve,
+ * pity hint, and the DECRYPT button (spends gold via MetaProgressionManager,
+ * then rolls via CardCollectionManager.scan()). A successful scan flips the
+ * revealed tile on with a rarity glow pulse (reduced motion: instant fade).
  *
  * Spec: docs/superpowers/specs/2026-07-03-card-collection-meta-design.md
  */
@@ -44,35 +45,23 @@ interface TileEntry {
   discovered: boolean;
 }
 
-// ─── Grid geometry (1280×720 design space, centered in the live viewport) ──
-// The game scales with Phaser.Scale.EXPAND, so the real scale.width/height can
-// exceed the base on one axis; create() computes per-axis offsets that center
-// this fixed composition (sibling scenes re-anchor to scale.width/height the
-// same way). The spec sketches ~150×190 tiles, but 4 rows of 190px cannot fit
-// a 720px viewport alongside the header and detail line without scrolling — a
-// fixed 24-card archive reads better as one screen, so tiles are 148×134.
+// ─── Grid geometry — two fixed design spaces, centered in the live viewport ─
+// The game scales with Phaser.Scale.EXPAND and an orientation-aware base:
+// landscape guarantees ≥1280×720, portrait ≥720×1280. Each orientation gets
+// its own fixed composition (landscape: 6-col grid + scanner column at right;
+// portrait: 4-col grid with a compact scanner bar below), centered via
+// per-axis offsets like the sibling collection screens. The spec sketches
+// ~150×190 tiles, but 4 rows of 190px cannot fit a 720px viewport alongside
+// the header and detail line without scrolling — a fixed 24-card archive
+// reads better as one screen, so tiles are 148×134.
 const DESIGN_WIDTH = 1280;
 const DESIGN_HEIGHT = 720;
-const GRID_COLUMNS = 6;
+const PORTRAIT_DESIGN_WIDTH = 720;
+const PORTRAIT_DESIGN_HEIGHT = 1280;
 const TILE_WIDTH = 148;
 const TILE_HEIGHT = 134;
 const TILE_GAP_X = 10;
 const TILE_GAP_Y = 10;
-const GRID_LEFT = 24;
-const GRID_TOP = 78;
-/** Horizontal center of the grid block — title + detail line align to it. */
-const GRID_CENTER_X =
-  GRID_LEFT + (GRID_COLUMNS * TILE_WIDTH + (GRID_COLUMNS - 1) * TILE_GAP_X) / 2;
-
-// ─── Scanner column ─────────────────────────────────────────────────────────
-const SCANNER_X = 1120;
-const SCANNER_PANEL_Y = 291;
-const SCANNER_PANEL_WIDTH = 296;
-const SCANNER_PANEL_HEIGHT = 330;
-const DECRYPT_BUTTON_Y = 316;
-const BACK_BUTTON_Y = 640;
-
-const DETAIL_LINE_Y = 672;
 
 /** Rarity color as a '#rrggbb' string for text styling. */
 function rarityColorStr(rarity: CardDefinition['rarity']): string {
@@ -111,12 +100,101 @@ export class CardsScene extends Phaser.Scene {
   private focusZone: FocusZone = 'grid';
   private selectedTileIndex = 0;
 
-  /** Viewport-centering offsets for the 1280×720 design space (EXPAND scale). */
+  /** Viewport-centering offsets for the active design space (EXPAND scale). */
   private offsetX = 0;
   private offsetY = 0;
 
+  // Orientation-dependent geometry, resolved once in create(). Landscape
+  // values match the original fixed 1280×720 composition exactly.
+  private portrait = false;
+  private gridColumns = 6;
+  private gridLeft = 24;
+  private gridTop = 78;
+  private gridCenterX = 493;
+  private titleY = 40;
+  private counterX = 1120;
+  private counterY = 40;
+  private detailY = 672;
+  private scannerX = 1120;
+  private scannerY = 291;
+  private scannerW = 296;
+  private scannerH = 330;
+  private decryptX = 1120;
+  private decryptY = 316;
+  private backY = 640;
+  private bannerY = 62;
+
+  private decryptW = 240;
+  private decryptH = 50;
+  private decryptFontSize = 16;
+  private detailWrap = 920;
+
   constructor() {
     super({ key: 'CardsScene' });
+  }
+
+  /**
+   * Resolve the orientation's design space and composition geometry. The
+   * landscape branch reproduces the original fixed 1280×720 layout exactly;
+   * portrait re-arranges into a 720×1280 space: 4-column grid (622 wide,
+   * rows 84…938), detail line, then a compact full-width scanner bar
+   * (1012…1168) and the back button at 1226 — all inside the guaranteed
+   * 1280-unit portrait height, centered on taller viewports via offsetY.
+   */
+  private computeLayout(): void {
+    this.portrait = this.scale.width < DESIGN_WIDTH;
+
+    if (!this.portrait) {
+      this.offsetX = Math.max(0, (this.scale.width - DESIGN_WIDTH) / 2);
+      this.offsetY = Math.max(0, (this.scale.height - DESIGN_HEIGHT) / 2);
+      this.gridColumns = 6;
+      this.gridLeft = 24;
+      this.gridTop = 78;
+      this.gridCenterX = this.gridLeft + (6 * TILE_WIDTH + 5 * TILE_GAP_X) / 2;
+      this.titleY = 40;
+      this.counterX = 1120;
+      this.counterY = 40;
+      this.detailY = 672;
+      this.detailWrap = 920;
+      this.scannerX = 1120;
+      this.scannerY = 291;
+      this.scannerW = 296;
+      this.scannerH = 330;
+      this.decryptX = 1120;
+      this.decryptY = 316;
+      this.decryptW = 240;
+      this.decryptH = 50;
+      this.decryptFontSize = 16;
+      this.backY = 640;
+      this.bannerY = 62;
+      return;
+    }
+
+    this.offsetX = Math.max(0, (this.scale.width - PORTRAIT_DESIGN_WIDTH) / 2);
+    this.offsetY = Math.max(0, (this.scale.height - PORTRAIT_DESIGN_HEIGHT) / 2);
+    this.gridColumns = 4;
+    const gridWidth = 4 * TILE_WIDTH + 3 * TILE_GAP_X; // 622
+    this.gridLeft = (PORTRAIT_DESIGN_WIDTH - gridWidth) / 2;
+    this.gridTop = 84;
+    this.gridCenterX = PORTRAIT_DESIGN_WIDTH / 2;
+    this.titleY = 30;
+    this.counterX = this.gridCenterX;
+    this.counterY = 62;
+    this.detailY = 964; // grid bottom = 84 + 6×(134+10) − 10 = 938
+    this.detailWrap = 660;
+    this.scannerW = gridWidth;
+    this.scannerH = 156;
+    this.scannerX = this.gridCenterX;
+    this.scannerY = 1012 + this.scannerH / 2;
+    this.decryptX = this.scannerX + 200;
+    this.decryptY = this.scannerY - 20;
+    this.decryptW = 180;
+    this.decryptH = 46;
+    this.decryptFontSize = 14;
+    this.backY = 1226;
+    // Transient achievement toast — overlays mid-grid; the header rows are
+    // occupied by the title + counter in portrait.
+    this.bannerY = this.gridTop + 260;
   }
 
   create(): void {
@@ -125,24 +203,21 @@ export class CardsScene extends Phaser.Scene {
     this.focusZone = 'grid';
     this.selectedTileIndex = 0;
 
-    // EXPAND keeps one axis at the base size and grows the other — these are
-    // never negative, they just center the composition on the grown axis.
-    this.offsetX = Math.max(0, (this.scale.width - DESIGN_WIDTH) / 2);
-    this.offsetY = Math.max(0, (this.scale.height - DESIGN_HEIGHT) / 2);
+    this.computeLayout();
 
     this.menuBackground = createMenuBackground(this);
 
     const cardManager = getCardCollectionManager();
 
     // ─── header ─────────────────────────────────────────────────────────
-    const title = makeDisplayText(this, GRID_CENTER_X + this.offsetX, 40 + this.offsetY, 'CARD ARCHIVE', {
+    const title = makeDisplayText(this, this.gridCenterX + this.offsetX, this.titleY + this.offsetY, 'CARD ARCHIVE', {
       fontSize: 30,
       color: COLORS.accentPrimaryStr,
       strokeWidth: 4,
       letterSpacing: 4,
     });
 
-    this.counterText = makeDisplayText(this, SCANNER_X + this.offsetX, 40 + this.offsetY, '', {
+    this.counterText = makeDisplayText(this, this.counterX + this.offsetX, this.counterY + this.offsetY, '', {
       fontSize: 16,
       color: COLORS.accentGoldStr,
       letterSpacing: 2,
@@ -155,10 +230,10 @@ export class CardsScene extends Phaser.Scene {
     });
 
     // ─── detail line (fixed under the grid — hover/focus target info) ───
-    this.detailText = makeBodyText(this, GRID_CENTER_X + this.offsetX, DETAIL_LINE_Y + this.offsetY, '', {
+    this.detailText = makeBodyText(this, this.gridCenterX + this.offsetX, this.detailY + this.offsetY, '', {
       fontSize: 13,
       color: TEXT_COLORS.muted,
-      wordWrapWidth: 920,
+      wordWrapWidth: this.detailWrap,
     });
     this.showDefaultDetail();
 
@@ -167,8 +242,8 @@ export class CardsScene extends Phaser.Scene {
 
     this.backButton = createMenuButton({
       scene: this,
-      x: SCANNER_X + this.offsetX,
-      y: BACK_BUTTON_Y + this.offsetY,
+      x: (this.portrait ? this.gridCenterX : this.scannerX) + this.offsetX,
+      y: this.backY + this.offsetY,
       width: 240,
       height: 44,
       label: '← BACK TO MENU',
@@ -227,11 +302,11 @@ export class CardsScene extends Phaser.Scene {
   // ═══════════════════════════════════════════════════════════════════════
 
   private tilePosition(index: number): { x: number; y: number } {
-    const col = index % GRID_COLUMNS;
-    const row = Math.floor(index / GRID_COLUMNS);
+    const col = index % this.gridColumns;
+    const row = Math.floor(index / this.gridColumns);
     return {
-      x: GRID_LEFT + TILE_WIDTH / 2 + col * (TILE_WIDTH + TILE_GAP_X) + this.offsetX,
-      y: GRID_TOP + TILE_HEIGHT / 2 + row * (TILE_HEIGHT + TILE_GAP_Y) + this.offsetY,
+      x: this.gridLeft + TILE_WIDTH / 2 + col * (TILE_WIDTH + TILE_GAP_X) + this.offsetX,
+      y: this.gridTop + TILE_HEIGHT / 2 + row * (TILE_HEIGHT + TILE_GAP_Y) + this.offsetY,
     };
   }
 
@@ -371,10 +446,10 @@ export class CardsScene extends Phaser.Scene {
 
   private createScannerPanel(): void {
     this.scannerPanel = createMenuCard(this, {
-      x: SCANNER_X + this.offsetX,
-      y: SCANNER_PANEL_Y + this.offsetY,
-      width: SCANNER_PANEL_WIDTH,
-      height: SCANNER_PANEL_HEIGHT,
+      x: this.scannerX + this.offsetX,
+      y: this.scannerY + this.offsetY,
+      width: this.scannerW,
+      height: this.scannerH,
       pulseSeed: 5,
       bodyFillColor: COLORS.bodyGold,
       accentColor: COLORS.accentGold,
@@ -384,8 +459,11 @@ export class CardsScene extends Phaser.Scene {
       interactive: false,
     });
     const frame = this.scannerPanel.frame;
-    const halfH = SCANNER_PANEL_HEIGHT / 2;
+    const halfH = this.scannerH / 2;
 
+    // Landscape: tall side column, elements stacked top-to-bottom.
+    // Portrait: compact full-width bar — gold readout left, pity/cost middle,
+    // DECRYPT right, result line along the bottom.
     const banner = makeDisplayText(this, 0, -halfH + 15, 'SCANNER', {
       fontSize: 15,
       color: COLORS.headingWhite,
@@ -394,39 +472,44 @@ export class CardsScene extends Phaser.Scene {
     });
     frame.add(banner);
 
-    const goldLabel = makeBodyText(this, 0, -halfH + 52, 'GOLD RESERVE', {
+    const goldLabelPos = this.portrait ? { x: -190, y: -34 } : { x: 0, y: -halfH + 52 };
+    const goldLabel = makeBodyText(this, goldLabelPos.x, goldLabelPos.y, 'GOLD RESERVE', {
       fontSize: 11,
       color: TEXT_COLORS.muted,
     });
     frame.add(goldLabel);
 
-    this.goldText = makeDisplayText(this, 0, -halfH + 76, '', {
-      fontSize: 22,
+    const goldPos = this.portrait ? { x: -190, y: -8 } : { x: 0, y: -halfH + 76 };
+    this.goldText = makeDisplayText(this, goldPos.x, goldPos.y, '', {
+      fontSize: this.portrait ? 20 : 22,
       color: COLORS.headingGold,
       strokeWidth: 2,
       letterSpacing: 1,
     });
     frame.add(this.goldText);
 
-    this.pityText = makeBodyText(this, 0, -halfH + 108, '', {
+    const pityPos = this.portrait ? { x: -30, y: -34 } : { x: 0, y: -halfH + 108 };
+    this.pityText = makeBodyText(this, pityPos.x, pityPos.y, '', {
       fontSize: 12,
       color: TEXT_COLORS.muted,
-      wordWrapWidth: SCANNER_PANEL_WIDTH - 36,
+      wordWrapWidth: this.portrait ? 220 : this.scannerW - 36,
     });
     frame.add(this.pityText);
 
-    this.costText = makeBodyText(this, 0, -halfH + 136, `DECRYPT COST · ${SCAN_COST} GOLD`, {
-      fontSize: 13,
+    const costPos = this.portrait ? { x: -30, y: -6 } : { x: 0, y: -halfH + 136 };
+    this.costText = makeBodyText(this, costPos.x, costPos.y, `DECRYPT COST · ${SCAN_COST} GOLD`, {
+      fontSize: this.portrait ? 11 : 13,
       color: TEXT_COLORS.body,
       fontStyle: 'bold',
     });
     frame.add(this.costText);
 
     // Result banner — one line per reveal ("HULL PATCH RECOVERED · RARE").
-    this.resultText = makeBodyText(this, 0, halfH - 60, 'Decrypt to recover a lost card', {
+    const resultPos = this.portrait ? { x: 0, y: halfH - 22 } : { x: 0, y: halfH - 60 };
+    this.resultText = makeBodyText(this, resultPos.x, resultPos.y, 'Decrypt to recover a lost card', {
       fontSize: 12,
       color: TEXT_COLORS.dim,
-      wordWrapWidth: SCANNER_PANEL_WIDTH - 36,
+      wordWrapWidth: this.portrait ? 560 : this.scannerW - 36,
     });
     frame.add(this.resultText);
 
@@ -434,13 +517,13 @@ export class CardsScene extends Phaser.Scene {
     // an absolute-positioned card; embedding in frame would double-offset).
     this.decryptButton = createMenuButton({
       scene: this,
-      x: SCANNER_X + this.offsetX,
-      y: DECRYPT_BUTTON_Y + this.offsetY,
-      width: 240,
-      height: 50,
+      x: this.decryptX + this.offsetX,
+      y: this.decryptY + this.offsetY,
+      width: this.decryptW,
+      height: this.decryptH,
       label: `DECRYPT · ${SCAN_COST} G`,
       variant: 'gold',
-      fontSize: 16,
+      fontSize: this.decryptFontSize,
       onActivate: () => this.attemptDecrypt(),
     });
     this.decryptButton.card.hitZone.on('pointerover', () => this.decryptButton?.setHoverState(true));
@@ -555,8 +638,8 @@ export class CardsScene extends Phaser.Scene {
   private showAchievementBanner(name: string, rewardText: string): void {
     const banner = makeDisplayText(
       this,
-      GRID_CENTER_X + this.offsetX,
-      62 + this.offsetY,
+      this.gridCenterX + this.offsetX,
+      this.bannerY + this.offsetY,
       `ACHIEVEMENT · ${name.toUpperCase()}${rewardText ? `  —  ${rewardText}` : ''}`,
       {
         fontSize: 13,
@@ -676,15 +759,15 @@ export class CardsScene extends Phaser.Scene {
 
     const items: NavigableItem[] = [];
     const totalTiles = this.tiles.length;
-    const totalRows = Math.ceil(totalTiles / GRID_COLUMNS);
+    const totalRows = Math.ceil(totalTiles / this.gridColumns);
 
     for (let row = 0; row < totalRows; row++) {
-      const rowStart = row * GRID_COLUMNS;
-      const rowEnd = Math.min(rowStart + GRID_COLUMNS - 1, totalTiles - 1);
+      const rowStart = row * this.gridColumns;
+      const rowEnd = Math.min(rowStart + this.gridColumns - 1, totalTiles - 1);
       items.push({
         onFocus: () => {
           this.focusZone = 'grid';
-          const preferredCol = this.selectedTileIndex % GRID_COLUMNS;
+          const preferredCol = this.selectedTileIndex % this.gridColumns;
           this.selectedTileIndex = Math.min(rowStart + preferredCol, rowEnd);
           this.updateFocusVisuals();
         },
@@ -693,14 +776,14 @@ export class CardsScene extends Phaser.Scene {
           // Tiles are informational — the detail line already shows on focus.
         },
         onLeft: () => {
-          const col = this.selectedTileIndex % GRID_COLUMNS;
+          const col = this.selectedTileIndex % this.gridColumns;
           this.selectedTileIndex = col > 0 ? this.selectedTileIndex - 1 : rowEnd;
           this.updateFocusVisuals();
         },
         onRight: () => {
-          const col = this.selectedTileIndex % GRID_COLUMNS;
+          const col = this.selectedTileIndex % this.gridColumns;
           this.selectedTileIndex =
-            col < GRID_COLUMNS - 1 && this.selectedTileIndex < rowEnd
+            col < this.gridColumns - 1 && this.selectedTileIndex < rowEnd
               ? this.selectedTileIndex + 1
               : rowStart;
           this.updateFocusVisuals();

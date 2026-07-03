@@ -51,6 +51,7 @@ export class LeaderboardScene extends Phaser.Scene {
   private bestsCards: MenuCard[] = [];
   private menuTabs: MenuTabs | null = null;
   private backButton!: MenuButton;
+  private listStartY = 240;
 
   constructor() {
     super({ key: 'LeaderboardScene' });
@@ -83,8 +84,10 @@ export class LeaderboardScene extends Phaser.Scene {
       color: TEXT_COLORS.muted,
     });
 
-    this.renderPersonalBestsStrip(centerX, 110);
-    this.renderFilterTabs(centerX, 192);
+    // Extra bests rows (narrow viewports) push the tabs and list down.
+    const bestsExtraHeight = this.renderPersonalBestsStrip(centerX, 110);
+    this.renderFilterTabs(centerX, 192 + bestsExtraHeight);
+    this.listStartY = 240 + bestsExtraHeight;
 
     this.allEntries = getRecentLeaderboardEntries(ENTRIES_TO_SHOW);
     this.renderCurrentEntries(centerX);
@@ -134,8 +137,11 @@ export class LeaderboardScene extends Phaser.Scene {
     this.events.once('shutdown', this.shutdown, this);
   }
 
-  /** Six personal-bests tiles using small menu cards. */
-  private renderPersonalBestsStrip(centerX: number, topY: number): void {
+  /**
+   * Six personal-bests tiles using small menu cards. Wraps into multiple rows
+   * on narrow viewports; returns the extra height beyond a single row.
+   */
+  private renderPersonalBestsStrip(centerX: number, topY: number): number {
     const lifetimeStats = getAchievementManager().getLifetimeStats();
     const accountLevel = getMetaProgressionManager().getAccountLevel();
 
@@ -151,16 +157,19 @@ export class LeaderboardScene extends Phaser.Scene {
     const tileWidth = 160;
     const tileHeight = 70;
     const gap = 12;
-    const totalWidth = tiles.length * tileWidth + (tiles.length - 1) * gap;
-    const startX = centerX - totalWidth / 2 + tileWidth / 2;
+    const tilesPerRow = Math.max(1, Math.min(tiles.length, Math.floor((this.scale.width - 32) / (tileWidth + gap))));
 
     tiles.forEach((tile, index) => {
-      const x = startX + index * (tileWidth + gap);
+      const rowIndex = Math.floor(index / tilesPerRow);
+      const tilesInRow = Math.min(tilesPerRow, tiles.length - rowIndex * tilesPerRow);
+      const rowWidth = tilesInRow * tileWidth + (tilesInRow - 1) * gap;
+      const x = centerX - rowWidth / 2 + tileWidth / 2 + (index % tilesPerRow) * (tileWidth + gap);
+      const y = topY + rowIndex * (tileHeight + gap);
       const role = tile.role;
       const bodyKey = role === 'safe' ? 'safe' : role === 'primary' ? 'primary' : role === 'gold' ? 'gold' : role === 'magenta' ? 'magenta' : 'teal';
       const card = createMenuCard(this, {
         x,
-        y: topY,
+        y,
         width: tileWidth,
         height: tileHeight,
         pulseSeed: index * 0.7,
@@ -188,6 +197,8 @@ export class LeaderboardScene extends Phaser.Scene {
 
       this.bestsCards.push(card);
     });
+
+    return (Math.ceil(tiles.length / tilesPerRow) - 1) * (tileHeight + gap);
   }
 
   private renderFilterTabs(centerX: number, tabY: number): void {
@@ -240,22 +251,25 @@ export class LeaderboardScene extends Phaser.Scene {
   }
 
   private renderEntries(entries: DailyLeaderboardEntry[], centerX: number): void {
-    const listStartY = 240;
+    const listStartY = this.listStartY;
     const rowHeight = 36;
     const maxRows = 12;
     const displayEntries = entries.slice(0, maxRows);
-    const rowWidth = 800;
+    const rowWidth = Math.min(800, this.scale.width - 32);
     const leftX = centerX - rowWidth / 2;
+    // Column anchors are fractions of the 800px design width so narrow
+    // viewports compress proportionally; at rowWidth 800 they are unchanged.
+    const colX = (offset: number) => leftX + Math.round(offset * (rowWidth / 800));
 
     // Header label.
     const headerLabels: { x: number; text: string; width: number }[] = [
-      { x: leftX + 80, text: 'DATE', width: 100 },
-      { x: leftX + 200, text: 'TYPE', width: 80 },
-      { x: leftX + 290, text: 'RESULT', width: 90 },
-      { x: leftX + 410, text: 'KILLS', width: 70 },
-      { x: leftX + 510, text: 'TIME', width: 70 },
-      { x: leftX + 620, text: 'LEVEL', width: 70 },
-      { x: leftX + 720, text: 'SCORE', width: 80 },
+      { x: colX(80), text: 'DATE', width: 100 },
+      { x: colX(200), text: 'TYPE', width: 80 },
+      { x: colX(290), text: 'RESULT', width: 90 },
+      { x: colX(410), text: 'KILLS', width: 70 },
+      { x: colX(510), text: 'TIME', width: 70 },
+      { x: colX(620), text: 'LEVEL', width: 70 },
+      { x: colX(720), text: 'SCORE', width: 80 },
     ];
     for (const header of headerLabels) {
       const t = makeDisplayText(this, header.x, listStartY, header.text, {
@@ -290,13 +304,13 @@ export class LeaderboardScene extends Phaser.Scene {
       const valueColor = entry.wasVictory ? ACCENT_COLORS_STR.safe : TEXT_COLORS.body;
 
       const cells: { x: number; text: string; color: string; emphasis: boolean }[] = [
-        { x: leftX + 80 - centerX, text: entry.dateString, color: valueColor, emphasis: false },
-        { x: leftX + 200 - centerX, text: isWeekly ? 'Weekly' : 'Daily', color: isWeekly ? ACCENT_COLORS_STR.magenta : ACCENT_COLORS_STR.gold, emphasis: true },
-        { x: leftX + 290 - centerX, text: entry.wasVictory ? 'Victory' : 'Loss', color: valueColor, emphasis: entry.wasVictory },
-        { x: leftX + 410 - centerX, text: String(entry.killCount), color: valueColor, emphasis: false },
-        { x: leftX + 510 - centerX, text: formatTime(entry.survivalSeconds), color: valueColor, emphasis: false },
-        { x: leftX + 620 - centerX, text: `Lv ${entry.levelReached}`, color: valueColor, emphasis: false },
-        { x: leftX + 720 - centerX, text: entry.score.toLocaleString(), color: valueColor, emphasis: false },
+        { x: colX(80) - centerX, text: entry.dateString, color: valueColor, emphasis: false },
+        { x: colX(200) - centerX, text: isWeekly ? 'Weekly' : 'Daily', color: isWeekly ? ACCENT_COLORS_STR.magenta : ACCENT_COLORS_STR.gold, emphasis: true },
+        { x: colX(290) - centerX, text: entry.wasVictory ? 'Victory' : 'Loss', color: valueColor, emphasis: entry.wasVictory },
+        { x: colX(410) - centerX, text: String(entry.killCount), color: valueColor, emphasis: false },
+        { x: colX(510) - centerX, text: formatTime(entry.survivalSeconds), color: valueColor, emphasis: false },
+        { x: colX(620) - centerX, text: `Lv ${entry.levelReached}`, color: valueColor, emphasis: false },
+        { x: colX(720) - centerX, text: entry.score.toLocaleString(), color: valueColor, emphasis: false },
       ];
       for (const cell of cells) {
         const t = cell.emphasis

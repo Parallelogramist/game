@@ -765,8 +765,12 @@ export class PauseMenuManager {
       lines.push({ label: 'No active modifiers', value: '', color: '#666666' });
     }
 
-    const panelX = this.scene.scale.width * 0.82;
-    const panelTopY = this.scene.scale.height / 2 - 144;
+    // Narrow (portrait) viewports: the side columns would overlap the
+    // centered buttons, so the two dashboards sit side-by-side BELOW the
+    // button stack instead (bottom button ends at centerY+249; height ≥1280).
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow ? this.scene.scale.width / 2 + 130 : this.scene.scale.width * 0.82;
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 268 : this.scene.scale.height / 2 - 144;
     const lineHeight = 20;
     const panelWidth = 220;
     const panelHeight = lines.length * lineHeight + 40;
@@ -875,8 +879,10 @@ export class PauseMenuManager {
 
     const lineCount = leftLines.length;
     const lineHeight = 20;
-    const panelX = this.scene.scale.width * 0.18;
-    const panelTopY = this.scene.scale.height / 2 - 144;
+    // Mirrors the run-modifiers panel: below the buttons on narrow viewports.
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow ? this.scene.scale.width / 2 - 130 : this.scene.scale.width * 0.18;
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 268 : this.scene.scale.height / 2 - 144;
     const panelWidth = 220;
     const panelHeight = lineCount * lineHeight + 40;
     const contentLeftX = panelX - panelWidth / 2;
@@ -1907,6 +1913,10 @@ export class PauseMenuManager {
     } = {}
   ): void {
     if (!runs || runs.length === 0) return;
+    // The left-margin strip has no clear home at portrait widths — it would
+    // sit under the centered stat column. Skipped there (BACKLOG: portrait
+    // polish pass).
+    if (this.scene.scale.width < 900) return;
 
     const gradeColors: Record<string, string> = {
       S: '#ffd24a', A: '#66ff99', B: '#66ccff', C: '#bbbbdd', D: '#cc9966', F: '#ff6666',
@@ -2085,8 +2095,14 @@ export class PauseMenuManager {
     const totalDamageAll = sortedWeapons.reduce((sum, stat) => sum + stat.totalDamage, 0);
 
     const panelWidth = 240;
-    const panelX = Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - panelWidth / 2 - 24);
-    const panelTopY = this.scene.scale.height / 2 - 150;
+    // Narrow (portrait) viewports: the side columns would sit on top of the
+    // centered stat panel (480 wide), so this panel pairs up with PERSONAL
+    // BESTS below the whole center column instead — height ≥1280 there.
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow
+      ? this.scene.scale.width / 2 - panelWidth / 2 - 6
+      : Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - panelWidth / 2 - 24);
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 320 : this.scene.scale.height / 2 - 150;
     const rowHeight = 36;
     const panelHeight = sortedWeapons.length * rowHeight + 52;
 
@@ -2165,8 +2181,13 @@ export class PauseMenuManager {
   ): void {
     const bests = data.personalBests!;
     const panelWidth = 240;
-    const panelX = Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
-    const panelTopY = this.scene.scale.height / 2 - 150;
+    // Mirrors the weapon-damage panel: right slot of the below-column pair
+    // on narrow (portrait) viewports.
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow
+      ? this.scene.scale.width / 2 + panelWidth / 2 + 6
+      : Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 320 : this.scene.scale.height / 2 - 150;
     const rowHeight = 32;
 
     interface BestRow {
