@@ -363,6 +363,17 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-PORTRAIT — portrait mode support** (done — `c433efc`).
+  Orientation-aware base game size (1280×720 ↔ 720×1280 under EXPAND, so the
+  shorter side is always 720 game units), debounced flip watcher in main.ts
+  (menus restart with original payload; GameScene save-restore round trip;
+  level-up modal defers), HTML rotate-blocker removed, and portrait reflows
+  for Shop/Credits/Achievements/WeaponSelect/PactSelect/Leaderboard/Music/
+  Cards/Upgrade plus pause + game-over panel stacking. Landscape math
+  verified unchanged everywhere (grep-level + arithmetic). Full write-up in
+  `BACKLOG-archive.md`. On-device verification → POLISH-PORTRAIT (playtest
+  queue); known cuts listed there.
+
 - [x] **FEAT-CARDS-2 — card collection follow-ups** (done — `08a196c`).
   Deferred discovery (cache cards stay hidden until the end-screen reveal —
   `peekPendingReveal` added, consumption is now the discovery moment),
