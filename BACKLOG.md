@@ -68,11 +68,13 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   SFR-style temporary cards (boost active for the next run). Interacts with
   save-restore; design in the spec's phase notes before building.
 
-- [ ] **FEAT-SHIP-MODS — per-ship mod tracks** · area: meta · **BLOCKED on human
-  economy sign-off.** Per-ship short upgrade tracks that reinforce each ship's
-  identity (the SFR "ship upgrades" feel beyond the existing global shop). See
-  the card spec's mapping section for why the global shop already covers most
-  of this — scope carefully to avoid duplication.
+- [ ] **FEAT-SHIP-MODS-2 — ship mod follow-ups** · area: meta
+  FEAT-SHIP-MODS-1 (spec:
+  `docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md`) shipped the
+  core: 3 identity tracks per ship, HANGAR shop tab, run-start application.
+  Follow-ups: show mod levels on the WeaponSelectScene ship card, a mod-icon
+  art pass, possibly per-ship mastery achievements. Wait for
+  BALANCE-SHIP-MODS playtest feedback first.
 
 - [ ] **POLISH-UI-CAMERA — exclude UI from postFX pipelines and camera flash/fade**
   · area: visual · **Why:** HUD/minimap/overlays render through `cameras.main`, so
@@ -148,6 +150,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **BALANCE-SHIP-MODS** — per-ship mod track economy (FEAT-SHIP-MODS-1;
+    spec: `docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md`).
+    First-pass numbers shipped without human sign-off (operator asked for the
+    feature directly): every track 3 levels at 400/700/1200 gold (6,900 per
+    ship, ~76k full fleet), per-level magnitudes in the spec's archetype
+    table (+2-4% mults, +1 armor, +0.2 HP/s, etc.). Check with real play:
+    (a) does maxing your main ship's 3 tracks feel meaningful but not
+    mandatory (~a mid shop tier)? (b) is the fleet-wide sink priced right
+    against the scanner (500/roll) and deep shop tracks? (c) HANGAR tab
+    usability — card readability, purchase flow, level pips, MAXED state,
+    tab row fit at portrait width; (d) identity check — do the assigned
+    archetypes actually reinforce how each ship plays? Knobs: costs array
+    in `src/data/ShipMods.ts` tracks, effectPerLevel values, per-ship
+    track assignment.
   - **POLISH-PORTRAIT** — portrait mode support (FEAT-PORTRAIT). The base game
     size is now orientation-aware (1280×720 landscape / 720×1280 portrait,
     `src/utils/Orientation.ts` + watcher in `main.ts`); menus restart on flips,
@@ -362,6 +378,17 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-SHIP-MODS-1 — per-ship mod tracks + HANGAR shop tab**
+  (done — `261d9dc`). 3 identity tracks per ship (12 shared archetypes),
+  3 levels each at 400/700/1200 gold, HANGAR tab in the shop (compact tab
+  labels below 85px/tab so 8 tabs fit portrait), run-start application after
+  ship bonuses, SecureStorage persistence + corruption-hardened loader,
+  ~40 unit tests. Spec (frozen API contract + economy):
+  `docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md`. Economy is a
+  first pass shipped on direct operator request (the old human-gate) —
+  tuning owned by BALANCE-SHIP-MODS (playtest queue); follow-ups in
+  FEAT-SHIP-MODS-2. Full write-up in `BACKLOG-archive.md`.
 
 - [x] **FEAT-PORTRAIT — portrait mode support** (done — `c433efc`).
   Orientation-aware base game size (1280×720 ↔ 720×1280 under EXPAND, so the
