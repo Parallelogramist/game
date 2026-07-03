@@ -336,6 +336,20 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-CARDS-2 — card collection follow-ups** (done — `08a196c`).
+  Deferred discovery (cache cards stay hidden until the end-screen reveal —
+  `peekPendingReveal` added, consumption is now the discovery moment),
+  ARCHIVE BONUS aggregate summary on the CardsScene idle detail line
+  (`formatCardBonusSummary`, pure + tested), four `cards_discovered`
+  milestone achievements (1/6/12/24 → gold; entry sync retro-credits
+  pre-milestone collections), menu-context reward banking fix in
+  AchievementManager (no-callback unlocks stay unclaimed for the
+  AchievementScene retro-claim instead of silently eating gold), reveal
+  sfx on scanner flips and end-screen reveals, icon pass verified
+  (all 24 keys resolve, test-locked). Full write-up in
+  `BACKLOG-archive.md`. Drop-rate/cost balance pass stays a human call →
+  playtest queue (POLISH-CARDS).
+
 - [x] **FEAT-CARDS-1 — card collection + scanner lottery meta-progression**
   (done — `caaba4e`). Sky Force Reloaded-inspired card loop per the durable
   spec (`docs/superpowers/specs/2026-07-03-card-collection-meta-design.md`):

@@ -85,6 +85,50 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `08a196c` FEAT-CARDS-2 — **card-collection follow-ups**, closing every
+  non-playtest item from the follow-up list the same day FEAT-CARDS-1
+  (`caaba4e`) shipped. **Deferred discovery (reveal-deflation fix):**
+  `rollCacheDiscovery()` now only queues — the card stays out of the archive
+  grid, its bonus inactive, and it's excluded from Scanner/cache rolls via a
+  private effective-discovered pool (discovered ∪ pending) — and
+  `consumePendingReveal()` became the discovery moment; new
+  `peekPendingReveal()` (side-effect-free) replaced GameScene's
+  consume+requeue guard sync. Spec contract section updated to match. Locked
+  by tests: pending stays hidden, consume discovers+persists, a pending card
+  can't dupe via scan, and the scan-refund guard holds when the pending card
+  is the last undiscovered one. **Aggregate bonus summary (spec ask):**
+  CardsScene's idle detail line renders `ARCHIVE BONUS · +7% DMG · …` via
+  pure `formatCardBonusSummary()` in Cards.ts (compounded mults as rounded
+  percentage points; empty collection → call-to-action line; 4 tests).
+  **Collection milestones:** new `cards_discovered` tracking type + four
+  tiered achievements (`cards_discovered_1/6/12/24` → 100/300/750/2,500 gold,
+  Full Archive adds +5% gold stat bonus). Fed by
+  `AchievementManager.recordCardsDiscovered(totalCount)` from all three
+  discovery landing sites: GameScene's end-screen reveal consumption (new
+  `consumeCardRevealForEndScreen()` helper), CardsScene decrypts, and a
+  CardsScene entry sync that retro-credits collections that predate the
+  milestones. **Menu-context reward safety (latent-bug fix):**
+  `unlockAchievement` used to set `rewardClaimed = true` unconditionally
+  while delivery only happened through the unlock callback — an unlock fired
+  with no callback wired (any menu context) silently ate the gold. Now it
+  auto-claims only when a callback exists; otherwise the reward banks as
+  unclaimed for AchievementScene's existing retro-claim pass.
+  `setAchievementUnlockCallback` accepts null so scenes can detach;
+  CardsScene wires its own delivery (gold/stat via MetaProgressionManager +
+  transient gold banner + chime, reduced-motion aware) in create() and
+  detaches in shutdown(). 4 new manager tests (tier crossing from absolute
+  counts, reload persistence, banking without callback, auto-claim + detach
+  with one). **Reveal sfx:** Scanner tile flip plays the weapon-evolution
+  flourish (distinct from the achievement chime so a milestone crossing the
+  same decrypt doesn't double a sound); end-screen reveals play the
+  achievement chime timed to the glow pulse (after the victory
+  fanfare/game-over sting, not colliding with them). **Icon pass:** verified
+  complete — all 24 card icon keys resolve through ICON_MAP with no fallback,
+  already locked by a Cards test. Remaining knob (drop rates / SCAN_COST /
+  pity / milestone gold) is a human balance call → POLISH-CARDS playtest
+  entry updated with the new checks (deferred-reveal semantics, banner,
+  chime timing, retro-credit).
+
 - `caaba4e` FEAT-CARDS-1 — **card collection + scanner lottery meta-progression**,
   the Sky Force Reloaded-inspired meta loop from the 2026-07-03 session. Durable
   design source of truth: `docs/superpowers/specs/2026-07-03-card-collection-meta-design.md`
