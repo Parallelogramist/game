@@ -97,6 +97,29 @@ describe('pending reveal round-trip', () => {
     expect(new CardCollectionManager().consumePendingReveal()).toBeNull();
   });
 
+  test('peek reports the queued card without consuming or discovering it', () => {
+    const manager = new CardCollectionManager();
+    expect(manager.peekPendingReveal()).toBeNull();
+
+    manager.queuePendingReveal(FIRST_RARE);
+    expect(manager.peekPendingReveal()?.id).toBe(FIRST_RARE);
+    // Still queued, still hidden.
+    expect(manager.peekPendingReveal()?.id).toBe(FIRST_RARE);
+    expect(manager.isDiscovered(FIRST_RARE)).toBe(false);
+  });
+
+  test('consume IS the discovery moment', () => {
+    const manager = new CardCollectionManager();
+    manager.queuePendingReveal(FIRST_RARE);
+    expect(manager.isDiscovered(FIRST_RARE)).toBe(false);
+    expect(manager.getAggregatedBonuses().damageMult).toBe(1);
+
+    manager.consumePendingReveal();
+    expect(manager.isDiscovered(FIRST_RARE)).toBe(true);
+    // Persisted: a reload sees the discovery.
+    expect(new CardCollectionManager().isDiscovered(FIRST_RARE)).toBe(true);
+  });
+
   test('ignores unknown ids', () => {
     const manager = new CardCollectionManager();
     manager.queuePendingReveal('card_totally_fake');
@@ -105,16 +128,19 @@ describe('pending reveal round-trip', () => {
 });
 
 describe('rollCacheDiscovery', () => {
-  test('discovers the rolled card and queues it for the end screen', () => {
+  test('queues the rolled card but defers discovery to the reveal', () => {
     // rng 0 → common rarity, first undiscovered common.
     const manager = new CardCollectionManager(() => 0);
     const card = manager.rollCacheDiscovery();
     expect(card?.id).toBe(FIRST_COMMON);
-    expect(manager.isDiscovered(FIRST_COMMON)).toBe(true);
+    // Hidden until the end-screen reveal consumes it — an abandoned run must
+    // not spoil the card in the archive or activate its bonus early.
+    expect(manager.isDiscovered(FIRST_COMMON)).toBe(false);
     expect(manager.consumePendingReveal()?.id).toBe(FIRST_COMMON);
+    expect(manager.isDiscovered(FIRST_COMMON)).toBe(true);
   });
 
-  test('successive rolls never dupe — they walk through the pool', () => {
+  test('roll → reveal cycles never dupe — they walk through the pool', () => {
     const manager = new CardCollectionManager(() => 0);
     const seen = new Set<string>();
     for (let i = 0; i < ALL_CARDS.length; i++) {
@@ -122,8 +148,19 @@ describe('rollCacheDiscovery', () => {
       expect(card).not.toBeNull();
       expect(seen.has(card!.id)).toBe(false);
       seen.add(card!.id);
+      manager.consumePendingReveal();
     }
     expect(seen.size).toBe(ALL_CARDS.length);
+  });
+
+  test('a queued-but-unrevealed card is excluded from the next roll', () => {
+    const manager = new CardCollectionManager(() => 0);
+    const first = manager.rollCacheDiscovery();
+    // No consume — the pending card must not come up again (dupe guard).
+    const second = manager.rollCacheDiscovery();
+    expect(first?.id).toBe(FIRST_COMMON);
+    expect(second).not.toBeNull();
+    expect(second!.id).not.toBe(FIRST_COMMON);
   });
 
   test('returns null (gold consolation path) when the archive is complete', () => {
@@ -206,6 +243,25 @@ describe('scan — lottery with pity', () => {
     const manager = new CardCollectionManager(() => 0);
     for (const card of ALL_CARDS) manager.discoverCard(card.id);
     expect(manager.scan()).toEqual({ card: null, pityUsed: false });
+  });
+
+  test('never lands the card a data cache is holding for its reveal', () => {
+    const manager = new CardCollectionManager(() => 0);
+    const pending = manager.rollCacheDiscovery(); // FIRST_COMMON queued, hidden
+    const { card } = manager.scan(); // rng 0 → would pick FIRST_COMMON if free
+    expect(pending?.id).toBe(FIRST_COMMON);
+    expect(card).not.toBeNull();
+    expect(card!.id).not.toBe(FIRST_COMMON);
+  });
+
+  test('refuses to complete the archive past a pending reveal (refund guard)', () => {
+    const manager = new CardCollectionManager(() => 0);
+    for (const card of ALL_CARDS) {
+      if (card.id !== FIRST_COMMON) manager.discoverCard(card.id);
+    }
+    manager.queuePendingReveal(FIRST_COMMON);
+    // The only undiscovered card is spoken for — scan must not dupe it.
+    expect(manager.scan().card).toBeNull();
   });
 });
 

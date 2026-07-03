@@ -4,9 +4,11 @@
  * end-screen reveal queued by an in-run data cache pickup.
  *
  * Discovery flows (spec: docs/superpowers/specs/2026-07-03-card-collection-meta-design.md):
- * - Data cache drop (in-run): rollCacheDiscovery() rolls, discovers, and
- *   queues the card for the end screen; null means the archive is complete
- *   and the caller awards gold instead.
+ * - Data cache drop (in-run): rollCacheDiscovery() rolls and QUEUES the card
+ *   for the end screen — discovery itself is deferred to
+ *   consumePendingReveal() so the card stays hidden (archive slot, bonuses)
+ *   until its reveal moment actually plays, even if the run is abandoned;
+ *   null means the archive is complete and the caller awards gold instead.
  * - Scanner lottery (Cards scene): scan() rolls with a pity guarantee
  *   (epic-or-better at least every PITY_THRESHOLD scans). scan() spends
  *   NOTHING itself — the caller spends SCAN_COST gold via
@@ -100,13 +102,34 @@ export class CardCollectionManager {
     this.save();
   }
 
-  /** Pop the queued reveal (null when none). Clears and persists on consume. */
+  /** The queued reveal without consuming it (null when none). No side effects. */
+  peekPendingReveal(): CardDefinition | null {
+    return this.pendingReveal === null ? null : getCardById(this.pendingReveal) ?? null;
+  }
+
+  /**
+   * Pop the queued reveal (null when none) and DISCOVER it — consumption is
+   * the reveal moment, so this is where the card becomes visible in the
+   * archive and its bonus starts counting. Clears and persists.
+   */
   consumePendingReveal(): CardDefinition | null {
     if (this.pendingReveal === null) return null;
     const card = getCardById(this.pendingReveal) ?? null;
     this.pendingReveal = null;
+    if (card) this.discovered.add(card.id);
     this.save();
     return card;
+  }
+
+  /**
+   * Discovered ids plus the pending reveal — the pool discovery rolls must
+   * exclude, so the Scanner can never land the card a cache already holds.
+   */
+  private effectiveDiscovered(): ReadonlySet<string> {
+    if (this.pendingReveal === null) return this.discovered;
+    const set = new Set(this.discovered);
+    set.add(this.pendingReveal);
+    return set;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -115,15 +138,18 @@ export class CardCollectionManager {
 
   /**
    * Data cache drop path: weighted rarity roll → undiscovered card of that
-   * (or nearest fallback) rarity → discover it and queue the end-screen
-   * reveal. Returns null only when the archive is complete — the caller
-   * awards gold instead.
+   * (or nearest fallback) rarity → QUEUE the end-screen reveal. Discovery is
+   * deferred to consumePendingReveal() so an abandoned run doesn't spoil the
+   * reveal (the card would otherwise sit visible in the archive with its
+   * bonus active before the reveal ever plays). Returns null only when the
+   * archive is complete — the caller awards gold instead. Note: a second
+   * roll while one is queued would overwrite it — callers guard with a
+   * once-per-run cache limit.
    */
   rollCacheDiscovery(): CardDefinition | null {
     const rarity = rollCardRarity(this.rng);
-    const card = pickUndiscoveredCard(this.discovered, rarity, this.rng);
+    const card = pickUndiscoveredCard(this.effectiveDiscovered(), rarity, this.rng);
     if (!card) return null;
-    this.discoverCard(card.id);
     this.queuePendingReveal(card.id);
     return card;
   }
@@ -146,7 +172,7 @@ export class CardCollectionManager {
       pityUsed = true;
     }
 
-    const card = pickUndiscoveredCard(this.discovered, rarity, this.rng);
+    const card = pickUndiscoveredCard(this.effectiveDiscovered(), rarity, this.rng);
     if (!card) return { card: null, pityUsed: false };
 
     // A pity upgrade only "counts" if a premium card actually landed — with
@@ -188,7 +214,8 @@ export class CardCollectionManager {
   }
 
   private hasUndiscoveredOfRarity(rarity: CardRarity): boolean {
-    return ALL_CARDS.some((card) => card.rarity === rarity && !this.discovered.has(card.id));
+    const taken = this.effectiveDiscovered();
+    return ALL_CARDS.some((card) => card.rarity === rarity && !taken.has(card.id));
   }
 
   // ─────────────────────────────────────────────────────────────

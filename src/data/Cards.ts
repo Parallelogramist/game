@@ -406,3 +406,41 @@ export function aggregateCardBonuses(discoveredIds: ReadonlySet<string>): Requir
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Display formatting
+// ---------------------------------------------------------------------------
+
+/** Percentage-point rendering of a compounded multiplier (1.071 → '+7%'). */
+function formatMultPercent(value: number): string {
+  return `+${Math.round((value - 1) * 100)}%`;
+}
+
+/**
+ * One-line summary of an aggregated bonus block for the CardsScene header
+ * ('+7% DMG · +20 HP · +1 REROLLS'). Identity values are omitted; an empty
+ * collection formats to '' so callers can show a call-to-action instead.
+ */
+export function formatCardBonusSummary(bonuses: Required<CardBonus>): string {
+  const parts: string[] = [];
+  const mult = (value: number, label: string) => {
+    if (Math.round((value - 1) * 100) !== 0) parts.push(`${formatMultPercent(value)} ${label}`);
+  };
+
+  mult(bonuses.damageMult, 'DMG');
+  mult(bonuses.attackSpeedMult, 'ATK SPD');
+  mult(bonuses.goldMult, 'GOLD');
+  mult(bonuses.xpMult, 'XP');
+  mult(bonuses.magnetRadiusMult, 'MAGNET');
+  mult(bonuses.moveSpeedMult, 'SPEED');
+  mult(bonuses.ultChargeRateMult, 'ULT RATE');
+  if (bonuses.maxHealthAdd !== 0) parts.push(`+${bonuses.maxHealthAdd} HP`);
+  if (Math.round(bonuses.critChanceAdd * 100) !== 0) parts.push(`+${Math.round(bonuses.critChanceAdd * 100)}% CRIT`);
+  if (bonuses.armorAdd !== 0) parts.push(`+${bonuses.armorAdd} ARMOR`);
+  if (Math.round(bonuses.luckAdd * 100) !== 0) parts.push(`+${Math.round(bonuses.luckAdd * 100)}% LUCK`);
+  if (bonuses.rerollsAdd !== 0) parts.push(`+${bonuses.rerollsAdd} REROLLS`);
+  if (bonuses.banishesAdd !== 0) parts.push(`+${bonuses.banishesAdd} BANISHES`);
+  if (bonuses.startAtLevel > 1) parts.push(`START LV ${bonuses.startAtLevel}`);
+
+  return parts.join(' · ');
+}

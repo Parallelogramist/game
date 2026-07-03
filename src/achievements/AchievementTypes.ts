@@ -33,7 +33,8 @@ export type TrackingType =
   | 'speed_run'        // Special: victory under time threshold
   | 'runs_completed'   // Total runs completed (win or loss)
   | 'account_level'    // Sum of all upgrade levels
-  | 'win_streak';      // Best win streak achieved
+  | 'win_streak'       // Best win streak achieved
+  | 'cards_discovered'; // Card-archive collection size (CardCollectionManager)
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REWARD TYPES

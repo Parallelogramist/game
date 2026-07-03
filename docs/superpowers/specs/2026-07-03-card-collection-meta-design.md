@@ -39,6 +39,10 @@ Magnitude bands (keep them SMALL — cards are seasoning, the shop is the meal):
    nearest rarity with undiscovered cards; if the archive is complete, award
    +250 gold instead). Show a toast on pickup ("DATA CACHE RECOVERED") — the
    actual card is **revealed on the end screen** (death or victory), SFR-style.
+   **Discovery is deferred to the reveal** (FEAT-CARDS-2): a queued card stays
+   hidden — not in the archive grid, bonus inactive, excluded from Scanner
+   rolls — until `consumePendingReveal()` fires on an end screen, so an
+   abandoned run can never spoil the reveal moment.
 2. **Scanner lottery (menu):** in the Cards scene, DECRYPT costs 500 gold and
    rolls the same rarity table (no luck bias — luck is an in-run stat).
    **Pity:** a persisted counter guarantees epic-or-better every 8th scan
@@ -78,11 +82,26 @@ known card ids; drop junk; tolerate missing fields). Persisted shape:
 `src/meta/CardCollectionManager.ts` (singleton, `getCardCollectionManager()`):
 - `getDiscoveredIds(): ReadonlySet<string>` · `isDiscovered(id): boolean`
 - `discoverCard(id): void` (idempotent, persists)
-- `queuePendingReveal(id): void` / `consumePendingReveal(): CardDefinition | null`
-- `rollCacheDiscovery(): CardDefinition | null` (drop path: roll + queue + discover)
-- `scan(): { card: CardDefinition | null; pityUsed: boolean }` (lottery: spends NOTHING itself — caller spends gold via MetaProgressionManager first; applies pity; discovers)
+- `queuePendingReveal(id): void` / `peekPendingReveal(): CardDefinition | null`
+  (no side effects) / `consumePendingReveal(): CardDefinition | null`
+  (**consumption IS the discovery moment** — clears the queue, discovers,
+  persists)
+- `rollCacheDiscovery(): CardDefinition | null` (drop path: roll + queue only;
+  discovery deferred to `consumePendingReveal()`; the queued card is excluded
+  from all further rolls so it can never dupe)
+- `scan(): { card: CardDefinition | null; pityUsed: boolean }` (lottery: spends NOTHING itself — caller spends gold via MetaProgressionManager first; applies pity; discovers immediately — the Scanner reveal is in-scene)
 - `getScansUntilPity(): number` · `SCAN_COST = 500` exported const
 - `getAggregatedBonuses(): Required<CardBonus>`
+
+Collection milestones (FEAT-CARDS-2): four `cards_discovered` achievements
+(1/6/12/24 → gold, tier chain `cards_discovered_*` in
+`AchievementDefinitions.ts`). Feed via
+`AchievementManager.recordCardsDiscovered(totalCount)` — called wherever a
+discovery lands (end-screen reveal consumption in GameScene, Scanner decrypt
++ entry sync in CardsScene). Menu-context delivery: `AchievementManager` only
+auto-claims when an unlock callback is wired; CardsScene wires its own
+(gold + banner) and detaches it on shutdown, and unclaimed rewards are
+retro-claimed by AchievementScene.
 
 ## Phases
 

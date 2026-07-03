@@ -16,8 +16,10 @@ import Phaser from 'phaser';
 import {
   ALL_CARDS,
   CardDefinition,
+  formatCardBonusSummary,
   getCardRarityColor,
 } from '../../data/Cards';
+import { getAchievementManager, AchievementDefinition } from '../../achievements';
 import {
   getCardCollectionManager,
   SCAN_COST,
@@ -179,6 +181,18 @@ export class CardsScene extends Phaser.Scene {
 
     this.updateScannerState();
 
+    // Collection achievements can unlock from a Scanner decrypt. The manager
+    // auto-claims rewards only when a callback is wired to deliver them, so
+    // wire delivery here (mirroring GameScene) for the menu context; shutdown
+    // detaches it. GameScene re-wires its own on every run start.
+    getAchievementManager().setAchievementUnlockCallback((achievement) => {
+      this.deliverAchievement(achievement);
+    });
+    // Sync the collection milestones with the persisted archive — covers
+    // discoveries made before the milestones shipped (progress catches up and
+    // any crossed tier unlocks right here, where delivery is wired).
+    getAchievementManager().recordCardsDiscovered(cardManager.getDiscoveredIds().size);
+
     // ─── per-frame idle driver (background shimmer + card hover pulses) ─
     this.updateHandler = (time: number, delta: number) => {
       const seconds = time / 1000;
@@ -338,8 +352,17 @@ export class CardsScene extends Phaser.Scene {
   }
 
   private showDefaultDetail(): void {
-    this.detailText?.setText('Hover or select a card slot for details');
-    this.detailText?.setColor(TEXT_COLORS.dim);
+    if (!this.detailText) return;
+    // The idle detail line doubles as the spec's aggregate bonus summary —
+    // recomputed on every call, so it picks up new discoveries for free.
+    const summary = formatCardBonusSummary(getCardCollectionManager().getAggregatedBonuses());
+    if (summary) {
+      this.detailText.setText(`ARCHIVE BONUS · ${summary}`);
+      this.detailText.setColor(TEXT_COLORS.muted);
+    } else {
+      this.detailText.setText('Recover cards to earn permanent bonuses — hover a slot for details');
+      this.detailText.setColor(TEXT_COLORS.dim);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -492,7 +515,71 @@ export class CardsScene extends Phaser.Scene {
       );
       this.resultText.setColor(rarityColorStr(card.rarity));
     }
+    // Feed the collection milestones (may fire an unlock → deliverAchievement),
+    // THEN refresh the readouts so the gold line includes any reward.
+    getAchievementManager().recordCardsDiscovered(cardManager.getDiscoveredIds().size);
     this.updateScannerState();
+  }
+
+  /**
+   * Menu-context achievement delivery — same reward semantics as GameScene's
+   * unlock callback (gold + optional stat bonus), with a transient banner in
+   * place of the in-run toast.
+   */
+  private deliverAchievement(achievement: AchievementDefinition): void {
+    const metaManager = getMetaProgressionManager();
+    const rewardParts: string[] = [];
+
+    if (achievement.reward.type === 'gold') {
+      metaManager.addGold(achievement.reward.value);
+      rewardParts.push(achievement.reward.description);
+    } else if (achievement.reward.type === 'stat_bonus' && achievement.reward.statBonusId) {
+      metaManager.addAchievementBonus(achievement.reward.statBonusId, achievement.reward.value);
+      rewardParts.push(achievement.reward.description);
+    }
+    if (achievement.bonusReward) {
+      if (achievement.bonusReward.type === 'gold') {
+        metaManager.addGold(achievement.bonusReward.value);
+      } else if (achievement.bonusReward.type === 'stat_bonus' && achievement.bonusReward.statBonusId) {
+        metaManager.addAchievementBonus(achievement.bonusReward.statBonusId, achievement.bonusReward.value);
+      }
+      rewardParts.push(achievement.bonusReward.description);
+    }
+
+    this.soundManager.playAchievementUnlock();
+    this.updateScannerState();
+    this.showAchievementBanner(achievement.name, rewardParts.join(' + '));
+  }
+
+  /** Transient gold banner between the title and the grid; self-destroys. */
+  private showAchievementBanner(name: string, rewardText: string): void {
+    const banner = makeDisplayText(
+      this,
+      GRID_CENTER_X + this.offsetX,
+      62 + this.offsetY,
+      `ACHIEVEMENT · ${name.toUpperCase()}${rewardText ? `  —  ${rewardText}` : ''}`,
+      {
+        fontSize: 13,
+        color: COLORS.accentGoldStr,
+        strokeWidth: 2,
+        letterSpacing: 2,
+      },
+    );
+    banner.setDepth(60);
+    if (getSettingsManager().isReducedMotionEnabled()) {
+      this.time.delayedCall(2800, () => banner.destroy());
+      return;
+    }
+    banner.setAlpha(0);
+    this.tweens.add({
+      targets: banner,
+      alpha: 1,
+      duration: 220,
+      hold: 2400,
+      yoyo: true,
+      ease: 'Sine.easeOut',
+      onComplete: () => banner.destroy(),
+    });
   }
 
   /** Insufficient gold: flash the cost line danger-red. No purchase. */
@@ -542,6 +629,9 @@ export class CardsScene extends Phaser.Scene {
       entry.card.setFocusState(true);
     }
     this.showDetail(index);
+    // Discovery flourish — distinct from the achievement chime so a scan that
+    // also crosses a collection milestone doesn't double the same sound.
+    this.soundManager.playWeaponEvolution();
 
     if (getSettingsManager().isReducedMotionEnabled()) {
       // Instant reveal + static glow that simply goes away — no flip, no pulse.
@@ -669,6 +759,9 @@ export class CardsScene extends Phaser.Scene {
   // ═══════════════════════════════════════════════════════════════════════
 
   shutdown(): void {
+    // Detach the menu-context delivery closure — a dead scene must not receive
+    // unlocks. GameScene re-wires its own callback at run start.
+    getAchievementManager().setAchievementUnlockCallback(null);
     if (this.updateHandler) {
       this.events.off(Phaser.Scenes.Events.UPDATE, this.updateHandler);
       this.updateHandler = null;
