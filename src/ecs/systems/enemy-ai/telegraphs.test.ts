@@ -22,11 +22,12 @@ import {
  * only way they can be wrong is silently (a lying warning), which is what
  * these tests lock against.
  *
- * Damage/windup constants mirrored from EnemyAISystem.ts (AI handlers) and
+ * Damage/windup constants mirrored from the AI handlers (regular enemies in
+ * the sibling behavior modules, minibosses/bosses in ../EnemyAISystem.ts) and
  * are asserted exactly so spec drift is a deliberate, reviewed change.
  */
 
-// ── Attack ground truth (from EnemyAISystem.ts handlers) ────────────────────
+// ── Attack ground truth (from the AI handlers) ──────────────────────────────
 const ZIGZAG_DART_WINDUP = 0.35;      // updateZigzagAI state 1 duration
 const DASHER_DASH_DURATION = 0.5;     // dash telegraph drawn as the lunge starts
 const CHARGER_WINDUP = 0.8;           // updateChargerAI windup before charge
