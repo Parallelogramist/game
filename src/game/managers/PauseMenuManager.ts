@@ -122,6 +122,24 @@ const END_STAT_VALUE_STYLE = {
 // overlays, and tooltips.
 const PAUSE_MENU_DEPTH = OverlayDepths.PAUSE_MENU;
 
+/**
+ * Rarity accent colors for the end-screen card reveal. Mirrors
+ * getRelicRarityColor (src/data/Relics.ts) / getCardRarityColor
+ * (src/data/Cards.ts) — duplicated locally because the end screens render
+ * cards structurally (see GameOverData/VictoryData.discoveredCard) and must
+ * not couple this manager to the card data module.
+ */
+const CARD_RARITY_ACCENTS: Record<'common' | 'rare' | 'epic' | 'legendary', number> = {
+  common: 0xaaaaaa,
+  rare: 0x4488ff,
+  epic: 0xcc44ff,
+  legendary: 0xffaa22,
+};
+
+function colorToHexString(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
 function formatLargeNumber(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
@@ -200,6 +218,8 @@ export interface VictoryData {
   streakBonusPercent: number;
   /** S–F performance grade for this run (parity with the game-over overlay). */
   performanceGrade?: { grade: string; color: string };
+  /** Card discovered from an in-run data cache — revealed on this screen. */
+  discoveredCard?: { id: string; name: string; description: string; rarity: 'common' | 'rare' | 'epic' | 'legendary'; icon: string } | null;
   /** Composite run score + persisted best (by world level). */
   runScore?: number;
   bestScore?: number;
@@ -228,6 +248,8 @@ export interface GameOverData {
   unlockProgress?: UnlockProgressEntry[];
   /** S–F performance grade for this run. */
   performanceGrade?: { grade: string; color: string };
+  /** Card discovered from an in-run data cache — revealed on this screen. */
+  discoveredCard?: { id: string; name: string; description: string; rarity: 'common' | 'rare' | 'epic' | 'legendary'; icon: string } | null;
   /** Composite run score + persisted best (by world level). */
   runScore?: number;
   bestScore?: number;
@@ -1368,6 +1390,38 @@ export class PauseMenuManager {
     goldPreviewText.setDepth(PAUSE_MENU_DEPTH + 1);
     goldPreviewText.setName('victoryGoldPreview');
 
+    // New-card reveal — right column, clear of the centered stats panel
+    // (400 wide) and buttons at all 1280–2000 widths; the left margin holds
+    // the recent-runs strip. Every element is named victoryCard* and torn
+    // down by handleVictoryContinue's destroyElementsByName list.
+    if (data.discoveredCard) {
+      const cardPanelX = Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
+      const cardPanelTop = this.scene.scale.height / 2 - 64;
+      const cardReveal = this.createCardRevealPanel(
+        data.discoveredCard,
+        cardPanelX,
+        cardPanelTop,
+        PAUSE_MENU_DEPTH + 1,
+        { namePrefix: 'victoryCard' }
+      );
+      // Reduced motion: elements stay at alpha 1 (static reveal, full
+      // information) and playGlowPulse no-ops internally.
+      if (!getSettingsManager().isReducedMotionEnabled()) {
+        for (const element of cardReveal.elements) {
+          element.setAlpha(0);
+          this.scene.tweens.add({
+            targets: element,
+            alpha: 1,
+            duration: 300,
+            ease: 'Sine.easeOut',
+          });
+        }
+        // Pulse once the fade-in lands. playGlowPulse guards against the
+        // overlay having been dismissed before this fires.
+        this.scene.time.delayedCall(320, () => cardReveal.playGlowPulse());
+      }
+    }
+
     // Keyboard handlers (store for cleanup). Pointer click handlers are wired
     // by createLabeledButton above.
     this.victoryContinueHandler = () => this.handleVictoryContinue();
@@ -1413,6 +1467,12 @@ export class PauseMenuManager {
       'victoryRecentRow0',
       'victoryRecentRow1',
       'victoryRecentRow2',
+      'victoryCardPanel',
+      'victoryCardKicker',
+      'victoryCardName',
+      'victoryCardDesc',
+      'victoryCardRarity',
+      'victoryCardGlow',
     ]);
 
     this.options.onContinueRun();
@@ -1655,6 +1715,26 @@ export class PauseMenuManager {
       this.createPersonalBestsPanel(data, depth, animatedElements);
     }
 
+    // New-card reveal — right column, aligned under the weapon-damage panel's
+    // MAXIMUM footprint (5 rows ⇒ bottom at centerY + 82) so the slot is
+    // collision-free at 1280–2000 widths regardless of how many weapons dealt
+    // damage (or whether the weapon panel rendered at all).
+    let cardReveal: { playGlowPulse: () => void } | null = null;
+    let cardRevealLastIndex = 0;
+    if (data.discoveredCard) {
+      const cardPanelX = Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
+      cardReveal = this.createCardRevealPanel(
+        data.discoveredCard,
+        cardPanelX,
+        centerY + 98,
+        depth,
+        { collector: animatedElements }
+      );
+      // The panel registers several elements (panel, kicker, name, desc, tag)
+      // — the glow must wait for the LAST one's stagger slot, not the first.
+      cardRevealLastIndex = animatedElements.length - 1;
+    }
+
     // "Progress toward unlocks" panel — turns wasted runs into forward motion
     // by surfacing the top 3 locked hidden unlocks the player is closest to.
     if (data.unlockProgress && data.unlockProgress.length > 0) {
@@ -1698,6 +1778,17 @@ export class PauseMenuManager {
         ease: 'Sine.easeOut',
       });
     });
+
+    // Card-reveal glow pulse — fires once the panel's own stagger fade-in has
+    // finished (last registered element's slot), so the halo lands on a fully
+    // visible panel. If the scene restarts first, the delayed call dies with
+    // it and playGlowPulse's active-guard covers any race.
+    if (cardReveal) {
+      // `let` narrowing doesn't survive into the closure — pin to a const.
+      const reveal = cardReveal;
+      const revealDone = cardRevealLastIndex * staggerDelay + 300;
+      this.scene.time.delayedCall(revealDone, () => reveal.playGlowPulse());
+    }
 
     // Stat count-up animations (start after stagger reveals them)
     const statCountUpDelay = 4 * staggerDelay + 300; // After first stat values appear
@@ -1841,6 +1932,131 @@ export class PauseMenuManager {
       register(rowText, `Row${index}`);
       rowY += 18;
     }
+  }
+
+  /**
+   * Renders the compact "NEW CARD DISCOVERED" reveal panel shared by both end
+   * screens: rarity-accented panel (paintPanelBackground draws the accent
+   * border + top hairline), kicker, card name, one-line bonus description, and
+   * a rarity tag. Shares createRecentRunsStrip's dual teardown regime — the
+   * game-over overlay passes `collector` (stagger fade-in, scene-restart
+   * teardown), the victory overlay passes `namePrefix` (destroyElementsByName
+   * teardown in handleVictoryContinue).
+   *
+   * Returns `playGlowPulse`, a one-shot accent halo (alpha 0.6 → 0, 500ms) the
+   * caller fires once the panel is visible. The pulse self-destroys, no-ops
+   * under reduced motion, and no-ops if the panel was already torn down (the
+   * victory screen can be dismissed before its delayed pulse fires).
+   */
+  private createCardRevealPanel(
+    card: { name: string; description: string; rarity: 'common' | 'rare' | 'epic' | 'legendary' },
+    panelX: number,
+    panelTopY: number,
+    depth: number,
+    options: {
+      namePrefix?: string;
+      collector?: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[];
+    } = {}
+  ): {
+    elements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[];
+    playGlowPulse: () => void;
+  } {
+    const panelWidth = 240;
+    const panelHeight = 116;
+    const accent = CARD_RARITY_ACCENTS[card.rarity];
+    const accentStr = colorToHexString(accent);
+    const elements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [];
+
+    const register = (
+      element: Phaser.GameObjects.Text | Phaser.GameObjects.Graphics,
+      name: string
+    ): void => {
+      element.setDepth(depth);
+      if (options.namePrefix) element.setName(`${options.namePrefix}${name}`);
+      options.collector?.push(element);
+      elements.push(element);
+    };
+
+    const panelBg = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBg,
+      panelX - panelWidth / 2,
+      panelTopY,
+      panelWidth,
+      panelHeight,
+      { accentColor: accent }
+    );
+    register(panelBg, 'Panel');
+
+    const kicker = this.scene.add.text(panelX, panelTopY + 12, 'NEW CARD DISCOVERED', {
+      fontSize: '11px',
+      color: accentStr,
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0);
+    kicker.setLetterSpacing(2);
+    register(kicker, 'Kicker');
+
+    const nameText = this.scene.add.text(panelX, panelTopY + 32, card.name, {
+      fontSize: '18px',
+      color: '#e8ecf4',
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0);
+    register(nameText, 'Name');
+
+    const descText = this.scene.add.text(panelX, panelTopY + 58, card.description, {
+      fontSize: '12px',
+      color: '#aab4cc',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      align: 'center',
+      wordWrap: { width: panelWidth - 24 },
+    }).setOrigin(0.5, 0);
+    register(descText, 'Desc');
+
+    const rarityTag = this.scene.add.text(
+      panelX,
+      panelTopY + panelHeight - 22,
+      card.rarity.toUpperCase(),
+      {
+        fontSize: '11px',
+        color: accentStr,
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
+      }
+    ).setOrigin(0.5, 0);
+    rarityTag.setLetterSpacing(3);
+    register(rarityTag, 'Rarity');
+
+    const playGlowPulse = (): void => {
+      if (getSettingsManager().isReducedMotionEnabled()) return;
+      // The pulse is fired via delayed calls; the overlay may have been torn
+      // down in the meantime (victory Continue) — never spawn an orphan halo.
+      if (!panelBg.active) return;
+      const halo = this.scene.add.graphics();
+      halo.fillStyle(accent, 1);
+      halo.fillRoundedRect(
+        panelX - panelWidth / 2 - 8,
+        panelTopY - 8,
+        panelWidth + 16,
+        panelHeight + 16,
+        10
+      );
+      halo.setDepth(depth - 1);
+      halo.setAlpha(0.6);
+      // Named so handleVictoryContinue's destroyElementsByName can kill a
+      // mid-pulse halo; on game over the scene restart's killAll covers it.
+      if (options.namePrefix) halo.setName(`${options.namePrefix}Glow`);
+      this.scene.tweens.add({
+        targets: halo,
+        alpha: 0,
+        duration: 500,
+        ease: 'Sine.easeOut',
+        onComplete: () => halo.destroy(),
+      });
+    };
+
+    return { elements, playGlowPulse };
   }
 
   /**

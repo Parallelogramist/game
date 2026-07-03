@@ -172,6 +172,7 @@ export class BootScene extends Phaser.Scene {
     const openShop = () => transitionToScene(this, 'ShopScene');
     const openAchievements = () => transitionToScene(this, 'AchievementScene');
     const openCodex = () => transitionToScene(this, 'CodexScene');
+    const openCards = () => transitionToScene(this, 'CardsScene');
     const openLeaderboard = () => transitionToScene(this, 'LeaderboardScene');
     const openSettings = () => transitionToScene(this, 'SettingsScene', { returnTo: 'BootScene' });
     const openCredits = () => transitionToScene(this, 'CreditsScene');
@@ -324,6 +325,7 @@ export class BootScene extends Phaser.Scene {
       onShop: openShop,
       onAchievements: openAchievements,
       onCodex: openCodex,
+      onCards: openCards,
       onLeaderboard: openLeaderboard,
     });
 
@@ -862,7 +864,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  PROGRESSION DECK — 4 small square cards in a row.
+  //  PROGRESSION DECK — 5 small square cards in a row.
+  //  (5 × 96 + 4 × 22 = 568 px at scale 1 — comfortably inside 1280.)
   // ═══════════════════════════════════════════════════════════════════════
 
   private createProgressionDeck(opts: {
@@ -877,11 +880,12 @@ export class BootScene extends Phaser.Scene {
     onShop: () => void;
     onAchievements: () => void;
     onCodex: () => void;
+    onCards: () => void;
     onLeaderboard: () => void;
   }): void {
     const {
       centerX, centerY, cardWidth, cardHeight, gap, layoutScale, fontScale, goldAmount,
-      onShop, onAchievements, onCodex, onLeaderboard,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard,
     } = opts;
 
     interface DeckEntry {
@@ -918,6 +922,16 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentMagenta,
         action: onCodex,
         iconTint: 0xeebbff,
+      },
+      {
+        // Card archive — safe-green keeps every deck entry role-distinct
+        // (gold/teal/magenta/green/blue).
+        label: 'CARDS',
+        iconKey: 'gem',
+        bodyHex: COLORS.bodySafe,
+        accentHex: COLORS.accentSafe,
+        action: onCards,
+        iconTint: 0xaaffcc,
       },
       {
         label: 'LEADERS',

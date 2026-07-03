@@ -10,6 +10,7 @@ import {
   isUltimateReady,
   tryActivateUltimate,
   setUltimateChargeSuppressed,
+  setUltimateChargeRateMultiplier,
   computeUltimateNova,
   getUltimateState,
   restoreUltimateState,
@@ -57,6 +58,37 @@ describe('UltimateSystem — charge accumulation', () => {
     addUltimateChargeFromDamage(Number.POSITIVE_INFINITY);
     addUltimateChargeFromDamage(-500);
     expect(getUltimateCharge()).toBe(0);
+  });
+});
+
+describe('UltimateSystem — charge rate multiplier (card bonuses)', () => {
+  test('scales kill and damage charge gain', () => {
+    setUltimateChargeRateMultiplier(1.1);
+    addUltimateChargeFromKill();
+    addUltimateChargeFromDamage(1000);
+    const expected = (ULTIMATE_CHARGE_PER_KILL + 1000 * ULTIMATE_CHARGE_PER_DAMAGE) * 1.1;
+    expect(getUltimateCharge()).toBeCloseTo(expected, 6);
+  });
+
+  test('still clamps at the maximum', () => {
+    setUltimateChargeRateMultiplier(1.1);
+    addUltimateCharge(MAX_ULTIMATE_CHARGE);
+    expect(getUltimateCharge()).toBe(MAX_ULTIMATE_CHARGE);
+  });
+
+  test('rejects non-finite and non-positive multipliers', () => {
+    setUltimateChargeRateMultiplier(Number.NaN);
+    setUltimateChargeRateMultiplier(0);
+    setUltimateChargeRateMultiplier(-2);
+    addUltimateChargeFromKill();
+    expect(getUltimateCharge()).toBeCloseTo(ULTIMATE_CHARGE_PER_KILL, 6);
+  });
+
+  test('resetUltimateSystem restores the baseline rate', () => {
+    setUltimateChargeRateMultiplier(2);
+    resetUltimateSystem();
+    addUltimateChargeFromKill();
+    expect(getUltimateCharge()).toBeCloseTo(ULTIMATE_CHARGE_PER_KILL, 6);
   });
 });
 

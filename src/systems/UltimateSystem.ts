@@ -61,6 +61,8 @@ export interface UltimateSnapshot {
 let charge = 0;
 /** While true, all charge gain is dropped — guards the nova from recharging itself. */
 let chargeSuppressed = false;
+/** Meta-progression scale on all charge gain (card bonuses); 1 = baseline. */
+let chargeRateMultiplier = 1;
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -69,6 +71,18 @@ let chargeSuppressed = false;
 export function resetUltimateSystem(): void {
   charge = 0;
   chargeSuppressed = false;
+  chargeRateMultiplier = 1;
+}
+
+/**
+ * Scale all subsequent charge gain (kills and damage alike). Set once at run
+ * start from aggregated card bonuses, after resetUltimateSystem(). Non-finite
+ * or non-positive values are rejected so a corrupt meta save can never stall
+ * or overdrive the meter.
+ */
+export function setUltimateChargeRateMultiplier(multiplier: number): void {
+  if (!Number.isFinite(multiplier) || multiplier <= 0) return;
+  chargeRateMultiplier = multiplier;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +93,7 @@ export function resetUltimateSystem(): void {
 export function addUltimateCharge(amount: number): void {
   if (chargeSuppressed) return;
   if (!Number.isFinite(amount) || amount <= 0) return;
-  charge = Math.min(MAX_ULTIMATE_CHARGE, charge + amount);
+  charge = Math.min(MAX_ULTIMATE_CHARGE, charge + amount * chargeRateMultiplier);
 }
 
 export function addUltimateChargeFromKill(): void {

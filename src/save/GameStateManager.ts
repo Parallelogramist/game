@@ -288,6 +288,12 @@ export interface GameSaveState {
   // Ultimate ("Overdrive") charge, 0..MAX. Optional → legacy saves (written
   // before the ultimate ability) restore with an empty meter.
   ultimateCharge?: number;
+  // Whether a data cache already dropped this run (card meta-progression).
+  // Needed alongside CardCollectionManager's pending reveal because an
+  // end-screen reveal consumes the pending entry while the run can continue
+  // (post-victory endless) — without this flag a save/reload there re-arms
+  // the once-per-run cache drop. Optional → legacy saves restore un-found.
+  cacheFoundThisRun?: boolean;
   // `activeEvent` carries the currently-running timed event (id + remaining
   // time) so a mid-event refresh keeps the rest of the boon instead of dropping
   // it. Optional → legacy saves (written before active-event persistence) load
@@ -569,6 +575,7 @@ export class GameStateManager {
     bossWarningPhase: number;
     comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
     ultimateCharge?: number;
+    cacheFoundThisRun?: boolean;
     eventState?: {
       eventTimer: number;
       nextEventInterval: number;
@@ -624,6 +631,7 @@ export class GameStateManager {
         // ultimateCharge was declared + accepted but never written here, so the
         // Overdrive meter silently emptied on every refresh. Persist it now.
         ultimateCharge: gameData.ultimateCharge,
+        cacheFoundThisRun: gameData.cacheFoundThisRun,
         eventState: gameData.eventState,
         minibossSpawnTimes: gameData.minibossSpawnTimes,
 
