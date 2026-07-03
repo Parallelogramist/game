@@ -346,6 +346,14 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-CARDS-1 — card collection + scanner lottery meta-progression**
+  (done — `caaba4e`). Sky Force Reloaded-inspired card loop per the durable
+  spec (`docs/superpowers/specs/2026-07-03-card-collection-meta-design.md`):
+  24 cards, in-run data-cache drops with end-screen reveal, DECRYPT lottery
+  with pity, CARD ARCHIVE scene. Full write-up in `BACKLOG-archive.md`.
+  Follow-ups folded into FEAT-CARDS-2; feel/balance → playtest queue
+  (POLISH-CARDS).
+
 - [x] **BUG-STORAGE-PRELOAD-GAPS** — 9 SecureStorage keys silently never
   persisted across a reload (done — `1e8467a`). Found this session while
   scouting for the next item (Now/Next empty, Later all busy-work/blocked —

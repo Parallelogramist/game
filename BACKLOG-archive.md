@@ -85,6 +85,44 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `caaba4e` FEAT-CARDS-1 — **card collection + scanner lottery meta-progression**,
+  the Sky Force Reloaded-inspired meta loop from the 2026-07-03 session. Durable
+  design source of truth: `docs/superpowers/specs/2026-07-03-card-collection-meta-design.md`
+  (read it before touching cards — it carries the frozen public API contract).
+  **Data:** `src/data/Cards.ts` — 24 cards (10 common / 8 rare / 4 epic / 2
+  legendary, rarity weights 60/30/9/1), small permanent passives (spec magnitude
+  bands: cards are seasoning, the shop is the meal), `rollCardRarity` /
+  `pickUndiscoveredCard` (nearest-rarity fallback, null only on complete archive) /
+  `aggregateCardBonuses` (identity defaults). **Persistence:**
+  `src/meta/CardCollectionManager.ts` singleton — `survivor-meta-cards` via
+  SecureStorage (registered in `StorageBootstrap.ALL_STORAGE_KEYS`,
+  corruption-hardened rebuild from known ids), pending-reveal queue, scanner
+  `scan()` with epic-or-better **pity every 8th** sub-epic roll (SCAN_COST=500,
+  gold spent by the caller via MetaProgressionManager). ~55 unit tests across
+  both modules. **In-run:** GameScene applies aggregated bonuses at run start
+  alongside the shop tracks (damage/attack-speed/gold/xp/magnet/move-speed mults,
+  maxHealth/crit/armor/luck/reroll/banish adds, startAtLevel); data caches roll in
+  `handleEnemyDeath` (boss 100% / miniboss 20% / elite 2%, once per run — the
+  guard syncs with the persisted pending reveal AND is saved in the run save,
+  because showVictory() consumes the reveal while a post-victory endless run
+  continues; a reload there must not re-arm the drop). `ultChargeRateMult` got a
+  real application point: new `setUltimateChargeRateMultiplier` hook in
+  UltimateSystem (reset- and save-restore-aware, 4 tests) so Surge Array (+10%
+  ult charge rate) isn't a dead epic. **Reveal:** end-screen "NEW CARD
+  DISCOVERED" panel on BOTH death and victory overlays (PauseMenuManager),
+  stagger-integrated, rarity glow pulse timed to the panel's LAST staggered
+  element. **Archive:** new CardsScene — 6×4 grid ('?' slots with 40%-blended
+  rarity hairlines, discovered mini-MenuCards), scanner panel (gold readout,
+  pity countdown, DECRYPT, defensive refund if the archive completes mid-roll,
+  ARCHIVE COMPLETE end state), reveal flip + glow with reduced-motion fallback,
+  full MenuNavigator nav, shutdown-clean tweens, layout centered per-axis in the
+  live EXPAND viewport (sibling-scene pattern). Fifth CARDS deck entry in
+  BootScene; registered in main.ts. Built by a 4-implementer + 2-verifier agent
+  workflow; all 5 verifier code findings fixed pre-commit (inert ultChargeRateMult,
+  hardcoded 1280×720 CardsScene layout, glow-pulse timing, endless-reload cache
+  guard, orphaned JSDoc). Known deviations + the reveal-deflation design nuance
+  → FEAT-CARDS-2; feel/balance checklist → playtest queue (POLISH-CARDS).
+
 - `9a17001` PROPOSE-PURE-DATA-TESTS (Pacts) — **regression-lock `Pacts.ts`**, the **final**
   candidate in the "add coverage for a pure, marquee, multi-consumer module" vein (after
   DirectorSystem `c0ab86d` / RunModifiers `706e823` / WeaponEvolutions `5a00de6` /
