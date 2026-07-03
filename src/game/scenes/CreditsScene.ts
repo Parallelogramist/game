@@ -62,7 +62,7 @@ export class CreditsScene extends Phaser.Scene {
     const secondCardY = stacked ? cardY + cardHeight / 2 + 14 : cardY;
 
     this.buildCreditCard(leftCardX, firstCardY, cardWidth, cardHeight, 'CREDITS', 'gold', [
-      { header: 'DEVELOPED BY', body: 'George' },
+      { header: 'DEVELOPED BY', body: 'Parallelogramist' },
       { header: 'BUILT WITH', body: 'Phaser 3 — Game Framework\nbitECS — Entity Component System' },
     ]);
 
