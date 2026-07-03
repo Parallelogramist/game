@@ -66,16 +66,27 @@ export class PactSelectScene extends Phaser.Scene {
       fontFamily: 'Arial',
     }).setOrigin(0.5);
 
-    // Pact cards in a centered row.
+    // Pact cards in centered rows; narrow (portrait) viewports wrap the row.
     const cardWidth = 218;
     const cardHeight = 230;
     const gap = 18;
-    const totalWidth = PACTS.length * cardWidth + (PACTS.length - 1) * gap;
-    const startX = (width - totalWidth) / 2 + cardWidth / 2;
-    const cardY = height / 2 - 10;
+    const perRow = Math.min(PACTS.length, Math.max(1, Math.floor((width - 16 + gap) / (cardWidth + gap))));
+    const rowCount = Math.ceil(PACTS.length / perRow);
+    const rowSpacing = cardHeight + 24;
+    const totalGridHeight = rowCount * cardHeight + (rowCount - 1) * 24;
+    // Center rows on the legacy single-row anchor; keep the last row clear of
+    // the BEGIN button (top edge at height - 90).
+    const firstRowY = Math.min(
+      height / 2 - 10 - totalGridHeight / 2 + cardHeight / 2,
+      height - 90 - 12 - cardHeight / 2 - (rowCount - 1) * rowSpacing,
+    );
 
     PACTS.forEach((pact, index) => {
-      const cardX = startX + index * (cardWidth + gap);
+      const rowIndex = Math.floor(index / perRow);
+      const cardsInRow = Math.min(perRow, PACTS.length - rowIndex * perRow);
+      const rowWidth = cardsInRow * cardWidth + (cardsInRow - 1) * gap;
+      const cardX = (width - rowWidth) / 2 + cardWidth / 2 + (index % perRow) * (cardWidth + gap);
+      const cardY = firstRowY + rowIndex * rowSpacing;
       this.cards.push(this.createCard(pact, cardX, cardY, cardWidth, cardHeight, index));
     });
 
@@ -108,7 +119,7 @@ export class PactSelectScene extends Phaser.Scene {
     this.menuNavigator = new MenuNavigator({
       scene: this,
       items: navigableItems,
-      columns: PACTS.length,
+      columns: perRow,
       wrap: true,
       onCancel: () => { this.selectedIds.clear(); this.beginRun(); },
     });

@@ -14,6 +14,7 @@ import { PactSelectScene } from './game/scenes/PactSelectScene';
 import { LeaderboardScene } from './game/scenes/LeaderboardScene';
 import { CardsScene } from './game/scenes/CardsScene';
 import { initializeStorage, flushStorage } from './storage';
+import { baseSizeForViewport, installOrientationWatcher } from './utils/Orientation';
 import { BloomPipeline } from './visual/BloomPipeline';
 import { DistortionPipeline } from './visual/DistortionPipeline';
 import { ColorblindPipeline } from './visual/ColorblindPipeline';
@@ -69,14 +70,38 @@ window.addEventListener('unhandledrejection', (event) => {
   // Initialize encrypted storage and migrate any legacy plaintext data
   await initializeStorage();
 
-  // Create game configuration with scenes
+  // Create game configuration with scenes. The base size is orientation-aware
+  // (1280×720 landscape, 720×1280 portrait) — EXPAND grows the long axis from
+  // there, so the shorter side stays 720 game units in both orientations and
+  // world/UI objects keep a steady physical size.
+  const initialBase = baseSizeForViewport();
   const config: Phaser.Types.Core.GameConfig = {
     ...GAME_CONFIG,
+    width: initialBase.width,
+    height: initialBase.height,
     scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, CardsScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
   };
 
   // Initialize the game
   const game = new Phaser.Game(config);
+
+  // Swap the base size on orientation flips and re-lay-out whatever is live.
+  // Menu scenes are stateless creates — restarting with the original launch
+  // payload (sys.settings.data) re-runs create() against the new dimensions.
+  // GameScene does its save-restore round trip (the same machinery as a
+  // mid-run UI-scale change). UpgradeScene is deliberately skipped: a restart
+  // would regress mid-modal state (rerolled offers, card locks); it closes
+  // back into a GameScene that has already re-laid itself out.
+  installOrientationWatcher(game, () => {
+    for (const scene of game.scene.getScenes(true)) {
+      const key = scene.scene.key;
+      if (key === 'GameScene') {
+        (scene as GameScene).handleOrientationFlip();
+      } else if (key !== 'UpgradeScene') {
+        scene.scene.restart(scene.sys.settings.data);
+      }
+    }
+  });
 
   // Dismiss the HTML boot loader once Phaser is presenting. READY fires when
   // the renderer + first scene are up; one extra rAF-after-delay ensures a

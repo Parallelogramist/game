@@ -405,7 +405,10 @@ export class WeaponSelectScene extends Phaser.Scene {
     yOffset: number = 0,
   ) {
     const centerX = this.scale.width / 2;
-    const columns = Math.min(count, maxColumns);
+    // Cap columns to what fits the viewport width so portrait (720) wraps
+    // instead of overflowing; wide viewports keep the requested max.
+    const fitColumns = Math.max(1, Math.floor((this.scale.width - 32) / (cardWidth + cardSpacing)));
+    const columns = Math.min(count, maxColumns, fitColumns);
     const rows = Math.ceil(count / columns);
     const totalGridWidth = columns * cardWidth + (columns - 1) * cardSpacing;
     const totalGridHeight = rows * cardHeight + (rows - 1) * cardSpacing;
@@ -445,7 +448,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.renderStepTitle('CHOOSE YOUR WEAPON', 'Select the weapon you want to start your run with', ACCENT_COLORS_STR.gold);
 
     this.weaponCardRefs = [];
-    this.buildWeaponCards(discoveredWeapons);
+    const gridColumns = this.buildWeaponCards(discoveredWeapons);
 
     const centerX = this.scale.width / 2;
     const randomButtonY = this.scale.height - 60;
@@ -475,7 +478,6 @@ export class WeaponSelectScene extends Phaser.Scene {
       });
     this.stepObjects.push(hint);
 
-    const gridColumns = Math.min(discoveredWeapons.length, 7);
     const navigableItems: { onFocus: () => void; onBlur: () => void; onActivate: () => void }[] = this.weaponCardRefs.map((cardRef) => ({
       onFocus: () => this.focusWeaponCard(cardRef),
       onBlur: () => this.blurWeaponCard(cardRef),
@@ -513,7 +515,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this.weaponStepKeyHandler);
   }
 
-  private buildWeaponCards(weapons: WeaponInfo[]): void {
+  private buildWeaponCards(weapons: WeaponInfo[]): number {
     const cardWidth = 150;
     const cardHeight = 180;
     const cardSpacing = 14;
@@ -523,6 +525,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       const { x: cardX, y: cardY } = layout.positionAt(index);
       this.createWeaponCard(weaponInfo, cardX, cardY, cardWidth, cardHeight, index + 1);
     });
+    return layout.columns;
   }
 
   private focusWeaponCard(cardRef: WeaponCardRef): void {

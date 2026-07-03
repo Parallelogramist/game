@@ -56,7 +56,7 @@ export class MusicSettingsScene extends Phaser.Scene {
 
   private readonly trackListY = 170;
   private readonly trackHeight = 38;
-  private readonly visibleHeight = 380;
+  private visibleHeight = 380;
 
   constructor() {
     super({ key: 'MusicSettingsScene' });
@@ -77,6 +77,9 @@ export class MusicSettingsScene extends Phaser.Scene {
     this.selectedActionIndex = 0;
     this.selectedTrackIndex = 0;
     this.scrollY = 0;
+    // The 170px bottom reserve clears the scroll hints and back button and
+    // makes a 720-tall landscape viewport resolve to the legacy 380px height.
+    this.visibleHeight = Math.max(380, this.scale.height - this.trackListY - 170);
 
     if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
       musicManager.play();

@@ -1855,11 +1855,15 @@ export class HUDManager {
     const goldPreviewText = findByName<Phaser.GameObjects.Text>('goldPreviewText');
     if (goldPreviewText) goldPreviewText.setX(statsRightX);
 
+    // Combo readout lives at BOTTOM-CENTER (see creation) — re-anchor it
+    // there, not to the stats column: sending it to the right edge on a
+    // resize half-clipped it off-screen.
+    const comboAnchorY = height - this.scaledSize(96);
     const comboText = findByName<Phaser.GameObjects.Text>('comboText');
-    if (comboText) comboText.setX(statsRightX);
+    if (comboText) comboText.setPosition(width / 2, comboAnchorY);
 
     if (this.comboBuffText) {
-      this.comboBuffText.setX(width - this.scaledSize(10));
+      this.comboBuffText.setPosition(width / 2, comboAnchorY + this.scaledSize(4));
     }
 
     // --- Bottom-left elements ---

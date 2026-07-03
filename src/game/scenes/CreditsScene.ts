@@ -51,16 +51,22 @@ export class CreditsScene extends Phaser.Scene {
 
     const cardWidth = 360;
     const cardHeight = 360;
-    const cardY = screenHeight / 2 + 10;
-    const leftCardX = screenWidth * 0.32;
-    const rightCardX = screenWidth * 0.68;
 
-    this.buildCreditCard(leftCardX, cardY, cardWidth, cardHeight, 'CREDITS', 'gold', [
+    // Two 360-wide cards need ~780px of width to sit side by side; portrait
+    // (720) stacks them vertically instead — height is abundant there.
+    const stacked = screenWidth < cardWidth * 2 + 60;
+    const cardY = screenHeight / 2 + 10;
+    const leftCardX = stacked ? centerX : screenWidth * 0.32;
+    const rightCardX = stacked ? centerX : screenWidth * 0.68;
+    const firstCardY = stacked ? cardY - cardHeight / 2 - 14 : cardY;
+    const secondCardY = stacked ? cardY + cardHeight / 2 + 14 : cardY;
+
+    this.buildCreditCard(leftCardX, firstCardY, cardWidth, cardHeight, 'CREDITS', 'gold', [
       { header: 'DEVELOPED BY', body: 'George' },
       { header: 'BUILT WITH', body: 'Phaser 3 — Game Framework\nbitECS — Entity Component System' },
     ]);
 
-    this.buildCreditCard(rightCardX, cardY, cardWidth, cardHeight, 'ASSETS', 'magenta', [
+    this.buildCreditCard(rightCardX, secondCardY, cardWidth, cardHeight, 'ASSETS', 'magenta', [
       { header: 'SOUND EFFECTS', body: 'Kenney.nl\nCC0 License' },
       { header: 'ICONS', body: 'game-icons.net\nCC BY 3.0' },
     ]);

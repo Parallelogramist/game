@@ -113,7 +113,7 @@ export class ShopScene extends Phaser.Scene {
 
   private emptyStateText: Phaser.GameObjects.Text | null = null;
 
-  private readonly columns = 4;
+  private columns = 4;
   private readonly cardWidth = 220;
   private readonly cardHeight = 220;
   private readonly accountChipWidth = 200;
@@ -124,6 +124,12 @@ export class ShopScene extends Phaser.Scene {
 
   create(): void {
     const centerX = this.scale.width / 2;
+
+    // Portrait / narrow viewports: as many 220px columns as fit with margins
+    // (720-wide portrait → 2). Grid layout, navigator rows, and
+    // ensureCardVisible all derive from this.columns, so one assignment at
+    // create keeps them consistent.
+    this.columns = Math.max(1, Math.min(4, Math.floor((this.scale.width - 32) / (this.cardWidth + 24))));
 
     this.soundManager = new SoundManager(this);
     this.toastManager = getToastManager(this);

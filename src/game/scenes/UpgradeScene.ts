@@ -583,7 +583,11 @@ export class UpgradeScene extends Phaser.Scene {
     const numCards = this.upgrades.length;
     const rows: Upgrade[][] = [];
 
-    if (numCards <= 4) {
+    // Narrow (portrait) viewports wrap earlier: 4 cards on one 720-wide row
+    // shrink to ~0.49× (unreadable); 2×2 keeps them at ~0.66× and portrait
+    // has the vertical room to spare.
+    const singleRowMax = this.scale.width < 800 ? 3 : 4;
+    if (numCards <= singleRowMax) {
       rows.push(this.upgrades.slice());
     } else {
       const firstRowCount = Math.ceil(numCards / 2);
