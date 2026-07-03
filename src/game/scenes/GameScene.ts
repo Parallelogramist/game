@@ -108,6 +108,7 @@ import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import { recordDailyRun } from '../../meta/DailyChallengeManager';
 import { getRelicManager } from '../../meta/RelicManager';
 import { getCardCollectionManager } from '../../meta/CardCollectionManager';
+import { getShipModManager } from '../../meta/ShipModManager';
 import type { CardDefinition } from '../../data/Cards';
 import { getRelicRarityColor } from '../../data/Relics';
 import { getStageById, getDefaultStage } from '../../data/Stages';
@@ -885,6 +886,25 @@ export class GameScene extends Phaser.Scene {
     if (this.startingWeaponId === 'projectile' && selectedShip.startingWeaponId !== 'projectile') {
       this.startingWeaponId = selectedShip.startingWeaponId;
     }
+
+    // ═══ SHIP MOD TRACKS ═══
+    // Per-ship HANGAR upgrades — small identity-reinforcing bonuses layered
+    // on the ship you're flying, right after its own bonuses (spec:
+    // docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md).
+    const shipMods = getShipModManager().getAggregatedBonuses(selectedShip.id);
+    this.playerStats.maxHealth = Math.round(this.playerStats.maxHealth * shipMods.maxHealthMult);
+    this.playerStats.currentHealth = this.playerStats.maxHealth;
+    this.playerStats.moveSpeed *= shipMods.moveSpeedMult;
+    this.playerStats.damageMultiplier *= shipMods.damageMult;
+    this.playerStats.cooldownMultiplier *= shipMods.cooldownMult;
+    this.playerStats.goldMultiplier *= shipMods.goldMult;
+    this.playerStats.xpMultiplier *= shipMods.xpMult;
+    this.playerStats.critChance += shipMods.critChanceAdd;
+    this.playerStats.armor += shipMods.armorAdd;
+    this.playerStats.regenPerSecond += shipMods.regenAdd;
+    this.playerStats.lifeStealPercent += shipMods.lifeStealAdd;
+    this.playerStats.luck += shipMods.luckAdd;
+    this.playerStats.bossDamageMultiplier += shipMods.bossDamageAdd;
 
     // ═══ WORLD LEVEL SCALING ═══
     this.worldLevel = metaManager.getWorldLevel();

@@ -62,6 +62,9 @@ export const ALL_STORAGE_KEYS = [
   // CardCollectionManager
   'survivor-meta-cards',
 
+  // ShipModManager (per-ship mod-track levels)
+  'survivor-meta-ship-mods',
+
   // CodexManager
   'survivor-codex',
 
