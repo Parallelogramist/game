@@ -714,7 +714,11 @@ export class HUDManager {
     pauseButtonBg.on('pointerout', () => {
       paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
     });
-    pauseButtonBg.on('pointerdown', () => {
+    // pointerup, not pointerdown: near the top screen edge iOS delays or
+    // cancels touchstart while disambiguating system gestures, so a
+    // down-only handler can silently never fire — the release still does.
+    // (Every other button in the game already uses the pointerup idiom.)
+    pauseButtonBg.on('pointerup', () => {
       this.options.onPauseClicked();
     });
     pauseButtonBg.once('destroy', () => pauseGfx.destroy());
