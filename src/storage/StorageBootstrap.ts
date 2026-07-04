@@ -62,6 +62,9 @@ export const ALL_STORAGE_KEYS = [
   // CardCollectionManager
   'survivor-meta-cards',
 
+  // BoostCardManager (one-run boost armed by a flux cache)
+  'survivor-meta-boosts',
+
   // ShipModManager (per-ship mod-track levels)
   'survivor-meta-ship-mods',
 
@@ -85,6 +88,9 @@ export const ALL_STORAGE_KEYS = [
 
   // DailyChallengeManager (daily/weekly challenge leaderboard)
   'dailyLeaderboardV1',
+
+  // RunnerBestScore (endless-runner mode best score)
+  'survivor-runner-best',
 ];
 
 /**

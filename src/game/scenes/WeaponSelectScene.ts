@@ -357,11 +357,14 @@ export class WeaponSelectScene extends Phaser.Scene {
           maxed ? 'MODS MAXED' : `MODS ${modLevels}/${modMax}`,
           {
             fontSize: 10,
+            // muted (not dim) at zero — dim was invisible on the dark card
+            // on phones, hiding the HANGAR system from anyone who hadn't
+            // found the shop tab yet.
             color: maxed
               ? ACCENT_COLORS_STR.gold
               : modLevels > 0
                 ? ACCENT_COLORS_STR.primary
-                : TEXT_COLORS.dim,
+                : TEXT_COLORS.muted,
             letterSpacing: 2,
           },
         );

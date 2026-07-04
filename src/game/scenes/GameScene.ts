@@ -23,6 +23,8 @@ import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
+import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
+import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
 import { resetBossPhaseTracking } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
@@ -108,6 +110,8 @@ import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import { recordDailyRun } from '../../meta/DailyChallengeManager';
 import { getRelicManager } from '../../meta/RelicManager';
 import { getCardCollectionManager } from '../../meta/CardCollectionManager';
+import { getBoostCardManager } from '../../meta/BoostCardManager';
+import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
@@ -252,6 +256,10 @@ export class GameScene extends Phaser.Scene {
   // Volatile-affix explosion queue (drained iteratively to avoid recursion)
   private volatileQueue: { x: number; y: number }[] = [];
   private drainingVolatile: boolean = false;
+
+  // Armed Exploder death fuses (BALANCE-EXPLODER-FUSE) — ticked with gameplay
+  // delta in update(), cleared in resetInRunFeatureState()
+  private exploderFuses: ExploderFuse[] = [];
 
   // In-run bounties (rotating objectives with rewards)
   private bounty: { kind: BountyKind; target: number; progress: number; timeLeft: number } | null = null;
@@ -836,6 +844,40 @@ export class GameScene extends Phaser.Scene {
     this.playerStats.rerollsRemaining += cardBonuses.rerollsAdd;
     this.playerStats.banishesRemaining += cardBonuses.banishesAdd;
 
+    // ═══ BOOST CARD (one-run consumable — flux cache, FEAT-CARDS-3) ═══
+    // Consumed on FRESH starts only — the restore path returns early above,
+    // so a boost armed mid-run survives save-restore of the CURRENT run
+    // untouched. Applied the same way as the permanent card bonuses (mults
+    // multiply, adds add); startAtLevel maxes into the STARTING LEVEL block
+    // below alongside the cards' contribution.
+    const armedBoost = getBoostCardManager().consumePending();
+    if (armedBoost) {
+      const boostBonus = armedBoost.bonus;
+      setUltimateChargeRateMultiplier(
+        cardBonuses.ultChargeRateMult * (boostBonus.ultChargeRateMult ?? 1)
+      );
+      this.playerStats.damageMultiplier *= boostBonus.damageMult ?? 1;
+      this.playerStats.attackSpeedMultiplier *= boostBonus.attackSpeedMult ?? 1;
+      this.playerStats.goldMultiplier *= boostBonus.goldMult ?? 1;
+      this.playerStats.xpMultiplier *= boostBonus.xpMult ?? 1;
+      this.playerStats.pickupRange *= boostBonus.magnetRadiusMult ?? 1;
+      this.playerStats.moveSpeed *= boostBonus.moveSpeedMult ?? 1;
+      this.playerStats.maxHealth += boostBonus.maxHealthAdd ?? 0;
+      this.playerStats.currentHealth = this.playerStats.maxHealth;
+      this.playerStats.critChance += boostBonus.critChanceAdd ?? 0;
+      this.playerStats.armor += boostBonus.armorAdd ?? 0;
+      this.playerStats.luck += boostBonus.luckAdd ?? 0;
+      this.playerStats.rerollsRemaining += boostBonus.rerollsAdd ?? 0;
+      this.playerStats.banishesRemaining += boostBonus.banishesAdd ?? 0;
+      this.toastManager.showToast({
+        title: 'BOOST ACTIVE',
+        description: `${armedBoost.name} — ${armedBoost.description} this run`,
+        icon: armedBoost.icon,
+        color: 0xffd24a,
+        duration: 4000,
+      });
+    }
+
     // ═══ RUN MODIFIERS ═══
     for (const modifier of this.activeModifiers) {
       modifier.apply(this.playerStats);
@@ -957,7 +999,9 @@ export class GameScene extends Phaser.Scene {
     const startingLevel = metaManager.getStartingLevel()
       + achievementBonuses.startingLevel
       + ascensionManager.getBonusStartingLevel()
-      + Math.max(0, cardBonuses.startAtLevel - 1);
+      // Cards and an armed boost share the startAtLevel channel — max, not
+      // sum (start levels don't stack; the best source wins).
+      + Math.max(0, Math.max(cardBonuses.startAtLevel, armedBoost?.bonus.startAtLevel ?? 1) - 1);
     if (startingLevel > 1) {
       this.pendingLevelUps += startingLevel - 1;
     }
@@ -2212,9 +2256,14 @@ export class GameScene extends Phaser.Scene {
       this.spawnRandomConsumable(x, y);
     }
 
-    // Check for explosion on death
+    // Check for explosion on death. Not instant (BALANCE-EXPLODER-FUSE): the
+    // corpse arms a 0.4s fuse, telegraphed by a danger ring over the blast
+    // footprint, then update() detonates it via the fuse tick below. Each
+    // death arms its own independent fuse. VOLATILE affix detonations (next
+    // block) intentionally stay instant — parked in BACKLOG.md.
     if (flags & EnemyFlags.EXPLODES_ON_DEATH) {
-      this.handleExplosion(x, y, 60, 20);
+      spawnTelegraph(this.telegraphManager, x, y, exploderFuseTelegraph());
+      armExploderFuse(this.exploderFuses, x, y);
     }
 
     // Check for split on death
@@ -2241,6 +2290,7 @@ export class GameScene extends Phaser.Scene {
     // miniboss 20%, elite 2%. At most one cache per run — the reveal is a
     // single end-screen moment (SFR-style), so the card itself stays hidden
     // behind a teaser toast until death/victory.
+    let dataCacheDroppedThisDeath = false;
     if (!this.cacheFoundThisRun) {
       const cacheChance = xpValue >= 1000 ? 1
         : xpValue >= 30 ? 0.2
@@ -2248,6 +2298,7 @@ export class GameScene extends Phaser.Scene {
         : 0;
       if (cacheChance > 0 && Math.random() < cacheChance) {
         this.cacheFoundThisRun = true;
+        dataCacheDroppedThisDeath = true;
         const cacheCard = getCardCollectionManager().rollCacheDiscovery();
         if (cacheCard) {
           this.toastManager?.showToast({
@@ -2268,6 +2319,25 @@ export class GameScene extends Phaser.Scene {
             duration: 3200,
           });
         }
+      }
+    }
+
+    // ═══ FLUX CACHE DROPS (one-run boost cards — FEAT-CARDS-3) ═══
+    // Miniboss-only, mutually exclusive with the data-cache roll above (data
+    // cache wins the death). rollFluxCache() itself returns null while a
+    // boost is already armed — a held boost is never re-rolled or replaced,
+    // so the drop simply stays silent until it's spent on a fresh run.
+    const isMiniboss = xpValue >= 30 && xpValue < 1000;
+    if (!dataCacheDroppedThisDeath && isMiniboss && Math.random() < FLUX_CACHE_DROP_CHANCE) {
+      const boost = getBoostCardManager().rollFluxCache();
+      if (boost) {
+        this.toastManager?.showToast({
+          title: 'FLUX CACHE',
+          description: `${boost.name} armed for next run`,
+          icon: boost.icon,
+          color: 0xffaa22,
+          duration: 3200,
+        });
       }
     }
 
@@ -2735,6 +2805,10 @@ export class GameScene extends Phaser.Scene {
     this.bountyText = null;
     // Cleared on fresh start; the restore path re-populates from the save after.
     this.timedStatBuffs = [];
+    // Armed Exploder fuses are transient combat state (not persisted): clearing
+    // on both paths means a scene restart mid-fuse can never detonate stale
+    // fuses into the new run.
+    this.exploderFuses = [];
   }
 
   /**
@@ -3625,6 +3699,15 @@ export class GameScene extends Phaser.Scene {
 
     // Update attack telegraphs (spawned by enemy AI windups above)
     this.telegraphManager.update(deltaSeconds);
+
+    // Detonate armed Exploder death fuses (BALANCE-EXPLODER-FUSE). Ticked here
+    // — NOT via delayedCall — so fuses freeze with the pause/game-over/victory
+    // early-returns above (a blast can never land during a menu or after the
+    // run ends) and share deltaSeconds' slow-time scaling with the telegraph
+    // ring, keeping the warning honest.
+    tickExploderFuses(this.exploderFuses, deltaSeconds, (fuseX, fuseY) =>
+      this.handleExplosion(fuseX, fuseY, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE)
+    );
 
     // Apply Warden slow aura to player velocity (computed inside enemyAISystem),
     // reduced by the player's slowResistance stat (slowResistLevel upgrade + Frost
