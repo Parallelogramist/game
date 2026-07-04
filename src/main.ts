@@ -13,6 +13,7 @@ import { WeaponSelectScene } from './game/scenes/WeaponSelectScene';
 import { PactSelectScene } from './game/scenes/PactSelectScene';
 import { LeaderboardScene } from './game/scenes/LeaderboardScene';
 import { CardsScene } from './game/scenes/CardsScene';
+import { RunnerScene } from './game/scenes/RunnerScene';
 import { initializeStorage, flushStorage } from './storage';
 import { baseSizeForViewport, installOrientationWatcher } from './utils/Orientation';
 import { BloomPipeline } from './visual/BloomPipeline';
@@ -79,7 +80,7 @@ window.addEventListener('unhandledrejection', (event) => {
     ...GAME_CONFIG,
     width: initialBase.width,
     height: initialBase.height,
-    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, CardsScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
+    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, CardsScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
   };
 
   // Initialize the game

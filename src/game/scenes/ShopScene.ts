@@ -37,6 +37,7 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuTabs, MenuTabs } from '../../visual/MenuTab';
+import { ShipPreview } from '../../visual/ShipPreview';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
@@ -165,6 +166,10 @@ export class ShopScene extends Phaser.Scene {
   private filterButton: MenuButton | null = null;
   private buyClickIgnoreUntil: number = 0;
 
+  /** HANGAR-tab ship preview — fixed header chrome, not part of the scroll grid. */
+  private shipPreview: ShipPreview | null = null;
+  private previewedShipId: string | null = null;
+
   private accountProgressBarBg: Phaser.GameObjects.Graphics | null = null;
   private accountProgressBarFill: Phaser.GameObjects.Graphics | null = null;
   private accountNextUnlockText: Phaser.GameObjects.Text | null = null;
@@ -200,11 +205,16 @@ export class ShopScene extends Phaser.Scene {
     this.selectedTabIndex = 0;
     this.selectedCardIndex = 0;
     this.scrollY = 0;
+    // Scene instances persist across restarts — shutdown destroys the
+    // preview, but re-null the refs so a stale handle can never carry over.
+    this.shipPreview = null;
+    this.previewedShipId = null;
 
     // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
+      this.shipPreview?.update(delta);
       const seconds = time / 1000;
       this.menuTabs?.tickIdle(seconds);
       for (const btn of this.chromeButtons) btn.tickIdle(seconds);
@@ -660,7 +670,12 @@ export class ShopScene extends Phaser.Scene {
   private displayActiveTab(): void {
     if (this.currentCategory === HANGAR_TAB_ID) {
       this.displayHangarMods();
+      // Preview lives in fixed chrome, so it's created HERE (once per stay
+      // on the tab) — not in displayHangarMods, which also runs on every
+      // post-purchase grid rebuild and must not touch the preview.
+      this.createHangarShipPreview();
     } else {
+      this.destroyHangarShipPreview();
       this.displayCategoryUpgrades(this.currentCategory);
     }
   }
@@ -1104,6 +1119,75 @@ export class ShopScene extends Phaser.Scene {
     this.maxScrollY = Math.max(0, contentHeight - visibleHeight + 30);
   }
 
+  /**
+   * HANGAR-tab ship preview — the same evolution-cycling hull that
+   * WeaponSelectScene shows, tracking whichever mod card is focused/hovered
+   * (falling back to the first unlocked ship). It sits in the FIXED header
+   * chrome, outside the scrolling masked grid. Created when the HANGAR tab
+   * becomes active, destroyed on tab switch away and on shutdown; idempotent
+   * so post-purchase displayHangarMods refreshes leave it untouched.
+   */
+  private createHangarShipPreview(): void {
+    if (this.shipPreview) return;
+    // Portrait / narrow viewports (<1280): the header band is already full —
+    // account chip on the left, gold chip + filter button on the right, the
+    // ASCEND button in the center, and the tab strip at y=130 spanning nearly
+    // the whole width. There is no slot that fits even a shrunken hull
+    // without overlapping that chrome, so skip the preview entirely rather
+    // than squeeze it in.
+    if (this.scale.width < 1280) return;
+
+    // Landscape: header band, right of the ASCEND button area (which spans
+    // centerX ± 100). The tier label renders at y + 58 × (scale / 1.6); with
+    // y = 90 and scale = 0.85 that is 90 + 30.8 ≈ 121 — above the ~124 bound,
+    // so it clears the tab strip at y = 130. (The suggested 0.9 scale at
+    // y = 96 would put the label at 128.6, colliding with the tabs.)
+    const previewX = this.scale.width / 2 + 320;
+    const previewY = 90;
+    this.shipPreview = new ShipPreview(this, previewX, previewY, 0.85);
+
+    const fallback = this.getFirstUnlockedShip();
+    if (fallback) this.setPreviewShip(fallback);
+  }
+
+  private destroyHangarShipPreview(): void {
+    this.shipPreview?.destroy();
+    this.shipPreview = null;
+    this.previewedShipId = null;
+  }
+
+  /** Same availability rule as displayHangarMods / WeaponSelectScene. */
+  private getFirstUnlockedShip(): ShipCharacter | null {
+    const gateContext = this.buildUnlockGateContext();
+    return (
+      SHIP_CHARACTERS.find((ship) => isUnlockRequirementMet(ship.unlockRequirement, gateContext)) ?? null
+    );
+  }
+
+  /**
+   * Point the preview at a ship. No-op when already showing it — a ship has
+   * several mod-track cards, and hovering between them must not restart the
+   * evolution cycle.
+   */
+  private setPreviewShip(ship: ShipCharacter): void {
+    if (!this.shipPreview || this.previewedShipId === ship.id) return;
+    this.previewedShipId = ship.id;
+    this.shipPreview.setShip(ship);
+  }
+
+  /**
+   * Sync the preview to the focused hangar card — the gamepad/keyboard path
+   * (pointer hover wires setPreviewShip directly). The teaser card has no
+   * shipId and keeps whatever ship is already showing.
+   */
+  private syncPreviewToFocusedCard(): void {
+    if (!this.shipPreview || this.currentCategory !== HANGAR_TAB_ID) return;
+    const card = this.hangarCards[this.selectedCardIndex];
+    if (!card?.shipId) return;
+    const ship = SHIP_CHARACTERS.find((s) => s.id === card.shipId);
+    if (ship) this.setPreviewShip(ship);
+  }
+
   private createShipModCard(
     positionX: number,
     positionY: number,
@@ -1249,6 +1333,7 @@ export class ShopScene extends Phaser.Scene {
       this.focusZone = 'grid';
       this.updateFocusVisuals();
       card.setHoverState(true);
+      this.setPreviewShip(ship);
     });
     card.hitZone.on('pointerout', () => card.setHoverState(false));
     card.hitZone.on('pointerdown', () => {
@@ -1262,6 +1347,7 @@ export class ShopScene extends Phaser.Scene {
       this.selectedCardIndex = cardIndex;
       this.focusZone = 'grid';
       this.updateFocusVisuals();
+      this.setPreviewShip(ship);
     });
     buyButton.card.hitZone.on('pointerout', () => buyButton.setHoverState(false));
   }
@@ -1464,6 +1550,7 @@ export class ShopScene extends Phaser.Scene {
           this.selectedCardIndex = cardIndex;
           this.ensureCardVisible();
           this.updateFocusVisuals();
+          this.syncPreviewToFocusedCard();
         },
         onBlur: () => this.updateFocusVisuals(),
         onActivate: () => {
@@ -1851,6 +1938,7 @@ export class ShopScene extends Phaser.Scene {
       card.card.destroy();
     }
     this.hangarCards = [];
+    this.destroyHangarShipPreview();
     this.tweens.killAll();
   }
 

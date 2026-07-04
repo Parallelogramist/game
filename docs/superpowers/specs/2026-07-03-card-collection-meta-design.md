@@ -110,8 +110,35 @@ retro-claimed by AchievementScene.
 - **FEAT-CARDS-2**: reveal juice (flip animation polish, sfx), card icons
   pass, collection milestones (own N cards → gold bonus achievements),
   balance pass on drop rates/costs after real play.
-- **FEAT-CARDS-3**: consider timed/next-run boost cards (SFR's temporary
-  cards) — needs design; interacts with save-restore.
+- **FEAT-CARDS-3** (designed 2026-07-03, operator-approved blanket
+  implementation): **boost cards** — SFR's temporary cards as one-run
+  consumables, fully separate from the permanent archive.
+  - **Data** (`src/data/BoostCards.ts`): 8 boost defs, each a single
+    next-run bonus, deliberately LOUDER than permanent cards (they're
+    one-shot): `boost_overcharge` +15% damage · `boost_datastream` +20% XP ·
+    `boost_goldrush` +20% gold · `boost_afterburner` +10% move speed ·
+    `boost_headstart` +1 starting level · `boost_widebeam` +25% pickup
+    radius · `boost_plating` +3 armor · `boost_spare_dice` +2 rerolls.
+    `interface BoostCardDefinition { id; name; description; icon; bonus: CardBonus }`
+    (reuses CardBonus), `ALL_BOOST_CARDS`, `getBoostCardById`,
+    `rollBoostCard(rng?)` (uniform).
+  - **Source:** minibosses drop a "flux cache" at 10% (mutually exclusive
+    with the data-cache roll — data cache wins; one boost may be HELD at a
+    time, no re-roll while one is queued). Pickup toast: "FLUX CACHE —
+    <name> armed for next run".
+  - **Persistence** (`src/meta/BoostCardManager.ts`, singleton +
+    `resetBoostCardManagerForTests`): `survivor-meta-boosts` →
+    `{ pending: string | null }`, corruption-hardened, registered in
+    StorageBootstrap. API: `getPending(): BoostCardDefinition | null`,
+    `queueBoost(id)`, `consumePending(): BoostCardDefinition | null`,
+    `rollFluxCache(): BoostCardDefinition | null` (null when one is already
+    held).
+  - **Application:** GameScene meta block, FRESH runs only — a boost armed
+    mid-run must survive save-restore of the CURRENT run untouched
+    (consume on fresh start, never on restore). Applied right after the
+    permanent card bonuses; a run-start toast names the active boost.
+  - **Surfacing:** BootScene hero card shows an armed boost as a one-line
+    charge ("⚡ NEXT RUN: +15% DAMAGE").
 - **FEAT-SHIP-MODS**: per-ship mod tracks (human sign-off first).
 
 ## Feel checklist (playtest against this)

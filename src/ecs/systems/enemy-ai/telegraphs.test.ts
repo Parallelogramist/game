@@ -5,6 +5,7 @@ import {
   chargerChargeTelegraph,
   wardenSlamTelegraph,
   giantStompTelegraph,
+  exploderFuseTelegraph,
   hordeKingSlamTelegraph,
   voidWyrmSweepTelegraph,
   voidWyrmRingTelegraph,
@@ -13,6 +14,7 @@ import {
   type TelegraphSpec,
   type LineTelegraphSpec,
 } from './telegraphs';
+import { EXPLODER_FUSE_SECONDS, EXPLODER_BLAST_RADIUS } from './exploder-fuse';
 
 /**
  * Pure "AI windup → telegraph spec" mapping. The contract under test: every
@@ -35,6 +37,9 @@ const WARDEN_PLANT_WINDUP = 0.8;      // updateWardenAI state 1 plant duration
 const WARDEN_SLAM_RADIUS = 50;        // groundSlamCallback(x, y, 50, ...)
 const GIANT_STOMP_WINDUP = 1.0;       // updateGiantAI state 1 duration
 const GIANT_STOMP_RADIUS = 80;        // groundSlamCallback(x, y, 80, ...)
+// Exploder fuse/blast ground truth is imported from ./exploder-fuse — those
+// constants ARE what GameScene arms and detonates with, so asserting against
+// them locks spec == fuse == blast by construction.
 const HORDE_KING_SLAM_WINDUP = 1.0;   // updateHordeKingAI state 2 duration
 const hordeKingSlamRadius = (phase: number) => 150 + phase * 30; // state 3 execute
 const VOID_WYRM_SWEEP_WINDUP = 0.8;   // updateVoidWyrmAI state 1 duration
@@ -67,6 +72,7 @@ describe('telegraph specs — every spec is well-formed', () => {
       chargerChargeTelegraph(2.0),
       wardenSlamTelegraph(),
       giantStompTelegraph(),
+      exploderFuseTelegraph(),
       hordeKingSlamTelegraph(1),
       hordeKingSlamTelegraph(2),
       hordeKingSlamTelegraph(3),
@@ -99,6 +105,10 @@ describe('durations match the windups they warn about', () => {
     expect(giantStompTelegraph().duration).toBe(GIANT_STOMP_WINDUP);
   });
 
+  test('exploder fuse telegraph lasts exactly the death fuse', () => {
+    expect(exploderFuseTelegraph().duration).toBe(EXPLODER_FUSE_SECONDS);
+  });
+
   test('horde king slam telegraph lasts exactly the slam windup', () => {
     expect(hordeKingSlamTelegraph(1).duration).toBe(HORDE_KING_SLAM_WINDUP);
     expect(hordeKingSlamTelegraph(3).duration).toBe(HORDE_KING_SLAM_WINDUP);
@@ -126,6 +136,10 @@ describe('ring footprints cover the damage they warn about', () => {
 
   test('giant telegraph radius covers the stomp radius', () => {
     expect(giantStompTelegraph().radius).toBeGreaterThanOrEqual(GIANT_STOMP_RADIUS);
+  });
+
+  test('exploder fuse telegraph radius covers the blast radius', () => {
+    expect(exploderFuseTelegraph().radius).toBeGreaterThanOrEqual(EXPLODER_BLAST_RADIUS);
   });
 
   test('horde king telegraph radius covers the phase-scaled slam radius', () => {

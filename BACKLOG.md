@@ -38,100 +38,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **BUG-FREEZE-VERIFY — confirm the reported game freeze is fixed** · area: stability
-  **Context:** user reported the game "sometimes just freezes up." No error handling
-  existed anywhere, so any uncaught exception during a Phaser scene update() silently
-  halted the game with zero diagnostics — Phaser only reschedules its next
-  `requestAnimationFrame` after a step completes without throwing. Two fixes landed
-  without a live repro (network sandboxed, couldn't run a browser): (1) the 100-kill
-  "annihilation" combo pulse (`GameScene.ts`, `handleComboThreshold`) iterated
-  bitECS's LIVE enemy query array while calling `handleEnemyDeath` — which removes
-  the dying entity and, for Splitter enemies, synchronously spawns 2 new ones via
-  `handleSplit`/`addEntity` — mutating the very array being iterated; now snapshotted
-  first, matching the safe pattern already used by StatusEffectSystem/
-  HazardZoneSystem for this exact hazard. (2) The new boss-intro letterbox
-  (session's polish drop) had a tween whose target was a plain proxy object
-  (`ruleState`), not the `rules` Graphics object in the cleanup array — if the
-  player died within ~180-480ms of a boss spawning, `cleanupBossIntro()` destroyed
-  `rules` but the orphaned tween kept calling `.clear()/.fillStyle()/.fillRect()` on
-  it every frame for the rest of its run. Also added a global `window.error`/
-  `unhandledrejection` handler (`main.ts`) + `#crash-overlay` (`index.html`) so ANY
-  future uncaught exception surfaces a "tap to reload" recovery screen instead of a
-  silent frozen frame — this alone should turn future rare freezes into diagnosable,
-  reportable events (check the console) rather than mystery hangs. **Needs a human
-  session or two of normal play (ideally including a 100+ kill combo chain and a
-  death timed near a boss spawn) to confirm the freeze doesn't recur; if it does,
-  the crash overlay should now at least surface something in the console to
-  triage from.**
-
-- [ ] **FEAT-CARDS-3 — timed / next-run boost cards** · area: meta · **needs design**
-  SFR-style temporary cards (boost active for the next run). Interacts with
-  save-restore; design in the spec's phase notes before building.
-
-
-- [ ] **POLISH-UI-CAMERA — exclude UI from postFX pipelines and camera flash/fade**
-  · area: visual · **Why:** HUD/minimap/overlays render through `cameras.main`, so
-  BloomPipeline blooms bright HUD pixels, DistortionPipeline shockwaves warp HUD
-  text they cross, and `camera.flash`/`fadeOut` composite over UI. Depth-band fixes
-  (see DepthLayers header) removed the overlay-class artifacts; the remaining fix
-  is a dedicated UI camera (`cameras.add` + per-camera `ignore` lists on every UI
-  container vs world object) — invasive, needs runtime verification of input
-  hit-testing and both scale-mode paths before landing. Audited 2026-07-02.
-
-- [ ] **POLISH-CANVAS-DPR — render the canvas at device resolution on phones**
-  · area: visual/mobile · **BLOCKED on on-device verification — do not land blind**
-  **Why:** Phaser sizes the canvas backing store in CSS pixels, so a 3× iPhone
-  renders at 1/3 physical resolution and upscales (soft edges on the neon lines).
-  Candidate: EXPAND mode + `zoom: 1/Math.min(devicePixelRatio, 2)` (or manual canvas
-  resize on the ScaleManager resize event) — but EXPAND×zoom interaction is
-  undocumented and input-coordinate mapping + HUD density compensation
-  (`HudScale.densityCompensation`) both depend on the resulting game-unit size.
-  Needs a real iPhone/iPad to validate before landing.
-
-- [ ] **REFACTOR-2 (phase 2) — extract miniboss AI handlers** · area: architecture
-  **Value:** phase 1 (done — `ee33c19`) moved the 20 regular handlers into
-  `src/ecs/systems/enemy-ai/`; EnemyAISystem.ts is now 1,038 lines. Next: the miniboss
-  handlers (Glutton, SwarmMother, Charger, Necromancer, TwinA/TwinB) move the same way —
-  verbatim bodies, shared scaffolding via `enemy-ai/common.ts` (note: handler modules
-  must read `telegraphManager` via live ES-module import binding, never copy to a local).
-  Behavior-identical; verify with the byte-identity diff vs the pre-move blob + suite
-  green (suite runnable only outside the remote sandbox).
-
-- [ ] **REFACTOR-2 (phase 3) — extract boss AI handlers + dispatcher slim-down** · area:
-  architecture. HordeKing, VoidWyrm, TheMachine handlers plus `applyEliteAuras` and the
-  boss-phase tracking move out after phase 2; EnemyAISystem.ts ends as dispatcher + LOD
-  only. Same verification regime as phase 2.
-
-- [ ] **POLISH-ACCOUNT-GATE-TOAST — unlock feedback when an account: ship gate opens**
-  · area: ux · **Value:** hidden-gated ships toast on unlock via HiddenUnlockManager;
-  an `account:<n>` gate (`src/data/UnlockGates.ts`, wired `a41c64e`) crosses its
-  threshold silently mid-shop-purchase — the player never learns a ship appeared.
-  **Do only once a ship actually uses `account:`** (none does today; roster gating is
-  a human balance call). Hook: ShopScene purchase path already reads
-  `getAccountLevel()`; compare before/after against `SHIP_CHARACTERS` account gates,
-  toast via ToastManager. Tiny session.
-
-- [ ] **BALANCE-EXPLODER-FUSE — telegraphed fuse for the Exploder death explosion**
-  · area: readability/balance · **BLOCKED on human sign-off — behavior change**
-  **Why parked:** FEAT-TELEGRAPH-COVERAGE (`4f18ac4`) covered every *windup-based* heavy
-  hit, but the Exploder explodes instantly on death (`GameScene.handleEnemyDeath` →
-  `handleExplosion(x, y, 60, 20)`, same frame) — there is no windup to telegraph. Warning
-  the player requires adding a fuse delay (e.g. 0.4s armed state before detonation),
-  which changes combat timing and Exploder lethality. Same question applies to VOLATILE
-  affix detonations (`drainVolatileExplosions`, radius 95). If approved: fuse state in
-  `handleEnemyDeath`, ring spec in `src/ecs/systems/enemy-ai/telegraphs.ts`, test-first.
-
-**Parked — bigger than one fleet session; needs its own plan cycle + human kickoff:**
-
-- [ ] **REFACTOR-1 — split the GameScene god object** · area: architecture
-  Now **7,648 lines**. Extract cohesive managers
-  (run/meta-bonus application, pickup + level-up flow, spawn-director glue, HUD payload);
-  `resetAllRunSystems()` is the model. Multi-session; each extraction its own commit.
-- [ ] **FEAT-RUNNER-MODE — new endless-runner game mode** · area: gameplay
-  Designed (Area C of `docs/superpowers/specs/2026-05-29-scroll-runner-polish-design.md`)
-  but a full new scene (forced auto-scroll `RunnerScene` reusing enemies/weapons/HUD).
-  Needs its own brainstorm → plan cycle.
-
 ---
 
 ## Human gates
@@ -397,6 +303,47 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FLEET SWEEP 2026-07-04 — the implementable backlog cleared in one
+  batch** (operator directive: "implement everything"). Hash in the commit
+  archiving this entry; detail per item:
+  - **REFACTOR-2 phases 2+3**: miniboss (glutton/swarm-mother/charger/
+    necromancer/twin) AND boss (horde-king/void-wyrm/the-machine) handlers +
+    boss-phase tracking + elite auras extracted to `enemy-ai/` modules;
+    EnemyAISystem.ts is dispatcher+LOD only, 213 lines (was 1,038; originally
+    2,098). All 14 moved blocks verified byte-identical vs the pre-move blob;
+    external imports preserved via re-exports.
+  - **BALANCE-EXPLODER-FUSE** (operator-approved): Exploder death explosion
+    now arms a 0.4s fuse with a danger ring (radius 66 >= blast 60), detonated
+    from the gated update() tick (freezes with pause/game-over — a
+    delayedCall would have exploded into menus). Pure fuse module + 11 tests
+    (incl. a float-epsilon detonation bug caught during dev). VOLATILE affix
+    stays instant (still parked). Feel → playtest queue.
+  - **FEAT-CARDS-3 — boost cards**: 8 one-run boosts (spec section in the
+    card design doc), miniboss flux caches (10%, exclusive with data caches,
+    one held max), `survivor-meta-boosts` persistence, consumed on fresh run
+    start only (survives save-restore), armed-boost line on the BootScene
+    hero card + pickup/run-start toasts. Manager corruption-suite mirrors
+    the card manager's.
+  - **FEAT-RUNNER-MODE v1**: new RunnerScene (auto-scroll dodge-and-survive,
+    orientation-aware axis, pooled runner-local combat structs — shared ECS
+    deliberately NOT driven from a second scene for containment);
+    PlayerSpaceship/Parallax/Joystick/SecureStorage reused; best score
+    persisted ('survivor-runner-best'); RUNNER entry (6th deck card) on the
+    main menu. Cut list filed as FEAT-RUNNER-MODE-V2. ENTIRELY additive —
+    failure modes contained to the mode itself. Feel → playtest.
+  - **HANGAR ship preview**: the evolution-cycling ShipPreview now also sits
+    in the shop's HANGAR header (landscape only; portrait header is full),
+    tracking the focused mod card.
+  - **MODS readout** on ship-select cards: muted instead of dim at 0 mods
+    (was invisible on phones).
+  - **NOT done, with reasons**: POLISH-UI-CAMERA + POLISH-CANVAS-DPR (both
+    marked do-not-land-blind — need real-device runtime verification);
+    BUG-FREEZE-VERIFY + the whole playtest queue (need a human in a
+    browser); POLISH-ACCOUNT-GATE-TOAST (its own precondition — no ship
+    uses `account:` — still unmet); REFACTOR-1 (multi-session god-object
+    split of the live core loop; not containable, needs its own plan
+    cycle); BALANCE-EXPLODER-FUSE's VOLATILE-affix half (explicitly parked).
 
 - [x] **FEAT-SHIP-MODS-2 — ship mod follow-ups** (done — `ec6c47a`).
   Archetype icons on HANGAR cards (test-locked to ICON_MAP), "MODS n/9"

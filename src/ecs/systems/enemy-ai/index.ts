@@ -46,6 +46,21 @@ export { updateWardenAI } from './warden';
 export { updateWraithAI } from './wraith';
 export { updateRallierAI } from './rallier';
 
-// The main system function (dispatcher + miniboss/boss handlers) stays in the
-// original file; those handlers will be extracted in later refactor phases.
+// Miniboss behaviors, one module per handler
+export { updateGluttonAI } from './glutton';
+export { updateSwarmMotherAI } from './swarm-mother';
+export { updateChargerAI } from './charger';
+export { updateNecromancerAI } from './necromancer';
+export { updateTwinAI } from './twin';
+
+// Boss behaviors + shared boss-phase tracking
+export { updateHordeKingAI } from './horde-king';
+export { updateVoidWyrmAI } from './void-wyrm';
+export { updateTheMachineAI } from './the-machine';
+export { checkBossPhaseTransition, resetBossPhaseTracking } from './boss-phase';
+
+// Elite proximity auras (Tank / Rallier / Warden)
+export { applyEliteAuras, isNearTankAura, getWardenSlowMultiplier } from './elite-auras';
+
+// The main system function (dispatcher + LOD only) stays in the original file.
 export { enemyAISystem } from '../EnemyAISystem';

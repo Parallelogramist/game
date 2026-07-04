@@ -5,6 +5,7 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons, createIcon, setIconFrame } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
+import { getBoostCardManager } from '../../meta/BoostCardManager';
 import {
   fadeOut,
   addButtonInteraction,
@@ -176,6 +177,8 @@ export class BootScene extends Phaser.Scene {
       }
     };
 
+    // Runner mode is gameplay — fade like CONTINUE, not the menu sweep.
+    const startRunner = () => fadeOut(this, 200, () => this.scene.start('RunnerScene'));
     const openShop = () => transitionToScene(this, 'ShopScene');
     const openAchievements = () => transitionToScene(this, 'AchievementScene');
     const openCodex = () => transitionToScene(this, 'CodexScene');
@@ -347,6 +350,7 @@ export class BootScene extends Phaser.Scene {
       onAchievements: openAchievements,
       onCodex: openCodex,
       onCards: openCards,
+      onRunner: startRunner,
       onLeaderboard: openLeaderboard,
     });
 
@@ -703,6 +707,27 @@ export class BootScene extends Phaser.Scene {
       card.frame.add(tag);
     }
 
+    // Armed boost charge line (flux cache, FEAT-CARDS-3) — sits in the gap
+    // between the big CONTINUE/START label and the bottom icon row, so it
+    // never collides with either. Only rendered while a boost is held.
+    const armedBoost = getBoostCardManager().getPending();
+    if (armedBoost) {
+      const boostY = Math.round((primaryY + rowY) / 2);
+      const boostLine = this.add.text(
+        0,
+        boostY,
+        `⚡ NEXT RUN: ${armedBoost.description.toUpperCase()}`,
+        {
+          fontSize: scaledFontPx(fontScale, 12),
+          color: COLORS.headingGold,
+          fontFamily: MENU_FONT,
+          fontStyle: 'bold',
+          letterSpacing: 1,
+        },
+      ).setOrigin(0.5);
+      card.frame.add(boostLine);
+    }
+
     this.registerFocusable(card, onActivate);
   }
 
@@ -903,10 +928,11 @@ export class BootScene extends Phaser.Scene {
     onCodex: () => void;
     onCards: () => void;
     onLeaderboard: () => void;
+    onRunner: () => void;
   }): void {
     const {
       centerX, centerY, cardWidth, cardHeight, gap, layoutScale, fontScale, goldAmount,
-      onShop, onAchievements, onCodex, onCards, onLeaderboard,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onRunner,
     } = opts;
 
     interface DeckEntry {
@@ -961,6 +987,17 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentPrimary,
         action: onLeaderboard,
         iconTint: 0xbbddff,
+      },
+      {
+        // Endless-runner mode (FEAT-RUNNER-MODE) — a gameplay entry, so it
+        // fades like CONTINUE rather than sweeping like the meta screens.
+        // Sixth card: 6×96 + 5×22 = 686 design units, inside 720 portrait.
+        label: 'RUNNER',
+        iconKey: 'run',
+        bodyHex: COLORS.bodyDanger,
+        accentHex: COLORS.accentDanger,
+        action: onRunner,
+        iconTint: 0xffbbaa,
       },
     ];
 
