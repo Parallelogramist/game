@@ -21,28 +21,27 @@ varying vec2 outTexCoord;
 void main() {
   vec4 color = texture2D(uMainSampler, outTexCoord);
 
-  // ── Bloom: sample bright neighbors with 9-tap box blur ──
+  // ── Bloom: Gaussian-weighted bright-pass blur ──
+  // Normalized by TOTAL kernel weight, not just the passing samples: the old
+  // passing-only divisor gave any pixel with a single bright neighbor that
+  // neighbor's full excess brightness, painting a flat hard-edged halo around
+  // every bright shape (HUD text, gems) instead of a soft falloff.
   vec2 texelSize = 1.0 / uResolution;
   vec3 bloomAccum = vec3(0.0);
-  float sampleCount = 0.0;
+  float totalWeight = 0.0;
 
   for (float x = -2.0; x <= 2.0; x += 1.0) {
     for (float y = -2.0; y <= 2.0; y += 1.0) {
       vec2 offset = vec2(x, y) * texelSize * 2.0;
-      vec4 sample = texture2D(uMainSampler, outTexCoord + offset);
-      float brightness = dot(sample.rgb, vec3(0.2126, 0.7152, 0.0722));
-      if (brightness > uBloomThreshold) {
-        bloomAccum += sample.rgb * (brightness - uBloomThreshold);
-        sampleCount += 1.0;
-      }
+      vec4 samp = texture2D(uMainSampler, outTexCoord + offset);
+      float weight = exp(-(x * x + y * y) * 0.25);
+      float brightness = dot(samp.rgb, vec3(0.2126, 0.7152, 0.0722));
+      bloomAccum += samp.rgb * max(brightness - uBloomThreshold, 0.0) * weight;
+      totalWeight += weight;
     }
   }
 
-  if (sampleCount > 0.0) {
-    bloomAccum /= sampleCount;
-  }
-
-  vec3 finalColor = color.rgb + bloomAccum * uBloomStrength;
+  vec3 finalColor = color.rgb + (bloomAccum / totalWeight) * uBloomStrength;
 
   gl_FragColor = vec4(finalColor, color.a);
 }
