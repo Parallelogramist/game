@@ -94,19 +94,27 @@ export class ToastManager {
 
     // Scale dimensions for mobile screens
     const hudScale = this.getHudScale();
-    const toastWidth = Math.round(BASE_TOAST_WIDTH * hudScale);
-    const toastHeight = Math.round(BASE_TOAST_HEIGHT * hudScale);
+    const screenWidth = this.scene.cameras.main.width;
     const toastMargin = Math.round(BASE_TOAST_MARGIN * hudScale);
+    // Cap the panel to the viewport — at phone HUD scale the base width
+    // exceeds a portrait screen, and the old right-anchor math (center at
+    // width − toastWidth − margin) then shoved half the panel OFF-SCREEN
+    // LEFT, covering the HP/XP bars.
+    const toastWidth = Math.min(
+      Math.round(BASE_TOAST_WIDTH * hudScale),
+      screenWidth - toastMargin * 2,
+    );
+    const toastHeight = Math.round(BASE_TOAST_HEIGHT * hudScale);
     const toastPadding = Math.round(BASE_TOAST_PADDING * hudScale);
 
     // Create toast container
     const container = this.scene.add.container(0, 0);
     container.setDepth(OverlayDepths.HUD); // Toasts share the HUD band — above most game elements
 
-    // Position off-screen to the right
-    const screenWidth = this.scene.cameras.main.width;
+    // Slide in from the right to a right-aligned rest (center = right edge
+    // minus margin minus half width — the panel's RIGHT edge is flush).
     const startX = screenWidth + toastWidth;
-    const endX = screenWidth - toastWidth - toastMargin;
+    const endX = screenWidth - toastMargin - toastWidth / 2;
     const y = toastMargin + toastHeight / 2;
 
     container.setPosition(startX, y);
