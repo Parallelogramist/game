@@ -3,10 +3,12 @@
  *
  * Features:
  * - 5 evolution tiers: Scout → Fighter → Striker → Warbird → Apex
+ * - Per-ship hull families: every playable ship has a unique silhouette across
+ *   all tiers (geometry data in shipHullGeometry.ts, selected via config.hullId)
  * - Dark hull defined by bright neon edge lines (Tron: Legacy aesthetic)
  * - Circuit trace patterns increase in density per tier
  * - Energy channels with animated light pulse (tier 3+)
- * - Hexagonal cockpit with internal crosshairs (tier 3+)
+ * - Faceted cockpit with internal crosshairs (tier 3+)
  * - Multi-layer neon glow with edge bloom, quality-scaled
  * - Animated engine thrust (blue/cyan/white palette)
  * - Combo tier color shifts, low-HP danger red, invulnerability blink
@@ -17,11 +19,14 @@
 import Phaser from 'phaser';
 import { NeonColorPair, lightenColor, darkenColor, getGlowAlphas, getGlowRadiusMultipliers } from './NeonColors';
 import { VisualQuality } from './GlowGraphics';
+import { getShipTierGeometry, ShipTierGeometry, Point2D, DEFAULT_HULL_ID } from './shipHullGeometry';
 
 export interface SpaceshipConfig {
   baseRadius: number;
   neonColor: NeonColorPair;
   quality: VisualQuality;
+  /** Hull family (ShipCharacter.hullId). Falls back to the default dart. */
+  hullId?: string;
 }
 
 export interface EvolutionResult {
@@ -29,455 +34,31 @@ export interface EvolutionResult {
   tierName: string;
 }
 
-// --- Geometry types ---
+// --- Evolution tier features ---
+// Shared per-tier behavior flags. The per-ship geometry (hull outline, cockpit,
+// engines, pods, linework) lives in shipHullGeometry.ts keyed by hullId + tier.
 
-interface Point2D {
-  x: number;
-  y: number;
-}
-
-interface CircuitTrace {
-  path: Point2D[];
-  width: number;
-  alpha: number;
-}
-
-interface EnergyChannel {
-  path: Point2D[];
-  width: number;
-  baseAlpha: number;
-}
-
-interface WingEdgeSegment {
-  from: Point2D;
-  to: Point2D;
-}
-
-// --- Evolution tier definition ---
-
-interface EvolutionTier {
+interface EvolutionTierFeatures {
   name: string;
   minLevel: number;
-  hullOutline: Point2D[];
-  cockpit: Point2D[];
   cockpitHasCrosshairs: boolean;
-  engineNozzles: Point2D[];
-  engineNozzleRadius: number;
-  wingTipAccents: Point2D[];
-  wingTipAccentRadius: number;
-  energyPods: Point2D[];
-  energyPodRadius: number;
-  circuitTraces: CircuitTrace[];
-  energyChannels: EnergyChannel[];
-  wingEdgeSegments: WingEdgeSegment[];
   hasEnergyPulse: boolean;
   hasEnergyCorona: boolean;
   coronaScale: number;
   coronaAlphaBase: number;
 }
 
-// --- Evolution Tier Data ---
-
-const EVOLUTION_TIERS: EvolutionTier[] = [
-  // --- Tier 1: Scout (Levels 1-4) ---
-  // Clean angular arrowhead with faceted nose and split tail
-  {
-    name: 'Scout',
-    minLevel: 1,
-    hullOutline: [
-      { x: 22, y: 0 },
-      { x: 14, y: -3 },
-      { x: 6, y: -5 },
-      { x: -2, y: -5.5 },
-      { x: -14, y: -11 },
-      { x: -10, y: -7.5 },
-      { x: -7, y: -4 },
-      { x: -10, y: -1.5 },
-      { x: -12, y: 0 },
-      { x: -10, y: 1.5 },
-      { x: -7, y: 4 },
-      { x: -10, y: 7.5 },
-      { x: -14, y: 11 },
-      { x: -2, y: 5.5 },
-      { x: 6, y: 5 },
-      { x: 14, y: 3 },
-    ],
-    cockpit: [
-      { x: 12, y: 0 },
-      { x: 7, y: -2 },
-      { x: 2, y: -2 },
-      { x: -1, y: 0 },
-      { x: 2, y: 2 },
-      { x: 7, y: 2 },
-    ],
-    cockpitHasCrosshairs: false,
-    engineNozzles: [{ x: -9, y: 0 }],
-    engineNozzleRadius: 2.0,
-    wingTipAccents: [],
-    wingTipAccentRadius: 0,
-    energyPods: [],
-    energyPodRadius: 0,
-    circuitTraces: [
-      { path: [{ x: 2, y: -3 }, { x: -4, y: -3 }, { x: -7, y: -5.5 }], width: 0.6, alpha: 0.3 },
-      { path: [{ x: 2, y: 3 }, { x: -4, y: 3 }, { x: -7, y: 5.5 }], width: 0.6, alpha: 0.3 },
-    ],
-    energyChannels: [
-      { path: [{ x: 8, y: 0 }, { x: -7, y: 0 }], width: 1.2, baseAlpha: 0.5 },
-    ],
-    wingEdgeSegments: [],
-    hasEnergyPulse: false,
-    hasEnergyCorona: false,
-    coronaScale: 1,
-    coronaAlphaBase: 0,
-  },
-
-  // --- Tier 2: Fighter (Levels 5-9) ---
-  // Wider wings with angular intake scoops, dual engines
-  {
-    name: 'Fighter',
-    minLevel: 5,
-    hullOutline: [
-      { x: 26, y: 0 },
-      { x: 16, y: -4 },
-      { x: 8, y: -5 },
-      { x: 3, y: -6 },
-      { x: -3, y: -6.5 },
-      { x: -8, y: -13 },
-      { x: -18, y: -16 },
-      { x: -14, y: -11 },
-      { x: -9, y: -5 },
-      { x: -12, y: -2 },
-      { x: -14, y: 0 },
-      { x: -12, y: 2 },
-      { x: -9, y: 5 },
-      { x: -14, y: 11 },
-      { x: -18, y: 16 },
-      { x: -8, y: 13 },
-      { x: -3, y: 6.5 },
-      { x: 3, y: 6 },
-      { x: 8, y: 5 },
-      { x: 16, y: 4 },
-    ],
-    cockpit: [
-      { x: 14, y: 0 },
-      { x: 9, y: -2.5 },
-      { x: 3, y: -2.5 },
-      { x: 0, y: 0 },
-      { x: 3, y: 2.5 },
-      { x: 9, y: 2.5 },
-    ],
-    cockpitHasCrosshairs: false,
-    engineNozzles: [
-      { x: -11, y: -5 },
-      { x: -11, y: 5 },
-    ],
-    engineNozzleRadius: 2.2,
-    wingTipAccents: [
-      { x: -18, y: -16 },
-      { x: -18, y: 16 },
-    ],
-    wingTipAccentRadius: 1.0,
-    energyPods: [],
-    energyPodRadius: 0,
-    circuitTraces: [
-      { path: [{ x: 3, y: -4.5 }, { x: -3, y: -4.5 }, { x: -6, y: -9 }], width: 0.6, alpha: 0.3 },
-      { path: [{ x: 3, y: 4.5 }, { x: -3, y: 4.5 }, { x: -6, y: 9 }], width: 0.6, alpha: 0.3 },
-      { path: [{ x: 7, y: -3.5 }, { x: 5, y: -5 }], width: 0.5, alpha: 0.25 },
-      { path: [{ x: 7, y: 3.5 }, { x: 5, y: 5 }], width: 0.5, alpha: 0.25 },
-    ],
-    energyChannels: [
-      { path: [{ x: 10, y: 0 }, { x: 0, y: 0 }, { x: -8, y: -5 }], width: 1.2, baseAlpha: 0.5 },
-      { path: [{ x: 10, y: 0 }, { x: 0, y: 0 }, { x: -8, y: 5 }], width: 1.2, baseAlpha: 0.5 },
-    ],
-    wingEdgeSegments: [
-      { from: { x: 0, y: -6 }, to: { x: -6, y: -11 } },
-      { from: { x: 0, y: 6 }, to: { x: -6, y: 11 } },
-    ],
-    hasEnergyPulse: false,
-    hasEnergyCorona: false,
-    coronaScale: 1,
-    coronaAlphaBase: 0,
-  },
-
-  // --- Tier 3: Striker (Levels 10-19) ---
-  // Forward-swept razor wings, needle nose, triple engines
-  {
-    name: 'Striker',
-    minLevel: 10,
-    hullOutline: [
-      { x: 28, y: 0 },
-      { x: 18, y: -4 },
-      { x: 10, y: -5 },
-      { x: 5, y: -6.5 },
-      { x: 0, y: -7 },
-      { x: -5, y: -7.5 },
-      { x: -3, y: -13 },
-      { x: -10, y: -17 },
-      { x: -20, y: -20 },
-      { x: -16, y: -14 },
-      { x: -14, y: -11 },
-      { x: -10, y: -6 },
-      { x: -14, y: -2.5 },
-      { x: -16, y: 0 },
-      { x: -14, y: 2.5 },
-      { x: -10, y: 6 },
-      { x: -14, y: 11 },
-      { x: -16, y: 14 },
-      { x: -20, y: 20 },
-      { x: -10, y: 17 },
-      { x: -3, y: 13 },
-      { x: -5, y: 7.5 },
-      { x: 0, y: 7 },
-      { x: 5, y: 6.5 },
-      { x: 10, y: 5 },
-      { x: 18, y: 4 },
-    ],
-    cockpit: [
-      { x: 16, y: 0 },
-      { x: 10, y: -3 },
-      { x: 3, y: -3 },
-      { x: -1, y: 0 },
-      { x: 3, y: 3 },
-      { x: 10, y: 3 },
-    ],
-    cockpitHasCrosshairs: true,
-    engineNozzles: [
-      { x: -13, y: 0 },
-      { x: -14, y: 6 },
-      { x: -14, y: -6 },
-    ],
-    engineNozzleRadius: 2.5,
-    wingTipAccents: [
-      { x: -20, y: -20 },
-      { x: -20, y: 20 },
-    ],
-    wingTipAccentRadius: 1.5,
-    energyPods: [],
-    energyPodRadius: 0,
-    circuitTraces: [
-      { path: [{ x: 4, y: -5 }, { x: -2, y: -5 }, { x: -2, y: -10 }, { x: -8, y: -10 }], width: 0.6, alpha: 0.35 },
-      { path: [{ x: 4, y: 5 }, { x: -2, y: 5 }, { x: -2, y: 10 }, { x: -8, y: 10 }], width: 0.6, alpha: 0.35 },
-      { path: [{ x: 8, y: -4 }, { x: 3, y: -5.5 }], width: 0.5, alpha: 0.3 },
-      { path: [{ x: 8, y: 4 }, { x: 3, y: 5.5 }], width: 0.5, alpha: 0.3 },
-      { path: [{ x: -6, y: -8 }, { x: -12, y: -13 }], width: 0.5, alpha: 0.25 },
-      { path: [{ x: -6, y: 8 }, { x: -12, y: 13 }], width: 0.5, alpha: 0.25 },
-    ],
-    energyChannels: [
-      { path: [{ x: 12, y: 0 }, { x: -2, y: 0 }, { x: -11, y: 0 }], width: 1.3, baseAlpha: 0.55 },
-      { path: [{ x: 4, y: -4 }, { x: -4, y: -5.5 }, { x: -12, y: -6 }], width: 1.0, baseAlpha: 0.45 },
-      { path: [{ x: 4, y: 4 }, { x: -4, y: 5.5 }, { x: -12, y: 6 }], width: 1.0, baseAlpha: 0.45 },
-    ],
-    wingEdgeSegments: [
-      { from: { x: -1, y: -7.5 }, to: { x: -3, y: -11 } },
-      { from: { x: -5, y: -13 }, to: { x: -10, y: -16.5 } },
-      { from: { x: -1, y: 7.5 }, to: { x: -3, y: 11 } },
-      { from: { x: -5, y: 13 }, to: { x: -10, y: 16.5 } },
-    ],
-    hasEnergyPulse: true,
-    hasEnergyCorona: false,
-    coronaScale: 1,
-    coronaAlphaBase: 0,
-  },
-
-  // --- Tier 4: Warbird (Levels 20-34) ---
-  // Double-faceted wings, deep angular intakes, energy pods
-  {
-    name: 'Warbird',
-    minLevel: 20,
-    hullOutline: [
-      { x: 30, y: 0 },
-      { x: 20, y: -5 },
-      { x: 12, y: -5.5 },
-      { x: 6, y: -7 },
-      { x: 1, y: -7.5 },
-      { x: -4, y: -8 },
-      { x: -2, y: -14 },
-      { x: -8, y: -18 },
-      { x: -14, y: -21 },
-      { x: -22, y: -24 },
-      { x: -18, y: -17 },
-      { x: -16, y: -13 },
-      { x: -12, y: -7 },
-      { x: -16, y: -3 },
-      { x: -18, y: 0 },
-      { x: -16, y: 3 },
-      { x: -12, y: 7 },
-      { x: -16, y: 13 },
-      { x: -18, y: 17 },
-      { x: -22, y: 24 },
-      { x: -14, y: 21 },
-      { x: -8, y: 18 },
-      { x: -2, y: 14 },
-      { x: -4, y: 8 },
-      { x: 1, y: 7.5 },
-      { x: 6, y: 7 },
-      { x: 12, y: 5.5 },
-      { x: 20, y: 5 },
-    ],
-    cockpit: [
-      { x: 18, y: 0 },
-      { x: 12, y: -3.5 },
-      { x: 4, y: -3.5 },
-      { x: -1, y: 0 },
-      { x: 4, y: 3.5 },
-      { x: 12, y: 3.5 },
-    ],
-    cockpitHasCrosshairs: true,
-    engineNozzles: [
-      { x: -15, y: 0 },
-      { x: -16, y: 7 },
-      { x: -16, y: -7 },
-    ],
-    engineNozzleRadius: 3.0,
-    wingTipAccents: [
-      { x: -22, y: -24 },
-      { x: -22, y: 24 },
-    ],
-    wingTipAccentRadius: 2.0,
-    energyPods: [
-      { x: -6, y: -15 },
-      { x: -6, y: 15 },
-    ],
-    energyPodRadius: 2.0,
-    circuitTraces: [
-      { path: [{ x: 4, y: -5.5 }, { x: -2, y: -5.5 }, { x: -2, y: -11 }, { x: -8, y: -11 }], width: 0.6, alpha: 0.35 },
-      { path: [{ x: 4, y: 5.5 }, { x: -2, y: 5.5 }, { x: -2, y: 11 }, { x: -8, y: 11 }], width: 0.6, alpha: 0.35 },
-      { path: [{ x: -4, y: -8 }, { x: -5, y: -11.5 }, { x: -6, y: -15 }], width: 0.7, alpha: 0.4 },
-      { path: [{ x: -4, y: 8 }, { x: -5, y: 11.5 }, { x: -6, y: 15 }], width: 0.7, alpha: 0.4 },
-      { path: [{ x: 10, y: -4 }, { x: 4, y: -6 }], width: 0.5, alpha: 0.3 },
-      { path: [{ x: 10, y: 4 }, { x: 4, y: 6 }], width: 0.5, alpha: 0.3 },
-      { path: [{ x: -6, y: -10 }, { x: -12, y: -15 }], width: 0.5, alpha: 0.25 },
-      { path: [{ x: -6, y: 10 }, { x: -12, y: 15 }], width: 0.5, alpha: 0.25 },
-      { path: [{ x: 8, y: -2 }, { x: -4, y: -2 }], width: 0.4, alpha: 0.2 },
-      { path: [{ x: 8, y: 2 }, { x: -4, y: 2 }], width: 0.4, alpha: 0.2 },
-    ],
-    energyChannels: [
-      { path: [{ x: 14, y: 0 }, { x: -4, y: 0 }, { x: -13, y: 0 }], width: 1.4, baseAlpha: 0.55 },
-      { path: [{ x: 6, y: -5 }, { x: -2, y: -6.5 }, { x: -14, y: -7 }], width: 1.1, baseAlpha: 0.45 },
-      { path: [{ x: 6, y: 5 }, { x: -2, y: 6.5 }, { x: -14, y: 7 }], width: 1.1, baseAlpha: 0.45 },
-    ],
-    wingEdgeSegments: [
-      { from: { x: 0, y: -8 }, to: { x: -2, y: -12 } },
-      { from: { x: -4, y: -14.5 }, to: { x: -8, y: -17.5 } },
-      { from: { x: -10, y: -19 }, to: { x: -16, y: -22 } },
-      { from: { x: 0, y: 8 }, to: { x: -2, y: 12 } },
-      { from: { x: -4, y: 14.5 }, to: { x: -8, y: 17.5 } },
-      { from: { x: -10, y: 19 }, to: { x: -16, y: 22 } },
-    ],
-    hasEnergyPulse: true,
-    hasEnergyCorona: false,
-    coronaScale: 1,
-    coronaAlphaBase: 0,
-  },
-
-  // --- Tier 5: Apex (Levels 35+) ---
-  // Maximum complexity: blade extensions in hull, 5 engines, energy corona
-  {
-    name: 'Apex',
-    minLevel: 35,
-    hullOutline: [
-      { x: 32, y: 0 },
-      { x: 22, y: -5.5 },
-      { x: 14, y: -6 },
-      { x: 8, y: -7.5 },
-      { x: 2, y: -8 },
-      { x: -4, y: -8.5 },
-      { x: -1, y: -15 },
-      { x: -8, y: -19 },
-      { x: -14, y: -22 },
-      { x: -22, y: -25 },
-      { x: -27, y: -28 },
-      { x: -24, y: -24 },
-      { x: -20, y: -18 },
-      { x: -16, y: -14 },
-      { x: -14, y: -8 },
-      { x: -18, y: -3 },
-      { x: -20, y: 0 },
-      { x: -18, y: 3 },
-      { x: -14, y: 8 },
-      { x: -16, y: 14 },
-      { x: -20, y: 18 },
-      { x: -24, y: 24 },
-      { x: -27, y: 28 },
-      { x: -22, y: 25 },
-      { x: -14, y: 22 },
-      { x: -8, y: 19 },
-      { x: -1, y: 15 },
-      { x: -4, y: 8.5 },
-      { x: 2, y: 8 },
-      { x: 8, y: 7.5 },
-      { x: 14, y: 6 },
-      { x: 22, y: 5.5 },
-    ],
-    cockpit: [
-      { x: 20, y: 0 },
-      { x: 13, y: -4 },
-      { x: 4, y: -4 },
-      { x: -2, y: 0 },
-      { x: 4, y: 4 },
-      { x: 13, y: 4 },
-    ],
-    cockpitHasCrosshairs: true,
-    engineNozzles: [
-      { x: -17, y: 0 },
-      { x: -18, y: 7 },
-      { x: -18, y: -7 },
-      { x: -16, y: 3 },
-      { x: -16, y: -3 },
-    ],
-    engineNozzleRadius: 3.0,
-    wingTipAccents: [
-      { x: -27, y: -28 },
-      { x: -27, y: 28 },
-    ],
-    wingTipAccentRadius: 2.5,
-    energyPods: [
-      { x: -8, y: -17 },
-      { x: -8, y: 17 },
-    ],
-    energyPodRadius: 2.5,
-    circuitTraces: [
-      // Wing circuit grid
-      { path: [{ x: 6, y: -6 }, { x: 0, y: -6 }, { x: 0, y: -12 }, { x: -6, y: -12 }], width: 0.6, alpha: 0.35 },
-      { path: [{ x: 6, y: 6 }, { x: 0, y: 6 }, { x: 0, y: 12 }, { x: -6, y: 12 }], width: 0.6, alpha: 0.35 },
-      // Pod connections
-      { path: [{ x: -4, y: -8.5 }, { x: -6, y: -12.5 }, { x: -8, y: -17 }], width: 0.7, alpha: 0.4 },
-      { path: [{ x: -4, y: 8.5 }, { x: -6, y: 12.5 }, { x: -8, y: 17 }], width: 0.7, alpha: 0.4 },
-      // Blade extension traces
-      { path: [{ x: -20, y: -19 }, { x: -24, y: -24 }, { x: -27, y: -28 }], width: 0.8, alpha: 0.5 },
-      { path: [{ x: -20, y: 19 }, { x: -24, y: 24 }, { x: -27, y: 28 }], width: 0.8, alpha: 0.5 },
-      // Intake traces
-      { path: [{ x: 12, y: -5 }, { x: 6, y: -6.5 }], width: 0.5, alpha: 0.3 },
-      { path: [{ x: 12, y: 5 }, { x: 6, y: 6.5 }], width: 0.5, alpha: 0.3 },
-      // Cross-links
-      { path: [{ x: -6, y: -8 }, { x: -6, y: -12 }], width: 0.5, alpha: 0.25 },
-      { path: [{ x: -6, y: 8 }, { x: -6, y: 12 }], width: 0.5, alpha: 0.25 },
-      // Double fuselage parallels
-      { path: [{ x: 10, y: -2.5 }, { x: -6, y: -2.5 }], width: 0.4, alpha: 0.2 },
-      { path: [{ x: 10, y: 2.5 }, { x: -6, y: 2.5 }], width: 0.4, alpha: 0.2 },
-    ],
-    energyChannels: [
-      { path: [{ x: 16, y: 0 }, { x: -6, y: 0 }, { x: -15, y: 0 }], width: 1.5, baseAlpha: 0.6 },
-      { path: [{ x: 8, y: -6 }, { x: -2, y: -7 }, { x: -16, y: -7 }], width: 1.2, baseAlpha: 0.5 },
-      { path: [{ x: 8, y: 6 }, { x: -2, y: 7 }, { x: -16, y: 7 }], width: 1.2, baseAlpha: 0.5 },
-      { path: [{ x: 4, y: -3 }, { x: -6, y: -3 }, { x: -14, y: -3 }], width: 0.9, baseAlpha: 0.4 },
-      { path: [{ x: 4, y: 3 }, { x: -6, y: 3 }, { x: -14, y: 3 }], width: 0.9, baseAlpha: 0.4 },
-    ],
-    wingEdgeSegments: [
-      { from: { x: 0, y: -8.5 }, to: { x: -1, y: -13 } },
-      { from: { x: -3, y: -15.5 }, to: { x: -8, y: -18.5 } },
-      { from: { x: -10, y: -20 }, to: { x: -16, y: -23 } },
-      { from: { x: -19, y: -24 }, to: { x: -24, y: -26 } },
-      { from: { x: 0, y: 8.5 }, to: { x: -1, y: 13 } },
-      { from: { x: -3, y: 15.5 }, to: { x: -8, y: 18.5 } },
-      { from: { x: -10, y: 20 }, to: { x: -16, y: 23 } },
-      { from: { x: -19, y: 24 }, to: { x: -24, y: 26 } },
-    ],
-    hasEnergyPulse: true,
-    hasEnergyCorona: true,
-    coronaScale: 1.6,
-    coronaAlphaBase: 0.06,
-  },
+const EVOLUTION_TIERS: EvolutionTierFeatures[] = [
+  // Tier 1: Scout (levels 1-4) — bare hull
+  { name: 'Scout', minLevel: 1, cockpitHasCrosshairs: false, hasEnergyPulse: false, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  // Tier 2: Fighter (levels 5-9) — edge accents come online
+  { name: 'Fighter', minLevel: 5, cockpitHasCrosshairs: false, hasEnergyPulse: false, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  // Tier 3: Striker (levels 10-19) — crosshairs + animated energy pulse
+  { name: 'Striker', minLevel: 10, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  // Tier 4: Warbird (levels 20-34) — energy pods (from geometry)
+  { name: 'Warbird', minLevel: 20, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  // Tier 5: Apex (levels 35+) — pulsing energy corona
+  { name: 'Apex', minLevel: 35, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: true, coronaScale: 1.6, coronaAlphaBase: 0.06 },
 ];
 
 function getTierForLevel(level: number): number {
@@ -641,8 +222,13 @@ export class PlayerSpaceship {
     this.rebuildStaticCache();
   }
 
-  private get tier(): EvolutionTier {
+  private get tier(): EvolutionTierFeatures {
     return EVOLUTION_TIERS[this.currentTierIndex];
+  }
+
+  /** Per-ship hull geometry for the current evolution tier. */
+  private get geometry(): ShipTierGeometry {
+    return getShipTierGeometry(this.config.hullId ?? DEFAULT_HULL_ID, this.currentTierIndex);
   }
 
   /**
@@ -811,7 +397,7 @@ export class PlayerSpaceship {
     const graphics = this.hullGraphics;
     graphics.clear();
 
-    const currentTier = this.tier;
+    const geometry = this.geometry;
     const hullColor = this.lastHullColor;
     const darkHullColor = darkenColor(hullColor, 0.85);
     const cockpitDarkColor = darkenColor(hullColor, 0.9);
@@ -819,19 +405,19 @@ export class PlayerSpaceship {
 
     // Dark hull fill
     graphics.fillStyle(darkHullColor, 0.95);
-    this.drawHullPath(graphics, currentTier.hullOutline);
+    this.drawHullPath(graphics, geometry.hullOutline);
     graphics.fillPath();
 
     // Edge stroke — defining Tron neon line + soft bloom layer.
     graphics.lineStyle(2.0, hullColor, 1.0);
-    this.drawHullPath(graphics, currentTier.hullOutline);
+    this.drawHullPath(graphics, geometry.hullOutline);
     graphics.strokePath();
     graphics.lineStyle(4.0, lightenColor(hullColor, 0.3), 0.2);
-    this.drawHullPath(graphics, currentTier.hullOutline);
+    this.drawHullPath(graphics, geometry.hullOutline);
     graphics.strokePath();
 
-    // --- Hexagonal cockpit ---
-    const cockpit = currentTier.cockpit;
+    // --- Faceted cockpit (shape varies per hull family) ---
+    const cockpit = geometry.cockpit;
 
     // Dark cockpit fill
     graphics.fillStyle(cockpitDarkColor, 0.9);
@@ -843,30 +429,39 @@ export class PlayerSpaceship {
     this.tracePolygon(graphics, cockpit);
     graphics.strokePath();
 
+    // Cockpit bounds (polygon shape varies per ship — derive, don't index)
+    let cockpitFrontX = -Infinity;
+    let cockpitBackX = Infinity;
+    let cockpitHalfHeight = 0;
+    for (const point of cockpit) {
+      if (point.x > cockpitFrontX) cockpitFrontX = point.x;
+      if (point.x < cockpitBackX) cockpitBackX = point.x;
+      if (Math.abs(point.y) > cockpitHalfHeight) cockpitHalfHeight = Math.abs(point.y);
+    }
+    const cockpitCenterX = (cockpitFrontX + cockpitBackX) / 2;
+
     // Cockpit center power indicator
-    const cockpitCenterX = (cockpit[0].x + cockpit[3].x) / 2;
     graphics.fillStyle(0xffffff, 0.85);
     graphics.fillCircle(cockpitCenterX, 0, 1.5);
 
     // Cockpit crosshairs (tier 3+)
-    if (currentTier.cockpitHasCrosshairs) {
+    if (this.tier.cockpitHasCrosshairs) {
       graphics.lineStyle(0.5, lightenColor(hullColor, 0.4), 0.4);
       // Horizontal crosshair
       graphics.beginPath();
-      graphics.moveTo(cockpit[3].x + 2, 0);
-      graphics.lineTo(cockpit[0].x - 2, 0);
+      graphics.moveTo(cockpitBackX + 2, 0);
+      graphics.lineTo(cockpitFrontX - 2, 0);
       graphics.strokePath();
       // Vertical crosshair
-      const cockpitHalfHeight = Math.abs(cockpit[1].y) - 0.5;
       graphics.beginPath();
-      graphics.moveTo(cockpitCenterX, -cockpitHalfHeight);
-      graphics.lineTo(cockpitCenterX, cockpitHalfHeight);
+      graphics.moveTo(cockpitCenterX, -(cockpitHalfHeight - 0.5));
+      graphics.lineTo(cockpitCenterX, cockpitHalfHeight - 0.5);
       graphics.strokePath();
     }
 
     // --- Engine nozzles (dark circles with bright edge rings) ---
-    const nozzleRadius = currentTier.engineNozzleRadius;
-    for (const nozzle of currentTier.engineNozzles) {
+    const nozzleRadius = geometry.engineNozzleRadius;
+    for (const nozzle of geometry.engineNozzles) {
       graphics.fillStyle(nozzleDarkColor, 0.8);
       graphics.fillCircle(nozzle.x, nozzle.y, nozzleRadius);
       graphics.lineStyle(0.8, hullColor, 0.7);
@@ -928,14 +523,14 @@ export class PlayerSpaceship {
     const graphics = this.detailGraphics;
     graphics.clear();
 
-    const currentTier = this.tier;
+    const geometry = this.geometry;
     const hullColor = this.lastHullColor;
     const accentColor = lightenColor(hullColor, 0.6);
     const traceGlowColor = lightenColor(hullColor, 0.4);
     const drawGlowPass = this.config.quality !== 'low';
 
     // --- Circuit traces (bright neon lines on dark hull) ---
-    for (const trace of currentTier.circuitTraces) {
+    for (const trace of geometry.circuitTraces) {
       if (trace.path.length < 2) continue;
 
       // Glow pass (wider, dimmer) - skip on low quality
@@ -959,7 +554,7 @@ export class PlayerSpaceship {
     }
 
     // --- Energy channels (thicker power conduits) ---
-    for (const channel of currentTier.energyChannels) {
+    for (const channel of geometry.energyChannels) {
       if (channel.path.length < 2) continue;
 
       // Glow pass
@@ -976,7 +571,7 @@ export class PlayerSpaceship {
     }
 
     // --- Wing edge segments (dashed glow lines along leading edges) ---
-    for (const segment of currentTier.wingEdgeSegments) {
+    for (const segment of geometry.wingEdgeSegments) {
       if (drawGlowPass) {
         graphics.lineStyle(2.5, traceGlowColor, 0.15);
         graphics.beginPath();
@@ -993,8 +588,8 @@ export class PlayerSpaceship {
     }
 
     // --- Wing-tip accents (bright dots with glow halo) ---
-    const accentRadius = currentTier.wingTipAccentRadius;
-    for (const accent of currentTier.wingTipAccents) {
+    const accentRadius = geometry.wingTipAccentRadius;
+    for (const accent of geometry.wingTipAccents) {
       graphics.fillStyle(accentColor, 0.9);
       graphics.fillCircle(accent.x, accent.y, accentRadius);
       graphics.fillStyle(accentColor, 0.3);
@@ -1051,6 +646,7 @@ export class PlayerSpaceship {
     graphics.clear();
 
     const currentTier = this.tier;
+    const geometry = this.geometry;
     const glowColor = lightenColor(this.lastHullColor, 0.35);
 
     const alphas = getGlowAlphas(this.config.quality);
@@ -1060,7 +656,7 @@ export class PlayerSpaceship {
     for (let layerIndex = 0; layerIndex < alphas.length; layerIndex++) {
       const scale = multipliers[layerIndex];
       graphics.fillStyle(glowColor, alphas[layerIndex]);
-      this.drawScaledHullPath(graphics, currentTier.hullOutline, scale);
+      this.drawScaledHullPath(graphics, geometry.hullOutline, scale);
       graphics.fillPath();
     }
 
@@ -1070,7 +666,7 @@ export class PlayerSpaceship {
       const width = 6 - i * 1.5;
       const alpha = 0.06 + i * 0.04;
       graphics.lineStyle(width, glowColor, alpha);
-      this.drawHullPath(graphics, currentTier.hullOutline);
+      this.drawHullPath(graphics, geometry.hullOutline);
       graphics.strokePath();
     }
 
@@ -1083,7 +679,7 @@ export class PlayerSpaceship {
         const layerScale = currentTier.coronaScale - i * 0.15;
         const layerAlpha = coronaPulse * (1 - i * 0.25);
         graphics.fillStyle(glowColor, Math.max(0.01, layerAlpha));
-        this.drawScaledHullPath(graphics, currentTier.hullOutline, layerScale);
+        this.drawScaledHullPath(graphics, geometry.hullOutline, layerScale);
         graphics.fillPath();
       }
     }
@@ -1096,8 +692,6 @@ export class PlayerSpaceship {
   private drawThrust(normalizedSpeed: number): void {
     const graphics = this.thrustGraphics;
     graphics.clear();
-
-    const currentTier = this.tier;
 
     // Multi-frequency flicker for organic fire look
     const flicker1 = Math.sin(this.thrustFlickerPhase1) * 0.25;
@@ -1121,7 +715,7 @@ export class PlayerSpaceship {
       : baseGlow;
 
     // Draw each engine nozzle's flame
-    const nozzles = currentTier.engineNozzles;
+    const nozzles = this.geometry.engineNozzles;
     for (let nozzleIndex = 0; nozzleIndex < nozzles.length; nozzleIndex++) {
       const nozzle = nozzles[nozzleIndex];
       // Per-nozzle flicker variation
@@ -1170,16 +764,16 @@ export class PlayerSpaceship {
     const graphics = this.overlayGraphics;
     graphics.clear();
 
-    const currentTier = this.tier;
+    const geometry = this.geometry;
 
     // --- Energy pods (pulsing glow orbs on wings) ---
-    if (currentTier.energyPods.length > 0) {
+    if (geometry.energyPods.length > 0) {
       const podPulseAlpha = 0.6 + Math.sin(this.energyPodPulsePhase) * 0.25;
       const accentColor = lightenColor(this.lastHullColor, 0.6);
-      const podGlowRadius = currentTier.energyPodRadius + 2.5;
+      const podGlowRadius = geometry.energyPodRadius + 2.5;
 
-      for (let podIndex = 0; podIndex < currentTier.energyPods.length; podIndex++) {
-        const pod = currentTier.energyPods[podIndex];
+      for (let podIndex = 0; podIndex < geometry.energyPods.length; podIndex++) {
+        const pod = geometry.energyPods[podIndex];
         const podPhaseOffset = podIndex * 1.5;
         const podAlpha = podPulseAlpha + Math.sin(this.energyPodPulsePhase + podPhaseOffset) * 0.1;
 
@@ -1188,15 +782,15 @@ export class PlayerSpaceship {
         graphics.fillCircle(pod.x, pod.y, podGlowRadius);
         // Pod core
         graphics.fillStyle(accentColor, podAlpha);
-        graphics.fillCircle(pod.x, pod.y, currentTier.energyPodRadius);
+        graphics.fillCircle(pod.x, pod.y, geometry.energyPodRadius);
         // Bright center
         graphics.fillStyle(0xffffff, podAlpha * 0.7);
-        graphics.fillCircle(pod.x, pod.y, currentTier.energyPodRadius * 0.4);
+        graphics.fillCircle(pod.x, pod.y, geometry.energyPodRadius * 0.4);
       }
     }
 
     // --- Energy pulse animation (tier 3+) ---
-    if (currentTier.hasEnergyPulse && this.config.quality !== 'low') {
+    if (this.tier.hasEnergyPulse && this.config.quality !== 'low') {
       this.drawEnergyPulse(graphics);
     }
   }
@@ -1205,11 +799,10 @@ export class PlayerSpaceship {
    * Draw animated energy pulse traveling along energy channels
    */
   private drawEnergyPulse(graphics: Phaser.GameObjects.Graphics): void {
-    const currentTier = this.tier;
     const accentColor = lightenColor(this.lastHullColor, 0.7);
     const pulsePosition = this.energyPulsePhase;
 
-    for (const channel of currentTier.energyChannels) {
+    for (const channel of this.geometry.energyChannels) {
       if (channel.path.length < 2) continue;
 
       const totalLength = this.getPathLength(channel.path);

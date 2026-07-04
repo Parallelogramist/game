@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { SHIP_CHARACTERS, getShipById, getDefaultShip } from './ShipCharacters';
 import { HIDDEN_UNLOCKS } from '../meta/HiddenUnlocks';
+import { SHIP_HULL_IDS, DEFAULT_HULL_ID } from '../visual/shipHullGeometry';
 
 // The canonical weapon roster — mirrors WeaponRegistry in src/weapons/index.ts
 // (same explicit checkpoint as WeaponEvolutions.test.ts: the registry module is
@@ -57,6 +58,19 @@ describe('SHIP_CHARACTERS — table integrity', () => {
         expect(value, `${ship.id}.${field}`).toBeGreaterThan(0);
       }
     }
+  });
+
+  test('every ship has a unique, registered hull family', () => {
+    // PlayerSpaceship + the ship-select preview resolve hulls through
+    // getShipTierGeometry; an unregistered id silently falls back to the
+    // default dart, and a duplicate would make two ships look identical.
+    const hullIds = SHIP_CHARACTERS.map((ship) => ship.hullId);
+    expect(new Set(hullIds).size).toBe(hullIds.length);
+    for (const hullId of hullIds) {
+      expect(SHIP_HULL_IDS, hullId).toContain(hullId);
+    }
+    // The default ship flies the default hull (unknown-hull fallback target).
+    expect(getDefaultShip().hullId).toBe(DEFAULT_HULL_ID);
   });
 
   test('optional signature bonuses are sane when present', () => {

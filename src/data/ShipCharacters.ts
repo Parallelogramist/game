@@ -1,10 +1,14 @@
 /**
  * ShipCharacters — playable ship/character definitions.
  *
- * Each ship grants a starting weapon, stat multipliers, and a unique visual
- * neon color palette. Ships are unlocked via either (a) account-level progression
- * or (b) hidden unlocks from HiddenUnlockManager.
+ * Each ship grants a starting weapon, stat multipliers, a unique visual
+ * neon color palette, and a unique hull family (procedural silhouette across
+ * all 5 evolution tiers — see src/visual/shipHullGeometry.ts). Ships are
+ * unlocked via either (a) account-level progression or (b) hidden unlocks
+ * from HiddenUnlockManager.
  */
+
+import type { ShipHullId } from '../visual/shipHullGeometry';
 
 export interface ShipCharacter {
   id: string;
@@ -27,6 +31,9 @@ export interface ShipCharacter {
 
   /** Neon color palette applied to the procedural spaceship graphics. */
   neonColorId: 'cyan' | 'red' | 'green' | 'gold' | 'purple' | 'white' | 'pink';
+
+  /** Hull family drawn by PlayerSpaceship — unique silhouette per ship. */
+  hullId: ShipHullId;
 
   /** Boss-specific damage multiplier. 1.5 = +50% damage against bosses only. */
   bossDamageMultiplier?: number;
@@ -80,6 +87,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 1.0,
     neonColorId: 'cyan',
+    hullId: 'dart',
   },
   {
     id: 'ship_interceptor',
@@ -93,6 +101,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 1.0,
     neonColorId: 'green',
+    hullId: 'scissor',
     startingRerollBonus: 2,
   },
   {
@@ -107,6 +116,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 1.0,
     neonColorId: 'red',
+    hullId: 'ram',
     regenPerSecondBonus: 1.0,
   },
   {
@@ -121,6 +131,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.25,
     goldMultiplier: 1.0,
     neonColorId: 'purple',
+    hullId: 'prism',
     unlockRequirement: 'hidden:unlock_pacifist',
     startingRerollBonus: 2,
     armorBonus: 3,
@@ -137,6 +148,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 1.0,
     neonColorId: 'gold',
+    hullId: 'bastion',
     knockbackImmune: true,
     unlockRequirement: 'hidden:unlock_ironclad',
     armorBonus: 5,
@@ -154,6 +166,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 1.0,
     neonColorId: 'pink',
+    hullId: 'umbra',
     unlockRequirement: 'hidden:unlock_void_walker',
     critChanceBonus: 0.2,
   },
@@ -169,6 +182,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 1.15,
     neonColorId: 'red',
+    hullId: 'harpoon',
     bossDamageMultiplier: 1.5,
     unlockRequirement: 'hidden:unlock_boss_hunter',
     lifeStealBonus: 0.03,
@@ -185,6 +199,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 2.0,
     neonColorId: 'white',
+    hullId: 'aurora',
     unlockRequirement: 'hidden:unlock_flawless',
     critChanceBonus: 0.2,
     regenPerSecondBonus: 0.5,
@@ -201,6 +216,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.0,
     goldMultiplier: 1.0,
     neonColorId: 'pink',
+    hullId: 'needle',
     unlockRequirement: 'hidden:unlock_glass_cannon',
     lifeStealBonus: 0.05,
   },
@@ -216,6 +232,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.2,
     goldMultiplier: 1.0,
     neonColorId: 'green',
+    hullId: 'mantis',
     unlockRequirement: 'hidden:unlock_elite_slayer',
     critChanceBonus: 0.1,
     armorBonus: 2,
@@ -232,6 +249,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     xpMultiplier: 1.3,
     goldMultiplier: 1.3,
     neonColorId: 'gold',
+    hullId: 'sovereign',
     bossDamageMultiplier: 1.3,
     unlockRequirement: 'hidden:unlock_apex',
     critChanceBonus: 0.1,

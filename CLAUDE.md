@@ -33,7 +33,7 @@ new logic where it can run without a real Phaser scene.
 
 ### Player Visual Identity
 
-**Player is procedurally-drawn neon spaceship** via `PlayerSpaceship` (`/src/visual/PlayerSpaceship.ts`). No sprite asset — delta/arrow hull drawn with Phaser Graphics. Multi-layer neon glow, engine thrust flames scale with speed, smooth rotation toward movement. Hull color shifts with combo tier (warm/hot/blazing/inferno), danger (red at low HP), speed (warm-white tint). Level-ups trigger flash + scale pulse. Glow layers scale with quality setting.
+**Player is procedurally-drawn neon spaceship** via `PlayerSpaceship` (`/src/visual/PlayerSpaceship.ts`). No sprite asset — hull drawn with Phaser Graphics. **Per-ship hull families**: every playable ship has a unique silhouette across all 5 evolution tiers (Scout→Apex), authored in the pure, unit-tested module `src/visual/shipHullGeometry.ts` (`getShipTierGeometry(hullId, tier)`; `ShipCharacter.hullId` selects the family — Sparrow=dart, Interceptor=scissor, Dreadnought=ram, Scholar=prism, Juggernaut=bastion, Void Walker=umbra, Boss Hunter=harpoon, Flawless=aurora, Glass Cannon=needle, Elite Slayer=mantis, Apex=sovereign). `PlayerSpaceship` keeps only per-tier feature flags (crosshairs / energy pulse / corona); outlines, cockpits, engines, pods, and linework come from the geometry module (traces/channels/edge accents are derived from silhouette anchors, so a new hull gets them for free). Hulls are authored as an upper-half profile and mirrored, so symmetry is guaranteed; the test suite asserts closure, non-self-intersection, tier growth, render-cache fit, and per-ship uniqueness. `WeaponSelectScene.drawShipHullPreview` renders each ship's real hull on its selection card. Multi-layer neon glow, engine thrust flames scale with speed, smooth rotation toward movement. Hull color shifts with combo tier (warm/hot/blazing/inferno), danger (red at low HP), speed (warm-white tint). Level-ups trigger flash + scale pulse. Glow layers scale with quality setting.
 
 ### ECS Architecture
 
@@ -359,7 +359,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 **DailyChallengeManager** (`/src/meta/DailyChallengeManager.ts`): Date-seeded daily runs with local leaderboard. UTC-date → deterministic seed (FNV-1a + mulberry32) → picks 3 modifiers + starting weapon + ship + difficulty. Weekly challenge (Monday) uses 4 modifiers. Leaderboard rolls over at UTC midnight.
 
-**Ships / Characters** (`src/data/ShipCharacters.ts`): Playable ship definitions — starting weapon, stat multipliers (HP/speed/damage/cooldown/XP/gold), neon color palette (`cyan` / `red` / `green` / `gold` / `purple` / `white` / `pink`) applied to `PlayerSpaceship`. Unlocked via account level or `HiddenUnlockManager`.
+**Ships / Characters** (`src/data/ShipCharacters.ts`): Playable ship definitions — starting weapon, stat multipliers (HP/speed/damage/cooldown/XP/gold), neon color palette (`cyan` / `red` / `green` / `gold` / `purple` / `white` / `pink`) and a unique `hullId` hull family (see Player Visual Identity), both applied to `PlayerSpaceship`. Unlocked via account level or `HiddenUnlockManager`.
 
 **Stages / Biomes** (`src/data/Stages.ts`): Selectable biomes — grid colors, ambient overlay, enemy HP/damage multipliers, XP/gold multipliers. Default always available; others gated by `hidden:<id>` or `worldLevel:<n>`.
 

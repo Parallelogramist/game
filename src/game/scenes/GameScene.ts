@@ -1814,6 +1814,7 @@ export class GameScene extends Phaser.Scene {
       baseRadius: 16,
       neonColor: this.getShipNeonColor(),
       quality: this.visualQuality,
+      hullId: this.getShipHullId(),
     }, this.playerStats.level);
     const playerVisual = this.playerSpaceship.getContainer();
     playerVisual.setDepth(10);
@@ -4714,6 +4715,7 @@ export class GameScene extends Phaser.Scene {
       baseRadius: 16,
       neonColor: this.getShipNeonColor(),
       quality: this.visualQuality,
+      hullId: this.getShipHullId(),
     }, this.playerStats.level);
     const playerVisual = this.playerSpaceship.getContainer();
     playerVisual.setDepth(10);
@@ -7323,6 +7325,15 @@ export class GameScene extends Phaser.Scene {
   private getShipNeonColor() {
     const ship = getShipById(this.selectedShipId) ?? getDefaultShip();
     return SHIP_NEON_PALETTES[ship.neonColorId] ?? SHIP_NEON_PALETTES.cyan;
+  }
+
+  /**
+   * Resolves the hull family for the currently-selected ship — the unique
+   * per-ship silhouette PlayerSpaceship draws across all evolution tiers.
+   */
+  private getShipHullId(): string {
+    const ship = getShipById(this.selectedShipId) ?? getDefaultShip();
+    return ship.hullId;
   }
 
   /**

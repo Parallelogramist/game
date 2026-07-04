@@ -12,6 +12,8 @@ import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
+import { getShipTierGeometry, getHullBounds, Point2D } from '../../visual/shipHullGeometry';
+import { SHIP_NEON_PALETTES, lightenColor, darkenColor } from '../../visual/NeonColors';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeStickerText, makeBodyText } from '../../visual/StickerText';
@@ -326,10 +328,15 @@ export class WeaponSelectScene extends Phaser.Scene {
       });
       card.frame.add(nameText);
 
-      const description = makeBodyText(this, 0, 18, ship.description, {
-        fontSize: 12,
+      // The ship's actual hull silhouette (unique per ship), nose-up.
+      const hullPreview = this.drawShipHullPreview(ship, 58);
+      hullPreview.setPosition(0, -8);
+      card.frame.add(hullPreview);
+
+      const description = makeBodyText(this, 0, 46, ship.description, {
+        fontSize: 11,
         color: TEXT_COLORS.body,
-        wordWrapWidth: cardWidth - 28,
+        wordWrapWidth: cardWidth - 26,
       });
       description.setLineSpacing(2);
       card.frame.add(description);
@@ -365,6 +372,81 @@ export class WeaponSelectScene extends Phaser.Scene {
       wrap: true,
       onCancel: () => this.goBack(),
     });
+  }
+
+  /**
+   * Draws a ship's real hull silhouette (its unique per-ship geometry, shown
+   * at mid-evolution tier) nose-up, mirroring PlayerSpaceship's neon style:
+   * soft glow, dark hull fill, bright edge stroke, cockpit, engines, accents.
+   * The returned Graphics is meant to be added to a card frame container.
+   */
+  private drawShipHullPreview(ship: ShipCharacter, targetSize: number): Phaser.GameObjects.Graphics {
+    const graphics = this.add.graphics();
+    const geometry = getShipTierGeometry(ship.hullId, 2);
+    const palette = SHIP_NEON_PALETTES[ship.neonColorId] ?? SHIP_NEON_PALETTES.cyan;
+    const color = palette.core;
+
+    const bounds = getHullBounds(geometry.hullOutline);
+    const extent = Math.max(bounds.maxX, -bounds.minX, bounds.maxY, -bounds.minY) * 2;
+    const scale = targetSize / extent;
+
+    // Ship geometry faces +x; rotate -90° so the nose points up on the card.
+    const project = (point: Point2D, inflate: number = 1): Point2D => ({
+      x: point.y * scale * inflate,
+      y: -point.x * scale * inflate,
+    });
+    const tracePolygon = (points: Point2D[], inflate: number = 1): void => {
+      graphics.beginPath();
+      points.forEach((point, index) => {
+        const projected = project(point, inflate);
+        if (index === 0) graphics.moveTo(projected.x, projected.y);
+        else graphics.lineTo(projected.x, projected.y);
+      });
+      graphics.closePath();
+    };
+
+    // Soft glow halo behind the hull.
+    graphics.fillStyle(lightenColor(color, 0.35), 0.14);
+    tracePolygon(geometry.hullOutline, 1.18);
+    graphics.fillPath();
+
+    // Dark hull fill + neon edge (the Tron look).
+    graphics.fillStyle(darkenColor(color, 0.85), 0.95);
+    tracePolygon(geometry.hullOutline);
+    graphics.fillPath();
+    graphics.lineStyle(2.5, lightenColor(color, 0.3), 0.2);
+    tracePolygon(geometry.hullOutline);
+    graphics.strokePath();
+    graphics.lineStyle(1.4, color, 1.0);
+    tracePolygon(geometry.hullOutline);
+    graphics.strokePath();
+
+    // Cockpit.
+    graphics.fillStyle(darkenColor(color, 0.9), 0.9);
+    tracePolygon(geometry.cockpit);
+    graphics.fillPath();
+    graphics.lineStyle(0.9, color, 0.9);
+    tracePolygon(geometry.cockpit);
+    graphics.strokePath();
+
+    // Engine nozzles.
+    for (const nozzle of geometry.engineNozzles) {
+      const projected = project(nozzle);
+      graphics.fillStyle(darkenColor(color, 0.8), 0.8);
+      graphics.fillCircle(projected.x, projected.y, geometry.engineNozzleRadius * scale);
+      graphics.lineStyle(0.6, color, 0.7);
+      graphics.strokeCircle(projected.x, projected.y, geometry.engineNozzleRadius * scale);
+    }
+
+    // Wing-tip accent lights.
+    const accentColor = lightenColor(color, 0.6);
+    for (const accent of geometry.wingTipAccents) {
+      const projected = project(accent);
+      graphics.fillStyle(accentColor, 0.9);
+      graphics.fillCircle(projected.x, projected.y, Math.max(1.2, geometry.wingTipAccentRadius * scale));
+    }
+
+    return graphics;
   }
 
   private clearStepUI(): void {

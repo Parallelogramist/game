@@ -88,6 +88,17 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SHIP-HULLS** — per-ship hull families (this branch;
+    `src/visual/shipHullGeometry.ts`, wired via `ShipCharacter.hullId` →
+    `PlayerSpaceship`, previews in `WeaponSelectScene.drawShipHullPreview`).
+    Check in real runs: (a) each of the 11 silhouettes reads at gameplay
+    scale/rotation under bloom (esp. Boss Hunter's long barrel and Juggernaut's
+    twin-prong ram), (b) evolution tier transitions per ship feel like growth,
+    not a ship swap, (c) thrust flames sit right on the new per-ship nozzle
+    layouts (Dreadnought/Juggernaut multi-engine rows), (d) ship-select cards:
+    preview + 11px description fit at UI-scale extremes with 11 ships unlocked,
+    (e) danger/combo hull-color shifts still read on darker hull fills. Tuning
+    knobs: outline coords per builder + `TIER_SCALE` in `shipHullGeometry.ts`.
   - **POLISH-MENU-NAV** — keyboard/gamepad nav on the newly wired scenes (`abf7c58`).
     Check with a controller: (a) PactSelect — yellow focus ring vs pact-color selected
     border legibility; B = skip-pacts-and-begin feels right (it's not "back"), (b)
