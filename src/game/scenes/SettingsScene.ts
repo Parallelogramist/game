@@ -20,7 +20,14 @@ import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
 import { addButtonInteraction, transitionToScene, sweepIn } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
-import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
+import {
+  computeMenuLayoutScale,
+  computeMenuFontScale,
+  computeMenuLayoutScalePortrait,
+  computeMenuFontScalePortrait,
+  scaledFontPx,
+  scaledInt,
+} from '../../utils/HudScale';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
@@ -141,8 +148,17 @@ export class SettingsScene extends Phaser.Scene {
     const settingsManager = getSettingsManager();
     const musicManager = getMusicManager();
 
-    this.layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    this.fontScale = computeMenuFontScale(this.scale.width, this.scale.height, settingsManager.getUiScale());
+    // Portrait: the orientation-matched design fit (720×1280 → scale 1.0)
+    // with the cards stacked in ONE centered column — the landscape fit
+    // shrank everything to 56% and let the density-boosted pill text
+    // overflow its shrunken containers.
+    const portrait = this.scale.height > this.scale.width;
+    this.layoutScale = portrait
+      ? computeMenuLayoutScalePortrait(this.scale.width, this.scale.height)
+      : computeMenuLayoutScale(this.scale.width, this.scale.height);
+    this.fontScale = portrait
+      ? computeMenuFontScalePortrait(this.scale.width, this.scale.height, settingsManager.getUiScale())
+      : computeMenuFontScale(this.scale.width, this.scale.height, settingsManager.getUiScale());
     this.uiScaleOnEntry = settingsManager.getUiScale();
 
     this.toggles = {};
@@ -177,8 +193,10 @@ export class SettingsScene extends Phaser.Scene {
     const cardWidth = scaledInt(this.layoutScale, 560);
     const gapX = scaledInt(this.layoutScale, 24);
     const gapY = scaledInt(this.layoutScale, 18);
-    const leftCenterX = centerX - cardWidth / 2 - gapX / 2;
-    const rightCenterX = centerX + cardWidth / 2 + gapX / 2;
+    // Portrait: one centered column (AUDIO → COMBAT → VISUALS → DATA);
+    // landscape: the original two-column grid.
+    const leftCenterX = portrait ? centerX : centerX - cardWidth / 2 - gapX / 2;
+    const rightCenterX = portrait ? centerX : centerX + cardWidth / 2 + gapX / 2;
     const topRowY = scaledInt(this.layoutScale, 80);
 
     const audioCardHeight = scaledInt(this.layoutScale, 320);
@@ -188,8 +206,10 @@ export class SettingsScene extends Phaser.Scene {
 
     const audioTopY = topRowY + audioCardHeight / 2;
     const combatTopY = topRowY + audioCardHeight + gapY + combatCardHeight / 2;
-    const visualsTopY = topRowY + visualsCardHeight / 2;
-    const dataTopY = topRowY + visualsCardHeight + gapY + dataCardHeight / 2;
+    const leftColumnBottom = topRowY + audioCardHeight + gapY + combatCardHeight + gapY;
+    const visualsTopY = (portrait ? leftColumnBottom : topRowY) + visualsCardHeight / 2;
+    const dataTopY =
+      (portrait ? leftColumnBottom : topRowY) + visualsCardHeight + gapY + dataCardHeight / 2;
 
     this.buildAudioCard(leftCenterX, audioTopY, cardWidth, audioCardHeight);
     this.buildCombatCard(leftCenterX, combatTopY, cardWidth, combatCardHeight);

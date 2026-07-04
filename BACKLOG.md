@@ -268,6 +268,16 @@ Never agent work. The fleet must not do any of these.
     caption — beside the grid in landscape, above it in portrait (hidden on
     short portrait viewports with 3+ card rows), follows keyboard/mouse
     focus, no ghosting between ships (texture-key collision fixed).
+    Round 2b (same evening, more screenshots): (e) portrait VICTORY — card
+    reveal now centered BELOW the buttons (it sat on the stats panel,
+    covering the Level cell); portrait GAME OVER — reveal takes the right
+    below-column slot and PERSONAL BESTS yields when a card was found;
+    (f) portrait HUD — HP/XP/ULT bars trimmed (180→120 base units) so the
+    centered timer clears the bar labels; (g) SETTINGS portrait — full-size
+    single-column stack (AUDIO→COMBAT→VISUALS→DATA), fixes the clipped
+    colorblind/damage-number pills; (h) SHOP — tab strip reserve widened so
+    the HANGAR pill + count badge stay on-screen at 720, and the buy/refund
+    row no longer overlaps by 8px on leveled cards (all widths).
   - **POLISH-MENU-NAV** — keyboard/gamepad nav on the newly wired scenes (`abf7c58`).
     Check with a controller: (a) PactSelect — selection/focus treatment reworked in
     POLISH-MOBILE-ROUND2 (uniform green selected + white focus ring); check the

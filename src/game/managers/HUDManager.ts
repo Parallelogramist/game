@@ -192,6 +192,8 @@ export class HUDManager {
   private barMotionReduced: boolean = false;
   private ultLabel: Phaser.GameObjects.Text | null = null;
   private ultBarWidth: number = 0;
+  /** Bar base width in design units — trimmed in portrait (see bar creation). */
+  private barBaseWidth: number = 180;
   private wasUltimateReady: boolean = false;
 
   // Upgrade icons UI
@@ -325,7 +327,10 @@ export class HUDManager {
     currentY += this.scaledSize(46);
 
     // HP Bar (above XP bar)
-    const hpBarWidth = this.scaledSize(180);
+    // Portrait trims the bars so bar+label clear the centered timer column
+    // (bars at 180 base units reach ~x430 of 720; the timer needs ~285+).
+    this.barBaseWidth = this.scene.scale.height > this.scene.scale.width ? 120 : 180;
+    const hpBarWidth = this.scaledSize(this.barBaseWidth);
     const hpBarHeight = this.scaledSize(14);
 
     // HP glow (behind bar)
@@ -410,7 +415,7 @@ export class HUDManager {
     currentY += hpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
 
     // XP Bar (below HP bar)
-    const xpBarWidth = this.scaledSize(180);
+    const xpBarWidth = this.scaledSize(this.barBaseWidth);
     const xpBarHeight = this.scaledSize(12);
 
     // XP glow (behind bar)
@@ -470,7 +475,7 @@ export class HUDManager {
 
     // Ultimate ("Overdrive") charge bar (below XP bar) — fills from kills +
     // damage; glows gold when ready to fire (Q / gamepad Y / touch button).
-    const ultBarWidth = this.scaledSize(180);
+    const ultBarWidth = this.scaledSize(this.barBaseWidth);
     const ultBarHeight = this.scaledSize(8);
     this.ultBarWidth = ultBarWidth - 2;
 
@@ -966,7 +971,7 @@ export class HUDManager {
     this.touchActionButtons?.updateUltimateCharge(state.ultimateChargeRatio, state.ultimateReady);
 
     // Update XP bar
-    const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
+    const xpBarMaxWidth = this.scaledSize(this.barBaseWidth) - 2; // scaled width minus padding
     const xpProgress = state.xp / state.xpToNextLevel;
     this.xpBarFill.width = xpBarMaxWidth * xpProgress;
 
@@ -1030,7 +1035,7 @@ export class HUDManager {
     }
 
     // Update HP bar
-    const hpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
+    const hpBarMaxWidth = this.scaledSize(this.barBaseWidth) - 2; // scaled width minus padding
     const hpProgress = Math.max(0, state.currentHP / state.maxHP);
     const previousHpProgress = this.lastPlayerHP >= 0 ? Math.max(0, this.lastPlayerHP / state.maxHP) : hpProgress;
     this.hpBarFill.width = hpBarMaxWidth * hpProgress;
