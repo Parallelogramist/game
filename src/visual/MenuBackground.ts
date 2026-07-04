@@ -1,18 +1,20 @@
 /**
- * MenuBackground — Balatro-style felted backdrop.
+ * MenuBackground — sleek neon-tech backdrop.
  *
  * Layered render order (bottom → top):
  *   1. Solid base (deep navy / inky black).
  *   2. Vertical gradient bands (darker bottom).
  *   3. Faint diagonal grid pattern for texture.
  *   4. Center radial spotlight pulling focus to the middle.
- *   5. Drifting tilted card silhouettes for ambient motion.
+ *   5. Thin rising light streaks for ambient motion.
  *   6. Edge vignette darkening the corners.
  *
- * One update() advances every drifter; no per-card tweens.
+ * One update() advances every streak; no per-streak tweens. Under reduced
+ * motion the streaks render as a static field at their seeded positions.
  */
 
 import Phaser from 'phaser';
+import { getSettingsManager } from '../settings';
 
 const DRIFT_DEPTH = -20;
 const SPOTLIGHT_DEPTH = -22;
@@ -35,6 +37,8 @@ export interface MenuBackground {
 }
 
 export function createMenuBackground(scene: Phaser.Scene): MenuBackground {
+  // Read once at creation — settings changes take effect on next scene entry.
+  const reducedMotion = getSettingsManager().isReducedMotionEnabled();
   const screenWidth = scene.scale.width;
   const screenHeight = scene.scale.height;
 
@@ -61,8 +65,8 @@ export function createMenuBackground(scene: Phaser.Scene): MenuBackground {
     gradient.fillRect(0, (screenHeight * i) / bands, screenWidth, screenHeight / bands + 2);
   }
 
-  // 3. Faint diagonal grid pattern. Comic mode uses dark ink dots; neon
-  // mode uses a cool blue tint. Keeps the backdrop from feeling vacuum-dark.
+  // 3. Faint diagonal grid pattern in a cool blue tint. Keeps the backdrop
+  // from feeling vacuum-dark.
   const grid = scene.add.graphics();
   grid.setDepth(GRID_DEPTH);
   const cellSize = 36;
@@ -98,9 +102,9 @@ export function createMenuBackground(scene: Phaser.Scene): MenuBackground {
     spotlight.fillCircle(spotlightCenterX, spotlightCenterY, radius);
   }
 
-  // 5. Drifting card silhouettes — ambient parallax motion.
+  // 5. Rising light streaks — ambient parallax motion.
   const drifters: Drifter[] = [];
-  const drifterCount = 7;
+  const drifterCount = 10;
   for (let i = 0; i < drifterCount; i++) {
     drifters.push(createDrifter(scene, screenWidth, screenHeight, i / drifterCount));
   }
@@ -121,6 +125,8 @@ export function createMenuBackground(scene: Phaser.Scene): MenuBackground {
 
   return {
     update(deltaMs: number) {
+      // Reduced motion: streaks stay a static field at their seeded positions.
+      if (reducedMotion) return;
       const dt = deltaMs / 1000;
       for (const drifter of drifters) {
         drifter.x += drifter.vx * dt;
@@ -154,38 +160,34 @@ function createDrifter(
   screenHeight: number,
   phaseSeed: number,
 ): Drifter {
-  const width = 70 + Math.round(phaseSeed * 60);
-  const height = Math.round(width * 1.35);
-  const halfW = width / 2;
-  const halfH = height / 2;
-  const radius = 12;
+  const streakLength = 60 + Math.round(phaseSeed * 90);
+  const halfLen = streakLength / 2;
 
   const graphics = scene.add.graphics();
   graphics.setDepth(DRIFT_DEPTH);
 
-  // Card silhouette — visible enough to register as background life, faint
-  // enough to recede behind the menu UI.
-  graphics.fillStyle(0x4a6ba8, 0.08);
-  graphics.fillRoundedRect(-halfW, -halfH, width, height, radius);
-  graphics.lineStyle(1, 0x88aacc, 0.18);
-  graphics.strokeRoundedRect(-halfW, -halfH, width, height, radius);
-
-  // Suit pip in the corner — tiny detail that sells the playing-card identity.
-  graphics.fillStyle(0xaaccee, 0.3);
-  graphics.fillCircle(-halfW + 14, -halfH + 14, 4);
-  graphics.fillCircle(halfW - 14, halfH - 14, 4);
+  // Thin vertical light streak — a soft wide pass under a bright core line.
+  // Per-streak brightness varies with the seed so the field reads as depth
+  // layers rather than a uniform grid of lines.
+  const brightness = 0.7 + ((phaseSeed * 7.3) % 1) * 0.6;
+  graphics.fillStyle(0x4a6ba8, 0.10 * brightness);
+  graphics.fillRect(-1.5, -halfLen, 3, streakLength);
+  graphics.fillStyle(0xaaccee, 0.28 * brightness);
+  graphics.fillRect(-0.5, -halfLen, 1, streakLength);
+  // Bright head where the streak leads its climb.
+  graphics.fillStyle(0xcfe4ff, 0.4 * brightness);
+  graphics.fillRect(-1, -halfLen, 2, 10);
 
   const x = phaseSeed * screenWidth + (Math.random() - 0.5) * 200;
   const y = ((phaseSeed * 1.7) % 1) * screenHeight + (Math.random() - 0.5) * 200;
-  const speed = 10 + Math.random() * 14;
-  const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.7;
-  const vx = Math.cos(angle) * speed;
-  const vy = Math.sin(angle) * speed;
-  const rotation = (Math.random() - 0.5) * 0.7;
-  const rotationVel = (Math.random() - 0.5) * 0.05;
+  // Straight upward climb — clean vertical motion, no rotation.
+  const speed = 14 + Math.random() * 18;
+  const vx = 0;
+  const vy = -speed;
+  const rotation = 0;
+  const rotationVel = 0;
 
   graphics.setPosition(x, y);
-  graphics.setRotation(rotation);
 
   return { graphics, x, y, vx, vy, rotation, rotationVel };
 }

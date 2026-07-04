@@ -85,6 +85,203 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `ec6c47a` FEAT-SHIP-MODS-2 — **ship mod follow-ups**, same-day completion of
+  the FEAT-SHIP-MODS-1 follow-up list on direct operator request (ahead of
+  the BALANCE-SHIP-MODS playtest — the numbers may still move, the plumbing
+  won't). **Icons:** `ShipModTrack.icon` added to the contract (spec
+  updated); the 12 archetypes map to existing atlas keys
+  (hull→heart, thrusters→rocket, weapons→sword, targeting→target,
+  salvage→coins, datalink→brain, cooldown→timer, armor→shield,
+  regen→bandage, lifesteal→vampire, boss→skull, luck→clover), rendered on
+  the HANGAR card between the ship kicker and effect line (gold tint at
+  MAXED), test-locked against ICON_MAP. **Ship select:** WeaponSelectScene
+  ship cards show `MODS n/9` (dim at 0 / accent in progress / gold `MODS
+  MAXED`), positioned at y=−28 in the banner-to-description gap — the
+  description block grows DOWNWARD from y=18, so even Apex's wordy blurb
+  can't collide. **Achievements:** new `ships_fully_modded` tracking type +
+  `ship_mods_first` "Ace Mechanic" (1 ship, +500g) → `ship_mods_fleet`
+  "Fleet Admiral" (all 11, +5,000g + 5% gold stat bonus). Fed by new
+  `ShipModManager.getFullyModdedShipCount()` (counts against the CURRENT
+  catalog; a test locks Fleet Admiral's targetValue to
+  SHIP_CHARACTERS.length so a roster addition can't make it unlock early).
+  ShopScene records after each successful HANGAR purchase and wires its own
+  unlock-delivery callback (gold/stat via MetaProgressionManager +
+  achievement toast + gold readout refresh), detached in shutdown — per the
+  menu-context reward-banking rule from FEAT-CARDS-2 (no-callback unlocks
+  bank as unclaimed for AchievementScene's retro-claim).
+
+- `261d9dc` FEAT-SHIP-MODS-1 — **per-ship mod tracks + HANGAR shop tab**, the
+  last unbuilt piece of the Sky Force Reloaded meta loop (cards + scanner
+  shipped as FEAT-CARDS-1/2 the same day). Previously parked as "BLOCKED on
+  human economy sign-off"; the operator requested the work directly, so a
+  conservative first-pass economy shipped with tuning explicitly owned by
+  BALANCE-SHIP-MODS in the playtest queue. **Design:** spec at
+  `docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md` (durable
+  source of truth — frozen API contract, archetype table, per-ship
+  assignments, economy). Each of the 11 ships gets 3 short tracks (3 levels,
+  400/700/1200 gold; 6,900/ship, ~76k full fleet) picked from 12 shared
+  archetypes to REINFORCE that ship's identity (Interceptor:
+  thrusters/cooldown/targeting; Juggernaut: hull/armor/regen; Boss Hunter:
+  boss/salvage/lifesteal; …). Magnitudes deliberately flavor-sized (a maxed
+  track ≈ one mid shop tier; a test literally guards the band). **Data**
+  (`src/data/ShipMods.ts` + tests): catalog + `getShipModTracks` /
+  `getShipModCost` (Infinity at/past cap, corrupt level input fails safe) /
+  `aggregateShipModBonuses` (identity defaults; *Mult fields compound
+  value^level, adds linear; non-finite levels rejected as corruption).
+  Shared archetype object references guarantee same-id-same-effect (locked
+  by test). **Persistence** (`src/meta/ShipModManager.ts` + tests):
+  singleton, `survivor-meta-ship-mods` → `{ [shipId]: { [trackId]: level } }`
+  via SecureStorage, loader rebuilds from the catalog only (junk
+  ships/tracks dropped, levels integer-clamped [0,3]), key registered in
+  `StorageBootstrap.ALL_STORAGE_KEYS`; `purchase()` spends NOTHING itself —
+  the caller spends gold via MetaProgressionManager first (scanner
+  pattern). **UI:** ShopScene HANGAR tab after the 7 upgrade categories —
+  one 220×220 card per unlocked-ship×track (ship kicker, per-level effect,
+  ◆◆◇ pips + LV n/3, cost button / MAXED gold state, affordable star +
+  tab badge), ONE trailing teaser card when ships are locked (availability
+  = the WeaponSelectScene rule via `isUnlockRequirementMet`), purchases
+  mirror the shop flow exactly (deficit toast, purchase sound, gold tween,
+  defensive refund if the guarded purchase() somehow returns false). Tab
+  strip: 8 tabs at 720 wide = 82px/tab → compact labels
+  (ATK/DEF/SPD/GOLD/UTIL/ELEM/MSTRY/HANGAR) engage below 85px; 1280 keeps
+  full labels (1272 ≤ 1280). Keyboard/gamepad nav extended through the
+  existing MenuNavigator wiring (8-column tab row, grid rows from the
+  active card count) — no fork. **Run start:** GameScene applies aggregated
+  mod bonuses immediately AFTER the ship's own bonuses (maxHealth ×= +
+  round + currentHealth resync, move/damage/cooldown/gold/xp ×=,
+  crit/armor/regen/lifesteal/luck +=, bossDamageMultiplier +=). Built by
+  two parallel file-disjoint agents against the frozen spec contract
+  (data+manager / ShopScene) with GameScene wired inline; filtered
+  typecheck clean. Follow-ups → FEAT-SHIP-MODS-2 (ship-select mod display,
+  icon pass, achievements).
+
+- `c433efc` FEAT-PORTRAIT — **portrait mode support**. The game previously
+  hard-blocked portrait phones with an HTML "rotate your device" overlay; it
+  now plays in both orientations. **Core mechanism** (`src/utils/Orientation.ts`
+  + `main.ts`): the Phaser base size is orientation-aware — 1280×720 landscape,
+  720×1280 portrait — so under Scale.EXPAND the SHORTER side stays 720 game
+  units in both orientations and world/UI objects hold a steady physical size
+  (a landscape-only base pinned 1280 units across a ~390pt portrait phone,
+  rendering everything ~3× too small). A debounced watcher (250ms, compares
+  orientation CLASS not raw size, so iOS toolbar/keyboard resize bursts don't
+  churn) swaps the base via `scale.setGameSize` on flips and re-lays-out live
+  scenes: menu scenes `restart(sys.settings.data)` (stateless creates, original
+  launch payload preserved); GameScene runs the UI-scale save-restore round
+  trip (`handleOrientationFlip` → saveGameState + restart{restore,resumePaused}
+  → resumes into the pause menu — rotating mid-combat deliberately pauses);
+  end screens skip (run-over states — victory already CLEARED the save, a
+  restore would resurrect a finished run); a flip during the level-up modal
+  defers (flag settled by the selection-complete handler after the LAST queued
+  modal, since a restart underneath would orphan the modal and regress
+  rerolls/locks). **Audits first** (3 read-only agents): every menu scene's
+  layout math at 720×1280, in-run HUD/pause/game-over/victory overlap math,
+  and the simulation layer — spawns (4-edge, live scale), AI bounds,
+  clamps, camera all confirmed orientation-agnostic; no gameplay change
+  needed. **Reflows at width 720** (landscape 1280 arithmetic verified
+  unchanged in every file): ShopScene width-aware grid columns (2 portrait);
+  CreditsScene cards stack; AchievementScene single-column grid;
+  WeaponSelectScene fit-capped columns in computeGridLayout (stages 2 /
+  ships 3 / weapons 4 portrait) + weapon-step navigator columns now derive
+  from the real grid; PactSelectScene row wrap (3+2) + navigator match;
+  LeaderboardScene bests strip wraps to rows (tabs/list shift down) and
+  history rows clamp to viewport width with proportional column anchors;
+  MusicSettingsScene list height derives from viewport (landscape resolves
+  to the legacy 380 exactly); CardsScene gets a dedicated 720×1280 design
+  space (4-col grid, compact full-width scanner bar, bottom back button);
+  UpgradeScene wraps 4 cards 2×2 below 800 width (0.49× shrink was
+  unreadable); pause BUILD STATS + RUN MODIFIERS pair below the buttons;
+  game-over WEAPON DAMAGE + PERSONAL BESTS pair below the stat column
+  (144px overlaps each side otherwise); recent-runs strip hidden in
+  portrait (no clear home — follow-up). **Drive-by fix:** HUDManager's
+  live-resize moved the bottom-center combo readout to the right screen
+  edge (half-clipped) on ANY resize — re-anchored to bottom-center.
+  Everything blind-implemented (no runtime in the sandbox) — on-device
+  checklist (incl. verifying setGameSize-under-EXPAND on iOS Safari and
+  worst-case pause-panel height at exactly 720×1280) filed as
+  POLISH-PORTRAIT.
+
+- `08a196c` FEAT-CARDS-2 — **card-collection follow-ups**, closing every
+  non-playtest item from the follow-up list the same day FEAT-CARDS-1
+  (`caaba4e`) shipped. **Deferred discovery (reveal-deflation fix):**
+  `rollCacheDiscovery()` now only queues — the card stays out of the archive
+  grid, its bonus inactive, and it's excluded from Scanner/cache rolls via a
+  private effective-discovered pool (discovered ∪ pending) — and
+  `consumePendingReveal()` became the discovery moment; new
+  `peekPendingReveal()` (side-effect-free) replaced GameScene's
+  consume+requeue guard sync. Spec contract section updated to match. Locked
+  by tests: pending stays hidden, consume discovers+persists, a pending card
+  can't dupe via scan, and the scan-refund guard holds when the pending card
+  is the last undiscovered one. **Aggregate bonus summary (spec ask):**
+  CardsScene's idle detail line renders `ARCHIVE BONUS · +7% DMG · …` via
+  pure `formatCardBonusSummary()` in Cards.ts (compounded mults as rounded
+  percentage points; empty collection → call-to-action line; 4 tests).
+  **Collection milestones:** new `cards_discovered` tracking type + four
+  tiered achievements (`cards_discovered_1/6/12/24` → 100/300/750/2,500 gold,
+  Full Archive adds +5% gold stat bonus). Fed by
+  `AchievementManager.recordCardsDiscovered(totalCount)` from all three
+  discovery landing sites: GameScene's end-screen reveal consumption (new
+  `consumeCardRevealForEndScreen()` helper), CardsScene decrypts, and a
+  CardsScene entry sync that retro-credits collections that predate the
+  milestones. **Menu-context reward safety (latent-bug fix):**
+  `unlockAchievement` used to set `rewardClaimed = true` unconditionally
+  while delivery only happened through the unlock callback — an unlock fired
+  with no callback wired (any menu context) silently ate the gold. Now it
+  auto-claims only when a callback exists; otherwise the reward banks as
+  unclaimed for AchievementScene's existing retro-claim pass.
+  `setAchievementUnlockCallback` accepts null so scenes can detach;
+  CardsScene wires its own delivery (gold/stat via MetaProgressionManager +
+  transient gold banner + chime, reduced-motion aware) in create() and
+  detaches in shutdown(). 4 new manager tests (tier crossing from absolute
+  counts, reload persistence, banking without callback, auto-claim + detach
+  with one). **Reveal sfx:** Scanner tile flip plays the weapon-evolution
+  flourish (distinct from the achievement chime so a milestone crossing the
+  same decrypt doesn't double a sound); end-screen reveals play the
+  achievement chime timed to the glow pulse (after the victory
+  fanfare/game-over sting, not colliding with them). **Icon pass:** verified
+  complete — all 24 card icon keys resolve through ICON_MAP with no fallback,
+  already locked by a Cards test. Remaining knob (drop rates / SCAN_COST /
+  pity / milestone gold) is a human balance call → POLISH-CARDS playtest
+  entry updated with the new checks (deferred-reveal semantics, banner,
+  chime timing, retro-credit).
+
+- `caaba4e` FEAT-CARDS-1 — **card collection + scanner lottery meta-progression**,
+  the Sky Force Reloaded-inspired meta loop from the 2026-07-03 session. Durable
+  design source of truth: `docs/superpowers/specs/2026-07-03-card-collection-meta-design.md`
+  (read it before touching cards — it carries the frozen public API contract).
+  **Data:** `src/data/Cards.ts` — 24 cards (10 common / 8 rare / 4 epic / 2
+  legendary, rarity weights 60/30/9/1), small permanent passives (spec magnitude
+  bands: cards are seasoning, the shop is the meal), `rollCardRarity` /
+  `pickUndiscoveredCard` (nearest-rarity fallback, null only on complete archive) /
+  `aggregateCardBonuses` (identity defaults). **Persistence:**
+  `src/meta/CardCollectionManager.ts` singleton — `survivor-meta-cards` via
+  SecureStorage (registered in `StorageBootstrap.ALL_STORAGE_KEYS`,
+  corruption-hardened rebuild from known ids), pending-reveal queue, scanner
+  `scan()` with epic-or-better **pity every 8th** sub-epic roll (SCAN_COST=500,
+  gold spent by the caller via MetaProgressionManager). ~55 unit tests across
+  both modules. **In-run:** GameScene applies aggregated bonuses at run start
+  alongside the shop tracks (damage/attack-speed/gold/xp/magnet/move-speed mults,
+  maxHealth/crit/armor/luck/reroll/banish adds, startAtLevel); data caches roll in
+  `handleEnemyDeath` (boss 100% / miniboss 20% / elite 2%, once per run — the
+  guard syncs with the persisted pending reveal AND is saved in the run save,
+  because showVictory() consumes the reveal while a post-victory endless run
+  continues; a reload there must not re-arm the drop). `ultChargeRateMult` got a
+  real application point: new `setUltimateChargeRateMultiplier` hook in
+  UltimateSystem (reset- and save-restore-aware, 4 tests) so Surge Array (+10%
+  ult charge rate) isn't a dead epic. **Reveal:** end-screen "NEW CARD
+  DISCOVERED" panel on BOTH death and victory overlays (PauseMenuManager),
+  stagger-integrated, rarity glow pulse timed to the panel's LAST staggered
+  element. **Archive:** new CardsScene — 6×4 grid ('?' slots with 40%-blended
+  rarity hairlines, discovered mini-MenuCards), scanner panel (gold readout,
+  pity countdown, DECRYPT, defensive refund if the archive completes mid-roll,
+  ARCHIVE COMPLETE end state), reveal flip + glow with reduced-motion fallback,
+  full MenuNavigator nav, shutdown-clean tweens, layout centered per-axis in the
+  live EXPAND viewport (sibling-scene pattern). Fifth CARDS deck entry in
+  BootScene; registered in main.ts. Built by a 4-implementer + 2-verifier agent
+  workflow; all 5 verifier code findings fixed pre-commit (inert ultChargeRateMult,
+  hardcoded 1280×720 CardsScene layout, glow-pulse timing, endless-reload cache
+  guard, orphaned JSDoc). Known deviations + the reveal-deflation design nuance
+  → FEAT-CARDS-2; feel/balance checklist → playtest queue (POLISH-CARDS).
+
 - `9a17001` PROPOSE-PURE-DATA-TESTS (Pacts) — **regression-lock `Pacts.ts`**, the **final**
   candidate in the "add coverage for a pure, marquee, multi-consumer module" vein (after
   DirectorSystem `c0ab86d` / RunModifiers `706e823` / WeaponEvolutions `5a00de6` /
@@ -734,3 +931,16 @@ One module per session, test-first, ~15-25 cases each.
 - `0c7381b` Fix auto-upgrade: load persisted enable flag on fresh runs.
 - `43c43e0` Perf/correctness batch: pool HUD payload, cache meta, split aura draw, etc.
 - `3db4e75` Wire dead weapon stats + perf/correctness cleanup (prior session, unmerged).
+
+- [x] **REFACTOR-2 (phase 1) — extract regular-enemy AI handlers** (done — `ee33c19`)
+  Moved all 20 regular AI handlers (types 0–17) out of `EnemyAISystem.ts` (2,098 → 1,038
+  lines) into one module per handler under `src/ecs/systems/enemy-ai/` (splitter.ts holds
+  splitter + splitterMini). New `enemy-ai/common.ts` carries the cross-boundary
+  scaffolding: PI constants, mutable `telegraphManager` + setter (re-exported so
+  GameScene's import is unchanged), `aiWorld`/`setAIWorld`/`isDestructible`. Dispatcher
+  switch, LOD throttling, elite auras, and miniboss/boss handlers untouched (phases 2–3
+  filed). Every moved body verified byte-identical against the pre-move git blob by an
+  independent transcription diff; public API surface unchanged (barrel re-exports).
+  Suite could not run in the remote sandbox — verification was typecheck fingerprint +
+  the transcription diff. Follow-up phases must import `telegraphManager` as a live
+  binding, never copy it to a local.

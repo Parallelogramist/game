@@ -272,3 +272,53 @@ describe('AchievementManager — characterization (existing contract)', () => {
     expect(manager.getLifetimeStats().totalKills).toBe(0);
   });
 });
+
+describe('AchievementManager — collection milestones + menu-context delivery', () => {
+  beforeEach(() => {
+    SecureStorage.removeItem(STORAGE_KEY);
+  });
+
+  test('recordCardsDiscovered unlocks the crossed tiers from an absolute count', () => {
+    const manager = new AchievementManager();
+    manager.recordCardsDiscovered(1);
+    expect(manager.getAchievementProgress('cards_discovered_1')?.isUnlocked).toBe(true);
+    expect(manager.getAchievementProgress('cards_discovered_6')?.isUnlocked).toBe(false);
+
+    // Jumping past several tiers (entry sync after a pre-milestone collection)
+    // unlocks everything crossed.
+    manager.recordCardsDiscovered(12);
+    expect(manager.getAchievementProgress('cards_discovered_6')?.isUnlocked).toBe(true);
+    expect(manager.getAchievementProgress('cards_discovered_12')?.isUnlocked).toBe(true);
+    expect(manager.getAchievementProgress('cards_discovered_24')?.isUnlocked).toBe(false);
+  });
+
+  test('collection progress persists across a reload', () => {
+    const manager = new AchievementManager();
+    manager.recordCardsDiscovered(3);
+    const reloaded = new AchievementManager();
+    expect(reloaded.getAchievementProgress('cards_discovered_1')?.isUnlocked).toBe(true);
+    expect(reloaded.getAchievementProgress('cards_discovered_6')?.currentValue).toBe(3);
+  });
+
+  test('an unlock with NO callback wired banks the reward as unclaimed', () => {
+    // Menu-context safety: with no delivery callback the gold must not be
+    // auto-claimed into the void — AchievementScene retro-claims it later.
+    const manager = new AchievementManager();
+    manager.recordCardsDiscovered(1);
+    expect(manager.getUnclaimedRewards().some((a) => a.id === 'cards_discovered_1')).toBe(true);
+  });
+
+  test('an unlock WITH a callback wired auto-claims (callback delivers)', () => {
+    const manager = new AchievementManager();
+    const delivered: string[] = [];
+    manager.setAchievementUnlockCallback((achievement) => delivered.push(achievement.id));
+    manager.recordCardsDiscovered(1);
+    expect(delivered).toEqual(['cards_discovered_1']);
+    expect(manager.getUnclaimedRewards().some((a) => a.id === 'cards_discovered_1')).toBe(false);
+
+    // Detaching restores the banking behavior for later unlocks.
+    manager.setAchievementUnlockCallback(null);
+    manager.recordCardsDiscovered(6);
+    expect(manager.getUnclaimedRewards().some((a) => a.id === 'cards_discovered_6')).toBe(true);
+  });
+});

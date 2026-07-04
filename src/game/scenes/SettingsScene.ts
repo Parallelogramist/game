@@ -18,15 +18,22 @@ import {
 } from '../../settings';
 import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
-import { fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
+import { addButtonInteraction, transitionToScene, sweepIn } from '../../utils/SceneTransition';
 import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
-import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
+import {
+  computeMenuLayoutScale,
+  computeMenuFontScale,
+  computeMenuLayoutScalePortrait,
+  computeMenuFontScalePortrait,
+  scaledFontPx,
+  scaledInt,
+} from '../../utils/HudScale';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
 
 type FocusZone =
@@ -72,17 +79,27 @@ interface StepperHandles {
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
 
 const PILL_PALETTE = {
-  on: { fill: 0x143924, border: ACCENT_COLORS.safe, text: '#a8f5c4' },
-  onActive: { fill: ACCENT_COLORS.safe, border: ACCENT_COLORS.safe, text: '#0a1a12' },
-  off: { fill: 0x3a1620, border: ACCENT_COLORS.danger, text: '#ffb3bd' },
-  offActive: { fill: ACCENT_COLORS.danger, border: ACCENT_COLORS.danger, text: '#1a0a0d' },
   neutral: { fill: 0x1c2538, border: ACCENT_COLORS.neutral, text: TEXT_COLORS.muted },
   neutralActive: { fill: ACCENT_COLORS.focus, border: ACCENT_COLORS.focus, text: '#1a1408' },
   focusBorder: ACCENT_COLORS.focus,
 } as const;
 
+// Sliding-switch colors for boolean settings. Green track = enabled reads
+// unambiguously; the old twin ON/OFF pills made users guess whether the
+// highlighted pill was the state or the button.
+const SWITCH_COLORS = {
+  trackOn: ACCENT_COLORS.safe,
+  trackOff: 0x2a3450,
+  trackBorderOff: 0x46527a,
+  knobOn: 0xf2f6ff,
+  knobOff: 0x8898b0,
+  labelOn: '#a8f5c4',
+} as const;
+
 export class SettingsScene extends Phaser.Scene {
   private returnTo: 'BootScene' | 'GameScene' = 'BootScene';
+  /** UI scale at scene entry — a change on exit triggers the in-run rebuild. */
+  private uiScaleOnEntry: number = 1;
 
   private toggles: Partial<Record<FocusZone, ToggleControl>> = {};
   private volumes: Partial<Record<FocusZone, VolumeControl>> = {};
@@ -131,8 +148,18 @@ export class SettingsScene extends Phaser.Scene {
     const settingsManager = getSettingsManager();
     const musicManager = getMusicManager();
 
-    this.layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    this.fontScale = computeMenuFontScale(this.scale.width, this.scale.height, settingsManager.getUiScale());
+    // Portrait: the orientation-matched design fit (720×1280 → scale 1.0)
+    // with the cards stacked in ONE centered column — the landscape fit
+    // shrank everything to 56% and let the density-boosted pill text
+    // overflow its shrunken containers.
+    const portrait = this.scale.height > this.scale.width;
+    this.layoutScale = portrait
+      ? computeMenuLayoutScalePortrait(this.scale.width, this.scale.height)
+      : computeMenuLayoutScale(this.scale.width, this.scale.height);
+    this.fontScale = portrait
+      ? computeMenuFontScalePortrait(this.scale.width, this.scale.height, settingsManager.getUiScale())
+      : computeMenuFontScale(this.scale.width, this.scale.height, settingsManager.getUiScale());
+    this.uiScaleOnEntry = settingsManager.getUiScale();
 
     this.toggles = {};
     this.volumes = {};
@@ -143,7 +170,7 @@ export class SettingsScene extends Phaser.Scene {
     this.playbackModeIndex = musicManager.getPlaybackMode() === 'shuffle' ? 1 : 0;
     this.colorblindModeIndex = indexOfColorblindMode(settingsManager.getColorblindMode());
 
-    fadeIn(this, 150);
+    sweepIn(this);
 
     this.menuOverlay = createMenuOverlay(this, { dim: 0.85, drifterCount: 4 });
     this.bgUpdateHandler = (time, delta) => {
@@ -154,20 +181,22 @@ export class SettingsScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    const titleSticker = makeStickerText(this, centerX, scaledInt(this.layoutScale, 36), 'SETTINGS', {
+    const titleText = makeDisplayText(this, centerX, scaledInt(this.layoutScale, 36), 'SETTINGS', {
       fontSize: 38,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 6,
       letterSpacing: 4,
     });
-    titleSticker.setFontSize(scaledFontPx(this.fontScale, 38));
+    titleText.setFontSize(scaledFontPx(this.fontScale, 38));
 
     // ── Card grid ──────────────────────────────────────────────────────────
     const cardWidth = scaledInt(this.layoutScale, 560);
     const gapX = scaledInt(this.layoutScale, 24);
     const gapY = scaledInt(this.layoutScale, 18);
-    const leftCenterX = centerX - cardWidth / 2 - gapX / 2;
-    const rightCenterX = centerX + cardWidth / 2 + gapX / 2;
+    // Portrait: one centered column (AUDIO → COMBAT → VISUALS → DATA);
+    // landscape: the original two-column grid.
+    const leftCenterX = portrait ? centerX : centerX - cardWidth / 2 - gapX / 2;
+    const rightCenterX = portrait ? centerX : centerX + cardWidth / 2 + gapX / 2;
     const topRowY = scaledInt(this.layoutScale, 80);
 
     const audioCardHeight = scaledInt(this.layoutScale, 320);
@@ -177,8 +206,10 @@ export class SettingsScene extends Phaser.Scene {
 
     const audioTopY = topRowY + audioCardHeight / 2;
     const combatTopY = topRowY + audioCardHeight + gapY + combatCardHeight / 2;
-    const visualsTopY = topRowY + visualsCardHeight / 2;
-    const dataTopY = topRowY + visualsCardHeight + gapY + dataCardHeight / 2;
+    const leftColumnBottom = topRowY + audioCardHeight + gapY + combatCardHeight + gapY;
+    const visualsTopY = (portrait ? leftColumnBottom : topRowY) + visualsCardHeight / 2;
+    const dataTopY =
+      (portrait ? leftColumnBottom : topRowY) + visualsCardHeight + gapY + dataCardHeight / 2;
 
     this.buildAudioCard(leftCenterX, audioTopY, cardWidth, audioCardHeight);
     this.buildCombatCard(leftCenterX, combatTopY, cardWidth, combatCardHeight);
@@ -288,7 +319,7 @@ export class SettingsScene extends Phaser.Scene {
       fontSize: scaledInt(this.fontScale, 16),
       onActivate: () => {
         this.soundManager.playUIClick();
-        this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
+        transitionToScene(this, 'MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
       },
     });
     card.frame.add(this.musicTracksButton.container);
@@ -464,14 +495,13 @@ export class SettingsScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt: 0,
       bodyFillColor: bodyColor,
       bodyFillAlpha: 0.96,
       accentColor,
       bannerHeight,
       borderWidth: 2,
       borderColor: accentColor,
-      cornerRadius: 14,
+      cornerRadius: 8,
       shadowOffsetX: 4,
       shadowOffsetY: 10,
       shadowAlpha: 0.6,
@@ -479,7 +509,7 @@ export class SettingsScene extends Phaser.Scene {
     });
     this.idleCards.push(card);
 
-    const bannerLabel = makeStickerText(this, 0, -height / 2 + bannerHeight / 2 - scaledInt(this.layoutScale, 1), title, {
+    const bannerLabel = makeDisplayText(this, 0, -height / 2 + bannerHeight / 2 - scaledInt(this.layoutScale, 1), title, {
       fontSize: 18,
       color: '#101018',
       strokeWidth: 0,
@@ -561,51 +591,113 @@ export class SettingsScene extends Phaser.Scene {
   // ── ON/OFF toggle ─────────────────────────────────────────────────────────
 
   private addToggle(card: MenuCard, rightAlignX: number, y: number, zone: FocusZone, initialEnabled: boolean, onToggle: () => void): ToggleControl {
-    const pillWidth = scaledInt(this.layoutScale, 58);
-    const pillHeight = scaledInt(this.layoutScale, 26);
-    const gap = scaledInt(this.layoutScale, 6);
+    // One sliding switch per setting: filled green track + knob right = on,
+    // dim track + knob left = off, with the state spelled out beside it.
+    // Replaces the twin ON/OFF pills, where BOTH pills fired the same toggle
+    // (clicking “OFF” while off turned the setting on) and the highlighted
+    // pill was ambiguous between current-state and call-to-action.
+    const trackWidth = scaledInt(this.layoutScale, 46);
+    const trackHeight = scaledInt(this.layoutScale, 24);
+    const knobInset = scaledInt(this.layoutScale, 3);
+    const knobRadius = Math.max(6, Math.round(trackHeight / 2) - knobInset);
+    const trackCenterX = rightAlignX - trackWidth / 2;
+    const knobTravel = trackWidth / 2 - knobInset - knobRadius;
 
-    const offPillX = rightAlignX - pillWidth / 2;
-    const onPillX = offPillX - pillWidth - gap;
+    const track = this.add.graphics();
+    card.frame.add(track);
 
-    const handleSelect = () => {
-      this.focusZone = zone;
-      onToggle();
+    const knob = this.add.graphics();
+    knob.fillStyle(0x000000, 0.3);
+    knob.fillCircle(0, scaledInt(this.layoutScale, 1), knobRadius + 1);
+    knob.fillStyle(SWITCH_COLORS.knobOff, 1);
+    knob.fillCircle(0, 0, knobRadius);
+    card.frame.add(knob);
+
+    // State word — the switch never reads ambiguously even at a glance.
+    const stateLabel = this.add.text(
+      trackCenterX - trackWidth / 2 - scaledInt(this.layoutScale, 10), y, '', {
+        fontSize: scaledFontPx(this.fontScale, 12),
+        color: TEXT_COLORS.muted,
+        fontFamily: FONT_FAMILY,
+        fontStyle: 'bold',
+      }).setOrigin(1, 0.5);
+    card.frame.add(stateLabel);
+
+    const drawTrack = (enabled: boolean, focused: boolean) => {
+      const halfW = trackWidth / 2;
+      const halfH = trackHeight / 2;
+      track.clear();
+      track.fillStyle(enabled ? SWITCH_COLORS.trackOn : SWITCH_COLORS.trackOff, 1);
+      track.fillRoundedRect(trackCenterX - halfW, y - halfH, trackWidth, trackHeight, halfH);
+      if (focused) {
+        track.lineStyle(2, PILL_PALETTE.focusBorder, 1);
+      } else {
+        track.lineStyle(1, enabled ? SWITCH_COLORS.trackOn : SWITCH_COLORS.trackBorderOff, 0.9);
+      }
+      track.strokeRoundedRect(trackCenterX - halfW, y - halfH, trackWidth, trackHeight, halfH);
     };
-    const hoverHandler = () => {
-      this.focusZone = zone;
-      this.refreshAllFocusVisuals();
+
+    const drawKnob = (enabled: boolean) => {
+      knob.clear();
+      knob.fillStyle(0x000000, 0.3);
+      knob.fillCircle(0, scaledInt(this.layoutScale, 1), knobRadius + 1);
+      knob.fillStyle(enabled ? SWITCH_COLORS.knobOn : SWITCH_COLORS.knobOff, 1);
+      knob.fillCircle(0, 0, knobRadius);
     };
 
-    const onPill = this.createPill(card.frame, onPillX, y, pillWidth, pillHeight, 'ON',
-      PILL_PALETTE.on, handleSelect, hoverHandler);
-    const offPill = this.createPill(card.frame, offPillX, y, pillWidth, pillHeight, 'OFF',
-      PILL_PALETTE.off, handleSelect, hoverHandler);
-
-    const applyState = (enabled: boolean, focused: boolean) => {
-      const onPalette = enabled ? PILL_PALETTE.onActive : PILL_PALETTE.on;
-      const offPalette = !enabled ? PILL_PALETTE.offActive : PILL_PALETTE.off;
-      this.drawPill(onPill.background, onPill.width, onPill.height, onPalette.fill,
-        focused ? PILL_PALETTE.focusBorder : onPalette.border, focused);
-      onPill.label.setColor(onPalette.text);
-      this.drawPill(offPill.background, offPill.width, offPill.height, offPalette.fill,
-        focused ? PILL_PALETTE.focusBorder : offPalette.border, focused);
-      offPill.label.setColor(offPalette.text);
-    };
-
-    applyState(initialEnabled, false);
+    const knobX = (enabled: boolean) => trackCenterX + (enabled ? knobTravel : -knobTravel);
 
     let currentEnabled = initialEnabled;
     let currentFocused = false;
 
+    const applyState = (animateKnob: boolean) => {
+      drawTrack(currentEnabled, currentFocused);
+      drawKnob(currentEnabled);
+      stateLabel.setText(currentEnabled ? 'ON' : 'OFF');
+      stateLabel.setColor(currentEnabled ? SWITCH_COLORS.labelOn : TEXT_COLORS.muted);
+      // Read reduced motion live — this very control toggles it, and the
+      // switch should honor the value the click just committed.
+      if (animateKnob && !getSettingsManager().isReducedMotionEnabled()) {
+        this.tweens.killTweensOf(knob);
+        this.tweens.add({
+          targets: knob,
+          x: knobX(currentEnabled),
+          duration: 120,
+          ease: 'Sine.easeOut',
+        });
+      } else if (this.tweens.getTweensOf(knob).length === 0) {
+        // Focus repaints call through here every hover — don't snap a knob
+        // that's mid-slide (any in-flight tween already targets this state).
+        knob.setX(knobX(currentEnabled));
+      }
+    };
+
+    knob.setPosition(knobX(initialEnabled), y);
+    applyState(false);
+
+    const hitZone = this.add.zone(trackCenterX, y, trackWidth + scaledInt(this.layoutScale, 12), trackHeight + scaledInt(this.layoutScale, 10))
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    card.frame.add(hitZone);
+    hitZone.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      this.focusZone = zone;
+      onToggle();
+    });
+    hitZone.on('pointerover', () => {
+      this.focusZone = zone;
+      this.refreshAllFocusVisuals();
+    });
+
     return {
-      refresh(enabled: boolean) {
+      refresh: (enabled: boolean) => {
+        const changed = enabled !== currentEnabled;
         currentEnabled = enabled;
-        applyState(currentEnabled, currentFocused);
+        applyState(changed);
       },
-      setFocused(focused: boolean) {
+      setFocused: (focused: boolean) => {
         currentFocused = focused;
-        applyState(currentEnabled, currentFocused);
+        applyState(false);
       },
     };
   }
@@ -971,7 +1063,7 @@ export class SettingsScene extends Phaser.Scene {
         break;
       }
       case 'musicTracks':
-        this.scene.start('MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
+        transitionToScene(this, 'MusicSettingsScene', { returnTo: 'SettingsScene', originalReturnTo: this.returnTo });
         return;
       case 'screenShake':
         settingsManager.setScreenShakeEnabled(!settingsManager.isScreenShakeEnabled());
@@ -1036,7 +1128,7 @@ export class SettingsScene extends Phaser.Scene {
       bannerHeight: scaledInt(this.layoutScale, 38),
       borderWidth: 3,
       borderColor: ACCENT_COLORS.danger,
-      cornerRadius: 16,
+      cornerRadius: 8,
       shadowOffsetX: 6,
       shadowOffsetY: 14,
       shadowAlpha: 0.7,
@@ -1044,7 +1136,7 @@ export class SettingsScene extends Phaser.Scene {
     });
     dialogCard.container.setDepth(101);
 
-    const title = makeStickerText(this, 0, -dialogCard.height / 2 + scaledInt(this.layoutScale, 19), 'RESET ALL DATA?', {
+    const title = makeDisplayText(this, 0, -dialogCard.height / 2 + scaledInt(this.layoutScale, 19), 'RESET ALL DATA?', {
       fontSize: 20,
       color: '#101018',
       strokeWidth: 0,
@@ -1170,13 +1262,22 @@ export class SettingsScene extends Phaser.Scene {
   private goBack(): void {
     if (this.returnTo === 'GameScene') {
       const gameScene = this.scene.get('GameScene') as GameScene;
+      // A changed UI scale can't be applied to the live HUD in place —
+      // GameScene round-trips its save-restore path to rebuild every in-run
+      // surface at the new scale, then reopens the pause menu.
+      const uiScaleChanged = getSettingsManager().getUiScale() !== this.uiScaleOnEntry;
+      if (uiScaleChanged && gameScene?.applyUiScaleChange) {
+        gameScene.applyUiScaleChange();
+        this.scene.stop();
+        return;
+      }
       if (gameScene?.showPauseMenuFromSettings) {
         gameScene.showPauseMenuFromSettings();
       }
       this.scene.resume('GameScene');
       this.scene.stop();
     } else {
-      this.scene.start('BootScene');
+      transitionToScene(this, 'BootScene');
     }
   }
 

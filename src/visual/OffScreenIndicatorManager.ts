@@ -4,6 +4,7 @@ import { Transform, EnemyType } from '../ecs/components';
 import { getEnemyIds } from '../ecs/FrameCache';
 import { ENEMY_COLORS } from './NeonColors';
 import { getSettingsManager } from '../settings';
+import { OverlayDepths } from './DepthLayers';
 
 // Pre-computed arrow triangle (pointing right, rotated later)
 const ARROW_HALF_WIDTH = 5;
@@ -61,7 +62,7 @@ export class OffScreenIndicatorManager {
     for (let i = 0; i < MAX_INDICATORS; i++) {
       const graphics = scene.add.graphics();
       graphics.setScrollFactor(0);
-      graphics.setDepth(1900); // Below HUD (2000) but above gameplay
+      graphics.setDepth(OverlayDepths.OFFSCREEN_ARROWS); // Above the HUD pills, below intro overlays
       graphics.setVisible(false);
       this.arrowPool.push({ graphics, inUse: false });
 
@@ -217,8 +218,8 @@ export class OffScreenIndicatorManager {
         pulseMultiplier = 0.7 + Math.sin(this.globalTime * 4) * 0.3;
       }
 
-      // Draw arrow — Balatro cel-style: thick black ink silhouette pre-pass,
-      // colored fill on top, thin highlight stroke for sparkle.
+      // Draw arrow — thin dark backing pre-pass for contrast, colored fill
+      // on top, thin highlight stroke for sparkle.
       const arrowGraphics = arrow.graphics;
       arrowGraphics.clear();
       arrowGraphics.setPosition(edgeX, edgeY);
@@ -229,20 +230,20 @@ export class OffScreenIndicatorManager {
       const tipX = ARROW_LENGTH * arrowScale;
       const baseX = -ARROW_HALF_WIDTH * arrowScale;
       const baseHalfY = ARROW_HALF_WIDTH * arrowScale;
-      const inkExpand = 1.35; // Outline grows the silhouette outward.
+      const inkExpand = 1.15; // Backing grows the silhouette outward slightly.
       const inkTipX = tipX * inkExpand;
       const inkBaseX = baseX * inkExpand - 1;
       const inkBaseHalfY = baseHalfY * inkExpand + 1;
 
-      // Black ink silhouette (chunky outline).
-      arrowGraphics.fillStyle(0x000000, finalAlpha);
+      // Dark backing silhouette (thin outline).
+      arrowGraphics.fillStyle(0x000000, finalAlpha * 0.85);
       arrowGraphics.fillTriangle(inkTipX, 0, inkBaseX, -inkBaseHalfY, inkBaseX, inkBaseHalfY);
 
       // Colored fill on top.
       arrowGraphics.fillStyle(enemy.color, finalAlpha);
       arrowGraphics.fillTriangle(tipX, 0, baseX, -baseHalfY, baseX, baseHalfY);
 
-      // Bright highlight stripe along the leading edge — Balatro top-stripe feel.
+      // Bright highlight stripe along the leading edge.
       arrowGraphics.lineStyle(1.5, 0xffffff, finalAlpha * 0.7);
       arrowGraphics.beginPath();
       arrowGraphics.moveTo(tipX * 0.85, -baseHalfY * 0.55);

@@ -14,12 +14,12 @@ import {
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
@@ -40,7 +40,7 @@ export class CodexScene extends Phaser.Scene {
   private codexCards: CodexCardElements[] = [];
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
-  private balatroBackButton: MenuButton | null = null;
+  private backButton: MenuButton | null = null;
 
   // Grid constants
   private readonly cardWidth = 340;
@@ -62,7 +62,6 @@ export class CodexScene extends Phaser.Scene {
   create(): void {
     const centerX = this.scale.width / 2;
 
-    fadeIn(this, 200);
     this.soundManager = new SoundManager(this);
 
     // Reset state
@@ -73,16 +72,16 @@ export class CodexScene extends Phaser.Scene {
     this.selectedTabIndex = 0;
     this.selectedCardIndex = 0;
 
-    // Balatro backdrop.
+    // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
-      this.balatroBackButton?.tickIdle(time / 1000);
+      this.backButton?.tickIdle(time / 1000);
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    // Title sticker.
-    makeStickerText(this, centerX, 36, 'CODEX', {
+    // Title heading.
+    const title = makeDisplayText(this, centerX, 36, 'CODEX', {
       fontSize: 32,
       color: ACCENT_COLORS_STR.primary,
       strokeWidth: 5,
@@ -103,7 +102,7 @@ export class CodexScene extends Phaser.Scene {
     });
     completionLabel.setOrigin(1, 0);
 
-    const completionValue = makeStickerText(this, this.scale.width - 20, 36,
+    const completionValue = makeDisplayText(this, this.scale.width - 20, 36,
       `${completionPercent}%`, {
         fontSize: 18,
         color: ACCENT_COLORS_STR.primary,
@@ -127,8 +126,8 @@ export class CodexScene extends Phaser.Scene {
     // Display content for default category
     this.displayCategoryContent(this.currentCategory);
 
-    // Back button — Balatro pill.
-    this.balatroBackButton = createMenuButton({
+    // Back button.
+    this.backButton = createMenuButton({
       scene: this,
       x: centerX,
       y: this.scale.height - 36,
@@ -139,16 +138,16 @@ export class CodexScene extends Phaser.Scene {
       fontSize: 14,
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
-    this.balatroBackButton.card.hitZone.on('pointerover', () => {
+    this.backButton.card.hitZone.on('pointerover', () => {
       this.focusZone = 'back';
       this.updateFocusVisuals();
-      this.balatroBackButton!.setHoverState(true);
+      this.backButton!.setHoverState(true);
     });
-    this.balatroBackButton.card.hitZone.on('pointerout', () => {
-      this.balatroBackButton!.setHoverState(false);
+    this.backButton.card.hitZone.on('pointerout', () => {
+      this.backButton!.setHoverState(false);
       this.updateFocusVisuals();
     });
 
@@ -162,6 +161,19 @@ export class CodexScene extends Phaser.Scene {
 
     // Initial focus visuals
     this.updateFocusVisuals();
+
+    // Entrance choreography: title + completion first, tabs next, then the
+    // content list rises in as one block (rows scroll inside the mask).
+    staggerEntrance(this, [
+      title,
+      completionLabel,
+      completionValue,
+      subStats,
+      ...this.categoryTabs.values(),
+      this.contentContainer,
+      this.backButton.container,
+    ]);
+    sweepIn(this);
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -786,7 +798,7 @@ export class CodexScene extends Phaser.Scene {
       },
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
 
@@ -799,7 +811,7 @@ export class CodexScene extends Phaser.Scene {
       columns: navigatorColumns,
       wrap: true,
       onCancel: () => {
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
       initialIndex: this.focusZone === 'tabs'
         ? this.selectedTabIndex
@@ -864,8 +876,8 @@ export class CodexScene extends Phaser.Scene {
       }
     });
 
-    // Update back button — Balatro pill focus pop.
-    this.balatroBackButton?.setFocusState(this.focusZone === 'back');
+    // Update back button focus pop.
+    this.backButton?.setFocusState(this.focusZone === 'back');
   }
 
   shutdown(): void {
@@ -879,8 +891,8 @@ export class CodexScene extends Phaser.Scene {
     }
     this.menuBackground?.destroy();
     this.menuBackground = null;
-    this.balatroBackButton?.destroy();
-    this.balatroBackButton = null;
+    this.backButton?.destroy();
+    this.backButton = null;
     this.tweens.killAll();
   }
 }

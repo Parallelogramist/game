@@ -13,13 +13,14 @@ import { getNextComboThreshold } from '../../systems/ComboSystem';
 import { TouchActionButtons } from '../../ui/TouchActionButtons';
 import { Relic, getRelicRarityColor } from '../../data/Relics';
 import { RunModifier } from '../../data/RunModifiers';
-import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS } from '../../visual/MenuStyle';
+import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
+import { OverlayDepths } from '../../visual/DepthLayers';
 
 /**
- * Draws a Balatro-style HUD panel into the supplied Graphics object: drop
- * shadow + accent ink border + dark body + thin top highlight stripe. Same
- * visual language as `MenuCard` but cheap (single redraw per refresh, no
- * tweens), so per-frame HUD widgets can adopt the menu look without paying
+ * Draws a sharp HUD panel into the supplied Graphics object: soft shadow +
+ * thin accent border + dark body + hairline top accent. Same visual
+ * language as `MenuCard` but cheap (single redraw per refresh, no tweens),
+ * so per-frame HUD widgets can adopt the menu look without paying
  * MenuCard's hover/wisp overhead.
  */
 function paintHudPanel(
@@ -30,15 +31,15 @@ function paintHudPanel(
   height: number,
   bodyColor: number,
   accentColor: number,
-  cornerRadius: number = 10,
+  cornerRadius: number = 6,
   alpha: number = 1,
 ): void {
   graphics.clear();
   const halfW = width / 2;
   const halfH = height / 2;
-  // Drop shadow.
-  graphics.fillStyle(0x000000, 0.45 * alpha);
-  graphics.fillRoundedRect(centerX - halfW + 3, centerY - halfH + 4, width, height, cornerRadius + 1);
+  // Soft drop shadow directly beneath the panel.
+  graphics.fillStyle(0x000000, 0.4 * alpha);
+  graphics.fillRoundedRect(centerX - halfW, centerY - halfH + 3, width, height, cornerRadius + 1);
   // Accent border.
   graphics.fillStyle(accentColor, alpha);
   graphics.fillRoundedRect(centerX - halfW - 2, centerY - halfH - 2, width + 4, height + 4, cornerRadius);
@@ -112,7 +113,7 @@ interface HUDManagerOptions {
   onAutoBuyToggled: () => void;
 }
 
-const HUD_DEPTH = 1000;
+const HUD_DEPTH = OverlayDepths.HUD;
 const HUD_ALPHA = 0.75;
 const HUD_EDGE_PADDING = 16;
 const HUD_ELEMENT_SPACING = 8;
@@ -145,6 +146,33 @@ const HP_THRESHOLD_COLORS: Record<HPThreshold, number> = {
 const getHPThreshold = (progress: number): HPThreshold =>
   progress > 0.5 ? 'green' : progress > 0.25 ? 'yellow' : 'red';
 
+/**
+ * Draws a four-point star centered at (cx, cy) into the supplied Graphics —
+ * the mastery marker. Drawn, not a font glyph: ★ renders through the
+ * system font fallback and looks soft/off-brand next to the vector HUD.
+ */
+function paintStarBadge(
+  graphics: Phaser.GameObjects.Graphics,
+  cx: number,
+  cy: number,
+  outerRadius: number,
+  color: number,
+): void {
+  const innerRadius = Math.max(1, Math.round(outerRadius * 0.38));
+  graphics.fillStyle(color, 1);
+  graphics.beginPath();
+  graphics.moveTo(cx, cy - outerRadius);
+  graphics.lineTo(cx + innerRadius, cy - innerRadius);
+  graphics.lineTo(cx + outerRadius, cy);
+  graphics.lineTo(cx + innerRadius, cy + innerRadius);
+  graphics.lineTo(cx, cy + outerRadius);
+  graphics.lineTo(cx - innerRadius, cy + innerRadius);
+  graphics.lineTo(cx - outerRadius, cy);
+  graphics.lineTo(cx - innerRadius, cy - innerRadius);
+  graphics.closePath();
+  graphics.fillPath();
+}
+
 export class HUDManager {
   private scene: Phaser.Scene;
   private options: HUDManagerOptions;
@@ -172,8 +200,27 @@ export class HUDManager {
   private ultBarBackground: Phaser.GameObjects.Rectangle | null = null;
   private ultBarFill: Phaser.GameObjects.Rectangle | null = null;
   private ultBarGlow: Phaser.GameObjects.Graphics | null = null;
+
+  // Bar juice — gradient sheen overlays track their fill widths; the HP chip
+  // holds the pre-hit fill edge then drains; the ult sheen sweeps once on
+  // ready. All rectangles, zero per-frame allocations.
+  private hpBarSheen!: Phaser.GameObjects.Rectangle;
+  private xpBarSheen!: Phaser.GameObjects.Rectangle;
+  private ultBarSheen: Phaser.GameObjects.Rectangle | null = null;
+  private hpChip!: Phaser.GameObjects.Rectangle;
+  private hpChipFromRatio: number = 0;
+  private hpChipDrainFrom: number = 0;
+  private hpChipHoldMs: number = 0;
+  private hpChipDrainElapsedMs: number = 0;
+  private xpPulse: number = 0;
+  private lastXpProgress: number = 0;
+  private lastXpLevel: number = -1;
+  private ultReadySweep: Phaser.GameObjects.Rectangle | null = null;
+  private barMotionReduced: boolean = false;
   private ultLabel: Phaser.GameObjects.Text | null = null;
   private ultBarWidth: number = 0;
+  /** Bar base width in design units — trimmed in portrait (see bar creation). */
+  private barBaseWidth: number = 180;
   private wasUltimateReady: boolean = false;
 
   // Upgrade icons UI
@@ -284,11 +331,11 @@ export class HUDManager {
 
     // === TOP LEFT: Level & Stats Panel ===
 
-    // Level display — sticker style for menu-Balatro coherence.
+    // Level display — display style for menu coherence.
     this.levelText = this.scene.add.text(leftMargin, currentY, 'LEVEL 1', {
       fontSize: this.scaledFontSize(28),
       color: ACCENT_COLORS_STR.gold,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(4),
@@ -307,7 +354,10 @@ export class HUDManager {
     currentY += this.scaledSize(46);
 
     // HP Bar (above XP bar)
-    const hpBarWidth = this.scaledSize(180);
+    // Portrait trims the bars so bar+label clear the centered timer column
+    // (bars at 180 base units reach ~x430 of 720; the timer needs ~285+).
+    this.barBaseWidth = this.scene.scale.height > this.scene.scale.width ? 120 : 180;
+    const hpBarWidth = this.scaledSize(this.barBaseWidth);
     const hpBarHeight = this.scaledSize(14);
 
     // HP glow (behind bar)
@@ -347,6 +397,22 @@ export class HUDManager {
     this.hpBarFill.setOrigin(0, 0.5);
     this.hpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
+    this.barMotionReduced = getSettingsManager().isReducedMotionEnabled();
+
+    // Damage chip — spans old→new fill edge after a hit, drains after a hold.
+    this.hpChip = this.scene.add.rectangle(
+      leftMargin + 1, currentY + hpBarHeight / 2, 0, hpBarHeight - 2, 0xf2f6ff, 0.85,
+    );
+    this.hpChip.setOrigin(0, 0.5);
+    this.hpChip.setDepth(HUD_DEPTH).setAlpha(0);
+
+    // Top-half lighten — cheap two-tone gradient over the fill.
+    this.hpBarSheen = this.scene.add.rectangle(
+      leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((hpBarHeight - 2) / 2)), 0xffffff, 0.16,
+    );
+    this.hpBarSheen.setOrigin(0, 0);
+    this.hpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
     // HP Text overlay
     this.hpText = this.scene.add.text(
       leftMargin + hpBarWidth / 2,
@@ -355,7 +421,8 @@ export class HUDManager {
       {
         fontSize: this.scaledFontSize(11),
         color: '#000000',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
         stroke: '#ffffff',
         strokeThickness: 2,
       }
@@ -363,11 +430,11 @@ export class HUDManager {
     this.hpText.setOrigin(0.5);
     this.hpText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // HP label — sticker style.
+    // HP label — display style.
     this.scene.add.text(leftMargin + hpBarWidth + this.scaledSize(8), currentY + hpBarHeight / 2, 'HP', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.danger,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -376,7 +443,7 @@ export class HUDManager {
     currentY += hpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
 
     // XP Bar (below HP bar)
-    const xpBarWidth = this.scaledSize(180);
+    const xpBarWidth = this.scaledSize(this.barBaseWidth);
     const xpBarHeight = this.scaledSize(12);
 
     // XP glow (behind bar)
@@ -416,11 +483,17 @@ export class HUDManager {
     this.xpBarFill.setOrigin(0, 0.5);
     this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // XP label — sticker style.
+    this.xpBarSheen = this.scene.add.rectangle(
+      leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((xpBarHeight - 2) / 2)), 0xffffff, 0.16,
+    );
+    this.xpBarSheen.setOrigin(0, 0);
+    this.xpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // XP label — display style.
     this.scene.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.safe,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -430,7 +503,7 @@ export class HUDManager {
 
     // Ultimate ("Overdrive") charge bar (below XP bar) — fills from kills +
     // damage; glows gold when ready to fire (Q / gamepad Y / touch button).
-    const ultBarWidth = this.scaledSize(180);
+    const ultBarWidth = this.scaledSize(this.barBaseWidth);
     const ultBarHeight = this.scaledSize(8);
     this.ultBarWidth = ultBarWidth - 2;
 
@@ -459,11 +532,25 @@ export class HUDManager {
     this.ultBarFill.setOrigin(0, 0.5);
     this.ultBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // ULT label — sticker style (shows the [Q] hotkey when ready).
+    this.ultBarSheen = this.scene.add.rectangle(
+      leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((ultBarHeight - 2) / 2)), 0xffffff, 0.16,
+    );
+    this.ultBarSheen.setOrigin(0, 0);
+    this.ultBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+
+    // Ready sweep — a narrow bright band that crosses the bar once when the
+    // ultimate charges. Hidden until then.
+    this.ultReadySweep = this.scene.add.rectangle(
+      leftMargin + 1, currentY + ultBarHeight / 2, this.scaledSize(16), ultBarHeight - 2, 0xffffff, 0.75,
+    );
+    this.ultReadySweep.setOrigin(0, 0.5);
+    this.ultReadySweep.setDepth(HUD_DEPTH + 1).setAlpha(0);
+
+    // ULT label — display style (shows the [Q] hotkey when ready).
     this.ultLabel = this.scene.add.text(leftMargin + ultBarWidth + this.scaledSize(8), currentY + ultBarHeight / 2, 'ULT', {
       fontSize: this.scaledFontSize(12),
       color: '#ffcc33',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -481,7 +568,7 @@ export class HUDManager {
     this.upgradeTooltip.setVisible(false);
     this.upgradeTooltip.setDepth(HUD_DEPTH + 1); // Slightly above other HUD elements
 
-    // Tooltip background — Balatro panel painted via graphics. Sized dynamically per-show in showUpgradeTooltip.
+    // Tooltip background — HUD panel painted via graphics. Sized dynamically per-show in showUpgradeTooltip.
     const tooltipPanel = this.scene.add.graphics();
     tooltipPanel.setName('tooltipPanel');
     const tooltipBg = this.scene.add.rectangle(0, 0, 0, 0, 0x000000, 0);
@@ -527,29 +614,35 @@ export class HUDManager {
     const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
     const pauseButtonSize = Math.max(this.scaledSize(36), 44);
     const pauseButtonX = this.scene.scale.width - scaledPadding - pauseButtonSize / 2;
-    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
+    // Portrait sits the button a touch lower: taps hugging the top edge on
+    // iOS (minimized Safari UI / status-bar band) often get eaten by the
+    // browser chrome reveal before they reach the canvas.
+    const pausePortraitDrop = this.scene.scale.height > this.scene.scale.width ? this.scaledSize(12) : 0;
+    const pauseButtonY = scaledPadding + pauseButtonSize / 2 + pausePortraitDrop;
 
     // Stats positioned below the pause button, right-aligned to screen edge
     const statsRightX = this.scene.scale.width - scaledPadding;
     const statsTopY = pauseButtonY + pauseButtonSize / 2 + scaledSpacing;
 
-    // World level display — sticker style.
+    // World level display — display style.
     const worldLevel = this.options.worldLevel;
-    this.scene.add.text(this.scene.scale.width / 2, scaledPadding, `WORLD ${worldLevel}`, {
+    const worldLevelText = this.scene.add.text(this.scene.scale.width / 2, scaledPadding, `WORLD ${worldLevel}`, {
       fontSize: this.scaledFontSize(14),
       color: ACCENT_COLORS_STR.primary,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
-    }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    });
+    worldLevelText.setLetterSpacing(2);
+    worldLevelText.setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // Game time display — sticker style, big + chunky for the timer.
+    // Game time display — display style, large for the timer.
     const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
     const timerLabel = this.scene.add.text(this.scene.scale.width / 2, scaledPadding + scaledWorldLevelHeight + scaledSpacing, '', {
       fontSize: this.scaledFontSize(28),
       color: '#ffffff',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(4),
@@ -557,35 +650,40 @@ export class HUDManager {
     timerLabel.setLetterSpacing(2);
     timerLabel.setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // Kill count display — sticker on Balatro pill.
-    this.scene.add.text(statsRightX, statsTopY, '', {
+    // Kill count + gold preview — tidy right-aligned stack below the pause
+    // button. Values lead, letter-spaced label trails so the labels stay
+    // pinned to the right edge as the numbers grow leftward.
+    const killCountText = this.scene.add.text(statsRightX, statsTopY, '', {
       fontSize: this.scaledFontSize(16),
       color: ACCENT_COLORS_STR.safe,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
-    }).setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    });
+    killCountText.setLetterSpacing(1);
+    killCountText.setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
-    // Gold preview display — sticker on Balatro pill.
-    this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
-      fontSize: this.scaledFontSize(14),
+    const goldPreviewText = this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
+      fontSize: this.scaledFontSize(16),
       color: ACCENT_COLORS_STR.gold,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
-    }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    });
+    goldPreviewText.setLetterSpacing(1);
+    goldPreviewText.setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
     // Combo counter display — anchored bottom-center above the controls hint
-    // so it doesn't compete with pause/kills/gold in the top-right. Sticker
-    // typography (bold + thick stroke + letter-spaced) so it feels like the
+    // so it doesn't compete with pause/kills/gold in the top-right. Display
+    // typography (bold + letter-spaced) so it feels like the
     // big crit callouts in the menu.
     const comboAnchorY = this.scene.scale.height - this.scaledSize(96);
     const comboTextNode = this.scene.add.text(this.scene.scale.width / 2, comboAnchorY, '', {
       fontSize: this.scaledFontSize(18),
       color: '#ffffff',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(4),
@@ -607,23 +705,29 @@ export class HUDManager {
       {
         fontSize: this.scaledFontSize(12),
         color: '#ff8844',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
         stroke: '#000000',
         strokeThickness: this.scaledSize(2),
       }
     ).setOrigin(0.5, 0).setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
 
-    // Pause button \u2014 Balatro pill (graphics back-layer + transparent rect hit zone).
+    // Pause button \u2014 HUD pill (graphics back-layer + transparent rect hit zone).
+    // Painted around the local origin and positioned, so handleResize can move
+    // the pill along with the hit zone and icon.
     const pauseGfx = this.scene.add.graphics();
+    pauseGfx.setName('pauseButtonGfx');
     pauseGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
-    paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
+    paintHudPanel(pauseGfx, 0, 0, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
+    pauseGfx.setPosition(pauseButtonX, pauseButtonY);
 
+    // Hit zone runs 12 units past the visual on every side — the pill is
+    // small and corner-pinned, and near-miss taps should still pause.
     const pauseButtonBg = this.scene.add.rectangle(
       pauseButtonX,
       pauseButtonY,
-      pauseButtonSize,
-      pauseButtonSize,
+      pauseButtonSize + this.scaledSize(24),
+      pauseButtonSize + this.scaledSize(24),
       0x000000,
       0
     );
@@ -631,31 +735,48 @@ export class HUDManager {
     pauseButtonBg.setName('pauseButtonBg');
     pauseButtonBg.setDepth(HUD_DEPTH);
 
-    const pauseButtonIcon = this.scene.add.text(pauseButtonX, pauseButtonY, '\u23F8', {
-      fontSize: this.scaledFontSize(20),
-      color: '#ffffff',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
-    });
-    pauseButtonIcon.setOrigin(0.5);
+    // Pause glyph \u2014 two rounded vertical bars drawn with Graphics. The old
+    // '\u23F8' text glyph rendered through the system emoji font: soft,
+    // blurry, and off-brand next to the vector pill.
+    const pauseButtonIcon = this.scene.add.graphics();
+    const pauseBarHeight = Math.round(pauseButtonSize * 0.36);
+    const pauseBarWidth = Math.max(4, Math.round(pauseButtonSize * 0.12));
+    const pauseBarHalfGap = Math.max(2, Math.round(pauseButtonSize * 0.07));
+    const pauseBarRadius = Math.min(2, Math.floor(pauseBarWidth / 2));
+    pauseButtonIcon.fillStyle(ACCENT_COLORS.primary, 1);
+    pauseButtonIcon.fillRoundedRect(
+      -pauseBarHalfGap - pauseBarWidth, -Math.round(pauseBarHeight / 2),
+      pauseBarWidth, pauseBarHeight, pauseBarRadius,
+    );
+    pauseButtonIcon.fillRoundedRect(
+      pauseBarHalfGap, -Math.round(pauseBarHeight / 2),
+      pauseBarWidth, pauseBarHeight, pauseBarRadius,
+    );
+    pauseButtonIcon.setPosition(pauseButtonX, pauseButtonY);
     pauseButtonIcon.setName('pauseButtonIcon');
     pauseButtonIcon.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Pause button hover \u2014 repaint the pill with brighter accent.
     pauseButtonBg.on('pointerover', () => {
-      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.focus, 12);
+      paintHudPanel(pauseGfx, 0, 0, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.focus, 8);
     });
     pauseButtonBg.on('pointerout', () => {
-      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
+      paintHudPanel(pauseGfx, 0, 0, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
     });
-    pauseButtonBg.on('pointerdown', () => {
+    // pointerup, not pointerdown: near the top screen edge iOS delays or
+    // cancels touchstart while disambiguating system gestures, so a
+    // down-only handler can silently never fire — the release still does.
+    // (Every other button in the game already uses the pointerup idiom.)
+    pauseButtonBg.on('pointerup', () => {
       this.options.onPauseClicked();
     });
     pauseButtonBg.once('destroy', () => pauseGfx.destroy());
 
-    // Controls hint (bottom left) — sticker style.
-    this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
+    // Controls hint (bottom left) — desktop input only: on touch devices the
+    // text is meaningless and collided with the auto-upgrade pill at
+    // portrait width.
+    const hintIsTouch = this.scene.input.manager.touch !== null && this.scene.sys.game.device.input.touch;
+    if (!hintIsTouch) this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
       fontSize: this.scaledFontSize(13),
       color: '#aaaaaa',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -678,13 +799,13 @@ export class HUDManager {
       hudScale: this.hudScale,
     });
 
-    // FPS counter — sticker style (bottom right corner, above auto-buy toggle).
+    // FPS counter — display style (bottom right corner, above auto-buy toggle).
     const autoBuyToggleHeight = Math.max(this.scaledSize(26), 44);
     const fpsY = this.scene.scale.height - scaledPadding - autoBuyToggleHeight - scaledSpacing;
     this.fpsText = this.scene.add.text(this.scene.scale.width - scaledPadding, fpsY, 'FPS: --', {
       fontSize: this.scaledFontSize(14),
       color: ACCENT_COLORS_STR.safe,
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
@@ -707,6 +828,10 @@ export class HUDManager {
    * Updates all HUD elements each frame.
    */
   update(state: HUDUpdateState): void {
+    // Track the live setting — the in-run Settings scene toggles it while
+    // this HUD instance survives (scene.launch + pause, no restart), and
+    // every sibling consumer (minimap sweep, trails, ripples) reads live.
+    this.barMotionReduced = getSettingsManager().isReducedMotionEnabled();
     // Update timer (only when seconds change)
     if (this.timerTextRef) {
       const minutes = Math.floor(state.gameTime / 60);
@@ -726,7 +851,7 @@ export class HUDManager {
     // Update kill count (only when changed)
     if (this.killCountTextRef && state.killCount !== this.lastKillCount) {
       this.lastKillCount = state.killCount;
-      this.killCountTextRef.setText(`Kills: ${state.killCount}`);
+      this.killCountTextRef.setText(`${state.killCount} KILLS`);
     }
 
     // Update gold preview — single compact number to reduce HUD clutter.
@@ -740,7 +865,7 @@ export class HUDManager {
       );
       if (deathGold !== this.lastDeathGold) {
         this.lastDeathGold = deathGold;
-        this.goldPreviewTextRef.setText(`⟁ ${deathGold}`);
+        this.goldPreviewTextRef.setText(`${deathGold} GOLD`);
       }
     }
 
@@ -851,11 +976,27 @@ export class HUDManager {
       const ratio = Phaser.Math.Clamp(state.ultimateChargeRatio, 0, 1);
       this.ultBarFill.width = this.ultBarWidth * ratio;
 
+      if (this.ultBarSheen) this.ultBarSheen.width = this.ultBarWidth * ratio;
+
       if (state.ultimateReady) {
         this.ultBarFill.setFillStyle(0xffffff);
         this.ultLabel.setText('ULT [Q]');
         // One-shot pulse + glow ramp the moment it becomes ready.
         if (!this.wasUltimateReady) {
+          // Ready sweep — one bright band across the bar, then gone.
+          if (!this.barMotionReduced && this.ultReadySweep) {
+            const sweep = this.ultReadySweep;
+            this.scene.tweens.killTweensOf(sweep);
+            sweep.x = this.ultBarFill.x;
+            sweep.setAlpha(0.75);
+            this.scene.tweens.add({
+              targets: sweep,
+              x: this.ultBarFill.x + this.ultBarWidth - sweep.width,
+              alpha: 0,
+              duration: 350,
+              ease: 'Cubic.easeOut',
+            });
+          }
           this.ultBarGlow.clear();
           this.ultBarGlow.fillStyle(0xffcc33, 0.55);
           this.ultBarGlow.fillRoundedRect(
@@ -879,6 +1020,11 @@ export class HUDManager {
           this.scene.tweens.killTweensOf(this.ultBarGlow);
           this.ultBarGlow.setAlpha(1);
           this.ultBarGlow.clear();
+          // Ult fired/reset — retire any in-flight ready sweep.
+          if (this.ultReadySweep) {
+            this.scene.tweens.killTweensOf(this.ultReadySweep);
+            this.ultReadySweep.setAlpha(0);
+          }
         }
       }
       this.wasUltimateReady = state.ultimateReady;
@@ -887,9 +1033,22 @@ export class HUDManager {
     this.touchActionButtons?.updateUltimateCharge(state.ultimateChargeRatio, state.ultimateReady);
 
     // Update XP bar
-    const xpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
+    const xpBarMaxWidth = this.scaledSize(this.barBaseWidth) - 2; // scaled width minus padding
     const xpProgress = state.xp / state.xpToNextLevel;
     this.xpBarFill.width = xpBarMaxWidth * xpProgress;
+
+    // Gain pulse — brief brightening of the sheen on same-level XP gain,
+    // decaying over ~120ms. Level-up wraps skip it (progress drops).
+    if (state.playerLevel === this.lastXpLevel && xpProgress > this.lastXpProgress && !this.barMotionReduced) {
+      this.xpPulse = 1;
+    }
+    this.lastXpLevel = state.playerLevel;
+    this.lastXpProgress = xpProgress;
+    if (this.xpPulse > 0) {
+      this.xpPulse = Math.max(0, this.xpPulse - state.deltaSeconds / 0.12);
+    }
+    this.xpBarSheen.width = xpBarMaxWidth * Math.min(1, xpProgress);
+    this.xpBarSheen.setFillStyle(0xffffff, 0.16 + this.xpPulse * 0.38);
 
     // XP shimmer when approaching level-up (>85% full)
     if (xpProgress > 0.85) {
@@ -938,9 +1097,11 @@ export class HUDManager {
     }
 
     // Update HP bar
-    const hpBarMaxWidth = this.scaledSize(180) - 2; // scaled width minus padding
+    const hpBarMaxWidth = this.scaledSize(this.barBaseWidth) - 2; // scaled width minus padding
     const hpProgress = Math.max(0, state.currentHP / state.maxHP);
+    const previousHpProgress = this.lastPlayerHP >= 0 ? Math.max(0, this.lastPlayerHP / state.maxHP) : hpProgress;
     this.hpBarFill.width = hpBarMaxWidth * hpProgress;
+    this.hpBarSheen.width = hpBarMaxWidth * hpProgress;
 
     // HP damage flash: brief white pulse when player takes damage
     if (this.lastPlayerHP >= 0 && state.currentHP < this.lastPlayerHP) {
@@ -949,8 +1110,37 @@ export class HUDManager {
         // Restore threshold color (will be set below on next frame)
         this.hpBarFill.setFillStyle(HP_THRESHOLD_COLORS[getHPThreshold(hpProgress)]);
       });
+      // Damage chip: hold the pre-hit edge, then drain onto the new edge.
+      // Consecutive hits mid-drain extend the chip from the older edge.
+      if (!this.barMotionReduced) {
+        this.hpChipFromRatio = Math.max(this.hpChipFromRatio, previousHpProgress);
+        this.hpChipDrainFrom = this.hpChipFromRatio;
+        this.hpChipHoldMs = 250;
+        this.hpChipDrainElapsedMs = 0;
+      }
+    } else if (state.currentHP > this.lastPlayerHP) {
+      // Healed — the chip no longer describes lost health.
+      this.hpChipFromRatio = 0;
     }
     this.lastPlayerHP = state.currentHP;
+
+    // Advance the chip lifecycle. Quad ease-in drain over 400ms after a
+    // 250ms hold; hidden when it has fully drained onto the live edge.
+    if (this.hpChipFromRatio > hpProgress) {
+      if (this.hpChipHoldMs > 0) {
+        this.hpChipHoldMs = Math.max(0, this.hpChipHoldMs - state.deltaSeconds * 1000);
+      } else {
+        this.hpChipDrainElapsedMs += state.deltaSeconds * 1000;
+        const t = Math.min(1, this.hpChipDrainElapsedMs / 400);
+        this.hpChipFromRatio = this.hpChipDrainFrom + (hpProgress - this.hpChipDrainFrom) * t * t;
+      }
+      this.hpChip.x = this.hpBarFill.x + hpBarMaxWidth * hpProgress;
+      this.hpChip.width = hpBarMaxWidth * (this.hpChipFromRatio - hpProgress);
+      this.hpChip.setAlpha(HUD_ALPHA);
+    } else {
+      this.hpChipFromRatio = hpProgress;
+      this.hpChip.setAlpha(0);
+    }
 
     // Update HP text
     this.hpText.setText(`${Math.ceil(state.currentHP)}/${Math.ceil(state.maxHP)}`);
@@ -1039,7 +1229,9 @@ export class HUDManager {
    * Skills have purple-blue backgrounds, weapons have gold backgrounds.
    */
   updateUpgradeIcons(upgrades: UpgradeIconData[]): void {
-    // Clear existing icons
+    // Clear existing icons. Destroying a hovered icon never fires pointerout,
+    // so force-hide the tooltip or it lingers with stale text.
+    this.upgradeTooltip?.setVisible(false);
     this.upgradeIconsContainer.removeAll(true);
 
     // Layout constants (scaled for mobile)
@@ -1106,7 +1298,7 @@ export class HUDManager {
         });
       }
 
-      // Icon background — Balatro pill chip via graphics + transparent hit rect.
+      // Icon background — HUD pill chip via graphics + transparent hit rect.
       const chipPanel = this.scene.add.graphics();
       const chipAccent = isMastered ? masteryColors.stroke : colors.stroke;
       paintHudPanel(chipPanel, iconX + iconSize / 2, iconY + iconSize / 2, iconSize, iconSize, colors.bg, chipAccent, 6);
@@ -1144,22 +1336,32 @@ export class HUDManager {
       );
       levelBadgeBg.setStrokeStyle(1, 0xffffff, 0.5);
 
-      const levelBadge = this.scene.add.text(
-        badgeX,
-        badgeY,
-        isMastered ? '\u2605' : `${upgrade.currentLevel}`,
-        {
-          fontSize: isMastered ? this.scaledFontSize(14) : this.scaledFontSize(12),
-          color: isMastered ? '#ffd700' : '#ffffff',
-          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-          fontStyle: 'bold',
-          stroke: '#000000',
-          strokeThickness: 2,
-        }
-      );
-      levelBadge.setOrigin(0.5, 0.5);
+      // Mastered icons get a drawn gold star badge; leveling icons show the
+      // numeric level.
+      let levelBadge: Phaser.GameObjects.GameObject;
+      if (isMastered) {
+        const starGfx = this.scene.add.graphics();
+        paintStarBadge(starGfx, badgeX, badgeY, Math.max(4, Math.round(badgeSize * 0.42)), 0xffd700);
+        levelBadge = starGfx;
+      } else {
+        const levelBadgeText = this.scene.add.text(
+          badgeX,
+          badgeY,
+          `${upgrade.currentLevel}`,
+          {
+            fontSize: this.scaledFontSize(12),
+            color: '#ffffff',
+            fontFamily: DISPLAY_FONT,
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 2,
+          }
+        );
+        levelBadgeText.setOrigin(0.5, 0.5);
+        levelBadge = levelBadgeText;
+      }
 
-      // Hover events with Balatro pill repaint (brighter accent on hover).
+      // Hover events with pill repaint (brighter accent on hover).
       iconBg.on('pointerover', () => {
         paintHudPanel(chipPanel, iconX + iconSize / 2, iconY + iconSize / 2, iconSize, iconSize, colors.hover, ACCENT_COLORS.focus, 6);
         this.showUpgradeTooltip(upgrade, iconX, iconY + iconSize + this.scaledSize(10));
@@ -1234,11 +1436,11 @@ export class HUDManager {
     glowGraphics.fillRoundedRect(-barWidth / 2 - 6, barTopOffset - 4, barWidth + 12, barHeight + 8, 6);
     container.add(glowGraphics);
 
-    // Name text \u2014 sticker banner with chunky outline.
+    // Name text \u2014 display banner label.
     const nameText = this.scene.add.text(0, 0, name.toUpperCase(), {
       fontSize: this.scaledFontSize(16),
       color: isFinalBoss ? '#ff66cc' : '#ff6666',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(5),
@@ -1247,7 +1449,7 @@ export class HUDManager {
     nameText.setOrigin(0.5, 0);
     container.add(nameText);
 
-    // Bar background \u2014 Balatro panel.
+    // Bar background \u2014 HUD panel.
     const barPanel = this.scene.add.graphics();
     paintHudPanel(
       barPanel, 0, barTopOffset + barHeight / 2, barWidth, barHeight,
@@ -1274,7 +1476,7 @@ export class HUDManager {
     const healthText = this.scene.add.text(0, barTopOffset + barHeight / 2, '', {
       fontSize: this.scaledFontSize(11),
       color: '#ffffff',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -1376,17 +1578,17 @@ export class HUDManager {
     this.eventIndicatorContainer.setDepth(HUD_DEPTH);
     this.eventIndicatorContainer.setAlpha(0);
 
-    // Balatro panel background.
+    // Panel background.
     const panelGfx = this.scene.add.graphics();
-    paintHudPanel(panelGfx, 0, 0, panelWidth, panelHeight, BODY_COLORS.primary, event.color, 10);
+    paintHudPanel(panelGfx, 0, 0, panelWidth, panelHeight, BODY_COLORS.primary, event.color, 6);
     this.eventIndicatorContainer.add(panelGfx);
     const background = this.scene.add.rectangle(0, 0, panelWidth, panelHeight, 0x000000, 0);
     this.eventIndicatorContainer.add(background);
 
-    // Event name — sticker style.
+    // Event name — display style.
     const nameText = this.scene.add.text(0, this.scaledSize(-12), event.name.toUpperCase(), {
       fontSize: this.scaledFontSize(13),
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       color: colorHex,
       fontStyle: 'bold',
       stroke: '#000000',
@@ -1492,6 +1694,9 @@ export class HUDManager {
       this.createRelicModifierStrip();
     }
     const container = this.relicStripContainer!;
+    // Rebuild destroys any hovered slot without a pointerout — force-hide the
+    // tooltip so it can't float with stale relic text.
+    this.hideRelicTooltip();
     container.removeAll(true);
 
     const iconSize = this.scaledSize(26);
@@ -1539,7 +1744,7 @@ export class HUDManager {
       const x = -(iconSize / 2) - index * (iconSize + iconSpacing);
       const y = iconSize / 2;
 
-      // Balatro pill slot — graphics back-layer + transparent hit zone.
+      // HUD pill slot — graphics back-layer + transparent hit zone.
       const slotPanel = this.scene.add.graphics();
       paintHudPanel(slotPanel, x, y, iconSize, iconSize, BODY_COLORS.primary, entry.borderColor, 8);
       container.add(slotPanel);
@@ -1711,12 +1916,18 @@ export class HUDManager {
     // --- Top-right elements ---
     const pauseButtonSize = Math.max(this.scaledSize(36), 44);
     const pauseButtonX = width - scaledPadding - pauseButtonSize / 2;
-    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
+    // Same portrait drop as create() — keeps the button clear of the iOS
+    // browser-chrome band after an orientation change.
+    const pausePortraitDrop = height > width ? this.scaledSize(12) : 0;
+    const pauseButtonY = scaledPadding + pauseButtonSize / 2 + pausePortraitDrop;
 
     const pauseBg = findByName<Phaser.GameObjects.Rectangle>('pauseButtonBg');
     if (pauseBg) pauseBg.setPosition(pauseButtonX, pauseButtonY);
 
-    const pauseIcon = findByName<Phaser.GameObjects.Text>('pauseButtonIcon');
+    const pausePill = findByName<Phaser.GameObjects.Graphics>('pauseButtonGfx');
+    if (pausePill) pausePill.setPosition(pauseButtonX, pauseButtonY);
+
+    const pauseIcon = findByName<Phaser.GameObjects.Graphics>('pauseButtonIcon');
     if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
 
     const statsRightX = width - scaledPadding;
@@ -1727,11 +1938,15 @@ export class HUDManager {
     const goldPreviewText = findByName<Phaser.GameObjects.Text>('goldPreviewText');
     if (goldPreviewText) goldPreviewText.setX(statsRightX);
 
+    // Combo readout lives at BOTTOM-CENTER (see creation) — re-anchor it
+    // there, not to the stats column: sending it to the right edge on a
+    // resize half-clipped it off-screen.
+    const comboAnchorY = height - this.scaledSize(96);
     const comboText = findByName<Phaser.GameObjects.Text>('comboText');
-    if (comboText) comboText.setX(statsRightX);
+    if (comboText) comboText.setPosition(width / 2, comboAnchorY);
 
     if (this.comboBuffText) {
-      this.comboBuffText.setX(width - this.scaledSize(10));
+      this.comboBuffText.setPosition(width / 2, comboAnchorY + this.scaledSize(4));
     }
 
     // --- Bottom-left elements ---
@@ -1932,11 +2147,11 @@ export class HUDManager {
     // Position with bottom edge at scaled padding from screen edge
     const toggleY = this.scene.scale.height - scaledPadding - toggleHeight / 2;
 
-    // Balatro pill — graphics back-layer + transparent hit zone.
+    // HUD pill — graphics back-layer + transparent hit zone.
     const autoBuyGfx = this.scene.add.graphics();
     autoBuyGfx.setName('autoBuyToggleGfx');
     autoBuyGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
-    paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.neutral, 12);
+    paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
 
     this.autoBuyToggleBg = this.scene.add.rectangle(
       toggleX, toggleY, toggleWidth, toggleHeight, 0x000000, 0,
@@ -1945,12 +2160,12 @@ export class HUDManager {
     this.autoBuyToggleBg.setName('autoBuyToggleBg');
     this.autoBuyToggleBg.setDepth(HUD_DEPTH);
 
-    // Toggle text — sticker style.
+    // Toggle text — display style.
     this.autoBuyToggleText = this.scene.add.text(
       toggleX, toggleY, 'AUTO-UPGRADE  OFF',
       {
         fontSize: this.scaledFontSize(13),
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         color: '#888888',
         fontStyle: 'bold',
         stroke: '#000000',
@@ -1966,7 +2181,7 @@ export class HUDManager {
       this.options.onAutoBuyToggled();
     });
     this.autoBuyToggleBg.on('pointerover', () => {
-      paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.focus, 12);
+      paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.focus, 8);
     });
     this.autoBuyToggleBg.on('pointerout', () => {
       this.refreshAutoBuyPanel();
@@ -2018,7 +2233,7 @@ export class HUDManager {
     const w = this.autoBuyToggleBg.getData('toggleW') as number;
     const h = this.autoBuyToggleBg.getData('toggleH') as number;
     const accent = this.isAutoBuyEnabled ? ACCENT_COLORS.gold : ACCENT_COLORS.neutral;
-    paintHudPanel(gfx, x, y, w, h, BODY_COLORS.primary, accent, 12);
+    paintHudPanel(gfx, x, y, w, h, BODY_COLORS.primary, accent, 8);
   }
 
   /**
@@ -2119,15 +2334,16 @@ export class HUDManager {
       tint: 0x8888aa,
     });
 
-    // Track info text — sticker style on accent color.
-    this.bgmTrackText = this.scene.add.text(this.scaledSize(65), 0, 'Loading...', {
+    // Track info text — small-caps display label on accent color.
+    this.bgmTrackText = this.scene.add.text(this.scaledSize(65), 0, 'LOADING...', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.primary,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
     });
+    this.bgmTrackText.setLetterSpacing(1);
 
     this.bgmContainer.add([this.bgmMuteButton, this.bgmMuteStrike, skipButton, musicIcon, this.bgmTrackText]);
   }
@@ -2172,12 +2388,12 @@ export class HUDManager {
       if (currentTrack.id !== this.lastTrackId) {
         this.lastTrackId = currentTrack.id;
         // Truncate long names to fit the display
-        const title = currentTrack.title;
+        const title = currentTrack.title.toUpperCase();
         this.bgmTrackText.setText(title.length > 24 ? title.substring(0, 22) + '...' : title);
       }
     } else {
       // Music Off when disabled, No Tracks when enabled but playlist empty
-      this.bgmTrackText.setText(isPlaying ? 'No Tracks' : 'Music Off');
+      this.bgmTrackText.setText(isPlaying ? 'NO TRACKS' : 'MUSIC OFF');
       this.lastTrackId = '';
     }
 
@@ -2212,7 +2428,7 @@ export class HUDManager {
     if (titleText) titleText.setText(upgrade.name);
     if (descText) descText.setText(upgrade.description);
     const isMastered = upgrade.currentLevel >= upgrade.maxLevel;
-    if (levelText) levelText.setText(isMastered ? '\u2605 MASTERED' : `Level ${upgrade.currentLevel}/${upgrade.maxLevel}`);
+    if (levelText) levelText.setText(isMastered ? 'MASTERED' : `Level ${upgrade.currentLevel}/${upgrade.maxLevel}`);
 
     let hasEvolution = false;
     if (evolutionText) {
@@ -2225,8 +2441,9 @@ export class HUDManager {
         } else {
           const weaponMet = upgrade.currentLevel >= evoInfo.requiredWeaponLevel;
           const statMet = evoInfo.currentStatLevel >= evoInfo.requiredStatLevel;
-          const wpnStatus = weaponMet ? '\u2713' : `${upgrade.currentLevel}/${evoInfo.requiredWeaponLevel}`;
-          const statStatus = statMet ? '\u2713' : `${evoInfo.currentStatLevel}/${evoInfo.requiredStatLevel}`;
+          // Always numeric \u2014 the row color signals met/unmet, no glyphs.
+          const wpnStatus = `${upgrade.currentLevel}/${evoInfo.requiredWeaponLevel}`;
+          const statStatus = `${evoInfo.currentStatLevel}/${evoInfo.requiredStatLevel}`;
           evolutionText.setText(`Evolve: Wpn ${wpnStatus} + ${evoInfo.requiredStatName} ${statStatus}`);
           evolutionText.setColor(weaponMet && statMet ? '#88ff88' : '#ffaa44');
         }

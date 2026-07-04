@@ -12,8 +12,9 @@
  */
 import Phaser from 'phaser';
 import { ACCENT_COLORS, BODY_COLORS, MENU_COLORS } from '../visual/MenuStyle';
+import { OverlayDepths } from '../visual/DepthLayers';
 
-const TOOLTIP_DEPTH = 2000;
+const TOOLTIP_DEPTH = OverlayDepths.TOOLTIP;
 const KEYBOARD_DELAY_MS = 2000;
 const TOOLTIP_MAX_WIDTH = 280;
 const TOOLTIP_PADDING = 12;
@@ -141,13 +142,13 @@ export class TooltipManager {
     const textHeight = this.label.height;
     const boxWidth = textWidth + TOOLTIP_PADDING * 2;
     const boxHeight = textHeight + TOOLTIP_PADDING * 2;
-    const radius = 10;
+    const radius = 6;
 
-    // Balatro panel: drop shadow + accent border + body fill + top stripe.
+    // Panel: soft shadow + accent border + body fill + top accent line.
     this.background = this.scene.add.graphics();
-    // Drop shadow.
-    this.background.fillStyle(0x000000, 0.45);
-    this.background.fillRoundedRect(3, 4, boxWidth, boxHeight, radius);
+    // Soft drop shadow.
+    this.background.fillStyle(0x000000, 0.4);
+    this.background.fillRoundedRect(0, 3, boxWidth, boxHeight, radius);
     // Accent ink border.
     this.background.fillStyle(TOOLTIP_ACCENT_COLOR, 1);
     this.background.fillRoundedRect(-2, -2, boxWidth + 4, boxHeight + 4, radius);

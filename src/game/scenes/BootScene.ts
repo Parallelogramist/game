@@ -5,8 +5,22 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons, createIcon, setIconFrame } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
-import { fadeOut, fadeIn, addButtonInteraction } from '../../utils/SceneTransition';
-import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
+import { getBoostCardManager } from '../../meta/BoostCardManager';
+import {
+  fadeOut,
+  addButtonInteraction,
+  transitionToScene,
+  sweepIn,
+  staggerEntrance,
+} from '../../utils/SceneTransition';
+import {
+  computeMenuLayoutScale,
+  computeMenuFontScale,
+  computeMenuLayoutScalePortrait,
+  computeMenuFontScalePortrait,
+  scaledFontPx,
+  scaledInt,
+} from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import {
@@ -21,8 +35,8 @@ import { getWeaponInfoList } from '../../weapons';
 import { SHIP_CHARACTERS } from '../../data/ShipCharacters';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
-import { MENU_COLORS as COLORS, MENU_FONT } from '../../visual/MenuStyle';
-import { makeStickerText } from '../../visual/StickerText';
+import { MENU_COLORS as COLORS, MENU_FONT, DISPLAY_FONT } from '../../visual/MenuStyle';
+import { makeDisplayText } from '../../visual/DisplayText';
 
 interface FocusEntry {
   onFocus: () => void;
@@ -96,12 +110,15 @@ export class BootScene extends Phaser.Scene {
     this.titleTicker = null;
     this.updateHandler = null;
 
-    fadeIn(this, 220);
-
     const musicManager = getMusicManager();
     const startMenuMusic = async () => {
-      if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
-        await musicManager.play();
+      try {
+        if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
+          await musicManager.play();
+        }
+      } catch {
+        // AudioContext may still be locked or the track fetch failed — menu
+        // music is best-effort; the next gesture path can retry.
       }
     };
     this.input.once('pointerdown', startMenuMusic);
@@ -144,7 +161,7 @@ export class BootScene extends Phaser.Scene {
           await musicManager.play();
         }
         gameStateManager.clearSave();
-        fadeOut(this, 200, () => this.scene.start('WeaponSelectScene'));
+        transitionToScene(this, 'WeaponSelectScene');
       } catch (error) {
         console.error('Could not start game:', error);
         gameStateManager.clearSave();
@@ -160,13 +177,15 @@ export class BootScene extends Phaser.Scene {
       }
     };
 
-    const openShop = () => fadeOut(this, 150, () => this.scene.start('ShopScene'));
-    const openAchievements = () => fadeOut(this, 150, () => this.scene.start('AchievementScene'));
-    const openCodex = () => fadeOut(this, 150, () => this.scene.start('CodexScene'));
-    const openLeaderboard = () => fadeOut(this, 150, () => this.scene.start('LeaderboardScene'));
-    const openSettings = () =>
-      fadeOut(this, 150, () => this.scene.start('SettingsScene', { returnTo: 'BootScene' }));
-    const openCredits = () => fadeOut(this, 150, () => this.scene.start('CreditsScene'));
+    // Runner mode is gameplay — fade like CONTINUE, not the menu sweep.
+    const startRunner = () => fadeOut(this, 200, () => this.scene.start('RunnerScene'));
+    const openShop = () => transitionToScene(this, 'ShopScene');
+    const openAchievements = () => transitionToScene(this, 'AchievementScene');
+    const openCodex = () => transitionToScene(this, 'CodexScene');
+    const openCards = () => transitionToScene(this, 'CardsScene');
+    const openLeaderboard = () => transitionToScene(this, 'LeaderboardScene');
+    const openSettings = () => transitionToScene(this, 'SettingsScene', { returnTo: 'BootScene' });
+    const openCredits = () => transitionToScene(this, 'CreditsScene');
 
     const launchChallenge = async (challenge: DailyChallengeConfig) => {
       try {
@@ -194,20 +213,34 @@ export class BootScene extends Phaser.Scene {
     const startWeeklyRun = () => launchChallenge(weeklyChallenge);
 
     // ─── scaling ────────────────────────────────────────────────────────
-    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    const fontScale = computeMenuFontScale(
-      this.scale.width,
-      this.scale.height,
-      getSettingsManager().getUiScale(),
-    );
+    // Portrait uses the orientation-matched 720×1280 design fit: the menu is
+    // a ~600-unit-wide centered column, so it renders FULL SIZE there —
+    // shrinking the landscape design in instead (0.5625) stranded a tiny
+    // menu in the top third of the screen. The column is then centered
+    // vertically via columnOffsetY (everything below the title cascades
+    // from titleY/heroCenterY; the meta stack and footer stay edge-pinned).
+    const portrait = this.scale.height > this.scale.width;
+    const layoutScale = portrait
+      ? computeMenuLayoutScalePortrait(this.scale.width, this.scale.height)
+      : computeMenuLayoutScale(this.scale.width, this.scale.height);
+    const fontScale = portrait
+      ? computeMenuFontScalePortrait(this.scale.width, this.scale.height, getSettingsManager().getUiScale())
+      : computeMenuFontScale(
+          this.scale.width,
+          this.scale.height,
+          getSettingsManager().getUiScale(),
+        );
+    const columnOffsetY = portrait
+      ? Math.max(0, Math.round((this.scale.height - scaledInt(layoutScale, 720)) / 2))
+      : 0;
     const centerX = this.cameras.main.centerX;
 
-    // ─── felted backdrop ────────────────────────────────────────────────
+    // ─── menu backdrop ──────────────────────────────────────────────────
     this.menuBackground = createMenuBackground(this);
 
-    // ─── title sticker ──────────────────────────────────────────────────
-    const titleY = scaledInt(layoutScale, 100);
-    this.createTitleSticker(centerX, titleY, fontScale);
+    // ─── title block ────────────────────────────────────────────────────
+    const titleY = scaledInt(layoutScale, 100) + columnOffsetY;
+    this.createTitleBlock(centerX, titleY, fontScale);
 
     // ─── meta-stack mini cards (top-left) ───────────────────────────────
     this.createMetaStack({
@@ -222,7 +255,7 @@ export class BootScene extends Phaser.Scene {
     // ─── hero card (CONTINUE / START) ───────────────────────────────────
     const heroWidth = scaledInt(layoutScale, 360);
     const heroHeight = scaledInt(layoutScale, 170);
-    const heroCenterY = scaledInt(layoutScale, 280);
+    const heroCenterY = scaledInt(layoutScale, 280) + columnOffsetY;
     this.createHeroCard({
       centerX,
       centerY: heroCenterY,
@@ -235,10 +268,10 @@ export class BootScene extends Phaser.Scene {
       onActivate: hasSave ? continueGame : startGameWithConfirmation,
     });
 
-    // ─── new-run sticker (only when a save exists) ──────────────────────
+    // ─── new-run link (only when a save exists) ─────────────────────────
     let belowHeroY = heroCenterY + heroHeight / 2 + scaledInt(layoutScale, 22);
     if (hasSave) {
-      this.createNewRunSticker({
+      this.createNewRunLink({
         centerX,
         centerY: belowHeroY,
         layoutScale,
@@ -259,7 +292,6 @@ export class BootScene extends Phaser.Scene {
       centerY: challengeRowY,
       width: challengeWidth,
       height: challengeHeight,
-      tilt: -0.045,
       label: 'DAILY',
       bodyHex: COLORS.bodyGold,
       accentHex: COLORS.accentGold,
@@ -276,7 +308,6 @@ export class BootScene extends Phaser.Scene {
       centerY: challengeRowY,
       width: challengeWidth,
       height: challengeHeight,
-      tilt: 0.045,
       label: 'WEEKLY',
       bodyHex: COLORS.bodyMagenta,
       accentHex: COLORS.accentMagenta,
@@ -318,6 +349,8 @@ export class BootScene extends Phaser.Scene {
       onShop: openShop,
       onAchievements: openAchievements,
       onCodex: openCodex,
+      onCards: openCards,
+      onRunner: startRunner,
       onLeaderboard: openLeaderboard,
     });
 
@@ -330,6 +363,12 @@ export class BootScene extends Phaser.Scene {
       onSettings: openSettings,
       onCredits: openCredits,
     });
+
+    // ─── entrance choreography ──────────────────────────────────────────
+    // Cards rise into place top-to-bottom (creation order matches visual
+    // order); the title block runs its own fade in createTitleBlock.
+    staggerEntrance(this, this.cards.map((card) => card.container));
+    sweepIn(this);
 
     // ─── per-frame idle driver ──────────────────────────────────────────
     this.updateHandler = (time: number, delta: number) => {
@@ -347,53 +386,81 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  TITLE STICKER — chunky tilted text with thick outline + drop shadow.
-  //  Replaces the old chromatic-ghost title that read like a render glitch.
+  //  TITLE BLOCK — sharp display type over an accent rule. Flat, no sway.
   // ═══════════════════════════════════════════════════════════════════════
 
-  private createTitleSticker(centerX: number, centerY: number, fontScale: number): void {
-    const fontSize = scaledInt(fontScale, 56);
-    const restTilt = -0.03;
+  private createTitleBlock(centerX: number, centerY: number, fontScale: number): void {
+    const fontSize = scaledInt(fontScale, 58);
 
     const container = this.add.container(centerX, centerY);
 
-    // Drop-shadow ghost gives the sticker some bulk but stays subtle so it
-    // doesn't double the letterforms.
-    const shadow = this.add.text(5, 7, 'PEW PEW SURVIVOR', {
+    // Soft glow ghosts behind the letterforms — two stacked layers make a
+    // smooth neon halo (wide faint pass + tight brighter pass).
+    const glowWide = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
       fontSize: `${fontSize}px`,
-      color: '#000000',
-      fontFamily: MENU_FONT,
+      color: COLORS.accentGoldStr,
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-      letterSpacing: 3,
-    }).setOrigin(0.5).setAlpha(0.55);
-    container.add(shadow);
+      letterSpacing: 6,
+    }).setOrigin(0.5).setAlpha(0.1).setScale(1.045);
+    container.add(glowWide);
+    const glow = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
+      fontSize: `${fontSize}px`,
+      color: COLORS.accentGoldStr,
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 6,
+    }).setOrigin(0.5).setAlpha(0.22).setScale(1.015);
+    container.add(glow);
 
     const text = this.add.text(0, 0, 'PEW PEW SURVIVOR', {
       fontSize: `${fontSize}px`,
-      color: COLORS.stickerYellow,
-      fontFamily: MENU_FONT,
+      color: COLORS.headingGold,
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-      stroke: COLORS.stickerBlack,
-      strokeThickness: 6,
-      letterSpacing: 3,
+      stroke: COLORS.outline,
+      strokeThickness: 2,
+      letterSpacing: 6,
     }).setOrigin(0.5);
     container.add(text);
 
-    container.setScale(0.6);
+    // Thin accent rule under the wordmark — clean underline, sells the
+    // sharp tech look.
+    const rule = this.add.graphics();
+    const ruleHalf = text.width * 0.52;
+    const ruleY = text.height * 0.56;
+    rule.fillStyle(COLORS.accentGold, 0.9);
+    rule.fillRect(-ruleHalf, ruleY, ruleHalf * 2, 2);
+    rule.fillStyle(COLORS.accentGold, 0.35);
+    rule.fillRect(-ruleHalf, ruleY + 3, ruleHalf * 2, 1);
+    container.add(rule);
+
+    // Reduced motion: no entrance fade, no shimmer — glow and rule hold the
+    // breathe midpoint so the title still reads as lit.
+    if (getSettingsManager().isReducedMotionEnabled()) {
+      glow.setAlpha(0.21);
+      glowWide.setAlpha(0.1);
+      rule.setAlpha(0.86);
+      return;
+    }
+
     container.setAlpha(0);
     this.tweens.add({
       targets: container,
-      scale: 1,
       alpha: 1,
-      duration: 480,
-      ease: 'Back.Out',
+      duration: 420,
+      ease: 'Sine.Out',
     });
 
+    // Slow glow breathe — brightness only, geometry stays locked. The rule
+    // shimmers slightly out of phase with the halo so the block feels lit,
+    // not blinking.
     const seed = Math.random() * 10;
     this.titleTicker = (timeSeconds: number) => {
-      const phase = timeSeconds * 1.1 + seed;
-      container.rotation = restTilt + Math.sin(phase) * 0.018;
-      container.y = centerY + Math.sin(phase * 0.8 + 2) * 2.5;
+      const breathe = (Math.sin(timeSeconds * 1.4 + seed) + 1) * 0.5;
+      glow.setAlpha(0.16 + breathe * 0.1);
+      glowWide.setAlpha(0.07 + breathe * 0.06);
+      rule.setAlpha(0.72 + (Math.sin(timeSeconds * 1.4 + seed + 1.3) + 1) * 0.14);
     };
   }
 
@@ -420,21 +487,18 @@ export class BootScene extends Phaser.Scene {
       sub?: string;
       accentHex: number;
       bodyHex: number;
-      tilt: number;
     }
     const chips: ChipData[] = [];
     chips.push({
       label: `WORLD ${worldLevel}`,
       accentHex: COLORS.accentPrimary,
       bodyHex: COLORS.bodyPrimary,
-      tilt: -0.08,
     });
     if (ascensionLevel > 0) {
       chips.push({
         label: `ASC ${ascensionLevel}`,
         accentHex: COLORS.accentGold,
         bodyHex: COLORS.bodyGold,
-        tilt: 0.05,
       });
     }
     if (currentStreak > 0) {
@@ -443,7 +507,6 @@ export class BootScene extends Phaser.Scene {
         sub: `+${streakBonus}%`,
         accentHex: COLORS.accentMagenta,
         bodyHex: COLORS.bodyMagenta,
-        tilt: -0.03,
       });
     }
 
@@ -459,16 +522,12 @@ export class BootScene extends Phaser.Scene {
         y: stackOriginY + cardHeight / 2 + index * stepY,
         width: cardWidth,
         height: cardHeight,
-        tilt: chip.tilt,
-        wobbleSeed: index * 1.7,
-        wobbleRotation: 0.012,
-        wobbleY: 1.2,
+        pulseSeed: index * 1.7,
         bodyFillColor: chip.bodyHex,
         accentColor: chip.accentHex,
         bannerHeight: scaledInt(layoutScale, 7),
-        shadowOffsetY: scaledInt(layoutScale, 8),
-        shadowOffsetX: scaledInt(layoutScale, 4),
-        liftOnHover: false,
+        shadowOffsetY: scaledInt(layoutScale, 5),
+        shadowOffsetX: 0,
         interactive: index === chips.length - 1, // front card is the click target
       });
       this.cards.push(card);
@@ -537,10 +596,7 @@ export class BootScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt: -0.035,
-      wobbleSeed: 12,
-      wobbleRotation: 0.01,
-      wobbleY: 1.6,
+      pulseSeed: 12,
       bodyFillColor: COLORS.bodyPrimary,
       accentColor: COLORS.accentPrimary,
       bannerHeight,
@@ -549,28 +605,28 @@ export class BootScene extends Phaser.Scene {
     });
     this.cards.push(card);
 
-    // Banner label — sticker-style "MAIN MENU" or run identifier on the strip.
+    // Banner label — "MAIN MENU" or run identifier on the strip.
     const bannerCenterY = -height / 2 + bannerHeight / 2;
-    const bannerLabel = makeStickerText(
+    const bannerLabel = makeDisplayText(
       this,
       0,
       bannerCenterY,
       hasSave ? 'YOUR RUN' : 'NEW JOURNEY',
       {
         fontSize: scaledInt(fontScale, 16),
-        color: COLORS.stickerWhite,
+        color: COLORS.headingWhite,
         strokeWidth: 2,
         letterSpacing: 4,
       },
     );
     card.frame.add(bannerLabel);
 
-    // Big primary label — CONTINUE / START in chunky yellow sticker text.
+    // Big primary label — CONTINUE / START in gold display text.
     const primaryLabel = hasSave ? 'CONTINUE' : 'START';
     const primaryY = -height / 2 + bannerHeight + scaledInt(layoutScale, 30);
-    const primaryText = makeStickerText(this, 0, primaryY, primaryLabel, {
+    const primaryText = makeDisplayText(this, 0, primaryY, primaryLabel, {
       fontSize: scaledInt(fontScale, 36),
-      color: COLORS.stickerYellow,
+      color: COLORS.headingGold,
       strokeWidth: 4,
       letterSpacing: 4,
     });
@@ -651,14 +707,35 @@ export class BootScene extends Phaser.Scene {
       card.frame.add(tag);
     }
 
+    // Armed boost charge line (flux cache, FEAT-CARDS-3) — sits in the gap
+    // between the big CONTINUE/START label and the bottom icon row, so it
+    // never collides with either. Only rendered while a boost is held.
+    const armedBoost = getBoostCardManager().getPending();
+    if (armedBoost) {
+      const boostY = Math.round((primaryY + rowY) / 2);
+      const boostLine = this.add.text(
+        0,
+        boostY,
+        `⚡ NEXT RUN: ${armedBoost.description.toUpperCase()}`,
+        {
+          fontSize: scaledFontPx(fontScale, 12),
+          color: COLORS.headingGold,
+          fontFamily: MENU_FONT,
+          fontStyle: 'bold',
+          letterSpacing: 1,
+        },
+      ).setOrigin(0.5);
+      card.frame.add(boostLine);
+    }
+
     this.registerFocusable(card, onActivate);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  NEW RUN STICKER — small italic ribbon below the hero card.
+  //  NEW RUN LINK — small italic ribbon below the hero card.
   // ═══════════════════════════════════════════════════════════════════════
 
-  private createNewRunSticker(opts: {
+  private createNewRunLink(opts: {
     centerX: number;
     centerY: number;
     layoutScale: number;
@@ -673,10 +750,7 @@ export class BootScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt: -0.07,
-      wobbleSeed: 22,
-      wobbleRotation: 0.01,
-      wobbleY: 0.8,
+      pulseSeed: 22,
       bodyFillColor: COLORS.bodyNeutral,
       accentColor: COLORS.accentFocus,
       bannerHeight: 0,
@@ -709,7 +783,6 @@ export class BootScene extends Phaser.Scene {
     centerY: number;
     width: number;
     height: number;
-    tilt: number;
     label: string;
     bodyHex: number;
     accentHex: number;
@@ -721,7 +794,7 @@ export class BootScene extends Phaser.Scene {
     onActivate: () => void;
   }): void {
     const {
-      centerX, centerY, width, height, tilt, label, bodyHex, accentHex, accentTextStr,
+      centerX, centerY, width, height, label, bodyHex, accentHex, accentTextStr,
       challenge, best, layoutScale, fontScale, onActivate,
     } = opts;
 
@@ -732,23 +805,20 @@ export class BootScene extends Phaser.Scene {
       y: centerY,
       width,
       height,
-      tilt,
-      wobbleSeed: tilt * 50 + label.length,
-      wobbleRotation: 0.014,
-      wobbleY: 1.4,
+      pulseSeed: label.length,
       bodyFillColor: bodyHex,
       accentColor: accentHex,
       bannerHeight,
-      shadowOffsetY: scaledInt(layoutScale, 12),
-      shadowOffsetX: scaledInt(layoutScale, 5),
+      shadowOffsetY: scaledInt(layoutScale, 6),
+      shadowOffsetX: 0,
     });
     this.cards.push(card);
 
-    // Banner sticker label (DAILY / WEEKLY) centered in the colored strip.
+    // Banner label (DAILY / WEEKLY) centered in the colored strip.
     const bannerCenterY = -height / 2 + bannerHeight / 2;
-    const bannerLabel = makeStickerText(this, 0, bannerCenterY, `${label} CHALLENGE`, {
+    const bannerLabel = makeDisplayText(this, 0, bannerCenterY, `${label} CHALLENGE`, {
       fontSize: scaledInt(fontScale, 14),
-      color: COLORS.stickerWhite,
+      color: COLORS.headingWhite,
       strokeWidth: 2,
       letterSpacing: 3,
     });
@@ -840,7 +910,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  PROGRESSION DECK — 4 small square cards in a row.
+  //  PROGRESSION DECK — 5 small square cards in a row.
+  //  (5 × 96 + 4 × 22 = 568 px at scale 1 — comfortably inside 1280.)
   // ═══════════════════════════════════════════════════════════════════════
 
   private createProgressionDeck(opts: {
@@ -855,11 +926,13 @@ export class BootScene extends Phaser.Scene {
     onShop: () => void;
     onAchievements: () => void;
     onCodex: () => void;
+    onCards: () => void;
     onLeaderboard: () => void;
+    onRunner: () => void;
   }): void {
     const {
       centerX, centerY, cardWidth, cardHeight, gap, layoutScale, fontScale, goldAmount,
-      onShop, onAchievements, onCodex, onLeaderboard,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onRunner,
     } = opts;
 
     interface DeckEntry {
@@ -867,7 +940,6 @@ export class BootScene extends Phaser.Scene {
       iconKey: string;
       bodyHex: number;
       accentHex: number;
-      tilt: number;
       action: () => void;
       badge?: string;
       iconTint: number;
@@ -878,7 +950,6 @@ export class BootScene extends Phaser.Scene {
         iconKey: 'coins',
         bodyHex: COLORS.bodyGold,
         accentHex: COLORS.accentGold,
-        tilt: -0.06,
         action: onShop,
         badge: `${goldAmount}`,
         iconTint: 0xffe2a0,
@@ -888,7 +959,6 @@ export class BootScene extends Phaser.Scene {
         iconKey: 'trophy',
         bodyHex: COLORS.bodyTeal,
         accentHex: COLORS.accentTeal,
-        tilt: 0.04,
         action: onAchievements,
         iconTint: 0xaaffee,
       },
@@ -897,18 +967,37 @@ export class BootScene extends Phaser.Scene {
         iconKey: 'book',
         bodyHex: COLORS.bodyMagenta,
         accentHex: COLORS.accentMagenta,
-        tilt: -0.035,
         action: onCodex,
         iconTint: 0xeebbff,
+      },
+      {
+        // Card archive — safe-green keeps every deck entry role-distinct
+        // (gold/teal/magenta/green/blue).
+        label: 'CARDS',
+        iconKey: 'gem',
+        bodyHex: COLORS.bodySafe,
+        accentHex: COLORS.accentSafe,
+        action: onCards,
+        iconTint: 0xaaffcc,
       },
       {
         label: 'LEADERS',
         iconKey: 'crown',
         bodyHex: COLORS.bodyPrimary,
         accentHex: COLORS.accentPrimary,
-        tilt: 0.05,
         action: onLeaderboard,
         iconTint: 0xbbddff,
+      },
+      {
+        // Endless-runner mode (FEAT-RUNNER-MODE) — a gameplay entry, so it
+        // fades like CONTINUE rather than sweeping like the meta screens.
+        // Sixth card: 6×96 + 5×22 = 686 design units, inside 720 portrait.
+        label: 'RUNNER',
+        iconKey: 'run',
+        bodyHex: COLORS.bodyDanger,
+        accentHex: COLORS.accentDanger,
+        action: onRunner,
+        iconTint: 0xffbbaa,
       },
     ];
 
@@ -923,23 +1012,20 @@ export class BootScene extends Phaser.Scene {
         y: centerY,
         width: cardWidth,
         height: cardHeight,
-        tilt: entry.tilt,
-        wobbleSeed: index * 0.93,
-        wobbleRotation: 0.016,
-        wobbleY: 2.0,
+        pulseSeed: index * 0.93,
         bodyFillColor: entry.bodyHex,
         accentColor: entry.accentHex,
         bannerHeight,
-        shadowOffsetY: scaledInt(layoutScale, 10),
-        shadowOffsetX: scaledInt(layoutScale, 4),
+        shadowOffsetY: scaledInt(layoutScale, 5),
+        shadowOffsetX: 0,
       });
       this.cards.push(card);
 
-      // Sticker label rides the banner (bold, white, outlined).
+      // Display label rides the banner (bold, white).
       const bannerCenterY = -cardHeight / 2 + bannerHeight / 2;
-      const bannerLabel = makeStickerText(this, 0, bannerCenterY, entry.label, {
+      const bannerLabel = makeDisplayText(this, 0, bannerCenterY, entry.label, {
         fontSize: scaledInt(fontScale, 11),
-        color: COLORS.stickerWhite,
+        color: COLORS.headingWhite,
         strokeWidth: 2,
         letterSpacing: 2,
       });
@@ -1026,7 +1112,7 @@ export class BootScene extends Phaser.Scene {
     const pillHeight = fontSize + padY * 2;
     const rowY = bottomY - pillHeight / 2;
 
-    // Pill background — low-key dim sticker so the footer feels like a single
+    // Pill background — low-key dim pill so the footer feels like a single
     // unit instead of three floating items.
     const pill = this.add.graphics();
     pill.fillStyle(0x000000, 0.45);

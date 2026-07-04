@@ -121,6 +121,7 @@ export const ICON_MAP: Record<string, string> = {
   spikes: 'spiked-fence',
   drone: 'delivery-drone',
   shuriken: 'shuriken',
+  boomerang: 'star-swirl',
   telescope: 'telescope',
   projectile: 'thrown-daggers',
 

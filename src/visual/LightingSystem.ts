@@ -9,6 +9,7 @@
  * enhances the cyberpunk atmosphere.
  */
 import Phaser from 'phaser';
+import { OverlayDepths } from './DepthLayers';
 
 interface LightSource {
   x: number;
@@ -39,7 +40,11 @@ export class LightingSystem {
     );
     this.lightTexture.setOrigin(0, 0);
     this.lightTexture.setScrollFactor(0);
-    this.lightTexture.setDepth(1999); // Just below UI
+    // Above all world-space content but below every screen-space UI layer.
+    // At its old depth (1999) the MULTIPLY darkness pass rendered on top of
+    // the HUD, so moving light pools visibly slid across UI text — the
+    // atmosphere layer must never touch UI.
+    this.lightTexture.setDepth(OverlayDepths.LIGHTING);
     this.lightTexture.setBlendMode(Phaser.BlendModes.MULTIPLY);
 
     // Graphics used to draw light circles onto the render texture

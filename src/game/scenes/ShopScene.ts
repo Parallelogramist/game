@@ -1,5 +1,5 @@
 /**
- * ShopScene — Balatro-style permanent upgrade shop.
+ * ShopScene — permanent upgrade shop.
  *
  * Tab strip across the top, card grid below, buy + refund pill buttons on
  * each card, MenuButton back/ascend in the chrome. All logic (purchase,
@@ -19,8 +19,14 @@ import {
   UPGRADE_CATEGORIES,
   UpgradeCategory,
 } from '../../data/PermanentUpgrades';
+import { getShipModTracks, getShipModCost, ShipModTrack } from '../../data/ShipMods';
+import { getShipModManager } from '../../meta/ShipModManager';
+import { getAchievementManager } from '../../achievements';
+import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
+import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
+import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { getToastManager, ToastManager } from '../../ui';
 import { getTutorialHintDef } from '../../tutorial/TutorialHints';
@@ -31,18 +37,22 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuTabs, MenuTabs } from '../../visual/MenuTab';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { ShipPreview } from '../../visual/ShipPreview';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   MENU_FONT,
   RoleColorKey,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
+
+/** Extra shop tab (after the upgrade categories) hosting per-ship mod tracks. */
+const HANGAR_TAB_ID = 'hangar' as const;
+type ShopTabId = UpgradeCategory | typeof HANGAR_TAB_ID;
 
 interface UpgradeCardElements {
   card: MenuCard;
@@ -54,6 +64,21 @@ interface UpgradeCardElements {
   lockOverlay?: Phaser.GameObjects.Rectangle;
   lockText?: Phaser.GameObjects.Text;
   isUnlocked: boolean;
+  isMaxed: boolean;
+  affordableStar?: Phaser.GameObjects.Text;
+  cardIndex: number;
+}
+
+/**
+ * A HANGAR-tab card: one per (unlocked ship × mod track), plus at most one
+ * trailing teaser card for locked ships (no buy button, no track).
+ */
+interface HangarCardElements {
+  card: MenuCard;
+  buyButton?: MenuButton;
+  shipId?: string;
+  track?: ShipModTrack;
+  isTeaser: boolean;
   isMaxed: boolean;
   affordableStar?: Phaser.GameObjects.Text;
   cardIndex: number;
@@ -75,11 +100,44 @@ const CATEGORY_ROLES: Record<UpgradeCategory, RoleColorKey> = {
   mastery: 'gold',
 };
 
+/**
+ * Compact tab labels for narrow viewports. With the HANGAR tab the strip is
+ * 8 tabs wide; at 720px that's 82px per tab — too tight for 'RESOURCES' /
+ * 'ELEMENTAL' at full length, so below ~85px per tab we swap to these.
+ */
+const TAB_SHORT_LABELS: Record<ShopTabId, string> = {
+  offense: 'ATK',
+  defense: 'DEF',
+  movement: 'SPD',
+  resources: 'GOLD',
+  utility: 'UTIL',
+  elemental: 'ELEM',
+  mastery: 'MSTRY',
+  hangar: 'HANGAR',
+};
+
+interface ShopTabSpec {
+  id: ShopTabId;
+  label: string;
+  accentRole: RoleColorKey;
+}
+
+/** Upgrade category tabs + the trailing HANGAR tab, in navigation order. */
+const SHOP_TABS: ShopTabSpec[] = [
+  ...UPGRADE_CATEGORIES.map((category) => ({
+    id: category.id as ShopTabId,
+    label: category.name.toUpperCase(),
+    accentRole: CATEGORY_ROLES[category.id] ?? 'neutral',
+  })),
+  { id: HANGAR_TAB_ID, label: 'HANGAR', accentRole: 'primary' },
+];
+
 export class ShopScene extends Phaser.Scene {
   private goldText!: Phaser.GameObjects.Text;
   private accountLevelText!: Phaser.GameObjects.Text;
   private upgradeCards: UpgradeCardElements[] = [];
-  private currentCategory: UpgradeCategory = 'offense';
+  private hangarCards: HangarCardElements[] = [];
+  private currentCategory: ShopTabId = 'offense';
   private menuTabs: MenuTabs | null = null;
   private upgradeContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
@@ -103,10 +161,14 @@ export class ShopScene extends Phaser.Scene {
   private backButton!: MenuButton;
   private ascendButton: MenuButton | null = null;
 
-  private tabBadges: Map<UpgradeCategory, TabBadgeElements> = new Map();
+  private tabBadges: Map<ShopTabId, TabBadgeElements> = new Map();
   private affordableOnlyFilter: boolean = false;
   private filterButton: MenuButton | null = null;
   private buyClickIgnoreUntil: number = 0;
+
+  /** HANGAR-tab ship preview — fixed header chrome, not part of the scroll grid. */
+  private shipPreview: ShipPreview | null = null;
+  private previewedShipId: string | null = null;
 
   private accountProgressBarBg: Phaser.GameObjects.Graphics | null = null;
   private accountProgressBarFill: Phaser.GameObjects.Graphics | null = null;
@@ -114,7 +176,7 @@ export class ShopScene extends Phaser.Scene {
 
   private emptyStateText: Phaser.GameObjects.Text | null = null;
 
-  private readonly columns = 4;
+  private columns = 4;
   private readonly cardWidth = 220;
   private readonly cardHeight = 220;
   private readonly accountChipWidth = 200;
@@ -126,23 +188,33 @@ export class ShopScene extends Phaser.Scene {
   create(): void {
     const centerX = this.scale.width / 2;
 
-    fadeIn(this, 200);
+    // Portrait / narrow viewports: as many 220px columns as fit with margins
+    // (720-wide portrait → 2). Grid layout, navigator rows, and
+    // ensureCardVisible all derive from this.columns, so one assignment at
+    // create keeps them consistent.
+    this.columns = Math.max(1, Math.min(4, Math.floor((this.scale.width - 32) / (this.cardWidth + 24))));
 
     this.soundManager = new SoundManager(this);
     this.toastManager = getToastManager(this);
 
     this.upgradeCards = [];
+    this.hangarCards = [];
     this.chromeButtons = [];
     this.tabBadges = new Map();
     this.focusZone = 'tabs';
     this.selectedTabIndex = 0;
     this.selectedCardIndex = 0;
     this.scrollY = 0;
+    // Scene instances persist across restarts — shutdown destroys the
+    // preview, but re-null the refs so a stale handle can never carry over.
+    this.shipPreview = null;
+    this.previewedShipId = null;
 
-    // Balatro backdrop.
+    // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
+      this.shipPreview?.update(delta);
       const seconds = time / 1000;
       this.menuTabs?.tickIdle(seconds);
       for (const btn of this.chromeButtons) btn.tickIdle(seconds);
@@ -156,11 +228,19 @@ export class ShopScene extends Phaser.Scene {
           card.affordableStar.setAlpha(pulse);
         }
       }
+      for (const card of this.hangarCards) {
+        card.card.tickIdle(seconds);
+        card.buyButton?.tickIdle(seconds);
+        if (card.affordableStar) {
+          const pulse = 0.55 + 0.45 * Math.sin(seconds * 3.2 + card.cardIndex * 0.7);
+          card.affordableStar.setAlpha(pulse);
+        }
+      }
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    // Title sticker.
-    const title = makeStickerText(this, centerX, 32, 'SHOP', {
+    // Title heading.
+    const title = makeDisplayText(this, centerX, 32, 'SHOP', {
       fontSize: 36,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 5,
@@ -182,8 +262,7 @@ export class ShopScene extends Phaser.Scene {
       bannerHeight: 0,
       borderWidth: 2,
       borderColor: ACCENT_COLORS.primary,
-      cornerRadius: 12,
-      wobble: false,
+      cornerRadius: 6,
       interactive: true,
       shadowOffsetY: 5,
       shadowAlpha: 0.4,
@@ -197,7 +276,7 @@ export class ShopScene extends Phaser.Scene {
     });
     accountLabel.setOrigin(0, 0.5);
     accountLevelChip.frame.add(accountLabel);
-    this.accountLevelText = makeStickerText(this, -85, 8, `${metaManager.getAccountLevel()}`, {
+    this.accountLevelText = makeDisplayText(this, -85, 8, `${metaManager.getAccountLevel()}`, {
       fontSize: 22,
       color: ACCENT_COLORS_STR.primary,
       letterSpacing: 1,
@@ -206,7 +285,7 @@ export class ShopScene extends Phaser.Scene {
     accountLevelChip.frame.add(this.accountLevelText);
 
     // Next-unlock hint + progress bar (right side of chip).
-    this.accountNextUnlockText = makeStickerText(this, 85, 0, '', {
+    this.accountNextUnlockText = makeDisplayText(this, 85, 0, '', {
       fontSize: 13,
       color: ACCENT_COLORS_STR.gold,
       letterSpacing: 0.5,
@@ -237,8 +316,7 @@ export class ShopScene extends Phaser.Scene {
       bannerHeight: 0,
       borderWidth: 2,
       borderColor: ACCENT_COLORS.gold,
-      cornerRadius: 12,
-      wobble: false,
+      cornerRadius: 6,
       interactive: true,
       shadowOffsetY: 5,
       shadowAlpha: 0.4,
@@ -251,7 +329,7 @@ export class ShopScene extends Phaser.Scene {
     });
     goldLabel.setOrigin(0, 0.5);
     goldChip.frame.add(goldLabel);
-    this.goldText = makeStickerText(this, -85, 12, '0', {
+    this.goldText = makeDisplayText(this, -85, 12, '0', {
       fontSize: 22,
       color: ACCENT_COLORS_STR.gold,
       letterSpacing: 1,
@@ -312,7 +390,7 @@ export class ShopScene extends Phaser.Scene {
     this.createCategoryTabs();
     this.createFilterButton();
     this.createUpgradeContainer();
-    this.displayCategoryUpgrades(this.currentCategory);
+    this.displayActiveTab();
     this.refreshTabBadges();
 
     // Back button.
@@ -327,7 +405,7 @@ export class ShopScene extends Phaser.Scene {
       fontSize: 14,
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
     this.backButton.container.setDepth(3);
@@ -346,6 +424,16 @@ export class ShopScene extends Phaser.Scene {
     this.buildMenuNavigator();
     this.updateFocusVisuals();
 
+    // Entrance choreography: title + chrome chips first, then tabs and the
+    // card grid rise into place.
+    const entranceItems = [title, accountLevelChip.container, goldChip.container];
+    if (this.ascendButton) entranceItems.push(this.ascendButton.container);
+    if (this.menuTabs) entranceItems.push(this.menuTabs.container);
+    if (this.filterButton) entranceItems.push(this.filterButton.container);
+    entranceItems.push(this.upgradeContainer, this.backButton.container);
+    staggerEntrance(this, entranceItems);
+    sweepIn(this);
+
     // One-time shop hint via the per-hint flag. Previously this read AND set
     // the global `tutorialSeen` flag, so visiting the shop before a first run
     // silently killed the first-run coach marks in GameScene.
@@ -362,24 +450,57 @@ export class ShopScene extends Phaser.Scene {
       });
     }
 
+    // Hangar-mastery achievements can unlock from a HANGAR purchase. The
+    // manager auto-claims rewards only when a delivery callback is wired
+    // (menu-context banking rule) — wire it here like CardsScene does;
+    // shutdown detaches, GameScene re-wires its own at run start.
+    getAchievementManager().setAchievementUnlockCallback((achievement) => {
+      const metaManager = getMetaProgressionManager();
+      const rewardParts: string[] = [];
+      if (achievement.reward.type === 'gold') {
+        metaManager.addGold(achievement.reward.value);
+        rewardParts.push(achievement.reward.description);
+      } else if (achievement.reward.type === 'stat_bonus' && achievement.reward.statBonusId) {
+        metaManager.addAchievementBonus(achievement.reward.statBonusId, achievement.reward.value);
+        rewardParts.push(achievement.reward.description);
+      }
+      if (achievement.bonusReward) {
+        if (achievement.bonusReward.type === 'gold') {
+          metaManager.addGold(achievement.bonusReward.value);
+        } else if (achievement.bonusReward.type === 'stat_bonus' && achievement.bonusReward.statBonusId) {
+          metaManager.addAchievementBonus(achievement.bonusReward.statBonusId, achievement.bonusReward.value);
+        }
+        rewardParts.push(achievement.bonusReward.description);
+      }
+      this.soundManager.playAchievementUnlock();
+      this.toastManager.showAchievementToast(achievement.name, rewardParts.join(' + '), achievement.icon);
+      this.updateGoldDisplay();
+    });
+
     this.events.once('shutdown', this.shutdown, this);
   }
 
   private createCategoryTabs(): void {
     const tabY = 130;
     const tabHeight = 38;
-    const totalTabs = UPGRADE_CATEGORIES.length;
-    const desiredWidth = Math.floor((this.scale.width - 60) / totalTabs);
+    const totalTabs = SHOP_TABS.length;
+    // 88px reserve (not 60): the count badges hang off each pill's top-right
+    // corner and the focus glow adds a few px — at exactly-720 portrait a
+    // tighter reserve clipped the HANGAR pill's badge at the screen edge.
+    const desiredWidth = Math.floor((this.scale.width - 88) / totalTabs);
     const tabWidth = Math.min(desiredWidth, 180);
+    // 8 tabs at 720px → 82px each: full category names no longer fit, so
+    // swap to the compact label set rather than letting text overflow.
+    const useShortLabels = tabWidth < 85;
 
     this.menuTabs = createMenuTabs({
       scene: this,
       x: this.scale.width / 2,
       y: tabY,
-      tabs: UPGRADE_CATEGORIES.map((category) => ({
-        id: category.id,
-        label: category.name.toUpperCase(),
-        accentRole: CATEGORY_ROLES[category.id] ?? 'neutral',
+      tabs: SHOP_TABS.map((tab) => ({
+        id: tab.id,
+        label: useShortLabels ? TAB_SHORT_LABELS[tab.id] : tab.label,
+        accentRole: tab.accentRole,
       })),
       tabWidth,
       tabHeight,
@@ -387,10 +508,10 @@ export class ShopScene extends Phaser.Scene {
       fontSize: 12,
       initialActiveId: this.currentCategory,
       onChange: (id) => {
-        const idx = UPGRADE_CATEGORIES.findIndex((c) => c.id === id);
+        const idx = SHOP_TABS.findIndex((tab) => tab.id === id);
         if (idx >= 0) {
           this.selectedTabIndex = idx;
-          this.selectCategory(id as UpgradeCategory);
+          this.selectCategory(SHOP_TABS[idx].id);
         }
       },
     });
@@ -435,7 +556,7 @@ export class ShopScene extends Phaser.Scene {
     this.scrollY = 0;
     this.upgradeContainer.y = 0;
     this.selectedCardIndex = 0;
-    this.displayCategoryUpgrades(this.currentCategory);
+    this.displayActiveTab();
     this.refreshTabBadges();
     this.buildMenuNavigator();
     this.updateFocusVisuals();
@@ -456,15 +577,37 @@ export class ShopScene extends Phaser.Scene {
     return count;
   }
 
+  /**
+   * Number of hangar mod-track levels the player could buy right now,
+   * mirroring getAffordableCountForCategory for the HANGAR tab badge.
+   */
+  private getAffordableHangarCount(): number {
+    const gateContext = this.buildUnlockGateContext();
+    const gold = getMetaProgressionManager().getGold();
+    const shipModManager = getShipModManager();
+    let count = 0;
+    for (const ship of SHIP_CHARACTERS) {
+      if (!isUnlockRequirementMet(ship.unlockRequirement, gateContext)) continue;
+      for (const track of getShipModTracks(ship.id)) {
+        const level = shipModManager.getLevel(ship.id, track.id);
+        if (level >= track.maxLevel) continue;
+        if (gold >= getShipModCost(track, level)) count++;
+      }
+    }
+    return count;
+  }
+
   private refreshTabBadges(): void {
     if (!this.menuTabs) return;
 
-    for (const category of UPGRADE_CATEGORIES) {
-      const button = this.menuTabs.getButton(category.id);
+    for (const tab of SHOP_TABS) {
+      const button = this.menuTabs.getButton(tab.id);
       if (!button) continue;
 
-      const count = this.getAffordableCountForCategory(category.id);
-      let badge = this.tabBadges.get(category.id);
+      const count = tab.id === HANGAR_TAB_ID
+        ? this.getAffordableHangarCount()
+        : this.getAffordableCountForCategory(tab.id);
+      let badge = this.tabBadges.get(tab.id);
 
       if (count <= 0) {
         if (badge) {
@@ -476,7 +619,7 @@ export class ShopScene extends Phaser.Scene {
       if (!badge) {
         const container = this.add.container(0, 0);
         const background = this.add.graphics();
-        const text = makeStickerText(this, 0, 0, '', {
+        const text = makeDisplayText(this, 0, 0, '', {
           fontSize: 11,
           color: '#0a1018',
           letterSpacing: 0.5,
@@ -487,7 +630,7 @@ export class ShopScene extends Phaser.Scene {
         container.setDepth(4);
         button.card.frame.add(container);
         badge = { background, text, container };
-        this.tabBadges.set(category.id, badge);
+        this.tabBadges.set(tab.id, badge);
       }
 
       badge.text.setText(String(count));
@@ -510,7 +653,7 @@ export class ShopScene extends Phaser.Scene {
     }
   }
 
-  private selectCategory(categoryId: UpgradeCategory): void {
+  private selectCategory(categoryId: ShopTabId): void {
     if (categoryId === this.currentCategory) return;
 
     this.currentCategory = categoryId;
@@ -518,9 +661,33 @@ export class ShopScene extends Phaser.Scene {
     this.scrollY = 0;
     this.upgradeContainer.y = 0;
     this.selectedCardIndex = 0;
-    this.displayCategoryUpgrades(categoryId);
+    this.displayActiveTab();
     this.buildMenuNavigator();
     this.updateFocusVisuals();
+  }
+
+  /** Render the active tab's card grid — upgrade category or the HANGAR tab. */
+  private displayActiveTab(): void {
+    if (this.currentCategory === HANGAR_TAB_ID) {
+      this.displayHangarMods();
+      // Preview lives in fixed chrome, so it's created HERE (once per stay
+      // on the tab) — not in displayHangarMods, which also runs on every
+      // post-purchase grid rebuild and must not touch the preview.
+      this.createHangarShipPreview();
+    } else {
+      this.destroyHangarShipPreview();
+      this.displayCategoryUpgrades(this.currentCategory);
+    }
+  }
+
+  /** Same ship-availability rule as WeaponSelectScene.buildUnlockGateContext. */
+  private buildUnlockGateContext(): UnlockGateContext {
+    const metaManager = getMetaProgressionManager();
+    return {
+      unlockedConditionIds: getHiddenUnlockManager().getUnlockedConditionIds(),
+      worldLevel: metaManager.getWorldLevel(),
+      accountLevel: metaManager.getAccountLevel(),
+    };
   }
 
   private createUpgradeContainer(): void {
@@ -537,19 +704,33 @@ export class ShopScene extends Phaser.Scene {
     maskGraphics.setVisible(false);
   }
 
-  private displayCategoryUpgrades(category: UpgradeCategory): void {
-    // Tear down old card structure (cards/buttons aren't normal display objects so we have to destroy them explicitly).
+  /**
+   * Tear down the current card grid (upgrade cards AND hangar cards — only
+   * one set is ever populated, but both are cleared so tab switches never
+   * leak). Cards/buttons aren't normal display objects so we have to destroy
+   * them explicitly.
+   */
+  private clearCardGrid(): void {
     for (const card of this.upgradeCards) {
       card.buyButton.destroy();
       card.refundButton?.destroy();
       card.card.destroy();
     }
-    this.upgradeContainer.removeAll(true);
     this.upgradeCards = [];
+    for (const card of this.hangarCards) {
+      card.buyButton?.destroy();
+      card.card.destroy();
+    }
+    this.hangarCards = [];
+    this.upgradeContainer.removeAll(true);
     if (this.emptyStateText) {
       this.emptyStateText.destroy();
       this.emptyStateText = null;
     }
+  }
+
+  private displayCategoryUpgrades(category: UpgradeCategory): void {
+    this.clearCardGrid();
 
     const meta = getMetaProgressionManager();
     const accountLevel = meta.getAccountLevel();
@@ -619,35 +800,32 @@ export class ShopScene extends Phaser.Scene {
     const cost = calculateUpgradeCost(upgrade, currentLevel);
     const canAfford = metaManager.getGold() >= cost;
 
-    const role: RoleColorKey = isUnlocked ? CATEGORY_ROLES[this.currentCategory] ?? 'neutral' : 'neutral';
+    const role: RoleColorKey = isUnlocked ? CATEGORY_ROLES[upgrade.category] ?? 'neutral' : 'neutral';
     const bodyColor = role === 'neutral' ? BODY_COLORS.neutral : BODY_COLORS[role as keyof typeof BODY_COLORS] ?? BODY_COLORS.neutral;
     const accent = role === 'neutral' ? ACCENT_COLORS.neutral : ACCENT_COLORS[role as keyof typeof ACCENT_COLORS] ?? ACCENT_COLORS.neutral;
 
-    const tiltOptions = [CARD_TILT_PRESETS.leftLean, CARD_TILT_PRESETS.hero, CARD_TILT_PRESETS.rightLean, CARD_TILT_PRESETS.rest];
-    const baseTilt = tiltOptions[cardIndex % tiltOptions.length] * 0.4;
 
     const card = createMenuCard(this, {
       x: positionX,
       y: positionY,
       width,
       height,
-      tilt: baseTilt,
-      wobbleSeed: cardIndex * 0.6 + 0.2,
+      pulseSeed: cardIndex * 0.6 + 0.2,
       bodyFillColor: isUnlocked ? bodyColor : BODY_COLORS.neutral,
       accentColor: isUnlocked ? accent : ACCENT_COLORS.neutral,
       bannerHeight: 36,
       borderWidth: 3,
       borderColor: isUnlocked ? accent : ACCENT_COLORS.neutral,
-      cornerRadius: 14,
+      cornerRadius: 8,
     });
 
     if (!isUnlocked) card.container.setAlpha(0.7);
     this.upgradeContainer.add(card.container);
 
-    // Banner sticker.
-    const nameText = makeStickerText(this, 0, card.bannerTopY + 18, upgrade.name.toUpperCase(), {
+    // Banner label.
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 18, upgrade.name.toUpperCase(), {
       fontSize: 14,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 1.5,
     });
     card.frame.add(nameText);
@@ -697,8 +875,10 @@ export class ShopScene extends Phaser.Scene {
     const buttonY = height / 2 - 28;
     const hasRefund = currentLevel > 0;
     const buttonHeight = 36;
-    const buyWidth = hasRefund ? width - 84 : width - 28;
     const refundWidth = 64;
+    // Row: [buy][8px gap][refund] inside the width-28 content band — the old
+    // width-84 buy width overlapped the refund pill by 8px.
+    const buyWidth = hasRefund ? width - 28 - refundWidth - 8 : width - 28;
 
     const buyState = this.resolveBuyButtonVariant(isUnlocked, isMaxed, canAfford);
     const buyLabel = !isUnlocked
@@ -772,7 +952,7 @@ export class ShopScene extends Phaser.Scene {
       lockOverlay = this.add.rectangle(0, 0, width - 8, height - 8, 0x000000, 0.45);
       card.frame.add(lockOverlay);
       const accountLevel = metaManager.getAccountLevel();
-      lockText = makeStickerText(
+      lockText = makeDisplayText(
         this,
         0,
         0,
@@ -792,7 +972,7 @@ export class ShopScene extends Phaser.Scene {
     // hopping across categories with a full purse.
     let affordableStar: Phaser.GameObjects.Text | undefined;
     if (isUnlocked && !isMaxed && canAfford) {
-      affordableStar = makeStickerText(this, width / 2 - 16, -height / 2 + 16, '✦', {
+      affordableStar = makeDisplayText(this, width / 2 - 16, -height / 2 + 16, '✦', {
         fontSize: 18,
         color: ACCENT_COLORS_STR.gold,
         letterSpacing: 0,
@@ -848,6 +1028,473 @@ export class ShopScene extends Phaser.Scene {
     return canAfford ? 'safe' : 'danger';
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // HANGAR tab — per-ship mod tracks (FEAT-SHIP-MODS-1)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Render the HANGAR tab: one card per mod track of every unlocked ship
+   * (availability rule shared with WeaponSelectScene), plus a single trailing
+   * teaser card when at least one ship is still locked. Reuses the upgrade
+   * grid's geometry, scroll math, and card visual language.
+   */
+  private displayHangarMods(): void {
+    this.clearCardGrid();
+
+    const gateContext = this.buildUnlockGateContext();
+    const unlockedShips = SHIP_CHARACTERS.filter((ship) =>
+      isUnlockRequirementMet(ship.unlockRequirement, gateContext),
+    );
+    const lockedShipCount = SHIP_CHARACTERS.length - unlockedShips.length;
+
+    const shipModManager = getShipModManager();
+    const gold = getMetaProgressionManager().getGold();
+
+    let entries: { ship: ShipCharacter; track: ShipModTrack }[] = [];
+    for (const ship of unlockedShips) {
+      for (const track of getShipModTracks(ship.id)) {
+        entries.push({ ship, track });
+      }
+    }
+
+    if (this.affordableOnlyFilter) {
+      entries = entries.filter(({ ship, track }) => {
+        const level = shipModManager.getLevel(ship.id, track.id);
+        if (level >= track.maxLevel) return false;
+        return gold >= getShipModCost(track, level);
+      });
+    }
+
+    // The teaser is "locked content", so the affordable-only filter hides it,
+    // matching how locked upgrades are filtered out of the categories.
+    const includeTeaser = lockedShipCount > 0 && !this.affordableOnlyFilter;
+    const totalCards = entries.length + (includeTeaser ? 1 : 0);
+
+    if (totalCards === 0) {
+      const message = this.affordableOnlyFilter
+        ? 'No affordable ship mods.\nEarn more gold or toggle the filter off.'
+        : 'No ship mods available.';
+      this.emptyStateText = this.add.text(this.scale.width / 2, 320, message, {
+        fontSize: '16px',
+        fontFamily: MENU_FONT,
+        color: TEXT_COLORS.muted,
+        align: 'center',
+        lineSpacing: 6,
+      });
+      this.emptyStateText.setOrigin(0.5);
+      this.emptyStateText.setDepth(2);
+      this.maxScrollY = 0;
+      return;
+    }
+
+    const startY = 188;
+    const horizontalSpacing = 24;
+    const verticalSpacing = 18;
+
+    const totalRowWidth = this.columns * this.cardWidth + (this.columns - 1) * horizontalSpacing;
+    const startX = (this.scale.width - totalRowWidth) / 2 + this.cardWidth / 2;
+
+    const positionAt = (index: number): { x: number; y: number } => {
+      const col = index % this.columns;
+      const row = Math.floor(index / this.columns);
+      return {
+        x: startX + col * (this.cardWidth + horizontalSpacing),
+        y: startY + row * (this.cardHeight + verticalSpacing) + this.cardHeight / 2,
+      };
+    };
+
+    entries.forEach(({ ship, track }, index) => {
+      const { x, y } = positionAt(index);
+      this.createShipModCard(x, y, this.cardWidth, this.cardHeight, ship, track, index);
+    });
+
+    if (includeTeaser) {
+      const { x, y } = positionAt(entries.length);
+      this.createHangarTeaserCard(x, y, this.cardWidth, this.cardHeight, lockedShipCount, entries.length);
+    }
+
+    const rows = Math.ceil(totalCards / this.columns);
+    const contentHeight = rows * (this.cardHeight + verticalSpacing);
+    const visibleHeight = this.scale.height - 230;
+    this.maxScrollY = Math.max(0, contentHeight - visibleHeight + 30);
+  }
+
+  /**
+   * HANGAR-tab ship preview — the same evolution-cycling hull that
+   * WeaponSelectScene shows, tracking whichever mod card is focused/hovered
+   * (falling back to the first unlocked ship). It sits in the FIXED header
+   * chrome, outside the scrolling masked grid. Created when the HANGAR tab
+   * becomes active, destroyed on tab switch away and on shutdown; idempotent
+   * so post-purchase displayHangarMods refreshes leave it untouched.
+   */
+  private createHangarShipPreview(): void {
+    if (this.shipPreview) return;
+    // Portrait / narrow viewports (<1280): the header band is already full —
+    // account chip on the left, gold chip + filter button on the right, the
+    // ASCEND button in the center, and the tab strip at y=130 spanning nearly
+    // the whole width. There is no slot that fits even a shrunken hull
+    // without overlapping that chrome, so skip the preview entirely rather
+    // than squeeze it in.
+    if (this.scale.width < 1280) return;
+
+    // Landscape: header band, right of the ASCEND button area (which spans
+    // centerX ± 100). The tier label renders at y + 58 × (scale / 1.6); with
+    // y = 90 and scale = 0.85 that is 90 + 30.8 ≈ 121 — above the ~124 bound,
+    // so it clears the tab strip at y = 130. (The suggested 0.9 scale at
+    // y = 96 would put the label at 128.6, colliding with the tabs.)
+    const previewX = this.scale.width / 2 + 320;
+    const previewY = 90;
+    this.shipPreview = new ShipPreview(this, previewX, previewY, 0.85);
+
+    const fallback = this.getFirstUnlockedShip();
+    if (fallback) this.setPreviewShip(fallback);
+  }
+
+  private destroyHangarShipPreview(): void {
+    this.shipPreview?.destroy();
+    this.shipPreview = null;
+    this.previewedShipId = null;
+  }
+
+  /** Same availability rule as displayHangarMods / WeaponSelectScene. */
+  private getFirstUnlockedShip(): ShipCharacter | null {
+    const gateContext = this.buildUnlockGateContext();
+    return (
+      SHIP_CHARACTERS.find((ship) => isUnlockRequirementMet(ship.unlockRequirement, gateContext)) ?? null
+    );
+  }
+
+  /**
+   * Point the preview at a ship. No-op when already showing it — a ship has
+   * several mod-track cards, and hovering between them must not restart the
+   * evolution cycle.
+   */
+  private setPreviewShip(ship: ShipCharacter): void {
+    if (!this.shipPreview || this.previewedShipId === ship.id) return;
+    this.previewedShipId = ship.id;
+    this.shipPreview.setShip(ship);
+  }
+
+  /**
+   * Sync the preview to the focused hangar card — the gamepad/keyboard path
+   * (pointer hover wires setPreviewShip directly). The teaser card has no
+   * shipId and keeps whatever ship is already showing.
+   */
+  private syncPreviewToFocusedCard(): void {
+    if (!this.shipPreview || this.currentCategory !== HANGAR_TAB_ID) return;
+    const card = this.hangarCards[this.selectedCardIndex];
+    if (!card?.shipId) return;
+    const ship = SHIP_CHARACTERS.find((s) => s.id === card.shipId);
+    if (ship) this.setPreviewShip(ship);
+  }
+
+  private createShipModCard(
+    positionX: number,
+    positionY: number,
+    width: number,
+    height: number,
+    ship: ShipCharacter,
+    track: ShipModTrack,
+    cardIndex: number,
+  ): void {
+    const metaManager = getMetaProgressionManager();
+    const shipModManager = getShipModManager();
+    const currentLevel = shipModManager.getLevel(ship.id, track.id);
+    const isMaxed = currentLevel >= track.maxLevel;
+    const cost = getShipModCost(track, currentLevel);
+    const canAfford = !isMaxed && metaManager.getGold() >= cost;
+
+    const accent = isMaxed ? ACCENT_COLORS.gold : ACCENT_COLORS.primary;
+    const card = createMenuCard(this, {
+      x: positionX,
+      y: positionY,
+      width,
+      height,
+      pulseSeed: cardIndex * 0.6 + 0.2,
+      bodyFillColor: BODY_COLORS.primary,
+      accentColor: accent,
+      bannerHeight: 36,
+      borderWidth: 3,
+      borderColor: accent,
+      cornerRadius: 8,
+    });
+    this.upgradeContainer.add(card.container);
+
+    // Banner: track name.
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 18, track.name.toUpperCase(), {
+      fontSize: 13,
+      color: TEXT_COLORS.heading,
+      letterSpacing: 1,
+    });
+    card.frame.add(nameText);
+
+    // Kicker: which ship this track belongs to.
+    const kickerText = makeDisplayText(this, 0, -height / 2 + 52, ship.name.toUpperCase(), {
+      fontSize: 10,
+      color: TEXT_COLORS.muted,
+      letterSpacing: 2.5,
+    });
+    card.frame.add(kickerText);
+
+    // Archetype icon — same atlas pipeline as the upgrade cards.
+    const trackIcon = createIcon(this, {
+      x: 0,
+      y: -38,
+      iconKey: track.icon,
+      size: 28,
+      tint: isMaxed ? ACCENT_COLORS.gold : 0xffffff,
+    });
+    card.frame.add(trackIcon);
+
+    // Description: the per-level effect.
+    const descriptionText = this.add.text(0, -14, track.description, {
+      fontSize: '11px',
+      fontFamily: MENU_FONT,
+      color: TEXT_COLORS.body,
+      wordWrap: { width: width - 24 },
+      align: 'center',
+    });
+    descriptionText.setOrigin(0.5);
+    card.frame.add(descriptionText);
+
+    // Level pips + LV readout ('◆ ◆ ◇' / 'LV 2/3', gold when maxed).
+    const pips = Array.from({ length: track.maxLevel }, (_v, i) => (i < currentLevel ? '◆' : '◇')).join(' ');
+    const pipsText = makeDisplayText(this, 0, 18, pips, {
+      fontSize: 15,
+      color: isMaxed ? ACCENT_COLORS_STR.gold : ACCENT_COLORS_STR.primary,
+      letterSpacing: 2,
+    });
+    card.frame.add(pipsText);
+    const levelText = makeBodyText(
+      this,
+      0,
+      40,
+      isMaxed ? 'MAXED' : `LV ${currentLevel}/${track.maxLevel}`,
+      {
+        fontSize: 12,
+        color: isMaxed ? ACCENT_COLORS_STR.gold : ACCENT_COLORS_STR.primary,
+      },
+    );
+    card.frame.add(levelText);
+
+    // Buy button at the card's foot (no refund path for mods).
+    const buttonY = height / 2 - 28;
+    const buyButton = createMenuButton({
+      scene: this,
+      x: 0,
+      y: buttonY,
+      width: width - 28,
+      height: 36,
+      label: isMaxed ? 'MAXED' : `${cost}g`,
+      variant: this.resolveBuyButtonVariant(true, isMaxed, canAfford),
+      fontSize: 13,
+      onActivate: () => {},
+    });
+    buyButton.setEnabled(!isMaxed);
+    card.frame.add(buyButton.container);
+
+    if (!isMaxed) {
+      buyButton.card.hitZone.on('pointerup', () => {
+        if (this.time.now < this.buyClickIgnoreUntil) return;
+        this.purchaseShipMod(ship.id, track);
+      });
+      this.tooltipManager.attach(
+        buyButton.card.hitZone,
+        `${ship.name} — ${track.name}: ${track.description} Mods apply only when flying the ${ship.name}.`,
+      );
+    }
+
+    // Affordable signal — same pulsing gold sparkle as the upgrade cards.
+    let affordableStar: Phaser.GameObjects.Text | undefined;
+    if (canAfford) {
+      affordableStar = makeDisplayText(this, width / 2 - 16, -height / 2 + 16, '✦', {
+        fontSize: 18,
+        color: ACCENT_COLORS_STR.gold,
+        letterSpacing: 0,
+      });
+      affordableStar.setOrigin(0.5);
+      card.frame.add(affordableStar);
+    }
+
+    this.hangarCards.push({
+      card,
+      buyButton,
+      shipId: ship.id,
+      track,
+      isTeaser: false,
+      isMaxed,
+      affordableStar,
+      cardIndex,
+    });
+
+    // Pointer routing — hover focuses the cell, clicking the body buys.
+    card.hitZone.on('pointerover', () => {
+      this.selectedCardIndex = cardIndex;
+      this.focusZone = 'grid';
+      this.updateFocusVisuals();
+      card.setHoverState(true);
+      this.setPreviewShip(ship);
+    });
+    card.hitZone.on('pointerout', () => card.setHoverState(false));
+    card.hitZone.on('pointerdown', () => {
+      if (isMaxed) return;
+      if (this.time.now < this.buyClickIgnoreUntil) return;
+      this.purchaseShipMod(ship.id, track);
+    });
+
+    buyButton.card.hitZone.on('pointerover', () => {
+      buyButton.setHoverState(true);
+      this.selectedCardIndex = cardIndex;
+      this.focusZone = 'grid';
+      this.updateFocusVisuals();
+      this.setPreviewShip(ship);
+    });
+    buyButton.card.hitZone.on('pointerout', () => buyButton.setHoverState(false));
+  }
+
+  /** Single trailing card teasing that locked ships expand the hangar. */
+  private createHangarTeaserCard(
+    positionX: number,
+    positionY: number,
+    width: number,
+    height: number,
+    lockedShipCount: number,
+    cardIndex: number,
+  ): void {
+    const card = createMenuCard(this, {
+      x: positionX,
+      y: positionY,
+      width,
+      height,
+      pulseSeed: cardIndex * 0.6 + 0.2,
+      bodyFillColor: BODY_COLORS.neutral,
+      accentColor: ACCENT_COLORS.neutral,
+      bannerHeight: 36,
+      borderWidth: 3,
+      borderColor: ACCENT_COLORS.neutral,
+      cornerRadius: 8,
+    });
+    card.container.setAlpha(0.7);
+    this.upgradeContainer.add(card.container);
+
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 18, 'LOCKED', {
+      fontSize: 14,
+      color: TEXT_COLORS.heading,
+      letterSpacing: 1.5,
+    });
+    card.frame.add(nameText);
+
+    const lockGlyph = makeDisplayText(this, 0, -32, '🔒', {
+      fontSize: 26,
+      color: ACCENT_COLORS_STR.neutral,
+      letterSpacing: 0,
+    });
+    card.frame.add(lockGlyph);
+
+    const teaserText = this.add.text(0, 16, 'Unlock more ships to expand the hangar.', {
+      fontSize: '12px',
+      fontFamily: MENU_FONT,
+      color: TEXT_COLORS.body,
+      wordWrap: { width: width - 32 },
+      align: 'center',
+    });
+    teaserText.setOrigin(0.5);
+    card.frame.add(teaserText);
+
+    const countText = makeBodyText(
+      this,
+      0,
+      56,
+      `${lockedShipCount} ${lockedShipCount === 1 ? 'SHIP' : 'SHIPS'} UNDISCOVERED`,
+      {
+        fontSize: 11,
+        color: TEXT_COLORS.dim,
+      },
+    );
+    card.frame.add(countText);
+
+    this.hangarCards.push({
+      card,
+      isTeaser: true,
+      isMaxed: false,
+      cardIndex,
+    });
+
+    card.hitZone.on('pointerover', () => {
+      this.selectedCardIndex = cardIndex;
+      this.focusZone = 'grid';
+      this.updateFocusVisuals();
+      card.setHoverState(true);
+    });
+    card.hitZone.on('pointerout', () => card.setHoverState(false));
+  }
+
+  /**
+   * Buy the next level of a ship mod track. Mirrors purchaseUpgrade's flow:
+   * gold guard (error sound + deficit toast) → spendGold → purchase → purchase
+   * sound + rebuild the tab, gold readout, badges, navigator, focus, pulse.
+   * The manager spends nothing itself, so gold is spent first and refunded on
+   * the (guard-prevented) purchase failure path so gold can never vanish.
+   */
+  private purchaseShipMod(shipId: string, track: ShipModTrack): void {
+    const metaManager = getMetaProgressionManager();
+    const shipModManager = getShipModManager();
+
+    const currentLevel = shipModManager.getLevel(shipId, track.id);
+    if (currentLevel >= track.maxLevel) return;
+    const cost = getShipModCost(track, currentLevel);
+    if (!Number.isFinite(cost)) return;
+
+    if (metaManager.getGold() < cost) {
+      this.soundManager.playError();
+      const deficit = cost - metaManager.getGold();
+      this.toastManager.showToast({
+        title: 'Not Enough Gold',
+        description: `Need ${deficit} more gold`,
+        icon: 'coins',
+        color: 0xff6644,
+        duration: 2000,
+      });
+      return;
+    }
+
+    if (!metaManager.spendGold(cost)) {
+      this.soundManager.playError();
+      return;
+    }
+    if (!shipModManager.purchase(shipId, track.id)) {
+      metaManager.addGold(cost);
+      this.soundManager.playError();
+      return;
+    }
+
+    this.soundManager.playPurchase();
+    // Feed the hangar-mastery achievements (may fire an unlock, delivered by
+    // this scene's callback) BEFORE refreshing readouts so the gold line
+    // includes any reward.
+    getAchievementManager().recordShipsFullyModded(shipModManager.getFullyModdedShipCount());
+    this.updateGoldDisplay();
+    this.displayHangarMods();
+    this.clampSelectedCardIndex();
+    this.refreshTabBadges();
+    this.buildMenuNavigator();
+    this.updateFocusVisuals();
+    this.pulseHangarCard(shipId, track.id);
+  }
+
+  private pulseHangarCard(shipId: string, trackId: string): void {
+    const card = this.hangarCards.find((c) => c.shipId === shipId && c.track?.id === trackId);
+    if (!card) return;
+    this.tweens.add({
+      targets: card.card.container,
+      scaleX: 1.06,
+      scaleY: 1.06,
+      duration: 110,
+      yoyo: true,
+      ease: 'Sine.easeOut',
+    });
+  }
+
   private setupScrollInput(): void {
     this.input.on(
       'wheel',
@@ -882,26 +1529,28 @@ export class ShopScene extends Phaser.Scene {
 
     const navigableItems: NavigableItem[] = [];
 
-    UPGRADE_CATEGORIES.forEach((_category, tabIndex) => {
+    SHOP_TABS.forEach((_tab, tabIndex) => {
       navigableItems.push({
         onFocus: () => {
           this.focusZone = 'tabs';
           this.selectedTabIndex = tabIndex;
-          this.selectCategoryByIndex(tabIndex);
+          this.selectTabByIndex(tabIndex);
           this.updateFocusVisuals();
         },
         onBlur: () => this.updateFocusVisuals(),
-        onActivate: () => this.selectCategoryByIndex(tabIndex),
+        onActivate: () => this.selectTabByIndex(tabIndex),
       });
     });
 
-    this.upgradeCards.forEach((_card, cardIndex) => {
+    const activeCardCount = this.getActiveCardCount();
+    for (let cardIndex = 0; cardIndex < activeCardCount; cardIndex++) {
       navigableItems.push({
         onFocus: () => {
           this.focusZone = 'grid';
           this.selectedCardIndex = cardIndex;
           this.ensureCardVisible();
           this.updateFocusVisuals();
+          this.syncPreviewToFocusedCard();
         },
         onBlur: () => this.updateFocusVisuals(),
         onActivate: () => {
@@ -910,7 +1559,7 @@ export class ShopScene extends Phaser.Scene {
           this.activateCurrentSelection();
         },
       });
-    });
+    }
 
     navigableItems.push({
       onFocus: () => {
@@ -920,11 +1569,11 @@ export class ShopScene extends Phaser.Scene {
       onBlur: () => this.updateFocusVisuals(),
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
 
-    const totalTabCount = UPGRADE_CATEGORIES.length;
+    const totalTabCount = SHOP_TABS.length;
     const navigatorColumns = Math.max(totalTabCount, this.columns);
 
     let initialIndex: number;
@@ -938,19 +1587,32 @@ export class ShopScene extends Phaser.Scene {
       columns: navigatorColumns,
       wrap: true,
       onCancel: () => {
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
       initialIndex,
     });
   }
 
-  private selectCategoryByIndex(index: number): void {
-    const category = UPGRADE_CATEGORIES[index];
-    if (category) this.selectCategory(category.id);
+  private selectTabByIndex(index: number): void {
+    const tab = SHOP_TABS[index];
+    if (tab) this.selectCategory(tab.id);
+  }
+
+  /** Card count of whichever grid (upgrades or hangar) the active tab shows. */
+  private getActiveCardCount(): number {
+    return this.currentCategory === HANGAR_TAB_ID ? this.hangarCards.length : this.upgradeCards.length;
   }
 
   private activateCurrentSelection(): void {
     if (this.focusZone === 'grid') {
+      if (this.currentCategory === HANGAR_TAB_ID) {
+        const card = this.hangarCards[this.selectedCardIndex];
+        if (!card || card.isTeaser || !card.shipId || !card.track) return;
+        const currentLevel = getShipModManager().getLevel(card.shipId, card.track.id);
+        if (currentLevel < card.track.maxLevel) this.purchaseShipMod(card.shipId, card.track);
+        return;
+      }
+
       const card = this.upgradeCards[this.selectedCardIndex];
       if (!card) return;
 
@@ -961,7 +1623,7 @@ export class ShopScene extends Phaser.Scene {
 
       if (isUnlocked && !isMaxed) this.purchaseUpgrade(card.upgrade.id);
     } else if (this.focusZone === 'back') {
-      this.scene.start('BootScene');
+      transitionToScene(this, 'BootScene');
     }
   }
 
@@ -982,8 +1644,13 @@ export class ShopScene extends Phaser.Scene {
   }
 
   private updateFocusVisuals(): void {
-    // Card focus pop — MenuCard's setFocusState handles the lift.
+    // Card focus pop — MenuCard's setFocusState handles the lift. Only one
+    // of the two card lists is populated at a time (per active tab).
     this.upgradeCards.forEach((card, index) => {
+      const isFocused = this.focusZone === 'grid' && this.selectedCardIndex === index;
+      card.card.setFocusState(isFocused);
+    });
+    this.hangarCards.forEach((card, index) => {
       const isFocused = this.focusZone === 'grid' && this.selectedCardIndex === index;
       card.card.setFocusState(isFocused);
     });
@@ -1000,7 +1667,7 @@ export class ShopScene extends Phaser.Scene {
       this.soundManager.playPurchase();
       this.updateGoldDisplay();
       this.updateAccountLevelDisplay();
-      this.displayCategoryUpgrades(this.currentCategory);
+      this.displayActiveTab();
       this.clampSelectedCardIndex();
       this.refreshTabBadges();
       this.buildMenuNavigator();
@@ -1061,7 +1728,7 @@ export class ShopScene extends Phaser.Scene {
     this.soundManager.playPurchase();
     this.updateGoldDisplay();
     this.updateAccountLevelDisplay();
-    this.displayCategoryUpgrades(this.currentCategory);
+    this.displayActiveTab();
     this.clampSelectedCardIndex();
     this.refreshTabBadges();
     this.buildMenuNavigator();
@@ -1104,7 +1771,7 @@ export class ShopScene extends Phaser.Scene {
     this.soundManager.playUIClick();
     this.updateGoldDisplay();
     this.updateAccountLevelDisplay();
-    this.displayCategoryUpgrades(this.currentCategory);
+    this.displayActiveTab();
     this.clampSelectedCardIndex();
     this.refreshTabBadges();
     this.buildMenuNavigator();
@@ -1112,12 +1779,13 @@ export class ShopScene extends Phaser.Scene {
   }
 
   private clampSelectedCardIndex(): void {
-    if (this.upgradeCards.length === 0) {
+    const cardCount = this.getActiveCardCount();
+    if (cardCount === 0) {
       this.selectedCardIndex = 0;
       return;
     }
-    if (this.selectedCardIndex >= this.upgradeCards.length) {
-      this.selectedCardIndex = this.upgradeCards.length - 1;
+    if (this.selectedCardIndex >= cardCount) {
+      this.selectedCardIndex = cardCount - 1;
     }
     if (this.selectedCardIndex < 0) this.selectedCardIndex = 0;
   }
@@ -1229,6 +1897,9 @@ export class ShopScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    // Detach the menu-context delivery closure — a dead scene must not
+    // receive unlocks (unclaimed rewards bank for AchievementScene instead).
+    getAchievementManager().setAchievementUnlockCallback(null);
     if (this.menuNavigator) {
       this.menuNavigator.destroy();
       this.menuNavigator = null;
@@ -1262,6 +1933,12 @@ export class ShopScene extends Phaser.Scene {
       card.card.destroy();
     }
     this.upgradeCards = [];
+    for (const card of this.hangarCards) {
+      card.buyButton?.destroy();
+      card.card.destroy();
+    }
+    this.hangarCards = [];
+    this.destroyHangarShipPreview();
     this.tweens.killAll();
   }
 
@@ -1284,15 +1961,14 @@ export class ShopScene extends Phaser.Scene {
       bannerHeight: 48,
       borderWidth: 4,
       borderColor: ACCENT_COLORS.magenta,
-      cornerRadius: 16,
-      wobble: false,
+      cornerRadius: 8,
       interactive: false,
     });
     confirmCard.container.setDepth(101);
 
-    const banner = makeStickerText(this, 0, confirmCard.bannerTopY + 24, `ASCEND TO LEVEL ${nextLevel}`, {
+    const banner = makeDisplayText(this, 0, confirmCard.bannerTopY + 24, `ASCEND TO LEVEL ${nextLevel}`, {
       fontSize: 20,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 2,
     });
     confirmCard.frame.add(banner);

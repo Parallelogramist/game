@@ -382,6 +382,25 @@ export class AchievementManager {
     this.checkMilestoneProgress('weapons_acquired', this.runState.runStats.weaponsAcquired);
   }
 
+  /**
+   * Card-archive collection size changed (end-screen reveal or Scanner
+   * decrypt). `count` is the total discovered count — an absolute value like
+   * the lifetime stats, not an increment.
+   */
+  recordCardsDiscovered(count: number): void {
+    this.updateAchievementProgress('cards_discovered', count);
+    this.savePersistentState();
+  }
+
+  /**
+   * Hangar mastery changed (a ship's last mod level was purchased). `count`
+   * is the absolute number of fully-modded ships, not an increment.
+   */
+  recordShipsFullyModded(count: number): void {
+    this.updateAchievementProgress('ships_fully_modded', count);
+    this.savePersistentState();
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // MILESTONE CHECKING
   // ─────────────────────────────────────────────────────────────────────────
@@ -459,8 +478,11 @@ export class AchievementManager {
 
     progress.isUnlocked = true;
     progress.unlockedAt = Date.now();
-    // Auto-claim reward on unlock — gold delivery happens through the callback
-    progress.rewardClaimed = true;
+    // Auto-claim ONLY when a callback is wired to actually deliver the reward
+    // (GameScene / CardsScene). An unlock fired with no callback — e.g. from a
+    // menu context that didn't wire one — stays unclaimed so AchievementScene's
+    // retroactive claim pass delivers the gold instead of silently eating it.
+    progress.rewardClaimed = this.onAchievementUnlock !== null;
 
     // Trigger callback for UI notification and reward delivery
     if (this.onAchievementUnlock) {
@@ -554,7 +576,8 @@ export class AchievementManager {
     this.onMilestoneComplete = callback;
   }
 
-  setAchievementUnlockCallback(callback: (achievement: AchievementDefinition) => void): void {
+  /** Pass null to detach (a scene shutting down must not leave a dead closure wired). */
+  setAchievementUnlockCallback(callback: ((achievement: AchievementDefinition) => void) | null): void {
     this.onAchievementUnlock = callback;
   }
 

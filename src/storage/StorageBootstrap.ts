@@ -12,6 +12,14 @@ import { StorageEncryption } from './StorageEncryption';
 /**
  * All SecureStorage keys used by the game.
  * These are pre-loaded and decrypted during bootstrap.
+ *
+ * A key a manager reads/writes via SecureStorage but that's missing from this
+ * list silently reads back as null on EVERY fresh page load: SecureStorage.getItem
+ * only ever answers from StorageEncryption's in-memory cache, and only keys listed
+ * here get loaded into that cache during initializeStorage(). The write still lands
+ * in encrypted localStorage (setItem populates the cache immediately, so same-session
+ * reads look fine), but a reload never sees it. New STORAGE_KEY* constant → add it here.
+ * `StorageBootstrap.test.ts` guards this by scanning src/ for the naming convention.
  */
 export const ALL_STORAGE_KEYS = [
   // MetaProgressionManager
@@ -30,11 +38,18 @@ export const ALL_STORAGE_KEYS = [
   'settings-sfx-enabled',
   'settings-sfx-volume',
   'settings-screen-shake',
+  'settings-screen-shake-intensity',
   'settings-grid-effects',
   'settings-fps-counter',
   'settings-damage-numbers-mode',
   'settings-status-text',
   'settings-ui-scale',
+  'settings-tutorial-seen',
+  'settings-reduced-motion',
+  'settings-director-debug',
+  'settings-colorblind-mode',
+  'settings-high-contrast',
+  'settings-minimap-enabled',
 
   // MusicManager
   'survivor-music-enabled',
@@ -43,6 +58,15 @@ export const ALL_STORAGE_KEYS = [
 
   // GameScene
   'game_autoBuyEnabled',
+
+  // CardCollectionManager
+  'survivor-meta-cards',
+
+  // BoostCardManager (one-run boost armed by a flux cache)
+  'survivor-meta-boosts',
+
+  // ShipModManager (per-ship mod-track levels)
+  'survivor-meta-ship-mods',
 
   // CodexManager
   'survivor-codex',
@@ -58,6 +82,15 @@ export const ALL_STORAGE_KEYS = [
 
   // RunHistoryManager (recent run summaries)
   'survivor-run-history',
+
+  // HiddenUnlocks (hidden-gated ship/content unlock progress)
+  'hiddenUnlocksV1',
+
+  // DailyChallengeManager (daily/weekly challenge leaderboard)
+  'dailyLeaderboardV1',
+
+  // RunnerBestScore (endless-runner mode best score)
+  'survivor-runner-best',
 ];
 
 /**

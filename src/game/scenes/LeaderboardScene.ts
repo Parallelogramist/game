@@ -1,9 +1,9 @@
 /**
- * LeaderboardScene — Balatro-style personal bests + challenge history.
+ * LeaderboardScene — personal bests + challenge history.
  */
 
 import Phaser from 'phaser';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance, type EntranceItem } from '../../utils/SceneTransition';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import {
   getRecentLeaderboardEntries,
@@ -15,11 +15,10 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuTabs, MenuTabs } from '../../visual/MenuTab';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
 
@@ -52,6 +51,7 @@ export class LeaderboardScene extends Phaser.Scene {
   private bestsCards: MenuCard[] = [];
   private menuTabs: MenuTabs | null = null;
   private backButton!: MenuButton;
+  private listStartY = 240;
 
   constructor() {
     super({ key: 'LeaderboardScene' });
@@ -60,8 +60,6 @@ export class LeaderboardScene extends Phaser.Scene {
   create(): void {
     const centerX = this.cameras.main.centerX;
     const screenHeight = this.cameras.main.height;
-
-    fadeIn(this, 200);
 
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
@@ -74,20 +72,22 @@ export class LeaderboardScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    makeStickerText(this, centerX, 32, 'LEADERBOARD', {
+    const title = makeDisplayText(this, centerX, 32, 'LEADERBOARD', {
       fontSize: 30,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 5,
       letterSpacing: 4,
     });
 
-    makeBodyText(this, centerX, 64, 'Personal bests + challenge history', {
+    const subtitle = makeBodyText(this, centerX, 64, 'Personal bests + challenge history', {
       fontSize: 12,
       color: TEXT_COLORS.muted,
     });
 
-    this.renderPersonalBestsStrip(centerX, 110);
-    this.renderFilterTabs(centerX, 192);
+    // Extra bests rows (narrow viewports) push the tabs and list down.
+    const bestsExtraHeight = this.renderPersonalBestsStrip(centerX, 110);
+    this.renderFilterTabs(centerX, 192 + bestsExtraHeight);
+    this.listStartY = 240 + bestsExtraHeight;
 
     this.allEntries = getRecentLeaderboardEntries(ENTRIES_TO_SHOW);
     this.renderCurrentEntries(centerX);
@@ -118,11 +118,30 @@ export class LeaderboardScene extends Phaser.Scene {
       onCancel: () => this.returnToMenu(),
     });
 
+    // Entrance choreography: title, bests tiles, tabs, then the history rows.
+    // Rows re-rendered by later filter changes appear without the stagger.
+    const entranceItems: EntranceItem[] = [
+      title,
+      subtitle,
+      ...this.bestsCards.map((card) => card.container),
+    ];
+    if (this.menuTabs) entranceItems.push(this.menuTabs.container);
+    entranceItems.push(
+      ...(this.entryListChildren as EntranceItem[]),
+      ...this.entryCards.map((card) => card.container),
+      this.backButton.container,
+    );
+    staggerEntrance(this, entranceItems, { stepMs: 25 });
+    sweepIn(this);
+
     this.events.once('shutdown', this.shutdown, this);
   }
 
-  /** Six personal-bests tiles using small Balatro cards. */
-  private renderPersonalBestsStrip(centerX: number, topY: number): void {
+  /**
+   * Six personal-bests tiles using small menu cards. Wraps into multiple rows
+   * on narrow viewports; returns the extra height beyond a single row.
+   */
+  private renderPersonalBestsStrip(centerX: number, topY: number): number {
     const lifetimeStats = getAchievementManager().getLifetimeStats();
     const accountLevel = getMetaProgressionManager().getAccountLevel();
 
@@ -138,38 +157,38 @@ export class LeaderboardScene extends Phaser.Scene {
     const tileWidth = 160;
     const tileHeight = 70;
     const gap = 12;
-    const totalWidth = tiles.length * tileWidth + (tiles.length - 1) * gap;
-    const startX = centerX - totalWidth / 2 + tileWidth / 2;
+    const tilesPerRow = Math.max(1, Math.min(tiles.length, Math.floor((this.scale.width - 32) / (tileWidth + gap))));
 
     tiles.forEach((tile, index) => {
-      const x = startX + index * (tileWidth + gap);
-      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.4;
+      const rowIndex = Math.floor(index / tilesPerRow);
+      const tilesInRow = Math.min(tilesPerRow, tiles.length - rowIndex * tilesPerRow);
+      const rowWidth = tilesInRow * tileWidth + (tilesInRow - 1) * gap;
+      const x = centerX - rowWidth / 2 + tileWidth / 2 + (index % tilesPerRow) * (tileWidth + gap);
+      const y = topY + rowIndex * (tileHeight + gap);
       const role = tile.role;
       const bodyKey = role === 'safe' ? 'safe' : role === 'primary' ? 'primary' : role === 'gold' ? 'gold' : role === 'magenta' ? 'magenta' : 'teal';
       const card = createMenuCard(this, {
         x,
-        y: topY,
+        y,
         width: tileWidth,
         height: tileHeight,
-        tilt,
-        wobbleSeed: index * 0.7,
+        pulseSeed: index * 0.7,
         bodyFillColor: BODY_COLORS[bodyKey as keyof typeof BODY_COLORS],
         accentColor: roleAccent(role),
         bannerHeight: 22,
         borderWidth: 2,
         borderColor: roleAccent(role),
-        cornerRadius: 12,
-        wobble: true,
+        cornerRadius: 6,
       });
 
-      const labelText = makeStickerText(this, 0, card.bannerTopY + 11, tile.label, {
+      const labelText = makeDisplayText(this, 0, card.bannerTopY + 11, tile.label, {
         fontSize: 11,
-        color: TEXT_COLORS.sticker,
+        color: TEXT_COLORS.heading,
         letterSpacing: 1,
       });
       card.frame.add(labelText);
 
-      const valueText = makeStickerText(this, 0, 12, tile.value, {
+      const valueText = makeDisplayText(this, 0, 12, tile.value, {
         fontSize: 22,
         color: roleAccentStr(role),
         letterSpacing: 1,
@@ -178,6 +197,8 @@ export class LeaderboardScene extends Phaser.Scene {
 
       this.bestsCards.push(card);
     });
+
+    return (Math.ceil(tiles.length / tilesPerRow) - 1) * (tileHeight + gap);
   }
 
   private renderFilterTabs(centerX: number, tabY: number): void {
@@ -230,25 +251,28 @@ export class LeaderboardScene extends Phaser.Scene {
   }
 
   private renderEntries(entries: DailyLeaderboardEntry[], centerX: number): void {
-    const listStartY = 240;
+    const listStartY = this.listStartY;
     const rowHeight = 36;
     const maxRows = 12;
     const displayEntries = entries.slice(0, maxRows);
-    const rowWidth = 800;
+    const rowWidth = Math.min(800, this.scale.width - 32);
     const leftX = centerX - rowWidth / 2;
+    // Column anchors are fractions of the 800px design width so narrow
+    // viewports compress proportionally; at rowWidth 800 they are unchanged.
+    const colX = (offset: number) => leftX + Math.round(offset * (rowWidth / 800));
 
-    // Header sticker.
+    // Header label.
     const headerLabels: { x: number; text: string; width: number }[] = [
-      { x: leftX + 80, text: 'DATE', width: 100 },
-      { x: leftX + 200, text: 'TYPE', width: 80 },
-      { x: leftX + 290, text: 'RESULT', width: 90 },
-      { x: leftX + 410, text: 'KILLS', width: 70 },
-      { x: leftX + 510, text: 'TIME', width: 70 },
-      { x: leftX + 620, text: 'LEVEL', width: 70 },
-      { x: leftX + 720, text: 'SCORE', width: 80 },
+      { x: colX(80), text: 'DATE', width: 100 },
+      { x: colX(200), text: 'TYPE', width: 80 },
+      { x: colX(290), text: 'RESULT', width: 90 },
+      { x: colX(410), text: 'KILLS', width: 70 },
+      { x: colX(510), text: 'TIME', width: 70 },
+      { x: colX(620), text: 'LEVEL', width: 70 },
+      { x: colX(720), text: 'SCORE', width: 80 },
     ];
     for (const header of headerLabels) {
-      const t = makeStickerText(this, header.x, listStartY, header.text, {
+      const t = makeDisplayText(this, header.x, listStartY, header.text, {
         fontSize: 11,
         color: TEXT_COLORS.muted,
         letterSpacing: 1,
@@ -260,21 +284,18 @@ export class LeaderboardScene extends Phaser.Scene {
       const rowY = listStartY + 28 + index * rowHeight;
       const isWeekly = entry.challengeType === 'weekly';
       const role: 'gold' | 'magenta' | 'safe' = entry.wasVictory ? 'safe' : isWeekly ? 'magenta' : 'gold';
-      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.2;
 
       const card = createMenuCard(this, {
         x: centerX,
         y: rowY,
         width: rowWidth,
         height: 30,
-        tilt,
-        wobble: false,
         bodyFillColor: BODY_COLORS[role],
         accentColor: roleAccent(role),
         bannerHeight: 0,
         borderWidth: 2,
         borderColor: roleAccent(role),
-        cornerRadius: 10,
+        cornerRadius: 6,
         shadowOffsetY: 4,
         shadowAlpha: 0.35,
       });
@@ -282,18 +303,18 @@ export class LeaderboardScene extends Phaser.Scene {
 
       const valueColor = entry.wasVictory ? ACCENT_COLORS_STR.safe : TEXT_COLORS.body;
 
-      const cells: { x: number; text: string; color: string; sticker: boolean }[] = [
-        { x: leftX + 80 - centerX, text: entry.dateString, color: valueColor, sticker: false },
-        { x: leftX + 200 - centerX, text: isWeekly ? 'Weekly' : 'Daily', color: isWeekly ? ACCENT_COLORS_STR.magenta : ACCENT_COLORS_STR.gold, sticker: true },
-        { x: leftX + 290 - centerX, text: entry.wasVictory ? 'Victory' : 'Loss', color: valueColor, sticker: entry.wasVictory },
-        { x: leftX + 410 - centerX, text: String(entry.killCount), color: valueColor, sticker: false },
-        { x: leftX + 510 - centerX, text: formatTime(entry.survivalSeconds), color: valueColor, sticker: false },
-        { x: leftX + 620 - centerX, text: `Lv ${entry.levelReached}`, color: valueColor, sticker: false },
-        { x: leftX + 720 - centerX, text: entry.score.toLocaleString(), color: valueColor, sticker: false },
+      const cells: { x: number; text: string; color: string; emphasis: boolean }[] = [
+        { x: colX(80) - centerX, text: entry.dateString, color: valueColor, emphasis: false },
+        { x: colX(200) - centerX, text: isWeekly ? 'Weekly' : 'Daily', color: isWeekly ? ACCENT_COLORS_STR.magenta : ACCENT_COLORS_STR.gold, emphasis: true },
+        { x: colX(290) - centerX, text: entry.wasVictory ? 'Victory' : 'Loss', color: valueColor, emphasis: entry.wasVictory },
+        { x: colX(410) - centerX, text: String(entry.killCount), color: valueColor, emphasis: false },
+        { x: colX(510) - centerX, text: formatTime(entry.survivalSeconds), color: valueColor, emphasis: false },
+        { x: colX(620) - centerX, text: `Lv ${entry.levelReached}`, color: valueColor, emphasis: false },
+        { x: colX(720) - centerX, text: entry.score.toLocaleString(), color: valueColor, emphasis: false },
       ];
       for (const cell of cells) {
-        const t = cell.sticker
-          ? makeStickerText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
+        const t = cell.emphasis
+          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
           : makeBodyText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, align: 'center' });
         card.frame.add(t);
       }
@@ -310,7 +331,7 @@ export class LeaderboardScene extends Phaser.Scene {
   }
 
   private returnToMenu(): void {
-    fadeOut(this, 150, () => this.scene.start('BootScene'));
+    transitionToScene(this, 'BootScene');
   }
 
   shutdown(): void {

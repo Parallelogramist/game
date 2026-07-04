@@ -55,6 +55,17 @@ export function giantStompTelegraph(): RingTelegraphSpec {
 }
 
 /**
+ * Exploder death fuse — blast footprint shown while the corpse is armed
+ * (BALANCE-EXPLODER-FUSE). Duration equals the 0.4s fuse GameScene ticks via
+ * ./exploder-fuse.ts; the +6 overshoots the blast radius (60) so the warning
+ * is conservative, like the other AOE rings. VOLATILE elite detonations stay
+ * instant and untelegraphed (parked in BACKLOG.md).
+ */
+export function exploderFuseTelegraph(): RingTelegraphSpec {
+  return { shape: 'ring', radius: 66, duration: 0.4, color: 0xff5555 };
+}
+
+/**
  * Horde King ground slam — phase-scaled footprint during the 1.0s windup.
  * Damage radius at execute is 150 + phase × 30; the +10 overshoot also absorbs
  * the boss's shake-jitter drift between windup start and the slam.

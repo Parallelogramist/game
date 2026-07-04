@@ -106,8 +106,8 @@ function drawNeonShape(
 }
 
 // =====================================================================
-// Public API — creates a container with a Graphics object. Comic/neon
-// routing happens at draw time so the two paths stay in sync.
+// Public API — creates a container with a Graphics object. Quality
+// routing happens at draw time so the render paths stay in sync.
 // =====================================================================
 
 function drawShapeIntoGraphics(

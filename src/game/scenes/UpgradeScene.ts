@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrades';
 import { getUpgradeRarityCardStyle } from '../../data/UpgradeRarity';
+import { lockCapacity, toggleLockedId } from '../../data/upgradeLocks';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
@@ -9,12 +10,11 @@ import { MenuNavigator } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   MENU_FONT,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
@@ -28,27 +28,32 @@ export interface UpgradeSceneData {
   rerollsRemaining: number;
   skipsRemaining: number;
   banishesRemaining: number;
-  onReroll: () => void;
+  /** Reroll keeps the locked cards — they are passed back so GameScene pins them. */
+  onReroll: (lockedUpgrades: Upgrade[]) => void;
   onSkip: () => void;
-  onBanish: (upgrade: Upgrade) => void;
+  /** Banish refreshes the hand; the surviving locked cards are passed back to pin. */
+  onBanish: (upgrade: Upgrade, lockedUpgrades: Upgrade[]) => void;
   isLastWeaponSlot?: boolean;
   weaponSlotsInfo?: { current: number; max: number };
   allStatUpgrades?: Upgrade[];
   playerLevel?: number;
+  /** Ids of cards locked in a prior reroll/banish of this same level-up. */
+  lockedUpgradeIds?: string[];
 }
 
 interface CardEntry {
   card: MenuCard;
   upgrade: Upgrade;
-  baseTilt: number;
   index: number;
+  /** Redraw the card's lock toggle to match the current locked state (if it has one). */
+  refreshLock?: () => void;
 }
 
 /**
- * UpgradeScene — Balatro-style level-up card pick.
+ * UpgradeScene — level-up card pick.
  *
- * Each upgrade is a tilted card with a colored body + sticker banner. Cards
- * lift on hover, wobble idle, and slide in from below on entry. Reroll/Skip/
+ * Each upgrade is a flat card with a colored body + banner label. Cards
+ * light up on hover and slide in from below on entry. Reroll/Skip/
  * Banish are pill buttons in the footer; banish confirmation is a centered
  * card-style dialog.
  *
@@ -73,9 +78,12 @@ export class UpgradeScene extends Phaser.Scene {
   private rerollsRemaining: number = 0;
   private skipsRemaining: number = 0;
   private banishesRemaining: number = 0;
-  private onRerollCallback: (() => void) | null = null;
+  private onRerollCallback: ((lockedUpgrades: Upgrade[]) => void) | null = null;
   private onSkipCallback: (() => void) | null = null;
-  private onBanishCallback: ((upgrade: Upgrade) => void) | null = null;
+  private onBanishCallback: ((upgrade: Upgrade, lockedUpgrades: Upgrade[]) => void) | null = null;
+
+  /** Cards the player has pinned — a reroll keeps these and reshuffles the rest. */
+  private lockedUpgradeIds: Set<string> = new Set();
 
   private isBanishMode: boolean = false;
   private banishModeText: Phaser.GameObjects.Text | null = null;
@@ -108,6 +116,15 @@ export class UpgradeScene extends Phaser.Scene {
     this.weaponSlotsInfo = data.weaponSlotsInfo ?? null;
     this.allStatUpgrades = data.allStatUpgrades ?? [];
     this.playerLevel = data.playerLevel ?? 0;
+    // Restore locks pinned in a prior reroll/banish of this same level-up, keeping
+    // only ids still present in the (regenerated) hand.
+    const presentIds = new Set(this.upgrades.map(u => u.id));
+    this.lockedUpgradeIds = new Set((data.lockedUpgradeIds ?? []).filter(id => presentIds.has(id)));
+  }
+
+  /** Locking only matters when a reroll is available to pin against. */
+  private canLock(): boolean {
+    return this.rerollsRemaining > 0;
   }
 
   create(): void {
@@ -117,8 +134,11 @@ export class UpgradeScene extends Phaser.Scene {
     this.entranceComplete = false;
     this.soundManager = new SoundManager(this);
     this.tooltipManager = new TooltipManager(this);
+    // Lock toggles sit on top of the card hit-zone; topOnly ensures clicking a
+    // lock pip never also triggers the card's select underneath.
+    this.input.setTopOnly(true);
 
-    // Balatro overlay backdrop — gameplay still bleeds through but cards pop.
+    // Overlay backdrop — gameplay still bleeds through but cards pop.
     this.menuOverlay = createMenuOverlay(this, { dim: 0.7, drifterCount: 4 });
     this.overlayUpdateHandler = (_time, delta) => {
       this.menuOverlay?.update(delta);
@@ -131,7 +151,7 @@ export class UpgradeScene extends Phaser.Scene {
     const isWeaponMilestone = this.playerLevel > 0 && this.playerLevel % 5 === 0;
     const titleString = isWeaponMilestone ? 'WEAPON MILESTONE!' : 'LEVEL UP!';
     const titleColor = isWeaponMilestone ? ACCENT_COLORS_STR.primary : ACCENT_COLORS_STR.focus;
-    const title = makeStickerText(this, this.scale.width / 2, 80, titleString, {
+    const title = makeDisplayText(this, this.scale.width / 2, 80, titleString, {
       fontSize: 48,
       color: titleColor,
       strokeWidth: 6,
@@ -157,14 +177,13 @@ export class UpgradeScene extends Phaser.Scene {
         bannerHeight: 0,
         borderWidth: 2,
         borderColor: ACCENT_COLORS.focus,
-        cornerRadius: 12,
-        wobble: false,
+        cornerRadius: 6,
         interactive: false,
         shadowOffsetY: 6,
         shadowAlpha: 0.4,
       });
       warningCard.container.setDepth(2);
-      const warningLabel = makeStickerText(this, 0, this.weaponSlotsInfo ? -8 : 0,
+      const warningLabel = makeDisplayText(this, 0, this.weaponSlotsInfo ? -8 : 0,
         '⚠ FINAL WEAPON SLOT — Choose wisely!', {
           fontSize: 16,
           color: ACCENT_COLORS_STR.focus,
@@ -206,6 +225,8 @@ export class UpgradeScene extends Phaser.Scene {
           this.toggleBanishMode();
         }
       },
+      // Gamepad West/X — toggle lock on the focused card.
+      onSecondary: () => this.toggleLockAtIndex(this.cardNavigator?.getSelectedIndex() ?? 0),
     });
 
     this.keydownHandler = (event: KeyboardEvent) => {
@@ -223,6 +244,7 @@ export class UpgradeScene extends Phaser.Scene {
       if (event.key.toLowerCase() === 'r' && this.rerollsRemaining > 0) this.handleReroll();
       if (event.key.toLowerCase() === 'x' && this.skipsRemaining > 0) this.handleSkip();
       if (event.key.toLowerCase() === 'b' && this.banishesRemaining > 0) this.toggleBanishMode();
+      if (event.key.toLowerCase() === 'l') this.toggleLockAtIndex(this.cardNavigator?.getSelectedIndex() ?? 0);
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
 
@@ -264,6 +286,16 @@ export class UpgradeScene extends Phaser.Scene {
     const buttonSpacing = 200;
     const startX = this.scale.width / 2 - buttonSpacing;
 
+    // Discoverability: locking is only useful when a reroll can pin against it.
+    if (this.canLock()) {
+      const lockHint = makeBodyText(
+        this, this.scale.width / 2, buttonY - 40,
+        '🔒 Click a card\'s lock — or [L] / pad ✗ — to keep it on reroll',
+        { fontSize: 13, color: TEXT_COLORS.muted },
+      );
+      lockHint.setDepth(10);
+    }
+
     this.utilityButtons.push(
       this.createUtilityButton(
         startX, buttonY,
@@ -271,7 +303,7 @@ export class UpgradeScene extends Phaser.Scene {
         'primary',
         this.rerollsRemaining > 0,
         () => this.handleReroll(),
-        'Shuffle the upgrade choices. You get a limited number per run.',
+        'Shuffle the upgrade choices. Lock cards first to keep them. Limited per run.',
       ),
     );
     this.utilityButtons.push(
@@ -333,7 +365,44 @@ export class UpgradeScene extends Phaser.Scene {
   private handleReroll(): void {
     if (this.rerollsRemaining <= 0 || !this.onRerollCallback) return;
     this.soundManager.playUIClick();
-    this.fadeOutAndInvoke(this.onRerollCallback);
+    const locked = this.getLockedUpgrades();
+    this.fadeOutAndInvoke(() => this.onRerollCallback?.(locked));
+  }
+
+  /** Upgrades currently pinned, in hand order. */
+  private getLockedUpgrades(): Upgrade[] {
+    return this.upgrades.filter(u => this.lockedUpgradeIds.has(u.id));
+  }
+
+  /** Toggle the lock on the card at a navigator/keyboard index. */
+  private toggleLockAtIndex(index: number): void {
+    const entry = this.cardEntries[index];
+    if (!entry) return;
+    this.toggleLockForUpgrade(entry.upgrade.id);
+  }
+
+  /**
+   * Toggle the lock for an upgrade id, respecting the leave-one-rerollable cap.
+   * No-op while the entrance animation, banish mode, or banish confirmation is
+   * active, or when locking can't help (no rerolls left).
+   */
+  private toggleLockForUpgrade(upgradeId: string): void {
+    if (!this.entranceComplete) return;
+    if (!this.canLock()) return;
+    if (this.isBanishMode || this.banishConfirmElements.length > 0) return;
+
+    const capacity = lockCapacity(this.upgrades.length);
+    const next = toggleLockedId([...this.lockedUpgradeIds], upgradeId, capacity);
+    const changed = next.length !== this.lockedUpgradeIds.size || next.some(id => !this.lockedUpgradeIds.has(id));
+    if (!changed) return; // blocked by capacity — leave it unlocked, no feedback churn
+
+    this.lockedUpgradeIds = new Set(next);
+    this.soundManager.playUIClick();
+    this.refreshLockVisuals();
+  }
+
+  private refreshLockVisuals(): void {
+    for (const entry of this.cardEntries) entry.refreshLock?.();
   }
 
   private handleSkip(): void {
@@ -348,7 +417,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.isBanishMode = !this.isBanishMode;
 
     if (this.isBanishMode) {
-      this.banishModeText = makeStickerText(this, this.scale.width / 2, 215,
+      this.banishModeText = makeDisplayText(this, this.scale.width / 2, 215,
         '🚫 BANISH MODE — Click an upgrade to remove it permanently', {
           fontSize: 16,
           color: ACCENT_COLORS_STR.danger,
@@ -375,7 +444,9 @@ export class UpgradeScene extends Phaser.Scene {
           duration: 300,
           ease: 'Back.easeIn',
           onComplete: () => {
-            this.onBanishCallback?.(upgrade);
+            // The banished card can't survive — pass the other locked cards on.
+            const survivingLocks = this.getLockedUpgrades().filter(u => u.id !== upgrade.id);
+            this.onBanishCallback?.(upgrade, survivingLocks);
             this.scene.stop();
           },
         });
@@ -402,15 +473,14 @@ export class UpgradeScene extends Phaser.Scene {
       bannerHeight: 36,
       borderWidth: 3,
       borderColor: ACCENT_COLORS.danger,
-      cornerRadius: 14,
-      wobble: false,
+      cornerRadius: 8,
       interactive: false,
     });
     confirmCard.container.setDepth(31);
 
-    const banner = makeStickerText(this, 0, confirmCard.bannerTopY + 18, 'BANISH UPGRADE', {
+    const banner = makeDisplayText(this, 0, confirmCard.bannerTopY + 18, 'BANISH UPGRADE', {
       fontSize: 18,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 2,
     });
     confirmCard.frame.add(banner);
@@ -513,7 +583,11 @@ export class UpgradeScene extends Phaser.Scene {
     const numCards = this.upgrades.length;
     const rows: Upgrade[][] = [];
 
-    if (numCards <= 4) {
+    // Narrow (portrait) viewports wrap earlier: 4 cards on one 720-wide row
+    // shrink to ~0.49× (unreadable); 2×2 keeps them at ~0.66× and portrait
+    // has the vertical room to spare.
+    const singleRowMax = this.scale.width < 800 ? 3 : 4;
+    if (numCards <= singleRowMax) {
       rows.push(this.upgrades.slice());
     } else {
       const firstRowCount = Math.ceil(numCards / 2);
@@ -597,21 +671,19 @@ export class UpgradeScene extends Phaser.Scene {
   ): CardEntry {
     const role = this.resolveUpgradeRole(upgrade);
     // Cards sit flat so every line of upgrade text reads cleanly.
-    const baseTilt = CARD_TILT_PRESETS.flat;
 
     const card = createMenuCard(this, {
       x: positionX,
       y: positionY,
       width,
       height,
-      tilt: baseTilt,
-      wobbleSeed: index * 0.7,
+      pulseSeed: index * 0.7,
       bodyFillColor: role.body,
       accentColor: role.accent,
       bannerHeight: 44,
       borderWidth: 3,
       borderColor: role.accent,
-      cornerRadius: 14,
+      cornerRadius: 8,
     });
     card.container.setDepth(2);
 
@@ -619,10 +691,10 @@ export class UpgradeScene extends Phaser.Scene {
     const halfH = height / 2;
     const halfW = width / 2;
 
-    // Banner sticker — upgrade name.
-    const bannerLabel = makeStickerText(this, 0, card.bannerTopY + 22, upgrade.name.toUpperCase(), {
+    // Banner label — upgrade name.
+    const bannerLabel = makeDisplayText(this, 0, card.bannerTopY + 22, upgrade.name.toUpperCase(), {
       fontSize: Math.round(18 * textBoost),
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 2,
     });
     card.frame.add(bannerLabel);
@@ -715,7 +787,7 @@ export class UpgradeScene extends Phaser.Scene {
           ? `✦ EVOLUTION READY: ${evolutionRecipe.evolvedName}`
           : `✦ Evolves: Lv${evolutionRecipe.requiredWeaponLevel}  ·  ${requiredStatName} ${currentStatLevel}/${evolutionRecipe.requiredStatLevel}`;
         const evolutionText = bothReady
-          ? makeStickerText(this, 0, evolutionHintY, hintLabel, {
+          ? makeDisplayText(this, 0, evolutionHintY, hintLabel, {
               fontSize: Math.round(13 * textBoost),
               color: ACCENT_COLORS_STR.focus,
               letterSpacing: 1,
@@ -734,11 +806,11 @@ export class UpgradeScene extends Phaser.Scene {
       }
     }
 
-    // Rarity tag — small sticker above the keybind chip on rare/epic cards.
+    // Rarity tag — small label above the keybind chip on rare/epic cards.
     // Skipped when the gold treatment (overflow / mastered) owns the card.
     const rarityStyle = getUpgradeRarityCardStyle(upgrade.rarity);
     if (rarityStyle && !upgrade.isOverflow && !isMastered) {
-      const rarityTag = makeStickerText(this, 0, halfH - 44, rarityStyle.label, {
+      const rarityTag = makeDisplayText(this, 0, halfH - 44, rarityStyle.label, {
         fontSize: Math.round(12 * textBoost),
         color: rarityStyle.accentStr,
         letterSpacing: 1.5,
@@ -746,9 +818,9 @@ export class UpgradeScene extends Phaser.Scene {
       card.frame.add(rarityTag);
     }
 
-    // Keybind chip — small sticker pill at card bottom.
+    // Keybind chip — small pill label at card bottom.
     const keybindY = halfH - 20;
-    const keybindText = makeStickerText(this, 0, keybindY, `[ ${index + 1} ]`, {
+    const keybindText = makeDisplayText(this, 0, keybindY, `[ ${index + 1} ]`, {
       fontSize: Math.round(13 * textBoost),
       color: TEXT_COLORS.muted,
       letterSpacing: 1,
@@ -774,7 +846,100 @@ export class UpgradeScene extends Phaser.Scene {
       }
     });
 
-    return { card, upgrade, baseTilt, index };
+    // Lock pip (top-right) — only meaningful when a reroll is available to pin against.
+    const refreshLock = this.canLock()
+      ? this.createLockToggle(card, upgrade, width, height, textBoost)
+      : undefined;
+
+    return { card, upgrade, index, refreshLock };
+  }
+
+  /**
+   * Build the per-card lock pip in the top-right corner. Clicking it pins the
+   * card so a reroll keeps it. Sits above the card's hit-zone (topOnly) so it
+   * never also triggers select. Returns a redraw closure.
+   */
+  private createLockToggle(
+    card: MenuCard,
+    upgrade: Upgrade,
+    width: number,
+    height: number,
+    textBoost: number,
+  ): () => void {
+    const halfW = width / 2;
+    const halfH = height / 2;
+    const radius = 16;
+    const holder = this.add.container(halfW - radius - 10, -halfH + 64);
+    holder.setDepth(5);
+
+    const background = this.add.circle(0, 0, radius, 0x000000, 0.45);
+    background.setStrokeStyle(2, 0x6a6a7e);
+    background.setInteractive({ useHandCursor: true });
+    holder.add(background);
+
+    const padlock = this.add.graphics();
+    holder.add(padlock);
+
+    const hint = makeDisplayText(this, 0, radius + 9, 'L', {
+      fontSize: Math.round(10 * textBoost),
+      color: TEXT_COLORS.muted,
+      letterSpacing: 1,
+    });
+    holder.add(hint);
+
+    card.frame.add(holder);
+
+    const redraw = (): void => {
+      const locked = this.lockedUpgradeIds.has(upgrade.id);
+      const color = locked ? ACCENT_COLORS.focus : 0x9a9aae;
+      background.setStrokeStyle(2.5, locked ? ACCENT_COLORS.focus : 0x6a6a7e);
+      background.setFillStyle(0x000000, locked ? 0.6 : 0.4);
+      this.drawPadlock(padlock, color, locked);
+    };
+
+    background.on('pointerover', () => {
+      if (!this.entranceComplete) return;
+      background.setScale(1.15);
+    });
+    background.on('pointerout', () => background.setScale(1));
+    background.on(
+      'pointerdown',
+      (_pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
+        event?.stopPropagation();
+        this.toggleLockForUpgrade(upgrade.id);
+      },
+    );
+
+    redraw();
+    return redraw;
+  }
+
+  /** Draw a tiny padlock glyph — gold + closed shackle when locked, dim + ajar when not. */
+  private drawPadlock(graphics: Phaser.GameObjects.Graphics, color: number, locked: boolean): void {
+    graphics.clear();
+    const bodyWidth = 13;
+    const bodyHeight = 10;
+    const bodyTop = -2;
+    const shackleRadius = 5;
+
+    // Shackle — top arch (north half, since screen-y points down). Closed when
+    // locked; the unlocked one is shifted + cut short so it reads as "open".
+    graphics.lineStyle(2.2, color, locked ? 1 : 0.85);
+    graphics.beginPath();
+    if (locked) {
+      graphics.arc(0, bodyTop, shackleRadius, Math.PI, Math.PI * 2, false);
+    } else {
+      graphics.arc(2, bodyTop, shackleRadius, Math.PI, Math.PI * 1.7, false);
+    }
+    graphics.strokePath();
+
+    // Body.
+    graphics.fillStyle(color, locked ? 1 : 0.45);
+    graphics.fillRoundedRect(-bodyWidth / 2, bodyTop, bodyWidth, bodyHeight, 2);
+
+    // Keyhole.
+    graphics.fillStyle(0x161620, 0.9);
+    graphics.fillCircle(0, bodyTop + bodyHeight / 2, 1.6);
   }
 
   private getStatDisplayName(statId: string): string {
@@ -799,7 +964,7 @@ export class UpgradeScene extends Phaser.Scene {
     // Overflow upgrades stack without a meaningful cap — show the stack count
     // rather than a (potentially huge) segmented bar.
     if (upgrade.isOverflow) {
-      return makeStickerText(this, 0, 0, `LIMIT BREAK · Lv.${filled}`, {
+      return makeDisplayText(this, 0, 0, `LIMIT BREAK · Lv.${filled}`, {
         fontSize: Math.round(14 * textBoost),
         color: ACCENT_COLORS_STR.focus,
         letterSpacing: 1.2,
@@ -807,7 +972,7 @@ export class UpgradeScene extends Phaser.Scene {
     }
 
     if (filled >= total && total > 1) {
-      return makeStickerText(this, 0, 0, '★ MASTERED ★', {
+      return makeDisplayText(this, 0, 0, '★ MASTERED ★', {
         fontSize: Math.round(15 * textBoost),
         color: ACCENT_COLORS_STR.focus,
         letterSpacing: 1.5,

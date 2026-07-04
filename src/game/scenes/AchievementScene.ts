@@ -12,12 +12,12 @@ import {
   AchievementCategory,
 } from '../../achievements';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 
@@ -54,7 +54,8 @@ export class AchievementScene extends Phaser.Scene {
   private readonly cardWidth = 360;
   private readonly cardHeight = 115;
   private readonly cardSpacing = 14;
-  private readonly columns = 2;
+  /** 2 on wide viewports; 1 when two 360px cards can't fit (portrait 720). */
+  private columns = 2;
 
   // Keyboard + gamepad navigation state
   private focusZone: FocusZone = 'tabs';
@@ -64,7 +65,7 @@ export class AchievementScene extends Phaser.Scene {
   private soundManager!: SoundManager;
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
-  private balatroBackButton: MenuButton | null = null;
+  private backButton: MenuButton | null = null;
 
   constructor() {
     super({ key: 'AchievementScene' });
@@ -73,7 +74,10 @@ export class AchievementScene extends Phaser.Scene {
   create(): void {
     const centerX = this.scale.width / 2;
 
-    fadeIn(this, 200);
+    // Two-column grid needs 360×2+14 = 734 plus margins; portrait (720)
+    // drops to a single centered column — rows scroll, so height is free.
+    this.columns = this.scale.width < this.cardWidth * 2 + this.cardSpacing + 32 ? 1 : 2;
+
     this.soundManager = new SoundManager(this);
 
     // Reset state
@@ -112,16 +116,16 @@ export class AchievementScene extends Phaser.Scene {
       }
     }
 
-    // Balatro backdrop.
+    // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (_time, delta) => {
       this.menuBackground?.update(delta);
-      this.balatroBackButton?.tickIdle(_time / 1000);
+      this.backButton?.tickIdle(_time / 1000);
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    // Title sticker.
-    makeStickerText(this, centerX, 36, 'ACHIEVEMENTS', {
+    // Title heading.
+    const title = makeDisplayText(this, centerX, 36, 'ACHIEVEMENTS', {
       fontSize: 32,
       color: ACCENT_COLORS_STR.safe,
       strokeWidth: 5,
@@ -140,7 +144,7 @@ export class AchievementScene extends Phaser.Scene {
     });
     completionLabel.setOrigin(1, 0);
 
-    const completionValue = makeStickerText(this, this.scale.width - 20, 44,
+    const completionValue = makeDisplayText(this, this.scale.width - 20, 44,
       `${unlockedCount} / ${totalCount}  ·  ${completionPercent}%`, {
         fontSize: 16,
         color: ACCENT_COLORS_STR.safe,
@@ -157,8 +161,8 @@ export class AchievementScene extends Phaser.Scene {
     // Display achievements for default category
     this.displayCategoryAchievements(this.currentCategory);
 
-    // Back button — Balatro pill.
-    this.balatroBackButton = createMenuButton({
+    // Back button.
+    this.backButton = createMenuButton({
       scene: this,
       x: centerX,
       y: this.scale.height - 36,
@@ -169,11 +173,11 @@ export class AchievementScene extends Phaser.Scene {
       fontSize: 14,
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
-    this.balatroBackButton.card.hitZone.on('pointerover', () => this.balatroBackButton!.setHoverState(true));
-    this.balatroBackButton.card.hitZone.on('pointerout', () => this.balatroBackButton!.setHoverState(false));
+    this.backButton.card.hitZone.on('pointerover', () => this.backButton!.setHoverState(true));
+    this.backButton.card.hitZone.on('pointerout', () => this.backButton!.setHoverState(false));
 
 
     // Setup scroll input
@@ -181,6 +185,18 @@ export class AchievementScene extends Phaser.Scene {
 
     // Setup keyboard + gamepad navigation
     this.buildMenuNavigator();
+
+    // Entrance choreography: title + completion first, tabs next, then the
+    // card list rises in as one block (rows scroll inside the mask).
+    staggerEntrance(this, [
+      title,
+      completionLabel,
+      completionValue,
+      ...this.categoryTabs.values(),
+      this.achievementContainer,
+      this.backButton.container,
+    ]);
+    sweepIn(this);
 
     // Register shutdown listener for cleanup
     this.events.once('shutdown', this.shutdown, this);
@@ -260,7 +276,7 @@ export class AchievementScene extends Phaser.Scene {
       onBlur: () => this.updateFocusVisuals(),
       onActivate: () => {
         this.soundManager.playUIClick();
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
 
@@ -270,7 +286,7 @@ export class AchievementScene extends Phaser.Scene {
       columns: 1,
       wrap: true,
       onCancel: () => {
-        fadeOut(this, 150, () => this.scene.start('BootScene'));
+        transitionToScene(this, 'BootScene');
       },
     });
   }
@@ -396,7 +412,8 @@ export class AchievementScene extends Phaser.Scene {
 
     const achievements = getAchievementsByCategory(category);
 
-    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
+    const gridWidth = this.cardWidth * this.columns + this.cardSpacing * (this.columns - 1);
+    const startX = (this.scale.width - gridWidth) / 2;
     const startY = 10;
 
     achievements.forEach((achievement, index) => {
@@ -676,8 +693,8 @@ export class AchievementScene extends Phaser.Scene {
       }
     });
 
-    // Back button focus pop on Balatro pill.
-    this.balatroBackButton?.setFocusState(this.focusZone === 'back');
+    // Back button focus pop.
+    this.backButton?.setFocusState(this.focusZone === 'back');
   }
 
   shutdown(): void {
@@ -691,8 +708,8 @@ export class AchievementScene extends Phaser.Scene {
     }
     this.menuBackground?.destroy();
     this.menuBackground = null;
-    this.balatroBackButton?.destroy();
-    this.balatroBackButton = null;
+    this.backButton?.destroy();
+    this.backButton = null;
     this.tweens.killAll();
   }
 }

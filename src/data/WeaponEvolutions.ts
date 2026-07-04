@@ -204,6 +204,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       count: 2,
     },
   },
+  {
+    weaponId: 'boomerang',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'reach',
+    requiredStatLevel: 5,
+    evolvedName: 'Eclipse Glaive',
+    evolvedDescription: 'A colossal glaive that carves an unbroken orbit, shredding the horde twice on every pass.',
+    statMultipliers: {
+      damage: 1.7,
+      range: 1.4,
+      count: 1,
+      size: 1.4,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

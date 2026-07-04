@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { getCodexManager } from '../../codex';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { createIcon } from '../../utils/IconRenderer';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { selectRunModifiers } from '../../data/RunModifiers';
 import { MenuNavigator } from '../../input/MenuNavigator';
@@ -10,18 +10,17 @@ import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { getShipModManager } from '../../meta/ShipModManager';
+import { ShipPreview } from '../../visual/ShipPreview';
 import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
-import { getShipTierGeometry, getHullBounds, Point2D } from '../../visual/shipHullGeometry';
-import { SHIP_NEON_PALETTES, lightenColor, darkenColor } from '../../visual/NeonColors';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   MENU_FONT,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
@@ -36,7 +35,7 @@ interface WeaponCardRef {
 type WeaponSelectStep = 'stage' | 'ship' | 'weapon';
 
 /**
- * Pre-run picker — Balatro-style 3-step card flow:
+ * Pre-run picker — 3-step card flow:
  * stage → ship → weapon. Each step is a card grid with role-coded accents.
  * Steps with only one option auto-skip; back-nav respects skipped steps.
  */
@@ -56,6 +55,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+  private shipPreview: ShipPreview | null = null;
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
@@ -69,17 +69,18 @@ export class WeaponSelectScene extends Phaser.Scene {
     const allWeapons = getWeaponInfoList();
     this.discoveredWeaponsCache = allWeapons.filter((w) => codexManager.isWeaponDiscovered(w.id));
 
-    // Balatro backdrop.
+    // Menu backdrop.
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
+      this.shipPreview?.update(delta);
       const seconds = time / 1000;
       for (const card of this.stepCards) card.tickIdle(seconds);
       for (const btn of this.stepButtons) btn.tickIdle(seconds);
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    fadeIn(this, 200);
+    sweepIn(this);
 
     this.availableSteps = [];
     const availableStages = this.getAvailableStages();
@@ -101,7 +102,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       this.soundManager.playUIClick();
       this.destroyMenuNavigator();
       this.input.keyboard?.removeAllListeners();
-      fadeOut(this, 150, () => this.scene.start('BootScene'));
+      transitionToScene(this, 'BootScene');
       return;
     }
     this.soundManager.playUIClick();
@@ -208,26 +209,24 @@ export class WeaponSelectScene extends Phaser.Scene {
     const focusable: { card: MenuCard; nameText: Phaser.GameObjects.Text; stage: StageDefinition }[] = [];
     stages.forEach((stage, index) => {
       const { x: cardX, y: cardY } = layout.positionAt(index);
-      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.6;
 
       const card = createMenuCard(this, {
         x: cardX,
         y: cardY,
         width: cardWidth,
         height: cardHeight,
-        tilt,
-        wobbleSeed: index * 0.7,
+        pulseSeed: index * 0.7,
         bodyFillColor: BODY_COLORS.magenta,
         accentColor: stage.gridLineColor,
         bannerHeight: 40,
         borderWidth: 3,
         borderColor: stage.gridLineColor,
-        cornerRadius: 14,
+        cornerRadius: 8,
       });
 
-      const nameText = makeStickerText(this, 0, card.bannerTopY + 20, stage.name.toUpperCase(), {
+      const nameText = makeDisplayText(this, 0, card.bannerTopY + 20, stage.name.toUpperCase(), {
         fontSize: 16,
-        color: TEXT_COLORS.sticker,
+        color: TEXT_COLORS.heading,
         letterSpacing: 1.5,
       });
       card.frame.add(nameText);
@@ -301,42 +300,81 @@ export class WeaponSelectScene extends Phaser.Scene {
     const cardSpacing = 22;
     const layout = this.computeGridLayout(ships.length, cardWidth, cardHeight, cardSpacing, 4, 30);
 
+    // Hangar preview — the real in-run ship hull cycling its evolution
+    // tiers, tracking the focused card. Beside the grid in landscape,
+    // above it in portrait; skipped when a tall portrait grid leaves no
+    // headroom (the preview must never sit on the cards).
+    const portrait = this.scale.height > this.scale.width;
+    const gridTop = layout.startY - cardHeight / 2;
+    const previewRoom = !portrait || gridTop - 130 >= 200;
+    if (previewRoom) {
+      const gridRight = this.scale.width / 2 + layout.totalGridWidth / 2;
+      const previewX = portrait
+        ? this.scale.width / 2
+        : Math.min(this.scale.width - 110, (gridRight + this.scale.width) / 2);
+      const previewY = portrait ? gridTop - 130 : this.scale.height / 2 - 10;
+      this.shipPreview = new ShipPreview(this, previewX, previewY);
+      this.shipPreview.setShip(ships[0]);
+    }
+
     const focusable: { card: MenuCard; ship: ShipCharacter }[] = [];
     ships.forEach((ship, index) => {
       const { x: cardX, y: cardY } = layout.positionAt(index);
-      const tilt = (index % 2 === 0 ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean) * 0.5;
 
       const card = createMenuCard(this, {
         x: cardX,
         y: cardY,
         width: cardWidth,
         height: cardHeight,
-        tilt,
-        wobbleSeed: index * 0.9 + 0.3,
+        pulseSeed: index * 0.9 + 0.3,
         bodyFillColor: BODY_COLORS.primary,
         accentColor: ACCENT_COLORS.primary,
         bannerHeight: 40,
         borderWidth: 3,
         borderColor: ACCENT_COLORS.primary,
-        cornerRadius: 14,
+        cornerRadius: 8,
       });
 
-      const nameText = makeStickerText(this, 0, card.bannerTopY + 20, ship.name.toUpperCase(), {
+      const nameText = makeDisplayText(this, 0, card.bannerTopY + 20, ship.name.toUpperCase(), {
         fontSize: 15,
-        color: TEXT_COLORS.sticker,
+        color: TEXT_COLORS.heading,
         letterSpacing: 1.5,
       });
       card.frame.add(nameText);
 
-      // The ship's actual hull silhouette (unique per ship), nose-up.
-      const hullPreview = this.drawShipHullPreview(ship, 58);
-      hullPreview.setPosition(0, -8);
-      card.frame.add(hullPreview);
+      // HANGAR mod progress — sits in the gap between the banner and the
+      // description block (which grows downward from y=18), so even the
+      // wordiest ship description can't collide with it.
+      const modManager = getShipModManager();
+      const modLevels = modManager.getTotalLevels(ship.id);
+      const modMax = modManager.getMaxTotalLevels(ship.id);
+      if (modMax > 0) {
+        const maxed = modLevels >= modMax;
+        const modsText = makeDisplayText(
+          this,
+          0,
+          -28,
+          maxed ? 'MODS MAXED' : `MODS ${modLevels}/${modMax}`,
+          {
+            fontSize: 10,
+            // muted (not dim) at zero — dim was invisible on the dark card
+            // on phones, hiding the HANGAR system from anyone who hadn't
+            // found the shop tab yet.
+            color: maxed
+              ? ACCENT_COLORS_STR.gold
+              : modLevels > 0
+                ? ACCENT_COLORS_STR.primary
+                : TEXT_COLORS.muted,
+            letterSpacing: 2,
+          },
+        );
+        card.frame.add(modsText);
+      }
 
-      const description = makeBodyText(this, 0, 46, ship.description, {
-        fontSize: 11,
+      const description = makeBodyText(this, 0, 18, ship.description, {
+        fontSize: 12,
         color: TEXT_COLORS.body,
-        wordWrapWidth: cardWidth - 26,
+        wordWrapWidth: cardWidth - 28,
       });
       description.setLineSpacing(2);
       card.frame.add(description);
@@ -360,7 +398,10 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.menuNavigator = new MenuNavigator({
       scene: this,
       items: focusable.map((entry) => ({
-        onFocus: () => entry.card.setFocusState(true),
+        onFocus: () => {
+          entry.card.setFocusState(true);
+          this.shipPreview?.setShip(entry.ship);
+        },
         onBlur: () => entry.card.setFocusState(false),
         onActivate: () => {
           this.soundManager.playUIClick();
@@ -374,82 +415,9 @@ export class WeaponSelectScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Draws a ship's real hull silhouette (its unique per-ship geometry, shown
-   * at mid-evolution tier) nose-up, mirroring PlayerSpaceship's neon style:
-   * soft glow, dark hull fill, bright edge stroke, cockpit, engines, accents.
-   * The returned Graphics is meant to be added to a card frame container.
-   */
-  private drawShipHullPreview(ship: ShipCharacter, targetSize: number): Phaser.GameObjects.Graphics {
-    const graphics = this.add.graphics();
-    const geometry = getShipTierGeometry(ship.hullId, 4); // mid-evolution (Warbird) form
-    const palette = SHIP_NEON_PALETTES[ship.neonColorId] ?? SHIP_NEON_PALETTES.cyan;
-    const color = palette.core;
-
-    const bounds = getHullBounds(geometry.hullOutline);
-    const extent = Math.max(bounds.maxX, -bounds.minX, bounds.maxY, -bounds.minY) * 2;
-    const scale = targetSize / extent;
-
-    // Ship geometry faces +x; rotate -90° so the nose points up on the card.
-    const project = (point: Point2D, inflate: number = 1): Point2D => ({
-      x: point.y * scale * inflate,
-      y: -point.x * scale * inflate,
-    });
-    const tracePolygon = (points: Point2D[], inflate: number = 1): void => {
-      graphics.beginPath();
-      points.forEach((point, index) => {
-        const projected = project(point, inflate);
-        if (index === 0) graphics.moveTo(projected.x, projected.y);
-        else graphics.lineTo(projected.x, projected.y);
-      });
-      graphics.closePath();
-    };
-
-    // Soft glow halo behind the hull.
-    graphics.fillStyle(lightenColor(color, 0.35), 0.14);
-    tracePolygon(geometry.hullOutline, 1.18);
-    graphics.fillPath();
-
-    // Dark hull fill + neon edge (the Tron look).
-    graphics.fillStyle(darkenColor(color, 0.85), 0.95);
-    tracePolygon(geometry.hullOutline);
-    graphics.fillPath();
-    graphics.lineStyle(2.5, lightenColor(color, 0.3), 0.2);
-    tracePolygon(geometry.hullOutline);
-    graphics.strokePath();
-    graphics.lineStyle(1.4, color, 1.0);
-    tracePolygon(geometry.hullOutline);
-    graphics.strokePath();
-
-    // Cockpit.
-    graphics.fillStyle(darkenColor(color, 0.9), 0.9);
-    tracePolygon(geometry.cockpit);
-    graphics.fillPath();
-    graphics.lineStyle(0.9, color, 0.9);
-    tracePolygon(geometry.cockpit);
-    graphics.strokePath();
-
-    // Engine nozzles.
-    for (const nozzle of geometry.engineNozzles) {
-      const projected = project(nozzle);
-      graphics.fillStyle(darkenColor(color, 0.8), 0.8);
-      graphics.fillCircle(projected.x, projected.y, geometry.engineNozzleRadius * scale);
-      graphics.lineStyle(0.6, color, 0.7);
-      graphics.strokeCircle(projected.x, projected.y, geometry.engineNozzleRadius * scale);
-    }
-
-    // Wing-tip accent lights.
-    const accentColor = lightenColor(color, 0.6);
-    for (const accent of geometry.wingTipAccents) {
-      const projected = project(accent);
-      graphics.fillStyle(accentColor, 0.9);
-      graphics.fillCircle(projected.x, projected.y, Math.max(1.2, geometry.wingTipAccentRadius * scale));
-    }
-
-    return graphics;
-  }
-
   private clearStepUI(): void {
+    this.shipPreview?.destroy();
+    this.shipPreview = null;
     for (const card of this.stepCards) card.destroy();
     this.stepCards = [];
     for (const btn of this.stepButtons) btn.destroy();
@@ -468,7 +436,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
   private renderStepTitle(title: string, subtitle: string, titleColor: string): void {
     const centerX = this.scale.width / 2;
-    const titleText = makeStickerText(this, centerX, 90, title, {
+    const titleText = makeDisplayText(this, centerX, 90, title, {
       fontSize: 36,
       color: titleColor,
       strokeWidth: 5,
@@ -492,7 +460,10 @@ export class WeaponSelectScene extends Phaser.Scene {
     yOffset: number = 0,
   ) {
     const centerX = this.scale.width / 2;
-    const columns = Math.min(count, maxColumns);
+    // Cap columns to what fits the viewport width so portrait (720) wraps
+    // instead of overflowing; wide viewports keep the requested max.
+    const fitColumns = Math.max(1, Math.floor((this.scale.width - 32) / (cardWidth + cardSpacing)));
+    const columns = Math.min(count, maxColumns, fitColumns);
     const rows = Math.ceil(count / columns);
     const totalGridWidth = columns * cardWidth + (columns - 1) * cardSpacing;
     const totalGridHeight = rows * cardHeight + (rows - 1) * cardSpacing;
@@ -501,6 +472,9 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     return {
       columns,
+      totalGridWidth,
+      totalGridHeight,
+      startY,
       positionAt: (index: number) => ({
         x: startX + (index % columns) * (cardWidth + cardSpacing),
         y: startY + Math.floor(index / columns) * (cardHeight + cardSpacing),
@@ -532,7 +506,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.renderStepTitle('CHOOSE YOUR WEAPON', 'Select the weapon you want to start your run with', ACCENT_COLORS_STR.gold);
 
     this.weaponCardRefs = [];
-    this.buildWeaponCards(discoveredWeapons);
+    const gridColumns = this.buildWeaponCards(discoveredWeapons);
 
     const centerX = this.scale.width / 2;
     const randomButtonY = this.scale.height - 60;
@@ -562,7 +536,6 @@ export class WeaponSelectScene extends Phaser.Scene {
       });
     this.stepObjects.push(hint);
 
-    const gridColumns = Math.min(discoveredWeapons.length, 7);
     const navigableItems: { onFocus: () => void; onBlur: () => void; onActivate: () => void }[] = this.weaponCardRefs.map((cardRef) => ({
       onFocus: () => this.focusWeaponCard(cardRef),
       onBlur: () => this.blurWeaponCard(cardRef),
@@ -600,7 +573,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this.weaponStepKeyHandler);
   }
 
-  private buildWeaponCards(weapons: WeaponInfo[]): void {
+  private buildWeaponCards(weapons: WeaponInfo[]): number {
     const cardWidth = 150;
     const cardHeight = 180;
     const cardSpacing = 14;
@@ -610,6 +583,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       const { x: cardX, y: cardY } = layout.positionAt(index);
       this.createWeaponCard(weaponInfo, cardX, cardY, cardWidth, cardHeight, index + 1);
     });
+    return layout.columns;
   }
 
   private focusWeaponCard(cardRef: WeaponCardRef): void {
@@ -632,32 +606,24 @@ export class WeaponSelectScene extends Phaser.Scene {
     height: number,
     keyNumber: number,
   ): void {
-    const tiltOptions = [
-      CARD_TILT_PRESETS.leftLean,
-      CARD_TILT_PRESETS.hero,
-      CARD_TILT_PRESETS.rightLean,
-      CARD_TILT_PRESETS.rest,
-    ];
-    const baseTilt = tiltOptions[keyNumber % tiltOptions.length] * 0.6;
 
     const card = createMenuCard(this, {
       x,
       y,
       width,
       height,
-      tilt: baseTilt,
-      wobbleSeed: keyNumber * 0.5 + 0.1,
+      pulseSeed: keyNumber * 0.5 + 0.1,
       bodyFillColor: BODY_COLORS.gold,
       accentColor: ACCENT_COLORS.gold,
       bannerHeight: 32,
       borderWidth: 3,
       borderColor: ACCENT_COLORS.gold,
-      cornerRadius: 12,
+      cornerRadius: 6,
     });
 
-    const nameText = makeStickerText(this, 0, card.bannerTopY + 16, weaponInfo.name.toUpperCase(), {
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 16, weaponInfo.name.toUpperCase(), {
       fontSize: 12,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 1,
     });
     card.frame.add(nameText);
@@ -677,7 +643,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     card.frame.add(descriptionText);
 
     if (keyNumber <= 9) {
-      const keyChip = makeStickerText(this, 0, height / 2 - 16, `[ ${keyNumber} ]`, {
+      const keyChip = makeDisplayText(this, 0, height / 2 - 16, `[ ${keyNumber} ]`, {
         fontSize: 11,
         color: TEXT_COLORS.muted,
         letterSpacing: 1,
@@ -709,13 +675,11 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.input.removeAllListeners();
 
     const selectedModifiers = selectRunModifiers(2);
-    fadeOut(this, 150, () => {
-      this.scene.start('PactSelectScene', {
-        startingWeapon: weaponId,
-        shipId: this.selectedShipId,
-        stageId: this.selectedStageId,
-        modifierIds: selectedModifiers.map((m) => m.id),
-      });
+    transitionToScene(this, 'PactSelectScene', {
+      startingWeapon: weaponId,
+      shipId: this.selectedShipId,
+      stageId: this.selectedStageId,
+      modifierIds: selectedModifiers.map((m) => m.id),
     });
   }
 

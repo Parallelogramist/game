@@ -12,7 +12,10 @@ import { CodexScene } from './game/scenes/CodexScene';
 import { WeaponSelectScene } from './game/scenes/WeaponSelectScene';
 import { PactSelectScene } from './game/scenes/PactSelectScene';
 import { LeaderboardScene } from './game/scenes/LeaderboardScene';
+import { CardsScene } from './game/scenes/CardsScene';
+import { RunnerScene } from './game/scenes/RunnerScene';
 import { initializeStorage, flushStorage } from './storage';
+import { baseSizeForViewport, installOrientationWatcher } from './utils/Orientation';
 import { BloomPipeline } from './visual/BloomPipeline';
 import { DistortionPipeline } from './visual/DistortionPipeline';
 import { ColorblindPipeline } from './visual/ColorblindPipeline';
@@ -27,19 +30,94 @@ import { ColorblindPipeline } from './visual/ColorblindPipeline';
  * - Encrypted localStorage for anti-cheat protection
  */
 
+// ─── Crash recovery ──────────────────────────────────────────────────────
+// Phaser only reschedules its next requestAnimationFrame after a step
+// completes without throwing — any uncaught exception inside a scene's
+// update()/create() silently freezes the whole game on the last-rendered
+// frame, with zero feedback to the player. Registered before the async
+// bootstrap below so it also covers boot-time failures (storage init,
+// Phaser construction), not just in-game ones.
+let crashHandled = false;
+function showCrashOverlay(source: string, error: unknown): void {
+  if (crashHandled) return;
+  crashHandled = true;
+
+  console.error(`[fatal:${source}]`, error);
+
+  // Best-effort — the storage layer itself may be what's broken, and this
+  // must never throw past this point or the overlay below won't show.
+  try {
+    flushStorage();
+  } catch (flushError) {
+    console.error('[fatal] flushStorage failed during crash handling', flushError);
+  }
+
+  const overlay = document.getElementById('crash-overlay');
+  if (!overlay) return;
+  overlay.classList.add('crash-overlay-visible');
+  overlay.addEventListener('click', () => window.location.reload(), { once: true });
+}
+window.addEventListener('error', (event) => showCrashOverlay('error', event.error ?? event.message));
+// Rejected promises never abort Phaser's step — the game keeps running — and
+// several fire-and-forget async paths reject routinely (music track fetch
+// while offline, iOS AudioContext.resume before a user gesture). Those must
+// not raise the fatal overlay over a healthy game; log for diagnosis only.
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('[unhandledrejection]', event.reason);
+});
+
 // Async bootstrap wrapper - ensures encrypted storage is ready before game starts
 (async () => {
   // Initialize encrypted storage and migrate any legacy plaintext data
   await initializeStorage();
 
-  // Create game configuration with scenes
+  // Create game configuration with scenes. The base size is orientation-aware
+  // (1280×720 landscape, 720×1280 portrait) — EXPAND grows the long axis from
+  // there, so the shorter side stays 720 game units in both orientations and
+  // world/UI objects keep a steady physical size.
+  const initialBase = baseSizeForViewport();
   const config: Phaser.Types.Core.GameConfig = {
     ...GAME_CONFIG,
-    scene: [BootScene, GameScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
+    width: initialBase.width,
+    height: initialBase.height,
+    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, CardsScene, WeaponSelectScene, PactSelectScene, LeaderboardScene],
   };
 
   // Initialize the game
   const game = new Phaser.Game(config);
+
+  // Swap the base size on orientation flips and re-lay-out whatever is live.
+  // Menu scenes are stateless creates — restarting with the original launch
+  // payload (sys.settings.data) re-runs create() against the new dimensions.
+  // GameScene does its save-restore round trip (the same machinery as a
+  // mid-run UI-scale change). UpgradeScene is deliberately skipped: a restart
+  // would regress mid-modal state (rerolled offers, card locks); it closes
+  // back into a GameScene that has already re-laid itself out.
+  installOrientationWatcher(game, () => {
+    for (const scene of game.scene.getScenes(true)) {
+      const key = scene.scene.key;
+      if (key === 'GameScene') {
+        (scene as GameScene).handleOrientationFlip();
+      } else if (key !== 'UpgradeScene') {
+        scene.scene.restart(scene.sys.settings.data);
+      }
+    }
+  });
+
+  // Dismiss the HTML boot loader once Phaser is presenting. READY fires when
+  // the renderer + first scene are up; one extra rAF-after-delay ensures a
+  // painted frame is actually on screen before the 320ms fade starts.
+  const dismissBootLoader = () => {
+    const loader = document.getElementById('boot-loader');
+    if (!loader) return;
+    loader.classList.add('boot-loader-hidden');
+    setTimeout(() => loader.remove(), 400);
+  };
+  game.events.once(Phaser.Core.Events.READY, () => {
+    setTimeout(() => requestAnimationFrame(dismissBootLoader), 400);
+  });
+  // Hard fallback — never strand the loader if READY is missed.
+  setTimeout(dismissBootLoader, 12000);
 
   // Register post-processing pipelines (WebGL only)
   if (game.renderer.type === Phaser.WEBGL) {
@@ -49,8 +127,15 @@ import { ColorblindPipeline } from './visual/ColorblindPipeline';
     renderer.pipelines.addPostPipeline('ColorblindPipeline', ColorblindPipeline);
   }
 
-  // Flush pending encrypted writes before page unload
-  window.addEventListener('beforeunload', () => {
+  // Flush pending encrypted writes when the page goes away. iOS Safari
+  // rarely fires beforeunload — pagehide and visibilitychange(hidden) are
+  // the reliable lifecycle signals there. flushStorage is idempotent.
+  const flushOnExit = () => {
     flushStorage();
+  };
+  window.addEventListener('beforeunload', flushOnExit);
+  window.addEventListener('pagehide', flushOnExit);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushOnExit();
   });
 })();

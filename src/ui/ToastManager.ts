@@ -11,6 +11,7 @@ import { createIcon } from '../utils/IconRenderer';
 import { computeHudScale } from '../utils/HudScale';
 import { getSettingsManager } from '../settings';
 import { ACCENT_COLORS, BODY_COLORS, MENU_COLORS } from '../visual/MenuStyle';
+import { OverlayDepths } from '../visual/DepthLayers';
 
 // Base toast dimensions (scaled by hudScale on small screens).
 const BASE_TOAST_WIDTH = 300;
@@ -22,7 +23,7 @@ const DEFAULT_DISPLAY_DURATION = 3000;
 
 const TOAST_BG_COLOR = BODY_COLORS.primary;
 const TOAST_BORDER_COLOR = ACCENT_COLORS.neutral;
-const TOAST_TITLE_COLOR = MENU_COLORS.stickerWhite;
+const TOAST_TITLE_COLOR = MENU_COLORS.headingWhite;
 const TOAST_DESC_COLOR = MENU_COLORS.textBody;
 
 export class ToastManager {
@@ -74,7 +75,7 @@ export class ToastManager {
    */
   showAchievementToast(name: string, description: string, icon: string): void {
     this.showToast({
-      title: `🏆 ${name}`,
+      title: `Achievement: ${name}`,
       description,
       icon,
       color: 0x44ff88, // Green for achievements
@@ -93,41 +94,49 @@ export class ToastManager {
 
     // Scale dimensions for mobile screens
     const hudScale = this.getHudScale();
-    const toastWidth = Math.round(BASE_TOAST_WIDTH * hudScale);
-    const toastHeight = Math.round(BASE_TOAST_HEIGHT * hudScale);
+    const screenWidth = this.scene.cameras.main.width;
     const toastMargin = Math.round(BASE_TOAST_MARGIN * hudScale);
+    // Cap the panel to the viewport — at phone HUD scale the base width
+    // exceeds a portrait screen, and the old right-anchor math (center at
+    // width − toastWidth − margin) then shoved half the panel OFF-SCREEN
+    // LEFT, covering the HP/XP bars.
+    const toastWidth = Math.min(
+      Math.round(BASE_TOAST_WIDTH * hudScale),
+      screenWidth - toastMargin * 2,
+    );
+    const toastHeight = Math.round(BASE_TOAST_HEIGHT * hudScale);
     const toastPadding = Math.round(BASE_TOAST_PADDING * hudScale);
 
     // Create toast container
     const container = this.scene.add.container(0, 0);
-    container.setDepth(1000); // Above most game elements
+    container.setDepth(OverlayDepths.HUD); // Toasts share the HUD band — above most game elements
 
-    // Position off-screen to the right
-    const screenWidth = this.scene.cameras.main.width;
+    // Slide in from the right to a right-aligned rest (center = right edge
+    // minus margin minus half width — the panel's RIGHT edge is flush).
     const startX = screenWidth + toastWidth;
-    const endX = screenWidth - toastWidth - toastMargin;
+    const endX = screenWidth - toastMargin - toastWidth / 2;
     const y = toastMargin + toastHeight / 2;
 
     container.setPosition(startX, y);
 
-    // Balatro-style panel: drop shadow + accent border + dark body + top stripe.
+    // Panel: soft shadow + accent border + dark body + top accent line.
     const accentColor = config.color || TOAST_BORDER_COLOR;
     const bg = this.scene.add.graphics();
     const halfW = toastWidth / 2;
     const halfH = toastHeight / 2;
-    const radius = 12;
-    // Drop shadow.
-    bg.fillStyle(0x000000, 0.45);
-    bg.fillRoundedRect(-halfW + 4, -halfH + 6, toastWidth, toastHeight, radius);
+    const radius = 6;
+    // Soft drop shadow.
+    bg.fillStyle(0x000000, 0.4);
+    bg.fillRoundedRect(-halfW, -halfH + 3, toastWidth, toastHeight, radius);
     // Accent ink border layer.
     bg.fillStyle(accentColor, 1);
     bg.fillRoundedRect(-halfW - 2, -halfH - 2, toastWidth + 4, toastHeight + 4, radius);
     // Body fill.
     bg.fillStyle(TOAST_BG_COLOR, 0.95);
     bg.fillRoundedRect(-halfW, -halfH, toastWidth, toastHeight, radius);
-    // Top accent stripe.
+    // Hairline top accent.
     bg.fillStyle(accentColor, 0.65);
-    bg.fillRect(-halfW + 4, -halfH + 2, toastWidth - 8, 3);
+    bg.fillRect(-halfW + 4, -halfH + 2, toastWidth - 8, 2);
     // Bottom inner shadow.
     bg.fillStyle(0x000000, 0.22);
     bg.fillRect(-halfW + 4, halfH - 3, toastWidth - 8, 2);
@@ -165,7 +174,7 @@ export class ToastManager {
       container.add(fallbackIcon);
     }
 
-    // Title — sticker style for Balatro punch.
+    // Title — display style.
     const textX = -toastWidth / 2 + toastPadding + Math.round(48 * hudScale);
     const title = this.scene.add.text(textX, 0, config.title, {
       fontSize: `${Math.round(15 * hudScale)}px`,

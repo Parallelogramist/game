@@ -6,16 +6,18 @@ import { MenuNavigator } from '../../input/MenuNavigator';
 import { SoundManager } from '../../audio/SoundManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
+import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { deriveBuildStats } from './buildStats';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
-import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS } from '../../visual/MenuStyle';
+import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
+import { getSettingsManager } from '../../settings';
+import { OverlayDepths } from '../../visual/DepthLayers';
 
 /**
- * Paint a Balatro-style panel: drop shadow + dark navy body + thick accent
- * border + thin highlight stripe across the top. Replaces the prior flat
- * dark-rectangle look so end-of-run / pause panels read as the same family
- * as the BootScene cards.
+ * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
+ * border + hairline accent across the top — the same family as the
+ * BootScene cards.
  */
 function paintPanelBackground(
   graphics: Phaser.GameObjects.Graphics,
@@ -25,12 +27,12 @@ function paintPanelBackground(
   height: number,
   _opts: { withPanelBreaks?: boolean; accentColor?: number } = {}
 ): void {
-  const radius = 12;
+  const radius = 6;
   const accent = _opts.accentColor ?? ACCENT_COLORS.primary;
 
-  // Drop shadow (offset down-right).
-  graphics.fillStyle(0x000000, 0.45);
-  graphics.fillRoundedRect(topLeftX + 5, topLeftY + 7, width, height, radius + 2);
+  // Soft drop shadow directly beneath the panel.
+  graphics.fillStyle(0x000000, 0.4);
+  graphics.fillRoundedRect(topLeftX, topLeftY + 4, width, height, radius + 2);
 
   // Accent border layer.
   graphics.fillStyle(accent, 1);
@@ -52,9 +54,9 @@ function paintPanelBackground(
 }
 
 /**
- * Paint a Balatro-style pill button: drop shadow + accent border + body fill +
- * thin top banner highlight. Drawn into a fresh graphics layer behind the
- * provided rectangle so the rectangle stays as the interactive hit zone.
+ * Paint a sharp pill button: soft shadow + accent border + body fill + thin
+ * top accent line. Drawn into a fresh graphics layer behind the provided
+ * rectangle so the rectangle stays as the interactive hit zone.
  */
 function paintPillBackground(
   graphics: Phaser.GameObjects.Graphics,
@@ -67,18 +69,18 @@ function paintPillBackground(
 ): void {
   const halfW = width / 2;
   const halfH = height / 2;
-  const radius = Math.min(height * 0.4, 14);
-  // 3px accent ring. The body sits `BORDER` px inside it, so the body's corner
+  const radius = Math.min(height * 0.25, 8);
+  // 2px accent ring. The body sits `BORDER` px inside it, so the body's corner
   // radius shrinks by the same amount to keep the two arcs concentric —
   // otherwise the body's corners overrun the border's curve and read as sharp.
-  const BORDER = 3;
+  const BORDER = 2;
   const bodyRadius = Math.max(0, radius - BORDER);
 
   graphics.clear();
 
-  // Drop shadow.
-  graphics.fillStyle(0x000000, 0.45);
-  graphics.fillRoundedRect(centerX - halfW + 4, centerY - halfH + 6, width, height, radius + 1);
+  // Soft drop shadow.
+  graphics.fillStyle(0x000000, 0.4);
+  graphics.fillRoundedRect(centerX - halfW, centerY - halfH + 3, width, height, radius + 1);
 
   // Accent border (rounded). This is also the focus/hover indicator — repainted
   // white when a button is focused (see createLabeledButton's setStrokeStyle shim).
@@ -89,10 +91,10 @@ function paintPillBackground(
   graphics.fillStyle(bodyColor, 1);
   graphics.fillRoundedRect(centerX - halfW, centerY - halfH, width, height, bodyRadius);
 
-  // Top highlight stripe (the Balatro banner feel). Inset past the rounded
-  // corners so the sharp stripe never overruns them.
+  // Hairline top accent, inset past the rounded corners so it never
+  // overruns them.
   graphics.fillStyle(accentColor, 0.7);
-  graphics.fillRect(centerX - halfW + radius, centerY - halfH + 2, width - radius * 2, 3);
+  graphics.fillRect(centerX - halfW + radius, centerY - halfH + 2, width - radius * 2, 2);
 
   // Bottom inner shadow — same corner-safe inset.
   graphics.fillStyle(0x000000, 0.25);
@@ -102,9 +104,41 @@ function paintPillBackground(
 void MENU_COLORS;
 void ACCENT_COLORS_STR;
 
-// Above the LightingSystem glow texture (depth 1999) so frozen game lights/bloom
-// don't bleed over the menu. The pause menu is top-most UI.
-const PAUSE_MENU_DEPTH = 2100;
+// Shared stat-cell typography for the two end screens (game over + victory).
+// One definition so the label/value treatment can't drift between them.
+const END_STAT_LABEL_STYLE = {
+  fontSize: '13px',
+  color: '#8898b0',
+  fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+} as const;
+const END_STAT_VALUE_STYLE = {
+  fontSize: '20px',
+  color: '#e8ecf4',
+  fontFamily: DISPLAY_FONT,
+  fontStyle: 'bold',
+} as const;
+
+// Top-most UI layer — above the HUD, minimap, off-screen arrows, intro
+// overlays, and tooltips.
+const PAUSE_MENU_DEPTH = OverlayDepths.PAUSE_MENU;
+
+/**
+ * Rarity accent colors for the end-screen card reveal. Mirrors
+ * getRelicRarityColor (src/data/Relics.ts) / getCardRarityColor
+ * (src/data/Cards.ts) — duplicated locally because the end screens render
+ * cards structurally (see GameOverData/VictoryData.discoveredCard) and must
+ * not couple this manager to the card data module.
+ */
+const CARD_RARITY_ACCENTS: Record<'common' | 'rare' | 'epic' | 'legendary', number> = {
+  common: 0xaaaaaa,
+  rare: 0x4488ff,
+  epic: 0xcc44ff,
+  legendary: 0xffaa22,
+};
+
+function colorToHexString(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
 
 function formatLargeNumber(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
@@ -118,6 +152,23 @@ function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainderSeconds = Math.floor(seconds % 60);
   return `${minutes}:${remainderSeconds.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Compact bonus readout for an active synergy on the build dashboard, e.g.
+ * "+30% dmg", "+15% spd", or both. Each synergy multiplier is applied to both
+ * weapons in the pair; this surfaces the magnitude the player is gaining so the
+ * synergy is no longer an invisible buff.
+ */
+function formatSynergyBonus(synergy: WeaponSynergy): string {
+  const parts: string[] = [];
+  if (synergy.damageMultiplier > 1) {
+    parts.push(`+${Math.round((synergy.damageMultiplier - 1) * 100)}% dmg`);
+  }
+  if (synergy.cooldownMultiplier < 1) {
+    parts.push(`+${Math.round((1 - synergy.cooldownMultiplier) * 100)}% spd`);
+  }
+  return parts.length > 0 ? parts.join('  ') : 'active';
 }
 
 /** Formats unlock progress as "current/target" with units hinted by target size. */
@@ -151,6 +202,8 @@ export interface PauseGameState {
   weaponStats: WeaponRunStats[];
   /** Total damage the player has taken this run (build dashboard). */
   totalDamageTaken: number;
+  /** Currently-active weapon synergies, listed on the build dashboard. */
+  activeSynergies?: WeaponSynergy[];
 }
 
 export interface VictoryData {
@@ -165,6 +218,8 @@ export interface VictoryData {
   streakBonusPercent: number;
   /** S–F performance grade for this run (parity with the game-over overlay). */
   performanceGrade?: { grade: string; color: string };
+  /** Card discovered from an in-run data cache — revealed on this screen. */
+  discoveredCard?: { id: string; name: string; description: string; rarity: 'common' | 'rare' | 'epic' | 'legendary'; icon: string } | null;
   /** Composite run score + persisted best (by world level). */
   runScore?: number;
   bestScore?: number;
@@ -193,6 +248,8 @@ export interface GameOverData {
   unlockProgress?: UnlockProgressEntry[];
   /** S–F performance grade for this run. */
   performanceGrade?: { grade: string; color: string };
+  /** Card discovered from an in-run data cache — revealed on this screen. */
+  discoveredCard?: { id: string; name: string; description: string; rarity: 'common' | 'rare' | 'epic' | 'legendary'; icon: string } | null;
   /** Composite run score + persisted best (by world level). */
   runScore?: number;
   bestScore?: number;
@@ -222,6 +279,8 @@ export class PauseMenuManager {
   // Victory choice handlers (for cleanup)
   private victoryContinueHandler: (() => void) | null = null;
   private victoryNextWorldHandler: (() => void) | null = null;
+  /** Victory stat-cell texts — collector-torn-down (see addVictoryCell). */
+  private victoryStatCellElements: Phaser.GameObjects.Text[] = [];
   private gameOverRestartHandler: (() => void) | null = null;
   private gameOverGamepadPoll: Phaser.Time.TimerEvent | null = null;
 
@@ -238,7 +297,12 @@ export class PauseMenuManager {
   private destroyElementsByName(names: string[]): void {
     for (const name of names) {
       const element = this.scene.children.getByName(name);
-      if (element) element.destroy();
+      if (element) {
+        // Infinite tweens (pause-title pulse, victory breathe) outlive their
+        // target otherwise — destroy() never detaches a tween from its target.
+        this.scene.tweens.killTweensOf(element);
+        element.destroy();
+      }
     }
   }
 
@@ -261,7 +325,7 @@ export class PauseMenuManager {
     textName: string;
     onActivate: () => void;
   }): { bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text } {
-    // Balatro pill: a graphics layer paints the shadow / accent border / body /
+    // Pill button: a graphics layer paints the shadow / accent border / body /
     // banner stripe; the Rectangle stays as the hit zone (kept fully transparent).
     const pillGfx = this.scene.add.graphics();
     pillGfx.setDepth(PAUSE_MENU_DEPTH + 0.5);
@@ -408,7 +472,7 @@ export class PauseMenuManager {
     const menuCenterY = this.scene.scale.height / 2;
     const buttonSpacing = 64; // 8px aligned gap between button centers
 
-    // Pause title — sticker style for Balatro punch.
+    // Pause title — display style.
     const pauseTitle = this.scene.add.text(this.scene.scale.width / 2, menuCenterY - 144, 'PAUSED', {
       fontSize: '56px',
       color: ACCENT_COLORS_STR.focus,
@@ -701,8 +765,12 @@ export class PauseMenuManager {
       lines.push({ label: 'No active modifiers', value: '', color: '#666666' });
     }
 
-    const panelX = this.scene.scale.width * 0.82;
-    const panelTopY = this.scene.scale.height / 2 - 144;
+    // Narrow (portrait) viewports: the side columns would overlap the
+    // centered buttons, so the two dashboards sit side-by-side BELOW the
+    // button stack instead (bottom button ends at centerY+249; height ≥1280).
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow ? this.scene.scale.width / 2 + 130 : this.scene.scale.width * 0.82;
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 268 : this.scene.scale.height / 2 - 144;
     const lineHeight = 20;
     const panelWidth = 220;
     const panelHeight = lines.length * lineHeight + 40;
@@ -796,10 +864,25 @@ export class PauseMenuManager {
       rightLines.push('', '');
     }
 
+    // Active weapon synergies — otherwise an invisible build layer. Shows the
+    // player which weapon pairs are buffing each other and by how much, so the
+    // pause dashboard answers "what is my build actually doing?" in full.
+    const activeSynergies = (gameState.activeSynergies ?? []).slice(0, 4);
+    if (activeSynergies.length > 0) {
+      leftLines.push('', 'SYNERGIES');
+      rightLines.push('', '');
+      for (const synergy of activeSynergies) {
+        leftLines.push(synergy.name);
+        rightLines.push(formatSynergyBonus(synergy));
+      }
+    }
+
     const lineCount = leftLines.length;
     const lineHeight = 20;
-    const panelX = this.scene.scale.width * 0.18;
-    const panelTopY = this.scene.scale.height / 2 - 144;
+    // Mirrors the run-modifiers panel: below the buttons on narrow viewports.
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow ? this.scene.scale.width / 2 - 130 : this.scene.scale.width * 0.18;
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 268 : this.scene.scale.height / 2 - 144;
     const panelWidth = 220;
     const panelHeight = lineCount * lineHeight + 40;
     const contentLeftX = panelX - panelWidth / 2;
@@ -891,7 +974,7 @@ export class PauseMenuManager {
     // 8px grid spacing for confirmation dialog
     const dialogCenterY = this.scene.scale.height / 2;
 
-    // Title — sticker style.
+    // Title — display style.
     const titleText = this.scene.add.text(this.scene.scale.width / 2, dialogCenterY - 168, 'END RUN?', {
       fontSize: '48px',
       color: ACCENT_COLORS_STR.gold,
@@ -1078,46 +1161,51 @@ export class PauseMenuManager {
     // Create victory overlay with fade-in
     this.createFadeInOverlay('victoryOverlay', 0.8, 200);
 
-    // World cleared text
+    // Kicker — world + boss context above the title, display style.
     const worldClearedText = this.scene.add.text(
       this.scene.scale.width / 2,
-      this.scene.scale.height / 2 - 120,
-      `WORLD ${data.clearedWorld} CLEARED!`,
+      this.scene.scale.height / 2 - 214,
+      `WORLD ${data.clearedWorld} CLEARED  ·  BOSS DEFEATED`,
       {
-        fontSize: '32px',
+        fontSize: '16px',
         color: '#88aaff',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 2,
       }
     );
+    worldClearedText.setLetterSpacing(6);
     worldClearedText.setOrigin(0.5);
     worldClearedText.setDepth(PAUSE_MENU_DEPTH + 1);
     worldClearedText.setName('victoryWorldCleared');
 
-    const victoryText = this.scene.add.text(this.scene.scale.width / 2, this.scene.scale.height / 2 - 60, 'VICTORY!', {
-      fontSize: '72px',
+    // Title — same slot/styling as the game-over screen for end-screen parity.
+    const victoryText = this.scene.add.text(this.scene.scale.width / 2, this.scene.scale.height / 2 - 172, 'VICTORY!', {
+      fontSize: '58px',
       color: ACCENT_COLORS_STR.focus,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 8,
+      strokeThickness: 3,
     });
-    victoryText.setLetterSpacing(5);
+    victoryText.setLetterSpacing(6);
     victoryText.setOrigin(0.5);
     victoryText.setDepth(PAUSE_MENU_DEPTH + 1);
     victoryText.setName('victoryText');
 
-    // Pulse animation on VICTORY! text
-    this.scene.tweens.add({
-      targets: victoryText,
-      scaleX: 1.05,
-      scaleY: 1.05,
-      duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
+    // Gentle breathe — skipped under reduced motion.
+    if (!getSettingsManager().isReducedMotionEnabled()) {
+      this.scene.tweens.add({
+        targets: victoryText,
+        scaleX: 1.02,
+        scaleY: 1.02,
+        duration: 900,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    }
 
     // Gold confetti particle rain
     if (this.scene.textures.exists('particle')) {
@@ -1139,55 +1227,56 @@ export class PauseMenuManager {
       confettiEmitter.setName('victoryConfetti');
     }
 
-    const messageText = this.scene.add.text(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 20,
-      'Boss Defeated!',
-      {
-        fontSize: '28px',
-        color: '#88ff88',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }
-    );
-    messageText.setOrigin(0.5);
-    messageText.setDepth(PAUSE_MENU_DEPTH + 1);
-    messageText.setName('victoryMessage');
+    // Run stats — contained two-column panel matching the game-over grid:
+    // labels flush left, values flush right per cell.
+    const victoryCX = this.scene.scale.width / 2;
+    const victoryStatsTop = this.scene.scale.height / 2 - 12;
+    const victoryStatsWidth = 400;
+    const victoryStatsHeight = 56;
+    const statsPanelGfx = this.scene.add.graphics();
+    paintPanelBackground(statsPanelGfx, victoryCX - victoryStatsWidth / 2, victoryStatsTop, victoryStatsWidth, victoryStatsHeight);
+    statsPanelGfx.fillStyle(0x8898b0, 0.18);
+    statsPanelGfx.fillRect(victoryCX, victoryStatsTop + 12, 1, victoryStatsHeight - 24);
+    statsPanelGfx.setDepth(PAUSE_MENU_DEPTH + 1);
+    statsPanelGfx.setName('victoryStatsPanel');
 
-    // Next world text
+    const victoryCellRow = victoryStatsTop + victoryStatsHeight / 2 + 3;
+    // Cells register into a collector destroyed by handleVictoryContinue —
+    // no per-cell name to hand-mirror into a teardown list, so adding a
+    // stat cell can't silently leak into the endless run.
+    const addVictoryCell = (leftX: number, rightX: number, label: string, value: string): void => {
+      const l = this.scene.add.text(leftX, victoryCellRow, label, END_STAT_LABEL_STYLE)
+        .setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+      const v = this.scene.add.text(rightX, victoryCellRow, value, END_STAT_VALUE_STYLE)
+        .setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+      this.victoryStatCellElements.push(l, v);
+    };
+    addVictoryCell(victoryCX - victoryStatsWidth / 2 + 18, victoryCX - 22, 'Kills', String(data.killCount));
+    addVictoryCell(victoryCX + 22, victoryCX + victoryStatsWidth / 2 - 18, 'Level', String(data.playerLevel));
+
+    // Next world line below the stats panel.
     const nextWorldText = this.scene.add.text(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 60,
+      victoryCX,
+      victoryStatsTop + victoryStatsHeight + 24,
       `Next: World ${data.newWorldLevel}`,
       {
-        fontSize: '22px',
+        fontSize: '20px',
         color: '#aaddff',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
       }
     );
+    nextWorldText.setLetterSpacing(2);
     nextWorldText.setOrigin(0.5);
     nextWorldText.setDepth(PAUSE_MENU_DEPTH + 1);
     nextWorldText.setName('victoryNextWorld');
 
-    const statsText = this.scene.add.text(
-      this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 100,
-      `Kills: ${data.killCount}  |  Level: ${data.playerLevel}`,
-      {
-        fontSize: '20px',
-        color: '#ffffff',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }
-    );
-    statsText.setOrigin(0.5);
-    statsText.setDepth(PAUSE_MENU_DEPTH + 1);
-    statsText.setName('victoryStats');
-
-    // Streak display
-    const fireEmoji = data.newStreak >= 5 ? '\u{1F525}\u{1F525}' : '\u{1F525}';
+    // Streak display \u2014 clean text label, no emoji (system emoji font is
+    // soft/off-brand next to the vector UI).
     const streakText = this.scene.add.text(
       this.scene.scale.width / 2,
-      this.scene.scale.height / 2 + 125,
-      `${fireEmoji} Streak: ${data.previousStreak} \u2192 ${data.newStreak}! (+${data.streakBonusPercent}% gold)`,
+      victoryStatsTop + victoryStatsHeight + 52,
+      `WIN STREAK ${data.previousStreak} \u2192 ${data.newStreak}  (+${data.streakBonusPercent}% gold)`,
       {
         fontSize: '18px',
         color: '#ffaa44',
@@ -1199,13 +1288,13 @@ export class PauseMenuManager {
     streakText.setName('victoryStreak');
 
     const victoryCenterX = this.scene.scale.width / 2;
-    const victoryTitleY = this.scene.scale.height / 2 - 60;
+    const victoryTitleY = this.scene.scale.height / 2 - 172;
 
     // Performance grade badge (left of the VICTORY! title) — mirrors the
     // game-over overlay so both end screens surface the same S–F grade.
     if (data.performanceGrade) {
       const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
-      const badgeX = victoryCenterX - 205;
+      const badgeX = victoryCenterX - victoryText.displayWidth / 2 - 58;
       const gradeBadge = this.scene.add.graphics();
       gradeBadge.setDepth(PAUSE_MENU_DEPTH + 1);
       gradeBadge.fillStyle(0x000000, 0.55);
@@ -1214,12 +1303,12 @@ export class PauseMenuManager {
       gradeBadge.strokeCircle(badgeX, victoryTitleY, 34);
       gradeBadge.setName('victoryGradeBadge');
       const gradeText = this.scene.add.text(badgeX, victoryTitleY, data.performanceGrade.grade, {
-        fontSize: '44px',
+        fontSize: '40px',
         color: data.performanceGrade.color,
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 3,
       });
       gradeText.setOrigin(0.5);
       gradeText.setDepth(PAUSE_MENU_DEPTH + 2);
@@ -1235,11 +1324,11 @@ export class PauseMenuManager {
     // Score line (between the streak readout and the action buttons).
     if (data.runScore !== undefined) {
       const scoreStr = data.isNewBest
-        ? `★ NEW BEST  ${data.runScore.toLocaleString()}`
+        ? `NEW BEST  ${data.runScore.toLocaleString()}`
         : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
       const scoreText = this.scene.add.text(
         victoryCenterX,
-        this.scene.scale.height / 2 + 150,
+        victoryTitleY + 48,
         scoreStr,
         {
           fontSize: '16px',
@@ -1307,6 +1396,49 @@ export class PauseMenuManager {
     goldPreviewText.setDepth(PAUSE_MENU_DEPTH + 1);
     goldPreviewText.setName('victoryGoldPreview');
 
+    // New-card reveal — right column, clear of the centered stats panel
+    // (400 wide) and buttons at all 1280–2000 widths; the left margin holds
+    // the recent-runs strip. Every element is named victoryCard* and torn
+    // down by handleVictoryContinue's destroyElementsByName list.
+    if (data.discoveredCard) {
+      // Narrow (portrait) viewports: the right-column slot lands ON the
+      // centered stats panel (it covered the Level cell), so the reveal
+      // drops to a centered slot below the buttons + gold line instead.
+      const narrow = this.scene.scale.width < 900;
+      const cardPanelX = narrow
+        ? this.scene.scale.width / 2
+        : Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
+      const cardPanelTop = narrow
+        ? this.scene.scale.height / 2 + 250
+        : this.scene.scale.height / 2 - 64;
+      const cardReveal = this.createCardRevealPanel(
+        data.discoveredCard,
+        cardPanelX,
+        cardPanelTop,
+        PAUSE_MENU_DEPTH + 1,
+        { namePrefix: 'victoryCard' }
+      );
+      // Reduced motion: elements stay at alpha 1 (static reveal, full
+      // information) and playGlowPulse no-ops internally.
+      if (!getSettingsManager().isReducedMotionEnabled()) {
+        for (const element of cardReveal.elements) {
+          element.setAlpha(0);
+          this.scene.tweens.add({
+            targets: element,
+            alpha: 1,
+            duration: 300,
+            ease: 'Sine.easeOut',
+          });
+        }
+        // Pulse once the fade-in lands. playGlowPulse guards against the
+        // overlay having been dismissed before this fires.
+        this.scene.time.delayedCall(320, () => cardReveal.playGlowPulse());
+      }
+      // Discovery chime rides the reveal, not the panel creation, so it lands
+      // after the victory fanfare instead of colliding with it.
+      this.scene.time.delayedCall(320, () => this.soundManager.playAchievementUnlock());
+    }
+
     // Keyboard handlers (store for cleanup). Pointer click handlers are wired
     // by createLabeledButton above.
     this.victoryContinueHandler = () => this.handleVictoryContinue();
@@ -1325,13 +1457,18 @@ export class PauseMenuManager {
     this.clearVictoryKeyboardHandlers();
 
     // Remove all victory UI elements
+    for (const cellText of this.victoryStatCellElements) {
+      this.scene.tweens.killTweensOf(cellText);
+      cellText.destroy();
+    }
+    this.victoryStatCellElements = [];
+
     this.destroyElementsByName([
       'victoryOverlay',
       'victoryWorldCleared',
       'victoryText',
-      'victoryMessage',
       'victoryNextWorld',
-      'victoryStats',
+      'victoryStatsPanel',
       'victoryContinueButtonBg',
       'victoryContinueButtonText',
       'victoryNextWorldButtonBg',
@@ -1343,6 +1480,16 @@ export class PauseMenuManager {
       'victoryGradeText',
       'victoryGradeLabel',
       'victoryScore',
+      'victoryRecentHeader',
+      'victoryRecentRow0',
+      'victoryRecentRow1',
+      'victoryRecentRow2',
+      'victoryCardPanel',
+      'victoryCardKicker',
+      'victoryCardName',
+      'victoryCardDesc',
+      'victoryCardRarity',
+      'victoryCardGlow',
     ]);
 
     this.options.onContinueRun();
@@ -1367,7 +1514,7 @@ export class PauseMenuManager {
     const metaManager = getMetaProgressionManager();
 
     // Prepare streak change text for display (only shown on death, not victory)
-    const streakChangeText = data.previousStreak > 0 ? '\u{1F494} Streak broken!' : '';
+    const streakChangeText = data.previousStreak > 0 ? 'Streak broken!' : '';
     const hasWon = this.options.getGameState().hasWon;
 
     // Show game over UI
@@ -1390,58 +1537,61 @@ export class PauseMenuManager {
     const centerY = this.scene.scale.height / 2;
 
     // Title glow (two concentric circles behind title)
+    const titleY = centerY - 172;
     const glowGraphics = this.scene.add.graphics();
     glowGraphics.setDepth(depth - 1);
     glowGraphics.fillStyle(titleColorHex, 0.08);
-    glowGraphics.fillCircle(centerX, centerY - 110, 120);
+    glowGraphics.fillCircle(centerX, titleY, 120);
     glowGraphics.fillStyle(titleColorHex, 0.15);
-    glowGraphics.fillCircle(centerX, centerY - 110, 70);
+    glowGraphics.fillCircle(centerX, titleY, 70);
 
     // Collect elements for staggered entrance animation
     const animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [glowGraphics];
 
-    const titleText = this.scene.add.text(centerX, centerY - 110, titleLabel, {
-      fontSize: '64px',
+    const titleText = this.scene.add.text(centerX, titleY, titleLabel, {
+      fontSize: '58px',
       color: titleColor,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 7,
+      strokeThickness: 3,
     });
-    titleText.setLetterSpacing(4);
+    titleText.setLetterSpacing(6);
     titleText.setOrigin(0.5).setDepth(depth);
     animatedElements.push(titleText);
 
-    // Performance grade badge (left of the title).
+    // Performance grade badge — positioned off the measured title width so it
+    // never overlaps the letterforms.
     if (data.performanceGrade) {
       const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
-      const badgeX = centerX - 185;
+      const badgeX = centerX - titleText.displayWidth / 2 - 58;
       const badgeGraphics = this.scene.add.graphics();
       badgeGraphics.setDepth(depth - 1);
       badgeGraphics.fillStyle(0x000000, 0.55);
-      badgeGraphics.fillCircle(badgeX, centerY - 110, 36);
-      badgeGraphics.lineStyle(3, gradeColorHex, 1);
-      badgeGraphics.strokeCircle(badgeX, centerY - 110, 36);
-      const gradeText = this.scene.add.text(badgeX, centerY - 110, data.performanceGrade.grade, {
-        fontSize: '46px',
+      badgeGraphics.fillCircle(badgeX, titleY, 32);
+      badgeGraphics.lineStyle(2, gradeColorHex, 1);
+      badgeGraphics.strokeCircle(badgeX, titleY, 32);
+      const gradeText = this.scene.add.text(badgeX, titleY, data.performanceGrade.grade, {
+        fontSize: '40px',
         color: data.performanceGrade.color,
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
         stroke: '#000000',
-        strokeThickness: 4,
+        strokeThickness: 3,
       }).setOrigin(0.5).setDepth(depth);
-      const gradeLabel = this.scene.add.text(badgeX, centerY - 66, 'GRADE', {
-        fontSize: '11px', color: '#8888aa', fontFamily: 'Arial',
+      const gradeLabel = this.scene.add.text(badgeX, titleY + 44, 'GRADE', {
+        fontSize: '11px', color: '#8888aa', fontFamily: DISPLAY_FONT, fontStyle: 'bold',
       }).setOrigin(0.5).setDepth(depth);
+      gradeLabel.setLetterSpacing(2);
       animatedElements.push(badgeGraphics, gradeText, gradeLabel);
     }
 
     // Score line (below the title).
     if (data.runScore !== undefined) {
       const scoreStr = data.isNewBest
-        ? `★ NEW BEST  ${data.runScore.toLocaleString()}`
+        ? `NEW BEST  ${data.runScore.toLocaleString()}`
         : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
-      const scoreText = this.scene.add.text(centerX, centerY - 66, scoreStr, {
+      const scoreText = this.scene.add.text(centerX, titleY + 48, scoreStr, {
         fontSize: '16px',
         color: data.isNewBest ? '#ffdd44' : '#9999bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1450,52 +1600,78 @@ export class PauseMenuManager {
       animatedElements.push(scoreText);
     }
 
-    // Run stats — each stat gets its own line with count-up animation
+    // ── Run stats panel ────────────────────────────────────────────────────
+    // Two-column grid inside one container: labels flush left, values flush
+    // right per cell, so every number lines up regardless of digit count.
     const minutes = Math.floor(data.gameTime / 60);
     const seconds = Math.floor(data.gameTime % 60);
     const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
-    const statLabelStyle = { fontSize: '14px', color: '#8888aa', fontFamily: 'Arial' };
-    const statValueStyle = { fontSize: '20px', color: '#aaaacc', fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif', fontStyle: 'bold' };
+    const hasDamageRow = data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined;
+    const statRowCount = hasDamageRow ? 3 : 2;
+    const statRowHeight = 34;
+    const statsPanelWidth = 480;
+    const statsPanelHeight = statRowCount * statRowHeight + 22;
+    const statsPanelTop = centerY - 104;
 
-    // Stat lines — compact 2-column layout
-    const leftColX = centerX - 100;
-    const rightColX = centerX + 100;
-    let statRowY = centerY - 45;
-    const statRowSpacing = 28;
+    const statsPanel = this.scene.add.graphics();
+    paintPanelBackground(
+      statsPanel,
+      centerX - statsPanelWidth / 2,
+      statsPanelTop,
+      statsPanelWidth,
+      statsPanelHeight
+    );
+    // Hairline column divider down the middle of the grid.
+    statsPanel.fillStyle(0x8898b0, 0.18);
+    statsPanel.fillRect(centerX, statsPanelTop + 12, 1, statsPanelHeight - 24);
+    statsPanel.setDepth(depth);
+    animatedElements.push(statsPanel);
 
-    // Adds a (label, value) pair centered at (x, y) with value directly below.
-    // Returns the value text so callers can attach count-up animations.
-    const addStatPair = (
-      x: number,
+    const statLabelStyle = END_STAT_LABEL_STYLE;
+    const statValueStyle = END_STAT_VALUE_STYLE;
+
+    const cellInset = 20;
+    const cellGutter = 26;
+    const leftCellLeftX = centerX - statsPanelWidth / 2 + cellInset;
+    const leftCellRightX = centerX - cellGutter;
+    const rightCellLeftX = centerX + cellGutter;
+    const rightCellRightX = centerX + statsPanelWidth / 2 - cellInset;
+
+    // Adds a stat row cell: label flush left, value flush right on the same
+    // baseline. Returns the value text (right-anchored, so count-up digits
+    // grow leftward and stay aligned).
+    const addStatCell = (
+      cellLeftX: number,
+      cellRightX: number,
       y: number,
       label: string,
       value: string,
       valueStyleOverrides: Partial<Phaser.Types.GameObjects.Text.TextStyle> = {}
     ): Phaser.GameObjects.Text => {
-      const labelText = this.scene.add.text(x, y, label, statLabelStyle).setOrigin(0.5).setDepth(depth);
+      const labelText = this.scene.add.text(cellLeftX, y, label, statLabelStyle)
+        .setOrigin(0, 0.5).setDepth(depth);
       const valueText = this.scene.add.text(
-        x,
-        y + 16,
+        cellRightX,
+        y,
         value,
         { ...statValueStyle, ...valueStyleOverrides }
-      ).setOrigin(0.5).setDepth(depth);
+      ).setOrigin(1, 0.5).setDepth(depth);
       animatedElements.push(labelText, valueText);
       return valueText;
     };
 
-    // Row 1: Time & Kills
-    addStatPair(leftColX, statRowY, 'Survived', timeStr);
-    const killValue = addStatPair(rightColX, statRowY, 'Kills', '0');
+    const statRowY = (row: number): number =>
+      statsPanelTop + 11 + statRowHeight * row + statRowHeight / 2;
 
-    statRowY += statRowSpacing + 16;
+    // Row 1: Time & Kills
+    addStatCell(leftCellLeftX, leftCellRightX, statRowY(0), 'Survived', timeStr);
+    const killValue = addStatCell(rightCellLeftX, rightCellRightX, statRowY(0), 'Kills', '0');
 
     // Row 2: Level & Combo
-    const levelValue = addStatPair(leftColX, statRowY, 'Level', '0');
-
+    const levelValue = addStatCell(leftCellLeftX, leftCellRightX, statRowY(1), 'Level', '0');
     if (data.highestCombo > 0) {
-      const comboValue = addStatPair(rightColX, statRowY, 'Best Combo', '0', { color: '#ffdd44' });
-      // Combo count-up (delayed to appear after stagger)
+      const comboValue = addStatCell(rightCellLeftX, rightCellRightX, statRowY(1), 'Best Combo', '0', { color: '#ffdd44' });
       this.countUpStats.push({ text: comboValue, target: data.highestCombo });
     }
 
@@ -1505,43 +1681,36 @@ export class PauseMenuManager {
       { text: levelValue, target: data.playerLevel },
     );
 
-    statRowY += statRowSpacing + 16;
-
     // Row 3: Damage dealt (with DPS) & taken
-    if (data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined) {
+    if (hasDamageRow) {
       const dmgDealt = formatLargeNumber(data.totalDamageDealt ?? 0);
       const dmgTaken = formatLargeNumber(data.totalDamageTaken ?? 0);
       const dps = data.gameTime > 0 ? formatLargeNumber(Math.floor((data.totalDamageDealt ?? 0) / data.gameTime)) : '0';
 
-      addStatPair(leftColX, statRowY, 'Damage Dealt', `${dmgDealt} (${dps}/s)`, { fontSize: '16px' });
-      addStatPair(rightColX, statRowY, 'Damage Taken', dmgTaken, { fontSize: '16px', color: '#ff8888' });
-
-      statRowY += statRowSpacing + 16;
+      addStatCell(leftCellLeftX, leftCellRightX, statRowY(2), 'Damage Dealt', `${dmgDealt} (${dps}/s)`, { fontSize: '16px' });
+      addStatCell(rightCellLeftX, rightCellRightX, statRowY(2), 'Damage Taken', dmgTaken, { fontSize: '16px', color: '#ff8888' });
     }
 
-    // Divider line between stats and gold
-    const divider = this.scene.add.graphics();
-    divider.setDepth(depth);
-    divider.lineStyle(1, 0x4a4a7a, 0.6);
-    divider.lineBetween(centerX - 120, statRowY + 5, centerX + 120, statRowY + 5);
-    animatedElements.push(divider);
+    // ── Gold pill ──────────────────────────────────────────────────────────
+    const goldPillHeight = 40;
+    const goldY = statsPanelTop + statsPanelHeight + 14 + goldPillHeight / 2;
+    const goldPill = this.scene.add.graphics();
+    paintPillBackground(goldPill, centerX, goldY, 250, goldPillHeight, BODY_COLORS.gold, ACCENT_COLORS.gold);
+    goldPill.setDepth(depth);
+    animatedElements.push(goldPill);
 
-    // Animated gold counter
-    const goldY = statRowY + 25;
     const goldText = this.scene.add.text(centerX, goldY, 'Gold: +0', {
-      fontSize: '28px',
+      fontSize: '22px',
       color: '#ffdd44',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
     }).setOrigin(0.5).setDepth(depth);
     const goldElementIndex = animatedElements.length;
     animatedElements.push(goldText);
 
     // Streak text
     if (streakChangeText) {
-      const streakDisplay = this.scene.add.text(centerX, goldY + 35, streakChangeText, {
+      const streakDisplay = this.scene.add.text(centerX, goldY + 38, streakChangeText, {
         fontSize: '18px',
         color: data.previousStreak > 0 && !hasWon ? '#ff6666' : '#ffdd44',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1550,17 +1719,45 @@ export class PauseMenuManager {
     }
 
     // Track the bottom of the content for dynamic positioning
-    let contentBottomY = goldY + 35;
+    let contentBottomY = goldY + goldPillHeight / 2;
     if (streakChangeText) {
-      contentBottomY = goldY + 70;
+      contentBottomY = goldY + 52;
     }
 
-    // Weapon breakdown panel (right side) + personal bests panel (left side)
+    // Weapon breakdown panel (right side) + personal bests panel (left side).
+    // Narrow (portrait) viewports have exactly two below-column slots; when a
+    // card reveal exists it takes the right slot and the PERSONAL BESTS panel
+    // yields — the reveal is the rarer, one-per-run moment.
+    const narrowGameOver = this.scene.scale.width < 900;
     if (data.weaponStats && data.weaponStats.length > 0) {
       this.createWeaponBreakdownPanel(data.weaponStats, depth, animatedElements);
     }
-    if (data.personalBests) {
+    if (data.personalBests && !(narrowGameOver && data.discoveredCard)) {
       this.createPersonalBestsPanel(data, depth, animatedElements);
+    }
+
+    // New-card reveal — right column, aligned under the weapon-damage panel's
+    // MAXIMUM footprint (5 rows ⇒ bottom at centerY + 82) so the slot is
+    // collision-free at 1280–2000 widths regardless of how many weapons dealt
+    // damage (or whether the weapon panel rendered at all). Narrow: right
+    // slot of the below-column pair (see above).
+    let cardReveal: { playGlowPulse: () => void } | null = null;
+    let cardRevealLastIndex = 0;
+    if (data.discoveredCard) {
+      const cardPanelX = narrowGameOver
+        ? this.scene.scale.width / 2 + 126
+        : Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
+      const cardPanelTop = narrowGameOver ? centerY + 320 : centerY + 98;
+      cardReveal = this.createCardRevealPanel(
+        data.discoveredCard,
+        cardPanelX,
+        cardPanelTop,
+        depth,
+        { collector: animatedElements }
+      );
+      // The panel registers several elements (panel, kicker, name, desc, tag)
+      // — the glow must wait for the LAST one's stagger slot, not the first.
+      cardRevealLastIndex = animatedElements.length - 1;
     }
 
     // "Progress toward unlocks" panel — turns wasted runs into forward motion
@@ -1569,16 +1766,19 @@ export class PauseMenuManager {
       contentBottomY = this.createUnlockProgressPanel(
         data.unlockProgress,
         centerX,
-        contentBottomY + 30,
+        contentBottomY + 18,
         depth,
         animatedElements
       );
     }
 
-    // Restart hint
+    // Restart hint — clamped above the bottom edge so it never sits under
+    // the iOS home indicator or off-screen on short landscape viewports.
     const isTouchDevice = this.scene.input.manager.touch !== null && this.scene.sys.game.device.input.touch;
     const restartHint = isTouchDevice ? 'Tap to restart' : 'Press SPACE to restart';
-    const restartText = this.scene.add.text(centerX, contentBottomY + 50, restartHint, {
+    const restartY = Math.min(contentBottomY + 56, this.scene.scale.height - 24);
+    const affordY = restartY - 28;
+    const restartText = this.scene.add.text(centerX, restartY, restartHint, {
       fontSize: '20px',
       color: '#888888',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1603,6 +1803,21 @@ export class PauseMenuManager {
         ease: 'Sine.easeOut',
       });
     });
+
+    // Card-reveal glow pulse — fires once the panel's own stagger fade-in has
+    // finished (last registered element's slot), so the halo lands on a fully
+    // visible panel. If the scene restarts first, the delayed call dies with
+    // it and playGlowPulse's active-guard covers any race.
+    if (cardReveal) {
+      // `let` narrowing doesn't survive into the closure — pin to a const.
+      const reveal = cardReveal;
+      const revealDone = cardRevealLastIndex * staggerDelay + 300;
+      this.scene.time.delayedCall(revealDone, () => {
+        reveal.playGlowPulse();
+        // Discovery chime lands with the halo, well after the game-over sting.
+        this.soundManager.playAchievementUnlock();
+      });
+    }
 
     // Stat count-up animations (start after stagger reveals them)
     const statCountUpDelay = 4 * staggerDelay + 300; // After first stat values appear
@@ -1653,7 +1868,7 @@ export class PauseMenuManager {
           ? `You can now afford: ${nextUpgrade.name}`
           : `${nextUpgrade.goldNeeded}g away from: ${nextUpgrade.name}`;
         const affordColor = nextUpgrade.canAfford ? '#44ff88' : '#aaaacc';
-        this.scene.add.text(centerX, contentBottomY + 25, affordLabel, {
+        this.scene.add.text(centerX, affordY, affordLabel, {
           fontSize: '16px',
           color: affordColor,
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -1714,6 +1929,10 @@ export class PauseMenuManager {
     } = {}
   ): void {
     if (!runs || runs.length === 0) return;
+    // The left-margin strip has no clear home at portrait widths — it would
+    // sit under the centered stat column. Skipped there (BACKLOG: portrait
+    // polish pass).
+    if (this.scene.scale.width < 900) return;
 
     const gradeColors: Record<string, string> = {
       S: '#ffd24a', A: '#66ff99', B: '#66ccff', C: '#bbbbdd', D: '#cc9966', F: '#ff6666',
@@ -1749,6 +1968,131 @@ export class PauseMenuManager {
   }
 
   /**
+   * Renders the compact "NEW CARD DISCOVERED" reveal panel shared by both end
+   * screens: rarity-accented panel (paintPanelBackground draws the accent
+   * border + top hairline), kicker, card name, one-line bonus description, and
+   * a rarity tag. Shares createRecentRunsStrip's dual teardown regime — the
+   * game-over overlay passes `collector` (stagger fade-in, scene-restart
+   * teardown), the victory overlay passes `namePrefix` (destroyElementsByName
+   * teardown in handleVictoryContinue).
+   *
+   * Returns `playGlowPulse`, a one-shot accent halo (alpha 0.6 → 0, 500ms) the
+   * caller fires once the panel is visible. The pulse self-destroys, no-ops
+   * under reduced motion, and no-ops if the panel was already torn down (the
+   * victory screen can be dismissed before its delayed pulse fires).
+   */
+  private createCardRevealPanel(
+    card: { name: string; description: string; rarity: 'common' | 'rare' | 'epic' | 'legendary' },
+    panelX: number,
+    panelTopY: number,
+    depth: number,
+    options: {
+      namePrefix?: string;
+      collector?: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[];
+    } = {}
+  ): {
+    elements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[];
+    playGlowPulse: () => void;
+  } {
+    const panelWidth = 240;
+    const panelHeight = 116;
+    const accent = CARD_RARITY_ACCENTS[card.rarity];
+    const accentStr = colorToHexString(accent);
+    const elements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [];
+
+    const register = (
+      element: Phaser.GameObjects.Text | Phaser.GameObjects.Graphics,
+      name: string
+    ): void => {
+      element.setDepth(depth);
+      if (options.namePrefix) element.setName(`${options.namePrefix}${name}`);
+      options.collector?.push(element);
+      elements.push(element);
+    };
+
+    const panelBg = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBg,
+      panelX - panelWidth / 2,
+      panelTopY,
+      panelWidth,
+      panelHeight,
+      { accentColor: accent }
+    );
+    register(panelBg, 'Panel');
+
+    const kicker = this.scene.add.text(panelX, panelTopY + 12, 'NEW CARD DISCOVERED', {
+      fontSize: '11px',
+      color: accentStr,
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0);
+    kicker.setLetterSpacing(2);
+    register(kicker, 'Kicker');
+
+    const nameText = this.scene.add.text(panelX, panelTopY + 32, card.name, {
+      fontSize: '18px',
+      color: '#e8ecf4',
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0);
+    register(nameText, 'Name');
+
+    const descText = this.scene.add.text(panelX, panelTopY + 58, card.description, {
+      fontSize: '12px',
+      color: '#aab4cc',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      align: 'center',
+      wordWrap: { width: panelWidth - 24 },
+    }).setOrigin(0.5, 0);
+    register(descText, 'Desc');
+
+    const rarityTag = this.scene.add.text(
+      panelX,
+      panelTopY + panelHeight - 22,
+      card.rarity.toUpperCase(),
+      {
+        fontSize: '11px',
+        color: accentStr,
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
+      }
+    ).setOrigin(0.5, 0);
+    rarityTag.setLetterSpacing(3);
+    register(rarityTag, 'Rarity');
+
+    const playGlowPulse = (): void => {
+      if (getSettingsManager().isReducedMotionEnabled()) return;
+      // The pulse is fired via delayed calls; the overlay may have been torn
+      // down in the meantime (victory Continue) — never spawn an orphan halo.
+      if (!panelBg.active) return;
+      const halo = this.scene.add.graphics();
+      halo.fillStyle(accent, 1);
+      halo.fillRoundedRect(
+        panelX - panelWidth / 2 - 8,
+        panelTopY - 8,
+        panelWidth + 16,
+        panelHeight + 16,
+        10
+      );
+      halo.setDepth(depth - 1);
+      halo.setAlpha(0.6);
+      // Named so handleVictoryContinue's destroyElementsByName can kill a
+      // mid-pulse halo; on game over the scene restart's killAll covers it.
+      if (options.namePrefix) halo.setName(`${options.namePrefix}Glow`);
+      this.scene.tweens.add({
+        targets: halo,
+        alpha: 0,
+        duration: 500,
+        ease: 'Sine.easeOut',
+        onComplete: () => halo.destroy(),
+      });
+    };
+
+    return { elements, playGlowPulse };
+  }
+
+  /**
    * Creates the per-weapon damage breakdown panel shown on the right side of game over.
    * Sorted by total damage descending. Top-5 weapons displayed.
    */
@@ -1766,9 +2110,15 @@ export class PauseMenuManager {
 
     const totalDamageAll = sortedWeapons.reduce((sum, stat) => sum + stat.totalDamage, 0);
 
-    const panelX = this.scene.scale.width * 0.82;
-    const panelTopY = this.scene.scale.height / 2 - 150;
     const panelWidth = 240;
+    // Narrow (portrait) viewports: the side columns would sit on top of the
+    // centered stat panel (480 wide), so this panel pairs up with PERSONAL
+    // BESTS below the whole center column instead — height ≥1280 there.
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow
+      ? this.scene.scale.width / 2 - panelWidth / 2 - 6
+      : Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - panelWidth / 2 - 24);
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 320 : this.scene.scale.height / 2 - 150;
     const rowHeight = 36;
     const panelHeight = sortedWeapons.length * rowHeight + 52;
 
@@ -1846,9 +2196,14 @@ export class PauseMenuManager {
     animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
   ): void {
     const bests = data.personalBests!;
-    const panelX = this.scene.scale.width * 0.18;
-    const panelTopY = this.scene.scale.height / 2 - 150;
     const panelWidth = 240;
+    // Mirrors the weapon-damage panel: right slot of the below-column pair
+    // on narrow (portrait) viewports.
+    const narrow = this.scene.scale.width < 900;
+    const panelX = narrow
+      ? this.scene.scale.width / 2 + panelWidth / 2 + 6
+      : Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
+    const panelTopY = narrow ? this.scene.scale.height / 2 + 320 : this.scene.scale.height / 2 - 150;
     const rowHeight = 32;
 
     interface BestRow {
@@ -1982,7 +2337,8 @@ export class PauseMenuManager {
     const barWidth = 110;
     const barHeight = 6;
     const leftTextX = centerX - panelWidth / 2 + 14;
-    const barX = centerX + panelWidth / 2 - barWidth - 14;
+    const percentRightX = centerX + panelWidth / 2 - 12;
+    const barX = percentRightX - 34 - barWidth;
 
     entries.forEach((entry, index) => {
       const rowY = startY + headerOffset + 8 + index * rowHeight;
@@ -2007,11 +2363,11 @@ export class PauseMenuManager {
       barGraphics.setDepth(depth);
       animatedElements.push(barGraphics);
 
-      const percentText = this.scene.add.text(barX + barWidth + 6, rowY, `${percent}%`, {
+      const percentText = this.scene.add.text(percentRightX, rowY, `${percent}%`, {
         fontSize: '11px',
         color: percent >= 90 ? '#ffdd44' : '#888899',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(1, 0).setDepth(depth);
       animatedElements.push(percentText);
 
       const detailText = this.scene.add.text(leftTextX, rowY + 11, progressText, {

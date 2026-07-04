@@ -1,19 +1,18 @@
 /**
- * CreditsScene — Balatro-style two-card credits panel.
+ * CreditsScene — two-card credits panel.
  */
 
 import Phaser from 'phaser';
-import { fadeIn, fadeOut } from '../../utils/SceneTransition';
+import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
-import { makeStickerText, makeBodyText } from '../../visual/StickerText';
+import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
   BODY_COLORS,
-  CARD_TILT_PRESETS,
   TEXT_COLORS,
 } from '../../visual/MenuStyle';
 
@@ -33,8 +32,6 @@ export class CreditsScene extends Phaser.Scene {
     const screenHeight = this.cameras.main.height;
     const centerX = this.cameras.main.centerX;
 
-    fadeIn(this, 200);
-
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
@@ -44,8 +41,8 @@ export class CreditsScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    // Title sticker.
-    makeStickerText(this, centerX, 60, 'CREDITS', {
+    // Title heading.
+    const title = makeDisplayText(this, centerX, 60, 'CREDITS', {
       fontSize: 44,
       color: ACCENT_COLORS_STR.gold,
       strokeWidth: 6,
@@ -54,16 +51,22 @@ export class CreditsScene extends Phaser.Scene {
 
     const cardWidth = 360;
     const cardHeight = 360;
-    const cardY = screenHeight / 2 + 10;
-    const leftCardX = screenWidth * 0.32;
-    const rightCardX = screenWidth * 0.68;
 
-    this.buildCreditCard(leftCardX, cardY, cardWidth, cardHeight, 'CREDITS', 'gold', [
-      { header: 'DEVELOPED BY', body: 'George' },
+    // Two 360-wide cards need ~780px of width to sit side by side; portrait
+    // (720) stacks them vertically instead — height is abundant there.
+    const stacked = screenWidth < cardWidth * 2 + 60;
+    const cardY = screenHeight / 2 + 10;
+    const leftCardX = stacked ? centerX : screenWidth * 0.32;
+    const rightCardX = stacked ? centerX : screenWidth * 0.68;
+    const firstCardY = stacked ? cardY - cardHeight / 2 - 14 : cardY;
+    const secondCardY = stacked ? cardY + cardHeight / 2 + 14 : cardY;
+
+    this.buildCreditCard(leftCardX, firstCardY, cardWidth, cardHeight, 'CREDITS', 'gold', [
+      { header: 'DEVELOPED BY', body: 'Parallelogramist' },
       { header: 'BUILT WITH', body: 'Phaser 3 — Game Framework\nbitECS — Entity Component System' },
     ]);
 
-    this.buildCreditCard(rightCardX, cardY, cardWidth, cardHeight, 'ASSETS', 'magenta', [
+    this.buildCreditCard(rightCardX, secondCardY, cardWidth, cardHeight, 'ASSETS', 'magenta', [
       { header: 'SOUND EFFECTS', body: 'Kenney.nl\nCC0 License' },
       { header: 'ICONS', body: 'game-icons.net\nCC BY 3.0' },
     ]);
@@ -94,6 +97,10 @@ export class CreditsScene extends Phaser.Scene {
       onCancel: () => this.returnToMenu(),
     });
 
+    // Entrance choreography: title, then the two cards, then the back button.
+    staggerEntrance(this, [title, ...this.cards.map((c) => c.container), this.backButton.container]);
+    sweepIn(this);
+
     this.events.once('shutdown', this.shutdown, this);
   }
 
@@ -106,31 +113,29 @@ export class CreditsScene extends Phaser.Scene {
     role: 'gold' | 'magenta',
     sections: { header: string; body: string }[],
   ): void {
-    const tilt = role === 'gold' ? CARD_TILT_PRESETS.leftLean : CARD_TILT_PRESETS.rightLean;
     const card = createMenuCard(this, {
       x,
       y,
       width,
       height,
-      tilt: tilt * 0.4,
       bodyFillColor: role === 'gold' ? BODY_COLORS.gold : BODY_COLORS.magenta,
       accentColor: role === 'gold' ? ACCENT_COLORS.gold : ACCENT_COLORS.magenta,
       bannerHeight: 50,
       borderWidth: 3,
       borderColor: role === 'gold' ? ACCENT_COLORS.gold : ACCENT_COLORS.magenta,
-      cornerRadius: 16,
+      cornerRadius: 8,
     });
 
-    const banner = makeStickerText(this, 0, card.bannerTopY + 25, bannerLabel, {
+    const banner = makeDisplayText(this, 0, card.bannerTopY + 25, bannerLabel, {
       fontSize: 22,
-      color: TEXT_COLORS.sticker,
+      color: TEXT_COLORS.heading,
       letterSpacing: 3,
     });
     card.frame.add(banner);
 
     let yOffset = -height / 2 + 75;
     for (const section of sections) {
-      const header = makeStickerText(this, 0, yOffset, section.header, {
+      const header = makeDisplayText(this, 0, yOffset, section.header, {
         fontSize: 14,
         color: role === 'gold' ? ACCENT_COLORS_STR.gold : ACCENT_COLORS_STR.magenta,
         letterSpacing: 2,
@@ -152,7 +157,7 @@ export class CreditsScene extends Phaser.Scene {
   }
 
   private returnToMenu(): void {
-    fadeOut(this, 150, () => this.scene.start('BootScene'));
+    transitionToScene(this, 'BootScene');
   }
 
   shutdown(): void {

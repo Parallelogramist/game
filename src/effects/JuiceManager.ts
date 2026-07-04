@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getSettingsManager } from '../settings';
+import { OverlayDepths } from '../visual/DepthLayers';
 
 /**
  * Configuration for weapon wind-up anticipation effects.
@@ -38,6 +39,8 @@ export class JuiceManager {
   private hitStopCooldownUntil: number = 0;
 
   public setScene(scene: Phaser.Scene | null): void {
+    // Zoom tween belongs to the outgoing scene's tween manager.
+    this.zoomTween = null;
     this.scene = scene;
   }
 
@@ -798,6 +801,9 @@ export class JuiceManager {
   // ============================================================
 
   private slowMotionActive: boolean = false;
+  /** The in-flight camera zoom tween — killed before any new zoom motion so
+   *  opposing zoom tweens can never fight over camera.zoom. */
+  private zoomTween: Phaser.Tweens.Tween | null = null;
 
   /**
    * Cinematic slow-motion effect — differs from hitStop by letting
@@ -812,14 +818,23 @@ export class JuiceManager {
     this.scene.tweens.timeScale = timeScale;
     this.scene.physics?.world?.timeScale && (this.scene.physics.world.timeScale = 1 / timeScale);
 
-    // Subtle camera zoom-in for drama
+    // Subtle camera zoom-in for drama.
+    //
+    // Camera zoom scales screen-space (scrollFactor-0) HUD too, so a zoom
+    // that fails to restore leaves the entire HUD magnified off the screen
+    // edges. Two hardening rules here: (1) tween-clock compensation must
+    // MULTIPLY by the timescale (tween clocks are already slowed by it —
+    // dividing double-stretched the zoom-in past the restore, and the
+    // leftover tween dragged zoom back to 1.05 permanently after every
+    // slow-motion moment); (2) exactly one zoom tween may exist at a time.
     const camera = this.scene.cameras.main;
     const shouldZoom = !getSettingsManager().isReducedMotionEnabled();
     if (shouldZoom) {
-      this.scene.tweens.add({
+      this.zoomTween?.remove();
+      this.zoomTween = this.scene.tweens.add({
         targets: camera,
         zoom: 1.05,
-        duration: duration * 0.5 / timeScale, // compensate for time scale
+        duration: duration * 0.5 * timeScale,
         ease: 'Sine.easeOut',
       });
     }
@@ -851,13 +866,19 @@ export class JuiceManager {
       // Restore the counter tween's own time scale so it runs at normal speed
       restoreTween.timeScale = 1 / previousTimeScale;
 
-      // Zoom back out
+      // Zoom back out — supersede any in-flight zoom-in and land exactly
+      // on 1 so the HUD can never be left misaligned.
       if (shouldZoom && this.scene) {
-        this.scene.tweens.add({
+        this.zoomTween?.remove();
+        this.zoomTween = this.scene.tweens.add({
           targets: camera,
           zoom: 1,
           duration: easeBackDuration,
           ease: 'Quad.easeOut',
+          onComplete: () => {
+            camera.setZoom(1);
+            this.zoomTween = null;
+          },
         });
       }
     }, duration);
@@ -878,7 +899,9 @@ export class JuiceManager {
       0xffffff, 0
     );
     flash.setScrollFactor(0);
-    flash.setDepth(2000);
+    // Gameplay-flash band: above the field and lighting, below every UI
+    // element — a hit flash must not white-out the HUD or z-fight tooltips.
+    flash.setDepth(OverlayDepths.SCREEN_FLASH);
 
     this.scene.tweens.add({
       targets: flash,

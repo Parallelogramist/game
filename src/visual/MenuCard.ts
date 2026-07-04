@@ -1,57 +1,50 @@
 /**
- * MenuCard — Balatro-style card primitive for menu scenes.
+ * MenuCard — flat, sharp panel primitive for menu scenes.
  *
- * A rounded panel with a chunky drop shadow, optional resting tilt, and a
- * "light up" hover state. Each card can be styled with an accent banner
- * across the top and an arbitrary body fill — caller supplies the colors so
- * role-coding (gold for daily, blue for primary, etc.) reads across the menu.
+ * A crisp rounded panel with a soft ambient shadow and a "light up" hover
+ * state. Each card can be styled with an accent banner across the top and
+ * an arbitrary body fill — caller supplies the colors so role-coding (gold
+ * for daily, blue for primary, etc.) reads across the menu. Cards sit flat:
+ * no tilt, no wobble — clean lines only.
  *
  * The card exposes its `frame` container so callers can drop arbitrary
  * children (text, icons, ship previews) inside, and a `tickIdle(now)` hook
  * that the host scene drives on each UPDATE event.
  *
  * Hover/focus behavior: subtle scale + brightened accent ring + a soft glow
- * pulse + Hearthstone-style flecks that briefly ride along the rim then
- * peel off outward and fade. No vertical lift, no idle wobble — calmer
- * reading experience.
+ * pulse + light flecks that briefly ride along the rim then peel off
+ * outward and fade. Pointer press sinks the frame slightly and springs back
+ * on release — wired on the hit zone so every button/tab/card shares it.
+ *
+ * Reduced motion (read once at creation): press/hover scale changes apply
+ * instantly, glow/rim hold static alphas, and fleck emission is disabled.
  */
 
 import Phaser from 'phaser';
+import { getSettingsManager } from '../settings';
 
 export interface MenuCardOptions {
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Resting rotation in radians. */
-  tilt?: number;
   /** Per-card phase seed so halo pulses stay out of sync across cards. */
-  wobbleSeed?: number;
-  /** @deprecated Kept for back-compat; idle wobble is no longer applied. */
-  wobbleRotation?: number;
-  /** @deprecated Kept for back-compat; idle wobble is no longer applied. */
-  wobbleY?: number;
-  /** @deprecated Kept for back-compat; idle wobble is no longer applied. */
-  wobbleFrequency?: number;
-  /** Body fill — overrides the default cream-paper / dark-glass fill. */
+  pulseSeed?: number;
+  /** Body fill — overrides the default dark-glass fill. */
   bodyFillColor?: number;
   bodyFillAlpha?: number;
   /** Accent color for the top banner + border. */
   accentColor?: number;
   /** Banner thickness across the card top in pixels. */
   bannerHeight?: number;
-  /** Border thickness (the dark ink line around the card). */
+  /** Border thickness (the accent line around the card). */
   borderWidth?: number;
-  /** Border color override — defaults to ink black, accent if not provided. */
+  /** Border color override — defaults to the accent color. */
   borderColor?: number;
   cornerRadius?: number;
   shadowOffsetX?: number;
   shadowOffsetY?: number;
   shadowAlpha?: number;
-  /** @deprecated kept for back-compat — now toggles light-up + flecks. */
-  liftOnHover?: boolean;
-  /** When false, idle wobble is suppressed. Now also a no-op (always calm). */
-  wobble?: boolean;
   interactive?: boolean;
 }
 
@@ -71,23 +64,38 @@ export interface MenuCard {
   destroy(): void;
 }
 
-const DEFAULT_SHADOW_OFFSET_X = 6;
-const DEFAULT_SHADOW_OFFSET_Y = 14;
-const DEFAULT_SHADOW_ALPHA = 0.55;
+const DEFAULT_SHADOW_OFFSET_X = 0;
+const DEFAULT_SHADOW_OFFSET_Y = 6;
+const DEFAULT_SHADOW_ALPHA = 0.5;
+const DEFAULT_CORNER_RADIUS = 6;
 const HOVER_SCALE = 1.03;
 const HOVER_TWEEN_MS = 140;
+
+// ── Press micro-interaction ──────────────────────────────────────────────
+// Quick sink on pointerdown, mild spring back on release. Composes with the
+// hover scale: release returns to HOVER_SCALE while still hovered, else 1.0.
+const PRESS_SCALE = 0.97;
+const PRESS_IN_MS = 70;
+const PRESS_OUT_MS = 160;
+/** Back.easeOut overshoot — Phaser default is 1.70158; keep the spring mild. */
+const PRESS_OUT_OVERSHOOT = 1.4;
+
+// Static hover/focus alphas under reduced motion — glow and rim stay lit
+// without the per-frame pulse so state information survives.
+const REDUCED_MOTION_GLOW_ALPHA = 0.5;
+const REDUCED_MOTION_RIM_ALPHA = 0.55;
 
 // ── Fleck emission tuning ────────────────────────────────────────────────
 // Sparks spawn at a random point on the rounded-rect border, slide
 // tangentially along the rim for a moment, and accelerate outward along
-// the local normal before fading — same vibe as Hearthstone card sparkles.
-const FLECK_BASE_RADIUS = 2.6;
-const FLECK_POOL_MIN = 16;
-const FLECK_POOL_MAX = 36;
-/** Roughly one fleck slot per 70 px of perimeter so density is consistent. */
-const FLECK_POOL_PER_PERIMETER_PX = 1 / 70;
+// the local normal before fading — a subtle energy shimmer on the rim.
+const FLECK_BASE_RADIUS = 2.4;
+const FLECK_POOL_MIN = 20;
+const FLECK_POOL_MAX = 48;
+/** Roughly one fleck slot per 55 px of perimeter so density is consistent. */
+const FLECK_POOL_PER_PERIMETER_PX = 1 / 55;
 /** Emissions per second when hover/focus is fully active. */
-const FLECK_SPAWN_RATE_PER_SEC = 34;
+const FLECK_SPAWN_RATE_PER_SEC = 46;
 const FLECK_LIFETIME_MIN = 0.5;
 const FLECK_LIFETIME_MAX = 1.05;
 const FLECK_TANGENT_SPEED_MIN = 35;
@@ -105,8 +113,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     y,
     width,
     height,
-    tilt = 0,
-    wobbleSeed = Math.random() * 1000,
+    pulseSeed = Math.random() * 1000,
     bodyFillColor,
     bodyFillAlpha,
     accentColor,
@@ -119,17 +126,13 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     shadowAlpha = DEFAULT_SHADOW_ALPHA,
     interactive = true,
   } = options;
-  // Other deprecated options accepted but ignored.
-  void options.wobble;
-  void options.wobbleRotation;
-  void options.wobbleY;
-  void options.wobbleFrequency;
-  void options.liftOnHover;
+
+  // Read once at creation — settings changes take effect on next scene entry.
+  const reducedMotion = getSettingsManager().isReducedMotionEnabled();
 
   const container = scene.add.container(x, y);
 
-  // Drop shadow stays gravity-aligned (unrotated) so cards feel grounded
-  // even when tilted.
+  // Soft ambient drop shadow directly beneath the panel.
   const shadow = scene.add.graphics();
   drawCardShadow(shadow, width, height, shadowOffsetX, shadowOffsetY, shadowAlpha, cornerRadius);
   container.add(shadow);
@@ -154,6 +157,13 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   });
   frame.add(panel);
 
+  // Rim light — a crisp bright stroke hugging the border, faded in with
+  // hover/focus activity. Added after the panel so it renders above the
+  // border fill; sits inside `frame` so it tracks the hover scale.
+  const rim = scene.add.graphics();
+  rim.setAlpha(0);
+  frame.add(rim);
+
   const halfH = height / 2;
   const bannerTopY = -halfH;
   const bannerBottomY = -halfH + bannerHeight;
@@ -169,7 +179,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   // perimeter as 8 segments (4 straights + 4 quarter-arcs) gives every
   // sample a precise position plus an outward normal + tangent, so each
   // spark can ride the rim tangentially then accelerate outward.
-  const resolvedCornerRadius = cornerRadius ?? 12;
+  const resolvedCornerRadius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const halfWidthInner = width / 2;
   const halfHeightInner = height / 2;
   const straightHorizontalLength = Math.max(0, width - 2 * resolvedCornerRadius);
@@ -316,13 +326,17 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   };
 
   // ── Fleck pool ──────────────────────────────────────────────────────────
-  // Live inside `frame` so emission tracks the card's tilt + hover scale —
+  // Live inside `frame` so emission tracks the card's hover scale —
   // sparks should peel off the visual rim, not an axis-aligned bbox.
   const accentTint = accentColor ?? 0x88ccff;
-  const fleckPoolSize = Math.max(
-    FLECK_POOL_MIN,
-    Math.min(FLECK_POOL_MAX, Math.round(borderPerimeter * FLECK_POOL_PER_PERIMETER_PX)),
-  );
+  // Reduced motion suppresses fleck emission entirely — skip the pool so the
+  // card carries zero per-object Graphics overhead for it.
+  const fleckPoolSize = reducedMotion
+    ? 0
+    : Math.max(
+        FLECK_POOL_MIN,
+        Math.min(FLECK_POOL_MAX, Math.round(borderPerimeter * FLECK_POOL_PER_PERIMETER_PX)),
+      );
   interface FleckState {
     active: boolean;
     spawnX: number;
@@ -401,36 +415,63 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   // ── State ────────────────────────────────────────────────────────────────
   let isHovered = false;
   let isFocused = false;
+  let isPressed = false;
   let lastTickSeconds = 0;
   /** Smoothed 0..1 — gates fleck emission rate + halo alpha. */
   let fleckActivity = 0;
   const baseShadowAlpha = shadowAlpha;
 
+  /** Frame scale the card should sit at, given all current input state. */
+  const currentFrameScale = () =>
+    isPressed ? PRESS_SCALE : isHovered || isFocused ? HOVER_SCALE : 1;
+
   const applyHoverPose = () => {
-    scene.tweens.killTweensOf([frame, shadow, glow]);
-    scene.tweens.add({
-      targets: frame,
-      scaleX: HOVER_SCALE,
-      scaleY: HOVER_SCALE,
-      duration: HOVER_TWEEN_MS,
-      ease: 'Sine.Out',
-    });
-    scene.tweens.add({
-      targets: shadow,
-      alpha: 1,
-      duration: HOVER_TWEEN_MS,
-      ease: 'Sine.Out',
-    });
+    scene.tweens.killTweensOf([frame, shadow, glow, rim]);
+    const frameScale = currentFrameScale();
+    if (reducedMotion) {
+      // Scale change is state information — keep it, but instant.
+      frame.setScale(frameScale);
+      shadow.setAlpha(1);
+    } else {
+      scene.tweens.add({
+        targets: frame,
+        scaleX: frameScale,
+        scaleY: frameScale,
+        duration: HOVER_TWEEN_MS,
+        ease: 'Sine.Out',
+      });
+      scene.tweens.add({
+        targets: shadow,
+        alpha: 1,
+        duration: HOVER_TWEEN_MS,
+        ease: 'Sine.Out',
+      });
+    }
     drawCardGlow(glow, width, height, accentTint, cornerRadius);
-    fleckLayer.setVisible(true);
+    drawCardRim(rim, width, height, accentTint, cornerRadius);
+    if (reducedMotion) {
+      // Static glow/rim — no per-frame pulse, no flecks.
+      glow.setAlpha(REDUCED_MOTION_GLOW_ALPHA);
+      rim.setAlpha(REDUCED_MOTION_RIM_ALPHA);
+    } else {
+      fleckLayer.setVisible(true);
+    }
   };
 
   const releaseHoverPose = () => {
-    scene.tweens.killTweensOf([frame, shadow, glow]);
+    scene.tweens.killTweensOf([frame, shadow, glow, rim]);
+    const frameScale = currentFrameScale();
+    if (reducedMotion) {
+      frame.setScale(frameScale);
+      shadow.setAlpha(baseShadowAlpha);
+      glow.setAlpha(0);
+      rim.setAlpha(0);
+      return;
+    }
     scene.tweens.add({
       targets: frame,
-      scaleX: 1,
-      scaleY: 1,
+      scaleX: frameScale,
+      scaleY: frameScale,
       duration: HOVER_TWEEN_MS,
       ease: 'Sine.Out',
     });
@@ -447,7 +488,50 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     else releaseHoverPose();
   };
 
-  frame.rotation = tilt;
+  // ── Press micro-interaction ───────────────────────────────────────────────
+  // Wired here so every MenuButton/MenuTab/card gets it for free. Kills frame
+  // tweens before each pose (matching applyHoverPose/releaseHoverPose) so
+  // press/hover tweens never stack.
+  const applyPressPose = () => {
+    isPressed = true;
+    scene.tweens.killTweensOf(frame);
+    if (reducedMotion) {
+      frame.setScale(PRESS_SCALE);
+      return;
+    }
+    scene.tweens.add({
+      targets: frame,
+      scaleX: PRESS_SCALE,
+      scaleY: PRESS_SCALE,
+      duration: PRESS_IN_MS,
+      ease: 'Sine.easeOut',
+    });
+  };
+
+  const releasePressPose = () => {
+    if (!isPressed) return;
+    isPressed = false;
+    // Spring back to whatever the hover/rest scale currently is.
+    const frameScale = currentFrameScale();
+    scene.tweens.killTweensOf(frame);
+    if (reducedMotion) {
+      frame.setScale(frameScale);
+      return;
+    }
+    scene.tweens.add({
+      targets: frame,
+      scaleX: frameScale,
+      scaleY: frameScale,
+      duration: PRESS_OUT_MS,
+      ease: 'Back.easeOut',
+      easeParams: [PRESS_OUT_OVERSHOOT],
+    });
+  };
+
+  hitZone.on('pointerdown', applyPressPose);
+  hitZone.on('pointerup', releasePressPose);
+  hitZone.on('pointerout', releasePressPose);
+
   shadow.setAlpha(baseShadowAlpha);
 
   return {
@@ -469,6 +553,9 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       refreshActive();
     },
     tickIdle(timeSeconds) {
+      // Reduced motion: glow/rim hold the static alphas set by the hover
+      // poses — no halo/rim pulsing, no fleck emission (pool is empty).
+      if (reducedMotion) return;
       const dt = Math.max(0, Math.min(0.08, timeSeconds - lastTickSeconds));
       lastTickSeconds = timeSeconds;
       const target = isHovered || isFocused ? 1 : 0;
@@ -476,8 +563,12 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       fleckActivity = fleckActivity + (target - fleckActivity) * Math.min(1, dt * 7.5);
 
       // Halo pulse: 1.0 ± 0.18 over ~1.6s, attenuated by current activity.
-      const haloPulse = 0.85 + Math.sin(timeSeconds * 4 + wobbleSeed) * 0.18;
+      const haloPulse = 0.85 + Math.sin(timeSeconds * 4 + pulseSeed) * 0.18;
       glow.setAlpha(fleckActivity * haloPulse);
+      // Rim light breathes slightly out of phase so the edge feels alive
+      // rather than strobing with the halo.
+      const rimPulse = 0.8 + Math.sin(timeSeconds * 3.1 + pulseSeed + 1.7) * 0.2;
+      rim.setAlpha(fleckActivity * rimPulse);
 
       // Emit new flecks proportional to activity. Accumulator keeps spawn
       // cadence smooth across variable frame times.
@@ -535,7 +626,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       }
     },
     destroy() {
-      scene.tweens.killTweensOf([container, frame, shadow, glow]);
+      scene.tweens.killTweensOf([container, frame, shadow, glow, rim]);
       container.destroy();
     },
   };
@@ -552,7 +643,7 @@ function drawCardShadow(
   alpha: number,
   cornerRadius?: number,
 ): void {
-  const radius = cornerRadius ?? 12;
+  const radius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const halfW = width / 2;
   const halfH = height / 2;
   graphics.clear();
@@ -580,27 +671,51 @@ function drawCardGlow(
   accentColor: number,
   cornerRadius?: number,
 ): void {
-  const radius = cornerRadius ?? 12;
+  const radius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const halfW = width / 2;
   const halfH = height / 2;
   graphics.clear();
 
-  // Three concentric expanding halos — outermost faint + inner stronger.
-  const layers = [
-    { spread: 18, alpha: 0.12 },
-    { spread: 10, alpha: 0.22 },
-    { spread: 4, alpha: 0.36 },
-  ];
-  for (const layer of layers) {
-    graphics.fillStyle(accentColor, layer.alpha);
+  // Seven concentric halos with quadratic falloff — reads as one smooth
+  // bloom instead of three visible bands.
+  const layerCount = 7;
+  const maxSpread = 26;
+  for (let i = 0; i < layerCount; i++) {
+    const t = i / (layerCount - 1);
+    const spread = 3 + (maxSpread - 3) * t;
+    const alpha = 0.34 * (1 - t) * (1 - t) + 0.03;
+    graphics.fillStyle(accentColor, alpha);
     graphics.fillRoundedRect(
-      -halfW - layer.spread,
-      -halfH - layer.spread,
-      width + layer.spread * 2,
-      height + layer.spread * 2,
-      radius + layer.spread,
+      -halfW - spread,
+      -halfH - spread,
+      width + spread * 2,
+      height + spread * 2,
+      radius + spread,
     );
   }
+}
+
+/**
+ * Crisp rim light hugging the panel border — a bright accent stroke with a
+ * near-white core line. Alpha is driven per-frame in tickIdle.
+ */
+function drawCardRim(
+  graphics: Phaser.GameObjects.Graphics,
+  width: number,
+  height: number,
+  accentColor: number,
+  cornerRadius?: number,
+): void {
+  const radius = cornerRadius ?? DEFAULT_CORNER_RADIUS;
+  const halfW = width / 2;
+  const halfH = height / 2;
+  graphics.clear();
+  // Soft accent underlay stroke.
+  graphics.lineStyle(3, accentColor, 0.5);
+  graphics.strokeRoundedRect(-halfW - 1, -halfH - 1, width + 2, height + 2, radius + 1);
+  // Bright core line.
+  graphics.lineStyle(1.2, 0xf4f9ff, 0.9);
+  graphics.strokeRoundedRect(-halfW - 1, -halfH - 1, width + 2, height + 2, radius + 1);
 }
 
 function drawFleck(graphics: Phaser.GameObjects.Graphics, accentColor: number, baseRadius: number): void {
@@ -630,7 +745,7 @@ function drawCardPanel(
     cornerRadius?: number;
   },
 ): void {
-  const radius = opts.cornerRadius ?? 12;
+  const radius = opts.cornerRadius ?? DEFAULT_CORNER_RADIUS;
   const borderWidth = opts.borderWidth ?? 2;
   const borderColor = opts.borderColor ?? (opts.accentColor ?? 0x4488cc);
   const bodyColor = opts.bodyFillColor ?? DEFAULT_BODY;

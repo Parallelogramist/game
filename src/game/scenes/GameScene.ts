@@ -23,6 +23,8 @@ import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
+import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
+import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
 import { resetBossPhaseTracking } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
@@ -34,12 +36,14 @@ import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setH
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
 import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind } from '../../ecs/systems/ConsumablePickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
+import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { getJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
+import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
 import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
@@ -56,7 +60,7 @@ import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManage
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
 import { rollAffix, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { TelegraphManager } from '../../effects/TelegraphManager';
-import { DepthLayers } from '../../visual/DepthLayers';
+import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
@@ -72,7 +76,7 @@ import { getPactById, type Pact } from '../../data/Pacts';
 import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
-import { SecureStorage } from '../../storage';
+import { SecureStorage, flushStorage } from '../../storage';
 import { updateFrameCache, resetFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
 import { resetEnemySpatialHash, getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
@@ -87,6 +91,7 @@ import {
   isUltimateReady,
   tryActivateUltimate,
   setUltimateChargeSuppressed,
+  setUltimateChargeRateMultiplier,
   computeUltimateNova,
   getUltimateState,
   restoreUltimateState,
@@ -104,6 +109,12 @@ import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import { recordDailyRun } from '../../meta/DailyChallengeManager';
 import { getRelicManager } from '../../meta/RelicManager';
+import { getCardCollectionManager } from '../../meta/CardCollectionManager';
+import { getBoostCardManager } from '../../meta/BoostCardManager';
+import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
+import { getShipModManager } from '../../meta/ShipModManager';
+import { computeHudScale } from '../../utils/HudScale';
+import type { CardDefinition } from '../../data/Cards';
 import { getRelicRarityColor } from '../../data/Relics';
 import { getStageById, getDefaultStage } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
@@ -112,12 +123,13 @@ import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
+import { DISPLAY_FONT } from '../../visual/MenuStyle';
 
 // Module-level queries (defined once, not per-frame)
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 const minimapConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
 
-const PAUSE_MENU_DEPTH = 1100; // Shared depth constant for overlay rendering
+const HUD_OVERLAY_DEPTH = OverlayDepths.HUD_OVERLAY; // Warnings / notifications / coach marks — above HUD, below minimap. NOT the pause menu (PauseMenuManager).
 
 // Combo-tier → visual intensity lookups (module-level to avoid per-frame literal allocation in updateGridBackground)
 const COMBO_TIER_LIGHT_RADIUS: Record<string, number> = {
@@ -210,6 +222,10 @@ export class GameScene extends Phaser.Scene {
   // Banished upgrades (removed from pool permanently for this run)
   private banishedUpgradeIds: Set<string> = new Set();
 
+  // Cards the player locked in the current level-up modal — pinned across rerolls
+  // and banishes of that same level-up, cleared when a fresh level-up begins.
+  private lockedUpgrades: CombinedUpgrade[] = [];
+
   // Gem magnet timer (auto-vacuum interval)
   private gemMagnetTimer: number = 0;
 
@@ -240,6 +256,10 @@ export class GameScene extends Phaser.Scene {
   // Volatile-affix explosion queue (drained iteratively to avoid recursion)
   private volatileQueue: { x: number; y: number }[] = [];
   private drainingVolatile: boolean = false;
+
+  // Armed Exploder death fuses (BALANCE-EXPLODER-FUSE) — ticked with gameplay
+  // delta in update(), cleared in resetInRunFeatureState()
+  private exploderFuses: ExploderFuse[] = [];
 
   // In-run bounties (rotating objectives with rewards)
   private bounty: { kind: BountyKind; target: number; progress: number; timeLeft: number } | null = null;
@@ -296,6 +316,13 @@ export class GameScene extends Phaser.Scene {
   private readonly MAGNET_SPAWN_INTERVAL: number = TUNING.pickups.magnetSpawnInterval;
   private nextEnemyDropsMagnet: boolean = false;
 
+  // Card-collection data cache guard: at most ONE cache pickup per run (the
+  // reveal is a single end-screen moment). Synced with the manager's persisted
+  // pending reveal in both create paths — see syncCacheGuardWithPendingReveal.
+  private cacheFoundThisRun: boolean = false;
+  /** Orientation flipped while the level-up modal was open — relayout deferred. */
+  private pendingOrientationRelayout: boolean = false;
+
   // Effects and sound managers for game juice
   private effectsManager!: EffectsManager;
   private soundManager!: SoundManager;
@@ -323,6 +350,9 @@ export class GameScene extends Phaser.Scene {
   private bossWarningPhase: number = 0; // 0=none, 1=stirs, 2=trembles, 3=incoming
   private bossWarningText: Phaser.GameObjects.Text | null = null;
   private bossWarningVignette: Phaser.GameObjects.Graphics | null = null;
+  private bossIntroObjects: Array<Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text | Phaser.GameObjects.Graphics> = [];
+  /** Tween target proxy for the boss-intro accent rules (see showBossEntrance) — tracked separately since it isn't a GameObject. */
+  private bossIntroRuleState: { spread: number } | null = null;
   private bossCountdownText: Phaser.GameObjects.Text | null = null;
 
   // Endless mode (post-victory continuation)
@@ -418,7 +448,9 @@ export class GameScene extends Phaser.Scene {
   private autoSaveTimer: number = 0;
   private readonly AUTO_SAVE_INTERVAL: number = 30; // seconds
   private beforeUnloadHandler: (() => void) | null = null;
+  private visibilitySaveHandler: (() => void) | null = null;
   private shouldRestore: boolean = false;
+  private resumeIntoPauseMenu: boolean = false;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -437,6 +469,8 @@ export class GameScene extends Phaser.Scene {
 
   init(data?: {
     restore?: boolean;
+    /** After a restore, come back up inside the pause menu (UI-scale flow). */
+    resumePaused?: boolean;
     startingWeapon?: string;
     modifierIds?: string[];
     pactIds?: string[];
@@ -447,6 +481,7 @@ export class GameScene extends Phaser.Scene {
     dailyChallengeType?: 'daily' | 'weekly';
   }): void {
     this.shouldRestore = data?.restore === true;
+    this.resumeIntoPauseMenu = data?.resumePaused === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
     this.selectedShipId = data?.shipId || 'ship_default';
     this.selectedStageId = data?.stageId || 'stage_deep_void';
@@ -576,11 +611,19 @@ export class GameScene extends Phaser.Scene {
     this.damageCooldown = 0;
     this.isGameOver = false;
     this.isPaused = false;
+    // Scene restarts reuse this instance — a restart IS the flip's relayout,
+    // so any deferred-orientation flag is stale by definition here.
+    this.pendingOrientationRelayout = false;
     this.introOverlayActive = false;
     this.hasWon = false;
+    this.syncCacheGuardWithPendingReveal();
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
     this.bossWarningPhase = 0;
+    // Scene restarts reuse this instance — drop refs to intro objects the
+    // previous run's shutdown already destroyed.
+    this.bossIntroObjects = [];
+    this.bossIntroRuleState = null;
     this.bossCountdownText = null;
     this.endlessModeActive = false;
     this.endlessModeTime = 0;
@@ -781,6 +824,60 @@ export class GameScene extends Phaser.Scene {
     this.cachedGemMagnetInterval = metaManager.getStartingGemMagnetInterval();
     this.cachedEmergencyHealPercent = metaManager.getStartingEmergencyHeal();
 
+    // ═══ CARD COLLECTION BONUSES ═══
+    // Small permanent passives from discovered cards, layered multiplicatively
+    // on top of the shop tracks (cards are seasoning, the shop is the meal).
+    // startAtLevel feeds the STARTING LEVEL block below.
+    const cardBonuses = getCardCollectionManager().getAggregatedBonuses();
+    setUltimateChargeRateMultiplier(cardBonuses.ultChargeRateMult);
+    this.playerStats.damageMultiplier *= cardBonuses.damageMult;
+    this.playerStats.attackSpeedMultiplier *= cardBonuses.attackSpeedMult;
+    this.playerStats.goldMultiplier *= cardBonuses.goldMult;
+    this.playerStats.xpMultiplier *= cardBonuses.xpMult;
+    this.playerStats.pickupRange *= cardBonuses.magnetRadiusMult;
+    this.playerStats.moveSpeed *= cardBonuses.moveSpeedMult;
+    this.playerStats.maxHealth += cardBonuses.maxHealthAdd;
+    this.playerStats.currentHealth = this.playerStats.maxHealth;
+    this.playerStats.critChance += cardBonuses.critChanceAdd;
+    this.playerStats.armor += cardBonuses.armorAdd;
+    this.playerStats.luck += cardBonuses.luckAdd;
+    this.playerStats.rerollsRemaining += cardBonuses.rerollsAdd;
+    this.playerStats.banishesRemaining += cardBonuses.banishesAdd;
+
+    // ═══ BOOST CARD (one-run consumable — flux cache, FEAT-CARDS-3) ═══
+    // Consumed on FRESH starts only — the restore path returns early above,
+    // so a boost armed mid-run survives save-restore of the CURRENT run
+    // untouched. Applied the same way as the permanent card bonuses (mults
+    // multiply, adds add); startAtLevel maxes into the STARTING LEVEL block
+    // below alongside the cards' contribution.
+    const armedBoost = getBoostCardManager().consumePending();
+    if (armedBoost) {
+      const boostBonus = armedBoost.bonus;
+      setUltimateChargeRateMultiplier(
+        cardBonuses.ultChargeRateMult * (boostBonus.ultChargeRateMult ?? 1)
+      );
+      this.playerStats.damageMultiplier *= boostBonus.damageMult ?? 1;
+      this.playerStats.attackSpeedMultiplier *= boostBonus.attackSpeedMult ?? 1;
+      this.playerStats.goldMultiplier *= boostBonus.goldMult ?? 1;
+      this.playerStats.xpMultiplier *= boostBonus.xpMult ?? 1;
+      this.playerStats.pickupRange *= boostBonus.magnetRadiusMult ?? 1;
+      this.playerStats.moveSpeed *= boostBonus.moveSpeedMult ?? 1;
+      this.playerStats.maxHealth += boostBonus.maxHealthAdd ?? 0;
+      this.playerStats.currentHealth = this.playerStats.maxHealth;
+      this.playerStats.critChance += boostBonus.critChanceAdd ?? 0;
+      this.playerStats.armor += boostBonus.armorAdd ?? 0;
+      this.playerStats.luck += boostBonus.luckAdd ?? 0;
+      this.playerStats.rerollsRemaining += boostBonus.rerollsAdd ?? 0;
+      this.playerStats.banishesRemaining += boostBonus.banishesAdd ?? 0;
+      this.toastManager.showToast({
+        title: 'BOOST ACTIVE',
+        description: `${armedBoost.name} — ${armedBoost.description} this run`,
+        icon: armedBoost.icon,
+        color: 0xffd24a,
+        duration: 4000,
+      });
+    }
+
     // ═══ RUN MODIFIERS ═══
     for (const modifier of this.activeModifiers) {
       modifier.apply(this.playerStats);
@@ -833,6 +930,25 @@ export class GameScene extends Phaser.Scene {
       this.startingWeaponId = selectedShip.startingWeaponId;
     }
 
+    // ═══ SHIP MOD TRACKS ═══
+    // Per-ship HANGAR upgrades — small identity-reinforcing bonuses layered
+    // on the ship you're flying, right after its own bonuses (spec:
+    // docs/superpowers/specs/2026-07-03-ship-mod-tracks-design.md).
+    const shipMods = getShipModManager().getAggregatedBonuses(selectedShip.id);
+    this.playerStats.maxHealth = Math.round(this.playerStats.maxHealth * shipMods.maxHealthMult);
+    this.playerStats.currentHealth = this.playerStats.maxHealth;
+    this.playerStats.moveSpeed *= shipMods.moveSpeedMult;
+    this.playerStats.damageMultiplier *= shipMods.damageMult;
+    this.playerStats.cooldownMultiplier *= shipMods.cooldownMult;
+    this.playerStats.goldMultiplier *= shipMods.goldMult;
+    this.playerStats.xpMultiplier *= shipMods.xpMult;
+    this.playerStats.critChance += shipMods.critChanceAdd;
+    this.playerStats.armor += shipMods.armorAdd;
+    this.playerStats.regenPerSecond += shipMods.regenAdd;
+    this.playerStats.lifeStealPercent += shipMods.lifeStealAdd;
+    this.playerStats.luck += shipMods.luckAdd;
+    this.playerStats.bossDamageMultiplier += shipMods.bossDamageAdd;
+
     // ═══ WORLD LEVEL SCALING ═══
     this.worldLevel = metaManager.getWorldLevel();
     this.worldLevelHealthMult = metaManager.getWorldLevelEnemyHealthMultiplier();
@@ -882,7 +998,10 @@ export class GameScene extends Phaser.Scene {
     // ═══ STARTING LEVEL (triggers level-ups at start) ═══
     const startingLevel = metaManager.getStartingLevel()
       + achievementBonuses.startingLevel
-      + ascensionManager.getBonusStartingLevel();
+      + ascensionManager.getBonusStartingLevel()
+      // Cards and an armed boost share the startAtLevel channel — max, not
+      // sum (start levels don't stack; the best source wins).
+      + Math.max(0, Math.max(cardBonuses.startAtLevel, armedBoost?.bonus.startAtLevel ?? 1) - 1);
     if (startingLevel > 1) {
       this.pendingLevelUps += startingLevel - 1;
     }
@@ -891,12 +1010,9 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager = new EffectsManager(this);
     this.soundManager = new SoundManager(this);
     // Bind the shared JuiceManager to this scene so hitStop/screenShake/
-    // impactFlash all have a scene context. Unbind on
-    // scene shutdown so stale scene references don't leak into future runs.
+    // impactFlash all have a scene context. The unbind lives in shutdown()
+    // proper so the fresh and restore create paths share one teardown.
     getJuiceManager().setScene(this);
-    this.events.once('shutdown', () => {
-      getJuiceManager().setScene(null);
-    });
 
     // Pre-render gem rotation frames to GPU texture atlases
     generateGemAtlases(this);
@@ -1004,6 +1120,10 @@ export class GameScene extends Phaser.Scene {
       // onHealed - heal player (for weapon mastery effects)
       (amount) => {
         this.healPlayer(amount);
+      },
+      // onSynergyActivated - announce a newly-completed weapon synergy
+      (synergy) => {
+        this.showSynergyToast(synergy);
       }
     );
 
@@ -1042,7 +1162,9 @@ export class GameScene extends Phaser.Scene {
       this.scale.width / 2, this.scale.height / 2,
       this.scale.width, this.scale.height,
       0xff0000, 0
-    ).setScrollFactor(0).setDepth(1998);
+      // Atmosphere band: above the lighting layer, below all UI — the
+      // low-HP pulse must not tint the HP bar it points at.
+    ).setScrollFactor(0).setDepth(OverlayDepths.DANGER_VIGNETTE);
 
     // Create pause menu manager
     this.pauseMenuManager = this.createPauseMenuManager();
@@ -1072,7 +1194,7 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#00000099',
       padding: { x: 6, y: 4 },
     });
-    this.directorDebugText.setDepth(2500);
+    this.directorDebugText.setDepth(OverlayDepths.DEBUG);
     this.directorDebugText.setScrollFactor(0);
     this.applyDirectorDebugVisibility(getSettingsManager().isDirectorDebugEnabled());
   }
@@ -1195,9 +1317,21 @@ export class GameScene extends Phaser.Scene {
     this.beforeUnloadHandler = () => {
       if (!this.isGameOver && !this.hasWon) {
         this.saveGameState();
+        // Force pending encrypted writes out now — on iOS the page may be
+        // frozen or killed the moment this handler returns.
+        flushStorage();
       }
     };
+    // iOS Safari rarely fires beforeunload; pagehide + visibilitychange
+    // (hidden) cover backgrounding, tab switches, and swipe-away there.
     window.addEventListener('beforeunload', this.beforeUnloadHandler);
+    window.addEventListener('pagehide', this.beforeUnloadHandler);
+    this.visibilitySaveHandler = () => {
+      if (document.visibilityState === 'hidden') {
+        this.beforeUnloadHandler?.();
+      }
+    };
+    document.addEventListener('visibilitychange', this.visibilitySaveHandler);
   }
 
   /**
@@ -1224,6 +1358,7 @@ export class GameScene extends Phaser.Scene {
       bossWarningPhase: this.bossWarningPhase,
       comboState: getComboState(),
       ultimateCharge: getUltimateState().charge,
+      cacheFoundThisRun: this.cacheFoundThisRun,
       eventState: getEventState(),
       minibossSpawnTimes: this.minibossSpawnTimes,
       banishedUpgradeIds: this.banishedUpgradeIds,
@@ -1406,6 +1541,10 @@ export class GameScene extends Phaser.Scene {
     }
     // Legacy saves predate the ultimate meter → start empty.
     restoreUltimateState({ charge: state.ultimateCharge ?? 0 });
+    // Card charge-rate bonus is meta state, not save state — resetAllRunSystems
+    // above zeroed it back to 1, so re-derive it or the card goes inert on
+    // restored runs (the fresh path sets it in the meta-progression block).
+    setUltimateChargeRateMultiplier(getCardCollectionManager().getAggregatedBonuses().ultChargeRateMult);
     if (state.eventState) {
       restoreEventState(state.eventState);
     }
@@ -1516,7 +1655,15 @@ export class GameScene extends Phaser.Scene {
     this.isGameOver = false;
     this.isPaused = false;
     this.pendingLevelUps = 0;
+    this.pendingOrientationRelayout = false;
     this.nextEnemyDropsMagnet = false;
+    // Cache-drop guard: the pending reveal persisted by CardCollectionManager
+    // is one authority, but showVictory() consumes it while the run continues
+    // into endless — the saved flag covers that window so a reload can't
+    // re-arm the once-per-run cache. OR the two sources (legacy saves lack
+    // the flag; an abandoned-run pending reveal lacks the save).
+    this.syncCacheGuardWithPendingReveal();
+    this.cacheFoundThisRun = this.cacheFoundThisRun || state.cacheFoundThisRun === true;
     this.activeLasers = [];
     this.enemyProjectiles = [];
 
@@ -1623,6 +1770,11 @@ export class GameScene extends Phaser.Scene {
       },
       (amount) => {
         this.healPlayer(amount);
+      },
+      // Wired after the restore weapon loop above, so re-equipping a synergized
+      // build on save-restore does not fire activation toasts.
+      (synergy) => {
+        this.showSynergyToast(synergy);
       }
     );
 
@@ -1654,7 +1806,9 @@ export class GameScene extends Phaser.Scene {
       this.scale.width / 2, this.scale.height / 2,
       this.scale.width, this.scale.height,
       0xff0000, 0
-    ).setScrollFactor(0).setDepth(1998);
+      // Atmosphere band: above the lighting layer, below all UI — the
+      // low-HP pulse must not tint the HP bar it points at.
+    ).setScrollFactor(0).setDepth(OverlayDepths.DANGER_VIGNETTE);
 
     // Populate upgrade icons with restored weapons and upgrades
     this.hudManager.updateUpgradeIcons(this.buildUpgradeIconData());
@@ -1665,9 +1819,21 @@ export class GameScene extends Phaser.Scene {
     // Setup all input event handlers and input controller
     this.setupInputEventHandlers();
 
+    // Mirror the fresh path: without this, F10 flips the persisted setting
+    // but applyDirectorDebugVisibility null-guards and shows nothing for the
+    // entire restored run.
+    this.createDirectorDebugOverlay();
+
     // Restore dash state from save
     this.inputController.setDashCooldownTimer(state.dashCooldownTimer);
     this.inputController.resetDashState();
+
+    // UI-scale flow: the player was inside the pause menu when the scale
+    // changed — don't ambush them with live combat after the rebuild.
+    if (this.resumeIntoPauseMenu) {
+      this.resumeIntoPauseMenu = false;
+      this.togglePauseMenu();
+    }
   }
 
   /**
@@ -1977,6 +2143,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Syncs the per-run cache-drop guard with CardCollectionManager's persisted
+   * pending reveal. The manager is authoritative (it survives refresh and
+   * abandoned runs): a leftover pending card keeps its end-screen reveal and
+   * blocks this run from rolling a second cache over it.
+   */
+  private syncCacheGuardWithPendingReveal(): void {
+    this.cacheFoundThisRun = getCardCollectionManager().peekPendingReveal() !== null;
+  }
+
+  /**
+   * Consume the queued data-cache reveal for an end screen. Consumption IS
+   * the discovery moment (the card becomes visible in the archive and its
+   * bonus starts counting), so the collection milestones are fed here — while
+   * this scene's achievement unlock callback is wired to deliver toast+gold.
+   */
+  private consumeCardRevealForEndScreen(): CardDefinition | null {
+    const cardManager = getCardCollectionManager();
+    const card = cardManager.consumePendingReveal();
+    if (card) {
+      getAchievementManager().recordCardsDiscovered(cardManager.getDiscoveredIds().size);
+    }
+    return card;
+  }
+
+  /**
    * Handle enemy death - spawns XP, health pickups, special effects, and cleans up entity.
    */
   private handleEnemyDeath(enemyId: number, x: number, y: number): void {
@@ -2066,9 +2257,14 @@ export class GameScene extends Phaser.Scene {
       this.spawnRandomConsumable(x, y);
     }
 
-    // Check for explosion on death
+    // Check for explosion on death. Not instant (BALANCE-EXPLODER-FUSE): the
+    // corpse arms a 0.4s fuse, telegraphed by a danger ring over the blast
+    // footprint, then update() detonates it via the fuse tick below. Each
+    // death arms its own independent fuse. VOLATILE affix detonations (next
+    // block) intentionally stay instant — parked in BACKLOG.md.
     if (flags & EnemyFlags.EXPLODES_ON_DEATH) {
-      this.handleExplosion(x, y, 60, 20);
+      spawnTelegraph(this.telegraphManager, x, y, exploderFuseTelegraph());
+      armExploderFuse(this.exploderFuses, x, y);
     }
 
     // Check for split on death
@@ -2087,6 +2283,62 @@ export class GameScene extends Phaser.Scene {
         this.drainVolatileExplosions();
       } else if (deathAffix === EnemyAffixType.BLESSED) {
         this.spawnRandomConsumable(x, y);                    // guaranteed power-up
+      }
+    }
+
+    // ═══ DATA CACHE DROPS (card collection discovery) ═══
+    // One roll per death at the highest applicable tier only: boss always,
+    // miniboss 20%, elite 2%. At most one cache per run — the reveal is a
+    // single end-screen moment (SFR-style), so the card itself stays hidden
+    // behind a teaser toast until death/victory.
+    let dataCacheDroppedThisDeath = false;
+    if (!this.cacheFoundThisRun) {
+      const cacheChance = xpValue >= 1000 ? 1
+        : xpValue >= 30 ? 0.2
+        : hasComponent(this.world, EnemyAffix, enemyId) ? 0.02
+        : 0;
+      if (cacheChance > 0 && Math.random() < cacheChance) {
+        this.cacheFoundThisRun = true;
+        dataCacheDroppedThisDeath = true;
+        const cacheCard = getCardCollectionManager().rollCacheDiscovery();
+        if (cacheCard) {
+          this.toastManager?.showToast({
+            title: 'DATA CACHE RECOVERED',
+            description: 'Decrypting at run end…',
+            icon: 'star',
+            color: 0x66ddff,
+            duration: 3200,
+          });
+        } else {
+          // Archive complete — pay the cache out in gold instead.
+          getMetaProgressionManager().addGold(250);
+          this.toastManager?.showToast({
+            title: 'DATA CACHE RECOVERED',
+            description: 'Archive complete — salvaged for +250 gold.',
+            icon: 'coins',
+            color: 0xffd24a,
+            duration: 3200,
+          });
+        }
+      }
+    }
+
+    // ═══ FLUX CACHE DROPS (one-run boost cards — FEAT-CARDS-3) ═══
+    // Miniboss-only, mutually exclusive with the data-cache roll above (data
+    // cache wins the death). rollFluxCache() itself returns null while a
+    // boost is already armed — a held boost is never re-rolled or replaced,
+    // so the drop simply stays silent until it's spent on a fresh run.
+    const isMiniboss = xpValue >= 30 && xpValue < 1000;
+    if (!dataCacheDroppedThisDeath && isMiniboss && Math.random() < FLUX_CACHE_DROP_CHANCE) {
+      const boost = getBoostCardManager().rollFluxCache();
+      if (boost) {
+        this.toastManager?.showToast({
+          title: 'FLUX CACHE',
+          description: `${boost.name} armed for next run`,
+          icon: boost.icon,
+          color: 0xffaa22,
+          duration: 3200,
+        });
       }
     }
 
@@ -2554,6 +2806,10 @@ export class GameScene extends Phaser.Scene {
     this.bountyText = null;
     // Cleared on fresh start; the restore path re-populates from the save after.
     this.timedStatBuffs = [];
+    // Armed Exploder fuses are transient combat state (not persisted): clearing
+    // on both paths means a scene restart mid-fuse can never detonate stale
+    // fuses into the new run.
+    this.exploderFuses = [];
   }
 
   /**
@@ -2739,10 +2995,23 @@ export class GameScene extends Phaser.Scene {
     if (this.playerId === -1) return;
 
     if (!this.bountyText) {
-      this.bountyText = this.add.text(this.scale.width / 2, 96, '', {
-        fontSize: '15px',
+      // Anchor BELOW the HUD's world+timer block using the same density
+      // scale it uses — the old fixed y=96 with an unscaled 15px font sat
+      // exactly under the scaled timer on phones (worst in portrait, where
+      // the centered column has no slack) and was unreadably small there.
+      const hudScale = computeHudScale(
+        this.scale.width,
+        this.scale.height,
+        getSettingsManager().getUiScale(),
+      );
+      // padding + WORLD row + gap + timer row (28px font ≈ 34 tall) + gap.
+      const bountyY = Math.round((16 + 18 + 8 + 34 + 8) * hudScale);
+      this.bountyText = this.add.text(this.scale.width / 2, bountyY, '', {
+        fontSize: `${Math.round(13 * hudScale)}px`,
         fontFamily: 'monospace',
         color: '#ffe26a',
+        stroke: '#000000',
+        strokeThickness: Math.max(2, Math.round(2 * hudScale)),
         align: 'center',
       }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DepthLayers.UI_OVERLAY);
     }
@@ -2841,6 +3110,25 @@ export class GameScene extends Phaser.Scene {
     }
     this.bounty = null;
     this.bountyCooldown = 12;
+  }
+
+  /**
+   * Announce a weapon synergy the moment its pair completes. Until now the
+   * synergy system (real passive damage/cooldown bonuses) was invisible — only
+   * a sound played — so players couldn't tell a synergy had triggered or what it
+   * did. Surfacing the name + effect turns it into a legible build-crafting
+   * moment. Fired from the WeaponManager `onSynergyActivated` callback, which
+   * only reports pairs that newly completed (never re-fires for active ones).
+   */
+  private showSynergyToast(synergy: WeaponSynergy): void {
+    if (!this.toastManager) return;
+    this.toastManager.showToast({
+      title: `Synergy: ${synergy.name}`,
+      description: synergy.description,
+      icon: 'chain',
+      color: 0x66ddff,
+      duration: 3200,
+    });
   }
 
   // Pre-allocated pool for grid background enemy data (avoids per-frame allocation)
@@ -3412,6 +3700,15 @@ export class GameScene extends Phaser.Scene {
 
     // Update attack telegraphs (spawned by enemy AI windups above)
     this.telegraphManager.update(deltaSeconds);
+
+    // Detonate armed Exploder death fuses (BALANCE-EXPLODER-FUSE). Ticked here
+    // — NOT via delayedCall — so fuses freeze with the pause/game-over/victory
+    // early-returns above (a blast can never land during a menu or after the
+    // run ends) and share deltaSeconds' slow-time scaling with the telegraph
+    // ring, keeping the warning honest.
+    tickExploderFuses(this.exploderFuses, deltaSeconds, (fuseX, fuseY) =>
+      this.handleExplosion(fuseX, fuseY, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE)
+    );
 
     // Apply Warden slow aura to player velocity (computed inside enemyAISystem),
     // reduced by the player's slowResistance stat (slowResistLevel upgrade + Frost
@@ -4275,6 +4572,7 @@ export class GameScene extends Phaser.Scene {
         isPauseMenuOpen: this.pauseMenuManager?.isPauseMenuOpen ?? false,
         weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
         totalDamageTaken: this.totalDamageTaken,
+        activeSynergies: this.weaponManager?.getActiveSynergies() ?? [],
       }),
     }, this.soundManager);
   }
@@ -4285,6 +4583,46 @@ export class GameScene extends Phaser.Scene {
    */
   private togglePauseMenu(): void {
     this.pauseMenuManager.togglePauseMenu();
+  }
+
+  /**
+   * Called by SettingsScene when the UI-scale setting changed mid-run.
+   * HUD, minimap, and touch-control sizes are baked at creation, so the
+   * change can't be applied in place — round-trip the proven save-restore
+   * path instead: persist the run, restart the scene, and restore at the
+   * new scale, coming back up inside the pause menu the player left.
+   */
+  public applyUiScaleChange(): void {
+    if (this.isGameOver) return;
+    this.saveGameState();
+    this.scene.restart({ restore: true, resumePaused: true });
+  }
+
+  /**
+   * Device orientation flipped (main.ts watcher swapped the base game size).
+   * The live resize path repositions HUD anchors, but creation-baked sizes
+   * and layout groupings are only fully consistent after a rebuild — reuse
+   * the UI-scale save-restore round trip, which also resumes into the pause
+   * menu (the player is mid-rotation; silently continuing combat would be
+   * hostile).
+   */
+  public handleOrientationFlip(): void {
+    // End screens are run-over states: the death path has no save to
+    // round-trip and the victory path already CLEARED the save — restarting
+    // with restore would resurrect a finished run. Their overlays are
+    // center-anchored, so a flip there is cosmetic only.
+    if (this.isGameOver) return;
+    if (this.hasWon && this.isPaused && !this.pauseMenuManager.isPauseMenuOpen) return;
+    // Level-up modal open: a GameScene restart underneath would orphan it.
+    // Defer — the HUD keeps itself anchored via the live resize path
+    // meanwhile, and the selection-complete handler settles the relayout
+    // once the (last queued) modal closes.
+    if (this.scene.isActive('UpgradeScene')) {
+      this.pendingOrientationRelayout = true;
+      return;
+    }
+    this.saveGameState();
+    this.scene.restart({ restore: true, resumePaused: true });
   }
 
   /**
@@ -4410,6 +4748,10 @@ export class GameScene extends Phaser.Scene {
       newStreak,
       streakBonusPercent: metaManager.getStreakBonusPercent(),
       performanceGrade: victoryGrade,
+      // Reveal (and consume) the data-cache card here. A won run that continues
+      // into endless and later dies hits gameOver() with the reveal already
+      // consumed, so it can't double-fire.
+      discoveredCard: this.consumeCardRevealForEndScreen(),
       runScore: victoryScoreResult.score,
       bestScore: victoryScoreResult.best,
       isNewBest: victoryScoreResult.isNewBest,
@@ -4474,11 +4816,13 @@ export class GameScene extends Phaser.Scene {
 
     // t=700: Dark vignette overlay fading in
     this.time.delayedCall(700, () => {
+      // Above all in-run UI (HUD, minimap, arrows) so the whole frame dims
+      // together; below the game-over overlay.
       const darkenOverlay = this.add.rectangle(
         this.scale.width / 2, this.scale.height / 2,
         this.scale.width, this.scale.height,
         0x000000, 0
-      ).setDepth(900).setScrollFactor(0);
+      ).setDepth(OverlayDepths.DEATH_DARKEN).setScrollFactor(0);
       this.tweens.add({
         targets: darkenOverlay,
         alpha: 0.85,
@@ -4645,6 +4989,10 @@ export class GameScene extends Phaser.Scene {
       personalBests: personalBestsSnapshot,
       unlockProgress: unlockProgressForPanel,
       performanceGrade,
+      // Reveal (and consume) the data-cache card. Null on a post-victory
+      // endless death — showVictory() already consumed it, and the per-run
+      // guard stops endless play from queueing a second one.
+      discoveredCard: this.consumeCardRevealForEndScreen(),
       runScore: scoreResult.score,
       bestScore: scoreResult.best,
       isNewBest: scoreResult.isNewBest,
@@ -4982,7 +5330,7 @@ export class GameScene extends Phaser.Scene {
    */
   private showMinibossWarning(name: string): void {
     this.soundManager.playBossWarning();
-    const warningDepth = PAUSE_MENU_DEPTH - 50;
+    const warningDepth = HUD_OVERLAY_DEPTH - 50;
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
 
@@ -5000,8 +5348,10 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => edgeVignette.destroy(),
     });
 
-    const warningText = this.add.text(centerX, centerY - 50, `⚠ ${name.toUpperCase()} ⚠`, {
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+    // No warning glyphs — the red vignette pulse + color carry the alarm;
+    // letter-spaced display type keeps it on-brand.
+    const warningText = this.add.text(centerX, centerY - 50, name.toUpperCase(), {
+      fontFamily: DISPLAY_FONT,
       fontSize: '32px',
       fontStyle: 'bold',
       color: '#ff6644',
@@ -5009,6 +5359,7 @@ export class GameScene extends Phaser.Scene {
       strokeThickness: 5,
       align: 'center',
     });
+    warningText.setLetterSpacing(4);
     warningText.setOrigin(0.5);
     warningText.setDepth(warningDepth);
     warningText.setScrollFactor(0);
@@ -5057,7 +5408,7 @@ export class GameScene extends Phaser.Scene {
   private updateBossWarning(_deltaSeconds: number): void {
     if (this.endlessModeActive || this.bossSpawned || this.bossSpawnTime <= 0) return;
 
-    const warningDepth = PAUSE_MENU_DEPTH - 50;
+    const warningDepth = HUD_OVERLAY_DEPTH - 50;
     const screenCenterX = this.scale.width / 2;
     const screenCenterY = this.scale.height / 2;
 
@@ -5251,7 +5602,7 @@ export class GameScene extends Phaser.Scene {
 
     // Semi-transparent backdrop
     const backdrop = this.add.rectangle(centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.6);
-    backdrop.setScrollFactor(0).setDepth(1990);
+    backdrop.setScrollFactor(0).setDepth(OverlayDepths.INTRO_BACKDROP);
     bannerElements.push(backdrop);
 
     // Title
@@ -5262,7 +5613,7 @@ export class GameScene extends Phaser.Scene {
       color: '#888888',
       stroke: '#000000',
       strokeThickness: 2,
-    }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+    }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
     bannerElements.push(title);
 
     // Modifier cards
@@ -5284,7 +5635,7 @@ export class GameScene extends Phaser.Scene {
         color: categoryColor,
         stroke: '#000000',
         strokeThickness: 2,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       bannerElements.push(tag);
 
       // Modifier name
@@ -5295,7 +5646,7 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         stroke: '#000000',
         strokeThickness: 3,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       bannerElements.push(nameText);
 
       // Description with effects breakdown
@@ -5305,12 +5656,12 @@ export class GameScene extends Phaser.Scene {
         color: '#cccccc',
         stroke: '#000000',
         strokeThickness: 2,
-      }).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       bannerElements.push(descText);
 
       // Decorative line under each card
       const lineGraphics = this.add.graphics();
-      lineGraphics.setScrollFactor(0).setDepth(1991).setAlpha(0);
+      lineGraphics.setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
       const lineColor = parseInt(categoryColor.replace('#', ''), 16);
       lineGraphics.lineStyle(1, lineColor, 0.4);
       lineGraphics.lineBetween(centerX - 140, cardY + 48, centerX + 140, cardY + 48);
@@ -5330,7 +5681,7 @@ export class GameScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 2,
       }
-    ).setOrigin(0.5).setScrollFactor(0).setDepth(1991).setAlpha(0);
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(OverlayDepths.INTRO_TEXT).setAlpha(0);
     bannerElements.push(promptText);
 
     // Fade in all elements
@@ -5433,7 +5784,7 @@ export class GameScene extends Phaser.Scene {
 
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
-    const coachDepth = PAUSE_MENU_DEPTH - 60;
+    const coachDepth = HUD_OVERLAY_DEPTH - 60;
     let cardIndex = 0;
     let currentElements: Phaser.GameObjects.GameObject[] = [];
     let keyHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -5574,6 +5925,7 @@ export class GameScene extends Phaser.Scene {
       this.bossCountdownText.destroy();
       this.bossCountdownText = null;
     }
+    this.cleanupBossIntro();
   }
 
   /**
@@ -5635,16 +5987,24 @@ export class GameScene extends Phaser.Scene {
       // Bigger orange text with scale-up animation
       this.showComboText('POWER SURGE!', '#ff8844', comboPlayerX, comboPlayerY, 38, 1.8);
     } else if (threshold.type === 'annihilation') {
-      // Screen-wide damage pulse — apply damage directly via ECS
-      const enemies = getFrameCacheEnemyIds();
+      // Screen-wide damage pulse — apply damage directly via ECS.
+      // getFrameCacheEnemyIds() returns bitECS's LIVE query array (see the
+      // "do NOT modify this array!" warning in FrameCache.ts); handleEnemyDeath
+      // can both remove the dying entity and — for Splitter enemies — spawn new
+      // ones via handleSplit synchronously. Snapshot into a plain copy first
+      // (the safe pattern already used by StatusEffectSystem/HazardZoneSystem
+      // for this exact hazard) and re-check liveness per entry, since an id in
+      // the snapshot may already have died to a domino effect (poison spread,
+      // chained explosion) earlier in this same loop.
+      const enemies = [...getFrameCacheEnemyIds()];
       for (const enemyId of enemies) {
-        if (hasComponent(this.world, Health, enemyId)) {
-          Health.current[enemyId] -= 50;
-          if (Health.current[enemyId] <= 0) {
-            const enemyX = Transform.x[enemyId];
-            const enemyY = Transform.y[enemyId];
-            this.handleEnemyDeath(enemyId, enemyX, enemyY);
-          }
+        if (!hasComponent(this.world, EnemyTag, enemyId)) continue;
+        if (!hasComponent(this.world, Health, enemyId)) continue;
+        Health.current[enemyId] -= 50;
+        if (Health.current[enemyId] <= 0) {
+          const enemyX = Transform.x[enemyId];
+          const enemyY = Transform.y[enemyId];
+          this.handleEnemyDeath(enemyId, enemyX, enemyY);
         }
       }
       getJuiceManager().hitStop(80, 0.95);
@@ -5920,7 +6280,7 @@ export class GameScene extends Phaser.Scene {
     const bannerHeight = 50;
     const bannerX = this.scale.width / 2;
     const bannerY = -bannerHeight;
-    const bannerDepth = PAUSE_MENU_DEPTH - 60;
+    const bannerDepth = HUD_OVERLAY_DEPTH - 60;
 
     const bannerBg = this.add.rectangle(bannerX, bannerY, bannerWidth, bannerHeight, 0x000000, 0.85);
     bannerBg.setStrokeStyle(2, event.color);
@@ -6086,6 +6446,16 @@ export class GameScene extends Phaser.Scene {
    * Shows dramatic boss entrance warning.
    */
   private showBossEntrance(name: string): void {
+    // Defense-in-depth: if a previous intro's objects are still alive (e.g.
+    // two boss spawns land close enough together that the first intro's
+    // ~2.1s runtime hasn't finished — endless mode, or slow-motion/hit-stop
+    // stretching it), tear them down instead of overwriting the reference
+    // and orphaning them (leak) plus leaving their tweens targeting whatever
+    // this call reassigns bossIntroObjects/bossIntroRuleState to.
+    if (this.bossIntroObjects.length > 0) {
+      this.cleanupBossIntro();
+    }
+
     const bossJuice = getJuiceManager();
 
     // Hit stop for dramatic pause at spawn moment
@@ -6093,74 +6463,155 @@ export class GameScene extends Phaser.Scene {
     bossJuice.impactFlash(0.35, 120);
     bossJuice.screenShake(0.012, 400);
 
-
     // Grid distortion pulse from spawn point (top center)
     this.gridBackground.applyExplosiveForce(3000, this.scale.width / 2, 0, 500);
 
-    // Darken screen briefly
-    const overlay = this.add.rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0x000000, 0.6);
-    overlay.setDepth(90);
+    // ── Letterboxed intro ───────────────────────────────────────────────
+    // Bars slide in from the screen edges, the boss name lands between them
+    // flanked by expanding accent rules, everything holds then slides away.
+    // Lives in the HUD-warning band (above lighting/flashes, below minimap).
+    const introDepth = HUD_OVERLAY_DEPTH - 50;
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+    const barHeight = 54;
+    const reducedMotion = getSettingsManager().isReducedMotionEnabled();
 
-    // Warning text — slam in from above with scale overshoot
-    const warningText = this.add.text(this.scale.width / 2, this.scale.height / 2 - 80, 'BOSS BATTLE', {
-      fontSize: '32px',
-      color: '#ff0000',
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+    const topBar = this.add.rectangle(centerX, -barHeight / 2, this.scale.width, barHeight, 0x000008, 0.85)
+      .setScrollFactor(0).setDepth(introDepth);
+    const bottomBar = this.add.rectangle(centerX, this.scale.height + barHeight / 2, this.scale.width, barHeight, 0x000008, 0.85)
+      .setScrollFactor(0).setDepth(introDepth);
+
+    const kicker = this.add.text(centerX, centerY - 44, 'WARNING', {
+      fontSize: '14px',
+      color: '#ff9999',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    });
-    warningText.setOrigin(0.5).setDepth(100).setScale(2.5).setAlpha(0);
+      strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(introDepth + 1).setScrollFactor(0).setAlpha(0);
+    kicker.setLetterSpacing(6);
 
-    const nameText = this.add.text(this.scale.width / 2, this.scale.height / 2, name, {
-      fontSize: '48px',
-      color: '#ffcc00',
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+    const nameText = this.add.text(centerX, centerY, name.toUpperCase(), {
+      fontSize: '40px',
+      color: '#ff5566',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    });
-    nameText.setOrigin(0.5).setDepth(100).setScale(0).setAlpha(0);
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(introDepth + 1).setScrollFactor(0).setAlpha(0);
+    nameText.setLetterSpacing(8);
 
-    // "BOSS BATTLE" slams in from large scale
-    this.tweens.add({
-      targets: warningText,
-      scale: 1,
-      alpha: 1,
-      duration: 300,
-      ease: 'Back.easeOut',
-      onComplete: () => {
-        // Then boss name scales up
-        this.tweens.add({
-          targets: nameText,
-          scale: 1,
-          alpha: 1,
-          duration: 400,
-          ease: 'Back.easeOut',
-        });
-        // Both fade out after hold
-        this.time.delayedCall(2500, () => {
+    // Accent rules flanking the name — expand from the center outward.
+    const rules = this.add.graphics().setDepth(introDepth + 1).setScrollFactor(0);
+    const ruleY = centerY + 34;
+    const ruleMax = Math.min(260, this.scale.width * 0.2);
+    // Tween target is this plain proxy (Graphics has no tweenable "spread"
+    // property) — NOT `rules` itself, so it must be tracked and killed
+    // separately from the bossIntroObjects array below. Missing this was a
+    // real bug: if the intro was torn down (player death) while this tween
+    // was running, drawRules kept calling .clear()/.fillStyle()/.fillRect()
+    // on the already-destroyed `rules` Graphics every frame until the tween
+    // finished.
+    const ruleState = { spread: reducedMotion ? ruleMax : 0 };
+    this.bossIntroRuleState = ruleState;
+    const drawRules = () => {
+      rules.clear();
+      rules.fillStyle(0xff5566, 0.8);
+      rules.fillRect(centerX - ruleState.spread, ruleY, ruleState.spread * 2, 2);
+    };
+    drawRules();
+    rules.setAlpha(0);
+
+    this.bossIntroObjects = [topBar, bottomBar, kicker, nameText, rules];
+
+    const holdThenExit = () => {
+      this.time.delayedCall(1400, () => {
+        if (!topBar.scene) return; // already cleaned up (death / restart)
+        if (reducedMotion) {
           this.tweens.add({
-            targets: [warningText, nameText],
+            targets: [topBar, bottomBar, kicker, nameText, rules],
             alpha: 0,
-            duration: 500,
-            ease: 'Sine.easeOut',
-            onComplete: () => {
-              warningText.destroy();
-              nameText.destroy();
-            },
+            duration: 150,
+            onComplete: () => this.cleanupBossIntro(),
           });
+          return;
+        }
+        this.tweens.add({
+          targets: topBar,
+          y: -barHeight / 2,
+          duration: 300,
+          ease: 'Cubic.easeIn',
         });
-      },
-    });
+        this.tweens.add({
+          targets: bottomBar,
+          y: this.scale.height + barHeight / 2,
+          duration: 300,
+          ease: 'Cubic.easeIn',
+        });
+        this.tweens.add({
+          targets: [kicker, nameText, rules],
+          alpha: 0,
+          duration: 260,
+          ease: 'Sine.easeIn',
+          onComplete: () => this.cleanupBossIntro(),
+        });
+      });
+    };
+
+    if (reducedMotion) {
+      topBar.setY(barHeight / 2);
+      bottomBar.setY(this.scale.height - barHeight / 2);
+      this.tweens.add({
+        targets: [kicker, nameText, rules],
+        alpha: 1,
+        duration: 150,
+        onComplete: holdThenExit,
+      });
+      return;
+    }
 
     this.tweens.add({
-      targets: overlay,
-      alpha: 0,
-      duration: 2500,
-      ease: 'Power2',
-      onComplete: () => overlay.destroy(),
+      targets: topBar,
+      y: barHeight / 2,
+      duration: 260,
+      ease: 'Cubic.easeOut',
     });
+    this.tweens.add({
+      targets: bottomBar,
+      y: this.scale.height - barHeight / 2,
+      duration: 260,
+      ease: 'Cubic.easeOut',
+    });
+    this.tweens.add({
+      targets: [kicker, nameText],
+      alpha: 1,
+      duration: 240,
+      delay: 140,
+      ease: 'Sine.easeOut',
+    });
+    rules.setAlpha(1);
+    this.tweens.add({
+      targets: ruleState,
+      spread: ruleMax,
+      duration: 300,
+      delay: 180,
+      ease: 'Cubic.easeOut',
+      onUpdate: drawRules,
+      onComplete: holdThenExit,
+    });
+  }
+
+  /** Tears down the boss-intro letterbox (also runs on death/restart via cleanupBossWarning). */
+  private cleanupBossIntro(): void {
+    if (this.bossIntroRuleState) {
+      this.tweens.killTweensOf(this.bossIntroRuleState);
+      this.bossIntroRuleState = null;
+    }
+    for (const obj of this.bossIntroObjects) {
+      this.tweens.killTweensOf(obj);
+      obj.destroy();
+    }
+    this.bossIntroObjects = [];
   }
 
   /**
@@ -6608,6 +7059,10 @@ export class GameScene extends Phaser.Scene {
     this.pendingLevelUps--;
     this.soundManager.playLevelUp();
 
+    // A fresh level-up starts with an unlocked hand — locks only pin across the
+    // reroll/banish refreshes of one modal session.
+    this.lockedUpgrades = [];
+
     // Level-up celebration effects
     const juiceManager = getJuiceManager();
     juiceManager.impactFlash(0.25, 100);
@@ -6940,7 +7395,7 @@ export class GameScene extends Phaser.Scene {
       }
     );
     notification.setOrigin(0.5);
-    notification.setDepth(PAUSE_MENU_DEPTH);
+    notification.setDepth(HUD_OVERLAY_DEPTH);
 
     // Animate: float up and fade out
     this.tweens.add({
@@ -6968,7 +7423,7 @@ export class GameScene extends Phaser.Scene {
 
     // Get random combined upgrades (stats + weapons), excluding banished;
     // luck biases offers toward rare/epic upgrades
-    const availableUpgrades = getRandomCombinedUpgrades(
+    const freshUpgrades = getRandomCombinedUpgrades(
       this.upgrades,
       this.weaponManager,
       totalChoices,
@@ -6976,6 +7431,10 @@ export class GameScene extends Phaser.Scene {
       this.banishedUpgradeIds,
       this.playerStats.luck
     );
+
+    // Pin any locked cards from a prior reroll/banish of this same level-up to
+    // the front, then fill the rest from the fresh roll.
+    const availableUpgrades = mergeLockedIntoOffers(this.lockedUpgrades, freshUpgrades, totalChoices);
 
     // If no upgrades available (all maxed), just continue
     if (availableUpgrades.length === 0) {
@@ -6991,6 +7450,13 @@ export class GameScene extends Phaser.Scene {
         this.time.delayedCall(100, () => {
           this.processNextLevelUp();
         });
+        return;
+      }
+      // An orientation flip during the modal deferred its relayout (a
+      // restart underneath would have orphaned the modal) — settle it now.
+      if (this.pendingOrientationRelayout) {
+        this.pendingOrientationRelayout = false;
+        this.handleOrientationFlip();
       }
     };
 
@@ -7008,6 +7474,7 @@ export class GameScene extends Phaser.Scene {
       rerollsRemaining: this.playerStats.rerollsRemaining,
       skipsRemaining: this.playerStats.skipsRemaining,
       banishesRemaining: this.playerStats.banishesRemaining,
+      lockedUpgradeIds: this.lockedUpgrades.map(u => u.id),
       // Weapon slot warning info
       isLastWeaponSlot,
       weaponSlotsInfo: { current: currentWeapons, max: maxWeapons },
@@ -7018,8 +7485,9 @@ export class GameScene extends Phaser.Scene {
         this.applyCombinedUpgrade(selectedUpgrade);
         handleSelectionComplete();
       },
-      onReroll: () => {
-        // Decrement rerolls and refresh with new options
+      onReroll: (lockedUpgrades: Upgrade[]) => {
+        // Keep the player's locked cards, decrement rerolls, refresh the rest.
+        this.lockedUpgrades = lockedUpgrades as CombinedUpgrade[];
         this.playerStats.rerollsRemaining--;
         this.scene.stop('UpgradeScene');
         this.time.delayedCall(50, () => {
@@ -7032,9 +7500,10 @@ export class GameScene extends Phaser.Scene {
         this.scene.stop('UpgradeScene');
         handleSelectionComplete();
       },
-      onBanish: (upgrade: CombinedUpgrade) => {
-        // Add to banished set and refresh with new options
+      onBanish: (upgrade: CombinedUpgrade, lockedUpgrades: Upgrade[]) => {
+        // Add to banished set, keep surviving locks, refresh with new options.
         this.banishedUpgradeIds.add(upgrade.id);
+        this.lockedUpgrades = lockedUpgrades as CombinedUpgrade[];
         this.playerStats.banishesRemaining--;
         this.scene.stop('UpgradeScene');
         this.time.delayedCall(50, () => {
@@ -7782,6 +8251,11 @@ export class GameScene extends Phaser.Scene {
    * Critical for preventing input conflicts and memory leaks on restart.
    */
   shutdown(): void {
+    // Unbind the shared JuiceManager so stale scene references don't leak
+    // into the menu session or future runs. Covers both create paths
+    // (fresh and save-restore) — each binds, only this releases.
+    getJuiceManager().setScene(null);
+
     // Remove resize listener
     this.scale.off('resize', this.handleResize, this);
 
@@ -7855,10 +8329,15 @@ export class GameScene extends Phaser.Scene {
       this.inputController.destroy();
     }
 
-    // Remove beforeunload handler for game state persistence
+    // Remove page-lifecycle save handlers for game state persistence
     if (this.beforeUnloadHandler) {
       window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+      window.removeEventListener('pagehide', this.beforeUnloadHandler);
       this.beforeUnloadHandler = null;
+    }
+    if (this.visibilitySaveHandler) {
+      document.removeEventListener('visibilitychange', this.visibilitySaveHandler);
+      this.visibilitySaveHandler = null;
     }
 
     // Clean up event indicator

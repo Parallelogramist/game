@@ -10,6 +10,7 @@ import Phaser from 'phaser';
 import {
   GAMEPAD_BUTTON_A,
   GAMEPAD_BUTTON_B,
+  GAMEPAD_BUTTON_X,
   GAMEPAD_DPAD_UP,
   GAMEPAD_DPAD_DOWN,
   GAMEPAD_DPAD_LEFT,
@@ -36,6 +37,7 @@ export interface MenuNavigatorConfig {
   columns?: number;         // >1 for grid/horizontal layout. Default: 1 (vertical)
   wrap?: boolean;            // Wrap around at edges. Default: true
   onCancel?: () => void;     // B button / Escape handler
+  onSecondary?: () => void;  // X (West) button — optional secondary action (e.g. lock toggle)
   initialIndex?: number;     // Default: 0
 }
 
@@ -48,6 +50,7 @@ export class MenuNavigator {
   private columns: number;
   private wrap: boolean;
   private onCancel: (() => void) | null;
+  private onSecondary: (() => void) | null;
   private selectedIndex: number;
 
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -62,6 +65,7 @@ export class MenuNavigator {
     this.columns = config.columns ?? 1;
     this.wrap = config.wrap ?? true;
     this.onCancel = config.onCancel ?? null;
+    this.onSecondary = config.onSecondary ?? null;
     this.selectedIndex = config.initialIndex ?? 0;
 
     this.setupKeyboard();
@@ -188,6 +192,11 @@ export class MenuNavigator {
     // B button — cancel (edge-detected)
     if (this.enabled && currentButtons[GAMEPAD_BUTTON_B] && !this.previousGamepadButtons[GAMEPAD_BUTTON_B]) {
       this.cancel();
+    }
+
+    // X (West) button — optional secondary action (edge-detected)
+    if (this.enabled && currentButtons[GAMEPAD_BUTTON_X] && !this.previousGamepadButtons[GAMEPAD_BUTTON_X]) {
+      this.onSecondary?.();
     }
 
     // Update previous state
