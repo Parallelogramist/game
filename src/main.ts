@@ -30,6 +30,62 @@ import { ColorblindPipeline } from './visual/ColorblindPipeline';
  * - Encrypted localStorage for anti-cheat protection
  */
 
+// ─── Error log capture ───────────────────────────────────────────────────
+// Ring buffer of recent console errors/warnings so the crash overlay can
+// offer a copyable report — on mobile there is no devtools console, so this
+// is the only way the player can hand over diagnostics. Installed before
+// anything else so boot-time failures are captured too.
+const MAX_LOG_ENTRIES = 50;
+const recentLogs: string[] = [];
+
+function stringifyLogArg(arg: unknown): string {
+  if (arg instanceof Error) return `${arg.message}\n${arg.stack ?? ''}`;
+  if (typeof arg === 'string') return arg;
+  try {
+    return JSON.stringify(arg);
+  } catch {
+    return String(arg);
+  }
+}
+
+for (const level of ['error', 'warn'] as const) {
+  const original = console[level].bind(console);
+  console[level] = (...args: unknown[]) => {
+    try {
+      recentLogs.push(`[${new Date().toISOString()}] ${level}: ${args.map(stringifyLogArg).join(' ')}`);
+      if (recentLogs.length > MAX_LOG_ENTRIES) recentLogs.shift();
+    } catch {
+      // Log capture must never break logging itself.
+    }
+    original(...args);
+  };
+}
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the legacy path (e.g. clipboard permission denied).
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Crash recovery ──────────────────────────────────────────────────────
 // Phaser only reschedules its next requestAnimationFrame after a step
 // completes without throwing — any uncaught exception inside a scene's
@@ -55,6 +111,33 @@ function showCrashOverlay(source: string, error: unknown): void {
   const overlay = document.getElementById('crash-overlay');
   if (!overlay) return;
   overlay.classList.add('crash-overlay-visible');
+
+  // Copy button first: it must not trigger the tap-anywhere reload below.
+  const copyButton = document.getElementById('crash-copy');
+  if (copyButton) {
+    const report = [
+      'Pew Pew Survivor crash report',
+      `time: ${new Date().toISOString()}`,
+      `source: ${source}`,
+      `url: ${window.location.href}`,
+      `userAgent: ${navigator.userAgent}`,
+      `viewport: ${window.innerWidth}x${window.innerHeight} @ dpr ${window.devicePixelRatio}`,
+      '',
+      `fatal: ${stringifyLogArg(error)}`,
+      '',
+      `recent console errors/warnings (${recentLogs.length}):`,
+      ...recentLogs,
+    ].join('\n');
+    copyButton.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const copied = await copyTextToClipboard(report);
+      copyButton.textContent = copied ? 'COPIED' : 'COPY FAILED';
+      setTimeout(() => {
+        copyButton.textContent = 'COPY ERROR LOGS';
+      }, 2000);
+    });
+  }
+
   overlay.addEventListener('click', () => window.location.reload(), { once: true });
 }
 window.addEventListener('error', (event) => showCrashOverlay('error', event.error ?? event.message));

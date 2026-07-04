@@ -171,6 +171,21 @@
         border-radius: 6px;
         padding: 8px 20px;
       }
+      /* Secondary action: copy diagnostics for a bug report. Muted so the
+         reload path stays the visually primary one. */
+      #crash-overlay .crash-copy {
+        margin-top: 2px;
+        font-family: "Rajdhani", "Atkinson Hyperlegible", Arial, sans-serif;
+        font-weight: 700;
+        font-size: 13px;
+        letter-spacing: 2px;
+        color: #a0a8b8;
+        background: none;
+        border: 1.5px solid #4a5468;
+        border-radius: 6px;
+        padding: 8px 20px;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -185,6 +200,7 @@
         <div class="crash-rule"></div>
         <div class="crash-sub">The game hit an unexpected error and needs to reload. Your last save is safe.</div>
         <div class="crash-action">TAP TO RELOAD</div>
+        <button id="crash-copy" class="crash-copy" type="button">COPY ERROR LOGS</button>
       </div>
     </div>
     <script>
