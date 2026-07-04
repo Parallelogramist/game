@@ -586,7 +586,11 @@ export class HUDManager {
     const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
     const pauseButtonSize = Math.max(this.scaledSize(36), 44);
     const pauseButtonX = this.scene.scale.width - scaledPadding - pauseButtonSize / 2;
-    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
+    // Portrait sits the button a touch lower: taps hugging the top edge on
+    // iOS (minimized Safari UI / status-bar band) often get eaten by the
+    // browser chrome reveal before they reach the canvas.
+    const pausePortraitDrop = this.scene.scale.height > this.scene.scale.width ? this.scaledSize(12) : 0;
+    const pauseButtonY = scaledPadding + pauseButtonSize / 2 + pausePortraitDrop;
 
     // Stats positioned below the pause button, right-aligned to screen edge
     const statsRightX = this.scene.scale.width - scaledPadding;
@@ -678,11 +682,13 @@ export class HUDManager {
     pauseGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
     paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
 
+    // Hit zone runs 12 units past the visual on every side — the pill is
+    // small and corner-pinned, and near-miss taps should still pause.
     const pauseButtonBg = this.scene.add.rectangle(
       pauseButtonX,
       pauseButtonY,
-      pauseButtonSize,
-      pauseButtonSize,
+      pauseButtonSize + this.scaledSize(24),
+      pauseButtonSize + this.scaledSize(24),
       0x000000,
       0
     );
@@ -713,8 +719,11 @@ export class HUDManager {
     });
     pauseButtonBg.once('destroy', () => pauseGfx.destroy());
 
-    // Controls hint (bottom left) — display style.
-    this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
+    // Controls hint (bottom left) — desktop input only: on touch devices the
+    // text is meaningless and collided with the auto-upgrade pill at
+    // portrait width.
+    const hintIsTouch = this.scene.input.manager.touch !== null && this.scene.sys.game.device.input.touch;
+    if (!hintIsTouch) this.scene.add.text(scaledPadding, this.scene.scale.height - scaledPadding, 'WASD / Arrows / Mouse to move', {
       fontSize: this.scaledFontSize(13),
       color: '#aaaaaa',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
