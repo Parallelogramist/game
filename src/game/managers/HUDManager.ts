@@ -13,7 +13,7 @@ import { getNextComboThreshold } from '../../systems/ComboSystem';
 import { TouchActionButtons } from '../../ui/TouchActionButtons';
 import { Relic, getRelicRarityColor } from '../../data/Relics';
 import { RunModifier } from '../../data/RunModifiers';
-import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS } from '../../visual/MenuStyle';
+import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 import { OverlayDepths } from '../../visual/DepthLayers';
 
 /**
@@ -145,6 +145,33 @@ const HP_THRESHOLD_COLORS: Record<HPThreshold, number> = {
 };
 const getHPThreshold = (progress: number): HPThreshold =>
   progress > 0.5 ? 'green' : progress > 0.25 ? 'yellow' : 'red';
+
+/**
+ * Draws a four-point star centered at (cx, cy) into the supplied Graphics —
+ * the mastery marker. Drawn, not a font glyph: ★ renders through the
+ * system font fallback and looks soft/off-brand next to the vector HUD.
+ */
+function paintStarBadge(
+  graphics: Phaser.GameObjects.Graphics,
+  cx: number,
+  cy: number,
+  outerRadius: number,
+  color: number,
+): void {
+  const innerRadius = Math.max(1, Math.round(outerRadius * 0.38));
+  graphics.fillStyle(color, 1);
+  graphics.beginPath();
+  graphics.moveTo(cx, cy - outerRadius);
+  graphics.lineTo(cx + innerRadius, cy - innerRadius);
+  graphics.lineTo(cx + outerRadius, cy);
+  graphics.lineTo(cx + innerRadius, cy + innerRadius);
+  graphics.lineTo(cx, cy + outerRadius);
+  graphics.lineTo(cx - innerRadius, cy + innerRadius);
+  graphics.lineTo(cx - outerRadius, cy);
+  graphics.lineTo(cx - innerRadius, cy - innerRadius);
+  graphics.closePath();
+  graphics.fillPath();
+}
 
 export class HUDManager {
   private scene: Phaser.Scene;
@@ -308,7 +335,7 @@ export class HUDManager {
     this.levelText = this.scene.add.text(leftMargin, currentY, 'LEVEL 1', {
       fontSize: this.scaledFontSize(28),
       color: ACCENT_COLORS_STR.gold,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(4),
@@ -394,7 +421,8 @@ export class HUDManager {
       {
         fontSize: this.scaledFontSize(11),
         color: '#000000',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
         stroke: '#ffffff',
         strokeThickness: 2,
       }
@@ -406,7 +434,7 @@ export class HUDManager {
     this.scene.add.text(leftMargin + hpBarWidth + this.scaledSize(8), currentY + hpBarHeight / 2, 'HP', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.danger,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -465,7 +493,7 @@ export class HUDManager {
     this.scene.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.safe,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -522,7 +550,7 @@ export class HUDManager {
     this.ultLabel = this.scene.add.text(leftMargin + ultBarWidth + this.scaledSize(8), currentY + ultBarHeight / 2, 'ULT', {
       fontSize: this.scaledFontSize(12),
       color: '#ffcc33',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -598,21 +626,23 @@ export class HUDManager {
 
     // World level display — display style.
     const worldLevel = this.options.worldLevel;
-    this.scene.add.text(this.scene.scale.width / 2, scaledPadding, `WORLD ${worldLevel}`, {
+    const worldLevelText = this.scene.add.text(this.scene.scale.width / 2, scaledPadding, `WORLD ${worldLevel}`, {
       fontSize: this.scaledFontSize(14),
       color: ACCENT_COLORS_STR.primary,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
-    }).setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    });
+    worldLevelText.setLetterSpacing(2);
+    worldLevelText.setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Game time display — display style, large for the timer.
     const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
     const timerLabel = this.scene.add.text(this.scene.scale.width / 2, scaledPadding + scaledWorldLevelHeight + scaledSpacing, '', {
       fontSize: this.scaledFontSize(28),
       color: '#ffffff',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(4),
@@ -620,25 +650,30 @@ export class HUDManager {
     timerLabel.setLetterSpacing(2);
     timerLabel.setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
-    // Kill count display — label on HUD pill.
-    this.scene.add.text(statsRightX, statsTopY, '', {
+    // Kill count + gold preview — tidy right-aligned stack below the pause
+    // button. Values lead, letter-spaced label trails so the labels stay
+    // pinned to the right edge as the numbers grow leftward.
+    const killCountText = this.scene.add.text(statsRightX, statsTopY, '', {
       fontSize: this.scaledFontSize(16),
       color: ACCENT_COLORS_STR.safe,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
-    }).setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    });
+    killCountText.setLetterSpacing(1);
+    killCountText.setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
-    // Gold preview display — label on HUD pill.
-    this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
-      fontSize: this.scaledFontSize(14),
+    const goldPreviewText = this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
+      fontSize: this.scaledFontSize(16),
       color: ACCENT_COLORS_STR.gold,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
-    }).setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    });
+    goldPreviewText.setLetterSpacing(1);
+    goldPreviewText.setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
     // Combo counter display — anchored bottom-center above the controls hint
     // so it doesn't compete with pause/kills/gold in the top-right. Display
@@ -648,7 +683,7 @@ export class HUDManager {
     const comboTextNode = this.scene.add.text(this.scene.scale.width / 2, comboAnchorY, '', {
       fontSize: this.scaledFontSize(18),
       color: '#ffffff',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(4),
@@ -670,7 +705,7 @@ export class HUDManager {
       {
         fontSize: this.scaledFontSize(12),
         color: '#ff8844',
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
         stroke: '#000000',
         strokeThickness: this.scaledSize(2),
@@ -678,9 +713,13 @@ export class HUDManager {
     ).setOrigin(0.5, 0).setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
 
     // Pause button \u2014 HUD pill (graphics back-layer + transparent rect hit zone).
+    // Painted around the local origin and positioned, so handleResize can move
+    // the pill along with the hit zone and icon.
     const pauseGfx = this.scene.add.graphics();
+    pauseGfx.setName('pauseButtonGfx');
     pauseGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
-    paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
+    paintHudPanel(pauseGfx, 0, 0, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
+    pauseGfx.setPosition(pauseButtonX, pauseButtonY);
 
     // Hit zone runs 12 units past the visual on every side — the pill is
     // small and corner-pinned, and near-miss taps should still pause.
@@ -696,23 +735,33 @@ export class HUDManager {
     pauseButtonBg.setName('pauseButtonBg');
     pauseButtonBg.setDepth(HUD_DEPTH);
 
-    const pauseButtonIcon = this.scene.add.text(pauseButtonX, pauseButtonY, '\u23F8', {
-      fontSize: this.scaledFontSize(20),
-      color: '#ffffff',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
-    });
-    pauseButtonIcon.setOrigin(0.5);
+    // Pause glyph \u2014 two rounded vertical bars drawn with Graphics. The old
+    // '\u23F8' text glyph rendered through the system emoji font: soft,
+    // blurry, and off-brand next to the vector pill.
+    const pauseButtonIcon = this.scene.add.graphics();
+    const pauseBarHeight = Math.round(pauseButtonSize * 0.36);
+    const pauseBarWidth = Math.max(4, Math.round(pauseButtonSize * 0.12));
+    const pauseBarHalfGap = Math.max(2, Math.round(pauseButtonSize * 0.07));
+    const pauseBarRadius = Math.min(2, Math.floor(pauseBarWidth / 2));
+    pauseButtonIcon.fillStyle(ACCENT_COLORS.primary, 1);
+    pauseButtonIcon.fillRoundedRect(
+      -pauseBarHalfGap - pauseBarWidth, -Math.round(pauseBarHeight / 2),
+      pauseBarWidth, pauseBarHeight, pauseBarRadius,
+    );
+    pauseButtonIcon.fillRoundedRect(
+      pauseBarHalfGap, -Math.round(pauseBarHeight / 2),
+      pauseBarWidth, pauseBarHeight, pauseBarRadius,
+    );
+    pauseButtonIcon.setPosition(pauseButtonX, pauseButtonY);
     pauseButtonIcon.setName('pauseButtonIcon');
     pauseButtonIcon.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
 
     // Pause button hover \u2014 repaint the pill with brighter accent.
     pauseButtonBg.on('pointerover', () => {
-      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.focus, 8);
+      paintHudPanel(pauseGfx, 0, 0, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.focus, 8);
     });
     pauseButtonBg.on('pointerout', () => {
-      paintHudPanel(pauseGfx, pauseButtonX, pauseButtonY, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
+      paintHudPanel(pauseGfx, 0, 0, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
     });
     // pointerup, not pointerdown: near the top screen edge iOS delays or
     // cancels touchstart while disambiguating system gestures, so a
@@ -756,7 +805,7 @@ export class HUDManager {
     this.fpsText = this.scene.add.text(this.scene.scale.width - scaledPadding, fpsY, 'FPS: --', {
       fontSize: this.scaledFontSize(14),
       color: ACCENT_COLORS_STR.safe,
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
@@ -802,7 +851,7 @@ export class HUDManager {
     // Update kill count (only when changed)
     if (this.killCountTextRef && state.killCount !== this.lastKillCount) {
       this.lastKillCount = state.killCount;
-      this.killCountTextRef.setText(`Kills: ${state.killCount}`);
+      this.killCountTextRef.setText(`${state.killCount} KILLS`);
     }
 
     // Update gold preview — single compact number to reduce HUD clutter.
@@ -816,7 +865,7 @@ export class HUDManager {
       );
       if (deathGold !== this.lastDeathGold) {
         this.lastDeathGold = deathGold;
-        this.goldPreviewTextRef.setText(`⟁ ${deathGold}`);
+        this.goldPreviewTextRef.setText(`${deathGold} GOLD`);
       }
     }
 
@@ -1287,20 +1336,30 @@ export class HUDManager {
       );
       levelBadgeBg.setStrokeStyle(1, 0xffffff, 0.5);
 
-      const levelBadge = this.scene.add.text(
-        badgeX,
-        badgeY,
-        isMastered ? '\u2605' : `${upgrade.currentLevel}`,
-        {
-          fontSize: isMastered ? this.scaledFontSize(14) : this.scaledFontSize(12),
-          color: isMastered ? '#ffd700' : '#ffffff',
-          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-          fontStyle: 'bold',
-          stroke: '#000000',
-          strokeThickness: 2,
-        }
-      );
-      levelBadge.setOrigin(0.5, 0.5);
+      // Mastered icons get a drawn gold star badge; leveling icons show the
+      // numeric level.
+      let levelBadge: Phaser.GameObjects.GameObject;
+      if (isMastered) {
+        const starGfx = this.scene.add.graphics();
+        paintStarBadge(starGfx, badgeX, badgeY, Math.max(4, Math.round(badgeSize * 0.42)), 0xffd700);
+        levelBadge = starGfx;
+      } else {
+        const levelBadgeText = this.scene.add.text(
+          badgeX,
+          badgeY,
+          `${upgrade.currentLevel}`,
+          {
+            fontSize: this.scaledFontSize(12),
+            color: '#ffffff',
+            fontFamily: DISPLAY_FONT,
+            fontStyle: 'bold',
+            stroke: '#000000',
+            strokeThickness: 2,
+          }
+        );
+        levelBadgeText.setOrigin(0.5, 0.5);
+        levelBadge = levelBadgeText;
+      }
 
       // Hover events with pill repaint (brighter accent on hover).
       iconBg.on('pointerover', () => {
@@ -1381,7 +1440,7 @@ export class HUDManager {
     const nameText = this.scene.add.text(0, 0, name.toUpperCase(), {
       fontSize: this.scaledFontSize(16),
       color: isFinalBoss ? '#ff66cc' : '#ff6666',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: this.scaledSize(5),
@@ -1417,7 +1476,7 @@ export class HUDManager {
     const healthText = this.scene.add.text(0, barTopOffset + barHeight / 2, '', {
       fontSize: this.scaledFontSize(11),
       color: '#ffffff',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
@@ -1529,7 +1588,7 @@ export class HUDManager {
     // Event name — display style.
     const nameText = this.scene.add.text(0, this.scaledSize(-12), event.name.toUpperCase(), {
       fontSize: this.scaledFontSize(13),
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       color: colorHex,
       fontStyle: 'bold',
       stroke: '#000000',
@@ -1857,12 +1916,18 @@ export class HUDManager {
     // --- Top-right elements ---
     const pauseButtonSize = Math.max(this.scaledSize(36), 44);
     const pauseButtonX = width - scaledPadding - pauseButtonSize / 2;
-    const pauseButtonY = scaledPadding + pauseButtonSize / 2;
+    // Same portrait drop as create() — keeps the button clear of the iOS
+    // browser-chrome band after an orientation change.
+    const pausePortraitDrop = height > width ? this.scaledSize(12) : 0;
+    const pauseButtonY = scaledPadding + pauseButtonSize / 2 + pausePortraitDrop;
 
     const pauseBg = findByName<Phaser.GameObjects.Rectangle>('pauseButtonBg');
     if (pauseBg) pauseBg.setPosition(pauseButtonX, pauseButtonY);
 
-    const pauseIcon = findByName<Phaser.GameObjects.Text>('pauseButtonIcon');
+    const pausePill = findByName<Phaser.GameObjects.Graphics>('pauseButtonGfx');
+    if (pausePill) pausePill.setPosition(pauseButtonX, pauseButtonY);
+
+    const pauseIcon = findByName<Phaser.GameObjects.Graphics>('pauseButtonIcon');
     if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
 
     const statsRightX = width - scaledPadding;
@@ -2100,7 +2165,7 @@ export class HUDManager {
       toggleX, toggleY, 'AUTO-UPGRADE  OFF',
       {
         fontSize: this.scaledFontSize(13),
-        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontFamily: DISPLAY_FONT,
         color: '#888888',
         fontStyle: 'bold',
         stroke: '#000000',
@@ -2269,15 +2334,16 @@ export class HUDManager {
       tint: 0x8888aa,
     });
 
-    // Track info text — display style on accent color.
-    this.bgmTrackText = this.scene.add.text(this.scaledSize(65), 0, 'Loading...', {
+    // Track info text — small-caps display label on accent color.
+    this.bgmTrackText = this.scene.add.text(this.scaledSize(65), 0, 'LOADING...', {
       fontSize: this.scaledFontSize(12),
       color: ACCENT_COLORS_STR.primary,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
     });
+    this.bgmTrackText.setLetterSpacing(1);
 
     this.bgmContainer.add([this.bgmMuteButton, this.bgmMuteStrike, skipButton, musicIcon, this.bgmTrackText]);
   }
@@ -2322,12 +2388,12 @@ export class HUDManager {
       if (currentTrack.id !== this.lastTrackId) {
         this.lastTrackId = currentTrack.id;
         // Truncate long names to fit the display
-        const title = currentTrack.title;
+        const title = currentTrack.title.toUpperCase();
         this.bgmTrackText.setText(title.length > 24 ? title.substring(0, 22) + '...' : title);
       }
     } else {
       // Music Off when disabled, No Tracks when enabled but playlist empty
-      this.bgmTrackText.setText(isPlaying ? 'No Tracks' : 'Music Off');
+      this.bgmTrackText.setText(isPlaying ? 'NO TRACKS' : 'MUSIC OFF');
       this.lastTrackId = '';
     }
 
@@ -2362,7 +2428,7 @@ export class HUDManager {
     if (titleText) titleText.setText(upgrade.name);
     if (descText) descText.setText(upgrade.description);
     const isMastered = upgrade.currentLevel >= upgrade.maxLevel;
-    if (levelText) levelText.setText(isMastered ? '\u2605 MASTERED' : `Level ${upgrade.currentLevel}/${upgrade.maxLevel}`);
+    if (levelText) levelText.setText(isMastered ? 'MASTERED' : `Level ${upgrade.currentLevel}/${upgrade.maxLevel}`);
 
     let hasEvolution = false;
     if (evolutionText) {
@@ -2375,8 +2441,9 @@ export class HUDManager {
         } else {
           const weaponMet = upgrade.currentLevel >= evoInfo.requiredWeaponLevel;
           const statMet = evoInfo.currentStatLevel >= evoInfo.requiredStatLevel;
-          const wpnStatus = weaponMet ? '\u2713' : `${upgrade.currentLevel}/${evoInfo.requiredWeaponLevel}`;
-          const statStatus = statMet ? '\u2713' : `${evoInfo.currentStatLevel}/${evoInfo.requiredStatLevel}`;
+          // Always numeric \u2014 the row color signals met/unmet, no glyphs.
+          const wpnStatus = `${upgrade.currentLevel}/${evoInfo.requiredWeaponLevel}`;
+          const statStatus = `${evoInfo.currentStatLevel}/${evoInfo.requiredStatLevel}`;
           evolutionText.setText(`Evolve: Wpn ${wpnStatus} + ${evoInfo.requiredStatName} ${statStatus}`);
           evolutionText.setColor(weaponMet && statMet ? '#88ff88' : '#ffaa44');
         }

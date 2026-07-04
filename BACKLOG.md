@@ -38,6 +38,16 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
+- [ ] **POLISH-GLYPH-SWEEP-2** — finish the non-HUD glyph sweep. Value: the
+  2026-07-04 HUD skin pass (drawn pause/dash/ult/fullscreen icons, DISPLAY_FONT
+  typography, kills/gold stack, mastery star badge) removed every rendered emoji
+  from in-run surfaces, but left two typographic text glyphs by choice: the `✓`
+  victory mark in the pause-menu run history (`PauseMenuManager.ts` ~1958) and
+  `→` arrows in streak/evolve strings. If those ever render via a system
+  fallback font on some platform, swap them for drawn ticks/labels. Also
+  consider promoting the drawn four-point-star helper (duplicated in
+  `HUDManager.ts` + `TouchActionButtons.ts`) into a shared visual util.
+
 ---
 
 ## Human gates

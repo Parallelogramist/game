@@ -1271,12 +1271,12 @@ export class PauseMenuManager {
     nextWorldText.setDepth(PAUSE_MENU_DEPTH + 1);
     nextWorldText.setName('victoryNextWorld');
 
-    // Streak display
-    const fireEmoji = data.newStreak >= 5 ? '\u{1F525}\u{1F525}' : '\u{1F525}';
+    // Streak display \u2014 clean text label, no emoji (system emoji font is
+    // soft/off-brand next to the vector UI).
     const streakText = this.scene.add.text(
       this.scene.scale.width / 2,
       victoryStatsTop + victoryStatsHeight + 52,
-      `${fireEmoji} Streak: ${data.previousStreak} \u2192 ${data.newStreak}! (+${data.streakBonusPercent}% gold)`,
+      `WIN STREAK ${data.previousStreak} \u2192 ${data.newStreak}  (+${data.streakBonusPercent}% gold)`,
       {
         fontSize: '18px',
         color: '#ffaa44',
@@ -1324,7 +1324,7 @@ export class PauseMenuManager {
     // Score line (between the streak readout and the action buttons).
     if (data.runScore !== undefined) {
       const scoreStr = data.isNewBest
-        ? `★ NEW BEST  ${data.runScore.toLocaleString()}`
+        ? `NEW BEST  ${data.runScore.toLocaleString()}`
         : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
       const scoreText = this.scene.add.text(
         victoryCenterX,
@@ -1514,7 +1514,7 @@ export class PauseMenuManager {
     const metaManager = getMetaProgressionManager();
 
     // Prepare streak change text for display (only shown on death, not victory)
-    const streakChangeText = data.previousStreak > 0 ? '\u{1F494} Streak broken!' : '';
+    const streakChangeText = data.previousStreak > 0 ? 'Streak broken!' : '';
     const hasWon = this.options.getGameState().hasWon;
 
     // Show game over UI
@@ -1589,7 +1589,7 @@ export class PauseMenuManager {
     // Score line (below the title).
     if (data.runScore !== undefined) {
       const scoreStr = data.isNewBest
-        ? `★ NEW BEST  ${data.runScore.toLocaleString()}`
+        ? `NEW BEST  ${data.runScore.toLocaleString()}`
         : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;
       const scoreText = this.scene.add.text(centerX, titleY + 48, scoreStr, {
         fontSize: '16px',

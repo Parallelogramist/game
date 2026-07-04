@@ -3122,7 +3122,7 @@ export class GameScene extends Phaser.Scene {
   private showSynergyToast(synergy: WeaponSynergy): void {
     if (!this.toastManager) return;
     this.toastManager.showToast({
-      title: `⚡ ${synergy.name}`,
+      title: `Synergy: ${synergy.name}`,
       description: synergy.description,
       icon: 'chain',
       color: 0x66ddff,
@@ -5346,8 +5346,10 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => edgeVignette.destroy(),
     });
 
-    const warningText = this.add.text(centerX, centerY - 50, `⚠ ${name.toUpperCase()} ⚠`, {
-      fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
+    // No warning glyphs — the red vignette pulse + color carry the alarm;
+    // letter-spaced display type keeps it on-brand.
+    const warningText = this.add.text(centerX, centerY - 50, name.toUpperCase(), {
+      fontFamily: DISPLAY_FONT,
       fontSize: '32px',
       fontStyle: 'bold',
       color: '#ff6644',
@@ -5355,6 +5357,7 @@ export class GameScene extends Phaser.Scene {
       strokeThickness: 5,
       align: 'center',
     });
+    warningText.setLetterSpacing(4);
     warningText.setOrigin(0.5);
     warningText.setDepth(warningDepth);
     warningText.setScrollFactor(0);

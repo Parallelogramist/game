@@ -11,6 +11,28 @@ import { OverlayDepths } from '../visual/DepthLayers';
 const BUTTON_DEPTH = OverlayDepths.TOUCH_BUTTONS; // Same depth level as joystick
 const MIN_TOUCH_SIZE = 44;
 
+/**
+ * Draws a four-point star centered at (0, 0) — the ultimate glyph. Drawn
+ * with Graphics rather than a font character: glyphs like ❖ render
+ * through the system font fallback and look soft at button size.
+ */
+function paintFourPointStar(graphics: Phaser.GameObjects.Graphics, outerRadius: number, color: number): void {
+  const inner = Math.max(2, Math.round(outerRadius * 0.4));
+  const outer = Math.round(outerRadius);
+  graphics.fillStyle(color, 1);
+  graphics.beginPath();
+  graphics.moveTo(0, -outer);
+  graphics.lineTo(inner, -inner);
+  graphics.lineTo(outer, 0);
+  graphics.lineTo(inner, inner);
+  graphics.lineTo(0, outer);
+  graphics.lineTo(-inner, inner);
+  graphics.lineTo(-outer, 0);
+  graphics.lineTo(-inner, -inner);
+  graphics.closePath();
+  graphics.fillPath();
+}
+
 export interface TouchActionButtonsOptions {
   onDash: () => void;
   onUltimate: () => void;
@@ -74,16 +96,20 @@ export class TouchActionButtons {
     this.dashCooldownArc.setScrollFactor(0);
     this.dashCooldownArc.setDepth(BUTTON_DEPTH + 1);
 
-    // Dash icon — a simple arrow/bolt symbol
-    const dashIcon = this.scene.add.text(0, 0, '\u21E8', {
-      fontSize: `${Math.round(scaledRadius * 1.1)}px`,
-      color: '#ffdd44',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 4,
-    });
-    dashIcon.setOrigin(0.5);
+    // Dash icon — drawn double chevron (speed), replacing the soft
+    // system-font arrow glyph.
+    const dashIcon = this.scene.add.graphics();
+    const chevThickness = Math.max(3, Math.round(scaledRadius * 0.18));
+    const chevHeight = Math.round(scaledRadius * 0.42);
+    const chevWidth = Math.round(scaledRadius * 0.36);
+    dashIcon.lineStyle(chevThickness, 0xffdd44, 1);
+    for (const startX of [Math.round(-scaledRadius * 0.45), Math.round(scaledRadius * 0.05)]) {
+      dashIcon.beginPath();
+      dashIcon.moveTo(startX, -chevHeight);
+      dashIcon.lineTo(startX + chevWidth, 0);
+      dashIcon.lineTo(startX, chevHeight);
+      dashIcon.strokePath();
+    }
     this.dashContainer.add(dashIcon);
 
     // Interactive hit area
@@ -130,16 +156,9 @@ export class TouchActionButtons {
     ultHighlight.fillEllipse(0, -scaledRadius * 0.7, scaledRadius * 1.1, 6);
     this.ultimateContainer.add(ultHighlight);
 
-    // Ultimate icon — a star/burst symbol.
-    const ultIcon = this.scene.add.text(0, 0, '❖', {
-      fontSize: `${Math.round(scaledRadius * 1.0)}px`,
-      color: '#ffe9a8',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 4,
-    });
-    ultIcon.setOrigin(0.5);
+    // Ultimate icon — drawn four-point star burst.
+    const ultIcon = this.scene.add.graphics();
+    paintFourPointStar(ultIcon, scaledRadius * 0.55, 0xffe9a8);
     this.ultimateContainer.add(ultIcon);
 
     // Interactive hit area
@@ -185,16 +204,20 @@ export class TouchActionButtons {
     backgroundRect.setStrokeStyle(3, 0x8898b0, 0.85);
     this.fullscreenContainer.add(backgroundRect);
 
-    // Fullscreen icon — expand brackets
-    const fsIcon = this.scene.add.text(0, 0, '\u26F6', {
-      fontSize: `${Math.round(buttonSize * 1.2)}px`,
-      color: '#f0eedf',
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      fontStyle: 'bold',
-      stroke: '#000000',
-      strokeThickness: 3,
-    });
-    fsIcon.setOrigin(0.5);
+    // Fullscreen icon — drawn expand brackets (four corners), replacing
+    // the system-font glyph.
+    const fsIcon = this.scene.add.graphics();
+    const bracketExtent = Math.round(buttonSize * 0.52);
+    const bracketArm = Math.max(3, Math.round(bracketExtent * 0.5));
+    const bracketThickness = Math.max(2, Math.round(buttonSize * 0.14));
+    fsIcon.lineStyle(bracketThickness, 0xf0eedf, 1);
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+      fsIcon.beginPath();
+      fsIcon.moveTo(sx * (bracketExtent - bracketArm), sy * bracketExtent);
+      fsIcon.lineTo(sx * bracketExtent, sy * bracketExtent);
+      fsIcon.lineTo(sx * bracketExtent, sy * (bracketExtent - bracketArm));
+      fsIcon.strokePath();
+    }
     this.fullscreenContainer.add(fsIcon);
 
     // Interactive
