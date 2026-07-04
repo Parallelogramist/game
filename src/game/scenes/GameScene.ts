@@ -2994,25 +2994,27 @@ export class GameScene extends Phaser.Scene {
     if (this.playerId === -1) return;
 
     if (!this.bountyText) {
-      // Anchor BELOW the HUD's world+timer block using the same density
-      // scale it uses — the old fixed y=96 with an unscaled 15px font sat
-      // exactly under the scaled timer on phones (worst in portrait, where
-      // the centered column has no slack) and was unreadably small there.
+      // Bottom-center, above the combo counter. The top band has no room for
+      // a centered line in portrait — bars left, world+timer center, and
+      // kills/gold right all share that vertical range, so any "below the
+      // timer" y lands across the XP bar or the upgrade chip rows.
       const hudScale = computeHudScale(
         this.scale.width,
         this.scale.height,
         getSettingsManager().getUiScale(),
       );
-      // padding + WORLD row + gap + timer row (28px font ≈ 34 tall) + gap.
-      const bountyY = Math.round((16 + 18 + 8 + 34 + 8) * hudScale);
-      this.bountyText = this.add.text(this.scale.width / 2, bountyY, '', {
-        fontSize: `${Math.round(13 * hudScale)}px`,
-        fontFamily: 'monospace',
+      // Combo counter bottoms at height − 96·s (see HUDManager); sit above it.
+      const bountyBottomY = this.scale.height - Math.round((96 + 40) * hudScale);
+      this.bountyText = this.add.text(this.scale.width / 2, bountyBottomY, '', {
+        fontSize: `${Math.round(14 * hudScale)}px`,
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
         color: '#ffe26a',
         stroke: '#000000',
-        strokeThickness: Math.max(2, Math.round(2 * hudScale)),
+        strokeThickness: Math.max(2, Math.round(3 * hudScale)),
         align: 'center',
-      }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(DepthLayers.UI_OVERLAY);
+      }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(DepthLayers.UI_OVERLAY);
+      this.bountyText.setLetterSpacing(1);
     }
 
     if (this.bounty === null) {
