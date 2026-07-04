@@ -93,8 +93,9 @@ Never agent work. The fleet must not do any of these.
     `PlayerSpaceship`, previews in `WeaponSelectScene.drawShipHullPreview`).
     Check in real runs: (a) each of the 11 silhouettes reads at gameplay
     scale/rotation under bloom (esp. Boss Hunter's long barrel and Juggernaut's
-    twin-prong ram), (b) evolution tier transitions per ship feel like growth,
-    not a ship swap, (c) thrust flames sit right on the new per-ship nozzle
+    twin-prong ram), (b) the 10 evolution tier transitions per ship (levels
+    1,4,7,11,15,19,23,27,31,35) feel like growth, not a ship swap, and the
+    faster evolution cadence isn't callout spam, (c) thrust flames sit right on the new per-ship nozzle
     layouts (Dreadnought/Juggernaut multi-engine rows), (d) ship-select cards:
     preview + 11px description fit at UI-scale extremes with 11 ships unlocked,
     (e) danger/combo hull-color shifts still read on darker hull fills. Tuning

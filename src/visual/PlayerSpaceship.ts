@@ -2,7 +2,8 @@
  * PlayerSpaceship - Tron-style procedurally-drawn neon spaceship that evolves as the player levels up
  *
  * Features:
- * - 5 evolution tiers: Scout → Fighter → Striker → Warbird → Apex
+ * - 10 evolution tiers: Scout → Fighter → Striker → Raptor → Warbird →
+ *   Reaver → Phantom → Vanguard → Paragon → Apex
  * - Per-ship hull families: every playable ship has a unique silhouette across
  *   all tiers (geometry data in shipHullGeometry.ts, selected via config.hullId)
  * - Dark hull defined by bright neon edge lines (Tron: Legacy aesthetic)
@@ -48,16 +49,20 @@ interface EvolutionTierFeatures {
   coronaAlphaBase: number;
 }
 
+// 10 evolution stages, levels 1→35. Every stage changes the ship's geometry
+// (see shipHullGeometry.ts tier-gating rhythm); these flags layer the shared
+// animated features on top. Crosshairs + energy pulse from Raptor (tier 4),
+// energy corona on the final Apex form only.
 const EVOLUTION_TIERS: EvolutionTierFeatures[] = [
-  // Tier 1: Scout (levels 1-4) — bare hull
   { name: 'Scout', minLevel: 1, cockpitHasCrosshairs: false, hasEnergyPulse: false, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
-  // Tier 2: Fighter (levels 5-9) — edge accents come online
-  { name: 'Fighter', minLevel: 5, cockpitHasCrosshairs: false, hasEnergyPulse: false, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
-  // Tier 3: Striker (levels 10-19) — crosshairs + animated energy pulse
-  { name: 'Striker', minLevel: 10, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
-  // Tier 4: Warbird (levels 20-34) — energy pods (from geometry)
-  { name: 'Warbird', minLevel: 20, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
-  // Tier 5: Apex (levels 35+) — pulsing energy corona
+  { name: 'Fighter', minLevel: 4, cockpitHasCrosshairs: false, hasEnergyPulse: false, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  { name: 'Striker', minLevel: 7, cockpitHasCrosshairs: false, hasEnergyPulse: false, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  { name: 'Raptor', minLevel: 11, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  { name: 'Warbird', minLevel: 15, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  { name: 'Reaver', minLevel: 19, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  { name: 'Phantom', minLevel: 23, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  { name: 'Vanguard', minLevel: 27, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
+  { name: 'Paragon', minLevel: 31, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: false, coronaScale: 1, coronaAlphaBase: 0 },
   { name: 'Apex', minLevel: 35, cockpitHasCrosshairs: true, hasEnergyPulse: true, hasEnergyCorona: true, coronaScale: 1.6, coronaAlphaBase: 0.06 },
 ];
 

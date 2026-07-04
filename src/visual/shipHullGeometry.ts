@@ -2,15 +2,16 @@
  * shipHullGeometry — per-ship procedural hull families for the player spaceship.
  *
  * Every playable ship (src/data/ShipCharacters.ts) owns one hull family here,
- * and each family defines all 5 evolution tiers (Scout → Apex). A family keeps
- * a recognizable silhouette while tiers stretch, widen, and grow extra blades,
- * engines, and pods — so evolving reads as "my ship grew teeth", not "I got a
- * different ship".
+ * and each family defines all 10 evolution tiers. A family keeps a
+ * recognizable silhouette while every tier visibly changes the craft — new
+ * facets, barbs, blades, engines, and pods on top of gradual growth — so
+ * evolving reads as "my ship grew teeth", not "I got a different ship".
  *
  * Pure geometry, no Phaser: PlayerSpaceship renders it in-game,
  * WeaponSelectScene renders card previews from it, and the unit suite asserts
  * the invariants (mirror symmetry, closed non-self-intersecting outlines,
- * monotonic tier growth, render-cache fit, per-ship uniqueness).
+ * monotonic tier growth, per-tier visible variation, render-cache fit,
+ * per-ship uniqueness).
  *
  * Authoring convention: ships face +x (nose right). Each hull is authored as
  * the NOSE point plus the upper half outline (y < 0, nose → tail) plus an
@@ -18,6 +19,11 @@
  * guarantees symmetry. Details (energy channels, circuit traces, wing edge
  * accents) are generated from the frame's anchors so they always track the
  * silhouette.
+ *
+ * Tier-gating rhythm shared by the families (t = tier index 0..9):
+ *   t1 / t3 / t6 / t8 / t9 — silhouette changes (facets, teeth, blades, tips)
+ *   t2 / t4 / t7          — engine layout grows
+ *   t5 (+ second pair t9) — energy pods come online
  */
 
 export interface Point2D {
@@ -80,7 +86,10 @@ export const SHIP_HULL_IDS: readonly ShipHullId[] = [
   'harpoon', 'aurora', 'needle', 'mantis', 'sovereign',
 ];
 
-export const SHIP_TIER_COUNT = 5;
+export const SHIP_TIER_COUNT = 10;
+
+/** First tier where energy pods appear on every hull family. */
+export const POD_START_TIER = 5;
 
 export const DEFAULT_HULL_ID: ShipHullId = 'dart';
 
@@ -88,10 +97,19 @@ export const DEFAULT_HULL_ID: ShipHullId = 'dart';
 // Shared authoring helpers
 // ---------------------------------------------------------------------------
 
-/** Overall size multiplier per evolution tier. */
-const TIER_SCALE = [1.0, 1.16, 1.32, 1.48, 1.62];
+/** Overall size multiplier per evolution tier (10 steps, ~+7% each). */
+const TIER_SCALE = [1.0, 1.07, 1.14, 1.21, 1.28, 1.35, 1.42, 1.48, 1.55, 1.62];
 
 const P = (x: number, y: number): Point2D => ({ x, y });
+
+/** Pick the last stage whose gate tier is <= t (stages sorted ascending). */
+function pick<T>(tier: number, stages: [number, T][]): T {
+  let result = stages[0][1];
+  for (const [gate, value] of stages) {
+    if (tier >= gate) result = value;
+  }
+  return result;
+}
 
 /**
  * Frame authored per hull per tier — everything else (mirroring, traces,
@@ -168,63 +186,85 @@ function visorCockpit(frontX: number, backX: number, halfWidth: number): Point2D
 // Hull family builders — one per playable ship archetype
 // ---------------------------------------------------------------------------
 //
-// Each builder receives the tier index (0..4) and returns a HullFrame.
+// Each builder receives the tier index (0..9) and returns a HullFrame.
 // `k` scales the whole craft per tier; `w` widens wings faster than the hull
 // so higher tiers read more aggressive, not just bigger. Vertices gated on
-// tier grow new blades/facets at evolution breakpoints.
+// tier grow new facets/teeth/blades at evolution breakpoints (see the rhythm
+// note in the module header).
 
 type HullBuilder = (tier: number) => HullFrame;
 
 const buildDart: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.08;
+  const w = 1 + t * 0.036;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(13, -2.6), p(4, -4.6), p(-3, -5)];
-  if (t >= 2) upperHull.push(wing(-7, -8));           // mid-wing facet
+  const nose = p(t >= 9 ? 24 : 22, 0);                // t9: lance nose
+  const upperHull: Point2D[] = [p(13, -2.6)];
+  if (t >= 1) upperHull.push(p(9, -3.2), p(8, -4.4)); // t1: leading-edge step
+  upperHull.push(p(4, -4.6), p(-3, -5));
+  if (t >= 3) upperHull.push(wing(-7, -8));           // t3: mid-wing facet
   upperHull.push(wing(-11, -10.5));                   // main swept tip
-  if (t >= 4) upperHull.push(wing(-15.5, -12.5));     // apex blade extension
-  upperHull.push(p(-8, -5), p(-12, -2.4));            // tail notch fin
+  if (t >= 8) upperHull.push(wing(-15.5, -12.5));     // t8: blade extension
+  if (t >= 9) upperHull.push(wing(-12, -9.5));        // t9: blade serration
+  upperHull.push(p(-8, -5));
+  if (t >= 6) upperHull.push(p(-12, -5.4));           // t6: tail fin blade
+  upperHull.push(p(-12, -2.4));
 
-  const engines =
-    t === 0 ? [P(-7 * k, 0)] :
-    t === 1 ? enginePair(-7.5 * k, 2.4 * k) :
-    t === 2 ? [P(-8 * k, 0), ...enginePair(-8 * k, 3.2 * k)] :
-    t === 3 ? [P(-8.5 * k, 0), ...enginePair(-8.5 * k, 3.6 * k)] :
-    [P(-9 * k, 0), ...enginePair(-9 * k, 3.6 * k), ...enginePair(-8 * k, 1.8 * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-7 * k, 0)]],
+    [2, [P(-7.5 * k, 0), ...enginePair(-7.5 * k, 2.4 * k)]],
+    [4, [P(-8 * k, 0), ...enginePair(-8 * k, 3.2 * k)]],
+    [7, [P(-9 * k, 0), ...enginePair(-9 * k, 3.6 * k), ...enginePair(-8 * k, 1.8 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-5, -6.8));
+  if (t >= 9) pods.push(wing(-1, -5.6));
 
   return {
-    nose: p(22, 0),
+    nose,
     upperHull,
     tailCenter: p(-9, 0),
     cockpit: hexCockpit(12 * k, -1 * k, 2.1 * k),
     engines,
-    engineNozzleRadius: (1.9 + t * 0.25) * k * 0.9,
-    wingTips: [t >= 4 ? wing(-15.5, -12.5) : wing(-11, -10.5)],
-    wingTipAccentRadius: 1.0 + t * 0.3,
-    pods: t >= 3 ? [wing(-5, -6.8)] : [],
-    energyPodRadius: 1.8 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.9 + t * 0.11) * k * 0.9,
+    wingTips: [t >= 8 ? wing(-15.5, -12.5) : wing(-11, -10.5)],
+    wingTipAccentRadius: 1.0 + t * 0.13,
+    pods,
+    energyPodRadius: 1.8 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildScissor: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.09;
+  const w = 1 + t * 0.04;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(14, -2), p(6, -2.8)];
-  upperHull.push(wing(11, -9.5));                     // forward-swept scissor tip
-  if (t >= 2) upperHull.push(wing(4, -11));           // second forward tooth
-  upperHull.push(wing(-3, -7.5), p(-7, -3.4));
-  if (t >= 4) upperHull.push(wing(-11, -8.5));        // rear scissor blade
-  upperHull.push(p(-13, -5.5));                       // tail fin
+  const mainTip = t >= 9 ? wing(12.5, -11) : wing(11, -9.5);
+  const upperHull: Point2D[] = [p(14, -2)];
+  if (t >= 1) upperHull.push(p(10, -3.6), p(8, -2.6)); // t1: canard bump
+  upperHull.push(p(6, -2.8));
+  upperHull.push(mainTip);                             // forward-swept scissor tip
+  if (t >= 3) upperHull.push(wing(4, -11));            // t3: second forward tooth
+  upperHull.push(wing(-3, -7.5));
+  if (t >= 6) upperHull.push(p(-1, -4.9));             // t6: trailing notch tooth
+  upperHull.push(p(-7, -3.4));
+  if (t >= 8) upperHull.push(wing(-11, -8.5));         // t8: rear scissor blade
+  upperHull.push(p(-13, -5.5));                        // tail fin
 
-  const engines =
-    t === 0 ? [P(-8 * k, 0)] :
-    t === 1 ? [P(-9 * k, 0), ...enginePair(-8 * k, 2.2 * k)] :
-    [P(-9.5 * k, 0), ...enginePair(-8.5 * k, (2.4 + t * 0.3) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-8 * k, 0)]],
+    [2, [P(-9 * k, 0), ...enginePair(-8 * k, 2.2 * k)]],
+    [4, [P(-9.5 * k, 0), ...enginePair(-8.5 * k, 2.8 * k)]],
+    [7, [P(-9.5 * k, 0), ...enginePair(-8.5 * k, 3.4 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(0, -8.6));
+  if (t >= 9) pods.push(wing(4, -6.2));
 
   return {
     nose: p(27, 0),
@@ -232,32 +272,42 @@ const buildScissor: HullBuilder = (t) => {
     tailCenter: p(-10, 0),
     cockpit: hexCockpit(15 * k, 3 * k, 1.7 * k),
     engines,
-    engineNozzleRadius: (1.7 + t * 0.22) * k * 0.9,
-    wingTips: t >= 2 ? [wing(11, -9.5), wing(4, -11)] : [wing(11, -9.5)],
-    wingTipAccentRadius: 0.9 + t * 0.28,
-    pods: t >= 3 ? [wing(0, -8.6)] : [],
-    energyPodRadius: 1.6 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.7 + t * 0.1) * k * 0.9,
+    wingTips: t >= 3 ? [mainTip, wing(4, -11)] : [mainTip],
+    wingTipAccentRadius: 0.9 + t * 0.12,
+    pods,
+    energyPodRadius: 1.6 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildRam: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.07;
+  const w = 1 + t * 0.031;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(17, -5.2), p(7, -8)];
-  if (t >= 2) upperHull.push(wing(1, -10.6));         // armored shoulder ridge
-  upperHull.push(wing(-2, -9.2), wing(-9, -13));      // stub wing
-  if (t >= 4) upperHull.push(wing(-13, -15.5));       // heavy wing extension
-  upperHull.push(p(-6, -7), p(-13, -8.6));            // rear armor plate
+  const upperHull: Point2D[] = [t >= 9 ? p(18, -5.8) : p(17, -5.2)]; // t9: harder prow
+  if (t >= 1) upperHull.push(p(13, -6.2), p(12, -7.2)); // t1: prow serration
+  upperHull.push(p(7, -8));
+  if (t >= 3) upperHull.push(wing(1, -10.6));           // t3: shoulder ridge
+  upperHull.push(wing(-2, -9.2), wing(-9, -13));        // stub wing
+  if (t >= 8) upperHull.push(wing(-13, -15.5));         // t8: heavy wing extension
+  upperHull.push(p(-6, -7));
+  if (t >= 6) upperHull.push(p(-11, -10.4));            // t6: side armor spike
+  upperHull.push(p(-13, -8.6));                         // rear plate
+  if (t >= 9) upperHull.push(p(-14.5, -5.5));           // t9: aft armor step
 
-  const engines =
-    t === 0 ? enginePair(-8 * k, 3 * k) :
-    t === 1 ? enginePair(-8.5 * k, 3.6 * k) :
-    t === 2 ? [P(-9 * k, 0), ...enginePair(-9 * k, 4.2 * k)] :
-    t === 3 ? [...enginePair(-9.5 * k, 1.8 * k), ...enginePair(-9.5 * k, 4.8 * k)] :
-    [P(-10 * k, 0), ...enginePair(-10 * k, 2.4 * k), ...enginePair(-10 * k, 5.2 * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, enginePair(-8 * k, 3 * k)],
+    [2, enginePair(-8.5 * k, 3.6 * k)],
+    [4, [P(-9 * k, 0), ...enginePair(-9 * k, 4.2 * k)]],
+    [7, [...enginePair(-9.5 * k, 1.8 * k), ...enginePair(-9.5 * k, 4.8 * k)]],
+    [9, [P(-10 * k, 0), ...enginePair(-10 * k, 2.4 * k), ...enginePair(-10 * k, 5.2 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-2, -10.8));
+  if (t >= 9) pods.push(p(4, -8.6));
 
   return {
     nose: p(21, 0),
@@ -265,30 +315,40 @@ const buildRam: HullBuilder = (t) => {
     tailCenter: p(-11, 0),
     cockpit: visorCockpit(11 * k, 1 * k, 3 * k),
     engines,
-    engineNozzleRadius: (2.3 + t * 0.28) * k * 0.9,
-    wingTips: [t >= 4 ? wing(-13, -15.5) : wing(-9, -13)],
-    wingTipAccentRadius: 1.2 + t * 0.32,
-    pods: t >= 3 ? [wing(-2, -10.8)] : [],
-    energyPodRadius: 2.1 + (t - 3) * 0.5,
+    engineNozzleRadius: (2.3 + t * 0.12) * k * 0.9,
+    wingTips: [t >= 8 ? wing(-13, -15.5) : wing(-9, -13)],
+    wingTipAccentRadius: 1.2 + t * 0.14,
+    pods,
+    energyPodRadius: 2.1 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildPrism: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.1;
+  const w = 1 + t * 0.044;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(9, -5.6), p(0, -7.4)];
-  upperHull.push(wing(-4, -13.5));                    // primary antenna spike
-  if (t >= 2) upperHull.push(wing(-7, -8.6), wing(-10, -12)); // second spike
+  const upperHull: Point2D[] = [p(9, -5.6)];
+  if (t >= 1) upperHull.push(p(5, -8.2));              // t1: crystal facet
+  upperHull.push(p(0, -7.4));
+  upperHull.push(wing(-4, t >= 9 ? -15 : -13.5));      // primary antenna (t9: longer)
+  if (t >= 3) upperHull.push(wing(-7, -8.6), wing(-10, -12)); // t3: second antenna
   upperHull.push(p(-6.5, -7.2));
-  if (t >= 4) upperHull.push(wing(-12, -9.5));        // rear sensor vane
+  if (t >= 6) upperHull.push(p(-10, -8.4));            // t6: lower sensor vane
+  if (t >= 8) upperHull.push(wing(-12, -9.5));         // t8: rear vane
   upperHull.push(p(-13, -4.6));
 
-  const engines =
-    t <= 1 ? [P((-12 - t) * k, 0)] :
-    [P(-13 * k, 0), ...enginePair(-11.5 * k, (2.2 + t * 0.3) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-12 * k, 0)]],
+    [2, [P(-13 * k, 0)]],
+    [4, [P(-13 * k, 0), ...enginePair(-11.5 * k, 3.2 * k)]],
+    [7, [P(-13 * k, 0), ...enginePair(-11.5 * k, 3.8 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-1.5, -9.8));
+  if (t >= 9) pods.push(p(-8, -6.2));
 
   return {
     nose: p(20, 0),
@@ -296,32 +356,45 @@ const buildPrism: HullBuilder = (t) => {
     tailCenter: p(-15, 0),
     cockpit: diamondCockpit(13 * k, 3 * k, 2.4 * k),
     engines,
-    engineNozzleRadius: (1.8 + t * 0.24) * k * 0.9,
-    wingTips: t >= 2 ? [wing(-4, -13.5), wing(-10, -12)] : [wing(-4, -13.5)],
-    wingTipAccentRadius: 1.1 + t * 0.3,
-    pods: t >= 3 ? [wing(-1.5, -9.8)] : [],
-    energyPodRadius: 1.9 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.8 + t * 0.11) * k * 0.9,
+    wingTips: t >= 3
+      ? [wing(-4, t >= 9 ? -15 : -13.5), wing(-10, -12)]
+      : [wing(-4, t >= 9 ? -15 : -13.5)],
+    wingTipAccentRadius: 1.1 + t * 0.13,
+    pods,
+    energyPodRadius: 1.9 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildBastion: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.06;
+  const w = 1 + t * 0.027;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(23, -6.2)];         // forward ram prong
-  if (t >= 2) upperHull.push(p(19, -3.6), p(21, -7.4)); // serrated prong notch
-  upperHull.push(p(16, -8.8), p(4, -10.4));
-  upperHull.push(wing(-5, -14.2));                    // shoulder wing
-  if (t >= 4) upperHull.push(wing(-9, -16.8));        // tier-5 bulwark blade
-  upperHull.push(p(-9, -8.4), p(-15, -10.2));         // rear plate
+  const upperHull: Point2D[] = [p(23, -6.2)];          // forward ram prong
+  if (t >= 3) upperHull.push(p(19, -3.6), p(21, -7.4)); // t3: serrated prong notch
+  upperHull.push(p(16, -8.8));
+  if (t >= 9) upperHull.push(p(14, -11));              // t9: second forward tusk
+  upperHull.push(p(4, -10.4));
+  if (t >= 1) upperHull.push(p(0, -11.4));             // t1: hull armor ridge
+  upperHull.push(wing(-5, -14.2));                     // shoulder wing
+  if (t >= 8) upperHull.push(wing(-9, -16.8));         // t8: bulwark blade
+  upperHull.push(p(-9, -8.4));
+  if (t >= 6) upperHull.push(p(-11, -11.6));           // t6: side bulwark spike
+  upperHull.push(p(-15, -10.2));                       // rear plate
 
-  const engines =
-    t === 0 ? enginePair(-9 * k, 3.4 * k) :
-    t === 1 ? enginePair(-9.5 * k, 4 * k) :
-    t === 2 ? [P(-10 * k, 0), ...enginePair(-10 * k, 4.6 * k)] :
-    [...enginePair(-10.5 * k, 2 * k), ...enginePair(-10.5 * k, (4.8 + t * 0.2) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, enginePair(-9 * k, 3.4 * k)],
+    [2, enginePair(-9.5 * k, 4 * k)],
+    [4, [P(-10 * k, 0), ...enginePair(-10 * k, 4.6 * k)]],
+    [7, [...enginePair(-10.5 * k, 2 * k), ...enginePair(-10.5 * k, 5 * k)]],
+    [9, [P(-10.5 * k, 0), ...enginePair(-10.5 * k, 2.4 * k), ...enginePair(-10.5 * k, 5.4 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(0, -11.6));
+  if (t >= 9) pods.push(p(8, -8.6));
 
   return {
     nose: p(15, 0),
@@ -329,31 +402,41 @@ const buildBastion: HullBuilder = (t) => {
     tailCenter: p(-12, 0),
     cockpit: visorCockpit(10 * k, 0, 3.4 * k),
     engines,
-    engineNozzleRadius: (2.5 + t * 0.3) * k * 0.9,
-    wingTips: [p(23, -6.2), t >= 4 ? wing(-9, -16.8) : wing(-5, -14.2)],
-    wingTipAccentRadius: 1.3 + t * 0.3,
-    pods: t >= 3 ? [wing(0, -11.6)] : [],
-    energyPodRadius: 2.2 + (t - 3) * 0.5,
+    engineNozzleRadius: (2.5 + t * 0.13) * k * 0.9,
+    wingTips: [p(23, -6.2), t >= 8 ? wing(-9, -16.8) : wing(-5, -14.2)],
+    wingTipAccentRadius: 1.3 + t * 0.13,
+    pods,
+    energyPodRadius: 2.2 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildUmbra: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.1;
+  const w = 1 + t * 0.044;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(10, -4.2), p(-1, -8.2)];
-  upperHull.push(wing(-7, -15.5));                    // bat wingtip
-  if (t >= 4) upperHull.push(wing(-11, -18), wing(-8, -13.2)); // tip talon
-  upperHull.push(wing(-5, -10.5), wing(-9, -8));      // sawtooth 1
-  if (t >= 2) upperHull.push(p(-6.5, -6.2), p(-10.5, -4.8)); // sawtooth 2
-  upperHull.push(p(-6, -3.2), p(-10, -2));            // sawtooth 3
+  const upperHull: Point2D[] = [p(10, -4.2)];
+  if (t >= 1) upperHull.push(p(5, -5.4), p(4, -6.8));  // t1: leading-edge facet
+  upperHull.push(p(-1, -8.2));
+  if (t >= 9) upperHull.push(wing(-4, -10.6));         // t9: fore-wing facet
+  upperHull.push(wing(-7, -15.5));                     // bat wingtip
+  if (t >= 8) upperHull.push(wing(-11, -18));          // t8: deep talon tip
+  if (t >= 6) upperHull.push(wing(-9.5, -13.4));       // t6: talon barb
+  upperHull.push(wing(-5, -10.5), wing(-9, -8));       // sawtooth 1
+  if (t >= 3) upperHull.push(p(-6.5, -6.2), p(-10.5, -4.8)); // t3: sawtooth 2
+  upperHull.push(p(-6, -3.2), p(-10, -2));             // sawtooth 3
 
-  const engines =
-    t === 0 ? enginePair(-6 * k, 2.6 * k) :
-    t === 1 ? enginePair(-6.5 * k, 3.2 * k) :
-    [...enginePair(-7 * k, 2.2 * k), ...enginePair(-6 * k, (4.4 + t * 0.3) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, enginePair(-6 * k, 2.6 * k)],
+    [2, enginePair(-6.5 * k, 3.2 * k)],
+    [4, [...enginePair(-7 * k, 2.2 * k), ...enginePair(-6 * k, 4.6 * k)]],
+    [7, [...enginePair(-7 * k, 2.2 * k), ...enginePair(-6 * k, 5.2 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-3, -11));
+  if (t >= 9) pods.push(p(1, -7.2));
 
   return {
     nose: p(23, 0),
@@ -361,96 +444,127 @@ const buildUmbra: HullBuilder = (t) => {
     tailCenter: p(-7.5, 0),
     cockpit: hexCockpit(14 * k, 5 * k, 1.4 * k),
     engines,
-    engineNozzleRadius: (1.8 + t * 0.22) * k * 0.9,
-    wingTips: [t >= 4 ? wing(-11, -18) : wing(-7, -15.5)],
-    wingTipAccentRadius: 1.0 + t * 0.3,
-    pods: t >= 3 ? [wing(-3, -11)] : [],
-    energyPodRadius: 1.8 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.8 + t * 0.1) * k * 0.9,
+    wingTips: [t >= 8 ? wing(-11, -18) : wing(-7, -15.5)],
+    wingTipAccentRadius: 1.0 + t * 0.13,
+    pods,
+    energyPodRadius: 1.8 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildHarpoon: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.08;
+  const w = 1 + t * 0.036;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(24, -1.6), p(14, -1.9)];
-  if (t >= 2) upperHull.push(p(16, -3.8), p(12, -3));  // muzzle brake vanes
-  upperHull.push(p(11, -4.6), p(2, -7));              // barrel shoulder
-  upperHull.push(wing(-4, -12.8));                    // cannon pod wing
-  if (t >= 4) upperHull.push(wing(-8, -15.2));        // heavy pod extension
-  upperHull.push(p(-8, -7.6), p(-14, -5));            // tail fin
+  const noseX = t >= 9 ? 33 : 31;                      // t9: extended muzzle
+  const upperHull: Point2D[] = [p(24, -1.6)];
+  if (t >= 1) upperHull.push(p(20, -2.4), p(19, -1.7)); // t1: barrel band
+  upperHull.push(p(14, -1.9));
+  if (t >= 3) upperHull.push(p(16, -3.8), p(12, -3));   // t3: muzzle brake vanes
+  upperHull.push(p(11, -4.6), p(2, -7));                // barrel shoulder
+  upperHull.push(wing(-4, -12.8));                      // cannon pod wing
+  if (t >= 8) upperHull.push(wing(-8, -15.2));          // t8: heavy pod extension
+  upperHull.push(p(-8, -7.6));
+  if (t >= 6) upperHull.push(p(-11, -8.8));             // t6: mid stabilizer fin
+  upperHull.push(t >= 9 ? p(-15, -5.8) : p(-14, -5));   // tail fin (t9: deeper)
 
-  const engines =
-    t === 0 ? [P(-9 * k, 0)] :
-    t === 1 ? [P(-9.5 * k, 0), ...enginePair(-8.5 * k, 2.6 * k)] :
-    [P(-10 * k, 0), ...enginePair(-9 * k, (3 + t * 0.3) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-9 * k, 0)]],
+    [2, [P(-9.5 * k, 0), ...enginePair(-8.5 * k, 2.6 * k)]],
+    [4, [P(-10 * k, 0), ...enginePair(-9 * k, 3.2 * k)]],
+    [7, [P(-10 * k, 0), ...enginePair(-9 * k, 3.8 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-2, -9.4));
+  if (t >= 9) pods.push(p(3, -6.4));
 
   return {
-    nose: p(31, 0),
+    nose: p(noseX, 0),
     upperHull,
     tailCenter: p(-11, 0),
     cockpit: hexCockpit(9 * k, -2 * k, 2.2 * k),
     engines,
-    engineNozzleRadius: (1.9 + t * 0.24) * k * 0.9,
-    wingTips: [p(29.5, 0), t >= 4 ? wing(-8, -15.2) : wing(-4, -12.8)],
-    wingTipAccentRadius: 0.9 + t * 0.28,
-    pods: t >= 3 ? [wing(-2, -9.4)] : [],
-    energyPodRadius: 2.0 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.9 + t * 0.11) * k * 0.9,
+    wingTips: [p(noseX - 1.5, 0), t >= 8 ? wing(-8, -15.2) : wing(-4, -12.8)],
+    wingTipAccentRadius: 0.9 + t * 0.12,
+    pods,
+    energyPodRadius: 2.0 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildAurora: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.09;
+  const w = 1 + t * 0.04;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(13, -2.2), p(2, -4.4)];
-  if (t >= 2) upperHull.push(wing(-2, -6.6));         // extra fairing facet
-  upperHull.push(wing(-6, -8.8), wing(-12, -13.5));   // crescent sweep
-  if (t >= 4) upperHull.push(wing(-16, -16));         // grand wing extension
+  const upperHull: Point2D[] = [p(13, -2.2)];
+  if (t >= 1) upperHull.push(p(8, -3.6));              // t1: fairing facet
+  upperHull.push(p(2, -4.4));
+  if (t >= 3) upperHull.push(wing(-2, -6.6));          // t3: crescent facet
+  upperHull.push(wing(-6, -8.8));
+  if (t >= 6) upperHull.push(wing(-9, -11.4));         // t6: finer crescent sweep
+  upperHull.push(wing(-12, -13.5));
+  if (t >= 8) upperHull.push(wing(-16, -16));          // t8: grand wing extension
+  if (t >= 9) upperHull.push(wing(-14.5, -12.4));      // t9: trailing ribbon facet
   upperHull.push(wing(-13, -9.5), p(-10, -5), p(-14, -2.2));
 
-  const engines =
-    t === 0 ? [P(-8 * k, 0)] :
-    t === 1 ? enginePair(-8.5 * k, 2.2 * k) :
-    t === 2 ? [P(-9 * k, 0), ...enginePair(-9 * k, 3 * k)] :
-    [P(-9.5 * k, 0), ...enginePair(-9.5 * k, (3.2 + t * 0.25) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-8 * k, 0)]],
+    [2, enginePair(-8.5 * k, 2.2 * k)],
+    [4, [P(-9 * k, 0), ...enginePair(-9 * k, 3 * k)]],
+    [7, [P(-9.5 * k, 0), ...enginePair(-9.5 * k, 3.6 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-7, -10.2));
+  if (t >= 9) pods.push(p(-1, -5.4));
 
   return {
     nose: p(25, 0),
     upperHull,
-    tailCenter: p(-11, 0),
+    tailCenter: p(t >= 9 ? -12 : -11, 0),
     cockpit: hexCockpit(14 * k, 2 * k, 1.9 * k),
     engines,
-    engineNozzleRadius: (1.8 + t * 0.22) * k * 0.9,
-    wingTips: [t >= 4 ? wing(-16, -16) : wing(-12, -13.5)],
-    wingTipAccentRadius: 1.0 + t * 0.3,
-    pods: t >= 3 ? [wing(-7, -10.2)] : [],
-    energyPodRadius: 1.8 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.8 + t * 0.1) * k * 0.9,
+    wingTips: [t >= 8 ? wing(-16, -16) : wing(-12, -13.5)],
+    wingTipAccentRadius: 1.0 + t * 0.13,
+    pods,
+    energyPodRadius: 1.8 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildNeedle: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.1;
+  const w = 1 + t * 0.044;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(18, -1.6), p(8, -2.8)];
-  upperHull.push(wing(15, -9.8));                     // forward blade
-  if (t >= 2) upperHull.push(wing(8, -11.4));         // blade barb
+  const forwardBlade = t >= 9 ? wing(16.5, -11) : wing(15, -9.8);
+  const upperHull: Point2D[] = [p(18, -1.6)];
+  if (t >= 1) upperHull.push(p(14, -2.6), p(13, -1.8)); // t1: needle collar
+  upperHull.push(p(8, -2.8));
+  upperHull.push(forwardBlade);                         // forward blade
+  if (t >= 3) upperHull.push(wing(8, -11.4));           // t3: blade barb
   upperHull.push(wing(2, -7.6), p(-4, -4.2));
-  upperHull.push(wing(-10, -11.8));                   // rear blade
-  if (t >= 4) upperHull.push(wing(-14, -13.6));       // rear blade extension
+  if (t >= 6) upperHull.push(p(-5, -7.4));              // t6: mid spar kink
+  upperHull.push(wing(-10, -11.8));                     // rear blade
+  if (t >= 8) upperHull.push(wing(-14, -13.6));         // t8: rear blade extension
   upperHull.push(p(-8, -4.8));
 
-  const engines =
-    t === 0 ? [P(-9 * k, 0)] :
-    t === 1 ? [P(-9.5 * k, 0), ...enginePair(-8 * k, 2 * k)] :
-    [P(-10 * k, 0), ...enginePair(-8.5 * k, (2.2 + t * 0.25) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-9 * k, 0)]],
+    [2, [P(-9.5 * k, 0), ...enginePair(-8 * k, 2 * k)]],
+    [4, [P(-10 * k, 0), ...enginePair(-8.5 * k, 2.6 * k)]],
+    [7, [P(-10 * k, 0), ...enginePair(-8.5 * k, 3.2 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(4, -8.8));
+  if (t >= 9) pods.push(p(-2, -5.6));
 
   return {
     nose: p(29, 0),
@@ -458,34 +572,40 @@ const buildNeedle: HullBuilder = (t) => {
     tailCenter: p(-11, 0),
     cockpit: hexCockpit(13 * k, 3 * k, 1.3 * k),
     engines,
-    engineNozzleRadius: (1.6 + t * 0.22) * k * 0.9,
-    wingTips: t >= 2
-      ? [wing(15, -9.8), wing(-10, -11.8)]
-      : [wing(15, -9.8)],
-    wingTipAccentRadius: 0.9 + t * 0.3,
-    pods: t >= 3 ? [wing(4, -8.8)] : [],
-    energyPodRadius: 1.6 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.6 + t * 0.1) * k * 0.9,
+    wingTips: t >= 3 ? [forwardBlade, wing(-10, -11.8)] : [forwardBlade],
+    wingTipAccentRadius: 0.9 + t * 0.13,
+    pods,
+    energyPodRadius: 1.6 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildMantis: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.08;
+  const w = 1 + t * 0.036;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [wing(25, -4.6)];      // mandible tip
-  if (t >= 2) upperHull.push(wing(21, -8.2));         // mandible barb
+  const mandibleTip = t >= 9 ? wing(27, -5) : wing(25, -4.6);
+  const upperHull: Point2D[] = [mandibleTip];          // mandible tip
+  if (t >= 1) upperHull.push(p(21, -5), p(22, -6.6));  // t1: mandible serration
+  if (t >= 3) upperHull.push(wing(21, -8.2));          // t3: mandible barb
   upperHull.push(wing(19, -7.6), p(8, -6.4), p(-1, -8.2));
-  upperHull.push(wing(-9, -12.6));                    // swept hind wing
-  if (t >= 4) upperHull.push(wing(-13, -15));         // hind wing talon
+  if (t >= 6) upperHull.push(p(-2, -11));              // t6: thorax spike
+  upperHull.push(wing(-9, -12.6));                     // swept hind wing
+  if (t >= 8) upperHull.push(wing(-13, -15));          // t8: hind wing talon
   upperHull.push(p(-7, -6.6), p(-13, -3.8));
 
-  const engines =
-    t === 0 ? [P(-8 * k, 0)] :
-    t === 1 ? enginePair(-8.5 * k, 2.4 * k) :
-    t === 2 ? [P(-9 * k, 0), ...enginePair(-9 * k, 3.2 * k)] :
-    [P(-9.5 * k, 0), ...enginePair(-9.5 * k, (3.4 + t * 0.25) * k)];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-8 * k, 0)]],
+    [2, enginePair(-8.5 * k, 2.4 * k)],
+    [4, [P(-9 * k, 0), ...enginePair(-9 * k, 3.2 * k)]],
+    [7, [P(-9.5 * k, 0), ...enginePair(-9.5 * k, 3.8 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-4, -9.8));
+  if (t >= 9) pods.push(p(2, -6.8));
 
   return {
     nose: p(17, 0),
@@ -493,52 +613,57 @@ const buildMantis: HullBuilder = (t) => {
     tailCenter: p(-10, 0),
     cockpit: hexCockpit(11 * k, 0, 2 * k),
     engines,
-    engineNozzleRadius: (1.8 + t * 0.24) * k * 0.9,
-    wingTips: [wing(25, -4.6), t >= 4 ? wing(-13, -15) : wing(-9, -12.6)],
-    wingTipAccentRadius: 1.0 + t * 0.3,
-    pods: t >= 3 ? [wing(-4, -9.8)] : [],
-    energyPodRadius: 1.9 + (t - 3) * 0.5,
+    engineNozzleRadius: (1.8 + t * 0.11) * k * 0.9,
+    wingTips: [mandibleTip, t >= 8 ? wing(-13, -15) : wing(-9, -12.6)],
+    wingTipAccentRadius: 1.0 + t * 0.13,
+    pods,
+    energyPodRadius: 1.9 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
 const buildSovereign: HullBuilder = (t) => {
   const k = TIER_SCALE[t];
-  const w = 1 + t * 0.08;
+  const w = 1 + t * 0.036;
   const p = (x: number, y: number) => P(x * k, y * k);
   const wing = (x: number, y: number) => P(x * k, y * k * w);
 
-  const upperHull: Point2D[] = [p(14, -4.4)];
-  upperHull.push(wing(4, -12.5));                     // crown spike
+  const upperHull: Point2D[] = [p(14, -4.4)];          // (t9 gains a lance nose)
+  if (t >= 1) upperHull.push(p(10, -6.6));             // t1: crown step facet
+  upperHull.push(wing(4, -12.5));                      // crown spike
   upperHull.push(p(0, -7.8));
-  if (t >= 2) upperHull.push(wing(-5, -13.8), p(-4, -8.6)); // second crown spike
-  upperHull.push(wing(-13, -17.5));                   // grand swept wing
-  if (t >= 4) upperHull.push(wing(-17, -20));         // apex wing talon
+  if (t >= 3) upperHull.push(wing(-5, -13.8), p(-4, -8.6)); // t3: second crown spike
+  upperHull.push(wing(-13, -17.5));                    // grand swept wing
+  if (t >= 8) upperHull.push(wing(-17, -20));          // t8: apex wing talon
+  if (t >= 6) upperHull.push(wing(-10.5, -13.8));      // t6: wing serration
   upperHull.push(p(-10, -9));
-  upperHull.push(wing(-19, -12.4));                   // rear blade
+  upperHull.push(wing(-19, -12.4));                    // rear blade
+  if (t >= 9) upperHull.push(p(-16.5, -8.2));          // t9: rear blade serration
   upperHull.push(p(-14, -4.6));
 
-  const engines =
-    t === 0 ? [P(-13 * k, 0), ...enginePair(-12 * k, 3 * k)] :
-    t <= 2 ? [P(-13.5 * k, 0), ...enginePair(-12.5 * k, (3.4 + t * 0.3) * k)] :
-    [
-      P(-14 * k, 0),
-      ...enginePair(-13 * k, 2.2 * k),
-      ...enginePair(-12.5 * k, (4.4 + t * 0.2) * k),
-    ];
+  const engines = pick<Point2D[]>(t, [
+    [0, [P(-13 * k, 0), ...enginePair(-12 * k, 3 * k)]],
+    [2, [P(-13.5 * k, 0), ...enginePair(-12.5 * k, 3.6 * k)]],
+    [4, [P(-14 * k, 0), ...enginePair(-13 * k, 2.2 * k), ...enginePair(-12.5 * k, 4.4 * k)]],
+    [7, [P(-14 * k, 0), ...enginePair(-13 * k, 2.2 * k), ...enginePair(-12.5 * k, 5 * k)]],
+  ]);
+
+  const pods: Point2D[] = [];
+  if (t >= 5) pods.push(wing(-8, -12.2));
+  if (t >= 9) pods.push(p(1, -9.4));
 
   return {
-    nose: p(27, 0),
+    nose: p(t >= 9 ? 29 : 27, 0),
     upperHull,
     tailCenter: p(-16, 0),
     cockpit: diamondCockpit(16 * k, 4 * k, 2.6 * k),
     engines,
-    engineNozzleRadius: (2.0 + t * 0.26) * k * 0.9,
-    wingTips: t >= 2
-      ? [wing(4, -12.5), t >= 4 ? wing(-17, -20) : wing(-13, -17.5), wing(-19, -12.4)]
+    engineNozzleRadius: (2.0 + t * 0.12) * k * 0.9,
+    wingTips: t >= 3
+      ? [wing(4, -12.5), t >= 8 ? wing(-17, -20) : wing(-13, -17.5), wing(-19, -12.4)]
       : [wing(4, -12.5), wing(-13, -17.5)],
-    wingTipAccentRadius: 1.1 + t * 0.32,
-    pods: t >= 3 ? [wing(-8, -12.2)] : [],
-    energyPodRadius: 2.0 + (t - 3) * 0.5,
+    wingTipAccentRadius: 1.1 + t * 0.14,
+    pods,
+    energyPodRadius: 2.0 + Math.max(0, t - POD_START_TIER) * 0.22,
   };
 };
 
@@ -594,8 +719,8 @@ function buildEnergyChannels(frame: HullFrame, tier: number): EnergyChannel[] {
   }
   channels.push({
     path: [P(frontX * 0.85, 0), P(rearX, 0)],
-    width: 1.2 + tier * 0.08,
-    baseAlpha: 0.5 + tier * 0.025,
+    width: 1.2 + tier * 0.035,
+    baseAlpha: 0.5 + tier * 0.011,
   });
 
   // Side conduits: cockpit rear → each off-axis engine (dedup mirrored pairs).
@@ -625,7 +750,7 @@ function buildEnergyChannels(frame: HullFrame, tier: number): EnergyChannel[] {
 
 function buildCircuitTraces(frame: HullFrame, tier: number): CircuitTrace[] {
   const traces: CircuitTrace[] = [];
-  const alpha = 0.3 + tier * 0.03;
+  const alpha = 0.3 + tier * 0.013;
 
   // Wing traces: diagonal circuit lines chasing each accent anchor.
   for (const tip of frame.wingTips) {
@@ -654,8 +779,8 @@ function buildCircuitTraces(frame: HullFrame, tier: number): CircuitTrace[] {
     }
   }
 
-  // Tier 4+: parallel fuselage circuit rails.
-  if (tier >= 3) {
+  // Late tiers: parallel fuselage circuit rails.
+  if (tier >= 6) {
     const { frontX, halfWidth } = cockpitBounds(frame.cockpit);
     const railY = Math.max(1.4, halfWidth * 0.8);
     const rearX = (frame.tailCenter ? frame.tailCenter.x : -frontX) * 0.6;
@@ -685,7 +810,8 @@ function buildWingEdgeSegments(frame: HullFrame, tier: number): WingEdgeSegment[
   }
   edges.sort((a, b) => b.length - a.length);
 
-  const count = Math.min(tier, 3, edges.length);
+  // 1 accent pair at t1-3, 2 at t4-6, 3 at t7-9.
+  const count = Math.min(1 + Math.floor((tier - 1) / 3), 3, edges.length);
   const segments: WingEdgeSegment[] = [];
   for (let i = 0; i < count; i++) {
     const edge = edges[i];
@@ -724,7 +850,7 @@ function finalizeGeometry(frame: HullFrame, tier: number): ShipTierGeometry {
 const geometryCache = new Map<string, ShipTierGeometry>();
 
 /**
- * Resolve the geometry for a hull family at an evolution tier (0..4).
+ * Resolve the geometry for a hull family at an evolution tier (0..9).
  * Unknown hull ids fall back to the default dart so a stale save can never
  * render nothing. Results are cached (pure data, safe to share).
  */

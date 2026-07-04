@@ -382,7 +382,7 @@ export class WeaponSelectScene extends Phaser.Scene {
    */
   private drawShipHullPreview(ship: ShipCharacter, targetSize: number): Phaser.GameObjects.Graphics {
     const graphics = this.add.graphics();
-    const geometry = getShipTierGeometry(ship.hullId, 2);
+    const geometry = getShipTierGeometry(ship.hullId, 4); // mid-evolution (Warbird) form
     const palette = SHIP_NEON_PALETTES[ship.neonColorId] ?? SHIP_NEON_PALETTES.cyan;
     const color = palette.core;
 

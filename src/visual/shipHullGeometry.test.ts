@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   SHIP_HULL_IDS,
   SHIP_TIER_COUNT,
+  POD_START_TIER,
   DEFAULT_HULL_ID,
   getShipTierGeometry,
   getHullBounds,
@@ -112,6 +113,10 @@ describe('shipHullGeometry — registry & resolution', () => {
     expect(getShipTierGeometry('dart', 2.7)).toBe(getShipTierGeometry('dart', 2));
   });
 
+  test('ten evolution tiers per hull', () => {
+    expect(SHIP_TIER_COUNT).toBe(10);
+  });
+
   test('geometry is cached — same reference per (hull, tier)', () => {
     expect(getShipTierGeometry('umbra', 3)).toBe(getShipTierGeometry('umbra', 3));
   });
@@ -183,6 +188,36 @@ describe('shipHullGeometry — outline invariants (every hull × tier)', () => {
   });
 });
 
+describe('shipHullGeometry — per-tier variation', () => {
+  // "10 variations per ship" must mean visible change, not just scale: compare
+  // scale-normalized signatures of the shape-defining parts between
+  // consecutive tiers. Pure uniform growth would produce identical signatures.
+  function normalizedSignature(geometry: ShipTierGeometry): string {
+    const radius = maxRadius(geometry.hullOutline);
+    const norm = (points: Point2D[]) => points
+      .map((point) => `${(point.x / radius).toFixed(2)},${(point.y / radius).toFixed(2)}`)
+      .join(';');
+    return [
+      norm(geometry.hullOutline),
+      norm(geometry.engineNozzles),
+      norm(geometry.energyPods),
+      norm(geometry.wingTipAccents),
+    ].join('|');
+  }
+
+  test('every consecutive tier changes the ship beyond uniform scaling', () => {
+    for (const hullId of SHIP_HULL_IDS) {
+      let previous = normalizedSignature(getShipTierGeometry(hullId, 0));
+      for (let tier = 1; tier < SHIP_TIER_COUNT; tier++) {
+        const current = normalizedSignature(getShipTierGeometry(hullId, tier));
+        expect(current, `${hullId} tier ${tier - 1} → ${tier} looks identical (scale-only)`)
+          .not.toBe(previous);
+        previous = current;
+      }
+    }
+  });
+});
+
 describe('shipHullGeometry — fittings invariants (every hull × tier)', () => {
   test('cockpits are valid polygons inside the hull bounds', () => {
     forEveryHullTier((geometry, hullId, tier) => {
@@ -226,10 +261,10 @@ describe('shipHullGeometry — fittings invariants (every hull × tier)', () => 
     }
   });
 
-  test('energy pods appear from tier 3 (Warbird) up, mirrored, with a radius', () => {
+  test('energy pods appear from POD_START_TIER up, mirrored, with a radius', () => {
     forEveryHullTier((geometry, hullId, tier) => {
       const label = `${hullId} tier ${tier}`;
-      if (tier < 3) {
+      if (tier < POD_START_TIER) {
         expect(geometry.energyPods.length, label).toBe(0);
       } else {
         expect(geometry.energyPods.length, label).toBeGreaterThanOrEqual(2);
