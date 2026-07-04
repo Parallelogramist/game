@@ -11,6 +11,7 @@ import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getShipModManager } from '../../meta/ShipModManager';
+import { ShipPreview } from '../../visual/ShipPreview';
 import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
@@ -54,6 +55,7 @@ export class WeaponSelectScene extends Phaser.Scene {
 
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
+  private shipPreview: ShipPreview | null = null;
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
@@ -71,6 +73,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.menuBackground = createMenuBackground(this);
     this.bgUpdateHandler = (time, delta) => {
       this.menuBackground?.update(delta);
+      this.shipPreview?.update(delta);
       const seconds = time / 1000;
       for (const card of this.stepCards) card.tickIdle(seconds);
       for (const btn of this.stepButtons) btn.tickIdle(seconds);
@@ -297,6 +300,23 @@ export class WeaponSelectScene extends Phaser.Scene {
     const cardSpacing = 22;
     const layout = this.computeGridLayout(ships.length, cardWidth, cardHeight, cardSpacing, 4, 30);
 
+    // Hangar preview — the real in-run ship hull cycling its evolution
+    // tiers, tracking the focused card. Beside the grid in landscape,
+    // above it in portrait; skipped when a tall portrait grid leaves no
+    // headroom (the preview must never sit on the cards).
+    const portrait = this.scale.height > this.scale.width;
+    const gridTop = layout.startY - cardHeight / 2;
+    const previewRoom = !portrait || gridTop - 130 >= 200;
+    if (previewRoom) {
+      const gridRight = this.scale.width / 2 + layout.totalGridWidth / 2;
+      const previewX = portrait
+        ? this.scale.width / 2
+        : Math.min(this.scale.width - 110, (gridRight + this.scale.width) / 2);
+      const previewY = portrait ? gridTop - 130 : this.scale.height / 2 - 10;
+      this.shipPreview = new ShipPreview(this, previewX, previewY);
+      this.shipPreview.setShip(ships[0]);
+    }
+
     const focusable: { card: MenuCard; ship: ShipCharacter }[] = [];
     ships.forEach((ship, index) => {
       const { x: cardX, y: cardY } = layout.positionAt(index);
@@ -375,7 +395,10 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.menuNavigator = new MenuNavigator({
       scene: this,
       items: focusable.map((entry) => ({
-        onFocus: () => entry.card.setFocusState(true),
+        onFocus: () => {
+          entry.card.setFocusState(true);
+          this.shipPreview?.setShip(entry.ship);
+        },
         onBlur: () => entry.card.setFocusState(false),
         onActivate: () => {
           this.soundManager.playUIClick();
@@ -390,6 +413,8 @@ export class WeaponSelectScene extends Phaser.Scene {
   }
 
   private clearStepUI(): void {
+    this.shipPreview?.destroy();
+    this.shipPreview = null;
     for (const card of this.stepCards) card.destroy();
     this.stepCards = [];
     for (const btn of this.stepButtons) btn.destroy();
@@ -444,6 +469,9 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     return {
       columns,
+      totalGridWidth,
+      totalGridHeight,
+      startY,
       positionAt: (index: number) => ({
         x: startX + (index % columns) * (cardWidth + cardSpacing),
         y: startY + Math.floor(index / columns) * (cardHeight + cardSpacing),
