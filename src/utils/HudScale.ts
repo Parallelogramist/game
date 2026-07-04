@@ -56,6 +56,20 @@ export function computeMenuLayoutScale(canvasWidth: number, canvasHeight: number
 }
 
 /**
+ * Portrait variant — fits the orientation-matched 720×1280 design space
+ * instead of shrinking the LANDSCAPE design into a portrait viewport (which
+ * lands at 0.5625 and strands a tiny menu in the top third of the screen).
+ * Under the orientation-aware EXPAND base (portrait guarantees ≥720×1280)
+ * this resolves to 1.0 — so a scene may only opt in if its portrait
+ * composition genuinely fits 720 units of width at full size (BootScene's
+ * centered column does; SettingsScene's 1144-wide two-column grid does NOT —
+ * it stays on the landscape-fit scale until it stacks).
+ */
+export function computeMenuLayoutScalePortrait(canvasWidth: number, canvasHeight: number): number {
+  return Math.min(1.0, canvasWidth / GAME_HEIGHT, canvasHeight / GAME_WIDTH);
+}
+
+/**
  * Font scale for menu scenes — layout shrink compensated by pixel density so
  * text stays readable on phones even though the layout is smaller. The
  * density term is capped below the HUD's: menu cards have fixed layouts that
@@ -68,6 +82,24 @@ export function computeMenuFontScale(
 ): number {
   const layoutScale = computeMenuLayoutScale(canvasWidth, canvasHeight);
   const density = Math.min(1.6, densityCompensation(canvasWidth, canvasHeight));
+  return Math.max(0.5, Math.min(2.5, layoutScale * density * userMultiplier));
+}
+
+/**
+ * Portrait font companion to computeMenuLayoutScalePortrait. The density
+ * boost caps at 1.2 (vs landscape's 1.6): width is the scarce axis in
+ * portrait, and the widest text — the BootScene wordmark including its
+ * 1.045× glow ghost — measures ~690 of the 720 units at 1.2 but clips at
+ * 1.3. The text-vs-container ratio stays below the landscape ratio, so
+ * anything that fits its card in landscape fits here too.
+ */
+export function computeMenuFontScalePortrait(
+  canvasWidth: number,
+  canvasHeight: number,
+  userMultiplier: number = 1.0
+): number {
+  const layoutScale = computeMenuLayoutScalePortrait(canvasWidth, canvasHeight);
+  const density = Math.min(1.2, densityCompensation(canvasWidth, canvasHeight));
   return Math.max(0.5, Math.min(2.5, layoutScale * density * userMultiplier));
 }
 

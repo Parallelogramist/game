@@ -12,7 +12,14 @@ import {
   sweepIn,
   staggerEntrance,
 } from '../../utils/SceneTransition';
-import { computeMenuLayoutScale, computeMenuFontScale, scaledFontPx, scaledInt } from '../../utils/HudScale';
+import {
+  computeMenuLayoutScale,
+  computeMenuFontScale,
+  computeMenuLayoutScalePortrait,
+  computeMenuFontScalePortrait,
+  scaledFontPx,
+  scaledInt,
+} from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import {
@@ -203,19 +210,33 @@ export class BootScene extends Phaser.Scene {
     const startWeeklyRun = () => launchChallenge(weeklyChallenge);
 
     // ─── scaling ────────────────────────────────────────────────────────
-    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    const fontScale = computeMenuFontScale(
-      this.scale.width,
-      this.scale.height,
-      getSettingsManager().getUiScale(),
-    );
+    // Portrait uses the orientation-matched 720×1280 design fit: the menu is
+    // a ~600-unit-wide centered column, so it renders FULL SIZE there —
+    // shrinking the landscape design in instead (0.5625) stranded a tiny
+    // menu in the top third of the screen. The column is then centered
+    // vertically via columnOffsetY (everything below the title cascades
+    // from titleY/heroCenterY; the meta stack and footer stay edge-pinned).
+    const portrait = this.scale.height > this.scale.width;
+    const layoutScale = portrait
+      ? computeMenuLayoutScalePortrait(this.scale.width, this.scale.height)
+      : computeMenuLayoutScale(this.scale.width, this.scale.height);
+    const fontScale = portrait
+      ? computeMenuFontScalePortrait(this.scale.width, this.scale.height, getSettingsManager().getUiScale())
+      : computeMenuFontScale(
+          this.scale.width,
+          this.scale.height,
+          getSettingsManager().getUiScale(),
+        );
+    const columnOffsetY = portrait
+      ? Math.max(0, Math.round((this.scale.height - scaledInt(layoutScale, 720)) / 2))
+      : 0;
     const centerX = this.cameras.main.centerX;
 
     // ─── menu backdrop ──────────────────────────────────────────────────
     this.menuBackground = createMenuBackground(this);
 
     // ─── title block ────────────────────────────────────────────────────
-    const titleY = scaledInt(layoutScale, 100);
+    const titleY = scaledInt(layoutScale, 100) + columnOffsetY;
     this.createTitleBlock(centerX, titleY, fontScale);
 
     // ─── meta-stack mini cards (top-left) ───────────────────────────────
@@ -231,7 +252,7 @@ export class BootScene extends Phaser.Scene {
     // ─── hero card (CONTINUE / START) ───────────────────────────────────
     const heroWidth = scaledInt(layoutScale, 360);
     const heroHeight = scaledInt(layoutScale, 170);
-    const heroCenterY = scaledInt(layoutScale, 280);
+    const heroCenterY = scaledInt(layoutScale, 280) + columnOffsetY;
     this.createHeroCard({
       centerX,
       centerY: heroCenterY,

@@ -253,9 +253,25 @@ Never agent work. The fleet must not do any of these.
     extremes; (d) hover glow + rim flecks still read well on the sharper 6px-radius
     cards; (e) touch-button shadow (now centered, softer) still separates from the
     arena background.
+  - **POLISH-MOBILE-ROUND2** — operator's phone-feedback fixes (2026-07-03
+    evening screenshots). Check on the phone, both orientations: (a) portrait
+    MAIN MENU now renders the column FULL SIZE, vertically centered (was 56%
+    and stranded top-third) — title inside the width incl. its glow, nothing
+    overflowing the challenge cards, deck readable; (b) FORGE A PACT —
+    selection is a uniform thick green border + "✓ SELECTED" badge + tinted
+    fill (pact colors stay on names only), thin WHITE ring = keyboard focus
+    only (taps no longer strand it), live "N/3 PACTS SELECTED" counter,
+    red MAX flash at the cap, and deselecting back to zero visibly works;
+    (c) in-run BOUNTY line now sits BELOW the big timer, density-scaled +
+    stroked — readable in portrait during combat; (d) SHIP PREVIEW on the
+    ship-select step: real hull cycling all 5 evolution tiers with tier name
+    caption — beside the grid in landscape, above it in portrait (hidden on
+    short portrait viewports with 3+ card rows), follows keyboard/mouse
+    focus, no ghosting between ships (texture-key collision fixed).
   - **POLISH-MENU-NAV** — keyboard/gamepad nav on the newly wired scenes (`abf7c58`).
-    Check with a controller: (a) PactSelect — yellow focus ring vs pact-color selected
-    border legibility; B = skip-pacts-and-begin feels right (it's not "back"), (b)
+    Check with a controller: (a) PactSelect — selection/focus treatment reworked in
+    POLISH-MOBILE-ROUND2 (uniform green selected + white focus ring); check the
+    B = skip-pacts-and-begin feel (it's not "back"), (b)
     Achievement — d-pad down moves one visual card row at a time and scroll follows
     focus, (c) MusicSettings — held d-pad walks the 26-track list at a comfortable rate
     (200ms repeat), (d) Settings — stick/d-pad left/right volume-adjust speed; segmented

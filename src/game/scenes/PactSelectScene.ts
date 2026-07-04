@@ -18,6 +18,7 @@ interface PactCard {
   container: Phaser.GameObjects.Container;
   border: Phaser.GameObjects.Rectangle;
   bg: Phaser.GameObjects.Rectangle;
+  selectedBadge: Phaser.GameObjects.Text;
 }
 
 /**
@@ -29,6 +30,7 @@ export class PactSelectScene extends Phaser.Scene {
   private passthrough: PactSelectSceneData = { startingWeapon: 'projectile' };
   private selectedIds: Set<string> = new Set();
   private cards: PactCard[] = [];
+  private counterText: Phaser.GameObjects.Text | null = null;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
   private isStarting: boolean = false;
@@ -65,6 +67,16 @@ export class PactSelectScene extends Phaser.Scene {
       color: '#9999bb',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
+
+    // Live selection counter — makes "zero is fine" explicit and shows the
+    // cap without the player having to count green borders.
+    this.counterText = this.add.text(width / 2, 132, '', {
+      fontSize: '15px',
+      color: '#66ff99',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5).setLetterSpacing(1);
+    this.updateCounter();
 
     // Pact cards in centered rows; narrow (portrait) viewports wrap the row.
     const cardWidth = 218;
@@ -134,19 +146,46 @@ export class PactSelectScene extends Phaser.Scene {
     this.events.once('shutdown', this.shutdown, this);
   }
 
+  /**
+   * Keyboard/gamepad focus ring — a THIN WHITE outline, deliberately unlike
+   * the thick green SELECTED treatment (the old gold ring read as a stuck
+   * selection, especially on touch where nothing ever blurs it).
+   */
   private setCardFocus(card: PactCard, focused: boolean): void {
     if (focused) {
-      card.bg.setStrokeStyle(3, 0xffdd44);
+      card.bg.setStrokeStyle(2, 0xffffff, 0.8);
     } else {
       card.bg.setStrokeStyle(2, 0x333344);
     }
+  }
+
+  private updateCounter(): void {
+    if (!this.counterText) return;
+    const count = this.selectedIds.size;
+    this.counterText.setText(
+      count === 0 ? 'NONE SELECTED — READY TO BEGIN' : `${count} / ${MAX_PACTS} PACTS SELECTED`,
+    );
+    this.counterText.setColor(count === 0 ? '#778899' : '#66ff99');
+  }
+
+  /** Cap feedback — flash the counter red instead of silently ignoring. */
+  private flashCap(): void {
+    if (!this.counterText) return;
+    const counter = this.counterText;
+    this.tweens.killTweensOf(counter);
+    counter.setColor('#ff6666');
+    counter.setText(`MAX ${MAX_PACTS} PACTS`);
+    this.time.delayedCall(700, () => this.updateCounter());
   }
 
   private createCard(pact: Pact, x: number, y: number, w: number, h: number, index: number): PactCard {
     const container = this.add.container(x, y);
 
     const bg = this.add.rectangle(0, 0, w, h, 0x14141f).setStrokeStyle(2, 0x333344);
-    const border = this.add.rectangle(0, 0, w, h).setStrokeStyle(3, pact.color).setVisible(false);
+    // Selection treatment is UNIFORM green across all pacts — the per-pact
+    // accent colors stay on the name text only, so "selected" always looks
+    // the same regardless of which card it is.
+    const border = this.add.rectangle(0, 0, w, h).setStrokeStyle(4, 0x66ff99).setVisible(false);
 
     const name = this.add.text(0, -h / 2 + 26, pact.name.toUpperCase(), {
       fontSize: '18px',
@@ -178,13 +217,27 @@ export class PactSelectScene extends Phaser.Scene {
       fontSize: '13px', color: '#666688', fontFamily: 'monospace',
     }).setOrigin(0.5);
 
-    container.add([bg, border, name, downside, reward, keyHint]);
+    const selectedBadge = this.add.text(0, -h / 2 + 8, '✓ SELECTED', {
+      fontSize: '12px',
+      color: '#0a140d',
+      backgroundColor: '#66ff99',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      padding: { x: 8, y: 2 },
+    }).setOrigin(0.5, 1).setVisible(false);
+
+    container.add([bg, border, name, downside, reward, keyHint, selectedBadge]);
 
     bg.setInteractive({ useHandCursor: true });
-    bg.on('pointerover', () => this.menuNavigator?.selectIndex(index));
+    // Hover-follows-mouse only: on touch, a tap fires pointerover with no
+    // pointerout ever following, which stranded the focus ring on the last
+    // card tapped — the "stuck selection border" bug.
+    bg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.wasTouch) this.menuNavigator?.selectIndex(index);
+    });
     bg.on('pointerup', () => this.togglePact(index));
 
-    return { pact, container, border, bg };
+    return { pact, container, border, bg, selectedBadge };
   }
 
   private togglePact(index: number): void {
@@ -194,13 +247,21 @@ export class PactSelectScene extends Phaser.Scene {
     if (this.selectedIds.has(id)) {
       this.selectedIds.delete(id);
       card.border.setVisible(false);
+      card.selectedBadge.setVisible(false);
+      card.bg.setFillStyle(0x14141f);
       card.container.setScale(1);
     } else {
-      if (this.selectedIds.size >= MAX_PACTS) return; // cap reached
+      if (this.selectedIds.size >= MAX_PACTS) {
+        this.flashCap();
+        return;
+      }
       this.selectedIds.add(id);
       card.border.setVisible(true);
+      card.selectedBadge.setVisible(true);
+      card.bg.setFillStyle(0x18251c);
       card.container.setScale(1.04);
     }
+    this.updateCounter();
   }
 
   private beginRun(): void {

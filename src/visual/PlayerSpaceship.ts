@@ -487,6 +487,21 @@ function getTierForLevel(level: number): number {
   return 0;
 }
 
+/**
+ * Name + level threshold of each evolution tier, in tier order. Menu
+ * previews (ShipPreview) cycle a ship through its evolutions by feeding the
+ * levels to onLevelUp — exported so the tier table itself stays private.
+ */
+export function getEvolutionTierInfo(): readonly { name: string; minLevel: number }[] {
+  return EVOLUTION_TIERS.map((tier) => ({ name: tier.name, minLevel: tier.minLevel }));
+}
+
+// Unique cache-texture suffix. Date.now() alone collided when several ships
+// are constructed in the same millisecond (menu preview grids) — colliding
+// keys silently share one RenderTexture and every ship renders as the last
+// one drawn.
+let spaceshipInstanceCounter = 0;
+
 export class PlayerSpaceship {
   private scene: Phaser.Scene;
   private container: Phaser.GameObjects.Container;
@@ -626,7 +641,7 @@ export class PlayerSpaceship {
     this.detailGraphics.setVisible(false);
 
     // GPU-cached composite image replaces 3 Graphics in the render pipeline
-    this.cachedStaticTextureKey = `player_ship_${Date.now()}`;
+    this.cachedStaticTextureKey = `player_ship_${Date.now()}_${spaceshipInstanceCounter++}`;
     this.cachedStaticImage = scene.add.image(0, 0, '__DEFAULT');
     this.cachedStaticImage.setVisible(false); // Hidden until first cache build
 
