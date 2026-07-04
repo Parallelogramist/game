@@ -474,7 +474,10 @@ export class ShopScene extends Phaser.Scene {
     const tabY = 130;
     const tabHeight = 38;
     const totalTabs = SHOP_TABS.length;
-    const desiredWidth = Math.floor((this.scale.width - 60) / totalTabs);
+    // 88px reserve (not 60): the count badges hang off each pill's top-right
+    // corner and the focus glow adds a few px — at exactly-720 portrait a
+    // tighter reserve clipped the HANGAR pill's badge at the screen edge.
+    const desiredWidth = Math.floor((this.scale.width - 88) / totalTabs);
     const tabWidth = Math.min(desiredWidth, 180);
     // 8 tabs at 720px → 82px each: full category names no longer fit, so
     // swap to the compact label set rather than letting text overflow.
@@ -857,8 +860,10 @@ export class ShopScene extends Phaser.Scene {
     const buttonY = height / 2 - 28;
     const hasRefund = currentLevel > 0;
     const buttonHeight = 36;
-    const buyWidth = hasRefund ? width - 84 : width - 28;
     const refundWidth = 64;
+    // Row: [buy][8px gap][refund] inside the width-28 content band — the old
+    // width-84 buy width overlapped the refund pill by 8px.
+    const buyWidth = hasRefund ? width - 28 - refundWidth - 8 : width - 28;
 
     const buyState = this.resolveBuyButtonVariant(isUnlocked, isMaxed, canAfford);
     const buyLabel = !isUnlocked

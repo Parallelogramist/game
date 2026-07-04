@@ -1401,8 +1401,16 @@ export class PauseMenuManager {
     // the recent-runs strip. Every element is named victoryCard* and torn
     // down by handleVictoryContinue's destroyElementsByName list.
     if (data.discoveredCard) {
-      const cardPanelX = Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
-      const cardPanelTop = this.scene.scale.height / 2 - 64;
+      // Narrow (portrait) viewports: the right-column slot lands ON the
+      // centered stats panel (it covered the Level cell), so the reveal
+      // drops to a centered slot below the buttons + gold line instead.
+      const narrow = this.scene.scale.width < 900;
+      const cardPanelX = narrow
+        ? this.scene.scale.width / 2
+        : Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
+      const cardPanelTop = narrow
+        ? this.scene.scale.height / 2 + 250
+        : this.scene.scale.height / 2 - 64;
       const cardReveal = this.createCardRevealPanel(
         data.discoveredCard,
         cardPanelX,
@@ -1716,26 +1724,34 @@ export class PauseMenuManager {
       contentBottomY = goldY + 52;
     }
 
-    // Weapon breakdown panel (right side) + personal bests panel (left side)
+    // Weapon breakdown panel (right side) + personal bests panel (left side).
+    // Narrow (portrait) viewports have exactly two below-column slots; when a
+    // card reveal exists it takes the right slot and the PERSONAL BESTS panel
+    // yields — the reveal is the rarer, one-per-run moment.
+    const narrowGameOver = this.scene.scale.width < 900;
     if (data.weaponStats && data.weaponStats.length > 0) {
       this.createWeaponBreakdownPanel(data.weaponStats, depth, animatedElements);
     }
-    if (data.personalBests) {
+    if (data.personalBests && !(narrowGameOver && data.discoveredCard)) {
       this.createPersonalBestsPanel(data, depth, animatedElements);
     }
 
     // New-card reveal — right column, aligned under the weapon-damage panel's
     // MAXIMUM footprint (5 rows ⇒ bottom at centerY + 82) so the slot is
     // collision-free at 1280–2000 widths regardless of how many weapons dealt
-    // damage (or whether the weapon panel rendered at all).
+    // damage (or whether the weapon panel rendered at all). Narrow: right
+    // slot of the below-column pair (see above).
     let cardReveal: { playGlowPulse: () => void } | null = null;
     let cardRevealLastIndex = 0;
     if (data.discoveredCard) {
-      const cardPanelX = Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
+      const cardPanelX = narrowGameOver
+        ? this.scene.scale.width / 2 + 126
+        : Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144);
+      const cardPanelTop = narrowGameOver ? centerY + 320 : centerY + 98;
       cardReveal = this.createCardRevealPanel(
         data.discoveredCard,
         cardPanelX,
-        centerY + 98,
+        cardPanelTop,
         depth,
         { collector: animatedElements }
       );
