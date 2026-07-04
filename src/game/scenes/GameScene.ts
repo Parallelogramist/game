@@ -4519,9 +4519,7 @@ export class GameScene extends Phaser.Scene {
         // crisp button text. Restore explicitly on resume (updateGridBackground
         // can't be relied on — it early-returns when grid effects are disabled).
         if (this.bloomPipeline) {
-          this.bloomPipeline.setBloomStrength(
-            isPaused ? 0 : (COMBO_TIER_BLOOM_STRENGTH[getComboTier()] ?? 0.25)
-          );
+          this.bloomPipeline.setBloomStrength(isPaused ? 0 : this.comboBloomStrength());
         }
       },
       onRestart: () => {
@@ -8123,9 +8121,21 @@ export class GameScene extends Phaser.Scene {
 
     // Modulate bloom based on game state
     if (this.bloomPipeline) {
-      const comboTier = getComboTier();
-      this.bloomPipeline.setBloomStrength(COMBO_TIER_BLOOM_STRENGTH[comboTier] ?? 0.25);
+      this.bloomPipeline.setBloomStrength(this.comboBloomStrength());
     }
+  }
+
+  /**
+   * Combo-tier bloom strength, scaled down on reduced quality. create() sets
+   * medium quality up for subtler bloom (0.2 vs high's 0.35), but the
+   * per-frame combo escalation used to overwrite that with the full-strength
+   * tier value — at inferno (0.5) exactly when object count tanks the FPS and
+   * auto-quality drops, so the harsh glow appeared to come from the quality
+   * change itself.
+   */
+  private comboBloomStrength(): number {
+    const base = COMBO_TIER_BLOOM_STRENGTH[getComboTier()] ?? 0.25;
+    return this.visualQuality === 'high' ? base : base * 0.55;
   }
 
 
