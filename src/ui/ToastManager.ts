@@ -75,7 +75,7 @@ export class ToastManager {
    */
   showAchievementToast(name: string, description: string, icon: string): void {
     this.showToast({
-      title: `🏆 ${name}`,
+      title: `Achievement: ${name}`,
       description,
       icon,
       color: 0x44ff88, // Green for achievements
