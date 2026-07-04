@@ -1707,6 +1707,14 @@ export class HUDManager {
       resources: 0xffcc22,
       chaos: 0xaa44ff,
     };
+    // Category-themed icons — the old shared 'warning' triangle read as an
+    // error badge, not a run modifier.
+    const modifierCategoryIcons: Record<string, string> = {
+      offense: 'sword',
+      defense: 'shield',
+      resources: 'coins',
+      chaos: 'dice',
+    };
 
     type StripEntry = {
       iconKey: string;
@@ -1721,7 +1729,7 @@ export class HUDManager {
     // leftmost slot is rightmost icon). We reverse the visual order later.
     for (const modifier of modifiers) {
       entries.push({
-        iconKey: 'warning',
+        iconKey: modifierCategoryIcons[modifier.category] ?? 'warning',
         borderColor: modifierCategoryColors[modifier.category] ?? 0xffffff,
         tooltipTitle: `${modifier.name} (${modifier.category})`,
         tooltipBody: modifier.description,
@@ -1784,10 +1792,7 @@ export class HUDManager {
   /** Creates the persistent strip container + tooltip (lazy-init). */
   private createRelicModifierStrip(): void {
     const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
-    // Anchor at right edge, just below the gold preview row (gold + kill count
-    // together are ~48px tall from the top of the pause button area).
-    const pauseButtonSize = Math.max(this.scaledSize(36), 44);
-    const topY = scaledPadding + pauseButtonSize + this.scaledSize(HUD_ELEMENT_SPACING) + this.scaledSize(48);
+    const topY = this.computeRelicStripTopY();
     const rightX = this.scene.scale.width - scaledPadding;
 
     this.relicStripContainer = this.scene.add.container(rightX, topY);
@@ -1828,6 +1833,27 @@ export class HUDManager {
       align: 'right',
     }).setOrigin(1, 0);
     this.relicStripTooltip.add(this.relicStripTooltipDesc);
+  }
+
+  /**
+   * Top edge for the relic/modifier strip: clear of the gold preview line.
+   * Anchors off the live gold text when available (it already carries the
+   * portrait pause-button drop); otherwise mirrors the create() stack math.
+   */
+  private computeRelicStripTopY(): number {
+    const goldText = this.goldPreviewTextRef
+      ?? (this.scene.children.getByName('goldPreviewText') as Phaser.GameObjects.Text | null);
+    if (goldText) {
+      // One text line (~22 at base scale — the text may still be empty when
+      // the strip is first built, so don't trust goldText.height) plus a gap.
+      return goldText.y + Math.max(goldText.height, this.scaledSize(22)) + this.scaledSize(8);
+    }
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
+    const pauseButtonSize = Math.max(this.scaledSize(36), 44);
+    const pausePortraitDrop = this.scene.scale.height > this.scene.scale.width ? this.scaledSize(12) : 0;
+    // pause bottom → kills line → gold line (+24) → line height (+22) → gap (+8)
+    return scaledPadding + pauseButtonSize + pausePortraitDrop + scaledSpacing + this.scaledSize(54);
   }
 
   private showRelicTooltip(title: string, body: string, accentColor: number, anchorX: number, anchorY: number): void {
@@ -1931,12 +1957,19 @@ export class HUDManager {
     if (pauseIcon) pauseIcon.setPosition(pauseButtonX, pauseButtonY);
 
     const statsRightX = width - scaledPadding;
+    const statsTopY = pauseButtonY + pauseButtonSize / 2 + scaledSpacing;
 
     const killCountText = findByName<Phaser.GameObjects.Text>('killCountText');
-    if (killCountText) killCountText.setX(statsRightX);
+    if (killCountText) killCountText.setPosition(statsRightX, statsTopY);
 
     const goldPreviewText = findByName<Phaser.GameObjects.Text>('goldPreviewText');
-    if (goldPreviewText) goldPreviewText.setX(statsRightX);
+    if (goldPreviewText) goldPreviewText.setPosition(statsRightX, statsTopY + this.scaledSize(24));
+
+    // Relic/modifier strip rides just below the gold line — keep it clear of
+    // the stats stack (and pinned to the right edge) after any resize.
+    if (this.relicStripContainer) {
+      this.relicStripContainer.setPosition(statsRightX, this.computeRelicStripTopY());
+    }
 
     // Combo readout lives at BOTTOM-CENTER (see creation) — re-anchor it
     // there, not to the stats column: sending it to the right edge on a
