@@ -1,4 +1,4 @@
-import { defineQuery, IWorld, hasComponent, addComponent } from 'bitecs';
+import { defineQuery, IWorld, hasComponent, addComponent, entityExists } from 'bitecs';
 import { EnemyTag, Health, StatusEffect, Transform } from '../components';
 import { EffectsManager } from '../../effects/EffectsManager';
 
@@ -71,6 +71,9 @@ export function applyBurn(
   duration: number,
   damageMultiplier: number = 1.0
 ): void {
+  // Callers may hold ids from the per-frame enemy cache; an enemy killed
+  // earlier in the same frame is already recycled and addComponent throws.
+  if (!entityExists(world, entityId)) return;
   // addComponent is idempotent in bitECS — no need to check hasComponent first
   addComponent(world, StatusEffect, entityId);
 
@@ -101,6 +104,9 @@ export function applyFreeze(
   duration: number,
   durationMultiplier: number = 1.0
 ): void {
+  // Stale-id guard — see applyBurn. The FREEZE floor consumable iterates the
+  // frame-cached enemy list, which can contain entities removed mid-frame.
+  if (!entityExists(world, entityId)) return;
   addComponent(world, StatusEffect, entityId);
 
   // Apply or refresh freeze - use stronger slow, refresh duration
@@ -126,6 +132,8 @@ export function applyPoison(
   duration: number,
   maxStacks: number = 10
 ): void {
+  // Stale-id guard — see applyBurn.
+  if (!entityExists(world, entityId)) return;
   addComponent(world, StatusEffect, entityId);
 
   // Add stacks up to max
@@ -149,6 +157,8 @@ export function setChainImmunity(
   entityId: number,
   duration: number
 ): void {
+  // Stale-id guard — see applyBurn.
+  if (!entityExists(world, entityId)) return;
   addComponent(world, StatusEffect, entityId);
   StatusEffect.chainImmunity[entityId] = duration;
 }
