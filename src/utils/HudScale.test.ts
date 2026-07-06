@@ -1,4 +1,11 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
+
+// HudScale reads GAME_WIDTH/GAME_HEIGHT from GameConfig, which value-imports
+// Phaser — and Phaser's device detection dereferences `navigator` at import
+// time, which does not exist in the Node test env. Stub the module boundary
+// (the documented vitest.config.ts pattern) with the real design constants.
+vi.mock('../GameConfig', () => ({ GAME_WIDTH: 1280, GAME_HEIGHT: 720 }));
+
 import {
   computeMenuLayoutScale,
   computeMenuLayoutScalePortrait,

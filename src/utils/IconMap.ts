@@ -139,6 +139,25 @@ export const ICON_MAP: Record<string, string> = {
   // ═══════════════════════════════════════════════════════════════════════════
   wrench: 'wrench',
   circle: 'aura', // Blue circle -> aura
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CATALOG ALIASES — semantic keys referenced by relic/achievement/milestone
+  // definitions. The referentialIntegrity test sweep caught these rendering
+  // the cross-mark fallback; every alias maps to a frame already in the atlas.
+  // ═══════════════════════════════════════════════════════════════════════════
+  'arrow-right': 'pointy-sword', // piercing round
+  fang: 'vampire-dracula',
+  bolt: 'lightning-frequency',
+  diamond: 'cut-diamond',
+  hammer: 'wrench',
+  phoenix: 'angel-wings', // revive
+  eye: 'spiral-shell', // eye of the storm
+  'weapon-slot': 'backpack',
+  'crowned-skull': 'crown', // boss/miniboss kills
+  globe: 'ringed-planet', // world progression
+  upgrade: 'star-swirl', // level-up milestones
+  'lightning-bolt': 'lightning-frequency', // speed run
+  'level-four': 'notebook', // upgrades-picked milestone
 };
 
 /**
