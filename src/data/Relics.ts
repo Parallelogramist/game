@@ -226,7 +226,7 @@ export const RELICS: readonly Relic[] = [
     name: 'Thorned Mail',
     description: '+15% thorns damage',
     rarity: 'rare',
-    icon: 'thorn',
+    icon: 'thorns',
     apply: (stats) => {
       stats.thornsPercent += 0.15;
     },
