@@ -642,8 +642,9 @@ export interface WeaponUpgrade {
 
 /**
  * Available weapons that can be unlocked.
+ * Exported for the referential-integrity test sweep (icon keys must resolve).
  */
-const UNLOCKABLE_WEAPONS = [
+export const UNLOCKABLE_WEAPONS = [
   { id: 'katana', name: 'Katana', icon: 'katana', description: 'Rapid crisscrossing blade cuts' },
   { id: 'orbiting_blades', name: 'Orbiting Blades', icon: 'orbiting-blades', description: 'Blades circle around you' },
   { id: 'aura', name: 'Spirit Guardians', icon: 'holy-aura', description: 'Damages nearby enemies' },
