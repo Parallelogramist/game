@@ -31,6 +31,7 @@ export class ShipPreview {
   private cycleTimer = 0;
   private readonly tiers: readonly { name: string; minLevel: number }[];
   private destroyed = false;
+  private currentShipId: string | null = null;
 
   constructor(scene: Phaser.Scene, x: number, y: number, shipScale: number = 1.6) {
     this.scene = scene;
@@ -46,9 +47,15 @@ export class ShipPreview {
     this.tierLabel.setDepth(20);
   }
 
-  /** Swap the previewed ship — rebuilds the hull in the ship's palette. */
+  /**
+   * Swap the previewed ship — rebuilds the hull in the ship's palette.
+   * No-op for the already-shown ship so hover/focus churn (which can fire
+   * several times per card entry) doesn't rebuild the hull or reset the
+   * evolution cycle.
+   */
   setShip(ship: ShipCharacter): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.currentShipId === ship.id) return;
+    this.currentShipId = ship.id;
     this.spaceship?.destroy();
     this.tierIndex = 0;
     this.cycleTimer = 0;

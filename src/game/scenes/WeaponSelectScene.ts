@@ -53,6 +53,13 @@ export class WeaponSelectScene extends Phaser.Scene {
   private availableSteps: WeaponSelectStep[] = [];
   private weaponStepKeyHandler: ((event: KeyboardEvent) => void) | null = null;
 
+  /**
+   * Ship card the current pointer press started on. Selection commits on
+   * pointerup over the same card — lifting the finger elsewhere keeps the
+   * preview without confirming (touch-friendly "press to peek" behavior).
+   */
+  private pressedShipCardId: string | null = null;
+
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
   private shipPreview: ShipPreview | null = null;
@@ -317,6 +324,11 @@ export class WeaponSelectScene extends Phaser.Scene {
       this.shipPreview.setShip(ships[0]);
     }
 
+    // Releasing the pointer anywhere that isn't a ship card cancels the
+    // pending press without confirming — the preview stays as-is.
+    this.input.on('pointerup', this.clearPressedShipCard, this);
+    this.input.on('pointerupoutside', this.clearPressedShipCard, this);
+
     const focusable: { card: MenuCard; ship: ShipCharacter }[] = [];
     ships.forEach((ship, index) => {
       const { x: cardX, y: cardY } = layout.positionAt(index);
@@ -385,9 +397,26 @@ export class WeaponSelectScene extends Phaser.Scene {
       card.hitZone.on('pointerover', () => {
         this.soundManager.playUIClick();
         card.setHoverState(true);
+        this.shipPreview?.setShip(ship);
+        // Keep keyboard/gamepad focus in sync so ENTER confirms the
+        // previewed ship (mirrors the weapon-card hover behavior).
+        if (this.menuNavigator) this.menuNavigator.selectIndex(index);
       });
       card.hitZone.on('pointerout', () => card.setHoverState(false));
+      // Press previews; selection commits only on release over the same card.
+      // On touch, dragging off the card and lifting keeps the preview without
+      // starting the run.
       card.hitZone.on('pointerdown', () => {
+        this.soundManager.playUIClick();
+        this.pressedShipCardId = ship.id;
+        card.setHoverState(true);
+        this.shipPreview?.setShip(ship);
+        if (this.menuNavigator) this.menuNavigator.selectIndex(index);
+      });
+      card.hitZone.on('pointerup', () => {
+        const wasPressedHere = this.pressedShipCardId === ship.id;
+        this.pressedShipCardId = null;
+        if (!wasPressedHere) return;
         this.soundManager.playUIClick();
         this.selectedShipId = ship.id;
         this.proceedToWeaponStep();
@@ -415,9 +444,16 @@ export class WeaponSelectScene extends Phaser.Scene {
     });
   }
 
+  private clearPressedShipCard(): void {
+    this.pressedShipCardId = null;
+  }
+
   private clearStepUI(): void {
     this.shipPreview?.destroy();
     this.shipPreview = null;
+    this.pressedShipCardId = null;
+    this.input.off('pointerup', this.clearPressedShipCard, this);
+    this.input.off('pointerupoutside', this.clearPressedShipCard, this);
     for (const card of this.stepCards) card.destroy();
     this.stepCards = [];
     for (const btn of this.stepButtons) btn.destroy();
