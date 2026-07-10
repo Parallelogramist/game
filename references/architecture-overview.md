@@ -49,7 +49,7 @@ BootScene (start screen + music + daily challenge + ship picker)
 
 ### Weapon System
 
-15 weapons managed by `WeaponManager` (`/src/weapons/WeaponManager.ts`).
+16 weapons managed by `WeaponManager` (`/src/weapons/WeaponManager.ts`).
 
 **Architecture:**
 - `BaseWeapon` abstract class — common functionality (cooldowns, upgrades, scene ref, external multipliers for damage/cooldown/count/piercing)
@@ -74,6 +74,7 @@ BootScene (start screen + music + daily challenge + ship picker)
 | DroneWeapon | Autonomous helper that orbits and shoots |
 | ShurikenWeapon | Spiral pattern projectiles |
 | BoomerangWeapon | Glaive that carves out to max range and homes back, hitting on both legs |
+| SentryWeapon | Deploys stationary auto-firing turrets at your position (positional gun line) |
 
 **Adding new weapon:**
 1. Create class extending `BaseWeapon` in `/src/weapons/`

@@ -19,6 +19,7 @@ export { GroundSpikeWeapon } from './GroundSpikeWeapon';
 export { DroneWeapon } from './DroneWeapon';
 export { ShurikenWeapon } from './ShurikenWeapon';
 export { BoomerangWeapon } from './BoomerangWeapon';
+export { SentryWeapon } from './SentryWeapon';
 
 // Weapon factory for creating weapons by ID
 import { BaseWeapon } from './BaseWeapon';
@@ -37,6 +38,7 @@ import { GroundSpikeWeapon } from './GroundSpikeWeapon';
 import { DroneWeapon } from './DroneWeapon';
 import { ShurikenWeapon } from './ShurikenWeapon';
 import { BoomerangWeapon } from './BoomerangWeapon';
+import { SentryWeapon } from './SentryWeapon';
 
 /**
  * All available weapon types and their constructors.
@@ -57,6 +59,7 @@ export const WeaponRegistry: Record<string, () => BaseWeapon> = {
   drone: () => new DroneWeapon(),
   shuriken: () => new ShurikenWeapon(),
   boomerang: () => new BoomerangWeapon(),
+  sentry: () => new SentryWeapon(),
 };
 
 /**

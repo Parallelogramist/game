@@ -659,6 +659,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'drone', name: 'Combat Drone', icon: 'drone', description: 'Autonomous shooting helper' },
   { id: 'shuriken', name: 'Spiral Shuriken', icon: 'shuriken', description: 'Spinning spiral projectiles' },
   { id: 'boomerang', name: 'Boomerang Glaive', icon: 'boomerang', description: 'Carves out and homes back, hitting twice' },
+  { id: 'sentry', name: 'Sentry Turret', icon: 'sentry', description: 'Deploys a stationary auto-firing turret' },
 ];
 
 /**

@@ -218,6 +218,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.4,
     },
   },
+  {
+    weaponId: 'sentry',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'piercing',
+    requiredStatLevel: 5,
+    evolvedName: 'Rail Sentry',
+    evolvedDescription: 'Overcharged turrets that fire armor-shredding rail lances, spearing everything in a line.',
+    statMultipliers: {
+      damage: 1.6,
+      range: 1.3,
+      piercing: 3,
+      size: 1.3,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */
