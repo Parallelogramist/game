@@ -36,15 +36,20 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-WEAPON-SENTRY** — 16th weapon: deployable sentry turret. Value:
-  all 15 weapons are attached to the player (projectile/orbit/beam/return);
-  a weapon that DEPLOYS a stationary auto-firing sentry at your position
-  adds a genuinely new archetype — positional play (anchor a lane, kite
-  around your gun line) the arsenal lacks. Reuse the `turret` enemy's
-  visual language inverted to player-neon; pure targeting/uptime math
-  unit-testable like `boomerangMotion.ts`. Mastery: two sentries; evolution
-  candidate: rail sentry. Mirror-list sync required (WeaponEvolutions /
-  ShipCharacters / Upgrades.selection content-integrity tests).
+- [ ] **FEAT-WEAPON-SINGULARITY** — 17th weapon: gravity-well projectile that
+  PULLS enemies together. Value: 16 weapons now cover projectile / orbit /
+  beam / return / deploy, but none *reposition* enemies — the only crowd-
+  control lever is the `void` hazard zone, never a player weapon. A lobbed
+  singularity that yanks nearby enemies toward a point (then collapses for a
+  burst) adds a genuinely new archetype — enemy-clumping that turns every
+  AOE weapon's value up and rewards combo builds. Pure pull/collapse timing
+  math unit-testable like `sentryLogic.ts` (no per-enemy Phaser needed);
+  reuse the SpatialHash for the pull query, cap displacement per frame so it
+  reads as a tug not a teleport. Mastery: leaves a lingering slow field;
+  evolution candidate: black hole (larger radius + damage-over-duration).
+  Same full mirror-list sync as Sentry (registry / UNLOCKABLE_WEAPONS /
+  WeaponEvolutions / WeaponSynergies / mastery category / IconMap + the three
+  content-integrity test arrays).
 
 ## Later
 
@@ -69,6 +74,35 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-SENTRY** — 16th weapon "Sentry Turret" feel/balance
+    (FEAT-WEAPON-SENTRY, `58901ef`; class `src/weapons/SentryWeapon.ts`, pure
+    lifecycle in `src/weapons/sentryLogic.ts`). Check with a real run that picks
+    it up: (a) **deploy cadence + uptime** — base deploy every 3.5s (→1.6s min
+    as it levels), turret lives 6s, fires every 0.5s: does a single turret feel
+    like meaningful sustained coverage, and does the first turret dropping ~0.5s
+    in (not a full cooldown later) read as responsive at run start? (b) **gun-
+    line build** — max concurrent turrets = count (1 → +1 every 2 levels, cap 8
+    slots); does accumulating a field of turrets as you level feel like the
+    intended positional identity, and does retire-oldest cull the right turret?
+    (c) **stationary trade-off** — a turret fires where it stands while you kite;
+    is anchoring a chokepoint then leading enemies through the fire satisfying,
+    or do turrets mostly sit out of the fight because the swarm follows you away?
+    (d) **targeting** — each turret auto-aims the nearest enemy in range (240)
+    via SpatialHash; barrel tracks the target, idle-sweeps with none — legible?
+    (e) **bolt readability** — cyan piercing bolts (piercing 1 = hits 2) over the
+    projectile swarm + bloom; muzzle flash per shot (1 circle+tween, ~10/s at a
+    full line) — juice or noise/FPS at high turret counts? (f) **Overclock Array
+    mastery** (L10) drops TWO flanking turrets per deploy — does the doubled
+    build rate feel like a payoff without the 8-slot pool thrashing? (g) **Rail
+    Sentry evolution** (piercing L5) — bright rail lances (piercing +3, range
+    ×1.3, dmg ×1.6): power level vs other evolved weapons; (h) **Automated
+    Arsenal synergy** with Combat Drone (+20% dmg / 10% faster to both) — does
+    the autonomous-summon build read? (i) hex-mount + barrel + deploy-ping visual
+    at gameplay scale under bloom; fade-near-expiry conveys remaining uptime?
+    Tuning knobs: baseStats in `SentryWeapon` ctor, `FIRE_INTERVAL` (0.5),
+    `SENTRY_POOL_SIZE` (8), `PROJECTILE_MAX_TRAVEL` (900), the cooldown ramp in
+    `recalculateStats`; evolution multipliers in `WeaponEvolutions.ts`; synergy
+    magnitude in `WeaponSynergies.ts`.
   - **POLISH-BOSS-BASTION** — 4th boss "The Bastion" feel/balance
     (FEAT-BOSS-BASTION, `37297d1`; AI in `src/ecs/systems/enemy-ai/bastion.ts`,
     strike planning + all knobs in `bastion-barrage.ts`). Check with real
@@ -407,6 +441,39 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-WEAPON-SENTRY — 16th weapon "Sentry Turret", deployable
+  auto-turret** (done — `58901ef`). Was the sole Proposed (auto) item in Next;
+  built to completion. **Value:** all 15 prior weapons are player-attached
+  (projectile / orbit / beam / return / drone-orbit); the Sentry is the
+  arsenal's first *deployed* weapon — a placement drops a stationary auto-firing
+  turret at the player's position and leaves it there. That adds a genuinely new
+  archetype the arsenal lacked: **positional play** — anchor a chokepoint, build
+  a gun line as you level, then kite the horde back through your own fire.
+  **Novel mechanic (vs all 15):** every other weapon fires from / follows /
+  returns to the player; a sentry lives on its own where you dropped it, with an
+  independent lifetime + fire cadence. That lifecycle is the pure, unit-tested
+  core (`src/weapons/sentryLogic.ts`, 7 tests): deploy → age → target-gated fire
+  → expire, with idle turrets holding their shot at ready (no banked burst) so a
+  gun line's uptime stays honest. The class (`SentryWeapon.ts`) owns placement
+  (rolling max-count = `count`, retire-oldest), SpatialHash targeting (nearest in
+  range 240), pooled piercing bolts (`piercing N = hits N+1`, matching
+  ProjectileWeapon), and the turret visual (hex mount + aimed/idle-sweeping
+  barrel + deploy ping + fade-near-expiry, drawn into shared Graphics — the
+  `turret` enemy's language inverted to friendly cyan; no atlas frame). First
+  turret drops ~0.5s in via a `lastFired` offset so a Sentry starting weapon
+  isn't idle for a full deploy cooldown. Mastery **"Overclock Array"** deploys
+  two flanking turrets per placement (count is 5 at L10, so both survive);
+  evolution **"Rail Sentry"** (via `piercing` L5) fires heavy piercing rail
+  lances (dmg ×1.6 / range ×1.3 / piercing +3), rendered as a bright lance.
+  Full mirror-list sync: registry (`index.ts`), `UNLOCKABLE_WEAPONS`
+  (`Upgrades.ts`), evolution recipe, **Automated Arsenal** synergy (sentry+drone,
+  +20% dmg / 10% faster to both — reinforces the autonomous-summon build),
+  `summon` mastery category (`WeaponManager.ts`), IconMap (`on-target`). All
+  three locked content-integrity test arrays updated (ShipCharacters /
+  WeaponEvolutions / Upgrades.selection). tsc + vite build clean, 1126 tests
+  green (1119 + 7). Feel/balance → playtest queue (POLISH-WEAPON-SENTRY).
+  Follow-up proposed: FEAT-WEAPON-SINGULARITY (enemy-repositioning CC archetype).
 
 - [x] **FEAT-BOSS-BASTION — 4th boss "The Bastion", siege artillery**
   (done — `37297d1`). Proposed (auto) + built this session: Now/Next were
