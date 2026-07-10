@@ -36,18 +36,20 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-WEAPON-SINGULARITY** — 17th weapon: gravity-well projectile that
-  PULLS enemies together. Value: 16 weapons now cover projectile / orbit /
-  beam / return / deploy, but none *reposition* enemies — the only crowd-
-  control lever is the `void` hazard zone, never a player weapon. A lobbed
-  singularity that yanks nearby enemies toward a point (then collapses for a
-  burst) adds a genuinely new archetype — enemy-clumping that turns every
-  AOE weapon's value up and rewards combo builds. Pure pull/collapse timing
-  math unit-testable like `sentryLogic.ts` (no per-enemy Phaser needed);
-  reuse the SpatialHash for the pull query, cap displacement per frame so it
-  reads as a tug not a teleport. Mastery: leaves a lingering slow field;
-  evolution candidate: black hole (larger radius + damage-over-duration).
-  Same full mirror-list sync as Sentry (registry / UNLOCKABLE_WEAPONS /
+- [ ] **FEAT-WEAPON-GUARDIAN** — 18th weapon: a reactive retaliation orb that
+  fires only when the PLAYER takes damage. Value: all 17 weapons fire on a
+  fixed cooldown timer — none react to the game state. A weapon whose trigger
+  is "player was hit" (with a per-hit internal cooldown so a swarm doesn't
+  chain-detonate it) is a genuinely new archetype: it rewards aggressive,
+  face-tank play and pairs with armor/thorns builds instead of pure kiting.
+  On trigger it releases a radial nova (or homing shards) from the player,
+  scaled by the hit's damage. Pure trigger/cooldown gating is unit-testable
+  like `sentryLogic.ts` (feed it a damage event + internal-CD state, assert
+  fire-or-not) with no per-enemy Phaser. Needs a hook where player damage is
+  applied (search `CollisionSystem`/GameScene player-hit path) to notify the
+  weapon — surface any wiring gap. Mastery: a brief invuln flash on trigger;
+  evolution candidate: "Aegis" (trigger also knocks back + slows the ring).
+  Same full mirror-list sync as Singularity (registry / UNLOCKABLE_WEAPONS /
   WeaponEvolutions / WeaponSynergies / mastery category / IconMap + the three
   content-integrity test arrays).
 
@@ -74,6 +76,36 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-SINGULARITY** — 17th weapon "Singularity" feel/balance
+    (FEAT-WEAPON-SINGULARITY; class `src/weapons/SingularityWeapon.ts`, pure
+    lifecycle + pull math in `src/weapons/singularityLogic.ts`). Check with a
+    real run that picks it up: (a) **the clump reads** — does the well visibly
+    yank the swarm into a knot, and does that knot make your OTHER weapons
+    (meteor/aura/spikes) obviously land harder? That amplification is the whole
+    point; if the pull is too weak to matter, raise `PULL_STRENGTH` (300) or
+    `MAX_TUG_PER_FRAME` (6). (b) **tug not teleport** — enemies should slide in
+    smoothly, never snap; if it snaps at low FPS, lower `MAX_TUG_PER_FRAME`.
+    (c) **lob cadence + count** — base cooldown 4.5s (→2.6s min as it levels),
+    travel 0.35s, pull 1.6s, +1 well every 2 levels (pool cap 6): does a field
+    of wells at high level feel like escalating control or spammy? (d) **collapse
+    payoff** — base dmg 34 with distance falloff + 140 knockback: does the burst
+    feel worth the wind-up, or does the knockback scatter the clump before your
+    other weapons cash in on it? (e) **boss/miniboss resist** — bosses are
+    pull-immune, minibosses at 30% (`MINIBOSS_PULL_RESIST`): does anchoring the
+    trash while a boss ignores the well feel right, or should minibosses resist
+    more/less? (f) **Event Horizon mastery** (L10) drops a lingering `void`
+    hazard field (3s) on collapse — does sustained post-collapse clumping read,
+    or clutter the arena? (g) **Black Hole evolution** (reach L5): wider well
+    (size ×1.35) + damage-over-time for the whole pull (`DOT_FRACTION` 0.3 per
+    0.35s) + dmg ×1.4 — power level vs other evolved weapons? (h) **Gravity
+    Collapse synergy** with Meteor (+25% dmg both) — does the "drop a rock on the
+    clump" combo read? (i) violet accretion-spiral + influence-ring visual at
+    gameplay scale under bloom; brighter pink for the evolved form legible?
+    Tuning knobs: baseStats in `SingularityWeapon` ctor, the constants block
+    (`PULL_RADIUS_BASE` 150, `PULL_STRENGTH`, `MAX_TUG_PER_FRAME`, `TRAVEL_TIME`
+    0.35, `COLLAPSE_KNOCKBACK` 140, `LINGER_DURATION` 3, `WELL_POOL_SIZE` 6),
+    cooldown ramp in `recalculateStats`; evolution multipliers in
+    `WeaponEvolutions.ts`; synergy magnitude in `WeaponSynergies.ts`.
   - **POLISH-WEAPON-SENTRY** — 16th weapon "Sentry Turret" feel/balance
     (FEAT-WEAPON-SENTRY, `58901ef`; class `src/weapons/SentryWeapon.ts`, pure
     lifecycle in `src/weapons/sentryLogic.ts`). Check with a real run that picks
@@ -441,6 +473,42 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-WEAPON-SINGULARITY — 17th weapon "Singularity", gravity-well
+  crowd control** (done — `440f1cc`). Was the sole Proposed (auto) item in Next;
+  built to completion. **Value:** all 16 prior weapons damage or kill enemies
+  where they stand — none *reposition* the horde; the only crowd-control lever
+  was the `void` hazard zone, never a player weapon. The Singularity is the
+  arsenal's first **CC-by-displacement** weapon: a cast lobs a gravity well onto
+  the nearest enemy cluster, it yanks nearby enemies toward its core for a short
+  window (clumping them), then collapses in an area burst. The clump is the
+  point — it makes every other AOE weapon (meteor/aura/spikes) land harder,
+  rewarding combo builds, so it raises the whole arsenal's value rather than
+  just adding DPS. **Novel mechanic (vs all 16):** it mutates enemy `Transform`
+  directly (a capped, gravity-shaped inward tug — stronger toward the core,
+  clamped so it never teleports or overshoots), applied in `updateEffects` which
+  runs *after* `movementSystem` each frame so the pull isn't fought by enemy AI.
+  Bosses are pull-immune and minibosses only 30%-displaced (an anti-swarm weapon
+  must not fling a boss across the arena; collapse damage still hits everyone).
+  Pure lifecycle (travel → pull → collapse) + the pull-displacement math live in
+  the unit-tested `singularityLogic.ts` (12 tests: phase transitions, one-shot
+  collapse edge, cap, no-overshoot clamp, gravity falloff). The class
+  (`SingularityWeapon.ts`) owns lob targeting (SpatialHash cluster query, wells
+  spread across targets), the Transform writes, the falloff+knockback collapse
+  burst, and the violet accretion-spiral visual (void palette). Mastery
+  **"Event Horizon"** drops a lingering `void` hazard field on collapse (reuses
+  the hazard system — sustained clumping); evolution **"Black Hole"** (via
+  `reach` L5) widens the well and burns the trapped horde with DOT for the whole
+  pull (dmg ×1.4 / range ×1.5 / size ×1.35). Full mirror-list sync: registry
+  (`index.ts`), `UNLOCKABLE_WEAPONS` (`Upgrades.ts`), evolution recipe,
+  **Gravity Collapse** synergy (singularity+meteor, +25% dmg — clumped enemies
+  amplify area blasts), `explosive` mastery category (`WeaponManager.ts` — the
+  collapse IS an explosion, so it also scales with explosion-damage), IconMap
+  (`spiral-shell`). All three locked content-integrity test arrays updated
+  (WeaponEvolutions / ShipCharacters / Upgrades.selection). tsc + vite build
+  clean, 1138 tests green (1126 + 12). Feel/balance → playtest queue
+  (POLISH-WEAPON-SINGULARITY). Follow-up proposed: FEAT-WEAPON-GUARDIAN
+  (reactive/retaliation archetype — first weapon triggered by player damage).
 
 - [x] **FEAT-WEAPON-SENTRY — 16th weapon "Sentry Turret", deployable
   auto-turret** (done — `58901ef`). Was the sole Proposed (auto) item in Next;

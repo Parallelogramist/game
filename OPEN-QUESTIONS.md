@@ -49,4 +49,5 @@ holds unpushed fleet commits awaiting your push (= Pages deploy):
 `cf38937` (BUG-SHIP-ID-NOT-SAVED run-identity fix, 2026-07-10),
 `37297d1` (FEAT-BOSS-BASTION 4th boss, 2026-07-10),
 `58901ef` (FEAT-WEAPON-SENTRY 16th weapon, deployable turret, 2026-07-10),
+`440f1cc` (FEAT-WEAPON-SINGULARITY 17th weapon, gravity-well CC, 2026-07-10),
 plus the docs commits noting this line.
