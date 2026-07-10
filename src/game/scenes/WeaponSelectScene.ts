@@ -54,11 +54,12 @@ export class WeaponSelectScene extends Phaser.Scene {
   private weaponStepKeyHandler: ((event: KeyboardEvent) => void) | null = null;
 
   /**
-   * Ship card the current pointer press started on. Selection commits on
-   * pointerup over the same card — lifting the finger elsewhere keeps the
-   * preview without confirming (touch-friendly "press to peek" behavior).
+   * Card the current pointer press started on (stage/ship/weapon id —
+   * steps are exclusive, cleared on step change). Selection commits on
+   * pointerup over the same card — lifting the finger elsewhere cancels
+   * without confirming (touch-friendly "press to peek" behavior).
    */
-  private pressedShipCardId: string | null = null;
+  private pressedCardId: string | null = null;
 
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
@@ -208,6 +209,8 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.renderStepHeader();
     this.renderStepTitle('CHOOSE YOUR STAGE', 'Each stage changes visuals, difficulty, and rewards', ACCENT_COLORS_STR.magenta);
 
+    this.registerPressedCardClearing();
+
     const cardWidth = 220;
     const cardHeight = 160;
     const cardSpacing = 24;
@@ -250,6 +253,14 @@ export class WeaponSelectScene extends Phaser.Scene {
       focusable.push({ card, nameText, stage });
 
       card.hitZone.on('pointerdown', () => {
+        this.soundManager.playUIClick();
+        this.pressedCardId = stage.id;
+        card.setHoverState(true);
+      });
+      card.hitZone.on('pointerup', () => {
+        const wasPressedHere = this.pressedCardId === stage.id;
+        this.pressedCardId = null;
+        if (!wasPressedHere) return;
         this.soundManager.playUIClick();
         this.selectedStageId = stage.id;
         this.proceedToShipStep();
@@ -324,10 +335,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       this.shipPreview.setShip(ships[0]);
     }
 
-    // Releasing the pointer anywhere that isn't a ship card cancels the
-    // pending press without confirming — the preview stays as-is.
-    this.input.on('pointerup', this.clearPressedShipCard, this);
-    this.input.on('pointerupoutside', this.clearPressedShipCard, this);
+    this.registerPressedCardClearing();
 
     const focusable: { card: MenuCard; ship: ShipCharacter }[] = [];
     ships.forEach((ship, index) => {
@@ -408,14 +416,14 @@ export class WeaponSelectScene extends Phaser.Scene {
       // starting the run.
       card.hitZone.on('pointerdown', () => {
         this.soundManager.playUIClick();
-        this.pressedShipCardId = ship.id;
+        this.pressedCardId = ship.id;
         card.setHoverState(true);
         this.shipPreview?.setShip(ship);
         if (this.menuNavigator) this.menuNavigator.selectIndex(index);
       });
       card.hitZone.on('pointerup', () => {
-        const wasPressedHere = this.pressedShipCardId === ship.id;
-        this.pressedShipCardId = null;
+        const wasPressedHere = this.pressedCardId === ship.id;
+        this.pressedCardId = null;
         if (!wasPressedHere) return;
         this.soundManager.playUIClick();
         this.selectedShipId = ship.id;
@@ -444,16 +452,26 @@ export class WeaponSelectScene extends Phaser.Scene {
     });
   }
 
-  private clearPressedShipCard(): void {
-    this.pressedShipCardId = null;
+  /**
+   * Releasing the pointer anywhere that isn't the pressed card cancels the
+   * pending press without confirming. Card hitZone pointerup handlers fire
+   * before these scene-level ones, so a commit always wins the race.
+   */
+  private registerPressedCardClearing(): void {
+    this.input.on('pointerup', this.clearPressedCard, this);
+    this.input.on('pointerupoutside', this.clearPressedCard, this);
+  }
+
+  private clearPressedCard(): void {
+    this.pressedCardId = null;
   }
 
   private clearStepUI(): void {
     this.shipPreview?.destroy();
     this.shipPreview = null;
-    this.pressedShipCardId = null;
-    this.input.off('pointerup', this.clearPressedShipCard, this);
-    this.input.off('pointerupoutside', this.clearPressedShipCard, this);
+    this.pressedCardId = null;
+    this.input.off('pointerup', this.clearPressedCard, this);
+    this.input.off('pointerupoutside', this.clearPressedCard, this);
     for (const card of this.stepCards) card.destroy();
     this.stepCards = [];
     for (const btn of this.stepButtons) btn.destroy();
@@ -541,8 +559,15 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.renderStepHeader();
     this.renderStepTitle('CHOOSE YOUR WEAPON', 'Select the weapon you want to start your run with', ACCENT_COLORS_STR.gold);
 
+    this.registerPressedCardClearing();
+
     this.weaponCardRefs = [];
     const gridColumns = this.buildWeaponCards(discoveredWeapons);
+
+    const pickRandom = () => {
+      const randomWeapon = discoveredWeapons[Math.floor(Math.random() * discoveredWeapons.length)];
+      this.selectWeapon(randomWeapon.id);
+    };
 
     const centerX = this.scale.width / 2;
     const randomButtonY = this.scale.height - 60;
@@ -555,14 +580,10 @@ export class WeaponSelectScene extends Phaser.Scene {
       label: '🎲 RANDOM',
       variant: 'gold',
       fontSize: 18,
+      onActivate: pickRandom,
     });
     randomButton.card.hitZone.on('pointerover', () => randomButton.setHoverState(true));
     randomButton.card.hitZone.on('pointerout', () => randomButton.setHoverState(false));
-    const pickRandom = () => {
-      const randomWeapon = discoveredWeapons[Math.floor(Math.random() * discoveredWeapons.length)];
-      this.selectWeapon(randomWeapon.id);
-    };
-    randomButton.card.hitZone.on('pointerdown', pickRandom);
     this.stepButtons.push(randomButton);
 
     const hint = makeBodyText(this, centerX, this.scale.height - 22,
@@ -701,6 +722,18 @@ export class WeaponSelectScene extends Phaser.Scene {
     });
     card.hitZone.on('pointerout', () => this.blurWeaponCard(cardRef));
     card.hitZone.on('pointerdown', () => {
+      this.soundManager.playUIClick();
+      this.pressedCardId = weaponInfo.id;
+      this.focusWeaponCard(cardRef);
+      const cardIndex = this.weaponCardRefs.indexOf(cardRef);
+      if (cardIndex >= 0 && this.menuNavigator) {
+        this.menuNavigator.selectIndex(cardIndex);
+      }
+    });
+    card.hitZone.on('pointerup', () => {
+      const wasPressedHere = this.pressedCardId === weaponInfo.id;
+      this.pressedCardId = null;
+      if (!wasPressedHere) return;
       this.soundManager.playUIClick();
       this.selectWeapon(weaponInfo.id);
     });
