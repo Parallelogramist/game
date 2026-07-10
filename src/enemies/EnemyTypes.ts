@@ -35,6 +35,7 @@ export enum EnemyAIType {
   HordeKing = 100,
   VoidWyrm = 101,
   TheMachine = 102,
+  Bastion = 103,
 }
 
 /**
@@ -651,6 +652,23 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     spawnWeight: 0,
   },
 
+  the_bastion: {
+    id: 'the_bastion',
+    name: 'The Bastion',
+    aiType: EnemyAIType.Bastion,
+    category: EnemyCategory.Boss,
+    baseHealth: 4800,
+    baseSpeed: 60,
+    baseDamage: 35,
+    size: 5.5,
+    color: 0xbb6600,         // Boss - burnt bronze (siege artillery)
+    secondaryColor: 0xffffff, // White outline
+    shape: 'square',
+    xpValue: 1000,
+    minSpawnTime: 600,
+    spawnWeight: 0,
+  },
+
   // Machine Turret (spawned by The Machine)
   turret: {
     id: 'turret',
@@ -746,6 +764,7 @@ const ENEMY_ARMOR: Record<string, number> = {
   horde_king: 12,
   void_wyrm: 12,
   the_machine: 12,
+  the_bastion: 14, // siege fortress — the armored boss
 };
 
 /**

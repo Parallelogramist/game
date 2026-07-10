@@ -57,6 +57,7 @@ export { updateTwinAI } from './twin';
 export { updateHordeKingAI } from './horde-king';
 export { updateVoidWyrmAI } from './void-wyrm';
 export { updateTheMachineAI } from './the-machine';
+export { updateBastionAI, resetBastionStrikes } from './bastion';
 export { checkBossPhaseTransition, resetBossPhaseTracking } from './boss-phase';
 
 // Elite proximity auras (Tank / Rallier / Warden)

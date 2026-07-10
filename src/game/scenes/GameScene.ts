@@ -25,7 +25,7 @@ import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
 import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
-import { resetBossPhaseTracking } from '../../ecs/systems/EnemyAISystem';
+import { resetBossPhaseTracking, resetBastionStrikes } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
@@ -6630,6 +6630,20 @@ export class GameScene extends Phaser.Scene {
         this.bossHazardTimer = 6;
         break;
 
+      case 'the_bastion':
+        // Smouldering shell craters near the player — lingering siege scars
+        if (this.playerId !== -1) {
+          const craterOffsetX = (Math.random() - 0.5) * 400;
+          const craterOffsetY = (Math.random() - 0.5) * 400;
+          spawnHazardZone(
+            Transform.x[this.playerId] + craterOffsetX,
+            Transform.y[this.playerId] + craterOffsetY,
+            70, 'burn', 6
+          );
+        }
+        this.bossHazardTimer = 5;
+        break;
+
       default:
         this.bossHazardTimer = 5;
         break;
@@ -8165,6 +8179,7 @@ export class GameScene extends Phaser.Scene {
     resetEventSystem();
     resetDirectorSystem();
     resetBossPhaseTracking();
+    resetBastionStrikes();
     resetBossArenaSystem();
     resetHazardZoneSystem();
     resetMusicIntensityDriver();

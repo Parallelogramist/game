@@ -126,6 +126,16 @@ export function theMachineLaserTelegraphs(
   return [beam(mainAngle), beam(mainAngle + Math.PI / 2), beam(mainAngle - Math.PI / 2)];
 }
 
+/**
+ * The Bastion mortar shell — impact footprint at the planned strike point for
+ * the shell's whole flight time (impactDelay from bastion-barrage planning).
+ * The +8 overshoots the blast radius (70) so the warning is conservative,
+ * like the other AOE rings.
+ */
+export function bastionMortarTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 78, duration: impactDelay, color: 0xff7733 };
+}
+
 /** Routes a spec to the manager's ring/line spawner. No-op when manager is null. */
 export function spawnTelegraph(
   manager: Pick<TelegraphManager, 'spawnRing' | 'spawnLine'> | null,

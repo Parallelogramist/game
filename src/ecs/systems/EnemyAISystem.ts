@@ -35,6 +35,7 @@ import { updateTwinAI } from './enemy-ai/twin';
 import { updateHordeKingAI } from './enemy-ai/horde-king';
 import { updateVoidWyrmAI } from './enemy-ai/void-wyrm';
 import { updateTheMachineAI } from './enemy-ai/the-machine';
+import { updateBastionAI } from './enemy-ai/bastion';
 // Elite proximity auras (Tank / Rallier / Warden), applied after all AI runs
 import { applyEliteAuras } from './enemy-ai/elite-auras';
 
@@ -48,6 +49,7 @@ export {
 } from './enemy-ai/state';
 export { setTelegraphManager } from './enemy-ai/common';
 export { resetBossPhaseTracking } from './enemy-ai/boss-phase';
+export { resetBastionStrikes } from './enemy-ai/bastion';
 export { isNearTankAura, getWardenSlowMultiplier } from './enemy-ai/elite-auras';
 
 // Queries
@@ -187,6 +189,9 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         break;
       case EnemyAIType.TheMachine:
         updateTheMachineAI(enemyId, playerX, playerY, lodDeltaTime);
+        break;
+      case EnemyAIType.Bastion:
+        updateBastionAI(enemyId, playerX, playerY, lodDeltaTime);
         break;
       default:
         updateChaseAI(enemyId, playerX, playerY);

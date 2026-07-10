@@ -876,6 +876,52 @@ function drawTheMachine(g: Phaser.GameObjects.Graphics, s: number, neon: NeonCol
   g.fillCircle(0, 0, Math.max(2.5, s * 0.08));
 }
 
+/** The Bastion — bastioned fortress walls, battlements, central mortar tube */
+function drawBastion(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPair, quality: VisualQuality): void {
+  squareGlow(g, s, neon, quality);
+  // Fortress silhouette: wide walls flaring to corner bastions (octagonal keep)
+  const wallHalfWidth = s;
+  const bastionReach = s * 1.18;
+  g.fillStyle(neon.core, 1);
+  g.beginPath();
+  g.moveTo(-bastionReach, -s * 0.55);
+  g.lineTo(-wallHalfWidth * 0.55, -s);
+  g.lineTo(wallHalfWidth * 0.55, -s);
+  g.lineTo(bastionReach, -s * 0.55);
+  g.lineTo(bastionReach, s * 0.55);
+  g.lineTo(wallHalfWidth * 0.55, s);
+  g.lineTo(-wallHalfWidth * 0.55, s);
+  g.lineTo(-bastionReach, s * 0.55);
+  g.closePath();
+  g.fillPath();
+  g.lineStyle(3, 0xffffff, 0.85);
+  g.strokePath();
+  // Battlements: crenellated notches along the forward (+X) wall
+  g.fillStyle(0x000000, 0.45);
+  for (let i = -1; i <= 1; i++) {
+    g.fillRect(bastionReach - s * 0.16, i * s * 0.34 - s * 0.09, s * 0.16, s * 0.18);
+  }
+  // Inner keep ring
+  g.lineStyle(2, 0xffffff, 0.4);
+  g.strokeCircle(0, 0, s * 0.55);
+  // Central mortar tube aimed forward (+X), with dark muzzle
+  g.fillStyle(neon.core, 1);
+  g.fillRect(0, -s * 0.16, s * 0.85, s * 0.32);
+  g.lineStyle(2, 0xffffff, 0.7);
+  g.strokeRect(0, -s * 0.16, s * 0.85, s * 0.32);
+  g.fillStyle(0x000000, 0.8);
+  g.fillCircle(s * 0.85, 0, s * 0.14);
+  g.lineStyle(1.5, neon.glow, 0.8);
+  g.strokeCircle(s * 0.85, 0, s * 0.14);
+  // Shell racks: paired dots on the rear walls
+  g.fillStyle(0xffffff, 0.6);
+  g.fillCircle(-s * 0.6, -s * 0.45, Math.max(2, s * 0.07));
+  g.fillCircle(-s * 0.6, s * 0.45, Math.max(2, s * 0.07));
+  // Command eye
+  g.fillStyle(0xffffff, 0.8);
+  g.fillCircle(0, 0, Math.max(3, s * 0.1));
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -916,6 +962,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   horde_king: drawHordeKing,
   void_wyrm: drawVoidWyrm,
   the_machine: drawTheMachine,
+  the_bastion: drawBastion,
 };
 
 // =====================================================================

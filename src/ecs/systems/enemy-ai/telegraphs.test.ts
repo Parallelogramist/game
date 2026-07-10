@@ -10,11 +10,13 @@ import {
   voidWyrmSweepTelegraph,
   voidWyrmRingTelegraph,
   theMachineLaserTelegraphs,
+  bastionMortarTelegraph,
   spawnTelegraph,
   type TelegraphSpec,
   type LineTelegraphSpec,
 } from './telegraphs';
 import { EXPLODER_FUSE_SECONDS, EXPLODER_BLAST_RADIUS } from './exploder-fuse';
+import { MORTAR_BLAST_RADIUS, scatterFuseForPhase } from './bastion-barrage';
 
 /**
  * Pure "AI windup → telegraph spec" mapping. The contract under test: every
@@ -79,6 +81,8 @@ describe('telegraph specs — every spec is well-formed', () => {
       voidWyrmSweepTelegraph(100, 100, 400, 300),
       voidWyrmRingTelegraph(),
       ...theMachineLaserTelegraphs(640, 360, 200, 500),
+      bastionMortarTelegraph(scatterFuseForPhase(1)),
+      bastionMortarTelegraph(scatterFuseForPhase(3)),
     ];
     for (const spec of samples) expectWellFormed(spec);
   });
@@ -127,6 +131,11 @@ describe('durations match the windups they warn about', () => {
       expect(beam.duration).toBe(MACHINE_CHARGE_WINDUP);
     }
   });
+
+  test('bastion mortar telegraph lasts exactly the shell flight time', () => {
+    expect(bastionMortarTelegraph(1.2).duration).toBe(1.2);
+    expect(bastionMortarTelegraph(scatterFuseForPhase(3)).duration).toBe(scatterFuseForPhase(3));
+  });
 });
 
 describe('ring footprints cover the damage they warn about', () => {
@@ -151,6 +160,10 @@ describe('ring footprints cover the damage they warn about', () => {
   test('horde king telegraph grows monotonically with phase', () => {
     expect(hordeKingSlamTelegraph(2).radius).toBeGreaterThan(hordeKingSlamTelegraph(1).radius);
     expect(hordeKingSlamTelegraph(3).radius).toBeGreaterThan(hordeKingSlamTelegraph(2).radius);
+  });
+
+  test('bastion mortar telegraph radius covers the blast radius', () => {
+    expect(bastionMortarTelegraph(1).radius).toBeGreaterThanOrEqual(MORTAR_BLAST_RADIUS);
   });
 });
 

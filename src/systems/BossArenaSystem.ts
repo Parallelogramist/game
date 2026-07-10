@@ -26,6 +26,7 @@ const BOSS_ARENA_THEMES: Record<string, BossArenaTheme> = {
   horde_king: { overlayColor: 0xff0000, targetAlpha: 0.08 },
   void_wyrm:  { overlayColor: 0x6600aa, targetAlpha: 0.10 },
   the_machine: { overlayColor: 0x4466aa, targetAlpha: 0.08 },
+  the_bastion: { overlayColor: 0xbb6600, targetAlpha: 0.08 },
 };
 
 /** Duration (ms) for the overlay fade-in when a boss spawns. */
