@@ -36,22 +36,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-WEAPON-GUARDIAN** — 18th weapon: a reactive retaliation orb that
-  fires only when the PLAYER takes damage. Value: all 17 weapons fire on a
-  fixed cooldown timer — none react to the game state. A weapon whose trigger
-  is "player was hit" (with a per-hit internal cooldown so a swarm doesn't
-  chain-detonate it) is a genuinely new archetype: it rewards aggressive,
-  face-tank play and pairs with armor/thorns builds instead of pure kiting.
-  On trigger it releases a radial nova (or homing shards) from the player,
-  scaled by the hit's damage. Pure trigger/cooldown gating is unit-testable
-  like `sentryLogic.ts` (feed it a damage event + internal-CD state, assert
-  fire-or-not) with no per-enemy Phaser. Needs a hook where player damage is
-  applied (search `CollisionSystem`/GameScene player-hit path) to notify the
-  weapon — surface any wiring gap. Mastery: a brief invuln flash on trigger;
-  evolution candidate: "Aegis" (trigger also knocks back + slows the ring).
-  Same full mirror-list sync as Singularity (registry / UNLOCKABLE_WEAPONS /
-  WeaponEvolutions / WeaponSynergies / mastery category / IconMap + the three
-  content-integrity test arrays).
+- [ ] **FEAT-WEAPON-WAKE** — 19th weapon: a movement-driven trail weapon. The
+  ship lays a lingering caustic/burning wake behind it as it moves; enemies
+  crossing a live wake segment take damage. Value: the arsenal now spans
+  position-based, auto-target, deployed, reactive (Guardian), and displacement
+  (Singularity) archetypes — but NONE key off the player's *movement*. A weapon
+  whose output depends on how far/fast you travel is a genuinely new archetype:
+  it rewards mobility/kiting builds (the inverse of Guardian's face-tank), pairs
+  with move-speed relics, and turns "draw the horde through your own path" into
+  a positional identity distinct from Sentry's "anchor a chokepoint." Pure,
+  unit-testable core like `sentryLogic.ts`: a distance-gated segment-emit
+  cadence (drop a segment every N px travelled, not every N seconds) + segment
+  aging/expiry — feed it a movement path + dt, assert segment count/positions,
+  no per-enemy Phaser. Class owns the pooled wake segments, their collision
+  (per-enemy re-hit cooldown so standing in it ticks, not one-shots), and the
+  trail visual. Mastery candidate: the wake also slows enemies standing in it;
+  evolution "Slipstream" (via `swiftness`/`velocity`): wider, longer-lived,
+  higher-damage wake. Same full mirror-list sync as Guardian (registry /
+  UNLOCKABLE_WEAPONS / WeaponEvolutions / WeaponSynergies / mastery category /
+  IconMap + the three content-integrity test arrays).
 
 ## Later
 
@@ -76,6 +79,39 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-GUARDIAN** — 18th weapon "Guardian" feel/balance
+    (FEAT-WEAPON-GUARDIAN, `e4fcb27`; class `src/weapons/GuardianWeapon.ts`, pure
+    trigger/damage core in `src/weapons/guardianLogic.ts`). Check with a real run
+    that picks it up: (a) **reactive trigger reads** — when you take a hit, does
+    the amber nova visibly erupt from you and does it feel *caused by* the hit
+    (not a random cooldown pop)? (b) **swarm chain-detonation guard** — base
+    internal cooldown 1.5s (→0.9s min as it levels): in a dense swarm that hits
+    you repeatedly, does the orb retaliate at a satisfying cadence, or does it
+    feel starved (raise) / spammy (lower)? knob = `cooldown` in the ctor +
+    ramp in `recalculateStats`. (c) **hit-scaled payoff** — shard damage is base
+    16 + 60% of the hit taken, capped at +1.5× base (`HIT_FRACTION` /
+    `MAX_BONUS_MULTIPLE` in the class, formula in `guardianLogic`): does
+    face-tanking a big blow visibly fire back harder, and is the cap right (a
+    boss slam shouldn't nuke the screen)? (d) **radial nova reads** — base 8
+    shards (+1 every 2 levels), speed 460, reach `SHARD_MAX_TRAVEL` 300, piercing
+    2, knockback 90: does the ring clear space around you after a hit (defensive
+    payoff), or scatter enemies you wanted clumped? (e) **face-tank identity** —
+    does pairing it with armor/thorns/HP actually feel like a distinct
+    aggressive build vs the kiting weapons? (f) **Bulwark mastery** (L10) grants
+    0.5s of i-frames per retaliation (`MASTERY_INVULN`; extends `damageCooldown`
+    in `GameScene.takeDamage`) — does the brief post-hit invuln feel like a real
+    survivability payoff without trivializing damage? (g) **Aegis evolution**
+    (reach vitality L5): wider (×1.4 size) + harder (×1.5 dmg) nova, shards
+    knock back 200 and briefly freeze (250ms) what they hit — power level vs
+    other evolved weapons; does the freeze-the-swarm-on-retaliation read as a
+    defensive "shield" or as noise? (h) **Riposte synergy** with Katana
+    (+20% dmg / 10% faster both) — does the brawler build read? (i) amber orb +
+    shockwave-ring burst visual at gameplay scale under bloom; brighter cyan
+    Aegis form legible? Tuning knobs: baseStats in `GuardianWeapon` ctor, the
+    constants block (`SHARD_SPEED`, `SHARD_MAX_TRAVEL`, `HIT_FRACTION`,
+    `MAX_BONUS_MULTIPLE`, `SHARD_KNOCKBACK`, `EVOLVED_KNOCKBACK`, `EVOLVED_STUN`,
+    `MASTERY_INVULN`), cooldown ramp in `recalculateStats`; evolution multipliers
+    in `WeaponEvolutions.ts`; synergy magnitude in `WeaponSynergies.ts`.
   - **POLISH-WEAPON-SINGULARITY** — 17th weapon "Singularity" feel/balance
     (FEAT-WEAPON-SINGULARITY; class `src/weapons/SingularityWeapon.ts`, pure
     lifecycle + pull math in `src/weapons/singularityLogic.ts`). Check with a
@@ -473,6 +509,44 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-WEAPON-GUARDIAN — 18th weapon "Guardian", reactive retaliation
+  nova** (done — `e4fcb27`). Was the sole Proposed (auto) item in Next; built
+  to completion. **Value:** all 17 prior weapons fire on a fixed cooldown timer
+  that ticks regardless of the game state — none *react* to it. The Guardian is
+  the arsenal's first **reactive** weapon: it fires ONLY when the player takes
+  real damage, retaliating with a radial nova of shards that erupts from the
+  player and knocks the swarm back. It's a genuinely new archetype — it rewards
+  aggressive, face-tank play (armor/thorns/HP builds) instead of pure kiting,
+  and the nova scales with the hit that provoked it, so tanking a big blow fires
+  back harder. **Novel mechanic (vs all 17):** every other weapon is driven by
+  BaseWeapon's cooldown→attack loop; the Guardian overrides `update()` to skip
+  that loop entirely and is instead driven by a new player-damage event.
+  GameScene's single `takeDamage` chokepoint (after all mitigation, right beside
+  the existing thorns retaliation) calls the new
+  `WeaponManager.notifyPlayerDamaged(realDamage)`, which routes to the equipped
+  Guardian; an internal per-hit cooldown gates it so a multi-hit swarm can't
+  chain-detonate the orb. Pure lifecycle (arm → tick → re-arm) + the hit-scaled,
+  capped damage formula live in the unit-tested `guardianLogic.ts` (10 tests:
+  ready→fire→re-arm, swarm chain-detonation guard, tick-to-ready edge, damage
+  scaling + bonus cap + zero/negative-hit floor). The class
+  (`GuardianWeapon.ts`) owns the pooled radial shards (SpatialHash collision,
+  piercing, knockback, rim fade), the amber orb + shockwave-ring burst visual,
+  and the level-ramped internal cooldown (1.5→0.9s). Mastery **"Bulwark"**: each
+  retaliation grants 0.5s of i-frames (notifyPlayerDamaged returns the bonus;
+  `takeDamage` extends `damageCooldown`, never shortens it). Evolution **"Aegis"**
+  (via `vitality` L5): a wider (×1.4 size), harder (×1.5 dmg, +2 count) nova whose
+  shards knock back far harder (200) and briefly freeze (250ms) what they strike.
+  Full mirror-list sync: registry (`index.ts`), `UNLOCKABLE_WEAPONS`
+  (`Upgrades.ts`), evolution recipe, **"Riposte"** synergy (guardian+katana
+  brawler build, +20% dmg / 10% faster both), `explosive` mastery category
+  (`WeaponManager.ts` — the nova is a detonation, so it also scales with
+  explosion-damage), IconMap (`sunbeams`). All three locked content-integrity
+  test arrays updated (WeaponEvolutions / ShipCharacters registry rosters +
+  Upgrades.selection unlockable list). tsc + vite build clean, 1148 tests green
+  (1138 + 10). Feel/balance → playtest queue (POLISH-WEAPON-GUARDIAN). Follow-up
+  proposed: FEAT-WEAPON-WAKE (movement-driven trail archetype — first weapon
+  whose output keys off the player's path).
 
 - [x] **FEAT-WEAPON-SINGULARITY — 17th weapon "Singularity", gravity-well
   crowd control** (done — `440f1cc`). Was the sole Proposed (auto) item in Next;
