@@ -41,3 +41,7 @@ cleanup.
    repo's `BACKLOG.md` Human-gates note if the operator actually does want
    fleet auto-push+deploy here now. Until reconciled, a fresh agent reading
    *only* the charter will make the same mistake again.
+
+**Pending while unresolved (agents honoring the repo gate):** local `master`
+holds unpushed fleet commits awaiting your push (= Pages deploy):
+`ed2dbb3` + `ec796c4` (FEAT-GAUNTLET boss-rush mode, 2026-07-09).
