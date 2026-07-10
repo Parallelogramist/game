@@ -117,6 +117,14 @@ export const WEAPON_SYNERGIES: readonly WeaponSynergy[] = [
     damageMultiplier: 1.2,
     cooldownMultiplier: 0.9,
   },
+  {
+    weaponA: 'singularity',
+    weaponB: 'meteor',
+    name: 'Gravity Collapse',
+    description: 'Clumped enemies amplify area blasts: +25% damage',
+    damageMultiplier: 1.25,
+    cooldownMultiplier: 1.0,
+  },
 ] as const;
 
 // Pre-built lookup for O(1) synergy checks

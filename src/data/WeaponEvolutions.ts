@@ -232,6 +232,19 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.3,
     },
   },
+  {
+    weaponId: 'singularity',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'reach',
+    requiredStatLevel: 5,
+    evolvedName: 'Black Hole',
+    evolvedDescription: 'A ravenous well with a far wider event horizon that grinds the trapped horde with crushing tidal force.',
+    statMultipliers: {
+      damage: 1.4,
+      range: 1.5,
+      size: 1.35,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

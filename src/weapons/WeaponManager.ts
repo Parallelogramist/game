@@ -52,6 +52,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   frost_nova: 'aura',
   drone: 'summon',
   sentry: 'summon',
+  singularity: 'explosive',
   orbiting_blades: 'orbital',
   homing_missile: 'explosive',
   meteor: 'explosive',
