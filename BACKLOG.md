@@ -48,14 +48,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   consider promoting the drawn four-point-star helper (duplicated in
   `HUDManager.ts` + `TouchActionButtons.ts`) into a shared visual util.
 
-- [ ] **POLISH-TOUCH-PRESS-RELEASE — press/release selection for stage + weapon cards**
-  · area: mobile ux · **Value:** ship cards now commit on pointerup over the pressed
-  card (press previews the ship in the hangar panel, dragging off cancels —
-  `WeaponSelectScene.renderShipSelectionStep`); stage and weapon cards still fire on
-  pointerdown, so a stray touch instantly commits. Mirror the ship-card handler trio
-  (pointerdown records pressed id, pointerup over the same card commits, scene-level
-  pointerup/pointerupoutside clears) on the stage and weapon steps. Small session.
-
 ---
 
 ## Human gates
@@ -310,12 +302,16 @@ Never agent work. The fleet must not do any of these.
     on-screen below the stat rows. Tuning: toast color `0x66ddff`/duration 3200, the
     `.slice(0, 4)` synergy cap, bonus format in `formatSynergyBonus`.
   - **POLISH-SHIP-TOUCH-SELECT** — ship-card hover preview + press/release commit
-    (`WeaponSelectScene.renderShipSelectionStep`). Check: (a) desktop hover sweeps
-    across cards swap the hangar preview instantly with no hull-rebuild hitch (setShip
-    now dedupes by ship id); (b) touch on a real phone: press previews the ship,
-    drag-off-and-release cancels without starting the run, release-on-card commits;
-    (c) hover syncing MenuNavigator focus doesn't fight gamepad navigation when both
-    are used in the same session.
+    (`WeaponSelectScene.renderShipSelectionStep`), extended to stage + weapon cards
+    and the RANDOM button by POLISH-TOUCH-PRESS-RELEASE (`abb7e3e`). Check: (a)
+    desktop hover sweeps across cards swap the hangar preview instantly with no
+    hull-rebuild hitch (setShip now dedupes by ship id); (b) touch on a real phone,
+    ALL THREE steps: press highlights the card (ship step also previews the hull),
+    drag-off-and-release cancels without committing, release-on-card commits; RANDOM
+    now fires on release like every other button; (c) hover syncing MenuNavigator
+    focus doesn't fight gamepad navigation when both are used in the same session;
+    (d) the down+up double click sound on a committing tap isn't grating on phone
+    speakers (mirrors the shipped ship-card behavior).
   - **POLISH-DAILY-SCORE-COL** — leaderboard SCORE column + Boot chip width (`45fdd74`;
     `LeaderboardScene.renderEntries` row 720→800, `BootScene.ts:~795`). Check crowding at
     UI-scale extremes.
@@ -342,6 +338,22 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **POLISH-TOUCH-PRESS-RELEASE — press/release selection for stage + weapon
+  cards** (done — `abb7e3e`). Stage and weapon cards committed on pointerdown, so
+  a stray touch instantly locked in a choice; ship cards already used
+  press/release (#41). Mirrored the ship-card trio on both steps: pointerdown
+  records `pressedCardId` (renamed from `pressedShipCardId`, now shared — steps
+  are exclusive and `clearStepUI` resets it) + sets hover/focus, pointerup over
+  the same card commits, scene-level pointerup/pointerupoutside (shared
+  `registerPressedCardClearing()`) cancels on drag-off. Weapon-card pointerdown
+  also syncs MenuNavigator focus (mirrors ship). RANDOM button moved from a
+  manual pointerdown to MenuButton `onActivate` (pointerup) — it was the only
+  button in the codebase committing on press. Verified in Phaser source that
+  GameObject pointerup fires before plugin-level POINTER_UP, so a commit always
+  beats the scene-level clear. No pure logic worth a unit test (Phaser-coupled
+  handler wiring, same shipped pattern). tsc + vite build clean, 1090 tests
+  green. On-device feel → playtest queue (POLISH-SHIP-TOUCH-SELECT, extended).
 
 - [x] **FLEET SWEEP 2026-07-04 — the implementable backlog cleared in one
   batch** (operator directive: "implement everything"). Hash in the commit
