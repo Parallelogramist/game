@@ -38,6 +38,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
+- [ ] **BUG-DAILY-MODE-RESTORE** — a refresh mid-daily-run silently demotes it
+  to a standard run. Value: the daily result isn't lost to an accidental
+  reload. `dailyModeActive`/`dailyDateString`/`dailyChallengeType` come only
+  from init data (`GameScene.init`); they are never written into
+  `GameSaveState`, so CONTINUE (`{restore: true}`) restores with
+  `dailyModeActive=false` and death never calls `recordDailyRun`. Found while
+  building FEAT-GAUNTLET (whose `gauntletState.active` shows the fix shape:
+  persist the mode in the save, restore it from there). Pointers:
+  `GameScene.init/saveGameState/restoreGameState`, `GameSaveState`.
+
+- [ ] **BUG-SHIP-ID-NOT-SAVED** — the selected ship's identity doesn't survive
+  a refresh. Value: a restored run keeps its ship. `shipId` is never written
+  into `GameSaveState`: stat bonuses survive (baked into saved playerStats)
+  but `selectedShipId` resets to `ship_default`, so a restored run renders the
+  default hull family (POLISH-SHIP-HULLS visuals) and PLAY AGAIN after a
+  restored death rebuilds a default-ship run (`GameScene.restoreGameState`
+  now rewrites `scene.settings.data` with stage + gauntlet mode — ship and
+  starting weapon can't be reconstructed until they're persisted). Found in
+  FEAT-GAUNTLET review. Pointers: `GameScene.saveGameState/restoreGameState`,
+  `GameSaveState.stageId` (the pattern to mirror).
+
 - [ ] **POLISH-GLYPH-SWEEP-2** — finish the non-HUD glyph sweep. Value: the
   2026-07-04 HUD skin pass (drawn pause/dash/ult/fullscreen icons, DISPLAY_FONT
   typography, kills/gold stack, mastery star badge) removed every rendered emoji
@@ -59,6 +80,27 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-GAUNTLET** — GAUNTLET boss-rush mode feel/balance (FEAT-GAUNTLET;
+    wave math in `src/game/gauntlet/gauntletWaves.ts`, loop in
+    `GameScene.updateGauntletMode`). Check with real runs: (a) pacing — 8s
+    intro, 5s breather, miniboss 1.5s / boss 4.5s spawn staggers; do waves
+    flow or drag? (b) escalation — composition table (1mb / 2mb / boss / …,
+    caps 3 bosses + 6 minibosses) + per-wave stat ramp (×1.12 HP / ×1.08 dmg
+    / ×1.06 XP from wave 2) vs the player's level curve off trash XP: find
+    the wall wave, is it satisfying? (c) wave-clear rewards — gold
+    (25 + 15·wave) + 2 health pickups: enough to sustain, or trivializing?
+    (d) multi-boss waves (6+) — 2-3 bosses + the trash stream at once:
+    readable? frame rate? boss health-bar stack? (e) HUD "GAUNTLET · WAVE N"
+    label + WAVE banners legible mid-combat, clear banner not lost in the
+    fight; (f) death screen "GAUNTLET · WAVE N (Best M / NEW BEST!)" line
+    reads right, no score/grade/recent-strip remnants; (g) GAUNTLET deck
+    card on the main menu — 7-card portrait row shrink-to-fit still
+    readable, confirmation-on-existing-save flow sane; (h) mid-run refresh →
+    CONTINUE resumes the wave (or re-queues it if the save caught the spawn
+    stagger); PLAY AGAIN after death restarts gauntlet (same stage; ship /
+    weapon reset to defaults — see BUG-SHIP-ID-NOT-SAVED). Tuning knobs: all
+    constants in `gauntletWaves.ts`, heal amount (20×2) in
+    `completeGauntletWave`.
   - **POLISH-SHIP-HULLS** — per-ship hull families × 10 evolution tiers
     (`src/visual/shipHullGeometry.ts`, wired via `ShipCharacter.hullId` →
     `PlayerSpaceship`; ship-select hangar `ShipPreview` cycles each ship's
@@ -338,6 +380,45 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-GAUNTLET — boss-rush game mode** (done — `ed2dbb3`).
+  Proposed (auto) + built this session: Now/Next were empty and Later
+  held only a cosmetic glyph sweep (busy-work per the value gate) + the
+  human playtest queue. **Value:** a new instant-action way to play — the
+  game's setpiece fights (5 minibosses + 3 bosses, phases, telegraphs,
+  arenas) existed only as scheduled beats inside a 10-minute run or deep in
+  post-victory endless; GAUNTLET makes them the whole game from minute 0.
+  Waves of minibosses/bosses (pure escalation table
+  `src/game/gauntlet/gauntletWaves.ts`: 1mb → 2mb → boss → boss+1mb → …,
+  caps 3 bosses + 6 minibosses, boss overflow converts to minibosses;
+  ×1.12 HP / ×1.08 dmg / ×1.06 XP per wave) over the normal trash stream
+  (XP economy intact), kill-driven wave clears (throttled frame-cache scan
+  for alive `xpValue >= 30`, never on a spawn-release frame), wave-clear gold
+  (25+15·wave) + 2 health pickups + banner, 5s breather, best wave persisted
+  (`survivor-gauntlet-best`, registered + locked by the StorageBootstrap
+  scan). Full build selection (GAUNTLET deck card → stage/ship/weapon/pact
+  flow with a mode-tagged subtitle; 7-card deck row shrink-to-fit in
+  portrait). Wave loop runs from the gated update tick (freezes with
+  pause/modals/death — exploder-fuse lesson), spawns reuse
+  spawnMiniboss/spawnNextBoss. Save/restore: `gauntletState`
+  {active, wave, phase, phaseTimer, newBestThisRun}, sanitized restore;
+  restore-into-combat with nothing alive re-queues the wave (no
+  save-scum free clear). Death screen swaps the score line for
+  "GAUNTLET · WAVE N (Best M)"; gauntlet deaths don't break the win streak
+  and skip the per-world score table / recent-runs strip / daily leaderboard
+  (no standard-record pollution); boss kills don't trigger
+  victory/advanceWorldLevel. HUD "WORLD N" slot shows "GAUNTLET · WAVE N"
+  (new `HUDManager.setTopCenterLabel`). Boss atmosphere/lighting now
+  tracks `activeBossType` and survives until the LAST boss in a multi-boss
+  wave dies (also fixes endless cycle-3+). Review agent found + fixed a
+  critical Phaser scene-data leak (stale `gauntletMode` would have infected
+  every later standard PLAY — both `startNewGame` sites now pass explicit
+  data) and `restoreGameState` now rewrites `scene.settings.data` so PLAY
+  AGAIN after a restored death keeps mode + stage. 9 unit tests
+  (escalation table, caps, spawn plan, gold curve, best-wave parse
+  corruption). tsc + vite build clean, 1099 tests green. Feel/balance →
+  playtest queue (POLISH-GAUNTLET); discovered pre-existing gaps filed
+  (BUG-DAILY-MODE-RESTORE, BUG-SHIP-ID-NOT-SAVED).
 
 - [x] **POLISH-TOUCH-PRESS-RELEASE — press/release selection for stage + weapon
   cards** (done — `abb7e3e`). Stage and weapon cards committed on pointerdown, so
