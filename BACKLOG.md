@@ -38,20 +38,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **BUG-SHIP-ID-NOT-SAVED** — the selected ship's identity doesn't survive
-  a refresh. Value: a restored run keeps its ship. `shipId` is never written
-  into `GameSaveState`: stat bonuses survive (baked into saved playerStats)
-  but `selectedShipId` resets to `ship_default`, so a restored run renders the
-  default hull family (POLISH-SHIP-HULLS visuals) and PLAY AGAIN after a
-  restored death rebuilds a default-ship run (`GameScene.restoreGameState`
-  now rewrites `scene.settings.data` with stage + gauntlet mode — ship and
-  starting weapon can't be reconstructed until they're persisted; the
-  BUG-DAILY-MODE-RESTORE fix regenerates them for a still-current daily/weekly
-  since those are deterministic from the date, but standard + gauntlet runs
-  still fall back to defaults). Found in FEAT-GAUNTLET review. Pointers:
-  `GameScene.saveGameState/restoreGameState`, `GameSaveState.stageId` (the
-  pattern to mirror), `SerializedDailyState` (the newest mode-state shape).
-
 - [ ] **POLISH-GLYPH-SWEEP-2** — finish the non-HUD glyph sweep. Value: the
   2026-07-04 HUD skin pass (drawn pause/dash/ult/fullscreen icons, DISPLAY_FONT
   typography, kills/gold stack, mastery star badge) removed every rendered emoji
@@ -79,6 +65,15 @@ Never agent work. The fleet must not do any of these.
     from that death relaunches the same challenge (same modifiers/ship/weapon
     — the config regenerates from the date) and a second, better run replaces
     the day's entry (best-of-day).
+  - **POLISH-RUN-IDENTITY-RESTORE** — run launch identity across refresh
+    (BUG-SHIP-ID-NOT-SAVED fix, `cf38937`). Check: pick a non-default ship
+    (distinct hull, e.g. Boss Hunter) + non-default weapon + a pact, refresh
+    mid-run, CONTINUE → the restored run renders THAT ship's hull family +
+    neon color (not the default arrow); die → PLAY AGAIN relaunches with the
+    same ship/weapon/pacts AND the same run modifiers (previously: default
+    ship, re-rolled modifiers); same flow in a GAUNTLET run keeps mode +
+    identity together. Legacy saves (pre-fix) restore as before — default
+    ship, no pacts.
   - **POLISH-GAUNTLET** — GAUNTLET boss-rush mode feel/balance (FEAT-GAUNTLET;
     wave math in `src/game/gauntlet/gauntletWaves.ts`, loop in
     `GameScene.updateGauntletMode`). Check with real runs: (a) pacing — 8s
@@ -97,7 +92,8 @@ Never agent work. The fleet must not do any of these.
     readable, confirmation-on-existing-save flow sane; (h) mid-run refresh →
     CONTINUE resumes the wave (or re-queues it if the save caught the spawn
     stagger); PLAY AGAIN after death restarts gauntlet (same stage; ship /
-    weapon reset to defaults — see BUG-SHIP-ID-NOT-SAVED). Tuning knobs: all
+    weapon / pacts persist too since the BUG-SHIP-ID-NOT-SAVED fix,
+    `cf38937`). Tuning knobs: all
     constants in `gauntletWaves.ts`, heal amount (20×2) in
     `completeGauntletWave`.
   - **POLISH-SHIP-HULLS** — per-ship hull families × 10 evolution tiers
@@ -379,6 +375,31 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **BUG-SHIP-ID-NOT-SAVED — run launch identity (ship/weapon/pacts)
+  survives a refresh** (done — `cf38937`). `shipId`, `startingWeapon`, and
+  `pactIds` were accepted by `GameScene.init` but never written into
+  `GameSaveState`, so a mid-run refresh restored the run with the default
+  hull family + neon palette (stat bonuses survived — baked into saved
+  playerStats) and PLAY AGAIN after a restored death rebuilt a default-ship,
+  no-pact run with re-rolled modifiers. Save now carries
+  `shipId`/`startingWeaponId`/`pactIds` (optional → legacy saves keep the
+  pre-fix defaults); restore assigns them sanitized (length-capped strings,
+  pacts revalidated via `getPactById`) BEFORE `restoreEntities` builds the
+  player visual, so the right hull renders; nothing is re-applied stat-wise.
+  The PLAY AGAIN `settings.data` rewrite (non-daily branch) now passes the
+  full original launch payload — stage + mode + ship/weapon/modifiers/pacts —
+  matching what a non-restored PLAY AGAIN reuses via Phaser's settings.data
+  (the daily branch still regenerates from the date, which stays
+  authoritative). Unknown ids are harmless by construction: every ship
+  consumer falls back `getShipById(...) ?? getDefaultShip()`, and the weapon
+  id only reaches the fresh path's `createWeapon(...) || new
+  ProjectileWeapon()` guard. 2 round-trip tests
+  (`GameStateManager.runIdentity.test.ts`, daily-test idiom) pin the
+  accepted-but-never-written save-field class (previously hit
+  `ultimateCharge`, then `dailyState`). tsc + vite build clean, 1104 tests
+  green (1102 + 2). Human browser check → POLISH-RUN-IDENTITY-RESTORE
+  (playtest queue).
 
 - [x] **BUG-DAILY-MODE-RESTORE — daily/weekly identity survives a refresh**
   (done — `5d50c79`). A refresh mid-daily-run silently demoted it to a
