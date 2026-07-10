@@ -47,4 +47,5 @@ holds unpushed fleet commits awaiting your push (= Pages deploy):
 `ed2dbb3` + `ec796c4` (FEAT-GAUNTLET boss-rush mode, 2026-07-09),
 `5d50c79` + `4943ab7` (BUG-DAILY-MODE-RESTORE daily-refresh fix, 2026-07-10),
 `cf38937` (BUG-SHIP-ID-NOT-SAVED run-identity fix, 2026-07-10),
+`37297d1` (FEAT-BOSS-BASTION 4th boss, 2026-07-10),
 plus the docs commits noting this line.

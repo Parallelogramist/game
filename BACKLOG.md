@@ -34,7 +34,17 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Next
 
-(empty — next agent: take the topmost Later item)
+### Proposed (auto)
+
+- [ ] **FEAT-WEAPON-SENTRY** — 16th weapon: deployable sentry turret. Value:
+  all 15 weapons are attached to the player (projectile/orbit/beam/return);
+  a weapon that DEPLOYS a stationary auto-firing sentry at your position
+  adds a genuinely new archetype — positional play (anchor a lane, kite
+  around your gun line) the arsenal lacks. Reuse the `turret` enemy's
+  visual language inverted to player-neon; pure targeting/uptime math
+  unit-testable like `boomerangMotion.ts`. Mastery: two sentries; evolution
+  candidate: rail sentry. Mirror-list sync required (WeaponEvolutions /
+  ShipCharacters / Upgrades.selection content-integrity tests).
 
 ## Later
 
@@ -59,6 +69,28 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-BASTION** — 4th boss "The Bastion" feel/balance
+    (FEAT-BOSS-BASTION, `37297d1`; AI in `src/ecs/systems/enemy-ai/bastion.ts`,
+    strike planning + all knobs in `bastion-barrage.ts`). Check with real
+    runs (it's 4th in the cycle — fastest to reach via GAUNTLET wave 3+ or
+    endless): (a) siege identity — does the retreat-and-bombard loop read as
+    "corner the artillery" or as tedious chasing? Reviewer confirmed the
+    screen-bounds clamp pins it at walls, so cornering IS the counterplay;
+    (b) mortar dodge feel — scatter fuses 1.2/1.05/0.9s by phase, ring band
+    70–170 around you, blast 70: fair pressure or bullet-hell noise over the
+    trash stream? (c) rolling barrage (phase 2+, 45%) — does the marching
+    strike line telegraph "move sideways" clearly? (d) orange mortar rings
+    (0xff7733, 78px) vs red boss AOE rings — distinguishable mid-swarm?
+    (e) fortress silhouette + burnt-bronze palette at gameplay scale under
+    bloom, muzzle facing the player; (f) armor 14 (vs 12 other bosses) +
+    4800 HP — does the fight length feel "siege" without dragging?
+    (g) frame rate during barrages — each shell fires the unpooled
+    handleGroundSlam visual (circle + graphics + 2 tweens × 3–7 shells);
+    reviewer flagged the allocation rate — if it stutters, pool the mortar
+    impact visual; (h) burn-crater arena hazards near the player every ~5s —
+    pressure or clutter? Knobs: PREFERRED_RANGE/RANGE_SLACK + reload
+    (4.2−0.5·phase) in `bastion.ts`; counts/fuses/damage/radii in
+    `bastion-barrage.ts`; armor in `EnemyTypes.ts` ENEMY_ARMOR.
   - **POLISH-DAILY-RESTORE** — daily/weekly refresh recovery
     (BUG-DAILY-MODE-RESTORE fix, `5d50c79`). Check: start a daily, refresh
     mid-run, CONTINUE, die → LEADERBOARD shows the day's entry; PLAY AGAIN
@@ -375,6 +407,41 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-BOSS-BASTION — 4th boss "The Bastion", siege artillery**
+  (done — `37297d1`). Proposed (auto) + built this session: Now/Next were
+  empty and Later held only the glyph sweep (busy-work per the value gate)
+  + the human playtest queue. **Value:** the boss pool was 3 — every mode
+  that cycles bosses (standard 10-min spawn, endless `spawnNextBoss`,
+  GAUNTLET multi-boss waves capped at 3 bosses) repeated the same three
+  fights fast; a 4th boss is new setpiece content in every mode at once.
+  **Novel mechanics (vs all 3 existing):** (1) zone-denial at the PLAYER's
+  position — telegraphed mortar strikes land where you stand
+  (`groundSlamCallback` at planned points; existing bosses only damage at
+  their own position or via projectiles); (2) inverted chase — it RETREATS
+  to hold mortar range (380±60), the one boss you must corner (screen-bounds
+  clamp pins it at walls — cornering is the counterplay, reviewer-verified);
+  (3) phase 2+ rolling barrage marching a strike line through you (forces
+  lateral dodge). Pure planning module `enemy-ai/bastion-barrage.ts`
+  (scatter ring band 70–170, drumroll staggers, march geometry with bounded
+  perpendicular jitter, phase scaling 3/4/5 shells + fuses 1.2/1.05/0.9s
+  with a test-locked 0.9s dodge floor — review fix bumped the rolling base
+  fuse 0.85→0.9 and added the near-player warning lock), 13 tests, seeded
+  RNG. Handler keeps strike plans in a module map — `resetBastionStrikes()`
+  wired beside `resetBossPhaseTracking()`; restore into the firing state
+  finds no plan and safely reloads (plans deliberately not persisted).
+  Telegraph spec follows the contract idiom (78 ≥ blast 70, duration ==
+  flight time; 2 contract tests added). Integration = the six per-boss
+  tables (TUNING.bosses.order, ENEMY_TYPES + ENEMY_ARMOR 14, drawer
+  registry — bastioned-fortress silhouette with forward mortar tube,
+  boss-arena burnt-bronze theme, spawnBossHazard burn craters, AI dispatch
+  + barrel exports); codex/health-bar/death-cinematics/drops/gauntlet scans
+  key off `xpValue >= 1000` automatically. tsc + vite build clean, 1119
+  tests green (1104 + 15). Feel/balance → playtest queue
+  (POLISH-BOSS-BASTION). Reviewer also noted a pre-existing oddity (not
+  this diff): horde-king `phaseSpeedMult = 1 + (3 - phase) * 0.2` is slower
+  in later phases despite its "faster" comment — left untouched (behavior
+  change = balance call).
 
 - [x] **BUG-SHIP-ID-NOT-SAVED — run launch identity (ship/weapon/pacts)
   survives a refresh** (done — `cf38937`). `shipId`, `startingWeapon`, and
