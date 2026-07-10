@@ -1467,6 +1467,9 @@ export class GameScene extends Phaser.Scene {
         date: this.dailyDateString,
         challengeType: this.dailyChallengeType,
       },
+      shipId: this.selectedShipId,
+      startingWeaponId: this.startingWeaponId,
+      pactIds: this.activePacts.map(pact => pact.id),
     });
   }
 
@@ -1485,6 +1488,22 @@ export class GameScene extends Phaser.Scene {
     // Restore stage selection before anything that reads it (enemy scaling,
     // grid palette). Falls back to default if the save is pre-stageId.
     this.selectedStageId = state.stageId || 'stage_deep_void';
+
+    // Restore run launch identity. The ship id drives the hull family + neon
+    // palette the player visual is built from (getShipHullId/getShipNeonColor),
+    // so it must land before restoreEntities; ship/pact stat bonuses are
+    // already baked into the saved playerStats, so nothing is re-applied here.
+    // An unknown ship id is harmless — every consumer falls back via
+    // `getShipById(...) ?? getDefaultShip()` — and an unknown weapon id only
+    // reaches the fresh path's `createWeapon(...) || new ProjectileWeapon()`
+    // guard on PLAY AGAIN. Absent on legacy saves → defaults (pre-fix behavior).
+    const sanitizeIdentityId = (value: unknown): string =>
+      typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : '';
+    this.selectedShipId = sanitizeIdentityId(state.shipId) || 'ship_default';
+    this.startingWeaponId = sanitizeIdentityId(state.startingWeaponId) || 'projectile';
+    this.activePacts = (Array.isArray(state.pactIds) ? state.pactIds : [])
+      .map(id => getPactById(sanitizeIdentityId(id)))
+      .filter((pact): pact is Pact => pact !== undefined);
 
     // Reset all ECS systems — mirror the fresh-path reset block so stale
     // singleton state (director credit, boss phase tracker, cached textures,
@@ -1688,13 +1707,13 @@ export class GameScene extends Phaser.Scene {
     // PLAY AGAIN calls scene.restart() with no data, which reuses this scene's
     // settings.data — for a restored run that is just {restore: true}, and the
     // save is cleared on death, so the restart would silently fall back to a
-    // default standard run. Rewrite the payload with what a fresh start can
-    // reconstruct (mode + stage; ship/weapon/pacts aren't in the save —
-    // pre-existing cut, see BACKLOG). A daily/weekly whose challenge is still
-    // current is fully reconstructable — the config regenerates
-    // deterministically from the date (modifiers, ship, weapon), matching what
-    // the menu deck card would launch. A rolled-over date drops to a standard
-    // run, same as the menu.
+    // default standard run. Rewrite the payload with the original launch
+    // identity (stage + mode + ship/weapon/modifiers/pacts, all restored from
+    // the save above), matching what a non-restored PLAY AGAIN reuses. A
+    // daily/weekly whose challenge is still current is regenerated instead —
+    // the config is deterministic from the date (modifiers, ship, weapon),
+    // matching what the menu deck card would launch. A rolled-over date drops
+    // to a standard run, same as the menu.
     const currentChallenge = this.dailyModeActive
       ? this.dailyChallengeType === 'weekly'
         ? generateWeeklyChallenge()
@@ -1715,6 +1734,10 @@ export class GameScene extends Phaser.Scene {
       this.scene.settings.data = {
         restore: false,
         stageId: this.selectedStageId,
+        startingWeapon: this.startingWeaponId,
+        shipId: this.selectedShipId,
+        modifierIds: this.activeModifiers.map(modifier => modifier.id),
+        pactIds: this.activePacts.map(pact => pact.id),
         gauntletMode: this.gauntletModeActive,
       };
     }

@@ -434,6 +434,16 @@ export interface GameSaveState {
   // Daily/weekly challenge identity (see SerializedDailyState). Absent on
   // legacy + standard-run saves → daily inactive.
   dailyState?: SerializedDailyState;
+
+  // Run launch identity — the ship, starting weapon, and pacts the run began
+  // with. Stat effects are already baked into the saved playerStats (nothing is
+  // re-applied on restore); these exist so a restored run renders the right
+  // hull family / neon palette and so PLAY AGAIN after a restored death can
+  // rebuild the original launch payload instead of falling back to the default
+  // ship + weapon. Absent on legacy saves → defaults (pre-fix behavior).
+  shipId?: string;
+  startingWeaponId?: string;
+  pactIds?: string[];
 }
 
 /**
@@ -644,6 +654,9 @@ export class GameStateManager {
     endlessState?: SerializedEndlessState;
     gauntletState?: SerializedGauntletState;
     dailyState?: SerializedDailyState;
+    shipId?: string;
+    startingWeaponId?: string;
+    pactIds?: string[];
   }): void {
     try {
       const state: GameSaveState = {
@@ -717,6 +730,9 @@ export class GameStateManager {
         endlessState: gameData.endlessState,
         gauntletState: gameData.gauntletState,
         dailyState: gameData.dailyState,
+        shipId: gameData.shipId,
+        startingWeaponId: gameData.startingWeaponId,
+        pactIds: gameData.pactIds,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));
