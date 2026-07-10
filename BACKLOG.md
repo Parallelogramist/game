@@ -38,16 +38,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **BUG-DAILY-MODE-RESTORE** — a refresh mid-daily-run silently demotes it
-  to a standard run. Value: the daily result isn't lost to an accidental
-  reload. `dailyModeActive`/`dailyDateString`/`dailyChallengeType` come only
-  from init data (`GameScene.init`); they are never written into
-  `GameSaveState`, so CONTINUE (`{restore: true}`) restores with
-  `dailyModeActive=false` and death never calls `recordDailyRun`. Found while
-  building FEAT-GAUNTLET (whose `gauntletState.active` shows the fix shape:
-  persist the mode in the save, restore it from there). Pointers:
-  `GameScene.init/saveGameState/restoreGameState`, `GameSaveState`.
-
 - [ ] **BUG-SHIP-ID-NOT-SAVED** — the selected ship's identity doesn't survive
   a refresh. Value: a restored run keeps its ship. `shipId` is never written
   into `GameSaveState`: stat bonuses survive (baked into saved playerStats)
@@ -55,9 +45,12 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   default hull family (POLISH-SHIP-HULLS visuals) and PLAY AGAIN after a
   restored death rebuilds a default-ship run (`GameScene.restoreGameState`
   now rewrites `scene.settings.data` with stage + gauntlet mode — ship and
-  starting weapon can't be reconstructed until they're persisted). Found in
-  FEAT-GAUNTLET review. Pointers: `GameScene.saveGameState/restoreGameState`,
-  `GameSaveState.stageId` (the pattern to mirror).
+  starting weapon can't be reconstructed until they're persisted; the
+  BUG-DAILY-MODE-RESTORE fix regenerates them for a still-current daily/weekly
+  since those are deterministic from the date, but standard + gauntlet runs
+  still fall back to defaults). Found in FEAT-GAUNTLET review. Pointers:
+  `GameScene.saveGameState/restoreGameState`, `GameSaveState.stageId` (the
+  pattern to mirror), `SerializedDailyState` (the newest mode-state shape).
 
 - [ ] **POLISH-GLYPH-SWEEP-2** — finish the non-HUD glyph sweep. Value: the
   2026-07-04 HUD skin pass (drawn pause/dash/ult/fullscreen icons, DISPLAY_FONT
@@ -80,6 +73,12 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-DAILY-RESTORE** — daily/weekly refresh recovery
+    (BUG-DAILY-MODE-RESTORE fix, `5d50c79`). Check: start a daily, refresh
+    mid-run, CONTINUE, die → LEADERBOARD shows the day's entry; PLAY AGAIN
+    from that death relaunches the same challenge (same modifiers/ship/weapon
+    — the config regenerates from the date) and a second, better run replaces
+    the day's entry (best-of-day).
   - **POLISH-GAUNTLET** — GAUNTLET boss-rush mode feel/balance (FEAT-GAUNTLET;
     wave math in `src/game/gauntlet/gauntletWaves.ts`, loop in
     `GameScene.updateGauntletMode`). Check with real runs: (a) pacing — 8s
@@ -380,6 +379,27 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **BUG-DAILY-MODE-RESTORE — daily/weekly identity survives a refresh**
+  (done — `5d50c79`). A refresh mid-daily-run silently demoted it to a
+  standard run: the mode flags lived only in scene init data, so CONTINUE
+  restored with `dailyModeActive=false` and death/victory never called
+  `recordDailyRun` — the day's leaderboard entry was lost to an accidental
+  reload. Save now carries `dailyState {active, date, challengeType}`
+  (new `SerializedDailyState`, mirrors the gauntletState shape; restore
+  assigns unconditionally so a prior daily's fields can't leak into a
+  restored standard run, and sanitizes — bad/oversized date or unknown
+  type falls back to standard/daily). The PLAY AGAIN `settings.data`
+  rewrite now regenerates the FULL challenge config when the saved date is
+  still current (daily/weekly configs are deterministic from the date via
+  `generateDailyChallenge`/`generateWeeklyChallenge`), so a replay gets the
+  real modifiers/ship/weapon — sidestepping BUG-SHIP-ID-NOT-SAVED for this
+  mode only; a rolled-over date drops to a standard run, same as the menu
+  would offer. 3 round-trip tests (`GameStateManager.daily.test.ts`,
+  endless-test idiom) lock the save()→load() pass-through — the
+  accepted-but-never-written field bug class that previously hit
+  `ultimateCharge`. tsc + vite build clean, 1102 tests green (1099 + 3).
+  Human browser check → POLISH-DAILY-RESTORE (playtest queue).
 
 - [x] **FEAT-GAUNTLET — boss-rush game mode** (done — `ed2dbb3`).
   Proposed (auto) + built this session: Now/Next were empty and Later
