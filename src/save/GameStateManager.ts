@@ -280,6 +280,18 @@ export interface SerializedGauntletState {
 }
 
 /**
+ * Daily/weekly challenge identity. Without it a mid-challenge refresh restores
+ * as a standard run and the death/victory never posts the day's leaderboard
+ * entry. `date` is the challenge's dateString at run start — a run that
+ * crosses midnight still records against the day it was started.
+ */
+export interface SerializedDailyState {
+  active: boolean;
+  date: string;
+  challengeType: 'daily' | 'weekly';
+}
+
+/**
  * Complete game save state.
  */
 export interface GameSaveState {
@@ -418,6 +430,10 @@ export interface GameSaveState {
   // GAUNTLET boss-rush mode progression (see SerializedGauntletState). Absent
   // on legacy + normal-mode saves → gauntlet inactive.
   gauntletState?: SerializedGauntletState;
+
+  // Daily/weekly challenge identity (see SerializedDailyState). Absent on
+  // legacy + standard-run saves → daily inactive.
+  dailyState?: SerializedDailyState;
 }
 
 /**
@@ -627,6 +643,7 @@ export class GameStateManager {
     hasWon?: boolean;
     endlessState?: SerializedEndlessState;
     gauntletState?: SerializedGauntletState;
+    dailyState?: SerializedDailyState;
   }): void {
     try {
       const state: GameSaveState = {
@@ -699,6 +716,7 @@ export class GameStateManager {
         hasWon: gameData.hasWon,
         endlessState: gameData.endlessState,
         gauntletState: gameData.gauntletState,
+        dailyState: gameData.dailyState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

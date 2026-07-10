@@ -118,7 +118,11 @@ import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirector
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
-import { recordDailyRun } from '../../meta/DailyChallengeManager';
+import {
+  recordDailyRun,
+  generateDailyChallenge,
+  generateWeeklyChallenge,
+} from '../../meta/DailyChallengeManager';
 import { getRelicManager } from '../../meta/RelicManager';
 import { getCardCollectionManager } from '../../meta/CardCollectionManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
@@ -1458,6 +1462,11 @@ export class GameScene extends Phaser.Scene {
         phaseTimer: this.gauntletPhaseTimer,
         newBestThisRun: this.gauntletNewBestThisRun,
       },
+      dailyState: {
+        active: this.dailyModeActive,
+        date: this.dailyDateString,
+        challengeType: this.dailyChallengeType,
+      },
     });
   }
 
@@ -1659,17 +1668,56 @@ export class GameScene extends Phaser.Scene {
     this.gauntletHudWaveShown = -1;
     this.gauntletRestoredMidCombat = this.gauntletModeActive && this.gauntletPhase === 'combat';
 
+    // Restore daily/weekly challenge identity. Assigned unconditionally (scene
+    // restarts reuse this instance, so a prior daily run's fields must not
+    // leak into a restored standard run). Without this a mid-challenge refresh
+    // silently demoted the run to standard and the death/victory never posted
+    // the day's leaderboard entry. A tampered date fails the shape check and
+    // the run restores as standard (recordDailyRun requires a non-empty date).
+    const savedDaily = state.dailyState;
+    const savedDailyDate =
+      typeof savedDaily?.date === 'string' &&
+      savedDaily.date.length > 0 &&
+      savedDaily.date.length <= 32
+        ? savedDaily.date
+        : '';
+    this.dailyModeActive = savedDaily?.active === true && savedDailyDate !== '';
+    this.dailyDateString = this.dailyModeActive ? savedDailyDate : '';
+    this.dailyChallengeType = savedDaily?.challengeType === 'weekly' ? 'weekly' : 'daily';
+
     // PLAY AGAIN calls scene.restart() with no data, which reuses this scene's
     // settings.data — for a restored run that is just {restore: true}, and the
     // save is cleared on death, so the restart would silently fall back to a
     // default standard run. Rewrite the payload with what a fresh start can
     // reconstruct (mode + stage; ship/weapon/pacts aren't in the save —
-    // pre-existing cut, see BACKLOG).
-    this.scene.settings.data = {
-      restore: false,
-      stageId: this.selectedStageId,
-      gauntletMode: this.gauntletModeActive,
-    };
+    // pre-existing cut, see BACKLOG). A daily/weekly whose challenge is still
+    // current is fully reconstructable — the config regenerates
+    // deterministically from the date (modifiers, ship, weapon), matching what
+    // the menu deck card would launch. A rolled-over date drops to a standard
+    // run, same as the menu.
+    const currentChallenge = this.dailyModeActive
+      ? this.dailyChallengeType === 'weekly'
+        ? generateWeeklyChallenge()
+        : generateDailyChallenge()
+      : null;
+    if (currentChallenge && currentChallenge.dateString === this.dailyDateString) {
+      this.scene.settings.data = {
+        restore: false,
+        stageId: this.selectedStageId,
+        startingWeapon: currentChallenge.startingWeaponId,
+        shipId: currentChallenge.shipId,
+        modifierIds: currentChallenge.modifierIds,
+        dailyMode: true,
+        dailyDate: currentChallenge.dateString,
+        dailyChallengeType: currentChallenge.challengeType,
+      };
+    } else {
+      this.scene.settings.data = {
+        restore: false,
+        stageId: this.selectedStageId,
+        gauntletMode: this.gauntletModeActive,
+      };
+    }
 
     // Restore player state
     this.playerStats = state.playerStats;
