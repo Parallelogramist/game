@@ -661,6 +661,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'boomerang', name: 'Boomerang Glaive', icon: 'boomerang', description: 'Carves out and homes back, hitting twice' },
   { id: 'sentry', name: 'Sentry Turret', icon: 'sentry', description: 'Deploys a stationary auto-firing turret' },
   { id: 'singularity', name: 'Singularity', icon: 'singularity', description: 'Lobs a gravity well that pulls enemies together, then collapses' },
+  { id: 'guardian', name: 'Guardian', icon: 'guardian', description: 'A reactive orb that retaliates with a radial nova when you take damage' },
 ];
 
 /**

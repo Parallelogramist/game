@@ -124,6 +124,7 @@ export const ICON_MAP: Record<string, string> = {
   boomerang: 'star-swirl',
   sentry: 'on-target',
   singularity: 'spiral-shell',
+  guardian: 'sunbeams',
   telescope: 'telescope',
   projectile: 'thrown-daggers',
 

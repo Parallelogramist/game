@@ -245,6 +245,19 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.35,
     },
   },
+  {
+    weaponId: 'guardian',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'vitality',
+    requiredStatLevel: 5,
+    evolvedName: 'Aegis',
+    evolvedDescription: 'A wider retaliation nova whose shards hurl the horde back and freeze whatever they strike.',
+    statMultipliers: {
+      damage: 1.5,
+      size: 1.4,
+      count: 2,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

@@ -4280,6 +4280,13 @@ export class GameScene extends Phaser.Scene {
     // Use iframeDuration from playerStats instead of hardcoded value
     this.damageCooldown = this.playerStats.iframeDuration;
 
+    // Guardian (reactive weapon): retaliate with a nova scaled by the hit taken.
+    // Its Bulwark mastery returns bonus i-frames — extend the cooldown, don't shorten.
+    const guardianInvuln = this.weaponManager.notifyPlayerDamaged(reducedDamage);
+    if (guardianInvuln > this.damageCooldown) {
+      this.damageCooldown = guardianInvuln;
+    }
+
     // Play hurt sound
     this.soundManager.playPlayerHurt();
 

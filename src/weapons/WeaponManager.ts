@@ -1,6 +1,7 @@
 import { IWorld, hasComponent } from 'bitecs';
 import { BaseWeapon, WeaponContext } from './BaseWeapon';
 import { ChainLightningWeapon } from './ChainLightningWeapon';
+import { GuardianWeapon } from './GuardianWeapon';
 import { checkEvolutionReady, WeaponEvolution } from '../data/WeaponEvolutions';
 import {
   getActiveSynergies,
@@ -53,6 +54,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   drone: 'summon',
   sentry: 'summon',
   singularity: 'explosive',
+  guardian: 'explosive',
   orbiting_blades: 'orbital',
   homing_missile: 'explosive',
   meteor: 'explosive',
@@ -404,6 +406,30 @@ export class WeaponManager {
       weapon.update(this.ctx);
     }
     this.currentFiringWeaponId = null;
+  }
+
+  /**
+   * Notify the reactive Guardian weapon that the player took real damage, so it
+   * can retaliate with a radial nova (gated by its own internal cooldown). No-op
+   * for every build without a Guardian equipped. Returns the seconds of bonus
+   * invulnerability the player should be granted (the Bulwark mastery), or 0.
+   *
+   * Called from GameScene.takeDamage after mitigation, so `hitDamage` is the real
+   * HP loss — the nova scales with it, rewarding face-tank play.
+   */
+  public notifyPlayerDamaged(hitDamage: number): number {
+    const guardian = this.weapons.get('guardian');
+    if (!(guardian instanceof GuardianWeapon)) return 0;
+
+    // Refresh player position on the pooled context so the nova erupts from where
+    // the player is right now, independent of weapon/collision update ordering.
+    this.ctx.playerX = Transform.x[this.playerId];
+    this.ctx.playerY = Transform.y[this.playerId];
+
+    this.currentFiringWeaponId = 'guardian';
+    const invulnSeconds = guardian.onPlayerDamaged(this.ctx, hitDamage);
+    this.currentFiringWeaponId = null;
+    return invulnSeconds;
   }
 
   /**
