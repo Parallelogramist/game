@@ -262,6 +262,24 @@ interface SerializedEndlessState {
 }
 
 /**
+ * GAUNTLET (boss-rush) mode progression. `phase` is the wave state machine:
+ * 'intro' counts down to wave 1, 'combat' means the wave's spawns are live,
+ * 'breather' counts down between a wave clear and the next wave. Staggered
+ * spawns still pending at save time are NOT persisted — a refresh mid-stagger
+ * resumes with whatever restored enemies survive (the alive-scan, not a spawn
+ * ledger, is the clear authority), and a combat restore with nothing alive
+ * re-queues the wave in full. `newBestThisRun` keeps the end-screen
+ * "NEW BEST!" callout alive across a refresh.
+ */
+export interface SerializedGauntletState {
+  active: boolean;
+  wave: number;
+  phase: 'intro' | 'combat' | 'breather';
+  phaseTimer: number;
+  newBestThisRun?: boolean;
+}
+
+/**
  * Complete game save state.
  */
 export interface GameSaveState {
@@ -396,6 +414,10 @@ export interface GameSaveState {
   // Post-victory endless-mode progression (see SerializedEndlessState). Absent
   // on legacy + normal mid-run saves → reset defaults win (endless inactive).
   endlessState?: SerializedEndlessState;
+
+  // GAUNTLET boss-rush mode progression (see SerializedGauntletState). Absent
+  // on legacy + normal-mode saves → gauntlet inactive.
+  gauntletState?: SerializedGauntletState;
 }
 
 /**
@@ -604,6 +626,7 @@ export class GameStateManager {
     hazardState?: SerializedHazardState;
     hasWon?: boolean;
     endlessState?: SerializedEndlessState;
+    gauntletState?: SerializedGauntletState;
   }): void {
     try {
       const state: GameSaveState = {
@@ -675,6 +698,7 @@ export class GameStateManager {
         hazardState: gameData.hazardState,
         hasWon: gameData.hasWon,
         endlessState: gameData.endlessState,
+        gauntletState: gameData.gauntletState,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));

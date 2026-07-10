@@ -256,6 +256,8 @@ export interface GameOverData {
   isNewBest?: boolean;
   /** Prior runs (newest-first) for the "RECENT" trend strip. */
   recentRuns?: RunSummary[];
+  /** GAUNTLET mode result — replaces the score line with the wave reached. */
+  gauntlet?: { wave: number; bestWave: number; isNewBest: boolean };
 }
 
 export class PauseMenuManager {
@@ -1586,8 +1588,20 @@ export class PauseMenuManager {
       animatedElements.push(badgeGraphics, gradeText, gradeLabel);
     }
 
-    // Score line (below the title).
-    if (data.runScore !== undefined) {
+    // Score line (below the title). GAUNTLET runs show the wave reached in the
+    // same slot instead (their measure is waves, not the composite score).
+    if (data.gauntlet) {
+      const waveStr = data.gauntlet.isNewBest
+        ? `GAUNTLET · WAVE ${data.gauntlet.wave} — NEW BEST!`
+        : `GAUNTLET · WAVE ${data.gauntlet.wave}   ·   Best ${data.gauntlet.bestWave}`;
+      const waveText = this.scene.add.text(centerX, titleY + 48, waveStr, {
+        fontSize: '16px',
+        color: data.gauntlet.isNewBest ? '#ffdd44' : '#9999bb',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(waveText);
+    } else if (data.runScore !== undefined) {
       const scoreStr = data.isNewBest
         ? `NEW BEST  ${data.runScore.toLocaleString()}`
         : `Score ${data.runScore.toLocaleString()}   ·   Best ${(data.bestScore ?? data.runScore).toLocaleString()}`;

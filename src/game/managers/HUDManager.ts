@@ -825,6 +825,15 @@ export class HUDManager {
   }
 
   /**
+   * Replaces the top-center "WORLD N" label (GAUNTLET mode shows the wave
+   * there instead — same slot, no extra HUD real estate).
+   */
+  setTopCenterLabel(label: string): void {
+    const worldLevelText = this.scene.children.getByName('worldLevelText') as Phaser.GameObjects.Text | null;
+    worldLevelText?.setText(label);
+  }
+
+  /**
    * Updates all HUD elements each frame.
    */
   update(state: HUDUpdateState): void {

@@ -161,11 +161,14 @@ export class BootScene extends Phaser.Scene {
           await musicManager.play();
         }
         gameStateManager.clearSave();
-        transitionToScene(this, 'WeaponSelectScene');
+        // Explicit false — Phaser keeps a scene's last settings.data when
+        // start() gets none, so a prior GAUNTLET launch would otherwise leak
+        // its mode flag into every later standard PLAY.
+        transitionToScene(this, 'WeaponSelectScene', { gauntletMode: false });
       } catch (error) {
         console.error('Could not start game:', error);
         gameStateManager.clearSave();
-        this.scene.start('WeaponSelectScene');
+        this.scene.start('WeaponSelectScene', { gauntletMode: false });
       }
     };
 
@@ -179,6 +182,30 @@ export class BootScene extends Phaser.Scene {
 
     // Runner mode is gameplay — fade like CONTINUE, not the menu sweep.
     const startRunner = () => fadeOut(this, 200, () => this.scene.start('RunnerScene'));
+
+    // Gauntlet boss-rush runs through the standard ship/weapon/pact flow with
+    // the mode flag threaded; it uses the same save slot as a standard run, so
+    // an existing save gets the same overwrite confirmation as NEW RUN.
+    const startGauntlet = async () => {
+      try {
+        if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
+          await musicManager.play();
+        }
+        gameStateManager.clearSave();
+        transitionToScene(this, 'WeaponSelectScene', { gauntletMode: true });
+      } catch (error) {
+        console.error('Could not start gauntlet:', error);
+        gameStateManager.clearSave();
+        this.scene.start('WeaponSelectScene', { gauntletMode: true });
+      }
+    };
+    const startGauntletWithConfirmation = () => {
+      if (hasSave) {
+        this.showNewGameConfirmation(startGauntlet);
+      } else {
+        startGauntlet();
+      }
+    };
     const openShop = () => transitionToScene(this, 'ShopScene');
     const openAchievements = () => transitionToScene(this, 'AchievementScene');
     const openCodex = () => transitionToScene(this, 'CodexScene');
@@ -350,6 +377,7 @@ export class BootScene extends Phaser.Scene {
       onAchievements: openAchievements,
       onCodex: openCodex,
       onCards: openCards,
+      onGauntlet: startGauntletWithConfirmation,
       onRunner: startRunner,
       onLeaderboard: openLeaderboard,
     });
@@ -928,11 +956,12 @@ export class BootScene extends Phaser.Scene {
     onCodex: () => void;
     onCards: () => void;
     onLeaderboard: () => void;
+    onGauntlet: () => void;
     onRunner: () => void;
   }): void {
     const {
-      centerX, centerY, cardWidth, cardHeight, gap, layoutScale, fontScale, goldAmount,
-      onShop, onAchievements, onCodex, onCards, onLeaderboard, onRunner,
+      centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onGauntlet, onRunner,
     } = opts;
 
     interface DeckEntry {
@@ -989,9 +1018,18 @@ export class BootScene extends Phaser.Scene {
         iconTint: 0xbbddff,
       },
       {
+        // Gauntlet boss-rush mode (FEAT-GAUNTLET) — a gameplay entry like
+        // RUNNER; the shared danger role marks both as game modes.
+        label: 'GAUNTLET',
+        iconKey: 'sword',
+        bodyHex: COLORS.bodyDanger,
+        accentHex: COLORS.accentDanger,
+        action: onGauntlet,
+        iconTint: 0xffbbcc,
+      },
+      {
         // Endless-runner mode (FEAT-RUNNER-MODE) — a gameplay entry, so it
         // fades like CONTINUE rather than sweeping like the meta screens.
-        // Sixth card: 6×96 + 5×22 = 686 design units, inside 720 portrait.
         label: 'RUNNER',
         iconKey: 'run',
         bodyHex: COLORS.bodyDanger,
@@ -1000,6 +1038,15 @@ export class BootScene extends Phaser.Scene {
         iconTint: 0xffbbaa,
       },
     ];
+
+    // Fit-to-width: 7 cards at the design width (7×96 + 6×22 = 804 units)
+    // overflow the 720-unit portrait row, so shrink width+gap proportionally
+    // when needed. Landscape (1280) keeps the design size untouched.
+    const usableRowWidth = this.scale.width - scaledInt(layoutScale, 24);
+    const naturalRowWidth = entries.length * opts.cardWidth + (entries.length - 1) * opts.gap;
+    const rowShrink = naturalRowWidth > usableRowWidth ? usableRowWidth / naturalRowWidth : 1;
+    const cardWidth = Math.floor(opts.cardWidth * rowShrink);
+    const gap = Math.floor(opts.gap * rowShrink);
 
     const totalWidth = entries.length * cardWidth + (entries.length - 1) * gap;
     const startX = centerX - totalWidth / 2 + cardWidth / 2;

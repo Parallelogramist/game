@@ -11,6 +11,7 @@ export interface PactSelectSceneData {
   shipId?: string;
   stageId?: string;
   modifierIds?: string[];
+  gauntletMode?: boolean;
 }
 
 interface PactCard {
@@ -278,6 +279,7 @@ export class PactSelectScene extends Phaser.Scene {
         stageId: this.passthrough.stageId,
         modifierIds: this.passthrough.modifierIds ?? [],
         pactIds,
+        gauntletMode: this.passthrough.gauntletMode === true,
       });
     });
   }

@@ -64,9 +64,15 @@ export class WeaponSelectScene extends Phaser.Scene {
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
   private shipPreview: ShipPreview | null = null;
+  /** True when this flow launches GAUNTLET (boss-rush) instead of a standard run. */
+  private gauntletMode: boolean = false;
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
+  }
+
+  init(data?: { gauntletMode?: boolean }): void {
+    this.gauntletMode = data?.gauntletMode === true;
   }
 
   create(): void {
@@ -498,10 +504,18 @@ export class WeaponSelectScene extends Phaser.Scene {
     });
     this.stepObjects.push(titleText);
 
-    const subtitleText = makeBodyText(this, centerX, 130, subtitle, {
-      fontSize: 14,
-      color: TEXT_COLORS.muted,
-    });
+    // The subtitle line doubles as the mode marker so every step of a
+    // gauntlet flow says so (same slot — no layout shift).
+    const subtitleText = makeBodyText(
+      this,
+      centerX,
+      130,
+      this.gauntletMode ? `GAUNTLET · BOSS RUSH — ${subtitle}` : subtitle,
+      {
+        fontSize: 14,
+        color: this.gauntletMode ? '#ff88aa' : TEXT_COLORS.muted,
+      },
+    );
     this.stepObjects.push(subtitleText);
   }
 
@@ -547,6 +561,7 @@ export class WeaponSelectScene extends Phaser.Scene {
         shipId: this.selectedShipId,
         stageId: this.selectedStageId,
         modifierIds: selectedModifiers.map((m) => m.id),
+        gauntletMode: this.gauntletMode,
       });
       return;
     }
@@ -749,6 +764,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       shipId: this.selectedShipId,
       stageId: this.selectedStageId,
       modifierIds: selectedModifiers.map((m) => m.id),
+      gauntletMode: this.gauntletMode,
     });
   }
 
