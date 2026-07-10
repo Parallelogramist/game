@@ -44,4 +44,6 @@ cleanup.
 
 **Pending while unresolved (agents honoring the repo gate):** local `master`
 holds unpushed fleet commits awaiting your push (= Pages deploy):
-`ed2dbb3` + `ec796c4` (FEAT-GAUNTLET boss-rush mode, 2026-07-09).
+`ed2dbb3` + `ec796c4` (FEAT-GAUNTLET boss-rush mode, 2026-07-09),
+`5d50c79` + `4943ab7` (BUG-DAILY-MODE-RESTORE daily-refresh fix, 2026-07-10),
+plus the docs commit noting this line.
