@@ -1137,6 +1137,7 @@ export class BootScene extends Phaser.Scene {
       { label: 'SETTINGS', action: onSettings },
       { label: 'CREDITS', action: onCredits },
       { label: 'PARALLELOGRAMIST', action: () => window.open('https://parallelogramist.com', '_blank') },
+      { label: 'LEGAL', action: () => window.open('/legal.html', '_blank') },
     ];
 
     const style = {
