@@ -36,19 +36,17 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-BOSS-MITOSIS** — 5th boss: a splitting swarm-lord ("The Legion").
-  Value: the boss pool is 4 vs 19 weapons — setpiece content is the scarce
-  resource, and every existing boss is a single persistent entity; a boss that
-  SPLITS at phase thresholds (boss → 2 half-scale fragments → 4, stats
-  partitioned, XP/drops only when the last fragment dies) is a genuinely new
-  fight grammar: target-priority + crowd management instead of dodge-and-focus.
-  Pure planning core like `bastion-barrage.ts`: a split-tree/stat-partition
-  module (fragment HP/damage/scale fractions, split thresholds, spawn offsets),
-  unit-tested without Phaser; AI handler in `enemy-ai/`, wired via the same six
-  per-boss tables Bastion used (TUNING.bosses.order, ENEMY_TYPES, ENEMY_ARMOR,
-  drawer registry, dispatch, barrel). Health bar: sum living fragments into the
-  primary bar (precedent: gauntlet multi-boss stack). Codex/drops key off
-  xpValue automatically.
+- [ ] **FEAT-BOSS-AFFIXES** — affixed boss variants for endless/gauntlet replay.
+  Value: the boss pool now repeats every endless cycle (and gauntlet wave 3+)
+  with only stat ramps; letting cycle-2+ / wave-6+ bosses spawn with ONE elite
+  affix (VOLATILE/TITAN/etc.) plus a title-prefixed health bar ("VOLATILE
+  Horde King") multiplies perceived setpiece variety for near-zero new
+  content — the affix system exists wholesale and bosses are only excluded by
+  the `xpValue < 30` gate in `GameScene.createEnemy`. Wiring: an explicit
+  spawn-time affix roll in `spawnBoss`/gauntlet boss spawns behind a
+  cycle/wave check, name prefix in `createBossHealthBar`, and AFFIX_META
+  reuse for stats/visuals (EliteAffixVisualManager already draws rings for
+  any entity with the component).
 
 ## Later
 
@@ -73,6 +71,35 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-LEGION** — 5th boss "The Legion" feel/balance
+    (FEAT-BOSS-MITOSIS, `d8151ec`; AI in
+    `src/ecs/systems/enemy-ai/legion.ts`, split-tree/pool accounting in
+    `legion-split.ts`). It's 5th in the cycle — reach via GAUNTLET or endless.
+    Check with real runs: (a) **the split grammar reads** — root death visibly
+    becomes 2 fragments, fragments become 2 motes each; does target-priority
+    (focus one fragment vs spread damage) feel like a real decision?
+    (b) **one summed health bar** — does the bar dropping smoothly across
+    splits read as "one boss", and does it never jump upward? (c) **encircle
+    pressure** — fragments orbit at ring 200, motes at 130, drifting
+    0.35/0.55 rad/s with staggered lunges (2.1× speed, 0.85s): does the
+    surround-and-pounce feel dangerous but dodgeable, or like random bumping?
+    (d) **root surge** — 1.9×+0.25×/phase speed lunge every ~5.5s: telegraph
+    enough without a windup ring? (e) **pool balance** — root spawns at
+    2×scaled(1600) HP, pool = 3× that (≈ Bastion's effective 2×4800), armor
+    8/4/0 by tier: does the fight length feel like a boss without dragging,
+    and is killing 7 bodies more satisfying than one? (f) **reward timing** —
+    no XP/drops until the LAST member dies (mid-tree deaths still tick
+    combo/kills): does the payout-at-the-end feel earned or withheld?
+    (g) **gauntlet** — legion in a multi-boss wave: wave-clear correctly waits
+    for all motes (xpValue 60 threat gate); arena tint may drop early if
+    another boss dies post-split (known cosmetic edge, accepted); (h) **magenta
+    family** (0xdd33bb/0xee55cc/0xff77dd) vs void-purple Wyrm + red swarm at
+    gameplay scale under bloom; (i) mid-fight refresh → CONTINUE: group bar
+    rebuilt, split routing still pays out on the last member (module state
+    rebuilt from typeIds). Tuning knobs: baseHealth/speeds/damage + armor in
+    `EnemyTypes.ts`, ring radii / drift / lunge / surge constants in
+    `legion.ts`, generation fractions + spawn offsets in `legion-split.ts`
+    LEGION_GENERATIONS.
   - **POLISH-WEAPON-WAKE** — 19th weapon "Caustic Wake" feel/balance
     (FEAT-WEAPON-WAKE, `7e90628`; class `src/weapons/WakeWeapon.ts`, pure
     emission core in `src/weapons/wakeLogic.ts`). Check with a real run that
@@ -532,6 +559,43 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-BOSS-MITOSIS — 5th boss "The Legion", splitting swarm-lord**
+  (done — `d8151ec`). Was the sole Proposed (auto) item in Next; built to
+  completion. **Value:** the boss pool is 4 vs 19 weapons — setpiece content
+  is the scarce resource, and every existing boss is a single persistent
+  entity; The Legion introduces a genuinely new fight grammar: it splits on
+  death — root boss → 2 half-scale fragments → 4 quarter-scale motes (7
+  entities, one shared HP pool, stats partitioned). Rewards (XP payout,
+  guaranteed consumable, data-cache roll, victory) fire only when the last
+  living member dies; mid-tree deaths are splits, not kills. The player must
+  manage target priority + an encircling crowd instead of dodge-and-focus.
+  **Novel mechanic:** split-on-death tree with promoted last-member payout +
+  summed group bar + restore rebuild. Pure split-tree/pool accounting lives
+  in `legion-split.ts` (11 tests, no Phaser): generation table, pool math
+  (any member reconstructs the full 3×rootMax pool), death routing that
+  spawns children mid-tree or flags the last death for promotion. AI handlers
+  in `enemy-ai/legion.ts`: root lumbering advance + periodic surge lunge;
+  fragments/motes encircle the player on a drifting orbit slot with staggered
+  lunges. `GameScene.resolveLegionDeath` intercepts legion deaths before the
+  normal kill path — mid-tree deaths spawn children and tick combo/kill
+  bookkeeping with no rewards; the last death promotes `EnemyType.xpValue` to
+  1000 and the enemyTypeMap entry to `'the_legion'`, then falls through to
+  the unmodified boss-death path (full XP, drops, cache roll, codex credit,
+  victory/gauntlet wave-clear). One shared health bar stays anchored to the
+  root's entity id even after the root dies — each frame overwrites that
+  payload entry with the summed living+potential pool via
+  `forEachLegionGroup`. Save/restore safe: three distinct `EnemyAIType`
+  values (104/105/106) serialize the split tier through `typeId`; the
+  split-tree group map is rebuilt after `restoreEntities` from restored
+  typeIds, with per-member bars suppressed in favor of one rebuilt group bar.
+  Files: `EnemyTypes.ts` (3 types + armor), `GameTuning.ts` (boss order),
+  `BossArenaSystem.ts` (arena theme), `EnemyVisuals.ts` (`drawLegion` +
+  `drawLegionFragment`), `enemy-ai/index.ts` + `EnemyAISystem.ts` (dispatch +
+  re-exports), `GameScene.ts` (death branch, entity-removal helper
+  extraction, HUD payload override, spawnBoss hook, restore hooks, reset
+  call). tsc + vite build clean, 1167 tests green (1156 + 11). Feel/balance →
+  playtest queue (POLISH-BOSS-LEGION). Follow-up proposed: FEAT-BOSS-AFFIXES.
 
 - [x] **FEAT-WEAPON-WAKE — 19th weapon "Caustic Wake", movement-driven trail**
   (done — `7e90628`). Was the sole Proposed (auto) item in Next; built to
