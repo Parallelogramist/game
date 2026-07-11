@@ -36,17 +36,14 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-BOSS-AFFIXES** — affixed boss variants for endless/gauntlet replay.
-  Value: the boss pool now repeats every endless cycle (and gauntlet wave 3+)
-  with only stat ramps; letting cycle-2+ / wave-6+ bosses spawn with ONE elite
-  affix (VOLATILE/TITAN/etc.) plus a title-prefixed health bar ("VOLATILE
-  Horde King") multiplies perceived setpiece variety for near-zero new
-  content — the affix system exists wholesale and bosses are only excluded by
-  the `xpValue < 30` gate in `GameScene.createEnemy`. Wiring: an explicit
-  spawn-time affix roll in `spawnBoss`/gauntlet boss spawns behind a
-  cycle/wave check, name prefix in `createBossHealthBar`, and AFFIX_META
-  reuse for stats/visuals (EliteAffixVisualManager already draws rings for
-  any entity with the component).
+- [ ] **FEAT-MINIBOSS-AFFIXES** — affixed miniboss variants for endless/gauntlet.
+  Value: endless re-spawns the same 5 minibosses every ~60s forever with zero
+  variation; letting endless cycle-2+ / gauntlet wave-4+ minibosses roll the
+  same dampened affix (reuse `rollBossAffix` + `softenBossAffixScale` from
+  FEAT-BOSS-AFFIXES wholesale; prefix the existing createBossHealthBar calls in
+  `spawnMiniboss`, twins pair included) multiplies mid-wave variety for ~30
+  lines. Watch: the VAMPIRIC tier gate is `xpValue >= 1000`, so miniboss
+  contact heal would stay 20% — decide whether that needs a middle tier.
 
 ## Later
 
@@ -71,6 +68,23 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-AFFIXES** — affixed boss variants feel/balance
+    (FEAT-BOSS-AFFIXES, `bbad876`; roll + damping in `src/data/Affixes.ts`,
+    wiring in `GameScene.spawnBoss`). Reach via endless cycle 2+ or gauntlet
+    wave 6+. Check with real runs: (a) 35% rate — surprise, not the norm
+    (`BOSS_AFFIX_CHANCE`)? (b) prefixed bar + entrance banner read ("VOLATILE
+    Horde King"), and the elite ring/label on a boss-sized sprite isn't noise
+    (ring radius = size·11+4); the floating elite mini-bar duplicates the top
+    boss bar — suppress it for xpValue ≥ 1000 if it reads as clutter;
+    (c) TITAN at ~1.7× HP on an already-doubled pool + 4 armor: siege or drag
+    (`BOSS_AFFIX_STAT_DAMPING`)? (d) SWIFT ×1.3 speed per boss — chase still
+    fair (Bastion's retreat-and-bombard especially)? (e) VAMPIRIC 5% contact
+    heal — noticeable without soft-locking (ternary in the contact-collision
+    block)? (f) VOLATILE instant corpse blast (95px, 22 dmg) on boss death —
+    fair with the ring/label telegraph, or does it need the exploder-fuse
+    treatment? (g) refresh mid-fight → CONTINUE: prefixed bar name, armor,
+    and speed all survive restore; (h) gauntlet multi-boss waves: two affixed
+    bosses at once readable?
   - **POLISH-BOSS-LEGION** — 5th boss "The Legion" feel/balance
     (FEAT-BOSS-MITOSIS, `d8151ec`; AI in
     `src/ecs/systems/enemy-ai/legion.ts`, split-tree/pool accounting in
@@ -559,6 +573,33 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-BOSS-AFFIXES — affixed boss variants for endless/gauntlet replay**
+  (done — `bbad876`). Was the sole Proposed (auto) item in Next; built to
+  completion. **Value:** the 5-boss pool repeats every endless cycle (and
+  gauntlet wave 3+) with only stat ramps; eligible bosses (endless cycle 2+,
+  gauntlet wave 6+) now spawn with ONE elite affix — SWIFT / VOLATILE /
+  VAMPIRIC / TITAN, weighted per AFFIX_META — plus a title-prefixed health
+  bar + entrance banner ("VOLATILE Horde King"), multiplying setpiece variety
+  for near-zero new content. Mechanics: `rollBossAffix()` in `Affixes.ts`
+  (35% gate, BLESSED excluded — bosses already guarantee a consumable +
+  data-cache roll); stat multipliers applied at half strength via
+  `softenBossAffixScale` (boss HP is pre-doubled; full TITAN 2.4× would drag,
+  full SWIFT 1.6× breaks chase feel) with xpScale + flat armor at full;
+  VAMPIRIC contact heal is tier-aware (5% max HP for bosses vs 20% trash).
+  The Legion excluded (split children wouldn't inherit; shared-pool math
+  must not absorb a root-only multiplier). Query-driven
+  EliteAffixVisualManager draws the ring/label on the boss for free;
+  save/restore already serializes `affixType` generically — restore
+  re-applies bonus armor (existing path) and now rebuilds the prefixed bar
+  name. Minimap tier still wins (boss blip stays boss); affixed boss kills
+  tick the elite-kill bounty (accepted bonus). 5 new tests in
+  `Affixes.test.ts` pin the boss pool (no BLESSED), the 35% gate, the band
+  walk, and the damping math. Files: `Affixes.ts`, `Affixes.test.ts`,
+  `GameScene.ts` (bossAffixEligible + spawnBoss roll + restore bar name +
+  vampiric tier), `minimapProjection.ts` (comment). tsc + vite build clean,
+  1172 tests green (1167 + 5). Feel/balance → playtest queue
+  (POLISH-BOSS-AFFIXES). Follow-up proposed: FEAT-MINIBOSS-AFFIXES.
 
 - [x] **FEAT-BOSS-MITOSIS — 5th boss "The Legion", splitting swarm-lord**
   (done — `d8151ec`). Was the sole Proposed (auto) item in Next; built to
