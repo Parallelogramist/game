@@ -36,25 +36,19 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-WEAPON-WAKE** — 19th weapon: a movement-driven trail weapon. The
-  ship lays a lingering caustic/burning wake behind it as it moves; enemies
-  crossing a live wake segment take damage. Value: the arsenal now spans
-  position-based, auto-target, deployed, reactive (Guardian), and displacement
-  (Singularity) archetypes — but NONE key off the player's *movement*. A weapon
-  whose output depends on how far/fast you travel is a genuinely new archetype:
-  it rewards mobility/kiting builds (the inverse of Guardian's face-tank), pairs
-  with move-speed relics, and turns "draw the horde through your own path" into
-  a positional identity distinct from Sentry's "anchor a chokepoint." Pure,
-  unit-testable core like `sentryLogic.ts`: a distance-gated segment-emit
-  cadence (drop a segment every N px travelled, not every N seconds) + segment
-  aging/expiry — feed it a movement path + dt, assert segment count/positions,
-  no per-enemy Phaser. Class owns the pooled wake segments, their collision
-  (per-enemy re-hit cooldown so standing in it ticks, not one-shots), and the
-  trail visual. Mastery candidate: the wake also slows enemies standing in it;
-  evolution "Slipstream" (via `swiftness`/`velocity`): wider, longer-lived,
-  higher-damage wake. Same full mirror-list sync as Guardian (registry /
-  UNLOCKABLE_WEAPONS / WeaponEvolutions / WeaponSynergies / mastery category /
-  IconMap + the three content-integrity test arrays).
+- [ ] **FEAT-BOSS-MITOSIS** — 5th boss: a splitting swarm-lord ("The Legion").
+  Value: the boss pool is 4 vs 19 weapons — setpiece content is the scarce
+  resource, and every existing boss is a single persistent entity; a boss that
+  SPLITS at phase thresholds (boss → 2 half-scale fragments → 4, stats
+  partitioned, XP/drops only when the last fragment dies) is a genuinely new
+  fight grammar: target-priority + crowd management instead of dodge-and-focus.
+  Pure planning core like `bastion-barrage.ts`: a split-tree/stat-partition
+  module (fragment HP/damage/scale fractions, split thresholds, spawn offsets),
+  unit-tested without Phaser; AI handler in `enemy-ai/`, wired via the same six
+  per-boss tables Bastion used (TUNING.bosses.order, ENEMY_TYPES, ENEMY_ARMOR,
+  drawer registry, dispatch, barrel). Health bar: sum living fragments into the
+  primary bar (precedent: gauntlet multi-boss stack). Codex/drops key off
+  xpValue automatically.
 
 ## Later
 
@@ -79,6 +73,35 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-WAKE** — 19th weapon "Caustic Wake" feel/balance
+    (FEAT-WEAPON-WAKE, `7e90628`; class `src/weapons/WakeWeapon.ts`, pure
+    emission core in `src/weapons/wakeLogic.ts`). Check with a real run that
+    picks it up: (a) **movement identity reads** — does laying a trail while
+    kiting feel like a build (draw the horde through your own path), or does the
+    wake just sit behind you unused? (b) **tick cadence** — per-enemy re-hit
+    every 0.55s (→0.25s floor as it levels/synergizes): does standing a swarm in
+    the ribbon melt it satisfyingly, or feel like a wet noodle (raise `damage` 8)
+    / a free aura (raise `cooldown`)? (c) **segment geometry** — spacing 26px,
+    radius 22px, lifetime 2.4s: does the ribbon read as continuous at sprint
+    speed, and is wake length (speed × 2.4s) right? (d) **lane growth** — count
+    2/3 (L3/L5) adds parallel ribbons at ±1.5×radius; count 4-5 widens segments
+    +12% each: does the widening read as growth? (e) **4 Hz damage pass** — any
+    visible hitch when a dense swarm crosses a long wake (128-segment pool, one
+    spatial query per segment per pass)? (f) **Undertow mastery** (L10, 25% slow
+    0.6s while inside): does slow-the-crossers read, and does it stack sanely
+    with Frost Nova's slow (last-writer-wins on `Velocity.speed` — check no
+    stuck-slow enemies)? (g) **Slipstream evolution** (swiftness L5: dmg ×1.45,
+    range ×1.3, size ×1.2, cd ×0.85, lifetime ×1.35, brighter mint color) —
+    power level vs other evolved weapons? (h) **Hit and Run synergy** with
+    Homing Missiles (+20% dmg / 10% faster both) — does the kiting build read?
+    (i) **acid-green visual** (0x7dff66, alpha 0.06→0.26 fading with age) —
+    legible over the arena grid under bloom, and NOT confusable with green XP
+    gems at gameplay scale? Tuning knobs: baseStats in `WakeWeapon` ctor, the
+    constants block (`SEGMENT_SPACING`, `DAMAGE_PASS_INTERVAL`, `LANE_CAP`,
+    `LANE_GAP_FACTOR`, `MASTERY_SLOW_FACTOR`, `SLOW_DURATION`,
+    `EVOLVED_LIFETIME_MULT`), cooldown floor in `recalculateStats`; evolution
+    multipliers in `WeaponEvolutions.ts`; synergy magnitude in
+    `WeaponSynergies.ts`.
   - **POLISH-WEAPON-GUARDIAN** — 18th weapon "Guardian" feel/balance
     (FEAT-WEAPON-GUARDIAN, `e4fcb27`; class `src/weapons/GuardianWeapon.ts`, pure
     trigger/damage core in `src/weapons/guardianLogic.ts`). Check with a real run
@@ -509,6 +532,40 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-WEAPON-WAKE — 19th weapon "Caustic Wake", movement-driven trail**
+  (done — `7e90628`). Was the sole Proposed (auto) item in Next; built to
+  completion. **Value:** all 18 prior weapons fire on a clock (or, Guardian, on
+  damage taken); none key off the player's *movement*. The Wake is the
+  arsenal's first movement-driven archetype: it lays a lingering caustic ribbon
+  along the ship's path as it moves, and enemies standing in a live segment
+  take ticking damage — output scales with distance travelled, rewarding
+  mobility/kiting builds, the inverse of Guardian's face-tank identity.
+  **Novel mechanic:** every other weapon is driven by BaseWeapon's
+  cooldown→attack loop; the Wake overrides `update()` to skip that loop
+  entirely. Distance-gated arc-length emission (drop a segment every 26px
+  travelled, not every N seconds) lives in the pure, unit-tested
+  `wakeLogic.ts` (8 tests). The class (`WakeWeapon.ts`) owns a 128-segment
+  pool, a 4 Hz collision sweep (not per-frame — the per-enemy re-hit gate makes
+  finer sampling pointless) gated by `cooldown` repurposed as the re-hit
+  interval, and the acid-green trail visual (fading with segment age). Mastery
+  **"Undertow"**: enemies caught in the wake are slowed 25% for 0.6s, refreshed
+  each pass (FrostNova's `Velocity.speed` set/restore idiom). Evolution
+  **"Slipstream"** (via `swiftness` L5): wider (×1.3 range, ×1.2 size), harder
+  (×1.45 dmg), faster re-hit (×0.85 cd), and — since duration isn't an
+  evolution stat — a dedicated `EVOLVED_LIFETIME_MULT` (×1.35) lets it linger
+  longer too. Synergy **"Hit and Run"** (wake+homing_missile kiting build,
+  +20% dmg / 10% faster both — Homing Missiles had no synergy yet and was
+  flagged cold in BALANCE-2, so this buffs the weakest weapon at the same
+  time). Full mirror-list sync: registry (`index.ts`), `UNLOCKABLE_WEAPONS`
+  (`Upgrades.ts`), evolution recipe, synergy, `aura` mastery category
+  (`WeaponManager.ts` — persistent area damage-over-time, not explosive),
+  IconMap (`wind-slap`, reused motion-trail frame). All three locked
+  content-integrity test arrays updated (WeaponEvolutions / ShipCharacters
+  registry rosters + Upgrades.selection unlockable list). tsc + vite build
+  clean, 1156 tests green (1148 + 8). Feel/balance → playtest queue
+  (POLISH-WEAPON-WAKE). Follow-up proposed: FEAT-BOSS-MITOSIS (splitting
+  swarm-lord boss — the boss pool is 4 vs 19 weapons, the scarcer resource).
 
 - [x] **FEAT-WEAPON-GUARDIAN — 18th weapon "Guardian", reactive retaliation
   nova** (done — `e4fcb27`). Was the sole Proposed (auto) item in Next; built

@@ -85,6 +85,35 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `7e90628` FEAT-WEAPON-WAKE — **19th weapon "Caustic Wake", movement-driven
+  trail**. Was the sole Proposed (auto) item in Next; built to completion.
+  **Value:** all 18 prior weapons fire on a clock (or, Guardian, on damage
+  taken); none key off the player's *movement*. The Wake is the arsenal's
+  first movement-driven archetype: it lays a lingering caustic ribbon along
+  the ship's path as it moves, and enemies standing in a live segment take
+  ticking damage — output scales with distance travelled, rewarding
+  mobility/kiting builds, the inverse of Guardian's face-tank identity.
+  **Novel mechanic:** every other weapon is driven by BaseWeapon's
+  cooldown→attack loop; the Wake overrides `update()` to skip that loop
+  entirely. Distance-gated arc-length emission (drop a segment every 26px
+  travelled, not every N seconds) lives in the pure, unit-tested
+  `wakeLogic.ts` (8 tests). The class (`WakeWeapon.ts`) owns a 128-segment
+  pool, a 4 Hz collision sweep gated by `cooldown` repurposed as the
+  per-enemy re-hit interval, and the acid-green trail visual (fading with
+  segment age). Mastery **"Undertow"**: enemies caught in the wake are
+  slowed 25% for 0.6s, refreshed each pass (FrostNova's `Velocity.speed`
+  set/restore idiom). Evolution **"Slipstream"** (via `swiftness` L5): wider
+  (×1.3 range, ×1.2 size), harder (×1.45 dmg), faster re-hit (×0.85 cd), and
+  a dedicated `EVOLVED_LIFETIME_MULT` (×1.35) since duration isn't an
+  evolution stat. Synergy **"Hit and Run"** (wake+homing_missile kiting
+  build, +20% dmg / 10% faster both — Homing Missiles had no synergy yet and
+  was flagged cold in BALANCE-2). Full mirror-list sync: registry
+  (`index.ts`), `UNLOCKABLE_WEAPONS` (`Upgrades.ts`), evolution recipe,
+  synergy, `aura` mastery category (`WeaponManager.ts`), IconMap
+  (`wind-slap`). All three locked content-integrity test arrays updated. tsc
+  + vite build clean, 1156 tests green (1148 + 8). Feel/balance → playtest
+  queue (POLISH-WEAPON-WAKE). Follow-up proposed: FEAT-BOSS-MITOSIS.
+
 - `ec6c47a` FEAT-SHIP-MODS-2 — **ship mod follow-ups**, same-day completion of
   the FEAT-SHIP-MODS-1 follow-up list on direct operator request (ahead of
   the BALANCE-SHIP-MODS playtest — the numbers may still move, the plumbing
