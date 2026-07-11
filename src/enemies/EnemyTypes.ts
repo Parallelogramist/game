@@ -36,6 +36,9 @@ export enum EnemyAIType {
   VoidWyrm = 101,
   TheMachine = 102,
   Bastion = 103,
+  Legion = 104,
+  LegionFragment = 105,
+  LegionMote = 106,
 }
 
 /**
@@ -669,6 +672,57 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     spawnWeight: 0,
   },
 
+  the_legion: {
+    id: 'the_legion',
+    name: 'The Legion',
+    aiType: EnemyAIType.Legion,
+    category: EnemyCategory.Boss,
+    baseHealth: 1600,  // one third of the fight's pool — it splits into 2× its HP again (legion-split.ts)
+    baseSpeed: 55,
+    baseDamage: 30,
+    size: 5,
+    color: 0xdd33bb,         // Boss - virulent magenta (bio-swarm)
+    secondaryColor: 0xffffff, // White outline
+    shape: 'circle',
+    xpValue: 1000,
+    minSpawnTime: 600,
+    spawnWeight: 0,
+  },
+
+  legion_fragment: {
+    id: 'legion_fragment',
+    name: 'Legion Fragment',
+    aiType: EnemyAIType.LegionFragment,
+    category: EnemyCategory.Miniboss,
+    baseHealth: 800,   // nominal — real HP is partitioned from the parent on split
+    baseSpeed: 85,
+    baseDamage: 22,
+    size: 3,
+    color: 0xee55cc,
+    secondaryColor: 0xffffff,
+    shape: 'circle',
+    xpValue: 60,       // miniboss tier: blocks gauntlet wave-clear, never triggers boss rewards
+    minSpawnTime: 999, // never spawns naturally
+    spawnWeight: 0,
+  },
+
+  legion_mote: {
+    id: 'legion_mote',
+    name: 'Legion Mote',
+    aiType: EnemyAIType.LegionMote,
+    category: EnemyCategory.Miniboss,
+    baseHealth: 400,   // nominal — real HP is partitioned from the parent on split
+    baseSpeed: 120,
+    baseDamage: 14,
+    size: 1.8,
+    color: 0xff77dd,
+    secondaryColor: 0xffffff,
+    shape: 'circle',
+    xpValue: 60,
+    minSpawnTime: 999,
+    spawnWeight: 0,
+  },
+
   // Machine Turret (spawned by The Machine)
   turret: {
     id: 'turret',
@@ -765,6 +819,9 @@ const ENEMY_ARMOR: Record<string, number> = {
   void_wyrm: 12,
   the_machine: 12,
   the_bastion: 14, // siege fortress — the armored boss
+  the_legion: 8,       // chitin carapace — armored until it splits
+  legion_fragment: 4,
+  legion_mote: 0,
 };
 
 /**

@@ -36,6 +36,7 @@ import { updateHordeKingAI } from './enemy-ai/horde-king';
 import { updateVoidWyrmAI } from './enemy-ai/void-wyrm';
 import { updateTheMachineAI } from './enemy-ai/the-machine';
 import { updateBastionAI } from './enemy-ai/bastion';
+import { updateLegionAI, updateLegionFragmentAI } from './enemy-ai/legion';
 // Elite proximity auras (Tank / Rallier / Warden), applied after all AI runs
 import { applyEliteAuras } from './enemy-ai/elite-auras';
 
@@ -50,6 +51,19 @@ export {
 export { setTelegraphManager } from './enemy-ai/common';
 export { resetBossPhaseTracking } from './enemy-ai/boss-phase';
 export { resetBastionStrikes } from './enemy-ai/bastion';
+export {
+  resetLegionSystem,
+  registerLegionRoot,
+  registerLegionChild,
+  onLegionMemberDeath,
+  registerRestoredLegionMembers,
+  forEachLegionGroup,
+  legionPotentialMultiplier,
+  legionPoolFromMember,
+  legionChildSpawnOffsets,
+  legionGenerationForType,
+  isLegionTypeId,
+} from './enemy-ai/legion-split';
 export { isNearTankAura, getWardenSlowMultiplier } from './enemy-ai/elite-auras';
 
 // Queries
@@ -192,6 +206,13 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         break;
       case EnemyAIType.Bastion:
         updateBastionAI(enemyId, playerX, playerY, lodDeltaTime);
+        break;
+      case EnemyAIType.Legion:
+        updateLegionAI(enemyId, playerX, playerY, lodDeltaTime);
+        break;
+      case EnemyAIType.LegionFragment:
+      case EnemyAIType.LegionMote:
+        updateLegionFragmentAI(enemyId, playerX, playerY, lodDeltaTime);
         break;
       default:
         updateChaseAI(enemyId, playerX, playerY);

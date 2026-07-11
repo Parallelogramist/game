@@ -922,6 +922,44 @@ function drawBastion(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorP
   g.fillCircle(0, 0, Math.max(3, s * 0.1));
 }
 
+/** The Legion — swarm-lord: a membrane blob of clustered cells, forward eye cluster */
+function drawLegion(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPair, quality: VisualQuality): void {
+  circleGlow(g, s, neon, quality);
+  // Outer membrane
+  g.fillStyle(neon.core, 1);
+  g.fillCircle(0, 0, s);
+  g.lineStyle(3, 0xffffff, 0.85);
+  g.strokeCircle(0, 0, s);
+  // Cell lobes — the fragments it will split into, visible under the skin
+  g.lineStyle(2, 0xffffff, 0.4);
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 3) * i;
+    g.strokeCircle(Math.cos(angle) * s * 0.55, Math.sin(angle) * s * 0.55, s * 0.34);
+  }
+  g.strokeCircle(0, 0, s * 0.36);
+  // Forward eye cluster (+X): one large + two small
+  g.fillStyle(0xffffff, 0.9);
+  g.fillCircle(s * 0.45, 0, Math.max(3, s * 0.12));
+  g.fillStyle(0xffffff, 0.65);
+  g.fillCircle(s * 0.28, -s * 0.28, Math.max(2, s * 0.07));
+  g.fillCircle(s * 0.28, s * 0.28, Math.max(2, s * 0.07));
+}
+
+/** Legion fragment/mote — a torn-off cell cluster (shared drawer; s conveys the tier) */
+function drawLegionFragment(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPair, quality: VisualQuality): void {
+  circleGlow(g, s, neon, quality);
+  g.fillStyle(neon.core, 1);
+  g.fillCircle(0, 0, s * 0.85);
+  // Two trailing lobes (-X) — reads as a blob torn off the parent
+  g.fillCircle(-s * 0.55, -s * 0.4, s * 0.42);
+  g.fillCircle(-s * 0.55, s * 0.4, s * 0.42);
+  g.lineStyle(2.5, 0xffffff, 0.85);
+  g.strokeCircle(0, 0, s * 0.85);
+  // Single forward eye
+  g.fillStyle(0xffffff, 0.9);
+  g.fillCircle(s * 0.3, 0, Math.max(2.5, s * 0.14));
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -963,6 +1001,9 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   void_wyrm: drawVoidWyrm,
   the_machine: drawTheMachine,
   the_bastion: drawBastion,
+  the_legion: drawLegion,
+  legion_fragment: drawLegionFragment,
+  legion_mote: drawLegionFragment,
 };
 
 // =====================================================================

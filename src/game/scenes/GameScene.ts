@@ -25,7 +25,7 @@ import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
 import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
-import { resetBossPhaseTracking, resetBastionStrikes } from '../../ecs/systems/EnemyAISystem';
+import { resetBossPhaseTracking, resetBastionStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
@@ -209,6 +209,10 @@ export class GameScene extends Phaser.Scene {
 
   // Deferred boss health bars (queued during restore before hudManager exists)
   private pendingBossHealthBars: { entityId: number; name: string; isBoss: boolean }[] = [];
+
+  // Legion members collected during restoreEntities — group state is module-level
+  // and does not survive a refresh, so it is rebuilt after the entity pass.
+  private restoredLegionMembers: Array<{ entityId: number; generation: number }> = [];
 
   // Kill counter
   private killCount: number = 0;
@@ -2101,6 +2105,19 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    if (this.restoredLegionMembers.length > 0) {
+      const rebuiltLegion = registerRestoredLegionMembers(this.restoredLegionMembers);
+      this.restoredLegionMembers.length = 0;
+      if (rebuiltLegion) {
+        const legionName = getEnemyType('the_legion')?.name ?? 'The Legion';
+        if (this.hudManager) {
+          this.hudManager.createBossHealthBar(rebuiltLegion.anchorId, legionName, true);
+        } else {
+          this.pendingBossHealthBars.push({ entityId: rebuiltLegion.anchorId, name: legionName, isBoss: true });
+        }
+      }
+    }
+
     // Reposition any boss health bars that were restored
     // (hudManager may not exist yet during restoreGameState — it's created after restoreEntities)
     if (this.hudManager?.getBossEntityIds().length > 0) {
@@ -2255,7 +2272,13 @@ export class GameScene extends Phaser.Scene {
     this.enemyCount++;
 
     // Queue boss health bar creation (hudManager may not exist yet during restore path)
-    if (entity.enemyData.xpValue >= 30) {
+    const restoredLegionGeneration = legionGenerationForType(entity.enemyData.typeId);
+    if (restoredLegionGeneration !== null) {
+      this.restoredLegionMembers.push({ entityId, generation: restoredLegionGeneration });
+    }
+    // Legion members share ONE rebuilt group bar (created after the entity
+    // pass) instead of a per-member bar each.
+    if (entity.enemyData.xpValue >= 30 && restoredLegionGeneration === null) {
       if (this.hudManager) {
         this.hudManager.createBossHealthBar(entityId, enemyType.name, entity.enemyData.xpValue >= 1000);
       } else {
@@ -2346,6 +2369,11 @@ export class GameScene extends Phaser.Scene {
       this.handleDestructibleDestroyed(enemyId, x, y);
       return;
     }
+
+    // The Legion splits on death: mid-tree deaths spawn children and pay no
+    // rewards; the last member is promoted in place and falls through to the
+    // normal boss-death path (full XP, drops, victory).
+    if (this.resolveLegionDeath(enemyId, x, y)) return;
 
     this.enemyCount--;
     this.killCount++;
@@ -2667,6 +2695,15 @@ export class GameScene extends Phaser.Scene {
       this.deathRippleManager.spawnRipple(x, y);
     }
 
+    this.finalizeEnemyEntityRemoval(enemyId);
+  }
+
+  /**
+   * Unregisters an enemy from every visual manager, removes the ECS entity, and
+   * plays the kill-flash pop on its lingering sprite. Shared by the normal
+   * death path and the Legion split branch.
+   */
+  private finalizeEnemyEntityRemoval(enemyId: number): void {
     // Read enemy size before removing entity (ECS data wiped on removeEntity)
     const killFlashSize = EnemyType.size[enemyId] || 1;
 
@@ -2749,6 +2786,76 @@ export class GameScene extends Phaser.Scene {
       const scaledStats = getScaledStats(miniType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
       this.createEnemy(x + offsetX, y + offsetY, miniType, scaledStats);
     }
+  }
+
+  /**
+   * Routes a Legion member death. Returns true when the death was fully handled
+   * here (mid-tree split — no rewards); returns false for non-legion enemies AND
+   * for the final member, which is promoted to boss xpValue so the normal
+   * boss-death path pays out exactly once.
+   */
+  private resolveLegionDeath(enemyId: number, x: number, y: number): boolean {
+    const outcome = onLegionMemberDeath(enemyId);
+    if (!outcome) return false;
+
+    if (outcome.isLastMember) {
+      const legionBossType = getEnemyType('the_legion');
+      EnemyType.xpValue[enemyId] = legionBossType ? legionBossType.xpValue : 1000;
+      this.enemyTypeMap.set(enemyId, 'the_legion');
+      this.hudManager.removeBossHealthBar(outcome.anchorId);
+      return false;
+    }
+
+    // Split: children partition the parent's pool. Parent max HP includes the
+    // curse multiplier; divide it out because createEnemy curses again.
+    if (outcome.childTypeId) {
+      const childType = getEnemyType(outcome.childTypeId);
+      if (childType) {
+        const curseMultiplier = this.playerStats.curseMultiplier || 1;
+        const parentMaxHealth = Health.max[enemyId];
+        const offsets = legionChildSpawnOffsets(
+          outcome.childCount,
+          outcome.spawnOffsetRadius,
+          Math.random() * Math.PI * 2
+        );
+        for (const offset of offsets) {
+          const childStats = getScaledStats(childType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
+          childStats.health = (parentMaxHealth * outcome.childHealthFraction) / curseMultiplier;
+          const childId = this.createEnemy(x + offset.x, y + offset.y, childType, childStats);
+          registerLegionChild(childId, outcome.groupId, outcome.generation + 1);
+        }
+      }
+    }
+
+    // Reward-free bookkeeping — mirrors the normal path minus XP/drops/cache,
+    // and deliberately skips removeBossHealthBar: the group bar stays anchored
+    // to the (now dead) root until the last member falls.
+    this.enemyCount--;
+    this.killCount++;
+    const comboResult = recordComboKill();
+    if (comboResult.triggeredThreshold) {
+      this.handleComboThreshold(comboResult.triggeredThreshold);
+    }
+    if (comboResult.tierChanged && !comboResult.triggeredThreshold) {
+      this.handleComboTierChange(comboResult.tierChanged);
+    }
+    getAchievementManager().recordKill(1);
+    const legionTypeId = this.enemyTypeMap.get(enemyId);
+    if (legionTypeId) {
+      getCodexManager().recordEnemyKill(legionTypeId);
+      this.enemyTypeMap.delete(enemyId);
+    }
+    recordEnemyDeath(x, y);
+
+    // Split burst — bigger than a trash death, smaller than the boss cascade.
+    this.effectsManager.playDeathBurst(x, y, 0xdd33bb);
+    this.deathRippleManager.spawnRipple(x, y);
+    if (getSettingsManager().isScreenShakeEnabled()) {
+      this.shakeCamera(180, 0.012);
+    }
+
+    this.finalizeEnemyEntityRemoval(enemyId);
+    return true;
   }
 
   /**
@@ -4009,6 +4116,25 @@ export class GameScene extends Phaser.Scene {
       entry.maxHP = Health.max[bossEntityId];
     }
     bossHealthPayload.length = bossEntityIds.length;
+
+    // The Legion renders ONE summed bar for the whole split tree, anchored to
+    // the root's entity id — which may already be dead. Overwrite that entry
+    // with the remaining pool (living HP + unspawned descendants' HP).
+    forEachLegionGroup((anchorId, members) => {
+      let remainingPool = 0;
+      let totalPool = 0;
+      for (const [memberId, generation] of members) {
+        const memberMax = Health.max[memberId];
+        remainingPool += Health.current[memberId] + legionPotentialMultiplier(generation) * memberMax;
+        totalPool = Math.max(totalPool, legionPoolFromMember(generation, memberMax));
+      }
+      for (let payloadIndex = 0; payloadIndex < bossHealthPayload.length; payloadIndex++) {
+        if (bossHealthPayload[payloadIndex].entityId === anchorId) {
+          bossHealthPayload[payloadIndex].currentHP = remainingPool;
+          bossHealthPayload[payloadIndex].maxHP = totalPool;
+        }
+      }
+    });
 
     this.hudManager.update({
       gameTime: this.gameTime,
@@ -6570,6 +6696,10 @@ export class GameScene extends Phaser.Scene {
     this.hudManager.createBossHealthBar(entityId, enemyType.name, true);
     this.hudManager.repositionBossHealthBars();
 
+    if (typeId === 'the_legion') {
+      registerLegionRoot(entityId);
+    }
+
     // Stronger screen shake for final boss
     if (getSettingsManager().isScreenShakeEnabled()) {
       this.shakeCamera(400, 0.01);
@@ -8187,6 +8317,7 @@ export class GameScene extends Phaser.Scene {
     resetDirectorSystem();
     resetBossPhaseTracking();
     resetBastionStrikes();
+    resetLegionSystem();
     resetBossArenaSystem();
     resetHazardZoneSystem();
     resetMusicIntensityDriver();

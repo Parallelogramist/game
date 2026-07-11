@@ -58,6 +58,21 @@ export { updateHordeKingAI } from './horde-king';
 export { updateVoidWyrmAI } from './void-wyrm';
 export { updateTheMachineAI } from './the-machine';
 export { updateBastionAI, resetBastionStrikes } from './bastion';
+export { updateLegionAI, updateLegionFragmentAI } from './legion';
+export {
+  resetLegionSystem,
+  registerLegionRoot,
+  registerLegionChild,
+  onLegionMemberDeath,
+  registerRestoredLegionMembers,
+  forEachLegionGroup,
+  legionPotentialMultiplier,
+  legionPoolFromMember,
+  legionChildSpawnOffsets,
+  legionGenerationForType,
+  isLegionTypeId,
+  LEGION_GENERATIONS,
+} from './legion-split';
 export { checkBossPhaseTransition, resetBossPhaseTracking } from './boss-phase';
 
 // Elite proximity auras (Tank / Rallier / Warden)
