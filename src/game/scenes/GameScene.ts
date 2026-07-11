@@ -58,7 +58,7 @@ import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
-import { rollAffix, rollBossAffix, softenBossAffixScale, vampiricHealFraction, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
+import { rollAffix, rollBossAffix, rollParagonAffix, affixDisplayName, softenBossAffixScale, vampiricHealFraction, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
@@ -2241,13 +2241,16 @@ export class GameScene extends Phaser.Scene {
     // ring/HP-bar/label, and for volatile/vampiric/blessed death + contact
     // behaviours and elite-kill bounty tracking to recognise it again.
     const restoredAffix = entity.enemyData.affixType ?? EnemyAffixType.NONE;
+    const restoredAffix2 = (entity.enemyData.affixType2 ?? EnemyAffixType.NONE) as EnemyAffixType;
     if (restoredAffix !== EnemyAffixType.NONE) {
       addComponent(this.world, EnemyAffix, entityId);
       EnemyAffix.affixType[entityId] = restoredAffix;
+      EnemyAffix.affixType2[entityId] = restoredAffix2;
       // HP/XP/speed are captured in the serialized Health/EnemyType/Velocity, but
       // armor was re-derived from the base type above — so re-apply the affix's
       // flat armor bonus (only TITAN is non-zero; a no-op for the others).
       EnemyType.armor[entityId] += AFFIX_META[restoredAffix as EnemyAffixType].bonusArmor;
+      EnemyType.armor[entityId] += AFFIX_META[restoredAffix2].bonusArmor;
     }
 
     // Restore status effects if present
@@ -2280,9 +2283,7 @@ export class GameScene extends Phaser.Scene {
     // pass) instead of a per-member bar each.
     if (entity.enemyData.xpValue >= 30 && restoredLegionGeneration === null) {
       // Affixed bosses/minibosses keep their title-prefixed bar across a refresh.
-      const bossBarName = restoredAffix !== EnemyAffixType.NONE
-        ? `${AFFIX_META[restoredAffix as EnemyAffixType].label} ${enemyType.name}`
-        : enemyType.name;
+      const bossBarName = affixDisplayName(enemyType.name, restoredAffix as EnemyAffixType, restoredAffix2);
       if (this.hudManager) {
         this.hudManager.createBossHealthBar(entityId, bossBarName, entity.enemyData.xpValue >= 1000);
       } else {
@@ -2470,7 +2471,8 @@ export class GameScene extends Phaser.Scene {
     // ═══ ELITE AFFIX DEATH EFFECTS ═══
     if (hasComponent(this.world, EnemyAffix, enemyId)) {
       const deathAffix = EnemyAffix.affixType[enemyId];
-      if (deathAffix === EnemyAffixType.VOLATILE) {
+      const deathAffix2 = EnemyAffix.affixType2[enemyId];
+      if (deathAffix === EnemyAffixType.VOLATILE || deathAffix2 === EnemyAffixType.VOLATILE) {
         // Queue the detonation and drain iteratively — detonateArea can kill
         // other volatile elites, which would otherwise re-enter handleEnemyDeath
         // recursively. The drain serializes any chain reaction.
@@ -4215,7 +4217,9 @@ export class GameScene extends Phaser.Scene {
         this.takeDamage(EnemyType.baseDamage[enemyId] || 10, enemyId);
         // Vampiric elites heal a chunk when they land a hit on the player;
         // fraction shrinks by tier (boss 5% / miniboss 10% / trash 20%).
-        if (hasComponent(this.world, EnemyAffix, enemyId) && EnemyAffix.affixType[enemyId] === EnemyAffixType.VAMPIRIC) {
+        if (hasComponent(this.world, EnemyAffix, enemyId)
+          && (EnemyAffix.affixType[enemyId] === EnemyAffixType.VAMPIRIC
+            || EnemyAffix.affixType2[enemyId] === EnemyAffixType.VAMPIRIC)) {
           const healFraction = vampiricHealFraction(EnemyType.xpValue[enemyId]);
           Health.current[enemyId] = Math.min(Health.max[enemyId], Health.current[enemyId] + Health.max[enemyId] * healFraction);
         }
@@ -5540,6 +5544,7 @@ export class GameScene extends Phaser.Scene {
         const affixMeta = AFFIX_META[affix];
         addComponent(this.world, EnemyAffix, entityId);
         EnemyAffix.affixType[entityId] = affix;
+        EnemyAffix.affixType2[entityId] = EnemyAffixType.NONE;
         Health.max[entityId] *= affixMeta.healthScale;
         Health.current[entityId] = Health.max[entityId];
         EnemyType.baseHealth[entityId] *= affixMeta.healthScale;
@@ -5607,15 +5612,20 @@ export class GameScene extends Phaser.Scene {
     // One roll per spawn call: the twins are a single setpiece, so both carry
     // the same affix rather than rolling independently.
     const minibossAffix = this.minibossAffixEligible() ? rollBossAffix() : EnemyAffixType.NONE;
-    const affixLabel = minibossAffix !== EnemyAffixType.NONE ? `${AFFIX_META[minibossAffix].label} ` : '';
+    const minibossParagonAffix = minibossAffix !== EnemyAffixType.NONE && this.paragonEligible()
+      ? rollParagonAffix(minibossAffix)
+      : EnemyAffixType.NONE;
 
     // Special case: Twins spawn as a pair
     if (typeId === 'twin_a') {
       const twinA = this.createEnemy(x, y, enemyType, scaledStats);
-      if (minibossAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(twinA, minibossAffix);
+      if (minibossAffix !== EnemyAffixType.NONE) {
+        this.applyDampedAffixStats(twinA, minibossAffix);
+        if (minibossParagonAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(twinA, minibossParagonAffix, true);
+      }
 
       // Create health bar for Twin A
-      this.hudManager.createBossHealthBar(twinA, `${affixLabel}${enemyType.name}`, false);
+      this.hudManager.createBossHealthBar(twinA, affixDisplayName(enemyType.name, minibossAffix, minibossParagonAffix), false);
 
       // Spawn Twin B nearby
       const twinBType = getEnemyType('twin_b');
@@ -5625,20 +5635,26 @@ export class GameScene extends Phaser.Scene {
         const twinBY = y + Math.sin(offsetAngle) * 60;
         const twinBStats = getScaledStats(twinBType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
         const twinB = this.createEnemy(twinBX, twinBY, twinBType, twinBStats);
-        if (minibossAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(twinB, minibossAffix);
+        if (minibossAffix !== EnemyAffixType.NONE) {
+          this.applyDampedAffixStats(twinB, minibossAffix);
+          if (minibossParagonAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(twinB, minibossParagonAffix, true);
+        }
 
         // Create health bar for Twin B
-        this.hudManager.createBossHealthBar(twinB, `${affixLabel}${twinBType.name}`, false);
+        this.hudManager.createBossHealthBar(twinB, affixDisplayName(twinBType.name, minibossAffix, minibossParagonAffix), false);
 
         // Link the twins
         linkTwins(twinA, twinB);
       }
     } else {
       const entityId = this.createEnemy(x, y, enemyType, scaledStats);
-      if (minibossAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(entityId, minibossAffix);
+      if (minibossAffix !== EnemyAffixType.NONE) {
+        this.applyDampedAffixStats(entityId, minibossAffix);
+        if (minibossParagonAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(entityId, minibossParagonAffix, true);
+      }
 
       // Create health bar for the miniboss
-      this.hudManager.createBossHealthBar(entityId, `${affixLabel}${enemyType.name}`, false);
+      this.hudManager.createBossHealthBar(entityId, affixDisplayName(enemyType.name, minibossAffix, minibossParagonAffix), false);
     }
 
     // Reposition all boss health bars
@@ -5650,7 +5666,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Announce miniboss spawn with visual effect
-    this.showMinibossWarning(`${affixLabel}${enemyType.name}`);
+    this.showMinibossWarning(affixDisplayName(enemyType.name, minibossAffix, minibossParagonAffix));
 
     // One-time teach on the very first miniboss ever: the warning banner says
     // "danger", this toast says "worth fighting" (relic/consumable rewards).
@@ -6700,6 +6716,12 @@ export class GameScene extends Phaser.Scene {
     return this.endlessModeActive && this.endlessCycleNumber >= 2;
   }
 
+  /** Paragon (double-affix) elites: deep runs only — endless cycle 4+ / gauntlet wave 10+. */
+  private paragonEligible(): boolean {
+    if (this.gauntletModeActive) return this.gauntletWave >= 10;
+    return this.endlessModeActive && this.endlessCycleNumber >= 4;
+  }
+
   /**
    * Applies an elite affix to a boss-tier entity (boss or miniboss) with stat
    * multipliers dampened via softenBossAffixScale — these pools/speeds are
@@ -6707,10 +6729,16 @@ export class GameScene extends Phaser.Scene {
    * XP scale and flat armor stay full. Must run AFTER createEnemy has set the
    * entity's scaled stats.
    */
-  private applyDampedAffixStats(entityId: number, affix: EnemyAffixType): void {
+  private applyDampedAffixStats(entityId: number, affix: EnemyAffixType, secondary: boolean = false): void {
     const affixMeta = AFFIX_META[affix];
     addComponent(this.world, EnemyAffix, entityId);
-    EnemyAffix.affixType[entityId] = affix;
+    if (secondary) {
+      EnemyAffix.affixType2[entityId] = affix;
+    } else {
+      EnemyAffix.affixType[entityId] = affix;
+      // Recycled-id hygiene: bitECS keeps stale array data across entity reuse.
+      EnemyAffix.affixType2[entityId] = EnemyAffixType.NONE;
+    }
     const dampedHealthScale = softenBossAffixScale(affixMeta.healthScale);
     Health.max[entityId] *= dampedHealthScale;
     Health.current[entityId] = Health.max[entityId];
@@ -6747,7 +6775,11 @@ export class GameScene extends Phaser.Scene {
       const bossAffix = rollBossAffix();
       if (bossAffix !== EnemyAffixType.NONE) {
         this.applyDampedAffixStats(entityId, bossAffix);
-        bossDisplayName = `${AFFIX_META[bossAffix].label} ${enemyType.name}`;
+        const paragonAffix = this.paragonEligible() ? rollParagonAffix(bossAffix) : EnemyAffixType.NONE;
+        if (paragonAffix !== EnemyAffixType.NONE) {
+          this.applyDampedAffixStats(entityId, paragonAffix, true);
+        }
+        bossDisplayName = affixDisplayName(enemyType.name, bossAffix, paragonAffix);
       }
     }
 

@@ -118,6 +118,8 @@ interface SerializedEnemyData {
   // Elite affix type (EnemyAffixType). Optional for backward-compat with saves
   // written before affix persistence existed — absent/0 means "no affix".
   affixType?: number;
+  // Paragon second affix slot. Optional for backward-compat — absent/0 = none.
+  affixType2?: number;
 }
 
 /**
@@ -866,6 +868,7 @@ export class GameStateManager {
         // the type id needs persisting — the restore re-attaches the component
         // (which revives the ring/HP-bar visual + death/contact behaviours).
         affixType: hasComponent(world, EnemyAffix, entityId) ? EnemyAffix.affixType[entityId] : 0,
+        affixType2: hasComponent(world, EnemyAffix, entityId) ? EnemyAffix.affixType2[entityId] : 0,
       },
     };
 

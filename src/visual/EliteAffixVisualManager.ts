@@ -3,7 +3,7 @@ import { defineQuery, IWorld } from 'bitecs';
 import { EnemyTag, EnemyAffix, Transform, EnemyType, Health } from '../ecs/components';
 import { getSprite } from '../ecs/systems/SpriteSystem';
 import { VisualQuality } from './GlowGraphics';
-import { AFFIX_META, EnemyAffixType } from '../data/Affixes';
+import { AFFIX_META, EnemyAffixType, PARAGON_LABEL, PARAGON_COLOR } from '../data/Affixes';
 
 /**
  * Renders elite markers for affixed enemies: a pulsing colored ring, a floating
@@ -72,6 +72,7 @@ export class EliteAffixVisualManager {
       const entityId = entities[i];
       const affixType = EnemyAffix.affixType[entityId] as EnemyAffixType;
       if (affixType === EnemyAffixType.NONE) continue;
+      const isParagon = EnemyAffix.affixType2[entityId] !== EnemyAffixType.NONE;
       const sprite = getSprite(entityId);
       if (!sprite) continue;
 
@@ -84,11 +85,13 @@ export class EliteAffixVisualManager {
         marker = acquired;
         // Label text only changes on (re)acquire.
         const meta = AFFIX_META[affixType];
-        marker.label.setText(meta.label);
-        marker.label.setColor(`#${meta.color.toString(16).padStart(6, '0')}`);
+        const labelColor = isParagon ? PARAGON_COLOR : meta.color;
+        marker.label.setText(isParagon ? PARAGON_LABEL : meta.label);
+        marker.label.setColor(`#${labelColor.toString(16).padStart(6, '0')}`);
       }
 
       const meta = AFFIX_META[affixType];
+      const markerColor = isParagon ? PARAGON_COLOR : meta.color;
       const x = Transform.x[entityId];
       const y = Transform.y[entityId];
       const radius = (EnemyType.size[entityId] || 1) * 11 + 4;
@@ -98,7 +101,7 @@ export class EliteAffixVisualManager {
       marker.ring.clear();
       marker.ring.setPosition(x, y);
       marker.ring.setVisible(true);
-      marker.ring.lineStyle(2, meta.color, pulse);
+      marker.ring.lineStyle(2, markerColor, pulse);
       marker.ring.strokeCircle(0, 0, radius);
 
       // Floating mini HP bar above the enemy.
@@ -110,7 +113,7 @@ export class EliteAffixVisualManager {
       marker.bar.setVisible(true);
       marker.bar.fillStyle(0x000000, 0.6);
       marker.bar.fillRect(-barWidth / 2 - 1, barY - 1, barWidth + 2, 5);
-      marker.bar.fillStyle(meta.color, 0.95);
+      marker.bar.fillStyle(markerColor, 0.95);
       marker.bar.fillRect(-barWidth / 2, barY, barWidth * hpFrac, 3);
 
       // Label.

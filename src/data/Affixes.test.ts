@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
-import { EnemyAffixType, AFFIX_META, AFFIX_ROLL_CHANCE, rollAffix, BOSS_AFFIX_CHANCE, rollBossAffix, softenBossAffixScale, vampiricHealFraction } from './Affixes';
+import { EnemyAffixType, AFFIX_META, AFFIX_ROLL_CHANCE, rollAffix, BOSS_AFFIX_CHANCE, rollBossAffix, softenBossAffixScale, vampiricHealFraction, PARAGON_SECOND_AFFIX_CHANCE, PARAGON_LABEL, rollParagonAffix, affixDisplayName } from './Affixes';
 
 // Numeric enum → the numeric members only (Object.values yields both names and values).
 const ALL_AFFIX_TYPES = Object.values(EnemyAffixType).filter(
@@ -217,5 +217,61 @@ describe('vampiricHealFraction — tiered contact heal', () => {
   test('trash (< 30) heals 20%', () => {
     expect(vampiricHealFraction(1)).toBe(0.2);
     expect(vampiricHealFraction(29)).toBe(0.2);
+  });
+});
+
+describe('rollParagonAffix — second-affix gate + pool', () => {
+  test('a NONE first affix never upgrades (and consumes no roll)', () => {
+    const spy = vi.spyOn(Math, 'random');
+    expect(rollParagonAffix(EnemyAffixType.NONE)).toBe(EnemyAffixType.NONE);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('gate: a roll above the 50% chance returns NONE without a weight roll', () => {
+    const spy = vi.spyOn(Math, 'random').mockReturnValueOnce(PARAGON_SECOND_AFFIX_CHANCE + 0.0001);
+    expect(rollParagonAffix(EnemyAffixType.SWIFT)).toBe(EnemyAffixType.NONE);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test('never returns the first affix (duplicate excluded from the pool)', () => {
+    // first = SWIFT → pool is VOLATILE(22)/VAMPIRIC(20)/TITAN(18), total 60.
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.1); // 6 → VOLATILE band
+    expect(rollParagonAffix(EnemyAffixType.SWIFT)).toBe(EnemyAffixType.VOLATILE);
+    vi.restoreAllMocks();
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.5); // 30 → VAMPIRIC band
+    expect(rollParagonAffix(EnemyAffixType.SWIFT)).toBe(EnemyAffixType.VAMPIRIC);
+    vi.restoreAllMocks();
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.99); // 59.4 → TITAN band
+    expect(rollParagonAffix(EnemyAffixType.SWIFT)).toBe(EnemyAffixType.TITAN);
+  });
+
+  test('TITAN never pairs with VAMPIRIC: pool is SWIFT/VOLATILE only', () => {
+    // first = TITAN → pool SWIFT(24)/VOLATILE(22), total 46.
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.5); // 23 → SWIFT band
+    expect(rollParagonAffix(EnemyAffixType.TITAN)).toBe(EnemyAffixType.SWIFT);
+    vi.restoreAllMocks();
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.999); // ~46 → VOLATILE band
+    expect(rollParagonAffix(EnemyAffixType.TITAN)).toBe(EnemyAffixType.VOLATILE);
+  });
+
+  test('VAMPIRIC never pairs with TITAN: the top of the band is VOLATILE', () => {
+    // first = VAMPIRIC → pool SWIFT(24)/VOLATILE(22), total 46.
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.999);
+    expect(rollParagonAffix(EnemyAffixType.VAMPIRIC)).toBe(EnemyAffixType.VOLATILE);
+  });
+});
+
+describe('affixDisplayName', () => {
+  test('no affix → the bare name', () => {
+    expect(affixDisplayName('Glutton', EnemyAffixType.NONE)).toBe('Glutton');
+  });
+
+  test('single affix → "LABEL Name"', () => {
+    expect(affixDisplayName('Glutton', EnemyAffixType.TITAN)).toBe('TITAN Glutton');
+  });
+
+  test('paragon → "PARAGON LABEL1 LABEL2 Name"', () => {
+    expect(affixDisplayName('Horde King', EnemyAffixType.SWIFT, EnemyAffixType.VOLATILE))
+      .toBe(`${PARAGON_LABEL} SWIFT VOLATILE Horde King`);
   });
 });

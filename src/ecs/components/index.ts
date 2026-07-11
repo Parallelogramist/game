@@ -108,9 +108,11 @@ export const EnemyType = defineComponent({
 });
 
 // Elite affix component - marks an enemy as an elite with one affix
-// (see src/data/Affixes.ts for EnemyAffixType + behaviour).
+// (see src/data/Affixes.ts for EnemyAffixType + behaviour). affixType2 is the
+// paragon (double-affix) second slot — NONE for every ordinary elite.
 export const EnemyAffix = defineComponent({
   affixType: Types.ui8,
+  affixType2: Types.ui8,
 });
 
 // Destructible tag - environmental objects (barrels/crates) that share the

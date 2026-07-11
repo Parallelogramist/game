@@ -133,3 +133,50 @@ export function vampiricHealFraction(xpValue: number): number {
   if (xpValue >= 30) return 0.1;
   return 0.2;
 }
+
+/**
+ * Paragon (double-affix) elites: deep-run escalation only — endless cycle 4+ /
+ * gauntlet wave 10+. Rolled only AFTER a first affix landed.
+ */
+export const PARAGON_SECOND_AFFIX_CHANCE = 0.5;
+
+export const PARAGON_LABEL = 'PARAGON';
+export const PARAGON_COLOR = 0xffd24a;
+
+// TITAN+VAMPIRIC is degenerate (huge damped pool + contact self-heal can
+// out-pace player DPS into a stalemate), so the pair can never roll together.
+const PARAGON_EXCLUDED_PARTNER: Partial<Record<EnemyAffixType, EnemyAffixType>> = {
+  [EnemyAffixType.TITAN]: EnemyAffixType.VAMPIRIC,
+  [EnemyAffixType.VAMPIRIC]: EnemyAffixType.TITAN,
+};
+
+/**
+ * Rolls the SECOND affix for a paragon-eligible boss/miniboss that already
+ * carries `firstAffix`. Duplicates and the degenerate partner are excluded
+ * from the weight pool (equivalent to re-roll-on-duplicate, deterministic).
+ */
+export function rollParagonAffix(firstAffix: EnemyAffixType): EnemyAffixType {
+  if (firstAffix === EnemyAffixType.NONE) return EnemyAffixType.NONE;
+  if (Math.random() > PARAGON_SECOND_AFFIX_CHANCE) return EnemyAffixType.NONE;
+  const pool = BOSS_ROLLABLE_AFFIXES.filter(
+    (type) => type !== firstAffix && type !== PARAGON_EXCLUDED_PARTNER[firstAffix]
+  );
+  const totalWeight = pool.reduce((sum, type) => sum + AFFIX_META[type].weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const type of pool) {
+    roll -= AFFIX_META[type].weight;
+    if (roll <= 0) return type;
+  }
+  return pool[0];
+}
+
+/** Title for bars/banners: "Name", "SWIFT Name", or "PARAGON SWIFT TITAN Name". */
+export function affixDisplayName(
+  baseName: string,
+  affix1: EnemyAffixType,
+  affix2: EnemyAffixType = EnemyAffixType.NONE
+): string {
+  if (affix1 === EnemyAffixType.NONE) return baseName;
+  if (affix2 === EnemyAffixType.NONE) return `${AFFIX_META[affix1].label} ${baseName}`;
+  return `${PARAGON_LABEL} ${AFFIX_META[affix1].label} ${AFFIX_META[affix2].label} ${baseName}`;
+}
