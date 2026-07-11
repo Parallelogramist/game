@@ -85,6 +85,25 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `b2b30ae` FEAT-AFFIX-PARAGON — **double-affix Paragon elites for deep
+  endless/gauntlet**. Was the sole Proposed (auto) item in Next; built to
+  completion. **Value:** once cycle-2+ makes single affixes the norm, deep
+  runs flatten again; eligible bosses/minibosses (endless cycle 4+, gauntlet
+  wave 10+) that rolled an affix now roll a SECOND distinct one 50% of the
+  time (`rollParagonAffix` — duplicate + degenerate TITAN↔VAMPIRIC pairing
+  excluded from the weight pool), both stat sets damped via the existing
+  `softenBossAffixScale`, gold "PARAGON <A1> <A2> <name>" bar/banner via pure
+  `affixDisplayName`, gold ring/label marker. New `EnemyAffix.affixType2` ECS
+  slot (all addComponent paths write both slots — bitECS recycled-id
+  hygiene), serialized as optional `affixType2` (no save-version bump, same
+  pattern as `affixType`); restore re-applies both armor bonuses + rebuilds
+  the prefixed bar name. VOLATILE death + VAMPIRIC contact checks read both
+  slots. Twins share the rolled pair (one setpiece). 8 tests pin the pool
+  exclusions + name format. Files: `Affixes.ts`, `Affixes.test.ts`,
+  `components/index.ts`, `GameStateManager.ts`, `GameScene.ts`,
+  `EliteAffixVisualManager.ts`. Feel/balance → playtest queue
+  (POLISH-AFFIX-PARAGON). Follow-up proposed: FEAT-ENDLESS-CYCLE-MUTATORS.
+
 - `7e90628` FEAT-WEAPON-WAKE — **19th weapon "Caustic Wake", movement-driven
   trail**. Was the sole Proposed (auto) item in Next; built to completion.
   **Value:** all 18 prior weapons fire on a clock (or, Guardian, on damage

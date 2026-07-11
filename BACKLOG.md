@@ -36,14 +36,13 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-AFFIX-PARAGON** — double-affix "Paragon" elites for deep endless.
-  Value: once cycle-2+ makes single affixes the norm, deep runs (endless
-  cycle 4+ / gauntlet wave 10+) flatten again; letting eligible bosses and
-  minibosses roll a SECOND distinct affix (re-roll on duplicate, gold
-  "PARAGON" prefix prepended to both labels, both stat sets damped via the
-  existing softenBossAffixScale) restores escalation with near-zero new
-  systems. Watch: TITAN+VAMPIRIC is the degenerate pairing — cap combined
-  healthScale or exclude that pair.
+- [ ] **FEAT-ENDLESS-CYCLE-MUTATORS** — named per-cycle endless mutators.
+  Value: endless cycles 2+ differ only by stat ramps + affix luck; a
+  cycle-wide named mutator rolled at each cycle start (e.g. SWIFT SWARM
+  +15% enemy speed, VOLATILE AIR trash affix chance ×2, GOLD RUSH +50%
+  gold drops) announced via the existing banner gives every cycle an
+  identity and a lean-in/play-safe decision at near-zero content cost;
+  reuse the affix banner/HUD-label plumbing.
 
 ## Later
 
@@ -68,6 +67,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-AFFIX-PARAGON** — double-affix Paragon elites feel/balance
+    (FEAT-AFFIX-PARAGON; roll + name in `src/data/Affixes.ts`
+    `rollParagonAffix`/`affixDisplayName`, wiring in `GameScene.spawnBoss` /
+    `spawnMiniboss` / `applyDampedAffixStats`, gold marker in
+    `EliteAffixVisualManager`). Reach via endless cycle 4+ or gauntlet
+    wave 10+. Check with real runs: (a) rate — 35% × 50% ≈ 17.5% of
+    eligible spawns; special or spam (`PARAGON_SECOND_AFFIX_CHANCE`)?
+    (b) "PARAGON SWIFT TITAN <name>" bar/banner length — truncation or
+    wrap at UI-scale extremes? (c) stacked damped stats (worst pool:
+    TITAN+VOLATILE ≈ 2.04× on a boss's doubled HP) — siege or drag?
+    (d) SWIFT+VAMPIRIC chase heal pressure fair? (e) gold PARAGON
+    ring/label reads as "bigger deal" vs single-affix color rings?
+    (f) refresh mid-fight → CONTINUE: both affixes' behaviours + armor +
+    gold marker survive restore; (g) twins as shared paragon pair —
+    double VOLATILE corpse blasts fair?
   - **POLISH-MINIBOSS-AFFIXES** — affixed miniboss variants feel/balance
     (FEAT-MINIBOSS-AFFIXES; tier heal in `src/data/Affixes.ts`
     `vampiricHealFraction`, wiring in `GameScene.spawnMiniboss` +
@@ -590,6 +604,25 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-AFFIX-PARAGON — double-affix Paragon elites for deep endless/gauntlet**
+  (done — `b2b30ae`). Was the sole Proposed (auto) item in Next; built to
+  completion. **Value:** once cycle-2+ makes single affixes the norm, deep
+  runs flatten again; eligible bosses/minibosses (endless cycle 4+, gauntlet
+  wave 10+) that rolled an affix now roll a SECOND distinct one 50% of the
+  time (`rollParagonAffix` — duplicate + degenerate TITAN↔VAMPIRIC pairing
+  excluded from the weight pool), both stat sets damped via the existing
+  `softenBossAffixScale`, gold "PARAGON <A1> <A2> <name>" bar/banner via pure
+  `affixDisplayName`, gold ring/label marker. New `EnemyAffix.affixType2` ECS
+  slot (all addComponent paths write both slots — bitECS recycled-id
+  hygiene), serialized as optional `affixType2` (no save-version bump, same
+  pattern as `affixType`); restore re-applies both armor bonuses + rebuilds
+  the prefixed bar name. VOLATILE death + VAMPIRIC contact checks read both
+  slots. Twins share the rolled pair (one setpiece). 8 tests pin the pool
+  exclusions + name format. Files: `Affixes.ts`, `Affixes.test.ts`,
+  `components/index.ts`, `GameStateManager.ts`, `GameScene.ts`,
+  `EliteAffixVisualManager.ts`. Feel/balance → playtest queue
+  (POLISH-AFFIX-PARAGON). Follow-up proposed: FEAT-ENDLESS-CYCLE-MUTATORS.
 
 - [x] **FEAT-MINIBOSS-AFFIXES — affixed miniboss variants for endless/gauntlet**
   (done — `8be807f`). Was the sole Proposed (auto) item in Next; built to
