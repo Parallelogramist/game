@@ -25,6 +25,7 @@ type EndlessState = {
   bossTimer: number;
   cycleNumber: number;
   bossIntervalSeconds: number;
+  mutator?: number;
 };
 
 function makeSaveData(
@@ -90,6 +91,7 @@ describe('GameStateManager endless-mode persistence', () => {
       bossTimer: 88.5,
       cycleNumber: 3,
       bossIntervalSeconds: 165,
+      mutator: 4,
     };
 
     getGameStateManager().save(makeSaveData(world, playerId, { hasWon: true, endlessState }));

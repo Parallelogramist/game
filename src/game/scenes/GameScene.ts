@@ -59,6 +59,7 @@ import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
 import { rollAffix, rollBossAffix, rollParagonAffix, affixDisplayName, softenBossAffixScale, vampiricHealFraction, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
+import { EndlessMutatorType, ENDLESS_MUTATOR_META, rollEndlessMutator, sanitizeEndlessMutator } from '../../data/EndlessMutators';
 import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
@@ -381,6 +382,8 @@ export class GameScene extends Phaser.Scene {
   private endlessBossTimer = 0;          // Countdown to next boss wave (escalating intervals)
   private endlessCycleNumber = 0;        // How many endless boss waves have been defeated
   private endlessBossIntervalSeconds = 300; // Starts at 5 min between waves, shortens per cycle
+  private endlessMutator: EndlessMutatorType = EndlessMutatorType.NONE;
+  private endlessHudCycleShown = -1;     // Last cycle pushed to the HUD label (lazy sync survives restore ordering)
 
   // GAUNTLET mode (boss-rush waves; replaces the stage's timed miniboss/boss
   // schedule — trash spawns keep flowing for the XP economy)
@@ -665,6 +668,8 @@ export class GameScene extends Phaser.Scene {
     this.endlessBossTimer = 0;
     this.endlessCycleNumber = 0;
     this.endlessBossIntervalSeconds = 300;
+    this.endlessMutator = EndlessMutatorType.NONE;
+    this.endlessHudCycleShown = -1;
     // gauntletModeActive itself comes from init data — only the progression resets.
     this.gauntletWave = 0;
     this.gauntletPhase = 'intro';
@@ -1458,6 +1463,7 @@ export class GameScene extends Phaser.Scene {
         bossTimer: this.endlessBossTimer,
         cycleNumber: this.endlessCycleNumber,
         bossIntervalSeconds: this.endlessBossIntervalSeconds,
+        mutator: this.endlessMutator,
       },
       gauntletState: {
         active: this.gauntletModeActive,
@@ -1656,6 +1662,10 @@ export class GameScene extends Phaser.Scene {
       this.endlessBossIntervalSeconds = sanitizeEndless(savedEndless.bossIntervalSeconds, 300, 120, 300);
       this.endlessMinibossTimer = sanitizeEndless(savedEndless.minibossTimer, 45, 0, 600);
       this.endlessBossTimer = sanitizeEndless(savedEndless.bossTimer, this.endlessBossIntervalSeconds, 0, 600);
+      this.endlessMutator = this.endlessModeActive
+        ? sanitizeEndlessMutator(savedEndless.mutator)
+        : EndlessMutatorType.NONE;
+      this.endlessHudCycleShown = -1;
     }
 
     // Restore GAUNTLET progression. Assigned unconditionally (scene restarts
@@ -2877,7 +2887,10 @@ export class GameScene extends Phaser.Scene {
     else kind = ConsumableKind.GOLD;
 
     const goldValue = kind === ConsumableKind.GOLD
-      ? 25 + Math.floor(this.gameTime * 0.5) + this.worldLevel * 10
+      ? Math.round(
+          (25 + Math.floor(this.gameTime * 0.5) + this.worldLevel * 10)
+            * ENDLESS_MUTATOR_META[this.endlessMutator].goldDropScale,
+        )
       : 0;
     spawnConsumablePickup(this.world, x, y, kind, goldValue);
   }
@@ -4864,6 +4877,7 @@ export class GameScene extends Phaser.Scene {
         this.endlessMinibossTimer = 45;   // First miniboss in 45 seconds (faster than old 60)
         this.endlessBossTimer = this.endlessBossIntervalSeconds; // First post-victory boss in 5 min
         this.endlessCycleNumber = 0;
+        this.endlessMutator = EndlessMutatorType.NONE;
         console.log('[Endless Mode] Activated - miniboss in 60s, boss in 600s');
 
         // Reset grid physics - boss death applies massive forces that springs can't recover from
@@ -5537,9 +5551,10 @@ export class GameScene extends Phaser.Scene {
     // ═══ ELITE AFFIX (natural regular spawns only) ═══
     // Exclude minibosses/bosses (xp >= 30) AND spawned-only minions, which route
     // through createEnemy too (ghost/splitter_mini/turret) — an elite ghost is odd.
+    const mutatorMeta = ENDLESS_MUTATOR_META[this.endlessMutator];
     const isSpawnedOnly = enemyType.id === 'ghost' || enemyType.id === 'splitter_mini' || enemyType.id === 'turret';
     if (enemyType.xpValue < 30 && !isSpawnedOnly) {
-      const affix = rollAffix();
+      const affix = rollAffix(mutatorMeta.affixChanceMultiplier);
       if (affix !== EnemyAffixType.NONE) {
         const affixMeta = AFFIX_META[affix];
         addComponent(this.world, EnemyAffix, entityId);
@@ -5552,6 +5567,14 @@ export class GameScene extends Phaser.Scene {
         EnemyType.armor[entityId] += affixMeta.bonusArmor;
         Velocity.speed[entityId] *= affixMeta.speedScale;
       }
+    }
+
+    // Endless-cycle mutator: trash-tier spawn effects only (boss/miniboss feel is
+    // owned by the affix system; xpValue >= 30 stays untouched).
+    if (enemyType.xpValue < 30 && this.endlessMutator !== EndlessMutatorType.NONE) {
+      Velocity.speed[entityId] *= mutatorMeta.trashSpeedScale;
+      EnemyType.xpValue[entityId] = Math.min(65535, Math.round(EnemyType.xpValue[entityId] * mutatorMeta.trashXpScale));
+      EnemyType.armor[entityId] += mutatorMeta.trashArmorBonus;
     }
 
     // Create visual based on type
@@ -7056,6 +7079,7 @@ export class GameScene extends Phaser.Scene {
    * Spawns a miniboss + boss every 600 seconds (10 minutes).
    */
   private checkEndlessModeSpawns(deltaSeconds: number): void {
+    this.syncEndlessHudLabel();
     this.endlessModeTime += deltaSeconds;
     this.endlessMinibossTimer -= deltaSeconds;
     this.endlessBossTimer -= deltaSeconds;
@@ -7074,6 +7098,7 @@ export class GameScene extends Phaser.Scene {
     // Boss waves: interval shortens each cycle (5min → 4min → 3min → 2min floor).
     if (this.endlessBossTimer <= 0) {
       this.endlessCycleNumber += 1;
+      this.endlessMutator = rollEndlessMutator(this.endlessMutator);
       // Each cycle tightens the next interval by 45s (minimum 120s = 2 min).
       this.endlessBossIntervalSeconds = Math.max(120, 300 - this.endlessCycleNumber * 45);
       this.endlessBossTimer = this.endlessBossIntervalSeconds;
@@ -7102,11 +7127,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Displays a large "CYCLE N — escalated" banner when a new endless wave starts.
-   * Gives the player a clear landmark for their post-victory progression.
+   * Displays a large "CYCLE N — escalated" banner when a new endless wave starts,
+   * naming the cycle's rolled mutator. Gives the player a clear landmark for
+   * their post-victory progression.
    */
   private showEndlessCycleBanner(cycleNumber: number): void {
-    this.showWaveBanner(`CYCLE ${cycleNumber}\nESCALATION`, cycleNumber >= 3 ? '#ff3366' : '#ffaa44');
+    const mutatorMeta = ENDLESS_MUTATOR_META[this.endlessMutator];
+    const bannerMessage = this.endlessMutator === EndlessMutatorType.NONE
+      ? `CYCLE ${cycleNumber}\nESCALATION`
+      : `CYCLE ${cycleNumber} · ${mutatorMeta.name}\n${mutatorMeta.description}`;
+    this.showWaveBanner(bannerMessage, cycleNumber >= 3 ? '#ff3366' : '#ffaa44');
   }
 
   /** Large center-screen wave landmark banner (endless cycles + gauntlet waves). */
@@ -7296,6 +7326,22 @@ export class GameScene extends Phaser.Scene {
     this.gauntletHudWaveShown = this.gauntletWave;
     this.hudManager.setTopCenterLabel(
       this.gauntletWave === 0 ? 'GAUNTLET' : `GAUNTLET · WAVE ${this.gauntletWave}`,
+    );
+  }
+
+  /**
+   * Pushes the endless cycle + mutator into the HUD's top-center slot ("WORLD N"
+   * in standard runs). Lazy re-sync for the same reason as the gauntlet label:
+   * the restore path builds the HUD after endlessState is applied.
+   */
+  private syncEndlessHudLabel(): void {
+    if (this.endlessCycleNumber < 1 || this.endlessHudCycleShown === this.endlessCycleNumber || !this.hudManager) return;
+    this.endlessHudCycleShown = this.endlessCycleNumber;
+    const mutatorMeta = ENDLESS_MUTATOR_META[this.endlessMutator];
+    this.hudManager.setTopCenterLabel(
+      this.endlessMutator === EndlessMutatorType.NONE
+        ? `CYCLE ${this.endlessCycleNumber}`
+        : `CYCLE ${this.endlessCycleNumber} · ${mutatorMeta.name}`,
     );
   }
 

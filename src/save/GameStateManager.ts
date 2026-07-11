@@ -261,6 +261,10 @@ interface SerializedEndlessState {
   bossTimer: number;
   cycleNumber: number;
   bossIntervalSeconds: number;
+  // Named per-cycle mutator (EndlessMutatorType id). Optional — absent on
+  // legacy saves → restores as NONE. No save-version bump (same pattern as
+  // the enemy `affixType` field).
+  mutator?: number;
 }
 
 /**
