@@ -65,7 +65,7 @@ export function projectToRadar(
 /**
  * Classify an enemy into a radar blip kind from its XP value and elite flag.
  * Tier (boss/miniboss) always wins; the elite flag only promotes low-XP
- * regular enemies (mirrors the affix system: only sub-30-XP spawns roll affixes).
+ * regular enemies (affixed bosses keep their boss blip — tier wins).
  */
 export function classifyEnemyKind(xpValue: number, isElite: boolean): MinimapBlipKind {
   if (xpValue >= MINIMAP_BOSS_XP) return 'boss';

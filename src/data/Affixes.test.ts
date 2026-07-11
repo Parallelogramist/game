@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
-import { EnemyAffixType, AFFIX_META, AFFIX_ROLL_CHANCE, rollAffix } from './Affixes';
+import { EnemyAffixType, AFFIX_META, AFFIX_ROLL_CHANCE, rollAffix, BOSS_AFFIX_CHANCE, rollBossAffix, softenBossAffixScale } from './Affixes';
 
 // Numeric enum → the numeric members only (Object.values yields both names and values).
 const ALL_AFFIX_TYPES = Object.values(EnemyAffixType).filter(
@@ -157,5 +157,47 @@ describe('rollAffix — weighted distribution', () => {
     const spy = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.5);
     rollAffix();
     expect(spy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('rollBossAffix — boss variant gate', () => {
+  const probeBoss = (weightRoll: number): EnemyAffixType => {
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(weightRoll);
+    const result = rollBossAffix();
+    vi.restoreAllMocks();
+    return result;
+  };
+
+  test('boss roll chance is the tuned 35%', () => {
+    expect(BOSS_AFFIX_CHANCE).toBe(0.35);
+  });
+
+  test('returns NONE when the gate roll lands above the chance', () => {
+    const spy = vi.spyOn(Math, 'random').mockReturnValueOnce(0.3501);
+    expect(rollBossAffix()).toBe(EnemyAffixType.NONE);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  test('BLESSED is never rolled for bosses — the weight walk ends at TITAN', () => {
+    expect(probeBoss(0)).toBe(EnemyAffixType.SWIFT);
+    expect(probeBoss(0.999999)).toBe(EnemyAffixType.TITAN);
+  });
+
+  test('mid-band probes over the 84-weight boss pool hit each affix', () => {
+    // Weights 24/22/20/18 over 84: SWIFT (0, 24/84], VOLATILE (24/84, 46/84],
+    // VAMPIRIC (46/84, 66/84], TITAN (66/84, 1).
+    expect(probeBoss(0.1)).toBe(EnemyAffixType.SWIFT);
+    expect(probeBoss(0.35)).toBe(EnemyAffixType.VOLATILE);
+    expect(probeBoss(0.6)).toBe(EnemyAffixType.VAMPIRIC);
+    expect(probeBoss(0.9)).toBe(EnemyAffixType.TITAN);
+  });
+});
+
+describe('softenBossAffixScale — boss stat damping', () => {
+  test('halves the distance from neutral in both directions', () => {
+    expect(softenBossAffixScale(2.4)).toBeCloseTo(1.7);    // TITAN health
+    expect(softenBossAffixScale(1.6)).toBeCloseTo(1.3);    // SWIFT speed
+    expect(softenBossAffixScale(0.85)).toBeCloseTo(0.925); // TITAN speed (slow)
+    expect(softenBossAffixScale(1)).toBe(1);
   });
 });

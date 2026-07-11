@@ -58,7 +58,7 @@ import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
-import { rollAffix, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
+import { rollAffix, rollBossAffix, softenBossAffixScale, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
@@ -2279,11 +2279,15 @@ export class GameScene extends Phaser.Scene {
     // Legion members share ONE rebuilt group bar (created after the entity
     // pass) instead of a per-member bar each.
     if (entity.enemyData.xpValue >= 30 && restoredLegionGeneration === null) {
+      // Affixed bosses keep their title-prefixed bar across a refresh.
+      const bossBarName = restoredAffix !== EnemyAffixType.NONE && entity.enemyData.xpValue >= 1000
+        ? `${AFFIX_META[restoredAffix as EnemyAffixType].label} ${enemyType.name}`
+        : enemyType.name;
       if (this.hudManager) {
-        this.hudManager.createBossHealthBar(entityId, enemyType.name, entity.enemyData.xpValue >= 1000);
+        this.hudManager.createBossHealthBar(entityId, bossBarName, entity.enemyData.xpValue >= 1000);
       } else {
         // Defer — will be created after hudManager initialization
-        this.pendingBossHealthBars.push({ entityId, name: enemyType.name, isBoss: entity.enemyData.xpValue >= 1000 });
+        this.pendingBossHealthBars.push({ entityId, name: bossBarName, isBoss: entity.enemyData.xpValue >= 1000 });
       }
     }
   }
@@ -4210,8 +4214,11 @@ export class GameScene extends Phaser.Scene {
         // Collision! Take damage
         this.takeDamage(EnemyType.baseDamage[enemyId] || 10, enemyId);
         // Vampiric elites heal a chunk when they land a hit on the player.
+        // Bosses heal a far smaller fraction — 20% of a doubled boss pool per
+        // hit would out-heal player DPS and soft-lock the fight.
         if (hasComponent(this.world, EnemyAffix, enemyId) && EnemyAffix.affixType[enemyId] === EnemyAffixType.VAMPIRIC) {
-          Health.current[enemyId] = Math.min(Health.max[enemyId], Health.current[enemyId] + Health.max[enemyId] * 0.2);
+          const vampiricHealFraction = EnemyType.xpValue[enemyId] >= 1000 ? 0.05 : 0.2;
+          Health.current[enemyId] = Math.min(Health.max[enemyId], Health.current[enemyId] + Health.max[enemyId] * vampiricHealFraction);
         }
         break; // Only one hit per frame
       }
@@ -6673,6 +6680,12 @@ export class GameScene extends Phaser.Scene {
     this.spawnBoss(bossTypeId);
   }
 
+  /** Affixed bosses are replay-variety only: endless cycle 2+ / gauntlet wave 6+. */
+  private bossAffixEligible(): boolean {
+    if (this.gauntletModeActive) return this.gauntletWave >= 6;
+    return this.endlessModeActive && this.endlessCycleNumber >= 2;
+  }
+
   /**
    * Spawns a boss at screen center with dramatic entrance.
    */
@@ -6692,8 +6705,29 @@ export class GameScene extends Phaser.Scene {
 
     const entityId = this.createEnemy(x, y, enemyType, scaledStats);
 
+    // ═══ BOSS AFFIX (endless cycle-2+ / gauntlet wave-6+ replay variety) ═══
+    // The Legion is excluded: split children wouldn't inherit the affix and the
+    // shared-pool math must not absorb a root-only health multiplier.
+    let bossDisplayName = enemyType.name;
+    if (typeId !== 'the_legion' && this.bossAffixEligible()) {
+      const bossAffix = rollBossAffix();
+      if (bossAffix !== EnemyAffixType.NONE) {
+        const affixMeta = AFFIX_META[bossAffix];
+        addComponent(this.world, EnemyAffix, entityId);
+        EnemyAffix.affixType[entityId] = bossAffix;
+        const dampedHealthScale = softenBossAffixScale(affixMeta.healthScale);
+        Health.max[entityId] *= dampedHealthScale;
+        Health.current[entityId] = Health.max[entityId];
+        EnemyType.baseHealth[entityId] *= dampedHealthScale;
+        EnemyType.xpValue[entityId] = Math.min(65535, Math.round(EnemyType.xpValue[entityId] * affixMeta.xpScale));
+        EnemyType.armor[entityId] += affixMeta.bonusArmor;
+        Velocity.speed[entityId] *= softenBossAffixScale(affixMeta.speedScale);
+        bossDisplayName = `${affixMeta.label} ${enemyType.name}`;
+      }
+    }
+
     // Create health bar for the boss (isFinalBoss = true for purple color)
-    this.hudManager.createBossHealthBar(entityId, enemyType.name, true);
+    this.hudManager.createBossHealthBar(entityId, bossDisplayName, true);
     this.hudManager.repositionBossHealthBars();
 
     if (typeId === 'the_legion') {
@@ -6706,7 +6740,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Show boss entrance
-    this.showBossEntrance(enemyType.name);
+    this.showBossEntrance(bossDisplayName);
 
     // Activate boss arena atmosphere
     activateBossArena(typeId);

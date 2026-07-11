@@ -84,3 +84,38 @@ export function rollAffix(chanceMultiplier: number = 1): EnemyAffixType {
   }
   return EnemyAffixType.SWIFT;
 }
+
+/** Chance an eligible boss (endless cycle 2+ / gauntlet wave 6+) spawns affixed. */
+export const BOSS_AFFIX_CHANCE = 0.35;
+
+/**
+ * Bosses take affix stat multipliers at half strength: boss HP is already
+ * doubled at spawn (a full TITAN 2.4× would drag the fight; a full SWIFT
+ * 1.6× breaks chase feel). XP scale and flat armor stay full.
+ */
+export const BOSS_AFFIX_STAT_DAMPING = 0.5;
+
+export function softenBossAffixScale(scale: number): number {
+  return 1 + (scale - 1) * BOSS_AFFIX_STAT_DAMPING;
+}
+
+// BLESSED is excluded: bosses already guarantee a consumable + data-cache roll.
+const BOSS_ROLLABLE_AFFIXES: EnemyAffixType[] = [
+  EnemyAffixType.SWIFT,
+  EnemyAffixType.VOLATILE,
+  EnemyAffixType.VAMPIRIC,
+  EnemyAffixType.TITAN,
+];
+
+const BOSS_TOTAL_WEIGHT = BOSS_ROLLABLE_AFFIXES.reduce((sum, type) => sum + AFFIX_META[type].weight, 0);
+
+/** Rolls the affix for an eligible boss spawn. Returns NONE most of the time. */
+export function rollBossAffix(): EnemyAffixType {
+  if (Math.random() > BOSS_AFFIX_CHANCE) return EnemyAffixType.NONE;
+  let roll = Math.random() * BOSS_TOTAL_WEIGHT;
+  for (const type of BOSS_ROLLABLE_AFFIXES) {
+    roll -= AFFIX_META[type].weight;
+    if (roll <= 0) return type;
+  }
+  return EnemyAffixType.SWIFT;
+}
