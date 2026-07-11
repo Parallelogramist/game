@@ -36,13 +36,13 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-ENDLESS-CYCLE-MUTATORS** — named per-cycle endless mutators.
-  Value: endless cycles 2+ differ only by stat ramps + affix luck; a
-  cycle-wide named mutator rolled at each cycle start (e.g. SWIFT SWARM
-  +15% enemy speed, VOLATILE AIR trash affix chance ×2, GOLD RUSH +50%
-  gold drops) announced via the existing banner gives every cycle an
-  identity and a lean-in/play-safe decision at near-zero content cost;
-  reuse the affix banner/HUD-label plumbing.
+- [ ] **FEAT-ENDLESS-BEST-CYCLE** — persistent deepest-endless-cycle chase
+  metric. Value: endless has no progression stat — gauntlet has "WAVE N
+  (Best M / NEW BEST!)" via `GauntletBestWave.ts` but a cycle-8 endless run
+  and a cycle-2 one die identically; mirror the gauntlet plumbing
+  (SecureStorage best-cycle, death-screen "CYCLE N (Best M / NEW BEST!)"
+  line when the run was endless) to give post-victory runs a reason to push
+  one cycle deeper.
 
 ## Later
 
@@ -67,6 +67,26 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-ENDLESS-MUTATORS** — per-cycle endless mutator feel/balance
+    (FEAT-ENDLESS-CYCLE-MUTATORS; pool + magnitudes in
+    `src/data/EndlessMutators.ts`, roll/HUD/banner wiring in
+    `GameScene.checkEndlessModeSpawns` / `syncEndlessHudLabel` /
+    `showEndlessCycleBanner`, spawn hooks in `createEnemy` +
+    `spawnRandomConsumable`). Reach via any endless run (first boss wave =
+    cycle 1). Check with real runs: (a) banner "CYCLE N · NAME" + effect
+    line legible at 48px over combat; (b) HUD top-center
+    "CYCLE N · SWIFT SWARM" length vs the timer/kills stack at UI-scale
+    extremes — truncation/crowding? (c) SWIFT SWARM ×1.15 trash speed on
+    cycle-5+ tightened cadence — fair or frantic? (d) VOLATILE AIR 24%
+    elite rate — fun density or elite soup (ring/label clutter)?
+    (e) GOLD RUSH ×1.5 cache payload — noticeable in the run-end gold
+    total, or lost in the noise? (f) XP SURGE ×1.25 — does the level-curve
+    spike distort upgrade pacing? (g) IRON HORDE +2 trash armor vs
+    late-run DPS — even noticeable? too spongy for weak builds?
+    (h) refresh mid-cycle → CONTINUE: mutator effect + HUD label survive;
+    a pre-feature legacy save restores as plain "CYCLE N"; (i) no-repeat
+    roll across 5+ cycles — does the variety read? Knobs: meta values in
+    `EndlessMutators.ts` (one bag per mutator).
   - **POLISH-AFFIX-PARAGON** — double-affix Paragon elites feel/balance
     (FEAT-AFFIX-PARAGON; roll + name in `src/data/Affixes.ts`
     `rollParagonAffix`/`affixDisplayName`, wiring in `GameScene.spawnBoss` /
@@ -605,6 +625,26 @@ Never agent work. The fleet must not do any of these.
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
 
+- [x] **FEAT-ENDLESS-CYCLE-MUTATORS — named per-cycle endless mutators**
+  (done — `7fcfd2e`). Was the sole Proposed (auto) item in Next; built to
+  completion. **Value:** endless cycles 2+ differed only by stat ramps +
+  affix luck; every boss-wave cycle now rolls a named, cycle-wide mutator —
+  SWIFT SWARM (trash speed ×1.15), VOLATILE AIR (elite affix chance ×2),
+  GOLD RUSH (gold caches ×1.5), XP SURGE (trash XP ×1.25), IRON HORDE
+  (trash +2 armor) — uniform roll excluding the previous cycle's pick
+  (`rollEndlessMutator` in new pure `src/data/EndlessMutators.ts`),
+  announced on the cycle banner ("CYCLE N · GOLD RUSH / +50% GOLD DROPS")
+  and pinned in the HUD top-center slot via a lazy sync mirroring
+  `syncGauntletHudLabel`. Effects are spawn/roll-time only (trash gate
+  xpValue < 30; bosses/minibosses untouched — affix system owns their
+  feel); GOLD RUSH hooks the single `spawnRandomConsumable` payload calc.
+  Serialized as optional `endlessState.mutator` (no save-version bump,
+  `sanitizeEndlessMutator` tamper guard; legacy saves restore mutator-free).
+  4 tests pin roll exclusion + sanitize; endless save round-trip extended.
+  Files: `EndlessMutators.ts`, `EndlessMutators.test.ts`, `GameScene.ts`,
+  `GameStateManager.ts`, `GameStateManager.endless.test.ts`. Feel/balance →
+  playtest queue (POLISH-ENDLESS-MUTATORS). Follow-up proposed:
+  FEAT-ENDLESS-BEST-CYCLE.
 - [x] **FEAT-AFFIX-PARAGON — double-affix Paragon elites for deep endless/gauntlet**
   (done — `b2b30ae`). Was the sole Proposed (auto) item in Next; built to
   completion. **Value:** once cycle-2+ makes single affixes the norm, deep

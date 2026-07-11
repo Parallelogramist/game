@@ -85,6 +85,17 @@ One module per session, test-first, ~15-25 cases each.
 
 (most recent first; see `git log` for full detail)
 
+- `7fcfd2e` FEAT-ENDLESS-CYCLE-MUTATORS — **named per-cycle endless mutators**.
+  Was the sole Proposed (auto) item in Next; built to completion. **Value:**
+  endless cycles differed only by stat ramps + affix luck; each boss-wave
+  cycle now rolls one of five named cycle-wide mutators (SWIFT SWARM /
+  VOLATILE AIR / GOLD RUSH / XP SURGE / IRON HORDE), never repeating the
+  previous cycle, announced on the cycle banner + pinned in the HUD
+  top-center slot. Pure roll/meta module `src/data/EndlessMutators.ts`
+  (4 tests); spawn/roll-time effects only, trash-tier gate; optional
+  `endlessState.mutator` persistence with sanitize guard, legacy saves
+  restore mutator-free. Feel/balance → POLISH-ENDLESS-MUTATORS. Follow-up
+  proposed: FEAT-ENDLESS-BEST-CYCLE.
 - `b2b30ae` FEAT-AFFIX-PARAGON — **double-affix Paragon elites for deep
   endless/gauntlet**. Was the sole Proposed (auto) item in Next; built to
   completion. **Value:** once cycle-2+ makes single affixes the norm, deep
