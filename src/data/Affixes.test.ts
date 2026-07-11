@@ -1,5 +1,5 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
-import { EnemyAffixType, AFFIX_META, AFFIX_ROLL_CHANCE, rollAffix, BOSS_AFFIX_CHANCE, rollBossAffix, softenBossAffixScale } from './Affixes';
+import { EnemyAffixType, AFFIX_META, AFFIX_ROLL_CHANCE, rollAffix, BOSS_AFFIX_CHANCE, rollBossAffix, softenBossAffixScale, vampiricHealFraction } from './Affixes';
 
 // Numeric enum → the numeric members only (Object.values yields both names and values).
 const ALL_AFFIX_TYPES = Object.values(EnemyAffixType).filter(
@@ -199,5 +199,23 @@ describe('softenBossAffixScale — boss stat damping', () => {
     expect(softenBossAffixScale(1.6)).toBeCloseTo(1.3);    // SWIFT speed
     expect(softenBossAffixScale(0.85)).toBeCloseTo(0.925); // TITAN speed (slow)
     expect(softenBossAffixScale(1)).toBe(1);
+  });
+});
+
+describe('vampiricHealFraction — tiered contact heal', () => {
+  test('bosses (xp >= 1000) heal 5%', () => {
+    expect(vampiricHealFraction(1000)).toBe(0.05);
+    expect(vampiricHealFraction(1500)).toBe(0.05);
+  });
+
+  test('minibosses (30 <= xp < 1000) heal 10%', () => {
+    expect(vampiricHealFraction(30)).toBe(0.1);
+    expect(vampiricHealFraction(450)).toBe(0.1);  // glutton 300 × 1.5 xpScale
+    expect(vampiricHealFraction(999)).toBe(0.1);
+  });
+
+  test('trash (< 30) heals 20%', () => {
+    expect(vampiricHealFraction(1)).toBe(0.2);
+    expect(vampiricHealFraction(29)).toBe(0.2);
   });
 });

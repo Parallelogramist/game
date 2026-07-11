@@ -85,7 +85,10 @@ export function rollAffix(chanceMultiplier: number = 1): EnemyAffixType {
   return EnemyAffixType.SWIFT;
 }
 
-/** Chance an eligible boss (endless cycle 2+ / gauntlet wave 6+) spawns affixed. */
+/**
+ * Chance an eligible boss (endless cycle 2+ / gauntlet wave 6+) or miniboss
+ * (endless cycle 2+ / gauntlet wave 4+) spawns affixed.
+ */
 export const BOSS_AFFIX_CHANCE = 0.35;
 
 /**
@@ -109,7 +112,7 @@ const BOSS_ROLLABLE_AFFIXES: EnemyAffixType[] = [
 
 const BOSS_TOTAL_WEIGHT = BOSS_ROLLABLE_AFFIXES.reduce((sum, type) => sum + AFFIX_META[type].weight, 0);
 
-/** Rolls the affix for an eligible boss spawn. Returns NONE most of the time. */
+/** Rolls the affix for an eligible boss/miniboss spawn. Returns NONE most of the time. */
 export function rollBossAffix(): EnemyAffixType {
   if (Math.random() > BOSS_AFFIX_CHANCE) return EnemyAffixType.NONE;
   let roll = Math.random() * BOSS_TOTAL_WEIGHT;
@@ -118,4 +121,15 @@ export function rollBossAffix(): EnemyAffixType {
     if (roll <= 0) return type;
   }
   return EnemyAffixType.SWIFT;
+}
+
+/**
+ * VAMPIRIC contact-heal fraction by enemy tier. 20% of a boss's doubled pool
+ * (or a miniboss's large pool) per hit would out-heal player DPS and
+ * soft-lock the fight, so bigger enemies heal a smaller fraction.
+ */
+export function vampiricHealFraction(xpValue: number): number {
+  if (xpValue >= 1000) return 0.05;
+  if (xpValue >= 30) return 0.1;
+  return 0.2;
 }

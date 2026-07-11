@@ -58,7 +58,7 @@ import { MasteryVisualsManager } from '../../visual/MasteryVisuals';
 import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
-import { rollAffix, rollBossAffix, softenBossAffixScale, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
+import { rollAffix, rollBossAffix, softenBossAffixScale, vampiricHealFraction, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
 import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
@@ -2279,8 +2279,8 @@ export class GameScene extends Phaser.Scene {
     // Legion members share ONE rebuilt group bar (created after the entity
     // pass) instead of a per-member bar each.
     if (entity.enemyData.xpValue >= 30 && restoredLegionGeneration === null) {
-      // Affixed bosses keep their title-prefixed bar across a refresh.
-      const bossBarName = restoredAffix !== EnemyAffixType.NONE && entity.enemyData.xpValue >= 1000
+      // Affixed bosses/minibosses keep their title-prefixed bar across a refresh.
+      const bossBarName = restoredAffix !== EnemyAffixType.NONE
         ? `${AFFIX_META[restoredAffix as EnemyAffixType].label} ${enemyType.name}`
         : enemyType.name;
       if (this.hudManager) {
@@ -4213,12 +4213,11 @@ export class GameScene extends Phaser.Scene {
       if (distanceSquared < collisionDistance * collisionDistance) {
         // Collision! Take damage
         this.takeDamage(EnemyType.baseDamage[enemyId] || 10, enemyId);
-        // Vampiric elites heal a chunk when they land a hit on the player.
-        // Bosses heal a far smaller fraction — 20% of a doubled boss pool per
-        // hit would out-heal player DPS and soft-lock the fight.
+        // Vampiric elites heal a chunk when they land a hit on the player;
+        // fraction shrinks by tier (boss 5% / miniboss 10% / trash 20%).
         if (hasComponent(this.world, EnemyAffix, enemyId) && EnemyAffix.affixType[enemyId] === EnemyAffixType.VAMPIRIC) {
-          const vampiricHealFraction = EnemyType.xpValue[enemyId] >= 1000 ? 0.05 : 0.2;
-          Health.current[enemyId] = Math.min(Health.max[enemyId], Health.current[enemyId] + Health.max[enemyId] * vampiricHealFraction);
+          const healFraction = vampiricHealFraction(EnemyType.xpValue[enemyId]);
+          Health.current[enemyId] = Math.min(Health.max[enemyId], Health.current[enemyId] + Health.max[enemyId] * healFraction);
         }
         break; // Only one hit per frame
       }
@@ -5604,12 +5603,19 @@ export class GameScene extends Phaser.Scene {
     // Scale stats with both time and world level multipliers
     const scaledStats = getScaledStats(enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
 
+    // ═══ MINIBOSS AFFIX (endless cycle-2+ / gauntlet wave-4+ replay variety) ═══
+    // One roll per spawn call: the twins are a single setpiece, so both carry
+    // the same affix rather than rolling independently.
+    const minibossAffix = this.minibossAffixEligible() ? rollBossAffix() : EnemyAffixType.NONE;
+    const affixLabel = minibossAffix !== EnemyAffixType.NONE ? `${AFFIX_META[minibossAffix].label} ` : '';
+
     // Special case: Twins spawn as a pair
     if (typeId === 'twin_a') {
       const twinA = this.createEnemy(x, y, enemyType, scaledStats);
+      if (minibossAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(twinA, minibossAffix);
 
       // Create health bar for Twin A
-      this.hudManager.createBossHealthBar(twinA, enemyType.name, false);
+      this.hudManager.createBossHealthBar(twinA, `${affixLabel}${enemyType.name}`, false);
 
       // Spawn Twin B nearby
       const twinBType = getEnemyType('twin_b');
@@ -5619,18 +5625,20 @@ export class GameScene extends Phaser.Scene {
         const twinBY = y + Math.sin(offsetAngle) * 60;
         const twinBStats = getScaledStats(twinBType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
         const twinB = this.createEnemy(twinBX, twinBY, twinBType, twinBStats);
+        if (minibossAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(twinB, minibossAffix);
 
         // Create health bar for Twin B
-        this.hudManager.createBossHealthBar(twinB, twinBType.name, false);
+        this.hudManager.createBossHealthBar(twinB, `${affixLabel}${twinBType.name}`, false);
 
         // Link the twins
         linkTwins(twinA, twinB);
       }
     } else {
       const entityId = this.createEnemy(x, y, enemyType, scaledStats);
+      if (minibossAffix !== EnemyAffixType.NONE) this.applyDampedAffixStats(entityId, minibossAffix);
 
       // Create health bar for the miniboss
-      this.hudManager.createBossHealthBar(entityId, enemyType.name, false);
+      this.hudManager.createBossHealthBar(entityId, `${affixLabel}${enemyType.name}`, false);
     }
 
     // Reposition all boss health bars
@@ -5642,7 +5650,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Announce miniboss spawn with visual effect
-    this.showMinibossWarning(enemyType.name);
+    this.showMinibossWarning(`${affixLabel}${enemyType.name}`);
 
     // One-time teach on the very first miniboss ever: the warning banner says
     // "danger", this toast says "worth fighting" (relic/consumable rewards).
@@ -6686,6 +6694,32 @@ export class GameScene extends Phaser.Scene {
     return this.endlessModeActive && this.endlessCycleNumber >= 2;
   }
 
+  /** Affixed minibosses are replay-variety only: endless cycle 2+ / gauntlet wave 4+. */
+  private minibossAffixEligible(): boolean {
+    if (this.gauntletModeActive) return this.gauntletWave >= 4;
+    return this.endlessModeActive && this.endlessCycleNumber >= 2;
+  }
+
+  /**
+   * Applies an elite affix to a boss-tier entity (boss or miniboss) with stat
+   * multipliers dampened via softenBossAffixScale — these pools/speeds are
+   * already large, full trash-tier scales would drag or break chase feel.
+   * XP scale and flat armor stay full. Must run AFTER createEnemy has set the
+   * entity's scaled stats.
+   */
+  private applyDampedAffixStats(entityId: number, affix: EnemyAffixType): void {
+    const affixMeta = AFFIX_META[affix];
+    addComponent(this.world, EnemyAffix, entityId);
+    EnemyAffix.affixType[entityId] = affix;
+    const dampedHealthScale = softenBossAffixScale(affixMeta.healthScale);
+    Health.max[entityId] *= dampedHealthScale;
+    Health.current[entityId] = Health.max[entityId];
+    EnemyType.baseHealth[entityId] *= dampedHealthScale;
+    EnemyType.xpValue[entityId] = Math.min(65535, Math.round(EnemyType.xpValue[entityId] * affixMeta.xpScale));
+    EnemyType.armor[entityId] += affixMeta.bonusArmor;
+    Velocity.speed[entityId] *= softenBossAffixScale(affixMeta.speedScale);
+  }
+
   /**
    * Spawns a boss at screen center with dramatic entrance.
    */
@@ -6712,17 +6746,8 @@ export class GameScene extends Phaser.Scene {
     if (typeId !== 'the_legion' && this.bossAffixEligible()) {
       const bossAffix = rollBossAffix();
       if (bossAffix !== EnemyAffixType.NONE) {
-        const affixMeta = AFFIX_META[bossAffix];
-        addComponent(this.world, EnemyAffix, entityId);
-        EnemyAffix.affixType[entityId] = bossAffix;
-        const dampedHealthScale = softenBossAffixScale(affixMeta.healthScale);
-        Health.max[entityId] *= dampedHealthScale;
-        Health.current[entityId] = Health.max[entityId];
-        EnemyType.baseHealth[entityId] *= dampedHealthScale;
-        EnemyType.xpValue[entityId] = Math.min(65535, Math.round(EnemyType.xpValue[entityId] * affixMeta.xpScale));
-        EnemyType.armor[entityId] += affixMeta.bonusArmor;
-        Velocity.speed[entityId] *= softenBossAffixScale(affixMeta.speedScale);
-        bossDisplayName = `${affixMeta.label} ${enemyType.name}`;
+        this.applyDampedAffixStats(entityId, bossAffix);
+        bossDisplayName = `${AFFIX_META[bossAffix].label} ${enemyType.name}`;
       }
     }
 
