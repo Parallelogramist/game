@@ -22,6 +22,7 @@ export { BoomerangWeapon } from './BoomerangWeapon';
 export { SentryWeapon } from './SentryWeapon';
 export { SingularityWeapon } from './SingularityWeapon';
 export { GuardianWeapon } from './GuardianWeapon';
+export { WakeWeapon } from './WakeWeapon';
 
 // Weapon factory for creating weapons by ID
 import { BaseWeapon } from './BaseWeapon';
@@ -43,6 +44,7 @@ import { BoomerangWeapon } from './BoomerangWeapon';
 import { SentryWeapon } from './SentryWeapon';
 import { SingularityWeapon } from './SingularityWeapon';
 import { GuardianWeapon } from './GuardianWeapon';
+import { WakeWeapon } from './WakeWeapon';
 
 /**
  * All available weapon types and their constructors.
@@ -66,6 +68,7 @@ export const WeaponRegistry: Record<string, () => BaseWeapon> = {
   sentry: () => new SentryWeapon(),
   singularity: () => new SingularityWeapon(),
   guardian: () => new GuardianWeapon(),
+  wake: () => new WakeWeapon(),
 };
 
 /**

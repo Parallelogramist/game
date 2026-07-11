@@ -258,6 +258,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       count: 2,
     },
   },
+  {
+    weaponId: 'wake',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'swiftness',
+    requiredStatLevel: 5,
+    evolvedName: 'Slipstream',
+    evolvedDescription: 'A blazing slipstream — wider, longer-lived, and lethal to everything that dares cross it.',
+    statMultipliers: {
+      damage: 1.45,
+      range: 1.3,
+      size: 1.2,
+      cooldown: 0.85,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

@@ -125,6 +125,7 @@ export const ICON_MAP: Record<string, string> = {
   sentry: 'on-target',
   singularity: 'spiral-shell',
   guardian: 'sunbeams',
+  wake: 'wind-slap',
   telescope: 'telescope',
   projectile: 'thrown-daggers',
 

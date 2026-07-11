@@ -51,6 +51,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   katana: 'melee',
   aura: 'aura',
   frost_nova: 'aura',
+  wake: 'aura',
   drone: 'summon',
   sentry: 'summon',
   singularity: 'explosive',
