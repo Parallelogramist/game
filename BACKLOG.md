@@ -36,14 +36,14 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ### Proposed (auto)
 
-- [ ] **FEAT-MINIBOSS-AFFIXES** — affixed miniboss variants for endless/gauntlet.
-  Value: endless re-spawns the same 5 minibosses every ~60s forever with zero
-  variation; letting endless cycle-2+ / gauntlet wave-4+ minibosses roll the
-  same dampened affix (reuse `rollBossAffix` + `softenBossAffixScale` from
-  FEAT-BOSS-AFFIXES wholesale; prefix the existing createBossHealthBar calls in
-  `spawnMiniboss`, twins pair included) multiplies mid-wave variety for ~30
-  lines. Watch: the VAMPIRIC tier gate is `xpValue >= 1000`, so miniboss
-  contact heal would stay 20% — decide whether that needs a middle tier.
+- [ ] **FEAT-AFFIX-PARAGON** — double-affix "Paragon" elites for deep endless.
+  Value: once cycle-2+ makes single affixes the norm, deep runs (endless
+  cycle 4+ / gauntlet wave 10+) flatten again; letting eligible bosses and
+  minibosses roll a SECOND distinct affix (re-roll on duplicate, gold
+  "PARAGON" prefix prepended to both labels, both stat sets damped via the
+  existing softenBossAffixScale) restores escalation with near-zero new
+  systems. Watch: TITAN+VAMPIRIC is the degenerate pairing — cap combined
+  healthScale or exclude that pair.
 
 ## Later
 
@@ -68,6 +68,23 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MINIBOSS-AFFIXES** — affixed miniboss variants feel/balance
+    (FEAT-MINIBOSS-AFFIXES; tier heal in `src/data/Affixes.ts`
+    `vampiricHealFraction`, wiring in `GameScene.spawnMiniboss` +
+    `applyDampedAffixStats`). Reach via endless cycle 2+ or gauntlet wave 4+.
+    Check with real runs: (a) 35% rate on a ~20-45s miniboss cadence — does
+    endless cycle-3 (2 minibosses/wave) feel like elite soup, or right
+    (`BOSS_AFFIX_CHANCE` shared with bosses; split a miniboss-specific const
+    if it needs to diverge)? (b) prefixed warning banner + bar ("TITAN
+    Glutton") read; elite ring/label/mini-bar on a miniboss sprite plus the
+    top bar — clutter? (c) TITAN glutton (~1.7× of an already-fat pool,
+    +4 armor) vs mid-run DPS: drag? (d) SWIFT charger — dash speed ×~1.3 on
+    top of charge AI still dodgeable? (e) VAMPIRIC 10% middle-tier contact
+    heal — noticeable without stalemate (tiers pinned in `Affixes.test.ts`)?
+    (f) VOLATILE corpse blast on twins dying adjacent — double blast fair?
+    (g) twins share one rolled affix (pair = one setpiece) — or should they
+    roll independently? (h) refresh mid-fight → CONTINUE: prefixed miniboss
+    bar, armor, speed survive restore.
   - **POLISH-BOSS-AFFIXES** — affixed boss variants feel/balance
     (FEAT-BOSS-AFFIXES, `bbad876`; roll + damping in `src/data/Affixes.ts`,
     wiring in `GameScene.spawnBoss`). Reach via endless cycle 2+ or gauntlet
@@ -573,6 +590,27 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-MINIBOSS-AFFIXES — affixed miniboss variants for endless/gauntlet**
+  (done — `8be807f`). Was the sole Proposed (auto) item in Next; built to
+  completion. **Value:** endless re-spawns the same 5 minibosses every
+  ~20–45s forever and gauntlet from wave 1 with zero variation; eligible
+  minibosses (endless cycle 2+, gauntlet wave 4+) now roll the same dampened
+  affix as bosses — SWIFT / VOLATILE / VAMPIRIC / TITAN via `rollBossAffix()`
+  (35%, BLESSED excluded) with `softenBossAffixScale` damping, prefixed
+  health bar + warning banner ("TITAN Glutton"), ring/label via the
+  query-driven EliteAffixVisualManager for free. Twins spawn as one setpiece
+  and share a single roll (both prefixed, both damped). The shared stat
+  application was extracted from spawnBoss into
+  `GameScene.applyDampedAffixStats` (boss path now calls the same helper).
+  New middle VAMPIRIC tier: contact heal is now boss 5% / miniboss 10% /
+  trash 20% via pure `vampiricHealFraction()` in `Affixes.ts` (3 tests pin
+  the boundaries) — previously an affixed miniboss would have healed 20% of
+  its pool per contact hit. Restore path keeps prefixed bar names for any
+  affixed bar-holder (xpValue ≥ 30), not just bosses. Files: `Affixes.ts`,
+  `Affixes.test.ts`, `GameScene.ts`. tsc + vite build clean, 1175 tests
+  green (1172 + 3). Feel/balance → playtest queue
+  (POLISH-MINIBOSS-AFFIXES). Follow-up proposed: FEAT-AFFIX-PARAGON.
 
 - [x] **FEAT-BOSS-AFFIXES — affixed boss variants for endless/gauntlet replay**
   (done — `bbad876`). Was the sole Proposed (auto) item in Next; built to
