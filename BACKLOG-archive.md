@@ -5,6 +5,55 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-SAVE-EXPORT — profile backup: export/import meta-progression · DONE a876ed0
+
+**Value:** every byte of progress (gold, shop, ascension, cards, hidden
+unlocks, codex, achievements, best scores, run history — all keys in
+`StorageBootstrap.ALL_STORAGE_KEYS`) lived in ONE browser's localStorage.
+Safari evicts script-writable storage after ~7 days of disuse (ITP), "clear
+site data" or a lost phone wipes hundreds of runs with no recovery path, and
+there was no way to move progress between phone and desktop — the single
+biggest real-player reliability gap left in the game.
+
+**Shipped:** a PROFILE row in SettingsScene → DATA offers **EXPORT** (one
+portable, versioned, checksummed, AES-GCM-encrypted blob — file download +
+copy-to-clipboard fallback for iOS) and **IMPORT** (paste/file pick →
+validate version + checksum + shape → explicit overwrite confirm → atomic
+all-or-nothing restore + reload; corrupt/foreign/partial blobs rejected with
+a clear message and ZERO partial writes).
+
+**Design notes:**
+- The at-rest key derives from a per-installation random salt, so a blob
+  encrypted with the device key would be undecryptable on any other device —
+  the export generates its own random salt per export and embeds it in the
+  envelope (`PEWSAVE1:<saltB64>:<ivB64>:<ciphertextB64>`); any install derives
+  the same key from the shared base material + that salt.
+- Import is a full replacement over the transferable key set, not a merge — a
+  key absent from the blob is cleared, so the old profile's achievements can't
+  survive underneath the imported one.
+- The in-run save (`survivor-game-state`) is deliberately non-transferable and
+  always cleared on import — resuming a run on top of a different device's
+  meta-progression is a mismatch, not a feature.
+- Unknown keys in an imported blob are ignored, never rejected — a phone on a
+  cached older build must still be able to import a blob from an updated
+  desktop.
+- Restore takes effect via a full page reload (`window.location.reload()`,
+  mirroring the existing `resetAllStorageAndReload` path), since every manager
+  singleton reads its state in its constructor.
+
+**Files:** `src/storage/ProfileTransfer.ts` (pure pack/validate/unpack core,
+unit-tested), `src/storage/ProfileArchive.ts` (portable AES-GCM codec +
+SecureStorage IO), `src/ui/ProfileTransferOverlay.ts` (DOM export/import
+overlays — Phaser has no text input or file picker), `src/utils/Clipboard.ts`
+(extracted from `main.ts`, now a 2nd consumer), `src/game/scenes/SettingsScene.ts`
+(DATA card EXPORT | IMPORT row).
+
+**Deliberately out of scope:** cloud sync, accounts, QR codes, auto-backup,
+blob v2 migration, exporting the in-run save. Real-device round-trip verify
+filed as **POLISH-SAVE-EXPORT** in `BACKLOG.md` → Human gates (agents can't
+browser-test). A nudge-to-back-up follow-up proposed as
+**FEAT-SAVE-EXPORT-REMINDER** in `BACKLOG.md` → Next.
+
 ## Resolved Open items (closed at the 2026-06-09 groom)
 
 - **CHORE-1 — Remove 5 empty directories · DONE 2026-06-09.** `src/types`,

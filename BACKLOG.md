@@ -36,26 +36,10 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 *(groomed 2026-07-16 — roadmap pass; ordered by value)*
 
-- [ ] **FEAT-SAVE-EXPORT** — profile backup: export/import the whole
-  meta-progression. Value: every byte of progress (gold, shop, ascension,
-  cards, hidden unlocks, codex, achievements, best scores, run history — all
-  keys in `StorageBootstrap.ALL_STORAGE_KEYS`) lives in ONE browser's
-  localStorage. Safari evicts script-writable storage after ~7 days of
-  disuse (ITP), "clear site data" or a lost phone wipes hundreds of runs
-  with no recovery path, and there is no way to move progress between phone
-  and desktop. This is the single biggest real-player reliability gap left.
-  Done when: a PROFILE block in SettingsScene offers **EXPORT** (one
-  portable, versioned, checksummed blob — file download + copy-to-clipboard
-  fallback for iOS) and **IMPORT** (paste/file pick → validate version +
-  checksum + shape → explicit overwrite confirm → atomic all-or-nothing
-  restore; corrupt/foreign/partial blobs rejected with a clear message and
-  ZERO partial writes); a fresh-device round-trip restores gold / unlocks /
-  bests / codex identically (unit-test the pure pack→validate→unpack core;
-  in-run save-state may be excluded, meta must not be); the blob stays
-  opaque (reuse `StorageEncryption`) so the anti-cheat posture doesn't
-  regress. Pointers: `src/storage/StorageBootstrap.ts`,
-  `src/storage/SecureStorage.ts` / `StorageEncryption.ts`,
-  `src/game/scenes/SettingsScene.ts`.
+- [x] **FEAT-SAVE-EXPORT** — profile backup: export/import the whole
+  meta-progression (done — a876ed0). Full write-up moved to
+  `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-SAVE-EXPORT**
+  under `## Human gates`.
 
 - [ ] **FEAT-ENDLESS-BEST-CYCLE** — persistent deepest-endless-cycle chase
   metric. Value: endless has no progression stat — gauntlet has "WAVE N
@@ -83,6 +67,14 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `src/achievements/AchievementDefinitions.ts`, lifetime stats in
   `AchievementManager`, `src/game/gauntlet/GauntletBestWave.ts`,
   GameScene endless-cycle counter.
+
+- [ ] **FEAT-SAVE-EXPORT-REMINDER** — nudge long-lived profiles to back up.
+  Value: the export only saves a player who used it *before* the eviction; a
+  profile worth hundreds of runs that has never been exported is exactly the
+  one ITP kills. Done when: a dismissible prompt appears in SETTINGS/DATA (or
+  post-run) once a profile crosses a meaningful threshold and has never been
+  exported, tracked by a stored last-export timestamp. Pointers:
+  `src/storage/ProfileArchive.ts`, `src/game/scenes/SettingsScene.ts`.
 
 ## Later
 
@@ -150,6 +142,16 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SAVE-EXPORT** — export/import round-trip on real devices. Reach via
+    SETTINGS → DATA. Check with real devices: (a) EXPORT → DOWNLOAD FILE on iOS
+    Safari — does the .txt actually land in Files, or is COPY the only workable
+    path? (b) blob length vs a paste through Messages/Notes — does it survive
+    uncorrupted, or does something wrap/truncate it? (c) IMPORT on a second device
+    → gold / unlocks / bests / codex identical? (d) the DOM overlay over the
+    Phaser canvas at UI-scale extremes and in portrait — readable, tappable, no
+    clipping? (e) textarea focus on iOS — does the soft keyboard shove the
+    overlay off-screen? (f) import a deliberately truncated code — clear error,
+    and nothing overwritten?
   - **POLISH-ENDLESS-MUTATORS** — per-cycle endless mutator feel/balance
     (FEAT-ENDLESS-CYCLE-MUTATORS; pool + magnitudes in
     `src/data/EndlessMutators.ts`, roll/HUD/banner wiring in
