@@ -41,16 +41,10 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-SAVE-EXPORT**
   under `## Human gates`.
 
-- [ ] **FEAT-ENDLESS-BEST-CYCLE** — persistent deepest-endless-cycle chase
-  metric. Value: endless has no progression stat — gauntlet has "WAVE N
-  (Best M / NEW BEST!)" via `GauntletBestWave.ts` but a cycle-8 endless run
-  and a cycle-2 one die identically; mirror the gauntlet plumbing
-  (SecureStorage best-cycle, death-screen "CYCLE N (Best M / NEW BEST!)"
-  line when the run was endless) to give post-victory runs a reason to push
-  one cycle deeper. Done when: best cycle persists across sessions (key
-  registered in `StorageBootstrap.ALL_STORAGE_KEYS` — see
-  BUG-STORAGE-PRELOAD-GAPS), the death screen shows the line only for
-  endless runs, and a NEW BEST run updates it exactly once.
+- [x] **FEAT-ENDLESS-BEST-CYCLE** — persistent deepest-endless-cycle chase
+  metric (done — 809f7cf). Full write-up moved to `BACKLOG-archive.md`.
+  Playtest follow-up filed as **POLISH-ENDLESS-BEST-CYCLE** under
+  `## Human gates`.
 
 - [ ] **FEAT-ACHIEVE-ENDGAME** — achievement coverage for the endgame that
   now exists. Value: the newest chase systems — gauntlet waves, endless
@@ -59,11 +53,12 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   the current endgame lives; pure retention win over already-built content.
   Done when: persistent achievements (gold rewards on the existing scale)
   cover at least gauntlet best-wave tiers, endless deepest-cycle tiers
-  (build on FEAT-ENDLESS-BEST-CYCLE's stat), first Paragon kill, and
-  first-kill for each of the 5 bosses (incl. The Bastion + The Legion);
-  all surface in AchievementScene with icons that exist in `IconMap`; the
-  content-data-integrity suite extends to the new entries (unique ids,
-  defined icon/reward). Pointers:
+  (build on FEAT-ENDLESS-BEST-CYCLE's stat — now shipped, readable via
+  `loadEndlessBestCycle()` in `src/game/endless/EndlessBestCycle.ts`),
+  first Paragon kill, and first-kill for each of the 5 bosses (incl. The
+  Bastion + The Legion); all surface in AchievementScene with icons that
+  exist in `IconMap`; the content-data-integrity suite extends to the new
+  entries (unique ids, defined icon/reward). Pointers:
   `src/achievements/AchievementDefinitions.ts`, lifetime stats in
   `AchievementManager`, `src/game/gauntlet/GauntletBestWave.ts`,
   GameScene endless-cycle counter.
@@ -152,6 +147,14 @@ Never agent work. The fleet must not do any of these.
     clipping? (e) textarea focus on iOS — does the soft keyboard shove the
     overlay off-screen? (f) import a deliberately truncated code — clear error,
     and nothing overwritten?
+  - **POLISH-ENDLESS-BEST-CYCLE** — end-screen cycle line on a real device.
+    Reach by winning a run, choosing CONTINUE, and surviving to cycle 1+. Check:
+    (a) in **portrait** (base width is only 720 game units) does
+    `ENDLESS · CYCLE 4   ·   Best 6   ·   Score 42,100` fit on one line at 16px,
+    or does it need shortening/wrapping? (b) at UI-scale extremes, does it stay
+    clear of the title glow above and the stats panel below? (c) does a new best
+    read as a new best — gold `— NEW BEST!` with no Best number — and a
+    non-record run show the true prior best?
   - **POLISH-ENDLESS-MUTATORS** — per-cycle endless mutator feel/balance
     (FEAT-ENDLESS-CYCLE-MUTATORS; pool + magnitudes in
     `src/data/EndlessMutators.ts`, roll/HUD/banner wiring in

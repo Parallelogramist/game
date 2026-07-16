@@ -5,6 +5,41 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-ENDLESS-BEST-CYCLE — persistent deepest-endless-cycle chase metric · DONE 809f7cf
+
+**Value:** endless mode already escalates hard — per-cycle mutators,
+tightening boss intervals, ×1.25 health / ×1.15 damage per cycle, double-boss
+waves from cycle 3 — but recorded none of it: a cycle-8 endless run and a
+cycle-2 endless run produced byte-identical end screens, so there was no
+persistent reason to push one cycle deeper.
+
+**Shipped:** mirrors the proven GAUNTLET best-wave plumbing exactly. A
+SecureStorage best-cycle is written on each cycle entry (reaching cycle N
+counts, not just clearing it), a `newBestThisRun` flag is carried in the
+in-run save so the "NEW BEST!" callout survives a mid-run refresh, and the
+end-screen score slot shows `ENDLESS · CYCLE N — NEW BEST!` (gold) or
+`ENDLESS · CYCLE N · Best M · Score S` (grey) for any post-victory endless
+death at cycle 1+. A CONTINUE that dies before the first boss wave (cycle 0)
+still shows the plain score line. Unlike gauntlet — which skips scoring
+entirely — endless runs are scored, so the score rides along on the same line
+rather than being displaced by it.
+
+**Files:** `src/game/endless/endlessCycles.ts` (pure parse/serialize, unit
+tested), `src/game/endless/EndlessBestCycle.ts` (SecureStorage wrapper),
+`src/storage/StorageBootstrap.ts` (`'survivor-endless-best'` registered in
+`ALL_STORAGE_KEYS` — also makes it travel via `ProfileTransfer.ts`'s derived
+transferable set with no edit needed there), `src/save/GameStateManager.ts`
+(`newBestThisRun?: boolean` on `SerializedEndlessState`, no `SAVE_VERSION`
+bump), `src/game/scenes/GameScene.ts` (field + reset in both zeroing sites +
+save-on-cycle-entry + save/restore of the flag + end-screen data),
+`src/game/managers/PauseMenuManager.ts` (`GameOverData.endless` + the
+end-screen line).
+
+**Sets up:** endless deepest-cycle achievement tiers, readable via
+`loadEndlessBestCycle()` — see **FEAT-ACHIEVE-ENDGAME** in `BACKLOG.md` →
+`## Next`. Playtest follow-up filed as **POLISH-ENDLESS-BEST-CYCLE** in
+`BACKLOG.md` → Human gates.
+
 ## FEAT-SAVE-EXPORT — profile backup: export/import meta-progression · DONE a876ed0
 
 **Value:** every byte of progress (gold, shop, ascension, cards, hidden
