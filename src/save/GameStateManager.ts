@@ -265,6 +265,10 @@ interface SerializedEndlessState {
   // legacy saves → restores as NONE. No save-version bump (same pattern as
   // the enemy `affixType` field).
   mutator?: number;
+  // Keeps the end-screen "NEW BEST!" callout alive across a refresh (same role
+  // as SerializedGauntletState.newBestThisRun). Optional — absent on legacy
+  // saves → restores as false. No save-version bump.
+  newBestThisRun?: boolean;
 }
 
 /**

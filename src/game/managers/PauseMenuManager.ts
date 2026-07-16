@@ -258,6 +258,8 @@ export interface GameOverData {
   recentRuns?: RunSummary[];
   /** GAUNTLET mode result — replaces the score line with the wave reached. */
   gauntlet?: { wave: number; bestWave: number; isNewBest: boolean };
+  /** Post-victory ENDLESS result — the score line also carries the cycle reached. */
+  endless?: { cycle: number; bestCycle: number; isNewBest: boolean };
 }
 
 export class PauseMenuManager {
@@ -1589,7 +1591,8 @@ export class PauseMenuManager {
     }
 
     // Score line (below the title). GAUNTLET runs show the wave reached in the
-    // same slot instead (their measure is waves, not the composite score).
+    // same slot instead (their measure is waves, not the composite score), and
+    // post-victory ENDLESS runs lead with the cycle reached, score trailing.
     if (data.gauntlet) {
       const waveStr = data.gauntlet.isNewBest
         ? `GAUNTLET · WAVE ${data.gauntlet.wave} — NEW BEST!`
@@ -1601,6 +1604,20 @@ export class PauseMenuManager {
         fontStyle: 'bold',
       }).setOrigin(0.5).setDepth(depth);
       animatedElements.push(waveText);
+    } else if (data.endless) {
+      const scoreSuffix = data.runScore !== undefined
+        ? `   ·   Score ${data.runScore.toLocaleString()}`
+        : '';
+      const cycleStr = data.endless.isNewBest
+        ? `ENDLESS · CYCLE ${data.endless.cycle} — NEW BEST!${scoreSuffix}`
+        : `ENDLESS · CYCLE ${data.endless.cycle}   ·   Best ${data.endless.bestCycle}${scoreSuffix}`;
+      const cycleText = this.scene.add.text(centerX, titleY + 48, cycleStr, {
+        fontSize: '16px',
+        color: data.endless.isNewBest ? '#ffdd44' : '#9999bb',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(cycleText);
     } else if (data.runScore !== undefined) {
       const scoreStr = data.isNewBest
         ? `NEW BEST  ${data.runScore.toLocaleString()}`

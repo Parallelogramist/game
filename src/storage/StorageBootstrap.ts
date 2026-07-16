@@ -94,6 +94,9 @@ export const ALL_STORAGE_KEYS = [
 
   // GauntletBestWave (gauntlet boss-rush mode best cleared wave)
   'survivor-gauntlet-best',
+
+  // EndlessBestCycle (post-victory endless mode deepest cycle reached)
+  'survivor-endless-best',
 ];
 
 /**

@@ -90,6 +90,7 @@ import {
   gauntletWaveSpawnPlan,
 } from '../gauntlet/gauntletWaves';
 import { loadGauntletBestWave, saveGauntletBestWaveIfHigher } from '../gauntlet/GauntletBestWave';
+import { loadEndlessBestCycle, saveEndlessBestCycleIfHigher } from '../endless/EndlessBestCycle';
 import { resetEnemySpatialHash, getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
@@ -384,6 +385,7 @@ export class GameScene extends Phaser.Scene {
   private endlessBossIntervalSeconds = 300; // Starts at 5 min between waves, shortens per cycle
   private endlessMutator: EndlessMutatorType = EndlessMutatorType.NONE;
   private endlessHudCycleShown = -1;     // Last cycle pushed to the HUD label (lazy sync survives restore ordering)
+  private endlessNewBestThisRun = false;  // Drives the end screen's "NEW BEST!" callout
 
   // GAUNTLET mode (boss-rush waves; replaces the stage's timed miniboss/boss
   // schedule — trash spawns keep flowing for the XP economy)
@@ -670,6 +672,7 @@ export class GameScene extends Phaser.Scene {
     this.endlessBossIntervalSeconds = 300;
     this.endlessMutator = EndlessMutatorType.NONE;
     this.endlessHudCycleShown = -1;
+    this.endlessNewBestThisRun = false;
     // gauntletModeActive itself comes from init data — only the progression resets.
     this.gauntletWave = 0;
     this.gauntletPhase = 'intro';
@@ -1464,6 +1467,7 @@ export class GameScene extends Phaser.Scene {
         cycleNumber: this.endlessCycleNumber,
         bossIntervalSeconds: this.endlessBossIntervalSeconds,
         mutator: this.endlessMutator,
+        newBestThisRun: this.endlessNewBestThisRun,
       },
       gauntletState: {
         active: this.gauntletModeActive,
@@ -1665,6 +1669,7 @@ export class GameScene extends Phaser.Scene {
       this.endlessMutator = this.endlessModeActive
         ? sanitizeEndlessMutator(savedEndless.mutator)
         : EndlessMutatorType.NONE;
+      this.endlessNewBestThisRun = savedEndless.newBestThisRun === true;
       this.endlessHudCycleShown = -1;
     }
 
@@ -4878,6 +4883,7 @@ export class GameScene extends Phaser.Scene {
         this.endlessBossTimer = this.endlessBossIntervalSeconds; // First post-victory boss in 5 min
         this.endlessCycleNumber = 0;
         this.endlessMutator = EndlessMutatorType.NONE;
+        this.endlessNewBestThisRun = false;
         console.log('[Endless Mode] Activated - miniboss in 60s, boss in 600s');
 
         // Reset grid physics - boss death applies massive forces that springs can't recover from
@@ -5346,6 +5352,13 @@ export class GameScene extends Phaser.Scene {
             wave: Math.max(1, this.gauntletWave),
             bestWave: loadGauntletBestWave(),
             isNewBest: this.gauntletNewBestThisRun,
+          }
+        : undefined,
+      endless: this.endlessModeActive && this.endlessCycleNumber >= 1
+        ? {
+            cycle: this.endlessCycleNumber,
+            bestCycle: loadEndlessBestCycle(),
+            isNewBest: this.endlessNewBestThisRun,
           }
         : undefined,
     });
@@ -7098,6 +7111,9 @@ export class GameScene extends Phaser.Scene {
     // Boss waves: interval shortens each cycle (5min → 4min → 3min → 2min floor).
     if (this.endlessBossTimer <= 0) {
       this.endlessCycleNumber += 1;
+      if (saveEndlessBestCycleIfHigher(this.endlessCycleNumber)) {
+        this.endlessNewBestThisRun = true;
+      }
       this.endlessMutator = rollEndlessMutator(this.endlessMutator);
       // Each cycle tightens the next interval by 45s (minimum 120s = 2 min).
       this.endlessBossIntervalSeconds = Math.max(120, 300 - this.endlessCycleNumber * 45);
