@@ -34,7 +34,28 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Next
 
-### Proposed (auto)
+*(groomed 2026-07-16 — roadmap pass; ordered by value)*
+
+- [ ] **FEAT-SAVE-EXPORT** — profile backup: export/import the whole
+  meta-progression. Value: every byte of progress (gold, shop, ascension,
+  cards, hidden unlocks, codex, achievements, best scores, run history — all
+  keys in `StorageBootstrap.ALL_STORAGE_KEYS`) lives in ONE browser's
+  localStorage. Safari evicts script-writable storage after ~7 days of
+  disuse (ITP), "clear site data" or a lost phone wipes hundreds of runs
+  with no recovery path, and there is no way to move progress between phone
+  and desktop. This is the single biggest real-player reliability gap left.
+  Done when: a PROFILE block in SettingsScene offers **EXPORT** (one
+  portable, versioned, checksummed blob — file download + copy-to-clipboard
+  fallback for iOS) and **IMPORT** (paste/file pick → validate version +
+  checksum + shape → explicit overwrite confirm → atomic all-or-nothing
+  restore; corrupt/foreign/partial blobs rejected with a clear message and
+  ZERO partial writes); a fresh-device round-trip restores gold / unlocks /
+  bests / codex identically (unit-test the pure pack→validate→unpack core;
+  in-run save-state may be excluded, meta must not be); the blob stays
+  opaque (reuse `StorageEncryption`) so the anti-cheat posture doesn't
+  regress. Pointers: `src/storage/StorageBootstrap.ts`,
+  `src/storage/SecureStorage.ts` / `StorageEncryption.ts`,
+  `src/game/scenes/SettingsScene.ts`.
 
 - [ ] **FEAT-ENDLESS-BEST-CYCLE** — persistent deepest-endless-cycle chase
   metric. Value: endless has no progression stat — gauntlet has "WAVE N
@@ -42,9 +63,71 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   and a cycle-2 one die identically; mirror the gauntlet plumbing
   (SecureStorage best-cycle, death-screen "CYCLE N (Best M / NEW BEST!)"
   line when the run was endless) to give post-victory runs a reason to push
-  one cycle deeper.
+  one cycle deeper. Done when: best cycle persists across sessions (key
+  registered in `StorageBootstrap.ALL_STORAGE_KEYS` — see
+  BUG-STORAGE-PRELOAD-GAPS), the death screen shows the line only for
+  endless runs, and a NEW BEST run updates it exactly once.
+
+- [ ] **FEAT-ACHIEVE-ENDGAME** — achievement coverage for the endgame that
+  now exists. Value: the newest chase systems — gauntlet waves, endless
+  cycles/mutators, Paragon elites, bosses #4/#5 — award **zero** of the 31
+  persistent achievements, so the reward layer goes silent exactly where
+  the current endgame lives; pure retention win over already-built content.
+  Done when: persistent achievements (gold rewards on the existing scale)
+  cover at least gauntlet best-wave tiers, endless deepest-cycle tiers
+  (build on FEAT-ENDLESS-BEST-CYCLE's stat), first Paragon kill, and
+  first-kill for each of the 5 bosses (incl. The Bastion + The Legion);
+  all surface in AchievementScene with icons that exist in `IconMap`; the
+  content-data-integrity suite extends to the new entries (unique ids,
+  defined icon/reward). Pointers:
+  `src/achievements/AchievementDefinitions.ts`, lifetime stats in
+  `AchievementManager`, `src/game/gauntlet/GauntletBestWave.ts`,
+  GameScene endless-cycle counter.
 
 ## Later
+
+- [ ] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA. Value: this
+  is a phone-first browser game, yet airplane mode or a network blip means
+  no game at all; the full payload is tiny (music 2.1 MB, icons 136 KB) and
+  fully static, so a precached shell is cheap. Done when: a web manifest
+  (name, icons, `display: standalone`) + service worker precache the built
+  app shell and runtime-cache music, with the two Google Fonts self-hosted
+  so offline is real; verified by installing to an iPhone home screen,
+  enabling airplane mode, and completing a run; a fresh Pages deploy is
+  picked up on the next online launch (versioned SW + update-reload flow —
+  a broken SW must never pin users to a stale build, so include a
+  kill-switch). Pointers: `index.html`, `vite.config.ts`,
+  `.github/workflows/deploy.yml`.
+
+- [ ] **FEAT-DAILY-SHARE** — one-tap shareable daily-challenge result.
+  Value: the daily has only a local leaderboard; a Wordle-style COPY RESULT
+  (date, modifiers, grade, survival time, score — plain text + site link)
+  gives it a social hook now that the game is publicly linked from the
+  parallelogramist network. Done when: the end screen of a daily/weekly run
+  offers COPY RESULT producing deterministic text, works with the iOS
+  Safari clipboard API with a graceful fallback (the crash overlay's COPY
+  ERROR LOGS is prior art), and never appears on non-daily runs. Pointers:
+  `PauseMenuManager` end screens, `DailyChallengeManager` (seed/modifiers).
+
+- [ ] **CHORE-CI-DEPLOY-RETRY** — auto-retry the transiently-failing Pages
+  deploy. Value: history carries 8+ manual "retrigger Pages deploy
+  (transient deploy-pages failure)" commits (016b4bd, 649194b, 27daf09,
+  869f12b, e0a08fb, 59e266d, 0270907, 2e42125) — each one a human chore +
+  history noise for a known-flaky step. Done when: the deploy job retries
+  the `deploy-pages` step automatically (step-level retry), a transient
+  failure self-heals with zero commits, and a genuinely broken build still
+  fails loudly. Pointer: `.github/workflows/deploy.yml`.
+
+- [ ] **CHORE-ARCH-DOC-SYNC** — re-sync the architecture overview's content
+  inventory. Value: `references/architecture-overview.md` is the
+  agent-facing source of truth (CLAUDE.md points every session at it) but
+  predates the July content wave — it still says 16 weapons / 3 bosses and
+  omits gauntlet mode, endless cycle mutators, and Paragon affixes, so
+  fleet sessions plan against stale facts. Done when: the inventory
+  sections (weapon table, boss/miniboss lists, modes, scene flow) match the
+  code as-built (19 weapons, 5 bosses, gauntlet, endless mutators, boss/
+  miniboss/Paragon affixes); facts corrected only — no prose rewrite.
+  Pointer: `references/architecture-overview.md`.
 
 - [ ] **POLISH-GLYPH-SWEEP-2** — finish the non-HUD glyph sweep. Value: the
   2026-07-04 HUD skin pass (drawn pause/dash/ult/fullscreen icons, DISPLAY_FONT
