@@ -19,7 +19,8 @@ import {
 import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
 import { addButtonInteraction, transitionToScene, sweepIn } from '../../utils/SceneTransition';
-import { SecureStorage, ALL_STORAGE_KEYS } from '../../storage';
+import { SecureStorage, ALL_STORAGE_KEYS, exportProfileBlob } from '../../storage';
+import { showProfileExportOverlay, showProfileImportOverlay } from '../../ui/ProfileTransferOverlay';
 import {
   computeMenuLayoutScale,
   computeMenuFontScale,
@@ -42,7 +43,7 @@ type FocusZone =
   | 'colorblind' | 'highContrast' | 'minimap'
   | 'uiScale'
   | 'damageNumbers' | 'statusText'
-  | 'resetData' | 'back';
+  | 'exportProfile' | 'importProfile' | 'resetData' | 'back';
 
 interface SettingsSceneData {
   returnTo: 'BootScene' | 'GameScene';
@@ -111,6 +112,9 @@ export class SettingsScene extends Phaser.Scene {
 
   private musicTracksButton!: MenuButton;
   private resetDataButton!: MenuButton;
+  private exportProfileButton!: MenuButton;
+  private importProfileButton!: MenuButton;
+  private profileOverlayTeardown: (() => void) | null = null;
   private backButton!: MenuButton;
 
   private soundManager!: SoundManager;
@@ -202,7 +206,7 @@ export class SettingsScene extends Phaser.Scene {
     const audioCardHeight = scaledInt(this.layoutScale, 320);
     const combatCardHeight = scaledInt(this.layoutScale, 160);
     const visualsCardHeight = scaledInt(this.layoutScale, 360);
-    const dataCardHeight = scaledInt(this.layoutScale, 120);
+    const dataCardHeight = scaledInt(this.layoutScale, 176);
 
     const audioTopY = topRowY + audioCardHeight / 2;
     const combatTopY = topRowY + audioCardHeight + gapY + combatCardHeight / 2;
@@ -445,7 +449,43 @@ export class SettingsScene extends Phaser.Scene {
   private buildDataCard(centerX: number, centerY: number, width: number, height: number): void {
     const card = this.makeSectionCard(centerX, centerY, width, height, 'DATA', ACCENT_COLORS.danger, BODY_COLORS.danger);
 
-    const resetY = -height / 2 + scaledInt(this.layoutScale, 60);
+    const pairWidth = (width - scaledInt(this.layoutScale, 96)) / 2;
+    const pairOffsetX = pairWidth / 2 + scaledInt(this.layoutScale, 8);
+    const profileRowY = -height / 2 + scaledInt(this.layoutScale, 60);
+
+    this.exportProfileButton = createMenuButton({
+      scene: this, x: -pairOffsetX, y: profileRowY,
+      width: pairWidth, height: scaledInt(this.layoutScale, 42),
+      label: 'EXPORT', variant: 'teal', fontSize: scaledInt(this.fontScale, 16),
+      onActivate: () => { this.soundManager.playUIClick(); void this.openProfileExport(); },
+    });
+    card.frame.add(this.exportProfileButton.container);
+    this.menuButtons.push(this.exportProfileButton);
+    this.exportProfileButton.card.hitZone.on('pointerover', () => {
+      this.focusZone = 'exportProfile';
+      this.refreshAllFocusVisuals();
+    });
+
+    this.importProfileButton = createMenuButton({
+      scene: this, x: pairOffsetX, y: profileRowY,
+      width: pairWidth, height: scaledInt(this.layoutScale, 42),
+      label: 'IMPORT', variant: 'teal', fontSize: scaledInt(this.fontScale, 16),
+      onActivate: () => { this.soundManager.playUIClick(); this.openProfileImport(); },
+    });
+    card.frame.add(this.importProfileButton.container);
+    this.menuButtons.push(this.importProfileButton);
+    this.importProfileButton.card.hitZone.on('pointerover', () => {
+      this.focusZone = 'importProfile';
+      this.refreshAllFocusVisuals();
+    });
+
+    const profileHint = makeBodyText(this, 0, profileRowY + scaledInt(this.layoutScale, 30),
+      'Back up your progress or move it to another device.', {
+        fontSize: scaledInt(this.fontScale, 11), color: TEXT_COLORS.dim, align: 'center',
+      });
+    card.frame.add(profileHint);
+
+    const resetY = profileRowY + scaledInt(this.layoutScale, 60);
     this.resetDataButton = createMenuButton({
       scene: this,
       x: 0,
@@ -467,13 +507,35 @@ export class SettingsScene extends Phaser.Scene {
       this.refreshAllFocusVisuals();
     });
 
-    const warning = makeBodyText(this, 0, resetY + scaledInt(this.layoutScale, 32),
+    const warning = makeBodyText(this, 0, resetY + scaledInt(this.layoutScale, 30),
       'Erases progress, upgrades, achievements, settings.', {
         fontSize: scaledInt(this.fontScale, 11),
         color: TEXT_COLORS.dim,
         align: 'center',
       });
     card.frame.add(warning);
+  }
+
+  private async openProfileExport(): Promise<void> {
+    if (this.profileOverlayTeardown) return;
+    const blobText = await exportProfileBlob(Date.now());
+    this.menuNavigator?.setEnabled(false);
+    this.profileOverlayTeardown = showProfileExportOverlay(blobText, () => this.closeProfileOverlay());
+  }
+
+  private openProfileImport(): void {
+    if (this.profileOverlayTeardown) return;
+    this.menuNavigator?.setEnabled(false);
+    this.profileOverlayTeardown = showProfileImportOverlay(
+      () => window.location.reload(),
+      () => this.closeProfileOverlay(),
+    );
+  }
+
+  private closeProfileOverlay(): void {
+    this.profileOverlayTeardown?.();
+    this.profileOverlayTeardown = null;
+    this.menuNavigator?.setEnabled(true);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -919,6 +981,8 @@ export class SettingsScene extends Phaser.Scene {
       this.focusZone === 'colorblind' ? this.colorblindModeIndex : null);
 
     this.musicTracksButton?.setFocusState(this.focusZone === 'musicTracks');
+    this.exportProfileButton?.setFocusState(this.focusZone === 'exportProfile');
+    this.importProfileButton?.setFocusState(this.focusZone === 'importProfile');
     this.resetDataButton?.setFocusState(this.focusZone === 'resetData');
     this.backButton?.setFocusState(this.focusZone === 'back');
   }
@@ -941,7 +1005,7 @@ export class SettingsScene extends Phaser.Scene {
       'damageNumbers', 'statusText',
       'screenShake', 'reducedMotion', 'gridEffects', 'fpsCounter',
       'colorblind', 'highContrast', 'minimap',
-      'uiScale', 'resetData',
+      'uiScale', 'exportProfile', 'importProfile', 'resetData',
       'back',
     ];
 
@@ -1094,6 +1158,12 @@ export class SettingsScene extends Phaser.Scene {
       case 'statusText':
         settingsManager.setStatusTextEnabled(!settingsManager.isStatusTextEnabled());
         break;
+      case 'exportProfile':
+        void this.openProfileExport();
+        return;
+      case 'importProfile':
+        this.openProfileImport();
+        return;
       case 'resetData':
         this.showResetConfirmation();
         return;
@@ -1300,5 +1370,7 @@ export class SettingsScene extends Phaser.Scene {
     this.menuButtons = [];
     this.idleCards = [];
     this.tweens.killAll();
+    this.profileOverlayTeardown?.();
+    this.profileOverlayTeardown = null;
   }
 }

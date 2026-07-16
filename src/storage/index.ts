@@ -13,3 +13,7 @@
 export { StorageEncryption } from './StorageEncryption';
 export { SecureStorage } from './SecureStorage';
 export { initializeStorage, flushStorage, ALL_STORAGE_KEYS } from './StorageBootstrap';
+export * from './ProfileTransfer';
+export {
+  encodeProfileBlob, decodeProfileBlob, collectProfileKeys, exportProfileBlob, applyProfilePayload,
+} from './ProfileArchive';

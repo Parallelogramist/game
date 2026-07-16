@@ -15,7 +15,7 @@ const ENCRYPTED_PREFIX = 'enc_v1:';
 const SALT_STORAGE_KEY = 'survivor-encryption-salt';
 
 // Embedded key material - combined with salt for actual key derivation
-const BASE_KEY_MATERIAL = 'rogue-survivor-storage-key-v1-2024-anti-cheat';
+export const BASE_KEY_MATERIAL = 'rogue-survivor-storage-key-v1-2024-anti-cheat';
 
 // Write debounce delay in milliseconds
 const WRITE_DEBOUNCE_MS = 100;
@@ -23,14 +23,14 @@ const WRITE_DEBOUNCE_MS = 100;
 /**
  * Converts a Uint8Array to a base64 string
  */
-function arrayToBase64(array: Uint8Array): string {
+export function arrayToBase64(array: Uint8Array): string {
   return btoa(String.fromCharCode(...array));
 }
 
 /**
  * Converts a base64 string to a Uint8Array
  */
-function base64ToArray(base64: string): Uint8Array {
+export function base64ToArray(base64: string): Uint8Array {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
