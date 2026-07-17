@@ -5,6 +5,59 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-PACTSELECT-FLIP-RESETS-PICKS — rotating while choosing pacts threw away your pacts · DONE fa0ea8e
+
+- **Symptom.** Rotating the phone on `FORGE A PACT` — the last screen on the main PLAY
+  path before a run starts — silently discarded every pact the player had already
+  selected. Not a sandbox: every non-practice run passes through this screen.
+- **Root cause.** `PactSelectScene.init()` did `this.selectedIds = new Set()`
+  unconditionally, and Phaser runs `init()` on every scene restart, including the
+  orientation watcher's re-layout restart — so it could not tell "the phone rotated"
+  from "the player entered this screen fresh."
+- **The mechanism already existed.** `BUG-MENU-FLIP-RESETS-PICKS` (`5dfb3bc`) had
+  already taught `main.ts`'s watcher to spread `{ ...launchData, relayout: true }`
+  into the restart for every live scene except `GameScene`/`UpgradeScene`. This
+  instance only had to start reading the flag `PracticeScene` and `WeaponSelectScene`
+  already relied on.
+- **The interesting part — the filed fact came back false.** The previous planner
+  scoped this instance out of `5dfb3bc` on purpose, not silently, pending exactly one
+  unverified fact: whether a rebuilt pact card actually paints its selected badge from
+  a preserved `selectedIds`. It doesn't. `createCard()` hardcoded the *unselected*
+  look on every card it built — `border`/`selectedBadge` set invisible, `bg` filled
+  `0x14141f`, `container` left at scale `1` — and never read `selectedIds` at all; the
+  SELECTED treatment lived only inside `togglePact()`. So a one-line guard alone would
+  have shipped exactly the failure the filed item warned about: state that says
+  "selected" over cards that render unselected, worse than losing the picks outright.
+  Scoping it out to verify first was the right call.
+- **Why the fix is two-part.** Preserving `selectedIds` in `init()` (skip the reset
+  when `relayout === true`) is only half of it. The other half, `paintCardSelection()`,
+  extracts the SELECTED treatment — the same four `setVisible`/`setFillStyle`/
+  `setScale` calls, unretuned — into one method that both `createCard()`'s rebuild and
+  `togglePact()`'s tap call. One helper with two live consumers means the rebuild and
+  a tap cannot disagree by construction; there was no other way to make a from-scratch
+  rebuild reproduce state that used to live only in a tap handler.
+- **Why `relayout` is destructured off in `init()` rather than left on `passthrough`.**
+  `beginRun()` field-picks the specific properties it forwards to `GameScene` today,
+  so nothing would actually leak either way — but the flag has no business on the
+  GameScene-bound payload (`PactSelectSceneData`), and destructuring it into a
+  separate `PactSelectLaunchData` keeps that true by construction rather than by
+  accident of what `beginRun()` currently reads.
+- **No entry-point guard needed, unlike `BootScene.ts:202` in `5dfb3bc`.** That fix
+  needed an explicit `{ relayout: false }` at the PRACTICE entry point because Phaser
+  retains a scene's last `settings.data` when started with none, and that entry passed
+  no data at all. `PactSelectScene` has no equivalent trap: both its entry points
+  (`WeaponSelectScene.ts:587` and `:790`) already pass an explicit payload object on
+  every entry, so a stale retained `relayout: true` can never survive into a fresh one.
+- **Closes the flip-resets class.** Third and last known instance, after
+  `PracticeScene` and `WeaponSelectScene` (`5dfb3bc`).
+- **No tests added.** The fix is a boolean read in the Phaser scene lifecycle plus
+  four GameObject calls on live cards — no pure function to pin, and the repo has no
+  scene tests by strategy (Phaser-coupled code is exercised by mocking its module
+  boundary, not a live scene). `tsc` and a human rotate on a real device are the real
+  gates here; the latter is filed as `POLISH-PACTSELECT-FLIP`.
+
+---
+
 ## BUG-MENU-FLIP-RESETS-PICKS — rotating the device threw away what you picked · DONE 5dfb3bc
 
 - **Symptom, both scenes.** Rotating the phone mid-selection silently discarded

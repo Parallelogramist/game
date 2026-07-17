@@ -220,22 +220,17 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   both scenes honour it. Full write-up in `BACKLOG-archive.md`. Playtest follow-up
   filed as **POLISH-MENU-FLIP-STATE**; the third instance is filed as
   **BUG-PACTSELECT-FLIP-RESETS-PICKS**, both below.
-- [ ] **BUG-PACTSELECT-FLIP-RESETS-PICKS** — the third instance of the flip-resets
-  class, left out of `BUG-MENU-FLIP-RESETS-PICKS` deliberately (not silently — the
-  planner scoped it out for one unverified fact, below). `PactSelectScene.init()`
-  (`PactSelectScene.ts:43-49`) does `this.selectedIds = new Set()` unconditionally, so
-  rotating while choosing pacts drops your selections — and it sits on the main PLAY
-  path, right after `WeaponSelectScene`. Fix shape (the mechanism already exists after
-  `5dfb3bc`): destructure the flag out of the payload so it never reaches the
-  passthrough that seeds `GameScene` —
-  `const { relayout, ...launch } = data ?? { startingWeapon: 'projectile' };
-  this.passthrough = launch as PactSelectSceneData;` — then clear `selectedIds` only
-  when `relayout !== true`. **The one thing to verify first (why this wasn't shipped
-  blind):** `create()` rebuilds the pact cards from scratch, so confirm a rebuilt card
-  paints its selected badge from `selectedIds` (`selectedBadge`, `togglePact`,
-  `PactSelectScene.ts:22/125/165`). If it doesn't, preserving `selectedIds` yields
-  state that says "selected" over cards that look unselected — worse than the bug.
-  Pointers: `PactSelectScene.ts:43-49`, `main.ts:169-180`.
+- [x] **BUG-PACTSELECT-FLIP-RESETS-PICKS** — rotating while choosing pacts threw away
+  your pacts (done — fa0ea8e). The third and last known instance of the flip-resets
+  class (after `BUG-MENU-FLIP-RESETS-PICKS`, `5dfb3bc`), and it sat on the last screen
+  of the main PLAY path. `PactSelectScene.init()` cleared `selectedIds` unconditionally,
+  so the watcher's re-layout restart wiped them. **The fact this item asked to verify
+  first turned out FALSE**, which is why it wasn't shipped blind: `createCard()`
+  hardcoded the unselected look and never read `selectedIds`, so preserving the set
+  alone would have painted "selected" state onto unselected-looking cards — worse than
+  the bug. The fix pairs the guard with a single `paintCardSelection()` that the card
+  rebuild and a tap both go through. Full write-up in `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-PACTSELECT-FLIP** under `## Human gates`.
 
 ---
 
@@ -248,6 +243,29 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PACTSELECT-FLIP** — rotating while choosing pacts keeps them
+    (BUG-PACTSELECT-FLIP-RESETS-PICKS, `fa0ea8e`). Agents have no device to
+    rotate. Check: (a) **the point of the fix** — START → stage → ship → weapon → on
+    FORGE A PACT select 2 pacts, rotate: both must survive **and still look
+    selected** — thick green border, `✓ SELECTED` badge, card sitting proud at 1.04
+    scale — with the counter reading `2 / 3 PACTS SELECTED`. **The badge is the thing
+    to watch:** before this fix the cards rebuilt unselected no matter what, and a
+    state/paint mismatch is exactly the failure mode this fix exists to prevent.
+    (b) **the run actually carries them** — rotate, then BEGIN RUN: the pacts' curses
+    *and* rewards must both apply, and it must still be the stage/ship/weapon you
+    picked (`relayout` is stripped in `init()` and must never reach GameScene).
+    (c) **fresh entry still clears** — finish or quit that run, start another, reach
+    the pact step: nothing may be pre-selected. If pacts are sticky across runs, the
+    `relayout !== true` guard in `init()` is inverted. (d) **the layout re-fits** —
+    `perRow` is computed from canvas width, so portrait wraps the pact grid into more
+    rows: after a flip the rows must re-wrap cleanly with no doubled or ghost cards,
+    and the last row must stay clear of BEGIN RUN. (e) **cap still caps** — select 3
+    (MAX_PACTS), rotate, then tap a 4th: the counter must still flash red
+    `MAX 3 PACTS`, and nothing may become selected. (f) **rotate twice, and rotate
+    back** — portrait→landscape→portrait: selections survive both. (g) **GAUNTLET** —
+    same flow from GAUNTLET: rotating on the pact step must still begin a gauntlet
+    run. (h) **skip still skips** — press Escape/B on the pact step after rotating:
+    it must clear selections and begin the run with zero pacts.
   - **POLISH-MENU-FLIP-STATE** — rotating no longer discards your picks
     (BUG-MENU-FLIP-RESETS-PICKS, `5dfb3bc`). Agents have no device to rotate.
     Check: (a) **the point of the fix, practice** — BootScene → PRACTICE in portrait,
