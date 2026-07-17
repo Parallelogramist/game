@@ -67,7 +67,7 @@ export interface CodexState {
 /**
  * Codex categories for UI display.
  */
-export type CodexCategory = 'weapons' | 'enemies' | 'upgrades' | 'statistics';
+export type CodexCategory = 'weapons' | 'enemies' | 'upgrades' | 'synergies' | 'statistics';
 
 /**
  * Category metadata for tabs.
@@ -82,5 +82,6 @@ export const CODEX_CATEGORIES: CodexCategoryInfo[] = [
   { id: 'weapons', name: 'Weapons', icon: 'sword' },
   { id: 'enemies', name: 'Bestiary', icon: 'skull' },
   { id: 'upgrades', name: 'Upgrades', icon: 'star' },
+  { id: 'synergies', name: 'Synergies', icon: 'chain' },
   { id: 'statistics', name: 'Statistics', icon: 'chart' },
 ];

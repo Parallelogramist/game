@@ -13,6 +13,7 @@ import {
 } from '../../codex';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
+import { WEAPON_SYNERGIES, WeaponSynergy } from '../../data/WeaponSynergies';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
@@ -232,6 +233,8 @@ export class CodexScene extends Phaser.Scene {
       } else if (category.id === 'upgrades') {
         const upgradeEntries = codexManager.getAllUpgradeEntries();
         countLabel = `${upgradeEntries.length}`;
+      } else if (category.id === 'synergies') {
+        countLabel = `${WEAPON_SYNERGIES.length}`;
       }
 
       if (countLabel) {
@@ -337,6 +340,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'upgrades':
         this.displayUpgrades();
+        break;
+      case 'synergies':
+        this.displaySynergies();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -646,6 +652,130 @@ export class CodexScene extends Phaser.Scene {
 
       this.codexCards.push({ container, cardBg });
     });
+  }
+
+  private displaySynergies(): void {
+    const weaponInfoById = new Map<string, WeaponInfo>();
+    for (const info of getWeaponInfoList()) {
+      weaponInfoById.set(info.id, info);
+    }
+
+    const synergyCardHeight = 108;
+
+    this.layoutCardGrid([...WEAPON_SYNERGIES], synergyCardHeight, (synergy, x, y) => {
+      this.createSynergyCard(synergy, weaponInfoById, x, y, synergyCardHeight);
+    });
+  }
+
+  private createSynergyCard(
+    synergy: WeaponSynergy,
+    weaponInfoById: Map<string, WeaponInfo>,
+    x: number,
+    y: number,
+    cardHeight: number,
+  ): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border matches the else-branch restore color in updateFocusVisuals (0x4a4a7a),
+    // so focus in/out needs no special-casing for this always-visible category.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    // Left gutter: the two weapon icons that trigger the synergy, joined by "+".
+    const infoA = weaponInfoById.get(synergy.weaponA);
+    const infoB = weaponInfoById.get(synergy.weaponB);
+    const iconY = Math.floor(cardHeight / 2);
+    this.addSynergyWeaponIcon(container, infoA, 34, iconY);
+    const plusSign = this.add.text(58, iconY, '+', {
+      fontSize: '16px',
+      color: '#ffcc66',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    plusSign.setOrigin(0.5);
+    container.add(plusSign);
+    this.addSynergyWeaponIcon(container, infoB, 82, iconY);
+
+    const textX = 112;
+
+    const nameText = this.add.text(textX, 12, synergy.name, {
+      fontSize: '15px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const pairLabel = `${infoA?.name ?? synergy.weaponA} + ${infoB?.name ?? synergy.weaponB}`;
+    const pairText = this.add.text(textX, 36, pairLabel, {
+      fontSize: '11px',
+      color: '#8899bb',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - textX - 12 },
+    });
+    container.add(pairText);
+
+    const bonusText = this.add.text(textX, 56, this.formatSynergyBonusLine(synergy), {
+      fontSize: '12px',
+      color: '#ffcc66',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(bonusText);
+
+    const descText = this.add.text(textX, 76, synergy.description, {
+      fontSize: '11px',
+      color: '#999999',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - textX - 12 },
+    });
+    container.add(descText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
+  private addSynergyWeaponIcon(
+    container: Phaser.GameObjects.Container,
+    info: WeaponInfo | undefined,
+    iconX: number,
+    iconY: number,
+  ): void {
+    const iconDisc = this.add.circle(iconX, iconY, 16, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, 0x4a4a7a);
+    container.add(iconDisc);
+    if (!info) return;
+    try {
+      const icon = createIcon(this, {
+        x: iconX,
+        y: iconY,
+        iconKey: info.icon,
+        size: 20,
+        tint: 0xffcc66,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconX, iconY, 9, 0xffcc66);
+      container.add(fallback);
+    }
+  }
+
+  private formatSynergyBonusLine(synergy: WeaponSynergy): string {
+    const parts: string[] = [];
+    if (synergy.damageMultiplier > 1) {
+      parts.push(`+${Math.round((synergy.damageMultiplier - 1) * 100)}% dmg`);
+    }
+    if (synergy.cooldownMultiplier < 1) {
+      parts.push(`+${Math.round((1 - synergy.cooldownMultiplier) * 100)}% atk spd`);
+    }
+    return parts.length > 0 ? parts.join('  ·  ') : 'Passive bonus';
   }
 
   private displayStatistics(): void {
