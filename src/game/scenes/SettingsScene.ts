@@ -19,7 +19,10 @@ import {
 import { getMusicManager } from '../../audio/MusicManager';
 import type { GameScene } from './GameScene';
 import { addButtonInteraction, transitionToScene, sweepIn } from '../../utils/SceneTransition';
-import { SecureStorage, ALL_STORAGE_KEYS, exportProfileBlob } from '../../storage';
+import {
+  SecureStorage, ALL_STORAGE_KEYS, exportProfileBlob,
+  loadLastExportAt, saveLastExportAt, describeLastBackup,
+} from '../../storage';
 import { showProfileExportOverlay, showProfileImportOverlay } from '../../ui/ProfileTransferOverlay';
 import {
   computeMenuLayoutScale,
@@ -115,6 +118,7 @@ export class SettingsScene extends Phaser.Scene {
   private exportProfileButton!: MenuButton;
   private importProfileButton!: MenuButton;
   private profileOverlayTeardown: (() => void) | null = null;
+  private profileHintText: Phaser.GameObjects.Text | null = null;
   private backButton!: MenuButton;
 
   private soundManager!: SoundManager;
@@ -479,11 +483,14 @@ export class SettingsScene extends Phaser.Scene {
       this.refreshAllFocusVisuals();
     });
 
-    const profileHint = makeBodyText(this, 0, profileRowY + scaledInt(this.layoutScale, 30),
-      'Back up your progress or move it to another device.', {
-        fontSize: scaledInt(this.fontScale, 11), color: TEXT_COLORS.dim, align: 'center',
+    const lastExportAt = loadLastExportAt();
+    this.profileHintText = makeBodyText(this, 0, profileRowY + scaledInt(this.layoutScale, 30),
+      describeLastBackup(lastExportAt, Date.now()), {
+        fontSize: scaledInt(this.fontScale, 11),
+        color: lastExportAt === null ? TEXT_COLORS.danger : TEXT_COLORS.dim,
+        align: 'center',
       });
-    card.frame.add(profileHint);
+    card.frame.add(this.profileHintText);
 
     const resetY = profileRowY + scaledInt(this.layoutScale, 60);
     this.resetDataButton = createMenuButton({
@@ -518,9 +525,14 @@ export class SettingsScene extends Phaser.Scene {
 
   private async openProfileExport(): Promise<void> {
     if (this.profileOverlayTeardown) return;
-    const blobText = await exportProfileBlob(Date.now());
+    const exportedAt = Date.now();
+    const blobText = await exportProfileBlob(exportedAt);
     this.menuNavigator?.setEnabled(false);
-    this.profileOverlayTeardown = showProfileExportOverlay(blobText, () => this.closeProfileOverlay());
+    this.profileOverlayTeardown = showProfileExportOverlay({
+      blobText,
+      onExported: () => saveLastExportAt(exportedAt),
+      onClose: () => this.closeProfileOverlay(),
+    });
   }
 
   private openProfileImport(): void {
@@ -536,6 +548,14 @@ export class SettingsScene extends Phaser.Scene {
     this.profileOverlayTeardown?.();
     this.profileOverlayTeardown = null;
     this.menuNavigator?.setEnabled(true);
+    this.refreshProfileHint();
+  }
+
+  private refreshProfileHint(): void {
+    if (!this.profileHintText) return;
+    const lastExportAt = loadLastExportAt();
+    this.profileHintText.setText(describeLastBackup(lastExportAt, Date.now()));
+    this.profileHintText.setColor(lastExportAt === null ? TEXT_COLORS.danger : TEXT_COLORS.dim);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1372,5 +1392,6 @@ export class SettingsScene extends Phaser.Scene {
     this.tweens.killAll();
     this.profileOverlayTeardown?.();
     this.profileOverlayTeardown = null;
+    this.profileHintText = null;
   }
 }

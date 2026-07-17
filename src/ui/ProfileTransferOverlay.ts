@@ -1,5 +1,7 @@
 import { copyTextToClipboard } from '../utils/Clipboard';
-import { applyProfilePayload, decodeProfileBlob, describeProfile } from '../storage';
+import {
+  applyProfilePayload, decodeProfileBlob, describeProfile, exportProfileBlob, saveLastExportAt,
+} from '../storage';
 import type { ProfilePayload } from '../storage';
 
 const COLOR_PRIMARY = '#66bbff';
@@ -108,19 +110,18 @@ function buildButtonRow(): HTMLDivElement {
   return row;
 }
 
-export function showProfileExportOverlay(blobText: string, onClose: () => void): () => void {
-  const backdrop = buildBackdrop();
-  const panel = buildPanel();
-
-  const teardown = (): void => {
-    if (backdrop.isConnected) backdrop.remove();
-  };
-
+function renderExportPanel(panel: HTMLDivElement, opts: {
+  blobText: string;
+  onExported: () => void;
+  teardown: () => void;
+  onClose: () => void;
+}): void {
+  panel.replaceChildren();
   panel.appendChild(buildTitle('PROFILE EXPORT', COLOR_PRIMARY));
   panel.appendChild(buildBody('Save this code somewhere safe. It restores your progress on any device.'));
 
   const textarea = buildTextarea(true);
-  textarea.value = blobText;
+  textarea.value = opts.blobText;
   textarea.onfocus = () => textarea.select();
   panel.appendChild(textarea);
 
@@ -128,20 +129,23 @@ export function showProfileExportOverlay(blobText: string, onClose: () => void):
 
   const downloadButton = buildButton('DOWNLOAD FILE', 'primary');
   downloadButton.addEventListener('click', () => {
-    const blob = new Blob([blobText], { type: 'text/plain' });
+    const blob = new Blob([opts.blobText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = `pew-pew-survivor-profile-${new Date().toISOString().slice(0, 10)}.txt`;
     link.click();
     URL.revokeObjectURL(url);
+    opts.onExported();
   });
   row.appendChild(downloadButton);
 
   const copyButton = buildButton('COPY', 'muted');
   copyButton.addEventListener('click', async () => {
-    const copied = await copyTextToClipboard(blobText);
+    const copied = await copyTextToClipboard(opts.blobText);
     copyButton.textContent = copied ? 'COPIED' : 'COPY FAILED';
+    // A failed copy is not a backup.
+    if (copied) opts.onExported();
     setTimeout(() => {
       copyButton.textContent = 'COPY';
     }, 2000);
@@ -150,10 +154,79 @@ export function showProfileExportOverlay(blobText: string, onClose: () => void):
 
   const closeButton = buildButton('CLOSE', 'muted');
   closeButton.addEventListener('click', () => {
-    teardown();
-    onClose();
+    opts.teardown();
+    opts.onClose();
   });
   row.appendChild(closeButton);
+
+  panel.appendChild(row);
+}
+
+export function showProfileExportOverlay(opts: {
+  blobText: string;
+  onExported: () => void;
+  onClose: () => void;
+}): () => void {
+  const backdrop = buildBackdrop();
+  const panel = buildPanel();
+
+  const teardown = (): void => {
+    if (backdrop.isConnected) backdrop.remove();
+  };
+
+  renderExportPanel(panel, {
+    blobText: opts.blobText,
+    onExported: opts.onExported,
+    teardown,
+    onClose: opts.onClose,
+  });
+
+  backdrop.appendChild(panel);
+  document.body.appendChild(backdrop);
+
+  return teardown;
+}
+
+export function showBackupReminderOverlay(opts: {
+  runsCompleted: number;
+  onClose: () => void;
+}): () => void {
+  const backdrop = buildBackdrop();
+  const panel = buildPanel();
+
+  const teardown = (): void => {
+    if (backdrop.isConnected) backdrop.remove();
+  };
+
+  panel.appendChild(buildTitle('BACK UP YOUR PROGRESS', COLOR_DANGER));
+  panel.appendChild(buildBody(
+    `${opts.runsCompleted} runs of progress live only in this browser's storage. `
+    + 'Clearing site data — or leaving the game unopened for a week on iPhone — can erase it for good. '
+    + 'A backup takes one tap and restores on any device.',
+  ));
+
+  const row = buildButtonRow();
+
+  const backUpButton = buildButton('BACK UP NOW', 'primary');
+  backUpButton.addEventListener('click', async () => {
+    backUpButton.disabled = true;
+    const exportedAt = Date.now();
+    const blobText = await exportProfileBlob(exportedAt);
+    renderExportPanel(panel, {
+      blobText,
+      onExported: () => saveLastExportAt(exportedAt),
+      teardown,
+      onClose: opts.onClose,
+    });
+  });
+  row.appendChild(backUpButton);
+
+  const laterButton = buildButton('NOT NOW', 'muted');
+  laterButton.addEventListener('click', () => {
+    teardown();
+    opts.onClose();
+  });
+  row.appendChild(laterButton);
 
   panel.appendChild(row);
   backdrop.appendChild(panel);

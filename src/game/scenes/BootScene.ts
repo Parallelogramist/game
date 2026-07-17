@@ -37,6 +37,10 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { MENU_COLORS as COLORS, MENU_FONT, DISPLAY_FONT } from '../../visual/MenuStyle';
 import { makeDisplayText } from '../../visual/DisplayText';
+import { showBackupReminderOverlay } from '../../ui/ProfileTransferOverlay';
+import {
+  loadLastExportAt, loadLastNudgeAt, saveLastNudgeAt, shouldShowBackupNudge,
+} from '../../storage';
 
 interface FocusEntry {
   onFocus: () => void;
@@ -55,6 +59,7 @@ export class BootScene extends Phaser.Scene {
   private focusEntries: FocusEntry[] = [];
 
   private menuBackground: MenuBackground | null = null;
+  private backupOverlayTeardown: (() => void) | null = null;
   private cards: MenuCard[] = [];
   private titleTicker: ((timeSeconds: number) => void) | null = null;
   private updateHandler: ((time: number, delta: number) => void) | null = null;
@@ -109,6 +114,7 @@ export class BootScene extends Phaser.Scene {
     this.tooltipEscHandler = null;
     this.titleTicker = null;
     this.updateHandler = null;
+    this.backupOverlayTeardown = null;
 
     const musicManager = getMusicManager();
     const startMenuMusic = async () => {
@@ -410,7 +416,33 @@ export class BootScene extends Phaser.Scene {
     // ─── menu nav ───────────────────────────────────────────────────────
     this.buildMainNavigator(this.selectedFocusIndex);
 
+    this.maybeShowBackupReminder(metaManager.getRunsCompleted());
+
     this.events.once('shutdown', this.shutdown, this);
+  }
+
+  private maybeShowBackupReminder(runsCompleted: number): void {
+    if (this.backupOverlayTeardown) return;
+    const now = Date.now();
+    if (!shouldShowBackupNudge({
+      runsCompleted,
+      lastExportAt: loadLastExportAt(),
+      lastNudgeAt: loadLastNudgeAt(),
+      now,
+    })) return;
+
+    // Stamped on show, not on dismiss: create() re-runs on every orientation
+    // flip and on every return to the menu, and the cooldown is the only thing
+    // stopping the prompt reopening each time.
+    saveLastNudgeAt(now);
+    this.menuNavigator?.setEnabled(false);
+    this.backupOverlayTeardown = showBackupReminderOverlay({
+      runsCompleted,
+      onClose: () => {
+        this.backupOverlayTeardown = null;
+        this.menuNavigator?.setEnabled(true);
+      },
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1605,6 +1637,9 @@ export class BootScene extends Phaser.Scene {
 
     this.menuBackground?.destroy();
     this.menuBackground = null;
+
+    this.backupOverlayTeardown?.();
+    this.backupOverlayTeardown = null;
 
     this.tweens.killAll();
   }

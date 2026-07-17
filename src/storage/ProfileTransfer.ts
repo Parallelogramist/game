@@ -4,10 +4,17 @@ export const PROFILE_BLOB_VERSION = 1;
 export const PROFILE_BLOB_APP = 'pew-pew-survivor';
 export const PROFILE_ENVELOPE_PREFIX = 'PEWSAVE1:';
 
-// The in-run save is deliberately not portable: it references a run in
-// progress, and restoring one onto a different device's meta-progression
-// resumes a run the imported profile never started.
-export const NON_TRANSFERABLE_STORAGE_KEYS: readonly string[] = ['survivor-game-state'];
+// Not portable. The in-run save references a run in progress, and restoring one
+// onto a different device's meta-progression resumes a run the imported profile
+// never started. The backup markers describe THIS device's relationship to its
+// backups rather than the profile itself — carrying the exporting device's
+// markers over would tell the importing device it was backed up at a time it
+// never was. applyProfilePayload restamps the export marker from the payload.
+export const NON_TRANSFERABLE_STORAGE_KEYS: readonly string[] = [
+  'survivor-game-state',
+  'survivor-last-export-at',
+  'survivor-backup-nudge-at',
+];
 
 export const TRANSFERABLE_STORAGE_KEYS: readonly string[] = ALL_STORAGE_KEYS.filter(
   (key) => !NON_TRANSFERABLE_STORAGE_KEYS.includes(key),

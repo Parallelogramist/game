@@ -17,3 +17,9 @@ export * from './ProfileTransfer';
 export {
   encodeProfileBlob, decodeProfileBlob, collectProfileKeys, exportProfileBlob, applyProfilePayload,
 } from './ProfileArchive';
+export {
+  BACKUP_NUDGE_MIN_RUNS, BACKUP_STALE_MS, BACKUP_NUDGE_COOLDOWN_MS,
+  shouldShowBackupNudge, describeLastBackup,
+  loadLastExportAt, saveLastExportAt, loadLastNudgeAt, saveLastNudgeAt,
+} from './BackupReminder';
+export type { BackupNudgeInput } from './BackupReminder';

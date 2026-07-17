@@ -5,6 +5,7 @@ import {
   PROFILE_ENVELOPE_PREFIX, TRANSFERABLE_STORAGE_KEYS, ProfilePayload, ProfileValidation,
   packProfile, planProfileApply, validateProfilePayload,
 } from './ProfileTransfer';
+import { saveLastExportAt } from './BackupReminder';
 
 async function derivePortableKey(salt: Uint8Array): Promise<CryptoKey> {
   const baseKey = await crypto.subtle.importKey(
@@ -77,5 +78,9 @@ export async function applyProfilePayload(payload: ProfilePayload): Promise<void
   const plan = planProfileApply(payload);
   for (const [key, value] of Object.entries(plan.sets)) SecureStorage.setItem(key, value);
   for (const key of plan.removes) SecureStorage.removeItem(key);
+  // The blob just imported IS this profile's most recent backup, dated when it
+  // was made — so importing a months-old blob still reads as stale and renudges.
+  // Must follow the removes loop, which clears this key as non-transferable.
+  saveLastExportAt(payload.exportedAt);
   await flushStorage();
 }

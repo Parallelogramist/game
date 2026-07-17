@@ -86,10 +86,11 @@ describe('planProfileApply', () => {
 });
 
 describe('TRANSFERABLE_STORAGE_KEYS', () => {
-  it('excludes the in-run save and otherwise matches ALL_STORAGE_KEYS', () => {
-    expect(TRANSFERABLE_STORAGE_KEYS).not.toContain('survivor-game-state');
+  it('excludes the in-run save and the device-local backup markers, and otherwise matches ALL_STORAGE_KEYS', () => {
+    const deviceLocal = ['survivor-game-state', 'survivor-last-export-at', 'survivor-backup-nudge-at'];
+    for (const key of deviceLocal) expect(TRANSFERABLE_STORAGE_KEYS).not.toContain(key);
     expect(new Set(TRANSFERABLE_STORAGE_KEYS)).toEqual(
-      new Set(ALL_STORAGE_KEYS.filter((key) => key !== 'survivor-game-state')),
+      new Set(ALL_STORAGE_KEYS.filter((key) => !deviceLocal.includes(key))),
     );
   });
 });

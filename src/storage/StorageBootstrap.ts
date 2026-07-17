@@ -97,6 +97,10 @@ export const ALL_STORAGE_KEYS = [
 
   // EndlessBestCycle (post-victory endless mode deepest cycle reached)
   'survivor-endless-best',
+
+  // BackupReminder (device-local backup bookkeeping — see NON_TRANSFERABLE_STORAGE_KEYS)
+  'survivor-last-export-at',
+  'survivor-backup-nudge-at',
 ];
 
 /**
