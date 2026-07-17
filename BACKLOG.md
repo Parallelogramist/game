@@ -46,6 +46,15 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   mutators its own rationale asks about. Full write-up moved to
   `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-PRACTICE-TIME**
   under `## Human gates`.
+- [x] **BUG-META-DEAD-RESOURCES** — three shop upgrades took gold and did
+  nothing (done — 1443893). Fortune (`dropRateLevel`), Scavenger
+  (`healthDropLevel`) and Boss Slayer (`bossGoldLevel`) each multiplied a
+  `PlayerStats` field that nothing in the codebase read — ~13,500 gold of
+  placebo in the one shop category you buy to earn more. Same dead-field class
+  as BUG-VITALITY-HEAL-DEAD (`9b520d0`), found by auditing every `PlayerStats`
+  field and every `getStarting*` getter for a reader. Full write-up moved to
+  `BACKLOG-archive.md`. **No playtest filed** — see the write-up for why, and
+  for the Boss Slayer price/payoff knob.
 
 ## Next
 
@@ -77,6 +86,24 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 - [x] **FEAT-SAVE-EXPORT-REMINDER** — nudge long-lived profiles to back up
   (done — da469b7). Full write-up moved to `BACKLOG-archive.md`. Playtest
   follow-up filed as **POLISH-SAVE-EXPORT-REMINDER** under `## Human gates`.
+
+- [ ] **FEAT-META-MEMORY** — implement Memory (`upgradeKeepLevel`). Value: a
+  2,000-gold shop upgrade (500 base, ×3.0 scaling, max 2) that currently takes
+  gold and does nothing — `getStartingUpgradeKeep()` in
+  `src/meta/MetaProgressionManager.ts:987` has **zero callers**. Unlike the
+  BUG-META-DEAD-RESOURCES three, this is an unbuilt *feature*, not a loose wire:
+  its card promises "Keep {level} lowest upgrades" between runs, which needs
+  last-run upgrade ids persisted and re-applied at run start (save-schema work —
+  mirror the optional-field, no-version-bump pattern used by `endlessState.mutator`
+  in `GameStateManager.ts`). Pointer: shop entry `PermanentUpgrades.ts:714`.
+- [ ] **FEAT-META-BLESSING** — implement Blessing (`blessingLevel`). Value: a
+  3,900-gold shop upgrade (400 base, ×2.5 scaling, max 3) that currently takes
+  gold and does nothing — `getStartingBlessingCount()` in
+  `src/meta/MetaProgressionManager.ts:1010` has **zero callers**. Its card
+  promises "{level} random blessing(s)" — N random run-start buffs — so it needs
+  a blessing pool designed; `src/data/RunModifiers.ts` is the nearest existing
+  shape to copy (a named, described, `apply(stats)` bag). Pointer: shop entry
+  `PermanentUpgrades.ts:769`.
 
 ## Later
 

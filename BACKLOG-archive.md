@@ -5,6 +5,47 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-META-DEAD-RESOURCES — three shop upgrades took gold and did nothing · DONE 1443893
+
+**Value:** Fortune (`dropRateLevel`, "+5% drop rate"/level, ~4,470g for 5 levels),
+Scavenger (`healthDropLevel`, "+20% health drop rate"/level, ~3,390g for 5 levels)
+and Boss Slayer (`bossGoldLevel`, "+50% boss gold"/level, ~5,590g for 5 levels) —
+~13,500g combined — all sit in `resources`, the shop category bought specifically
+to earn more, yet each field was declared, initialized to `1.0`, written once at
+`GameScene.ts:864-866` (from a meta getter) and read **zero** times anywhere in
+`src/`. The three upgrades were pure placebo.
+
+**Shipped:** `healthDropMultiplier` now scales the enemy-death health-pickup roll;
+`dropRateMultiplier` now scales the enemy-death floor-consumable roll;
+`bossGoldMultiplier` now scales a boss's gold cache via a new `sourceXpValue`
+parameter on `spawnRandomConsumable`.
+
+**Design:** (a) all three multipliers are `1.0` at zero levels, so an unbought
+profile is byte-identical — the fix connects a wire, it does not retune anything;
+(b) `dropRateMultiplier >= 1` always, so the boss guaranteed-power-up cannot break
+and needs no clamp; (c) **there is no per-boss gold award in this game at all** —
+every `addGold` site was traced, and a boss's guaranteed consumable rolling
+`GOLD` (20%) is the only gold a boss produces, so that cache is the only thing
+"+50% boss gold" can scale; (d) only the 2 enemy-death `spawnRandomConsumable`
+sites pass a source tier — crate/shrine/bounty keep the `0` default; (e) Fortune
+scales the consumable roll only, since health pickups have their own upgrade
+(Scavenger) and gems are guaranteed.
+
+**Open knob (for the human, not a playtest):** Boss Slayer maxed is ×3.5 on a
+cache worth `25 + gameTime*0.5 + worldLevel*10` (≈335g at the 10-minute boss),
+dropped by 20% of bosses — expected ≈ +185g per boss against a 5,590g price. That
+price/payoff ratio is a balance call the human owns; the knobs are `baseCost` /
+`costScaling` at `PermanentUpgrades.ts:591` and the `0.5` per-level magnitude at
+`MetaProgressionManager.ts:971`.
+
+**Why no playtest was filed:** the playtest queue stands at ~30 items and has never
+had one drained; the wiring here is provable by reading the diff (the field is now
+referenced at the one correct site) and needs no human in a browser, so a 31st
+queue entry would be pure operator load. The balance question above is recorded as
+a knob instead.
+
+---
+
 ## FEAT-PRACTICE-TIME — set the arena's clock, cycle, and mutator on demand · DONE 8452234
 
 **Value:** the three named mutator questions in POLISH-ENDLESS-MUTATORS — (c)
