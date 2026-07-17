@@ -14,6 +14,7 @@ import {
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { WEAPON_SYNERGIES, WeaponSynergy } from '../../data/WeaponSynergies';
+import { RELICS, Relic, getRelicRarityColor } from '../../data/Relics';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
@@ -235,6 +236,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${upgradeEntries.length}`;
       } else if (category.id === 'synergies') {
         countLabel = `${WEAPON_SYNERGIES.length}`;
+      } else if (category.id === 'relics') {
+        countLabel = `${RELICS.length}`;
       }
 
       if (countLabel) {
@@ -343,6 +346,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'synergies':
         this.displaySynergies();
+        break;
+      case 'relics':
+        this.displayRelics();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -776,6 +782,83 @@ export class CodexScene extends Phaser.Scene {
       parts.push(`+${Math.round((1 - synergy.cooldownMultiplier) * 100)}% atk spd`);
     }
     return parts.length > 0 ? parts.join('  ·  ') : 'Passive bonus';
+  }
+
+  private displayRelics(): void {
+    const relicCardHeight = 96;
+
+    this.layoutCardGrid([...RELICS], relicCardHeight, (relic, x, y) => {
+      this.createRelicCard(relic, x, y, relicCardHeight);
+    });
+  }
+
+  private createRelicCard(relic: Relic, x: number, y: number, cardHeight: number): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border stays 0x4a4a7a — the exact color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    // Rarity is signalled by the icon tint and rarity label, never the border.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    const rarityColor = getRelicRarityColor(relic.rarity);
+    const rarityHex = '#' + rarityColor.toString(16).padStart(6, '0');
+
+    const iconCenterX = 38;
+    const iconCenterY = Math.floor(cardHeight / 2);
+
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, rarityColor);
+    container.add(iconDisc);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: relic.icon,
+        size: 28,
+        tint: rarityColor,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 12, rarityColor);
+      container.add(fallback);
+    }
+
+    const textX = 75;
+
+    const nameText = this.add.text(textX, 14, relic.name, {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const rarityText = this.add.text(textX, 38, relic.rarity.toUpperCase(), {
+      fontSize: '11px',
+      color: rarityHex,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(rarityText);
+
+    const descText = this.add.text(textX, 56, relic.description, {
+      fontSize: '12px',
+      color: '#aaaaaa',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - textX - 14 },
+    });
+    container.add(descText);
+
+    this.codexCards.push({ container, cardBg });
   }
 
   private displayStatistics(): void {
