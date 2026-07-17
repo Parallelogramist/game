@@ -7037,9 +7037,18 @@ export class GameScene extends Phaser.Scene {
         title: 'Blood Pact',
         detail: 'HP halved, damage doubled',
         apply: () => {
-          const halvedCurrent = Math.max(1, Math.floor(this.playerStats.currentHealth / 2));
+          // Authoritative HP is the ECS Health component — mutate it directly. The
+          // playerStats mirror alone never charges the cost: syncStatsToPlayer only
+          // clamps HP *down to max*, and grantBuildHeal is heal-only by design.
+          const liveHealth = this.playerId === -1
+            ? this.playerStats.currentHealth
+            : Health.current[this.playerId];
+          const halvedCurrent = Math.max(1, Math.floor(liveHealth / 2));
           this.playerStats.currentHealth = halvedCurrent;
           this.playerStats.maxHealth = Math.max(halvedCurrent, Math.floor(this.playerStats.maxHealth / 2));
+          if (this.playerId !== -1) {
+            Health.current[this.playerId] = halvedCurrent;
+          }
           this.playerStats.damageMultiplier *= 2;
         },
       },
