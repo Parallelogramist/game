@@ -5,6 +5,58 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PRACTICE-ULT — fire any ship's ultimate on demand from the practice dock · DONE 9288a23
+
+- **Value:** FEAT-SHIP-ULTIMATES (`49c934f`) shipped 11 distinct ultimates whose feel
+  only a human in a browser can judge, and the filed playtest **BALANCE-SHIP-ULTIMATES**
+  asks George to compare them — but charging the meter takes ~40 kills per shot
+  (`ULTIMATE_CHARGE_PER_KILL = 2.5` into `MAX_ULTIMATE_CHARGE = 100`), so answering it
+  the honest way cost eleven full runs. The `ship_default` finding made it non-optional:
+  `PracticeScene.ts` hard-codes `shipId: 'ship_default'` on the run it starts, and the
+  default ship's `ultimateId` is `'overdrive'` — so practice could only ever fire
+  Overdrive, 10 of the 11 new ultimates were unreachable in the sandbox at all.
+- **Shipped:** a new derived cycle, `src/data/PracticeUltimates.ts`
+  (`PRACTICE_ULTIMATE_CYCLE` = `SHIP` + all 11 `SHIP_ULTIMATES` entries,
+  `practiceUltimateLabel()`, `nextPracticeUltimate()`) so the cycle can never drift out
+  of sync with the registry. The dock gained two rows: `ULT: <NAME>` (cycles `SHIP` →
+  all 11, magenta when overridden) and a gold `FIRE ULT` button (also the `U` key).
+  `GameScene.activateUltimate()` now resolves `practiceUltimateOverride` before falling
+  back to `getUltimateForShip()` — the only two lines that changed in that method — so
+  the toast, nova, statuses and everything else downstream is unmodified and announces
+  the override for free.
+- **Why `fillUltimateCharge()` instead of `addUltimateCharge(MAX_ULTIMATE_CHARGE)`** (the
+  backlog entry's original suggestion): `addUltimateCharge()` is a no-op while
+  `chargeSuppressed`, and it scales its input by `chargeRateMultiplier` — under a sub-1
+  multiplier, `addUltimateCharge(100)` would under-fill and the fire would silently
+  no-op. A practice button must be exact, so `UltimateSystem.ts` gained one new export
+  that assigns `charge = MAX_ULTIMATE_CHARGE` directly, bypassing both.
+- **The fit-to-height trap:** the dock is a fixed vertical stack of equal rows, centered
+  in the canvas, with no fit clamp. Phaser runs in EXPAND mode, so the canvas stays
+  ~720 game units tall while `hudScale` climbs to ~2.09 on an iPhone landscape viewport.
+  Naively going from 8 rows to 10 pushed the natural stack from 595 to 747 units — over
+  the 720-unit canvas, and because the stack is centered it overhung *both* edges,
+  clipping `SPAWN` off the bottom and the first row off the top. The fix mirrors
+  `BootScene.ts`'s existing fit-to-width deck-row shrink as a fit-to-height twin:
+  `computeRowStackFit(rowCount, rowHeight, gap, availableHeight)` in `HudScale.ts`,
+  pinned by 3 new cases in `HudScale.test.ts`.
+
+  | hudScale | design H/Gap | natural | available | fit | final H/Gap | final stack | fits? |
+  |---|---|---|---|---|---|---|---|
+  | 1.0 (desktop) | 30 / 6 | 354 | 704 | 1.0 | 30 / 6 | 354 | yes — desktop byte-for-byte unchanged |
+  | 2.09 (iPhone) | 63 / 13 | 747 | 686 | 0.918 | 57 / 11 | 669 | yes |
+  | 4.0 (max UI scale) | 120 / 24 | 1416 | 656 | 0.463 | 55 / 11 | 649 | yes |
+
+- **Tuning knobs:** `PRACTICE_ULTIMATE_CYCLE` (`src/data/PracticeUltimates.ts`) for the
+  cycle order/labels; the row order and the fit constants in `PracticeDock.build()`
+  (`src/ui/PracticeDock.ts`) for the dock layout.
+- **Known limit, filed for next session:** practice still flies `ship_default`, so an
+  overridden ultimate fires with Sparrow's stats (the nova scales with
+  `playerStats.damageMultiplier`) — absolute damage reads Sparrow-flavoured even though
+  the ability itself is correct. Filed as **FEAT-PRACTICE-SHIP**. Playtest follow-up
+  filed as **POLISH-PRACTICE-ULT** under `## Human gates`.
+
+---
+
 ## FEAT-SHIP-ULTIMATES — every ship gets its own ultimate · DONE 49c934f
 
 - **Value:** the Overdrive meter (Q / gamepad Y / the touch ult button) fired one

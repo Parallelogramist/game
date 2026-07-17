@@ -39,13 +39,12 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   while every other ship axis (hull, palette, six stat multipliers, signature stat
   bonuses) already differed. Full write-up in `BACKLOG-archive.md`. Playtest follow-up
   filed as **BALANCE-SHIP-ULTIMATES** under `## Human gates`.
-- [ ] **FEAT-PRACTICE-ULT** — fire any ship's ultimate on demand from the practice
-  dock. Value: FEAT-SHIP-ULTIMATES adds 11 abilities whose feel can only be judged by
-  firing them, and charging the meter needs ~40 kills per shot — a dock button (and a
-  ship row) turns judging all 11 from eleven full runs into a minute, the same way
-  FEAT-PRACTICE-BOSS/-BUILD/-TIME drained their queues. Pointers:
-  `src/ui/PracticeDock.ts`, `GameScene.activateUltimate()`,
-  `addUltimateCharge(MAX_ULTIMATE_CHARGE)`.
+- [x] **FEAT-PRACTICE-ULT** — fire any ship's ultimate on demand from the practice
+  dock (done — 9288a23). The sandbox can now select any of the 11 ultimates and fire
+  them instantly; it was previously locked to Overdrive because `PracticeScene`
+  starts `ship_default`. The dock gained a fit-to-height shrink because 10 rows
+  overflow a phone's 720-unit canvas. Full write-up in `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-PRACTICE-ULT** under `## Human gates`.
 - [x] **FEAT-PRACTICE-BUILD** — fight a boss with the build you'd really have
   (done — 41df31c). Value: closes the documented level-0-passives limit that
   blocks the absolute "siege or drag" reads in POLISH-BOSS-AFFIXES (c),
@@ -196,6 +195,13 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   which is a balance call for the human, not a wiring fix. Pointer: `grantBuildHeal`
   in `GameScene.ts` is the fix shape; a downward equivalent would need the same
   delta-across-the-grant treatment.
+- [ ] **FEAT-PRACTICE-SHIP** — pick the ship you practise as. Value: PracticeScene
+  hard-codes `shipId: 'ship_default'`, so every sandbox run flies Sparrow's stats —
+  FEAT-PRACTICE-ULT reaches all 11 *ultimates* but their damage still scales off
+  Sparrow's damageMultiplier, and the six per-ship stat multipliers, hull and
+  signature mechanics stay unreachable in practice entirely. Pointers:
+  `src/game/scenes/PracticeScene.ts:405`, `SHIP_CHARACTERS`, the PRACTICE deck card
+  row in `BootScene.ts`.
 
 ---
 
@@ -222,6 +228,22 @@ Never agent work. The fleet must not do any of these.
     — one extra wrapped line: does it still fit on a phone in portrait, or does the
     card need to grow? (d) **the toast** — a 2.2s toast on every ult: helpful the first
     time, noise by the tenth?
+  - **POLISH-PRACTICE-ULT** — fire any ship's ultimate on demand (FEAT-PRACTICE-ULT,
+    `9288a23`). Reach it: BootScene → PRACTICE → START, dock → set `ULT: BULWARK
+    SLAM`, tap `FIRE ULT`, then `ULT: INSIGHT SURGE`, fire again. Check: (a) **the
+    point of the feature** — can you now answer BALANCE-SHIP-ULTIMATES (a) "is Q a
+    different button" in one run instead of eleven? (b) **the dock at 10 rows** —
+    this supersedes POLISH-PRACTICE-BUILD (f): rows now auto-shrink to fit; on a
+    phone in landscape are all ten still legible and tappable, and do
+    `TARGET`/`SPAWN` clear the edges? (c) **two gold buttons** — `FIRE ULT` sits
+    directly above `SPAWN`: does that misfire in a fight? (d) **`ULT: SHIP`** — does
+    the default read as "the ship's own", or is it ambiguous on a sandbox that is
+    always Sparrow? (e) the `U` key. **Note the known limit:** practice flies
+    `ship_default`, so an overridden ultimate fires with **Sparrow's** stats — the
+    nova scales with `playerStats.damageMultiplier`, so absolute damage reads
+    Sparrow-flavoured; the sandbox answers *relative* "does it feel different" well,
+    absolute tuning still wants a real run (this is the same relative-vs-absolute
+    caveat POLISH-PRACTICE-BOSS carries).
   - **POLISH-PRACTICE-MODE** — practice mode on a real device (agents have no
     browser). This one is worth doing first: it is the tool for draining the rest
     of this queue. Reach it: BootScene → **PRACTICE**. Check: (a) **the point of
