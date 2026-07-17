@@ -15,6 +15,8 @@ import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { WEAPON_SYNERGIES, WeaponSynergy } from '../../data/WeaponSynergies';
 import { RELICS, Relic, getRelicRarityColor } from '../../data/Relics';
+import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
+import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
 import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
@@ -238,6 +240,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${WEAPON_SYNERGIES.length}`;
       } else if (category.id === 'relics') {
         countLabel = `${RELICS.length}`;
+      } else if (category.id === 'evolutions') {
+        countLabel = `${weaponEvolutionDefinitions.length}`;
       }
 
       if (countLabel) {
@@ -349,6 +353,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'relics':
         this.displayRelics();
+        break;
+      case 'evolutions':
+        this.displayEvolutions();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -859,6 +866,141 @@ export class CodexScene extends Phaser.Scene {
     container.add(descText);
 
     this.codexCards.push({ container, cardBg });
+  }
+
+  private displayEvolutions(): void {
+    const weaponInfoById = new Map<string, WeaponInfo>();
+    for (const info of getWeaponInfoList()) {
+      weaponInfoById.set(info.id, info);
+    }
+
+    const statNameById = new Map<string, string>();
+    for (const upgrade of createUpgrades()) {
+      statNameById.set(upgrade.id, upgrade.name);
+    }
+
+    const evolutionCardHeight = 120;
+
+    this.layoutCardGrid([...weaponEvolutionDefinitions], evolutionCardHeight, (evolution, x, y) => {
+      this.createEvolutionCard(evolution, weaponInfoById, statNameById, x, y, evolutionCardHeight);
+    });
+  }
+
+  private createEvolutionCard(
+    evolution: WeaponEvolution,
+    weaponInfoById: Map<string, WeaponInfo>,
+    statNameById: Map<string, string>,
+    x: number,
+    y: number,
+    cardHeight: number,
+  ): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border stays 0x4a4a7a — the exact color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    const evolutionAccent = 0xffbb33;
+
+    // Left gutter: the base weapon's icon, tinted the evolution accent.
+    const iconCenterX = 38;
+    const iconCenterY = Math.floor(cardHeight / 2);
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, evolutionAccent);
+    container.add(iconDisc);
+    const baseInfo = weaponInfoById.get(evolution.weaponId);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: baseInfo?.icon ?? evolution.weaponId,
+        size: 28,
+        tint: evolutionAccent,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 12, evolutionAccent);
+      container.add(fallback);
+    }
+
+    const textX = 75;
+    const baseName = baseInfo?.name ?? evolution.weaponId;
+    const statName = statNameById.get(evolution.requiredStatId)
+      ?? evolution.requiredStatId.charAt(0).toUpperCase() + evolution.requiredStatId.slice(1);
+
+    const nameText = this.add.text(textX, 10, evolution.evolvedName, {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const recipeText = this.add.text(
+      textX,
+      34,
+      `${baseName} Lv${evolution.requiredWeaponLevel}   +   ${statName} Lv${evolution.requiredStatLevel}`,
+      {
+        fontSize: '12px',
+        color: '#ffbb33',
+        fontFamily: FONT_FAMILY,
+        fontStyle: 'bold',
+      },
+    );
+    container.add(recipeText);
+
+    const gainsText = this.add.text(textX, 56, this.formatEvolutionGains(evolution), {
+      fontSize: '12px',
+      color: '#66dd99',
+      fontFamily: FONT_FAMILY,
+    });
+    container.add(gainsText);
+
+    const descText = this.add.text(textX, 78, evolution.evolvedDescription, {
+      fontSize: '11px',
+      color: '#999999',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - textX - 12 },
+    });
+    container.add(descText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
+  private formatEvolutionGains(evolution: WeaponEvolution): string {
+    const parts: string[] = [];
+    const multipliers = evolution.statMultipliers;
+    if (multipliers.damage !== undefined && multipliers.damage !== 1) {
+      parts.push(`+${Math.round((multipliers.damage - 1) * 100)}% dmg`);
+    }
+    if (multipliers.count !== undefined && multipliers.count !== 0) {
+      parts.push(`+${multipliers.count} proj`);
+    }
+    if (multipliers.piercing !== undefined && multipliers.piercing !== 0) {
+      parts.push(`+${multipliers.piercing} pierce`);
+    }
+    if (multipliers.cooldown !== undefined && multipliers.cooldown !== 1) {
+      parts.push(`${Math.round((1 - multipliers.cooldown) * 100)}% faster`);
+    }
+    if (multipliers.range !== undefined && multipliers.range !== 1) {
+      parts.push(`+${Math.round((multipliers.range - 1) * 100)}% range`);
+    }
+    if (multipliers.size !== undefined && multipliers.size !== 1) {
+      parts.push(`+${Math.round((multipliers.size - 1) * 100)}% size`);
+    }
+    if (multipliers.speed !== undefined && multipliers.speed !== 1) {
+      parts.push(`+${Math.round((multipliers.speed - 1) * 100)}% proj spd`);
+    }
+    return parts.length > 0 ? parts.join('   ·   ') : 'Enhanced form';
   }
 
   private displayStatistics(): void {
