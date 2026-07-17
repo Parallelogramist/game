@@ -57,18 +57,9 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA. Value: this
-  is a phone-first browser game, yet airplane mode or a network blip means
-  no game at all; the full payload is tiny (music 2.1 MB, icons 136 KB) and
-  fully static, so a precached shell is cheap. Done when: a web manifest
-  (name, icons, `display: standalone`) + service worker precache the built
-  app shell and runtime-cache music, with the two Google Fonts self-hosted
-  so offline is real; verified by installing to an iPhone home screen,
-  enabling airplane mode, and completing a run; a fresh Pages deploy is
-  picked up on the next online launch (versioned SW + update-reload flow —
-  a broken SW must never pin users to a stale build, so include a
-  kill-switch). Pointers: `index.html`, `vite.config.ts`,
-  `.github/workflows/deploy.yml`.
+- [x] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA (done —
+  4a0c864). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
+  filed as **POLISH-PWA-OFFLINE** under `## Human gates`.
 
 - [ ] **FEAT-DAILY-SHARE** — one-tap shareable daily-challenge result.
   Value: the daily has only a local leaderboard; a Wordle-style COPY RESULT
@@ -109,6 +100,33 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   fallback font on some platform, swap them for drawn ticks/labels. Also
   consider promoting the drawn four-point-star helper (duplicated in
   `HUDManager.ts` + `TouchActionButtons.ts`) into a shared visual util.
+
+- [ ] **POLISH-FONT-CANVAS-PRELOAD** — make Phaser text wait for the
+  webfonts. Value: a @font-face font is only downloaded once a *DOM*
+  element uses it, but almost all of this game's text is drawn to
+  **canvas** by Phaser (`fontFamily: '"Atkinson Hyperlegible", Arial,
+  sans-serif'` throughout `PauseMenuManager`/`CodexScene`/etc.), and a
+  canvas draw triggers no download and caches the rendered texture — so on
+  a cold load menus may silently render in Arial forever. Only the boot
+  wordmark (Rajdhani 700) forces a load today. Pre-existing (unchanged by
+  `FEAT-PWA-OFFLINE`, which kept the same lazy semantics), and worth
+  confirming on a real cold load before fixing. Done when: fonts are
+  actively loaded (a hidden DOM sample or `document.fonts.load()`) and
+  awaited via `document.fonts.ready` before `new Phaser.Game(...)`, with a
+  timeout so a font failure never blocks boot. Pointers: `src/main.ts`
+  bootstrap IIFE, `index.html` @font-face block.
+
+- [ ] **FEAT-PWA-INSTALL-PROMPT** — surface "Add to Home Screen". Value:
+  `FEAT-PWA-OFFLINE` made the game installable but nothing tells a player
+  it is; iOS never fires `beforeinstallprompt` and hides the action three
+  taps deep in the Share sheet, so the offline capability is invisible to
+  the players who most need it. Done when: a dismissible one-time hint
+  appears on the main menu for a returning, non-standalone player
+  (`display-mode: standalone` media query is the check), iOS gets
+  illustrated Share-sheet instructions while Android/desktop use the
+  captured `beforeinstallprompt`, and it never shows inside an installed
+  app. Pointer: `src/game/scenes/BootScene.ts` (the existing backup-nudge
+  DOM overlay from `da469b7` is the prior art).
 
 ---
 
@@ -727,6 +745,22 @@ Never agent work. The fleet must not do any of these.
   - **BALANCE-5** — top-10 feature tuning (consumable drop rates, affix roll chance,
     Limit Break per-level bonuses, destructible/shrine/bounty cadence, pact
     difficulty-vs-reward, music intensity range, grade thresholds).
+  - **POLISH-PWA-OFFLINE** — install + offline on a real device. Reach by
+    opening the deployed site on an iPhone. Check: (a) Share → Add to Home
+    Screen — is the icon the parallelogram (not a page screenshot) and the
+    name "Survivor"? (b) launch from the home screen — standalone, no Safari
+    chrome, safe-area insets still correct in both orientations? (c) launch
+    once online, then **airplane mode** → launch again: does a full run
+    complete, with sfx and icons? (d) music offline — a track played while
+    online replays in airplane mode; an unplayed one fails gracefully without
+    raising the crash overlay (`unhandledrejection` already only logs). (e)
+    fonts — does the boot wordmark still render in Rajdhani, and menus in
+    Atkinson, with no flash of Arial? (f) after the *next* deploy, does an
+    online launch pick up the new build on the first (not second) launch?
+    (g) storage — Settings → Safari → Advanced → Website Data: is the site's
+    footprint sane (~3 MB shell + up to 2.1 MB music)?
+    Kill switch if any of this goes wrong: `PWA_KILL=1 npm run build` and
+    deploy — it unregisters the worker and drops every cache within 24h.
 
 ---
 

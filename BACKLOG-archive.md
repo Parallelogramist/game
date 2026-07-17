@@ -5,6 +5,74 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PWA-OFFLINE — installable, offline-capable PWA · DONE 4a0c864
+
+**Value:** this is a phone-first browser game that required the network to
+start — airplane mode, a subway tunnel, or a hotel wifi blip meant a blank
+screen, not a degraded game. Nothing about the game actually needs a server:
+the built shell is ~2.5 MB of fully static files (music 2.1 MB, icons
+136 KB), so a precached shell is cheap. It also let the fine print's "no
+accounts, no analytics, no third-party trackers" promise be false while
+`index.html` shipped every player's IP to `fonts.googleapis.com` and
+`fonts.gstatic.com` on every launch.
+
+**Shipped:** a web manifest (`public/manifest.webmanifest`, name "Pew Pew
+Survivor" / short name "Survivor", `display: standalone`) with real icons
+rendered from `public/favicon.svg` via `tools/build-pwa-icons.cjs` (sharp),
+so installing to a home screen shows the parallelogram mark instead of a
+page screenshot. A hand-rolled service worker (`tools/sw-template.js`,
+generated into `dist/sw.js` by a vite plugin) precaches the app shell and
+runtime-caches music on first play. The five latin woff2 faces (60 KB total)
+previously loaded from Google Fonts are now self-hosted in `public/fonts/`
+with their OFL licenses, so a cold offline launch has no request that can
+fail and the privacy promise is true.
+
+**Design:**
+- **No new dependency.** The repo has exactly two runtime deps (phaser,
+  bitecs); `vite-plugin-pwa` would drag in the workbox tree to save ~60 lines
+  still worth auditing on a SW shipping to a live public site. Every cache
+  decision is readable in one file (`tools/sw-template.js`).
+- **Navigation is network-first with a 3s timeout and cache fallback** — the
+  entire anti-stale guarantee. An online launch always fetches the newest
+  `index.html`, which names the newest hashed bundles, so no in-app update
+  prompt is needed and a flaky network (the actual value case) falls back to
+  cache instead of hanging.
+- **The worker takes over immediately** (`skipWaiting()` + `clients.claim()`)
+  with **no `controllerchange` reload** — auto-reloading there would kill a
+  run in progress. This is safe because `src/` has zero dynamic imports (only
+  a test file uses `await import`), so a running page never fetches a hashed
+  chunk mid-run, and every URL a live page can still request (`/sfx/*.ogg`,
+  `/icons/*`, `/music/*.xm`) is unhashed and present in the new precache too.
+- **Music is runtime-cached, not precached**, and its cache name is
+  deliberately unversioned (`music-v1`), surviving deploys — 2.1 MB of
+  tracker modules a player may never hear would triple the install cost, and
+  the files never change between builds.
+- **The precache list is generated from the finished `dist/` tree** by a vite
+  plugin in `closeBundle` (the only hook that sees both the rollup output and
+  the `public/` copy), keyed by a content hash of the selected files so any
+  changed byte renames the cache and forces every client to re-fetch. The
+  selection rule (`src/pwa/precacheManifest.ts`) is a denylist — excluding
+  `/sw.js` and `/CNAME`, and any `/music/*` prefix — so a newly added public
+  asset is never silently dropped from the offline build. It is the one
+  function in this feature with a test, because both exclusions fail
+  silently and severely: precaching `/sw.js` would permanently pin every
+  client to a dead worker with no recovery path.
+- **Kill switch:** `PWA_KILL=1 npm run build` emits a self-destruct worker
+  (`tools/sw-kill-template.js`) instead of the real one — it drops every
+  cache and unregisters itself, reaching clients within 24h (the only way to
+  truly remove a service worker is to deploy a newer one that unregisters
+  itself).
+
+Install + airplane-mode behavior needs a human with a phone; filed as
+**POLISH-PWA-OFFLINE** on the playtest queue. Two pre-existing gaps were
+filed as follow-ups rather than fixed here: **POLISH-FONT-CANVAS-PRELOAD**
+(Phaser draws almost all text to canvas, which triggers no font download, so
+a cold load may silently render menus in Arial) and
+**FEAT-PWA-INSTALL-PROMPT** (nothing currently tells a player the game is
+installable).
+
+---
+
 ## FEAT-SAVE-EXPORT-REMINDER — nudge long-lived profiles to back up · DONE da469b7
 
 **Value:** `FEAT-SAVE-EXPORT` (`a876ed0`) shipped a complete export/import
