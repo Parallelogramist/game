@@ -40,14 +40,12 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   POLISH-MINIBOSS-AFFIXES (c), POLISH-AFFIX-PARAGON (c), POLISH-BOSS-LEGION (e)
   and POLISH-ENDLESS-MUTATORS (g). Full write-up in `BACKLOG-archive.md`.
   Playtest follow-up filed as **POLISH-PRACTICE-BUILD** under `## Human gates`.
-- [ ] **FEAT-PRACTICE-TIME** — a dock row that sets the run clock. Value:
-  practice scales the *boss* to its canonical time but the **arena is still
-  t=0** — no trash density, no endless cycle — so the mutator questions
-  (POLISH-ENDLESS-MUTATORS (c)/(d)/(g): "SWIFT SWARM on cycle-5+ tightened
-  cadence", "VOLATILE AIR elite soup", "IRON HORDE vs late-run DPS") stay
-  unreachable on demand. Pointers: `this.gameTime` +
-  `checkEndlessModeSpawns` in `GameScene.ts`, `scheduledSpawnTime` in
-  `src/data/PracticeTargets.ts`, the dock in `src/ui/PracticeDock.ts`.
+- [x] **FEAT-PRACTICE-TIME** — set the arena's clock, cycle, and mutator on
+  demand (done — 8452234). Shipped as two rows (ARENA + MUTATOR), not one:
+  mutators are RNG-rolled, so a clock alone could never reach the *named*
+  mutators its own rationale asks about. Full write-up moved to
+  `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-PRACTICE-TIME**
+  under `## Human gates`.
 
 ## Next
 
@@ -234,6 +232,33 @@ Never agent work. The fleet must not do any of these.
     build — BUILD covers the nine level-up stat passives and the meta/shop
     upgrades your profile already carries, which is the bulk of DPS but not
     100% of a real run's.
+  - **POLISH-PRACTICE-TIME** — confirm the arena rows field the late run
+    (FEAT-PRACTICE-TIME, `8452234`). Agents have no browser. Reach it:
+    BootScene → PRACTICE → START, then the dock's ARENA / MUTATOR rows. Check:
+    (a) **the point of the feature** — the three questions that were unreachable:
+    set MUTATOR: SWIFT SWARM + ARENA: CYCLE 5 and answer POLISH-ENDLESS-MUTATORS
+    (c) "is the cycle-5 cadence (20s floor) plus +15% speed actually readable, or
+    just noise?"; MUTATOR: VOLATILE AIR + ARENA: 10-MIN for (d) "elite soup?";
+    MUTATOR: IRON HORDE + ARENA: 10-MIN + BUILD: 10-MIN for (g) "+2 armor vs
+    late-run DPS — too spongy?". Each should now be a ~10-second read.
+    (b) **no cascade, the one most likely to be wrong** — hit ARENA: 10-MIN on a
+    fresh practice run: the clock must jump to 10:00 and trash must thicken, but
+    **no miniboss or boss may spawn on its own**, and **no achievement/milestone
+    toasts** may fire. The dock's SPAWN must stay the only source of boss-tier
+    enemies. (c) **the ratchet** — ARENA steps forward only and greys out at
+    CYCLE 5; MUTATOR wraps freely both at OFF and at CYCLE 5. (d) **cycle feel** —
+    at CYCLE 2 a second miniboss joins each cadence tick and the banner reads
+    `CYCLE 2 · <MUTATOR>`; at CYCLE 5 trash should be ~3× the health of CYCLE 2
+    (1.25^3). Is CYCLE 5 a fair fight with BUILD: MAX, or does it need a rung
+    between? (e) **isolation still holds** — note gold / achievements / codex /
+    best-endless-cycle before practising, run ARENA: CYCLE 5 for a minute, quit:
+    **nothing may move**, and the death screen must not claim "NEW BEST!".
+    (f) **8 rows in portrait** — the dock is now 8 rows tall (~282px). Still
+    legible and tappable on a phone, or does it need to wrap/scroll? This
+    supersedes the row-count part of POLISH-PRACTICE-MODE (d). Knobs:
+    `PRACTICE_ARENA_LADDER` + `PRACTICE_MUTATOR_CYCLE` in
+    `src/data/PracticeArena.ts`, `applyPracticeArena` in
+    `src/game/scenes/GameScene.ts`.
   - **POLISH-TRAIL-FIX** — trail ghosting fix + ribbon smoothing (BUG-TRAIL-GHOST,
     `6e8c50a`; all knobs in `src/visual/TrailManager.ts`). Check in a real run:
     (a) **the reported bug is gone** — fly loops for 60s+, stop, wait ~3s: no

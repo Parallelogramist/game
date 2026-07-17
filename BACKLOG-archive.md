@@ -5,6 +5,87 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PRACTICE-TIME — set the arena's clock, cycle, and mutator on demand · DONE 8452234
+
+**Value:** the three named mutator questions in POLISH-ENDLESS-MUTATORS — (c)
+"SWIFT SWARM on cycle-5+ tightened cadence", (d) "VOLATILE AIR elite soup", (g)
+"IRON HORDE vs late-run DPS" — were not merely expensive to reach, they were
+effectively **unanswerable**: win a full run, survive ~25 more minutes to
+endless cycle 5, **and** have the one specific mutator you want come up on a
+random roll that explicitly excludes repeats. Practice already scaled a
+boss-tier spawn to its canonical time, but the arena around it was still t=0 —
+no trash density, no scaling, no endless cycle — so even a perfect spawn
+target couldn't answer an endless-arena question.
+
+**Shipped:** `src/data/PracticeArena.ts` (new) plus two PRACTICE dock rows —
+ARENA and MUTATOR — and two new `GameScene` methods, `applyPracticeArena` and
+`setPracticeMutator`, wired through the dock's callbacks. Three practice
+guards close the new reach this unlocks: the achievement time-tracker no
+longer credits a jumped clock, the endless cycle loop keeps the
+operator-picked mutator instead of re-rolling it, and a practice cycle never
+claims a best-cycle record.
+
+**Design:**
+- **Two rows, not the one `BACKLOG.md` originally called for.** `BACKLOG.md`
+  described "a dock row that sets the run clock", but
+  `rollEndlessMutator(previous)` (`src/data/EndlessMutators.ts`) is a uniform
+  random roll excluding the previous mutator — a clock alone could only ever
+  reach a *random* mutator, never the specific one a question names. The
+  backlog's own value sentence names three specific mutators, so a MUTATOR
+  picker was required for the item to answer the question its rationale asks.
+- **ARENA ratchets one-way; MUTATOR wraps freely.** ARENA compounds
+  irreversible state — spawned waves, multiplied escalation — exactly like
+  BUILD, so it copies BUILD's `if (index >= length - 1) return; index++`
+  shape and greys out at the top rung. The mutator is a single field read at
+  spawn time with nothing it could un-apply, so it cycles like the AFFIX rows
+  instead.
+- **The clock ladder stops at 600, then the last two rungs deepen the cycle
+  instead.** `getScaledStats` (`src/enemies/EnemyTypes.ts`) has no upper bound
+  on enemy stat scaling, but the spawn-interval curve clamps at phase 3
+  (`Math.min(progress, 1)`) and `batchThresholds` maxes at t≥480 — so trash
+  *density* is already maxed at t=600, and a rung past it would add nothing a
+  cycle rung doesn't do better. Past 600, only the endless cycle escalates.
+- **A clock jump suppresses the spawn cascade it would otherwise trigger.**
+  `checkMinibossSpawns` fires every unspawned entry whose time is at or below
+  `gameTime`, and `checkBossSpawn` fires once `gameTime >= bossSpawnTime`;
+  practice does not gate this schedule. A naive `this.gameTime = 600` would
+  dump all five minibosses and the boss into the arena at once, burying the
+  target the dock exists to spawn on demand — so `applyPracticeArena` marks
+  every skipped entry `spawned = true` and `bossSpawned = true` first.
+  `recordTimeSurvived` needed the same guard: it completes every milestone at
+  or below the value passed, so crediting a jumped clock would complete the
+  whole time ladder in one tick and bury the screen in toasts — practice now
+  skips that tracker entirely (its writes already no-op regardless).
+- **The per-cycle ramp constants are duplicated from `checkEndlessModeSpawns`
+  rather than extracted into shared tuning.** Extracting `1.25 / 1.15 / 1.1`
+  would mean editing the live endless path for zero operator-visible gain.
+  Keeping the duplication confines this entire feature to new files plus
+  `practiceModeActive`-scoped branches in `GameScene.ts`, so it cannot regress
+  a real run — worth the duplication.
+- **`endlessHudCycleShown = -1` is load-bearing** on every state change (the
+  endless-cycle jump and the mutator pin both set it) — `syncEndlessHudLabel`
+  early-returns when the shown cycle already matches, so without the reset the
+  HUD label would never repaint.
+- **Neither new method touches storage or the best-cycle record.**
+  `applyPracticeArena` never calls `saveEndlessBestCycleIfHigher` or
+  `recordEndlessCycleReached`, and the real cycle-advance path in
+  `checkEndlessModeSpawns` is now itself gated on `!this.practiceModeActive`
+  for the same write — a sandbox must not claim a best cycle.
+
+**Tests:** none added, deliberately. The only new pure logic is
+`endlessCycleRampFactor`, whose entire content is `Math.pow(n, cycles)` —
+asserting that equals repeated multiplication tests JavaScript, not this
+feature. Everything else is Phaser/ECS scene wiring, which this repo's
+testing boundary does not exercise live. The 1256-test suite stayed green
+throughout; verification is the human playtest filed as
+**POLISH-PRACTICE-TIME** under `## Human gates`.
+
+**Files:** `src/data/PracticeArena.ts` (new), `src/ui/PracticeDock.ts` (8th
+row + `onArenaChange`/`onMutatorChange`), `src/game/scenes/GameScene.ts`
+(`applyPracticeArena`, `setPracticeMutator`, dock wiring, 3 practice guards).
+
+---
+
 ## BUG-VITALITY-HEAL-DEAD — mid-run heal grants land on the player · DONE 9b520d0
 
 **Value:** the shipped, publicly deployed game lied to the player at a decision
