@@ -5,6 +5,62 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-CODEX-EVOLUTIONS — surface the hidden weapon-evolution recipes as a browsable Codex tab · DONE d4099c5
+
+- **The gap.** `src/data/WeaponEvolutions.ts` defines **19 weapon evolutions**
+  (`weaponEvolutionDefinitions`, one per weapon): each weapon evolves into a named super-form
+  when it reaches `requiredWeaponLevel` (5) **and** a specific stat (`requiredStatId`) reaches
+  `requiredStatLevel` (5), applying `statMultipliers` via `WeaponManager.evolve()` — the single
+  biggest power spike in a run. But the recipe was surfaced **only in-run**: `UpgradeScene`
+  (`:774-788`) shows `✦ Evolves: Lv5 · <Stat> cur/req`, but only in the level-up modal and only
+  for the weapon it happens to offer; the in-run HUD (`HUDManager:2495-2502`) shows progress for
+  *equipped* weapons; a tutorial hint nudges once. `grep -n evolution CodexScene.ts` → empty:
+  from the main menu there was **no way to see or plan** the system. A new player could not learn
+  that Katana + Swiftness Lv5 → Blade Dancer without stumbling into it mid-run — the genre's
+  deepest build axis was menu-invisible.
+- **The fix.** Added a seventh Codex tab, **Evolutions** (`CodexTypes.ts`: `'evolutions'` in the
+  `CodexCategory` union + a `CODEX_CATEGORIES` entry with the `dna`→`dna1` icon; `CodexScene.ts`:
+  a content-switch case, a tab-count branch showing the bare total 19, and `displayEvolutions`/
+  `createEvolutionCard`/`formatEvolutionGains`). Each of the 19 cards shows the base weapon's
+  icon (left disc, amber-tinted), the evolved form's name, the recipe `<Weapon> Lv5 + <Stat>
+  Lv5` (amber), the formatted power gain (green, e.g. `+50% dmg · 50% faster · +100% range`),
+  and the flavor description. Weapon names/icons come from `getWeaponInfoList()`; stat display
+  names from `createUpgrades()` — the same canonical source `UpgradeScene.getStatDisplayName`
+  reads. Reuses the Codex's existing `layoutCardGrid` 2-column scroll grid, so keyboard/pad
+  navigation and the focus highlight work unchanged.
+- **Always-visible tab, chosen over enriching the Weapons cards.** The Weapons Codex cards are
+  discovery-gated (undiscovered → "Unknown Weapon" placeholder), so putting recipes there would
+  hide them for exactly the new players who most need to learn the system, and would force
+  growing the most-used tab's card height. A dedicated always-visible tab shows **all 19**
+  recipes regardless of discovery — strictly more useful for pre-run planning — and is isolated
+  (copies `displayRelics`/`displaySynergies`), touching neither the weapon card,
+  `updateFocusVisuals`, nor `ensureCardVisible`.
+- **Deliberately a static reference — mirrors FEAT-CODEX-RELICS (`759a1cd`) /
+  FEAT-CODEX-SYNERGIES (`37a45d3`).** The tab is **always fully visible** (no discovery gating)
+  because the value is letting the player see recipes they haven't triggered in order to plan
+  toward them. Consequently there is **no `CodexState` change, no persistence, no version bump,
+  and no completion-% impact** (`getCompletionPercent` weights only weapons + enemies). Base
+  recipe values are shown (evolutions have fixed requirements), correct for a reference opened
+  outside a run.
+- **Airtight against the focus system.** The evolution card border is set to `0x4a4a7a` — the
+  exact value `updateFocusVisuals`'s `else` branch restores for any non-weapon/non-enemy
+  category — so a card's border returns to its original colour when focus leaves it with **no**
+  change to the navigation code. The evolution accent (`0xffbb33`) lives only in the icon tint
+  and recipe text, which the focus logic never rewrites.
+- **No number changes, no test.** `WeaponEvolutions.ts`, `WeaponManager`, and all gameplay are
+  untouched — this is a pure read-only reference surface. Per the workspace standing order, no
+  test was added: the change is Phaser scene rendering with no seam (this repo tests pure logic
+  only), and the one bit of logic (`formatEvolutionGains`, which mirrors the untested
+  `formatSynergyBonusLine`) is self-evident. Verified by `npx tsc --noEmit` (exit 0) and the
+  full suite (94 files / 1310 tests green, unchanged), plus the **POLISH-CODEX-EVOLUTIONS**
+  human playtest.
+- **Why this over the open backlog.** The three open `BACKLOG.md` items remain value-gate
+  busy-work (`CHORE-ARCH-DOC-SYNC` doc rewrite, `POLISH-GLYPH-SWEEP-2` cosmetic,
+  `BUG-MENUBUTTON-SETVARIANT-NOOP` sandbox-only colour). The "dead paid feature" bug vein is
+  mined out. Weapon evolution was the last major hidden build system the Codex did not surface
+  (after weapons, synergies, and relics), and the most build-defining, so an Evolutions
+  reference tab is the highest *novel* value: a capability the player gains, not motion.
+
 ## FEAT-CODEX-RELICS — surface the hidden relic pool as a browsable Codex tab · DONE 759a1cd
 
 - **The gap.** `src/data/Relics.ts` defines **28 relics** across four rarities

@@ -34,6 +34,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-EVOLUTIONS** — surface the hidden weapon-evolution recipes as a browsable
+  Codex tab (done — d4099c5). The game ships **19 weapon evolutions**
+  (`src/data/WeaponEvolutions.ts`): each weapon evolves into a named super-form when it reaches
+  weapon-level 5 **and** a specific stat reaches level 5, and `WeaponManager.evolve()` applies
+  it live — the biggest power spike in a run. But that recipe was surfaced **only in-run** (the
+  `UpgradeScene` level-up modal, and only for the weapon it happens to offer; the in-run HUD;
+  a tutorial hint), so from the menu a player had **no way to see or plan** an evolution build:
+  you could not learn that Katana + Swiftness Lv5 → Blade Dancer without stumbling into it
+  mid-run. Added a seventh Codex tab, **Evolutions**, listing all 19 as always-visible cards
+  (base-weapon icon, the evolved form's name, the recipe `<Weapon> Lv5 + <Stat> Lv5`, the
+  formatted power gain, and the flavor description), turning the genre's deepest hidden build
+  mechanic into a browsable reference. Directly mirrors the just-shipped **FEAT-CODEX-RELICS**
+  (`759a1cd`) / **FEAT-CODEX-SYNERGIES** (`37a45d3`) architecture: reuses `layoutCardGrid`;
+  static reference — **no discovery-tracking, no `CodexState`/persistence change, no
+  completion-% impact** (completion weights only weapons + enemies). Chosen as an always-visible
+  tab over enriching the discovery-gated Weapons cards so undrawn weapons' recipes are visible
+  too. Card border stays `0x4a4a7a` so `updateFocusVisuals` needs no change. Full write-up in
+  `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-CODEX-EVOLUTIONS** under
+  `## Human gates`.
 - [x] **FEAT-CODEX-RELICS** — surface the hidden relic pool as a browsable Codex tab
   (done — 759a1cd). The game ships **28 relics** (`src/data/Relics.ts`) that
   `RelicManager` drops from chests / minibosses / events and applies as real `PlayerStats`
@@ -332,6 +351,33 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-EVOLUTIONS** — the new Codex → Evolutions tab (FEAT-CODEX-EVOLUTIONS,
+    `d4099c5`). Agents have no browser; this is a UI-layout + readability change and must
+    be eyeballed. Reach it: main menu → **Codex** → the **Evolutions** tab (7th tab, "dna"
+    icon, count badge "19"). Check: (a) **the 7-tab bar is the top risk** — a seventh tab makes
+    every tab ~90px wide at portrait 720w (down from ~106px with six); confirm the labels
+    ("Statistics", "Evolutions", "Synergies" are the longest, all 9–10 chars) don't clip or
+    overlap their count badges or icons in **portrait (720w)** and landscape. This compounds
+    the same 6-tab concern flagged for POLISH-CODEX-RELICS; if it's now too tight, the fix is a
+    human/design call (shrink the tab font, abbreviate labels, or go icon-only tabs) — **not**
+    an agent call; note which you'd want. (b) **it lists all 19** recipes as 2-column
+    scrollable cards; scroll to the bottom and confirm none are clipped by the card height
+    (120px) — the flavor description is the tightest line and the longest ("A ravenous well
+    with a far wider event horizon that grinds the trapped horde with crushing tidal force.",
+    Black Hole) may wrap to three lines. (c) **each card reads cleanly** — the evolved form name
+    (bold white), the amber recipe line `<Weapon> Lv5  +  <Stat> Lv5`, the green power-gain line,
+    the grey flavor description, and the base weapon icon in the left disc tinted amber. (d)
+    **the recipe is right** — spot-check Blade Dancer = `Katana Lv5 + Swiftness Lv5`, Void
+    Vortex = `Orbiting Blades Lv5 + Might Lv5`, Death Ray = `Laser Beam Lv5 + Piercing Lv5`.
+    (e) **the power-gain line is right** — spot-check Blade Dancer = `+50% dmg · 50% faster ·
+    +100% range`, Bullet Storm = `+50% dmg · +3 proj · 40% faster`. (f) **keyboard/pad nav** —
+    arrow into the grid; the focus highlight (thick gold border) moves card-to-card and, when
+    it leaves a card, the border returns to the normal `0x4a4a7a` (no stuck gold). (g) **the
+    other six tabs are unchanged** — Weapons/Bestiary/Upgrades/Synergies/Relics/Statistics still
+    render and their counts are unaffected. Balance/feel calls this opens (none blocking):
+    should the flavor description be dropped for a cleaner card, or should the card also show
+    each weapon's evolved icon (currently it shows the base weapon icon only)? Both are
+    enhancements, **not** agent calls — note if you want them.
   - **POLISH-CODEX-RELICS** — the new Codex → Relics tab (FEAT-CODEX-RELICS, `759a1cd`).
     Agents have no browser; this is a UI-layout + readability change and must be eyeballed.
     Reach it: main menu → **Codex** → the **Relics** tab (6th tab, "crown" icon, count badge
