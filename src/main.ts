@@ -21,6 +21,7 @@ import { BloomPipeline } from './visual/BloomPipeline';
 import { DistortionPipeline } from './visual/DistortionPipeline';
 import { ColorblindPipeline } from './visual/ColorblindPipeline';
 import { registerServiceWorker } from './pwa/registerServiceWorker';
+import { captureInstallPromptEvent } from './pwa/InstallHint';
 
 /**
  * Main entry point for the Survivor Game.
@@ -129,6 +130,7 @@ window.addEventListener('unhandledrejection', (event) => {
 // Async bootstrap wrapper - ensures encrypted storage is ready before game starts
 (async () => {
   registerServiceWorker();
+  captureInstallPromptEvent();
 
   // Initialize encrypted storage and migrate any legacy plaintext data
   await initializeStorage();

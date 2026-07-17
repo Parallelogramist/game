@@ -41,6 +41,11 @@ import { showBackupReminderOverlay } from '../../ui/ProfileTransferOverlay';
 import {
   loadLastExportAt, loadLastNudgeAt, saveLastNudgeAt, shouldShowBackupNudge,
 } from '../../storage';
+import { showInstallHintOverlay } from '../../ui/InstallHintOverlay';
+import {
+  detectInstallPlatform, isRunningStandalone, loadInstallHintShownAt,
+  saveInstallHintShownAt, shouldShowInstallHint, subscribeInstallPromptAvailable,
+} from '../../pwa/InstallHint';
 
 interface FocusEntry {
   onFocus: () => void;
@@ -60,6 +65,8 @@ export class BootScene extends Phaser.Scene {
 
   private menuBackground: MenuBackground | null = null;
   private backupOverlayTeardown: (() => void) | null = null;
+  private installHintTeardown: (() => void) | null = null;
+  private installPromptUnsubscribe: (() => void) | null = null;
   private cards: MenuCard[] = [];
   private titleTicker: ((timeSeconds: number) => void) | null = null;
   private updateHandler: ((time: number, delta: number) => void) | null = null;
@@ -115,6 +122,8 @@ export class BootScene extends Phaser.Scene {
     this.titleTicker = null;
     this.updateHandler = null;
     this.backupOverlayTeardown = null;
+    this.installHintTeardown = null;
+    this.installPromptUnsubscribe = null;
 
     const musicManager = getMusicManager();
     const startMenuMusic = async () => {
@@ -417,6 +426,7 @@ export class BootScene extends Phaser.Scene {
     this.buildMainNavigator(this.selectedFocusIndex);
 
     this.maybeShowBackupReminder(metaManager.getRunsCompleted());
+    this.maybeShowInstallHint(metaManager.getRunsCompleted());
 
     this.events.once('shutdown', this.shutdown, this);
   }
@@ -440,6 +450,50 @@ export class BootScene extends Phaser.Scene {
       runsCompleted,
       onClose: () => {
         this.backupOverlayTeardown = null;
+        this.menuNavigator?.setEnabled(true);
+      },
+    });
+  }
+
+  /**
+   * The backup nudge outranks this: losing a profile costs more than missing an
+   * install, and two stacked DOM backdrops would fight. Deferring here leaves
+   * the hint unstamped, so it gets its turn on a later launch.
+   */
+  private maybeShowInstallHint(runsCompleted: number): void {
+    if (this.backupOverlayTeardown || this.installHintTeardown) return;
+
+    const platform = detectInstallPlatform(navigator.userAgent, navigator.maxTouchPoints);
+    if (platform === 'unsupported') return;
+    if (!shouldShowInstallHint({
+      runsCompleted,
+      isStandalone: isRunningStandalone(),
+      alreadyShownAt: loadInstallHintShownAt(),
+    })) return;
+
+    if (platform === 'ios') {
+      this.showInstallHint('ios');
+      return;
+    }
+
+    // Chrome fires beforeinstallprompt on its own schedule, routinely after
+    // this scene is already up — checking once here would make the hint
+    // silently never appear on Android/desktop.
+    this.installPromptUnsubscribe = subscribeInstallPromptAvailable(() => {
+      if (this.backupOverlayTeardown || this.installHintTeardown) return;
+      this.showInstallHint('prompt');
+    });
+  }
+
+  private showInstallHint(platform: 'prompt' | 'ios'): void {
+    // Stamped on show, not on dismiss: create() re-runs on every orientation
+    // flip and every return to the menu.
+    saveInstallHintShownAt(Date.now());
+    this.menuNavigator?.setEnabled(false);
+    this.installHintTeardown = showInstallHintOverlay({
+      platform,
+      onClose: () => {
+        this.installHintTeardown = null;
         this.menuNavigator?.setEnabled(true);
       },
     });
@@ -1640,6 +1694,11 @@ export class BootScene extends Phaser.Scene {
 
     this.backupOverlayTeardown?.();
     this.backupOverlayTeardown = null;
+
+    this.installHintTeardown?.();
+    this.installHintTeardown = null;
+    this.installPromptUnsubscribe?.();
+    this.installPromptUnsubscribe = null;
 
     this.tweens.killAll();
   }

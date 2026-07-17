@@ -101,6 +101,9 @@ export const ALL_STORAGE_KEYS = [
   // BackupReminder (device-local backup bookkeeping — see NON_TRANSFERABLE_STORAGE_KEYS)
   'survivor-last-export-at',
   'survivor-backup-nudge-at',
+
+  // InstallHint (device-local one-time stamp)
+  'survivor-install-hint-at',
 ];
 
 /**
