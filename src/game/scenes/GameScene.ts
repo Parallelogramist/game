@@ -5672,8 +5672,12 @@ export class GameScene extends Phaser.Scene {
     Velocity.y[entityId] = 0;
     Velocity.speed[entityId] = 200; // Pixels per second
 
-    Health.current[entityId] = 100;
-    Health.max[entityId] = 100;
+    // Seed health from the built stats, never a placeholder: syncStatsToPlayer only
+    // ever clamps current HP *downward* (correct mid-run — new max HP must not heal
+    // you), so whatever is written here is the hard cap on run-start HP. A literal
+    // 100 silently capped every build whose max exceeds it. Mirrors restorePlayer.
+    Health.current[entityId] = this.playerStats.currentHealth;
+    Health.max[entityId] = this.playerStats.maxHealth;
 
     // Create visual - procedural neon spaceship
     this.playerSpaceship = new PlayerSpaceship(this, x, y, {
