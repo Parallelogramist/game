@@ -47,3 +47,31 @@ export function resolveEquippedPaint(unlockedTargetIds: readonly string[]): Ship
   }
   return best;
 }
+
+/**
+ * Sentinel stored when the player explicitly opts out of paints and wants the
+ * ship's own signature colour. Distinct from "no choice stored" (null), which
+ * falls back to the highest-rank auto-equip.
+ */
+export const SHIP_DEFAULT_PAINT_CHOICE = 'ship_default';
+
+/**
+ * Resolve the paint the ship should actually render, honouring an explicit player
+ * choice and self-healing a stale one:
+ *  - `SHIP_DEFAULT_PAINT_CHOICE` → null (wear the ship's signature colour).
+ *  - a paint id the player has unlocked → that paint.
+ *  - anything else (no choice, or a choice whose unlock was since wiped) → the
+ *    highest-rank unlocked paint (`resolveEquippedPaint`), or null if none.
+ * Pure — callers pass ids + choice, so it holds no global state and is testable.
+ */
+export function resolveActivePaint(
+  unlockedTargetIds: readonly string[],
+  storedChoice: string | null,
+): ShipPaint | null {
+  if (storedChoice === SHIP_DEFAULT_PAINT_CHOICE) return null;
+  if (storedChoice) {
+    const chosen = SHIP_PAINTS.find((paint) => paint.unlockId === storedChoice);
+    if (chosen && unlockedTargetIds.includes(chosen.unlockId)) return chosen;
+  }
+  return resolveEquippedPaint(unlockedTargetIds);
+}

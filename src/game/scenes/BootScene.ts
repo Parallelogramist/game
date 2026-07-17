@@ -232,6 +232,7 @@ export class BootScene extends Phaser.Scene {
     const openCodex = () => transitionToScene(this, 'CodexScene');
     const openCards = () => transitionToScene(this, 'CardsScene');
     const openLeaderboard = () => transitionToScene(this, 'LeaderboardScene');
+    const openPaint = () => transitionToScene(this, 'PaintScene');
     const openSettings = () => transitionToScene(this, 'SettingsScene', { returnTo: 'BootScene' });
     const openCredits = () => transitionToScene(this, 'CreditsScene');
 
@@ -402,6 +403,7 @@ export class BootScene extends Phaser.Scene {
       onRunner: startRunner,
       onPractice: startPractice,
       onLeaderboard: openLeaderboard,
+      onPaint: openPaint,
     });
 
     // ─── footer strip ───────────────────────────────────────────────────
@@ -1049,13 +1051,14 @@ export class BootScene extends Phaser.Scene {
     onCodex: () => void;
     onCards: () => void;
     onLeaderboard: () => void;
+    onPaint: () => void;
     onGauntlet: () => void;
     onRunner: () => void;
     onPractice: () => void;
   }): void {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount,
-      onShop, onAchievements, onCodex, onCards, onLeaderboard, onGauntlet, onRunner, onPractice,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onGauntlet, onRunner, onPractice,
     } = opts;
 
     interface DeckEntry {
@@ -1110,6 +1113,16 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentPrimary,
         action: onLeaderboard,
         iconTint: 0xbbddff,
+      },
+      {
+        // Ship-paint picker (FEAT-SHIP-PAINT-PICKER) — a cosmetic/meta screen,
+        // sweeps like the other meta cards.
+        label: 'PAINT',
+        iconKey: 'aura',
+        bodyHex: COLORS.bodyMagenta,
+        accentHex: COLORS.accentMagenta,
+        action: onPaint,
+        iconTint: 0xffbbff,
       },
       {
         // Gauntlet boss-rush mode (FEAT-GAUNTLET) — a gameplay entry like

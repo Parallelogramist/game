@@ -119,7 +119,8 @@ import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
-import { resolveEquippedPaint } from '../../data/ShipPaints';
+import { resolveActivePaint } from '../../data/ShipPaints';
+import { getShipPaintManager } from '../../storage/ShipPaintManager';
 import { getUltimateForShip, getShipUltimate, type ShipUltimateDefinition } from '../../data/ShipUltimates';
 import type { PracticeUltimateChoice } from '../../data/PracticeUltimates';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
@@ -8885,7 +8886,10 @@ export class GameScene extends Phaser.Scene {
   private getShipNeonColor() {
     const ship = getShipById(this.selectedShipId) ?? getDefaultShip();
     const shipPalette = SHIP_NEON_PALETTES[ship.neonColorId] ?? SHIP_NEON_PALETTES.cyan;
-    const equippedPaint = resolveEquippedPaint(getHiddenUnlockManager().getUnlockedTargetIds());
+    const equippedPaint = resolveActivePaint(
+      getHiddenUnlockManager().getUnlockedTargetIds(),
+      getShipPaintManager().getSelectedPaintId(),
+    );
     return equippedPaint ? equippedPaint.color : shipPalette;
   }
 

@@ -105,6 +105,9 @@ export const ALL_STORAGE_KEYS = [
 
   // InstallHint (device-local one-time stamp)
   'survivor-install-hint-at',
+
+  // ShipPaintManager (player-chosen hull paint; auto-transfers with the profile)
+  'survivor-ship-paint',
 ];
 
 /**

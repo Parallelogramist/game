@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SHIP_PAINTS, resolveEquippedPaint } from './ShipPaints';
+import { SHIP_PAINTS, resolveEquippedPaint, resolveActivePaint, SHIP_DEFAULT_PAINT_CHOICE } from './ShipPaints';
 
 describe('resolveEquippedPaint', () => {
   it('returns null when no cosmetics are unlocked', () => {
@@ -36,5 +36,32 @@ describe('resolveEquippedPaint', () => {
       expect(p.color.glow).toBeGreaterThanOrEqual(0);
       expect(p.color.glow).toBeLessThanOrEqual(0xffffff);
     }
+  });
+});
+
+describe('resolveActivePaint', () => {
+  const allUnlocked = SHIP_PAINTS.map((p) => p.unlockId);
+
+  it('returns null (ship signature colour) when the player opts out', () => {
+    expect(resolveActivePaint(allUnlocked, SHIP_DEFAULT_PAINT_CHOICE)).toBeNull();
+  });
+
+  it('returns the explicitly chosen paint when it is unlocked', () => {
+    const paint = resolveActivePaint(allUnlocked, 'cosmetic_inferno_trail');
+    expect(paint?.unlockId).toBe('cosmetic_inferno_trail');
+  });
+
+  it('falls back to highest-rank auto-equip when no choice is stored', () => {
+    const paint = resolveActivePaint(['cosmetic_survivor_trim', 'cosmetic_gold_hull'], null);
+    expect(paint?.unlockId).toBe('cosmetic_gold_hull');
+  });
+
+  it('falls back to auto-equip when the chosen paint is not (or no longer) unlocked', () => {
+    const paint = resolveActivePaint(['cosmetic_survivor_trim'], 'cosmetic_gold_hull');
+    expect(paint?.unlockId).toBe('cosmetic_survivor_trim');
+  });
+
+  it('returns null when a stored choice is locked and nothing else is unlocked', () => {
+    expect(resolveActivePaint([], 'cosmetic_gold_hull')).toBeNull();
   });
 });

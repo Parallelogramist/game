@@ -9,6 +9,7 @@ import { ShopScene } from './game/scenes/ShopScene';
 import { CreditsScene } from './game/scenes/CreditsScene';
 import { AchievementScene } from './game/scenes/AchievementScene';
 import { CodexScene } from './game/scenes/CodexScene';
+import { PaintScene } from './game/scenes/PaintScene';
 import { WeaponSelectScene } from './game/scenes/WeaponSelectScene';
 import { PactSelectScene } from './game/scenes/PactSelectScene';
 import { PracticeScene } from './game/scenes/PracticeScene';
@@ -153,7 +154,7 @@ window.addEventListener('unhandledrejection', (event) => {
     ...GAME_CONFIG,
     width: initialBase.width,
     height: initialBase.height,
-    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, CardsScene, WeaponSelectScene, PactSelectScene, PracticeScene, LeaderboardScene],
+    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, PaintScene, CardsScene, WeaponSelectScene, PactSelectScene, PracticeScene, LeaderboardScene],
   };
 
   // Initialize the game
