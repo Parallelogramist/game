@@ -5,6 +5,76 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-MENU-FLIP-RESETS-PICKS — rotating the device threw away what you picked · DONE 5dfb3bc
+
+- **Symptom, both scenes.** Rotating the phone mid-selection silently discarded
+  half-composed input. In `PracticeScene`, setting up Juggernaut + Caustic Wake @5
+  EVOLVED in portrait and rotating to landscape to play snapped all four picks back
+  to Sparrow / first weapon / max level / OFF. In `WeaponSelectScene` — the **main
+  PLAY path**, not a sandbox — rotating on any of the 3 steps (stage → ship → weapon)
+  bounced the player back to step 1, discarding the stage/ship already chosen.
+- **Root cause.** `main.ts`'s orientation watcher restarts every live menu scene to
+  re-fit the new canvas (`scene.scene.restart(...)`), and neither scene's
+  `create()`/`init()` could distinguish that restart from a fresh MAIN MENU entry.
+  `PracticeScene.create()` unconditionally reset `selectedWeaponId`, `selectedLevel`,
+  `evolvedEnabled`, `selectedShipIndex`; `WeaponSelectScene.create()` unconditionally
+  re-entered the 3-step flow at `stage`/`ship`.
+- **Why the fix is a flag and not threaded state.** The backlog's original filed
+  shape (`BUG-PRACTICE-FLIP-RESETS-PICKS`) proposed passing the four fields through
+  the restart, which would have required the watcher to hand each scene its own
+  state instead of its original launch payload. That was unnecessary: Phaser
+  **reuses the scene instance** across a restart (`shutdown()` → `init()` →
+  `create()`, field initializers do not re-run), so `this.selectedWeaponId` and
+  friends already survive — the *only* thing destroying them was `create()`'s own
+  unconditional reset. So the fix is a single boolean, `relayout`, spread into the
+  restart payload (`{ ...launchData, relayout: true }`) alongside the scene's
+  original launch data (preserving e.g. `WeaponSelectScene`'s `gauntletMode` across
+  a flip). Each scene reads it in `init()` — the only correct place, since a flag
+  cleared in `shutdown()` would be gone before `create()` runs — and decides for
+  itself what "this is a re-layout, not a fresh entry" means: `PracticeScene` skips
+  its four resets; `WeaponSelectScene` resumes the step it was on instead of
+  restarting the flow.
+- **The `settings.data` stale-payload trap.** Phaser's `Systems.start(data)` only
+  assigns `settings.data` when `data` is truthy, so a scene keeps its *last* payload
+  when started with none (`node_modules/phaser/src/scene/Systems.js:735-743`).
+  `BootScene.ts` already carries a comment about this exact trap and passes
+  `{ gauntletMode: false }` explicitly to `startNewGame`. The PRACTICE entry
+  (`BootScene.ts:202`) passed no data at all, so after one flip its retained
+  `{ relayout: true }` would have leaked `relayoutOnly = true` into the *next* fresh
+  PRACTICE entry — picks that should have reset would have stuck. Fixed by applying
+  the same idiom: `transitionToScene(this, 'PracticeScene', { relayout: false })`.
+  `WeaponSelectScene` needed no equivalent guard — every entry point already passes
+  an explicit payload (`{ gauntletMode: false }` or `{ gauntletMode: true }`), so
+  `settings.data` is replaced on every fresh entry and `relayout` cannot survive
+  into one.
+- **Why `renderStep()` dispatches to `render*`, not `proceed*`.** `WeaponSelectScene`
+  gained a `renderStep(step)` dispatcher so a resumed flip can re-paint the live
+  step directly. It calls `renderStageSelectionStep`/`renderShipSelectionStep`/
+  `renderWeaponSelectionStep` rather than `proceedToShipStep`/`proceedToWeaponStep`,
+  because the `proceed*` methods open with `clearStepUI()` + `destroyMenuNavigator()`
+  (pointless on a scene whose `shutdown()` already ran) and `proceedToWeaponStep()`
+  can `scene.start('PactSelectScene')` when ≤1 weapon is discovered — which would
+  hijack the flip mid-rotation. The `render*` methods are self-sufficient: each sets
+  `this.currentStep` itself, and `renderWeaponSelectionStep` defensively re-registers
+  its keyboard handler, so number-key shortcuts survive a flip. This mirrors how
+  `goBack()` already dispatches.
+- **Scoped out on purpose: `PactSelectScene`.** It has the same class of bug
+  (`init()` clears `selectedIds` unconditionally) and sits on the same PLAY path,
+  right after `WeaponSelectScene`. Left out because one fact needs verifying first —
+  whether a rebuilt pact card (its `create()` rebuilds cards from scratch) actually
+  paints its selected badge from a preserved `selectedIds`, or whether it would
+  silently desync (state says selected, card renders unselected — worse than the
+  original bug). Filed as `BUG-PACTSELECT-FLIP-RESETS-PICKS` with the fix shape and
+  the fact to check first.
+- **No tests added.** The entire fix is a boolean threaded through the Phaser scene
+  lifecycle (`init`/`create`); there is no pure function to pin, and this repo
+  exercises Phaser-coupled code by mocking its module boundary rather than driving a
+  live scene (`CLAUDE.md`) — a test that mocked the boundary here would assert
+  nothing but the mock. `tsc --noEmit` plus a human rotate (filed as
+  `POLISH-MENU-FLIP-STATE`) are the real gates.
+
+---
+
 ## BUG-PRACTICE-PORTRAIT — fit the practice menu to a phone in portrait · DONE a802fcd
 
 - **Value:** `PracticeScene` was the only menu scene that never opted into the

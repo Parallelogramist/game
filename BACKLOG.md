@@ -210,22 +210,32 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   6 units short in *both* orientations (130 reserved, 136 needed). Full write-up in
   `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-PRACTICE-PORTRAIT** under
   `## Human gates`.
-- [ ] **BUG-PRACTICE-FLIP-RESETS-PICKS** — rotating the device throws away your
-  practice setup. `main.ts`'s orientation watcher (`main.ts:169-178`) re-lays-out live
-  menu scenes with `scene.restart(scene.sys.settings.data)`, which re-runs
-  `PracticeScene.create()` — and `create()` deliberately resets `selectedWeaponId`,
-  `selectedLevel`, `evolvedEnabled` and `selectedShipIndex` to defaults (that reset is
-  correct for a fresh MAIN MENU → PRACTICE entry; it is wrong for a flip). So picking
-  Juggernaut + Caustic Wake @5 EVOLVED in portrait and rotating to landscape to play
-  silently drops all four back to Sparrow / first weapon / max level / OFF. Pre-existing
-  and orientation-symmetric, but far more likely to be hit now that portrait actually
-  works (BUG-PRACTICE-PORTRAIT, `a802fcd`) — setting up in portrait and rotating to
-  play in the game's native landscape is the natural flow. Fix shape: pass the four
-  fields through the restart (`scene.restart({...})` carries data; `create()` would seed
-  from `this.scene.settings.data` when present, else reset), which needs the watcher to
-  hand the scene its own state rather than the original `settings.data` — so it touches
-  `main.ts`, not just the scene. Pointers: `main.ts:169-178`, `PracticeScene.create()`
-  (`PracticeScene.ts:86-89`).
+- [x] **BUG-MENU-FLIP-RESETS-PICKS** — rotating the device threw away what you
+  picked (done — 5dfb3bc). Filed as `BUG-PRACTICE-FLIP-RESETS-PICKS` (practice
+  only); shipped wider because the same root cause hit the **main PLAY path**.
+  `main.ts`'s orientation watcher re-lays-out live menu scenes with
+  `scene.restart(...)`, and the scenes could not tell that restart from a fresh
+  entry: `PracticeScene.create()` reset all four picks, and `WeaponSelectScene`
+  restarted its 3-step flow at step 1. The restart now carries `relayout: true` and
+  both scenes honour it. Full write-up in `BACKLOG-archive.md`. Playtest follow-up
+  filed as **POLISH-MENU-FLIP-STATE**; the third instance is filed as
+  **BUG-PACTSELECT-FLIP-RESETS-PICKS**, both below.
+- [ ] **BUG-PACTSELECT-FLIP-RESETS-PICKS** — the third instance of the flip-resets
+  class, left out of `BUG-MENU-FLIP-RESETS-PICKS` deliberately (not silently — the
+  planner scoped it out for one unverified fact, below). `PactSelectScene.init()`
+  (`PactSelectScene.ts:43-49`) does `this.selectedIds = new Set()` unconditionally, so
+  rotating while choosing pacts drops your selections — and it sits on the main PLAY
+  path, right after `WeaponSelectScene`. Fix shape (the mechanism already exists after
+  `5dfb3bc`): destructure the flag out of the payload so it never reaches the
+  passthrough that seeds `GameScene` —
+  `const { relayout, ...launch } = data ?? { startingWeapon: 'projectile' };
+  this.passthrough = launch as PactSelectSceneData;` — then clear `selectedIds` only
+  when `relayout !== true`. **The one thing to verify first (why this wasn't shipped
+  blind):** `create()` rebuilds the pact cards from scratch, so confirm a rebuilt card
+  paints its selected badge from `selectedIds` (`selectedBadge`, `togglePact`,
+  `PactSelectScene.ts:22/125/165`). If it doesn't, preserving `selectedIds` yields
+  state that says "selected" over cards that look unselected — worse than the bug.
+  Pointers: `PactSelectScene.ts:43-49`, `main.ts:169-180`.
 
 ---
 
@@ -238,6 +248,26 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MENU-FLIP-STATE** — rotating no longer discards your picks
+    (BUG-MENU-FLIP-RESETS-PICKS, `5dfb3bc`). Agents have no device to rotate.
+    Check: (a) **the point of the fix, practice** — BootScene → PRACTICE in portrait,
+    set SHIP: JUGGERNAUT + a weapon + LEVEL 5 + EVOLVED ON, rotate to landscape: all
+    four must survive, and the menu must re-fit the landscape canvas. This is the flow
+    `BUG-PRACTICE-PORTRAIT` (`a802fcd`) created. It also **answers**
+    POLISH-PRACTICE-PORTRAIT (e) — that check can be skipped now. (b) **the point of
+    the fix, PLAY path** — START → pick a stage → on the ship step, rotate: you must
+    stay on the ship step with your stage still chosen, not get bounced to step 1.
+    (c) **fresh entry still resets** — the regression this could cause: after
+    rotating in PRACTICE, back out to MAIN MENU and re-enter PRACTICE. Picks **must**
+    be back to defaults (first weapon, its max level, EVOLVED OFF, Sparrow). If they
+    are sticky, the `relayout: false` guard at `BootScene.ts:202` is not holding.
+    (d) **rotate twice, and rotate back** — flip portrait→landscape→portrait: picks
+    survive both, and the layout re-fits each time with no doubled/ghost cards.
+    (e) **GAUNTLET still gauntlets** — GAUNTLET → rotate on the ship step → finish the
+    run start: it must still be a gauntlet run (the launch payload is spread through
+    the restart, so `gauntletMode` should survive). (f) **the weapon step's keyboard
+    shortcuts** — on desktop, rotate/resize into the weapon step and press a number
+    key: still selects.
   - **POLISH-PRACTICE-PORTRAIT** — the practice menu in portrait (BUG-PRACTICE-PORTRAIT,
     `a802fcd`). **Do this before the other practice playtests — it is what makes
     them reachable on a phone held normally.** Reach it: hold the phone in **portrait**
@@ -251,10 +281,10 @@ Never agent work. The fleet must not do any of these.
     composition change, not a fix). On the screen does it read as breathing room or as
     broken? (d) **the 5×4 weapon grid** — portrait fits 5 columns instead of landscape's
     8, so 19 weapons take 4 rows: still legible and tappable? (e) **rotate mid-menu** —
-    set up a run, rotate: the layout should re-fit correctly, but **your picks reset to
-    defaults** — that is filed as **BUG-PRACTICE-FLIP-RESETS-PICKS**, is pre-existing,
-    and is a known limit of this fix, not a regression. Is it annoying enough to pull
-    that item forward? (f) **landscape is meant to be untouched** — the only landscape
+    set up a run, rotate: the layout should re-fit correctly, but
+    your picks now **survive** the rotate (fixed since, `BUG-MENU-FLIP-RESETS-PICKS`) —
+    covered by **POLISH-MENU-FLIP-STATE** above, so just confirm the re-fit here.
+    (f) **landscape is meant to be untouched** — the only landscape
     change is the whole control stack moving **up 10 units** (START now clears the
     bottom edge by 4 instead of overhanging it by 6). Does landscape look identical
     otherwise?
