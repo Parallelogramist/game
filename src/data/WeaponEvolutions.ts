@@ -272,6 +272,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       cooldown: 0.85,
     },
   },
+  {
+    weaponId: 'pulse',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'multishot',
+    requiredStatLevel: 5,
+    evolvedName: 'Resonance Cascade',
+    evolvedDescription: 'Overlapping shockwaves ripple outward in a relentless cascade, hurling the horde back and grinding everything caught between the rings.',
+    statMultipliers: {
+      damage: 1.6,
+      range: 1.4,
+      count: 2,
+      size: 1.25,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

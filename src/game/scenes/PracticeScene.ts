@@ -24,7 +24,7 @@ import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, BODY_COLORS, ACCENT_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
 
-/** All 19 weapons — the default projectile plus every unlockable. */
+/** All 20 weapons — the default projectile plus every unlockable. */
 const PRACTICE_WEAPON_IDS: string[] = ['projectile', ...UNLOCKABLE_WEAPONS.map((w) => w.id)];
 
 interface PracticeWeaponEntry {
