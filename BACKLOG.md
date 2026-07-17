@@ -36,6 +36,18 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 *(groomed 2026-07-16 — roadmap pass; ordered by value)*
 
+- [x] **FEAT-PRACTICE-MODE** — reach any weapon at any level without grinding a
+  run (done — c3d00c2). Full write-up moved to `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-PRACTICE-MODE** under `## Human gates`.
+
+- [ ] **FEAT-PRACTICE-BOSS** — practice v2: spawn a chosen boss on demand, plus an
+  optional invincibility toggle. Value: the boss playtest items
+  (POLISH-BOSS-LEGION / -BASTION / -AFFIXES / -MINIBOSS-AFFIXES) still need a
+  10-minute run to reach a boss, and practice v1 only solves the weapon items.
+  Cut from v1 because `spawnBoss()` is private and entangled with arena + wave
+  timing, and there is no existing invincibility field to reuse. Pointers:
+  `GameScene.spawnBoss`, `TUNING.bosses.order`, `PracticeScene.ts`.
+
 - [x] **FEAT-SAVE-EXPORT** — profile backup: export/import the whole
   meta-progression (done — a876ed0). Full write-up moved to
   `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-SAVE-EXPORT**
@@ -113,6 +125,27 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PRACTICE-MODE** — practice mode on a real device (agents have no
+    browser). This one is worth doing first: it is the tool for draining the rest
+    of this queue. Reach it: BootScene → **PRACTICE**. Check: (a) **the point of
+    the feature** — pick Caustic Wake / Guardian / Sentry at level 5 + EVOLVED,
+    hit START: does the run begin with exactly that weapon at that level, and can
+    you now judge POLISH-WEAPON-WAKE / -GUARDIAN / -SENTRY in seconds instead of a
+    10-minute RNG-gated run? (b) **isolation, the safety-critical one** — note
+    your gold / achievement count / codex before practising, do a practice run
+    that would normally unlock plenty (max-level weapon, many kills), quit, and
+    confirm **nothing moved**: gold, achievements, codex, records, and that no
+    "CONTINUE" save was left behind. (c) **exit reloads** — QUIT / RESTART /
+    QUIT-TO-SHOP from a practice run each reload the page back to the menu; that
+    is deliberate (it drops the in-memory state a practice run dirtied), but is
+    the reload flash acceptable, and is it instant on the second boot
+    (service-worker cache)? (d) **the 8-card deck row in portrait** — PRACTICE is
+    the 8th card; the row auto-shrinks to fit, so are the cards still legible and
+    tappable on a phone, or does the row need to wrap to two rows? (e) **level
+    stepper** — does it clamp to each weapon's real max, and does EVOLVED dim out
+    below the evolution's required level? Knobs: `PRACTICE_WEAPON_IDS` and the
+    layout in `src/game/scenes/PracticeScene.ts`; the deck row in
+    `BootScene.ts` (~line 1050).
   - **POLISH-TRAIL-FIX** — trail ghosting fix + ribbon smoothing (BUG-TRAIL-GHOST,
     `6e8c50a`; all knobs in `src/visual/TrailManager.ts`). Check in a real run:
     (a) **the reported bug is gone** — fly loops for 60s+, stop, wait ~3s: no

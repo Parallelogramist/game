@@ -5,6 +5,57 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PRACTICE-MODE — reach any weapon at any level without grinding a run · DONE c3d00c2
+
+**Value:** the repo's own playtest queue is ~40 items and is not draining. Every
+weapon item in it opens with the same line — "Check with a real run that picks it
+up" — and then asks for a judgement about *feel at a given level* ("→1.6s min as it
+levels", "→0.25s floor as it levels", "evolution multipliers in
+`WeaponEvolutions.ts`"). Delivering that meant a 10-minute run, RNG-gated upgrade
+offers, and a stat upgrade at level 5, per weapon. PRACTICE turns each of those
+into a seconds-long check, and pays back on every weapon the fleet ships next.
+
+**Shipped:** BootScene → **PRACTICE** → pick any of the 19 weapons, any level
+(clamped to that weapon's real max), evolved or not → straight into a real run on
+the default stage/ship. The session writes nothing.
+
+**Design:**
+- **Isolation at the `SecureStorage` write boundary, not per manager.** The write
+  surface is 25+ methods across achievements / codex / meta / best-score /
+  run-history / save, and **one miss silently corrupts the real profile**.
+  `CLAUDE.md` mandates all persistence flows through `SecureStorage`, whose whole
+  API is `getItem`/`setItem`/`removeItem` — so two guards isolate the session
+  atomically, whichever writer fires. Reads stay live so the run boots.
+- **Exiting practice reloads the page.** Writes were blocked but the managers
+  still mutated *in memory* (a max-level weapon trips achievements and hidden
+  unlocks); without a reload the next real run's first write would flush that
+  pollution to disk. Disk clean + memory clean = airtight. All three exits
+  (quit / restart / quit-to-shop) reload — `scene.restart()` especially, since it
+  re-runs `init` with no data and would otherwise leave a "normal" run that
+  silently never saves.
+- **Weapon metadata read from `createWeapon(id)` instances**, not a hand-written
+  table — real name/icon/maxLevel per weapon, cannot drift, and no guessed icon key
+  for the referential-integrity sweep to catch.
+- **Reuses the existing `startingWeapon` init path**; only levelling + evolving is
+  new. The ship's starting-weapon override is skipped in practice, or picking
+  `projectile` would silently hand you the ship's weapon instead.
+- **Default stage + default ship** — practice measures the weapon, so the baseline
+  stays unmodified.
+
+**Tests:** one file, `src/storage/SecureStorage.practice.test.ts` — 4 tests pinning
+the isolation invariant (writes pass normally; writes and removals dropped during
+practice; reads still work). Warranted because this guard is the only thing
+protecting the real profile and its failure mode is silent corruption. The rendered
+scene needs a browser and is filed as **POLISH-PRACTICE-MODE**.
+
+**Deliberately not built (filed as FEAT-PRACTICE-BOSS):** on-demand boss spawning
+(`spawnBoss()` is private and entangled with arena + wave timing) and an
+invincibility toggle (no existing field; would mean touching the damage pipeline).
+Dying in practice is harmless — nothing persists. Also not built: stage/ship
+pickers in practice, and any codex gating of the weapon list.
+
+---
+
 ## BUG-TRAIL-GHOST — trails ghosting forever as ship-shaped chevron trains · DONE 6e8c50a
 
 **Value:** operator-reported visual bug — "the ships have this ship-shaped train
