@@ -34,6 +34,17 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-SWEEP** — new 22nd weapon, Arc Sweep (done — 2fbabcb). A continuous
+  beam anchored at the ship that rotates 360° around the player, ticking damage into every
+  enemy its line crosses — the arsenal's first *rotating line*: laser is a cursor-aimed
+  burst, aura a full zone, orbiting blades discrete points, pulse expanding rings. Aim-free
+  coverage that scales with spoke count. Self-drawn Graphics (no atlas frame), per-enemy
+  `HitCooldownTracker` throttling (Aura idiom), pure unit-tested beam geometry
+  (`sweepBeamLogic.ts`); wired into `WeaponRegistry`, `UNLOCKABLE_WEAPONS`, `ICON_MAP`
+  (`sunbeams`), `WEAPON_MASTERY_CATEGORY` (beam), a "Corona" evolution (haste Lv5) and a
+  "Gyre" synergy (+ orbiting blades). Mastery "Solar Flare" adds a spoke and widens the
+  sweep. Playtest follow-up filed as **POLISH-WEAPON-SWEEP** under `## Human gates`.
+
 - [x] **FEAT-WEAPON-MINE** — new 21st weapon, Proximity Mines (done — 470a319). Each
   cooldown places stationary mines at and around the ship; a mine arms after a short
   delay, then detonates in an AOE burst — damaging + knocking back every enemy in the
@@ -418,6 +429,17 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-SWEEP** — the new Arc Sweep needs a balance/feel eyeball
+    (FEAT-WEAPON-SWEEP, `2fbabcb`). Agents have no browser. Reach it: PRACTICE →
+    WEAPON row → "Arc Sweep" (unlocked or via a normal run's weapon offers). Check:
+    (a) does the rotating beam read clearly as a sweeping searchlight; (b) base damage 8 /
+    tick cooldown 0.35 / beam length 190 / rotation 2.4 rad·s / half-width 16 / knockback 40
+    vs peers — dead or oppressive?; (c) does spoke scaling (1 → 5 at Lv10, +1 at Mastery,
+    +2 at evolution = 8) carpet the field or feel great; (d) do Solar Flare mastery (+1
+    spoke, 35% wider) and Corona evolution (1.4× rotation, 1.6× damage, 1.3× range/size,
+    +2 count) land as real spikes; (e) does Gyre synergy with Orbiting Blades read. All
+    knobs are the top-of-file consts in `src/weapons/SweepBeamWeapon.ts` + the evolution/
+    synergy multipliers — do not retune blind.
   - **POLISH-WEAPON-MINE** — the new Proximity Mines needs a balance/feel eyeball
     (FEAT-WEAPON-MINE, `470a319`). Agents have no browser. Reach it: PRACTICE →
     WEAPON row → "Proximity Mines" (unlocked or via a normal run's weapon offers).
