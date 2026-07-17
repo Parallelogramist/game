@@ -55,6 +55,19 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   field and every `getStarting*` getter for a reader. Full write-up moved to
   `BACKLOG-archive.md`. **No playtest filed** — see the write-up for why, and
   for the Boss Slayer price/payoff knob.
+- [x] **BUG-RUNSTART-HP-CAP** — every run started at 100 HP no matter your max
+  (done — 8184fac). `createPlayer` seeded the ECS Health component with a
+  hardcoded `100/100`, and `syncStatsToPlayer` only ever clamps current HP
+  *downward* — correct mid-run, but at run start it clamps against the
+  placeholder, so 100 became a hard cap on starting HP. Every profile past
+  ~1,992-gold Fortitude 4 (or Fortitude 1 on the Juggernaut) began each run
+  short; a maxed Fortitude Juggernaut started **100/289**, missing 65% of the
+  health it paid for. Silently taxed Fortitude, every ship healthMultiplier,
+  ship mods, achievement HP, cards, boosts and last session's `blessed_vigor`
+  (+25% max HP, `48400ec`). Same dead-value class as BUG-VITALITY-HEAL-DEAD
+  (`9b520d0`) — which diagnosed this exact clamp but only fixed the *mid-run*
+  half. Full write-up moved to `BACKLOG-archive.md`. **No playtest filed** —
+  see the write-up for why, and for the difficulty knob this opens.
 
 ## Next
 

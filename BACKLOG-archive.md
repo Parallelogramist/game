@@ -5,6 +5,68 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-RUNSTART-HP-CAP — every run started at 100 HP no matter your max · DONE 8184fac
+
+- **Value:** run-start HP was hard-capped at 100. `createPlayer`
+  (`GameScene.ts:5675`) seeded `Health.current/max = 100/100`; the only thing that
+  runs after it, `syncStatsToPlayer`, does
+  `Health.current = min(Health.current, maxHealth)` — downward-only, which is right
+  mid-run (new max HP must not heal you) and wrong at run start, where the only thing
+  to clamp against is the placeholder. So every profile whose final max HP passed 100
+  started every run short, and the shortfall **grew with the investment**: maxed
+  Fortitude (**1,992 gold** — 60 base ×1.25, ten levels) on a neutral ship started
+  **100/165**; on the Juggernaut, whose headline identity is "+75% HP", **100/289** —
+  **65% of the paid-for health missing at t=0**, recoverable only from pickups. The
+  threshold is Fortitude 4 (345 gold cumulative) on a neutral ship, and **Fortitude 1
+  (60 gold)** on the Juggernaut. It silently taxed Fortitude, every ship's
+  `healthMultiplier`, ship mods' `maxHealthMult`, achievement HP rewards, card and
+  boost `maxHealthAdd`, and last session's `blessed_vigor` (+25% max HP, `48400ec`).
+  The HUD reads the ECS (`currentHP: Health.current[this.playerId]`), so a maxed tank
+  saw `100/289` on the bar.
+- **Shipped:** `createPlayer` now seeds the component from the built stats
+  (`Health.current = playerStats.currentHealth`, `Health.max = playerStats.maxHealth`)
+  instead of `100/100` — exactly what `restorePlayer` (`GameScene.ts:2254`) has always
+  done under the comment *"Restore health from playerStats (more reliable than entity
+  data)"*. `syncStatsToPlayer`'s clamp then no-ops at run start (current === max) and
+  mid-run semantics are untouched. Two lines; `createPlayer` has a single call site.
+- **Design:** (a) the run-start pipeline had been stating the intent **six times** —
+  every block that raises max health (meta Fortitude 839, cards 926, armed boost 952,
+  ship multiplier 998, ship mods 1043, achievement HP 1083) follows it with
+  `playerStats.currentHealth = playerStats.maxHealth`, and **none** of those writes
+  ever reached the ECS, because `playerStats.currentHealth` is only a lagging mirror
+  of `Health.current`; (b) seeded from `currentHealth` rather than `maxHealth` to
+  mirror `restorePlayer` — the six pipeline writes guarantee they are equal at that
+  point, so it starts full today while staying correct if a run ever needs to start
+  damaged; (c) **`syncStatsToPlayer` was deliberately left alone** — its downward-only
+  clamp is load-bearing mid-run and `grantBuildHeal` exists precisely to work with it;
+  "fixing" the clamp would heal the player every time max HP grew mid-run, the
+  opposite bug; (d) health is the **only** leaking field — every other stat the sync
+  pushes is an unconditional assignment, so the `Velocity.speed = 200` placeholder is
+  harmless and was left; (e) this is the second half of BUG-VITALITY-HEAL-DEAD
+  (`9b520d0`), which found this exact clamp but only fixed **mid-run** grants via
+  `grantBuildHeal`; (f) `applyPracticeBuild` (~5014) had already hit this and patched
+  it **for practice mode only**, with the comment *"syncStatsToPlayer only clamps
+  current HP downward, so vitality's new headroom starts empty"* — that line stays
+  correct and untouched.
+- **Open knob (for the human, not a playtest):** this makes the game **meaningfully
+  easier for developed profiles**, because they now start with the health they bought
+  — a maxed-Fortitude Juggernaut goes from 100 to 289 starting HP, ~2.9× the early-run
+  survivability it has had until now. That is a restoration of advertised value, not a
+  buff (same upward-only class as `9b520d0` / `1443893`, and unlike
+  BUG-BLOOD-PACT-HALVE-DEAD, which is parked precisely because it makes the game
+  *harder*). But the game's difficulty curve was tuned, knowingly or not, against
+  players who started at 100. Whether early-run enemy pressure now needs raising is a
+  balance call the human owns. Knobs: `maxHealth` in `createDefaultPlayerStats()`
+  (`Upgrades.ts:152`), `healthLevel`'s `baseCost`/`costScaling`
+  (`PermanentUpgrades.ts:220`), each ship's `healthMultiplier`
+  (`ShipCharacters.ts`), and the world-level enemy scaling in `MetaProgressionManager`.
+- **Why no playtest was filed:** the playtest queue stands at ~30 items and has never
+  had one drained, so a 31st entry is pure operator load. The fix is provable from the
+  diff without a browser (the ECS seed is the only writer of run-start HP, and
+  `createPlayer` has exactly one call site), and its visible effect — the health bar
+  starting full instead of at 100 — is self-evident the first time the human plays.
+  The difficulty question above is recorded as a knob instead.
+
 ## FEAT-META-BLESSING — the 3,900-gold shop upgrade that did nothing · DONE 48400ec
 
 - **Value:** Blessing (`blessingLevel`, 400 base ×2.5, max 3 = **3,900 gold**)
