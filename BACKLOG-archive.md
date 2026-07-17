@@ -5,6 +5,53 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-ACHIEVE-ENDGAME — achievement coverage for the endgame that exists · DONE 5e2770d
+
+**Value:** the July content wave — gauntlet mode, endless cycles/mutators,
+Paragon elites, bosses #4 The Bastion and #5 The Legion — awarded **zero** of
+the 31 persistent achievements, so the reward layer went silent exactly where
+the current endgame lives: grinding to gauntlet wave 14, surviving to endless
+cycle 9, or killing a double-affix Paragon boss said nothing.
+
+**Shipped:** 13 achievements over records that already persist — GAUNTLET
+best-wave tiers (5/10/15), post-victory ENDLESS deepest-cycle tiers (1/5/10),
+Paragon kills (first/25), and a first-kill per boss — on the existing gold
+scale, surfaced in AchievementScene's existing four tabs. Plus
+`syncEndgameAchievements()`, a retro-credit pass that replays the stored
+records (`GauntletBestWave`, `EndlessBestCycle`, the codex's per-enemy
+`timesKilled`) into achievement progress on an ACHIEVEMENTS visit, so a
+profile that already cleared this content is credited in one visit instead of
+having to re-beat its own records. Paragon kills have no external record and
+so are the one stat that cannot be retro-credited.
+
+**Design notes:** one tracking type per boss — `updateAchievementProgress`
+fans a value to *every* achievement sharing a tracking type, so a shared
+`boss_first_kill` would unlock all five at once on the first boss death.
+Pushes stay monotonic by recording only inside the `save*IfHigher` branch,
+where the value is by construction the new best (`updateAchievementProgress`
+assigns, it does not max). No new `LifetimeStats` field and no new storage
+key: each stat already has a persisted owner, and
+`AchievementProgress.currentValue` is itself persisted and sanitized — the
+same shape `cards_discovered` and `ships_fully_modded` already use.
+
+**Files:** `src/achievements/AchievementTypes.ts` (8 tracking types),
+`src/achievements/AchievementDefinitions.ts` (`BOSS_KILL_TRACKING` map + 13
+definitions), `src/achievements/AchievementManager.ts` (4 recorders),
+`src/achievements/endgameSync.ts` (new — the retro-credit pass, deliberately
+not re-exported from `index.ts` to keep the codex out of Node-test import
+graphs), `src/game/scenes/GameScene.ts` (4 hook sites + a
+`setAchievementUnlockCallback(null)` teardown detach that was previously
+missing, matching CardsScene/ShopScene), `src/game/scenes/AchievementScene.ts`
+(detach → sync → claim pass, in that load-bearing order),
+`src/data/referentialIntegrity.test.ts` (boss-kill keys resolve to real enemy
+types with exactly one achievement each; achievement ids unique + every
+`nextTierId` resolves).
+
+**Playtest follow-up:** filed as **POLISH-ACHIEVE-ENDGAME** in `BACKLOG.md` →
+`## Human gates`.
+
+---
+
 ## FEAT-ENDLESS-BEST-CYCLE — persistent deepest-endless-cycle chase metric · DONE 809f7cf
 
 **Value:** endless mode already escalates hard — per-cycle mutators,

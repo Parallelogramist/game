@@ -46,22 +46,10 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   Playtest follow-up filed as **POLISH-ENDLESS-BEST-CYCLE** under
   `## Human gates`.
 
-- [ ] **FEAT-ACHIEVE-ENDGAME** — achievement coverage for the endgame that
-  now exists. Value: the newest chase systems — gauntlet waves, endless
-  cycles/mutators, Paragon elites, bosses #4/#5 — award **zero** of the 31
-  persistent achievements, so the reward layer goes silent exactly where
-  the current endgame lives; pure retention win over already-built content.
-  Done when: persistent achievements (gold rewards on the existing scale)
-  cover at least gauntlet best-wave tiers, endless deepest-cycle tiers
-  (build on FEAT-ENDLESS-BEST-CYCLE's stat — now shipped, readable via
-  `loadEndlessBestCycle()` in `src/game/endless/EndlessBestCycle.ts`),
-  first Paragon kill, and first-kill for each of the 5 bosses (incl. The
-  Bastion + The Legion); all surface in AchievementScene with icons that
-  exist in `IconMap`; the content-data-integrity suite extends to the new
-  entries (unique ids, defined icon/reward). Pointers:
-  `src/achievements/AchievementDefinitions.ts`, lifetime stats in
-  `AchievementManager`, `src/game/gauntlet/GauntletBestWave.ts`,
-  GameScene endless-cycle counter.
+- [x] **FEAT-ACHIEVE-ENDGAME** — achievement coverage for the endgame that
+  exists (done — 5e2770d). Full write-up moved to `BACKLOG-archive.md`.
+  Playtest follow-up filed as **POLISH-ACHIEVE-ENDGAME** under
+  `## Human gates`.
 
 - [ ] **FEAT-SAVE-EXPORT-REMINDER** — nudge long-lived profiles to back up.
   Value: the export only saves a player who used it *before* the eviction; a
@@ -175,6 +163,26 @@ Never agent work. The fleet must not do any of these.
     a pre-feature legacy save restores as plain "CYCLE N"; (i) no-repeat
     roll across 5+ cycles — does the variety read? Knobs: meta values in
     `EndlessMutators.ts` (one bag per mutator).
+  - **POLISH-ACHIEVE-ENDGAME** — endgame achievement feel/balance + retro-credit
+    on a real profile. Check: (a) **retro-credit** — open ACHIEVEMENTS once on a
+    profile that has already played gauntlet/endless/bosses: do the boss
+    first-kills and the gauntlet/endless tiers light up and pay their gold in one
+    visit (console logs `Retroactively claimed N gold`), with nothing double-paid
+    on a second visit? (b) **mid-run toasts** — crossing gauntlet wave 5/10/15 or
+    endless cycle 1/5/10 mid-run fires the achievement toast + gold without
+    stepping on the WAVE / CYCLE banner already firing at that exact moment;
+    (c) **gold scale** — 400–2,500 per tier against the existing 150–5,000
+    spread: does clearing gauntlet wave 15 (2,500 + 3% damage) feel proportionate
+    to victories_50 (2,000 + 5% XP), or is the endgame now the cheapest gold in
+    the game? knobs = `reward.value` per entry in `AchievementDefinitions.ts`;
+    (d) **tier spacing** — are wave 5/10/15 and cycle 1/5/10 the right rungs, or
+    does 15 sit past where a real run dies? (e) **Paragon rate** — is paragon_25
+    reachable, or effectively dead content? (f) **AchievementScene layout** — 44
+    entries across 4 tabs: does scroll + 1-column portrait still read, and do the
+    tab count badges fit? (g) **icon legibility** — are the 5 boss icons
+    distinguishable at card size? (h) **The Legion** — kill it and confirm the
+    first-kill fires on the last mote's death (the split-tree promotion path),
+    not on the root.
   - **POLISH-AFFIX-PARAGON** — double-affix Paragon elites feel/balance
     (FEAT-AFFIX-PARAGON; roll + name in `src/data/Affixes.ts`
     `rollParagonAffix`/`affixDisplayName`, wiring in `GameScene.spawnBoss` /
