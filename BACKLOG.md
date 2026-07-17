@@ -310,12 +310,10 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   Vitality Core + Armor Plate all landed heals on a mirror field the ECS never read.
   Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up filed as
   **POLISH-VITALITY-HEAL** under `## Human gates`.
-- [ ] **BUG-MENUBUTTON-SETVARIANT-NOOP** — `MenuButton.setVariant()`
-  (`src/visual/MenuButton.ts:129-135`) stores the variant and explicitly does not
-  repaint ("No-op here"). Every caller relying on it for state colour is silently
-  dead — including `PracticeDock.refreshLabels()`'s `magenta` affix highlight and
-  `safe` INVINCIBLE highlight, so the dock's intended colour signalling never
-  shows. Either implement the repaint or drop the dead calls.
+- [x] **BUG-MENUBUTTON-SETVARIANT-NOOP** — `MenuButton.setVariant()` stored the
+  variant and explicitly no-opped the repaint (done — 8223516). Full write-up
+  moved to `BACKLOG-archive.md`. Playtest follow-up filed as
+  **POLISH-MENUBUTTON-VARIANT** under `## Human gates`.
 - [x] **BUG-BLOOD-PACT-HALVE-DEAD** — the Blood Pact charged half its advertised price,
   and charged *less* the more hurt you were (done — afe1baa). `applyShrineBargain()`'s
   `blood_pact` deal wrote the halved HP to `playerStats.currentHealth`, a write-through
@@ -386,6 +384,15 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MENUBUTTON-VARIANT** — `MenuButton.setVariant()` now actually
+    repaints (BUG-MENUBUTTON-SETVARIANT-NOOP, `8223516`). Reach it: BootScene →
+    PRACTICE (or in-run practice dock). Check that (a) tapping AFFIX to a real
+    affix turns the AFFIX and (once set) 2ND buttons **magenta**, and clearing
+    them returns to neutral slate; (b) selecting an ultimate turns the ULT
+    button magenta; (c) INVINCIBLE: ON turns its button **safe-green**, OFF
+    returns to neutral; (d) the disabled/N-A affix button reads neutral **and**
+    dimmed (setEnabled alpha), not magenta; (e) hovering a button while its
+    variant flips shows the glow/rim in the new colour, not the old.
   - **POLISH-SHIP-CHASE** — the locked ships now show on the ship-select step
     (FEAT-SHIP-CHASE, `f1000e7`). Agents have no browser; this is a UI-layout + readability
     change and must be eyeballed. Reach it: MAIN MENU → START (or GAUNTLET) → advance past

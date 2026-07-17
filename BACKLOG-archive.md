@@ -2891,3 +2891,35 @@ One module per session, test-first, ~15-25 cases each.
   Suite could not run in the remote sandbox — verification was typecheck fingerprint +
   the transcription diff. Follow-up phases must import `telegraphManager` as a live
   binding, never copy it to a local.
+
+## BUG-MENUBUTTON-SETVARIANT-NOOP — MenuButton.setVariant() stored the variant and explicitly no-opped the repaint · DONE 8223516
+
+`MenuButton.setVariant()` (`src/visual/MenuButton.ts:129-136`) stored the new
+variant and then explicitly did nothing ("No-op here"). Every caller that
+relies on it to change a button's state colour was silently dead. The live
+victims were all four `PracticeDock` calls (`src/ui/PracticeDock.ts:242,247,260,264`):
+affix active → should turn magenta (stayed neutral slate), 2nd/Paragon affix
+active → should turn magenta (stayed neutral), an ultimate selected → should
+turn magenta (stayed neutral), INVINCIBLE ON → should turn safe-green (stayed
+neutral). So the practice dock's intended colour signalling — the at-a-glance
+"these options are armed" cue on the sandbox the whole `POLISH-PRACTICE-*` /
+`POLISH-*-AFFIXES` playtest queue runs through — never appeared.
+
+Implemented the repaint (rather than dropping the dead calls) so the primitive
+is trustworthy for any future scene. `MenuCard` gained a `setColors(colors)`
+method: it mutates a hoisted `panelDrawOptions` object, redraws the panel via
+the existing `drawCardPanel`, and — since `accentTint` was promoted from a
+`const` to a mutable `currentAccentTint` — retints the live hover glow/rim so a
+variant flip while hovered/focused shows the new colour instead of a stale one.
+`MenuButton.setVariant` now re-resolves colours via the existing
+`resolveVariantColors` helper and calls `card.setColors({ bodyFillColor,
+accentColor, borderColor: accentColor })`, matching how `createMenuButton`
+builds the card originally. The write-only `currentVariant` local was deleted.
+
+No data/PracticeDock/persistence change; additive to the `MenuCard` interface
+(the ~10 scenes that build cards directly via `createMenuCard` don't call
+`setColors` and are unaffected). No tests added — Phaser-coupled visual
+primitives with zero existing coverage; a draw-call rewire has no pure logic to
+pin. Verified via `tsc --noEmit` + `npm run build` + the full Vitest suite
+(1310 tests green, no regressions). Playtest follow-up filed as
+**POLISH-MENUBUTTON-VARIANT** under `## Human gates`.
