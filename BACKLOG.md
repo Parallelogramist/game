@@ -34,6 +34,18 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-MINE** — new 21st weapon, Proximity Mines (done — 470a319). Each
+  cooldown places stationary mines at and around the ship; a mine arms after a short
+  delay, then detonates in an AOE burst — damaging + knocking back every enemy in the
+  blast, once — the moment an enemy strays into its trigger radius, or auto-detonates
+  at end of life. The arsenal's first area-denial trap archetype: Sentry deploys a
+  turret that shoots, Wake lays a DoT trail, Pulse emits rings from the player — none
+  is a placed proximity mine. Self-drawn Graphics (no atlas frame), pooled mines;
+  wired into `WeaponRegistry`, `UNLOCKABLE_WEAPONS`, `ICON_MAP` (`death-zone`),
+  `WEAPON_MASTERY_CATEGORY` (explosive), a "Cluster Mines" evolution (might Lv5) and a
+  "Kill Zone" synergy (+ singularity). Mastery "Minefield" lays one extra mine per
+  deployment. Playtest follow-up filed as **POLISH-WEAPON-MINE** under `## Human gates`.
+
 - [x] **FEAT-WEAPON-PULSE** — new 20th weapon, the Pulse Cannon (done — 8e0f453).
   Fires concentric expanding shockwave rings that damage + knock back every enemy their
   wavefront sweeps over, once each, then die at max range — a rhythmic, aim-free
@@ -406,6 +418,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-MINE** — the new Proximity Mines needs a balance/feel eyeball
+    (FEAT-WEAPON-MINE, `470a319`). Agents have no browser. Reach it: PRACTICE →
+    WEAPON row → "Proximity Mines" (unlocked or via a normal run's weapon offers).
+    Check: (a) do the mines read clearly as armed traps that blink faster near expiry
+    and blast on trigger; (b) base damage 30 / cooldown 2.8 / blast radius 88 /
+    trigger 46 / lifetime 8s vs peers — dead or oppressive?; (c) does count scaling
+    (1 → 5 mines at Lv10, +1 at Mastery, +1 at evolution) carpet the field too densely
+    or feel great; (d) Minefield mastery + Cluster Mines evolution land as real spikes;
+    (e) Kill Zone synergy with Singularity (pull-onto-mines) actually reads; (f)
+    knockback 130/200 reads as radial. All knobs are the top-of-file consts in
+    `src/weapons/MineWeapon.ts` + the evolution/synergy multipliers — do not retune
+    blind.
   - **POLISH-WEAPON-PULSE** — the new Pulse Cannon needs a balance/feel eyeball
     (FEAT-WEAPON-PULSE, `8e0f453`). Agents have no browser. Reach it: PRACTICE →
     WEAPON row → "Pulse Cannon" (unlocked or via a normal run's weapon offers). Check:
