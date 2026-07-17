@@ -110,17 +110,9 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   timeout so a font failure never blocks boot. Pointers: `src/main.ts`
   bootstrap IIFE, `index.html` @font-face block.
 
-- [ ] **FEAT-PWA-INSTALL-PROMPT** — surface "Add to Home Screen". Value:
-  `FEAT-PWA-OFFLINE` made the game installable but nothing tells a player
-  it is; iOS never fires `beforeinstallprompt` and hides the action three
-  taps deep in the Share sheet, so the offline capability is invisible to
-  the players who most need it. Done when: a dismissible one-time hint
-  appears on the main menu for a returning, non-standalone player
-  (`display-mode: standalone` media query is the check), iOS gets
-  illustrated Share-sheet instructions while Android/desktop use the
-  captured `beforeinstallprompt`, and it never shows inside an installed
-  app. Pointer: `src/game/scenes/BootScene.ts` (the existing backup-nudge
-  DOM overlay from `da469b7` is the prior art).
+- [x] **FEAT-PWA-INSTALL-PROMPT** — surface "Add to Home Screen" (done —
+  5687c15). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
+  filed as **POLISH-PWA-INSTALL-PROMPT** under `## Human gates`.
 
 ---
 
@@ -778,6 +770,24 @@ Never agent work. The fleet must not do any of these.
     pressure). (g) **is the result worth sharing** — does the 4-line text read
     as a brag, or should it carry kills/level too? Knobs: the line templates in
     `src/meta/DailyShare.ts`.
+
+  - **POLISH-PWA-INSTALL-PROMPT** — the install hint on real devices (agents
+    cannot see a Share sheet or a Chrome install dialog). Reach it: a profile
+    with >=3 completed runs, opened in a browser tab (not an installed app),
+    that has never seen the hint — clear `survivor-install-hint-at` from
+    localStorage to re-arm. Check: (a) **iOS Safari** — do the two drawn steps
+    match what the current iOS actually shows, and does the Share glyph read as
+    the Share glyph at 18px? (b) **Android Chrome** — does INSTALL open the real
+    install dialog, and does the hint appear at all (it waits on
+    `beforeinstallprompt`, which Chrome may fire late or never if its own
+    engagement heuristic is unmet)? (c) **desktop Chrome** — same, and does the
+    panel look right at 420px on a wide window? (d) does it correctly *never*
+    show inside the installed app (launch from the home screen icon)? (e) at
+    UI-scale extremes and in portrait, is the DOM panel over the Phaser canvas
+    readable and tappable, with nothing clipped? (f) NOT NOW / GOT IT dismisses
+    and it never returns — and the menu keyboard/gamepad nav is live again after
+    close? (g) does the >=3-run threshold feel right, or does the hint land
+    before the player has decided they like the game?
 
 ---
 

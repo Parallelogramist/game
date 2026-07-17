@@ -5,6 +5,55 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PWA-INSTALL-PROMPT — surface "Add to Home Screen" · DONE 5687c15
+
+**Value:** `FEAT-PWA-OFFLINE` (`4a0c864`) made the game installable and fully
+offline-playable, and nothing told a single player it had. iOS never fires
+`beforeinstallprompt` and buries Add to Home Screen three taps deep in the
+Share sheet — so the phone-first players who most need an offline launch were
+exactly the ones who would never find it. This closes the arc: the capability
+existed, this delivers it.
+
+**Shipped:** a one-time, dismissible main-menu hint for a returning
+(>=3 completed runs), non-standalone player. Android/desktop get an INSTALL
+button wired to the captured `beforeinstallprompt`; iOS Safari gets two drawn
+Share-sheet steps. Pure policy + UA detection in `src/pwa/InstallHint.ts`
+(node-tested), DOM overlay in `src/ui/InstallHintOverlay.ts`, wired in
+`BootScene`. The overlay chrome shared with the profile-transfer overlays was
+extracted to `src/ui/OverlayKit.ts`.
+
+**Design:**
+- **One-time, no re-nag.** Stamped on *show*, not dismiss — `BootScene.create()`
+  re-runs on every orientation flip and every return to the menu, so the stamp
+  is the only thing stopping it reopening each time. Same reasoning as the
+  backup nudge's cooldown; unlike that one, this never fires twice.
+- **The backup nudge outranks it.** Both are DOM overlays on the same menu and
+  both can qualify on one `create()` (backup >=25 runs, install >=3). Losing a
+  profile costs more than missing an install, and two stacked backdrops fight —
+  so the install hint defers, unstamped, and takes a later launch.
+- **Subscribes to `beforeinstallprompt`, never checks once.** Chrome fires it on
+  its own schedule, routinely after the menu is up; a one-shot check would have
+  made the whole Android/desktop half silently dead.
+- **`preventDefault()` on capture** suppresses Chrome's mini-infobar so the hint
+  is the only install affordance.
+- **iPadOS is detected by `maxTouchPoints`, not UA** — iPadOS 13+ sends the
+  desktop macOS UA byte-identical to a real Mac's.
+- **iOS non-Safari (`CriOS`/`FxiOS`/`EdgiOS`/`OPiOS`) gets nothing** — those
+  WebKit wrappers route Add to Home Screen differently or not at all, and wrong
+  instructions are worse than none.
+- **Drawn inline SVG, not emoji**, per the repo's standing anti-glyph stance
+  (`POLISH-GLYPH-SWEEP-2`).
+
+**Tests:** one new file, `src/pwa/InstallHint.test.ts` — UA detection (the
+iPadOS-as-Mac and iOS-Chrome traps) and the gate. The overlay/`BootScene`/
+capture paths need a DOM the node suite does not have; they are covered by
+**POLISH-PWA-INSTALL-PROMPT** in the playtest queue.
+
+**Deliberately not built:** in-app update prompt, a SETTINGS install entry, any
+re-nag schedule, install analytics.
+
+---
+
 ## FEAT-DAILY-SHARE — one-tap shareable daily/weekly result · DONE 92f3d5f
 
 **Value:** the daily/weekly challenge ended in a purely private local
