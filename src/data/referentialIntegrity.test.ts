@@ -17,8 +17,9 @@ import { ALL_CARDS } from './Cards';
 import { PERMANENT_UPGRADES, UPGRADE_CATEGORIES } from './PermanentUpgrades';
 import { createUpgrades, UNLOCKABLE_WEAPONS } from './Upgrades';
 import { createLimitBreakUpgrades } from './LimitBreakUpgrades';
-import { ACHIEVEMENTS } from '../achievements/AchievementDefinitions';
+import { ACHIEVEMENTS, BOSS_KILL_TRACKING } from '../achievements/AchievementDefinitions';
 import { MILESTONES } from '../achievements/MilestoneDefinitions';
+import { ENEMY_TYPES } from '../enemies/EnemyTypes';
 
 /**
  * Referential-integrity sweep: every cross-reference key in the data catalogs
@@ -79,5 +80,24 @@ describe('data catalog referential integrity', () => {
       const ids = tracks.map((t) => t.id);
       expect(new Set(ids).size, `duplicate track ids on ${shipId}`).toBe(ids.length);
     }
+  });
+
+  test('every boss-kill tracking key is a real enemy type with exactly one achievement', () => {
+    for (const [enemyTypeId, trackingType] of Object.entries(BOSS_KILL_TRACKING)) {
+      expect(ENEMY_TYPES[enemyTypeId], `unknown enemy type id "${enemyTypeId}"`).toBeDefined();
+      const matches = ACHIEVEMENTS.filter((a) => a.trackingType === trackingType);
+      expect(matches.map((a) => a.id), `"${trackingType}" must map to exactly 1 achievement`).toHaveLength(1);
+    }
+  });
+
+  test('achievement ids are unique and every nextTierId resolves', () => {
+    const ids = ACHIEVEMENTS.map((a) => a.id);
+    expect(new Set(ids).size, 'duplicate achievement ids').toBe(ids.length);
+
+    const dangling = ACHIEVEMENTS.filter((a) => a.nextTierId && !ids.includes(a.nextTierId));
+    expect(
+      dangling.map((a) => `${a.id} → "${a.nextTierId}"`),
+      'nextTierId points at no achievement',
+    ).toEqual([]);
   });
 });

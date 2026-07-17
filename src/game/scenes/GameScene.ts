@@ -686,6 +686,7 @@ export class GameScene extends Phaser.Scene {
     // otherwise reports "WAVE 1" against a stored best of 0.
     if (this.gauntletModeActive && saveGauntletBestWaveIfHigher(1)) {
       this.gauntletNewBestThisRun = true;
+      getAchievementManager().recordGauntletWaveReached(1);
     }
     this.activeLasers = [];
     this.enemyProjectiles = [];
@@ -2423,10 +2424,22 @@ export class GameScene extends Phaser.Scene {
       achievementManager.recordMinibossKill();
     }
 
+    // Paragon = a second affix (applyDampedAffixStats zeroes affixType2 when it
+    // applies a primary, so a recycled entity id can't read as one).
+    if (hasComponent(this.world, EnemyAffix, enemyId)
+      && EnemyAffix.affixType2[enemyId] !== EnemyAffixType.NONE) {
+      achievementManager.recordParagonKill();
+    }
+
     // Track kill in codex
     const enemyTypeId = this.enemyTypeMap.get(enemyId);
     if (enemyTypeId) {
-      getCodexManager().recordEnemyKill(enemyTypeId);
+      const codexManager = getCodexManager();
+      codexManager.recordEnemyKill(enemyTypeId);
+      achievementManager.recordBossTypeKills(
+        enemyTypeId,
+        codexManager.getEnemyEntry(enemyTypeId)?.timesKilled ?? 0,
+      );
       this.enemyTypeMap.delete(enemyId);
     }
 
@@ -7113,6 +7126,7 @@ export class GameScene extends Phaser.Scene {
       this.endlessCycleNumber += 1;
       if (saveEndlessBestCycleIfHigher(this.endlessCycleNumber)) {
         this.endlessNewBestThisRun = true;
+        getAchievementManager().recordEndlessCycleReached(this.endlessCycleNumber);
       }
       this.endlessMutator = rollEndlessMutator(this.endlessMutator);
       // Each cycle tightens the next interval by 45s (minimum 120s = 2 min).
@@ -7305,6 +7319,7 @@ export class GameScene extends Phaser.Scene {
 
     if (saveGauntletBestWaveIfHigher(waveNumber)) {
       this.gauntletNewBestThisRun = true;
+      getAchievementManager().recordGauntletWaveReached(waveNumber);
     }
 
     this.syncGauntletHudLabel();
@@ -8902,6 +8917,10 @@ export class GameScene extends Phaser.Scene {
    * Critical for preventing input conflicts and memory leaks on restart.
    */
   shutdown(): void {
+    // Detach the run-context delivery closure — a dead scene must not receive
+    // unlocks (mirrors CardsScene / ShopScene). create() re-wires it each run.
+    getAchievementManager().setAchievementUnlockCallback(null);
+
     // Unbind the shared JuiceManager so stale scene references don't leak
     // into the menu session or future runs. Covers both create paths
     // (fresh and save-restore) — each binds, only this releases.

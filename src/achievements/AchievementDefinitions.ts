@@ -5,7 +5,21 @@
  * and reward gold, stat bonuses, or unlocks when completed.
  */
 
-import { AchievementDefinition } from './AchievementTypes';
+import { AchievementDefinition, TrackingType } from './AchievementTypes';
+
+/**
+ * Enemy type id (src/enemies/EnemyTypes.ts) → the tracking type of that boss's
+ * first-kill achievement. GameScene pushes every killed enemy's type id through
+ * this map, so an id with no entry (all trash/minibosses) no-ops; the
+ * referentialIntegrity sweep pins the keys to real enemy ids.
+ */
+export const BOSS_KILL_TRACKING: Record<string, TrackingType> = {
+  horde_king: 'boss_kill_horde_king',
+  void_wyrm: 'boss_kill_void_wyrm',
+  the_machine: 'boss_kill_the_machine',
+  the_bastion: 'boss_kill_the_bastion',
+  the_legion: 'boss_kill_the_legion',
+};
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [
   // ═══════════════════════════════════════════════════════════════════════════
@@ -389,6 +403,172 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     category: 'challenge',
     targetValue: 5,
     trackingType: 'win_streak',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GAUNTLET (boss-rush depth — GauntletBestWave)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'gauntlet_wave_5',
+    name: 'Wave Breaker',
+    description: 'Reach wave 5 in GAUNTLET',
+    icon: 'skull-bones',
+    category: 'challenge',
+    targetValue: 5,
+    trackingType: 'gauntlet_wave',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+    tier: 1,
+    nextTierId: 'gauntlet_wave_10',
+  },
+  {
+    id: 'gauntlet_wave_10',
+    name: 'Gauntlet Veteran',
+    description: 'Reach wave 10 in GAUNTLET',
+    icon: 'skull-bones',
+    category: 'challenge',
+    targetValue: 10,
+    trackingType: 'gauntlet_wave',
+    reward: { type: 'gold', value: 1000, description: '+1,000 gold' },
+    tier: 2,
+    nextTierId: 'gauntlet_wave_15',
+  },
+  {
+    id: 'gauntlet_wave_15',
+    name: 'Unrelenting',
+    description: 'Reach wave 15 in GAUNTLET',
+    icon: 'skull-bones',
+    category: 'challenge',
+    targetValue: 15,
+    trackingType: 'gauntlet_wave',
+    reward: { type: 'gold', value: 2500, description: '+2,500 gold' },
+    bonusReward: { type: 'stat_bonus', value: 3, description: '+3% damage', statBonusId: 'damage' },
+    tier: 3,
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ENDLESS (post-victory cycle depth — EndlessBestCycle)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'endless_cycle_1',
+    name: 'Beyond the End',
+    description: 'Reach cycle 1 in ENDLESS',
+    icon: 'refresh',
+    category: 'survival',
+    targetValue: 1,
+    trackingType: 'endless_cycle',
+    reward: { type: 'gold', value: 300, description: '+300 gold' },
+    tier: 1,
+    nextTierId: 'endless_cycle_5',
+  },
+  {
+    id: 'endless_cycle_5',
+    name: 'Cycle Runner',
+    description: 'Reach cycle 5 in ENDLESS',
+    icon: 'refresh',
+    category: 'survival',
+    targetValue: 5,
+    trackingType: 'endless_cycle',
+    reward: { type: 'gold', value: 1200, description: '+1,200 gold' },
+    tier: 2,
+    nextTierId: 'endless_cycle_10',
+  },
+  {
+    id: 'endless_cycle_10',
+    name: 'Eternal',
+    description: 'Reach cycle 10 in ENDLESS',
+    icon: 'refresh',
+    category: 'survival',
+    targetValue: 10,
+    trackingType: 'endless_cycle',
+    reward: { type: 'gold', value: 3000, description: '+3,000 gold' },
+    bonusReward: { type: 'stat_bonus', value: 5, description: '+5% XP', statBonusId: 'xp' },
+    tier: 3,
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PARAGON ELITES (double-affix, deep-run only)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'paragon_first',
+    name: 'Paragon Slayer',
+    description: 'Defeat your first Paragon elite',
+    icon: 'sparkle',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'paragon_kills',
+    reward: { type: 'gold', value: 600, description: '+600 gold' },
+    tier: 1,
+    nextTierId: 'paragon_25',
+  },
+  {
+    id: 'paragon_25',
+    name: 'Elite Hunter',
+    description: 'Defeat 25 Paragon elites',
+    icon: 'sparkle',
+    category: 'combat',
+    targetValue: 25,
+    trackingType: 'paragon_kills',
+    reward: { type: 'gold', value: 1500, description: '+1,500 gold' },
+    bonusReward: { type: 'stat_bonus', value: 3, description: '+3% crit chance', statBonusId: 'critChance' },
+    tier: 2,
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BOSS FIRST KILLS (one per boss — keyed by BOSS_KILL_TRACKING)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'boss_first_horde_king',
+    name: 'Regicide',
+    description: 'Defeat The Horde King',
+    icon: 'crown',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_horde_king',
+    reward: { type: 'gold', value: 300, description: '+300 gold' },
+  },
+  {
+    id: 'boss_first_void_wyrm',
+    name: 'Void Ender',
+    description: 'Defeat the Void Wyrm',
+    icon: 'swirl',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_void_wyrm',
+    reward: { type: 'gold', value: 300, description: '+300 gold' },
+  },
+  {
+    id: 'boss_first_the_machine',
+    name: 'Deus Ex',
+    description: 'Defeat The Machine',
+    icon: 'robot',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_machine',
+    reward: { type: 'gold', value: 300, description: '+300 gold' },
+  },
+  {
+    id: 'boss_first_the_bastion',
+    name: 'Siege Breaker',
+    description: 'Defeat The Bastion',
+    icon: 'shield',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_bastion',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+  {
+    id: 'boss_first_the_legion',
+    name: 'One of Many',
+    description: 'Defeat The Legion',
+    icon: 'dna',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_legion',
     reward: { type: 'gold', value: 400, description: '+400 gold' },
   },
 ];

@@ -20,7 +20,7 @@ import {
   AchievementReward,
 } from './AchievementTypes';
 import { MILESTONES, getMilestoneById } from './MilestoneDefinitions';
-import { ACHIEVEMENTS, getAchievementById } from './AchievementDefinitions';
+import { ACHIEVEMENTS, getAchievementById, BOSS_KILL_TRACKING } from './AchievementDefinitions';
 
 // Storage keys
 const STORAGE_KEY_ACHIEVEMENTS = 'survivor-achievements';
@@ -398,6 +398,45 @@ export class AchievementManager {
    */
   recordShipsFullyModded(count: number): void {
     this.updateAchievementProgress('ships_fully_modded', count);
+    this.savePersistentState();
+  }
+
+  /**
+   * Best GAUNTLET wave reached. `bestWave` is the absolute stored record
+   * (GauntletBestWave owns it), not the current wave — pushing a *current*
+   * wave would walk an in-progress tier's bar backwards after a short run,
+   * because updateAchievementProgress assigns rather than maxes.
+   */
+  recordGauntletWaveReached(bestWave: number): void {
+    this.updateAchievementProgress('gauntlet_wave', bestWave);
+    this.savePersistentState();
+  }
+
+  /** Deepest post-victory ENDLESS cycle. Absolute stored record — see above. */
+  recordEndlessCycleReached(bestCycle: number): void {
+    this.updateAchievementProgress('endless_cycle', bestCycle);
+    this.savePersistentState();
+  }
+
+  /**
+   * A Paragon (double-affix) elite died. Increments — unlike every other
+   * endgame stat there is no external record to mirror, so this is the only
+   * counter, and it cannot be retro-credited for kills before this shipped.
+   */
+  recordParagonKill(): void {
+    this.checkAchievementProgress('paragon_kills', 1);
+  }
+
+  /**
+   * Per-boss lifetime kill count, mirroring the codex's persisted `timesKilled`
+   * (the source of truth) as an absolute value — the same shape as
+   * recordCardsDiscovered. Enemy ids with no boss achievement no-op before any
+   * work, so every kill can safely call this.
+   */
+  recordBossTypeKills(enemyTypeId: string, timesKilled: number): void {
+    const trackingType = BOSS_KILL_TRACKING[enemyTypeId];
+    if (!trackingType) return;
+    this.updateAchievementProgress(trackingType, timesKilled);
     this.savePersistentState();
   }
 

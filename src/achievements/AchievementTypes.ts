@@ -35,7 +35,20 @@ export type TrackingType =
   | 'account_level'    // Sum of all upgrade levels
   | 'win_streak'       // Best win streak achieved
   | 'cards_discovered' // Card-archive collection size (CardCollectionManager)
-  | 'ships_fully_modded'; // Ships with every HANGAR mod track at cap (ShipModManager)
+  | 'ships_fully_modded' // Ships with every HANGAR mod track at cap (ShipModManager)
+  | 'gauntlet_wave'    // Best GAUNTLET wave reached (GauntletBestWave owns the record)
+  | 'endless_cycle'    // Deepest post-victory ENDLESS cycle (EndlessBestCycle owns the record)
+  | 'paragon_kills'    // Paragon (double-affix) elites defeated
+  // Per-boss first kills. One tracking type per boss because
+  // updateAchievementProgress fans a value to EVERY achievement sharing a
+  // tracking type — a single shared 'boss_first_kill' would unlock all five at
+  // once on the first boss death. Keyed from an enemy type id by
+  // BOSS_KILL_TRACKING in AchievementDefinitions.
+  | 'boss_kill_horde_king'
+  | 'boss_kill_void_wyrm'
+  | 'boss_kill_the_machine'
+  | 'boss_kill_the_bastion'
+  | 'boss_kill_the_legion';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REWARD TYPES

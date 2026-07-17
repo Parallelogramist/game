@@ -11,6 +11,7 @@ import {
   AchievementDefinition,
   AchievementCategory,
 } from '../../achievements';
+import { syncEndgameAchievements } from '../../achievements/endgameSync';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
@@ -87,6 +88,14 @@ export class AchievementScene extends Phaser.Scene {
     this.focusZone = 'tabs';
     this.selectedTabIndex = 0;
     this.selectedCardIndex = 0;
+
+    // Replay the endgame records into achievement progress before claiming, so
+    // a profile that cleared this content pre-update is credited on this visit.
+    // Detaching first is load-bearing: GameScene leaves its run-context unlock
+    // closure wired, and a sync unlock must not fire into that dead scene — with
+    // no callback the unlock stays unclaimed and the pass below pays it out.
+    getAchievementManager().setAchievementUnlockCallback(null);
+    syncEndgameAchievements();
 
     // Retroactively claim any unlocked-but-unclaimed achievement rewards
     const unclaimedAchievements = getAchievementManager().getUnclaimedRewards();
