@@ -34,6 +34,22 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **BUG-META-BARRIER-CAPACITY-DEAD** — the 2,968-gold shop upgrade that bought
+  nothing (done — 1e7ef6c). `barrierCapacityLevel` ("+N max shield charges",
+  maxLevel 4, 250→1458g) added to `PlayerStats.maxShieldCharges`, but every reader of a
+  charge — recharge, the block in `takeDamage`, the HUD — is gated on
+  `shieldBarrierEnabled`, which **only** the `rare` in-run `shieldBarrier` upgrade ever
+  set. So the whole purchase was inert unless you won an RNG roll mid-run; the code's own
+  comment at `GameScene.ts:9105` admitted it and hid the HUD rather than fix it. And when
+  you did win the roll, `Math.max` in `apply()` clamped the total to the level's own
+  count, so from `shieldBarrier` level 8 up the paid charges contributed **zero**. Buying
+  capacity now enables and fills the barrier at run start (recharge stays at the 8.0s
+  default = level 1; the in-run upgrade still sells the speed), and `apply()` is additive.
+  Last member of the dead-field class after BUG-META-DEAD-RESOURCES (`1443893`),
+  BUG-VITALITY-HEAL-DEAD (`9b520d0`) and BUG-RUNSTART-HP-CAP (`8184fac`) — the planner
+  re-audited every `PlayerStats` field and every `getStarting*` getter and found no others
+  left. Full write-up in `BACKLOG-archive.md`. **No playtest filed** — see the write-up
+  for why, and for the difficulty knob this opens.
 - [x] **FEAT-SHIP-ULTIMATES** — every ship gets its own ultimate (done — 49c934f).
   Value: the ultimate is the game's biggest button and was identical on all 11 ships
   while every other ship axis (hull, palette, six stat multipliers, signature stat

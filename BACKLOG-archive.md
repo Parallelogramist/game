@@ -5,6 +5,71 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-META-BARRIER-CAPACITY-DEAD — the 2,968-gold shop upgrade that bought nothing · DONE 1e7ef6c
+
+- **Symptom.** Barrier Capacity (`barrierCapacityLevel`, maxLevel 4, 250 + 450 + 810 +
+  1458 = **2,968 gold**, unlock at account level 15) advertises "+N max shield charges"
+  and, for most runs, delivered nothing whatsoever.
+- **Root cause.** It writes `maxShieldCharges`, but all three readers — recharge
+  (`GameScene.ts:3979`), the block in `takeDamage` (`:4578`), the HUD (`:9110-9111`) —
+  gate on `shieldBarrierEnabled`, and the sole writer of that flag in the entire codebase
+  is the `rare` in-run `shieldBarrier` upgrade (`Upgrades.ts:529`). No ship, relic, card,
+  boost, blessing or pact sets it.
+- **The tell that it was an oversight, not a conditional-synergy design.** Its sibling
+  two lines up (`maxShield` → `shield = maxShield`) *fills* its resource at run start,
+  and every other getter in the `═══ DEFENSE ═══` block is unconditionally live. Barrier
+  Capacity alone neither enabled nor filled.
+- **The smoking gun.** `GameScene.ts:9105` already carried the comment *"This prevents
+  permanent 'Barrier Capacity' shop upgrades from showing shields prematurely"* — the
+  author knew the paid charges weren't real and hid them from the HUD instead of wiring
+  them up. That comment is corrected by this fix.
+- **The second, unambiguous half.** `Math.max` in `apply()` meant a player who paid for
+  4 charges and levelled `shieldBarrier` to 10 got `max(4, 6) = 6` — identical to a
+  player who paid nothing. From level 8 up the entire purchase was worth zero under
+  **any** reading of the design. `apply()` is now additive, which is safe because it is
+  called once per level, ascending and never repeated (all three call sites —
+  `GameScene.ts:1013` kept-upgrades, `:5138` practice build, `:8599` level-up — step
+  `currentLevel+1..target`). That invariant is now load-bearing and is pinned by
+  `ShieldBarrier.test.ts`.
+- **Why the base progression is untouched.** 1,1,1,1,1,2,3,4,5,6 before and after: the
+  old code's `Math.max(running, target)` and the new code's `running += delta` produce
+  the same sequence when `running` starts at 0 and each level only ever raises the
+  target by the increment the level itself contributes — the test pins all ten levels.
+- **Why the two systems now compose cleanly.** Capacity buys *charges*, the in-run
+  upgrade buys *recharge speed* (levels 1-5) and *more charges* (6-10). A paid-only
+  barrier runs at the 8.0s default, which is exactly `shieldBarrier` level 1 — so the fix
+  grants no speed nobody paid for.
+- **Why a test was written here**, when this repo's default is not to: `apply` is a pure
+  function over a plain object, the additive rewrite rests on an unstated
+  once-per-level-ascending invariant, and the charge progression is load-bearing balance.
+  `GameScene.ts`'s half is deliberately untested (Phaser scene; `CLAUDE.md`'s strategy is
+  to mock the module boundary, not a live scene).
+- **The known non-change.** `shieldBarrier.getDescription()` still reads "1 shield, 8.00s
+  recharge" for a player who also paid for capacity, because its signature is
+  `(level) => string` and it cannot see `stats`. It describes the upgrade's own grant,
+  not the player's total, and it was already inaccurate for a paying player before this
+  fix. Reworking it is a signature/design change and is the human's call.
+- **Why no playtest was filed.** Class precedent: verifiable in code and by test, the
+  playtest queue is already 10+ deep, and the pull ratchet (D33) says not to add operator
+  load.
+- **The difficulty knob this opens, for the human.** Buying Barrier Capacity now yields a
+  working damage-blocking barrier at run start for as little as **250 gold**, with **N**
+  binary charges that fully negate a hit each and refill every 8.0s. That is a real power
+  increase for any profile past account level 15, and it is strongest exactly where it is
+  cheapest (level 1). If it proves too strong, the knobs are `baseCost` / `costScaling` /
+  `unlockLevel` in `PermanentUpgrades.ts:369-381` and the 8.0s default in
+  `Upgrades.ts:196` — all the operator's call, not an agent's.
+- **Closes the dead-field class.** Every `PlayerStats` field and every `getStarting*`
+  getter was re-checked for a real reader this session; all 8 masteries reach
+  `weaponManager.applyMultipliers` (`GameScene.ts:8964-8971`), and no dead paid effect
+  remains. One dead-but-harmless leftover was found and deliberately **not** touched:
+  `MetaProgressionManager.getNextAffordableUpgrade()` has zero callers, but it is an
+  unused UI helper that costs the player nothing — not this class, not worth a commit.
+  Last member of the class after BUG-META-DEAD-RESOURCES (`1443893`),
+  BUG-VITALITY-HEAL-DEAD (`9b520d0`) and BUG-RUNSTART-HP-CAP (`8184fac`).
+
+---
+
 ## BUG-PACTSELECT-FLIP-RESETS-PICKS — rotating while choosing pacts threw away your pacts · DONE fa0ea8e
 
 - **Symptom.** Rotating the phone on `FORGE A PACT` — the last screen on the main PLAY
