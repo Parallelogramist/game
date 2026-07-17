@@ -58,6 +58,7 @@ export { updateHordeKingAI } from './horde-king';
 export { updateVoidWyrmAI } from './void-wyrm';
 export { updateTheMachineAI } from './the-machine';
 export { updateBastionAI, resetBastionStrikes } from './bastion';
+export { updatePulsarAI, resetPulsarStrikes } from './pulsar';
 export { updateLegionAI, updateLegionFragmentAI } from './legion';
 export {
   resetLegionSystem,

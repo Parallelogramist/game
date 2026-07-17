@@ -39,6 +39,7 @@ export enum EnemyAIType {
   Legion = 104,
   LegionFragment = 105,
   LegionMote = 106,
+  Pulsar = 107,       // Boss — rotating radial-strike star
 }
 
 /**
@@ -689,6 +690,23 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     spawnWeight: 0,
   },
 
+  the_pulsar: {
+    id: 'the_pulsar',
+    name: 'The Pulsar',
+    aiType: EnemyAIType.Pulsar,
+    category: EnemyCategory.Boss,
+    baseHealth: 4600,
+    baseSpeed: 50,
+    baseDamage: 32,
+    size: 5.5,
+    color: 0x33ddff,         // Boss - collapsed-star cyan
+    secondaryColor: 0xffffff, // White outline
+    shape: 'diamond',
+    xpValue: 1000,
+    minSpawnTime: 600,
+    spawnWeight: 0,
+  },
+
   legion_fragment: {
     id: 'legion_fragment',
     name: 'Legion Fragment',
@@ -820,6 +838,7 @@ const ENEMY_ARMOR: Record<string, number> = {
   the_machine: 12,
   the_bastion: 14, // siege fortress — the armored boss
   the_legion: 8,       // chitin carapace — armored until it splits
+  the_pulsar: 4,       // energy star — lightly armored
   legion_fragment: 4,
   legion_mote: 0,
 };

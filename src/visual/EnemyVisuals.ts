@@ -960,6 +960,49 @@ function drawLegionFragment(g: Phaser.GameObjects.Graphics, s: number, neon: Neo
   g.fillCircle(s * 0.3, 0, Math.max(2.5, s * 0.14));
 }
 
+/** The Pulsar — collapsed star: radiating energy spokes around a bright core */
+function drawPulsar(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  neon: NeonColorPair,
+  quality: VisualQuality
+): void {
+  circleGlow(g, s, neon, quality);
+  const spokeCount = 6;
+  // Radiating spokes (thin triangles from the core outward)
+  g.fillStyle(neon.core, 1);
+  for (let i = 0; i < spokeCount; i++) {
+    const angle = (Math.PI * 2 / spokeCount) * i;
+    const tipX = Math.cos(angle) * s * 1.15;
+    const tipY = Math.sin(angle) * s * 1.15;
+    g.beginPath();
+    g.moveTo(Math.cos(angle + 0.16) * s * 0.35, Math.sin(angle + 0.16) * s * 0.35);
+    g.lineTo(tipX, tipY);
+    g.lineTo(Math.cos(angle - 0.16) * s * 0.35, Math.sin(angle - 0.16) * s * 0.35);
+    g.closePath();
+    g.fillPath();
+  }
+  // Core disc
+  g.fillStyle(neon.core, 1);
+  g.fillCircle(0, 0, s * 0.5);
+  g.lineStyle(3, 0xffffff, 0.9);
+  g.strokeCircle(0, 0, s * 0.5);
+  // Event-horizon accent ring
+  g.lineStyle(2, neon.glow, 0.7);
+  g.strokeCircle(0, 0, s * 0.78);
+  // Bright center
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(0, 0, Math.max(3, s * 0.2));
+  // Spoke-tip nodes (skip on low quality)
+  if (quality !== 'low') {
+    g.fillStyle(0xffffff, 0.8);
+    for (let i = 0; i < spokeCount; i++) {
+      const angle = (Math.PI * 2 / spokeCount) * i;
+      g.fillCircle(Math.cos(angle) * s * 1.15, Math.sin(angle) * s * 1.15, Math.max(2, s * 0.09));
+    }
+  }
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -1002,6 +1045,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   the_machine: drawTheMachine,
   the_bastion: drawBastion,
   the_legion: drawLegion,
+  the_pulsar: drawPulsar,
   legion_fragment: drawLegionFragment,
   legion_mote: drawLegionFragment,
 };

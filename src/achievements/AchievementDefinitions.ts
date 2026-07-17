@@ -19,6 +19,7 @@ export const BOSS_KILL_TRACKING: Record<string, TrackingType> = {
   the_machine: 'boss_kill_the_machine',
   the_bastion: 'boss_kill_the_bastion',
   the_legion: 'boss_kill_the_legion',
+  the_pulsar: 'boss_kill_the_pulsar',
 };
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [
@@ -569,6 +570,16 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     category: 'combat',
     targetValue: 1,
     trackingType: 'boss_kill_the_legion',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+  {
+    id: 'boss_first_the_pulsar',
+    name: 'Star Killer',
+    description: 'Defeat The Pulsar',
+    icon: 'sunbeam',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_pulsar',
     reward: { type: 'gold', value: 400, description: '+400 gold' },
   },
 ];

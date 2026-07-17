@@ -28,6 +28,7 @@ const BOSS_ARENA_THEMES: Record<string, BossArenaTheme> = {
   the_machine: { overlayColor: 0x4466aa, targetAlpha: 0.08 },
   the_bastion: { overlayColor: 0xbb6600, targetAlpha: 0.08 },
   the_legion: { overlayColor: 0xdd33bb, targetAlpha: 0.07 },
+  the_pulsar: { overlayColor: 0x1188cc, targetAlpha: 0.09 },
 };
 
 /** Duration (ms) for the overlay fade-in when a boss spawns. */
