@@ -5,6 +5,56 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-WEAPON-PULSE — new 20th weapon, the Pulse Cannon · DONE 8e0f453
+
+- **The gap.** The backlog's `## Now`/`## Next` were exhausted and the remaining `## Later`
+  items were value-gate busy-work (doc re-sync, cosmetic glyph sweep — both explicitly
+  skipped). The last actual gameplay-content ship (a weapon/boss) was 2026-07-10; the last
+  seven+ sessions were UI-surfacing polish. Audited all 19 existing weapons for archetype
+  coverage: `aura` is a static-radius tick zone, `frost_nova` an instant burst,
+  `singularity` pulls inward, `guardian` only fires on damage taken, `wake` is a movement
+  trail — a periodic, anchored, multi-ring *traveling wavefront* was unoccupied design
+  space and the best-bounded, fully-completable novel-content item for a mechanical
+  executor.
+- **The fix.** New `PulseWeapon` (`src/weapons/PulseWeapon.ts`, `id: 'pulse'`): each
+  cooldown fires a burst of concentric rings anchored at the ship's position (they do not
+  follow the player). A ring expands outward at a fixed px/s; its wavefront damages +
+  radially knocks back every enemy it sweeps over, once, via a pooled `hitIds` set, then
+  the ring dies at max range. Self-draws into one shared `Graphics` at
+  `DepthLayers.GROUND_EFFECTS` — the same pattern as Sentry/Singularity/Guardian/Wake, so
+  no projectile-atlas frame is needed (icon uses the already-valid `radar-sweep` frame).
+  Rings-per-pulse scale for free via `BaseWeapon`'s stock `count` formula (level, Multishot
+  stat, relics). Mastery **Concussion Wave**: enemies a ring strikes are briefly stunned
+  (0.4s). Evolution **Resonance Cascade** (`multishot` Lv5): +60% damage, +40% range, +2
+  rings, +25% size. Synergy **Resonance Field** (+ `aura`): +20% damage, 10% faster
+  cooldown. Wired into `WeaponRegistry`, `UNLOCKABLE_WEAPONS`, `ICON_MAP`,
+  `WEAPON_MASTERY_CATEGORY` (`aura` category) — flows into the Codex Weapons tab,
+  WeaponSelect, Practice, and DailyChallenge automatically via the existing
+  `getWeaponInfoList()` / `getAllWeaponIds()` / `UNLOCKABLE_WEAPONS` derivations, no extra
+  scene/tab wiring.
+- **Tests.** No new test files — the wiring is guarded by existing tests (icon
+  referential-integrity sweep, `WeaponEvolutions.test.ts` roster+recipe cross-check,
+  `ShipCharacters.test.ts` roster). Three hand-maintained roster-mirror arrays needed
+  `'pulse'` appended: `WeaponEvolutions.test.ts` and `ShipCharacters.test.ts`
+  (`REGISTRY_WEAPON_IDS`, both anticipated by the plan) plus `Upgrades.selection.test.ts`
+  (`UNLOCKABLE_IDS`, a third mirror the plan's audit missed — caught by the test suite
+  itself and fixed in the same commit). Ring advance/cull/band-hit-test math is trivial and
+  Phaser-coupled render/collision is untested, consistent with the other self-drawing
+  weapons. `npx tsc --noEmit` clean, `npm run test` 95 files / 1320 tests green, `npm run
+  build` green.
+- **Files:** `src/weapons/PulseWeapon.ts` (new), `src/weapons/index.ts`,
+  `src/data/Upgrades.ts`, `src/utils/IconMap.ts`, `src/data/WeaponEvolutions.ts`,
+  `src/data/WeaponSynergies.ts`, `src/weapons/WeaponManager.ts`,
+  `src/data/WeaponEvolutions.test.ts`, `src/data/ShipCharacters.test.ts`,
+  `src/data/Upgrades.selection.test.ts`, `src/game/scenes/PracticeScene.ts`.
+- **Balance knobs (untuned by design):** all top-of-file consts in
+  `src/weapons/PulseWeapon.ts` (damage 16, cooldown 2.2s, range 200, ring speed 560px/s,
+  knockback 60/110 evolved, stun 0.4s) plus the evolution/synergy multipliers above.
+- **Follow-up:** eyeball playtest filed as **POLISH-WEAPON-PULSE** under `BACKLOG.md` →
+  `## Human gates`.
+
+---
+
 ## FEAT-SHIP-PAINT-PICKER — choose or revert your hull paint · DONE ddc54be
 
 - **The gap.** FEAT-SHIP-PAINT (`0135f52`) made the 13 hidden `cosmetic` unlocks real by

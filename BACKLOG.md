@@ -34,6 +34,16 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-PULSE** — new 20th weapon, the Pulse Cannon (done — 8e0f453).
+  Fires concentric expanding shockwave rings that damage + knock back every enemy their
+  wavefront sweeps over, once each, then die at max range — a rhythmic, aim-free
+  crowd-clear archetype none of the other 19 weapons had. Self-drawn Graphics (no atlas
+  frame), pooled rings; wired into `WeaponRegistry`, `UNLOCKABLE_WEAPONS`, `ICON_MAP`
+  (`radar-sweep`), `WEAPON_MASTERY_CATEGORY` (aura), a "Resonance Cascade" evolution
+  (multishot Lv5) and a "Resonance Field" synergy (+ aura). Mastery "Concussion Wave"
+  briefly stuns struck enemies. Full write-up in `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-WEAPON-PULSE** under `## Human gates`.
+
 - [x] **FEAT-SHIP-PAINT** — the 13 hidden `cosmetic` unlocks now actually recolor your
   ship (done — 0135f52). Every `target:'cosmetic'` HiddenUnlock (`cosmetic_gold_hull`,
   `cosmetic_inferno_trail`, `cosmetic_crit_aura`, `cosmetic_level_crown`, …) fired an
@@ -396,6 +406,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-PULSE** — the new Pulse Cannon needs a balance/feel eyeball
+    (FEAT-WEAPON-PULSE, `8e0f453`). Agents have no browser. Reach it: PRACTICE →
+    WEAPON row → "Pulse Cannon" (unlocked or via a normal run's weapon offers). Check:
+    (a) the rings read clearly as expanding shockwaves under the ship and enemies
+    (GROUND_EFFECTS depth); (b) base damage 16 / cooldown 2.2s / range 200 / speed 560
+    feels neither dead nor oppressive vs peers — retune only by eye; (c) concentric
+    rings-per-pulse scaling (1 → 5 at Lv10, +multishot, +2 at evolution) isn't visually
+    noisy or a single-target overkill; (d) Concussion Wave (mastery, 0.4s stun) and
+    Resonance Cascade (evolution) land as real power spikes; (e) Resonance Field synergy
+    with aura toasts and applies; (f) knockback (60 / 110 evolved) reads as radial. All
+    knobs are the top-of-file consts in `src/weapons/PulseWeapon.ts` + the evolution/
+    synergy multipliers — do not retune blind.
   - **POLISH-SHIP-PAINT-PICKER** — players can now choose or revert their hull paint
     (FEAT-SHIP-PAINT-PICKER, `ddc54be`). Agents have no browser; this is a new scene +
     interaction flow and must be eyeballed. Reach it: MAIN MENU → **PAINT** deck card. Check:
