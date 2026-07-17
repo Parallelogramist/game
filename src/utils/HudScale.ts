@@ -112,3 +112,24 @@ export function scaledFontPx(scale: number, basePixels: number): string {
 export function scaledInt(scale: number, basePixels: number): number {
   return Math.round(basePixels * scale);
 }
+
+/**
+ * Uniform shrink that fits a vertical stack of equal rows into `availableHeight`;
+ * 1 when it already fits. The fit-to-height twin of BootScene's fit-to-width deck row.
+ *
+ * The practice dock needs it because the canvas is ~720 game units tall in EXPAND mode
+ * while hudScale climbs to ~2 on a phone: its 10 design-size rows total more than the
+ * canvas holds, and a centered over-tall stack overhangs BOTH edges, clipping the first
+ * and last rows out of reach.
+ */
+export function computeRowStackFit(
+  rowCount: number,
+  rowHeight: number,
+  gap: number,
+  availableHeight: number
+): number {
+  if (rowCount <= 0 || availableHeight <= 0) return 1;
+  const naturalHeight = rowCount * rowHeight + Math.max(0, rowCount - 1) * gap;
+  if (naturalHeight <= 0) return 1;
+  return naturalHeight > availableHeight ? availableHeight / naturalHeight : 1;
+}

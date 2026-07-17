@@ -114,6 +114,17 @@ export function setUltimateChargeSuppressed(suppressed: boolean): void {
   chargeSuppressed = suppressed;
 }
 
+/**
+ * Force the meter to full, bypassing suppression and the charge-rate multiplier.
+ * The practice sandbox's on-demand fire is the only caller: addUltimateCharge() is
+ * dropped entirely while charge is suppressed and scales its input by
+ * chargeRateMultiplier, so a sub-1 multiplier would under-fill and the fire would
+ * silently no-op.
+ */
+export function fillUltimateCharge(): void {
+  charge = MAX_ULTIMATE_CHARGE;
+}
+
 // ---------------------------------------------------------------------------
 // Readiness & activation
 // ---------------------------------------------------------------------------

@@ -18,6 +18,13 @@ import {
   PracticeArenaRung,
   practiceMutatorLabel,
 } from '../data/PracticeArena';
+import { computeRowStackFit } from '../utils/HudScale';
+import {
+  PRACTICE_ULTIMATE_CYCLE,
+  nextPracticeUltimate,
+  practiceUltimateLabel,
+  type PracticeUltimateChoice,
+} from '../data/PracticeUltimates';
 
 const DOCK_DEPTH = OverlayDepths.HUD_OVERLAY;
 
@@ -35,6 +42,8 @@ export interface PracticeDockOptions {
   onBuildChange: (depth: number) => void;
   onArenaChange: (rung: PracticeArenaRung) => void;
   onMutatorChange: (mutator: EndlessMutatorType) => void;
+  onUltimateChange: (choice: PracticeUltimateChoice) => void;
+  onFireUltimate: () => void;
 }
 
 /**
@@ -54,6 +63,7 @@ export class PracticeDock {
   private buildButton!: MenuButton;
   private arenaButton!: MenuButton;
   private mutatorButton!: MenuButton;
+  private ultimateButton!: MenuButton;
 
   private targetIndex = 0;
   private affix: EnemyAffixType = EnemyAffixType.NONE;
@@ -62,6 +72,7 @@ export class PracticeDock {
   private buildIndex = 0;
   private arenaIndex = 0;
   private mutator: EndlessMutatorType = EndlessMutatorType.NONE;
+  private ultimate: PracticeUltimateChoice = null;
 
   private left = 0;
   private top = 0;
@@ -76,15 +87,24 @@ export class PracticeDock {
 
   private build(): void {
     const scale = this.options.hudScale;
+    const rows = 10;
+    const designHeight = Math.max(Math.round(30 * scale), 30);
+    const designGap = Math.round(6 * scale);
+    const margin = Math.round(8 * scale);
+    const fit = computeRowStackFit(
+      rows,
+      designHeight,
+      designGap,
+      this.scene.scale.height - margin * 2
+    );
     const width = Math.round(168 * scale);
-    const height = Math.max(Math.round(30 * scale), 30);
-    const gap = Math.round(6 * scale);
-    const rows = 8;
+    const height = Math.max(16, Math.floor(designHeight * fit));
+    const gap = Math.max(2, Math.floor(designGap * fit));
     const x = Math.round(12 * scale) + width / 2;
     const stackHeight = rows * height + (rows - 1) * gap;
     const firstY = this.scene.scale.height / 2 - stackHeight / 2 + height / 2;
     const rowY = (row: number) => firstY + row * (height + gap);
-    const fontSize = Math.max(10, Math.round(11 * scale));
+    const fontSize = Math.max(9, Math.round(11 * scale * fit));
 
     this.left = x - width / 2;
     this.right = x + width / 2;
@@ -154,8 +174,18 @@ export class PracticeDock {
       },
     });
 
-    this.invincibleButton = createMenuButton({
+    this.ultimateButton = createMenuButton({
       scene: this.scene, x, y: rowY(6), width, height, fontSize,
+      label: '', variant: 'neutral',
+      onActivate: () => {
+        this.ultimate = nextPracticeUltimate(this.ultimate);
+        this.options.onUltimateChange(this.ultimate);
+        this.refreshLabels();
+      },
+    });
+
+    this.invincibleButton = createMenuButton({
+      scene: this.scene, x, y: rowY(7), width, height, fontSize,
       label: '', variant: 'neutral',
       onActivate: () => {
         this.invincible = !this.invincible;
@@ -164,15 +194,22 @@ export class PracticeDock {
       },
     });
 
+    const fireUltButton = createMenuButton({
+      scene: this.scene, x, y: rowY(8), width, height, fontSize,
+      label: 'FIRE ULT', variant: 'gold',
+      onActivate: () => this.options.onFireUltimate(),
+    });
+
     const spawnButton = createMenuButton({
-      scene: this.scene, x, y: rowY(7), width, height, fontSize,
+      scene: this.scene, x, y: rowY(9), width, height, fontSize,
       label: 'SPAWN', variant: 'gold',
       onActivate: () => this.options.onSpawn(this.getState()),
     });
 
     this.buttons = [this.targetButton, this.affixButton, this.affix2Button,
                     this.buildButton, this.arenaButton, this.mutatorButton,
-                    this.invincibleButton, spawnButton];
+                    this.ultimateButton, this.invincibleButton,
+                    fireUltButton, spawnButton];
     for (const button of this.buttons) {
       button.container.setDepth(DOCK_DEPTH);
       button.container.setScrollFactor(0);
@@ -218,6 +255,10 @@ export class PracticeDock {
     this.arenaButton.setEnabled(this.arenaIndex < PRACTICE_ARENA_LADDER.length - 1);
 
     this.mutatorButton.setLabel(`MUTATOR: ${practiceMutatorLabel(this.mutator)}`);
+
+    this.ultimateButton.setLabel(`ULT: ${practiceUltimateLabel(this.ultimate)}`);
+    this.ultimateButton.setVariant(this.ultimate !== null ? 'magenta' : 'neutral');
+    this.ultimateButton.setEnabled(PRACTICE_ULTIMATE_CYCLE.length > 1);
 
     this.invincibleButton.setLabel(`INVINCIBLE: ${this.invincible ? 'ON' : 'OFF'}`);
     this.invincibleButton.setVariant(this.invincible ? 'safe' : 'neutral');

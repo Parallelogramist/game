@@ -110,6 +110,7 @@ import {
   computeUltimateNova,
   getUltimateState,
   restoreUltimateState,
+  fillUltimateCharge,
 } from '../../systems/UltimateSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
@@ -118,7 +119,8 @@ import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
-import { getUltimateForShip, type ShipUltimateDefinition } from '../../data/ShipUltimates';
+import { getUltimateForShip, getShipUltimate, type ShipUltimateDefinition } from '../../data/ShipUltimates';
+import type { PracticeUltimateChoice } from '../../data/PracticeUltimates';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import {
   recordDailyRun,
@@ -407,6 +409,8 @@ export class GameScene extends Phaser.Scene {
   private practiceSpawnAffix2: EnemyAffixType = EnemyAffixType.NONE;
   private practiceDock: PracticeDock | null = null;
   private practiceSpawnKeyHandler: (() => void) | null = null;
+  private practiceUltimateOverride: PracticeUltimateChoice = null;
+  private practiceUltimateKeyHandler: (() => void) | null = null;
   private gauntletWave = 0;              // Current wave (0 = intro, before wave 1)
   private gauntletPhase: 'intro' | 'combat' | 'breather' = 'intro';
   private gauntletPhaseTimer = 0;        // Countdown for intro/breather phases
@@ -1410,6 +1414,7 @@ export class GameScene extends Phaser.Scene {
     };
     this.input.keyboard?.on('keydown-F10', this.directorDebugKeyHandler);
 
+    this.practiceUltimateOverride = null;
     if (this.practiceModeActive) {
       this.practiceDock = new PracticeDock(this, {
         hudScale: computeHudScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale()),
@@ -1418,6 +1423,8 @@ export class GameScene extends Phaser.Scene {
         onBuildChange: (depth) => this.applyPracticeBuild(depth),
         onArenaChange: (rung) => this.applyPracticeArena(rung),
         onMutatorChange: (mutator) => this.setPracticeMutator(mutator),
+        onUltimateChange: (choice) => { this.practiceUltimateOverride = choice; },
+        onFireUltimate: () => this.firePracticeUltimate(),
       });
 
       this.practiceSpawnKeyHandler = () => {
@@ -1425,6 +1432,9 @@ export class GameScene extends Phaser.Scene {
         if (dock) this.spawnPracticeTarget(dock.getState());
       };
       this.input.keyboard?.on('keydown-B', this.practiceSpawnKeyHandler);
+
+      this.practiceUltimateKeyHandler = () => this.firePracticeUltimate();
+      this.input.keyboard?.on('keydown-U', this.practiceUltimateKeyHandler);
     }
 
     // Setup beforeunload handler to save game state on page close/refresh
@@ -3103,8 +3113,9 @@ export class GameScene extends Phaser.Scene {
     if (this.playerId === -1) return;
     if (!tryActivateUltimate()) return;
 
-    const ship = getShipById(this.selectedShipId) ?? getDefaultShip();
-    const ultimate = getUltimateForShip(ship);
+    const ultimate = this.practiceUltimateOverride
+      ? getShipUltimate(this.practiceUltimateOverride)
+      : getUltimateForShip(getShipById(this.selectedShipId) ?? getDefaultShip());
     const playerX = Transform.x[this.playerId];
     const playerY = Transform.y[this.playerId];
     const nova = computeUltimateNova(this.playerStats.damageMultiplier, this.gameTime);
@@ -3156,6 +3167,18 @@ export class GameScene extends Phaser.Scene {
       color: ultimate.burstColor,
       duration: 2200,
     });
+  }
+
+  /**
+   * PRACTICE only — fill the meter and fire immediately. Judging the 11 ultimates
+   * otherwise costs ~40 kills per shot. fillUltimateCharge() (not addUltimateCharge)
+   * because the latter is scaled by the charge-rate multiplier and dropped while
+   * suppressed.
+   */
+  private firePracticeUltimate(): void {
+    if (!this.practiceModeActive) return;
+    fillUltimateCharge();
+    this.activateUltimate();
   }
 
   /**
@@ -9385,6 +9408,10 @@ export class GameScene extends Phaser.Scene {
     if (this.practiceSpawnKeyHandler) {
       this.input.keyboard?.off('keydown-B', this.practiceSpawnKeyHandler);
       this.practiceSpawnKeyHandler = null;
+    }
+    if (this.practiceUltimateKeyHandler) {
+      this.input.keyboard?.off('keydown-U', this.practiceUltimateKeyHandler);
+      this.practiceUltimateKeyHandler = null;
     }
     if (this.practiceDock) {
       this.practiceDock.destroy();

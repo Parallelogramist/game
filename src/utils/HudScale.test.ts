@@ -11,6 +11,7 @@ import {
   computeMenuLayoutScalePortrait,
   computeMenuFontScale,
   computeMenuFontScalePortrait,
+  computeRowStackFit,
 } from './HudScale';
 
 // Node env: window is undefined, so densityCompensation resolves to 1 and
@@ -53,5 +54,25 @@ describe('font scales honor the user multiplier and clamp', () => {
   test('clamps to [0.5, 2.5]', () => {
     expect(computeMenuFontScalePortrait(720, 1280, 99)).toBe(2.5);
     expect(computeMenuFontScalePortrait(720, 1280, 0.01)).toBe(0.5);
+  });
+});
+
+describe('computeRowStackFit', () => {
+  test('leaves a stack that already fits untouched', () => {
+    // Desktop: hudScale 1 → 10 rows of 30 + 9 gaps of 6 = 354 in a 704-unit budget.
+    expect(computeRowStackFit(10, 30, 6, 704)).toBe(1);
+  });
+
+  test('shrinks the 10-row practice dock to fit a phone canvas', () => {
+    // iPhone landscape: the canvas stays ~720 units tall while hudScale ≈ 2.09,
+    // so 10 design-size rows (63 + 13 gaps = 747) overhang a centered 720 stack.
+    const fit = computeRowStackFit(10, 63, 13, 686);
+    expect(fit).toBeLessThan(1);
+    expect(10 * Math.floor(63 * fit) + 9 * Math.floor(13 * fit)).toBeLessThanOrEqual(686);
+  });
+
+  test('is inert for degenerate input', () => {
+    expect(computeRowStackFit(0, 30, 6, 700)).toBe(1);
+    expect(computeRowStackFit(10, 30, 6, 0)).toBe(1);
   });
 });
