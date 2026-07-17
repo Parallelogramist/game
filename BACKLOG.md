@@ -61,6 +61,28 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   from account level 0, and the ASCEND button no longer needs a shop re-entry to appear.
   Full write-up in `BACKLOG-archive.md`. Playtest follow-up filed as
   **POLISH-ASCEND-CHASE** under `## Human gates`.
+- [x] **BUG-JUICE-SLOWMO-DEAD** — every cinematic slow-motion was cancelled by the hit
+  stop fired the line before it (done — b7a5e47). `JuiceManager.slowMotion()` opened with
+  `if (!this.scene || this.slowMotionActive || this.hitStopActive) return;`, and
+  `hitStop()` sets `hitStopActive` **synchronously** while clearing it only from a
+  `delayedCall` — so every callsite that fires the pair in one synchronous call had its
+  slow-mo silently dropped. That is **4 of the 7 callsites, unconditionally**: boss kill
+  and miniboss kill (`WeaponManager.ts:631/633` hit-stop on the same `xpValue` thresholds
+  that gate the slow-mo in `handleEnemyDeath`, invoked on the next line via
+  `onEnemyKilled`), the boss phase transition (`GameScene.ts:7881-7882`, adjacent lines),
+  and the combo annihilation (`:6821`/`:6831`). The BOMB consumable and every ship
+  ultimate call `detonateArea()` first, so a crit or a big kill in their own blast
+  suppressed their cinematic too — including all 11 hand-tuned `slowMo` entries in
+  `ShipUltimates.ts`. Only `playDeathSequence` ever played, because its author
+  hand-staggered it (`t=0` hitStop 120ms, `t=150` slowMotion). `JuiceManager` now performs
+  that handoff itself — a slow-mo requested during a freeze is chained, not dropped — and
+  scene-bound state is released on every (un)bind so `hitStopActive` can no longer latch
+  true and mute hit stop **and** slow motion for the whole page session. `resetJuiceManager()`
+  (zero callers, the last dead reset export) is now wired into `resetAllRunSystems()`.
+  **No balance number changes** — every duration and scale already existed in the code and
+  slow-mo is visual-only (no physics body exists in the game). Full write-up in
+  `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-JUICE-SLOWMO** under
+  `## Human gates`.
 - [x] **FEAT-SHIP-ULTIMATES** — every ship gets its own ultimate (done — 49c934f).
   Value: the ultimate is the game's biggest button and was identical on all 11 ships
   while every other ship axis (hull, palette, six stat multipliers, signature stat
@@ -270,6 +292,35 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-JUICE-SLOWMO** — the cinematics that never played (BUG-JUICE-SLOWMO-DEAD,
+    `b7a5e47`). Agents have no browser; this is a pure feel change and must not be retuned
+    blind. Check: (a) **the point of the fix** — kill a boss: after the freeze-frame there
+    must now be a ~300ms slow-motion with a subtle camera zoom (`slowMotion(300, 0.25)`),
+    which has never once played before this commit. Does the boss kill now land as the
+    biggest moment in the game, or does the freeze→slow-mo pair read as two effects
+    fighting? (b) **miniboss** — same, shorter (`150ms @ 0.4`): at endless cycle 3 (two
+    minibosses per wave) does it fire often enough to become a tax on pace? **This is the
+    most likely thing to be wrong** — it is the highest-frequency of the four.
+    (c) **boss phase break** — at 66% and 33% HP a `450ms @ 0.45` slow-mo now follows the
+    phase hit-stop: does it read as drama, or does it interrupt a fight you were winning?
+    (d) **combo annihilation** — `500ms @ 0.2` on the combo threshold: with the toast and
+    the shockwaves already firing, is this too much at once? (e) **the ultimate** — the
+    per-ship `slowMo` tunings in `src/data/ShipUltimates.ts` (11 ships, 700-1100ms @
+    0.18-0.3) now play reliably instead of only when the ult killed nothing big. Fly
+    Apex (`1100ms @ 0.18`, the longest): does pressing Q feel cinematic or sluggish?
+    (f) **the BOMB consumable** — `150ms @ 0.45` after a 720-radius blast. (g) **stacking,
+    the correctness one** — kill a boss whose death also triggers a phase break or lands
+    inside a combo threshold: exactly ONE slow-mo may play (last request wins) and the
+    camera zoom **must** return to 1.0. If the HUD is ever left magnified or the game ends
+    up permanently slow, that is a real bug — file it. (h) **player death still works** —
+    it is the one cinematic that always played (`800ms @ 0.15`); confirm this change did
+    not alter it. (i) **reduced motion** — with Reduced Motion on in SETTINGS the camera
+    zoom must stay suppressed. (j) **the session-latch fix** — die during a run, then play
+    3-4 more runs without reloading the page: hit stop and slow motion must still fire on
+    the 4th run. Before this fix, a run ending inside a freeze window killed both for the
+    rest of the session. **All knobs are the existing per-callsite arguments** (`GameScene.ts`
+    `:2763`, `:2840`, `:3075`, `:3164`, `:6831`, `:7882`) and `ShipUltimates.ts`; the
+    planner changed none of them.
   - **POLISH-ASCEND-CHASE** — the ascension chase is visible (FEAT-ASCEND-CHASE,
     `88c0cc3`). Agents have no browser. Reach it: MAIN MENU → SHOP. Check: (a) **the
     point of the feature** — on a fresh-ish profile (account level < 50, never ascended),

@@ -5,6 +5,80 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-JUICE-SLOWMO-DEAD — every cinematic slow-motion was cancelled by the hit stop fired the line before it · DONE b7a5e47
+
+- **The defect.** `JuiceManager.slowMotion()` (`JuiceManager.ts:814` before this fix) opened
+  with `if (!this.scene || this.slowMotionActive || this.hitStopActive) return;`. `hitStop()`
+  (`:749`) sets `this.hitStopActive = true` **synchronously**, and only clears it from a
+  `this.scene.time.delayedCall(duration, …)` — i.e. `duration` ms later, on the scene's
+  clock. Any `slowMotion()` reached in the same synchronous call chain as a `hitStop()` was
+  dropped, silently, always. Four callsites hit this **unconditionally**: the boss kill and
+  the miniboss kill (`WeaponManager.damageEnemy()`, `WeaponManager.ts:630-636`, fires
+  `hitStop(100, 1.0)`/`hitStop(60, 0.9)` on the same `xpValue >= 1000`/`>= 30` thresholds that
+  gate `handleEnemyDeath`'s `slowMotion(300, 0.25)`/`slowMotion(150, 0.4)`
+  (`GameScene.ts:2763`/`:2840`), invoked synchronously the next line via `onEnemyKilled`); the
+  boss phase transition (`handleBossPhaseTransition()`, `GameScene.ts:7881-7882`, adjacent
+  lines: `hitStop(100, 0.2)` then `slowMotion(450, 0.45, 250)`); and the combo annihilation
+  (`hitStop(80, 0.95)` at `:6821`, then a synchronous toast + sound, then
+  `slowMotion(500, 0.2, 300)` at `:6831`). Two more were conditionally dead and failed exactly
+  when the moment was biggest: the BOMB consumable (`:3075`) and `activateUltimate()`
+  (`:3133`) both call `detonateArea()` before their own `slowMotion()`, and `detonateArea`
+  runs the full damage pipeline — any crit (`hitStop(40, 0.8)`/`hitStop(20, 0.5)`,
+  `WeaponManager.ts:585/588`) or any miniboss/boss kill inside the blast set `hitStopActive`
+  and dropped the slow-mo that followed. All 11 ships' hand-tuned `slowMo` tunings
+  (`ShipUltimates.ts:80-195`) were subject to this.
+- **Why it was invisible.** It type-checks — `slowMotion()` returning early is valid,
+  intentional-looking control flow. No existing test exercised the interaction between
+  `hitStop()` and `slowMotion()`. The symptom is the *absence* of an effect at a moment
+  already crowded with screen shake, impact flash, and particles — nothing crashes, nothing
+  logs, the game just quietly never shows the cinematic. An agent reading the code in
+  isolation sees two well-formed juice calls in sequence and no reason to suspect one
+  silently vetoes the other.
+- **The one working callsite as evidence of intent.** `playDeathSequence()`
+  (`GameScene.ts:5517-5528`) was the only reliably-live slow-mo, and only because its author
+  hand-staggered it past the freeze: `t=0` fires `hitStop(120, 1)`, then a
+  `this.time.delayedCall(150, …)` fires `slowMotion(800, 0.15, 300)` — `150 > 120`, so
+  `hitStopActive` had already cleared. The `t=0`/`t=150` comments are the design language:
+  freeze, then slow-mo. The fix generalises that handoff into `JuiceManager` itself, so no
+  callsite has to hand-time a `delayedCall` against a hit-stop duration it doesn't own.
+- **The fix.** `slowMotion()` no longer bails on `hitStopActive`; if a hit stop is in flight
+  it stores the request as `pendingSlowMotion` and returns. `hitStop()`'s `delayedCall` now
+  calls `flushPendingSlowMotion()` immediately after restoring `tweens.timeScale`, so the
+  deferred slow-mo starts from the just-restored scale rather than the ~0 freeze value.
+  `startSlowMotion()` holds the original method body unchanged. Additionally,
+  `hitStopActive` was latched permanently true if a run ended inside a freeze window — its
+  only clearer lives in a `delayedCall` on the dying scene's clock, and `setScene(null)`
+  (called from `GameScene.shutdown()`) never cleared it; only `destroy()` did, and
+  `destroy()` was reachable only via `resetJuiceManager()`, which had zero callers anywhere
+  in `src`. A stranded `hitStopActive` muted **both** `hitStop()` and `slowMotion()` for the
+  rest of the page session, and would have stranded a pending slow-mo too under the new
+  chaining. `setScene()` now calls a new `releaseSceneBoundState()` that clears
+  `hitStopActive`, `slowMotionActive`, `pendingSlowMotion`, `hitStopCooldownUntil`, and
+  `zoomTween`, cancels in-flight wind-ups, on every (un)bind — including the shutdown path
+  and the whole menu window between runs. `resetJuiceManager()` is now wired into
+  `resetAllRunSystems()` alongside its 25 siblings, per that function's own doc comment
+  naming itself the single source of truth for run-scoped singleton resets.
+- **The audit that found it.** The prior two planners (`BUG-META-BARRIER-CAPACITY-DEAD`,
+  `1e7ef6c`; `FEAT-ASCEND-CHASE`, `88c0cc3`) declared the dead-value vein exhausted, but both
+  audits were scoped to `PlayerStats` fields and `getStarting*` getters — neither ever
+  audited the juice/feel layer. This planner re-ran the zero-caller audit across **all 533
+  exported functions in `src`**, which is how `resetJuiceManager` surfaced as dead code, and
+  pulling that thread found the `hitStopActive`/`slowMotionActive` collision underneath it.
+  **Record this as the method**: the next planner should widen the sweep rather than
+  re-declaring the vein dead.
+- **The knobs this opens, recorded and NOT turned.** 4 cinematics that never fired now fire,
+  at their originally-authored durations. Whether the miniboss slow-mo at `150ms @ 0.4` is
+  too frequent at endless cycle 3+ (two minibosses per wave), and whether the boss
+  phase-break slow-mo interrupts a fight, are feel calls the human owns via
+  `POLISH-JUICE-SLOWMO`. This change turned no number.
+- **Known non-changes.** `hitStop()` still drops a second hit stop that arrives inside an
+  active one (so a bomb killing a miniboss and a boss in one blast plays only the
+  miniboss's lighter freeze) — pre-existing, deliberately out of scope, worth filing if the
+  human cares. `activeWindUps` previously held destroyed graphics from dead scenes forever;
+  `releaseSceneBoundState()` incidentally closes that leak.
+
+---
+
 ## FEAT-ASCEND-CHASE — the prestige system you can't see until you're already standing on it · DONE 88c0cc3
 
 - **The defect.** `ShopScene.ts` rendered the ascension chip/button only when a player
