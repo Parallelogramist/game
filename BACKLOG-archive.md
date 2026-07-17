@@ -5,6 +5,51 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-STAGE-CHASE — surface the locked biomes and how to unlock them · DONE 6158650
+
+- **The gap.** The game ships 4 stages/biomes (`src/data/Stages.ts`: Deep Void [always], Inferno
+  [`worldLevel:2`], Crystal Caves [`hidden:unlock_world_traveler`], Endless Void
+  [`hidden:unlock_long_run`]), each with a distinct palette + enemy/reward multipliers. But
+  `WeaponSelectScene.getAvailableStages()` filtered the CHOOSE YOUR STAGE step to only *unlocked*
+  stages, and `create()` **skipped the step entirely** when ≤1 stage was unlocked
+  (`availableStages.length > 1` gate at two sites). On a fresh profile only Deep Void is unlocked →
+  the step was skipped → the player never saw it, never learned the other 3 biomes exist, and
+  never saw how to earn them. The biome roster and its unlock chase were invisible — the identical
+  invisible-chase hole FEAT-ASCEND-CHASE (`88c0cc3`) closed for prestige.
+- **The fix (WeaponSelectScene only).** Added `getLockedStages()` (STAGES whose requirement is
+  *not* met) and `describeStageUnlock()` (gate → human hint: `hidden:<id>` → the matching
+  `HIDDEN_UNLOCKS` entry's `hintText`; `worldLevel:<n>`/`account:<n>` → "Reach world/account level
+  n"). The stage step now shows whenever there is >1 stage to *display* (`available + locked > 1`,
+  always true with 4 stages), and `renderStageSelectionStep` draws the locked stages after the
+  selectable ones as dim, `interactive: false` cards (`renderLockedStageCard`) showing the biome
+  name, a gold "LOCKED" tag, the modifier description, and the unlock hint. Locked cards sit at
+  grid indices after the unlocked ones and are **excluded from the MenuNavigator**, so keyboard/pad
+  focus still lands only on selectable biomes and the column math is unchanged.
+- **Isolated, reversible, data-free.** No change to `Stages.ts`, `HiddenUnlocks.ts`,
+  `UnlockGates.ts`, or any persistence — the feature is pure presentation in one scene, reading
+  existing data (`HIDDEN_UNLOCKS` for hint text). No new module. The unlocked-card path, selection,
+  gauntlet launch, relayout-resume, and back-nav are untouched; a fully-unlocked profile sees the
+  step exactly as before (zero locked cards).
+- **Design decision: reveal, don't hide.** Locked cards show the real biome name + modifiers (not
+  "???") so the chase names its payoff, mirroring FEAT-ASCEND-CHASE's explicit "Ascend at Account
+  Lv.50 — +10% stats" hint. Whether to instead mask the name, add a live progress bar (only
+  lifetime-based conditions have pre-run context), and extend the same locked-preview to the ship
+  step are logged as non-blocking design calls in POLISH-STAGE-CHASE.
+- **No number changes, no test.** No gameplay/balance value changed. Per the workspace standing
+  order no test was added: this is Phaser scene rendering with no unit-test seam (the repo tests
+  pure logic only), and the one bit of logic (`describeStageUnlock`) is self-evident string parsing
+  that mirrors `isUnlockRequirementMet`'s gate parsing. Verified by `npx tsc --noEmit` (exit 0) and
+  the full suite (94 files / 1310 tests green, unchanged), plus the **POLISH-STAGE-CHASE** human
+  playtest.
+- **Why this over the open backlog.** The open `BACKLOG.md` items remain value-gate busy-work
+  (`CHORE-ARCH-DOC-SYNC` doc rewrite, `POLISH-GLYPH-SWEEP-2` cosmetic,
+  `BUG-MENUBUTTON-SETVARIANT-NOOP` sandbox-only colour), and a 4th Codex reference tab would worsen
+  the already-flagged 7-tab bar crowding. Making 3 of the game's 4 biomes (and their unlock chase)
+  visible to *every* player is higher, broader novel value than a 5th biome that would itself be
+  invisible until unlocked.
+
+---
+
 ## FEAT-CODEX-EVOLUTIONS — surface the hidden weapon-evolution recipes as a browsable Codex tab · DONE d4099c5
 
 - **The gap.** `src/data/WeaponEvolutions.ts` defines **19 weapon evolutions**

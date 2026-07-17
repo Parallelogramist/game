@@ -34,6 +34,22 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-STAGE-CHASE** — surface the locked biomes and how to unlock them
+  (done — 6158650). The game ships **4 stages/biomes** (`src/data/Stages.ts`: Deep Void,
+  Inferno, Crystal Caves, Endless Void) — each with a distinct palette and its own risk/reward
+  multipliers — but `WeaponSelectScene.getAvailableStages()` filtered the stage-select step to
+  **only unlocked** stages, and the step was **auto-skipped entirely** whenever ≤1 stage was
+  unlocked. So on a fresh profile (only Deep Void unlocked) the player never saw the stage step
+  at all, and even later never saw the 3 locked biomes or how to earn them — the whole biome
+  roster and its unlock chase were invisible, the same invisible-chase hole FEAT-ASCEND-CHASE
+  (`88c0cc3`) fixed for prestige. The stage step now always appears and renders the locked biomes
+  as dim, non-selectable cards showing the biome name, a gold "LOCKED" tag, the modifier
+  description, and the unlock hint (`hidden:` → the HiddenUnlocks `hintText`;
+  `worldLevel:`/`account:` → "Reach world/account level N"). Isolated to `WeaponSelectScene` —
+  **no data change, no new module, no `Stages`/`HiddenUnlocks`/`UnlockGates` edit, no
+  persistence**; locked cards use `interactive: false` and are excluded from the `MenuNavigator`,
+  so keyboard/pad nav still lands only on selectable biomes. Full write-up in
+  `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-STAGE-CHASE** under `## Human gates`.
 - [x] **FEAT-CODEX-EVOLUTIONS** — surface the hidden weapon-evolution recipes as a browsable
   Codex tab (done — d4099c5). The game ships **19 weapon evolutions**
   (`src/data/WeaponEvolutions.ts`): each weapon evolves into a named super-form when it reaches
@@ -351,6 +367,30 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-STAGE-CHASE** — the locked biomes now show on the stage-select step
+    (FEAT-STAGE-CHASE, `6158650`). Agents have no browser; this is a UI-layout + readability
+    change and must be eyeballed. Reach it: MAIN MENU → START (or GAUNTLET) → the first step is
+    now **CHOOSE YOUR STAGE**. Check: (a) **the point of the fix** — on a fresh-ish profile (world
+    level 1, nothing hidden-unlocked) the stage step now appears **at all** (it used to be
+    skipped), showing Deep Void selectable plus **3 dim LOCKED cards** (Inferno, Crystal Caves,
+    Endless Void). Before this, a new player never saw the step or learned the other biomes exist.
+    (b) **each locked card reads cleanly** — dim biome name, a gold "LOCKED" tag, the dim modifier
+    description, and the muted unlock hint; spot-check Crystal Caves = "Reach world level 3",
+    Endless Void = "Survive 30 minutes in a single run", Inferno = "Reach world level 2" (Inferno
+    unlocks at WL2, so it only shows locked at WL1). (c) **locked cards are not selectable** —
+    tapping one must do nothing (no run start, no hover glow); only the unlocked card(s) respond.
+    (d) **keyboard/pad nav** — arrowing must move only between the *unlocked* cards and never focus
+    a LOCKED card; the focus highlight lands only on selectable biomes. (e) **layout** — with 4
+    cards (1 unlocked + 3 locked) at portrait 720w the grid wraps to fit; confirm the LOCKED cards'
+    hint line isn't clipped by the 160px card height and the grid doesn't overflow the screen edge
+    in portrait or landscape. (f) **fully-unlocked profile** — once all 4 stages are unlocked there
+    are no LOCKED cards and the step looks exactly as it did before. (g) **the chase reads** — does
+    "Crystal Caves — +20% XP, tougher enemies — Reach world level 3" make you want to chase it, or
+    is revealing the modifiers a spoiler? Design calls this opens (none blocking, **not** agent
+    calls — note if you want them): mask the biome name behind "???" instead of revealing it; add a
+    live progress bar toward the unlock (the menu has no run context, so only lifetime-based
+    conditions could show progress pre-run); and give the SHIP step the same locked-preview
+    treatment (locked ships are hidden the same way today).
   - **POLISH-CODEX-EVOLUTIONS** — the new Codex → Evolutions tab (FEAT-CODEX-EVOLUTIONS,
     `d4099c5`). Agents have no browser; this is a UI-layout + readability change and must
     be eyeballed. Reach it: main menu → **Codex** → the **Evolutions** tab (7th tab, "dna"
