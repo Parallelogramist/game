@@ -22,6 +22,7 @@ import { DistortionPipeline } from './visual/DistortionPipeline';
 import { ColorblindPipeline } from './visual/ColorblindPipeline';
 import { registerServiceWorker } from './pwa/registerServiceWorker';
 import { captureInstallPromptEvent } from './pwa/InstallHint';
+import { loadGameFonts } from './visual/fontLoading';
 
 /**
  * Main entry point for the Survivor Game.
@@ -132,8 +133,15 @@ window.addEventListener('unhandledrejection', (event) => {
   registerServiceWorker();
   captureInstallPromptEvent();
 
+  // Kicked off before the storage await so the two overlap, then awaited below:
+  // Phaser caches every text texture on first draw, so any face that lands after
+  // the game is constructed never reaches the screen.
+  const fontsReady = loadGameFonts(document.fonts);
+
   // Initialize encrypted storage and migrate any legacy plaintext data
   await initializeStorage();
+
+  await fontsReady;
 
   // Create game configuration with scenes. The base size is orientation-aware
   // (1280×720 landscape, 720×1280 portrait) — EXPAND grows the long axis from
