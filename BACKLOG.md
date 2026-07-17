@@ -34,6 +34,19 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-RAILGUN** — new 24th weapon, Railgun (done — 142154d). Each
+  cooldown it locks the single toughest enemy on the field (highest current HP) and fires
+  an instant piercing rail lance from the ship through it, dealing heavy single-target
+  damage and skewering a limited number of enemies along the line — the arsenal's first
+  *toughest-target single-strike* and its first dedicated anti-boss/anti-elite focus tool.
+  Every other weapon is crowd-clear, nearest-target, random, zone, or companion; none
+  prioritized the toughest enemy. Distinct from Laser Beam (cursor-aimed continuous beam)
+  by auto-targeting the highest-HP enemy and firing a discrete burst on cooldown.
+  Self-drawn hot-cyan lance Graphics (no atlas frame), pooled lances; wired into
+  `WeaponRegistry`, `UNLOCKABLE_WEAPONS`, `ICON_MAP` (`telescope`),
+  `WEAPON_MASTERY_CATEGORY` (beam), an "Annihilator" evolution (piercing Lv5) and a "Siege
+  Protocol" synergy (+ singularity). Mastery "Killshot" doubles damage to the locked
+  target. Playtest follow-up filed as **POLISH-WEAPON-RAILGUN** under `## Human gates`.
 - [x] **FEAT-WEAPON-STORM** — new 23rd weapon, Storm Caller (done — b713251). Every
   cooldown it calls down lightning bolts that strike random enemies ANYWHERE on the
   field, each zapping a small AOE — the arsenal's first *global random-strike*. Every
@@ -442,6 +455,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-RAILGUN** — the new Railgun needs a balance/feel eyeball
+    (FEAT-WEAPON-RAILGUN, `142154d`). Agents have no browser. Reach it: PRACTICE →
+    WEAPON row → "Railgun" (unlocked or via a normal run's weapon offers). Check: (a) does
+    the lance read clearly as an instant rail beam that locks onto and skewers the toughest
+    enemy, with a muzzle flash at the ship and an impact bloom on the target; (b) base
+    damage 48 / cooldown 1.5 / half-width 18 / pierce 2 (→6 at Lv10) vs peers — dead or
+    oppressive?; (c) does locking the highest-HP enemy feel good against bosses/elites, or
+    does it waste the shot re-locking whenever HP order shuffles among a crowd (a
+    "highest-max-HP" or "sticky lock" rule is the obvious alternative — that is a balance
+    call, do NOT let an agent pick one); (d) does Killshot mastery (2× to the locked
+    target) and the Annihilator evolution (×1.6 dmg, +3 pierce, ×1.3 width/size, 15%
+    faster) land as real spikes; (e) does Siege Protocol synergy with Singularity read
+    (pull the horde into a clump, lance the line); (f) does the lance read at all three
+    quality levels. All knobs are the top-of-file consts in `src/weapons/RailgunWeapon.ts`
+    + the evolution/synergy multipliers — do not retune blind.
   - **POLISH-WEAPON-STORM** — the new Storm Caller needs a balance/feel eyeball
     (FEAT-WEAPON-STORM, `b713251`). Agents have no browser. Reach it: PRACTICE →
     WEAPON row → "Storm Caller" (unlocked or via a normal run's weapon offers). Check:
