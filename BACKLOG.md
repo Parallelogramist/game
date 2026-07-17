@@ -100,15 +100,13 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   (done — da469b7). Full write-up moved to `BACKLOG-archive.md`. Playtest
   follow-up filed as **POLISH-SAVE-EXPORT-REMINDER** under `## Human gates`.
 
-- [ ] **FEAT-META-MEMORY** — implement Memory (`upgradeKeepLevel`). Value: a
-  2,000-gold shop upgrade (500 base, ×3.0 scaling, max 2) that currently takes
-  gold and does nothing — `getStartingUpgradeKeep()` in
-  `src/meta/MetaProgressionManager.ts:987` has **zero callers**. Unlike the
-  BUG-META-DEAD-RESOURCES three, this is an unbuilt *feature*, not a loose wire:
-  its card promises "Keep {level} lowest upgrades" between runs, which needs
-  last-run upgrade ids persisted and re-applied at run start (save-schema work —
-  mirror the optional-field, no-version-bump pattern used by `endlessState.mutator`
-  in `GameStateManager.ts`). Pointer: shop entry `PermanentUpgrades.ts:714`.
+- [x] **FEAT-META-MEMORY** — implement Memory (`upgradeKeepLevel`) (done —
+  f3ba7ce). The last paid dead getter in the shop: a 2,000-gold upgrade whose
+  card promised "Keep {level} lowest upgrades" while `getStartingUpgradeKeep()` had
+  zero callers. Both run-end paths now bank the run's build, and the next run
+  re-applies its N lowest. Full write-up moved to `BACKLOG-archive.md`. **No playtest
+  filed** — see the write-up for why, and for the carryover-magnitude and
+  daily-fairness knobs.
 - [x] **FEAT-META-BLESSING** — implement Blessing (`blessingLevel`) (done —
   48400ec). A 3,900-gold shop upgrade that took gold and did nothing —
   `getStartingBlessingCount()` had zero callers. Now rolls N distinct pure-upside

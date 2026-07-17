@@ -5,6 +5,72 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-META-MEMORY — Memory (`upgradeKeepLevel`), the last paid dead getter · DONE f3ba7ce
+
+- **Value:** Memory is a 2,000-gold shop upgrade (500 base, ×3.0 scaling, max level
+  2, unlock level 20) whose card reads *"Keep {level} lowest upgrades"*.
+  `getStartingUpgradeKeep()` (`MetaProgressionManager.ts:987`) had **zero callers** —
+  it took the gold and did nothing. It was the last of the class this and the prior
+  three sessions worked through: `9b520d0` (Vitality/Fortify heals landed on a
+  mirror field), `1443893` (three placebo shop upgrades, ~13,500 gold), `48400ec`
+  (Blessing, 3,900 gold, zero callers), `8184fac` (every run starting at 100 HP
+  regardless of max). Unlike those, Memory was an **unbuilt feature**, not a loose
+  wire — it needed cross-run upgrade persistence, which is why it outlived the rest.
+- **Shipped:** a new pure module, `src/data/KeptUpgrades.ts`, with `recordRunBuild()`
+  (bank every owned, non-overflow upgrade and its level) and `selectKeptUpgrades()`
+  (the N lowest-level entries of a banked build). Both run-end paths —
+  `showVictory()` and `gameOver()`, the same pair that already dual-calls
+  `recordAchievements` because victories never flow through `gameOver()` — now call
+  `metaManager.recordRunUpgrades(recordRunBuild(this.upgrades))` to bank the
+  finished run's build to a new meta storage key
+  (`survivor-meta-last-run-upgrades`, registered in `StorageBootstrap.ts`). The next
+  run's start block reads `selectKeptUpgrades(getLastRunUpgrades(),
+  getStartingUpgradeKeep())` and replays `upgrade.apply()` once per level for each
+  kept entry — the same shape `applyPracticeBuild` already uses — then toasts what
+  carried over.
+- **Design:** (a) eligibility is `!upgrade.isOverflow && upgrade.currentLevel > 0`,
+  **not** `isStatUpgrade` — that flag means "subject to break-level gates" and is
+  false for `shieldBarrier`, a legitimate keepable upgrade, and also false for every
+  Limit Break overflow upgrade. Overflow entries are excluded on their own terms:
+  Memory keeps the **lowest** upgrades, and overflow scraps sit at level 1–3 beside
+  a maxed late-game build, so an unfiltered implementation would hand out overflow
+  crumbs every single time — to the only players who can afford a 2,000-gold
+  upgrade. A test pins this because the wrong filter is the natural-looking one. (b)
+  the **whole** owned build is banked, not the pre-selected carryover, because the
+  keep count is read at run start: buying Memory (or its second level) after a run
+  ends still pays out on the run already banked, instead of costing 500 gold for
+  nothing until one more run has been played. (c) the block is placed with the other
+  run-start gifts, immediately after blessings and ahead of the SHIP block — a kept
+  Vitality's flat HP is hull-scaled the way a card's `maxHealthAdd` is, and the SHIP
+  block's unconditional `currentHealth = maxHealth` then fills the new headroom, so
+  no health code was needed and no risk of the `9b520d0`/`8184fac` class of bug. (d)
+  the HUD icon strip reads `currentLevel` off `this.upgrades`, so kept upgrades
+  appear for free — no HUD code written. (e) `selectKeptUpgrades(_, 0)` returns
+  `[]`, so a profile that never bought Memory is byte-identical — the same
+  load-bearing guard `48400ec` used for `selectBlessings(0)`. (f) the record is meta
+  state, not run state — no `GameStateManager` schema change; a restored run never
+  replays `create()`'s pipeline, so it can't double-apply Memory. (g) the loader
+  rebuilds the stored array entry by entry and clamps each level to
+  `MAX_RECORDED_UPGRADE_LEVEL` (10), since a tampered level both cheats stats and
+  drives a hot replay loop; the run-start block's own `Math.min` against
+  `upgrade.maxLevel` is the second bound.
+- **Open knobs (for the human, not a playtest):**
+  - **Carryover magnitude.** Memory pays out *inversely* to build breadth: a player
+    whose build is broad and shallow keeps two level-1s (near-nothing), while a
+    maxed late-game player whose whole build sits at 10 keeps **two level-10s** —
+    including a possible Might 10 (+50% damage) from t=0. "Lowest" is the card's
+    literal promise and is anti-snowball by design, but its payout curve is not
+    flat, and the ceiling is the human's call to keep, cap, or retune.
+  - **Daily fairness.** Memory applies in daily/weekly challenge runs, consistent
+    with every other meta upgrade (blessings, Fortitude, ships) — but daily runs are
+    a leaderboard, so whether *any* meta should apply there is a standing question
+    this feature makes slightly sharper.
+  - **No playtest filed:** the behavior is provable from the diff plus the pinned
+    pure logic, and the `## Human gates` playtest queue is already ~30 deep with
+    none ever drained.
+
+---
+
 ## BUG-RUNSTART-HP-CAP — every run started at 100 HP no matter your max · DONE 8184fac
 
 - **Value:** run-start HP was hard-capped at 100. `createPlayer`
