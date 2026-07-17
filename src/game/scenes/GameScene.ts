@@ -138,6 +138,8 @@ import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { setPracticeSession } from '../../utils/practiceSession';
+import { PracticeDock, PracticeDockState } from '../../ui/PracticeDock';
+import { isPracticeMinibossTarget, scheduledSpawnTime } from '../../data/PracticeTargets';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
@@ -394,6 +396,11 @@ export class GameScene extends Phaser.Scene {
   private practiceModeActive = false;
   private practiceWeaponLevel = 1;
   private practiceEvolved = false;
+  private practiceInvincible = false;
+  private practiceSpawnAffix: EnemyAffixType = EnemyAffixType.NONE;
+  private practiceSpawnAffix2: EnemyAffixType = EnemyAffixType.NONE;
+  private practiceDock: PracticeDock | null = null;
+  private practiceSpawnKeyHandler: (() => void) | null = null;
   private gauntletWave = 0;              // Current wave (0 = intro, before wave 1)
   private gauntletPhase: 'intro' | 'combat' | 'breather' = 'intro';
   private gauntletPhaseTimer = 0;        // Countdown for intro/breather phases
@@ -665,6 +672,9 @@ export class GameScene extends Phaser.Scene {
     this.pendingOrientationRelayout = false;
     this.introOverlayActive = false;
     this.hasWon = false;
+    this.practiceInvincible = false;
+    this.practiceSpawnAffix = EnemyAffixType.NONE;
+    this.practiceSpawnAffix2 = EnemyAffixType.NONE;
     this.syncCacheGuardWithPendingReveal();
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
@@ -1338,6 +1348,20 @@ export class GameScene extends Phaser.Scene {
     };
     this.input.keyboard?.on('keydown-F10', this.directorDebugKeyHandler);
 
+    if (this.practiceModeActive) {
+      this.practiceDock = new PracticeDock(this, {
+        hudScale: computeHudScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale()),
+        onSpawn: (state) => this.spawnPracticeTarget(state),
+        onInvincibleChange: (invincible) => { this.practiceInvincible = invincible; },
+      });
+
+      this.practiceSpawnKeyHandler = () => {
+        const dock = this.practiceDock;
+        if (dock) this.spawnPracticeTarget(dock.getState());
+      };
+      this.input.keyboard?.on('keydown-B', this.practiceSpawnKeyHandler);
+    }
+
     // Setup beforeunload handler to save game state on page close/refresh
     this.setupBeforeUnloadHandler();
 
@@ -1355,6 +1379,7 @@ export class GameScene extends Phaser.Scene {
     // While any intro overlay (coach marks / modifier banner) is showing, taps
     // to dismiss shouldn't also spawn the joystick (would leave ghost joysticks).
     this.inputController.addJoystickExclusionCheck(() => this.introOverlayActive);
+    this.inputController.addJoystickExclusionCheck((x, y) => this.practiceDock?.containsPoint(x, y) ?? false);
 
     // Listen for dash requests from InputController (triggered by Shift key)
     this.dashRequestHandler = () => {
@@ -2704,9 +2729,10 @@ export class GameScene extends Phaser.Scene {
         });
       }
 
-      // Boss kill = Victory! Advance to next world level. GAUNTLET waves keep
-      // going instead — bosses there are wave fodder, not the win condition.
-      if (!this.hasWon && !this.gauntletModeActive) {
+      // Boss kill = Victory! Advance to next world level. GAUNTLET waves and
+      // PRACTICE spawns keep going instead — bosses there are fodder, not the
+      // win condition.
+      if (!this.hasWon && !this.gauntletModeActive && !this.practiceModeActive) {
         const metaManager = getMetaProgressionManager();
         metaManager.advanceWorldLevel();
         this.showVictory();
@@ -4351,6 +4377,10 @@ export class GameScene extends Phaser.Scene {
    * @param attackerEntity Optional entity ID for thorns damage
    */
   private takeDamage(amount: number, attackerEntity?: number): void {
+    // Ahead of the shield branch on purpose: a practice invincibility that burned
+    // shield charges would quietly change the build being judged.
+    if (this.practiceInvincible) return;
+
     // ═══ SHIELD BARRIER CHECK (binary shield - blocks hit completely) ═══
     if (this.playerStats.shieldBarrierEnabled && this.playerStats.shieldCharges > 0) {
       this.playerStats.shieldCharges--;
@@ -4884,6 +4914,18 @@ export class GameScene extends Phaser.Scene {
   private exitPracticeSession(): void {
     setPracticeSession(false);
     window.location.reload();
+  }
+
+  private spawnPracticeTarget(state: PracticeDockState): void {
+    if (!this.practiceModeActive) return;
+    if (this.isPaused || this.isGameOver || this.introOverlayActive) return;
+    this.practiceSpawnAffix = state.affix;
+    this.practiceSpawnAffix2 = state.affix2;
+    if (isPracticeMinibossTarget(state.targetId)) {
+      this.spawnMiniboss(state.targetId);
+    } else {
+      this.spawnBoss(state.targetId);
+    }
   }
 
   /**
@@ -5713,14 +5755,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Scale stats with both time and world level multipliers
-    const scaledStats = getScaledStats(enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
+    const scalingTime = this.spawnScalingTime(typeId);
+    const scaledStats = getScaledStats(enemyType, scalingTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
 
     // ═══ MINIBOSS AFFIX (endless cycle-2+ / gauntlet wave-4+ replay variety) ═══
     // One roll per spawn call: the twins are a single setpiece, so both carry
     // the same affix rather than rolling independently.
-    const minibossAffix = this.minibossAffixEligible() ? rollBossAffix() : EnemyAffixType.NONE;
+    const minibossAffix = this.minibossAffixEligible() ? this.practiceOrRolledAffix() : EnemyAffixType.NONE;
     const minibossParagonAffix = minibossAffix !== EnemyAffixType.NONE && this.paragonEligible()
-      ? rollParagonAffix(minibossAffix)
+      ? this.practiceOrRolledParagonAffix(minibossAffix)
       : EnemyAffixType.NONE;
 
     // Special case: Twins spawn as a pair
@@ -5740,7 +5783,7 @@ export class GameScene extends Phaser.Scene {
         const offsetAngle = Math.random() * Math.PI * 2;
         const twinBX = x + Math.cos(offsetAngle) * 60;
         const twinBY = y + Math.sin(offsetAngle) * 60;
-        const twinBStats = getScaledStats(twinBType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
+        const twinBStats = getScaledStats(twinBType, scalingTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
         const twinB = this.createEnemy(twinBX, twinBY, twinBType, twinBStats);
         if (minibossAffix !== EnemyAffixType.NONE) {
           this.applyDampedAffixStats(twinB, minibossAffix);
@@ -6813,20 +6856,41 @@ export class GameScene extends Phaser.Scene {
 
   /** Affixed bosses are replay-variety only: endless cycle 2+ / gauntlet wave 6+. */
   private bossAffixEligible(): boolean {
+    if (this.practiceModeActive) return true;
     if (this.gauntletModeActive) return this.gauntletWave >= 6;
     return this.endlessModeActive && this.endlessCycleNumber >= 2;
   }
 
   /** Affixed minibosses are replay-variety only: endless cycle 2+ / gauntlet wave 4+. */
   private minibossAffixEligible(): boolean {
+    if (this.practiceModeActive) return true;
     if (this.gauntletModeActive) return this.gauntletWave >= 4;
     return this.endlessModeActive && this.endlessCycleNumber >= 2;
   }
 
   /** Paragon (double-affix) elites: deep runs only — endless cycle 4+ / gauntlet wave 10+. */
   private paragonEligible(): boolean {
+    if (this.practiceModeActive) return true;
     if (this.gauntletModeActive) return this.gauntletWave >= 10;
     return this.endlessModeActive && this.endlessCycleNumber >= 4;
+  }
+
+  /** Practice fields the affix the operator picked; every other mode rolls. */
+  private practiceOrRolledAffix(): EnemyAffixType {
+    return this.practiceModeActive ? this.practiceSpawnAffix : rollBossAffix();
+  }
+
+  private practiceOrRolledParagonAffix(firstAffix: EnemyAffixType): EnemyAffixType {
+    return this.practiceModeActive ? this.practiceSpawnAffix2 : rollParagonAffix(firstAffix);
+  }
+
+  /**
+   * The clock a boss-tier spawn scales against. A practice spawn lands at ~t=0,
+   * where time-scaled stats would field a far weaker enemy than the one being
+   * judged — so it scales at the time you'd really meet it instead.
+   */
+  private spawnScalingTime(typeId: string): number {
+    return this.practiceModeActive ? scheduledSpawnTime(typeId) : this.gameTime;
   }
 
   /**
@@ -6867,7 +6931,7 @@ export class GameScene extends Phaser.Scene {
     const y = -100;
 
     // Scale stats with both time and world level multipliers
-    const scaledStats = getScaledStats(enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
+    const scaledStats = getScaledStats(enemyType, this.spawnScalingTime(typeId), this.worldLevelHealthMult, this.worldLevelDamageMult);
 
     // Double boss health for challenge
     scaledStats.health *= 2;
@@ -6879,10 +6943,10 @@ export class GameScene extends Phaser.Scene {
     // shared-pool math must not absorb a root-only health multiplier.
     let bossDisplayName = enemyType.name;
     if (typeId !== 'the_legion' && this.bossAffixEligible()) {
-      const bossAffix = rollBossAffix();
+      const bossAffix = this.practiceOrRolledAffix();
       if (bossAffix !== EnemyAffixType.NONE) {
         this.applyDampedAffixStats(entityId, bossAffix);
-        const paragonAffix = this.paragonEligible() ? rollParagonAffix(bossAffix) : EnemyAffixType.NONE;
+        const paragonAffix = this.paragonEligible() ? this.practiceOrRolledParagonAffix(bossAffix) : EnemyAffixType.NONE;
         if (paragonAffix !== EnemyAffixType.NONE) {
           this.applyDampedAffixStats(entityId, paragonAffix, true);
         }
@@ -9020,6 +9084,15 @@ export class GameScene extends Phaser.Scene {
     if (this.directorDebugText) {
       this.directorDebugText.destroy();
       this.directorDebugText = null;
+    }
+
+    if (this.practiceSpawnKeyHandler) {
+      this.input.keyboard?.off('keydown-B', this.practiceSpawnKeyHandler);
+      this.practiceSpawnKeyHandler = null;
+    }
+    if (this.practiceDock) {
+      this.practiceDock.destroy();
+      this.practiceDock = null;
     }
 
     // Remove resume handler
