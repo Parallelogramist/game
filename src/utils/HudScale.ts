@@ -133,3 +133,42 @@ export function computeRowStackFit(
   if (naturalHeight <= 0) return 1;
   return naturalHeight > availableHeight ? availableHeight / naturalHeight : 1;
 }
+
+/**
+ * PracticeScene's bottom control stack: SHIP row → LEVEL stepper → EVOLVED → START.
+ *
+ * Pure so the vertical budget is checkable without a live scene — this scene's
+ * recurring failure mode is vertical (every practice feature has added a row), and
+ * START, the lowest control, is the one that silently renders past the canvas edge.
+ * The reserve must cover everything below the stepper: EVOLVED (+50) + START (+60)
+ * + START's own half-height (26) = 136.
+ */
+export const PRACTICE_CONTROL_BOTTOM_RESERVE = 140;
+
+/** START's height in PracticeScene — the stack's lowest extent is startY + half of it. */
+export const PRACTICE_START_HEIGHT = 52;
+
+export interface PracticeControlLayout {
+  shipY: number;
+  stepperY: number;
+  evolveY: number;
+  startY: number;
+  /** Lowest unit the stack paints; must never exceed the canvas height. */
+  startBottom: number;
+}
+
+export function computePracticeControlLayout(
+  canvasHeight: number,
+  layoutScale: number,
+): PracticeControlLayout {
+  const stepperY = canvasHeight - scaledInt(layoutScale, PRACTICE_CONTROL_BOTTOM_RESERVE);
+  const evolveY = stepperY + scaledInt(layoutScale, 50);
+  const startY = evolveY + scaledInt(layoutScale, 60);
+  return {
+    shipY: stepperY - scaledInt(layoutScale, 120),
+    stepperY,
+    evolveY,
+    startY,
+    startBottom: startY + PRACTICE_START_HEIGHT / 2,
+  };
+}

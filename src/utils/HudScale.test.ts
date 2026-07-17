@@ -12,6 +12,8 @@ import {
   computeMenuFontScale,
   computeMenuFontScalePortrait,
   computeRowStackFit,
+  computePracticeControlLayout,
+  PRACTICE_CONTROL_BOTTOM_RESERVE,
 } from './HudScale';
 
 // Node env: window is undefined, so densityCompensation resolves to 1 and
@@ -74,5 +76,28 @@ describe('computeRowStackFit', () => {
   test('is inert for degenerate input', () => {
     expect(computeRowStackFit(0, 30, 6, 700)).toBe(1);
     expect(computeRowStackFit(10, 30, 6, 0)).toBe(1);
+  });
+});
+
+describe('computePracticeControlLayout (the practice menu vertical budget)', () => {
+  test('START fits the canvas in both orientations', () => {
+    // The only two shapes EXPAND produces: the 1280×720 landscape base and the
+    // 720×1280 portrait base, both of which resolve their own fit to exactly 1.0.
+    // START rendering past the edge is the bug this pins — it was 6 units over in
+    // landscape and a whole button-height over in portrait.
+    expect(computePracticeControlLayout(720, 1).startBottom).toBeLessThanOrEqual(720);
+    expect(computePracticeControlLayout(1280, 1).startBottom).toBeLessThanOrEqual(1280);
+  });
+
+  test('the reserve covers the whole stack below the stepper', () => {
+    // Scale-independent restatement: add a row without growing the reserve and this
+    // fails before it reaches a device.
+    const layout = computePracticeControlLayout(720, 1);
+    expect(layout.startBottom - layout.stepperY).toBeLessThanOrEqual(
+      PRACTICE_CONTROL_BOTTOM_RESERVE,
+    );
+    expect(layout.shipY).toBeLessThan(layout.stepperY);
+    expect(layout.stepperY).toBeLessThan(layout.evolveY);
+    expect(layout.evolveY).toBeLessThan(layout.startY);
   });
 });

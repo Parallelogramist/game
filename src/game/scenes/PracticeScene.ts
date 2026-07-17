@@ -7,7 +7,15 @@ import { SHIP_CHARACTERS, getDefaultShip } from '../../data/ShipCharacters';
 import { getUltimateForShip } from '../../data/ShipUltimates';
 import { createIcon } from '../../utils/IconRenderer';
 import { transitionToScene, sweepIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
-import { computeMenuLayoutScale, computeMenuFontScale, scaledInt } from '../../utils/HudScale';
+import {
+  computeMenuLayoutScale,
+  computeMenuLayoutScalePortrait,
+  computeMenuFontScale,
+  computeMenuFontScalePortrait,
+  computePracticeControlLayout,
+  scaledInt,
+  PRACTICE_START_HEIGHT,
+} from '../../utils/HudScale';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
@@ -93,9 +101,26 @@ export class PracticeScene extends Phaser.Scene {
     this.renderControls();
   }
 
+  /**
+   * Portrait opts into the orientation-matched 720×1280 fit, like BootScene: the
+   * weapon grid and the centered control column both fit 720 units of width at full
+   * size, whereas the landscape fit resolves to 0.5625 in portrait — which squashed
+   * the whole menu and pushed START clean off the bottom of the canvas.
+   */
+  private computeScales(): { layoutScale: number; fontScale: number } {
+    const portrait = this.scale.height > this.scale.width;
+    return {
+      layoutScale: portrait
+        ? computeMenuLayoutScalePortrait(this.scale.width, this.scale.height)
+        : computeMenuLayoutScale(this.scale.width, this.scale.height),
+      fontScale: portrait
+        ? computeMenuFontScalePortrait(this.scale.width, this.scale.height)
+        : computeMenuFontScale(this.scale.width, this.scale.height),
+    };
+  }
+
   private renderHeader(): void {
-    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    const fontScale = computeMenuFontScale(this.scale.width, this.scale.height);
+    const { layoutScale, fontScale } = this.computeScales();
     const centerX = this.scale.width / 2;
 
     const title = makeDisplayText(this, centerX, scaledInt(layoutScale, 60), 'PRACTICE', {
@@ -290,14 +315,15 @@ export class PracticeScene extends Phaser.Scene {
     }
     this.controlButtons = this.controlButtons.slice(0, 1); // keep the back button
 
-    const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
-    const fontScale = computeMenuFontScale(this.scale.width, this.scale.height);
+    const { layoutScale, fontScale } = this.computeScales();
     const centerX = this.scale.width / 2;
-    const rowY = this.scale.height - scaledInt(layoutScale, 130);
+    const { shipY, stepperY, evolveY, startY } = computePracticeControlLayout(
+      this.scale.height,
+      layoutScale,
+    );
 
     const entry = this.getSelectedEntry();
     const maxLevel = entry?.maxLevel ?? 1;
-    const stepperY = rowY;
 
     // Ship cycle — every ship, unlocked or not. The sandbox already ignores unlock
     // gating on its weapon grid (PRACTICE_WEAPON_IDS offers all 19), nothing here
@@ -306,7 +332,6 @@ export class PracticeScene extends Phaser.Scene {
     // the limit this row exists to remove. The ship's own startingWeaponId stays
     // suppressed in practice (GameScene's !practiceModeActive guard): the grid wins.
     const ship = SHIP_CHARACTERS[this.selectedShipIndex] ?? getDefaultShip();
-    const shipY = stepperY - 120;
 
     const shipLabel = makeDisplayText(this, centerX - 160, shipY, 'SHIP', {
       fontSize: scaledInt(fontScale, 14),
@@ -404,7 +429,6 @@ export class PracticeScene extends Phaser.Scene {
 
     // Evolve toggle.
     const evolveAvailable = this.isEvolveAvailable();
-    const evolveY = stepperY + 50;
     const evolveButton = createMenuButton({
       scene: this,
       x: centerX,
@@ -425,13 +449,12 @@ export class PracticeScene extends Phaser.Scene {
     this.controlButtons.push(evolveButton);
 
     // START.
-    const startY = evolveY + 60;
     const startButton = createMenuButton({
       scene: this,
       x: centerX,
       y: startY,
       width: 220,
-      height: 52,
+      height: PRACTICE_START_HEIGHT,
       label: 'START',
       variant: 'gold',
       fontSize: scaledInt(fontScale, 18),
