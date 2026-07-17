@@ -140,6 +140,7 @@ import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { setPracticeSession } from '../../utils/practiceSession';
 import { PracticeDock, PracticeDockState } from '../../ui/PracticeDock';
 import { isPracticeMinibossTarget, scheduledSpawnTime } from '../../data/PracticeTargets';
+import { practiceBuildPlayerLevel } from '../../data/PracticeBuild';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
@@ -397,6 +398,7 @@ export class GameScene extends Phaser.Scene {
   private practiceWeaponLevel = 1;
   private practiceEvolved = false;
   private practiceInvincible = false;
+  private practiceBuildDepth = 0;
   private practiceSpawnAffix: EnemyAffixType = EnemyAffixType.NONE;
   private practiceSpawnAffix2: EnemyAffixType = EnemyAffixType.NONE;
   private practiceDock: PracticeDock | null = null;
@@ -673,6 +675,7 @@ export class GameScene extends Phaser.Scene {
     this.introOverlayActive = false;
     this.hasWon = false;
     this.practiceInvincible = false;
+    this.practiceBuildDepth = 0;
     this.practiceSpawnAffix = EnemyAffixType.NONE;
     this.practiceSpawnAffix2 = EnemyAffixType.NONE;
     this.syncCacheGuardWithPendingReveal();
@@ -1353,6 +1356,7 @@ export class GameScene extends Phaser.Scene {
         hudScale: computeHudScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale()),
         onSpawn: (state) => this.spawnPracticeTarget(state),
         onInvincibleChange: (invincible) => { this.practiceInvincible = invincible; },
+        onBuildChange: (depth) => this.applyPracticeBuild(depth),
       });
 
       this.practiceSpawnKeyHandler = () => {
@@ -4926,6 +4930,40 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.spawnBoss(state.targetId);
     }
+  }
+
+  /**
+   * Field the passive build a real run would have by this point. Monotonic:
+   * upgrade.apply is additive, so a build can be raised but never rolled back —
+   * the same way a real run's build only grows. Reload to start over.
+   */
+  private applyPracticeBuild(depth: number): void {
+    if (!this.practiceModeActive || depth <= this.practiceBuildDepth) return;
+
+    const statUpgrades = this.upgrades.filter((upgrade) => upgrade.isStatUpgrade);
+    for (const upgrade of statUpgrades) {
+      const target = Math.min(depth, upgrade.maxLevel);
+      for (let level = upgrade.currentLevel + 1; level <= target; level++) {
+        upgrade.apply(this.playerStats, level);
+      }
+      upgrade.currentLevel = Math.max(upgrade.currentLevel, target);
+    }
+    this.practiceBuildDepth = depth;
+
+    // Without a matching level the XP threshold stays at 10 while a boss drops
+    // 1000+, cascading dozens of level-up modals over the fight being measured.
+    const playerLevel = practiceBuildPlayerLevel(depth, statUpgrades.length);
+    this.playerStats.level = playerLevel;
+    this.playerStats.xp = 0;
+    this.playerStats.xpToNextLevel = calculateXPForLevel(playerLevel);
+    this.playerSpaceship?.onLevelUp(playerLevel);
+
+    this.syncStatsToPlayer();
+
+    // A build is a chassis configuration, not a damage event: syncStatsToPlayer
+    // only clamps current HP downward, so vitality's new headroom starts empty.
+    Health.current[this.playerId] = Health.max[this.playerId];
+    this.playerStats.currentHealth = Health.current[this.playerId];
   }
 
   /**
