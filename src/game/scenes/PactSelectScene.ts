@@ -14,6 +14,14 @@ export interface PactSelectSceneData {
   gauntletMode?: boolean;
 }
 
+/**
+ * What the scene is actually started with. `relayout` is set only by main.ts's
+ * orientation watcher; init() strips it back out so it can never reach GameScene.
+ */
+interface PactSelectLaunchData extends PactSelectSceneData {
+  relayout?: boolean;
+}
+
 interface PactCard {
   pact: Pact;
   container: Phaser.GameObjects.Container;
@@ -40,9 +48,14 @@ export class PactSelectScene extends Phaser.Scene {
     super({ key: 'PactSelectScene' });
   }
 
-  init(data: PactSelectSceneData): void {
-    this.passthrough = data ?? { startingWeapon: 'projectile' };
-    this.selectedIds = new Set();
+  init(data?: PactSelectLaunchData): void {
+    // A flip restarts this scene to re-fit the new canvas; the pacts already
+    // chosen are the player's composed input and must survive it. A fresh entry
+    // still starts empty. `relayout` is destructured off here so the flag can
+    // never ride along to GameScene via passthrough.
+    const { relayout, ...launch }: PactSelectLaunchData = data ?? { startingWeapon: 'projectile' };
+    this.passthrough = launch;
+    if (relayout !== true) this.selectedIds = new Set();
     this.cards = [];
     this.menuNavigator = null;
     this.isStarting = false;
@@ -160,6 +173,19 @@ export class PactSelectScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * The SELECTED treatment, in one place. A re-layout restart rebuilds every card
+   * from scratch, so the rebuild and a tap must paint identically — otherwise
+   * preserved selections show as unselected cards, which reads worse than losing
+   * them. Touches bg's FILL only; its stroke is the focus ring (setCardFocus).
+   */
+  private paintCardSelection(card: PactCard, selected: boolean): void {
+    card.border.setVisible(selected);
+    card.selectedBadge.setVisible(selected);
+    card.bg.setFillStyle(selected ? 0x18251c : 0x14141f);
+    card.container.setScale(selected ? 1.04 : 1);
+  }
+
   private updateCounter(): void {
     if (!this.counterText) return;
     const count = this.selectedIds.size;
@@ -238,7 +264,9 @@ export class PactSelectScene extends Phaser.Scene {
     });
     bg.on('pointerup', () => this.togglePact(index));
 
-    return { pact, container, border, bg, selectedBadge };
+    const card: PactCard = { pact, container, border, bg, selectedBadge };
+    this.paintCardSelection(card, this.selectedIds.has(pact.id));
+    return card;
   }
 
   private togglePact(index: number): void {
@@ -247,20 +275,14 @@ export class PactSelectScene extends Phaser.Scene {
     const id = card.pact.id;
     if (this.selectedIds.has(id)) {
       this.selectedIds.delete(id);
-      card.border.setVisible(false);
-      card.selectedBadge.setVisible(false);
-      card.bg.setFillStyle(0x14141f);
-      card.container.setScale(1);
+      this.paintCardSelection(card, false);
     } else {
       if (this.selectedIds.size >= MAX_PACTS) {
         this.flashCap();
         return;
       }
       this.selectedIds.add(id);
-      card.border.setVisible(true);
-      card.selectedBadge.setVisible(true);
-      card.bg.setFillStyle(0x18251c);
-      card.container.setScale(1.04);
+      this.paintCardSelection(card, true);
     }
     this.updateCounter();
   }
