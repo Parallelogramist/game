@@ -127,19 +127,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   5687c15). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
   filed as **POLISH-PWA-INSTALL-PROMPT** under `## Human gates`.
 
-- [ ] **BUG-VITALITY-HEAL-DEAD** — `vitality`'s "also heal for the bonus"
-  never reaches the player. `Upgrades.ts` (~line 386) does
-  `stats.currentHealth += 20` (and `+= 50` at mastery), but `syncStatsToPlayer`
-  (`GameScene.ts:8626-8630`) only ever *clamps* `Health.current` **downward** and
-  never raises it, and the next `takeDamage` overwrites `playerStats.currentHealth`
-  from the ECS value (`GameScene.ts:4481`). So every vitality pick silently grants
-  max-HP headroom but no heal. Affects real runs, not just practice.
+- [x] **BUG-VITALITY-HEAL-DEAD** — `vitality`'s "also heal for the bonus" never
+  reached the player (done — 9b520d0). Fixed as a class: Vitality, Fortify,
+  Vitality Core + Armor Plate all landed heals on a mirror field the ECS never read.
+  Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up filed as
+  **POLISH-VITALITY-HEAL** under `## Human gates`.
 - [ ] **BUG-MENUBUTTON-SETVARIANT-NOOP** — `MenuButton.setVariant()`
   (`src/visual/MenuButton.ts:129-135`) stores the variant and explicitly does not
   repaint ("No-op here"). Every caller relying on it for state colour is silently
   dead — including `PracticeDock.refreshLabels()`'s `magenta` affix highlight and
   `safe` INVINCIBLE highlight, so the dock's intended colour signalling never
   shows. Either implement the repaint or drop the dead calls.
+- [ ] **BUG-BLOOD-PACT-HALVE-DEAD** — the `blood_pact` deal's "HP halved" never
+  halves current HP. `GameScene.ts` (~line 6775) sets
+  `this.playerStats.currentHealth = halvedCurrent`, but that field is only a lagging
+  mirror of ECS `Health.current`; `syncStatsToPlayer` clamps `Health.current` down to
+  the new `maxHealth` only, so a player at 50/200 taking the pact keeps 50 HP against
+  a 100 max instead of dropping to 25, and the next `takeDamage` overwrites the mirror
+  back from the ECS. So the pact is strictly better than advertised: full damage
+  doubling, half the stated cost. Left out of BUG-VITALITY-HEAL-DEAD deliberately —
+  that fix is upward-only (heals), and correcting this one makes the game *harder*,
+  which is a balance call for the human, not a wiring fix. Pointer: `grantBuildHeal`
+  in `GameScene.ts` is the fix shape; a downward equivalent would need the same
+  delta-across-the-grant treatment.
 
 ---
 
@@ -920,6 +930,22 @@ Never agent work. The fleet must not do any of these.
     and it never returns — and the menu keyboard/gamepad nav is live again after
     close? (g) does the >=3-run threshold feel right, or does the hint land
     before the player has decided they like the game?
+  - **POLISH-VITALITY-HEAL** — confirm the heal now lands (BUG-VITALITY-HEAL-DEAD,
+    `9b520d0`). Agents have no browser. Reach it: BootScene → PRACTICE → START,
+    then the dock's BUILD row (or any real run). Check: (a) **the point of the
+    fix** — take chip damage to a visible chunk below max, then take **Vitality**:
+    the HP bar must jump **+20** at the same instant the max widens, not just
+    gain empty headroom. (b) **at full HP** — take Vitality at 100%: the bar
+    must stay full and must not overheal past max. (c) **mastery** — the 10th
+    Vitality is a bigger jump (`LEVEL_10_BONUSES.vitality`), not +20. (d)
+    **relics** — Vitality Core (+15) and Armor Plate (+10) heal on pickup from
+    a chest/fortune shrine. (e) **the negative cases must be unchanged** —
+    Vampiric Fang (-10% max HP) and the `blood_pact` deal must behave exactly
+    as before this fix (see BUG-BLOOD-PACT-HALVE-DEAD: blood_pact's halving is
+    *still* dead, on purpose). (f) **no free healing** — play a couple of
+    minutes taking damage through a relic drop and a timed buff expiring; HP
+    must never silently tick back up on its own. Knobs: `grantBuildHeal` + its
+    4 call sites in `src/game/scenes/GameScene.ts`.
 
 ---
 

@@ -5,6 +5,70 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-VITALITY-HEAL-DEAD — mid-run heal grants land on the player · DONE 9b520d0
+
+**Value:** the shipped, publicly deployed game lied to the player at a decision
+point. Vitality's card promises max HP **and** a heal, and picking it at
+12/120 HP granted the headroom but **zero** healing, every single run. Traced
+the whole chain in code: (1) `Upgrades.ts:390` — vitality's `apply` does
+`stats.currentHealth += 20` (and `+= LEVEL_10_BONUSES.vitality` at mastery),
+so the intent is explicit in the source; (2) `stats` here is
+`this.playerStats`, whose `currentHealth` is only a **mirror** of the ECS
+`Health.current` component; (3) `syncStatsToPlayer` (`GameScene.ts:8658`) is
+the only thing that pushes `playerStats` into the ECS, and its health block
+only ever clamps `Health.current` **downward** — it reads
+`playerStats.maxHealth` and never `playerStats.currentHealth`, so the heal had
+nowhere to go; (4) the mirror is then overwritten from the ECS on the next
+damage event (`GameScene.ts:4485`), erasing the orphaned `+20` without it ever
+being observed. Vitality is one of the four priority stats the upgrade scorer
+pushes hardest (`GameScene.ts:8081`). The practice-build path had already hit
+this and worked around it locally, documenting the exact mechanism at
+`GameScene.ts:4962-4965`. Grepping every mid-run writer of `stats.currentHealth`
+found four grants riding the identical dead path — not one bug but a class:
+the Vitality stat upgrade, the Fortify limit-break overflow
+(`+OVERFLOW_BONUS.health`), and the Vitality Core (+15) and Armor Plate (+10)
+relics.
+
+**Shipped:** `grantBuildHeal(healAmount)`, a private helper on `GameScene`
+that lands a heal on `Health.current` (clamped to `Health.max`) and refreshes
+the mirror, called at the four grant sites with the mirror's delta measured
+across the grant — after `syncStatsToPlayer` has already widened `Health.max`.
+Wired into: `applyCombinedUpgrade` (covers both Vitality and Fortify, since
+limit-break overflow upgrades route through the same `upgradeType === 'stat'`
+branch), the `fortune` shrine relic roll, the chest relic drop, and the
+`relic_vow`/`blood_pact`/`frenzy` deal path (wrapping the whole deal covers
+`relic_vow`'s two rolled relics in one delta).
+
+**Design:**
+- **A delta at the call site, not a raise inside `syncStatsToPlayer`.** The
+  tempting fix — make `syncStatsToPlayer` raise `Health.current` up to
+  `playerStats.currentHealth` — is a trap. The mirror is a *lagging* one,
+  refreshed from the ECS only at specific damage/heal points
+  (`GameScene.ts:3313, 3913, 4485, 4585, 4966`). Any ECS-side HP drop that
+  skips a refresh leaves the mirror stale-high, and `syncStatsToPlayer` runs
+  from many unrelated event paths (relic drops, shrines, timed-buff apply
+  *and* expiry — `GameScene.ts:3335, 3349, 8540, 8565`), so a sync-level
+  "raise to mirror" would silently heal the player for free at unpredictable
+  moments. The delta approach only ever adds HP that a grant *just* produced,
+  measured across that grant alone.
+- **Deliberately upward-only.** The `healAmount <= 0` guard makes grants that
+  *reduce* the mirror (Vampiric Fang, `blood_pact`) fall straight through as a
+  no-op — byte-for-byte unchanged behavior. Making it bidirectional would be a
+  difficulty change, not a wiring fix.
+- **`src/data/{Upgrades,Relics,LimitBreakUpgrades}.ts` left untouched.** Their
+  `apply` functions already express the correct intent
+  (`stats.currentHealth += N`); the defect was in the wiring downstream, not
+  the data. Changing them would be a balance change.
+- **`blood_pact`'s HP-halving is the same dead path in the downward
+  direction**, and is deliberately **not** fixed here: `GameScene.ts` sets
+  `this.playerStats.currentHealth = halvedCurrent` on the same dead mirror,
+  so the pact's "HP halved" cost never actually lands, making it strictly
+  better than advertised. Correcting it makes the game *harder* — a balance
+  call for the human, not a wiring fix — so it's filed separately as
+  `BUG-BLOOD-PACT-HALVE-DEAD`.
+
+---
+
 ## FEAT-PRACTICE-BUILD — fight a boss with the build you'd really have · DONE 41df31c
 
 **Value:** practice v2 (FEAT-PRACTICE-BOSS) fielded a real boss at real HP but on
