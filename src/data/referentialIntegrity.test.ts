@@ -20,6 +20,7 @@ import { createLimitBreakUpgrades } from './LimitBreakUpgrades';
 import { ACHIEVEMENTS, BOSS_KILL_TRACKING } from '../achievements/AchievementDefinitions';
 import { MILESTONES } from '../achievements/MilestoneDefinitions';
 import { ENEMY_TYPES } from '../enemies/EnemyTypes';
+import { BLESSINGS } from './Blessings';
 
 /**
  * Referential-integrity sweep: every cross-reference key in the data catalogs
@@ -48,6 +49,7 @@ function collectIconRefs(): IconRef[] {
   push('UnlockableWeapons', UNLOCKABLE_WEAPONS);
   push('Achievements', ACHIEVEMENTS);
   push('Milestones', MILESTONES);
+  push('Blessings', BLESSINGS);
 
   for (const [shipId, tracks] of Object.entries(SHIP_MOD_TRACKS)) {
     push(`ShipMods:${shipId}`, tracks);

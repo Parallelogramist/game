@@ -73,6 +73,7 @@ import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
 import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
 import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
+import { selectBlessings, getBlessingById, type Blessing } from '../../data/Blessings';
 import { getPactById, type Pact } from '../../data/Pacts';
 import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
@@ -435,6 +436,7 @@ export class GameScene extends Phaser.Scene {
   // Active run modifiers
   private activeModifiers: RunModifier[] = [];
   private activePacts: Pact[] = [];
+  private activeBlessings: Blessing[] = [];
 
   // Boss arena hazard zone spawning
   private activeBossType: string | null = null;
@@ -972,6 +974,24 @@ export class GameScene extends Phaser.Scene {
       pact.apply(this.playerStats);
     }
 
+    // ═══ BLESSINGS (shop `blessingLevel` — N random run-start gifts) ═══
+    // Rolled fresh every run, so PLAY AGAIN re-rolls. An unbought profile asks
+    // for 0 and gets none.
+    this.activeBlessings = selectBlessings(metaManager.getStartingBlessingCount());
+    for (const blessing of this.activeBlessings) {
+      blessing.apply(this.playerStats);
+    }
+    if (this.activeBlessings.length > 0) {
+      const firstBlessing = this.activeBlessings[0];
+      this.toastManager.showToast({
+        title: this.activeBlessings.length === 1 ? 'BLESSED' : `BLESSED ×${this.activeBlessings.length}`,
+        description: this.activeBlessings.map(blessing => `${blessing.name} (${blessing.description})`).join(' · '),
+        icon: firstBlessing.icon,
+        color: firstBlessing.color,
+        duration: 4000,
+      });
+    }
+
     // ═══ SHIP / CHARACTER BONUSES ═══
     const selectedShip = getShipById(this.selectedShipId) ?? getDefaultShip();
     this.playerStats.maxHealth = Math.round(this.playerStats.maxHealth * selectedShip.healthMultiplier);
@@ -1320,7 +1340,8 @@ export class GameScene extends Phaser.Scene {
     if (!this.hudManager) return;
     this.hudManager.updateRelicModifierStrip(
       this.activeModifiers,
-      getRelicManager().getEquippedRelics()
+      getRelicManager().getEquippedRelics(),
+      this.activeBlessings
     );
   }
 
@@ -1491,6 +1512,7 @@ export class GameScene extends Phaser.Scene {
       })),
       twinLinks: getAllTwinLinks(),
       modifierIds: this.activeModifiers.map(m => m.id),
+      blessingIds: this.activeBlessings.map(blessing => blessing.id),
       stageId: this.selectedStageId,
       relicIds: getRelicManager().getEquippedRelics().map(r => r.id),
       directorState: getDirectorState(),
@@ -1554,6 +1576,13 @@ export class GameScene extends Phaser.Scene {
         .map(id => getModifierById(id))
         .filter((modifier): modifier is RunModifier => modifier !== undefined);
     }
+
+    // Blessings are display-only on restore — their stat effects are already
+    // baked into the saved playerStats, so nothing is re-applied here (same
+    // contract as pactIds below). Absent on legacy saves → strip shows none.
+    this.activeBlessings = (Array.isArray(state.blessingIds) ? state.blessingIds : [])
+      .map(id => getBlessingById(id))
+      .filter((blessing): blessing is Blessing => blessing !== undefined);
 
     // Restore stage selection before anything that reads it (enemy scaling,
     // grid palette). Falls back to default if the save is pre-stageId.

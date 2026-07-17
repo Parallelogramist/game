@@ -13,6 +13,7 @@ import { getNextComboThreshold } from '../../systems/ComboSystem';
 import { TouchActionButtons } from '../../ui/TouchActionButtons';
 import { Relic, getRelicRarityColor } from '../../data/Relics';
 import { RunModifier } from '../../data/RunModifiers';
+import { Blessing } from '../../data/Blessings';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 import { OverlayDepths } from '../../visual/DepthLayers';
 
@@ -1698,7 +1699,11 @@ export class HUDManager {
    * a new relic or at run start when modifiers are applied. Modifiers show
    * with a category-colored border; relics use rarity color.
    */
-  updateRelicModifierStrip(modifiers: readonly RunModifier[], relics: readonly Relic[]): void {
+  updateRelicModifierStrip(
+    modifiers: readonly RunModifier[],
+    relics: readonly Relic[],
+    blessings: readonly Blessing[] = [],
+  ): void {
     if (!this.relicStripContainer) {
       this.createRelicModifierStrip();
     }
@@ -1742,6 +1747,15 @@ export class HUDManager {
         borderColor: modifierCategoryColors[modifier.category] ?? 0xffffff,
         tooltipTitle: `${modifier.name} (${modifier.category})`,
         tooltipBody: modifier.description,
+        isModifier: true,
+      });
+    }
+    for (const blessing of blessings) {
+      entries.push({
+        iconKey: blessing.icon,
+        borderColor: blessing.color,
+        tooltipTitle: `${blessing.name} (blessing)`,
+        tooltipBody: blessing.description,
         isModifier: true,
       });
     }

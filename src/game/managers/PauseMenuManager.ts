@@ -818,6 +818,12 @@ export class PauseMenuManager {
       lines.push({ label: `Curse ${curseLevel}`, value: `+${cursePercent}% Enemy & Rewards`, color: '#ff66ff' });
     }
 
+    // Blessing — which ones were rolled shows in the HUD strip; this is the count.
+    const blessingCount = metaManager.getStartingBlessingCount();
+    if (blessingCount > 0) {
+      lines.push({ label: `Blessing ${blessingCount}`, value: `${blessingCount} random bonus`, color: '#88ff88' });
+    }
+
     // Newcomer bonus
     const newcomerMultiplier = metaManager.getNewcomerMultiplier();
     if (newcomerMultiplier > 1) {

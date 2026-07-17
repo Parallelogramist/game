@@ -379,6 +379,11 @@ export interface GameSaveState {
   // Run modifiers (IDs of active modifiers)
   modifierIds?: string[];
 
+  // Blessings rolled this run (shop `blessingLevel`). Display-only on restore —
+  // the stat effects are already baked into the saved playerStats. Optional →
+  // legacy saves restore with none shown.
+  blessingIds?: string[];
+
   // Stage/biome selected for this run — needed to restore visuals + enemy scaling.
   stageId?: string;
 
@@ -652,6 +657,7 @@ export class GameStateManager {
     upgrades: { id: string; currentLevel: number }[];
     twinLinks: [number, number][];
     modifierIds?: string[];
+    blessingIds?: string[];
     stageId?: string;
     relicIds?: string[];
     directorState?: DirectorState;
@@ -726,6 +732,7 @@ export class GameStateManager {
 
         // Run modifiers
         modifierIds: gameData.modifierIds,
+        blessingIds: gameData.blessingIds,
 
         // Stage + relics
         stageId: gameData.stageId,
