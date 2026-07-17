@@ -54,3 +54,38 @@ holds unpushed fleet commits awaiting your push (= Pages deploy):
 `7e90628` (FEAT-WEAPON-WAKE 19th weapon, movement-driven caustic trail, 2026-07-10),
 `d8151ec` (FEAT-BOSS-MITOSIS 5th boss The Legion, 2026-07-10),
 plus the docs commits noting this line.
+
+### 2026-07-17 update (fleet planner) — the "pending push" list above is stale;
+### repo-sync has been auto-pushing this repo all along
+
+**Correction, verified this session:** the paragraph above ("Pending while
+unresolved … local `master` holds unpushed fleet commits awaiting your push") is
+**no longer true, and hasn't been for some time**. `git rev-list --count
+origin/master..master` is **0** — every commit it lists is already on
+`origin/master`, and therefore already deployed to GitHub Pages.
+
+**What pushes them:** `repo-sync.timer` — an enabled systemd *user* timer on the
+Deck, every 15 minutes, running `ai-ops/tools/repo-sync-run.sh` →
+`ai-ops/tools/repo-sync.mjs`. Its exclusion list is
+`const NEVER_PUSH = new Set(['parallelogramist']);` (`repo-sync.mjs:27`) — it
+hard-excludes the public site repo **but not `game`**, which is also public and
+also auto-deploys on push. `~/.claude/auto-logs/repo-sync.log` shows
+`pushed  game — 2↑ pushed`, and `git reflog show origin/master` shows
+`update by push` landing ~20-40s after each fleet commit.
+
+**So the state is:** fleet agents *do* honour this repo's `BACKLOG.md` no-push gate
+— and a human-owned automation pushes (and thus publishes) their commits anyway,
+within 15 minutes. **The gate is real but has no effect.** Nothing has been
+sneaking past a guard; the guard simply isn't the last word on this repo.
+
+**No agent action taken** — deciding what *should* be true here is the operator's
+call, and it is the same reconciliation ask as the original entry, now with the
+missing fact attached. The options are unchanged in shape:
+1. **Accept it** — `game` is meant to auto-publish like any other private repo; then
+   soften this repo's `BACKLOG.md` Human-gates note so agents stop treating a
+   no-op gate as load-bearing.
+2. **Enforce it** — add `'game'` to `NEVER_PUSH` in `ai-ops/tools/repo-sync.mjs`
+   (a human edit; agents may not touch `ai-ops/fleet/**`, and this is the operator's
+   automation regardless), making the gate mean what it says.
+
+Agents continue to honour the gate (commit, never push) until this is decided.

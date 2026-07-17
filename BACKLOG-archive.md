@@ -5,6 +5,74 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PRACTICE-SHIP — pick the ship you practise as · DONE e0f72e7
+
+- **Value:** `PracticeScene.startPractice()` passed a literal `shipId: 'ship_default'`,
+  so every sandbox run flew Sparrow no matter what was picked on screen.
+  `selectedShipId` is the single key for all four ship axes — six stat multipliers +
+  8 signature fields + ship mods (`GameScene.ts:1034-1090`), the hull silhouette
+  (`getShipHullId()`), the neon palette (`getShipNeonColor()`), and, since
+  FEAT-SHIP-ULTIMATES (`49c934f`), the ultimate `activateUltimate()` resolves — so
+  every one of those axes was being judged through Sparrow's numbers regardless of
+  which ship the description on screen named. The parked playtest
+  BALANCE-SHIP-ULTIMATES literally asks George to "fly Juggernaut then Scholar", two
+  ships the sandbox could not fly at all.
+- **Shipped:** the PRACTICE menu gained a `SHIP` row — a 220-wide cycle button, plus
+  two muted lines naming the picked ship's description and its ultimate — sitting
+  above the LEVEL stepper. `startPractice()` now passes
+  `(SHIP_CHARACTERS[this.selectedShipIndex] ?? getDefaultShip()).id` instead of the
+  literal. That one id passthrough is the whole feature: every other axis was already
+  wired and needed zero new code, including the dock's existing `ULT: SHIP` row,
+  which now resolves to the ship you picked, for free, because
+  `activateUltimate()` was already reading
+  `this.practiceUltimateOverride ? getShipUltimate(...) : getUltimateForShip(getShipById(this.selectedShipId) ...)`.
+- **All 11 ships, including locked ones — deliberate, not an oversight.**
+  `WeaponSelectScene.getAvailableShips()` filters by `isUnlockRequirementMet`;
+  practice does not, for four reasons: (1) **scene precedent** —
+  `PRACTICE_WEAPON_IDS` already offers all 19 weapons with no gate check, so ships
+  gating would contradict the scene's own weapon axis; (2) **nothing persists** —
+  `setPracticeSession(true)` makes `SecureStorage` drop every write for the session,
+  so no progression is bypassed; (3) **9 of 11 ships are `hidden:` gated**, including
+  Juggernaut and Scholar, the exact pair BALANCE-SHIP-ULTIMATES names — gating the
+  picker would strand a fresh profile on Sparrow, i.e. today's behaviour; (4)
+  `GameScene` never re-validates the incoming `shipId` against unlocks
+  (`GameScene.ts:548`), so passing any id already worked.
+- **Cycle button, not a card grid or a ◀▶ stepper — forced by the vertical budget and
+  the label width.** `computeMenuLayoutScale` resolves to exactly `1.0` under
+  Phaser's EXPAND-mode landscape guarantee (≥1280×720), so the canvas is a fixed 720
+  units tall. Measuring the existing stack: the weapon grid ends at y=402, the LEVEL
+  stepper starts at y=572 (`rowY = 720-130`), EVOLVED at 640, and START already
+  overhangs the 720-unit canvas by 6 units at y=700-726 — there is no room below. The
+  402…572 free band (170 units) is the only place a new row fits, big enough for one
+  36-tall button plus two text lines but not a card grid. A ◀▶ stepper (LEVEL's
+  pattern) doesn't fit either: LEVEL's value sits in ~84 units between its arrows,
+  fine for `12`, an overflow for `GLASS CANNON`. The 220-wide cycle button matches the
+  adjacent EVOLVED toggle's geometry and the dock's already-shipped `ULT:`/`MUTATOR:`
+  row behaviour (12- and 8-entry cycles). At worst-case phone `fontScale` (1.6), a
+  bare ship name like `GLASS CANNON` (12 ch, ~182px) fits the 220-wide button
+  (~204px usable), but prefixing it `SHIP: GLASS CANNON` (18 ch, ~274px) overflows —
+  which is why `SHIP` is a separate label to the button's left, mirroring the LEVEL
+  row exactly.
+- **The now-false docstring.** FEAT-PRACTICE-ULT's `PracticeUltimates.ts` comment
+  said practice "always starts ship_default … so Overdrive is the only one of the 11
+  ultimates the sandbox could otherwise ever fire" — this feature falsifies that.
+  Docstring rewritten to describe the override in terms of *this* feature (`null` =
+  fly whichever of the 11 ships the menu picked) rather than the old ship_default
+  constraint.
+- **Left for the human, not fixed blind:** the ship description strings end
+  "Starts with Ground Spike." (etc.) but practice's `!practiceModeActive` guard in
+  `GameScene.ts:1071` deliberately keeps the *weapon grid's* pick, not the ship's own
+  starting weapon — so the description can read as contradicting what's on screen.
+  Left the data untouched rather than mangle shipped strings; whether it misreads in
+  practice, and whether locked ships belong in the sandbox at all, are filed as
+  playtest checks (b) and (d) under **POLISH-PRACTICE-SHIP** (`## Human gates`).
+  Also found while measuring the layout, filed but not fixed: **BUG-PRACTICE-PORTRAIT**
+  — `PracticeScene` uses the landscape layout-scale function even on a portrait
+  canvas, so `START` overhangs by 37 units there; pre-existing, not a regression from
+  this row (which sits entirely above the stepper).
+
+---
+
 ## FEAT-PRACTICE-ULT — fire any ship's ultimate on demand from the practice dock · DONE 9288a23
 
 - **Value:** FEAT-SHIP-ULTIMATES (`49c934f`) shipped 11 distinct ultimates whose feel

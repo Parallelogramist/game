@@ -195,13 +195,23 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   which is a balance call for the human, not a wiring fix. Pointer: `grantBuildHeal`
   in `GameScene.ts` is the fix shape; a downward equivalent would need the same
   delta-across-the-grant treatment.
-- [ ] **FEAT-PRACTICE-SHIP** — pick the ship you practise as. Value: PracticeScene
-  hard-codes `shipId: 'ship_default'`, so every sandbox run flies Sparrow's stats —
-  FEAT-PRACTICE-ULT reaches all 11 *ultimates* but their damage still scales off
-  Sparrow's damageMultiplier, and the six per-ship stat multipliers, hull and
-  signature mechanics stay unreachable in practice entirely. Pointers:
-  `src/game/scenes/PracticeScene.ts:405`, `SHIP_CHARACTERS`, the PRACTICE deck card
-  row in `BootScene.ts`.
+- [x] **FEAT-PRACTICE-SHIP** — pick the ship you practise as (done — e0f72e7).
+  The PRACTICE menu gained a SHIP row cycling all 11 ships (unlocked or not); the
+  sandbox previously hard-coded `ship_default`, so every ship axis — six stat
+  multipliers, hull, palette and, since FEAT-SHIP-ULTIMATES, the ultimate — was
+  judged through Sparrow. Full write-up in `BACKLOG-archive.md`. Playtest follow-up
+  filed as **POLISH-PRACTICE-SHIP** under `## Human gates`.
+- [ ] **BUG-PRACTICE-PORTRAIT** — PracticeScene's controls fall off the bottom in
+  portrait. It uses `computeMenuLayoutScale` (the LANDSCAPE fit), not
+  `computeMenuLayoutScalePortrait`, so on a 720×1280 portrait canvas it resolves to
+  0.5625: `rowY = 1280 - round(130*0.5625)` = 1207, and the unscaled `+50`/`+60`
+  offsets put START at y≈1317 — **37 units past the 1280-unit canvas**. Even in
+  landscape START sits at y=700 with height 52, overhanging the 720 canvas by 6.
+  Pointers: `PracticeScene.ts` `renderControls()` (`rowY`, `stepperY + 50`,
+  `evolveY + 60`), `HudScale.ts`'s `computeMenuLayoutScalePortrait` docstring (which
+  spells out when a scene may opt in — PracticeScene's centered column qualifies).
+  Found while fitting FEAT-PRACTICE-SHIP's row into the 402…572 band; that row is
+  unaffected (it sits above the stepper), so this is pre-existing, not a regression.
 
 ---
 
@@ -214,6 +224,23 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PRACTICE-SHIP** — pick the ship you practise as (FEAT-PRACTICE-SHIP,
+    `e0f72e7`). Reach it: BootScene → PRACTICE → tap the `SHIP` row to
+    `JUGGERNAUT` → START. Check: (a) **the point of the feature** — with the dock's
+    `ULT: SHIP` row, can you now answer BALANCE-SHIP-ULTIMATES (a) "is Q a different
+    button" *on the ship it belongs to*, in two practice runs instead of eleven real
+    ones? (b) **the ship description** — it still ends "Starts with Ground Spike."
+    while practice flies the weapon *you* picked from the grid (GameScene's
+    `!practiceModeActive` guard suppresses the ship's weapon, deliberately). The
+    planner left the string verbatim rather than mangle shipped data — on the screen
+    does it read as a contradiction, or does the highlighted weapon card make it
+    obvious? If it misreads, the fix is the human's call: strip the sentence, or
+    reword the descriptions. (c) **11 taps** — the row cycles forward only, like the
+    dock's `ULT:` row; is Apex (last) annoying to reach? (d) **locked ships** — every
+    ship is flyable here on purpose; does that undercut the unlock chase, or read as
+    a sandbox doing its job? (e) **the two info lines** — do the description and
+    `ULT — …` lines fit above the LEVEL row on a phone in landscape, or do they
+    collide?
   - **BALANCE-SHIP-ULTIMATES** — agents have no browser and must not retune blind.
     Reach it: BootScene → START → pick a ship; the card now names its ultimate. Check:
     (a) **the point of the feature** — fly Juggernaut then Scholar: does Q feel like a
