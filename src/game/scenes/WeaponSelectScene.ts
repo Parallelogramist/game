@@ -103,7 +103,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     const availableStages = this.getAvailableStages();
     const showStageStep = availableStages.length + this.getLockedStages().length > 1;
     if (showStageStep) this.availableSteps.push('stage');
-    if (this.getAvailableShips().length > 1) this.availableSteps.push('ship');
+    if (this.getAvailableShips().length + this.getLockedShips().length > 1) this.availableSteps.push('ship');
     this.availableSteps.push('weapon');
 
     // A flip restarts this scene; resume the step it found the player on rather
@@ -414,7 +414,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.clearStepUI();
     this.destroyMenuNavigator();
     const availableShips = this.getAvailableShips();
-    if (availableShips.length > 1) {
+    if (availableShips.length + this.getLockedShips().length > 1) {
       this.renderShipSelectionStep(availableShips);
     } else {
       this.selectedShipId = 'ship_default';
@@ -427,6 +427,29 @@ export class WeaponSelectScene extends Phaser.Scene {
     return SHIP_CHARACTERS.filter((ship) => isUnlockRequirementMet(ship.unlockRequirement, gateContext));
   }
 
+  private getLockedShips(): ShipCharacter[] {
+    const gateContext = this.buildUnlockGateContext();
+    return SHIP_CHARACTERS.filter((ship) => !isUnlockRequirementMet(ship.unlockRequirement, gateContext));
+  }
+
+  /** Human-readable "how to unlock" line for a locked ship's gate. */
+  private describeShipUnlock(ship: ShipCharacter): string {
+    const requirement = ship.unlockRequirement;
+    if (!requirement) return '';
+    if (requirement.startsWith('hidden:')) {
+      const conditionId = requirement.slice('hidden:'.length);
+      const condition = HIDDEN_UNLOCKS.find((entry) => entry.id === conditionId);
+      return condition?.hintText ?? 'Unlock through a hidden challenge';
+    }
+    if (requirement.startsWith('worldLevel:')) {
+      return `Reach world level ${Number(requirement.slice('worldLevel:'.length)) || 0}`;
+    }
+    if (requirement.startsWith('account:')) {
+      return `Reach account level ${Number(requirement.slice('account:'.length)) || 0}`;
+    }
+    return '';
+  }
+
   private renderShipSelectionStep(ships: ShipCharacter[]): void {
     this.clearStepUI();
     this.currentStep = 'ship';
@@ -436,7 +459,9 @@ export class WeaponSelectScene extends Phaser.Scene {
     const cardWidth = 200;
     const cardHeight = 160;
     const cardSpacing = 22;
-    const layout = this.computeGridLayout(ships.length, cardWidth, cardHeight, cardSpacing, 4, 30);
+    const lockedShips = this.getLockedShips();
+    const totalShipCount = ships.length + lockedShips.length;
+    const layout = this.computeGridLayout(totalShipCount, cardWidth, cardHeight, cardSpacing, 4, 30);
 
     // Hangar preview — the real in-run ship hull cycling its evolution
     // tiers, tracking the focused card. Beside the grid in landscape,
@@ -558,6 +583,12 @@ export class WeaponSelectScene extends Phaser.Scene {
       });
     });
 
+    lockedShips.forEach((ship, lockedIndex) => {
+      const gridIndex = ships.length + lockedIndex;
+      const { x: cardX, y: cardY } = layout.positionAt(gridIndex);
+      this.renderLockedShipCard(ship, gridIndex, cardX, cardY, cardWidth, cardHeight);
+    });
+
     this.destroyMenuNavigator();
     this.menuNavigator = new MenuNavigator({
       scene: this,
@@ -577,6 +608,71 @@ export class WeaponSelectScene extends Phaser.Scene {
       wrap: true,
       onCancel: () => this.goBack(),
     });
+  }
+
+  /**
+   * A locked ship rendered as a dim, non-interactive card naming the ship, its
+   * kit, and its unlock condition — turning the otherwise-invisible ship roster
+   * into a visible chase. `interactive: false` + excluded from the MenuNavigator,
+   * and drawn after the unlocked cards so selectable cards keep grid indices
+   * 0..n-1. The unlock hint is placed below the measured description so the
+   * longest ship description cannot overlap it. Mirrors renderLockedStageCard.
+   */
+  private renderLockedShipCard(
+    ship: ShipCharacter,
+    gridIndex: number,
+    cardX: number,
+    cardY: number,
+    cardWidth: number,
+    cardHeight: number,
+  ): void {
+    const card = createMenuCard(this, {
+      x: cardX,
+      y: cardY,
+      width: cardWidth,
+      height: cardHeight,
+      pulseSeed: gridIndex * 0.9 + 0.3,
+      bodyFillColor: BODY_COLORS.neutral,
+      accentColor: ACCENT_COLORS.neutral,
+      bannerHeight: 40,
+      borderWidth: 3,
+      borderColor: ACCENT_COLORS.neutral,
+      cornerRadius: 8,
+      interactive: false,
+    });
+
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 20, ship.name.toUpperCase(), {
+      fontSize: 15,
+      color: TEXT_COLORS.dim,
+      letterSpacing: 1.5,
+    });
+    card.frame.add(nameText);
+
+    const lockTag = makeDisplayText(this, 0, -38, 'LOCKED', {
+      fontSize: 12,
+      color: TEXT_COLORS.headingGold,
+      letterSpacing: 2,
+    });
+    card.frame.add(lockTag);
+
+    const description = makeBodyText(this, 0, -22, ship.description, {
+      fontSize: 10,
+      color: TEXT_COLORS.dim,
+      wordWrapWidth: cardWidth - 24,
+    });
+    description.setOrigin(0.5, 0);
+    description.setLineSpacing(2);
+    card.frame.add(description);
+
+    const hint = makeBodyText(this, 0, -22 + description.height + 8, `UNLOCK: ${this.describeShipUnlock(ship)}`, {
+      fontSize: 11,
+      color: TEXT_COLORS.muted,
+      wordWrapWidth: cardWidth - 24,
+    });
+    hint.setOrigin(0.5, 0);
+    card.frame.add(hint);
+
+    this.stepCards.push(card);
   }
 
   /**
