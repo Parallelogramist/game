@@ -34,6 +34,18 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-SHIP-PAINT** — the 13 hidden `cosmetic` unlocks now actually recolor your
+  ship (done — 0135f52). Every `target:'cosmetic'` HiddenUnlock (`cosmetic_gold_hull`,
+  `cosmetic_inferno_trail`, `cosmetic_crit_aura`, `cosmetic_level_crown`, …) fired an
+  unlock toast but **nothing consumed its id** — a whole phantom-reward category. Each
+  now maps to a distinct hull **paint** (`src/data/ShipPaints.ts`); a pure, unit-tested
+  `resolveEquippedPaint()` picks the highest-rank *unlocked* paint and
+  `GameScene.getShipNeonColor()` returns it instead of the ship palette, so the hull,
+  glow, engine accents and motion trail recolor through the game's single ship-color
+  hook. Strictly additive (zero unlocks → unchanged), no new storage key, no new scene/
+  Codex tab. Full write-up in `BACKLOG-archive.md`. Follow-ups: **FEAT-SHIP-PAINT-PICKER**
+  (below) and **POLISH-SHIP-PAINT** (under `## Human gates`).
+
 - [x] **FEAT-SHIP-CHASE** — surface the locked ships and how to unlock them
   (done — f1000e7). The game ships **11 ships** (`src/data/ShipCharacters.ts`) — each a
   distinct playstyle (six stat multipliers, a unique hull, a signature ultimate, signature
@@ -260,6 +272,18 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
+- [ ] **FEAT-SHIP-PAINT-PICKER** — let players *choose* which unlocked paint to wear.
+  Value: FEAT-SHIP-PAINT (`0135f52`) made the 13 cosmetic unlocks real but v1 auto-equips
+  the single highest-rank unlocked paint, so lesser-ranked earned paints never show and
+  there is no way back to a ship's own signature color. A small picker/gallery should:
+  list all 13 paints as swatch cards; show unlocked ones as equippable (persist the choice
+  — a NEW SecureStorage key, so register it in `StorageBootstrap.ALL_STORAGE_KEYS`); offer
+  a "Ship Default" option (= the opt-out); and show locked paints dim with their unlock
+  hint (the chase, mirroring FEAT-SHIP-CHASE). `resolveEquippedPaint` becomes the
+  fallback when no explicit choice is stored. **Placement is a human/design call** — NOT
+  an 8th Codex tab (the 7-tab bar is already flagged too tight); a compact dedicated scene
+  or a section on an existing menu. `SHIP_PAINTS` already carries `name` for the cards.
+
 - [x] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA (done —
   4a0c864). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
   filed as **POLISH-PWA-OFFLINE** under `## Human gates`.
@@ -384,6 +408,25 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SHIP-PAINT** — earned ship paints now recolor the hull (FEAT-SHIP-PAINT,
+    `0135f52`). Agents have no browser; this is a pure visual change and must be eyeballed.
+    Check: (a) **the point of the fix** — on a profile that has earned at least one cosmetic
+    unlock, start a run: the ship's hull/glow/engine and its motion trail render in the
+    earned paint, not the ship's signature palette. (b) **highest-rank wins** — with several
+    cosmetics unlocked, the equipped paint is the highest-`rank` one in `src/data/ShipPaints.ts`
+    (e.g. Golden Hull rank 8 over Inferno Trail rank 5); earning a higher-rank cosmetic
+    should visibly swap the hull on the next run. (c) **each of the 13 reads well** on the
+    neon hull and against the dark arena — spot-check Streak Flame (white-hot), Crit Aura
+    (magenta), Level Crown (purple), Golden Hull (gold). (d) **dynamic tints still layer** —
+    combo warmth, low-HP danger red, speed warm-tint and level-up flash still shift on top of
+    the paint (they lerp over the base color); confirm none look broken. (e) **zero-unlock
+    profile is unchanged** — a fresh profile with no cosmetics shows each ship's own signature
+    color exactly as before. (f) **practice + restore** — the paint also applies in the
+    practice sandbox and after a save-restore (both build the ship through the same
+    `getShipNeonColor()`), confirm consistent. Design opens (none blocking, **not** agent
+    calls — note if you want them): (i) should the paint override a ship's signature color at
+    all, or only apply to `ship_default`? (ii) build the FEAT-SHIP-PAINT-PICKER so players pick
+    a paint and can revert to the ship's own color.
   - **POLISH-MENUBUTTON-VARIANT** — `MenuButton.setVariant()` now actually
     repaints (BUG-MENUBUTTON-SETVARIANT-NOOP, `8223516`). Reach it: BootScene →
     PRACTICE (or in-run practice dock). Check that (a) tapping AFFIX to a real

@@ -5,6 +5,68 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-SHIP-PAINT — equip earned ship paints from hidden unlocks · DONE 0135f52
+
+- **The gap.** `src/meta/HiddenUnlocks.ts` defines 13 conditions whose `target: 'cosmetic'`
+  grants an `unlockId` like `cosmetic_gold_hull` / `cosmetic_inferno_trail` /
+  `cosmetic_crit_aura` / `cosmetic_level_crown`, each firing a congratulatory unlock toast
+  ("Unlocked: Golden Hull!") — but nothing in `src/` ever consumed those ids. Verified:
+  `grep -rn 'cosmetic_gold_hull' src` and the other 12 ids hit only the definition file
+  (and tests); there was no cosmetic/equip system, no `getUnlockedTargetIds()`/`isUnlocked()`
+  consumer outside tests. Ships and stages are consumed (FEAT-SHIP-CHASE / FEAT-STAGE-CHASE
+  surface them); cosmetics were the one unlock category that awarded nothing visible — a
+  player kills 1,500 enemies in a run, is told they earned "Golden Hull," and their ship
+  looks identical. Same "silently does nothing" class the fleet has mined repeatedly (dead
+  shop getters, dead mirror-writes, dead slow-mo).
+- **The fix.** New pure data + resolver module `src/data/ShipPaints.ts`: a `ShipPaint`
+  interface (`unlockId`, `name`, `rank`, `color: NeonColorPair`), the `SHIP_PAINTS` table
+  (13 entries keyed to the existing cosmetic `unlockId`s verbatim, each a distinct neon
+  color pair with a unique rank 1–13 roughly by how hard the condition is), and
+  `resolveEquippedPaint(unlockedTargetIds)` — picks the highest-rank paint whose `unlockId`
+  is in the unlocked set, or `null` if none. `GameScene.getShipNeonColor()`
+  (`src/game/scenes/GameScene.ts:8884`) now calls
+  `resolveEquippedPaint(getHiddenUnlockManager().getUnlockedTargetIds())` and returns the
+  equipped paint's color in place of the ship's own `SHIP_NEON_PALETTES` entry when one is
+  unlocked. This is the game's single ship-color hook — both `PlayerSpaceship` construction
+  sites (fresh run and save-restore) already call it, so one method change covers every
+  path: fresh runs, restore, daily challenge, and practice all pick the paint up with no
+  further wiring.
+- **Auto-equip-highest v1, picker deferred.** v1 has no player choice — the highest-rank
+  unlocked paint always wins, so a player who has earned both Inferno Trail (rank 5) and
+  Golden Hull (rank 8) always sees Golden Hull, with no way to wear the lower-rank paint or
+  revert to the ship's own signature color. That's a genuine enhancement, not a cut corner:
+  a picker/gallery (list all 13 as swatch cards, unlocked ones equippable, a "Ship Default"
+  opt-out, locked ones dim with their unlock hint) needs a new persisted choice — a new
+  SecureStorage key registered in `StorageBootstrap.ALL_STORAGE_KEYS` — and a placement
+  decision (not an 8th Codex tab; the 7-tab bar is already flagged too tight). Filed as
+  **FEAT-SHIP-PAINT-PICKER** under `## Later`, with `resolveEquippedPaint` becoming the
+  fallback when no explicit choice is stored.
+- **Strictly additive & backward-compatible.** A profile with zero cosmetic unlocks gets
+  `resolveEquippedPaint([]) === null`, so `getShipNeonColor()` falls through to the ship's
+  own palette unchanged — no visual change, no regression surface. No new SecureStorage key
+  (reads existing persisted hidden-unlock state via `getHiddenUnlockManager()`), so this
+  cannot reintroduce the `StorageBootstrap.ALL_STORAGE_KEYS` preload-gap bug class. No module
+  state added (`resolveEquippedPaint` is pure, `SHIP_PAINTS` is a const table), so nothing
+  goes into `resetAllRunSystems()`.
+- **One justified test, no browser needed.** `src/data/ShipPaints.test.ts` (5 cases) pins
+  the resolver's non-obvious priority-selection logic and empty/unknown-id edges: no
+  cosmetics unlocked → `null`; a single unlocked cosmetic resolves to itself; several
+  unlocked resolves to the highest rank; unknown/non-cosmetic ids (ship/stage/weapon ids)
+  are ignored; every paint in the table has a unique rank and a well-formed 0x000000–0xffffff
+  color. The `GameScene` glue is a one-line delegation exercised by the build, not unit
+  tested. Verified by `npm run test` (95 files / 1315 tests green, all pre-existing tests
+  unchanged), `npx tsc --noEmit` (exit 0), and `npm run build` (exit 0). There is no headless
+  way to assert the visual recolor itself — that is exactly what **POLISH-SHIP-PAINT** (filed
+  under `## Human gates`) parks for the human.
+- **Why this over the open backlog.** `BACKLOG.md` Now/Next were exhausted at plan time; the
+  only two open items (`CHORE-ARCH-DOC-SYNC`, `POLISH-GLYPH-SWEEP-2`) are both charter
+  value-gate skips (doc work / cosmetic polish of *existing* visuals are never the value).
+  FEAT-SHIP-PAINT is real, novel, player-facing value — 13 dead rewards become a visible
+  collectible layer — verifiable without a browser via the unit test + build, riding the
+  game's one existing color hook at minimal risk.
+
+---
+
 ## FEAT-SHIP-CHASE — surface the locked ships and how to unlock them · DONE f1000e7
 
 - **The gap.** The game ships 11 ships (`src/data/ShipCharacters.ts`) — each a distinct
