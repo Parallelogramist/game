@@ -16,8 +16,9 @@ interface TrackedEntity {
   lastY: number;
 }
 
-// Background color for fade — matches GameConfig backgroundColor
-const FADE_BG_COLOR = 0x000008;
+// Fade fills pure black: the RT is displayed with ADD blend, so black content
+// contributes nothing — any other fill color would tint the whole screen.
+const FADE_BG_COLOR = 0x000000;
 
 /**
  * TrailManager creates glowing motion trails behind moving entities.
@@ -25,18 +26,31 @@ const FADE_BG_COLOR = 0x000008;
  * GPU optimization: Uses a persistent RenderTexture that accumulates trail segments.
  * Each frame only NEW segments are drawn (not all active ones), and a background-color
  * fill fades existing content. This reduces per-frame draw calls from hundreds to ~5-10.
+ *
+ * Ghost-trail prevention: a multiplicative alpha fade alone never reaches zero in an
+ * 8-bit texture (values 1-4/255 round back to themselves), leaving every path ever
+ * flown faintly burned into the RT. A second, subtractive fade pass (custom
+ * REVERSE_SUBTRACT blend) drains those residuals to exact zero.
  */
 export class TrailManager {
   private renderTexture: Phaser.GameObjects.RenderTexture;
   private tempGraphics: Phaser.GameObjects.Graphics;
+  private fadeKillRect: Phaser.GameObjects.Rectangle | null = null;
 
   // New segments queued this frame for drawing
   private newSegments: NewTrailSegment[] = [];
   private readonly MAX_NEW_SEGMENTS = 50;
 
   // Trail configuration
-  private readonly MIN_MOVE_DISTANCE = 5;  // Min distance to add new trail point
-  private readonly FADE_ALPHA = 0.12;      // Per-frame fade intensity (higher = faster fade)
+  private readonly MIN_MOVE_DISTANCE = 5;   // Min distance to add new trail point
+  private readonly FADE_ALPHA = 0.12;       // Fade intensity per 60fps-frame (higher = faster fade)
+  // A position jump this large in one frame is never movement — it's a teleport
+  // or a recycled bitecs entity id (enemy died, id reused across the map). Reset
+  // tracking instead of drawing a bogus screen-crossing streak.
+  private readonly TELEPORT_DIST_SQ = 150 * 150;
+  // Per-frame constant drain (in 1/255 channel steps) that finishes off what the
+  // multiplicative fade can't. 2 steps @60fps clears worst-case residue in ~2s.
+  private readonly KILL_FADE_STEPS_PER_FRAME = 2;
 
   // Track entity last positions to detect movement and connect segments
   private trackedEntities: Map<number, TrackedEntity> = new Map();
@@ -59,6 +73,18 @@ export class TrailManager {
     // Offscreen temp graphics for drawing new segments
     this.tempGraphics = scene.add.graphics();
     this.tempGraphics.setVisible(false);
+
+    // Subtractive fade pass — WebGL only (Canvas fallback keeps the plain
+    // alpha fade; its residue is the lesser evil vs porting the blend trick).
+    const renderer = scene.game.renderer;
+    if (renderer instanceof Phaser.Renderer.WebGL.WebGLRenderer) {
+      const gl = renderer.gl;
+      const subtractBlendId = renderer.addBlendMode([gl.ONE, gl.ONE], gl.FUNC_REVERSE_SUBTRACT);
+      this.fadeKillRect = scene.add.rectangle(0, 0, screenWidth, screenHeight, 0xffffff, 1);
+      this.fadeKillRect.setOrigin(0, 0);
+      this.fadeKillRect.setVisible(false);
+      this.fadeKillRect.setBlendMode(subtractBlendId);
+    }
 
     // Pre-allocate segment buffer
     for (let i = 0; i < this.MAX_NEW_SEGMENTS; i++) {
@@ -128,6 +154,13 @@ export class TrailManager {
         return false;  // Not moved enough
       }
 
+      if (distSq > this.TELEPORT_DIST_SQ) {
+        // Teleport or recycled entity id — re-anchor, never bridge the gap
+        tracked.lastX = x;
+        tracked.lastY = y;
+        return false;
+      }
+
       // Queue a segment from previous position to current
       if (this.newSegmentCount < this.maxTrailsPerFrame) {
         // Grow buffer if needed
@@ -166,11 +199,22 @@ export class TrailManager {
    * Update: fade existing trail content, then stamp new segments onto the RenderTexture.
    * Only newly-queued segments are drawn each frame (not all active trails).
    */
-  update(_deltaSeconds: number): void {
+  update(deltaSeconds: number): void {
     if (!this.enabled) return;
 
-    // Fade existing content toward background color
-    this.renderTexture.fill(FADE_BG_COLOR, this.FADE_ALPHA);
+    // Frame-rate-independent fade: FADE_ALPHA is calibrated for 60fps frames,
+    // so a 120Hz display must apply a smaller per-frame alpha to decay at the
+    // same real-time rate. Clamp delta so a tab-switch hitch can't wipe trails.
+    const frames = Math.min(deltaSeconds, 0.1) * 60;
+    const fadeAlpha = 1 - Math.pow(1 - this.FADE_ALPHA, frames);
+    this.renderTexture.fill(FADE_BG_COLOR, fadeAlpha);
+
+    // Subtractive kill pass: drains the 8-bit residue the multiplicative fade
+    // stalls on, so old trails reach true zero instead of ghosting forever.
+    if (this.fadeKillRect) {
+      this.fadeKillRect.setAlpha(Math.min(8, this.KILL_FADE_STEPS_PER_FRAME * frames) / 255);
+      this.renderTexture.draw(this.fadeKillRect);
+    }
 
     // Draw new segments if any were queued this frame
     if (this.newSegmentCount > 0) {
@@ -188,43 +232,38 @@ export class TrailManager {
         const normalX = -segmentDy / segmentLength;
         const normalY = segmentDx / segmentLength;
 
-        const halfWidth = segment.size;
-
-        // Ribbon quad corners
-        const prevLeftX = segment.prevX + normalX * halfWidth * 0.3;
-        const prevLeftY = segment.prevY + normalY * halfWidth * 0.3;
-        const prevRightX = segment.prevX - normalX * halfWidth * 0.3;
-        const prevRightY = segment.prevY - normalY * halfWidth * 0.3;
-
-        const currLeftX = segment.x + normalX * halfWidth;
-        const currLeftY = segment.y + normalY * halfWidth;
-        const currRightX = segment.x - normalX * halfWidth;
-        const currRightY = segment.y - normalY * halfWidth;
+        // Uniform widths along the whole segment: earlier code widened each
+        // segment front-to-back, which made consecutive segments meet in a
+        // sawtooth of chevrons that read as ghost ship silhouettes. A constant
+        // width chains segments into one smooth ribbon; the RT fade supplies
+        // the temporal taper.
+        const glowHalf = segment.size * 1.3;
+        const coreHalf = segment.size * 0.55;
 
         // Glow pass (wider, dimmer)
-        this.tempGraphics.fillStyle(segment.color, 0.25);
+        this.tempGraphics.fillStyle(segment.color, 0.22);
         this.tempGraphics.fillTriangle(
-          segment.prevX + normalX * halfWidth * 0.5, segment.prevY + normalY * halfWidth * 0.5,
-          segment.prevX - normalX * halfWidth * 0.5, segment.prevY - normalY * halfWidth * 0.5,
-          segment.x + normalX * halfWidth * 1.5, segment.y + normalY * halfWidth * 1.5
+          segment.prevX + normalX * glowHalf, segment.prevY + normalY * glowHalf,
+          segment.prevX - normalX * glowHalf, segment.prevY - normalY * glowHalf,
+          segment.x + normalX * glowHalf, segment.y + normalY * glowHalf
         );
         this.tempGraphics.fillTriangle(
-          segment.prevX - normalX * halfWidth * 0.5, segment.prevY - normalY * halfWidth * 0.5,
-          segment.x - normalX * halfWidth * 1.5, segment.y - normalY * halfWidth * 1.5,
-          segment.x + normalX * halfWidth * 1.5, segment.y + normalY * halfWidth * 1.5
+          segment.prevX - normalX * glowHalf, segment.prevY - normalY * glowHalf,
+          segment.x - normalX * glowHalf, segment.y - normalY * glowHalf,
+          segment.x + normalX * glowHalf, segment.y + normalY * glowHalf
         );
 
         // Core pass (narrow, bright)
         this.tempGraphics.fillStyle(segment.color, 0.6);
         this.tempGraphics.fillTriangle(
-          prevLeftX, prevLeftY,
-          prevRightX, prevRightY,
-          currLeftX, currLeftY
+          segment.prevX + normalX * coreHalf, segment.prevY + normalY * coreHalf,
+          segment.prevX - normalX * coreHalf, segment.prevY - normalY * coreHalf,
+          segment.x + normalX * coreHalf, segment.y + normalY * coreHalf
         );
         this.tempGraphics.fillTriangle(
-          prevRightX, prevRightY,
-          currRightX, currRightY,
-          currLeftX, currLeftY
+          segment.prevX - normalX * coreHalf, segment.prevY - normalY * coreHalf,
+          segment.x - normalX * coreHalf, segment.y - normalY * coreHalf,
+          segment.x + normalX * coreHalf, segment.y + normalY * coreHalf
         );
       }
 
@@ -240,6 +279,7 @@ export class TrailManager {
    */
   resize(screenWidth: number, screenHeight: number): void {
     this.renderTexture.resize(screenWidth, screenHeight);
+    this.fadeKillRect?.setSize(screenWidth, screenHeight);
   }
 
   /**
@@ -257,6 +297,7 @@ export class TrailManager {
   destroy(): void {
     this.renderTexture.destroy();
     this.tempGraphics.destroy();
+    this.fadeKillRect?.destroy();
     this.trackedEntities.clear();
   }
 }
