@@ -5107,6 +5107,17 @@ export class GameScene extends Phaser.Scene {
       bestScore: victoryScoreResult.best,
       isNewBest: victoryScoreResult.isNewBest,
       recentRuns: victoryPriorRuns,
+      daily: this.dailyModeActive && this.dailyDateString
+        ? {
+            challengeType: this.dailyChallengeType,
+            dateString: this.dailyDateString,
+            modifierNames: this.activeModifiers.map((modifier) => modifier.name),
+            grade: victoryGrade.grade,
+            survivalSeconds: this.gameTime,
+            score: victoryRunScore,
+            wasVictory: true,
+          }
+        : undefined,
     });
 
     // Count this run toward the newcomer-bonus taper exactly once. showVictory()
@@ -5372,6 +5383,17 @@ export class GameScene extends Phaser.Scene {
             cycle: this.endlessCycleNumber,
             bestCycle: loadEndlessBestCycle(),
             isNewBest: this.endlessNewBestThisRun,
+          }
+        : undefined,
+      daily: this.dailyModeActive && this.dailyDateString && performanceGrade && scoreResult
+        ? {
+            challengeType: this.dailyChallengeType,
+            dateString: this.dailyDateString,
+            modifierNames: this.activeModifiers.map((modifier) => modifier.name),
+            grade: performanceGrade.grade,
+            survivalSeconds: this.gameTime,
+            score: scoreResult.score,
+            wasVictory: this.hasWon,
           }
         : undefined,
     });

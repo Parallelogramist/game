@@ -13,6 +13,8 @@ import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 import { getSettingsManager } from '../../settings';
 import { OverlayDepths } from '../../visual/DepthLayers';
+import { formatDailyShareText, DailyShareInput } from '../../meta/DailyShare';
+import { copyTextToClipboard } from '../../utils/Clipboard';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -226,6 +228,8 @@ export interface VictoryData {
   isNewBest?: boolean;
   /** Prior runs (newest-first) for the "RECENT" trend strip. */
   recentRuns?: RunSummary[];
+  /** Daily/weekly challenge result — presents the COPY RESULT button. Undefined on standard runs. */
+  daily?: DailyShareInput;
 }
 
 export interface GameOverData {
@@ -260,6 +264,8 @@ export interface GameOverData {
   gauntlet?: { wave: number; bestWave: number; isNewBest: boolean };
   /** Post-victory ENDLESS result — the score line also carries the cycle reached. */
   endless?: { cycle: number; bestCycle: number; isNewBest: boolean };
+  /** Daily/weekly challenge result — presents the COPY RESULT button. Undefined on standard runs. */
+  daily?: DailyShareInput;
 }
 
 export class PauseMenuManager {
@@ -394,6 +400,60 @@ export class PauseMenuManager {
     bg.once('destroy', () => pillGfx.destroy());
 
     return { bg, text };
+  }
+
+  /**
+   * COPY RESULT pill for a finished daily/weekly run.
+   *
+   * The game-over screen restarts the run on a scene-level `pointerdown`, so
+   * this button's own down-handler must cancel the event: Phaser only emits the
+   * scene-level POINTER_DOWN when no game-object handler called
+   * stopPropagation (InputPlugin.processDownEvents). Without it, tapping COPY
+   * RESULT would copy AND instantly restart.
+   */
+  private createDailyShareButton(
+    share: DailyShareInput,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    fontSize: string,
+    bgName: string,
+    textName: string
+  ): { bg: Phaser.GameObjects.Rectangle; text: Phaser.GameObjects.Text } {
+    const shareText = formatDailyShareText(share);
+    const button = this.createLabeledButton({
+      x,
+      y,
+      width,
+      height,
+      label: 'COPY RESULT',
+      fontSize,
+      baseColor: 0x2a8f84,
+      hoverColor: 0x35a89c,
+      strokeColor: 0x66ddcc,
+      bgName,
+      textName,
+      onActivate: () => {
+        void copyTextToClipboard(shareText).then((copied) => {
+          // The victory overlay's CONTINUE destroys this label while the scene
+          // keeps running, so both the result and the revert must re-check it.
+          if (!button.text.active) return;
+          button.text.setText(copied ? 'COPIED!' : 'COPY FAILED');
+          this.scene.time.delayedCall(2000, () => {
+            if (!button.text.active) return;
+            button.text.setText('COPY RESULT');
+          });
+        });
+      },
+    });
+    button.bg.on(
+      'pointerdown',
+      (_pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
+        event?.stopPropagation();
+      }
+    );
+    return button;
   }
 
   /**
@@ -1385,6 +1445,23 @@ export class PauseMenuManager {
       onActivate: () => this.handleVictoryNextWorld(goldToEarn),
     });
 
+    // COPY RESULT — daily/weekly runs only. Sits in the free band between the
+    // streak readout (centerY + 96) and the button row (top edge centerY +
+    // 152.5); every other centered slot is taken, and the portrait card reveal
+    // owns centerY + 250.
+    if (data.daily) {
+      this.createDailyShareButton(
+        data.daily,
+        this.scene.scale.width / 2,
+        this.scene.scale.height / 2 + 128,
+        200,
+        30,
+        '14px',
+        'victoryShareButtonBg',
+        'victoryShareButtonText'
+      );
+    }
+
     // Gold preview centered below buttons
     const goldPreviewText = this.scene.add.text(
       this.scene.scale.width / 2,
@@ -1477,6 +1554,8 @@ export class PauseMenuManager {
       'victoryContinueButtonText',
       'victoryNextWorldButtonBg',
       'victoryNextWorldButtonText',
+      'victoryShareButtonBg',
+      'victoryShareButtonText',
       'victoryGoldPreview',
       'victoryStreak',
       'victoryConfetti',
@@ -1801,6 +1880,24 @@ export class PauseMenuManager {
         depth,
         animatedElements
       );
+    }
+
+    // COPY RESULT — daily/weekly runs only. Last item in the centered flow so
+    // it sits directly above the restart hint, grouping the two actions.
+    if (data.daily) {
+      const shareButtonHeight = 38;
+      const shareButtonY = contentBottomY + 20 + shareButtonHeight / 2;
+      this.createDailyShareButton(
+        data.daily,
+        centerX,
+        shareButtonY,
+        220,
+        shareButtonHeight,
+        '16px',
+        'gameOverShareButtonBg',
+        'gameOverShareButtonText'
+      );
+      contentBottomY = shareButtonY + shareButtonHeight / 2;
     }
 
     // Restart hint — clamped above the bottom edge so it never sits under
