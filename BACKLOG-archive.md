@@ -5,6 +5,52 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-TRAIL-GHOST — trails ghosting forever as ship-shaped chevron trains · DONE 6e8c50a
+
+**Value:** operator-reported visual bug — "the ships have this ship-shaped train
+behind them that never clears; looks like we're not clearing up the ship's
+shadow." Three compounding defects in `src/visual/TrailManager.ts`:
+
+1. **Permanent ghost residue.** The persistent RenderTexture faded by filling
+   near-black at 0.12 alpha — a *multiplicative* decay. In an 8-bit texture,
+   channel values 1–4/255 satisfy `round(v * 0.88) == v` and never decay
+   further, so every path ever flown stayed faintly burned into the RT, which
+   is displayed with ADD blend. Fix: a second, *subtractive* fade pass — a
+   fullscreen rect stamped with a custom `REVERSE_SUBTRACT` blend
+   (`renderer.addBlendMode([ONE, ONE], FUNC_REVERSE_SUBTRACT)`) drains ~2/255
+   per 60fps-frame, driving residue to exact zero. WebGL-only; Canvas keeps
+   the old fade (rare fallback, lesser evil).
+2. **Chevron "ghost ships".** Each segment widened front-to-back (glow
+   0.5×→1.5×, core 0.3×→1.0×), so consecutive segments met in a sawtooth of
+   discrete chevrons — the "ship-shaped" repeats. Widths are now uniform per
+   pass (glow 1.3×, core 0.55×): one smooth ribbon; the RT fade supplies the
+   temporal taper.
+3. **Recycled-id streaks.** `trackedEntities` was never told about entity
+   death and bitecs recycles ids, so a new spawn could inherit a dead enemy's
+   last position and bridge it with a screen-crossing streak. A jump guard
+   (>150px in one frame → re-anchor, no segment) covers recycling AND
+   teleports without wiring every despawn site.
+
+Also: fade fill went `0x000008` → pure black (the RT is ADD-blended — any
+non-black fill tints the whole screen), and the fade is now frame-rate
+independent (`1 - pow(1-FADE_ALPHA, delta*60)`; it previously ran 2× faster
+at 120Hz). `resize()`/`destroy()` handle the new kill rect. Playtest
+follow-up: **POLISH-TRAIL-FIX** (Human gates).
+
+## CHORE-CI-DEPLOY-RETRY — auto-retry the transiently-failing Pages deploy · DONE 34e5373
+
+**Value:** history carried 8+ manual "retrigger Pages deploy" commits
+(016b4bd, 649194b, 27daf09, 869f12b, e0a08fb, 59e266d, 0270907, 2e42125) —
+each a human chore + history noise for a known-flaky `deploy-pages` step.
+
+**Shipped:** `.github/workflows/deploy.yml` deploy job now attempts
+`actions/deploy-pages@v4` up to 3 times (30s, then 60s backoff) using the
+`continue-on-error` + `if: steps.<id>.outcome == 'failure'` pattern (GitHub
+Actions has no native step retry for `uses:` steps). The final attempt has no
+`continue-on-error`, so a genuinely broken deploy still fails the job loudly;
+build/test failures in the build job are untouched and fail immediately. The
+environment URL falls back across all three attempts' outputs.
+
 ## POLISH-FONT-CANVAS-PRELOAD — make Phaser text wait for the webfonts · DONE a9a8b95
 
 **Value:** the repo ships five self-hosted woff2 faces, `index.html` declares all

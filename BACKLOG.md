@@ -65,14 +65,13 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   92f3d5f). Full write-up moved to `BACKLOG-archive.md`. Playtest
   follow-up filed as **POLISH-DAILY-SHARE** under `## Human gates`.
 
-- [ ] **CHORE-CI-DEPLOY-RETRY** — auto-retry the transiently-failing Pages
-  deploy. Value: history carries 8+ manual "retrigger Pages deploy
-  (transient deploy-pages failure)" commits (016b4bd, 649194b, 27daf09,
-  869f12b, e0a08fb, 59e266d, 0270907, 2e42125) — each one a human chore +
-  history noise for a known-flaky step. Done when: the deploy job retries
-  the `deploy-pages` step automatically (step-level retry), a transient
-  failure self-heals with zero commits, and a genuinely broken build still
-  fails loudly. Pointer: `.github/workflows/deploy.yml`.
+- [x] **BUG-TRAIL-GHOST** — motion trails ghosting forever as ship-shaped
+  chevron trains (operator-reported: "ship-shaped train that never clears")
+  (done — 6e8c50a). Full write-up moved to `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-TRAIL-FIX** under `## Human gates`.
+
+- [x] **CHORE-CI-DEPLOY-RETRY** — auto-retry the transiently-failing Pages
+  deploy (done — 34e5373). Full write-up moved to `BACKLOG-archive.md`.
 
 - [ ] **CHORE-ARCH-DOC-SYNC** — re-sync the architecture overview's content
   inventory. Value: `references/architecture-overview.md` is the
@@ -114,6 +113,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-TRAIL-FIX** — trail ghosting fix + ribbon smoothing (BUG-TRAIL-GHOST,
+    `6e8c50a`; all knobs in `src/visual/TrailManager.ts`). Check in a real run:
+    (a) **the reported bug is gone** — fly loops for 60s+, stop, wait ~3s: no
+    faint ship-path smears remain anywhere (previously permanent); (b) the trail
+    reads as ONE smooth ribbon behind player/fast enemies, no more repeating
+    chevron "ghost ships" (uniform widths: glow 1.3×, core 0.55× — if the trail
+    now feels too thin/fat, those two factors are the knobs); (c) fade cadence
+    feels right on both a 60Hz and a 120Hz screen (fade is now delta-scaled;
+    `FADE_ALPHA` 0.12 per 60fps-frame); (d) no screen-crossing streaks when a
+    swarm dies and respawns across the map (recycled-id jump guard, 150px);
+    (e) whole-screen tint got a hair darker (fade fill went 0x000008 → pure
+    black) — confirm the arena background still reads as intended.
   - **POLISH-FONT-METRICS** — the game's real typography, on a real cold load
     (agents have no browser and cannot see a rendered glyph). Until now every
     player saw Arial; the fonts the repo ships have never actually rendered, so
