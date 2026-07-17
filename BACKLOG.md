@@ -50,6 +50,17 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   re-audited every `PlayerStats` field and every `getStarting*` getter and found no others
   left. Full write-up in `BACKLOG-archive.md`. **No playtest filed** — see the write-up
   for why, and for the difficulty knob this opens.
+- [x] **FEAT-ASCEND-CHASE** — the prestige system you can't see until you're already
+  standing on it (done — 88c0cc3). `ShopScene` rendered nothing about ascension unless
+  `canAscend` was already true, and `getAscensionThreshold()` — the account level the
+  player needs — had zero callers in `src`. Worse, the top upgrade unlock tier (50) sits
+  below every ascension threshold (50 + 15·level), so from the second ascension on the
+  ACCOUNT LV chip read "ALL UNLOCKED" with a full gold bar while the player was 15 levels
+  short. The chip now chases the next real milestone (unlock tier → ascension → truly
+  complete) via a pure, tested resolver, a hint line names the threshold and the payoff
+  from account level 0, and the ASCEND button no longer needs a shop re-entry to appear.
+  Full write-up in `BACKLOG-archive.md`. Playtest follow-up filed as
+  **POLISH-ASCEND-CHASE** under `## Human gates`.
 - [x] **FEAT-SHIP-ULTIMATES** — every ship gets its own ultimate (done — 49c934f).
   Value: the ultimate is the game's biggest button and was identical on all 11 ships
   while every other ship axis (hull, palette, six stat multipliers, signature stat
@@ -259,6 +270,29 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-ASCEND-CHASE** — the ascension chase is visible (FEAT-ASCEND-CHASE,
+    `88c0cc3`). Agents have no browser. Reach it: MAIN MENU → SHOP. Check: (a) **the
+    point of the feature** — on a fresh-ish profile (account level < 50, never ascended),
+    does the shop now tell you prestige exists? The magenta line under the chips should
+    read `✦ Ascend at Account Lv.50 — +10% stats, +15% gold per level`. (b) **the chip
+    still chases tiers** — below account level 50 the chip should read `▶ Lv.N` for the
+    next unlock tier (10/15/20/30/50) with a **cyan** bar; unchanged from before. (c)
+    **the bug this fixes** — this needs an ascension. At account level 50, ASCEND, then
+    rebuy with the refunded gold up to account level 50 again: the chip must now read
+    `✦ Lv.65` on a **magenta** bar, **not** `ALL UNLOCKED` on a full gold bar, and the
+    hint must read `✦ Next ascension at Account Lv.65`. (d) **the button appears without
+    a re-entry** — with account level 49 and gold in hand, buy one more level *while
+    standing in the shop*: `✦ ASCEND ✦` must appear immediately, and the chip must flip
+    to `ASCEND READY`. Before this fix you had to leave and re-enter. (e) **and
+    disappears** — refund a level back below the threshold: the button must vanish and
+    the hint return. (f) **layout on a phone** — in portrait and landscape, does the hint
+    line collide with the ACCOUNT LV / GOLD chips or the tab strip? It sits at y=56 (or
+    y=74 once you have ascended) at screen centre; the chips are at y=38 left and right.
+    (g) **the two-line labels** — `ASCEND READY` and `ALL UNLOCKED` wrap to two lines at
+    font 10 inside the chip: still legible, still inside the chip? (h) **the terminal
+    state is unreachable in practice** — `ALL UNLOCKED` now only shows past ascension 25
+    (threshold 425 > the 412 reachable ceiling). Nothing to test by play; noted so it
+    isn't read as a regression.
   - **POLISH-PACTSELECT-FLIP** — rotating while choosing pacts keeps them
     (BUG-PACTSELECT-FLIP-RESETS-PICKS, `fa0ea8e`). Agents have no device to
     rotate. Check: (a) **the point of the fix** — START → stage → ship → weapon → on

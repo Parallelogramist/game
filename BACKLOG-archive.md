@@ -5,6 +5,72 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-ASCEND-CHASE — the prestige system you can't see until you're already standing on it · DONE 88c0cc3
+
+- **The defect.** `ShopScene.ts` rendered the ascension chip/button only when a player
+  could already ascend: `canAscend` gates the `✦ ASCEND ✦` button (`:365-388` before this
+  fix), and the account-level chip's `refreshAccountLevelProgress()` only ever chased
+  upgrade unlock tiers via `getNextUnlockTier()` — it never looked at ascension at all.
+  Meanwhile `getAscensionThreshold()` (`AscensionManager.ts:74`), the one function that
+  computes the account level a player needs, had **zero callers anywhere in `src`**
+  (`grep -rn "getAscensionThreshold" src` returned only its own declaration). The number
+  was computed and thrown away.
+- **The numbers.** Thresholds are `50 + 15·N` (`BASE_ASCENSION_THRESHOLD = 50`,
+  `THRESHOLD_INCREMENT = 15`, `AscensionManager.ts:18-19`), so ascension 1 needs account
+  level 65. The highest upgrade `unlockLevel` tier is **50** (the distinct tiers across
+  `PermanentUpgrades.ts` are 0, 10, 15, 20, 30, 50). `MAX_ACCOUNT_LEVEL` — sum of every
+  `maxLevel` across the 78 entries in `PERMANENT_UPGRADES` — is **412**. Solving
+  `50 + 15N ≤ 412` gives the last reachable ascension as **level 25** (threshold 410);
+  level 26 needs 425, past the ceiling forever. `MAX_ASCENSION_LEVEL = 50`
+  (`AscensionManager.ts:25`) is a defensive load clamp that is unreachable in play.
+- **The worst state, and the common one.** Because the top unlock tier (50) sits below
+  every ascension threshold once ascended, `getNextUnlockTier()` returns `null` at any
+  account level past 50 with at least one ascension banked, and
+  `refreshAccountLevelProgress()` rendered `ALL UNLOCKED` on a full gold bar — telling the
+  player they were finished while they were up to 15 levels short of the next ascension,
+  with no button and no hint. This is the state most players past their first ascension
+  sit in.
+- **The re-entry gap.** The `✦ ASCEND ✦` button was created only inside `create()`
+  (`:370` before this fix). All three purchase/refund paths
+  (`purchaseUpgrade()` `:1669`, the buy-multiple path `~:1730`, `refundUpgrade()`
+  `~:1773`) call `updateAccountLevelDisplay()` → `refreshAccountLevelProgress()`, which
+  refreshes the chip but never touched the button. Buying the upgrade level that crossed
+  the threshold — the single most likely way to cross it — did not make the button
+  appear; the player had to leave and re-enter the shop.
+- **The fix.** A new pure, zero-import module `src/meta/AccountMilestone.ts` resolves the
+  chip's target in priority order — outstanding unlock tier, then ready-to-ascend, then
+  the next ascension threshold (only while `threshold <= MAX_ACCOUNT_LEVEL`), then truly
+  `complete` — pinned by 7 tests in `AccountMilestone.test.ts` covering the branch order
+  and the reachability boundary. `ShopScene.ts` gained `refreshAscensionChrome()`, called
+  from both `create()` and `updateAccountLevelDisplay()`, which creates/destroys the
+  ASCEND button on every account-level change (not only at scene entry) and renders a
+  hint line naming the threshold and payoff — `✦ Ascend at Account Lv.50 — +10% stats,
+  +15% gold per level` before any ascension, `✦ Next ascension at Account Lv.65` after.
+  `refreshAccountLevelProgress()` now reads `getAccountMilestone()` instead of only
+  `getNextUnlockTier()`, coloring the bar cyan for an unlock tier, magenta for an
+  ascension (matching the button), gold when capped.
+- **Why a test was written here**, against this repo's default of no tests: the branch
+  order is non-obvious (`canAscend` must be checked before the reachability check, or a
+  ready-to-ascend player at an unreachable threshold would show the wrong state), the
+  `threshold <= maxAccountLevel` boundary is load-bearing (an off-by-one turns the real
+  level-25 terminal state into a `✦ Lv.425` promise no player can ever reach), and the
+  unit is pure — exactly the standing order's carve-out.
+- **The balance knob this opens, recorded and NOT turned.** Ascension refunds 100% of
+  gold spent and resets upgrades, so a player can rebuy exactly what they had and keep a
+  permanent +10% stats / +15% gold — the incremental 15 account levels are the only real
+  cost of each ascension. Whether prestige should cost more is the human's call; this
+  feature only makes the loop visible and changes no number — every threshold, bonus and
+  cost is read from the existing `AscensionManager` / `PermanentUpgrades` constants.
+- **The known non-change.** The ASCEND button is not part of gamepad/keyboard focus
+  navigation — `buildMenuNavigator()` covers tabs, cards and BACK only, and the button
+  runs on plain pointer events via `chromeButtons`. Pre-existing, out of scope, worth
+  filing if the human cares.
+- **Why a playtest was filed** (unlike the two dead-field bugs above it in this file):
+  this change is visual — bar color, button appearance/disappearance, hint-line layout —
+  and agents have no browser. Filed as **POLISH-ASCEND-CHASE** under `## Human gates`.
+
+---
+
 ## BUG-META-BARRIER-CAPACITY-DEAD — the 2,968-gold shop upgrade that bought nothing · DONE 1e7ef6c
 
 - **Symptom.** Barrier Capacity (`barrierCapacityLevel`, maxLevel 4, 250 + 450 + 810 +
