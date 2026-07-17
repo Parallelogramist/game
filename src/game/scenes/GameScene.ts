@@ -140,6 +140,10 @@ import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { setPracticeSession } from '../../utils/practiceSession';
 import { PracticeDock, PracticeDockState } from '../../ui/PracticeDock';
 import { isPracticeMinibossTarget, scheduledSpawnTime } from '../../data/PracticeTargets';
+import {
+  PracticeArenaRung,
+  endlessCycleRampFactor,
+} from '../../data/PracticeArena';
 import { practiceBuildPlayerLevel } from '../../data/PracticeBuild';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
@@ -1357,6 +1361,8 @@ export class GameScene extends Phaser.Scene {
         onSpawn: (state) => this.spawnPracticeTarget(state),
         onInvincibleChange: (invincible) => { this.practiceInvincible = invincible; },
         onBuildChange: (depth) => this.applyPracticeBuild(depth),
+        onArenaChange: (rung) => this.applyPracticeArena(rung),
+        onMutatorChange: (mutator) => this.setPracticeMutator(mutator),
       });
 
       this.practiceSpawnKeyHandler = () => {
@@ -3738,7 +3744,9 @@ export class GameScene extends Phaser.Scene {
     this.gameTime += deltaSeconds;
 
     // ═══ ACHIEVEMENT TIME TRACKING (throttled to once per second) ═══
-    if (this.gameTime - this.lastAchievementTimeCheck >= 1.0) {
+    // Practice is a sandbox and its clock jumps: crediting it would complete the
+    // whole time ladder in one tick, and practice writes no-op regardless.
+    if (!this.practiceModeActive && this.gameTime - this.lastAchievementTimeCheck >= 1.0) {
       this.lastAchievementTimeCheck = this.gameTime;
       getAchievementManager().recordTimeSurvived(Math.floor(this.gameTime));
     }
@@ -4968,6 +4976,58 @@ export class GameScene extends Phaser.Scene {
     // only clamps current HP downward, so vitality's new headroom starts empty.
     Health.current[this.playerId] = Health.max[this.playerId];
     this.playerStats.currentHealth = Health.current[this.playerId];
+  }
+
+  /**
+   * Field the arena a real run would have at this depth. Monotonic like the build
+   * ladder: the clock and the cycle only move forward, since neither a spawned wave
+   * nor a compounded escalation can be taken back. Reload to start over.
+   */
+  private applyPracticeArena(rung: PracticeArenaRung): void {
+    if (!this.practiceModeActive) return;
+    if (rung.gameTime <= this.gameTime && rung.endlessCycle <= this.endlessCycleNumber) return;
+
+    if (rung.gameTime > this.gameTime) {
+      this.gameTime = rung.gameTime;
+
+      // The jump lands past scheduled spawn times the run never played through;
+      // without this every skipped miniboss and the boss all fire on the next
+      // update, burying the target the dock is there to spawn on demand.
+      for (const minibossEntry of this.minibossSpawnTimes) {
+        if (minibossEntry.time <= this.gameTime) minibossEntry.spawned = true;
+      }
+      if (this.gameTime >= this.bossSpawnTime) {
+        this.bossSpawned = true;
+        this.cleanupBossWarning();
+      }
+    }
+
+    if (rung.endlessCycle > this.endlessCycleNumber) {
+      const ramp = endlessCycleRampFactor(this.endlessCycleNumber, rung.endlessCycle);
+      this.worldLevelHealthMult *= ramp.health;
+      this.worldLevelDamageMult *= ramp.damage;
+      this.worldLevelXPMult *= ramp.xp;
+
+      this.endlessModeActive = true;
+      this.endlessModeTime = 0;
+      this.endlessCycleNumber = rung.endlessCycle;
+      this.endlessBossIntervalSeconds = Math.max(120, 300 - rung.endlessCycle * 45);
+      this.endlessBossTimer = this.endlessBossIntervalSeconds;
+      this.endlessMinibossTimer = Math.max(20, 45 - rung.endlessCycle * 5);
+      this.endlessHudCycleShown = -1;
+      this.showEndlessCycleBanner(rung.endlessCycle);
+    }
+  }
+
+  /**
+   * Pin the endless mutator the operator wants to judge. Freely reversible: the
+   * mutator is only read at spawn time, so flipping it changes the next spawn and
+   * nothing already on the field.
+   */
+  private setPracticeMutator(mutator: EndlessMutatorType): void {
+    if (!this.practiceModeActive) return;
+    this.endlessMutator = mutator;
+    this.endlessHudCycleShown = -1;
   }
 
   /**
@@ -7290,11 +7350,14 @@ export class GameScene extends Phaser.Scene {
     // Boss waves: interval shortens each cycle (5min → 4min → 3min → 2min floor).
     if (this.endlessBossTimer <= 0) {
       this.endlessCycleNumber += 1;
-      if (saveEndlessBestCycleIfHigher(this.endlessCycleNumber)) {
+      if (!this.practiceModeActive && saveEndlessBestCycleIfHigher(this.endlessCycleNumber)) {
         this.endlessNewBestThisRun = true;
         getAchievementManager().recordEndlessCycleReached(this.endlessCycleNumber);
       }
-      this.endlessMutator = rollEndlessMutator(this.endlessMutator);
+      // Practice fields the mutator the operator picked; every other mode rolls.
+      this.endlessMutator = this.practiceModeActive
+        ? this.endlessMutator
+        : rollEndlessMutator(this.endlessMutator);
       // Each cycle tightens the next interval by 45s (minimum 120s = 2 min).
       this.endlessBossIntervalSeconds = Math.max(120, 300 - this.endlessCycleNumber * 45);
       this.endlessBossTimer = this.endlessBossIntervalSeconds;

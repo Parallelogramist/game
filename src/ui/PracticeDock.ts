@@ -3,6 +3,7 @@ import { createMenuButton, MenuButton } from '../visual/MenuButton';
 import { OverlayDepths } from '../visual/DepthLayers';
 import { getEnemyType } from '../enemies/EnemyTypes';
 import { EnemyAffixType } from '../data/Affixes';
+import { EndlessMutatorType } from '../data/EndlessMutators';
 import {
   PRACTICE_TARGET_IDS,
   PRACTICE_AFFIX_CYCLE,
@@ -11,6 +12,12 @@ import {
   affixLabel,
 } from '../data/PracticeTargets';
 import { PRACTICE_BUILD_LADDER } from '../data/PracticeBuild';
+import {
+  PRACTICE_ARENA_LADDER,
+  PRACTICE_MUTATOR_CYCLE,
+  PracticeArenaRung,
+  practiceMutatorLabel,
+} from '../data/PracticeArena';
 
 const DOCK_DEPTH = OverlayDepths.HUD_OVERLAY;
 
@@ -26,6 +33,8 @@ export interface PracticeDockOptions {
   onSpawn: (state: PracticeDockState) => void;
   onInvincibleChange: (invincible: boolean) => void;
   onBuildChange: (depth: number) => void;
+  onArenaChange: (rung: PracticeArenaRung) => void;
+  onMutatorChange: (mutator: EndlessMutatorType) => void;
 }
 
 /**
@@ -43,12 +52,16 @@ export class PracticeDock {
   private affix2Button!: MenuButton;
   private invincibleButton!: MenuButton;
   private buildButton!: MenuButton;
+  private arenaButton!: MenuButton;
+  private mutatorButton!: MenuButton;
 
   private targetIndex = 0;
   private affix: EnemyAffixType = EnemyAffixType.NONE;
   private affix2: EnemyAffixType = EnemyAffixType.NONE;
   private invincible = false;
   private buildIndex = 0;
+  private arenaIndex = 0;
+  private mutator: EndlessMutatorType = EndlessMutatorType.NONE;
 
   private left = 0;
   private top = 0;
@@ -66,7 +79,7 @@ export class PracticeDock {
     const width = Math.round(168 * scale);
     const height = Math.max(Math.round(30 * scale), 30);
     const gap = Math.round(6 * scale);
-    const rows = 6;
+    const rows = 8;
     const x = Math.round(12 * scale) + width / 2;
     const stackHeight = rows * height + (rows - 1) * gap;
     const firstY = this.scene.scale.height / 2 - stackHeight / 2 + height / 2;
@@ -119,8 +132,30 @@ export class PracticeDock {
       },
     });
 
-    this.invincibleButton = createMenuButton({
+    this.arenaButton = createMenuButton({
       scene: this.scene, x, y: rowY(4), width, height, fontSize,
+      label: '', variant: 'neutral',
+      onActivate: () => {
+        if (this.arenaIndex >= PRACTICE_ARENA_LADDER.length - 1) return;
+        this.arenaIndex++;
+        this.options.onArenaChange(PRACTICE_ARENA_LADDER[this.arenaIndex]);
+        this.refreshLabels();
+      },
+    });
+
+    this.mutatorButton = createMenuButton({
+      scene: this.scene, x, y: rowY(5), width, height, fontSize,
+      label: '', variant: 'neutral',
+      onActivate: () => {
+        const index = PRACTICE_MUTATOR_CYCLE.indexOf(this.mutator);
+        this.mutator = PRACTICE_MUTATOR_CYCLE[(index + 1) % PRACTICE_MUTATOR_CYCLE.length];
+        this.options.onMutatorChange(this.mutator);
+        this.refreshLabels();
+      },
+    });
+
+    this.invincibleButton = createMenuButton({
+      scene: this.scene, x, y: rowY(6), width, height, fontSize,
       label: '', variant: 'neutral',
       onActivate: () => {
         this.invincible = !this.invincible;
@@ -130,13 +165,14 @@ export class PracticeDock {
     });
 
     const spawnButton = createMenuButton({
-      scene: this.scene, x, y: rowY(5), width, height, fontSize,
+      scene: this.scene, x, y: rowY(7), width, height, fontSize,
       label: 'SPAWN', variant: 'gold',
       onActivate: () => this.options.onSpawn(this.getState()),
     });
 
     this.buttons = [this.targetButton, this.affixButton, this.affix2Button,
-                    this.buildButton, this.invincibleButton, spawnButton];
+                    this.buildButton, this.arenaButton, this.mutatorButton,
+                    this.invincibleButton, spawnButton];
     for (const button of this.buttons) {
       button.container.setDepth(DOCK_DEPTH);
       button.container.setScrollFactor(0);
@@ -176,6 +212,12 @@ export class PracticeDock {
     const rung = PRACTICE_BUILD_LADDER[this.buildIndex];
     this.buildButton.setLabel(`BUILD: ${rung.label}`);
     this.buildButton.setEnabled(this.buildIndex < PRACTICE_BUILD_LADDER.length - 1);
+
+    const arenaRung = PRACTICE_ARENA_LADDER[this.arenaIndex];
+    this.arenaButton.setLabel(`ARENA: ${arenaRung.label}`);
+    this.arenaButton.setEnabled(this.arenaIndex < PRACTICE_ARENA_LADDER.length - 1);
+
+    this.mutatorButton.setLabel(`MUTATOR: ${practiceMutatorLabel(this.mutator)}`);
 
     this.invincibleButton.setLabel(`INVINCIBLE: ${this.invincible ? 'ON' : 'OFF'}`);
     this.invincibleButton.setVariant(this.invincible ? 'safe' : 'neutral');
