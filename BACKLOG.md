@@ -34,6 +34,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-SHIP-CHASE** — surface the locked ships and how to unlock them
+  (done — f1000e7). The game ships **11 ships** (`src/data/ShipCharacters.ts`) — each a
+  distinct playstyle (six stat multipliers, a unique hull, a signature ultimate, signature
+  bonuses) — but only **3 are unlocked by default** (Sparrow, Interceptor, Dreadnought) and
+  `WeaponSelectScene.renderShipSelectionStep()` rendered **only unlocked** ships
+  (`getAvailableShips()`), so from the menu a player never saw the other **8 hidden-gated
+  ships** or how to earn them — the whole ship roster and its unlock chase were invisible,
+  the same hole FEAT-STAGE-CHASE (`6158650`) fixed for biomes and FEAT-ASCEND-CHASE
+  (`88c0cc3`) for prestige. The ship step now renders the locked ships as dim,
+  non-selectable cards showing the ship name, a gold "LOCKED" tag, the kit description, and
+  the unlock hint (`hidden:` → the HiddenUnlocks `hintText`; `worldLevel:`/`account:` →
+  "Reach world/account level N"). Isolated to `WeaponSelectScene` — **no data change, no new
+  module, no `ShipCharacters`/`HiddenUnlocks`/`UnlockGates` edit, no persistence**; locked
+  cards use `interactive: false` and are excluded from the `MenuNavigator`, so keyboard/pad
+  nav still lands only on unlocked ships. Direct twin of FEAT-STAGE-CHASE in the same scene:
+  reuses `getLockedStages`/`describeStageUnlock`/`renderLockedStageCard` as
+  `getLockedShips`/`describeShipUnlock`/`renderLockedShipCard`. Full write-up in
+  `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-SHIP-CHASE** under
+  `## Human gates`.
 - [x] **FEAT-STAGE-CHASE** — surface the locked biomes and how to unlock them
   (done — 6158650). The game ships **4 stages/biomes** (`src/data/Stages.ts`: Deep Void,
   Inferno, Crystal Caves, Endless Void) — each with a distinct palette and its own risk/reward
@@ -367,6 +386,32 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SHIP-CHASE** — the locked ships now show on the ship-select step
+    (FEAT-SHIP-CHASE, `f1000e7`). Agents have no browser; this is a UI-layout + readability
+    change and must be eyeballed. Reach it: MAIN MENU → START (or GAUNTLET) → advance past
+    CHOOSE YOUR STAGE to **CHOOSE YOUR SHIP**. Check: (a) **the point of the fix** — on a
+    fresh-ish profile (only Sparrow/Interceptor/Dreadnought unlocked) the ship step now
+    shows the 3 unlocked ships **plus 8 dim LOCKED cards** (Scholar, Juggernaut, Void
+    Walker, Boss Hunter, Flawless, Glass Cannon, Elite Slayer, Apex). Before this a player
+    never learned those ships exist. (b) **each locked card reads cleanly** — dim ship name,
+    gold "LOCKED" tag, dim kit description, muted `UNLOCK: <hint>` line; spot-check Scholar =
+    "Reach level 10 without using any weapon upgrades", Juggernaut = "Survive 5 minutes
+    without taking damage", Apex = "Complete a world level 5 victory". (c) **locked cards are
+    not selectable** — tapping one does nothing (no run start, no hover preview swap); only
+    unlocked cards respond. (d) **keyboard/pad nav** — arrowing moves only between the
+    *unlocked* ships and never focuses a LOCKED card; the hangar preview only ever shows an
+    unlocked hull. (e) **layout** — with 11 cards (3 unlocked + 8 locked) the grid wraps to
+    fit; in portrait confirm the longest description (Apex) + its UNLOCK line aren't clipped
+    by the 160px card height and the grid doesn't overflow the screen; in portrait the
+    hangar preview is expected to be skipped when the taller grid leaves no headroom (as
+    designed). (f) **fully-unlocked profile** — once all 11 ships are unlocked there are no
+    LOCKED cards and the step looks exactly as before. (g) **the chase reads** — does
+    "Glass Cannon — +80% damage… — UNLOCK: Deal 100,000 damage in a single run" make you
+    want to chase it, or is revealing the full kit a spoiler? Design opens this raises (none
+    blocking, **not** agent calls — note if you want them): mask the ship name/kit behind
+    "???" instead of revealing it; and give the **BootScene quick ship picker** the same
+    locked-preview treatment (this feature is scoped to the WeaponSelectScene ship step
+    only). This mirrors the identical opens filed for POLISH-STAGE-CHASE.
   - **POLISH-STAGE-CHASE** — the locked biomes now show on the stage-select step
     (FEAT-STAGE-CHASE, `6158650`). Agents have no browser; this is a UI-layout + readability
     change and must be eyeballed. Reach it: MAIN MENU → START (or GAUNTLET) → the first step is

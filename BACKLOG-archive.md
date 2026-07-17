@@ -5,6 +5,53 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-SHIP-CHASE — surface the locked ships and how to unlock them · DONE f1000e7
+
+- **The gap.** The game ships 11 ships (`src/data/ShipCharacters.ts`) — each a distinct
+  playstyle (six stat multipliers, a unique hull, a signature ultimate, signature bonuses) —
+  but only 3 are unlocked by default (Sparrow, Interceptor, Dreadnought); the other 8 are
+  hidden-gated. `WeaponSelectScene.renderShipSelectionStep()` rendered only `getAvailableShips()`
+  — the unlocked ones — so from the menu a player had no way to see that the other 8 ships
+  exist or how to earn them. The whole ship roster and its unlock chase were invisible, the
+  same hole FEAT-STAGE-CHASE (`6158650`) fixed for biomes and FEAT-ASCEND-CHASE (`88c0cc3`)
+  fixed for prestige.
+- **The fix (WeaponSelectScene only).** Added three new methods, twins of the stage
+  equivalents: `getLockedShips()` (SHIP_CHARACTERS whose requirement is not met, mirrors
+  `getLockedStages`), `describeShipUnlock()` (gate → human hint, mirrors `describeStageUnlock`),
+  and `renderLockedShipCard()` (dim, `interactive: false` card showing the ship name, a gold
+  "LOCKED" tag, the kit description, and the unlock hint, mirrors `renderLockedStageCard`).
+  Two gate edits now count locked ships like the stage gate: the `create()` `availableSteps`
+  push and `proceedToShipStep()`'s guard both changed from `availableShips.length > 1` to
+  `availableShips.length + getLockedShips().length > 1`. `renderShipSelectionStep` sizes its
+  grid for `ships.length + lockedShips.length` and draws the locked cards after the unlocked
+  ones so selectable cards keep grid indices `0..n-1` and the `MenuNavigator` (built from
+  `focusable`, which locked cards are never pushed to) still contains only unlocked ships.
+- **Ship descriptions needed a different card layout than stages.** Ship kit descriptions run
+  longer than stage modifier descriptions, so the locked card uses a smaller (10px) description
+  font and a dynamically-placed unlock hint — top-anchored at `−22 + description.height + 8` —
+  instead of the stage card's fixed hint position, so the longest ship description (Apex, ~4
+  wrapped lines) can't overlap the hint or overflow the 160px card.
+- **Isolated, reversible, data-free.** No change to `ShipCharacters.ts`, `HiddenUnlocks.ts`,
+  `UnlockGates.ts`, or any persistence — pure presentation in one scene, reading existing data
+  (`HIDDEN_UNLOCKS` for hint text). No new module, no new imports. The unlocked-card path,
+  selection, hangar preview, gauntlet launch, relayout-resume, and back-nav are untouched; a
+  fully-unlocked profile sees the step exactly as before (zero locked cards).
+- **No number changes, no test.** No gameplay/balance value changed. Per the workspace standing
+  order no test was added: this is a UI-layout mirror of a shipped pattern with no unit-test
+  seam, and the reused `isUnlockRequirementMet` predicate is already covered by
+  `UnlockGates.test.ts`. Verified by `npx tsc --noEmit` (exit 0) and the full suite (94 files /
+  1310 tests green, unchanged), plus the **POLISH-SHIP-CHASE** human playtest.
+- **Why this over the open backlog.** A read-only audit of every `getStarting*` getter,
+  `PermanentUpgradeState` field, and `src/data/*` content pool found no remaining dead field
+  (that class of bug is closed). An 8th Codex tab would compound an already-flagged 7-tab
+  layout-crowding risk. A new weapon is the highest raw-content value but the riskiest to
+  execute blind (~500 lines of pooling/rendering/quality-tier logic no agent playtest can
+  validate). FEAT-SHIP-CHASE is a copy-adapt of proven, in-file, shipped code (FEAT-STAGE-CHASE)
+  — high value at low execution risk, and it closes the exact gap the STAGE-CHASE playtest note
+  flagged as the remaining opening.
+
+---
+
 ## FEAT-STAGE-CHASE — surface the locked biomes and how to unlock them · DONE 6158650
 
 - **The gap.** The game ships 4 stages/biomes (`src/data/Stages.ts`: Deep Void [always], Inferno
