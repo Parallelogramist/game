@@ -2517,7 +2517,9 @@ export class GameScene extends Phaser.Scene {
     spawnXPGem(this.world, x, y, scaledXP);
 
     // Random chance to spawn health pickup (higher chance for minibosses)
-    const dropChance = xpValue >= 30 ? this.HEALTH_DROP_CHANCE * 3 : this.HEALTH_DROP_CHANCE;
+    const dropChance =
+      (xpValue >= 30 ? this.HEALTH_DROP_CHANCE * 3 : this.HEALTH_DROP_CHANCE)
+      * this.playerStats.healthDropMultiplier;
     if (Math.random() < dropChance) {
       const healAmount = 15 + Math.floor(Math.random() * 10);
       spawnHealthPickup(this.world, x, y, healAmount);
@@ -2531,9 +2533,11 @@ export class GameScene extends Phaser.Scene {
 
     // Rare floor-consumable drop. Tougher enemies drop more often; bosses/
     // minibosses are guaranteed a power-up.
-    const consumableChance = xpValue >= 1000 ? 1 : xpValue >= 30 ? 0.18 : 0.012;
+    const consumableChance =
+      (xpValue >= 1000 ? 1 : xpValue >= 30 ? 0.18 : 0.012)
+      * this.playerStats.dropRateMultiplier;
     if (Math.random() < consumableChance) {
-      this.spawnRandomConsumable(x, y);
+      this.spawnRandomConsumable(x, y, xpValue);
     }
 
     // Check for explosion on death. Not instant (BALANCE-EXPLODER-FUSE): the
@@ -2562,7 +2566,7 @@ export class GameScene extends Phaser.Scene {
         this.volatileQueue.push({ x, y });
         this.drainVolatileExplosions();
       } else if (deathAffix === EnemyAffixType.BLESSED) {
-        this.spawnRandomConsumable(x, y);                    // guaranteed power-up
+        this.spawnRandomConsumable(x, y, xpValue);           // guaranteed power-up
       }
     }
 
@@ -2952,7 +2956,7 @@ export class GameScene extends Phaser.Scene {
    * Spawns a weighted-random floor consumable at a position. GOLD caches carry
    * a payload that scales with run progress so they stay relevant late game.
    */
-  private spawnRandomConsumable(x: number, y: number): void {
+  private spawnRandomConsumable(x: number, y: number, sourceXpValue = 0): void {
     const roll = Math.random();
     let kind: ConsumableKind;
     if (roll < 0.30) kind = ConsumableKind.BOMB;
@@ -2960,10 +2964,15 @@ export class GameScene extends Phaser.Scene {
     else if (roll < 0.80) kind = ConsumableKind.VACUUM;
     else kind = ConsumableKind.GOLD;
 
+    // A boss's guaranteed cache is the only gold a boss produces, so it is what
+    // "bonus gold from bosses" has to scale. Non-enemy drops (shrine, bounty,
+    // crate) pass no source and are unaffected.
+    const bossGoldScale = sourceXpValue >= 1000 ? this.playerStats.bossGoldMultiplier : 1;
     const goldValue = kind === ConsumableKind.GOLD
       ? Math.round(
           (25 + Math.floor(this.gameTime * 0.5) + this.worldLevel * 10)
-            * ENDLESS_MUTATOR_META[this.endlessMutator].goldDropScale,
+            * ENDLESS_MUTATOR_META[this.endlessMutator].goldDropScale
+            * bossGoldScale,
         )
       : 0;
     spawnConsumablePickup(this.world, x, y, kind, goldValue);
