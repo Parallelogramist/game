@@ -34,6 +34,18 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-SHIP-ULTIMATES** — every ship gets its own ultimate (done — 49c934f).
+  Value: the ultimate is the game's biggest button and was identical on all 11 ships
+  while every other ship axis (hull, palette, six stat multipliers, signature stat
+  bonuses) already differed. Full write-up in `BACKLOG-archive.md`. Playtest follow-up
+  filed as **BALANCE-SHIP-ULTIMATES** under `## Human gates`.
+- [ ] **FEAT-PRACTICE-ULT** — fire any ship's ultimate on demand from the practice
+  dock. Value: FEAT-SHIP-ULTIMATES adds 11 abilities whose feel can only be judged by
+  firing them, and charging the meter needs ~40 kills per shot — a dock button (and a
+  ship row) turns judging all 11 from eleven full runs into a minute, the same way
+  FEAT-PRACTICE-BOSS/-BUILD/-TIME drained their queues. Pointers:
+  `src/ui/PracticeDock.ts`, `GameScene.activateUltimate()`,
+  `addUltimateCharge(MAX_ULTIMATE_CHARGE)`.
 - [x] **FEAT-PRACTICE-BUILD** — fight a boss with the build you'd really have
   (done — 41df31c). Value: closes the documented level-0-passives limit that
   blocks the absolute "siege or drag" reads in POLISH-BOSS-AFFIXES (c),
@@ -196,6 +208,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **BALANCE-SHIP-ULTIMATES** — agents have no browser and must not retune blind.
+    Reach it: BootScene → START → pick a ship; the card now names its ultimate. Check:
+    (a) **the point of the feature** — fly Juggernaut then Scholar: does Q feel like a
+    *different button*, or just a recoloured nova? (b) **the tuning knob** — all 11
+    numbers live in `SHIP_ULTIMATES` (`src/data/ShipUltimates.ts`); the planner set them
+    by ship identity, never by play. Suspected outliers to judge first: `siege_pulse`
+    (×2.0 damage at 0.6 radius — is the trade legible?), `bulwark_slam` (1,200
+    knockback — does it scatter the screen usefully or just push kills out of reach?),
+    `pristine_aegis` (full heal + 3s iframes — too strong on a ship that already earns
+    +100% gold?), `insight_surge` / `critical_cascade` (a buff window with almost no
+    blast — does a near-damageless ultimate feel bad to press?). (c) **the ship card**
+    — one extra wrapped line: does it still fit on a phone in portrait, or does the
+    card need to grow? (d) **the toast** — a 2.2s toast on every ult: helpful the first
+    time, noise by the tenth?
   - **POLISH-PRACTICE-MODE** — practice mode on a real device (agents have no
     browser). This one is worth doing first: it is the tool for draining the rest
     of this queue. Reach it: BootScene → **PRACTICE**. Check: (a) **the point of

@@ -5,6 +5,59 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-SHIP-ULTIMATES — every ship gets its own ultimate · DONE 49c934f
+
+- **Value:** the Overdrive meter (Q / gamepad Y / the touch ult button) fired one
+  identical screen-clearing nova on all 11 ships — the game's biggest, most-pressed
+  button was the only ship identity axis that was still completely flat, while hull
+  silhouette, neon palette, the six stat multipliers and the signature stat-bonus
+  fields already differed per ship.
+- **Shipped:** a new pure registry, `src/data/ShipUltimates.ts`
+  (`ShipUltimateId`, `ShipUltimateDefinition`, `SHIP_ULTIMATES`, `getShipUltimate()`,
+  `getUltimateForShip()`), giving each ship its own `ultimateId`
+  (`ShipCharacters.ts`). `GameScene.activateUltimate()` was rewritten from a hardcoded
+  nova into a generic applier: it resolves the flown ship's ultimate, fires the shared
+  `computeUltimateNova()` scaled by the ultimate's `radiusMultiplier`/`damageMultiplier`
+  and its own `knockback`, then lands any `freeze`/`burn`/`poison` on survivors still
+  alive inside the blast (mirroring `detonateArea`'s own `EnemyTag && Health.current > 0`
+  filter), applies any heal/iframe/slow-time/stat-buff, and shows a 2.2s toast naming
+  the ultimate. `WeaponSelectScene`'s ship card now appends `ULT — <name>: <description>`
+  to `ship.description` (the block grows downward with nothing below it, so no layout
+  work was needed).
+- **The 11-ship mapping:**
+
+  | Ship | Ultimate | What it does |
+  | --- | --- | --- |
+  | Sparrow (`ship_default`) | Overdrive | Baseline screen-clearing nova — byte-identical to the pre-feature behavior. |
+  | Interceptor | Temporal Rip | 8s of 75%-speed slowed time, plus a light blast. |
+  | Dreadnought | Siege Pulse | Short, very heavy (×2.0 dmg, 0.6 radius) blast; repairs 25% HP. |
+  | Scholar | Insight Surge | x3 XP and x2 gem value for 12s, minimal blast. |
+  | Juggernaut | Bulwark Slam | Massive 1,200-knockback shockwave; 2s invulnerable. |
+  | Void Walker | Void Collapse | Blasts, then freezes every survivor for 5s. |
+  | Boss Hunter | Execution Mark | Ignites every survivor with a heavy 10s burn. |
+  | Flawless | Pristine Aegis | Full HP repair and 3s invulnerable. |
+  | Glass Cannon | Critical Cascade | x2.5 damage for 10s, minimal blast. |
+  | Elite Slayer | Culling Field | Blast plus max (10) poison stacks on every survivor. |
+  | Apex | Apex Ascendance | Wider/heavier nova, x1.8 damage for 10s, repairs 30% HP. |
+
+- **Design:** `UltimateSystem.ts` (charge, suppression, save/restore,
+  `computeUltimateNova` scaling) was deliberately left untouched — it is already
+  correct and unit-tested, and per-ship variation rides on top purely as multipliers,
+  so central nova tuning still reaches every ship and Sparrow is unchanged from today.
+  `shieldCharges` was deliberately excluded from every ultimate: it is gated behind
+  `playerStats.shieldBarrierEnabled`, so granting charges would have been a silent
+  no-op for any player without the Shield Barrier upgrade — the exact "advertised but
+  dead" bug class the last five sessions were spent removing. The two defensive
+  ultimates (Bulwark Slam, Pristine Aegis) grant `damageCooldown` iframes instead,
+  which always work regardless of upgrades. No save-schema change was needed — the
+  ultimate derives from `selectedShipId`, already persisted, and timed stat buffs
+  already round-trip through `timedDamageBuffs`.
+- **The 11 number sets (nova multipliers, statuses, durations) are a human tuning
+  knob**, set by ship identity rather than by play — they go to the playtest queue as
+  **BALANCE-SHIP-ULTIMATES** rather than being retuned blind.
+
+---
+
 ## FEAT-META-MEMORY — Memory (`upgradeKeepLevel`), the last paid dead getter · DONE f3ba7ce
 
 - **Value:** Memory is a 2,000-gold shop upgrade (500 base, ×3.0 scaling, max level
