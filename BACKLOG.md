@@ -96,14 +96,12 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   last-run upgrade ids persisted and re-applied at run start (save-schema work —
   mirror the optional-field, no-version-bump pattern used by `endlessState.mutator`
   in `GameStateManager.ts`). Pointer: shop entry `PermanentUpgrades.ts:714`.
-- [ ] **FEAT-META-BLESSING** — implement Blessing (`blessingLevel`). Value: a
-  3,900-gold shop upgrade (400 base, ×2.5 scaling, max 3) that currently takes
-  gold and does nothing — `getStartingBlessingCount()` in
-  `src/meta/MetaProgressionManager.ts:1010` has **zero callers**. Its card
-  promises "{level} random blessing(s)" — N random run-start buffs — so it needs
-  a blessing pool designed; `src/data/RunModifiers.ts` is the nearest existing
-  shape to copy (a named, described, `apply(stats)` bag). Pointer: shop entry
-  `PermanentUpgrades.ts:769`.
+- [x] **FEAT-META-BLESSING** — implement Blessing (`blessingLevel`) (done —
+  48400ec). A 3,900-gold shop upgrade that took gold and did nothing —
+  `getStartingBlessingCount()` had zero callers. Now rolls N distinct pure-upside
+  blessings from a 14-entry pool at run start. Full write-up moved to
+  `BACKLOG-archive.md`. **No playtest filed** — see the write-up for why, and for
+  the pool-magnitude knob.
 
 ## Later
 

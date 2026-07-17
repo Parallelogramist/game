@@ -5,6 +5,48 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-META-BLESSING — the 3,900-gold shop upgrade that did nothing · DONE 48400ec
+
+- **Value:** Blessing (`blessingLevel`, 400 base ×2.5, max 3 = **3,900 gold**)
+  advertised "Random bonus each run" / "{level} random blessing(s)" and did nothing —
+  `getStartingBlessingCount()` had **zero callers**. Found by the same audit that
+  shipped BUG-META-DEAD-RESOURCES (`1443893`); a caller-count sweep over every getter
+  in `MetaProgressionManager` leaves **Memory** (`upgradeKeepLevel`, 2,000g) as the
+  only paid dead getter still standing.
+- **Shipped:** new `src/data/Blessings.ts` — 14 pure-upside blessings in the
+  `RunModifiers`/`Pacts` `apply(stats)` shape, plus `selectBlessings(count)` and
+  `getBlessingById`. `GameScene` rolls `getStartingBlessingCount()` of them right
+  after the pacts block, applies them, and toasts them; they render in the HUD
+  relic/modifier strip with per-blessing icon, colour and tooltip; the pause panel
+  gets a `Blessing N` line beside the existing `Curse` line; `blessingIds` persists
+  in the save.
+- **Design:** (a) a blessing is **pure upside** — that is what separates it from a
+  RunModifier (tradeoff) and a Pact (bought curse) — and a test pins that no entry
+  worsens any stat; (b) `selectBlessings(0)` returns `[]`, so an unbought profile is
+  byte-identical — the `count <= 0` guard is load-bearing because `slice(0, -1)`
+  would otherwise return nearly the whole pool; (c) blessings re-roll every fresh run
+  and are **not** carried in the PLAY-AGAIN scene payload, because "random bonus each
+  run" means each run; (d) `blessingIds` is **display-only on restore** — saved
+  `playerStats` already has the effects baked in, so re-applying on reload would
+  double them (same contract as `pactIds`); (e) `blessingIds` is an optional save
+  field with no `SAVE_VERSION` bump, matching how `pactIds`/`relicIds` were added —
+  the validator deliberately leaves newer optional fields unguarded; (f) the pool is
+  registered in `referentialIntegrity.test.ts`'s icon sweep, the existing guard
+  against a dangling icon key silently rendering the cross-mark fallback.
+- **Open knob (for the human, not a playtest):** the pool's magnitudes (+20% damage,
+  +25% max HP, +1 revival, …) were set against the RunModifier pool — a RunModifier
+  gives +50% damage *with* a downside, so a pure-upside gift was pitched lower at
+  +20%. Whether 3 random blessings are worth 3,900 gold, and whether `blessed_resolve`
+  (+1 revival) is too swingy against `blessed_magnetism` (+50 pickup range), are
+  balance calls the human owns. Knobs: the `apply` factors in `src/data/Blessings.ts`
+  and `baseCost`/`costScaling` at `PermanentUpgrades.ts:769`.
+- **Why no playtest was filed:** the playtest queue stands at ~30 items and has never
+  had one drained; the wiring is provable from the diff and the unit test (the getter
+  now has a caller; an unbought profile provably rolls nothing), so a 31st queue entry
+  would be pure operator load. The balance question above is recorded as a knob instead.
+
+---
+
 ## BUG-META-DEAD-RESOURCES — three shop upgrades took gold and did nothing · DONE 1443893
 
 **Value:** Fortune (`dropRateLevel`, "+5% drop rate"/level, ~4,470g for 5 levels),
