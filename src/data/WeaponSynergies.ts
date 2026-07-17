@@ -165,6 +165,14 @@ export const WEAPON_SYNERGIES: readonly WeaponSynergy[] = [
     damageMultiplier: 1.2,
     cooldownMultiplier: 0.9,
   },
+  {
+    weaponA: 'storm',
+    weaponB: 'chain_lightning',
+    name: 'Overcharge',
+    description: 'Twin tempests feed each other: +20% damage, 10% faster',
+    damageMultiplier: 1.2,
+    cooldownMultiplier: 0.9,
+  },
 ] as const;
 
 // Pre-built lookup for O(1) synergy checks

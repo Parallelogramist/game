@@ -314,6 +314,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.3,
     },
   },
+  {
+    weaponId: 'storm',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'multishot',
+    requiredStatLevel: 5,
+    evolvedName: 'Maelstrom',
+    evolvedDescription: 'The sky splits open — a relentless barrage of lightning hammers the whole field, more bolts striking harder across a wider blast.',
+    statMultipliers: {
+      damage: 1.6,
+      range: 1.3,
+      count: 2,
+      size: 1.25,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

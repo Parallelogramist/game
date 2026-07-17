@@ -66,6 +66,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   chain_lightning: 'beam',
   flamethrower: 'beam',
   sweep_beam: 'beam',
+  storm: 'explosive',
 };
 
 /**

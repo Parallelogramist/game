@@ -26,6 +26,7 @@ export { WakeWeapon } from './WakeWeapon';
 export { PulseWeapon } from './PulseWeapon';
 export { MineWeapon } from './MineWeapon';
 export { SweepBeamWeapon } from './SweepBeamWeapon';
+export { StormWeapon } from './StormWeapon';
 
 // Weapon factory for creating weapons by ID
 import { BaseWeapon } from './BaseWeapon';
@@ -51,6 +52,7 @@ import { WakeWeapon } from './WakeWeapon';
 import { PulseWeapon } from './PulseWeapon';
 import { MineWeapon } from './MineWeapon';
 import { SweepBeamWeapon } from './SweepBeamWeapon';
+import { StormWeapon } from './StormWeapon';
 
 /**
  * All available weapon types and their constructors.
@@ -78,6 +80,7 @@ export const WeaponRegistry: Record<string, () => BaseWeapon> = {
   pulse: () => new PulseWeapon(),
   mine: () => new MineWeapon(),
   sweep_beam: () => new SweepBeamWeapon(),
+  storm: () => new StormWeapon(),
 };
 
 /**

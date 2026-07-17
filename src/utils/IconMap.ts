@@ -129,6 +129,7 @@ export const ICON_MAP: Record<string, string> = {
   pulse: 'radar-sweep',
   mine: 'death-zone',
   sweep_beam: 'sunbeams',
+  storm: 'lightning-frequency',
   telescope: 'telescope',
   projectile: 'thrown-daggers',
 
