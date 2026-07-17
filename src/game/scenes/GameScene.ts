@@ -852,6 +852,14 @@ export class GameScene extends Phaser.Scene {
     this.playerStats.healingBoost *= metaManager.getStartingHealingBoost();
     this.playerStats.damageCap = metaManager.getStartingDamageCap();
     this.playerStats.maxShieldCharges += metaManager.getStartingBarrierCapacity();
+    // Barrier Capacity sells "+N max shield charges" outright, so they must be real
+    // without also winning the rare in-run Shield Barrier roll — every reader of a
+    // charge is gated on shieldBarrierEnabled. Recharge stays at the 8.0s default,
+    // which is exactly Shield Barrier level 1: that upgrade still sells the speed.
+    if (this.playerStats.maxShieldCharges > 0) {
+      this.playerStats.shieldBarrierEnabled = true;
+      this.playerStats.shieldCharges = this.playerStats.maxShieldCharges;
+    }
 
     // ═══ MOVEMENT ═══
     this.playerStats.moveSpeed *= metaManager.getStartingMoveSpeedMultiplier();
@@ -9102,8 +9110,9 @@ export class GameScene extends Phaser.Scene {
       this.masteryVisualsManager.update(playerX, playerY, deltaSeconds);
 
       // Update shield barrier visual (honeycomb + charge dots)
-      // Only show visual when shield barrier is actually enabled (in-run upgrade obtained)
-      // This prevents permanent "Barrier Capacity" shop upgrades from showing shields prematurely
+      // The ternaries keep a disabled barrier from drawing charges it could not spend.
+      // Barrier Capacity now enables the barrier at run start, so a paid barrier is
+      // meant to draw from frame one — that is the fix, not a premature render.
       this.shieldBarrierVisual.update(
         playerX,
         playerY,

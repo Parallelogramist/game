@@ -528,15 +528,19 @@ export function createUpgrades(): Upgrade[] {
       apply: (stats, level) => {
         stats.shieldBarrierEnabled = true;
 
-        // Levels 1-5: Reduce recharge time (8s → 3s)
+        // Additive, not Math.max: max() clamped the total to the level's own charge
+        // count, so the charges Barrier Capacity was paid for were swallowed whole from
+        // level 8 up. Safe because apply() is called once per level, ascending and never
+        // repeated — all three call sites (GameScene.ts:1013, :5138, :8599) step
+        // currentLevel+1..target. Pinned by ShieldBarrier.test.ts.
         if (level <= 5) {
+          // Levels 1-5 buy recharge speed; level 1 brings this upgrade's only charge.
           stats.shieldRechargeTime = 8.0 - (level - 1) * 1.25;  // 8, 6.75, 5.5, 4.25, 3.0
-          stats.maxShieldCharges = Math.max(stats.maxShieldCharges, 1);
+          if (level === 1) stats.maxShieldCharges += 1;
         } else {
-          // Levels 6-10: Add max charges
+          // Levels 6-10 buy one extra charge each.
           stats.shieldRechargeTime = 3.0;
-          const baseCharges = level - 4;  // 2, 3, 4, 5, 6
-          stats.maxShieldCharges = Math.max(stats.maxShieldCharges, baseCharges);
+          stats.maxShieldCharges += 1;
         }
 
         // Fill shields on upgrade
