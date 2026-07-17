@@ -20,6 +20,7 @@ import { copyTextToClipboard } from './utils/Clipboard';
 import { BloomPipeline } from './visual/BloomPipeline';
 import { DistortionPipeline } from './visual/DistortionPipeline';
 import { ColorblindPipeline } from './visual/ColorblindPipeline';
+import { registerServiceWorker } from './pwa/registerServiceWorker';
 
 /**
  * Main entry point for the Survivor Game.
@@ -127,6 +128,8 @@ window.addEventListener('unhandledrejection', (event) => {
 
 // Async bootstrap wrapper - ensures encrypted storage is ready before game starts
 (async () => {
+  registerServiceWorker();
+
   // Initialize encrypted storage and migrate any legacy plaintext data
   await initializeStorage();
 

@@ -10,14 +10,48 @@
     <meta name="apple-mobile-web-app-title" content="Survivor" />
     <meta name="format-detection" content="telephone=no" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Atkinson+Hyperlegible:wght@400;700&display=swap"
-    />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <title>Survivor Game</title>
     <style>
+      /* Self-hosted: a cold offline launch cannot depend on gstatic.com, and
+         the fine print promises no third-party requests. Latin only — the same
+         subset the Google Fonts CSS already served. */
+      @font-face {
+        font-family: "Rajdhani";
+        font-style: normal;
+        font-weight: 500;
+        font-display: swap;
+        src: url("/fonts/rajdhani-500.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Rajdhani";
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url("/fonts/rajdhani-600.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Rajdhani";
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url("/fonts/rajdhani-700.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Atkinson Hyperlegible";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url("/fonts/atkinson-hyperlegible-400.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Atkinson Hyperlegible";
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url("/fonts/atkinson-hyperlegible-700.woff2") format("woff2");
+      }
       * {
         margin: 0;
         padding: 0;
