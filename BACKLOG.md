@@ -34,6 +34,24 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BOSS-PULSAR** — new 6th boss, The Pulsar (done — 11c5ab5). A
+  collapsed-star boss whose threat is a rotating field of telegraphed energy
+  strikes emanating from itself (radial spoke waves), escalating to a
+  converging-ring "collapse" barrage with a rotating escape lane in phase 2+ —
+  the game's first shrinking-safe-zone mechanic. The boss pool was 5 fixed
+  bosses (`horde_king, void_wyrm, the_machine, the_bastion, the_legion`),
+  repeated every ~5 runs; a 6th boss cuts the most-repeated content and is felt
+  every run. Distinct from all 5 existing bosses (slam / serpentine /
+  laser-grid / mortar / split) — the first "spatial rhythm" boss whose danger
+  originates from the boss in a rotating radial geometry the player orbits and
+  threads. Pure, deterministic barrage planners (`pulsar-barrage.ts`,
+  unit-tested) feed a Bastion-style AI state machine (`pulsar.ts`); all damage
+  is telegraphed ground strikes via the existing `groundSlamCallback` — no core
+  combat/damage/projectile pipeline change. Wired into `TUNING.bosses.order`
+  (auto-joins practice + gauntlet), a bespoke `EnemyVisuals` drawer, a boss
+  arena theme, boss-phase hazards, `ENEMY_ARMOR`, and a "Star Killer" defeat
+  achievement. Playtest follow-up filed as **POLISH-BOSS-PULSAR** under
+  `## Human gates`.
 - [x] **FEAT-WEAPON-RAILGUN** — new 24th weapon, Railgun (done — 142154d). Each
   cooldown it locks the single toughest enemy on the field (highest current HP) and fires
   an instant piercing rail lance from the ship through it, dealing heavy single-target
@@ -455,6 +473,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-PULSAR** — the new Pulsar boss needs a balance/feel eyeball
+    (FEAT-BOSS-PULSAR). Agents have no browser. Reach it: PRACTICE → BOSS row →
+    "The Pulsar". Check: (a) does it read as a spinning star flinging rotating
+    spoke-waves of telegraphed strikes, with wide safe wedges between arms; (b)
+    base HP 4600 (×2 = 9200) / contact 32 / strike dmg 21-31 / blast radius 60 /
+    spokes 4→6 by phase vs the other 5 bosses — dead or oppressive?; (c) does the
+    phase-2+ converging-ring "collapse" barrage read as a shrinking safe zone with
+    a findable rotating gap, or is it unfair/unreadable; (d) is the reload cadence
+    (3.05/2.70/2.35s) too busy or too idle; (e) does the spin + spoke drawing read
+    at all three quality levels (note: on LOW quality no boss telegraphs render —
+    pre-existing for all bosses); (f) does it feel distinct from The Bastion. All
+    knobs are the top-of-file consts in `src/ecs/systems/enemy-ai/pulsar.ts` +
+    `pulsar-barrage.ts` — do not retune blind.
   - **POLISH-WEAPON-RAILGUN** — the new Railgun needs a balance/feel eyeball
     (FEAT-WEAPON-RAILGUN, `142154d`). Agents have no browser. Reach it: PRACTICE →
     WEAPON row → "Railgun" (unlocked or via a normal run's weapon offers). Check: (a) does
