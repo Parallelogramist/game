@@ -1,9 +1,10 @@
 import { SHIP_ULTIMATES, type ShipUltimateId } from './ShipUltimates';
 
 /**
- * PRACTICE ultimate override. Practice always starts ship_default (PracticeScene's
- * startRun), so Overdrive is the only one of the 11 ultimates the sandbox could
- * otherwise ever fire. `null` = fly the ship's own.
+ * PRACTICE ultimate override. `null` = fly the ship's own — which, since
+ * FEAT-PRACTICE-SHIP, means whichever of the 11 ships the PRACTICE menu picked.
+ * The override still earns its keep: it swaps the ultimate without a restart, so
+ * all 11 can be fired back-to-back inside one run.
  */
 export type PracticeUltimateChoice = ShipUltimateId | null;
 

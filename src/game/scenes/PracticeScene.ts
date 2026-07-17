@@ -3,6 +3,8 @@ import { UNLOCKABLE_WEAPONS } from '../../data/Upgrades';
 import { createWeapon } from '../../weapons';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { setPracticeSession } from '../../utils/practiceSession';
+import { SHIP_CHARACTERS, getDefaultShip } from '../../data/ShipCharacters';
+import { getUltimateForShip } from '../../data/ShipUltimates';
 import { createIcon } from '../../utils/IconRenderer';
 import { transitionToScene, sweepIn, fadeOut, addButtonInteraction } from '../../utils/SceneTransition';
 import { computeMenuLayoutScale, computeMenuFontScale, scaledInt } from '../../utils/HudScale';
@@ -52,6 +54,7 @@ export class PracticeScene extends Phaser.Scene {
   private selectedWeaponId: string = 'projectile';
   private selectedLevel: number = 1;
   private evolvedEnabled: boolean = false;
+  private selectedShipIndex: number = 0;
 
   constructor() {
     super({ key: 'PracticeScene' });
@@ -83,6 +86,7 @@ export class PracticeScene extends Phaser.Scene {
     this.selectedWeaponId = this.entries[0]?.id ?? 'projectile';
     this.selectedLevel = this.entries[0]?.maxLevel ?? 1;
     this.evolvedEnabled = false;
+    this.selectedShipIndex = 0;
 
     this.renderHeader();
     this.renderWeaponGrid();
@@ -293,9 +297,58 @@ export class PracticeScene extends Phaser.Scene {
 
     const entry = this.getSelectedEntry();
     const maxLevel = entry?.maxLevel ?? 1;
+    const stepperY = rowY;
+
+    // Ship cycle — every ship, unlocked or not. The sandbox already ignores unlock
+    // gating on its weapon grid (PRACTICE_WEAPON_IDS offers all 19), nothing here
+    // persists (practiceSession blocks SecureStorage writes), and 9 of the 11 ships
+    // are hidden-gated — so gating this would strand the sandbox on Sparrow, which is
+    // the limit this row exists to remove. The ship's own startingWeaponId stays
+    // suppressed in practice (GameScene's !practiceModeActive guard): the grid wins.
+    const ship = SHIP_CHARACTERS[this.selectedShipIndex] ?? getDefaultShip();
+    const shipY = stepperY - 120;
+
+    const shipLabel = makeDisplayText(this, centerX - 160, shipY, 'SHIP', {
+      fontSize: scaledInt(fontScale, 14),
+      color: TEXT_COLORS.heading,
+      letterSpacing: 1.5,
+    });
+    this.controlObjects.push(shipLabel);
+
+    const shipButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: shipY,
+      width: 220,
+      height: 36,
+      label: ship.name.toUpperCase(),
+      variant: this.selectedShipIndex === 0 ? 'neutral' : 'magenta',
+      fontSize: scaledInt(fontScale, 13),
+      onActivate: () => {
+        this.selectedShipIndex = (this.selectedShipIndex + 1) % SHIP_CHARACTERS.length;
+        this.renderControls();
+      },
+    });
+    addButtonInteraction(this, shipButton.container);
+    this.controlButtons.push(shipButton);
+
+    const shipDesc = makeBodyText(this, centerX, shipY + 34, ship.description, {
+      fontSize: scaledInt(fontScale, 12),
+      color: TEXT_COLORS.muted,
+    });
+    this.controlObjects.push(shipDesc);
+
+    const shipUltimate = getUltimateForShip(ship);
+    const shipUltimateText = makeBodyText(
+      this,
+      centerX,
+      shipY + 56,
+      `ULT — ${shipUltimate.name}: ${shipUltimate.description}`,
+      { fontSize: scaledInt(fontScale, 11), color: TEXT_COLORS.dim },
+    );
+    this.controlObjects.push(shipUltimateText);
 
     // Level stepper.
-    const stepperY = rowY;
     const levelLabel = makeDisplayText(this, centerX - 160, stepperY, 'LEVEL', {
       fontSize: scaledInt(fontScale, 14),
       color: TEXT_COLORS.heading,
@@ -402,7 +455,7 @@ export class PracticeScene extends Phaser.Scene {
         practiceWeaponLevel: this.selectedLevel,
         practiceEvolved: this.evolvedEnabled,
         stageId: 'stage_deep_void',
-        shipId: 'ship_default',
+        shipId: (SHIP_CHARACTERS[this.selectedShipIndex] ?? getDefaultShip()).id,
       });
     });
   }
