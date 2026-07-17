@@ -60,6 +60,7 @@ export interface MenuCard {
   bannerBottomY: number;
   setHoverState(hovered: boolean): void;
   setFocusState(focused: boolean): void;
+  setColors(colors: { bodyFillColor?: number; accentColor?: number; borderColor?: number }): void;
   tickIdle(timeSeconds: number): void;
   destroy(): void;
 }
@@ -146,7 +147,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   container.add(frame);
 
   const panel = scene.add.graphics();
-  drawCardPanel(panel, width, height, {
+  const panelDrawOptions = {
     bodyFillColor,
     bodyFillAlpha,
     accentColor,
@@ -154,7 +155,8 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     borderWidth,
     borderColor,
     cornerRadius,
-  });
+  };
+  drawCardPanel(panel, width, height, panelDrawOptions);
   frame.add(panel);
 
   // Rim light — a crisp bright stroke hugging the border, faded in with
@@ -328,7 +330,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
   // ── Fleck pool ──────────────────────────────────────────────────────────
   // Live inside `frame` so emission tracks the card's hover scale —
   // sparks should peel off the visual rim, not an axis-aligned bbox.
-  const accentTint = accentColor ?? 0x88ccff;
+  let currentAccentTint = accentColor ?? 0x88ccff;
   // Reduced motion suppresses fleck emission entirely — skip the pool so the
   // card carries zero per-object Graphics overhead for it.
   const fleckPoolSize = reducedMotion
@@ -403,7 +405,7 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
     fleck.lifetime =
       FLECK_LIFETIME_MIN + Math.random() * (FLECK_LIFETIME_MAX - FLECK_LIFETIME_MIN);
     fleck.baseRadius = FLECK_BASE_RADIUS * (0.75 + Math.random() * 0.55);
-    drawFleck(fleck.graphics, accentTint, fleck.baseRadius);
+    drawFleck(fleck.graphics, currentAccentTint, fleck.baseRadius);
     fleck.graphics.setPosition(sample.x, sample.y);
     fleck.graphics.setAlpha(0);
     fleck.graphics.setScale(1);
@@ -447,8 +449,8 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
         ease: 'Sine.Out',
       });
     }
-    drawCardGlow(glow, width, height, accentTint, cornerRadius);
-    drawCardRim(rim, width, height, accentTint, cornerRadius);
+    drawCardGlow(glow, width, height, currentAccentTint, cornerRadius);
+    drawCardRim(rim, width, height, currentAccentTint, cornerRadius);
     if (reducedMotion) {
       // Static glow/rim — no per-frame pulse, no flecks.
       glow.setAlpha(REDUCED_MOTION_GLOW_ALPHA);
@@ -551,6 +553,21 @@ export function createMenuCard(scene: Phaser.Scene, options: MenuCardOptions): M
       if (isFocused === focused) return;
       isFocused = focused;
       refreshActive();
+    },
+    setColors(colors) {
+      if (colors.bodyFillColor !== undefined) panelDrawOptions.bodyFillColor = colors.bodyFillColor;
+      if (colors.accentColor !== undefined) {
+        panelDrawOptions.accentColor = colors.accentColor;
+        currentAccentTint = colors.accentColor;
+      }
+      if (colors.borderColor !== undefined) panelDrawOptions.borderColor = colors.borderColor;
+      drawCardPanel(panel, width, height, panelDrawOptions);
+      // Repaint live halo/rim geometry so a variant flip while hovered/focused
+      // uses the new tint instead of the stale one.
+      if (isHovered || isFocused) {
+        drawCardGlow(glow, width, height, currentAccentTint, cornerRadius);
+        drawCardRim(rim, width, height, currentAccentTint, cornerRadius);
+      }
     },
     tickIdle(timeSeconds) {
       // Reduced motion: glow/rim hold the static alphas set by the hover

@@ -94,7 +94,6 @@ export function createMenuButton(opts: MenuButtonOptions): MenuButton {
   card.frame.add(labelText);
 
   let enabled = true;
-  let currentVariant: MenuButtonVariant = variant;
 
   if (onActivate) {
     card.hitZone.on('pointerup', () => {
@@ -127,12 +126,12 @@ export function createMenuButton(opts: MenuButtonOptions): MenuButton {
       card.setFocusState(focused);
     },
     setVariant(v: MenuButtonVariant) {
-      currentVariant = v;
-      // Re-resolve and redraw — cheap because cards rebuild via destroy+create
-      // is expensive; instead we leave the existing visuals. Variant change is
-      // rare (mostly buy/refund toggles); callers can recreate if needed.
-      // No-op here — explicit body/accent overrides handle most cases.
-      void currentVariant;
+      const nextColors = resolveVariantColors(v);
+      card.setColors({
+        bodyFillColor: nextColors.body,
+        accentColor: nextColors.accent,
+        borderColor: nextColors.accent,
+      });
     },
     tickIdle(timeSeconds: number) {
       card.tickIdle(timeSeconds);
