@@ -34,6 +34,19 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-STORM** — new 23rd weapon, Storm Caller (done — b713251). Every
+  cooldown it calls down lightning bolts that strike random enemies ANYWHERE on the
+  field, each zapping a small AOE — the arsenal's first *global random-strike*. Every
+  other weapon is player-centric (aura/pulse/sweep/mines/orbits/wake originate at the
+  ship) or aim/nearest-centric (projectile/laser/homing/chain/katana); Meteor — the
+  only other sky-strike — targets dense clusters within player range after a 0.8s
+  telegraph. Storm hits instantly, fast cadence, small per-bolt splash + electric
+  stun, reaching the scattered stragglers player-centric AOE leaves alive. Self-drawn
+  jagged-bolt Graphics (no atlas frame), pooled strikes; wired into `WeaponRegistry`,
+  `UNLOCKABLE_WEAPONS`, `ICON_MAP` (`lightning-frequency`), `WEAPON_MASTERY_CATEGORY`
+  (explosive), a "Maelstrom" evolution (multishot Lv5) and an "Overcharge" synergy
+  (+ chain lightning). Mastery "Thunderclap" stuns struck enemies. Playtest follow-up
+  filed as **POLISH-WEAPON-STORM** under `## Human gates`.
 - [x] **FEAT-WEAPON-SWEEP** — new 22nd weapon, Arc Sweep (done — 2fbabcb). A continuous
   beam anchored at the ship that rotates 360° around the player, ticking damage into every
   enemy its line crosses — the arsenal's first *rotating line*: laser is a cursor-aimed
@@ -429,6 +442,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-STORM** — the new Storm Caller needs a balance/feel eyeball
+    (FEAT-WEAPON-STORM, `b713251`). Agents have no browser. Reach it: PRACTICE →
+    WEAPON row → "Storm Caller" (unlocked or via a normal run's weapon offers). Check:
+    (a) do the bolts read clearly as lightning striking down onto enemies across the
+    whole field, not just near the ship; (b) base damage 18 / cooldown 1.6 / splash
+    radius 44 / bolts 1→5 at Lv10 vs peers — dead or oppressive?; (c) does random
+    targeting feel good, or waste bolts on already-dying / lone enemies — a
+    "lowest-HP finisher" or "densest-cluster" target rule is the obvious alternative,
+    but that is a balance call, do NOT let an agent pick one; (d) do Thunderclap
+    mastery (0.4s stun on strike) and Maelstrom evolution (+2 bolts, ×1.6 dmg, ×1.3
+    splash, ×1.25 size) land as real spikes; (e) does Overcharge synergy with Chain
+    Lightning read; (f) does the vertical jagged bolt + impact glow read at all three
+    quality levels. All knobs are the top-of-file consts in `src/weapons/StormWeapon.ts`
+    + the evolution/synergy multipliers — do not retune blind.
   - **POLISH-WEAPON-SWEEP** — the new Arc Sweep needs a balance/feel eyeball
     (FEAT-WEAPON-SWEEP, `2fbabcb`). Agents have no browser. Reach it: PRACTICE →
     WEAPON row → "Arc Sweep" (unlocked or via a normal run's weapon offers). Check:
