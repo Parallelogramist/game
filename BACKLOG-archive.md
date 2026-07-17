@@ -5,6 +5,91 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PRACTICE-BUILD — fight a boss with the build you'd really have · DONE 41df31c
+
+**Value:** practice v2 (FEAT-PRACTICE-BOSS) fielded a real boss at real HP but on
+a **level-0-passives** chassis — `GameScene` applied `practiceWeaponLevel` +
+`practiceEvolved` to the weapon only, never touching the nine stat upgrades
+(`Upgrades.ts` `currentLevel` starts at 0). `BACKLOG.md` filed this verbatim as
+practice mode's known limit: absolute time-to-kill reads longer than a real
+10-minute fight, so *relative* questions (TITAN vs SWIFT vs none) worked but
+*absolute* "siege or drag" reads across five queued playtest items —
+POLISH-BOSS-AFFIXES (c), POLISH-MINIBOSS-AFFIXES (c), POLISH-AFFIX-PARAGON (c),
+POLISH-BOSS-LEGION (e), POLISH-ENDLESS-MUTATORS (g) — stayed unanswerable even
+with practice mode shipped.
+
+**Shipped:** a 6th PRACTICE dock row, BUILD, next to INVINCIBLE. Steps through
+four rungs — OFF / 10-MIN / DEEP / MAX — each a flat level applied to all nine
+stat upgrades, moving player level/XP and ship tier to match.
+
+**Design:**
+- **A flat depth is the only build shape a real run can reach.**
+  `BREAK_LEVEL_GATES = [3, 6, 9]` bars a stat from passing a gate unless every
+  owned stat is already at/above it (`canLevelUpgrade`), so "all owned stats at
+  the same level" is gate-legal by construction — a lopsided build is not
+  reachable in a real run. This is the load-bearing insight of the design.
+- **Rungs sit on the gates and map to real run moments.** 9 stat upgrades ×
+  1 level-up pick each + the level-1 start ⇒ player level = `1 + 9 × depth`.
+  `10-MIN` (depth 3, level 28) sits on the first break gate and is grounded in
+  the game's own `level_30_run` achievement; it pairs with the existing
+  600s spawn scaler so `BUILD: 10-MIN` + a scaled boss **is** the real
+  10-minute fight. `DEEP` (depth 6, level 55) is an endless/gauntlet build;
+  `MAX` (depth 10, level 91) masters all nine.
+- **Monotonic — step up only.** `upgrade.apply()` is additive, so rebuilding
+  `playerStats` downward would mean reconstructing meta bonuses, ship,
+  modifiers, pacts and relics from scratch. This also mirrors a real run,
+  whose build only grows; reload to reset (~1s, same as any other practice
+  exit).
+- **Applies stats directly, not via `applyCombinedUpgrade`** — that method also
+  fires achievements, codex discovery, mastery visuals and a level-up sound per
+  upgrade, which at `MAX` would mean 9 mastery visuals + 9 sounds firing at
+  once. `applyPracticeBuild` does the purposeful subset: `apply` → set
+  `currentLevel` → `syncStatsToPlayer()`, the same stat half
+  `applyCombinedUpgrade` performs, so the resulting stats are identical to a
+  real run's by construction. `currentLevel` is also set on `this.upgrades`
+  itself so the level-up offer engine keeps the gates honest if the operator
+  keeps levelling naturally on top of a build.
+- **Moves player level + XP, not just stats.** The XP curve is
+  `10 × level^1.5`; at level 1 the threshold is 10 XP against a boss's 1000+
+  drop, which cascades dozens of level-up modals across the fight being
+  measured. Setting level 28 for `10-MIN` yields ~1 level-up per boss kill —
+  realistic.
+- **Tops the player up to full HP after a build step.** `vitality` raises
+  `maxHealth`, but `syncStatsToPlayer` only clamps `Health.current` downward.
+  A build is a chassis configuration, not a damage event, so a visibly
+  part-empty HP bar after stepping up would read as a bug.
+- **`BUILD` defaults to `OFF`** — a weapon-only practice run (v1's use case)
+  behaves exactly as before; zero regression. **Not part of `PracticeDockState`**
+  — it applies immediately on press via a callback, like `onInvincibleChange`,
+  since it isn't a spawn parameter.
+- **`PracticeBuild.ts` is a Phaser-free, `Upgrades.ts`-free leaf module** — it
+  takes the stat-upgrade count as a parameter rather than importing the
+  registry, mirroring the `PracticeTargets.ts` precedent, so it needs no module
+  mocks and cannot drift.
+
+**Found but not fixed (filed under `BACKLOG.md` → `## Later`):**
+`BUG-VITALITY-HEAL-DEAD` (vitality's "heal for the bonus" never reaches the
+player — `syncStatsToPlayer` only clamps HP downward) and
+`BUG-MENUBUTTON-SETVARIANT-NOOP` (`MenuButton.setVariant()` is a documented
+no-op, so the dock's `magenta`/`safe` highlight calls have never done
+anything). Both are real-run balance/visual changes needing their own
+playtest — out of scope here.
+
+**Tests:** one file, `src/data/PracticeBuild.test.ts` — pins the invariant the
+whole design rests on: a flat-depth build is gate-legal only while every stat
+upgrade shares the same `maxLevel`; if a future stat upgrade lands with a
+different cap, the ladder would silently stop matching what a real run can
+reach with no runtime symptom. Everything else is self-evident wiring or
+Phaser-coupled and untestable without a live scene, per the repo's stated
+testing boundary.
+
+**Files:** `src/data/PracticeBuild.ts` (new), `src/data/PracticeBuild.test.ts`
+(new), `src/ui/PracticeDock.ts` (6th row + `onBuildChange`),
+`src/game/scenes/GameScene.ts` (`practiceBuildDepth` field + reset,
+`applyPracticeBuild()`, dock wiring).
+
+---
+
 ## FEAT-PRACTICE-BOSS — practice v2: spawn any boss/miniboss with any affix, on demand · DONE 43a76b7
 
 **Value:** the boss playtest items each name a specific enemy × specific affix pair

@@ -32,6 +32,23 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 (empty — next agent: take the topmost Next item)
 
+## Proposed (auto)
+
+- [x] **FEAT-PRACTICE-BUILD** — fight a boss with the build you'd really have
+  (done — 41df31c). Value: closes the documented level-0-passives limit that
+  blocks the absolute "siege or drag" reads in POLISH-BOSS-AFFIXES (c),
+  POLISH-MINIBOSS-AFFIXES (c), POLISH-AFFIX-PARAGON (c), POLISH-BOSS-LEGION (e)
+  and POLISH-ENDLESS-MUTATORS (g). Full write-up in `BACKLOG-archive.md`.
+  Playtest follow-up filed as **POLISH-PRACTICE-BUILD** under `## Human gates`.
+- [ ] **FEAT-PRACTICE-TIME** — a dock row that sets the run clock. Value:
+  practice scales the *boss* to its canonical time but the **arena is still
+  t=0** — no trash density, no endless cycle — so the mutator questions
+  (POLISH-ENDLESS-MUTATORS (c)/(d)/(g): "SWIFT SWARM on cycle-5+ tightened
+  cadence", "VOLATILE AIR elite soup", "IRON HORDE vs late-run DPS") stay
+  unreachable on demand. Pointers: `this.gameTime` +
+  `checkEndlessModeSpawns` in `GameScene.ts`, `scheduledSpawnTime` in
+  `src/data/PracticeTargets.ts`, the dock in `src/ui/PracticeDock.ts`.
+
 ## Next
 
 *(groomed 2026-07-16 — roadmap pass; ordered by value)*
@@ -110,6 +127,20 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   5687c15). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
   filed as **POLISH-PWA-INSTALL-PROMPT** under `## Human gates`.
 
+- [ ] **BUG-VITALITY-HEAL-DEAD** — `vitality`'s "also heal for the bonus"
+  never reaches the player. `Upgrades.ts` (~line 386) does
+  `stats.currentHealth += 20` (and `+= 50` at mastery), but `syncStatsToPlayer`
+  (`GameScene.ts:8626-8630`) only ever *clamps* `Health.current` **downward** and
+  never raises it, and the next `takeDamage` overwrites `playerStats.currentHealth`
+  from the ECS value (`GameScene.ts:4481`). So every vitality pick silently grants
+  max-HP headroom but no heal. Affects real runs, not just practice.
+- [ ] **BUG-MENUBUTTON-SETVARIANT-NOOP** — `MenuButton.setVariant()`
+  (`src/visual/MenuButton.ts:129-135`) stores the variant and explicitly does not
+  repaint ("No-op here"). Every caller relying on it for state colour is silently
+  dead — including `PracticeDock.refreshLabels()`'s `magenta` affix highlight and
+  `safe` INVINCIBLE highlight, so the dock's intended colour signalling never
+  shows. Either implement the repaint or drop the dead calls.
+
 ---
 
 ## Human gates
@@ -165,6 +196,34 @@ Never agent work. The fleet must not do any of these.
     judgements should still be sanity-checked in a real run. Knobs:
     `src/ui/PracticeDock.ts` (layout), `src/data/PracticeTargets.ts`
     (targets/scaling times).
+  - **POLISH-PRACTICE-BUILD** — practice v3 build rungs on a real device
+    (FEAT-PRACTICE-BUILD, `41df31c`). Reach it: BootScene → PRACTICE → pick a
+    weapon at max level → START → the **BUILD** row on the left dock. Check:
+    (a) **the point of the feature** — TARGET=The Bastion, AFFIX=TITAN,
+    BUILD=`10-MIN`, SPAWN: does the fight now read like a real 10-minute fight,
+    and can you finally answer POLISH-BOSS-AFFIXES (c) "siege or drag"?
+    (b) **is 10-MIN actually representative** — depth 3 on all 9 stats =
+    player level 28 (the planner's grounding: the game's own `level_30_run`
+    achievement). Against your real runs, is ~28 the right rung for the 600s
+    boss moment, or should depth 3 map elsewhere? Knob:
+    `PRACTICE_BUILD_LADDER` in `src/data/PracticeBuild.ts`. (c) **the ladder
+    reads** — OFF → 10-MIN → DEEP → MAX steps up only and greys out at MAX (by
+    design: stats are additive and can't be rolled back; reload to reset) —
+    does one-way read as intentional or broken? (d) **the weak-vs-strong
+    comparison** — spawn at OFF, judge, step to 10-MIN, spawn again: does that
+    answer POLISH-ENDLESS-MUTATORS (g) "too spongy for weak builds?"
+    (e) **no modal cascade** — kill a boss at BUILD=10-MIN: you should get ~1
+    level-up, not the dozen-modal cascade a level-1 chassis produces (this is
+    the XP-curve fix; it also means BUILD=OFF still cascades — acceptable?)?
+    (f) **6 rows** — the dock is now 6 tall: at UI-scale extremes and in
+    portrait does it still clear the HP/XP bars and the arena (this extends
+    POLISH-PRACTICE-BOSS (e), it is not a new question)? (g) **MAX** — all 9
+    stats mastered: mastery star badges are deliberately *not* fired (9 at
+    once would be noise) — is their absence confusing? **Known limit, by
+    design:** relics, pacts and consumables are still absent from a practice
+    build — BUILD covers the nine level-up stat passives and the meta/shop
+    upgrades your profile already carries, which is the bulk of DPS but not
+    100% of a real run's.
   - **POLISH-TRAIL-FIX** — trail ghosting fix + ribbon smoothing (BUG-TRAIL-GHOST,
     `6e8c50a`; all knobs in `src/visual/TrailManager.ts`). Check in a real run:
     (a) **the reported bug is gone** — fly loops for 60s+, stop, wait ~3s: no
