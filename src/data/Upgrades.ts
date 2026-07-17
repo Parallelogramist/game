@@ -671,6 +671,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'mine', name: 'Proximity Mines', icon: 'mine', description: 'Seeds proximity mines that arm, then blast enemies that stray too close' },
   { id: 'sweep_beam', name: 'Arc Sweep', icon: 'sweep_beam', description: 'A radiant beam sweeps around your ship, searing all it crosses' },
   { id: 'storm', name: 'Storm Caller', icon: 'storm', description: 'Calls down lightning on enemies anywhere on the field' },
+  { id: 'railgun', name: 'Railgun', icon: 'telescope', description: 'Locks the toughest enemy and skewers it with a piercing rail lance' },
 ];
 
 /**

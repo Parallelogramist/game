@@ -328,6 +328,21 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.25,
     },
   },
+  {
+    weaponId: 'railgun',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'piercing',
+    requiredStatLevel: 5,
+    evolvedName: 'Annihilator',
+    evolvedDescription: 'A devastating rail lance that overpenetrates the entire battlefield, punching a clean hole straight through the horde to the target beyond.',
+    statMultipliers: {
+      damage: 1.6,
+      cooldown: 0.85,
+      range: 1.3,
+      piercing: 3,
+      size: 1.3,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */
