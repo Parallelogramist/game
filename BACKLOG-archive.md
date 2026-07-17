@@ -5,6 +5,61 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-PRACTICE-BOSS — practice v2: spawn any boss/miniboss with any affix, on demand · DONE 43a76b7
+
+**Value:** the boss playtest items each name a specific enemy × specific affix pair
+— POLISH-BOSS-AFFIXES asks "TITAN at ~1.7x HP: siege or drag?" and "SWIFT ×1.3
+speed: chase still fair (Bastion's retreat-and-bombard especially)?"; POLISH-BOSS-
+BASTION and POLISH-BOSS-LEGION each note their boss is only reachable via a deep
+GAUNTLET/endless run. `rollBossAffix()` returns NONE 65% of the time
+(`BOSS_AFFIX_CHANCE = 0.35`) and the paragon second affix is a further 50%
+coin-flip — a specific affixed boss was roughly a 10-minute run followed by a
+1-in-20 roll, which is why none of those items had ever been answered. Practice v1
+(FEAT-PRACTICE-MODE) only solved the weapon half of the playtest queue.
+
+**Shipped:** an in-run PRACTICE dock (left edge, five stacked buttons): cycle
+through the 5 bosses + 5 minibosses, pick an affix and an optional paragon second
+affix outright, toggle INVINCIBLE, tap SPAWN (or press `B`) as many times as you
+like without the run ending.
+
+**Design:**
+- **In-run, not in `PracticeScene`.** Setup-time pickers would mean quit → reload
+  → menu → re-pick → START per iteration; `PracticeScene.ts` itself is untouched
+  and still awaiting its own playtest (POLISH-PRACTICE-MODE).
+- **Chosen, never rolled.** Rolling in practice would reproduce the exact 1-in-20
+  problem the feature exists to remove.
+- **Scales at the time you'd really meet the target**, not at `gameTime` (~0 when
+  you tap SPAWN). Bosses scale at `TUNING.bosses.spawnTime` (600s); each miniboss
+  at its own scheduled time from `TUNING.minibosses.schedule`. A t=0 spawn would
+  make "TITAN at ~1.7x HP: siege or drag?" unanswerable — it'd be a different,
+  much weaker enemy than the one being judged.
+- **Boss kills are fodder in practice**, joining the existing gate
+  `!this.hasWon && !this.gauntletModeActive` (now also `&& !this.practiceModeActive`)
+  — otherwise the first kill calls `showVictory()` and ends the run, capping
+  practice at exactly one boss per page-load.
+- **The Legion keeps its affix exclusion.** `spawnBoss` already skips affixes for
+  `the_legion` (its split children can't inherit an affix and the shared-pool math
+  must not absorb a root-only health multiplier); the dock disables the affix
+  buttons and shows `N/A` rather than routing around the guard.
+- **Invincibility guards the top of `takeDamage`**, ahead of the shield-barrier
+  branch, so it never silently burns shield charges.
+- **`PracticeTargets.ts` is a Phaser-free leaf module** deriving target ids,
+  scheduled times, and the paragon affix cycle straight from `TUNING`, so they
+  cannot drift and are node-testable.
+
+**Tests:** one file, `src/data/PracticeTargets.test.ts` — referential integrity
+(every target id resolves to a real `EnemyType`) and paragon-pair exclusion
+(TITAN+VAMPIRIC never offered together, the pairing the dock now enforces in place
+of `rollParagonAffix`'s pool filter). The dock's rendering and feel need a browser
+and are filed as **POLISH-PRACTICE-BOSS**.
+
+**Files:** `src/data/PracticeTargets.ts` (new), `src/data/PracticeTargets.test.ts`
+(new), `src/ui/PracticeDock.ts` (new), `src/game/scenes/GameScene.ts` (affix
+eligibility/override, scaling clock, fodder gate, invincibility, dock + `B` key
+wiring and shutdown).
+
+---
+
 ## FEAT-PRACTICE-MODE — reach any weapon at any level without grinding a run · DONE c3d00c2
 
 **Value:** the repo's own playtest queue is ~40 items and is not draining. Every

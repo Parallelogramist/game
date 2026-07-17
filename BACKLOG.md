@@ -40,13 +40,9 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   run (done — c3d00c2). Full write-up moved to `BACKLOG-archive.md`. Playtest
   follow-up filed as **POLISH-PRACTICE-MODE** under `## Human gates`.
 
-- [ ] **FEAT-PRACTICE-BOSS** — practice v2: spawn a chosen boss on demand, plus an
-  optional invincibility toggle. Value: the boss playtest items
-  (POLISH-BOSS-LEGION / -BASTION / -AFFIXES / -MINIBOSS-AFFIXES) still need a
-  10-minute run to reach a boss, and practice v1 only solves the weapon items.
-  Cut from v1 because `spawnBoss()` is private and entangled with arena + wave
-  timing, and there is no existing invincibility field to reuse. Pointers:
-  `GameScene.spawnBoss`, `TUNING.bosses.order`, `PracticeScene.ts`.
+- [x] **FEAT-PRACTICE-BOSS** — practice v2: spawn any boss/miniboss with any
+  affix, on demand (done — 43a76b7). Full write-up moved to `BACKLOG-archive.md`.
+  Playtest follow-up filed as **POLISH-PRACTICE-BOSS** under `## Human gates`.
 
 - [x] **FEAT-SAVE-EXPORT** — profile backup: export/import the whole
   meta-progression (done — a876ed0). Full write-up moved to
@@ -146,6 +142,29 @@ Never agent work. The fleet must not do any of these.
     below the evolution's required level? Knobs: `PRACTICE_WEAPON_IDS` and the
     layout in `src/game/scenes/PracticeScene.ts`; the deck row in
     `BootScene.ts` (~line 1050).
+  - **POLISH-PRACTICE-BOSS** — practice v2 boss sandbox on a real device
+    (FEAT-PRACTICE-BOSS, `43a76b7`). Reach it: BootScene → PRACTICE → START, then
+    the dock on the left edge. Check: (a) **the point of the feature** — set
+    TARGET to The Bastion and AFFIX to TITAN, tap SPAWN: does a TITAN Bastion
+    appear at full 10-minute strength, and can you now answer POLISH-BOSS-AFFIXES
+    (c)/(d) and POLISH-BOSS-BASTION in seconds? (b) **repeatability** — kill it:
+    the run must continue with no victory screen, so a second SPAWN fields the
+    next one; does spawning several at once read as chaos or as useful?
+    (c) **affix pairs** — AFFIX=TITAN then 2ND: TITAN and VAMPIRIC must never be
+    offered together (barred as degenerate); PARAGON naming on the bar reads?
+    (d) **The Legion** — selecting it greys the affix buttons to `N/A` (its splits
+    can't inherit an affix): is that legible, or does it look broken? (e) **the
+    dock itself** — left-edge stack at UI-scale extremes and in portrait: does it
+    cover the arena, collide with the HP/XP bars, or eat joystick touches?
+    (f) **INVINCIBLE** — toggling it lets you park in a boss and watch its pattern
+    without dying; does it also (correctly) stop shield charges from burning?
+    (g) **`B`** spawns from the keyboard. **Known limit, by design:** the practice
+    player has a max-level weapon but **level-1 passives**, so absolute
+    time-to-kill reads longer than a real 10-minute fight — practice answers
+    *relative* questions (TITAN vs SWIFT vs none) well, and absolute "drag"
+    judgements should still be sanity-checked in a real run. Knobs:
+    `src/ui/PracticeDock.ts` (layout), `src/data/PracticeTargets.ts`
+    (targets/scaling times).
   - **POLISH-TRAIL-FIX** — trail ghosting fix + ribbon smoothing (BUG-TRAIL-GHOST,
     `6e8c50a`; all knobs in `src/visual/TrailManager.ts`). Check in a real run:
     (a) **the reported bug is gone** — fly loops for 60s+, stop, wait ~3s: no
