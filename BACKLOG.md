@@ -95,20 +95,9 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   consider promoting the drawn four-point-star helper (duplicated in
   `HUDManager.ts` + `TouchActionButtons.ts`) into a shared visual util.
 
-- [ ] **POLISH-FONT-CANVAS-PRELOAD** — make Phaser text wait for the
-  webfonts. Value: a @font-face font is only downloaded once a *DOM*
-  element uses it, but almost all of this game's text is drawn to
-  **canvas** by Phaser (`fontFamily: '"Atkinson Hyperlegible", Arial,
-  sans-serif'` throughout `PauseMenuManager`/`CodexScene`/etc.), and a
-  canvas draw triggers no download and caches the rendered texture — so on
-  a cold load menus may silently render in Arial forever. Only the boot
-  wordmark (Rajdhani 700) forces a load today. Pre-existing (unchanged by
-  `FEAT-PWA-OFFLINE`, which kept the same lazy semantics), and worth
-  confirming on a real cold load before fixing. Done when: fonts are
-  actively loaded (a hidden DOM sample or `document.fonts.load()`) and
-  awaited via `document.fonts.ready` before `new Phaser.Game(...)`, with a
-  timeout so a font failure never blocks boot. Pointers: `src/main.ts`
-  bootstrap IIFE, `index.html` @font-face block.
+- [x] **POLISH-FONT-CANVAS-PRELOAD** — make Phaser text wait for the webfonts
+  (done — a9a8b95). Full write-up moved to `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-FONT-METRICS** under `## Human gates`.
 
 - [x] **FEAT-PWA-INSTALL-PROMPT** — surface "Add to Home Screen" (done —
   5687c15). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
@@ -125,6 +114,27 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-FONT-METRICS** — the game's real typography, on a real cold load
+    (agents have no browser and cannot see a rendered glyph). Until now every
+    player saw Arial; the fonts the repo ships have never actually rendered, so
+    **every menu in the game was sized by eye against the wrong font**. Reach it:
+    a hard-reload with an empty cache (DevTools → Network → Disable cache), and
+    an installed-PWA cold launch. Check: (a) **do they render at all** — is menu
+    body copy visibly Atkinson Hyperlegible and are headings visibly Rajdhani
+    (semi-condensed, squared-off), not Arial? (b) **overflow** — Atkinson is
+    *wider* than Arial, so tight panels are the risk: shop/codex/achievement
+    cards, the pause menu, the run-end stats panel, the endless cycle line, and
+    affix/paragon boss bars at UI-scale extremes and in portrait — anything now
+    wrapping, clipping, or colliding? (c) **headings** — Rajdhani is *narrower*,
+    so display text gets shorter: does any heading now look under-filled or
+    off-center? (d) **cost** — does the 5-face preload (~50 KB, same-origin)
+    visibly lengthen the boot loader on a cold first load, and is it instant on a
+    second launch (service-worker cache)? (e) **offline** — airplane-mode cold
+    launch of the installed PWA: do the fonts still apply (they are precached), or
+    does it fall back to Arial? (f) **the 3 s timeout** — throttle to slow 3G:
+    does the game still boot (in Arial) rather than hang? Knobs:
+    `FONT_LOAD_TIMEOUT_MS` and `GAME_FONT_FACES` in `src/visual/fontLoading.ts`.
+
   - **POLISH-SAVE-EXPORT** — export/import round-trip on real devices. Reach via
     SETTINGS → DATA. Check with real devices: (a) EXPORT → DOWNLOAD FILE on iOS
     Safari — does the .txt actually land in Files, or is COPY the only workable

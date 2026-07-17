@@ -5,6 +5,64 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## POLISH-FONT-CANVAS-PRELOAD — make Phaser text wait for the webfonts · DONE a9a8b95
+
+**Value:** the repo ships five self-hosted woff2 faces, `index.html` declares all
+five, and `FEAT-PWA-OFFLINE`'s service worker precaches every one of them (~50 KB)
+on install — and **not one of them had ever rendered for a single player**. A canvas
+draw does not trigger an `@font-face` download (that is what the CSS Font Loading
+API exists for), and this game draws essentially all of its text to the Phaser
+canvas: 53 `fontFamily` uses of `MENU_FONT`, 8 of its monospace variant, 49 of
+`DISPLAY_FONT`. Nothing anywhere in the codebase called `document.fonts.load`. The
+one DOM element forcing a fetch was the boot wordmark — and because CSS only falls
+through to the next family for characters the first lacks, its
+`"Rajdhani", "Atkinson Hyperlegible", Arial` stack pulled Rajdhani 700 and **never
+requested Atkinson at all**. So the whole neon-tech UI skin rendered in Arial, on
+every load, for everyone. The bytes were already being paid for; this delivers them.
+
+**Shipped:** `src/visual/fontLoading.ts` — a pure, injectable preloader that
+requests all five declared faces via the CSS Font Loading API. Started in
+`src/main.ts` before the `initializeStorage()` await (so the two overlap and boot
+costs nothing in the common case) and awaited before `new Phaser.Game(...)`.
+
+**Design:**
+- **Before `new Phaser.Game(...)`, not after.** Phaser caches each text texture on
+  first draw, so a face that arrives late never reaches the pixels. Loading after
+  construction would have been a no-op with extra steps.
+- **All five declared faces, not a computed subset.** They are all declared and all
+  precached, so the declared set costs no extra bytes and cannot miss a face some
+  path requests. The alternative meant reasoning about CSS weight matching —
+  Rajdhani ships 500/600/700 while the canvas only ever asks `normal`/`bold` (there
+  are no numeric `fontStyle` weights anywhere in `src/`) — for zero benefit.
+- **Never rejects, and times out at 3 s.** This is boot-path code: a throw or a hang
+  means the game never starts. A font 404 or a stalled fetch degrades to exactly the
+  old behavior (Arial), never worse. The HTML boot loader already covers this window
+  by design, and its 12 s hard fallback clears the 3 s timeout comfortably.
+- **`load()` per face, not `document.fonts.ready`** — resolves precisely, without
+  waiting on unrelated faces.
+- **The font set is injected, not reached for.** `vitest.config.ts` is
+  `environment: 'node'`; a module touching `document.fonts` directly would be
+  untestable here.
+
+**Tests:** one new file, `src/visual/fontLoading.test.ts` — four tests pinning the
+boot-path failure modes (every face requested; a rejected face still resolves; an
+unsettled face resolves on the timeout; no font loader no-ops). Warranted because a
+throw or hang here means the game never boots, and both degradation paths are
+non-obvious. The rendered result needs a browser and is filed as
+**POLISH-FONT-METRICS** in the playtest queue.
+
+**Known consequence, deliberately accepted:** text metrics change the moment real
+fonts apply — Atkinson is wider than Arial, Rajdhani narrower — so menus previously
+tuned by eye against the fallback may need nudging. That is what POLISH-FONT-METRICS
+is for; the game rendering as designed is the point.
+
+**Deliberately not built:** a font-loading progress UI, `font-display` changes,
+subsetting, a DOM-sample fallback for browsers without the Font Loading API (the
+no-loader path just boots in Arial), and any change to the boot wordmark or crash
+overlay.
+
+---
+
 ## FEAT-PWA-INSTALL-PROMPT — surface "Add to Home Screen" · DONE 5687c15
 
 **Value:** `FEAT-PWA-OFFLINE` (`4a0c864`) made the game installable and fully
