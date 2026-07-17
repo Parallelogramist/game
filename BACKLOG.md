@@ -51,13 +51,9 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   Playtest follow-up filed as **POLISH-ACHIEVE-ENDGAME** under
   `## Human gates`.
 
-- [ ] **FEAT-SAVE-EXPORT-REMINDER** — nudge long-lived profiles to back up.
-  Value: the export only saves a player who used it *before* the eviction; a
-  profile worth hundreds of runs that has never been exported is exactly the
-  one ITP kills. Done when: a dismissible prompt appears in SETTINGS/DATA (or
-  post-run) once a profile crosses a meaningful threshold and has never been
-  exported, tracked by a stored last-export timestamp. Pointers:
-  `src/storage/ProfileArchive.ts`, `src/game/scenes/SettingsScene.ts`.
+- [x] **FEAT-SAVE-EXPORT-REMINDER** — nudge long-lived profiles to back up
+  (done — da469b7). Full write-up moved to `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-SAVE-EXPORT-REMINDER** under `## Human gates`.
 
 ## Later
 
@@ -198,6 +194,24 @@ Never agent work. The fleet must not do any of these.
     (f) refresh mid-fight → CONTINUE: both affixes' behaviours + armor +
     gold marker survive restore; (g) twins as shared paragon pair —
     double VOLATILE corpse blasts fair?
+  - **POLISH-SAVE-EXPORT-REMINDER** — backup nudge feel + thresholds on a real
+    profile (`src/storage/BackupReminder.ts` holds every knob:
+    `BACKUP_NUDGE_MIN_RUNS`, `BACKUP_STALE_MS`, `BACKUP_NUDGE_COOLDOWN_MS`).
+    Check: (a) **trigger** — on a profile past 25 runs with no backup, does the
+    prompt appear on the main menu, and is 25 runs the right rung (too early and
+    it reads as spam, too late and the at-risk profile is already gone)?
+    (b) **one-tap path** — BACK UP NOW → does the export panel appear with a
+    valid blob, and does COPY/DOWNLOAD actually silence the prompt for 30 days?
+    (c) **NOT NOW** — dismiss, then rotate the phone and re-enter the menu
+    several times: does it stay gone for the full 7 days (the on-show stamp), or
+    does it reappear? (d) **modal-vs-banner** — is a full-screen prompt on the
+    main menu proportionate to the risk, or should it be a passive banner?
+    (e) **status line** — does SETTINGS → DATA read "Never backed up …" in red
+    and flip to "Backed up today." immediately after an export, without leaving
+    the scene? (f) **copy tone** — does the ITP warning inform or frighten?
+    (g) **import** — import a blob on a second device: does the status line read
+    the blob's own export date (an old blob should still say "Backed up 40 days
+    ago." and re-nudge), rather than "today"?
   - **POLISH-MINIBOSS-AFFIXES** — affixed miniboss variants feel/balance
     (FEAT-MINIBOSS-AFFIXES; tier heal in `src/data/Affixes.ts`
     `vampiricHealFraction`, wiring in `GameScene.spawnMiniboss` +

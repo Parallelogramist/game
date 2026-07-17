@@ -5,6 +5,70 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-SAVE-EXPORT-REMINDER — nudge long-lived profiles to back up · DONE da469b7
+
+**Value:** `FEAT-SAVE-EXPORT` (`a876ed0`) shipped a complete export/import
+system, but a passive one: it only ever saves a player who found SETTINGS →
+DATA → EXPORT *before* their storage was evicted. The profile most likely to
+be destroyed — hundreds of runs, never exported — belongs to exactly the
+player who never opened that menu. This is a phone-first browser game and iOS
+Safari's ITP evicts script-writable storage after ~7 days without site
+interaction, so the export had a recovery path and no discovery path.
+
+**Shipped:** a stored last-backup timestamp, a dismissible BACK UP YOUR
+PROGRESS prompt on the main menu for an invested profile with no fresh backup
+(BACK UP NOW swaps the same overlay straight into the export panel — one tap
+from warning to blob), and a live backup status line in SETTINGS → DATA
+("Never backed up — progress lives only on this device." / "Backed up N days
+ago.") replacing the old static hint.
+
+**Policy:** nudge at >= 25 completed runs (`newcomerMultiplierForRuns` treats
+<10 as a newcomer, so 25 is well past the tourist band), when there is no
+backup newer than 30 days, at most once every 7 days — the cooldown is
+deliberately the ITP eviction window, since a warning that fires more often
+than the loss it warns about is noise.
+
+**Design notes:**
+- The export marker is written on **COPY/DOWNLOAD**, not on opening the
+  overlay: opening the export screen and closing it is not a backup, so
+  `showProfileExportOverlay` gained an `onExported` callback that a failed
+  clipboard write deliberately does not fire.
+- Both markers are **non-transferable**. They describe this device's
+  relationship to its backups, not the profile; carrying the exporter's
+  markers over would tell the importing device it was backed up at a time it
+  never was. `applyProfilePayload` instead restamps the export marker from
+  `payload.exportedAt` after the removes loop — the blob you just imported IS
+  this profile's most recent backup, dated when it was made, so importing a
+  months-old blob correctly still reads as stale and re-nudges.
+- The nudge timestamp is stamped **on show**, not on dismiss: BootScene's
+  `create()` re-runs on every orientation flip (`installOrientationWatcher`
+  restarts menu scenes) and on every return to the menu, so the cooldown is
+  the only thing stopping the prompt reopening each time.
+- The prompt is a **DOM overlay**, reusing `ProfileTransferOverlay`'s existing
+  builders — BootScene's dense scaled portrait/landscape layout is untouched.
+  It is torn down in `shutdown()` because a DOM node outside Phaser's
+  lifecycle otherwise survives the orientation-flip restart.
+
+**Files:** `src/storage/BackupReminder.ts` (new — the 2 markers + the pure
+policy), `src/storage/BackupReminder.test.ts` (new — policy + copy
+boundaries), `src/storage/StorageBootstrap.ts` (2 keys registered),
+`src/storage/ProfileTransfer.ts` (both keys non-transferable),
+`src/storage/ProfileArchive.ts` (import restamps the marker),
+`src/storage/index.ts`, `src/ui/ProfileTransferOverlay.ts`
+(`renderExportPanel` extracted and shared, `onExported`,
+`showBackupReminderOverlay`), `src/game/scenes/SettingsScene.ts` (live status
+line + `onExported`), `src/game/scenes/BootScene.ts` (the nudge),
+`src/storage/ProfileTransfer.test.ts` (the transferable-set assertion, now
+naming all three device-local keys).
+
+**Deliberately out of scope:** cloud sync, accounts, auto-backup, QR codes, a
+post-run nudge surface, any blob-format change.
+
+**Playtest follow-up:** filed as **POLISH-SAVE-EXPORT-REMINDER** in
+`BACKLOG.md` → `## Human gates`.
+
+---
+
 ## FEAT-ACHIEVE-ENDGAME — achievement coverage for the endgame that exists · DONE 5e2770d
 
 **Value:** the July content wave — gauntlet mode, endless cycles/mutators,
