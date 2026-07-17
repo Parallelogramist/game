@@ -5,6 +5,7 @@
  */
 
 import { calculateUpgradeCost, getPermanentUpgradeById, PERMANENT_UPGRADES, calculateAccountLevel } from '../data/PermanentUpgrades';
+import { MAX_RECORDED_UPGRADES, MAX_RECORDED_UPGRADE_LEVEL, type RecordedUpgrade } from '../data/KeptUpgrades';
 import { SecureStorage } from '../storage';
 import { getAscensionManager } from './AscensionManager';
 
@@ -15,6 +16,7 @@ const STORAGE_KEY_WORLD_LEVEL = 'survivor-meta-world-level';
 const STORAGE_KEY_STREAK = 'survivor-meta-streak';
 const STORAGE_KEY_RUNS_COMPLETED = 'survivor-meta-runs-completed';
 const STORAGE_KEY_ACHIEVEMENT_BONUSES = 'survivor-meta-achievement-bonuses';
+const STORAGE_KEY_LAST_RUN_UPGRADES = 'survivor-meta-last-run-upgrades';
 
 /**
  * Cumulative permanent stat bonuses earned from achievements.
@@ -191,6 +193,7 @@ export class MetaProgressionManager {
   private streakState: StreakState;
   private runsCompleted: number;
   private achievementBonuses: AchievementBonusState;
+  private lastRunUpgrades: RecordedUpgrade[];
 
   constructor() {
     this.goldBalance = this.loadGold();
@@ -199,6 +202,7 @@ export class MetaProgressionManager {
     this.streakState = this.loadStreakState();
     this.runsCompleted = this.loadRunsCompleted();
     this.achievementBonuses = this.loadAchievementBonuses();
+    this.lastRunUpgrades = this.loadLastRunUpgrades();
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -989,6 +993,25 @@ export class MetaProgressionManager {
   }
 
   /**
+   * Bank the build a finished run ended with, for Memory (`upgradeKeepLevel`) to draw
+   * the next run's carryover from.
+   *
+   * The whole owned build is stored rather than the pre-selected carryover, because
+   * the keep count is read at run start: buying Memory (or its second level) after a
+   * run still pays out on the run already banked, instead of silently costing 500 gold
+   * for nothing until one more run has been played.
+   */
+  recordRunUpgrades(upgrades: RecordedUpgrade[]): void {
+    this.lastRunUpgrades = upgrades.slice(0, MAX_RECORDED_UPGRADES);
+    this.saveLastRunUpgrades();
+  }
+
+  /** The build banked by the last finished run (empty until one finishes). */
+  getLastRunUpgrades(): RecordedUpgrade[] {
+    return this.lastRunUpgrades;
+  }
+
+  /**
    * Returns slow time duration in minutes.
    * First N minutes at 75% speed.
    */
@@ -1344,6 +1367,35 @@ export class MetaProgressionManager {
 
   private saveAchievementBonuses(): void {
     this.writeStored(STORAGE_KEY_ACHIEVEMENT_BONUSES, JSON.stringify(this.achievementBonuses), 'Could not save achievement bonuses to storage');
+  }
+
+  private loadLastRunUpgrades(): RecordedUpgrade[] {
+    try {
+      const stored = SecureStorage.getItem(STORAGE_KEY_LAST_RUN_UPGRADES);
+      if (stored) {
+        const parsed: unknown = JSON.parse(stored);
+        // A record is applied by replaying upgrade.apply() once per level, so a
+        // tampered level is both a cheat vector and a hot loop. Rebuild entry by
+        // entry: non-array payloads, junk entries and out-of-range levels all drop.
+        if (!Array.isArray(parsed)) return [];
+        const rebuilt: RecordedUpgrade[] = [];
+        for (const entry of parsed.slice(0, MAX_RECORDED_UPGRADES)) {
+          const record = asStoredRecord(entry);
+          const level = boundedStoredNumber(record.level, 0, MAX_RECORDED_UPGRADE_LEVEL, 0, true);
+          if (typeof record.id === 'string' && record.id.length > 0 && level > 0) {
+            rebuilt.push({ id: record.id, level });
+          }
+        }
+        return rebuilt;
+      }
+    } catch {
+      console.warn('Could not load last run upgrades from storage');
+    }
+    return [];
+  }
+
+  private saveLastRunUpgrades(): void {
+    this.writeStored(STORAGE_KEY_LAST_RUN_UPGRADES, JSON.stringify(this.lastRunUpgrades), 'Could not save last run upgrades to storage');
   }
 
   /**

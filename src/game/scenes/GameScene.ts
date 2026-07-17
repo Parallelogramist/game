@@ -74,6 +74,7 @@ import { LightingSystem } from '../../visual/LightingSystem';
 import { setBossArenaScene, activateBossArena, deactivateBossArena, updateBossArena, resetBossArenaSystem } from '../../systems/BossArenaSystem';
 import { selectRunModifiers, getModifierById, type RunModifier } from '../../data/RunModifiers';
 import { selectBlessings, getBlessingById, type Blessing } from '../../data/Blessings';
+import { recordRunBuild, selectKeptUpgrades } from '../../data/KeptUpgrades';
 import { getPactById, type Pact } from '../../data/Pacts';
 import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState } from '../../systems/HazardZoneSystem';
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
@@ -988,6 +989,41 @@ export class GameScene extends Phaser.Scene {
         description: this.activeBlessings.map(blessing => `${blessing.name} (${blessing.description})`).join(' · '),
         icon: firstBlessing.icon,
         color: firstBlessing.color,
+        duration: 4000,
+      });
+    }
+
+    // ═══ MEMORY (shop `upgradeKeepLevel` — the last run's N lowest upgrades) ═══
+    // Sits with the other run-start gifts, ahead of the SHIP block on purpose: a
+    // kept Vitality's flat HP is hull-scaled the way a card's maxHealthAdd is, and
+    // the ship block's unconditional `currentHealth = maxHealth` then fills the new
+    // headroom — so this block needs no health code of its own.
+    const keptUpgrades = selectKeptUpgrades(
+      metaManager.getLastRunUpgrades(),
+      metaManager.getStartingUpgradeKeep()
+    );
+    const carriedOverLabels: string[] = [];
+    for (const kept of keptUpgrades) {
+      const upgrade = this.upgrades.find(u => u.id === kept.id);
+      if (!upgrade) continue;
+      const target = Math.min(kept.level, upgrade.maxLevel);
+      for (let level = 1; level <= target; level++) {
+        upgrade.apply(this.playerStats, level);
+      }
+      upgrade.currentLevel = target;
+      // Mirrors applyCombinedUpgrade's mastery branch, minus its playLevelUp() —
+      // soundManager is not constructed until later in create().
+      if (target === 10 && upgrade.isStatUpgrade) {
+        this.masteryVisualsManager.addMasteryVisual(upgrade.id);
+      }
+      carriedOverLabels.push(`${upgrade.name} Lv${target}`);
+    }
+    if (carriedOverLabels.length > 0) {
+      this.toastManager.showToast({
+        title: carriedOverLabels.length === 1 ? 'REMEMBERED' : `REMEMBERED ×${carriedOverLabels.length}`,
+        description: `${carriedOverLabels.join(' · ')} carried over from your last run`,
+        icon: 'brain',
+        color: 0x9a7bff,
         duration: 4000,
       });
     }
@@ -5216,6 +5252,11 @@ export class GameScene extends Phaser.Scene {
 
     // Record run end for achievements
     const metaManager = getMetaProgressionManager();
+
+    // Bank this run's build for Memory (`upgradeKeepLevel`) to carry into the next
+    // run. Recorded on both run-end paths — here and gameOver() — the same way
+    // recordRunEnd is, because victories never flow through gameOver().
+    metaManager.recordRunUpgrades(recordRunBuild(this.upgrades));
     const goldEarned = metaManager.calculateRunGold(
       this.killCount,
       this.gameTime,
@@ -5435,6 +5476,11 @@ export class GameScene extends Phaser.Scene {
 
     // Calculate and award gold
     const metaManager = getMetaProgressionManager();
+
+    // Bank this run's build for Memory (`upgradeKeepLevel`) — see showVictory().
+    // A won run that continued into endless and then died records here too; the
+    // later, deeper build is the right one to carry forward.
+    metaManager.recordRunUpgrades(recordRunBuild(this.upgrades));
 
     // Capture streak state before any changes
     const previousStreak = metaManager.getCurrentStreak();

@@ -23,6 +23,7 @@ import { PERMANENT_UPGRADES } from '../data/PermanentUpgrades';
 const KEY_UPGRADES = 'survivor-meta-upgrades';
 const KEY_STREAK = 'survivor-meta-streak';
 const KEY_ACH = 'survivor-meta-achievement-bonuses';
+const KEY_LAST_RUN = 'survivor-meta-last-run-upgrades';
 
 const ALL_KEYS = [
   'survivor-meta-gold',
@@ -31,6 +32,7 @@ const ALL_KEYS = [
   KEY_STREAK,
   'survivor-meta-runs-completed',
   KEY_ACH,
+  KEY_LAST_RUN,
 ];
 
 const MAX_STREAK = 10; // MAX_STREAK_BONUS
@@ -254,5 +256,50 @@ describe('MetaProgressionManager — corrupt/tampered storage resilience', () =>
       expect(bonuses.gold).toBe(25);
       expect(bonuses.startingLevel).toBe(3);
     });
+  });
+});
+
+// Memory (`upgradeKeepLevel`) replays upgrade.apply() once per banked level, so a
+// tampered level is both a stat cheat and a hot loop — the loader is the first bound
+// (the run-start block's Math.min against maxLevel is the second).
+describe('MetaProgressionManager — last-run upgrade record', () => {
+  beforeEach(() => {
+    SecureStorage.removeItem(KEY_LAST_RUN);
+  });
+
+  test('round-trips a banked build through storage', () => {
+    new MetaProgressionManager().recordRunUpgrades([
+      { id: 'might', level: 3 },
+      { id: 'haste', level: 1 },
+    ]);
+
+    expect(new MetaProgressionManager().getLastRunUpgrades()).toEqual([
+      { id: 'might', level: 3 },
+      { id: 'haste', level: 1 },
+    ]);
+  });
+
+  test('empty until a run banks one', () => {
+    expect(new MetaProgressionManager().getLastRunUpgrades()).toEqual([]);
+  });
+
+  test('a non-array payload loads as empty', () => {
+    expect(loadFrom(KEY_LAST_RUN, '{"might":3}').getLastRunUpgrades()).toEqual([]);
+    expect(loadFrom(KEY_LAST_RUN, 'not json at all').getLastRunUpgrades()).toEqual([]);
+  });
+
+  test('drops junk entries — an infinite level rejects to 0 like every other loader here', () => {
+    const tampered = loadFrom(
+      KEY_LAST_RUN,
+      '[{"id":"might","level":1e999},{"id":"haste","level":"9"},{"level":4},' +
+        '{"id":"","level":2},{"id":"vitality","level":0},{"id":"reach","level":2}]',
+    ).getLastRunUpgrades();
+
+    // 1e999 parses back as Infinity; boundedStoredNumber rejects non-finite values
+    // to the fallback (0), same as the streak/upgrade/achievement loaders above —
+    // so 'might' drops rather than clamping to MAX_RECORDED_UPGRADE_LEVEL.
+    expect(tampered).toEqual([
+      { id: 'reach', level: 2 },
+    ]);
   });
 });

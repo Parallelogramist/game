@@ -29,6 +29,7 @@ export const ALL_STORAGE_KEYS = [
   'survivor-meta-streak',
   'survivor-meta-runs-completed',
   'survivor-meta-achievement-bonuses',
+  'survivor-meta-last-run-upgrades',
   'survivor-meta-ascension',
 
   // GameStateManager
