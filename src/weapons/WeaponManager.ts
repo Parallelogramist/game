@@ -61,6 +61,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   homing_missile: 'explosive',
   meteor: 'explosive',
   ground_spike: 'explosive',
+  mine: 'explosive',
   laser_beam: 'beam',
   chain_lightning: 'beam',
   flamethrower: 'beam',

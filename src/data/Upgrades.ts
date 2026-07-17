@@ -668,6 +668,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'guardian', name: 'Guardian', icon: 'guardian', description: 'A reactive orb that retaliates with a radial nova when you take damage' },
   { id: 'wake', name: 'Caustic Wake', icon: 'wake', description: 'Leaves a caustic burning trail behind your ship' },
   { id: 'pulse', name: 'Pulse Cannon', icon: 'pulse', description: 'Emits expanding shockwave rings that sweep outward' },
+  { id: 'mine', name: 'Proximity Mines', icon: 'mine', description: 'Seeds proximity mines that arm, then blast enemies that stray too close' },
 ];
 
 /**

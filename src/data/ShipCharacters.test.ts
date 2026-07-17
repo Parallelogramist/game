@@ -11,7 +11,7 @@ const REGISTRY_WEAPON_IDS = [
   'projectile', 'katana', 'orbiting_blades', 'aura', 'chain_lightning',
   'homing_missile', 'frost_nova', 'laser_beam', 'meteor', 'flamethrower',
   'ricochet', 'ground_spike', 'drone', 'shuriken', 'boomerang', 'sentry',
-  'singularity', 'guardian', 'wake', 'pulse',
+  'singularity', 'guardian', 'wake', 'pulse', 'mine',
 ];
 
 // WeaponSelectScene.getAvailableShips() resolves gates via

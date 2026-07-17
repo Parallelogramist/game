@@ -149,6 +149,14 @@ export const WEAPON_SYNERGIES: readonly WeaponSynergy[] = [
     damageMultiplier: 1.2,
     cooldownMultiplier: 0.9,
   },
+  {
+    weaponA: 'mine',
+    weaponB: 'singularity',
+    name: 'Kill Zone',
+    description: 'Wells herd the horde onto your mines: +20% damage, 10% faster',
+    damageMultiplier: 1.2,
+    cooldownMultiplier: 0.9,
+  },
 ] as const;
 
 // Pre-built lookup for O(1) synergy checks

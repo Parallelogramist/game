@@ -286,6 +286,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.25,
     },
   },
+  {
+    weaponId: 'mine',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'might',
+    requiredStatLevel: 5,
+    evolvedName: 'Cluster Mines',
+    evolvedDescription: 'Saturation charges carpet the ground and detonate in overlapping, ground-shaking blasts that fling the whole horde clear.',
+    statMultipliers: {
+      damage: 1.7,
+      range: 1.35,
+      size: 1.2,
+      count: 1,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */
