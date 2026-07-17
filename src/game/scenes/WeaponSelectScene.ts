@@ -8,7 +8,7 @@ import { selectRunModifiers } from '../../data/RunModifiers';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
 import { getUltimateForShip } from '../../data/ShipUltimates';
-import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
+import { getHiddenUnlockManager, HIDDEN_UNLOCKS } from '../../meta/HiddenUnlocks';
 import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getShipModManager } from '../../meta/ShipModManager';
@@ -101,7 +101,8 @@ export class WeaponSelectScene extends Phaser.Scene {
 
     this.availableSteps = [];
     const availableStages = this.getAvailableStages();
-    if (availableStages.length > 1) this.availableSteps.push('stage');
+    const showStageStep = availableStages.length + this.getLockedStages().length > 1;
+    if (showStageStep) this.availableSteps.push('stage');
     if (this.getAvailableShips().length > 1) this.availableSteps.push('ship');
     this.availableSteps.push('weapon');
 
@@ -113,7 +114,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       return;
     }
 
-    if (availableStages.length > 1) {
+    if (showStageStep) {
       this.renderStageSelectionStep(availableStages);
     } else {
       this.selectedStageId = 'stage_deep_void';
@@ -230,6 +231,29 @@ export class WeaponSelectScene extends Phaser.Scene {
     return STAGES.filter((stage) => isUnlockRequirementMet(stage.unlockRequirement, gateContext));
   }
 
+  private getLockedStages(): StageDefinition[] {
+    const gateContext = this.buildUnlockGateContext();
+    return STAGES.filter((stage) => !isUnlockRequirementMet(stage.unlockRequirement, gateContext));
+  }
+
+  /** Human-readable "how to unlock" line for a locked stage's gate. */
+  private describeStageUnlock(stage: StageDefinition): string {
+    const requirement = stage.unlockRequirement;
+    if (!requirement) return '';
+    if (requirement.startsWith('hidden:')) {
+      const conditionId = requirement.slice('hidden:'.length);
+      const condition = HIDDEN_UNLOCKS.find((entry) => entry.id === conditionId);
+      return condition?.hintText ?? 'Unlock through a hidden challenge';
+    }
+    if (requirement.startsWith('worldLevel:')) {
+      return `Reach world level ${Number(requirement.slice('worldLevel:'.length)) || 0}`;
+    }
+    if (requirement.startsWith('account:')) {
+      return `Reach account level ${Number(requirement.slice('account:'.length)) || 0}`;
+    }
+    return '';
+  }
+
   private renderStageSelectionStep(stages: StageDefinition[]): void {
     this.clearStepUI();
     this.currentStep = 'stage';
@@ -241,7 +265,9 @@ export class WeaponSelectScene extends Phaser.Scene {
     const cardWidth = 220;
     const cardHeight = 160;
     const cardSpacing = 24;
-    const layout = this.computeGridLayout(stages.length, cardWidth, cardHeight, cardSpacing, 4, 30);
+    const lockedStages = this.getLockedStages();
+    const totalStageCount = stages.length + lockedStages.length;
+    const layout = this.computeGridLayout(totalStageCount, cardWidth, cardHeight, cardSpacing, 4, 30);
 
     const focusable: { card: MenuCard; nameText: Phaser.GameObjects.Text; stage: StageDefinition }[] = [];
     stages.forEach((stage, index) => {
@@ -299,6 +325,12 @@ export class WeaponSelectScene extends Phaser.Scene {
       card.hitZone.on('pointerout', () => card.setHoverState(false));
     });
 
+    lockedStages.forEach((stage, lockedIndex) => {
+      const gridIndex = stages.length + lockedIndex;
+      const { x: cardX, y: cardY } = layout.positionAt(gridIndex);
+      this.renderLockedStageCard(stage, gridIndex, cardX, cardY, cardWidth, cardHeight);
+    });
+
     this.destroyMenuNavigator();
     this.menuNavigator = new MenuNavigator({
       scene: this,
@@ -315,6 +347,67 @@ export class WeaponSelectScene extends Phaser.Scene {
       wrap: true,
       onCancel: () => this.goBack(),
     });
+  }
+
+  /**
+   * A locked stage rendered as a dim, non-interactive card naming the biome and
+   * its unlock condition — turning the otherwise-invisible stage roster into a
+   * visible chase. `interactive: false` + excluded from the MenuNavigator, and
+   * drawn after the unlocked cards so selectable cards keep grid indices 0..n-1.
+   */
+  private renderLockedStageCard(
+    stage: StageDefinition,
+    gridIndex: number,
+    cardX: number,
+    cardY: number,
+    cardWidth: number,
+    cardHeight: number,
+  ): void {
+    const card = createMenuCard(this, {
+      x: cardX,
+      y: cardY,
+      width: cardWidth,
+      height: cardHeight,
+      pulseSeed: gridIndex * 0.7,
+      bodyFillColor: BODY_COLORS.neutral,
+      accentColor: ACCENT_COLORS.neutral,
+      bannerHeight: 40,
+      borderWidth: 3,
+      borderColor: ACCENT_COLORS.neutral,
+      cornerRadius: 8,
+      interactive: false,
+    });
+
+    const nameText = makeDisplayText(this, 0, card.bannerTopY + 20, stage.name.toUpperCase(), {
+      fontSize: 16,
+      color: TEXT_COLORS.dim,
+      letterSpacing: 1.5,
+    });
+    card.frame.add(nameText);
+
+    const lockTag = makeDisplayText(this, 0, -14, 'LOCKED', {
+      fontSize: 13,
+      color: TEXT_COLORS.headingGold,
+      letterSpacing: 2,
+    });
+    card.frame.add(lockTag);
+
+    const description = makeBodyText(this, 0, 18, stage.description, {
+      fontSize: 13,
+      color: TEXT_COLORS.dim,
+      wordWrapWidth: cardWidth - 28,
+    });
+    description.setLineSpacing(2);
+    card.frame.add(description);
+
+    const hint = makeBodyText(this, 0, 56, this.describeStageUnlock(stage), {
+      fontSize: 12,
+      color: TEXT_COLORS.muted,
+      wordWrapWidth: cardWidth - 28,
+    });
+    card.frame.add(hint);
+
+    this.stepCards.push(card);
   }
 
   private proceedToShipStep(): void {
