@@ -34,6 +34,21 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-RELICS** — surface the hidden relic pool as a browsable Codex tab
+  (done — 759a1cd). The game ships **28 relics** (`src/data/Relics.ts`) that
+  `RelicManager` drops from chests / minibosses / events and applies as real `PlayerStats`
+  modifiers, but the only surfaces that ever named a relic — the pickup path and the in-run
+  relic strip HUD — require you to have **already** picked it up, so there was **no way to
+  see the pool**: a player could not learn that (e.g.) Harbinger Mount grants +1 weapon slot
+  without blind-drawing it. Added a sixth Codex tab, **Relics**, listing all 28 as
+  always-visible cards (relic icon + rarity label both tinted the rarity colour —
+  common/rare/epic/legendary — plus the effect description), turning an invisible 28-item
+  collection into a browsable reference. Directly mirrors the just-shipped
+  **FEAT-CODEX-SYNERGIES** (`37a45d3`) architecture: reuses `layoutCardGrid`; static
+  reference — **no discovery-tracking, no `CodexState`/persistence change, no completion-%
+  impact** (completion weights only weapons + enemies). Card border stays `0x4a4a7a` so
+  `updateFocusVisuals` needs no change. Full write-up in `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-CODEX-RELICS** under `## Human gates`.
 - [x] **FEAT-CODEX-SYNERGIES** — surface the hidden weapon-synergy system as a browsable
   Codex tab (done — 37a45d3). The game ships 15 passive weapon-pair synergies
   (`src/data/WeaponSynergies.ts`) that `WeaponManager` applies as real per-weapon damage +
@@ -317,6 +332,31 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-RELICS** — the new Codex → Relics tab (FEAT-CODEX-RELICS, `759a1cd`).
+    Agents have no browser; this is a UI-layout + readability change and must be eyeballed.
+    Reach it: main menu → **Codex** → the **Relics** tab (6th tab, "crown" icon, count badge
+    "28"). Check: (a) **the 6-tab bar is the top risk** — a sixth tab makes every tab ~18px
+    narrower (≈106px at portrait 720w); confirm the labels ("Statistics" and "Synergies" are
+    the longest) don't clip or overlap their count badges or icons in **portrait (720w)** and
+    landscape. If it's too tight, the fix is a human/design call (shrink the tab font,
+    abbreviate labels, or icon-only tabs) — **not** an agent call; note which you'd want.
+    (b) **it lists all 28** relics as 2-column scrollable cards; scroll to the bottom and
+    confirm none are clipped by the card height (96px) — the description is the tightest line
+    and the longest ("+2 pandemic spread (poison jumps to nearby enemies)") may wrap to two
+    lines. (c) **each card reads cleanly** — relic name (bold white), the rarity label in its
+    rarity colour, the grey effect description, and the relic icon in the left disc tinted the
+    rarity colour. (d) **rarity colours are right** — common = grey `#aaaaaa`, rare = blue
+    `#4488ff`, epic = purple `#cc44ff`, legendary = amber `#ffaa22`; spot-check Steady Eye =
+    COMMON (grey), Overclock = RARE (blue), Executioner = EPIC (purple), Crown of Havoc =
+    LEGENDARY (amber). Because `RELICS` is authored in rarity order, the cards read roughly
+    common→legendary top to bottom. (e) **keyboard/pad nav** — arrow into the grid; the focus
+    highlight (thick gold border) moves card-to-card and, when it leaves a card, the border
+    returns to the normal `0x4a4a7a` (no stuck gold). (f) **the other five tabs are
+    unchanged** — Weapons/Bestiary/Upgrades/Synergies/Statistics still render and their counts
+    are unaffected. Balance/feel calls this opens (none blocking): should relic cards be
+    discovery-gated like weapons (turning relics into a collectible completion set), or show
+    each relic's drop source / rarity weight? Both are enhancements, **not** agent calls —
+    note if you want them.
   - **POLISH-CODEX-SYNERGIES** — the new Codex → Synergies tab (FEAT-CODEX-SYNERGIES,
     `37a45d3`). Agents have no browser; this is a UI-layout + readability change and
     must be eyeballed. Reach it: main menu → **Codex** → the **Synergies** tab (5th tab,

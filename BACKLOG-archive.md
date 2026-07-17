@@ -5,6 +5,53 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-CODEX-RELICS — surface the hidden relic pool as a browsable Codex tab · DONE 759a1cd
+
+- **The gap.** `src/data/Relics.ts` defines **28 relics** across four rarities
+  (7 common / 8 rare / 7 epic / 6 legendary), each an `apply(stats: PlayerStats)` modifier
+  that `RelicManager` applies on pickup; relics drop from chests, minibosses, and events (max
+  6 equipped per run). But the game gave the player **no way to see the pool** — a relic is
+  only ever named once you already hold it (the pickup path + the in-run relic strip HUD,
+  `HUDManager.relicStripContainer`, which shows *equipped* relics), so learning that (e.g.)
+  Harbinger Mount grants +1 weapon slot or Immortal Core grants a revival required
+  blind-drawing it. A 28-item collection was effectively invisible.
+- **The fix.** Added a sixth Codex tab, **Relics** (`CodexTypes.ts`: `'relics'` in the
+  `CodexCategory` union + a `CODEX_CATEGORIES` entry with the `crown`→`crown` icon;
+  `CodexScene.ts`: a content-switch case, a tab-count branch showing the bare total, and
+  `displayRelics`/`createRelicCard`). Each of the 28 cards shows the relic icon in a left
+  disc, the relic name, a rarity label, and the effect description — the icon-disc stroke,
+  icon tint, and rarity label are all coloured by `getRelicRarityColor`, so rarity reads at a
+  glance. Reuses the Codex's existing `layoutCardGrid` 2-column scroll grid, so keyboard/pad
+  navigation and the focus highlight work unchanged.
+- **Deliberately a static reference, not a collection — mirrors FEAT-CODEX-SYNERGIES
+  (`37a45d3`).** The tab is **always fully visible** (no discovery gating) because the value
+  is letting the player see relics they *haven't* drawn in order to recognise and hope for
+  them; hiding undrawn relics behind "?" would defeat the purpose. Consequently there is **no
+  `CodexState` change, no persistence, no version bump, and no completion-% impact**
+  (`getCompletionPercent` weights only weapons + enemies). The Codex opens from the main menu,
+  outside a run, so base relic descriptions are shown (relics have no run-scaled values),
+  which is correct for a reference.
+- **Airtight against the focus system.** The relic card border is set to `0x4a4a7a` — the
+  exact value `updateFocusVisuals`'s `else` branch restores for any non-weapon/non-enemy
+  category — so a card's border returns to its original colour when focus leaves it with
+  **no** change to the navigation code. Rarity is signalled by the icon tint + rarity label,
+  never by the border, which the focus logic never rewrites.
+- **No number changes, no test.** `Relics.ts`, `RelicManager`, and all gameplay are
+  untouched — this is a pure read-only reference surface. Per the workspace standing order,
+  no test was added: the change is Phaser scene rendering with no seam (this repo tests pure
+  logic only), and the one bit of logic — the rarity-colour hex conversion — is self-evident.
+  Verified by `npx tsc --noEmit` (exit 0) and the full suite (94 files / 1310 tests green,
+  unchanged), plus the **POLISH-CODEX-RELICS** human playtest.
+- **Why this over the open backlog.** The three open `BACKLOG.md` items remain value-gate
+  busy-work (`CHORE-ARCH-DOC-SYNC` doc rewrite, `POLISH-GLYPH-SWEEP-2` cosmetic,
+  `BUG-MENUBUTTON-SETVARIANT-NOOP` sandbox-only colour). The "dead paid feature" bug vein is
+  mined out (re-audited this session: every high-risk `PlayerStats` field — `sprintBonus`,
+  `combatSpeedBonus`, `armorPenetration`, `damageCap`, `shatterBonus`, `pandemicSpread`,
+  `phaseChance`, `overchargeStunDuration`, … — has a live reader in `GameScene`/
+  `WeaponManager`). Relics were the single largest un-surfaced collection left (28 items vs
+  the 15 synergies just shipped), so a Relics reference tab is the highest *novel* value: a
+  capability the player gains, not motion.
+
 ## FEAT-CODEX-SYNERGIES — surface the hidden weapon-synergy system as a browsable Codex tab · DONE 37a45d3
 
 - **The gap.** `src/data/WeaponSynergies.ts` defines 15 weapon-pair synergies, each a real
