@@ -27,6 +27,13 @@ interface ActiveWindUp {
   cancelled: boolean;
 }
 
+/** A slow-motion deferred until the in-flight hit stop restores the time scale. */
+interface PendingSlowMotion {
+  duration: number;
+  timeScale: number;
+  easeBackDuration: number;
+}
+
 /**
  * JuiceManager - Centralized system for game feel effects.
  * Provides anticipation/wind-up, hit stop, screen shake, and other juice effects.
@@ -37,11 +44,30 @@ export class JuiceManager {
   private hitStopActive: boolean = false;
   private originalTimeScale: number = 1;
   private hitStopCooldownUntil: number = 0;
+  private pendingSlowMotion: PendingSlowMotion | null = null;
 
   public setScene(scene: Phaser.Scene | null): void {
-    // Zoom tween belongs to the outgoing scene's tween manager.
-    this.zoomTween = null;
+    this.releaseSceneBoundState();
     this.scene = scene;
+  }
+
+  /**
+   * Drop everything owned by the outgoing scene. Every timer and tween that would
+   * clear these flags lives on that scene's clock and dies with it — so a run that
+   * ended inside a hit stop used to leave hitStopActive latched true, muting both
+   * hitStop() and slowMotion() for the rest of the page session. The zoom tween
+   * likewise belongs to the outgoing scene's tween manager.
+   */
+  private releaseSceneBoundState(): void {
+    for (const [weaponId] of this.activeWindUps) {
+      this.cancelWindUp(weaponId);
+    }
+    this.activeWindUps.clear();
+    this.hitStopActive = false;
+    this.slowMotionActive = false;
+    this.pendingSlowMotion = null;
+    this.hitStopCooldownUntil = 0;
+    this.zoomTween = null;
   }
 
   public update(_deltaMs: number): void {
@@ -49,14 +75,11 @@ export class JuiceManager {
   }
 
   public destroy(): void {
-    for (const [weaponId] of this.activeWindUps) {
-      this.cancelWindUp(weaponId);
-    }
-    this.activeWindUps.clear();
+    // Restore before the release clears the flag it reads.
     if (this.hitStopActive && this.scene) {
       this.scene.tweens.timeScale = this.originalTimeScale;
-      this.hitStopActive = false;
     }
+    this.releaseSceneBoundState();
     this.scene = null;
   }
 
@@ -762,6 +785,7 @@ export class JuiceManager {
       if (this.scene) this.scene.tweens.timeScale = this.originalTimeScale;
       this.hitStopActive = false;
       this.hitStopCooldownUntil = (this.scene?.time?.now ?? 0) + duration * 4;
+      this.flushPendingSlowMotion();
     });
   }
 
@@ -811,7 +835,34 @@ export class JuiceManager {
    * Used for boss/miniboss death moments.
    */
   public slowMotion(duration: number, timeScale: number = 0.3, easeBackDuration: number = 200): void {
-    if (!this.scene || this.slowMotionActive || this.hitStopActive) return;
+    if (!this.scene || this.slowMotionActive) return;
+
+    // A hit stop owns tweens.timeScale until its delayedCall restores it, so a
+    // slow-mo starting inside that window would capture the ~0 freeze as its own
+    // previousTimeScale and restore the game to a permanent freeze. Chain rather
+    // than drop: this is the grammar playDeathSequence hand-staggers by firing
+    // slowMotion 150ms after a 120ms hitStop. Every other dramatic callsite fires
+    // the pair back-to-back in one synchronous call, so it never played at all.
+    if (this.hitStopActive) {
+      this.pendingSlowMotion = { duration, timeScale, easeBackDuration };
+      return;
+    }
+
+    this.startSlowMotion(duration, timeScale, easeBackDuration);
+  }
+
+  /** Last request wins — when a kill and its boss-tier follow-up land in the same
+   *  frame, the grander cinematic is the one that should play. */
+  private flushPendingSlowMotion(): void {
+    const pending = this.pendingSlowMotion;
+    this.pendingSlowMotion = null;
+    if (pending) {
+      this.startSlowMotion(pending.duration, pending.timeScale, pending.easeBackDuration);
+    }
+  }
+
+  private startSlowMotion(duration: number, timeScale: number, easeBackDuration: number): void {
+    if (!this.scene || this.slowMotionActive) return;
 
     this.slowMotionActive = true;
     const previousTimeScale = this.scene.tweens.timeScale;

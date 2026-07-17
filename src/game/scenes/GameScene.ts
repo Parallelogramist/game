@@ -38,7 +38,7 @@ import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSyste
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
 import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
 import { EffectsManager } from '../../effects/EffectsManager';
-import { getJuiceManager } from '../../effects/JuiceManager';
+import { getJuiceManager, resetJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
@@ -8921,6 +8921,7 @@ export class GameScene extends Phaser.Scene {
     resetBossArenaSystem();
     resetHazardZoneSystem();
     resetMusicIntensityDriver();
+    resetJuiceManager();
     getRelicManager().reset();
   }
 
