@@ -5,6 +5,52 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-CODEX-SYNERGIES — surface the hidden weapon-synergy system as a browsable Codex tab · DONE 37a45d3
+
+- **The gap.** `src/data/WeaponSynergies.ts` defines 15 weapon-pair synergies, each a real
+  mechanical bonus that `WeaponManager` (`computeSynergyMultipliers`) applies as a per-weapon
+  damage and/or cooldown multiplier to both weapons of the pair (amplified by the
+  `weaponSynergy` stat from the Synergy meta upgrade + Synergy Chain relic). The system is
+  explicitly designed for "players experiment with weapon combos" — but the game gave the
+  player **no way to see what the pairs are**. The only two surfaces that named a synergy
+  (`GameScene.showSynergyToast`, and the pause-menu dashboard's `activeSynergies` list) both
+  fire **only once you already hold a triggering pair**, so learning a pair required blindly
+  equipping exactly those two weapons — ~9% odds across the 171 possible weapon pairs.
+- **The fix.** Added a fifth Codex tab, **Synergies** (`CodexTypes.ts`: `'synergies'` in the
+  `CodexCategory` union + a `CODEX_CATEGORIES` entry with the `chain`→`linked-rings` icon;
+  `CodexScene.ts`: a content-switch case, a tab-count branch showing the bare total, and
+  `displaySynergies`/`createSynergyCard`/`addSynergyWeaponIcon`/`formatSynergyBonusLine`).
+  Each of the 15 cards shows the two weapons (names + icons, joined by "+"), the mechanical
+  bonus (`+X% dmg`/`+Y% atk spd`, formatted to match the in-run pause dashboard), and the
+  flavor description. Reuses the Codex's existing `layoutCardGrid` 2-column scroll grid, so
+  keyboard/pad navigation and the focus highlight work unchanged.
+- **Deliberately a static reference, not a collection.** The tab is **always fully visible**
+  — no discovery gating — because the whole value is letting the player see synergies they
+  *haven't* found yet in order to plan toward them; hiding undiscovered ones behind "?"
+  would defeat the purpose. Consequently there is **no `CodexState` change, no persistence,
+  no version bump, and no completion-% impact** (`getCompletionPercent` weights only weapons
+  + enemies). The Codex opens from the main menu, outside a run, so the **base** synergy
+  table values are shown (not values amplified by an in-run `weaponSynergy` stat), which is
+  correct for a reference.
+- **Airtight against the focus system.** The synergy card border is set to `0x4a4a7a` — the
+  exact value `updateFocusVisuals`'s `else` branch restores for any non-weapon/non-enemy
+  category — so a card's border returns to its original color when focus leaves it with
+  **no** change to the navigation code. The amber accent lives only in text/icon tints,
+  which the focus logic never rewrites.
+- **No number changes, no test.** The synergy table, `WeaponManager` application, and all
+  gameplay are untouched — this is a pure read-only reference surface. Per the workspace
+  standing order, no test was added: the change is Phaser scene rendering with no seam
+  (this repo tests pure logic only), and the one bit of logic — the bonus formatter — is
+  self-evident and mirrors the existing `formatSynergyBonus`. Verified by `npx tsc --noEmit`
+  (exit 0), the full suite (94 files / 1310 tests green, unchanged), and the
+  **POLISH-CODEX-SYNERGIES** human playtest.
+- **Why this over the open backlog.** The three open `BACKLOG.md` items are value-gate
+  busy-work (`CHORE-ARCH-DOC-SYNC` doc rewrite, `POLISH-GLYPH-SWEEP-2` cosmetic,
+  `BUG-MENUBUTTON-SETVARIANT-NOOP` sandbox-only colour). The "dead paid feature" bug vein is
+  mined out (re-audited this session: relics, synergies, all 19 weapon evolutions, and the
+  `setCombatStats` snapshot are fully wired). Surfacing an existing-but-hidden build system
+  is the highest *novel* value left — a capability the player gains, not motion.
+
 ## BUG-BLOOD-PACT-HALVE-DEAD — the Blood Pact charged half its advertised price, and charged *less* the more hurt you were · DONE afe1baa
 
 - **The defect.** `applyShrineBargain()`'s `blood_pact` deal (`GameScene.ts:7039-7044`

@@ -34,6 +34,21 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-SYNERGIES** — surface the hidden weapon-synergy system as a browsable
+  Codex tab (done — 37a45d3). The game ships 15 passive weapon-pair synergies
+  (`src/data/WeaponSynergies.ts`) that `WeaponManager` applies as real per-weapon damage +
+  cooldown multipliers, but the only surfaces that ever named them
+  (`GameScene.showSynergyToast`, and the pause dashboard's `activeSynergies` list) both
+  require you to have **already** equipped a triggering pair — there was **no way to see
+  the possible pairs**, so with 15 real pairs out of C(19,2)=171 the blind-discovery rate
+  was ~9%. Added a fifth Codex tab, **Synergies**, listing all 15 as always-visible cards
+  (both weapons + icons, the mechanical `+X% dmg`/`+Y% atk spd` bonus, and the flavor
+  description), turning a "just experiment" system into a build axis you can plan toward.
+  Reuses the Codex's own `layoutCardGrid` architecture; the tab is a static reference —
+  **no discovery-tracking, no `CodexState`/persistence change, no completion-% impact**
+  (completion weights only weapons + enemies). Base table values shown (the Codex opens
+  from the menu, outside a run). Full write-up in `BACKLOG-archive.md`. Playtest follow-up
+  filed as **POLISH-CODEX-SYNERGIES** under `## Human gates`.
 - [x] **BUG-META-BARRIER-CAPACITY-DEAD** — the 2,968-gold shop upgrade that bought
   nothing (done — 1e7ef6c). `barrierCapacityLevel` ("+N max shield charges",
   maxLevel 4, 250→1458g) added to `PlayerStats.maxShieldCharges`, but every reader of a
@@ -302,6 +317,26 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-SYNERGIES** — the new Codex → Synergies tab (FEAT-CODEX-SYNERGIES,
+    `37a45d3`). Agents have no browser; this is a UI-layout + readability change and
+    must be eyeballed. Reach it: main menu → **Codex** → the **Synergies** tab (5th tab,
+    "chain"/linked-rings icon, count badge "15"). Check: (a) **it lists all 15** synergies
+    as 2-column scrollable cards; scroll to the bottom row and confirm none are clipped by
+    the card height (108px) — the flavor description is the tightest line and may wrap to
+    two lines. (b) **each card reads cleanly** — synergy name (bold), the two weapon names
+    ("Frost Nova + Meteor"), the amber bonus badge ("+30% dmg", "+15% atk spd", or both),
+    the grey flavor line; and the **two weapon icons** render in the left gutter joined by
+    a "+". (c) **the numbers are right** — spot-check Thermal Shock = **+30% dmg**, Blade
+    Dance = **+15% atk spd** (no dmg), Conducting Field = **+15% dmg · +10% atk spd**.
+    (d) **five tabs still fit** the bar on a phone (portrait 720w and landscape) without
+    the labels overlapping — "Synergies"/"Statistics" are the longest. (e) **keyboard/pad
+    nav** — arrow into the grid; the focus highlight (thick gold border) moves card-to-card
+    and, when it leaves a card, the card's border returns to the normal `0x4a4a7a` (no
+    stuck gold). (f) **the other four tabs are unchanged** — Weapons/Bestiary/Upgrades/
+    Statistics still render and their discovered/total counts are unaffected.
+    Balance/feel calls this opens (none blocking): should synergy cards be gated behind
+    discovery like weapons, or link to the weapons that form them? Both are enhancements,
+    **not** agent calls — note if you want them.
   - **POLISH-BLOOD-PACT** — the pact that now charges its price (BUG-BLOOD-PACT-HALVE-DEAD,
     `afe1baa`). Agents have no browser, and this is the one recent fix that makes the
     game **harder** — it must not be retuned blind. Reach it: play past 2:00 and wait for
