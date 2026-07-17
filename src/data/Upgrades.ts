@@ -669,6 +669,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'wake', name: 'Caustic Wake', icon: 'wake', description: 'Leaves a caustic burning trail behind your ship' },
   { id: 'pulse', name: 'Pulse Cannon', icon: 'pulse', description: 'Emits expanding shockwave rings that sweep outward' },
   { id: 'mine', name: 'Proximity Mines', icon: 'mine', description: 'Seeds proximity mines that arm, then blast enemies that stray too close' },
+  { id: 'sweep_beam', name: 'Arc Sweep', icon: 'sweep_beam', description: 'A radiant beam sweeps around your ship, searing all it crosses' },
 ];
 
 /**

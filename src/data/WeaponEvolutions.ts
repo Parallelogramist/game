@@ -300,6 +300,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       count: 1,
     },
   },
+  {
+    weaponId: 'sweep_beam',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'haste',
+    requiredStatLevel: 5,
+    evolvedName: 'Corona',
+    evolvedDescription: 'A blinding corona of light scythes the arena — more beams, wider, faster, and searing.',
+    statMultipliers: {
+      damage: 1.6,
+      range: 1.3,
+      count: 2,
+      size: 1.3,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

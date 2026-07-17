@@ -128,6 +128,7 @@ export const ICON_MAP: Record<string, string> = {
   wake: 'wind-slap',
   pulse: 'radar-sweep',
   mine: 'death-zone',
+  sweep_beam: 'sunbeams',
   telescope: 'telescope',
   projectile: 'thrown-daggers',
 
