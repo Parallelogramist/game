@@ -201,17 +201,31 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   multipliers, hull, palette and, since FEAT-SHIP-ULTIMATES, the ultimate — was
   judged through Sparrow. Full write-up in `BACKLOG-archive.md`. Playtest follow-up
   filed as **POLISH-PRACTICE-SHIP** under `## Human gates`.
-- [ ] **BUG-PRACTICE-PORTRAIT** — PracticeScene's controls fall off the bottom in
-  portrait. It uses `computeMenuLayoutScale` (the LANDSCAPE fit), not
-  `computeMenuLayoutScalePortrait`, so on a 720×1280 portrait canvas it resolves to
-  0.5625: `rowY = 1280 - round(130*0.5625)` = 1207, and the unscaled `+50`/`+60`
-  offsets put START at y≈1317 — **37 units past the 1280-unit canvas**. Even in
-  landscape START sits at y=700 with height 52, overhanging the 720 canvas by 6.
-  Pointers: `PracticeScene.ts` `renderControls()` (`rowY`, `stepperY + 50`,
-  `evolveY + 60`), `HudScale.ts`'s `computeMenuLayoutScalePortrait` docstring (which
-  spells out when a scene may opt in — PracticeScene's centered column qualifies).
-  Found while fitting FEAT-PRACTICE-SHIP's row into the 402…572 band; that row is
-  unaffected (it sits above the stepper), so this is pre-existing, not a regression.
+- [x] **BUG-PRACTICE-PORTRAIT** — the practice menu was unusable on a phone in
+  portrait (done — a802fcd). `PracticeScene` was the only menu scene that never
+  opted into the orientation-matched 720×1280 fit, so in portrait it squashed to the
+  landscape fit (0.5625) and rendered START's whole 52-unit button *below* the 1280-unit
+  canvas — the six-session practice sandbox, and the tool the `POLISH-PRACTICE-*`
+  playtest queue depends on, could not be started at all. The bottom reserve was also
+  6 units short in *both* orientations (130 reserved, 136 needed). Full write-up in
+  `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-PRACTICE-PORTRAIT** under
+  `## Human gates`.
+- [ ] **BUG-PRACTICE-FLIP-RESETS-PICKS** — rotating the device throws away your
+  practice setup. `main.ts`'s orientation watcher (`main.ts:169-178`) re-lays-out live
+  menu scenes with `scene.restart(scene.sys.settings.data)`, which re-runs
+  `PracticeScene.create()` — and `create()` deliberately resets `selectedWeaponId`,
+  `selectedLevel`, `evolvedEnabled` and `selectedShipIndex` to defaults (that reset is
+  correct for a fresh MAIN MENU → PRACTICE entry; it is wrong for a flip). So picking
+  Juggernaut + Caustic Wake @5 EVOLVED in portrait and rotating to landscape to play
+  silently drops all four back to Sparrow / first weapon / max level / OFF. Pre-existing
+  and orientation-symmetric, but far more likely to be hit now that portrait actually
+  works (BUG-PRACTICE-PORTRAIT, `a802fcd`) — setting up in portrait and rotating to
+  play in the game's native landscape is the natural flow. Fix shape: pass the four
+  fields through the restart (`scene.restart({...})` carries data; `create()` would seed
+  from `this.scene.settings.data` when present, else reset), which needs the watcher to
+  hand the scene its own state rather than the original `settings.data` — so it touches
+  `main.ts`, not just the scene. Pointers: `main.ts:169-178`, `PracticeScene.create()`
+  (`PracticeScene.ts:86-89`).
 
 ---
 
@@ -224,6 +238,26 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PRACTICE-PORTRAIT** — the practice menu in portrait (BUG-PRACTICE-PORTRAIT,
+    `a802fcd`). **Do this before the other practice playtests — it is what makes
+    them reachable on a phone held normally.** Reach it: hold the phone in **portrait**
+    → BootScene → PRACTICE. Check: (a) **the point of the fix** — is the START button
+    fully on screen and tappable? Before this it rendered entirely below the canvas edge
+    and portrait practice was impossible. (b) **the whole column** — SHIP row, its two
+    info lines, LEVEL stepper, EVOLVED, START: all on-canvas, legible, and none
+    overlapping the weapon grid? (c) **the dead band** — the grid ends around y=743 and
+    the SHIP row starts around y=1002, leaving ~260 units of empty space mid-screen in
+    portrait; the planner left it (the scene is functional and centering the column is a
+    composition change, not a fix). On the screen does it read as breathing room or as
+    broken? (d) **the 5×4 weapon grid** — portrait fits 5 columns instead of landscape's
+    8, so 19 weapons take 4 rows: still legible and tappable? (e) **rotate mid-menu** —
+    set up a run, rotate: the layout should re-fit correctly, but **your picks reset to
+    defaults** — that is filed as **BUG-PRACTICE-FLIP-RESETS-PICKS**, is pre-existing,
+    and is a known limit of this fix, not a regression. Is it annoying enough to pull
+    that item forward? (f) **landscape is meant to be untouched** — the only landscape
+    change is the whole control stack moving **up 10 units** (START now clears the
+    bottom edge by 4 instead of overhanging it by 6). Does landscape look identical
+    otherwise?
   - **POLISH-PRACTICE-SHIP** — pick the ship you practise as (FEAT-PRACTICE-SHIP,
     `e0f72e7`). Reach it: BootScene → PRACTICE → tap the `SHIP` row to
     `JUGGERNAUT` → START. Check: (a) **the point of the feature** — with the dock's

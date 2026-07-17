@@ -5,6 +5,82 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-PRACTICE-PORTRAIT — fit the practice menu to a phone in portrait · DONE a802fcd
+
+- **Value:** `PracticeScene` was the only menu scene that never opted into the
+  orientation-matched 720×1280 design fit — `grep -il 'orientation|portrait'` over
+  `src/` hit every other menu scene (BootScene, SettingsScene, ShopScene, CardsScene,
+  WeaponSelectScene, PactSelectScene, AchievementScene, CreditsScene, RunnerScene,
+  UpgradeScene, GameScene, HUDManager, PauseMenuManager, ToastManager) but not
+  `PracticeScene.ts`. On a phone held in portrait — the default orientation — the
+  six-fleet-session practice sandbox (`FEAT-PRACTICE-MODE`, `-BOSS`, `-BUILD`, `-TIME`,
+  `-ULT`, `-SHIP`), and the tool the entire `POLISH-PRACTICE-*` playtest queue depends
+  on, **could not be started at all**.
+- **Two distinct defects, both fixed:**
+  1. **Wrong scale function.** `renderHeader()`/`renderControls()` called only
+     `computeMenuLayoutScale` (the LANDSCAPE fit). On the 720×1280 portrait canvas that
+     resolves to `min(1, 720/1280, 1280/720) = 0.5625`, shrinking the whole menu and
+     landing START at y=1291…1343 — entirely below the 1280-unit canvas (its centre
+     sits 37 units past the bottom edge). Fixed with a new `computeScales()` private
+     method that picks `computeMenuLayoutScalePortrait`/`computeMenuFontScalePortrait`
+     when `this.scale.height > this.scale.width`, exactly as `BootScene` already does.
+     Under EXPAND's orientation-aware base (portrait guarantees ≥720×1280) that fit
+     also resolves to exactly 1.0, so the menu renders full size in either orientation
+     — this is a pure no-op in landscape.
+  2. **The bottom reserve was short in *both* orientations, by a constant.** The stack
+     reserved `130` units below the stepper (`rowY = height - scaledInt(layoutScale,
+     130)`) but the stack below it needs `50` (EVOLVED) `+ 60` (START) `+ 26` (START's
+     own half-height) `= 136`. Landscape today: `startY = 700`, extent 674…**726** on a
+     **720**-unit canvas — a 6-unit overhang on every device, in every orientation,
+     that fixing (1) alone would have left in place. New reserve constant
+     `PRACTICE_CONTROL_BOTTOM_RESERVE = 140` closes it with 4 units to spare in both
+     orientations.
+- **Before/after (both at `layoutScale = 1.0`, the value on every real device):**
+
+  | canvas | `startY` before | `startBottom` before | `startY` after | `startBottom` after |
+  |---|---|---|---|---|
+  | landscape (720 tall) | 700 | 726 (over by 6) | 690 | 716 (clears by 4) |
+  | portrait (1280 tall) | 1317 | 1343 (over by 63) | 1250 | 1276 (clears by 4) |
+
+- **Shipped as a pure helper, not inline arithmetic.** The stack math moved to
+  `computePracticeControlLayout(canvasHeight, layoutScale)` in `HudScale.ts` — the
+  repo's existing home for scene-specific pure layout math (`computeRowStackFit`'s
+  docstring already names the practice dock). It is the only home a Node test can
+  import: `PracticeScene.ts` imports Phaser at module top and cannot be imported by a
+  Node test. Two tests in `HudScale.test.ts` pin the invariant — `startBottom` never
+  exceeds the canvas height in either base shape, and the reserve covers the whole
+  stack below the stepper — so this scene's recurring failure mode (every practice
+  feature to date has added a row, and START is the one that silently renders past the
+  edge) fails in CI instead of on a real device.
+- **Deliberately not touched — the vertical-budget trap.** `PracticeScene` draws its
+  buttons at raw, unscaled sizes (`width: 220`, `height: 36`, START `height: 52`) while
+  its *positions* go through `scaledInt(layoutScale, …)`. That mismatch is
+  pre-existing and harmless because `layoutScale` is exactly 1.0 in both orientations
+  on every real device, so scaled and unscaled agree — scaling the button dimensions,
+  touching `computeGridLayout()`/`renderWeaponGrid()` (the 5×4 portrait weapon grid
+  already fits, y 267…743), or adjusting font sizes (`computeMenuFontScalePortrait`
+  caps its density term at 1.2, below landscape's 1.6, so portrait text is smaller than
+  what already shipped) were all out of scope and left alone. The single exception:
+  START's literal `height: 52` now reads `PRACTICE_START_HEIGHT` so it cannot drift
+  from the helper's `startBottom` — same value, single source of truth.
+- **Found while reading the fix, filed but not fixed:**
+  **BUG-PRACTICE-FLIP-RESETS-PICKS** — `main.ts`'s orientation watcher
+  (`main.ts:169-178`) restarts live menu scenes on a flip via
+  `scene.restart(scene.sys.settings.data)`, which re-runs `PracticeScene.create()` —
+  and `create()` deliberately resets the four practice picks (weapon, level, evolved,
+  ship) to defaults, correct for a fresh menu entry but wrong for a mid-setup rotation.
+  Pre-existing and orientation-symmetric, but now far more likely to be hit: setting up
+  in portrait and rotating to play in the game's native landscape is the natural flow
+  this fix newly enables. Filed under `## Later`; fix shape needs `main.ts` to hand the
+  scene its own state through the restart rather than the original `settings.data`, so
+  it is out of this fix's one-scene scope.
+- **Playtest filed, not resolved blind:** `POLISH-PRACTICE-PORTRAIT` under
+  `## Human gates` — no browser available this session; the on-device read (does the
+  ~260-unit dead band between the grid and the SHIP row feel like breathing room or
+  brokenness, does the 5×4 grid still feel tappable) is the human's call.
+
+---
+
 ## FEAT-PRACTICE-SHIP — pick the ship you practise as · DONE e0f72e7
 
 - **Value:** `PracticeScene.startPractice()` passed a literal `shipId: 'ship_default'`,
