@@ -28,7 +28,7 @@ import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLA
 import { resetBossPhaseTracking, resetBastionStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
-import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
+import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, applyBurn, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
 import { getScaledStats, getEnemyType, getEnemyArmor, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
 import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
@@ -110,9 +110,6 @@ import {
   computeUltimateNova,
   getUltimateState,
   restoreUltimateState,
-  ULTIMATE_SLOWMO_DURATION_MS,
-  ULTIMATE_SLOWMO_SCALE,
-  ULTIMATE_SLOWMO_RAMP_MS,
 } from '../../systems/UltimateSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
@@ -121,6 +118,7 @@ import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
+import { getUltimateForShip, type ShipUltimateDefinition } from '../../data/ShipUltimates';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import {
   recordDailyRun,
@@ -3094,31 +3092,115 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Fires the Overdrive ultimate if the charge meter is full: a screen-clearing
-   * nova scaling with the player's damage, plus a brief slow-time window and
-   * gold flash. Charge gain is suppressed during the nova so its own damage
-   * (which routes back through damageEnemy) cannot instantly refill the meter.
-   * No-op when not ready — the input event fires on every Q/Y press.
+   * Fires the charged ultimate if the meter is full. What it *does* comes from the
+   * flown ship's entry in ShipUltimates.ts; the meter, the nova scaling and the
+   * charge suppression stay shared (UltimateSystem.ts). Charge gain is suppressed
+   * during the nova so its own damage (which routes back through damageEnemy)
+   * cannot instantly refill the meter. No-op when not ready — the input event fires
+   * on every Q/Y press.
    */
   private activateUltimate(): void {
     if (this.playerId === -1) return;
     if (!tryActivateUltimate()) return;
 
+    const ship = getShipById(this.selectedShipId) ?? getDefaultShip();
+    const ultimate = getUltimateForShip(ship);
     const playerX = Transform.x[this.playerId];
     const playerY = Transform.y[this.playerId];
     const nova = computeUltimateNova(this.playerStats.damageMultiplier, this.gameTime);
+    const radius = nova.radius * ultimate.nova.radiusMultiplier;
 
     setUltimateChargeSuppressed(true);
-    this.weaponManager.detonateArea(playerX, playerY, nova.radius, nova.damage, nova.knockback);
+    this.weaponManager.detonateArea(
+      playerX,
+      playerY,
+      radius,
+      nova.damage * ultimate.nova.damageMultiplier,
+      ultimate.nova.knockback
+    );
+    this.applyUltimateStatusEffects(ultimate, playerX, playerY, radius);
     setUltimateChargeSuppressed(false);
 
-    // Juice — mirrors the BOMB consumable, dialed up: gold flash, expanding
-    // burst, screen shake, slow-time, and a punchy sound.
-    this.effectsManager.playDeathBurst(playerX, playerY, 0xffcc33);
-    this.cameras.main.flash(450, 255, 220, 120);
-    this.cameras.main.shake(320, 0.022);
-    getJuiceManager().slowMotion(ULTIMATE_SLOWMO_DURATION_MS, ULTIMATE_SLOWMO_SCALE, ULTIMATE_SLOWMO_RAMP_MS);
+    if (ultimate.healFraction) {
+      this.healPlayer(this.playerStats.maxHealth * ultimate.healFraction);
+    }
+    if (ultimate.iframeSeconds) {
+      this.damageCooldown = Math.max(this.damageCooldown, ultimate.iframeSeconds);
+    }
+    if (ultimate.slowTimeSeconds) {
+      this.playerStats.slowTimeRemaining += ultimate.slowTimeSeconds;
+    }
+    for (const buff of ultimate.statBuffs ?? []) {
+      this.applyTimedStatBuff(buff.stat, buff.magnitude, buff.seconds);
+    }
+
+    this.effectsManager.playDeathBurst(playerX, playerY, ultimate.burstColor);
+    this.cameras.main.flash(
+      ultimate.flash.durationMs,
+      ultimate.flash.red,
+      ultimate.flash.green,
+      ultimate.flash.blue
+    );
+    this.cameras.main.shake(ultimate.shake.durationMs, ultimate.shake.intensity);
+    getJuiceManager().slowMotion(
+      ultimate.slowMo.durationMs,
+      ultimate.slowMo.scale,
+      ultimate.slowMo.rampMs
+    );
     this.soundManager.playUltimate();
+
+    this.toastManager.showToast({
+      title: ultimate.name.toUpperCase(),
+      description: ultimate.description,
+      icon: 'lightning',
+      color: ultimate.burstColor,
+      duration: 2200,
+    });
+  }
+
+  /**
+   * Lands the ultimate's status effects on enemies still alive inside the nova.
+   * Called inside the charge-suppression window: burn/poison tick back through
+   * damageEnemy and would otherwise start refilling the meter the nova just spent.
+   */
+  private applyUltimateStatusEffects(
+    ultimate: ShipUltimateDefinition,
+    centerX: number,
+    centerY: number,
+    radius: number
+  ): void {
+    if (!ultimate.freeze && !ultimate.burn && !ultimate.poison) return;
+    for (const target of getEnemySpatialHash().query(centerX, centerY, radius)) {
+      const enemyId = target.id;
+      if (!hasComponent(this.world, EnemyTag, enemyId) || Health.current[enemyId] <= 0) continue;
+      if (ultimate.freeze) {
+        applyFreeze(
+          this.world,
+          enemyId,
+          ultimate.freeze.slowMultiplier,
+          ultimate.freeze.durationMs,
+          this.playerStats.freezeDurationMultiplier
+        );
+      }
+      if (ultimate.burn) {
+        applyBurn(
+          this.world,
+          enemyId,
+          ultimate.burn.damage,
+          ultimate.burn.durationMs,
+          this.playerStats.burnDamageMultiplier
+        );
+      }
+      if (ultimate.poison) {
+        applyPoison(
+          this.world,
+          enemyId,
+          ultimate.poison.stacks,
+          ultimate.poison.durationMs,
+          this.playerStats.poisonMaxStacks
+        );
+      }
+    }
   }
 
   /**

@@ -7,6 +7,7 @@ import { SoundManager } from '../../audio/SoundManager';
 import { selectRunModifiers } from '../../data/RunModifiers';
 import { MenuNavigator } from '../../input/MenuNavigator';
 import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
+import { getUltimateForShip } from '../../data/ShipUltimates';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
@@ -397,11 +398,18 @@ export class WeaponSelectScene extends Phaser.Scene {
         card.frame.add(modsText);
       }
 
-      const description = makeBodyText(this, 0, 18, ship.description, {
-        fontSize: 12,
-        color: TEXT_COLORS.body,
-        wordWrapWidth: cardWidth - 28,
-      });
+      const ultimate = getUltimateForShip(ship);
+      const description = makeBodyText(
+        this,
+        0,
+        18,
+        `${ship.description}\nULT — ${ultimate.name}: ${ultimate.description}`,
+        {
+          fontSize: 12,
+          color: TEXT_COLORS.body,
+          wordWrapWidth: cardWidth - 28,
+        },
+      );
       description.setLineSpacing(2);
       card.frame.add(description);
 

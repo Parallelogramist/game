@@ -9,6 +9,7 @@
  */
 
 import type { ShipHullId } from '../visual/shipHullGeometry';
+import type { ShipUltimateId } from './ShipUltimates';
 
 export interface ShipCharacter {
   id: string;
@@ -47,6 +48,8 @@ export interface ShipCharacter {
   // applied additively to the base/meta-derived stats at run start.
   // ───────────────────────────────────────────────────────────────────────────
 
+  /** The ship's ultimate. Omitted → 'overdrive', the shared baseline nova. */
+  ultimateId?: ShipUltimateId;
   /** Flat addition to critChance (0.15 = +15 pp). */
   critChanceBonus?: number;
   /** Flat addition to regenPerSecond (1 = +1 HP/s). */
@@ -88,6 +91,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     goldMultiplier: 1.0,
     neonColorId: 'cyan',
     hullId: 'dart',
+    ultimateId: 'overdrive',
   },
   {
     id: 'ship_interceptor',
@@ -103,6 +107,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     neonColorId: 'green',
     hullId: 'scissor',
     startingRerollBonus: 2,
+    ultimateId: 'temporal_rip',
   },
   {
     id: 'ship_dreadnought',
@@ -118,6 +123,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     neonColorId: 'red',
     hullId: 'ram',
     regenPerSecondBonus: 1.0,
+    ultimateId: 'siege_pulse',
   },
   {
     id: 'ship_scholar',
@@ -135,6 +141,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     unlockRequirement: 'hidden:unlock_pacifist',
     startingRerollBonus: 2,
     armorBonus: 3,
+    ultimateId: 'insight_surge',
   },
   {
     id: 'ship_juggernaut',
@@ -153,6 +160,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     unlockRequirement: 'hidden:unlock_ironclad',
     armorBonus: 5,
     regenPerSecondBonus: 0.5,
+    ultimateId: 'bulwark_slam',
   },
   {
     id: 'ship_void_walker',
@@ -169,6 +177,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     hullId: 'umbra',
     unlockRequirement: 'hidden:unlock_void_walker',
     critChanceBonus: 0.2,
+    ultimateId: 'void_collapse',
   },
   {
     id: 'ship_boss_hunter',
@@ -186,6 +195,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     bossDamageMultiplier: 1.5,
     unlockRequirement: 'hidden:unlock_boss_hunter',
     lifeStealBonus: 0.03,
+    ultimateId: 'execution_mark',
   },
   {
     id: 'ship_flawless',
@@ -203,6 +213,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     unlockRequirement: 'hidden:unlock_flawless',
     critChanceBonus: 0.2,
     regenPerSecondBonus: 0.5,
+    ultimateId: 'pristine_aegis',
   },
   {
     id: 'ship_glass_cannon',
@@ -219,6 +230,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     hullId: 'needle',
     unlockRequirement: 'hidden:unlock_glass_cannon',
     lifeStealBonus: 0.05,
+    ultimateId: 'critical_cascade',
   },
   {
     id: 'ship_elite_slayer',
@@ -236,6 +248,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     unlockRequirement: 'hidden:unlock_elite_slayer',
     critChanceBonus: 0.1,
     armorBonus: 2,
+    ultimateId: 'culling_field',
   },
   {
     id: 'ship_apex',
@@ -256,6 +269,7 @@ export const SHIP_CHARACTERS: ShipCharacter[] = [
     regenPerSecondBonus: 1.0,
     armorBonus: 3,
     startingRerollBonus: 1,
+    ultimateId: 'apex_ascendance',
   },
 ];
 
