@@ -10,9 +10,11 @@
 import Phaser from 'phaser';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
+import { getAccountMilestone } from '../../meta/AccountMilestone';
 import {
   PermanentUpgrade,
   PERMANENT_UPGRADES,
+  MAX_ACCOUNT_LEVEL,
   calculateUpgradeCost,
   getPermanentUpgradeById,
   getUpgradesByCategory,
@@ -160,6 +162,7 @@ export class ShopScene extends Phaser.Scene {
   private chromeButtons: MenuButton[] = [];
   private backButton!: MenuButton;
   private ascendButton: MenuButton | null = null;
+  private ascensionHintText: Phaser.GameObjects.Text | null = null;
 
   private tabBadges: Map<ShopTabId, TabBadgeElements> = new Map();
   private affordableOnlyFilter: boolean = false;
@@ -345,7 +348,6 @@ export class ShopScene extends Phaser.Scene {
     // Ascension chip / button.
     const ascensionManager = getAscensionManager();
     const ascensionLevel = ascensionManager.getLevel();
-    const canAscend = ascensionManager.canAscend(metaManager.getAccountLevel());
 
     if (ascensionLevel > 0) {
       const statBonus = Math.round((ascensionManager.getStatMultiplier() - 1) * 100);
@@ -362,30 +364,7 @@ export class ShopScene extends Phaser.Scene {
       );
     }
 
-    if (canAscend) {
-      const nextLevel = ascensionLevel + 1;
-      const nextStatBonus = nextLevel * 10;
-      const nextGoldBonus = nextLevel * 15;
-
-      this.ascendButton = createMenuButton({
-        scene: this,
-        x: centerX,
-        y: 78,
-        width: 200,
-        height: 36,
-        label: '✦ ASCEND ✦',
-        variant: 'magenta',
-        fontSize: 14,
-        onActivate: () => {
-          this.soundManager.playUIClick();
-          this.showAscensionConfirmation(nextLevel, nextStatBonus, nextGoldBonus);
-        },
-      });
-      this.ascendButton.card.hitZone.on('pointerover', () => this.ascendButton!.setHoverState(true));
-      this.ascendButton.card.hitZone.on('pointerout', () => this.ascendButton!.setHoverState(false));
-      this.ascendButton.container.setDepth(3);
-      this.chromeButtons.push(this.ascendButton);
-    }
+    this.refreshAscensionChrome();
 
     this.createCategoryTabs();
     this.createFilterButton();
@@ -1817,6 +1796,7 @@ export class ShopScene extends Phaser.Scene {
   private updateAccountLevelDisplay(): void {
     this.accountLevelText.setText(`${getMetaProgressionManager().getAccountLevel()}`);
     this.refreshAccountLevelProgress();
+    this.refreshAscensionChrome();
   }
 
   /**
@@ -1849,11 +1829,93 @@ export class ShopScene extends Phaser.Scene {
     return prevTier;
   }
 
+  /**
+   * Ascension chrome tracks account level, which purchases and refunds move
+   * mid-scene — so it is rebuilt on every account-level change, not only in
+   * create(). Before this, buying the level that crossed the threshold left the
+   * ASCEND button absent until the player backed out and re-entered the shop.
+   */
+  private refreshAscensionChrome(): void {
+    const centerX = this.scale.width / 2;
+    const ascensionManager = getAscensionManager();
+    const ascensionLevel = ascensionManager.getLevel();
+    const threshold = ascensionManager.getAscensionThreshold();
+    const canAscend = ascensionManager.canAscend(getMetaProgressionManager().getAccountLevel());
+
+    if (canAscend && !this.ascendButton) {
+      const nextLevel = ascensionLevel + 1;
+      const nextStatBonus = nextLevel * 10;
+      const nextGoldBonus = nextLevel * 15;
+
+      const button = createMenuButton({
+        scene: this,
+        x: centerX,
+        y: 78,
+        width: 200,
+        height: 36,
+        label: '✦ ASCEND ✦',
+        variant: 'magenta',
+        fontSize: 14,
+        onActivate: () => {
+          this.soundManager.playUIClick();
+          this.showAscensionConfirmation(nextLevel, nextStatBonus, nextGoldBonus);
+        },
+      });
+      button.card.hitZone.on('pointerover', () => button.setHoverState(true));
+      button.card.hitZone.on('pointerout', () => button.setHoverState(false));
+      button.container.setDepth(3);
+      this.ascendButton = button;
+      this.chromeButtons.push(button);
+    } else if (!canAscend && this.ascendButton) {
+      // chromeButtons owns the shutdown destroy loop and the idle tick — drop the
+      // reference before destroying, or both reach a dead button.
+      const index = this.chromeButtons.indexOf(this.ascendButton);
+      if (index >= 0) this.chromeButtons.splice(index, 1);
+      this.ascendButton.destroy();
+      this.ascendButton = null;
+    }
+
+    const hint = this.getAscensionHint(ascensionLevel, threshold, canAscend);
+    if (!hint) {
+      this.ascensionHintText?.destroy();
+      this.ascensionHintText = null;
+      return;
+    }
+    if (this.ascensionHintText) {
+      this.ascensionHintText.setText(hint);
+      return;
+    }
+    // y=56 is the Asc. line's slot, free when there is no ascension yet; y=74
+    // sits under it otherwise. The hint and the button are mutually exclusive
+    // (one shows iff !canAscend), so neither can collide with the button at 78.
+    this.ascensionHintText = makeBodyText(this, centerX, ascensionLevel > 0 ? 74 : 56, hint, {
+      fontSize: 11,
+      color: ACCENT_COLORS_STR.magenta,
+    });
+    this.ascensionHintText.setDepth(2);
+  }
+
+  /** '' when there is nothing to advertise: already ascendable, or no ascension left. */
+  private getAscensionHint(ascensionLevel: number, threshold: number, canAscend: boolean): string {
+    if (canAscend || threshold > MAX_ACCOUNT_LEVEL) return '';
+    return ascensionLevel === 0
+      ? `✦ Ascend at Account Lv.${threshold} — +10% stats, +15% gold per level`
+      : `✦ Next ascension at Account Lv.${threshold}`;
+  }
+
   private refreshAccountLevelProgress(): void {
     if (!this.accountProgressBarBg || !this.accountProgressBarFill || !this.accountNextUnlockText) return;
 
     const accountLevel = getMetaProgressionManager().getAccountLevel();
-    const nextTier = this.getNextUnlockTier(accountLevel);
+    const ascensionManager = getAscensionManager();
+    const milestone = getAccountMilestone({
+      accountLevel,
+      nextUnlockTier: this.getNextUnlockTier(accountLevel),
+      prevUnlockTier: this.getPreviousUnlockTier(accountLevel),
+      ascensionThreshold: ascensionManager.getAscensionThreshold(),
+      canAscend: ascensionManager.canAscend(accountLevel),
+      maxAccountLevel: MAX_ACCOUNT_LEVEL,
+    });
 
     // Bar geometry — sits at the bottom of the chip's interior.
     const barWidth = this.accountChipWidth - 24;
@@ -1864,34 +1926,25 @@ export class ShopScene extends Phaser.Scene {
     this.accountProgressBarBg.clear();
     this.accountProgressBarFill.clear();
 
-    if (nextTier === null) {
-      this.accountNextUnlockText.setText('ALL\nUNLOCKED');
-      this.accountNextUnlockText.setFontSize(10);
-      this.accountNextUnlockText.setLineSpacing(0);
-      // Full-bar gold cap to signal "done".
-      this.accountProgressBarBg.fillStyle(0x000000, 0.45);
-      this.accountProgressBarBg.fillRoundedRect(barLeftX, barY, barWidth, barHeight, 2);
-      this.accountProgressBarFill.fillStyle(ACCENT_COLORS.gold, 1);
-      this.accountProgressBarFill.fillRoundedRect(barLeftX, barY, barWidth, barHeight, 2);
-      return;
-    }
-
-    const prevTier = this.getPreviousUnlockTier(accountLevel);
-    const span = Math.max(1, nextTier - prevTier);
-    const progress = Phaser.Math.Clamp((accountLevel - prevTier) / span, 0, 1);
-
-    this.accountNextUnlockText.setText(`▶ Lv.${nextTier}`);
-    this.accountNextUnlockText.setFontSize(13);
+    this.accountNextUnlockText.setText(milestone.label);
+    this.accountNextUnlockText.setFontSize(milestone.label.includes('\n') ? 10 : 13);
     this.accountNextUnlockText.setLineSpacing(0);
 
     // Background track.
     this.accountProgressBarBg.fillStyle(0x000000, 0.45);
     this.accountProgressBarBg.fillRoundedRect(barLeftX, barY, barWidth, barHeight, 2);
 
-    // Filled portion in primary cyan, capped in gold at the right edge.
-    const fillWidth = Math.max(0, barWidth * progress);
+    // Cyan while chasing an unlock tier, magenta while chasing an ascension —
+    // matching the ASCEND button — and gold once the bar is capped.
+    const fillColor =
+      milestone.target === null
+        ? ACCENT_COLORS.gold
+        : milestone.kind === 'ascension'
+          ? ACCENT_COLORS.magenta
+          : ACCENT_COLORS.primary;
+    const fillWidth = Math.max(0, barWidth * milestone.progress);
     if (fillWidth > 0) {
-      this.accountProgressBarFill.fillStyle(ACCENT_COLORS.primary, 1);
+      this.accountProgressBarFill.fillStyle(fillColor, 1);
       this.accountProgressBarFill.fillRoundedRect(barLeftX, barY, fillWidth, barHeight, 2);
     }
   }
@@ -1923,10 +1976,13 @@ export class ShopScene extends Phaser.Scene {
     this.accountProgressBarFill?.destroy();
     this.accountProgressBarFill = null;
     this.accountNextUnlockText = null;
+    this.ascensionHintText?.destroy();
+    this.ascensionHintText = null;
     this.emptyStateText?.destroy();
     this.emptyStateText = null;
     for (const btn of this.chromeButtons) btn.destroy();
     this.chromeButtons = [];
+    this.ascendButton = null;
     for (const card of this.upgradeCards) {
       card.buyButton.destroy();
       card.refundButton?.destroy();

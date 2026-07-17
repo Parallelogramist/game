@@ -1145,3 +1145,13 @@ export function getPermanentUpgradeById(id: string): PermanentUpgrade | undefine
 export function calculateAccountLevel(upgradeState: Record<string, number>): number {
   return Object.values(upgradeState).reduce((sum, level) => sum + level, 0);
 }
+
+/**
+ * Highest account level any profile can reach — every upgrade at maxLevel.
+ * Derived, not a literal: the ascension chase compares a threshold against it,
+ * and a hardcoded ceiling would silently start lying the day an upgrade is added.
+ */
+export const MAX_ACCOUNT_LEVEL = PERMANENT_UPGRADES.reduce(
+  (sum, upgrade) => sum + upgrade.maxLevel,
+  0,
+);
