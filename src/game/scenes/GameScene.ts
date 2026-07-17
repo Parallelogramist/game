@@ -137,6 +137,7 @@ import { getStageById, getDefaultStage } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
+import { setPracticeSession } from '../../utils/practiceSession';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
@@ -390,6 +391,9 @@ export class GameScene extends Phaser.Scene {
   // GAUNTLET mode (boss-rush waves; replaces the stage's timed miniboss/boss
   // schedule — trash spawns keep flowing for the XP economy)
   private gauntletModeActive = false;
+  private practiceModeActive = false;
+  private practiceWeaponLevel = 1;
+  private practiceEvolved = false;
   private gauntletWave = 0;              // Current wave (0 = intro, before wave 1)
   private gauntletPhase: 'intro' | 'combat' | 'breather' = 'intro';
   private gauntletPhaseTimer = 0;        // Countdown for intro/breather phases
@@ -516,6 +520,9 @@ export class GameScene extends Phaser.Scene {
     dailyDate?: string;
     dailyChallengeType?: 'daily' | 'weekly';
     gauntletMode?: boolean;
+    practiceMode?: boolean;
+    practiceWeaponLevel?: number;
+    practiceEvolved?: boolean;
   }): void {
     this.shouldRestore = data?.restore === true;
     this.resumeIntoPauseMenu = data?.resumePaused === true;
@@ -525,6 +532,9 @@ export class GameScene extends Phaser.Scene {
     this.dailyModeActive = data?.dailyMode === true;
     // On restore the mode comes from the save's gauntletState, not init data.
     this.gauntletModeActive = data?.gauntletMode === true;
+    this.practiceModeActive = data?.practiceMode === true;
+    this.practiceWeaponLevel = data?.practiceWeaponLevel ?? 1;
+    this.practiceEvolved = data?.practiceEvolved === true;
     this.dailyDateString = data?.dailyDate ?? '';
     this.dailyChallengeType = data?.dailyChallengeType ?? 'daily';
     // Restore modifiers by ID, or select new random ones for fresh runs
@@ -983,7 +993,7 @@ export class GameScene extends Phaser.Scene {
     // Use the ship's starting weapon only when the player hasn't explicitly
     // picked a weapon (i.e. fell through the default path). This keeps
     // WeaponSelectScene's pick authoritative when it's provided.
-    if (this.startingWeaponId === 'projectile' && selectedShip.startingWeaponId !== 'projectile') {
+    if (!this.practiceModeActive && this.startingWeaponId === 'projectile' && selectedShip.startingWeaponId !== 'projectile') {
       this.startingWeaponId = selectedShip.startingWeaponId;
     }
 
@@ -1191,6 +1201,16 @@ export class GameScene extends Phaser.Scene {
     // Give player the starting weapon (selected in WeaponSelectScene or default projectile)
     const startingWeapon = createWeapon(this.startingWeaponId) || new ProjectileWeapon();
     this.weaponManager.addWeapon(startingWeapon);
+
+    if (this.practiceModeActive) {
+      for (let level = 1; level < this.practiceWeaponLevel; level++) {
+        this.weaponManager.levelUpWeapon(startingWeapon.id);
+      }
+      if (this.practiceEvolved) {
+        const evolution = getEvolutionForWeapon(startingWeapon.id);
+        if (evolution) startingWeapon.evolve(evolution.evolvedName, evolution.statMultipliers);
+      }
+    }
     // Discover the starting weapon in codex
     const startingWeaponActualId = this.startingWeaponId || 'projectile';
     getCodexManager().discoverWeapon(startingWeaponActualId, startingWeapon.name);
@@ -4854,6 +4874,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Leave a practice session by reloading the page.
+   *
+   * Practice blocks storage *writes*, but the managers still mutated in memory
+   * (a max-level weapon trips achievements and hidden unlocks). Returning to the
+   * menu in-process would leave that polluted state to be flushed to disk by the
+   * next real run's first write. A reload drops it and re-reads clean state.
+   */
+  private exitPracticeSession(): void {
+    setPracticeSession(false);
+    window.location.reload();
+  }
+
+  /**
    * Creates a PauseMenuManager with appropriate callbacks.
    * Used in both fresh start and restore create paths.
    */
@@ -4875,12 +4908,15 @@ export class GameScene extends Phaser.Scene {
         }
       },
       onRestart: () => {
+        if (this.practiceModeActive) { this.exitPracticeSession(); return; }
         this.scene.restart();
       },
       onQuitToMenu: () => {
+        if (this.practiceModeActive) { this.exitPracticeSession(); return; }
         this.scene.start('BootScene');
       },
       onQuitToShop: () => {
+        if (this.practiceModeActive) { this.exitPracticeSession(); return; }
         this.scene.start('ShopScene');
       },
       onOpenSettings: () => {

@@ -11,6 +11,7 @@
  */
 
 import { StorageEncryption } from './StorageEncryption';
+import { isPracticeSession } from '../utils/practiceSession';
 
 /**
  * Secure storage interface matching localStorage API subset.
@@ -37,6 +38,8 @@ export const SecureStorage = {
    * @param value - The value to store (will be encrypted)
    */
   setItem(key: string, value: string): void {
+    // A practice run must never reach the player's real profile — see practiceSession.ts.
+    if (isPracticeSession()) return;
     StorageEncryption.getInstance().setCache(key, value);
   },
 
@@ -47,6 +50,7 @@ export const SecureStorage = {
    * @param key - The storage key to remove
    */
   removeItem(key: string): void {
+    if (isPracticeSession()) return;
     StorageEncryption.getInstance().removeFromCache(key);
   },
 };

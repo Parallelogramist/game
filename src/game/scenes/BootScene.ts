@@ -198,6 +198,9 @@ export class BootScene extends Phaser.Scene {
     // Runner mode is gameplay — fade like CONTINUE, not the menu sweep.
     const startRunner = () => fadeOut(this, 200, () => this.scene.start('RunnerScene'));
 
+    // Practice is a weapon picker, not gameplay itself — sweep like the other menus.
+    const startPractice = () => transitionToScene(this, 'PracticeScene');
+
     // Gauntlet boss-rush runs through the standard ship/weapon/pact flow with
     // the mode flag threaded; it uses the same save slot as a standard run, so
     // an existing save gets the same overwrite confirmation as NEW RUN.
@@ -394,6 +397,7 @@ export class BootScene extends Phaser.Scene {
       onCards: openCards,
       onGauntlet: startGauntletWithConfirmation,
       onRunner: startRunner,
+      onPractice: startPractice,
       onLeaderboard: openLeaderboard,
     });
 
@@ -1044,10 +1048,11 @@ export class BootScene extends Phaser.Scene {
     onLeaderboard: () => void;
     onGauntlet: () => void;
     onRunner: () => void;
+    onPractice: () => void;
   }): void {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount,
-      onShop, onAchievements, onCodex, onCards, onLeaderboard, onGauntlet, onRunner,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onGauntlet, onRunner, onPractice,
     } = opts;
 
     interface DeckEntry {
@@ -1122,6 +1127,16 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentDanger,
         action: onRunner,
         iconTint: 0xffbbaa,
+      },
+      {
+        // Practice mode — a gameplay entry like GAUNTLET/RUNNER, so it shares
+        // the danger role.
+        label: 'PRACTICE',
+        iconKey: 'target',
+        bodyHex: COLORS.bodyDanger,
+        accentHex: COLORS.accentDanger,
+        action: onPractice,
+        iconTint: 0xffddaa,
       },
     ];
 
