@@ -5,6 +5,66 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-BLOOD-PACT-HALVE-DEAD — the Blood Pact charged half its advertised price, and charged *less* the more hurt you were · DONE afe1baa
+
+- **The defect.** `applyShrineBargain()`'s `blood_pact` deal (`GameScene.ts:7039-7044`
+  before this fix) computed `halvedCurrent` correctly and then wrote it to
+  `this.playerStats.currentHealth` — a **write-through mirror** of the ECS `Health`
+  component, never a source of truth. Nothing downstream reads the mirror back down:
+  `syncStatsToPlayer()` sets `Health.max` from `playerStats.maxHealth` and then only ever
+  clamps **downward** (`Health.current = Math.min(Health.current, maxHealth)`), and
+  `grantBuildHeal()` (`:8936`) early-returns on `healAmount <= 0`, so the pact's negative
+  delta was discarded. The arithmetic was never wrong — the result simply never reached the
+  component the game reads.
+- **The effect — an inverted cost.** Net was `Health.current = min(oldCurrent, floor(oldMax/2))`
+  where the intent was `max(1, floor(oldCurrent/2))`: at 200/200 → 100/100 (correct, by
+  accident of the clamp); at 120/200 → 100/100 (paid 20, owed 60); at 50/200 → 50/100
+  (**paid nothing**). The more hurt you were, the less you paid, and at or below half health
+  the deal was free upside — `damageMultiplier *= 2` always reached the weapons through
+  `syncStatsToPlayer` → `weaponManager.applyMultipliers`. So the game's headline mid-run
+  gamble was strictly better than advertised precisely when a player would gamble on it.
+- **Reach.** `shrine_bargain` (`EventSystem.ts:80`) is a random run event with
+  `weight: 10, minGameTime: 120`, and `applyShrineBargain` picks uniformly from three deals
+  — roughly 1 shrine event in 3 is this pact, and it is permanent for the rest of the run.
+- **The fix.** `apply()` now reads live HP from `Health.current[playerId]` and writes
+  `halvedCurrent` back to it, guarded by `playerId !== -1`. This is verbatim the idiom the
+  **sibling walk-in Blood Altar** already used 3,500 lines up (`triggerShrine()`'s
+  `sacrifice` case, `GameScene.ts:3502-3512`, under its own comment *"Authoritative HP is
+  the ECS Health component — mutate it directly."*) — the two paths both charge HP for
+  damage, and only one performed the step. A textbook instance of the repo's own
+  **Parallel code path consistency** guideline.
+- **Why it is airtight.** `syncStatsToPlayer()`'s clamp is provably a no-op because
+  `maxHealth = Math.max(halvedCurrent, floor(maxHealth/2)) >= halvedCurrent`.
+  `grantBuildHeal()`'s delta is `halvedCurrent - (pre-pact mirror)`, always `<= 0` (the
+  mirror is write-through-fresh, and the only staleness `syncStatsToPlayer`'s clamp can
+  produce is stale-**high**), so it early-returns. The `Math.max(1, …)` floor is preserved:
+  the pact can never itself kill you.
+- **Rejected fix shape.** The backlog item pointed at `grantBuildHeal` ("a downward
+  equivalent would need the same delta-across-the-grant treatment"). Traced and rejected:
+  it has four callers (`:3490`, `:5072`, `:7076`, `:8650`) and making it bidirectional
+  would **double-drain** every caller that also shrinks `maxHealth`, because
+  `syncStatsToPlayer` has already clamped that loss away by the time the delta is applied.
+  `grantBuildHeal` stays heal-only.
+- **No balance numbers changed.** `'HP halved, damage doubled'`, `Math.floor(x / 2)` and
+  `damageMultiplier *= 2` all pre-existed and are untouched; the fix only makes the
+  advertised cost real. It is nonetheless the one recent fix that moves difficulty
+  **upward**, so the feel read — chiefly *"should a randomly-rolled, undeclinable deal be
+  able to halve you at low HP?"* — is filed as **POLISH-BLOOD-PACT** under `## Human gates`
+  and is explicitly **not** an agent call.
+- **Class closed.** Every mid-run write to `playerStats.currentHealth`/`maxHealth` in
+  `GameScene.ts` was re-audited: damage (`:4682`), regen (`:4110`), revive (`:4747`), death
+  (`:4764`), `healPlayer` (`:4776`), `grantBuildHeal` (`:8936`), the level-up refill
+  (`:5165`) and the `sacrifice` shrine (`:3506`) all mutate the ECS on the adjacent line;
+  the rest are run-start seeding (`:842`-`:1129`) and the `:1915` clamp, which are correct.
+  `blood_pact` was the **only** mid-run HP write that never reached the ECS — the last
+  member of the dead-mirror-write class opened by BUG-VITALITY-HEAL-DEAD (`9b520d0`), which
+  fixed only the upward (heal) half.
+- **No test.** The arithmetic was already correct before this fix — a pure unit test of the
+  halving would have passed on the broken code and pinned nothing. The defect was pure
+  ECS-propagation inside a ~9,000-line Phaser scene method with no seam, and the repo tests
+  pure logic only. Verified by `npx tsc --noEmit` (exit 0), the full suite (94 files / 1310
+  tests green, unchanged), and the **POLISH-BLOOD-PACT** human playtest.
+
 ## BUG-JUICE-SLOWMO-DEAD — every cinematic slow-motion was cancelled by the hit stop fired the line before it · DONE b7a5e47
 
 - **The defect.** `JuiceManager.slowMotion()` (`JuiceManager.ts:814` before this fix) opened

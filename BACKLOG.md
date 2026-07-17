@@ -232,18 +232,28 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   dead — including `PracticeDock.refreshLabels()`'s `magenta` affix highlight and
   `safe` INVINCIBLE highlight, so the dock's intended colour signalling never
   shows. Either implement the repaint or drop the dead calls.
-- [ ] **BUG-BLOOD-PACT-HALVE-DEAD** — the `blood_pact` deal's "HP halved" never
-  halves current HP. `GameScene.ts` (~line 6775) sets
-  `this.playerStats.currentHealth = halvedCurrent`, but that field is only a lagging
-  mirror of ECS `Health.current`; `syncStatsToPlayer` clamps `Health.current` down to
-  the new `maxHealth` only, so a player at 50/200 taking the pact keeps 50 HP against
-  a 100 max instead of dropping to 25, and the next `takeDamage` overwrites the mirror
-  back from the ECS. So the pact is strictly better than advertised: full damage
-  doubling, half the stated cost. Left out of BUG-VITALITY-HEAL-DEAD deliberately —
-  that fix is upward-only (heals), and correcting this one makes the game *harder*,
-  which is a balance call for the human, not a wiring fix. Pointer: `grantBuildHeal`
-  in `GameScene.ts` is the fix shape; a downward equivalent would need the same
-  delta-across-the-grant treatment.
+- [x] **BUG-BLOOD-PACT-HALVE-DEAD** — the Blood Pact charged half its advertised price,
+  and charged *less* the more hurt you were (done — afe1baa). `applyShrineBargain()`'s
+  `blood_pact` deal wrote the halved HP to `playerStats.currentHealth`, a write-through
+  *mirror* of ECS `Health.current` that nothing reads back down: `syncStatsToPlayer` only
+  clamps HP **downward to max** and `grantBuildHeal` is heal-only by design, so the net
+  effect was `Health.current = min(oldCurrent, floor(oldMax/2))` instead of
+  `max(1, floor(oldCurrent/2))`. The cost was **inverted** — at full HP the clamp halved
+  you correctly by accident, at 120/200 you paid 20 instead of 60, and at or below half
+  health you paid **nothing at all**, making the game's headline mid-run gamble a free
+  permanent damage doubling exactly when you'd reach for it (`damageMultiplier *= 2` always
+  landed via `syncStatsToPlayer` → `applyMultipliers`). Fires often: `shrine_bargain` is a
+  `weight: 10, minGameTime: 120` random event and is 1 of 3 uniformly-picked deals. Fixed
+  by the idiom the sibling walk-in Blood Altar (`triggerShrine`'s `sacrifice` case) already
+  used 3,500 lines up — *"Authoritative HP is the ECS Health component — mutate it
+  directly."* — a textbook **Parallel code path consistency** miss. **No number changes**;
+  the `Math.max(1, …)` floor still means the pact can never kill you. Last member of the
+  dead-mirror-write class opened by BUG-VITALITY-HEAL-DEAD (`9b520d0`), which closed only
+  the upward (heal) half — every other mid-run HP write already mutates the ECS on the
+  adjacent line. The item's own `grantBuildHeal` pointer was a **false lead** (it has 4
+  callers; a bidirectional version would double-drain every `maxHealth`-shrinking caller).
+  Full write-up in `BACKLOG-archive.md`. Playtest follow-up filed as **POLISH-BLOOD-PACT**
+  under `## Human gates`.
 - [x] **FEAT-PRACTICE-SHIP** — pick the ship you practise as (done — e0f72e7).
   The PRACTICE menu gained a SHIP row cycling all 11 ships (unlocked or not); the
   sandbox previously hard-coded `ship_default`, so every ship axis — six stat
@@ -292,6 +302,26 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BLOOD-PACT** — the pact that now charges its price (BUG-BLOOD-PACT-HALVE-DEAD,
+    `afe1baa`). Agents have no browser, and this is the one recent fix that makes the
+    game **harder** — it must not be retuned blind. Reach it: play past 2:00 and wait for
+    the `Shrine of Sacrifice` event (weight 10); it rolls Blood Pact ~1 time in 3.
+    Check: (a) **the point of the fix** — take it at **full** HP: behaviour should be
+    unchanged (you were always halved correctly here by accident of the clamp). (b) **the
+    bug this fixes** — take it at **~25% HP**: you must now drop to ~12% of the old max
+    (against the new halved max), where before you paid *nothing*. Does that read as a
+    fair price you agreed to, or as an ambush? (c) **the balance question the fix opens,
+    and the real reason this is here** — the deal is **randomly rolled**, not chosen: you
+    cannot decline it. Is a run-long "HP halved" landing unbidden at low HP a good moment
+    or a run-ender? Options if it plays badly, all cheap: gate `blood_pact` out of the
+    deal pool below some HP fraction, offer the three deals as a *choice*, or soften the
+    current-HP half. **All are balance calls — do not let an agent pick one.** (d) **it
+    cannot kill you** — the `Math.max(1, …)` floor means the pact must always leave ≥1 HP.
+    Take it at 1-2 HP and confirm you survive. (e) **the HUD agrees** — the health bar must
+    show the drop immediately (it reads the ECS), and the toast must still read
+    `HP halved, damage doubled`. (f) **the damage half still lands** — your DPS must still
+    visibly double. (g) **the other two deals are untouched** — `Frenzy Ritual` and
+    `Relic Vow` were not modified; confirm they still fire normally.
   - **POLISH-JUICE-SLOWMO** — the cinematics that never played (BUG-JUICE-SLOWMO-DEAD,
     `b7a5e47`). Agents have no browser; this is a pure feel change and must not be retuned
     blind. Check: (a) **the point of the fix** — kill a boss: after the freeze-frame there
