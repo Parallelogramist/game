@@ -160,19 +160,21 @@ window.addEventListener('unhandledrejection', (event) => {
   const game = new Phaser.Game(config);
 
   // Swap the base size on orientation flips and re-lay-out whatever is live.
-  // Menu scenes are stateless creates — restarting with the original launch
-  // payload (sys.settings.data) re-runs create() against the new dimensions.
-  // GameScene does its save-restore round trip (the same machinery as a
-  // mid-run UI-scale change). UpgradeScene is deliberately skipped: a restart
-  // would regress mid-modal state (rerolled offers, card locks); it closes
-  // back into a GameScene that has already re-laid itself out.
+  // Menu scenes restart with their original launch payload (sys.settings.data)
+  // plus `relayout: true` — the flag a scene holding half-composed input reads
+  // to re-render at the new size instead of resetting to defaults the way a
+  // fresh entry does. GameScene does its save-restore round trip (the same
+  // machinery as a mid-run UI-scale change). UpgradeScene is deliberately
+  // skipped: a restart would regress mid-modal state (rerolled offers, card
+  // locks); it closes back into a GameScene that has already re-laid itself out.
   installOrientationWatcher(game, () => {
     for (const scene of game.scene.getScenes(true)) {
       const key = scene.scene.key;
       if (key === 'GameScene') {
         (scene as GameScene).handleOrientationFlip();
       } else if (key !== 'UpgradeScene') {
-        scene.scene.restart(scene.sys.settings.data);
+        const launchData = (scene.sys.settings.data ?? {}) as Record<string, unknown>;
+        scene.scene.restart({ ...launchData, relayout: true });
       }
     }
   });

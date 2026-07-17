@@ -40,6 +40,11 @@ interface WeaponCardRef {
   entry: PracticeWeaponEntry;
 }
 
+/** Launch payload. `relayout` is set only by main.ts's orientation watcher. */
+interface PracticeSceneData {
+  relayout?: boolean;
+}
+
 /**
  * PRACTICE — pick any weapon, any level, evolved or not, and spawn straight
  * into a real run. Non-persistent: SecureStorage blocks writes for the whole
@@ -63,9 +68,14 @@ export class PracticeScene extends Phaser.Scene {
   private selectedLevel: number = 1;
   private evolvedEnabled: boolean = false;
   private selectedShipIndex: number = 0;
+  private relayoutOnly: boolean = false;
 
   constructor() {
     super({ key: 'PracticeScene' });
+  }
+
+  init(data?: PracticeSceneData): void {
+    this.relayoutOnly = data?.relayout === true;
   }
 
   create(): void {
@@ -91,10 +101,15 @@ export class PracticeScene extends Phaser.Scene {
 
     sweepIn(this);
 
-    this.selectedWeaponId = this.entries[0]?.id ?? 'projectile';
-    this.selectedLevel = this.entries[0]?.maxLevel ?? 1;
-    this.evolvedEnabled = false;
-    this.selectedShipIndex = 0;
+    // A flip restarts this scene to re-fit the new canvas; the picks are the
+    // player's composed input and must survive it. A fresh MAIN MENU entry
+    // still resets.
+    if (!this.relayoutOnly) {
+      this.selectedWeaponId = this.entries[0]?.id ?? 'projectile';
+      this.selectedLevel = this.entries[0]?.maxLevel ?? 1;
+      this.evolvedEnabled = false;
+      this.selectedShipIndex = 0;
+    }
 
     this.renderHeader();
     this.renderWeaponGrid();

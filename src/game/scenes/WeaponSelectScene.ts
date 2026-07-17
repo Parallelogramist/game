@@ -67,13 +67,15 @@ export class WeaponSelectScene extends Phaser.Scene {
   private shipPreview: ShipPreview | null = null;
   /** True when this flow launches GAUNTLET (boss-rush) instead of a standard run. */
   private gauntletMode: boolean = false;
+  private relayoutOnly: boolean = false;
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
   }
 
-  init(data?: { gauntletMode?: boolean }): void {
+  init(data?: { gauntletMode?: boolean; relayout?: boolean }): void {
     this.gauntletMode = data?.gauntletMode === true;
+    this.relayoutOnly = data?.relayout === true;
   }
 
   create(): void {
@@ -103,11 +105,29 @@ export class WeaponSelectScene extends Phaser.Scene {
     if (this.getAvailableShips().length > 1) this.availableSteps.push('ship');
     this.availableSteps.push('weapon');
 
+    // A flip restarts this scene; resume the step it found the player on rather
+    // than dropping them back to the start of the flow. selectedStageId and
+    // selectedShipId are instance fields and survive the restart untouched.
+    if (this.relayoutOnly && this.availableSteps.includes(this.currentStep)) {
+      this.renderStep(this.currentStep);
+      return;
+    }
+
     if (availableStages.length > 1) {
       this.renderStageSelectionStep(availableStages);
     } else {
       this.selectedStageId = 'stage_deep_void';
       this.proceedToShipStep();
+    }
+  }
+
+  private renderStep(step: WeaponSelectStep): void {
+    if (step === 'stage') {
+      this.renderStageSelectionStep(this.getAvailableStages());
+    } else if (step === 'ship') {
+      this.renderShipSelectionStep(this.getAvailableShips());
+    } else {
+      this.renderWeaponSelectionStep(this.discoveredWeaponsCache);
     }
   }
 

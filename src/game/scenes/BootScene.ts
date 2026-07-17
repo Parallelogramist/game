@@ -199,7 +199,10 @@ export class BootScene extends Phaser.Scene {
     const startRunner = () => fadeOut(this, 200, () => this.scene.start('RunnerScene'));
 
     // Practice is a weapon picker, not gameplay itself — sweep like the other menus.
-    const startPractice = () => transitionToScene(this, 'PracticeScene');
+    // Explicit false — Phaser keeps a scene's last settings.data when start()
+    // gets none (same trap as startNewGame above), so a flip's `relayout: true`
+    // would otherwise leak into the next fresh PRACTICE entry.
+    const startPractice = () => transitionToScene(this, 'PracticeScene', { relayout: false });
 
     // Gauntlet boss-rush runs through the standard ship/weapon/pact flow with
     // the mode flag threaded; it uses the same save slot as a standard run, so
