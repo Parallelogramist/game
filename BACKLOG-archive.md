@@ -5,6 +5,48 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-SHIP-PAINT-PICKER — choose or revert your hull paint · DONE ddc54be
+
+- **The gap.** FEAT-SHIP-PAINT (`0135f52`) made the 13 hidden `cosmetic` unlocks real by
+  recoloring the hull, but `resolveEquippedPaint` auto-equips only the single highest-rank
+  unlocked paint. A player who earns Golden Hull (rank 8) can never again wear their
+  lower-rank Inferno Trail (rank 5), and there is no way back to the ship's own signature
+  colour — twelve of the thirteen earned paints were unwearable. Player-facing agency over
+  a reward category that already existed in the data and the run-time render hook.
+- **The fix.** New `PaintScene` (`src/game/scenes/PaintScene.ts`), reached from a PAINT card
+  on the main menu progression deck (`BootScene.ts`, magenta role, `aura` icon, placed after
+  LEADERS/before GAUNTLET). Lists all 13 `SHIP_PAINTS` as swatch cards: unlocked ones are
+  tappable/keyboard-focusable and become EQUIPPED (green) on selection; locked ones render
+  dim with their `HIDDEN_UNLOCKS` hint text and are non-interactive (mirrors
+  FEAT-SHIP-CHASE's locked-card treatment); a SHIP DEFAULT card opts back out to the ship's
+  own signature colour. Selection persists immediately to a new encrypted SecureStorage key
+  (`survivor-ship-paint`, `src/storage/ShipPaintManager.ts`, registered in
+  `StorageBootstrap.ALL_STORAGE_KEYS` so it isn't silently dropped on reload, and
+  auto-transfers with the profile via the existing `TRANSFERABLE_STORAGE_KEYS` derivation).
+  New pure resolver `resolveActivePaint(unlockedTargetIds, storedChoice)` in
+  `src/data/ShipPaints.ts`: `SHIP_DEFAULT_PAINT_CHOICE` sentinel → null (ship signature);
+  an unlocked stored choice → that paint; anything else (no choice, or a choice whose
+  unlock was since wiped) → falls back to `resolveEquippedPaint` (highest-rank auto-equip).
+  `GameScene.getShipNeonColor()` — the single hook every ship visual (hull, glow, engine,
+  trail, practice, save-restore) already routes through — now calls `resolveActivePaint`
+  instead of `resolveEquippedPaint`, so every path inherits the pick with no per-path edits.
+  Selection persists on tap (not in scene fields), so the orientation-flip watcher's plain
+  scene restart is correct with no `init()`/relayout handling needed.
+- **Tests.** 5 new `resolveActivePaint` unit tests (3-branch fallback: opt-out, explicit
+  unlocked choice, no-choice auto-equip fallback, stale/locked-choice fallback, locked
+  choice + nothing else unlocked → null) in `src/data/ShipPaints.test.ts`. No scene tests
+  (Phaser-coupled) and no manager tests (trivial storage wrapper) — consistent with repo
+  convention. `npx tsc --noEmit` clean, `npm run test` 95 files / 1320 tests, `npm run build`
+  green.
+- **Files:** `src/data/ShipPaints.ts`, `src/data/ShipPaints.test.ts` (modified),
+  `src/storage/ShipPaintManager.ts` (new), `src/storage/StorageBootstrap.ts`,
+  `src/game/scenes/GameScene.ts`, `src/main.ts`, `src/game/scenes/BootScene.ts`,
+  `src/game/scenes/PaintScene.ts` (new).
+- **Follow-up:** eyeball playtest filed as **POLISH-SHIP-PAINT-PICKER** under
+  `BACKLOG.md` → `## Human gates`.
+
+---
+
 ## FEAT-SHIP-PAINT — equip earned ship paints from hidden unlocks · DONE 0135f52
 
 - **The gap.** `src/meta/HiddenUnlocks.ts` defines 13 conditions whose `target: 'cosmetic'`

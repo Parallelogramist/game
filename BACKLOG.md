@@ -272,18 +272,6 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Later
 
-- [ ] **FEAT-SHIP-PAINT-PICKER** — let players *choose* which unlocked paint to wear.
-  Value: FEAT-SHIP-PAINT (`0135f52`) made the 13 cosmetic unlocks real but v1 auto-equips
-  the single highest-rank unlocked paint, so lesser-ranked earned paints never show and
-  there is no way back to a ship's own signature color. A small picker/gallery should:
-  list all 13 paints as swatch cards; show unlocked ones as equippable (persist the choice
-  — a NEW SecureStorage key, so register it in `StorageBootstrap.ALL_STORAGE_KEYS`); offer
-  a "Ship Default" option (= the opt-out); and show locked paints dim with their unlock
-  hint (the chase, mirroring FEAT-SHIP-CHASE). `resolveEquippedPaint` becomes the
-  fallback when no explicit choice is stored. **Placement is a human/design call** — NOT
-  an 8th Codex tab (the 7-tab bar is already flagged too tight); a compact dedicated scene
-  or a section on an existing menu. `SHIP_PAINTS` already carries `name` for the cards.
-
 - [x] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA (done —
   4a0c864). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
   filed as **POLISH-PWA-OFFLINE** under `## Human gates`.
@@ -408,6 +396,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SHIP-PAINT-PICKER** — players can now choose or revert their hull paint
+    (FEAT-SHIP-PAINT-PICKER, `ddc54be`). Agents have no browser; this is a new scene +
+    interaction flow and must be eyeballed. Reach it: MAIN MENU → **PAINT** deck card. Check:
+    (a) the main menu shows a PAINT card that opens the picker scene; (b) tapping an unlocked
+    paint turns it EQUIPPED (green) and the next run's hull/glow/engine/trail render it; (c)
+    tapping SHIP DEFAULT reverts to the ship's own signature colour on the next run; (d)
+    locked paints show dim with a readable `UNLOCK: <hint>` line and are not tappable and not
+    keyboard/gamepad-focusable; (e) portrait + landscape layout — the 14-card grid (13 paints
+    + SHIP DEFAULT) fits without clipping the title or BACK button, and the 9-card main-menu
+    deck row still reads at the shrunk portrait width; (f) the choice survives a page reload
+    and a save export/import (round-trips via `survivor-ship-paint`); (g) keyboard/gamepad nav
+    lands only on selectable cards + BACK, never on a locked card.
   - **POLISH-SHIP-PAINT** — earned ship paints now recolor the hull (FEAT-SHIP-PAINT,
     `0135f52`). Agents have no browser; this is a pure visual change and must be eyeballed.
     Check: (a) **the point of the fix** — on a profile that has earned at least one cosmetic
@@ -1558,6 +1558,10 @@ Never agent work. The fleet must not do any of these.
 
 (Recent; full per-item write-ups and the complete pre-2026-06-09 changelog live in
 **`BACKLOG-archive.md`**.)
+
+- [x] **FEAT-SHIP-PAINT-PICKER — choose or revert your hull paint** (done —
+  `ddc54be`). Full write-up in `BACKLOG-archive.md`. Playtest follow-up filed as
+  **POLISH-SHIP-PAINT-PICKER** under `## Human gates`.
 
 - [x] **FEAT-ENDLESS-CYCLE-MUTATORS — named per-cycle endless mutators**
   (done — `7fcfd2e`). Was the sole Proposed (auto) item in Next; built to
