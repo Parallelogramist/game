@@ -3290,9 +3290,11 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case 'fortune': {
+        const healthBeforeRelic = this.playerStats.currentHealth;
         const relic = getRelicManager().rollAndEquipRandomRelic(this.playerStats);
         if (relic) {
           this.syncStatsToPlayer();
+          this.grantBuildHeal(this.playerStats.currentHealth - healthBeforeRelic);
           title = `Relic: ${relic.name}`;
           description = relic.description;
         } else {
@@ -4868,9 +4870,11 @@ export class GameScene extends Phaser.Scene {
           // Caps at 6 relics per run; additional drops convert back to XP.
           const shouldDropRelic = isSpecial || Math.random() < 0.35;
           if (shouldDropRelic) {
+            const healthBeforeRelic = this.playerStats.currentHealth;
             const relic = getRelicManager().rollAndEquipRandomRelic(this.playerStats);
             if (relic) {
               this.syncStatsToPlayer();
+              this.grantBuildHeal(this.playerStats.currentHealth - healthBeforeRelic);
               this.toastManager.showToast({
                 title: `Relic: ${relic.name}`,
                 description: relic.description,
@@ -6805,8 +6809,10 @@ export class GameScene extends Phaser.Scene {
     ];
 
     const pickedDeal = availableDeals[Math.floor(Math.random() * availableDeals.length)];
+    const healthBeforeDeal = this.playerStats.currentHealth;
     pickedDeal.apply();
     this.syncStatsToPlayer();
+    this.grantBuildHeal(this.playerStats.currentHealth - healthBeforeDeal);
 
     // Surface exactly which deal fired so the player knows what changed.
     this.toastManager.showToast({
@@ -8327,6 +8333,7 @@ export class GameScene extends Phaser.Scene {
    */
   private applyCombinedUpgrade(upgrade: CombinedUpgrade): void {
     const achievementManager = getAchievementManager();
+    const healthBeforeUpgrade = this.playerStats.currentHealth;
 
     if (upgrade.upgradeType === 'stat') {
       // Calculate the new level (current + 1)
@@ -8376,6 +8383,7 @@ export class GameScene extends Phaser.Scene {
 
     // Sync stats to ECS components and weapons
     this.syncStatsToPlayer();
+    this.grantBuildHeal(this.playerStats.currentHealth - healthBeforeUpgrade);
 
     // Check for weapon evolutions after every upgrade
     const statUpgrades = this.upgrades.map(u => ({ id: u.id, currentLevel: u.currentLevel }));
@@ -8650,6 +8658,23 @@ export class GameScene extends Phaser.Scene {
     resetHazardZoneSystem();
     resetMusicIntensityDriver();
     getRelicManager().reset();
+  }
+
+  /**
+   * Lands a heal produced by a build change (Vitality, Fortify, heal-granting relics) on
+   * the ECS Health component. `playerStats.currentHealth` is only a lagging mirror of
+   * `Health.current`: syncStatsToPlayer clamps it downward and never raises it, so a grant
+   * written to the mirror is dropped, then overwritten from the ECS on the next takeDamage.
+   * Callers pass the mirror's delta measured across the grant, and only after
+   * syncStatsToPlayer has widened Health.max — otherwise the new headroom clamps the heal away.
+   */
+  private grantBuildHeal(healAmount: number): void {
+    if (this.playerId === -1 || healAmount <= 0) return;
+    Health.current[this.playerId] = Math.min(
+      Health.max[this.playerId],
+      Health.current[this.playerId] + healAmount
+    );
+    this.playerStats.currentHealth = Health.current[this.playerId];
   }
 
   /**
