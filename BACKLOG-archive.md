@@ -5,6 +5,53 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## FEAT-DAILY-SHARE — one-tap shareable daily/weekly result · DONE 92f3d5f
+
+**Value:** the daily/weekly challenge ended in a purely private local
+leaderboard — a player could beat a seeded run shared by the whole world and
+had no way to say so. This is the game's first and only organic growth loop,
+now that it is publicly linked from the parallelogramist network: a
+Wordle-style COPY RESULT gives every daily run a pasteable artifact.
+
+**Shipped:** a pure formatter, `formatDailyShareText` (`src/meta/DailyShare.ts`,
+zero imports, node-testable), and a teal COPY RESULT pill wired onto **both**
+end screens (`PauseMenuManager.gameOver()` and `.showVictory()`) via a shared
+`createDailyShareButton()` helper. One tap copies a deterministic four-line
+summary — title/date, grade/time/score(/victory), modifiers, site link — to
+the clipboard via the existing `src/utils/Clipboard.ts` (no new dependency).
+
+**Design:**
+- **Plain text, no emoji, no block-glyph grid.** `BACKLOG.md` specified "plain
+  text + site link" verbatim, and the repo has a standing anti-glyph stance
+  (`POLISH-GLYPH-SWEEP-2`) — no 🟩⬛ grid, no `███░░░` meter.
+- **Locale-pinned to `en-US`** (`toLocaleString('en-US')`), deliberately
+  diverging from the end screens' bare `toLocaleString()`. Share text is a
+  canonical artifact players paste side by side to compare, and a bare call
+  renders `4.210` under `de-DE` — silent corruption a byte-identical
+  comparison can't tolerate.
+- **Hardcoded site URL constant**, not `window.location.origin` — `origin`
+  would paste `http://localhost:5173` into share text cut from a dev build.
+  `CNAME` pins the real value: `game.parallelogramist.com`.
+- **Pointer-only**, no key binding. `SPACE`/gamepad-A already restart on the
+  game-over screen and `C`/`N` already navigate the victory screen; copying to
+  a clipboard is inherently a pointer/tap affordance (prior art: the crash
+  overlay's pointer-only COPY ERROR LOGS).
+- **`stopPropagation()` against the tap-anywhere restart.** The game-over
+  screen restarts on any scene-level `pointerdown` 500ms after death; without
+  cancelling the button's own down-event, tapping COPY RESULT would copy and
+  instantly restart the run in the same gesture.
+- **Both end screens, not just game-over.** A daily loss reaches `gameOver()`,
+  but a daily win reaches `showVictory()`, whose Next World button restarts
+  the scene with no daily data at all — so without wiring both, a won daily
+  run, the best outcome a daily run can have, would never see a game-over
+  screen or a share button.
+- **`LeaderboardScene` copy buttons left out.** Stored `DailyLeaderboardEntry`
+  records carry no modifier ids and no grade, so they physically cannot
+  reproduce this text — a different feature needing a storage change, not a
+  cut corner.
+
+---
+
 ## FEAT-PWA-OFFLINE — installable, offline-capable PWA · DONE 4a0c864
 
 **Value:** this is a phone-first browser game that required the network to

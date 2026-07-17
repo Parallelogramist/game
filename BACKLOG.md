@@ -61,15 +61,9 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   4a0c864). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
   filed as **POLISH-PWA-OFFLINE** under `## Human gates`.
 
-- [ ] **FEAT-DAILY-SHARE** — one-tap shareable daily-challenge result.
-  Value: the daily has only a local leaderboard; a Wordle-style COPY RESULT
-  (date, modifiers, grade, survival time, score — plain text + site link)
-  gives it a social hook now that the game is publicly linked from the
-  parallelogramist network. Done when: the end screen of a daily/weekly run
-  offers COPY RESULT producing deterministic text, works with the iOS
-  Safari clipboard API with a graceful fallback (the crash overlay's COPY
-  ERROR LOGS is prior art), and never appears on non-daily runs. Pointers:
-  `PauseMenuManager` end screens, `DailyChallengeManager` (seed/modifiers).
+- [x] **FEAT-DAILY-SHARE** — one-tap shareable daily-challenge result (done —
+  92f3d5f). Full write-up moved to `BACKLOG-archive.md`. Playtest
+  follow-up filed as **POLISH-DAILY-SHARE** under `## Human gates`.
 
 - [ ] **CHORE-CI-DEPLOY-RETRY** — auto-retry the transiently-failing Pages
   deploy. Value: history carries 8+ manual "retrigger Pages deploy
@@ -761,6 +755,29 @@ Never agent work. The fleet must not do any of these.
     footprint sane (~3 MB shell + up to 2.1 MB music)?
     Kill switch if any of this goes wrong: `PWA_KILL=1 npm run build` and
     deploy — it unregisters the worker and drops every cache within 24h.
+
+  - **POLISH-DAILY-SHARE** — share text + button on a real device. Reach by
+    playing a DAILY or WEEKLY from the main menu to a death (or a win →
+    the victory overlay). Check: (a) **iOS Safari clipboard** — does COPY
+    RESULT actually reach the clipboard from a Phaser canvas tap, or does the
+    label read COPY FAILED (`navigator.clipboard.writeText` needs a secure
+    context + a real user gesture; `src/utils/Clipboard.ts` falls back to
+    `execCommand`)? (b) **paste fidelity** — paste into Messages/Notes: do the
+    `—` and `·` separators survive, and does the URL autolink? (c) **the tap
+    does not restart** — the game-over screen restarts on a tap anywhere;
+    confirm COPY RESULT copies WITHOUT restarting the run (the
+    `stopPropagation` guard), and that a tap just outside it still restarts.
+    (d) **victory placement** — the button sits in a ~79px band between the
+    streak line and the Continue/Next World row; at UI-scale extremes and in
+    portrait, does it crowd either? (e) **victory teardown** — tap COPY RESULT,
+    then CONTINUE: does the pill vanish cleanly, and does the 2s COPIED! revert
+    fire on a destroyed label (should be silently skipped)? (f) **short
+    landscape** — on a short viewport the restart hint clamps to
+    `height - 24` while the button adds ~58px to the stack; does the hint ever
+    collide with the pill? (pre-existing clamp weakness, now under more
+    pressure). (g) **is the result worth sharing** — does the 4-line text read
+    as a brag, or should it carry kills/level too? Knobs: the line templates in
+    `src/meta/DailyShare.ts`.
 
 ---
 
