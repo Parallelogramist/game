@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BOSS-HELIX** — new 8th boss, The Helix (done — ea385c8). A
+  spinning energy core whose signature is a *spiral (Archimedean) barrage*:
+  curved arms of telegraphed ground strikes that unfurl inner-first, outward
+  over time, forming a rotating pinwheel the player threads through curved,
+  rotating gaps. Distinct from all 7 existing bosses — Pulsar fires straight
+  radial spokes that snap simultaneously, Obelisk marches linear arena-wide
+  walls — the Helix's arms curve (polar angle advances with radius) and
+  cascade outward in time (impactDelay grows with radius), a different
+  geometry and temporal signature and a different movement demand (orbit-
+  and-drift vs. thread-and-slide). The spiral's base angle rotates every
+  barrage; phases add a third arm (2→3→3), tighten cadence
+  (2.92/2.64/2.36s), and raise damage (22/26/30). Pure, deterministic,
+  unit-tested spiral planner (`helix-barrage.ts`) feeds a Pulsar/Obelisk-
+  style two-state AI (`helix.ts`); all damage is telegraphed ground strikes
+  via the existing `groundSlamCallback` — no core combat/damage/projectile
+  pipeline change. Wired into `TUNING.bosses.order` (auto-joins practice +
+  gauntlet + boss cycling + Codex bestiary), a bespoke `EnemyVisuals`
+  drawer, a violet boss-arena theme, a void boss-phase hazard, `ENEMY_ARMOR`,
+  and an "Unwound" defeat achievement. Playtest follow-up filed as
+  **POLISH-BOSS-HELIX** under `## Human gates`.
 - [x] **FEAT-WEAPON-SCATTER** — new 25th weapon, Scattergun (done — ae3b27a).
   The arsenal's first *directional multi-pellet spread burst*. Each cooldown it
   aims at the nearest live enemy and fires a tight fan of instant hitscan pellet-
@@ -543,6 +563,22 @@ Never agent work. The fleet must not do any of these.
     the streaks still draw). All knobs are the top-of-file consts in
     `src/weapons/ScattergunWeapon.ts` + the evolution/synergy multipliers — do not
     retune blind.
+  - **POLISH-BOSS-HELIX** — the new Helix boss needs a balance/feel eyeball
+    (FEAT-BOSS-HELIX, `ea385c8`). Agents have no browser. Reach it:
+    PRACTICE → BOSS row → "The Helix" (or a normal run / gauntlet — it now
+    cycles in the boss order). Check: (a) does it read as a spinning core
+    flinging curved spiral arms of telegraphed strikes that unfurl outward;
+    (b) base HP 4600 (×2=9200) / contact 32 / strike dmg 22-30 / blast 60 /
+    arms 2→3→3 / cadence 2.92/2.64/2.36s vs the other 7 bosses — dead or
+    oppressive?; (c) is the inner fuse 1.23/1.11/0.99s + `ARM_UNFURL_DELAY`
+    0.14s a fair read or too tight/loose; (d) does the rotating base angle
+    (`ROTATION_ADVANCE` 0.7/volley) force good orbiting or feel random; (e)
+    does dropping off-arena strikes leave the corners too safe (raise
+    coverage via `R_STEP` / `STRIKES_PER_ARM` if so); (f) distinct from
+    Pulsar (straight spokes) & Obelisk (walls)?; (g) reads at all 3 quality
+    levels (LOW draws no boss telegraphs — pre-existing). All knobs are
+    top-of-file consts in `src/ecs/systems/enemy-ai/helix.ts` +
+    `helix-barrage.ts` — do not retune blind.
   - **POLISH-BOSS-OBELISK** — the new Obelisk boss needs a balance/feel eyeball
     (FEAT-BOSS-OBELISK, `dac5386`). Agents have no browser. Reach it:
     PRACTICE → BOSS row → "The Obelisk" (or a normal run / gauntlet — it now
