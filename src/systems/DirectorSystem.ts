@@ -22,6 +22,14 @@ import {
 
 export type DirectorStrategy = 'swarm' | 'elite' | 'balanced' | 'chaos';
 
+/** Canonical list of the four director strategies, in RNG-index order. */
+export const DIRECTOR_STRATEGIES: readonly DirectorStrategy[] = ['swarm', 'elite', 'balanced', 'chaos'];
+
+/** Runtime guard: true when `value` is one of the four valid director strategies. */
+export function isDirectorStrategy(value: unknown): value is DirectorStrategy {
+  return typeof value === 'string' && (DIRECTOR_STRATEGIES as readonly string[]).includes(value);
+}
+
 const STRATEGY_CONFIG: Record<DirectorStrategy, {
   saveChance: number;        // Chance per spawn tick to save credits instead of spend
   maxAffordableBias: number; // 0.0 = spend cheap, 1.0 = always spend max-affordable
@@ -226,12 +234,12 @@ export function pickEnemyFromDirector(
 /**
  * Reset director state. Call in GameScene.create() on new run.
  */
-export function resetDirectorSystem(): void {
+export function resetDirectorSystem(forced?: DirectorStrategy): void {
   creditBalance = 0;
   creditsEarned = 0;
   lastGameTime = 0;
   enemyCostCache.clear();
-  pickDirectorStrategy();
+  pickDirectorStrategy(forced);
 }
 
 export function setDirectorEnabled(enabled: boolean): void {

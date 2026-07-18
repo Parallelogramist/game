@@ -118,7 +118,7 @@ import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/Mus
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
 import { expireTimedStatBuffs, normalizeTimedStatBuffs, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
 import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
-import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy } from '../../systems/DirectorSystem';
+import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, type DirectorStrategy } from '../../systems/DirectorSystem';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
 import { resolveActivePaint } from '../../data/ShipPaints';
@@ -448,6 +448,7 @@ export class GameScene extends Phaser.Scene {
   // Active run modifiers
   private activeModifiers: RunModifier[] = [];
   private activePacts: Pact[] = [];
+  private directorStrategy?: DirectorStrategy;
   private activeBlessings: Blessing[] = [];
 
   // Boss arena hazard zone spawning
@@ -547,6 +548,7 @@ export class GameScene extends Phaser.Scene {
     dailyDate?: string;
     dailyChallengeType?: 'daily' | 'weekly';
     gauntletMode?: boolean;
+    directorStrategy?: DirectorStrategy;
     practiceMode?: boolean;
     practiceWeaponLevel?: number;
     practiceEvolved?: boolean;
@@ -577,6 +579,10 @@ export class GameScene extends Phaser.Scene {
     this.activePacts = (data?.pactIds ?? [])
       .map(id => getPactById(id))
       .filter((pact): pact is Pact => pact !== undefined);
+    // Player-chosen director strategy (DirectorSelectScene). Undefined on daily/
+    // practice/restore, and on "Random" — all of which keep the random roll.
+    const requestedStrategy = data?.directorStrategy;
+    this.directorStrategy = isDirectorStrategy(requestedStrategy) ? requestedStrategy : undefined;
   }
 
   create(): void {
@@ -9026,7 +9032,7 @@ export class GameScene extends Phaser.Scene {
     resetComboSystem();
     resetUltimateSystem();
     resetEventSystem();
-    resetDirectorSystem();
+    resetDirectorSystem(this.directorStrategy);
     resetBossPhaseTracking();
     resetBastionStrikes();
     resetPulsarStrikes();

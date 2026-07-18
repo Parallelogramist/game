@@ -208,6 +208,13 @@ describe('DirectorSystem strategy selection', () => {
     resetDirectorSystem();
     expect(getCurrentStrategy()).toBe('swarm');
   });
+
+  test('resetDirectorSystem forwards a forced strategy', () => {
+    for (const strategy of ALL_STRATEGIES) {
+      resetDirectorSystem(strategy);
+      expect(getCurrentStrategy()).toBe(strategy);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
