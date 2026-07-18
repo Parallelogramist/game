@@ -373,6 +373,80 @@ export const RELICS: readonly Relic[] = [
       stats.pandemicSpread += 2;
     },
   },
+
+  // ═══ Relic Pack — build axes no relic touched yet ═══
+  // Appended AFTER the legendaries on purpose: RelicManager.pity.test.ts,
+  // RelicManager.draft.test.ts and Relics.test.ts rely on RELICS starting with the
+  // original commons (a Math.random≈0 weighted roll must land on a sub-epic relic),
+  // so new entries must never precede them. Keep this block last in the array.
+  {
+    id: 'relic_reactive_plating',
+    name: 'Reactive Plating',
+    description: '+8% dodge, +15% longer i-frames',
+    rarity: 'rare',
+    icon: 'guardian',
+    apply: (stats) => {
+      stats.dodgeChance += 0.08;
+      stats.iframeDuration *= 1.15;
+    },
+  },
+  {
+    id: 'relic_rangers_lens',
+    name: "Ranger's Lens",
+    description: '+15% weapon range, +15% projectile speed',
+    rarity: 'rare',
+    icon: 'telescope',
+    apply: (stats) => {
+      stats.rangeMultiplier *= 1.15;
+      stats.projectileSpeedMultiplier *= 1.15;
+    },
+  },
+  {
+    id: 'relic_detonation_matrix',
+    name: 'Detonation Matrix',
+    description: '+30% explosion damage, +15% armor penetration',
+    rarity: 'epic',
+    icon: 'explosion',
+    apply: (stats) => {
+      stats.explosionDamageMultiplier *= 1.3;
+      stats.armorPenetration += 0.15;
+    },
+  },
+  {
+    id: 'relic_titans_bane',
+    name: "Titan's Bane",
+    description: '+40% boss damage, +50% boss gold',
+    rarity: 'epic',
+    icon: 'crowned-skull',
+    apply: (stats) => {
+      stats.bossDamageMultiplier *= 1.4;
+      stats.bossGoldMultiplier *= 1.5;
+    },
+  },
+  {
+    id: 'relic_overdrive_capacitor',
+    name: 'Overdrive Capacitor',
+    description: '+40% ultimate power, +10% attack speed',
+    rarity: 'epic',
+    icon: 'lightning-bolt',
+    apply: (stats) => {
+      stats.ultimateMastery += 0.4;
+      stats.attackSpeedMultiplier *= 1.1;
+    },
+  },
+  {
+    id: 'relic_elemental_overload',
+    name: 'Elemental Overload',
+    description: '+10% burn, freeze, poison & chain chance',
+    rarity: 'legendary',
+    icon: 'sparkle',
+    apply: (stats) => {
+      stats.burnChance += 0.1;
+      stats.freezeChance += 0.1;
+      stats.poisonChance += 0.1;
+      stats.chainLightningChance += 0.1;
+    },
+  },
 ];
 
 /**
