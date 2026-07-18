@@ -675,6 +675,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'scatter', name: 'Scattergun', icon: 'scatter', description: 'Fires a point-blank fan of pellets that shreds the cluster in front of you' },
   { id: 'focus', name: 'Focus Beam', icon: 'focus', description: 'Locks the nearest enemy and burns hotter the longer the beam holds' },
   { id: 'grenade', name: 'Grenade Launcher', icon: 'grenade', description: 'Lobs arcing grenades that burst on impact' },
+  { id: 'reaper', name: 'Reaper', icon: 'skull-bones', description: 'Sweeps a scythe that chips the crowd and reaps any weakened foe outright' },
 ];
 
 /**

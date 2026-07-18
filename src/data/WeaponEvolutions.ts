@@ -386,6 +386,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.3,
     },
   },
+  {
+    weaponId: 'reaper',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'reach',
+    requiredStatLevel: 5,
+    evolvedName: 'Deathbringer',
+    evolvedDescription: 'A wider, hungrier scythe that reaps foes from nearly half their health in a single pass.',
+    statMultipliers: {
+      damage: 1.5,
+      cooldown: 0.85,
+      range: 1.4,
+      size: 1.3,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

@@ -23,7 +23,7 @@ const REGISTRY_WEAPON_IDS = [
   'projectile', 'katana', 'orbiting_blades', 'aura', 'chain_lightning',
   'homing_missile', 'frost_nova', 'laser_beam', 'meteor', 'flamethrower',
   'ricochet', 'ground_spike', 'drone', 'shuriken', 'boomerang', 'sentry',
-  'singularity', 'guardian', 'wake', 'pulse', 'mine', 'sweep_beam', 'storm', 'railgun', 'scatter', 'focus', 'grenade',
+  'singularity', 'guardian', 'wake', 'pulse', 'mine', 'sweep_beam', 'storm', 'railgun', 'scatter', 'focus', 'grenade', 'reaper',
 ];
 
 /** Build the stat-upgrade list checkEvolutionReady expects from a single entry. */
