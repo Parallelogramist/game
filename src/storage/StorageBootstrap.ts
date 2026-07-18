@@ -105,6 +105,9 @@ export const ALL_STORAGE_KEYS = [
   // LastLoadout (one-tap replay of the last pre-run funnel configuration)
   'survivor-last-loadout',
 
+  // LoadoutPresets (saved favourite loadouts for one-tap replay)
+  'survivor-loadout-presets',
+
   // EndlessBestCycle (post-victory endless mode deepest cycle reached)
   'survivor-endless-best',
   'survivor-endless-leaderboard',

@@ -7,6 +7,7 @@ import { preloadIcons, createIcon, setIconFrame } from '../../utils/IconRenderer
 import { getGameStateManager } from '../../save/GameStateManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { loadLastLoadout, saveLastLoadout, type LastLoadout } from '../../meta/LastLoadout';
+import { loadLoadoutPresets, consumePendingReplay } from '../../meta/LoadoutPresets';
 import { buildRandomLoadout } from '../../meta/RandomLoadout';
 import {
   fadeOut,
@@ -383,14 +384,14 @@ export class BootScene extends Phaser.Scene {
       belowHeroY += scaledInt(layoutScale, 36);
     }
 
-    // ─── replay-loadout link (only when a saved loadout exists) ─────────
-    if (lastLoadout) {
+    // ─── loadouts link (when a last loadout OR any saved preset exists) ──
+    if (lastLoadout || loadLoadoutPresets().length > 0) {
       this.createReplayLoadoutLink({
         centerX,
         centerY: belowHeroY,
         layoutScale,
         fontScale,
-        onActivate: () => replayLoadoutWithConfirmation(lastLoadout),
+        onActivate: () => transitionToScene(this, 'LoadoutScene'),
       });
       belowHeroY += scaledInt(layoutScale, 36);
     }
@@ -502,6 +503,14 @@ export class BootScene extends Phaser.Scene {
 
     this.maybeShowBackupReminder(metaManager.getRunsCompleted());
     this.maybeShowInstallHint(metaManager.getRunsCompleted());
+
+    // A launch chosen in LoadoutScene is handed here to reuse the existing
+    // confirm-if-a-run-is-in-progress + clear-save + fade-to-run path. consume
+    // clears it so a later plain return to BootScene never re-fires the replay.
+    const pendingReplay = consumePendingReplay();
+    if (pendingReplay) {
+      replayLoadoutWithConfirmation(pendingReplay);
+    }
 
     this.events.once('shutdown', this.shutdown, this);
   }
@@ -990,7 +999,7 @@ export class BootScene extends Phaser.Scene {
     });
     this.cards.push(card);
 
-    const text = this.add.text(0, 0, '✦  REPLAY LOADOUT  ✦', {
+    const text = this.add.text(0, 0, '✦  LOADOUTS  ✦', {
       fontSize: scaledFontPx(fontScale, 12),
       color: COLORS.accentFocusStr,
       fontFamily: MENU_FONT,

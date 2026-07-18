@@ -26,28 +26,38 @@ export function saveLastLoadout(loadout: LastLoadout): void {
   }
 }
 
+/**
+ * Validate an untrusted parsed value into a LastLoadout, or null if it is not a
+ * well-formed loadout. Shared by loadLastLoadout and the LoadoutPresets store so
+ * both sanitise identically.
+ */
+export function sanitizeLoadout(raw: unknown): LastLoadout | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const parsed = raw as Partial<LastLoadout>;
+  if (typeof parsed.startingWeapon !== 'string' || parsed.startingWeapon.length === 0) {
+    return null;
+  }
+  const threat = typeof parsed.threatLevel === 'number' && Number.isFinite(parsed.threatLevel)
+    ? Math.max(0, Math.floor(parsed.threatLevel))
+    : 0;
+  return {
+    startingWeapon: parsed.startingWeapon,
+    shipId: typeof parsed.shipId === 'string' ? parsed.shipId : undefined,
+    stageId: typeof parsed.stageId === 'string' ? parsed.stageId : undefined,
+    pactIds: Array.isArray(parsed.pactIds)
+      ? parsed.pactIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    directorStrategy: isDirectorStrategy(parsed.directorStrategy) ? parsed.directorStrategy : undefined,
+    threatLevel: threat,
+    gauntletMode: parsed.gauntletMode === true,
+  };
+}
+
 export function loadLastLoadout(): LastLoadout | null {
   const raw = SecureStorage.getItem(STORAGE_KEY_LAST_LOADOUT);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<LastLoadout>;
-    if (typeof parsed.startingWeapon !== 'string' || parsed.startingWeapon.length === 0) {
-      return null;
-    }
-    const threat = typeof parsed.threatLevel === 'number' && Number.isFinite(parsed.threatLevel)
-      ? Math.max(0, Math.floor(parsed.threatLevel))
-      : 0;
-    return {
-      startingWeapon: parsed.startingWeapon,
-      shipId: typeof parsed.shipId === 'string' ? parsed.shipId : undefined,
-      stageId: typeof parsed.stageId === 'string' ? parsed.stageId : undefined,
-      pactIds: Array.isArray(parsed.pactIds)
-        ? parsed.pactIds.filter((id): id is string => typeof id === 'string')
-        : [],
-      directorStrategy: isDirectorStrategy(parsed.directorStrategy) ? parsed.directorStrategy : undefined,
-      threatLevel: threat,
-      gauntletMode: parsed.gauntletMode === true,
-    };
+    return sanitizeLoadout(JSON.parse(raw));
   } catch {
     return null;
   }

@@ -21,6 +21,7 @@ import { PracticeScene } from './game/scenes/PracticeScene';
 import { LeaderboardScene } from './game/scenes/LeaderboardScene';
 import { CardsScene } from './game/scenes/CardsScene';
 import { RunnerScene } from './game/scenes/RunnerScene';
+import { LoadoutScene } from './game/scenes/LoadoutScene';
 import { initializeStorage, flushStorage } from './storage';
 import { baseSizeForViewport, installOrientationWatcher } from './utils/Orientation';
 import { copyTextToClipboard } from './utils/Clipboard';
@@ -159,7 +160,7 @@ window.addEventListener('unhandledrejection', (event) => {
     ...GAME_CONFIG,
     width: initialBase.width,
     height: initialBase.height,
-    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, RelicDraftScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, PaintScene, CardsScene, WeaponSelectScene, PactSelectScene, DirectorSelectScene, ThreatSelectScene, ModifierDraftScene, BlessingDraftScene, PracticeScene, LeaderboardScene],
+    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, RelicDraftScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, PaintScene, CardsScene, WeaponSelectScene, PactSelectScene, DirectorSelectScene, ThreatSelectScene, ModifierDraftScene, BlessingDraftScene, PracticeScene, LeaderboardScene, LoadoutScene],
   };
 
   // Initialize the game
