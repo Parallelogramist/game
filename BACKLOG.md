@@ -34,6 +34,28 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BOSS-DIVINER** — new 11th boss, The Diviner (done — b10da2e). The
+  arsenal's first *AIMED* boss: where all 10 peers fire position-independent geometry
+  from fixed points (Pulsar radial spokes + converging rings, Obelisk marching-wall
+  lane, Helix spiral arms, Tessellator checkerboard parity, Tremor expanding corner
+  wavefront), the Diviner reads WHERE THE PLAYER STANDS. Signature "Scrying Cage":
+  each barrage samples the player's position and telegraphs a strike ON that spot
+  (the bullseye — punishes standing still) plus a ring of ground strikes enclosing
+  it, leaving one contiguous GAP — the eye's blind spot — to flee through before the
+  cage detonates. The gap rotates each barrage (5 slots of 16), so the blind spot
+  keeps shifting. Phase 2+ adds a concentric outer ring (gap aligned) so the whole
+  disc is lethal and the corridor lengthens. Phases tighten the fuse (1.0/0.85/0.7s),
+  narrow the gap (4→3 slots) and raise damage (21/27/33). Fairness is pinned: the
+  bullseye forces movement, and at the tightest 3-slot gap the perpendicular
+  clearance (160·sin45° ≈ 113px) exceeds the 88px blast, so the corridor is always
+  escapable. Pure, deterministic, unit-tested cage planner (`diviner-barrage.ts`)
+  feeds a Tremor-style two-state AI (`diviner.ts`); all damage is telegraphed ground
+  strikes via the existing `groundSlamCallback` — no core combat/damage/projectile
+  pipeline change. Wired into `TUNING.bosses.order` (auto-joins practice + gauntlet +
+  boss cycling + Codex bestiary), a bespoke `EnemyVisuals` drawer (scrying-eye orb),
+  a violet boss-arena theme, a void-rift boss-phase hazard, `ENEMY_ARMOR` (6), and a
+  "Blind Spot" defeat achievement. Bumped the practice-target count mirror 16→17.
+  Playtest follow-up filed as **POLISH-BOSS-DIVINER** under `## Human gates`.
 - [x] **FEAT-BOSS-TREMOR** — new 10th boss, The Tremor (done — 6951b9a). A seismic
   shockwave core whose signature is an *expanding ripple of telegraphed ground
   strikes that washes across the whole tiled arena floor from a shifting
@@ -649,6 +671,19 @@ Never agent work. The fleet must not do any of these.
     radiating fault lines; hex plate + rings + core still draw). All knobs are the
     top-of-file consts + phase functions in `src/ecs/systems/enemy-ai/tremor-barrage.ts`
     and `tremor.ts` — do not retune blind.
+  - **POLISH-BOSS-DIVINER** — the new boss The Diviner needs a balance/feel eyeball
+    (FEAT-BOSS-DIVINER, `b10da2e`). Agents have no browser. Reach it: PRACTICE →
+    TARGET row → "The Diviner" (or reach the boss hour in a run; it is in the boss
+    cycle). Check: (a) does the cage read clearly as a ring-around-you with ONE
+    obvious gap to flee through, and is the bullseye (the strike on your own
+    position) legible enough that standing still reads as death? (b) is the phase-1
+    fuse (1.0s) enough time to reach the gap, and does phase 3 (0.7s, two rings)
+    feel hard-but-fair rather than unreadable? (c) does the rotating gap keep you
+    moving, or can you camp one spot? (d) does the outer ring in phase 2+ add
+    pressure without feeling unescapable? Retune knobs live in `diviner-barrage.ts`
+    (`DIVINER_INNER_RADIUS`, `DIVINER_RING_SPACING`, `DIVINER_BLAST_RADIUS`,
+    `divinerGapSlotsForPhase`, `divinerFuseForPhase`, `divinerStrikeDamage`) and the
+    reload cadence in `diviner.ts` (`specialTimer` = `3.0 - bossPhase*0.3`).
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
