@@ -1097,6 +1097,51 @@ function drawHelix(
   g.fillCircle(0, 0, Math.max(3, s * 0.2));
 }
 
+/** The Tessellator — a crystalline lattice core: a rotating outer diamond shell
+ *  with four cardinal facet-diamonds (the tessellation motif) and a bright core */
+function drawTessellator(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  neon: NeonColorPair,
+  quality: VisualQuality,
+): void {
+  squareGlow(g, s, neon, quality);
+  // Outer diamond (rotated square) shell.
+  const outer = s * 1.1;
+  g.fillStyle(neon.core, 1);
+  g.beginPath();
+  g.moveTo(0, -outer);
+  g.lineTo(outer, 0);
+  g.lineTo(0, outer);
+  g.lineTo(-outer, 0);
+  g.closePath();
+  g.fillPath();
+  g.lineStyle(2.5, 0xffffff, 0.9);
+  g.strokePath();
+  // Four cardinal facet-diamonds — the tessellation motif.
+  g.fillStyle(neon.glow, 0.85);
+  const facet = s * 0.42;
+  for (const [fx, fy] of [[0, -s * 0.55], [s * 0.55, 0], [0, s * 0.55], [-s * 0.55, 0]] as const) {
+    g.beginPath();
+    g.moveTo(fx, fy - facet);
+    g.lineTo(fx + facet, fy);
+    g.lineTo(fx, fy + facet);
+    g.lineTo(fx - facet, fy);
+    g.closePath();
+    g.fillPath();
+  }
+  // Bright crystalline core.
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(0, 0, Math.max(3, s * 0.24));
+  // Corner nodes (skip on low quality).
+  if (quality !== 'low') {
+    g.fillStyle(0xffffff, 0.8);
+    for (const [cx, cy] of [[outer, 0], [-outer, 0], [0, outer], [0, -outer]] as const) {
+      g.fillCircle(cx, cy, Math.max(2, s * 0.1));
+    }
+  }
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -1143,6 +1188,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   the_pulsar: drawPulsar,
   the_obelisk: drawObelisk,
   the_helix: drawHelix,
+  the_tessellator: drawTessellator,
   legion_fragment: drawLegionFragment,
   legion_mote: drawLegionFragment,
 };

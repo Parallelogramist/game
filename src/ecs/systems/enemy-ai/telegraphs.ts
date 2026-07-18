@@ -164,6 +164,15 @@ export function helixStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
 }
 
 /**
+ * The Tessellator tile-strike warning. Damage radius at execute is 108; the +8
+ * overshoots it so the ring is a conservative warning. Duration = the strike's
+ * fuse (the ring fills exactly as the strike lands).
+ */
+export function tessellatorStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 116, duration: impactDelay, color: 0x44ccff };
+}
+
+/**
  * The Bombard mortar strike warning. Damage radius at execute is 62; the +8
  * overshoots it so the ring is a conservative warning. Duration = the strike's
  * fuse (the ring fills exactly as the shell lands).

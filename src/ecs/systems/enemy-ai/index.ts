@@ -61,6 +61,7 @@ export { updateBastionAI, resetBastionStrikes } from './bastion';
 export { updatePulsarAI, resetPulsarStrikes } from './pulsar';
 export { updateObeliskAI, resetObeliskStrikes } from './obelisk';
 export { updateHelixAI, resetHelixStrikes } from './helix';
+export { updateTessellatorAI, resetTessellatorStrikes } from './tessellator';
 export { updateBombardAI, resetBombardStrikes } from './bombard';
 export { updateLegionAI, updateLegionFragmentAI } from './legion';
 export {

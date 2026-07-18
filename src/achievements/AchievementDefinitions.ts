@@ -22,6 +22,7 @@ export const BOSS_KILL_TRACKING: Record<string, TrackingType> = {
   the_pulsar: 'boss_kill_the_pulsar',
   the_obelisk: 'boss_kill_the_obelisk',
   the_helix: 'boss_kill_the_helix',
+  the_tessellator: 'boss_kill_the_tessellator',
 };
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [
@@ -602,6 +603,16 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     category: 'combat',
     targetValue: 1,
     trackingType: 'boss_kill_the_helix',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+  {
+    id: 'boss_first_the_tessellator',
+    name: 'Checkmate',
+    description: 'Defeat The Tessellator',
+    icon: 'shield',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_tessellator',
     reward: { type: 'gold', value: 400, description: '+400 gold' },
   },
 ];
