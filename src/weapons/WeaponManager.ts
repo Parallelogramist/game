@@ -70,6 +70,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   railgun: 'beam',
   scatter: 'projectile',
   focus: 'beam',
+  grenade: 'explosive',
 };
 
 /**

@@ -674,6 +674,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'railgun', name: 'Railgun', icon: 'telescope', description: 'Locks the toughest enemy and skewers it with a piercing rail lance' },
   { id: 'scatter', name: 'Scattergun', icon: 'scatter', description: 'Fires a point-blank fan of pellets that shreds the cluster in front of you' },
   { id: 'focus', name: 'Focus Beam', icon: 'focus', description: 'Locks the nearest enemy and burns hotter the longer the beam holds' },
+  { id: 'grenade', name: 'Grenade Launcher', icon: 'grenade', description: 'Lobs arcing grenades that burst on impact' },
 ];
 
 /**

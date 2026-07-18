@@ -372,6 +372,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       count: 1,
     },
   },
+  {
+    weaponId: 'grenade',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'might',
+    requiredStatLevel: 5,
+    evolvedName: 'Carpet Bomber',
+    evolvedDescription: 'A relentless salvo of heavier grenades blankets the field in overlapping blasts.',
+    statMultipliers: {
+      damage: 1.6,
+      range: 1.3,
+      count: 2,
+      size: 1.3,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */
