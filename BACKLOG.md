@@ -34,6 +34,28 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-MODIFIER-PACK** — added 6 double-edged run modifiers on build axes no modifier touched (done —
+  3aba1e6). The recent **FEAT-MODIFIER-DRAFT** (`55a1893`) made the two per-run modifiers a **pick-2-of-6 draft**
+  (`rollModifierChoices(6)` → `ModifierDraftScene`), spotlighting the modifier pool — but the pool was only **15**,
+  so the 6-candidate draft kept re-offering the same handful, and whole `PlayerStats` axes had no modifier at all.
+  A full `PlayerStats` audit confirmed **no dead "paid content" fields remain** (Readiness/Electromancer/
+  weaponSynergy/slowResistance closed that vein), and modifiers — unlike pacts (locked to "every pact raises
+  gold") — are unconstrained two-sided trade-offs, the freshly-drafted layer with the most untouched design space.
+  Added `src/data/RunModifiers.ts` **6-modifier pack**, each a genuine trade-off whose **upside is on an axis no
+  existing modifier grants**: **Marksman** (offense, +50% crit damage / −15% attack speed), **Piercing Rounds**
+  (offense, +2 piercing / −25% projectile speed), **Evasion** (defense, +12% dodge / −20% max HP), **Lucky Charm**
+  (resources, +25% luck / −10% damage), **Improviser** (resources, +3 upgrade rerolls / −12% attack speed),
+  **Demolitionist** (chaos, +45% explosion damage & +25% armor pen / −15% max HP). Each opens a new build
+  direction (crit-glass, pierce, dodge-tank, loot/luck, reroll-agency, AoE-shred). **Content only** — every
+  `apply(stats)` mutates existing `PlayerStats` fields and every modifier uses one of the four existing
+  categories, so the 2-of-6 draft, the random-2 selection (`selectRunModifiers`), daily/weekly challenges, the
+  **Codex → Modifiers** tab, and the run-intro banner pick them up with **zero new wiring** (all read
+  `RUN_MODIFIERS` dynamically). **No new file, no storage/save-format/ECS/scene/GameScene change, no
+  selection-logic change.** The only test touch is mandatory maintenance: 6 new `MODIFIER_EFFECTS` specs to
+  satisfy the existing coverage lock in `RunModifiers.test.ts` (that suite fails otherwise) — field validity is
+  guarded by tsc, and the existing per-modifier / finite / HP-invariant / category-coverage / draft / daily tests
+  all stay green unchanged. First-pass numbers — feel/balance owned by **POLISH-MODIFIER-PACK** under
+  `## Human gates`.
 - [x] **FEAT-META-READINESS** — the "Readiness" shop upgrade + 5 other cooldown sources now actually
   reduce weapon cooldowns (done — e3af0f0). `PlayerStats.cooldownMultiplier` was written by six
   sources — the **Readiness** permanent upgrade (`cooldownLevel`), several **ship** cooldown perks
@@ -1191,6 +1213,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MODIFIER-PACK** — the 6 new run modifiers need a feel/balance eyeball (FEAT-MODIFIER-PACK, `3aba1e6`).
+    Agents have no browser. Reach them: on a **PLAY** run reach the **Modifier draft** (WeaponSelect → Pact →
+    Director → Threat → **Draft**) — the 6-candidate roll now draws from 21, so start several runs to see the new
+    ones — and open **Codex → Modifiers** to read the cards. Check: (a) do the 6 read clearly on a **draft** card
+    (touch / number keys / gamepad) on phone landscape + portrait — name, category colour (offense/defense/
+    resources/chaos), and the two-clause `+upside, -downside` description all legible / not clipped? (b) balance:
+    are the trade-offs fair versus the existing 15 (e.g. is **Demolitionist**'s double-upside — +45% explosion
+    AND +25% armor pen — worth only −15% HP; is **Improviser**'s +3 rerolls too strong stacked with meta reroll
+    upgrades; does **Marksman**'s +50% crit damage need a crit-chance investment to matter, i.e. is it a trap on a
+    no-crit build)? Knobs: the twelve numbers in `src/data/RunModifiers.ts` (mirror any change into the matching
+    `MODIFIER_EFFECTS` spec in `RunModifiers.test.ts` or the coverage/exact-field test goes red). (c) do the new
+    upside axes actually change the run — does **Piercing Rounds** visibly add pierce, **Evasion** raise dodge,
+    **Lucky Charm** bias drops? (d) with the pool now 21, does the 2-of-6 draft feel more varied? (e) is the
+    category split (offense +2 / defense +1 / resources +2 / chaos +1) right, or should it be evener? These are
+    tuning-only; the mechanics are done.
   - **POLISH-RELIC-PACK** — the 6 new relics need a feel/balance eyeball (FEAT-RELIC-PACK, `32652a0`). Agents
     have no browser. Reach them: start runs and trigger relic drops (chests, the **Fortune** field shrine,
     first-clear miniboss), and open **Codex → Relics** to read the new cards. Check: (a) do the 6 read clearly
