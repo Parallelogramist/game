@@ -34,6 +34,24 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-CAREER-STATS** — the Codex **Statistics** tab becomes a two-section career sheet
+  (TOTALS + RECORDS) that surfaces four lifetime records the game already tracks on every run but had shown
+  the player **nowhere**: bosses slain, flawless (no-damage) wins, sub-8-minute speed wins, and lifetime
+  critical hits (done — fd284b6). `AchievementManager.LifetimeStats` persisted 17 fields, but
+  `displayStatistics()` only ever rendered the 10 `CodexManager` totals; the peak/record fields were
+  invisible there, and of them only four (survival/kills/level/combo) surface anywhere — transiently, on the
+  game-over Personal Bests panel. `displayStatistics()` now also reads
+  `getAchievementManager().getLifetimeStats()` and appends a **RECORDS** section under a gold header — Bosses
+  Slain, Most Kills (Run), Best Combo (Run), Longest Survival, Flawless Wins, Speed Wins (<8m), Critical Hits
+  — with a matching TOTALS header above the (verbatim) existing rows. Because the sheet now exceeds a
+  landscape screen, scrolling is enabled (`maxScrollY` from content height, mirroring `layoutCardGrid`); it
+  fits without scrolling in portrait, and the tab's existing wheel/touch-drag scroll works unchanged. **No
+  new tab** (the bar is already at 11), no new store, no save-format/ECS/scene-flow change — a read-only
+  surface of already-persisted data, in the same surface-hidden-depth family as FEAT-CODEX-PACTS
+  (`be21ea8`) / FEAT-CODEX-RUNS (`bd04351`). No new test (a pure display change over two existing managers;
+  the stats-row idiom is cloned; wiring caught by tsc/build). Playtest follow-up filed as
+  **POLISH-CODEX-CAREER-STATS** under `## Human gates`.
+
 - [x] **FEAT-CODEX-RUNS** — a browsable **Runs** Codex tab (the 11th tab) listing your last 10 runs, each
   enriched with the build you played (done — bd04351). `RunHistoryManager` already persisted the last 10
   runs, but that history was only ever shown three-deep on the run-end results overlay (no browsable menu
@@ -976,6 +994,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-CAREER-STATS** — the restructured Codex **Statistics** career sheet needs an eyeball
+    (FEAT-CODEX-CAREER-STATS, `fd284b6`). Agents have no browser. Reach it: main menu → CODEX → the
+    **Statistics** tab. Check: (a) do the gold TOTALS and RECORDS section headers read cleanly, and are the
+    seven RECORDS values correct (Bosses Slain, Most Kills (Run), Best Combo (Run), Longest Survival,
+    Flawless Wins, Speed Wins (<8m), Critical Hits)? (b) in **landscape** the sheet now overflows — does it
+    **scroll** smoothly via touch-drag and mouse-wheel down to "Critical Hits" and back, with the zebra rows
+    and alignment intact? (c) in **portrait** does it fit without scrolling? (d) do zero/empty values render
+    sensibly (`--:--` for no survival/victory record yet, `0` before any boss kill)? (e) **known limitation
+    to judge:** a bare gamepad/keyboard with no mouse/touch cannot scroll this list in landscape — the tab
+    has no focusable cards, so MenuNavigator can't drive the scroll. Is that acceptable for an info tab, or
+    should the RECORDS section move to a two-column landscape layout (fits on one screen, no scroll), or
+    should the list get gamepad-scroll wiring? Knobs: `displayStatistics()` row set / labels / order /
+    `maxScrollY`; the two-column option would branch on `this.scale.width >= 900`.
   - **POLISH-CODEX-RUNS** — the new Codex **Runs** tab needs an eyeball (FEAT-CODEX-RUNS, `bd04351`). Agents
     have no browser. Reach it: main menu → CODEX → the last tab, **Runs**. Check: (a) with the tab bar now
     at **11 tabs**, does it still read cleanly in BOTH portrait and landscape and on a phone (the tabs
