@@ -34,6 +34,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-DISCOVER-DEEP** — the Codex **Synergies** and **Evolutions** tabs now track which of the 26
+  synergies / 31 evolutions you've actually achieved in a run (done — 391a5c2). The Weapons and Bestiary tabs
+  already ran a collection meta-goal (persisted `discovered` flag, "Unknown" placeholder, `discovered/total`
+  header counter), but the two deepest build mechanics had **zero** personal-progress tracking — their tabs
+  rendered every entry statically and their headers showed a flat total. Added a persisted `discovered`
+  dimension for synergies + evolutions to `CodexState` (two new sanitized sub-trees; non-destructive load —
+  an old save gains all-undiscovered records, no wipe, no version bump), hooked at the exact in-run moments
+  they occur (`discoverSynergy` in `onSynergyActivated`; `discoverEvolution` right after `checkEvolutions`),
+  and surfaced in the Codex as a `discovered/total` header counter plus a per-card **lit-vs-dormant**
+  background (achieved = the `0x2a3a5a` "discovered" tone the Weapons tab uses; unachieved = dormant
+  `0x1e1e34`). **Recipe text stays fully visible in both states** — a deliberate divergence from the
+  Weapons/Bestiary spoiler-gate, because synergy/evolution cards are build-planning tools and the last three
+  sessions' whole thrust was making that info visible at decision time (`bf8170f` / `85a3d2f`); this is purely
+  additive. Scoped to synergies + evolutions (the two mechanics that emerge *within a run* — same discovery
+  semantics as weapon-first-use / enemy-first-encounter); Relics/Ships/Pacts/Modifiers are *selected*, not
+  emergently discovered, so a run-discovery flag is the wrong model and they are intentionally out of scope.
+  **No new store, no ECS/combat/scene-flow change**, `getCompletionPercent`/`onNewDiscovery`/`resetProgress`
+  untouched. One new test (`CodexManager.discovery.test.ts`) pins the new persistence (fresh-seed, discover +
+  idempotency, round-trip, non-destructive old-save load) — justified because it changes the anti-cheat-
+  hardened save shape (the standing order's "real regression risk" carve-out); display/hook wiring caught by
+  tsc/build. Playtest follow-up filed as **POLISH-CODEX-DISCOVER-DEEP** under `## Human gates`.
 - [x] **FEAT-SYNERGY-PICK-HINT** — the level-up **weapon-unlock** card now flags which weapon synergy picking
   it would activate with your current kit (done — bf8170f). The UpgradeScene already showed evolution hints on
   **weapon-level** cards (`✦ Evolves: Lv5 · Multishot 3/5`) and, since `85a3d2f`, on **stat** cards — but had
@@ -1032,6 +1053,17 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-DISCOVER-DEEP** — the new synergy/evolution Codex collection state needs an eyeball
+    (FEAT-CODEX-DISCOVER-DEEP, `391a5c2`). Agents have no browser. Reach it: open Codex → Synergies (and
+    Evolutions) — everything reads dormant `0/26` on a fresh profile; then in a run form a synergy (e.g.
+    Projectile + Ricochet → *Bullet Storm*) and/or evolve a weapon (e.g. Projectile Lv5 + Multishot Lv5 →
+    *Bullet Storm* evolution), return to the Codex, and confirm that entry's card is now "lit" and the header
+    counter ticked up. Check: (a) is the lit `0x2a3a5a` vs dormant `0x1e1e34` contrast clear enough on a
+    **phone**, or does "discovered" also want a small badge/label / a brighter accent? (b) does the dormant
+    card's recipe text stay comfortably readable on the darker `0x1e1e34` bg? (c) does the header
+    `discovered/total` read cleanly and never clip in the tab? (d) does the state survive a reload and never
+    regress a previously-lit entry? Knobs: the two card colors in `createSynergyCard` / `createEvolutionCard`
+    (`CodexScene.ts`), the counter branches (~lines 265–270), and whether to add a badge (currently none).
   - **POLISH-SYNERGY-PICK-HINT** — the new weapon-unlock synergy hint needs an eyeball (FEAT-SYNERGY-PICK-HINT,
     `bf8170f`). Agents have no browser. Reach it: start a run, equip a weapon that has a synergy (e.g.
     Projectile, which pairs with Ricochet → *Bullet Storm*), then reach a weapon-milestone level-up (every 5th
