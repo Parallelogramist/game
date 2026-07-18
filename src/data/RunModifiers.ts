@@ -216,6 +216,18 @@ export function selectRunModifiers(count: number = 2): RunModifier[] {
 }
 
 /**
+ * Rolls `count` DISTINCT modifier candidates for the pre-run draft
+ * (FEAT-MODIFIER-DRAFT). Plain distinct random draw from the pool — no
+ * same-category constraint (the player, not RNG, decides variety when drafting).
+ * Caps at the pool size. Does not apply anything; the draft scene applies the
+ * chosen ones via GameScene's existing modifierIds path.
+ */
+export function rollModifierChoices(count: number): RunModifier[] {
+  const shuffled = [...RUN_MODIFIERS].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(count, RUN_MODIFIERS.length));
+}
+
+/**
  * Look up a modifier by ID. Returns undefined if not found.
  */
 export function getModifierById(modifierId: string): RunModifier | undefined {

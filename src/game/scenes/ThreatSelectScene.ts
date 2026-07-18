@@ -4,6 +4,7 @@ import { THREAT_TIERS, clampThreatTier, type ThreatTier } from '../../data/Threa
 import { loadThreatBest, loadThreatLastSelected, saveThreatLastSelected } from '../../meta/ThreatProgress';
 import { saveLastLoadout } from '../../meta/LastLoadout';
 import type { DirectorStrategy } from '../../systems/DirectorSystem';
+import { rollModifierChoices } from '../../data/RunModifiers';
 
 /**
  * Data threaded through from DirectorSelectScene; forwarded verbatim to GameScene
@@ -285,16 +286,21 @@ export class ThreatSelectScene extends Phaser.Scene {
     });
     this.cameras.main.fadeOut(150, 0, 0, 0);
     this.time.delayedCall(160, () => {
-      this.scene.start('GameScene', {
+      // FEAT-MODIFIER-DRAFT: the funnel's final step is now the modifier draft,
+      // which produces the run's modifierIds. The 2 modifiers WeaponSelectScene
+      // rolled into `this.passthrough.modifierIds` are moot on the funnel path and
+      // are intentionally NOT forwarded — the draft rolls 6 fresh candidates and
+      // the player picks 2.
+      this.scene.start('ModifierDraftScene', {
         restore: false,
         startingWeapon: this.passthrough.startingWeapon,
         shipId: this.passthrough.shipId,
         stageId: this.passthrough.stageId,
-        modifierIds: this.passthrough.modifierIds ?? [],
         pactIds: this.passthrough.pactIds ?? [],
         gauntletMode: this.passthrough.gauntletMode === true,
         directorStrategy: this.passthrough.directorStrategy,
         threatLevel: tier,
+        modifierChoiceIds: rollModifierChoices(6).map((modifier) => modifier.id),
       });
     });
   }
