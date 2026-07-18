@@ -15,6 +15,7 @@ import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { WEAPON_SYNERGIES, WeaponSynergy } from '../../data/WeaponSynergies';
 import { RELICS, Relic, getRelicRarityColor } from '../../data/Relics';
+import { RUN_MODIFIERS, RunModifier } from '../../data/RunModifiers';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
 import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
@@ -37,6 +38,24 @@ interface CodexCardElements {
 }
 
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
+const MODIFIER_CATEGORY_COLOR: Record<RunModifier['category'], number> = {
+  offense: 0xff6644,
+  defense: 0x44aaff,
+  resources: 0xffcc22,
+  chaos: 0xaa44ff,
+};
+const MODIFIER_CATEGORY_ICON: Record<RunModifier['category'], string> = {
+  offense: 'sword',
+  defense: 'shield',
+  resources: 'coins',
+  chaos: 'dice',
+};
+const MODIFIER_CATEGORY_LABEL: Record<RunModifier['category'], string> = {
+  offense: 'OFFENSE',
+  defense: 'DEFENSE',
+  resources: 'RESOURCES',
+  chaos: 'CHAOS',
+};
 
 export class CodexScene extends Phaser.Scene {
   private currentCategory: CodexCategory = 'weapons';
@@ -247,6 +266,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${weaponEvolutionDefinitions.length}`;
       } else if (category.id === 'ships') {
         countLabel = `${SHIP_CHARACTERS.length}`;
+      } else if (category.id === 'modifiers') {
+        countLabel = `${RUN_MODIFIERS.length}`;
       }
 
       if (countLabel) {
@@ -364,6 +385,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'ships':
         this.displayShips();
+        break;
+      case 'modifiers':
+        this.displayModifiers();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -866,6 +890,83 @@ export class CodexScene extends Phaser.Scene {
     container.add(rarityText);
 
     const descText = this.add.text(textX, 56, relic.description, {
+      fontSize: '12px',
+      color: '#aaaaaa',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - textX - 14 },
+    });
+    container.add(descText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
+  private displayModifiers(): void {
+    const modifierCardHeight = 96;
+
+    this.layoutCardGrid([...RUN_MODIFIERS], modifierCardHeight, (modifier, x, y) => {
+      this.createModifierCard(modifier, x, y, modifierCardHeight);
+    });
+  }
+
+  private createModifierCard(modifier: RunModifier, x: number, y: number, cardHeight: number): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border stays 0x4a4a7a — the exact color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    // Category is signalled by the icon tint and category label, never the border.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    const categoryColor = MODIFIER_CATEGORY_COLOR[modifier.category];
+    const categoryHex = '#' + categoryColor.toString(16).padStart(6, '0');
+
+    const iconCenterX = 38;
+    const iconCenterY = Math.floor(cardHeight / 2);
+
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, categoryColor);
+    container.add(iconDisc);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: MODIFIER_CATEGORY_ICON[modifier.category],
+        size: 28,
+        tint: categoryColor,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 12, categoryColor);
+      container.add(fallback);
+    }
+
+    const textX = 75;
+
+    const nameText = this.add.text(textX, 14, modifier.name, {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const categoryText = this.add.text(textX, 38, MODIFIER_CATEGORY_LABEL[modifier.category], {
+      fontSize: '11px',
+      color: categoryHex,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(categoryText);
+
+    const descText = this.add.text(textX, 56, modifier.description, {
       fontSize: '12px',
       color: '#aaaaaa',
       fontFamily: FONT_FAMILY,
