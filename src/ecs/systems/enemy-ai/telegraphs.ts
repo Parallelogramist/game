@@ -182,6 +182,15 @@ export function tremorStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
 }
 
 /**
+ * The Diviner scrying-cage warning. Damage radius at execute is 88; the +8
+ * overshoots it so the ring is a conservative warning. Duration = the cage fuse
+ * (the ring fills exactly as the cage snaps shut).
+ */
+export function divinerStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 96, duration: impactDelay, color: 0xff44dd };
+}
+
+/**
  * The Bombard mortar strike warning. Damage radius at execute is 62; the +8
  * overshoots it so the ring is a conservative warning. Duration = the strike's
  * fuse (the ring fills exactly as the shell lands).

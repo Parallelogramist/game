@@ -33,6 +33,7 @@ const BOSS_ARENA_THEMES: Record<string, BossArenaTheme> = {
   the_helix: { overlayColor: 0x7722cc, targetAlpha: 0.09 },
   the_tessellator: { overlayColor: 0x2299cc, targetAlpha: 0.09 },
   the_tremor: { overlayColor: 0xcc5a1a, targetAlpha: 0.09 },
+  the_diviner: { overlayColor: 0xaa33cc, targetAlpha: 0.09 },
 };
 
 /** Duration (ms) for the overlay fade-in when a boss spawns. */

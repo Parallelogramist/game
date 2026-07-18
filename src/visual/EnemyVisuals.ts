@@ -1180,6 +1180,42 @@ function drawTremor(
   g.fillCircle(0, 0, Math.max(3, s * 0.22));
 }
 
+/** The Diviner — an all-seeing scrying eye: a glowing orb with a bright iris ring,
+ *  radiating sightlines (the scry motif), a dark pupil and a glint. */
+function drawDiviner(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  neon: NeonColorPair,
+  quality: VisualQuality,
+): void {
+  circleGlow(g, s, neon, quality);
+  // Eyeball shell.
+  g.fillStyle(neon.core, 1);
+  g.fillCircle(0, 0, s * 1.05);
+  g.lineStyle(2.5, 0xffffff, 0.9);
+  g.strokeCircle(0, 0, s * 1.05);
+  // Iris ring.
+  g.lineStyle(3, neon.glow, 0.85);
+  g.strokeCircle(0, 0, s * 0.62);
+  // Radiating sightlines (skip on low quality).
+  if (quality !== 'low') {
+    g.lineStyle(2, 0xffffff, 0.5);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(Math.cos(a) * s * 0.62, Math.sin(a) * s * 0.62);
+      g.lineTo(Math.cos(a) * s * 1.05, Math.sin(a) * s * 1.05);
+      g.strokePath();
+    }
+  }
+  // Dark pupil.
+  g.fillStyle(0x1a0022, 0.9);
+  g.fillCircle(0, 0, Math.max(3, s * 0.3));
+  // Bright glint.
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(-s * 0.1, -s * 0.1, Math.max(2, s * 0.1));
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -1228,6 +1264,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   the_helix: drawHelix,
   the_tessellator: drawTessellator,
   the_tremor: drawTremor,
+  the_diviner: drawDiviner,
   legion_fragment: drawLegionFragment,
   legion_mote: drawLegionFragment,
 };

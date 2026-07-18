@@ -24,6 +24,7 @@ export const BOSS_KILL_TRACKING: Record<string, TrackingType> = {
   the_helix: 'boss_kill_the_helix',
   the_tessellator: 'boss_kill_the_tessellator',
   the_tremor: 'boss_kill_the_tremor',
+  the_diviner: 'boss_kill_the_diviner',
 };
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [
@@ -624,6 +625,16 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     category: 'combat',
     targetValue: 1,
     trackingType: 'boss_kill_the_tremor',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+  {
+    id: 'boss_first_the_diviner',
+    name: 'Blind Spot',
+    description: 'Defeat The Diviner',
+    icon: 'shield',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_diviner',
     reward: { type: 'gold', value: 400, description: '+400 gold' },
   },
 ];

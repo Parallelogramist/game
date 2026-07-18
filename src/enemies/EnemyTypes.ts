@@ -45,6 +45,7 @@ export enum EnemyAIType {
   Helix = 109,        // Boss — spiral-barrage energy core
   Tessellator = 110,  // Boss — checkerboard-tiling bullet-hell lattice
   Tremor = 111,       // Boss — expanding seismic-shockwave ripple
+  Diviner = 112,      // Boss — aimed scrying-cage eye
 }
 
 /**
@@ -797,6 +798,23 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     spawnWeight: 0,
   },
 
+  the_diviner: {
+    id: 'the_diviner',
+    name: 'The Diviner',
+    aiType: EnemyAIType.Diviner,
+    category: EnemyCategory.Boss,
+    baseHealth: 4650,
+    baseSpeed: 44,
+    baseDamage: 31,
+    size: 6,
+    color: 0xc850ff,          // Boss - scrying-eye violet
+    secondaryColor: 0xffffff, // White outline
+    shape: 'circle',
+    xpValue: 1000,
+    minSpawnTime: 600,
+    spawnWeight: 0,
+  },
+
   legion_fragment: {
     id: 'legion_fragment',
     name: 'Legion Fragment',
@@ -933,6 +951,7 @@ const ENEMY_ARMOR: Record<string, number> = {
   the_helix: 6,        // energy construct — lightly armored
   the_tessellator: 8,  // crystalline lattice — moderately armored
   the_tremor: 10,      // dense seismic plate — moderately armored
+  the_diviner: 6,      // energy eye construct — lightly armored
   legion_fragment: 4,
   legion_mote: 0,
 };
