@@ -34,6 +34,28 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-REAPER** — new 28th weapon, the Reaper (done — 19ae358). The
+  arsenal's first *execution* weapon: where all 27 peers deal raw damage
+  (flat/AOE/DoT/hitscan/lobbed/orbit/beam), the Reaper's identity is the guaranteed
+  kill. Each cooldown it sweeps a scythe crescent around the ship, chipping every
+  enemy within reach with modest damage AND instantly REAPING (guaranteed kill) any
+  regular/elite enemy left at or below a low share of its max HP — it finishes the
+  wounded stragglers the rest of your kit chips down. Fair by construction: the reap
+  is gated to `EnemyAI.aiType < 50` (regular/elite/spawned), so minibosses (50-56) and
+  bosses (100-112) are NEVER reaped — they take only the chip, no per-boss tuning
+  needed. Distinct from the `guardian` orb (reactive retaliation, not execution) and
+  from the pipeline's <25%-HP execution DAMAGE bonus (a multiplier, not a kill). Base
+  numbers: 12 chip damage, cooldown 1.5, reach 130, reap threshold 20% (mastery "Grim
+  Harvest" 33%, evolution "Deathbringer" via reach 45%). Fully additive — both chip and
+  reap route through the existing `ctx.damageEnemy` (the reap is a lethal
+  remaining-HP+500 hit, crediting combo/XP/gold/ultimate through the normal death
+  path); a self-drawn pooled Graphics draws the crescent (no atlas frame) — no core
+  combat/damage/projectile pipeline change. Mirrors Scattergun file-for-file. Wired
+  into `WeaponRegistry`, `UNLOCKABLE_WEAPONS` (`icon: 'skull-bones'`),
+  `WEAPON_MASTERY_CATEGORY` (`melee`), a "Deathbringer" evolution and a "Death's
+  Embrace" synergy with Aura. Codex, Practice mode and WeaponSelect auto-discover it via
+  the registry. Playtest follow-up filed as **POLISH-WEAPON-REAPER** under
+  `## Human gates`.
 - [x] **FEAT-BOSS-DIVINER** — new 11th boss, The Diviner (done — b10da2e). The
   arsenal's first *AIMED* boss: where all 10 peers fire position-independent geometry
   from fixed points (Pulsar radial spokes + converging rings, Obelisk marching-wall
@@ -684,6 +706,19 @@ Never agent work. The fleet must not do any of these.
     (`DIVINER_INNER_RADIUS`, `DIVINER_RING_SPACING`, `DIVINER_BLAST_RADIUS`,
     `divinerGapSlotsForPhase`, `divinerFuseForPhase`, `divinerStrikeDamage`) and the
     reload cadence in `diviner.ts` (`specialTimer` = `3.0 - bossPhase*0.3`).
+  - **POLISH-WEAPON-REAPER** — the new weapon the Reaper needs a balance/feel eyeball
+    (FEAT-WEAPON-REAPER, `19ae358`). Agents have no browser. Reach it: PRACTICE →
+    WEAPON row → "Reaper" (or unlock it as a run drop). Check: (a) does the scythe
+    crescent read clearly as a sweep around you, and does a reap feel distinct/
+    satisfying vs a plain chip kill? (b) is the base 20% reap threshold impactful
+    without trivializing crowds — do you feel the finisher, or does it just delete
+    everything? (c) at mastery (33%) and evolved (45%) does the widened cull feel like a
+    real power spike but still fair? (d) is the chip (12 dmg, 1.5s, 130 reach) a
+    reasonable floor, or does it feel like dead weight between reaps? (e) confirm
+    minibosses/bosses are NEVER reaped (only chipped) as intended. Retune knobs live at
+    the top of `src/weapons/ReaperWeapon.ts` (`REAP_THRESHOLD`,
+    `REAP_THRESHOLD_MASTERED`, `REAP_THRESHOLD_EVOLVED`, `KNOCKBACK`, `SWEEP_SECONDS`)
+    and the base stats in its constructor (damage/cooldown/range).
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
