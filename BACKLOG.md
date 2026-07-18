@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-SHIP-RECORDS** — the Codex → Statistics tab gained a **BY SHIP** section listing every one of the 11
+  ships with your best run score and your win/run tally (e.g. `Interceptor — 18,240 (3W / 11)`), from data the game
+  never tracked before (done — 1064c47). Mastery (FEAT-ACHIEVE-MASTERY `f27109a`, surfaced in the pre-run pickers by
+  FEAT-PRERUN-MASTERY `50dda53`) is a **binary** — won-once-or-not — and there was **no per-ship performance or
+  play-frequency record anywhere**: `BestScoreManager` keys best score only by *world level*, and `RunHistoryManager`
+  keeps only the last 10 runs. This adds a new pure lifetime store `src/meta/ShipRecords.ts`
+  (`recordShipRun(shipId, victory, score)` / `getShipRecord(shipId)` → `{ runs, victories, bestScore }`, corruption-
+  hardened like `BestScoreManager`), recorded at the exact two sites where `recordScore` already fires (victory in
+  `showVictory`; loss/endless-death in the game-over `!gauntletModeActive` block), so per-ship counting matches the
+  world-level best table 1:1. `CodexScene.displayStatistics` renders the board by appending rows to the existing
+  scrollable `rows[]` array — no new tab, no new scene, no pre-run-card crowding. **Additive & low-risk**: one new
+  storage key (`survivor-ship-records`, auto-transfers with the profile), no save-format migration, no ECS/combat/
+  PlayerStats change. **One test** (`ShipRecords.test.ts`, the corruption/accumulation carve-out mirroring
+  `BestScoreManager.test.ts`); the record calls + render are Phaser-coupled (untested like siblings), guarded by tsc +
+  build. Records are lifetime-**from-now** (a ship won before this feature shows "Not played" until flown once after
+  it); a per-stage board and retroactive backfill are filed as **POLISH-SHIP-RECORDS** under `## Human gates`. Chosen
+  because the backlog was thin (Now empty; Next/Proposed all done; the two open Later items are value-gate busy-work),
+  no dead paid mechanics remain (every `getStarting*` getter has a live caller; RandomLoadout is already wired), and
+  the audit found the game very mature — so this fresh *per-ship performance* axis, extending the operator-sanctioned
+  mastery lineage into a graded chase with zero layout risk, was the lowest-risk fully-specifiable novel win.
 - [x] **FEAT-PRERUN-MASTERY** — the pre-run ship & stage pickers now badge each option with its mastery status and
   show a running "Mastered X/11" (ships) / "Cleared X/7" (biomes) tally in the step subtitle (done — 50dda53). Last
   session's `FEAT-ACHIEVE-MASTERY` (`f27109a`) added 18 mastery achievements (win a run with each of the 11 ships;
@@ -1384,6 +1404,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SHIP-RECORDS** — the new **BY SHIP** section in the Codex → Statistics tab needs a legibility + feel
+    eyeball (FEAT-SHIP-RECORDS, `1064c47`). Agents have no browser. Reach it: main menu → CODEX → the **Statistics**
+    tab → scroll to the **BY SHIP** header (below TOTALS and RECORDS). Check: (a) do the 11 rows read cleanly — the
+    `bestScore (nW / runs)` value on the right and the ship name on the left — without the value clipping the row
+    edge on a phone in **portrait** (720-wide) and **landscape** (1280-wide)? (b) does the whole Statistics list
+    (now ~30 rows) scroll smoothly to the last ship on both orientations? (c) correctness: play a run with a ship,
+    then re-open — does its row increment (runs +1, victories +1 on a win) and raise the best score? (d) scope:
+    records are lifetime-**from-now**, so a ship you won with *before* this shipped shows "Not played" until you fly
+    it once more — is a retroactive backfill wanted (deferred by design)? And should there be a matching **BY STAGE**
+    board? Stages have no Codex tab today, so a per-stage board is a larger follow-up (a 13th tab strains portrait
+    width) — deferred. Knobs: the value format string and the "Not played" label in `displayStatistics`
+    (`src/game/scenes/CodexScene.ts`); the tracked fields in `src/meta/ShipRecords.ts`. These are wording/legibility/
+    scope-only; the mechanics (store, recording, render) are done.
   - **POLISH-PRERUN-MASTERY** — the new mastery badges + "Mastered X/11" / "Cleared X/7" subtitle tallies in the
     pre-run pickers need a legibility + feel eyeball (FEAT-PRERUN-MASTERY, `50dda53`). Agents have no browser. Reach
     it: main menu → PLAY → the **CHOOSE YOUR STAGE** then **CHOOSE YOUR SHIP** steps (both only appear when more than
