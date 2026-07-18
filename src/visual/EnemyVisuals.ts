@@ -784,6 +784,35 @@ function drawBombard(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorP
   g.fillCircle(-s * 0.5, 0, portR);
 }
 
+/** The Stalker — a lean predatory dart with a forward-swept arrowhead + sensor eye */
+function drawStalker(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPair, quality: VisualQuality): void {
+  diamondGlow(g, s, neon, quality);
+  // Arrowhead body pointing forward (+x = toward the player).
+  g.fillStyle(neon.core, 1);
+  g.beginPath();
+  g.moveTo(s * 1.35, 0);          // nose
+  g.lineTo(-s * 0.7, -s * 0.85);  // rear-left wing
+  g.lineTo(-s * 0.3, 0);          // rear notch
+  g.lineTo(-s * 0.7, s * 0.85);   // rear-right wing
+  g.closePath();
+  g.fillPath();
+  g.lineStyle(2.5, 0xffffff, 0.9);
+  g.strokePath();
+  // Predator sensor eye near the nose.
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(s * 0.55, 0, Math.max(2, s * 0.16));
+  g.fillStyle(neon.core, 1);
+  g.fillCircle(s * 0.55, 0, Math.max(1, s * 0.08));
+  // Central scanner line (skip on low quality).
+  if (quality !== 'low') {
+    g.lineStyle(2, neon.glow, 0.8);
+    g.beginPath();
+    g.moveTo(-s * 0.3, 0);
+    g.lineTo(s * 1.0, 0);
+    g.strokePath();
+  }
+}
+
 // =====================================================================
 // BOSSES
 // =====================================================================
@@ -1253,6 +1282,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   twin_a: drawTwinA,
   twin_b: drawTwinB,
   bombard: drawBombard,
+  stalker: drawStalker,
   // Bosses
   horde_king: drawHordeKing,
   void_wyrm: drawVoidWyrm,

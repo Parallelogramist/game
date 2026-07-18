@@ -25,7 +25,7 @@ import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
 import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
-import { resetBossPhaseTracking, resetBastionStrikes, resetPulsarStrikes, resetBombardStrikes, resetObeliskStrikes, resetHelixStrikes, resetTessellatorStrikes, resetTremorStrikes, resetDivinerStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
+import { resetBossPhaseTracking, resetBastionStrikes, resetPulsarStrikes, resetBombardStrikes, resetStalkerStrikes, resetObeliskStrikes, resetHelixStrikes, resetTessellatorStrikes, resetTremorStrikes, resetDivinerStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, applyBurn, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
@@ -7718,7 +7718,7 @@ export class GameScene extends Phaser.Scene {
    * Spawns a random miniboss for endless mode.
    */
   private spawnRandomMiniboss(): void {
-    const minibossIds = ['glutton', 'swarm_mother', 'charger', 'necromancer', 'twin_a', 'bombard'];
+    const minibossIds = ['glutton', 'swarm_mother', 'charger', 'necromancer', 'twin_a', 'bombard', 'stalker'];
     const randomId = minibossIds[Math.floor(Math.random() * minibossIds.length)];
     this.spawnMiniboss(randomId);
   }
@@ -8999,6 +8999,7 @@ export class GameScene extends Phaser.Scene {
     resetBastionStrikes();
     resetPulsarStrikes();
     resetBombardStrikes();
+    resetStalkerStrikes();
     resetObeliskStrikes();
     resetHelixStrikes();
     resetTessellatorStrikes();

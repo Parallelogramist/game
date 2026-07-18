@@ -32,6 +32,7 @@ export enum EnemyAIType {
   TwinA = 54,       // Twin A (linked)
   TwinB = 55,       // Twin B (linked)
   Bombard = 56,     // Kiting artillery — telegraphed AOE mortar clusters
+  Stalker = 57,     // Predictive hunter — telegraphed strikes that lead the player's movement
   // Bosses
   HordeKing = 100,
   VoidWyrm = 101,
@@ -599,6 +600,22 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     shape: 'hexagon',
     xpValue: 300,
     minSpawnTime: 330,   // Informational only — scheduled spawn (spawnWeight 0)
+    spawnWeight: 0,      // Controlled spawn, not random
+  },
+  stalker: {
+    id: 'stalker',
+    name: 'The Stalker',
+    aiType: EnemyAIType.Stalker,
+    category: EnemyCategory.Miniboss,
+    baseHealth: 380,     // a glass hunter — burst it down if you corner it
+    baseSpeed: 105,      // pursues at a medium band; the player can kite if they commit
+    baseDamage: 28,      // predictive-strike damage (and contact damage)
+    size: 2.4,
+    color: 0xcc0066,         // Miniboss - predatory magenta-crimson (distinct from all others)
+    secondaryColor: 0xffffff, // White outline
+    shape: 'triangle',
+    xpValue: 300,
+    minSpawnTime: 255,   // Informational only — scheduled spawn (spawnWeight 0)
     spawnWeight: 0,      // Controlled spawn, not random
   },
 

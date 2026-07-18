@@ -32,6 +32,7 @@ import { updateChargerAI } from './enemy-ai/charger';
 import { updateNecromancerAI } from './enemy-ai/necromancer';
 import { updateTwinAI } from './enemy-ai/twin';
 import { updateBombardAI } from './enemy-ai/bombard';
+import { updateStalkerAI } from './enemy-ai/stalker';
 // bosses
 import { updateHordeKingAI } from './enemy-ai/horde-king';
 import { updateVoidWyrmAI } from './enemy-ai/void-wyrm';
@@ -65,6 +66,7 @@ export { resetTessellatorStrikes } from './enemy-ai/tessellator';
 export { resetTremorStrikes } from './enemy-ai/tremor';
 export { resetDivinerStrikes } from './enemy-ai/diviner';
 export { resetBombardStrikes } from './enemy-ai/bombard';
+export { resetStalkerStrikes } from './enemy-ai/stalker';
 export {
   resetLegionSystem,
   registerLegionRoot,
@@ -103,6 +105,10 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
   const playerId = players[0];
   const playerX = Transform.x[playerId];
   const playerY = Transform.y[playerId];
+  // The player entity carries a live smoothed Velocity (set by InputSystem each frame).
+  // The Stalker miniboss reads it to lead the player's movement with its predictive volley.
+  const playerVelX = Velocity.x[playerId];
+  const playerVelY = Velocity.y[playerId];
 
   aiLodFrame++;
 
@@ -210,6 +216,9 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         break;
       case EnemyAIType.Bombard:
         updateBombardAI(enemyId, playerX, playerY, lodDeltaTime);
+        break;
+      case EnemyAIType.Stalker:
+        updateStalkerAI(enemyId, playerX, playerY, playerVelX, playerVelY, lodDeltaTime);
         break;
       // Bosses
       case EnemyAIType.HordeKing:
