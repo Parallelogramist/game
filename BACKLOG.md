@@ -1101,21 +1101,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   the bug. The fix pairs the guard with a single `paintCardSelection()` that the card
   rebuild and a tap both go through. Full write-up in `BACKLOG-archive.md`. Playtest
   follow-up filed as **POLISH-PACTSELECT-FLIP** under `## Human gates`.
-- [ ] **FEAT-RELIC-DRAFT** — turn relic acquisition from blind RNG into a **choice**. Value: relics are the
-  game's self-described deepest "emergent build interaction" layer, but the player has **zero agency** — every
-  relic is auto-granted at random (`RelicManager.rollAndEquipRandomRelic`, called by the fortune shrine, chests
-  and minibosses). When a relic would drop, present **1-of-3** offered relics (distinct, respecting equipped +
-  luck) and equip the chosen one. This is the single biggest strategic-depth upgrade left and directly leverages
-  the 30+ existing relics. **Deferred from FEAT-RELIC-PITY (rarity pity shipped first)** because a draft needs a
-  new **in-run pausing choice overlay** — freeze gating (mirror the `scene.isActive('UpgradeScene')` gate),
-  mobile + gamepad input (clone `UpgradeScene`/`DirectorSelectScene` card+`MenuNavigator` patterns), a choice
-  queue (minibosses grant two relics; mirror `pendingLevelUps`), the slots-full fallbacks per site, and
-  save-during-choice leniency (the game already tolerates losing mid-modal state — `main.ts` skips `UpgradeScene`
-  on relayout — so a refresh mid-choice may simply drop the relic). Route all three grant sites through one new
-  `grantRelicChoice()` so the choice + equip + heal-accounting + toast + HUD-refresh live in one place. Pointers:
-  `src/meta/RelicManager.ts`, `GameScene.ts:3525/5107/7152`, `UpgradeScene.ts` (overlay launch pattern),
-  `DirectorSelectScene.ts` (compact card layout). Larger than one mechanical-executor session — likely wants a
-  planner pass that splits it (e.g. chest-only first slice) or a higher-capability executor.
+- [x] **FEAT-RELIC-DRAFT** — relic acquisition is now a 1-of-3 **choice** instead of blind RNG (done — 0882753).
+  Every relic was auto-rolled + auto-equipped by `RelicManager.rollAndEquipRandomRelic` at three sites (fortune
+  shrine, treasure chests, miniboss Relic Vow) — the player had **zero agency** over the game's self-described
+  deepest "emergent build interaction" layer (30+ relics). Added `RelicDraftScene` (a pausing 1-of-N choice
+  overlay modeled on `UpgradeScene`, rarity-colored cards, keyboard/gamepad/touch) and routed all three sites
+  through one new `GameScene.grantRelicChoice(count)` + a per-frame `processRelicChoiceQueue()` pump: when a relic
+  would drop, up to 3 distinct relics are offered (respecting equipped + luck + pity) and the pick is equipped
+  with the same heal-accounting + toast + HUD-refresh the auto-grant sites did. The miniboss's two-relic grant
+  becomes two sequential drafts; slots-full/pool-exhausted rounds are skipped (fortune keeps its gold+consumables
+  payout; chests convert a full-slot drop to XP). Freeze uses `isPaused` (mirrors UpgradeScene — input disabled,
+  ESC can't open pause); the pump defers over an active level-up / pause menu / settings and retries next frame
+  (a magnet-drawn chest can be collected during a pause), releasing the pause only when the queue drains.
+  **Pity (FEAT-RELIC-PITY, 31c9a7e) is preserved and extended**: when the sub-floor streak is at threshold every
+  offered choice is epic+, so any pick satisfies the guarantee; the streak resets on an epic+ pick and increments
+  on sub-epic, via new `RelicManager.equipDraftedRelic`. Orientation flip mid-draft is deferred (RelicDraftScene
+  joins UpgradeScene in main.ts's skip list; `handleOrientationFlip` defers, the pump settles it on close).
+  **No drop-weight/pity-constant change, no PlayerStats/CombatStats/save-format/ECS change, no new storage key.**
+  Tested (loot-fairness/pity = the standing order's real-regression-risk carve-out): the distinct-roll +
+  pity-floors-the-whole-draft + streak-reset behaviour in `RelicManager.draft.test.ts`; the scene + GameScene
+  wiring is Phaser-coupled (like UpgradeScene/DirectorSelectScene, untested) and caught by tsc/build. Feel/balance
+  owned by **POLISH-RELIC-DRAFT** under `## Human gates`.
 
 ---
 
@@ -1128,6 +1134,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-RELIC-DRAFT** — the new 1-of-3 relic draft needs a feel/balance eyeball (FEAT-RELIC-DRAFT, `0882753`).
+    Agents have no browser. Reach it: start runs and trigger relic drops (treasure chests, the **Fortune** field
+    shrine, first-clear miniboss **Relic Vow** deal — the miniboss grants TWO sequential drafts). Check: (a) does
+    the overlay read clearly and pick cleanly via touch, keyboard number keys, and gamepad on both landscape and
+    portrait (3 cards fit; card text legible)? (b) does the freeze feel right — gameplay fully halts, and after
+    picking, gameplay + input resume without a stuck pause? (c) the edge where a magnet-drawn chest is collected
+    while a level-up card screen is open: confirm the draft opens cleanly AFTER the level-up closes (never stacked
+    over it). (d) slots-full behaviour: fortune still pays gold+consumables, chests still give XP, miniboss skips
+    the round(s) with no drop lost. (e) pity in the draft: after an unlucky common/rare streak, confirm all three
+    offered relics are epic+. (f) is 1-of-**3** the right width, or should it scale with luck / be 1-of-2 early?
+    Knob: the `count = 3` default in `RelicManager.rollRelicChoices`. (g) rotating the device mid-draft: confirm
+    the draft survives and closes into a correctly re-laid-out HUD.
   - **POLISH-RELIC-PITY** — the new relic bad-luck-protection floor needs a balance eyeball (FEAT-RELIC-PITY,
     `31c9a7e`). Agents have no browser. Reach it: start runs and collect relics (chests, the **Fortune** field
     shrine, first-clear miniboss drops). With pity, an unlucky common/rare streak now guarantees an
