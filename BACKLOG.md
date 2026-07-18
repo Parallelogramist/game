@@ -34,6 +34,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BOSS-TREMOR** — new 10th boss, The Tremor (done — 6951b9a). A seismic
+  shockwave core whose signature is an *expanding ripple of telegraphed ground
+  strikes that washes across the whole tiled arena floor from a shifting
+  epicenter*: each barrage detonates every tile of a 6×4 grid, staggered by
+  Chebyshev ring-distance from an epicenter corner, so a solid wavefront rolls
+  outward and the player flees just ahead of it or shelters on the safe wake of
+  already-detonated tiles. Phase 2+ adds a second, diagonal-opposite epicenter so
+  two wavefronts converge and the last-to-detonate middle band collapses, flipping
+  the demand from "flee across" to "tuck into a corner's wake." Phases tighten the
+  fuse (0.9/0.8/0.7s) and wave speed (ring step 0.26/0.22/0.18s) and raise damage
+  (20/26/32). Distinct from all 9 peers — Helix threads curved spiral gaps, Pulsar
+  orbits radial spokes + converging circular rings, Tessellator hops a checkerboard
+  parity, Obelisk threads a marching-wall lane; the Tremor is a solid,
+  un-threadable expanding wavefront on a tiled floor with a safe wake you flee and
+  shelter in. Pure, deterministic, unit-tested shockwave planner
+  (`tremor-barrage.ts`) feeds a Tessellator-style two-state AI (`tremor.ts`); all
+  damage is telegraphed ground strikes via the existing `groundSlamCallback` — no
+  core combat/damage/projectile pipeline change. Wired into `TUNING.bosses.order`
+  (auto-joins practice + gauntlet + boss cycling + Codex bestiary), a bespoke
+  `EnemyVisuals` drawer (seismic hexagon core), a burnt-orange boss-arena theme, a
+  scorched-fissure boss-phase hazard, `ENEMY_ARMOR` (10), and an "Aftershock"
+  defeat achievement. Playtest follow-up filed as **POLISH-BOSS-TREMOR** under
+  `## Human gates`.
 - [x] **FEAT-WEAPON-GRENADE** — new 27th weapon, the Grenade Launcher (done —
   a8ce5ac). The arsenal's first *lobbed, arcing, traveling explosive*: each
   cooldown it fires grenades that fly from the ship in a visible parabola to
@@ -608,6 +631,24 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-TREMOR** — the new boss The Tremor needs a balance/feel eyeball
+    (FEAT-BOSS-TREMOR, `6951b9a`). Agents have no browser. Reach it: PRACTICE →
+    TARGET row → "The Tremor" (or reach the boss hour in a run; it is in the boss
+    cycle). Check: (a) does the shockwave read clearly as an expanding wavefront of
+    ground strikes rippling out from a corner, with a safe wake you can duck into;
+    (b) fuse 0.9/0.8/0.7s + ring step 0.26/0.22/0.18s — is the wave a readable,
+    survivable speed or too fast/floaty; (c) blast radius 140 / damage 20/26/32 vs
+    peers — dead or oppressive; (d) does the phase-2+ dual-epicenter convergence
+    (second diagonal-opposite corner) read as a distinct escalation, and is the
+    "tuck into a corner's wake" demand fair or a squeeze-to-death; (e) is the 6×4
+    grid the right coarseness (bigger tiles = more room but coarser wave) — a
+    design call, do NOT retune blind; (f) does the between-barrage cadence
+    (3.2 − phase·0.3 = 2.9/2.6/2.3s) give enough breathing room for the board to
+    reset; (g) does the seismic-hexagon drawer + burnt-orange arena + scorched
+    hazard read; (h) does it read at all three quality levels (LOW drops the
+    radiating fault lines; hex plate + rings + core still draw). All knobs are the
+    top-of-file consts + phase functions in `src/ecs/systems/enemy-ai/tremor-barrage.ts`
+    and `tremor.ts` — do not retune blind.
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
