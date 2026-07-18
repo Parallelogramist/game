@@ -34,6 +34,21 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-SCATTER** — new 25th weapon, Scattergun (done — ae3b27a).
+  The arsenal's first *directional multi-pellet spread burst*. Each cooldown it
+  aims at the nearest live enemy and fires a tight fan of instant hitscan pellet-
+  rays across a spread arc — a short-reach, wide-cone crowd shredder that overlaps
+  a single enemy at point-blank and melts it, falling off with distance. Distinct
+  from all 24 peers: Projectile is one auto-aim long shot, Shuriken a spiral in
+  every direction, Flamethrower a continuous DoT cone, Pulse/Storm/Sweep area or
+  global — none fires a discrete directional pellet fan. Instant hit (no traveling
+  projectile), self-drawn pooled Graphics (no atlas frame), per-pellet line hit-test
+  mirroring Railgun's — no core combat/damage/projectile pipeline change. Wired into
+  `WeaponRegistry`, `UNLOCKABLE_WEAPONS`, `ICON_MAP` (`pistol-gun`),
+  `WEAPON_MASTERY_CATEGORY` (projectile), a "Devastator" evolution (multishot Lv5)
+  and a "Cold Snap" synergy (+ Frost Nova). Mastery "Point Blank" amplifies
+  close-range hits. Playtest follow-up filed as **POLISH-WEAPON-SCATTER** under
+  `## Human gates`.
 - [x] **FEAT-BOSS-OBELISK** — new 7th boss, The Obelisk (done — dac5386). A
   looming green energy monolith whose signature is *marching walls* of
   telegraphed ground strikes: a full-arena line of large overlapping blasts with
@@ -509,6 +524,25 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-SCATTER** — the new Scattergun needs a balance/feel eyeball
+    (FEAT-WEAPON-SCATTER, `ae3b27a`). Agents have no browser. Reach it:
+    PRACTICE → WEAPON row → "Scattergun" (unlocked or via a normal run's weapon
+    offers). Check: (a) does it read clearly as a shotgun — a fan of pellet streaks
+    with a muzzle flash, short reach, wide cone; (b) base damage 9 × 5 pellets /
+    cooldown 1.2 / pellet length 240 / spread 0.9rad / half-width 14 / knockback 45
+    vs peers — dead or oppressive?; (c) does pellet-count scaling (5 → 9 at Lv10,
+    +3 at evolution) feel like a growing wall of shot or too dense; (d) does aiming
+    at the NEAREST enemy feel right, or does the cone point the wrong way in a
+    surround (a "densest-cluster" or "toward-movement" aim is the obvious
+    alternative — that is a balance/design call, do NOT let an agent pick one);
+    (e) does Point Blank mastery (×1.6 within 90px) reward brawling; (f) does the
+    Devastator evolution (×1.5 dmg, +3 pellets, ×1.25 range, ×1.2 size, 10% faster)
+    land as a real spike; (g) does Cold Snap synergy with Frost Nova read (freeze
+    the cluster, then shred it); (h) does the pellet fan + muzzle flash read at all
+    three quality levels (note: on LOW quality the per-pellet end-dot is dropped —
+    the streaks still draw). All knobs are the top-of-file consts in
+    `src/weapons/ScattergunWeapon.ts` + the evolution/synergy multipliers — do not
+    retune blind.
   - **POLISH-BOSS-OBELISK** — the new Obelisk boss needs a balance/feel eyeball
     (FEAT-BOSS-OBELISK, `dac5386`). Agents have no browser. Reach it:
     PRACTICE → BOSS row → "The Obelisk" (or a normal run / gauntlet — it now
