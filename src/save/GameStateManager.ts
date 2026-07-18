@@ -395,6 +395,10 @@ export interface GameSaveState {
   // so a reload doesn't re-roll the strategy or reset spawn economy.
   directorState?: DirectorState;
 
+  // Selected Threat Level tier for this run (campaign difficulty ladder) — carried
+  // so a mid-run refresh records the correct cleared tier on victory.
+  threatLevel?: number;
+
   // Active temporary timed stat buffs (Power Surge damage / Elite Surge XP /
   // Golden Tide gem value / Power shrine damage). `expiresAt` is an absolute run
   // `gameTime`; since gameTime is restored verbatim, each buff reverts at the
@@ -661,6 +665,7 @@ export class GameStateManager {
     stageId?: string;
     relicIds?: string[];
     directorState?: DirectorState;
+    threatLevel?: number;
     timedDamageBuffs?: SerializedTimedStatBuff[];
     bountyState?: SerializedBountyState;
     shrineState?: SerializedShrineState;
@@ -738,6 +743,7 @@ export class GameStateManager {
         stageId: gameData.stageId,
         relicIds: gameData.relicIds,
         directorState: gameData.directorState,
+        threatLevel: gameData.threatLevel,
         timedDamageBuffs: gameData.timedDamageBuffs,
         bountyState: gameData.bountyState,
         shrineState: gameData.shrineState,

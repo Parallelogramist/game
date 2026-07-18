@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
+import { THREAT_TIERS, clampThreatTier, type ThreatTier } from '../../data/ThreatTiers';
+import { loadThreatBest, loadThreatLastSelected, saveThreatLastSelected } from '../../meta/ThreatProgress';
 import type { DirectorStrategy } from '../../systems/DirectorSystem';
 
 /**
- * Data threaded through from PactSelectScene; forwarded verbatim to GameScene
- * with the chosen directorStrategy appended.
+ * Data threaded through from DirectorSelectScene; forwarded verbatim to GameScene
+ * with the chosen threatLevel appended.
  */
-export interface DirectorSelectSceneData {
+export interface ThreatSelectSceneData {
   restore?: boolean;
   startingWeapon: string;
   shipId?: string;
@@ -14,34 +16,15 @@ export interface DirectorSelectSceneData {
   modifierIds?: string[];
   pactIds?: string[];
   gauntletMode?: boolean;
+  directorStrategy?: DirectorStrategy;
 }
 
-/**
- * What the scene is actually started with. `relayout` is set only by main.ts's
- * orientation watcher; init() strips it back out so it can never reach GameScene.
- */
-interface DirectorSelectLaunchData extends DirectorSelectSceneData {
+interface ThreatSelectLaunchData extends ThreatSelectSceneData {
   relayout?: boolean;
 }
 
-interface DirectiveOption {
-  /** null = let the director roll a random strategy (the classic experience). */
-  readonly strategy: DirectorStrategy | null;
-  readonly name: string;
-  readonly description: string;
-  readonly color: number;
-}
-
-const DIRECTIVE_OPTIONS: readonly DirectiveOption[] = [
-  { strategy: null,       name: 'Random',   description: 'The director rolls a strategy at random. The classic experience.', color: 0xaaaaaa },
-  { strategy: 'swarm',    name: 'Swarm',    description: 'Endless waves of weak enemies. Very few elites.',                   color: 0xff8844 },
-  { strategy: 'elite',    name: 'Elite',    description: 'Fewer enemies, but far more elites and heavy hitters.',            color: 0xff4466 },
-  { strategy: 'balanced', name: 'Balanced', description: 'A steady, even mix of weak and elite enemies.',                    color: 0x66ccff },
-  { strategy: 'chaos',    name: 'Chaos',    description: 'Unpredictable — heavy on both swarms and elites at once.',         color: 0xaa44ff },
-];
-
-interface DirectiveCard {
-  option: DirectiveOption;
+interface ThreatCard {
+  tier: ThreatTier;
   container: Phaser.GameObjects.Container;
   border: Phaser.GameObjects.Rectangle;
   bg: Phaser.GameObjects.Rectangle;
@@ -49,30 +32,30 @@ interface DirectiveCard {
 }
 
 /**
- * Pre-run directive picker — single-select. Chooses how the difficulty director
- * shapes enemy composition for the run (or leaves it random). Inserted between
- * PactSelectScene and GameScene.
+ * Pre-run Threat Level picker — single-select. Scales enemy HP/damage and gold
+ * reward for the run (tier 0 = unchanged). Inserted between DirectorSelectScene
+ * and GameScene; the final pre-run gate.
  */
-export class DirectorSelectScene extends Phaser.Scene {
-  private passthrough: DirectorSelectSceneData = { startingWeapon: 'projectile' };
+export class ThreatSelectScene extends Phaser.Scene {
+  private passthrough: ThreatSelectSceneData = { startingWeapon: 'projectile' };
   private selectedIndex: number = 0;
-  private cards: DirectiveCard[] = [];
+  private cards: ThreatCard[] = [];
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
   private isStarting: boolean = false;
 
   constructor() {
-    super({ key: 'DirectorSelectScene' });
+    super({ key: 'ThreatSelectScene' });
   }
 
-  init(data?: DirectorSelectLaunchData): void {
-    // A flip restarts this scene to re-fit the new canvas; the directive already
-    // chosen is the player's input and must survive it. A fresh entry defaults to
-    // Random (index 0). `relayout` is destructured off here so the flag can never
-    // ride along to GameScene via passthrough.
-    const { relayout, ...launch }: DirectorSelectLaunchData = data ?? { startingWeapon: 'projectile' };
+  init(data?: ThreatSelectLaunchData): void {
+    // A flip restarts this scene to re-fit the new canvas; the tier already chosen
+    // is the player's input and must survive it. A fresh entry defaults to the last
+    // tier played. `relayout` is destructured off here so it can never ride along to
+    // GameScene via passthrough.
+    const { relayout, ...launch }: ThreatSelectLaunchData = data ?? { startingWeapon: 'projectile' };
     this.passthrough = launch;
-    if (relayout !== true) this.selectedIndex = 0;
+    if (relayout !== true) this.selectedIndex = clampThreatTier(loadThreatLastSelected());
     this.cards = [];
     this.menuNavigator = null;
     this.isStarting = false;
@@ -81,47 +64,55 @@ export class DirectorSelectScene extends Phaser.Scene {
   create(): void {
     const width = this.scale.width;
     const height = this.scale.height;
-    this.cameras.main.setBackgroundColor('#0a0a14');
+    this.cameras.main.setBackgroundColor('#140a0a');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
-    this.add.text(width / 2, 54, 'CHOOSE DIRECTIVE', {
+    this.add.text(width / 2, 54, 'SET THREAT LEVEL', {
       fontSize: '44px',
-      color: '#66ccff',
+      color: '#ff6644',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 6,
     }).setOrigin(0.5).setLetterSpacing(3);
 
-    this.add.text(width / 2, 102, 'Shape how enemies are thrown at you this run.', {
+    this.add.text(width / 2, 100, 'Raise the stakes — tougher enemies, richer rewards.', {
       fontSize: '17px',
-      color: '#9999bb',
+      color: '#bb9999',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
 
-    // Directive cards in centered rows; narrow (portrait) viewports wrap the row.
+    const best = loadThreatBest();
+    this.add.text(width / 2, 126, best > 0 ? `Highest cleared: THREAT ${best}` : 'Highest cleared: none yet', {
+      fontSize: '15px',
+      color: '#ffcc66',
+      fontFamily: 'Arial',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    // Threat cards in centered rows; narrow (portrait) viewports wrap the row.
     const cardWidth = 210;
-    const cardHeight = 210;
+    const cardHeight = 200;
     const gap = 18;
-    const count = DIRECTIVE_OPTIONS.length;
+    const count = THREAT_TIERS.length;
     const perRow = Math.min(count, Math.max(1, Math.floor((width - 16 + gap) / (cardWidth + gap))));
     const rowCount = Math.ceil(count / perRow);
     const rowSpacing = cardHeight + 24;
     const totalGridHeight = rowCount * cardHeight + (rowCount - 1) * 24;
-    // Center rows on the legacy single-row anchor; keep the last row clear of
-    // the BEGIN button (top edge at height - 90).
+    // Center rows on the anchor; keep the last row clear of the BEGIN button
+    // (top edge at height - 90).
     const firstRowY = Math.min(
-      height / 2 - 10 - totalGridHeight / 2 + cardHeight / 2,
+      height / 2 + 4 - totalGridHeight / 2 + cardHeight / 2,
       height - 90 - 12 - cardHeight / 2 - (rowCount - 1) * rowSpacing,
     );
 
-    DIRECTIVE_OPTIONS.forEach((option, index) => {
+    THREAT_TIERS.forEach((tier, index) => {
       const rowIndex = Math.floor(index / perRow);
       const cardsInRow = Math.min(perRow, count - rowIndex * perRow);
       const rowWidth = cardsInRow * cardWidth + (cardsInRow - 1) * gap;
       const cardX = (width - rowWidth) / 2 + cardWidth / 2 + (index % perRow) * (cardWidth + gap);
       const cardY = firstRowY + rowIndex * rowSpacing;
-      this.cards.push(this.createCard(option, cardX, cardY, cardWidth, cardHeight, index));
+      this.cards.push(this.createCard(tier, cardX, cardY, cardWidth, cardHeight, index, best));
     });
 
     // Begin button.
@@ -138,13 +129,13 @@ export class DirectorSelectScene extends Phaser.Scene {
     beginButton.on('pointerup', () => this.beginRun());
     void beginLabel;
 
-    // Keyboard + gamepad navigation: directive cards in a row, BEGIN RUN below.
+    // Keyboard + gamepad navigation: tier cards in a row, BEGIN RUN below.
     // Enter/Space/A activates the focused element; Escape/B begins with the
     // current selection.
     const navigableItems: NavigableItem[] = this.cards.map((card, index) => ({
       onFocus: () => this.setCardFocus(card, true),
       onBlur: () => this.setCardFocus(card, false),
-      onActivate: () => this.selectDirective(index),
+      onActivate: () => this.selectTier(index),
     }));
     navigableItems.push({
       onFocus: () => beginButton.setFillStyle(0x2e4a2e),
@@ -158,11 +149,14 @@ export class DirectorSelectScene extends Phaser.Scene {
       wrap: true,
       onCancel: () => this.beginRun(),
     });
+    // Focus the remembered tier so the keyboard/pad ring and the painted selection
+    // start in agreement (the sticky default may be non-zero).
+    this.menuNavigator.selectIndex(this.selectedIndex);
 
-    // Number keys 1-5 stay as quick-select shortcuts; the navigator owns the rest.
+    // Number keys 1-6 stay as quick-select shortcuts; the navigator owns the rest.
     this.keydownHandler = (event: KeyboardEvent) => {
       const num = parseInt(event.key, 10);
-      if (num >= 1 && num <= count) this.selectDirective(num - 1);
+      if (num >= 1 && num <= count) this.selectTier(num - 1);
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
 
@@ -171,10 +165,11 @@ export class DirectorSelectScene extends Phaser.Scene {
 
   /**
    * Keyboard/gamepad focus ring — a THIN WHITE outline, deliberately unlike the
-   * thick green SELECTED treatment (mirrors PactSelectScene: the focus ring must
-   * never read as a stuck selection, especially on touch where nothing blurs it).
+   * thick green SELECTED treatment (mirrors DirectorSelectScene: the focus ring
+   * must never read as a stuck selection, especially on touch where nothing blurs
+   * it).
    */
-  private setCardFocus(card: DirectiveCard, focused: boolean): void {
+  private setCardFocus(card: ThreatCard, focused: boolean): void {
     if (focused) {
       card.bg.setStrokeStyle(2, 0xffffff, 0.8);
     } else {
@@ -185,39 +180,48 @@ export class DirectorSelectScene extends Phaser.Scene {
   /**
    * The SELECTED treatment, in one place. A re-layout restart rebuilds every card
    * from scratch, so the rebuild and a tap must paint identically. Single-select:
-   * exactly one directive is chosen at a time. Touches bg's FILL only; its stroke
-   * is the focus ring (setCardFocus).
+   * exactly one tier is chosen at a time. Touches bg's FILL only; its stroke is the
+   * focus ring (setCardFocus).
    */
-  private paintCardSelection(card: DirectiveCard, selected: boolean): void {
+  private paintCardSelection(card: ThreatCard, selected: boolean): void {
     card.border.setVisible(selected);
     card.selectedBadge.setVisible(selected);
-    card.bg.setFillStyle(selected ? 0x18251c : 0x14141f);
+    card.bg.setFillStyle(selected ? 0x251818 : 0x14141f);
     card.container.setScale(selected ? 1.04 : 1);
   }
 
-  private createCard(option: DirectiveOption, x: number, y: number, w: number, h: number, index: number): DirectiveCard {
+  private createCard(tier: ThreatTier, x: number, y: number, w: number, h: number, index: number, best: number): ThreatCard {
     const container = this.add.container(x, y);
 
     const bg = this.add.rectangle(0, 0, w, h, 0x14141f).setStrokeStyle(2, 0x333344);
-    // Selection treatment is UNIFORM green; the per-directive accent color stays
-    // on the name text only, so "selected" always looks the same card to card.
+    // Selection treatment is UNIFORM green; the per-tier accent color stays on the
+    // name text only, so "selected" always looks the same card to card.
     const border = this.add.rectangle(0, 0, w, h).setStrokeStyle(4, 0x66ff99).setVisible(false);
 
-    const name = this.add.text(0, -h / 2 + 30, option.name.toUpperCase(), {
+    const name = this.add.text(0, -h / 2 + 30, tier.name, {
       fontSize: '22px',
-      color: `#${option.color.toString(16).padStart(6, '0')}`,
+      color: `#${tier.color.toString(16).padStart(6, '0')}`,
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       align: 'center',
       wordWrap: { width: w - 20 },
     }).setOrigin(0.5, 0);
 
-    const description = this.add.text(0, 6, option.description, {
+    const description = this.add.text(0, -6, tier.description, {
       fontSize: '14px',
-      color: '#bfc4dd',
+      color: '#dcc4c4',
       fontFamily: 'Arial',
       align: 'center',
       wordWrap: { width: w - 28 },
+    }).setOrigin(0.5);
+
+    const reward = this.add.text(0, h / 2 - 52, tier.reward, {
+      fontSize: '15px',
+      color: '#ffdd66',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      align: 'center',
+      wordWrap: { width: w - 24 },
     }).setOrigin(0.5);
 
     const keyHint = this.add.text(0, h / 2 - 18, `[ ${index + 1} ]`, {
@@ -233,23 +237,31 @@ export class DirectorSelectScene extends Phaser.Scene {
       padding: { x: 8, y: 2 },
     }).setOrigin(0.5, 1).setVisible(false);
 
-    container.add([bg, border, name, description, keyHint, selectedBadge]);
+    container.add([bg, border, name, description, reward, keyHint, selectedBadge]);
+
+    // Chase marker: a static gold tag on the tier equal to the persisted best
+    // cleared (tier 0 never shows it — clearing "normal" is not a chase rung).
+    if (tier.tier > 0 && tier.tier === best) {
+      const clearedTag = this.add.text(0, h / 2 - 2, '◆ CLEARED', {
+        fontSize: '11px', color: '#ffcc66', fontFamily: 'monospace',
+      }).setOrigin(0.5, 1);
+      container.add(clearedTag);
+    }
 
     bg.setInteractive({ useHandCursor: true });
-    // Hover-follows-mouse only: on touch, a tap fires pointerover with no
-    // pointerout ever following, which would strand the focus ring on the last
-    // card tapped.
+    // Hover-follows-mouse only: on touch, a tap fires pointerover with no pointerout
+    // ever following, which would strand the focus ring on the last card tapped.
     bg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.wasTouch) this.menuNavigator?.selectIndex(index);
     });
-    bg.on('pointerup', () => this.selectDirective(index));
+    bg.on('pointerup', () => this.selectTier(index));
 
-    const card: DirectiveCard = { option, container, border, bg, selectedBadge };
+    const card: ThreatCard = { tier, container, border, bg, selectedBadge };
     this.paintCardSelection(card, index === this.selectedIndex);
     return card;
   }
 
-  private selectDirective(index: number): void {
+  private selectTier(index: number): void {
     if (index < 0 || index >= this.cards.length) return;
     this.selectedIndex = index;
     this.cards.forEach((card, cardIndex) => this.paintCardSelection(card, cardIndex === index));
@@ -259,10 +271,11 @@ export class DirectorSelectScene extends Phaser.Scene {
     if (this.isStarting) return; // guard against a second click during the fade
     this.isStarting = true;
     this.input.keyboard?.removeAllListeners();
-    const strategy = DIRECTIVE_OPTIONS[this.selectedIndex]?.strategy ?? null;
+    const tier = THREAT_TIERS[this.selectedIndex]?.tier ?? 0;
+    saveThreatLastSelected(tier);
     this.cameras.main.fadeOut(150, 0, 0, 0);
     this.time.delayedCall(160, () => {
-      this.scene.start('ThreatSelectScene', {
+      this.scene.start('GameScene', {
         restore: false,
         startingWeapon: this.passthrough.startingWeapon,
         shipId: this.passthrough.shipId,
@@ -270,7 +283,8 @@ export class DirectorSelectScene extends Phaser.Scene {
         modifierIds: this.passthrough.modifierIds ?? [],
         pactIds: this.passthrough.pactIds ?? [],
         gauntletMode: this.passthrough.gauntletMode === true,
-        directorStrategy: strategy ?? undefined,
+        directorStrategy: this.passthrough.directorStrategy,
+        threatLevel: tier,
       });
     });
   }

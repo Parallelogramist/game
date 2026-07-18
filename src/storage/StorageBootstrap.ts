@@ -96,6 +96,10 @@ export const ALL_STORAGE_KEYS = [
 
   // GauntletBestWave (gauntlet boss-rush mode best cleared wave)
   'survivor-gauntlet-best',
+
+  // ThreatProgress (campaign Threat Level ladder — highest cleared + last selected)
+  'survivor-threat-best',
+  'survivor-threat-last',
   'survivor-gauntlet-leaderboard',
 
   // EndlessBestCycle (post-victory endless mode deepest cycle reached)

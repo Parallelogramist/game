@@ -119,6 +119,8 @@ import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, 
 import { expireTimedStatBuffs, normalizeTimedStatBuffs, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
 import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, type DirectorStrategy } from '../../systems/DirectorSystem';
+import { getThreatTier, clampThreatTier } from '../../data/ThreatTiers';
+import { recordThreatCleared } from '../../meta/ThreatProgress';
 import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
 import { resolveActivePaint } from '../../data/ShipPaints';
@@ -449,6 +451,7 @@ export class GameScene extends Phaser.Scene {
   private activeModifiers: RunModifier[] = [];
   private activePacts: Pact[] = [];
   private directorStrategy?: DirectorStrategy;
+  private threatLevel: number = 0;
   private activeBlessings: Blessing[] = [];
 
   // Boss arena hazard zone spawning
@@ -549,6 +552,7 @@ export class GameScene extends Phaser.Scene {
     dailyChallengeType?: 'daily' | 'weekly';
     gauntletMode?: boolean;
     directorStrategy?: DirectorStrategy;
+    threatLevel?: number;
     practiceMode?: boolean;
     practiceWeaponLevel?: number;
     practiceEvolved?: boolean;
@@ -583,6 +587,7 @@ export class GameScene extends Phaser.Scene {
     // practice/restore, and on "Random" — all of which keep the random roll.
     const requestedStrategy = data?.directorStrategy;
     this.directorStrategy = isDirectorStrategy(requestedStrategy) ? requestedStrategy : undefined;
+    this.threatLevel = clampThreatTier(data?.threatLevel);
   }
 
   create(): void {
@@ -1160,6 +1165,16 @@ export class GameScene extends Phaser.Scene {
     this.playerStats.weaponSlots += ascensionManager.getBonusWeaponSlots();
     this.playerStats.gemValueMultiplier *= ascensionManager.getXPGemMultiplier();
 
+    // ═══ THREAT LEVEL (opt-in campaign difficulty ladder) ═══
+    // curseMultiplier is ADDED to (matches pacts: `stats.curseMultiplier += …`) so
+    // it composes additively with pact curses; it scales every enemy's HP+damage in
+    // createEnemy and XP reward. goldMultiplier is multiplied (matches every other
+    // gold source). This site runs on FRESH starts only (restore returns early
+    // above), so a restored run never re-applies its already-scaled playerStats.
+    const threatTier = getThreatTier(this.threatLevel);
+    this.playerStats.curseMultiplier += threatTier.curseAdd;
+    this.playerStats.goldMultiplier *= threatTier.goldMult;
+
     // ═══ STARTING LEVEL (triggers level-ups at start) ═══
     const startingLevel = metaManager.getStartingLevel()
       + achievementBonuses.startingLevel
@@ -1583,6 +1598,7 @@ export class GameScene extends Phaser.Scene {
       stageId: this.selectedStageId,
       relicIds: getRelicManager().getEquippedRelics().map(r => r.id),
       directorState: getDirectorState(),
+      threatLevel: this.threatLevel,
       // Save key kept as `timedDamageBuffs` for back-compat (the list was
       // damage-only before generalisation); entries now carry a `stat` field.
       timedDamageBuffs: this.timedStatBuffs,
@@ -1793,6 +1809,9 @@ export class GameScene extends Phaser.Scene {
     // re-picks a random strategy, breaking mid-run spawn continuity.
     if (state.directorState) {
       restoreDirectorState(state.directorState);
+    }
+    if (typeof state.threatLevel === 'number') {
+      this.threatLevel = clampThreatTier(state.threatLevel);
     }
     this.minibossSpawnTimes = state.minibossSpawnTimes;
 
@@ -5374,6 +5393,7 @@ export class GameScene extends Phaser.Scene {
    * Handles achievement recording, streak management, and delegates UI to PauseMenuManager.
    */
   private showVictory(): void {
+    recordThreatCleared(this.threatLevel);
     this.hasWon = true;
     this.isPaused = true;
     this.soundManager.playVictoryFanfare();
