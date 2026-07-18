@@ -8710,6 +8710,12 @@ export class GameScene extends Phaser.Scene {
     // Show warning when on weapon milestone with exactly 1 slot left
     const isLastWeaponSlot = isWeaponMilestone && remainingSlots === 1;
 
+    const equippedWeapons = this.weaponManager.getAllWeapons().map((weapon) => ({
+      id: weapon.id,
+      name: weapon.name,
+      level: weapon.getLevel(),
+    }));
+
     // Launch upgrade scene with combined upgrades and utility callbacks
     this.scene.launch('UpgradeScene', {
       upgrades: availableUpgrades,
@@ -8723,6 +8729,7 @@ export class GameScene extends Phaser.Scene {
       // Break gate and milestone data
       allStatUpgrades: this.upgrades,
       playerLevel: this.playerStats.level,
+      equippedWeapons,
       onSelect: (selectedUpgrade: CombinedUpgrade) => {
         this.applyCombinedUpgrade(selectedUpgrade);
         handleSelectionComplete();

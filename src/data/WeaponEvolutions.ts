@@ -426,6 +426,11 @@ export function getEvolutionForWeapon(weaponId: string): WeaponEvolution | undef
   return evolutionsByWeaponId.get(weaponId);
 }
 
+/** Returns every evolution recipe whose required stat is `statId` (a stat can gate several weapons). */
+export function getEvolutionsRequiringStat(statId: string): WeaponEvolution[] {
+  return weaponEvolutionDefinitions.filter((evolution) => evolution.requiredStatId === statId);
+}
+
 /**
  * Checks whether a weapon evolution is ready to trigger.
  * @param weaponId The weapon's ID

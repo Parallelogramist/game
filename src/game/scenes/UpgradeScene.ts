@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrades';
 import { getUpgradeRarityCardStyle } from '../../data/UpgradeRarity';
 import { lockCapacity, toggleLockedId } from '../../data/upgradeLocks';
-import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
+import { getEvolutionForWeapon, getEvolutionsRequiringStat } from '../../data/WeaponEvolutions';
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
 import { TooltipManager } from '../../ui/TooltipManager';
@@ -37,6 +37,8 @@ export interface UpgradeSceneData {
   weaponSlotsInfo?: { current: number; max: number };
   allStatUpgrades?: Upgrade[];
   playerLevel?: number;
+  /** Equipped weapons ({id,name,level}) so stat cards can flag which weapon they evolve. */
+  equippedWeapons?: { id: string; name: string; level: number }[];
   /** Ids of cards locked in a prior reroll/banish of this same level-up. */
   lockedUpgradeIds?: string[];
 }
@@ -93,6 +95,7 @@ export class UpgradeScene extends Phaser.Scene {
   private weaponSlotsInfo: { current: number; max: number } | null = null;
   private allStatUpgrades: Upgrade[] = [];
   private playerLevel: number = 0;
+  private equippedWeapons: { id: string; name: string; level: number }[] = [];
 
   private menuOverlay: MenuOverlay | null = null;
   private utilityButtons: MenuButton[] = [];
@@ -116,6 +119,7 @@ export class UpgradeScene extends Phaser.Scene {
     this.weaponSlotsInfo = data.weaponSlotsInfo ?? null;
     this.allStatUpgrades = data.allStatUpgrades ?? [];
     this.playerLevel = data.playerLevel ?? 0;
+    this.equippedWeapons = data.equippedWeapons ?? [];
     // Restore locks pinned in a prior reroll/banish of this same level-up, keeping
     // only ids still present in the (regenerated) hand.
     const presentIds = new Set(this.upgrades.map(u => u.id));
@@ -806,6 +810,30 @@ export class UpgradeScene extends Phaser.Scene {
       }
     }
 
+    // Evolution preview — stat cards that advance an equipped weapon's evolution.
+    if (upgrade.isStatUpgrade) {
+      const statEvolutionHint = this.getStatEvolutionHint(upgrade);
+      if (statEvolutionHint) {
+        const statHintText = statEvolutionHint.ready
+          ? makeDisplayText(this, 0, evolutionHintY, statEvolutionHint.label, {
+              fontSize: Math.round(13 * textBoost),
+              color: ACCENT_COLORS_STR.focus,
+              letterSpacing: 1,
+            })
+          : this.add
+              .text(0, evolutionHintY, statEvolutionHint.label, {
+                fontSize: `${Math.round(12 * textBoost)}px`,
+                fontFamily: MENU_FONT,
+                color: ACCENT_COLORS_STR.primary,
+                wordWrap: { width: wrapWidth },
+                align: 'center',
+              })
+              .setOrigin(0.5);
+        card.frame.add(statHintText);
+        evolutionHintHeight = statHintText.height + 8;
+      }
+    }
+
     // Rarity tag — small label above the keybind chip on rare/epic cards.
     // Skipped when the gold treatment (overflow / mastered) owns the card.
     const rarityStyle = getUpgradeRarityCardStyle(upgrade.rarity);
@@ -951,6 +979,37 @@ export class UpgradeScene extends Phaser.Scene {
   private findStatLevel(statId: string): number {
     const matching = this.allStatUpgrades.find((candidate) => candidate.id === statId);
     return matching ? matching.currentLevel : 0;
+  }
+
+  private getStatEvolutionHint(statUpgrade: Upgrade): { label: string; ready: boolean } | null {
+    const equippedById = new Map(this.equippedWeapons.map((weapon) => [weapon.id, weapon]));
+    const recipes = getEvolutionsRequiringStat(statUpgrade.id).filter((recipe) => {
+      const weapon = equippedById.get(recipe.weaponId);
+      return weapon !== undefined && weapon.level >= 2;
+    });
+    if (recipes.length === 0) return null;
+
+    const statLevelAfterPick = statUpgrade.currentLevel + 1;
+    const scored = recipes.map((recipe) => {
+      const weaponLevel = equippedById.get(recipe.weaponId)!.level;
+      const statReady = statLevelAfterPick >= recipe.requiredStatLevel;
+      const weaponReady = weaponLevel >= recipe.requiredWeaponLevel;
+      const completesNow = statReady && weaponReady;
+      const priority = (completesNow ? 2 : 0) + (weaponReady ? 1 : 0);
+      return { recipe, weaponLevel, completesNow, priority };
+    });
+    scored.sort((a, b) => b.priority - a.priority || b.weaponLevel - a.weaponLevel);
+    const best = scored[0];
+    const extra = recipes.length > 1 ? `  (+${recipes.length - 1})` : '';
+
+    if (best.completesNow) {
+      return { label: `✦ EVOLUTION READY: ${best.recipe.evolvedName}${extra}`, ready: true };
+    }
+    const weaponName = equippedById.get(best.recipe.weaponId)!.name;
+    return {
+      label: `✦ Evolves ${weaponName}: wpn ${best.weaponLevel}/${best.recipe.requiredWeaponLevel} · stat ${statUpgrade.currentLevel}/${best.recipe.requiredStatLevel}${extra}`,
+      ready: false,
+    };
   }
 
   private createLevelProgressBar(
