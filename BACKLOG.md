@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-RUNS** — a browsable **Runs** Codex tab (the 11th tab) listing your last 10 runs, each
+  enriched with the build you played (done — bd04351). `RunHistoryManager` already persisted the last 10
+  runs, but that history was only ever shown three-deep on the run-end results overlay (no browsable menu
+  surface) and recorded only *outcome*, never *which build* — so you couldn't review recent runs from the
+  menu or see which weapon/ship/Threat produced which result. Enriched `RunSummary` with six **optional**
+  build fields (`startingWeapon`, `shipId`, `stageId`, `threatLevel`, `pactIds`, `mode`), populated at
+  BOTH run-end record sites (`showVictory` + `gameOver`) via a shared `runHistoryBuild()` helper; optional
+  + `isRunSummary` left unchanged so **pre-enrichment records still validate** (no history wipe), and the
+  Codex reads every build field **defensively**. New tab `{ id: 'runs', name: 'Runs', icon: 'run' }`
+  (appended after Statistics), rendered by `displayRuns()`/`createRunCard()` cloned from the
+  Modifiers/Pacts grid idiom — up to 10 cards showing a grade badge, starting weapon, ship · `T{n}` ·
+  mode · pact count, and WIN/LOSS · time · level · kills + score; empty history shows a friendly message.
+  Grade colors single-sourced via a new `getGradeColor()` export on `PerformanceGrade`. Directly mirrors
+  FEAT-CODEX-PACTS (`be21ea8`) / FEAT-CODEX-MODIFIERS (`23f565d`). **No new file; no ECS/combat/save-format
+  /scene-flow change** (the store key `survivor-run-history` was already registered; the serialized shape
+  only gains optional fields). No new test (the store logic is unchanged and already covered by
+  `RunHistoryManager.test.ts` whose `makeRun` uses `Partial<RunSummary>`; the tab clones test-free
+  siblings; wiring caught by tsc/build). Playtest follow-up filed as **POLISH-CODEX-RUNS** under
+  `## Human gates`.
+
 - [x] **FEAT-QUICK-REPLAY** — one-tap **REPLAY LOADOUT** on the main menu that re-launches a fresh run
   with your last full pre-run configuration, skipping the whole funnel (done — 0653f1b). The content
   pools are saturated (all 29 weapons carry both an evolution and a synergy; 12 bosses / 8 minibosses /
@@ -956,6 +976,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-RUNS** — the new Codex **Runs** tab needs an eyeball (FEAT-CODEX-RUNS, `bd04351`). Agents
+    have no browser. Reach it: main menu → CODEX → the last tab, **Runs**. Check: (a) with the tab bar now
+    at **11 tabs**, does it still read cleanly in BOTH portrait and landscape and on a phone (the tabs
+    auto-shrink to fit the width — is "Runs"/"Statistics" still legible, or is the bar too cramped now)?
+    (b) do the run cards lay out and scroll correctly, newest-first, up to 10? (c) is each card's data
+    right — grade badge color, starting weapon + ship names, `T{n}`, mode tag (GAUNTLET/DAILY/ENDLESS),
+    pact count, WIN/LOSS color, time/level/kills, and score? (d) does the "No runs recorded yet" empty
+    state show before any run is finished? (e) do older, pre-this-feature runs (recorded without build
+    fields) render cleanly as `—`? (f) should the card also show *when* the run happened (a relative
+    timestamp) or the stage — both are recorded/available but intentionally not shown to keep the card to
+    three lines (a design call — do NOT add blind)? Knobs: `createRunCard` layout/colors/`runCardHeight`
+    and the tab position/label in `CodexTypes.ts`; the stored fields in `RunSummary` / `runHistoryBuild`.
   - **POLISH-QUICK-REPLAY** — the new main-menu **REPLAY LOADOUT** link needs an eyeball
     (FEAT-QUICK-REPLAY, `0653f1b`). Agents have no browser. Reach it: complete at least one normal or
     Gauntlet run setup (PLAY → weapon → pact → directive → threat → BEGIN); return to the main menu →
