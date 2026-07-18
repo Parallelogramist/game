@@ -34,6 +34,23 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-SHIPS** — the Codex gets a browsable Ships tab surfacing every ship's kit
+  and its unique ultimate (done — 5a84d82). The Codex already had tabs for Weapons, Bestiary,
+  Upgrades, Synergies, Relics, Evolutions and Statistics — every build-defining system except
+  **ships**, yet 11 ships each carry a full kit (6 stat multipliers, signature bonuses, a
+  starting weapon, a unique hull) **and a unique ultimate** (from FEAT-SHIP-ULTIMATES,
+  `49c934f`), all of it visible only transiently at selection time (`WeaponSelectScene` /
+  `PracticeScene`) with no way to compare ships or read the 11 ultimates side by side. Added
+  an eighth **Ships** tab listing all 11 ships as always-visible reference cards (neon-tinted
+  ship glyph, name, the kit-summary description, and `Ultimate: <name>` + the ultimate's
+  one-line effect). Directly mirrors the shipped FEAT-CODEX-EVOLUTIONS (`d4099c5`) /
+  FEAT-CODEX-RELICS (`759a1cd`) / FEAT-CODEX-SYNERGIES (`37a45d3`): reuses `layoutCardGrid`,
+  clones `createEvolutionCard`, uses the `0x4a4a7a` border so `updateFocusVisuals` needs no
+  change. Pure static reference — **no new scene, no BootScene/main.ts change, no
+  discovery-tracking, no `CodexState`/persistence change, no completion-% impact** (completion
+  weights only weapons + enemies). Surfaces two hidden systems at once (ship kits + the 11
+  ultimates). In the repo's proven "surface hidden depth" family. Playtest follow-up filed as
+  **POLISH-CODEX-SHIPS**.
 - [x] **FEAT-GAUNTLET-LEADERBOARD** — the Gauntlet boss-rush mode gets a browsable
   ranked run-history leaderboard (done — a74b77e). Gauntlet is a first-class,
   menu-accessible mode with its own escalating wave system, but it persisted **only**
@@ -876,6 +893,23 @@ Never agent work. The fleet must not do any of these.
     recorded (the `endlessCycleNumber >= 1` gate). Knobs: `MAX_ENDLESS_ENTRIES` + the
     `rankEndlessEntries` comparator in `EndlessLeaderboard.ts`; the columns / `maxRows` /
     `role` highlight in `renderEndlessEntries`; the tab styling in `renderFilterTabs`.
+  - **POLISH-CODEX-SHIPS** — the new Ships Codex tab needs an eyeball (FEAT-CODEX-SHIPS,
+    `5a84d82`). Agents have no browser. Reach it: main menu → CODEX → Ships tab. Check: (a) do
+    the now-**eight** tabs (Weapons / Bestiary / Upgrades / Synergies / Relics / Evolutions /
+    Ships / Statistics) fit and read cleanly on a phone-width viewport, or does the tab row
+    crowd/clip the icon+label+count — if so, shorten labels or shrink the tab font in
+    `createCategoryTabs`? Eight tabs is tighter than the seven that shipped before. (b) does
+    each ship card lay out cleanly at `shipCardHeight` 134 — name, kit description (does the
+    longest, e.g. Apex's "+30% everything…Starts with Drone.", wrap within its region without
+    overlapping the `Ultimate:` line at y=84?), ultimate name, ultimate description — across
+    all 11 ships? (c) does one shared `rocket` glyph tinted per-ship neon read well, or should
+    each ship get a mini procedural hull preview (`ShipPreview`) instead — the deferred
+    enhancement? (d) should the tab show unlock state (locked/unlock-hint) like FEAT-SHIP-CHASE
+    does in WeaponSelectScene, or is the pure all-visible reference (matching Synergies/Relics/
+    Evolutions) right? (e) is placing Ships between Evolutions and Statistics the right tab
+    order, or should the roster sit earlier (next to Bestiary)? Knobs: `shipCardHeight`, the
+    card `textX` / y-offsets / `wrapWidth` and colors in `createShipCard`; the tab entry
+    position + icon in `CODEX_CATEGORIES` (`src/codex/CodexTypes.ts`).
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
