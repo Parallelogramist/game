@@ -34,6 +34,23 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-SURPRISE-RUN** — a one-tap **SURPRISE ME** main-menu launcher that starts a fully-randomized,
+  always-valid run (done — 04f637e). Content is saturated (29 weapons / 11 ships / 4 stages / 8 pacts / 4
+  director strategies / 0–5 Threat), but the only ways to start a run were the deliberate 4-screen funnel, a
+  daily/weekly challenge, or REPLAY LOADOUT (same as last time) — there was **no way to just roll the dice**, so
+  most of that content rarely got exercised. Added `src/meta/RandomLoadout.ts` (`buildRandomLoadout()`) that
+  rolls a `LastLoadout` from only **unlocked / discovered** pools (discovered weapons via
+  `CodexManager.isWeaponDiscovered`; ships/stages via the same `isUnlockRequirementMet` gate the funnel uses),
+  with Threat bounded by the player's highest cleared tier (`loadThreatBest()`), 0–2 random distinct pacts
+  (capped below the funnel's 3), a random director strategy, and `gauntletMode: false`. Surfaced as a new
+  **SURPRISE** card in the main-menu progression deck (gold, `dice` icon) beside the GAUNTLET/RUNNER/PRACTICE
+  mode launchers — the deck auto-fits it via its tested fit-to-width shrink, so no new layout math. On tap it
+  saves the roll as the last loadout (so a surprise run you liked re-launches from REPLAY LOADOUT) and reuses
+  the existing `replayLoadout` path verbatim (clear any in-progress save with the same confirm, re-roll
+  modifiers, drop into `GameScene`). **No new store/storage key** (reuses `survivor-last-loadout`), **no
+  ECS/combat/scene-flow change, no funnel/GameScene change.** Test-free: trivial random selection over the
+  already-tested unlock gates, no persistence-shape change, wiring caught by tsc/build (mirrors the test-free
+  FEAT-QUICK-REPLAY `0653f1b`). Playtest follow-up filed as **POLISH-SURPRISE-RUN** under `## Human gates`.
 - [x] **FEAT-CODEX-DISCOVER-DEEP** — the Codex **Synergies** and **Evolutions** tabs now track which of the 26
   synergies / 31 evolutions you've actually achieved in a run (done — 391a5c2). The Weapons and Bestiary tabs
   already ran a collection meta-goal (persisted `discovered` flag, "Unknown" placeholder, `discovered/total`
@@ -1053,6 +1070,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SURPRISE-RUN** — the new one-tap SURPRISE ME launcher needs an eyeball (FEAT-SURPRISE-RUN,
+    `04f637e`). Agents have no browser. Reach it: main menu → the **SURPRISE** card in the progression deck (gold,
+    dice icon, appended after PRACTICE) → it should drop you straight into a randomized run. Check: (a) does the
+    10th deck card crowd the row on a **phone portrait** — is the icon still comfortably tappable, or should
+    SURPRISE move (e.g. a prominent link under the hero, or lead the deck) rather than append last? (b) is gold
+    the right colour, or does a wildcard roll want its own accent? (c) does the roll *feel* fair — Threat never
+    above your cleared range, at most 2 pacts, never Gauntlet — or is a chance 2-pact + high-Threat combo too
+    spiky (knob: `MAX_SURPRISE_PACTS` and the threat bound in `RandomLoadout.ts`)? (d) should it show a brief
+    toast naming what it rolled (currently silent — the surprise is revealed by playing)? (e) does the in-progress
+    save overwrite confirmation fire correctly, and does the surprise run then re-launch cleanly from REPLAY
+    LOADOUT? Knobs: the deck entry (colour/icon/placement) in `createProgressionDeck` (`BootScene.ts`) and the
+    selection bounds in `buildRandomLoadout` (`RandomLoadout.ts`).
   - **POLISH-CODEX-DISCOVER-DEEP** — the new synergy/evolution Codex collection state needs an eyeball
     (FEAT-CODEX-DISCOVER-DEEP, `391a5c2`). Agents have no browser. Reach it: open Codex → Synergies (and
     Evolutions) — everything reads dormant `0/26` on a fresh profile; then in a run form a synergy (e.g.
