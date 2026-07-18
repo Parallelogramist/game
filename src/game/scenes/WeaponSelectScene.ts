@@ -11,6 +11,8 @@ import { getUltimateForShip } from '../../data/ShipUltimates';
 import { getHiddenUnlockManager, HIDDEN_UNLOCKS } from '../../meta/HiddenUnlocks';
 import { STAGES, StageDefinition } from '../../data/Stages';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
+import { getAchievementManager } from '../../achievements';
+import { SHIP_WIN_TRACKING, STAGE_WIN_TRACKING } from '../../achievements/AchievementDefinitions';
 import { getShipModManager } from '../../meta/ShipModManager';
 import { ShipPreview } from '../../visual/ShipPreview';
 import { isUnlockRequirementMet, UnlockGateContext } from '../../data/UnlockGates';
@@ -254,11 +256,28 @@ export class WeaponSelectScene extends Phaser.Scene {
     return '';
   }
 
+  /**
+   * Badge a ship/stage card with its mastery status — gold when the run-win
+   * achievement is unlocked, muted "NOT YET WON" otherwise. Sits in the gap
+   * between the card banner and its description block.
+   */
+  private addMasteryTag(card: MenuCard, y: number, mastered: boolean, wonLabel: string): void {
+    const tag = makeDisplayText(this, 0, y, mastered ? wonLabel : 'NOT YET WON', {
+      fontSize: 10,
+      color: mastered ? ACCENT_COLORS_STR.gold : TEXT_COLORS.muted,
+      letterSpacing: 2,
+    });
+    card.frame.add(tag);
+  }
+
   private renderStageSelectionStep(stages: StageDefinition[]): void {
     this.clearStepUI();
     this.currentStep = 'stage';
     this.renderStepHeader();
-    this.renderStepTitle('CHOOSE YOUR STAGE', 'Each stage changes visuals, difficulty, and rewards', ACCENT_COLORS_STR.magenta);
+    const achievementManager = getAchievementManager();
+    const stageTrackings = Object.values(STAGE_WIN_TRACKING);
+    const stagesCleared = stageTrackings.filter((tracking) => achievementManager.isTrackingUnlocked(tracking)).length;
+    this.renderStepTitle('CHOOSE YOUR STAGE', `Each stage changes visuals, difficulty, and rewards · Cleared ${stagesCleared}/${stageTrackings.length}`, ACCENT_COLORS_STR.magenta);
 
     this.registerPressedCardClearing();
 
@@ -293,6 +312,8 @@ export class WeaponSelectScene extends Phaser.Scene {
         letterSpacing: 1.5,
       });
       card.frame.add(nameText);
+
+      this.addMasteryTag(card, -14, achievementManager.isTrackingUnlocked(STAGE_WIN_TRACKING[stage.id]), 'CLEARED');
 
       const description = makeBodyText(this, 0, 18, stage.description, {
         fontSize: 13,
@@ -454,7 +475,10 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.clearStepUI();
     this.currentStep = 'ship';
     this.renderStepHeader();
-    this.renderStepTitle('CHOOSE YOUR SHIP', 'Each ship grants unique starting gear and stat tradeoffs', ACCENT_COLORS_STR.primary);
+    const achievementManager = getAchievementManager();
+    const shipTrackings = Object.values(SHIP_WIN_TRACKING);
+    const shipsMastered = shipTrackings.filter((tracking) => achievementManager.isTrackingUnlocked(tracking)).length;
+    this.renderStepTitle('CHOOSE YOUR SHIP', `Each ship grants unique starting gear and stat tradeoffs · Mastered ${shipsMastered}/${shipTrackings.length}`, ACCENT_COLORS_STR.primary);
 
     const cardWidth = 200;
     const cardHeight = 160;
@@ -535,6 +559,8 @@ export class WeaponSelectScene extends Phaser.Scene {
         );
         card.frame.add(modsText);
       }
+
+      this.addMasteryTag(card, -10, achievementManager.isTrackingUnlocked(SHIP_WIN_TRACKING[ship.id]), 'MASTERED');
 
       const ultimate = getUltimateForShip(ship);
       const description = makeBodyText(

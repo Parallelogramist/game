@@ -585,6 +585,16 @@ export class AchievementManager {
     return this.persistentState.achievements[achievementId];
   }
 
+  /**
+   * True if the persistent achievement mapped to this tracking type is unlocked.
+   * Used by the pre-run pickers to badge ship/stage mastery.
+   */
+  isTrackingUnlocked(trackingType: string): boolean {
+    const achievement = ACHIEVEMENTS.find((entry) => entry.trackingType === trackingType);
+    if (!achievement) return false;
+    return this.persistentState.achievements[achievement.id]?.isUnlocked === true;
+  }
+
   getRunStats(): RunStats {
     return { ...this.runState.runStats };
   }
