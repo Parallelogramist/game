@@ -9,6 +9,7 @@ import {
   getRecentLeaderboardEntries,
   DailyLeaderboardEntry,
 } from '../../meta/DailyChallengeManager';
+import { getGauntletRuns, type GauntletRunEntry } from '../gauntlet/GauntletLeaderboard';
 import { getAchievementManager } from '../../achievements/AchievementManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
@@ -24,7 +25,7 @@ import {
 
 const ENTRIES_TO_SHOW = 30;
 
-type FilterMode = 'all' | 'daily' | 'weekly' | 'victory';
+type FilterMode = 'all' | 'daily' | 'weekly' | 'victory' | 'gauntlet';
 
 function filterEntries(entries: DailyLeaderboardEntry[], mode: FilterMode): DailyLeaderboardEntry[] {
   switch (mode) {
@@ -46,6 +47,7 @@ export class LeaderboardScene extends Phaser.Scene {
   private entryListChildren: Phaser.GameObjects.GameObject[] = [];
   private entryCards: MenuCard[] = [];
   private allEntries: DailyLeaderboardEntry[] = [];
+  private gauntletEntries: GauntletRunEntry[] = [];
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
   private bestsCards: MenuCard[] = [];
@@ -90,6 +92,7 @@ export class LeaderboardScene extends Phaser.Scene {
     this.listStartY = 240 + bestsExtraHeight;
 
     this.allEntries = getRecentLeaderboardEntries(ENTRIES_TO_SHOW);
+    this.gauntletEntries = getGauntletRuns();
     this.renderCurrentEntries(centerX);
 
     this.backButton = createMenuButton({
@@ -202,11 +205,12 @@ export class LeaderboardScene extends Phaser.Scene {
   }
 
   private renderFilterTabs(centerX: number, tabY: number): void {
-    const tabs: { mode: FilterMode; label: string; accentRole: 'primary' | 'gold' | 'magenta' | 'safe' }[] = [
+    const tabs: { mode: FilterMode; label: string; accentRole: 'primary' | 'gold' | 'magenta' | 'safe' | 'teal' }[] = [
       { mode: 'all', label: 'ALL', accentRole: 'primary' },
       { mode: 'daily', label: 'DAILY', accentRole: 'gold' },
       { mode: 'weekly', label: 'WEEKLY', accentRole: 'magenta' },
       { mode: 'victory', label: 'VICTORIES', accentRole: 'safe' },
+      { mode: 'gauntlet', label: 'GAUNTLET', accentRole: 'teal' },
     ];
 
     this.menuTabs?.destroy();
@@ -232,6 +236,21 @@ export class LeaderboardScene extends Phaser.Scene {
     this.entryListChildren = [];
     for (const card of this.entryCards) card.destroy();
     this.entryCards = [];
+
+    if (this.currentFilter === 'gauntlet') {
+      if (this.gauntletEntries.length === 0) {
+        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + 40,
+          'No gauntlet runs yet — try the GAUNTLET boss rush!',
+          {
+            fontSize: 16,
+            color: TEXT_COLORS.dim,
+          });
+        this.entryListChildren.push(emptyText);
+        return;
+      }
+      this.renderGauntletEntries(this.gauntletEntries, centerX);
+      return;
+    }
 
     const filtered = filterEntries(this.allEntries, this.currentFilter);
     if (filtered.length === 0) {
@@ -330,6 +349,80 @@ export class LeaderboardScene extends Phaser.Scene {
     }
   }
 
+  private renderGauntletEntries(entries: GauntletRunEntry[], centerX: number): void {
+    const listStartY = this.listStartY;
+    const rowHeight = 36;
+    const maxRows = 12;
+    const displayEntries = entries.slice(0, maxRows);
+    const rowWidth = Math.min(800, this.scale.width - 32);
+    const leftX = centerX - rowWidth / 2;
+    const colX = (offset: number) => leftX + Math.round(offset * (rowWidth / 800));
+
+    const headerLabels: { x: number; text: string }[] = [
+      { x: colX(70), text: 'RANK' },
+      { x: colX(190), text: 'DATE' },
+      { x: colX(340), text: 'WAVE' },
+      { x: colX(470), text: 'KILLS' },
+      { x: colX(590), text: 'TIME' },
+      { x: colX(710), text: 'LEVEL' },
+    ];
+    for (const header of headerLabels) {
+      const t = makeDisplayText(this, header.x, listStartY, header.text, {
+        fontSize: 11,
+        color: TEXT_COLORS.muted,
+        letterSpacing: 1,
+      });
+      this.entryListChildren.push(t);
+    }
+
+    displayEntries.forEach((entry, index) => {
+      const rowY = listStartY + 28 + index * rowHeight;
+      const role: 'gold' | 'teal' = index === 0 ? 'gold' : 'teal';
+
+      const card = createMenuCard(this, {
+        x: centerX,
+        y: rowY,
+        width: rowWidth,
+        height: 30,
+        bodyFillColor: BODY_COLORS[role],
+        accentColor: roleAccent(role),
+        bannerHeight: 0,
+        borderWidth: 2,
+        borderColor: roleAccent(role),
+        cornerRadius: 6,
+        shadowOffsetY: 4,
+        shadowAlpha: 0.35,
+      });
+      this.entryCards.push(card);
+
+      const accentStr = index === 0 ? ACCENT_COLORS_STR.gold : roleAccentStr('teal');
+
+      const cells: { x: number; text: string; color: string; emphasis: boolean }[] = [
+        { x: colX(70) - centerX, text: `#${index + 1}`, color: accentStr, emphasis: true },
+        { x: colX(190) - centerX, text: formatShortDate(entry.timestamp), color: TEXT_COLORS.body, emphasis: false },
+        { x: colX(340) - centerX, text: `Wave ${entry.wave}`, color: accentStr, emphasis: true },
+        { x: colX(470) - centerX, text: String(entry.kills), color: TEXT_COLORS.body, emphasis: false },
+        { x: colX(590) - centerX, text: formatTime(entry.durationSeconds), color: TEXT_COLORS.body, emphasis: false },
+        { x: colX(710) - centerX, text: `Lv ${entry.levelReached}`, color: TEXT_COLORS.body, emphasis: false },
+      ];
+      for (const cell of cells) {
+        const t = cell.emphasis
+          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
+          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, align: 'center' });
+        card.frame.add(t);
+      }
+    });
+
+    if (entries.length > displayEntries.length) {
+      const moreText = makeBodyText(this, centerX, listStartY + 28 + displayEntries.length * rowHeight + 8,
+        `... ${entries.length - displayEntries.length} more`, {
+          fontSize: 11,
+          color: TEXT_COLORS.dim,
+        });
+      this.entryListChildren.push(moreText);
+    }
+  }
+
   private returnToMenu(): void {
     transitionToScene(this, 'BootScene');
   }
@@ -360,6 +453,13 @@ function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatShortDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${month}/${day}`;
 }
 
 function roleAccent(role: 'primary' | 'gold' | 'magenta' | 'safe' | 'teal'): number {

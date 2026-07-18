@@ -92,6 +92,7 @@ import {
   gauntletWaveSpawnPlan,
 } from '../gauntlet/gauntletWaves';
 import { loadGauntletBestWave, saveGauntletBestWaveIfHigher } from '../gauntlet/GauntletBestWave';
+import { recordGauntletRun } from '../gauntlet/GauntletLeaderboard';
 import { loadEndlessBestCycle, saveEndlessBestCycleIfHigher } from '../endless/EndlessBestCycle';
 import { resetEnemySpatialHash, getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
@@ -5724,6 +5725,17 @@ export class GameScene extends Phaser.Scene {
         score: scoreResult.score,
         grade: performanceGrade.grade,
         victory: this.hasWon,
+        worldLevel: runWorldLevel,
+      });
+    }
+
+    if (this.gauntletModeActive) {
+      recordGauntletRun({
+        timestamp: Date.now(),
+        wave: Math.max(1, this.gauntletWave),
+        kills: this.killCount,
+        durationSeconds: this.gameTime,
+        levelReached: this.playerStats.level,
         worldLevel: runWorldLevel,
       });
     }
