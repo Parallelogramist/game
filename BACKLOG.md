@@ -34,6 +34,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-PRERUN-MASTERY** — the pre-run ship & stage pickers now badge each option with its mastery status and
+  show a running "Mastered X/11" (ships) / "Cleared X/7" (biomes) tally in the step subtitle (done — 50dda53). Last
+  session's `FEAT-ACHIEVE-MASTERY` (`f27109a`) added 18 mastery achievements (win a run with each of the 11 ships;
+  clear a run in each of the 7 biomes), but they were **invisible in the main play flow** — only surfaced in the
+  Achievement scene's Mastery tab — so the collection chase never reached the moment it matters: choosing your ship
+  and biome. This surfaces it there. `WeaponSelectScene` (the stage → ship → weapon funnel) badges every selectable
+  ship/stage card with a gold **MASTERED** / **CLEARED** tag once its run-win achievement is unlocked, muted
+  **NOT YET WON** otherwise (in the banner→description gap, mirroring the existing HANGAR-mods line), and appends a
+  `· Mastered n/11` / `· Cleared n/7` tally to each step subtitle. Backed by one new pure query,
+  `AchievementManager.isTrackingUnlocked(trackingType)` (maps a tracking type → its achievement → unlocked state),
+  read via the existing `SHIP_WIN_TRACKING` / `STAGE_WIN_TRACKING` maps. **Read-only display**: no new scene, no
+  main-menu-layout change, no combat/ECS/PlayerStats/save-format/storage-key change; locked ship/stage cards are
+  untouched (a locked option can't be mastered). **No new tests** — the tracking-type→id maps are already pinned by
+  `referentialIntegrity.test.ts`, the query is a trivial find+read, and the scene is Phaser-coupled (untested like
+  siblings), guarded by tsc + build. Legibility/feel (tag + tally on phone portrait; whether "NOT YET WON" reads well
+  and whether locked cards should also hint mastery) owned by **POLISH-PRERUN-MASTERY** under `## Human gates`. Chosen
+  because the backlog was thin (Now empty; Next/Proposed all done; the two open Later items are value-gate busy-work)
+  and the audit found the game very mature — loadouts, per-weapon breakdown, career stats, boss-rush (gauntlet),
+  reroll/banish/skip, retry-same-build all already shipped — so this fresh *meta-chase visibility* axis, which
+  activates a dormant subsystem and slots into the existing pre-run pickers with zero layout risk, was the
+  lowest-risk fully-specifiable novel win.
 - [x] **FEAT-LOADOUT-CODES** — copy any build you play to a short shareable **build code** and paste a code to
   instantly launch that exact build, from the existing **LOADOUTS** menu (done — `2cafd6b`). `FEAT-LOADOUT-PRESETS`
   (`dafb662`) let the LOADOUTS menu save + one-tap replay builds, but every build stayed **trapped on one
@@ -1363,6 +1384,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PRERUN-MASTERY** — the new mastery badges + "Mastered X/11" / "Cleared X/7" subtitle tallies in the
+    pre-run pickers need a legibility + feel eyeball (FEAT-PRERUN-MASTERY, `50dda53`). Agents have no browser. Reach
+    it: main menu → PLAY → the **CHOOSE YOUR STAGE** then **CHOOSE YOUR SHIP** steps (both only appear when more than
+    one stage/ship is unlocked). Check: (a) do the per-card tags ("MASTERED"/"CLEARED"/"NOT YET WON") read cleanly and
+    not collide with the ship's HANGAR-mods line, the ULT description text, or the card banner, on a phone in
+    **portrait** (720-wide) and **landscape** (1280-wide), across the busiest grids (11 ships / 7 stages)? (b) does
+    the subtitle tally ("… · Mastered n/11" / "… · Cleared n/7") fit one line without clipping, including in a
+    **GAUNTLET** flow where `renderStepTitle` prepends "GAUNTLET · BOSS RUSH — "? (c) correctness: win a run with a
+    ship/biome you hadn't before, then re-open the pickers — does that ship flip to gold MASTERED and its biome to
+    gold CLEARED, and do both tallies increment? (d) scope: tags are shown only on unlocked cards and only reflect
+    *win* status (not attempts) — is a "you've flown this but not won" intermediate state or a locked-card mastery
+    hint wanted (both deferred by design)? Knobs: tag text/label ("MASTERED"/"CLEARED"/"NOT YET WON"), `fontSize`,
+    colors, and y-offset in `addMasteryTag` + the two call sites; tally wording in the two `renderStepTitle` subtitle
+    strings — all in `src/game/scenes/WeaponSelectScene.ts`. These are tuning/legibility/scope-only; the mechanics
+    (query, badging, tally) are done.
   - **POLISH-LOADOUT-CODES** — the new COPY BUILD CODE / PASTE & LAUNCH CODE bar in the LOADOUTS menu needs a
     legibility + feel eyeball (FEAT-LOADOUT-CODES, `2cafd6b`). Agents have no browser. Reach it: main menu →
     **LOADOUTS** → the two-button bar sits just above BACK. Check: (a) do both buttons read cleanly and not clip
