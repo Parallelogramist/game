@@ -175,6 +175,23 @@ export function selectBlessings(count: number): Blessing[] {
   return shuffled.slice(0, Math.min(count, BLESSINGS.length));
 }
 
+/** Extra candidates offered on top of the pick count so drafting is a real choice. */
+export const BLESSING_DRAFT_EXTRA = 3;
+
+/**
+ * Rolls `pickCount + BLESSING_DRAFT_EXTRA` DISTINCT blessing candidates for the
+ * pre-run blessing draft (FEAT-BLESSING-DRAFT), so picking `pickCount` of them is a
+ * real choice from a wider set. Caps at the pool size. Returns [] for pickCount <= 0
+ * (an unbought profile drafts nothing). Applies nothing — the draft scene forwards
+ * the chosen ids to GameScene, which applies them (same contract as rollModifierChoices).
+ */
+export function rollBlessingChoices(pickCount: number): Blessing[] {
+  if (pickCount <= 0) return [];
+  const candidateCount = Math.min(pickCount + BLESSING_DRAFT_EXTRA, BLESSINGS.length);
+  const shuffled = [...BLESSINGS].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, candidateCount);
+}
+
 /** Look up a blessing by ID. Returns undefined if not found. */
 export function getBlessingById(blessingId: string): Blessing | undefined {
   return BLESSINGS.find(blessing => blessing.id === blessingId);

@@ -544,6 +544,7 @@ export class GameScene extends Phaser.Scene {
   private dailyDateString: string = '';
   private dailyChallengeType: 'daily' | 'weekly' = 'daily';
   private selectedStageId: string = 'stage_deep_void';
+  private draftedBlessingIds: string[] | null = null;
 
   init(data?: {
     restore?: boolean;
@@ -551,6 +552,7 @@ export class GameScene extends Phaser.Scene {
     resumePaused?: boolean;
     startingWeapon?: string;
     modifierIds?: string[];
+    blessingIds?: string[];
     pactIds?: string[];
     shipId?: string;
     stageId?: string;
@@ -595,6 +597,10 @@ export class GameScene extends Phaser.Scene {
     const requestedStrategy = data?.directorStrategy;
     this.directorStrategy = isDirectorStrategy(requestedStrategy) ? requestedStrategy : undefined;
     this.threatLevel = clampThreatTier(data?.threatLevel);
+    // Blessings drafted in BlessingDraftScene (funnel only). Null on every other
+    // fresh path (daily/weekly/replay/surprise/practice) -> the create() block
+    // auto-rolls as before. Absent on restore (that path reads state.blessingIds).
+    this.draftedBlessingIds = Array.isArray(data?.blessingIds) ? data.blessingIds : null;
   }
 
   create(): void {
@@ -1012,10 +1018,15 @@ export class GameScene extends Phaser.Scene {
       pact.apply(this.playerStats);
     }
 
-    // ═══ BLESSINGS (shop `blessingLevel` — N random run-start gifts) ═══
-    // Rolled fresh every run, so PLAY AGAIN re-rolls. An unbought profile asks
-    // for 0 and gets none.
-    this.activeBlessings = selectBlessings(metaManager.getStartingBlessingCount());
+    // ═══ BLESSINGS (shop `blessingLevel` — N run-start gifts) ═══
+    // Drafted in BlessingDraftScene when the funnel offered a choice; otherwise
+    // auto-rolled (daily/weekly/replay/surprise/practice). An unbought profile
+    // gets none either way. PLAY AGAIN re-enters via the funnel or re-rolls.
+    this.activeBlessings = this.draftedBlessingIds !== null
+      ? this.draftedBlessingIds
+          .map(id => getBlessingById(id))
+          .filter((blessing): blessing is Blessing => blessing !== undefined)
+      : selectBlessings(metaManager.getStartingBlessingCount());
     for (const blessing of this.activeBlessings) {
       blessing.apply(this.playerStats);
     }

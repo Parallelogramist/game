@@ -1,95 +1,75 @@
 import Phaser from 'phaser';
-import { RunModifier, getModifierById } from '../../data/RunModifiers';
+import { Blessing, getBlessingById } from '../../data/Blessings';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import type { DirectorStrategy } from '../../systems/DirectorSystem';
-import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
-import { rollBlessingChoices } from '../../data/Blessings';
 
 /**
- * Data threaded through from ThreatSelectScene. `modifierChoiceIds` is the fixed
- * set of candidate modifiers rolled ONCE at the Threat -> draft transition; the
- * scene renders them and forwards the 2 the player picks to GameScene as
- * `modifierIds` (the existing run-modifier consumption path). Passing the
- * candidates as launch data (not rolling them here) is what makes an
+ * Data threaded through from ModifierDraftScene. `blessingChoiceIds` is the fixed
+ * candidate set rolled ONCE at the modifier-draft -> blessing-draft transition; the
+ * scene renders them and forwards the ones the player picks to GameScene as
+ * `blessingIds` (a new fresh-path consumption path, mirroring `modifierIds`).
+ * Passing the candidates as launch data (not rolling them here) is what makes an
  * orientation-flip re-render the SAME cards instead of re-rolling them.
  */
-export interface ModifierDraftSceneData {
+export interface BlessingDraftSceneData {
   restore?: boolean;
   startingWeapon: string;
   shipId?: string;
   stageId?: string;
+  modifierIds?: string[];
   pactIds?: string[];
   gauntletMode?: boolean;
   directorStrategy?: DirectorStrategy;
   threatLevel?: number;
-  modifierChoiceIds: string[];
+  blessingChoiceIds: string[];
+  blessingPicks: number;
 }
 
-/**
- * What the scene is actually started with. `relayout` is set only by main.ts's
- * orientation watcher; init() strips it back out so it can never reach GameScene.
- */
-interface ModifierDraftLaunchData extends ModifierDraftSceneData {
+interface BlessingDraftLaunchData extends BlessingDraftSceneData {
   relayout?: boolean;
 }
 
-interface ModifierCard {
-  modifier: RunModifier;
+interface BlessingCard {
+  blessing: Blessing;
   container: Phaser.GameObjects.Container;
   border: Phaser.GameObjects.Rectangle;
   bg: Phaser.GameObjects.Rectangle;
   selectedBadge: Phaser.GameObjects.Text;
 }
 
-const CATEGORY_COLOR: Record<string, string> = {
-  offense: '#ff6655',
-  defense: '#5599ff',
-  resources: '#ffcc44',
-  chaos: '#cc66ff',
-};
-
-const CATEGORY_LABEL: Record<string, string> = {
-  offense: 'OFFENSE',
-  defense: 'DEFENSE',
-  resources: 'RESOURCES',
-  chaos: 'CHAOS',
-};
+const hexColor = (value: number): string => '#' + value.toString(16).padStart(6, '0');
 
 /**
- * Pre-run modifier draft (FEAT-MODIFIER-DRAFT). The funnel's final pre-run step:
- * the player picks EXACTLY 2 of the offered run modifiers (each a double-edged
- * trade-off). Picking exactly 2 keeps parity with the old auto-rolled count, so
- * only WHICH 2 is a new choice, not how many. Inserted between ThreatSelectScene
- * and GameScene; every other GameScene-start path (daily/restore/replay/practice)
- * is deliberately excluded (see plan) and never reaches this scene.
+ * Pre-run blessing draft (FEAT-BLESSING-DRAFT). The funnel's new final pre-run step,
+ * inserted between ModifierDraftScene and GameScene ONLY when the profile's
+ * `blessingLevel` shop upgrade grants >=1 run-start blessing. The player picks EXACTLY
+ * that many pure-upside gifts from a wider candidate set (pickCount + 3). Every other
+ * GameScene-start path (daily/weekly/restore/replay/surprise/practice) bypasses the
+ * funnel and never reaches this scene, so those keep auto-rolling blessings as before.
  */
-export class ModifierDraftScene extends Phaser.Scene {
-  private passthrough: ModifierDraftSceneData = { startingWeapon: 'projectile', modifierChoiceIds: [] };
-  private choices: RunModifier[] = [];
-  private requiredPicks: number = 2;
+export class BlessingDraftScene extends Phaser.Scene {
+  private passthrough: BlessingDraftSceneData = { startingWeapon: 'projectile', blessingChoiceIds: [], blessingPicks: 0 };
+  private choices: Blessing[] = [];
+  private requiredPicks: number = 1;
   private selectedIds: Set<string> = new Set();
-  private cards: ModifierCard[] = [];
+  private cards: BlessingCard[] = [];
   private counterText: Phaser.GameObjects.Text | null = null;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
   private isStarting: boolean = false;
 
   constructor() {
-    super({ key: 'ModifierDraftScene' });
+    super({ key: 'BlessingDraftScene' });
   }
 
-  init(data?: ModifierDraftLaunchData): void {
-    // A flip restarts this scene to re-fit the new canvas; the candidate set
-    // (launch data) and the picks so far are the player's composed input and must
-    // survive it. A fresh entry still starts with no picks. `relayout` is
-    // destructured off so it can never ride along to GameScene via passthrough.
-    const { relayout, ...launch }: ModifierDraftLaunchData =
-      data ?? { startingWeapon: 'projectile', modifierChoiceIds: [] };
+  init(data?: BlessingDraftLaunchData): void {
+    const { relayout, ...launch }: BlessingDraftLaunchData =
+      data ?? { startingWeapon: 'projectile', blessingChoiceIds: [], blessingPicks: 0 };
     this.passthrough = launch;
-    this.choices = (launch.modifierChoiceIds ?? [])
-      .map((id) => getModifierById(id))
-      .filter((modifier): modifier is RunModifier => modifier !== undefined);
-    this.requiredPicks = Math.min(2, this.choices.length);
+    this.choices = (launch.blessingChoiceIds ?? [])
+      .map((id) => getBlessingById(id))
+      .filter((blessing): blessing is Blessing => blessing !== undefined);
+    this.requiredPicks = Math.max(1, Math.min(launch.blessingPicks ?? 1, this.choices.length));
     if (relayout !== true) this.selectedIds = new Set();
     this.cards = [];
     this.menuNavigator = null;
@@ -102,15 +82,15 @@ export class ModifierDraftScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#0a0a14');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
-    // Degenerate guard: with fewer than 2 valid candidates there is nothing to
-    // draft (impossible on the real funnel, which always offers 6) — skip
-    // straight into the run rather than showing a screen that can never START.
-    if (this.choices.length < 2) {
-      this.startRun([...this.choices.map((modifier) => modifier.id)]);
+    // Degenerate guard: with no real choice (candidates <= picks) there is nothing to
+    // draft — take all offered and start the run rather than showing a dead screen.
+    // (Impossible on the real funnel: rollBlessingChoices always returns picks + 3.)
+    if (this.choices.length <= this.requiredPicks) {
+      this.startRun(this.choices.map((blessing) => blessing.id));
       return;
     }
 
-    this.add.text(width / 2, 54, 'TUNE YOUR RUN', {
+    this.add.text(width / 2, 54, 'CLAIM YOUR BLESSINGS', {
       fontSize: '44px',
       color: '#66ccff',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -119,7 +99,8 @@ export class ModifierDraftScene extends Phaser.Scene {
       strokeThickness: 6,
     }).setOrigin(0.5).setLetterSpacing(3);
 
-    this.add.text(width / 2, 102, `Draft ${this.requiredPicks} run modifiers — each is a double-edged trade-off.`, {
+    this.add.text(width / 2, 102,
+      `Choose ${this.requiredPicks} run-start ${this.requiredPicks === 1 ? 'blessing' : 'blessings'} — each is a pure bonus.`, {
       fontSize: '17px',
       color: '#9999bb',
       fontFamily: 'Arial',
@@ -133,7 +114,6 @@ export class ModifierDraftScene extends Phaser.Scene {
     }).setOrigin(0.5).setLetterSpacing(1);
     this.updateCounter();
 
-    // Modifier cards in centered rows; narrow (portrait) viewports wrap the row.
     const cardWidth = 220;
     const cardHeight = 210;
     const gap = 18;
@@ -147,13 +127,13 @@ export class ModifierDraftScene extends Phaser.Scene {
       height - 90 - 12 - cardHeight / 2 - (rowCount - 1) * rowSpacing,
     );
 
-    this.choices.forEach((modifier, index) => {
+    this.choices.forEach((blessing, index) => {
       const rowIndex = Math.floor(index / perRow);
       const cardsInRow = Math.min(perRow, count - rowIndex * perRow);
       const rowWidth = cardsInRow * cardWidth + (cardsInRow - 1) * gap;
       const cardX = (width - rowWidth) / 2 + cardWidth / 2 + (index % perRow) * (cardWidth + gap);
       const cardY = firstRowY + rowIndex * rowSpacing;
-      this.cards.push(this.createCard(modifier, cardX, cardY, cardWidth, cardHeight, index));
+      this.cards.push(this.createCard(blessing, cardX, cardY, cardWidth, cardHeight, index));
     });
 
     const startButton = this.add.rectangle(width / 2, height - 64, 260, 52, 0x223322)
@@ -171,7 +151,7 @@ export class ModifierDraftScene extends Phaser.Scene {
     const navigableItems: NavigableItem[] = this.cards.map((card, index) => ({
       onFocus: () => this.setCardFocus(card, true),
       onBlur: () => this.setCardFocus(card, false),
-      onActivate: () => this.toggleModifier(index),
+      onActivate: () => this.toggleBlessing(index),
     }));
     navigableItems.push({
       onFocus: () => startButton.setFillStyle(0x2e4a2e),
@@ -183,24 +163,19 @@ export class ModifierDraftScene extends Phaser.Scene {
       items: navigableItems,
       columns: perRow,
       wrap: true,
-      // Escape/B cannot skip — exactly `requiredPicks` modifiers are mandatory.
       onCancel: () => this.flashRequirement(),
     });
 
     this.keydownHandler = (event: KeyboardEvent) => {
       const num = parseInt(event.key, 10);
-      if (num >= 1 && num <= count) this.toggleModifier(num - 1);
+      if (num >= 1 && num <= count) this.toggleBlessing(num - 1);
     };
     this.input.keyboard?.on('keydown', this.keydownHandler);
 
     this.events.once('shutdown', this.shutdown, this);
   }
 
-  /**
-   * Keyboard/gamepad focus ring — a THIN WHITE outline, deliberately unlike the
-   * thick green SELECTED treatment (mirrors PactSelectScene).
-   */
-  private setCardFocus(card: ModifierCard, focused: boolean): void {
+  private setCardFocus(card: BlessingCard, focused: boolean): void {
     if (focused) {
       card.bg.setStrokeStyle(2, 0xffffff, 0.8);
     } else {
@@ -208,13 +183,7 @@ export class ModifierDraftScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * The SELECTED treatment, in one place. A re-layout restart rebuilds every card
-   * from scratch, so the rebuild and a tap must paint identically — otherwise a
-   * preserved pick shows as an unselected card. Touches bg's FILL only; its stroke
-   * is the focus ring (setCardFocus).
-   */
-  private paintCardSelection(card: ModifierCard, selected: boolean): void {
+  private paintCardSelection(card: BlessingCard, selected: boolean): void {
     card.border.setVisible(selected);
     card.selectedBadge.setVisible(selected);
     card.bg.setFillStyle(selected ? 0x18251c : 0x14141f);
@@ -231,7 +200,6 @@ export class ModifierDraftScene extends Phaser.Scene {
     this.counterText.setColor(ready ? '#66ff99' : '#778899');
   }
 
-  /** Requirement feedback — flash the counter instead of silently ignoring. */
   private flashRequirement(): void {
     if (!this.counterText) return;
     const counter = this.counterText;
@@ -241,15 +209,15 @@ export class ModifierDraftScene extends Phaser.Scene {
     this.time.delayedCall(700, () => this.updateCounter());
   }
 
-  private createCard(modifier: RunModifier, x: number, y: number, w: number, h: number, index: number): ModifierCard {
+  private createCard(blessing: Blessing, x: number, y: number, w: number, h: number, index: number): BlessingCard {
     const container = this.add.container(x, y);
-    const accent = CATEGORY_COLOR[modifier.category] ?? '#cfd6e6';
+    const accent = hexColor(blessing.color);
 
     const bg = this.add.rectangle(0, 0, w, h, 0x14141f).setStrokeStyle(2, 0x333344);
     const border = this.add.rectangle(0, 0, w, h).setStrokeStyle(4, 0x66ff99).setVisible(false);
 
-    const name = this.add.text(0, -h / 2 + 26, modifier.name.toUpperCase(), {
-      fontSize: '18px',
+    const name = this.add.text(0, -h / 2 + 30, blessing.name.toUpperCase(), {
+      fontSize: '20px',
       color: accent,
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
@@ -257,14 +225,7 @@ export class ModifierDraftScene extends Phaser.Scene {
       wordWrap: { width: w - 20 },
     }).setOrigin(0.5, 0);
 
-    const categoryTag = this.add.text(0, -h / 2 + 56, CATEGORY_LABEL[modifier.category] ?? modifier.category.toUpperCase(), {
-      fontSize: '12px',
-      color: accent,
-      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      fontStyle: 'bold',
-    }).setOrigin(0.5).setLetterSpacing(2);
-
-    const description = this.add.text(0, 6, modifier.description, {
+    const description = this.add.text(0, 6, blessing.description, {
       fontSize: '16px',
       color: '#cfd6e6',
       fontFamily: 'Arial',
@@ -276,7 +237,7 @@ export class ModifierDraftScene extends Phaser.Scene {
       fontSize: '13px', color: '#666688', fontFamily: 'monospace',
     }).setOrigin(0.5);
 
-    const selectedBadge = this.add.text(0, -h / 2 + 8, '✓ SELECTED', {
+    const selectedBadge = this.add.text(0, -h / 2 + 8, '✓ CHOSEN', {
       fontSize: '12px',
       color: '#0a140d',
       backgroundColor: '#66ff99',
@@ -285,23 +246,23 @@ export class ModifierDraftScene extends Phaser.Scene {
       padding: { x: 8, y: 2 },
     }).setOrigin(0.5, 1).setVisible(false);
 
-    container.add([bg, border, name, categoryTag, description, keyHint, selectedBadge]);
+    container.add([bg, border, name, description, keyHint, selectedBadge]);
 
     bg.setInteractive({ useHandCursor: true });
     bg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.wasTouch) this.menuNavigator?.selectIndex(index);
     });
-    bg.on('pointerup', () => this.toggleModifier(index));
+    bg.on('pointerup', () => this.toggleBlessing(index));
 
-    const card: ModifierCard = { modifier, container, border, bg, selectedBadge };
-    this.paintCardSelection(card, this.selectedIds.has(modifier.id));
+    const card: BlessingCard = { blessing, container, border, bg, selectedBadge };
+    this.paintCardSelection(card, this.selectedIds.has(blessing.id));
     return card;
   }
 
-  private toggleModifier(index: number): void {
+  private toggleBlessing(index: number): void {
     const card = this.cards[index];
     if (!card) return;
-    const id = card.modifier.id;
+    const id = card.blessing.id;
     if (this.selectedIds.has(id)) {
       this.selectedIds.delete(id);
       this.paintCardSelection(card, false);
@@ -317,7 +278,7 @@ export class ModifierDraftScene extends Phaser.Scene {
   }
 
   private beginRun(): void {
-    if (this.isStarting) return; // guard against a second click during the fade
+    if (this.isStarting) return;
     if (this.selectedIds.size !== this.requiredPicks) {
       this.flashRequirement();
       return;
@@ -325,45 +286,24 @@ export class ModifierDraftScene extends Phaser.Scene {
     this.startRun([...this.selectedIds]);
   }
 
-  private startRun(modifierIds: string[]): void {
+  private startRun(blessingIds: string[]): void {
     if (this.isStarting) return;
     this.isStarting = true;
     this.input.keyboard?.removeAllListeners();
-
-    // FEAT-BLESSING-DRAFT: the funnel gains a final blessing-draft step ONLY when
-    // this profile's `blessingLevel` shop upgrade grants >=1 run-start blessing.
-    // An unbought profile (0 blessings) starts the run directly, unchanged.
-    const blessingPicks = getMetaProgressionManager().getStartingBlessingCount();
-
     this.cameras.main.fadeOut(150, 0, 0, 0);
     this.time.delayedCall(160, () => {
-      if (blessingPicks >= 1) {
-        this.scene.start('BlessingDraftScene', {
-          restore: false,
-          startingWeapon: this.passthrough.startingWeapon,
-          shipId: this.passthrough.shipId,
-          stageId: this.passthrough.stageId,
-          modifierIds,
-          pactIds: this.passthrough.pactIds ?? [],
-          gauntletMode: this.passthrough.gauntletMode === true,
-          directorStrategy: this.passthrough.directorStrategy,
-          threatLevel: this.passthrough.threatLevel,
-          blessingChoiceIds: rollBlessingChoices(blessingPicks).map((blessing) => blessing.id),
-          blessingPicks,
-        });
-      } else {
-        this.scene.start('GameScene', {
-          restore: false,
-          startingWeapon: this.passthrough.startingWeapon,
-          shipId: this.passthrough.shipId,
-          stageId: this.passthrough.stageId,
-          modifierIds,
-          pactIds: this.passthrough.pactIds ?? [],
-          gauntletMode: this.passthrough.gauntletMode === true,
-          directorStrategy: this.passthrough.directorStrategy,
-          threatLevel: this.passthrough.threatLevel,
-        });
-      }
+      this.scene.start('GameScene', {
+        restore: false,
+        startingWeapon: this.passthrough.startingWeapon,
+        shipId: this.passthrough.shipId,
+        stageId: this.passthrough.stageId,
+        modifierIds: this.passthrough.modifierIds ?? [],
+        pactIds: this.passthrough.pactIds ?? [],
+        gauntletMode: this.passthrough.gauntletMode === true,
+        directorStrategy: this.passthrough.directorStrategy,
+        threatLevel: this.passthrough.threatLevel,
+        blessingIds,
+      });
     });
   }
 
