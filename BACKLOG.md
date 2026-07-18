@@ -34,6 +34,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-GRENADE** — new 27th weapon, the Grenade Launcher (done —
+  a8ce5ac). The arsenal's first *lobbed, arcing, traveling explosive*: each
+  cooldown it fires grenades that fly from the ship in a visible parabola to
+  enemies in range and burst in an AOE on impact (radial damage with distance
+  falloff + knockback). Distinct from all 26 peers — Meteor is a top-down
+  telegraphed sky-drop onto the densest cluster (no travel); Mine is a stationary
+  placed proximity trap; Scattergun is instant hitscan pellets; Ricochet is a
+  wall-bouncing piercing ball (no burst). Base numbers: 30 blast damage, cooldown
+  1.5, range 360, blast radius 60, knockback 220, 1 grenade/volley (+1 per 3
+  weapon levels). Fully additive: damage flows through the existing
+  `ctx.damageEnemy`; a pooled self-drawn Graphics draws the in-flight grenades (no
+  atlas frame) and one-shot tweens draw the burst — no core combat/damage/
+  projectile pipeline change. Wired into `WeaponRegistry`, `UNLOCKABLE_WEAPONS`
+  (`icon: 'grenade'`), `WEAPON_MASTERY_CATEGORY` (`explosive`), a "Cluster Payload"
+  mastery (each blast scatters 3 bomblets), a "Carpet Bomber" evolution (via might:
+  ×1.6 dmg, ×1.3 range, +2 grenades, ×1.3 size) and a "Demolition" synergy with
+  Proximity Mines (+20% dmg, 10% faster). Codex, Practice mode and WeaponSelect
+  auto-discover it via the registry. Playtest follow-up filed as
+  **POLISH-WEAPON-GRENADE** under `## Human gates`.
 - [x] **FEAT-WEAPON-FOCUS** — new 26th weapon, Focus Beam (done — 326fc54).
   The arsenal's first *sustained, ramping, single-target lock-on beam*. Always-on
   (no cooldown): each frame it locks the nearest live enemy in range and pours a
@@ -589,6 +608,26 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
+    eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
+    PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
+    weapon offers). Check: (a) does it read clearly as a lobbed grenade — a body
+    that arcs up and comes down onto the target with a ground shadow, then an
+    amber burst; (b) base 30 blast dmg × falloff / cooldown 1.5 / blast radius 60 /
+    range 360 / knockback 220 / 1 grenade (+1 per 3 levels, 4 at Lv10) vs peers —
+    dead or oppressive?; (c) does aiming the first grenade at the NEAREST enemy and
+    the rest at random in-range enemies feel right, or should all lob at the
+    densest cluster like Meteor (a design call — do NOT let an agent pick blind);
+    (d) is ARC_HEIGHT 95 / travel speed 460 a satisfying, readable lob or too
+    slow/floaty; (e) is knockback 220 right (scatters the pack) or should it be
+    lower to keep enemies in follow-up blasts; (f) does "Cluster Payload" mastery
+    (3 bomblets, 40% dmg, 60% radius, scatter 75px) feel like a real payoff or just
+    noise; (g) does the "Carpet Bomber" evolution (×1.6 dmg, ×1.3 range, +2
+    grenades, ×1.3 size) land as a spike; (h) does the "Demolition" synergy with
+    Proximity Mines read; (i) does it read at all three quality levels (LOW drops
+    the body highlight/fuse spark and the debris; the arc, shadow, and burst still
+    draw). All knobs are the top-of-file consts in `src/weapons/GrenadeWeapon.ts`
+    + the evolution/synergy multipliers — do not retune blind.
   - **POLISH-WEAPON-FOCUS** — the new Focus Beam needs a balance/feel eyeball
     (FEAT-WEAPON-FOCUS, `326fc54`). Agents have no browser. Reach it: PRACTICE →
     WEAPON row → "Focus Beam" (unlocked or via a normal run's weapon offers).
