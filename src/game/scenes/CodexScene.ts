@@ -18,6 +18,9 @@ import { RELICS, Relic, getRelicRarityColor } from '../../data/Relics';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
 import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
+import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
+import { getUltimateForShip } from '../../data/ShipUltimates';
+import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
 import { SoundManager } from '../../audio/SoundManager';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
@@ -242,6 +245,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${RELICS.length}`;
       } else if (category.id === 'evolutions') {
         countLabel = `${weaponEvolutionDefinitions.length}`;
+      } else if (category.id === 'ships') {
+        countLabel = `${SHIP_CHARACTERS.length}`;
       }
 
       if (countLabel) {
@@ -356,6 +361,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'evolutions':
         this.displayEvolutions();
+        break;
+      case 'ships':
+        this.displayShips();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -1001,6 +1009,93 @@ export class CodexScene extends Phaser.Scene {
       parts.push(`+${Math.round((multipliers.speed - 1) * 100)}% proj spd`);
     }
     return parts.length > 0 ? parts.join('   ·   ') : 'Enhanced form';
+  }
+
+  private displayShips(): void {
+    const shipCardHeight = 134;
+
+    this.layoutCardGrid([...SHIP_CHARACTERS], shipCardHeight, (ship, x, y) => {
+      this.createShipCard(ship, x, y, shipCardHeight);
+    });
+  }
+
+  private createShipCard(ship: ShipCharacter, x: number, y: number, cardHeight: number): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border stays 0x4a4a7a — the exact color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    const shipTint = SHIP_NEON_PALETTES[ship.neonColorId]?.core ?? SHIP_NEON_PALETTES.cyan.core;
+
+    // Left gutter: a ship glyph tinted the ship's own neon color (each ship's hull is
+    // procedural, so the roster shares one icon differentiated by tint + name).
+    const iconCenterX = 32;
+    const iconCenterY = Math.floor(cardHeight / 2);
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 22, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, shipTint);
+    container.add(iconDisc);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: 'rocket',
+        size: 26,
+        tint: shipTint,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 11, shipTint);
+      container.add(fallback);
+    }
+
+    const textX = 62;
+    const wrapWidth = this.cardWidth - textX - 12;
+
+    const nameText = this.add.text(textX, 8, ship.name, {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const descText = this.add.text(textX, 30, ship.description, {
+      fontSize: '11px',
+      color: '#99aacc',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: wrapWidth },
+    });
+    container.add(descText);
+
+    const ultimate = getUltimateForShip(ship);
+
+    const ultimateNameText = this.add.text(textX, 84, `Ultimate: ${ultimate.name}`, {
+      fontSize: '12px',
+      color: '#ffcc66',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(ultimateNameText);
+
+    const ultimateDescText = this.add.text(textX, 104, ultimate.description, {
+      fontSize: '11px',
+      color: '#999999',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: wrapWidth },
+    });
+    container.add(ultimateDescText);
+
+    this.codexCards.push({ container, cardBg });
   }
 
   private displayStatistics(): void {
