@@ -75,12 +75,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   (FEAT-GAUNTLET-LEADERBOARD / FEAT-CODEX-* / FEAT-*-CHASE). Playtest follow-up filed as
   **POLISH-RUNNER-LEADERBOARD**; the same single-scalar gap for **Endless**
   (`EndlessBestCycle`) remains filed as **FEAT-ENDLESS-LEADERBOARD** below.
-- [ ] **FEAT-ENDLESS-LEADERBOARD** — extend the leaderboard to Endless mode. Value:
-  Endless persists only `survivor-endless-best` (deepest cycle) and never appears on
-  `LeaderboardScene`. Mirror FEAT-GAUNTLET-LEADERBOARD (`a74b77e`): an
-  `EndlessLeaderboard` store (best-first by cycle), an ENDLESS tab, recorded at the
-  endless best-cycle save site (`GameScene.ts` ~:7629). Pointer:
-  `src/game/endless/EndlessBestCycle.ts`.
+- [x] **FEAT-ENDLESS-LEADERBOARD** — post-victory ENDLESS mode gets a browsable ranked
+  run-history leaderboard (done — 9e62590). ENDLESS (the post-victory continuation reached
+  from `showVictory()`) is a full escalating-wave mode with its own cycle banners,
+  mutators, HUD label and difficulty ramp, but it persisted **only** a single invisible
+  scalar (`survivor-endless-best`, deepest cycle) — no history, no ranking, no way to see
+  or chase past runs, while the daily/weekly, gauntlet and runner modes already surface a
+  full ranked history in `LeaderboardScene`. Added a seventh **ENDLESS** tab there, backed
+  by a new persisted store (`src/game/endless/EndlessLeaderboard.ts`, mirroring the tested
+  `GauntletLeaderboard` file-for-file, `wave`→`cycle`): the best 15 runs of all time,
+  ranked deepest-cycle → most-kills → longest-survival → most-recent, each row showing
+  rank, date, cycle, kills, time and level (the #1 run highlighted gold). Recorded in one
+  guarded block at `gameOver()` beside the gauntlet-record block (the only path an endless
+  run can end — the mode is endless-until-death), gated on the same
+  `endlessModeActive && endlessCycleNumber >= 1` the endless overlay uses and reusing the
+  `runWorldLevel`/`killCount`/`gameTime`/`playerStats.level` locals already in scope.
+  Fully additive: a new storage key (registered in `StorageBootstrap`), a parallel tab +
+  `renderEndlessEntries` render path that leaves the daily, gauntlet and runner renders
+  untouched, and **no gameplay/combat/ECS/save-format change**. The scalar
+  `EndlessBestCycle` (game-over endless overlay + endgame achievement sync) is unchanged —
+  this adds the browsable *history*, a different surface. Completes the leaderboard family
+  across every scalar-only mode. In the repo's proven "surface hidden depth" family
+  (FEAT-GAUNTLET-LEADERBOARD / FEAT-RUNNER-LEADERBOARD / FEAT-CODEX-* / FEAT-*-CHASE).
+  Playtest follow-up filed as **POLISH-ENDLESS-LEADERBOARD**.
 - [x] **FEAT-MINIBOSS-STALKER** — new 8th miniboss, The Stalker (done — 9b0a7d1). The
   roster's first *predictive* enemy: where all 7 miniboss peers and 11 bosses either fire
   arena-relative geometry or strike where the player CURRENTLY is (Bombard's mortar
@@ -839,6 +856,26 @@ Never agent work. The fleet must not do any of these.
     `MAX_RUNNER_ENTRIES` + the `rankRunnerEntries` comparator in `RunnerLeaderboard.ts`;
     the columns / `maxRows` / `role` highlight in `renderRunnerEntries`; the tab styling
     in `renderFilterTabs`.
+  - **POLISH-ENDLESS-LEADERBOARD** — the new ENDLESS leaderboard tab needs an eyeball
+    (FEAT-ENDLESS-LEADERBOARD, `9e62590`). Agents have no browser. Reach it: main menu →
+    LEADERBOARD → ENDLESS tab (populate it first by WINNING a run, continuing into
+    ENDLESS, surviving at least one escalation cycle, then dying — repeat for several
+    rows). Check: (a) do the now-**seven** tabs (ALL / DAILY / WEEKLY / VICTORIES /
+    GAUNTLET / RUNNER / ENDLESS) fit and read cleanly on a phone-width viewport, or does
+    the row crowd/clip — if so, drop `tabWidth` 110→~84 in `renderFilterTabs`? This is
+    more pressing at seven tabs than it was at six. (b) does the ENDLESS tab reusing the
+    `'magenta'` accent (shared with the WEEKLY tab) read oddly — if so, add a dedicated
+    role color in `MenuStyle.ts`? (c) does the endless table (rank / date / cycle / kills
+    / time / level, #1 row gold) read clearly and align with the header columns at
+    `renderEndlessEntries`'s `colX` offsets? (d) is "best 15 of all time, ranked by cycle"
+    the right retention/ranking, or should it be recent-first / show more rows
+    (`MAX_ENDLESS_ENTRIES`, `maxRows`)? (e) does the empty-state copy ("No endless runs yet
+    — win a run, then continue into ENDLESS!") show before any endless run and disappear
+    after one? (f) does a new deepest run land at rank #1 immediately on the next open?
+    (g) confirm a win-then-immediately-die run (never reached cycle 1) is correctly NOT
+    recorded (the `endlessCycleNumber >= 1` gate). Knobs: `MAX_ENDLESS_ENTRIES` + the
+    `rankEndlessEntries` comparator in `EndlessLeaderboard.ts`; the columns / `maxRows` /
+    `role` highlight in `renderEndlessEntries`; the tab styling in `renderFilterTabs`.
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
