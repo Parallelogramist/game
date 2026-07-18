@@ -34,6 +34,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BOSS-ECLIPSE** — new 12th boss, The Eclipse (done — dd88a40). The roster's first
+  *chase-the-safe-zone* boss: where all 11 peers make you dodge geometry (Tessellator's static
+  checkerboard hop, Tremor's flee-the-wavefront, Diviner's aimed-cage escape gap, Pulsar's
+  boss-relative radial spokes/rings, Obelisk's marching-wall lane), the Eclipse channels a
+  *repeating full-floor telegraphed pulse* across the 6×4 tile grid — every tile blasts EXCEPT the
+  tiles under a single bright **umbra** (safe disc) that drifts across the arena. The un-telegraphed
+  hole in each pulse is the only safe ground and it moves pulse to pulse, so the player must
+  continuously follow the drifting umbra. Fair by construction (and unit-tested): the first pulse's
+  umbra is centred on the player, the umbra radius always exceeds the blast (a real safe core), the
+  blast stays under the min tile spacing, and the drift is distance-capped so it is always
+  followable. Phases shorten the interval (1.15/1.0/0.9s), shrink the umbra (220/190/170), add pulses
+  (4/5/6) and raise damage (18/23/28). Pure, deterministic, unit-tested pulse-train planner
+  (`eclipse-barrage.ts`) feeds a Tremor/Diviner-style two-state AI (`eclipse.ts`); all damage is
+  telegraphed ground strikes via the existing `groundSlamCallback` — no core combat/damage/projectile
+  pipeline change. Wired into `TUNING.bosses.order` (auto-joins practice + gauntlet + boss cycling +
+  Codex bestiary), a bespoke `EnemyVisuals` drawer (occulted corona core), an umbral-violet
+  boss-arena theme, a frost boss-phase hazard, `ENEMY_ARMOR` (6), and a "Total Eclipse" defeat
+  achievement. Bumped the practice-target count mirror 18→19. Playtest follow-up filed as
+  **POLISH-BOSS-ECLIPSE** under `## Human gates`.
 - [x] **FEAT-DIRECTOR-CHOICE** — the player can now choose the difficulty director's Directive
   before a run (done — 613828c). The `DirectorSystem` (`src/systems/DirectorSystem.ts`) is a real
   per-run system that reshapes every run by picking one of four spend strategies with very different
@@ -839,6 +858,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-ECLIPSE** — the new 12th boss The Eclipse needs an eyeball (FEAT-BOSS-ECLIPSE,
+    `dd88a40`). Agents have no browser. Fastest reach: PRACTICE mode → select target `the_eclipse` →
+    spawn (also appears in normal runs at the 10-min boss slot once it comes up in the cycle, and in
+    Gauntlet). Check: (a) is the "chase the moving safe umbra" read legible — can you SEE the safe
+    hole (the un-telegraphed tiles) each pulse and follow it, or does the full-floor telegraph field
+    read as noise? (b) is it fair at each phase — the first pulse's umbra centred on you, the safe
+    core (umbra 220/190/170 minus blast 120) reachable, the drift followable at run speed? (c) does
+    phase 3 (interval 0.9s, umbra 170, 6 pulses, dmg 28) feel like a climax without being a coin-flip?
+    (d) does the occulted-corona boss glyph + umbral-violet arena tint + frost hazard read as an
+    "eclipse"? (e) any telegraph-pool starvation (missing rings) when the pulse train overlaps other
+    telegraphs? Knobs (all in `eclipse-barrage.ts`): `eclipseFuseForPhase`,
+    `eclipsePulseIntervalForPhase`, `eclipsePulseCountForPhase`, `eclipseSafeRadiusForPhase`,
+    `eclipseStrikeDamage`, `ECLIPSE_BLAST_RADIUS`, `ECLIPSE_MAX_DRIFT`, `ECLIPSE_ANCHORS`; visual in
+    `EnemyVisuals.drawEclipse`; arena tint in `BossArenaSystem` (`the_eclipse`). Do NOT retune blind —
+    the fairness invariants are unit-pinned; change numbers only with a real play read.
   - **POLISH-DIRECTOR-CHOICE** — the new CHOOSE DIRECTIVE pre-run screen needs an eyeball
     (FEAT-DIRECTOR-CHOICE, `613828c`). Agents have no browser. Reach it: main menu → PLAY → pick
     weapon/ship/stage → FORGE A PACT → BEGIN RUN lands on CHOOSE DIRECTIVE (also on the GAUNTLET
