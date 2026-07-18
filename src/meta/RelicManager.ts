@@ -83,6 +83,42 @@ export class RelicManager {
   }
 
   /**
+   * Rolls up to `count` DISTINCT relic choices for an in-run draft (1-of-N pick),
+   * respecting equipped relics, luck bias, and the pity floor. When the pity
+   * streak is at the threshold the floor is applied to EVERY choice, so whichever
+   * the player picks satisfies the guarantee. Does NOT equip or touch the streak
+   * — equipDraftedRelic does that when the player picks. Returns fewer than
+   * `count` (possibly 0) only if the eligible pool is exhausted.
+   */
+  rollRelicChoices(stats: PlayerStats, count = 3): Relic[] {
+    const choices: Relic[] = [];
+    const forceFloor = this.subFloorStreak >= RELIC_PITY_THRESHOLD;
+    const excludeIds = this.equippedRelics.map((relic) => relic.id);
+    for (let i = 0; i < count; i++) {
+      const rolled = pickRandomRelic(excludeIds, stats.luck, forceFloor ? RELIC_PITY_FLOOR : undefined);
+      if (!rolled) break;
+      choices.push(rolled);
+      excludeIds.push(rolled.id);
+    }
+    return choices;
+  }
+
+  /**
+   * Equips a relic the player drafted, applying its effect and updating the pity
+   * streak (reset on an epic+ grant, else incremented) exactly like an auto grant.
+   * Returns the relic if equipped, or null if full / duplicate.
+   */
+  equipDraftedRelic(relic: Relic, stats: PlayerStats): Relic | null {
+    const equipped = this.equipRelic(relic, stats);
+    if (equipped) {
+      this.subFloorStreak = rarityAtLeast(equipped.rarity, RELIC_PITY_FLOOR)
+        ? 0
+        : this.subFloorStreak + 1;
+    }
+    return equipped;
+  }
+
+  /**
    * Restore relic inventory from a saved state. Does NOT re-apply effects.
    * Used by GameStateManager on mid-run reload to preserve inventory display.
    */

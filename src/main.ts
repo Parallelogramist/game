@@ -3,6 +3,7 @@ import { GAME_CONFIG } from './GameConfig';
 import { BootScene } from './game/scenes/BootScene';
 import { GameScene } from './game/scenes/GameScene';
 import { UpgradeScene } from './game/scenes/UpgradeScene';
+import { RelicDraftScene } from './game/scenes/RelicDraftScene';
 import { MusicSettingsScene } from './game/scenes/MusicSettingsScene';
 import { SettingsScene } from './game/scenes/SettingsScene';
 import { ShopScene } from './game/scenes/ShopScene';
@@ -156,7 +157,7 @@ window.addEventListener('unhandledrejection', (event) => {
     ...GAME_CONFIG,
     width: initialBase.width,
     height: initialBase.height,
-    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, PaintScene, CardsScene, WeaponSelectScene, PactSelectScene, DirectorSelectScene, ThreatSelectScene, PracticeScene, LeaderboardScene],
+    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, RelicDraftScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, PaintScene, CardsScene, WeaponSelectScene, PactSelectScene, DirectorSelectScene, ThreatSelectScene, PracticeScene, LeaderboardScene],
   };
 
   // Initialize the game
@@ -175,7 +176,11 @@ window.addEventListener('unhandledrejection', (event) => {
       const key = scene.scene.key;
       if (key === 'GameScene') {
         (scene as GameScene).handleOrientationFlip();
-      } else if (key !== 'UpgradeScene') {
+      } else if (key !== 'UpgradeScene' && key !== 'RelicDraftScene') {
+        // RelicDraftScene is skipped for the same reason as UpgradeScene: a
+        // restart would regress its mid-modal state. It closes back into a
+        // GameScene that has re-laid itself out (handleOrientationFlip defers
+        // while a draft is up and settles once it closes).
         const launchData = (scene.sys.settings.data ?? {}) as Record<string, unknown>;
         scene.scene.restart({ ...launchData, relayout: true });
       }
