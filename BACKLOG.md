@@ -34,6 +34,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-BLESSINGS** — added a **Blessings tab** to the Codex (done — ff77618). Blessings (the 14
+  pure-upside run-start gifts rolled by the 3,900-gold `blessingLevel` shop upgrade) were the **only
+  run-affecting content pool with no Codex tab** and were otherwise **invisible** — they flash once in the
+  run-intro banner (and only if you already own the upgrade) and appear in no browsable list. Their two sibling
+  run-config pools already had static Codex tabs — **Modifiers** (`RUN_MODIFIERS`) and **Pacts** (`PACTS`) — so
+  this closed the gap in that trio. Added `'blessings'` to the `CodexCategory` union + a
+  `{ id: 'blessings', name: 'Blessings', icon: 'angel' }` tab entry (`CodexTypes.ts`), and a
+  `displayBlessings()` / `createBlessingCard()` pair in `CodexScene.ts` modelled verbatim on
+  `displayPacts`/`createPactCard` (per-entry colour + own icon, `'BLESSING'` label, green pure-upside
+  description). **Static list, no discovery tracking** (like Modifiers/Pacts/Relics/Ships) so **no `CodexState`/
+  save-format change, no `CodexManager` change, no new storage key, no ECS/GameScene change, and `Blessings.ts`
+  itself is untouched.** The tab bar and menu navigator reflow automatically from `CODEX_CATEGORIES.length`.
+  **Test-free by the standing order:** additive union member + one array entry (guarded by tsc), Phaser-coupled
+  render code (untested like every `create*Card` sibling), and blessing-icon validity already covered by the
+  existing `referentialIntegrity.test.ts` — full suite stays green unchanged, no test added. Legibility/feel
+  (12 tabs now — portrait tab-label width; card layout) owned by **POLISH-CODEX-BLESSINGS** under `## Human
+  gates`. Chosen because the backlog was thin (Now empty; Next all done; the two open Later items are value-gate
+  busy-work) and this is the lowest-risk genuinely-novel player-facing win — it makes a paid feature's contents
+  legible for every player and sequences ahead of a future blessing-draft.
 - [x] **FEAT-MODIFIER-PACK** — added 6 double-edged run modifiers on build axes no modifier touched (done —
   3aba1e6). The recent **FEAT-MODIFIER-DRAFT** (`55a1893`) made the two per-run modifiers a **pick-2-of-6 draft**
   (`rollModifierChoices(6)` → `ModifierDraftScene`), spotlighting the modifier pool — but the pool was only **15**,
@@ -1213,6 +1232,17 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-BLESSINGS** — the new Codex Blessings tab needs a legibility eyeball (FEAT-CODEX-BLESSINGS,
+    `ff77618`). Agents have no browser. Reach it: main menu → **CODEX** → the **Blessings** tab (now sits between
+    Pacts and Statistics; angel icon). Check: (a) with the Codex now at **12 tabs**, does the tab row still fit on
+    a phone in **portrait** (720-wide) — is the "Blessings" label legible / not overlapping neighbours, and does
+    the count badge (14) show? Landscape (1280-wide) has ample room. (b) do the 14 blessing cards read clearly —
+    name, the blessing-coloured "BLESSING" label, and the green `+upside` description — on phone landscape +
+    portrait, nothing clipped, per-entry icon tinted right? (c) does keyboard/gamepad/touch navigation into and
+    around the grid behave like the Modifiers/Pacts tabs (focus border, scroll)? Knobs if the portrait tab row is
+    too tight: this is a pre-existing constraint (11 tabs were already snug) — options are a shorter tab name or a
+    tab-row layout tweak in `createCategoryTabs`, both cosmetic and human-owned. These are legibility-only; the
+    tab mechanics are done.
   - **POLISH-MODIFIER-PACK** — the 6 new run modifiers need a feel/balance eyeball (FEAT-MODIFIER-PACK, `3aba1e6`).
     Agents have no browser. Reach them: on a **PLAY** run reach the **Modifier draft** (WeaponSelect → Pact →
     Director → Threat → **Draft**) — the 6-candidate roll now draws from 21, so start several runs to see the new
