@@ -5582,6 +5582,8 @@ export class GameScene extends Phaser.Scene {
       accountLevel: metaManager.getAccountLevel(),
       bestStreak: metaManager.getBestStreak(),
       highestCombo: getHighestCombo(),
+      shipId: this.selectedShipId,
+      stageId: this.selectedStageId,
     });
 
     // Record run end statistics in codex

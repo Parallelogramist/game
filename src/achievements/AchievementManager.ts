@@ -20,7 +20,7 @@ import {
   AchievementReward,
 } from './AchievementTypes';
 import { MILESTONES, getMilestoneById } from './MilestoneDefinitions';
-import { ACHIEVEMENTS, getAchievementById, BOSS_KILL_TRACKING } from './AchievementDefinitions';
+import { ACHIEVEMENTS, getAchievementById, BOSS_KILL_TRACKING, SHIP_WIN_TRACKING, STAGE_WIN_TRACKING } from './AchievementDefinitions';
 
 // Storage keys
 const STORAGE_KEY_ACHIEVEMENTS = 'survivor-achievements';
@@ -297,6 +297,17 @@ export class AchievementManager {
     }
     if (data.bestStreak !== undefined) {
       this.updateAchievementProgress('win_streak', data.bestStreak);
+    }
+
+    // Ship + stage mastery: a victory credits the run's ship and biome. One
+    // tracking type per id (mirrors per-boss first-kills) so a win with one
+    // ship/stage never fans an unlock to the others. updateAchievementProgress
+    // skips already-unlocked entries, so replays never regress a mastery.
+    if (data.wasVictory) {
+      const shipTracking = data.shipId ? SHIP_WIN_TRACKING[data.shipId] : undefined;
+      if (shipTracking) this.updateAchievementProgress(shipTracking, 1);
+      const stageTracking = data.stageId ? STAGE_WIN_TRACKING[data.stageId] : undefined;
+      if (stageTracking) this.updateAchievementProgress(stageTracking, 1);
     }
 
     this.savePersistentState();

@@ -9,7 +9,7 @@
 // CATEGORIES
 // ═══════════════════════════════════════════════════════════════════════════
 
-export type AchievementCategory = 'combat' | 'survival' | 'progression' | 'challenge';
+export type AchievementCategory = 'combat' | 'survival' | 'progression' | 'challenge' | 'mastery';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TRACKING TYPES
@@ -55,7 +55,29 @@ export type TrackingType =
   | 'boss_kill_the_tessellator'
   | 'boss_kill_the_tremor'
   | 'boss_kill_the_diviner'
-  | 'boss_kill_the_eclipse';
+  | 'boss_kill_the_eclipse'
+  // Per-ship + per-stage first-victory. One tracking type per id (same reason as
+  // the per-boss types above) so a win with one ship/stage never fans an unlock
+  // to the others. Keyed from a ship/stage id by SHIP_WIN_TRACKING /
+  // STAGE_WIN_TRACKING in AchievementDefinitions.
+  | 'ship_win_default'
+  | 'ship_win_interceptor'
+  | 'ship_win_dreadnought'
+  | 'ship_win_scholar'
+  | 'ship_win_juggernaut'
+  | 'ship_win_void_walker'
+  | 'ship_win_boss_hunter'
+  | 'ship_win_flawless'
+  | 'ship_win_glass_cannon'
+  | 'ship_win_elite_slayer'
+  | 'ship_win_apex'
+  | 'stage_win_deep_void'
+  | 'stage_win_inferno'
+  | 'stage_win_crystal_caves'
+  | 'stage_win_endless_void'
+  | 'stage_win_ion_field'
+  | 'stage_win_verdant_rot'
+  | 'stage_win_molten_vault';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REWARD TYPES
@@ -247,6 +269,8 @@ export interface RunEndData {
   accountLevel?: number;
   bestStreak?: number;
   highestCombo?: number;
+  shipId?: string;
+  stageId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

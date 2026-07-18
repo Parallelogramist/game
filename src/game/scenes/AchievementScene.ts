@@ -28,6 +28,7 @@ const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: str
   { id: 'survival', name: 'Survival', icon: 'heart' },
   { id: 'progression', name: 'Progression', icon: 'star' },
   { id: 'challenge', name: 'Challenge', icon: 'trophy' },
+  { id: 'mastery', name: 'Mastery', icon: 'crown' },
 ];
 
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';

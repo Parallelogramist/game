@@ -11,13 +11,15 @@ vi.mock('../codex', () => ({
 
 import { ICON_MAP, isValidFrameName } from '../utils/IconMap';
 import { RELICS } from './Relics';
+import { SHIP_CHARACTERS } from './ShipCharacters';
+import { STAGES } from './Stages';
 import { SHIP_MOD_TRACKS } from './ShipMods';
 import { ALL_BOOST_CARDS } from './BoostCards';
 import { ALL_CARDS } from './Cards';
 import { PERMANENT_UPGRADES, UPGRADE_CATEGORIES } from './PermanentUpgrades';
 import { createUpgrades, UNLOCKABLE_WEAPONS } from './Upgrades';
 import { createLimitBreakUpgrades } from './LimitBreakUpgrades';
-import { ACHIEVEMENTS, BOSS_KILL_TRACKING } from '../achievements/AchievementDefinitions';
+import { ACHIEVEMENTS, BOSS_KILL_TRACKING, SHIP_WIN_TRACKING, STAGE_WIN_TRACKING } from '../achievements/AchievementDefinitions';
 import { MILESTONES } from '../achievements/MilestoneDefinitions';
 import { ENEMY_TYPES } from '../enemies/EnemyTypes';
 import { BLESSINGS } from './Blessings';
@@ -90,6 +92,26 @@ describe('data catalog referential integrity', () => {
       const matches = ACHIEVEMENTS.filter((a) => a.trackingType === trackingType);
       expect(matches.map((a) => a.id), `"${trackingType}" must map to exactly 1 achievement`).toHaveLength(1);
     }
+  });
+
+  test('every ship-win tracking key is a real ship id with exactly one achievement', () => {
+    const shipIds = new Set(SHIP_CHARACTERS.map((s) => s.id));
+    for (const [shipId, trackingType] of Object.entries(SHIP_WIN_TRACKING)) {
+      expect(shipIds.has(shipId), `unknown ship id "${shipId}"`).toBe(true);
+      const matches = ACHIEVEMENTS.filter((a) => a.trackingType === trackingType);
+      expect(matches.map((a) => a.id), `"${trackingType}" must map to exactly 1 achievement`).toHaveLength(1);
+    }
+    expect(Object.keys(SHIP_WIN_TRACKING).length, 'every ship needs a win-tracking entry').toBe(shipIds.size);
+  });
+
+  test('every stage-win tracking key is a real stage id with exactly one achievement', () => {
+    const stageIds = new Set(STAGES.map((s) => s.id));
+    for (const [stageId, trackingType] of Object.entries(STAGE_WIN_TRACKING)) {
+      expect(stageIds.has(stageId), `unknown stage id "${stageId}"`).toBe(true);
+      const matches = ACHIEVEMENTS.filter((a) => a.trackingType === trackingType);
+      expect(matches.map((a) => a.id), `"${trackingType}" must map to exactly 1 achievement`).toHaveLength(1);
+    }
+    expect(Object.keys(STAGE_WIN_TRACKING).length, 'every stage needs a win-tracking entry').toBe(stageIds.size);
   });
 
   test('achievement ids are unique and every nextTierId resolves', () => {

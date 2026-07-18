@@ -28,6 +28,40 @@ export const BOSS_KILL_TRACKING: Record<string, TrackingType> = {
   the_eclipse: 'boss_kill_the_eclipse',
 };
 
+/**
+ * Ship id (src/data/ShipCharacters.ts) → its "win a run with this ship" tracking
+ * type. recordRunEnd credits data.shipId through this map on a victory; an id
+ * with no entry no-ops. referentialIntegrity pins the keys to real ship ids.
+ */
+export const SHIP_WIN_TRACKING: Record<string, TrackingType> = {
+  ship_default: 'ship_win_default',
+  ship_interceptor: 'ship_win_interceptor',
+  ship_dreadnought: 'ship_win_dreadnought',
+  ship_scholar: 'ship_win_scholar',
+  ship_juggernaut: 'ship_win_juggernaut',
+  ship_void_walker: 'ship_win_void_walker',
+  ship_boss_hunter: 'ship_win_boss_hunter',
+  ship_flawless: 'ship_win_flawless',
+  ship_glass_cannon: 'ship_win_glass_cannon',
+  ship_elite_slayer: 'ship_win_elite_slayer',
+  ship_apex: 'ship_win_apex',
+};
+
+/**
+ * Stage id (src/data/Stages.ts) → its "win a run in this biome" tracking type.
+ * recordRunEnd credits data.stageId through this map on a victory; an id with no
+ * entry no-ops. referentialIntegrity pins the keys to real stage ids.
+ */
+export const STAGE_WIN_TRACKING: Record<string, TrackingType> = {
+  stage_deep_void: 'stage_win_deep_void',
+  stage_inferno: 'stage_win_inferno',
+  stage_crystal_caves: 'stage_win_crystal_caves',
+  stage_endless_void: 'stage_win_endless_void',
+  stage_ion_field: 'stage_win_ion_field',
+  stage_verdant_rot: 'stage_win_verdant_rot',
+  stage_molten_vault: 'stage_win_molten_vault',
+};
+
 export const ACHIEVEMENTS: AchievementDefinition[] = [
   // ═══════════════════════════════════════════════════════════════════════════
   // COMBAT ACHIEVEMENTS (Lifetime Kill Tracking)
@@ -647,6 +681,191 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     targetValue: 1,
     trackingType: 'boss_kill_the_eclipse',
     reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MASTERY ACHIEVEMENTS (win a run with each ship / clear each biome)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  {
+    id: 'mastery_ship_default',
+    name: 'Sparrow Ace',
+    description: 'Win a run piloting the Sparrow',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_default',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_interceptor',
+    name: 'Interceptor Ace',
+    description: 'Win a run piloting the Interceptor',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_interceptor',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_dreadnought',
+    name: 'Dreadnought Ace',
+    description: 'Win a run piloting the Dreadnought',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_dreadnought',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_scholar',
+    name: 'Scholar Ace',
+    description: 'Win a run piloting the Scholar',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_scholar',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_juggernaut',
+    name: 'Juggernaut Ace',
+    description: 'Win a run piloting the Juggernaut',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_juggernaut',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_void_walker',
+    name: 'Void Walker Ace',
+    description: 'Win a run piloting the Void Walker',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_void_walker',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_boss_hunter',
+    name: 'Boss Hunter Ace',
+    description: 'Win a run piloting the Boss Hunter',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_boss_hunter',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_flawless',
+    name: 'Flawless Ace',
+    description: 'Win a run piloting the Flawless',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_flawless',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_glass_cannon',
+    name: 'Glass Cannon Ace',
+    description: 'Win a run piloting the Glass Cannon',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_glass_cannon',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_elite_slayer',
+    name: 'Elite Slayer Ace',
+    description: 'Win a run piloting the Elite Slayer',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_elite_slayer',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_ship_apex',
+    name: 'Apex Ace',
+    description: 'Win a run piloting the Apex',
+    icon: 'rocket',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'ship_win_apex',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_stage_deep_void',
+    name: 'Deep Void Conqueror',
+    description: 'Win a run in Deep Void',
+    icon: 'planet',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'stage_win_deep_void',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_stage_inferno',
+    name: 'Inferno Conqueror',
+    description: 'Win a run in Inferno',
+    icon: 'planet',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'stage_win_inferno',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_stage_crystal_caves',
+    name: 'Crystal Caves Conqueror',
+    description: 'Win a run in Crystal Caves',
+    icon: 'planet',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'stage_win_crystal_caves',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_stage_endless_void',
+    name: 'Endless Void Conqueror',
+    description: 'Win a run in Endless Void',
+    icon: 'planet',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'stage_win_endless_void',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_stage_ion_field',
+    name: 'Ion Field Conqueror',
+    description: 'Win a run in Ion Field',
+    icon: 'planet',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'stage_win_ion_field',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_stage_verdant_rot',
+    name: 'Verdant Rot Conqueror',
+    description: 'Win a run in Verdant Rot',
+    icon: 'planet',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'stage_win_verdant_rot',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
+  },
+  {
+    id: 'mastery_stage_molten_vault',
+    name: 'Molten Vault Conqueror',
+    description: 'Win a run in Molten Vault',
+    icon: 'planet',
+    category: 'mastery',
+    targetValue: 1,
+    trackingType: 'stage_win_molten_vault',
+    reward: { type: 'gold', value: 250, description: '+250 gold' },
   },
 ];
 
