@@ -34,6 +34,22 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-FLAIL** — add "Wrecking Orbs" (`flail`), a heavy long-reach orbital (29th weapon) (done — 5c760e5).
+  Filled the single thinnest weapon **mastery category** — orbital had only `orbiting_blades` (1) vs
+  explosive 8 / beam 6 / projectile 5 / aura 4 / summon 2 / melee 2. Wrecking Orbs is a deliberate
+  counterpoint to Orbiting Blades: few/slow/heavy orbs on a wide (110px, ~2× blades) tethered orbit that
+  grind + heavily knock back everything they sweep (per-enemy hit cooldown), vs blades' many/fast/close
+  low-damage cutters — a rotating knockback wall for breathing room. Self-drawn (one Graphics: ring +
+  tethers + orbs), no container/atlas, modeled on the Mine/Pulse self-drawing pattern; collision via
+  `HitCooldownTracker` + spatial hash. Mastery "Twin Comets" (+1 orb, +40% dmg); evolution "Devastator
+  Orbs" via Reach; synergy "Orbital Siege" with Singularity. Wired via `WeaponRegistry`, `UNLOCKABLE_WEAPONS`,
+  `WEAPON_MASTERY_CATEGORY: orbital`, `IconMap flail→burning-meteor`, one evolution recipe (+ its test-mirror),
+  one synergy. Codex / WeaponSelect / practice / daily pick it up automatically (all registry-driven).
+  Conservative first-pass numbers; balance owned by **POLISH-WEAPON-FLAIL** under `## Human gates`.
+  No new test (self-contained Phaser-coupled weapon, like sentry/mine/pulse); two required test-mirror edits
+  (`WeaponEvolutions.test.ts` REGISTRY_WEAPON_IDS + `Upgrades.selection.test.ts` UNLOCKABLE_IDS, the
+  latter not called out in the plan but required to keep the suite green).
+
 - [x] **FEAT-THREAT-LADDER** — a selectable pre-run Threat Level difficulty ladder (done — bb169df).
   The game had pacts (3 fixed named curses), a director (spawn composition), random run-modifiers and
   an ascension prestige — but ascension makes the player STRONGER, not the run harder, so there was
@@ -919,6 +935,14 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-FLAIL** — the new Wrecking Orbs weapon (`flail`, FEAT-WEAPON-FLAIL) needs an eyeball +
+    balance pass (agents have no browser). Reach it: start a run, level up, pick **Wrecking Orbs** (or use
+    PRACTICE → weapon = Wrecking Orbs). Check: (a) two orbs orbit at a wide radius, tethers + orbs render
+    cleanly at all visual-quality tiers; (b) damage 26 / hit-cd 0.5s / knockback 220 feel right vs
+    Orbiting Blades (not strictly better/worse — a distinct long-reach zoner); (c) orbit radius grows with
+    level and Reach; (d) mastery "Twin Comets" (3rd orb, +40% dmg) and evolution "Devastator Orbs" (via
+    Reach L5) land; (e) "Orbital Siege" synergy toast fires with Singularity equipped. Tune damage/knockback/
+    radius/rotation in `src/weapons/FlailWeapon.ts` if needed.
   - **POLISH-THREAT-LADDER** — the new pre-run Threat Level picker needs an eyeball and a balance
     pass (FEAT-THREAT-LADDER, `bb169df`). Agents have no browser. Reach it: main menu → PLAY → pick a
     weapon → (optionally pacts) → pick a Directive → **SET THREAT LEVEL**. Check: (a) do the 6 threat
