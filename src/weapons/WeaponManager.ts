@@ -21,6 +21,14 @@ import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { getJuiceManager } from '../effects/JuiceManager';
 
+// Chain-lightning on-hit proc (Electromancer meta upgrade + Chain Catalyst
+// relic, driven by combatStats.chainLightningChance). Tunable feel/balance
+// constants — owned by POLISH-META-ELECTROMANCER.
+const CHAIN_PROC_JUMPS = 3;              // max enemies a single proc arcs to
+const CHAIN_PROC_RANGE = 140;            // px search radius for each next hop
+const CHAIN_PROC_DAMAGE_FRACTION = 0.5;  // first arc = 50% of the triggering hit
+const CHAIN_PROC_FALLOFF = 0.7;          // each further arc = 70% of the previous
+
 /**
  * Per-weapon-type damage multipliers from the player's mastery upgrades.
  * `ultimate` is a global multiplier applied to every weapon on top of its
@@ -140,6 +148,15 @@ export class WeaponManager {
   private tweenBudget: number = 0;
   // PERF: Cache combat stats once per frame instead of per-hit
   private cachedCombatStats: ReturnType<typeof getCombatStats> = null;
+
+  // Re-entrancy guard for the chain-lightning on-hit proc (Electromancer /
+  // Chain Catalyst): true while a proc is arcing, so its own arced hits never
+  // re-roll the proc — this is what stops a runaway cascade.
+  private isChainProccing: boolean = false;
+  // Reusable scratch for the chain-lightning proc's target search — avoids
+  // per-proc allocation on a hot path (mirrors ChainLightningWeapon's temps).
+  private chainProcHitSet: Set<number> = new Set();
+  private chainProcTargetsTemp: { id: number; x: number; y: number }[] = [];
 
   // Pooled context object - created once, updated each frame to avoid allocations
   private ctx: WeaponContext;
@@ -578,6 +595,16 @@ export class WeaponManager {
       if (combatStats.lifeStealPercent > 0) {
         this.healPlayer(actualDamage * combatStats.lifeStealPercent);
       }
+      // Chain lightning on hit (Electromancer meta upgrade + Chain Catalyst
+      // relic): a chance per hit to arc lightning to nearby enemies. Guarded so
+      // an arced hit never re-rolls the proc — no cascade.
+      if (
+        !this.isChainProccing &&
+        combatStats.chainLightningChance > 0 &&
+        Math.random() < combatStats.chainLightningChance
+      ) {
+        this.procChainLightning(enemyId, actualDamage);
+      }
     }
 
     // Apply knockback (with multiplier from combat stats)
@@ -680,6 +707,102 @@ export class WeaponManager {
         }
       }
     }
+  }
+
+  /**
+   * Chain-lightning on-hit proc (Electromancer meta upgrade + Chain Catalyst
+   * relic, via combatStats.chainLightningChance). Arcs from the struck enemy to
+   * up to CHAIN_PROC_JUMPS nearest un-hit living enemies, each arc dealing a
+   * falling fraction of the triggering hit's damage. Reuses damageEnemy so the
+   * arced hits get full crit / death / combo / XP / overkill handling; the
+   * isChainProccing guard stops those hits from re-rolling the proc.
+   */
+  private procChainLightning(sourceId: number, sourceDamage: number): void {
+    const spatialHash = getEnemySpatialHash();
+    const arcOriginX = Transform.x[sourceId];
+    const arcOriginY = Transform.y[sourceId];
+
+    this.chainProcHitSet.clear();
+    this.chainProcHitSet.add(sourceId);
+    this.chainProcTargetsTemp.length = 0;
+
+    let fromX = arcOriginX;
+    let fromY = arcOriginY;
+
+    // Greedily hop to the nearest un-hit living enemy within range, up to N jumps.
+    for (let jump = 0; jump < CHAIN_PROC_JUMPS; jump++) {
+      const nearby = spatialHash.query(fromX, fromY, CHAIN_PROC_RANGE);
+      let bestId = -1;
+      let bestDistSq = Infinity;
+      for (const candidate of nearby) {
+        const candidateId = candidate.id;
+        if (this.chainProcHitSet.has(candidateId)) continue;
+        if (!hasComponent(this.world, EnemyTag, candidateId) || Health.current[candidateId] <= 0) continue;
+        const dx = candidate.x - fromX;
+        const dy = candidate.y - fromY;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < bestDistSq) {
+          bestDistSq = distSq;
+          bestId = candidateId;
+        }
+      }
+      if (bestId === -1) break;
+      this.chainProcHitSet.add(bestId);
+      this.chainProcTargetsTemp.push({ id: bestId, x: Transform.x[bestId], y: Transform.y[bestId] });
+      fromX = Transform.x[bestId];
+      fromY = Transform.y[bestId];
+    }
+
+    if (this.chainProcTargetsTemp.length === 0) return;
+
+    // Deal the arc damage through the full pipeline (crit / death / XP / overkill).
+    // isChainProccing guards these hits against re-rolling the proc.
+    this.isChainProccing = true;
+    let arcDamage = sourceDamage * CHAIN_PROC_DAMAGE_FRACTION;
+    for (const target of this.chainProcTargetsTemp) {
+      this.damageEnemy(target.id, arcDamage, arcOriginX, arcOriginY, 0);
+      arcDamage *= CHAIN_PROC_FALLOFF;
+    }
+    this.isChainProccing = false;
+
+    // Best-effort visual, gated behind the per-frame tween budget (damage always
+    // applied above regardless).
+    if (this.tweenBudget > 0) {
+      this.tweenBudget--;
+      this.drawChainProcArc(arcOriginX, arcOriginY, this.chainProcTargetsTemp);
+    }
+  }
+
+  /**
+   * Lightweight lightning visual for the chain-lightning proc: a cyan glow+core
+   * poly-line from the struck enemy through each arced target, a spark at each
+   * hop, fading over ~150ms. Deliberately simpler than ChainLightningWeapon's
+   * animated bolt because this fires far more often, from any weapon.
+   */
+  private drawChainProcArc(originX: number, originY: number, targets: { id: number; x: number; y: number }[]): void {
+    const graphics = this.scene.add.graphics();
+    graphics.setDepth(15);
+
+    const drawPolyline = (width: number, color: number, alpha: number): void => {
+      graphics.lineStyle(width, color, alpha);
+      graphics.beginPath();
+      graphics.moveTo(originX, originY);
+      for (const target of targets) graphics.lineTo(target.x, target.y);
+      graphics.strokePath();
+    };
+    drawPolyline(6, 0x4488ff, 0.35); // glow
+    drawPolyline(2, 0x88ccff, 1);    // core
+
+    for (const target of targets) {
+      this.effectsManager.playHitSparks(target.x, target.y, 0);
+    }
+
+    this.scene.tweens.add({
+      targets: graphics,
+      alpha: 0,
+      duration: 150,
+      onComplete: () => graphics.destroy(),
+    });
   }
 
   /**
