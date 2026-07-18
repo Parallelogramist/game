@@ -17,6 +17,7 @@ import { WEAPON_SYNERGIES, WeaponSynergy } from '../../data/WeaponSynergies';
 import { RELICS, Relic, getRelicRarityColor } from '../../data/Relics';
 import { RUN_MODIFIERS, RunModifier } from '../../data/RunModifiers';
 import { PACTS, Pact } from '../../data/Pacts';
+import { BLESSINGS, Blessing } from '../../data/Blessings';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
 import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
@@ -274,6 +275,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${RUN_MODIFIERS.length}`;
       } else if (category.id === 'pacts') {
         countLabel = `${PACTS.length}`;
+      } else if (category.id === 'blessings') {
+        countLabel = `${BLESSINGS.length}`;
       } else if (category.id === 'runs') {
         countLabel = `${getRunHistory().length}`;
       }
@@ -399,6 +402,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'pacts':
         this.displayPacts();
+        break;
+      case 'blessings':
+        this.displayBlessings();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -1198,6 +1204,80 @@ export class CodexScene extends Phaser.Scene {
       wordWrap: { width: this.cardWidth - textX - 14 },
     });
     container.add(downsideText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
+  private displayBlessings(): void {
+    const blessingCardHeight = 96;
+
+    this.layoutCardGrid([...BLESSINGS], blessingCardHeight, (blessing, x, y) => {
+      this.createBlessingCard(blessing, x, y, blessingCardHeight);
+    });
+  }
+
+  private createBlessingCard(blessing: Blessing, x: number, y: number, cardHeight: number): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border stays 0x4a4a7a — the exact color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    const iconCenterX = 38;
+    const iconCenterY = Math.floor(cardHeight / 2);
+
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, blessing.color);
+    container.add(iconDisc);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: blessing.icon,
+        size: 28,
+        tint: blessing.color,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 12, blessing.color);
+      container.add(fallback);
+    }
+
+    const textX = 75;
+    const blessingHex = '#' + blessing.color.toString(16).padStart(6, '0');
+
+    const nameText = this.add.text(textX, 14, blessing.name, {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const labelText = this.add.text(textX, 38, 'BLESSING', {
+      fontSize: '11px',
+      color: blessingHex,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(labelText);
+
+    const descText = this.add.text(textX, 56, blessing.description, {
+      fontSize: '12px',
+      color: '#88ffaa',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - textX - 14 },
+    });
+    container.add(descText);
 
     this.codexCards.push({ container, cardBg });
   }
