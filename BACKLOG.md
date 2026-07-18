@@ -34,6 +34,21 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-MINIBOSS-BOMBARD** — new 7th miniboss, The Bombard (done — b89267f). A
+  hovering siege platform that kites the player at long range and drops telegraphed
+  AOE mortar clusters (center + satellite ring) on the player's position, forcing
+  constant repositioning — the arsenal's first area-denial/artillery miniboss.
+  The 6 existing minibosses fill: consumer (Glutton), summoners (Swarm Mother,
+  Necromancer), rusher (Charger), paired setpiece (Twins) — none keeps distance and
+  zones the ground you stand on. All damage routes through the existing
+  `groundSlamCallback` (telegraphed ground strikes) — no core combat/damage/
+  projectile pipeline change. Pure, unit-tested salvo planner (`bombard-barrage.ts`)
+  feeds a Pulsar-style two-state AI (`bombard.ts`). Wired into
+  `TUNING.minibosses.schedule` as a 6th schedule slot (auto-joins Practice mode,
+  Gauntlet, and the Codex bestiary — all three derive from `ENEMY_TYPES` /
+  the schedule array), the endless miniboss pool, and a bespoke `EnemyVisuals`
+  drawer. Playtest follow-up filed as **POLISH-MINIBOSS-BOMBARD** under
+  `## Human gates`.
 - [x] **FEAT-BOSS-PULSAR** — new 6th boss, The Pulsar (done — 11c5ab5). A
   collapsed-star boss whose threat is a rotating field of telegraphed energy
   strikes emanating from itself (radial spoke waves), escalating to a
@@ -473,6 +488,24 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MINIBOSS-BOMBARD** — the new Bombard miniboss needs a balance/feel
+    eyeball (FEAT-MINIBOSS-BOMBARD, `b89267f`). Agents have no browser.
+    Reach it: PRACTICE → BOSS/target row → "The Bombard" (or a normal run — it
+    now spawns at 540s, and in endless). Check: (a) does it read as a siege
+    platform that kites at range and drops telegraphed mortar clusters (center +
+    ring) on your position; (b) base HP 420 / speed 70 / contact+strike dmg 30 /
+    blast radius 62 / salvo cadence 2.6s / range band 320±80 vs the other 6
+    minibosses — dead or oppressive?; (c) is the center 1.1s / satellite 1.35s
+    fuse a fair dodge window or too tight/too loose; (d) does the 6-strike cluster
+    (center + 5 satellites at r=95) demand real repositioning without being
+    unfair; (e) does adding a 6th scheduled miniboss (all six now appear per run,
+    Bombard at 540 ramping into the 600 boss) feel like good escalation or too
+    busy; (f) does it feel distinct from the Necromancer (kites+shoots) and the
+    Pulsar boss; (g) does the drawer + telegraphs read at all three quality
+    levels (note: on LOW quality no telegraphs render — pre-existing for all
+    enemies). All knobs are the top-of-file consts in
+    `src/ecs/systems/enemy-ai/bombard.ts` + `bombard-barrage.ts` — do not retune
+    blind.
   - **POLISH-BOSS-PULSAR** — the new Pulsar boss needs a balance/feel eyeball
     (FEAT-BOSS-PULSAR). Agents have no browser. Reach it: PRACTICE → BOSS row →
     "The Pulsar". Check: (a) does it read as a spinning star flinging rotating
