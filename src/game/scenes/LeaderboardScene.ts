@@ -11,6 +11,7 @@ import {
 } from '../../meta/DailyChallengeManager';
 import { getGauntletRuns, type GauntletRunEntry } from '../gauntlet/GauntletLeaderboard';
 import { getRunnerRuns, type RunnerRunEntry } from '../runner/RunnerLeaderboard';
+import { getEndlessRuns, type EndlessRunEntry } from '../endless/EndlessLeaderboard';
 import { getAchievementManager } from '../../achievements/AchievementManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
@@ -26,7 +27,7 @@ import {
 
 const ENTRIES_TO_SHOW = 30;
 
-type FilterMode = 'all' | 'daily' | 'weekly' | 'victory' | 'gauntlet' | 'runner';
+type FilterMode = 'all' | 'daily' | 'weekly' | 'victory' | 'gauntlet' | 'runner' | 'endless';
 
 function filterEntries(entries: DailyLeaderboardEntry[], mode: FilterMode): DailyLeaderboardEntry[] {
   switch (mode) {
@@ -50,6 +51,7 @@ export class LeaderboardScene extends Phaser.Scene {
   private allEntries: DailyLeaderboardEntry[] = [];
   private gauntletEntries: GauntletRunEntry[] = [];
   private runnerEntries: RunnerRunEntry[] = [];
+  private endlessEntries: EndlessRunEntry[] = [];
   private menuBackground: MenuBackground | null = null;
   private bgUpdateHandler: ((time: number, delta: number) => void) | null = null;
   private bestsCards: MenuCard[] = [];
@@ -96,6 +98,7 @@ export class LeaderboardScene extends Phaser.Scene {
     this.allEntries = getRecentLeaderboardEntries(ENTRIES_TO_SHOW);
     this.gauntletEntries = getGauntletRuns();
     this.runnerEntries = getRunnerRuns();
+    this.endlessEntries = getEndlessRuns();
     this.renderCurrentEntries(centerX);
 
     this.backButton = createMenuButton({
@@ -215,6 +218,7 @@ export class LeaderboardScene extends Phaser.Scene {
       { mode: 'victory', label: 'VICTORIES', accentRole: 'safe' },
       { mode: 'gauntlet', label: 'GAUNTLET', accentRole: 'teal' },
       { mode: 'runner', label: 'RUNNER', accentRole: 'primary' },
+      { mode: 'endless', label: 'ENDLESS', accentRole: 'magenta' },
     ];
 
     this.menuTabs?.destroy();
@@ -268,6 +272,21 @@ export class LeaderboardScene extends Phaser.Scene {
         return;
       }
       this.renderRunnerEntries(this.runnerEntries, centerX);
+      return;
+    }
+
+    if (this.currentFilter === 'endless') {
+      if (this.endlessEntries.length === 0) {
+        const emptyText = makeBodyText(this, centerX, this.cameras.main.centerY + 40,
+          'No endless runs yet — win a run, then continue into ENDLESS!',
+          {
+            fontSize: 16,
+            color: TEXT_COLORS.dim,
+          });
+        this.entryListChildren.push(emptyText);
+        return;
+      }
+      this.renderEndlessEntries(this.endlessEntries, centerX);
       return;
     }
 
@@ -495,6 +514,80 @@ export class LeaderboardScene extends Phaser.Scene {
         { x: colX(390) - centerX, text: entry.score.toLocaleString(), color: accentStr, emphasis: true },
         { x: colX(560) - centerX, text: `${entry.distanceMeters} m`, color: TEXT_COLORS.body, emphasis: false },
         { x: colX(710) - centerX, text: String(entry.kills), color: TEXT_COLORS.body, emphasis: false },
+      ];
+      for (const cell of cells) {
+        const t = cell.emphasis
+          ? makeDisplayText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, letterSpacing: 1 })
+          : makeBodyText(this, cell.x, 0, cell.text, { fontSize: 12, color: cell.color, align: 'center' });
+        card.frame.add(t);
+      }
+    });
+
+    if (entries.length > displayEntries.length) {
+      const moreText = makeBodyText(this, centerX, listStartY + 28 + displayEntries.length * rowHeight + 8,
+        `... ${entries.length - displayEntries.length} more`, {
+          fontSize: 11,
+          color: TEXT_COLORS.dim,
+        });
+      this.entryListChildren.push(moreText);
+    }
+  }
+
+  private renderEndlessEntries(entries: EndlessRunEntry[], centerX: number): void {
+    const listStartY = this.listStartY;
+    const rowHeight = 36;
+    const maxRows = 12;
+    const displayEntries = entries.slice(0, maxRows);
+    const rowWidth = Math.min(800, this.scale.width - 32);
+    const leftX = centerX - rowWidth / 2;
+    const colX = (offset: number) => leftX + Math.round(offset * (rowWidth / 800));
+
+    const headerLabels: { x: number; text: string }[] = [
+      { x: colX(70), text: 'RANK' },
+      { x: colX(190), text: 'DATE' },
+      { x: colX(340), text: 'CYCLE' },
+      { x: colX(470), text: 'KILLS' },
+      { x: colX(590), text: 'TIME' },
+      { x: colX(710), text: 'LEVEL' },
+    ];
+    for (const header of headerLabels) {
+      const t = makeDisplayText(this, header.x, listStartY, header.text, {
+        fontSize: 11,
+        color: TEXT_COLORS.muted,
+        letterSpacing: 1,
+      });
+      this.entryListChildren.push(t);
+    }
+
+    displayEntries.forEach((entry, index) => {
+      const rowY = listStartY + 28 + index * rowHeight;
+      const role: 'gold' | 'magenta' = index === 0 ? 'gold' : 'magenta';
+
+      const card = createMenuCard(this, {
+        x: centerX,
+        y: rowY,
+        width: rowWidth,
+        height: 30,
+        bodyFillColor: BODY_COLORS[role],
+        accentColor: roleAccent(role),
+        bannerHeight: 0,
+        borderWidth: 2,
+        borderColor: roleAccent(role),
+        cornerRadius: 6,
+        shadowOffsetY: 4,
+        shadowAlpha: 0.35,
+      });
+      this.entryCards.push(card);
+
+      const accentStr = index === 0 ? ACCENT_COLORS_STR.gold : roleAccentStr('magenta');
+
+      const cells: { x: number; text: string; color: string; emphasis: boolean }[] = [
+        { x: colX(70) - centerX, text: `#${index + 1}`, color: accentStr, emphasis: true },
+        { x: colX(190) - centerX, text: formatShortDate(entry.timestamp), color: TEXT_COLORS.body, emphasis: false },
+        { x: colX(340) - centerX, text: `Cycle ${entry.cycle}`, color: accentStr, emphasis: true },
+        { x: colX(470) - centerX, text: String(entry.kills), color: TEXT_COLORS.body, emphasis: false },
+        { x: colX(590) - centerX, text: formatTime(entry.durationSeconds), color: TEXT_COLORS.body, emphasis: false },
+        { x: colX(710) - centerX, text: `Lv ${entry.levelReached}`, color: TEXT_COLORS.body, emphasis: false },
       ];
       for (const cell of cells) {
         const t = cell.emphasis
