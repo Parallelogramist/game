@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-CODEX-MODIFIERS** — the Codex gets a browsable Modifiers tab surfacing all 15
+  run modifiers (done — 23f565d). The Codex already had tabs for Weapons, Bestiary, Upgrades,
+  Synergies, Relics, Evolutions, Ships and Statistics, and Stages/Ships also got chase
+  surfaces — but **run modifiers** were the last build-relevant pool with **no deliberate
+  browsable surface**: 1–2 of the 15 (`src/data/RunModifiers.ts`) are rolled at random per run
+  and only ever shown *while active* — a few-second run-intro banner (`GameScene`), a tiny HUD
+  icon strip (`HUDManager`), and the pause/results panel (`PauseMenuManager`) — so a player
+  could never open a menu and read what the pool (`Glass Cannon`, `Famine`, `Overcharge`, …)
+  can do. Added a ninth **Modifiers** tab listing all 15 as always-visible reference cards
+  (category-tinted icon, name, category label, exact effect description). Directly mirrors the
+  shipped FEAT-CODEX-SHIPS (`5a84d82`) / FEAT-CODEX-RELICS (`759a1cd`) / FEAT-CODEX-SYNERGIES
+  (`37a45d3`) / FEAT-CODEX-EVOLUTIONS (`d4099c5`): reuses `layoutCardGrid`, clones
+  `createRelicCard` as `createModifierCard`, uses the `0x4a4a7a` border so `updateFocusVisuals`
+  needs no change, and reuses the game's own canonical modifier→color / modifier→icon maps
+  (from `HUDManager`) and category labels (from `GameScene`) so the tab matches the run-intro
+  banner exactly. Pure static reference — **no new scene, no discovery-tracking, no
+  `CodexState`/persistence change, no completion-% impact** (completion weights only weapons +
+  enemies), no gameplay/ECS/save-format change. In the repo's proven "surface hidden depth"
+  family. Playtest follow-up filed as **POLISH-CODEX-MODIFIERS**.
+
 - [x] **BUG-PANDEMIC-SPREAD** — the Pandemic shop upgrade and the Pandemic Engine legendary
   relic were inert: a spread COUNT was fed into a pixel-RADIUS query (done — 8470c0b). The
   "Pandemic" upgrade (`PermanentUpgrades.ts`: 350 gold, unlock account level 30, `maxLevel 3`,
@@ -943,6 +963,24 @@ Never agent work. The fleet must not do any of these.
     `pandemicLevel` `maxLevel`/cost (`src/data/PermanentUpgrades.ts`), the relic's `+2`
     (`src/data/Relics.ts`), and the `floor(poisonStacks / 2)` spread magnitude in
     `GameScene.handleEnemyDeath`.
+  - **POLISH-CODEX-MODIFIERS** — the new Modifiers Codex tab needs an eyeball
+    (FEAT-CODEX-MODIFIERS, `23f565d`). Agents have no browser. Reach it: main menu → CODEX →
+    Modifiers tab. Check: (a) do the now-**nine** tabs (Weapons / Bestiary / Upgrades /
+    Synergies / Relics / Evolutions / Ships / Modifiers / Statistics) still fit and read
+    cleanly on a phone-width viewport, or does the tab row crowd/clip the icon+label+count?
+    Nine is tighter than the eight that shipped with FEAT-CODEX-SHIPS (which already flagged
+    this at eight); if it crowds, the knob is `createCategoryTabs` (shorten labels or shrink
+    the tab font) — a design call, do NOT retune blind. (b) does each modifier card lay out
+    cleanly at height 96 — name, category label, effect description — with the longest
+    descriptions (e.g. `Overcharge` "+30% attack speed, +20% longer cooldowns") wrapping
+    within the card without overspilling? (c) do the four category tints (offense red / defense
+    blue / resources gold / chaos purple) and icons (sword / shield / coins / dice) read
+    clearly and match the run-intro banner + HUD strip? (d) is placing Modifiers between Ships
+    and Statistics the right tab order, or should the pool sit elsewhere? (e) should the tab
+    show which modifiers are *currently active* this run, or is the pure all-visible reference
+    (matching Synergies/Relics/Evolutions/Ships) right? Knobs: `modifierCardHeight`, the card
+    `textX` / y-offsets / `wordWrap` in `createModifierCard`; the three `MODIFIER_CATEGORY_*`
+    maps and the tab entry position + icon in `CODEX_CATEGORIES` (`src/codex/CodexTypes.ts`).
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
