@@ -47,6 +47,7 @@ export enum EnemyAIType {
   Tessellator = 110,  // Boss — checkerboard-tiling bullet-hell lattice
   Tremor = 111,       // Boss — expanding seismic-shockwave ripple
   Diviner = 112,      // Boss — aimed scrying-cage eye
+  Eclipse = 113,      // Boss — roving-umbra full-floor pulse field
 }
 
 /**
@@ -832,6 +833,23 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     spawnWeight: 0,
   },
 
+  the_eclipse: {
+    id: 'the_eclipse',
+    name: 'The Eclipse',
+    aiType: EnemyAIType.Eclipse,
+    category: EnemyCategory.Boss,
+    baseHealth: 4750,
+    baseSpeed: 44,
+    baseDamage: 30,
+    size: 6,
+    color: 0xffaa33,          // Boss - corona gold
+    secondaryColor: 0xffffff, // White outline
+    shape: 'circle',
+    xpValue: 1000,
+    minSpawnTime: 600,
+    spawnWeight: 0,
+  },
+
   legion_fragment: {
     id: 'legion_fragment',
     name: 'Legion Fragment',
@@ -969,6 +987,7 @@ const ENEMY_ARMOR: Record<string, number> = {
   the_tessellator: 8,  // crystalline lattice — moderately armored
   the_tremor: 10,      // dense seismic plate — moderately armored
   the_diviner: 6,      // energy eye construct — lightly armored
+  the_eclipse: 6,      // umbral energy core — lightly armored
   legion_fragment: 4,
   legion_mote: 0,
 };

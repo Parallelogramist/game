@@ -54,7 +54,8 @@ export type TrackingType =
   | 'boss_kill_the_helix'
   | 'boss_kill_the_tessellator'
   | 'boss_kill_the_tremor'
-  | 'boss_kill_the_diviner';
+  | 'boss_kill_the_diviner'
+  | 'boss_kill_the_eclipse';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REWARD TYPES

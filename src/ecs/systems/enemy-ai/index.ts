@@ -66,6 +66,7 @@ export { updateTremorAI, resetTremorStrikes } from './tremor';
 export { updateDivinerAI, resetDivinerStrikes } from './diviner';
 export { updateBombardAI, resetBombardStrikes } from './bombard';
 export { updateStalkerAI, resetStalkerStrikes } from './stalker';
+export { updateEclipseAI, resetEclipseStrikes } from './eclipse';
 export { updateLegionAI, updateLegionFragmentAI } from './legion';
 export {
   resetLegionSystem,

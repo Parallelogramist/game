@@ -25,6 +25,7 @@ export const BOSS_KILL_TRACKING: Record<string, TrackingType> = {
   the_tessellator: 'boss_kill_the_tessellator',
   the_tremor: 'boss_kill_the_tremor',
   the_diviner: 'boss_kill_the_diviner',
+  the_eclipse: 'boss_kill_the_eclipse',
 };
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [
@@ -635,6 +636,16 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     category: 'combat',
     targetValue: 1,
     trackingType: 'boss_kill_the_diviner',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+  {
+    id: 'boss_first_the_eclipse',
+    name: 'Total Eclipse',
+    description: 'Defeat The Eclipse',
+    icon: 'shield',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_eclipse',
     reward: { type: 'gold', value: 400, description: '+400 gold' },
   },
 ];

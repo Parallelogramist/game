@@ -44,6 +44,7 @@ import { updateHelixAI } from './enemy-ai/helix';
 import { updateTessellatorAI } from './enemy-ai/tessellator';
 import { updateTremorAI } from './enemy-ai/tremor';
 import { updateDivinerAI } from './enemy-ai/diviner';
+import { updateEclipseAI } from './enemy-ai/eclipse';
 import { updateLegionAI, updateLegionFragmentAI } from './enemy-ai/legion';
 // Elite proximity auras (Tank / Rallier / Warden), applied after all AI runs
 import { applyEliteAuras } from './enemy-ai/elite-auras';
@@ -67,6 +68,7 @@ export { resetTremorStrikes } from './enemy-ai/tremor';
 export { resetDivinerStrikes } from './enemy-ai/diviner';
 export { resetBombardStrikes } from './enemy-ai/bombard';
 export { resetStalkerStrikes } from './enemy-ai/stalker';
+export { resetEclipseStrikes } from './enemy-ai/eclipse';
 export {
   resetLegionSystem,
   registerLegionRoot,
@@ -250,6 +252,9 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         break;
       case EnemyAIType.Diviner:
         updateDivinerAI(enemyId, playerX, playerY, lodDeltaTime);
+        break;
+      case EnemyAIType.Eclipse:
+        updateEclipseAI(enemyId, playerX, playerY, lodDeltaTime);
         break;
       case EnemyAIType.Legion:
         updateLegionAI(enemyId, playerX, playerY, lodDeltaTime);

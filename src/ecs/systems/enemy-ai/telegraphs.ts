@@ -208,6 +208,15 @@ export function stalkerStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
   return { shape: 'ring', radius: 66, duration: impactDelay, color: 0xff33aa };
 }
 
+/**
+ * The Eclipse pulse-strike warning. Damage radius at execute is 120; the +8
+ * overshoots it so the ring is a conservative warning. Duration = the pulse's fuse
+ * (the ring fills exactly as the strike lands).
+ */
+export function eclipseStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 128, duration: impactDelay, color: 0xffcc33 };
+}
+
 /** Routes a spec to the manager's ring/line spawner. No-op when manager is null. */
 export function spawnTelegraph(
   manager: Pick<TelegraphManager, 'spawnRing' | 'spawnLine'> | null,

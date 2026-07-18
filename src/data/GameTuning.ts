@@ -26,7 +26,7 @@ export const TUNING = {
   bosses: {
     spawnTime: 600,
     warningPhases: [-120, -60, -30] as const,
-    order: ['horde_king', 'void_wyrm', 'the_machine', 'the_bastion', 'the_legion', 'the_pulsar', 'the_obelisk', 'the_helix', 'the_tessellator', 'the_tremor', 'the_diviner'] as const,
+    order: ['horde_king', 'void_wyrm', 'the_machine', 'the_bastion', 'the_legion', 'the_pulsar', 'the_obelisk', 'the_helix', 'the_tessellator', 'the_tremor', 'the_diviner', 'the_eclipse'] as const,
   },
 
   /** Miniboss schedule — typeIds are shuffled each run */

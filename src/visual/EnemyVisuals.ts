@@ -1245,6 +1245,39 @@ function drawDiviner(
   g.fillCircle(-s * 0.1, -s * 0.1, Math.max(2, s * 0.1));
 }
 
+/** The Eclipse — an occulted core: a dark disc ringed by a bright corona and
+ *  radiating flares, with a diamond-ring glint (the total-eclipse motif). */
+function drawEclipse(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  neon: NeonColorPair,
+  quality: VisualQuality,
+): void {
+  circleGlow(g, s, neon, quality);
+  // Bright corona ring behind the dark disc.
+  g.lineStyle(4, neon.glow, 0.9);
+  g.strokeCircle(0, 0, s * 1.18);
+  // Corona flares (skip on low quality).
+  if (quality !== 'low') {
+    g.lineStyle(2, 0xffffff, 0.55);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      g.beginPath();
+      g.moveTo(Math.cos(a) * s * 1.05, Math.sin(a) * s * 1.05);
+      g.lineTo(Math.cos(a) * s * 1.42, Math.sin(a) * s * 1.42);
+      g.strokePath();
+    }
+  }
+  // Dark occluding disc (the eclipse body).
+  g.fillStyle(0x0a0a14, 1);
+  g.fillCircle(0, 0, s * 1.0);
+  g.lineStyle(2.5, neon.core, 0.95);
+  g.strokeCircle(0, 0, s * 1.0);
+  // Diamond-ring glint on the rim.
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(-s * 0.6, -s * 0.6, Math.max(2, s * 0.14));
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -1295,6 +1328,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   the_tessellator: drawTessellator,
   the_tremor: drawTremor,
   the_diviner: drawDiviner,
+  the_eclipse: drawEclipse,
   legion_fragment: drawLegionFragment,
   legion_mote: drawLegionFragment,
 };
