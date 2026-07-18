@@ -161,7 +161,11 @@ export function createDefaultPlayerStats(): PlayerStats {
     // (e.g. "+20% range"). A <1.0 default would silently shrink every weapon.
     projectileSpeedMultiplier: 1.0,
     rangeMultiplier: 1.0,
-    cooldownMultiplier: 1.15,
+    // Neutral base: cooldownMultiplier is now consumed by the weapon cooldown
+    // pipeline (GameScene.syncStatsToPlayer divides the attack-speed arg by it).
+    // A non-1.0 default would silently slow every weapon - same reason range/
+    // speed were reset to 1.0 above.
+    cooldownMultiplier: 1.0,
     durationMultiplier: 0.85,
 
     // Critical hits

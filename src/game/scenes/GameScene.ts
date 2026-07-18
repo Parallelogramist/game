@@ -9244,7 +9244,7 @@ export class GameScene extends Phaser.Scene {
     const comboDamageBonus = getComboBuffDamageMultiplier();
     this.weaponManager.applyMultipliers(
       this.playerStats.damageMultiplier * (1 + comboDamageBonus) * this.hazardDamageMultiplier,
-      this.playerStats.attackSpeedMultiplier,
+      this.playerStats.attackSpeedMultiplier / Math.max(0.1, this.playerStats.cooldownMultiplier),
       this.playerStats.projectileCount - 1, // Bonus count (base is 1)
       this.playerStats.piercing,             // Bonus piercing (base is 0)
       this.playerStats.rangeMultiplier,      // Universal reach/area multiplier
