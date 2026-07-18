@@ -380,9 +380,22 @@ export const RELICS: readonly Relic[] = [
  * `luck` (0–1, the player's `PlayerStats.luck`) biases the rarity roll toward
  * higher-quality relics; at the default luck 0 the weighting is unchanged.
  */
-export function pickRandomRelic(excludeIds: string[] = [], luck = 0): Relic | null {
-  const available = RELICS.filter((relic) => !excludeIds.includes(relic.id));
-  if (available.length === 0) return null;
+export function pickRandomRelic(
+  excludeIds: string[] = [],
+  luck = 0,
+  minRarity?: RelicRarity,
+): Relic | null {
+  const eligible = RELICS.filter((relic) => !excludeIds.includes(relic.id));
+  if (eligible.length === 0) return null;
+
+  // Bad-luck protection ("pity"): when a rarity floor is requested, roll only
+  // among relics at or above it — but fall back to the full eligible pool when
+  // nothing qualifies (e.g. every epic/legendary is already equipped) so a pity
+  // roll can never waste a drop by returning null.
+  const floored = minRarity
+    ? eligible.filter((relic) => rarityAtLeast(relic.rarity, minRarity))
+    : eligible;
+  const available = floored.length > 0 ? floored : eligible;
 
   // Weight by rarity, biased by luck (luck 0 → base drop weights).
   const rarityWeights = luckBiasedRarityWeights(luck);
@@ -401,6 +414,14 @@ export function pickRandomRelic(excludeIds: string[] = [], luck = 0): Relic | nu
 
 export function getRelicById(id: string): Relic | undefined {
   return RELICS.find((relic) => relic.id === id);
+}
+
+/**
+ * True if `rarity` is at least as high-quality as `floor`, using the ascending
+ * RELIC_RARITIES order (common < rare < epic < legendary).
+ */
+export function rarityAtLeast(rarity: RelicRarity, floor: RelicRarity): boolean {
+  return RELIC_RARITIES.indexOf(rarity) >= RELIC_RARITIES.indexOf(floor);
 }
 
 export function getRelicRarityColor(rarity: RelicRarity): number {

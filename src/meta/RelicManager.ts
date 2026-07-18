@@ -5,17 +5,31 @@
  * Not persisted — relics reset each run. Hook into GameScene via getRelicManager(scene).
  */
 
-import { Relic, pickRandomRelic, getRelicById } from '../data/Relics';
+import { Relic, pickRandomRelic, getRelicById, RelicRarity, rarityAtLeast } from '../data/Relics';
 import { PlayerStats } from '../data/Upgrades';
 
 const MAX_RELICS_PER_RUN = 6;
 
+// Relic bad-luck protection ("pity"): after this many consecutive granted
+// relics below RELIC_PITY_FLOOR, the next roll is forced to the floor rarity or
+// better, so a run's relic power never stalls on an unlucky common/rare streak.
+// Epic+ relics are the build-defining ones (~10% base drop odds) and a run
+// equips at most MAX_RELICS_PER_RUN, so many runs would otherwise see none.
+// First-pass values — feel/balance owned by POLISH-RELIC-PITY (BACKLOG.md
+// ## Human gates).
+const RELIC_PITY_THRESHOLD = 3;
+const RELIC_PITY_FLOOR: RelicRarity = 'epic';
+
 export class RelicManager {
   private equippedRelics: Relic[] = [];
+  // Consecutive granted relics below RELIC_PITY_FLOOR. Per-run only: reset in
+  // reset(), never persisted (restoreFromSave restores ids, not this streak).
+  private subFloorStreak: number = 0;
 
-  /** Resets relic inventory (call at run start). */
+  /** Resets relic inventory + pity streak (call at run start). */
   reset(): void {
     this.equippedRelics = [];
+    this.subFloorStreak = 0;
   }
 
   /** Returns the ordered list of equipped relics. */
@@ -53,10 +67,19 @@ export class RelicManager {
   rollAndEquipRandomRelic(stats: PlayerStats): Relic | null {
     if (this.isFull()) return null;
     const excludeIds = this.equippedRelics.map((relic) => relic.id);
+    // Pity: once the sub-floor streak reaches the threshold, force this roll to
+    // the pity floor (epic) or better.
+    const forceFloor = this.subFloorStreak >= RELIC_PITY_THRESHOLD;
     // Luck biases the rarity roll toward higher-quality relics (luck 0 = base odds).
-    const rolled = pickRandomRelic(excludeIds, stats.luck);
+    const rolled = pickRandomRelic(excludeIds, stats.luck, forceFloor ? RELIC_PITY_FLOOR : undefined);
     if (!rolled) return null;
-    return this.equipRelic(rolled, stats);
+    const equipped = this.equipRelic(rolled, stats);
+    if (equipped) {
+      this.subFloorStreak = rarityAtLeast(equipped.rarity, RELIC_PITY_FLOOR)
+        ? 0
+        : this.subFloorStreak + 1;
+    }
+    return equipped;
   }
 
   /**

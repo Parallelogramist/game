@@ -2,6 +2,7 @@ import { describe, test, expect, afterEach, vi } from 'vitest';
 import {
   luckBiasedRarityWeights,
   pickRandomRelic,
+  rarityAtLeast,
   RELIC_RARITY_DROP_WEIGHTS,
   RELICS,
 } from './Relics';
@@ -107,5 +108,50 @@ describe('pickRandomRelic luck biasing', () => {
 
     vi.spyOn(Math, 'random').mockReturnValue(0.95);
     expect(pickRandomRelic(allButTwo, 1)?.rarity).toBe('legendary');
+  });
+});
+
+describe('rarityAtLeast', () => {
+  test('orders rarities ascending: common < rare < epic < legendary', () => {
+    expect(rarityAtLeast('legendary', 'epic')).toBe(true);
+    expect(rarityAtLeast('epic', 'epic')).toBe(true);
+    expect(rarityAtLeast('rare', 'epic')).toBe(false);
+    expect(rarityAtLeast('common', 'common')).toBe(true);
+    expect(rarityAtLeast('common', 'rare')).toBe(false);
+  });
+});
+
+describe('pickRandomRelic rarity floor (pity)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('with an epic floor, only ever returns epic-or-legendary relics across the whole roll range', () => {
+    const spy = vi.spyOn(Math, 'random');
+    for (let roll = 0; roll < 1; roll += 0.02) {
+      spy.mockReturnValue(roll);
+      const picked = pickRandomRelic([], 0, 'epic');
+      expect(picked).not.toBeNull();
+      expect(rarityAtLeast(picked!.rarity, 'epic')).toBe(true);
+    }
+  });
+
+  test('falls back to the full pool (never null) when no relic meets the floor', () => {
+    // Exclude every epic + legendary relic, then demand an epic floor: the floor
+    // cannot be met, so it must fall back to the eligible pool, not return null.
+    const highRarityIds = RELICS
+      .filter((relic) => rarityAtLeast(relic.rarity, 'epic'))
+      .map((relic) => relic.id);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const picked = pickRandomRelic(highRarityIds, 0, 'epic');
+    expect(picked).not.toBeNull();
+    expect(rarityAtLeast(picked!.rarity, 'epic')).toBe(false);
+  });
+
+  test('without a floor, behaviour is unchanged (regression lock)', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.999);
+    const withoutFloor = pickRandomRelic([], 0);
+    const withUndefinedFloor = pickRandomRelic([], 0, undefined);
+    expect(withoutFloor?.id).toBe(withUndefinedFloor?.id);
   });
 });
