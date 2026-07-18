@@ -34,6 +34,36 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-LOADOUT-PRESETS** — save up to 3 favourite pre-run loadouts and one-tap replay any of them (plus
+  replay your last run) from a new **LOADOUTS** menu (done — `dafb662`). The pre-run funnel is now **8 screens**
+  (Weapon → Ship → Stage → Pact → Director → Threat → Modifier draft → Blessing draft) because the recent draft
+  features each *added* a step (`FEAT-RELIC-DRAFT` `0882753`, `FEAT-MODIFIER-DRAFT` `55a1893`, `FEAT-BLESSING-DRAFT`
+  `fed5573`) — re-running a specific build meant re-walking all 8. The game already shipped a **single-slot**
+  "REPLAY LOADOUT" main-menu link (backed by `LastLoadout.ts`) proving the friction is real, but that one slot is
+  overwritten every run, so you could keep exactly one build. This adds explicit presets: a new pure
+  `src/meta/LoadoutPresets.ts` store (mirrors `LastLoadout`; up to 3 loadouts, dedup + FIFO drop-oldest at cap) and
+  a new `src/game/scenes/LoadoutScene.ts` listing "Replay last run" + each saved preset as one-tap launch rows +
+  a "Save current loadout" row (auto-titled `Ship · Stage`, subtitled weapon/threat/pacts — no text input). The
+  existing main-menu link was repointed (label `REPLAY LOADOUT` → `LOADOUTS`, gate widened to also show when
+  presets exist, opens the scene) for **net-zero new menu rows** — the tuned `BootScene` layout is untouched.
+  Launching reuses `BootScene`'s existing confirm-if-a-run-is-in-progress + clear-save + re-roll-modifiers +
+  fade-to-`GameScene` path **verbatim** via a module-level pending-replay handoff (deliberately NOT
+  `scene.start` data, to dodge Phaser's settings.data retention footgun) — no launch logic duplicated, behaviour
+  identical to today's REPLAY. `sanitizeLoadout` was extracted from `LastLoadout.loadLastLoadout` (pure, behaviour
+  unchanged) so both stores sanitise identically. **No save-format migration** (new store, own new storage key),
+  **no combat/ECS/PlayerStats/Codex/HiddenUnlocks change**; the store auto-transfers with the profile
+  (`ALL_STORAGE_KEYS` + not `NON_TRANSFERABLE`). Files: `LastLoadout.ts` (extract `sanitizeLoadout`),
+  `LoadoutPresets.ts` (new store + handoff), `LoadoutScene.ts` (new scene), `StorageBootstrap.ts` (+1 key),
+  `main.ts` (register scene), `BootScene.ts` (repoint link + consume pending replay). **Tested** (real
+  regression-risk carve-out, mirrors `RunHistoryManager.test.ts`): `LoadoutPresets.test.ts` pins FIFO/dedup/
+  garbage-sanitising load/pact-order-insensitive equality/handoff-clear-on-consume; the new storage key is
+  auto-covered by `StorageBootstrap.test.ts`'s key-scanner; the scene is Phaser-coupled (untested like siblings)
+  and guarded by tsc + build. Legibility/feel (LOADOUTS list on phone portrait; whether 3 slots + FIFO-no-delete
+  is enough, or explicit delete/rename/pin is wanted) owned by **POLISH-LOADOUT-PRESETS** under `## Human gates`.
+  Chosen because the backlog was thin (Now empty; Next/Proposed all done; the two open Later items are value-gate
+  busy-work) and content-pack / Codex-tab veins were exhausted / flagged near-busy-work — this is a *different
+  value axis* (a QoL capability removing friction the recent draft features added), the lowest-risk fully-
+  specifiable novel win, reusing `LastLoadout` + the replay path 1:1.
 - [x] **FEAT-ACHIEVE-MASTERY** — added 18 ship + stage mastery achievements (win a run with each of the 11 ships;
   clear a run in each of the 7 biomes), in a new **Mastery** achievement category (done — `f27109a`). The game had
   51 persistent achievements with a full browsable `AchievementScene` (category tabs, progress bars, per-category
@@ -1307,6 +1337,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-LOADOUT-PRESETS** — the new LOADOUTS menu + preset save/replay needs a legibility + feel eyeball
+    (FEAT-LOADOUT-PRESETS, `dafb662`). Agents have no browser. Reach it: main menu → **LOADOUTS** (the link that
+    used to say "REPLAY LOADOUT", shown once you have a last loadout or a saved preset). Check: (a) do the rows
+    (REPLAY LAST RUN, each saved preset `Ship · Stage` with its weapon/threat/pacts subtitle, SAVE CURRENT LOADOUT)
+    read cleanly on a phone in **portrait** (720-wide) and **landscape** (1280-wide) — labels/subtitles/PLAY-SAVE
+    hints legible, not clipped, rows not overlapping the BACK button with 3 presets + replay + save (5 rows)?
+    (b) end-to-end: configure a run through the full funnel, finish/return to menu, open LOADOUTS → SAVE CURRENT
+    LOADOUT → does it appear as a preset; does one-tap PLAY on it launch that exact build (ship/stage/weapon/pacts/
+    director/threat), asking "START NEW RUN?" first when a run is in progress? (c) FIFO: with 3 presets saved,
+    does SAVE CURRENT read "SAVE CURRENT (REPLACES OLDEST)" and drop the oldest on save? (d) is **3 slots with
+    FIFO and no explicit delete/rename** enough, or is a delete/pin/rename affordance wanted (deferred by design —
+    v1 avoids text-input + per-row secondary actions)? Knobs: `MAX_LOADOUT_PRESETS` in
+    `src/meta/LoadoutPresets.ts`; row sizing (`cardWidth`/`cardHeight`/`gap`/`firstRowY`) in
+    `src/game/scenes/LoadoutScene.ts`. These are tuning/legibility/scope-only; the mechanics (store, dedup, FIFO,
+    launch handoff, save round-trip) are done.
   - **POLISH-ACHIEVE-MASTERY** — the 18 new ship/stage mastery achievements + the new Mastery tab need a
     legibility + feel eyeball (FEAT-ACHIEVE-MASTERY, `f27109a`). Agents have no browser. Reach them: BootScene →
     **ACHIEVEMENTS** → the new **Mastery** tab (now the 5th tab). Check: (a) with **5 category tabs** (was 4),
