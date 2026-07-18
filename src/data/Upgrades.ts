@@ -130,7 +130,7 @@ export interface PlayerStats {
 
   // Advanced elemental effects
   shatterBonus: number;            // Bonus damage to frozen enemies (e.g., 0.5 = +50%)
-  pandemicSpread: number;          // Radius for poison to spread on death (0 = disabled)
+  pandemicSpread: number;          // Count of nearby enemies poison spreads to on death (0 = disabled)
   overchargeStunDuration: number;  // Stun duration from chain lightning (0 = disabled)
 
   // Time/difficulty modifiers

@@ -198,6 +198,11 @@ const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
 const POWER_SHRINE_BUFF_MULT = 2;
 const POWER_SHRINE_BUFF_SECONDS = 8;
 
+// Pandemic: a poison death spreads to nearby enemies. pandemicSpread is a COUNT
+// of enemies infected (shop "Pandemic" 1-3 + "Pandemic Engine" relic +2), not a
+// radius -- so we query a fixed bloom radius here and cap infections to that count.
+const PANDEMIC_SPREAD_RADIUS = 100;
+
 /**
  * GameScene is the main gameplay scene.
  * Manages the ECS world, player, enemies, and game loop.
@@ -2715,18 +2720,21 @@ export class GameScene extends Phaser.Scene {
     if (this.playerStats.pandemicSpread > 0 && hasComponent(this.world, StatusEffect, enemyId)) {
       const poisonStacks = StatusEffect.poisonStacks[enemyId];
       if (poisonStacks > 0) {
-        // Find nearby enemies using spatial hash for O(nearby) instead of O(all)
-        const spreadRadius = this.playerStats.pandemicSpread;
-        const nearbyEnemies = getEnemySpatialHash().query(x, y, spreadRadius);
+        // pandemicSpread is the COUNT of enemies to infect, not a radius (max 5) --
+        // query a fixed bloom radius and stop once that many have caught it.
+        const maxInfections = this.playerStats.pandemicSpread;
+        const nearbyEnemies = getEnemySpatialHash().query(x, y, PANDEMIC_SPREAD_RADIUS);
+        const spreadStacks = Math.max(1, Math.floor(poisonStacks / 2));
+        let infected = 0;
         for (const nearby of nearbyEnemies) {
+          if (infected >= maxInfections) break;
           if (nearby.id === enemyId) continue;
           // Skip entities already removed this frame (stale spatial hash entries)
           if (!hasComponent(this.world, EnemyTag, nearby.id)) continue;
-          // Spread half the stacks to nearby enemies
-          const spreadStacks = Math.max(1, Math.floor(poisonStacks / 2));
           applyPoison(this.world, nearby.id, spreadStacks, 4000, this.playerStats.poisonMaxStacks);
           // Visual feedback for poison spread
           this.effectsManager.showDamageNumber(nearby.x, nearby.y - 10, spreadStacks, 0x66ff66);
+          infected++;
         }
       }
     }
