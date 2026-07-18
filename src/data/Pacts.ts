@@ -79,6 +79,40 @@ export const PACTS: readonly Pact[] = [
       stats.xpMultiplier += 0.15;
     },
   },
+  {
+    id: 'leaden',
+    name: 'Leaden Hull',
+    description: 'Your ship is sluggish — 25% slower movement.',
+    reward: '+15% gold',
+    color: 0x8899aa,
+    apply: (stats) => {
+      stats.moveSpeed *= 0.75;
+      stats.goldMultiplier *= 1.15;
+    },
+  },
+  {
+    id: 'blunt',
+    name: 'Blunt Force',
+    description: 'Your weapons hit 20% softer.',
+    reward: '+18% gold · +12% XP',
+    color: 0xaa6644,
+    apply: (stats) => {
+      stats.damageMultiplier *= 0.8;
+      stats.goldMultiplier *= 1.18;
+      stats.xpMultiplier += 0.12;
+    },
+  },
+  {
+    id: 'nearsighted',
+    name: 'Nearsighted',
+    description: 'Your pickup range shrinks — gather XP and gold up close.',
+    reward: '+12% gold',
+    color: 0x66bb88,
+    apply: (stats) => {
+      stats.pickupRange *= 0.6;
+      stats.goldMultiplier *= 1.12;
+    },
+  },
 ];
 
 /** Maximum pacts a player can stack in one run. */

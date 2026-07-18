@@ -136,6 +136,19 @@ const PACT_EFFECTS: Record<string, EffectSpec> = {
     goldMultiplier: (base) => base.goldMultiplier * 1.25,
     xpMultiplier: (base) => base.xpMultiplier + 0.15,
   },
+  leaden: {
+    moveSpeed: (base) => base.moveSpeed * 0.75,
+    goldMultiplier: (base) => base.goldMultiplier * 1.15,
+  },
+  blunt: {
+    damageMultiplier: (base) => base.damageMultiplier * 0.8,
+    goldMultiplier: (base) => base.goldMultiplier * 1.18,
+    xpMultiplier: (base) => base.xpMultiplier + 0.12,
+  },
+  nearsighted: {
+    pickupRange: (base) => base.pickupRange * 0.6,
+    goldMultiplier: (base) => base.goldMultiplier * 1.12,
+  },
 };
 
 describe('Pact apply() effects', () => {
