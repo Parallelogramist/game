@@ -34,6 +34,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-META-READINESS** — the "Readiness" shop upgrade + 5 other cooldown sources now actually
+  reduce weapon cooldowns (done — e3af0f0). `PlayerStats.cooldownMultiplier` was written by six
+  sources — the **Readiness** permanent upgrade (`cooldownLevel`), several **ship** cooldown perks
+  (advertised in the hangar), a **ship mod**, an **achievement** reward, the Blessing **"Focus"**
+  (−15% cooldowns), and the RunModifier **"Overcharge"** downside (+20% cooldowns) — but **no code read
+  the field**, so Readiness was a dead gold sink, the ship perks/Focus were inert, and Overcharge's
+  penalty was free (only its +30% attack-speed half worked). Fire-rate is driven by
+  `attackSpeedMultiplier`; `cooldownMultiplier` just accumulated and was discarded. Added the missing
+  consumer: `syncStatsToPlayer` now passes `attackSpeedMultiplier / cooldownMultiplier` into the weapon
+  cooldown pipeline (the arg divides cooldown, so a lower "lower-is-better" stat = faster). Reset the
+  base default `1.15 → 1.0` so a no-source run is **unchanged** (mirrors the documented range/speed
+  neutral-default fix) — only the six real sources now take effect. Same **revive-dead-paid-content**
+  family as Electromancer (`068ee64`) / weaponSynergy (`501b5bc`) / slowResistance (`457a755`).
+  **No new file, no save-format/ECS/CombatStats/PlayerStats-interface/storage-key/drop-weight change** —
+  two lines in `Upgrades.ts` + `GameScene.ts`. Test-free: arithmetic-only wiring in a Phaser-coupled
+  method + a constant; existing Blessings/RunModifiers/ShipCharacters suites still green, tsc/build guard
+  it. Conservative (neutral-baseline) numbers — feel/balance owned by **POLISH-META-READINESS** under
+  `## Human gates`.
+
 - [x] **FEAT-RELIC-PACK** — added 6 build-defining relics on stat axes no relic touched (done — 32652a0).
   The two prior features made relics the run's spotlight — **FEAT-RELIC-DRAFT** (`0882753`, pick 1-of-3 per
   drop) and **FEAT-RELIC-PITY** (`31c9a7e`, a floor that guarantees epic-or-better) — but the pool was thin at
@@ -1223,6 +1242,19 @@ Never agent work. The fleet must not do any of these.
     rarity-colored HUD strip + stronger effect is the only signal); adding one would touch the fortune/chest/
     miniboss toast sites. (e) confirm pity never wastes a drop when all epics/legendaries are already equipped
     (the `pickRandomRelic` full-pool fallback) and never over-fires with high `luck`.
+  - **POLISH-META-READINESS** — the now-live cooldown-reduction stat needs a feel/balance eyeball
+    (FEAT-META-READINESS, `e3af0f0`). Agents have no browser. Reach it: (a) Shop → buy **Readiness**
+    (Utility) a few levels and confirm weapons visibly fire faster in a run; (b) pick a ship that
+    advertises a cooldown perk (e.g. the 0.85/0.90 ships in `ShipCharacters.ts`) and confirm its fire
+    rate is faster than the default ship; (c) grab the **Focus** blessing and confirm faster cadence;
+    (d) in the modifier draft pick **Overcharge** and confirm its +20% cooldown downside now actually
+    slows weapons (net vs its +30% attack speed). Balance: reviving six sources at once is a global
+    fire-rate buff (Readiness maxed ≈ +43% rate; combined realistic floor ≈2×) — is that too strong,
+    especially stacked with attack-speed masteries? Should Readiness's per-level or the −5% be trimmed,
+    or Overcharge's downside grown? Knobs: `getStartingCooldownMultiplier` in `MetaProgressionManager.ts`
+    (Readiness), the per-ship `cooldownMultiplier` in `ShipCharacters.ts`, Focus in `Blessings.ts`,
+    Overcharge in `RunModifiers.ts`. Also: the pause **BUILD STATS** dashboard shows attack speed but not
+    this cooldown stat — consider surfacing it. Mechanics are done; this is tuning/display only.
   - **POLISH-META-ELECTROMANCER** — the now-live chain-lightning on-hit proc needs an eyeball + a balance pass
     (FEAT-META-ELECTROMANCER, `068ee64`). Agents have no browser. Reach it: Shop → buy **Electromancer**
     (elemental, unlock account lvl 10) to a few levels — or grab the **Chain Catalyst** relic — then start a
