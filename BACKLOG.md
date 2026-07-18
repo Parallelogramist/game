@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-RELIC-PITY** — relic drops now have bad-luck protection so build-defining relics reliably show up
+  (done — 31c9a7e). Relic rarity was pure weighted-random (base weights common 60 / rare 30 / **epic 9 /
+  legendary 1** → epic-or-better ~10% per drop) with **no floor / pity / fairness** anywhere in the path
+  (`pickRandomRelic`, `Relics.ts`). A run equips at most **6 relics** (`MAX_RELICS_PER_RUN`), so the expected
+  epic+ count per run was **< 0.6** — **most runs saw zero** of the build-defining epic/legendary relics purely
+  on cold RNG (`luck` biased the odds but guaranteed nothing). Added the game's first relic loot-fairness system:
+  a **per-run rarity pity floor** in `RelicManager` — after `RELIC_PITY_THRESHOLD` (3) consecutive granted
+  relics below epic, the next roll is forced to **epic-or-better** (`RELIC_PITY_FLOOR = 'epic'`). `pickRandomRelic`
+  gained an optional `minRarity` floor (filters the pool to that rarity+, with a **fall-back to the full pool**
+  when nothing qualifies so a pity roll never wastes a drop by returning null); `rarityAtLeast(rarity, floor)`
+  compares by the ascending `RELIC_RARITIES` order. The streak resets on any epic+ grant (natural or forced) and
+  in `reset()` at run start; it is **per-run and not persisted** (no save-format change). **Transparent to all
+  three grant sites** (fortune shrine, chest, miniboss) — each calls `rollAndEquipRandomRelic` unchanged.
+  Legendary stays rare under pity (the 9:1 epic:legendary weighting still applies within the floored pool) and
+  luck still biases within it; **no drop weight changes.** A **live loot-system** fix breaking the passive-UI
+  rut, on the same relic-quality axis as the deferred draft. **No new store/storage key, no
+  GameScene/PlayerStats/CombatStats/save-format/ECS change** — confined to `Relics.ts` + `RelicManager.ts`.
+  Tested (loot-fairness = the standing order's real-regression-risk carve-out): pure floor+fallback +
+  `rarityAtLeast` in `Relics.test.ts`, and the streak→floor + reset behaviour in `RelicManager.pity.test.ts`.
+  Conservative first-pass numbers — feel/balance owned by **POLISH-RELIC-PITY** under `## Human gates`.
 - [x] **FEAT-META-ELECTROMANCER** — the Electromancer shop upgrade + Chain Catalyst relic now actually chain
   lightning on hit (done — 068ee64). The **Electromancer** permanent upgrade (`lightningLevel`,
   `PermanentUpgrades.ts`: elemental, unlock lvl 10, max 5, 200g×1.8, card *"Chance to chain lightning"*,
@@ -1081,6 +1101,21 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   the bug. The fix pairs the guard with a single `paintCardSelection()` that the card
   rebuild and a tap both go through. Full write-up in `BACKLOG-archive.md`. Playtest
   follow-up filed as **POLISH-PACTSELECT-FLIP** under `## Human gates`.
+- [ ] **FEAT-RELIC-DRAFT** — turn relic acquisition from blind RNG into a **choice**. Value: relics are the
+  game's self-described deepest "emergent build interaction" layer, but the player has **zero agency** — every
+  relic is auto-granted at random (`RelicManager.rollAndEquipRandomRelic`, called by the fortune shrine, chests
+  and minibosses). When a relic would drop, present **1-of-3** offered relics (distinct, respecting equipped +
+  luck) and equip the chosen one. This is the single biggest strategic-depth upgrade left and directly leverages
+  the 30+ existing relics. **Deferred from FEAT-RELIC-PITY (rarity pity shipped first)** because a draft needs a
+  new **in-run pausing choice overlay** — freeze gating (mirror the `scene.isActive('UpgradeScene')` gate),
+  mobile + gamepad input (clone `UpgradeScene`/`DirectorSelectScene` card+`MenuNavigator` patterns), a choice
+  queue (minibosses grant two relics; mirror `pendingLevelUps`), the slots-full fallbacks per site, and
+  save-during-choice leniency (the game already tolerates losing mid-modal state — `main.ts` skips `UpgradeScene`
+  on relayout — so a refresh mid-choice may simply drop the relic). Route all three grant sites through one new
+  `grantRelicChoice()` so the choice + equip + heal-accounting + toast + HUD-refresh live in one place. Pointers:
+  `src/meta/RelicManager.ts`, `GameScene.ts:3525/5107/7152`, `UpgradeScene.ts` (overlay launch pattern),
+  `DirectorSelectScene.ts` (compact card layout). Larger than one mechanical-executor session — likely wants a
+  planner pass that splits it (e.g. chest-only first slice) or a higher-capability executor.
 
 ---
 
@@ -1093,6 +1128,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-RELIC-PITY** — the new relic bad-luck-protection floor needs a balance eyeball (FEAT-RELIC-PITY,
+    `31c9a7e`). Agents have no browser. Reach it: start runs and collect relics (chests, the **Fortune** field
+    shrine, first-clear miniboss drops). With pity, an unlucky common/rare streak now guarantees an
+    **epic-or-better** relic on the next drop. Check: (a) does `RELIC_PITY_THRESHOLD` (3) feel right — do epic+
+    relics now show up reliably without making them feel *guaranteed*/trivial, given a run collects ~2–6 relics?
+    Raise the threshold if epics feel too frequent, lower it (or add soft-pity ramping) if cold runs still
+    happen. Knobs: `RELIC_PITY_THRESHOLD` (3) and `RELIC_PITY_FLOOR` (`'epic'`) in `RelicManager.ts`. (b) does
+    a forced-epic drop that lands right after a natural epic feel redundant, or is it fine? (c) is `'epic'` the
+    right floor, or should deep bad-luck occasionally floor to a specific legendary? (d) should there be a
+    visible "⟡ lucky find" cue on a pity-forced (or any epic+) relic drop — currently there is none (the relic's
+    rarity-colored HUD strip + stronger effect is the only signal); adding one would touch the fortune/chest/
+    miniboss toast sites. (e) confirm pity never wastes a drop when all epics/legendaries are already equipped
+    (the `pickRandomRelic` full-pool fallback) and never over-fires with high `luck`.
   - **POLISH-META-ELECTROMANCER** — the now-live chain-lightning on-hit proc needs an eyeball + a balance pass
     (FEAT-META-ELECTROMANCER, `068ee64`). Agents have no browser. Reach it: Shop → buy **Electromancer**
     (elemental, unlock account lvl 10) to a few levels — or grab the **Chain Catalyst** relic — then start a
