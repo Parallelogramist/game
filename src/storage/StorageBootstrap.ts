@@ -102,6 +102,9 @@ export const ALL_STORAGE_KEYS = [
   'survivor-threat-last',
   'survivor-gauntlet-leaderboard',
 
+  // LastLoadout (one-tap replay of the last pre-run funnel configuration)
+  'survivor-last-loadout',
+
   // EndlessBestCycle (post-victory endless mode deepest cycle reached)
   'survivor-endless-best',
   'survivor-endless-leaderboard',

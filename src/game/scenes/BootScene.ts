@@ -6,6 +6,7 @@ import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons, createIcon, setIconFrame } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
+import { loadLastLoadout, type LastLoadout } from '../../meta/LastLoadout';
 import {
   fadeOut,
   addButtonInteraction,
@@ -30,7 +31,7 @@ import {
   DailyChallengeConfig,
   DailyLeaderboardEntry,
 } from '../../meta/DailyChallengeManager';
-import { getModifierById } from '../../data/RunModifiers';
+import { getModifierById, selectRunModifiers } from '../../data/RunModifiers';
 import { getWeaponInfoList } from '../../weapons';
 import { SHIP_CHARACTERS } from '../../data/ShipCharacters';
 import { createMenuCard, MenuCard } from '../../visual/MenuCard';
@@ -151,6 +152,7 @@ export class BootScene extends Phaser.Scene {
     const gameStateManager = getGameStateManager();
     const hasSave = gameStateManager.hasSave();
     const saveInfo = gameStateManager.getSaveInfo();
+    const lastLoadout = loadLastLoadout();
 
     const dailyChallenge = generateDailyChallenge();
     const weeklyChallenge = generateWeeklyChallenge();
@@ -261,6 +263,40 @@ export class BootScene extends Phaser.Scene {
     const startDailyRun = () => launchChallenge(dailyChallenge);
     const startWeeklyRun = () => launchChallenge(weeklyChallenge);
 
+    // Replay re-rolls run modifiers (they are random per-run variety, never a
+    // player choice) and clears any in-progress save, exactly like NEW RUN, then
+    // drops straight into GameScene — skipping the whole pre-run funnel.
+    const replayLoadout = async (loadout: LastLoadout) => {
+      try {
+        if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
+          await musicManager.play();
+        }
+        gameStateManager.clearSave();
+        fadeOut(this, 200, () => {
+          this.scene.start('GameScene', {
+            restore: false,
+            startingWeapon: loadout.startingWeapon,
+            shipId: loadout.shipId,
+            stageId: loadout.stageId,
+            modifierIds: selectRunModifiers(2).map((modifier) => modifier.id),
+            pactIds: loadout.pactIds,
+            gauntletMode: loadout.gauntletMode,
+            directorStrategy: loadout.directorStrategy,
+            threatLevel: loadout.threatLevel,
+          });
+        });
+      } catch (error) {
+        console.error('Could not replay loadout:', error);
+      }
+    };
+    const replayLoadoutWithConfirmation = (loadout: LastLoadout) => {
+      if (hasSave) {
+        this.showNewGameConfirmation(() => replayLoadout(loadout));
+      } else {
+        replayLoadout(loadout);
+      }
+    };
+
     // ─── scaling ────────────────────────────────────────────────────────
     // Portrait uses the orientation-matched 720×1280 design fit: the menu is
     // a ~600-unit-wide centered column, so it renders FULL SIZE there —
@@ -326,6 +362,18 @@ export class BootScene extends Phaser.Scene {
         layoutScale,
         fontScale,
         onActivate: startGameWithConfirmation,
+      });
+      belowHeroY += scaledInt(layoutScale, 36);
+    }
+
+    // ─── replay-loadout link (only when a saved loadout exists) ─────────
+    if (lastLoadout) {
+      this.createReplayLoadoutLink({
+        centerX,
+        centerY: belowHeroY,
+        layoutScale,
+        fontScale,
+        onActivate: () => replayLoadoutWithConfirmation(lastLoadout),
       });
       belowHeroY += scaledInt(layoutScale, 36);
     }
@@ -886,6 +934,45 @@ export class BootScene extends Phaser.Scene {
     this.cards.push(card);
 
     const text = this.add.text(0, 0, '✦  NEW RUN  ✦', {
+      fontSize: scaledFontPx(fontScale, 12),
+      color: COLORS.accentFocusStr,
+      fontFamily: MENU_FONT,
+      fontStyle: 'bold',
+      letterSpacing: 3,
+    }).setOrigin(0.5);
+    card.frame.add(text);
+
+    this.registerFocusable(card, onActivate);
+  }
+
+  private createReplayLoadoutLink(opts: {
+    centerX: number;
+    centerY: number;
+    layoutScale: number;
+    fontScale: number;
+    onActivate: () => void;
+  }): void {
+    const { centerX, centerY, layoutScale, fontScale, onActivate } = opts;
+    const width = scaledInt(layoutScale, 190);
+    const height = scaledInt(layoutScale, 26);
+    const card = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width,
+      height,
+      pulseSeed: 23,
+      bodyFillColor: COLORS.bodyNeutral,
+      accentColor: COLORS.accentFocus,
+      bannerHeight: 0,
+      borderColor: COLORS.accentFocus,
+      borderWidth: 2,
+      cornerRadius: scaledInt(layoutScale, 8),
+      shadowOffsetY: scaledInt(layoutScale, 6),
+      shadowOffsetX: scaledInt(layoutScale, 3),
+    });
+    this.cards.push(card);
+
+    const text = this.add.text(0, 0, '✦  REPLAY LOADOUT  ✦', {
       fontSize: scaledFontPx(fontScale, 12),
       color: COLORS.accentFocusStr,
       fontFamily: MENU_FONT,

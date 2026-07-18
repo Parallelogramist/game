@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { THREAT_TIERS, clampThreatTier, type ThreatTier } from '../../data/ThreatTiers';
 import { loadThreatBest, loadThreatLastSelected, saveThreatLastSelected } from '../../meta/ThreatProgress';
+import { saveLastLoadout } from '../../meta/LastLoadout';
 import type { DirectorStrategy } from '../../systems/DirectorSystem';
 
 /**
@@ -273,6 +274,15 @@ export class ThreatSelectScene extends Phaser.Scene {
     this.input.keyboard?.removeAllListeners();
     const tier = THREAT_TIERS[this.selectedIndex]?.tier ?? 0;
     saveThreatLastSelected(tier);
+    saveLastLoadout({
+      startingWeapon: this.passthrough.startingWeapon,
+      shipId: this.passthrough.shipId,
+      stageId: this.passthrough.stageId,
+      pactIds: this.passthrough.pactIds ?? [],
+      directorStrategy: this.passthrough.directorStrategy,
+      threatLevel: tier,
+      gauntletMode: this.passthrough.gauntletMode === true,
+    });
     this.cameras.main.fadeOut(150, 0, 0, 0);
     this.time.delayedCall(160, () => {
       this.scene.start('GameScene', {
