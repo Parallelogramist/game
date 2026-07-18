@@ -34,6 +34,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-META-ELECTROMANCER** — the Electromancer shop upgrade + Chain Catalyst relic now actually chain
+  lightning on hit (done — 068ee64). The **Electromancer** permanent upgrade (`lightningLevel`,
+  `PermanentUpgrades.ts`: elemental, unlock lvl 10, max 5, 200g×1.8, card *"Chance to chain lightning"*,
+  `${level*4}%`) was a **paid gold sink that did nothing**: its getter `getStartingChainLightningChance()`
+  fed `playerStats.chainLightningChance` → the shared combat-stats object (`GameScene.ts:9205`) → the
+  `CombatStats` interface, but **no code read it** — `WeaponManager.damageEnemy()`'s on-hit proc block had
+  burn/freeze/poison/life-steal arms and no chain arm, and no on-hit chain proc existed anywhere. The same
+  dead field also half-killed the epic **Chain Catalyst** relic (`+20% chain lightning chance` inert; its
+  `+2 chain count` already worked, weapon-only). Added the missing consumer: a chance-per-hit chain-lightning
+  proc in `WeaponManager` beside the elemental arms — with probability `combatStats.chainLightningChance`
+  (Electromancer ≤0.20 + Chain Catalyst 0.20 = ≤0.40) it arcs from the struck enemy to up to 3 nearest
+  un-hit enemies (`CHAIN_PROC_RANGE` 140px), each arc dealing a falling fraction of the triggering hit's
+  damage (`CHAIN_PROC_DAMAGE_FRACTION` 0.5, `CHAIN_PROC_FALLOFF` 0.7). Arced hits **reuse the existing
+  `damageEnemy` pipeline** (full crit/death/combo/XP/overkill/attribution), guarded by an `isChainProccing`
+  re-entrancy flag so they never re-roll the proc (no cascade — traced safe against overkill-splash too). A
+  lightweight cyan poly-line + sparks visual (best-effort, gated behind the per-frame tween budget; damage
+  always applies) fades over 150ms. A **live-combat** fix in the proven dead-paid-upgrade family (Memory
+  `f3ba7ce` / Blessing `48400ec` / Pandemic `8470c0b`), breaking the recent passive-display rut. **No new
+  file, no new store/storage key, no CombatStats/GameScene/save-format/ECS-component change** — only the
+  missing consumer, entirely within `WeaponManager.ts`. Test-free: the proc is Phaser+ECS-coupled like its
+  test-free elemental-proc siblings and every coupled weapon; no save-shape change; the recursion invariant
+  is documented, not tested; wiring caught by tsc/build. Conservative first-pass numbers — feel/balance owned
+  by **POLISH-META-ELECTROMANCER** under `## Human gates`.
 - [x] **FEAT-SURPRISE-RUN** — a one-tap **SURPRISE ME** main-menu launcher that starts a fully-randomized,
   always-valid run (done — 04f637e). Content is saturated (29 weapons / 11 ships / 4 stages / 8 pacts / 4
   director strategies / 0–5 Threat), but the only ways to start a run were the deliberate 4-screen funnel, a
@@ -1070,6 +1093,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-META-ELECTROMANCER** — the now-live chain-lightning on-hit proc needs an eyeball + a balance pass
+    (FEAT-META-ELECTROMANCER, `068ee64`). Agents have no browser. Reach it: Shop → buy **Electromancer**
+    (elemental, unlock account lvl 10) to a few levels — or grab the **Chain Catalyst** relic — then start a
+    run and hit enemies in a crowd. You should see cyan lightning arc from struck enemies to nearby ones with
+    extra damage numbers. Check: (a) does the proc *feel* good at low chance and not overwhelming at max
+    (0.20 Electromancer + 0.20 relic = 0.40) with an AOE weapon like Aura hitting many enemies per tick — is
+    it too busy / too many arcs, or underwhelming? Knobs: `CHAIN_PROC_JUMPS` (3), `CHAIN_PROC_RANGE` (140),
+    `CHAIN_PROC_DAMAGE_FRACTION` (0.5), `CHAIN_PROC_FALLOFF` (0.7) in `WeaponManager.ts`. (b) is 50%/70%-falloff
+    arc damage the right power for a *free* on-hit rider, or does it outshine the Chain Lightning weapon? (c)
+    does the cyan poly-line + spark visual read clearly on a **phone**, or does it want the weapon's jagged
+    bolt / its own SFX (currently the shared `playHit()`)? (d) confirm it never runs away (the `isChainProccing`
+    guard) and never tanks FPS at high enemy density (the visual is tween-budget-gated; damage always applies).
+    (e) should the proc's arc damage attribute to a distinct source in the end-of-run per-weapon stats rather
+    than the firing weapon (currently the firing weapon)?
   - **POLISH-SURPRISE-RUN** — the new one-tap SURPRISE ME launcher needs an eyeball (FEAT-SURPRISE-RUN,
     `04f637e`). Agents have no browser. Reach it: main menu → the **SURPRISE** card in the progression deck (gold,
     dice icon, appended after PRACTICE) → it should drop you straight into a randomized run. Check: (a) does the
