@@ -63,3 +63,8 @@ export function computePerformanceGrade(score: number, worldLevel: number, wasVi
   const grade = GRADE_ORDER[index];
   return { grade, color: GRADE_COLORS[grade] };
 }
+
+/** The S–F color for a grade letter, for surfaces that store only the letter (e.g. run history). */
+export function getGradeColor(grade: string): string {
+  return GRADE_COLORS[grade as GradeResult['grade']] ?? '#ffffff';
+}

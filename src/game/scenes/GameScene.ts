@@ -5392,6 +5392,24 @@ export class GameScene extends Phaser.Scene {
    * Shows victory screen when player defeats boss.
    * Handles achievement recording, streak management, and delegates UI to PauseMenuManager.
    */
+  private runHistoryMode(): 'normal' | 'gauntlet' | 'daily' | 'endless' {
+    if (this.dailyModeActive) return 'daily';
+    if (this.gauntletModeActive) return 'gauntlet';
+    if (this.endlessModeActive) return 'endless';
+    return 'normal';
+  }
+
+  private runHistoryBuild() {
+    return {
+      startingWeapon: this.startingWeaponId,
+      shipId: this.selectedShipId,
+      stageId: this.selectedStageId,
+      threatLevel: this.threatLevel,
+      pactIds: this.activePacts.map((pact) => pact.id),
+      mode: this.runHistoryMode(),
+    };
+  }
+
   private showVictory(): void {
     recordThreatCleared(this.threatLevel);
     this.hasWon = true;
@@ -5496,6 +5514,7 @@ export class GameScene extends Phaser.Scene {
       grade: victoryGrade.grade,
       victory: true,
       worldLevel: victoryWorldLevel,
+      ...this.runHistoryBuild(),
     });
 
     this.pauseMenuManager.showVictory({
@@ -5761,6 +5780,7 @@ export class GameScene extends Phaser.Scene {
         grade: performanceGrade.grade,
         victory: this.hasWon,
         worldLevel: runWorldLevel,
+        ...this.runHistoryBuild(),
       });
     }
 

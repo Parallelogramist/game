@@ -20,7 +20,7 @@ import { PACTS, Pact } from '../../data/Pacts';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
 import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
-import { SHIP_CHARACTERS, ShipCharacter } from '../../data/ShipCharacters';
+import { SHIP_CHARACTERS, ShipCharacter, getShipById } from '../../data/ShipCharacters';
 import { getUltimateForShip } from '../../data/ShipUltimates';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTransition';
@@ -30,6 +30,8 @@ import { createMenuBackground, MenuBackground } from '../../visual/MenuBackgroun
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
+import { getRunHistory, RunSummary } from '../../meta/RunHistoryManager';
+import { getGradeColor } from '../../utils/PerformanceGrade';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -271,6 +273,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${RUN_MODIFIERS.length}`;
       } else if (category.id === 'pacts') {
         countLabel = `${PACTS.length}`;
+      } else if (category.id === 'runs') {
+        countLabel = `${getRunHistory().length}`;
       }
 
       if (countLabel) {
@@ -397,6 +401,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'statistics':
         this.displayStatistics();
+        break;
+      case 'runs':
+        this.displayRuns();
         break;
     }
   }
@@ -979,6 +986,134 @@ export class CodexScene extends Phaser.Scene {
       wordWrap: { width: this.cardWidth - textX - 14 },
     });
     container.add(descText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
+  private displayRuns(): void {
+    const runs = getRunHistory();
+
+    if (runs.length === 0) {
+      const emptyText = this.add.text(
+        this.scale.width / 2,
+        60,
+        'No runs recorded yet.\nFinish a run to start your history.',
+        {
+          fontSize: '16px',
+          color: '#8888aa',
+          fontFamily: FONT_FAMILY,
+          align: 'center',
+        },
+      );
+      emptyText.setOrigin(0.5, 0);
+      this.contentContainer.add(emptyText);
+      this.maxScrollY = 0;
+      return;
+    }
+
+    const runCardHeight = 112;
+    this.layoutCardGrid(runs, runCardHeight, (run, x, y) => {
+      this.createRunCard(run, x, y, runCardHeight);
+    });
+  }
+
+  private createRunCard(run: RunSummary, x: number, y: number, cardHeight: number): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border stays 0x4a4a7a — the color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    const gradeColor = getGradeColor(run.grade);
+    const discCenterX = 40;
+    const discCenterY = Math.floor(cardHeight / 2);
+
+    const gradeDisc = this.add.circle(discCenterX, discCenterY, 26, 0x1a2a4a);
+    gradeDisc.setStrokeStyle(3, Phaser.Display.Color.HexStringToColor(gradeColor).color);
+    container.add(gradeDisc);
+
+    const gradeText = this.add.text(discCenterX, discCenterY, run.grade, {
+      fontSize: '22px',
+      color: gradeColor,
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    gradeText.setOrigin(0.5);
+    container.add(gradeText);
+
+    const textX = 82;
+
+    const weaponNames = new Map(getWeaponInfoList().map((weapon) => [weapon.id, weapon.name]));
+    const weaponLabel =
+      typeof run.startingWeapon === 'string' ? weaponNames.get(run.startingWeapon) ?? run.startingWeapon : '—';
+
+    const nameText = this.add.text(textX, 12, weaponLabel, {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const scoreText = this.add.text(this.cardWidth - 14, 13, run.score.toLocaleString(), {
+      fontSize: '14px',
+      color: '#ffd24a',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    scoreText.setOrigin(1, 0);
+    container.add(scoreText);
+
+    const shipLabel = run.shipId ? getShipById(run.shipId)?.name ?? '—' : '—';
+    const threatTier = typeof run.threatLevel === 'number' ? run.threatLevel : 0;
+    const modeLabel =
+      run.mode === 'gauntlet' ? ' · GAUNTLET'
+      : run.mode === 'daily' ? ' · DAILY'
+      : run.mode === 'endless' ? ' · ENDLESS'
+      : '';
+    const pactCount = Array.isArray(run.pactIds) ? run.pactIds.length : 0;
+    const pactLabel = pactCount > 0 ? ` · ${pactCount} pact${pactCount > 1 ? 's' : ''}` : '';
+    const buildText = this.add.text(
+      textX,
+      40,
+      `${shipLabel} · T${threatTier}${modeLabel}${pactLabel}`,
+      {
+        fontSize: '12px',
+        color: '#9aabd0',
+        fontFamily: FONT_FAMILY,
+        wordWrap: { width: this.cardWidth - textX - 14 },
+      },
+    );
+    container.add(buildText);
+
+    const outcomeText = this.add.text(textX, 76, run.victory ? 'WIN' : 'LOSS', {
+      fontSize: '13px',
+      color: run.victory ? '#66ff99' : '#ff6666',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(outcomeText);
+
+    const detailText = this.add.text(
+      textX + outcomeText.width + 8,
+      78,
+      `· ${this.formatTime(run.durationSeconds)} · Lv${run.level} · ${run.kills.toLocaleString()} kills`,
+      {
+        fontSize: '12px',
+        color: '#aaaaaa',
+        fontFamily: FONT_FAMILY,
+      },
+    );
+    container.add(detailText);
 
     this.codexCards.push({ container, cardBg });
   }

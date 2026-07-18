@@ -32,6 +32,21 @@ export interface RunSummary {
   victory: boolean;
   /** World level the run was played at. */
   worldLevel: number;
+
+  // Build identity (optional so pre-enrichment records still validate). Stored as
+  // raw ids; the Codex resolves them to display names at render time.
+  /** Starting weapon id (e.g. 'katana'). */
+  startingWeapon?: string;
+  /** Ship id (e.g. 'ship_default'). */
+  shipId?: string;
+  /** Stage/biome id (e.g. 'stage_deep_void'). Stored for a complete record; not shown on the card. */
+  stageId?: string;
+  /** Selected Threat Level tier (0 = base). */
+  threatLevel?: number;
+  /** Pact ids active this run. */
+  pactIds?: string[];
+  /** Which mode the run was played in. */
+  mode?: 'normal' | 'gauntlet' | 'daily' | 'endless';
 }
 
 /** True if the value is a well-formed RunSummary (defensive against schema drift). */
