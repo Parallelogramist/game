@@ -42,6 +42,7 @@ export enum EnemyAIType {
   LegionMote = 106,
   Pulsar = 107,       // Boss — rotating radial-strike star
   Obelisk = 108,      // Boss — marching-wall bullet-hell monolith
+  Helix = 109,        // Boss — spiral-barrage energy core
 }
 
 /**
@@ -743,6 +744,23 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     spawnWeight: 0,
   },
 
+  the_helix: {
+    id: 'the_helix',
+    name: 'The Helix',
+    aiType: EnemyAIType.Helix,
+    category: EnemyCategory.Boss,
+    baseHealth: 4600,
+    baseSpeed: 45,
+    baseDamage: 32,
+    size: 6,
+    color: 0xaa55ff,          // Boss - spiral energy violet
+    secondaryColor: 0xffffff, // White outline
+    shape: 'circle',
+    xpValue: 1000,
+    minSpawnTime: 600,
+    spawnWeight: 0,
+  },
+
   legion_fragment: {
     id: 'legion_fragment',
     name: 'Legion Fragment',
@@ -876,6 +894,7 @@ const ENEMY_ARMOR: Record<string, number> = {
   the_legion: 8,       // chitin carapace — armored until it splits
   the_pulsar: 4,       // energy star — lightly armored
   the_obelisk: 10,     // dense monolith — moderately armored
+  the_helix: 6,        // energy construct — lightly armored
   legion_fragment: 4,
   legion_mote: 0,
 };

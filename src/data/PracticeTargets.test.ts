@@ -13,7 +13,7 @@ import {
 
 describe('practice targets', () => {
   it('every target id resolves to a real enemy type', () => {
-    expect(PRACTICE_TARGET_IDS.length).toBe(13);
+    expect(PRACTICE_TARGET_IDS.length).toBe(14);
     for (const id of PRACTICE_TARGET_IDS) {
       expect(getEnemyType(id), id).toBeDefined();
     }

@@ -25,7 +25,7 @@ import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
 import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
-import { resetBossPhaseTracking, resetBastionStrikes, resetPulsarStrikes, resetBombardStrikes, resetObeliskStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
+import { resetBossPhaseTracking, resetBastionStrikes, resetPulsarStrikes, resetBombardStrikes, resetObeliskStrikes, resetHelixStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
 import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
 import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
 import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, applyBurn, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
@@ -7383,6 +7383,16 @@ export class GameScene extends Phaser.Scene {
         this.bossHazardTimer = 6;
         break;
 
+      case 'the_helix':
+        // Spiralling energy collapses matter inward — a swirling void well.
+        spawnHazardZone(
+          120 + Math.random() * (screenWidth - 240),
+          120 + Math.random() * (screenHeight - 240),
+          80, 'void', 8
+        );
+        this.bossHazardTimer = 6;
+        break;
+
       default:
         this.bossHazardTimer = 5;
         break;
@@ -8960,6 +8970,7 @@ export class GameScene extends Phaser.Scene {
     resetPulsarStrikes();
     resetBombardStrikes();
     resetObeliskStrikes();
+    resetHelixStrikes();
     resetLegionSystem();
     resetBossArenaSystem();
     resetHazardZoneSystem();

@@ -155,6 +155,15 @@ export function obeliskStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
 }
 
 /**
+ * The Helix spiral-strike warning. Damage radius at execute is 60; the +8
+ * overshoots it so the ring is a conservative warning. Duration = the strike's
+ * flight time (the ring fills exactly as the strike lands).
+ */
+export function helixStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 68, duration: impactDelay, color: 0xcc66ff };
+}
+
+/**
  * The Bombard mortar strike warning. Damage radius at execute is 62; the +8
  * overshoots it so the ring is a conservative warning. Duration = the strike's
  * fuse (the ring fills exactly as the shell lands).

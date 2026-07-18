@@ -1064,6 +1064,39 @@ function drawObelisk(
   }
 }
 
+/** The Helix — a spinning energy core with two curved spiral arms of nodes */
+function drawHelix(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  neon: NeonColorPair,
+  quality: VisualQuality,
+): void {
+  circleGlow(g, s, neon, quality);
+  // Two spiral arms of shrinking nodes curling outward.
+  const arms = 2;
+  const dotsPerArm = quality === 'low' ? 4 : 7;
+  g.fillStyle(neon.core, 1);
+  for (let arm = 0; arm < arms; arm++) {
+    const armOffset = (Math.PI * 2 / arms) * arm;
+    for (let k = 0; k < dotsPerArm; k++) {
+      const radius = s * (0.35 + k * 0.16);
+      const angle = armOffset + k * 0.55;
+      const dotRadius = Math.max(1.5, s * (0.16 - k * 0.015));
+      g.fillCircle(Math.cos(angle) * radius, Math.sin(angle) * radius, dotRadius);
+    }
+  }
+  // Core disc + event-horizon accent ring.
+  g.fillStyle(neon.core, 1);
+  g.fillCircle(0, 0, s * 0.42);
+  g.lineStyle(3, 0xffffff, 0.9);
+  g.strokeCircle(0, 0, s * 0.42);
+  g.lineStyle(2, neon.glow, 0.7);
+  g.strokeCircle(0, 0, s * 0.82);
+  // Bright center.
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(0, 0, Math.max(3, s * 0.2));
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -1109,6 +1142,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   the_legion: drawLegion,
   the_pulsar: drawPulsar,
   the_obelisk: drawObelisk,
+  the_helix: drawHelix,
   legion_fragment: drawLegionFragment,
   legion_mote: drawLegionFragment,
 };

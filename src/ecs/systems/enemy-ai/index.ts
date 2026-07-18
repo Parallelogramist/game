@@ -60,6 +60,7 @@ export { updateTheMachineAI } from './the-machine';
 export { updateBastionAI, resetBastionStrikes } from './bastion';
 export { updatePulsarAI, resetPulsarStrikes } from './pulsar';
 export { updateObeliskAI, resetObeliskStrikes } from './obelisk';
+export { updateHelixAI, resetHelixStrikes } from './helix';
 export { updateBombardAI, resetBombardStrikes } from './bombard';
 export { updateLegionAI, updateLegionFragmentAI } from './legion';
 export {

@@ -50,7 +50,8 @@ export type TrackingType =
   | 'boss_kill_the_bastion'
   | 'boss_kill_the_legion'
   | 'boss_kill_the_pulsar'
-  | 'boss_kill_the_obelisk';
+  | 'boss_kill_the_obelisk'
+  | 'boss_kill_the_helix';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REWARD TYPES

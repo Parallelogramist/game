@@ -21,6 +21,7 @@ export const BOSS_KILL_TRACKING: Record<string, TrackingType> = {
   the_legion: 'boss_kill_the_legion',
   the_pulsar: 'boss_kill_the_pulsar',
   the_obelisk: 'boss_kill_the_obelisk',
+  the_helix: 'boss_kill_the_helix',
 };
 
 export const ACHIEVEMENTS: AchievementDefinition[] = [
@@ -591,6 +592,16 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     category: 'combat',
     targetValue: 1,
     trackingType: 'boss_kill_the_obelisk',
+    reward: { type: 'gold', value: 400, description: '+400 gold' },
+  },
+  {
+    id: 'boss_first_the_helix',
+    name: 'Unwound',
+    description: 'Defeat The Helix',
+    icon: 'shield',
+    category: 'combat',
+    targetValue: 1,
+    trackingType: 'boss_kill_the_helix',
     reward: { type: 'gold', value: 400, description: '+400 gold' },
   },
 ];

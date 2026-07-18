@@ -39,6 +39,7 @@ import { updateTheMachineAI } from './enemy-ai/the-machine';
 import { updateBastionAI } from './enemy-ai/bastion';
 import { updatePulsarAI } from './enemy-ai/pulsar';
 import { updateObeliskAI } from './enemy-ai/obelisk';
+import { updateHelixAI } from './enemy-ai/helix';
 import { updateLegionAI, updateLegionFragmentAI } from './enemy-ai/legion';
 // Elite proximity auras (Tank / Rallier / Warden), applied after all AI runs
 import { applyEliteAuras } from './enemy-ai/elite-auras';
@@ -56,6 +57,7 @@ export { resetBossPhaseTracking } from './enemy-ai/boss-phase';
 export { resetBastionStrikes } from './enemy-ai/bastion';
 export { resetPulsarStrikes } from './enemy-ai/pulsar';
 export { resetObeliskStrikes } from './enemy-ai/obelisk';
+export { resetHelixStrikes } from './enemy-ai/helix';
 export { resetBombardStrikes } from './enemy-ai/bombard';
 export {
   resetLegionSystem,
@@ -221,6 +223,9 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
         break;
       case EnemyAIType.Obelisk:
         updateObeliskAI(enemyId, playerX, playerY, lodDeltaTime);
+        break;
+      case EnemyAIType.Helix:
+        updateHelixAI(enemyId, playerX, playerY, lodDeltaTime);
         break;
       case EnemyAIType.Legion:
         updateLegionAI(enemyId, playerX, playerY, lodDeltaTime);
