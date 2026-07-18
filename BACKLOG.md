@@ -34,6 +34,30 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-FOCUS** — new 26th weapon, Focus Beam (done — 326fc54).
+  The arsenal's first *sustained, ramping, single-target lock-on beam*. Always-on
+  (no cooldown): each frame it locks the nearest live enemy in range and pours a
+  continuous beam into it whose damage ramps 0.6x→2.2x over 2.5s of unbroken
+  connection, snapping to a new target the instant the current one dies or leaves
+  range — a hold-to-melt anti-elite/boss DPS tool, the inverse of the arsenal's
+  aim-free crowd-clear. Distinct from all 25 peers: Laser Beam is cursor-aimed
+  and fixed with no lock or ramp; Railgun is a discrete burst on cooldown at the
+  toughest enemy (alpha strike) vs Focus's continuous beam on the nearest enemy
+  that ramps (sustained melt) — complementary roles, different targeting and
+  cadence; Sweep rotates and hits everything; Flamethrower is a cone DoT, not a
+  single-target lock; Chain Lightning is an instant bounce, not a sustained
+  connection. Base numbers: 8 per-tick damage, tick every 0.2s, range 340,
+  1 beam (+ multishot / evolution, not weapon level). Fully additive: damage
+  flows through the existing `ctx.damageEnemy` on a fixed tick; a pooled
+  Graphics draws the beam — no core combat/damage/projectile pipeline change.
+  Wired into `WeaponRegistry`, `UNLOCKABLE_WEAPONS`, `ICON_MAP`
+  (`crystal-ball`), `WEAPON_MASTERY_CATEGORY` (`beam`), a "Meltdown" mastery
+  (a fully-heated beam cleaves 50% of tick damage in a 70px radius), a
+  "Fusion Lance" evolution (via might: ×1.6 dmg, ×1.3 range, ×1.4 size, +1
+  simultaneous lock), and a "Convergence" synergy with Railgun (+20% damage,
+  10% faster). Codex, Practice mode, and WeaponSelect auto-discover it via the
+  registry — no wiring needed there. Playtest follow-up filed as
+  **POLISH-WEAPON-FOCUS** under `## Human gates`.
 - [x] **FEAT-BOSS-TESSELLATOR** — new 9th boss, The Tessellator (done —
   7a7f2d5). A crystalline lattice core whose signature is the game's first
   *checkerboard / "floor-is-lava" tiling barrage*: the 1280×720 arena is an
@@ -565,6 +589,25 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-FOCUS** — the new Focus Beam needs a balance/feel eyeball
+    (FEAT-WEAPON-FOCUS, `326fc54`). Agents have no browser. Reach it: PRACTICE →
+    WEAPON row → "Focus Beam" (unlocked or via a normal run's weapon offers).
+    Check: (a) does it read as a violet lock-on beam that visibly heats up
+    (thickens/brightens) the longer it holds one target; (b) base per-tick
+    damage 8 × ramp 0.6→2.2 over 2.5s, tick every 0.2s → ~24 DPS cold to ~88 DPS
+    fully heated on one target, range 340 vs peers — dead or oppressive?; (c)
+    does the ramp reward holding a target, or does nearest-target churn in a
+    dense horde reset it too often to matter (if so, consider locking the
+    *toughest* enemy instead of the nearest, or widening `LOCK_HYSTERESIS` — a
+    design call, do NOT let an agent pick blind); (d) is 0 knockback right
+    (keeps the target in the beam) or should it nudge; (e) does "Meltdown"
+    mastery cleave (splash radius 70, 50% of tick dmg at full heat) feel like a
+    real payoff; (f) does the "Fusion Lance" evolution (×1.6 dmg, ×1.3 range,
+    ×1.4 size, +1 lock via might) land as a spike; (g) does the "Convergence"
+    synergy with Railgun read; (h) does it read at all three quality levels
+    (LOW drops the white core line + high-quality inner glow; the beam +
+    impact glow still draw). All knobs are the top-of-file consts in
+    `src/weapons/FocusBeamWeapon.ts` — do not retune blind.
   - **POLISH-WEAPON-SCATTER** — the new Scattergun needs a balance/feel eyeball
     (FEAT-WEAPON-SCATTER, `ae3b27a`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Scattergun" (unlocked or via a normal run's weapon
