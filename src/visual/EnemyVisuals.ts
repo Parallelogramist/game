@@ -1142,6 +1142,44 @@ function drawTessellator(
   }
 }
 
+/** The Tremor — a seismic shockwave core: a hexagonal plate ringed by concentric
+ *  shockwave rings (the ripple motif), radiating fault lines, and a molten core. */
+function drawTremor(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  neon: NeonColorPair,
+  quality: VisualQuality,
+): void {
+  hexGlow(g, s, neon, quality);
+  // Hexagonal plate shell.
+  const outer = s * 1.05;
+  g.fillStyle(neon.core, 1);
+  g.beginPath();
+  g.moveTo(HEX_UNIT[0].cos * outer, HEX_UNIT[0].sin * outer);
+  for (let i = 1; i < 6; i++) g.lineTo(HEX_UNIT[i].cos * outer, HEX_UNIT[i].sin * outer);
+  g.closePath();
+  g.fillPath();
+  g.lineStyle(2.5, 0xffffff, 0.9);
+  g.strokePath();
+  // Concentric shockwave rings — the ripple motif.
+  g.lineStyle(2, neon.glow, 0.75);
+  g.strokeCircle(0, 0, s * 0.5);
+  g.strokeCircle(0, 0, s * 0.78);
+  // Radiating fault lines (skip on low quality).
+  if (quality !== 'low') {
+    g.lineStyle(2, 0xffffff, 0.5);
+    for (let i = 0; i < 6; i++) {
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(HEX_UNIT[i].cos * outer, HEX_UNIT[i].sin * outer);
+      g.strokePath();
+    }
+  }
+  // Molten core.
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(0, 0, Math.max(3, s * 0.22));
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -1189,6 +1227,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   the_obelisk: drawObelisk,
   the_helix: drawHelix,
   the_tessellator: drawTessellator,
+  the_tremor: drawTremor,
   legion_fragment: drawLegionFragment,
   legion_mote: drawLegionFragment,
 };

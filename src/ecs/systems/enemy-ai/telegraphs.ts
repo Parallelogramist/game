@@ -173,6 +173,15 @@ export function tessellatorStrikeTelegraph(impactDelay: number): RingTelegraphSp
 }
 
 /**
+ * The Tremor shockwave-strike warning. Damage radius at execute is 140; the +8
+ * overshoots it so the ring is a conservative warning. Duration = the strike's
+ * fuse (the ring fills exactly as the shockwave reaches the tile).
+ */
+export function tremorStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 148, duration: impactDelay, color: 0xff8822 };
+}
+
+/**
  * The Bombard mortar strike warning. Damage radius at execute is 62; the +8
  * overshoots it so the ring is a conservative warning. Duration = the strike's
  * fuse (the ring fills exactly as the shell lands).

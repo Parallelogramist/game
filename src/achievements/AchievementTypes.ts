@@ -52,7 +52,8 @@ export type TrackingType =
   | 'boss_kill_the_pulsar'
   | 'boss_kill_the_obelisk'
   | 'boss_kill_the_helix'
-  | 'boss_kill_the_tessellator';
+  | 'boss_kill_the_tessellator'
+  | 'boss_kill_the_tremor';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REWARD TYPES
