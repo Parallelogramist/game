@@ -34,6 +34,30 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-STAGE-PACK** — added 3 new selectable biomes, growing the game's smallest impactful run-config pool
+  (stages) from **4 → 7** (done — 1713ddb). Stages are the environment the player picks before every run on the
+  `WeaponSelectScene` "CHOOSE YOUR STAGE" step, and each bundles a distinct **risk/reward profile** (enemy
+  health/damage vs XP/gold multipliers) AND a **signature hazard identity** (`STAGE_HAZARD_BIASES` leans the hazard
+  spawner toward a characteristic type). Only 4 existed (Deep Void, Inferno, Crystal Caves, Endless Void) vs 21
+  modifiers / a large relic pool / 10 pacts / 11 ships / ~29 weapons — the under-served pre-run choice. Added
+  **Ion Field** (worldLevel:3 — +20% enemy dmg / +15% XP; energy-hazard signature), **Verdant Rot** (worldLevel:3
+  — +30% enemy HP / +25% XP; void-hazard signature), and **Molten Vault** (worldLevel:4 — +15% HP / +20% dmg /
+  +50% gold; burn-hazard signature). Two are `worldLevel`-gated so they double as a chase (shown as locked "Reach
+  world level N" cards in the picker). **Pure data**, two files: 3 `StageDefinition` entries in `Stages.ts` + 3
+  `STAGE_HAZARD_BIASES` entries in `HazardZoneSystem.ts`. New stages flow automatically into the stage picker
+  (`getAvailableStages`/`getLockedStages`), the "Surprise Me" random loadout (`RandomLoadout.buildRandomLoadout`
+  filters `STAGES` by unlock), and the hazard spawner (GameScene `setHazardZoneStage(activeStage.id)` on fresh +
+  restore paths) — **zero new wiring**. `worldLevel:<n>` gates need no HiddenUnlocks condition, so **no
+  HiddenUnlocks change, no save-format change** (`stageId` is already a serialized string; `getStageById` resolves
+  new ids), **no CodexState/Codex-tab change** (stages have no Codex category), **no scene/ECS/GameScene change**.
+  The daily challenge does **not** seed-pick from `STAGES`, so leaderboard determinism is unaffected. **Test-free by
+  the standing order:** the existing `Stages.test.ts` already iterates `STAGES` and validates every field (ids,
+  name/description, finite-positive multipliers, integer colours in range, alpha in [0,1], gate parse) — the new
+  stages are covered with no new test; the hazard Record shape is guarded by tsc; full suite stays green unchanged.
+  Legibility/feel (picker now 7 cards → 2 rows; palette + balance) owned by **POLISH-STAGE-PACK** under `## Human
+  gates`. Chosen because the backlog was thin (Now empty; Next/Proposed all done; the two open Later items are
+  value-gate busy-work) and this is the lowest-risk genuinely-novel player-facing win — it grows the freshest
+  impactful pool and delivers a new strategic choice on every run.
 - [x] **FEAT-CODEX-BLESSINGS** — added a **Blessings tab** to the Codex (done — ff77618). Blessings (the 14
   pure-upside run-start gifts rolled by the 3,900-gold `blessingLevel` shop upgrade) were the **only
   run-affecting content pool with no Codex tab** and were otherwise **invisible** — they flash once in the
@@ -1232,6 +1256,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-STAGE-PACK** — the 3 new biomes need a legibility + feel/balance eyeball (FEAT-STAGE-PACK,
+    `1713ddb`). Agents have no browser. Reach them: start a **PLAY** run → the **CHOOSE YOUR STAGE** step (after
+    the weapon pick); Ion Field / Verdant Rot are unlocked at **world level 3**, Molten Vault at **world level 4**,
+    so at a lower world level they show as locked "Reach world level N" cards. Check: (a) with the picker now at
+    **7 stage cards** (was 4), does the 4-column grid still fit + read on a phone in **portrait** (720-wide) — the
+    second row of 3 cards, names, and the locked-gate labels legible / not overlapping? Landscape (1280-wide) has
+    ample room. (b) do the three palettes read distinctly in-run — Ion Field cyan, Verdant Rot green, Molten Vault
+    amber — grid + ambient overlay not muddy or too dark? (c) balance: are the risk/reward trades fair vs the
+    existing four (is Molten Vault's +50% gold worth +15% HP & +20% damage; is Verdant Rot's +30% enemy HP too
+    grindy for +25% XP; does Ion Field's +20% enemy damage feel survivable)? Knobs: the four multipliers per stage
+    in `src/data/Stages.ts`. (d) do the signature hazards actually show — does Ion Field spawn mostly energy zones,
+    Verdant Rot mostly void (pull-in) zones, Molten Vault mostly burn zones? Knobs: the `weightMultipliers` /
+    `spawnIntervalMultiplier` per stage in `STAGE_HAZARD_BIASES` (`src/systems/HazardZoneSystem.ts`). These are
+    tuning/legibility-only; the stage mechanics are done.
   - **POLISH-CODEX-BLESSINGS** — the new Codex Blessings tab needs a legibility eyeball (FEAT-CODEX-BLESSINGS,
     `ff77618`). Agents have no browser. Reach it: main menu → **CODEX** → the **Blessings** tab (now sits between
     Pacts and Statistics; angel icon). Check: (a) with the Codex now at **12 tabs**, does the tab row still fit on
