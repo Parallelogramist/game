@@ -34,6 +34,24 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-EVO-STAT-HINT** — the level-up **stat** card now flags which equipped weapon that stat evolves
+  (done — 85a3d2f). The UpgradeScene already showed an evolution hint on **weapon** cards
+  (`✦ Evolves: Lv5 · Multishot 3/5` / `✦ EVOLUTION READY: Bullet Storm`), but the reciprocal was missing:
+  when offered a **stat** that advances or completes an equipped weapon's evolution, the stat card said
+  nothing — so the choice that most often gates the game's deepest build mechanic was made blind. Added a
+  pure `getEvolutionsRequiringStat(statId)` export (a stat gates several recipes — `multishot` 5, `reach` 6,
+  `might` 4) and a symmetric render block on stat cards (`upgrade.isStatUpgrade`, disjoint from the `level_`
+  weapon cards) that reuses the existing hint's `makeDisplayText`/`ACCENT_COLORS_STR` idiom. The hint filters
+  to equipped weapons at level ≥ 2 (mirroring the weapon card's `>= 2` gate), shows the most actionable
+  candidate (`✦ EVOLUTION READY: <evolvedName>` when this pick completes one, else
+  `✦ Evolves <weapon>: wpn L/req · stat L/req`), and appends `(+N)` when more equipped weapons also list the
+  stat. Equipped `{id,name,level}` is read authoritatively from `WeaponManager.getAllWeapons()` and passed
+  into UpgradeScene as a new optional `equippedWeapons` init field, exactly like `allStatUpgrades`. **No new
+  store, no save-format/ECS/combat/scene-flow change, no balance change** — pure in-run decision-support
+  display over data the game already has. Deliberately breaks the recent passive-menu-surface rut
+  (career sheet `fd284b6`, Runs tab `bd04351`) with a live-gameplay surface. No new test (a display mirror of
+  a test-free sibling; the one new helper is a trivial filter; wiring caught by tsc/build). Playtest
+  follow-up filed as **POLISH-EVO-STAT-HINT** under `## Human gates`.
 - [x] **FEAT-CODEX-CAREER-STATS** — the Codex **Statistics** tab becomes a two-section career sheet
   (TOTALS + RECORDS) that surfaces four lifetime records the game already tracks on every run but had shown
   the player **nowhere**: bosses slain, flawless (no-damage) wins, sub-8-minute speed wins, and lifetime
@@ -994,6 +1012,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-EVO-STAT-HINT** — the new stat-card evolution hint needs an eyeball (FEAT-EVO-STAT-HINT,
+    `85a3d2f`). Agents have no browser. Reach it: start a run, equip a weapon that can evolve, level that
+    weapon to 2+, then trigger a level-up and look at a **stat** card whose stat gates that weapon's
+    evolution (e.g. have Projectile at L2+ and look at the **Multishot** card). Check: (a) does the hint read
+    cleanly on the card — `✦ Evolves Projectile: wpn 2/5 · stat 1/5` while progressing, and
+    `✦ EVOLUTION READY: Bullet Storm` (gold) when this pick would complete it? (b) does the not-ready line
+    fit / wrap acceptably on a narrow **phone** card (it is longer than the weapon-card hint), or should it be
+    shortened (drop the `stat L/req` half, or abbreviate `wpn`)? (c) when several equipped weapons share a
+    gating stat (e.g. `reach` gates 6 recipes), is showing one weapon + `(+N)` the right call, or should it
+    list two? (d) is the `weapon level ≥ 2` reveal threshold right, or should it show from level 1 / only at
+    the required weapon level? (e) does it never show for weapons you don't own or on weapon/weapon-unlock
+    cards? Knobs: `getStatEvolutionHint()` in `UpgradeScene.ts` (label strings, the `>= 2` filter, the
+    priority sort, the `(+N)` affordance); the render block's font sizes/colors mirror the weapon-card hint.
   - **POLISH-CODEX-CAREER-STATS** — the restructured Codex **Statistics** career sheet needs an eyeball
     (FEAT-CODEX-CAREER-STATS, `fd284b6`). Agents have no browser. Reach it: main menu → CODEX → the
     **Statistics** tab. Check: (a) do the gold TOTALS and RECORDS section headers read cleanly, and are the
