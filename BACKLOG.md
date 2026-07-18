@@ -34,6 +34,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-DIRECTOR-CHOICE** — the player can now choose the difficulty director's Directive
+  before a run (done — 613828c). The `DirectorSystem` (`src/systems/DirectorSystem.ts`) is a real
+  per-run system that reshapes every run by picking one of four spend strategies with very different
+  spawn weights — `swarm` (basic ×2.5 / elite ×0.3), `elite` (basic ×0.6 / elite ×2.5, saves for big
+  spawns), `balanced` (×1/×1), `chaos` (×1.5/×1.5) — but that pick was **random and completely
+  invisible**: the only surface anywhere was a dev-only F10 debug overlay, and
+  `pickDirectorStrategy(forced?)` already carried a pre-built `forced` param ("for seeded daily
+  runs") with **zero callers passing an argument**. Added a new pre-run scene **DirectorSelectScene
+  ("CHOOSE DIRECTIVE")**, inserted `WeaponSelect → PactSelect → **DirectorSelect** → GameScene`, that
+  lets the player single-select **Random / Swarm / Elite / Balanced / Chaos** (default Random =
+  today's behavior). The choice threads through the existing `forced` hook: `init` reads a validated
+  `directorStrategy` and passes it to `resetDirectorSystem(forced)` on the fresh-run reset. Turns
+  hidden variance into a real strategic lever on the same axis as pacts — counter your build or
+  stress-test it. Only normal + Gauntlet runs (which flow through PactSelect) get the picker;
+  daily/weekly (`BootScene`), practice, runner and restore bypass it and keep the random/restored
+  strategy. Cloned almost verbatim from the proven self-contained `PactSelectScene`; one-string
+  change to that scene's launch target; backward-compatible optional param on `resetDirectorSystem`
+  (+ new `DIRECTOR_STRATEGIES` / `isDirectorStrategy` exports); a field + two lines in `GameScene`; a
+  two-line registration in `main.ts`. The chosen strategy rides the **existing `DirectorState` save
+  path**, so a mid-run refresh already keeps it — **no gameplay/ECS/combat/save-format change, no
+  balance/number change**. One unit test added pinning `resetDirectorSystem(forced)` (regression
+  guard against the wiring silently reverting to a dead no-op). Playtest follow-up filed as
+  **POLISH-DIRECTOR-CHOICE**.
 - [x] **FEAT-CODEX-MODIFIERS** — the Codex gets a browsable Modifiers tab surfacing all 15
   run modifiers (done — 23f565d). The Codex already had tabs for Weapons, Bestiary, Upgrades,
   Synergies, Relics, Evolutions, Ships and Statistics, and Stages/Ships also got chase
@@ -816,6 +839,24 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-DIRECTOR-CHOICE** — the new CHOOSE DIRECTIVE pre-run screen needs an eyeball
+    (FEAT-DIRECTOR-CHOICE, `613828c`). Agents have no browser. Reach it: main menu → PLAY → pick
+    weapon/ship/stage → FORGE A PACT → BEGIN RUN lands on CHOOSE DIRECTIVE (also on the GAUNTLET
+    path). Check: (a) do the five directive cards (Random / Swarm / Elite / Balanced / Chaos) lay
+    out cleanly at 210×210 and wrap sanely on a phone-width portrait viewport without clipping the
+    BEGIN RUN button? (b) is single-select obvious — exactly one card green-selected at a time,
+    default Random, keyboard/gamepad 1-5 + navigator focus ring (thin white) clearly distinct from
+    the selected (thick green) treatment? (c) does the chosen directive actually *feel* different in
+    play — Swarm floods weak enemies, Elite throws few heavies — enough to be worth a decision, or
+    is the effect too subtle to perceive without the F10 overlay (if too subtle, the follow-up is an
+    optional in-run reveal: a run-intro banner line or a small HUD tag — a design call, do NOT add
+    blind)? (d) is inserting the screen *after* pacts the right order, or should it come before
+    FORGE A PACT / be merged into an existing screen to cut a tap? (e) do the four accent colors
+    (swarm orange / elite red / balanced blue / chaos purple) read? (f) does a device flip on this
+    screen preserve the picked directive (relayout path)? Knobs: `DIRECTIVE_OPTIONS`
+    (names/descriptions/colors), `cardWidth`/`cardHeight`/`gap` and the layout math in
+    `DirectorSelectScene.create`; placement is the `scene.start('DirectorSelectScene', …)` target in
+    `PactSelectScene.beginRun`.
   - **POLISH-BOSS-TREMOR** — the new boss The Tremor needs a balance/feel eyeball
     (FEAT-BOSS-TREMOR, `6951b9a`). Agents have no browser. Reach it: PRACTICE →
     TARGET row → "The Tremor" (or reach the boss hour in a run; it is in the boss
