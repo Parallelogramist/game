@@ -34,6 +34,24 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-RELIC-PACK** — added 6 build-defining relics on stat axes no relic touched (done — 32652a0).
+  The two prior features made relics the run's spotlight — **FEAT-RELIC-DRAFT** (`0882753`, pick 1-of-3 per
+  drop) and **FEAT-RELIC-PITY** (`31c9a7e`, a floor that guarantees epic-or-better) — but the pool was thin at
+  exactly those tiers (**7 epic / 6 legendary**), so pity-forced epics and 1-of-3 drafts kept re-offering the
+  same few, and whole `PlayerStats` axes had no relic at all. Added `src/data/Relics.ts` **6-relic pack**
+  (2 rare, 3 epic, 1 legendary — weighted to the epic tier the draft/pity systems highlight): **Reactive
+  Plating** (rare, +8% dodge / +15% i-frames), **Ranger's Lens** (rare, +15% range / +15% projectile speed),
+  **Detonation Matrix** (epic, +30% explosion dmg / +15% armor pen), **Titan's Bane** (epic, +40% boss dmg /
+  +50% boss gold), **Overdrive Capacitor** (epic, +40% ultimate power / +10% attack speed), **Elemental
+  Overload** (legendary, +10% burn/freeze/poison/chain chance). Each opens a new build direction (dodge-tank,
+  reach, AoE-shred, boss-hunter, Overdrive, all-status) rather than duplicating an existing relic. **Content
+  only** — every relic `apply(stats)` mutates existing `PlayerStats` fields, so drops (fortune/chest/miniboss),
+  the 1-of-3 draft, and the Codex Relics tab pick them up with **zero new wiring** (all read `RELICS`
+  dynamically). New entries appended **after** the legendaries so the pity/draft/Relics tests still start on the
+  original commons. **No new file, no storage/save-format/ECS/scene/GameScene change, no drop-weight or pity
+  change.** Test-free: pure data-content; icon validity is guarded by `referentialIntegrity.test.ts`, field
+  validity by tsc, and roll/pity/draft behaviour by the existing (dynamic, still-green) relic suites.
+  First-pass numbers — feel/balance owned by **POLISH-RELIC-PACK** under `## Human gates`.
 - [x] **FEAT-MODIFIER-DRAFT** — run modifiers are now a pre-run **draft** (pick 2 of 6) instead of 2 forced at
   random (done — 55a1893). `RUN_MODIFIERS` (15 double-edged trade-offs — Glass Cannon +50% dmg/−30% HP, Overcharge
   +30% atk speed/+20% cooldowns, etc.) were auto-rolled `selectRunModifiers(2)` in `WeaponSelectScene` and merely
@@ -1154,6 +1172,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-RELIC-PACK** — the 6 new relics need a feel/balance eyeball (FEAT-RELIC-PACK, `32652a0`). Agents
+    have no browser. Reach them: start runs and trigger relic drops (chests, the **Fortune** field shrine,
+    first-clear miniboss), and open **Codex → Relics** to read the new cards. Check: (a) do the 6 read clearly
+    on a relic **draft** card (touch / number keys / gamepad) on phone landscape + portrait — names, rarity
+    colour (rare blue / epic purple / legendary gold), icons (`guardian`, `telescope`, `explosion`,
+    `crowned-skull`, `lightning-bolt`, `sparkle`) and the two-clause descriptions all legible / not clipped?
+    (b) balance: are the epic/legendary numbers in line with the existing tier (e.g. is **Overdrive Capacitor**
+    +40% ultimate power too strong with Ultimate-mastery upgrades; does **Titan's Bane** +40% boss dmg trivialise
+    bosses; is **Elemental Overload**'s all-four-status +10% too generic vs a focused build)? Knobs: the six
+    numbers in `src/data/Relics.ts`. (c) does **Detonation Matrix** (`explosionDamageMultiplier`, `armorPenetration`)
+    actually change damage on an explosive/AoE build, and **Ranger's Lens** (`rangeMultiplier`,
+    `projectileSpeedMultiplier`) visibly change reach/velocity? (d) with the epic pool now 10 wide, do
+    pity-forced and 1-of-3-draft epics feel more varied? (e) should the rare/epic/legendary **split** (2/3/1)
+    be re-weighted? These are tuning-only; the mechanics are done.
   - **POLISH-MODIFIER-DRAFT** — the new pre-run 2-of-6 modifier draft needs a feel/balance eyeball
     (FEAT-MODIFIER-DRAFT, `55a1893`). Agents have no browser. Reach it: start a normal run via PLAY (weapon → pacts
     → director → threat → **TUNE YOUR RUN**). Check: (a) do the 6 cards read clearly and pick cleanly via touch,
