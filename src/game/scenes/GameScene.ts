@@ -1303,6 +1303,7 @@ export class GameScene extends Phaser.Scene {
       },
       // onSynergyActivated - announce a newly-completed weapon synergy
       (synergy) => {
+        getCodexManager().discoverSynergy(synergy);
         this.showSynergyToast(synergy);
       }
     );
@@ -8822,6 +8823,9 @@ export class GameScene extends Phaser.Scene {
     // Check for weapon evolutions after every upgrade
     const statUpgrades = this.upgrades.map(u => ({ id: u.id, currentLevel: u.currentLevel }));
     const evolutionResult = this.weaponManager.checkEvolutions(statUpgrades, this.evolutionLevelReduction);
+    if (evolutionResult) {
+      getCodexManager().discoverEvolution(evolutionResult.evolution);
+    }
     if (evolutionResult && this.toastManager) {
       const evolvePlayerX = Transform.x[this.playerId];
       const evolvePlayerY = Transform.y[this.playerId];

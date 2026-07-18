@@ -39,6 +39,24 @@ export interface UpgradeCodexEntry {
 }
 
 /**
+ * Entry for a discovered weapon synergy in the codex.
+ */
+export interface SynergyCodexEntry {
+  id: string;
+  discovered: boolean;
+  discoveredAt?: number; // Timestamp
+}
+
+/**
+ * Entry for a discovered weapon evolution in the codex.
+ */
+export interface EvolutionCodexEntry {
+  id: string;
+  discovered: boolean;
+  discoveredAt?: number; // Timestamp
+}
+
+/**
  * Global statistics tracked across all runs.
  */
 export interface CodexStatistics {
@@ -61,6 +79,8 @@ export interface CodexState {
   weapons: Record<string, WeaponCodexEntry>;
   enemies: Record<string, EnemyCodexEntry>;
   upgrades: Record<string, UpgradeCodexEntry>;
+  synergies: Record<string, SynergyCodexEntry>;
+  evolutions: Record<string, EvolutionCodexEntry>;
   statistics: CodexStatistics;
 }
 

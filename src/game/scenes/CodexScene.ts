@@ -263,11 +263,11 @@ export class CodexScene extends Phaser.Scene {
         const upgradeEntries = codexManager.getAllUpgradeEntries();
         countLabel = `${upgradeEntries.length}`;
       } else if (category.id === 'synergies') {
-        countLabel = `${WEAPON_SYNERGIES.length}`;
+        countLabel = `${codexManager.getDiscoveredSynergyCount()}/${codexManager.getTotalSynergyCount()}`;
       } else if (category.id === 'relics') {
         countLabel = `${RELICS.length}`;
       } else if (category.id === 'evolutions') {
-        countLabel = `${weaponEvolutionDefinitions.length}`;
+        countLabel = `${codexManager.getDiscoveredEvolutionCount()}/${codexManager.getTotalEvolutionCount()}`;
       } else if (category.id === 'ships') {
         countLabel = `${SHIP_CHARACTERS.length}`;
       } else if (category.id === 'modifiers') {
@@ -714,6 +714,7 @@ export class CodexScene extends Phaser.Scene {
   }
 
   private displaySynergies(): void {
+    const codexManager = getCodexManager();
     const weaponInfoById = new Map<string, WeaponInfo>();
     for (const info of getWeaponInfoList()) {
       weaponInfoById.set(info.id, info);
@@ -722,13 +723,21 @@ export class CodexScene extends Phaser.Scene {
     const synergyCardHeight = 108;
 
     this.layoutCardGrid([...WEAPON_SYNERGIES], synergyCardHeight, (synergy, x, y) => {
-      this.createSynergyCard(synergy, weaponInfoById, x, y, synergyCardHeight);
+      this.createSynergyCard(
+        synergy,
+        weaponInfoById,
+        codexManager.isSynergyDiscovered(synergy),
+        x,
+        y,
+        synergyCardHeight,
+      );
     });
   }
 
   private createSynergyCard(
     synergy: WeaponSynergy,
     weaponInfoById: Map<string, WeaponInfo>,
+    discovered: boolean,
     x: number,
     y: number,
     cardHeight: number,
@@ -743,7 +752,7 @@ export class CodexScene extends Phaser.Scene {
       cardHeight / 2,
       this.cardWidth,
       cardHeight,
-      0x2a2a4a,
+      discovered ? 0x2a3a5a : 0x1e1e34,
     );
     cardBg.setStrokeStyle(2, 0x4a4a7a);
     container.add(cardBg);
@@ -1194,6 +1203,7 @@ export class CodexScene extends Phaser.Scene {
   }
 
   private displayEvolutions(): void {
+    const codexManager = getCodexManager();
     const weaponInfoById = new Map<string, WeaponInfo>();
     for (const info of getWeaponInfoList()) {
       weaponInfoById.set(info.id, info);
@@ -1207,7 +1217,15 @@ export class CodexScene extends Phaser.Scene {
     const evolutionCardHeight = 120;
 
     this.layoutCardGrid([...weaponEvolutionDefinitions], evolutionCardHeight, (evolution, x, y) => {
-      this.createEvolutionCard(evolution, weaponInfoById, statNameById, x, y, evolutionCardHeight);
+      this.createEvolutionCard(
+        evolution,
+        weaponInfoById,
+        statNameById,
+        codexManager.isEvolutionDiscovered(evolution),
+        x,
+        y,
+        evolutionCardHeight,
+      );
     });
   }
 
@@ -1215,6 +1233,7 @@ export class CodexScene extends Phaser.Scene {
     evolution: WeaponEvolution,
     weaponInfoById: Map<string, WeaponInfo>,
     statNameById: Map<string, string>,
+    discovered: boolean,
     x: number,
     y: number,
     cardHeight: number,
@@ -1229,7 +1248,7 @@ export class CodexScene extends Phaser.Scene {
       cardHeight / 2,
       this.cardWidth,
       cardHeight,
-      0x2a2a4a,
+      discovered ? 0x2a3a5a : 0x1e1e34,
     );
     cardBg.setStrokeStyle(2, 0x4a4a7a);
     container.add(cardBg);

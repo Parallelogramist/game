@@ -11,10 +11,14 @@ import {
   WeaponCodexEntry,
   EnemyCodexEntry,
   UpgradeCodexEntry,
+  SynergyCodexEntry,
+  EvolutionCodexEntry,
   CodexStatistics,
 } from './CodexTypes';
 import { getAllWeaponIds } from '../weapons';
 import { ENEMY_TYPES } from '../enemies/EnemyTypes';
+import { WEAPON_SYNERGIES, WeaponSynergy } from '../data/WeaponSynergies';
+import { weaponEvolutionDefinitions, WeaponEvolution } from '../data/WeaponEvolutions';
 
 // Storage key
 const STORAGE_KEY_CODEX = 'survivor-codex';
@@ -56,6 +60,31 @@ function createDefaultUpgradeEntries(): Record<string, UpgradeCodexEntry> {
   return {};
 }
 
+/** Stable per-synergy discovery key. A WeaponSynergy has no id field — a pair is
+ *  identified by its two weapon ids in the authored order. The runtime synergy
+ *  object and the codex list are the same WEAPON_SYNERGIES entries, so the order
+ *  matches on both the write (discoverSynergy) and read (isSynergyDiscovered) side. */
+function synergyKey(synergy: WeaponSynergy): string {
+  return `${synergy.weaponA}+${synergy.weaponB}`;
+}
+
+function createDefaultSynergyEntries(): Record<string, SynergyCodexEntry> {
+  const entries: Record<string, SynergyCodexEntry> = {};
+  for (const synergy of WEAPON_SYNERGIES) {
+    const id = synergyKey(synergy);
+    entries[id] = { id, discovered: false };
+  }
+  return entries;
+}
+
+function createDefaultEvolutionEntries(): Record<string, EvolutionCodexEntry> {
+  const entries: Record<string, EvolutionCodexEntry> = {};
+  for (const evolution of weaponEvolutionDefinitions) {
+    entries[evolution.weaponId] = { id: evolution.weaponId, discovered: false };
+  }
+  return entries;
+}
+
 function createDefaultStatistics(): CodexStatistics {
   return {
     totalRunsPlayed: 0,
@@ -76,6 +105,8 @@ function createDefaultCodexState(): CodexState {
     weapons: createDefaultWeaponEntries(),
     enemies: createDefaultEnemyEntries(),
     upgrades: createDefaultUpgradeEntries(),
+    synergies: createDefaultSynergyEntries(),
+    evolutions: createDefaultEvolutionEntries(),
     statistics: createDefaultStatistics(),
   };
 }
@@ -197,6 +228,37 @@ function sanitizeUpgrades(raw: unknown): Record<string, UpgradeCodexEntry> {
       timesSelected: boundedStoredNumber(rec.timesSelected, 0, COUNT_SPEC),
     };
     const discoveredAt = sanitizeDiscoveredAt(rec);
+    if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
+    result[id] = entry;
+  }
+  return result;
+}
+
+/** Rebuild synergy entries from the known synergy keys only, coercing `discovered`
+ *  to a real boolean so a truthy tamper can't fake a discovery. Mirrors sanitizeWeapons. */
+function sanitizeSynergies(raw: unknown): Record<string, SynergyCodexEntry> {
+  const record = asStoredRecord(raw);
+  const result: Record<string, SynergyCodexEntry> = {};
+  for (const synergy of WEAPON_SYNERGIES) {
+    const id = synergyKey(synergy);
+    const stored = asStoredRecord(record[id]);
+    const entry: SynergyCodexEntry = { id, discovered: stored.discovered === true };
+    const discoveredAt = sanitizeDiscoveredAt(stored);
+    if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
+    result[id] = entry;
+  }
+  return result;
+}
+
+/** Rebuild evolution entries from the known weapon ids only. Mirrors sanitizeWeapons. */
+function sanitizeEvolutions(raw: unknown): Record<string, EvolutionCodexEntry> {
+  const record = asStoredRecord(raw);
+  const result: Record<string, EvolutionCodexEntry> = {};
+  for (const evolution of weaponEvolutionDefinitions) {
+    const id = evolution.weaponId;
+    const stored = asStoredRecord(record[id]);
+    const entry: EvolutionCodexEntry = { id, discovered: stored.discovered === true };
+    const discoveredAt = sanitizeDiscoveredAt(stored);
     if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
     result[id] = entry;
   }
@@ -461,6 +523,80 @@ export class CodexManager {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // SYNERGY DISCOVERY
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Record that a weapon synergy was formed in a run (first time). Persists on a
+   * new discovery. Returns true if this was a NEW discovery. Deliberately does NOT
+   * fire onNewDiscovery: the run already shows a synergy-activation toast at this
+   * exact moment, so a second codex toast would double up.
+   */
+  discoverSynergy(synergy: WeaponSynergy): boolean {
+    const id = synergyKey(synergy);
+    if (!this.state.synergies[id]) {
+      this.state.synergies[id] = { id, discovered: false };
+    }
+    const entry = this.state.synergies[id];
+    const isNewDiscovery = !entry.discovered;
+    if (isNewDiscovery) {
+      entry.discovered = true;
+      entry.discoveredAt = Date.now();
+      this.saveState();
+    }
+    return isNewDiscovery;
+  }
+
+  isSynergyDiscovered(synergy: WeaponSynergy): boolean {
+    return this.state.synergies[synergyKey(synergy)]?.discovered ?? false;
+  }
+
+  getDiscoveredSynergyCount(): number {
+    return Object.values(this.state.synergies).filter((s) => s.discovered).length;
+  }
+
+  getTotalSynergyCount(): number {
+    return Object.keys(this.state.synergies).length;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EVOLUTION DISCOVERY
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Record that a weapon evolution completed in a run (first time). Persists on a
+   * new discovery. Returns true if this was a NEW discovery. Deliberately does NOT
+   * fire onNewDiscovery: the run already shows a "WEAPON EVOLVED!" announcement at
+   * this exact moment.
+   */
+  discoverEvolution(evolution: WeaponEvolution): boolean {
+    const id = evolution.weaponId;
+    if (!this.state.evolutions[id]) {
+      this.state.evolutions[id] = { id, discovered: false };
+    }
+    const entry = this.state.evolutions[id];
+    const isNewDiscovery = !entry.discovered;
+    if (isNewDiscovery) {
+      entry.discovered = true;
+      entry.discoveredAt = Date.now();
+      this.saveState();
+    }
+    return isNewDiscovery;
+  }
+
+  isEvolutionDiscovered(evolution: WeaponEvolution): boolean {
+    return this.state.evolutions[evolution.weaponId]?.discovered ?? false;
+  }
+
+  getDiscoveredEvolutionCount(): number {
+    return Object.values(this.state.evolutions).filter((e) => e.discovered).length;
+  }
+
+  getTotalEvolutionCount(): number {
+    return Object.keys(this.state.evolutions).length;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // STATISTICS
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -557,6 +693,8 @@ export class CodexManager {
           weapons: sanitizeWeapons(parsed.weapons),
           enemies: sanitizeEnemies(parsed.enemies),
           upgrades: sanitizeUpgrades(parsed.upgrades),
+          synergies: sanitizeSynergies(parsed.synergies),
+          evolutions: sanitizeEvolutions(parsed.evolutions),
           statistics: sanitizeStatistics(parsed.statistics),
         };
       }
