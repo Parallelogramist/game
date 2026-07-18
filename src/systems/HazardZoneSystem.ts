@@ -153,6 +153,24 @@ const STAGE_HAZARD_BIASES: Record<string, StageHazardBias> = {
     weightMultipliers: { burn: 0.5, ice: 0.5, void: 3.0, energy: 2.0 },
     spawnIntervalMultiplier: 0.7,
   },
+  // Ion Field: charged plains where energy zones dominate, void present as the
+  // storm's eye, burn/ice suppressed. Hazards spawn a touch faster.
+  stage_ion_field: {
+    weightMultipliers: { burn: 0.5, ice: 0.5, void: 0.8, energy: 3.2 },
+    spawnIntervalMultiplier: 0.85,
+  },
+  // Verdant Rot: decaying void rifts dominate (the rot pulls things in), energy
+  // steady, burn/ice suppressed by the damp rot.
+  stage_verdant_rot: {
+    weightMultipliers: { burn: 0.6, ice: 0.4, void: 3.0, energy: 1.0 },
+    spawnIntervalMultiplier: 0.9,
+  },
+  // Molten Vault: burn zones dominate with live energy arcing off the ore, ice
+  // all but gone, void rare. Hazards spawn faster to press the gold gamble.
+  stage_molten_vault: {
+    weightMultipliers: { burn: 2.5, ice: 0.3, void: 0.6, energy: 1.5 },
+    spawnIntervalMultiplier: 0.85,
+  },
 };
 
 let activeStageBias: StageHazardBias = DEFAULT_STAGE_BIAS;
