@@ -3,6 +3,7 @@ import { Upgrade, getBlockingGate, getBlockingUpgrades } from '../../data/Upgrad
 import { getUpgradeRarityCardStyle } from '../../data/UpgradeRarity';
 import { lockCapacity, toggleLockedId } from '../../data/upgradeLocks';
 import { getEvolutionForWeapon, getEvolutionsRequiringStat } from '../../data/WeaponEvolutions';
+import { getSynergy } from '../../data/WeaponSynergies';
 import { createIcon } from '../../utils/IconRenderer';
 import { SoundManager } from '../../audio/SoundManager';
 import { TooltipManager } from '../../ui/TooltipManager';
@@ -834,6 +835,20 @@ export class UpgradeScene extends Phaser.Scene {
       }
     }
 
+    // Synergy preview — weapon-unlock cards that would form a synergy with an equipped weapon.
+    if (upgrade.id.startsWith('add_')) {
+      const synergyHint = this.getUnlockSynergyHint(upgrade.id.slice('add_'.length));
+      if (synergyHint) {
+        const synergyText = makeDisplayText(this, 0, evolutionHintY, synergyHint.label, {
+          fontSize: Math.round(13 * textBoost),
+          color: ACCENT_COLORS_STR.focus,
+          letterSpacing: 1,
+        });
+        card.frame.add(synergyText);
+        evolutionHintHeight = synergyText.height + 8;
+      }
+    }
+
     // Rarity tag — small label above the keybind chip on rare/epic cards.
     // Skipped when the gold treatment (overflow / mastered) owns the card.
     const rarityStyle = getUpgradeRarityCardStyle(upgrade.rarity);
@@ -1010,6 +1025,17 @@ export class UpgradeScene extends Phaser.Scene {
       label: `✦ Evolves ${weaponName}: wpn ${best.weaponLevel}/${best.recipe.requiredWeaponLevel} · stat ${statUpgrade.currentLevel}/${best.recipe.requiredStatLevel}${extra}`,
       ready: false,
     };
+  }
+
+  private getUnlockSynergyHint(offeredWeaponId: string): { label: string } | null {
+    const partnerSynergyNames: string[] = [];
+    for (const weapon of this.equippedWeapons) {
+      const synergy = getSynergy(offeredWeaponId, weapon.id);
+      if (synergy) partnerSynergyNames.push(synergy.name);
+    }
+    if (partnerSynergyNames.length === 0) return null;
+    const extra = partnerSynergyNames.length > 1 ? `  (+${partnerSynergyNames.length - 1})` : '';
+    return { label: `⚡ Synergy: ${partnerSynergyNames[0]}${extra}` };
   }
 
   private createLevelProgressBar(
