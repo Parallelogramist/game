@@ -41,6 +41,7 @@ export enum EnemyAIType {
   LegionFragment = 105,
   LegionMote = 106,
   Pulsar = 107,       // Boss — rotating radial-strike star
+  Obelisk = 108,      // Boss — marching-wall bullet-hell monolith
 }
 
 /**
@@ -725,6 +726,23 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     spawnWeight: 0,
   },
 
+  the_obelisk: {
+    id: 'the_obelisk',
+    name: 'The Obelisk',
+    aiType: EnemyAIType.Obelisk,
+    category: EnemyCategory.Boss,
+    baseHealth: 4700,
+    baseSpeed: 45,
+    baseDamage: 33,
+    size: 6,
+    color: 0x33ff88,         // Boss - containment green (energy monolith)
+    secondaryColor: 0xffffff, // White outline
+    shape: 'square',
+    xpValue: 1000,
+    minSpawnTime: 600,
+    spawnWeight: 0,
+  },
+
   legion_fragment: {
     id: 'legion_fragment',
     name: 'Legion Fragment',
@@ -857,6 +875,7 @@ const ENEMY_ARMOR: Record<string, number> = {
   the_bastion: 14, // siege fortress — the armored boss
   the_legion: 8,       // chitin carapace — armored until it splits
   the_pulsar: 4,       // energy star — lightly armored
+  the_obelisk: 10,     // dense monolith — moderately armored
   legion_fragment: 4,
   legion_mote: 0,
 };

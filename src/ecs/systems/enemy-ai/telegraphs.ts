@@ -146,6 +146,15 @@ export function pulsarStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
 }
 
 /**
+ * The Obelisk wall-strike warning. Damage radius at execute is 88; the +8
+ * overshoots it so the ring is a conservative warning. Duration = the strike's
+ * flight time (the ring fills exactly as the strike lands).
+ */
+export function obeliskStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 96, duration: impactDelay, color: 0x44ff99 };
+}
+
+/**
  * The Bombard mortar strike warning. Damage radius at execute is 62; the +8
  * overshoots it so the ring is a conservative warning. Duration = the strike's
  * fuse (the ring fills exactly as the shell lands).

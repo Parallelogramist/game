@@ -59,6 +59,7 @@ export { updateVoidWyrmAI } from './void-wyrm';
 export { updateTheMachineAI } from './the-machine';
 export { updateBastionAI, resetBastionStrikes } from './bastion';
 export { updatePulsarAI, resetPulsarStrikes } from './pulsar';
+export { updateObeliskAI, resetObeliskStrikes } from './obelisk';
 export { updateBombardAI, resetBombardStrikes } from './bombard';
 export { updateLegionAI, updateLegionFragmentAI } from './legion';
 export {

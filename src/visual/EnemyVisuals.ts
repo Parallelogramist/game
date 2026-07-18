@@ -1023,6 +1023,47 @@ function drawPulsar(
   }
 }
 
+/** The Obelisk — a looming energy monolith emitting horizontal scan-lines */
+function drawObelisk(
+  g: Phaser.GameObjects.Graphics,
+  s: number,
+  neon: NeonColorPair,
+  quality: VisualQuality,
+): void {
+  squareGlow(g, s, neon, quality);
+  const halfWidth = s * 0.55;
+  const halfHeight = s * 1.05;
+  // Monolith body: a tall slab with a chamfered top.
+  g.fillStyle(neon.core, 1);
+  g.beginPath();
+  g.moveTo(0, -halfHeight);
+  g.lineTo(halfWidth, -halfHeight * 0.55);
+  g.lineTo(halfWidth, halfHeight);
+  g.lineTo(-halfWidth, halfHeight);
+  g.lineTo(-halfWidth, -halfHeight * 0.55);
+  g.closePath();
+  g.fillPath();
+  g.lineStyle(2.5, 0xffffff, 0.9);
+  g.strokePath();
+  // Horizontal scan-lines (the walls it projects).
+  g.lineStyle(2, neon.glow, 0.8);
+  for (const lineY of [-halfHeight * 0.3, 0, halfHeight * 0.35]) {
+    g.beginPath();
+    g.moveTo(-halfWidth, lineY);
+    g.lineTo(halfWidth, lineY);
+    g.strokePath();
+  }
+  // Bright energy core.
+  g.fillStyle(0xffffff, 0.95);
+  g.fillCircle(0, 0, Math.max(3, s * 0.22));
+  // Side emitter nodes (skip on low quality).
+  if (quality !== 'low') {
+    g.fillStyle(0xffffff, 0.8);
+    g.fillCircle(-halfWidth, 0, Math.max(2, s * 0.1));
+    g.fillCircle(halfWidth, 0, Math.max(2, s * 0.1));
+  }
+}
+
 // =====================================================================
 // DRAWER REGISTRY
 // =====================================================================
@@ -1067,6 +1108,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   the_bastion: drawBastion,
   the_legion: drawLegion,
   the_pulsar: drawPulsar,
+  the_obelisk: drawObelisk,
   legion_fragment: drawLegionFragment,
   legion_mote: drawLegionFragment,
 };
