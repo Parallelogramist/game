@@ -34,6 +34,34 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-ACHIEVE-MASTERY** — added 18 ship + stage mastery achievements (win a run with each of the 11 ships;
+  clear a run in each of the 7 biomes), in a new **Mastery** achievement category (done — `f27109a`). The game had
+  51 persistent achievements with a full browsable `AchievementScene` (category tabs, progress bars, per-category
+  `unlocked/total`, gold rewards, retroactive claim) but **ZERO touched the ship you pilot or the biome you play**
+  — despite both being pre-run choices every run, and 11 ships / 7 stages of hand-authored variety. The only
+  ship-touching achievements tracked hangar *modding*, not *piloting*; nothing recorded per-ship or per-stage
+  wins anywhere. This ships the missing **collection/mastery chase** by reusing the per-boss-first-kill pattern
+  1:1: one `TrackingType` per ship/stage id via new `SHIP_WIN_TRACKING` / `STAGE_WIN_TRACKING` maps (mirrors
+  `BOSS_KILL_TRACKING`), 18 flat `targetValue:1` defs (icons `rocket`/`planet`, 250 gold each), recorded on
+  victory in `recordRunEnd` from the run's already-tracked `selectedShipId`/`selectedStageId`. The
+  `AchievementScene` renders the new tab, progress, and rewards with **no render changes** (it derives tabs +
+  counts generically from `ACHIEVEMENT_CATEGORIES` + `getAchievementsByCategory`). **No save-format migration**
+  (`sanitizeAchievements` rebuilds progress from `ACHIEVEMENTS` on load, so existing profiles auto-gain the 18 as
+  locked/zero), **no new storage key, no Codex/CodexState change, no ECS/GameScene-loop change, no PlayerStats/
+  HiddenUnlocks change**. `updateAchievementProgress` skips already-unlocked entries so replays never regress a
+  mastery; daily/weekly victories count too (same victory path). Files: `AchievementTypes.ts` (new category +
+  18 tracking types + `RunEndData.shipId/stageId`), `AchievementDefinitions.ts` (2 maps + 18 defs),
+  `AchievementManager.ts` (record on victory), `AchievementScene.ts` (+1 category entry), `GameScene.ts` (pass
+  ship/stage id on the victory `recordRunEnd`). **Tested** (real regression-risk carve-out, mirrors the existing
+  boss-tracking coverage): `referentialIntegrity.test.ts` extended to pin every ship/stage-win tracking key to a
+  real id with exactly one achievement + full coverage; the new icons are auto-covered by that file's existing
+  icon sweep; full suite green. Legibility/feel (Mastery tab now the 5th — portrait tab-label width; reward
+  magnitude; whether default ship/stage masteries feel too free) owned by **POLISH-ACHIEVE-MASTERY** under
+  `## Human gates`. Chosen because the backlog was thin (Now empty; Next/Proposed all done; the two open Later
+  items are value-gate busy-work) and the run-config draft + content-pack veins were exhausted / flagged
+  near-busy-work — this is a *different value axis* (a retention/collection meta, operator-sanctioned by
+  FEAT-ACHIEVE-ENDGAME `5e2770d`), the lowest-risk fully-specifiable novel win, making the existing 11-ship/
+  7-stage variety a concrete long-term chase.
 - [x] **FEAT-BLESSING-DRAFT** — blessings are now a pre-run **draft** (pick exactly N of N+3) instead of
   auto-rolled (done — fed5573). Blessings were the **last run-config element with zero player agency**: the
   `blessingLevel` shop upgrade rolled N random run-start gifts each run and merely announced them, while every
@@ -1279,6 +1307,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-ACHIEVE-MASTERY** — the 18 new ship/stage mastery achievements + the new Mastery tab need a
+    legibility + feel eyeball (FEAT-ACHIEVE-MASTERY, `f27109a`). Agents have no browser. Reach them: BootScene →
+    **ACHIEVEMENTS** → the new **Mastery** tab (now the 5th tab). Check: (a) with **5 category tabs** (was 4),
+    does the tab row still read on a phone in **portrait** (720-wide) — tab labels + `unlocked/total` counts
+    legible / not overlapping? Landscape (1280-wide) has ample room. (b) do the 18 mastery cards
+    (11 rocket-icon "… Ace" ships + 7 planet-icon "… Conqueror" stages) read cleanly with progress + the 250-gold
+    reward? (c) end-to-end: win a run with a given ship on a given stage → do BOTH that ship's "Ace" and that
+    stage's "Conqueror" unlock (toast + gold), and stay unlocked on the next run? (d) balance: is 250 gold each
+    right, and do the **default** ship (Sparrow) + **default** stage (Deep Void) masteries feel too free (they
+    unlock on any first win)? Knobs: the `reward.value` per entry in `src/achievements/AchievementDefinitions.ts`;
+    to drop the two default entries, delete `mastery_ship_default` / `mastery_stage_deep_void` (and their
+    `SHIP_WIN_TRACKING`/`STAGE_WIN_TRACKING` + `TrackingType` entries). These are tuning/legibility-only; the
+    mechanics are done.
   - **POLISH-BLESSING-DRAFT** — the new pre-run blessing draft needs a feel/legibility eyeball
     (FEAT-BLESSING-DRAFT, `fed5573`). Agents have no browser. Reach it: buy the **Blessing** (`blessingLevel`)
     shop upgrade at least once, then start a **PLAY** run through the full funnel (Weapon → Pact → Director →
