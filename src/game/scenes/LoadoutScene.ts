@@ -12,6 +12,8 @@ import {
 import { getShipById } from '../../data/ShipCharacters';
 import { getStageById } from '../../data/Stages';
 import { getWeaponInfoList } from '../../weapons';
+import { copyTextToClipboard } from '../../utils/Clipboard';
+import { encodeLoadoutCode, decodeLoadoutCode } from '../../meta/LoadoutCode';
 
 const TITLE_FONT = '"Atkinson Hyperlegible", Arial, sans-serif';
 
@@ -31,6 +33,7 @@ interface LoadoutRow {
 export class LoadoutScene extends Phaser.Scene {
   private navigator: MenuNavigator | null = null;
   private isLeaving = false;
+  private flashText: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super({ key: 'LoadoutScene' });
@@ -41,6 +44,7 @@ export class LoadoutScene extends Phaser.Scene {
     const height = this.scale.height;
     this.isLeaving = false;
     this.navigator = null;
+    this.flashText = null;
     this.cameras.main.setBackgroundColor('#0a0a14');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
@@ -53,7 +57,7 @@ export class LoadoutScene extends Phaser.Scene {
       strokeThickness: 6,
     }).setOrigin(0.5).setLetterSpacing(3);
 
-    this.add.text(width / 2, 102, 'Replay a recent run or save a favourite for one-tap launch.', {
+    this.add.text(width / 2, 102, 'Replay a run, save a favourite, or share builds with codes.', {
       fontSize: '16px',
       color: '#9999bb',
       fontFamily: 'Arial',
@@ -106,6 +110,63 @@ export class LoadoutScene extends Phaser.Scene {
         onBlur: () => bg.setStrokeStyle(2, 0x333344),
         onActivate: activate,
       });
+    });
+
+    // ─── build-code bar: share loadouts as copy/paste codes ─────────────
+    // A fixed two-button bar above BACK, deliberately NOT extra list rows — so
+    // the tuned row list (replay/presets/save) and its density stay untouched.
+    const codeSourceLoadout = loadLastLoadout();
+    const barY = height - 112;
+    const barButtonWidth = Math.min(258, (cardWidth - 18) / 2);
+    const barButtonHeight = 42;
+    const barGap = 16;
+    const copyCenterX = width / 2 - (barButtonWidth + barGap) / 2;
+    const pasteCenterX = codeSourceLoadout
+      ? width / 2 + (barButtonWidth + barGap) / 2
+      : width / 2;
+
+    if (codeSourceLoadout) {
+      const copyIndex = navigableItems.length;
+      const copyBg = this.add.rectangle(copyCenterX, barY, barButtonWidth, barButtonHeight, 0x121820)
+        .setStrokeStyle(2, 0x3a5a7a)
+        .setInteractive({ useHandCursor: true });
+      this.add.text(copyCenterX, barY, 'COPY BUILD CODE', {
+        fontSize: '14px',
+        color: '#88ccff',
+        fontFamily: TITLE_FONT,
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
+      const doCopy = () => this.copyBuildCode();
+      copyBg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
+        if (!pointer.wasTouch) this.navigator?.selectIndex(copyIndex);
+      });
+      copyBg.on('pointerup', doCopy);
+      navigableItems.push({
+        onFocus: () => copyBg.setStrokeStyle(2, 0xffffff, 0.9),
+        onBlur: () => copyBg.setStrokeStyle(2, 0x3a5a7a),
+        onActivate: doCopy,
+      });
+    }
+
+    const pasteIndex = navigableItems.length;
+    const pasteBg = this.add.rectangle(pasteCenterX, barY, barButtonWidth, barButtonHeight, 0x121820)
+      .setStrokeStyle(2, 0x3a5a7a)
+      .setInteractive({ useHandCursor: true });
+    this.add.text(pasteCenterX, barY, 'PASTE & LAUNCH CODE', {
+      fontSize: '14px',
+      color: '#88ccff',
+      fontFamily: TITLE_FONT,
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    const doPaste = () => { void this.pasteAndLaunchCode(); };
+    pasteBg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.wasTouch) this.navigator?.selectIndex(pasteIndex);
+    });
+    pasteBg.on('pointerup', doPaste);
+    navigableItems.push({
+      onFocus: () => pasteBg.setStrokeStyle(2, 0xffffff, 0.9),
+      onBlur: () => pasteBg.setStrokeStyle(2, 0x3a5a7a),
+      onActivate: doPaste,
     });
 
     const backButton = this.add.rectangle(width / 2, height - 54, 220, 46, 0x1a1a2a)
@@ -191,6 +252,52 @@ export class LoadoutScene extends Phaser.Scene {
     this.time.delayedCall(160, () => this.scene.start('BootScene'));
   }
 
+  private copyBuildCode(): void {
+    if (this.isLeaving) return;
+    const loadout = loadLastLoadout();
+    if (!loadout) return;
+    void copyTextToClipboard(encodeLoadoutCode(loadout)).then((copied) => {
+      if (this.isLeaving) return;
+      this.showFlash(copied ? 'Build code copied to clipboard' : 'Could not access the clipboard');
+    });
+  }
+
+  private async pasteAndLaunchCode(): Promise<void> {
+    if (this.isLeaving) return;
+    let clipboardText = '';
+    try {
+      clipboardText = (await navigator.clipboard?.readText?.()) ?? '';
+    } catch {
+      clipboardText = '';
+    }
+    if (this.isLeaving) return;
+    const loadout = decodeLoadoutCode(clipboardText);
+    if (loadout) {
+      this.launch(loadout);
+    } else {
+      this.showFlash('No valid build code on the clipboard');
+    }
+  }
+
+  private showFlash(message: string): void {
+    this.flashText?.destroy();
+    this.flashText = this.add.text(this.scale.width / 2, this.scale.height - 158, message, {
+      fontSize: '15px',
+      color: '#ffe08a',
+      fontFamily: 'Arial',
+    }).setOrigin(0.5);
+    this.tweens.add({
+      targets: this.flashText,
+      alpha: { from: 1, to: 0 },
+      delay: 1300,
+      duration: 600,
+      onComplete: () => {
+        this.flashText?.destroy();
+        this.flashText = null;
+      },
+    });
+  }
+
   private goBack(): void {
     if (this.isLeaving) return;
     this.isLeaving = true;
@@ -203,5 +310,7 @@ export class LoadoutScene extends Phaser.Scene {
       this.navigator = null;
     }
     this.tweens.killAll();
+    this.flashText?.destroy();
+    this.flashText = null;
   }
 }
