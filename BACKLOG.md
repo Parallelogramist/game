@@ -34,6 +34,35 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-PACT-EXPANSION** — grow the pre-run Pact pool 5 → 8 on three new axes (done — c4483ec).
+  Pacts (`src/data/Pacts.ts`, chosen on `PactSelectScene` before a run) were the thinnest build pool
+  in the game — **5** vs 28 relics / 15 run modifiers / 12 bosses / 28 weapons / 11 ships — and the
+  five only covered enemy-scaling (`cursed_horde`/`overwhelming` → `curseMultiplier`), max-HP
+  (`glass_cannon`), healing (`famine`) and i-frames (`exposed`). Added three curses on axes none of
+  them touched: **Leaden Hull** (`leaden`, −25% move speed / +15% gold — a mobility curse),
+  **Blunt Force** (`blunt`, −20% weapon damage / +18% gold +12% XP — an offense curse) and
+  **Nearsighted** (`nearsighted`, −40% pickup range / +12% gold — an economy/pickup curse). Pure
+  `PlayerStats` modifiers applied once at run start (`GameScene` pact loop), exactly like the existing
+  five and like `RunModifiers` — which already drive `moveSpeed`, `damageMultiplier` and `pickupRange`
+  live, so no dead-field risk. **No new file, no scene/UI/ECS/save-format/combat-pipeline change**:
+  `PactSelectScene` already auto-wraps `PACTS` into rows and derives its number-keys + `MenuNavigator`
+  from `PACTS.length` (8 cards verified to lay out clear of BEGIN in landscape and portrait); `MAX_PACTS`
+  stays 3. One required test change: three `PACT_EFFECTS` entries in `Pacts.test.ts` (its coverage-lock
+  asserts spec ids == pool ids). Since pacts are opt-in, an imperfect tune breaks nothing — a strictly
+  additive, risk-free expansion of a starved pool. Playtest follow-up filed as **POLISH-PACT-EXPANSION**
+  under `## Human gates`; the still-missing browsable surface filed as **FEAT-CODEX-PACTS** below.
+
+- [ ] **FEAT-CODEX-PACTS** — surface the Pact pool as a browsable Codex tab. Value: pacts
+  (`src/data/Pacts.ts`, now 8) are a real pre-run build-defining pool but are shown only in the
+  transient `PactSelectScene` picker right before a normal/Gauntlet run — the Codex (9 tabs: Weapons,
+  Bestiary, Upgrades, Synergies, Relics, Evolutions, Ships, Modifiers, Statistics) has no way to read
+  them from the menu to plan. Add a **Pacts** tab mirroring FEAT-CODEX-MODIFIERS (`23f565d`) /
+  FEAT-CODEX-RELICS (`759a1cd`): a `CODEX_CATEGORIES` entry, a `displayPacts()` + `createPactCard()`
+  cloned from `createModifierCard` (each card = pact-color-tinted chip + name + downside description +
+  reward string), reusing `layoutCardGrid` and the `0x4a4a7a` card border so `updateFocusVisuals`
+  needs no change. Static reference — no discovery-tracking, no `CodexState`/persistence change, no
+  completion-% impact. Pointers: `src/game/scenes/CodexScene.ts`, `src/codex/CodexTypes.ts`.
+
 - [x] **FEAT-BOSS-ECLIPSE** — new 12th boss, The Eclipse (done — dd88a40). The roster's first
   *chase-the-safe-zone* boss: where all 11 peers make you dodge geometry (Tessellator's static
   checkerboard hop, Tremor's flee-the-wavefront, Diviner's aimed-cage escape gap, Pulsar's
@@ -858,6 +887,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PACT-EXPANSION** — the three new pacts need a balance read (FEAT-PACT-EXPANSION,
+    `c4483ec`). Agents have no browser. Reach: main menu → start a normal or Gauntlet run → the
+    **FORGE A PACT** screen now shows 8 cards; take **Leaden Hull** / **Blunt Force** / **Nearsighted**
+    (alone and stacked with the old five, up to `MAX_PACTS` = 3). Check: (a) is each downside *felt*
+    but survivable — Leaden −25% move in a dodge-heavy run, Blunt −20% damage (longer fights, more
+    exposure), Nearsighted −40% pickup range (do you end up walking onto gems)? (b) is each reward
+    worth its pain vs the existing five (exposed +10% / glass_cannon +15% / overwhelming +25%)? (c)
+    do 8 cards lay out cleanly on a phone in portrait AND landscape, none clipped under BEGIN? (d) any
+    build where a new pact is a no-brainer (too cheap) or never worth it (too harsh)? Knobs (all in
+    `src/data/Pacts.ts`): the `apply` factors — `moveSpeed *= 0.75`, `damageMultiplier *= 0.8`,
+    `pickupRange *= 0.6` — and each `goldMultiplier`/`xpMultiplier` reward; if you retune a factor, update
+    the matching `PACT_EFFECTS` entry in `Pacts.test.ts` in the same edit or the suite goes red. Do NOT
+    retune blind — change numbers only with a real play read.
   - **POLISH-BOSS-ECLIPSE** — the new 12th boss The Eclipse needs an eyeball (FEAT-BOSS-ECLIPSE,
     `dd88a40`). Agents have no browser. Fastest reach: PRACTICE mode → select target `the_eclipse` →
     spawn (also appears in normal runs at the 10-min boss slot once it comes up in the cycle, and in
