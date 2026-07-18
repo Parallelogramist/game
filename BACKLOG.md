@@ -34,6 +34,25 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **BUG-PANDEMIC-SPREAD** — the Pandemic shop upgrade and the Pandemic Engine legendary
+  relic were inert: a spread COUNT was fed into a pixel-RADIUS query (done — 8470c0b). The
+  "Pandemic" upgrade (`PermanentUpgrades.ts`: 350 gold, unlock account level 30, `maxLevel 3`,
+  "Spread to N nearby enemies") and the legendary "Pandemic Engine" relic (`Relics.ts`: "+2
+  pandemic spread") both grant `pandemicSpread` as a **count** of enemies a poison-death
+  infects — maxing at 3 + 2 = 5. But the sole consumer in `GameScene.handleEnemyDeath` passed
+  that count straight into `getEnemySpatialHash().query(x, y, pandemicSpread)` **as a pixel
+  radius**, so poison spread only to enemies within ≤5 px center-to-center of the corpse — a
+  distance two distinct enemies never occupy (every other "nearby enemies" query on the same
+  80 px-cell hash uses 60–150 px). Both the paid upgrade and the legendary relic did
+  essentially nothing. Fixed by honoring the count semantics the writers and the meta getter
+  already document: query a fixed `PANDEMIC_SPREAD_RADIUS = 100` px bloom and cap infections to
+  `pandemicSpread`. Also corrected the lone outlier — the `Upgrades.ts` field comment that
+  called it a "Radius". Same dead-field class as BUG-META-DEAD-RESOURCES (`1443893`),
+  BUG-VITALITY-HEAL-DEAD (`9b520d0`), BUG-META-BARRIER-CAPACITY-DEAD (`1e7ef6c`) and
+  BUG-BLOOD-PACT-HALVE-DEAD (`afe1baa`); a full reward-surface re-audit this session
+  (relics/ships/pacts/achievements/hidden-unlocks) confirmed this was the last remaining broken
+  reward. No new file, no scene/persistence/save-format/ECS change. Playtest follow-up filed as
+  **POLISH-PANDEMIC-SPREAD**.
 - [x] **FEAT-CODEX-SHIPS** — the Codex gets a browsable Ships tab surfacing every ship's kit
   and its unique ultimate (done — 5a84d82). The Codex already had tabs for Weapons, Bestiary,
   Upgrades, Synergies, Relics, Evolutions and Statistics — every build-defining system except
@@ -910,6 +929,20 @@ Never agent work. The fleet must not do any of these.
     order, or should the roster sit earlier (next to Bestiary)? Knobs: `shipCardHeight`, the
     card `textX` / y-offsets / `wrapWidth` and colors in `createShipCard`; the tab entry
     position + icon in `CODEX_CATEGORIES` (`src/codex/CodexTypes.ts`).
+  - **POLISH-PANDEMIC-SPREAD** — the now-working Pandemic spread needs a balance/feel eyeball
+    (BUG-PANDEMIC-SPREAD, `8470c0b`). Agents have no browser. Reach it: buy the **Pandemic**
+    shop upgrade (elemental category, unlock account level 30) and/or draw the **Pandemic
+    Engine** legendary relic, take any poison weapon, and watch a poisoned enemy die inside a
+    cluster. Check: (a) with the fix, a poison-death now infects up to `pandemicSpread` (1–3
+    shop + 2 relic = up to 5) nearby enemies within a fixed **100 px** bloom — does 100 px read
+    as "nearby" (poison visibly jumps to adjacent foes) without feeling like a free screen-wide
+    plague, and is the count cap (≤5) noticeable/fair? (b) is the green spread damage-number +
+    `floor(stacks/2)` re-application the right feedback, or too noisy in a dense swarm? (c) is
+    350 gold / a legendary relic slot now a worthwhile buy, or does it need a bigger radius or
+    higher count to matter? Knobs: `PANDEMIC_SPREAD_RADIUS` (GameScene, currently 100),
+    `pandemicLevel` `maxLevel`/cost (`src/data/PermanentUpgrades.ts`), the relic's `+2`
+    (`src/data/Relics.ts`), and the `floor(poisonStacks / 2)` spread magnitude in
+    `GameScene.handleEnemyDeath`.
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
