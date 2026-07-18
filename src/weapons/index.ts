@@ -28,6 +28,7 @@ export { MineWeapon } from './MineWeapon';
 export { SweepBeamWeapon } from './SweepBeamWeapon';
 export { StormWeapon } from './StormWeapon';
 export { RailgunWeapon } from './RailgunWeapon';
+export { ScattergunWeapon } from './ScattergunWeapon';
 
 // Weapon factory for creating weapons by ID
 import { BaseWeapon } from './BaseWeapon';
@@ -55,6 +56,7 @@ import { MineWeapon } from './MineWeapon';
 import { SweepBeamWeapon } from './SweepBeamWeapon';
 import { StormWeapon } from './StormWeapon';
 import { RailgunWeapon } from './RailgunWeapon';
+import { ScattergunWeapon } from './ScattergunWeapon';
 
 /**
  * All available weapon types and their constructors.
@@ -84,6 +86,7 @@ export const WeaponRegistry: Record<string, () => BaseWeapon> = {
   sweep_beam: () => new SweepBeamWeapon(),
   storm: () => new StormWeapon(),
   railgun: () => new RailgunWeapon(),
+  scatter: () => new ScattergunWeapon(),
 };
 
 /**

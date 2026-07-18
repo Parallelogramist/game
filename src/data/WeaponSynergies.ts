@@ -181,6 +181,14 @@ export const WEAPON_SYNERGIES: readonly WeaponSynergy[] = [
     damageMultiplier: 1.2,
     cooldownMultiplier: 0.9,
   },
+  {
+    weaponA: 'scatter',
+    weaponB: 'frost_nova',
+    name: 'Cold Snap',
+    description: 'Frozen foes can\'t flee the spread: +20% damage, 10% faster',
+    damageMultiplier: 1.2,
+    cooldownMultiplier: 0.9,
+  },
 ] as const;
 
 // Pre-built lookup for O(1) synergy checks

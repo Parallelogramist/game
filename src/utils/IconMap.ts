@@ -132,6 +132,7 @@ export const ICON_MAP: Record<string, string> = {
   storm: 'lightning-frequency',
   railgun: 'telescope',
   telescope: 'telescope',
+  scatter: 'pistol-gun',
   projectile: 'thrown-daggers',
 
   // ═══════════════════════════════════════════════════════════════════════════

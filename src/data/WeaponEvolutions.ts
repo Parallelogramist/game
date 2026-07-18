@@ -343,6 +343,21 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.3,
     },
   },
+  {
+    weaponId: 'scatter',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'multishot',
+    requiredStatLevel: 5,
+    evolvedName: 'Devastator',
+    evolvedDescription: 'A saturating wall of shot so dense the whole cone becomes a single killing blow — nothing in front of you survives.',
+    statMultipliers: {
+      damage: 1.5,
+      cooldown: 0.9,
+      range: 1.25,
+      count: 3,
+      size: 1.2,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */
