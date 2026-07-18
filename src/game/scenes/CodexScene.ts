@@ -32,6 +32,7 @@ import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 import { getRunHistory, RunSummary } from '../../meta/RunHistoryManager';
+import { getShipRecord } from '../../meta/ShipRecords';
 import { getGradeColor } from '../../utils/PerformanceGrade';
 import { getAchievementManager } from '../../achievements';
 
@@ -1546,6 +1547,17 @@ export class CodexScene extends Phaser.Scene {
       { label: 'Speed Wins (<8m)', value: lifetime.speedRuns.toLocaleString() },
       { label: 'Critical Hits', value: lifetime.totalCriticalHits.toLocaleString() },
     ];
+
+    rows.push({ header: 'BY SHIP' });
+    for (const ship of SHIP_CHARACTERS) {
+      const shipRecord = getShipRecord(ship.id);
+      rows.push({
+        label: ship.name,
+        value: shipRecord.runs > 0
+          ? `${shipRecord.bestScore.toLocaleString()}  (${shipRecord.victories}W / ${shipRecord.runs})`
+          : 'Not played',
+      });
+    }
 
     const rowWidth = this.scale.width - 80;
     let zebra = 0;

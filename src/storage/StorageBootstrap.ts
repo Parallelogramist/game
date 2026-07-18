@@ -121,6 +121,9 @@ export const ALL_STORAGE_KEYS = [
 
   // ShipPaintManager (player-chosen hull paint; auto-transfers with the profile)
   'survivor-ship-paint',
+
+  // ShipRecords (per-ship lifetime runs/victories/best score; auto-transfers with the profile)
+  'survivor-ship-records',
 ];
 
 /**

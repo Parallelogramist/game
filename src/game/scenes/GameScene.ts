@@ -64,6 +64,7 @@ import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
+import { recordShipRun } from '../../meta/ShipRecords';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
@@ -5555,6 +5556,7 @@ export class GameScene extends Phaser.Scene {
       wasVictory: true,
     });
     const victoryScoreResult = recordScore(victoryWorldLevel, victoryRunScore);
+    recordShipRun(this.selectedShipId, true, victoryScoreResult.score);
     const victoryGrade = computePerformanceGrade(victoryRunScore, victoryWorldLevel, true);
 
     // Record the daily-challenge leaderboard entry on victory too. Victories flow
@@ -5864,6 +5866,7 @@ export class GameScene extends Phaser.Scene {
         wasVictory: this.hasWon,
       });
       scoreResult = recordScore(runWorldLevel, runScore);
+      recordShipRun(this.selectedShipId, this.hasWon, scoreResult.score);
       performanceGrade = computePerformanceGrade(runScore, runWorldLevel, this.hasWon);
 
       // Record daily leaderboard entry (only stores if it beats the prior best).
