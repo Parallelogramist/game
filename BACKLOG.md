@@ -34,6 +34,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-QUICK-REPLAY** — one-tap **REPLAY LOADOUT** on the main menu that re-launches a fresh run
+  with your last full pre-run configuration, skipping the whole funnel (done — 0653f1b). The content
+  pools are saturated (all 29 weapons carry both an evolution and a synergy; 12 bosses / 8 minibosses /
+  11 ships / 10 Codex tabs / 7 mode leaderboards; reroll/skip/banish shipped), so the highest *novel*
+  value was the one documented, unaddressed friction: the pre-run funnel is now 4 screens
+  (`WeaponSelect → PactSelect → DirectorSelect → ThreatSelect`), and POLISH-THREAT-LADDER itself flags
+  "too many gates". REPLAY LOADOUT is the direct answer — a thin link under the hero card (cloned from
+  `createNewRunLink`, shown only when a saved loadout exists) that clears any in-progress save (same
+  overwrite confirm as NEW RUN) and drops straight into `GameScene` with the captured player choices
+  (`startingWeapon, shipId, stageId, pactIds, directorStrategy, threatLevel, gauntletMode`) and a
+  freshly **re-rolled** `modifierIds` (the 2 random run modifiers are variety, never a player pick, so
+  they are not pinned). Captured at the sole terminal funnel scene (`ThreatSelectScene.beginRun`), so
+  normal AND gauntlet runs record a loadout while daily/weekly/practice/runner/restore — which all
+  bypass that scene — correctly never overwrite it. New file `src/meta/LastLoadout.ts` (SecureStorage
+  JSON store mirroring `ThreatProgress.ts`); one key registered in `StorageBootstrap`; a capture call
+  in `ThreatSelectScene`; and in `BootScene` a loadout load, two replay actions, one cloned link method
+  and its render site. **No gameplay/ECS/combat/save-format change** (the replay payload is the same
+  shape `ThreatSelectScene` already sends to `GameScene`). No new test (JSON round-trip store like the
+  test-free `ThreatProgress`; the storage-key registration is guarded by the existing
+  `StorageBootstrap.test.ts` source-scan). Playtest follow-up filed as **POLISH-QUICK-REPLAY** under
+  `## Human gates`.
 - [x] **FEAT-WEAPON-FLAIL** — add "Wrecking Orbs" (`flail`), a heavy long-reach orbital (29th weapon) (done — 5c760e5).
   Filled the single thinnest weapon **mastery category** — orbital had only `orbiting_blades` (1) vs
   explosive 8 / beam 6 / projectile 5 / aura 4 / summon 2 / melee 2. Wrecking Orbs is a deliberate
@@ -935,6 +956,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-QUICK-REPLAY** — the new main-menu **REPLAY LOADOUT** link needs an eyeball
+    (FEAT-QUICK-REPLAY, `0653f1b`). Agents have no browser. Reach it: complete at least one normal or
+    Gauntlet run setup (PLAY → weapon → pact → directive → threat → BEGIN); return to the main menu →
+    a "✦ REPLAY LOADOUT ✦" link now sits under the hero card. Check: (a) does it lay out cleanly under
+    the hero card in BOTH portrait and landscape, not colliding with the NEW RUN link (when a save
+    exists) or the DAILY/WEEKLY cards below? (b) tapping it: does it re-enter a fresh run with the
+    SAME weapon/ship/stage/pacts/directive/threat, but (correctly) DIFFERENT random run modifiers each
+    time? (c) if the last run was a Gauntlet, does replay re-enter Gauntlet? (d) with an in-progress
+    save present, does it show the same overwrite confirmation as NEW RUN before clearing? (e) is the
+    accent-focus styling (same as NEW RUN) right, or should replay read as visually distinct (gold)?
+    (f) should the label instead show the actual build (e.g. "REPLAY: Katana / T3") — a design call,
+    do NOT change blind. Knobs: `createReplayLoadoutLink` width/pulseSeed/colors/label and the render
+    site in `BootScene.create()`; the captured fields in `LastLoadout` / `ThreatSelectScene.beginRun`.
   - **POLISH-WEAPON-FLAIL** — the new Wrecking Orbs weapon (`flail`, FEAT-WEAPON-FLAIL) needs an eyeball +
     balance pass (agents have no browser). Reach it: start a run, level up, pick **Wrecking Orbs** (or use
     PRACTICE → weapon = Wrecking Orbs). Check: (a) two orbs orbit at a wide radius, tethers + orbs render
