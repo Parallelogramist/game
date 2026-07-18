@@ -34,6 +34,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BLESSING-DRAFT** — blessings are now a pre-run **draft** (pick exactly N of N+3) instead of
+  auto-rolled (done — fed5573). Blessings were the **last run-config element with zero player agency**: the
+  `blessingLevel` shop upgrade rolled N random run-start gifts each run and merely announced them, while every
+  other composed element — weapon, ship, stage, pacts, director, threat, modifiers, ship paint — was already
+  chosen, and relics/modifiers were already drafted (**FEAT-RELIC-DRAFT** `0882753` pick-1-of-3,
+  **FEAT-MODIFIER-DRAFT** `55a1893` pick-2-of-6). The recently-shipped **FEAT-CODEX-BLESSINGS** (`ff77618`)
+  write-up explicitly filed this as the pre-identified next step. Added `rollBlessingChoices(pickCount)` to
+  `Blessings.ts` (pure, N+`BLESSING_DRAFT_EXTRA`(3) distinct candidates, `[]` for an unbought profile) and a new
+  `BlessingDraftScene` — a near-verbatim adaptation of `ModifierDraftScene` (pure-upside gifts, exactly-N picks,
+  per-blessing accent colour instead of a category tag). `ModifierDraftScene.startRun` now routes to it only
+  when the profile's `blessingLevel` grants ≥1 blessing; an unbought profile starts the run directly, unchanged.
+  `GameScene` gained a `blessingIds?: string[]` init field: the fresh path consumes it when present (drafted),
+  else auto-rolls as before (daily/weekly/replay/Surprise-Me/practice — all deliberately excluded, never reach
+  the new scene). Restore is untouched — blessing effects are already baked into saved `PlayerStats`, and the
+  existing `blessingIds` save field round-trips a drafted run with **no storage/save-format change**. One test
+  added (`Blessings.draft.test.ts`, mirrors `RunModifiers.draft.test.ts`): count/cap/distinctness/empty-on-zero
+  for the new pure roll function — the scene itself is Phaser-coupled (untested like every `*DraftScene`
+  sibling) and guarded by tsc + build. Card-width/legibility at 4–6 cards and whether a drafted blessing should
+  be slightly nerfed vs a random one (mirroring the modifier-draft's parity question) owned by
+  **POLISH-BLESSING-DRAFT** under `## Human gates`. Chosen because a read-only audit this session found the
+  dead-stat-revival vein exhausted, weekly/history/lifetime-stats screens already exist, a content pack shipped
+  last session (near-busy-work to repeat), and banish/reroll on the level-up modal is already implemented —
+  this was the highest remaining novel player-facing capability.
 - [x] **FEAT-STAGE-PACK** — added 3 new selectable biomes, growing the game's smallest impactful run-config pool
   (stages) from **4 → 7** (done — 1713ddb). Stages are the environment the player picks before every run on the
   `WeaponSelectScene` "CHOOSE YOUR STAGE" step, and each bundles a distinct **risk/reward profile** (enemy
@@ -1256,6 +1279,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BLESSING-DRAFT** — the new pre-run blessing draft needs a feel/legibility eyeball
+    (FEAT-BLESSING-DRAFT, `fed5573`). Agents have no browser. Reach it: buy the **Blessing** (`blessingLevel`)
+    shop upgrade at least once, then start a **PLAY** run through the full funnel (Weapon → Pact → Director →
+    Threat → Modifier draft → **Blessing draft** — new final step before the run starts). Check: (a) is N-of-
+    (N+3) the right width — at `blessingLevel` 1 (4 cards, pick 1) does the choice feel meaningful, at level 3
+    (6 cards, pick 3) does the grid still read cleanly on phone portrait vs landscape (same 220×210 card /
+    row-wrap layout as the modifier draft)? (b) per-blessing accent colour (from `blessing.color`, no category
+    tag unlike modifiers) — do cards stay visually distinct without one? (c) should a drafted blessing be
+    slightly nerfed vs a random one, mirroring the modifier-draft's parity question, or is pure-upside content
+    fine to leave at full strength when chosen? (d) does an unbought profile (0 blessings) still skip straight
+    to the run with no draft screen, exactly as before? These are tuning/legibility-only; the draft mechanics
+    (routing, exactly-N selection, GameScene consumption, save round-trip) are done.
   - **POLISH-STAGE-PACK** — the 3 new biomes need a legibility + feel/balance eyeball (FEAT-STAGE-PACK,
     `1713ddb`). Agents have no browser. Reach them: start a **PLAY** run → the **CHOOSE YOUR STAGE** step (after
     the weapon pick); Ion Field / Verdant Rot are unlocked at **world level 3**, Molten Vault at **world level 4**,
