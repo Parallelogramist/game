@@ -34,6 +34,30 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-THREAT-LADDER** — a selectable pre-run Threat Level difficulty ladder (done — bb169df).
+  The game had pacts (3 fixed named curses), a director (spawn composition), random run-modifiers and
+  an ascension prestige — but ascension makes the player STRONGER, not the run harder, so there was
+  **no player-selectable, monotonic, persisted difficulty axis** (the genre-standard replay engine —
+  Hades Heat / StS Ascension / Brotato Danger). Added a new `ThreatSelectScene` inserted as the final
+  pre-run picker (`WeaponSelect → PactSelect → DirectorSelect → **ThreatSelect** → GameScene`, the
+  proven FEAT-DIRECTOR-CHOICE `613828c` pattern) offering **THREAT 0–5**: each rung adds to
+  `curseMultiplier` (the one field `createEnemy` scales every enemy's HP+damage by, and that scales
+  XP reward) and multiplies `goldMultiplier`, so tougher enemies pay proportionally more gold (and
+  XP). Tier 0 = today's exact behavior (fully opt-in). The **highest cleared tier is persisted**
+  (`src/meta/ThreatProgress.ts`, mirroring `GauntletBestWave`) and surfaced as a chase (a
+  "Highest cleared: THREAT N" header + a gold "◆ CLEARED" card tag); the picker defaults sticky to
+  the last tier played. Recorded on `showVictory()` (campaign win; gauntlet ends via `gameOver()` so
+  gauntlet threat runs scale+reward but don't record a clear). `threatLevel` rides the existing
+  save/restore path (one optional field beside `directorState`) so a mid-run refresh records the
+  right tier. All tiers open from the start (unlock-gating is a deliberate v1 non-goal). New files:
+  `src/data/ThreatTiers.ts`, `src/meta/ThreatProgress.ts`, `src/game/scenes/ThreatSelectScene.ts`;
+  edits to `StorageBootstrap`, `main.ts`, `DirectorSelectScene` (one scene-key retarget),
+  `GameStateManager` (one optional field) and `GameScene` (field/init/apply/save/restore/record).
+  **No gameplay/ECS/combat/balance change to existing content, no new achievement.** Numbers are a
+  conservative first pass — tuning owned by **POLISH-THREAT-LADDER** under `## Human gates`. No new
+  test (simple additive data table + persisted scalar; wiring caught by tsc/build; the sibling
+  `GauntletBestWave` shipped test-free).
+
 - [x] **FEAT-PACT-EXPANSION** — grow the pre-run Pact pool 5 → 8 on three new axes (done — c4483ec).
   Pacts (`src/data/Pacts.ts`, chosen on `PactSelectScene` before a run) were the thinnest build pool
   in the game — **5** vs 28 relics / 15 run modifiers / 12 bosses / 28 weapons / 11 ships — and the
@@ -895,6 +919,23 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-THREAT-LADDER** — the new pre-run Threat Level picker needs an eyeball and a balance
+    pass (FEAT-THREAT-LADDER, `bb169df`). Agents have no browser. Reach it: main menu → PLAY → pick a
+    weapon → (optionally pacts) → pick a Directive → **SET THREAT LEVEL**. Check: (a) do the 6 threat
+    cards (THREAT 0–5) lay out cleanly and fit above BEGIN RUN on a phone-width portrait viewport, or
+    does the last row crowd/clip the button? (`cardHeight` 200 / `firstRowY` clamp / `perRow` wrap in
+    `ThreatSelectScene.create()` are the knobs.) (b) does inserting a **4th** pre-run picker after the
+    just-added Directive screen feel like too many gates — should Threat instead fold into the
+    Directive screen, live as a sticky BootScene setting, or stay its own scene? (c) are the tier
+    numbers right — `THREAT_TIERS` in `src/data/ThreatTiers.ts` (curseAdd 0/0.15/0.3/0.5/0.75/1.05;
+    goldMult 1/1.15/1.3/1.55/1.85/2.2): is THREAT 5 (~2× enemy HP+damage) too soft or too brutal on
+    top of pacts, and is the gold payoff worth the risk given the deep gold economy? (d) does the
+    "Highest cleared: THREAT N" header + gold "◆ CLEARED" tag read as a chase, and does the sticky
+    "default to last tier played" feel right? (e) should higher tiers be **unlock-gated** (clear
+    T(n) to open T(n+1)) rather than all-open, and should there be a threat achievement (e.g. clear
+    THREAT 5) and/or a leaderboard column? (f) confirm daily/weekly/practice/restore runs are
+    unaffected (no threat scaling — they bypass the picker chain). Knobs: `THREAT_TIERS` values, the
+    card/header copy + layout in `ThreatSelectScene`, the apply site in `GameScene` (~line 1162).
   - **POLISH-CODEX-PACTS** — the new Pacts Codex tab needs an eyeball (FEAT-CODEX-PACTS, `be21ea8`).
     Agents have no browser. Reach it: main menu → CODEX → Pacts tab. Check: (a) do the now-**ten**
     tabs (Weapons / Bestiary / Upgrades / Synergies / Relics / Evolutions / Ships / Modifiers / Pacts
