@@ -31,6 +31,7 @@ export enum EnemyAIType {
   Necromancer = 53, // Revive dead enemies
   TwinA = 54,       // Twin A (linked)
   TwinB = 55,       // Twin B (linked)
+  Bombard = 56,     // Kiting artillery — telegraphed AOE mortar clusters
   // Bosses
   HordeKing = 100,
   VoidWyrm = 101,
@@ -577,6 +578,23 @@ export const ENEMY_TYPES: Record<string, EnemyTypeDefinition> = {
     xpValue: 150,
     minSpawnTime: 999,  // Only spawns with Twin A
     spawnWeight: 0,
+  },
+
+  bombard: {
+    id: 'bombard',
+    name: 'The Bombard',
+    aiType: EnemyAIType.Bombard,
+    category: EnemyCategory.Miniboss,
+    baseHealth: 420,
+    baseSpeed: 70,       // Kites at long range; catchable if the player commits
+    baseDamage: 30,      // Mortar-strike damage (and contact damage)
+    size: 2.6,
+    color: 0x88aa22,         // Miniboss - acid/ordnance green (distinct from all others)
+    secondaryColor: 0xffffff, // White outline
+    shape: 'hexagon',
+    xpValue: 300,
+    minSpawnTime: 330,   // Informational only — scheduled spawn (spawnWeight 0)
+    spawnWeight: 0,      // Controlled spawn, not random
   },
 
   // Ghost enemy (spawned by Necromancer)

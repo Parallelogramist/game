@@ -145,6 +145,15 @@ export function pulsarStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
   return { shape: 'ring', radius: 68, duration: impactDelay, color: 0xff6633 };
 }
 
+/**
+ * The Bombard mortar strike warning. Damage radius at execute is 62; the +8
+ * overshoots it so the ring is a conservative warning. Duration = the strike's
+ * fuse (the ring fills exactly as the shell lands).
+ */
+export function bombardStrikeTelegraph(impactDelay: number): RingTelegraphSpec {
+  return { shape: 'ring', radius: 70, duration: impactDelay, color: 0xffaa33 };
+}
+
 /** Routes a spec to the manager's ring/line spawner. No-op when manager is null. */
 export function spawnTelegraph(
   manager: Pick<TelegraphManager, 'spawnRing' | 'spawnLine'> | null,

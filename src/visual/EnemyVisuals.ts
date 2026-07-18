@@ -764,6 +764,26 @@ function drawTwinB(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPai
   g.fillCircle(0, 0, Math.max(2, s * 0.12));
 }
 
+/** The Bombard — hexagonal siege platform with a forward mortar barrel + shell ports */
+function drawBombard(g: Phaser.GameObjects.Graphics, s: number, neon: NeonColorPair, quality: VisualQuality): void {
+  hexGlow(g, s, neon, quality);
+  fillAndOutlineHex(g, s, neon, 2.5);
+  // Mortar barrel — thick stub pointing forward (+x = toward the player)
+  g.fillStyle(0x222222, 0.9);
+  g.fillRect(s * 0.2, -s * 0.28, s * 1.05, s * 0.56);
+  g.lineStyle(2.5, 0xffffff, 0.8);
+  g.strokeRect(s * 0.2, -s * 0.28, s * 1.05, s * 0.56);
+  // Muzzle ring at the barrel mouth
+  g.lineStyle(Math.max(1.5, s * 0.08), neon.core, 0.9);
+  g.strokeCircle(s * 1.25, 0, s * 0.22);
+  // Shell loader ports (rear)
+  const portR = Math.max(2, s * 0.13);
+  g.fillStyle(0xffffff, 0.55);
+  g.fillCircle(-s * 0.35, -s * 0.3, portR);
+  g.fillCircle(-s * 0.35, s * 0.3, portR);
+  g.fillCircle(-s * 0.5, 0, portR);
+}
+
 // =====================================================================
 // BOSSES
 // =====================================================================
@@ -1039,6 +1059,7 @@ const ENEMY_DRAWERS: Record<string, EnemyDrawFn> = {
   necromancer: drawNecromancer,
   twin_a: drawTwinA,
   twin_b: drawTwinB,
+  bombard: drawBombard,
   // Bosses
   horde_king: drawHordeKing,
   void_wyrm: drawVoidWyrm,

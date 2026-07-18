@@ -31,6 +31,7 @@ import { updateSwarmMotherAI } from './enemy-ai/swarm-mother';
 import { updateChargerAI } from './enemy-ai/charger';
 import { updateNecromancerAI } from './enemy-ai/necromancer';
 import { updateTwinAI } from './enemy-ai/twin';
+import { updateBombardAI } from './enemy-ai/bombard';
 // bosses
 import { updateHordeKingAI } from './enemy-ai/horde-king';
 import { updateVoidWyrmAI } from './enemy-ai/void-wyrm';
@@ -53,6 +54,7 @@ export { setTelegraphManager } from './enemy-ai/common';
 export { resetBossPhaseTracking } from './enemy-ai/boss-phase';
 export { resetBastionStrikes } from './enemy-ai/bastion';
 export { resetPulsarStrikes } from './enemy-ai/pulsar';
+export { resetBombardStrikes } from './enemy-ai/bombard';
 export {
   resetLegionSystem,
   registerLegionRoot,
@@ -195,6 +197,9 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
       case EnemyAIType.TwinA:
       case EnemyAIType.TwinB:
         updateTwinAI(enemyId, playerX, playerY, lodDeltaTime);
+        break;
+      case EnemyAIType.Bombard:
+        updateBombardAI(enemyId, playerX, playerY, lodDeltaTime);
         break;
       // Bosses
       case EnemyAIType.HordeKing:

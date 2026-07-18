@@ -37,6 +37,7 @@ export const TUNING = {
       { typeId: 'charger', time: 300 },
       { typeId: 'necromancer', time: 390 },
       { typeId: 'twin_a', time: 480 },
+      { typeId: 'bombard', time: 540 },
     ] as const,
   },
 
