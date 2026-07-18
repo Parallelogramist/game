@@ -34,6 +34,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-MINIBOSS-STALKER** — new 8th miniboss, The Stalker (done — 9b0a7d1). The
+  roster's first *predictive* enemy: where all 7 miniboss peers and 11 bosses either fire
+  arena-relative geometry or strike where the player CURRENTLY is (Bombard's mortar
+  cluster, Diviner's bullseye, Charger's dash all land on your current spot), the Stalker
+  reads which way you're RUNNING and hurls a creeping line of telegraphed ground strikes
+  that races ahead along your heading — straight-line flight drives you into the barrage;
+  the dodge is a perpendicular juke. A lean predatory dart that stalks at a medium band
+  then pounces. Fair by construction: the whole volley (5 strikes, capped well under the
+  32-slot telegraph pool) routes through the existing telegraphed `groundSlamCallback`
+  with ≥0.9s fuses, and the pure planner falls back to a tight escapable ring when the
+  player is (near-)stationary — never a trap. Base numbers: 380 HP (unarmored — burst it
+  if you corner it), speed 105, 28 strike/contact damage, volley cadence 2.0s, 58 blast
+  radius, strikes stepping 92px ahead. Prediction source: the player entity's live
+  smoothed Velocity, read once per frame in the AI dispatcher and passed into the handler
+  (correct for any instance count). Mirrors The Bombard (`b89267f`) file-for-file — no
+  core combat/damage/projectile pipeline change. Wired into the `EnemyAIType` enum (57),
+  `ENEMY_TYPES`, `TUNING.minibosses.schedule` (7th slot @255s — auto-joins the campaign
+  schedule + Practice mode), the endless/gauntlet `minibossIds` pool, a bespoke
+  `EnemyVisuals` arrowhead drawer, and a `stalkerStrikeTelegraph`. Codex bestiary and
+  Practice mode auto-discover it via `ENEMY_TYPES` / the schedule. Playtest follow-up
+  filed as **POLISH-MINIBOSS-STALKER** under `## Human gates`.
 - [x] **FEAT-WEAPON-REAPER** — new 28th weapon, the Reaper (done — 19ae358). The
   arsenal's first *execution* weapon: where all 27 peers deal raw damage
   (flat/AOE/DoT/hitscan/lobbed/orbit/beam), the Reaper's identity is the guaranteed
@@ -719,6 +740,24 @@ Never agent work. The fleet must not do any of these.
     the top of `src/weapons/ReaperWeapon.ts` (`REAP_THRESHOLD`,
     `REAP_THRESHOLD_MASTERED`, `REAP_THRESHOLD_EVOLVED`, `KNOCKBACK`, `SWEEP_SECONDS`)
     and the base stats in its constructor (damage/cooldown/range).
+  - **POLISH-MINIBOSS-STALKER** — the new 8th miniboss the Stalker needs a balance/feel
+    eyeball (FEAT-MINIBOSS-STALKER, `9b0a7d1`). Agents have no browser. Reach it: PRACTICE →
+    TARGET row → "The Stalker" (or meet it in a normal run — it now fills one of the 7
+    shuffled miniboss slots, first miniboss at 2:30). Check: (a) does the predictive
+    creeping line read clearly as "it's throwing strikes AHEAD of me" — is the juke-
+    perpendicular dodge legible, or does it feel random? (b) is the 0.9s base fuse + 0.16s
+    step a fair reaction window at the speed the strikes march (92px step), or does a
+    straight-line runner get clipped unavoidably / trivially escape? (c) does the
+    stationary ring fallback feel fair (you can walk off the spot) and not degenerate? (d)
+    is the 2.0s cadence relentless-but-fair, and does the state-1 "pounce" drift toward
+    you add pressure without becoming a Charger-style rush? (e) is 380 HP / speed 105 the
+    right "glass hunter you can burst if you corner it" feel, or too tanky/too flimsy? (f)
+    does the magenta arrowhead read distinctly from the other minibosses at game speed?
+    Retune knobs live at the top of `src/ecs/systems/enemy-ai/stalker-barrage.ts`
+    (`STALKER_BLAST_RADIUS`, `STALKER_MOVING_THRESHOLD`, `STALKER_STEP`, fuses,
+    `STALKER_STATIONARY_SPREAD`) and `stalker.ts` (`PREFERRED_RANGE`, `VOLLEY_COOLDOWN`),
+    plus the base stats in the `stalker` `ENEMY_TYPES` entry (health/speed/damage) and the
+    schedule time in `GameTuning.ts`.
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
