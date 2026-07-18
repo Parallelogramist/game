@@ -43,6 +43,7 @@ import {
   spawnIntervalForDistance,
 } from '../runner/runnerMath';
 import { loadRunnerBest, saveRunnerBestIfHigher } from '../runner/RunnerBestScore';
+import { recordRunnerRun } from '../runner/RunnerLeaderboard';
 
 // ─── Runner-local tuning (visual/feel constants live here; pacing math in runnerMath) ───
 const PLAYER_SPEED = 320;          // px/s free movement
@@ -514,6 +515,13 @@ export class RunnerScene extends Phaser.Scene {
     const finalScore = computeScore(this.distance, this.kills);
     const isNewBest = saveRunnerBestIfHigher(finalScore);
     if (isNewBest) this.bestScore = finalScore;
+
+    recordRunnerRun({
+      timestamp: Date.now(),
+      score: finalScore,
+      distanceMeters: distanceToMeters(this.distance),
+      kills: this.kills,
+    });
 
     if (this.playerShip) {
       this.playerShip.playDeathFlash(300);

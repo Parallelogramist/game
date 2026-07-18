@@ -92,6 +92,7 @@ export const ALL_STORAGE_KEYS = [
 
   // RunnerBestScore (endless-runner mode best score)
   'survivor-runner-best',
+  'survivor-runner-leaderboard',
 
   // GauntletBestWave (gauntlet boss-rush mode best cleared wave)
   'survivor-gauntlet-best',
