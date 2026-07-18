@@ -32,6 +32,7 @@ import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 import { getRunHistory, RunSummary } from '../../meta/RunHistoryManager';
 import { getGradeColor } from '../../utils/PerformanceGrade';
+import { getAchievementManager } from '../../achievements';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -1417,12 +1418,16 @@ export class CodexScene extends Phaser.Scene {
   private displayStatistics(): void {
     const codexManager = getCodexManager();
     const stats = codexManager.getStatistics();
+    const lifetime = getAchievementManager().getLifetimeStats();
 
     const startX = this.scale.width / 2;
     const startY = 20;
     const lineHeight = 42;
 
-    const statLines = [
+    type StatRow = { header: string } | { label: string; value: string };
+
+    const rows: StatRow[] = [
+      { header: 'TOTALS' },
       { label: 'Total Runs', value: stats.totalRunsPlayed.toString() },
       { label: 'Total Victories', value: stats.totalVictories.toString() },
       { label: 'Win Rate', value: stats.totalRunsPlayed > 0 ? `${Math.round((stats.totalVictories / stats.totalRunsPlayed) * 100)}%` : '0%' },
@@ -1433,25 +1438,46 @@ export class CodexScene extends Phaser.Scene {
       { label: 'Fastest Victory', value: stats.fastestVictorySeconds < Infinity ? this.formatTime(stats.fastestVictorySeconds) : '--:--' },
       { label: 'Highest World Level', value: stats.highestWorldLevel.toString() },
       { label: 'Highest Player Level', value: stats.highestPlayerLevel.toString() },
+      { header: 'RECORDS' },
+      { label: 'Bosses Slain', value: lifetime.totalBossesKilled.toLocaleString() },
+      { label: 'Most Kills (Run)', value: lifetime.mostKillsInRun.toLocaleString() },
+      { label: 'Best Combo (Run)', value: lifetime.highestComboInRun.toLocaleString() },
+      { label: 'Longest Survival', value: lifetime.longestSurvivalSeconds > 0 ? this.formatTime(lifetime.longestSurvivalSeconds) : '--:--' },
+      { label: 'Flawless Wins', value: lifetime.perfectRuns.toLocaleString() },
+      { label: 'Speed Wins (<8m)', value: lifetime.speedRuns.toLocaleString() },
+      { label: 'Critical Hits', value: lifetime.totalCriticalHits.toLocaleString() },
     ];
 
     const rowWidth = this.scale.width - 80;
+    let zebra = 0;
 
-    statLines.forEach((stat, index) => {
+    rows.forEach((row, index) => {
       const y = startY + index * lineHeight;
 
-      // Row background (alternating)
+      if ('header' in row) {
+        const headerText = this.add.text(this.scale.width / 2, y + 12, row.header, {
+          fontSize: '15px',
+          color: ACCENT_COLORS_STR.gold,
+          fontFamily: FONT_FAMILY,
+          fontStyle: 'bold',
+        });
+        headerText.setLetterSpacing(3);
+        headerText.setOrigin(0.5, 0);
+        this.contentContainer.add(headerText);
+        return;
+      }
+
       const rowBg = this.add.rectangle(
         this.scale.width / 2,
         y + lineHeight / 2 - 4,
         rowWidth,
         lineHeight - 4,
-        index % 2 === 0 ? 0x222244 : 0x1a1a2e
+        zebra % 2 === 0 ? 0x222244 : 0x1a1a2e
       );
       this.contentContainer.add(rowBg);
+      zebra++;
 
-      // Label
-      const labelText = this.add.text(startX - 20, y + 8, stat.label, {
+      const labelText = this.add.text(startX - 20, y + 8, row.label, {
         fontSize: '16px',
         color: '#888888',
         fontFamily: FONT_FAMILY,
@@ -1459,8 +1485,7 @@ export class CodexScene extends Phaser.Scene {
       labelText.setOrigin(1, 0);
       this.contentContainer.add(labelText);
 
-      // Value
-      const valueText = this.add.text(startX + 20, y + 6, stat.value, {
+      const valueText = this.add.text(startX + 20, y + 6, row.value, {
         fontSize: '18px',
         color: '#ffffff',
         fontFamily: FONT_FAMILY,
@@ -1470,7 +1495,9 @@ export class CodexScene extends Phaser.Scene {
       this.contentContainer.add(valueText);
     });
 
-    this.maxScrollY = 0;
+    const contentBottom = startY + rows.length * lineHeight;
+    const viewHeight = this.scale.height - 180;
+    this.maxScrollY = Math.max(0, contentBottom - viewHeight);
   }
 
   private formatTime(seconds: number): string {
