@@ -234,6 +234,35 @@ const MODIFIER_EFFECTS: Record<string, EffectSpec> = {
     lifeStealPercent: (base) => base.lifeStealPercent + 0.05,
     healingBoost: (base) => base.healingBoost * 0.7,
   },
+
+  // ── Expansion pack ──
+  marksman: {
+    critDamage: (base) => base.critDamage + 0.5,
+    attackSpeedMultiplier: (base) => base.attackSpeedMultiplier * 0.85,
+  },
+  piercing_rounds: {
+    piercing: (base) => base.piercing + 2,
+    projectileSpeedMultiplier: (base) => base.projectileSpeedMultiplier * 0.75,
+  },
+  evasion: {
+    dodgeChance: (base) => base.dodgeChance + 0.12,
+    maxHealth: (base) => Math.round(base.maxHealth * 0.8),
+    currentHealth: (base) => Math.min(base.currentHealth, Math.round(base.maxHealth * 0.8)),
+  },
+  lucky_charm: {
+    luck: (base) => base.luck + 0.25,
+    damageMultiplier: (base) => base.damageMultiplier * 0.9,
+  },
+  improviser: {
+    rerollsRemaining: (base) => base.rerollsRemaining + 3,
+    attackSpeedMultiplier: (base) => base.attackSpeedMultiplier * 0.88,
+  },
+  demolitionist: {
+    explosionDamageMultiplier: (base) => base.explosionDamageMultiplier * 1.45,
+    armorPenetration: (base) => base.armorPenetration + 0.25,
+    maxHealth: (base) => Math.round(base.maxHealth * 0.85),
+    currentHealth: (base) => Math.min(base.currentHealth, Math.round(base.maxHealth * 0.85)),
+  },
 };
 
 describe('RunModifier apply() effects', () => {

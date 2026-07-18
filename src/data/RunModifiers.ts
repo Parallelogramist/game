@@ -189,6 +189,75 @@ export const RUN_MODIFIERS: readonly RunModifier[] = [
       stats.healingBoost *= 0.7;
     },
   },
+
+  // ── Expansion pack — build axes no earlier modifier touched ──
+  // Each entry's UPSIDE is a stat no other modifier grants (crit damage, piercing,
+  // dodge, luck, upgrade rerolls, explosion/armor-pen); downsides reuse the pool's
+  // usual trade currency (HP / damage / attack speed / projectile speed). Order in
+  // this array is irrelevant — every consumer shuffles the pool.
+  {
+    id: 'marksman',
+    name: 'Marksman',
+    description: '+50% crit damage, -15% attack speed',
+    category: 'offense',
+    apply: (stats) => {
+      stats.critDamage += 0.5;
+      stats.attackSpeedMultiplier *= 0.85;
+    },
+  },
+  {
+    id: 'piercing_rounds',
+    name: 'Piercing Rounds',
+    description: '+2 piercing, -25% projectile speed',
+    category: 'offense',
+    apply: (stats) => {
+      stats.piercing += 2;
+      stats.projectileSpeedMultiplier *= 0.75;
+    },
+  },
+  {
+    id: 'evasion',
+    name: 'Evasion',
+    description: '+12% dodge, -20% max HP',
+    category: 'defense',
+    apply: (stats) => {
+      stats.dodgeChance += 0.12;
+      stats.maxHealth = Math.round(stats.maxHealth * 0.8);
+      stats.currentHealth = Math.min(stats.currentHealth, stats.maxHealth);
+    },
+  },
+  {
+    id: 'lucky_charm',
+    name: 'Lucky Charm',
+    description: '+25% luck, -10% damage',
+    category: 'resources',
+    apply: (stats) => {
+      stats.luck += 0.25;
+      stats.damageMultiplier *= 0.9;
+    },
+  },
+  {
+    id: 'improviser',
+    name: 'Improviser',
+    description: '+3 upgrade rerolls, -12% attack speed',
+    category: 'resources',
+    apply: (stats) => {
+      stats.rerollsRemaining += 3;
+      stats.attackSpeedMultiplier *= 0.88;
+    },
+  },
+  {
+    id: 'demolitionist',
+    name: 'Demolitionist',
+    description: '+45% explosion damage, +25% armor pen, -15% max HP',
+    category: 'chaos',
+    apply: (stats) => {
+      stats.explosionDamageMultiplier *= 1.45;
+      stats.armorPenetration += 0.25;
+      stats.maxHealth = Math.round(stats.maxHealth * 0.85);
+      stats.currentHealth = Math.min(stats.currentHealth, stats.maxHealth);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
