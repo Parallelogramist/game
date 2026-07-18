@@ -34,6 +34,39 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-GAUNTLET-LEADERBOARD** — the Gauntlet boss-rush mode gets a browsable
+  ranked run-history leaderboard (done — a74b77e). Gauntlet is a first-class,
+  menu-accessible mode with its own escalating wave system, but it persisted **only**
+  a single invisible scalar (`survivor-gauntlet-best`) — no history, no ranking, no
+  way to see or chase past runs, while the daily/weekly modes already surface a full
+  ranked history in `LeaderboardScene`. Added a fifth **GAUNTLET** tab there, backed
+  by a new persisted store (`src/game/gauntlet/GauntletLeaderboard.ts`, mirroring the
+  tested `RunHistoryManager`): the best 15 runs of all time, ranked deepest-wave →
+  most-kills → longest-survival → most-recent, each row showing rank, date, wave,
+  kills, time, and level (the #1 run highlighted gold). Recorded in one guarded block
+  at `gameOver()` (the only path a gauntlet run can end — `showVictory` is gated
+  `!gauntletModeActive`), reusing the locals already in scope. Fully additive: a new
+  storage key (registered in `StorageBootstrap`), a parallel tab + `renderGauntletEntries`
+  render path that leaves the daily render untouched, and **no gameplay/combat/ECS/
+  save-format change**. The game-over overlay's per-run `gauntlet:{wave,bestWave,
+  isNewBest}` summary and the scalar `GauntletBestWave` are unchanged — this adds the
+  browsable *history*, a different surface. In the repo's proven "surface hidden
+  depth" family (FEAT-CODEX-* / FEAT-*-CHASE). Playtest follow-up filed as
+  **POLISH-GAUNTLET-LEADERBOARD**; the same single-scalar gap for **Runner**
+  (`RunnerBestScore`) and **Endless** (`EndlessBestCycle`) is filed as
+  **FEAT-RUNNER-LEADERBOARD** / **FEAT-ENDLESS-LEADERBOARD** below.
+- [ ] **FEAT-RUNNER-LEADERBOARD** — extend the leaderboard to the Runner mini-game.
+  Value: Runner (`RunnerScene`) is a full scroll-shooter mode that persists only a
+  single scalar (`survivor-runner-best`) and never appears on `LeaderboardScene`.
+  Mirror FEAT-GAUNTLET-LEADERBOARD (`a74b77e`): a `RunnerLeaderboard` store (best-first
+  by score), a RUNNER tab + `renderRunnerEntries`, recorded where RunnerScene saves
+  its best (`RunnerScene.ts` ~:515). Pointer: `src/game/runner/RunnerBestScore.ts`.
+- [ ] **FEAT-ENDLESS-LEADERBOARD** — extend the leaderboard to Endless mode. Value:
+  Endless persists only `survivor-endless-best` (deepest cycle) and never appears on
+  `LeaderboardScene`. Mirror FEAT-GAUNTLET-LEADERBOARD (`a74b77e`): an
+  `EndlessLeaderboard` store (best-first by cycle), an ENDLESS tab, recorded at the
+  endless best-cycle save site (`GameScene.ts` ~:7629). Pointer:
+  `src/game/endless/EndlessBestCycle.ts`.
 - [x] **FEAT-MINIBOSS-STALKER** — new 8th miniboss, The Stalker (done — 9b0a7d1). The
   roster's first *predictive* enemy: where all 7 miniboss peers and 11 bosses either fire
   arena-relative geometry or strike where the player CURRENTLY is (Bombard's mortar
@@ -758,6 +791,22 @@ Never agent work. The fleet must not do any of these.
     `STALKER_STATIONARY_SPREAD`) and `stalker.ts` (`PREFERRED_RANGE`, `VOLLEY_COOLDOWN`),
     plus the base stats in the `stalker` `ENEMY_TYPES` entry (health/speed/damage) and the
     schedule time in `GameTuning.ts`.
+  - **POLISH-GAUNTLET-LEADERBOARD** — the new GAUNTLET leaderboard tab needs an
+    eyeball (FEAT-GAUNTLET-LEADERBOARD, `a74b77e`). Agents have no browser. Reach it:
+    main menu → LEADERBOARD → GAUNTLET tab (populate it first by playing a GAUNTLET
+    run to death, or several). Check: (a) do five tabs (ALL / DAILY / WEEKLY /
+    VICTORIES / GAUNTLET) fit and read cleanly on a phone-width viewport, or does the
+    row crowd/clip — if so, drop `tabWidth` 110→~92 in `renderFilterTabs`? (b) does
+    the gauntlet table (rank / date / wave / kills / time / level, #1 row gold) read
+    clearly and align with the header columns at `renderGauntletEntries`'s `colX`
+    offsets? (c) is "best 15 of all time, ranked by wave" the right retention/ranking,
+    or should it be recent-first / show more rows (`MAX_GAUNTLET_ENTRIES`, `maxRows`)?
+    (d) does the empty-state copy ("No gauntlet runs yet — try the GAUNTLET boss
+    rush!") show before any gauntlet run and disappear after one? (e) does a new best
+    run land at rank #1 immediately on the next open? Knobs: `MAX_GAUNTLET_ENTRIES` +
+    the `rankGauntletEntries` comparator in `GauntletLeaderboard.ts`; the columns /
+    `maxRows` / `role` highlight in `renderGauntletEntries`; the tab styling in
+    `renderFilterTabs`.
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
