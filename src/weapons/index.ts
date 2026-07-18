@@ -32,6 +32,7 @@ export { ScattergunWeapon } from './ScattergunWeapon';
 export { FocusBeamWeapon } from './FocusBeamWeapon';
 export { GrenadeWeapon } from './GrenadeWeapon';
 export { ReaperWeapon } from './ReaperWeapon';
+export { FlailWeapon } from './FlailWeapon';
 
 // Weapon factory for creating weapons by ID
 import { BaseWeapon } from './BaseWeapon';
@@ -63,6 +64,7 @@ import { ScattergunWeapon } from './ScattergunWeapon';
 import { FocusBeamWeapon } from './FocusBeamWeapon';
 import { GrenadeWeapon } from './GrenadeWeapon';
 import { ReaperWeapon } from './ReaperWeapon';
+import { FlailWeapon } from './FlailWeapon';
 
 /**
  * All available weapon types and their constructors.
@@ -96,6 +98,7 @@ export const WeaponRegistry: Record<string, () => BaseWeapon> = {
   focus: () => new FocusBeamWeapon(),
   grenade: () => new GrenadeWeapon(),
   reaper: () => new ReaperWeapon(),
+  flail: () => new FlailWeapon(),
 };
 
 /**

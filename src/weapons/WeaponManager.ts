@@ -72,6 +72,7 @@ const WEAPON_MASTERY_CATEGORY: Record<string, MasteryCategory> = {
   focus: 'beam',
   grenade: 'explosive',
   reaper: 'melee',
+  flail: 'orbital',
 };
 
 /**

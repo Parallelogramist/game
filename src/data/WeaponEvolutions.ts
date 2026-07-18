@@ -400,6 +400,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.3,
     },
   },
+  {
+    weaponId: 'flail',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'reach',
+    requiredStatLevel: 5,
+    evolvedName: 'Devastator Orbs',
+    evolvedDescription: 'Colossal orbs swing on far longer tethers, pulverizing and scattering the whole horde in a wide, grinding orbit.',
+    statMultipliers: {
+      damage: 1.6,
+      range: 1.3,
+      size: 1.35,
+      count: 1,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */

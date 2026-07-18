@@ -676,6 +676,7 @@ export const UNLOCKABLE_WEAPONS = [
   { id: 'focus', name: 'Focus Beam', icon: 'focus', description: 'Locks the nearest enemy and burns hotter the longer the beam holds' },
   { id: 'grenade', name: 'Grenade Launcher', icon: 'grenade', description: 'Lobs arcing grenades that burst on impact' },
   { id: 'reaper', name: 'Reaper', icon: 'skull-bones', description: 'Sweeps a scythe that chips the crowd and reaps any weakened foe outright' },
+  { id: 'flail', name: 'Wrecking Orbs', icon: 'flail', description: 'Heavy orbs orbit far out, grinding and hurling back all they sweep' },
 ];
 
 /**

@@ -135,6 +135,7 @@ export const ICON_MAP: Record<string, string> = {
   scatter: 'pistol-gun',
   focus: 'crystal-ball',
   projectile: 'thrown-daggers',
+  flail: 'burning-meteor',
 
   // ═══════════════════════════════════════════════════════════════════════════
   // UI CONTROLS
