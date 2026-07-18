@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-MODIFIER-DRAFT** — run modifiers are now a pre-run **draft** (pick 2 of 6) instead of 2 forced at
+  random (done — 55a1893). `RUN_MODIFIERS` (15 double-edged trade-offs — Glass Cannon +50% dmg/−30% HP, Overcharge
+  +30% atk speed/+20% cooldowns, etc.) were auto-rolled `selectRunModifiers(2)` in `WeaponSelectScene` and merely
+  announced by the run-intro banner — the last impactful, every-run build element with **zero player agency**
+  (relics/ships/stages/pacts/weapons/ship-paint are all already chosen). Added `ModifierDraftScene` (a pre-run
+  multi-select funnel scene modeled verbatim on `PactSelectScene`: category-colored cards, keyboard/gamepad/touch,
+  exactly-2 gate, orientation-flip preservation) as the funnel's final step. `ThreatSelectScene.beginRun()` now
+  rolls 6 distinct candidates (`rollModifierChoices(6)`, new pure export) and starts the draft instead of
+  GameScene; the draft forwards the 2 chosen ids to GameScene via its **existing** `data.modifierIds` path, so
+  **GameScene is untouched** and the run-intro banner announces the chosen 2 (a free confirmation). Exactly 2
+  keeps count-parity with the old system (only *which* 2 is new). Candidates are passed as fixed launch data, so a
+  mid-draft flip re-renders the same 6 cards (never re-rolls) and picks survive via the `relayout`-guard idiom.
+  **Scope = the deliberate PLAY funnel only** (both WeaponSelect paths → Pact → Director → Threat → Draft → Game);
+  daily/weekly (deterministic seed), replay/surprise (deliberately re-roll, skip the funnel), save-restore (baked
+  in) and practice (sandbox) are correctly excluded and never reach the scene. **No `selectRunModifiers`/
+  drop-weight change, no PlayerStats/CombatStats/save-format/ECS change, no new storage key.** Tested
+  (distinctness = real regression risk): `rollModifierChoices` count/cap/distinctness in
+  `RunModifiers.draft.test.ts`; the scene is Phaser-coupled (like PactSelectScene, untested) and caught by
+  tsc/build. Feel/balance (is 2-of-6 the right width? should picking your 2 be nerfed vs random?) owned by
+  **POLISH-MODIFIER-DRAFT** under `## Human gates`.
 - [x] **FEAT-RELIC-PITY** — relic drops now have bad-luck protection so build-defining relics reliably show up
   (done — 31c9a7e). Relic rarity was pure weighted-random (base weights common 60 / rare 30 / **epic 9 /
   legendary 1** → epic-or-better ~10% per drop) with **no floor / pity / fairness** anywhere in the path
@@ -1134,6 +1154,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MODIFIER-DRAFT** — the new pre-run 2-of-6 modifier draft needs a feel/balance eyeball
+    (FEAT-MODIFIER-DRAFT, `55a1893`). Agents have no browser. Reach it: start a normal run via PLAY (weapon → pacts
+    → director → threat → **TUNE YOUR RUN**). Check: (a) do the 6 cards read clearly and pick cleanly via touch,
+    number keys 1–6, and gamepad, in both landscape and portrait (cards fit; the trade-off text is legible; the
+    exactly-2 gate is obvious)? (b) rotating the device mid-draft: confirm the SAME 6 cards return and any picks
+    survive (no re-roll, no reset). (c) does the run start with exactly the 2 you picked, and does the run-intro
+    banner announce those 2? (d) balance: letting the player pick their 2 favorite double-edged modifiers is
+    strictly stronger than 2 random — is that fine, or should the draft be nerfed (offer worse pairs / force one
+    downside / drop to 1-of-3)? Knobs: the `6` in `ThreatSelectScene` (`rollModifierChoices(6)`) and the
+    `requiredPicks` cap of 2 in `ModifierDraftScene`. (e) is a 6-screen funnel (weapon/pact/director/threat/draft +
+    run) too long — should the draft fold into an existing funnel step? (f) confirm daily/weekly, Replay Loadout,
+    Surprise Me, save-restore and Practice runs still get their modifiers WITHOUT this draft screen appearing.
   - **POLISH-RELIC-DRAFT** — the new 1-of-3 relic draft needs a feel/balance eyeball (FEAT-RELIC-DRAFT, `0882753`).
     Agents have no browser. Reach it: start runs and trigger relic drops (treasure chests, the **Fortune** field
     shrine, first-clear miniboss **Relic Vow** deal — the miniboss grants TWO sequential drafts). Check: (a) does
