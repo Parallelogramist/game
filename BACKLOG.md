@@ -34,6 +34,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BOSS-TESSELLATOR** — new 9th boss, The Tessellator (done —
+  7a7f2d5). A crystalline lattice core whose signature is the game's first
+  *checkerboard / "floor-is-lava" tiling barrage*: the 1280×720 arena is an
+  8×5 tile grid; each barrage blasts one parity of the checkerboard (20 of 40
+  tiles, telegraphed ground strikes) forcing the player onto the opposite-
+  parity safe tiles. The parity flips every barrage, so the tile you're
+  standing on becomes lethal next beat and you must hop to an adjacent tile.
+  Phase 2+ adds a directional sweep so the blasts roll across the board like
+  a wave; phases tighten cadence/fuse (1.25/1.12/0.99s) and raise damage
+  (22/27/32). Distinct from all 8 existing
+  bosses — Obelisk's danger is 1-D marching lines, the Tessellator's is a 2-D
+  alternating tessellation of the whole field with a hop-between-tiles
+  demand. Pure, deterministic, unit-tested checkerboard planner
+  (`tessellator-barrage.ts`) feeds an Obelisk-style two-state AI
+  (`tessellator.ts`); all damage is telegraphed ground strikes via the
+  existing `groundSlamCallback` — no core combat/damage/projectile pipeline
+  change. Wired into `TUNING.bosses.order` (auto-joins practice + gauntlet +
+  boss cycling + Codex bestiary), a bespoke `EnemyVisuals` drawer, a cyan
+  boss-arena theme, an ice boss-phase hazard, `ENEMY_ARMOR` (8), and a
+  "Checkmate" defeat achievement. Playtest follow-up filed as
+  **POLISH-BOSS-TESSELLATOR** under `## Human gates`.
 - [x] **FEAT-BOSS-HELIX** — new 8th boss, The Helix (done — ea385c8). A
   spinning energy core whose signature is a *spiral (Archimedean) barrage*:
   curved arms of telegraphed ground strikes that unfurl inner-first, outward
@@ -563,6 +584,24 @@ Never agent work. The fleet must not do any of these.
     the streaks still draw). All knobs are the top-of-file consts in
     `src/weapons/ScattergunWeapon.ts` + the evolution/synergy multipliers — do not
     retune blind.
+  - **POLISH-BOSS-TESSELLATOR** — the new Tessellator boss needs a
+    balance/feel eyeball (FEAT-BOSS-TESSELLATOR, `7a7f2d5`). Agents have no
+    browser. Reach it: PRACTICE → BOSS row → "The Tessellator" (or a normal
+    run / gauntlet — it now cycles in the boss order). Check: (a) does it
+    read as a spinning crystalline lattice tiling the arena into a
+    lethal/safe checkerboard you hop across; (b) base HP 4650 (×2 = 9300) /
+    contact 31 / strike dmg 22-32 / blast radius 108 / grid 8×5 / cadence
+    reload 2.9/2.6/2.3s vs the other 8 bosses — dead or oppressive?; (c) is
+    the fuse 1.25/1.12/0.99s a fair hop window or too tight/loose; (d) does
+    the parity flip each barrage force real hopping or feel random; (e) are
+    the corners/edge tiles too safe a haven (raise coverage — more
+    COLS/ROWS or larger `TESSELLATOR_BLAST_RADIUS` — if so); (f) does the
+    phase-2+ sweep (`tessellatorSweepStepForPhase`) read as a rolling wave
+    or drag out the barrage; (g) distinct from Obelisk (1-D marching
+    walls)?; (h) reads at all 3 quality levels (LOW draws no boss
+    telegraphs — pre-existing). All knobs are top-of-file consts in
+    `src/ecs/systems/enemy-ai/tessellator.ts` + `tessellator-barrage.ts` —
+    do not retune blind.
   - **POLISH-BOSS-HELIX** — the new Helix boss needs a balance/feel eyeball
     (FEAT-BOSS-HELIX, `ea385c8`). Agents have no browser. Reach it:
     PRACTICE → BOSS row → "The Helix" (or a normal run / gauntlet — it now
