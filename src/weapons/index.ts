@@ -29,6 +29,7 @@ export { SweepBeamWeapon } from './SweepBeamWeapon';
 export { StormWeapon } from './StormWeapon';
 export { RailgunWeapon } from './RailgunWeapon';
 export { ScattergunWeapon } from './ScattergunWeapon';
+export { FocusBeamWeapon } from './FocusBeamWeapon';
 
 // Weapon factory for creating weapons by ID
 import { BaseWeapon } from './BaseWeapon';
@@ -57,6 +58,7 @@ import { SweepBeamWeapon } from './SweepBeamWeapon';
 import { StormWeapon } from './StormWeapon';
 import { RailgunWeapon } from './RailgunWeapon';
 import { ScattergunWeapon } from './ScattergunWeapon';
+import { FocusBeamWeapon } from './FocusBeamWeapon';
 
 /**
  * All available weapon types and their constructors.
@@ -87,6 +89,7 @@ export const WeaponRegistry: Record<string, () => BaseWeapon> = {
   storm: () => new StormWeapon(),
   railgun: () => new RailgunWeapon(),
   scatter: () => new ScattergunWeapon(),
+  focus: () => new FocusBeamWeapon(),
 };
 
 /**

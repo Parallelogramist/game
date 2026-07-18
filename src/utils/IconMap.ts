@@ -133,6 +133,7 @@ export const ICON_MAP: Record<string, string> = {
   railgun: 'telescope',
   telescope: 'telescope',
   scatter: 'pistol-gun',
+  focus: 'crystal-ball',
   projectile: 'thrown-daggers',
 
   // ═══════════════════════════════════════════════════════════════════════════

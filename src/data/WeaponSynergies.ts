@@ -189,6 +189,14 @@ export const WEAPON_SYNERGIES: readonly WeaponSynergy[] = [
     damageMultiplier: 1.2,
     cooldownMultiplier: 0.9,
   },
+  {
+    weaponA: 'focus',
+    weaponB: 'railgun',
+    name: 'Convergence',
+    description: 'Twin lock-on beams concentrate fire on priority targets: +20% damage, 10% faster',
+    damageMultiplier: 1.2,
+    cooldownMultiplier: 0.9,
+  },
 ] as const;
 
 // Pre-built lookup for O(1) synergy checks

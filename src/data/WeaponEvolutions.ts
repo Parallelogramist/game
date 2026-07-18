@@ -358,6 +358,20 @@ export const weaponEvolutionDefinitions: WeaponEvolution[] = [
       size: 1.2,
     },
   },
+  {
+    weaponId: 'focus',
+    requiredWeaponLevel: 5,
+    requiredStatId: 'might',
+    requiredStatLevel: 5,
+    evolvedName: 'Fusion Lance',
+    evolvedDescription: 'The beam collapses into a searing fusion lance — it locks a second target at once and melts through anything it touches.',
+    statMultipliers: {
+      damage: 1.6,
+      range: 1.3,
+      size: 1.4,
+      count: 1,
+    },
+  },
 ];
 
 /** Map of weaponId -> WeaponEvolution for O(1) lookup */
