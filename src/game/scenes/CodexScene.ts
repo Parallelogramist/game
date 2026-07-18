@@ -16,6 +16,7 @@ import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { WEAPON_SYNERGIES, WeaponSynergy } from '../../data/WeaponSynergies';
 import { RELICS, Relic, getRelicRarityColor } from '../../data/Relics';
 import { RUN_MODIFIERS, RunModifier } from '../../data/RunModifiers';
+import { PACTS, Pact } from '../../data/Pacts';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
 import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
@@ -268,6 +269,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${SHIP_CHARACTERS.length}`;
       } else if (category.id === 'modifiers') {
         countLabel = `${RUN_MODIFIERS.length}`;
+      } else if (category.id === 'pacts') {
+        countLabel = `${PACTS.length}`;
       }
 
       if (countLabel) {
@@ -388,6 +391,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'modifiers':
         this.displayModifiers();
+        break;
+      case 'pacts':
+        this.displayPacts();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -973,6 +979,80 @@ export class CodexScene extends Phaser.Scene {
       wordWrap: { width: this.cardWidth - textX - 14 },
     });
     container.add(descText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
+  private displayPacts(): void {
+    const pactCardHeight = 96;
+
+    this.layoutCardGrid([...PACTS], pactCardHeight, (pact, x, y) => {
+      this.createPactCard(pact, x, y, pactCardHeight);
+    });
+  }
+
+  private createPactCard(pact: Pact, x: number, y: number, cardHeight: number): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    // Border stays 0x4a4a7a — the exact color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    // The pact is signalled by the icon tint, never the border.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      cardHeight / 2,
+      this.cardWidth,
+      cardHeight,
+      0x2a2a4a,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    const iconCenterX = 38;
+    const iconCenterY = Math.floor(cardHeight / 2);
+
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, pact.color);
+    container.add(iconDisc);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: 'devil',
+        size: 28,
+        tint: pact.color,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 12, pact.color);
+      container.add(fallback);
+    }
+
+    const textX = 75;
+
+    const nameText = this.add.text(textX, 14, pact.name, {
+      fontSize: '16px',
+      color: '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const rewardText = this.add.text(textX, 38, pact.reward, {
+      fontSize: '12px',
+      color: '#ffdd66',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(rewardText);
+
+    const downsideText = this.add.text(textX, 56, pact.description, {
+      fontSize: '12px',
+      color: '#cc8899',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - textX - 14 },
+    });
+    container.add(downsideText);
 
     this.codexCards.push({ container, cardBg });
   }
