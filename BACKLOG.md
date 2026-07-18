@@ -55,12 +55,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   **POLISH-GAUNTLET-LEADERBOARD**; the same single-scalar gap for **Runner**
   (`RunnerBestScore`) and **Endless** (`EndlessBestCycle`) is filed as
   **FEAT-RUNNER-LEADERBOARD** / **FEAT-ENDLESS-LEADERBOARD** below.
-- [ ] **FEAT-RUNNER-LEADERBOARD** — extend the leaderboard to the Runner mini-game.
-  Value: Runner (`RunnerScene`) is a full scroll-shooter mode that persists only a
-  single scalar (`survivor-runner-best`) and never appears on `LeaderboardScene`.
-  Mirror FEAT-GAUNTLET-LEADERBOARD (`a74b77e`): a `RunnerLeaderboard` store (best-first
-  by score), a RUNNER tab + `renderRunnerEntries`, recorded where RunnerScene saves
-  its best (`RunnerScene.ts` ~:515). Pointer: `src/game/runner/RunnerBestScore.ts`.
+- [x] **FEAT-RUNNER-LEADERBOARD** — the endless-Runner mode gets a browsable ranked
+  run-history leaderboard (done — 5cabc4a). Runner (`RunnerScene`) is a full,
+  menu-accessible scroll-shooter mode with its own HUD, results screen and difficulty
+  ramp, but it persisted **only** a single invisible scalar (`survivor-runner-best`) —
+  no history, no ranking, no way to see or chase past runs, while the daily/weekly and
+  gauntlet modes already surface a full ranked history in `LeaderboardScene`. Added a
+  sixth **RUNNER** tab there, backed by a new persisted store
+  (`src/game/runner/RunnerLeaderboard.ts`, mirroring the tested `GauntletLeaderboard`):
+  the best 15 runs of all time, ranked highest-score → longest-distance → most-kills →
+  most-recent, each row showing rank, date, score, distance and kills (the #1 run
+  highlighted gold). Recorded in one block at `onPlayerDeath()` (the only path a runner
+  run can end — the mode is endless-until-death), reusing `finalScore`/`distanceToMeters`
+  already in scope. Fully additive: a new storage key (registered in `StorageBootstrap`),
+  a parallel tab + `renderRunnerEntries` render path that leaves the daily and gauntlet
+  renders untouched, and **no gameplay/combat/ECS/save-format change**. The scalar
+  `RunnerBestScore` (runner HUD/results) is unchanged — this adds the browsable
+  *history*, a different surface. In the repo's proven "surface hidden depth" family
+  (FEAT-GAUNTLET-LEADERBOARD / FEAT-CODEX-* / FEAT-*-CHASE). Playtest follow-up filed as
+  **POLISH-RUNNER-LEADERBOARD**; the same single-scalar gap for **Endless**
+  (`EndlessBestCycle`) remains filed as **FEAT-ENDLESS-LEADERBOARD** below.
 - [ ] **FEAT-ENDLESS-LEADERBOARD** — extend the leaderboard to Endless mode. Value:
   Endless persists only `survivor-endless-best` (deepest cycle) and never appears on
   `LeaderboardScene`. Mirror FEAT-GAUNTLET-LEADERBOARD (`a74b77e`): an
@@ -807,6 +821,24 @@ Never agent work. The fleet must not do any of these.
     the `rankGauntletEntries` comparator in `GauntletLeaderboard.ts`; the columns /
     `maxRows` / `role` highlight in `renderGauntletEntries`; the tab styling in
     `renderFilterTabs`.
+  - **POLISH-RUNNER-LEADERBOARD** — the new RUNNER leaderboard tab needs an eyeball
+    (FEAT-RUNNER-LEADERBOARD, `5cabc4a`). Agents have no browser. Reach it: main menu →
+    LEADERBOARD → RUNNER tab (populate it first by playing a RUNNER run to death, or
+    several). Check: (a) do the now-**six** tabs (ALL / DAILY / WEEKLY / VICTORIES /
+    GAUNTLET / RUNNER) fit and read cleanly on a phone-width viewport, or does the row
+    crowd/clip — if so, drop `tabWidth` 110→~92 in `renderFilterTabs`? This is more
+    pressing at six tabs than it was at five. (b) does the RUNNER tab reusing the blue
+    `'primary'` accent (shared with the ALL tab) read oddly — if so, add a dedicated
+    role color in `MenuStyle.ts`? (c) does the runner table (rank / date / score /
+    distance / kills, #1 row gold) read clearly and align with the header columns at
+    `renderRunnerEntries`'s `colX` offsets? (d) is "best 15 of all time, ranked by
+    score" the right retention/ranking, or should it be recent-first / show more rows
+    (`MAX_RUNNER_ENTRIES`, `maxRows`)? (e) does the empty-state copy ("No runner scores
+    yet — try the RUNNER mode!") show before any runner run and disappear after one?
+    (f) does a new best run land at rank #1 immediately on the next open? Knobs:
+    `MAX_RUNNER_ENTRIES` + the `rankRunnerEntries` comparator in `RunnerLeaderboard.ts`;
+    the columns / `maxRows` / `role` highlight in `renderRunnerEntries`; the tab styling
+    in `renderFilterTabs`.
   - **POLISH-WEAPON-GRENADE** — the new Grenade Launcher needs a balance/feel
     eyeball (FEAT-WEAPON-GRENADE, `a8ce5ac`). Agents have no browser. Reach it:
     PRACTICE → WEAPON row → "Grenade Launcher" (unlocked or via a normal run's
