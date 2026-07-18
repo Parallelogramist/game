@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-SYNERGY-PICK-HINT** — the level-up **weapon-unlock** card now flags which weapon synergy picking
+  it would activate with your current kit (done — bf8170f). The UpgradeScene already showed evolution hints on
+  **weapon-level** cards (`✦ Evolves: Lv5 · Multishot 3/5`) and, since `85a3d2f`, on **stat** cards — but had
+  **zero** synergy awareness: the game surfaces a synergy only AFTER it completes (the `⚡ <name>` activation
+  toast, the pause BUILD STATS dashboard), never at the weapon-milestone pick that FORMS it, so the choice of
+  which new weapon to take was made blind to the game's second-deepest build mechanic (26 passive pair
+  bonuses in `WeaponSynergies.ts`). Added a `getUnlockSynergyHint(offeredWeaponId)` helper (iterates the
+  already-passed `this.equippedWeapons`, calls the existing unit-tested `getSynergy`) and a symmetric render
+  block on **weapon-unlock** cards (`upgrade.id.startsWith('add_')`, disjoint from the `level_` and stat
+  cards) that reuses the evolution hint's gold `makeDisplayText`/`ACCENT_COLORS_STR.focus` idiom. Because
+  picking a weapon-unlock card equips both weapons immediately, the synergy is unconditionally activated on
+  pick, so there is a single gold state — `⚡ Synergy: <name>` — with `(+N)` appended when the offered weapon
+  also pairs with other equipped weapons. No `>= 2` level filter (synergies ignore weapon level). **No new
+  store, no save-format/ECS/combat/scene-flow change, no `GameScene` change** (`equippedWeapons` was already
+  passed for `FEAT-EVO-STAT-HINT`) — pure in-run decision-support display over data the game already has.
+  Completes the level-up screen's build-awareness: all three card kinds now flag the deep build mechanic they
+  advance. No new test (a display mirror of two test-free siblings; the one new helper is a trivial loop over
+  an existing tested lookup; wiring caught by tsc/build). Playtest follow-up filed as
+  **POLISH-SYNERGY-PICK-HINT** under `## Human gates`.
+
 - [x] **FEAT-EVO-STAT-HINT** — the level-up **stat** card now flags which equipped weapon that stat evolves
   (done — 85a3d2f). The UpgradeScene already showed an evolution hint on **weapon** cards
   (`✦ Evolves: Lv5 · Multishot 3/5` / `✦ EVOLUTION READY: Bullet Storm`), but the reciprocal was missing:
@@ -1012,6 +1032,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SYNERGY-PICK-HINT** — the new weapon-unlock synergy hint needs an eyeball (FEAT-SYNERGY-PICK-HINT,
+    `bf8170f`). Agents have no browser. Reach it: start a run, equip a weapon that has a synergy (e.g.
+    Projectile, which pairs with Ricochet → *Bullet Storm*), then reach a weapon-milestone level-up (every 5th
+    level) that offers the partner weapon and look at that **weapon-unlock** card. Check: (a) does
+    `⚡ Synergy: Bullet Storm` read cleanly in gold on the card, and fit / not clip on a narrow **phone** card
+    (it uses non-wrapping display text, like the "EVOLUTION READY" hint)? (b) when the offered weapon pairs
+    with several equipped weapons (e.g. Chain Lightning with both Spirit Guardians → *Conducting Field* and
+    Laser Beam → *Energy Overload*), is showing one name + `(+N)` the right call, or should it list two /
+    show the strongest? (c) would naming the synergy's *effect* (`+20% dmg`) alongside the name help more than
+    the name alone? (d) does it never show on weapon-level or stat cards, or for a weapon that has no synergy
+    with your kit? Knobs: `getUnlockSynergyHint()` in `UpgradeScene.ts` (the label string, the `(+N)`
+    affordance) and its render block's font size/color (mirrors the evolution "ready" hint).
   - **POLISH-EVO-STAT-HINT** — the new stat-card evolution hint needs an eyeball (FEAT-EVO-STAT-HINT,
     `85a3d2f`). Agents have no browser. Reach it: start a run, equip a weapon that can evolve, level that
     weapon to 2+, then trigger a level-up and look at a **stat** card whose stat gates that weapon's
