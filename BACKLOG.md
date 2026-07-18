@@ -34,6 +34,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-BOSS-OBELISK** — new 7th boss, The Obelisk (done — dac5386). A
+  looming green energy monolith whose signature is *marching walls* of
+  telegraphed ground strikes: a full-arena line of large overlapping blasts with
+  a single threadable safe lane, doubled into offset rows whose gaps shift so the
+  player threads one lane then slides to the next as the rows land in sequence —
+  the game's first advancing-wall / lateral "run to the gap" bullet-hell rhythm.
+  The boss pool was 6 bosses cycling every ~6 runs; a 7th cuts the most-repeated
+  content and is felt every run. Distinct from all 6 existing bosses (slam /
+  serpentine / laser-cross / mortar / split / rotating-spokes): the only iconic
+  bullet-hell signature none of them provide, and — unlike Pulsar's boss-relative
+  spokes — its walls are ARENA-relative, so the boss looms at centre while walls
+  sweep the whole field. Orientation (horizontal/vertical) and gap rotate every
+  barrage; phases escalate rows (2→2→3), tighten cadence (3.0/2.7/2.4s), and raise
+  damage (23/28/33). Pure, deterministic, unit-tested wall
+  planner (`obelisk-barrage.ts`) feeds a Pulsar-style two-state AI (`obelisk.ts`);
+  all damage is telegraphed ground strikes via the existing `groundSlamCallback`
+  — no core combat/damage/projectile pipeline change. Wired into
+  `TUNING.bosses.order` (auto-joins practice + gauntlet + boss cycling + Codex
+  bestiary), a bespoke `EnemyVisuals` drawer, a green boss-arena theme,
+  boss-phase hazards, `ENEMY_ARMOR`, and a "Wallbreaker" defeat achievement.
+  Playtest follow-up filed as **POLISH-BOSS-OBELISK** under `## Human gates`.
 - [x] **FEAT-MINIBOSS-BOMBARD** — new 7th miniboss, The Bombard (done — b89267f). A
   hovering siege platform that kites the player at long range and drops telegraphed
   AOE mortar clusters (center + satellite ring) on the player's position, forcing
@@ -488,6 +509,28 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-OBELISK** — the new Obelisk boss needs a balance/feel eyeball
+    (FEAT-BOSS-OBELISK, `dac5386`). Agents have no browser. Reach it:
+    PRACTICE → BOSS row → "The Obelisk" (or a normal run / gauntlet — it now
+    cycles in the boss order). Check: (a) does it read as a looming monolith that
+    projects full-arena walls of telegraphed strikes with a single moving safe
+    lane you thread; (b) base HP 4700 (×2 = 9400) / contact 33 / strike dmg
+    23-33 / blast radius 88 / rows 2→2→3 by phase / reload 3.0/2.7/2.4s vs the
+    other 6 bosses — dead or oppressive?; (c) is the wall fuse
+    (1.27/1.14/1.01s leading row, +0.5s per following row) a fair thread window
+    or too tight/too loose; (d) with GAP_HALF=140 the clear lane is ~130-210px —
+    does threading gap A then sliding to gap B (GAP_ROW_SHIFT=3 columns) demand
+    real movement without being unfair; (e) does alternating orientation
+    (horizontal/vertical each barrage) + rotating gap force good repositioning or
+    feel random; (f) does the arena-relative wall (boss looms at centre) read as
+    distinct from Pulsar's boss-relative rotating spokes; (g) does the monolith
+    drawer + green telegraphs read at all three quality levels (note: on LOW
+    quality no boss telegraphs render — pre-existing for all bosses). All knobs
+    are the top-of-file consts in `src/ecs/systems/enemy-ai/obelisk.ts` +
+    `obelisk-barrage.ts` — do not retune blind. **Design opens (not agent calls):**
+    the boss ships single-geometry (wall) with phase escalation, unlike Pulsar's
+    two geometries — note if you want a distinct phase-2+ second geometry (e.g. a
+    perpendicular cross wall or a pincer from two edges).
   - **POLISH-MINIBOSS-BOMBARD** — the new Bombard miniboss needs a balance/feel
     eyeball (FEAT-MINIBOSS-BOMBARD, `b89267f`). Agents have no browser.
     Reach it: PRACTICE → BOSS/target row → "The Bombard" (or a normal run — it
