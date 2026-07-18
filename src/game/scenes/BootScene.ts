@@ -6,7 +6,8 @@ import { getAscensionManager } from '../../meta/AscensionManager';
 import { preloadIcons, createIcon, setIconFrame } from '../../utils/IconRenderer';
 import { getGameStateManager } from '../../save/GameStateManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
-import { loadLastLoadout, type LastLoadout } from '../../meta/LastLoadout';
+import { loadLastLoadout, saveLastLoadout, type LastLoadout } from '../../meta/LastLoadout';
+import { buildRandomLoadout } from '../../meta/RandomLoadout';
 import {
   fadeOut,
   addButtonInteraction,
@@ -297,6 +298,22 @@ export class BootScene extends Phaser.Scene {
       }
     };
 
+    // Surprise Me: roll a fully-randomized valid loadout and drop straight into a
+    // run (re-rolling modifiers like a replay), skipping the whole pre-run funnel.
+    // Saved as the last loadout so a surprise run you liked re-launches from REPLAY.
+    const surpriseRun = () => {
+      const loadout = buildRandomLoadout();
+      saveLastLoadout(loadout);
+      return replayLoadout(loadout);
+    };
+    const startSurpriseRunWithConfirmation = () => {
+      if (hasSave) {
+        this.showNewGameConfirmation(surpriseRun);
+      } else {
+        surpriseRun();
+      }
+    };
+
     // ─── scaling ────────────────────────────────────────────────────────
     // Portrait uses the orientation-matched 720×1280 design fit: the menu is
     // a ~600-unit-wide centered column, so it renders FULL SIZE there —
@@ -452,6 +469,7 @@ export class BootScene extends Phaser.Scene {
       onPractice: startPractice,
       onLeaderboard: openLeaderboard,
       onPaint: openPaint,
+      onSurprise: startSurpriseRunWithConfirmation,
     });
 
     // ─── footer strip ───────────────────────────────────────────────────
@@ -1142,10 +1160,11 @@ export class BootScene extends Phaser.Scene {
     onGauntlet: () => void;
     onRunner: () => void;
     onPractice: () => void;
+    onSurprise: () => void;
   }): void {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount,
-      onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onGauntlet, onRunner, onPractice,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onGauntlet, onRunner, onPractice, onSurprise,
     } = opts;
 
     interface DeckEntry {
@@ -1240,6 +1259,17 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentDanger,
         action: onPractice,
         iconTint: 0xffddaa,
+      },
+      {
+        // Surprise Me (FEAT-SURPRISE-RUN) — one-tap fully-randomized run; a
+        // game-mode launcher like GAUNTLET/RUNNER/PRACTICE, but the gold role
+        // reads it as a lucky wildcard roll rather than a danger mode.
+        label: 'SURPRISE',
+        iconKey: 'dice',
+        bodyHex: COLORS.bodyGold,
+        accentHex: COLORS.accentGold,
+        action: onSurprise,
+        iconTint: 0xffe2a0,
       },
     ];
 
