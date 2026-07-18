@@ -52,16 +52,24 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   additive, risk-free expansion of a starved pool. Playtest follow-up filed as **POLISH-PACT-EXPANSION**
   under `## Human gates`; the still-missing browsable surface filed as **FEAT-CODEX-PACTS** below.
 
-- [ ] **FEAT-CODEX-PACTS** — surface the Pact pool as a browsable Codex tab. Value: pacts
-  (`src/data/Pacts.ts`, now 8) are a real pre-run build-defining pool but are shown only in the
-  transient `PactSelectScene` picker right before a normal/Gauntlet run — the Codex (9 tabs: Weapons,
-  Bestiary, Upgrades, Synergies, Relics, Evolutions, Ships, Modifiers, Statistics) has no way to read
-  them from the menu to plan. Add a **Pacts** tab mirroring FEAT-CODEX-MODIFIERS (`23f565d`) /
-  FEAT-CODEX-RELICS (`759a1cd`): a `CODEX_CATEGORIES` entry, a `displayPacts()` + `createPactCard()`
-  cloned from `createModifierCard` (each card = pact-color-tinted chip + name + downside description +
-  reward string), reusing `layoutCardGrid` and the `0x4a4a7a` card border so `updateFocusVisuals`
-  needs no change. Static reference — no discovery-tracking, no `CodexState`/persistence change, no
-  completion-% impact. Pointers: `src/game/scenes/CodexScene.ts`, `src/codex/CodexTypes.ts`.
+- [x] **FEAT-CODEX-PACTS** — the Codex gets a browsable Pacts tab surfacing all 8 pre-run pacts
+  (done — `be21ea8`). Pacts (`src/data/Pacts.ts`, grown to 8 by FEAT-PACT-EXPANSION `c4483ec`) are a
+  real pre-run build-defining pool, but the Codex had a deliberate reference tab for every OTHER
+  build pool — Weapons, Bestiary, Upgrades, Synergies, Relics, Evolutions, Ships, Modifiers,
+  Statistics — while pacts appeared only in the transient `PactSelectScene` picker shown for a few
+  seconds right before a normal/Gauntlet run, with no way to study the pool from the menu to plan a
+  risk/reward build. Added a tenth **Pacts** tab (between Modifiers and Statistics) listing all 8 as
+  always-visible cards: a pact-color-tinted `devil` icon disc, the pact name, the reward string
+  (gold `#ffdd66`) and the downside description (`#cc8899`, both colors copied from the picker).
+  Directly mirrors FEAT-CODEX-MODIFIERS (`23f565d`) / FEAT-CODEX-RELICS (`759a1cd`) /
+  FEAT-CODEX-SHIPS (`5a84d82`): a `CODEX_CATEGORIES` entry + `CodexCategory` union member
+  (`src/codex/CodexTypes.ts`), and in `CodexScene` an import, a count-label branch, a display-switch
+  case, and `displayPacts()` + `createPactCard()` cloned from `createModifierCard` — reusing
+  `layoutCardGrid` and the `0x4a4a7a` border so `updateFocusVisuals` needs no change. Pure static
+  reference — **no new scene, no discovery-tracking, no `CodexManager`/`CodexState`/persistence
+  change, no completion-% impact, no gameplay/ECS/save-format change**. Closes the last
+  browsable-surface gap in the repo's "surface hidden depth" family. No new test (like the five prior
+  Codex tabs). Playtest follow-up filed as **POLISH-CODEX-PACTS** under `## Human gates`.
 
 - [x] **FEAT-BOSS-ECLIPSE** — new 12th boss, The Eclipse (done — dd88a40). The roster's first
   *chase-the-safe-zone* boss: where all 11 peers make you dodge geometry (Tessellator's static
@@ -887,6 +895,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-CODEX-PACTS** — the new Pacts Codex tab needs an eyeball (FEAT-CODEX-PACTS, `be21ea8`).
+    Agents have no browser. Reach it: main menu → CODEX → Pacts tab. Check: (a) do the now-**ten**
+    tabs (Weapons / Bestiary / Upgrades / Synergies / Relics / Evolutions / Ships / Modifiers / Pacts
+    / Statistics) still fit and read cleanly on a phone-width viewport, or does the tab row crowd/clip
+    the icon+label+count? Ten is tighter than the nine that shipped with FEAT-CODEX-MODIFIERS (which
+    flagged this at nine); if it crowds, the knob is `createCategoryTabs` (shorten labels or shrink
+    the tab font) — a design call, do NOT retune blind. (b) does each pact card lay out cleanly at
+    height 96 — name, reward line, downside description — with the longest downside (e.g. Nearsighted
+    "Your pickup range shrinks — gather XP and gold up close.") wrapping within the card without
+    overspilling? (c) does the shared `devil` glyph tinted per-pact-color read clearly and distinctly
+    from the Bestiary `skull` glyph? (d) is placing Pacts between Modifiers and Statistics the right
+    tab order, or should the pool sit elsewhere? (e) should the tab show which pacts are *currently
+    active* this run, or is the pure all-visible reference (matching Synergies/Relics/Evolutions/
+    Ships/Modifiers) right? Knobs: `pactCardHeight`, the card `textX` / y-offsets / `wordWrap` and the
+    `#ffdd66`/`#cc8899` colors in `createPactCard`; the tab entry position + icon (`devil`) in
+    `CODEX_CATEGORIES` (`src/codex/CodexTypes.ts`).
   - **POLISH-PACT-EXPANSION** — the three new pacts need a balance read (FEAT-PACT-EXPANSION,
     `c4483ec`). Agents have no browser. Reach: main menu → start a normal or Gauntlet run → the
     **FORGE A PACT** screen now shows 8 cards; take **Leaden Hull** / **Blunt Force** / **Nearsighted**
