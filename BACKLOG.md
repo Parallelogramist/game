@@ -34,6 +34,32 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-LOADOUT-CODES** — copy any build you play to a short shareable **build code** and paste a code to
+  instantly launch that exact build, from the existing **LOADOUTS** menu (done — `2cafd6b`). `FEAT-LOADOUT-PRESETS`
+  (`dafb662`) let the LOADOUTS menu save + one-tap replay builds, but every build stayed **trapped on one
+  device/profile** — the only transfer was exporting the *whole* profile as a file, and there was no way to bank a
+  favourite build as text or hand one to anyone. `DailyShare` already proved the share pattern is wanted, but it
+  shares a *result* (a score), not a *recipe* (a build). This adds shareable build codes: a new pure
+  `src/meta/LoadoutCode.ts` encodes a loadout as a version-tagged base64 string (`PPS1-…`) and decodes one back,
+  reusing the existing exported `sanitizeLoadout` so a pasted code is validated exactly like a stored preset before
+  it can launch. `LoadoutScene` gained a **COPY BUILD CODE** / **PASTE & LAUNCH CODE** bar above BACK — a fixed
+  two-button bar, **not** new list rows, so the tuned row list (replay/presets/save) and its density are untouched.
+  Copy puts the last run's code on the clipboard (`copyTextToClipboard`); paste reads a code
+  (`navigator.clipboard.readText`, graceful "no valid code" flash on failure/garbage) and launches it through the
+  **existing** confirm-if-a-run-is-in-progress + clear-save + re-roll-modifiers + fade replay path (the same
+  module-level pending-replay handoff a preset PLAY uses) — no launch logic duplicated, behaviour identical to a
+  preset launch. **Codes are never stored** (clipboard only), so **no new storage key, no save-format migration, no
+  new scene, no BootScene/main-menu-layout change, no combat/ECS/PlayerStats/Codex/HiddenUnlocks change**. **Tested**
+  (encode/decode = the real regression risk — a bad decoder would launch garbage): `LoadoutCode.test.ts` pins
+  full/minimal round-trip fidelity and rejection of every malformed input (empty, garbage, wrong tag, corrupt
+  base64, non-JSON, invalid-loadout, over-long); the scene bar is Phaser-coupled (untested like siblings) and
+  guarded by tsc + build. v1 copies the **last** loadout only (per-preset copy) and paste needs an existing loadout/
+  preset to reach the menu (the LOADOUTS gate) — both filed to **POLISH-LOADOUT-CODES** with the bar legibility/feel.
+  Chosen because the backlog was thin (Now empty; Next/Proposed all done; the two open Later items are value-gate
+  busy-work) and the audit found the game very mature — content packs / Codex tabs / evolution hints / dead getters
+  all exhausted, and a menu "goals board" was blocked by a full main menu + secret-by-design unlocks — so this
+  clean, novel *portability* axis that slots into the existing LoadoutScene with zero layout risk and reuses
+  `sanitizeLoadout` + the replay path 1:1 was the lowest-risk fully-specifiable novel win.
 - [x] **FEAT-LOADOUT-PRESETS** — save up to 3 favourite pre-run loadouts and one-tap replay any of them (plus
   replay your last run) from a new **LOADOUTS** menu (done — `dafb662`). The pre-run funnel is now **8 screens**
   (Weapon → Ship → Stage → Pact → Director → Threat → Modifier draft → Blessing draft) because the recent draft
@@ -1337,6 +1363,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-LOADOUT-CODES** — the new COPY BUILD CODE / PASTE & LAUNCH CODE bar in the LOADOUTS menu needs a
+    legibility + feel eyeball (FEAT-LOADOUT-CODES, `2cafd6b`). Agents have no browser. Reach it: main menu →
+    **LOADOUTS** → the two-button bar sits just above BACK. Check: (a) do both buttons read cleanly and not clip
+    their labels ("COPY BUILD CODE" / "PASTE & LAUNCH CODE") on a phone in **portrait** (720-wide) and **landscape**
+    (1280-wide), and does the bar never overlap the last list row or the BACK button with the busiest list (replay +
+    3 presets + save = 5 rows)? (b) end-to-end round-trip: play a run, open LOADOUTS → COPY BUILD CODE (see the
+    "copied" flash), then PASTE & LAUNCH CODE → does it launch that exact build (ship/stage/weapon/pacts/director/
+    threat), asking "START NEW RUN?" first when a run is in progress? Does pasting nonsense (or an empty clipboard)
+    show "No valid build code on the clipboard" and do nothing? (c) cross-device: does a code copied on one device
+    paste-and-launch correctly on another (clipboard permission may prompt once on first paste)? (d) scope: v1 copies
+    only the **last** loadout (not a chosen preset) and the LOADOUTS link only appears once you have a loadout/preset
+    — is per-preset copy and/or a way to paste from a brand-new profile wanted (both deferred by design — v1 avoids
+    per-row secondary actions + a permanent menu row)? Knobs: `LOADOUT_CODE_PREFIX` / `MAX_LOADOUT_CODE_LENGTH` in
+    `src/meta/LoadoutCode.ts`; bar sizing (`barY`/`barButtonWidth`/`barButtonHeight`/`barGap`) and flash position in
+    `src/game/scenes/LoadoutScene.ts`. These are tuning/legibility/scope-only; the mechanics (encode/decode,
+    validation, copy, paste-launch) are done.
   - **POLISH-LOADOUT-PRESETS** — the new LOADOUTS menu + preset save/replay needs a legibility + feel eyeball
     (FEAT-LOADOUT-PRESETS, `dafb662`). Agents have no browser. Reach it: main menu → **LOADOUTS** (the link that
     used to say "REPLAY LOADOUT", shown once you have a last loadout or a saved preset). Check: (a) do the rows
