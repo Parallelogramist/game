@@ -2231,11 +2231,72 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   its call site rather than discovering a missing ability in play. Deps:
   `FEAT-WORLD-SPACE-4`.
 
-- [ ] **FEAT-BARRIER-COLLIDE**: circle-vs-tile-grid resolver, DDA raycast and free-spot
-  search: the first static collision math this game has ever had. New
-  `src/world/staticCollision.ts` + tests. Done when invariants 9-12 pass including the
-  no-tunneling sweep at dash speed, with a zero-allocation out-param hot path. Deps:
-  `FEAT-WORLDGEN-CORE` (types only). Spec: `02-worldgen-barriers.md` section 5.
+- [ ] **CHORE-COLLIDE-TELEPORT-SNAP**: `resolveCircleMove` caps at `MAX_SUBSTEPS = 64`
+  (one sector width), so a recall-to-Hangar teleport must not be routed through it —
+  the recall implementation calls `findNearestFreeCircleSpot` at the destination
+  instead. Deps: `FEAT-RECALL-*`. Spec: `02-worldgen-barriers.md` section 5.2.
+
+- [ ] **CHORE-COLLIDE-EMBEDDED-SNAP**: `findNearestFreeCircleSpot` walks through solids
+  until the search first reaches open space, so from a mover embedded deep inside a solid
+  blob it can return a spot on the far side of a **one-tile** wall when that is the nearest
+  open space. Harmless for the one shipping caller doc 02 names (wraith unphase, which
+  unphases in a spot it was standing in), but `FEAT-BARRIER-PLAYER` and any future
+  "shove the player out of geometry" path need the stricter guarantee. Fix is a
+  two-pass search: prefer a spot reachable without leaving the solid region the query
+  is inside, and only widen if that fails. Deps: `FEAT-BARRIER-COLLIDE`. Spec:
+  `02-worldgen-barriers.md` section 3 invariant 12.
+
+- [x] **FEAT-BARRIER-COLLIDE** (done — b445e15): the geometry `FEAT-WORLDGEN-CORE` emits
+  can now **stop something**. `src/world/staticCollision.ts` is the first static collision
+  math this game has ever had: `resolveCircleMove` (substepped, axis-separated, exact
+  `sqrt(r² - gap²)` corner clearance, out-param), `raycastSolid` (DDA), `isSolidAtWorld`
+  (motionless point query) and `findNearestFreeCircleSpot` (connectivity-preserving BFS),
+  plus a `MoverKind` enum and an internal `WeakMap` sector index that keeps the tile reads
+  string-free. The per-sector tile grid is the only truth about what blocks a mover:
+  nothing here consults `SpatialHash`, which stays the home of dynamic entities. 19 tests,
+  1615 → 1634 total, 129 → 130 files, suite green in 20.5s. **Seven deliberate deviations
+  from `02-worldgen-barriers.md`**, all now recorded in that doc as "as built" notes:
+  (1) `MoverKind` has a third member **`Projectile`** (the doc's section 5.2 comment says
+  only "Player | Enemy | none-membrane rules") because the barrier table in section 4 needs
+  a mover that passes membranes both ways: a field, not matter. (2) `raycastSolid` takes a
+  **required `moverKind` sixth argument**; the doc's five-argument form could not
+  distinguish an ability door (clips beams) from a membrane (passes them), and making it
+  required rather than defaulted turns an unconsidered caller into a `tsc` error, the same
+  exhaustiveness-as-guard idiom `BUG-ENDRUN-GOLD-MULT` used. (3) `isSolidAtWorld` treats
+  membranes as **solid for `Player`/`Enemy`** while the resolver lets them pass with
+  `passDirection`: a motionless query has no direction of travel, and spawn legality must
+  never put anything inside a membrane. The asymmetry is deliberate and is pinned by a test
+  so a later chunk does not "fix" it. (4) `findNearestFreeCircleSpot` is a
+  **connectivity-preserving BFS within one sector**, not the spiral the doc names: a spiral
+  can return a tile on the far side of a wall, which invariant 12 forbids outright. A
+  returned spot overlaps only `TileKind.Open` tiles, so a snapped mover never lands on
+  hazard floor. (5) Invariant 9 is pinned as *"a move that would end inside a solid tile
+  ends tangent to it"*, **not** as depenetration of an already-embedded motionless circle:
+  axis-separated resolution has no correction to apply when the step along that axis is
+  zero, and depenetration is `findNearestFreeCircleSpot`'s job (doc 02 section 5.3 already
+  routes the one real case, wraith unphase, through it). (6) **`MAX_SUBSTEPS = 64`** caps
+  the substep loop at one sector width of travel; beyond that a displacement is a teleport
+  (recall to Hangar), which must snap rather than sweep — filed as
+  `CHORE-COLLIDE-TELEPORT-SNAP`. (7) **Ungenerated sectors are solid for every
+  `MoverKind`**: the doc never states what happens at the world's edge, and letting a mover
+  leave it is worse than a wall. Two further as-built notes on the **test shapes**, both
+  found during execution: the generated-world sanity pass asserts the resolved centre is
+  not inside a blocking tile, and **exempts exactly one case** — a player legally standing
+  inside a one-way membrane it travelled through, which deviation 3 makes
+  `isSolidAtWorld` report as solid (seed 12345, sector `0,-3`, south edge
+  `{kind: OneWay, passDirection: "south"}`, a 60px southward step ending in the mouth
+  tile). The exemption is expressed as "blocks a `Player` **and** blocks a `Projectile`",
+  which relaxes nothing but membranes. And invariant 12's "never crosses a wall" case
+  queries from an **open but too-tight** tile rather than an embedded one, because from an
+  embedded start the BFS's documented "walk through solids until the search first reaches
+  open space" will legitimately step across a one-tile wall if that is the nearest open
+  space — see `CHORE-COLLIDE-EMBEDDED-SNAP`. **No `POLISH-*` item is filed**: nothing
+  player-visible ships here, so there is nothing for a human to judge in a browser. Pure
+  and Phaser-free, out-param API so the hot path allocates nothing, no `resetStaticCollisionSystem()`
+  (the sector index is keyed by `WorldMap` identity in a `WeakMap` and the two BFS scratch
+  buffers are cleared per call), no game code imports it yet (that is the DONE-CRITERIA),
+  nothing persisted, no storage key, no `WORLDGEN_VERSION` bump, arena mode untouched.
+  Files: `src/world/staticCollision.ts`, `src/world/staticCollision.test.ts`.
 
 - [ ] **FEAT-MAPUI-PROJECTION-02**: pan/zoom/clamp/hit-test/cursor-nav math for the map
   screen, so every later renderer is dumb and safe. New `src/visual/mapProjection.ts` (a
