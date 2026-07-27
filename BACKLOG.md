@@ -34,6 +34,38 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-PORTRAIT-RECAP** — the death-screen run recap now renders in portrait (done — 21481fd).
+  Value: on a phone the death screen showed **no** `WHAT KILLED YOU`, no `KILLED BY <name>`, no top-3
+  damage attribution, no `IT HUNTS YOU NEXT RUN`, no `RUN TIMELINE` ribbon and no `RECENT` trend,
+  because three surfaces hard-returned at portrait widths: `createThreatRecapPanel` on
+  `width < 1000 || height < 520`, `createRunTimelineStrip` on `width < 1000`, and
+  `createRecentRunsStrip` on `width < 900`. Those gates were unreachable in portrait by construction:
+  `src/utils/Orientation.ts` swaps the Phaser base to `PORTRAIT_BASE` 720×1280 under
+  `Phaser.Scale.EXPAND`, which pins the short axis to the base and grows the long one, so portrait
+  `scale.width` is 720–959 in practice (phone 390×844 → 720×1558; tablet 820×1180 → 889×1280; iPad Pro
+  portrait 1024×1366 → 959×1280). Four shipped features (`6f66474` FEAT-THREAT-RECAP, `428cfb9`
+  FEAT-RUN-TIMELINE, `78a0e5a` FEAT-NEMESIS, and the earlier trend strip) were therefore invisible on
+  the device this PWA is actually held on. All three now move into the **free band above the title
+  glow** when narrow — the title sits at `centerY − 172` with a 120-radius glow, so everything above
+  `centerY − 292` is empty, and the ribbon already lived there. The ribbon's legend drops to its own
+  row (`legendY = stripTopY + 50`) and the strip grows 44 → 68 with a 24-unit track inset; the threat
+  panel centers at `panelX = width / 2`, `panelTopY = 92`; `RECENT` sits at `(24, 104)` in the left of
+  the band. **Not below the content:** portrait's two below-column slots at `centerY + 320` are already
+  `WEAPON DAMAGE` and `PERSONAL BESTS` / the card reveal, whose bottom lands at ~1192 in the worst-case
+  1280-unit portrait height — ~88 units short of the 190 a full threat panel needs. Both narrow
+  placements keep a clearance guard against the glow top, so a viewport too short for the band gets no
+  panel rather than one drawn over the title. Thresholds differ deliberately:
+  `NARROW_RECAP_MAX_WIDTH = 1000` for the ribbon and the threat panel, while `RECENT` keeps its
+  historical 900 because between 900 and 999 the left margin still clears the 480-wide centered stat
+  column, so today's placement is correct there. Landscape is byte-for-byte unchanged, and the
+  **victory overlay is deliberately excluded** — it has no lethal hit, a separate dense layout and no
+  free band above its title; the shared widget's width gate moved to its two call sites so the victory
+  overlay's behavior is identical to before. No new tests and no new files: this is branch selection
+  between two coordinate sets in Phaser-coupled overlay layout, guarded by `tsc`, the full suite
+  (123 files / 1551 tests) and `npm run build`, the same way its siblings are. Files:
+  `src/game/managers/PauseMenuManager.ts`. Layout is unvalidated on a real phone: see
+  **POLISH-PORTRAIT-RECAP** under `## Human gates`, which owns the band's reading order, the legend
+  row fit, panel crowding and the stagger timing.
 - [x] **FEAT-RELIC-REINFORCE** — with all 6 relic slots full, a relic award raises a relic you
   already carry instead of being thrown away (done — f06f0ba). Value: once
   `RelicManager.isFull()` went true, **every** later relic award was silently discarded at four
@@ -1847,6 +1879,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PORTRAIT-RECAP** (— 21481fd) — the death-screen recap now renders in portrait
+    (FEAT-PORTRAIT-RECAP). Agents have no browser and must not judge layout blind. Check, on a phone
+    in portrait: (a) **the band** — does `RUN TIMELINE` + `WHAT KILLED YOU` + `RECENT` above the
+    `GAME OVER` title read as a header, or does putting "what killed you" above the title feel wrong?
+    (b) **the ribbon** — with all six kinds present, does the legend row fit at 720 wide and clear the
+    track markers? (c) **crowding** — does the 240-wide threat panel clear the `RECENT` strip on the
+    narrowest portrait (720) and on a tablet portrait (~889)? (d) **the stagger** — the panel registers
+    last at 120 ms/element, so at the top of a portrait screen it may arrive seconds after the rest; is
+    that too late to read before tapping to restart? (e) **the tall-phone band** — at height ~1558 the
+    band has ~487 units and the content only uses ~282; should the band be vertically centered in its
+    space instead of top-anchored? (f) **scope** — should the victory overlay get a portrait recap too
+    (deliberately excluded today)?
   - **POLISH-RELIC-REINFORCE** (— f06f0ba) — a full relic inventory now turns a relic award into a
     REINFORCE round (FEAT-RELIC-REINFORCE). Agents have no browser and must not retune blind.
     Check: (a) **the moment** — fill all 6 slots, then open a chest. Does `REINFORCE A RELIC` read
@@ -1876,7 +1920,9 @@ Never agent work. The fleet must not do any of these.
     the xpValue floor already buys it: earned, or too rich? Knobs: `nemesisGoldReward`, and whether
     the `grantRelicChoice(1)` should be dropped entirely. (e) **the mobile gap** — the
     `IT HUNTS YOU NEXT RUN` line is landscape-only (`createThreatRecapPanel` returns below 1000 px).
-    Should it move somewhere orientation-independent, or is the in-run banner enough? (f) **scope
+    Should it move somewhere orientation-independent, or is the in-run banner enough?
+    **Resolved by 21481fd (FEAT-PORTRAIT-RECAP):** the IT HUNTS YOU NEXT RUN line now renders in
+    portrait — the threat panel moved into the band above the title. (f) **scope
     calls left open** — should the pre-run funnel or the hero card name the incoming hunter
     (skipped: the hero card's gap already stacks NEXT BOSS and armed-boost)? Should the daily
     challenge field a *seeded* nemesis rather than none? Should a killed-by-`Enemy Fire` death name
@@ -2008,7 +2054,8 @@ Never agent work. The fleet must not do any of these.
     does WHAT KILLED YOU arrive too late to be read before the player taps to restart, and should the
     stagger be capped?; (e) should the panel also appear on the victory overlay in some "what hurt you
     most" form (no lethal hit exists there), and should portrait get it at all, given both below-column
-    slots are taken?
+    slots are taken? **Resolved by 21481fd (FEAT-PORTRAIT-RECAP):** yes — not in a below-column slot
+    (both taken) but in the free band above the title glow.
   - **POLISH-THREAT-REPORT** — the new **TOP THREATS** block on the pause BUILD STATS panel needs a human in a
     browser (FEAT-THREAT-REPORT, `c259252`). Agents have no browser. Reach it: take a few hits in any
     run → **ESC**; the block is the last section of the BUILD STATS panel (left side in landscape, below the
