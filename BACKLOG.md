@@ -2191,12 +2191,35 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   idempotent and ordered, ownership survives reload, and defs expose `barrierTypeId` plus a
   stable index. Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 2.
 
-- [ ] **FEAT-POWER-FIELDBOOSTS**: timed field boosts on the existing pickup rails, shippable
-  standalone because boost caches can also drop from arena special chests. New enum members in
-  `ConsumablePickupSystem.ts:13`, `moveSpeedMultiplier` added to `TimedStatBuffs.ts:21`, new
-  `src/data/FieldBoosts.ts`. Done when a duplicate pickup refreshes duration instead of
-  stacking, expiry rides the `gameTime` clock, and the buff survives reload. Deps: none.
-  Spec: `04-content-quests-powerups-secrets.md` section 3.
+- [x] **FEAT-POWER-FIELDBOOSTS** (done — 1a8049d) — four new floor pickups that hand the player a
+  temporary stat surge instead of an instant effect, each with its own neon glyph, its own color and
+  a toast naming the effect and its duration. They drop from every existing consumable source
+  (enemy deaths, boss and miniboss caches, BLESSED elites, destructible crates, the Shrine of
+  Fortune overflow, bounty completions, the shop's Supply purchase) because all eight funnel through
+  one `spawnRandomConsumable`. The catalog (`src/data/FieldBoosts.ts`): Overdrive Cell →
+  `damageMultiplier` ×1.5 / 20s; Scholar Lens → `xpMultiplier` ×2 / 15s; Prospector Beacon →
+  `gemValueMultiplier` ×2 / 15s; Afterburner Canister → `moveSpeed` ×1.4 / 12s, the game's first
+  temporary move-speed buff. They enter play through a single `FIELD_BOOST_DROP_CHANCE = 0.20`
+  pre-roll at the top of `spawnRandomConsumable`, above the untouched four-way threshold ladder, so
+  the legacy four keep their exact relative proportions and each loses 20% of its absolute rate
+  (GOLD caches 20% → 16% of drops). A duplicate pickup **refreshes** the active buff rather than
+  stacking a second multiply: the new pure `applyFieldBoost` matches on `(stat, magnitude)`, not
+  `stat` alone, so a boost can never silently refresh an Altar of Power, Elite Surge or
+  ship-ultimate buff that scales the same stat, and returns an `applied` flag so a refresh does not
+  multiply the stat a second time while only one revert is ever queued. Expiry rides the existing
+  `TimedStatBuffs` `gameTime` clock, so a boost survives a refresh-recovery reload instead of dying
+  with a Phaser timer, and an uncollected boost still on the floor restores through the untouched
+  `restoreConsumable` (`Consumable.kind` is `Types.ui8`, so values 5-8 fit with no `SAVE_VERSION`
+  bump). The spec's new `moveSpeedMultiplier` `PlayerStats` field was deliberately **not** added:
+  `PlayerStats.moveSpeed` is already the authoritative base and `updatePlayerEffectiveMoveSpeed`
+  recomputes `Velocity.speed` from it every frame, so adding `'moveSpeed'` to `TimedStatField` makes
+  the generic `playerStats[stat] *= magnitude` path work verbatim (doc 04 section 3 corrected to
+  match). No HUD element was added either: this game has never had an active-buff HUD and the Altar
+  of Power communicates its buff by toast alone, so a field boost ships the same way. Tests cover
+  the `applyFieldBoost` refresh-vs-stack contract only; the spec's save test was skipped because a
+  boost adds no serialization path that `GameStateManager.statbuff.test.ts` does not already pin,
+  and its magnitude/duration caps test was skipped as coverage padding over a four-row frozen table
+  with one consumer. Playtest follow-up filed as **POLISH-FIELDBOOST-RATES**.
 
 #### Phase 1: arena-identical plumbing
 
@@ -2790,6 +2813,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
+    (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
+    power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every
+    consumable drop, so each legacy kind loses 20% of its rate and GOLD caches fall from
+    20% to 16% of drops. Does the extra variety pay for the thinner gold, or should the
+    share drop to ~12%? (b) **the magnitudes** — +50% damage / 20s, +100% XP / 15s,
+    +100% gem value / 15s, +40% move speed / 12s. Is the Afterburner's +40% for 12s
+    readable as a distinct state, or does it just feel slippery? (c) **the glyphs at
+    pickup size** — battery, lens, cut gem and twin chevrons all render inside the same
+    16px disc as the four existing kinds. Are they distinguishable in a crowded fight?
+    (d) **the toast** — no HUD indicator exists, so the toast's "for 20s." is the only
+    notice of the timer, and a refresh on a duplicate pickup fires the same toast again
+    with no hint that it extended rather than added. Is that confusing enough to need a
+    distinct "refreshed" wording? (e) **the sound** — every boost uses
+    `playSynergyActivation()`. Should each boost get its own cue, or is one shared
+    "buff on" sting right?
   - **POLISH-PRACTICE-RUNEND** (— 435c50e) — playtest the practice run-end screens
     (BUG-PRACTICE-PAYS-REAL-GOLD). Agents have no browser and must not judge a screen blind.
     Owns: (a) **the notice** — `PRACTICE RUN · NOTHING RECORDED` sits in the score slot under

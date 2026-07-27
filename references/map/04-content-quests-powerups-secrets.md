@@ -158,14 +158,17 @@ save handling are all inherited.
 | `OVERDRIVE_CELL` | `damageMultiplier` | 1.5 | 20s | boost caches, ambush nest clears |
 | `SCHOLAR_LENS` | `xpMultiplier` | 2.0 | 15s | boost caches |
 | `PROSPECTOR_BEACON` | `gemValueMultiplier` | 2.0 | 15s | boost caches, deep rings |
-| `AFTERBURNER_CANISTER` | `moveSpeedMultiplier` (new field) | 1.4 | 12s | boost caches; the traversal-feel pickup |
+| `AFTERBURNER_CANISTER` | `moveSpeed` (existing base stat) | 1.4 | 12s | boost caches; the traversal-feel pickup |
 
 Engine deltas, kept deliberately small:
 
-- Extend `TimedStatField` (`TimedStatBuffs.ts:21`) with `'moveSpeedMultiplier'`.
-  `normalizeTimedStatBuffs` (:76) already defaults a missing `stat` to
-  `damageMultiplier` for legacy saves; new entries always carry their `stat`, so
-  no migration is needed. GameScene's apply/revert site gains one field mapping.
+- Extend `TimedStatField` (`TimedStatBuffs.ts:21`) with `'moveSpeed'` — the existing
+  `PlayerStats.moveSpeed` base stat, NOT a new `moveSpeedMultiplier` field. `PlayerStats`
+  needs no new field and GameScene needs no new mapping: `applyTimedStatBuff`'s generic
+  `playerStats[stat] *= magnitude` already covers it, and
+  `updatePlayerEffectiveMoveSpeed` recomputes `Velocity.speed` from that base every frame.
+  `normalizeTimedStatBuffs` (:76) already defaults a missing `stat` to `damageMultiplier`
+  for legacy saves; new entries always carry their `stat`, so no migration is needed.
 - Magnitudes and durations are data in `src/data/FieldBoosts.ts` (section 8), not
   literals in the collect callback.
 
@@ -185,10 +188,10 @@ Field boost buffs serialize inside the existing `timedStatBuffs` list in
 `GameSaveState` (`src/save/GameStateManager.ts:312`); expiry keyed to `gameTime`
 survives reload by construction. Uncollected boost pickups on the floor persist
 the same way arena consumables already do (there is a dedicated
-`src/save/GameStateManager.consumable.test.ts`). New test:
-`src/save/GameStateManager.fieldboost.test.ts` asserting a mid-run save with an
-active `moveSpeedMultiplier` buff restores, continues, and reverts at the original
-`expiresAt` (mirrors `GameStateManager.statbuff.test.ts`).
+`src/save/GameStateManager.consumable.test.ts`).
+No new save test was written: a field boost adds no new serialization path — it is one more
+entry in the same `timedStatBuffs` list already pinned by
+`src/save/GameStateManager.statbuff.test.ts`.
 
 ---
 
@@ -522,16 +525,17 @@ with zero dependency on the other architects.
 ### FEAT-POWER-FIELDBOOSTS
 - **Value**: temporary pickups make sectors worth entering; shippable standalone
   because boost caches can also drop from arena special chests.
-- **Files**: `src/ecs/systems/ConsumablePickupSystem.ts:13` (new enum members,
-  colors, glyphs); `src/systems/TimedStatBuffs.ts:21` (`moveSpeedMultiplier`,
-  `applyFieldBoost`); new `src/data/FieldBoosts.ts`; GameScene collect callback
-  (:44 registration site) + move-speed apply/revert mapping; new
-  `src/save/GameStateManager.fieldboost.test.ts`.
+- **Files** (as shipped): `src/ecs/systems/ConsumablePickupSystem.ts` (four enum members,
+  colors, glyphs, `getConsumableKindColor`); `src/systems/TimedStatBuffs.ts` (`'moveSpeed'`
+  in `TimedStatField`, pure `applyFieldBoost`); new `src/data/FieldBoosts.ts`; GameScene
+  (`FIELD_BOOST_DROP_CHANCE` pre-roll in `spawnRandomConsumable`, `spawnFieldBoostPickup`,
+  `collectFieldBoost` off `activateConsumable`'s `default:` arm).
 - **Done when**: each boost picks up, applies, refreshes on duplicate pickup
   instead of stacking, expires on the `gameTime` clock, and survives reload.
 - **Deps**: none.
-- **Tests**: `applyFieldBoost` refresh/stack rules; save/restore; boost caps
-  data test.
+- **Tests**: `applyFieldBoost` refresh/stack rules only, appended to
+  `src/systems/TimedStatBuffs.test.ts`. Save/restore and data-cap tests were judged
+  unnecessary — see section 3.
 
 ### FEAT-QUEST-CHAINS
 - **Value**: multi-step objectives that span runs: the missing quest layer.
