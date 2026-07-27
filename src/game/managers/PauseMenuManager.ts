@@ -459,14 +459,14 @@ export class PauseMenuManager {
     // Pill button: a graphics layer paints the shadow / accent border / body /
     // banner stripe; the Rectangle stays as the hit zone (kept fully transparent).
     const pillGfx = this.scene.add.graphics();
-    pillGfx.setDepth(PAUSE_MENU_DEPTH + 0.5);
+    pillGfx.setDepth(PAUSE_MENU_DEPTH + 0.5).setScrollFactor(0);
     pillGfx.setName(`${params.bgName}_gfx`);
     paintPillBackground(pillGfx, params.x, params.y, params.width, params.height, params.baseColor, params.strokeColor);
 
     const bg = this.scene.add.rectangle(params.x, params.y, params.width, params.height, params.baseColor, 0);
     bg.setStrokeStyle(0);
     bg.setInteractive({ useHandCursor: true });
-    bg.setDepth(PAUSE_MENU_DEPTH + 1);
+    bg.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     bg.setName(params.bgName);
     addButtonInteraction(this.scene, bg);
 
@@ -479,7 +479,7 @@ export class PauseMenuManager {
       strokeThickness: 3,
     });
     text.setOrigin(0.5);
-    text.setDepth(PAUSE_MENU_DEPTH + 2);
+    text.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
     text.setName(params.textName);
 
     // Shim: setFillStyle calls from existing focus/hover code repaint the pill
@@ -644,7 +644,7 @@ export class PauseMenuManager {
       0x000000,
       1
     );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
+    overlay.setDepth(PAUSE_MENU_DEPTH).setScrollFactor(0);
     overlay.setName(name);
     overlay.setAlpha(0);
     this.scene.tweens.add({ targets: overlay, alpha: targetAlpha, duration: fadeDuration, ease: 'Sine.easeOut' });
@@ -703,7 +703,7 @@ export class PauseMenuManager {
     });
     pauseTitle.setLetterSpacing(4);
     pauseTitle.setOrigin(0.5);
-    pauseTitle.setDepth(PAUSE_MENU_DEPTH + 1);
+    pauseTitle.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     pauseTitle.setName('pauseTitle');
 
     // Subtle pulse on title
@@ -730,7 +730,7 @@ export class PauseMenuManager {
       }
     );
     pauseGoldDisplay.setOrigin(0.5);
-    pauseGoldDisplay.setDepth(PAUSE_MENU_DEPTH + 1);
+    pauseGoldDisplay.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     pauseGoldDisplay.setName('pauseGoldText');
 
     // Resume button (48px below gold)
@@ -809,7 +809,7 @@ export class PauseMenuManager {
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
     });
     hintText.setOrigin(0.5);
-    hintText.setDepth(PAUSE_MENU_DEPTH + 1);
+    hintText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     hintText.setName('pauseHintText');
 
     // Run modifiers panel (right side)
@@ -1030,7 +1030,7 @@ export class PauseMenuManager {
       panelWidth + 24,
       panelHeight
     );
-    panelBg.setDepth(PAUSE_MENU_DEPTH + 1);
+    panelBg.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     panelBg.setName('runModifiersBg');
 
     // Title
@@ -1041,7 +1041,7 @@ export class PauseMenuManager {
       fontStyle: 'bold',
     });
     titleText.setOrigin(0.5, 0);
-    titleText.setDepth(PAUSE_MENU_DEPTH + 2);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
     titleText.setName('runModifiersTitle');
 
     // Modifier lines
@@ -1062,7 +1062,7 @@ export class PauseMenuManager {
       align: 'center',
     });
     modifiersText.setOrigin(0.5, 0);
-    modifiersText.setDepth(PAUSE_MENU_DEPTH + 2);
+    modifiersText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
     modifiersText.setName('runModifiersText');
 
     return [panelBg, titleText, modifiersText];
@@ -1155,7 +1155,7 @@ export class PauseMenuManager {
       panelWidth + 24,
       panelHeight,
     );
-    panelBg.setDepth(PAUSE_MENU_DEPTH + 1);
+    panelBg.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     panelBg.setName('buildStatsBg');
 
     // Title
@@ -1166,7 +1166,7 @@ export class PauseMenuManager {
       fontStyle: 'bold',
     });
     titleText.setOrigin(0.5, 0);
-    titleText.setDepth(PAUSE_MENU_DEPTH + 2);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
     titleText.setName('buildStatsTitle');
 
     // Left column: labels (and weapon names).
@@ -1177,7 +1177,7 @@ export class PauseMenuManager {
       lineSpacing: 4,
     });
     summaryText.setOrigin(0, 0);
-    summaryText.setDepth(PAUSE_MENU_DEPTH + 2);
+    summaryText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
     summaryText.setName('buildStatsSummary');
 
     // Right column: values, right-aligned to the panel edge.
@@ -1189,7 +1189,7 @@ export class PauseMenuManager {
       align: 'right',
     });
     valuesText.setOrigin(1, 0);
-    valuesText.setDepth(PAUSE_MENU_DEPTH + 2);
+    valuesText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
     valuesText.setName('buildStatsWeapons');
 
     return [panelBg, titleText, summaryText, valuesText];
@@ -1243,7 +1243,7 @@ export class PauseMenuManager {
       panelWidth + 24,
       panelHeight,
     );
-    panelBg.setDepth(PAUSE_MENU_DEPTH + 1);
+    panelBg.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     panelBg.setName('dailyQuestsBg');
 
     const titleText = this.scene.add.text(
@@ -1258,7 +1258,7 @@ export class PauseMenuManager {
       },
     );
     titleText.setOrigin(0.5, 0);
-    titleText.setDepth(PAUSE_MENU_DEPTH + 2);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
     titleText.setName('dailyQuestsTitle');
 
     const elements: (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[] = [panelBg, titleText];
@@ -1272,7 +1272,7 @@ export class PauseMenuManager {
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       });
       nameText.setOrigin(0, 0);
-      nameText.setDepth(PAUSE_MENU_DEPTH + 2);
+      nameText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       nameText.setName(`dailyQuestName${index}`);
 
       const valueText = this.scene.add.text(contentRightX, rowY, formatQuestProgress(entry), {
@@ -1282,7 +1282,7 @@ export class PauseMenuManager {
         fontStyle: entry.complete ? 'bold' : 'normal',
       });
       valueText.setOrigin(1, 0);
-      valueText.setDepth(PAUSE_MENU_DEPTH + 2);
+      valueText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       valueText.setName(`dailyQuestValue${index}`);
 
       elements.push(nameText, valueText);
@@ -1364,7 +1364,7 @@ export class PauseMenuManager {
     });
     titleText.setLetterSpacing(3);
     titleText.setOrigin(0.5);
-    titleText.setDepth(PAUSE_MENU_DEPTH + 1);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     titleText.setName('shopConfirmTitle');
 
     // Subtitle (56px below title)
@@ -1381,7 +1381,7 @@ export class PauseMenuManager {
       }
     );
     subtitleText.setOrigin(0.5);
-    subtitleText.setDepth(PAUSE_MENU_DEPTH + 1);
+    subtitleText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     subtitleText.setName('shopConfirmSubtitle');
 
     // Gold breakdown (32px below subtitle, using top-center origin for multi-line text)
@@ -1427,7 +1427,7 @@ export class PauseMenuManager {
       }
     );
     breakdownText.setOrigin(0.5, 0); // Top-center origin for proper multi-line positioning
-    breakdownText.setDepth(PAUSE_MENU_DEPTH + 1);
+    breakdownText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     breakdownText.setName('shopConfirmBreakdown');
 
     // The dialog grows downward from a fixed top, so a run carrying every multiplier plus
@@ -1457,7 +1457,7 @@ export class PauseMenuManager {
       }
     );
     totalText.setOrigin(0.5);
-    totalText.setDepth(PAUSE_MENU_DEPTH + 1);
+    totalText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     totalText.setName('shopConfirmTotal');
 
     // Buttons (48px below total)
@@ -1637,7 +1637,7 @@ export class PauseMenuManager {
     });
     titleText.setLetterSpacing(3);
     titleText.setOrigin(0.5);
-    titleText.setDepth(PAUSE_MENU_DEPTH + 1);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     titleText.setName('endRunEarnedTitle');
 
     const panelBottomY = this.createRunEarningsPanel(
@@ -1716,7 +1716,7 @@ export class PauseMenuManager {
     );
     worldClearedText.setLetterSpacing(6);
     worldClearedText.setOrigin(0.5);
-    worldClearedText.setDepth(PAUSE_MENU_DEPTH + 1);
+    worldClearedText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     worldClearedText.setName('victoryWorldCleared');
 
     // Title — same slot/styling as the game-over screen for end-screen parity.
@@ -1730,7 +1730,7 @@ export class PauseMenuManager {
     });
     victoryText.setLetterSpacing(6);
     victoryText.setOrigin(0.5);
-    victoryText.setDepth(PAUSE_MENU_DEPTH + 1);
+    victoryText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     victoryText.setName('victoryText');
 
     // Gentle breathe — skipped under reduced motion.
@@ -1776,7 +1776,7 @@ export class PauseMenuManager {
     paintPanelBackground(statsPanelGfx, victoryCX - victoryStatsWidth / 2, victoryStatsTop, victoryStatsWidth, victoryStatsHeight);
     statsPanelGfx.fillStyle(0x8898b0, 0.18);
     statsPanelGfx.fillRect(victoryCX, victoryStatsTop + 12, 1, victoryStatsHeight - 24);
-    statsPanelGfx.setDepth(PAUSE_MENU_DEPTH + 1);
+    statsPanelGfx.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     statsPanelGfx.setName('victoryStatsPanel');
 
     const victoryCellRow = victoryStatsTop + victoryStatsHeight / 2 + 3;
@@ -1785,9 +1785,9 @@ export class PauseMenuManager {
     // stat cell can't silently leak into the endless run.
     const addVictoryCell = (leftX: number, rightX: number, label: string, value: string): void => {
       const l = this.scene.add.text(leftX, victoryCellRow, label, END_STAT_LABEL_STYLE)
-        .setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+        .setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       const v = this.scene.add.text(rightX, victoryCellRow, value, END_STAT_VALUE_STYLE)
-        .setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2);
+        .setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       this.victoryStatCellElements.push(l, v);
     };
     addVictoryCell(victoryCX - victoryStatsWidth / 2 + 18, victoryCX - 22, 'Kills', String(data.killCount));
@@ -1807,7 +1807,7 @@ export class PauseMenuManager {
     );
     nextWorldText.setLetterSpacing(2);
     nextWorldText.setOrigin(0.5);
-    nextWorldText.setDepth(PAUSE_MENU_DEPTH + 1);
+    nextWorldText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     nextWorldText.setName('victoryNextWorld');
 
     // Streak display \u2014 clean text label, no emoji (system emoji font is
@@ -1823,7 +1823,7 @@ export class PauseMenuManager {
       }
     );
     streakText.setOrigin(0.5);
-    streakText.setDepth(PAUSE_MENU_DEPTH + 1);
+    streakText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     streakText.setName('victoryStreak');
 
     const victoryCenterX = this.scene.scale.width / 2;
@@ -1835,7 +1835,7 @@ export class PauseMenuManager {
       const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
       const badgeX = victoryCenterX - victoryText.displayWidth / 2 - 58;
       const gradeBadge = this.scene.add.graphics();
-      gradeBadge.setDepth(PAUSE_MENU_DEPTH + 1);
+      gradeBadge.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
       gradeBadge.fillStyle(0x000000, 0.55);
       gradeBadge.fillCircle(badgeX, victoryTitleY, 34);
       gradeBadge.lineStyle(3, gradeColorHex, 1);
@@ -1850,13 +1850,13 @@ export class PauseMenuManager {
         strokeThickness: 3,
       });
       gradeText.setOrigin(0.5);
-      gradeText.setDepth(PAUSE_MENU_DEPTH + 2);
+      gradeText.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       gradeText.setName('victoryGradeText');
       const gradeLabel = this.scene.add.text(badgeX, victoryTitleY + 46, 'GRADE', {
         fontSize: '11px', color: '#8888aa', fontFamily: 'Arial',
       });
       gradeLabel.setOrigin(0.5);
-      gradeLabel.setDepth(PAUSE_MENU_DEPTH + 2);
+      gradeLabel.setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       gradeLabel.setName('victoryGradeLabel');
     }
 
@@ -1877,7 +1877,7 @@ export class PauseMenuManager {
         }
       );
       scoreText.setOrigin(0.5);
-      scoreText.setDepth(PAUSE_MENU_DEPTH + 1);
+      scoreText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
       scoreText.setName('victoryScore');
     }
 
@@ -1898,7 +1898,7 @@ export class PauseMenuManager {
         }
       );
       earningsText.setOrigin(0.5);
-      earningsText.setDepth(PAUSE_MENU_DEPTH + 1);
+      earningsText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
       earningsText.setName('victoryEarned');
     }
 
@@ -1974,7 +1974,7 @@ export class PauseMenuManager {
       }
     );
     goldPreviewText.setOrigin(0.5);
-    goldPreviewText.setDepth(PAUSE_MENU_DEPTH + 1);
+    goldPreviewText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     goldPreviewText.setName('victoryGoldPreview');
 
     // The run's own economy, under the payout preview. This overlay has no free
@@ -2001,7 +2001,7 @@ export class PauseMenuManager {
         }
       );
       economyText.setOrigin(0.5);
-      economyText.setDepth(PAUSE_MENU_DEPTH + 1);
+      economyText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
       economyText.setName('victoryGoldEconomy');
     }
 
@@ -2143,7 +2143,7 @@ export class PauseMenuManager {
       0x000000,
       0.7
     );
-    overlay.setDepth(PAUSE_MENU_DEPTH);
+    overlay.setDepth(PAUSE_MENU_DEPTH).setScrollFactor(0);
 
     // Different display for winners vs non-winners
     const titleLabel = hasWon ? 'VICTORY!' : 'GAME OVER';
@@ -2156,7 +2156,7 @@ export class PauseMenuManager {
     // Title glow (two concentric circles behind title)
     const titleY = centerY - 172;
     const glowGraphics = this.scene.add.graphics();
-    glowGraphics.setDepth(depth - 1);
+    glowGraphics.setDepth(depth - 1).setScrollFactor(0);
     glowGraphics.fillStyle(titleColorHex, 0.08);
     glowGraphics.fillCircle(centerX, titleY, 120);
     glowGraphics.fillStyle(titleColorHex, 0.15);
@@ -2174,7 +2174,7 @@ export class PauseMenuManager {
       strokeThickness: 3,
     });
     titleText.setLetterSpacing(6);
-    titleText.setOrigin(0.5).setDepth(depth);
+    titleText.setOrigin(0.5).setDepth(depth).setScrollFactor(0);
     animatedElements.push(titleText);
 
     // Performance grade badge — positioned off the measured title width so it
@@ -2183,7 +2183,7 @@ export class PauseMenuManager {
       const gradeColorHex = Phaser.Display.Color.HexStringToColor(data.performanceGrade.color).color;
       const badgeX = centerX - titleText.displayWidth / 2 - 58;
       const badgeGraphics = this.scene.add.graphics();
-      badgeGraphics.setDepth(depth - 1);
+      badgeGraphics.setDepth(depth - 1).setScrollFactor(0);
       badgeGraphics.fillStyle(0x000000, 0.55);
       badgeGraphics.fillCircle(badgeX, titleY, 32);
       badgeGraphics.lineStyle(2, gradeColorHex, 1);
@@ -2195,10 +2195,10 @@ export class PauseMenuManager {
         fontStyle: 'bold',
         stroke: '#000000',
         strokeThickness: 3,
-      }).setOrigin(0.5).setDepth(depth);
+      }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       const gradeLabel = this.scene.add.text(badgeX, titleY + 44, 'GRADE', {
         fontSize: '11px', color: '#8888aa', fontFamily: DISPLAY_FONT, fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(depth);
+      }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       gradeLabel.setLetterSpacing(2);
       animatedElements.push(badgeGraphics, gradeText, gradeLabel);
     }
@@ -2215,7 +2215,7 @@ export class PauseMenuManager {
         color: data.gauntlet.isNewBest ? '#ffdd44' : '#9999bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(depth);
+      }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       animatedElements.push(waveText);
     } else if (data.endless) {
       const scoreSuffix = data.runScore !== undefined
@@ -2229,7 +2229,7 @@ export class PauseMenuManager {
         color: data.endless.isNewBest ? '#ffdd44' : '#9999bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(depth);
+      }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       animatedElements.push(cycleText);
     } else if (data.runScore !== undefined) {
       const scoreStr = data.isNewBest
@@ -2240,7 +2240,7 @@ export class PauseMenuManager {
         color: data.isNewBest ? '#ffdd44' : '#9999bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(depth);
+      }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       animatedElements.push(scoreText);
     } else if (practiceRun) {
       // The score slot is free in practice (no score was computed), and this is the one
@@ -2255,7 +2255,7 @@ export class PauseMenuManager {
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
           fontStyle: 'bold',
         }
-      ).setOrigin(0.5).setDepth(depth);
+      ).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       animatedElements.push(practiceNotice);
     }
 
@@ -2290,7 +2290,7 @@ export class PauseMenuManager {
     // Hairline column divider down the middle of the grid.
     statsPanel.fillStyle(0x8898b0, 0.18);
     statsPanel.fillRect(centerX, statsPanelTop + 12, 1, statsPanelHeight - 24);
-    statsPanel.setDepth(depth);
+    statsPanel.setDepth(depth).setScrollFactor(0);
     animatedElements.push(statsPanel);
 
     const statLabelStyle = END_STAT_LABEL_STYLE;
@@ -2315,13 +2315,13 @@ export class PauseMenuManager {
       valueStyleOverrides: Partial<Phaser.Types.GameObjects.Text.TextStyle> = {}
     ): Phaser.GameObjects.Text => {
       const labelText = this.scene.add.text(cellLeftX, y, label, statLabelStyle)
-        .setOrigin(0, 0.5).setDepth(depth);
+        .setOrigin(0, 0.5).setDepth(depth).setScrollFactor(0);
       const valueText = this.scene.add.text(
         cellRightX,
         y,
         value,
         { ...statValueStyle, ...valueStyleOverrides }
-      ).setOrigin(1, 0.5).setDepth(depth);
+      ).setOrigin(1, 0.5).setDepth(depth).setScrollFactor(0);
       animatedElements.push(labelText, valueText);
       return valueText;
     };
@@ -2378,7 +2378,7 @@ export class PauseMenuManager {
     const goldY = statsPanelTop + statsPanelHeight + 14 + goldPillHeight / 2;
     const goldPill = this.scene.add.graphics();
     paintPillBackground(goldPill, centerX, goldY, goldPillWidth, goldPillHeight, BODY_COLORS.gold, ACCENT_COLORS.gold);
-    goldPill.setDepth(depth);
+    goldPill.setDepth(depth).setScrollFactor(0);
     animatedElements.push(goldPill);
 
     const goldText = this.scene.add.text(centerX, goldY, 'Gold: +0', {
@@ -2386,7 +2386,7 @@ export class PauseMenuManager {
       color: '#ffdd44',
       fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(depth);
+    }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
     const goldElementIndex = animatedElements.length;
     animatedElements.push(goldText);
 
@@ -2405,7 +2405,7 @@ export class PauseMenuManager {
         fontSize: '18px',
         color: data.previousStreak > 0 && !hasWon ? '#ff6666' : '#ffdd44',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0.5).setDepth(depth);
+      }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       animatedElements.push(streakDisplay);
     }
 
@@ -2531,7 +2531,7 @@ export class PauseMenuManager {
       fontSize: '20px',
       color: '#888888',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-    }).setOrigin(0.5).setDepth(depth);
+    }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
     animatedElements.push(restartText);
 
     // Recent-run trend strip: left margin, vertically centered in landscape —
@@ -2637,7 +2637,7 @@ export class PauseMenuManager {
           color: affordColor,
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
           fontStyle: 'italic',
-        }).setOrigin(0.5).setDepth(depth);
+        }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       }
     });
 
@@ -2709,7 +2709,7 @@ export class PauseMenuManager {
 
     const header = this.scene.add.text(x, topY, 'RECENT', {
       fontSize: '12px', color: '#7777aa', fontFamily: 'Arial', fontStyle: 'bold',
-    }).setOrigin(0, 0);
+    }).setOrigin(0, 0).setScrollFactor(0);
     header.setLetterSpacing(2);
     register(header, 'Header');
 
@@ -2725,7 +2725,7 @@ export class PauseMenuManager {
         fontSize: '13px',
         color: gradeColors[run.grade] ?? '#9999bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0);
+      }).setOrigin(0, 0).setScrollFactor(0);
       register(rowText, `Row${index}`);
       rowY += 18;
     }
@@ -2774,7 +2774,7 @@ export class PauseMenuManager {
       elements.push(element);
     };
 
-    const panelBg = this.scene.add.graphics();
+    const panelBg = this.scene.add.graphics().setScrollFactor(0);
     paintPanelBackground(
       panelBg,
       panelX - panelWidth / 2,
@@ -2790,7 +2790,7 @@ export class PauseMenuManager {
       color: accentStr,
       fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-    }).setOrigin(0.5, 0);
+    }).setOrigin(0.5, 0).setScrollFactor(0);
     kicker.setLetterSpacing(2);
     register(kicker, 'Kicker');
 
@@ -2799,7 +2799,7 @@ export class PauseMenuManager {
       color: '#e8ecf4',
       fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-    }).setOrigin(0.5, 0);
+    }).setOrigin(0.5, 0).setScrollFactor(0);
     register(nameText, 'Name');
 
     const descText = this.scene.add.text(panelX, panelTopY + 58, card.description, {
@@ -2808,7 +2808,7 @@ export class PauseMenuManager {
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       align: 'center',
       wordWrap: { width: panelWidth - 24 },
-    }).setOrigin(0.5, 0);
+    }).setOrigin(0.5, 0).setScrollFactor(0);
     register(descText, 'Desc');
 
     const rarityTag = this.scene.add.text(
@@ -2821,7 +2821,7 @@ export class PauseMenuManager {
         fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
       }
-    ).setOrigin(0.5, 0);
+    ).setOrigin(0.5, 0).setScrollFactor(0);
     rarityTag.setLetterSpacing(3);
     register(rarityTag, 'Rarity');
 
@@ -2839,7 +2839,7 @@ export class PauseMenuManager {
         panelHeight + 16,
         10
       );
-      halo.setDepth(depth - 1);
+      halo.setDepth(depth - 1).setScrollFactor(0);
       halo.setAlpha(0.6);
       // Named so handleVictoryContinue's destroyElementsByName can kill a
       // mid-pulse halo; on game over the scene restart's killAll covers it.
@@ -2895,7 +2895,7 @@ export class PauseMenuManager {
       panelWidth,
       panelHeight
     );
-    panelBackground.setDepth(depth);
+    panelBackground.setDepth(depth).setScrollFactor(0);
     animatedElements.push(panelBackground);
 
     // Title
@@ -2904,7 +2904,7 @@ export class PauseMenuManager {
       color: '#aaaacc',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
-    }).setOrigin(0.5, 0).setDepth(depth);
+    }).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
     animatedElements.push(titleText);
 
     // Per-weapon rows
@@ -2917,7 +2917,7 @@ export class PauseMenuManager {
         fontSize: '13px',
         color: '#ddddee',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(nameText);
 
       // Damage value (right-aligned)
@@ -2930,14 +2930,14 @@ export class PauseMenuManager {
           color: '#ffcc66',
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(1, 0).setDepth(depth);
+      ).setOrigin(1, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(damageText);
 
       // Horizontal bar
       const barBackground = this.scene.add.graphics();
       barBackground.fillStyle(0x222233, 0.8);
       barBackground.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, panelWidth - 20, 5);
-      barBackground.setDepth(depth);
+      barBackground.setDepth(depth).setScrollFactor(0);
       animatedElements.push(barBackground);
 
       const barFill = this.scene.add.graphics();
@@ -2945,7 +2945,7 @@ export class PauseMenuManager {
       const barColor = index === 0 ? 0xffcc44 : 0x8888bb;
       barFill.fillStyle(barColor, 1);
       barFill.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, barFillWidth, 5);
-      barFill.setDepth(depth);
+      barFill.setDepth(depth).setScrollFactor(0);
       animatedElements.push(barFill);
     });
   }
@@ -3021,7 +3021,7 @@ export class PauseMenuManager {
       panelWidth,
       panelHeight
     );
-    panelBackground.setDepth(depth);
+    panelBackground.setDepth(depth).setScrollFactor(0);
     animatedElements.push(panelBackground);
 
     const titleText = this.scene.add.text(panelX, panelTopY + 8, 'PERSONAL BESTS', {
@@ -3029,7 +3029,7 @@ export class PauseMenuManager {
       color: '#aaaacc',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
-    }).setOrigin(0.5, 0).setDepth(depth);
+    }).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
     animatedElements.push(titleText);
 
     rows.forEach((row, index) => {
@@ -3044,7 +3044,7 @@ export class PauseMenuManager {
         color: labelColor,
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: row.broke ? 'bold' : 'normal',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(labelText);
 
       const valueText = this.scene.add.text(
@@ -3056,7 +3056,7 @@ export class PauseMenuManager {
           color: valueColor,
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(1, 0).setDepth(depth);
+      ).setOrigin(1, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(valueText);
     });
   }
@@ -3108,7 +3108,7 @@ export class PauseMenuManager {
       panelHeight,
       { accentColor: ACCENT_COLORS.danger }
     );
-    panelBackground.setDepth(depth);
+    panelBackground.setDepth(depth).setScrollFactor(0);
     animatedElements.push(panelBackground);
 
     const titleText = this.scene.add.text(panelX, panelTopY + 8, 'WHAT KILLED YOU', {
@@ -3116,7 +3116,7 @@ export class PauseMenuManager {
       color: '#ffaaaa',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
-    }).setOrigin(0.5, 0).setDepth(depth);
+    }).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
     animatedElements.push(titleText);
 
     if (data.killedBy) {
@@ -3130,7 +3130,7 @@ export class PauseMenuManager {
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
           fontStyle: 'bold',
         }
-      ).setOrigin(0.5, 0).setDepth(depth);
+      ).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(killedByText);
     }
 
@@ -3144,7 +3144,7 @@ export class PauseMenuManager {
           color: '#ffaa66',
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(0.5, 0).setDepth(depth);
+      ).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(nemesisText);
     }
 
@@ -3161,7 +3161,7 @@ export class PauseMenuManager {
           color: '#ddddee',
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(0, 0).setDepth(depth);
+      ).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(nameText);
 
       const damageText = this.scene.add.text(
@@ -3173,20 +3173,20 @@ export class PauseMenuManager {
           color: '#ff9977',
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(1, 0).setDepth(depth);
+      ).setOrigin(1, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(damageText);
 
       const barBackground = this.scene.add.graphics();
       barBackground.fillStyle(0x222233, 0.8);
       barBackground.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, panelWidth - 20, 5);
-      barBackground.setDepth(depth);
+      barBackground.setDepth(depth).setScrollFactor(0);
       animatedElements.push(barBackground);
 
       const barFill = this.scene.add.graphics();
       const barFillWidth = ((panelWidth - 20) * sharePercent) / 100;
       barFill.fillStyle(index === 0 ? 0xff6666 : 0x8888bb, 1);
       barFill.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, barFillWidth, 5);
-      barFill.setDepth(depth);
+      barFill.setDepth(depth).setScrollFactor(0);
       animatedElements.push(barFill);
     });
   }
@@ -3247,7 +3247,7 @@ export class PauseMenuManager {
     const badgeElements: (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[] = [];
 
     const badgeGraphics = this.scene.add.graphics();
-    badgeGraphics.setDepth(depth - 1);
+    badgeGraphics.setDepth(depth - 1).setScrollFactor(0);
     badgeGraphics.fillStyle(0x000000, 0.55);
     badgeGraphics.fillCircle(badgeX, titleY, 32);
     badgeGraphics.lineStyle(2, headlineHex, 1);
@@ -3261,11 +3261,11 @@ export class PauseMenuManager {
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(depth));
+    }).setOrigin(0.5).setDepth(depth).setScrollFactor(0));
 
     const labelText = this.scene.add.text(badgeX, titleY + 44, 'PACE', {
       fontSize: '11px', color: '#8888aa', fontFamily: DISPLAY_FONT, fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(depth);
+    }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
     labelText.setLetterSpacing(2);
     badgeElements.push(labelText);
 
@@ -3273,7 +3273,7 @@ export class PauseMenuManager {
       fontSize: '11px',
       color: '#8899bb',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-    }).setOrigin(0.5).setDepth(depth));
+    }).setOrigin(0.5).setDepth(depth).setScrollFactor(0));
 
     if (pace.ghostReplaced && delta !== null) {
       const ghostText = this.scene.add.text(badgeX, titleY + 80, 'NEW GHOST', {
@@ -3281,7 +3281,7 @@ export class PauseMenuManager {
         color: ACCENT_COLORS_STR.safe,
         fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
-      }).setOrigin(0.5).setDepth(depth);
+      }).setOrigin(0.5).setDepth(depth).setScrollFactor(0);
       ghostText.setLetterSpacing(1);
       badgeElements.push(ghostText);
     }
@@ -3345,7 +3345,7 @@ export class PauseMenuManager {
       stripHeight + 4,
       { accentColor: ACCENT_COLORS.neutral }
     );
-    panelBackground.setDepth(depth);
+    panelBackground.setDepth(depth).setScrollFactor(0);
     stripElements.push(panelBackground);
 
     const titleText = this.scene.add.text(trackLeftX, stripTopY, 'RUN TIMELINE', {
@@ -3353,7 +3353,7 @@ export class PauseMenuManager {
       color: '#8899bb',
       fontFamily: DISPLAY_FONT,
       fontStyle: 'bold',
-    }).setOrigin(0, 0).setDepth(depth);
+    }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
     titleText.setLetterSpacing(2);
     stripElements.push(titleText);
 
@@ -3366,11 +3366,11 @@ export class PauseMenuManager {
     }
     gridGraphics.fillStyle(0x445566, 0.9);
     gridGraphics.fillRect(trackLeftX, trackY - 1, trackWidth, 2);
-    gridGraphics.setDepth(depth);
+    gridGraphics.setDepth(depth).setScrollFactor(0);
     stripElements.push(gridGraphics);
 
     const markerGraphics = this.scene.add.graphics();
-    markerGraphics.setDepth(depth);
+    markerGraphics.setDepth(depth).setScrollFactor(0);
     markers.forEach((marker) => {
       this.paintTimelineMarker(markerGraphics, marker.kind, trackLeftX + marker.offsetX, trackY, marker.count);
     });
@@ -3383,14 +3383,14 @@ export class PauseMenuManager {
     TIMELINE_KIND_ORDER.filter((kind) => markers.some((marker) => marker.kind === kind)).forEach((kind) => {
       const swatch = this.scene.add.graphics();
       this.paintTimelineMarker(swatch, kind, legendX, legendY, 1);
-      swatch.setDepth(depth);
+      swatch.setDepth(depth).setScrollFactor(0);
       stripElements.push(swatch);
 
       const legendText = this.scene.add.text(legendX + 9, legendY, TIMELINE_LEGEND_LABELS[kind], {
         fontSize: '11px',
         color: '#8899bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0.5).setDepth(depth);
+      }).setOrigin(0, 0.5).setDepth(depth).setScrollFactor(0);
       stripElements.push(legendText);
 
       legendX += 9 + legendText.displayWidth + 16;
@@ -3470,7 +3470,7 @@ export class PauseMenuManager {
       panelWidth,
       panelHeight
     );
-    panelBackground.setDepth(depth);
+    panelBackground.setDepth(depth).setScrollFactor(0);
     animatedElements.push(panelBackground);
 
     const header = this.scene.add.text(centerX, startY + 6, 'EARNED THIS RUN', {
@@ -3478,7 +3478,7 @@ export class PauseMenuManager {
       color: '#ffdd44',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
-    }).setOrigin(0.5, 0).setDepth(depth);
+    }).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
     animatedElements.push(header);
 
     const leftTextX = centerX - panelWidth / 2 + 14;
@@ -3494,7 +3494,7 @@ export class PauseMenuManager {
         fontSize: '13px',
         color: '#ffffff',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(nameText);
 
       const tagText = this.scene.add.text(tagRightX, rowY, earning.tag, {
@@ -3502,7 +3502,7 @@ export class PauseMenuManager {
         color: RUN_EARNING_TAG_COLORS[earning.tag],
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: 'bold',
-      }).setOrigin(1, 0).setDepth(depth);
+      }).setOrigin(1, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(tagText);
 
       const detail = earning.detail.length > detailLimit
@@ -3512,7 +3512,7 @@ export class PauseMenuManager {
         fontSize: '10px',
         color: '#6677aa',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(detailText);
     });
 
@@ -3526,7 +3526,7 @@ export class PauseMenuManager {
           color: '#8888aa',
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(0.5, 0).setDepth(depth);
+      ).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(overflowText);
     }
 
@@ -3559,7 +3559,7 @@ export class PauseMenuManager {
       panelWidth,
       panelHeight
     );
-    panelBackground.setDepth(depth);
+    panelBackground.setDepth(depth).setScrollFactor(0);
     animatedElements.push(panelBackground);
 
     const header = this.scene.add.text(centerX, startY + 6, 'CLOSEST TO UNLOCK', {
@@ -3567,7 +3567,7 @@ export class PauseMenuManager {
       color: '#cc99ff',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
-    }).setOrigin(0.5, 0).setDepth(depth);
+    }).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
     animatedElements.push(header);
 
     const barWidth = 110;
@@ -3585,7 +3585,7 @@ export class PauseMenuManager {
         fontSize: '13px',
         color: '#ccccdd',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(nameText);
 
       // Background bar
@@ -3596,21 +3596,21 @@ export class PauseMenuManager {
       const fillWidth = Math.max(2, barWidth * entry.ratio);
       barGraphics.fillStyle(0xaa44ff, 1.0);
       barGraphics.fillRoundedRect(barX, rowY + 4, fillWidth, barHeight, 3);
-      barGraphics.setDepth(depth);
+      barGraphics.setDepth(depth).setScrollFactor(0);
       animatedElements.push(barGraphics);
 
       const percentText = this.scene.add.text(percentRightX, rowY, `${percent}%`, {
         fontSize: '11px',
         color: percent >= 90 ? '#ffdd44' : '#888899',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(1, 0).setDepth(depth);
+      }).setOrigin(1, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(percentText);
 
       const detailText = this.scene.add.text(leftTextX, rowY + 11, progressText, {
         fontSize: '10px',
         color: '#6677aa',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(detailText);
     });
 
@@ -3647,7 +3647,7 @@ export class PauseMenuManager {
       panelWidth,
       panelHeight
     );
-    panelBackground.setDepth(depth);
+    panelBackground.setDepth(depth).setScrollFactor(0);
     animatedElements.push(panelBackground);
 
     const header = this.scene.add.text(
@@ -3660,7 +3660,7 @@ export class PauseMenuManager {
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         fontStyle: 'bold',
       }
-    ).setOrigin(0.5, 0).setDepth(depth);
+    ).setOrigin(0.5, 0).setDepth(depth).setScrollFactor(0);
     animatedElements.push(header);
 
     const barWidth = 110;
@@ -3679,7 +3679,7 @@ export class PauseMenuManager {
         fontSize: '13px',
         color: entry.complete ? '#88ff88' : '#ccccdd',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
-      }).setOrigin(0, 0).setDepth(depth);
+      }).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(nameText);
 
       const barGraphics = this.scene.add.graphics();
@@ -3688,7 +3688,7 @@ export class PauseMenuManager {
       const fillWidth = Math.max(2, barWidth * ratio);
       barGraphics.fillStyle(entry.complete ? 0x66cc66 : 0xffcc44, 1.0);
       barGraphics.fillRoundedRect(barX, rowY + 4, fillWidth, barHeight, 3);
-      barGraphics.setDepth(depth);
+      barGraphics.setDepth(depth).setScrollFactor(0);
       animatedElements.push(barGraphics);
 
       const rewardText = this.scene.add.text(
@@ -3700,7 +3700,7 @@ export class PauseMenuManager {
           color: entry.complete ? '#88ff88' : '#ffcc66',
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(1, 0).setDepth(depth);
+      ).setOrigin(1, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(rewardText);
 
       const detailText = this.scene.add.text(
@@ -3712,7 +3712,7 @@ export class PauseMenuManager {
           color: '#6677aa',
           fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
         }
-      ).setOrigin(0, 0).setDepth(depth);
+      ).setOrigin(0, 0).setDepth(depth).setScrollFactor(0);
       animatedElements.push(detailText);
     });
 
