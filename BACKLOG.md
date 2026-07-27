@@ -34,6 +34,26 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-QUEST-LIVE** — daily quests complete, toast and pay their gold *during* the run
+  (done — 773aca4). Value: the board shipped by FEAT-DAILY-QUESTS was
+  invisible while playing — `settleDailyQuests()` already returned the quests a run completed and
+  **both GameScene call sites discarded that return**, so gold sat in `pendingGold` until the player
+  happened to open ACHIEVEMENTS. Now a per-run `createDailyQuestWatcher()` folds the in-progress run
+  into today's board once a second (in `update()`, practice excluded, gauntlet/daily included — same
+  eligibility as the settle sites), and any quest whose condition is met completes on the spot:
+  `Daily Quest Complete · <name> · +<gold> gold` toast, gold claimed and added immediately. The two
+  run-end sites now pay + toast the same way. **The run-end settle stays the only writer of
+  `progress`** — a live completion writes only `rewarded` + `pendingGold`, which is exactly what stops
+  a double payout (`settleDailyQuests` skips rewarded quests); `getDailyQuestBoard()` now reads
+  `rewarded` as authoritative so a live-paid quest shows complete before the run ends.
+  `wasVictory: false` / `goldEarned: 0` in the live snapshot means the victory and gold quests simply
+  never fire early, and `runs_day_3` carries a new `settleOnly: true` flag because it counts *finished*
+  runs. Mid-run UTC rollover stands the watcher down (it reloads and compares the date) so a run can
+  never pay into yesterday's baseline. **Known and intended:** `untouched_run` now pays the instant the
+  run crosses 3:00 under 200 damage taken, even if the player is hit afterwards — the condition did hold.
+  No ECS/combat/`PlayerStats`/save-format change, no new storage key, no new scene, no layout change.
+  Three tests added (the pay-exactly-once invariant, the board's rewarded read, the `settleOnly`
+  exclusion) — the one place the logic is non-obvious and pays real gold.
 - [x] **FEAT-DAILY-QUESTS** — three rotating daily objectives that pay gold, browsable in a new
   **Daily** tab on the ACHIEVEMENTS screen and badged `n/3` on the main menu's ACHIEVE card (done — 32e8da9).
   The game had **no recurring, dated reason to play**: the daily/weekly *challenge* is a seeded run
@@ -1425,6 +1445,15 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   pity-floors-the-whole-draft + streak-reset behaviour in `RelicManager.draft.test.ts`; the scene + GameScene
   wiring is Phaser-coupled (like UpgradeScene/DirectorSelectScene, untested) and caught by tsc/build. Feel/balance
   owned by **POLISH-RELIC-DRAFT** under `## Human gates`.
+- [ ] **FEAT-QUEST-HUD** — show the day's quest board *in* the run. Value: FEAT-QUEST-LIVE delivers the
+  completion moment (toast + instant gold) but the player still cannot see how close a quest is while
+  playing, so a run can't be steered toward one. Deliberately cut from FEAT-QUEST-LIVE: the
+  bottom-centre objective line is already owned by the bounty ticker (`GameScene.updateBounties`,
+  `bountyText`), so a second always-on objective line is a HUD-clutter + portrait-layout decision that
+  needs a human's eye, not a blind agent's. Options to weigh: a third pause-menu panel beside RUN
+  MODIFIERS / BUILD STATS (mind the `narrow` stacked layout), or a compact line that shares the bounty
+  slot when no bounty is active. Pointers: `src/game/scenes/GameScene.ts` (`updateBounties`),
+  `src/game/managers/PauseMenuManager.ts` (`createRunModifiersPanel`), `DailyQuestWatcher`.
 
 ---
 
@@ -1437,6 +1466,13 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-QUEST-LIVE** — the mid-run quest completion needs a human in a browser: (a) does the
+    `Daily Quest Complete` toast read clearly mid-fight, or does it get lost against bounty/unlock
+    toasts stacking at the same moment? (b) is 3600 ms the right dwell? (c) is paying `untouched_run`
+    the instant the 3:00 mark passes (rather than at run end) the behaviour you want? (d) should the
+    run-end results overlay also list the quests that run completed, instead of relying on toasts that
+    fire while the overlay animates in? Knobs: toast `duration`/`color` in `GameScene.payDailyQuests`,
+    the 1.0 s throttle in `update()`, `settleOnly` in `src/data/DailyQuests.ts`.
   - **POLISH-DAILY-QUESTS** — the new **Daily** tab on the ACHIEVEMENTS screen and its `n/3` main-menu badge need a
     legibility + feel eyeball (FEAT-DAILY-QUESTS, `32e8da9`). Agents have no browser. Reach it: main menu → the
     **ACHIEVE** deck card (its badge now reads `n/3`) → the rightmost **Daily** tab. Check: (a) with **six** tabs
