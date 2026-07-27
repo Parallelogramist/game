@@ -3879,6 +3879,7 @@ export class GameScene extends Phaser.Scene {
    * stale graphics/timers/counters never carry across runs.
    */
   private resetInRunFeatureState(): void {
+    getMetaProgressionManager().beginRunLedger();
     this.hasDashedThisRun = false;
     this.ultimateWasReady = false;
     this.destructibleCount = 0;
@@ -6506,6 +6507,10 @@ export class GameScene extends Phaser.Scene {
       this.hasWon,
       this.playerStats.goldMultiplier // ship/stage/pact/modifier gold bonuses
     );
+    // Snapshot before the payout lands: the ledger must hold only what the RUN itself
+    // moved (bounties, shrines, caches, market spends). The payout is the pill's own
+    // number and would otherwise be double-counted as "found".
+    const runGoldLedger = metaManager.getRunLedger();
     metaManager.addGold(goldEarned);
 
     // Snapshot personal bests BEFORE recordRunEnd mutates them, so the summary
@@ -6674,6 +6679,7 @@ export class GameScene extends Phaser.Scene {
       gameTime: this.gameTime,
       playerLevel: this.playerStats.level,
       goldEarned,
+      goldLedger: runGoldLedger,
       // Gauntlet deaths leave the streak untouched, so never show "Streak broken!"
       previousStreak: this.gauntletModeActive ? 0 : previousStreak,
       highestCombo: highestComboThisRun,

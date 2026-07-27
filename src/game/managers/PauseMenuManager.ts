@@ -287,6 +287,12 @@ export interface GameOverData {
   gameTime: number;
   playerLevel: number;
   goldEarned: number;
+  /**
+   * What the run itself moved through the wallet, snapshotted before the end-of-run
+   * payout landed. Not persisted — a reload-restored run reports zeroes and the row
+   * hides, same as `totalDamageTaken`.
+   */
+  goldLedger?: { earned: number; spent: number };
   previousStreak: number;
   highestCombo: number;
   totalDamageDealt?: number;
@@ -1963,7 +1969,10 @@ export class PauseMenuManager {
     const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
 
     const hasDamageRow = data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined;
-    const statRowCount = hasDamageRow ? 3 : 2;
+    const goldFound = data.goldLedger?.earned ?? 0;
+    const goldSpent = data.goldLedger?.spent ?? 0;
+    const hasLedgerRow = goldFound > 0 || goldSpent > 0;
+    const statRowCount = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0);
     const statRowHeight = 34;
     const statsPanelWidth = 480;
     const statsPanelHeight = statRowCount * statRowHeight + 22;
@@ -2046,11 +2055,20 @@ export class PauseMenuManager {
       addStatCell(rightCellLeftX, rightCellRightX, statRowY(2), 'Damage Taken', dmgTaken, { fontSize: '16px', color: '#ff8888' });
     }
 
+    // The run's own economy. The gold pill below counts up the end-of-run payout only,
+    // so mid-run income and market spending had no surface anywhere before this row.
+    if (hasLedgerRow) {
+      const ledgerRow = hasDamageRow ? 3 : 2;
+      addStatCell(leftCellLeftX, leftCellRightX, statRowY(ledgerRow), 'Gold Found', `+${goldFound}`, { fontSize: '16px', color: '#ffdd44' });
+      addStatCell(rightCellLeftX, rightCellRightX, statRowY(ledgerRow), 'Gold Spent', `-${goldSpent}`, { fontSize: '16px', color: '#ff8888' });
+    }
+
     // ── Gold pill ──────────────────────────────────────────────────────────
     const goldPillHeight = 40;
+    const goldPillWidth = hasLedgerRow ? 360 : 250;
     const goldY = statsPanelTop + statsPanelHeight + 14 + goldPillHeight / 2;
     const goldPill = this.scene.add.graphics();
-    paintPillBackground(goldPill, centerX, goldY, 250, goldPillHeight, BODY_COLORS.gold, ACCENT_COLORS.gold);
+    paintPillBackground(goldPill, centerX, goldY, goldPillWidth, goldPillHeight, BODY_COLORS.gold, ACCENT_COLORS.gold);
     goldPill.setDepth(depth);
     animatedElements.push(goldPill);
 
@@ -2062,6 +2080,13 @@ export class PauseMenuManager {
     }).setOrigin(0.5).setDepth(depth);
     const goldElementIndex = animatedElements.length;
     animatedElements.push(goldText);
+
+    // Net = what the wallet is worth after this run vs. before it: the payout landing
+    // now, plus what the run found, minus what it spent.
+    const runNetGold = data.goldEarned + goldFound - goldSpent;
+    const goldFinalText = hasLedgerRow
+      ? `Gold: +${data.goldEarned}   ·   net ${runNetGold < 0 ? '-' : '+'}${Math.abs(runNetGold)}`
+      : `Gold: +${data.goldEarned}`;
 
     // Streak text
     if (streakChangeText) {
@@ -2256,7 +2281,7 @@ export class PauseMenuManager {
         },
         onComplete: () => {
           goldCounterDone = true;
-          goldText.setText(`Gold: +${data.goldEarned}`);
+          goldText.setText(goldFinalText);
         },
       });
     });
@@ -2284,7 +2309,7 @@ export class PauseMenuManager {
       if (!goldCounterDone) {
         goldCounter?.complete();
         goldCounterDone = true;
-        goldText.setText(`Gold: +${data.goldEarned}`);
+        goldText.setText(goldFinalText);
         return;
       }
       this.options.onRestart();

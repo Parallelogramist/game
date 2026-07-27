@@ -186,8 +186,15 @@ export function computeRunGold(params: {
   return totalGold;
 }
 
+/** What the current run moved through the wallet: mid-run income vs. mid-run outgo. */
+export interface RunGoldLedger {
+  earned: number;
+  spent: number;
+}
+
 export class MetaProgressionManager {
   private goldBalance: number;
+  private runGoldLedger: RunGoldLedger = { earned: 0, spent: 0 };
   private upgradeState: PermanentUpgradeState;
   private worldLevel: number;
   private streakState: StreakState;
@@ -269,15 +276,27 @@ export class MetaProgressionManager {
     return this.goldBalance;
   }
 
+  /** Arms an empty ledger for a run that is starting. Called from GameScene's per-run reset. */
+  beginRunLedger(): void {
+    this.runGoldLedger = { earned: 0, spent: 0 };
+  }
+
+  getRunLedger(): RunGoldLedger {
+    return { ...this.runGoldLedger };
+  }
+
   addGold(amount: number): void {
     if (amount <= 0 || !Number.isFinite(amount)) return;
+    const balanceBefore = this.goldBalance;
     this.goldBalance = Math.min(this.goldBalance + Math.floor(amount), 10_000_000);
+    this.runGoldLedger.earned += this.goldBalance - balanceBefore;
     this.saveGold();
   }
 
   spendGold(amount: number): boolean {
     if (this.goldBalance >= amount) {
       this.goldBalance -= amount;
+      if (amount > 0) this.runGoldLedger.spent += amount;
       this.saveGold();
       return true;
     }

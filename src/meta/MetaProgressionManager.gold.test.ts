@@ -165,3 +165,27 @@ describe('recordRunCompleted — the explicit run-counter advance', () => {
     expect(manager.getNewcomerMultiplier()).toBe(expectedAfter);
   });
 });
+
+describe('run gold ledger', () => {
+  const meta = getMetaProgressionManager();
+
+  test('beginRunLedger arms an empty ledger', () => {
+    meta.addGold(100);
+    meta.beginRunLedger();
+    expect(meta.getRunLedger()).toEqual({ earned: 0, spent: 0 });
+  });
+
+  test('mid-run income and outgo accumulate on their own sides', () => {
+    meta.beginRunLedger();
+    meta.addGold(250);
+    meta.addGold(80);
+    expect(meta.spendGold(120)).toBe(true);
+    expect(meta.getRunLedger()).toEqual({ earned: 330, spent: 120 });
+  });
+
+  test('a spend the wallet refuses is not recorded', () => {
+    meta.beginRunLedger();
+    expect(meta.spendGold(meta.getGold() + 1)).toBe(false);
+    expect(meta.getRunLedger().spent).toBe(0);
+  });
+});
