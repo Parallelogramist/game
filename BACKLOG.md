@@ -1952,17 +1952,65 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   button callback, and the recorders each have their own suite (workspace standing order, FL-X01).
   Files: `src/game/scenes/GameScene.ts`, `src/game/managers/PauseMenuManager.ts`.
 
-- [ ] **FEAT-ENDRUN-EARNED-VISIBLE**: nothing announces what confirming END RUN just earned.
-  Value: confirming can unlock an achievement (with gold) and a hidden ship, and both raise a
-  toast at `OverlayDepths.HUD`, under the confirm dialog at `PAUSE_MENU` depth, into a scene
-  that is torn down milliseconds later by `scene.restart()` / `scene.start(...)`. So the run's
-  biggest meta-progression moment is invisible on the one path that has no end screen. This is
-  the same defect `9bd86ae` fixed for the death screen (a toast under the overlay), and it is
-  the last surface where it survives. Likely shape: the dialog cannot preview it (unlocks happen
-  on confirm), so the earned list has to reach the destination (a ShopScene/BootScene banner) or
-  the dialog has to hold itself open for a beat to name it.
-  Pointers: `PauseMenuManager.showEndRunConfirmation` confirm handler, `GameScene.recordEarlyRunEnd`,
-  the `onAchievementUnlock` callback (`GameScene.ts:~790-827`), `HiddenUnlockManager`.
+- [x] **FEAT-ENDRUN-EARNED-VISIBLE** — confirming END RUN now names what it just earned
+  (done — ba70292). Ending a run has been a real run end since `09b0f8f`, so confirming it can
+  unlock achievements (with their gold and stat bonuses) and hidden ships. Every one of those
+  raised a toast at `OverlayDepths.HUD` (1000), **under** the confirm dialog at
+  `OverlayDepths.PAUSE_MENU` (2100), into a scene torn down milliseconds later by
+  `scene.restart()` / `scene.start(...)`, so the run's biggest meta-progression moment was
+  invisible on the one run-end path with no end screen. Same defect `9bd86ae` fixed for the
+  death screen and `c27674b` / `92f2306` fixed for the gold recap; this was the last surface
+  carrying it. **The dialog cannot preview this:** the unlocks, the achievements and the quest
+  payouts only come into existence once Confirm has run, which is why the dialog holds itself
+  open (a `RUN ENDED` panel replacing the confirm body, with a `Continue` button that then
+  routes to the original destination) rather than handing an earned list to a destination
+  banner. A banner would also miss the `restart` destination entirely: that lands straight back
+  in `GameScene`, where there is no landing screen to carry one.
+  **How it is wired:** `GameScene.recordEarlyRunEnd` now arms `runEndAchievements` before
+  `recordRunEnd` (exactly as `gameOver()` does, and for the same reason: the achievement-unlock
+  callback fills it), keeps the `HiddenUnlockCondition[]` that `evaluateHiddenUnlocks` returns,
+  and returns both. The confirm handler keeps the `DailyQuestDefinition[]` its settle already
+  returned (the settle keeps its `questsSettledByVictory` guard and its claim-not-add payout,
+  only the return value is new), and feeds all three to `buildRunEarnings`, the same ordering
+  authority (unlocks, then achievements, then quests) the death and victory screens use, so the
+  three run-end surfaces cannot drift. `createRunEarningsPanel` then renders it, unchanged.
+  **Two input details:** Confirm's Enter binding is `keydown`, so a held Enter would land on the
+  new screen the frame it opens and skip it unread; the continue key handler is attached 350ms
+  late, and `commitContinue` is latched once-only so a pointer click and a key press cannot both
+  route. A run that earned nothing takes a fast path and leaves immediately, exactly as before.
+  **Deliberately omitted:** no fade-in tween (the overlay is already up, a straight swap is
+  correct and smaller); no gold total line (the player just read `Total: +N gold` on the dialog
+  this replaces); no gamepad polling (the confirm dialog it replaces is keyboard plus pointer
+  only, so matching it keeps one flow consistent, and the pre-existing gap is filed as
+  **BUG-ENDRUN-CONFIRM-NO-GAMEPAD** under `## Next`); no practice-mode guard (`gameOver()`'s
+  recap panel has none either, and guarding this path alone is the cross-path divergence
+  `CLAUDE.md` warns about, so the class stays filed whole as **BUG-PRACTICE-PAYS-REAL-GOLD**);
+  no sound (**FEAT-EARNED-SOUND** is its own item). No test: every line added is on a live
+  Phaser scene or in a button callback, and `buildRunEarnings` already has
+  `src/meta/RunEarnings.test.ts` and gains no new branch here (workspace standing order,
+  FL-X01). Playtest follow-up filed as **POLISH-ENDRUN-EARNED** under `## Human gates`.
+  Files: `src/game/managers/PauseMenuManager.ts`, `src/game/scenes/GameScene.ts`.
+
+- [x] **BUG-PILL-GFX-ORPHAN** — every pill button leaked the Graphics that draws it, so the
+  buttons stayed painted over the game after the pause menu closed (done — c475a69). Found while
+  designing the panel above, which would have been drawn underneath the ghosts.
+  `createLabeledButton` (`PauseMenuManager.ts:448-451`) paints each pill into a **sibling
+  `Graphics`** named `` `${bgName}_gfx` `` at depth `PAUSE_MENU + 0.5` (2100.5), while the
+  `Rectangle` that carries the name and the hit zone is kept fully transparent.
+  `destroyElementsByName` looked up only the exact names passed to it, and
+  `grep -n '_gfx' src/game/managers/PauseMenuManager.ts` returned **one** hit across the whole
+  repo (line 450, the creation), so nothing anywhere destroyed one. `hidePauseMenu()` therefore
+  destroyed the invisible hit-zone rectangle and its label and left the **painted pill** on
+  screen, above every overlay (all at 2100) and above gameplay, with 5 more added on each
+  re-open. `showEndRunConfirmation` calls `hidePauseMenu()` on its first line, so the END RUN
+  dialog was drawn under 5 ghost pause buttons. `GameScene` never calls
+  `cameras.main.startFollow`, so these screen-space graphics never scrolled away either.
+  Introduced `c3b0f81` (2026-05-27) and unfiled until now. Fixed inside the helper (one extra
+  lookup per name) rather than by adding `_gfx` entries to 7 call-site lists, so any future pill
+  button gets the cleanup for free; names with no `_gfx` sibling simply miss the lookup, which
+  the helper's docstring already documents as safe. Whether this was a visible eyesore in normal
+  play or hidden behind the next overlay is a human question, folded into
+  **POLISH-ENDRUN-EARNED**.
 
 - [ ] **BUG-PRACTICE-PAYS-REAL-GOLD**: *(premise corrected 2026-07-27 — the profile is NOT
   polluted; what remains is a cosmetic in-session lie.)* The original entry claimed a practice run
@@ -2163,6 +2211,13 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 - [x] **CHORE-CI-DEPLOY-RETRY** — auto-retry the transiently-failing Pages
   deploy (done — 34e5373). Full write-up moved to `BACKLOG-archive.md`.
 
+- [ ] **BUG-ENDRUN-CONFIRM-NO-GAMEPAD** — the END RUN confirm dialog and its new earned panel
+  are keyboard + pointer only. Value: the pause menu itself is gamepad-navigable via
+  `MenuNavigator`, but `showEndRunConfirmation` uses a raw `shopConfirmKeyHandler` and no
+  gamepad polling, so a gamepad-only player can open the dialog and cannot answer it. The
+  game-over screen's edge-detected A-button poll (`PauseMenuManager.ts:2493-2507`) is the
+  idiom to copy. Pointers: `PauseMenuManager.showEndRunConfirmation`, `showEndRunEarned`.
+
 - [ ] **CHORE-ARCH-DOC-SYNC** — re-sync the architecture overview's content
   inventory. Value: `references/architecture-overview.md` is the
   agent-facing source of truth (CLAUDE.md points every session at it) but
@@ -2313,6 +2368,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-ENDRUN-EARNED** (— ba70292) — playtest the `RUN ENDED` panel that now replaces the
+    END RUN confirm dialog when confirming earned something (FEAT-ENDRUN-EARNED-VISIBLE). Agents
+    have no browser and must not tune a reward beat blind. Owns: (a) **the beat itself** — does
+    holding the flow open for a `Continue` press read as a reward, or as a second confirmation to
+    dismiss on the way out? (b) **the row cap** — `createRunEarningsPanel` shows 3 rows and
+    `+N more`, sized for the death screen where it shares space with a recap. END RUN has a whole
+    screen: should it list everything instead? (c) **the 350ms input gate** — it exists so a held
+    Enter on Confirm cannot skip the panel unread. Does it feel deliberate, or does the first
+    press landing on nothing feel broken? (d) **the gold line** — `Total: +N gold` was on the
+    dialog this replaces and is not carried onto the panel. Is that a loss? (e) **the `restart`
+    destination** — confirming END RUN with `restart` lands back in `GameScene`. Does the panel
+    read as "your last run earned this", or get confused with the run about to start?
+    (f) **the ghost pills** (**BUG-PILL-GFX-ORPHAN**, c475a69) — every `hidePauseMenu()` used to
+    leave 5 painted pill shapes above every overlay. Was that a long-standing visible eyesore in
+    normal play, or hidden behind whatever overlay came next?
   - **POLISH-UNLOCK-VAULT** (— c381ab2) — playtest the new Vault tab on `ACHIEVE`
     (FEAT-UNLOCK-VAULT). Agents have no browser and must not judge a 23-row list blind. Owns:
     (a) **the list itself** — does 23 rows read as a collection worth completing, or as a wall of
