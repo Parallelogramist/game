@@ -1794,17 +1794,39 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   since a *new hidden unlock* is buried the same way and the fix has to reason about mid-run
   layering (filed as **BUG-ENDSCREEN-TOASTS-BURIED**).
 
-- [ ] **BUG-ENDSCREEN-TOASTS-BURIED**: every toast raised at run end is invisible. Value: a *new
-  hidden unlock*, a new ship or weapon and the game's biggest meta-progression moment, is announced
-  only through the toast callback registered in `create()` and fired by `evaluateHiddenUnlocks`
-  (`GameScene.ts:6573`), and that toast is drawn at `OverlayDepths.HUD` (1000,
-  `ToastManager.ts:112`) beneath the death-darken overlay (2050, alpha 0.85) and the end overlay
-  (2100), so the player unlocks a ship and is never told. Same for the daily-quest and achievement
-  toasts on both end paths. Needs a design call on layering (a dedicated depth above `PAUSE_MENU`,
-  versus re-presenting run-end toasts as an end-screen list) that must not break mid-run layering
-  against the pause menu and the overlay scenes.
-  Pointers: `src/visual/DepthLayers.ts`, `src/ui/ToastManager.ts:112`, `GameScene.ts:6573`,
-  `PauseMenuManager.ts:129`.
+- [x] **BUG-ENDSCREEN-TOASTS-BURIED** — every reward a run's *end* awarded was announced under an
+  opaque overlay (done — 9bd86ae). Three settle events fire after a run ends and each was announced
+  only by a toast: a new hidden unlock (a ship, weapon, stage or cosmetic, the game's biggest
+  meta-progression moment), the achievements `recordRunEnd` completes, and the daily quests settled
+  at run end. The depth proof: `ToastManager` sets its container to `OverlayDepths.HUD` = **1000**
+  (`ToastManager.ts:112`), while the death darken is `OverlayDepths.DEATH_DARKEN` = **2050** at
+  alpha 0.85 and both end overlays are `OverlayDepths.PAUSE_MENU` = **2100**, all in the same
+  scene, so the higher depth wins and the announcement was painted underneath a screen already up.
+  The player unlocked a ship and was never told.
+  Both run-end paths now build one ordered `RunEarning[]` through the shared pure module
+  `src/meta/RunEarnings.ts` (unlocks, then achievements, then quests, each tagged) and hand it to
+  the overlay: `evaluateHiddenUnlocks` returns the conditions `evaluatePostRun` already produced
+  instead of discarding them, the quest settle is hoisted out of its `payDailyQuests` argument, and
+  a `runEndAchievements` capture field collects what the settle unlocks.
+  Design call on layering: **the toast depth was deliberately not raised.** `OverlayDepths` is one
+  shared table and `ToastManager` has a single depth for every toast, so lifting the toast band
+  above `PAUSE_MENU` would also put toasts over the pause menu and the upgrade and market overlays.
+  Toasts are also transient and serial (one at a time, a 5.5s unlock plus 3.2s achievement plus
+  3.6s per quest) against a death screen dismissible with SPACE on frame one. A persistent panel is
+  the right channel for a permanent unlock, so the run-end toasts are re-presented as an
+  end-screen list instead.
+  The death screen renders `EARNED THIS RUN` **in place of** `CLOSEST TO UNLOCK`, not stacked with
+  it: at 720 game units tall the stat panel, gold pill and unlock-progress panel already reach the
+  restart hint, so a second panel pushes content off the viewport. What you just earned outranks
+  what you are close to earning. The victory overlay gets a one-line `EARNED` readout at
+  `centerY - 96` rather than a panel, because every centered slot below its stats panel is taken
+  (streak `+96`, COPY RESULT `+128`, buttons `+175`, gold preview `+213`, economy line `+233`, card
+  reveal `+250`) and widening the 400-wide panel pushes the button row.
+  Scope: the capture is armed only for the run-end window, so mid-run achievement toasts (which
+  *are* visible) are never re-listed. Milestones were checked and excluded: `checkMilestoneProgress`
+  is only ever driven by in-run counters (`AchievementManager.ts:325-393`), so milestone toasts fire
+  mid-run where they can be seen. Every `showToast` call was left exactly as it was, since the
+  achievement callback delivers its `addGold` / `addAchievementBonus` reward in the same body.
 
 - [ ] **FEAT-ENDRUN-QUEST-TRUTH**: ending a run from the pause menu silently forfeits the day's
   quest progress. Value: `showEndRunConfirmation` (`PauseMenuManager.ts:1256-1401`) pays
@@ -1820,6 +1842,20 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   absent; surfacing "2/3 done, one needs 400 more damage" turns a finished run into a reason to
   start the next one.
   Pointer: `getLiveDailyQuestBoard()` + `PauseMenuManager.createDailyQuestPanel` (~`:1180-1249`).
+
+- [ ] **FEAT-UNLOCK-VAULT**: a browsable list of every hidden unlock earned, with the run it came
+  from. Value: `HiddenUnlockManager` already persists an `unlockedAt` timestamp per condition
+  (`HiddenUnlocks.ts:288-292`) and **nothing in the game ever reads it**, so the only record that a
+  ship was ever earned is the one end screen that announced it (and before 9bd86ae, not even that).
+  A vault turns a pile of silent unlocks into a collection worth completing, and gives the hint text
+  a permanent home instead of a 5.5s toast.
+  Pointers: `src/meta/HiddenUnlocks.ts`, `src/game/scenes/AchievementScene.ts`.
+
+- [ ] **FEAT-EARNED-SOUND**: give a run-end hidden unlock its own sting. Value: the death screen
+  already fires `playAchievementUnlock()` for a card reveal (the card-reveal delayed call in
+  `PauseMenuManager`), but a *ship* unlock now arrives as a silent panel row under the game-over
+  sound, so the biggest meta-progression moment in the game is the quietest thing on the screen.
+  Pointers: `src/audio/SoundManager.ts`, the `createRunEarningsPanel` call site.
 
 ## Next
 
@@ -2181,7 +2217,11 @@ Never agent work. The fleet must not do any of these.
     Found/Spent, Quest Gold; does it still fit above the fold in 720-unit landscape, where (b)
     already flagged 4 rows as tight? (g) **the victory economy line** (**FEAT-VICTORY-ECONOMY**,
     92f2306): does `found · quests · spent · net` read clearly at 14px under the buttons, and does
-    it clear the portrait card reveal at `centerY + 250`?
+    it clear the portrait card reveal at `centerY + 250`? (h) **the earned panel**
+    (**BUG-ENDSCREEN-TOASTS-BURIED**, 9bd86ae): is three rows plus a `+N more` counter the right cap
+    for `EARNED THIS RUN`, given a run can settle three quests and several achievements at once, and
+    does losing `CLOSEST TO UNLOCK` on any run that earned something read as a fair trade or as a
+    panel that vanished?
   - **POLISH-MARKET-STOCK** (— ee32531) — playtest the 4th market card (FEAT-MARKET-STOCK). Owns:
     (a) **the prices:** whether 420 g for a new weapon, 200 g for a weapon level and 120 g for
     `+2` rerolls `+1` banish are right, against what a real run to world level 3-5 actually pays out
