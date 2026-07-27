@@ -1754,23 +1754,72 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   multiplier (see **BUG-ENDRUN-GOLD-MULT**). Playtest follow-up filed as **POLISH-GOLD-TRUTH**
   under `## Human gates`.
 
-- [ ] **FEAT-VICTORY-ECONOMY** — give the victory overlay the run-economy readout the death screen
-  has. Value: `showVictory` **does** show a payout preview: `+${goldToEarn} gold` renders as the
-  named object `victoryGoldPreview` at `PauseMenuManager.ts:1717-1729` (an earlier write-up here
-  claimed "no gold number at all, verified: no gold text between `PauseMenuManager.ts:1400-1660`";
-  that was wrong, the text sits just below the range that was checked). The real remaining gap is
-  the **earned/spent ledger**: the death screen got `Gold Found` / `Gold Spent` / `net` in
-  **FEAT-GOLD-LEDGER** (`585b010`) and the victory overlay did not, so a run that spent 940 g at
-  markets and then won reports nothing about it and the player cannot tell whether the run's
-  spending paid for itself.
-  Pointer: the `victoryCellRow` stat grid ~`PauseMenuManager.ts:1540-1560`; reuse
-  `GameOverData.goldLedger`'s shape on `VictoryData`.
+- [x] **FEAT-VICTORY-ECONOMY** — the victory overlay reported a payout and nothing else
+  (done — 92f2306). The gap was never "no gold number": `+${goldToEarn} gold` has always rendered
+  as the named `victoryGoldPreview` under the buttons. What was missing is the **earned/spent
+  ledger** the death screen got in **FEAT-GOLD-LEDGER** (`585b010`), so a run that spent 940 g at
+  the Black Market and then *won* said nothing about it and the player could not tell whether the
+  run's spending paid for itself. `showVictory` now snapshots `metaManager.getRunLedger()` and
+  passes it plus the run-end quest total on `VictoryData`, and the overlay renders one compact
+  `found · quests · spent · net` line (`victoryGoldEconomy`) directly under the payout preview.
+  Design calls: (a) **a line, not a second stats-panel row.** The 400-wide panel cannot grow
+  without pushing `victoryNextWorld` / `victoryStreak` down onto the COPY RESULT button at
+  `centerY + 128` and crowding the button row at `centerY + 175`; the line sits at `buttonY + 58`
+  and still clears the narrow card reveal's top edge at `centerY + 250`. (b) **the snapshot sits
+  above the quest settle**, mirroring `gameOver()`, or quest gold would land in `found` *and* in
+  `questGold` and silently inflate the net. (c) the net comes from the same
+  `src/meta/RunEconomy.ts` formula the death screen uses, so the two overlays cannot drift apart.
+  Zero terms are omitted and the whole line hides when the run moved no gold of its own, so an
+  untouched run still reads exactly as it did before. Playtest question filed as
+  **POLISH-GOLD-LEDGER** (g).
 
-- [ ] **FEAT-QUEST-GOLD-RECAP** — name run-end daily-quest gold on the death screen. Value:
-  `payDailyQuests(settleDailyQuests(...))` runs *after* the payout in `gameOver()`
-  (`GameScene.ts:~6555`), so gold from a quest that completed by dying is banked silently and
-  appears in no recap number: the player is paid and never told.
-  Pointer: `GameScene.payDailyQuests` returns nothing today; have it report the claimed total.
+- [x] **FEAT-QUEST-GOLD-RECAP** — run-end daily-quest gold was banked in silence on both end paths
+  (done — c27674b). `payDailyQuests(settleDailyQuests(...))` runs *after* the ledger snapshot in
+  both `gameOver()` and `showVictory()`, so the gold a quest completed by dying (or winning) paid
+  out appeared in no recap number. It does raise a per-quest toast, and that toast is **provably
+  invisible on both end screens**: `ToastManager` sets its container to `OverlayDepths.HUD` =
+  **1000** (`ToastManager.ts:112`), while the death sequence's darken overlay is
+  `OverlayDepths.DEATH_DARKEN` = **2050** at alpha 0.85 and both end overlays are
+  `OverlayDepths.PAUSE_MENU` = **2100**, all in the same scene, so the higher depth wins and the
+  announcement was never seen. The player was paid and told nothing.
+  `payDailyQuests` now returns the total it claimed (the live mid-run caller ignores it), both end
+  paths capture it, the death screen gains a conditional `Quest Gold` row and the net on the gold
+  pill counts it. Design call: **`Gold Found` deliberately does not absorb quest gold.** It is
+  snapshotted before the settle and means exactly "what the run moved through the wallet mid-run";
+  folding a later payout into it would quietly change what a shipped label counts. A separate
+  labeled row names the quest payout instead. That decides **POLISH-GOLD-LEDGER** (e).
+  Deliberately out of scope: the END RUN pause-menu path still settles no quests, which is
+  consistent with it also skipping `recordRunEnd`, the codex, the grade, run history and the
+  leaderboard (filed as **FEAT-ENDRUN-QUEST-TRUTH**); and the toast depth itself was left alone,
+  since a *new hidden unlock* is buried the same way and the fix has to reason about mid-run
+  layering (filed as **BUG-ENDSCREEN-TOASTS-BURIED**).
+
+- [ ] **BUG-ENDSCREEN-TOASTS-BURIED**: every toast raised at run end is invisible. Value: a *new
+  hidden unlock*, a new ship or weapon and the game's biggest meta-progression moment, is announced
+  only through the toast callback registered in `create()` and fired by `evaluateHiddenUnlocks`
+  (`GameScene.ts:6573`), and that toast is drawn at `OverlayDepths.HUD` (1000,
+  `ToastManager.ts:112`) beneath the death-darken overlay (2050, alpha 0.85) and the end overlay
+  (2100), so the player unlocks a ship and is never told. Same for the daily-quest and achievement
+  toasts on both end paths. Needs a design call on layering (a dedicated depth above `PAUSE_MENU`,
+  versus re-presenting run-end toasts as an end-screen list) that must not break mid-run layering
+  against the pause menu and the overlay scenes.
+  Pointers: `src/visual/DepthLayers.ts`, `src/ui/ToastManager.ts:112`, `GameScene.ts:6573`,
+  `PauseMenuManager.ts:129`.
+
+- [ ] **FEAT-ENDRUN-QUEST-TRUTH**: ending a run from the pause menu silently forfeits the day's
+  quest progress. Value: `showEndRunConfirmation` (`PauseMenuManager.ts:1256-1401`) pays
+  `addGold(finalTotal)` and settles nothing else, so a quest that this run would have completed is
+  dropped without a word; the END RUN breakdown promises "You will earn the following gold" while
+  quietly costing you quest gold. Decide whether END RUN settles quests (making it a real run end)
+  or tells the player what ending early forfeits (keeping it the non-recording path it is today).
+  Pointer: `PauseMenuManager.ts:1265-1276` and `:1388-1400`.
+
+- [ ] **FEAT-QUEST-BOARD-ENDSCREEN**: show the day's quest board on the run-end screen. Value:
+  **FEAT-QUEST-HUD** (`10b1b18`) put the live board on the *pause* overlay, so the one moment the
+  player is deciding whether to start another run, the death screen, is the one place the board is
+  absent; surfacing "2/3 done, one needs 400 more damage" turns a finished run into a reason to
+  start the next one.
+  Pointer: `getLiveDailyQuestBoard()` + `PauseMenuManager.createDailyQuestPanel` (~`:1180-1249`).
 
 ## Next
 
@@ -2124,9 +2173,15 @@ Never agent work. The fleet must not do any of these.
     does the panel still fit above the fold? (c) **the same in portrait** (720x1280), where
     `FEAT-PORTRAIT-RECAP` fitted this screen. (d) **the widened pill:** 360 units instead of 250,
     does it still clear the panel edges at portrait width, and does the net appearing only once the
-    count-up settles read as a reveal or as a glitch? (e) **what `Gold Found` counts:** today it
-    excludes run-end daily-quest settle gold, which is banked after the payout snapshot; should the
-    row own that too (see **FEAT-QUEST-GOLD-RECAP** under `## Proposed (auto)`)?
+    count-up settles read as a reveal or as a glitch? (e) **what `Gold Found` counts** (**decided,
+    c27674b**): it keeps meaning "what the run moved through the wallet mid-run" and does **not**
+    absorb run-end daily-quest settle gold; that gold got its own `Quest Gold` row instead, so a
+    shipped label did not quietly change what it counts (**FEAT-QUEST-GOLD-RECAP**). (f) **a 5-row
+    stats panel:** the panel's new maximum is Survived/Kills, Level/Combo, Damage, Gold
+    Found/Spent, Quest Gold; does it still fit above the fold in 720-unit landscape, where (b)
+    already flagged 4 rows as tight? (g) **the victory economy line** (**FEAT-VICTORY-ECONOMY**,
+    92f2306): does `found · quests · spent · net` read clearly at 14px under the buttons, and does
+    it clear the portrait card reveal at `centerY + 250`?
   - **POLISH-MARKET-STOCK** (— ee32531) — playtest the 4th market card (FEAT-MARKET-STOCK). Owns:
     (a) **the prices:** whether 420 g for a new weapon, 200 g for a weapon level and 120 g for
     `+2` rerolls `+1` banish are right, against what a real run to world level 3-5 actually pays out
