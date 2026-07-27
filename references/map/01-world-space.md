@@ -253,6 +253,19 @@ object is pinned to the camera and is correct in both modes.
 | `GameScene.ts:719` and `10793` `setEnemyAIBounds(scale.width, scale.height)` | Rect implied as `(0,0,w,h)` | New `setEnemyAIFieldRect(rect: WorldRect)` in `src/ecs/systems/enemy-ai/state.ts`; `setEnemyAIBounds(w,h)` kept as wrapper for rect `(0,0,w,h)`. Callers pass `fieldRect`. Refresh on lock/release and resize. | W2 |
 | `src/ecs/systems/enemy-ai/state.ts:15-21` `gameBoundsWidth/Height` | Two globals defaulting 1280/720 | Replaced by a `fieldRect` global (min/max). Consumers rewritten: `charger.ts:79` margin-30 test against min/max; `teleporter.ts:63-64` clamp 20 inside min/max; `the-machine.ts:40-41` seeks `rectCenter(fieldRect)`, `:91-92` minion clamp 80 inside min/max. Arena values identical. Note: `the-machine` is a boss and bosses only run sector-locked in expedition (section 12), so its "center" is always a sector center. | W2 |
 
+*(As built, `FEAT-WORLD-SPACE-2`: `clampPlayerToScreen` and `setEnemyAIBounds` were
+**replaced, not kept as delegating wrappers**, contrary to the two rows above and to
+section 7.3. Verified against the code at the time: `RunnerScene` named `setEnemyAIBounds`
+only in its header comment (corrected in the same commit) and deliberately drives none of
+the shared ECS systems, no test imported either symbol, and `noUnusedLocals` plus `tsc`
+prove every caller moved, so a wrapper would have been surface with no consumer. The
+enemy-AI bounds are one mutable module rect, `enemyAIFieldRect`, an ES live binding mutated
+in place rather than reassigned, and `setEnemyAIFieldRect` copies the four fields by value:
+the adapter reuses its rect instance between frames, so storing the reference would alias
+the AI module to the adapter. There is no `resetEnemyAIFieldRect`, matching the old scalars,
+which `resetEnemyAISystem()` never reset either; `create()` writes the rect on every run
+before any AI ticks.)*
+
 ### Spawning (details in section 4)
 
 | Site | Today | New behavior | When |
@@ -266,6 +279,18 @@ object is pinned to the camera and is correct in both modes.
 | `GameScene.ts:4226-4227` `completeBounty` fallback position | `scale/2` when no player | `rectCenter(viewRect)`. | W5 |
 | `GameScene.ts:1418` player spawn `(scale/2)` | Screen center | Arena unchanged. Expedition: `sectorCenterWorld(startSector)` from the layout. | W4 |
 | `src/systems/HazardZoneSystem.ts:425-489` `updateHazardSpawner(..., screenWidth, screenHeight)` | Spawns inside screen margins, clamps to screen | Signature becomes `updateHazardSpawner(deltaSeconds, gameTime, playerX, playerY, view: WorldRect)`; all margin/clamp math against `view`. Caller `GameScene.ts:4856` passes `viewRect`. Arena identical. | W2 |
+
+*(As built, `FEAT-WORLD-SPACE-2`: the `spawnEnemy`, `spawnMiniboss` and `spawnNemesis` rows
+took their **rect source** a chunk early. All three now pass `worldMode.viewRect()` to
+`pickEdgeSpawnPoint` instead of `rectFromScreen(scale.width, scale.height)`: it is
+value-identical in arena and it clears the last three gameplay-path `scale.*` reads, so the
+chunk's done-criteria grep is clean. `FEAT-WORLD-SPACE-5` still owns everything else in these
+rows: the spawnability filter, the leash and the camera-relative semantics. Two sites this
+table never listed were found during the sweep and filed rather than migrated silently:
+`spawnTreasureChest` (padding 80, the shape of its `spawnDestructible` and `spawnShrine`
+neighbours) as `CHORE-WORLDSPACE-CHEST-RECT`, and `spawnBossPhaseHazards`
+(`arenaMargin = 120`, the shape of the listed `spawnBossHazard` row) as
+`CHORE-WORLDSPACE-BOSSPHASE-RECT`.)*
 
 ### Culling and lifetime (details in section 5)
 
@@ -489,6 +514,16 @@ export interface WorldModeAdapter {
   update(deltaSeconds: number): void;
 }
 ```
+
+*(As built, `FEAT-WORLD-SPACE-2`: the interface shipped with four members, `kind`,
+`viewRect()`, `fieldRect()` and `update()`. `setupCamera`, `playerStartPoint`,
+`isSpawnableWorldPoint`, `lockToSector` and `releaseSectorLock` were deferred to arrive with
+their first callers in W4/W5/W6 rather than shipping as arena no-ops with nothing to call
+them, the same reasoning that moved `latticeScroll.ts` from W1 to W4. `update()` is the one
+member wired in W2 despite an empty arena body, because the value being landed is the call
+*position*: after `deltaSeconds` is final and before every spawner, which is the contract
+W4's sector-change detection depends on. Landing it now makes W4 an adapter swap instead of a
+`GameScene` edit.)*
 
 GameScene keeps a `private worldMode: WorldModeAdapter`, constructed in `init()`.
 The migration replaces screen-literal expressions with `worldMode.viewRect()` /

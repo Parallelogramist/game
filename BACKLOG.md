@@ -2423,14 +2423,61 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
 The screen-equals-world assumption comes out while the game provably plays exactly as before.
 This is the load-bearing refactor, done while it is still cheap to verify.
 
-- [ ] **FEAT-WORLD-SPACE-2**: rect-parameterize every gameplay seam and introduce
-  `WorldModeAdapter`/`ArenaModeAdapter` (arena-only so far). Touches
-  `MovementSystem.ts:27`, `enemy-ai/state.ts:15-21`, `SpriteSystem.ts:27-33`,
-  `XPGemSystem.ts:385-427`, `HazardZoneSystem.ts:425-489` and the GameScene call sites 719,
-  4323-4346, 4856, 4946, 4953, 4974, 5160-5161, 10793. Done when no gameplay row reads
-  `scale.width`/`scale.height` (UI rows exempt), `clampPlayerToRect` equals the legacy formula
-  at boundary probes, and a full arena run (spawns, miniboss, boss, hazards, four-edge
-  knockback, gem vacuum) shows no observable difference. Deps: `FEAT-WORLD-SPACE-1`.
+- [x] **FEAT-WORLD-SPACE-2** (done — 696496e): the simulation is no longer welded to the
+  canvas. Every gameplay system now takes the playfield as a `WorldRect` parameter, and one
+  object decides what that playfield is, which is the single change standing between the
+  shipped arena and a camera that can move across a world. Before this, six systems and eight
+  call sites each hard-coded "the world is 0,0 to `scale.width`,`scale.height`", so none of the
+  worldgen, collision or traversal-ability data already shipped could be flown.
+  `src/game/world/WorldModeAdapter.ts` is the seam (`kind`, `viewRect()`, `fieldRect()`,
+  `update()`); `src/game/world/ArenaModeAdapter.ts` is its only implementation so far,
+  recomputing both rects from the live scale on every call rather than caching, so an
+  orientation flip or a Safari address-bar resize needs no invalidation hook. `GameScene`
+  holds it as `worldMode`, constructs it as the first statement of `init()` (which runs on
+  every entry path including `scene.restart()`) and ticks it once per frame after
+  `deltaSeconds` is final and before any spawner. Migrated: the player clamp
+  (`clampPlayerToScreen` becomes `clampPlayerToRect(_world, playerId, rect, padding = 16)`),
+  the enemy-AI bounds (`enemy-ai/state.ts`, consumed by `charger.ts`, `teleporter.ts` and
+  `the-machine.ts`), sprite culling (`SpriteSystem.ts`), XP-gem culling (`XPGemSystem.ts`),
+  hazard placement (`HazardZoneSystem.ts`), the knockback clamp, the enemy-projectile despawn
+  box, and the three spawn-ring call sites (`spawnEnemy`, `spawnMiniboss`, `spawnNemesis`).
+  Nothing player-visible ships and arena behaviour is unchanged, which is *provable* rather
+  than hoped: the arena adapter returns `minX = minY = 0`, `maxX = scale.width`,
+  `maxY = scale.height`, so every migrated expression reduces algebraically to the literal it
+  replaced, and the one arithmetic that could drift silently (a one-pixel change in where the
+  ship stops, invisible in a diff) is pinned against the legacy formula at boundary probe
+  points by `src/ecs/systems/MovementSystem.test.ts`. Gameplay-path `scale.*` reads in
+  `GameScene` drop from 47/45 lines to 37/35, exactly ten each, and every survivor is a UI row
+  or a row doc 01 dates W4/W5/W6. 10 tests, 1646 to 1656 total, 131 to 132 files, suite green
+  in 20.3s, `npm run build` clean. **Eight deliberate deviations**, the first six recorded in
+  `01-world-space.md` as "as built" notes: (1) `clampPlayerToScreen` and `setEnemyAIBounds`
+  were **replaced, not retained as wrappers**, contrary to doc 01 section 7.3: `RunnerScene`
+  named `setEnemyAIBounds` only in its header comment (now corrected) and deliberately drives
+  none of the shared ECS systems, no test imported either symbol, and `tsc` proves every
+  caller moved, so a wrapper would be surface with no consumer. (2) Enemy-AI bounds are **one
+  mutable module rect** (`enemyAIFieldRect`, an ES live binding mutated in place) rather than
+  two scalars, and `setEnemyAIFieldRect` **copies by value** because the adapter reuses its
+  rect instance between frames and storing the reference would alias the AI module to the
+  adapter. (3) The `WorldModeAdapter` interface ships **narrower than doc 01 section 7.2**:
+  `setupCamera`, `playerStartPoint`, `isSpawnableWorldPoint`, `lockToSector` and
+  `releaseSectorLock` arrive with their first callers in W4/W5/W6 rather than shipping now as
+  no-ops, the same reasoning that moved `latticeScroll.ts` from W1 to W4. (4) `update()` is
+  **wired now although the arena body is empty**: the call position (after `deltaSeconds` is
+  final, before every spawner) is the contract W4's sector-change detection depends on, so
+  landing it here makes W4 an adapter swap instead of a `GameScene` edit. (5) The **three
+  spawn-ring call sites moved a chunk early**, taking `worldMode.viewRect()` instead of
+  `rectFromScreen(scale.width, scale.height)` though doc 01 dates that table row W5: it is
+  value-identical in arena and it clears the last three gameplay-path `scale.*` reads. W5
+  still owns the spawnability filter, the leash and the camera-relative semantics. (6) Culling
+  uses `inflateRect` but **keeps the original inclusive comparisons**: `rectContains` is
+  half-open and would have moved the cull boundary by a pixel on two sides. (7) **No
+  `resetEnemyAIFieldRect`**: `resetEnemyAISystem()` never reset the old scalars either, and
+  `create()` writes the rect on every run before any AI ticks. (8) **One test file**. Doc 01's
+  second suggested test (that the enemy-AI rect defaults to `(0,0,1280,720)`) was cut as
+  coverage padding: the default is a literal three lines above its only writer. Two spawn
+  sites doc 01's table never listed were found during the sweep and filed rather than migrated
+  or ignored: **CHORE-WORLDSPACE-CHEST-RECT** and **CHORE-WORLDSPACE-BOSSPHASE-RECT**.
+  Deps: `FEAT-WORLD-SPACE-1`.
 
 - [ ] **FEAT-WORLD-SPACE-3**: pin every UI surface to the camera while the camera is still
   static, converting the riskiest visual failure mode of a moving camera into a no-op.
@@ -2438,6 +2485,19 @@ This is the load-bearing refactor, done while it is still cheap to verify.
   plus a `pinToCamera` helper. Done when every UI-band creation site routes through the helper
   or carries an explicit `setScrollFactor(0)`, and the arena HUD shows no pixel movement.
   Deps: none (parallel-safe with W2). Spec: `01-world-space.md` section 3.
+
+- [ ] **CHORE-WORLDSPACE-CHEST-RECT**: `spawnTreasureChest` places a chest with
+  `padding = 80` against `scale.width`/`scale.height`, exactly the shape of its two
+  neighbours `spawnDestructible` (padding 70) and `spawnShrine` (padding 90), but doc 01's
+  spawning table never lists it. `FEAT-WORLD-SPACE-5` would migrate both neighbours and
+  leave chests landing at screen coordinates in a scrolled world. Deps:
+  `FEAT-WORLD-SPACE-5`. Spec: `01-world-space.md` section 3, spawning table.
+
+- [ ] **CHORE-WORLDSPACE-BOSSPHASE-RECT**: `spawnBossPhaseHazards` derives its placement
+  box from `arenaMargin = 120` against `scale.width`/`scale.height`, the same shape as
+  `spawnBossHazard`, which doc 01 does list as a W6 row. Unlisted, so the sector lock would
+  reclaim the tuned geometry for one boss hazard path and not the other. Deps:
+  `FEAT-WORLD-SPACE-6`. Spec: `01-world-space.md` section 3, spawning table.
 
 - [x] **FEAT-PRACTICE-MODE** — reach any weapon at any level without grinding a
   run (done — c3d00c2). Full write-up moved to `BACKLOG-archive.md`. Playtest
