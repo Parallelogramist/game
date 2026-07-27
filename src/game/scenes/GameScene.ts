@@ -38,6 +38,7 @@ import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setM
 import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind } from '../../ecs/systems/ConsumablePickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
 import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
+import { buildMarketOffers, MarketOfferId, MarketOfferView } from '../../data/MarketOffers';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { getJuiceManager, resetJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
@@ -213,7 +214,7 @@ const COMBAT_SPEED_BONUS_CAP = 0.25;
 // Field shrine archetypes — walk-in altars that auto-trigger on touch. Distinct
 // from the random "Shrine of Sacrifice" event: these are placed objects the
 // player chooses to seek out, each a small risk/reward or boon.
-type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice';
+type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice' | 'market';
 
 // In-run bounty objectives: rotating goals that reward a power-up burst.
 type BountyKind = 'kills' | 'elites' | 'flawless';
@@ -222,6 +223,7 @@ const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
   { type: 'power', color: 0xff8833, label: 'Altar of Power' },
   { type: 'fortune', color: 0xffd24a, label: 'Shrine of Fortune' },
   { type: 'sacrifice', color: 0xff4466, label: 'Blood Altar' },
+  { type: 'market', color: 0x39e6d8, label: 'The Black Market' },
 ];
 
 // Power shrine: temporary damage buff. Persisted + reverted via gameTime (see
@@ -321,6 +323,9 @@ export class GameScene extends Phaser.Scene {
   private pendingRelicChoices: number = 0;
   private relicDraftActive: boolean = false;
   private relicDraftOwnsPause: boolean = false;
+  // Black Market (FEAT-MARKET) — true while the MarketScene overlay owns the
+  // screen and this flow holds isPaused.
+  private marketActive: boolean = false;
 
   // Damage cooldown (invincibility frames)
   private damageCooldown: number = 0;
@@ -1697,6 +1702,78 @@ export class GameScene extends Phaser.Scene {
       duration: 4500,
     });
     this.refreshRelicStrip();
+  }
+
+  /**
+   * Opens the Black Market as a pausing overlay (FEAT-MARKET). Mirrors
+   * openRelicDraftRound's pause ownership: this flow sets isPaused and the
+   * single onClose callback releases it, whichever way the player exits.
+   */
+  private openMarket(shrineX: number, shrineY: number): void {
+    if (this.marketActive || this.scene.isActive('MarketScene')) return;
+    const relicManager = getRelicManager();
+    const offers = buildMarketOffers({
+      worldLevel: this.worldLevel,
+      gold: getMetaProgressionManager().getGold(),
+      atFullHealth:
+        this.playerId !== -1 && Health.current[this.playerId] >= Health.max[this.playerId],
+      relicsMaxed: relicManager.isFull() && !relicManager.hasReinforceCandidates(),
+    });
+
+    this.marketActive = true;
+    this.isPaused = true;
+    this.scene.launch('MarketScene', {
+      offers,
+      gold: getMetaProgressionManager().getGold(),
+      onClose: (purchased: MarketOfferId | null) => {
+        this.marketActive = false;
+        this.isPaused = false;
+        if (purchased) {
+          const offer = offers.find(candidate => candidate.id === purchased);
+          if (offer && !offer.locked) this.applyMarketPurchase(offer, shrineX, shrineY);
+        }
+        // An orientation flip while the overlay was up deferred its relayout
+        // (a restart underneath would have orphaned this callback) — settle it.
+        if (this.pendingOrientationRelayout) {
+          this.pendingOrientationRelayout = false;
+          this.handleOrientationFlip();
+        }
+      },
+    });
+  }
+
+  /**
+   * Charges the wallet and delivers one market purchase. The spend is
+   * authoritative: nothing is granted unless spendGold() actually succeeded.
+   */
+  private applyMarketPurchase(offer: MarketOfferView, x: number, y: number): void {
+    const metaManager = getMetaProgressionManager();
+    if (!metaManager.spendGold(offer.price)) return;
+
+    switch (offer.id) {
+      case 'repair':
+        this.healPlayer(this.playerStats.maxHealth * 0.5);
+        break;
+      case 'supply':
+        this.spawnRandomConsumable(x - 20, y);
+        this.spawnRandomConsumable(x + 20, y);
+        break;
+      case 'relic':
+        // Queued, not opened inline: processRelicChoiceQueue owns draft rounds
+        // and takes the pause back on the next frame.
+        this.grantRelicChoice(1);
+        break;
+    }
+
+    this.effectsManager.playDeathBurst(x, y, offer.color);
+    this.soundManager.playLevelUp();
+    this.toastManager?.showToast({
+      title: `Bought: ${offer.name}`,
+      description: `${offer.price} gold spent — ${metaManager.getGold()} left.`,
+      icon: offer.icon,
+      color: offer.color,
+      duration: 3200,
+    });
   }
 
   /**
@@ -3768,6 +3845,7 @@ export class GameScene extends Phaser.Scene {
     this.pendingRelicChoices = 0;
     this.relicDraftActive = false;
     this.relicDraftOwnsPause = false;
+    this.marketActive = false;
   }
 
   /**
@@ -3806,7 +3884,12 @@ export class GameScene extends Phaser.Scene {
 
   /** Spawns a random shrine within the play area, away from the player. */
   private spawnShrine(): void {
-    const def = SHRINE_DEFS[Math.floor(Math.random() * SHRINE_DEFS.length)];
+    // PRACTICE is a sandbox with no run payout — selling real banked gold there
+    // would be a pure trap, so the market is excluded from its shrine pool.
+    const pool = this.practiceModeActive
+      ? SHRINE_DEFS.filter(def => def.type !== 'market')
+      : SHRINE_DEFS;
+    const def = pool[Math.floor(Math.random() * pool.length)];
     const padding = 90;
     let x = 0;
     let y = 0;
@@ -3914,6 +3997,13 @@ export class GameScene extends Phaser.Scene {
         this.playerStats.damageMultiplier *= 1.18;
         this.syncStatsToPlayer();
         description = `Sacrificed ${cost} HP for +18% damage (rest of run).`;
+        break;
+      }
+      case 'market': {
+        // The overlay carries its own header + prices, so the generic shrine
+        // toast would just be noise (same call as the fortune→draft branch).
+        showToast = false;
+        this.openMarket(shrine.x, shrine.y);
         break;
       }
     }
@@ -6015,7 +6105,11 @@ export class GameScene extends Phaser.Scene {
     // Defer — the HUD keeps itself anchored via the live resize path
     // meanwhile, and the selection-complete handler settles the relayout
     // once the (last queued) modal closes.
-    if (this.scene.isActive('UpgradeScene') || this.scene.isActive('RelicDraftScene')) {
+    if (
+      this.scene.isActive('UpgradeScene') ||
+      this.scene.isActive('RelicDraftScene') ||
+      this.scene.isActive('MarketScene')
+    ) {
       this.pendingOrientationRelayout = true;
       return;
     }

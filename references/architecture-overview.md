@@ -130,7 +130,9 @@ blessed elites + bounty rewards + the Fortune shrine. GameScene owns activation 
 
 **Field Shrines & Bounties** (GameScene-owned, reset in `resetInRunFeatureState`, called
 on BOTH fresh + restore paths): walk-in shrines (`SHRINE_DEFS`: Cleanse/Power/Fortune/
-Sacrifice — Sacrifice mutates ECS `Health.current`, not just PlayerStats) and rotating
+Sacrifice/Market — Sacrifice mutates ECS `Health.current`, not just PlayerStats; Market
+opens the pausing `MarketScene` overlay, the game's only in-run gold sink (FEAT-MARKET),
+and it is excluded from the practice-mode shrine pool) and rotating
 bounties (`BountyKind`: kills / elites / flawless) with a HUD banner and consumable+gold
 rewards. Both mirror the treasure-chest pattern (Phaser graphics + proximity polling).
 These are **distinct** from the random "Shrine of Sacrifice" EventSystem event.
