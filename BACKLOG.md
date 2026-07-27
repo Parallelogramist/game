@@ -34,6 +34,53 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-MARKET** — a walk-in Black Market shrine that spends banked gold, mid-run, on immediate
+  power (done — e32a173). Value: gold was a number the player watched accumulate and could only ever
+  spend **between** runs, so a run in trouble had no lever at all. The gap was verified, not assumed:
+  `grep -rn "merchant\|vendor" src/` returned **nothing**, every in-run gold source (fortune shrine,
+  nemesis kill, GOLD consumable, bounty) called `metaManager.addGold()` straight into the wallet, the
+  HUD's `N GOLD` was a passive end-of-run payout preview, and `spendGold()`
+  (`MetaProgressionManager.ts:278`) had **exactly one caller in the entire game** — the between-runs
+  `ShopScene`. There was no in-run sink of any kind. It is also the first in-run choice with a
+  **cost**: upgrades, relics, blessings, modifiers and pacts are all free picks, so "spend now to
+  survive vs. bank for permanent power" is a tension the game had never asked for, priced against the
+  meta-progression the player actually wants. A fifth `SHRINE_DEFS` entry (teal `0x39e6d8`,
+  `The Black Market`) opens `MarketScene`, a pausing 3-card overlay cloned from `RelicDraftScene`:
+  **Field Repair** (50% of max health), **Supply Drop** (two random consumables at the altar) and
+  **Relic Cache** (one relic-draft round). Design calls: (a) **prices** are `MARKET_BASE_PRICES`
+  150 / 260 / 520 in `src/data/MarketOffers.ts`, scaled `1 + 0.15 * (worldLevel - 1)` and clamped to
+  world level 50 — the curve tracks payouts because world level already multiplies gold earned
+  (`getWorldLevelGoldMultiplier`), so a late run is not shopping at level-1 prices with level-20
+  income. (b) **Three lock reasons, precedence deliberate:** `AT FULL HEALTH` and `RELICS MAXED` win
+  over `NOT ENOUGH GOLD`, so a would-be no-op tells the player the *useful* fact instead of a price
+  he could go earn; a locked card is dimmed to 0.45 alpha, shows the reason where the price goes,
+  loses its `[ n ]` keybind footer and plays `playError()` on click rather than closing. Nothing is
+  ever charged for an effect that would not land — `applyMarketPurchase` grants only after
+  `spendGold()` actually returns true. (c) **LEAVE is always live** (pointer, and B/Escape via the
+  navigator's `onCancel`) because keeping the gold is the whole point of the decision; it is
+  deliberately *not* a 4th navigator item, which would wrap onto a ragged second row.
+  (d) **PRACTICE is excluded** from the shrine pool: a sandbox with no run payout would make spending
+  real banked gold a pure trap. Daily/weekly and gauntlet keep it — those are real runs that pay real
+  gold, and permanent shop upgrades already apply there. (e) **The relic purchase is queued**
+  (`grantRelicChoice(1)`), not opened inline, so `processRelicChoiceQueue` stays the single owner of
+  draft rounds; the accepted cost is one unpaused frame between the overlay releasing `isPaused` and
+  the queue taking it back, the same shape as the existing 60 ms gap between chained relic rounds.
+  (f) **No HUD wallet readout and no price inflation/restock counter** — both add save or HUD surface
+  for a capability that is complete without them; filed as follow-ups instead. **Save/restore came
+  free**: `shrineState` already serializes `{type, x, y}` and validates the type against
+  `SHRINE_DEFS` on load, so a market shrine round-trips a refresh with **no new storage key and no
+  `SAVE_VERSION` bump**. (A refresh while the overlay is *open* loses that visit — the shrine was
+  consumed on touch — which is identical to the existing relic-draft behavior and is not worth
+  persistence.) One small test file (`src/data/MarketOffers.test.ts`, 4 tests) pins the price curve
+  and the three lock reasons because `buildMarketOffers` is the single gate between "player pays
+  gold" and "player gets something", the exact defect class this repo has already shipped and fixed
+  five times (`BUG-BLOOD-PACT-HALVE-DEAD`, `BUG-VITALITY-HEAL-DEAD`, `FEAT-META-MEMORY`,
+  `FEAT-META-BLESSING`, `FEAT-RELIC-REINFORCE`). Everything Phaser-coupled is guarded by `tsc`, the
+  full suite (124 files / 1555 tests) and `npm run build`, as its sibling overlays were. Files:
+  `src/data/MarketOffers.ts`, `src/game/scenes/MarketScene.ts`, `src/game/scenes/GameScene.ts`,
+  `src/main.ts`. Pricing and feel are unvalidated in a browser: see **POLISH-MARKET** under
+  `## Human gates`, which owns whether 150/520 g are the right numbers, whether a mid-fight modal is
+  welcome, and whether the market appears too often to feel special.
 - [x] **FEAT-PORTRAIT-RECAP** — the death-screen run recap now renders in portrait (done — 21481fd).
   Value: on a phone the death screen showed **no** `WHAT KILLED YOU`, no `KILLED BY <name>`, no top-3
   damage attribution, no `IT HUNTS YOU NEXT RUN`, no `RUN TIMELINE` ribbon and no `RECENT` trend,
@@ -1711,6 +1758,14 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `BACKLOG-archive.md`. **No playtest filed** — see the write-up for why, and for
   the pool-magnitude knob.
 
+- [ ] **FEAT-MARKET-STOCK** — give the market a rotating 4th slot drawn from what the run lacks
+  (a weapon level, a banish/reroll charge, a pact buyout). Value: makes a second market visit a
+  different decision instead of the same three cards.
+
+- [ ] **FEAT-GOLD-LEDGER** — a death-screen line showing gold earned vs. gold spent in-run. Value:
+  the recap currently reports only the payout, so a player who spent at the market cannot see what
+  the run actually netted.
+
 ## Later
 
 - [x] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA (done —
@@ -1879,6 +1934,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MARKET** (— e32a173) — a walk-in Black Market shrine now spends banked gold mid-run
+    (FEAT-MARKET). Agents have no browser and must not retune an economy blind. Check:
+    (a) **the prices** — play a real run to world level 3-5 and compare `MARKET_BASE_PRICES`
+    (150 / 260 / 520, scaled 15% per world level) against what that run actually pays out. Is 150 g
+    for half your health trivial, and is 520 g for a relic absurd? Knobs: `MARKET_BASE_PRICES` and
+    the `0.15` factor in `src/data/MarketOffers.ts`. (b) **the interruption** — the overlay pauses
+    the run. Is that welcome when you sought the altar out, or intrusive when you only brushed it
+    while kiting a pack? (c) **LEAVE on a phone** — there is no ESC key on touch. Is the button
+    discoverable, and does it sit clear of the card row in portrait at 720 wide (it is placed 56
+    units below the card row bottom)? (d) **frequency** — the market is 1 of 5 shrine types, capped
+    at 2 shrines on field, spawning on the 38 s cadence. Does it appear often enough to matter, or
+    so often it stops feeling special? (e) **the wallet readout** — after you spend, the HUD's
+    `N GOLD` does not move, because it is the *projected end-of-run payout*, not your balance. Is
+    that confusing enough to justify a real wallet readout (deliberately not built)? (f) **the poor
+    start** — a fresh save with near-zero gold sees a market it can afford nothing at. Should the
+    shrine be gated behind a minimum balance instead of showing three `NOT ENOUGH GOLD` cards?
   - **POLISH-PORTRAIT-RECAP** (— 21481fd) — the death-screen recap now renders in portrait
     (FEAT-PORTRAIT-RECAP). Agents have no browser and must not judge layout blind. Check, on a phone
     in portrait: (a) **the band** — does `RUN TIMELINE` + `WHAT KILLED YOU` + `RECENT` above the
