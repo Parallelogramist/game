@@ -109,13 +109,32 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   — placement is a design call, not an executor choice. Pointers: `PauseMenuManager.gameOver`,
   `GameOverData`, `savePaceGhost` return value (currently void — it would need to report whether it wrote).
 
-- [ ] **FEAT-RUN-TIMELINE** — a post-run timeline of the beats that shaped the run. Value: the results
-  screen reports totals (kills, damage, grade, best) but never the *shape* of the run — when you levelled,
-  when the boss landed, when you nearly died — so a run that collapsed at 7:30 looks the same as one that
-  coasted. Done when: a compact in-run event log (level-ups, boss/miniboss spawns and kills, big damage
-  spikes, ultimate uses) is recorded per run and rendered as a horizontal timeline on the results overlay,
-  with no new storage key (per-run in-memory, like the threat tally). Pointers: `GameScene.handleEnemyDeath`
-  / level-up path / `takeDamage`, `PauseMenuManager.gameOver`, `buildStats.ts` for the pure-derivation idiom.
+- [x] **FEAT-RUN-TIMELINE** — the death screen now shows the shape of the run (done — 428cfb9). Value: the
+  results overlay reported totals (kills, damage, grade, best) and never the *shape* of a run, so one that
+  collapsed at 7:30 read exactly like one that coasted. A **RUN TIMELINE** ribbon now spans the top of the
+  game-over overlay: the run's whole clock as one track, a faint minute grid behind it, and a marker per
+  beat (each level-up and ultimate on the track, miniboss / boss / KILLED above it, each dip into the
+  bottom quarter of the health bar below it), with a legend naming only the kinds that run produced.
+  **This is data nothing recorded before:** every prior run-end panel moved an existing end-state scalar to
+  a new surface, whereas `GameScene` now keeps a per-run beat log written at six single-site anchors (the
+  `collectXP` level loop, the `activateUltimate` guard, both spawn entries, the one boss/miniboss branch in
+  `handleEnemyDeath`, and a per-frame close-call watch in `update()`). The close-call watch reads ECS
+  `Health` directly, not the `playerStats.currentHealth` mirror, and re-arms at 40% so a long fight held at
+  low HP logs one marker rather than one per frame. Placement is the top band because it is the only free
+  real estate left on that overlay: the centered column, both side columns and the left margin are all
+  spoken for. It guards on measured clearance from the title's glow circle rather than a magic height, so a
+  short landscape simply gets no ribbon (skipped below 1000 px wide as well, like `createRecentRunsStrip`).
+  It runs its own short stagger instead of joining `animatedElements`, whose shared `index * 120 ms` delay
+  would land the top of the screen seconds after the rest, and it reads no index anything else depends on,
+  so no existing element moved. A **restored run shows no ribbon at all**: its early beats died with the
+  page and a half-empty timeline would lie, the same rule `paceRecordingEnabled` applies to the pace curve.
+  Per-run in-memory only, capped at 400 events: no new storage key, no save-format migration, no ECS,
+  combat or layout change to any existing element, no new scene. The victory overlay is deliberately
+  excluded (`showVictory` is a separate dense layout, and the same call FEAT-THREAT-RECAP made). New pure
+  `runTimeline.ts` owns the clustering rule (same-kind beats within 6 px collapse into one counted marker,
+  kinds never merge), pinned by 4 tests: it is the one piece of non-obvious logic and the only thing here
+  verifiable without a live scene. Files: `runTimeline.ts`, `runTimeline.test.ts`, `GameScene.ts`,
+  `PauseMenuManager.ts`. Legibility/feel → playtest queue (POLISH-RUN-TIMELINE).
 
 - [x] **FEAT-QUEST-LIVE** — daily quests complete, toast and pay their gold *during* the run
   (done — 773aca4). Value: the board shipped by FEAT-DAILY-QUESTS was
@@ -1553,6 +1572,14 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-RUN-TIMELINE** (— 428cfb9) — die on a full landscape viewport and judge the top ribbon:
+    is a marker-per-beat readable at a glance, or does it need fewer kinds? Are the marker shapes
+    and colours distinguishable without reading the legend, and is the 11 px legend legible? Does
+    the minute grid give enough time sense without tick labels, and would a `5:00`-style label
+    under every fifth notch help? Do bursts (a multi-level XP pickup, a boss plus its kill within
+    seconds) collapse into something readable, or is 6 px too tight/too loose? Does the ribbon
+    read as part of the screen at the top, or should it sit at the very bottom above the restart
+    hint instead? Should a won run get one too (`showVictory` is excluded today)?
   - **POLISH-PACE-GHOST** (— ed81832) — play a run at a world level that already has a ghost and judge:
     is `+37 PACE` self-explanatory in the stats stack, or does it need a `VS BEST` label? Is a kill delta
     the right unit (vs. a seconds-ahead figure)? Does the once-a-second refresh read as jittery when the
