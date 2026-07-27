@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { GRID_COLORS } from './NeonColors';
 import { VisualQuality } from './GlowGraphics';
 import { getSettingsManager } from '../settings';
+import { LatticeField, scrollLatticeField, snappedOrigin } from '../world/latticeScroll';
 
 interface GravityPoint {
   x: number;
@@ -124,6 +125,20 @@ export class GridBackground {
   private centerX: number;
   private centerY: number;
 
+  // ─── Expedition view window ───
+  // The lattice is screen-sized and the world is not, so in expedition the window
+  // slides: `viewOrigin` is the whole-cell world anchor of node (0,0) and `viewSub` is
+  // the leftover sub-cell offset folded into the graphics transform. Arena never calls
+  // setViewScroll, so both stay 0 and every path below is arithmetically inert.
+  private viewOriginX = 0;
+  private viewOriginY = 0;
+  private viewSubX = 0;
+  private viewSubY = 0;
+  private viewScrollActive = false;
+  private viewOriginPending = false;
+  private latticeField!: LatticeField;
+  private gravityPool: GravityPoint[] = [];
+
   constructor(scene: Phaser.Scene) {
     this.graphics = scene.add.graphics();
     this.graphics.setDepth(0);
@@ -163,6 +178,42 @@ export class GridBackground {
     this.initializePointMasses();
     this.initializeSprings();
     this.dirty = true;
+    this.viewOriginPending = true;
+  }
+
+  /**
+   * Expedition only. Slides the screen-sized lattice over the world so grid lines stay
+   * anchored to world positions. Call once per frame before update().
+   */
+  setViewScroll(scrollX: number, scrollY: number): void {
+    if (!this.viewScrollActive) {
+      this.viewScrollActive = true;
+      // The lattice now carries the world offset itself, so the camera must not also
+      // move the graphics or the offset would be applied twice.
+      this.graphics.setScrollFactor(0);
+      this.viewOriginPending = true;
+    }
+
+    const originX = snappedOrigin(scrollX, this.CELL_SIZE);
+    const originY = snappedOrigin(scrollY, this.CELL_SIZE);
+
+    if (this.viewOriginPending) {
+      this.viewOriginPending = false;
+    } else if (originX !== this.viewOriginX || originY !== this.viewOriginY) {
+      scrollLatticeField(
+        this.latticeField,
+        this.numCols,
+        this.numRows,
+        (originX - this.viewOriginX) / this.CELL_SIZE,
+        (originY - this.viewOriginY) / this.CELL_SIZE,
+      );
+      this.dirty = true;
+    }
+
+    this.viewOriginX = originX;
+    this.viewOriginY = originY;
+    this.viewSubX = scrollX - originX;
+    this.viewSubY = scrollY - originY;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -201,6 +252,12 @@ export class GridBackground {
         this.dampingArr[index] = this.BASE_DAMPING;
       }
     }
+
+    this.latticeField = {
+      restX: this.restX, restY: this.restY,
+      posX: this.posX, posY: this.posY, posZ: this.posZ,
+      velX: this.velX, velY: this.velY, velZ: this.velZ,
+    };
   }
 
   private initializeSprings(): void {
@@ -303,18 +360,20 @@ export class GridBackground {
     if (getSettingsManager().isReducedMotionEnabled()) return;
     this.dirty = true;
     const radiusSq = radius * radius;
-    const minCol = Math.max(0, Math.floor((worldX - radius) / this.CELL_SIZE));
-    const maxCol = Math.min(this.numCols - 1, Math.ceil((worldX + radius) / this.CELL_SIZE));
-    const minRow = Math.max(0, Math.floor((worldY - radius) / this.CELL_SIZE));
-    const maxRow = Math.min(this.numRows - 1, Math.ceil((worldY + radius) / this.CELL_SIZE));
+    const latticeX = worldX - this.viewOriginX;
+    const latticeY = worldY - this.viewOriginY;
+    const minCol = Math.max(0, Math.floor((latticeX - radius) / this.CELL_SIZE));
+    const maxCol = Math.min(this.numCols - 1, Math.ceil((latticeX + radius) / this.CELL_SIZE));
+    const minRow = Math.max(0, Math.floor((latticeY - radius) / this.CELL_SIZE));
+    const maxRow = Math.min(this.numRows - 1, Math.ceil((latticeY + radius) / this.CELL_SIZE));
 
     for (let row = minRow; row <= maxRow; row++) {
       for (let col = minCol; col <= maxCol; col++) {
         const index = row * this.numCols + col;
         if (this.inverseMass[index] === 0) continue;
 
-        const deltaX = this.posX[index] - worldX;
-        const deltaY = this.posY[index] - worldY;
+        const deltaX = this.posX[index] - latticeX;
+        const deltaY = this.posY[index] - latticeY;
         const distSq = deltaX * deltaX + deltaY * deltaY;
 
         if (distSq < radiusSq && distSq > 1) {
@@ -334,18 +393,20 @@ export class GridBackground {
   applyDirectedForce(forceX: number, forceY: number, forceZ: number, worldX: number, worldY: number, radius: number): void {
     this.dirty = true;
     const radiusSq = radius * radius;
-    const minCol = Math.max(0, Math.floor((worldX - radius) / this.CELL_SIZE));
-    const maxCol = Math.min(this.numCols - 1, Math.ceil((worldX + radius) / this.CELL_SIZE));
-    const minRow = Math.max(0, Math.floor((worldY - radius) / this.CELL_SIZE));
-    const maxRow = Math.min(this.numRows - 1, Math.ceil((worldY + radius) / this.CELL_SIZE));
+    const latticeX = worldX - this.viewOriginX;
+    const latticeY = worldY - this.viewOriginY;
+    const minCol = Math.max(0, Math.floor((latticeX - radius) / this.CELL_SIZE));
+    const maxCol = Math.min(this.numCols - 1, Math.ceil((latticeX + radius) / this.CELL_SIZE));
+    const minRow = Math.max(0, Math.floor((latticeY - radius) / this.CELL_SIZE));
+    const maxRow = Math.min(this.numRows - 1, Math.ceil((latticeY + radius) / this.CELL_SIZE));
 
     for (let row = minRow; row <= maxRow; row++) {
       for (let col = minCol; col <= maxCol; col++) {
         const index = row * this.numCols + col;
         if (this.inverseMass[index] === 0) continue;
 
-        const deltaX = this.posX[index] - worldX;
-        const deltaY = this.posY[index] - worldY;
+        const deltaX = this.posX[index] - latticeX;
+        const deltaY = this.posY[index] - latticeY;
         const distSq = deltaX * deltaX + deltaY * deltaY;
 
         if (distSq < radiusSq) {
@@ -374,16 +435,30 @@ export class GridBackground {
     entityData: { x: number; y: number; weight: number }[],
     entityCount?: number
   ): void {
+    const count = entityCount ?? entityData.length;
+    const total = count + (playerPos ? 1 : 0);
+    while (this.gravityPool.length < total) {
+      this.gravityPool.push({ x: 0, y: 0, weight: 0 });
+    }
+
     this.gravityPoints.length = 0;
 
     if (playerPos) {
-      this.gravityPoints.push({ x: playerPos.x, y: playerPos.y, weight: 1.5 });
+      const point = this.gravityPool[this.gravityPoints.length];
+      point.x = playerPos.x - this.viewOriginX;
+      point.y = playerPos.y - this.viewOriginY;
+      point.weight = 1.5;
+      this.gravityPoints.push(point);
       this.dirty = true;
     }
 
-    const count = entityCount ?? entityData.length;
     for (let i = 0; i < count; i++) {
-      this.gravityPoints.push(entityData[i]);
+      const source = entityData[i];
+      const point = this.gravityPool[this.gravityPoints.length];
+      point.x = source.x - this.viewOriginX;
+      point.y = source.y - this.viewOriginY;
+      point.weight = source.weight;
+      this.gravityPoints.push(point);
     }
 
     if (count > 0) {
@@ -483,8 +558,8 @@ export class GridBackground {
     // A gentle circular drift so the grid never walks off and stays cohesive with parallax.
     this.driftPhase += clampedDelta * 0.15;
     this.graphics.setPosition(
-      Math.cos(this.driftPhase) * this.GRID_DRIFT_AMPLITUDE,
-      Math.sin(this.driftPhase * 0.8) * this.GRID_DRIFT_AMPLITUDE,
+      Math.cos(this.driftPhase) * this.GRID_DRIFT_AMPLITUDE - this.viewSubX,
+      Math.sin(this.driftPhase * 0.8) * this.GRID_DRIFT_AMPLITUDE - this.viewSubY,
     );
 
     // Quick scan: check if any spring velocities are non-negligible
@@ -690,6 +765,9 @@ export class GridBackground {
     const fixedAxisValue = isHorizontal ? this.restY[firstIndex] : this.restX[firstIndex];
     this.preFilterGravityPoints(fixedAxisValue, isHorizontal);
 
+    const perspectiveCenterX = this.centerX + this.viewSubX;
+    const perspectiveCenterY = this.centerY + this.viewSubY;
+
     for (let pointIdx = 0; pointIdx < lineLength; pointIdx++) {
       const index = isHorizontal
         ? lineIndex * this.numCols + pointIdx
@@ -707,8 +785,8 @@ export class GridBackground {
       // Perspective projection using Z
       if (usePerspective && this.posZ[index] !== 0) {
         const perspectiveScale = (this.posZ[index] + 2000) / 2000;
-        renderX = this.centerX + (renderX - this.centerX) * perspectiveScale;
-        renderY = this.centerY + (renderY - this.centerY) * perspectiveScale;
+        renderX = perspectiveCenterX + (renderX - perspectiveCenterX) * perspectiveScale;
+        renderY = perspectiveCenterY + (renderY - perspectiveCenterY) * perspectiveScale;
       }
 
       // Displacement from rest (both layers combined)
