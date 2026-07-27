@@ -254,6 +254,8 @@ export class GameScene extends Phaser.Scene {
   private totalDamageTaken: number = 0;
   private totalDamageDealt: number = 0;
   private damageTakenBySource: Map<string, number> = new Map();
+  /** Attribution bucket of the lethal hit, set only past the revival branch in takeDamage. */
+  private killedBySourceName: string | null = null;
 
   // Player stats and upgrades
   private playerStats!: PlayerStats;
@@ -658,6 +660,7 @@ export class GameScene extends Phaser.Scene {
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
     this.damageTakenBySource.clear();
+    this.killedBySourceName = null;
     this.lastAchievementTimeCheck = 0;
     this.pendingBossHealthBars = [];
 
@@ -4790,13 +4793,15 @@ export class GameScene extends Phaser.Scene {
    * Buckets a landed hit by what dealt it. Only ever reached after every
    * avoidance branch in takeDamage, so a blocked / dashed / dodged / phased hit
    * is never attributed and the buckets always sum to `totalDamageTaken`.
+   * Returns the bucket it wrote so the caller can name the killing blow without
+   * re-deriving the label.
    */
   private recordDamageTakenSource(
     attackerEntity: number | undefined,
     sourceLabel: string | undefined,
     damage: number,
-  ): void {
-    if (!(damage > 0)) return;
+  ): string | null {
+    if (!(damage > 0)) return null;
 
     let bucketName = sourceLabel;
     if (bucketName === undefined && attackerEntity !== undefined) {
@@ -4809,6 +4814,8 @@ export class GameScene extends Phaser.Scene {
       bucketName,
       (this.damageTakenBySource.get(bucketName) ?? 0) + damage,
     );
+
+    return bucketName;
   }
 
   private getDamageTakenBySource(): DamageSourceTally[] {
@@ -4942,7 +4949,7 @@ export class GameScene extends Phaser.Scene {
 
     // Track damage taken for achievements (perfect run tracking)
     this.totalDamageTaken += reducedDamage;
-    this.recordDamageTakenSource(attackerEntity, sourceLabel, reducedDamage);
+    const damageBucketName = this.recordDamageTakenSource(attackerEntity, sourceLabel, reducedDamage);
     const remainingHpPercent = this.playerStats.currentHealth / this.playerStats.maxHealth;
     getAchievementManager().recordDamageTaken(reducedDamage, remainingHpPercent);
 
@@ -5013,6 +5020,9 @@ export class GameScene extends Phaser.Scene {
 
       Health.current[this.playerId] = 0;
       this.playerStats.currentHealth = 0;
+      // Past the revival branch on purpose: a hit the player was revived from
+      // never claims the kill.
+      this.killedBySourceName = damageBucketName ?? 'Unknown';
       this.playDeathSequence();
     }
   }
@@ -6057,6 +6067,8 @@ export class GameScene extends Phaser.Scene {
       highestCombo: highestComboThisRun,
       totalDamageDealt: this.totalDamageDealt,
       totalDamageTaken: this.totalDamageTaken,
+      damageBySource: this.getDamageTakenBySource(),
+      killedBy: this.killedBySourceName,
       weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
       personalBests: personalBestsSnapshot,
       unlockProgress: unlockProgressForPanel,

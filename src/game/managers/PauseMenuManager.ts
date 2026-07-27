@@ -7,7 +7,7 @@ import { SoundManager } from '../../audio/SoundManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { deriveBuildStats, type DamageSourceTally } from './buildStats';
+import { deriveBuildStats, orderThreatsByDamage, type DamageSourceTally } from './buildStats';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
@@ -260,6 +260,10 @@ export interface GameOverData {
   highestCombo: number;
   totalDamageDealt?: number;
   totalDamageTaken?: number;
+  /** Per-source damage-taken tally for the run-end threat panel. Ordered + shared there. */
+  damageBySource?: DamageSourceTally[];
+  /** Attribution bucket of the lethal hit. Undefined/null when the run ended without one. */
+  killedBy?: string | null;
   weaponStats?: WeaponRunStats[];
   personalBests?: {
     longestSurvival: number;
@@ -2071,6 +2075,11 @@ export class PauseMenuManager {
       collector: animatedElements,
     });
 
+    // Registered last on purpose: goldElementIndex, cardRevealLastIndex and
+    // contentBottomY are all computed above, so nothing already on screen
+    // shifts position or stagger slot.
+    this.createThreatRecapPanel(data, depth, animatedElements);
+
     // Staggered entrance animations
     const staggerDelay = 120;
     animatedElements.forEach((element, index) => {
@@ -2574,6 +2583,111 @@ export class PauseMenuManager {
         }
       ).setOrigin(1, 0).setDepth(depth);
       animatedElements.push(valueText);
+    });
+  }
+
+  /**
+   * Landscape-only "WHAT KILLED YOU" panel: the lethal hit's attribution bucket
+   * plus the run's worst damage sources, in the left column below PERSONAL
+   * BESTS. Its top Y is a constant because that panel is always 4 rows tall
+   * (bottom `centerY + 26`), so this one never drifts with content. Skipped
+   * below 1000 px wide — the centered 340-wide CLOSEST TO UNLOCK panel needs
+   * that clearance, and at portrait widths both below-column slots are already
+   * spoken for (the same reason createRecentRunsStrip skips there).
+   */
+  private createThreatRecapPanel(
+    data: GameOverData,
+    depth: number,
+    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
+  ): void {
+    if (this.scene.scale.width < 1000 || this.scene.scale.height < 520) return;
+
+    const threatRows = orderThreatsByDamage(data.damageBySource ?? [], 3);
+    if (threatRows.length === 0 && !data.killedBy) return;
+
+    const panelWidth = 240;
+    const panelX = Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
+    const panelTopY = this.scene.scale.height / 2 + 42;
+    const rowHeight = 34;
+    const killedByHeight = data.killedBy ? 26 : 0;
+    const rowsTopY = panelTopY + 30 + killedByHeight;
+    const panelHeight = 30 + killedByHeight + threatRows.length * rowHeight + 12;
+
+    const panelBackground = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBackground,
+      panelX - panelWidth / 2,
+      panelTopY,
+      panelWidth,
+      panelHeight,
+      { accentColor: ACCENT_COLORS.danger }
+    );
+    panelBackground.setDepth(depth);
+    animatedElements.push(panelBackground);
+
+    const titleText = this.scene.add.text(panelX, panelTopY + 8, 'WHAT KILLED YOU', {
+      fontSize: '14px',
+      color: '#ffaaaa',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0).setDepth(depth);
+    animatedElements.push(titleText);
+
+    if (data.killedBy) {
+      const killedByText = this.scene.add.text(
+        panelX,
+        panelTopY + 30,
+        `KILLED BY  ${data.killedBy}`,
+        {
+          fontSize: '14px',
+          color: '#ff6666',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+          fontStyle: 'bold',
+        }
+      ).setOrigin(0.5, 0).setDepth(depth);
+      animatedElements.push(killedByText);
+    }
+
+    threatRows.forEach((threat, index) => {
+      const rowY = rowsTopY + index * rowHeight;
+      const sharePercent = Math.round(threat.damageShare * 100);
+
+      const nameText = this.scene.add.text(
+        panelX - panelWidth / 2 + 10,
+        rowY + 2,
+        threat.sourceName,
+        {
+          fontSize: '13px',
+          color: '#ddddee',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(nameText);
+
+      const damageText = this.scene.add.text(
+        panelX + panelWidth / 2 - 10,
+        rowY + 2,
+        `${formatLargeNumber(threat.totalDamage)}  ${sharePercent}%`,
+        {
+          fontSize: '12px',
+          color: '#ff9977',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(1, 0).setDepth(depth);
+      animatedElements.push(damageText);
+
+      const barBackground = this.scene.add.graphics();
+      barBackground.fillStyle(0x222233, 0.8);
+      barBackground.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, panelWidth - 20, 5);
+      barBackground.setDepth(depth);
+      animatedElements.push(barBackground);
+
+      const barFill = this.scene.add.graphics();
+      const barFillWidth = ((panelWidth - 20) * sharePercent) / 100;
+      barFill.fillStyle(index === 0 ? 0xff6666 : 0x8888bb, 1);
+      barFill.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, barFillWidth, 5);
+      barFill.setDepth(depth);
+      animatedElements.push(barFill);
     });
   }
 
