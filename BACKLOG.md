@@ -1852,12 +1852,52 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   Scope: quests only. END RUN still records no run end (no achievements, codex or run history) —
   filed as **FEAT-ENDRUN-RECORD-TRUTH**.
 
-- [ ] **FEAT-QUEST-BOARD-ENDSCREEN**: show the day's quest board on the run-end screen. Value:
-  **FEAT-QUEST-HUD** (`10b1b18`) put the live board on the *pause* overlay, so the one moment the
-  player is deciding whether to start another run, the death screen, is the one place the board is
-  absent; surfacing "2/3 done, one needs 400 more damage" turns a finished run into a reason to
-  start the next one.
-  Pointer: `getLiveDailyQuestBoard()` + `PauseMenuManager.createDailyQuestPanel` (~`:1180-1249`).
+- [x] **FEAT-QUEST-BOARD-ENDSCREEN** — today's quest board now shows on the death screen
+  (done — e6c24bb). The literal gap: the death screen named no unfinished quest and no distance to
+  one. Its only quest surfaces looked backward — a `Quest Gold  +N` stat cell that renders **only
+  when `questGold > 0`** (`PauseMenuManager.ts:2344-2347`), and the `EARNED THIS RUN` panel, which
+  lists quests this run *completed*. Four facts made this the highest-value slot, all verified by
+  reading, not assumed:
+  (1) `SPACE` on the death screen calls `options.onRestart()` → `GameScene.ts:6097-6100` →
+  `this.scene.restart()`, relaunching a run **directly** with no menu in between, so that screen
+  *is* the between-runs decision point;
+  (2) the board had exactly three surfaces and none was that screen — `AchievementScene.ts:528`
+  (the `daily` tab), `PauseMenuManager.createDailyQuestsPanel` (`:1210`, the in-run pause overlay,
+  live-folded) and `BootScene.ts:476`, which shows only a bare `questBadge: "2/3"` count with no
+  quest names and no distances (`grep -rn "getDailyQuestBoard\|DailyQuestManager" src/` found no
+  other consumer);
+  (3) hence a player mid-session could not learn what today's board still wanted at the one moment
+  it would change their next run;
+  (4) `GameScene.gameOver()` calls `settleDailyQuests(...)` at `GameScene.ts:6598`, **before**
+  `this.pauseMenuManager.gameOver({...})` at `:6731` — so a plain `getDailyQuestBoard()` read at
+  render time is already this-run-inclusive. No live fold, no new plumbing, no `GameOverData` field;
+  folding again here would double-count the run.
+  The panel's height is **deliberately identical** to a three-entry `CLOSEST TO UNLOCK`
+  (`headerOffset 18 + 3*22 + 14 = 98`), so displacing it moves **nothing** downstream — the 720-unit
+  viewport constraint the existing slot comment already calls out.
+  Priority in the shared motivational slot is `EARNED THIS RUN` > `DAILY QUESTS` >
+  `CLOSEST TO UNLOCK`: when the run *completed* a quest the earnings panel already names it, so the
+  board adds nothing that frame; the board outranks unlock progress only because it expires at UTC
+  midnight and pays a listed gold sum while unlock progress is permanent. A 3/3 board yields the
+  slot back to `CLOSEST TO UNLOCK`.
+  **No practice-mode guard was added**, deliberately: `SecureStorage.setItem` hard-returns in
+  practice (`SecureStorage.ts:42`), so the sandbox run never settled and the stored board read is
+  already truthful — the same reasoning `createDailyQuestsPanel` (`:1214`) documents for the pause
+  overlay.
+  The diff added **no import** (FL-K01/FL-X03): `getDailyQuestBoard`, `formatQuestProgress`,
+  `DailyQuestProgress` and `paintPanelBackground` were all already in scope in this file, and no
+  second formatter was written — `formatQuestProgress` already yields `DONE` / `7:12 / 10:00` /
+  `840 / 1,200` including the `format: 'time'` case.
+  The victory screen and the `RUN ENDED` earned panel were **deliberately not** changed: neither has
+  this slot (`showVictory` tears down via `destroyElementsByName`, not the stagger collector, and a
+  button row occupies the space), so that scope cut is filed as **FEAT-QUEST-BOARD-VICTORY** under
+  `## Later` rather than dropped.
+  No test added (FL-X01): the change is Phaser-coupled scene rendering, the only new logic is the
+  one-line `board.some((entry) => !entry.complete)` predicate, and the board data it reads is
+  already covered by `src/meta/DailyQuestManager.test.ts`. `npx tsc --noEmit`, the existing
+  126-file/1575-test suite and `npm run build` are the floor. Playtest follow-up filed as
+  **POLISH-QUEST-ENDSCREEN** under `## Human gates`.
+  File: `src/game/managers/PauseMenuManager.ts`.
 
 - [x] **FEAT-UNLOCK-VAULT** — a browsable list of every hidden unlock, marking which are earned and
   when (done — c381ab2). Value: `HiddenUnlockManager` has persisted an `unlockedAt` timestamp per
@@ -2388,6 +2428,15 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   ticker and a bounty is active most of the time, so a shared line would flicker and mostly show the bounty;
   that trade is filed for a human eye as **POLISH-QUEST-HUD** under `## Human gates`.
 
+- [ ] **FEAT-QUEST-BOARD-VICTORY** — carry the DAILY QUESTS panel onto the victory screen and the
+  RUN ENDED earned panel. Value: FEAT-QUEST-BOARD-ENDSCREEN (`e6c24bb`) put the board on the death
+  screen only, because that is the one run-end surface with a one-motivational-panel slot;
+  `showVictory` has no such slot (its elements are torn down by `destroyElementsByName`, not the
+  stagger collector, and a button row occupies the space), and the RUN ENDED panel is height-capped
+  for the same reason. A player who wins or cashes out still cannot see what today's board wants.
+  Pointer: `PauseMenuManager.showVictory` (~`:1689`), `showEndRunEarned` (~`:1602`),
+  `createDailyQuestBoardPanel`.
+
 ---
 
 ## Human gates
@@ -2399,6 +2448,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-QUEST-ENDSCREEN** (— e6c24bb) — playtest the new DAILY QUESTS panel on the death
+    screen (FEAT-QUEST-BOARD-ENDSCREEN). Agents have no browser and must not judge a
+    motivational beat blind. Owns: (a) **the slot trade** — on a run that earned nothing,
+    `DAILY QUESTS` now takes the slot `CLOSEST TO UNLOCK` used to hold. Is a deadline-bound
+    board more motivating at the restart prompt than permanent unlock progress, or was the
+    unlock panel the better hook? (b) **a finished board** — at 3/3 the panel yields and
+    `CLOSEST TO UNLOCK` returns. Does that swap read as the screen adapting to what is left to
+    chase, or as a panel that simply vanished? (c) **the completed rows** — all three quests
+    render, done ones included, so the header count (`2/3`) stays honest against the rows
+    beneath it and the panel height stays constant. Is the green `DONE` row a satisfying tick,
+    or wasted height that should be dropped so the unfinished quests get more room?
+    (d) **portrait (720 units wide)** — the panel is 340 wide with a 110-unit bar starting at
+    `rewardRightX - 40 - barWidth`; do longer quest names (e.g. `Extermination Quota`) collide
+    with the bar's left edge at that width? (e) **the reward column** — `+250g` sits where
+    `CLOSEST TO UNLOCK` puts a percentage. Does naming the gold make the board feel worth
+    chasing, or does it read as gold already owed?
   - **POLISH-ENDRUN-GAMEPAD** (— 73e0bd5) — playtest the END RUN dialog and the `RUN ENDED`
     panel with a real pad (BUG-ENDRUN-CONFIRM-NO-GAMEPAD). Agents have no pad and no browser.
     Owns: (a) **the 350 ms gate on a pad** — A now both confirms the dialog and continues past
