@@ -2226,10 +2226,11 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
 - [ ] **CHORE-WORLDGEN-BUDGET-GUARD**: `generateWorld` silently places fewer gates than
   `abilityGateOrder` asks for when the sector budget cannot host them (it stops when no
   candidate tree edge leaves room for the key, and `WorldMap.abilityOrder` records only what
-  was actually placed). The caller that eventually picks the budget
-  (`FEAT-WORLD-SPACE-4`) should assert `abilityOrder.length === abilityGateOrder.length` at
-  its call site rather than discovering a missing ability in play. Deps:
-  `FEAT-WORLD-SPACE-4`.
+  was actually placed). The caller that eventually picks the budget should assert
+  `abilityOrder.length === abilityGateOrder.length` at its call site rather than discovering a
+  missing ability in play. W4 shipped with a hardcoded dev flight rect and never calls
+  `generateWorld`, so the first real call site is `FEAT-WORLDGEN-SPAWN` (Phase 4). Deps:
+  `FEAT-WORLDGEN-SPAWN`.
 
 - [ ] **CHORE-COLLIDE-TELEPORT-SNAP**: `resolveCircleMove` caps at `MAX_SUBSTEPS = 64`
   (one sector width), so a recall-to-Hangar teleport must not be routed through it:
@@ -2253,11 +2254,12 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   rather than by test. Cover it when a chunk next touches that file for its own reason.
   Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 8.
 
-- [ ] **CHORE-WORLDGEN-ABILITY-ORDER-WIRE**: `FEAT-WORLD-SPACE-4` must pass
+- [ ] **CHORE-WORLDGEN-ABILITY-ORDER-WIRE**: the real `generateWorld` call site must pass
   `TRAVERSAL_ABILITY_GATE_ORDER` (`src/data/TraversalAbilities.ts`) as
-  `WorldGenInputs.abilityGateOrder` at the real `generateWorld` call site: it is now the
-  canonical order, and a second hand-written list at that call site would be the exact
-  drift README section 3.6 forbids. Deps: `FEAT-WORLD-SPACE-4`.
+  `WorldGenInputs.abilityGateOrder`: it is now the canonical order, and a second hand-written
+  list at that call site would be the exact drift README section 3.6 forbids. W4 shipped with
+  a hardcoded dev flight rect and never calls `generateWorld`, so the first real call site is
+  `FEAT-WORLDGEN-SPAWN` (Phase 4). Deps: `FEAT-WORLDGEN-SPAWN`.
 
 - [x] **FEAT-BARRIER-COLLIDE** (done — b445e15): the geometry `FEAT-WORLDGEN-CORE` emits
   can now **stop something**. `src/world/staticCollision.ts` is the first static collision
@@ -2703,15 +2705,63 @@ exploring pays is the end of Phase 5.
 
 #### Phase 2: the first flyable world (dev route)
 
-- [ ] **FEAT-WORLD-SPACE-4**: camera follows the ship across a multi-sector plane with the
-  signature grid, lighting and post-FX intact, behind `?expedition=1`. New
-  `ExpeditionModeAdapter.ts`; new `src/world/latticeScroll.ts` (`snappedOrigin`,
-  `scrollLatticeField`, deferred here from W1 because this is its only consumer, spec in doc
-  01 section 6); `GridBackground` gains `setViewScroll` with whole-cell snapping;
-  `LightingSystem.ts:38-83` and the distortion call sites get world-to-screen conversion. Done
-  when grid lines stay world-anchored while flying (a line does not slide past a stationary
-  destructible), kill ripples stay where the kill happened, and
-  `expedition:sector-entered` fires exactly once per crossing. Deps: W1, W2, W3.
+- [x] **FEAT-WORLD-SPACE-4** (done — 35c777f): the arena stops being the map. `?expedition=1`
+  starts a run on a 5x5-sector plane (6400 x 3600 world units), the first time in this repo's
+  history that the ship can fly across a world larger than one screen. The camera follows with
+  a 160x120 deadzone at lerp 0.12 and stops at world bounds; the grid lattice slides in whole
+  40 px cells with its in-flight ripples shifted to match, so lines stay world-anchored; the
+  trail buffer is pinned and stamps at screen coordinates; seven distortion call sites convert
+  world to screen through `addWorldDistortion` and two screen-anchored grid pulses convert the
+  other way; `expedition:sector-entered` fires once per crossing with
+  `{ sectorKey, coord, viaEdgeId: null }`. Enemies stream from the moving view edges for free,
+  because W2 already routed every spawner through `worldMode.viewRect()`. Arena is unchanged:
+  `ArenaModeAdapter.setupCamera` is empty, so no arena path can acquire camera scroll, and
+  `setViewScroll` is never called, leaving both view-layer render paths byte-identical. New
+  `src/world/latticeScroll.ts` (`snappedOrigin`, `scrollLatticeField`) with 8 tests, the only
+  tests this chunk adds: the shift direction is silently reversible, so shifting the wrong way
+  makes ripples slide against the world, which looks plausible in motion and is invisible to
+  `tsc`. Seven deviations. (1) **The flight rect is hardcoded and `generateWorld` is never
+  called.** Doc 01 W4 asks for a "temporary bounded flight rect (e.g. 5x5 sectors)" and this
+  chunk renders no walls, doors or POIs, so importing a generated 48-sector layout would be a
+  whole world with no consumer (`FL-X04`). Consequence: `CHORE-WORLDGEN-BUDGET-GUARD` and
+  `CHORE-WORLDGEN-ABILITY-ORDER-WIRE` are **not** unblocked by this chunk, and their deps were
+  corrected to `FEAT-WORLDGEN-SPAWN`. (2) **`LightingSystem` needed no change.** Doc 01's
+  migration table lists it as W4 work; the shipped file already pins its render texture
+  (`LightingSystem.ts:42`) and already converts each light with `source.x - camera.scrollX`
+  (lines 88-90). Verified, not assumed. `lightGraphics` is invisible and drawn only into the
+  pinned texture, so its scroll factor is unreachable. (3) **`TrailManager` was an unlisted
+  straggler and had to be fixed.** Doc 01's visual-systems table never lists it. Its
+  screen-sized `RenderTexture` sits at world `(0, 0)` with scroll factor 1 and stamps
+  world-coordinate segments, so in expedition the ship's trail would have vanished entirely.
+  It is now pinned, with segments converted at draw time. **Known artifact:** the buffer
+  accumulates history in screen space, so the fading tail smears with camera motion instead of
+  staying in the world. Trails decay in roughly 0.6 s, so the smear is bounded; whether it
+  reads as motion blur or as a bug is a browser call, filed under **POLISH-EXPEDITION-FLIGHT**.
+  (4) **`fieldRect` is the whole flight rect while exploring, not the current sector.**
+  `references/map/README.md` section 3.4 says fieldRect is the current sector, which would
+  clamp the player inside one sector and make the world unflyable, and which contradicts both
+  spine decision 1 ("not a camera cage") and doc 01 section 2.2 ("sector transition is a
+  scroll, never a hard cut"). Doc 01 section 3's own migration row states the resolution used
+  here: expedition fieldRect is the world bounds rect. Sector-scoped bounds are real, but they
+  belong to the sector lock (`FEAT-WORLD-SPACE-6`). The README parenthetical records this so it
+  is not re-litigated. (5) **`handleResize` needed no expedition branch.** Doc 01's table asks
+  for "re-apply camera deadzone and re-derive viewRect consumers" there. Verified unnecessary:
+  the deadzone is a fixed-size box Phaser re-positions every `preRender`, camera bounds are
+  world-derived and resize-independent, and `viewRect()` is recomputed from the live
+  `camera.width/height` on every call. The one thing a resize does invalidate is the lattice
+  window after a cell-count rebuild, handled inside `GridBackground.resize()`. (6) **No
+  `pinToCamera`-style abstraction, and `setupCamera` takes three arguments.** Doc 01 section
+  7.2 spells `setupCamera(playerVisual)`. It also takes the grid and the trail buffer because
+  those are the two screen-sized layers that must track the camera, they are the only ones, and
+  they are all live at the single call site. (7) **The boss still spawns at screen-space
+  coordinates.** `spawnBoss` places the boss relative to `scale.width`, so in expedition a boss
+  enters near the world origin rather than near the player. That is `FEAT-WORLD-SPACE-6`'s
+  sector lock, which recovers the tuned room geometry; recorded here so it does not read as a
+  bug in playtest. Every DONE-CRITERION about how it looks (no camera jitter, grid lines not
+  sliding past a stationary destructible, ripples staying put, FPS parity) needs a human in a
+  browser and is filed under **POLISH-EXPEDITION-FLIGHT**. Verified with `tsc`, the suite at
+  133 files / 1664 tests, `npm run build`, and the structural greps in the plan's Verify table.
+  Deps: W1, W2, W3.
 
 - [ ] **FEAT-WORLD-SPACE-5**: camera-relative spawning plus a leash, so pressure follows the
   camera with arena-identical pacing and nothing accumulates behind the player. Reroutes
@@ -3107,6 +3157,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f): playtest the first flyable world
+    (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
+    tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
+    160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
+    third of the screen? (b) **grid anchoring**: fly past a stationary destructible and watch
+    whether a grid line slides relative to it, and whether the whole-cell snap is visible as a
+    stutter. (c) **trail smear**: deviation 3's known artifact. The trail buffer accumulates in
+    screen space, so the fading tail smears with camera motion. Motion blur, or bug?
+    (d) **sector crossings**: the console logs one line per crossing. Does exactly one fire per
+    boundary, including at the start? (e) **seam emptiness**: the flight rect is empty space
+    with no walls, so is the 5x5 plane legible as a world, or does it read as a bug?
+    (f) **FPS**: compare a flying run against an arena run at comparable entity load.
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every

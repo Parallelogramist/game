@@ -764,6 +764,29 @@ conversion, pinned graphics in expedition); `src/visual/LightingSystem.ts:38-83`
 **Dependencies:** W1, W2, W3. **Test surface:** `latticeScroll` already tested in W1;
 adapter and GridBackground wiring are Phaser-coupled (play-verified).
 
+*(As built, five deviations. The flight rect is a hardcoded 5x5 sectors and `generateWorld`
+is never called: this chunk renders no walls, doors or POIs, so importing a generated
+48-sector layout would be a whole world with no consumer, and the first real `generateWorld`
+call site is therefore `FEAT-WORLDGEN-SPAWN` in Phase 4, not here. `LightingSystem` needed no
+change at all: the shipped file already pins its render texture at line 42 and already
+converts each light with `source.x - camera.scrollX` at lines 88-90, and `lightGraphics` is
+invisible and drawn only into the pinned texture, so its scroll factor is unreachable.
+`TrailManager` was an unlisted straggler and had to be fixed: the visual-systems table above
+never lists it, but its screen-sized `RenderTexture` sat at world `(0, 0)` with scroll factor
+1 while stamping world-coordinate segments, so the ship's trail would have vanished entirely
+once the camera scrolled; it is now pinned and stamps at screen coordinates, with the known
+artifact that the buffer accumulates history in screen space so the fading tail smears with
+camera motion (bounded by the roughly 0.6 s decay, filed as a playtest question).
+`handleResize` needed no expedition branch: the deadzone is a fixed-size box Phaser
+re-positions every `preRender`, camera bounds are world-derived and resize-independent, and
+`viewRect()` is recomputed from the live `camera.width/height` on every call; the one thing a
+resize does invalidate is the lattice window after a cell-count rebuild, which is handled
+inside `GridBackground.resize()`. And `setupCamera` takes three arguments rather than section
+7.2's `setupCamera(playerVisual)`: it also takes the grid and the trail buffer because those
+are the two screen-sized layers that must track the camera, they are the only ones, and all
+three are live at the single call site. Also `latticeScroll` was not in fact tested in W1; it
+was deferred to this chunk with its only consumer, and its 8 tests land here.)*
+
 ### FEAT-WORLD-SPACE-5: camera-relative spawning + leash
 **Value:** combat in the moving world with arena-identical pacing: pressure follows
 the camera, nothing accumulates behind the player, nothing spawns out of bounds.

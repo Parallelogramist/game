@@ -113,7 +113,10 @@ itself.
 - `fieldRect` : what the player and enemy AI are bounded by. In arena mode both are the
   screen rect. In expedition mode `fieldRect` is the current sector (or the locked
   sector during a boss fight) and `setEnemyAIBounds` keeps receiving sector-local
-  bounds.
+  bounds. (As built from `FEAT-WORLD-SPACE-4`: while exploring, `fieldRect` is the world
+  bounds rect, and it narrows to a single sector only under a sector lock
+  (`FEAT-WORLD-SPACE-6`). Clamping the player to the current sector while exploring would
+  contradict spine decision 1 and make a sector transition a cut rather than a scroll.)
 
 ### 3.5 Save ownership
 
