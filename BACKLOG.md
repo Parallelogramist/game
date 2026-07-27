@@ -55,18 +55,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   Legibility/feel → playtest queue (POLISH-THREAT-REPORT). Run-end placement deliberately cut — see
   FEAT-THREAT-RECAP below.
 
-- [ ] **FEAT-THREAT-RECAP** — carry the threat breakdown onto the run-end results overlay. Value:
-  FEAT-THREAT-REPORT answers "what is hurting me" mid-run, but the pause overlay is unreachable once you
-  die, so the death screen — the moment you most want "what killed me" — still shows a bare Damage Taken
-  number. Deliberately cut from FEAT-THREAT-REPORT because the game-over overlay is a dense, tuned layout
-  with documented collision constraints (the card reveal is aligned under the weapon panel's *maximum*
-  5-row footprint at `centerY + 82`) and the right stat cell has ~101 px of value width at 16 px, which
-  a `12.4k · Dasher` string overflows — placement is a real design call, not an executor choice. Done
-  when: a planner picks a placement (4th stat row, a line under the stats panel, or a section inside
-  `createWeaponBreakdownPanel`) and the top threats render on the game-over overlay without moving the
-  card-reveal or unlock-progress slots. Pointers: `PauseMenuManager.gameOver` (stats grid ~L1852-1940,
-  `createWeaponBreakdownPanel` ~L2367), `GameOverData`, the `pauseMenuManager.gameOver({...})` literal in
-  `GameScene`. `GameScene.getDamageTakenBySource()` already supplies the data.
+- [x] **FEAT-THREAT-RECAP** — the death screen now names what killed you (done — 6f66474). Value:
+  FEAT-THREAT-REPORT (`c259252`) made damage taken attributable, but only on the pause BUILD STATS panel,
+  which the game-over overlay replaces: at the one moment the player asks "what killed me", the death
+  screen showed a bare `Damage Taken` scalar. It now carries a landscape-only **WHAT KILLED YOU** panel in
+  the left column below PERSONAL BESTS: a `KILLED BY <source>` headline, then the run's top 3 damage
+  sources with totals, shares and bars. The rows come from the same `orderThreatsByDamage` derivation the
+  pause panel uses, so the two surfaces can never disagree. **The killing blow is data nothing recorded
+  before:** `recordDamageTakenSource` now returns the bucket it wrote, and `takeDamage` stores it as
+  `killedBySourceName` only inside the final death branch, past the revival check, so a hit the player was
+  revived from never claims the kill. `playDeathSequence()` is the scene's only death path, so one
+  assignment covers every run that ends in death. Placement is the constant `height / 2 + 42`, because
+  PERSONAL BESTS is always 4 rows tall (bottom `centerY + 26`), so the panel cannot drift with content;
+  and it registers its elements **after** `createRecentRunsStrip`, i.e. last, so `goldElementIndex`,
+  `cardRevealLastIndex` and `contentBottomY` are all computed before it and no existing element changes
+  position or stagger slot. Skipped below 1000 px wide (the centered 340-wide CLOSEST TO UNLOCK panel needs
+  that clearance, and at portrait widths both below-column slots are already spoken for: the same reason
+  `createRecentRunsStrip` skips there) and below 520 px tall. Per-run in-memory only: no new storage key,
+  no save-format migration, no ECS or combat change, no new scene, no new file. **No new tests:** the
+  ordering, tie-break and share denominator are already pinned by `buildStats.test.ts`, and the two new
+  pieces (a returned bucket name, one field set at one death branch) are Phaser-coupled like their
+  siblings, guarded by tsc + build. The victory overlay is deliberately excluded: a won run has no lethal
+  hit, and `showVictory` is a separate dense layout. Legibility/feel → playtest queue
+  (POLISH-THREAT-RECAP). Files: `GameScene.ts`, `PauseMenuManager.ts`.
 
 - [x] **FEAT-PACE-GHOST** — race your own personal best, live (done — ed81832). Value: every run played
   against an absolute clock and nothing in-run knew anything about any previous run — `BestScoreManager` is
@@ -1548,6 +1559,20 @@ Never agent work. The fleet must not do any of these.
     delta oscillates around zero? Does the third stats line crowd the right edge in portrait, and does the
     relic/modifier strip still sit clear of it with 6+ relics? Should the line also appear for gauntlet
     (which keeps no best score) or stay hidden?
+  - **POLISH-THREAT-RECAP** (— 6f66474) — the new **WHAT KILLED YOU** panel on the game-over overlay needs a
+    human in a browser (FEAT-THREAT-RECAP). Agents have no browser. Reach it: die in any run on a viewport
+    at least 1000 px wide. Check: (a) does `KILLED BY <name>` name the thing that actually landed the
+    lethal hit, including for the label paths (`Explosion` / `Enemy Fire` / `Ground Slam` / `Laser Beam`)
+    and after a revival is spent (the revived-from hit must NOT be credited); (b) worst case is
+    `killedBy` plus 3 rows, panel top `height / 2 + 42`, height 170, so bottom lands at ~572 on a 720-high
+    landscape viewport — does it clear the RECENT strip above it and the centered CLOSEST TO UNLOCK panel
+    beside it at 1000, 1280 and 2000 px wide?; (c) does `KILLED BY  The Tessellator` (the longest source
+    name, 15 chars) fit the 240-unit panel at 14 px?; (d) the panel is registered last, so it fades in
+    after everything else: at ~120 ms per element the death screen already staggers for several seconds, so
+    does WHAT KILLED YOU arrive too late to be read before the player taps to restart, and should the
+    stagger be capped?; (e) should the panel also appear on the victory overlay in some "what hurt you
+    most" form (no lethal hit exists there), and should portrait get it at all, given both below-column
+    slots are taken?
   - **POLISH-THREAT-REPORT** — the new **TOP THREATS** block on the pause BUILD STATS panel needs a human in a
     browser (FEAT-THREAT-REPORT, `c259252`). Agents have no browser. Reach it: take a few hits in any
     run → **ESC**; the block is the last section of the BUILD STATS panel (left side in landscape, below the
