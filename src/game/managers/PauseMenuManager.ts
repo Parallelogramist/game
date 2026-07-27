@@ -20,6 +20,7 @@ import { getDailyQuestBoard, getLiveDailyQuestBoard, type DailyQuestProgress } f
 import { DAILY_QUEST_COUNT, formatQuestValue } from '../../data/DailyQuests';
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
 import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
+import { formatRunEarningsLine, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -242,6 +243,8 @@ export interface VictoryData {
   goldLedger?: { earned: number; spent: number };
   /** Daily-quest gold settled at run end. */
   questGold?: number;
+  /** What the run's end earned (see GameOverData.runEarnings). */
+  runEarnings?: RunEarning[];
   clearedWorld: number;
   newWorldLevel: number;
   previousStreak: number;
@@ -281,6 +284,15 @@ const TIMELINE_LEGEND_LABELS: Record<RunTimelineEventKind, string> = {
   closeCall: 'HURT',
 };
 
+const RUN_EARNING_TAG_COLORS: Record<RunEarningTag, string> = {
+  SHIP: '#66ccff',
+  WEAPON: '#ff9944',
+  STAGE: '#88ff99',
+  COSMETIC: '#cc99ff',
+  ACHIEVEMENT: '#ffdd44',
+  QUEST: '#ffe26a',
+};
+
 /**
  * Below this width the death-screen recap surfaces cannot use the side margins or
  * the below-column slots (both are spoken for at portrait widths) and move into the
@@ -302,6 +314,12 @@ export interface GameOverData {
   goldLedger?: { earned: number; spent: number };
   /** Daily-quest gold settled at run end — paid after the ledger snapshot, so it is in no other number. */
   questGold?: number;
+  /**
+   * What the run's end earned: hidden unlocks, achievements and settled daily quests.
+   * Their toasts draw at OverlayDepths.HUD, underneath this overlay, so this is the
+   * only surface that reports them.
+   */
+  runEarnings?: RunEarning[];
   previousStreak: number;
   highestCombo: number;
   totalDamageDealt?: number;
@@ -1667,6 +1685,27 @@ export class PauseMenuManager {
       scoreText.setName('victoryScore');
     }
 
+    // What this win earned, in the free band between the score line (centerY - 124) and
+    // the stats panel (top centerY - 12). One line, not a panel: every centered slot
+    // below the panel is taken, and growing the 400-wide panel pushes the button row.
+    const earningsLine = formatRunEarningsLine(data.runEarnings ?? []);
+    if (earningsLine) {
+      const earningsText = this.scene.add.text(
+        victoryCenterX,
+        this.scene.scale.height / 2 - 96,
+        earningsLine,
+        {
+          fontSize: '15px',
+          color: '#ffdd44',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+          fontStyle: 'bold',
+        }
+      );
+      earningsText.setOrigin(0.5);
+      earningsText.setDepth(PAUSE_MENU_DEPTH + 1);
+      earningsText.setName('victoryEarned');
+    }
+
     // Recent-run trend strip (left margin, clear of the centered title/buttons).
     // Skipped at portrait widths: unlike the death screen, this overlay has no
     // free band above its title to fall back to.
@@ -1851,6 +1890,7 @@ export class PauseMenuManager {
       'victoryShareButtonText',
       'victoryGoldPreview',
       'victoryGoldEconomy',
+      'victoryEarned',
       'victoryStreak',
       'victoryConfetti',
       'victoryGradeBadge',
@@ -2194,9 +2234,20 @@ export class PauseMenuManager {
       cardRevealLastIndex = animatedElements.length - 1;
     }
 
-    // "Progress toward unlocks" panel — turns wasted runs into forward motion
-    // by surfacing the top 3 locked hidden unlocks the player is closest to.
-    if (data.unlockProgress && data.unlockProgress.length > 0) {
+    // What the run just earned outranks what it is close to earning, and the two own the
+    // same slot: at 720 game units tall the stat panel, gold pill and CLOSEST TO UNLOCK
+    // already reach the restart hint, so stacking a second panel pushes content off the
+    // viewport. The run-end unlock/achievement/quest toasts draw at OverlayDepths.HUD,
+    // under this overlay, so this panel is the only place they are reported.
+    if (data.runEarnings && data.runEarnings.length > 0) {
+      contentBottomY = this.createRunEarningsPanel(
+        data.runEarnings,
+        centerX,
+        contentBottomY + 18,
+        depth,
+        animatedElements
+      );
+    } else if (data.unlockProgress && data.unlockProgress.length > 0) {
       contentBottomY = this.createUnlockProgressPanel(
         data.unlockProgress,
         centerX,
@@ -3157,6 +3208,97 @@ export class PauseMenuManager {
         graphics.fillRect(centerX - 1 - grow, trackY + 4, 3 + grow * 2, 9);
         break;
     }
+  }
+
+  /**
+   * Renders an "EARNED THIS RUN" panel: what the run-end settle awarded, which is
+   * announced nowhere else (its toasts draw at OverlayDepths.HUD, under this overlay).
+   * Returns the new content bottom Y so the restart hint stacks below it.
+   */
+  private createRunEarningsPanel(
+    earnings: RunEarning[],
+    centerX: number,
+    startY: number,
+    depth: number,
+    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
+  ): number {
+    const maxRows = 3;
+    const rows = earnings.slice(0, maxRows);
+    const overflow = earnings.length - rows.length;
+    const panelWidth = 340;
+    const rowHeight = 26;
+    const headerOffset = 18;
+    const panelHeight = headerOffset + rows.length * rowHeight + (overflow > 0 ? 14 : 0) + 14;
+
+    const panelBackground = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBackground,
+      centerX - panelWidth / 2,
+      startY,
+      panelWidth,
+      panelHeight
+    );
+    panelBackground.setDepth(depth);
+    animatedElements.push(panelBackground);
+
+    const header = this.scene.add.text(centerX, startY + 6, 'EARNED THIS RUN', {
+      fontSize: '12px',
+      color: '#ffdd44',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+    }).setOrigin(0.5, 0).setDepth(depth);
+    animatedElements.push(header);
+
+    const leftTextX = centerX - panelWidth / 2 + 14;
+    const tagRightX = centerX + panelWidth / 2 - 12;
+    // The detail line is one row tall and must not wrap: a wrapped row would
+    // overrun the next row's slot and the panel's own height.
+    const detailLimit = 46;
+
+    rows.forEach((earning, index) => {
+      const rowY = startY + headerOffset + 8 + index * rowHeight;
+
+      const nameText = this.scene.add.text(leftTextX, rowY, earning.name, {
+        fontSize: '13px',
+        color: '#ffffff',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(nameText);
+
+      const tagText = this.scene.add.text(tagRightX, rowY, earning.tag, {
+        fontSize: '10px',
+        color: RUN_EARNING_TAG_COLORS[earning.tag],
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+      }).setOrigin(1, 0).setDepth(depth);
+      animatedElements.push(tagText);
+
+      const detail = earning.detail.length > detailLimit
+        ? `${earning.detail.slice(0, detailLimit - 3)}...`
+        : earning.detail;
+      const detailText = this.scene.add.text(leftTextX, rowY + 13, detail, {
+        fontSize: '10px',
+        color: '#6677aa',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(detailText);
+    });
+
+    if (overflow > 0) {
+      const overflowText = this.scene.add.text(
+        centerX,
+        startY + headerOffset + 8 + rows.length * rowHeight,
+        `+${overflow} more`,
+        {
+          fontSize: '10px',
+          color: '#8888aa',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(0.5, 0).setDepth(depth);
+      animatedElements.push(overflowText);
+    }
+
+    return startY + panelHeight;
   }
 
   /**

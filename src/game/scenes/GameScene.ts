@@ -94,6 +94,7 @@ import {
 } from '../../meta/PracticeBestTimes';
 import { settleDailyQuests, createDailyQuestWatcher, claimDailyQuestGold, type DailyQuestWatcher } from '../../meta/DailyQuestManager';
 import type { DailyQuestDefinition } from '../../data/DailyQuests';
+import { buildRunEarnings } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
@@ -151,7 +152,7 @@ import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, type DirectorStrategy } from '../../systems/DirectorSystem';
 import { getThreatTier, clampThreatTier } from '../../data/ThreatTiers';
 import { recordThreatCleared } from '../../meta/ThreatProgress';
-import { getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
+import { getHiddenUnlockManager, type HiddenUnlockCondition } from '../../meta/HiddenUnlocks';
 import { getShipById, getDefaultShip } from '../../data/ShipCharacters';
 import { resolveActivePaint } from '../../data/ShipPaints';
 import { getShipPaintManager } from '../../storage/ShipPaintManager';
@@ -312,6 +313,12 @@ export class GameScene extends Phaser.Scene {
   private pendingNemesisTypeId: string | null = null;
   /** Trophy relic unlocked by this run's first-ever kill of its boss, for the victory kicker. */
   private trophyUnlockedThisRun: string | null = null;
+  /**
+   * Achievements unlocked by the run-end settle, captured for the end screen because
+   * their toast draws under it. Null except while a run-end path has armed it, so
+   * mid-run unlocks (whose toast IS visible) are never re-listed.
+   */
+  private runEndAchievements: { name: string; detail: string }[] | null = null;
   /** Per-run beat log for the run-end RUN TIMELINE ribbon. Never persisted. */
   private runTimelineEvents: RunTimelineEvent[] = [];
   /** False while the player is already in the close-call band, so one dip logs one marker. */
@@ -745,6 +752,7 @@ export class GameScene extends Phaser.Scene {
     this.nemesisSpawned = false;
     this.nemesisRecord = this.loadRunNemesis();
     this.lastAchievementTimeCheck = 0;
+    this.runEndAchievements = null;
     this.pendingBossHealthBars = [];
 
     // Initialize achievement tracking for this run
@@ -810,6 +818,12 @@ export class GameScene extends Phaser.Scene {
           rewardParts.join(' + '),
           achievement.icon
         );
+        // Only non-null while a run-end path has armed it: that toast is drawn under
+        // the end overlay, so the end screen names it instead.
+        this.runEndAchievements?.push({
+          name: achievement.name,
+          detail: rewardParts.join(' + ') || achievement.description,
+        });
       }
     );
 
@@ -6288,6 +6302,10 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    // Armed before recordRunEnd so the achievements this win unlocks are captured for
+    // the overlay; their toast is drawn under it.
+    this.runEndAchievements = [];
+
     getAchievementManager().recordRunEnd({
       wasVictory: true,
       killCount: this.killCount,
@@ -6307,7 +6325,7 @@ export class GameScene extends Phaser.Scene {
     // Fold this run into today's quest board. Hooked at the exact recordRunEnd
     // sites so quest eligibility matches achievement eligibility 1:1 — practice
     // runs never reach here, gauntlet/daily runs do.
-    const runEndQuestGold = this.payDailyQuests(settleDailyQuests({
+    const runEndQuests = settleDailyQuests({
       wasVictory: true,
       killCount: this.killCount,
       levelReached: this.playerStats.level,
@@ -6316,7 +6334,8 @@ export class GameScene extends Phaser.Scene {
       damageTaken: this.totalDamageTaken,
       goldEarned,
       highestCombo: getHighestCombo(),
-    }));
+    });
+    const runEndQuestGold = this.payDailyQuests(runEndQuests);
 
     // Record run end statistics in codex
     getCodexManager().recordRunEnd(
@@ -6338,7 +6357,12 @@ export class GameScene extends Phaser.Scene {
     // Evaluate hidden unlocks for the victory path. Done *after* incrementStreak()
     // so streak-based unlocks (e.g. Streak Flame) see the streak this win produced
     // rather than the pre-victory value.
-    this.evaluateHiddenUnlocks(getHighestCombo(), true, newStreak);
+    const newHiddenUnlocks = this.evaluateHiddenUnlocks(getHighestCombo(), true, newStreak);
+    const runEarnings = buildRunEarnings({
+      unlocks: newHiddenUnlocks,
+      achievements: this.runEndAchievements ?? [],
+      quests: runEndQuests,
+    });
 
     // Get world level (already advanced before showVictory is called)
     const newWorldLevel = metaManager.getWorldLevel();
@@ -6366,6 +6390,7 @@ export class GameScene extends Phaser.Scene {
       goldEarned,
       goldLedger: runGoldLedger,
       questGold: runEndQuestGold,
+      runEarnings,
       clearedWorld,
       newWorldLevel,
       previousStreak,
@@ -6537,6 +6562,11 @@ export class GameScene extends Phaser.Scene {
     // Run-end quest settle is paid AFTER the ledger snapshot above, so it is in no
     // other run-end number. Reported as its own recap row.
     let runEndQuestGold = 0;
+    let runEndQuests: DailyQuestDefinition[] = [];
+
+    // Armed here so recordRunEnd's achievement unlocks below are captured; a won-then-died
+    // endless run skips that block and simply earns none.
+    this.runEndAchievements = [];
 
     // Record run end statistics (only if not already recorded in showVictory)
     if (!this.hasWon) {
@@ -6564,7 +6594,7 @@ export class GameScene extends Phaser.Scene {
         this.playerStats.level
       );
 
-      runEndQuestGold = this.payDailyQuests(settleDailyQuests({
+      runEndQuests = settleDailyQuests({
         wasVictory: false,
         killCount: this.killCount,
         levelReached: this.playerStats.level,
@@ -6573,7 +6603,8 @@ export class GameScene extends Phaser.Scene {
         damageTaken: this.totalDamageTaken,
         goldEarned,
         highestCombo: highestComboThisRun,
-      }));
+      });
+      runEndQuestGold = this.payDailyQuests(runEndQuests);
     }
 
     // Evaluate hidden unlocks and queue toast notifications for each new one.
@@ -6581,7 +6612,16 @@ export class GameScene extends Phaser.Scene {
     // the game over screen can surface "closest to unlocking" motivation.
     // Streak is already broken above on a loss, or intact for a won-then-died
     // endless run, so getCurrentStreak() reflects this run's true streak here.
-    this.evaluateHiddenUnlocks(highestComboThisRun, this.hasWon, metaManager.getCurrentStreak());
+    const newHiddenUnlocks = this.evaluateHiddenUnlocks(
+      highestComboThisRun,
+      this.hasWon,
+      metaManager.getCurrentStreak()
+    );
+    const runEarnings = buildRunEarnings({
+      unlocks: newHiddenUnlocks,
+      achievements: this.runEndAchievements ?? [],
+      quests: runEndQuests,
+    });
     const unlockProgressForPanel = getHiddenUnlockManager().getTopProgress({
       run: {
         wasVictory: this.hasWon,
@@ -6694,6 +6734,7 @@ export class GameScene extends Phaser.Scene {
       goldEarned,
       goldLedger: runGoldLedger,
       questGold: runEndQuestGold,
+      runEarnings,
       // Gauntlet deaths leave the streak untouched, so never show "Streak broken!"
       previousStreak: this.gauntletModeActive ? 0 : previousStreak,
       highestCombo: highestComboThisRun,
@@ -6766,15 +6807,18 @@ export class GameScene extends Phaser.Scene {
    * Evaluates hidden unlock conditions after a run and fires toast notifications
    * for any newly earned unlocks.
    */
-  private evaluateHiddenUnlocks(highestComboValue: number, wasVictory: boolean, winStreak: number): void {
+  private evaluateHiddenUnlocks(
+    highestComboValue: number,
+    wasVictory: boolean,
+    winStreak: number
+  ): HiddenUnlockCondition[] {
     const weaponIdsUsedThisRun = [
       ...(this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? []),
       ...this.scrappedWeaponIds,
     ];
     const lifetimeStats = getAchievementManager().getLifetimeStats();
-    // Toast dispatch lives on the onNewUnlock callback registered in create();
-    // evaluatePostRun returns the list but we no longer iterate it here.
-    getHiddenUnlockManager().evaluatePostRun({
+    // Toast dispatch lives on the onNewUnlock callback registered in create().
+    return getHiddenUnlockManager().evaluatePostRun({
       run: {
         wasVictory,
         killCount: this.killCount,
