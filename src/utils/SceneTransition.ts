@@ -31,7 +31,7 @@ function createFullscreenOverlay(scene: Phaser.Scene, alpha: number): Phaser.Gam
   const width = scene.scale.width;
   const height = scene.scale.height;
   const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x000000, alpha);
-  overlay.setDepth(1000);
+  overlay.setDepth(1000).setScrollFactor(0);
   return overlay;
 }
 
@@ -39,7 +39,6 @@ function createFullscreenOverlay(scene: Phaser.Scene, alpha: number): Phaser.Gam
 function createTransitionDim(scene: Phaser.Scene, alpha: number): Phaser.GameObjects.Rectangle {
   const dim = createFullscreenOverlay(scene, alpha);
   dim.setDepth(TRANSITION_DEPTH);
-  dim.setScrollFactor(0);
   return dim;
 }
 

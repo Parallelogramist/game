@@ -7588,7 +7588,7 @@ export class GameScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 4,
         align: 'center',
-      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0);
+      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0).setScrollFactor(0);
 
       this.tweens.add({
         targets: this.bossWarningText,
@@ -7627,7 +7627,7 @@ export class GameScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 4,
         align: 'center',
-      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0);
+      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0).setScrollFactor(0);
 
       this.tweens.add({
         targets: this.bossWarningText,
@@ -7684,7 +7684,7 @@ export class GameScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: 6,
         align: 'center',
-      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0);
+      }).setOrigin(0.5).setDepth(warningDepth).setAlpha(0).setScrollFactor(0);
 
       // Pulsing alpha tween (yoyo loop)
       this.tweens.add({
@@ -8451,20 +8451,20 @@ export class GameScene extends Phaser.Scene {
 
     const bannerBg = this.add.rectangle(bannerX, bannerY, bannerWidth, bannerHeight, 0x000000, 0.85);
     bannerBg.setStrokeStyle(2, event.color);
-    bannerBg.setDepth(bannerDepth);
+    bannerBg.setDepth(bannerDepth).setScrollFactor(0);
 
     const eventNameText = this.add.text(bannerX, bannerY - 8, event.name, {
       fontSize: '20px',
       color: `#${event.color.toString(16).padStart(6, '0')}`,
       fontFamily: 'Arial',
       fontStyle: 'bold',
-    }).setOrigin(0.5).setDepth(bannerDepth + 1);
+    }).setOrigin(0.5).setDepth(bannerDepth + 1).setScrollFactor(0);
 
     const eventDescText = this.add.text(bannerX, bannerY + 12, event.description, {
       fontSize: '13px',
       color: '#ccccdd',
       fontFamily: 'Arial',
-    }).setOrigin(0.5).setDepth(bannerDepth + 1);
+    }).setOrigin(0.5).setDepth(bannerDepth + 1).setScrollFactor(0);
 
     const targetY = bannerHeight / 2 + 10;
 
