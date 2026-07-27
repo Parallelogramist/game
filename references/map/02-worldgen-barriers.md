@@ -179,6 +179,14 @@ export interface WorldGenInputs {
 }
 ```
 
+*(As built, `FEAT-WORLDGEN-CORE`: `SectorDef` also carries `depth` (tree distance from
+start) and `WorldMap` also carries `bossArenaKey`. Both are already computed during
+generation and are needed by the invariant suite, `FEAT-WORLDGEN-SPAWN` and
+`FEAT-MAPUI-*`; re-deriving tree depth from the `Map` outside the generator would mean a
+second traversal that can disagree with the first. The enums ship as plain `export enum`,
+not `const enum`, because `tsconfig.json` sets `isolatedModules: true` and every existing
+enum in the repo is plain.)*
+
 ### 1.4 What is generated when
 
 | Layer | Generated | Persistence |
@@ -264,6 +272,21 @@ edge plugs are placed only on LOOP edges (never tree edges), so a player who nev
 shoots a wall can still reach every mandatory POI. The boss arena is the deepest leaf
 behind the final gate, flagged `isBossArena`.
 
+*(As built, `FEAT-WORLDGEN-CORE`: the frontier method above is implemented as **nested
+subtrees**, which is the same construction stated from the other end. `availableRegion`
+starts as every sector; gate `i` picks a tree edge `u -> v` wholly inside it, the key goes
+in `availableRegion \ subtree(v)`, and `availableRegion` then becomes `subtree(v)`. Since
+`subtree(v_0) ⊃ subtree(v_1) ⊃ ...`, key `i` provably sits between gate `i-1` and gate
+`i`. Loop edges with exactly one endpoint in `subtree(v)` are **deleted** (set back to
+`Wall`), not re-labelled: a bypass loop would let a player into the locked subtree without
+its key, and re-labelling it with the same `requiredId` would break an earlier gate's
+ordering. Deletion is the only variant with a one-line proof, and tree edges are never
+deleted so the sector graph stays connected. `EdgeKind.KeyDoor` is defined but **never
+emitted by v1** — quest key ids come from doc 04's `FEAT-QUEST-CHAINS`, which supplies no
+generation input yet; the enum member exists so that chunk adds no type churn. Boss arena
+tie-break: deepest sector in the final region, lowest `SectorKey` by string compare,
+stepping to the next deepest if that resolves to the start sector.)*
+
 **Phase D: biomes and danger.** `danger = depth / maxDepth`, then +0.08 per gate tier
 crossed, clamped to 1. Partition the tree into contiguous regions of 4-8 sectors
 (subtree slicing); assign each region a stage id from `inputs.availableBiomeIds` sorted
@@ -272,6 +295,15 @@ so low-multiplier stages (`stage_deep_void` 1.0x) sit at low danger and punishin
 start region is always `stage_deep_void`. Stage multipliers
 (`enemyHealthMultiplier` etc.) then apply exactly as the classic stage select already
 applies them: no new difficulty plumbing.
+
+*(As built, `FEAT-WORLDGEN-CORE`: biomes are assigned by **depth band**
+(`REGION_DEPTH_SPAN = 2`, so `regionIndex = floor(depth / 2)` indexes the harshness-sorted
+list, clamped to its last entry) rather than by contiguous 4-8 sector subtree slices.
+Depth banding is deterministic, needs no region bookkeeping, and makes biome harshness
+rise with danger, which is the property the stage multipliers actually depend on.
+Harshness is `enemyHealthMultiplier + enemyDamageMultiplier`, ties broken by id;
+`stage_deep_void` is always prepended, so depth 0 lands on it even if the caller omits it
+from `availableBiomeIds`.)*
 
 **Phase E: interiors.** Per sector, from `sectorRng`, pick a parametric template by
 biome and danger: `openField` (start, low danger), `pillarGrid`, `corridorPinch`,
@@ -290,6 +322,20 @@ Verdant Rot lean here), `arenaRing` (boss). Then run deterministic constraint ca
 
 Every step is carve-only or verified-before-stamp, so interior connectivity cannot
 regress after step 2.
+
+*(As built, `FEAT-WORLDGEN-CORE`: step 2's corridor carve is an **L-shape** (walk the
+target's row to the nearest reached interior tile by Manhattan distance, lowest tile index
+breaking ties, then walk that tile's column), not A*. It gives the same invariant-5
+guarantee, is carve-only and bounded by the target count, and leaves no pathfinder to
+test. Before any aperture is stamped, the sector's **border ring is set `Solid`** — every
+sector is walled and apertures are the only way in, which also gives the seam an opaque
+doorway (the OQ-1 seam-pop mitigation from `README.md` section 4.2). Gate tiles therefore
+live on the border ring at aperture **depth 0**; depths 1 and 2 are the approach and are
+always `Open`. Aperture spans are kept **at least 3 tiles clear of both ends of their
+axis**: an aperture reaching a corner would stamp its own approach straight through a
+perpendicular aperture's mouth, and the two edge kinds cannot both win that tile. Step 3's
+3x3 stamps are clipped to the interior box so they can never overwrite the ring or a gate
+tile.)*
 
 ### 2.3 Purity boundary
 
@@ -311,9 +357,16 @@ Generator invariants:
 
 1. **Determinism**: `generateWorld(seed, inputs)` called twice deep-equals; a stable
    serialization hash per seed matches a checked-in table (regenerated only on an
-   intentional `WORLDGEN_VERSION` bump).
+   intentional `WORLDGEN_VERSION` bump). *(As built: the double-generation check ships,
+   the hash table does not. It pins exactly the same property and would otherwise have to
+   be hand-regenerated on every intentional change.)*
 2. **Reciprocity**: for every sector pair, A's east edge deep-equals B's west edge
-   (kind, aperture span, requiredId, passDirection mirrored).
+   (kind, aperture span, requiredId, passDirection mirrored). *(As built: **one** frozen
+   `EdgeDef` object is shared by both sectors, so reciprocity is an **identity** check
+   (`toBe`), not a deep-equal one. `passDirection` is therefore an **absolute** lattice
+   direction, identical on both sides, not mirrored per sector. Freezing is what stops a
+   later chunk creating a second source of truth: opened doors and broken walls belong to
+   `WorldProfileState`, section 4.7.)*
 3. **Gate-order solvability (the big one)**: simulate a player. Start at `startKey`
    with no abilities; BFS through `Open` edges, `OneWay` in `passDirection`,
    `AbilityDoor` whose `requiredId` is held, collecting `grantsAbilityId` at each
@@ -328,7 +381,10 @@ Generator invariants:
    other aperture, every POI tile, and every `entryTiles` tile.
 6. **Clearance**: no `Solid`/`Breakable`/`GateClosed` tile inside any aperture span,
    any POI 3x3 neighborhood, or any entry tile; boss arenas satisfy the open-area
-   floor.
+   floor. *(As built: clearance is about aperture depths **1 and 2** only — depth 0 is
+   the mouth on the border ring, and a gate legitimately sits there as `GateClosed`
+   (`AbilityDoor`/`KeyDoor`/`OneWay`) or `Breakable`. The check asserts depths 1-2 are
+   `Open` and depth 0 is exactly the tile kind its `EdgeKind` implies.)*
 7. **Danger and biome**: start sector danger is 0 and biome `stage_deep_void`; danger
    is within [0,1] and non-decreasing along every root-to-leaf tree path; every
    `biomeId` resolves via `getStageById` (`src/data/Stages.ts:141`).

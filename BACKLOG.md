@@ -2170,12 +2170,66 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   `src/world/worldSpace.test.ts`, `src/world/spawnRing.ts`, `src/world/spawnRing.test.ts`,
   `src/game/scenes/GameScene.ts`.
 
-- [ ] **FEAT-WORLDGEN-CORE**: the world model plus the deterministic generator, provably
-  sound before a pixel moves. New `src/world/worldTypes.ts`, `generateWorld.ts`,
-  `sectorInterior.ts` + invariant suite; reuses `mulberry32`/`hashStringToSeed` from
-  `src/utils/dailySeed.ts`. Done when invariants 1-8 pass over a 100-seed table (connectivity,
-  gate-order solvability by construction, no unreachable reward, determinism). Deps: none.
-  Spec: `references/map/02-worldgen-barriers.md` sections 2-3, 10.
+- [x] **FEAT-WORLDGEN-CORE** (done — e5cbd82): the game has a **world** for the first time.
+  `generateWorld(seed, inputs)` turns one number into a 48-sector map with doors, gates,
+  keys, breakable secrets, one-way membranes and a boss arena, and the invariant suite
+  proves over a 100-seed table that every one of those worlds is connected, solvable in
+  ability order, and free of unreachable rewards. Three new pure modules:
+  `worldTypes.ts` (tile grid derived from `worldSpace`'s sector size, `TileKind`/`EdgeKind`/
+  `PoiKind`, `WORLDGEN_VERSION`, `edgeIdFor`, the frozen `WALL_EDGE` singleton),
+  `sectorInterior.ts` (five templates, border ring, aperture stamping, POI placement,
+  carve-only connectivity repair, boss floor, breakable pockets, hazard strips) and
+  `generateWorld.ts` (phases A-E: grown spanning tree, loop edges, nested lock-and-key
+  gates, depth-banded biomes, per-sector interiors). Independent per-topology/per-edge/
+  per-sector RNG streams, so a change to one phase's draw count cannot shift another
+  phase's output for the same seed. 13 tests, 1602 → 1615 total, suite green in 20.0s.
+  **Seven deliberate deviations from `02-worldgen-barriers.md`**, all now recorded in that
+  doc as "as built" notes: (1) gate placement is written as **nested subtrees** rather than
+  a growing frontier, and loop edges crossing a gate's subtree boundary are **deleted, not
+  re-labelled**, because a bypass loop would let a player into the locked subtree without
+  its key and re-labelling it with the same `requiredId` would break an earlier gate's
+  ordering; deletion is the only variant with a one-line proof, and tree edges are never
+  deleted so the graph stays connected. (2) **One frozen `EdgeDef` object is shared by both
+  sides** of an edge, which makes reciprocity an identity check instead of a deep-equal
+  one, and makes `passDirection` an **absolute** lattice direction rather than a mirrored
+  per-sector value; freezing is what stops a later chunk growing a second source of truth
+  next to `WorldProfileState`. (3) Biomes are assigned by **depth band**
+  (`REGION_DEPTH_SPAN = 2`) instead of contiguous 4-8 sector subtree slices: deterministic,
+  no region bookkeeping, and harshness rises with danger, which is the property the stage
+  multipliers depend on. (4) Connectivity repair carves an **L-shape** to the nearest
+  reached interior tile instead of running A*: same invariant-5 guarantee, carve-only,
+  bounded by the target count, and no pathfinder to test. (5) The sector **border ring is
+  `Solid` by default** so apertures are the only way in, which doubles as the OQ-1 seam-pop
+  mitigation; gate tiles consequently live on the ring at aperture depth 0 and clearance is
+  about depths 1-2. (6) `EdgeKind.KeyDoor` is defined but **never emitted**: quest key ids
+  come from doc 04's `FEAT-QUEST-CHAINS`, which supplies no generation input yet, so the
+  member exists only to spare that chunk the type churn. And **no checked-in determinism
+  hash table**: a double-generation check pins exactly the same property without needing to
+  be hand-regenerated on every intentional change. (7) Found during execution, not planned:
+  aperture spans are kept **at least 3 tiles clear of both ends of their axis**. Without
+  that margin an aperture can reach a sector corner and stamp its own 3-deep approach
+  straight through a perpendicular aperture's mouth; the two edge kinds cannot both win
+  that tile, and invariant 6 caught it as `expected +0 to be 3` (a gate mouth reading
+  `Open`). Fixed in the generator, not the assertion. **No `POLISH-*` item is filed**:
+  nothing player-visible ships here, so there is nothing for a human to judge in a browser.
+  Pure and Phaser-free, no game code imports it yet (that is the DONE-CRITERIA), nothing
+  persisted, no storage key, arena mode untouched. Files: `src/world/worldTypes.ts`,
+  `src/world/sectorInterior.ts`, `src/world/generateWorld.ts`,
+  `src/world/generateWorld.test.ts`.
+
+- [ ] **FEAT-WORLDGEN-QUESTDOORS**: emit `EdgeKind.KeyDoor` once `FEAT-QUEST-CHAINS`
+  supplies quest key ids as a generation input (`WorldGenInputs.questKeyOrder`), placed by
+  the same nested-subtree method after the ability gates. The enum member and the tile
+  handling already ship; only the placement pass and its input are missing. Deps:
+  `FEAT-QUEST-CHAINS`, `FEAT-WORLDGEN-CORE`. Spec: `04-content-quests-powerups-secrets.md`.
+
+- [ ] **CHORE-WORLDGEN-BUDGET-GUARD**: `generateWorld` silently places fewer gates than
+  `abilityGateOrder` asks for when the sector budget cannot host them (it stops when no
+  candidate tree edge leaves room for the key, and `WorldMap.abilityOrder` records only what
+  was actually placed). The caller that eventually picks the budget
+  (`FEAT-WORLD-SPACE-4`) should assert `abilityOrder.length === abilityGateOrder.length` at
+  its call site rather than discovering a missing ability in play. Deps:
+  `FEAT-WORLD-SPACE-4`.
 
 - [ ] **FEAT-BARRIER-COLLIDE**: circle-vs-tile-grid resolver, DDA raycast and free-spot
   search: the first static collision math this game has ever had. New
