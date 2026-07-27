@@ -1447,6 +1447,31 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   (`9b520d0`) — which diagnosed this exact clamp but only fixed the *mid-run*
   half. Full write-up moved to `BACKLOG-archive.md`. **No playtest filed** —
   see the write-up for why, and for the difficulty knob this opens.
+- [x] **FEAT-BOSS-ROTATION** — the twelve bosses become reachable, and the game names the one
+  you are about to fight (done — 6511b6c). Value: `TUNING.bosses.order` holds twelve bosses, but the
+  cursor into it was `GameScene.bossOrder` + `currentBossIndex` — **static, in-memory, never
+  persisted**. A standard run fields exactly one boss (`checkBossSpawn`, 600 s, behind the
+  `bossSpawned` latch), so **every fresh page load fought The Horde King**, and meeting The Eclipse
+  needed twelve consecutive ten-minute runs inside one un-reloaded session. Nine of the twelve —
+  the whole Bastion/Legion/Pulsar/Obelisk/Helix/Tessellator/Tremor/Diviner/Eclipse wave — were
+  unreachable in the mode that is actually played. New `src/meta/BossRotationManager.ts`
+  (`survivor-boss-rotation`, read-through + sanitize-on-read like the pace ghost, auto-transfers
+  with the profile) persists the rotation. **It advances when a boss actually SPAWNS, never at run
+  start** — a run that dies at 3:00 must not burn a boss the player never met — and never in
+  practice mode. Endless and gauntlet variety spawns walk a **run-local** cursor seeded from the
+  rotation, so a long run keeps rotating without writing meta state. Daily/weekly runs field a boss
+  seeded from the challenge **date**, so the same challenge is the same fight on every device;
+  the seed is its own key (`boss:<date>`) rather than the challenge rng, so the day's modifier /
+  ship / weapon picks stay byte-identical. With the next boss knowable it is now named: `NEXT BOSS:
+  <NAME>` on the main-menu hero card (a saved daily keeps its own seeded boss, via a new
+  `SaveInfo.dailyDate`), `BOSS: <NAME>` on both challenge cards, and the 8:00 warning reads
+  `The Obelisk stirs in the void...` instead of `Something stirs in the void...`. **No save-format
+  change:** a restored pre-boss run re-resolves the same boss, and only a mid-endless restore can
+  repeat a variety boss — strictly better than the old reset-to-index-0. 6 tests pin the new module
+  (fresh head, full-order walk + wrap, persistence, corrupt/out-of-range degradation, cursor wrap,
+  date-seeded determinism); the Phaser-coupled edits are guarded by tsc + build as usual. Files:
+  `BossRotationManager.ts` (+ test), `StorageBootstrap.ts`, `GameStateManager.ts`, `GameScene.ts`,
+  `BootScene.ts`. Feel/legibility → playtest queue (POLISH-BOSS-ROTATION).
 
 ## Next
 
@@ -1653,6 +1678,24 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-ROTATION** (— 6511b6c) — the boss rotation now persists and gets named in three
+    places (FEAT-BOSS-ROTATION). Agents have no browser. Check: (a) **the rotation itself** — play a
+    run to 10:00, note the boss, reload the page, play another: the second run must field the NEXT
+    boss, not The Horde King again; die at 3:00 and confirm the next run still offers the same boss
+    (the rotation only advances when you actually meet one). (b) `NEXT BOSS: THE TESSELLATOR` on the
+    hero card at 12 px — legible, and does it read as useful information or as clutter above the
+    CONTINUE button? With a flux-cache boost armed, both lines stack around the band center
+    (±7.5 px at scale 1) — do they crowd the CONTINUE label or the ship icon at 720 portrait and
+    1280 landscape? (c) `BOSS: <NAME>` as a third body line on the daily/weekly cards — does it
+    clear the best-score badge at portrait scale? (d) `The Tessellator stirs in the void...` at
+    28 px (≈490 px) — does the longest name still fit and read at the 8:00 warning, and is naming
+    the boss at 8:00 the right beat, or should the reveal wait for `BOSS INCOMING` at 10:00?
+    (e) **scope calls left open**: should a daily's seeded boss also show on the LEADERBOARD screen;
+    should the pre-run funnel (weapon/pact select) repeat the name where the build is actually
+    chosen; and should a *loss* to a boss let you re-face it next run (today the rotation moves on
+    the moment it spawns, win or lose)? Knobs: `BOSS_ROTATION` order in `GameTuning.ts`, the advance
+    guard in `GameScene.checkBossSpawn`, the seed key in `challengeBossRotationIndex`, and the two
+    line strings in `BootScene.createHeroCard` / `createChallengeCard`.
   - **POLISH-PACE-RECAP** (— 36f6945) — die on a world level that already has a pace ghost and judge the
     new **PACE** medal right of the GAME OVER title. Check: (a) does the medal read as the twin of the
     GRADE badge, or does it look bolted on? (b) is a bare kill delta in the circle self-explanatory
