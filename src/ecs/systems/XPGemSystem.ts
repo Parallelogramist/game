@@ -2,6 +2,7 @@ import { defineQuery, removeEntity, addEntity, addComponent, IWorld } from 'bite
 import { Transform, XPGem, XPGemTag, PlayerTag } from '../components';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { SoundManager } from '../../audio/SoundManager';
+import { WorldRect, inflateRect } from '../../world/worldSpace';
 import {
   GEM_ATLAS_REFERENCE_SCALE,
   GEM_ATLAS_FRAME_COUNT,
@@ -385,8 +386,7 @@ function autoCollectLowestValueGem(world: IWorld): void {
 export function xpGemSystem(
   world: IWorld,
   deltaTime: number,
-  screenWidth: number,
-  screenHeight: number
+  view: WorldRect
 ): IWorld {
   const gems = xpGemQuery(world);
   const players = playerQuery(world);
@@ -398,6 +398,7 @@ export function xpGemSystem(
   const playerY = Transform.y[playerId];
 
   const magnetRangeSq = currentMagnetRange * currentMagnetRange;
+  const cull = inflateRect(view, CULL_MARGIN);
   let removeCount = 0;
 
   frameCounter++;
@@ -414,8 +415,8 @@ export function xpGemSystem(
 
     // VIEWPORT CULLING: skip all processing for off-screen, non-magnetized gems
     if (!isMagnetized) {
-      const onScreen = gemX >= -CULL_MARGIN && gemX <= screenWidth + CULL_MARGIN
-                    && gemY >= -CULL_MARGIN && gemY <= screenHeight + CULL_MARGIN;
+      const onScreen = gemX >= cull.minX && gemX <= cull.maxX
+                    && gemY >= cull.minY && gemY <= cull.maxY;
       if (!onScreen) {
         // Hide sprite if visible
         const spinState = gemSpinStates.get(gemId);

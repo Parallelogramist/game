@@ -1,6 +1,6 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import { PI_TWO } from './common';
-import { gameBoundsWidth, gameBoundsHeight } from './state';
+import { enemyAIFieldRect } from './state';
 
 /**
  * Teleporter — maintains mid-range with strafing, then periodically blinks to
@@ -60,8 +60,8 @@ export function updateTeleporterAI(
     Transform.y[enemyId] = playerY + Math.sin(teleportAngle) * teleportDist;
 
     // Keep on screen
-    Transform.x[enemyId] = Math.max(20, Math.min(gameBoundsWidth - 20, Transform.x[enemyId]));
-    Transform.y[enemyId] = Math.max(20, Math.min(gameBoundsHeight - 20, Transform.y[enemyId]));
+    Transform.x[enemyId] = Math.max(enemyAIFieldRect.minX + 20, Math.min(enemyAIFieldRect.maxX - 20, Transform.x[enemyId]));
+    Transform.y[enemyId] = Math.max(enemyAIFieldRect.minY + 20, Math.min(enemyAIFieldRect.maxY - 20, Transform.y[enemyId]));
 
     EnemyAI.specialTimer[enemyId] = 2.0 + Math.random() * 1.5;
     // Brief pause after materializing

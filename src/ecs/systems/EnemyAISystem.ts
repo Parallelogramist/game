@@ -51,7 +51,7 @@ import { applyEliteAuras } from './enemy-ai/elite-auras';
 
 // Re-export public API from the enemy-ai modules for backwards compatibility
 export {
-  setEnemyAIBounds, setEnemyProjectileCallback, setMinionSpawnCallback,
+  setEnemyAIFieldRect, setEnemyProjectileCallback, setMinionSpawnCallback,
   setXPGemCallbacks, setBossCallbacks, resetBossCallbacks,
   recordEnemyDeath, linkTwins, unlinkTwin, getLinkedTwin, getAllTwinLinks,
   resetEnemyAISystem, updateAIGameTime,

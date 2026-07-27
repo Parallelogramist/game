@@ -21,9 +21,9 @@ import {
 } from '../../ecs/components';
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
-import { movementSystem, clampPlayerToScreen } from '../../ecs/systems/MovementSystem';
+import { movementSystem, clampPlayerToRect } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
-import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIBounds, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
+import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
 import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
 import { resetBossPhaseTracking, resetBastionStrikes, resetPulsarStrikes, resetBombardStrikes, resetStalkerStrikes, resetObeliskStrikes, resetHelixStrikes, resetTessellatorStrikes, resetTremorStrikes, resetDivinerStrikes, resetEclipseStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
@@ -54,8 +54,10 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { rectFromScreen } from '../../world/worldSpace';
+import { inflateRect } from '../../world/worldSpace';
 import { pickEdgeSpawnPoint } from '../../world/spawnRing';
+import { WorldModeAdapter } from '../world/WorldModeAdapter';
+import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
 import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
@@ -658,6 +660,7 @@ export class GameScene extends Phaser.Scene {
   private dailyChallengeType: 'daily' | 'weekly' = 'daily';
   private selectedStageId: string = 'stage_deep_void';
   private draftedBlessingIds: string[] | null = null;
+  private worldMode!: WorldModeAdapter;
 
   init(data?: {
     restore?: boolean;
@@ -680,6 +683,7 @@ export class GameScene extends Phaser.Scene {
     practiceEvolved?: boolean;
     practiceRematch?: PracticeRematchSeed;
   }): void {
+    this.worldMode = new ArenaModeAdapter(this);
     this.shouldRestore = data?.restore === true;
     this.resumeIntoPauseMenu = data?.resumePaused === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
@@ -724,7 +728,7 @@ export class GameScene extends Phaser.Scene {
     this.events.once('shutdown', this.shutdown, this);
 
     // Set dynamic game bounds for systems that need screen dimensions
-    setEnemyAIBounds(this.scale.width, this.scale.height);
+    setEnemyAIFieldRect(this.worldMode.fieldRect());
 
     // Listen for resize events (orientation change, Safari address bar collapse)
     this.scale.on('resize', this.handleResize, this);
@@ -4375,8 +4379,7 @@ export class GameScene extends Phaser.Scene {
    * Update enemy projectiles - move and check collision with player.
    */
   private updateEnemyProjectiles(deltaTime: number): void {
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
+    const despawn = inflateRect(this.worldMode.viewRect(), 20);
     const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : 0;
     const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : 0;
     const hasPlayer = this.playerId !== -1;
@@ -4393,8 +4396,8 @@ export class GameScene extends Phaser.Scene {
         proj.sprite.y += proj.vy * deltaTime;
 
         // Bounds check
-        if (proj.sprite.x < -20 || proj.sprite.x > screenWidth + 20 ||
-            proj.sprite.y < -20 || proj.sprite.y > screenHeight + 20) {
+        if (proj.sprite.x < despawn.minX || proj.sprite.x > despawn.maxX ||
+            proj.sprite.y < despawn.minY || proj.sprite.y > despawn.maxY) {
           shouldRemove = true;
         }
       }
@@ -4574,6 +4577,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.gameTime += deltaSeconds;
+    this.worldMode.update(deltaSeconds);
     this.updateCloseCallWatch();
 
     // Deferred to update() rather than fired in create(): the run-modifier banner
@@ -4910,7 +4914,7 @@ export class GameScene extends Phaser.Scene {
       updateHazardSpawner(
         deltaSeconds, this.gameTime,
         Transform.x[this.playerId], Transform.y[this.playerId],
-        this.scale.width, this.scale.height
+        this.worldMode.viewRect()
       );
     }
 
@@ -4997,14 +5001,14 @@ export class GameScene extends Phaser.Scene {
 
     // Keep player on screen
     if (this.playerId !== -1) {
-      clampPlayerToScreen(this.world, this.playerId, this.scale.width, this.scale.height);
+      clampPlayerToRect(this.world, this.playerId, this.worldMode.fieldRect());
     }
 
     // Weapon system (handles all player weapons)
     this.weaponManager.update(this.gameTime, deltaSeconds);
 
     // XP gem system (with viewport culling)
-    xpGemSystem(this.world, deltaSeconds, this.scale.width, this.scale.height);
+    xpGemSystem(this.world, deltaSeconds, this.worldMode.viewRect());
 
     // Health pickup system
     healthPickupSystem(this.world, deltaSeconds, this.gameTime);
@@ -5025,7 +5029,7 @@ export class GameScene extends Phaser.Scene {
     this.checkPlayerEnemyCollision();
 
     // Sync sprites to ECS positions
-    spriteSystem(this.world, this.scale.width, this.scale.height);
+    spriteSystem(this.world, this.worldMode.viewRect());
 
     // Update player spaceship visual effects (squash/stretch, fins, breathing)
     if (this.playerId !== -1 && this.playerSpaceship) {
@@ -5201,6 +5205,7 @@ export class GameScene extends Phaser.Scene {
 
     // Cache decay factor once per frame (same deltaSeconds for all entities)
     const decayFactor = Math.pow(0.001, deltaSeconds);
+    const field = this.worldMode.fieldRect();
 
     for (const entityId of entities) {
       const velocityX = Knockback.velocityX[entityId];
@@ -5210,9 +5215,9 @@ export class GameScene extends Phaser.Scene {
       Transform.x[entityId] += velocityX * deltaSeconds;
       Transform.y[entityId] += velocityY * deltaSeconds;
 
-      // Clamp to screen bounds so enemies can't be knocked off-screen
-      Transform.x[entityId] = Math.max(0, Math.min(this.scale.width, Transform.x[entityId]));
-      Transform.y[entityId] = Math.max(0, Math.min(this.scale.height, Transform.y[entityId]));
+      // Clamp to the playfield so enemies can't be knocked out of bounds
+      Transform.x[entityId] = Math.max(field.minX, Math.min(field.maxX, Transform.x[entityId]));
+      Transform.y[entityId] = Math.max(field.minY, Math.min(field.maxY, Transform.y[entityId]));
 
       // Exponential decay (fast falloff)
       Knockback.velocityX[entityId] *= decayFactor;
@@ -7138,7 +7143,7 @@ export class GameScene extends Phaser.Scene {
 
     // Spawn just outside the visible area, on a random edge.
     const { x, y } = pickEdgeSpawnPoint(
-      rectFromScreen(this.scale.width, this.scale.height),
+      this.worldMode.viewRect(),
       { spawnOffset: 30, edgeInset: 0 },
       Math.random,
     );
@@ -7298,7 +7303,7 @@ export class GameScene extends Phaser.Scene {
 
     // Spawn just outside the visible area, inset from the corners.
     const { x, y } = pickEdgeSpawnPoint(
-      rectFromScreen(this.scale.width, this.scale.height),
+      this.worldMode.viewRect(),
       { spawnOffset: 50, edgeInset: 100 },
       Math.random,
     );
@@ -7500,7 +7505,7 @@ export class GameScene extends Phaser.Scene {
     this.recordRunTimelineEvent('miniboss');
 
     const { x, y } = pickEdgeSpawnPoint(
-      rectFromScreen(this.scale.width, this.scale.height),
+      this.worldMode.viewRect(),
       { spawnOffset: 50, edgeInset: 100 },
       Math.random,
     );
@@ -10837,7 +10842,7 @@ export class GameScene extends Phaser.Scene {
     const h = gameSize.height;
 
     // Update ECS system bounds
-    setEnemyAIBounds(w, h);
+    setEnemyAIFieldRect(this.worldMode.fieldRect());
 
     // Rebuild grid background for new screen dimensions
     if (this.gridBackground) {

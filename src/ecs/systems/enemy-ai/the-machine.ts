@@ -1,8 +1,9 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import {
-  gameBoundsWidth, gameBoundsHeight,
+  enemyAIFieldRect,
   projectileSpawnCallback, minionSpawnCallback, laserBeamCallback,
 } from './state';
+import { rectCenter } from '../../../world/worldSpace';
 import { PI_HALF, PI_TWO, telegraphManager } from './common';
 import { checkBossPhaseTransition } from './boss-phase';
 import { spawnTelegraph, theMachineLaserTelegraphs } from './telegraphs';
@@ -37,8 +38,9 @@ export function updateTheMachineAI(
 
   if (state === 0) {
     // Move toward center-ish position, fire constantly
-    const targetX = gameBoundsWidth / 2;
-    const targetY = gameBoundsHeight / 2;
+    const fieldCenter = rectCenter(enemyAIFieldRect);
+    const targetX = fieldCenter.x;
+    const targetY = fieldCenter.y;
     const toDx = targetX - enemyX;
     const toDy = targetY - enemyY;
     const toDist = Math.sqrt(toDx * toDx + toDy * toDy);
@@ -88,8 +90,8 @@ export function updateTheMachineAI(
       // Spawn turret at random position
       const spawnAngle = Math.random() * PI_TWO;
       const spawnDist = 150 + Math.random() * 100;
-      const spawnX = Math.min(gameBoundsWidth - 80, Math.max(80, enemyX + Math.cos(spawnAngle) * spawnDist));
-      const spawnY = Math.min(gameBoundsHeight - 80, Math.max(80, enemyY + Math.sin(spawnAngle) * spawnDist));
+      const spawnX = Math.min(enemyAIFieldRect.maxX - 80, Math.max(enemyAIFieldRect.minX + 80, enemyX + Math.cos(spawnAngle) * spawnDist));
+      const spawnY = Math.min(enemyAIFieldRect.maxY - 80, Math.max(enemyAIFieldRect.minY + 80, enemyY + Math.sin(spawnAngle) * spawnDist));
       minionSpawnCallback(spawnX, spawnY, 'turret');
     }
 

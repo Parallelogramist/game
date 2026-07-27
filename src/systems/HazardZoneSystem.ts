@@ -14,6 +14,7 @@
 import Phaser from 'phaser';
 import { Transform, Velocity, Health } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
+import { WorldRect, rectWidth, rectHeight } from '../world/worldSpace';
 import { DepthLayers } from '../visual/DepthLayers';
 import { NeonColorPair, getGlowAlphas, getGlowRadiusMultipliers } from '../visual/NeonColors';
 import { TUNING } from '../data/GameTuning';
@@ -427,8 +428,7 @@ export function updateHazardSpawner(
   gameTime: number,
   playerX: number,
   playerY: number,
-  screenWidth: number,
-  screenHeight: number,
+  view: WorldRect,
 ): void {
   const config = TUNING.hazards;
 
@@ -459,10 +459,10 @@ export function updateHazardSpawner(
   const zoneRadius = config.baseRadius[hazardType] * worldRadiusScale;
   const zoneDuration = config.baseDuration[hazardType] * worldDurationScale;
 
-  // Pick position within screen, avoiding player
+  // Pick position within the view rect, avoiding player
   const margin = config.screenMargin;
-  let spawnX = margin + Math.random() * (screenWidth - 2 * margin);
-  let spawnY = margin + Math.random() * (screenHeight - 2 * margin);
+  let spawnX = view.minX + margin + Math.random() * (rectWidth(view) - 2 * margin);
+  let spawnY = view.minY + margin + Math.random() * (rectHeight(view) - 2 * margin);
 
   // Push away from player if too close
   const distanceToPlayerX = spawnX - playerX;
@@ -479,9 +479,9 @@ export function updateHazardSpawner(
       // Player is exactly at spawn point — offset randomly
       spawnX += exclusionRadius * (Math.random() > 0.5 ? 1 : -1);
     }
-    // Clamp back into screen bounds
-    spawnX = Math.max(margin, Math.min(screenWidth - margin, spawnX));
-    spawnY = Math.max(margin, Math.min(screenHeight - margin, spawnY));
+    // Clamp back into the view rect
+    spawnX = Math.max(view.minX + margin, Math.min(view.maxX - margin, spawnX));
+    spawnY = Math.max(view.minY + margin, Math.min(view.maxY - margin, spawnY));
   }
 
   spawnHazardZone(spawnX, spawnY, zoneRadius, hazardType, zoneDuration);

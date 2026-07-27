@@ -5,7 +5,7 @@
 export {
   // State management
   updateAIGameTime,
-  setEnemyAIBounds,
+  setEnemyAIFieldRect,
   resetEnemyAISystem,
   // Spawn callbacks
   setEnemyProjectileCallback,

@@ -1,5 +1,5 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
-import { gameBoundsWidth, gameBoundsHeight } from './state';
+import { enemyAIFieldRect } from './state';
 import { PI_HALF, telegraphManager } from './common';
 import { spawnTelegraph, chargerChargeTelegraph } from './telegraphs';
 
@@ -76,7 +76,9 @@ export function updateChargerAI(
     Transform.rotation[enemyId] = angle + PI_HALF;
 
     // End charge after 1 second or if hitting edge
-    if (timer > 1.0 || enemyX < 30 || enemyX > gameBoundsWidth - 30 || enemyY < 30 || enemyY > gameBoundsHeight - 30) {
+    if (timer > 1.0 ||
+        enemyX < enemyAIFieldRect.minX + 30 || enemyX > enemyAIFieldRect.maxX - 30 ||
+        enemyY < enemyAIFieldRect.minY + 30 || enemyY > enemyAIFieldRect.maxY - 30) {
       EnemyAI.state[enemyId] = 0;
       EnemyAI.timer[enemyId] = 0;
     }

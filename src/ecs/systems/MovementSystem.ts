@@ -1,11 +1,12 @@
 import { defineQuery, IWorld } from 'bitecs';
 import { Transform, Velocity } from '../components';
+import { WorldRect } from '../../world/worldSpace';
 // Query for entities with transform and velocity
 const movementQuery = defineQuery([Transform, Velocity]);
 
 /**
  * MovementSystem applies velocity to position each frame.
- * Also handles boundary clamping to keep entities on screen.
+ * Also handles boundary clamping to keep entities inside the playfield.
  */
 export function movementSystem(world: IWorld, deltaTime: number): IWorld {
   const entities = movementQuery(world);
@@ -22,9 +23,9 @@ export function movementSystem(world: IWorld, deltaTime: number): IWorld {
 }
 
 /**
- * Clamps player position to screen boundaries
+ * Clamps the player inside the legal playfield.
  */
-export function clampPlayerToScreen(_world: IWorld, playerId: number, gameWidth: number, gameHeight: number, padding: number = 16): void {
-  Transform.x[playerId] = Math.max(padding, Math.min(gameWidth - padding, Transform.x[playerId]));
-  Transform.y[playerId] = Math.max(padding, Math.min(gameHeight - padding, Transform.y[playerId]));
+export function clampPlayerToRect(_world: IWorld, playerId: number, rect: WorldRect, padding: number = 16): void {
+  Transform.x[playerId] = Math.max(rect.minX + padding, Math.min(rect.maxX - padding, Transform.x[playerId]));
+  Transform.y[playerId] = Math.max(rect.minY + padding, Math.min(rect.maxY - padding, Transform.y[playerId]));
 }

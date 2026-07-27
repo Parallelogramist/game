@@ -4,7 +4,7 @@
  *
  * CONTAINMENT FIRST: this scene is fully additive. It deliberately does NOT
  * touch the shared bitECS world/systems (they carry module-level state that
- * is reset and scene-bound by GameScene — setEnemyAIBounds, setBossArenaScene,
+ * is reset and scene-bound by GameScene — setEnemyAIFieldRect, setBossArenaScene,
  * setTelegraphManager, resetAllRunSystems, ...). Driving those from a second
  * scene risks corrupting GameScene's expectations, so the runner keeps its
  * entities as plain TypeScript arrays of structs updated in a single loop.

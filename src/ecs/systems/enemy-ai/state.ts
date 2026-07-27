@@ -4,6 +4,8 @@
  * Behavior modules import from this file when they need callbacks or shared state.
  */
 
+import { WorldRect } from '../../../world/worldSpace';
+
 // ── Game time (set once per frame by updateAIGameTime) ──────────────────────
 export let cachedGameTime = 0;
 
@@ -11,13 +13,18 @@ export function updateAIGameTime(gameTime: number): void {
   cachedGameTime = gameTime;
 }
 
-// ── Game bounds ─────────────────────────────────────────────────────────────
-export let gameBoundsWidth = 1280;
-export let gameBoundsHeight = 720;
+// ── Field rect (the legal playfield; arena = the screen rect) ───────────────
+export const enemyAIFieldRect: WorldRect = { minX: 0, minY: 0, maxX: 1280, maxY: 720 };
 
-export function setEnemyAIBounds(w: number, h: number): void {
-  gameBoundsWidth = w;
-  gameBoundsHeight = h;
+/**
+ * Copies by value on purpose: WorldModeAdapter hands back a rect instance it reuses
+ * between frames, so storing the reference would alias this module to the adapter.
+ */
+export function setEnemyAIFieldRect(rect: WorldRect): void {
+  enemyAIFieldRect.minX = rect.minX;
+  enemyAIFieldRect.minY = rect.minY;
+  enemyAIFieldRect.maxX = rect.maxX;
+  enemyAIFieldRect.maxY = rect.maxY;
 }
 
 // ── Callbacks for spawning effects ──────────────────────────────────────────
