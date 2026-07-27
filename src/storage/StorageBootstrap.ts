@@ -143,6 +143,10 @@ export const ALL_STORAGE_KEYS = [
   // NemesisManager (the enemy that last killed you + its grudge tier;
   // auto-transfers with the profile)
   'survivor-nemesis',
+
+  // TraversalAbilityManager (permanent expedition traversal abilities earned at
+  // ability vaults; auto-transfers with the profile)
+  'survivor-traversal-abilities',
 ];
 
 /**

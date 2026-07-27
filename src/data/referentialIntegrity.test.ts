@@ -23,6 +23,7 @@ import { ACHIEVEMENTS, BOSS_KILL_TRACKING, SHIP_WIN_TRACKING, STAGE_WIN_TRACKING
 import { MILESTONES } from '../achievements/MilestoneDefinitions';
 import { ENEMY_TYPES, EnemyCategory } from '../enemies/EnemyTypes';
 import { BLESSINGS } from './Blessings';
+import { TRAVERSAL_ABILITIES } from './TraversalAbilities';
 
 /**
  * Referential-integrity sweep: every cross-reference key in the data catalogs
@@ -53,6 +54,7 @@ function collectIconRefs(): IconRef[] {
   push('Achievements', ACHIEVEMENTS);
   push('Milestones', MILESTONES);
   push('Blessings', BLESSINGS);
+  push('TraversalAbilities', TRAVERSAL_ABILITIES);
 
   for (const [shipId, tracks] of Object.entries(SHIP_MOD_TRACKS)) {
     push(`ShipMods:${shipId}`, tracks);
@@ -148,5 +150,26 @@ describe('data catalog referential integrity', () => {
       dangling.map((a) => `${a.id} → "${a.nextTierId}"`),
       'nextTierId points at no achievement',
     ).toEqual([]);
+  });
+
+  test('every traversal ability resolves its synergy upgrade and owns a distinct barrier', () => {
+    const upgradeIds = new Set(PERMANENT_UPGRADES.map((upgrade) => upgrade.id));
+    for (const ability of TRAVERSAL_ABILITIES) {
+      if (ability.synergyUpgradeId === undefined) continue;
+      expect(
+        upgradeIds.has(ability.synergyUpgradeId),
+        `${ability.id} points at unknown upgrade "${ability.synergyUpgradeId}"`,
+      ).toBe(true);
+    }
+
+    const abilityIds = TRAVERSAL_ABILITIES.map((ability) => ability.id);
+    expect(new Set(abilityIds).size, 'duplicate ability id shifts every vault depth').toBe(
+      abilityIds.length,
+    );
+
+    const barrierIds = TRAVERSAL_ABILITIES.map((ability) => ability.barrierTypeId);
+    expect(new Set(barrierIds).size, 'two abilities claiming one barrier type').toBe(
+      barrierIds.length,
+    );
   });
 });
