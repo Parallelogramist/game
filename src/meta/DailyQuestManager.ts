@@ -132,30 +132,55 @@ export function getLiveDailyQuestBoard(live: DailyQuestRunData): DailyQuestProgr
 }
 
 /**
+ * Folds one finished run into a board state and reports what it newly completes,
+ * returning a fresh state rather than mutating the one passed in. The settle and its
+ * pre-commit preview both run through here, so a dialog can never quote a payout the
+ * confirm then declines to make.
+ */
+function foldRunIntoState(
+  state: DailyQuestState,
+  run: DailyQuestRunData,
+): { next: DailyQuestState; completedNow: DailyQuestDefinition[] } {
+  const progress: Record<string, number> = { ...state.progress };
+  const rewarded = [...state.rewarded];
+  let pendingGold = state.pendingGold;
+  const completedNow: DailyQuestDefinition[] = [];
+
+  for (const quest of getQuestsForDate(state.date)) {
+    const previous = progress[quest.id] ?? 0;
+    const contribution = sanitizeValue(quest.measure(run));
+    const next =
+      quest.aggregate === 'sum' ? previous + contribution : Math.max(previous, contribution);
+    progress[quest.id] = next;
+
+    if (next >= quest.target && !rewarded.includes(quest.id)) {
+      rewarded.push(quest.id);
+      pendingGold += quest.gold;
+      completedNow.push(quest);
+    }
+  }
+
+  return { next: { date: state.date, progress, rewarded, pendingGold }, completedNow };
+}
+
+/**
  * Folds one finished run into today's board. Returns the quests that completed on
  * THIS run (empty if none) and banks their gold into `pendingGold` for the
  * achievements screen to pay out. A quest already rewarded today never pays twice.
  */
 export function settleDailyQuests(run: DailyQuestRunData): DailyQuestDefinition[] {
-  const state = load();
-  const completedNow: DailyQuestDefinition[] = [];
-
-  for (const quest of getQuestsForDate(state.date)) {
-    const previous = state.progress[quest.id] ?? 0;
-    const contribution = sanitizeValue(quest.measure(run));
-    const next =
-      quest.aggregate === 'sum' ? previous + contribution : Math.max(previous, contribution);
-    state.progress[quest.id] = next;
-
-    if (next >= quest.target && !state.rewarded.includes(quest.id)) {
-      state.rewarded.push(quest.id);
-      state.pendingGold += quest.gold;
-      completedNow.push(quest);
-    }
-  }
-
-  save(state);
+  const { next, completedNow } = foldRunIntoState(load(), run);
+  save(next);
   return completedNow;
+}
+
+/**
+ * What a run would newly complete if it settled right now. Writes nothing: the END RUN
+ * dialog quotes this before the player commits, and Cancel has to leave the board
+ * untouched.
+ */
+export function previewDailyQuestSettle(run: DailyQuestRunData): DailyQuestDefinition[] {
+  return foldRunIntoState(load(), run).completedNow;
 }
 
 export interface DailyQuestWatcher {

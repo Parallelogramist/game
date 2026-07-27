@@ -21,6 +21,7 @@ import {
   getLiveDailyQuestBoard,
   getDailyQuestCompletionCount,
   settleDailyQuests,
+  previewDailyQuestSettle,
   claimDailyQuestGold,
   createDailyQuestWatcher,
 } from './DailyQuestManager';
@@ -255,5 +256,27 @@ describe('DailyQuestManager', () => {
       expect(entry?.complete).toBe(true);
       expect(entry?.value).toBeGreaterThanOrEqual(quest.target);
     }
+  });
+
+  test('the settle preview reports completions without writing anything', () => {
+    const big = runOfMagnitude(100000);
+    const before = SecureStorage.getItem(STORAGE_KEY);
+
+    const previewed = previewDailyQuestSettle(big);
+
+    expect(previewed.length).toBeGreaterThan(0);
+    expect(SecureStorage.getItem(STORAGE_KEY)).toBe(before);
+    expect(getDailyQuestCompletionCount()).toBe(0);
+    expect(claimDailyQuestGold()).toBe(0);
+  });
+
+  test('the preview names exactly the quests the settle then pays', () => {
+    const run = runOfMagnitude(100000);
+
+    const previewed = previewDailyQuestSettle(run).map((quest) => quest.id);
+    const settled = settleDailyQuests(run).map((quest) => quest.id);
+
+    expect(settled).toEqual(previewed);
+    expect(previewDailyQuestSettle(run)).toEqual([]);
   });
 });

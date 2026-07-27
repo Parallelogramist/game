@@ -16,8 +16,8 @@ import { getSettingsManager } from '../../settings';
 import { OverlayDepths } from '../../visual/DepthLayers';
 import { formatDailyShareText, DailyShareInput } from '../../meta/DailyShare';
 import { copyTextToClipboard } from '../../utils/Clipboard';
-import { getDailyQuestBoard, getLiveDailyQuestBoard, type DailyQuestProgress } from '../../meta/DailyQuestManager';
-import { DAILY_QUEST_COUNT, formatQuestValue } from '../../data/DailyQuests';
+import { getDailyQuestBoard, getLiveDailyQuestBoard, previewDailyQuestSettle, settleDailyQuests, claimDailyQuestGold, type DailyQuestProgress } from '../../meta/DailyQuestManager';
+import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestRunData } from '../../data/DailyQuests';
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
 import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
 import { formatRunEarningsLine, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
@@ -1295,6 +1295,24 @@ export class PauseMenuManager {
       gameState.runGoldMultiplier
     );
 
+    // Ending a run IS a run end: the save is cleared and the run's gold is banked, so the
+    // day's quest board must fold it in the same way death does. Previewed here (a pure
+    // read) so the dialog can promise the quest gold before the player commits, and
+    // settled only on Confirm so Cancel leaves the board exactly as it was.
+    const endRunQuestData: DailyQuestRunData = {
+      wasVictory: false,
+      killCount: gameState.killCount,
+      levelReached: gameState.playerLevel,
+      survivalTimeSeconds: gameState.gameTime,
+      damageDealt: gameState.totalDamageDealt,
+      damageTaken: gameState.totalDamageTaken,
+      goldEarned: finalTotal,
+      highestCombo: gameState.highestCombo,
+    };
+    const pendingQuests = previewDailyQuestSettle(endRunQuestData);
+    const pendingQuestGold = pendingQuests.reduce((sum, quest) => sum + quest.gold, 0);
+    const grandTotal = finalTotal + pendingQuestGold;
+
     // Calculate breakdown components for display
     const killGold = Math.floor(gameState.killCount * 2.5);
     const timeGold = Math.floor(gameState.gameTime / 10);
@@ -1365,6 +1383,9 @@ export class PauseMenuManager {
     if (newcomerMultiplier > 1) {
       breakdownLines.push(`Newcomer Bonus: ×${newcomerMultiplier.toFixed(2)}`);
     }
+    if (pendingQuests.length > 0) {
+      breakdownLines.push(`Daily Quests: ${pendingQuests.length} complete = ${pendingQuestGold} gold`);
+    }
 
     const breakdownText = this.scene.add.text(
       this.scene.scale.width / 2,
@@ -1382,12 +1403,25 @@ export class PauseMenuManager {
     breakdownText.setDepth(PAUSE_MENU_DEPTH + 1);
     breakdownText.setName('shopConfirmBreakdown');
 
+    // The dialog grows downward from a fixed top, so a run carrying every multiplier plus
+    // the quest line can push Confirm past the bottom edge of a 720-tall landscape canvas.
+    // Measure the real block once and lift the whole thing by however much it overruns.
+    const confirmButtonHeight = 50;
+    const dialogBottomIfUnshifted =
+      breakdownText.y + breakdownText.height + 24 + 48 + confirmButtonHeight;
+    const dialogOverflow = Math.max(0, dialogBottomIfUnshifted - (this.scene.scale.height - 24));
+    if (dialogOverflow > 0) {
+      titleText.y -= dialogOverflow;
+      subtitleText.y -= dialogOverflow;
+      breakdownText.y -= dialogOverflow;
+    }
+
     // Total gold (24px below breakdown bottom)
     const totalY = breakdownText.y + breakdownText.height + 24;
     const totalText = this.scene.add.text(
       this.scene.scale.width / 2,
       totalY,
-      `Total: +${finalTotal} gold`,
+      `Total: +${grandTotal} gold`,
       {
         fontSize: '32px',
         color: '#ffdd44',
@@ -1401,7 +1435,6 @@ export class PauseMenuManager {
 
     // Buttons (48px below total)
     const confirmButtonWidth = 160;
-    const confirmButtonHeight = 50;
     const buttonY = totalY + 48 + confirmButtonHeight / 2;
 
     const { bg: confirmButtonBg } = this.createLabeledButton({
@@ -1415,6 +1448,14 @@ export class PauseMenuManager {
         getGameStateManager().clearSave();
         // Award gold and go to destination
         metaManager.addGold(finalTotal);
+        // Then fold the run into the day's board, exactly as both run-end paths in
+        // GameScene do. Claiming (rather than adding each quest's gold) also sweeps up
+        // anything an earlier failed payout left pending — the same reason
+        // GameScene.payDailyQuests claims. No toast: one raised here would be drawn at
+        // OverlayDepths.HUD, under this dialog at PAUSE_MENU, and never seen.
+        if (settleDailyQuests(endRunQuestData).length > 0) {
+          metaManager.addGold(claimDailyQuestGold());
+        }
         if (destination === 'restart') {
           this.options.onRestart();
         } else if (destination === 'shop') {
