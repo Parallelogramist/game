@@ -34,6 +34,38 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-RELIC-REINFORCE** — with all 6 relic slots full, a relic award raises a relic you
+  already carry instead of being thrown away (done — f06f0ba). Value: once
+  `RelicManager.isFull()` went true, **every** later relic award was silently discarded at four
+  sites: the treasure-chest drop was gated out (`GameScene.ts:5641`), the fortune shrine paid gold
+  plus 2 consumables instead (`GameScene.ts:3888`), the guaranteed nemesis-kill relic was dropped by
+  the queue (`GameScene.ts:3045`), and the miniboss **Relic Vow** (`GameScene.ts:7955`) charged a
+  permanent `damageMultiplier *= 0.75` and delivered nothing. That last one is the same "paid for a
+  promise the code never keeps" class this repo has already fixed four times (`BUG-BLOOD-PACT-HALVE-DEAD`,
+  `BUG-VITALITY-HEAL-DEAD`, `FEAT-META-MEMORY`, `FEAT-META-BLESSING`), and it was getting worse:
+  `FEAT-BOSS-TROPHY` and `FEAT-NEMESIS` both added relic sources this month. A full inventory now
+  opens a **REINFORCE** round in the same `RelicDraftScene`: 3 of your equipped relics, uniformly
+  shuffled, each card carrying its current `RANK I/II`, and the pick re-runs that relic's `apply()`.
+  **A true swap was deliberately rejected** (the obvious framing, mirroring `FEAT-WEAPON-REFIT`):
+  `Relic.apply(stats)` is a one-way mutation over shared `PlayerStats` mixing `+=` and `*=`,
+  including `stats.currentHealth += 15`, so un-equipping correctly would need a hand-authored
+  inverse for all 42 relics (30 relics plus 12 boss trophies), reversing multiplicative stacks
+  against every other mid-run mutator (upgrades, blessings, modifiers, pacts, shrines, timed buffs)
+  and able to drive `currentHealth` below zero. A rank needs **no inverse at all**, and the power
+  budget is flat by construction: one award grants exactly one application of one relic effect,
+  which is what that award was already worth when a slot was free. Knobs: `MAX_RELIC_RANK = 3` and
+  `RELIC_REINFORCE_CHOICE_COUNT = 3` in `src/meta/RelicManager.ts`. Ranks ride the existing save blob
+  as an optional `relicRanks` map (no new storage key, no `SAVE_VERSION` bump), sanitized on read and
+  clamped into `[1, MAX_RELIC_RANK]` so a truncated or tampered save degrades to rank 1 rather than
+  granting power; legacy saves restore every relic at rank 1, and the rank effects are already baked
+  into the saved `playerStats`, so restore never re-applies. Rank shows as a numeral badge on the
+  26px HUD relic-strip slot and as a `· rank N` suffix in its tooltip. **The pity streak is
+  deliberately untouched**: pity governs the rarity of NEW relics and a reinforce rolls nothing.
+  Both round kinds now share one launcher (`GameScene.openRelicDraftRound`) per the repo's parallel
+  code-path rule, so pause ownership, the queue decrement and the re-pump cannot diverge. The
+  fortune shrine's gold payout survives only for a fully capped inventory. Feel is unvalidated:
+  see **POLISH-RELIC-REINFORCE** under `## Human gates`, which owns the cap, the offer breadth, the
+  card legibility and whether the shrine's gold was the nicer prize.
 - [x] **FEAT-NEMESIS** — the enemy that killed you comes back next run as a named, buffed hunter you
   can kill for a relic (done — 78a0e5a). Value: the game had 12 bosses, 10 minibosses, a boss
   rotation, a boss rematch, a threat recap and a pace ghost, and **nothing that carried a specific
@@ -1815,6 +1847,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-RELIC-REINFORCE** (— f06f0ba) — a full relic inventory now turns a relic award into a
+    REINFORCE round (FEAT-RELIC-REINFORCE). Agents have no browser and must not retune blind.
+    Check: (a) **the moment** — fill all 6 slots, then open a chest. Does `REINFORCE A RELIC` read
+    as a reward or as a consolation prize, and is a forced pick right when every option is something
+    you already own? (b) **legibility** — 3 cards each carrying name, icon, rarity tag, `RANK II`
+    and description at 720 portrait and 1280 landscape: does the added rank line crowd the
+    description, and does the small rank numeral on the 26px HUD strip slot read at phone density?
+    (c) **the cap** — is 3 the right ceiling? Knob: `MAX_RELIC_RANK` in `src/meta/RelicManager.ts`.
+    A multiplicative relic at rank 3 is its multiplier cubed (`moveSpeed *= 1.08` becomes ~1.26).
+    (d) **offer breadth** — 3 of your (up to) 6 relics are offered so the proven 3-card row layout
+    is reused. Should a full inventory offer all 6 on two rows instead? Knob:
+    `RELIC_REINFORCE_CHOICE_COUNT`. (e) **the fortune shrine** — its gold plus consumables payout
+    now fires only when every relic is capped. Is a rank better than gold there, or was the gold the
+    nicer prize? (f) **scope calls left open** — should rank show on the game-over build summary;
+    should a reinforce feed the relic pity streak (deliberately not, today); should the Relic Vow's
+    two rounds be allowed to stack two ranks onto the same relic (today they can)?
   - **POLISH-NEMESIS** (— 78a0e5a) — the enemy that killed you now hunts you next run
     (FEAT-NEMESIS). Agents have no browser and must not retune blind. Check: (a) **the arrival** —
     die, start a normal run and wait for 2:30. Is that the right beat, or does the hunter want to
