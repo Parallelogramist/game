@@ -124,6 +124,10 @@ export const ALL_STORAGE_KEYS = [
 
   // ShipRecords (per-ship lifetime runs/victories/best score; auto-transfers with the profile)
   'survivor-ship-records',
+
+  // DailyQuestManager (today's rotating quest progress + unpaid gold;
+  // auto-transfers with the profile)
+  'survivor-daily-quests',
 ];
 
 /**

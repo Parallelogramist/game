@@ -19,51 +19,20 @@ import { RUN_MODIFIERS } from '../data/RunModifiers';
 import { SHIP_CHARACTERS } from '../data/ShipCharacters';
 import { getWeaponInfoList } from '../weapons';
 import { computeRunScore } from '../utils/PerformanceGrade';
+import {
+  mulberry32,
+  hashStringToSeed,
+  shuffleWithRng,
+  getCurrentDailyDate,
+} from '../utils/dailySeed';
 
 const STORAGE_KEY_DAILY_LEADERBOARD = 'dailyLeaderboardV1';
-
-// ---------------------------------------------------------------------------
-// Seeded RNG — mulberry32, chosen for speed and adequate distribution
-// ---------------------------------------------------------------------------
-
-type SeededRng = () => number;
-
-function mulberry32(seed: number): SeededRng {
-  let currentSeed = seed >>> 0;
-  return function next(): number {
-    currentSeed = (currentSeed + 0x6D2B79F5) >>> 0;
-    let temp = currentSeed;
-    temp = Math.imul(temp ^ (temp >>> 15), temp | 1);
-    temp ^= temp + Math.imul(temp ^ (temp >>> 7), temp | 61);
-    return ((temp ^ (temp >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/**
- * Convert a string to a 32-bit seed using a simple FNV-1a hash.
- * Stable across runs for a given input.
- */
-function hashStringToSeed(input: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < input.length; index++) {
-    hash ^= input.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
 
 // ---------------------------------------------------------------------------
 // Date helpers
 // ---------------------------------------------------------------------------
 
-/** Returns the current UTC date string in YYYY-MM-DD format. */
-export function getCurrentDailyDate(): string {
-  const now = new Date();
-  const year = now.getUTCFullYear();
-  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(now.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+export { getCurrentDailyDate } from '../utils/dailySeed';
 
 /** Returns the current ISO week string for weekly challenges. */
 export function getCurrentWeeklyDate(): string {
@@ -146,15 +115,6 @@ export function generateWeeklyChallenge(): DailyChallengeConfig {
     startingWeaponId,
     shipId,
   };
-}
-
-function shuffleWithRng<T>(items: T[], rng: SeededRng): T[] {
-  const copy = [...items];
-  for (let index = copy.length - 1; index > 0; index--) {
-    const swapIndex = Math.floor(rng() * (index + 1));
-    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
-  }
-  return copy;
 }
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,12 @@ import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
+import {
+  getDailyQuestBoard,
+  getDailyQuestCompletionCount,
+  claimDailyQuestGold,
+} from '../../meta/DailyQuestManager';
+import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestDefinition } from '../../data/DailyQuests';
 
 // Achievement categories with display names and icons
 const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: string }[] = [
@@ -29,6 +35,15 @@ const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: str
   { id: 'progression', name: 'Progression', icon: 'star' },
   { id: 'challenge', name: 'Challenge', icon: 'trophy' },
   { id: 'mastery', name: 'Mastery', icon: 'crown' },
+];
+
+/** Tab id space = the achievement categories plus the daily quest board.
+ *  Daily is last so the default landing tab stays 'combat'. */
+type TabId = AchievementCategory | 'daily';
+
+const TAB_DEFS: { id: TabId; name: string; icon: string }[] = [
+  ...ACHIEVEMENT_CATEGORIES,
+  { id: 'daily', name: 'Daily', icon: 'clipboard' },
 ];
 
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
@@ -46,8 +61,11 @@ interface AchievementCardElements {
 
 export class AchievementScene extends Phaser.Scene {
   private achievementCards: AchievementCardElements[] = [];
-  private currentCategory: AchievementCategory = 'combat';
-  private categoryTabs: Map<AchievementCategory, Phaser.GameObjects.Container> = new Map();
+  private currentCategory: TabId = 'combat';
+  private categoryTabs: Map<TabId, Phaser.GameObjects.Container> = new Map();
+  /** Quest cards live in the same masked container; tracked separately so a tab
+   *  switch destroys them and the navigator's grid rows stay achievement-only. */
+  private questCards: Phaser.GameObjects.Container[] = [];
   private achievementContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
   private maxScrollY: number = 0;
@@ -84,6 +102,7 @@ export class AchievementScene extends Phaser.Scene {
 
     // Reset state
     this.achievementCards = [];
+    this.questCards = [];
     this.categoryTabs.clear();
     this.scrollY = 0;
     this.focusZone = 'tabs';
@@ -124,6 +143,13 @@ export class AchievementScene extends Phaser.Scene {
         // Show brief notification about retroactive claims (will be visible at top of scene)
         console.log(`Retroactively claimed ${totalGoldClaimed} gold from ${unclaimedAchievements.length} achievements`);
       }
+    }
+
+    // Pay out gold banked by completed daily quests, mirroring the retroactive
+    // achievement claim above — the run-end path only records progress.
+    const questGold = claimDailyQuestGold();
+    if (questGold > 0) {
+      getMetaProgressionManager().addGold(questGold);
     }
 
     // Menu backdrop.
@@ -169,7 +195,7 @@ export class AchievementScene extends Phaser.Scene {
     this.createAchievementContainer();
 
     // Display achievements for default category
-    this.displayCategoryAchievements(this.currentCategory);
+    this.displayTab(this.currentCategory);
 
     // Back button.
     this.backButton = createMenuButton({
@@ -239,7 +265,7 @@ export class AchievementScene extends Phaser.Scene {
         this.updateFocusVisuals();
       },
       onRight: () => {
-        this.selectedTabIndex = Math.min(ACHIEVEMENT_CATEGORIES.length - 1, this.selectedTabIndex + 1);
+        this.selectedTabIndex = Math.min(TAB_DEFS.length - 1, this.selectedTabIndex + 1);
         this.selectCategoryByIndex(this.selectedTabIndex);
         this.updateFocusVisuals();
       },
@@ -305,11 +331,13 @@ export class AchievementScene extends Phaser.Scene {
     const tabY = 70;
     const tabHeight = 36;
     const tabSpacing = 8;
-    const totalTabs = ACHIEVEMENT_CATEGORIES.length;
+    const totalTabs = TAB_DEFS.length;
     const tabWidth = Math.floor((this.scale.width - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
     const startX = 20;
+    const tabFontPx = totalTabs >= 6 ? '12px' : '14px';
+    const countFontPx = totalTabs >= 6 ? '10px' : '12px';
 
-    ACHIEVEMENT_CATEGORIES.forEach((category, index) => {
+    TAB_DEFS.forEach((category, index) => {
       const tabX = startX + index * (tabWidth + tabSpacing);
       const isSelected = category.id === this.currentCategory;
 
@@ -337,23 +365,29 @@ export class AchievementScene extends Phaser.Scene {
 
       // Tab text
       const tabText = this.add.text((tabWidth + 28) / 2, tabHeight / 2, category.name, {
-        fontSize: '14px',
+        fontSize: tabFontPx,
         color: isSelected ? '#ffffff' : '#888888',
         fontFamily: FONT_FAMILY,
       });
       tabText.setOrigin(0.5);
 
       // Count text (showing unlocked/total)
-      const categoryAchievements = getAchievementsByCategory(category.id);
-      const unlockedInCategory = categoryAchievements.filter(
-        (a) => getAchievementManager().getAchievementProgress(a.id)?.isUnlocked
-      ).length;
+      let countLabel: string;
+      if (category.id === 'daily') {
+        countLabel = `${getDailyQuestCompletionCount()}/${DAILY_QUEST_COUNT}`;
+      } else {
+        const categoryAchievements = getAchievementsByCategory(category.id);
+        const unlockedInCategory = categoryAchievements.filter(
+          (a) => getAchievementManager().getAchievementProgress(a.id)?.isUnlocked
+        ).length;
+        countLabel = `${unlockedInCategory}/${categoryAchievements.length}`;
+      }
       const countText = this.add.text(
         tabWidth - 8,
         tabHeight / 2,
-        `${unlockedInCategory}/${categoryAchievements.length}`,
+        countLabel,
         {
-          fontSize: '12px',
+          fontSize: countFontPx,
           color: isSelected ? '#44ff88' : '#666666',
           fontFamily: FONT_FAMILY,
         }
@@ -376,7 +410,7 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   private updateTabVisuals(): void {
-    ACHIEVEMENT_CATEGORIES.forEach((category, index) => {
+    TAB_DEFS.forEach((category, index) => {
       const container = this.categoryTabs.get(category.id);
       if (!container) return;
 
@@ -418,6 +452,8 @@ export class AchievementScene extends Phaser.Scene {
     // Clear existing cards
     this.achievementCards.forEach((card) => card.container.destroy());
     this.achievementCards = [];
+    this.questCards.forEach((card) => card.destroy());
+    this.questCards = [];
     this.scrollY = 0;
 
     const achievements = getAchievementsByCategory(category);
@@ -444,6 +480,147 @@ export class AchievementScene extends Phaser.Scene {
 
     // Update container scroll position
     this.achievementContainer.y = 120 - this.scrollY;
+  }
+
+  /**
+   * Renders today's quest board into the same masked, scrollable container the
+   * achievement grid uses. `achievementCards` is left empty on purpose: quest
+   * cards are informational (achievement cards are too — their onActivate is a
+   * no-op), so the navigator collapses to [tabs, back] and the scroll/focus code
+   * is untouched.
+   */
+  private displayDailyQuests(): void {
+    this.achievementCards.forEach((card) => card.container.destroy());
+    this.achievementCards = [];
+    this.questCards.forEach((card) => card.destroy());
+    this.questCards = [];
+    this.scrollY = 0;
+
+    const board = getDailyQuestBoard();
+    const gridWidth = this.cardWidth * this.columns + this.cardSpacing * (this.columns - 1);
+    const startX = (this.scale.width - gridWidth) / 2;
+    const startY = 10;
+
+    board.forEach((entry, index) => {
+      const col = index % this.columns;
+      const row = Math.floor(index / this.columns);
+      const x = startX + col * (this.cardWidth + this.cardSpacing);
+      const y = startY + row * (this.cardHeight + this.cardSpacing);
+      this.questCards.push(this.createQuestCard(entry.quest, entry.value, entry.complete, x, y));
+    });
+
+    const totalRows = Math.ceil(board.length / this.columns);
+    const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
+    const viewHeight = this.scale.height - 180;
+    this.maxScrollY = Math.max(0, contentHeight - viewHeight);
+    this.achievementContainer.y = 120 - this.scrollY;
+  }
+
+  private createQuestCard(
+    quest: DailyQuestDefinition,
+    value: number,
+    complete: boolean,
+    x: number,
+    y: number
+  ): Phaser.GameObjects.Container {
+    const container = this.add.container(x, y);
+    this.achievementContainer.add(container);
+
+    const bgColor = complete ? 0x2a5a2a : 0x2a2a4a;
+    const borderColor = complete ? 0x44ff88 : 0x3a3a5a;
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      this.cardHeight / 2,
+      this.cardWidth,
+      this.cardHeight,
+      bgColor
+    );
+    cardBg.setStrokeStyle(2, borderColor);
+    container.add(cardBg);
+
+    const iconCenterX = 35;
+    const iconCenterY = this.cardHeight / 2 - 8;
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 22, complete ? 0x1a4a2a : 0x1a1a3a);
+    iconDisc.setStrokeStyle(2, borderColor);
+    container.add(iconDisc);
+
+    try {
+      container.add(
+        createIcon(this, {
+          x: iconCenterX,
+          y: iconCenterY,
+          iconKey: quest.icon,
+          size: 28,
+          tint: complete ? 0x44ff88 : 0x666666,
+        })
+      );
+    } catch {
+      container.add(this.add.circle(iconCenterX, iconCenterY, 14, complete ? 0x44ff88 : 0x666666));
+    }
+
+    const nameText = this.add.text(70, 14, quest.name, {
+      fontSize: '16px',
+      color: complete ? '#44ff88' : '#ffffff',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const descText = this.add.text(70, 36, quest.description, {
+      fontSize: '13px',
+      color: '#aaaaaa',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - 90 },
+    });
+    container.add(descText);
+
+    const barWidth = this.cardWidth - 90;
+    const barHeight = 16;
+    const barX = 70;
+    const barY = this.cardHeight - 28;
+
+    const progressBg = this.add.rectangle(barX + barWidth / 2, barY, barWidth, barHeight, 0x111122);
+    progressBg.setStrokeStyle(1, 0x3a3a5a);
+    container.add(progressBg);
+
+    const percent = Math.min(1, quest.target > 0 ? value / quest.target : 1);
+    const fillWidth = Math.max(2, barWidth * percent);
+    container.add(
+      this.add.rectangle(
+        barX + fillWidth / 2,
+        barY,
+        fillWidth,
+        barHeight - 4,
+        complete ? 0x44ff88 : 0x4488ff
+      )
+    );
+
+    const statusText = this.add.text(
+      barX + barWidth - 6,
+      barY,
+      complete
+        ? 'COMPLETE'
+        : `${formatQuestValue(quest, value)}/${formatQuestValue(quest, quest.target)}`,
+      {
+        fontSize: '10px',
+        color: complete ? '#ffffff' : '#aaaaaa',
+        fontFamily: FONT_FAMILY,
+        fontStyle: complete ? 'bold' : 'normal',
+      }
+    );
+    statusText.setOrigin(1, 0.5);
+    container.add(statusText);
+
+    const rewardText = this.add.text(this.cardWidth - 10, 16, `+${quest.gold}`, {
+      fontSize: '12px',
+      color: '#ffcc00',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    rewardText.setOrigin(1, 0.5);
+    container.add(rewardText);
+
+    return container;
   }
 
   private createAchievementCard(
@@ -661,13 +838,21 @@ export class AchievementScene extends Phaser.Scene {
   }
 
   private selectCategoryByIndex(tabIndex: number): void {
-    const category = ACHIEVEMENT_CATEGORIES[tabIndex];
-    if (category && category.id !== this.currentCategory) {
-      this.currentCategory = category.id;
+    const tab = TAB_DEFS[tabIndex];
+    if (tab && tab.id !== this.currentCategory) {
+      this.currentCategory = tab.id;
       this.selectedCardIndex = 0;
-      this.displayCategoryAchievements(category.id);
+      this.displayTab(tab.id);
       // Card-row count changed — rebuild the navigator (focus returns to tabs).
       this.buildMenuNavigator();
+    }
+  }
+
+  private displayTab(tab: TabId): void {
+    if (tab === 'daily') {
+      this.displayDailyQuests();
+    } else {
+      this.displayCategoryAchievements(tab);
     }
   }
 

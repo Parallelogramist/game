@@ -45,6 +45,8 @@ import {
   loadLastExportAt, loadLastNudgeAt, saveLastNudgeAt, shouldShowBackupNudge,
 } from '../../storage';
 import { showInstallHintOverlay } from '../../ui/InstallHintOverlay';
+import { getDailyQuestCompletionCount } from '../../meta/DailyQuestManager';
+import { DAILY_QUEST_COUNT } from '../../data/DailyQuests';
 import {
   detectInstallPlatform, isRunningStandalone, loadInstallHintShownAt,
   saveInstallHintShownAt, shouldShowInstallHint, subscribeInstallPromptAvailable,
@@ -461,6 +463,7 @@ export class BootScene extends Phaser.Scene {
       layoutScale,
       fontScale,
       goldAmount,
+      questBadge: `${getDailyQuestCompletionCount()}/${DAILY_QUEST_COUNT}`,
       onShop: openShop,
       onAchievements: openAchievements,
       onCodex: openCodex,
@@ -1160,6 +1163,7 @@ export class BootScene extends Phaser.Scene {
     layoutScale: number;
     fontScale: number;
     goldAmount: number;
+    questBadge: string;
     onShop: () => void;
     onAchievements: () => void;
     onCodex: () => void;
@@ -1172,7 +1176,7 @@ export class BootScene extends Phaser.Scene {
     onSurprise: () => void;
   }): void {
     const {
-      centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount,
+      centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount, questBadge,
       onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onGauntlet, onRunner, onPractice, onSurprise,
     } = opts;
 
@@ -1201,6 +1205,7 @@ export class BootScene extends Phaser.Scene {
         bodyHex: COLORS.bodyTeal,
         accentHex: COLORS.accentTeal,
         action: onAchievements,
+        badge: questBadge,
         iconTint: 0xaaffee,
       },
       {

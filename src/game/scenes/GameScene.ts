@@ -65,6 +65,7 @@ import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
 import { recordShipRun } from '../../meta/ShipRecords';
+import { settleDailyQuests } from '../../meta/DailyQuestManager';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
@@ -5588,6 +5589,20 @@ export class GameScene extends Phaser.Scene {
       stageId: this.selectedStageId,
     });
 
+    // Fold this run into today's quest board. Hooked at the exact recordRunEnd
+    // sites so quest eligibility matches achievement eligibility 1:1 — practice
+    // runs never reach here, gauntlet/daily runs do.
+    settleDailyQuests({
+      wasVictory: true,
+      killCount: this.killCount,
+      levelReached: this.playerStats.level,
+      survivalTimeSeconds: this.gameTime,
+      damageDealt: this.totalDamageDealt,
+      damageTaken: this.totalDamageTaken,
+      goldEarned,
+      highestCombo: getHighestCombo(),
+    });
+
     // Record run end statistics in codex
     getCodexManager().recordRunEnd(
       this.gameTime,
@@ -5822,6 +5837,17 @@ export class GameScene extends Phaser.Scene {
         metaManager.getWorldLevel(),
         this.playerStats.level
       );
+
+      settleDailyQuests({
+        wasVictory: false,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        survivalTimeSeconds: this.gameTime,
+        damageDealt: this.totalDamageDealt,
+        damageTaken: this.totalDamageTaken,
+        goldEarned,
+        highestCombo: highestComboThisRun,
+      });
     }
 
     // Evaluate hidden unlocks and queue toast notifications for each new one.
