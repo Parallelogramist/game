@@ -42,7 +42,7 @@ import { getJuiceManager, resetJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
-import { WeaponManager, createWeapon, ProjectileWeapon } from '../../weapons';
+import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
@@ -72,6 +72,12 @@ import {
   getBossRotationIndex,
 } from '../../meta/BossRotationManager';
 import { recordShipRun } from '../../meta/ShipRecords';
+import {
+  formatFightTime,
+  getPracticeBest,
+  practiceBestKey,
+  savePracticeBestIfFaster,
+} from '../../meta/PracticeBestTimes';
 import { settleDailyQuests, createDailyQuestWatcher, claimDailyQuestGold, type DailyQuestWatcher } from '../../meta/DailyQuestManager';
 import type { DailyQuestDefinition } from '../../data/DailyQuests';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
@@ -222,6 +228,20 @@ const POWER_SHRINE_BUFF_SECONDS = 8;
 // of enemies infected (shop "Pandemic" 1-3 + "Pandemic Engine" relic +2), not a
 // radius -- so we query a fixed bloom radius here and cap infections to that count.
 const PANDEMIC_SPREAD_RADIUS = 100;
+
+/** One clocked sandbox fight: spawned in PRACTICE, resolved when nothing boss-tier lives. */
+interface PracticeFightState {
+  key: string;
+  /** Run-clock seconds at the spawn that opened this fight. */
+  startTime: number;
+  /** Set once a boss-tier enemy has actually been seen alive (spawn is not same-frame). */
+  live: boolean;
+  /** Another spawn joined the fight — the elapsed time is no longer comparable. */
+  dirty: boolean;
+}
+
+/** XP floor that marks an enemy boss-tier — the same threshold handleEnemyDeath uses. */
+const PRACTICE_FIGHT_XP_FLOOR = 30;
 
 /**
  * GameScene is the main gameplay scene.
@@ -477,6 +497,8 @@ export class GameScene extends Phaser.Scene {
   private practiceSpawnKeyHandler: (() => void) | null = null;
   private practiceUltimateOverride: PracticeUltimateChoice = null;
   private practiceUltimateKeyHandler: (() => void) | null = null;
+  private practiceFight: PracticeFightState | null = null;
+  private practiceFightSpawning = false;
   private rematchTarget: RematchTarget | null = null;
   private practiceRematchSeed: PracticeRematchSeed | null = null;
   private pendingRematchSpawn: PracticeDockState | null = null;
@@ -776,6 +798,8 @@ export class GameScene extends Phaser.Scene {
     this.practiceBuildDepth = 0;
     this.practiceSpawnAffix = EnemyAffixType.NONE;
     this.practiceSpawnAffix2 = EnemyAffixType.NONE;
+    this.practiceFight = null;
+    this.practiceFightSpawning = false;
     this.rematchTarget = null;
     this.pendingRematchSpawn = null;
     this.pendingRematchLaunch = null;
@@ -4213,6 +4237,8 @@ export class GameScene extends Phaser.Scene {
       this.spawnPracticeTarget(rematchSpawn);
     }
 
+    if (this.practiceFight) this.updatePracticeFightClock();
+
     // ═══ ACHIEVEMENT TIME TRACKING (throttled to once per second) ═══
     // Practice is a sandbox and its clock jumps: crediting it would complete the
     // whole time ladder in one tick, and practice writes no-op regardless.
@@ -5559,11 +5585,104 @@ export class GameScene extends Phaser.Scene {
     if (this.isPaused || this.isGameOver || this.introOverlayActive) return;
     this.practiceSpawnAffix = state.affix;
     this.practiceSpawnAffix2 = state.affix2;
-    if (isPracticeMinibossTarget(state.targetId)) {
-      this.spawnMiniboss(state.targetId);
-    } else {
-      this.spawnBoss(state.targetId);
+    this.practiceFightSpawning = true;
+    try {
+      if (isPracticeMinibossTarget(state.targetId)) {
+        this.spawnMiniboss(state.targetId);
+      } else {
+        this.spawnBoss(state.targetId);
+      }
+    } finally {
+      this.practiceFightSpawning = false;
     }
+    this.startPracticeFight(state);
+  }
+
+  /**
+   * A spawn on top of a live fight does not restart the clock — both enemies share
+   * the kill, so the time stops being comparable and the fight is marked instead.
+   */
+  private startPracticeFight(state: PracticeDockState): void {
+    const fight = this.practiceFight;
+    if (fight) {
+      fight.dirty = true;
+      return;
+    }
+    this.practiceFight = {
+      key: practiceBestKey(state.targetId, state.affix, state.affix2, this.practiceBuildDepth),
+      startTime: this.gameTime,
+      live: false,
+      dirty: false,
+    };
+  }
+
+  /**
+   * The fight ends the frame nothing boss-tier is left alive. `live` exists because
+   * the spawn and the entity are not the same frame — without it an empty first
+   * frame would resolve the fight instantly.
+   */
+  private updatePracticeFightClock(): void {
+    const fight = this.practiceFight;
+    if (!fight) return;
+
+    let bossTierAlive = 0;
+    for (const enemyId of getFrameCacheEnemyIds()) {
+      if (EnemyType.xpValue[enemyId] >= PRACTICE_FIGHT_XP_FLOOR) bossTierAlive++;
+    }
+
+    if (!fight.live) {
+      if (bossTierAlive > 0) fight.live = true;
+      return;
+    }
+    if (bossTierAlive > 0) return;
+
+    this.practiceFight = null;
+    this.resolvePracticeFight(fight);
+  }
+
+  private resolvePracticeFight(fight: PracticeFightState): void {
+    const elapsedMs = Math.max(0, (this.gameTime - fight.startTime) * 1000);
+    const timeText = formatFightTime(elapsedMs);
+
+    if (fight.dirty) {
+      this.toastManager.showToast({
+        title: `FIGHT ${timeText}`,
+        description: 'Other spawns joined this fight — not recorded.',
+        icon: 'target',
+        color: 0x8899aa,
+        duration: 3000,
+      });
+      return;
+    }
+
+    const previous = getPracticeBest(fight.key);
+    const isNewBest = savePracticeBestIfFaster(fight.key, {
+      ms: elapsedMs,
+      shipId: this.selectedShipId,
+      weaponId: this.startingWeaponId,
+      weaponLevel: this.practiceWeaponLevel,
+      evolved: this.practiceEvolved,
+    });
+
+    let description: string;
+    if (!previous) {
+      description = 'First clear of this fight.';
+    } else {
+      const weaponName =
+        getWeaponInfoList().find((info) => info.id === previous.weaponId)?.name ?? previous.weaponId;
+      const shipName = getShipById(previous.shipId)?.name ?? previous.shipId;
+      description =
+        `Best ${formatFightTime(previous.ms)} — ${shipName} · ${weaponName} L${previous.weaponLevel}` +
+        (previous.evolved ? '+' : '');
+    }
+
+    this.toastManager.showToast({
+      title: isNewBest ? `NEW BEST ${timeText}` : `FIGHT ${timeText}`,
+      description,
+      icon: 'target',
+      color: isNewBest ? 0xffd24a : 0xbbddff,
+      duration: 4000,
+    });
   }
 
   /**
@@ -6624,6 +6743,7 @@ export class GameScene extends Phaser.Scene {
    * Handles special cases like the Twins which spawn as a pair.
    */
   private spawnMiniboss(typeId: string): void {
+    if (this.practiceFight && !this.practiceFightSpawning) this.practiceFight.dirty = true;
     const enemyType = getEnemyType(typeId);
     if (!enemyType) return;
     this.recordRunTimelineEvent('miniboss');
@@ -7834,6 +7954,7 @@ export class GameScene extends Phaser.Scene {
    * Spawns a boss at screen center with dramatic entrance.
    */
   private spawnBoss(typeId: string): void {
+    if (this.practiceFight && !this.practiceFightSpawning) this.practiceFight.dirty = true;
     const enemyType = getEnemyType(typeId);
     if (!enemyType) return;
     this.recordRunTimelineEvent('boss');

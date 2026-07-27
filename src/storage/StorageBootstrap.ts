@@ -125,6 +125,9 @@ export const ALL_STORAGE_KEYS = [
   // ShipRecords (per-ship lifetime runs/victories/best score; auto-transfers with the profile)
   'survivor-ship-records',
 
+  // PracticeBestTimes (fastest sandbox kill per fight — auto-transfers with the profile)
+  'survivor-practice-bests',
+
   // DailyQuestManager (today's rotating quest progress + unpaid gold;
   // auto-transfers with the profile)
   'survivor-daily-quests',
