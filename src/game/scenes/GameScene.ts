@@ -6250,6 +6250,11 @@ export class GameScene extends Phaser.Scene {
       true, // hasWon
       this.playerStats.goldMultiplier // ship/stage/pact/modifier gold bonuses
     );
+    // Snapshot before the quest settle below pays into the wallet: the ledger must hold
+    // only what the RUN itself moved (bounties, shrines, caches, market spends).
+    // Parity with gameOver()'s snapshot — the victory payout itself is banked later, by
+    // the NEXT WORLD handler, so it is never in here either.
+    const runGoldLedger = metaManager.getRunLedger();
     // Record the run's best score (victories count too — see results grade).
     // World level was already advanced at the boss-kill site, so record against
     // the level the run was actually played at. Capture the result + grade so the
@@ -6302,7 +6307,7 @@ export class GameScene extends Phaser.Scene {
     // Fold this run into today's quest board. Hooked at the exact recordRunEnd
     // sites so quest eligibility matches achievement eligibility 1:1 — practice
     // runs never reach here, gauntlet/daily runs do.
-    this.payDailyQuests(settleDailyQuests({
+    const runEndQuestGold = this.payDailyQuests(settleDailyQuests({
       wasVictory: true,
       killCount: this.killCount,
       levelReached: this.playerStats.level,
@@ -6359,6 +6364,8 @@ export class GameScene extends Phaser.Scene {
       gameTime: this.gameTime,
       playerLevel: this.playerStats.level,
       goldEarned,
+      goldLedger: runGoldLedger,
+      questGold: runEndQuestGold,
       clearedWorld,
       newWorldLevel,
       previousStreak,

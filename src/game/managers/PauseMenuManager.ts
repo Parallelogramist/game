@@ -19,7 +19,7 @@ import { copyTextToClipboard } from '../../utils/Clipboard';
 import { getDailyQuestBoard, getLiveDailyQuestBoard, type DailyQuestProgress } from '../../meta/DailyQuestManager';
 import { DAILY_QUEST_COUNT, formatQuestValue } from '../../data/DailyQuests';
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
-import { computeRunNetGold } from '../../meta/RunEconomy';
+import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -238,6 +238,10 @@ export interface VictoryData {
   gameTime: number;
   playerLevel: number;
   goldEarned: number;
+  /** What the run itself moved through the wallet, snapshotted before the quest settle. */
+  goldLedger?: { earned: number; spent: number };
+  /** Daily-quest gold settled at run end. */
+  questGold?: number;
   clearedWorld: number;
   newWorldLevel: number;
   previousStreak: number;
@@ -1738,6 +1742,34 @@ export class PauseMenuManager {
     goldPreviewText.setDepth(PAUSE_MENU_DEPTH + 1);
     goldPreviewText.setName('victoryGoldPreview');
 
+    // The run's own economy, under the payout preview. This overlay has no free
+    // centered slot ABOVE the buttons (streak owns centerY + 96, COPY RESULT owns
+    // centerY + 128 on daily runs) and no room to grow the 400-wide stats panel
+    // without pushing the button row, so it reads as one compact line here. The
+    // narrow card reveal's top edge is centerY + 250; this line's baseline is
+    // centerY + 233 at 14px, clearing it by ~10 units.
+    const economyLine = formatRunEconomyLine({
+      payout: data.goldEarned,
+      found: data.goldLedger?.earned ?? 0,
+      spent: data.goldLedger?.spent ?? 0,
+      questGold: data.questGold ?? 0,
+    });
+    if (economyLine) {
+      const economyText = this.scene.add.text(
+        this.scene.scale.width / 2,
+        buttonY + 58,
+        economyLine,
+        {
+          fontSize: '14px',
+          color: '#9999bb',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      );
+      economyText.setOrigin(0.5);
+      economyText.setDepth(PAUSE_MENU_DEPTH + 1);
+      economyText.setName('victoryGoldEconomy');
+    }
+
     // New-card reveal — right column, clear of the centered stats panel
     // (400 wide) and buttons at all 1280–2000 widths; the left margin holds
     // the recent-runs strip. Every element is named victoryCard* and torn
@@ -1818,6 +1850,7 @@ export class PauseMenuManager {
       'victoryShareButtonBg',
       'victoryShareButtonText',
       'victoryGoldPreview',
+      'victoryGoldEconomy',
       'victoryStreak',
       'victoryConfetti',
       'victoryGradeBadge',
