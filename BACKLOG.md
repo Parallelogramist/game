@@ -1873,15 +1873,66 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   sound, so the biggest meta-progression moment in the game is the quietest thing on the screen.
   Pointers: `src/audio/SoundManager.ts`, the `createRunEarningsPanel` call site.
 
-- [ ] **FEAT-ENDRUN-RECORD-TRUTH**: ending a run from the pause menu records no run end. Value:
-  `showEndRunConfirmation` now settles daily quests (**FEAT-ENDRUN-QUEST-TRUTH**), but it still
-  calls none of `getAchievementManager().recordRunEnd`, `getCodexManager().recordRunEnd` or
-  `recordRun` — so an achievement the run earned pays nothing, the codex lifetime stats miss it,
-  and the run never appears in the RECENT strip on the next death screen. A player who ends a
-  25-minute run early loses every one of those. Decide whether END RUN is a full run end (record
-  all three, which also makes `runs_day_3` consistent with run history) or stays deliberately
-  partial, and if partial, why quests count and achievements do not.
-  Pointers: `PauseMenuManager.ts:1414-1425`, `GameScene.ts:6571-6607`.
+- [x] **FEAT-ENDRUN-RECORD-TRUTH** — ending a run from the pause menu now records the run end
+  (done — 09b0f8f). Value: `showEndRunConfirmation` cleared the save and banked the gold, then wrote
+  none of the records a death writes, so a player who cashed out a 25-minute run forfeited every
+  achievement it earned (with its gold and stat-bonus reward), every hidden ship unlock, the codex
+  lifetime stats, the per-world best score, the ship record, the daily-leaderboard entry, the
+  Memory (`upgradeKeepLevel`) build carry-forward a 2,000-gold shop upgrade was paid for, and the
+  run's row in the RECENT strip on the next death screen. It also never called
+  `recordRunCompleted()`, so ending runs early kept the decaying newcomer bonus alive forever.
+  Decided here (the entry asked): **END RUN is a full run end.** The run cannot be continued, so
+  there is no reading in which quests count and achievements do not. `GameScene.recordEarlyRunEnd`
+  mirrors `gameOver()`'s record set under the *same* `hasWon` guards, rather than duplicating a
+  subset: achievements, codex and `recordRunCompleted()` only when `!hasWon` (a won run was already
+  recorded by `showVictory`), while `recordRunUpgrades`, hidden unlocks, score/grade/history and
+  the gauntlet/endless records run either way with `hasWon` passed through. The pause menu cannot
+  do this itself (the run state lives on the scene), so it asks via a new `onRecordRunEnd` option.
+  Three deliberate exclusions: **nemesis** (nothing killed the player), **the win streak** (breaking
+  it is a punishment balance call, and the dialog quotes a total computed *with* the streak
+  multiplier, so an honest version needs a second visible change: filed as POLISH-GOLD-TRUTH (h)),
+  and **a practice-mode guard** (verified, not assumed: `practiceInvincible` defaults to `false`,
+  a practice player dies into `playDeathSequence` → `gameOver()`, and `gameOver()` guards nothing
+  for practice except the nemesis, so guarding this path alone would create exactly the cross-path
+  divergence `CLAUDE.md` warns about: filed whole as **BUG-PRACTICE-PAYS-REAL-GOLD**).
+  Two live defects in the same handler were fixed with it, both made worse by the recording:
+  (a) **double-fire** — Confirm's Enter binding is `keydown`, and nothing in the handler was
+  idempotent, so a held Enter (browser auto-repeat) or a fast double tap paid the gold twice and
+  would have recorded the run twice; a `runEndCommitted` latch now makes the commit once-only.
+  (b) **victory double-count** — a run that won and continued into endless had already been folded
+  into the day's quest board by `showVictory`, and `foldRunIntoState` re-adds `contribution` for
+  every `aggregate: 'sum'` quest, so ending that run re-counted its damage, kills and `runs_day_3`;
+  the preview and the settle are now both behind `questsSettledByVictory`, the same guard
+  `gameOver()` puts on its own settle. No test: every line added is on a live Phaser scene or in a
+  button callback, and the recorders each have their own suite (workspace standing order, FL-X01).
+  Files: `src/game/scenes/GameScene.ts`, `src/game/managers/PauseMenuManager.ts`.
+
+- [ ] **FEAT-ENDRUN-EARNED-VISIBLE**: nothing announces what confirming END RUN just earned.
+  Value: confirming can unlock an achievement (with gold) and a hidden ship, and both raise a
+  toast at `OverlayDepths.HUD`, under the confirm dialog at `PAUSE_MENU` depth, into a scene
+  that is torn down milliseconds later by `scene.restart()` / `scene.start(...)`. So the run's
+  biggest meta-progression moment is invisible on the one path that has no end screen. This is
+  the same defect `9bd86ae` fixed for the death screen (a toast under the overlay), and it is
+  the last surface where it survives. Likely shape: the dialog cannot preview it (unlocks happen
+  on confirm), so the earned list has to reach the destination (a ShopScene/BootScene banner) or
+  the dialog has to hold itself open for a beat to name it.
+  Pointers: `PauseMenuManager.showEndRunConfirmation` confirm handler, `GameScene.recordEarlyRunEnd`,
+  the `onAchievementUnlock` callback (`GameScene.ts:~790-827`), `HiddenUnlockManager`.
+
+- [ ] **BUG-PRACTICE-PAYS-REAL-GOLD**: the practice sandbox is recorded as a real run on every
+  run-end path. Value: `practiceInvincible` defaults to `false` and is player-toggled, practice
+  spawns any boss on demand, and dying (or ending the run) in practice runs the full run-end
+  path: `metaManager.addGold(goldEarned)`, `getAchievementManager().recordRunEnd`,
+  `getCodexManager().recordRunEnd`, `settleDailyQuests`, `recordScore`, `recordShipRun` and
+  `recordRun`. `gameOver()`'s only practice guard is the nemesis (`GameScene.ts:~6724`); the
+  live checks are guarded (`:4538`, `:4546`) but the run end is not. So a sandbox with
+  invincibility on farms real gold, inflates lifetime stats, posts best scores, moves the day's
+  quest board and pushes sandbox rows into the RECENT strip. Needs one decision applied to BOTH
+  run-end paths at once (never one path alone): is practice a sandbox that records nothing, or a
+  real run? Recommended: a sandbox. Note `PauseGameState.practiceModeActive` is already documented
+  as "never moves the day's quest board", which the run-end settle contradicts today.
+  Pointers: `GameScene.gameOver` (~`:6508-6804`), `GameScene.recordEarlyRunEnd`,
+  `PauseMenuManager.showEndRunConfirmation`.
 
 ## Next
 
@@ -2230,6 +2281,14 @@ Never agent work. The fleet must not do any of these.
     enough or do the quest names need to be there? Also: the dialog now lifts itself when the
     breakdown would push Confirm off a 720-tall landscape canvas — does a shifted dialog look
     deliberate, or does the title drifting upward on a heavily-multiplied run read as a glitch?
+    (h) **ending early now counts as a run** (**FEAT-ENDRUN-RECORD-TRUTH**): the achievements,
+    codex stats, best score, ship record and RECENT-strip row are all written now, and the
+    newcomer taper advances. Two questions that only a human can settle: does ending a run early
+    still feel like a legitimate cash-out rather than the optimal way to play, and **should it
+    break the win streak** the way dying does? It deliberately does not today. Dying breaks the
+    streak *before* the gold is computed, while the END RUN dialog quotes a total computed *with*
+    the streak multiplier still applied, so making them consistent also means deciding whether
+    the dialog must requote after the break, or whether the promised number is honored anyway.
   - **POLISH-GOLD-LEDGER** (— 585b010) — playtest the death-screen run economy readout
     (FEAT-GOLD-LEDGER). Owns: (a) **the net on the pill:** whether `net +180` reads as "what this
     run was worth" or gets misread as a second payout on top of `Gold: +N`, and whether a negative
