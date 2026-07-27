@@ -1713,6 +1713,27 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `src/meta/PracticeBestTimes.test.ts`. Feel/scope owned by **POLISH-PRACTICE-TIMEATTACK** under
   `## Human gates`.
 
+- [ ] **FEAT-HUD-WALLET** — show the actual banked wallet in-run, not just the projected payout.
+  Value: the HUD's `N GOLD` is `calculateRunGold(...)`, a *preview of the end-of-run payout*
+  (`HUDManager.ts:907-918`), not the balance the Black Market spends, so with the market now the
+  game's only gold sink a player cannot tell what they can afford until they are already standing
+  inside the shrine. Pointer: `HUDManager.updateHUD` gold preview block; wallet is
+  `getMetaProgressionManager().getGold()`.
+
+- [ ] **FEAT-VICTORY-ECONOMY** — give the victory overlay the run-economy readout the death screen
+  has. Value: `showVictory` renders a stat grid and a streak line but **no gold number at all**
+  (verified: no gold text between `PauseMenuManager.ts:1400-1660`), and the payout is only awarded
+  when the player taps NEXT WORLD (`GameScene.ts:6119-6121`), so a player who *wins* after
+  spending at the market is the one player who never learns what the run paid.
+  Pointer: the `victoryCellRow` stat grid ~`PauseMenuManager.ts:1540-1560`; reuse
+  `GameOverData.goldLedger`'s shape on `VictoryData`.
+
+- [ ] **FEAT-QUEST-GOLD-RECAP** — name run-end daily-quest gold on the death screen. Value:
+  `payDailyQuests(settleDailyQuests(...))` runs *after* the payout in `gameOver()`
+  (`GameScene.ts:~6555`), so gold from a quest that completed by dying is banked silently and
+  appears in no recap number: the player is paid and never told.
+  Pointer: `GameScene.payDailyQuests` returns nothing today; have it report the claimed total.
+
 ## Next
 
 *(groomed 2026-07-16 — roadmap pass; ordered by value)*
@@ -1817,9 +1838,63 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `src/data/MarketOffers.test.ts`, `src/game/scenes/GameScene.ts`. Prices and feel are unvalidated in
   a browser: see **POLISH-MARKET-STOCK** under `## Human gates`.
 
-- [ ] **FEAT-GOLD-LEDGER** — a death-screen line showing gold earned vs. gold spent in-run. Value:
-  the recap currently reports only the payout, so a player who spent at the market cannot see what
-  the run actually netted.
+- [x] **FEAT-GOLD-LEDGER** — a death-screen line showing gold earned vs. gold spent in-run
+  (done — 585b010). The verified gap: the death screen showed exactly one gold number,
+  `Gold: +N` from `data.goldEarned`, which is the **end-of-run payout only**
+  (`PauseMenuManager.ts:2250-2260` pre-change). Gold also moves *during* a run from at least
+  seven income sites, all writing straight to the bank (mid-run achievement rewards
+  `GameScene.ts:790`/`:800`, the boss cache `:3190`, the nemesis bounty `:3251`, the GOLD floor
+  consumable `:3628`, the bounty reward `:4054`, the Fortune shrine `:4216`, live daily-quest
+  payouts `payDailyQuests` `:6806`), and since `FEAT-MARKET` (`e32a173`) it also moves *out*: the
+  Black Market debits the banked wallet (`applyMarketPurchase` → `metaManager.spendGold`), the
+  game's only in-run gold sink. A run that found 240 g and spent 940 g at two markets rendered
+  identically to one that touched neither, so there was no surface anywhere, in-run or post-run,
+  telling a player what a run did to their wallet.
+  **The counter lives in `MetaProgressionManager`, not at the seven call sites.** `addGold` and
+  `spendGold` are the single choke point every gold movement already goes through, so
+  instrumenting them covers all seven current income sites and every future one for free.
+  Instrumenting each site individually is exactly the "parallel code path consistency" trap this
+  repo's `CLAUDE.md` warns about: a gold site added later would silently under-report. The run
+  ledger is armed in `resetInRunFeatureState()` (not `create()`), because that method is called on
+  **both** the fresh-start and restore paths, and the manager is a singleton whose state survives
+  `scene.restart()`: without the arm, the ledger would accumulate across every run forever.
+  **The snapshot ordering is the whole correctness of the feature.** `gameOver()` takes
+  `metaManager.getRunLedger()` immediately *before* `metaManager.addGold(goldEarned)`. Taking it
+  after the payout folds the payout into `earned` (it is already the pill's own number, so it
+  would be double-counted as "found"); taking it after the `!this.hasWon` block would also fold in
+  run-end quest settle gold. `earned` therefore deliberately excludes both the payout and
+  `payDailyQuests(settleDailyQuests(...))`, which fires after the payout and stays invisible today
+  exactly as it was before this change (filed as **FEAT-QUEST-GOLD-RECAP** under
+  `## Proposed (auto)`). Two accumulation details are deliberate: `earned` accrues the **applied
+  balance delta**, not the requested amount, so the 10,000,000 wallet cap can never make the ledger
+  claim income the player did not receive; `spent` accrues **only on the `true` branch**, so the
+  market's speculative `if (!metaManager.spendGold(offer.price)) return;` never records a refused
+  purchase as spending.
+  On the screen: a conditional 4th stats row (`Gold Found` `+N` in gold `#ffdd44`, `Gold Spent`
+  `-N` in red `#ff8888`, matching the file's existing `Best Combo` / `Damage Taken` idiom) renders
+  only when either side moved, and every downstream coordinate (`statsPanelHeight`, the divider,
+  `goldY`, `contentBottomY`, the restart-hint clamp) already derives from `statRowCount`, so no
+  other geometry needed touching. The gold pill widens 250 → 360 and its settled text appends the
+  run's net (`Gold: +120   ·   net -820`), written at both places that finish the count-up (the
+  tween's `onComplete` and the skip path in `handleRestart`); the `onUpdate` count-up is unchanged,
+  so the net reads as the reveal when the counter settles.
+  **The ledger is not persisted.** No `SAVE_VERSION` bump and no new storage key: a
+  reload-restored run reports zeroes and simply hides the row, matching how `totalDamageTaken`,
+  `totalDamageDealt` and `runTimeline` already behave (`GameOverData.runTimeline` is documented
+  "Undefined for a restored run"). **The victory overlay was left alone**: `showVictory` renders a
+  stat grid and a streak line but no gold readout at all, so there is no existing surface there to
+  extend, and its payout is not even awarded until the player taps NEXT WORLD
+  (`GameScene.ts:6119-6121`). That is its own feature, filed as **FEAT-VICTORY-ECONOMY**.
+  3 tests were appended to `src/meta/MetaProgressionManager.gold.test.ts` (ledger reset,
+  two-sided accumulation, and that a refused spend is not counted) and no others: the ledger
+  arithmetic is the single gate between "the player moved money" and "the screen reports money", a
+  wrong number there is silent and unfalsifiable by eye, and the refused-spend branch is genuinely
+  non-obvious. The recap row and pill are Phaser-coupled scene wiring guarded by `tsc`, the full
+  suite (124 files / 1562 tests) and `npm run build`, exactly like every prior recap feature here
+  (`FEAT-THREAT-RECAP`, `FEAT-PACE-RECAP`, `FEAT-RUN-TIMELINE`). Files:
+  `src/meta/MetaProgressionManager.ts`, `src/meta/MetaProgressionManager.gold.test.ts`,
+  `src/game/scenes/GameScene.ts`, `src/game/managers/PauseMenuManager.ts`. Wording, fit and feel
+  are unvalidated in a browser: see **POLISH-GOLD-LEDGER** under `## Human gates`.
 
 ## Later
 
@@ -1989,6 +2064,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-GOLD-LEDGER** (— 585b010) — playtest the death-screen run economy readout
+    (FEAT-GOLD-LEDGER). Owns: (a) **the net on the pill:** whether `net +180` reads as "what this
+    run was worth" or gets misread as a second payout on top of `Gold: +N`, and whether a negative
+    net (`net -820` after a big market spend) lands as informative or as punishment (knob: the
+    `goldFinalText` string in `PauseMenuManager.gameOver`). (b) **a 4-row stats panel in
+    landscape:** at 720 game units tall `contentBottomY` already clamps the restart hint to
+    `height - 24`, the new row adds 34 units, and the unlock/rematch/share stack sits below it, so
+    does the panel still fit above the fold? (c) **the same in portrait** (720x1280), where
+    `FEAT-PORTRAIT-RECAP` fitted this screen. (d) **the widened pill:** 360 units instead of 250,
+    does it still clear the panel edges at portrait width, and does the net appearing only once the
+    count-up settles read as a reveal or as a glitch? (e) **what `Gold Found` counts:** today it
+    excludes run-end daily-quest settle gold, which is banked after the payout snapshot; should the
+    row own that too (see **FEAT-QUEST-GOLD-RECAP** under `## Proposed (auto)`)?
   - **POLISH-MARKET-STOCK** (— ee32531) — playtest the 4th market card (FEAT-MARKET-STOCK). Owns:
     (a) **the prices:** whether 420 g for a new weapon, 200 g for a weapon level and 120 g for
     `+2` rerolls `+1` banish are right, against what a real run to world level 3-5 actually pays out
