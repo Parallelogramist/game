@@ -34,6 +34,39 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-DAILY-QUESTS** — three rotating daily objectives that pay gold, browsable in a new
+  **Daily** tab on the ACHIEVEMENTS screen and badged `n/3` on the main menu's ACHIEVE card (done — 32e8da9).
+  The game had **no recurring, dated reason to play**: the daily/weekly *challenge* is a seeded run
+  *configuration* with a leaderboard (not an objective set), achievements are permanent one-shots, and milestones
+  are in-run only. Nothing rotated, nothing reset, nothing said "do this today". This adds a 12-quest pool
+  (`src/data/DailyQuests.ts`) from which 3 are picked deterministically per UTC day, plus a `SecureStorage`-backed
+  store (`src/meta/DailyQuestManager.ts`: `getDailyQuestBoard` / `getDailyQuestCompletionCount` /
+  `settleDailyQuests` / `claimDailyQuestGold`, corruption-hardened like `ShipRecords`). The date-seeded RNG helpers
+  moved verbatim out of `DailyChallengeManager` into a new pure `src/utils/dailySeed.ts` (that module re-exports
+  `getCurrentDailyDate`, so its consumers are untouched and every historical daily seed is unchanged) because the
+  challenge module pulls Phaser in via the weapons barrel and a unit-tested pure module must not.
+  **No in-run tracking was added**: quests measure fields `RunEndData` already carries, folded in at the two
+  existing `recordRunEnd` sites (victory in `showVictory`, loss inside the game-over `!hasWon` guard so a
+  won-then-endless run settles once), so quest eligibility matches achievement eligibility 1:1 (practice runs
+  excluded, gauntlet/daily runs counted). Gold is **banked** at run end and paid on the next ACHIEVEMENTS visit,
+  mirroring the retroactive `getUnclaimedRewards()` claim that scene already runs; `pendingGold` deliberately
+  survives the UTC rollover, so a quest cleared today can never be earned and lost at midnight.
+  **Additive & low-risk**: one new storage key (`survivor-daily-quests`, auto-transfers with the profile), no
+  save-format migration, no new scene, no main-menu layout change, no ECS/combat/`PlayerStats`/`MetaProgressionManager`
+  change; the ACHIEVEMENTS screen gains a 6th tab (tab/count fonts step down at 6 tabs) whose quest cards are
+  informational, so `achievementCards` stays empty on that tab and the scroll/focus/navigator code is untouched.
+  **One test** (`DailyQuestManager.test.ts`: corruption, rotation determinism, both aggregation modes, pay-once,
+  gold surviving rollover, sanitization) because that store either pays gold twice or eats it if it drifts; the
+  scenes are Phaser-coupled (untested like siblings), guarded by tsc + build, and the new storage key is
+  auto-covered by `StorageBootstrap.test.ts`. Target/reward balance, six-tab portrait legibility and whether
+  completion should instead toast + pay at the run-end overlay are filed as **POLISH-DAILY-QUESTS** under
+  `## Human gates`. Chosen because the backlog was thin (Now empty; Next/Proposed all done; the two open Later
+  items are value-gate busy-work) and the content pools are saturated (29 weapons, 12 bosses, 11 ships, 7 stages,
+  21+ modifiers, 14 blessings, 10 pacts), so a *retention / dated goal loop* axis the game has no version of beat
+  more of an existing pool. This session also **abandoned** the previously-planned, never-executed
+  **FEAT-CORROSION-FIELD** (a 30th weapon, planned 2026-07-18, no code or commit ever landed): a 30th weapon adds
+  to the most saturated pool in the game (29 weapons / 29 evolutions / 25 synergies), which the value gate treats
+  as content-pack repetition. If that weapon is wanted, it is the operator's pull to make.
 - [x] **FEAT-SHIP-RECORDS** — the Codex → Statistics tab gained a **BY SHIP** section listing every one of the 11
   ships with your best run score and your win/run tally (e.g. `Interceptor — 18,240 (3W / 11)`), from data the game
   never tracked before (done — 1064c47). Mastery (FEAT-ACHIEVE-MASTERY `f27109a`, surfaced in the pre-run pickers by
@@ -1404,6 +1437,25 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-DAILY-QUESTS** — the new **Daily** tab on the ACHIEVEMENTS screen and its `n/3` main-menu badge need a
+    legibility + feel eyeball (FEAT-DAILY-QUESTS, `32e8da9`). Agents have no browser. Reach it: main menu → the
+    **ACHIEVE** deck card (its badge now reads `n/3`) → the rightmost **Daily** tab. Check: (a) with **six** tabs
+    instead of five (portrait 720 gives ~106 units per tab, was 128), does the row still read on a phone in
+    **portrait**: is the stepped-down tab font (12px, was 14px) and count font (10px, was 12px) legible, and does
+    "Progression" still fit beside its `n/m` count without collision? (b) does the Daily tab's 3-card list read
+    cleanly in **portrait** (720, one column) and **landscape** (1280, two columns): do the quest name, description
+    wrap, progress bar and `value/target` status sit right, and is the `+250` gold figure legible in the card's
+    top-right? (c) correctness end-to-end: finish a run that clears one of the day's quests, then reopen
+    ACHIEVEMENTS: does the card flip to green **COMPLETE**, does your gold increase by that quest's reward (paid on
+    entry, not at the run-end overlay), and does the main-menu ACHIEVE badge move to `1/3`? (d) scope + balance: are
+    the 12 first-pass targets and rewards right (250-500 gold; e.g. 400 kills, 10/15 minutes survived, level 25,
+    500k daily damage, a 3-minute run under 200 damage taken), should completion instead **pay out and toast at the
+    run-end overlay** rather than on the next ACHIEVEMENTS visit (deferred by design, out of scope this session),
+    and should the badge read something clearer than a bare `n/3`? Knobs: `target` / `gold` / `description` (and the
+    pool itself) in `src/data/DailyQuests.ts`, `DAILY_QUEST_COUNT` in the same file, the tab name/icon in `TAB_DEFS`
+    (`src/game/scenes/AchievementScene.ts`), and the badge string at the `createProgressionDeck` call site
+    (`src/game/scenes/BootScene.ts`). These are tuning/legibility/scope-only; the mechanics (pool, rotation, store,
+    settle-at-run-end, payout, rollover) are done.
   - **POLISH-SHIP-RECORDS** — the new **BY SHIP** section in the Codex → Statistics tab needs a legibility + feel
     eyeball (FEAT-SHIP-RECORDS, `1064c47`). Agents have no browser. Reach it: main menu → CODEX → the **Statistics**
     tab → scroll to the **BY SHIP** header (below TOTALS and RECORDS). Check: (a) do the 11 rows read cleanly — the
