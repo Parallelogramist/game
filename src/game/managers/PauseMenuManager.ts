@@ -274,6 +274,14 @@ const TIMELINE_LEGEND_LABELS: Record<RunTimelineEventKind, string> = {
   closeCall: 'HURT',
 };
 
+/**
+ * Below this width the death-screen recap surfaces cannot use the side margins or
+ * the below-column slots (both are spoken for at portrait widths) and move into the
+ * free band above the title glow instead. Portrait is 720–1280 game units wide under
+ * EXPAND; landscape is never below 1280.
+ */
+const NARROW_RECAP_MAX_WIDTH = 1000;
+
 export interface GameOverData {
   killCount: number;
   gameTime: number;
@@ -1640,13 +1648,17 @@ export class PauseMenuManager {
     }
 
     // Recent-run trend strip (left margin, clear of the centered title/buttons).
-    this.createRecentRunsStrip(
-      data.recentRuns,
-      28,
-      this.scene.scale.height / 2 - 40,
-      PAUSE_MENU_DEPTH + 1,
-      { namePrefix: 'victoryRecent' }
-    );
+    // Skipped at portrait widths: unlike the death screen, this overlay has no
+    // free band above its title to fall back to.
+    if (this.scene.scale.width >= 900) {
+      this.createRecentRunsStrip(
+        data.recentRuns,
+        28,
+        this.scene.scale.height / 2 - 40,
+        PAUSE_MENU_DEPTH + 1,
+        { namePrefix: 'victoryRecent' }
+      );
+    }
 
     // Calculate gold reward for preview (with victory 1.5x bonus)
     const goldToEarn = data.goldEarned;
@@ -2161,11 +2173,18 @@ export class PauseMenuManager {
     }).setOrigin(0.5).setDepth(depth);
     animatedElements.push(restartText);
 
-    // Recent-run trend strip (left margin, vertically centered — clear of the
-    // centered stat column and side panels).
-    this.createRecentRunsStrip(data.recentRuns, 28, centerY - 30, depth, {
-      collector: animatedElements,
-    });
+    // Recent-run trend strip: left margin, vertically centered in landscape —
+    // clear of the centered stat column and side panels. At portrait widths the
+    // mid-height left margin is under the stat column, so it moves into the top
+    // band beside WHAT KILLED YOU (which is centered from x = centerX ± 120).
+    const narrowRecentRuns = this.scene.scale.width < 900;
+    this.createRecentRunsStrip(
+      data.recentRuns,
+      narrowRecentRuns ? 24 : 28,
+      narrowRecentRuns ? 104 : centerY - 30,
+      depth,
+      { collector: animatedElements }
+    );
 
     // Registered last on purpose: goldElementIndex, cardRevealLastIndex and
     // contentBottomY are all computed above, so nothing already on screen
@@ -2316,10 +2335,6 @@ export class PauseMenuManager {
     } = {}
   ): void {
     if (!runs || runs.length === 0) return;
-    // The left-margin strip has no clear home at portrait widths — it would
-    // sit under the centered stat column. Skipped there (BACKLOG: portrait
-    // polish pass).
-    if (this.scene.scale.width < 900) return;
 
     const gradeColors: Record<string, string> = {
       S: '#ffd24a', A: '#66ff99', B: '#66ccff', C: '#bbbbdd', D: '#cc9966', F: '#ff6666',
@@ -2685,32 +2700,42 @@ export class PauseMenuManager {
   }
 
   /**
-   * Landscape-only "WHAT KILLED YOU" panel: the lethal hit's attribution bucket
-   * plus the run's worst damage sources, in the left column below PERSONAL
-   * BESTS. Its top Y is a constant because that panel is always 4 rows tall
-   * (bottom `centerY + 26`), so this one never drifts with content. Skipped
-   * below 1000 px wide — the centered 340-wide CLOSEST TO UNLOCK panel needs
-   * that clearance, and at portrait widths both below-column slots are already
-   * spoken for (the same reason createRecentRunsStrip skips there).
+   * "WHAT KILLED YOU" panel: the lethal hit's attribution bucket plus the run's
+   * worst damage sources. In landscape it sits in the left column below PERSONAL
+   * BESTS; its top Y is a constant because that panel is always 4 rows tall
+   * (bottom `centerY + 26`), so this one never drifts with content. Below
+   * `NARROW_RECAP_MAX_WIDTH` neither that column nor the below-column slots are
+   * free, so it moves to the band above the title glow instead.
    */
   private createThreatRecapPanel(
     data: GameOverData,
     depth: number,
     animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
   ): void {
-    if (this.scene.scale.width < 1000 || this.scene.scale.height < 520) return;
+    const narrow = this.scene.scale.width < NARROW_RECAP_MAX_WIDTH;
+    if (!narrow && this.scene.scale.height < 520) return;
 
     const threatRows = orderThreatsByDamage(data.damageBySource ?? [], 3);
     if (threatRows.length === 0 && !data.killedBy && !data.nemesis) return;
 
     const panelWidth = 240;
-    const panelX = Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
-    const panelTopY = this.scene.scale.height / 2 + 42;
+    // Narrow (portrait): the left margin sits under the 480-wide centered stat
+    // column and both below-column slots are taken by WEAPON DAMAGE and
+    // PERSONAL BESTS / the card reveal, so this drops into the band above the
+    // title glow, under the RUN TIMELINE ribbon.
+    const panelX = narrow
+      ? this.scene.scale.width / 2
+      : Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
+    const panelTopY = narrow ? 92 : this.scene.scale.height / 2 + 42;
     const rowHeight = 34;
     const killedByHeight = data.killedBy ? 26 : 0;
     const nemesisHeight = data.nemesis ? 20 : 0;
     const rowsTopY = panelTopY + 30 + killedByHeight + nemesisHeight;
     const panelHeight = 30 + killedByHeight + nemesisHeight + threatRows.length * rowHeight + 12;
+
+    // Same clearance rule the timeline ribbon uses: a viewport too short for the
+    // band simply gets no panel rather than one drawn over the title.
+    if (narrow && this.scene.scale.height / 2 - 292 - (panelTopY + panelHeight) < 8) return;
 
     const panelBackground = this.scene.add.graphics();
     paintPanelBackground(
@@ -2928,15 +2953,19 @@ export class PauseMenuManager {
   private createRunTimelineStrip(data: GameOverData, depth: number): void {
     const events = data.runTimeline ?? [];
     if (events.length === 0) return;
-    if (this.scene.scale.width < 1000) return;
 
+    // Narrow (portrait) viewports cannot fit the legend on the title's row —
+    // six kinds need ~350 units and the title already owns the left of a
+    // 720-wide strip — so it drops to its own row and the strip grows to suit.
+    const narrow = this.scene.scale.width < NARROW_RECAP_MAX_WIDTH;
     const stripTopY = 12;
-    const stripHeight = 44;
+    const stripHeight = narrow ? 68 : 44;
     const glowTopY = this.scene.scale.height / 2 - 172 - 120;
     if (glowTopY - (stripTopY + stripHeight) < 8) return;
 
-    const trackLeftX = 60;
-    const trackRightX = this.scene.scale.width - 60;
+    const trackInset = narrow ? 24 : 60;
+    const trackLeftX = trackInset;
+    const trackRightX = this.scene.scale.width - trackInset;
     const trackWidth = trackRightX - trackLeftX;
     const trackY = stripTopY + 30;
 
@@ -2987,14 +3016,15 @@ export class PauseMenuManager {
 
     // Legend, left-to-right from a fixed origin so its width never has to be
     // measured up front; only the kinds this run actually produced are named.
-    let legendX = trackRightX - 380;
+    const legendY = narrow ? stripTopY + 50 : stripTopY + 6;
+    let legendX = narrow ? trackLeftX : trackRightX - 380;
     TIMELINE_KIND_ORDER.filter((kind) => markers.some((marker) => marker.kind === kind)).forEach((kind) => {
       const swatch = this.scene.add.graphics();
-      this.paintTimelineMarker(swatch, kind, legendX, stripTopY + 6, 1);
+      this.paintTimelineMarker(swatch, kind, legendX, legendY, 1);
       swatch.setDepth(depth);
       stripElements.push(swatch);
 
-      const legendText = this.scene.add.text(legendX + 9, stripTopY + 6, TIMELINE_LEGEND_LABELS[kind], {
+      const legendText = this.scene.add.text(legendX + 9, legendY, TIMELINE_LEGEND_LABELS[kind], {
         fontSize: '11px',
         color: '#8899bb',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
