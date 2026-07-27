@@ -12,7 +12,10 @@ import { WorldModeAdapter } from './WorldModeAdapter';
  * than fresh objects because the culling and clamp paths call them every frame.
  *
  * setupCamera being empty is the byte-identical guarantee in one line: no arena code
- * path can acquire camera scroll.
+ * path can acquire camera scroll. isSpawnableWorldPoint and leashRadius are the same
+ * guarantee for FEAT-WORLD-SPACE-5: the spawnability retry always succeeds on its first
+ * attempt with the draws it already made, and a null radius returns the leash pass
+ * before it reads the frame cache.
  */
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
@@ -41,6 +44,14 @@ export class ArenaModeAdapter implements WorldModeAdapter {
 
   fieldRect(): WorldRect {
     return this.syncToScreen(this.field);
+  }
+
+  isSpawnableWorldPoint(_x: number, _y: number): boolean {
+    return true;
+  }
+
+  leashRadius(): number | null {
+    return null;
   }
 
   update(_deltaSeconds: number): void {}

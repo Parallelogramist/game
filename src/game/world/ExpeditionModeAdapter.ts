@@ -6,11 +6,13 @@ import {
   SECTOR_WIDTH,
   SectorCoord,
   WorldRect,
+  rectContains,
   sectorCenterWorld,
   sectorKey,
   sectorOfWorldPoint,
   sectorsEqual,
 } from '../../world/worldSpace';
+import { LEASH_RADIUS } from '../../world/spawnRing';
 import { WorldModeAdapter } from './WorldModeAdapter';
 
 /**
@@ -86,6 +88,14 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
 
   fieldRect(): WorldRect {
     return this.world;
+  }
+
+  isSpawnableWorldPoint(x: number, y: number): boolean {
+    return rectContains(this.world, x, y);
+  }
+
+  leashRadius(): number | null {
+    return LEASH_RADIUS;
   }
 
   update(_deltaSeconds: number): void {

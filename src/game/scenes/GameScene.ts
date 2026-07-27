@@ -54,8 +54,13 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { inflateRect } from '../../world/worldSpace';
-import { pickEdgeSpawnPoint } from '../../world/spawnRing';
+import { WorldPoint, inflateRect, rectCenter } from '../../world/worldSpace';
+import {
+  EdgeSpawnConfig,
+  isBeyondLeash,
+  pickEdgeSpawnPoint,
+  repositionOntoSpawnRing,
+} from '../../world/spawnRing';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -269,6 +274,22 @@ interface PracticeFightState {
 
 /** XP floor that marks an enemy boss-tier — the same threshold handleEnemyDeath uses. */
 const PRACTICE_FIGHT_XP_FLOOR = 30;
+
+/** The ring a regular enemy enters on: just off the view edge, corners included. */
+const REGULAR_SPAWN_RING: EdgeSpawnConfig = { spawnOffset: 30, edgeInset: 0 };
+
+/** Minibosses and the nemesis enter further out and clear of the corners. */
+const MINIBOSS_SPAWN_RING: EdgeSpawnConfig = { spawnOffset: 50, edgeInset: 100 };
+
+/**
+ * Fresh edges tried before a spawn slot is abandoned. Only reachable in expedition,
+ * where a view pressed against the world edge can offer a blocked side; four retries
+ * make an all-blocked draw a 1-in-1024 event.
+ */
+const SPAWN_RING_ATTEMPTS = 5;
+
+/** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
+const LEASH_EXEMPT_XP_FLOOR = 30;
 
 /**
  * Expedition stays dev-only until FEAT-EXPEDITION-PROMOTE: no menu passes runMode, so
@@ -4603,6 +4624,7 @@ export class GameScene extends Phaser.Scene {
 
     this.gameTime += deltaSeconds;
     this.worldMode.update(deltaSeconds);
+    this.applyEnemyLeash();
     this.updateCloseCallWatch();
 
     // Deferred to update() rather than fired in create(): the run-modifier banner
@@ -7150,6 +7172,46 @@ export class GameScene extends Phaser.Scene {
     return entityId;
   }
 
+  /**
+   * A ring point the world will accept, or null when SPAWN_RING_ATTEMPTS fresh edges
+   * all landed outside it. Arena always succeeds on the first attempt, so its two
+   * random draws and its distribution are exactly what they were before this seam.
+   */
+  private pickSpawnRingPoint(config: EdgeSpawnConfig): WorldPoint | null {
+    const view = this.worldMode.viewRect();
+    for (let attempt = 0; attempt < SPAWN_RING_ATTEMPTS; attempt++) {
+      const point = pickEdgeSpawnPoint(view, config, Math.random);
+      if (this.worldMode.isSpawnableWorldPoint(point.x, point.y)) return point;
+    }
+    return null;
+  }
+
+  private applyEnemyLeash(): void {
+    const leashRadius = this.worldMode.leashRadius();
+    if (leashRadius === null) return;
+
+    const view = this.worldMode.viewRect();
+    const centre = rectCenter(view);
+
+    for (const enemyId of getFrameCacheEnemyIds()) {
+      if (EnemyType.xpValue[enemyId] >= LEASH_EXEMPT_XP_FLOOR) continue;
+      if (hasComponent(this.world, Destructible, enemyId)) continue;
+      if (!isBeyondLeash(
+        Transform.x[enemyId], Transform.y[enemyId], centre.x, centre.y, leashRadius,
+      )) continue;
+
+      const ringPoint = repositionOntoSpawnRing(
+        view, REGULAR_SPAWN_RING.spawnOffset, Math.random,
+      );
+      if (!this.worldMode.isSpawnableWorldPoint(ringPoint.x, ringPoint.y)) continue;
+
+      Transform.x[enemyId] = ringPoint.x;
+      Transform.y[enemyId] = ringPoint.y;
+      Knockback.velocityX[enemyId] = 0;
+      Knockback.velocityY[enemyId] = 0;
+    }
+  }
+
   private spawnEnemy(typeOverride?: EnemyTypeDefinition): void {
     // Get enemy type:
     //  1) explicit override wins
@@ -7167,13 +7229,10 @@ export class GameScene extends Phaser.Scene {
     const scaledStats = getScaledStats(enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
 
     // Spawn just outside the visible area, on a random edge.
-    const { x, y } = pickEdgeSpawnPoint(
-      this.worldMode.viewRect(),
-      { spawnOffset: 30, edgeInset: 0 },
-      Math.random,
-    );
+    const spawnPoint = this.pickSpawnRingPoint(REGULAR_SPAWN_RING);
+    if (!spawnPoint) return;
 
-    this.createEnemy(x, y, enemyType, scaledStats);
+    this.createEnemy(spawnPoint.x, spawnPoint.y, enemyType, scaledStats);
   }
 
   /**
@@ -7327,11 +7386,9 @@ export class GameScene extends Phaser.Scene {
     this.recordRunTimelineEvent('miniboss');
 
     // Spawn just outside the visible area, inset from the corners.
-    const { x, y } = pickEdgeSpawnPoint(
-      this.worldMode.viewRect(),
-      { spawnOffset: 50, edgeInset: 100 },
-      Math.random,
-    );
+    const spawnPoint = this.pickSpawnRingPoint(MINIBOSS_SPAWN_RING);
+    if (!spawnPoint) return;
+    const { x, y } = spawnPoint;
 
     // Scale stats with both time and world level multipliers
     const scalingTime = this.spawnScalingTime(typeId);
@@ -7509,8 +7566,7 @@ export class GameScene extends Phaser.Scene {
     if (this.nemesisSpawned || !this.nemesisRecord) return;
     if (this.gameTime < NEMESIS_SPAWN_TIME_SECONDS) return;
     if (this.enemyCount >= this.maxEnemies) return;
-    this.nemesisSpawned = true;
-    this.spawnNemesis(this.nemesisRecord);
+    this.nemesisSpawned = this.spawnNemesis(this.nemesisRecord);
   }
 
   /**
@@ -7524,16 +7580,14 @@ export class GameScene extends Phaser.Scene {
    * setpiece. Without the floor a nemesis built from a Shambler would silently
    * drop out of all three.
    */
-  private spawnNemesis(record: NemesisRecord): void {
+  private spawnNemesis(record: NemesisRecord): boolean {
     const enemyType = getEnemyType(record.typeId);
-    if (!enemyType) return;
+    if (!enemyType) return false;
     this.recordRunTimelineEvent('miniboss');
 
-    const { x, y } = pickEdgeSpawnPoint(
-      this.worldMode.viewRect(),
-      { spawnOffset: 50, edgeInset: 100 },
-      Math.random,
-    );
+    const spawnPoint = this.pickSpawnRingPoint(MINIBOSS_SPAWN_RING);
+    if (!spawnPoint) return false;
+    const { x, y } = spawnPoint;
 
     const scaledStats = getScaledStats(
       enemyType, this.spawnScalingTime(record.typeId),
@@ -7548,6 +7602,7 @@ export class GameScene extends Phaser.Scene {
     this.hudManager.repositionBossHealthBars();
     if (getSettingsManager().isScreenShakeEnabled()) this.shakeCamera(200, 0.005);
     this.showMinibossWarning(label);
+    return true;
   }
 
   /**
