@@ -397,7 +397,7 @@ Collision resolver invariants (section 5's module):
    `FEAT-BARRIER-COLLIDE`: pinned as **a move that would end inside a solid tile ends
    tangent to it**, not as depenetration of an already-embedded motionless circle.
    Axis-separated resolution has no correction to apply when the step along that axis is
-   zero, and depenetration is `findNearestFreeCircleSpot`'s job — section 5.3 already
+   zero, and depenetration is `findNearestFreeCircleSpot`'s job: section 5.3 already
    routes the one real case, wraith unphase, through it.)*
 10. **No tunneling**: sweeping a circle at
     `TUNING.player.dashSpeedMultiplier * maxPlayerSpeed` across a 1-tile wall for any
@@ -407,7 +407,7 @@ Collision resolver invariants (section 5's module):
 12. **Spawn snap**: `findNearestFreeCircleSpot` never returns a tile overlapping
     non-Open tiles and always returns a tile flood-connected to the query's region
     when one exists. *(As built, `FEAT-BARRIER-COLLIDE`: implemented as a
-    **connectivity-preserving BFS within one sector**, not the spiral 5.2 names — a
+    **connectivity-preserving BFS within one sector**, not the spiral 5.2 names, because a
     spiral can return a tile on the far side of a wall, which this invariant forbids
     outright. The search may walk through solids only until it first reaches open space,
     which is what lets an embedded mover escape the blob it is stuck in; from an open
@@ -574,11 +574,11 @@ matter. (2) `raycastSolid` takes a **required `moverKind` sixth argument**; with
 beam could not tell an ability door (clips) from a membrane (passes). It is required
 rather than defaulted so an unconsidered caller is a `tsc` error. (3) `isSolidAtWorld`
 treats membranes as **solid for `Player`/`Enemy`** while the resolver lets them pass with
-`passDirection` — a motionless query has no direction of travel, and spawn legality must
+`passDirection`, because a motionless query has no direction of travel, and spawn legality must
 not put anything inside a membrane. That asymmetry is deliberate and pinned by a test.
 (4) The substep loop caps at **`MAX_SUBSTEPS = 64`**, one sector width of travel; beyond
 that a displacement is a teleport (recall to Hangar), which must snap through
-`findNearestFreeCircleSpot` rather than sweep — see `CHORE-COLLIDE-TELEPORT-SNAP`.
+`findNearestFreeCircleSpot` rather than sweep (see `CHORE-COLLIDE-TELEPORT-SNAP`).
 (5) **Ungenerated sectors are solid for every `MoverKind`**: this doc never states what
 happens at the world's edge, and letting a mover leave it is worse than a wall.)*
 

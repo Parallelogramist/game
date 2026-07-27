@@ -2232,7 +2232,7 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   `FEAT-WORLD-SPACE-4`.
 
 - [ ] **CHORE-COLLIDE-TELEPORT-SNAP**: `resolveCircleMove` caps at `MAX_SUBSTEPS = 64`
-  (one sector width), so a recall-to-Hangar teleport must not be routed through it —
+  (one sector width), so a recall-to-Hangar teleport must not be routed through it:
   the recall implementation calls `findNearestFreeCircleSpot` at the destination
   instead. Deps: `FEAT-RECALL-*`. Spec: `02-worldgen-barriers.md` section 5.2.
 
@@ -2276,12 +2276,12 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   zero, and depenetration is `findNearestFreeCircleSpot`'s job (doc 02 section 5.3 already
   routes the one real case, wraith unphase, through it). (6) **`MAX_SUBSTEPS = 64`** caps
   the substep loop at one sector width of travel; beyond that a displacement is a teleport
-  (recall to Hangar), which must snap rather than sweep — filed as
+  (recall to Hangar), which must snap rather than sweep, filed as
   `CHORE-COLLIDE-TELEPORT-SNAP`. (7) **Ungenerated sectors are solid for every
   `MoverKind`**: the doc never states what happens at the world's edge, and letting a mover
   leave it is worse than a wall. Two further as-built notes on the **test shapes**, both
   found during execution: the generated-world sanity pass asserts the resolved centre is
-  not inside a blocking tile, and **exempts exactly one case** — a player legally standing
+  not inside a blocking tile, and **exempts exactly one case**: a player legally standing
   inside a one-way membrane it travelled through, which deviation 3 makes
   `isSolidAtWorld` report as solid (seed 12345, sector `0,-3`, south edge
   `{kind: OneWay, passDirection: "south"}`, a 60px southward step ending in the mouth
@@ -2290,7 +2290,7 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   queries from an **open but too-tight** tile rather than an embedded one, because from an
   embedded start the BFS's documented "walk through solids until the search first reaches
   open space" will legitimately step across a one-tile wall if that is the nearest open
-  space — see `CHORE-COLLIDE-EMBEDDED-SNAP`. **No `POLISH-*` item is filed**: nothing
+  space (see `CHORE-COLLIDE-EMBEDDED-SNAP`). **No `POLISH-*` item is filed**: nothing
   player-visible ships here, so there is nothing for a human to judge in a browser. Pure
   and Phaser-free, out-param API so the hot path allocates nothing, no `resetStaticCollisionSystem()`
   (the sector index is keyed by `WorldMap` identity in a `WeakMap` and the two BFS scratch
