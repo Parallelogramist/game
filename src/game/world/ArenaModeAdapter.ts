@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { GridBackground } from '../../visual/GridBackground';
+import { TrailManager } from '../../visual/TrailManager';
 import { WorldRect } from '../../world/worldSpace';
 import { WorldModeAdapter } from './WorldModeAdapter';
 
@@ -8,6 +10,9 @@ import { WorldModeAdapter } from './WorldModeAdapter';
  * scale on every call rather than cached, so an orientation flip or a Safari
  * address-bar resize needs no invalidation hook; they are reused instances rather
  * than fresh objects because the culling and clamp paths call them every frame.
+ *
+ * setupCamera being empty is the byte-identical guarantee in one line: no arena code
+ * path can acquire camera scroll.
  */
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
@@ -18,6 +23,16 @@ export class ArenaModeAdapter implements WorldModeAdapter {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+  }
+
+  setupCamera(
+    _playerVisual: Phaser.GameObjects.Container,
+    _grid: GridBackground,
+    _trails: TrailManager,
+  ): void {}
+
+  playerStartPoint(): { x: number; y: number } {
+    return { x: this.scene.scale.width / 2, y: this.scene.scale.height / 2 };
   }
 
   viewRect(): WorldRect {

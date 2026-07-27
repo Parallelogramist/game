@@ -59,6 +59,10 @@ export class TrailManager {
   private enabled: boolean = true;
   private maxTrailsPerFrame: number = 50;
 
+  private viewScrollX = 0;
+  private viewScrollY = 0;
+  private viewScrollActive = false;
+
   constructor(scene: Phaser.Scene) {
     const screenWidth = scene.scale.width;
     const screenHeight = scene.scale.height;
@@ -196,6 +200,20 @@ export class TrailManager {
   }
 
   /**
+   * Expedition only. The accumulation buffer is screen-sized, so world segments are
+   * stamped at screen coordinates and the buffer is pinned to the camera. Arena never
+   * calls this and the render texture keeps its default scroll factor.
+   */
+  setViewScroll(scrollX: number, scrollY: number): void {
+    if (!this.viewScrollActive) {
+      this.viewScrollActive = true;
+      this.renderTexture.setScrollFactor(0);
+    }
+    this.viewScrollX = scrollX;
+    this.viewScrollY = scrollY;
+  }
+
+  /**
    * Update: fade existing trail content, then stamp new segments onto the RenderTexture.
    * Only newly-queued segments are drawn each frame (not all active trails).
    */
@@ -223,8 +241,13 @@ export class TrailManager {
       for (let i = 0; i < this.newSegmentCount; i++) {
         const segment = this.newSegments[i];
 
-        const segmentDx = segment.x - segment.prevX;
-        const segmentDy = segment.y - segment.prevY;
+        const drawX = segment.x - this.viewScrollX;
+        const drawY = segment.y - this.viewScrollY;
+        const drawPrevX = segment.prevX - this.viewScrollX;
+        const drawPrevY = segment.prevY - this.viewScrollY;
+
+        const segmentDx = drawX - drawPrevX;
+        const segmentDy = drawY - drawPrevY;
         const segmentLength = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
         if (segmentLength < 0.001) continue;
 
@@ -243,27 +266,27 @@ export class TrailManager {
         // Glow pass (wider, dimmer)
         this.tempGraphics.fillStyle(segment.color, 0.22);
         this.tempGraphics.fillTriangle(
-          segment.prevX + normalX * glowHalf, segment.prevY + normalY * glowHalf,
-          segment.prevX - normalX * glowHalf, segment.prevY - normalY * glowHalf,
-          segment.x + normalX * glowHalf, segment.y + normalY * glowHalf
+          drawPrevX + normalX * glowHalf, drawPrevY + normalY * glowHalf,
+          drawPrevX - normalX * glowHalf, drawPrevY - normalY * glowHalf,
+          drawX + normalX * glowHalf, drawY + normalY * glowHalf
         );
         this.tempGraphics.fillTriangle(
-          segment.prevX - normalX * glowHalf, segment.prevY - normalY * glowHalf,
-          segment.x - normalX * glowHalf, segment.y - normalY * glowHalf,
-          segment.x + normalX * glowHalf, segment.y + normalY * glowHalf
+          drawPrevX - normalX * glowHalf, drawPrevY - normalY * glowHalf,
+          drawX - normalX * glowHalf, drawY - normalY * glowHalf,
+          drawX + normalX * glowHalf, drawY + normalY * glowHalf
         );
 
         // Core pass (narrow, bright)
         this.tempGraphics.fillStyle(segment.color, 0.6);
         this.tempGraphics.fillTriangle(
-          segment.prevX + normalX * coreHalf, segment.prevY + normalY * coreHalf,
-          segment.prevX - normalX * coreHalf, segment.prevY - normalY * coreHalf,
-          segment.x + normalX * coreHalf, segment.y + normalY * coreHalf
+          drawPrevX + normalX * coreHalf, drawPrevY + normalY * coreHalf,
+          drawPrevX - normalX * coreHalf, drawPrevY - normalY * coreHalf,
+          drawX + normalX * coreHalf, drawY + normalY * coreHalf
         );
         this.tempGraphics.fillTriangle(
-          segment.prevX - normalX * coreHalf, segment.prevY - normalY * coreHalf,
-          segment.x - normalX * coreHalf, segment.y - normalY * coreHalf,
-          segment.x + normalX * coreHalf, segment.y + normalY * coreHalf
+          drawPrevX - normalX * coreHalf, drawPrevY - normalY * coreHalf,
+          drawX - normalX * coreHalf, drawY - normalY * coreHalf,
+          drawX + normalX * coreHalf, drawY + normalY * coreHalf
         );
       }
 
