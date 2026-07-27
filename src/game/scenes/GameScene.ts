@@ -351,6 +351,7 @@ export class GameScene extends Phaser.Scene {
   private paceSamples: number[] = [];
   private paceRecordingEnabled: boolean = true;
   private lastPaceCheck: number = 0;
+  private paceGhostReplaced: boolean = false;
 
   // Cached per-run meta-progression values (set once in create(); cannot change mid-run)
   private cachedGemMagnetInterval: number = 0;
@@ -3593,6 +3594,7 @@ export class GameScene extends Phaser.Scene {
     // samples with the page, so it still races the ghost but records no curve.
     this.paceSamples = [];
     this.lastPaceCheck = 0;
+    this.paceGhostReplaced = false;
     this.paceRecordingEnabled = !this.shouldRestore;
     this.paceGhostCurve = this.practiceModeActive || this.gauntletModeActive
       ? null
@@ -5832,7 +5834,7 @@ export class GameScene extends Phaser.Scene {
     });
     const victoryScoreResult = recordScore(victoryWorldLevel, victoryRunScore);
     if (this.paceRecordingEnabled && victoryScoreResult.isNewBest) {
-      savePaceGhost(victoryWorldLevel, this.paceSamples);
+      if (savePaceGhost(victoryWorldLevel, this.paceSamples)) this.paceGhostReplaced = true;
     }
     recordShipRun(this.selectedShipId, true, victoryScoreResult.score);
     const victoryGrade = computePerformanceGrade(victoryRunScore, victoryWorldLevel, true);
@@ -6173,7 +6175,7 @@ export class GameScene extends Phaser.Scene {
       });
       scoreResult = recordScore(runWorldLevel, runScore);
       if (this.paceRecordingEnabled && scoreResult.isNewBest) {
-        savePaceGhost(runWorldLevel, this.paceSamples);
+        if (savePaceGhost(runWorldLevel, this.paceSamples)) this.paceGhostReplaced = true;
       }
       recordShipRun(this.selectedShipId, this.hasWon, scoreResult.score);
       performanceGrade = computePerformanceGrade(runScore, runWorldLevel, this.hasWon);
@@ -6241,6 +6243,11 @@ export class GameScene extends Phaser.Scene {
       totalDamageTaken: this.totalDamageTaken,
       damageBySource: this.getDamageTakenBySource(),
       killedBy: this.killedBySourceName,
+      pace: {
+        ghost: this.paceGhostCurve,
+        runSamples: this.paceSamples,
+        ghostReplaced: this.paceGhostReplaced,
+      },
       rematch: this.pendingRematchLaunch
         ? { targetName: getEnemyType(this.pendingRematchLaunch.target.targetId)?.name ?? 'the boss' }
         : undefined,

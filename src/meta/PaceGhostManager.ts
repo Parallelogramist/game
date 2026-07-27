@@ -57,11 +57,13 @@ function load(): PaceGhostMap {
   }
 }
 
-function save(map: PaceGhostMap): void {
+function save(map: PaceGhostMap): boolean {
   try {
     SecureStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    return true;
   } catch {
     // Non-fatal — the pace line is informational.
+    return false;
   }
 }
 
@@ -70,13 +72,17 @@ export function getPaceGhost(worldLevel: number): number[] | null {
   return load()[String(worldLevel)] ?? null;
 }
 
-/** Replaces the stored curve for a world level. A malformed curve is ignored. */
-export function savePaceGhost(worldLevel: number, samples: readonly number[]): void {
+/**
+ * Replaces the stored curve for a world level. A malformed curve is ignored.
+ * Returns true only when the store actually took the write — the run-end
+ * "NEW GHOST" marker must never claim a ghost that was never persisted.
+ */
+export function savePaceGhost(worldLevel: number, samples: readonly number[]): boolean {
   const clean = sanitizeCurve(samples);
-  if (!clean) return;
+  if (!clean) return false;
   const map = load();
   map[String(worldLevel)] = clean;
-  save(map);
+  return save(map);
 }
 
 /**
@@ -107,4 +113,76 @@ export function paceDeltaKills(
   const fraction = Math.min(1, Math.max(0, (elapsedSeconds - lowerSeconds) / PACE_SAMPLE_INTERVAL_SECONDS));
   const ghostKills = lowerKills + (upperKills - lowerKills) * fraction;
   return Math.round(kills - ghostKills);
+}
+
+/**
+ * How the run finished against the ghost it raced.
+ * - `never-ahead`   — the run was never strictly ahead at any compared sample.
+ * - `ahead-at-end`  — strictly ahead at the last compared sample.
+ * - `lost-lead`     — led at some point, not at the last compared sample.
+ * - `none`          — the run recorded no samples of its own (restored run), so
+ *                     only the final delta is knowable.
+ */
+export type RunPaceShape = 'never-ahead' | 'ahead-at-end' | 'lost-lead' | 'none';
+
+export interface RunPaceSummary {
+  /** Kills ahead (+) / behind (-) at the end of the race; null when there is nothing honest to say. */
+  finalDelta: number | null;
+  /** Seconds the run survived past the end of the ghost's curve (0 when it did not). */
+  outlastedSeconds: number;
+  shape: RunPaceShape;
+  /** For `lost-lead`: the last sample time the run was still strictly ahead. */
+  lostLeadAtSeconds: number | null;
+}
+
+/**
+ * Run-end summary of the pace race. `ghost` must be the curve the run RACED
+ * (captured at run start) — never a re-read of the store, which a new best has
+ * already overwritten with this very run.
+ *
+ * A run that outlives the ghost's curve is compared against the ghost's final
+ * kill count instead of an interpolated point that does not exist.
+ */
+export function summarizeRunPace(
+  ghost: number[] | null,
+  runSamples: readonly number[],
+  elapsedSeconds: number,
+  kills: number,
+): RunPaceSummary {
+  const nothing: RunPaceSummary = {
+    finalDelta: null,
+    outlastedSeconds: 0,
+    shape: 'none',
+    lostLeadAtSeconds: null,
+  };
+  if (!ghost || ghost.length === 0) return nothing;
+  if (!Number.isFinite(elapsedSeconds) || !Number.isFinite(kills)) return nothing;
+
+  const ghostEndSeconds = ghost.length * PACE_SAMPLE_INTERVAL_SECONDS;
+  const outlastedSeconds = Math.max(0, elapsedSeconds - ghostEndSeconds);
+  const finalDelta = outlastedSeconds > 0
+    ? Math.round(kills - ghost[ghost.length - 1])
+    : paceDeltaKills(ghost, elapsedSeconds, kills);
+
+  const comparedCount = Math.min(runSamples.length, ghost.length);
+  if (comparedCount === 0) {
+    return { finalDelta, outlastedSeconds, shape: 'none', lostLeadAtSeconds: null };
+  }
+
+  let lastAheadIndex = -1;
+  for (let index = 0; index < comparedCount; index++) {
+    if (runSamples[index] > ghost[index]) lastAheadIndex = index;
+  }
+  if (lastAheadIndex === -1) {
+    return { finalDelta, outlastedSeconds, shape: 'never-ahead', lostLeadAtSeconds: null };
+  }
+  if (lastAheadIndex === comparedCount - 1) {
+    return { finalDelta, outlastedSeconds, shape: 'ahead-at-end', lostLeadAtSeconds: null };
+  }
+  return {
+    finalDelta,
+    outlastedSeconds,
+    shape: 'lost-lead',
+    lostLeadAtSeconds: (lastAheadIndex + 1) * PACE_SAMPLE_INTERVAL_SECONDS,
+  };
 }

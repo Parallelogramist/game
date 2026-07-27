@@ -18,6 +18,7 @@ import { formatDailyShareText, DailyShareInput } from '../../meta/DailyShare';
 import { copyTextToClipboard } from '../../utils/Clipboard';
 import { getDailyQuestBoard, getLiveDailyQuestBoard, type DailyQuestProgress } from '../../meta/DailyQuestManager';
 import { DAILY_QUEST_COUNT, formatQuestValue } from '../../data/DailyQuests';
+import { summarizeRunPace } from '../../meta/PaceGhostManager';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -284,6 +285,15 @@ export interface GameOverData {
   damageBySource?: DamageSourceTally[];
   /** Attribution bucket of the lethal hit. Undefined/null when the run ended without one. */
   killedBy?: string | null;
+  /**
+   * Pace-vs-ghost recap. `ghost` is the curve the run RACED (captured at run
+   * start), not a re-read — a new best has already replaced the stored one.
+   */
+  pace?: {
+    ghost: number[] | null;
+    runSamples: number[];
+    ghostReplaced: boolean;
+  };
   /** Boss-tier target the run can re-fight in PRACTICE. Undefined = no REMATCH action. */
   rematch?: { targetName: string };
   /** Per-run beat log for the RUN TIMELINE ribbon. Undefined for a restored run. */
@@ -2155,6 +2165,7 @@ export class PauseMenuManager {
     // shifts position or stagger slot.
     this.createThreatRecapPanel(data, depth, animatedElements);
     this.createRunTimelineStrip(data, depth);
+    this.createPaceRecapBadge(data, centerX, titleY, titleText.displayWidth, depth);
 
     // Staggered entrance animations
     const staggerDelay = 120;
@@ -2768,6 +2779,113 @@ export class PauseMenuManager {
       barFill.fillRect(panelX - panelWidth / 2 + 10, rowY + 20, barFillWidth, 5);
       barFill.setDepth(depth);
       animatedElements.push(barFill);
+    });
+  }
+
+  /**
+   * PACE — the title band's right-hand medal, mirroring the GRADE badge on the
+   * left: how the run finished against the ghost it raced, where the lead was
+   * lost, and whether this run became the new ghost. The title band's right
+   * side is the only free real estate left on this overlay (both columns, the
+   * centered flow, the left margin and the top ribbon are all spoken for).
+   *
+   * It runs its own short fade-in instead of joining `animatedElements`: the
+   * shared `index * 120 ms` stagger would land it seconds after its twin badge.
+   */
+  private createPaceRecapBadge(
+    data: GameOverData,
+    titleX: number,
+    titleY: number,
+    titleDisplayWidth: number,
+    depth: number
+  ): void {
+    const pace = data.pace;
+    if (!pace) return;
+
+    const summary = summarizeRunPace(pace.ghost, pace.runSamples, data.gameTime, data.killCount);
+    if (summary.finalDelta === null && !pace.ghostReplaced) return;
+
+    // Floored so the subline can never reach back over the centered score line
+    // (up to 170 wide each side of centre) on the shorter VICTORY! title.
+    const badgeX = Math.max(titleX + titleDisplayWidth / 2 + 58, titleX + 240);
+    if (badgeX + 80 > this.scene.scale.width - 8) return;
+
+    const delta = summary.finalDelta;
+    const headline = delta === null
+      ? 'SET'
+      : delta > 0 ? `+${delta}` : delta < 0 ? String(delta) : 'EVEN';
+    const headlineColor = delta === null || delta > 0
+      ? ACCENT_COLORS_STR.safe
+      : delta < 0 ? ACCENT_COLORS_STR.danger : '#ffffff';
+    const headlineHex = Phaser.Display.Color.HexStringToColor(headlineColor).color;
+    const headlineSize = headline.length >= 4 ? '20px' : headline.length === 3 ? '24px' : '28px';
+
+    let subline: string;
+    if (delta === null) {
+      subline = 'NEW PACE TO BEAT';
+    } else if (summary.outlastedSeconds > 0) {
+      subline = `OUTLASTED BEST BY ${formatTime(summary.outlastedSeconds)}`;
+    } else if (summary.shape === 'ahead-at-end') {
+      subline = 'AHEAD AT THE END';
+    } else if (summary.shape === 'lost-lead') {
+      subline = `AHEAD UNTIL ${formatTime(summary.lostLeadAtSeconds ?? 0)}`;
+    } else if (summary.shape === 'never-ahead') {
+      subline = 'NEVER AHEAD';
+    } else {
+      subline = 'VS YOUR BEST RUN';
+    }
+
+    const badgeElements: (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[] = [];
+
+    const badgeGraphics = this.scene.add.graphics();
+    badgeGraphics.setDepth(depth - 1);
+    badgeGraphics.fillStyle(0x000000, 0.55);
+    badgeGraphics.fillCircle(badgeX, titleY, 32);
+    badgeGraphics.lineStyle(2, headlineHex, 1);
+    badgeGraphics.strokeCircle(badgeX, titleY, 32);
+    badgeElements.push(badgeGraphics);
+
+    badgeElements.push(this.scene.add.text(badgeX, titleY, headline, {
+      fontSize: headlineSize,
+      color: headlineColor,
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(depth));
+
+    const labelText = this.scene.add.text(badgeX, titleY + 44, 'PACE', {
+      fontSize: '11px', color: '#8888aa', fontFamily: DISPLAY_FONT, fontStyle: 'bold',
+    }).setOrigin(0.5).setDepth(depth);
+    labelText.setLetterSpacing(2);
+    badgeElements.push(labelText);
+
+    badgeElements.push(this.scene.add.text(badgeX, titleY + 62, subline, {
+      fontSize: '11px',
+      color: '#8899bb',
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+    }).setOrigin(0.5).setDepth(depth));
+
+    if (pace.ghostReplaced && delta !== null) {
+      const ghostText = this.scene.add.text(badgeX, titleY + 80, 'NEW GHOST', {
+        fontSize: '11px',
+        color: ACCENT_COLORS_STR.safe,
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(depth);
+      ghostText.setLetterSpacing(1);
+      badgeElements.push(ghostText);
+    }
+
+    badgeElements.forEach((element, index) => {
+      element.setAlpha(0);
+      this.scene.tweens.add({
+        targets: element,
+        alpha: 1,
+        duration: 300,
+        delay: 260 + index * 60,
+        ease: 'Sine.easeOut',
+      });
     });
   }
 
