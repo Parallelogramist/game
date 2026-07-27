@@ -17,10 +17,10 @@ import { OverlayDepths } from '../../visual/DepthLayers';
 import { formatDailyShareText, DailyShareInput } from '../../meta/DailyShare';
 import { copyTextToClipboard } from '../../utils/Clipboard';
 import { getDailyQuestBoard, getLiveDailyQuestBoard, previewDailyQuestSettle, settleDailyQuests, claimDailyQuestGold, type DailyQuestProgress } from '../../meta/DailyQuestManager';
-import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestRunData } from '../../data/DailyQuests';
+import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestDefinition, type DailyQuestRunData } from '../../data/DailyQuests';
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
 import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
-import { formatRunEarningsLine, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
+import { buildRunEarnings, formatRunEarningsLine, type RunEarning, type RunEarningSources, type RunEarningTag } from '../../meta/RunEarnings';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -205,8 +205,10 @@ export interface PauseMenuOptions {
   /**
    * Ending a run IS a run end, so it must write every record a death writes. Only
    * GameScene holds the run state those records need, so it owns the recording.
+   * Returns what the recording earned, because the unlock/achievement toasts it
+   * raises draw at OverlayDepths.HUD, under this dialog, and are never seen.
    */
-  onRecordRunEnd: (goldEarned: number) => void;
+  onRecordRunEnd: (goldEarned: number) => Pick<RunEarningSources, 'unlocks' | 'achievements'>;
   onOpenSettings: () => void;
   onContinueRun: () => void;
   onNextWorld: (goldEarned: number) => void;
@@ -385,6 +387,10 @@ export class PauseMenuManager {
 
   // Shop confirmation state
   public isShopConfirmationOpen: boolean = false;
+
+  /** createRunEarningsPanel builds a variable number of objects and names none, so the
+   *  END RUN earnings panel is torn down by reference rather than by name. */
+  private endRunEarnedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [];
 
   // Count-up animation targets for run summary
   private countUpStats: { text: Phaser.GameObjects.Text; target: number }[] = [];
@@ -1472,22 +1478,38 @@ export class PauseMenuManager {
         metaManager.addGold(finalTotal);
         // Ordered as gameOver() orders it: gold banked, then the run recorded, then
         // the day's board settled.
-        this.options.onRecordRunEnd(finalTotal);
+        const recordedEarnings = this.options.onRecordRunEnd(finalTotal);
         // Then fold the run into the day's board, exactly as both run-end paths in
         // GameScene do. Claiming (rather than adding each quest's gold) also sweeps up
         // anything an earlier failed payout left pending — the same reason
-        // GameScene.payDailyQuests claims. No toast: one raised here would be drawn at
-        // OverlayDepths.HUD, under this dialog at PAUSE_MENU, and never seen.
-        if (!questsSettledByVictory && settleDailyQuests(endRunQuestData).length > 0) {
-          metaManager.addGold(claimDailyQuestGold());
+        // GameScene.payDailyQuests claims.
+        let settledQuests: DailyQuestDefinition[] = [];
+        if (!questsSettledByVictory) {
+          settledQuests = settleDailyQuests(endRunQuestData);
+          if (settledQuests.length > 0) {
+            metaManager.addGold(claimDailyQuestGold());
+          }
         }
-        if (destination === 'restart') {
-          this.options.onRestart();
-        } else if (destination === 'shop') {
-          this.options.onQuitToShop(finalTotal);
-        } else {
-          this.options.onQuitToMenu();
+
+        const goToDestination = () => {
+          if (destination === 'restart') {
+            this.options.onRestart();
+          } else if (destination === 'shop') {
+            this.options.onQuitToShop(finalTotal);
+          } else {
+            this.options.onQuitToMenu();
+          }
+        };
+
+        // Every toast the three lines above raised draws at OverlayDepths.HUD, under
+        // this dialog, into a scene torn down by the next line, so the dialog names
+        // them itself. A run that earned nothing leaves immediately, as before.
+        const runEarnings = buildRunEarnings({ ...recordedEarnings, quests: settledQuests });
+        if (runEarnings.length === 0) {
+          goToDestination();
+          return;
         }
+        this.showEndRunEarned(runEarnings, goToDestination);
       },
     });
 
@@ -1554,9 +1576,95 @@ export class PauseMenuManager {
       'shopConfirmButtonText',
       'shopCancelButtonBg',
       'shopCancelButtonText',
+      'endRunEarnedTitle',
+      'endRunContinueButtonBg',
+      'endRunContinueButtonText',
     ]);
 
+    for (const element of this.endRunEarnedElements) {
+      this.scene.tweens.killTweensOf(element);
+      element.destroy();
+    }
+    this.endRunEarnedElements = [];
+
     this.isShopConfirmationOpen = false;
+  }
+
+  /**
+   * Replaces the END RUN confirm dialog with what confirming just earned. The dialog
+   * cannot preview this: the unlocks, achievements and quest payouts only come into
+   * existence once Confirm has run.
+   */
+  private showEndRunEarned(earnings: RunEarning[], onContinue: () => void): void {
+    if (this.shopConfirmKeyHandler) {
+      this.scene.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
+      this.shopConfirmKeyHandler = null;
+    }
+
+    // The overlay stays, so the screen does not flash black between the two dialogs.
+    this.destroyElementsByName([
+      'shopConfirmTitle',
+      'shopConfirmSubtitle',
+      'shopConfirmBreakdown',
+      'shopConfirmTotal',
+      'shopConfirmButtonBg',
+      'shopConfirmButtonText',
+      'shopCancelButtonBg',
+      'shopCancelButtonText',
+    ]);
+
+    const centerX = this.scene.scale.width / 2;
+    const dialogCenterY = this.scene.scale.height / 2;
+
+    const titleText = this.scene.add.text(centerX, dialogCenterY - 120, 'RUN ENDED', {
+      fontSize: '40px',
+      color: ACCENT_COLORS_STR.gold,
+      fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 6,
+    });
+    titleText.setLetterSpacing(3);
+    titleText.setOrigin(0.5);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 1);
+    titleText.setName('endRunEarnedTitle');
+
+    const panelBottomY = this.createRunEarningsPanel(
+      earnings,
+      centerX,
+      dialogCenterY - 88,
+      PAUSE_MENU_DEPTH + 1,
+      this.endRunEarnedElements
+    );
+
+    let continueCommitted = false;
+    const commitContinue = () => {
+      if (continueCommitted) return;
+      continueCommitted = true;
+      onContinue();
+    };
+
+    this.createLabeledButton({
+      x: centerX, y: panelBottomY + 49,
+      width: 200, height: 50,
+      label: 'Continue', fontSize: '24px',
+      baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeColor: 0x66cc66,
+      bgName: 'endRunContinueButtonBg', textName: 'endRunContinueButtonText',
+      onActivate: commitContinue,
+    });
+
+    // Confirm's Enter binding is `keydown`, so a held Enter would otherwise land on
+    // this screen the frame it opens and skip it unread.
+    this.scene.time.delayedCall(350, () => {
+      if (!this.isShopConfirmationOpen) return;
+      this.shopConfirmKeyHandler = (event: KeyboardEvent) => {
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
+          event.preventDefault();
+          commitContinue();
+        }
+      };
+      this.scene.input.keyboard?.on('keydown', this.shopConfirmKeyHandler);
+    });
   }
 
   /**

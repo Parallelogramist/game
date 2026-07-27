@@ -94,7 +94,7 @@ import {
 } from '../../meta/PracticeBestTimes';
 import { settleDailyQuests, createDailyQuestWatcher, claimDailyQuestGold, type DailyQuestWatcher } from '../../meta/DailyQuestManager';
 import type { DailyQuestDefinition } from '../../data/DailyQuests';
-import { buildRunEarnings } from '../../meta/RunEarnings';
+import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
@@ -6812,10 +6812,14 @@ export class GameScene extends Phaser.Scene {
    * Death-only work is absent on purpose. Nothing killed the player, so there is no
    * nemesis to persist, and the win streak is left intact (see POLISH-GOLD-TRUTH (h)).
    */
-  private recordEarlyRunEnd(goldEarned: number): void {
+  private recordEarlyRunEnd(goldEarned: number): Pick<RunEarningSources, 'unlocks' | 'achievements'> {
     const metaManager = getMetaProgressionManager();
     const worldLevel = metaManager.getWorldLevel();
     const highestComboThisRun = getHighestCombo();
+
+    // Armed before recordRunEnd so the achievement-unlock callback captures what this
+    // run end earns; gameOver() arms it the same way, for the same reason.
+    this.runEndAchievements = [];
 
     // Not behind the hasWon guard, exactly as gameOver() has it: the later, deeper
     // build is the right one for Memory to carry into the next run.
@@ -6848,10 +6852,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     // After recordRunEnd so the lifetime-stat conditions see this run, the order
-    // gameOver() uses. The unlock toast lands at HUD depth under the confirm dialog
-    // and the scene tears down immediately, so the grant is the point here, not the
-    // notice (see FEAT-ENDRUN-EARNED-VISIBLE).
-    this.evaluateHiddenUnlocks(highestComboThisRun, this.hasWon, metaManager.getCurrentStreak());
+    // gameOver() uses. The toast this raises lands at HUD depth under the confirm
+    // dialog, so the names are returned for the dialog to report instead.
+    const newHiddenUnlocks = this.evaluateHiddenUnlocks(
+      highestComboThisRun,
+      this.hasWon,
+      metaManager.getCurrentStreak()
+    );
 
     if (!this.gauntletModeActive) {
       const runScore = computeRunScore({
@@ -6914,6 +6921,8 @@ export class GameScene extends Phaser.Scene {
     if (!this.hasWon) {
       metaManager.recordRunCompleted();
     }
+
+    return { unlocks: newHiddenUnlocks, achievements: this.runEndAchievements ?? [] };
   }
 
   /**
