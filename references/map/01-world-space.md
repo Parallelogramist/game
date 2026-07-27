@@ -330,6 +330,22 @@ never scrolls; mandatory before it does):
 | `src/game/managers/PauseMenuManager.ts` (only 1758 pinned) | Same | Pin all. | W3 |
 | Any straggler found by the W3 sweep (grep `scene.add.`/`this.add.` across `src/ui/`, `src/game/managers/`, GameScene UI blocks; verify against depth >= HUD band) | | Pin. | W3 |
 
+*(As built, W3 landed 157 pins: `HUDManager.ts` 39, `PauseMenuManager.ts` 110,
+`ToastManager.ts` 1, `GameScene.ts` 6, `SceneTransition.ts` 1. The counts are lower than
+the add-site counts above because **container children are covered by their root**:
+Phaser's container renderers multiply each child's scroll factor by the container's
+(`ContainerWebGLRenderer.js:121`, `ContainerCanvasRenderer.js:85`), so a pinned root pins
+its whole subtree including children added later. That accounts for 35 sites in
+`HUDManager` and 6 in `ToastManager`. `PauseMenuManager` has no containers, so its pin
+count and its add-site count both read 111, which is that file's completeness proof. The
+sweep turned up one straggler this table does not list:
+`SceneTransition.createFullscreenOverlay`, whose `fadeIn` and `fadeOut` callers were
+unpinned while its `createTransitionDim` caller was already pinned, so the pin moved into
+the factory and the duplicate was deleted. Three high-depth `GameScene` callouts were
+deliberately left unpinned because they are positioned at world coordinates and must keep
+scrolling: the combo callout (8289), `LEVEL UP` (9610) and the auto-upgrade notice (9927).
+Depth alone is not the test for screen space in this scene.)*
+
 Full-screen scene overlays that run as **separate scenes** (UpgradeScene,
 RelicDraftScene, MarketScene, PauseMenu's containing scene UI, SettingsScene, all 21
 scenes registered in `src/main.ts:164`) each have their own default camera at scroll
@@ -708,6 +724,18 @@ UI table); new `pinToCamera` helper in `src/visual/` or `src/ui/OverlayKit.ts`.
 - Existing suites green.
 **Dependencies:** none (may land in parallel with W2). **Test surface:** none (all
 Phaser-coupled; the arena no-op property is the safety net).
+
+*(As built, two DONE-CRITERIA deviations. No `pinToCamera` helper was written: it would be
+a one-line alias for `setScrollFactor(0)`, a call this repo already made at 60 sites across
+17 files before this chunk, so it adds a second spelling of one invariant and weakens the
+grep proof rather than strengthening it. The greppable invariant is `setScrollFactor(0)`
+itself and the proof is the per-file counts recorded above. No arena screenshot comparison
+was run either: a fleet session has no browser, so the substitute is the arithmetic
+argument that the renderer's only use of the scroll factor is the product
+`camera.scrollX * scrollFactorX`, which is zero at arena's `scrollX = 0` whatever the
+factor, plus `tsc`, the 1656-test suite and `npm run build` all green, plus a diff whose
+insertions equal its deletions on every code file touched. Visual confirmation stays with
+the human under the standing playtest gate.)*
 
 ### FEAT-WORLD-SPACE-4: expedition camera + world-anchored visuals (dev route)
 **Value:** the first flyable world: camera follows the ship across a multi-sector

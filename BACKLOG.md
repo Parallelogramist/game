@@ -2479,11 +2479,46 @@ This is the load-bearing refactor, done while it is still cheap to verify.
   or ignored: **CHORE-WORLDSPACE-CHEST-RECT** and **CHORE-WORLDSPACE-BOSSPHASE-RECT**.
   Deps: `FEAT-WORLD-SPACE-1`.
 
-- [ ] **FEAT-WORLD-SPACE-3**: pin every UI surface to the camera while the camera is still
-  static, converting the riskiest visual failure mode of a moving camera into a no-op.
-  `HUDManager.ts` (78 creation sites), `ToastManager.ts`, `PauseMenuManager.ts`, `src/ui/*`,
-  plus a `pinToCamera` helper. Done when every UI-band creation site routes through the helper
-  or carries an explicit `setScrollFactor(0)`, and the arena HUD shows no pixel movement.
+- [x] **FEAT-WORLD-SPACE-3** (done — 51d8385): every screen-space UI surface is now
+  camera-pinned, so the whole interface layer is already correct for a moving camera. That
+  was the last precondition for W4 to turn the camera on and fly: without it the first
+  expedition build would render its HUD, pause menu and death screen at world coordinates
+  and slide them off the display the moment the ship moved. 157 pins landed across five
+  files, plus one invariant comment: the HUD (`HUDManager.ts`, 39), the toast root
+  (`ToastManager.ts`, 1), the pause menu with both end-of-run overlays, the victory screen
+  and every recap panel (`PauseMenuManager.ts`, 110), the boss warnings and the event banner
+  (`GameScene.ts`, 6), and the fade transitions (`SceneTransition.ts`, 1). Arena rendering is
+  unchanged by construction: the camera's scroll is `(0,0)` in arena and the renderer's only
+  use of the scroll factor is the product `camera.scrollX * scrollFactorX`, which is zero
+  either way. Six deviations. (1) **No `pinToCamera` helper**, though doc 01's chunk entry
+  and this line both named one: it would be a one-line alias for `setScrollFactor(0)`, a call
+  this repo already made at 60 sites across 17 files before this chunk, so it adds a second
+  spelling of one invariant and weakens the grep proof rather than strengthening it
+  (`FL-X03`, `FL-X04`). The greppable invariant is `setScrollFactor(0)` itself, and the
+  per-file counts above are what verification checks. (2) **Container children are not
+  pinned.** Phaser's container renderers multiply each child's scroll factor by the
+  container's (`ContainerWebGLRenderer.js:121`, `ContainerCanvasRenderer.js:85`), so pinning
+  a root container pins its whole subtree, including children added later. That removed 35
+  sites in `HUDManager` and 6 in `ToastManager` from the sweep, and it is why the count of
+  `setScrollFactor` calls does not equal the count of `add.*` calls in those two files. It
+  does in `PauseMenuManager`, which has no containers: both read 111, and that equality is
+  the completeness proof for the file. The rule is recorded on `OverlayDepths` in
+  `src/visual/DepthLayers.ts` so the next reader does not "fix" the gap. (3) **Three
+  high-depth `GameScene` callouts stay unpinned on purpose**: the combo callout (8289),
+  `LEVEL UP` (9610) and the auto-upgrade notice (9927) are drawn at world coordinates and
+  must keep scrolling with the world. Depth is not a UI marker in this repo. (4)
+  **`SceneTransition`**: the pin moved into `createFullscreenOverlay` and the duplicate in
+  `createTransitionDim` was deleted, because `fadeIn` and `fadeOut` were unpinned callers of
+  the same factory. Doc 01's "already pinned" list cited lines 42 and 59; 42 is now the
+  factory. (5) **No screenshot comparison.** The chunk's DONE-CRITERIA asks for an arena
+  screenshot diff of the full HUD. A fleet session has no browser, so the substitute is the
+  arithmetic argument above plus `tsc`, the 1656-test suite and `npm run build`, all green,
+  and a diff whose insertions equal its deletions on all four code files (the edit rule
+  appended a call to an existing statement and never added a line). Visual confirmation is
+  the human's and is already covered by the standing playtest gate. (6) **No tests, one
+  comment**, per doc 01's own "Test surface: none" for this chunk and the workspace standing
+  order. Every object touched needs a live Phaser scene and a renderer to observe, so the
+  only honest check is the value being zero and the suite staying at 132 files / 1656 tests.
   Deps: none (parallel-safe with W2). Spec: `01-world-space.md` section 3.
 
 - [ ] **CHORE-WORLDSPACE-CHEST-RECT**: `spawnTreasureChest` places a chest with
