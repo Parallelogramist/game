@@ -2423,7 +2423,7 @@ export class PauseMenuManager {
       cardRevealLastIndex = animatedElements.length - 1;
     }
 
-    // What the run just earned outranks what it is close to earning, and the two own the
+    // What the run just earned outranks what it is close to earning, and all three own the
     // same slot: at 720 game units tall the stat panel, gold pill and CLOSEST TO UNLOCK
     // already reach the restart hint, so stacking a second panel pushes content off the
     // viewport. The run-end unlock/achievement/quest toasts draw at OverlayDepths.HUD,
@@ -2436,14 +2436,28 @@ export class PauseMenuManager {
         depth,
         animatedElements
       );
-    } else if (data.unlockProgress && data.unlockProgress.length > 0) {
-      contentBottomY = this.createUnlockProgressPanel(
-        data.unlockProgress,
-        centerX,
-        contentBottomY + 18,
-        depth,
-        animatedElements
-      );
+    } else {
+      // Between two "what you are close to" panels, the one with a deadline wins: today's
+      // board resets at UTC midnight and pays gold, while hidden-unlock progress keeps.
+      // A finished board has nothing left to chase, so it yields the slot back.
+      const questBoard = getDailyQuestBoard();
+      if (questBoard.some((entry) => !entry.complete)) {
+        contentBottomY = this.createDailyQuestBoardPanel(
+          questBoard,
+          centerX,
+          contentBottomY + 18,
+          depth,
+          animatedElements
+        );
+      } else if (data.unlockProgress && data.unlockProgress.length > 0) {
+        contentBottomY = this.createUnlockProgressPanel(
+          data.unlockProgress,
+          centerX,
+          contentBottomY + 18,
+          depth,
+          animatedElements
+        );
+      }
     }
 
     // REMATCH — only when a boss-tier enemy can be re-fielded. Sits above COPY
@@ -3568,6 +3582,108 @@ export class PauseMenuManager {
         color: '#6677aa',
         fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(detailText);
+    });
+
+    return startY + panelHeight;
+  }
+
+  /**
+   * Renders today's DAILY QUESTS board below the main stats: one row per quest with a
+   * progress bar, the gold at stake, and how far short the run left it. Returns the new
+   * content bottom Y so the restart hint can stack below it.
+   *
+   * The board is read straight from storage rather than folded live: gameOver() runs
+   * after GameScene has already called settleDailyQuests(), so the stored board is
+   * this-run-inclusive, and folding again here would double-count the run.
+   */
+  private createDailyQuestBoardPanel(
+    board: DailyQuestProgress[],
+    centerX: number,
+    startY: number,
+    depth: number,
+    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
+  ): number {
+    const panelWidth = 340;
+    const rowHeight = 22;
+    const headerOffset = 18;
+    const panelHeight = headerOffset + board.length * rowHeight + 14;
+    const completeCount = board.filter((entry) => entry.complete).length;
+
+    const panelBackground = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBackground,
+      centerX - panelWidth / 2,
+      startY,
+      panelWidth,
+      panelHeight
+    );
+    panelBackground.setDepth(depth);
+    animatedElements.push(panelBackground);
+
+    const header = this.scene.add.text(
+      centerX,
+      startY + 6,
+      `DAILY QUESTS  ${completeCount}/${board.length}`,
+      {
+        fontSize: '12px',
+        color: '#ffcc66',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+      }
+    ).setOrigin(0.5, 0).setDepth(depth);
+    animatedElements.push(header);
+
+    const barWidth = 110;
+    const barHeight = 6;
+    const leftTextX = centerX - panelWidth / 2 + 14;
+    const rewardRightX = centerX + panelWidth / 2 - 12;
+    const barX = rewardRightX - 40 - barWidth;
+
+    board.forEach((entry, index) => {
+      const rowY = startY + headerOffset + 8 + index * rowHeight;
+      const ratio = entry.quest.target > 0
+        ? Math.min(1, entry.value / entry.quest.target)
+        : 1;
+
+      const nameText = this.scene.add.text(leftTextX, rowY, entry.quest.name, {
+        fontSize: '13px',
+        color: entry.complete ? '#88ff88' : '#ccccdd',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0).setDepth(depth);
+      animatedElements.push(nameText);
+
+      const barGraphics = this.scene.add.graphics();
+      barGraphics.fillStyle(0x2a2a44, 0.9);
+      barGraphics.fillRoundedRect(barX, rowY + 4, barWidth, barHeight, 3);
+      const fillWidth = Math.max(2, barWidth * ratio);
+      barGraphics.fillStyle(entry.complete ? 0x66cc66 : 0xffcc44, 1.0);
+      barGraphics.fillRoundedRect(barX, rowY + 4, fillWidth, barHeight, 3);
+      barGraphics.setDepth(depth);
+      animatedElements.push(barGraphics);
+
+      const rewardText = this.scene.add.text(
+        rewardRightX,
+        rowY,
+        `+${entry.quest.gold}g`,
+        {
+          fontSize: '11px',
+          color: entry.complete ? '#88ff88' : '#ffcc66',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(1, 0).setDepth(depth);
+      animatedElements.push(rewardText);
+
+      const detailText = this.scene.add.text(
+        leftTextX,
+        rowY + 11,
+        formatQuestProgress(entry),
+        {
+          fontSize: '10px',
+          color: '#6677aa',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(0, 0).setDepth(depth);
       animatedElements.push(detailText);
     });
 
