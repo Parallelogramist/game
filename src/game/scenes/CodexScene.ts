@@ -14,7 +14,7 @@ import {
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
 import { WEAPON_SYNERGIES, WeaponSynergy } from '../../data/WeaponSynergies';
-import { RELICS, Relic, getRelicRarityColor } from '../../data/Relics';
+import { RELICS, Relic, getRelicRarityColor, BOSS_TROPHIES } from '../../data/Relics';
 import { RUN_MODIFIERS, RunModifier } from '../../data/RunModifiers';
 import { PACTS, Pact } from '../../data/Pacts';
 import { BLESSINGS, Blessing } from '../../data/Blessings';
@@ -267,7 +267,10 @@ export class CodexScene extends Phaser.Scene {
       } else if (category.id === 'synergies') {
         countLabel = `${codexManager.getDiscoveredSynergyCount()}/${codexManager.getTotalSynergyCount()}`;
       } else if (category.id === 'relics') {
-        countLabel = `${RELICS.length}`;
+        const unlockedTrophies = BOSS_TROPHIES.filter(
+          (trophy) => (codexManager.getEnemyEntry(trophy.bossEnemyTypeId)?.timesKilled ?? 0) > 0,
+        ).length;
+        countLabel = `${RELICS.length + unlockedTrophies}/${RELICS.length + BOSS_TROPHIES.length}`;
       } else if (category.id === 'evolutions') {
         countLabel = `${codexManager.getDiscoveredEvolutionCount()}/${codexManager.getTotalEvolutionCount()}`;
       } else if (category.id === 'ships') {
@@ -855,13 +858,31 @@ export class CodexScene extends Phaser.Scene {
 
   private displayRelics(): void {
     const relicCardHeight = 96;
+    const codexManager = getCodexManager();
 
-    this.layoutCardGrid([...RELICS], relicCardHeight, (relic, x, y) => {
-      this.createRelicCard(relic, x, y, relicCardHeight);
+    const entries: { relic: Relic; lockedBossName?: string }[] = [
+      ...RELICS.map((relic) => ({ relic })),
+      ...BOSS_TROPHIES.map((trophy) => ({
+        relic: trophy.relic,
+        lockedBossName:
+          (codexManager.getEnemyEntry(trophy.bossEnemyTypeId)?.timesKilled ?? 0) > 0
+            ? undefined
+            : trophy.bossName,
+      })),
+    ];
+
+    this.layoutCardGrid(entries, relicCardHeight, (entry, x, y) => {
+      this.createRelicCard(entry.relic, x, y, relicCardHeight, entry.lockedBossName);
     });
   }
 
-  private createRelicCard(relic: Relic, x: number, y: number, cardHeight: number): void {
+  private createRelicCard(
+    relic: Relic,
+    x: number,
+    y: number,
+    cardHeight: number,
+    lockedBossName?: string,
+  ): void {
     const container = this.add.container(x, y);
     this.contentContainer.add(container);
 
@@ -911,7 +932,7 @@ export class CodexScene extends Phaser.Scene {
     });
     container.add(nameText);
 
-    const rarityText = this.add.text(textX, 38, relic.rarity.toUpperCase(), {
+    const rarityText = this.add.text(textX, 38, lockedBossName ? 'TROPHY · LOCKED' : relic.rarity.toUpperCase(), {
       fontSize: '11px',
       color: rarityHex,
       fontFamily: FONT_FAMILY,
@@ -919,12 +940,17 @@ export class CodexScene extends Phaser.Scene {
     });
     container.add(rarityText);
 
-    const descText = this.add.text(textX, 56, relic.description, {
-      fontSize: '12px',
-      color: '#aaaaaa',
-      fontFamily: FONT_FAMILY,
-      wordWrap: { width: this.cardWidth - textX - 14 },
-    });
+    const descText = this.add.text(
+      textX,
+      56,
+      lockedBossName ? `Defeat ${lockedBossName} to unlock` : relic.description,
+      {
+        fontSize: '12px',
+        color: '#aaaaaa',
+        fontFamily: FONT_FAMILY,
+        wordWrap: { width: this.cardWidth - textX - 14 },
+      },
+    );
     container.add(descText);
 
     this.codexCards.push({ container, cardBg });

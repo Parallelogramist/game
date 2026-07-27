@@ -25,11 +25,16 @@ export class RelicManager {
   // Consecutive granted relics below RELIC_PITY_FLOOR. Per-run only: reset in
   // reset(), never persisted (restoreFromSave restores ids, not this streak).
   private subFloorStreak: number = 0;
+  // Trophy relics the player has earned (FEAT-BOSS-TROPHY), handed in at run
+  // start. Held per-run because unlock state is read once from the codex, not
+  // per roll.
+  private unlockedTrophies: readonly Relic[] = [];
 
   /** Resets relic inventory + pity streak (call at run start). */
-  reset(): void {
+  reset(unlockedTrophies: readonly Relic[] = []): void {
     this.equippedRelics = [];
     this.subFloorStreak = 0;
+    this.unlockedTrophies = unlockedTrophies;
   }
 
   /** Returns the ordered list of equipped relics. */
@@ -71,7 +76,12 @@ export class RelicManager {
     // the pity floor (epic) or better.
     const forceFloor = this.subFloorStreak >= RELIC_PITY_THRESHOLD;
     // Luck biases the rarity roll toward higher-quality relics (luck 0 = base odds).
-    const rolled = pickRandomRelic(excludeIds, stats.luck, forceFloor ? RELIC_PITY_FLOOR : undefined);
+    const rolled = pickRandomRelic(
+      excludeIds,
+      stats.luck,
+      forceFloor ? RELIC_PITY_FLOOR : undefined,
+      this.unlockedTrophies,
+    );
     if (!rolled) return null;
     const equipped = this.equipRelic(rolled, stats);
     if (equipped) {
@@ -95,7 +105,12 @@ export class RelicManager {
     const forceFloor = this.subFloorStreak >= RELIC_PITY_THRESHOLD;
     const excludeIds = this.equippedRelics.map((relic) => relic.id);
     for (let i = 0; i < count; i++) {
-      const rolled = pickRandomRelic(excludeIds, stats.luck, forceFloor ? RELIC_PITY_FLOOR : undefined);
+      const rolled = pickRandomRelic(
+        excludeIds,
+        stats.luck,
+        forceFloor ? RELIC_PITY_FLOOR : undefined,
+        this.unlockedTrophies,
+      );
       if (!rolled) break;
       choices.push(rolled);
       excludeIds.push(rolled.id);

@@ -150,7 +150,7 @@ import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
-import { Relic, getRelicRarityColor } from '../../data/Relics';
+import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
 import { getStageById, getDefaultStage } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
@@ -269,6 +269,8 @@ export class GameScene extends Phaser.Scene {
   private damageTakenBySource: Map<string, number> = new Map();
   /** Attribution bucket of the lethal hit, set only past the revival branch in takeDamage. */
   private killedBySourceName: string | null = null;
+  /** Trophy relic unlocked by this run's first-ever kill of its boss, for the victory kicker. */
+  private trophyUnlockedThisRun: string | null = null;
   /** Per-run beat log for the run-end RUN TIMELINE ribbon. Never persisted. */
   private runTimelineEvents: RunTimelineEvent[] = [];
   /** False while the player is already in the close-call band, so one dip logs one marker. */
@@ -2803,11 +2805,18 @@ export class GameScene extends Phaser.Scene {
     const enemyTypeId = this.enemyTypeMap.get(enemyId);
     if (enemyTypeId) {
       const codexManager = getCodexManager();
+      // Read the count BEFORE recording this kill: recordEnemyKill increments it,
+      // so afterwards a first kill is indistinguishable from a hundredth.
+      const priorKills = codexManager.getEnemyEntry(enemyTypeId)?.timesKilled ?? 0;
       codexManager.recordEnemyKill(enemyTypeId);
       achievementManager.recordBossTypeKills(
         enemyTypeId,
         codexManager.getEnemyEntry(enemyTypeId)?.timesKilled ?? 0,
       );
+      if (priorKills === 0) {
+        const trophy = getBossTrophy(enemyTypeId);
+        if (trophy) this.trophyUnlockedThisRun = trophy.relic.name;
+      }
       this.enemyTypeMap.delete(enemyId);
     }
 
@@ -5943,6 +5952,7 @@ export class GameScene extends Phaser.Scene {
       previousStreak,
       newStreak,
       streakBonusPercent: metaManager.getStreakBonusPercent(),
+      trophyUnlockedName: this.trophyUnlockedThisRun ?? undefined,
       performanceGrade: victoryGrade,
       // Reveal (and consume) the data-cache card here. A won run that continues
       // into endless and later dies hits gameOver() with the reveal already
@@ -9646,7 +9656,16 @@ export class GameScene extends Phaser.Scene {
     resetHazardZoneSystem();
     resetMusicIntensityDriver();
     resetJuiceManager();
-    getRelicManager().reset();
+    this.trophyUnlockedThisRun = null;
+    // A boss's trophy is earned by beating it and spends from the NEXT run
+    // onward: the boss kill ends this one. The codex's persisted per-enemy kill
+    // count is already the durable record of "have I beaten this boss", so no
+    // new storage key is needed.
+    getRelicManager().reset(
+      getUnlockedBossTrophies(
+        (bossEnemyTypeId) => (getCodexManager().getEnemyEntry(bossEnemyTypeId)?.timesKilled ?? 0) > 0,
+      ),
+    );
   }
 
   /**

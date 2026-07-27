@@ -5,6 +5,9 @@ import {
   rarityAtLeast,
   RELIC_RARITY_DROP_WEIGHTS,
   RELICS,
+  getUnlockedBossTrophies,
+  BOSS_TROPHIES,
+  BOSS_TROPHY_RELICS,
 } from './Relics';
 
 describe('luckBiasedRarityWeights', () => {
@@ -153,5 +156,34 @@ describe('pickRandomRelic rarity floor (pity)', () => {
     const withoutFloor = pickRandomRelic([], 0);
     const withUndefinedFloor = pickRandomRelic([], 0, undefined);
     expect(withoutFloor?.id).toBe(withUndefinedFloor?.id);
+  });
+});
+
+describe('boss trophies (FEAT-BOSS-TROPHY)', () => {
+  test('no trophy is offered before its boss is defeated', () => {
+    expect(getUnlockedBossTrophies(() => false)).toEqual([]);
+  });
+
+  test('a defeated boss unlocks exactly its own trophy', () => {
+    const unlocked = getUnlockedBossTrophies((bossId) => bossId === BOSS_TROPHIES[0].bossEnemyTypeId);
+    expect(unlocked.map((relic) => relic.id)).toEqual([BOSS_TROPHIES[0].relic.id]);
+  });
+
+  test('pickRandomRelic never returns a trophy unless it is passed in as the extra pool', () => {
+    const trophyIds = new Set(BOSS_TROPHY_RELICS.map((relic) => relic.id));
+    for (let draw = 0; draw < 500; draw++) {
+      const rolled = pickRandomRelic([], 1);
+      expect(rolled).not.toBeNull();
+      expect(trophyIds.has(rolled!.id)).toBe(false);
+    }
+
+    const forced = pickRandomRelic(
+      RELICS.map((relic) => relic.id),
+      0,
+      undefined,
+      BOSS_TROPHY_RELICS,
+    );
+    expect(forced).not.toBeNull();
+    expect(trophyIds.has(forced!.id)).toBe(true);
   });
 });

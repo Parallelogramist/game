@@ -10,7 +10,7 @@ vi.mock('../codex', () => ({
 }));
 
 import { ICON_MAP, isValidFrameName } from '../utils/IconMap';
-import { RELICS } from './Relics';
+import { RELICS, BOSS_TROPHIES, BOSS_TROPHY_RELICS } from './Relics';
 import { SHIP_CHARACTERS } from './ShipCharacters';
 import { STAGES } from './Stages';
 import { SHIP_MOD_TRACKS } from './ShipMods';
@@ -21,7 +21,7 @@ import { createUpgrades, UNLOCKABLE_WEAPONS } from './Upgrades';
 import { createLimitBreakUpgrades } from './LimitBreakUpgrades';
 import { ACHIEVEMENTS, BOSS_KILL_TRACKING, SHIP_WIN_TRACKING, STAGE_WIN_TRACKING } from '../achievements/AchievementDefinitions';
 import { MILESTONES } from '../achievements/MilestoneDefinitions';
-import { ENEMY_TYPES } from '../enemies/EnemyTypes';
+import { ENEMY_TYPES, EnemyCategory } from '../enemies/EnemyTypes';
 import { BLESSINGS } from './Blessings';
 
 /**
@@ -42,6 +42,7 @@ function collectIconRefs(): IconRef[] {
   };
 
   push('Relics', RELICS);
+  push('BossTrophies', BOSS_TROPHY_RELICS);
   push('BoostCards', ALL_BOOST_CARDS);
   push('Cards', ALL_CARDS);
   push('PermanentUpgrades', PERMANENT_UPGRADES);
@@ -92,6 +93,30 @@ describe('data catalog referential integrity', () => {
       const matches = ACHIEVEMENTS.filter((a) => a.trackingType === trackingType);
       expect(matches.map((a) => a.id), `"${trackingType}" must map to exactly 1 achievement`).toHaveLength(1);
     }
+  });
+
+  test('every boss has exactly one trophy relic and the name matches its enemy definition', () => {
+    const bossIds = Object.values(ENEMY_TYPES)
+      .filter((enemy) => enemy.category === EnemyCategory.Boss)
+      .map((enemy) => enemy.id);
+
+    expect(BOSS_TROPHIES.length, 'one trophy per boss').toBe(bossIds.length);
+
+    for (const bossId of bossIds) {
+      const matches = BOSS_TROPHIES.filter((trophy) => trophy.bossEnemyTypeId === bossId);
+      expect(matches.map((t) => t.relic.id), `boss "${bossId}" needs exactly 1 trophy`).toHaveLength(1);
+      expect(matches[0].bossName, `trophy bossName drifted from ENEMY_TYPES["${bossId}"].name`)
+        .toBe(ENEMY_TYPES[bossId].name);
+    }
+  });
+
+  test('trophy relics are disjoint from the base drop pool', () => {
+    const baseIds = new Set(RELICS.map((relic) => relic.id));
+    const leaked = BOSS_TROPHY_RELICS.filter((relic) => baseIds.has(relic.id));
+    expect(leaked.map((r) => r.id), 'a trophy in RELICS would drop before it is earned').toEqual([]);
+
+    const trophyIds = BOSS_TROPHY_RELICS.map((relic) => relic.id);
+    expect(new Set(trophyIds).size, 'duplicate trophy relic ids').toBe(trophyIds.length);
   });
 
   test('every ship-win tracking key is a real ship id with exactly one achievement', () => {

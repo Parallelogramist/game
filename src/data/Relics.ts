@@ -458,8 +458,10 @@ export function pickRandomRelic(
   excludeIds: string[] = [],
   luck = 0,
   minRarity?: RelicRarity,
+  extraPool: readonly Relic[] = [],
 ): Relic | null {
-  const eligible = RELICS.filter((relic) => !excludeIds.includes(relic.id));
+  const pool = extraPool.length > 0 ? [...RELICS, ...extraPool] : RELICS;
+  const eligible = pool.filter((relic) => !excludeIds.includes(relic.id));
   if (eligible.length === 0) return null;
 
   // Bad-luck protection ("pity"): when a rarity floor is requested, roll only
@@ -487,7 +489,8 @@ export function pickRandomRelic(
 }
 
 export function getRelicById(id: string): Relic | undefined {
-  return RELICS.find((relic) => relic.id === id);
+  return RELICS.find((relic) => relic.id === id)
+    ?? BOSS_TROPHY_RELICS.find((relic) => relic.id === id);
 }
 
 /**
@@ -505,4 +508,228 @@ export function getRelicRarityColor(rarity: RelicRarity): number {
     case 'epic':      return 0xcc44ff;
     case 'legendary': return 0xffaa22;
   }
+}
+
+/**
+ * Boss trophies (FEAT-BOSS-TROPHY). Each boss owns one relic, unlocked
+ * permanently the first time that boss is defeated and available in every run
+ * afterwards.
+ *
+ * Deliberately NOT part of RELICS: the boss kill ends a standard run
+ * (GameScene "Boss kill = Victory!"), so a trophy can never be an in-run drop
+ * from its own boss. Keeping the arrays separate is also what makes the base
+ * pool safe by construction, since pickRandomRelic draws from RELICS and only
+ * sees a trophy when the caller passes it in as the extra pool.
+ */
+export interface BossTrophy {
+  /** Enemy type id from src/enemies/EnemyTypes.ts. */
+  bossEnemyTypeId: string;
+  /** Display name, pinned to the enemy definition by referentialIntegrity.test.ts. */
+  bossName: string;
+  relic: Relic;
+}
+
+export const BOSS_TROPHIES: readonly BossTrophy[] = [
+  {
+    bossEnemyTypeId: 'horde_king',
+    bossName: 'The Horde King',
+    relic: {
+      id: 'trophy_horde_crown',
+      name: 'Horde Crown',
+      description: '+30% overkill splash, +15% damage',
+      rarity: 'epic',
+      icon: 'crowned-skull',
+      apply: (stats) => {
+        stats.overkillSplash += 0.3;
+        stats.damageMultiplier *= 1.15;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'void_wyrm',
+    bossName: 'Void Wyrm',
+    relic: {
+      id: 'trophy_wyrm_coil',
+      name: 'Wyrm Coil',
+      description: '+15% move speed, +10% dodge',
+      rarity: 'epic',
+      icon: 'swirl',
+      apply: (stats) => {
+        stats.moveSpeed *= 1.15;
+        stats.dodgeChance += 0.1;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_machine',
+    bossName: 'The Machine',
+    relic: {
+      id: 'trophy_machine_core',
+      name: 'Machine Core',
+      description: '+20% attack speed, -10% cooldowns',
+      rarity: 'epic',
+      icon: 'gear',
+      apply: (stats) => {
+        stats.attackSpeedMultiplier *= 1.2;
+        stats.cooldownMultiplier *= 0.9;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_bastion',
+    bossName: 'The Bastion',
+    relic: {
+      id: 'trophy_siege_chassis',
+      name: 'Siege Chassis',
+      description: '+40% explosion damage, +20% armor penetration',
+      rarity: 'epic',
+      icon: 'bomb',
+      apply: (stats) => {
+        stats.explosionDamageMultiplier *= 1.4;
+        stats.armorPenetration += 0.2;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_legion',
+    bossName: 'The Legion',
+    relic: {
+      id: 'trophy_legion_spore',
+      name: 'Legion Spore',
+      description: '+1 projectile, +1 piercing',
+      rarity: 'epic',
+      icon: 'virus',
+      apply: (stats) => {
+        stats.projectileCount += 1;
+        stats.piercing += 1;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_pulsar',
+    bossName: 'The Pulsar',
+    relic: {
+      id: 'trophy_pulsar_heart',
+      name: 'Pulsar Heart',
+      description: '+25% weapon range, +20% effect duration',
+      rarity: 'epic',
+      icon: 'star',
+      apply: (stats) => {
+        stats.rangeMultiplier *= 1.25;
+        stats.durationMultiplier *= 1.2;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_obelisk',
+    bossName: 'The Obelisk',
+    relic: {
+      id: 'trophy_obelisk_shard',
+      name: 'Obelisk Shard',
+      description: '+6 armor, +40 max HP',
+      rarity: 'epic',
+      icon: 'crystal',
+      apply: (stats) => {
+        stats.armor += 6;
+        stats.maxHealth += 40;
+        stats.currentHealth += 40;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_helix',
+    bossName: 'The Helix',
+    relic: {
+      id: 'trophy_helix_strand',
+      name: 'Helix Strand',
+      description: '+25% weapon synergy bonus, +10% attack speed',
+      rarity: 'epic',
+      icon: 'dna',
+      apply: (stats) => {
+        stats.weaponSynergy += 0.25;
+        stats.attackSpeedMultiplier *= 1.1;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_tessellator',
+    bossName: 'The Tessellator',
+    relic: {
+      id: 'trophy_lattice_prism',
+      name: 'Lattice Prism',
+      description: '+12% freeze chance, +40% damage to frozen enemies',
+      rarity: 'epic',
+      icon: 'diamond',
+      apply: (stats) => {
+        stats.freezeChance += 0.12;
+        stats.shatterBonus += 0.4;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_tremor',
+    bossName: 'The Tremor',
+    relic: {
+      id: 'trophy_tremor_core',
+      name: 'Tremor Core',
+      description: '+50% knockback, +20% damage',
+      rarity: 'epic',
+      icon: 'hammer',
+      apply: (stats) => {
+        stats.knockbackMultiplier *= 1.5;
+        stats.damageMultiplier *= 1.2;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_diviner',
+    bossName: 'The Diviner',
+    relic: {
+      id: 'trophy_diviners_eye',
+      name: "Diviner's Eye",
+      description: '+25% luck, +25% item drop rate',
+      rarity: 'epic',
+      icon: 'eye',
+      apply: (stats) => {
+        stats.luck += 0.25;
+        stats.dropRateMultiplier *= 1.25;
+      },
+    },
+  },
+  {
+    bossEnemyTypeId: 'the_eclipse',
+    bossName: 'The Eclipse',
+    relic: {
+      id: 'trophy_corona_ring',
+      name: 'Corona Ring',
+      description: '+5% life steal, +30% healing received',
+      rarity: 'epic',
+      icon: 'sunbeam',
+      apply: (stats) => {
+        stats.lifeStealPercent += 0.05;
+        stats.healingBoost *= 1.3;
+      },
+    },
+  },
+];
+
+/** Every trophy relic, in boss order. Never part of the base drop pool. */
+export const BOSS_TROPHY_RELICS: readonly Relic[] = BOSS_TROPHIES.map((trophy) => trophy.relic);
+
+/** The trophy for a boss enemy type id, or undefined for any other enemy. */
+export function getBossTrophy(bossEnemyTypeId: string): BossTrophy | undefined {
+  return BOSS_TROPHIES.find((trophy) => trophy.bossEnemyTypeId === bossEnemyTypeId);
+}
+
+/**
+ * The trophy relics the player has earned, given a predicate that answers
+ * "has this boss ever been defeated". Pure and predicate-injected so the data
+ * layer never imports the codex.
+ */
+export function getUnlockedBossTrophies(
+  isBossDefeated: (bossEnemyTypeId: string) => boolean,
+): Relic[] {
+  return BOSS_TROPHIES
+    .filter((trophy) => isBossDefeated(trophy.bossEnemyTypeId))
+    .map((trophy) => trophy.relic);
 }

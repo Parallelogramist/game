@@ -240,6 +240,8 @@ export interface VictoryData {
   previousStreak: number;
   newStreak: number;
   streakBonusPercent: number;
+  /** Relic unlocked by a first-ever kill of this run's boss (FEAT-BOSS-TROPHY). */
+  trophyUnlockedName?: string;
   /** S–F performance grade for this run (parity with the game-over overlay). */
   performanceGrade?: { grade: string; color: string };
   /** Card discovered from an in-run data cache — revealed on this screen. */
@@ -1452,10 +1454,13 @@ export class PauseMenuManager {
     this.createFadeInOverlay('victoryOverlay', 0.8, 200);
 
     // Kicker — world + boss context above the title, display style.
+    const kickerLine = data.trophyUnlockedName
+      ? `WORLD ${data.clearedWorld} CLEARED  ·  TROPHY UNLOCKED: ${data.trophyUnlockedName.toUpperCase()}`
+      : `WORLD ${data.clearedWorld} CLEARED  ·  BOSS DEFEATED`;
     const worldClearedText = this.scene.add.text(
       this.scene.scale.width / 2,
       this.scene.scale.height / 2 - 214,
-      `WORLD ${data.clearedWorld} CLEARED  ·  BOSS DEFEATED`,
+      kickerLine,
       {
         fontSize: '16px',
         color: '#88aaff',
