@@ -476,6 +476,8 @@ export interface SaveInfo {
   level?: number;
   worldLevel?: number;
   timestamp?: number;
+  /** Set only while the save is a live daily/weekly run — the menu names that challenge's boss, not the rotation's. */
+  dailyDate?: string;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -619,6 +621,7 @@ export class GameStateManager {
       level: saveState.playerStats?.level,
       worldLevel: saveState.worldLevel,
       timestamp: saveState.timestamp,
+      dailyDate: saveState.dailyState?.active ? saveState.dailyState.date : undefined,
     };
   }
 

@@ -9,6 +9,8 @@ import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { loadLastLoadout, saveLastLoadout, type LastLoadout } from '../../meta/LastLoadout';
 import { loadLoadoutPresets, consumePendingReplay } from '../../meta/LoadoutPresets';
 import { buildRandomLoadout } from '../../meta/RandomLoadout';
+import { bossIdAtRotation, challengeBossRotationIndex, getUpcomingBossId } from '../../meta/BossRotationManager';
+import { getEnemyType } from '../../enemies/EnemyTypes';
 import {
   fadeOut,
   addButtonInteraction,
@@ -157,6 +159,13 @@ export class BootScene extends Phaser.Scene {
     const hasSave = gameStateManager.hasSave();
     const saveInfo = gameStateManager.getSaveInfo();
     const lastLoadout = loadLastLoadout();
+
+    // The boss the hero card's button will actually field: a saved daily run
+    // keeps its date-seeded boss, everything else takes the persisted rotation.
+    const upcomingBossId = hasSave && saveInfo.dailyDate
+      ? bossIdAtRotation(challengeBossRotationIndex(saveInfo.dailyDate))
+      : getUpcomingBossId();
+    const upcomingBossName = getEnemyType(upcomingBossId)?.name ?? '';
 
     const dailyChallenge = generateDailyChallenge();
     const weeklyChallenge = generateWeeklyChallenge();
@@ -370,6 +379,7 @@ export class BootScene extends Phaser.Scene {
       layoutScale,
       hasSave,
       saveInfo,
+      upcomingBossName,
       onActivate: hasSave ? continueGame : startGameWithConfirmation,
     });
 
@@ -786,9 +796,10 @@ export class BootScene extends Phaser.Scene {
     layoutScale: number;
     hasSave: boolean;
     saveInfo: { worldLevel?: number; level?: number; gameTime?: number };
+    upcomingBossName: string;
     onActivate: () => void;
   }): void {
-    const { centerX, centerY, width, height, fontScale, layoutScale, hasSave, saveInfo, onActivate } = opts;
+    const { centerX, centerY, width, height, fontScale, layoutScale, hasSave, saveInfo, upcomingBossName, onActivate } = opts;
 
     const bannerHeight = scaledInt(layoutScale, 36);
 
@@ -908,15 +919,36 @@ export class BootScene extends Phaser.Scene {
       card.frame.add(tag);
     }
 
-    // Armed boost charge line (flux cache, FEAT-CARDS-3) — sits in the gap
-    // between the big CONTINUE/START label and the bottom icon row, so it
-    // never collides with either. Only rendered while a boost is held.
+    // The upcoming-boss line and the armed boost charge line (flux cache,
+    // FEAT-CARDS-3) share the gap between the big CONTINUE/START label and the
+    // bottom icon row. One line centers in the gap (the layout before the boss
+    // line existed); two stack around that center and still clear both
+    // neighbours.
     const armedBoost = getBoostCardManager().getPending();
+    const bandCenterY = Math.round((primaryY + rowY) / 2);
+    const lineStep = scaledInt(layoutScale, 15);
+    const stacked = upcomingBossName.length > 0 && Boolean(armedBoost);
+
+    if (upcomingBossName) {
+      const bossLine = this.add.text(
+        0,
+        stacked ? bandCenterY - lineStep / 2 : bandCenterY,
+        `NEXT BOSS: ${upcomingBossName.toUpperCase()}`,
+        {
+          fontSize: scaledFontPx(fontScale, 12),
+          color: COLORS.accentDangerStr,
+          fontFamily: MENU_FONT,
+          fontStyle: 'bold',
+          letterSpacing: 1,
+        },
+      ).setOrigin(0.5);
+      card.frame.add(bossLine);
+    }
+
     if (armedBoost) {
-      const boostY = Math.round((primaryY + rowY) / 2);
       const boostLine = this.add.text(
         0,
-        boostY,
+        stacked ? bandCenterY + lineStep / 2 : bandCenterY,
         `⚡ NEXT RUN: ${armedBoost.description.toUpperCase()}`,
         {
           fontSize: scaledFontPx(fontScale, 12),
@@ -1097,6 +1129,23 @@ export class BootScene extends Phaser.Scene {
       },
     ).setOrigin(0, 0);
     card.frame.add(weaponText);
+
+    const challengeBossName =
+      getEnemyType(bossIdAtRotation(challengeBossRotationIndex(challenge.dateString)))?.name ?? '';
+    if (challengeBossName) {
+      const bossText = this.add.text(
+        -width / 2 + scaledInt(layoutScale, 14),
+        bodyTopY + scaledInt(layoutScale, 34),
+        `BOSS: ${challengeBossName.toUpperCase()}`,
+        {
+          fontSize: scaledFontPx(fontScale, 11),
+          color: COLORS.accentDangerStr,
+          fontFamily: MENU_FONT,
+          letterSpacing: 1,
+        },
+      ).setOrigin(0, 0);
+      card.frame.add(bossText);
+    }
 
     // Best-score chip (bottom-right). Lives in a tinted pill so it reads as a
     // discrete badge rather than dim placeholder text.

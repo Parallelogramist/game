@@ -132,6 +132,10 @@ export const ALL_STORAGE_KEYS = [
   // PaceGhostManager (best-scoring run's kill pace curve per world level;
   // auto-transfers with the profile)
   'survivor-pace-ghost',
+
+  // BossRotationManager (which of the twelve bosses the next run fields;
+  // auto-transfers with the profile)
+  'survivor-boss-rotation',
 ];
 
 /**

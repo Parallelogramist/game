@@ -65,6 +65,12 @@ import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
 import { getPaceGhost, savePaceGhost, paceDeltaKills, PACE_SAMPLE_INTERVAL_SECONDS, MAX_PACE_SAMPLES } from '../../meta/PaceGhostManager';
+import {
+  advanceBossRotation,
+  bossIdAtRotation,
+  challengeBossRotationIndex,
+  getBossRotationIndex,
+} from '../../meta/BossRotationManager';
 import { recordShipRun } from '../../meta/ShipRecords';
 import { settleDailyQuests, createDailyQuestWatcher, claimDailyQuestGold, type DailyQuestWatcher } from '../../meta/DailyQuestManager';
 import type { DailyQuestDefinition } from '../../data/DailyQuests';
@@ -423,9 +429,12 @@ export class GameScene extends Phaser.Scene {
   private minibossSpawnTimes: { typeId: string; time: number; spawned: boolean }[] =
     TUNING.minibosses.schedule.map(entry => ({ ...entry, spawned: false }));
 
-  // Boss cycling system - cycles through bosses each run
-  private static bossOrder = [...TUNING.bosses.order];
-  private static currentBossIndex = 0;
+  /**
+   * Rotation position the run's NEXT variety boss spawns from (endless waves,
+   * gauntlet). Run-local and never written back: only a rotation-fed 10-minute
+   * boss moves the persisted rotation. -1 = unseeded.
+   */
+  private bossRotationCursor = -1;
   private bossSpawnTime = TUNING.bosses.spawnTime;
   private bossSpawned = false;
 
@@ -3589,6 +3598,7 @@ export class GameScene extends Phaser.Scene {
     this.bountyText = null;
     this.dailyQuestWatcher = null;
     this.lastDailyQuestCheck = 0;
+    this.bossRotationCursor = -1;
     // Pace ghost. Practice and gauntlet get no ghost because neither writes a
     // best score, so there is nothing to race. A restored run lost its early
     // samples with the page, so it still races the ghost but records no curve.
@@ -6796,7 +6806,9 @@ export class GameScene extends Phaser.Scene {
         this.bossWarningText.destroy();
       }
 
-      this.bossWarningText = this.add.text(screenCenterX, screenCenterY, 'Something stirs in the void...', {
+      const upcomingBossName =
+        getEnemyType(bossIdAtRotation(this.runBossRotationIndex()))?.name ?? 'Something';
+      this.bossWarningText = this.add.text(screenCenterX, screenCenterY, `${upcomingBossName} stirs in the void...`, {
         fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
         fontSize: '28px',
         color: '#ffdd44',
@@ -7710,9 +7722,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Check if it's time to spawn the boss (at 10 minutes).
-   * Bosses cycle through Horde King -> Void Wyrm -> The Machine each run.
+   * Rotation position this run's 10-minute boss sits at. A daily/weekly is
+   * seeded from its challenge date, so the same challenge is the same fight
+   * everywhere; every other run takes the next boss on the persisted rotation.
    */
+  private runBossRotationIndex(): number {
+    if (this.dailyModeActive && this.dailyDateString) {
+      return challengeBossRotationIndex(this.dailyDateString);
+    }
+    return getBossRotationIndex();
+  }
+
+  /** Spawns this run's boss at 10 minutes and moves the rotation on. */
   private checkBossSpawn(): void {
     if (this.bossSpawned || this.gameTime < this.bossSpawnTime) return;
 
@@ -7721,11 +7742,17 @@ export class GameScene extends Phaser.Scene {
     // Clean up boss warning elements
     this.cleanupBossWarning();
 
-    // Get current boss from cycle
-    const bossTypeId = GameScene.bossOrder[GameScene.currentBossIndex];
-    GameScene.currentBossIndex = (GameScene.currentBossIndex + 1) % GameScene.bossOrder.length;
+    const rotationIndex = this.runBossRotationIndex();
+    // Later variety spawns this run continue past the boss just fielded.
+    this.bossRotationCursor = rotationIndex + 1;
+    // The rotation moves only when the player actually MEETS the boss, and only
+    // for rotation-fed runs: a daily fields a date-seeded boss, and a practice
+    // session must never spend the rotation.
+    if (!this.dailyModeActive && !this.practiceModeActive) {
+      advanceBossRotation();
+    }
 
-    this.spawnBoss(bossTypeId);
+    this.spawnBoss(bossIdAtRotation(rotationIndex));
   }
 
   /** Affixed bosses are replay-variety only: endless cycle 2+ / gauntlet wave 6+. */
@@ -8293,12 +8320,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Spawns the next boss in the cycle for endless mode.
-   * Uses the existing boss rotation: Horde King -> Void Wyrm -> The Machine.
+   * Variety boss for an endless wave or a gauntlet wave. Walks a run-local
+   * cursor so a long run keeps rotating without spending the persisted
+   * rotation, which belongs to the 10-minute boss.
    */
   private spawnNextBoss(): void {
-    const bossTypeId = GameScene.bossOrder[GameScene.currentBossIndex];
-    GameScene.currentBossIndex = (GameScene.currentBossIndex + 1) % GameScene.bossOrder.length;
+    if (this.bossRotationCursor < 0) {
+      this.bossRotationCursor = getBossRotationIndex();
+    }
+    const bossTypeId = bossIdAtRotation(this.bossRotationCursor);
+    this.bossRotationCursor += 1;
     this.spawnBoss(bossTypeId);
   }
 
