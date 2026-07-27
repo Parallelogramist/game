@@ -6518,10 +6518,20 @@ export class GameScene extends Phaser.Scene {
     // Calculate and award gold
     const metaManager = getMetaProgressionManager();
 
+    // PRACTICE hands out max-level weapons and spawns bosses on demand, and its menu
+    // promises "Nothing here is saved — no gold, no unlocks, no records."
+    // SecureStorage already blocks the writes, but every recorder below still mutates
+    // the in-memory singletons, so the run-end screen announced gold, a broken streak,
+    // unlocks and a new best that exitPracticeSession's reload then threw away.
+    // A practice run end records nothing and claims nothing.
+    const practiceRun = this.practiceModeActive;
+
     // Bank this run's build for Memory (`upgradeKeepLevel`) — see showVictory().
     // A won run that continued into endless and then died records here too; the
     // later, deeper build is the right one to carry forward.
-    metaManager.recordRunUpgrades(recordRunBuild(this.upgrades));
+    if (!practiceRun) {
+      metaManager.recordRunUpgrades(recordRunBuild(this.upgrades));
+    }
 
     // Capture streak state before any changes
     const previousStreak = metaManager.getCurrentStreak();
@@ -6530,23 +6540,27 @@ export class GameScene extends Phaser.Scene {
     // Note: Victory streak increment happens in showVictory(), not here.
     // GAUNTLET has no victory to streak, so dying in it never punishes the
     // standard-mode win streak.
-    if (!this.hasWon && !this.gauntletModeActive) {
+    if (!this.hasWon && !this.gauntletModeActive && !practiceRun) {
       metaManager.breakStreak();
     }
 
     // Calculate gold (after streak update so multiplier is current)
-    const goldEarned = metaManager.calculateRunGold(
-      this.killCount,
-      this.gameTime,
-      this.playerStats.level,
-      this.hasWon,
-      this.playerStats.goldMultiplier // ship/stage/pact/modifier gold bonuses
-    );
+    const goldEarned = practiceRun
+      ? 0
+      : metaManager.calculateRunGold(
+          this.killCount,
+          this.gameTime,
+          this.playerStats.level,
+          this.hasWon,
+          this.playerStats.goldMultiplier // ship/stage/pact/modifier gold bonuses
+        );
     // Snapshot before the payout lands: the ledger must hold only what the RUN itself
     // moved (bounties, shrines, caches, market spends). The payout is the pill's own
     // number and would otherwise be double-counted as "found".
-    const runGoldLedger = metaManager.getRunLedger();
-    metaManager.addGold(goldEarned);
+    const runGoldLedger = practiceRun ? undefined : metaManager.getRunLedger();
+    if (!practiceRun) {
+      metaManager.addGold(goldEarned);
+    }
 
     // Snapshot personal bests BEFORE recordRunEnd mutates them, so the summary
     // screen can compare this run against prior records.
@@ -6570,7 +6584,7 @@ export class GameScene extends Phaser.Scene {
     this.runEndAchievements = [];
 
     // Record run end statistics (only if not already recorded in showVictory)
-    if (!this.hasWon) {
+    if (!this.hasWon && !practiceRun) {
       getAchievementManager().recordRunEnd({
         wasVictory: false,
         killCount: this.killCount,
@@ -6613,11 +6627,13 @@ export class GameScene extends Phaser.Scene {
     // the game over screen can surface "closest to unlocking" motivation.
     // Streak is already broken above on a loss, or intact for a won-then-died
     // endless run, so getCurrentStreak() reflects this run's true streak here.
-    const newHiddenUnlocks = this.evaluateHiddenUnlocks(
-      highestComboThisRun,
-      this.hasWon,
-      metaManager.getCurrentStreak()
-    );
+    const newHiddenUnlocks: HiddenUnlockCondition[] = practiceRun
+      ? []
+      : this.evaluateHiddenUnlocks(
+          highestComboThisRun,
+          this.hasWon,
+          metaManager.getCurrentStreak()
+        );
     const runEarnings = buildRunEarnings({
       unlocks: newHiddenUnlocks,
       achievements: this.runEndAchievements ?? [],
@@ -6652,7 +6668,7 @@ export class GameScene extends Phaser.Scene {
     let performanceGrade: { grade: string; color: string } | undefined;
     let scoreResult: { score: number; best: number; isNewBest: boolean } | undefined;
     let gameOverPriorRuns: ReturnType<typeof getRecentRuns> | undefined;
-    if (!this.gauntletModeActive) {
+    if (!this.gauntletModeActive && !practiceRun) {
       const runScore = computeRunScore({
         killCount: this.killCount,
         survivalSeconds: this.gameTime,
@@ -6736,8 +6752,9 @@ export class GameScene extends Phaser.Scene {
       goldLedger: runGoldLedger,
       questGold: runEndQuestGold,
       runEarnings,
-      // Gauntlet deaths leave the streak untouched, so never show "Streak broken!"
-      previousStreak: this.gauntletModeActive ? 0 : previousStreak,
+      // Gauntlet deaths leave the streak untouched, so never show "Streak broken!" —
+      // and neither does a practice death, which no longer breaks it.
+      previousStreak: this.gauntletModeActive || practiceRun ? 0 : previousStreak,
       highestCombo: highestComboThisRun,
       totalDamageDealt: this.totalDamageDealt,
       totalDamageTaken: this.totalDamageTaken,
@@ -6756,8 +6773,8 @@ export class GameScene extends Phaser.Scene {
         : undefined,
       runTimeline: this.runTimelineComplete ? this.runTimelineEvents : undefined,
       weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
-      personalBests: personalBestsSnapshot,
-      unlockProgress: unlockProgressForPanel,
+      personalBests: practiceRun ? undefined : personalBestsSnapshot,
+      unlockProgress: practiceRun ? undefined : unlockProgressForPanel,
       performanceGrade,
       // Reveal (and consume) the data-cache card. Null on a post-victory
       // endless death — showVictory() already consumed it, and the per-run
@@ -6799,7 +6816,7 @@ export class GameScene extends Phaser.Scene {
     // showVictory(), so only count here on a loss (mirrors the streak/recordRunEnd
     // guards above). Done after the result is shown so the displayed newcomer
     // multiplier matches the gold just computed.
-    if (!this.hasWon) {
+    if (!this.hasWon && !practiceRun) {
       metaManager.recordRunCompleted();
     }
   }
@@ -6813,6 +6830,11 @@ export class GameScene extends Phaser.Scene {
    * nemesis to persist, and the win streak is left intact (see POLISH-GOLD-TRUTH (h)).
    */
   private recordEarlyRunEnd(goldEarned: number): Pick<RunEarningSources, 'unlocks' | 'achievements'> {
+    // A practice run end records nothing — same reason as gameOver(). The gold and the
+    // day's quest board are banked by the pause menu on this path, so it skips those
+    // itself; everything else is skipped here.
+    if (this.practiceModeActive) return { unlocks: [], achievements: [] };
+
     const metaManager = getMetaProgressionManager();
     const worldLevel = metaManager.getWorldLevel();
     const highestComboThisRun = getHighestCombo();

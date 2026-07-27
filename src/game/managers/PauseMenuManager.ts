@@ -1305,6 +1305,9 @@ export class PauseMenuManager {
     // Calculate gold using the same formula as death (hasWon=false)
     const gameState = this.options.getGameState();
     const metaManager = getMetaProgressionManager();
+    // Ending a practice run banks nothing (GameScene.recordEarlyRunEnd returns empty),
+    // so this dialog must neither promise gold nor pay it below.
+    const practiceRun = gameState.practiceModeActive;
     const finalTotal = metaManager.calculateRunGold(
       gameState.killCount,
       gameState.gameTime,
@@ -1331,7 +1334,7 @@ export class PauseMenuManager {
     // counts a second fold twice, so the endless continuation must not fold again.
     // gameOver() guards its own settle the same way (`if (!this.hasWon)`).
     const questsSettledByVictory = gameState.hasWon;
-    const pendingQuests = questsSettledByVictory ? [] : previewDailyQuestSettle(endRunQuestData);
+    const pendingQuests = questsSettledByVictory || practiceRun ? [] : previewDailyQuestSettle(endRunQuestData);
     const pendingQuestGold = pendingQuests.reduce((sum, quest) => sum + quest.gold, 0);
     const grandTotal = finalTotal + pendingQuestGold;
 
@@ -1368,7 +1371,9 @@ export class PauseMenuManager {
     const subtitleText = this.scene.add.text(
       this.scene.scale.width / 2,
       dialogCenterY - 104,
-      'You will earn the following gold:',
+      practiceRun
+        ? 'Practice run. This is what it would have paid:'
+        : 'You will earn the following gold:',
       {
         fontSize: '20px',
         color: '#aaaaaa',
@@ -1476,7 +1481,9 @@ export class PauseMenuManager {
         // Clear the save to prevent exploit (continuing after intentionally ending)
         getGameStateManager().clearSave();
         // Award gold and go to destination
-        metaManager.addGold(finalTotal);
+        if (!practiceRun) {
+          metaManager.addGold(finalTotal);
+        }
         // Ordered as gameOver() orders it: gold banked, then the run recorded, then
         // the day's board settled.
         const recordedEarnings = this.options.onRecordRunEnd(finalTotal);
@@ -1485,7 +1492,7 @@ export class PauseMenuManager {
         // anything an earlier failed payout left pending — the same reason
         // GameScene.payDailyQuests claims.
         let settledQuests: DailyQuestDefinition[] = [];
-        if (!questsSettledByVictory) {
+        if (!questsSettledByVictory && !practiceRun) {
           settledQuests = settleDailyQuests(endRunQuestData);
           if (settledQuests.length > 0) {
             metaManager.addGold(claimDailyQuestGold());
@@ -2121,7 +2128,11 @@ export class PauseMenuManager {
 
     // Prepare streak change text for display (only shown on death, not victory)
     const streakChangeText = data.previousStreak > 0 ? 'Streak broken!' : '';
-    const hasWon = this.options.getGameState().hasWon;
+    const gameState = this.options.getGameState();
+    const hasWon = gameState.hasWon;
+    // GameScene.gameOver() recorded nothing for a practice run and already passes 0 gold,
+    // no streak, no records — this screen must not imply otherwise.
+    const practiceRun = gameState.practiceModeActive;
 
     // Show game over UI
     const overlay = this.scene.add.rectangle(
@@ -2231,6 +2242,21 @@ export class PauseMenuManager {
         fontStyle: 'bold',
       }).setOrigin(0.5).setDepth(depth);
       animatedElements.push(scoreText);
+    } else if (practiceRun) {
+      // The score slot is free in practice (no score was computed), and this is the one
+      // line that answers "where did my gold and my unlock go?" before it is asked.
+      const practiceNotice = this.scene.add.text(
+        centerX,
+        titleY + 48,
+        'PRACTICE RUN · NOTHING RECORDED',
+        {
+          fontSize: '16px',
+          color: ACCENT_COLORS_STR.teal,
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+          fontStyle: 'bold',
+        }
+      ).setOrigin(0.5).setDepth(depth);
+      animatedElements.push(practiceNotice);
     }
 
     // ── Run stats panel ────────────────────────────────────────────────────
@@ -2367,9 +2393,11 @@ export class PauseMenuManager {
     // Net = what the wallet is worth after this run vs. before it: the payout landing
     // now, plus what the run found, minus what it spent.
     const runNetGold = computeRunNetGold({ payout: data.goldEarned, found: goldFound, spent: goldSpent, questGold });
-    const goldFinalText = hasEconomy
-      ? `Gold: +${data.goldEarned}   ·   net ${runNetGold < 0 ? '-' : '+'}${Math.abs(runNetGold)}`
-      : `Gold: +${data.goldEarned}`;
+    const goldFinalText = practiceRun
+      ? 'PRACTICE · NO GOLD BANKED'
+      : hasEconomy
+        ? `Gold: +${data.goldEarned}   ·   net ${runNetGold < 0 ? '-' : '+'}${Math.abs(runNetGold)}`
+        : `Gold: +${data.goldEarned}`;
 
     // Streak text
     if (streakChangeText) {
@@ -2597,6 +2625,7 @@ export class PauseMenuManager {
     // "You can now afford" teaser (appears after gold counter finishes)
     const goldCounterDelay = goldElementIndex * staggerDelay + 300;
     this.scene.time.delayedCall(goldCounterDelay + Math.min(1800, data.goldEarned * 3 + 300), () => {
+      if (practiceRun) return;
       const nextUpgrade = metaManager.getNextAffordableUpgrade?.();
       if (nextUpgrade) {
         const affordLabel = nextUpgrade.canAfford
