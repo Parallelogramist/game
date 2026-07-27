@@ -1445,15 +1445,19 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   pity-floors-the-whole-draft + streak-reset behaviour in `RelicManager.draft.test.ts`; the scene + GameScene
   wiring is Phaser-coupled (like UpgradeScene/DirectorSelectScene, untested) and caught by tsc/build. Feel/balance
   owned by **POLISH-RELIC-DRAFT** under `## Human gates`.
-- [ ] **FEAT-QUEST-HUD** — show the day's quest board *in* the run. Value: FEAT-QUEST-LIVE delivers the
-  completion moment (toast + instant gold) but the player still cannot see how close a quest is while
-  playing, so a run can't be steered toward one. Deliberately cut from FEAT-QUEST-LIVE: the
-  bottom-centre objective line is already owned by the bounty ticker (`GameScene.updateBounties`,
-  `bountyText`), so a second always-on objective line is a HUD-clutter + portrait-layout decision that
-  needs a human's eye, not a blind agent's. Options to weigh: a third pause-menu panel beside RUN
-  MODIFIERS / BUILD STATS (mind the `narrow` stacked layout), or a compact line that shares the bounty
-  slot when no bounty is active. Pointers: `src/game/scenes/GameScene.ts` (`updateBounties`),
-  `src/game/managers/PauseMenuManager.ts` (`createRunModifiersPanel`), `DailyQuestWatcher`.
+- [x] **FEAT-QUEST-HUD** — show the day's quest board *in* the run (done — 10b1b18). Shipped as a third
+  **DAILY QUESTS** panel pinned top-centre on the pause overlay, listing today's three quests with **live**
+  progress: `getLiveDailyQuestBoard()` folds the in-progress run into the stored board with the same
+  aggregate arithmetic the watcher uses, so a `best` quest reads `312 / 400` mid-run instead of the `0 / 400`
+  the menu board showed (only the run-end settle writes `progress`). Completed rows read `DONE` in green and
+  the title carries the `n/3` tally. `settleOnly` quests show stored progress only, an already-rewarded quest
+  stays complete, and practice shows the stored board — the panel is a pure read and never writes or pays.
+  Top-centre is the one band free in both orientations: the side columns are owned by RUN MODIFIERS /
+  BUILD STATS (whose heights vary with content) and the middle by the button stack. The panel fades in on its
+  own short stagger rather than joining `animatedElements`, whose length also gates when the buttons become
+  interactive. **The always-on in-run ticker was NOT built** — the bottom-centre slot is owned by the bounty
+  ticker and a bounty is active most of the time, so a shared line would flicker and mostly show the bounty;
+  that trade is filed for a human eye as **POLISH-QUEST-HUD** under `## Human gates`.
 
 ---
 
@@ -1466,6 +1470,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-QUEST-HUD** — the new **DAILY QUESTS** panel on the pause overlay needs a human in a browser
+    (FEAT-QUEST-HUD, `10b1b18`). Agents have no browser. Reach it: start any run → **ESC**; the panel sits
+    top-centre above PAUSED. Check: (a) does it read cleanly in **portrait** (720-wide) and **landscape**
+    (1280-wide) — do the longest quest names ("Overwhelming Force", "Extermination Quota") clear their right-hand
+    value inside the 300-unit panel, and does the panel clear the PAUSED title in landscape, where the title top
+    sits at only ~183px against the panel's 146px bottom? (b) correctness: with ~300 kills on a "Destroy 400
+    enemies in a single run" day, does the row read `312 / 400` live and tick up across pauses; does a quest
+    completed this run read `DONE` in green; does the title tally match the ACHIEVEMENTS Daily tab? (c) is the
+    text-only readout enough, or does it want the ACHIEVEMENTS tab's progress bars and the `+gold` reward per
+    row? (d) **scope — the deferred call**: should there also be an always-on in-run line? It was cut because the
+    bottom-centre slot is owned by the bounty ticker and a bounty is live most of the time, so a shared line would
+    flicker and mostly show the bounty; a second permanent objective line is a HUD-clutter + portrait-layout call
+    that wants your eye. Knobs: `panelTopY` / `panelWidth` / `lineHeight` / the `DONE` string and row colours in
+    `createDailyQuestsPanel` (`src/game/managers/PauseMenuManager.ts`); the readout format in
+    `formatQuestProgress` (same file). Mechanics (live fold, settleOnly, rewarded, practice, cleanup) are done.
   - **POLISH-QUEST-LIVE** — the mid-run quest completion needs a human in a browser: (a) does the
     `Daily Quest Complete` toast read clearly mid-fight, or does it get lost against bounty/unlock
     toasts stacking at the same moment? (b) is 3600 ms the right dwell? (c) is paying `untouched_run`
