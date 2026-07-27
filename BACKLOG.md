@@ -1828,13 +1828,29 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   mid-run where they can be seen. Every `showToast` call was left exactly as it was, since the
   achievement callback delivers its `addGold` / `addAchievementBonus` reward in the same body.
 
-- [ ] **FEAT-ENDRUN-QUEST-TRUTH**: ending a run from the pause menu silently forfeits the day's
-  quest progress. Value: `showEndRunConfirmation` (`PauseMenuManager.ts:1256-1401`) pays
-  `addGold(finalTotal)` and settles nothing else, so a quest that this run would have completed is
-  dropped without a word; the END RUN breakdown promises "You will earn the following gold" while
-  quietly costing you quest gold. Decide whether END RUN settles quests (making it a real run end)
-  or tells the player what ending early forfeits (keeping it the non-recording path it is today).
-  Pointer: `PauseMenuManager.ts:1265-1276` and `:1388-1400`.
+- [x] **FEAT-ENDRUN-QUEST-TRUTH** — ending a run from the pause menu settled no daily quests, so
+  a quest the run completed was dropped with the run (done — 79c8dcd). `showEndRunConfirmation`
+  (`PauseMenuManager.ts:1279`) cleared the save and paid `addGold(finalTotal)` at the full run
+  multiplier, but never called `settleDailyQuests`, which both real run-end paths do
+  (`GameScene.ts:6328` victory, `:6597` death). A run 14:59 into *Long Haul* (survive 15 minutes,
+  400 gold) lost it without a word, and every `'sum'` quest lost this run's contribution too
+  (*Extermination Quota*, *Overwhelming Force*, *Prospector*, *Persistence*) — unrecoverable, since
+  the save is cleared. **Decided:** END RUN settles, rather than merely warning what ending
+  forfeits. It is a finished run economically, and a warning would announce the loss while still
+  taking the gold. No new farming vector: `runs_day_3` is already farmable by dying instantly three
+  times, and every other quest is a threshold on real performance that ending early measures *less*
+  of. Practice needs no guard here and got none: `utils/practiceSession.ts` blocks every
+  `SecureStorage` write for the session, which is why the death path carries no call-site check
+  either. **The dialog quotes the gold first**, because a payout revealed only after Confirm is the
+  bug `9bd86ae` just fixed: a toast sits at `OverlayDepths.HUD` (1000) under this dialog at
+  `PAUSE_MENU` (2100) and is never seen. So `previewDailyQuestSettle` (new, pure, writes nothing so
+  Cancel leaves the board untouched) feeds a `Daily Quests: N complete = G gold` breakdown line and
+  `Total:` now names the sum. Preview and settle share one fold (`foldRunIntoState`) so the quoted
+  number and the paid number cannot drift. Also fixed in passing: the dialog grows downward from a
+  fixed top, and at 9 breakdown lines the Confirm button already reached y 721 on a 720-tall
+  landscape canvas, so the block is now measured and lifted by its own overrun.
+  Scope: quests only. END RUN still records no run end (no achievements, codex or run history) —
+  filed as **FEAT-ENDRUN-RECORD-TRUTH**.
 
 - [ ] **FEAT-QUEST-BOARD-ENDSCREEN**: show the day's quest board on the run-end screen. Value:
   **FEAT-QUEST-HUD** (`10b1b18`) put the live board on the *pause* overlay, so the one moment the
@@ -1856,6 +1872,16 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `PauseMenuManager`), but a *ship* unlock now arrives as a silent panel row under the game-over
   sound, so the biggest meta-progression moment in the game is the quietest thing on the screen.
   Pointers: `src/audio/SoundManager.ts`, the `createRunEarningsPanel` call site.
+
+- [ ] **FEAT-ENDRUN-RECORD-TRUTH**: ending a run from the pause menu records no run end. Value:
+  `showEndRunConfirmation` now settles daily quests (**FEAT-ENDRUN-QUEST-TRUTH**), but it still
+  calls none of `getAchievementManager().recordRunEnd`, `getCodexManager().recordRunEnd` or
+  `recordRun` — so an achievement the run earned pays nothing, the codex lifetime stats miss it,
+  and the run never appears in the RECENT strip on the next death screen. A player who ends a
+  25-minute run early loses every one of those. Decide whether END RUN is a full run end (record
+  all three, which also makes `runs_day_3` consistent with run history) or stays deliberately
+  partial, and if partial, why quests count and achievements do not.
+  Pointers: `PauseMenuManager.ts:1414-1425`, `GameScene.ts:6571-6607`.
 
 ## Next
 
@@ -2199,6 +2225,11 @@ Never agent work. The fleet must not do any of these.
     duplicates? (f) **ending early is now worth more** than it was: does the corrected payout make
     ending a run too attractive versus playing on? (A balance question. No knob was changed here:
     the number was simply wrong before.)
+    (g) **the END RUN quest line** (**FEAT-ENDRUN-QUEST-TRUTH**): does `Daily Quests: 2 complete = 500
+    gold` read as gold you are about to be paid, or as gold you are about to lose, and is a count
+    enough or do the quest names need to be there? Also: the dialog now lifts itself when the
+    breakdown would push Confirm off a 720-tall landscape canvas — does a shifted dialog look
+    deliberate, or does the title drifting upward on a heavily-multiplied run read as a glitch?
   - **POLISH-GOLD-LEDGER** (— 585b010) — playtest the death-screen run economy readout
     (FEAT-GOLD-LEDGER). Owns: (a) **the net on the pill:** whether `net +180` reads as "what this
     run was worth" or gets misread as a second payout on top of `Gold: +N`, and whether a negative
