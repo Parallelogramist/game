@@ -35,7 +35,7 @@ import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteS
 import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
-import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind } from '../../ecs/systems/ConsumablePickupSystem';
+import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind, getConsumableKindColor } from '../../ecs/systems/ConsumablePickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades, getWeaponUpgrades } from '../../data/Upgrades';
 import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
 import {
@@ -147,7 +147,8 @@ import {
 } from '../../systems/UltimateSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
-import { expireTimedStatBuffs, normalizeTimedStatBuffs, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
+import { expireTimedStatBuffs, normalizeTimedStatBuffs, applyFieldBoost, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
+import { FIELD_BOOSTS, getFieldBoostByKind, type FieldBoostDefinition } from '../../data/FieldBoosts';
 import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, type DirectorStrategy } from '../../systems/DirectorSystem';
 import { getThreatTier, clampThreatTier } from '../../data/ThreatTiers';
@@ -239,6 +240,11 @@ const SHRINE_DEFS: { type: ShrineType; color: number; label: string }[] = [
 // TimedStatBuffs) so it survives refresh-recovery instead of sticking forever.
 const POWER_SHRINE_BUFF_MULT = 2;
 const POWER_SHRINE_BUFF_SECONDS = 8;
+
+// Share of floor-consumable drops that come out as a timed field boost instead of one of
+// the four instant effects. Every consumable source funnels through spawnRandomConsumable,
+// so this one number is the whole drop rate.
+const FIELD_BOOST_DROP_CHANCE = 0.20;
 
 // Pandemic: a poison death spreads to nearby enemies. pandemicSpread is a COUNT
 // of enemies infected (shop "Pandemic" 1-3 + "Pandemic Engine" relic +2), not a
@@ -2985,7 +2991,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Restores a floor consumable (bomb/freeze/vacuum/gold cache) from saved state.
+   * Restores a floor consumable (bomb/freeze/vacuum/gold cache/field boost) from saved state.
    * Mirrors the magnet/health pickup pattern: re-spawn at the saved position with
    * its kind + gold payload. The magnetized flag is intentionally not restored —
    * like the sibling pickups, it simply re-arms when the player nears it.
@@ -3584,6 +3590,11 @@ export class GameScene extends Phaser.Scene {
    * a payload that scales with run progress so they stay relevant late game.
    */
   private spawnRandomConsumable(x: number, y: number, sourceXpValue = 0): void {
+    if (Math.random() < FIELD_BOOST_DROP_CHANCE) {
+      this.spawnFieldBoostPickup(x, y);
+      return;
+    }
+
     const roll = Math.random();
     let kind: ConsumableKind;
     if (roll < 0.30) kind = ConsumableKind.BOMB;
@@ -3603,6 +3614,12 @@ export class GameScene extends Phaser.Scene {
         )
       : 0;
     spawnConsumablePickup(this.world, x, y, kind, goldValue);
+  }
+
+  /** Spawns one uniformly-chosen field boost pickup. */
+  private spawnFieldBoostPickup(x: number, y: number): void {
+    const boost = FIELD_BOOSTS[Math.floor(Math.random() * FIELD_BOOSTS.length)];
+    spawnConsumablePickup(this.world, x, y, boost.kind, 0);
   }
 
   /**
@@ -3652,6 +3669,41 @@ export class GameScene extends Phaser.Scene {
         }
         break;
       }
+      default: {
+        const boost = getFieldBoostByKind(kind);
+        if (boost) this.collectFieldBoost(boost);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Applies a collected field boost: a timed PlayerStats surge that reverts on the run
+   * clock. A duplicate pickup refreshes the existing buff rather than stacking a second
+   * multiply, so the stat can never compound past one application.
+   */
+  private collectFieldBoost(boost: FieldBoostDefinition): void {
+    const { buffs, applied } = applyFieldBoost(
+      this.timedStatBuffs,
+      boost.stat,
+      boost.magnitude,
+      boost.durationSeconds,
+      this.gameTime,
+    );
+    this.timedStatBuffs = buffs;
+    if (applied) {
+      this.playerStats[boost.stat] *= boost.magnitude;
+      this.syncStatsToPlayer();
+    }
+    this.soundManager.playSynergyActivation();
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: boost.name,
+        description: `+${Math.round((boost.magnitude - 1) * 100)}% ${boost.effectLabel} for ${boost.durationSeconds}s.`,
+        icon: boost.icon,
+        color: getConsumableKindColor(boost.kind),
+        duration: 2500,
+      });
     }
   }
 

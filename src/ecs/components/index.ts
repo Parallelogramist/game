@@ -44,7 +44,7 @@ export const MagnetPickup = defineComponent({
   magnetized: Types.ui8,
 });
 
-// Consumable pickup tag - floor power-ups (bomb/freeze/vacuum/gold cache)
+// Consumable pickup tag - floor power-ups (bomb/freeze/vacuum/gold cache/field boost)
 export const ConsumablePickupTag = defineComponent();
 
 // Consumable pickup component - rare battlefield power-ups

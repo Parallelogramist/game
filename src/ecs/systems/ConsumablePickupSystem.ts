@@ -15,6 +15,10 @@ export enum ConsumableKind {
   FREEZE = 2,  // Briefly freezes every on-screen enemy
   VACUUM = 3,  // Magnetizes all gems / health pickups
   GOLD = 4,    // Instant gold cache
+  OVERDRIVE_CELL = 5,        // Field boost: temporary damage surge
+  SCHOLAR_LENS = 6,          // Field boost: temporary XP surge
+  PROSPECTOR_BEACON = 7,     // Field boost: temporary gem-value surge
+  AFTERBURNER_CANISTER = 8,  // Field boost: temporary move-speed surge
 }
 
 const consumableQuery = defineQuery([Transform, Consumable, ConsumablePickupTag]);
@@ -51,7 +55,16 @@ const KIND_COLOR: Record<number, number> = {
   [ConsumableKind.FREEZE]: 0x55ccff,
   [ConsumableKind.VACUUM]: 0xbb66ff,
   [ConsumableKind.GOLD]: 0xffd24a,
+  [ConsumableKind.OVERDRIVE_CELL]: 0xff2b5c,
+  [ConsumableKind.SCHOLAR_LENS]: 0x4ce0c0,
+  [ConsumableKind.PROSPECTOR_BEACON]: 0x9cff4a,
+  [ConsumableKind.AFTERBURNER_CANISTER]: 0xff8ac0,
 };
+
+/** The neon color a consumable kind paints with, for callers outside this module. */
+export function getConsumableKindColor(kind: ConsumableKind): number {
+  return KIND_COLOR[kind] ?? 0xffffff;
+}
 
 /** Draws a small distinct neon glyph for each consumable kind. */
 function drawConsumableVisual(graphics: Phaser.GameObjects.Graphics, kind: ConsumableKind): void {
@@ -103,6 +116,51 @@ function drawConsumableVisual(graphics: Phaser.GameObjects.Graphics, kind: Consu
         starPoints.push(new Phaser.Geom.Point(Math.cos(angle) * radius, Math.sin(angle) * radius));
       }
       graphics.fillPoints(starPoints, true);
+      break;
+    }
+    case ConsumableKind.OVERDRIVE_CELL: {
+      // Battery cell: terminal nub over a charged body.
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillRect(-2, -11, 4, 3);
+      graphics.fillRect(-5, -8, 10, 16);
+      graphics.fillStyle(color, 1);
+      graphics.fillRect(-3, -5, 6, 5);
+      break;
+    }
+    case ConsumableKind.SCHOLAR_LENS: {
+      // Lens: stroked ellipse with a bright core.
+      graphics.lineStyle(2, 0xffffff, 1);
+      graphics.strokeEllipse(0, 0, 18, 11);
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillCircle(0, 0, 3.5);
+      break;
+    }
+    case ConsumableKind.PROSPECTOR_BEACON: {
+      // Cut gem: upright diamond split by its girdle.
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillPoints([
+        new Phaser.Geom.Point(0, -9),
+        new Phaser.Geom.Point(7, -1),
+        new Phaser.Geom.Point(0, 9),
+        new Phaser.Geom.Point(-7, -1),
+      ], true);
+      graphics.lineStyle(1.5, color, 1);
+      graphics.beginPath();
+      graphics.moveTo(-7, -1);
+      graphics.lineTo(7, -1);
+      graphics.strokePath();
+      break;
+    }
+    case ConsumableKind.AFTERBURNER_CANISTER: {
+      // Twin chevrons: the speed glyph.
+      graphics.lineStyle(2.5, 0xffffff, 1);
+      for (const chevronX of [-5, 1]) {
+        graphics.beginPath();
+        graphics.moveTo(chevronX, -7);
+        graphics.lineTo(chevronX + 6, 0);
+        graphics.lineTo(chevronX, 7);
+        graphics.strokePath();
+      }
       break;
     }
   }

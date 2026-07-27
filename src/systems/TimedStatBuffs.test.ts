@@ -2,6 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   expireTimedStatBuffs,
   normalizeTimedStatBuffs,
+  applyFieldBoost,
   type TimedStatBuff,
 } from './TimedStatBuffs';
 
@@ -83,5 +84,52 @@ describe('normalizeTimedStatBuffs', () => {
 
   test('returns an empty list for undefined input', () => {
     expect(normalizeTimedStatBuffs(undefined)).toEqual([]);
+  });
+});
+
+describe('applyFieldBoost', () => {
+  test('adds a new buff and tells the caller to multiply the stat', () => {
+    const { buffs, applied } = applyFieldBoost([], 'moveSpeed', 1.4, 12, 100);
+
+    expect(applied).toBe(true);
+    expect(buffs).toEqual([{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 112 }]);
+  });
+
+  test('refreshes an identical boost instead of stacking a second multiply', () => {
+    const existing: TimedStatBuff[] = [{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 112 }];
+
+    const { buffs, applied } = applyFieldBoost(existing, 'moveSpeed', 1.4, 12, 108);
+
+    expect(applied).toBe(false);
+    expect(buffs).toEqual([{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 120 }]);
+  });
+
+  test('does not refresh a same-stat buff of a different magnitude', () => {
+    const shrineBuff: TimedStatBuff[] = [{ stat: 'damageMultiplier', magnitude: 2, expiresAt: 108 }];
+
+    const { buffs, applied } = applyFieldBoost(shrineBuff, 'damageMultiplier', 1.5, 20, 100);
+
+    expect(applied).toBe(true);
+    expect(buffs).toEqual([
+      { stat: 'damageMultiplier', magnitude: 2, expiresAt: 108 },
+      { stat: 'damageMultiplier', magnitude: 1.5, expiresAt: 120 },
+    ]);
+  });
+
+  test('stacks boosts on different stats', () => {
+    const existing: TimedStatBuff[] = [{ stat: 'xpMultiplier', magnitude: 2, expiresAt: 115 }];
+
+    const { buffs, applied } = applyFieldBoost(existing, 'gemValueMultiplier', 2, 15, 100);
+
+    expect(applied).toBe(true);
+    expect(buffs).toHaveLength(2);
+  });
+
+  test('never mutates the list it was given', () => {
+    const existing: TimedStatBuff[] = [{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 112 }];
+
+    applyFieldBoost(existing, 'moveSpeed', 1.4, 12, 108);
+
+    expect(existing).toEqual([{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 112 }]);
   });
 });

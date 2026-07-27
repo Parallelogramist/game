@@ -1,6 +1,6 @@
 /**
  * Pure logic for temporary, timed multiplicative buffs on a named PlayerStats
- * multiplier field — e.g. Power Surge's "2× damage for 8s", Elite Surge's
+ * numeric field — e.g. Power Surge's "2× damage for 8s", Elite Surge's
  * "2× XP for 10s", Golden Tide's "3× gem value for 10s".
  *
  * Each buff records the stat it scales, the multiplier it applied, and the
@@ -17,11 +17,11 @@
  * (`eb16e16`) and Power Surge (`d7ab577`) fixes already closed for damage.
  */
 
-/** PlayerStats multiplier fields a timed buff may scale. */
-export type TimedStatField = 'damageMultiplier' | 'xpMultiplier' | 'gemValueMultiplier';
+/** PlayerStats numeric fields a timed buff may scale (the multipliers plus base `moveSpeed`). */
+export type TimedStatField = 'damageMultiplier' | 'xpMultiplier' | 'gemValueMultiplier' | 'moveSpeed';
 
 export interface TimedStatBuff {
-  /** Which PlayerStats multiplier this buff scales (and divides back out on expiry). */
+  /** Which PlayerStats field this buff scales (and divides back out on expiry). */
   stat: TimedStatField;
   /** Multiplier this buff applied to its stat; divided back out on expiry. */
   magnitude: number;
@@ -82,4 +82,30 @@ export function normalizeTimedStatBuffs(
     magnitude: entry.magnitude,
     expiresAt: entry.expiresAt,
   }));
+}
+
+/**
+ * Applies a field boost to a buff list, refreshing instead of stacking.
+ *
+ * Pure: returns a new list. `applied` tells the caller whether it must also
+ * multiply the PlayerStats field — a refresh must NOT multiply again, or the
+ * stat would compound while only one revert is ever queued.
+ */
+export function applyFieldBoost(
+  buffs: TimedStatBuff[],
+  stat: TimedStatField,
+  magnitude: number,
+  durationSeconds: number,
+  gameTime: number,
+): { buffs: TimedStatBuff[]; applied: boolean } {
+  const expiresAt = gameTime + durationSeconds;
+  // Matched on stat AND magnitude: a boost must refresh only its own kind, never a
+  // shrine / event / ultimate buff that happens to scale the same stat.
+  const existingIndex = buffs.findIndex((buff) => buff.stat === stat && buff.magnitude === magnitude);
+  if (existingIndex === -1) {
+    return { buffs: [...buffs, { stat, magnitude, expiresAt }], applied: true };
+  }
+  const refreshed = buffs.slice();
+  refreshed[existingIndex] = { ...refreshed[existingIndex], expiresAt };
+  return { buffs: refreshed, applied: false };
 }
