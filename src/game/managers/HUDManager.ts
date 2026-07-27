@@ -1743,6 +1743,7 @@ export class HUDManager {
     modifiers: readonly RunModifier[],
     relics: readonly Relic[],
     blessings: readonly Blessing[] = [],
+    relicRanks: Record<string, number> = {},
   ): void {
     if (!this.relicStripContainer) {
       this.createRelicModifierStrip();
@@ -1776,6 +1777,7 @@ export class HUDManager {
       tooltipTitle: string;
       tooltipBody: string;
       isModifier: boolean;
+      rankBadge?: string;
     };
     const entries: StripEntry[] = [];
 
@@ -1800,12 +1802,16 @@ export class HUDManager {
       });
     }
     for (const relic of relics) {
+      const rank = relicRanks[relic.id] ?? 1;
       entries.push({
         iconKey: relic.icon,
         borderColor: getRelicRarityColor(relic.rarity),
-        tooltipTitle: `${relic.name} · ${relic.rarity}`,
+        tooltipTitle: rank > 1
+          ? `${relic.name} · ${relic.rarity} · rank ${rank}`
+          : `${relic.name} · ${relic.rarity}`,
         tooltipBody: relic.description,
         isModifier: false,
+        rankBadge: rank > 1 ? String(rank) : undefined,
       });
     }
 
@@ -1838,6 +1844,21 @@ export class HUDManager {
         );
         marker.setStrokeStyle(1, 0x000000);
         container.add(marker);
+      }
+
+      if (entry.rankBadge) {
+        const rankBadgeText = this.scene.add.text(
+          x + iconSize / 2 - 2, y + iconSize / 2 - 2, entry.rankBadge,
+          {
+            fontFamily: DISPLAY_FONT,
+            fontSize: `${this.scaledSize(11)}px`,
+            color: ACCENT_COLORS_STR.focus,
+            stroke: '#000000',
+            strokeThickness: 3,
+          },
+        );
+        rankBadgeText.setOrigin(1, 1);
+        container.add(rankBadgeText);
       }
 
       slotBackground.on('pointerover', () => {

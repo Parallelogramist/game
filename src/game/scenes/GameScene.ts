@@ -154,7 +154,7 @@ import {
   generateDailyChallenge,
   generateWeeklyChallenge,
 } from '../../meta/DailyChallengeManager';
-import { getRelicManager } from '../../meta/RelicManager';
+import { getRelicManager, relicRankNumeral } from '../../meta/RelicManager';
 import { getCardCollectionManager } from '../../meta/CardCollectionManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
@@ -1552,7 +1552,8 @@ export class GameScene extends Phaser.Scene {
     this.hudManager.updateRelicModifierStrip(
       this.activeModifiers,
       getRelicManager().getEquippedRelics(),
-      this.activeBlessings
+      this.activeBlessings,
+      getRelicManager().getRelicRanks(),
     );
   }
 
@@ -1571,8 +1572,8 @@ export class GameScene extends Phaser.Scene {
    * Per-frame pump for the relic-draft queue. Opens the next owed round as a
    * pausing RelicDraftScene overlay, equips the player's pick, and releases the
    * pause once every owed round resolves. Defers (retries next frame) while a
-   * level-up / settings / pause menu owns the screen, and drops owed rounds that
-   * cannot be granted (relic slots full or the pool exhausted).
+   * level-up / settings / pause menu owns the screen, and drops owed rounds only
+   * when nothing at all can be granted (no new relic and every relic capped).
    */
   private processRelicChoiceQueue(): void {
     // A draft round is on screen (or still tearing down) — wait for it to close;
@@ -1592,24 +1593,18 @@ export class GameScene extends Phaser.Scene {
       if (!relicManager.isFull()) {
         const choices = relicManager.rollRelicChoices(this.playerStats);
         if (choices.length > 0) {
-          this.pendingRelicChoices--;
-          this.relicDraftActive = true;
-          this.relicDraftOwnsPause = true;
-          this.isPaused = true;
-          this.scene.launch('RelicDraftScene', {
-            choices,
-            onSelect: (chosen: Relic) => {
-              this.relicDraftActive = false;
-              this.equipDraftedRelic(chosen);
-              // Re-pump a beat later so the overlay has fully stopped before a
-              // possible relaunch of the next owed round.
-              this.time.delayedCall(60, () => this.processRelicChoiceQueue());
-            },
-          });
+          this.openRelicDraftRound(choices, false);
           return;
         }
       }
-      // Slots full or pool exhausted — these rounds can't be granted; drop them.
+      // Slots full (or the pool is exhausted): the award becomes a rank on a relic
+      // already carried, instead of being discarded (FEAT-RELIC-REINFORCE).
+      const reinforceChoices = relicManager.reinforceChoices();
+      if (reinforceChoices.length > 0) {
+        this.openRelicDraftRound(reinforceChoices, true);
+        return;
+      }
+      // Every equipped relic is capped and no new one can be rolled: drop the rounds.
       this.pendingRelicChoices = 0;
     }
 
@@ -1623,6 +1618,42 @@ export class GameScene extends Phaser.Scene {
         this.handleOrientationFlip();
       }
     }
+  }
+
+  /**
+   * Opens one relic-draft round as a pausing overlay. `isReinforce` switches the
+   * copy and routes the pick to a rank-up instead of an equip; everything else
+   * (pause ownership, decrement, re-pump) is identical for both kinds.
+   */
+  private openRelicDraftRound(choices: Relic[], isReinforce: boolean): void {
+    const relicManager = getRelicManager();
+    this.pendingRelicChoices--;
+    this.relicDraftActive = true;
+    this.relicDraftOwnsPause = true;
+    this.isPaused = true;
+    this.scene.launch('RelicDraftScene', {
+      choices,
+      title: isReinforce ? 'REINFORCE A RELIC' : 'CHOOSE A RELIC',
+      subtitle: isReinforce
+        ? 'Slots are full. Pick one to raise it one rank.'
+        : 'Pick one to add to your build',
+      rankLabels: isReinforce
+        ? Object.fromEntries(
+            choices.map((relic) => [
+              relic.id,
+              `RANK ${relicRankNumeral(relicManager.getRelicRank(relic.id))}`,
+            ]),
+          )
+        : undefined,
+      onSelect: (chosen: Relic) => {
+        this.relicDraftActive = false;
+        if (isReinforce) this.reinforceDraftedRelic(chosen);
+        else this.equipDraftedRelic(chosen);
+        // Re-pump a beat later so the overlay has fully stopped before a
+        // possible relaunch of the next owed round.
+        this.time.delayedCall(60, () => this.processRelicChoiceQueue());
+      },
+    });
   }
 
   /**
@@ -1642,6 +1673,27 @@ export class GameScene extends Phaser.Scene {
       description: equipped.description,
       icon: equipped.icon,
       color: getRelicRarityColor(equipped.rarity),
+      duration: 4500,
+    });
+    this.refreshRelicStrip();
+  }
+
+  /**
+   * Raises a relic the player already carries by one rank: re-applies its effect
+   * (RelicManager.reinforceRelic) with the same heal accounting, toast and HUD
+   * refresh as a fresh equip.
+   */
+  private reinforceDraftedRelic(relic: Relic): void {
+    const healthBeforeRelic = this.playerStats.currentHealth;
+    const newRank = getRelicManager().reinforceRelic(relic, this.playerStats);
+    if (newRank === null) return;
+    this.syncStatsToPlayer();
+    this.grantBuildHeal(this.playerStats.currentHealth - healthBeforeRelic);
+    this.toastManager.showToast({
+      title: `${relic.name} · Rank ${relicRankNumeral(newRank)}`,
+      description: relic.description,
+      icon: relic.icon,
+      color: getRelicRarityColor(relic.rarity),
       duration: 4500,
     });
     this.refreshRelicStrip();
@@ -1833,6 +1885,7 @@ export class GameScene extends Phaser.Scene {
       blessingIds: this.activeBlessings.map(blessing => blessing.id),
       stageId: this.selectedStageId,
       relicIds: getRelicManager().getEquippedRelics().map(r => r.id),
+      relicRanks: getRelicManager().getRelicRanks(),
       directorState: getDirectorState(),
       threatLevel: this.threatLevel,
       // Save key kept as `timedDamageBuffs` for back-compat (the list was
@@ -2188,7 +2241,7 @@ export class GameScene extends Phaser.Scene {
     // playerStats already includes the relic bonuses, so we only restore the
     // inventory list for UI display + future drop dedup/cap.
     if (state.relicIds && state.relicIds.length > 0) {
-      getRelicManager().restoreFromSave(state.relicIds);
+      getRelicManager().restoreFromSave(state.relicIds, state.relicRanks);
     }
 
     // Clamp restored player stats to prevent save tampering
@@ -3835,15 +3888,16 @@ export class GameScene extends Phaser.Scene {
         break;
       }
       case 'fortune': {
-        if (getRelicManager().isFull()) {
-          // Relic slots full — pay out gold + consumables instead.
+        const relicManager = getRelicManager();
+        if (relicManager.isFull() && !relicManager.hasReinforceCandidates()) {
+          // Relic slots full and every relic capped — pay out gold + consumables instead.
           getMetaProgressionManager().addGold(80 + this.worldLevel * 15);
           this.spawnRandomConsumable(shrine.x - 20, shrine.y);
           this.spawnRandomConsumable(shrine.x + 20, shrine.y);
-          description = 'Relic slots full — fortune paid in gold + power-ups.';
+          description = 'Relics maxed — fortune paid in gold + power-ups.';
         } else {
-          // Draft a relic (1-of-3). The choice overlay shows its own pickup
-          // toast, so suppress the generic shrine toast for this branch.
+          // Draft a relic (1-of-3), or a rank when slots are full. The choice
+          // overlay shows its own toast, so suppress the generic shrine toast.
           this.grantRelicChoice(1);
           showToast = false;
         }
@@ -5585,10 +5639,11 @@ export class GameScene extends Phaser.Scene {
           this.soundManager.playLevelUp();
 
           // Relic drop: 35% chance from regular chests, 100% from special chests.
-          // A drop opens a 1-of-3 relic draft; when slots are full the drop
-          // converts to the XP gems already spawned above (no draft).
+          // A drop opens a 1-of-3 relic draft; with slots full it becomes a
+          // reinforce round, and only a fully capped inventory falls through to
+          // the XP gems already spawned above.
           const shouldDropRelic = isSpecial || Math.random() < 0.35;
-          if (shouldDropRelic && !getRelicManager().isFull()) {
+          if (shouldDropRelic) {
             this.grantRelicChoice(1);
           }
 

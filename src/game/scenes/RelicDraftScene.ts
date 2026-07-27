@@ -12,6 +12,11 @@ import { ACCENT_COLORS_STR, MENU_FONT, TEXT_COLORS } from '../../visual/MenuStyl
 export interface RelicDraftSceneData {
   choices: Relic[];
   onSelect: (relic: Relic) => void;
+  /** Header override. Defaults to the standard new-relic draft copy. */
+  title?: string;
+  subtitle?: string;
+  /** Per-relic-id tag rendered under the rarity tag (reinforce rounds only). */
+  rankLabels?: Record<string, string>;
 }
 
 interface RelicCardEntry {
@@ -37,6 +42,9 @@ const RARITY_LABEL: Record<string, string> = {
  */
 export class RelicDraftScene extends Phaser.Scene {
   private choices: Relic[] = [];
+  private titleText: string = 'CHOOSE A RELIC';
+  private subtitleText: string = 'Pick one to add to your build';
+  private rankLabels: Record<string, string> = {};
   private onSelectCallback: ((relic: Relic) => void) | null = null;
   private cardEntries: RelicCardEntry[] = [];
   private cardNavigator: MenuNavigator | null = null;
@@ -57,6 +65,9 @@ export class RelicDraftScene extends Phaser.Scene {
     this.onSelectCallback = data.onSelect ?? null;
     this.selectionMade = false;
     this.entranceComplete = false;
+    this.titleText = data.title ?? 'CHOOSE A RELIC';
+    this.subtitleText = data.subtitle ?? 'Pick one to add to your build';
+    this.rankLabels = data.rankLabels ?? {};
   }
 
   create(): void {
@@ -74,7 +85,7 @@ export class RelicDraftScene extends Phaser.Scene {
     };
     this.events.on('update', this.overlayUpdateHandler);
 
-    const title = makeDisplayText(this, this.scale.width / 2, 84, 'CHOOSE A RELIC', {
+    const title = makeDisplayText(this, this.scale.width / 2, 84, this.titleText, {
       fontSize: 48,
       color: ACCENT_COLORS_STR.focus,
       strokeWidth: 6,
@@ -82,7 +93,7 @@ export class RelicDraftScene extends Phaser.Scene {
     });
     title.setDepth(1);
 
-    const subtitle = makeBodyText(this, this.scale.width / 2, 134, 'Pick one to add to your build', {
+    const subtitle = makeBodyText(this, this.scale.width / 2, 134, this.subtitleText, {
       fontSize: 22,
       color: TEXT_COLORS.muted,
     });
@@ -200,7 +211,17 @@ export class RelicDraftScene extends Phaser.Scene {
     );
     card.frame.add(rarityTag);
 
-    const descriptionText = this.add.text(0, iconY + 108, relic.description, {
+    const rankLabel = this.rankLabels[relic.id];
+    if (rankLabel) {
+      const rankTag = makeDisplayText(this, 0, iconY + 80, rankLabel, {
+        fontSize: Math.round(14 * textBoost),
+        color: TEXT_COLORS.heading,
+        letterSpacing: 2,
+      });
+      card.frame.add(rankTag);
+    }
+
+    const descriptionText = this.add.text(0, iconY + (rankLabel ? 126 : 108), relic.description, {
       fontSize: `${Math.round(16 * textBoost)}px`,
       fontFamily: MENU_FONT,
       color: TEXT_COLORS.body,

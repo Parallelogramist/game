@@ -329,7 +329,7 @@ Used by: SettingsManager, MetaProgressionManager, AchievementManager, CodexManag
 
 **AscensionManager** (`/src/meta/AscensionManager.ts`): Prestige — account level hits threshold (base 50, +15/ascension) → reset shop for full refund + permanent stat (+10%) and gold (+15%) multipliers per level.
 
-**RelicManager** (`/src/meta/RelicManager.ts`) + `src/data/Relics.ts`: Per-run passive items, max 6 equipped. Dropped by chests/minibosses/events. Rarity weights (common/rare/epic/legendary). `apply(stats)` mutates `PlayerStats` on pickup. Not persisted — resets each run via `reset()` in GameScene `create()`.
+**RelicManager** (`/src/meta/RelicManager.ts`) + `src/data/Relics.ts`: Per-run passive items, max 6 equipped. Dropped by chests/minibosses/events. Rarity weights (common/rare/epic/legendary). `apply(stats)` mutates `PlayerStats` on pickup. Not persisted — resets each run via `reset()` in GameScene `create()`. When all 6 slots are full a further relic award becomes a **reinforce** round: the same `RelicDraftScene` offers 3 of the equipped relics and the pick re-runs its `apply()`, raising its rank (cap `MAX_RELIC_RANK` = 3, shown on the HUD relic strip). Relics are never un-equipped: `apply()` is a one-way mutation, so there is no inverse. Ranks ride the save as optional `relicRanks`.
 
 **HiddenUnlockManager** (`/src/meta/HiddenUnlocks.ts`): Secret-condition unlocks for weapons, ships, cosmetics, stages. `evaluatePostRun(context, lifetimeStats)` checks predicates after each run; fires toast callback on new unlock. Progress-tracking variant surfaces "closest to unlock" post-run panel. Persisted via SecureStorage.
 

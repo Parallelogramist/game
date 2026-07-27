@@ -400,6 +400,11 @@ export interface GameSaveState {
   // and keeps the inventory cap honored on subsequent drops.
   relicIds?: string[];
 
+  // Per-relic rank (FEAT-RELIC-REINFORCE), keyed by relic id. The rank effects
+  // are already baked into the saved playerStats; this only restores display and
+  // reinforce eligibility. Absent on legacy saves → every relic restores at rank 1.
+  relicRanks?: Record<string, number>;
+
   // Director credit-budget state — preserves mid-run strategy + credit balance
   // so a reload doesn't re-roll the strategy or reset spawn economy.
   directorState?: DirectorState;
@@ -680,6 +685,7 @@ export class GameStateManager {
     blessingIds?: string[];
     stageId?: string;
     relicIds?: string[];
+    relicRanks?: Record<string, number>;
     directorState?: DirectorState;
     threatLevel?: number;
     timedDamageBuffs?: SerializedTimedStatBuff[];
@@ -760,6 +766,7 @@ export class GameStateManager {
         // Stage + relics
         stageId: gameData.stageId,
         relicIds: gameData.relicIds,
+        relicRanks: gameData.relicRanks,
         directorState: gameData.directorState,
         threatLevel: gameData.threatLevel,
         timedDamageBuffs: gameData.timedDamageBuffs,
