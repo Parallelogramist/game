@@ -135,8 +135,8 @@ describe('calculateRunGold is a pure read — no run-counter side effect', () =>
     const manager = getMetaProgressionManager();
     const before = manager.getRunsCompleted();
 
-    manager.calculateRunGold(100, 300, 10, false);
-    manager.calculateRunGold(100, 300, 10, false);
+    manager.calculateRunGold(100, 300, 10, false, 1);
+    manager.calculateRunGold(100, 300, 10, false, 1);
 
     // A "calculate" must not mutate state — otherwise a win that shows a gold
     // preview and then dies in endless mode burns the newcomer taper twice.

@@ -228,6 +228,8 @@ export interface PauseGameState {
   highestCombo: number;
   /** True in the practice sandbox, which never moves the day's quest board. */
   practiceModeActive: boolean;
+  /** Ship/stage/pact/relic/blessing/modifier gold bonus — the run-scoped multiplier both run-end payouts apply. */
+  runGoldMultiplier: number;
 }
 
 export interface VictoryData {
@@ -1264,7 +1266,8 @@ export class PauseMenuManager {
       gameState.killCount,
       gameState.gameTime,
       gameState.playerLevel,
-      false  // Same as death, no victory bonus
+      false,  // Same as death, no victory bonus
+      gameState.runGoldMultiplier
     );
 
     // Calculate breakdown components for display
@@ -1318,6 +1321,10 @@ export class PauseMenuManager {
       `Level: ${gameState.playerLevel} × 10 = ${levelGold} gold`,
       `Base: ${baseTotal} gold`,
     ];
+
+    if (gameState.runGoldMultiplier > 1) {
+      breakdownLines.push(`Run Bonus: ×${gameState.runGoldMultiplier.toFixed(2)}`);
+    }
 
     // Add multiplier lines if applicable
     if (goldMultiplier > 1) {

@@ -5054,6 +5054,7 @@ export class GameScene extends Phaser.Scene {
       ultimateChargeRatio: getUltimateChargeRatio(),
       ultimateReady: isUltimateReady(),
       bossHealthData: bossHealthPayload,
+      runGoldMultiplier: this.playerStats.goldMultiplier,
     });
 
     // One-time teach on the rising edge: the first time the ultimate charges,
@@ -6139,6 +6140,7 @@ export class GameScene extends Phaser.Scene {
         totalDamageDealt: this.totalDamageDealt,
         highestCombo: getHighestCombo(),
         practiceModeActive: this.practiceModeActive,
+        runGoldMultiplier: this.playerStats.goldMultiplier,
       }),
     }, this.soundManager);
   }

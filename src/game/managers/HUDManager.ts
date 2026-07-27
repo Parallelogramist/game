@@ -86,6 +86,8 @@ export interface HUDUpdateState {
   ultimateChargeRatio: number;
   ultimateReady: boolean;
   bossHealthData: Array<{ entityId: number; currentHP: number; maxHP: number }>;
+  /** Ship/stage/pact/relic/blessing/modifier gold bonus — keeps the HUD payout preview equal to what a run-end path pays. */
+  runGoldMultiplier: number;
 }
 
 export interface EvolutionInfo {
@@ -911,7 +913,8 @@ export class HUDManager {
         state.killCount,
         state.gameTime,
         state.playerLevel,
-        false
+        false,
+        state.runGoldMultiplier
       );
       if (deathGold !== this.lastDeathGold) {
         this.lastDeathGold = deathGold;

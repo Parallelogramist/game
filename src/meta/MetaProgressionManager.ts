@@ -1235,7 +1235,7 @@ export class MetaProgressionManager {
     gameTimeSeconds: number,
     playerLevel: number,
     hasWon: boolean,
-    runGoldMultiplier: number = 1
+    runGoldMultiplier: number
   ): number {
     // Pure formula — gathers the live meta multipliers, no side effects. Run
     // completion is tracked separately via recordRunCompleted() so previewing
