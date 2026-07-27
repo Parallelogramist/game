@@ -34,6 +34,34 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-WEAPON-REFIT** — trade an equipped weapon for a new one mid-run (done — 9b29b34).
+  Value: with 3 base weapon slots and 28 unlockable weapons, the first three weapons a run handed
+  you were the three you died with: `Upgrades.ts` gated new-weapon cards on
+  `weaponManager.canAddWeapon()`, and `WeaponManager` had `addWeapon` and **no counterpart at
+  all**, so nothing in the codebase could remove an equipped weapon. Reroll, skip, lock and
+  banish all act on *offers*; none could touch what you already carried. A weapon milestone with
+  every slot full now surfaces exactly **one** new-weapon card labelled `REFIT: TRADE A WEAPON`
+  (`MAX_REFIT_OFFERS_PER_MILESTONE`, so weapon level-ups still fill the rest of the hand). Taking
+  it opens a picker of your equipped weapons (pointer or `[1]`–`[n]`, ESC cancels), then the same
+  destructive-confirm overlay the banish flow uses, generalized to `showDestructiveConfirmation`
+  rather than duplicated. Confirming calls the new `WeaponManager.removeWeapon` (destroys the
+  weapon's sprites, drops it from the Map, `recalculateSynergies()` so a half-broken synergy
+  resets), then the normal add path equips the replacement at level 1. **The cost is
+  self-balancing, so no charge counter, shop upgrade or balance constant was invented:** you lose
+  every level invested in the scrapped weapon, and its `add_<id>` joins `banishedUpgradeIds` so it
+  can never be re-taken to launder the trade. Its `weaponRunStats` entry is deliberately **kept**
+  (the damage it dealt is still this run's) and both `weaponIdsUsed` consumers now union
+  `scrappedWeaponIds`, so a traded weapon still counts for achievements and hidden unlocks.
+  Auto-buy filters refit offers out (it cannot answer "which weapon do I scrap"); the pre-existing
+  `-1000` safety score stays as the second net. A fully-owned arsenal still yields zero add
+  candidates, so the Limit Break overflow fallback is untouched. `scrappedWeaponIds` persists as
+  an **optional** save field (legacy saves keep validating: it is not in `requiredArrays`).
+  No new file, no new scene, no new storage key, no ECS or combat change. 2 offer-engine tests
+  restated to the new contract (they pinned "no new weapons when slots are full" verbatim) + 2
+  new cases pinning the one-offer cap and that a banished weapon is never re-offered as a trade.
+  Files: `Upgrades.ts`, `Upgrades.selection.test.ts`, `WeaponManager.ts`, `UpgradeScene.ts`,
+  `GameScene.ts`, `GameStateManager.ts`. Feel/balance → playtest queue (POLISH-WEAPON-REFIT).
+
 - [x] **FEAT-THREAT-REPORT** — the pause build dashboard now names what is taking your HP
   (done — c259252). Value: damage *dealt* has been fully attributable per weapon since
   FEAT-PAUSE-RUN-STATS (`WeaponManager` threads `currentFiringWeaponId` through every hit), but damage
@@ -135,6 +163,16 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   kinds never merge), pinned by 4 tests: it is the one piece of non-obvious logic and the only thing here
   verifiable without a live scene. Files: `runTimeline.ts`, `runTimeline.test.ts`, `GameScene.ts`,
   `PauseMenuManager.ts`. Legibility/feel → playtest queue (POLISH-RUN-TIMELINE).
+
+- [ ] **FEAT-BOSS-REMATCH** — one tap from the death screen into a practice fight against the
+  thing that killed you, with the build you died with. Value: FEAT-THREAT-RECAP already names the
+  killer (`killedBySourceName`) and practice mode already spawns any boss with any affix
+  (FEAT-PRACTICE-BOSS) against a chosen build (FEAT-PRACTICE-BUILD), but the two never meet, so
+  learning the fight that just ended the run means walking the whole practice menu and rebuilding
+  the loadout by hand. Done when: the game-over overlay carries a REMATCH action for runs killed
+  by a boss/miniboss, which launches `PracticeScene` pre-seeded with that enemy, its affixes, and
+  the run's weapons/levels. Pointers: `PauseMenuManager.gameOver`, `GameOverData.killedBy`,
+  `PracticeArena.ts`, `PracticeBuild.ts`, `PracticeTargets.ts`.
 
 - [x] **FEAT-QUEST-LIVE** — daily quests complete, toast and pay their gold *during* the run
   (done — 773aca4). Value: the board shipped by FEAT-DAILY-QUESTS was
@@ -1572,6 +1610,16 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-WEAPON-REFIT** (— 9b29b34) — reach a weapon milestone (level 5/10/15…) with every
+    weapon slot full and judge the trade: does the `REFIT: TRADE A WEAPON` card read as a trade
+    before you click it, or does it look like a normal new-weapon card? Is one refit offer per
+    milestone the right number, or should a full arsenal show two? Is losing every invested level
+    the right cost, or does the trade need to be rarer / charged? Does the picker card fit at
+    720×1280 portrait and at 1280×720 with the maximum slot count (base 3 + shop + relic +
+    ascension)? Is a second confirm step warranted, or one tap too many? The confirm/cancel pair
+    is pointer-only (matching the existing banish confirmation): does a gamepad-only session need
+    activation on the rows, not just `[1]`–`[n]` and ESC? Should scrapping be possible off a
+    milestone, or from the pause menu?
   - **POLISH-RUN-TIMELINE** (— 428cfb9) — die on a full landscape viewport and judge the top ribbon:
     is a marker-per-beat readable at a glance, or does it need fewer kinds? Are the marker shapes
     and colours distinguishable without reading the legend, and is the 11 px legend legible? Does
