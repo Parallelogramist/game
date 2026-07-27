@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach, vi } from 'vitest';
 import { rollModifierChoices, RUN_MODIFIERS } from './RunModifiers';
+import { mulberry32 } from '../utils/dailySeed';
 
 describe('rollModifierChoices (FEAT-MODIFIER-DRAFT)', () => {
   afterEach(() => {
@@ -27,5 +28,25 @@ describe('rollModifierChoices (FEAT-MODIFIER-DRAFT)', () => {
     const choices = rollModifierChoices(RUN_MODIFIERS.length + 50);
     expect(choices).toHaveLength(RUN_MODIFIERS.length);
     expect(new Set(choices.map((modifier) => modifier.id)).size).toBe(RUN_MODIFIERS.length);
+  });
+
+  test('every modifier is offered at the fair rate (no comparator-shuffle bias)', () => {
+    vi.spyOn(Math, 'random').mockImplementation(mulberry32(20260727));
+    const TRIALS = 20_000;
+    const DRAW = 6;
+    const offers = new Map<string, number>(RUN_MODIFIERS.map((modifier) => [modifier.id, 0]));
+    for (let trial = 0; trial < TRIALS; trial++) {
+      for (const modifier of rollModifierChoices(DRAW)) {
+        offers.set(modifier.id, offers.get(modifier.id)! + 1);
+      }
+    }
+    const fairRate = DRAW / RUN_MODIFIERS.length;
+    for (const [id, count] of offers) {
+      const rate = count / TRIALS;
+      expect(
+        Math.abs(rate - fairRate) / fairRate,
+        `${id} offered at ${(rate * 100).toFixed(1)}% vs fair ${(fairRate * 100).toFixed(1)}%`,
+      ).toBeLessThan(0.1);
+    }
   });
 });

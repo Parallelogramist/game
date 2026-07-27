@@ -3,6 +3,7 @@ import { getCodexManager } from '../codex';
 import { TUNING } from './GameTuning';
 import { createLimitBreakUpgrades } from './LimitBreakUpgrades';
 import { UpgradeRarity, luckBiasedUpgradeWeight, weightedOrder } from './UpgradeRarity';
+import { shuffleWithRng } from '../utils/dailySeed';
 
 /**
  * Break level gates - stat upgrades cannot pass these thresholds
@@ -768,10 +769,12 @@ function padWithOverflow(
   count: number,
 ): void {
   if (result.length >= count) return;
-  const overflowPool: CombinedUpgrade[] = statUpgrades
-    .filter(u => u.isOverflow && !banishedIds.has(u.id))
-    .map(u => ({ ...u, upgradeType: 'stat' as const }))
-    .sort(() => Math.random() - 0.5);
+  const overflowPool: CombinedUpgrade[] = shuffleWithRng(
+    statUpgrades
+      .filter(u => u.isOverflow && !banishedIds.has(u.id))
+      .map(u => ({ ...u, upgradeType: 'stat' as const })),
+    Math.random,
+  );
   for (const overflow of overflowPool) {
     if (result.length >= count) break;
     if (!result.some(r => r.id === overflow.id)) result.push(overflow);
@@ -863,10 +866,16 @@ export function getRandomCombinedUpgrades(
       remainingNew.splice(selectedIndex, 1);
     }
 
-    // Combine with shuffled level-ups and return
-    const shuffledLevelUps = levelUps.sort(() => Math.random() - 0.5);
-    const result: CombinedUpgrade[] = [...selectedNew, ...shuffledLevelUps];
-    const milestoneResult = result.sort(() => Math.random() - 0.5).slice(0, Math.min(count, result.length));
+    // The weight-drawn new-weapon offers ARE the milestone, so they take their
+    // slots first and level-ups fill the rest, which is what
+    // MAX_REFIT_OFFERS_PER_MILESTONE's cap already assumes. The old comparator
+    // shuffle mixed both before slicing and, being non-uniform, dropped the
+    // REFIT offer roughly two milestones in three.
+    const filler = shuffleWithRng(levelUps, Math.random);
+    const milestoneResult: CombinedUpgrade[] = shuffleWithRng(
+      [...selectedNew, ...filler].slice(0, count),
+      Math.random,
+    );
     // Only pad when the milestone would otherwise be empty (every weapon owned +
     // maxed) — keep overflow strictly as the dead-level fallback, not a filler
     // that displaces still-useful weapon level-ups.
@@ -929,5 +938,5 @@ export function getRandomCombinedUpgrades(
   padWithOverflow(result, statUpgrades, banishedIds, count);
 
   // Final shuffle for presentation randomness
-  return result.sort(() => Math.random() - 0.5).slice(0, count);
+  return shuffleWithRng(result, Math.random).slice(0, count);
 }

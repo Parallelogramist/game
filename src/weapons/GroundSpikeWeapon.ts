@@ -4,6 +4,7 @@ import { getJuiceManager } from '../effects/JuiceManager';
 import { WEAPON_COLORS } from '../visual/NeonColors';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { shuffleWithRng } from '../utils/dailySeed';
 
 interface GroundSpike {
   graphics: Phaser.GameObjects.Graphics;
@@ -73,7 +74,7 @@ export class GroundSpikeWeapon extends BaseWeapon {
     if (validTargets.length === 0) return;
 
     // Spawn spikes at random target positions
-    const shuffled = [...validTargets].sort(() => Math.random() - 0.5);
+    const shuffled = shuffleWithRng(validTargets, Math.random);
     const targetCount = Math.min(this.stats.count, shuffled.length);
 
     for (let i = 0; i < targetCount; i++) {

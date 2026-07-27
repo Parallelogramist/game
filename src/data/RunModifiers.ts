@@ -6,6 +6,7 @@
  */
 
 import { PlayerStats } from './Upgrades';
+import { shuffleWithRng } from '../utils/dailySeed';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -269,7 +270,7 @@ export const RUN_MODIFIERS: readonly RunModifier[] = [
  * Avoids picking two modifiers from the same category.
  */
 export function selectRunModifiers(count: number = 2): RunModifier[] {
-  const shuffled = [...RUN_MODIFIERS].sort(() => Math.random() - 0.5);
+  const shuffled = shuffleWithRng([...RUN_MODIFIERS], Math.random);
   const selected: RunModifier[] = [];
   const usedCategories = new Set<string>();
 
@@ -292,7 +293,7 @@ export function selectRunModifiers(count: number = 2): RunModifier[] {
  * chosen ones via GameScene's existing modifierIds path.
  */
 export function rollModifierChoices(count: number): RunModifier[] {
-  const shuffled = [...RUN_MODIFIERS].sort(() => Math.random() - 0.5);
+  const shuffled = shuffleWithRng([...RUN_MODIFIERS], Math.random);
   return shuffled.slice(0, Math.min(count, RUN_MODIFIERS.length));
 }
 

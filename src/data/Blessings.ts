@@ -1,4 +1,5 @@
 import type { PlayerStats } from './Upgrades';
+import { shuffleWithRng } from '../utils/dailySeed';
 
 /**
  * Blessings — pure-upside run-start gifts granted by the `blessingLevel` shop
@@ -171,7 +172,7 @@ export const BLESSINGS: readonly Blessing[] = [
  */
 export function selectBlessings(count: number): Blessing[] {
   if (count <= 0) return [];
-  const shuffled = [...BLESSINGS].sort(() => Math.random() - 0.5);
+  const shuffled = shuffleWithRng([...BLESSINGS], Math.random);
   return shuffled.slice(0, Math.min(count, BLESSINGS.length));
 }
 
@@ -188,7 +189,7 @@ export const BLESSING_DRAFT_EXTRA = 3;
 export function rollBlessingChoices(pickCount: number): Blessing[] {
   if (pickCount <= 0) return [];
   const candidateCount = Math.min(pickCount + BLESSING_DRAFT_EXTRA, BLESSINGS.length);
-  const shuffled = [...BLESSINGS].sort(() => Math.random() - 0.5);
+  const shuffled = shuffleWithRng([...BLESSINGS], Math.random);
   return shuffled.slice(0, candidateCount);
 }
 
