@@ -1472,6 +1472,34 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   date-seeded determinism); the Phaser-coupled edits are guarded by tsc + build as usual. Files:
   `BossRotationManager.ts` (+ test), `StorageBootstrap.ts`, `GameStateManager.ts`, `GameScene.ts`,
   `BootScene.ts`. Feel/legibility → playtest queue (POLISH-BOSS-ROTATION).
+- [x] **BUG-DRAFT-SHUFFLE-BIAS** — every random offer the game makes was drawn with a
+  biased shuffle (done — 4fb3296). Value: `array.sort(() => Math.random() - 0.5)` is not a
+  uniform shuffle in V8 (TimSort plus an inconsistent comparator returns a permutation
+  clustered around identity), and all nine shuffles in `src/` used it. Measured over 200k
+  trials at the real pool sizes: `selectRunModifiers(2)` offered `glass_cannon` (index 0)
+  **20.7%** of the time against **5.4%** for `marksman` (index 16), a **3.83x** spread on a
+  fair rate of 9.5%, and indices 16-21 are exactly the six modifiers added by
+  FEAT-MODIFIER-PACK (`3aba1e6`), so the newest content sat on the starved tail;
+  `selectBlessings(1)` spread 15% to 4.7% (**3.19x**); the two pre-run drafts spread ~42%
+  to ~23%. Sharper half: the weapon milestone weight-drew its new-weapon offers into
+  `selectedNew`, then threw them back in with every weapon level-up and comparator-shuffled
+  the lot before slicing to 3, so the REFIT trade shipped by FEAT-WEAPON-REFIT (`9b29b34`)
+  appeared at only **36-51%** of full-arsenal milestones despite
+  `MAX_REFIT_OFFERS_PER_MILESTONE`'s own comment assuming level-ups fill *the rest of* the
+  hand, and a free-slot milestone averaged **1.15 of 3** new-weapon cards against a
+  docstring promising "ALL options are weapons". Fixed by routing all nine sites through
+  `shuffleWithRng` from `src/utils/dailySeed.ts`, the Fisher-Yates helper this repo already
+  ships and which `DailyChallengeManager.ts:71` already used for the daily challenge's
+  modifier pick: the daily path was fair while the standard path was not. The milestone
+  hand is now composed explicitly (weight-drawn offers first, fair-shuffled level-ups
+  filling the rest, one fair shuffle for card order) instead of emerging from shuffle bias.
+  **No tuning constant, weight, cap, save format or storage key changed**; the ~50
+  `(Math.random() - 0.5) * n` positional-jitter expressions are untouched. Tested (a
+  measured statistical bug is the standing order's regression-risk carve-out): one seeded
+  20k-draw fairness test per pre-run draft, asserting every catalog entry lands within 10%
+  relative of the fair rate; the fair implementation measures within 2.7% at three seeds
+  while the old one missed by 43-47%, so both tests fail on the pre-fix code. Offer *feel*
+  is owned by **POLISH-DRAFT-FAIRNESS** under `## Human gates`.
 
 ## Next
 
@@ -1678,6 +1706,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-DRAFT-FAIRNESS** (— 4fb3296) — offers are now drawn uniformly (BUG-DRAFT-SHUFFLE-BIAS).
+    Agents have no browser and must not retune blind. Check: (a) **the milestone** is the one real
+    feel change: with a full arsenal, a weapon milestone now shows the REFIT trade card every time
+    instead of 36-51% of the time, and with a free slot it shows up to 3 new-weapon cards instead of
+    averaging 1.15. Does that read as the milestone finally doing what it says, or does REFIT
+    every-5-levels get pushy? Knob: `MAX_REFIT_OFFERS_PER_MILESTONE` in `src/data/Upgrades.ts`, and
+    `maxNewWeapons` beside it for the free-slot case. (b) **modifier variety** across several runs:
+    the six FEAT-MODIFIER-PACK modifiers (`marksman`, `piercing_rounds`, `evasion`, `lucky_charm`,
+    `improviser`, `demolitionist`) should now appear about as often as `glass_cannon` did. If any of
+    them feels too strong now that it actually shows up, that is a balance call on the modifier, not
+    on the shuffle. (c) same for the blessing draft. (d) **scope call left open**: with draws now
+    uniform, should the pre-run drafts weight by *rarity* the way relics and luck-biased upgrades do,
+    or stay flat?
   - **POLISH-BOSS-ROTATION** (— 6511b6c) — the boss rotation now persists and gets named in three
     places (FEAT-BOSS-ROTATION). Agents have no browser. Check: (a) **the rotation itself** — play a
     run to 10:00, note the boss, reload the page, play another: the second run must field the NEXT
