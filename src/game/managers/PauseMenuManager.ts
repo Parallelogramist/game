@@ -7,7 +7,7 @@ import { SoundManager } from '../../audio/SoundManager';
 import { addButtonInteraction } from '../../utils/SceneTransition';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { deriveBuildStats } from './buildStats';
+import { deriveBuildStats, type DamageSourceTally } from './buildStats';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
@@ -215,6 +215,8 @@ export interface PauseGameState {
   weaponStats: WeaponRunStats[];
   /** Total damage the player has taken this run (build dashboard). */
   totalDamageTaken: number;
+  /** Damage taken this run bucketed by what dealt it (build dashboard). */
+  damageBySource: DamageSourceTally[];
   /** Currently-active weapon synergies, listed on the build dashboard. */
   activeSynergies?: WeaponSynergy[];
   /** Total damage the player has dealt this run (live daily-quest board). */
@@ -945,6 +947,7 @@ export class PauseMenuManager {
       gameTimeSeconds: gameState.gameTime,
       killCount: gameState.killCount,
       totalDamageTaken: gameState.totalDamageTaken ?? 0,
+      damageBySource: gameState.damageBySource ?? [],
     });
 
     const formatPercent = (rate: number): string => `${Math.round(rate * 100)}%`;
@@ -981,6 +984,16 @@ export class PauseMenuManager {
       for (const synergy of activeSynergies) {
         leftLines.push(synergy.name);
         rightLines.push(formatSynergyBonus(synergy));
+      }
+    }
+
+    // Defensive mirror of TOP WEAPONS: what is actually taking the player's HP.
+    if (stats.topThreats.length > 0) {
+      leftLines.push('', 'TOP THREATS');
+      rightLines.push('', '');
+      for (const threat of stats.topThreats) {
+        leftLines.push(threat.sourceName);
+        rightLines.push(`${formatLargeNumber(threat.totalDamage)}  ${formatPercent(threat.damageShare)}`);
       }
     }
 

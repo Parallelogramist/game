@@ -4,6 +4,7 @@ import {
   perSecondRate,
   safeRatio,
   orderWeaponsByDamage,
+  orderThreatsByDamage,
   deriveBuildStats,
 } from './buildStats';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
@@ -260,5 +261,32 @@ describe('deriveBuildStats', () => {
     expect(summary.killsPerMinute).toBe(0);
     expect(summary.topWeapons[0].dps).toBe(0);
     expect(summary.totalDamage).toBe(12);
+  });
+
+  test('threat rows order by damage, break ties by name, and share the whole run', () => {
+    const rows = orderThreatsByDamage(
+      [
+        { sourceName: 'Dasher', totalDamage: 50 },
+        { sourceName: 'Ground Slam', totalDamage: 30 },
+        { sourceName: 'Exploder', totalDamage: 30 },
+        { sourceName: 'Enemy Fire', totalDamage: 0 },
+      ],
+      2,
+    );
+
+    expect(rows.map((r) => r.sourceName)).toEqual(['Dasher', 'Exploder']);
+    // 50 of 110 total — the denominator is every source, not just the two shown.
+    expect(rows[0].damageShare).toBeCloseTo(0.4545, 3);
+  });
+
+  test('an untouched run yields no threat rows', () => {
+    const summary = deriveBuildStats({
+      weaponStats: [],
+      gameTimeSeconds: 60,
+      killCount: 0,
+      totalDamageTaken: 0,
+    });
+
+    expect(summary.topThreats).toEqual([]);
   });
 });

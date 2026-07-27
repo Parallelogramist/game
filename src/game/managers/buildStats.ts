@@ -18,6 +18,9 @@ import { WeaponRunStats } from '../../weapons/WeaponManager';
 /** Default number of weapons surfaced in the build breakdown. */
 export const DEFAULT_TOP_WEAPONS = 5;
 
+/** Default number of damage sources surfaced in the threat breakdown. */
+export const DEFAULT_TOP_THREATS = 3;
+
 export interface BuildStatsInput {
   /** Per-weapon aggregate stats for the current run. */
   weaponStats: WeaponRunStats[];
@@ -27,6 +30,8 @@ export interface BuildStatsInput {
   killCount: number;
   /** Total damage the player has taken this run. */
   totalDamageTaken: number;
+  /** Damage taken this run, bucketed by what dealt it. Absent/empty until the player is hit. */
+  damageBySource?: DamageSourceTally[];
 }
 
 /** A single weapon's contribution, ready to render as a dashboard row. */
@@ -43,6 +48,20 @@ export interface WeaponBreakdownRow {
   critRate: number;
 }
 
+/** Damage the player took from one attribution bucket this run. */
+export interface DamageSourceTally {
+  sourceName: string;
+  totalDamage: number;
+}
+
+/** A single damage source's contribution, ready to render as a dashboard row. */
+export interface ThreatBreakdownRow {
+  sourceName: string;
+  totalDamage: number;
+  /** Fraction of all attributed damage taken that this source accounts for (0..1). */
+  damageShare: number;
+}
+
 /** Everything the build dashboard needs, derived in one pass. */
 export interface BuildStatsSummary {
   totalDamage: number;
@@ -56,6 +75,8 @@ export interface BuildStatsSummary {
   totalDamageTaken: number;
   /** Top weapons, ordered by total damage descending. */
   topWeapons: WeaponBreakdownRow[];
+  /** Top damage sources against the player, ordered by damage descending. */
+  topThreats: ThreatBreakdownRow[];
 }
 
 /** Count per elapsed minute. Returns 0 when no time has elapsed (no Infinity). */
@@ -96,6 +117,36 @@ export function orderWeaponsByDamage(
 }
 
 /**
+ * Damage sources that actually landed, ordered by damage descending, ties broken
+ * by source name ascending for a deterministic order, truncated to the top N.
+ * Shares are taken over the WHOLE tally list, never the truncated slice, so a
+ * row's percentage always means "of all damage taken this run".
+ */
+export function orderThreatsByDamage(
+  damageBySource: DamageSourceTally[],
+  topN: number = DEFAULT_TOP_THREATS,
+): ThreatBreakdownRow[] {
+  let attributedTotal = 0;
+  for (const source of damageBySource) {
+    attributedTotal += Math.max(0, source.totalDamage);
+  }
+
+  return [...damageBySource]
+    .filter((source) => source.totalDamage > 0)
+    .sort(
+      (firstSource, secondSource) =>
+        secondSource.totalDamage - firstSource.totalDamage ||
+        firstSource.sourceName.localeCompare(secondSource.sourceName),
+    )
+    .slice(0, Math.max(0, topN))
+    .map((source) => ({
+      sourceName: source.sourceName,
+      totalDamage: source.totalDamage,
+      damageShare: safeRatio(source.totalDamage, attributedTotal),
+    }));
+}
+
+/**
  * Derives the full build dashboard summary from the run's raw stats. The
  * headline totals are summed over every weapon so the per-weapon damage shares
  * add up to 1; kills-per-minute uses the run kill count (not the per-weapon
@@ -104,8 +155,9 @@ export function orderWeaponsByDamage(
 export function deriveBuildStats(
   input: BuildStatsInput,
   topN: number = DEFAULT_TOP_WEAPONS,
+  topThreatCount: number = DEFAULT_TOP_THREATS,
 ): BuildStatsSummary {
-  const { weaponStats, gameTimeSeconds, killCount, totalDamageTaken } = input;
+  const { weaponStats, gameTimeSeconds, killCount, totalDamageTaken, damageBySource } = input;
 
   let totalDamage = 0;
   let totalHits = 0;
@@ -126,6 +178,8 @@ export function deriveBuildStats(
     critRate: safeRatio(weapon.crits, weapon.hits),
   }));
 
+  const topThreats = orderThreatsByDamage(damageBySource ?? [], topThreatCount);
+
   return {
     totalDamage,
     dps: perSecondRate(totalDamage, gameTimeSeconds),
@@ -134,5 +188,6 @@ export function deriveBuildStats(
     totalKills: killCount,
     totalDamageTaken,
     topWeapons,
+    topThreats,
   };
 }

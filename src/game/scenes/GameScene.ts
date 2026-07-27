@@ -159,6 +159,7 @@ import { practiceBuildPlayerLevel } from '../../data/PracticeBuild';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
+import type { DamageSourceTally } from '../managers/buildStats';
 import { DISPLAY_FONT } from '../../visual/MenuStyle';
 
 // Module-level queries (defined once, not per-frame)
@@ -251,6 +252,7 @@ export class GameScene extends Phaser.Scene {
   private lastAchievementTimeCheck: number = 0; // For throttled time tracking
   private totalDamageTaken: number = 0;
   private totalDamageDealt: number = 0;
+  private damageTakenBySource: Map<string, number> = new Map();
 
   // Player stats and upgrades
   private playerStats!: PlayerStats;
@@ -647,6 +649,7 @@ export class GameScene extends Phaser.Scene {
     this.resetInRunFeatureState();
     this.totalDamageTaken = 0;
     this.totalDamageDealt = 0;
+    this.damageTakenBySource.clear();
     this.lastAchievementTimeCheck = 0;
     this.pendingBossHealthBars = [];
 
@@ -3087,7 +3090,7 @@ export class GameScene extends Phaser.Scene {
 
       if (dist < radius) {
         // Damage player
-        this.takeDamage(damage);
+        this.takeDamage(damage, undefined, 'Explosion');
 
         // Knockback from explosion (skipped when Juggernaut ship's immunity is active)
         if (!this.playerStats.knockbackImmunity) {
@@ -3928,7 +3931,7 @@ export class GameScene extends Phaser.Scene {
         const distSq = dx * dx + dy * dy;
 
         if (distSq < 400) { // 20 * 20
-          this.takeDamage(proj.damage);
+          this.takeDamage(proj.damage, undefined, 'Enemy Fire');
           shouldRemove = true;
         }
       }
@@ -4748,11 +4751,47 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Buckets a landed hit by what dealt it. Only ever reached after every
+   * avoidance branch in takeDamage, so a blocked / dashed / dodged / phased hit
+   * is never attributed and the buckets always sum to `totalDamageTaken`.
+   */
+  private recordDamageTakenSource(
+    attackerEntity: number | undefined,
+    sourceLabel: string | undefined,
+    damage: number,
+  ): void {
+    if (!(damage > 0)) return;
+
+    let bucketName = sourceLabel;
+    if (bucketName === undefined && attackerEntity !== undefined) {
+      const enemyTypeId = this.enemyTypeMap.get(attackerEntity);
+      bucketName = (enemyTypeId ? getEnemyType(enemyTypeId)?.name : undefined) ?? 'Unknown';
+    }
+    if (bucketName === undefined) bucketName = 'Unknown';
+
+    this.damageTakenBySource.set(
+      bucketName,
+      (this.damageTakenBySource.get(bucketName) ?? 0) + damage,
+    );
+  }
+
+  private getDamageTakenBySource(): DamageSourceTally[] {
+    const tallies: DamageSourceTally[] = [];
+    this.damageTakenBySource.forEach((totalDamage, sourceName) => {
+      tallies.push({ sourceName, totalDamage });
+    });
+    return tallies;
+  }
+
+  /**
    * Applies damage to the player with full defensive stat calculations.
    * @param amount Base damage amount
-   * @param attackerEntity Optional entity ID for thorns damage
+   * @param attackerEntity Optional entity ID for thorns damage; also names the
+   *   threat bucket when no explicit label is given
+   * @param sourceLabel Threat bucket for attacks that have no attacker entity
+   *   (explosions, enemy fire, boss slams and lasers)
    */
-  private takeDamage(amount: number, attackerEntity?: number): void {
+  private takeDamage(amount: number, attackerEntity?: number, sourceLabel?: string): void {
     // Ahead of the shield branch on purpose: a practice invincibility that burned
     // shield charges would quietly change the build being judged.
     if (this.practiceInvincible) return;
@@ -4867,6 +4906,7 @@ export class GameScene extends Phaser.Scene {
 
     // Track damage taken for achievements (perfect run tracking)
     this.totalDamageTaken += reducedDamage;
+    this.recordDamageTakenSource(attackerEntity, sourceLabel, reducedDamage);
     const remainingHpPercent = this.playerStats.currentHealth / this.playerStats.maxHealth;
     getAchievementManager().recordDamageTaken(reducedDamage, remainingHpPercent);
 
@@ -5453,6 +5493,7 @@ export class GameScene extends Phaser.Scene {
         isPauseMenuOpen: this.pauseMenuManager?.isPauseMenuOpen ?? false,
         weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
         totalDamageTaken: this.totalDamageTaken,
+        damageBySource: this.getDamageTakenBySource(),
         activeSynergies: this.weaponManager?.getActiveSynergies() ?? [],
         totalDamageDealt: this.totalDamageDealt,
         highestCombo: getHighestCombo(),
@@ -8212,7 +8253,7 @@ export class GameScene extends Phaser.Scene {
       const dist = Math.sqrt((playerX - x) ** 2 + (playerY - y) ** 2);
 
       if (dist < radius) {
-        this.takeDamage(damage);
+        this.takeDamage(damage, undefined, 'Ground Slam');
 
         // Knockback from slam (skipped when Juggernaut ship's immunity is active)
         if (!this.playerStats.knockbackImmunity) {
@@ -8361,7 +8402,7 @@ export class GameScene extends Phaser.Scene {
         const dist = Math.sqrt((playerX - closestX) ** 2 + (playerY - closestY) ** 2);
 
         if (dist < 25) {
-          this.takeDamage(damage);
+          this.takeDamage(damage, undefined, 'Laser Beam');
 
           // Screen shake on laser hit
           if (getSettingsManager().isScreenShakeEnabled()) {
