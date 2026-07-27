@@ -2211,12 +2211,43 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 - [x] **CHORE-CI-DEPLOY-RETRY** — auto-retry the transiently-failing Pages
   deploy (done — 34e5373). Full write-up moved to `BACKLOG-archive.md`.
 
-- [ ] **BUG-ENDRUN-CONFIRM-NO-GAMEPAD** — the END RUN confirm dialog and its new earned panel
-  are keyboard + pointer only. Value: the pause menu itself is gamepad-navigable via
-  `MenuNavigator`, but `showEndRunConfirmation` uses a raw `shopConfirmKeyHandler` and no
-  gamepad polling, so a gamepad-only player can open the dialog and cannot answer it. The
-  game-over screen's edge-detected A-button poll (`PauseMenuManager.ts:2493-2507`) is the
-  idiom to copy. Pointers: `PauseMenuManager.showEndRunConfirmation`, `showEndRunEarned`.
+- [x] **BUG-ENDRUN-CONFIRM-NO-GAMEPAD** — the END RUN confirm dialog and its earned panel
+  are now gamepad-navigable (done — 73e0bd5). **Symptom:** a gamepad-only player opened END
+  RUN and no button on the pad could confirm it, cancel it, or dismiss the `RUN ENDED` panel
+  behind it — A, B and Start all did nothing and the run sat frozen behind a question the pad
+  could not answer. Three facts made it a dead end, not just a missing binding: (1)
+  `showEndRunConfirmation` calls `hidePauseMenu()` as its first statement, and `hidePauseMenu`
+  destroys `pauseMenuNavigator`, so the only gamepad-polling object on screen was torn down on
+  the way in; (2) both the dialog's and the earned panel's input was a raw
+  `scene.input.keyboard?.on('keydown', …)` (`shopConfirmKeyHandler`) with no `pad1` read
+  anywhere; (3) gamepad Start was not an escape hatch either — it routes to
+  `PauseMenuManager.togglePauseMenu()`, which is a **no-op while the dialog is open**
+  (`isPauseMenuOpen` is `false` and `gameState.isPaused` is `true`, so neither branch fires).
+  Fix: both screens now run on the shared `MenuNavigator` (`src/input/MenuNavigator.ts`),
+  which already polls `pad1` at 16 ms, edge-detects A/B/X and routes D-pad + stick + keyboard
+  — no new gamepad code was written (FL-K01/FL-X03). Details worth not re-deriving:
+  `MenuNavigator.primeGamepadButtonState()` seeds edge detection from the pad's current state,
+  which is why the A-press that opened a screen cannot immediately activate it; the existing
+  350 ms `delayedCall` gate on the earned panel was **kept** because it solves the keyboard's
+  separate problem (Enter auto-repeat on a `keydown` binding), which priming does not touch.
+  Activation routes through `bg.emit('pointerdown')` rather than calling the callbacks
+  directly, so pointer, key and pad share one path and one `playUIClick()` (adding
+  `soundManager.playUIClick()` in `onActivate`, as the pause menu does, would double the click
+  here). `columns: 2` on the confirm dialog is what reproduces the deleted handler exactly:
+  with 2 items and 2 columns `computeNextNavIndex` gives `totalRows = 1`, so Up/Down resolve
+  back to the same index (a no-op, as before) while Left/Right toggle Confirm/Cancel; the
+  earned panel keeps the default `columns: 1`, where `resolveHorizontalNav(1, false)` returns
+  `'none'` so left/right are ignored. Its `onCancel` is `commitContinue`, not a cancel: the run
+  is already committed by then, matching the deleted handler, and `continueCommitted` makes a
+  double-fire a no-op. `shopConfirmKeyHandler` was **removed**, not left alongside the
+  navigator — two input paths on one dialog is exactly the parallel-code-path divergence
+  `CLAUDE.md` warns about; `grep -n "shopConfirmKeyHandler" src/game/managers/PauseMenuManager.ts`
+  now returns nothing. No test added (FL-X01): everything changed is Phaser-coupled scene
+  wiring on a live scene, the pure navigation math it now delegates to (`computeNextNavIndex`,
+  `resolveHorizontalNav`) is already covered by `src/input/menuNavigation` tests, and a real
+  pad cannot be pressed in a headless run — `tsc --noEmit`, the 1575-test suite and
+  `npm run build` are the floor. Playtest follow-up filed as **POLISH-ENDRUN-GAMEPAD** under
+  `## Human gates`. File: `src/game/managers/PauseMenuManager.ts`.
 
 - [ ] **CHORE-ARCH-DOC-SYNC** — re-sync the architecture overview's content
   inventory. Value: `references/architecture-overview.md` is the
@@ -2368,6 +2399,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-ENDRUN-GAMEPAD** (— 73e0bd5) — playtest the END RUN dialog and the `RUN ENDED`
+    panel with a real pad (BUG-ENDRUN-CONFIRM-NO-GAMEPAD). Agents have no pad and no browser.
+    Owns: (a) **the 350 ms gate on a pad** — A now both confirms the dialog and continues past
+    the earned panel, so the first A press after Confirm can land inside the gate and do
+    nothing. Does that read as deliberate pacing, or as a dropped input? (b) **B on the confirm
+    dialog** — B cancels the dialog and reopens the pause menu, because it is wired to the same
+    Cancel button the pointer uses. Is that the expected controller idiom here, or should B back
+    all the way out to gameplay? (c) **the focus highlight** — Confirm starts focused, so a
+    destructive action is one A press away the moment the dialog opens. Should Cancel be the
+    default focus on a pad instead? (d) **the stick** — left-stick left/right toggles the two
+    buttons at `MenuNavigator`'s shared 200 ms repeat delay. Does that feel right, or does it
+    flicker between Confirm and Cancel under a lazy thumb?
   - **POLISH-ENDRUN-EARNED** (— ba70292) — playtest the `RUN ENDED` panel that now replaces the
     END RUN confirm dialog when confirming earned something (FEAT-ENDRUN-EARNED-VISIBLE). Agents
     have no browser and must not tune a reward beat blind. Owns: (a) **the beat itself** — does
