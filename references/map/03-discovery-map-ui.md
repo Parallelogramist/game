@@ -1,0 +1,886 @@
+# 03: Discovery State, Live Minimap, and the Map Screen
+
+Piece 3 of the expedition-mode feature. Owns: the persisted discovery model, the
+evolution of the existing tactical radar into a world-aware minimap, and the new
+full-screen `MapScene`. Companion documents: `01-world-space.md` (sector/camera),
+`02-worldgen-barriers.md` (WorldMap generation, gates), `04-*` (quests, power-ups,
+secrets content). Contracts this document requires from those pieces are collected
+in section 11 and are the only cross-piece assumptions made here.
+
+Spine constraints honored throughout: sector = one arena viewport (~1280x720),
+world layout is per-profile and seed-deterministic, contents re-roll per run,
+discovery persists across runs, expedition mode is additive (the existing arena
+run is untouched by every chunk), pure logic is Phaser-free and Vitest-tested.
+
+---
+
+## 1. Discovery state model
+
+### 1.1 Persisted shape
+
+New Phaser-free module `src/expedition/DiscoveryTypes.ts`:
+
+```ts
+export const DISCOVERY_VERSION = 1;
+
+/** Bitmask flags. Absent id = 0 = unknown. */
+export const SectorFlags = {
+  DISCOVERED: 1 << 0,   // on the map as an outline (adjacency peek, fragment, scan)
+  VISITED: 1 << 1,      // ship has entered it: full interior renders
+  CLEARED_ONCE: 1 << 2, // its combat encounter was cleared in at least one run
+} as const;
+export const SECTOR_VALID_MASK = 0b111;
+
+export const EdgeFlags = {
+  KNOWN: 1 << 0,        // drawn on the map with its gate type
+  TRAVERSED: 1 << 1,    // the ship has passed through it
+} as const;
+export const EDGE_VALID_MASK = 0b11;
+
+export const PoiFlags = {
+  SEEN: 1 << 0,         // icon appears on the map
+  COLLECTED: 1 << 1,    // permanent POIs only: rendered dimmed with a check
+} as const;
+export const POI_VALID_MASK = 0b11;
+
+export const SecretFlags = {
+  HINTED: 1 << 0,       // "?" marker (scan pulse or proximity trigger)
+  FOUND: 1 << 1,        // real icon revealed; FOUND implies HINTED
+} as const;
+export const SECRET_VALID_MASK = 0b11;
+
+export interface DiscoveryState {
+  version: number;              // DISCOVERY_VERSION
+  worldSeed: string;            // binds the state to one generated world layout
+  sectors: Record<string, number>;
+  edges: Record<string, number>;
+  pois: Record<string, number>;
+  secrets: Record<string, number>;
+}
+```
+
+Bitmask numbers instead of `{ discovered, visited, ... }` objects, deliberately:
+they sanitize with a single `& VALID_MASK`, they keep the JSON payload roughly
+one fifth the size of boolean-object records, and the flag implications
+(`VISITED implies DISCOVERED`) are one line of arithmetic. The CodexManager
+object style is right for entries carrying counters and timestamps; discovery
+entries carry none.
+
+**What is deliberately NOT persisted:**
+
+- Per-run state. Contents re-roll per run, so "collected this run" for temporary
+  power-ups, "cleared this run", and "objective pin viewed" live in a run-scoped
+  `RunDiscoveryOverlay` plain object owned by GameScene expedition state and
+  thrown away at run end. The map merges it at render time. Only layout
+  knowledge and permanent outcomes (permanent POI collected, secret found,
+  sector cleared at least once) persist.
+- Gate passability. "Can I open this door" is always derived at render time from
+  the edge's gate type plus the currently owned permanent power-ups (contract
+  11.2 `isGatePassable`). Persisting it would let stale saves lie.
+- Timestamps. Codex needs `discoveredAt` for its "recent discoveries" surface;
+  the map has no such surface, so per-entry timestamps are dead weight at this
+  entry count. If a later chunk wants them, the version field covers migration.
+
+### 1.2 Storage key, versioning, seed binding
+
+- Storage key: `'survivor-expedition-discovery'`, written through
+  `SecureStorage.setItem` (`src/storage/SecureStorage.ts:20`), never raw
+  localStorage (CLAUDE.md hard rule).
+- The key MUST be appended to `ALL_STORAGE_KEYS` in
+  `src/storage/StorageBootstrap.ts:24`; `StorageBootstrap.test.ts` enforces the
+  registry, same as every other key.
+- Load path mirrors `CodexManager.loadState()` (`src/codex/CodexManager.ts:680`):
+  parse inside try/catch; on parse failure, wrong `version`, or `worldSeed`
+  mismatch with the active profile's world seed, return a fresh empty state
+  (empty records = nothing discovered) and `console.warn`. A seed mismatch is
+  not corruption: it is a regenerated world, and old discovery must not graft
+  onto it.
+- Save path mirrors `CodexManager.saveState()` (`:707`): serialize the whole
+  state on every mutation; SecureStorage's 100ms debounced write coalesces the
+  burst that happens when entering a new sector reveals several neighbors.
+
+### 1.3 Size budget
+
+Only touched ids are stored (absent = 0), so the payload grows with play, not
+with world size. Worst case, fully discovered: with worldgen's stated ceiling of
+~300 sectors, ~600 edges, ~900 POI slots, ~120 secrets (contract 11.2), and ids
+of the form `s:12,-3` / `e:12,-3|13,-3` (~8 to 18 chars), a fully-flagged state
+serializes under ~45 KB before encryption. That is comfortably inside
+SecureStorage's envelope and far below the several-hundred-KB codex/meta
+payloads already stored. Guard anyway: `DiscoveryManager` refuses to bind a
+`WorldMapIndex` whose id universe exceeds 5000 total ids (log + clamp), so a
+worldgen bug cannot balloon the save.
+
+### 1.4 Reveal rules
+
+Pure function module `src/expedition/discoveryRules.ts` (Phaser-free, tested).
+Each rule takes `(state, worldMapIndex, ...)` and returns a `DiscoveryChanges`
+delta; `DiscoveryManager` applies deltas and persists. Rules:
+
+1. **On sector entry** (`revealOnSectorEntry(state, index, sectorId)`):
+   - sector gains `VISITED | DISCOVERED`;
+   - every edge touching the sector gains `KNOWN` (you can see the doors from
+     inside);
+   - every sector adjacent through those edges gains `DISCOVERED` (adjacency
+     peek: the door tells you something is behind it, Metroid's dotted
+     next-room outline);
+   - every non-secret POI slot in the sector gains `SEEN`.
+2. **On edge traversal** (`revealOnEdgeTraversal`): edge gains
+   `TRAVERSED | KNOWN`.
+3. **Line of sight: none below sector granularity.** The sector is the fog
+   unit. A sector is one viewport, so when you are in it you can see all of it;
+   sub-sector fog would cost a per-tile mask and buy nothing. Decision, not an
+   open question.
+4. **On scan pulse** (`revealOnScanPulse(state, index, originSectorId,
+   graphRadius)`): every sector within `graphRadius` edge-hops (BFS over the
+   sector graph, pure) gains `DISCOVERED`, connecting edges gain `KNOWN`, and
+   secrets in the origin sector gain `HINTED`. The scan item/module itself
+   belongs to piece 04; it calls `DiscoveryManager.applyScanPulse`.
+5. **On map-fragment pickup** (`revealOnMapFragment(state, index, fragmentId)`):
+   the fragment's region (contract 11.2: `fragmentRegions[fragmentId]` is a
+   sector-id list) gains `DISCOVERED` on every sector and `KNOWN` on every edge
+   both of whose endpoints are in the region. Fragments reveal outlines, not
+   interiors: `VISITED` still requires entry, preserving the reason to fly there.
+6. **On secret found** (`revealOnSecretFound`): secret gains `FOUND | HINTED`.
+7. **Monotonicity invariant** (enforced by every rule and by the sanitizer):
+   flags are only ever added, `VISITED implies DISCOVERED`, `TRAVERSED implies
+   KNOWN`, `COLLECTED implies SEEN`, `FOUND implies HINTED`.
+
+`DiscoveryChanges` (the delta type) is also the feedback contract (section 7):
+
+```ts
+export interface DiscoveryChanges {
+  sectorsDiscovered: string[];
+  sectorsVisited: string[];
+  edgesKnown: string[];
+  edgesTraversed: string[];
+  poisSeen: string[];
+  poisCollected: string[];
+  secretsHinted: string[];
+  secretsFound: string[];
+}
+```
+
+---
+
+## 2. Purity split
+
+### 2.1 Phaser-free, unit-tested modules
+
+**`src/expedition/DiscoveryTypes.ts`**: types and flag constants above. No logic,
+no tests needed.
+
+**`src/expedition/discoveryRules.ts`**: the reveal rules of 1.4 plus the
+sanitizer of section 9. All pure `(state, index, args) -> DiscoveryChanges` or
+`(raw, index) -> DiscoveryState`. Vitest surface: monotonicity, adjacency peek,
+BFS radius, fragment edge-endpoint rule, sanitizer corruption cases.
+
+**`src/expedition/DiscoveryManager.ts`**: the persistence manager, mirroring
+`CodexManager` structure (singleton via `getDiscoveryManager()`, matching
+`getCodexManager()`). Phaser-free (its only dependency is SecureStorage, which
+is Phaser-free). API:
+
+```ts
+export class DiscoveryManager {
+  /** Sanitize stored state against this world's id universe; called once per
+   *  profile load and after world regeneration. */
+  bindWorld(worldSeed: string, index: WorldMapIndex): void;
+
+  getSectorFlags(sectorId: string): number;
+  getEdgeFlags(edgeId: string): number;
+  getPoiFlags(poiId: string): number;
+  getSecretFlags(secretId: string): number;
+
+  markSectorEntered(sectorId: string): DiscoveryChanges;
+  markSectorClearedOnce(sectorId: string): DiscoveryChanges;
+  markEdgeTraversed(edgeId: string): DiscoveryChanges;
+  markPoiCollected(poiId: string): DiscoveryChanges;
+  markSecretFound(secretId: string): DiscoveryChanges;
+  applyScanPulse(originSectorId: string, graphRadius: number): DiscoveryChanges;
+  applyMapFragment(fragmentId: string): DiscoveryChanges;
+
+  getDiscoveredSectorCount(): number;
+  getVisitedSectorCount(): number;
+  getCompletionPercent(): number;   // visited sectors + found secrets, weighted
+
+  /** Monotonic counter, bumped on every non-empty DiscoveryChanges. Renderers
+   *  compare it to decide whether cached geometry is stale. */
+  getRevision(): number;
+
+  /** Mirrors CodexManager.onNewDiscovery (CodexManager.ts:216). */
+  onDiscovery(callback: (changes: DiscoveryChanges) => void): void;
+}
+export function getDiscoveryManager(): DiscoveryManager;
+```
+
+Vitest surface: persistence round-trip, seed-mismatch reset, version-mismatch
+reset, revision bumping only on real change, completion math.
+
+**`src/visual/mapProjection.ts`**: a NEW SIBLING of `minimapProjection.ts`, not
+an extension of it. Reasoning: `minimapProjection.ts` is player-centered polar
+radar math (world delta in, disc offset out) with 16 tests and two consumers
+(`MinimapManager`, `GameScene.updateMinimap`); it is stable and correct. The map
+needs a different projection family: sector-grid space to panel space with pan,
+zoom, clamping and hit-testing. Folding both into one module couples the threat
+radar to map-screen churn for zero shared code (the only shared concept is
+"scale", one multiply). The radar keeps importing `minimapProjection`; the map
+screen and the minimap underlay import `mapProjection`. API:
+
+```ts
+export interface MapViewTransform { originX: number; originY: number; scale: number }
+export interface GridBounds { minGX: number; minGY: number; maxGX: number; maxGY: number }
+
+export const MAP_BASE_CELL_WIDTH = 64;    // px at scale 1, aspect 16:9 to match the sector
+export const MAP_BASE_CELL_HEIGHT = 36;
+export const MAP_ZOOM_LEVELS = [0.5, 1, 2] as const;
+
+/** Panel-space rect of one sector cell. */
+export function sectorCellRect(gridX: number, gridY: number, view: MapViewTransform):
+  { x: number; y: number; width: number; height: number };
+
+/** Project a world-space point (via its sector + sector-local offset) into panel space. */
+export function worldPointToMap(gridX: number, gridY: number,
+  localX: number, localY: number, sectorWidth: number, sectorHeight: number,
+  view: MapViewTransform): { x: number; y: number };
+
+/** Clamp origin so the discovered bounding box can never fully leave the panel,
+ *  and snap scale to the nearest legal zoom level. Non-finite inputs collapse
+ *  to a centered default (mirrors projectToRadar's NaN guards). */
+export function clampMapView(view: MapViewTransform, discoveredBounds: GridBounds,
+  panelWidth: number, panelHeight: number): MapViewTransform;
+
+/** Center the view on a sector at the given zoom (used on open and "center on ship"). */
+export function centerViewOn(gridX: number, gridY: number, scale: number,
+  panelWidth: number, panelHeight: number): MapViewTransform;
+
+/** Hit-test a panel-space point (touch/click) to a sector grid cell, with slop:
+ *  when the exact cell misses, the nearest cell center within slopPx wins. */
+export function mapPointToSector(panelX: number, panelY: number,
+  view: MapViewTransform, slopPx: number): { gridX: number; gridY: number } | null;
+
+/** Panel-space anchor + orientation for a door/gate icon on the shared wall. */
+export function edgeAnchor(aGridX: number, aGridY: number, bGridX: number, bGridY: number,
+  view: MapViewTransform): { x: number; y: number; horizontalWall: boolean };
+
+/** D-pad sector cursor: nearest discovered sector in a 90-degree cone from the
+ *  current one; null when none. Pure spatial nav for the map cursor. */
+export function nextSectorInDirection(currentGridX: number, currentGridY: number,
+  direction: 'up' | 'down' | 'left' | 'right',
+  discoveredCells: ReadonlyArray<{ gridX: number; gridY: number }>):
+  { gridX: number; gridY: number } | null;
+```
+
+Vitest surface: rect math, clamping at all four extremes, zoom snapping,
+hit-test slop, edge anchors for horizontal and vertical walls, cone selection
+including ties and empty sets, NaN guards.
+
+**`src/expedition/gateGlyphs.ts`**: the gate-type to glyph/shape/label table
+(section 8). Pure data plus one lookup with a safe fallback. One Vitest test
+asserts every gate type in the worldgen union has an entry (the
+`ALL_STORAGE_KEYS` enforcement pattern applied to glyphs).
+
+### 2.2 Phaser render layer (not unit-tested)
+
+- **`src/visual/SectorMapRenderer.ts`**: given a `Phaser.GameObjects.Graphics`,
+  a `MapViewTransform`, a `WorldMapIndex`, a discovery snapshot, the run
+  overlay, and a style config (cell colors, glyph scale, quality tier), draws
+  sector cells, walls, edges, POI icons and pins. Both `MapScene` and the
+  minimap underlay call it, so the two views can never drift stylistically.
+- **`MinimapManager` additions** (section 3) and **`MapScene`** (section 4).
+- GameScene wiring: entry/traversal hooks, run overlay, feedback (section 7).
+
+---
+
+## 3. Minimap evolution
+
+### 3.1 Principle: the radar stays a radar
+
+`MinimapManager` (`src/visual/MinimapManager.ts`) keeps its identity: a
+player-centered threat disc, 56px base radius, mid-right edge, per-frame blips
+fed by `GameScene.updateMinimap()` (`src/game/scenes/GameScene.ts:5578`). The
+projection (`projectToRadar`, `MINIMAP_WORLD_RANGE = 900`,
+`src/visual/minimapProjection.ts:18`) is untouched, as is blip classification,
+the 48-cap stride sampling (`GameScene.ts:5597`,
+`MINIMAP_MAX_ENEMY_BLIPS` at `:619`) and rim clamping. In the existing arena
+mode nothing changes at all.
+
+In expedition mode the disc gains one thing: a **sector underlay** drawn under
+the blips, showing the current sector's walls, its door gaps with gate glyphs,
+and dim stubs of discovered neighbors. The numbers make this natural: the
+radar's 900px world range on a 1280x720 sector means the disc already spans the
+whole current sector plus a fringe of each neighbor. The radar becomes "your
+room and its exits" without changing what any existing blip means.
+
+### 3.2 The seam between local radar and world map
+
+Decision: there is **no persistent world-map inset widget**. The radar is the
+local map; the full world lives only in `MapScene`. Defense: at 720p the HUD
+has exactly one free zone (the mid-right slot the radar already occupies, per
+the comment at `MinimapManager.ts:55`), a second widget would either shrink the
+radar below blip-legibility or collide with the touch buttons, and it would
+duplicate `MapScene` at a size where door glyphs cannot render honestly. The
+bridge between the two surfaces is behavioral instead: when a
+`DiscoveryChanges` delta contains newly discovered sectors, the radar rim shows
+a brief expanding ring pulse plus a small `+N` pill above the disc that decays
+after 2.5s, prompting the map open (both suppressed under reduced motion; the
+pill then shows without animation).
+
+### 3.3 Drawing and caching
+
+New members in `MinimapManager`:
+
+- `sectorUnderlay: Phaser.GameObjects.Graphics` at depth `MINIMAP_DEPTH + 1`;
+  `sweep` moves to `+2` and `blips` to `+3` (constructor lines
+  `MinimapManager.ts:62-65`). Blips must stay above walls or a boss behind a
+  wall line would lose its pop.
+- A circular `GeometryMask` built once from an invisible Graphics circle of the
+  radar radius, applied to `sectorUnderlay` only, so wall lines never bleed
+  past the disc rim.
+
+The critical cost rule: **walls are drawn in sector-local radar-scaled
+coordinates once, and per frame the Graphics is only translated.** The underlay
+is rebuilt (clear + stroke paths) only when a `rebuildUnderlay()` is triggered
+by: current sector changed, `DiscoveryManager.getRevision()` advanced, gate
+passability set changed (permanent power-up gained), or quality/reduced-motion
+setting changed. Per frame, `update()` does exactly one
+`sectorUnderlay.setPosition(centerX - (playerX - sectorOriginX) * scale + drawnOffsetX, ...)`
+where `scale = radarRadius / MINIMAP_WORLD_RANGE`. The existing white center
+dot (`MinimapManager.ts:114`) already IS the player marker; the world slides
+under it, which is exactly the radar's existing mental model.
+
+Underlay content, in draw order: dim fill wash for the visited current sector
+(biome tint at 12% alpha), wall segments (1.5px stroke, 60% alpha), door gaps
+left open with a gate glyph centered in the gap for gated edges (glyph from
+`gateGlyphs.ts`, drawn at 7px, shape-coded), and for each `DISCOVERED` neighbor
+a short dashed stub beyond the door (unexplored tinting: dashed + darker, never
+hue alone). Undiscovered neighbors draw nothing: the wall just ends, which is
+itself the Metroid tell that something is unmapped.
+
+### 3.4 API additions (additive, arena mode passes null)
+
+```ts
+export interface MinimapSectorUnderlay {
+  sectorOriginX: number;            // world coords of the sector's top-left (contract 11.1)
+  wallSegments: ReadonlyArray<{ x1: number; y1: number; x2: number; y2: number }>;
+  doors: ReadonlyArray<{ localX: number; localY: number; gateType: string;
+                         passable: boolean; discoveredBeyond: boolean }>;
+  biomeTint: number;
+}
+// MinimapManager
+setSectorUnderlay(underlay: MinimapSectorUnderlay | null): void;  // null clears (arena mode)
+notifyDiscoveryPulse(newSectorCount: number): void;               // rim ping + "+N" pill
+```
+
+`GameScene.updateMinimap()` gains three lines in the expedition branch: on
+sector change, assemble the underlay from contract 11.1/11.2 data and call
+`setSectorUnderlay`; the per-frame call signature is unchanged.
+
+### 3.5 Settings, reduced motion, quality
+
+- The existing toggle (`STORAGE_KEY_MINIMAP = 'settings-minimap-enabled'`,
+  `SettingsManager.ts:23`, getter/setter at `:275-281`) keeps meaning "the
+  whole disc on or off". Untouched.
+- One new toggle: `'settings-minimap-underlay-enabled'` (default true), getter
+  `isMinimapUnderlayEnabled()`, built with the full recipe: STORAGE_KEY
+  constant, DEFAULTS entry, loadBoolean in the constructor, FocusZone union
+  member (`SettingsScene.ts:20` area), a `buildToggleRow` call
+  (`SettingsScene.ts:351`), navigator item and keydown handler, plus
+  registration in `ALL_STORAGE_KEYS`. Off = pure threat radar even in
+  expedition mode, for players who find the walls noisy.
+- Reduced motion (`isReducedMotionEnabled()`, already consulted at
+  `MinimapManager.ts:154`): suppresses the discovery rim pulse and pill fade;
+  the sweep suppression already works and is untouched.
+- Visual quality: at the low tier the underlay drops the biome fill wash and
+  draws walls as single 1px strokes with no glyph outline halo. The underlay
+  never adds glow layers at any tier; it is line work.
+
+---
+
+## 4. The map screen: `MapScene`
+
+New scene `src/game/scenes/MapScene.ts`, key `'MapScene'`, appended to the
+scene array at `src/main.ts:164`.
+
+### 4.1 Launch, pause, resume contract
+
+Exactly the SettingsScene overlay pattern (`GameScene.ts:6116`):
+
+```ts
+// GameScene, on map-open input (expedition mode only):
+this.isPaused = true;
+this.scene.launch('MapScene', { returnTo: 'GameScene' });
+this.scene.pause();
+```
+
+`MapScene.create()` calls `this.input.setTopOnly(true)` (the
+`RelicDraftScene.ts:77` guard) and registers
+`this.events.once('shutdown', this.shutdown, this)` per the CLAUDE.md scene
+rule. Close path: `this.scene.resume('GameScene')` then `this.scene.stop()`
+(the SettingsScene return pattern, resume at `SettingsScene.ts:1367`);
+GameScene clears `isPaused` in its resume handler, mirroring the settings
+return flow. From non-run contexts (ShopScene "review the world" entry, a later
+chunk), `returnTo` carries the launching key and the same contract holds.
+
+### 4.2 Does the game pause? Yes.
+
+Decision: the world map always pauses gameplay. Defense: this is a survivors
+game; at any interesting moment there are 100+ live enemies, and a map you
+cannot afford to read is a map that punishes the exploration loop this whole
+feature exists to reward. Metroid pauses on its map for the same reason. The
+overlay-pause pattern is already battle-tested here (relic draft, settings),
+costs nothing to reuse, and in a purely PvE game "pausing to plan a route" is a
+feature, not an exploit. A non-pausing picture-in-picture map is strictly worse
+on every input device this game supports.
+
+### 4.3 Pan and zoom
+
+State is one `MapViewTransform` plus `zoomIndex` into `MAP_ZOOM_LEVELS`
+(0.5 / 1 / 2). On open: `centerViewOn(currentSector, MAP_ZOOM_LEVELS[1], ...)`.
+Every input mutates a candidate view, then `clampMapView` (pure, tested) makes
+it legal; the render layer never implements clamping itself.
+
+- **Keyboard**: arrows/WASD pan (held-key repeat via per-frame poll of key
+  `isDown`, 420 px/s at zoom 1), `=`/`-` zoom in/out stepping `zoomIndex`, `C`
+  centers on the ship, `TAB` toggles the legend, `M`/`ESC` close.
+- **Gamepad**: left stick pans freely (analog, same speed curve), `RB`/`LB`
+  zoom in/out, `Y` centers on ship, `X` toggles legend, `B`/`Start` close,
+  D-pad moves the sector cursor (below), `A` activates the focused element.
+- **Touch**: one-finger drag pans; pinch zooms continuously between 0.5 and 2
+  (pointer1/pointer2 distance ratio, snapping to the nearest discrete level on
+  release so keyboard/gamepad and touch agree on final states); tap = sector
+  cursor via `mapPointToSector` with 22px slop; on-screen corner buttons for
+  close, legend, center-on-ship (each 48px, section 8).
+- **Mouse**: wheel zooms (the `CodexScene.ts:1653` wheel pattern, applied to
+  scale), drag pans, click focuses a sector.
+
+**MenuNavigator integration**: `MenuNavigator` (`src/input/MenuNavigator.ts:47`)
+drives the chrome row only: `[Center on Ship] [Legend] [Close]` as a 3-column
+navigable row with `onCancel` = close. The sector grid itself is NOT a
+MenuNavigator surface: the navigator models fixed item lists, and a sparse
+sector graph under pan/zoom is not one. D-pad input while the chrome row is
+unfocused moves a **sector cursor** using the pure
+`nextSectorInDirection` helper; `A` on a cursored sector opens its detail
+tooltip (name, biome, doors with gate requirements, collected/total POIs).
+A `focusZone: 'chrome' | 'grid'` toggle (the `CodexScene.ts` tabs/cards
+pattern) arbitrates, switching via `Up` from the top grid row or `Down` from
+the chrome row.
+
+### 4.4 Sector cell anatomy
+
+Cell = 64x36 px at zoom 1 (16:9, matching the sector's real aspect so the map
+never lies about shape). Rendered by `SectorMapRenderer` from discovery flags:
+
+- **Unknown (0)**: nothing. The void is the invitation.
+- **DISCOVERED only**: dark neutral fill `0x141d2c`, dashed 1px border, no
+  interior detail. Reads as "known to exist, never entered" without relying on
+  hue (dash vs solid carries the distinction).
+- **VISITED**: biome tint fill (palette from contract 11.2) at 35% alpha, solid
+  border, interior wall stubs for its notable internal barriers (worldgen
+  supplies simplified wall segments; the renderer downsamples to at most 6
+  strokes per cell so zoom 0.5 stays clean).
+- **CLEARED_ONCE**: a small notch tick in the top-right cell corner (shape, not
+  color). The run overlay's "cleared this run" state renders the same notch
+  filled solid.
+- **Doors**: at each shared wall, `edgeAnchor` places the icon: plain seam =
+  simple gap; door = small rectangle; gated = the gate type's shape glyph from
+  `gateGlyphs.ts`. Gated doors carry a state ring: lock outline when
+  `!isGatePassable(...)`, no ring once passable, and a bright "newly passable"
+  ring (section 7) after the enabling power-up is gained. Unknown-side doors
+  (edge KNOWN, far sector undiscovered) draw the glyph plus a stub of dashed
+  corridor fading to nothing: the classic "here is somewhere you have not
+  been".
+- **POI icons**: icon-atlas glyphs via `createIcon` (`src/utils/IconRenderer`,
+  the ToastManager pattern): permanent power-up, temporary cache, quest
+  giver, fragment, shop, etc. (icon keys from contract 11.3). `COLLECTED`
+  renders at 40% alpha with a check overlay.
+- **Secrets**: `HINTED` = "?" badge in the cell corner; `FOUND` = the secret's
+  real icon.
+- **Objective pins**: from contract 11.3 `getObjectiveMarkers()`; a pin glyph
+  with a slow-pulsing ring (static double-ring under reduced motion), plus an
+  `UPDATED` micro-badge until first viewed this run (run overlay state).
+- **Player marker**: ship silhouette (reuse the `shipHullGeometry.ts` outline
+  path at map scale) positioned by `worldPointToMap` within the current cell
+  and rotated to the ship's facing (contract 11.1), so the marker shows both
+  where and which way you point.
+
+### 4.5 Legend and the "you cannot open this yet" affordance
+
+The legend (TAB / X / corner button) is a side panel listing every glyph
+currently relevant: gate shapes with their requirement names, POI icons, secret
+badge, cleared notch, explored/unexplored swatches. It is generated from
+`gateGlyphs.ts` and the POI icon table at runtime, so it cannot drift from the
+map.
+
+The Metroid moment is specified precisely:
+
+1. Every gated door on the map shows its **gate-type shape glyph** even when
+   unreachable, so routes can be planned around known walls.
+2. Locked state is the **lock ring**, not a color swap.
+3. Focusing the sector (cursor, tap, or hover) surfaces the door line in the
+   detail tooltip: glyph + requirement name + the power-up's own icon, e.g.
+   `[hex] ION SEAL: requires Ion Projector`, with the requirement name pulled
+   from the power-up definition (contract 11.3). If the required power-up type
+   has never been SEEN in any codex/vault surface, the line reads
+   `[hex] ION SEAL: mechanism unknown`, preserving mystery without lying.
+4. When the enabling permanent power-up is acquired, every KNOWN edge of that
+   gate type flips to the newly-passable ring and the section 7 toast fires.
+   The map is now a to-do list, which is the entire Metroid trick.
+
+---
+
+## 5. Key and binding plan
+
+- **Keyboard: `M`** opens the map. Verified free: no `keydown-M` handler and no
+  `addKey('M')` exists anywhere in `src/`. `M` is the genre-wide map key;
+  the also-free E/R/T/F/G/H are reserved for future gameplay verbs near WASD.
+  Registered in `InputController.setupInput()`
+  (`src/game/managers/InputController.ts:359`) following the exact Q-ultimate
+  pattern (`:405-408`): store handler, emit `'input-map-requested'`, remove in
+  the cleanup block (`:316-322`). GameScene listens and opens only when
+  expedition mode is active and no other overlay owns the pause; in arena runs
+  the event is ignored, keeping the mode additive.
+- **Gamepad: `LB`** (`GAMEPAD_BUTTON_LB = 4`, `src/input/GamepadManager.ts:16`).
+  Taken in gameplay already: RB dash, Y ultimate, Start pause, Select auto-buy;
+  LB is the free shoulder, reachable without leaving the left stick, and
+  shoulder-for-map matches its `LB = zoom-out` role inside the scene (the same
+  finger that opened the map operates it). D-pad stays reserved for future
+  gameplay quick-slots.
+- **Pause interplay**: the map is a sibling overlay to the pause menu, never a
+  child. `Start` with no overlay open = pause menu (unchanged); `M`/`LB` with
+  no overlay open = map. While the map is open, `B`, `M`, `ESC` and `Start`
+  all close it back to live gameplay (a paused player who wants the pause menu
+  presses `Start` twice; collapsing map-to-pause-menu chains keeps the scene
+  stack one level deep, which every existing overlay assumes). The pause menu
+  gains a `MAP` row in expedition runs (`PauseMenuManager.ts`) for
+  discoverability on touch, where no free physical button exists; the touch
+  HUD also gets a small map button beside the existing action cluster,
+  visible in expedition mode only.
+- The game pauses while the map is open (defended in 4.2).
+
+---
+
+## 6. Live minimap update budget
+
+Baseline today: `updateMinimap` (`GameScene.ts:5578-5636`) builds up to ~60
+entries and `MinimapManager.update` clears one Graphics and fills ~60 circles
+per frame. The feature must not change this class of cost while 100+ enemies
+are live.
+
+Per-frame budget for everything this document adds, on the Deck at 100+
+enemies: **at most 0.3 ms, and zero Graphics path rebuilds on a frame without a
+discovery, sector, or gate-set change.** Concretely:
+
+- **Every frame (cheap, unconditional)**: blip redraw exactly as today; one
+  `setPosition` on the sector underlay (a translate, no draw); one integer
+  compare of `DiscoveryManager.getRevision()` against the cached value; one
+  string compare of the current sector id.
+- **Only on change (rare)**: underlay rebuild (a few dozen strokes) when the
+  revision, sector id, passability set, or relevant settings changed; the
+  rim-pulse tween on discovery (one tweened Graphics ring, pooled and reused,
+  skipped under reduced motion).
+- **Never per frame**: sanitization (bind time only), persistence (SecureStorage
+  already debounces writes 100ms), BFS/scan math (event-driven), any
+  `DiscoveryChanges` allocation on frames without events (rules return a shared
+  empty-changes constant when nothing changed, honoring the frame-cache and
+  pooling guidance in `CLAUDE.md`).
+- **Entry hooks**: sector entry/edge traversal detection belongs to piece 01's
+  sector tracker (contract 11.1 events); this piece only consumes its events,
+  so no per-frame position-to-sector math is added here.
+- **MapScene**: runs only while gameplay is paused, so it never competes with
+  combat. Even so it is event-driven: the sector layer redraws on pan, zoom,
+  cursor move or revision change, and idles otherwise (no per-frame redraw; the
+  only per-frame work is the MenuBackground tick it inherits from the menu
+  chrome pattern).
+
+---
+
+## 7. Feedback moments
+
+All toasts go through the existing `ToastManager`
+(`src/ui/ToastManager.ts:48 showToast`, queued, HUD-scaled), matching the
+hidden-unlock discovery toast wiring at `GameScene.ts:761-766`. Sounds go
+through SoundManager at the call site, per the `ToastConfig.playSound`
+deprecation note (`src/achievements/AchievementTypes.ts:286`).
+
+1. **Sector first entry**: NOT a toast (toast-per-room is spam at expedition
+   pace). Instead a sector-name banner: small top-center text
+   (`makeDisplayText`, `OverlayDepths.HUD_OVERLAY`, fade in/out 1.6s, instant
+   text under reduced motion) naming sector and biome, plus the radar
+   discovery pulse of 3.2 when the entry also revealed neighbors.
+2. **Discovery milestones**: `showMilestoneToast` (`ToastManager.ts:58`) at
+   25/50/75/100% map completion, fed by
+   `DiscoveryManager.getCompletionPercent()`.
+3. **Secret found**: `showToast({ title: 'SECRET FOUND', description: <secret
+   name>, icon: <its icon>, color: gold })` immediately, and the map remembers
+   `secretsFound` deltas in the run overlay so the next map open plays a
+   one-time icon bloom on that cell (skipped under reduced motion).
+4. **Map fragment pickup**: `showToast({ title: 'MAP DATA ACQUIRED',
+   description: <region name> })`; on the next map open the newly revealed
+   outlines cascade in over 400ms in BFS order from the region's entry sector
+   (instant under reduced motion). The cascade is presentation only; state is
+   already committed.
+5. **Objective updated**: piece 04 owns quest toasts; this piece renders the
+   pin `UPDATED` badge until viewed (run overlay), so the map never nags twice.
+6. **Gate now openable**: on a permanent power-up gain event (contract 11.3),
+   compute `newlyPassableKnownEdges = KNOWN edges whose gate type just became
+   passable`; when non-empty, `showToast({ title: 'NEW ROUTES ONLINE',
+   description: '<n> sealed gates respond to <power-up name>', icon: <power-up
+   icon> })` and mark those edges in the run overlay for the newly-passable
+   ring until first viewed on the map. This is the loudest moment by design:
+   it converts a power-up into an itinerary.
+
+---
+
+## 8. Accessibility and readability
+
+- **Gate types are never color alone.** `gateGlyphs.ts` assigns each gate type
+  a distinct SHAPE glyph (triangle, hexagon, diamond, square, chevron...),
+  a color, and a text label; shape + label carry the meaning, color is
+  reinforcement. A Vitest test walks the worldgen gate-type union and fails on
+  any type missing a glyph entry or sharing a shape with another type.
+- **Colorblind and contrast**: map colors are chosen from the existing
+  `MenuStyle` palette and verified under `ColorblindPipeline`
+  (`settings-colorblind-mode`, `SettingsManager.ts:27` union). Explored vs
+  unexplored is fill + border style (solid vs dashed), cleared is a notch,
+  locked is a ring: every state survives grayscale. The existing high-contrast
+  setting swaps the map to the high-contrast MenuStyle variants.
+- **Text scale**: all MapScene text via `makeDisplayText` sized through
+  `computeHudScale(width, height, getSettingsManager().getUiScale())`
+  (`src/utils/HudScale.ts:39`); minimum rendered size 12px at 720p, legend and
+  tooltip body 14px, sector banner 16px. Phone check: at 375px-wide viewports
+  the HUD scale already shrinks toasts, and the map chrome uses the same
+  factor; the sector detail tooltip becomes a bottom sheet below 500px width
+  so it never occludes the cursored cell.
+- **Touch targets**: chrome buttons 48px square minimum; sector taps use
+  `mapPointToSector` slop (22px) so zoom 0.5 cells (32x18 px) remain tappable;
+  pinch and drag have no minimum-size dependency.
+- **Reduced motion** (`settings-reduced-motion`): no sweep (already handled at
+  `MinimapManager.ts:154`), no rim pulse animation, no reveal cascade, no icon
+  bloom, static objective rings, instant banner text. Every moment still
+  happens, only the motion is removed.
+- **Quality tiers**: the map screen is pause-time and can afford its look, but
+  the minimap underlay obeys the quality setting as in 3.5 (no fill wash, 1px
+  strokes at low).
+
+---
+
+## 9. Anti-cheat and integrity
+
+Discovery is a persisted reward surface (completion %, milestone toasts, and a
+likely future vault stat), so it gets the full CodexManager treatment:
+
+- **Sanitizer** `sanitizeDiscoveryState(raw: unknown, worldSeed: string,
+  index: WorldMapIndex): DiscoveryState` in `discoveryRules.ts`, run on every
+  load and on `bindWorld`. It rebuilds each record by iterating the KNOWN id
+  universe from `WorldMapIndex` (the `getAllWeaponIds()` pattern of
+  `sanitizeWeapons`, `CodexManager.ts:176-196`): junk keys are dropped by
+  construction, each stored value must be a finite number and is coerced with
+  `Math.trunc(value) & VALID_MASK`, and flag implications are enforced by
+  arithmetic (`if (flags & VISITED) flags |= DISCOVERED`, likewise
+  TRAVERSED/KNOWN, COLLECTED/SEEN, FOUND/HINTED). A truthy tamper cannot fake
+  a flag because only integer bits inside the mask survive.
+- **Failure modes**: unparseable JSON, non-object root, `version !==
+  DISCOVERY_VERSION`, or `worldSeed` mismatch all yield the fresh empty state
+  with a `console.warn`, exactly the `loadState` fallback shape at
+  `CodexManager.ts:680-692`. Discovery is regenerable by play; silently
+  starting clean is strictly better than propagating garbage.
+- **Authority boundary, stated once and honored everywhere**: `DiscoveryState`
+  is a lens, never an authority. Traversal legality comes from worldgen's gate
+  state plus owned power-ups; rewards come from quest/power-up systems. A
+  tampered all-revealed map shows pictures of rooms; it opens nothing, grants
+  nothing, and `getCompletionPercent()` is recomputed from sanitized flags on
+  every read, never cached into storage.
+- **Tests** (the `CodexManager.corruption.test.ts` pattern):
+  `discoveryRules.corruption.test.ts` covers junk root, junk records, string
+  and float and negative and out-of-mask values, unknown ids, implication
+  repair, seed mismatch reset, version mismatch reset, and oversize id-universe
+  clamping.
+
+---
+
+## 10. Chunk list
+
+Each chunk leaves the game shippable; arena mode is untouched by all of them.
+DONE-CRITERIA are observable outcomes only.
+
+### FEAT-DISCOVERY-STATE-01: discovery model and manager
+Value: the persistent memory that makes expedition Metroid instead of roguelike
+amnesia, landable before any UI exists.
+Files: new `src/expedition/DiscoveryTypes.ts`, `src/expedition/discoveryRules.ts`,
+`src/expedition/DiscoveryManager.ts`, tests beside them;
+`src/storage/StorageBootstrap.ts:24` (add `'survivor-expedition-discovery'`).
+Depends on: contract 11.2 `WorldMapIndex` TYPE only (land against the agreed
+interface; a fixture index in tests stands in until 02's generator ships).
+DONE-CRITERIA: manager round-trips state through SecureStorage; all reveal
+rules and sanitizer cases pass in Vitest; `StorageBootstrap.test.ts` green;
+`npm run build` green; zero imports from any Phaser module in the three new
+files.
+Test surface: discoveryRules (reveal rules, monotonicity, BFS, sanitizer
+corruption suite), DiscoveryManager (round-trip, seed/version reset, revision).
+
+### FEAT-MAPUI-PROJECTION-02: map projection math
+Value: every later renderer becomes dumb and safe because clamping, hit-testing
+and cursor nav are pure and tested first.
+Files: new `src/visual/mapProjection.ts` + `src/visual/mapProjection.test.ts`;
+new `src/expedition/gateGlyphs.ts` + glyph coverage test.
+Depends on: contract 11.2 gate-type union (type-level only).
+DONE-CRITERIA: all mapProjection functions of 2.1 exist with tests covering
+clamp extremes, zoom snapping, hit slop, edge anchors, cone nav ties, NaN
+guards; glyph test fails when a gate type lacks an entry or shares a shape;
+`minimapProjection.ts` untouched (its 16 tests unchanged and green).
+Test surface: mapProjection, gateGlyphs.
+
+### FEAT-DISCOVERY-HOOKS-03: expedition wiring in GameScene
+Value: playing expedition now actually writes the map memory, before any pixel
+renders it.
+Files: `src/game/scenes/GameScene.ts` (expedition update path near `:5011`;
+subscribe in `create()` near the codex/unlock wiring at `:761-790`); new
+run-overlay object in GameScene expedition state.
+Depends on: FEAT-DISCOVERY-STATE-01; contract 11.1 sector-entry/edge-traversal
+events; contract 11.2 live `WorldMapIndex`; contract 11.3 collect/secret/
+fragment/scan call sites (04 calls the manager directly, this chunk only wires
+GameScene-owned events).
+DONE-CRITERIA: entering sectors in an expedition run then reloading the profile
+shows persisted flags via `getDiscoveryManager()` in the console; arena runs
+write nothing; revision advances only on real change; existing suites green.
+Test surface: none new (pure logic already covered by 01; this is wiring).
+
+### FEAT-MAPUI-MAPSCENE-04: the map screen MVP
+Value: the first visible payoff, a pannable, zoomable filling-in world map.
+Files: new `src/game/scenes/MapScene.ts`; new `src/visual/SectorMapRenderer.ts`;
+`src/main.ts:164` (register scene); `src/game/managers/InputController.ts`
+(`:359` setupInput M-key emit, cleanup at `:316`); GameScene map-open listener
++ launch/pause wiring (pattern of `:6116`); `PauseMenuManager.ts` MAP row.
+Depends on: 01, 02, 03 above; contract 11.1 facing angle.
+DONE-CRITERIA: in an expedition run, M and LB open the map with gameplay
+paused; visited/discovered/unknown cells render distinctly; pan, zoom, center,
+close work on keyboard, gamepad, mouse; B/ESC/M/Start all close back to live
+gameplay with `isPaused` cleared; arena runs ignore the binding; scene passes
+the shutdown-listener and tween-cleanup rules.
+Test surface: none new (all math already in mapProjection).
+
+### FEAT-MAPUI-DOORS-05: doors, POIs, secrets, pins, legend, locked-door affordance
+Value: the map stops being a floor plan and becomes a plan: every closed door
+advertises what it wants.
+Files: `src/visual/SectorMapRenderer.ts`; `src/game/scenes/MapScene.ts`
+(tooltip, legend panel, chrome MenuNavigator, sector cursor);
+`src/expedition/gateGlyphs.ts` (extend if 02 added types).
+Depends on: FEAT-MAPUI-MAPSCENE-04; contract 11.2 gate types + passability;
+contract 11.3 POI icon keys, objective markers, requirement names.
+DONE-CRITERIA: gated doors show shape glyph + lock ring; focused sector tooltip
+names the requirement (or `mechanism unknown`); legend lists every glyph in
+play; objective pins render with UPDATED badge cleared on view; POI collected
+state dims with a check; glyph coverage test still green.
+Test surface: gateGlyphs coverage only (rendering is Phaser-coupled).
+
+### FEAT-MAPUI-RADAR-UNDERLAY-06: world-aware minimap
+Value: moment-to-moment orientation, walls and exits under the threat blips,
+with the radar's threat identity intact.
+Files: `src/visual/MinimapManager.ts` (underlay Graphics + mask, depth
+reshuffle at `:62-65`, `setSectorUnderlay`, `notifyDiscoveryPulse`, rebuild
+gating); `src/game/scenes/GameScene.ts` `updateMinimap` expedition branch
+(`:5578`); `src/settings/SettingsManager.ts` + `SettingsScene.ts` +
+`StorageBootstrap.ts` (the `'settings-minimap-underlay-enabled'` recipe of 3.5).
+Depends on: FEAT-DISCOVERY-HOOKS-03; contract 11.1 sector origin; contract 11.2
+wall segments + door list.
+DONE-CRITERIA: in expedition runs the disc shows current-sector walls, door
+glyphs and dashed neighbor stubs sliding under the fixed center dot; blips,
+48-cap sampling and rim clamping behave exactly as before (arena mode pixel-
+identical); underlay rebuilds only on sector/revision/passability/settings
+change (assert via a rebuild counter in a dev log); both minimap toggles work
+independently; reduced motion suppresses the pulse; existing minimapProjection
+tests untouched and green.
+Test surface: none new (translation caching is Phaser-coupled; the math it
+uses is already tested).
+
+### FEAT-DISCOVERY-FEEDBACK-07: the joy layer
+Value: discovery becomes felt, not just stored: banners, pulses, toasts, and
+the power-up-to-itinerary moment.
+Files: `src/game/scenes/GameScene.ts` (onDiscovery subscription, sector banner,
+toast calls beside the unlock-toast wiring at `:761-766`);
+`src/game/scenes/MapScene.ts` (reveal cascade, secret bloom, newly-passable
+rings); `src/expedition/DiscoveryManager.ts` if completion weighting tuning is
+needed.
+Depends on: 03, 04, 06; contract 11.3 permanent power-up gain event + fragment
+and secret call sites.
+DONE-CRITERIA: first entry shows the sector banner; fragment pickup toasts and
+cascades on next map open; secret found toasts immediately and blooms on next
+map open; gaining a gate-matching permanent power-up toasts `NEW ROUTES ONLINE`
+with the correct count and rings those doors until viewed; milestone toasts at
+25/50/75/100; all animations replaced by instant states under reduced motion;
+toast queueing (one at a time) preserved.
+Test surface: newly-passable edge-count computation if extracted pure
+(`discoveryRules.newlyPassableEdges(state, index, gateType)`), otherwise none.
+
+### FEAT-MAPUI-TOUCH-A11Y-08: touch and accessibility pass
+Value: the map earns phones and every accessibility setting the game already
+promises.
+Files: `src/game/scenes/MapScene.ts` (pinch, drag inertia clamp, corner
+buttons, bottom-sheet tooltip, high-contrast palette hookup, text-scale audit);
+`src/visual/SectorMapRenderer.ts` (high-contrast + colorblind-verified colors,
+quality tiers).
+Depends on: 04, 05, 06.
+DONE-CRITERIA: on a touch device (or emulated pointers) drag pans, pinch zooms
+and snaps to a discrete level, taps focus cells at min zoom via slop, all
+chrome buttons are at least 48px; below 500px width the tooltip presents as a
+bottom sheet; high-contrast and all three colorblind modes leave every state
+distinguishable (shape/dash/ring audit against section 8); no text renders
+under 12px at 720p.
+Test surface: none new (pointer handling is Phaser-coupled; slop math already
+tested in mapProjection).
+
+Chunk order 01 and 02 are parallel-safe; 03 needs 01; 04 needs 01+02+03; 05, 06
+follow 04 and 03 respectively and are parallel-safe against each other; 07
+needs 03+04+06; 08 closes.
+
+---
+
+## 11. Contracts required from the other pieces
+
+### 11.1 From `01-world-space.md` (world space and camera)
+
+- `SECTOR_WIDTH` / `SECTOR_HEIGHT` constants (the ~1280x720 viewport sector).
+- `getCurrentSectorId(): string` and `sectorWorldOrigin(sectorId): { x, y }`
+  (world coords of the sector's top-left), both pure and cheap.
+- Events on the GameScene emitter: `'expedition-sector-entered'`
+  (`{ sectorId, viaEdgeId | null }`) and `'expedition-edge-traversed'`
+  (`{ edgeId }`). This piece never does position-to-sector math itself.
+- Player facing angle in radians accessible per frame for the map marker.
+
+### 11.2 From `02-worldgen-barriers.md` (worldgen and barriers)
+
+- `WorldMapIndex`, synchronously available after generation, with STABLE string
+  ids across runs of the same seed: `sectors: Record<id, { gridX, gridY, biome,
+  name, poiSlotIds, secretIds }>`, `edges: Record<id, { aSectorId, bSectorId,
+  gateType }>`, `fragmentRegions: Record<fragmentId, sectorId[]>`, plus
+  `worldSeed: string`. Integer `gridX/gridY` on a plane (the map renders the
+  graph via grid coordinates). Stated ceilings: ~300 sectors, ~600 edges, ~900
+  POI slots, ~120 secrets (the 1.3 size budget and the 5000-id clamp assume
+  them).
+- `gateType` values drawn from a closed exported union (drives the gateGlyphs
+  coverage test).
+- `isGatePassable(gateType, ownedPermanentPowerUpIds): boolean`, pure.
+- `sectorWallSegments(sectorId)`: simplified sector-local wall segments (px)
+  for interior barriers and the outer wall with door gaps, suitable for both
+  the minimap underlay and the map cell downsample.
+- Biome palette: `biome -> tint` lookup.
+
+### 11.3 From `04-*` (quests, power-ups, secrets)
+
+- POI definitions expose `iconKey` (icon-atlas key) and `permanent: boolean`.
+- Calls INTO this piece at the moment of effect:
+  `getDiscoveryManager().markPoiCollected(poiId)` (permanent collections),
+  `.markSecretFound(secretId)`, `.applyMapFragment(fragmentId)`,
+  `.applyScanPulse(sectorId, radius)`.
+- `getObjectiveMarkers(): Array<{ sectorId, iconKey, label }>` for pins, stable
+  within a frame.
+- A permanent power-up gain event carrying `{ powerUpId, displayName, iconKey,
+  unlocksGateTypes: string[] }` (drives `NEW ROUTES ONLINE` and the
+  newly-passable rings).
+- Requirement display names per gate type (or per power-up) for the door
+  tooltip and legend.
+
+This piece promises back: `DiscoveryManager` as the single write path for all
+discovery flags, `DiscoveryChanges` deltas via `onDiscovery` for any system
+that wants to react, and read-only flag getters for quest logic that keys off
+"has the player found X" (quests must treat them as a lens too, per section 9).

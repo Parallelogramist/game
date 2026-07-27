@@ -2075,6 +2075,107 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 *(groomed 2026-07-16 — roadmap pass; ordered by value)*
 
+### EPIC-EXPEDITION: the explorable map (32 work orders, scoped 2026-07-27)
+
+Turn the screen-locked arena into a Metroid-style explorable world: the ship flies across
+a map of sectors with barriers, quests, temporary and permanent power-ups, secrets, a
+discovery map and live minimap updates.
+
+**Before starting any `FEAT-WORLD-SPACE-*`, `FEAT-WORLDGEN-*`, `FEAT-BARRIER-*`,
+`FEAT-MAPUI-*`, `FEAT-DISCOVERY-*`, `FEAT-POI-*`, `FEAT-POWER-*`, `FEAT-QUEST-CHAINS`,
+`FEAT-QUEST-BOARD`, `FEAT-SECRET-*` or `FEAT-ECON-WARDS` chunk: read
+`references/map/README.md` first.** It owns the canonical cross-document contracts (sector
+and edge identity, event names, module homes, save ownership, storage keys) and **wins over
+any single architecture doc** where they disagree. Then read the doc that owns your chunk:
+`01-world-space.md`, `02-worldgen-barriers.md`, `03-discovery-map-ui.md`,
+`04-content-quests-powerups-secrets.md`. Each doc's section 10 holds the full done-criteria
+for its chunks; the entries below are the index, not the spec.
+
+Three standing rules for the whole epic: **arena mode stays byte-identical** until
+`GATE-EXPEDITION-PROMOTE` is answered (everything ships behind the `?expedition=1` dev
+route), `src/world/` and `src/expedition/` **never import Phaser**, and every chunk leaves
+the game playable with the suite green.
+
+#### Phase 0: pure foundations (no game code imports these yet, zero risk)
+
+Parallel-safe. Each is a pure module plus the tests that pin it.
+
+- [ ] **FEAT-WORLD-SPACE-1**: the tested world-space vocabulary (sector math, world rects,
+  spawn ring, lattice scroll) every other chunk imports. New `src/world/worldSpace.ts`,
+  `spawnRing.ts`, `latticeScroll.ts` + tests. Done when `pickEdgeSpawnPoint` reproduces the
+  legacy edge distribution at `GameScene.ts:7069-7086` case-by-case under a seeded stub, and
+  `sectorKey`/`parseSectorKey` round-trip with malformed-key rejection. Deps: none.
+  Spec: `references/map/01-world-space.md` section 10.
+
+- [ ] **FEAT-WORLDGEN-CORE**: the world model plus the deterministic generator, provably
+  sound before a pixel moves. New `src/world/worldTypes.ts`, `generateWorld.ts`,
+  `sectorInterior.ts` + invariant suite; reuses `mulberry32`/`hashStringToSeed` from
+  `src/utils/dailySeed.ts`. Done when invariants 1-8 pass over a 100-seed table (connectivity,
+  gate-order solvability by construction, no unreachable reward, determinism). Deps: none.
+  Spec: `references/map/02-worldgen-barriers.md` sections 2-3, 10.
+
+- [ ] **FEAT-BARRIER-COLLIDE**: circle-vs-tile-grid resolver, DDA raycast and free-spot
+  search: the first static collision math this game has ever had. New
+  `src/world/staticCollision.ts` + tests. Done when invariants 9-12 pass including the
+  no-tunneling sweep at dash speed, with a zero-allocation out-param hot path. Deps:
+  `FEAT-WORLDGEN-CORE` (types only). Spec: `02-worldgen-barriers.md` section 5.
+
+- [ ] **FEAT-MAPUI-PROJECTION-02**: pan/zoom/clamp/hit-test/cursor-nav math for the map
+  screen, so every later renderer is dumb and safe. New `src/visual/mapProjection.ts` (a
+  SIBLING of `minimapProjection.ts`, which stays untouched with its 16 tests green) and
+  `src/expedition/gateGlyphs.ts`. Done when the glyph coverage test goes red if any gate type
+  lacks a unique shape. Deps: none. Spec: `03-discovery-map-ui.md` sections 2, 10.
+
+- [ ] **FEAT-DISCOVERY-STATE-01**: the persistent memory that makes this Metroid instead of
+  roguelike amnesia, landable before any UI exists. New `src/expedition/DiscoveryTypes.ts`,
+  `discoveryRules.ts`, `DiscoveryManager.ts`; add `'survivor-expedition-discovery'` to
+  `StorageBootstrap.ts:24`. Flags are a bitmask per id (one-line `& VALID_MASK` sanitization,
+  CodexManager pattern). Done when reveal rules, monotonicity and the sanitizer corruption
+  suite pass and the state round-trips through SecureStorage. Deps: none (test fixture stands
+  in for the generator). Spec: `03-discovery-map-ui.md` section 1.
+
+- [ ] **FEAT-POI-CATALOG**: one data contract for what fills a sector, so worldgen and
+  content can land independently. New `src/data/PoiCatalog.ts` and pure `src/world/poiRoll.ts`
+  (note: `src/world/`, not `src/systems/`, per README section 3.3); extend
+  `referentialIntegrity.test.ts`. Done when the same seed yields the same contents and every
+  icon ref is covered. Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 10.
+
+- [ ] **FEAT-POWER-TRAVERSAL**: the permanent traversal-ability axis (Blink Drive, Breach
+  Charges, Magno-Tether, Phase Cloak, Thermal Ward, Signal Decryptor), separate from the
+  `dash`/`phase` shop upgrades and never gold-purchasable, so worldgen solvability stays
+  deterministic. New `src/data/TraversalAbilities.ts`, `src/meta/TraversalAbilityManager.ts`;
+  add `'survivor-traversal-abilities'` to `StorageBootstrap.ts:24`. Done when `claim()` is
+  idempotent and ordered, ownership survives reload, and defs expose `barrierTypeId` plus a
+  stable index. Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 2.
+
+- [ ] **FEAT-POWER-FIELDBOOSTS**: timed field boosts on the existing pickup rails, shippable
+  standalone because boost caches can also drop from arena special chests. New enum members in
+  `ConsumablePickupSystem.ts:13`, `moveSpeedMultiplier` added to `TimedStatBuffs.ts:21`, new
+  `src/data/FieldBoosts.ts`. Done when a duplicate pickup refreshes duration instead of
+  stacking, expiry rides the `gameTime` clock, and the buff survives reload. Deps: none.
+  Spec: `04-content-quests-powerups-secrets.md` section 3.
+
+#### Phase 1: arena-identical plumbing
+
+The screen-equals-world assumption comes out while the game provably plays exactly as before.
+This is the load-bearing refactor, done while it is still cheap to verify.
+
+- [ ] **FEAT-WORLD-SPACE-2**: rect-parameterize every gameplay seam and introduce
+  `WorldModeAdapter`/`ArenaModeAdapter` (arena-only so far). Touches
+  `MovementSystem.ts:27`, `enemy-ai/state.ts:15-21`, `SpriteSystem.ts:27-33`,
+  `XPGemSystem.ts:385-427`, `HazardZoneSystem.ts:425-489` and the GameScene call sites 719,
+  4323-4346, 4856, 4946, 4953, 4974, 5160-5161, 10793. Done when no gameplay row reads
+  `scale.width`/`scale.height` (UI rows exempt), `clampPlayerToRect` equals the legacy formula
+  at boundary probes, and a full arena run (spawns, miniboss, boss, hazards, four-edge
+  knockback, gem vacuum) shows no observable difference. Deps: `FEAT-WORLD-SPACE-1`.
+
+- [ ] **FEAT-WORLD-SPACE-3**: pin every UI surface to the camera while the camera is still
+  static, converting the riskiest visual failure mode of a moving camera into a no-op.
+  `HUDManager.ts` (78 creation sites), `ToastManager.ts`, `PauseMenuManager.ts`, `src/ui/*`,
+  plus a `pinToCamera` helper. Done when every UI-band creation site routes through the helper
+  or carries an explicit `setScrollFactor(0)`, and the arena HUD shows no pixel movement.
+  Deps: none (parallel-safe with W2). Spec: `01-world-space.md` section 3.
+
 - [x] **FEAT-PRACTICE-MODE** — reach any weapon at any level without grinding a
   run (done — c3d00c2). Full write-up moved to `BACKLOG-archive.md`. Playtest
   follow-up filed as **POLISH-PRACTICE-MODE** under `## Human gates`.
@@ -2234,6 +2335,160 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   are unvalidated in a browser: see **POLISH-GOLD-LEDGER** under `## Human gates`.
 
 ## Later
+
+### EPIC-EXPEDITION phases 2-6 (see `## Next` for phases 0-1 and the reading order)
+
+Dependency bands, not schedules. Full done-criteria live in each doc's section 10;
+`references/map/README.md` owns the cross-doc contracts and wins over any single doc.
+The first genuinely playable expedition is the end of Phase 3. The first one where
+exploring pays is the end of Phase 5.
+
+#### Phase 2: the first flyable world (dev route)
+
+- [ ] **FEAT-WORLD-SPACE-4**: camera follows the ship across a multi-sector plane with the
+  signature grid, lighting and post-FX intact, behind `?expedition=1`. New
+  `ExpeditionModeAdapter.ts`; `GridBackground` gains `setViewScroll` with whole-cell snapping;
+  `LightingSystem.ts:38-83` and the distortion call sites get world-to-screen conversion. Done
+  when grid lines stay world-anchored while flying (a line does not slide past a stationary
+  destructible), kill ripples stay where the kill happened, and
+  `expedition:sector-entered` fires exactly once per crossing. Deps: W1, W2, W3.
+
+- [ ] **FEAT-WORLD-SPACE-5**: camera-relative spawning plus a leash, so pressure follows the
+  camera with arena-identical pacing and nothing accumulates behind the player. Reroutes
+  `spawnEnemy` (`GameScene.ts:7047-7089`), `spawnMiniboss` (`:7235-7252`), destructibles
+  (`:3790-3798`) and shrines (`:3985-3996`) through `pickEdgeSpawnPoint`/`isSpawnableWorldPoint`.
+  Done when flying away and returning shows no pileup (regulars repositioned, a marked miniboss
+  still where it was) and no spawn lands outside world bounds. Deps: W2, W4. **Contract:** the
+  leash handles within-sector drift only; seam crossings belong to `FEAT-WORLDGEN-STREAM`
+  (README section 3.7).
+
+#### Phase 3: walls matter
+
+- [ ] **FEAT-BARRIER-PLAYER**: the ship is blocked by something for the first time in this
+  game's history. Optional collision context in `MovementSystem.ts:10-30` (classic path
+  byte-identical when absent) and knockback resolve at `GameScene.ts:5144-5175` replacing the
+  screen clamp. Done when the player slides along walls, cannot dash through a 1-tile wall,
+  knockback never embeds an enemy in geometry, and classic mode makes zero resolver calls.
+  Deps: `FEAT-BARRIER-COLLIDE`, W2/W4.
+
+- [ ] **FEAT-BARRIER-PROJECTILE**: walls become cover. Three archetype defaults applied at
+  shared infrastructure (travel stops, emanate ignores, beam clips) plus exactly three
+  exceptions in one table (Ricochet bounces, Railgun pierces, Grenade impact-detonates), so no
+  29-weapon retune. New `src/world/weaponWallBehavior.ts`. Done when enemy fire is visibly
+  blocked, aura/splash/`detonateArea` behavior is unchanged and every existing weapon logic
+  test stays green untouched. Deps: `FEAT-BARRIER-PLAYER`.
+
+- [ ] **FEAT-WORLDGEN-NAV**: enemies cope with walls via one flow field per current sector
+  (BFS over 576 tiles) injected as a nullable `NavigationContext` beside the existing
+  `telegraphManager` pattern in `enemy-ai/common.ts`. Done when enemies route around a U-shaped
+  wall, a null context leaves every enemy-ai unit test passing unmodified, a 5-minute soak
+  records zero embeds or tunnels, and **the 14 pure barrage-pattern modules keep their exact
+  signatures with their tests untouched**. Deps: `FEAT-BARRIER-PLAYER`, `FEAT-WORLDGEN-CORE`.
+
+- [ ] **FEAT-WORLD-SPACE-6**: sector lock, so a boss fight seals to one arena-sized room where
+  every existing boss behavior and hazard pattern recovers its original tuned geometry. Done
+  when a boss enters top-center with the existing choreography, `the-machine` seeks the room
+  center, hazards land inside the room, and victory releases the bounds. Deps: W4, W5.
+
+- [ ] **FEAT-WORLD-SPACE-7**: save v2 and exact restore of a moving world. **Single owner of
+  `SAVE_VERSION` 2, the `expedition` block and the first real body of `migrateState()`**
+  (`GameStateManager.ts:815`); every other chunk adds optional namespaced sub-blocks and bumps
+  nothing. Done when the arena payload is byte-identical except `timestamp`, v1 saves load
+  unchanged, a mid-flight refresh restores position and camera scroll with no visible snap, and
+  a v2 payload fed to v1 validation is rejected cleanly. Deps: W4 (W6 for the lock criterion).
+
+#### Phase 4: the map fills in
+
+- [ ] **FEAT-DISCOVERY-HOOKS-03**: playing expedition actually writes the map memory, before
+  any pixel renders it. Wires `GameScene` to `DiscoveryManager`. Done when entering sectors then
+  reloading the profile shows persisted flags, arena runs write nothing, and the revision
+  counter advances only on real change. Deps: `FEAT-DISCOVERY-STATE-01`, W4.
+
+- [ ] **FEAT-BARRIER-GATES**: interactive barriers (destructible walls reusing the
+  `Destructible` pattern, ability and key doors, one-way membranes, hazard strips) with
+  per-profile persistence in `survivor-world-profile`. Done when an ability door auto-opens and
+  stays open across runs, a broken secret wall stays broken, a membrane passes one way only, and
+  legacy saves without `expedition` load exactly as before. Deps: `FEAT-BARRIER-PLAYER`,
+  ability ids from `FEAT-POWER-TRAVERSAL` (debug-granted stubs acceptable).
+
+- [ ] **FEAT-WORLDGEN-SPAWN**: everything spawns legally: tile snap, reachability filter,
+  sector-scoped director, boss-arena sealing. Done when a 10-minute soak in a walled sector
+  records zero entities on non-open tiles and zero spawns in unreachable tiles, and enemies
+  enter through aperture mouths when the off-camera ring is walled off. Deps:
+  `FEAT-WORLDGEN-NAV`, `FEAT-BARRIER-GATES`.
+
+- [ ] **FEAT-WORLDGEN-STREAM**: sector transitions at a flat entity budget (despawn-to-pool,
+  per-visit re-roll, persistent structures rematerialize). Done when 50 seam crossings hold
+  entity and sprite counts flat against pool counters, ground gems do not survive exits, and
+  broken walls and opened doors come back correctly. Deps: W4 seam events,
+  `FEAT-BARRIER-GATES`, `FEAT-WORLDGEN-SPAWN`.
+
+- [ ] **FEAT-MAPUI-MAPSCENE-04**: the first visible payoff, a pannable and zoomable world map
+  that fills in. New `src/game/scenes/MapScene.ts` + `SectorMapRenderer.ts`, registered at
+  `main.ts:164`, opened with **M** (verified free) and gamepad **LB**, gameplay paused. Done
+  when visited/discovered/unknown cells render distinctly, pan/zoom/center/close work on
+  keyboard, gamepad and mouse, arena runs ignore the binding, and the scene passes the
+  shutdown-listener and tween-cleanup rules. Deps: chunks 01-03 of doc 03, W4.
+
+- [ ] **FEAT-MAPUI-DOORS-05**: the map stops being a floor plan and becomes a plan: every
+  closed door advertises what it wants. Gate shape glyphs plus a lock ring (never color alone),
+  focused-sector tooltip naming the requirement or `mechanism unknown`, legend, objective pins,
+  dimmed collected POIs. Deps: `FEAT-MAPUI-MAPSCENE-04`, gate types from `FEAT-BARRIER-GATES`.
+
+- [ ] **FEAT-MAPUI-RADAR-UNDERLAY-06**: the tactical radar becomes world-aware without losing
+  its threat identity: current-sector walls, door glyphs and dashed neighbor stubs slide under
+  the fixed center dot. New `'settings-minimap-underlay-enabled'` toggle, existing minimap
+  toggle untouched. Done when arena mode is pixel-identical, the underlay rebuilds only on
+  sector/revision/passability/settings change (rebuild counter asserts it), and the existing
+  `minimapProjection` tests stay green untouched. Deps: `FEAT-DISCOVERY-HOOKS-03`.
+
+#### Phase 5: the Metroid loop closes
+
+- [ ] **FEAT-POWER-VAULTS**: abilities are EARNED in the world, guarded, at generator-placed
+  `AbilityPowerUp` slots. Done when the guard clears, the walk-in claim toasts and persists,
+  death after a claim keeps the ability, and a mid-run reload restores a cleared guard. Deps:
+  `FEAT-POWER-TRAVERSAL`, `FEAT-WORLDGEN-SPAWN`, W6.
+
+- [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
+  sector banner, fragment cascades, secret bloom, completion milestones at 25/50/75/100 and the
+  payoff moment where gaining an ability toasts `NEW ROUTES ONLINE` and rings every door it just
+  opened. Done when every animation degrades to an instant state under reduced motion and toast
+  queueing stays one-at-a-time. Deps: `FEAT-MAPUI-RADAR-UNDERLAY-06`, `FEAT-POWER-VAULTS`.
+
+#### Phase 6: content and guard rails
+
+- [ ] **FEAT-QUEST-CHAINS**: the missing layer, multi-step objectives that span runs. Pure
+  `src/systems/QuestProgress.ts` state machine plus data defs and a manager in the
+  `DailyQuestManager` mold, fed by existing pipes rather than duplicate tracking. **Death rule:
+  completed steps are checkpoints and never regress; only run-scoped counters reset.** Done when
+  a two-step quest progresses across two separate runs and step gold pays mid-run. Ships on
+  kill-quests alone if the sector triggers are not ready. Deps: none hard (W4/GATES events for
+  location triggers).
+
+- [ ] **FEAT-QUEST-BOARD**: quests become visible: HUD line sharing the bounty ticker only when
+  it is idle, map markers, and a hangar board to accept and claim. Deps: `FEAT-QUEST-CHAINS`,
+  `FEAT-MAPUI-DOORS-05`.
+
+- [ ] **FEAT-SECRET-CACHE**: the world lies to you, pleasantly. False walls and hidden caches
+  with persistent found-state, feeding `secretsFoundTotal` into `HiddenUnlocks` conditions and
+  the existing `hidden:<conditionId>` stage gates rather than a parallel unlock system.
+  **`DiscoveryManager.markSecretFound` stays the only write path for the spatial flag**
+  (README section 3.7). Deps: `FEAT-BARRIER-GATES`, `FEAT-DISCOVERY-HOOKS-03`.
+
+- [ ] **FEAT-SECRET-LORE**: secrets are hinted, not stumbled into: lore fragments, riddles that
+  name a location tag the profile's world actually contains (integrity-asserted), sequence
+  puzzles, and the decryptor ping. Deps: `FEAT-SECRET-CACHE`, `FEAT-POWER-TRAVERSAL`.
+
+- [ ] **FEAT-ECON-WARDS**: lock the economy so later content authoring cannot drift balance.
+  Exploration grants more relic ROLLS and never better odds (table deep-equality assert),
+  expedition bonus gold caps at 40% of the arena `computeRunGold` baseline, quest gold stays in
+  the daily-quest band, field boosts are capped by data test. Done when a deliberate violation
+  fixture goes red. Deps: `FEAT-POI-CATALOG`, `FEAT-POWER-FIELDBOOSTS`, `FEAT-QUEST-CHAINS`.
+
+- [ ] **FEAT-MAPUI-TOUCH-A11Y-08**: the map earns phones and every accessibility setting the
+  game already promises: drag pan, pinch zoom snapping to discrete levels, 48px chrome targets,
+  a bottom-sheet tooltip below 500px width, and every state distinguishable in high contrast and
+  all three colorblind modes. Deps: `FEAT-MAPUI-DOORS-05`, `FEAT-MAPUI-RADAR-UNDERLAY-06`.
 
 - [x] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA (done —
   4a0c864). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
@@ -2442,6 +2697,21 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- **GATE-EXPEDITION-PROMOTE** (EPIC-EXPEDITION): does the explorable map become the default
+  run mode, a second entry alongside the arena, or stay behind the dev route? Until this is
+  answered, **every expedition chunk ships behind `?expedition=1`** and the arena run stays
+  byte-identical. Answering it needs a human flying the world in a browser, which no agent can
+  do. The architecture is built so the answer can change late: the mode seam
+  (`WorldModeAdapter`) is one object, not a fork of `GameScene`. Context:
+  `references/map/README.md` sections 1 and 7.
+
+- **GATE-EXPEDITION-RECALL** (EPIC-EXPEDITION): the semantics of Recall to Hangar. Doc 04
+  needs a free recall so that a soft-lock degrades into a mere progression block. Undecided:
+  does recall **end** the expedition (bank rewards, back to menu) or **teleport** the ship to
+  the start sector mid-run? Ending the run is the safer default because a mid-run teleport can
+  be used to skip travel danger, but it also makes a deep expedition feel punishing to leave.
+  This is a feel call, not a code call. Context: `references/map/README.md` OQ-2.
 
 - **Push / deploy:** the repo has `origin` and **a push to `master` auto-deploys GitHub
   Pages** (`.github/workflows/deploy.yml`). Pushing is an explicit human action — agents
