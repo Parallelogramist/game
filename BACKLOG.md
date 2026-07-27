@@ -34,6 +34,49 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-THREAT-REPORT** — the pause build dashboard now names what is taking your HP
+  (done — c259252). Value: damage *dealt* has been fully attributable per weapon since
+  FEAT-PAUSE-RUN-STATS (`WeaponManager` threads `currentFiringWeaponId` through every hit), but damage
+  *taken* was a single scalar (`GameScene.totalDamageTaken`), so the dashboard answered "which weapon is
+  carrying?" and never "what is killing me?" — the question that decides the next upgrade pick. Every point
+  of player damage funnels through the one `GameScene.takeDamage`, so attribution is one line at the single
+  place the total is incremented: contact hits resolve to the attacker's display name via the existing
+  `enemyTypeMap` + `getEnemyType`, and the four attacker-less paths pass an explicit label
+  (`Explosion` from `handleExplosion`, `Enemy Fire` from the enemy-projectile hit, `Ground Slam` from
+  `handleGroundSlam`, `Laser Beam` from `handleLaserBeam`). Recording sits *after* every avoidance branch,
+  so blocked / dashed / dodged / phased hits are never counted and the buckets always sum to
+  `totalDamageTaken`. New pure `orderThreatsByDamage` in `buildStats.ts` orders the tally and computes each
+  share **over the whole tally, not the shown slice**; `deriveBuildStats` surfaces `topThreats`, and the
+  panel renders a **TOP THREATS** block (capped at 3 rows — worst-case panel is then 22 lines / 480 px,
+  bottom at 696 on a 720-high viewport). No ECS change, no enemy-ai change, no save-format change, no new
+  storage key, no new file: the tally is per-run in-memory state cleared beside `totalDamageTaken`, which
+  the save already does not persist either. 2 tests pin the ordering, the tie-break and the share
+  denominator. Files: `buildStats.ts`, `buildStats.test.ts`, `GameScene.ts`, `PauseMenuManager.ts`.
+  Legibility/feel → playtest queue (POLISH-THREAT-REPORT). Run-end placement deliberately cut — see
+  FEAT-THREAT-RECAP below.
+
+- [ ] **FEAT-THREAT-RECAP** — carry the threat breakdown onto the run-end results overlay. Value:
+  FEAT-THREAT-REPORT answers "what is hurting me" mid-run, but the pause overlay is unreachable once you
+  die, so the death screen — the moment you most want "what killed me" — still shows a bare Damage Taken
+  number. Deliberately cut from FEAT-THREAT-REPORT because the game-over overlay is a dense, tuned layout
+  with documented collision constraints (the card reveal is aligned under the weapon panel's *maximum*
+  5-row footprint at `centerY + 82`) and the right stat cell has ~101 px of value width at 16 px, which
+  a `12.4k · Dasher` string overflows — placement is a real design call, not an executor choice. Done
+  when: a planner picks a placement (4th stat row, a line under the stats panel, or a section inside
+  `createWeaponBreakdownPanel`) and the top threats render on the game-over overlay without moving the
+  card-reveal or unlock-progress slots. Pointers: `PauseMenuManager.gameOver` (stats grid ~L1852-1940,
+  `createWeaponBreakdownPanel` ~L2367), `GameOverData`, the `pauseMenuManager.gameOver({...})` literal in
+  `GameScene`. `GameScene.getDamageTakenBySource()` already supplies the data.
+
+- [ ] **FEAT-PACE-GHOST** — race your own personal best, live. Value: every run currently plays against an
+  absolute clock; there is no way to know mid-run whether this one is ahead of your best until it is over.
+  Persist a compact pace curve for the best run per world level (kills + level sampled every 30 s, a few
+  dozen numbers) and show a single HUD delta line ("+42s ahead of best") that updates as you pass each
+  sample, turning every run into a race against yourself. Done when: the curve is recorded and persisted
+  through `SecureStorage` (new key registered in `StorageBootstrap.ALL_STORAGE_KEYS`), the delta renders in
+  the HUD, and it is suppressed in practice mode. Pointers: `BestScoreManager` (per-world-level persistence
+  idiom), `HUDManager`, `GameScene.update` sampling, `src/storage/StorageBootstrap.ts`.
+
 - [x] **FEAT-QUEST-LIVE** — daily quests complete, toast and pay their gold *during* the run
   (done — 773aca4). Value: the board shipped by FEAT-DAILY-QUESTS was
   invisible while playing — `settleDailyQuests()` already returned the quests a run completed and
@@ -1470,6 +1513,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-THREAT-REPORT** — the new **TOP THREATS** block on the pause BUILD STATS panel needs a human in a
+    browser (FEAT-THREAT-REPORT, `c259252`). Agents have no browser. Reach it: take a few hits in any
+    run → **ESC**; the block is the last section of the BUILD STATS panel (left side in landscape, below the
+    buttons in portrait). Check: (a) **worst-case height** — with 5 weapons dealing damage AND 4 synergies
+    active AND 3 threats, the panel is 22 lines / 480 px and its bottom lands at ~696 on a 720-high landscape
+    viewport; does it actually clear the edge, and does the portrait layout (`panelTopY = height / 2 + 268`)
+    still fit? (b) do long source names ("The Tessellator", "Zigzag Runner") clear their right-hand
+    `damage  share` value inside the 220-unit panel? (c) correctness: does contact damage bucket under the
+    right enemy name, do the four labels (`Explosion` / `Enemy Fire` / `Ground Slam` / `Laser Beam`) appear on
+    the right attacks, and do the three shares plus the rest sum sensibly against the `Dmg Taken` headline?
+    (d) scope: is 3 rows enough, should shares be of `Dmg Taken` rather than of attributed damage (identical
+    today — every damage path is attributed), and should boss contact damage split per attack instead of
+    bucketing under the boss's name? Knobs: `DEFAULT_TOP_THREATS` and `orderThreatsByDamage`
+    (`src/game/managers/buildStats.ts`), the four label strings in `GameScene.takeDamage`'s call sites, the
+    block's rows/format in `createBuildStatsPanel` (`src/game/managers/PauseMenuManager.ts`). Mechanics
+    (attribution point, avoidance branches, per-run reset) are done.
   - **POLISH-QUEST-HUD** — the new **DAILY QUESTS** panel on the pause overlay needs a human in a browser
     (FEAT-QUEST-HUD, `10b1b18`). Agents have no browser. Reach it: start any run → **ESC**; the panel sits
     top-centre above PAUSED. Check: (a) does it read cleanly in **portrait** (720-wide) and **landscape**
