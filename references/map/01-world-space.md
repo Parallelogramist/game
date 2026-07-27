@@ -857,6 +857,33 @@ boss-death cleanup path).
 **Dependencies:** W4, W5 (and section 12 contract: content piece decides where bosses
 live). **Test surface:** none new (lock geometry is `sectorRectWorld`, tested in W1).
 
+*(As built, four deviations, and the Test surface line held exactly: nothing new was added to
+the pure layer and no test file was touched, because the lock is `sectorRectWorld` composed
+with `pickInteriorPoint`, both already pinned in W1 and W5, and everything else the chunk adds
+is Phaser-coupled (a live camera, `camera.width`, a boss entity). The camera bounds are the
+locked room padded out to the viewport rather than the bare sector rect: Phaser's `clampX`
+computes `bx = bounds.x + (displayWidth - width) / 2` and `bw = Math.max(bx, bx +
+bounds.width - displayWidth)`, which both collapse to `bounds.x` when the bounds are narrower
+than the viewport, so a bare one-sector bound parks the room against the top-left of the
+screen instead of centring it, and under `Phaser.Scale.EXPAND` (`src/utils/Orientation.ts`)
+this viewport is not reliably 1280x720: it is wider than a sector on a tall phone held
+sideways and shorter than one on a 16:10 panel. Only the camera's bounds are padded; the
+gameplay room `fieldRect` returns stays the exact sector, so the player clamp and the AI
+bounds are unaffected. The enemy-AI field-rect push happens inside
+`ExpeditionModeAdapter.lockToSector`/`releaseSectorLock`, not in `update()` as section 7.2's
+interface comment spells: doing it in the lock methods makes "the AI bounds and the field rect
+never diverge" an invariant a future caller cannot break by forgetting a line, and it lands the
+rect on the same frame the boss spawns rather than the next one. The three player-relative boss
+hazard branches (`void_wyrm`, `the_bastion`, `the_pulsar`) are **not** clamped to `fieldRect`,
+contradicting this doc's own section 3 row for `void_wyrm`: they are unclamped in the shipped
+arena today, so adding the clamp would move arena hazards that currently land off-screen, and
+"arena boss fight unchanged" is a DONE-CRITERION of this very chunk. Under a lock the player is
+already clamped inside the room, so their offsets put a hazard at most 200 px outside it, which
+is visible, harmless and world-space correct. The lock is latched on `this.activeBossType`, so
+a second boss in the same fight (gauntlet waves, endless cycle 3+) joins the existing room
+instead of moving it, and the release rides the existing `!this.hasOtherAliveBoss(enemyId)`
+guard that already clears `activeBossType`, so lock and unlock cannot drift apart.)*
+
 ### FEAT-WORLD-SPACE-7: save v2 + restore for a moving world
 **Value:** a mid-flight refresh, tab kill or orientation flip returns the player to the
 exact same place, camera and all; expedition becomes as crash-proof as the arena.

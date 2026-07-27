@@ -2530,17 +2530,20 @@ This is the load-bearing refactor, done while it is still cheap to verify.
   neighbours, since migrating two of three identical placements and filing the third would
   have left a known bug in the tree. Spec: `01-world-space.md` section 3, spawning table.
 
-- [ ] **CHORE-WORLDSPACE-BOSSPHASE-RECT**: `spawnBossPhaseHazards` derives its placement
+- [x] **CHORE-WORLDSPACE-BOSSPHASE-RECT** (done — 878cd62): `spawnBossPhaseHazards` derives its placement
   box from `arenaMargin = 120` against `scale.width`/`scale.height`, the same shape as
   `spawnBossHazard`, which doc 01 does list as a W6 row. Unlisted, so the sector lock would
-  reclaim the tuned geometry for one boss hazard path and not the other. Deps:
-  `FEAT-WORLD-SPACE-6`. Spec: `01-world-space.md` section 3, spawning table.
+  reclaim the tuned geometry for one boss hazard path and not the other. Shipped inside
+  `FEAT-WORLD-SPACE-6` alongside `spawnBossHazard`, since migrating one boss hazard path and
+  not its twin would have left the sector lock reclaiming the tuned geometry for one and not
+  the other. Deps: `FEAT-WORLD-SPACE-6`. Spec: `01-world-space.md` section 3, spawning table.
 
-- [ ] **CHORE-WORLDSPACE-BOSSRAIN-RECT**: the boss-death gold sparkle rain
+- [x] **CHORE-WORLDSPACE-BOSSRAIN-RECT** (done — 878cd62): the boss-death gold sparkle rain
   (`GameScene.ts:3424-3429`) draws its 12 sparkle positions from `scale.width` /
   `scale.height * 0.6`, so in a scrolled world the celebration plays in the top-left
   sector instead of over the corpse. Cosmetic-only and boss-scoped, so it rides with the
-  chunk that puts bosses in the world. Deps: `FEAT-WORLD-SPACE-6`.
+  chunk that puts bosses in the world. Shipped inside `FEAT-WORLD-SPACE-6`, the chunk its own
+  entry named as the one that puts bosses in the world. Deps: `FEAT-WORLD-SPACE-6`.
 
 - [x] **FEAT-PRACTICE-MODE** — reach any weapon at any level without grinding a
   run (done — c3d00c2). Full write-up moved to `BACKLOG-archive.md`. Playtest
@@ -2847,10 +2850,50 @@ exploring pays is the end of Phase 5.
   records zero embeds or tunnels, and **the 14 pure barrage-pattern modules keep their exact
   signatures with their tests untouched**. Deps: `FEAT-BARRIER-PLAYER`, `FEAT-WORLDGEN-CORE`.
 
-- [ ] **FEAT-WORLD-SPACE-6**: sector lock, so a boss fight seals to one arena-sized room where
-  every existing boss behavior and hazard pattern recovers its original tuned geometry. Done
-  when a boss enters top-center with the existing choreography, `the-machine` seeks the room
-  center, hazards land inside the room, and victory releases the bounds. Deps: W4, W5.
+- [x] **FEAT-WORLD-SPACE-6** (done — adac59b, 878cd62): a boss fight in the expedition world
+  seals to one arena-sized room. When a boss spawns, the mode adapter narrows both the camera
+  bounds and `fieldRect` to `sectorRectWorld` of the sector the player is standing in, and
+  pushes that rect into the enemy-AI bounds, so the player clamp, the knockback resolve,
+  `the-machine`'s centre-seeking, its minion-spawn clamp, the charger's edge test and the
+  teleporter's bounds all recover the geometry they were tuned against. The boss enters above
+  the room's top edge instead of the world's, every boss hazard and phase-transition hazard
+  lands inside the room, and the death celebration rains over the view rather than over sector
+  (0,0). Killing the last boss releases the bounds and the world is flyable again. Before this,
+  a boss triggered anywhere in expedition spawned at world `(scale.width / 2, -100)`, so a
+  player who had flown away got a health bar for an enemy thousands of pixels behind him and a
+  run that could not be won. Arena is unchanged by construction, not by care: both
+  `ArenaModeAdapter` lock methods are empty, and every migrated expression reduces to the
+  literal it replaced when the rect is `(0, 0, scale.width, scale.height)`. No new tests and no
+  new pure surface: doc 01's own W6 entry says "Test surface: none new (lock geometry is
+  `sectorRectWorld`, tested in W1)", and everything added here is either a composition of
+  already-pinned pure functions or Phaser-coupled (a live camera, `camera.width`, a boss
+  entity), guarded by `tsc`, the suite at 133 files / 1667 tests and `npm run build`. Five
+  deviations. (1) **The camera bounds are the room padded out to the viewport, not the room.**
+  Phaser's `clampX` pins a camera to `bounds.x` when the bounds are narrower than the viewport,
+  and under `Phaser.Scale.EXPAND` this game's viewport is not reliably one sector wide (above
+  1280 on a tall phone held sideways, below it on a 16:10 panel), so the plain sector rect
+  would have parked the room against the top-left of the screen on common hardware. The
+  gameplay room stays the exact sector: only the camera's bounds are padded. (2) **The AI
+  field-rect push lives inside the adapter's lock methods, not in `GameScene`.** Doc 01's Files
+  line puts it in the adapter and doc 01 section 7.2's `update()` note puts it in `update()`;
+  doing it in the lock methods makes "the AI bounds and the field rect never diverge" an
+  invariant a future caller cannot break, and gets the rect in place on the same frame the boss
+  spawns rather than the next one. (3) **The three player-relative boss hazards are not clamped
+  to `fieldRect`.** Doc 01's table asks for "only add a `fieldRect` clamp" on `void_wyrm`, and
+  `the_bastion` and `the_pulsar` have the same shape. They are unclamped today, so adding the
+  clamp would move arena hazards that currently land off-screen, and "arena boss fight
+  unchanged" is a done-criterion of this very chunk. Under a lock the player is clamped inside
+  the room, so their offsets put a hazard at most 200 px outside it: visible, harmless and
+  world-space correct. (4) **A second boss in the same fight joins the room instead of moving
+  it.** `lockToSector` is latched on `activeBossType`, which gauntlet waves and endless cycle 3+
+  rely on; the release is latched on the same `hasOtherAliveBoss` guard that already clears
+  `activeBossType`, so lock and unlock cannot drift apart. (5) **The gold rain samples the view
+  once at boss death** rather than re-reading the viewport inside each of its 12 delayed calls,
+  because `viewRect()` returns a reused instance that must not be retained across frames. A
+  resize during the 720 ms rain no longer moves the remaining sparkles. Lock persistence across
+  a refresh is **not** here: `sectorLockKey` belongs to `FEAT-WORLD-SPACE-7`, which owns
+  `SAVE_VERSION` 2. Every DONE-CRITERION about how the fight looks and feels needs a human in a
+  browser and is filed under **POLISH-EXPEDITION-FLIGHT**. Deps: W4, W5.
 
 - [ ] **FEAT-WORLD-SPACE-7**: save v2 and exact restore of a moving world. **Single owner of
   `SAVE_VERSION` 2, the `expedition` block and the first real body of `migrateState()`**
@@ -3209,7 +3252,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3227,6 +3270,16 @@ Never agent work. The fleet must not do any of these.
     like an arena minute at the same run time, or thinner? (i) **world-edge pressure**: park
     against the world boundary. The ring loses a side there. Is the resulting lull acceptable,
     or does the boundary need its own rule?
+    (j) **the room read** (FEAT-WORLD-SPACE-6): trigger a boss in expedition. Does the
+    camera stopping at the sector edges read as a sealed boss room, or as the camera
+    breaking? The bounds snap rather than lerp when the fight starts near a sector
+    boundary. Is the boss-entrance shake enough cover for it? (k) **the room on this
+    screen**: the camera bounds are padded out to the viewport so the room stays centred,
+    which means a wide screen sees a strip of the neighbouring sectors around the room.
+    Does that break the seal, or is it fine? (l) **hazard containment**: fight each boss
+    to phase 3. Every screen-derived hazard now lands inside the room, but the three
+    player-relative ones (void_wyrm, the_bastion, the_pulsar) are deliberately unclamped
+    and can land up to 200 px outside it. Is that visible, and does it matter?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every
