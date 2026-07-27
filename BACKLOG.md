@@ -1758,9 +1758,64 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `BACKLOG-archive.md`. **No playtest filed** — see the write-up for why, and for
   the pool-magnitude knob.
 
-- [ ] **FEAT-MARKET-STOCK** — give the market a rotating 4th slot drawn from what the run lacks
-  (a weapon level, a banish/reroll charge, a pact buyout). Value: makes a second market visit a
-  different decision instead of the same three cards.
+- [x] **FEAT-MARKET-STOCK** — the Black Market now stocks a 4th card chosen from what the run
+  actually lacks (done — ee32531). Value: the market reads the run and sells the thing that is
+  missing, so a second market visit is a new decision instead of the same three cards already
+  declined. The gap was verified, not assumed: `buildMarketOffers` mapped a fixed
+  `MARKET_OFFER_ORDER = ['repair','supply','relic']` with no run state in scope beyond `worldLevel`,
+  `gold`, `atFullHealth` and `relicsMaxed`, so every market shrine in every run showed the identical
+  shelf, and FEAT-MARKET (e32a173) had just made that shelf the game's **only** in-run gold sink.
+  It is novel capability, not polish: **buying a weapon on demand did not exist**. New weapons were
+  offered only at weapon milestones (`playerLevel % 5 === 0`, `Upgrades.ts:809`), so a run that
+  rolled badly at a milestone had no other route to fill an empty slot, and nothing in the game
+  granted rerolls/banishes mid-run (they came only from the pre-run shop, ship bonuses, cards and
+  one run modifier). Design calls: (a) **the priority ladder** (`pickMarketStock`, pure and tested)
+  is empty weapon slot, then spent draft charges, then levellable weapon: **Arms Dealer** sells an
+  unowned weapon, **Contraband** sells `+2` rerolls `+1` banish when combined charges are `<= 1`, and
+  **Arsenal Contract** raises the lowest-level owned weapon as the fallback because almost every run
+  has one. The ordering is what makes the slot *rotate* rather than pinning one card forever: each
+  option clears its own condition when bought (recruit fills the slot, contraband lifts charges past
+  the threshold, arsenal catches the rest). (b) **Prices** join `MARKET_BASE_PRICES` and ride the
+  existing `1 + 0.15 * (worldLevel - 1)` curve for free: `recruit` 420 (just under a relic's 520,
+  since a whole new weapon is close to a relic in run impact but a level-1 weapon is weaker on the
+  turn you buy it), `arsenal` 200 (between repair and supply), `contraband` 120 (cheapest, smallest
+  effect). Because `MARKET_BASE_PRICES` is `Record<MarketOfferId, number>`, widening the id union
+  makes a missing price a `tsc` error, and that exhaustiveness check is the point. (c) **No new lock
+  labels.** Every stock card's eligibility predicate already excludes its own no-op case, so
+  `NOT ENOUGH GOLD` is the only reachable lock on card 4. (d) **Both weapon purchases go through
+  `applyCombinedUpgrade`**, per this repo's parallel-code-path rule, which hands the market the
+  identical tail the upgrade modal gets (`recordWeaponAcquired` / `recordUpgradeAcquired`, codex
+  `discoverWeapon` + `recordWeaponUsage`, `syncStatsToPlayer()`, `grantBuildHeal(...)`,
+  `checkEvolutions(...)` and the WEAPON EVOLVED presentation). Hand-rolling `createWeapon` +
+  `addWeapon` here is exactly how the four already-fixed "paid for a promise the code never keeps"
+  bugs got in. (e) **Resolve before charge:** `applyMarketPurchase` re-resolves the weapon upgrade
+  and early-returns *before* `spendGold()`, mirroring the existing "nothing is granted unless the
+  spend succeeded" contract, because the stock effects can fail to resolve where heal/supply/relic
+  cannot. (f) **The recruit weapon is rolled once, at open, and carried on the card**
+  (`stockWeaponId`), so the player is always sold the weapon the card named. Uniform random,
+  deliberately *not* the codex familiarity weighting `getWeaponUpgrades` attaches: that weighting
+  exists to make unfamiliar weapons rarer in *blind* level-up offers, and the market names what it
+  sells. (g) **Scrapped weapons stay banished:** `scrapWeapon()` adds `add_${weaponId}` to
+  `banishedUpgradeIds` when the player trades a weapon away in a REFIT, and
+  `buildMarketStockContext` respects that set, so the market cannot sell back what the player
+  deliberately gave up. **A pact buyout was cut** despite the original item's wording:
+  `Pact.apply(stats)` is a one-way mutation over shared `PlayerStats` and `glass_cannon` does
+  `stats.maxHealth = Math.max(1, Math.floor(stats.maxHealth * 0.5))`, which is destructive, has no
+  recoverable pre-pact value, and composes against every other mid-run mutator, so un-applying one
+  needs a hand-authored inverse per pact and can drive `currentHealth` past `maxHealth` or below
+  zero. Same reasoning that made `FEAT-RELIC-REINFORCE` reject a true relic swap.
+  **`MarketScene.ts` needed zero changes:** `createOfferCards` derives the row from
+  `this.offers.length` and scales to fit, the keydown handler already accepts `4`, and the navigator
+  takes `columns: this.cardEntries.length`. **No new storage key and no `SAVE_VERSION` bump**: the
+  stock card is computed live at `openMarket()` and persists nothing, and the only durable effects
+  (`rerollsRemaining` / `banishesRemaining`, the weapon roster) already ride the existing save blob.
+  4 tests were added to `src/data/MarketOffers.test.ts` (now 8) pinning the ladder and the appended
+  view, because `pickMarketStock` is the single gate between "player pays gold" and "player gets
+  something" and its ordering is non-obvious enough that a later reorder would silently starve two of
+  the three cards; everything else is Phaser-coupled scene wiring guarded by `tsc`, the full suite
+  (124 files / 1559 tests) and `npm run build`. Files: `src/data/MarketOffers.ts`,
+  `src/data/MarketOffers.test.ts`, `src/game/scenes/GameScene.ts`. Prices and feel are unvalidated in
+  a browser: see **POLISH-MARKET-STOCK** under `## Human gates`.
 
 - [ ] **FEAT-GOLD-LEDGER** — a death-screen line showing gold earned vs. gold spent in-run. Value:
   the recap currently reports only the payout, so a player who spent at the market cannot see what
@@ -1934,6 +1989,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MARKET-STOCK** (— ee32531) — playtest the 4th market card (FEAT-MARKET-STOCK). Owns:
+    (a) **the prices:** whether 420 g for a new weapon, 200 g for a weapon level and 120 g for
+    `+2` rerolls `+1` banish are right, against what a real run to world level 3-5 actually pays out
+    (knobs: `MARKET_BASE_PRICES` in `src/data/MarketOffers.ts`). (b) **the ladder:** whether
+    empty slot, then spent charges, then weapon level picks the card a player in trouble actually
+    wants, or whether a low-health run should see something else first (knob: `pickMarketStock`).
+    (c) **the late-run trap:** whether a level-1 weapon bought at world level 8 is a trap purchase
+    that dilutes a finished build rather than helping it. (d) **four cards on a phone:**
+    `MarketScene.createOfferCards` scales the row to fit, so portrait (~720 units wide) drops from a
+    0.70 to a ~0.52 card scale; is the 4th card still readable, and does the row still clear LEAVE?
+    (e) **rotation in practice:** whether the slot visibly changes between two markets in one run,
+    or whether one card dominates because its condition rarely clears.
   - **POLISH-MARKET** (— e32a173) — a walk-in Black Market shrine now spends banked gold mid-run
     (FEAT-MARKET). Agents have no browser and must not retune an economy blind. Check:
     (a) **the prices** — play a real run to world level 3-5 and compare `MARKET_BASE_PRICES`
