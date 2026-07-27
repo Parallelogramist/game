@@ -128,14 +128,38 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   Legibility/feel → playtest queue (POLISH-PACE-GHOST). Run-end placement deliberately cut — see
   FEAT-PACE-RECAP below.
 
-- [ ] **FEAT-PACE-RECAP** — close the pace loop on the run-end overlay. Value: FEAT-PACE-GHOST tells you
-  mid-run whether you are ahead, but the pause overlay is unreachable once you die, so the death screen
-  never says how the race finished or that your ghost was replaced. Done when: the results overlay shows
-  the final pace delta and a `NEW GHOST` marker when the run's curve replaced the stored one, without
-  moving the card-reveal or unlock-progress slots. Deliberately cut from FEAT-PACE-GHOST because the
-  game-over overlay is a dense tuned layout with documented collision constraints (see FEAT-THREAT-RECAP)
-  — placement is a design call, not an executor choice. Pointers: `PauseMenuManager.gameOver`,
-  `GameOverData`, `savePaceGhost` return value (currently void — it would need to report whether it wrote).
+- [x] **FEAT-PACE-RECAP** — the death screen now scores the pace race (done — 36f6945). Value:
+  FEAT-PACE-GHOST (`ed81832`) raced every run against the kill curve of your best run and put a live
+  `+37 PACE` line on the HUD, but the race had no finish line — the HUD dies with the run, the pause
+  overlay is unreachable once you are dead, and the game-over screen never mentioned the ghost. A
+  **PACE medal** now sits on the right of the game-over title, mirroring the GRADE badge on the left:
+  the final delta in the circle (`+37` green / `-12` red / `EVEN`), a `PACE` label, and one subline
+  that says how the race went — `AHEAD AT THE END`, `AHEAD UNTIL 6:15` (the last sample the run still
+  led), `NEVER AHEAD`, or `OUTLASTED BEST BY 1:20` when the run outlived the ghost's whole curve. A
+  `NEW GHOST` line is added when this run's curve replaced the stored one, which **nothing could know
+  before**: `savePaceGhost` returned `void`, so it now returns whether the store took the write and
+  `GameScene` records it in `paceGhostReplaced` at both write sites (`if (savePaceGhost(…)) … = true`,
+  never a bare assignment — a post-victory endless death must not clear a flag the victory set). The
+  comparison uses `paceGhostCurve`, the curve captured in `create()`, **not** a re-read: by the time
+  the overlay renders, a new best has already overwritten the stored ghost with this very run, so a
+  re-read would always show a delta of 0. New pure `summarizeRunPace` in `PaceGhostManager` reuses
+  `paceDeltaKills` rather than re-deriving interpolation, and treats "ahead" strictly, so a dead-even
+  run reads `NEVER AHEAD` instead of claiming a lead it never had. Placement is the title band's right
+  side because it is the only free real estate left on that overlay (both side columns, the centered
+  flow, the left margin and the top RUN TIMELINE ribbon are all spoken for), and it is floored at
+  `centerX + 240` so the subline can never reach back over the centered score line on the shorter
+  `VICTORY!` title; it skips itself when the badge would not clear the right edge, which is what makes
+  it landscape-only in practice. Like the timeline ribbon it runs its own short fade-in instead of
+  joining the shared `index * 120 ms` stagger, which would land it seconds after its twin badge, and
+  it registers last so no existing element's position or stagger slot moved. Practice and gauntlet
+  runs race no ghost and a restored run records no samples, so the first two show nothing and the
+  third shows a delta with a `VS YOUR BEST RUN` subline. Per-run in-memory only: no new storage key,
+  no save-format migration, no ECS, combat or layout change, no new file, no new scene. The victory
+  overlay is deliberately excluded — the same call FEAT-THREAT-RECAP and FEAT-RUN-TIMELINE made.
+  6 tests pin `summarizeRunPace`'s four shapes, the outlasted branch and the new boolean contract —
+  the one piece of non-obvious logic here and the only part verifiable without a live scene. Files:
+  `PaceGhostManager.ts`, `PaceGhostManager.test.ts`, `GameScene.ts`, `PauseMenuManager.ts`.
+  Legibility/feel → playtest queue (POLISH-PACE-RECAP).
 
 - [x] **FEAT-RUN-TIMELINE** — the death screen now shows the shape of the run (done — 428cfb9). Value: the
   results overlay reported totals (kills, damage, grade, best) and never the *shape* of a run, so one that
@@ -1629,6 +1653,17 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PACE-RECAP** (— 36f6945) — die on a world level that already has a pace ghost and judge the
+    new **PACE** medal right of the GAME OVER title. Check: (a) does the medal read as the twin of the
+    GRADE badge, or does it look bolted on? (b) is a bare kill delta in the circle self-explanatory
+    next to the `PACE` label, or does it want `VS BEST`? (c) does `OUTLASTED BEST BY 1:20` at 11 px stay
+    legible and inside the right edge at 1000, 1280 and 2000 px wide, and does the medal correctly
+    disappear rather than clip at portrait widths? (d) is `AHEAD UNTIL 6:15` the useful line, or would
+    the biggest lead / the size of the collapse be more useful? (e) the medal fades in at ~260 ms
+    alongside the grade badge while the rest of the screen staggers for seconds — does that read as
+    deliberate or as a pop-in? (f) after a post-victory endless death the medal can show `NEW GHOST`
+    from the victory save — is that right, or should the marker be victory-only? (g) should the victory
+    overlay get the medal too (`showVictory` is excluded today)?
   - **POLISH-BOSS-REMATCH** (— 860d895) — die to a boss or miniboss and judge the new **REMATCH
     <NAME>** pill on the game-over overlay. Check: (a) does `REMATCH THE TESSELLATOR` (the longest
     name) fit the 300-unit pill at 15px, and does the pill sit clear of COPY RESULT on a
