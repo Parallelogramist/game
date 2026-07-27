@@ -68,14 +68,43 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `createWeaponBreakdownPanel` ~L2367), `GameOverData`, the `pauseMenuManager.gameOver({...})` literal in
   `GameScene`. `GameScene.getDamageTakenBySource()` already supplies the data.
 
-- [ ] **FEAT-PACE-GHOST** — race your own personal best, live. Value: every run currently plays against an
-  absolute clock; there is no way to know mid-run whether this one is ahead of your best until it is over.
-  Persist a compact pace curve for the best run per world level (kills + level sampled every 30 s, a few
-  dozen numbers) and show a single HUD delta line ("+42s ahead of best") that updates as you pass each
-  sample, turning every run into a race against yourself. Done when: the curve is recorded and persisted
-  through `SecureStorage` (new key registered in `StorageBootstrap.ALL_STORAGE_KEYS`), the delta renders in
-  the HUD, and it is suppressed in practice mode. Pointers: `BestScoreManager` (per-world-level persistence
-  idiom), `HUDManager`, `GameScene.update` sampling, `src/storage/StorageBootstrap.ts`.
+- [x] **FEAT-PACE-GHOST** — race your own personal best, live (done — ed81832). Value: every run played
+  against an absolute clock and nothing in-run knew anything about any previous run — `BestScoreManager` is
+  read only on the results screen, after it is too late to act on. The HUD's top-right stats stack now
+  carries a third line — `+37 PACE` (green) / `-12 PACE` (red) / `EVEN PACE` — saying once a second how
+  many kills ahead of or behind your best run at this world level you are at this point on the clock.
+  New `src/meta/PaceGhostManager.ts` (key `survivor-pace-ghost`, auto-transfers with the profile) stores
+  one `number[]` per world level: the kill count at 15 s, 30 s, … up to 80 samples (20 minutes). The curve
+  is written at exactly the two sites that already call `recordScore`, only when that call reports
+  `isNewBest`, and against the same world level it recorded — so the ghost can never drift from the
+  best-score table it belongs to. `paceDeltaKills()` interpolates between samples and returns null (line
+  blank) before 15 s, past the curve's end, and when there is no ghost. Sampling walks an absolute 15 s
+  grid rather than a drifting timer, so a slow frame fills the gap instead of shifting every later sample.
+  **Practice and gauntlet get no ghost** (neither writes a best score, so there is nothing to race);
+  **a restored run races the ghost but records no curve** — its early samples died with the page. No ECS
+  change, no combat change, no save-format change, no new scene. The relic/modifier strip re-anchors one
+  row lower off the new line (`computeRelicStripTopY`), the only element that keys off that stack. 7 tests
+  pin the sample-grid inversion, both quiet boundaries, the interpolation and the corruption path. Files:
+  `PaceGhostManager.ts`, `PaceGhostManager.test.ts`, `StorageBootstrap.ts`, `GameScene.ts`, `HUDManager.ts`.
+  Legibility/feel → playtest queue (POLISH-PACE-GHOST). Run-end placement deliberately cut — see
+  FEAT-PACE-RECAP below.
+
+- [ ] **FEAT-PACE-RECAP** — close the pace loop on the run-end overlay. Value: FEAT-PACE-GHOST tells you
+  mid-run whether you are ahead, but the pause overlay is unreachable once you die, so the death screen
+  never says how the race finished or that your ghost was replaced. Done when: the results overlay shows
+  the final pace delta and a `NEW GHOST` marker when the run's curve replaced the stored one, without
+  moving the card-reveal or unlock-progress slots. Deliberately cut from FEAT-PACE-GHOST because the
+  game-over overlay is a dense tuned layout with documented collision constraints (see FEAT-THREAT-RECAP)
+  — placement is a design call, not an executor choice. Pointers: `PauseMenuManager.gameOver`,
+  `GameOverData`, `savePaceGhost` return value (currently void — it would need to report whether it wrote).
+
+- [ ] **FEAT-RUN-TIMELINE** — a post-run timeline of the beats that shaped the run. Value: the results
+  screen reports totals (kills, damage, grade, best) but never the *shape* of the run — when you levelled,
+  when the boss landed, when you nearly died — so a run that collapsed at 7:30 looks the same as one that
+  coasted. Done when: a compact in-run event log (level-ups, boss/miniboss spawns and kills, big damage
+  spikes, ultimate uses) is recorded per run and rendered as a horizontal timeline on the results overlay,
+  with no new storage key (per-run in-memory, like the threat tally). Pointers: `GameScene.handleEnemyDeath`
+  / level-up path / `takeDamage`, `PauseMenuManager.gameOver`, `buildStats.ts` for the pure-derivation idiom.
 
 - [x] **FEAT-QUEST-LIVE** — daily quests complete, toast and pay their gold *during* the run
   (done — 773aca4). Value: the board shipped by FEAT-DAILY-QUESTS was
@@ -1513,6 +1542,12 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PACE-GHOST** (— ed81832) — play a run at a world level that already has a ghost and judge:
+    is `+37 PACE` self-explanatory in the stats stack, or does it need a `VS BEST` label? Is a kill delta
+    the right unit (vs. a seconds-ahead figure)? Does the once-a-second refresh read as jittery when the
+    delta oscillates around zero? Does the third stats line crowd the right edge in portrait, and does the
+    relic/modifier strip still sit clear of it with 6+ relics? Should the line also appear for gauntlet
+    (which keeps no best score) or stay hidden?
   - **POLISH-THREAT-REPORT** — the new **TOP THREATS** block on the pause BUILD STATS panel needs a human in a
     browser (FEAT-THREAT-REPORT, `c259252`). Agents have no browser. Reach it: take a few hits in any
     run → **ESC**; the block is the last section of the BUILD STATS panel (left side in landscape, below the
