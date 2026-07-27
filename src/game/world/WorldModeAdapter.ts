@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
-import { WorldRect } from '../../world/worldSpace';
+import { SectorCoord, WorldRect } from '../../world/worldSpace';
 
 export type RunModeKind = 'arena' | 'expedition';
 
@@ -10,10 +10,9 @@ export type RunModeKind = 'arena' | 'expedition';
  * moves across (expedition, FEAT-WORLD-SPACE-4 onward). Gameplay systems take a
  * WorldRect and never read the scale manager or the camera themselves.
  *
- * Deliberately narrower than doc 01 section 7.2: lockToSector and releaseSectorLock
- * land with their first callers in W6 rather than shipping here as no-ops with nothing
- * to call them. setupCamera takes the grid and the trail buffer alongside the player
- * visual because those are the two screen-sized layers that must track the camera.
+ * Every member of doc 01 section 7.2 has now landed. setupCamera takes the grid and the
+ * trail buffer alongside the player visual because those are the two screen-sized layers
+ * that must track the camera.
  */
 export interface WorldModeAdapter {
   readonly kind: RunModeKind;
@@ -53,6 +52,18 @@ export interface WorldModeAdapter {
    * spawn ring, or null for a mode whose player cannot outrun anything (arena).
    */
   leashRadius(): number | null;
+
+  /**
+   * Seal the playfield to one sector: a boss room. Narrows fieldRect and the camera
+   * bounds so every arena-tuned boss behaviour recovers its original geometry, and
+   * pushes the new rect to the enemy-AI bounds so a re-lock cannot leave them stale.
+   * Locking while already locked is the caller's decision to make, not this method's.
+   * Arena: no-op, the screen is already the room.
+   */
+  lockToSector(sector: SectorCoord): void;
+
+  /** Restore the full world bounds. A no-op when nothing is locked. Arena: no-op. */
+  releaseSectorLock(): void;
 
   /**
    * Once per frame from GameScene.update(), after deltaSeconds is final and before

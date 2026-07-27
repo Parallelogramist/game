@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
-import { WorldRect } from '../../world/worldSpace';
+import { SectorCoord, WorldRect } from '../../world/worldSpace';
 import { WorldModeAdapter } from './WorldModeAdapter';
 
 /**
@@ -16,6 +16,8 @@ import { WorldModeAdapter } from './WorldModeAdapter';
  * guarantee for FEAT-WORLD-SPACE-5: the spawnability retry always succeeds on its first
  * attempt with the draws it already made, and a null radius returns the leash pass
  * before it reads the frame cache.
+ * lockToSector and releaseSectorLock are that guarantee for FEAT-WORLD-SPACE-6: an
+ * arena boss fight cannot narrow a rect that is already the whole screen.
  */
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
@@ -53,6 +55,10 @@ export class ArenaModeAdapter implements WorldModeAdapter {
   leashRadius(): number | null {
     return null;
   }
+
+  lockToSector(_sector: SectorCoord): void {}
+
+  releaseSectorLock(): void {}
 
   update(_deltaSeconds: number): void {}
 

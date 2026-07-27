@@ -7,12 +7,16 @@ import {
   SectorCoord,
   WorldRect,
   rectContains,
+  rectHeight,
+  rectWidth,
   sectorCenterWorld,
   sectorKey,
   sectorOfWorldPoint,
+  sectorRectWorld,
   sectorsEqual,
 } from '../../world/worldSpace';
 import { LEASH_RADIUS } from '../../world/spawnRing';
+import { setEnemyAIFieldRect } from '../../ecs/systems/enemy-ai/state';
 import { WorldModeAdapter } from './WorldModeAdapter';
 
 /**
@@ -48,6 +52,9 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
   private grid: GridBackground | null = null;
   private trails: TrailManager | null = null;
   private currentSector: SectorCoord | null = null;
+  private lockedRoom: WorldRect | null = null;
+  private appliedCameraWidth = 0;
+  private appliedCameraHeight = 0;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -63,12 +70,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     this.trails = trails;
 
     const camera = this.scene.cameras.main;
-    camera.setBounds(
-      this.world.minX,
-      this.world.minY,
-      this.world.maxX - this.world.minX,
-      this.world.maxY - this.world.minY,
-    );
+    this.applyCameraBounds(this.world);
     camera.startFollow(playerVisual, true, CAMERA_LERP, CAMERA_LERP);
     camera.setDeadzone(CAMERA_DEADZONE_WIDTH, CAMERA_DEADZONE_HEIGHT);
     // Without this the first frame swoops in from the world origin.
@@ -87,7 +89,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
   }
 
   fieldRect(): WorldRect {
-    return this.world;
+    return this.lockedRoom ?? this.world;
   }
 
   isSpawnableWorldPoint(x: number, y: number): boolean {
@@ -98,8 +100,26 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     return LEASH_RADIUS;
   }
 
+  lockToSector(sector: SectorCoord): void {
+    this.lockedRoom = sectorRectWorld(sector);
+    this.applyCameraBounds(this.lockedRoom);
+    setEnemyAIFieldRect(this.lockedRoom);
+  }
+
+  releaseSectorLock(): void {
+    if (!this.lockedRoom) return;
+    this.lockedRoom = null;
+    this.applyCameraBounds(this.world);
+    setEnemyAIFieldRect(this.world);
+  }
+
   update(_deltaSeconds: number): void {
     const camera = this.scene.cameras.main;
+    if (camera.width !== this.appliedCameraWidth || camera.height !== this.appliedCameraHeight) {
+      // A Safari address-bar collapse or an orientation flip changes the viewport under
+      // a live lock, which would leave the room's centring padding sized for the old one.
+      this.applyCameraBounds(this.lockedRoom ?? this.world);
+    }
     this.syncView();
     this.grid?.setViewScroll(camera.scrollX, camera.scrollY);
     this.trails?.setViewScroll(camera.scrollX, camera.scrollY);
@@ -110,6 +130,24 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     if (!this.currentSector || !sectorsEqual(sector, this.currentSector)) {
       this.enterSector(sector);
     }
+  }
+
+  private applyCameraBounds(bounds: WorldRect): void {
+    const camera = this.scene.cameras.main;
+    // Phaser pins the camera to bounds.x/y when the bounds are narrower than the
+    // viewport, so a locked sector would sit against the top-left of the screen on any
+    // panel wider or taller than one sector. Padding the bounds out to the viewport
+    // instead leaves the room centred, and costs nothing when the world is the bounds.
+    const padX = Math.max(0, (camera.width - rectWidth(bounds)) / 2);
+    const padY = Math.max(0, (camera.height - rectHeight(bounds)) / 2);
+    this.appliedCameraWidth = camera.width;
+    this.appliedCameraHeight = camera.height;
+    camera.setBounds(
+      bounds.minX - padX,
+      bounds.minY - padY,
+      rectWidth(bounds) + padX * 2,
+      rectHeight(bounds) + padY * 2,
+    );
   }
 
   private syncView(): WorldRect {
