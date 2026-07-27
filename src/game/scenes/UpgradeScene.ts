@@ -25,7 +25,8 @@ import {
  */
 export interface UpgradeSceneData {
   upgrades: Upgrade[];
-  onSelect: (upgrade: Upgrade) => void;
+  /** `scrapWeaponId` is set only on a REFIT pick — the equipped weapon traded away. */
+  onSelect: (upgrade: Upgrade, scrapWeaponId?: string) => void;
   rerollsRemaining: number;
   skipsRemaining: number;
   banishesRemaining: number;
@@ -52,6 +53,9 @@ interface CardEntry {
   refreshLock?: () => void;
 }
 
+/** A weapon-add card offered while every slot is full — taking it trades a weapon away. */
+type RefitOffer = Upgrade & { requiresSwap?: boolean };
+
 /**
  * UpgradeScene — level-up card pick.
  *
@@ -68,7 +72,7 @@ interface CardEntry {
  */
 export class UpgradeScene extends Phaser.Scene {
   private upgrades: Upgrade[] = [];
-  private onSelectCallback: ((upgrade: Upgrade) => void) | null = null;
+  private onSelectCallback: ((upgrade: Upgrade, scrapWeaponId?: string) => void) | null = null;
   private cardEntries: CardEntry[] = [];
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private cardNavigator: MenuNavigator | null = null;
@@ -91,6 +95,10 @@ export class UpgradeScene extends Phaser.Scene {
   private isBanishMode: boolean = false;
   private banishModeText: Phaser.GameObjects.Text | null = null;
   private banishConfirmElements: Phaser.GameObjects.GameObject[] = [];
+
+  private refitElements: Phaser.GameObjects.GameObject[] = [];
+  private pendingRefitUpgrade: Upgrade | null = null;
+  private pendingScrapWeaponId: string | null = null;
 
   private isLastWeaponSlot: boolean = false;
   private weaponSlotsInfo: { current: number; max: number } | null = null;
@@ -116,6 +124,9 @@ export class UpgradeScene extends Phaser.Scene {
     this.onSkipCallback = data.onSkip ?? null;
     this.onBanishCallback = data.onBanish ?? null;
     this.isBanishMode = false;
+    this.refitElements = [];
+    this.pendingRefitUpgrade = null;
+    this.pendingScrapWeaponId = null;
     this.isLastWeaponSlot = data.isLastWeaponSlot ?? false;
     this.weaponSlotsInfo = data.weaponSlotsInfo ?? null;
     this.allStatUpgrades = data.allStatUpgrades ?? [];
@@ -215,7 +226,7 @@ export class UpgradeScene extends Phaser.Scene {
         onBlur: () => this.applyCardUnhover(entry.index),
         onActivate: () => {
           if (!this.entranceComplete) return;
-          if (this.banishConfirmElements.length > 0) return;
+          if (this.banishConfirmElements.length > 0 || this.refitElements.length > 0) return;
           if (this.isBanishMode) {
             this.banishUpgrade(entry.upgrade);
           } else {
@@ -224,7 +235,9 @@ export class UpgradeScene extends Phaser.Scene {
         },
       })),
       onCancel: () => {
-        if (this.banishConfirmElements.length > 0) {
+        if (this.refitElements.length > 0) {
+          this.destroyRefitPicker();
+        } else if (this.banishConfirmElements.length > 0) {
           this.destroyBanishConfirmation();
         } else if (this.isBanishMode) {
           this.toggleBanishMode();
@@ -237,6 +250,11 @@ export class UpgradeScene extends Phaser.Scene {
     this.keydownHandler = (event: KeyboardEvent) => {
       if (!this.entranceComplete) return;
       if (this.banishConfirmElements.length > 0) return;
+      if (this.refitElements.length > 0) {
+        const refitRow = parseInt(event.key, 10);
+        if (refitRow >= 1 && refitRow <= this.equippedWeapons.length) this.confirmRefit(refitRow - 1);
+        return;
+      }
 
       const keyNumber = parseInt(event.key, 10);
       if (keyNumber >= 1 && keyNumber <= this.upgrades.length) {
@@ -460,6 +478,22 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private showBanishConfirmation(upgrade: Upgrade, onConfirm: () => void): void {
+    this.showDestructiveConfirmation({
+      bannerLabel: 'BANISH UPGRADE',
+      headline: `Permanently remove\n"${upgrade.name}"?`,
+      subLabel: 'This cannot be undone.',
+      confirmLabel: 'Banish',
+      onConfirm,
+    });
+  }
+
+  private showDestructiveConfirmation(opts: {
+    bannerLabel: string;
+    headline: string;
+    subLabel: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  }): void {
     const centerX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
 
@@ -483,21 +517,21 @@ export class UpgradeScene extends Phaser.Scene {
     });
     confirmCard.container.setDepth(31);
 
-    const banner = makeDisplayText(this, 0, confirmCard.bannerTopY + 18, 'BANISH UPGRADE', {
+    const banner = makeDisplayText(this, 0, confirmCard.bannerTopY + 18, opts.bannerLabel, {
       fontSize: 18,
       color: TEXT_COLORS.heading,
       letterSpacing: 2,
     });
     confirmCard.frame.add(banner);
 
-    const warningText = makeBodyText(this, 0, -20, `Permanently remove\n"${upgrade.name}"?`, {
+    const warningText = makeBodyText(this, 0, -20, opts.headline, {
       fontSize: 18,
       color: ACCENT_COLORS_STR.focus,
     });
     warningText.setLineSpacing(4);
     confirmCard.frame.add(warningText);
 
-    const subText = makeBodyText(this, 0, 26, 'This cannot be undone.', {
+    const subText = makeBodyText(this, 0, 26, opts.subLabel, {
       fontSize: 12,
       color: TEXT_COLORS.muted,
     });
@@ -511,12 +545,12 @@ export class UpgradeScene extends Phaser.Scene {
       y: centerY + 70,
       width: 130,
       height: 42,
-      label: 'Banish',
+      label: opts.confirmLabel,
       variant: 'danger',
       fontSize: 15,
       onActivate: () => {
         this.destroyBanishConfirmation();
-        onConfirm();
+        opts.onConfirm();
       },
     });
     confirmButton.container.setDepth(32);
@@ -549,8 +583,127 @@ export class UpgradeScene extends Phaser.Scene {
     this.banishConfirmElements = [];
   }
 
+  /** True for a new-weapon card the offer engine flagged as a full-slots trade. */
+  private isRefitOffer(upgrade: Upgrade): boolean {
+    return (upgrade as RefitOffer).requiresSwap === true;
+  }
+
+  private showRefitPicker(newUpgrade: Upgrade): void {
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+    const rows = this.equippedWeapons;
+    const cardHeight = 132 + rows.length * 46;
+
+    this.pendingRefitUpgrade = newUpgrade;
+    this.soundManager.playUIClick();
+
+    // Interactive so a click aimed at a card underneath is swallowed, not selected.
+    const dimOverlay = this.add.rectangle(
+      centerX, centerY, this.scale.width, this.scale.height, 0x000000, 0.6,
+    ).setDepth(30);
+    dimOverlay.setInteractive();
+    this.refitElements.push(dimOverlay);
+
+    const pickerCard = createMenuCard(this, {
+      x: centerX,
+      y: centerY,
+      width: 420,
+      height: cardHeight,
+      bodyFillColor: BODY_COLORS.primary,
+      accentColor: ACCENT_COLORS.primary,
+      bannerHeight: 36,
+      borderWidth: 3,
+      borderColor: ACCENT_COLORS.primary,
+      cornerRadius: 8,
+      interactive: false,
+    });
+    pickerCard.container.setDepth(31);
+
+    const banner = makeDisplayText(this, 0, pickerCard.bannerTopY + 18, 'REFIT: TRADE A WEAPON', {
+      fontSize: 18,
+      color: TEXT_COLORS.heading,
+      letterSpacing: 2,
+    });
+    pickerCard.frame.add(banner);
+
+    const intro = makeBodyText(this, 0, -cardHeight / 2 + 66,
+      `Every weapon slot is full.\nScrap one to take "${newUpgrade.name}".`, {
+        fontSize: 14,
+        color: TEXT_COLORS.muted,
+      });
+    intro.setLineSpacing(3);
+    pickerCard.frame.add(intro);
+    this.refitElements.push(pickerCard.container);
+
+    const firstRowY = centerY - cardHeight / 2 + 118;
+    rows.forEach((weapon, index) => {
+      const rowButton = createMenuButton({
+        scene: this,
+        x: centerX,
+        y: firstRowY + index * 46,
+        width: 360,
+        height: 40,
+        label: `[${index + 1}]  ${weapon.name}  ·  Lv ${weapon.level}`,
+        variant: 'neutral',
+        fontSize: 15,
+        onActivate: () => this.confirmRefit(index),
+      });
+      rowButton.container.setDepth(32);
+      rowButton.card.hitZone.on('pointerover', () => rowButton.setHoverState(true));
+      rowButton.card.hitZone.on('pointerout', () => rowButton.setHoverState(false));
+      this.refitElements.push(rowButton.container);
+    });
+
+    const cancelButton = createMenuButton({
+      scene: this,
+      x: centerX,
+      y: centerY + cardHeight / 2 - 28,
+      width: 160,
+      height: 40,
+      label: 'Cancel  [ESC]',
+      variant: 'neutral',
+      fontSize: 15,
+      onActivate: () => {
+        this.soundManager.playUIClick();
+        this.destroyRefitPicker();
+      },
+    });
+    cancelButton.container.setDepth(32);
+    cancelButton.card.hitZone.on('pointerover', () => cancelButton.setHoverState(true));
+    cancelButton.card.hitZone.on('pointerout', () => cancelButton.setHoverState(false));
+    this.refitElements.push(cancelButton.container);
+  }
+
+  /** Confirm scrapping the equipped weapon at `rowIndex`, then take the pending refit card. */
+  private confirmRefit(rowIndex: number): void {
+    const newUpgrade = this.pendingRefitUpgrade;
+    const weapon = this.equippedWeapons[rowIndex];
+    if (!newUpgrade || !weapon) return;
+    if (this.banishConfirmElements.length > 0) return;
+
+    this.soundManager.playUIClick();
+    this.showDestructiveConfirmation({
+      bannerLabel: 'SCRAP WEAPON',
+      headline: `Scrap "${weapon.name}" (Lv ${weapon.level})\nfor "${newUpgrade.name}"?`,
+      subLabel: 'Its levels are lost and it will not be offered again this run.',
+      confirmLabel: 'Scrap',
+      onConfirm: () => {
+        this.destroyRefitPicker();
+        this.pendingScrapWeaponId = weapon.id;
+        this.selectUpgrade(newUpgrade);
+      },
+    });
+  }
+
+  private destroyRefitPicker(): void {
+    this.refitElements.forEach((el) => el.destroy());
+    this.refitElements = [];
+    this.pendingRefitUpgrade = null;
+  }
+
   shutdown(): void {
     this.tooltipManager.destroy();
+    this.destroyRefitPicker();
 
     if (this.overlayUpdateHandler) {
       this.events.off('update', this.overlayUpdateHandler);
@@ -1101,6 +1254,13 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private selectUpgrade(upgrade: Upgrade): void {
+    if (this.refitElements.length > 0 || this.banishConfirmElements.length > 0) return;
+    if (this.isRefitOffer(upgrade)
+        && this.pendingScrapWeaponId === null
+        && this.equippedWeapons.length > 0) {
+      this.showRefitPicker(upgrade);
+      return;
+    }
     this.soundManager.playUpgradeSelect();
     this.input.keyboard?.removeAllListeners();
     for (const entry of this.cardEntries) entry.card.hitZone.removeAllListeners();
@@ -1152,7 +1312,7 @@ export class UpgradeScene extends Phaser.Scene {
       alpha: 0,
       duration: 20,
       onComplete: () => {
-        this.onSelectCallback?.(upgrade);
+        this.onSelectCallback?.(upgrade, this.pendingScrapWeaponId ?? undefined);
         this.scene.stop();
       },
     });

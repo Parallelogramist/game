@@ -646,6 +646,8 @@ export interface WeaponUpgrade {
   getDescription: (level: number) => string;
   /** Selection weight for new weapons (higher = more likely). Based on codex discovery. */
   weight?: number;
+  /** Set when every weapon slot is full: taking this card trades an equipped weapon for it. */
+  requiresSwap?: boolean;
 }
 
 /**
@@ -777,6 +779,12 @@ function padWithOverflow(
 }
 
 /**
+ * How many REFIT (trade-a-weapon) offers a full-slot milestone may show. Capped at one so
+ * weapon level-ups still fill the rest of the hand instead of being displaced by trades.
+ */
+const MAX_REFIT_OFFERS_PER_MILESTONE = 1;
+
+/**
  * Gets random upgrades from both stat and weapon pools.
  * Every 5th level (5, 10, 15, etc.) ALL options are weapons.
  * New weapons (type: 'add') are only offered on those milestone levels.
@@ -805,19 +813,24 @@ export function getRandomCombinedUpgrades(
 
   // Filter weapon upgrades:
   // - Level-ups are always allowed
-  // - New weapons (type: 'add') only on milestones AND when slots available
+  // - New weapons (type: 'add') are milestone-only: a free slot makes them plain adds, a
+  //   full arsenal makes them REFIT trades (capped in the milestone branch below)
   // - Exclude banished upgrades
   const availableWeapons: CombinedUpgrade[] = weaponUpgrades
     .filter(u => {
       if (banishedIds.has(u.id)) return false;
-      if (u.type === 'add') {
-        // New weapons: only on milestones when we have slots
-        return isWeaponMilestone && canAddNewWeapon;
-      }
+      if (u.type === 'add') return isWeaponMilestone;
       // Level-ups: always allowed
       return true;
     })
-    .map(u => ({ ...u, upgradeType: 'weapon' as const }));
+    .map(u => (u.type === 'add' && !canAddNewWeapon
+      ? {
+          ...u,
+          upgradeType: 'weapon' as const,
+          requiresSwap: true,
+          getDescription: () => 'REFIT: TRADE A WEAPON',
+        }
+      : { ...u, upgradeType: 'weapon' as const }));
 
   // If it's a weapon milestone, return ONLY weapon options with weighted selection
   if (isWeaponMilestone) {
@@ -832,7 +845,8 @@ export function getRandomCombinedUpgrades(
     // Select new weapons using weighted random (if any available)
     const selectedNew: WeaponCombinedUpgrade[] = [];
     const remainingNew = [...newWeapons];
-    while (selectedNew.length < count && remainingNew.length > 0) {
+    const maxNewWeapons = canAddNewWeapon ? count : MAX_REFIT_OFFERS_PER_MILESTONE;
+    while (selectedNew.length < maxNewWeapons && remainingNew.length > 0) {
       // Calculate total weight
       const totalWeight = remainingNew.reduce((sum, u) => sum + (u.weight || 10), 0);
       // Pick random weighted index

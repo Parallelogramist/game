@@ -286,6 +286,9 @@ export class GameScene extends Phaser.Scene {
   // Banished upgrades (removed from pool permanently for this run)
   private banishedUpgradeIds: Set<string> = new Set();
 
+  /** Weapons traded away by a REFIT this run. Kept because they were still used this run. */
+  private scrappedWeaponIds: string[] = [];
+
   // Cards the player locked in the current level-up modal — pinned across rerolls
   // and banishes of that same level-up, cleared when a fresh level-up begins.
   private lockedUpgrades: CombinedUpgrade[] = [];
@@ -1716,6 +1719,7 @@ export class GameScene extends Phaser.Scene {
       eventState: getEventState(),
       minibossSpawnTimes: this.minibossSpawnTimes,
       banishedUpgradeIds: this.banishedUpgradeIds,
+      scrappedWeaponIds: this.scrappedWeaponIds,
       isAutoBuyEnabled: this.isAutoBuyEnabled,
       worldLevel: this.worldLevel,
       worldLevelHealthMult: this.worldLevelHealthMult,
@@ -2074,6 +2078,7 @@ export class GameScene extends Phaser.Scene {
     // Restore player state
     this.playerStats = state.playerStats;
     this.banishedUpgradeIds = new Set(state.banishedUpgradeIds);
+    this.scrappedWeaponIds = state.scrappedWeaponIds ?? [];
     this.isAutoBuyEnabled = state.isAutoBuyEnabled;
 
     // Rehydrate relic inventory without re-applying stats — the saved
@@ -3555,6 +3560,7 @@ export class GameScene extends Phaser.Scene {
     this.runTimelineEvents = [];
     this.closeCallArmed = true;
     this.runTimelineComplete = !this.shouldRestore;
+    this.scrappedWeaponIds = [];
     // Cleared on fresh start; the restore path re-populates from the save after.
     this.timedStatBuffs = [];
     // Armed Exploder fuses are transient combat state (not persisted): clearing
@@ -6017,7 +6023,10 @@ export class GameScene extends Phaser.Scene {
         highestCombo: highestComboThisRun,
         damageTaken: this.totalDamageTaken,
         damageDealt: this.totalDamageDealt,
-        weaponIdsUsed: this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? [],
+        weaponIdsUsed: [
+          ...(this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? []),
+          ...this.scrappedWeaponIds,
+        ],
         worldLevel: metaManager.getWorldLevel(),
         noDamageTaken: this.totalDamageTaken === 0,
         winStreak: metaManager.getCurrentStreak(),
@@ -6167,7 +6176,10 @@ export class GameScene extends Phaser.Scene {
    * for any newly earned unlocks.
    */
   private evaluateHiddenUnlocks(highestComboValue: number, wasVictory: boolean, winStreak: number): void {
-    const weaponIdsUsedThisRun = this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? [];
+    const weaponIdsUsedThisRun = [
+      ...(this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? []),
+      ...this.scrappedWeaponIds,
+    ];
     const lifetimeStats = getAchievementManager().getLifetimeStats();
     // Toast dispatch lives on the onNewUnlock callback registered in create();
     // evaluatePostRun returns the list but we no longer iterate it here.
@@ -8723,7 +8735,7 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.level,
       this.banishedUpgradeIds,
       this.playerStats.luck
-    );
+    ).filter(u => !(u.upgradeType === 'weapon' && u.requiresSwap));
 
     // If no upgrades available, continue without pausing
     if (availableUpgrades.length === 0) {
@@ -9070,7 +9082,9 @@ export class GameScene extends Phaser.Scene {
       allStatUpgrades: this.upgrades,
       playerLevel: this.playerStats.level,
       equippedWeapons,
-      onSelect: (selectedUpgrade: CombinedUpgrade) => {
+      onSelect: (selectedUpgrade: CombinedUpgrade, scrapWeaponId?: string) => {
+        // Free the slot before applying, so the new weapon's addWeapon() finds room.
+        if (scrapWeaponId) this.scrapWeapon(scrapWeaponId);
         this.applyCombinedUpgrade(selectedUpgrade);
         handleSelectionComplete();
       },
@@ -9099,6 +9113,28 @@ export class GameScene extends Phaser.Scene {
           this.showUpgradeSelection();
         });
       },
+    });
+  }
+
+  /**
+   * Trade an equipped weapon away for a REFIT pick: the slot frees, the invested levels are
+   * lost, and the weapon is banished for the rest of the run so it cannot be re-taken at
+   * level 1 to launder the trade.
+   */
+  private scrapWeapon(weaponId: string): void {
+    const weapon = this.weaponManager.getWeapon(weaponId);
+    if (!weapon) return;
+    const scrappedName = weapon.displayName;
+    const scrappedIcon = weapon.icon;
+    if (!this.weaponManager.removeWeapon(weaponId)) return;
+    this.scrappedWeaponIds.push(weaponId);
+    this.banishedUpgradeIds.add(`add_${weaponId}`);
+    this.toastManager?.showToast({
+      title: `SCRAPPED: ${scrappedName}`,
+      description: 'Slot freed for the refit',
+      icon: scrappedIcon,
+      color: 0xff8844,
+      duration: 3000,
     });
   }
 

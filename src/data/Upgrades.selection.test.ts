@@ -355,19 +355,23 @@ describe('getRandomCombinedUpgrades — weapon milestone levels (every 5th)', ()
     }
   });
 
-  test('offers NEW weapons only while a slot is free', () => {
+  test('offers NEW weapons freely with a slot free, and one REFIT trade when full', () => {
     for (let roll = 0; roll < ROLLS; roll++) {
       const withSlot = getRandomCombinedUpgrades(
         createUpgrades(), makeWeaponManager([], true), 3, 10,
       );
       expect(withSlot.every(u => u.upgradeType === 'weapon' && u.type === 'add')).toBe(true);
+      expect(withSlot.every(u => u.upgradeType === 'weapon' && !u.requiresSwap)).toBe(true);
 
       const noSlot = getRandomCombinedUpgrades(
         createUpgrades(),
         makeWeaponManager([{ id: 'katana' }], false),
         3, 10,
       );
-      expect(noSlot.every(u => u.upgradeType === 'weapon' && u.type === 'level')).toBe(true);
+      const adds = noSlot.filter(u => u.upgradeType === 'weapon' && u.type === 'add');
+      expect(adds).toHaveLength(1);
+      expect(adds.every(u => u.upgradeType === 'weapon' && u.requiresSwap === true)).toBe(true);
+      expect(noSlot.every(u => u.upgradeType === 'weapon')).toBe(true);
     }
   });
 
@@ -408,7 +412,32 @@ describe('getRandomCombinedUpgrades — weapon milestone levels (every 5th)', ()
         makeWeaponManager([{ id: 'katana', level: 2 }], false),
         3, 5,
       );
-      expect(resultIds(result)).toEqual(['level_katana']);
+      expect(resultIds(result)).toContain('level_katana');
+      expect(resultIds(result).some(id => id.startsWith('overflow_'))).toBe(false);
+    }
+  });
+
+  test('never offers more than one REFIT trade, however many weapons are unowned', () => {
+    for (let roll = 0; roll < ROLLS; roll++) {
+      const result = getRandomCombinedUpgrades(
+        createUpgrades(),
+        makeWeaponManager([{ id: 'katana', level: 8, maxLevel: 8 }], false),
+        4, 5,
+      );
+      const adds = result.filter(u => u.upgradeType === 'weapon' && u.type === 'add');
+      expect(adds.length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test('a banished weapon is never offered as a REFIT trade', () => {
+    const banished = new Set(['add_katana']);
+    for (let roll = 0; roll < ROLLS; roll++) {
+      const result = getRandomCombinedUpgrades(
+        createUpgrades(),
+        makeWeaponManager([{ id: 'aura' }], false),
+        3, 5, banished,
+      );
+      expect(resultIds(result)).not.toContain('add_katana');
     }
   });
 });

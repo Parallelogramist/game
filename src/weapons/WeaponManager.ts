@@ -234,6 +234,20 @@ export class WeaponManager {
   }
 
   /**
+   * Remove a weapon, freeing its slot. Its `weaponRunStats` entry is deliberately kept — the
+   * damage it dealt is still part of this run and still belongs on the build dashboard.
+   * Returns false when the id is not equipped.
+   */
+  public removeWeapon(weaponId: string): boolean {
+    const weapon = this.weapons.get(weaponId);
+    if (!weapon) return false;
+    weapon.destroy();
+    this.weapons.delete(weaponId);
+    this.recalculateSynergies();
+    return true;
+  }
+
+  /**
    * Recalculate weapon synergies based on currently equipped weapons.
    * Applies damage/cooldown multipliers to weapons in synergy pairs.
    */

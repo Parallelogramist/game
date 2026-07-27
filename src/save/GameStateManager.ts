@@ -350,6 +350,8 @@ export interface GameSaveState {
   // Player state
   playerStats: PlayerStats;
   banishedUpgradeIds: string[];
+  /** Weapons traded away by a REFIT. Absent on saves written before the feature. */
+  scrappedWeaponIds?: string[];
   isAutoBuyEnabled: boolean;
 
   // Player combat state
@@ -651,6 +653,7 @@ export class GameStateManager {
     };
     minibossSpawnTimes: MinibossSpawnTime[];
     banishedUpgradeIds: Set<string>;
+    scrappedWeaponIds?: string[];
     isAutoBuyEnabled: boolean;
     worldLevel: number;
     worldLevelHealthMult: number;
@@ -712,6 +715,7 @@ export class GameStateManager {
         // Player state
         playerStats: gameData.playerStats,
         banishedUpgradeIds: Array.from(gameData.banishedUpgradeIds),
+        scrappedWeaponIds: gameData.scrappedWeaponIds ?? [],
         isAutoBuyEnabled: gameData.isAutoBuyEnabled,
 
         // World level
