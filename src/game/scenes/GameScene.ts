@@ -6109,6 +6109,7 @@ export class GameScene extends Phaser.Scene {
         if (this.practiceModeActive) { this.exitPracticeSession(); return; }
         this.scene.start('ShopScene');
       },
+      onRecordRunEnd: (goldEarned: number) => this.recordEarlyRunEnd(goldEarned),
       onOpenSettings: () => {
         this.isPaused = true; // Keep paused while in settings
         this.scene.launch('SettingsScene', { returnTo: 'GameScene' });
@@ -6798,6 +6799,118 @@ export class GameScene extends Phaser.Scene {
     // showVictory(), so only count here on a loss (mirrors the streak/recordRunEnd
     // guards above). Done after the result is shown so the displayed newcomer
     // multiplier matches the gold just computed.
+    if (!this.hasWon) {
+      metaManager.recordRunCompleted();
+    }
+  }
+
+  /**
+   * Records an early run end: pause menu, END RUN, Confirm. Ending a run is a real
+   * run end (the save is cleared and the run's gold is banked), so it writes what
+   * gameOver() writes, under the same `hasWon` guards: a run that already won and
+   * continued into endless was recorded by showVictory() and must not count twice.
+   * Death-only work is absent on purpose. Nothing killed the player, so there is no
+   * nemesis to persist, and the win streak is left intact (see POLISH-GOLD-TRUTH (h)).
+   */
+  private recordEarlyRunEnd(goldEarned: number): void {
+    const metaManager = getMetaProgressionManager();
+    const worldLevel = metaManager.getWorldLevel();
+    const highestComboThisRun = getHighestCombo();
+
+    // Not behind the hasWon guard, exactly as gameOver() has it: the later, deeper
+    // build is the right one for Memory to carry into the next run.
+    metaManager.recordRunUpgrades(recordRunBuild(this.upgrades));
+
+    if (!this.hasWon) {
+      getAchievementManager().recordRunEnd({
+        wasVictory: false,
+        killCount: this.killCount,
+        levelReached: this.playerStats.level,
+        survivalTimeSeconds: this.gameTime,
+        worldLevel,
+        damageDealt: this.totalDamageDealt,
+        damageTaken: this.totalDamageTaken,
+        goldEarned,
+        accountLevel: metaManager.getAccountLevel(),
+        bestStreak: metaManager.getBestStreak(),
+        highestCombo: highestComboThisRun,
+      });
+
+      getCodexManager().recordRunEnd(
+        this.gameTime,
+        this.killCount,
+        this.totalDamageDealt,
+        goldEarned,
+        false, // wasVictory
+        worldLevel,
+        this.playerStats.level
+      );
+    }
+
+    // After recordRunEnd so the lifetime-stat conditions see this run, the order
+    // gameOver() uses. The unlock toast lands at HUD depth under the confirm dialog
+    // and the scene tears down immediately, so the grant is the point here, not the
+    // notice (see FEAT-ENDRUN-EARNED-VISIBLE).
+    this.evaluateHiddenUnlocks(highestComboThisRun, this.hasWon, metaManager.getCurrentStreak());
+
+    if (!this.gauntletModeActive) {
+      const runScore = computeRunScore({
+        killCount: this.killCount,
+        survivalSeconds: this.gameTime,
+        level: this.playerStats.level,
+        damageDealt: this.totalDamageDealt,
+        highestCombo: highestComboThisRun,
+        wasVictory: this.hasWon,
+      });
+      const scoreResult = recordScore(worldLevel, runScore);
+      if (this.paceRecordingEnabled && scoreResult.isNewBest) {
+        savePaceGhost(worldLevel, this.paceSamples);
+      }
+      recordShipRun(this.selectedShipId, this.hasWon, scoreResult.score);
+
+      if (this.dailyModeActive && this.dailyDateString) {
+        recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
+          survivalSeconds: this.gameTime,
+          killCount: this.killCount,
+          levelReached: this.playerStats.level,
+          wasVictory: this.hasWon,
+          score: runScore,
+        });
+      }
+
+      recordRun({
+        timestamp: Date.now(),
+        durationSeconds: this.gameTime,
+        kills: this.killCount,
+        level: this.playerStats.level,
+        score: scoreResult.score,
+        grade: computePerformanceGrade(runScore, worldLevel, this.hasWon).grade,
+        victory: this.hasWon,
+        worldLevel,
+        ...this.runHistoryBuild(),
+      });
+    } else {
+      recordGauntletRun({
+        timestamp: Date.now(),
+        wave: Math.max(1, this.gauntletWave),
+        kills: this.killCount,
+        durationSeconds: this.gameTime,
+        levelReached: this.playerStats.level,
+        worldLevel,
+      });
+    }
+
+    if (this.endlessModeActive && this.endlessCycleNumber >= 1) {
+      recordEndlessRun({
+        timestamp: Date.now(),
+        cycle: this.endlessCycleNumber,
+        kills: this.killCount,
+        durationSeconds: this.gameTime,
+        levelReached: this.playerStats.level,
+        worldLevel,
+      });
+    }
+
     if (!this.hasWon) {
       metaManager.recordRunCompleted();
     }

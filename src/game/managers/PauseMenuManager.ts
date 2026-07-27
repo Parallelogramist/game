@@ -202,6 +202,11 @@ export interface PauseMenuOptions {
   onRematch: () => void;
   onQuitToMenu: () => void;
   onQuitToShop: (goldEarned: number) => void;
+  /**
+   * Ending a run IS a run end, so it must write every record a death writes. Only
+   * GameScene holds the run state those records need, so it owns the recording.
+   */
+  onRecordRunEnd: (goldEarned: number) => void;
   onOpenSettings: () => void;
   onContinueRun: () => void;
   onNextWorld: (goldEarned: number) => void;
@@ -1309,7 +1314,11 @@ export class PauseMenuManager {
       goldEarned: finalTotal,
       highestCombo: gameState.highestCombo,
     };
-    const pendingQuests = previewDailyQuestSettle(endRunQuestData);
+    // showVictory() already folded this run into the board, and every 'sum' quest
+    // counts a second fold twice, so the endless continuation must not fold again.
+    // gameOver() guards its own settle the same way (`if (!this.hasWon)`).
+    const questsSettledByVictory = gameState.hasWon;
+    const pendingQuests = questsSettledByVictory ? [] : previewDailyQuestSettle(endRunQuestData);
     const pendingQuestGold = pendingQuests.reduce((sum, quest) => sum + quest.gold, 0);
     const grandTotal = finalTotal + pendingQuestGold;
 
@@ -1437,6 +1446,8 @@ export class PauseMenuManager {
     const confirmButtonWidth = 160;
     const buttonY = totalY + 48 + confirmButtonHeight / 2;
 
+    let runEndCommitted = false;
+
     const { bg: confirmButtonBg } = this.createLabeledButton({
       x: this.scene.scale.width / 2 - 100, y: buttonY,
       width: confirmButtonWidth, height: confirmButtonHeight,
@@ -1444,16 +1455,24 @@ export class PauseMenuManager {
       baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeColor: 0x66cc66,
       bgName: 'shopConfirmButtonBg', textName: 'shopConfirmButtonText',
       onActivate: () => {
+        // Enter is bound on `keydown`, so an auto-repeat (or a fast double tap on
+        // Confirm) re-enters this before the destination scene swaps in, paying and
+        // recording the run twice.
+        if (runEndCommitted) return;
+        runEndCommitted = true;
         // Clear the save to prevent exploit (continuing after intentionally ending)
         getGameStateManager().clearSave();
         // Award gold and go to destination
         metaManager.addGold(finalTotal);
+        // Ordered as gameOver() orders it: gold banked, then the run recorded, then
+        // the day's board settled.
+        this.options.onRecordRunEnd(finalTotal);
         // Then fold the run into the day's board, exactly as both run-end paths in
         // GameScene do. Claiming (rather than adding each quest's gold) also sweeps up
         // anything an earlier failed payout left pending — the same reason
         // GameScene.payDailyQuests claims. No toast: one raised here would be drawn at
         // OverlayDepths.HUD, under this dialog at PAUSE_MENU, and never seen.
-        if (settleDailyQuests(endRunQuestData).length > 0) {
+        if (!questsSettledByVictory && settleDailyQuests(endRunQuestData).length > 0) {
           metaManager.addGold(claimDailyQuestGold());
         }
         if (destination === 'restart') {
