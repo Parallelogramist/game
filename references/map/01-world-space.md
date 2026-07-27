@@ -1,5 +1,11 @@
 # 01: World-Space Core, Camera, and Coordinate Migration
 
+> **Amended 2026-07-27 by operator decision.** Expedition becomes the **default** run
+> mode (promoted by `FEAT-EXPEDITION-PROMOTE` after phase 6; it still ships behind
+> `?expedition=1` until then), and **Recall to Hangar is a mid-run teleport, not a run
+> ending**. Where this document assumes otherwise, `README.md` sections 4.1 and 7 win.
+
+
 Piece 1 of the Metroid-style explorable-world feature. This document designs everything
 required for the play field to stop being the screen: the coordinate model, the moving
 camera, the migration of every screen-space call site, world-relative spawning and

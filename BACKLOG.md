@@ -2105,11 +2105,24 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 *(groomed 2026-07-16 — roadmap pass; ordered by value)*
 
-### EPIC-EXPEDITION: the explorable map (32 work orders, scoped 2026-07-27)
+### EPIC-EXPEDITION: the explorable map (34 work orders, scoped 2026-07-27)
 
 Turn the screen-locked arena into a Metroid-style explorable world: the ship flies across
 a map of sectors with barriers, quests, temporary and permanent power-ups, secrets, a
 discovery map and live minimap updates.
+
+**Operator decisions, 2026-07-27 (both prior gates answered):**
+1. **Expedition becomes the DEFAULT run mode**, promoted by `FEAT-EXPEDITION-PROMOTE`
+   after phase 6. It still ships behind `?expedition=1` for every chunk before that, and
+   arena mode is not deleted: it stays as the skirmish entry and as the substrate for the
+   daily challenge, practice and boss-rotation modes, which are tuned for a fixed room.
+2. **Recall to Hangar is a mid-run teleport, not a run ending.** Three consequences the
+   chunks must honor: a recall is a **non-adjacent** sector jump (so
+   `FEAT-WORLDGEN-STREAM` cannot be written against edge crossings alone), it is
+   **blocked during a boss sector lock** (correctness, not balance: teleporting out of a
+   sealed fight strands the lock), and it **needs friction** because a free instant
+   escape deletes the risk of travelling home wounded. See `references/map/README.md`
+   section 4.1.
 
 **Before starting any `FEAT-WORLD-SPACE-*`, `FEAT-WORLDGEN-*`, `FEAT-BARRIER-*`,
 `FEAT-MAPUI-*`, `FEAT-DISCOVERY-*`, `FEAT-POI-*`, `FEAT-POWER-*`, `FEAT-QUEST-CHAINS`,
@@ -2450,8 +2463,22 @@ exploring pays is the end of Phase 5.
 - [ ] **FEAT-WORLDGEN-STREAM**: sector transitions at a flat entity budget (despawn-to-pool,
   per-visit re-roll, persistent structures rematerialize). Done when 50 seam crossings hold
   entity and sprite counts flat against pool counters, ground gems do not survive exits, and
-  broken walls and opened doors come back correctly. Deps: W4 seam events,
-  `FEAT-BARRIER-GATES`, `FEAT-WORLDGEN-SPAWN`.
+  broken walls and opened doors come back correctly. **Write the transition against "leave
+  sector A, enter sector B", not "cross the edge between A and B"**: recall is a mid-run
+  teleport with no shared edge, and a jump must hold those same counters flat. Deps: W4 seam
+  events, `FEAT-BARRIER-GATES`, `FEAT-WORLDGEN-SPAWN`.
+
+- [ ] **FEAT-EXPEDITION-RECALL**: Recall to Hangar as a mid-run teleport, so a player can push
+  out, come home, refit and push out again inside one life (operator decision 2026-07-27).
+  Map-screen action; routes through the streaming activation path rather than moving the
+  Transform directly; fires `expedition:sector-entered` with `viaEdgeId: null`. Done when a
+  recall from any reachable sector arrives at the hangar with entity and sprite counters flat,
+  **is refused during a boss sector lock** (correctness: teleporting out of a sealed fight
+  strands the lock), survives a mid-run reload, and carries a friction knob (recommended
+  default: a short channel that breaks on damage) exposed as a single tuning constant. Deps:
+  `FEAT-WORLDGEN-STREAM`, `FEAT-MAPUI-MAPSCENE-04`, `FEAT-WORLD-SPACE-6`. Spec:
+  `references/map/README.md` section 4.1. Feel and price are unvalidated in a browser: file
+  `POLISH-EXPEDITION-RECALL` under `## Human gates` when it lands.
 
 - [ ] **FEAT-MAPUI-MAPSCENE-04**: the first visible payoff, a pannable and zoomable world map
   that fills in. New `src/game/scenes/MapScene.ts` + `SectorMapRenderer.ts`, registered at
@@ -2519,6 +2546,21 @@ exploring pays is the end of Phase 5.
   game already promises: drag pan, pinch zoom snapping to discrete levels, 48px chrome targets,
   a bottom-sheet tooltip below 500px width, and every state distinguishable in high contrast and
   all three colorblind modes. Deps: `FEAT-MAPUI-DOORS-05`, `FEAT-MAPUI-RADAR-UNDERLAY-06`.
+
+#### Phase 7: promotion
+
+- [ ] **FEAT-EXPEDITION-PROMOTE**: expedition becomes the default run mode and the arena
+  becomes the skirmish entry (operator decision 2026-07-27). Flips the `runMode` default in
+  `GameScene.init`, retires the `?expedition=1` dev route, reworks the BootScene entry and the
+  pre-run funnel (`WeaponSelectScene` to `PactSelectScene`) to start an expedition, and keeps
+  arena reachable as an explicit choice. **Arena stays the substrate for the daily challenge,
+  practice and boss-rotation modes**, which are tuned for a fixed room and must keep routing
+  there. Done when a cold profile starts an expedition, an existing v1 arena save still restores
+  as an arena run, every arena-only entry point (daily challenge, practice, gauntlet, endless)
+  still lands in an arena run, and world level, achievements and hidden unlocks fire correctly
+  from an expedition run. Deps: all of phases 0 to 6. **Do not start this chunk before phase 6
+  is complete**: promoting an unfinished mode ships a worse default game than exists today.
+  The readiness call itself is human (see `## Human gates`), including OQ-1 seam pop.
 
 - [x] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA (done —
   4a0c864). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
@@ -2728,20 +2770,20 @@ exploring pays is the end of Phase 5.
 
 Never agent work. The fleet must not do any of these.
 
-- **GATE-EXPEDITION-PROMOTE** (EPIC-EXPEDITION): does the explorable map become the default
-  run mode, a second entry alongside the arena, or stay behind the dev route? Until this is
-  answered, **every expedition chunk ships behind `?expedition=1`** and the arena run stays
-  byte-identical. Answering it needs a human flying the world in a browser, which no agent can
-  do. The architecture is built so the answer can change late: the mode seam
-  (`WorldModeAdapter`) is one object, not a fork of `GameScene`. Context:
-  `references/map/README.md` sections 1 and 7.
+- **GATE-EXPEDITION-PROMOTE** (EPIC-EXPEDITION): **answered 2026-07-27, expedition becomes
+  the default run mode.** What remains human is the *readiness* call, not the direction: only
+  a human flying the world in a browser can say the default is ready to change, and OQ-1 (seam
+  pop, `references/map/README.md` section 4.2) is a ship blocker for it. Until
+  `FEAT-EXPEDITION-PROMOTE` runs, every expedition chunk stays behind `?expedition=1` and the
+  arena run stays byte-identical. The architecture keeps the flip cheap: the mode seam
+  (`WorldModeAdapter`) is one object, not a fork of `GameScene`.
 
-- **GATE-EXPEDITION-RECALL** (EPIC-EXPEDITION): the semantics of Recall to Hangar. Doc 04
-  needs a free recall so that a soft-lock degrades into a mere progression block. Undecided:
-  does recall **end** the expedition (bank rewards, back to menu) or **teleport** the ship to
-  the start sector mid-run? Ending the run is the safer default because a mid-run teleport can
-  be used to skip travel danger, but it also makes a deep expedition feel punishing to leave.
-  This is a feel call, not a code call. Context: `references/map/README.md` OQ-2.
+- **GATE-EXPEDITION-RECALL** (EPIC-EXPEDITION): **answered 2026-07-27, recall is a mid-run
+  teleport, not a run ending.** Implemented by `FEAT-EXPEDITION-RECALL`. One knob is left for a
+  human: the friction on it. A free instant escape deletes the risk of travelling home wounded,
+  so the recommended default is a short channel that breaks on damage; whether that is right,
+  or wants a cooldown or a gold price instead, is a browser call. Context:
+  `references/map/README.md` section 4.1.
 
 - **Push / deploy:** the repo has `origin` and **a push to `master` auto-deploys GitHub
   Pages** (`.github/workflows/deploy.yml`). Pushing is an explicit human action — agents

@@ -1,5 +1,11 @@
 # 02: World Generation, Barriers, Collision, Enemy Navigation
 
+> **Amended 2026-07-27 by operator decision.** Expedition becomes the **default** run
+> mode (promoted by `FEAT-EXPEDITION-PROMOTE` after phase 6; it still ships behind
+> `?expedition=1` until then), and **Recall to Hangar is a mid-run teleport, not a run
+> ending**. Where this document assumes otherwise, `README.md` sections 4.1 and 7 win.
+
+
 Piece 2 of the expedition-mode feature (Metroid-style explorable world). This document
 owns: the world map itself, static geometry, the first solid collision in this game's
 history, and how enemies navigate it. Sibling documents: `01-world-space.md` (camera and
@@ -882,7 +888,12 @@ persistent structures rematerialize.
 - **DONE-CRITERIA**: crossing seams 50 times in a soak holds entity and sprite counts
   flat (no leak, verified against pool counters); ground gems do not survive exits;
   broken walls and opened doors rematerialize correctly on re-entry; run save/load
-  mid-sector restores the current sector's volatile state; classic mode untouched.
+  mid-sector restores the current sector's volatile state; classic mode untouched;
+  **a non-adjacent jump (Recall to Hangar, no shared edge between departed and arrival
+  sector) deactivates and activates with those same counters flat**, and
+  `expedition:sector-entered` fires on arrival with `viaEdgeId: null`.
+  The transition path must therefore be written against "leave sector A, enter sector B"
+  rather than "cross the edge between A and B": see README section 4.1.
 - **Dependencies**: WS-* seam handling, FEAT-BARRIER-GATES, FEAT-WORLDGEN-SPAWN.
 - **Test surface**: sector activation planner (pure: `SectorDef` + profile flags ->
   list of barrier/hazard/POI instantiations), transition state round-trip in the run

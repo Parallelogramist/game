@@ -1,5 +1,11 @@
 # 04: World Content: Quests, Power-Ups, Secrets, Reward Economy
 
+> **Amended 2026-07-27 by operator decision.** Expedition becomes the **default** run
+> mode (promoted by `FEAT-EXPEDITION-PROMOTE` after phase 6; it still ships behind
+> `?expedition=1` until then), and **Recall to Hangar is a mid-run teleport, not a run
+> ending**. Where this document assumes otherwise, `README.md` sections 4.1 and 7 win.
+
+
 Piece 4 of the expedition-mode map feature. Owns everything that occupies the world:
 POI contents, the permanent traversal ability set (the Metroid spine), temporary
 field pickups, multi-step quests, secrets, and the reward economy that keeps all of
@@ -107,9 +113,17 @@ the frontier empties. My contract input to that check is
 `TRAVERSAL_ABILITIES[i].barrierTypeId` plus the index order (section 8).
 
 Global stranding rule (contract on docs 01/03): **Recall to Hangar** is always
-available from the map screen at zero cost in expedition mode. Opened gates persist
-per profile. Therefore physical stranding is impossible by construction, and
-"soft-lock" reduces to progression-block, which the vault ordering rule prevents.
+available from the map screen in expedition mode, outside a boss sector lock. Opened
+gates persist per profile. Therefore physical stranding is impossible by construction,
+and "soft-lock" reduces to progression-block, which the vault ordering rule prevents.
+
+**Amended 2026-07-27:** recall is a **mid-run teleport** (the run continues at the
+hangar), not the run ending this section originally assumed, and it is therefore **not
+free**. A zero-cost instant teleport out of trouble deletes the risk of travelling home
+wounded, which is most of what makes a deep push a decision. The recommended friction is
+a short channel that breaks on damage, so recall is chosen in a lull rather than mashed
+in a panic; the exact knob belongs to `FEAT-EXPEDITION-RECALL`. The stranding guarantee
+above is unaffected: availability, not price, is what makes stranding impossible.
 
 ### Claim flow
 
@@ -595,7 +609,8 @@ with zero dependency on the other architects.
 **Doc 01 (world-space)**: an expedition-mode flag readable by pure code (abilities
 inert outside it); ship movement hooks for Blink Drive and Magno-Tether actives;
 a `sectorEntered(sectorTag)` event; Recall to Hangar always available from the
-map screen at zero cost.
+map screen outside a sector lock, as a mid-run teleport that routes through the
+streaming activation path (README section 4.1).
 
 **Doc 02 (worldgen/barriers)**: barrier taxonomy exports exactly the six ids in
 section 2's table plus `barrier_false_wall`, keyed by string id; the generator

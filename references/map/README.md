@@ -16,7 +16,9 @@ and the long-term plan.
 | [`03-discovery-map-ui.md`](03-discovery-map-ui.md) | Discovery state, minimap underlay, map screen | 8 |
 | [`04-content-quests-powerups-secrets.md`](04-content-quests-powerups-secrets.md) | POIs, traversal abilities, quests, secrets, economy | 9 |
 
-Total: 32 individually-shippable work orders. Every one leaves the arena game
+Total: 34 individually-shippable work orders (32 from the four docs, plus
+`FEAT-EXPEDITION-RECALL` and `FEAT-EXPEDITION-PROMOTE`, which exist because of the
+operator decisions in section 4 and belong to no single doc). Every one leaves the game
 playable and the suite green. The work orders are filed in `BACKLOG.md` under
 **EPIC-EXPEDITION**; this file holds the reasoning, the doc pointers and the order.
 
@@ -33,9 +35,14 @@ playable and the suite green. The work orders are filed in `BACKLOG.md` under
    Contents (enemies, loot rolls, hazards) re-roll per run; layout, discovery and
    secrets do not. This is the difference between Metroid and roguelike amnesia, and
    it is what makes a permanent traversal ability feel like it opened *your* map.
-3. **Expedition is an additive run mode.** The existing single-arena run stays
-   byte-identical until an operator decision promotes the new mode. This is what lets
-   32 chunks land one at a time without ever shipping a broken game.
+3. **Expedition becomes the default run mode** (operator decision, 2026-07-27), but it
+   is *built* additively: the existing single-arena run stays byte-identical while all
+   32 chunks land, and the promotion is its own final work order
+   (`FEAT-EXPEDITION-PROMOTE`). This is what lets the epic land one chunk at a time
+   without ever shipping a broken game, and it is why the mode seam is one object
+   (`WorldModeAdapter`) rather than a fork of `GameScene`. Arena mode is not deleted by
+   the promotion: it stays as the skirmish entry and remains the substrate for the daily
+   challenge, practice and the boss-rotation modes that are tuned for a fixed room.
 4. **Pure first.** Generation, collision, projection, discovery rules and quest state
    are Phaser-free modules under `src/world/` and `src/expedition/`, unit-tested with
    Vitest. Phaser-coupled wiring is verified by play, not by tests, matching this
@@ -149,21 +156,46 @@ depends on it.
   disable the leash for entities it has already reclaimed, so a single enemy is never
   processed by both.
 
-## 4. Open questions for playtest (not blockers)
+## 4. Decisions taken and questions still open
+
+### 4.1 Recall to Hangar is a mid-run teleport (operator decision, 2026-07-27)
+
+Recall does **not** end the expedition. It teleports the ship to the hangar sector and
+the run continues, so a player can push out, bank nothing, come home, refit and push out
+again inside one life. Three consequences the implementing chunks must honor:
+
+- **A recall is a non-adjacent sector jump.** `FEAT-WORLDGEN-STREAM` was specced around
+  adjacent seam crossings; it must also handle "deactivate sector A, activate sector Z"
+  with no shared edge, or a recall leaks the departed sector's entities.
+  `expedition:sector-entered` fires on arrival with `viaEdgeId: null`.
+- **Recall is blocked during a sector lock.** `FEAT-WORLD-SPACE-6` seals the camera and
+  field rect to a boss room; teleporting out of a sealed fight would strand the lock and
+  leave the boss alive in an inactive sector. Blocked, not merely discouraged: this is a
+  correctness constraint, not a balance taste.
+- **It needs a friction knob, and the knob is not "free".** Doc 04 originally assumed a
+  zero-cost recall, which was safe only because it also assumed the run ended. A free,
+  instant, mid-run teleport is a get-out-of-jail button that deletes the danger of
+  travelling home wounded. The recommended default is a short channel that breaks on
+  damage, so recall is a decision made in a lull rather than a panic button. The exact
+  friction (channel time, cooldown, gold cost, or none) is a tuning value owned by
+  `FEAT-EXPEDITION-RECALL` and validated by a human in a browser.
+
+The stranding guarantee doc 04 relies on is unchanged: recall is always *available*
+outside a lock, so physical stranding is impossible and a soft-lock reduces to a
+progression block, which the vault ordering rule prevents.
+
+### 4.2 Still open, for playtest (not blockers)
 
 - **OQ-1 seam pop.** The camera free-scrolls and can show parts of two sectors, but
   entities are live in one sector only. A player looking across a seam may see enemies
   appear at the boundary. Mitigations, in order of preference if it reads badly:
   activate the neighbor sector's entities on approach, tighten the camera deadzone near
   seams, or make seams visually opaque (doorways, not open field). Decide from play,
-  not from theory.
-- **OQ-2 Recall to Hangar.** Doc 04 needs a free recall so a soft-lock degrades to a
-  progression block. Undecided: does recall end the expedition run (bank rewards, back
-  to menu) or teleport the ship to the start sector mid-run? Ending the run is the
-  safer default because it cannot be used to skip travel danger.
+  not from theory. **Now that expedition is the default mode, this is a ship blocker for
+  `FEAT-EXPEDITION-PROMOTE` rather than a nice-to-have.**
 - **OQ-3 map pause.** Doc 03 pauses gameplay while the map screen is open. Correct for
   a survivors game, but worth confirming it does not become a stall tactic once quests
-  send players across the map.
+  send players across the map, and worth re-checking once recall lives on that screen.
 
 ## 5. Build order
 
@@ -192,7 +224,7 @@ history, and everything that shoots or chases learns about cover.
 **Phase 4: the map fills in.** Discovery is written, then shown.
 `FEAT-DISCOVERY-HOOKS-03`, `FEAT-BARRIER-GATES`, `FEAT-WORLDGEN-SPAWN`,
 `FEAT-WORLDGEN-STREAM`, `FEAT-MAPUI-MAPSCENE-04`, `FEAT-MAPUI-DOORS-05`,
-`FEAT-MAPUI-RADAR-UNDERLAY-06`.
+`FEAT-MAPUI-RADAR-UNDERLAY-06`, `FEAT-EXPEDITION-RECALL`.
 
 **Phase 5: the Metroid loop closes.** Abilities are earned in the world and visibly
 open doors that were closed.
@@ -203,17 +235,25 @@ harness that stops later authoring from drifting it.
 `FEAT-QUEST-CHAINS`, `FEAT-QUEST-BOARD`, `FEAT-SECRET-CACHE`, `FEAT-SECRET-LORE`,
 `FEAT-ECON-WARDS`, `FEAT-MAPUI-TOUCH-A11Y-08`.
 
+**Phase 7: promotion.** Expedition becomes the default run mode and the arena becomes
+the skirmish entry.
+`FEAT-EXPEDITION-PROMOTE`.
+
 The first genuinely playable expedition is the end of Phase 3. The first *fun* one, in
-the sense that exploring pays, is the end of Phase 5.
+the sense that exploring pays, is the end of Phase 5. **Promotion must not happen before
+the end of Phase 6**: making an unfinished mode the default would ship a worse game than
+the one that exists today, and the whole point of the additive build is that this
+decision stays cheap until the mode has earned it.
 
 ## 6. Long-term improvements (after the 32 chunks)
 
 Deliberately not filed as work orders yet: each needs the v1 loop in front of a player
 first.
 
-- **Promote or keep dual mode.** Operator decision (section 7). If expedition becomes
-  the default, the arena becomes a "skirmish" entry point and the mode seam earns its
-  keep permanently.
+- **Retune the arena as a deliberate skirmish mode.** Promotion (section 5, Phase 7)
+  leaves the arena as a short-session entry rather than the main event. Once it is not
+  carrying the whole game, it can be tuned for what it is actually good at: a fast,
+  dense, no-travel power fantasy, and the natural home for the daily challenge.
 - **Biome mechanics, not just tints.** Stages currently vary by multipliers and
   palette. Sector-scale mechanics (a biome where walls move, one where the grid is
   dark beyond the ship's light radius, one with low-gravity drift) reuse the barrier
@@ -244,10 +284,20 @@ first.
 These are decisions or checks a fleet agent must not make alone. They belong in
 `BACKLOG.md` under `## Human gates`.
 
-- **GATE-EXPEDITION-PROMOTE**: whether expedition mode becomes the default run mode,
-  a second entry alongside the arena, or stays behind the dev route. Everything ships
-  behind `?expedition=1` until this is decided.
-- **GATE-EXPEDITION-RECALL**: OQ-2 above, the semantics of Recall to Hangar.
+Both gates that blocked this plan are now **answered** (operator, 2026-07-27):
+
+- **GATE-EXPEDITION-PROMOTE: answered, expedition becomes the default run mode.** It
+  still ships behind `?expedition=1` for phases 0 to 6; `FEAT-EXPEDITION-PROMOTE` flips
+  the default once the mode has earned it. Arena survives as the skirmish entry and as
+  the substrate for the daily challenge, practice and boss-rotation modes.
+- **GATE-EXPEDITION-RECALL: answered, recall is a mid-run teleport, not a run ending.**
+  Consequences and the one remaining tuning knob are in section 4.1.
+
+Still human-only:
+
+- **The promotion itself is a judgement call about quality, not a code change.** A fleet
+  agent can implement `FEAT-EXPEDITION-PROMOTE`, but only a human flying the world can
+  say the default is ready to change. OQ-1 (seam pop) is a ship blocker for it.
 - **POLISH gates**: every chunk that changes something visible files a `POLISH-*` item
   under `## Human gates` when it lands, per the existing repo convention. The ones
   most likely to need a human in a browser: seam pop (OQ-1), map screen readability on

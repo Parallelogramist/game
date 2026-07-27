@@ -1,5 +1,11 @@
 # 03: Discovery State, Live Minimap, and the Map Screen
 
+> **Amended 2026-07-27 by operator decision.** Expedition becomes the **default** run
+> mode (promoted by `FEAT-EXPEDITION-PROMOTE` after phase 6; it still ships behind
+> `?expedition=1` until then), and **Recall to Hangar is a mid-run teleport, not a run
+> ending**. Where this document assumes otherwise, `README.md` sections 4.1 and 7 win.
+
+
 Piece 3 of the expedition-mode feature. Owns: the persisted discovery model, the
 evolution of the existing tactical radar into a world-aware minimap, and the new
 full-screen `MapScene`. Companion documents: `01-world-space.md` (sector/camera),
