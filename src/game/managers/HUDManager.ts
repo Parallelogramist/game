@@ -279,8 +279,10 @@ export class HUDManager {
   private timerTextRef: Phaser.GameObjects.Text | null = null;
   private killCountTextRef: Phaser.GameObjects.Text | null = null;
   private goldPreviewTextRef: Phaser.GameObjects.Text | null = null;
+  private paceDeltaTextRef: Phaser.GameObjects.Text | null = null;
   private comboTextRef: Phaser.GameObjects.Text | null = null;
   private comboProgressBarRef: Phaser.GameObjects.Graphics | null = null;
+  private lastPaceDelta: number | null | undefined = undefined;
 
   // Dirty-check previous values to skip redundant setText calls
   private lastTimerMinutes: number = -1;
@@ -676,6 +678,20 @@ export class HUDManager {
     goldPreviewText.setLetterSpacing(1);
     goldPreviewText.setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
 
+    // Pace vs. your best run at this world level — third row of the same
+    // right-aligned stack (value leads, letter-spaced label trails). Empty until
+    // the first ghost sample at 15 s; the relic strip anchors below it.
+    const paceDeltaText = this.scene.add.text(statsRightX, statsTopY + this.scaledSize(48), '', {
+      fontSize: this.scaledFontSize(14),
+      color: ACCENT_COLORS_STR.safe,
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 3,
+    });
+    paceDeltaText.setLetterSpacing(1);
+    paceDeltaText.setOrigin(1, 0).setName('paceDeltaText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+
     // Combo counter display — anchored bottom-center above the controls hint
     // so it doesn't compete with pause/kills/gold in the top-right. Display
     // typography (bold + letter-spaced) so it feels like the
@@ -821,6 +837,7 @@ export class HUDManager {
     this.timerTextRef = findByName<Phaser.GameObjects.Text>('timerText');
     this.killCountTextRef = findByName<Phaser.GameObjects.Text>('killCountText');
     this.goldPreviewTextRef = findByName<Phaser.GameObjects.Text>('goldPreviewText');
+    this.paceDeltaTextRef = findByName<Phaser.GameObjects.Text>('paceDeltaText');
     this.comboTextRef = findByName<Phaser.GameObjects.Text>('comboText');
     this.comboProgressBarRef = findByName<Phaser.GameObjects.Graphics>('comboProgressBar');
   }
@@ -832,6 +849,29 @@ export class HUDManager {
   setTopCenterLabel(label: string): void {
     const worldLevelText = this.scene.children.getByName('worldLevelText') as Phaser.GameObjects.Text | null;
     worldLevelText?.setText(label);
+  }
+
+  /**
+   * Live pace-vs-best-run readout. `null` clears the line — no ghost for this
+   * world level, before the first sample, or past the ghost's recorded end.
+   */
+  setPaceDelta(delta: number | null): void {
+    if (!this.paceDeltaTextRef || delta === this.lastPaceDelta) return;
+    this.lastPaceDelta = delta;
+    if (delta === null) {
+      this.paceDeltaTextRef.setText('');
+      return;
+    }
+    if (delta > 0) {
+      this.paceDeltaTextRef.setText(`+${delta} PACE`);
+      this.paceDeltaTextRef.setColor(ACCENT_COLORS_STR.safe);
+    } else if (delta < 0) {
+      this.paceDeltaTextRef.setText(`${delta} PACE`);
+      this.paceDeltaTextRef.setColor(ACCENT_COLORS_STR.danger);
+    } else {
+      this.paceDeltaTextRef.setText('EVEN PACE');
+      this.paceDeltaTextRef.setColor('#ffffff');
+    }
   }
 
   /**
@@ -1859,24 +1899,25 @@ export class HUDManager {
   }
 
   /**
-   * Top edge for the relic/modifier strip: clear of the gold preview line.
-   * Anchors off the live gold text when available (it already carries the
-   * portrait pause-button drop); otherwise mirrors the create() stack math.
+   * Top edge for the relic/modifier strip: clear of the pace line, which is now
+   * the bottom of the stats stack. Anchors off the live pace text when available
+   * (it already carries the portrait pause-button drop); otherwise mirrors the
+   * create() stack math.
    */
   private computeRelicStripTopY(): number {
-    const goldText = this.goldPreviewTextRef
-      ?? (this.scene.children.getByName('goldPreviewText') as Phaser.GameObjects.Text | null);
-    if (goldText) {
-      // One text line (~22 at base scale — the text may still be empty when
-      // the strip is first built, so don't trust goldText.height) plus a gap.
-      return goldText.y + Math.max(goldText.height, this.scaledSize(22)) + this.scaledSize(8);
+    const paceText = this.paceDeltaTextRef
+      ?? (this.scene.children.getByName('paceDeltaText') as Phaser.GameObjects.Text | null);
+    if (paceText) {
+      // One text line (~20 at base scale — the pace line is empty for the first
+      // 15 s of every run, so don't trust paceText.height) plus a gap.
+      return paceText.y + Math.max(paceText.height, this.scaledSize(20)) + this.scaledSize(8);
     }
     const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
     const scaledSpacing = this.scaledSize(HUD_ELEMENT_SPACING);
     const pauseButtonSize = Math.max(this.scaledSize(36), 44);
     const pausePortraitDrop = this.scene.scale.height > this.scene.scale.width ? this.scaledSize(12) : 0;
-    // pause bottom → kills line → gold line (+24) → line height (+22) → gap (+8)
-    return scaledPadding + pauseButtonSize + pausePortraitDrop + scaledSpacing + this.scaledSize(54);
+    // pause bottom → kills line → gold line (+24) → pace line (+24) → line height (+20) → gap (+8)
+    return scaledPadding + pauseButtonSize + pausePortraitDrop + scaledSpacing + this.scaledSize(76);
   }
 
   private showRelicTooltip(title: string, body: string, accentColor: number, anchorX: number, anchorY: number): void {
@@ -1987,6 +2028,9 @@ export class HUDManager {
 
     const goldPreviewText = findByName<Phaser.GameObjects.Text>('goldPreviewText');
     if (goldPreviewText) goldPreviewText.setPosition(statsRightX, statsTopY + this.scaledSize(24));
+
+    const paceDeltaText = findByName<Phaser.GameObjects.Text>('paceDeltaText');
+    if (paceDeltaText) paceDeltaText.setPosition(statsRightX, statsTopY + this.scaledSize(48));
 
     // Relic/modifier strip rides just below the gold line — keep it clear of
     // the stats stack (and pinned to the right edge) after any resize.

@@ -128,6 +128,10 @@ export const ALL_STORAGE_KEYS = [
   // DailyQuestManager (today's rotating quest progress + unpaid gold;
   // auto-transfers with the profile)
   'survivor-daily-quests',
+
+  // PaceGhostManager (best-scoring run's kill pace curve per world level;
+  // auto-transfers with the profile)
+  'survivor-pace-ghost',
 ];
 
 /**

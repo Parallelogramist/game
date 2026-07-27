@@ -64,6 +64,7 @@ import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
+import { getPaceGhost, savePaceGhost, paceDeltaKills, PACE_SAMPLE_INTERVAL_SECONDS, MAX_PACE_SAMPLES } from '../../meta/PaceGhostManager';
 import { recordShipRun } from '../../meta/ShipRecords';
 import { settleDailyQuests, createDailyQuestWatcher, claimDailyQuestGold, type DailyQuestWatcher } from '../../meta/DailyQuestManager';
 import type { DailyQuestDefinition } from '../../data/DailyQuests';
@@ -325,6 +326,13 @@ export class GameScene extends Phaser.Scene {
   // can complete, toast and pay mid-run instead of only at run end.
   private dailyQuestWatcher: DailyQuestWatcher | null = null;
   private lastDailyQuestCheck: number = 0;
+
+  // Pace ghost: the kill curve of the best-scoring run at this world level, and
+  // this run's own samples, which replace it if this run scores a new best.
+  private paceGhostCurve: number[] | null = null;
+  private paceSamples: number[] = [];
+  private paceRecordingEnabled: boolean = true;
+  private lastPaceCheck: number = 0;
 
   // Cached per-run meta-progression values (set once in create(); cannot change mid-run)
   private cachedGemMagnetInterval: number = 0;
@@ -3520,6 +3528,15 @@ export class GameScene extends Phaser.Scene {
     this.bountyText = null;
     this.dailyQuestWatcher = null;
     this.lastDailyQuestCheck = 0;
+    // Pace ghost. Practice and gauntlet get no ghost because neither writes a
+    // best score, so there is nothing to race. A restored run lost its early
+    // samples with the page, so it still races the ghost but records no curve.
+    this.paceSamples = [];
+    this.lastPaceCheck = 0;
+    this.paceRecordingEnabled = !this.shouldRestore;
+    this.paceGhostCurve = this.practiceModeActive || this.gauntletModeActive
+      ? null
+      : getPaceGhost(getMetaProgressionManager().getWorldLevel());
     // Cleared on fresh start; the restore path re-populates from the save after.
     this.timedStatBuffs = [];
     // Armed Exploder fuses are transient combat state (not persisted): clearing
@@ -4114,6 +4131,25 @@ export class GameScene extends Phaser.Scene {
     if (!this.practiceModeActive && this.gameTime - this.lastDailyQuestCheck >= 1.0) {
       this.lastDailyQuestCheck = this.gameTime;
       this.checkDailyQuestsLive();
+    }
+
+    // ═══ PACE GHOST (fixed 15 s sample grid, HUD refreshed once per second) ═══
+    // The while-loop samples on absolute grid points rather than a drifting
+    // timer, so a slow frame fills the gap instead of shifting every later
+    // sample. Practice is excluded like the blocks above; gauntlet has no ghost,
+    // so its delta is null and the HUD line stays empty.
+    if (!this.practiceModeActive) {
+      while (
+        this.paceRecordingEnabled
+        && this.paceSamples.length < MAX_PACE_SAMPLES
+        && (this.paceSamples.length + 1) * PACE_SAMPLE_INTERVAL_SECONDS <= this.gameTime
+      ) {
+        this.paceSamples.push(this.killCount);
+      }
+      if (this.gameTime - this.lastPaceCheck >= 1.0) {
+        this.lastPaceCheck = this.gameTime;
+        this.hudManager.setPaceDelta(paceDeltaKills(this.paceGhostCurve, this.gameTime, this.killCount));
+      }
     }
 
     // ═══ AUTO-SAVE (periodic save for page reload recovery) ═══
@@ -5617,6 +5653,9 @@ export class GameScene extends Phaser.Scene {
       wasVictory: true,
     });
     const victoryScoreResult = recordScore(victoryWorldLevel, victoryRunScore);
+    if (this.paceRecordingEnabled && victoryScoreResult.isNewBest) {
+      savePaceGhost(victoryWorldLevel, this.paceSamples);
+    }
     recordShipRun(this.selectedShipId, true, victoryScoreResult.score);
     const victoryGrade = computePerformanceGrade(victoryRunScore, victoryWorldLevel, true);
 
@@ -5952,6 +5991,9 @@ export class GameScene extends Phaser.Scene {
         wasVictory: this.hasWon,
       });
       scoreResult = recordScore(runWorldLevel, runScore);
+      if (this.paceRecordingEnabled && scoreResult.isNewBest) {
+        savePaceGhost(runWorldLevel, this.paceSamples);
+      }
       recordShipRun(this.selectedShipId, this.hasWon, scoreResult.score);
       performanceGrade = computePerformanceGrade(runScore, runWorldLevel, this.hasWon);
 
