@@ -54,6 +54,8 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
+import { rectFromScreen } from '../../world/worldSpace';
+import { pickEdgeSpawnPoint } from '../../world/spawnRing';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
 import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
@@ -7134,30 +7136,12 @@ export class GameScene extends Phaser.Scene {
     // Scale stats with both time and world level multipliers
     const scaledStats = getScaledStats(enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult);
 
-    // Spawn at random edge of screen (outside visible area)
-    const side = Phaser.Math.Between(0, 3);
-    let x: number;
-    let y: number;
-    const spawnOffset = 30;
-
-    switch (side) {
-      case 0: // Left
-        x = -spawnOffset;
-        y = Phaser.Math.Between(0, this.scale.height);
-        break;
-      case 1: // Right
-        x = this.scale.width + spawnOffset;
-        y = Phaser.Math.Between(0, this.scale.height);
-        break;
-      case 2: // Top
-        x = Phaser.Math.Between(0, this.scale.width);
-        y = -spawnOffset;
-        break;
-      default: // Bottom
-        x = Phaser.Math.Between(0, this.scale.width);
-        y = this.scale.height + spawnOffset;
-        break;
-    }
+    // Spawn just outside the visible area, on a random edge.
+    const { x, y } = pickEdgeSpawnPoint(
+      rectFromScreen(this.scale.width, this.scale.height),
+      { spawnOffset: 30, edgeInset: 0 },
+      Math.random,
+    );
 
     this.createEnemy(x, y, enemyType, scaledStats);
   }
@@ -7312,18 +7296,12 @@ export class GameScene extends Phaser.Scene {
     if (!enemyType) return;
     this.recordRunTimelineEvent('miniboss');
 
-    // Spawn at random screen edge
-    const side = Phaser.Math.Between(0, 3);
-    let x: number;
-    let y: number;
-    const spawnOffset = 50;
-
-    switch (side) {
-      case 0: x = -spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
-      case 1: x = this.scale.width + spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
-      case 2: x = Phaser.Math.Between(100, this.scale.width - 100); y = -spawnOffset; break;
-      default: x = Phaser.Math.Between(100, this.scale.width - 100); y = this.scale.height + spawnOffset; break;
-    }
+    // Spawn just outside the visible area, inset from the corners.
+    const { x, y } = pickEdgeSpawnPoint(
+      rectFromScreen(this.scale.width, this.scale.height),
+      { spawnOffset: 50, edgeInset: 100 },
+      Math.random,
+    );
 
     // Scale stats with both time and world level multipliers
     const scalingTime = this.spawnScalingTime(typeId);
@@ -7521,16 +7499,11 @@ export class GameScene extends Phaser.Scene {
     if (!enemyType) return;
     this.recordRunTimelineEvent('miniboss');
 
-    const side = Phaser.Math.Between(0, 3);
-    let x: number;
-    let y: number;
-    const spawnOffset = 50;
-    switch (side) {
-      case 0: x = -spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
-      case 1: x = this.scale.width + spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
-      case 2: x = Phaser.Math.Between(100, this.scale.width - 100); y = -spawnOffset; break;
-      default: x = Phaser.Math.Between(100, this.scale.width - 100); y = this.scale.height + spawnOffset; break;
-    }
+    const { x, y } = pickEdgeSpawnPoint(
+      rectFromScreen(this.scale.width, this.scale.height),
+      { spawnOffset: 50, edgeInset: 100 },
+      Math.random,
+    );
 
     const scaledStats = getScaledStats(
       enemyType, this.spawnScalingTime(record.typeId),
