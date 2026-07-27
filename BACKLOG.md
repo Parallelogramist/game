@@ -164,15 +164,34 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   verifiable without a live scene. Files: `runTimeline.ts`, `runTimeline.test.ts`, `GameScene.ts`,
   `PauseMenuManager.ts`. Legibility/feel → playtest queue (POLISH-RUN-TIMELINE).
 
-- [ ] **FEAT-BOSS-REMATCH** — one tap from the death screen into a practice fight against the
-  thing that killed you, with the build you died with. Value: FEAT-THREAT-RECAP already names the
-  killer (`killedBySourceName`) and practice mode already spawns any boss with any affix
-  (FEAT-PRACTICE-BOSS) against a chosen build (FEAT-PRACTICE-BUILD), but the two never meet, so
-  learning the fight that just ended the run means walking the whole practice menu and rebuilding
-  the loadout by hand. Done when: the game-over overlay carries a REMATCH action for runs killed
-  by a boss/miniboss, which launches `PracticeScene` pre-seeded with that enemy, its affixes, and
-  the run's weapons/levels. Pointers: `PauseMenuManager.gameOver`, `GameOverData.killedBy`,
-  `PracticeArena.ts`, `PracticeBuild.ts`, `PracticeTargets.ts`.
+- [x] **FEAT-BOSS-REMATCH** — one tap from the death screen into a practice fight against the
+  thing that killed you, with the build you died with (done — 860d895). Value: `FEAT-THREAT-RECAP`
+  already named the killer and `FEAT-PRACTICE-BOSS`/`FEAT-PRACTICE-BUILD` already spawned any
+  boss-tier target against any build, but the two never met — learning the fight that just ended
+  the run meant quitting to the menu, walking the PRACTICE flow, and hand-cycling the dock's
+  TARGET / AFFIX / 2ND / BUILD buttons back to it. A **REMATCH `<NAME>`** pill now appears on the
+  game-over overlay whenever a boss-tier enemy can be re-fielded, and relaunches `GameScene` in
+  practice mode seeded with the target, its exact affixes, the run's whole weapon loadout (ids,
+  levels, evolutions), the run's ship/stage/modifiers, and a flat build depth. **The target is
+  resolved past the revival branch at the same single point `killedBySourceName` is set**, so a
+  hit the player was revived from never claims it; it prefers the lethal hit's attacker and falls
+  back to any boss-tier enemy still on the field, because the boss attacks that kill most often
+  (`Ground Slam` / `Laser Beam` / `Enemy Fire`) carry a label rather than an attacker entity —
+  without the fallback the feature would miss most boss deaths. `twin_b` folds onto `twin_a` (the
+  schedule lists only the latter) and The Legion is affix-cleared, matching the dock's own rule.
+  Build depth is the **mean stat-upgrade level, capped at 10** — a real build is uneven but
+  `BREAK_LEVEL_GATES` makes only an even spread reachable, so the mean is the gate-legal
+  projection (same rationale as `PracticeBuild.ts`). The auto-spawn is deferred to `update()`
+  behind `introOverlayActive`, because `spawnPracticeTarget` no-ops while the run-modifier banner
+  holds the intro overlay. The pill cancels its own `pointerdown` (`stopPropagation`) for the same
+  reason `COPY RESULT` does — the game-over screen restarts on a scene-level `pointerdown` — and
+  sits directly above `COPY RESULT` so the share pill keeps its documented slot next to the
+  restart hint; `R` is the keyboard shortcut. **ARENA is deliberately left OFF**: a boss-tier
+  practice spawn already scales to its canonical `scheduledSpawnTime`, so the rung only adds trash
+  density, which is the dock's call to make. No ECS/combat change, no new storage key, no
+  save-format migration, no new scene, no new file, and no test added (the only new pure logic is
+  a three-line id lookup and a four-line average). Files: `PracticeTargets.ts`, `PracticeDock.ts`,
+  `GameScene.ts`, `PauseMenuManager.ts`. Legibility/feel → playtest queue (POLISH-BOSS-REMATCH).
 
 - [x] **FEAT-QUEST-LIVE** — daily quests complete, toast and pay their gold *during* the run
   (done — 773aca4). Value: the board shipped by FEAT-DAILY-QUESTS was
@@ -1610,6 +1629,19 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-REMATCH** (— 860d895) — die to a boss or miniboss and judge the new **REMATCH
+    <NAME>** pill on the game-over overlay. Check: (a) does `REMATCH THE TESSELLATOR` (the longest
+    name) fit the 300-unit pill at 15px, and does the pill sit clear of COPY RESULT on a
+    daily/weekly run where both render? (b) the fight itself — does the rematch feel like the one
+    you just lost, or does the flat build depth (mean stat level, capped 10) read as noticeably
+    stronger/weaker than the build you actually died with? (c) is auto-spawning the target the
+    right call, or should it wait for a SPAWN press so you can set ARENA/MUTATOR first? (d) ARENA
+    is left OFF, so the boss fights you in an empty arena — is that the useful practice, or should
+    a rematch field the trash density of the minute you died at? (e) the fallback: when trash lands
+    the killing blow while a boss is alive, REMATCH offers the boss while WHAT KILLED YOU names the
+    trash — does that read as sensible or as a mismatch? (f) leaving the rematch needs a page
+    reload (every practice session does) — is that acceptable from a death screen, or does it want
+    a way back to the menu? (g) should a *victory* also offer a rematch of the final boss?
   - **POLISH-WEAPON-REFIT** (— 9b29b34) — reach a weapon milestone (level 5/10/15…) with every
     weapon slot full and judge the trade: does the `REFIT: TRADE A WEAPON` card read as a trade
     before you click it, or does it look like a normal new-weapon card? Is one refit offer per
