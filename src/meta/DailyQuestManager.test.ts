@@ -21,6 +21,7 @@ import {
   getDailyQuestCompletionCount,
   settleDailyQuests,
   claimDailyQuestGold,
+  createDailyQuestWatcher,
 } from './DailyQuestManager';
 import {
   DAILY_QUESTS,
@@ -158,5 +159,58 @@ describe('DailyQuestManager', () => {
     const board = getDailyQuestBoard();
     expect(board.every((entry) => entry.value === 0)).toBe(true);
     expect(claimDailyQuestGold()).toBe(0);
+  });
+
+  // ── Live watcher (the in-run path; gold must never be paid twice) ──
+
+  /** An in-progress run big enough to satisfy every live-measurable quest. */
+  const liveRunOfMagnitude = (magnitude: number): DailyQuestRunData => ({
+    ...runOfMagnitude(magnitude),
+    wasVictory: false,
+    goldEarned: 0,
+  });
+
+  test('the live watcher pays a quest mid-run, and the run-end settle never pays it again', () => {
+    const live = liveRunOfMagnitude(1_000_000);
+    const expected = todaysQuests().filter(
+      (quest) => quest.settleOnly !== true && quest.measure(live) >= quest.target,
+    );
+
+    const watcher = createDailyQuestWatcher();
+    const paid = watcher.check(live);
+    expect(paid.map((quest) => quest.id).sort()).toEqual(expected.map((quest) => quest.id).sort());
+    expect(claimDailyQuestGold()).toBe(expected.reduce((total, quest) => total + quest.gold, 0));
+
+    // Same run, checked again: nothing new, nothing owed.
+    expect(watcher.check(live)).toEqual([]);
+    expect(claimDailyQuestGold()).toBe(0);
+
+    // The run finally ends: only quests the watcher could not judge may pay now.
+    const settled = settleDailyQuests(runOfMagnitude(1_000_000));
+    expect(settled.some((quest) => paid.some((already) => already.id === quest.id))).toBe(false);
+    expect(claimDailyQuestGold()).toBe(settled.reduce((total, quest) => total + quest.gold, 0));
+  });
+
+  test('a live-completed quest reads as complete on the board before any run ends', () => {
+    const live = liveRunOfMagnitude(1_000_000);
+    const expected = todaysQuests().filter(
+      (quest) => quest.settleOnly !== true && quest.measure(live) >= quest.target,
+    );
+    const paid = createDailyQuestWatcher().check(live);
+    expect(paid.map((quest) => quest.id).sort()).toEqual(expected.map((quest) => quest.id).sort());
+
+    const board = getDailyQuestBoard();
+    for (const quest of paid) {
+      const entry = board.find((candidate) => candidate.quest.id === quest.id);
+      expect(entry?.complete).toBe(true);
+      expect(entry?.value).toBeGreaterThanOrEqual(quest.target);
+    }
+    expect(getDailyQuestCompletionCount()).toBeGreaterThanOrEqual(paid.length);
+  });
+
+  test('a settleOnly quest never completes live, however big the run', () => {
+    expect(DAILY_QUESTS.find((quest) => quest.id === 'runs_day_3')?.settleOnly).toBe(true);
+    const paid = createDailyQuestWatcher().check(liveRunOfMagnitude(1_000_000));
+    expect(paid.some((quest) => quest.settleOnly === true)).toBe(false);
   });
 });

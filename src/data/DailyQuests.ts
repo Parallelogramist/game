@@ -31,6 +31,9 @@ export interface DailyQuestDefinition {
   readonly measure: (run: DailyQuestRunData) => number;
   /** 'time' renders progress as m:ss instead of a plain count. */
   readonly format?: 'time';
+  /** True when the quest can only be judged on a FINISHED run (it counts run
+   *  completions), so the in-run live watcher must never fire it early. */
+  readonly settleOnly?: boolean;
 }
 
 export const DAILY_QUEST_COUNT = 3;
@@ -107,6 +110,7 @@ export const DAILY_QUESTS: readonly DailyQuestDefinition[] = [
     gold: 200,
     aggregate: 'sum',
     measure: () => 1,
+    settleOnly: true,
   },
   {
     id: 'damage_day_500k',

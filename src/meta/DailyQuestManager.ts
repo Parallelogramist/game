@@ -92,8 +92,12 @@ function save(state: DailyQuestState): void {
 export function getDailyQuestBoard(): DailyQuestProgress[] {
   const state = load();
   return getQuestsForDate(state.date).map((quest) => {
-    const value = state.progress[quest.id] ?? 0;
-    return { quest, value, complete: value >= quest.target };
+    // A quest paid live mid-run is marked rewarded immediately, but only the
+    // run-end settle writes `progress` — so `rewarded` is what "complete" means.
+    const rewarded = state.rewarded.includes(quest.id);
+    const stored = state.progress[quest.id] ?? 0;
+    const value = rewarded ? Math.max(stored, quest.target) : stored;
+    return { quest, value, complete: rewarded || value >= quest.target };
   });
 }
 
@@ -127,6 +131,71 @@ export function settleDailyQuests(run: DailyQuestRunData): DailyQuestDefinition[
 
   save(state);
   return completedNow;
+}
+
+export interface DailyQuestWatcher {
+  /**
+   * Folds the IN-PROGRESS run into today's board and returns the quests it just
+   * completed (empty if none). Completions are marked rewarded and their gold is
+   * banked into `pendingGold`; the caller claims and pays it. Pure arithmetic
+   * against an in-memory baseline — storage is touched only on a completion.
+   */
+  check(live: DailyQuestRunData): DailyQuestDefinition[];
+}
+
+/**
+ * A per-run watcher over today's board. Built once per run and reused, so the
+ * once-a-second in-run check never re-reads (or re-decrypts) storage.
+ *
+ * `progress` stays the run-end settle's exclusive write: a live completion only
+ * writes `rewarded` + `pendingGold`, which is what stops a quest from being paid
+ * twice when the run finally settles (settleDailyQuests skips rewarded quests).
+ */
+export function createDailyQuestWatcher(): DailyQuestWatcher {
+  const state = load();
+  const date = state.date;
+  const baseline: Record<string, number> = { ...state.progress };
+  let candidates = getQuestsForDate(date).filter(
+    (quest) => quest.settleOnly !== true && !state.rewarded.includes(quest.id),
+  );
+  let stale = false;
+
+  return {
+    check(live: DailyQuestRunData): DailyQuestDefinition[] {
+      if (stale || candidates.length === 0) return [];
+
+      const reached = candidates.filter((quest) => {
+        const previous = baseline[quest.id] ?? 0;
+        const contribution = sanitizeValue(quest.measure(live));
+        const value =
+          quest.aggregate === 'sum' ? previous + contribution : Math.max(previous, contribution);
+        return value >= quest.target;
+      });
+      if (reached.length === 0) return [];
+
+      const current = load();
+      if (current.date !== date) {
+        // UTC midnight crossed mid-run: this run belongs to a new board now, and
+        // the baseline is yesterday's. Stand down and let the run-end settle
+        // fold the run into the new day.
+        stale = true;
+        return [];
+      }
+
+      const paid: DailyQuestDefinition[] = [];
+      for (const quest of reached) {
+        if (current.rewarded.includes(quest.id)) continue;
+        current.rewarded.push(quest.id);
+        current.pendingGold += quest.gold;
+        paid.push(quest);
+      }
+      if (paid.length > 0) save(current);
+
+      const reachedIds = new Set(reached.map((quest) => quest.id));
+      candidates = candidates.filter((quest) => !reachedIds.has(quest.id));
+      return paid;
+    },
+  };
 }
 
 /**

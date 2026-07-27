@@ -65,7 +65,8 @@ import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
 import { recordScore } from '../../meta/BestScoreManager';
 import { recordShipRun } from '../../meta/ShipRecords';
-import { settleDailyQuests } from '../../meta/DailyQuestManager';
+import { settleDailyQuests, createDailyQuestWatcher, claimDailyQuestGold, type DailyQuestWatcher } from '../../meta/DailyQuestManager';
+import type { DailyQuestDefinition } from '../../data/DailyQuests';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
@@ -317,6 +318,11 @@ export class GameScene extends Phaser.Scene {
   private bountyCooldown: number = 20;
   private bountyText: Phaser.GameObjects.Text | null = null;
   private bountyFlawlessBroken: boolean = false;
+
+  // Daily quests, live: folded into the in-progress run once a second so a quest
+  // can complete, toast and pay mid-run instead of only at run end.
+  private dailyQuestWatcher: DailyQuestWatcher | null = null;
+  private lastDailyQuestCheck: number = 0;
 
   // Cached per-run meta-progression values (set once in create(); cannot change mid-run)
   private cachedGemMagnetInterval: number = 0;
@@ -3509,6 +3515,8 @@ export class GameScene extends Phaser.Scene {
     this.bountyFlawlessBroken = false;
     this.bountyText?.destroy();
     this.bountyText = null;
+    this.dailyQuestWatcher = null;
+    this.lastDailyQuestCheck = 0;
     // Cleared on fresh start; the restore path re-populates from the save after.
     this.timedStatBuffs = [];
     // Armed Exploder fuses are transient combat state (not persisted): clearing
@@ -4095,6 +4103,14 @@ export class GameScene extends Phaser.Scene {
     if (!this.practiceModeActive && this.gameTime - this.lastAchievementTimeCheck >= 1.0) {
       this.lastAchievementTimeCheck = this.gameTime;
       getAchievementManager().recordTimeSurvived(Math.floor(this.gameTime));
+    }
+
+    // ═══ DAILY QUESTS (live, throttled to once per second) ═══
+    // Practice is excluded for the same reason as the line above and to match the
+    // run-end settle sites 1:1: a sandbox run must never move the day's board.
+    if (!this.practiceModeActive && this.gameTime - this.lastDailyQuestCheck >= 1.0) {
+      this.lastDailyQuestCheck = this.gameTime;
+      this.checkDailyQuestsLive();
     }
 
     // ═══ AUTO-SAVE (periodic save for page reload recovery) ═══
@@ -5592,7 +5608,7 @@ export class GameScene extends Phaser.Scene {
     // Fold this run into today's quest board. Hooked at the exact recordRunEnd
     // sites so quest eligibility matches achievement eligibility 1:1 — practice
     // runs never reach here, gauntlet/daily runs do.
-    settleDailyQuests({
+    this.payDailyQuests(settleDailyQuests({
       wasVictory: true,
       killCount: this.killCount,
       levelReached: this.playerStats.level,
@@ -5601,7 +5617,7 @@ export class GameScene extends Phaser.Scene {
       damageTaken: this.totalDamageTaken,
       goldEarned,
       highestCombo: getHighestCombo(),
-    });
+    }));
 
     // Record run end statistics in codex
     getCodexManager().recordRunEnd(
@@ -5838,7 +5854,7 @@ export class GameScene extends Phaser.Scene {
         this.playerStats.level
       );
 
-      settleDailyQuests({
+      this.payDailyQuests(settleDailyQuests({
         wasVictory: false,
         killCount: this.killCount,
         levelReached: this.playerStats.level,
@@ -5847,7 +5863,7 @@ export class GameScene extends Phaser.Scene {
         damageTaken: this.totalDamageTaken,
         goldEarned,
         highestCombo: highestComboThisRun,
-      });
+      }));
     }
 
     // Evaluate hidden unlocks and queue toast notifications for each new one.
@@ -6029,6 +6045,50 @@ export class GameScene extends Phaser.Scene {
       },
       lifetime: lifetimeStats,
     });
+  }
+
+  /**
+   * Folds the in-progress run into today's quest board and pays anything it
+   * completes on the spot. `wasVictory`/`goldEarned` are the two facts that only
+   * exist at run end, so they go in as false/0 — the quests measuring them simply
+   * never fire live and settle at run end instead.
+   */
+  private checkDailyQuestsLive(): void {
+    if (!this.dailyQuestWatcher) {
+      this.dailyQuestWatcher = createDailyQuestWatcher();
+    }
+    this.payDailyQuests(this.dailyQuestWatcher.check({
+      wasVictory: false,
+      killCount: this.killCount,
+      levelReached: this.playerStats.level,
+      survivalTimeSeconds: this.gameTime,
+      damageDealt: this.totalDamageDealt,
+      damageTaken: this.totalDamageTaken,
+      goldEarned: 0,
+      highestCombo: getHighestCombo(),
+    }));
+  }
+
+  /**
+   * Pays out quest gold banked by a live completion or a run-end settle and
+   * toasts each quest. Claiming (rather than adding each quest's gold directly)
+   * also sweeps up anything an earlier failed payout left pending.
+   */
+  private payDailyQuests(completed: DailyQuestDefinition[]): void {
+    if (completed.length === 0) return;
+    const owed = claimDailyQuestGold();
+    if (owed > 0) {
+      getMetaProgressionManager().addGold(owed);
+    }
+    for (const quest of completed) {
+      this.toastManager?.showToast({
+        title: 'Daily Quest Complete',
+        description: `${quest.name} · +${quest.gold} gold`,
+        icon: quest.icon,
+        color: 0xffe26a,
+        duration: 3600,
+      });
+    }
   }
 
   private createPlayer(x: number, y: number): number {
