@@ -36,9 +36,17 @@ import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, set
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
 import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind } from '../../ecs/systems/ConsumablePickupSystem';
-import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades } from '../../data/Upgrades';
+import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades, getWeaponUpgrades } from '../../data/Upgrades';
 import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
-import { buildMarketOffers, MarketOfferId, MarketOfferView } from '../../data/MarketOffers';
+import {
+  buildMarketOffers,
+  MarketOfferId,
+  MarketOfferView,
+  MarketStockContext,
+  MarketStockSubject,
+  MARKET_CONTRABAND_REROLLS,
+  MARKET_CONTRABAND_BANISHES,
+} from '../../data/MarketOffers';
 import { EffectsManager } from '../../effects/EffectsManager';
 import { getJuiceManager, resetJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
@@ -1709,6 +1717,52 @@ export class GameScene extends Phaser.Scene {
    * openRelicDraftRound's pause ownership: this flow sets isPaused and the
    * single onClose callback releases it, whichever way the player exits.
    */
+  /**
+   * Snapshots what this run lacks for the market's 4th slot (FEAT-MARKET-STOCK).
+   * The recruit weapon is rolled HERE, once per visit, and the card carries its id
+   * — so the player is always sold the weapon the card named.
+   */
+  private buildMarketStockContext(): MarketStockContext {
+    const weaponUpgrades = getWeaponUpgrades(this.weaponManager);
+
+    const addable = weaponUpgrades.filter(
+      candidate => candidate.type === 'add' && !this.banishedUpgradeIds.has(candidate.id),
+    );
+    const rolled = addable.length > 0 ? Phaser.Utils.Array.GetRandom(addable) : null;
+    const recruit: MarketStockSubject | null = rolled
+      ? { weaponId: rolled.weaponId, name: rolled.name, icon: rolled.icon, level: 0 }
+      : null;
+
+    let arsenal: MarketStockSubject | null = null;
+    for (const candidate of weaponUpgrades) {
+      if (candidate.type !== 'level') continue;
+      if (!arsenal || candidate.currentLevel < arsenal.level) {
+        arsenal = {
+          weaponId: candidate.weaponId,
+          name: candidate.name,
+          icon: candidate.icon,
+          level: candidate.currentLevel,
+        };
+      }
+    }
+
+    return {
+      freeWeaponSlots: this.weaponManager.getRemainingSlots(),
+      recruit,
+      arsenal,
+      draftCharges: this.playerStats.rerollsRemaining + this.playerStats.banishesRemaining,
+    };
+  }
+
+  /** Re-resolves a stock card's weapon into the upgrade the shared apply path takes. */
+  private findWeaponUpgrade(type: 'add' | 'level', weaponId: string | undefined): CombinedUpgrade | null {
+    if (!weaponId) return null;
+    const match = getWeaponUpgrades(this.weaponManager).find(
+      candidate => candidate.type === type && candidate.weaponId === weaponId,
+    );
+    return match ? { ...match, upgradeType: 'weapon' as const } : null;
+  }
+
   private openMarket(shrineX: number, shrineY: number): void {
     if (this.marketActive || this.scene.isActive('MarketScene')) return;
     const relicManager = getRelicManager();
@@ -1718,6 +1772,7 @@ export class GameScene extends Phaser.Scene {
       atFullHealth:
         this.playerId !== -1 && Health.current[this.playerId] >= Health.max[this.playerId],
       relicsMaxed: relicManager.isFull() && !relicManager.hasReinforceCandidates(),
+      stock: this.buildMarketStockContext(),
     });
 
     this.marketActive = true;
@@ -1748,6 +1803,18 @@ export class GameScene extends Phaser.Scene {
    */
   private applyMarketPurchase(offer: MarketOfferView, x: number, y: number): void {
     const metaManager = getMetaProgressionManager();
+
+    // Resolve a weapon purchase BEFORE charging — the wallet is never debited for
+    // an effect that cannot land.
+    let stockUpgrade: CombinedUpgrade | null = null;
+    if (offer.id === 'recruit' || offer.id === 'arsenal') {
+      stockUpgrade = this.findWeaponUpgrade(
+        offer.id === 'recruit' ? 'add' : 'level',
+        offer.stockWeaponId,
+      );
+      if (!stockUpgrade) return;
+    }
+
     if (!metaManager.spendGold(offer.price)) return;
 
     switch (offer.id) {
@@ -1762,6 +1829,16 @@ export class GameScene extends Phaser.Scene {
         // Queued, not opened inline: processRelicChoiceQueue owns draft rounds
         // and takes the pause back on the next frame.
         this.grantRelicChoice(1);
+        break;
+      case 'recruit':
+      case 'arsenal':
+        // The shared level-up path: achievements, codex discovery, stat sync,
+        // build heal and the evolution check all come with it.
+        if (stockUpgrade) this.applyCombinedUpgrade(stockUpgrade);
+        break;
+      case 'contraband':
+        this.playerStats.rerollsRemaining += MARKET_CONTRABAND_REROLLS;
+        this.playerStats.banishesRemaining += MARKET_CONTRABAND_BANISHES;
         break;
     }
 
