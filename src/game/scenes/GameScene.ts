@@ -54,7 +54,7 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { WorldPoint, inflateRect, rectCenter } from '../../world/worldSpace';
+import { WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
 import {
   EdgeSpawnConfig,
   isBeyondLeash,
@@ -3418,13 +3418,21 @@ export class GameScene extends Phaser.Scene {
       if (!this.hasOtherAliveBoss(enemyId)) {
         deactivateBossArena();
         this.activeBossType = null;
+        this.worldMode.releaseSectorLock();
       }
 
-      // Gold sparkle rain across screen for boss death celebration
+      // Gold sparkle rain across the room for boss death celebration. The view rect is a
+      // reused instance, so its numbers are read out now rather than inside the delayed
+      // calls that fire over the next 720 ms.
+      const rainView = this.worldMode.viewRect();
+      const rainMinX = rainView.minX;
+      const rainSpanX = rectWidth(rainView);
+      const rainMinY = rainView.minY;
+      const rainSpanY = rectHeight(rainView) * 0.6;
       for (let sparkleIndex = 0; sparkleIndex < 12; sparkleIndex++) {
         this.time.delayedCall(sparkleIndex * 60, () => {
-          const rainX = Math.random() * this.scale.width;
-          const rainY = Math.random() * this.scale.height * 0.6;
+          const rainX = rainMinX + Math.random() * rainSpanX;
+          const rainY = rainMinY + Math.random() * rainSpanY;
           this.effectsManager.playGoldSparkle(rainX, rainY, 4);
         });
       }
@@ -8697,7 +8705,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Spawns a boss at screen center with dramatic entrance.
+   * Spawns a boss above the top edge of the room with a dramatic entrance. In arena the
+   * room is the screen; in expedition the fight first seals to one sector, which is what
+   * recovers the tuned entrance, centre-seeking and hazard geometry for every boss.
    */
   private spawnBoss(typeId: string): void {
     if (this.practiceFight && !this.practiceFightSpawning) this.practiceFight.dirty = true;
@@ -8705,9 +8715,19 @@ export class GameScene extends Phaser.Scene {
     if (!enemyType) return;
     this.recordRunTimelineEvent('boss');
 
-    // Boss spawns at top of screen
-    const x = this.scale.width / 2;
-    const y = -100;
+    // The room is the sector the player is standing in when the fight starts. A second
+    // boss in the same fight (gauntlet waves, endless cycle 3+) joins that room instead
+    // of moving it, which is why this is latched on activeBossType and not unconditional.
+    if (!this.activeBossType) {
+      const anchor = this.playerId !== -1
+        ? { x: Transform.x[this.playerId], y: Transform.y[this.playerId] }
+        : rectCenter(this.worldMode.viewRect());
+      this.worldMode.lockToSector(sectorOfWorldPoint(anchor.x, anchor.y));
+    }
+
+    const room = this.worldMode.fieldRect();
+    const x = rectCenter(room).x;
+    const y = room.minY - 100;
 
     // Scale stats with both time and world level multipliers
     const scaledStats = getScaledStats(enemyType, this.spawnScalingTime(typeId), this.worldLevelHealthMult, this.worldLevelDamageMult);
@@ -8762,17 +8782,13 @@ export class GameScene extends Phaser.Scene {
   private spawnBossHazard(): void {
     if (!this.activeBossType) return;
 
-    const screenWidth = this.scale.width;
-    const screenHeight = this.scale.height;
+    const field = this.worldMode.fieldRect();
 
     switch (this.activeBossType) {
       case 'horde_king':
-        // Burn zones at random positions — fire lord scorches the arena
-        spawnHazardZone(
-          100 + Math.random() * (screenWidth - 200),
-          100 + Math.random() * (screenHeight - 200),
-          80, 'burn', 6
-        );
+        // Burn zones at random positions, the fire lord scorches the room
+        const burnPoint = pickInteriorPoint(field, 100, Math.random);
+        spawnHazardZone(burnPoint.x, burnPoint.y, 80, 'burn', 6);
         this.bossHazardTimer = 4;
         break;
 
@@ -8792,18 +8808,12 @@ export class GameScene extends Phaser.Scene {
 
       case 'the_machine':
         // Ice patches + energy wells — mechanical precision
-        spawnHazardZone(
-          100 + Math.random() * (screenWidth - 200),
-          100 + Math.random() * (screenHeight - 200),
-          70, 'ice', 8
-        );
+        const icePoint = pickInteriorPoint(field, 100, Math.random);
+        spawnHazardZone(icePoint.x, icePoint.y, 70, 'ice', 8);
         // Occasional energy well (player buff zone)
         if (Math.random() < 0.4) {
-          spawnHazardZone(
-            100 + Math.random() * (screenWidth - 200),
-            100 + Math.random() * (screenHeight - 200),
-            60, 'energy', 10
-          );
+          const energyPoint = pickInteriorPoint(field, 100, Math.random);
+          spawnHazardZone(energyPoint.x, energyPoint.y, 60, 'energy', 10);
         }
         this.bossHazardTimer = 6;
         break;
@@ -8838,61 +8848,43 @@ export class GameScene extends Phaser.Scene {
 
       case 'the_obelisk':
         // Leaking containment energy — scattered charged wells the player can use.
-        spawnHazardZone(
-          100 + Math.random() * (screenWidth - 200),
-          100 + Math.random() * (screenHeight - 200),
-          70, 'energy', 9
-        );
+        const wellPoint = pickInteriorPoint(field, 100, Math.random);
+        spawnHazardZone(wellPoint.x, wellPoint.y, 70, 'energy', 9);
         this.bossHazardTimer = 6;
         break;
 
       case 'the_helix':
         // Spiralling energy collapses matter inward — a swirling void well.
-        spawnHazardZone(
-          120 + Math.random() * (screenWidth - 240),
-          120 + Math.random() * (screenHeight - 240),
-          80, 'void', 8
-        );
+        const spiralPoint = pickInteriorPoint(field, 120, Math.random);
+        spawnHazardZone(spiralPoint.x, spiralPoint.y, 80, 'void', 8);
         this.bossHazardTimer = 6;
         break;
 
       case 'the_tessellator':
         // Crystalline shards frost the tiles between barrages — a slick ice patch.
-        spawnHazardZone(
-          100 + Math.random() * (screenWidth - 200),
-          100 + Math.random() * (screenHeight - 200),
-          70, 'ice', 8
-        );
+        const frostPoint = pickInteriorPoint(field, 100, Math.random);
+        spawnHazardZone(frostPoint.x, frostPoint.y, 70, 'ice', 8);
         this.bossHazardTimer = 6;
         break;
 
       case 'the_tremor':
         // Seismic fissures crack the arena floor between shockwaves — scorched ground.
-        spawnHazardZone(
-          100 + Math.random() * (screenWidth - 200),
-          100 + Math.random() * (screenHeight - 200),
-          80, 'burn', 6
-        );
+        const fissurePoint = pickInteriorPoint(field, 100, Math.random);
+        spawnHazardZone(fissurePoint.x, fissurePoint.y, 80, 'burn', 6);
         this.bossHazardTimer = 6;
         break;
 
       case 'the_diviner':
         // Warped void rifts tear open where the eye's gaze lingers between cages.
-        spawnHazardZone(
-          100 + Math.random() * (screenWidth - 200),
-          100 + Math.random() * (screenHeight - 200),
-          80, 'void', 6
-        );
+        const riftPoint = pickInteriorPoint(field, 100, Math.random);
+        spawnHazardZone(riftPoint.x, riftPoint.y, 80, 'void', 6);
         this.bossHazardTimer = 6;
         break;
 
       case 'the_eclipse':
         // Umbral cold lingers where the shadow fell between pulses — a slick frost patch.
-        spawnHazardZone(
-          100 + Math.random() * (screenWidth - 200),
-          100 + Math.random() * (screenHeight - 200),
-          80, 'ice', 6
-        );
+        const umbralPoint = pickInteriorPoint(field, 100, Math.random);
+        spawnHazardZone(umbralPoint.x, umbralPoint.y, 80, 'ice', 6);
         this.bossHazardTimer = 6;
         break;
 
@@ -9509,10 +9501,11 @@ export class GameScene extends Phaser.Scene {
     if (phase < 2) return;
 
     const arenaMargin = 120;
-    const minX = arenaMargin;
-    const maxX = this.scale.width - arenaMargin;
-    const minY = arenaMargin;
-    const maxY = this.scale.height - arenaMargin;
+    const field = this.worldMode.fieldRect();
+    const minX = field.minX + arenaMargin;
+    const maxX = field.maxX - arenaMargin;
+    const minY = field.minY + arenaMargin;
+    const maxY = field.maxY - arenaMargin;
 
     if (phase === 2) {
       // One burn pool near the boss telegraphs escalating pressure.
