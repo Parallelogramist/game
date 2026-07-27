@@ -15,6 +15,8 @@ import { getSettingsManager } from '../../settings';
 import { OverlayDepths } from '../../visual/DepthLayers';
 import { formatDailyShareText, DailyShareInput } from '../../meta/DailyShare';
 import { copyTextToClipboard } from '../../utils/Clipboard';
+import { getDailyQuestBoard, getLiveDailyQuestBoard, type DailyQuestProgress } from '../../meta/DailyQuestManager';
+import { DAILY_QUEST_COUNT, formatQuestValue } from '../../data/DailyQuests';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -181,6 +183,15 @@ function formatProgressText(current: number, target: number): string {
   return `${fmt(current)} / ${fmt(target)}`;
 }
 
+/** One quest's right-column readout: `DONE`, `7:12 / 10:00`, or `312 / 400`. */
+function formatQuestProgress(entry: DailyQuestProgress): string {
+  if (entry.complete) return 'DONE';
+  if (entry.quest.format === 'time') {
+    return `${formatQuestValue(entry.quest, entry.value)} / ${formatQuestValue(entry.quest, entry.quest.target)}`;
+  }
+  return formatProgressText(entry.value, entry.quest.target);
+}
+
 export interface PauseMenuOptions {
   onPauseStateChanged: (isPaused: boolean) => void;
   onRestart: () => void;
@@ -206,6 +217,12 @@ export interface PauseGameState {
   totalDamageTaken: number;
   /** Currently-active weapon synergies, listed on the build dashboard. */
   activeSynergies?: WeaponSynergy[];
+  /** Total damage the player has dealt this run (live daily-quest board). */
+  totalDamageDealt: number;
+  /** Highest combo reached this run (live daily-quest board). */
+  highestCombo: number;
+  /** True in the practice sandbox, which never moves the day's quest board. */
+  practiceModeActive: boolean;
 }
 
 export interface VictoryData {
@@ -663,6 +680,22 @@ export class PauseMenuManager {
     // and the top weapons by damage, so a build can be inspected mid-run.
     const buildStatsElements = this.createBuildStatsPanel();
 
+    // Today's quest board (top centre). Faded in on its own short stagger rather
+    // than appended to `animatedElements`: the shared stagger's delay also gates
+    // when the buttons become interactive, and eight more elements would lock
+    // them for an extra ~280 ms every time the game is paused.
+    const dailyQuestElements = this.createDailyQuestsPanel();
+    dailyQuestElements.forEach((element, index) => {
+      element.setAlpha(0);
+      this.scene.tweens.add({
+        targets: element,
+        alpha: 1,
+        duration: 85,
+        delay: index * 12,
+        ease: 'Sine.easeOut',
+      });
+    });
+
     // Keyboard + gamepad navigation for pause menu
     const pauseButtons = [
       { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: resumeBaseColor, hoverColor: resumeHoverColor },
@@ -759,6 +792,10 @@ export class PauseMenuManager {
       'buildStatsBg',
       'buildStatsSummary',
       'buildStatsWeapons',
+      'dailyQuestsBg',
+      'dailyQuestsTitle',
+      ...Array.from({ length: DAILY_QUEST_COUNT }, (_, index) => `dailyQuestName${index}`),
+      ...Array.from({ length: DAILY_QUEST_COUNT }, (_, index) => `dailyQuestValue${index}`),
     ]);
 
     this.isPauseMenuOpen = false;
@@ -1006,6 +1043,102 @@ export class PauseMenuManager {
     valuesText.setName('buildStatsWeapons');
 
     return [panelBg, titleText, summaryText, valuesText];
+  }
+
+  /**
+   * Today's daily-quest board, pinned top-centre on the pause overlay. The two
+   * side dashboards own the left/right columns and the button stack owns the
+   * middle, so the band above the PAUSED title is the only free space in both
+   * orientations — and being fixed-height it never collides with either panel's
+   * variable line count.
+   *
+   * Rows are one text per column per quest rather than two multi-line columns
+   * (the BUILD STATS idiom) so a completed row can be coloured on its own without
+   * depending on font line metrics for alignment.
+   * Returns the created game objects for the caller's fade-in.
+   */
+  private createDailyQuestsPanel(): (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[] {
+    const gameState = this.options.getGameState();
+    // Practice never settles into the day's board, so folding a sandbox run in
+    // would show progress the run can never bank.
+    const board = gameState.practiceModeActive
+      ? getDailyQuestBoard()
+      : getLiveDailyQuestBoard({
+          wasVictory: false,
+          killCount: gameState.killCount,
+          levelReached: gameState.playerLevel,
+          survivalTimeSeconds: gameState.gameTime,
+          damageDealt: gameState.totalDamageDealt,
+          damageTaken: gameState.totalDamageTaken,
+          goldEarned: 0,
+          highestCombo: gameState.highestCombo,
+        });
+
+    const completeCount = board.filter((entry) => entry.complete).length;
+
+    const lineHeight = 20;
+    const panelWidth = 300;
+    const panelX = this.scene.scale.width / 2;
+    const panelTopY = 56;
+    const panelHeight = board.length * lineHeight + 40;
+    const contentLeftX = panelX - panelWidth / 2;
+    const contentRightX = panelX + panelWidth / 2;
+    const contentTopY = panelTopY + 26;
+
+    const panelBg = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBg,
+      panelX - panelWidth / 2 - 12,
+      panelTopY - 10,
+      panelWidth + 24,
+      panelHeight,
+    );
+    panelBg.setDepth(PAUSE_MENU_DEPTH + 1);
+    panelBg.setName('dailyQuestsBg');
+
+    const titleText = this.scene.add.text(
+      panelX,
+      panelTopY + 4,
+      `DAILY QUESTS  ${completeCount}/${board.length}`,
+      {
+        fontSize: '14px',
+        color: '#aaaacc',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: 'bold',
+      },
+    );
+    titleText.setOrigin(0.5, 0);
+    titleText.setDepth(PAUSE_MENU_DEPTH + 2);
+    titleText.setName('dailyQuestsTitle');
+
+    const elements: (Phaser.GameObjects.Graphics | Phaser.GameObjects.Text)[] = [panelBg, titleText];
+
+    board.forEach((entry, index) => {
+      const rowY = contentTopY + index * lineHeight;
+
+      const nameText = this.scene.add.text(contentLeftX, rowY, entry.quest.name, {
+        fontSize: '13px',
+        color: entry.complete ? '#88ff88' : '#ccccdd',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      });
+      nameText.setOrigin(0, 0);
+      nameText.setDepth(PAUSE_MENU_DEPTH + 2);
+      nameText.setName(`dailyQuestName${index}`);
+
+      const valueText = this.scene.add.text(contentRightX, rowY, formatQuestProgress(entry), {
+        fontSize: '13px',
+        color: entry.complete ? '#88ff88' : '#ffcc66',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        fontStyle: entry.complete ? 'bold' : 'normal',
+      });
+      valueText.setOrigin(1, 0);
+      valueText.setDepth(PAUSE_MENU_DEPTH + 2);
+      valueText.setName(`dailyQuestValue${index}`);
+
+      elements.push(nameText, valueText);
+    });
+
+    return elements;
   }
 
   /**

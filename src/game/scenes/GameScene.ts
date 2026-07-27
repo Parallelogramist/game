@@ -5454,6 +5454,9 @@ export class GameScene extends Phaser.Scene {
         weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
         totalDamageTaken: this.totalDamageTaken,
         activeSynergies: this.weaponManager?.getActiveSynergies() ?? [],
+        totalDamageDealt: this.totalDamageDealt,
+        highestCombo: getHighestCombo(),
+        practiceModeActive: this.practiceModeActive,
       }),
     }, this.soundManager);
   }

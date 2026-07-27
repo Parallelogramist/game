@@ -18,6 +18,7 @@ vi.mock('../storage', () => {
 import { SecureStorage } from '../storage';
 import {
   getDailyQuestBoard,
+  getLiveDailyQuestBoard,
   getDailyQuestCompletionCount,
   settleDailyQuests,
   claimDailyQuestGold,
@@ -212,5 +213,47 @@ describe('DailyQuestManager', () => {
     expect(DAILY_QUESTS.find((quest) => quest.id === 'runs_day_3')?.settleOnly).toBe(true);
     const paid = createDailyQuestWatcher().check(liveRunOfMagnitude(1_000_000));
     expect(paid.some((quest) => quest.settleOnly === true)).toBe(false);
+  });
+
+  // ── Live board (the pause panel's read; it must never write) ──
+
+  test('the live board folds the in-progress run in without writing anything', () => {
+    const live = liveRunOfMagnitude(1_000_000);
+    const board = getLiveDailyQuestBoard(live);
+
+    for (const entry of board) {
+      if (entry.quest.settleOnly === true) continue;
+      expect(entry.value).toBeGreaterThanOrEqual(entry.quest.measure(live));
+      expect(entry.complete).toBe(entry.value >= entry.quest.target);
+    }
+    // Nothing was persisted: the stored board is still empty and nothing is owed.
+    expect(getDailyQuestBoard().every((entry) => entry.value === 0)).toBe(true);
+    expect(claimDailyQuestGold()).toBe(0);
+  });
+
+  test('a settleOnly quest shows only its stored progress on the live board', () => {
+    settleDailyQuests(runOfMagnitude(1));
+    const stored = getDailyQuestBoard();
+    const board = getLiveDailyQuestBoard(liveRunOfMagnitude(1_000_000));
+
+    for (const quest of todaysQuests()) {
+      if (quest.settleOnly !== true) continue;
+      const liveEntry = board.find((entry) => entry.quest.id === quest.id);
+      const storedEntry = stored.find((entry) => entry.quest.id === quest.id);
+      expect(liveEntry?.value).toBe(storedEntry?.value);
+    }
+  });
+
+  test('a quest already paid today reads complete on the live board', () => {
+    const paid = createDailyQuestWatcher().check(liveRunOfMagnitude(1_000_000));
+    expect(paid.length).toBeGreaterThan(0);
+
+    // A fresh run that measures nothing must not un-complete an already-paid quest.
+    const board = getLiveDailyQuestBoard(liveRunOfMagnitude(0));
+    for (const quest of paid) {
+      const entry = board.find((candidate) => candidate.quest.id === quest.id);
+      expect(entry?.complete).toBe(true);
+      expect(entry?.value).toBeGreaterThanOrEqual(quest.target);
+    }
   });
 });

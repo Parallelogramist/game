@@ -107,6 +107,31 @@ export function getDailyQuestCompletionCount(): number {
 }
 
 /**
+ * Today's board folded with the IN-PROGRESS run, for the in-run pause panel.
+ * A pure read: it never writes progress and never pays gold — `createDailyQuestWatcher`
+ * owns both, and double-writing here is how a quest would get paid twice.
+ *
+ * `settleOnly` quests keep their stored value: they count finished runs, so folding
+ * the current one in would show progress the run has not banked yet.
+ */
+export function getLiveDailyQuestBoard(live: DailyQuestRunData): DailyQuestProgress[] {
+  const state = load();
+  return getQuestsForDate(state.date).map((quest) => {
+    const stored = state.progress[quest.id] ?? 0;
+    if (state.rewarded.includes(quest.id)) {
+      return { quest, value: Math.max(stored, quest.target), complete: true };
+    }
+    if (quest.settleOnly === true) {
+      return { quest, value: stored, complete: stored >= quest.target };
+    }
+    const contribution = sanitizeValue(quest.measure(live));
+    const value =
+      quest.aggregate === 'sum' ? stored + contribution : Math.max(stored, contribution);
+    return { quest, value, complete: value >= quest.target };
+  });
+}
+
+/**
  * Folds one finished run into today's board. Returns the quests that completed on
  * THIS run (empty if none) and banks their gold into `pendingGold` for the
  * achievements screen to pay out. A quest already rewarded today never pays twice.
