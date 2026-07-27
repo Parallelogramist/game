@@ -161,6 +161,7 @@ import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getH
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
 import type { DamageSourceTally } from '../managers/buildStats';
+import { RUN_TIMELINE_EVENT_CAP, type RunTimelineEvent, type RunTimelineEventKind } from '../managers/runTimeline';
 import { DISPLAY_FONT } from '../../visual/MenuStyle';
 
 // Module-level queries (defined once, not per-frame)
@@ -256,6 +257,12 @@ export class GameScene extends Phaser.Scene {
   private damageTakenBySource: Map<string, number> = new Map();
   /** Attribution bucket of the lethal hit, set only past the revival branch in takeDamage. */
   private killedBySourceName: string | null = null;
+  /** Per-run beat log for the run-end RUN TIMELINE ribbon. Never persisted. */
+  private runTimelineEvents: RunTimelineEvent[] = [];
+  /** False while the player is already in the close-call band, so one dip logs one marker. */
+  private closeCallArmed: boolean = true;
+  /** False for a restored run, whose early beats died with the page. */
+  private runTimelineComplete: boolean = true;
 
   // Player stats and upgrades
   private playerStats!: PlayerStats;
@@ -2722,8 +2729,10 @@ export class GameScene extends Phaser.Scene {
     // Track miniboss and boss kills
     if (xpValueForTracking >= 1000) {
       achievementManager.recordBossKill();
+      this.recordRunTimelineEvent('bossDown');
     } else if (xpValueForTracking >= 30) {
       achievementManager.recordMinibossKill();
+      this.recordRunTimelineEvent('bossDown');
     }
 
     // Paragon = a second affix (applyDampedAffixStats zeroes affixType2 when it
@@ -3289,6 +3298,7 @@ export class GameScene extends Phaser.Scene {
   private activateUltimate(): void {
     if (this.playerId === -1) return;
     if (!tryActivateUltimate()) return;
+    this.recordRunTimelineEvent('ultimate');
 
     const ultimate = this.practiceUltimateOverride
       ? getShipUltimate(this.practiceUltimateOverride)
@@ -3540,6 +3550,11 @@ export class GameScene extends Phaser.Scene {
     this.paceGhostCurve = this.practiceModeActive || this.gauntletModeActive
       ? null
       : getPaceGhost(getMetaProgressionManager().getWorldLevel());
+    // Run timeline. Same restore rule as the pace curve above: a resumed run only
+    // saw the beats after the reload, so its ribbon would read as an empty run.
+    this.runTimelineEvents = [];
+    this.closeCallArmed = true;
+    this.runTimelineComplete = !this.shouldRestore;
     // Cleared on fresh start; the restore path re-populates from the save after.
     this.timedStatBuffs = [];
     // Armed Exploder fuses are transient combat state (not persisted): clearing
@@ -4119,6 +4134,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.gameTime += deltaSeconds;
+    this.updateCloseCallWatch();
 
     // ═══ ACHIEVEMENT TIME TRACKING (throttled to once per second) ═══
     // Practice is a sandbox and its clock jumps: crediting it would complete the
@@ -4824,6 +4840,33 @@ export class GameScene extends Phaser.Scene {
       tallies.push({ sourceName, totalDamage });
     });
     return tallies;
+  }
+
+  private recordRunTimelineEvent(kind: RunTimelineEventKind): void {
+    if (this.runTimelineEvents.length >= RUN_TIMELINE_EVENT_CAP) return;
+    this.runTimelineEvents.push({ kind, atSeconds: this.gameTime });
+  }
+
+  /**
+   * Logs one close call per dip into the bottom quarter of the health bar. The
+   * re-arm at 40% is what stops a long fight held at low HP from logging a marker
+   * every frame. Reads ECS Health directly: playerStats.currentHealth is a
+   * write-through mirror.
+   */
+  private updateCloseCallWatch(): void {
+    if (this.playerId === -1) return;
+    const maxHealth = Health.max[this.playerId];
+    if (!(maxHealth > 0)) return;
+
+    const healthPercent = Health.current[this.playerId] / maxHealth;
+    if (healthPercent <= 0.25) {
+      if (this.closeCallArmed) {
+        this.closeCallArmed = false;
+        this.recordRunTimelineEvent('closeCall');
+      }
+    } else if (healthPercent > 0.4) {
+      this.closeCallArmed = true;
+    }
   }
 
   /**
@@ -6069,6 +6112,7 @@ export class GameScene extends Phaser.Scene {
       totalDamageTaken: this.totalDamageTaken,
       damageBySource: this.getDamageTakenBySource(),
       killedBy: this.killedBySourceName,
+      runTimeline: this.runTimelineComplete ? this.runTimelineEvents : undefined,
       weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
       personalBests: personalBestsSnapshot,
       unlockProgress: unlockProgressForPanel,
@@ -6420,6 +6464,7 @@ export class GameScene extends Phaser.Scene {
   private spawnMiniboss(typeId: string): void {
     const enemyType = getEnemyType(typeId);
     if (!enemyType) return;
+    this.recordRunTimelineEvent('miniboss');
 
     // Spawn at random screen edge
     const side = Phaser.Math.Between(0, 3);
@@ -7612,6 +7657,7 @@ export class GameScene extends Phaser.Scene {
   private spawnBoss(typeId: string): void {
     const enemyType = getEnemyType(typeId);
     if (!enemyType) return;
+    this.recordRunTimelineEvent('boss');
 
     // Boss spawns at top of screen
     const x = this.scale.width / 2;
@@ -8550,6 +8596,7 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.level++;
       this.playerStats.xpToNextLevel = calculateXPForLevel(this.playerStats.level);
       this.pendingLevelUps++;
+      this.recordRunTimelineEvent('level');
 
       // Trigger ship visual level-up (may trigger evolution)
       if (this.playerSpaceship) {

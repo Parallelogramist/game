@@ -8,6 +8,7 @@ import { addButtonInteraction } from '../../utils/SceneTransition';
 import { WeaponRunStats } from '../../weapons/WeaponManager';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { deriveBuildStats, orderThreatsByDamage, type DamageSourceTally } from './buildStats';
+import { layoutRunTimeline, TIMELINE_KIND_ORDER, type RunTimelineEvent, type RunTimelineEventKind } from './runTimeline';
 import { UnlockProgressEntry } from '../../meta/HiddenUnlocks';
 import { RunSummary } from '../../meta/RunHistoryManager';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, MENU_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
@@ -251,6 +252,24 @@ export interface VictoryData {
   daily?: DailyShareInput;
 }
 
+const TIMELINE_MARKER_COLORS: Record<RunTimelineEventKind, number> = {
+  level: 0x66aaff,
+  ultimate: 0x44ffff,
+  miniboss: 0xffaa44,
+  boss: 0xff66ff,
+  bossDown: 0x44ff88,
+  closeCall: 0xff4444,
+};
+
+const TIMELINE_LEGEND_LABELS: Record<RunTimelineEventKind, string> = {
+  level: 'LEVEL',
+  ultimate: 'ULT',
+  miniboss: 'MINIBOSS',
+  boss: 'BOSS',
+  bossDown: 'KILLED',
+  closeCall: 'HURT',
+};
+
 export interface GameOverData {
   killCount: number;
   gameTime: number;
@@ -264,6 +283,8 @@ export interface GameOverData {
   damageBySource?: DamageSourceTally[];
   /** Attribution bucket of the lethal hit. Undefined/null when the run ended without one. */
   killedBy?: string | null;
+  /** Per-run beat log for the RUN TIMELINE ribbon. Undefined for a restored run. */
+  runTimeline?: RunTimelineEvent[];
   weaponStats?: WeaponRunStats[];
   personalBests?: {
     longestSurvival: number;
@@ -2079,6 +2100,7 @@ export class PauseMenuManager {
     // contentBottomY are all computed above, so nothing already on screen
     // shifts position or stagger slot.
     this.createThreatRecapPanel(data, depth, animatedElements);
+    this.createRunTimelineStrip(data, depth);
 
     // Staggered entrance animations
     const staggerDelay = 120;
@@ -2689,6 +2711,145 @@ export class PauseMenuManager {
       barFill.setDepth(depth);
       animatedElements.push(barFill);
     });
+  }
+
+  /**
+   * The run's whole clock as one ribbon across the top of the death screen: a
+   * minute grid, a marker per beat, and a legend. The top band is the only free
+   * real estate left on this overlay (the centered column, both side columns and
+   * the left margin are all spoken for), so the strip lives above the title and
+   * guards on its clearance from the title's glow circle rather than on a magic
+   * viewport height: a short landscape simply gets no ribbon.
+   *
+   * It runs its OWN short stagger instead of joining `animatedElements`, whose
+   * shared delay is `index * 120 ms` over the overlay's whole element list, which
+   * would land the top of the screen several seconds after the rest of it. Same
+   * reason createDailyQuestsPanel keeps its own. Nothing else reads its indices,
+   * so registering it changes no existing element's position or stagger slot.
+   */
+  private createRunTimelineStrip(data: GameOverData, depth: number): void {
+    const events = data.runTimeline ?? [];
+    if (events.length === 0) return;
+    if (this.scene.scale.width < 1000) return;
+
+    const stripTopY = 12;
+    const stripHeight = 44;
+    const glowTopY = this.scene.scale.height / 2 - 172 - 120;
+    if (glowTopY - (stripTopY + stripHeight) < 8) return;
+
+    const trackLeftX = 60;
+    const trackRightX = this.scene.scale.width - 60;
+    const trackWidth = trackRightX - trackLeftX;
+    const trackY = stripTopY + 30;
+
+    const markers = layoutRunTimeline(events, data.gameTime, trackWidth);
+    if (markers.length === 0) return;
+
+    const stripElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [];
+
+    const panelBackground = this.scene.add.graphics();
+    paintPanelBackground(
+      panelBackground,
+      trackLeftX - 16,
+      stripTopY - 6,
+      trackWidth + 32,
+      stripHeight + 4,
+      { accentColor: ACCENT_COLORS.neutral }
+    );
+    panelBackground.setDepth(depth);
+    stripElements.push(panelBackground);
+
+    const titleText = this.scene.add.text(trackLeftX, stripTopY, 'RUN TIMELINE', {
+      fontSize: '12px',
+      color: '#8899bb',
+      fontFamily: DISPLAY_FONT,
+      fontStyle: 'bold',
+    }).setOrigin(0, 0).setDepth(depth);
+    titleText.setLetterSpacing(2);
+    stripElements.push(titleText);
+
+    // Grid first, markers over it: a minute notch must never hide a beat.
+    const gridGraphics = this.scene.add.graphics();
+    gridGraphics.fillStyle(0x2a2a3a, 0.7);
+    for (let minute = 1; minute * 60 < data.gameTime; minute++) {
+      const tickX = trackLeftX + Math.round(trackWidth * ((minute * 60) / data.gameTime));
+      gridGraphics.fillRect(tickX, trackY - 12, 1, 24);
+    }
+    gridGraphics.fillStyle(0x445566, 0.9);
+    gridGraphics.fillRect(trackLeftX, trackY - 1, trackWidth, 2);
+    gridGraphics.setDepth(depth);
+    stripElements.push(gridGraphics);
+
+    const markerGraphics = this.scene.add.graphics();
+    markerGraphics.setDepth(depth);
+    markers.forEach((marker) => {
+      this.paintTimelineMarker(markerGraphics, marker.kind, trackLeftX + marker.offsetX, trackY, marker.count);
+    });
+    stripElements.push(markerGraphics);
+
+    // Legend, left-to-right from a fixed origin so its width never has to be
+    // measured up front; only the kinds this run actually produced are named.
+    let legendX = trackRightX - 380;
+    TIMELINE_KIND_ORDER.filter((kind) => markers.some((marker) => marker.kind === kind)).forEach((kind) => {
+      const swatch = this.scene.add.graphics();
+      this.paintTimelineMarker(swatch, kind, legendX, stripTopY + 6, 1);
+      swatch.setDepth(depth);
+      stripElements.push(swatch);
+
+      const legendText = this.scene.add.text(legendX + 9, stripTopY + 6, TIMELINE_LEGEND_LABELS[kind], {
+        fontSize: '11px',
+        color: '#8899bb',
+        fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+      }).setOrigin(0, 0.5).setDepth(depth);
+      stripElements.push(legendText);
+
+      legendX += 9 + legendText.displayWidth + 16;
+    });
+
+    stripElements.forEach((element, index) => {
+      element.setAlpha(0);
+      this.scene.tweens.add({
+        targets: element,
+        alpha: 1,
+        duration: 300,
+        delay: 200 + index * 40,
+        ease: 'Sine.easeOut',
+      });
+    });
+  }
+
+  /**
+   * One beat, on the track (build), above it (threats) or below it (hurt). A
+   * collapsed cluster paints one pixel wider per side so a burst reads as heavier
+   * than a single beat without moving off its own time slot.
+   */
+  private paintTimelineMarker(
+    graphics: Phaser.GameObjects.Graphics,
+    kind: RunTimelineEventKind,
+    centerX: number,
+    trackY: number,
+    count: number
+  ): void {
+    const grow = count > 1 ? 1 : 0;
+    graphics.fillStyle(TIMELINE_MARKER_COLORS[kind], 1);
+    switch (kind) {
+      case 'level':
+      case 'ultimate':
+        graphics.fillCircle(centerX, trackY, 3 + grow);
+        break;
+      case 'miniboss':
+        graphics.fillRect(centerX - 3 - grow, trackY - 11, 7 + grow * 2, 7);
+        break;
+      case 'boss':
+        graphics.fillRect(centerX - 4 - grow, trackY - 12, 9 + grow * 2, 9);
+        break;
+      case 'bossDown':
+        graphics.fillRect(centerX - 3 - grow, trackY - 11, 7 + grow * 2, 7);
+        break;
+      case 'closeCall':
+        graphics.fillRect(centerX - 1 - grow, trackY + 4, 3 + grow * 2, 9);
+        break;
+    }
   }
 
   /**
