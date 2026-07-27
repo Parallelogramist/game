@@ -65,6 +65,21 @@ export function repositionOntoSpawnRing(
   return pickEdgeSpawnPoint(view, { spawnOffset, edgeInset: 0 }, random);
 }
 
+/**
+ * A point inside a rect, no closer than `padding` to any edge. Over the arena screen
+ * rect this is exactly the legacy `padding + random() * (screen - padding * 2)`
+ * placement; over a scrolled view rect it is the same placement, in front of the player.
+ * Consumed in order: one draw for x, one for y.
+ */
+export function pickInteriorPoint(
+  rect: WorldRect, padding: number, random: () => number
+): WorldPoint {
+  return {
+    x: alongEdge(rect.minX, rect.maxX, padding, random),
+    y: alongEdge(rect.minY, rect.maxY, padding, random),
+  };
+}
+
 function alongEdge(min: number, max: number, inset: number, random: () => number): number {
   const lo = min + inset;
   // An inset wider than the edge would invert the span; pin to lo instead.

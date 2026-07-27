@@ -6,6 +6,7 @@ import {
   LEASH_RADIUS,
   pickEdgeSpawnPoint,
   isBeyondLeash,
+  pickInteriorPoint,
   repositionOntoSpawnRing,
 } from './spawnRing';
 
@@ -79,5 +80,31 @@ describe('repositionOntoSpawnRing', () => {
   test('lands on the same ring a fresh regular spawn would', () => {
     expect(repositionOntoSpawnRing(ARENA, 30, scripted([0.5, 0.5])))
       .toEqual(pickEdgeSpawnPoint(ARENA, REGULAR, scripted([0.5, 0.5])));
+  });
+});
+
+describe('pickInteriorPoint', () => {
+  test('reproduces the legacy screen-interior expression over the arena rect', () => {
+    const padding = 70;
+    expect(pickInteriorPoint(ARENA, padding, scripted([0, 0]))).toEqual({ x: 70, y: 70 });
+    expect(pickInteriorPoint(ARENA, padding, scripted([0.5, 0.5]))).toEqual({
+      x: padding + 0.5 * (1280 - padding * 2),
+      y: padding + 0.5 * (720 - padding * 2),
+    });
+    expect(pickInteriorPoint(ARENA, padding, scripted([1, 1]))).toEqual({
+      x: 1280 - padding, y: 720 - padding,
+    });
+  });
+
+  test('is measured from the rect, not from the world origin', () => {
+    const view = { minX: 2560, minY: 1440, maxX: 3840, maxY: 2160 };
+    const point = pickInteriorPoint(view, 90, scripted([0, 1]));
+    expect(point).toEqual({ x: 2650, y: 2070 });
+    expect(rectContains(view, point.x, point.y)).toBe(true);
+  });
+
+  test('padding wider than the rect pins to the padding instead of inverting', () => {
+    const narrow = { minX: 0, minY: 0, maxX: 100, maxY: 100 };
+    expect(pickInteriorPoint(narrow, 80, scripted([0.5, 0.5]))).toEqual({ x: 80, y: 80 });
   });
 });

@@ -59,6 +59,7 @@ import {
   EdgeSpawnConfig,
   isBeyondLeash,
   pickEdgeSpawnPoint,
+  pickInteriorPoint,
   repositionOntoSpawnRing,
 } from '../../world/spawnRing';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
@@ -3892,9 +3893,7 @@ export class GameScene extends Phaser.Scene {
    * + drops loot.
    */
   private spawnDestructible(): boolean {
-    const padding = 70;
-    const x = padding + Math.random() * (this.scale.width - padding * 2);
-    const y = padding + Math.random() * (this.scale.height - padding * 2);
+    const { x, y } = pickInteriorPoint(this.worldMode.viewRect(), 70, Math.random);
     // Don't spawn right on top of the player.
     if (this.playerId !== -1) {
       const pdx = x - Transform.x[this.playerId];
@@ -4086,13 +4085,11 @@ export class GameScene extends Phaser.Scene {
       ? SHRINE_DEFS.filter(def => def.type !== 'market')
       : SHRINE_DEFS;
     const def = pool[Math.floor(Math.random() * pool.length)];
-    const padding = 90;
     let x = 0;
     let y = 0;
     // A few attempts to land clear of the player.
     for (let attempt = 0; attempt < 5; attempt++) {
-      x = padding + Math.random() * (this.scale.width - padding * 2);
-      y = padding + Math.random() * (this.scale.height - padding * 2);
+      ({ x, y } = pickInteriorPoint(this.worldMode.viewRect(), 90, Math.random));
       if (this.playerId === -1) break;
       const dx = x - Transform.x[this.playerId];
       const dy = y - Transform.y[this.playerId];
@@ -4327,8 +4324,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private completeBounty(): void {
-    const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : this.scale.width / 2;
-    const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : this.scale.height / 2;
+    const viewCentre = rectCenter(this.worldMode.viewRect());
+    const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : viewCentre.x;
+    const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : viewCentre.y;
     // Reward: two power-ups + a gold + XP burst.
     this.spawnRandomConsumable(playerX - 30, playerY);
     this.spawnRandomConsumable(playerX + 30, playerY);
@@ -5817,10 +5815,8 @@ export class GameScene extends Phaser.Scene {
    * When collected (player gets close), it spawns multiple XP gems.
    */
   private spawnTreasureChest(): void {
-    // Spawn at random location within screen (avoiding edges)
-    const padding = 80;
-    const x = padding + Math.random() * (this.scale.width - padding * 2);
-    const y = padding + Math.random() * (this.scale.height - padding * 2);
+    // Spawn at a random spot in the view, clear of the edges.
+    const { x, y } = pickInteriorPoint(this.worldMode.viewRect(), 80, Math.random);
 
     // 15% chance for a special chest with 3x rewards
     const isSpecial = Math.random() < 0.15;
