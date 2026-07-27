@@ -805,6 +805,39 @@ all through `pickEdgeSpawnPoint` / `viewRect` / `isSpawnableWorldPoint`; leash p
 **Dependencies:** W2, W4. **Test surface:** `pickEdgeSpawnPoint`,
 `repositionOntoSpawnRing`, `isBeyondLeash` (already from W1; extended cases here).
 
+*(As built, seven deviations, and one correction to the Test surface line above: no extended
+cases were needed for `pickEdgeSpawnPoint`, `repositionOntoSpawnRing` or `isBeyondLeash`, all
+three of which were genuinely pinned in W1 and are unchanged here; the only new pure surface
+was `pickInteriorPoint`, which composes the module's existing private `alongEdge` and carries
+3 tests. The leash pass lives in `GameScene.applyEnemyLeash`, called once from `update()`
+after `updateFrameCache` and after `worldMode.update`, rather than inside
+`ExpeditionModeAdapter.update()` as the Files line spells: the adapter is Phaser-and-camera
+scoped and holds no ECS world, and the pass has to read the frame cache. Interior placements
+are not gated on `isSpawnableWorldPoint` despite section 4 / R5 calling it a single choke
+point for all spawns: the camera's bounds are the world bounds, so `viewRect` is always a
+subset of the world plane and an interior point of it is in-world by construction, meaning the
+gate could reject nothing today and the branch would be unreachable surface; it becomes real
+with `FEAT-BARRIER-*`, when sealed space first exists, and that chunk owns adding it. A
+blocked ring forfeits the director's credits for that slot: `pickEnemyFromDirector` deducts
+the credit cost when it returns a type, and the spawnability retry runs after that pick;
+keeping the existing call order was chosen over reordering, which would have shifted the arena
+`Math.random()` draw sequence for no gain, and the case needs the camera pressed against a
+world edge plus five fresh draws all picking the blocked side (~0.1%). `spawnNemesis` now
+returns `boolean` and `checkNemesisSpawn` latches on its result: the latch was previously set
+before the call, so any early return would have permanently deleted the run's one cross-run
+hunter, which that method's own doc comment already promised not to do. No `EnemyAI` reset
+accompanies a leash reposition (section 5 does not specify one): a repositioned charger
+finishing a dash at a stale target self-corrects within one AI cycle, where resetting the
+state machine would reach into 20-odd AI units' invariants for a cosmetic edge case. The leash
+exemption is one `xpValue >= 30` test rather than four tag checks: this codebase has no boss
+or miniboss tag, `xpValue >= 30` is its boss-tier test at four existing sites, and
+`applyNemesisScaling` floors the nemesis at 30 for exactly that reason, so bosses, minibosses
+and the nemesis are exempted in one line, with destructibles (`xpValue = 0`) taking the one
+explicit `hasComponent` check. And the sector-lock exemption needed no code at all: a locked
+camera is bounded inside one 1280x720 sector, so the largest possible view-centre-to-enemy
+distance is far under `LEASH_RADIUS = 1600` and the leash can never fire there, verified by
+arithmetic rather than assumed, so W6 adds nothing for it.)*
+
 ### FEAT-WORLD-SPACE-6: sector lock (boss rooms in the world)
 **Value:** Metroid boss rooms: a fight seals to one arena-sized sector where every
 existing boss behavior and hazard pattern recovers its original tuned geometry.

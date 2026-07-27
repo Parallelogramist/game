@@ -2523,18 +2523,24 @@ This is the load-bearing refactor, done while it is still cheap to verify.
   only honest check is the value being zero and the suite staying at 132 files / 1656 tests.
   Deps: none (parallel-safe with W2). Spec: `01-world-space.md` section 3.
 
-- [ ] **CHORE-WORLDSPACE-CHEST-RECT**: `spawnTreasureChest` places a chest with
-  `padding = 80` against `scale.width`/`scale.height`, exactly the shape of its two
+- [x] **CHORE-WORLDSPACE-CHEST-RECT** (done — 207aee7): `spawnTreasureChest` placed a chest
+  with `padding = 80` against `scale.width`/`scale.height`, exactly the shape of its two
   neighbours `spawnDestructible` (padding 70) and `spawnShrine` (padding 90), but doc 01's
-  spawning table never lists it. `FEAT-WORLD-SPACE-5` would migrate both neighbours and
-  leave chests landing at screen coordinates in a scrolled world. Deps:
-  `FEAT-WORLD-SPACE-5`. Spec: `01-world-space.md` section 3, spawning table.
+  spawning table never listed it. Shipped inside `FEAT-WORLD-SPACE-5` alongside both
+  neighbours, since migrating two of three identical placements and filing the third would
+  have left a known bug in the tree. Spec: `01-world-space.md` section 3, spawning table.
 
 - [ ] **CHORE-WORLDSPACE-BOSSPHASE-RECT**: `spawnBossPhaseHazards` derives its placement
   box from `arenaMargin = 120` against `scale.width`/`scale.height`, the same shape as
   `spawnBossHazard`, which doc 01 does list as a W6 row. Unlisted, so the sector lock would
   reclaim the tuned geometry for one boss hazard path and not the other. Deps:
   `FEAT-WORLD-SPACE-6`. Spec: `01-world-space.md` section 3, spawning table.
+
+- [ ] **CHORE-WORLDSPACE-BOSSRAIN-RECT**: the boss-death gold sparkle rain
+  (`GameScene.ts:3424-3429`) draws its 12 sparkle positions from `scale.width` /
+  `scale.height * 0.6`, so in a scrolled world the celebration plays in the top-left
+  sector instead of over the corpse. Cosmetic-only and boss-scoped, so it rides with the
+  chunk that puts bosses in the world. Deps: `FEAT-WORLD-SPACE-6`.
 
 - [x] **FEAT-PRACTICE-MODE** — reach any weapon at any level without grinding a
   run (done — c3d00c2). Full write-up moved to `BACKLOG-archive.md`. Playtest
@@ -2763,13 +2769,59 @@ exploring pays is the end of Phase 5.
   133 files / 1664 tests, `npm run build`, and the structural greps in the plan's Verify table.
   Deps: W1, W2, W3.
 
-- [ ] **FEAT-WORLD-SPACE-5**: camera-relative spawning plus a leash, so pressure follows the
-  camera with arena-identical pacing and nothing accumulates behind the player. Reroutes
-  `spawnEnemy` (`GameScene.ts:7047-7089`), `spawnMiniboss` (`:7235-7252`), destructibles
-  (`:3790-3798`) and shrines (`:3985-3996`) through `pickEdgeSpawnPoint`/`isSpawnableWorldPoint`.
-  Done when flying away and returning shows no pileup (regulars repositioned, a marked miniboss
-  still where it was) and no spawn lands outside world bounds. Deps: W2, W4. **Contract:** the
-  leash handles within-sector drift only; seam crossings belong to `FEAT-WORLDGEN-STREAM`
+- [x] **FEAT-WORLD-SPACE-5** (done — d0f973f, 207aee7): the expedition world is something you
+  fight in, not just fly across. Every camera-relative spawn now passes one choke point,
+  `pickSpawnRingPoint`, which tries up to five fresh edges and asks the mode adapter whether the
+  world accepts the point, so nothing enters off-plane when the camera is pressed against a
+  world edge. Regular enemies that drift past `LEASH_RADIUS` (1600 px) from the view centre are
+  recycled onto the current ring with their knockback zeroed, instead of piling up dead behind
+  the ship. The four interior placements that still derived positions from the screen
+  (destructibles, shrines, treasure chests, the bounty reward drop) now use the view rect, so
+  they land where the player is looking rather than in the sector left minutes ago. Arena is
+  unchanged by construction, not by care: `ArenaModeAdapter.isSpawnableWorldPoint` returns
+  `true` unconditionally, so the retry always succeeds on its first attempt with the two random
+  draws it already made, and `leashRadius()` returns `null`, so the leash pass returns before it
+  reads the frame cache. One new pure export, `pickInteriorPoint` in `src/world/spawnRing.ts`,
+  composed from the module's existing private `alongEdge`, with 3 tests: the only new logic
+  worth pinning is that over the arena screen rect it reproduces the legacy
+  `padding + random() * (screen - padding * 2)` expression exactly. Seven deviations.
+  (1) **Interior placements are not gated on `isSpawnableWorldPoint`.** Doc 01 section 4 / R5
+  call it "a single choke point" for all spawns. The camera's bounds are the world bounds, so
+  `viewRect` is always a subset of the world plane and an interior point of it is in-world by
+  construction: the gate could reject nothing today, and a branch that can never be taken is
+  the speculative surface `FL-X04` bans. It becomes real with `FEAT-BARRIER-*`, which is when
+  sealed space first exists, and that chunk owns adding it. (2) **A blocked ring forfeits the
+  director's credits for that slot.** `pickEnemyFromDirector` deducts the credit cost when it
+  returns a type (`DirectorSystem.ts:191`+), and the spawnability retry runs after that pick.
+  Keeping the existing call order was chosen over reordering, which would have shifted the
+  arena `Math.random()` draw sequence for no gain. Reachable only when the camera is pressed
+  against a world edge *and* five fresh draws all pick the blocked side (~0.1%), so the
+  pressure dip is not measurable; recorded so it is not read as a bug. (3) **`spawnNemesis` now
+  returns `boolean` and `checkNemesisSpawn` latches on success.** Not in the doc. Required: the
+  latch was set before the call, so any early return would have deleted the run's one cross-run
+  hunter permanently. This restores the behaviour that method's own doc comment already
+  promised. (4) **`CHORE-WORLDSPACE-CHEST-RECT` shipped inside this chunk**, not after it.
+  `spawnTreasureChest` is the third of three identical interior placements; migrating two and
+  filing the third would be a silent cut corner. (5) **No `EnemyAI` reset on a leash
+  reposition.** Doc 01 section 5 does not specify one. A repositioned charger finishing a dash
+  at a stale target self-corrects within one AI cycle; resetting the state machine would reach
+  into 20-odd AI units' invariants for a cosmetic edge case. (6) **Leash exemption is one
+  `xpValue >= 30` test, not four tag checks.** Doc 01 lists bosses, minibosses, the nemesis and
+  destructibles separately. This codebase has no boss or miniboss tag; `xpValue >= 30` is its
+  boss-tier test at four existing sites, and the nemesis is floored at 30 for exactly that
+  reason. Destructibles are `xpValue = 0` and get the one explicit `hasComponent` check.
+  (7) **The sector-lock exemption needed no code.** Doc 01 says entities under sector lock are
+  leash-exempt. A locked camera is bounded inside one 1280x720 sector, so the largest possible
+  view-centre-to-enemy distance is far under `LEASH_RADIUS = 1600` and the leash can never fire
+  there. Verified by arithmetic, not assumed; W6 adds nothing for this. Every DONE-CRITERION
+  about how this *feels* (enemies streaming from the view edges while flying, arena-like
+  pressure when stopped, no pileup on return, a marked miniboss still where it was) needs a
+  human in a browser and is filed under **POLISH-EXPEDITION-FLIGHT** items (g), (h), (i).
+  Verified with `tsc` clean, the suite at 133 files / 1667 tests, `npm run build` clean, and
+  the structural greps in the plan's Verify table (`pickEdgeSpawnPoint` down from 3 call lines
+  to 1, the legacy screen-interior expression down from 3 to 0, `this.scale.width` down from 36
+  to 32 with every survivor HUD, overlay or transition geometry). Deps: W2, W4. **Contract:**
+  the leash handles within-sector drift only; seam crossings belong to `FEAT-WORLDGEN-STREAM`
   (README section 3.7).
 
 #### Phase 3: walls matter
@@ -3157,7 +3209,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3169,6 +3221,12 @@ Never agent work. The fleet must not do any of these.
     boundary, including at the start? (e) **seam emptiness**: the flight rect is empty space
     with no walls, so is the 5x5 plane legible as a world, or does it read as a bug?
     (f) **FPS**: compare a flying run against an arena run at comparable entity load.
+    (g) **leash feel** (FEAT-WORLD-SPACE-5): fly 2000+ px away from a mob and come back. Do
+    recycled enemies re-enter from the edges as fresh pressure, or is a mob visibly
+    teleporting? (h) **pressure parity**: stop in an arbitrary sector for 60 s. Does it feel
+    like an arena minute at the same run time, or thinner? (i) **world-edge pressure**: park
+    against the world boundary. The ring loses a side there. Is the resulting lull acceptable,
+    or does the boundary need its own rule?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every
