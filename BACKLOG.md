@@ -1500,6 +1500,31 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   relative of the fair rate; the fair implementation measures within 2.7% at three seeds
   while the old one missed by 43-47%, so both tests fail on the pre-fix code. Offer *feel*
   is owned by **POLISH-DRAFT-FAIRNESS** under `## Human gates`.
+- [x] **FEAT-BOSS-TROPHY** — beating a boss permanently unlocks its signature relic
+  (done — 8447b84). Value: all 12 bosses paid out the same thing (gold: every `boss_first_*`
+  achievement is `reward: { type: 'gold', value: 300..400 }`, and no boss unlocked content),
+  so clearing a boss you had never beaten was mechanically identical to farming one you had
+  beaten fifty times, and the 34-relic pool was static from run 1. Each boss now owns one
+  `epic` trophy relic (`BOSS_TROPHIES` in `src/data/Relics.ts`), unlocked permanently the
+  first time that boss dies and drawable in every run after. **The reward is a next-run
+  unlock, not a drop, because the boss kill ends the run:** `GameScene` line ~3064 reads
+  `// Boss kill = Victory!` and calls `advanceWorldLevel()` + `showVictory()`, so a relic
+  handed over at boss death would land on the victory overlay. **No new storage key and no
+  save-format change:** the codex already persists per-enemy `timesKilled`, so "have I beaten
+  this boss" was already durable, and `resetAllRunSystems()` reads it once per run through an
+  injected predicate (`getUnlockedBossTrophies`), keeping `src/data/Relics.ts` free of any
+  codex import. Trophies live outside `RELICS` and reach a roll only as `pickRandomRelic`'s
+  new optional `extraPool`, so they cannot drop before they are earned. A fully unlocked
+  player roughly doubles the pool's epic share (epic weight 90 of 817, to 198 of 925), which
+  is the reward: conquering the roster enriches the pool. The victory kicker names the unlock
+  (`WORLD 3 CLEARED · TROPHY UNLOCKED: WYRM COIL`) by swapping one existing string, and the
+  Codex Relics tab lists all 12 with `Defeat <Boss> to unlock` until earned, counting
+  `unlocked/total`. Known limit: a mid-run reload loses the kicker line (not the unlock).
+  Tested where a silent failure was possible: every boss maps to exactly one trophy whose
+  `bossName` matches `ENEMY_TYPES`, trophies are disjoint from `RELICS`, and 500 unbiased
+  draws never return one. Files: `Relics.ts`, `RelicManager.ts`, `GameScene.ts`,
+  `PauseMenuManager.ts`, `CodexScene.ts`, `referentialIntegrity.test.ts`, `Relics.test.ts`.
+  Feel/balance → playtest queue (POLISH-BOSS-TROPHY).
 
 ## Next
 
@@ -1706,6 +1731,25 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-BOSS-TROPHY** (— 8447b84) — bosses now unlock their own relic for future runs
+    (FEAT-BOSS-TROPHY). Agents have no browser and must not retune blind. Check: (a) **the
+    announcement** — beat a boss you have never beaten and read the victory kicker
+    `WORLD 3 CLEARED  ·  TROPHY UNLOCKED: LATTICE PRISM`. Does the longest name
+    (`TROPHY UNLOCKED: SIEGE CHASSIS`) still fit at 16 px with 6 px letter spacing at 1000,
+    1280 and 2000 px wide, and is losing `BOSS DEFEATED` on that run acceptable, or should the
+    trophy get its own line? (b) **is a next-run unlock the right beat**, or does the reward
+    feel too deferred at the moment of the kill? (c) **pool feel** across several runs once
+    5+ bosses are down: epic relics now appear roughly twice as often. Does that read as
+    earned power or as trivialized rarity? Knob: the `rarity` on each entry in
+    `BOSS_TROPHIES` (`src/data/Relics.ts`) and `RELIC_RARITY_DROP_WEIGHTS`. (d) **the twelve
+    effects** — open Codex → Relics and read them as a set: any that duplicates an existing
+    relic too closely, or that is dead for most builds (`Lattice Prism` needs freeze,
+    `Siege Chassis` needs explosives)? (e) **the locked cards** — do 12 `Defeat The Obelisk to
+    unlock` rows read as a chase or as clutter at the bottom of the Relics tab, and is
+    `unlocked/total` the right count? (f) **scope calls left open**: should a trophy also be
+    grantable *during* endless/gauntlet runs (where the boss kill does not end the run);
+    should the daily challenge use a fixed pool so unlock progress cannot skew a seeded
+    board; and should the pre-run funnel show which trophies are in your pool?
   - **POLISH-DRAFT-FAIRNESS** (— 4fb3296) — offers are now drawn uniformly (BUG-DRAFT-SHUFFLE-BIAS).
     Agents have no browser and must not retune blind. Check: (a) **the milestone** is the one real
     feel change: with a full arsenal, a weapon milestone now shows the REFIT trade card every time
