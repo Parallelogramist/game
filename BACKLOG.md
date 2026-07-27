@@ -34,6 +34,28 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **BUG-ENDRUN-GOLD-MULT** — ending a run from the pause menu paid less gold than dying with the
+  identical run (done — 1306a46). `PauseMenuManager.ts:1263` called
+  `metaManager.calculateRunGold(killCount, gameTime, playerLevel, false)` with **no 5th argument**,
+  so `runGoldMultiplier` fell to its `= 1` default, while both real run-end paths
+  (`GameScene.ts:6249` victory, `GameScene.ts:6508` gameOver) pass
+  `this.playerStats.goldMultiplier`. The dialog then *awarded* that under-counted total via
+  `metaManager.addGold(finalTotal)` at `PauseMenuManager.ts:1387`. Silently forfeited: stages up to
+  `1.5` (`Stages.ts:91`), the `treasure_hunt` run modifier `2.0` (`RunModifiers.ts:124`), the
+  `fortune` blessing `1.4` (`Blessings.ts:83`), a relic `1.1` (`Relics.ts:221`) and pacts
+  `1.1`-`1.25`, all multiplicative, so a real run could forfeit 2-3x its payout. Unambiguously
+  unintended: the call site's own comment read *"Calculate gold using the same formula as death
+  (hasWon=false)"* and death's formula includes the multiplier. Fixed structurally rather than
+  patched: the `= 1` default is **gone**, `runGoldMultiplier` is now a required parameter, so every
+  present and future caller that forgets it is a `tsc` error instead of a silent shortfall (the same
+  exhaustiveness-as-guard idiom **FEAT-MARKET-STOCK** used for `MARKET_BASE_PRICES`; a test cannot
+  reach a Phaser-coupled call site without mock scaffolding, the type system can). `PauseGameState`
+  now carries `runGoldMultiplier`, `HUDManager.ts:910`'s payout preview passes it too, and the END
+  RUN breakdown lists a `Run Bonus: ×N.NN` line so the dialog's promised total is legible. Label is
+  `Run Bonus`, not `Gold Bonus`: the latter already names the meta-shop upgrade multiplier two lines
+  down and the two must not read as the same thing. Playtest follow-up filed as **POLISH-GOLD-TRUTH**
+  under `## Human gates`.
+
 - [x] **FEAT-MARKET** — a walk-in Black Market shrine that spends banked gold, mid-run, on immediate
   power (done — e32a173). Value: gold was a number the player watched accumulate and could only ever
   spend **between** runs, so a run in trouble had no lever at all. The gap was verified, not assumed:
@@ -1713,18 +1735,34 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `src/meta/PracticeBestTimes.test.ts`. Feel/scope owned by **POLISH-PRACTICE-TIMEATTACK** under
   `## Human gates`.
 
-- [ ] **FEAT-HUD-WALLET** — show the actual banked wallet in-run, not just the projected payout.
-  Value: the HUD's `N GOLD` is `calculateRunGold(...)`, a *preview of the end-of-run payout*
-  (`HUDManager.ts:907-918`), not the balance the Black Market spends, so with the market now the
-  game's only gold sink a player cannot tell what they can afford until they are already standing
-  inside the shrine. Pointer: `HUDManager.updateHUD` gold preview block; wallet is
-  `getMetaProgressionManager().getGold()`.
+- [x] **FEAT-HUD-WALLET** — show the actual banked wallet in-run, not just the projected payout
+  (done — 85e2e02). Value: the HUD's `N GOLD` was `calculateRunGold(...)`, a *preview of the
+  end-of-run payout* (`HUDManager.ts:907-918`), not the balance the Black Market spends, so with the
+  market now the game's only gold sink a player could not tell what they could afford until they
+  were already standing inside the shrine. Delivered: the row now reads `4,180 (+320) GOLD`. The
+  banked wallet leads because that is the number a purchase decision is made against, the run's
+  projected payout follows in parentheses, and the letter-spaced `GOLD` label still trails so it
+  stays pinned to the right edge as the numbers grow leftward (`setOrigin(1, 0)` at `statsRightX`).
+  The parenthetical is omitted while the payout is still 0, so a fresh run reads `4,180 GOLD`.
+  **No HUD row was added**: the stats stack (kills / this row / pace delta / relic strip) and its
+  geometry are untouched, and the Phaser object keeps the name `goldPreviewText` because
+  `findByName` resolves it in `create()` and `handleResize()`. A `lastBankedGold` dirty-check field
+  joins `lastDeathGold` so the per-frame block builds strings only when a value changed. The
+  `MarketScene` wallet line and price tags plus the pause-menu `Gold:` readout were re-formatted
+  with `toLocaleString('en-US')` so all three surfaces print the same wallet the same way. That
+  payout preview is also correct for the first time, since the row now passes the run gold
+  multiplier (see **BUG-ENDRUN-GOLD-MULT**). Playtest follow-up filed as **POLISH-GOLD-TRUTH**
+  under `## Human gates`.
 
 - [ ] **FEAT-VICTORY-ECONOMY** — give the victory overlay the run-economy readout the death screen
-  has. Value: `showVictory` renders a stat grid and a streak line but **no gold number at all**
-  (verified: no gold text between `PauseMenuManager.ts:1400-1660`), and the payout is only awarded
-  when the player taps NEXT WORLD (`GameScene.ts:6119-6121`), so a player who *wins* after
-  spending at the market is the one player who never learns what the run paid.
+  has. Value: `showVictory` **does** show a payout preview: `+${goldToEarn} gold` renders as the
+  named object `victoryGoldPreview` at `PauseMenuManager.ts:1717-1729` (an earlier write-up here
+  claimed "no gold number at all, verified: no gold text between `PauseMenuManager.ts:1400-1660`";
+  that was wrong, the text sits just below the range that was checked). The real remaining gap is
+  the **earned/spent ledger**: the death screen got `Gold Found` / `Gold Spent` / `net` in
+  **FEAT-GOLD-LEDGER** (`585b010`) and the victory overlay did not, so a run that spent 940 g at
+  markets and then won reports nothing about it and the player cannot tell whether the run's
+  spending paid for itself.
   Pointer: the `victoryCellRow` stat grid ~`PauseMenuManager.ts:1540-1560`; reuse
   `GameOverData.goldLedger`'s shape on `VictoryData`.
 
@@ -2064,6 +2102,18 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-GOLD-TRUTH** (— 85e2e02) — playtest the in-run gold numbers now that the HUD shows the
+    banked wallet (FEAT-HUD-WALLET) and ending a run pays the run bonus (BUG-ENDRUN-GOLD-MULT).
+    Owns: (a) **does `4,180 (+320) GOLD` read correctly**, or does the parenthetical get taken as
+    part of the balance, and is the payout projection still wanted on the HUD at all now that the
+    balance is there? (b) **portrait width** (720 units): does the widened row still clear the
+    centered timer/world-level column? (c) **a 7-digit wallet** (cap `10,000,000`): does the row
+    overflow the right-hand stack? (d) **watching the balance drop live** after a market purchase:
+    satisfying, or loss-aversion that discourages using the market at all? (e) **the label**: is
+    `Run Bonus` right in the END RUN breakdown next to `Gold Bonus`, or do the two read as
+    duplicates? (f) **ending early is now worth more** than it was: does the corrected payout make
+    ending a run too attractive versus playing on? (A balance question. No knob was changed here:
+    the number was simply wrong before.)
   - **POLISH-GOLD-LEDGER** (— 585b010) — playtest the death-screen run economy readout
     (FEAT-GOLD-LEDGER). Owns: (a) **the net on the pill:** whether `net +180` reads as "what this
     run was worth" or gets misread as a second payout on top of `Gold: +N`, and whether a negative
