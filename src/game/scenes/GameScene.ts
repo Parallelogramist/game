@@ -56,8 +56,9 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { inflateRect } from '../../world/worldSpace';
 import { pickEdgeSpawnPoint } from '../../world/spawnRing';
-import { WorldModeAdapter } from '../world/WorldModeAdapter';
+import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
+import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
 import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
 import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
@@ -268,6 +269,15 @@ interface PracticeFightState {
 
 /** XP floor that marks an enemy boss-tier — the same threshold handleEnemyDeath uses. */
 const PRACTICE_FIGHT_XP_FLOOR = 30;
+
+/**
+ * Expedition stays dev-only until FEAT-EXPEDITION-PROMOTE: no menu passes runMode, so
+ * the URL param is the only entrance and there is nothing for a player to stumble into.
+ */
+function isExpeditionDevRouteRequested(): boolean {
+  if (typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).get('expedition') === '1';
+}
 
 /**
  * GameScene is the main gameplay scene.
@@ -664,6 +674,7 @@ export class GameScene extends Phaser.Scene {
 
   init(data?: {
     restore?: boolean;
+    runMode?: 'arena' | 'expedition';
     /** After a restore, come back up inside the pause menu (UI-scale flow). */
     resumePaused?: boolean;
     startingWeapon?: string;
@@ -683,8 +694,8 @@ export class GameScene extends Phaser.Scene {
     practiceEvolved?: boolean;
     practiceRematch?: PracticeRematchSeed;
   }): void {
-    this.worldMode = new ArenaModeAdapter(this);
     this.shouldRestore = data?.restore === true;
+    this.worldMode = this.createWorldMode(data?.runMode);
     this.resumeIntoPauseMenu = data?.resumePaused === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
     this.selectedShipId = data?.shipId || 'ship_default';
@@ -720,6 +731,14 @@ export class GameScene extends Phaser.Scene {
     // fresh path (daily/weekly/replay/surprise/practice) -> the create() block
     // auto-rolls as before. Absent on restore (that path reads state.blessingIds).
     this.draftedBlessingIds = Array.isArray(data?.blessingIds) ? data.blessingIds : null;
+  }
+
+  private createWorldMode(requested: RunModeKind | undefined): WorldModeAdapter {
+    // A restore always lands in arena: save v2 is FEAT-WORLD-SPACE-7's, so there is no
+    // expedition payload to come back to and a scrolled camera would restore to nothing.
+    if (this.shouldRestore) return new ArenaModeAdapter(this);
+    const mode = requested ?? (isExpeditionDevRouteRequested() ? 'expedition' : 'arena');
+    return mode === 'expedition' ? new ExpeditionModeAdapter(this) : new ArenaModeAdapter(this);
   }
 
   create(): void {
@@ -1426,8 +1445,14 @@ export class GameScene extends Phaser.Scene {
       },
     });
 
-    // Create player at center of screen
-    this.playerId = this.createPlayer(this.scale.width / 2, this.scale.height / 2);
+    // Create the player at the mode's start point (arena: screen centre).
+    const playerStart = this.worldMode.playerStartPoint();
+    this.playerId = this.createPlayer(playerStart.x, playerStart.y);
+    this.worldMode.setupCamera(
+      this.playerSpaceship.getContainer(),
+      this.gridBackground,
+      this.trailManager,
+    );
 
     // Initialize weapon system
     this.weaponManager = new WeaponManager(
@@ -3325,7 +3350,7 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.flash(400, 255, 200, 200);
       this.effectsManager.playImpactFlash(0.4, 150);
       // Screen-space distortion shockwave from boss death
-      this.distortionPipeline?.addDistortion(x, y, 400, 0.04, 500);
+      this.addWorldDistortion(x, y, 400, 0.04, 500);
 
       // Phase 4: Massive grid distortion
       this.gridBackground.applyExplosiveForce(5000, x, y, 700);
@@ -3402,7 +3427,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.effectsManager.playImpactFlash(0.15, 80);
       // Screen-space distortion shockwave from miniboss death
-      this.distortionPipeline?.addDistortion(x, y, 250, 0.025, 400);
+      this.addWorldDistortion(x, y, 250, 0.025, 400);
 
       this.gridBackground.applyExplosiveForce(2000, x, y, 350);
       this.deathRippleManager.spawnRipple(x, y);
@@ -6521,7 +6546,7 @@ export class GameScene extends Phaser.Scene {
         this.playerSpaceship.explode();
       }
       this.effectsManager.playPlayerDeathExplosion(playerX, playerY);
-      this.distortionPipeline?.addDistortion(playerX, playerY, 300, 0.03, 500);
+      this.addWorldDistortion(playerX, playerY, 300, 0.03, 500);
       this.deathRippleManager.spawnRipple(playerX, playerY);
       this.deathRippleManager.spawnRipple(playerX + 30, playerY);
       this.gridBackground.applyExplosiveForce(8000, playerX, playerY, 900);
@@ -7667,7 +7692,12 @@ export class GameScene extends Phaser.Scene {
       getJuiceManager().screenShake(0.008, 400);
       getJuiceManager().impactFlash(0.15, 100);
       // Grid distortion pulse from screen center
-      this.gridBackground.applyExplosiveForce(2000, screenCenterX, screenCenterY, 400);
+      this.gridBackground.applyExplosiveForce(
+        2000,
+        screenCenterX + this.cameras.main.scrollX,
+        screenCenterY + this.cameras.main.scrollY,
+        400,
+      );
       // Screen distortion shockwave
       this.distortionPipeline?.addDistortion(screenCenterX, screenCenterY, 300, 0.02, 350);
 
@@ -8132,7 +8162,7 @@ export class GameScene extends Phaser.Scene {
       // Orange particle burst at player position for power surge feel
       this.effectsManager.playDeathBurst(comboPlayerX, comboPlayerY, 0xff8844);
       // Screen distortion shockwave
-      this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 280, 0.025, 400);
+      this.addWorldDistortion(comboPlayerX, comboPlayerY, 280, 0.025, 400);
       // Chromatic aberration spike via grid combat intensity
       this.gridBackground.setCombatIntensity(1.0);
       // Grid shockwave from player position
@@ -8183,12 +8213,12 @@ export class GameScene extends Phaser.Scene {
       this.deathRippleManager.spawnRipple(comboPlayerX + 30, comboPlayerY);
       this.deathRippleManager.spawnRipple(comboPlayerX - 30, comboPlayerY);
       // Multi-wave screen distortion
-      this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 350, 0.035, 450);
+      this.addWorldDistortion(comboPlayerX, comboPlayerY, 350, 0.035, 450);
       this.time.delayedCall(100, () => {
-        this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 500, 0.025, 400);
+        this.addWorldDistortion(comboPlayerX, comboPlayerY, 500, 0.025, 400);
       });
       this.time.delayedCall(250, () => {
-        this.distortionPipeline?.addDistortion(comboPlayerX, comboPlayerY, 650, 0.015, 350);
+        this.addWorldDistortion(comboPlayerX, comboPlayerY, 650, 0.015, 350);
       });
       // Grid shockwave
       this.gridBackground.applyExplosiveForce(6000, comboPlayerX, comboPlayerY, 800);
@@ -8230,6 +8260,28 @@ export class GameScene extends Phaser.Scene {
    * setting (0–1). All gameplay shakes route through here so the
    * accessibility slider applies globally; zero intensity becomes a no-op.
    */
+  /**
+   * DistortionPipeline consumes screen coordinates. Under a static camera that is the
+   * same thing as world coordinates, which is why every call site passes a world
+   * position; once the camera scrolls it is not.
+   */
+  private addWorldDistortion(
+    worldX: number,
+    worldY: number,
+    radius: number,
+    strength: number,
+    durationMs: number,
+  ): void {
+    const camera = this.cameras.main;
+    this.distortionPipeline?.addDistortion(
+      worldX - camera.scrollX,
+      worldY - camera.scrollY,
+      radius,
+      strength,
+      durationMs,
+    );
+  }
+
   private shakeCamera(duration: number, intensity: number): void {
     const shakeScale = getSettingsManager().getScreenShakeIntensity();
     if (shakeScale <= 0) return;
@@ -8821,7 +8873,12 @@ export class GameScene extends Phaser.Scene {
     bossJuice.screenShake(0.012, 400);
 
     // Grid distortion pulse from spawn point (top center)
-    this.gridBackground.applyExplosiveForce(3000, this.scale.width / 2, 0, 500);
+    this.gridBackground.applyExplosiveForce(
+      3000,
+      this.scale.width / 2 + this.cameras.main.scrollX,
+      this.cameras.main.scrollY,
+      500,
+    );
 
     // ── Letterboxed intro ───────────────────────────────────────────────
     // Bars slide in from the screen edges, the boss name lands between them
@@ -11018,6 +11075,16 @@ export class GameScene extends Phaser.Scene {
     this.distortionPipeline = null;
     if (this.renderer.type === Phaser.WEBGL && this.cameras?.main) {
       this.cameras.main.removePostPipeline('DistortionPipeline');
+    }
+
+    // A scene restart reuses this camera, so expedition's follow, bounds and deadzone
+    // would otherwise leak into the next arena run.
+    if (this.cameras?.main) {
+      const camera = this.cameras.main;
+      camera.stopFollow();
+      camera.removeBounds();
+      camera.setDeadzone();
+      camera.setScroll(0, 0);
     }
 
     // Clean up grid background and trail manager
