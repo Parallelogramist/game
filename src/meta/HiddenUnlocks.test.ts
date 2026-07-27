@@ -18,6 +18,7 @@ import { SecureStorage } from '../storage/SecureStorage';
 import {
   HIDDEN_UNLOCKS,
   HiddenUnlockManager,
+  orderVaultEntries,
   type HiddenUnlockCondition,
   type UnlockEvaluationContext,
 } from './HiddenUnlocks';
@@ -195,5 +196,34 @@ describe('HiddenUnlockManager.getTopProgress', () => {
     for (const entry of entries) {
       expect(entry.ratio).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('orderVaultEntries — unlock vault ordering', () => {
+  test('earned entries come first, newest first, then locked in definition order', () => {
+    const firstId = HIDDEN_UNLOCKS[0].id;
+    const thirdId = HIDDEN_UNLOCKS[2].id;
+    const ordered = orderVaultEntries({
+      [firstId]: { unlockedAt: 1000 },
+      [thirdId]: { unlockedAt: 5000 },
+    });
+
+    expect(ordered).toHaveLength(HIDDEN_UNLOCKS.length);
+    expect(ordered[0].condition.id).toBe(thirdId);
+    expect(ordered[0].unlockedAt).toBe(5000);
+    expect(ordered[1].condition.id).toBe(firstId);
+    expect(ordered.slice(2).every((entry) => entry.unlockedAt === null)).toBe(true);
+    // Locked tail keeps definition order.
+    const lockedIds = ordered.slice(2).map((entry) => entry.condition.id);
+    const expectedLockedIds = HIDDEN_UNLOCKS
+      .map((condition) => condition.id)
+      .filter((id) => id !== firstId && id !== thirdId);
+    expect(lockedIds).toEqual(expectedLockedIds);
+  });
+
+  test('a saved id for a retired condition is ignored, not rendered', () => {
+    const ordered = orderVaultEntries({ unlock_no_longer_exists: { unlockedAt: 9000 } });
+    expect(ordered).toHaveLength(HIDDEN_UNLOCKS.length);
+    expect(ordered.every((entry) => entry.unlockedAt === null)).toBe(true);
   });
 });

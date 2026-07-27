@@ -50,6 +50,13 @@ export interface UnlockProgressEntry {
   ratio: number;
 }
 
+/** One row of the unlock vault: a condition plus when it was earned (null while locked). */
+export interface VaultEntry {
+  condition: HiddenUnlockCondition;
+  /** ms epoch when the condition was satisfied; null if still locked. */
+  unlockedAt: number | null;
+}
+
 export interface UnlockEvaluationContext {
   run: {
     wasVictory: boolean;
@@ -330,6 +337,11 @@ export class HiddenUnlockManager {
     return targetIds;
   }
 
+  /** Every hidden unlock with its earn timestamp, ordered for the vault. */
+  getVaultEntries(): VaultEntry[] {
+    return orderVaultEntries(this.state.unlocked);
+  }
+
   /**
    * Evaluate all hidden unlocks after a run. Persists newly-earned unlocks and
    * fires the callback for each one. Returns the list of newly unlocked conditions.
@@ -422,6 +434,32 @@ function createDefaultState(): HiddenUnlockState {
     version: HIDDEN_UNLOCKS_VERSION,
     unlocked: {},
   };
+}
+
+/**
+ * Vault ordering: earned first, newest earn first, then everything still locked in
+ * definition order. Driven off HIDDEN_UNLOCKS rather than the saved map, so a saved id
+ * for a retired condition is ignored instead of rendering a nameless row.
+ */
+export function orderVaultEntries(
+  unlocked: Record<string, { unlockedAt: number }>
+): VaultEntry[] {
+  const earnedEntries: VaultEntry[] = [];
+  const lockedEntries: VaultEntry[] = [];
+  for (const condition of HIDDEN_UNLOCKS) {
+    const record = unlocked[condition.id];
+    const unlockedAt =
+      record && typeof record.unlockedAt === 'number' && Number.isFinite(record.unlockedAt)
+        ? record.unlockedAt
+        : null;
+    if (unlockedAt === null) {
+      lockedEntries.push({ condition, unlockedAt: null });
+    } else {
+      earnedEntries.push({ condition, unlockedAt });
+    }
+  }
+  earnedEntries.sort((a, b) => (b.unlockedAt ?? 0) - (a.unlockedAt ?? 0));
+  return [...earnedEntries, ...lockedEntries];
 }
 
 let hiddenUnlockManagerSingleton: HiddenUnlockManager | null = null;

@@ -27,6 +27,11 @@ import {
   claimDailyQuestGold,
 } from '../../meta/DailyQuestManager';
 import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestDefinition } from '../../data/DailyQuests';
+import {
+  getHiddenUnlockManager,
+  type HiddenUnlockTarget,
+  type VaultEntry,
+} from '../../meta/HiddenUnlocks';
 
 // Achievement categories with display names and icons
 const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: string }[] = [
@@ -37,16 +42,24 @@ const ACHIEVEMENT_CATEGORIES: { id: AchievementCategory; name: string; icon: str
   { id: 'mastery', name: 'Mastery', icon: 'crown' },
 ];
 
-/** Tab id space = the achievement categories plus the daily quest board.
- *  Daily is last so the default landing tab stays 'combat'. */
-type TabId = AchievementCategory | 'daily';
+/** Tab id space = the achievement categories, the daily quest board, and the unlock vault.
+ *  Daily and Vault are last so the default landing tab stays 'combat'. */
+type TabId = AchievementCategory | 'daily' | 'unlocks';
 
 const TAB_DEFS: { id: TabId; name: string; icon: string }[] = [
   ...ACHIEVEMENT_CATEGORIES,
   { id: 'daily', name: 'Daily', icon: 'clipboard' },
+  { id: 'unlocks', name: 'Vault', icon: 'gem' },
 ];
 
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
+
+const VAULT_TARGET_META: Record<HiddenUnlockTarget, { icon: string; label: string; tint: number }> = {
+  weapon: { icon: 'sword', label: 'WEAPON', tint: 0xff8866 },
+  ship: { icon: 'rocket', label: 'SHIP', tint: 0x66bbff },
+  cosmetic: { icon: 'sparkle', label: 'COSMETIC', tint: 0xcc88ff },
+  stage: { icon: 'planet', label: 'STAGE', tint: 0x66ddcc },
+};
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -66,6 +79,9 @@ export class AchievementScene extends Phaser.Scene {
   /** Quest cards live in the same masked container; tracked separately so a tab
    *  switch destroys them and the navigator's grid rows stay achievement-only. */
   private questCards: Phaser.GameObjects.Container[] = [];
+  /** Vault cards live in the same masked container as quest cards; the bg is retained so
+   *  the navigator can highlight the focused row. */
+  private vaultCards: { container: Phaser.GameObjects.Container; cardBg: Phaser.GameObjects.Rectangle; earned: boolean }[] = [];
   private achievementContainer!: Phaser.GameObjects.Container;
   private scrollY: number = 0;
   private maxScrollY: number = 0;
@@ -103,6 +119,7 @@ export class AchievementScene extends Phaser.Scene {
     // Reset state
     this.achievementCards = [];
     this.questCards = [];
+    this.vaultCards = [];
     this.categoryTabs.clear();
     this.scrollY = 0;
     this.focusZone = 'tabs';
@@ -271,7 +288,9 @@ export class AchievementScene extends Phaser.Scene {
       },
     });
 
-    const totalCards = this.achievementCards.length;
+    // Exactly one card list is populated per tab; quest cards deliberately register no rows
+    // (3 cards never scroll), vault cards do (23 cards scroll past the mask).
+    const totalCards = this.achievementCards.length + this.vaultCards.length;
     const totalRows = Math.ceil(totalCards / this.columns);
     for (let row = 0; row < totalRows; row++) {
       const rowStart = row * this.columns;
@@ -375,6 +394,10 @@ export class AchievementScene extends Phaser.Scene {
       let countLabel: string;
       if (category.id === 'daily') {
         countLabel = `${getDailyQuestCompletionCount()}/${DAILY_QUEST_COUNT}`;
+      } else if (category.id === 'unlocks') {
+        const vaultEntries = getHiddenUnlockManager().getVaultEntries();
+        const earnedCount = vaultEntries.filter((entry) => entry.unlockedAt !== null).length;
+        countLabel = `${earnedCount}/${vaultEntries.length}`;
       } else {
         const categoryAchievements = getAchievementsByCategory(category.id);
         const unlockedInCategory = categoryAchievements.filter(
@@ -393,6 +416,9 @@ export class AchievementScene extends Phaser.Scene {
         }
       );
       countText.setOrigin(1, 0.5);
+
+      // 34 = the 28-unit icon gutter the name is centred against, plus a 6-unit gap.
+      if (tabText.width + countText.width + 34 > tabWidth) countText.setVisible(false);
 
       tabContainer.add([tabBg, tabIcon, tabText, countText]);
       this.categoryTabs.set(category.id, tabContainer);
@@ -448,13 +474,20 @@ export class AchievementScene extends Phaser.Scene {
     this.achievementContainer.setMask(mask);
   }
 
-  private displayCategoryAchievements(category: AchievementCategory): void {
-    // Clear existing cards
+  /** Destroys whatever the previous tab rendered and resets the scroll. Every display
+   *  method starts here, so a new card kind can never be left behind by a tab switch. */
+  private clearTabCards(): void {
     this.achievementCards.forEach((card) => card.container.destroy());
     this.achievementCards = [];
     this.questCards.forEach((card) => card.destroy());
     this.questCards = [];
+    this.vaultCards.forEach((card) => card.container.destroy());
+    this.vaultCards = [];
     this.scrollY = 0;
+  }
+
+  private displayCategoryAchievements(category: AchievementCategory): void {
+    this.clearTabCards();
 
     const achievements = getAchievementsByCategory(category);
 
@@ -490,11 +523,7 @@ export class AchievementScene extends Phaser.Scene {
    * is untouched.
    */
   private displayDailyQuests(): void {
-    this.achievementCards.forEach((card) => card.container.destroy());
-    this.achievementCards = [];
-    this.questCards.forEach((card) => card.destroy());
-    this.questCards = [];
-    this.scrollY = 0;
+    this.clearTabCards();
 
     const board = getDailyQuestBoard();
     const gridWidth = this.cardWidth * this.columns + this.cardSpacing * (this.columns - 1);
@@ -510,6 +539,34 @@ export class AchievementScene extends Phaser.Scene {
     });
 
     const totalRows = Math.ceil(board.length / this.columns);
+    const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
+    const viewHeight = this.scale.height - 180;
+    this.maxScrollY = Math.max(0, contentHeight - viewHeight);
+    this.achievementContainer.y = 120 - this.scrollY;
+  }
+
+  /**
+   * Renders every hidden unlock into the same masked, scrollable container. Unlike the
+   * quest tab, these cards DO register navigator rows (see buildMenuNavigator) — 23 entries
+   * scroll past the mask, so a keyboard/gamepad player needs row focus to reach the bottom.
+   */
+  private displayUnlockVault(): void {
+    this.clearTabCards();
+
+    const entries = getHiddenUnlockManager().getVaultEntries();
+    const gridWidth = this.cardWidth * this.columns + this.cardSpacing * (this.columns - 1);
+    const startX = (this.scale.width - gridWidth) / 2;
+    const startY = 10;
+
+    entries.forEach((entry, index) => {
+      const col = index % this.columns;
+      const row = Math.floor(index / this.columns);
+      const x = startX + col * (this.cardWidth + this.cardSpacing);
+      const y = startY + row * (this.cardHeight + this.cardSpacing);
+      this.vaultCards.push(this.createVaultCard(entry, x, y));
+    });
+
+    const totalRows = Math.ceil(entries.length / this.columns);
     const contentHeight = totalRows * (this.cardHeight + this.cardSpacing);
     const viewHeight = this.scale.height - 180;
     this.maxScrollY = Math.max(0, contentHeight - viewHeight);
@@ -621,6 +678,90 @@ export class AchievementScene extends Phaser.Scene {
     container.add(rewardText);
 
     return container;
+  }
+
+  private createVaultCard(
+    entry: VaultEntry,
+    x: number,
+    y: number
+  ): { container: Phaser.GameObjects.Container; cardBg: Phaser.GameObjects.Rectangle; earned: boolean } {
+    const earned = entry.unlockedAt !== null;
+    const meta = VAULT_TARGET_META[entry.condition.target];
+
+    const container = this.add.container(x, y);
+    this.achievementContainer.add(container);
+
+    const bgColor = earned ? 0x2a5a2a : 0x2a2a4a;
+    const borderColor = earned ? 0x44ff88 : 0x3a3a5a;
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      this.cardHeight / 2,
+      this.cardWidth,
+      this.cardHeight,
+      bgColor
+    );
+    cardBg.setStrokeStyle(2, borderColor);
+    container.add(cardBg);
+
+    const iconCenterX = 35;
+    const iconCenterY = this.cardHeight / 2 - 8;
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 22, earned ? 0x1a4a2a : 0x1a1a3a);
+    iconDisc.setStrokeStyle(2, borderColor);
+    container.add(iconDisc);
+
+    try {
+      container.add(
+        createIcon(this, {
+          x: iconCenterX,
+          y: iconCenterY,
+          iconKey: meta.icon,
+          size: 28,
+          tint: earned ? meta.tint : 0x666666,
+        })
+      );
+    } catch {
+      container.add(this.add.circle(iconCenterX, iconCenterY, 14, earned ? meta.tint : 0x666666));
+    }
+
+    const nameText = this.add.text(70, 12, entry.condition.displayName, {
+      fontSize: '16px',
+      color: earned ? '#44ff88' : '#888888',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const targetText = this.add.text(this.cardWidth - 10, 20, meta.label, {
+      fontSize: '10px',
+      color: earned ? '#ffcc00' : '#666666',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    targetText.setOrigin(1, 0.5);
+    container.add(targetText);
+
+    const hintText = this.add.text(70, 38, entry.condition.hintText, {
+      fontSize: '13px',
+      color: earned ? '#aaaaaa' : '#777777',
+      fontFamily: FONT_FAMILY,
+      wordWrap: { width: this.cardWidth - 90 },
+    });
+    container.add(hintText);
+
+    const statusText = this.add.text(
+      70,
+      this.cardHeight - 22,
+      earned ? `EARNED ${formatUnlockDate(entry.unlockedAt as number)}` : 'LOCKED',
+      {
+        fontSize: '11px',
+        color: earned ? '#44ff88' : '#666666',
+        fontFamily: FONT_FAMILY,
+        fontStyle: 'bold',
+      }
+    );
+    container.add(statusText);
+
+    return { container, cardBg, earned };
   }
 
   private createAchievementCard(
@@ -851,6 +992,8 @@ export class AchievementScene extends Phaser.Scene {
   private displayTab(tab: TabId): void {
     if (tab === 'daily') {
       this.displayDailyQuests();
+    } else if (tab === 'unlocks') {
+      this.displayUnlockVault();
     } else {
       this.displayCategoryAchievements(tab);
     }
@@ -888,6 +1031,15 @@ export class AchievementScene extends Phaser.Scene {
       }
     });
 
+    this.vaultCards.forEach((card, index) => {
+      const isFocused = this.focusZone === 'grid' && this.selectedCardIndex === index;
+      if (isFocused) {
+        card.cardBg.setStrokeStyle(3, 0xffdd44);
+      } else {
+        card.cardBg.setStrokeStyle(2, card.earned ? 0x44ff88 : 0x3a3a5a);
+      }
+    });
+
     // Back button focus pop.
     this.backButton?.setFocusState(this.focusZone === 'back');
   }
@@ -907,4 +1059,11 @@ export class AchievementScene extends Phaser.Scene {
     this.backButton = null;
     this.tweens.killAll();
   }
+}
+
+function formatUnlockDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 }
