@@ -2143,12 +2143,32 @@ the game playable with the suite green.
 
 Parallel-safe. Each is a pure module plus the tests that pin it.
 
-- [ ] **FEAT-WORLD-SPACE-1**: the tested world-space vocabulary (sector math, world rects,
-  spawn ring, lattice scroll) every other chunk imports. New `src/world/worldSpace.ts`,
-  `spawnRing.ts`, `latticeScroll.ts` + tests. Done when `pickEdgeSpawnPoint` reproduces the
-  legacy edge distribution at `GameScene.ts:7069-7086` case-by-case under a seeded stub, and
-  `sectorKey`/`parseSectorKey` round-trip with malformed-key rejection. Deps: none.
-  Spec: `references/map/01-world-space.md` section 10.
+- [x] **FEAT-WORLD-SPACE-1** (done — b72b898) — `src/world/`, the Phaser-free coordinate
+  vocabulary the rest of the epic is written against, landed **load-bearing rather than on a
+  shelf**: `worldSpace.ts` (fixed 1280x720 sectors, `sectorOfWorldPoint` with negative-safe
+  floor division, `sectorKey`/`parseSectorKey` with regex rejection so a malformed key can
+  never become a `NaN` sector, half-open `WorldRect` helpers, `rectFromScreen`) and
+  `spawnRing.ts` (`pickEdgeSpawnPoint`, `isBeyondLeash`, `repositionOntoSpawnRing`,
+  `LEASH_RADIUS = 1600`). The three live edge-spawn switches in `GameScene` now call it:
+  `spawnEnemy` (offset 30, inset 0), `spawnMiniboss` and `spawnNemesis` (offset 50, inset
+  100), all over `rectFromScreen(this.scale.width, this.scale.height)`. That is the whole
+  point of taking this chunk now: the kernel is exercised by the shipped game, not only by
+  its tests, and the seam a scrolling camera has to move is already one rect argument
+  instead of three switch statements. **Arena behavior is unchanged** — same four-way
+  uniform edge choice, same offsets and insets, same entropy (`Phaser.Math.Between` is a
+  `Math.random` wrapper, so the source did not change). The one difference is that the
+  along-edge coordinate is now continuous instead of integer-quantized, which is invisible
+  at `Transform` f32 precision and has no integer consumer. 22 tests in two files beside the
+  modules pin what is silently breakable: negative-coordinate flooring, boundary points,
+  malformed keys, half-open containment, a padding-wider-than-rect collapse, an inset wider
+  than the edge, and `pickEdgeSpawnPoint` reproducing the legacy switch **case by case**
+  against a scripted random, which is the mechanical proof the arena did not change.
+  **`latticeScroll.ts` is deferred to `FEAT-WORLD-SPACE-4`** (`GridBackground.setViewScroll`,
+  doc 01 section 6), its only consumer: it is the one piece of this chunk with nothing to
+  import it, and shipping it now would be surface with no consumer. No new storage key, no
+  `SAVE_VERSION` bump, nothing persisted. Files: `src/world/worldSpace.ts`,
+  `src/world/worldSpace.test.ts`, `src/world/spawnRing.ts`, `src/world/spawnRing.test.ts`,
+  `src/game/scenes/GameScene.ts`.
 
 - [ ] **FEAT-WORLDGEN-CORE**: the world model plus the deterministic generator, provably
   sound before a pixel moves. New `src/world/worldTypes.ts`, `generateWorld.ts`,
@@ -2413,7 +2433,9 @@ exploring pays is the end of Phase 5.
 
 - [ ] **FEAT-WORLD-SPACE-4**: camera follows the ship across a multi-sector plane with the
   signature grid, lighting and post-FX intact, behind `?expedition=1`. New
-  `ExpeditionModeAdapter.ts`; `GridBackground` gains `setViewScroll` with whole-cell snapping;
+  `ExpeditionModeAdapter.ts`; new `src/world/latticeScroll.ts` (`snappedOrigin`,
+  `scrollLatticeField`, deferred here from W1 because this is its only consumer, spec in doc
+  01 section 6); `GridBackground` gains `setViewScroll` with whole-cell snapping;
   `LightingSystem.ts:38-83` and the distortion call sites get world-to-screen conversion. Done
   when grid lines stay world-anchored while flying (a line does not slide past a stationary
   destructible), kill ripples stay where the kill happened, and

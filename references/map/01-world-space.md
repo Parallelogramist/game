@@ -616,17 +616,23 @@ leaves the dev-route expedition playable at its current depth.
 ### FEAT-WORLD-SPACE-1: pure world-space kernel
 **Value:** the tested mathematical vocabulary (sectors, rects, spawn ring, lattice
 scroll) every other world chunk imports; zero game-code risk.
-**Files:** new `src/world/worldSpace.ts`, `src/world/spawnRing.ts`,
-`src/world/latticeScroll.ts` + `*.test.ts` beside them. No existing file touched.
+**Files (as shipped):** new `src/world/worldSpace.ts`, `src/world/spawnRing.ts` +
+`*.test.ts` beside them, and `src/game/scenes/GameScene.ts` (the three edge-spawn switches
+in `spawnEnemy` / `spawnMiniboss` / `spawnNemesis` now call `pickEdgeSpawnPoint` over
+`rectFromScreen(scale.width, scale.height)`, arena-identical). Wiring the call sites here
+rather than deferring them to W2 is deliberate: it lands the kernel with a real consumer
+instead of as an unimported module. `src/world/latticeScroll.ts` moved to W4, its only
+consumer.
 **DONE-CRITERIA:**
 - All APIs from sections 1.2 exist with the documented signatures; `npm run test` green.
 - Tests cover: negative sector coords, points exactly on sector boundaries,
   `sectorKey`/`parseSectorKey` round-trip and malformed-key rejection,
   `pickEdgeSpawnPoint` reproducing the legacy edge distribution over
   `rectFromScreen(1280, 720)` with a seeded random stub (matches the switch at
-  `GameScene.ts:7069-7086` case-by-case), leash predicates, `scrollLatticeField`
-  positive/negative/oversized shifts with fill.
-- `npm run build` green; no import of these modules yet.
+  `GameScene.ts:7138-7159` before this chunk landed) and leash predicates.
+  `scrollLatticeField` moved to W4 with the module.
+- `npm run build` green; the only importer is `GameScene`'s spawn path, and `src/world/`
+  imports neither Phaser nor anything from `src/systems/` or `src/game/`.
 **Dependencies:** none. **Test surface:** everything in the chunk (all pure).
 
 ### FEAT-WORLD-SPACE-2: rect-parameterized gameplay seams (arena-identical)
