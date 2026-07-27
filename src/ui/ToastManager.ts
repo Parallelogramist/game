@@ -109,7 +109,7 @@ export class ToastManager {
 
     // Create toast container
     const container = this.scene.add.container(0, 0);
-    container.setDepth(OverlayDepths.HUD); // Toasts share the HUD band — above most game elements
+    container.setDepth(OverlayDepths.HUD).setScrollFactor(0); // Toasts share the HUD band — above most game elements
 
     // Slide in from the right to a right-aligned rest (center = right edge
     // minus margin minus half width — the panel's RIGHT edge is flush).

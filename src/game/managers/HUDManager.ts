@@ -347,7 +347,7 @@ export class HUDManager {
       strokeThickness: this.scaledSize(4),
     });
     this.levelText.setLetterSpacing(2);
-    this.levelText.setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    this.levelText.setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Weapon milestone hint (shown when close to a milestone level)
     this.milestoneHintText = this.scene.add.text(leftMargin, currentY + this.scaledSize(28), '', {
@@ -355,7 +355,7 @@ export class HUDManager {
       color: '#aaaaff',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
     });
-    this.milestoneHintText.setDepth(HUD_DEPTH + 1).setAlpha(0);
+    this.milestoneHintText.setDepth(HUD_DEPTH + 1).setAlpha(0).setScrollFactor(0);
 
     currentY += this.scaledSize(46);
 
@@ -373,7 +373,7 @@ export class HUDManager {
       leftMargin - 4, currentY - 3,
       hpBarWidth + 8, hpBarHeight + 6, 4
     );
-    this.hpGlowGraphics.setDepth(HUD_DEPTH - 1);
+    this.hpGlowGraphics.setDepth(HUD_DEPTH - 1).setScrollFactor(0);
     this.scene.tweens.add({
       targets: this.hpGlowGraphics,
       alpha: { from: 0.15, to: 0.3 },
@@ -391,7 +391,7 @@ export class HUDManager {
       BODY_COLORS.primary
     );
     this.hpBarBackground.setStrokeStyle(2, ACCENT_COLORS.danger);
-    this.hpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.hpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     this.hpBarFill = this.scene.add.rectangle(
       leftMargin + 1,
@@ -401,7 +401,7 @@ export class HUDManager {
       0x44ff44
     );
     this.hpBarFill.setOrigin(0, 0.5);
-    this.hpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.hpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     this.barMotionReduced = getSettingsManager().isReducedMotionEnabled();
 
@@ -410,14 +410,14 @@ export class HUDManager {
       leftMargin + 1, currentY + hpBarHeight / 2, 0, hpBarHeight - 2, 0xf2f6ff, 0.85,
     );
     this.hpChip.setOrigin(0, 0.5);
-    this.hpChip.setDepth(HUD_DEPTH).setAlpha(0);
+    this.hpChip.setDepth(HUD_DEPTH).setAlpha(0).setScrollFactor(0);
 
     // Top-half lighten — cheap two-tone gradient over the fill.
     this.hpBarSheen = this.scene.add.rectangle(
       leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((hpBarHeight - 2) / 2)), 0xffffff, 0.16,
     );
     this.hpBarSheen.setOrigin(0, 0);
-    this.hpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.hpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // HP Text overlay
     this.hpText = this.scene.add.text(
@@ -434,7 +434,7 @@ export class HUDManager {
       }
     );
     this.hpText.setOrigin(0.5);
-    this.hpText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.hpText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // HP label — display style.
     this.scene.add.text(leftMargin + hpBarWidth + this.scaledSize(8), currentY + hpBarHeight / 2, 'HP', {
@@ -444,7 +444,7 @@ export class HUDManager {
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
-    }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     currentY += hpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
 
@@ -459,7 +459,7 @@ export class HUDManager {
       leftMargin - 3, currentY - 2,
       xpBarWidth + 6, xpBarHeight + 4, 3
     );
-    this.xpGlowGraphics.setDepth(HUD_DEPTH - 1);
+    this.xpGlowGraphics.setDepth(HUD_DEPTH - 1).setScrollFactor(0);
     this.scene.tweens.add({
       targets: this.xpGlowGraphics,
       alpha: { from: 0.15, to: 0.3 },
@@ -477,7 +477,7 @@ export class HUDManager {
       BODY_COLORS.primary
     );
     this.xpBarBackground.setStrokeStyle(2, ACCENT_COLORS.safe);
-    this.xpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.xpBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     this.xpBarFill = this.scene.add.rectangle(
       leftMargin + 1,
@@ -487,13 +487,13 @@ export class HUDManager {
       0x44ff44
     );
     this.xpBarFill.setOrigin(0, 0.5);
-    this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.xpBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     this.xpBarSheen = this.scene.add.rectangle(
       leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((xpBarHeight - 2) / 2)), 0xffffff, 0.16,
     );
     this.xpBarSheen.setOrigin(0, 0);
-    this.xpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.xpBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // XP label — display style.
     this.scene.add.text(leftMargin + xpBarWidth + this.scaledSize(8), currentY + xpBarHeight / 2, 'XP', {
@@ -503,7 +503,7 @@ export class HUDManager {
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 2,
-    }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    }).setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     currentY += xpBarHeight + this.scaledSize(HUD_ELEMENT_SPACING);
 
@@ -516,7 +516,7 @@ export class HUDManager {
     this.ultBarGlow = this.scene.add.graphics();
     this.ultBarGlow.fillStyle(0xffcc33, 0.0);
     this.ultBarGlow.fillRoundedRect(leftMargin - 3, currentY - 2, ultBarWidth + 6, ultBarHeight + 4, 3);
-    this.ultBarGlow.setDepth(HUD_DEPTH - 1);
+    this.ultBarGlow.setDepth(HUD_DEPTH - 1).setScrollFactor(0);
 
     this.ultBarBackground = this.scene.add.rectangle(
       leftMargin + ultBarWidth / 2,
@@ -526,7 +526,7 @@ export class HUDManager {
       BODY_COLORS.primary
     );
     this.ultBarBackground.setStrokeStyle(2, 0xffcc33);
-    this.ultBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.ultBarBackground.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     this.ultBarFill = this.scene.add.rectangle(
       leftMargin + 1,
@@ -536,13 +536,13 @@ export class HUDManager {
       0xffcc33
     );
     this.ultBarFill.setOrigin(0, 0.5);
-    this.ultBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.ultBarFill.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     this.ultBarSheen = this.scene.add.rectangle(
       leftMargin + 1, currentY + 1, 0, Math.max(2, Math.floor((ultBarHeight - 2) / 2)), 0xffffff, 0.16,
     );
     this.ultBarSheen.setOrigin(0, 0);
-    this.ultBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.ultBarSheen.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Ready sweep — a narrow bright band that crosses the bar once when the
     // ultimate charges. Hidden until then.
@@ -550,7 +550,7 @@ export class HUDManager {
       leftMargin + 1, currentY + ultBarHeight / 2, this.scaledSize(16), ultBarHeight - 2, 0xffffff, 0.75,
     );
     this.ultReadySweep.setOrigin(0, 0.5);
-    this.ultReadySweep.setDepth(HUD_DEPTH + 1).setAlpha(0);
+    this.ultReadySweep.setDepth(HUD_DEPTH + 1).setAlpha(0).setScrollFactor(0);
 
     // ULT label — display style (shows the [Q] hotkey when ready).
     this.ultLabel = this.scene.add.text(leftMargin + ultBarWidth + this.scaledSize(8), currentY + ultBarHeight / 2, 'ULT', {
@@ -561,18 +561,18 @@ export class HUDManager {
       stroke: '#000000',
       strokeThickness: 2,
     });
-    this.ultLabel.setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.ultLabel.setOrigin(0, 0.5).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     currentY += ultBarHeight + this.scaledSize(HUD_ELEMENT_SPACING) * 2;
 
     // === Upgrade Icons Container ===
     this.upgradeIconsContainer = this.scene.add.container(leftMargin, currentY);
-    this.upgradeIconsContainer.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.upgradeIconsContainer.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Create upgrade tooltip (hidden by default)
     this.upgradeTooltip = this.scene.add.container(0, 0);
     this.upgradeTooltip.setVisible(false);
-    this.upgradeTooltip.setDepth(HUD_DEPTH + 1); // Slightly above other HUD elements
+    this.upgradeTooltip.setDepth(HUD_DEPTH + 1).setScrollFactor(0); // Slightly above other HUD elements
 
     // Tooltip background — HUD panel painted via graphics. Sized dynamically per-show in showUpgradeTooltip.
     const tooltipPanel = this.scene.add.graphics();
@@ -641,7 +641,7 @@ export class HUDManager {
       strokeThickness: 2,
     });
     worldLevelText.setLetterSpacing(2);
-    worldLevelText.setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    worldLevelText.setOrigin(0.5, 0).setName('worldLevelText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Game time display — display style, large for the timer.
     const scaledWorldLevelHeight = this.scaledSize(WORLD_LEVEL_TEXT_HEIGHT);
@@ -654,7 +654,7 @@ export class HUDManager {
       strokeThickness: this.scaledSize(4),
     });
     timerLabel.setLetterSpacing(2);
-    timerLabel.setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    timerLabel.setOrigin(0.5, 0).setName('timerText').setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Kill count + gold preview — tidy right-aligned stack below the pause
     // button. Values lead, letter-spaced label trails so the labels stay
@@ -668,7 +668,7 @@ export class HUDManager {
       strokeThickness: 3,
     });
     killCountText.setLetterSpacing(1);
-    killCountText.setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    killCountText.setOrigin(1, 0).setName('killCountText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     const goldPreviewText = this.scene.add.text(statsRightX, statsTopY + this.scaledSize(24), '', {
       fontSize: this.scaledFontSize(16),
@@ -679,7 +679,7 @@ export class HUDManager {
       strokeThickness: 3,
     });
     goldPreviewText.setLetterSpacing(1);
-    goldPreviewText.setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    goldPreviewText.setOrigin(1, 0).setName('goldPreviewText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Pace vs. your best run at this world level — third row of the same
     // right-aligned stack (value leads, letter-spaced label trails). Empty until
@@ -693,7 +693,7 @@ export class HUDManager {
       strokeThickness: 3,
     });
     paceDeltaText.setLetterSpacing(1);
-    paceDeltaText.setOrigin(1, 0).setName('paceDeltaText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA);
+    paceDeltaText.setOrigin(1, 0).setName('paceDeltaText').setDepth(HUD_DEPTH + 1).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Combo counter display — anchored bottom-center above the controls hint
     // so it doesn't compete with pause/kills/gold in the top-right. Display
@@ -714,7 +714,7 @@ export class HUDManager {
     // Combo progress bar (thin bar below combo text showing progress to next threshold)
     const comboProgressBar = this.scene.add.graphics();
     comboProgressBar.setName('comboProgressBar');
-    comboProgressBar.setDepth(HUD_DEPTH);
+    comboProgressBar.setDepth(HUD_DEPTH).setScrollFactor(0);
     comboProgressBar.setAlpha(0);
 
     // Combo buff timer text — anchored beneath the combo counter (bottom-center).
@@ -737,7 +737,7 @@ export class HUDManager {
     // the pill along with the hit zone and icon.
     const pauseGfx = this.scene.add.graphics();
     pauseGfx.setName('pauseButtonGfx');
-    pauseGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
+    pauseGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA).setScrollFactor(0);
     paintHudPanel(pauseGfx, 0, 0, pauseButtonSize, pauseButtonSize, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
     pauseGfx.setPosition(pauseButtonX, pauseButtonY);
 
@@ -753,7 +753,7 @@ export class HUDManager {
     );
     pauseButtonBg.setInteractive({ useHandCursor: true });
     pauseButtonBg.setName('pauseButtonBg');
-    pauseButtonBg.setDepth(HUD_DEPTH);
+    pauseButtonBg.setDepth(HUD_DEPTH).setScrollFactor(0);
 
     // Pause glyph \u2014 two rounded vertical bars drawn with Graphics. The old
     // '\u23F8' text glyph rendered through the system emoji font: soft,
@@ -774,7 +774,7 @@ export class HUDManager {
     );
     pauseButtonIcon.setPosition(pauseButtonX, pauseButtonY);
     pauseButtonIcon.setName('pauseButtonIcon');
-    pauseButtonIcon.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    pauseButtonIcon.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Pause button hover \u2014 repaint the pill with brighter accent.
     pauseButtonBg.on('pointerover', () => {
@@ -803,7 +803,7 @@ export class HUDManager {
       fontStyle: 'bold',
       stroke: '#000000',
       strokeThickness: 3,
-    }).setOrigin(0, 1).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    }).setOrigin(0, 1).setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // BGM info display (bottom left, above controls hint)
     this.createBGMDisplay();
@@ -831,7 +831,7 @@ export class HUDManager {
       strokeThickness: 3,
     });
     this.fpsText.setOrigin(1, 1);
-    this.fpsText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.fpsText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
     // Set initial visibility based on settings
     this.fpsText.setVisible(getSettingsManager().isFpsCounterEnabled());
 
@@ -1490,7 +1490,7 @@ export class HUDManager {
 
     // Create container to hold all bar elements
     const container = this.scene.add.container(centerX, 0);
-    container.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    container.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     // Glow graphics (pulsing effect behind bar)
     const glowGraphics = this.scene.add.graphics();
@@ -1637,7 +1637,7 @@ export class HUDManager {
     const panelY = this.scene.scale.height - scaledPadding - this.scaledSize(70) - panelHeight / 2;
 
     this.eventIndicatorContainer = this.scene.add.container(panelX, panelY);
-    this.eventIndicatorContainer.setDepth(HUD_DEPTH);
+    this.eventIndicatorContainer.setDepth(HUD_DEPTH).setScrollFactor(0);
     this.eventIndicatorContainer.setAlpha(0);
 
     // Panel background.
@@ -2283,7 +2283,7 @@ export class HUDManager {
     // HUD pill — graphics back-layer + transparent hit zone.
     const autoBuyGfx = this.scene.add.graphics();
     autoBuyGfx.setName('autoBuyToggleGfx');
-    autoBuyGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA);
+    autoBuyGfx.setDepth(HUD_DEPTH - 1).setAlpha(HUD_ALPHA).setScrollFactor(0);
     paintHudPanel(autoBuyGfx, toggleX, toggleY, toggleWidth, toggleHeight, BODY_COLORS.primary, ACCENT_COLORS.neutral, 8);
 
     this.autoBuyToggleBg = this.scene.add.rectangle(
@@ -2291,7 +2291,7 @@ export class HUDManager {
     );
     this.autoBuyToggleBg.setInteractive({ useHandCursor: true });
     this.autoBuyToggleBg.setName('autoBuyToggleBg');
-    this.autoBuyToggleBg.setDepth(HUD_DEPTH);
+    this.autoBuyToggleBg.setDepth(HUD_DEPTH).setScrollFactor(0);
 
     // Toggle text — display style.
     this.autoBuyToggleText = this.scene.add.text(
@@ -2308,7 +2308,7 @@ export class HUDManager {
     this.autoBuyToggleText.setLetterSpacing(2);
     this.autoBuyToggleText.setOrigin(0.5);
     this.autoBuyToggleText.setName('autoBuyToggleText');
-    this.autoBuyToggleText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.autoBuyToggleText.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     this.autoBuyToggleBg.on('pointerdown', () => {
       this.options.onAutoBuyToggled();
@@ -2412,7 +2412,7 @@ export class HUDManager {
 
     // Container for all BGM elements
     this.bgmContainer = this.scene.add.container(scaledPadding, bottomY);
-    this.bgmContainer.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA);
+    this.bgmContainer.setDepth(HUD_DEPTH).setAlpha(HUD_ALPHA).setScrollFactor(0);
 
     const bgmIconScale = bgmIconSize / 64; // icon atlas is 64px
 

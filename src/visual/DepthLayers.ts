@@ -42,6 +42,14 @@ export const DepthLayers = {
  * these locally (e.g. `const HUD_DEPTH = OverlayDepths.HUD;`) rather than
  * inventing their own numbers; small `+ n` offsets within a band stay at the
  * call site.
+ *
+ * Screen-space also means pinned: everything in these bands carries
+ * `setScrollFactor(0)`, so a scrolling camera cannot drag the interface off
+ * the display. Pinning a Container pins its whole subtree, including children
+ * added later, because Phaser's container renderers multiply each child's
+ * scroll factor by the container's; only roots need the call. Depth alone is
+ * not the test: GameScene draws world-anchored callouts (combo text, LEVEL UP,
+ * the auto-upgrade notice) in this numeric range and those must keep scrolling.
  */
 export const OverlayDepths = {
   LIGHTING: 500,          // LightingSystem darkness overlay (atmosphere — never over UI)
