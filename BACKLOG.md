@@ -1526,6 +1526,32 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   `PauseMenuManager.ts`, `CodexScene.ts`, `referentialIntegrity.test.ts`, `Relics.test.ts`.
   Feel/balance → playtest queue (POLISH-BOSS-TROPHY).
 
+- [x] **FEAT-PRACTICE-TIMEATTACK** — time every sandbox fight and keep the best (done — 6dd8566).
+  Value: six `FEAT-PRACTICE-*` sessions built the configuration surface (ship, weapon, level,
+  evolved, build depth, arena rung, ultimate, affix, paragon affix) and none built a readout —
+  the sandbox could stage any fight and reported nothing about how it went, so every
+  "is this ship/weapon actually better" question was answered by feel. Spawning a boss-tier
+  target from the PRACTICE dock now starts a clock on the run timer; when nothing boss-tier is
+  left alive the fight resolves into a toast reading `FIGHT 0:09.8` (or `NEW BEST 0:09.8`) with
+  the standing record and the ship/weapon that set it. The record is keyed on the **fight**
+  (`targetId|affix|affix2|d<buildDepth>`), deliberately not on ship or weapon: those are what
+  the operator varies, so the record answers "fastest known clear of this exact fight, and with
+  what". Stored in a new `survivor-practice-bests` SecureStorage key (registered in
+  `StorageBootstrap.ALL_STORAGE_KEYS`, transferable with the profile like
+  `survivor-ship-records`). **The one subtlety:** `SecureStorage` drops every write while a
+  practice session is active — that block is what stops a sandbox run from touching the real
+  profile — so `savePracticeBestIfFaster` lifts it for that single write and restores it in a
+  `finally`, the only such lift in the codebase. Fights are marked uncomparable rather than
+  mis-recorded when a second spawn joins (dock spam, or a natural boss the arena rung's clock
+  jump brought forward): the toast still shows the time, the record is not touched. The clock is
+  the run clock, so pauses do not count and slow-time counts at its in-game rate. **Known limit:**
+  the fight state is per-run and not serialized, so a mid-fight save/reload loses that fight's
+  clock. No dock row added (its 10-row stack already fights `computeRowStackFit` for vertical
+  room), no new scene, no menu entry, no balance/tuning change. Tested (persistence + corruption
+  + the write-block lift = the standing order's real-regression-risk carve-out) in
+  `src/meta/PracticeBestTimes.test.ts`. Feel/scope owned by **POLISH-PRACTICE-TIMEATTACK** under
+  `## Human gates`.
+
 ## Next
 
 *(groomed 2026-07-16 — roadmap pass; ordered by value)*
@@ -1731,6 +1757,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PRACTICE-TIMEATTACK** (— 6dd8566) — sandbox fights are now timed
+    (FEAT-PRACTICE-TIMEATTACK). Agents have no browser and must not judge feel blind.
+    Check: (a) **the readout** — spawn the same boss twice and read the second toast: does
+    `Best 0:09.8 — Sparrow · Katana L5` fit the toast's description line at phone width, or
+    does it clip/wrap? (b) **is a toast the right surface**, or does the number want to be
+    on-screen live during the fight (a ticking clock) so you can see the pace while playing?
+    (c) **the key** — the record ignores ship and weapon on purpose so they can be compared.
+    Is per-fight-configuration right, or should build depth drop out of the key too (today a
+    depth-5 and a depth-8 clear are separate records)? (d) **the dirty rule** — spam the dock's
+    spawn button mid-fight and confirm the toast says "not recorded" rather than saving a
+    two-boss time. Is refusing the record the right call, or should the clock restart instead?
+    (e) **where the history should live** — the record is only visible at the moment of a kill.
+    Should the PRACTICE menu, the dock, or the Codex show a board of best fight times?
+    (f) **twins** — spawn the Twin Alpha/Beta pair and confirm the clock resolves only when
+    both are dead and reads as one fight.
   - **POLISH-BOSS-TROPHY** (— 8447b84) — bosses now unlock their own relic for future runs
     (FEAT-BOSS-TROPHY). Agents have no browser and must not retune blind. Check: (a) **the
     announcement** — beat a boss you have never beaten and read the victory kicker
