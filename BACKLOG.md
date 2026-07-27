@@ -34,6 +34,56 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **FEAT-NEMESIS** — the enemy that killed you comes back next run as a named, buffed hunter you
+  can kill for a relic (done — 78a0e5a). Value: the game had 12 bosses, 10 minibosses, a boss
+  rotation, a boss rematch, a threat recap and a pace ghost, and **nothing that carried a specific
+  enemy across the run boundary** — `grep -rin "nemesis\|rival\|revenge\|grudge\|vendetta" src/`
+  returned one unrelated comment. Death was terminal for run state: `killedBySourceName` named your
+  killer on the game-over screen and was then discarded, so a death produced a score and nothing
+  else. It now plants a lead-in to the next run. New pure module `src/meta/NemesisManager.ts`
+  persists the ENEMY_TYPES id of the entity that landed the lethal hit (SecureStorage key
+  `survivor-nemesis`, registered in `ALL_STORAGE_KEYS` so it also rides the profile export for
+  free), read-through + sanitize-on-read exactly like `PaceGhostManager`, so a corrupt, tampered or
+  retired-type payload degrades to "no nemesis" instead of spawning garbage into a run. Killing you
+  again with the same type escalates a `grudge` tier capped at 5; a different killer replaces the
+  record at 1. **Design calls, and why:** the nemesis is *always your last killer* (a new death
+  overwrites it — no stable of rivals, no roster UI to build or maintain); it spawns **once per run
+  at 2:30** (`NEMESIS_SPAWN_TIME_SECONDS`), deliberately between miniboss 1 (2:00) and miniboss 2
+  (3:30) so it never collides with another setpiece, and it is *held back* rather than skipped when
+  the field is full, so a swarm delays the hunter instead of cancelling it. **No affix surgery** —
+  whatever the natural elite roll gave it stands, which keeps the paragon / damped-affix /
+  armor-reapplication surface completely untouched; its identity is instead grudge multipliers
+  (health `1.5 + 1.5×tier`, damage `1 + 0.08×tier`, xp ×4, and a flat 1.08 speed that does *not*
+  scale with tier — an outrun-proof hunter is a different, worse game), a 1.35× sprite, a
+  `NEMESIS · Tank III` boss health bar and the miniboss warning banner. Scaling is applied **after**
+  `createEnemy` so time/world-level/curse scaling and any natural affix roll are already baked in.
+  **xpValue is floored at 30** because that is this codebase's miniboss test — `handleEnemyDeath`'s
+  loot tiers, the run-timeline marker and the restore path's health-bar rule all read that
+  threshold — so without the floor a nemesis built from a Shambler would silently drop out of all
+  three. Killing it pays `120 + 60×tier` gold plus a guaranteed `grantRelicChoice(1)` and clears the
+  record on the spot, so a later death in the same run starts fresh instead of re-escalating a
+  grudge already settled. **Deliberately not built:** bosses can never become your nemesis (they
+  already own the rotation + rematch systems), nor can spawned-only minions, the linked twins or the
+  Legion; practice, gauntlet and daily/weekly runs **never field one**, because a seeded challenge
+  board must not be skewed by private profile state (the same concern `POLISH-BOSS-TROPHY` parked),
+  and recording is skipped only in practice. Also skipped on purpose: naming the incoming hunter in
+  the pre-run funnel or on the hero card (that card's gap already stacks the NEXT BOSS and
+  armed-boost lines). **Known gaps, all in the playtest follow-up:** the `IT HUNTS YOU NEXT RUN`
+  death-screen line is landscape-only (`createThreatRecapPanel` returns below 1000 px), so on a
+  phone the announcement rides solely on the in-run banner + named health bar, which are
+  orientation-independent; and `SerializedEnemyData.typeId` is derived by `getTypeIdFromAIType`,
+  which returns the first type matching that AI, so the one shared AI in the repo
+  (`EnemyAIType.Sniper`) means at most one nemesis identity can swap name across a mid-run refresh —
+  pre-existing, affects every enemy, unchanged here. Survives a refresh via optional
+  `SerializedEnemyData.nemesis?` + `GameSaveState.nemesisSpawned?` (legacy saves keep validating);
+  the restore path re-attaches the tag, re-derives the bar label and re-scales the sprite, but
+  deliberately does *not* re-bump `EnemyType.size` (the save already carries it). Files:
+  `src/meta/NemesisManager.ts` + `.test.ts` (new, 9 tests), `src/storage/StorageBootstrap.ts`,
+  `src/ecs/components/index.ts`, `src/game/scenes/GameScene.ts`,
+  `src/game/managers/PauseMenuManager.ts`, `src/save/GameStateManager.ts`,
+  `references/architecture-overview.md`. Handed to the human as **POLISH-NEMESIS** under
+  `## Human gates` — the arrival beat, the grudge-5 difficulty wall, label legibility and whether
+  gold + a guaranteed relic on top of miniboss-tier loot is too rich all need a browser.
 - [x] **FEAT-WEAPON-REFIT** — trade an equipped weapon for a new one mid-run (done — 9b29b34).
   Value: with 3 base weapon slots and 28 unlockable weapons, the first three weapons a run handed
   you were the three you died with: `Upgrades.ts` gated new-weapon cards on
@@ -1625,6 +1675,14 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   code as-built (19 weapons, 5 bosses, gauntlet, endless mutators, boss/
   miniboss/Paragon affixes); facts corrected only — no prose rewrite.
   Pointer: `references/architecture-overview.md`.
+  **Partly drained (78a0e5a):** the weapon count (16 → 29), the enemy inventory
+  (a stale "30 types / 5-13-3-6-3" breakdown → the real 43 types as
+  10 Basic / 11 Elite / 10 Miniboss / 12 Boss, with the three spawned-only types
+  called out separately) and the hand-maintained weapon table are now correct —
+  the table was replaced with a pointer to the `WeaponRegistry` map in
+  `/src/weapons/index.ts`, since a table that must be re-synced by hand is what
+  made this item exist. **Still stale:** the scene flow, the modes section
+  (gauntlet, endless cycle mutators) and the affix sections.
 
 - [ ] **POLISH-GLYPH-SWEEP-2** — finish the non-HUD glyph sweep. Value: the
   2026-07-04 HUD skin pass (drawn pause/dash/ult/fullscreen icons, DISPLAY_FONT
@@ -1757,6 +1815,25 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-NEMESIS** (— 78a0e5a) — the enemy that killed you now hunts you next run
+    (FEAT-NEMESIS). Agents have no browser and must not retune blind. Check: (a) **the arrival** —
+    die, start a normal run and wait for 2:30. Is that the right beat, or does the hunter want to
+    land later, when the build can actually answer it? Knob: `NEMESIS_SPAWN_TIME_SECONDS`.
+    (b) **the difficulty curve** — die to the same enemy five times, then fight a grudge-5 hunter
+    (×9 health, ×1.4 damage). Is that a fight or a wall? Knob: `nemesisScaling`. (c) **legibility** —
+    does `NEMESIS · Tank III` fit the boss health bar and the warning banner at 720 portrait and
+    1280 landscape, and does the 1.35× sprite read as "bigger and meaner" or just as a rendering
+    bug (the hitbox is deliberately unchanged — contact damage uses a flat 12-unit radius)?
+    (d) **the reward** — gold plus a guaranteed relic draft, on top of the miniboss-tier loot rolls
+    the xpValue floor already buys it: earned, or too rich? Knobs: `nemesisGoldReward`, and whether
+    the `grantRelicChoice(1)` should be dropped entirely. (e) **the mobile gap** — the
+    `IT HUNTS YOU NEXT RUN` line is landscape-only (`createThreatRecapPanel` returns below 1000 px).
+    Should it move somewhere orientation-independent, or is the in-run banner enough? (f) **scope
+    calls left open** — should the pre-run funnel or the hero card name the incoming hunter
+    (skipped: the hero card's gap already stacks NEXT BOSS and armed-boost)? Should the daily
+    challenge field a *seeded* nemesis rather than none? Should a killed-by-`Enemy Fire` death name
+    the shooter (today the four attacker-less damage buckets plant no hunter at all)? Should killing
+    the hunter also unlock something in the Codex?
   - **POLISH-PRACTICE-TIMEATTACK** (— 6dd8566) — sandbox fights are now timed
     (FEAT-PRACTICE-TIMEATTACK). Agents have no browser and must not judge feel blind.
     Check: (a) **the readout** — spawn the same boss twice and read the second toast: does
