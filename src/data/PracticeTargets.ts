@@ -15,6 +15,32 @@ export function isPracticeMinibossTarget(typeId: string): boolean {
 }
 
 /**
+ * The practice-spawnable id for a live enemy type, or null when the enemy is not a
+ * boss-tier target. `twin_b` folds onto `twin_a`: the schedule lists only the latter
+ * and spawning it fields the pair.
+ */
+export function toPracticeTargetId(typeId: string | undefined): string | null {
+  if (!typeId) return null;
+  const canonical = typeId === 'twin_b' ? 'twin_a' : typeId;
+  return PRACTICE_TARGET_IDS.includes(canonical) ? canonical : null;
+}
+
+/** A boss-tier spawn to re-field: the enemy plus the exact affixes it wore. */
+export interface RematchTarget {
+  targetId: string;
+  affix: EnemyAffixType;
+  affix2: EnemyAffixType;
+}
+
+/** Everything a REMATCH launch re-creates: the fight, and the build that lost it. */
+export interface PracticeRematchSeed {
+  target: RematchTarget;
+  /** Flat level applied to every stat upgrade — see PracticeBuild.ts. */
+  buildDepth: number;
+  loadout: { weaponId: string; level: number; evolved: boolean }[];
+}
+
+/**
  * The run time a target would normally be met at. Practice spawns at ~t=0, and
  * enemy stats scale off the clock, so scaling a practice spawn at gameTime would
  * field a much weaker enemy than the one being judged.

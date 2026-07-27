@@ -196,6 +196,7 @@ function formatQuestProgress(entry: DailyQuestProgress): string {
 export interface PauseMenuOptions {
   onPauseStateChanged: (isPaused: boolean) => void;
   onRestart: () => void;
+  onRematch: () => void;
   onQuitToMenu: () => void;
   onQuitToShop: (goldEarned: number) => void;
   onOpenSettings: () => void;
@@ -283,6 +284,8 @@ export interface GameOverData {
   damageBySource?: DamageSourceTally[];
   /** Attribution bucket of the lethal hit. Undefined/null when the run ended without one. */
   killedBy?: string | null;
+  /** Boss-tier target the run can re-fight in PRACTICE. Undefined = no REMATCH action. */
+  rematch?: { targetName: string };
   /** Per-run beat log for the RUN TIMELINE ribbon. Undefined for a restored run. */
   runTimeline?: RunTimelineEvent[];
   weaponStats?: WeaponRunStats[];
@@ -336,6 +339,7 @@ export class PauseMenuManager {
   /** Victory stat-cell texts — collector-torn-down (see addVictoryCell). */
   private victoryStatCellElements: Phaser.GameObjects.Text[] = [];
   private gameOverRestartHandler: (() => void) | null = null;
+  private gameOverRematchHandler: (() => void) | null = null;
   private gameOverGamepadPoll: Phaser.Time.TimerEvent | null = null;
 
   constructor(scene: Phaser.Scene, options: PauseMenuOptions, soundManager: SoundManager) {
@@ -498,6 +502,41 @@ export class PauseMenuManager {
       }
     );
     return button;
+  }
+
+  /**
+   * REMATCH pill — practices the boss-tier enemy the run died to. Cancels its own
+   * pointerdown for the same reason createDailyShareButton does: the game-over
+   * screen restarts on a scene-level pointerdown, so without stopPropagation a tap
+   * would launch the rematch AND restart the run underneath it.
+   */
+  private createRematchButton(
+    targetName: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number
+  ): void {
+    const button = this.createLabeledButton({
+      x,
+      y,
+      width,
+      height,
+      label: `REMATCH ${targetName.toUpperCase()}`,
+      fontSize: '15px',
+      baseColor: 0x8f2a3a,
+      hoverColor: 0xa83545,
+      strokeColor: 0xdd6677,
+      bgName: 'gameOverRematchButtonBg',
+      textName: 'gameOverRematchButtonText',
+      onActivate: () => this.options.onRematch(),
+    });
+    button.bg.on(
+      'pointerdown',
+      (_pointer: Phaser.Input.Pointer, _x: number, _y: number, event?: Phaser.Types.Input.EventData) => {
+        event?.stopPropagation();
+      }
+    );
   }
 
   /**
@@ -2059,6 +2098,21 @@ export class PauseMenuManager {
       );
     }
 
+    // REMATCH — only when a boss-tier enemy can be re-fielded. Sits above COPY
+    // RESULT so the share pill keeps its slot adjacent to the restart hint.
+    if (data.rematch) {
+      const rematchButtonHeight = 38;
+      const rematchButtonY = contentBottomY + 20 + rematchButtonHeight / 2;
+      this.createRematchButton(
+        data.rematch.targetName,
+        centerX,
+        rematchButtonY,
+        300,
+        rematchButtonHeight
+      );
+      contentBottomY = rematchButtonY + rematchButtonHeight / 2;
+    }
+
     // COPY RESULT — daily/weekly runs only. Last item in the centered flow so
     // it sits directly above the restart hint, grouping the two actions.
     if (data.daily) {
@@ -2199,6 +2253,10 @@ export class PauseMenuManager {
       this.options.onRestart();
     };
 
+    if (data.rematch) {
+      this.gameOverRematchHandler = () => this.options.onRematch();
+      this.scene.input.keyboard?.on('keydown-R', this.gameOverRematchHandler);
+    }
     this.gameOverRestartHandler = handleRestart;
     this.scene.input.keyboard?.on('keydown-SPACE', handleRestart);
     this.scene.time.delayedCall(500, () => {
@@ -2961,6 +3019,10 @@ export class PauseMenuManager {
       this.scene.input.keyboard?.off('keydown-SPACE', this.gameOverRestartHandler);
       this.scene.input.off('pointerdown', this.gameOverRestartHandler);
       this.gameOverRestartHandler = null;
+    }
+    if (this.gameOverRematchHandler) {
+      this.scene.input.keyboard?.off('keydown-R', this.gameOverRematchHandler);
+      this.gameOverRematchHandler = null;
     }
     if (this.gameOverGamepadPoll) {
       this.gameOverGamepadPoll.remove();

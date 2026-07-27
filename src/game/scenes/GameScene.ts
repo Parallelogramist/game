@@ -151,7 +151,13 @@ import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManag
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
 import { setPracticeSession } from '../../utils/practiceSession';
 import { PracticeDock, PracticeDockState } from '../../ui/PracticeDock';
-import { isPracticeMinibossTarget, scheduledSpawnTime } from '../../data/PracticeTargets';
+import {
+  isPracticeMinibossTarget,
+  scheduledSpawnTime,
+  toPracticeTargetId,
+  type RematchTarget,
+  type PracticeRematchSeed,
+} from '../../data/PracticeTargets';
 import {
   PracticeArenaRung,
   endlessCycleRampFactor,
@@ -459,6 +465,10 @@ export class GameScene extends Phaser.Scene {
   private practiceSpawnKeyHandler: (() => void) | null = null;
   private practiceUltimateOverride: PracticeUltimateChoice = null;
   private practiceUltimateKeyHandler: (() => void) | null = null;
+  private rematchTarget: RematchTarget | null = null;
+  private practiceRematchSeed: PracticeRematchSeed | null = null;
+  private pendingRematchSpawn: PracticeDockState | null = null;
+  private pendingRematchLaunch: PracticeRematchSeed | null = null;
   private gauntletWave = 0;              // Current wave (0 = intro, before wave 1)
   private gauntletPhase: 'intro' | 'combat' | 'breather' = 'intro';
   private gauntletPhaseTimer = 0;        // Countdown for intro/breather phases
@@ -595,6 +605,7 @@ export class GameScene extends Phaser.Scene {
     practiceMode?: boolean;
     practiceWeaponLevel?: number;
     practiceEvolved?: boolean;
+    practiceRematch?: PracticeRematchSeed;
   }): void {
     this.shouldRestore = data?.restore === true;
     this.resumeIntoPauseMenu = data?.resumePaused === true;
@@ -607,6 +618,7 @@ export class GameScene extends Phaser.Scene {
     this.practiceModeActive = data?.practiceMode === true;
     this.practiceWeaponLevel = data?.practiceWeaponLevel ?? 1;
     this.practiceEvolved = data?.practiceEvolved === true;
+    this.practiceRematchSeed = data?.practiceRematch ?? null;
     this.dailyDateString = data?.dailyDate ?? '';
     this.dailyChallengeType = data?.dailyChallengeType ?? 'daily';
     // Restore modifiers by ID, or select new random ones for fresh runs
@@ -752,6 +764,9 @@ export class GameScene extends Phaser.Scene {
     this.practiceBuildDepth = 0;
     this.practiceSpawnAffix = EnemyAffixType.NONE;
     this.practiceSpawnAffix2 = EnemyAffixType.NONE;
+    this.rematchTarget = null;
+    this.pendingRematchSpawn = null;
+    this.pendingRematchLaunch = null;
     this.syncCacheGuardWithPendingReveal();
     this.magnetSpawnTimer = 0;
     this.bossSpawned = false;
@@ -1366,7 +1381,26 @@ export class GameScene extends Phaser.Scene {
     const startingWeapon = createWeapon(this.startingWeaponId) || new ProjectileWeapon();
     this.weaponManager.addWeapon(startingWeapon);
 
-    if (this.practiceModeActive) {
+    const rematchLoadout = this.practiceRematchSeed?.loadout;
+    if (rematchLoadout) {
+      this.weaponManager.setMaxWeaponSlots(
+        Math.max(this.weaponManager.getMaxWeaponSlots(), rematchLoadout.length),
+      );
+      for (const entry of rematchLoadout) {
+        const weapon = entry.weaponId === startingWeapon.id
+          ? startingWeapon
+          : createWeapon(entry.weaponId);
+        if (!weapon) continue;
+        if (weapon !== startingWeapon) this.weaponManager.addWeapon(weapon);
+        for (let level = 1; level < entry.level; level++) {
+          this.weaponManager.levelUpWeapon(weapon.id);
+        }
+        if (entry.evolved) {
+          const evolution = getEvolutionForWeapon(weapon.id);
+          if (evolution) weapon.evolve(evolution.evolvedName, evolution.statMultipliers);
+        }
+      }
+    } else if (this.practiceModeActive) {
       for (let level = 1; level < this.practiceWeaponLevel; level++) {
         this.weaponManager.levelUpWeapon(startingWeapon.id);
       }
@@ -1598,6 +1632,8 @@ export class GameScene extends Phaser.Scene {
     if (this.practiceModeActive) {
       this.practiceDock = new PracticeDock(this, {
         hudScale: computeHudScale(this.scale.width, this.scale.height, getSettingsManager().getUiScale()),
+        initialTarget: this.practiceRematchSeed?.target,
+        initialBuildDepth: this.practiceRematchSeed?.buildDepth,
         onSpawn: (state) => this.spawnPracticeTarget(state),
         onInvincibleChange: (invincible) => { this.practiceInvincible = invincible; },
         onBuildChange: (depth) => this.applyPracticeBuild(depth),
@@ -1615,6 +1651,12 @@ export class GameScene extends Phaser.Scene {
 
       this.practiceUltimateKeyHandler = () => this.firePracticeUltimate();
       this.input.keyboard?.on('keydown-U', this.practiceUltimateKeyHandler);
+
+      const rematchSeed = this.practiceRematchSeed;
+      if (rematchSeed) {
+        this.applyPracticeBuild(rematchSeed.buildDepth);
+        this.pendingRematchSpawn = { ...rematchSeed.target, invincible: false };
+      }
     }
 
     // Setup beforeunload handler to save game state on page close/refresh
@@ -4142,6 +4184,14 @@ export class GameScene extends Phaser.Scene {
     this.gameTime += deltaSeconds;
     this.updateCloseCallWatch();
 
+    // Deferred to update() rather than fired in create(): the run-modifier banner
+    // holds introOverlayActive for a beat, and spawnPracticeTarget no-ops under it.
+    if (this.pendingRematchSpawn && !this.introOverlayActive && this.gameTime >= 1.0) {
+      const rematchSpawn = this.pendingRematchSpawn;
+      this.pendingRematchSpawn = null;
+      this.spawnPracticeTarget(rematchSpawn);
+    }
+
     // ═══ ACHIEVEMENT TIME TRACKING (throttled to once per second) ═══
     // Practice is a sandbox and its clock jumps: crediting it would complete the
     // whole time ladder in one tick, and practice writes no-op regardless.
@@ -4876,6 +4926,57 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * The boss-tier enemy a REMATCH would re-field. Prefers whatever landed the lethal
+   * hit; falls back to any boss-tier enemy still on the field, because the boss
+   * attacks that kill most often (Ground Slam / Laser Beam / Enemy Fire) carry a
+   * label rather than an attacker entity.
+   */
+  private resolveRematchTarget(attackerEntity: number | undefined): RematchTarget | null {
+    const fromAttacker = this.describeRematchTarget(attackerEntity);
+    if (fromAttacker) return fromAttacker;
+    for (const bossEntityId of this.hudManager?.getBossEntityIds() ?? []) {
+      const fromField = this.describeRematchTarget(bossEntityId);
+      if (fromField) return fromField;
+    }
+    return null;
+  }
+
+  private describeRematchTarget(entityId: number | undefined): RematchTarget | null {
+    if (entityId === undefined) return null;
+    const targetId = toPracticeTargetId(this.enemyTypeMap.get(entityId));
+    if (!targetId) return null;
+    const affixesApply = targetId !== 'the_legion';
+    return {
+      targetId,
+      affix: affixesApply ? EnemyAffix.affixType[entityId] as EnemyAffixType : EnemyAffixType.NONE,
+      affix2: affixesApply ? EnemyAffix.affixType2[entityId] as EnemyAffixType : EnemyAffixType.NONE,
+    };
+  }
+
+  /**
+   * The run's stat investment expressed as the flat per-stat level PRACTICE uses.
+   * A real build is uneven, but BREAK_LEVEL_GATES makes only an even spread
+   * reachable (see PracticeBuild.ts), so the mean is the gate-legal projection.
+   */
+  private computeRematchBuildDepth(): number {
+    const statUpgrades = this.upgrades.filter((upgrade) => upgrade.isStatUpgrade);
+    if (statUpgrades.length === 0) return 0;
+    const totalLevels = statUpgrades.reduce((sum, upgrade) => sum + upgrade.currentLevel, 0);
+    return Math.min(10, Math.round(totalLevels / statUpgrades.length));
+  }
+
+  private buildRematchSeed(): PracticeRematchSeed | null {
+    if (this.practiceModeActive || !this.rematchTarget) return null;
+    const loadout = (this.weaponManager?.getAllWeapons() ?? []).map((weapon) => ({
+      weaponId: weapon.id,
+      level: weapon.getLevel(),
+      evolved: weapon.isEvolved,
+    }));
+    if (loadout.length === 0) return null;
+    return { target: this.rematchTarget, buildDepth: this.computeRematchBuildDepth(), loadout };
+  }
+
+  /**
    * Applies damage to the player with full defensive stat calculations.
    * @param amount Base damage amount
    * @param attackerEntity Optional entity ID for thorns damage; also names the
@@ -5072,6 +5173,7 @@ export class GameScene extends Phaser.Scene {
       // Past the revival branch on purpose: a hit the player was revived from
       // never claims the kill.
       this.killedBySourceName = damageBucketName ?? 'Unknown';
+      this.rematchTarget = this.resolveRematchTarget(attackerEntity);
       this.playDeathSequence();
     }
   }
@@ -5417,6 +5519,20 @@ export class GameScene extends Phaser.Scene {
     window.location.reload();
   }
 
+  private startRematchPractice(): void {
+    const seed = this.pendingRematchLaunch;
+    if (!seed) return;
+    setPracticeSession(true);
+    this.scene.restart({
+      practiceMode: true,
+      practiceRematch: seed,
+      startingWeapon: seed.loadout[0].weaponId,
+      shipId: this.selectedShipId,
+      stageId: this.selectedStageId,
+      modifierIds: this.activeModifiers.map((modifier) => modifier.id),
+    });
+  }
+
   private spawnPracticeTarget(state: PracticeDockState): void {
     if (!this.practiceModeActive) return;
     if (this.isPaused || this.isGameOver || this.introOverlayActive) return;
@@ -5539,6 +5655,9 @@ export class GameScene extends Phaser.Scene {
       onRestart: () => {
         if (this.practiceModeActive) { this.exitPracticeSession(); return; }
         this.scene.restart();
+      },
+      onRematch: () => {
+        this.startRematchPractice();
       },
       onQuitToMenu: () => {
         if (this.practiceModeActive) { this.exitPracticeSession(); return; }
@@ -6109,6 +6228,7 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    this.pendingRematchLaunch = this.buildRematchSeed();
     this.pauseMenuManager.gameOver({
       killCount: this.killCount,
       gameTime: this.gameTime,
@@ -6121,6 +6241,9 @@ export class GameScene extends Phaser.Scene {
       totalDamageTaken: this.totalDamageTaken,
       damageBySource: this.getDamageTakenBySource(),
       killedBy: this.killedBySourceName,
+      rematch: this.pendingRematchLaunch
+        ? { targetName: getEnemyType(this.pendingRematchLaunch.target.targetId)?.name ?? 'the boss' }
+        : undefined,
       runTimeline: this.runTimelineComplete ? this.runTimelineEvents : undefined,
       weaponStats: this.weaponManager?.getWeaponRunStats() ?? [],
       personalBests: personalBestsSnapshot,

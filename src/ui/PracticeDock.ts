@@ -10,6 +10,7 @@ import {
   nextParagonAffix,
   paragonOptionsFor,
   affixLabel,
+  type RematchTarget,
 } from '../data/PracticeTargets';
 import { PRACTICE_BUILD_LADDER } from '../data/PracticeBuild';
 import {
@@ -37,6 +38,10 @@ export interface PracticeDockState {
 
 export interface PracticeDockOptions {
   hudScale: number;
+  /** Pre-select this target + affixes (REMATCH launch). Omitted = first target, no affixes. */
+  initialTarget?: RematchTarget;
+  /** Pre-set the BUILD rung to the deepest one at or below this depth. */
+  initialBuildDepth?: number;
   onSpawn: (state: PracticeDockState) => void;
   onInvincibleChange: (invincible: boolean) => void;
   onBuildChange: (depth: number) => void;
@@ -215,6 +220,25 @@ export class PracticeDock {
       button.container.setScrollFactor(0);
       button.card.hitZone.on('pointerover', () => button.setHoverState(true));
       button.card.hitZone.on('pointerout', () => button.setHoverState(false));
+    }
+
+    const seededTarget = this.options.initialTarget;
+    if (seededTarget) {
+      const seededIndex = PRACTICE_TARGET_IDS.indexOf(seededTarget.targetId);
+      if (seededIndex >= 0) this.targetIndex = seededIndex;
+      this.affix = seededTarget.affix;
+      this.affix2 = seededTarget.affix2;
+      this.clampAffixesToTarget();
+      if (!paragonOptionsFor(this.affix).includes(this.affix2)) this.affix2 = EnemyAffixType.NONE;
+    }
+    const seededDepth = this.options.initialBuildDepth;
+    if (seededDepth !== undefined) {
+      for (let index = PRACTICE_BUILD_LADDER.length - 1; index >= 0; index--) {
+        if (PRACTICE_BUILD_LADDER[index].depth <= seededDepth) {
+          this.buildIndex = index;
+          break;
+        }
+      }
     }
 
     this.refreshLabels();
