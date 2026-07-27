@@ -1859,13 +1859,58 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   start the next one.
   Pointer: `getLiveDailyQuestBoard()` + `PauseMenuManager.createDailyQuestPanel` (~`:1180-1249`).
 
-- [ ] **FEAT-UNLOCK-VAULT**: a browsable list of every hidden unlock earned, with the run it came
-  from. Value: `HiddenUnlockManager` already persists an `unlockedAt` timestamp per condition
-  (`HiddenUnlocks.ts:288-292`) and **nothing in the game ever reads it**, so the only record that a
-  ship was ever earned is the one end screen that announced it (and before 9bd86ae, not even that).
-  A vault turns a pile of silent unlocks into a collection worth completing, and gives the hint text
-  a permanent home instead of a 5.5s toast.
-  Pointers: `src/meta/HiddenUnlocks.ts`, `src/game/scenes/AchievementScene.ts`.
+- [x] **FEAT-UNLOCK-VAULT** — a browsable list of every hidden unlock, marking which are earned and
+  when (done — c381ab2). Value: `HiddenUnlockManager` has persisted an `unlockedAt` timestamp per
+  condition since it was written (`HiddenUnlocks.ts`, `this.state.unlocked[condition.id] =
+  { unlockedAt: Date.now() }`) and **nothing in the game ever read it** — verified, not assumed:
+  `grep -rn "unlockedAt" src/` outside `HiddenUnlocks.ts` returned nothing, and the manager's whole
+  public surface was `isUnlocked` / `getUnlockedConditionIds` / `getUnlockedTargetIds` /
+  `evaluatePostRun` / `resetAll` / `getTopProgress`, none of which expose the timestamp. There are
+  **23** hidden unlock conditions and no screen in the game listed them, so a player could not
+  answer "what have I unlocked, what is left, and how do I get it?" — the only record that a ship
+  was earned was the one end screen that announced it (and before `9bd86ae`, not even that: the
+  toast rendered under the overlay).
+  **Where it went and why:** a 7th tab (`unlocks`, labelled **Vault**) on `AchievementScene`, not a
+  new scene and not a new BootScene tile. That scene is already the "what have I earned" screen (it
+  retroactively claims achievement rewards and daily-quest gold on entry) and it **already carried a
+  non-achievement tab** — `daily` — with a documented pattern for exactly this, so the vault reuses
+  its background, title, mask, scroll input, navigator and back button. `CodexScene` was considered
+  and rejected: it is the *reference* screen for content that exists, its tab row already carries 12
+  tabs, and the vault is about what **you** earned, not what the game contains. A standalone scene
+  was rejected as speculative surface for the same information.
+  **Design calls:** ordering is earned-first, newest earn first, then everything still locked in
+  definition order, and it lives in a pure `orderVaultEntries()` driven off `HIDDEN_UNLOCKS` rather
+  than the saved map, so a saved id for a retired condition is ignored instead of rendering a
+  nameless row (a `Number.isFinite` guard degrades a tampered `NaN` timestamp to "locked" rather
+  than to `EARNED NaN-NaN-NaN`, matching this repo's sanitize-on-read idiom). Hints and real names
+  are shown on **locked** cards, which is consistency rather than a spoiler leak:
+  `WeaponSelectScene.describeShipUnlock` and `describeStageUnlock` already print the hidden
+  condition's `hintText` verbatim on locked ship and stage cards, so the vault is the checklist
+  those one-off lines imply. `VAULT_TARGET_META` is typed `Record<HiddenUnlockTarget, …>` on purpose,
+  so a future 5th target type is a `tsc` error instead of a card with a missing icon (the same
+  exhaustiveness-as-guard idiom `MARKET_BASE_PRICES` uses). Vault cards **do** register navigator
+  rows while quest cards deliberately do not: 3 quest cards never scroll, 23 vault entries scroll
+  past the mask, so keyboard and gamepad need row focus to reach the bottom. The 7th tab forced one
+  more change: `tabWidth` is `(width - 40 - (n-1)*8)/n`, which drops from 106 at 6 tabs to **90** at
+  7 on a 720-unit portrait canvas, where the centred name and the right-aligned count start to
+  overlap, so a tab now hides its count — the least important element — when name + count cannot fit.
+  The three clear-the-previous-tab blocks were also collapsed into one `clearTabCards()`; a third
+  verbatim copy was exactly the parallel-code-path divergence `CLAUDE.md` warns about.
+  **Deliberately NOT built:** the item's phrase *"with the run it came from"* is **not deliverable
+  today** and was scoped to the earn **date** instead. `RunHistoryManager` retains
+  `MAX_RUN_HISTORY = 10` runs (`src/meta/RunHistoryManager.ts:16`), so all but the most recent
+  handful of unlocks have no run left to point at, and correlating an unlock timestamp to a run
+  timestamp would be a guess that silently mislabels old entries. `unlockedAt` is the only durable
+  fact, so the card states the only thing that is true.
+  Tests: 2 cases only, on the pure `orderVaultEntries` — the single gate between "the profile earned
+  this" and "the screen claims it". The two-key sort is the kind of thing a later edit scrambles
+  silently, and the retired-id path is a real degradation contract. Nothing was written for the
+  scene, the card builder, the date formatter or the tab wiring: they are Phaser-coupled and guarded
+  by `tsc --noEmit` + `npm run build`, as every prior recap and overlay feature in this repo was.
+  No new storage key, no `SAVE_VERSION` bump, no save-format change — the vault is a pure read.
+  Playtest follow-up filed as **POLISH-UNLOCK-VAULT** under `## Human gates`.
+  Files: `src/meta/HiddenUnlocks.ts`, `src/meta/HiddenUnlocks.test.ts`,
+  `src/game/scenes/AchievementScene.ts`.
 
 - [ ] **FEAT-EARNED-SOUND**: give a run-end hidden unlock its own sting. Value: the death screen
   already fires `playAchievementUnlock()` for a card reveal (the card-reveal delayed call in
@@ -1919,18 +1964,22 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   Pointers: `PauseMenuManager.showEndRunConfirmation` confirm handler, `GameScene.recordEarlyRunEnd`,
   the `onAchievementUnlock` callback (`GameScene.ts:~790-827`), `HiddenUnlockManager`.
 
-- [ ] **BUG-PRACTICE-PAYS-REAL-GOLD**: the practice sandbox is recorded as a real run on every
-  run-end path. Value: `practiceInvincible` defaults to `false` and is player-toggled, practice
-  spawns any boss on demand, and dying (or ending the run) in practice runs the full run-end
-  path: `metaManager.addGold(goldEarned)`, `getAchievementManager().recordRunEnd`,
-  `getCodexManager().recordRunEnd`, `settleDailyQuests`, `recordScore`, `recordShipRun` and
-  `recordRun`. `gameOver()`'s only practice guard is the nemesis (`GameScene.ts:~6724`); the
-  live checks are guarded (`:4538`, `:4546`) but the run end is not. So a sandbox with
-  invincibility on farms real gold, inflates lifetime stats, posts best scores, moves the day's
-  quest board and pushes sandbox rows into the RECENT strip. Needs one decision applied to BOTH
-  run-end paths at once (never one path alone): is practice a sandbox that records nothing, or a
-  real run? Recommended: a sandbox. Note `PauseGameState.practiceModeActive` is already documented
-  as "never moves the day's quest board", which the run-end settle contradicts today.
+- [ ] **BUG-PRACTICE-PAYS-REAL-GOLD**: *(premise corrected 2026-07-27 — the profile is NOT
+  polluted; what remains is a cosmetic in-session lie.)* The original entry claimed a practice run
+  "farms real gold, inflates lifetime stats, posts best scores, moves the day's quest board".
+  Verified false: `PracticeScene.startPractice()` calls `setPracticeSession(true)`
+  (`PracticeScene.ts:488`), and **both** `SecureStorage.setItem` and `removeItem` hard-return
+  while that flag is set (`SecureStorage.ts:42,53` — `if (isPracticeSession()) return;`).
+  `grep -rn "localStorage\." src/` finds exactly one call outside `src/storage/`
+  (`SettingsScene.ts:1334 localStorage.clear()`, a deliberate wipe), so `SecureStorage` really is
+  the single write boundary. Every practice exit goes through `GameScene.exitPracticeSession()`
+  (`:5866`), which calls `window.location.reload()` for exactly this reason — its own docstring
+  says the reload drops the in-memory mutations and re-reads clean state.
+  **What is actually left:** the run-end recorders do run in practice and do mutate the singletons
+  in memory, so a sandbox death can toast an achievement or a gold payout that is discarded on the
+  next reload — a lie on screen, not a corrupted profile. The fix is still one decision applied to
+  BOTH run-end paths at once (`gameOver` and `recordEarlyRunEnd`), and the recommendation still
+  stands: practice records nothing. Downgraded from data-integrity to presentation.
   Pointers: `GameScene.gameOver` (~`:6508-6804`), `GameScene.recordEarlyRunEnd`,
   `PauseMenuManager.showEndRunConfirmation`.
 
@@ -2264,6 +2313,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-UNLOCK-VAULT** (— c381ab2) — playtest the new Vault tab on `ACHIEVE`
+    (FEAT-UNLOCK-VAULT). Agents have no browser and must not judge a 23-row list blind. Owns:
+    (a) **the list itself** — does 23 rows read as a collection worth completing, or as a wall of
+    text you scroll past once? (b) **portrait (720 units)** — the tab row now holds **7** tabs, so
+    each box drops from 106 to ~90 units and a tab hides its `N/M` count when name + count cannot
+    fit. Does the row still read, and is losing the per-tab counts on a phone the right trade, or
+    should the row scroll / wrap / shrink its font instead? (c) **spoilers** — every locked unlock
+    shows its real name and its real hint, on the `WeaponSelectScene` precedent. Is that right, or
+    should late-game entries stay silhouetted until earned? (d) **the landing tab** — should the
+    vault open by default when the player arrives from an unlock toast, rather than always landing
+    on `combat`? (e) **the readout** — is `EARNED 2026-07-14` the right thing on the card, or is a
+    relative age (`3 days ago`) better for a collection screen? (f) **the home** — does the tab
+    belong on `ACHIEVE` at all, or has that screen now got one tab too many and the vault wants its
+    own BootScene tile?
   - **POLISH-GOLD-TRUTH** (— 85e2e02) — playtest the in-run gold numbers now that the HUD shows the
     banked wallet (FEAT-HUD-WALLET) and ending a run pays the run bonus (BUG-ENDRUN-GOLD-MULT).
     Owns: (a) **does `4,180 (+320) GOLD` read correctly**, or does the parenthetical get taken as
