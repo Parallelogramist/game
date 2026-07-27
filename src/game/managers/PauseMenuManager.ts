@@ -414,12 +414,18 @@ export class PauseMenuManager {
    */
   private destroyElementsByName(names: string[]): void {
     for (const name of names) {
-      const element = this.scene.children.getByName(name);
-      if (element) {
-        // Infinite tweens (pause-title pulse, victory breathe) outlive their
-        // target otherwise — destroy() never detaches a tween from its target.
-        this.scene.tweens.killTweensOf(element);
-        element.destroy();
+      // createLabeledButton paints each pill into a sibling Graphics named
+      // `<bgName>_gfx` at PAUSE_MENU + 0.5. Destroying only the (transparent) hit-zone
+      // rectangle leaves the painted pill on screen above every overlay, and a fresh
+      // one is added on each re-open.
+      for (const target of [name, `${name}_gfx`]) {
+        const element = this.scene.children.getByName(target);
+        if (element) {
+          // Infinite tweens (pause-title pulse, victory breathe) outlive their
+          // target otherwise — destroy() never detaches a tween from its target.
+          this.scene.tweens.killTweensOf(element);
+          element.destroy();
+        }
       }
     }
   }
