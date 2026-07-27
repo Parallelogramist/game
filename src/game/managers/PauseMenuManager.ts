@@ -394,7 +394,8 @@ export class PauseMenuManager {
 
   // Count-up animation targets for run summary
   private countUpStats: { text: Phaser.GameObjects.Text; target: number }[] = [];
-  private shopConfirmKeyHandler: ((event: KeyboardEvent) => void) | null = null;
+  /** END RUN confirm dialog + the RUN ENDED panel that replaces it; only one is ever alive. */
+  private endRunNavigator: MenuNavigator | null = null;
 
   // Pause menu keyboard + gamepad navigation
   private pauseMenuNavigator: MenuNavigator | null = null;
@@ -1526,44 +1527,47 @@ export class PauseMenuManager {
       },
     });
 
-    // Keyboard navigation for confirm/cancel
-    const confirmButtons = [
-      { bg: confirmButtonBg, action: () => confirmButtonBg.emit('pointerdown'), baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeBase: 0x66cc66 },
-      { bg: cancelButtonBg, action: () => cancelButtonBg.emit('pointerdown'), baseColor: 0x664444, hoverColor: 0x885555, strokeBase: 0x886666 },
-    ];
-    let confirmSelectedIndex = 0;
-
-    const updateConfirmSelection = (newIndex: number) => {
-      confirmButtons[confirmSelectedIndex].bg.setFillStyle(confirmButtons[confirmSelectedIndex].baseColor);
-      confirmButtons[confirmSelectedIndex].bg.setStrokeStyle(3, confirmButtons[confirmSelectedIndex].strokeBase);
-      confirmSelectedIndex = newIndex;
-      confirmButtons[confirmSelectedIndex].bg.setFillStyle(confirmButtons[confirmSelectedIndex].hoverColor);
-      confirmButtons[confirmSelectedIndex].bg.setStrokeStyle(3, 0xffffff);
-    };
-
-    updateConfirmSelection(0);
-
-    this.shopConfirmKeyHandler = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D' ||
-          event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
-        updateConfirmSelection(confirmSelectedIndex === 0 ? 1 : 0);
-      } else if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        confirmButtons[confirmSelectedIndex].action();
-      } else if (event.key === 'Escape') {
-        cancelButtonBg.emit('pointerdown');
-      }
-    };
-    this.scene.input.keyboard?.on('keydown', this.shopConfirmKeyHandler);
+    // Keyboard + gamepad navigation. showEndRunConfirmation opens by destroying the
+    // pause menu's navigator, so this is the only object polling the pad while the
+    // dialog is up: without it a gamepad-only player cannot answer the dialog at all.
+    this.endRunNavigator = new MenuNavigator({
+      scene: this.scene,
+      columns: 2,
+      items: [
+        {
+          onFocus: () => {
+            confirmButtonBg.setFillStyle(0x55bb55);
+            confirmButtonBg.setStrokeStyle(3, 0xffffff);
+          },
+          onBlur: () => {
+            confirmButtonBg.setFillStyle(0x44aa44);
+            confirmButtonBg.setStrokeStyle(3, 0x66cc66);
+          },
+          onActivate: () => confirmButtonBg.emit('pointerdown'),
+        },
+        {
+          onFocus: () => {
+            cancelButtonBg.setFillStyle(0x885555);
+            cancelButtonBg.setStrokeStyle(3, 0xffffff);
+          },
+          onBlur: () => {
+            cancelButtonBg.setFillStyle(0x664444);
+            cancelButtonBg.setStrokeStyle(3, 0x886666);
+          },
+          onActivate: () => cancelButtonBg.emit('pointerdown'),
+        },
+      ],
+      onCancel: () => cancelButtonBg.emit('pointerdown'),
+    });
   }
 
   /**
    * Hides the shop confirmation dialog.
    */
   private hideShopConfirmation(): void {
-    if (this.shopConfirmKeyHandler) {
-      this.scene.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
-      this.shopConfirmKeyHandler = null;
+    if (this.endRunNavigator) {
+      this.endRunNavigator.destroy();
+      this.endRunNavigator = null;
     }
 
     this.destroyElementsByName([
@@ -1596,9 +1600,9 @@ export class PauseMenuManager {
    * existence once Confirm has run.
    */
   private showEndRunEarned(earnings: RunEarning[], onContinue: () => void): void {
-    if (this.shopConfirmKeyHandler) {
-      this.scene.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
-      this.shopConfirmKeyHandler = null;
+    if (this.endRunNavigator) {
+      this.endRunNavigator.destroy();
+      this.endRunNavigator = null;
     }
 
     // The overlay stays, so the screen does not flash black between the two dialogs.
@@ -1644,7 +1648,7 @@ export class PauseMenuManager {
       onContinue();
     };
 
-    this.createLabeledButton({
+    const { bg: continueButtonBg } = this.createLabeledButton({
       x: centerX, y: panelBottomY + 49,
       width: 200, height: 50,
       label: 'Continue', fontSize: '24px',
@@ -1654,16 +1658,27 @@ export class PauseMenuManager {
     });
 
     // Confirm's Enter binding is `keydown`, so a held Enter would otherwise land on
-    // this screen the frame it opens and skip it unread.
+    // this screen the frame it opens and skip it unread. The pad has the same problem
+    // with a held A, which the navigator's own button-state priming absorbs.
     this.scene.time.delayedCall(350, () => {
       if (!this.isShopConfirmationOpen) return;
-      this.shopConfirmKeyHandler = (event: KeyboardEvent) => {
-        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
-          event.preventDefault();
-          commitContinue();
-        }
-      };
-      this.scene.input.keyboard?.on('keydown', this.shopConfirmKeyHandler);
+      this.endRunNavigator = new MenuNavigator({
+        scene: this.scene,
+        items: [
+          {
+            onFocus: () => {
+              continueButtonBg.setFillStyle(0x55bb55);
+              continueButtonBg.setStrokeStyle(3, 0xffffff);
+            },
+            onBlur: () => {
+              continueButtonBg.setFillStyle(0x44aa44);
+              continueButtonBg.setStrokeStyle(3, 0x66cc66);
+            },
+            onActivate: () => continueButtonBg.emit('pointerdown'),
+          },
+        ],
+        onCancel: commitContinue,
+      });
     });
   }
 
@@ -3570,10 +3585,10 @@ export class PauseMenuManager {
       this.pauseMenuNavigator = null;
     }
 
-    // Remove shop confirmation keyboard handler
-    if (this.shopConfirmKeyHandler) {
-      this.scene.input.keyboard?.off('keydown', this.shopConfirmKeyHandler);
-      this.shopConfirmKeyHandler = null;
+    // Remove the END RUN dialog / earned panel navigator
+    if (this.endRunNavigator) {
+      this.endRunNavigator.destroy();
+      this.endRunNavigator = null;
     }
 
     // Remove victory keyboard handlers (if victory overlay was showing)
