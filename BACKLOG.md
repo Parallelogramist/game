@@ -2052,24 +2052,54 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   play or hidden behind the next overlay is a human question, folded into
   **POLISH-ENDRUN-EARNED**.
 
-- [ ] **BUG-PRACTICE-PAYS-REAL-GOLD**: *(premise corrected 2026-07-27 — the profile is NOT
-  polluted; what remains is a cosmetic in-session lie.)* The original entry claimed a practice run
-  "farms real gold, inflates lifetime stats, posts best scores, moves the day's quest board".
-  Verified false: `PracticeScene.startPractice()` calls `setPracticeSession(true)`
-  (`PracticeScene.ts:488`), and **both** `SecureStorage.setItem` and `removeItem` hard-return
-  while that flag is set (`SecureStorage.ts:42,53` — `if (isPracticeSession()) return;`).
-  `grep -rn "localStorage\." src/` finds exactly one call outside `src/storage/`
-  (`SettingsScene.ts:1334 localStorage.clear()`, a deliberate wipe), so `SecureStorage` really is
-  the single write boundary. Every practice exit goes through `GameScene.exitPracticeSession()`
-  (`:5866`), which calls `window.location.reload()` for exactly this reason — its own docstring
-  says the reload drops the in-memory mutations and re-reads clean state.
-  **What is actually left:** the run-end recorders do run in practice and do mutate the singletons
-  in memory, so a sandbox death can toast an achievement or a gold payout that is discarded on the
-  next reload — a lie on screen, not a corrupted profile. The fix is still one decision applied to
-  BOTH run-end paths at once (`gameOver` and `recordEarlyRunEnd`), and the recommendation still
-  stands: practice records nothing. Downgraded from data-integrity to presentation.
-  Pointers: `GameScene.gameOver` (~`:6508-6804`), `GameScene.recordEarlyRunEnd`,
-  `PauseMenuManager.showEndRunConfirmation`.
+- [x] **BUG-PRACTICE-PAYS-REAL-GOLD** — a practice run end now records nothing and says so
+  (done — 435c50e).
+  **Symptom:** `PracticeScene.renderHeader` prints **"Nothing here is saved — no gold, no
+  unlocks, no records."** (`PracticeScene.ts:150-154`) and then the practice death screen
+  banked gold into the pill, printed `Streak broken!` against a real win streak, printed
+  `NEW BEST <score>`, showed the PERSONAL BESTS panel, and toasted achievements and hidden
+  ship unlocks. The END RUN dialog promised *"You will earn the following gold:"* and its
+  Confirm handler paid it.
+  **The profile was never corrupted** (the 2026-07-27 premise correction stands):
+  `SecureStorage.setItem`/`removeItem` hard-return while the practice flag is set
+  (`SecureStorage.ts:42,53`) and `exitPracticeSession` (`GameScene.ts:5866-5869`) drops the
+  dirty in-memory singletons with `window.location.reload()`. The defect was entirely what
+  the player was told.
+  **Two run-end paths existed, not three.** `showVictory()` is unreachable in practice: the
+  boss-kill victory trigger is guarded `!this.practiceModeActive` (`GameScene.ts:3376`), so
+  `hasWon` is always false there. The fix spans two files because the END RUN path banks its
+  gold in `PauseMenuManager` (`:1479` pre-fix), not in `GameScene`, so a GameScene-only fix
+  would have missed it.
+  **This completed a half-applied invariant** rather than inventing a policy: practice was
+  already guarded for the in-run achievement tick (`:4538`), the in-run quest tick (`:4546`),
+  the nemesis (`:6725`), the data-cache card reveal (`:7417`) and the endless best-cycle save
+  (`:8947`). The run-end recorder block was the gap (this repo's `CLAUDE.md` "Parallel code
+  path consistency"). Now guarded: Memory bank, streak break, gold calc + `addGold`,
+  achievement/codex/quest settle, hidden-unlock evaluation, score/ship/daily/run-history
+  records, and the newcomer-taper count; plus `recordEarlyRunEnd` returns
+  `{ unlocks: [], achievements: [] }` immediately, which is what routes the END RUN dialog to
+  leave without an earned panel.
+  **The deliberate split on the death screen:** `unlockProgress` is **suppressed** because
+  `getTopProgress` folds *this practice run's* stats into the progress it reports, so it would
+  show inflated progress; the **DAILY QUESTS board is kept** because it is a pure storage read
+  that, with the settle skipped, is unfolded and truthful: the honest nudge back to a real
+  run, and a visible demonstration that practice did not count. The run's own measurements all
+  stay (time, kills, damage, `damageBySource`, weapon stats, timeline, threat recap): measuring
+  a build is what practice is for.
+  **Deliberately not guarded:** the gauntlet block (`gauntletModeActive` is set only from launch
+  data `:682` or a restored save `:2319`; `PracticeScene.startPractice` passes no gauntlet flag),
+  the endless block (`endlessModeActive` is set only by the post-victory continue handlers
+  `:6054`/`:6120` or a restored save `:2295`, and victory cannot fire in practice), and
+  `getGameStateManager().clearSave()` (already a no-op under the practice write block).
+  Guarding them would be speculative surface.
+  **No `GameOverData` field was added**: `getGameState().practiceModeActive` was already on the
+  wire (`PauseMenuManager.ts:239`, fed by `GameScene.ts:6157`) and already read at `:1214`, and
+  **no import changed**.
+  **No test was added:** the change is guard placement inside two live-Phaser-scene methods the
+  node-env vitest suite cannot construct; the write boundary it leans on is already covered by
+  `src/storage/` tests, and mocking a scene purely to assert a *skipped* call is scaffolding
+  overreach. Floor: `tsc --noEmit` clean, 126 files / 1575 tests green, `npm run build` green.
+  Pixels are the human's: see **POLISH-PRACTICE-RUNEND** in the playtest queue.
 
 ## Next
 
@@ -2718,6 +2748,20 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-PRACTICE-RUNEND** (— 435c50e) — playtest the practice run-end screens
+    (BUG-PRACTICE-PAYS-REAL-GOLD). Agents have no browser and must not judge a screen blind.
+    Owns: (a) **the notice** — `PRACTICE RUN · NOTHING RECORDED` sits in the score slot under
+    GAME OVER, in teal. Is it legible there, and does it land before the eye reaches the gold
+    pill? (b) **the pill** — it still paints, reading `PRACTICE · NO GOLD BANKED` with no
+    count-up. Is an empty gold pill better than no pill at all, given that removing it would
+    shift every stagger slot below it? (c) **the kept board** — `DAILY QUESTS` still renders on
+    a practice death (truthful, unfolded, since the settle is skipped). Does it read as an
+    honest nudge back to a real run, or as clutter on a sandbox screen? (d) **the END RUN
+    dialog** — the gold breakdown numbers stay and only the subtitle changes, to "Practice run.
+    This is what it would have paid:". Is that tense change enough, or does the breakdown still
+    read as a promise? (e) **what is missing now** — no grade badge, no score line, no PERSONAL
+    BESTS panel, no RECENT strip, no "you can now afford" teaser. Does the practice death screen
+    still feel informative enough for judging a build, or did suppression go one panel too far?
   - **POLISH-QUEST-ENDSCREEN** (— e6c24bb) — playtest the new DAILY QUESTS panel on the death
     screen (FEAT-QUEST-BOARD-ENDSCREEN). Agents have no browser and must not judge a
     motivational beat blind. Owns: (a) **the slot trade** — on a run that earned nothing,
