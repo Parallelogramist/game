@@ -19,6 +19,7 @@ import { copyTextToClipboard } from '../../utils/Clipboard';
 import { getDailyQuestBoard, getLiveDailyQuestBoard, type DailyQuestProgress } from '../../meta/DailyQuestManager';
 import { DAILY_QUEST_COUNT, formatQuestValue } from '../../data/DailyQuests';
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
+import { computeRunNetGold } from '../../meta/RunEconomy';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -295,6 +296,8 @@ export interface GameOverData {
    * hides, same as `totalDamageTaken`.
    */
   goldLedger?: { earned: number; spent: number };
+  /** Daily-quest gold settled at run end — paid after the ledger snapshot, so it is in no other number. */
+  questGold?: number;
   previousStreak: number;
   highestCombo: number;
   totalDamageDealt?: number;
@@ -1978,8 +1981,11 @@ export class PauseMenuManager {
     const hasDamageRow = data.totalDamageDealt !== undefined || data.totalDamageTaken !== undefined;
     const goldFound = data.goldLedger?.earned ?? 0;
     const goldSpent = data.goldLedger?.spent ?? 0;
+    const questGold = data.questGold ?? 0;
     const hasLedgerRow = goldFound > 0 || goldSpent > 0;
-    const statRowCount = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0);
+    const hasQuestRow = questGold > 0;
+    const hasEconomy = hasLedgerRow || hasQuestRow;
+    const statRowCount = 2 + (hasDamageRow ? 1 : 0) + (hasLedgerRow ? 1 : 0) + (hasQuestRow ? 1 : 0);
     const statRowHeight = 34;
     const statsPanelWidth = 480;
     const statsPanelHeight = statRowCount * statRowHeight + 22;
@@ -2070,9 +2076,17 @@ export class PauseMenuManager {
       addStatCell(rightCellLeftX, rightCellRightX, statRowY(ledgerRow), 'Gold Spent', `-${goldSpent}`, { fontSize: '16px', color: '#ff8888' });
     }
 
+    // Quest gold is settled after the payout snapshot, so `Gold Found` cannot own it —
+    // and the completion toast that names it is drawn at OverlayDepths.HUD, underneath
+    // this overlay. Without this row the player is paid and never told.
+    if (hasQuestRow) {
+      const questRow = (hasDamageRow ? 3 : 2) + (hasLedgerRow ? 1 : 0);
+      addStatCell(leftCellLeftX, leftCellRightX, statRowY(questRow), 'Quest Gold', `+${questGold}`, { fontSize: '16px', color: '#ffdd44' });
+    }
+
     // ── Gold pill ──────────────────────────────────────────────────────────
     const goldPillHeight = 40;
-    const goldPillWidth = hasLedgerRow ? 360 : 250;
+    const goldPillWidth = hasEconomy ? 360 : 250;
     const goldY = statsPanelTop + statsPanelHeight + 14 + goldPillHeight / 2;
     const goldPill = this.scene.add.graphics();
     paintPillBackground(goldPill, centerX, goldY, goldPillWidth, goldPillHeight, BODY_COLORS.gold, ACCENT_COLORS.gold);
@@ -2090,8 +2104,8 @@ export class PauseMenuManager {
 
     // Net = what the wallet is worth after this run vs. before it: the payout landing
     // now, plus what the run found, minus what it spent.
-    const runNetGold = data.goldEarned + goldFound - goldSpent;
-    const goldFinalText = hasLedgerRow
+    const runNetGold = computeRunNetGold({ payout: data.goldEarned, found: goldFound, spent: goldSpent, questGold });
+    const goldFinalText = hasEconomy
       ? `Gold: +${data.goldEarned}   ·   net ${runNetGold < 0 ? '-' : '+'}${Math.abs(runNetGold)}`
       : `Gold: +${data.goldEarned}`;
 

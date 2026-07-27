@@ -6527,6 +6527,10 @@ export class GameScene extends Phaser.Scene {
 
     const highestComboThisRun = getHighestCombo();
 
+    // Run-end quest settle is paid AFTER the ledger snapshot above, so it is in no
+    // other run-end number. Reported as its own recap row.
+    let runEndQuestGold = 0;
+
     // Record run end statistics (only if not already recorded in showVictory)
     if (!this.hasWon) {
       getAchievementManager().recordRunEnd({
@@ -6553,7 +6557,7 @@ export class GameScene extends Phaser.Scene {
         this.playerStats.level
       );
 
-      this.payDailyQuests(settleDailyQuests({
+      runEndQuestGold = this.payDailyQuests(settleDailyQuests({
         wasVictory: false,
         killCount: this.killCount,
         levelReached: this.playerStats.level,
@@ -6682,6 +6686,7 @@ export class GameScene extends Phaser.Scene {
       playerLevel: this.playerStats.level,
       goldEarned,
       goldLedger: runGoldLedger,
+      questGold: runEndQuestGold,
       // Gauntlet deaths leave the streak untouched, so never show "Streak broken!"
       previousStreak: this.gauntletModeActive ? 0 : previousStreak,
       highestCombo: highestComboThisRun,
@@ -6805,10 +6810,11 @@ export class GameScene extends Phaser.Scene {
   /**
    * Pays out quest gold banked by a live completion or a run-end settle and
    * toasts each quest. Claiming (rather than adding each quest's gold directly)
-   * also sweeps up anything an earlier failed payout left pending.
+   * also sweeps up anything an earlier failed payout left pending. Returns the
+   * gold actually claimed, so a run-end settle can be reported on the end screen.
    */
-  private payDailyQuests(completed: DailyQuestDefinition[]): void {
-    if (completed.length === 0) return;
+  private payDailyQuests(completed: DailyQuestDefinition[]): number {
+    if (completed.length === 0) return 0;
     const owed = claimDailyQuestGold();
     if (owed > 0) {
       getMetaProgressionManager().addGold(owed);
@@ -6822,6 +6828,7 @@ export class GameScene extends Phaser.Scene {
         duration: 3600,
       });
     }
+    return owed;
   }
 
   private createPlayer(x: number, y: number): number {
