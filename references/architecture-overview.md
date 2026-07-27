@@ -49,32 +49,14 @@ BootScene (start screen + music + daily challenge + ship picker)
 
 ### Weapon System
 
-16 weapons managed by `WeaponManager` (`/src/weapons/WeaponManager.ts`).
+29 weapons managed by `WeaponManager` (`/src/weapons/WeaponManager.ts`).
 
 **Architecture:**
 - `BaseWeapon` abstract class — common functionality (cooldowns, upgrades, scene ref, external multipliers for damage/cooldown/count/piercing)
 - Each weapon extends `BaseWeapon`, implements `fire()` and `update()`
 - WeaponManager stores active weapons, calls update each frame
 
-**Available Weapons:**
-| Weapon | Description |
-|--------|-------------|
-| ProjectileWeapon | Basic auto-aimed projectiles |
-| KatanaWeapon | Crisscrossing blade cuts |
-| AuraWeapon | Continuous damage zone around player |
-| OrbitingBladesWeapon | Rotating blades that orbit the player |
-| FrostNovaWeapon | Freezing AOE explosion |
-| MeteorWeapon | Delayed high-damage impact |
-| FlamethrowerWeapon | Cone of continuous fire damage |
-| ChainLightningWeapon | Bounces between nearby enemies |
-| LaserBeamWeapon | Piercing beam toward cursor |
-| RicochetWeapon | Bouncing projectiles |
-| HomingMissileWeapon | Self-guided explosive projectiles |
-| GroundSpikeWeapon | Spikes erupt at enemy positions |
-| DroneWeapon | Autonomous helper that orbits and shoots |
-| ShurikenWeapon | Spiral pattern projectiles |
-| BoomerangWeapon | Glaive that carves out to max range and homes back, hitting on both legs |
-| SentryWeapon | Deploys stationary auto-firing turrets at your position (positional gun line) |
+**Available weapons:** see the `WeaponRegistry` map in `/src/weapons/index.ts` (the single source of truth).
 
 **Adding new weapon:**
 1. Create class extending `BaseWeapon` in `/src/weapons/`
@@ -101,12 +83,13 @@ All damage through `WeaponManager.damageEnemy()`:
 
 ### Enemy Variety System
 
-30 enemy types in `/src/enemies/EnemyTypes.ts`:
-- **5 Basic** (Shambler, Zigzag Runner, Dasher, Circler, Tiny Swarm)
-- **13 Elite** (Tank, Exploder, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Lurker, Warden, Wraith, Rallier, Giant)
-- **3 Spawned-only** (Splitter Mini, Ghost, Turret — created by other enemies, not natural spawns)
-- **6 Miniboss** (The Glutton, Swarm Mother, The Charger, Necromancer, Twin Alpha, Twin Beta)
-- **3 Boss** (The Horde King, Void Wyrm, The Machine)
+43 enemy types in `/src/enemies/EnemyTypes.ts`, by `EnemyCategory`:
+- **10 Basic** (Shambler, Zigzag Runner, Dasher, Circler, Tiny Swarm, Exploder, Splitter Mini, Lurker, Ghost, Turret)
+- **11 Elite** (Tank, Splitter, Shooter, Sniper, Healer, Shielded, Teleporter, Warden, Wraith, Rallier, Giant)
+- **10 Miniboss** (The Glutton, Swarm Mother, The Charger, Necromancer, Twin Alpha, Twin Beta, The Bombard, The Stalker, Legion Fragment, Legion Mote)
+- **12 Boss** (The Horde King, Void Wyrm, The Machine, The Bastion, The Legion, The Pulsar, The Obelisk, The Helix, The Tessellator, The Tremor, The Diviner, The Eclipse)
+
+Splitter Mini, Ghost and Turret are spawned-only (created by other enemies, never natural spawns).
 
 Twins spawn as linked pair.
 
@@ -414,6 +397,24 @@ besides dash. Pure, unit-tested core; Phaser wiring lives in GameScene.
 ### Boss Arena System
 
 `BossArenaSystem` (`/src/systems/BossArenaSystem.ts`) — module-level state. On boss spawn, fades in a tinted overlay with a sine-wave alpha pulse (per-boss themes: red Horde King, purple Void Wyrm, blue The Machine). On boss death, white cleansing flash + fade-out. `activateBossArena(bossId)` / `deactivateBossArena()` / `updateBossArena()`. Reset: `resetBossArenaSystem()` in GameScene `create()`.
+
+### Nemesis System
+
+`NemesisManager` (`/src/meta/NemesisManager.ts`) + `NemesisTag`: the cross-run
+hunter. On death, the ENEMY_TYPES id of the entity that landed the lethal hit is
+persisted (SecureStorage key `survivor-nemesis`, read-through + sanitize-on-read
+like `PaceGhostManager`); killing the player again with the same type escalates a
+`grudge` tier (cap 5). The next normal run fields that enemy once at
+`NEMESIS_SPAWN_TIME_SECONDS` (150 s, between the two minibosses) via
+`GameScene.spawnNemesis`: grudge multipliers are applied **after** `createEnemy`
+(so time/world-level/curse scaling and any natural affix roll are already baked
+in), xpValue is floored at 30 so it classifies as miniboss-tier for loot/timeline/
+restore, and it carries a `NEMESIS · <name>` boss health bar plus the miniboss
+warning banner. Killing it pays gold + a guaranteed `grantRelicChoice(1)` and
+clears the record. Bosses, spawned-only minions, the twins and the Legion are
+never eligible; practice, gauntlet and daily/weekly runs never field one (a
+seeded board must not read private profile state). Persisted across a mid-run
+refresh by `SerializedEnemyData.nemesis?` + `GameSaveState.nemesisSpawned?`.
 
 ### Event System
 

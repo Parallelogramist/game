@@ -28,6 +28,11 @@ export const XPGemTag = defineComponent();
 export const HealthPickupTag = defineComponent();
 export const MagnetPickupTag = defineComponent();
 
+// Nemesis tag — the one cross-run hunter entity in a run (FEAT-NEMESIS).
+// A tag, not a scene field, so the save layer can serialize the mark from the
+// world and the restore path can re-attach it without an entity-id mapping.
+export const NemesisTag = defineComponent();
+
 // Health pickup component
 export const HealthPickup = defineComponent({
   healAmount: Types.f32,

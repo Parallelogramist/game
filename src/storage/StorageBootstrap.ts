@@ -139,6 +139,10 @@ export const ALL_STORAGE_KEYS = [
   // BossRotationManager (which of the twelve bosses the next run fields;
   // auto-transfers with the profile)
   'survivor-boss-rotation',
+
+  // NemesisManager (the enemy that last killed you + its grudge tier;
+  // auto-transfers with the profile)
+  'survivor-nemesis',
 ];
 
 /**

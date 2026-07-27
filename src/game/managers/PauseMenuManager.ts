@@ -287,6 +287,8 @@ export interface GameOverData {
   damageBySource?: DamageSourceTally[];
   /** Attribution bucket of the lethal hit. Undefined/null when the run ended without one. */
   killedBy?: string | null;
+  /** The hunter the next run will field, if this death planted one. */
+  nemesis?: { name: string; grudge: number } | null;
   /**
    * Pace-vs-ghost recap. `ghost` is the curve the run RACED (captured at run
    * start), not a re-read — a new best has already replaced the stored one.
@@ -2699,15 +2701,16 @@ export class PauseMenuManager {
     if (this.scene.scale.width < 1000 || this.scene.scale.height < 520) return;
 
     const threatRows = orderThreatsByDamage(data.damageBySource ?? [], 3);
-    if (threatRows.length === 0 && !data.killedBy) return;
+    if (threatRows.length === 0 && !data.killedBy && !data.nemesis) return;
 
     const panelWidth = 240;
     const panelX = Math.max(this.scene.scale.width * 0.18, panelWidth / 2 + 24);
     const panelTopY = this.scene.scale.height / 2 + 42;
     const rowHeight = 34;
     const killedByHeight = data.killedBy ? 26 : 0;
-    const rowsTopY = panelTopY + 30 + killedByHeight;
-    const panelHeight = 30 + killedByHeight + threatRows.length * rowHeight + 12;
+    const nemesisHeight = data.nemesis ? 20 : 0;
+    const rowsTopY = panelTopY + 30 + killedByHeight + nemesisHeight;
+    const panelHeight = 30 + killedByHeight + nemesisHeight + threatRows.length * rowHeight + 12;
 
     const panelBackground = this.scene.add.graphics();
     paintPanelBackground(
@@ -2742,6 +2745,20 @@ export class PauseMenuManager {
         }
       ).setOrigin(0.5, 0).setDepth(depth);
       animatedElements.push(killedByText);
+    }
+
+    if (data.nemesis) {
+      const nemesisText = this.scene.add.text(
+        panelX,
+        panelTopY + 30 + killedByHeight,
+        `IT HUNTS YOU NEXT RUN${data.nemesis.grudge > 1 ? `  ·  GRUDGE ${data.nemesis.grudge}` : ''}`,
+        {
+          fontSize: '11px',
+          color: '#ffaa66',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+        }
+      ).setOrigin(0.5, 0).setDepth(depth);
+      animatedElements.push(nemesisText);
     }
 
     threatRows.forEach((threat, index) => {

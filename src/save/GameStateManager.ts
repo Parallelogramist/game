@@ -28,6 +28,7 @@ import {
   EnemyAffix,
   Consumable,
   ConsumablePickupTag,
+  NemesisTag,
 } from '../ecs/components';
 import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
@@ -120,6 +121,10 @@ interface SerializedEnemyData {
   affixType?: number;
   // Paragon second affix slot. Optional for backward-compat — absent/0 = none.
   affixType2?: number;
+  // FEAT-NEMESIS mark. Optional for backward-compat with saves written before
+  // the feature — absent means "an ordinary enemy". Scaling is already baked
+  // into the saved Health/EnemyType/Velocity, so only the mark needs persisting.
+  nemesis?: boolean;
 }
 
 /**
@@ -346,6 +351,8 @@ export interface GameSaveState {
     activeEvent?: { id: string; remainingTime: number } | null;
   };
   minibossSpawnTimes: MinibossSpawnTime[];
+  /** True once this run's nemesis has spawned. Absent on saves written before FEAT-NEMESIS. */
+  nemesisSpawned?: boolean;
 
   // Player state
   playerStats: PlayerStats;
@@ -655,6 +662,9 @@ export class GameStateManager {
       activeEvent?: { id: string; remainingTime: number } | null;
     };
     minibossSpawnTimes: MinibossSpawnTime[];
+    // Optional like the GameSaveState field it feeds: omitted (legacy/test
+    // callers) serializes as absent, which loads back as "not yet spawned".
+    nemesisSpawned?: boolean;
     banishedUpgradeIds: Set<string>;
     scrappedWeaponIds?: string[];
     isAutoBuyEnabled: boolean;
@@ -714,6 +724,7 @@ export class GameStateManager {
         cacheFoundThisRun: gameData.cacheFoundThisRun,
         eventState: gameData.eventState,
         minibossSpawnTimes: gameData.minibossSpawnTimes,
+        nemesisSpawned: gameData.nemesisSpawned,
 
         // Player state
         playerStats: gameData.playerStats,
@@ -897,6 +908,7 @@ export class GameStateManager {
         // (which revives the ring/HP-bar visual + death/contact behaviours).
         affixType: hasComponent(world, EnemyAffix, entityId) ? EnemyAffix.affixType[entityId] : 0,
         affixType2: hasComponent(world, EnemyAffix, entityId) ? EnemyAffix.affixType2[entityId] : 0,
+        nemesis: hasComponent(world, NemesisTag, entityId) || undefined,
       },
     };
 

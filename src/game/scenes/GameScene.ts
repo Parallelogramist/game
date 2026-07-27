@@ -17,6 +17,7 @@ import {
   Destructible,
   StatusEffect,
   ConsumablePickupTag,
+  NemesisTag,
 } from '../../ecs/components';
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
@@ -71,6 +72,10 @@ import {
   challengeBossRotationIndex,
   getBossRotationIndex,
 } from '../../meta/BossRotationManager';
+import {
+  NEMESIS_SPAWN_TIME_SECONDS, NEMESIS_SPRITE_SCALE, NemesisRecord,
+  clearNemesis, getNemesis, nemesisGoldReward, nemesisLabel, nemesisScaling, recordNemesisKill,
+} from '../../meta/NemesisManager';
 import { recordShipRun } from '../../meta/ShipRecords';
 import {
   formatFightTime,
@@ -289,6 +294,12 @@ export class GameScene extends Phaser.Scene {
   private damageTakenBySource: Map<string, number> = new Map();
   /** Attribution bucket of the lethal hit, set only past the revival branch in takeDamage. */
   private killedBySourceName: string | null = null;
+  /** The hunter this run fields, snapshotted at create() so mid-run writes can't swap it. */
+  private nemesisRecord: NemesisRecord | null = null;
+  /** True once the hunter has been spawned this run (persisted — a refresh must not re-spawn it). */
+  private nemesisSpawned = false;
+  /** ENEMY_TYPES id of the entity that landed the lethal hit, or null (attacker-less damage). */
+  private pendingNemesisTypeId: string | null = null;
   /** Trophy relic unlocked by this run's first-ever kill of its boss, for the victory kicker. */
   private trophyUnlockedThisRun: string | null = null;
   /** Per-run beat log for the run-end RUN TIMELINE ribbon. Never persisted. */
@@ -717,6 +728,9 @@ export class GameScene extends Phaser.Scene {
     this.totalDamageDealt = 0;
     this.damageTakenBySource.clear();
     this.killedBySourceName = null;
+    this.pendingNemesisTypeId = null;
+    this.nemesisSpawned = false;
+    this.nemesisRecord = this.loadRunNemesis();
     this.lastAchievementTimeCheck = 0;
     this.pendingBossHealthBars = [];
 
@@ -1796,6 +1810,7 @@ export class GameScene extends Phaser.Scene {
       cacheFoundThisRun: this.cacheFoundThisRun,
       eventState: getEventState(),
       minibossSpawnTimes: this.minibossSpawnTimes,
+      nemesisSpawned: this.nemesisSpawned,
       banishedUpgradeIds: this.banishedUpgradeIds,
       scrappedWeaponIds: this.scrappedWeaponIds,
       isAutoBuyEnabled: this.isAutoBuyEnabled,
@@ -2035,6 +2050,10 @@ export class GameScene extends Phaser.Scene {
       this.threatLevel = clampThreatTier(state.threatLevel);
     }
     this.minibossSpawnTimes = state.minibossSpawnTimes;
+    // Legacy saves (no field) read as "not yet spawned" — correct for any save
+    // written before 2:30, and at worst fields the hunter once after a refresh.
+    this.nemesisSpawned = state.nemesisSpawned === true;
+    this.pendingNemesisTypeId = null;
 
     // Restore post-victory / endless-mode progression. These are GameScene-local
     // instance fields (reset to fresh defaults above), so without this a refresh
@@ -2114,6 +2133,12 @@ export class GameScene extends Phaser.Scene {
     this.dailyModeActive = savedDaily?.active === true && savedDailyDate !== '';
     this.dailyDateString = this.dailyModeActive ? savedDailyDate : '';
     this.dailyChallengeType = savedDaily?.challengeType === 'weekly' ? 'weekly' : 'daily';
+
+    // The fresh path's reset block is unreachable here (create() returns after
+    // restoreGameState), so the run's hunter is loaded on this path too — after
+    // the gauntlet/daily flags above, which the mode gate reads, and before
+    // restoreEntities below, whose health-bar label reads the grudge.
+    this.nemesisRecord = this.loadRunNemesis();
 
     // PLAY AGAIN calls scene.restart() with no data, which reuses this scene's
     // settings.data — for a restored run that is just {restore: true}, and the
@@ -2661,6 +2686,11 @@ export class GameScene extends Phaser.Scene {
       EnemyType.armor[entityId] += AFFIX_META[restoredAffix2].bonusArmor;
     }
 
+    const restoredNemesis = entity.enemyData.nemesis === true;
+    if (restoredNemesis) {
+      addComponent(this.world, NemesisTag, entityId);
+    }
+
     // Restore status effects if present
     if (entity.statusEffect) {
       addComponent(this.world, StatusEffect, entityId);
@@ -2680,6 +2710,12 @@ export class GameScene extends Phaser.Scene {
     registerSprite(entityId, sprite);
     this.deathRippleManager.registerEnemy(entityId, enemyType.shape, 10 * enemyType.size);
 
+    // EnemyType.size IS serialized (already carries the bump), but the sprite is
+    // rebuilt from the base type — re-scale it so a refreshed hunter still reads as one.
+    if (restoredNemesis) {
+      sprite.setScale((sprite.scaleX || 1) * NEMESIS_SPRITE_SCALE);
+    }
+
     this.enemyCount++;
 
     // Queue boss health bar creation (hudManager may not exist yet during restore path)
@@ -2691,7 +2727,10 @@ export class GameScene extends Phaser.Scene {
     // pass) instead of a per-member bar each.
     if (entity.enemyData.xpValue >= 30 && restoredLegionGeneration === null) {
       // Affixed bosses/minibosses keep their title-prefixed bar across a refresh.
-      const bossBarName = affixDisplayName(enemyType.name, restoredAffix as EnemyAffixType, restoredAffix2);
+      const affixName = affixDisplayName(enemyType.name, restoredAffix as EnemyAffixType, restoredAffix2);
+      const bossBarName = restoredNemesis
+        ? nemesisLabel(affixName, this.nemesisRecord?.grudge ?? 1)
+        : affixName;
       if (this.hudManager) {
         this.hudManager.createBossHealthBar(entityId, bossBarName, entity.enemyData.xpValue >= 1000);
       } else {
@@ -2993,6 +3032,24 @@ export class GameScene extends Phaser.Scene {
           infected++;
         }
       }
+    }
+
+    // ═══ NEMESIS SLAIN (FEAT-NEMESIS) ═══
+    // The grudge is dropped the moment the hunter dies, so a later death in the
+    // same run starts a fresh record instead of re-escalating the one just settled.
+    if (hasComponent(this.world, NemesisTag, enemyId)) {
+      const grudge = this.nemesisRecord?.grudge ?? 1;
+      clearNemesis();
+      this.nemesisRecord = null;
+      getMetaProgressionManager().addGold(nemesisGoldReward(grudge));
+      this.grantRelicChoice(1);
+      this.toastManager?.showToast({
+        title: 'NEMESIS SLAIN',
+        description: `+${nemesisGoldReward(grudge)} gold  ·  relic recovered`,
+        icon: 'skull',
+        color: 0xff6644,
+        duration: 3200,
+      });
     }
 
     // === TIERED DEATH EFFECTS ===
@@ -4521,6 +4578,7 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Check for miniboss spawns
       this.checkMinibossSpawns();
+      this.checkNemesisSpawn();
 
       // Update boss warning sequence
       this.updateBossWarning(deltaSeconds);
@@ -5220,6 +5278,12 @@ export class GameScene extends Phaser.Scene {
       // Past the revival branch on purpose: a hit the player was revived from
       // never claims the kill.
       this.killedBySourceName = damageBucketName ?? 'Unknown';
+      // Only a contact/attacker-bound hit names a type; the four attacker-less
+      // buckets (Explosion / Enemy Fire / Ground Slam / Laser Beam) leave this null
+      // and therefore leave any standing nemesis untouched.
+      this.pendingNemesisTypeId = attackerEntity !== undefined
+        ? this.enemyTypeMap.get(attackerEntity) ?? null
+        : null;
       this.rematchTarget = this.resolveRematchTarget(attackerEntity);
       this.playDeathSequence();
     }
@@ -6370,6 +6434,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.pendingRematchLaunch = this.buildRematchSeed();
+    // Persist the grudge exactly once per death, and show only what was stored —
+    // recordNemesisKill returns the persisted record, so the panel can never
+    // announce a hunter the storage refused.
+    const nemesisAfterDeath = this.practiceModeActive
+      ? null
+      : recordNemesisKill(this.pendingNemesisTypeId);
+    const nemesisName = nemesisAfterDeath
+      ? getEnemyType(nemesisAfterDeath.typeId)?.name ?? null
+      : null;
     this.pauseMenuManager.gameOver({
       killCount: this.killCount,
       gameTime: this.gameTime,
@@ -6382,6 +6455,9 @@ export class GameScene extends Phaser.Scene {
       totalDamageTaken: this.totalDamageTaken,
       damageBySource: this.getDamageTakenBySource(),
       killedBy: this.killedBySourceName,
+      nemesis: nemesisAfterDeath && nemesisName
+        ? { name: nemesisName, grudge: nemesisAfterDeath.grudge }
+        : null,
       pace: {
         ghost: this.paceGhostCurve,
         runSamples: this.paceSamples,
@@ -6914,6 +6990,107 @@ export class GameScene extends Phaser.Scene {
         this.spawnMiniboss(minibossEntry.typeId);
       }
     }
+  }
+
+  /**
+   * The hunter this run fields, or null. Shared by the fresh and restore paths
+   * (which reset different blocks) so the mode gate can never diverge between
+   * them: practice/gauntlet/daily never field a hunter — a sandbox has no
+   * stakes, the gauntlet has its own pacing, and a seeded challenge board must
+   * not be skewed by private profile state.
+   */
+  private loadRunNemesis(): NemesisRecord | null {
+    if (this.practiceModeActive || this.gauntletModeActive || this.dailyModeActive) return null;
+    return getNemesis();
+  }
+
+  /**
+   * Fields the cross-run hunter once, at NEMESIS_SPAWN_TIME_SECONDS. Held back
+   * (rather than skipped) while the field is full, so a swarm at 2:30 delays the
+   * hunter instead of cancelling it.
+   */
+  private checkNemesisSpawn(): void {
+    if (this.nemesisSpawned || !this.nemesisRecord) return;
+    if (this.gameTime < NEMESIS_SPAWN_TIME_SECONDS) return;
+    if (this.enemyCount >= this.maxEnemies) return;
+    this.nemesisSpawned = true;
+    this.spawnNemesis(this.nemesisRecord);
+  }
+
+  /**
+   * Spawns the run's nemesis at a screen edge. Scaling is applied AFTER
+   * createEnemy so time/world-level/curse scaling and any natural elite affix roll
+   * are already baked in and the grudge multiplies the finished enemy.
+   *
+   * xpValue is floored at 30 on purpose: that is this codebase's miniboss test
+   * (`handleEnemyDeath`'s loot tiers, the run-timeline 'bossDown' marker, and the
+   * restore path's health-bar rule all read it), and a hunter is a miniboss-tier
+   * setpiece. Without the floor a nemesis built from a Shambler would silently
+   * drop out of all three.
+   */
+  private spawnNemesis(record: NemesisRecord): void {
+    const enemyType = getEnemyType(record.typeId);
+    if (!enemyType) return;
+    this.recordRunTimelineEvent('miniboss');
+
+    const side = Phaser.Math.Between(0, 3);
+    let x: number;
+    let y: number;
+    const spawnOffset = 50;
+    switch (side) {
+      case 0: x = -spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
+      case 1: x = this.scale.width + spawnOffset; y = Phaser.Math.Between(100, this.scale.height - 100); break;
+      case 2: x = Phaser.Math.Between(100, this.scale.width - 100); y = -spawnOffset; break;
+      default: x = Phaser.Math.Between(100, this.scale.width - 100); y = this.scale.height + spawnOffset; break;
+    }
+
+    const scaledStats = getScaledStats(
+      enemyType, this.spawnScalingTime(record.typeId),
+      this.worldLevelHealthMult, this.worldLevelDamageMult,
+    );
+    const entityId = this.createEnemy(x, y, enemyType, scaledStats);
+    addComponent(this.world, NemesisTag, entityId);
+    this.applyNemesisScaling(entityId, record.grudge);
+
+    const label = nemesisLabel(enemyType.name, record.grudge);
+    this.hudManager.createBossHealthBar(entityId, label, false);
+    this.hudManager.repositionBossHealthBars();
+    if (getSettingsManager().isScreenShakeEnabled()) this.shakeCamera(200, 0.005);
+    this.showMinibossWarning(label);
+  }
+
+  /**
+   * The grudge multipliers + the cosmetic size bump. Shared by the fresh spawn and
+   * the save-restore path, which re-derives the sprite scale (sprites are rebuilt
+   * from the base type on restore, so the scale is not carried by the save).
+   */
+  private applyNemesisScaling(entityId: number, grudge: number): void {
+    const scaling = nemesisScaling(grudge);
+    Health.max[entityId] *= scaling.health;
+    Health.current[entityId] = Health.max[entityId];
+    EnemyType.baseHealth[entityId] *= scaling.health;
+    EnemyType.baseDamage[entityId] *= scaling.damage;
+    Velocity.speed[entityId] *= scaling.speed;
+    EnemyType.xpValue[entityId] = Math.min(
+      65535, Math.max(30, Math.round(EnemyType.xpValue[entityId] * scaling.xp)),
+    );
+    this.applyNemesisVisualScale(entityId);
+  }
+
+  /**
+   * Size bump only. Contact damage uses a flat 12-unit enemy radius
+   * (`checkPlayerEnemyCollision`), so this is cosmetic — the hitbox is unchanged,
+   * exactly as it already is for a Giant.
+   */
+  private applyNemesisVisualScale(entityId: number): void {
+    EnemyType.size[entityId] *= NEMESIS_SPRITE_SCALE;
+    const sprite = getSprite(entityId);
+    if (sprite) sprite.setScale((sprite.scaleX || 1) * NEMESIS_SPRITE_SCALE);
+    this.deathRippleManager.unregisterEnemy(entityId);
+    this.deathRippleManager.registerEnemy(
+      entityId, getEnemyType(this.enemyTypeMap.get(entityId) ?? '')?.shape ?? 'circle',
+      10 * EnemyType.size[entityId],
+    );
   }
 
   /**
