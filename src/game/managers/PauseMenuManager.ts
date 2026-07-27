@@ -679,7 +679,7 @@ export class PauseMenuManager {
     const pauseGoldDisplay = this.scene.add.text(
       this.scene.scale.width / 2,
       menuCenterY - 88,
-      `Gold: ${metaManager.getGold()}`,
+      `Gold: ${metaManager.getGold().toLocaleString('en-US')}`,
       {
         fontSize: '24px',
         color: '#ffcc00',

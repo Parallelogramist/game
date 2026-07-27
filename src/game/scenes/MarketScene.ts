@@ -91,7 +91,7 @@ export class MarketScene extends Phaser.Scene {
     });
     subtitle.setDepth(1);
 
-    const walletText = makeBodyText(this, this.scale.width / 2, 166, `YOUR GOLD: ${this.gold}`, {
+    const walletText = makeBodyText(this, this.scale.width / 2, 166, `YOUR GOLD: ${this.gold.toLocaleString('en-US')}`, {
       fontSize: 22,
       color: ACCENT_COLORS_STR.gold,
     });
@@ -216,7 +216,7 @@ export class MarketScene extends Phaser.Scene {
       this,
       0,
       iconY + 58,
-      offer.locked ? offer.lockLabel : `${offer.price} G`,
+      offer.locked ? offer.lockLabel : `${offer.price.toLocaleString('en-US')} G`,
       {
         fontSize: Math.round(13 * textBoost),
         color: offer.locked ? TEXT_COLORS.muted : ACCENT_COLORS_STR.gold,

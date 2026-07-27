@@ -291,6 +291,7 @@ export class HUDManager {
   private lastTimerSeconds: number = -1;
   private lastKillCount: number = -1;
   private lastDeathGold: number = -1;
+  private lastBankedGold: number = -1;
   private lastPlayerLevel: number = -1;
 
   // Mastery icon effects (glow + particles for maxed weapons/skills in HUD)
@@ -906,19 +907,27 @@ export class HUDManager {
       this.killCountTextRef.setText(`${state.killCount} KILLS`);
     }
 
-    // Update gold preview — single compact number to reduce HUD clutter.
-    // Victory bonus is implicit to the player; they'll see it in the end screen.
+    // The wallet the Black Market spends, plus what this run pays out if it ends
+    // now — the parenthetical is a projection, the leading number is real money.
     if (this.goldPreviewTextRef) {
-      const deathGold = getMetaProgressionManager().calculateRunGold(
+      const metaManager = getMetaProgressionManager();
+      const projectedPayout = metaManager.calculateRunGold(
         state.killCount,
         state.gameTime,
         state.playerLevel,
         false,
         state.runGoldMultiplier
       );
-      if (deathGold !== this.lastDeathGold) {
-        this.lastDeathGold = deathGold;
-        this.goldPreviewTextRef.setText(`${deathGold} GOLD`);
+      const bankedGold = metaManager.getGold();
+      if (projectedPayout !== this.lastDeathGold || bankedGold !== this.lastBankedGold) {
+        this.lastDeathGold = projectedPayout;
+        this.lastBankedGold = bankedGold;
+        const bankedLabel = bankedGold.toLocaleString('en-US');
+        this.goldPreviewTextRef.setText(
+          projectedPayout > 0
+            ? `${bankedLabel} (+${projectedPayout.toLocaleString('en-US')}) GOLD`
+            : `${bankedLabel} GOLD`
+        );
       }
     }
 
