@@ -102,6 +102,17 @@ this is a hard type-level rule (section 6).
 | 5 | `ability_thermal_ward` | `barrier_hazard_field` (heat/cryo sector membrane) | Ring 3 vault | Passive: hazard sectors stop draining hull; unlocks whole biome rings | `slowResist`: hazard slow reduced further | Hazard membranes never close behind the player; leaving a hazard sector is always free |
 | 6 | `ability_signal_decryptor` | `barrier_ciphered_door` (endgame locks) | Ring 3-4 vault, guarded by the hardest placed encounter | Passive: ciphered doors open on touch; active ping surfaces nearby secret hints (section 5) | `luckBonus`: ping range scales | Ciphered doors stay open once opened; the decryptor vault itself sits behind barriers 1-4 only |
 
+*(As built, `FEAT-POWER-TRAVERSAL`: the shipped `synergyUpgradeId` values are the real
+`PERMANENT_UPGRADES` ids `dashLevel`, `sprintLevel`, `phaseLevel`, `slowResistLevel` and
+`luckLevel`. This table's `slowResist` and `luckBonus` were informal shorthand, and
+`ability_breach_charges` ships with no synergy id at all, matching its "none" row. The
+shipped catalog also carries a `description` and `guardTier: 'elite' | 'boss'` per
+ability, the latter recording the "guarded by the hardest placed encounter" note on row 6
+as data. The per-level synergy magnitudes above stay this doc's spec for
+`FEAT-POWER-VAULTS` to implement: they do not ship as data, because nothing consumes them
+yet and a number in a catalog that no code reads is a second source of truth waiting to
+drift.)*
+
 ### Ordering / solvability constraint the worldgen must honor
 
 Acquisition order is fixed by index. Doc 02's generator MUST place vault *i* so it
@@ -435,6 +446,18 @@ with a kind prefix like `relic_steady_eye`, `icon` keys resolved by `ICON_MAP`):
 | `src/data/ExpeditionQuests.ts` | `EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[]` (section 4 shape) | `quest_` / steps `q_*.sN` |
 | `src/data/Secrets.ts` | `SECRET_DEFS: readonly SecretDefinition[]` (id, kind, `hintLoreId?`, `hiddenUnlockConditionId?`, reward class) | `secret_` / `lore_` |
 
+*(As built, `FEAT-POWER-TRAVERSAL`, on the `src/data/TraversalAbilities.ts` row: the
+shipped exports are `TRAVERSAL_ABILITIES`, the derived `TRAVERSAL_ABILITY_GATE_ORDER`
+(which is doc 02's `WorldGenInputs.abilityGateOrder`), `getTraversalAbility` and
+`traversalAbilityIndex`, plus the `TraversalAbilityId` and `BarrierTypeId` unions and the
+`TraversalAbilityDefinition` interface. The row's "ordered by index" is array position and
+nothing else: there is no `vaultIndex` field, because a stored index that can disagree
+with the array would be a second source of truth, so `traversalAbilityIndex()` is the
+accessor. `BarrierTypeId` is declared in this file rather than imported from doc 02: doc
+02 shipped gating as `EdgeKind.AbilityDoor` plus `EdgeDef.requiredId` and exports no
+`barrier_*` taxonomy, so the union has to live somewhere for `barrierTypeId` to be a
+checked reference instead of a magic string. `FEAT-BARRIER-GATES` may relocate it.)*
+
 Referential integrity (`src/data/referentialIntegrity.test.ts`): push all five
 catalogs into `collectIconRefs()` (the pattern at its line 40 block), and add
 cross-reference asserts in the same file: `synergyUpgradeId` resolves in
@@ -510,6 +533,19 @@ with zero dependency on the other architects.
   bootstrap scan test green, defs expose `barrierTypeId` + index for doc 02.
 - **Deps**: none.
 - **Tests**: manager pure core (claim/has/order); integrity extension.
+
+*(As built, `8161ba7`: shipped as specified, with two shape deviations. Ownership
+persists as a **JSON array of ability ids** rather than a positional bitmask, because
+README section 3.6 expects a `WORLDGEN_VERSION` bump to remap profile flags by id and a
+mask would silently reassign a player's abilities the first time the catalog is
+reordered. And the manager is **module-level functions, not a class singleton**, despite
+the `...Manager.ts` filename above: `PracticeBestTimes` and `ShipRecords` are the idiom
+for id-keyed profile state of this size, and a class would add construction-order
+coupling to `initializeStorage()` for six booleans. Having no module state also means
+there is no `reset*` function for `GameScene` `create()` to forget. The read path is
+read-through with sanitize-on-read, so a tampered payload degrades to owning nothing, and
+writes ride `SecureStorage`'s practice-session block deliberately: a sandbox run must
+never bank a real ability.)*
 
 ### FEAT-POWER-VAULTS
 - **Value**: abilities are EARNED in the world: the Metroid moment.

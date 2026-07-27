@@ -2246,6 +2246,19 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   is inside, and only widen if that fails. Deps: `FEAT-BARRIER-COLLIDE`. Spec:
   `02-worldgen-barriers.md` section 3 invariant 12.
 
+- [ ] **CHORE-FIELDBOOST-ICON-INTEGRITY**: `FIELD_BOOSTS` is the one catalog doc 04
+  section 8 tells `referentialIntegrity.test.ts` to sweep that is still uncovered:
+  `collectIconRefs()` pushes `readonly { id, icon }[]` and a `FieldBoostDefinition` has
+  no `id` (it is keyed by `ConsumableKind`), so its four icon keys resolve today by luck
+  rather than by test. Cover it when a chunk next touches that file for its own reason.
+  Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 8.
+
+- [ ] **CHORE-WORLDGEN-ABILITY-ORDER-WIRE**: `FEAT-WORLD-SPACE-4` must pass
+  `TRAVERSAL_ABILITY_GATE_ORDER` (`src/data/TraversalAbilities.ts`) as
+  `WorldGenInputs.abilityGateOrder` at the real `generateWorld` call site: it is now the
+  canonical order, and a second hand-written list at that call site would be the exact
+  drift README section 3.6 forbids. Deps: `FEAT-WORLD-SPACE-4`.
+
 - [x] **FEAT-BARRIER-COLLIDE** (done — b445e15): the geometry `FEAT-WORLDGEN-CORE` emits
   can now **stop something**. `src/world/staticCollision.ts` is the first static collision
   math this game has ever had: `resolveCircleMove` (substepped, axis-separated, exact
@@ -2318,13 +2331,62 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   `referentialIntegrity.test.ts`. Done when the same seed yields the same contents and every
   icon ref is covered. Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 10.
 
-- [ ] **FEAT-POWER-TRAVERSAL**: the permanent traversal-ability axis (Blink Drive, Breach
-  Charges, Magno-Tether, Phase Cloak, Thermal Ward, Signal Decryptor), separate from the
-  `dash`/`phase` shop upgrades and never gold-purchasable, so worldgen solvability stays
-  deterministic. New `src/data/TraversalAbilities.ts`, `src/meta/TraversalAbilityManager.ts`;
-  add `'survivor-traversal-abilities'` to `StorageBootstrap.ts:24`. Done when `claim()` is
-  idempotent and ordered, ownership survives reload, and defs expose `barrierTypeId` plus a
-  stable index. Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 2.
+- [x] **FEAT-POWER-TRAVERSAL** (done — 8161ba7): the game's first permanent progression
+  axis that is **earned rather than bought**. `src/data/TraversalAbilities.ts` is the
+  canonical catalog of the six expedition traversal abilities in fixed acquisition order
+  (Blink Drive, Breach Charges, Magno-Tether, Phase Cloak, Thermal Ward, Signal
+  Decryptor), each naming the `barrierTypeId` flavour it opens, the `PERMANENT_UPGRADES`
+  id whose purchased levels improve it, and the encounter tier guarding its vault. The
+  derived `TRAVERSAL_ABILITY_GATE_ORDER` is now the canonical
+  `WorldGenInputs.abilityGateOrder` that `generateWorld` has required since `e5cbd82`:
+  until this landed, the only things supplying it were two test fixtures with six
+  hand-written ids, so `FEAT-WORLD-SPACE-4` had nothing legitimate to pass and
+  `FEAT-POWER-VAULTS`, `FEAT-BARRIER-GATES` and `FEAT-MAPUI-DOORS-05` had no ability ids
+  to key off. `src/meta/TraversalAbilityManager.ts` holds per-profile ownership through
+  `SecureStorage` under the new `survivor-traversal-abilities` key: `claimTraversalAbility`
+  is idempotent and returns false for an unknown or already-owned id (so a future claim
+  site can decide whether to fire its toast), reads come back in catalog order however the
+  claims arrived, and the key rides the existing profile export/import for free because
+  `TRANSFERABLE_STORAGE_KEYS` is `ALL_STORAGE_KEYS` minus a three-entry deny list. The
+  read path is read-through with sanitize-on-read and no module-level cache, so there is
+  no `reset*` function for a `GameScene` restart to forget and a corrupt or tampered
+  payload degrades to owning nothing instead of throwing. Abilities are never granted
+  stats by design: the permanent power a player takes out of the map is reach, not DPS,
+  which is why the definition has no numeric stat field at all. 12 tests, 1634 to 1646
+  total, 130 to 131 files, suite green in 22.4s. **Seven deliberate deviations**, the
+  first five from `04-content-quests-powerups-secrets.md` (now recorded there as "as
+  built" notes): (1) ownership is stored as a **JSON array of ability ids**, not a
+  positional bitmask, because README section 3.6 expects a `WORLDGEN_VERSION` bump to
+  remap profile flags by id and a mask would silently hand a player different abilities
+  the first time the catalog is reordered. (2) **Module-level functions, not a class
+  singleton**, despite the `...Manager.ts` filename doc 04 and this entry both specify:
+  `PracticeBestTimes` and `ShipRecords` are the idiom for id-keyed profile state of this
+  size, and a class would add construction-order coupling to `initializeStorage()` for six
+  booleans. (3) doc 04 section 2's informal synergy ids `slowResist` and `luckBonus` ship
+  as the real `PERMANENT_UPGRADES` ids **`slowResistLevel`** and **`luckLevel`** (the
+  other three, `dashLevel`, `sprintLevel` and `phaseLevel`, already matched). (4) **No
+  `vaultIndex` field and no `canOpenBarrier()` helper**: a stored index that can disagree
+  with array position is a second source of truth, `traversalAbilityIndex()` is the
+  accessor, and gate checks in code go through `EdgeDef.requiredId`, which already carries
+  the ability id. (5) **`BarrierTypeId` is declared here**, in `src/data/TraversalAbilities.ts`,
+  not in doc 02's `src/world/worldTypes.ts`: doc 02 shipped gating as `EdgeKind.AbilityDoor`
+  plus `requiredId` and never exported a `barrier_*` taxonomy, so the union has to exist
+  somewhere for `barrierTypeId` to be a checked reference instead of a magic string.
+  `FEAT-BARRIER-GATES` may relocate it. (6) **The two `src/world/` test fixtures were left
+  alone** (`generateWorld.test.ts:23`, `staticCollision.test.ts:334` still pass six
+  unprefixed ids): the generator treats `abilityGateOrder` as opaque strings, so renaming
+  them proves nothing and would couple an algorithm test to a content catalog. (7) **No
+  `WORLDGEN_VERSION` bump**: no profile has ever generated a world, so this is a first
+  canonical order rather than a change to a shipped one. The
+  `referentialIntegrity.test.ts` sweep now covers the catalog's icon keys and asserts that
+  every `synergyUpgradeId` resolves in `PERMANENT_UPGRADES`, that ability ids are unique
+  (a duplicate shifts every vault depth) and that no two abilities claim one barrier type.
+  **No `POLISH-*` item is filed**: nothing player-visible ships here, so there is nothing
+  for a human to judge in a browser. Phaser-free, no game code imports either module yet
+  (that is the DONE-CRITERIA), no `SAVE_VERSION` bump, no `migrateState()` body, arena
+  mode untouched. Files: `src/data/TraversalAbilities.ts`,
+  `src/meta/TraversalAbilityManager.ts`, `src/meta/TraversalAbilityManager.test.ts`,
+  `src/storage/StorageBootstrap.ts`, `src/data/referentialIntegrity.test.ts`.
 
 - [x] **FEAT-POWER-FIELDBOOSTS** (done — 1a8049d) — four new floor pickups that hand the player a
   temporary stat surge instead of an instant effect, each with its own neon glyph, its own color and
