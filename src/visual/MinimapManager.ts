@@ -2,6 +2,13 @@ import Phaser from 'phaser';
 import { computeHudScale } from '../utils/HudScale';
 import { getSettingsManager } from '../settings';
 import { OverlayDepths } from './DepthLayers';
+import { WORLD_GEOMETRY_COLORS } from './NeonColors';
+import { makeBodyText } from './DisplayText';
+import { drawGateGlyph, strokeDashedLine } from './SectorMapRenderer';
+import { SECTOR_HEIGHT, SECTOR_WIDTH } from '../world/worldSpace';
+import { TileKind } from '../world/worldTypes';
+import type { EdgeKind } from '../world/worldTypes';
+import type { WallSegment } from '../world/sectorWallSegments';
 import {
   projectToRadar,
   blipStyle,
@@ -19,11 +26,59 @@ const MINIMAP_DEPTH = OverlayDepths.MINIMAP;
 /** Ascending draw priority — bosses paint over the enemy swarm. */
 const DRAW_ORDER: MinimapBlipKind[] = ['enemy', 'pickup', 'elite', 'miniboss', 'boss'];
 
+/** Alpha the biome wash gets under the wall lines. Line work reads first; the wash only
+ *  says "this room is charted". */
+const UNDERLAY_WASH_ALPHA = 0.12;
+const UNDERLAY_WALL_ALPHA = 0.6;
+/** Seconds the "+N NEW" pill stays up after a reveal, and the rim ring's expand time. */
+const PULSE_PILL_SECONDS = 2.5;
+const PULSE_RING_SECONDS = 0.6;
+const PULSE_COLOR = 0x9dffb0;
+
+/** The map screen's unvisited-outline blue, so a stub toward a charted-but-unentered
+ *  neighbour reads the same on both surfaces. */
+const UNVISITED_STUB = 0x3b4d6b;
+
+/** Blocking tile kinds the underlay can draw, in a fixed order so lineStyle is set once
+ *  per kind rather than once per segment. */
+const UNDERLAY_WALL_KINDS: ReadonlyArray<TileKind> = [
+  TileKind.Solid, TileKind.Breakable, TileKind.GateClosed,
+];
+
+function underlayStrokeFor(kind: TileKind): number {
+  if (kind === TileKind.Breakable) return WORLD_GEOMETRY_COLORS.breakable.stroke;
+  if (kind === TileKind.GateClosed) return WORLD_GEOMETRY_COLORS.gate.stroke;
+  return WORLD_GEOMETRY_COLORS.solid.stroke;
+}
+
 /** A single radar contact fed per-frame from GameScene. */
 export interface MinimapEntry {
   worldX: number;
   worldY: number;
   kind: MinimapBlipKind;
+}
+
+/** One border of the current sector, ready to draw: the map-screen glyph plus whether
+ *  there is anything charted on the far side to stub toward. */
+export interface MinimapUnderlayDoor {
+  localX: number;
+  localY: number;
+  outwardX: number;
+  outwardY: number;
+  kind: EdgeKind;
+  horizontalWall: boolean;
+  discoveredBeyond: boolean;
+}
+
+/** The current sector as the radar draws it. Assembled by GameScene, which owns the
+ *  discovery state; this module owns only the drawing. */
+export interface MinimapSectorUnderlay {
+  /** World coords of the sector's top-left corner. */
+  originX: number;
+  originY: number;
+  segments: ReadonlyArray<WallSegment>;
+  doors: ReadonlyArray<MinimapUnderlayDoor>;
+  biomeTint: number;
 }
 
 /**
@@ -41,12 +96,20 @@ export class MinimapManager {
   private background: Phaser.GameObjects.Graphics;
   private sweep: Phaser.GameObjects.Graphics;
   private blips: Phaser.GameObjects.Graphics;
+  private underlay: Phaser.GameObjects.Graphics;
+  private underlayMaskShape: Phaser.GameObjects.Graphics;
+  private pulseText: Phaser.GameObjects.Text;
 
   private centerX = 0;
   private centerY = 0;
   private radarRadius = BASE_RADAR_RADIUS;
   private enabled = true;
   private sweepAngle = 0;
+  private activeUnderlay: MinimapSectorUnderlay | null = null;
+  private underlayDrawn = false;
+  private underlayRebuilds = 0;
+  private pillRemaining = 0;
+  private ringRemaining = 0;
 
   constructor(scene: Phaser.Scene) {
     const hudScale = computeHudScale(scene.scale.width, scene.scale.height, getSettingsManager().getUiScale());
@@ -59,10 +122,28 @@ export class MinimapManager {
 
     this.background = scene.add.graphics();
     this.background.setScrollFactor(0).setDepth(MINIMAP_DEPTH);
+    this.underlay = scene.add.graphics();
+    this.underlay.setScrollFactor(0).setDepth(MINIMAP_DEPTH + 1);
     this.sweep = scene.add.graphics();
-    this.sweep.setScrollFactor(0).setDepth(MINIMAP_DEPTH + 1);
+    this.sweep.setScrollFactor(0).setDepth(MINIMAP_DEPTH + 2);
     this.blips = scene.add.graphics();
-    this.blips.setScrollFactor(0).setDepth(MINIMAP_DEPTH + 2);
+    this.blips.setScrollFactor(0).setDepth(MINIMAP_DEPTH + 3);
+
+    // GameScene's camera scrolls, and a GeometryMask is rendered through that camera, so the
+    // mask shape needs the same scroll factor as the thing it masks or the disc's clip would
+    // drift away from the disc.
+    this.underlayMaskShape = scene.add.graphics();
+    this.underlayMaskShape.setScrollFactor(0);
+    this.underlayMaskShape.fillStyle(0xffffff, 1);
+    this.underlayMaskShape.fillCircle(this.centerX, this.centerY, this.radarRadius);
+    this.underlayMaskShape.setVisible(false);
+    this.underlay.setMask(this.underlayMaskShape.createGeometryMask());
+
+    this.pulseText = makeBodyText(
+      scene, this.centerX, this.centerY - this.radarRadius - 14 * hudScale, '',
+      { fontSize: Math.round(12 * hudScale), color: '#9dffb0' },
+    );
+    this.pulseText.setOrigin(0.5).setScrollFactor(0).setDepth(MINIMAP_DEPTH + 4).setVisible(false);
 
     this.drawBackground();
     this.drawSweepWedge();
@@ -126,16 +207,92 @@ export class MinimapManager {
     graphics.fillPath();
   }
 
+  /**
+   * Draws the sector once in radar-scaled sector-local coordinates. Per frame the Graphics is
+   * only translated, so a rebuild has to happen no more often than the sector, the discovery
+   * revision or the tile grid changes: the caller owns that gate, and the counter in the log
+   * line is how a browser session proves it is holding.
+   */
+  private rebuildUnderlay(): void {
+    const underlay = this.activeUnderlay;
+    if (!underlay) return;
+    const scale = this.radarRadius / MINIMAP_WORLD_RANGE;
+    const graphics = this.underlay;
+    graphics.clear();
+
+    graphics.fillStyle(underlay.biomeTint, UNDERLAY_WASH_ALPHA);
+    graphics.fillRect(0, 0, SECTOR_WIDTH * scale, SECTOR_HEIGHT * scale);
+
+    for (const kind of UNDERLAY_WALL_KINDS) {
+      graphics.lineStyle(1.5, underlayStrokeFor(kind), UNDERLAY_WALL_ALPHA);
+      for (const segment of underlay.segments) {
+        if (segment.kind !== kind) continue;
+        graphics.lineBetween(
+          segment.x1 * scale, segment.y1 * scale, segment.x2 * scale, segment.y2 * scale,
+        );
+      }
+    }
+
+    const glyphSize = Math.max(4, this.radarRadius * 0.12);
+    const stubStart = this.radarRadius * 0.06;
+    const stubEnd = this.radarRadius * 0.2;
+    for (const door of underlay.doors) {
+      const doorX = door.localX * scale;
+      const doorY = door.localY * scale;
+      if (door.discoveredBeyond) {
+        // A charted neighbour gets a dashed stub past the door; an uncharted one gets
+        // nothing, and the wall simply ending is itself the tell that something is unmapped.
+        graphics.lineStyle(1, UNVISITED_STUB, 0.7);
+        strokeDashedLine(
+          graphics,
+          doorX + door.outwardX * stubStart, doorY + door.outwardY * stubStart,
+          doorX + door.outwardX * stubEnd, doorY + door.outwardY * stubEnd,
+        );
+      }
+      drawGateGlyph(graphics, door.kind, doorX, doorY, door.horizontalWall, glyphSize);
+    }
+
+    this.underlayDrawn = true;
+    this.underlayRebuilds++;
+    console.log(`[minimap] underlay rebuild #${this.underlayRebuilds} origin ${underlay.originX},${underlay.originY}`);
+  }
+
   /** Show or hide the whole radar (driven by the settings toggle). */
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     this.background.setVisible(enabled);
     this.sweep.setVisible(enabled);
     this.blips.setVisible(enabled);
+    this.underlay.setVisible(enabled);
+    if (!enabled) {
+      this.pillRemaining = 0;
+      this.ringRemaining = 0;
+      this.pulseText.setVisible(false);
+    }
   }
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /**
+   * Hand the radar the sector to draw under the blips, or null to clear it (arena mode, and
+   * any frame with no live player). Rebuilding is deferred to the next update() so a caller
+   * can set this as often as it likes without paying for a redraw it will overwrite.
+   */
+  setSectorUnderlay(underlay: MinimapSectorUnderlay | null): void {
+    this.activeUnderlay = underlay;
+    this.underlayDrawn = false;
+  }
+
+  /** A reveal just put new sectors on the map: ping the rim and raise a "+N NEW" pill. */
+  notifyDiscoveryPulse(newSectorCount: number): void {
+    if (newSectorCount <= 0 || !this.enabled) return;
+    this.pulseText.setText(`+${newSectorCount} NEW`);
+    this.pulseText.setAlpha(1);
+    this.pulseText.setVisible(true);
+    this.pillRemaining = PULSE_PILL_SECONDS;
+    this.ringRemaining = getSettingsManager().isReducedMotionEnabled() ? 0 : PULSE_RING_SECONDS;
   }
 
   /**
@@ -158,6 +315,18 @@ export class MinimapManager {
       this.sweep.setVisible(true);
       this.sweepAngle += deltaSeconds * 1.4;
       this.sweep.setRotation(this.sweepAngle);
+    }
+
+    if (!getSettingsManager().isMinimapUnderlayEnabled() || !this.activeUnderlay) {
+      this.underlay.setVisible(false);
+    } else {
+      if (!this.underlayDrawn) this.rebuildUnderlay();
+      const underlayScale = this.radarRadius / MINIMAP_WORLD_RANGE;
+      this.underlay.setVisible(true);
+      this.underlay.setPosition(
+        this.centerX + (this.activeUnderlay.originX - playerX) * underlayScale,
+        this.centerY + (this.activeUnderlay.originY - playerY) * underlayScale,
+      );
     }
 
     const graphics = this.blips;
@@ -187,11 +356,33 @@ export class MinimapManager {
         graphics.fillCircle(projected.x, projected.y, style.radius);
       }
     }
+
+    if (this.ringRemaining > 0) {
+      this.ringRemaining = Math.max(0, this.ringRemaining - deltaSeconds);
+      const progress = 1 - this.ringRemaining / PULSE_RING_SECONDS;
+      graphics.lineStyle(2, PULSE_COLOR, 0.5 * (1 - progress));
+      graphics.strokeCircle(0, 0, radius * (0.55 + 0.45 * progress));
+    }
+
+    if (this.pillRemaining > 0) {
+      this.pillRemaining = Math.max(0, this.pillRemaining - deltaSeconds);
+      if (this.pillRemaining <= 0) {
+        this.pulseText.setVisible(false);
+      } else if (!reducedMotion) {
+        // Reduced motion keeps the pill at full alpha for its whole life and simply hides it:
+        // the information stays, the animation goes.
+        this.pulseText.setAlpha(Math.min(1, this.pillRemaining / 0.5));
+      }
+    }
   }
 
   destroy(): void {
     this.background.destroy();
     this.sweep.destroy();
     this.blips.destroy();
+    this.underlay.clearMask(true);
+    this.underlay.destroy();
+    this.underlayMaskShape.destroy();
+    this.pulseText.destroy();
   }
 }

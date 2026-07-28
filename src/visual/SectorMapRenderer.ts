@@ -21,6 +21,78 @@ const DASH_GAP = 4;
 
 const BIOME_TINTS = new Map<string, number>(STAGES.map(stage => [stage.id, stage.gridPulseColor]));
 
+/** Shared with the radar underlay so the two map surfaces cannot drift apart. */
+export function biomeTintFor(biomeId: string): number {
+  return BIOME_TINTS.get(biomeId) ?? FALLBACK_TINT;
+}
+
+export function drawGateGlyph(
+  graphics: Phaser.GameObjects.Graphics,
+  kind: EdgeKind, x: number, y: number, horizontalWall: boolean, size: number,
+): void {
+  const glyph = gateGlyphFor(kind);
+  if (glyph.shape === 'none') return;
+  graphics.lineStyle(2, glyph.color, 1);
+  graphics.fillStyle(glyph.color, 1);
+
+  switch (glyph.shape) {
+    case 'gap':
+      if (horizontalWall) graphics.lineBetween(x - size, y, x + size, y);
+      else graphics.lineBetween(x, y - size, x, y + size);
+      break;
+    case 'diamond':
+      graphics.strokePoints([
+        { x, y: y - size }, { x: x + size, y }, { x, y: y + size }, { x: x - size, y },
+      ], true);
+      break;
+    case 'key':
+      graphics.strokeCircle(x, y, size * 0.6);
+      if (horizontalWall) graphics.lineBetween(x, y + size * 0.6, x, y + size * 1.4);
+      else graphics.lineBetween(x + size * 0.6, y, x + size * 1.4, y);
+      break;
+    case 'crack':
+      if (horizontalWall) {
+        graphics.strokePoints([
+          { x: x - size, y }, { x: x - size * 0.3, y: y - size * 0.5 },
+          { x: x + size * 0.3, y: y + size * 0.5 }, { x: x + size, y },
+        ], false);
+      } else {
+        graphics.strokePoints([
+          { x, y: y - size }, { x: x - size * 0.5, y: y - size * 0.3 },
+          { x: x + size * 0.5, y: y + size * 0.3 }, { x, y: y + size },
+        ], false);
+      }
+      break;
+    case 'chevron':
+      if (horizontalWall) {
+        graphics.lineBetween(x - size, y - size * 0.5, x, y + size * 0.5);
+        graphics.lineBetween(x + size, y - size * 0.5, x, y + size * 0.5);
+      } else {
+        graphics.lineBetween(x - size * 0.5, y - size, x + size * 0.5, y);
+        graphics.lineBetween(x - size * 0.5, y + size, x + size * 0.5, y);
+      }
+      break;
+  }
+}
+
+export function strokeDashedLine(
+  graphics: Phaser.GameObjects.Graphics, x1: number, y1: number, x2: number, y2: number,
+): void {
+  const spanX = x2 - x1;
+  const spanY = y2 - y1;
+  const length = Math.hypot(spanX, spanY);
+  if (length <= 0) return;
+  const stepX = spanX / length;
+  const stepY = spanY / length;
+  for (let travelled = 0; travelled < length; travelled += DASH_LENGTH + DASH_GAP) {
+    const end = Math.min(travelled + DASH_LENGTH, length);
+    graphics.lineBetween(
+      x1 + stepX * travelled, y1 + stepY * travelled,
+      x1 + stepX * end, y1 + stepY * end,
+    );
+  }
+}
+
 export interface SectorMapDrawInput {
   map: WorldMap;
   view: MapViewTransform;
@@ -97,57 +169,10 @@ export class SectorMapRenderer {
       const anchor = edgeAnchor(sx, sy, sx + dsx, sy + dsy, input.view);
       if (!anchor) continue;
       this.drawnEdges.add(edgeId);
-      this.drawGlyph(edge.kind, anchor.x, anchor.y, anchor.horizontalWall, input.view.scale);
-    }
-  }
-
-  private drawGlyph(
-    kind: EdgeKind, x: number, y: number, horizontalWall: boolean, scale: number,
-  ): void {
-    const glyph = gateGlyphFor(kind);
-    if (glyph.shape === 'none') return;
-    const size = Math.max(3, 5 * scale);
-    const graphics = this.graphics;
-    graphics.lineStyle(2, glyph.color, 1);
-    graphics.fillStyle(glyph.color, 1);
-
-    switch (glyph.shape) {
-      case 'gap':
-        if (horizontalWall) graphics.lineBetween(x - size, y, x + size, y);
-        else graphics.lineBetween(x, y - size, x, y + size);
-        break;
-      case 'diamond':
-        graphics.strokePoints([
-          { x, y: y - size }, { x: x + size, y }, { x, y: y + size }, { x: x - size, y },
-        ], true);
-        break;
-      case 'key':
-        graphics.strokeCircle(x, y, size * 0.6);
-        if (horizontalWall) graphics.lineBetween(x, y + size * 0.6, x, y + size * 1.4);
-        else graphics.lineBetween(x + size * 0.6, y, x + size * 1.4, y);
-        break;
-      case 'crack':
-        if (horizontalWall) {
-          graphics.strokePoints([
-            { x: x - size, y }, { x: x - size * 0.3, y: y - size * 0.5 },
-            { x: x + size * 0.3, y: y + size * 0.5 }, { x: x + size, y },
-          ], false);
-        } else {
-          graphics.strokePoints([
-            { x, y: y - size }, { x: x - size * 0.5, y: y - size * 0.3 },
-            { x: x + size * 0.5, y: y + size * 0.3 }, { x, y: y + size },
-          ], false);
-        }
-        break;
-      case 'chevron':
-        if (horizontalWall) {
-          graphics.lineBetween(x - size, y - size * 0.5, x, y + size * 0.5);
-          graphics.lineBetween(x + size, y - size * 0.5, x, y + size * 0.5);
-        } else {
-          graphics.lineBetween(x - size * 0.5, y - size, x + size * 0.5, y);
-          graphics.lineBetween(x - size * 0.5, y + size, x + size * 0.5, y);
-        }
-        break;
+      drawGateGlyph(
+        this.graphics, edge.kind, anchor.x, anchor.y, anchor.horizontalWall,
+        Math.max(3, 5 * input.view.scale),
+      );
     }
   }
 
@@ -180,18 +205,6 @@ export class SectorMapRenderer {
   }
 
   private dashedLine(x1: number, y1: number, x2: number, y2: number): void {
-    const spanX = x2 - x1;
-    const spanY = y2 - y1;
-    const length = Math.hypot(spanX, spanY);
-    if (length <= 0) return;
-    const stepX = spanX / length;
-    const stepY = spanY / length;
-    for (let travelled = 0; travelled < length; travelled += DASH_LENGTH + DASH_GAP) {
-      const end = Math.min(travelled + DASH_LENGTH, length);
-      this.graphics.lineBetween(
-        x1 + stepX * travelled, y1 + stepY * travelled,
-        x1 + stepX * end, y1 + stepY * end,
-      );
-    }
+    strokeDashedLine(this.graphics, x1, y1, x2, y2);
   }
 }

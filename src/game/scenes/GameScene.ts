@@ -57,7 +57,10 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
+import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
+import { sectorWallSegments } from '../../world/sectorWallSegments';
+import { directionDelta } from '../../world/worldTypes';
+import { biomeTintFor } from '../../visual/SectorMapRenderer';
 import {
   EdgeSpawnConfig,
   isBeyondLeash,
@@ -70,6 +73,8 @@ import { setBarrierEventSink } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { SectorFlags } from '../../expedition/DiscoveryTypes';
+import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -401,6 +406,9 @@ export class GameScene extends Phaser.Scene {
   // child: exactly one of them owns isPaused at a time.
   private mapOverlayActive: boolean = false;
 
+  /** Sector + discovery-revision the radar underlay was last built for; null forces a rebuild. */
+  private minimapUnderlayKey: string | null = null;
+
   // Damage cooldown (invincibility frames)
   private damageCooldown: number = 0;
 
@@ -727,6 +735,7 @@ export class GameScene extends Phaser.Scene {
       const map = this.worldMode.worldMap();
       if (map) recordBrokenBarrier(map.seed, map.worldGenVersion, barrierId);
       this.worldMode.notifyGeometryChanged();
+      this.minimapUnderlayKey = null;   // a collapsed wall changes the tiles the radar drew
       this.effectsManager.playDeathBurst(x, y, 0xffaa44);
       this.cameras.main.shake(120, 0.008);
       this.soundManager.playComboThreshold();
@@ -744,6 +753,12 @@ export class GameScene extends Phaser.Scene {
     const discovery = getDiscoveryManager();
     discovery.markSectorEntered(payload.sectorKey);
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
+  };
+
+  /** New sectors on the map are the one discovery event with a live HUD consequence. */
+  private readonly discoveryPulseHandler = (changes: DiscoveryChanges): void => {
+    if (changes.sectorsDiscovered.length === 0) return;
+    this.minimapManager?.notifyDiscoveryPulse(changes.sectorsDiscovered.length);
   };
 
   init(data?: {
@@ -818,6 +833,7 @@ export class GameScene extends Phaser.Scene {
     const map = this.worldMode.worldMap();
     if (!map) return;
     getDiscoveryManager().bindWorld(map);
+    getDiscoveryManager().onDiscovery(this.discoveryPulseHandler);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
   }
 
@@ -5856,12 +5872,15 @@ export class GameScene extends Phaser.Scene {
       this.minimapManager.setEnabled(minimapEnabled);
     }
     if (!minimapEnabled || this.playerId === -1) {
+      this.minimapManager.setSectorUnderlay(null);
+      this.minimapUnderlayKey = null;
       this.minimapManager.update(0, 0, this.minimapEntries, 0, deltaSeconds);
       return;
     }
 
     const playerX = Transform.x[this.playerId];
     const playerY = Transform.y[this.playerId];
+    this.syncMinimapUnderlay(playerX, playerY);
 
     const enemyIds = getFrameCacheEnemyIds();
     // Stride-sample regular enemies so dense swarms stay near the blip cap while
@@ -5904,6 +5923,51 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.minimapManager.update(playerX, playerY, this.minimapEntries, count, deltaSeconds);
+  }
+
+  /**
+   * Rebuild the radar's sector underlay only when what it draws could have changed: the
+   * sector under the ship, the discovery revision (which door stubs are earned), or a broken
+   * barrier (which nulls the key from the event sink). Arena returns on the first line, so an
+   * arena run never assembles one and the radar there is byte-identical to before.
+   */
+  private syncMinimapUnderlay(playerX: number, playerY: number): void {
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    const col = Math.floor(playerX / SECTOR_WIDTH);
+    const row = Math.floor(playerY / SECTOR_HEIGHT);
+    const discovery = getDiscoveryManager();
+    const key = `${col},${row}:${discovery.getRevision()}`;
+    if (key === this.minimapUnderlayKey) return;
+    this.minimapUnderlayKey = key;
+
+    const sector = map.sectors.get(`${col},${row}`);
+    if (!sector) {
+      this.minimapManager.setSectorUnderlay(null);
+      return;
+    }
+
+    const outline = sectorWallSegments(sector);
+    const charted = SectorFlags.DISCOVERED | SectorFlags.VISITED;
+    this.minimapManager.setSectorUnderlay({
+      originX: col * SECTOR_WIDTH,
+      originY: row * SECTOR_HEIGHT,
+      segments: outline.segments,
+      doors: outline.doors.map(door => {
+        const { dsx, dsy } = directionDelta(door.direction);
+        return {
+          localX: door.localX,
+          localY: door.localY,
+          outwardX: door.outwardX,
+          outwardY: door.outwardY,
+          kind: door.kind,
+          horizontalWall: door.direction === 'north' || door.direction === 'south',
+          discoveredBeyond:
+            (discovery.getSectorFlags(`${col + dsx},${row + dsy}`) & charted) !== 0,
+        };
+      }),
+      biomeTint: biomeTintFor(sector.biomeId),
+    });
   }
 
   /**
@@ -11364,6 +11428,7 @@ export class GameScene extends Phaser.Scene {
       setNavigationContext(null);
       setBarrierEventSink(null);
       this.events.off('expedition:sector-entered', this.sectorEnteredHandler);
+      getDiscoveryManager().onDiscovery(null);
     }
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();
