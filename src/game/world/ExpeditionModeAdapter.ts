@@ -2,9 +2,8 @@ import Phaser from 'phaser';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
 import {
-  SECTOR_HEIGHT,
-  SECTOR_WIDTH,
   SectorCoord,
+  WorldPoint,
   WorldRect,
   parseSectorKey,
   rectContains,
@@ -17,6 +16,17 @@ import {
   sectorsEqual,
 } from '../../world/worldSpace';
 import { LEASH_RADIUS } from '../../world/spawnRing';
+import { STAGES } from '../../data/Stages';
+import { TRAVERSAL_ABILITY_GATE_ORDER } from '../../data/TraversalAbilities';
+import { generateWorld } from '../../world/generateWorld';
+import { worldBoundsRect } from '../../world/worldTypes';
+import type { WorldMap } from '../../world/worldTypes';
+import {
+  MoverKind,
+  findNearestFreeCircleSpot,
+  isSolidAtWorld,
+} from '../../world/staticCollision';
+import { WorldGeometryRenderer } from '../../visual/WorldGeometryRenderer';
 import { setEnemyAIFieldRect } from '../../ecs/systems/enemy-ai/state';
 import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter';
 
@@ -26,13 +36,18 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  * this adapter only has to own the camera, the two screen-sized view layers that must
  * track it, and the sector the player is standing in.
  *
- * The flight rect is a fixed 5x5 sectors until a generated layout supplies worldBounds
- * and a start sector (doc 01 section 10, W4: "temporary bounded flight rect"). Wiring
- * generateWorld() in here would import a whole world nothing in this chunk can render.
+ * The flight rect is the bounding box of the generated layout and the start point is the
+ * layout's own start sector (FEAT-BARRIER-PLAYER).
  */
-const FLIGHT_RECT_SECTORS_X = 5;
-const FLIGHT_RECT_SECTORS_Y = 5;
-const START_SECTOR: SectorCoord = { col: 2, row: 2 };
+
+/**
+ * One fixed world for the dev route: the layout has to be the same on every run and
+ * every refresh or a saved position means nothing, and there is no per-profile world
+ * store to seed from until FEAT-BARRIER-GATES adds `survivor-world-profile`.
+ */
+const EXPEDITION_WORLD_SEED = 20260727;
+
+const PLAYER_COLLISION_RADIUS = 16;
 
 const CAMERA_LERP = 0.12;
 const CAMERA_DEADZONE_WIDTH = 160;
@@ -42,12 +57,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
   readonly kind = 'expedition' as const;
 
   private readonly scene: Phaser.Scene;
-  private readonly world: WorldRect = {
-    minX: 0,
-    minY: 0,
-    maxX: SECTOR_WIDTH * FLIGHT_RECT_SECTORS_X,
-    maxY: SECTOR_HEIGHT * FLIGHT_RECT_SECTORS_Y,
-  };
+  private readonly map: WorldMap;
+  private readonly world: WorldRect;
+  private readonly spotScratch: WorldPoint = { x: 0, y: 0 };
+  private geometry: WorldGeometryRenderer | null = null;
   private readonly view: WorldRect = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   private playerVisual: Phaser.GameObjects.Container | null = null;
   private grid: GridBackground | null = null;
@@ -60,6 +73,21 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+    this.map = generateWorld(EXPEDITION_WORLD_SEED, {
+      abilityGateOrder: [...TRAVERSAL_ABILITY_GATE_ORDER],
+      availableBiomeIds: STAGES.map(stage => stage.id),
+    });
+    if (this.map.abilityOrder.length < TRAVERSAL_ABILITY_GATE_ORDER.length) {
+      // The generator places a gate only while a candidate subtree still has room for its
+      // key, so a short world silently ungates the rest. Surfaced here at the call site
+      // rather than discovered as a missing ability in play (CHORE-WORLDGEN-BUDGET-GUARD).
+      console.warn(
+        `[expedition] worldgen placed ${this.map.abilityOrder.length} of `
+        + `${TRAVERSAL_ABILITY_GATE_ORDER.length} ability gates at seed `
+        + `${EXPEDITION_WORLD_SEED}; the rest are ungated this world`,
+      );
+    }
+    this.world = worldBoundsRect(this.map);
   }
 
   setupCamera(
@@ -79,11 +107,16 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     camera.centerOn(playerVisual.x, playerVisual.y);
 
     this.syncView();
+    this.geometry = new WorldGeometryRenderer(this.scene, this.map);
+    this.geometry.update(this.view);
     this.enterSector(sectorOfWorldPoint(playerVisual.x, playerVisual.y));
   }
 
   playerStartPoint(): { x: number; y: number } {
-    return sectorCenterWorld(START_SECTOR);
+    const start = parseSectorKey(this.map.startKey) ?? { col: 0, row: 0 };
+    const centre = sectorCenterWorld(start);
+    this.freeSpotNear(centre.x, centre.y, this.spotScratch);
+    return { x: this.spotScratch.x, y: this.spotScratch.y };
   }
 
   viewRect(): WorldRect {
@@ -94,6 +127,9 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     return this.lockedRoom ?? this.world;
   }
 
+  // Still the world plane, not the open tiles: enemies do not resolve against geometry
+  // until FEAT-WORLDGEN-NAV, so rejecting solid ring points would thin the spawn rate
+  // without changing a single enemy's path. Tile-level legality is FEAT-WORLDGEN-SPAWN.
   isSpawnableWorldPoint(x: number, y: number): boolean {
     return rectContains(this.world, x, y);
   }
@@ -127,13 +163,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
   }
 
   restoreViewState(state: SerializedExpeditionState): void {
+    // A tampered or foreign key naming a sector this world does not have would lock the
+    // camera to a room the player can never stand in and strand the run.
     const sector = state.sectorLockKey ? parseSectorKey(state.sectorLockKey) : null;
-    if (sector) {
-      const centre = sectorCenterWorld(sector);
-      // A tampered or foreign key naming a sector outside the flight rect would clamp the
-      // camera to a room the player can never be in and strand the run.
-      if (rectContains(this.world, centre.x, centre.y)) this.lockToSector(sector);
-    }
+    if (sector && this.map.sectors.has(sectorKey(sector))) this.lockToSector(sector);
 
     const camera = this.scene.cameras.main;
     if (Number.isFinite(state.cameraScrollX) && Number.isFinite(state.cameraScrollY)) {
@@ -149,6 +182,27 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     this.syncView();
     this.grid?.setViewScroll(camera.scrollX, camera.scrollY);
     this.trails?.setViewScroll(camera.scrollX, camera.scrollY);
+    this.geometry?.update(this.view);
+  }
+
+  worldMap(): WorldMap | null {
+    return this.map;
+  }
+
+  freeSpotNear(x: number, y: number, out: WorldPoint): void {
+    if (!isSolidAtWorld(this.map, x, y, MoverKind.Player)) {
+      out.x = x;
+      out.y = y;
+      return;
+    }
+    if (findNearestFreeCircleSpot(this.map, x, y, PLAYER_COLLISION_RADIUS, out)) return;
+    out.x = x;
+    out.y = y;
+  }
+
+  destroy(): void {
+    this.geometry?.destroy();
+    this.geometry = null;
   }
 
   update(_deltaSeconds: number): void {
@@ -161,6 +215,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     this.syncView();
     this.grid?.setViewScroll(camera.scrollX, camera.scrollY);
     this.trails?.setViewScroll(camera.scrollX, camera.scrollY);
+    this.geometry?.update(this.view);
 
     const player = this.playerVisual;
     if (!player) return;

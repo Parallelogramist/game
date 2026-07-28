@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
-import { SectorCoord, WorldRect } from '../../world/worldSpace';
+import { SectorCoord, WorldPoint, WorldRect } from '../../world/worldSpace';
+import type { WorldMap } from '../../world/worldTypes';
 
 export type RunModeKind = 'arena' | 'expedition';
 
@@ -22,7 +23,8 @@ export interface SerializedExpeditionState {
  * WorldRect and never read the scale manager or the camera themselves.
  *
  * Every member of doc 01 section 7.2 has now landed, plus the save/restore pair section
- * 8.3 needs. setupCamera takes the grid and the
+ * 8.3 needs, plus the geometry seam FEAT-BARRIER-PLAYER needs: the world map itself, a
+ * legality snap and a teardown. setupCamera takes the grid and the
  * trail buffer alongside the player visual because those are the two screen-sized layers
  * that must track the camera.
  */
@@ -88,6 +90,27 @@ export interface WorldModeAdapter {
    * camera has to exist and be following before its scroll can be overridden.
    */
   restoreViewState(state: SerializedExpeditionState): void;
+
+  /**
+   * The static geometry this mode's movers resolve against, or null for a mode that has
+   * none. Arena has no geometry at all, which is why the collision context GameScene
+   * builds from this is simply absent there and its movement path stays what it was.
+   */
+  worldMap(): WorldMap | null;
+
+  /**
+   * Nearest point where a player-sized circle fits, written into the caller's out-param.
+   * Two callers need it and neither may end up inside a wall: a fresh run's start point,
+   * and a restored transform that was saved before this world's geometry existed.
+   * A mode with no geometry returns the point unchanged.
+   */
+  freeSpotNear(x: number, y: number, out: WorldPoint): void;
+
+  /**
+   * Releases the Phaser objects the adapter owns. GameScene.shutdown calls it because a
+   * scene restart reuses the scene but never the adapter, so nothing else would.
+   */
+  destroy(): void;
 
   /**
    * Once per frame from GameScene.update(), after deltaSeconds is final and before

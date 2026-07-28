@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
-import { SectorCoord, WorldRect } from '../../world/worldSpace';
+import { SectorCoord, WorldPoint, WorldRect } from '../../world/worldSpace';
+import type { WorldMap } from '../../world/worldTypes';
 import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter';
 
 /**
@@ -20,6 +21,8 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  * arena boss fight cannot narrow a rect that is already the whole screen.
  * saveViewState returning null is that guarantee for FEAT-WORLD-SPACE-7: an arena run
  * cannot write a version-2 payload, so a client rollback can never orphan one.
+ * worldMap returning null is that guarantee for FEAT-BARRIER-PLAYER: an arena run cannot
+ * acquire a collision context, so its movement integration is the arithmetic it always was.
  */
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
@@ -67,6 +70,17 @@ export class ArenaModeAdapter implements WorldModeAdapter {
   }
 
   restoreViewState(_state: SerializedExpeditionState): void {}
+
+  worldMap(): WorldMap | null {
+    return null;
+  }
+
+  freeSpotNear(x: number, y: number, out: WorldPoint): void {
+    out.x = x;
+    out.y = y;
+  }
+
+  destroy(): void {}
 
   update(_deltaSeconds: number): void {}
 

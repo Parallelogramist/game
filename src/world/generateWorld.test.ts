@@ -14,9 +14,10 @@ import {
   directionDelta,
   oppositeDirection,
   tileIndex,
+  worldBoundsRect,
 } from './worldTypes';
 import type { EdgeDef, EdgeDirection, SectorDef, SectorKey, WorldGenInputs, WorldMap } from './worldTypes';
-import { SECTOR_HEIGHT, SECTOR_WIDTH } from './worldSpace';
+import { SECTOR_HEIGHT, SECTOR_WIDTH, sectorRectWorld } from './worldSpace';
 
 const SEEDS = Array.from({ length: 100 }, (_, index) => index * 7919 + 12345);
 const INPUTS: WorldGenInputs = {
@@ -348,5 +349,32 @@ describe('invariant 8 — version stamp and budget', () => {
       expect(map.startKey).toBe('0,0');
       expect(map.sectors.size).toBe(48);
     });
+  });
+});
+
+describe('worldBoundsRect', () => {
+  it('spans exactly the generated sectors, including negative coordinates', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const world = generateWorld(seed, {
+        abilityGateOrder: ['a', 'b', 'c'],
+        availableBiomeIds: ['stage_deep_void', 'stage_inferno'],
+      });
+      const bounds = worldBoundsRect(world);
+      const cols = [...world.sectors.values()].map(sector => sector.sx);
+      const rows = [...world.sectors.values()].map(sector => sector.sy);
+
+      expect(bounds.minX).toBe(Math.min(...cols) * SECTOR_WIDTH);
+      expect(bounds.minY).toBe(Math.min(...rows) * SECTOR_HEIGHT);
+      expect(bounds.maxX).toBe((Math.max(...cols) + 1) * SECTOR_WIDTH);
+      expect(bounds.maxY).toBe((Math.max(...rows) + 1) * SECTOR_HEIGHT);
+
+      for (const sector of world.sectors.values()) {
+        const rect = sectorRectWorld({ col: sector.sx, row: sector.sy });
+        expect(rect.minX).toBeGreaterThanOrEqual(bounds.minX);
+        expect(rect.minY).toBeGreaterThanOrEqual(bounds.minY);
+        expect(rect.maxX).toBeLessThanOrEqual(bounds.maxX);
+        expect(rect.maxY).toBeLessThanOrEqual(bounds.maxY);
+      }
+    }
   });
 });

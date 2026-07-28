@@ -11,6 +11,7 @@
  */
 
 import { SECTOR_WIDTH, SECTOR_HEIGHT } from './worldSpace';
+import type { WorldRect } from './worldSpace';
 
 /** Bump when generator output would change for a given seed. */
 export const WORLDGEN_VERSION = 1;
@@ -152,3 +153,34 @@ export function edgeIdFor(sx: number, sy: number, direction: EdgeDirection): str
 export const WALL_EDGE: EdgeDef = Object.freeze({
   kind: EdgeKind.Wall, apertureStart: 0, apertureEnd: -1,
 });
+
+/**
+ * The world plane a generated layout actually occupies. The generator grows outward
+ * from 0,0 in every direction, so both the negative and the positive extent are
+ * discovered from the sectors rather than assumed from a count.
+ */
+export function worldBoundsRect(world: WorldMap): WorldRect {
+  let minCol = 0;
+  let minRow = 0;
+  let maxCol = 0;
+  let maxRow = 0;
+  let seen = false;
+  for (const sector of world.sectors.values()) {
+    if (!seen) {
+      minCol = maxCol = sector.sx;
+      minRow = maxRow = sector.sy;
+      seen = true;
+      continue;
+    }
+    if (sector.sx < minCol) minCol = sector.sx;
+    if (sector.sx > maxCol) maxCol = sector.sx;
+    if (sector.sy < minRow) minRow = sector.sy;
+    if (sector.sy > maxRow) maxRow = sector.sy;
+  }
+  return {
+    minX: minCol * SECTOR_WIDTH,
+    minY: minRow * SECTOR_HEIGHT,
+    maxX: (maxCol + 1) * SECTOR_WIDTH,
+    maxY: (maxRow + 1) * SECTOR_HEIGHT,
+  };
+}
