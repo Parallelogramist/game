@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { STAGES } from '../data/Stages';
 import { EDGE_DIRECTIONS, EdgeKind, directionDelta, edgeIdFor } from '../world/worldTypes';
-import type { WorldMap } from '../world/worldTypes';
+import type { EdgeDef, WorldMap } from '../world/worldTypes';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, sectorOfWorldPoint } from '../world/worldSpace';
 import { EdgeFlags, SectorFlags } from '../expedition/DiscoveryTypes';
 import { gateGlyphFor } from '../expedition/gateGlyphs';
@@ -75,6 +75,31 @@ export function drawGateGlyph(
   }
 }
 
+/**
+ * Doc 03 section 4.5 rule 2: locked state is a ring, never a colour swap, so it survives
+ * every colourblind pipeline the game ships. A door the profile can already pass carries no
+ * ring at all, which is what makes the map a to-do list the moment an ability is claimed.
+ */
+export function drawGateLockRing(
+  graphics: Phaser.GameObjects.Graphics,
+  kind: EdgeKind, x: number, y: number, size: number,
+): void {
+  const glyph = gateGlyphFor(kind);
+  graphics.lineStyle(Math.max(1, size * 0.3), glyph.color, 0.85);
+  graphics.strokeCircle(x, y, size * 1.8);
+}
+
+/**
+ * Gated kinds only. A KeyDoor always reads sealed: nothing in the game grants a quest key
+ * yet (FEAT-WORLDGEN-QUESTDOORS), and an edge with no requiredId can never be satisfied by
+ * anything, so drawing it unlocked would be a lie.
+ */
+function isGatedEdgeSealed(edge: EdgeDef, holdsAbility: (abilityId: string) => boolean): boolean {
+  if (edge.kind !== EdgeKind.AbilityDoor && edge.kind !== EdgeKind.KeyDoor) return false;
+  if (edge.requiredId === undefined) return true;
+  return !holdsAbility(edge.requiredId);
+}
+
 export function strokeDashedLine(
   graphics: Phaser.GameObjects.Graphics, x1: number, y1: number, x2: number, y2: number,
 ): void {
@@ -100,6 +125,9 @@ export interface SectorMapDrawInput {
   panelHeight: number;
   sectorFlagsOf: (sectorKey: string) => number;
   edgeFlagsOf: (edgeId: string) => number;
+  /** Traversal-ability ownership for this profile. A predicate rather than a Set so the
+   *  renderer never learns where ownership is stored. */
+  holdsAbility: (abilityId: string) => boolean;
   playerWorldX: number;
   playerWorldY: number;
   playerFacing: number;
@@ -169,10 +197,13 @@ export class SectorMapRenderer {
       const anchor = edgeAnchor(sx, sy, sx + dsx, sy + dsy, input.view);
       if (!anchor) continue;
       this.drawnEdges.add(edgeId);
+      const glyphSize = Math.max(3, 5 * input.view.scale);
       drawGateGlyph(
-        this.graphics, edge.kind, anchor.x, anchor.y, anchor.horizontalWall,
-        Math.max(3, 5 * input.view.scale),
+        this.graphics, edge.kind, anchor.x, anchor.y, anchor.horizontalWall, glyphSize,
       );
+      if (isGatedEdgeSealed(edge, input.holdsAbility)) {
+        drawGateLockRing(this.graphics, edge.kind, anchor.x, anchor.y, glyphSize);
+      }
     }
   }
 

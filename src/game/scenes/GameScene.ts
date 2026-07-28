@@ -472,6 +472,14 @@ export class GameScene extends Phaser.Scene {
    *  SecureStorage decrypt, and both consumers here run per frame. */
   private ownedTraversalAbilityIds: Set<string> = new Set();
   private static readonly VAULT_CLAIM_RADIUS = 40;
+  /** Wider than ABILITY_DOOR_OPEN_RADIUS (60) on purpose: the notice has to land while the
+   *  door is still on screen and before the ship is nose-first against it. */
+  private static readonly SEALED_DOOR_NOTICE_RADIUS = 150;
+  /** A six-gate world puts the ship back against the same sealed door many times in one run,
+   *  so the same edge re-announces only after this much run time. */
+  private static readonly SEALED_DOOR_REANNOUNCE_SECONDS = 30;
+  private sealedDoorNoticeEdgeId: string | null = null;
+  private sealedDoorNoticeAt = 0;
 
   // Volatile-affix explosion queue (drained iteratively to avoid recursion)
   private volatileQueue: { x: number; y: number }[] = [];
@@ -877,6 +885,7 @@ export class GameScene extends Phaser.Scene {
       playerWorldX: container.x,
       playerWorldY: container.y,
       playerFacing: this.playerSpaceship.getFacingAngle(),
+      ownedAbilityIds: [...this.ownedTraversalAbilityIds],
     });
     this.scene.pause();
   }
@@ -4643,6 +4652,44 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Doc 03 section 4.5's Metroid moment, delivered at the door instead of in a map tooltip:
+   * a sealed ability door names the key it wants the first time the ship comes near it.
+   *
+   * Runs AFTER tryOpenAbilityDoor, never before: that call clears the mouth tiles of a door
+   * this profile can pass, so by the time this scan runs, gateStillClosed() already rejects
+   * it and the nearest remaining closed door is the one actually worth naming.
+   */
+  private reportSealedAbilityDoor(map: WorldMap, playerX: number, playerY: number): void {
+    const door = abilityDoorNearWorld(
+      map, playerX, playerY, GameScene.SEALED_DOOR_NOTICE_RADIUS,
+    );
+    if (!door || this.ownedTraversalAbilityIds.has(door.requiredId)) return;
+    if (door.edgeId === this.sealedDoorNoticeEdgeId
+      && this.gameTime - this.sealedDoorNoticeAt
+        < GameScene.SEALED_DOOR_REANNOUNCE_SECONDS) {
+      return;
+    }
+    this.sealedDoorNoticeEdgeId = door.edgeId;
+    this.sealedDoorNoticeAt = this.gameTime;
+
+    const definition = getTraversalAbility(door.requiredId);
+    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
+    this.effectsManager.showDamageNumber(door.x, door.y - 20, 'SEALED', color);
+    this.soundManager.playError();
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: 'SEALED DOOR',
+        description: definition
+          ? `${definition.name} opens this route.`
+          : 'Mechanism unknown.',
+        icon: definition?.icon ?? 'warning',
+        color,
+        duration: 2800,
+      });
+    }
+  }
+
   /** Arena is inert by construction, not by care: ArenaModeAdapter.worldMap() is null, so an
    *  arena run never reaches a vault, a door or the sector key. */
   private updateExpeditionAbilities(): void {
@@ -4654,6 +4701,7 @@ export class GameScene extends Phaser.Scene {
     this.syncAbilityVaults(map, playerX, playerY);
     this.updateAbilityVaults(playerX, playerY);
     this.tryOpenAbilityDoor(map, playerX, playerY);
+    this.reportSealedAbilityDoor(map, playerX, playerY);
   }
 
   /**

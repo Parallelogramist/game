@@ -19,6 +19,9 @@ export interface MapSceneData {
   playerWorldX: number;
   playerWorldY: number;
   playerFacing: number;
+  /** Passed in rather than read from the store here: GameScene already caches it for the
+   *  run, and reading the real store is a SecureStorage decrypt. */
+  ownedAbilityIds: readonly string[];
 }
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
@@ -31,6 +34,7 @@ export class MapScene extends Phaser.Scene {
   private playerWorldX = 0;
   private playerWorldY = 0;
   private playerFacing = 0;
+  private ownedAbilityIds: ReadonlySet<string> = new Set();
 
   private graphics!: Phaser.GameObjects.Graphics;
   private mapRenderer!: SectorMapRenderer;
@@ -63,6 +67,7 @@ export class MapScene extends Phaser.Scene {
     this.playerWorldX = data.playerWorldX;
     this.playerWorldY = data.playerWorldY;
     this.playerFacing = data.playerFacing;
+    this.ownedAbilityIds = new Set(data.ownedAbilityIds ?? []);
     this.closed = false;
     this.zoomOutArmed = false;
     this.dragPointerId = -1;
@@ -83,6 +88,9 @@ export class MapScene extends Phaser.Scene {
       `${discovery.getVisitedSectorCount()} / ${this.mapData.sectors.size} SECTORS EXPLORED`
       + `  ·  ${discovery.getCompletionPercent()}%`,
       { fontSize: 18, color: TEXT_COLORS.muted }).setDepth(2);
+    makeBodyText(this, width / 2, height - 48,
+      'RINGED DOORS ARE STILL SEALED   ·   FLY UP TO ONE TO LEARN ITS KEY',
+      { fontSize: 14, color: TEXT_COLORS.muted }).setDepth(2);
     makeBodyText(this, width / 2, height - 26,
       'WASD / ARROWS PAN   +/- ZOOM   C CENTRE   M / ESC CLOSE',
       { fontSize: 16, color: TEXT_COLORS.muted }).setDepth(2);
@@ -256,6 +264,7 @@ export class MapScene extends Phaser.Scene {
       panelHeight: this.scale.height,
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
       playerWorldX: this.playerWorldX,
       playerWorldY: this.playerWorldY,
       playerFacing: this.playerFacing,
