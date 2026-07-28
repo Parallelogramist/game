@@ -2292,7 +2292,13 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   closest to half the available region, rather than the deepest). **This bumps
   `WORLDGEN_VERSION`**, so it wants to land before any world is persisted per profile.
   Value: without it, `FEAT-POWER-VAULTS` has nothing to gate and the Metroid loop has no
-  locks. Deps: none. Spec: `02-worldgen-barriers.md` section 2.2.
+  locks. Deps: none. Spec: `02-worldgen-barriers.md` section 2.2. **Ordering (measured
+  2026-07-27):** because `placeAbilityGates` sets `availableRegion = chosen.subtree`, every
+  gate after the first is placed inside the first gate's subtree, so rebalancing the pick
+  moves gate 1 from locking a small deep subtree to locking roughly half the world, and with
+  no code path able to grant a traversal ability yet that halves the reachable expedition
+  world in exchange for gates nobody can open, so this should land with or after
+  `FEAT-POWER-VAULTS`, never before it.
 
 - [ ] **CHORE-WORLDSPACE-DEATHRIPPLE-RECT** — `DeathRippleManager.spawnRipple`
   (`src/visual/DeathRippleManager.ts:179-180`) computes `maxRadius` from
@@ -2394,13 +2400,48 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   `src/expedition/gateGlyphs.ts`. Done when the glyph coverage test goes red if any gate type
   lacks a unique shape. Deps: none. Spec: `03-discovery-map-ui.md` sections 2, 10.
 
-- [ ] **FEAT-DISCOVERY-STATE-01**: the persistent memory that makes this Metroid instead of
-  roguelike amnesia, landable before any UI exists. New `src/expedition/DiscoveryTypes.ts`,
-  `discoveryRules.ts`, `DiscoveryManager.ts`; add `'survivor-expedition-discovery'` to
-  `StorageBootstrap.ts:24`. Flags are a bitmask per id (one-line `& VALID_MASK` sanitization,
-  CodexManager pattern). Done when reveal rules, monotonicity and the sanitizer corruption
-  suite pass and the state round-trips through SecureStorage. Deps: none (test fixture stands
-  in for the generator). Spec: `03-discovery-map-ui.md` section 1.
+- [x] **FEAT-DISCOVERY-STATE-01** (done — 14ff3f8): the persistent memory that makes this
+  Metroid instead of roguelike amnesia, landed before any UI exists. What shipped:
+  `src/expedition/DiscoveryTypes.ts` (sector, edge, POI and secret flag bitmasks plus
+  `DiscoveryState` / `DiscoveryChanges`), the pure `src/expedition/discoveryRules.ts`
+  (`buildIdUniverse`, `emptyDiscoveryState`, `sanitizeDiscoveryState`, `revealOnSectorEntry`,
+  `revealOnEdgeTraversal`), `src/expedition/DiscoveryManager.ts` (the single write path plus
+  the `getDiscoveryManager()` singleton), and `'survivor-expedition-discovery'` registered in
+  `StorageBootstrap.ts`. Deviations from the plan and from `03-discovery-map-ui.md`, each
+  deliberate:
+  1. **No `WorldMapIndex`, and this is the most important line here for the
+     `FEAT-MAPUI-MAPSCENE-04` planner.** Doc 03 contract 11.2 asked doc 02 for an index
+     record before doc 02's generator existed. The shipped `WorldMap`
+     (`src/world/worldTypes.ts`) already carries every id this needs: sector keys, the
+     canonical `edgeIdFor` edge ids and the `poiSlots` ids with `PoiKind.Secret` marking the
+     secret ones. A parallel index would be a second copy of that state, so
+     `buildIdUniverse(map)` derives four `Set`s instead and `WorldMap` **is** the index. Do
+     not build one.
+  2. **The rules apply and report** rather than proposing a delta the manager then applies.
+     Doc 03 section 1.4 describes them as pure `(state, index, args) -> DiscoveryChanges`;
+     applying in place makes "re-entering a known sector changes nothing" provable from the
+     returned delta alone, and removes the second code path in which a manager could
+     double-apply or forget to apply.
+  3. **A Wall border is not an edge id.** `buildIdUniverse` skips `EdgeKind.Wall`, because a
+     border with no aperture is not a door the player can ever learn about and admitting one
+     would let the map draw a passage that does not exist.
+  4. **Seed binding is the `(worldSeed, worldGenVersion)` pair**, the same pair
+     `WorldProfileStore` keys on, not doc 03's `worldSeed: string`. A foreign pair is
+     discarded and never migrated: a different generator names sectors that no longer exist.
+  5. **What was not built and why.** No `revealOnScanPulse` (the scan item is doc 04
+     content) and no `revealOnMapFragment` (`fragmentRegions` appears nowhere in `src/`; no
+     generator emits one), filed as `FEAT-DISCOVERY-SCAN-FRAGMENT`. No `markSectorClearedOnce`,
+     `markPoiCollected` or `markSecretFound`, because none has a caller yet, filed as
+     `FEAT-DISCOVERY-WRITE-PATHS`. Their flags, their records and their sanitizer coverage
+     **did** ship, so the persisted shape is version-stable and only the writer methods wait.
+  6. **Tests moved 136 files / 1683 tests to 138 / 1697**: `discoveryRules.test.ts` (9) and
+     `DiscoveryManager.test.ts` (5). These are the standing order's carve-out rather than a
+     breach of it: a wrong sanitizer still returns a plausible-looking state, so the failure
+     mode is silent and the only symptom is a map that quietly lies.
+  7. No `POLISH-*` item is filed because nothing player-visible ships here. No
+     `WORLDGEN_VERSION` bump, no `SAVE_VERSION` bump, and arena is untouched by construction.
+  Deps: none (test fixture stands in for the generator). Spec: `03-discovery-map-ui.md`
+  section 1.
 
 - [ ] **FEAT-POI-CATALOG**: one data contract for what fills a sector, so worldgen and
   content can land independently. New `src/data/PoiCatalog.ts` and pure `src/world/poiRoll.ts`
@@ -3220,10 +3261,50 @@ exploring pays is the end of Phase 5.
 
 #### Phase 4: the map fills in
 
-- [ ] **FEAT-DISCOVERY-HOOKS-03**: playing expedition actually writes the map memory, before
-  any pixel renders it. Wires `GameScene` to `DiscoveryManager`. Done when entering sectors then
-  reloading the profile shows persisted flags, arena runs write nothing, and the revision
-  counter advances only on real change. Deps: `FEAT-DISCOVERY-STATE-01`, W4.
+- [x] **FEAT-DISCOVERY-HOOKS-03** (done — 060c247, f4f9afd): playing expedition actually
+  writes the map memory, before any pixel renders it. `GameScene` calls
+  `bindExpeditionDiscovery()` at both create paths (fresh and restore), immediately after
+  `setBarrierEventSink` and therefore before `worldMode.setupCamera(...)` emits the very
+  first `'expedition:sector-entered'`, and it unsubscribes in `shutdown()` beside the other
+  teardown. What is worth knowing next time:
+  - **`viaEdgeId` became real**, the one deviation worth naming. W4 shipped it hard-coded
+    `null`, so `EdgeFlags.TRAVERSED` would have had no writer at all.
+    `ExpeditionModeAdapter.enterSector` now derives the crossed border from the previous
+    sector when the two are orthogonally adjacent and their shared edge is not a Wall, and
+    still reports `null` for a run start, a restore, a frame long enough to skip a sector and
+    a future recall. This is the contract README section 3.2 already specified; only its
+    implementation was missing.
+  - **`'expedition:edge-traversed'` is still not emitted as a separate event.** Do not go
+    looking for it. The edge id now rides on the sector-entered payload, which fires exactly
+    once per crossing, so a second event carrying the same fact from the same place would be
+    two sources of truth.
+  - **Arena writes nothing by construction**: `worldMode.worldMap()` is `null` there, so
+    `bindExpeditionDiscovery` returns on its first line, the listener is never registered and
+    the event is never emitted. An arena run cannot touch the discovery key.
+  - **No new tests.** This is wiring, and the logic it wires is already pinned by chunk 01.
+    That matches this chunk's own "Test surface: none new" in `03-discovery-map-ui.md`
+    section 10.
+  Deps: `FEAT-DISCOVERY-STATE-01`, W4.
+
+- [ ] **FEAT-DISCOVERY-WRITE-PATHS**: the four discovery write paths whose callers do not
+  exist yet, to be added as each caller lands. `markSectorClearedOnce` needs the sector
+  director from `FEAT-WORLDGEN-SPAWN`; `markPoiCollected` needs `FEAT-POI-CATALOG` and a real
+  pickup; `markSecretFound` needs `FEAT-SECRET-CACHE`, and README section 3.7 makes it the
+  only write path for the spatial found-flag, so `SecretLedger` must call it rather than keep
+  a parallel flag of its own. Their flags, their records and their sanitizer coverage already
+  shipped with `FEAT-DISCOVERY-STATE-01`, so each is one method plus its caller, with no
+  version bump. Value: without them the map can never show a cleared room, a collected
+  treasure or a found secret. Deps: one per bullet as listed. Spec:
+  `03-discovery-map-ui.md` sections 1.4, 2.1.
+
+- [ ] **FEAT-DISCOVERY-SCAN-FRAGMENT**: `revealOnScanPulse` (a BFS over the sector graph out
+  to a hop radius) and `revealOnMapFragment` (reveal a fragment's region as outlines, never
+  as interiors, so the reason to fly there survives). Not built with
+  `FEAT-DISCOVERY-STATE-01` because the scan item is `04-*` content and `fragmentRegions`
+  appears nowhere in `src/`: no generator emits one, so both would have been inert. Value:
+  these are the two ways a player learns the map without walking it. Deps:
+  `FEAT-POI-CATALOG`, `FEAT-SECRET-LORE`. Spec: `03-discovery-map-ui.md` section 1.4, rules 4
+  and 5.
 
 - [x] **FEAT-BARRIER-BREACH** (done — 2dc76e1, 491c7cc, 31b17c3, 6df8acc): the expedition
   world's cracked walls stop being a lie. The generator has always carved `TileKind.Breakable`

@@ -285,6 +285,38 @@ including ties and empty sets, NaN guards.
 asserts every gate type in the worldgen union has an entry (the
 `ALL_STORAGE_KEYS` enforcement pattern applied to glyphs).
 
+**As built (FEAT-DISCOVERY-STATE-01 + FEAT-DISCOVERY-HOOKS-03).** The pure half
+shipped as three modules: `src/expedition/DiscoveryTypes.ts` (the flag bitmasks,
+`DiscoveryState`, `DiscoveryChanges`), `src/expedition/discoveryRules.ts`
+(`buildIdUniverse`, `emptyDiscoveryState`, `sanitizeDiscoveryState`,
+`revealOnSectorEntry`, `revealOnEdgeTraversal`) and
+`src/expedition/DiscoveryManager.ts` (persistence through `SecureStorage` under
+`'survivor-expedition-discovery'`, plus the `getDiscoveryManager()` singleton).
+Four things differ from section 1.4 above and are deliberate:
+
+- **The rules apply and report.** Section 1.4 describes them as pure
+  `(state, index, args) -> DiscoveryChanges`; they instead mutate `state` in
+  place and return what that mutation actually added. This makes "re-entering a
+  known sector changes nothing" provable from the returned delta alone, and
+  removes the second code path in which a manager could double-apply or forget
+  to apply.
+- **State is bound to `(worldSeed, worldGenVersion)`**, the pair
+  `WorldProfileStore` already keys on, rather than to a `worldSeed` string. A
+  foreign pair is discarded, never migrated: a different generator names sectors
+  that no longer exist.
+- **Deferred write paths.** `markSectorClearedOnce`, `markPoiCollected` and
+  `markSecretFound` are not implemented because no caller exists yet
+  (`FEAT-DISCOVERY-WRITE-PATHS`); `revealOnScanPulse` and `revealOnMapFragment`
+  are not implemented because the scan item is `04-*` content and no generator
+  emits `fragmentRegions` (`FEAT-DISCOVERY-SCAN-FRAGMENT`). Their flags, their
+  records and their sanitizer coverage all shipped, so the persisted shape is
+  version-stable and only the writers wait.
+- **`viaEdgeId` is derived in `ExpeditionModeAdapter.enterSector`** from the
+  previous sector when the two are orthogonally adjacent and their shared edge
+  is not a Wall. Because that id rides on the `'expedition:sector-entered'`
+  payload, which fires exactly once per crossing, `'expedition:edge-traversed'`
+  is **not** emitted as a separate event.
+
 ### 2.2 Phaser render layer (not unit-tested)
 
 - **`src/visual/SectorMapRenderer.ts`**: given a `Phaser.GameObjects.Graphics`,
@@ -870,6 +902,18 @@ needs 03+04+06; 08 closes.
   for interior barriers and the outer wall with door gaps, suitable for both
   the minimap underlay and the map cell downsample.
 - Biome palette: `biome -> tint` lookup.
+
+**As built: `WorldMapIndex` was never built.** The shipped `WorldMap` in
+`src/world/worldTypes.ts` is itself the id universe: `sectors: Map<SectorKey,
+SectorDef>` for the sector keys, the canonical `edgeIdFor(sx, sy, direction)`
+ids for the borders (the lexicographically smaller sector names the edge, so
+both sides produce one string), and `poiSlots` with `PoiKind.Secret` marking the
+secret slots. `buildIdUniverse(map)` in `src/expedition/discoveryRules.ts`
+derives the four id sets the sanitizer needs from it, skipping `EdgeKind.Wall`
+borders. A second parallel index record would be duplicate state, so this
+contract is satisfied rather than outstanding. Still unbuilt from the list
+above: `isGatePassable`, `sectorWallSegments` and the biome tint lookup, which
+are `FEAT-MAPUI-MAPSCENE-04` / `FEAT-MAPUI-DOORS-05` business.
 
 ### 11.3 From `04-*` (quests, power-ups, secrets)
 
