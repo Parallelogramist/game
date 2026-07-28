@@ -772,6 +772,29 @@ Everything else keeps its archetype default, which is why the other 26 weapons n
 tuning pass. Weapon damage numbers, cooldowns, and `damageEnemy` internals are untouched
 by this entire feature.
 
+**As built (FEAT-BARRIER-PROJECTILE, travel half).** Four things this section assumed did not
+survive contact with the code, and the chunk shipped the measured version.
+
+1. **There is no shared player-projectile update path.** This section says the travel default is
+   "implemented once in the shared projectile update paths". Eight weapons each integrate their
+   own pool inside their own `updateEffects`, so the default is applied at eight sites, each
+   calling `projectileBlocked` from the new `src/world/weaponWallBehavior.ts`. That is also why
+   the chunk was split: the travel archetype shipped first, and the hitscan lines are
+   `FEAT-BARRIER-BEAMS`.
+2. **No id-keyed exception table ships.** Section 7.2's table exists to keep per-weapon
+   exceptions auditable against infrastructure that applies the defaults. Without that
+   infrastructure a weapon's behaviour is already declared exactly once, where it acts, and a
+   parallel map keyed by weapon id would be a second source of truth nothing reads. The
+   archetype audit lives in the new module's doc comment instead.
+3. **Grenade is a lob, so its exception does not apply.** `GrenadeWeapon` interpolates from
+   throw point to target point with an arc height and never samples a tile in flight, so it
+   arcs over a wall rather than impacting one. No code was needed.
+4. **Two behaviours this section did not specify.** A blocked Boomerang glaive flips to its
+   return leg rather than stopping, because a stopped glaive hangs at the wall until its safety
+   lifetime deletes the volley's damage; its return leg ignores geometry because it homes to the
+   player. A Homing Missile blocked by a wall plays hit sparks and deactivates, because its full
+   explosion lives in the target-hit branch and needs a target to damage.
+
 ---
 
 ## 8. Spawning legality

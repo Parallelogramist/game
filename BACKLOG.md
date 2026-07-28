@@ -2964,12 +2964,73 @@ exploring pays is the end of Phase 5.
   Deps: `FEAT-BARRIER-COLLIDE`, W2/W4. Unblocks `FEAT-BARRIER-PROJECTILE` and
   `FEAT-WORLDGEN-NAV`.
 
-- [ ] **FEAT-BARRIER-PROJECTILE**: walls become cover. Three archetype defaults applied at
-  shared infrastructure (travel stops, emanate ignores, beam clips) plus exactly three
-  exceptions in one table (Ricochet bounces, Railgun pierces, Grenade impact-detonates), so no
-  29-weapon retune. New `src/world/weaponWallBehavior.ts`. Done when enemy fire is visibly
-  blocked, aura/splash/`detonateArea` behavior is unchanged and every existing weapon logic
-  test stays green untouched. Deps: `FEAT-BARRIER-PLAYER`.
+- [x] **FEAT-BARRIER-PROJECTILE** (travel half; done — c532058, 4661bb7, a79ced9, e79da39, 1f8490e) — walls
+  became cover. Every projectile with a per-frame position now stops at solid geometry, and the
+  Ricochet ball reflects off it. Before this, walls blocked the ship and nothing else: enemy
+  fire shot the player through a metre of rock, and Energy Darts, Shuriken, Drone bolts, Sentry
+  bolts, Guardian shards, Homing Missiles and Boomerang glaives all flew straight through the
+  room they were fired in. `WeaponContext` gained `worldMap: WorldMap | null` beside last
+  session's `view`, fed once per frame from `worldMode.worldMap()` through
+  `WeaponManager.update`, and the new pure `src/world/weaponWallBehavior.ts` exports the single
+  predicate `projectileBlocked(world, x, y)` every travelling loop calls. **Arena is unchanged
+  by construction, not by care**: `ArenaModeAdapter.worldMap()` returns null, `projectileBlocked`
+  is `false` for null, and every wall branch sits behind that null, so each edited expression
+  reduces to exactly the expression it replaced. **Four deliberate calls.** (1) **The chunk was
+  split on "has a per-frame position" versus "is a hitscan line", and the hitscan half is filed
+  as `FEAT-BARRIER-BEAMS` below.** Doc 02 section 7.1 assumes archetype defaults are applied
+  once "in the shared projectile update paths"; there is no such path here. Eight weapons each
+  integrate their own pool in their own `updateEffects`, so the rule is applied at eight sites,
+  and the hitscan half additionally needs a target-acquisition rule FocusBeam's lock-on has no
+  precedent for. Splitting keeps each half independently shippable and puts the whole felt
+  value here: Energy Darts is the weapon every run starts with, and enemy fire is the thing
+  cover exists to hide from. (2) **No id-keyed exception table ships, despite doc 02 section
+  7.2 naming one.** The table exists in that doc to make per-weapon exceptions auditable
+  against shared infrastructure that applies the defaults. With no shared infrastructure a
+  weapon's behaviour is already declared exactly once, in the only place that can act on it,
+  and a parallel map keyed by weapon id would be a second source of truth that nothing reads
+  and that drifts the first time a weapon changes. The archetype audit lives instead in the new
+  module's doc comment, next to the predicate it explains. (3) **Grenade is a lob and needed
+  nothing.** Doc 02 lists an exception ("detonates on wall impact instead of despawning"), but
+  as built `GrenadeWeapon` interpolates from throw point to target point with an arc height and
+  a ground shadow and never samples a tile in flight, so it sails over a wall, which is what a
+  thrown arc should do. Railgun's "pierces" exception is realised by omission in
+  `FEAT-BARRIER-BEAMS`. (4) **Boomerang turns around instead of stopping, and Homing Missiles
+  spark instead of exploding.** A glaive stopped at a wall would hang there until its safety
+  lifetime retired it, deleting the volley's damage, so a blocked outbound step flips it to the
+  return leg; the return leg ignores geometry because it homes to the player, who is never
+  inside a wall. A missile's full explosion lives in the target-hit branch and needs a target to
+  damage, so a wall impact plays hit sparks and takes the normal deactivate path rather than
+  duplicating forty lines of tweened rings. `boomerangMotion.ts` was not touched, so its tests
+  are untouched. **No new tests, deliberately**: `projectileBlocked` is a one-line null guard
+  over `isSolidAtWorld`, which `staticCollision.test.ts` already pins including the
+  projectile-versus-membrane rule, and every other edit sits inside a Phaser-coupled
+  `updateEffects` needing a live scene, `Graphics` and the spatial hash. The suite stayed at
+  134 files / 1670 tests, which is itself the check that nothing was added or broken. Verified:
+  `tsc --noEmit` clean, suite green, `npm run build` clean. Browser-only questions are filed
+  under **POLISH-EXPEDITION-FLIGHT** items (v) and (w). Deps: `FEAT-BARRIER-PLAYER`.
+
+- [ ] **FEAT-BARRIER-BEAMS** — the hitscan half of `FEAT-BARRIER-PROJECTILE`: instant lines get
+  clipped at the first solid tile via `raycastSolid`, which still has no game-code caller. Five
+  measured sites. (a) `SweepBeamWeapon` (`updateEffects`, `:76-108` and `drawBeams`): clip each
+  spoke's `length` once per frame and use the clipped length in both `isEnemyInBeam` and the
+  draw, via a pre-allocated per-spoke `number[]` field so the DDA runs once per spoke.
+  (b) `LaserBeamWeapon` (`:104-108`, and the refracted beams at `:233-239`): clip `endX`/`endY`
+  before `fireBeam`, which already takes explicit start and end points, so both the damage scan
+  and `drawBeam` follow for free. (c) `ScattergunWeapon` (`attack`, `:129-158`): clip
+  `pelletLength` per pellet before the projection test and before `spawnStreak`; as built it is
+  hitscan, not the travelling projectile doc 02 assumed. (d) The Machine's boss laser
+  (`enemy-ai/the-machine.ts:124-134` through `laserBeamCallback`): clip at the GameScene
+  callback, which is the single choke point for every boss beam. (e) `RailgunWeapon` is the
+  declared pierce exception and is realised by **not** clipping it, which is worth stating in
+  its class doc so the omission does not read as a miss. **The open design question is
+  `FocusBeamWeapon`**, which is a lock-on and not a swept line, so "clip the beam" has no
+  meaning for it: it needs a line-of-sight rule instead. Validating the existing lock each frame
+  is one raycast per beam and drops the lock when a wall interposes, but naive acquisition would
+  let a nearest enemy behind a pillar block a beam from locking a visible farther one; a
+  min-scan that only raycasts a candidate when it improves the best distance so far fixes that
+  for a handful of casts. Decide it with a measurement, not in passing. Value: without it a
+  laser still cuts through a wall the player is using as cover, which reads as the wall being
+  fake. Deps: `FEAT-BARRIER-PROJECTILE`. Spec: `02-worldgen-barriers.md` section 7.
 
 - [ ] **FEAT-WORLDGEN-NAV**: enemies cope with walls via one flow field per current sector
   (BFS over 576 tiles) injected as a nullable `NavigationContext` beside the existing
@@ -3431,7 +3492,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3486,6 +3547,15 @@ Never agent work. The fleet must not do any of these.
     (u) **the ricochet box**: take Bouncing Ball into expedition and move while a ball is live.
     It bounces inside the camera window, so a fast camera drags it along an edge and burns its
     bounce count. Does that read as the ball being left behind, or as it breaking?
+    (v) **is a wall cover?** (FEAT-BARRIER-PROJECTILE): fly `?expedition=1` and put a wall
+    between the ship and a shooter. Enemy fire now dies at the wall face with no impact effect,
+    the same way it already died silently at the view edge. Does that read as the shot being
+    stopped, or as it vanishing? And do your own darts stopping at the wall read as cover you
+    are choosing, or as the gun being broken? (w) **the bounce room**: take Bouncing Ball into a
+    walled sector. The ball reflects off wall faces at a fixed 6 px collision radius, so it
+    passes every doorway the ship does but overlaps the wall slightly on contact. Does a room
+    full of ricochets read as the weapon finally being at home, or does the ball visibly clip
+    into the rock?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every
