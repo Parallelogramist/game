@@ -539,6 +539,23 @@ and per-run; static strips are spawned from the sector def on activation instead
 They gate by cost, not by blocking. Player-only damage, exactly like existing hazard
 zones.
 
+*(As built, `FEAT-BARRIER-HAZARD-STRIPS`: **no `HazardZoneSystem` zone is created**. The strips
+are read straight off the tile grid instead: one `tileKindAt` sample under the player's centre
+per frame inside `GameScene.updateHazardFloorDamage`, costing
+`TUNING.hazards.floorTickDamage = 4` every `floorTickSeconds = 0.6` through the ordinary
+`takeDamage(..., 'Hazard Floor')` path so armor, shields, dodge, phase and the end-screen damage
+breakdown all apply unchanged. `HazardZoneSystem` zones are screen-space, expiring,
+`Graphics`-pooled and damage **enemies**; converting them to static, world-space, non-expiring,
+player-damaging placements is more new code than the feature and would put a second source of
+truth beside the tile grid, which already streams, persists and is understood by
+`resolveCircleMove` and `flowField`. The tick timer stays **armed** while off hazard so entry
+costs immediately (a 3-tile strip crossed at base speed would otherwise be free), and an i-frame
+window spends a tick rather than banking it. Visually the strips are a second run-fill pass in
+`WorldGeometryRenderer` with its own resolver, never a fourth case in `styleOf`: that function
+also drives `blocksAt`, so a hazard tile there would make every wall face touching a strip lose
+its outline. `ability_thermal_ward` negates the drain entirely, which is the section 4.6
+barrier/key pair closing.)*
+
 ### 4.7 Persistence
 
 ```ts

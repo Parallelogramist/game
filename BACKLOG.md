@@ -3463,11 +3463,58 @@ exploring pays is the end of Phase 5.
   Consequence accepted, not fixed: a door you claimed the key for but never flew to stays
   closed for the rest of that run and is open from the next run's first frame.
 
-- [ ] **FEAT-BARRIER-HAZARD-STRIPS**: doc 02 section 4.6. The 51 `TileKind.HazardFloor` tiles
-  the dev seed already carries are neither drawn nor harmful. Make them static
-  `HazardZoneSystem` placements so a hazard strip is a real cost to cross. Done when standing on
-  one damages over time, it is visible, and arena is untouched. Deps: none hard. Spec:
-  `02-worldgen-barriers.md` section 4.6.
+- [x] **FEAT-BARRIER-HAZARD-STRIPS** (done — 6a0f65a, 74d78b3): the world can hurt you where
+  it does not block you. Value: the 51 `TileKind.HazardFloor` tiles every generated world
+  carries were drawn by nothing and did nothing, so the one barrier flavour that gates by
+  **cost** instead of by passage did not exist in play, and `ability_thermal_ward` had nothing
+  to negate.
+  - **In world:** `WorldGeometryRenderer` draws a hazard strip as an outlined floor wash in
+    `WORLD_GEOMETRY_COLORS.hazard` (`0x2a1206` fill, `0xff6622` stroke, deliberately
+    `HAZARD_NEON.burn.core` so a static strip and a spawned burn zone read as the same danger).
+    It is a **second** run-fill pass with its own resolver, not a fourth case in `styleOf`:
+    `styleOf` also drives `blocksAt`, so a hazard tile added there would report as blocking and
+    every wall face touching a strip would silently lose its outline.
+  - **The drain:** standing on one costs `TUNING.hazards.floorTickDamage = 4` every
+    `floorTickSeconds = 0.6` of run time, through `takeDamage(..., 'Hazard Floor')` so armor,
+    shields, dodge, phase and the end-screen damage breakdown all apply exactly as they do to
+    any other environmental source. The timer is **armed, not zeroed, while off hazard**, so
+    entry costs a tick immediately: base hull is 50, a strip is 3 tiles (120 px) and base move
+    speed is 150 px/s, so a straight crossing is two ticks, and a zeroed timer would have made
+    a crossing free. An i-frame window (blink, ultimate, a hit just taken) **spends** the tick
+    rather than banking it, so nothing lands the instant the window closes.
+  - **It names its own key.** Crossing unwarded raises a `HAZARD FIELD` toast reading
+    `Thermal Ward would ward this floor.` plus a `HAZARD` float, re-armed after 30 s of run
+    time, the same readability contract `FEAT-BARRIER-DOOR-READOUT` set for sealed doors.
+  - **Deviation from doc 02 section 4.6, stated plainly:** the spec asks for static
+    `HazardZoneSystem` placements spawned from the sector def on activation. They are **tile
+    samples instead, and no zone is created**. `HazardZoneSystem` zones are screen-space,
+    expiring, `Graphics`-pooled and damage *enemies*; making 51 of them static, non-expiring,
+    world-space and player-damaging is more new code than the feature, needs a sector-activation
+    hook that does not exist, and adds a second source of truth beside the tile grid. The tiles
+    are already the world's own state, already understood by `resolveCircleMove`, `flowField`
+    and the renderer, already stream and persist for free, and the whole drain is one
+    `tileKindAt` sample per frame with zero allocations. Recorded in that doc as an as-built
+    note.
+  - **No persistence of any kind:** no `SAVE_VERSION` bump, no `WORLDGEN_VERSION` bump, no
+    storage key, no `GameSaveState` field. The generator was not touched.
+  - **Arena is inert by construction, not by care:** the drain lives inside
+    `updateExpeditionAbilities`, which returns on `worldMode.worldMap() === null`, which is
+    exactly what `ArenaModeAdapter` returns.
+  - **No new tests, deliberately.** The wash is `Graphics` drawing and the drain is scene
+    wiring (`takeDamage`, the toast and effects managers) that needs a live scene; the only
+    non-obvious logic is the tick accumulator, whose two branches are one comment each. Guarded
+    by `tsc`, the unchanged 141-file / 1737-test suite and `npm run build`.
+  - Files: `src/visual/NeonColors.ts`, `src/visual/WorldGeometryRenderer.ts`,
+    `src/data/GameTuning.ts`, `src/game/scenes/GameScene.ts`. Feel is unvalidated in a browser:
+    see **POLISH-HAZARD-FEEL** under `## Human gates`.
+  - **Carried fix, not scope creep:** `create()` now also resets `sealedDoorNoticeEdgeId` and
+    `sealedDoorNoticeAt`. `FEAT-BARRIER-DOOR-READOUT` (49a71a8) assumed a scene restart cleared
+    its instance fields, but Phaser **reuses the GameScene instance** across restarts (the reset
+    block at `GameScene.ts:1032` exists for exactly that reason), so a stale `sealedDoorNoticeAt`
+    from a previous run outlived `gameTime` restarting at 0 and swallowed the next run's first
+    `SEALED DOOR` toast for up to 30 s. Two lines, in the block this change had to edit anyway.
+  - **Thermal Ward's own half shipped with it** (`74d78b3`), because a cost with no answer is
+    half a Metroid pair: see `FEAT-POWER-ABILITY-EFFECTS-REST`.
 
 - [ ] **FEAT-BARRIER-BREACH-BEAMS**: hitscan beams and Ricochet do not chip barriers, so a
   beam-only or Ricochet-only build cannot open a shortcut at all. `beamReachFraction` is a
@@ -3484,6 +3531,21 @@ exploring pays is the end of Phase 5.
   `WORLDGEN_VERSION`, which now discards saved world profiles (harmless while expedition is
   behind `?expedition=1`). Deps: none. Spec: `02-worldgen-barriers.md` section 4.2.
 
+- [ ] **BALANCE-HAZARD-DENSITY**: `stampHazardStrips` (`src/world/sectorInterior.ts`) draws
+  `Math.floor(rng() * 2)` strips of 3x1 per sector, so the dev seed yields ~17 strips over 48
+  sectors and a whole run can cross none. Now that a strip costs hull
+  (`FEAT-BARRIER-HAZARD-STRIPS`), that density decides whether the mechanic exists in play at
+  all. Raising it is a generator change and bumps `WORLDGEN_VERSION`, which discards saved world
+  profiles (harmless while expedition is behind `?expedition=1`). Pair with
+  `BALANCE-BREAKABLE-DENSITY`: same fix shape, same version bump, one commit. Deps: none.
+
+- [ ] **BALANCE-HAZARD-SCALING**: `TUNING.hazards.floorTickDamage` is flat (4), so a strip is a
+  real decision at world level 1 and rounding error at world level 20, where armor and max
+  health have both grown. Every other environmental cost in the game scales; this one does not,
+  deliberately, because a scaled first version could not be judged. Decide against
+  `POLISH-HAZARD-FEEL` (a) whether it wants a world-level multiplier, a percent-of-max-health
+  tick, or to stay flat. Deps: `POLISH-HAZARD-FEEL`.
+
 - [ ] **FEAT-BARRIER-GATES**: interactive barriers (destructible walls reusing the
   `Destructible` pattern, ability and key doors, one-way membranes, hazard strips) with
   per-profile persistence in `survivor-world-profile`. Done when an ability door auto-opens and
@@ -3493,8 +3555,8 @@ exploring pays is the end of Phase 5.
   destructibles and the `survivor-world-profile` store landed in `FEAT-BARRIER-BREACH` (as tile
   state rather than as `Destructible` entities, see its deviation 1), and the one-way membrane
   criterion was already satisfied by `FEAT-BARRIER-PLAYER`, so the remaining scope here is
-  ability doors, key doors and hazard strips: `FEAT-BARRIER-ABILITY-DOORS` and
-  `FEAT-BARRIER-HAZARD-STRIPS` carry it.
+  ability doors and key doors: `FEAT-BARRIER-ABILITY-DOORS` carries it, and hazard strips are
+  done (`FEAT-BARRIER-HAZARD-STRIPS`).
 
 - [ ] **FEAT-WORLDGEN-SPAWN**: everything spawns legally: tile snap, reachability filter,
   sector-scoped director, boss-arena sealing. Done when a 10-minute soak in a walled sector
@@ -3786,14 +3848,15 @@ exploring pays is the end of Phase 5.
     `src/visual/SectorMapRenderer.ts`. Feel is unvalidated in a browser: see
     **POLISH-DOOR-READOUT** under `## Human gates`.
 
-- [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the five traversal abilities that are still keys
+- [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the four traversal abilities that are still keys
   and nothing more, each blocked on a barrier flavour that does not exist yet rather than on
   effort. `ability_breach_charges` needs a deployable placement path over the existing
   `ConsumableKind.BOMB` blast plus the false-wall prospecting `FEAT-SECRET-CACHE` owns;
   `ability_magno_tether` needs `barrier_void_gap` with anchor pylons, which no generator phase
   emits; `ability_phase_cloak` needs `barrier_security_grid`, likewise unemitted;
-  `ability_thermal_ward` needs the hull drain `FEAT-BARRIER-HAZARD-STRIPS` will put on the 51
-  `TileKind.HazardFloor` tiles, so today it would negate nothing; `ability_signal_decryptor`
+  (`ability_thermal_ward` is **done — 74d78b3**: `FEAT-BARRIER-HAZARD-STRIPS` landed the hull
+  drain and the ward now negates it, so it is the second ability in
+  `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and its claim toast prints its real description); `ability_signal_decryptor`
   needs `EdgeKind.KeyDoor` actually placed (`FEAT-WORLDGEN-QUESTDOORS`) and the secret ping
   `FEAT-DISCOVERY-SCAN-FRAGMENT` owns. Each one becomes a small chunk the moment its barrier
   lands, and each must add its id to `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` so the claim toast
@@ -4141,6 +4204,23 @@ Never agent work. The fleet must not do any of these.
     (f) **the legend line**: `RINGED DOORS ARE STILL SEALED …` sits at `height - 48`, which
     overlaps the bottom row of map cells the way the existing hint line already does. Does it
     obscure anything worth reading?
+  - **POLISH-HAZARD-FEEL** (6a0f65a, 74d78b3): browser playtest of hazard floor in
+    `?expedition=1`. Agents have no browser and must not tune this blind. Owns:
+    (a) **the damage**: 4 per 0.6 s against a 50 HP base hull, flat and unscaled by world level.
+    Is a two-tick crossing a real decision early, and is it still felt at world level 20 once
+    armor and max health have grown? See `BALANCE-HAZARD-SCALING`.
+    (b) **the entry tick**: the timer is armed while off hazard, so the first frame on a strip
+    costs hull with no warning. Does that read as a burn, or as an unfair hit?
+    (c) **legibility**: a `0x2a1206` fill with a `0xff6622` outline under the ship, drawn once
+    per sector window and never animated. Does it read as danger without a pulse, and does it
+    survive each colourblind pipeline against the amber `breakable` stroke?
+    (d) **the notice**: one `HAZARD FIELD` toast per 30 s of run time, competing with the
+    sealed-door and route-open toasts on the same one-at-a-time queue. Reminder or nagging?
+    (e) **the ward payoff**: a `WARDED` float and nothing else once Thermal Ward is owned. Is
+    that enough for the player to notice the ability is working, or does the floor need to
+    visibly dim for a warded ship?
+    (f) **density**: the dev seed has ~17 strips of 3 tiles across 48 sectors, so a run can miss
+    hazard floor entirely. See `BALANCE-HAZARD-DENSITY`.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
