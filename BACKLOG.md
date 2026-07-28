@@ -3309,8 +3309,12 @@ exploring pays is the end of Phase 5.
 
 - [ ] **FEAT-DISCOVERY-WRITE-PATHS**: the four discovery write paths whose callers do not
   exist yet, to be added as each caller lands. `markSectorClearedOnce` needs the sector
-  director from `FEAT-WORLDGEN-SPAWN`; `markPoiCollected` needs `FEAT-POI-CATALOG` and a real
-  pickup; `markSecretFound` needs `FEAT-SECRET-CACHE`, and README section 3.7 makes it the
+  director from `FEAT-WORLDGEN-SPAWN`; **`markPoiCollected` is resolved (a2361d0)**, because
+  `FEAT-POWER-VAULTS` is the real pickup its caller was waiting on: `revealOnPoiCollected` sets
+  `PoiFlags.COLLECTED | PoiFlags.SEEN` and the ability-vault claim is the one call site. It is
+  write-only for now and that is deliberate, since ability ownership (not this flag) is what
+  decides whether a vault respawns; the flag is map memory. `markSecretFound` needs
+  `FEAT-SECRET-CACHE`, and README section 3.7 makes it the
   only write path for the spatial found-flag, so `SecretLedger` must call it rather than keep
   a parallel flag of its own. Their flags, their records and their sanitizer coverage already
   shipped with `FEAT-DISCOVERY-STATE-01`, so each is one method plus its caller, with no
@@ -3391,13 +3395,22 @@ exploring pays is the end of Phase 5.
      Browser-only questions are filed under **POLISH-EXPEDITION-FLIGHT** items (ac), (ad) and
      (ae). Deps: `FEAT-BARRIER-PLAYER`, `FEAT-POWER-TRAVERSAL`.
 
-- [ ] **FEAT-BARRIER-ABILITY-DOORS**: doc 02 sections 4.3 and 4.4. Proximity-open on an edge's
-  `requiredId`, its `GateClosed` tiles to `Open`, the edge id into the profile's
-  `openedEdgeIds`. Deliberately not built in `FEAT-BARRIER-BREACH` because no code path can
-  grant a traversal ability yet, and `TraversalAbilities.ts` settles that the shop must never be
-  the grant, so a door today would open only behind a debug flag. Done when a door the profile
-  holds the ability for opens on approach and is already open on the next run. Deps:
-  `FEAT-POWER-VAULTS`. Spec: `02-worldgen-barriers.md` sections 4.3, 4.4.
+- [x] **FEAT-BARRIER-ABILITY-DOORS** (done — 3f362b4, a2361d0): doc 02 sections 4.3 and 4.4.
+  Flying within `ABILITY_DOOR_OPEN_RADIUS = 60` of a still-closed `AbilityDoor` whose
+  `requiredId` the profile holds turns **both** mouth bands' `GateClosed` tiles to `Open` (each
+  sector stamps its own, so clearing one side would leave the door a wall from the other).
+  The edge id is **not** written to a profile `openedEdgeIds` list: `applyOwnedAbilityGates`
+  replays ownership onto the freshly generated world in `ExpeditionModeAdapter`'s constructor,
+  right where `applyBrokenBarriers` already replays breaks, so an owned door is open before the
+  renderer, the collision index or the flow field ever read the grid. That is the whole of
+  "already open on the next run", with no second source of truth to drift.
+  A mid-run open fires the same two invalidations as `onBarrierBroken`:
+  `worldMode.notifyGeometryChanged()` **and** `this.minimapUnderlayKey = null` (the radar
+  underlay is drawn once and only translated per frame, so a tile change must invalidate it by
+  hand). `EdgeDef` objects are frozen and shared by both sides, so `edge.kind` is never
+  mutated: tiles are the only mutable state, as `FEAT-BARRIER-BREACH` established.
+  Consequence accepted, not fixed: a door you claimed the key for but never flew to stays
+  closed for the rest of that run and is open from the next run's first frame.
 
 - [ ] **FEAT-BARRIER-HAZARD-STRIPS**: doc 02 section 4.6. The 51 `TileKind.HazardFloor` tiles
   the dev seed already carries are neither drawn nor harmful. Make them static
@@ -3576,10 +3589,70 @@ exploring pays is the end of Phase 5.
 
 #### Phase 5: the Metroid loop closes
 
-- [ ] **FEAT-POWER-VAULTS**: abilities are EARNED in the world, guarded, at generator-placed
-  `AbilityPowerUp` slots. Done when the guard clears, the walk-in claim toasts and persists,
-  death after a claim keeps the ability, and a mid-run reload restores a cleared guard. Deps:
-  `FEAT-POWER-TRAVERSAL`, `FEAT-WORLDGEN-SPAWN`, W6.
+- [x] **FEAT-POWER-VAULTS** (claim half; done — a2361d0): abilities are now EARNED in the
+  world at generator-placed `AbilityPowerUp` slots. A vault is a violet caged core drawn in
+  `WORLD_GEOMETRY_COLORS.gate.stroke` at the slot's tile centre; flying within
+  `VAULT_CLAIM_RADIUS = 40` claims it, which calls `claimTraversalAbility` (permanent at the
+  moment of pickup, so a death seconds later keeps it), writes
+  `DiscoveryManager.markPoiCollected`, bursts, shakes, plays the level-up sting and toasts.
+  The vault is then gone for good.
+  - **What this unlocked, measured at `EXPEDITION_WORLD_SEED = 20260727`** (BFS from the start
+    sector across every non-Wall edge, breakables counted passable): owning nothing reaches
+    **27 of 48** sectors and cannot reach the boss arena; + `ability_blink_drive` reaches 45;
+    + `ability_breach_charges` reaches 47; + `ability_magno_tether` reaches **48 of 48,
+    including the boss arena**. Before this chunk, 21 of 48 sectors were sealed behind 22
+    `GateClosed` tiles no code path could ever open, while the three keys sat in the world as
+    data nothing drew.
+  - **Single source of truth: ability ownership, nothing else.** No `collectedPoiIds` list (a
+    vault respawns only when `!ownedTraversalAbilityIds.has(slot.grantsAbilityId)`), no
+    `openedEdgeIds` list (a door's open state is a pure function of ownership, replayed by
+    `applyOwnedAbilityGates` in `ExpeditionModeAdapter`'s constructor). No new storage key, no
+    `SAVE_VERSION` bump, no `WORLDGEN_VERSION` bump. Same refusal as `FEAT-POWER-TRAVERSAL`
+    deviation 4: a second list can only ever disagree with the first.
+  - **The trap this chunk had to answer:** `sectorInterior.apertureMouthTile` returns
+    `TileKind.GateClosed` for every non-Open, non-Breakable edge kind, so `AbilityDoor`,
+    `KeyDoor` **and `OneWay` membranes all stamp `GateClosed` mouth tiles**. An "open every
+    `GateClosed` tile" implementation would silently dissolve every one-way membrane in the
+    world. Every opener therefore guards on `edge.kind === EdgeKind.AbilityDoor`, and one of
+    the 8 tests exists purely to pin that.
+  - **Deliberately deferred: the vault guard encounter.** Two of this item's four
+    done-criteria ("the guard clears", "a mid-run reload restores a cleared guard") need an
+    elite-pack spawn on the `spawnEnemy` path, live entity-id tracking and a new optional
+    `vaultGuardCleared` field on `GameSaveState`. Carried in full by **FEAT-POWER-VAULT-GUARD**
+    below. Checked off as the claim half on the `FEAT-BARRIER-PROJECTILE` "(travel half)"
+    precedent, not as a whole.
+  - **The toast refuses to print `definition.description`.** Those descriptions name active
+    systems (a blink with i-frames, a deployable charge, a tether) that no code grants; the
+    only implemented effect of owning an ability is that its doors open. It prints a fixed
+    "Doors keyed to it now open as you approach." instead. Filed as
+    **FEAT-POWER-ABILITY-EFFECTS**.
+  - A live vault also writes a `'pickup'` radar blip in `updateMinimap`, beside the treasure
+    chests: without it a core across a dark room is invisible until you fly into it.
+  - **Tests: 8, all in the existing `src/world/barrierState.test.ts`, no new file.** They are
+    the standing order's carve-out (non-obvious logic, real regression risk), not a breach of
+    it: the membrane trap above is a silent-breakage class, and the two-sided clear plus the
+    band-distance math cannot be eyeballed. Nothing Phaser-coupled is tested.
+  - Files: `src/world/barrierState.ts`, `src/world/barrierState.test.ts`,
+    `src/expedition/discoveryRules.ts`, `src/expedition/DiscoveryManager.ts`,
+    `src/game/world/ExpeditionModeAdapter.ts`, `src/game/scenes/GameScene.ts`. Verified:
+    `npx tsc --noEmit` clean, 141 files / 1736 tests green, `npm run build` clean.
+
+- [ ] **FEAT-POWER-VAULT-GUARD**: the encounter that makes a vault earned rather than found.
+  A vault spawns a placed elite pack (the decryptor vault a boss-tier spawn, per
+  `TraversalAbilityDefinition.guardTier`); the core is inert and reads GUARDED until the pack
+  is dead. Deferred out of `FEAT-POWER-VAULTS` because it needs the `spawnEnemy` elite path,
+  live entity-id tracking, and a new optional `vaultGuardCleared` field on `GameSaveState` for
+  the "mid-run reload restores a cleared guard" criterion, none of which the claim half needs.
+  Carries the two `FEAT-POWER-VAULTS` done-criteria this chunk did not meet. Deps:
+  `FEAT-POWER-VAULTS`. Spec: `04-content-quests-powerups-secrets.md` section 2, Claim flow.
+
+- [ ] **FEAT-POWER-ABILITY-EFFECTS**: the six traversal abilities have catalog descriptions
+  naming active systems (a blink with i-frames, a deployable breach charge, a tether across
+  void gaps) and **none of them exists**: owning an ability opens its doors and does nothing
+  else, which is why the claim toast deliberately prints a fixed line instead of
+  `definition.description`. Value: the reward for the deepest exploration in the game is
+  currently a key, not a capability. Deps: `FEAT-POWER-VAULTS`. Spec:
+  `04-content-quests-powerups-secrets.md` section 2.
 
 - [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
   sector banner, fragment cascades, secret bloom, completion milestones at 25/50/75/100 and the
@@ -3897,6 +3970,14 @@ Never agent work. The fleet must not do any of these.
     long expedition run does that read as a reward or as nagging, and is 2.5 s right?
     (e) **the toggle default**: `Map Underlay` defaults on. Is the plain threat radar
     actually preferable in a dense fight?
+  - **POLISH-POWER-VAULTS** (3f362b4, a2361d0): browser playtest of the ability loop (needs a
+    human flying `?expedition=1`). Owns: whether the violet core reads as a reward rather than
+    a hazard at the 30 px it is drawn; whether `VAULT_CLAIM_RADIUS = 40` claims on a fly-past
+    that was not meant as a claim; whether `ABILITY_DOOR_OPEN_RADIUS = 60` opens the door early
+    enough that the ship never stalls against it; whether the ROUTE OPEN toast lands while the
+    door is still on screen; and whether a vault four sectors from anything the player has a
+    reason to visit is findable at all without the map-screen POI icons `FEAT-MAPUI-DOORS-05`
+    owns.
   - **POLISH-MAPUI-FEEL** (36844a0): playtest the world map screen
     (FEAT-MAPUI-MAPSCENE-04), opened with **M** or gamepad **LB** in `?expedition=1`. Agents
     have no browser and must not tune pan speed or judge legibility blind. Owns:

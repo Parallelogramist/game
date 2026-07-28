@@ -546,6 +546,21 @@ v1 -> v2 bump. Save/restore tests follow the existing 13-file convention: a dedi
 `worldstate` save test asserting seed round-trip, broken/opened id round-trip, and
 legacy-save (no `expedition`) load.
 
+**As built (FEAT-BARRIER-ABILITY-DOORS, a2361d0):** neither `openedEdgeIds` nor
+`collectedPoiIds` was added to `WorldProfileState`. Ability ownership is the single source of
+truth for both, and a second list can only ever disagree with it (the same refusal as
+`FEAT-POWER-TRAVERSAL` deviation 4). A door's open state is a pure function of ownership, so
+`applyOwnedAbilityGates(world, getOwnedTraversalAbilityIds())` replays it into the tile grid in
+`ExpeditionModeAdapter`'s constructor, immediately after `applyBrokenBarriers` and before
+`worldBoundsRect`, so an owned door is open before the renderer, the collision index or the flow
+field ever read the grid. A spent vault is likewise decided by ownership, not by a collected
+list, so the profile keeps only `brokenBreakableIds` and no `SAVE_VERSION` or
+`WORLDGEN_VERSION` bump was needed. **Note for every future opener:** a one-way membrane stamps
+`GateClosed` mouth tiles too (`sectorInterior.apertureMouthTile` returns `GateClosed` for every
+non-Open, non-Breakable edge kind), so opening by tile kind alone would silently dissolve every
+membrane in the world. `openAbilityGate` and `abilityDoorNearWorld` therefore guard on
+`edge.kind === EdgeKind.AbilityDoor`, never on the tile.
+
 ---
 
 ## 5. Collision design

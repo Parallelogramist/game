@@ -146,6 +146,20 @@ callback pattern (`src/achievements/AchievementManager.ts:640`), and persists
 immediately. **Claim is permanent at the moment of pickup.** Death seconds later
 keeps it (section 7 defends this).
 
+**As built (FEAT-POWER-VAULTS, a2361d0):** the walk-in claim, permanence at the moment of
+pickup and the toast all shipped as specified, in `GameScene.claimAbilityVault`
+(`claimTraversalAbility` + `DiscoveryManager.markPoiCollected`, then burst, shake, level-up
+sting and toast, all before the graphics are destroyed). Two things differ from the text above.
+**The placed guard encounter did not ship**: a vault core is exposed and claimable from the
+moment you reach it, and its cost is the flight out to a depth-3+ sector through whatever the
+director is spawning. The guard is carried in full by `FEAT-POWER-VAULT-GUARD`, which also owns
+the "mid-run reload restores a cleared guard" criterion and the `vaultGuardCleared` save field
+it needs. **The toast prints a fixed description**, "Doors keyed to it now open as you
+approach.", rather than `definition.description`: those descriptions name active systems (a
+blink with i-frames, a deployable charge, a tether) that no code grants yet, and the only
+implemented effect of owning an ability is that its doors open, so printing them would promise
+a capability the player does not receive. `FEAT-POWER-ABILITY-EFFECTS` carries that.
+
 ---
 
 ## 3. Temporary power-ups in the world
