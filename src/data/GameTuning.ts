@@ -74,6 +74,14 @@ export const TUNING = {
     damageInvincibility: 0.5,
     dashDuration: 0.15,
     dashSpeedMultiplier: 3.5,
+
+    /** Blink Drive (expedition traversal ability 1, doc 04 section 2). */
+    blinkRange: 220,
+    blinkCooldownBase: 6,
+    blinkCooldownMin: 2.5,
+    blinkIframeSeconds: 0.45,
+    blinkMinTravel: 24,
+    blinkGhostCount: 5,
   },
 
   /** Endless mode (post-victory) intervals */

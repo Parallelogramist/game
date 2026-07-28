@@ -197,7 +197,7 @@ import { getCardCollectionManager } from '../../meta/CardCollectionManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
-import { getTraversalAbility } from '../../data/TraversalAbilities';
+import { getTraversalAbility, IMPLEMENTED_TRAVERSAL_ABILITY_IDS } from '../../data/TraversalAbilities';
 import {
   claimTraversalAbility, getOwnedTraversalAbilityIds,
 } from '../../meta/TraversalAbilityManager';
@@ -313,6 +313,9 @@ const ENEMY_COLLISION_RADIUS = 12;
 const BOSS_KNOCKBACK_AI_TYPE_FLOOR = 100;
 const knockbackCollisionResult = createCollisionResult();
 const enemySpawnSpot = { x: 0, y: 0 };
+const blinkCollisionResult = createCollisionResult();
+const blinkDirection = { x: 0, y: 0 };
+const BLINK_DRIVE_ID = 'ability_blink_drive';
 
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
@@ -2151,6 +2154,7 @@ export class GameScene extends Phaser.Scene {
     this.dashRequestHandler = () => {
       if (this.isPaused || this.isGameOver) return;
       if (this.playerId === -1) return;
+      if (this.tryBlink()) return;
       const playerX = Transform.x[this.playerId];
       const playerY = Transform.y[this.playerId];
       this.inputController.tryDash(playerX, playerY, this.playerId);
@@ -4471,11 +4475,13 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(160, 0.006);
     this.soundManager.playLevelUp();
     if (this.toastManager && definition) {
-      // Deliberately not definition.description: those name active systems (a blink, a
-      // charge, a tether) that no code grants yet, and a toast must not promise them.
+      // Only an ability whose description names a system that exists may print it: the rest
+      // still open doors and nothing more, and a toast must not promise what it cannot pay.
       this.toastManager.showToast({
         title: `${definition.name.toUpperCase()} ACQUIRED`,
-        description: 'Doors keyed to it now open as you approach.',
+        description: IMPLEMENTED_TRAVERSAL_ABILITY_IDS.has(definition.id)
+          ? definition.description
+          : 'Doors keyed to it now open as you approach.',
         icon: definition.icon,
         color,
         duration: 3600,
@@ -4496,6 +4502,114 @@ export class GameScene extends Phaser.Scene {
       const dy = playerY - vault.y;
       if (dx * dx + dy * dy < radius * radius) this.claimAbilityVault(i);
     }
+  }
+
+  /** Arena is inert by construction: ArenaModeAdapter.worldMap() is null, so an arena run
+   *  can never own the blink even on a profile that has claimed it. */
+  private blinkDriveOwned(): boolean {
+    return this.worldMode.worldMap() !== null
+      && this.ownedTraversalAbilityIds.has(BLINK_DRIVE_ID);
+  }
+
+  /** dashLevel is Blink Drive's synergy hook (doc 04 section 2): -1s per purchased level.
+   *  The floor only bites if that upgrade's maxLevel is ever raised past the base. */
+  private blinkCooldownSeconds(): number {
+    return Math.max(
+      TUNING.player.blinkCooldownMin,
+      TUNING.player.blinkCooldownBase - getMetaProgressionManager().getUpgradeLevel('dashLevel'),
+    );
+  }
+
+  /** One pooled ghost at a world point. Shared by the dash trail and by Blink Drive. */
+  private spawnDashAfterimage(x: number, y: number): void {
+    let afterimage = this.dashAfterimagePool.pop();
+    if (!afterimage) {
+      afterimage = this.add.circle(x, y, 16, PLAYER_NEON.glow, 0.6);
+      afterimage.setDepth(9);
+    } else {
+      afterimage.setPosition(x, y);
+      afterimage.setAlpha(0.6);
+      afterimage.setScale(1);
+      afterimage.setVisible(true);
+    }
+
+    this.tweens.add({
+      targets: afterimage,
+      alpha: 0,
+      scaleX: 0.7,
+      scaleY: 0.7,
+      duration: 200,
+      ease: 'Quad.easeOut',
+      onComplete: () => {
+        afterimage!.setVisible(false);
+        this.dashAfterimagePool.push(afterimage!);
+      },
+    });
+  }
+
+  /**
+   * Blink Drive (doc 04 section 2, ability 1): in an expedition run the dash button becomes a
+   * short teleport with i-frames. Returns true when the press belongs to the blink, so the
+   * caller does not also fire a dash: an owner blinks instead of dashing, cooling down or not.
+   *
+   * The landing point comes from resolveCircleMove, the same resolver ordinary movement uses:
+   * that is what makes a blink physically unable to cross a wall or a closed gate mouth, which
+   * would otherwise bypass every ability door in the world and dissolve the whole gate order.
+   */
+  private tryBlink(): boolean {
+    if (!this.blinkDriveOwned()) return false;
+    const map = this.worldMode.worldMap();
+    if (map === null) return false;
+    if (this.inputController.isDashActive()) return true;
+    if (this.inputController.getDashCooldownRemaining() > 0) return true;
+
+    const originX = Transform.x[this.playerId];
+    const originY = Transform.y[this.playerId];
+    if (!this.inputController.resolveActionDirection(originX, originY, blinkDirection)) return true;
+
+    const range = TUNING.player.blinkRange;
+    resolveCircleMove(
+      map,
+      originX,
+      originY,
+      originX + blinkDirection.x * range,
+      originY + blinkDirection.y * range,
+      PLAYER_COLLISION_RADIUS,
+      MoverKind.Player,
+      blinkCollisionResult,
+    );
+
+    const travelX = blinkCollisionResult.x - originX;
+    const travelY = blinkCollisionResult.y - originY;
+    const minTravel = TUNING.player.blinkMinTravel;
+    if (travelX * travelX + travelY * travelY < minTravel * minTravel) {
+      // Nose against a wall: refused rather than spent, so a blocked blink never eats the cooldown.
+      this.soundManager.playError();
+      return true;
+    }
+
+    Transform.x[this.playerId] = blinkCollisionResult.x;
+    Transform.y[this.playerId] = blinkCollisionResult.y;
+    clampPlayerToRect(this.world, this.playerId, this.worldMode.fieldRect());
+
+    this.damageCooldown = Math.max(this.damageCooldown, TUNING.player.blinkIframeSeconds);
+    this.inputController.setDashCooldownTimer(this.blinkCooldownSeconds());
+    this.hasDashedThisRun = true;
+
+    const ghostCount = TUNING.player.blinkGhostCount;
+    const landedX = Transform.x[this.playerId];
+    const landedY = Transform.y[this.playerId];
+    for (let ghost = 0; ghost < ghostCount; ghost++) {
+      const along = ghost / (ghostCount - 1);
+      this.spawnDashAfterimage(
+        originX + (landedX - originX) * along,
+        originY + (landedY - originY) * along,
+      );
+    }
+    this.effectsManager.playDeathBurst(originX, originY, PLAYER_NEON.glow);
+    this.cameras.main.shake(90, 0.003);
+    this.soundManager.playSynergyActivation();
+    return true;
   }
 
   /**
@@ -5083,33 +5197,7 @@ export class GameScene extends Phaser.Scene {
       this.dashAfterimageTimer += deltaSeconds;
       if (this.dashAfterimageTimer >= 0.03) {
         this.dashAfterimageTimer = 0;
-        const playerX = Transform.x[this.playerId];
-        const playerY = Transform.y[this.playerId];
-
-        // Reuse from pool or create new
-        let afterimage = this.dashAfterimagePool.pop();
-        if (!afterimage) {
-          afterimage = this.add.circle(playerX, playerY, 16, PLAYER_NEON.glow, 0.6);
-          afterimage.setDepth(9);
-        } else {
-          afterimage.setPosition(playerX, playerY);
-          afterimage.setAlpha(0.6);
-          afterimage.setScale(1);
-          afterimage.setVisible(true);
-        }
-
-        this.tweens.add({
-          targets: afterimage,
-          alpha: 0,
-          scaleX: 0.7,
-          scaleY: 0.7,
-          duration: 200,
-          ease: 'Quad.easeOut',
-          onComplete: () => {
-            afterimage!.setVisible(false);
-            this.dashAfterimagePool.push(afterimage!);
-          },
-        });
+        this.spawnDashAfterimage(Transform.x[this.playerId], Transform.y[this.playerId]);
       }
     } else {
       this.dashAfterimageTimer = 0;
@@ -5118,7 +5206,7 @@ export class GameScene extends Phaser.Scene {
     // Update touch dash cooldown display
     this.hudManager.updateDashCooldown(
       dashState.cooldownRemaining,
-      this.playerStats.dashCooldown
+      this.blinkDriveOwned() ? this.blinkCooldownSeconds() : this.playerStats.dashCooldown,
     );
 
     // ═══ GEM MAGNET (auto-vacuum at intervals) ═══

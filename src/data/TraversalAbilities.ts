@@ -111,3 +111,12 @@ export function getTraversalAbility(id: string): TraversalAbilityDefinition | un
 export function traversalAbilityIndex(id: string): number {
   return TRAVERSAL_ABILITIES.findIndex((ability) => ability.id === id);
 }
+
+/**
+ * Abilities whose catalog `description` names a system that exists in code. The claim toast
+ * prints `description` only for these; every other ability still opens its doors and does
+ * nothing else, and a toast must not promise a capability the player will not receive.
+ */
+export const IMPLEMENTED_TRAVERSAL_ABILITY_IDS: ReadonlySet<TraversalAbilityId> = new Set([
+  'ability_blink_drive',
+]);

@@ -15,6 +15,10 @@ import { TUNING } from '../../data/GameTuning';
 import { getSprite } from '../../ecs/systems/SpriteSystem';
 import { PLAYER_NEON } from '../../visual/NeonColors';
 
+// Caller-free scratch for resolveActionDirection: the dash and the blink both call it from
+// an input handler, never re-entrantly, so one shared object is safe.
+const actionDirection = { x: 0, y: 0 };
+
 export interface InputControllerOptions {
   getDashCooldown: () => number;
   onFocusLost: () => void;
@@ -187,16 +191,12 @@ export class InputController {
   }
 
   /**
-   * Attempts to initiate a dash in the current movement direction.
-   * Falls back to cursor direction if not moving.
+   * The direction a dash-family action fires in: current keyboard movement, else the gamepad
+   * stick, else toward the pointer. Writes into the caller's out-param and returns false when
+   * there is no direction at all. Public because Blink Drive (GameScene) is the same verb on
+   * the same button and the two must never disagree about which way the player is pointing.
    */
-  tryDash(playerX: number, playerY: number, playerId: number): void {
-    // Check if dash ability is available (dashCooldown > 0 means they have dash)
-    if (this.options.getDashCooldown() <= 0) return;
-    if (this.isDashingFlag) return;
-    if (this.dashCooldownTimer > 0) return;
-
-    // Get current movement direction
+  resolveActionDirection(playerX: number, playerY: number, out: { x: number; y: number }): boolean {
     let directionX = 0;
     let directionY = 0;
 
@@ -205,34 +205,41 @@ export class InputController {
     if (this.inputState.cursors.up.isDown || this.inputState.wasd.W.isDown) directionY -= 1;
     if (this.inputState.cursors.down.isDown || this.inputState.wasd.S.isDown) directionY += 1;
 
-    // If not moving via keyboard, try gamepad stick
     if (directionX === 0 && directionY === 0 && this.gamepadManager) {
       const stick = this.gamepadManager.getLeftStick();
       directionX = stick.x;
       directionY = stick.y;
     }
 
-    // If still not moving, dash toward cursor
     if (directionX === 0 && directionY === 0) {
       const pointer = this.scene.input.activePointer;
       directionX = pointer.worldX - playerX;
       directionY = pointer.worldY - playerY;
     }
 
-    // Normalize direction
     const magnitude = Math.sqrt(directionX * directionX + directionY * directionY);
-    if (magnitude > 0) {
-      directionX /= magnitude;
-      directionY /= magnitude;
-    } else {
-      return; // No direction to dash
-    }
+    if (magnitude === 0) return false;
+    out.x = directionX / magnitude;
+    out.y = directionY / magnitude;
+    return true;
+  }
+
+  /**
+   * Attempts to initiate a dash in the current movement direction.
+   * Falls back to cursor direction if not moving.
+   */
+  tryDash(playerX: number, playerY: number, playerId: number): void {
+    // Check if dash ability is available (dashCooldown > 0 means they have dash)
+    if (this.options.getDashCooldown() <= 0) return;
+    if (this.isDashingFlag) return;
+    if (this.dashCooldownTimer > 0) return;
+    if (!this.resolveActionDirection(playerX, playerY, actionDirection)) return;
 
     // Start dash
     this.isDashingFlag = true;
     this.dashTimer = this.DASH_DURATION;
-    this.dashDirectionX = directionX;
-    this.dashDirectionY = directionY;
+    this.dashDirectionX = actionDirection.x;
+    this.dashDirectionY = actionDirection.y;
     this.dashCooldownTimer = this.options.getDashCooldown();
 
     // Visual feedback - brief player flash
