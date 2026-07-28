@@ -5,6 +5,7 @@ import { VisualQuality } from '../visual/GlowGraphics';
 import { TUNING } from '../data/GameTuning';
 import { getJuiceManager } from '../effects/JuiceManager';
 import type { WorldRect } from '../world/worldSpace';
+import type { WorldMap } from '../world/worldTypes';
 
 /**
  * WeaponContext provides weapons access to game systems they need.
@@ -24,6 +25,12 @@ export interface WeaponContext {
    * spawns. Reused between frames by its owner, so read it, never retain it.
    */
   view: WorldRect;
+  /**
+   * Static geometry the run's mode supplies, or null for a mode that has none. Null is what
+   * keeps arena identical: every wall branch a weapon owns is unreachable there. Unlike view
+   * this is stable for the whole run, so it is held by reference rather than copied per frame.
+   */
+  worldMap: WorldMap | null;
   effectsManager: EffectsManager;
   soundManager: SoundManager;
   getEnemies: () => readonly number[];

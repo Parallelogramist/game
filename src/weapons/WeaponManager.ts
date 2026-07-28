@@ -21,6 +21,7 @@ import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { getJuiceManager } from '../effects/JuiceManager';
 import { rectFromScreen, type WorldRect } from '../world/worldSpace';
+import type { WorldMap } from '../world/worldTypes';
 
 // Chain-lightning on-hit proc (Electromancer meta upgrade + Chain Catalyst
 // relic, driven by combatStats.chainLightningChance). Tunable feel/balance
@@ -194,6 +195,7 @@ export class WeaponManager {
       gameTime: 0,
       deltaTime: 0,
       view: this.viewRect,
+      worldMap: null,
       effectsManager: this.effectsManager,
       soundManager: this.soundManager,
       getEnemies: getEnemyIds,  // Use FrameCache directly - no allocation!
@@ -430,7 +432,7 @@ export class WeaponManager {
    * Update all weapons. Called every frame.
    * Uses pooled context to avoid per-frame allocations.
    */
-  public update(gameTime: number, deltaTime: number, view: WorldRect): void {
+  public update(gameTime: number, deltaTime: number, view: WorldRect, worldMap: WorldMap | null): void {
     if (this.playerId === -1) return;
 
     // PERF: Reset per-frame effect budgets
@@ -451,6 +453,9 @@ export class WeaponManager {
     this.viewRect.minY = view.minY;
     this.viewRect.maxX = view.maxX;
     this.viewRect.maxY = view.maxY;
+    // Held by reference, unlike view: the map a run generates is created once and never
+    // mutated, so there is nothing to copy and nothing that can drift between frames.
+    this.ctx.worldMap = worldMap;
     this.ctx.overchargeStunDuration = this.overchargeStunDuration;
     this.ctx.visualQuality = this.visualQuality;
 
