@@ -3578,6 +3578,13 @@ exploring pays is the end of Phase 5.
   closed door advertises what it wants. Gate shape glyphs plus a lock ring (never color alone),
   focused-sector tooltip naming the requirement or `mechanism unknown`, legend, objective pins,
   dimmed collected POIs. Deps: `FEAT-MAPUI-MAPSCENE-04`, gate types from `FEAT-BARRIER-GATES`.
+  **Two criteria are already met by FEAT-BARRIER-DOOR-READOUT (49a71a8)**: the shape glyph is
+  drawn for every KNOWN gated border, and the lock ring is drawn for every gated door whose
+  requirement the profile does not hold (no ring once it does). What remains here is the
+  focused-sector **cursor and tooltip** (which is why `FEAT-MAPUI-CURSOR-HITTEST` is still
+  open and still lands with this item), the **legend side panel** (only a one-line footer hint
+  exists), **POI icons**, **secret badges**, **objective pins** and **dimmed collected POIs**.
+  The requirement *name* is currently learned at the door in world, not on the map.
 
 - [x] **FEAT-MAPUI-RADAR-UNDERLAY-06** (done — 492b8f0, 9c670b7): the tactical radar became
   world-aware without losing its threat identity.
@@ -3735,6 +3742,49 @@ exploring pays is the end of Phase 5.
   - Files: `src/data/GameTuning.ts`, `src/data/TraversalAbilities.ts`,
     `src/game/managers/InputController.ts`, `src/game/scenes/GameScene.ts`. Feel is
     unvalidated in a browser: see **POLISH-BLINK-FEEL** under `## Human gates`.
+
+- [x] **FEAT-BARRIER-DOOR-READOUT** (done — 49a71a8): a sealed door names the key it wants,
+  in the world and on the map. Value: the five sessions before this one built a working
+  Metroid loop that the player could not read. `tryOpenAbilityDoor` returned **silently** for
+  a door whose ability the profile lacked, and `sectorInterior.apertureMouthTile` stamps
+  `GateClosed` for `AbilityDoor`, `KeyDoor` and `OneWay` alike, so all three read as one
+  violet wall in world. The reward for the deepest exploration in the game was a key whose
+  lock could not be found.
+  - **In world:** flying within `SEALED_DOOR_NOTICE_RADIUS = 150` of a closed ability door
+    the profile cannot pass raises a `SEALED DOOR` toast naming the ability
+    (`Magno-Tether opens this route.`), a `SEALED` float at the mouth centre and
+    `playError()`. Announced per `edgeId` and re-armed after
+    `SEALED_DOOR_REANNOUNCE_SECONDS = 30` of run time, because a six-gate world puts the ship
+    back against the same door many times in one run.
+  - **Order matters and is load-bearing:** the scan runs **after** `tryOpenAbilityDoor`, not
+    before. That call clears the mouth tiles of a door this profile can pass, so
+    `gateStillClosed` then rejects it and the nearest remaining closed door is the one worth
+    naming. Reversing the two would announce a door that is opening in the same frame.
+  - **On the map:** `AbilityDoor` and `KeyDoor` glyphs gain a lock ring when the profile does
+    not hold the requirement, and **no ring** once it does, which is doc 03 section 4.5 rule 2
+    (locked state is a ring, never a colour swap) and survives every colourblind pipeline.
+    This also fixes a standing lie: `EdgeDef.kind` is never mutated (only tiles are), so a
+    door already opened by `applyOwnedAbilityGates` used to draw identically to a sealed one.
+  - **A KeyDoor always reads sealed.** Nothing grants quest keys yet
+    (`FEAT-WORLDGEN-QUESTDOORS`), and an edge with no `requiredId` can never be satisfied, so
+    drawing either unlocked would be a lie.
+  - **The radar is untouched, deliberately.** `MinimapManager` imports `drawGateGlyph` by name
+    and that signature did not change. A radar glyph is `radarRadius * 0.12` (about 6.7 px)
+    and a ring around it would smear into a blob.
+  - **No persistence of any kind:** no `SAVE_VERSION` bump, no `WORLDGEN_VERSION` bump, no
+    storage key, no `GameSaveState` field. The notice is run-scoped instance state (so a
+    scene restart clears it with no `reset*` call) and the ring is a pure function of ability
+    ownership, which is already stored.
+  - **Arena is inert by construction, not by care:** `updateExpeditionAbilities` returns on
+    `worldMode.worldMap() === null`, which is what `ArenaModeAdapter` returns.
+  - **No new tests, deliberately.** The ring is `Graphics` drawing and the readout is Phaser
+    scene wiring (toast, sound, effects manager) that needs a live scene; the only decision in
+    either is a `Set.has`, and pinning them needs exactly the mock-scene scaffolding the
+    standing order bans. Guarded by `tsc`, the unchanged 141-file / 1737-test suite and
+    `npm run build`.
+  - Files: `src/game/scenes/GameScene.ts`, `src/game/scenes/MapScene.ts`,
+    `src/visual/SectorMapRenderer.ts`. Feel is unvalidated in a browser: see
+    **POLISH-DOOR-READOUT** under `## Human gates`.
 
 - [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the five traversal abilities that are still keys
   and nothing more, each blocked on a barrier flavour that does not exist yet rather than on
@@ -4074,6 +4124,23 @@ Never agent work. The fleet must not do any of these.
     door is still on screen; and whether a vault four sectors from anything the player has a
     reason to visit is findable at all without the map-screen POI icons `FEAT-MAPUI-DOORS-05`
     owns.
+  - **POLISH-DOOR-READOUT** (49a71a8): browser playtest of the sealed-door readout in
+    `?expedition=1`. Agents have no browser and must not tune this blind. Owns:
+    (a) **the radius**: `SEALED_DOOR_NOTICE_RADIUS = 150` against
+    `ABILITY_DOOR_OPEN_RADIUS = 60`. Does the toast land while the door is still on screen,
+    or does it fire from so far out that the player cannot tell which wall it means?
+    (b) **the re-announce**: 30 s of run time per edge. In a run that crosses the same
+    chokepoint repeatedly, does that read as a reminder or as nagging?
+    (c) **the cue**: `playError()` is the same blip a refused blink uses. Is a "you cannot
+    pass" error right here, or does a locked door deserve its own softer sound?
+    (d) **toast competition**: the readout shares the single ToastManager queue with level-ups,
+    relics and bounties. Does it get buried in a busy fight?
+    (e) **ring legibility**: the map lock ring is `glyphSize * 1.8`, so 5.4 px at zoom 0.5 and
+    18 px at zoom 2. Is "ringed = sealed" readable at the smallest zoom, and does the ring
+    crowd the diamond at the largest?
+    (f) **the legend line**: `RINGED DOORS ARE STILL SEALED …` sits at `height - 48`, which
+    overlaps the bottom row of map cells the way the existing hint line already does. Does it
+    obscure anything worth reading?
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first

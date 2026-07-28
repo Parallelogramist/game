@@ -602,6 +602,24 @@ the sector cursor, lock rings, POI icons, secret badges and objective pins are
 all `FEAT-MAPUI-DOORS-05`. Interior wall stubs wait on `sectorWallSegments`,
 which contract 11.2 still lists as unbuilt.
 
+**As built (FEAT-BARRIER-DOOR-READOUT).** Rules 1 and 2 of this section are now shipped, rule
+3 is shipped in a different place than specified, and rule 4 is not. Rule 1 (shape glyph on
+every KNOWN gated border) landed with FEAT-MAPUI-MAPSCENE-04. Rule 2 (the lock ring) is
+`drawGateLockRing` in `SectorMapRenderer.ts`: a ring at `glyphSize * 1.8` in the glyph's own
+colour, drawn for an `AbilityDoor` or `KeyDoor` whose requirement the profile does not hold,
+and **no ring at all** once it does. The predicate reaches the renderer as
+`SectorMapDrawInput.holdsAbility`, so the renderer never learns where ownership is stored.
+Rule 3's requirement name is delivered **at the door in world**, not in a focused-sector
+tooltip: approaching a sealed ability door raises a `SEALED DOOR` toast naming the ability
+(or `Mechanism unknown.` for an unsatisfiable edge, which is this section's `mechanism
+unknown` wording moved to the world surface). That deviation is deliberate: the tooltip needs
+the sector cursor and the two unbuilt `FEAT-MAPUI-CURSOR-HITTEST` projection functions,
+whereas the door itself needs no input model at all, and Metroid teaches at the door rather
+than on the map. Rule 4's newly-passable flash and its toast are still unbuilt and stay with
+FEAT-MAPUI-DOORS-05. A `KeyDoor` always draws sealed because nothing grants quest keys yet.
+The radar underlay draws glyphs but no rings, deliberately: a radar glyph is about 6.7 px and
+a ring would smear.
+
 Four decisions worth keeping:
 
 1. **Snapshot at launch, not a live read.** `MapScene` receives the world map
