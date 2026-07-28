@@ -34,6 +34,48 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Proposed (auto)
 
+- [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
+  canvas, so outside the expedition start sector they all stopped working (done — ac99375,
+  10ec649, 8685b35). `ProjectileWeapon` (Energy Darts, the weapon every run starts with),
+  `ShurikenWeapon`, `DroneWeapon`, `SentryWeapon` and `GuardianWeapon` tested each projectile
+  against `[-50 .. ctx.scene.scale.width + 50]`, and `RicochetWeapon` clamped its ball into the
+  same box. That box is the screen *at the world origin*. Measured against the real generator at
+  the dev seed 20260727: the world is `{minX:-5120, minY:-2880, maxX:7680, maxY:4320}` and **47
+  of its 48 sector centres lie outside `[-50, 1330] x [-50, 770]`**, so in 47 of 48 rooms a dart
+  spawned at the player was destroyed by the next bounds test in the same frame, a sentry bolt
+  and a guardian shard died before their `travelled` caps could apply, and a ricochet ball was
+  snapped back to `x = 10` to bounce off-camera until its lifetime expired. The player was
+  effectively disarmed everywhere except the start room. `WeaponContext` now carries
+  `view: WorldRect`, copied by value each frame from `worldMode.viewRect()` into a rect
+  `WeaponManager` owns (the adapter reuses one instance between frames, the same aliasing trap
+  `setEnemyAIFieldRect` already avoids), and all six sites read it. **Arena is unchanged by
+  construction, not by care**: `ArenaModeAdapter.viewRect()` is `(0, 0, scale.width,
+  scale.height)`, so `view.minX - 50` is `-50`, `view.maxX + 50` is `scale.width + 50` and
+  `view.minX + bounceMargin` is `10`; every migrated expression reduces to the literal it
+  replaced, including under a live resize, because the arena rect is recomputed from the live
+  scale on every call exactly as `scene.scale` was. Three deliberate calls. (1) **The despawn
+  bounds are four hoisted numbers, not `inflateRect`.** The GameScene enemy-projectile loop
+  allocates one rect per frame; these loops run per projectile in six weapons, and hoisting four
+  numbers keeps the repo's no-allocation rule while making the arena reduction obvious in the
+  diff. (2) **Ricochet bounces off the live view, not the world bounds and not a box captured at
+  spawn.** The world is 12800 x 7200, so a world-sized box would let the ball leave and never
+  return inside its 5 s lifetime, deleting the weapon; a spawn-time box would stop being
+  arena-identical under a resize. A camera that outruns the ball drags it along an edge and
+  spends its bounces, which is acceptable and self-limiting. Real wall bounces are
+  `FEAT-BARRIER-PROJECTILE`. (3) **`DeathRippleManager` is filed, not fixed**
+  (`CHORE-WORLDSPACE-DEATHRIPPLE-RECT`): it is the one sibling screen-space read left on a
+  world-space path, it is cosmetic, and it needs a rect seam this chunk does not have. **No new
+  tests, deliberately**: all six edits are inside Phaser-coupled update loops that need a live
+  scene, `Graphics` and the spatial hash, so pinning them needs exactly the mock-scene
+  scaffolding the standing order bans, and the change adds no pure function. The suite stayed at
+  134 files / 1670 tests, which is itself the check that nothing was added or broken. Verified:
+  `tsc --noEmit` clean, suite green, `npm run build` clean, and
+  `grep -rn "scale.width\|scale.height" src/weapons/` returns nothing. Root cause of the miss:
+  `references/map/01-world-space.md` section 3 audits "weapon targeting" and correctly says "no
+  change" (distance math is world-space), but no row in any of the four architecture documents
+  covers projectile *lifetime* bounds. Recorded there as an as-built note. Browser-only questions
+  are filed under **POLISH-EXPEDITION-FLIGHT** items (t) and (u).
+
 - [x] **BUG-ENDRUN-GOLD-MULT** — ending a run from the pause menu paid less gold than dying with the
   identical run (done — 1306a46). `PauseMenuManager.ts:1263` called
   `metaManager.calculateRunGold(killCount, gameTime, playerLevel, false)` with **no 5th argument**,
@@ -2252,6 +2294,17 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   Value: without it, `FEAT-POWER-VAULTS` has nothing to gate and the Metroid loop has no
   locks. Deps: none. Spec: `02-worldgen-barriers.md` section 2.2.
 
+- [ ] **CHORE-WORLDSPACE-DEATHRIPPLE-RECT** — `DeathRippleManager.spawnRipple`
+  (`src/visual/DeathRippleManager.ts:179-180`) computes `maxRadius` from
+  `Math.max(x, scene.scale.width - x)` while `x`/`y` are world coordinates, and the manager sets
+  no `setScrollFactor`, so its graphics are world-space. In arena the two spaces coincide and the
+  ripple is correct. In expedition a kill at world `x = 5000` yields `maxDistX = 5000` and a
+  ripple that expands to roughly a 5000 px radius instead of a screen diagonal, so it crawls
+  outward for seconds instead of flashing. Fix: give the manager the run's view rect the way
+  `WeaponContext.view` now does (`BUG-WEAPONS-VIEW-RECT`) and derive `maxRadius` from the view's
+  half-extents around the ripple origin. Cosmetic only, no gameplay effect, which is why it was
+  filed rather than folded into that chunk. Deps: none.
+
 - [ ] **CHORE-COLLIDE-TELEPORT-SNAP**: `resolveCircleMove` caps at `MAX_SUBSTEPS = 64`
   (one sector width), so a recall-to-Hangar teleport must not be routed through it:
   the recall implementation calls `findNearestFreeCircleSpot` at the destination
@@ -3378,7 +3431,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3426,6 +3479,13 @@ Never agent work. The fleet must not do any of these.
     of the world badly enough that NAV should be the very next chunk? (s) **locked doors
     with no key**: ability doors are drawn in purple and are solid, and no ability exists to
     open them yet (`FEAT-POWER-VAULTS`). Does a dead end read as a locked door, or as a bug?
+    (t) **do the guns feel right away from the start room?** (BUG-WEAPONS-VIEW-RECT): fly two or
+    three sectors out and fight with Energy Darts, Shuriken, a Drone, a Sentry and a Guardian.
+    Every projectile now despawns at the edge of the camera window rather than the canvas. Does
+    the effective range read the same as it does in arena, or does something die visibly early?
+    (u) **the ricochet box**: take Bouncing Ball into expedition and move while a ball is live.
+    It bounces inside the camera window, so a fast camera drags it along an edge and burns its
+    bounce count. Does that read as the ball being left behind, or as it breaking?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every

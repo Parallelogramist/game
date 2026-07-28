@@ -300,6 +300,21 @@ neighbours) as `CHORE-WORLDSPACE-CHEST-RECT`, and `spawnBossPhaseHazards`
 | `src/ecs/systems/XPGemSystem.ts:385-390, 39, 417-427` | `xpGemSystem(world, dt, screenWidth, screenHeight)`, cull margin 100 | `xpGemSystem(world, dt, view: WorldRect)`, cull `inflateRect(view, 100)`. Caller `GameScene.ts:4953`. | W2 |
 | `GameScene.ts:4323-4346` enemy projectile despawn | Outside `[-20 .. W+20]` | Outside `inflateRect(viewRect, 20)`; the 4 s lifetime cap (4316) is unchanged. | W2 |
 
+*(As built, `BUG-WEAPONS-VIEW-RECT`: this table missed the **player's** projectile bounds
+entirely. Five weapons (`ProjectileWeapon`, `ShurikenWeapon`, `DroneWeapon`, `SentryWeapon`,
+`GuardianWeapon`) culled their projectiles against `[-50 .. scene.scale.width + 50]` and
+`RicochetWeapon` clamped its ball into the same box, so outside the start sector the player was
+disarmed: 47 of the 48 sectors at the dev seed lie outside that box. Section 3's "weapon
+targeting: No change" row below is right about targeting, which is world-space distance math, and
+silent about lifetime bounds, which were not. `WeaponContext` now carries `view: WorldRect`,
+copied by value each frame from `worldMode.viewRect()`, and all six sites read it; in arena the
+rect is `(0, 0, scale.width, scale.height)` so every expression reduces to the literal it
+replaced. Ricochet's bounce box is the **live view**, deliberately: the world rect would let the
+ball leave and never return inside its lifetime, and geometry bounces belong to
+`FEAT-BARRIER-PROJECTILE`. `src/visual/DeathRippleManager.ts:179-180` is the one remaining
+screen-derived value on a world-space path and is filed as
+`CHORE-WORLDSPACE-DEATHRIPPLE-RECT`.)*
+
 ### Visual systems
 
 | Site | Today | New behavior | When |
