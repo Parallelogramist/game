@@ -21,7 +21,9 @@ import { TRAVERSAL_ABILITY_GATE_ORDER } from '../../data/TraversalAbilities';
 import { generateWorld } from '../../world/generateWorld';
 import { applyBrokenBarriers } from '../../world/barrierState';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
-import { worldBoundsRect } from '../../world/worldTypes';
+import {
+  EDGE_DIRECTIONS, EdgeKind, directionDelta, edgeIdFor, worldBoundsRect,
+} from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
 import {
   MoverKind,
@@ -311,13 +313,30 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
   }
 
   private enterSector(sector: SectorCoord): void {
+    const previous = this.currentSector;
     this.currentSector = sector;
     const key = sectorKey(sector);
     this.scene.events.emit('expedition:sector-entered', {
       sectorKey: key,
       coord: sector,
-      viaEdgeId: null,
+      viaEdgeId: previous ? this.sharedEdgeId(previous, sector) : null,
     });
     console.log(`[expedition] sector-entered ${key}`);
+  }
+
+  /**
+   * The border actually crossed, or null when there is none: a run start, a restore, a
+   * frame long enough to skip a sector, and (later) a recall all arrive without crossing
+   * anything, which is exactly what README section 3.2's nullable viaEdgeId is for.
+   */
+  private sharedEdgeId(from: SectorCoord, to: SectorCoord): string | null {
+    const direction = EDGE_DIRECTIONS.find(candidate => {
+      const { dsx, dsy } = directionDelta(candidate);
+      return from.col + dsx === to.col && from.row + dsy === to.row;
+    });
+    if (!direction) return null;
+    const fromSector = this.map.sectors.get(sectorKey(from));
+    if (!fromSector || fromSector.edges[direction].kind === EdgeKind.Wall) return null;
+    return edgeIdFor(from.col, from.row, direction);
   }
 }
