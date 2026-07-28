@@ -4533,6 +4533,10 @@ export class GameScene extends Phaser.Scene {
       && this.ownedTraversalAbilityIds.has(BLINK_DRIVE_ID);
   }
 
+  private thermalWardOwned(): boolean {
+    return this.ownedTraversalAbilityIds.has(THERMAL_WARD_ID);
+  }
+
   /** dashLevel is Blink Drive's synergy hook (doc 04 section 2): -1s per purchased level.
    *  The floor only bites if that upgrade's maxLevel is ever raised past the base. */
   private blinkCooldownSeconds(): number {
@@ -4718,6 +4722,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.thermalWardOwned()) {
+      this.reportThermalWard(playerX, playerY);
+      return;
+    }
+
     this.hazardFloorTickTimer += deltaSeconds;
     if (this.hazardFloorTickTimer < TUNING.hazards.floorTickSeconds) return;
     this.hazardFloorTickTimer -= TUNING.hazards.floorTickSeconds;
@@ -4728,6 +4737,15 @@ export class GameScene extends Phaser.Scene {
 
     this.takeDamage(TUNING.hazards.floorTickDamage, undefined, 'Hazard Floor');
     this.reportHazardField(playerX, playerY);
+  }
+
+  /** The ward is silent otherwise: a floor that visibly costs hull and then does not has to say
+   *  why, or it reads as a bug. Same 30 s re-arm and same field as the unwarded notice, so the
+   *  two can never both fire in one window. */
+  private reportThermalWard(playerX: number, playerY: number): void {
+    if (this.gameTime - this.hazardNoticeAt < GameScene.HAZARD_NOTICE_REANNOUNCE_SECONDS) return;
+    this.hazardNoticeAt = this.gameTime;
+    this.effectsManager.showDamageNumber(playerX, playerY - 26, 'WARDED', PLAYER_NEON.glow);
   }
 
   /** Names the key the same way a sealed door does: the cost is only fair if the player can

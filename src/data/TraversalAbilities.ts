@@ -119,4 +119,5 @@ export function traversalAbilityIndex(id: string): number {
  */
 export const IMPLEMENTED_TRAVERSAL_ABILITY_IDS: ReadonlySet<TraversalAbilityId> = new Set([
   'ability_blink_drive',
+  'ability_thermal_ward',
 ]);
