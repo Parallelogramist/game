@@ -287,6 +287,30 @@ generation input yet; the enum member exists so that chunk adds no type churn. B
 tie-break: deepest sector in the final region, lowest `SectorKey` by string compare,
 stepping to the next deepest if that resolves to the start sector.)*
 
+*(As built, `BUG-WORLDGEN-GATE-NESTING`: step 1's "weighted toward deeper edges" is
+replaced by **feasibility first, balance second**, because the depth weighting was the
+bug. A deep child owns a small subtree, so `availableRegion` collapsed onto a leaf after
+gate 1 and every later ability found no tree edge inside it: over seeds 1..40 at sector
+budgets 48, 64, 80, 96, 120, 160 and 200, all 6 gates were placed in **0 of 40** seeds at
+every budget, averaging 1.77 of 6 at budget 48. `placeAbilityGates` now precomputes
+`height(v)` (the longest downward path from `v`) once, and filters candidates to
+`height(v) >= gatesLeft - 1`: gate `i+1`'s child is a strict descendant of gate `i`'s
+child, so a subtree shorter than the gates still to place cannot host them, and the filter
+is both necessary and sufficient by induction. Among feasible candidates the pick is
+**deterministic argmin**, closest subtree size to `regionSize * gatesLeft /
+(gatesLeft + 1)` (the split that leaves the remaining gates cutting the region into
+equal tiers), tie-broken by taller subtree then lower `SectorKey`, so the comparator is
+total and consumes no RNG. The key/host pick keeps its `1 + depth` weighted draw. When no
+candidate is tall enough (a shallow tree at a small `sectorBudget`) the pool falls back to
+the candidates of maximal height, so a small world still places as many gates as it can
+host rather than throwing. Measured after the change: **6 of 6 gates on 100 of 100** of
+the suite's seeds and on 180 of 180 probe worlds across budgets 48/64/96; budgets
+4/6/8/12/20 place 2/2/3/4/5; the dev seed `20260727` goes 3 → 6, with reachable-tier
+increments 27/11/4/2/1/2/1 sectors and the boss arena behind all six keys. This bumps
+`WORLDGEN_VERSION` to 2; no migration was needed because `loadWorldProfile` and
+`reconcileDiscoveryState` already drop state on a version mismatch and ability ownership
+is stored by id.)*
+
 **Phase D: biomes and danger.** `danger = depth / maxDepth`, then +0.08 per gate tier
 crossed, clamped to 1. Partition the tree into contiguous regions of 4-8 sectors
 (subtree slicing); assign each region a stage id from `inputs.availableBiomeIds` sorted

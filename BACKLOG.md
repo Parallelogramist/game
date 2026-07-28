@@ -2279,26 +2279,77 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   below; when that lands, tightening this warn into an assert becomes meaningful. Deps: none
   (was `FEAT-WORLDGEN-SPAWN`, superseded by the earlier call site).
 
-- [ ] **BUG-WORLDGEN-GATE-NESTING** — `generateWorld` places at most a couple of ability
-  gates however big the sector budget is, so most traversal abilities end up gating nothing.
-  Measured over seeds 1..40 at sector budgets 48, 64, 80, 96, 120, 160 and 200:
-  `abilityOrder.length === 6` for **0 of 40 seeds at every budget**, and the minimum placed
-  is 1. Cause: `placeAbilityGates` (`src/world/generateWorld.ts:239-288`) sets
-  `availableRegion = chosen.subtree` after each gate, while `weightedPick` biases toward
-  deep children whose subtrees are small, so the candidate region collapses after the first
-  gate and later gates find no edge whose key still has a home. Nested gating is the intent;
-  collapsing to one gate is not. Fix is a placement rule that keeps the remaining region
-  large enough for the gates still to place (for example pick the candidate whose subtree is
-  closest to half the available region, rather than the deepest). **This bumps
-  `WORLDGEN_VERSION`**, so it wants to land before any world is persisted per profile.
-  Value: without it, `FEAT-POWER-VAULTS` has nothing to gate and the Metroid loop has no
-  locks. Deps: none. Spec: `02-worldgen-barriers.md` section 2.2. **Ordering (measured
-  2026-07-27):** because `placeAbilityGates` sets `availableRegion = chosen.subtree`, every
-  gate after the first is placed inside the first gate's subtree, so rebalancing the pick
-  moves gate 1 from locking a small deep subtree to locking roughly half the world, and with
-  no code path able to grant a traversal ability yet that halves the reachable expedition
-  world in exchange for gates nobody can open, so this should land with or after
-  `FEAT-POWER-VAULTS`, never before it.
+- [x] **BUG-WORLDGEN-GATE-NESTING** — every expedition world now places all 6 ability gates
+  as nested locks instead of the 1-3 it placed before, so the six traversal abilities each
+  open a region and the boss arena sits behind all of them (done — da25d6c). Value: the
+  Metroid loop existed on paper only. `FEAT-POWER-VAULTS` could grant every ability and
+  `FEAT-BARRIER-ABILITY-DOORS` could open every door, but the generator emitted an average
+  of **1.77 gates of 6** at the shipping budget, so four or five of the six abilities gated
+  nothing at all and the dev seed `20260727` shipped **3 of 6**. Cause, measured not
+  guessed: `placeAbilityGates` set `availableRegion = chosen.subtree` after each gate while
+  picking that gate with `weightedPick(1 + child.depth)`; a deep child owns a tiny subtree,
+  so the candidate region collapsed onto a leaf after gate 1 and every later ability found
+  no tree edge left inside it and broke out of the loop. Over seeds 1..40 at sector budgets
+  48, 64, 80, 96, 120, 160 and 200, all 6 gates were placed in **0 of 40** seeds at every
+  budget, floor 1. The tree was never the constraint: max tree depth at budget 48 is 7 to
+  13, so six nested gates were structurally available in every world. Fixed as **feasibility
+  first, balance second**. (a) `measureSubtreeHeights` computes `height(v)`, the longest
+  downward path from `v`, in one descending-depth pass; candidates are filtered to
+  `height(child) >= gatesLeft - 1`, which is exactly necessary and sufficient because gate
+  `i+1`'s child must be a strict descendant of gate `i`'s child. (b) Among feasible
+  candidates the pick is **deterministic argmin** on distance to
+  `regionSize * gatesLeft / (gatesLeft + 1)`, the split that leaves the remaining gates
+  cutting the region into equal tiers, tie-broken by taller subtree then lower `SectorKey`
+  so the comparator is total. A weighted random shortlist was measured and **rejected**: a
+  shortlist of 4 left 41% of tiers opening <= 1 sector against argmin's 5%, and the
+  backlog's own suggested `regionSize / 2` target left 37%. The gate pick therefore consumes
+  **no RNG**; the key/host pick keeps its `1 + depth` draw unchanged. (c) When no candidate
+  is tall enough (a shallow tree at a small `sectorBudget`) the pool falls back to the
+  candidates of maximal height, so a small world places as many gates as it can host rather
+  than throwing: budgets 4/6/8/12/20 place 2/2/3/4/5 gates. Result: **6 of 6 gates on 100
+  of 100** of the invariant suite's seeds and on 180 of 180 probe worlds at budgets 48/64/96;
+  the dev seed goes 3 → 6 with 6 `AbilityDoor` edges, 6 vault POIs and reachable-tier
+  increments of 27/11/4/2/1/2/1 sectors. **`WORLDGEN_VERSION` is bumped 1 → 2** and needs no
+  migration by construction: `loadWorldProfile` and `reconcileDiscoveryState` already return
+  fresh state on a version mismatch, and traversal-ability ownership is stored **by id**
+  (`TraversalAbilityManager`) exactly so a bump remaps cleanly. **One new test, deliberately**
+  (`expect(map.abilityOrder).toEqual(INPUTS.abilityGateOrder)` inside invariant 3): the
+  collapse was *silent*: the world still generated, still passed every existing invariant
+  and still played, and the only symptom was a `console.warn` no suite read. That is a bug
+  worth pinning; the three new private helpers are covered by the invariant and got no tests
+  of their own. The adapter's `console.warn` is deliberately **not** tightened into an
+  assert: see `CHORE-WORLDGEN-GATE-COUNT-ASSERT`. Suite 1736 → 1737 tests, 141 files
+  unchanged. Files: `src/world/generateWorld.ts`, `src/world/worldTypes.ts`,
+  `src/world/generateWorld.test.ts`. Pacing is unvalidated in a browser: see
+  **POLISH-GATE-PACING** under `## Human gates`.
+
+- [ ] **BALANCE-GATE-TIER-FLOOR**: after `BUG-WORLDGEN-GATE-NESTING`, 47 of 700 reachable
+  tiers across 100 seeds open **1 sector or fewer**, so some abilities are a key to a single
+  room. Down from ~41% of tiers under the rejected weighted-shortlist variant and from a
+  world with no gates at all, but an ability that unlocks one room reads as a non-reward.
+  The cause is structural, not a tuning knob: a nested-subtree gate can only cut off a
+  hanging branch, and `growSpanningTree`'s straightness bias plus its
+  `sectorBudget / 6` box limit makes root-child subtrees ~1/4 of the world at best, so the
+  equal-tier target (~7 sectors at budget 48) is unreachable for the first gate and the
+  error compounds downward. Two candidate fixes, both bigger than that chunk: raise the
+  tree's branching depth so subtrees are larger, or add a minimum-tier constraint to the
+  feasibility filter (`subtree.size` at least N smaller than `regionSize`) with a documented
+  fallback when no candidate satisfies it. **Bumps `WORLDGEN_VERSION` again.** Measure
+  before and after with the tier-increment probe described in
+  `BUG-WORLDGEN-GATE-NESTING`. Deps: `BUG-WORLDGEN-GATE-NESTING`. Value: each earned
+  ability visibly opens a chunk of the map. Spec: `02-worldgen-barriers.md` section 2.2.
+
+- [ ] **CHORE-WORLDGEN-GATE-COUNT-ASSERT**: tighten `ExpeditionModeAdapter`'s
+  `[expedition] worldgen placed N of M ability gates` `console.warn` into a hard assert once
+  a minimum `sectorBudget` is agreed. `CHORE-WORLDGEN-BUDGET-GUARD` (704d128) shipped it as
+  a warn because an assert would have aborted every run against the then-broken generator;
+  `BUG-WORLDGEN-GATE-NESTING` fixed the generator, and the count is now 6 of 6 on 100 of 100
+  seeds at the shipping budget. It is **still not** universally true: `sectorBudget` is
+  clamped to `Math.max(4, ...)` and budgets 4/6/8/12/20 legitimately place 2/3/4/5 gates, so
+  a bare assert would brick a configuration the code allows. The chunk is therefore "decide
+  and document the minimum supported budget, assert the equality only at or above it".
+  Deps: `BUG-WORLDGEN-GATE-NESTING`. Value: a silent gate shortfall becomes impossible to
+  ship again. Spec: `02-worldgen-barriers.md` section 2.2.
 
 - [ ] **CHORE-WORLDSPACE-DEATHRIPPLE-RECT** — `DeathRippleManager.spawnRipple`
   (`src/visual/DeathRippleManager.ts:179-180`) computes `maxRadius` from
@@ -3978,6 +4029,18 @@ Never agent work. The fleet must not do any of these.
     door is still on screen; and whether a vault four sectors from anything the player has a
     reason to visit is findable at all without the map-screen POI icons `FEAT-MAPUI-DOORS-05`
     owns.
+  - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
+    Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
+    the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
+    ability arrives after roughly half the map is already open and the last four each add
+    almost nothing; whether that reads as a Metroid ramp or as a flat map with a locked tail
+    is a feel call. (b) **the one-sector tiers**: 47 of 700 tiers across 100 seeds open <= 1
+    sector, and whether that is "a secret room" or "a wasted key" decides whether
+    `BALANCE-GATE-TIER-FLOOR` is worth its second `WORLDGEN_VERSION` bump. (c) **tier 0**: 2
+    of 100 seeds gate the world at the start sector's only exit, with that ability's own
+    vault inside the start sector; abrupt, possibly fine, human call. (d) **legibility**:
+    whether six distinct locked doors are distinguishable in play, or whether they need the
+    per-ability glyph `FEAT-MAPUI-DOORS-05` plans for the map screen.
   - **POLISH-MAPUI-FEEL** (36844a0): playtest the world map screen
     (FEAT-MAPUI-MAPSCENE-04), opened with **M** or gamepad **LB** in `?expedition=1`. Agents
     have no browser and must not tune pan speed or judge legibility blind. Owns:
