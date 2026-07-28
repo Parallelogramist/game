@@ -20,6 +20,7 @@ import { getEnemyIds } from '../ecs/FrameCache';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { getJuiceManager } from '../effects/JuiceManager';
+import { rectFromScreen, type WorldRect } from '../world/worldSpace';
 
 // Chain-lightning on-hit proc (Electromancer meta upgrade + Chain Catalyst
 // relic, driven by combatStats.chainLightningChance). Tunable feel/balance
@@ -158,6 +159,10 @@ export class WeaponManager {
   private chainProcHitSet: Set<number> = new Set();
   private chainProcTargetsTemp: { id: number; x: number; y: number }[] = [];
 
+  // Seeded from the live canvas so the field is a real rect even on the frame a weapon is
+  // constructed; update() overwrites it every frame from the run's mode.
+  private readonly viewRect: WorldRect;
+
   // Pooled context object - created once, updated each frame to avoid allocations
   private ctx: WeaponContext;
 
@@ -177,6 +182,7 @@ export class WeaponManager {
     this.playerId = playerId;
     this.effectsManager = effectsManager;
     this.soundManager = soundManager;
+    this.viewRect = rectFromScreen(scene.scale.width, scene.scale.height);
 
     // Initialize pooled context object (methods bound once, values updated each frame)
     this.ctx = {
@@ -187,6 +193,7 @@ export class WeaponManager {
       playerY: 0,
       gameTime: 0,
       deltaTime: 0,
+      view: this.viewRect,
       effectsManager: this.effectsManager,
       soundManager: this.soundManager,
       getEnemies: getEnemyIds,  // Use FrameCache directly - no allocation!
@@ -423,7 +430,7 @@ export class WeaponManager {
    * Update all weapons. Called every frame.
    * Uses pooled context to avoid per-frame allocations.
    */
-  public update(gameTime: number, deltaTime: number): void {
+  public update(gameTime: number, deltaTime: number, view: WorldRect): void {
     if (this.playerId === -1) return;
 
     // PERF: Reset per-frame effect budgets
@@ -438,6 +445,12 @@ export class WeaponManager {
     this.ctx.playerY = Transform.y[this.playerId];
     this.ctx.gameTime = gameTime;
     this.ctx.deltaTime = deltaTime;
+    // Copied by value, not aliased: the mode adapter reuses one rect instance between frames
+    // (WorldModeAdapter.viewRect), so holding the reference would tie the context to it.
+    this.viewRect.minX = view.minX;
+    this.viewRect.minY = view.minY;
+    this.viewRect.maxX = view.maxX;
+    this.viewRect.maxY = view.maxY;
     this.ctx.overchargeStunDuration = this.overchargeStunDuration;
     this.ctx.visualQuality = this.visualQuality;
 

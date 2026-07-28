@@ -4,6 +4,7 @@ import { SoundManager } from '../audio/SoundManager';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { TUNING } from '../data/GameTuning';
 import { getJuiceManager } from '../effects/JuiceManager';
+import type { WorldRect } from '../world/worldSpace';
 
 /**
  * WeaponContext provides weapons access to game systems they need.
@@ -16,6 +17,13 @@ export interface WeaponContext {
   playerY: number;
   gameTime: number;
   deltaTime: number;
+  /**
+   * World rect the camera shows this frame. Projectile lifetime and bounce bounds are
+   * measured against this, never against the canvas: in expedition the ship is thousands
+   * of px from the origin, where a screen-box test deletes a projectile on the frame it
+   * spawns. Reused between frames by its owner, so read it, never retain it.
+   */
+  view: WorldRect;
   effectsManager: EffectsManager;
   soundManager: SoundManager;
   getEnemies: () => readonly number[];

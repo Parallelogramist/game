@@ -5101,7 +5101,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Weapon system (handles all player weapons)
-    this.weaponManager.update(this.gameTime, deltaSeconds);
+    this.weaponManager.update(this.gameTime, deltaSeconds, this.worldMode.viewRect());
 
     // XP gem system (with viewport culling)
     xpGemSystem(this.world, deltaSeconds, this.worldMode.viewRect());
