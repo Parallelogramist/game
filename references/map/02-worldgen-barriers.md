@@ -452,6 +452,40 @@ handle them (`common.ts:35-37`); structural breakables inherit that. Weapon auto
 preferring a wall over a live enemy is prevented the same way crates handle it today
 (no change needed; they are targets of opportunity).
 
+**As built (FEAT-BARRIER-BREACH).** Five things this section assumed did not survive contact
+with the code.
+
+1. **Structural breakables are not `Destructible` entities**, and the crate pattern cannot be
+   reused verbatim for them. Every player weapon tests the wall predicate and skips the
+   projectile *before* its enemy hit test, so a projectile is removed on the frame it enters
+   the breakable tile, one frame before any hit test could fire, and that hit test is a flat
+   20 px radius against a single `Transform` while an edge plug is 3 to 5 tiles wide (120 to
+   200 px). An entity parked on a wall tile would be unhittable in practice, and one covering
+   a plug would be hittable only near its exact centre. A barrier is therefore pure tile state
+   in `src/world/barrierState.ts`, which also keeps it out of the `EnemyTag` query, the leash
+   cull, the threat classifier, auto-aim, sprite registration and the save serializer, so the
+   auto-target note above is moot rather than satisfied.
+2. **Impact model instead of `Health`**: `BARRIER_IMPACTS_TO_BREAK` (10) player projectile
+   impacts, counted per barrier by `reportPlayerImpact` in a `WeakMap` keyed by `WorldMap`
+   identity. A new run generates a new map object, so every barrier starts clean with no reset
+   hook to call. The impact is reported from `playerProjectileBlocked`, the same choke point
+   that already stops the projectile.
+3. **Both mouth bands of an edge plug are one barrier**, named by the canonical `edgeIdFor`
+   id. Each of the two sectors sharing the edge stamps its own depth-0 mouth band, so treating
+   them separately would halve the plug's toughness and leave it a wall from one side after it
+   broke. `clearBarrier` clears both. An interior pocket is its `BreakableRect.id`.
+4. **The profile written is `{ version, worldSeed, worldGenVersion, brokenBreakableIds }`**
+   under `survivor-world-profile`, written on the break rather than at run end. Section 4.7's
+   `openedEdgeIds` and `collectedPoiIds` are deliberately not declared yet: nothing writes
+   them, and the loader rebuilds the object field by field, so their owning chunks add them
+   with no version bump and no migration. A profile whose seed or `worldGenVersion` does not
+   match is discarded rather than migrated, because its ids name tiles that no longer exist.
+5. **Beams, Ricochet and enemy fire do not chip barriers.** `beamReachFraction` runs every
+   frame for every live beam and doubles as Focus Beam's line-of-sight probe, so it is a state
+   query rather than an impact event and would chew a wall at 60 impacts a second; Ricochet
+   bounces through `resolveCircleMove` and never reports an impact; enemy fire keeps calling
+   `projectileBlocked`, per section 4's own table, so it cannot destroy the player's cover.
+
 ### 4.3 Ability-gated doors
 
 Edge gates keyed to permanent power-up ids (doc 04 owns the power-ups; the id string is

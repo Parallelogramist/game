@@ -3225,12 +3225,110 @@ exploring pays is the end of Phase 5.
   reloading the profile shows persisted flags, arena runs write nothing, and the revision
   counter advances only on real change. Deps: `FEAT-DISCOVERY-STATE-01`, W4.
 
+- [x] **FEAT-BARRIER-BREACH** (done — 2dc76e1, 491c7cc, 31b17c3, 6df8acc): the expedition
+  world's cracked walls stop being a lie. The generator has always carved `TileKind.Breakable`
+  tiles and the renderer has always painted them their own colour, but `isSolidForMotion`
+  treated them exactly like permanent rock and nothing in the repo could change a tile, so a
+  breakable was a differently coloured wall. Now player projectiles chip one, ten impacts
+  collapse it into a doorway enemies path through within 150 ms, and the break survives the run.
+  What shipped: `barrierIdAtWorld`, `clearBarrier`, `applyBrokenBarriers` and
+  `reportPlayerImpact` in the new pure `src/world/barrierState.ts`, the `survivor-world-profile`
+  store in the new `src/expedition/WorldProfileStore.ts`, and the `playerProjectileBlocked`
+  choke point that the 7 player traveller weapons now call. Deviations from the plan and from
+  `02-worldgen-barriers.md`, each deliberate:
+  1. **A barrier is tile state with an impact counter, not a `Destructible` entity**, which is
+     the opposite of what doc 02 section 4.2 says and the single most important thing here for
+     the next agent. The crate pipeline cannot reach a wall-backed target: every weapon tests
+     the wall predicate and `continue`s *before* its enemy hit test, so a projectile is removed
+     on the frame it enters the breakable tile, one frame before any hit test could fire, and
+     that test is a flat 20 px radius around a single `Transform` while an edge plug is 3 to 5
+     tiles wide (120 to 200 px). An entity parked on a wall tile would be unhittable in
+     practice. Modelling it as tile state also keeps it out of the `EnemyTag` query, the leash
+     cull, the threat classifier, auto-aim, sprite registration and the save serializer.
+  2. Impact model: `BARRIER_IMPACTS_TO_BREAK = 10` player projectile impacts, counted per
+     barrier in a `WeakMap` keyed by `WorldMap` identity. A new run generates a new map object
+     and therefore starts every barrier clean, so there is no `reset*System()` to forget to
+     call (the same trick `staticCollision`'s sector index already uses).
+  3. Canonical identity: an edge plug is **one** barrier under `edgeIdFor`, not two. Each of
+     the two sectors sharing the edge stamps its own depth-0 mouth band, so reading them as two
+     barriers would halve the plug's toughness and leave it a wall from one side after it broke.
+     Breaking it clears both bands. An interior pocket is its `BreakableRect.id`.
+  4. Persistence: written on the break rather than at run end, because a wall broken in a run
+     that ends in death is still broken. Keyed on `(worldSeed, worldGenVersion)`; a profile
+     written for another seed or another generator version is discarded rather than migrated,
+     because its ids name tiles that no longer exist. Ids are filtered through a strict regex
+     and capped at 2048. `openedEdgeIds` and `collectedPoiIds` from doc 02 section 4.7 are
+     deliberately not declared yet: nothing writes them, and `loadWorldProfile` rebuilds the
+     object field by field, so their owning chunk adds them with no version bump.
+  5. **No `SAVE_VERSION` bump and no `expedition` field on `GameSaveState`**, which doc 02's
+     chunk spec asks for. README section 3.5 makes `FEAT-WORLD-SPACE-7` the single owner of
+     save v2 and that is already done. A break reaches the profile store the instant it
+     happens, so a mid-run save and reload restores through the profile, not the run save.
+  6. **Arena is unchanged by construction, not by care**: `playerProjectileBlocked(null, ...)`
+     returns false on its first line, exactly as `projectileBlocked(null, ...)` did, so an
+     arena run executes the identical arithmetic.
+  7. What was **not** built and why. Ability doors and key doors: no code path can grant a
+     traversal ability yet and `TraversalAbilities.ts` settles that a shop purchase must never
+     be the grant, so a door today would open only behind a debug flag, which is an inert
+     deliverable (`FEAT-BARRIER-ABILITY-DOORS`, deps `FEAT-POWER-VAULTS`). Hazard strips
+     (`FEAT-BARRIER-HAZARD-STRIPS`). Beams and Ricochet (`FEAT-BARRIER-BREACH-BEAMS`):
+     `beamReachFraction` runs every frame for every live beam and doubles as Focus Beam's
+     line-of-sight probe, so it is a state query, not an impact, and routing damage through it
+     would chew a wall at 60 impacts a second; Ricochet bounces via `resolveCircleMove` and
+     never reports an impact. One-way membranes needed nothing: they already shipped in
+     `FEAT-BARRIER-PLAYER`.
+  8. Measured density at the dev seed: **5 interior pockets and 1 breakable edge (2 mouths, 30
+     breakable tiles) across 48 sectors**. That is sparse, and raising it is a generator and
+     balance call that bumps `WORLDGEN_VERSION` (`BALANCE-BREAKABLE-DENSITY`).
+  9. Tests moved 135 files / 1676 tests to **136 / 1683**: one new file,
+     `src/world/barrierState.test.ts`. It is the standing order's carve-out rather than a
+     breach of it, because canonical-edge-id reciprocity from both sides of a shared border,
+     two-sided mouth clearing and per-world impact counters are non-obvious logic with real
+     regression risk, and the module is pure (no Phaser, no ECS, no scene). No existing test
+     file was touched. Verified: `tsc --noEmit` clean, suite green, `npm run build` clean.
+     Browser-only questions are filed under **POLISH-EXPEDITION-FLIGHT** items (ac), (ad) and
+     (ae). Deps: `FEAT-BARRIER-PLAYER`, `FEAT-POWER-TRAVERSAL`.
+
+- [ ] **FEAT-BARRIER-ABILITY-DOORS**: doc 02 sections 4.3 and 4.4. Proximity-open on an edge's
+  `requiredId`, its `GateClosed` tiles to `Open`, the edge id into the profile's
+  `openedEdgeIds`. Deliberately not built in `FEAT-BARRIER-BREACH` because no code path can
+  grant a traversal ability yet, and `TraversalAbilities.ts` settles that the shop must never be
+  the grant, so a door today would open only behind a debug flag. Done when a door the profile
+  holds the ability for opens on approach and is already open on the next run. Deps:
+  `FEAT-POWER-VAULTS`. Spec: `02-worldgen-barriers.md` sections 4.3, 4.4.
+
+- [ ] **FEAT-BARRIER-HAZARD-STRIPS**: doc 02 section 4.6. The 51 `TileKind.HazardFloor` tiles
+  the dev seed already carries are neither drawn nor harmful. Make them static
+  `HazardZoneSystem` placements so a hazard strip is a real cost to cross. Done when standing on
+  one damages over time, it is visible, and arena is untouched. Deps: none hard. Spec:
+  `02-worldgen-barriers.md` section 4.6.
+
+- [ ] **FEAT-BARRIER-BREACH-BEAMS**: hitscan beams and Ricochet do not chip barriers, so a
+  beam-only or Ricochet-only build cannot open a shortcut at all. `beamReachFraction` is a
+  per-frame state query called for every live beam and doubles as Focus Beam's line-of-sight
+  probe, so it cannot carry an impact without restructuring those four weapons; Ricochet bounces
+  via `resolveCircleMove` and never reports an impact. Done when a beam build breaks a wall at a
+  rate comparable to a projectile build and Focus Beam does not damage a wall it is not firing
+  at. Deps: `FEAT-BARRIER-BREACH`.
+
+- [ ] **BALANCE-BREAKABLE-DENSITY**: the dev seed yields 5 interior pockets and 1 breakable edge
+  across 48 sectors, because `carveBreakablePockets` needs a 2x2 all-Solid rect and fails most
+  of its `DECORATION_ATTEMPTS`. At that density a player may never meet a breakable wall, which
+  makes the whole mechanic invisible. Raising it is a generator change and bumps
+  `WORLDGEN_VERSION`, which now discards saved world profiles (harmless while expedition is
+  behind `?expedition=1`). Deps: none. Spec: `02-worldgen-barriers.md` section 4.2.
+
 - [ ] **FEAT-BARRIER-GATES**: interactive barriers (destructible walls reusing the
   `Destructible` pattern, ability and key doors, one-way membranes, hazard strips) with
   per-profile persistence in `survivor-world-profile`. Done when an ability door auto-opens and
   stays open across runs, a broken secret wall stays broken, a membrane passes one way only, and
   legacy saves without `expedition` load exactly as before. Deps: `FEAT-BARRIER-PLAYER`,
-  ability ids from `FEAT-POWER-TRAVERSAL` (debug-granted stubs acceptable).
+  ability ids from `FEAT-POWER-TRAVERSAL` (debug-granted stubs acceptable). Structural
+  destructibles and the `survivor-world-profile` store landed in `FEAT-BARRIER-BREACH` (as tile
+  state rather than as `Destructible` entities, see its deviation 1), and the one-way membrane
+  criterion was already satisfied by `FEAT-BARRIER-PLAYER`, so the remaining scope here is
+  ability doors, key doors and hazard strips: `FEAT-BARRIER-ABILITY-DOORS` and
+  `FEAT-BARRIER-HAZARD-STRIPS` carry it.
 
 - [ ] **FEAT-WORLDGEN-SPAWN**: everything spawns legally: tile snap, reachability filter,
   sector-scoped director, boss-arena sealing. Done when a 10-minute soak in a walled sector
@@ -3585,7 +3683,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e, 40f9720, c296010, 50a059c, 73464cf): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e, 40f9720, c296010, 50a059c, 73464cf, 2dc76e1, 491c7cc, 31b17c3, 6df8acc): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3670,6 +3768,19 @@ Never agent work. The fleet must not do any of these.
     (ab) **do bosses flying through rock read as wrong?** (FEAT-WORLDGEN-NAV): trigger a boss in
     a walled sector. Bosses are deliberately exempt from geometry, so the boss crosses walls its
     own minions have to walk around. Sealed-fight fantasy, or obvious bug?
+    (ac) **is 10 impacts the right toughness for a structural wall?** (FEAT-BARRIER-BREACH):
+    shoot a cracked wall in `?expedition=1`. A fresh run fires Energy Darts at roughly 1.5 shots
+    a second, so ten impacts is about seven seconds of sustained fire, while a late run with
+    several travellers clears it almost instantly. Does breaking one feel like a decision early
+    and stay meaningful late, or should the count scale with something?
+    (ad) **do the hit sparks read as damage?** (FEAT-BARRIER-BREACH): a chip plays the same hit
+    sparks an enemy hit does, with no health bar and no change to the tile until it collapses.
+    Does that read as "I am damaging this wall", or does the wall look inert until it suddenly
+    vanishes? If it is unreadable, the fix is progressive visual damage on the tile.
+    (ae) **do you ever meet a breakable wall?** (FEAT-BARRIER-BREACH): the dev seed has 5
+    interior pockets and 1 breakable edge across 48 sectors. Fly a normal session and count how
+    many you actually run into. If the answer is zero, the mechanic is invisible and
+    `BALANCE-BREAKABLE-DENSITY` is the next call.
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every
