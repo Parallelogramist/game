@@ -122,6 +122,9 @@ export const ALL_STORAGE_KEYS = [
   // WorldProfileStore (expedition world memory: barriers broken for good)
   'survivor-world-profile',
 
+  // DiscoveryManager (expedition map memory: sectors visited, doors known)
+  'survivor-expedition-discovery',
+
   // ShipPaintManager (player-chosen hull paint; auto-transfers with the profile)
   'survivor-ship-paint',
 

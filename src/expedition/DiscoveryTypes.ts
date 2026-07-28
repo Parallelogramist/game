@@ -1,0 +1,88 @@
+/**
+ * DiscoveryTypes: what a profile remembers about the shape of the expedition world.
+ *
+ * Flags are bitmask numbers rather than boolean objects on purpose: they sanitize with a
+ * single `& VALID_MASK`, they keep the stored payload roughly a fifth the size, and an
+ * implication like "visited implies discovered" is one bit-or instead of a branch.
+ */
+
+export const DISCOVERY_VERSION = 1;
+
+export const SectorFlags = {
+  /** On the map as an outline: seen from a neighbour, never entered. */
+  DISCOVERED: 1 << 0,
+  /** The ship has been inside it, so its interior may render. */
+  VISITED: 1 << 1,
+  /** Its encounter was cleared in at least one run. No writer until the sector director. */
+  CLEARED_ONCE: 1 << 2,
+} as const;
+export const SECTOR_VALID_MASK = 0b111;
+
+export const EdgeFlags = {
+  KNOWN: 1 << 0,
+  TRAVERSED: 1 << 1,
+} as const;
+export const EDGE_VALID_MASK = 0b11;
+
+export const PoiFlags = {
+  SEEN: 1 << 0,
+  COLLECTED: 1 << 1,
+} as const;
+export const POI_VALID_MASK = 0b11;
+
+export const SecretFlags = {
+  HINTED: 1 << 0,
+  FOUND: 1 << 1,
+} as const;
+export const SECRET_VALID_MASK = 0b11;
+
+/**
+ * Bound to a world by seed AND generator version, the pair WorldProfileStore already keys
+ * on: a different generator names sectors that no longer exist, so the state is discarded
+ * rather than migrated.
+ */
+export interface DiscoveryState {
+  version: number;
+  worldSeed: number;
+  worldGenVersion: number;
+  sectors: Record<string, number>;
+  edges: Record<string, number>;
+  pois: Record<string, number>;
+  secrets: Record<string, number>;
+}
+
+/** What a single reveal actually added. Also the feedback contract a later chunk reads. */
+export interface DiscoveryChanges {
+  sectorsDiscovered: string[];
+  sectorsVisited: string[];
+  edgesKnown: string[];
+  edgesTraversed: string[];
+  poisSeen: string[];
+  poisCollected: string[];
+  secretsHinted: string[];
+  secretsFound: string[];
+}
+
+export function emptyChanges(): DiscoveryChanges {
+  return {
+    sectorsDiscovered: [],
+    sectorsVisited: [],
+    edgesKnown: [],
+    edgesTraversed: [],
+    poisSeen: [],
+    poisCollected: [],
+    secretsHinted: [],
+    secretsFound: [],
+  };
+}
+
+export function hasChanges(changes: DiscoveryChanges): boolean {
+  return changes.sectorsDiscovered.length > 0
+    || changes.sectorsVisited.length > 0
+    || changes.edgesKnown.length > 0
+    || changes.edgesTraversed.length > 0
+    || changes.poisSeen.length > 0
+    || changes.poisCollected.length > 0
+    || changes.secretsHinted.length > 0
+    || changes.secretsFound.length > 0;
+}
