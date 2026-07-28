@@ -2394,11 +2394,32 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   nothing persisted, no storage key, no `WORLDGEN_VERSION` bump, arena mode untouched.
   Files: `src/world/staticCollision.ts`, `src/world/staticCollision.test.ts`.
 
-- [ ] **FEAT-MAPUI-PROJECTION-02**: pan/zoom/clamp/hit-test/cursor-nav math for the map
-  screen, so every later renderer is dumb and safe. New `src/visual/mapProjection.ts` (a
-  SIBLING of `minimapProjection.ts`, which stays untouched with its 16 tests green) and
-  `src/expedition/gateGlyphs.ts`. Done when the glyph coverage test goes red if any gate type
-  lacks a unique shape. Deps: none. Spec: `03-discovery-map-ui.md` sections 2, 10.
+- [x] **FEAT-MAPUI-PROJECTION-02** (done — c6f0d6f): pan/zoom/clamp math for the map screen,
+  so every later renderer is dumb and safe. What shipped: `src/visual/mapProjection.ts` with
+  `snapZoomLevel`, `sectorCellRect`, `worldPointToMap`, `centerViewOn`, `clampMapView`,
+  `edgeAnchor` and `gridBoundsOfCells`, plus `src/expedition/gateGlyphs.ts` (`GATE_GLYPHS`
+  over the closed `EdgeKind` union and `gateGlyphFor`). Deviations, each deliberate:
+  1. **The deviation that matters most to the next planner:** `mapPointToSector` and
+     `nextSectorInDirection` from doc 03 section 2.1 were **not built**. Their only consumer
+     is the sector cursor and the focused-sector tooltip, which belong to
+     `FEAT-MAPUI-DOORS-05`, so building them here would have shipped two exported functions
+     with no caller. Re-filed as `FEAT-MAPUI-CURSOR-HITTEST` in Phase 4.
+  2. `gridBoundsOfCells` is an addition to the doc's API list, not in it: `MapScene` needs the
+     discovered bounding box to clamp against, and deriving it inline in the scene would put
+     grid math back in the render layer.
+  3. The view is `originX`/`originY` of cell `(0,0)`'s corner plus a snapped zoom, so panning
+     is an add and zooming is a multiply. `clampMapView` keeps at least one cell of the known
+     box on screen on every side rather than forbidding overscroll outright, so a player who
+     over-pans always has something to pan back to.
+  4. `minimapProjection.ts` was not touched and its 16 tests are unchanged: the radar is
+     player-centred polar math with two stable consumers, and this is grid space to panel
+     space. They share one multiply and nothing else.
+  5. Tests: 23 new (20 projection + 3 glyph coverage), moving the suite from 138 files / 1697
+     tests to 140 / 1720. They are the standing order's carve-out, not a breach of it: clamp
+     extremes, zoom snapping and NaN guards fail silently as a map that pans into nothing
+     rather than as an exception.
+  Files: `src/visual/mapProjection.ts`, `src/visual/mapProjection.test.ts`,
+  `src/expedition/gateGlyphs.ts`, `src/expedition/gateGlyphs.test.ts`.
 
 - [x] **FEAT-DISCOVERY-STATE-01** (done — 14ff3f8): the persistent memory that makes this
   Metroid instead of roguelike amnesia, landed before any UI exists. What shipped:
@@ -3437,12 +3458,57 @@ exploring pays is the end of Phase 5.
   `references/map/README.md` section 4.1. Feel and price are unvalidated in a browser: file
   `POLISH-EXPEDITION-RECALL` under `## Human gates` when it lands.
 
-- [ ] **FEAT-MAPUI-MAPSCENE-04**: the first visible payoff, a pannable and zoomable world map
-  that fills in. New `src/game/scenes/MapScene.ts` + `SectorMapRenderer.ts`, registered at
-  `main.ts:164`, opened with **M** (verified free) and gamepad **LB**, gameplay paused. Done
-  when visited/discovered/unknown cells render distinctly, pan/zoom/center/close work on
-  keyboard, gamepad and mouse, arena runs ignore the binding, and the scene passes the
-  shutdown-listener and tween-cleanup rules. Deps: chunks 01-03 of doc 03, W4.
+- [x] **FEAT-MAPUI-MAPSCENE-04** (done — 36844a0): the first visible payoff, a pannable and
+  zoomable world map that fills in. What shipped end to end: **M** or gamepad **LB** in an
+  expedition run pauses the game and opens `MapScene`; `SectorMapRenderer` draws unknown
+  sectors as nothing, discovered ones as a dark fill with a dashed border, visited ones as a
+  biome tint at 35% with a solid border, a cleared-once notch, door glyphs on every `KNOWN`
+  non-Wall border, and the ship marker rotated to its facing. Pan on WASD, arrows, the left
+  stick or a pointer drag; zoom on `+`/`-`, `RB`/`LB` or the wheel; centre on `C`/`Y`; close
+  on `M`, `ESC`, `B` or `Start`. Notes for the next chunk:
+  1. **The pause-menu trap, symptom first:** resuming `GameScene` while `isPaused` is still
+     true makes its `resume` handler call `showPauseMenuFromSettings()`, so the run comes back
+     into the pause menu instead of into play. `MapScene.close()` therefore calls the new
+     public `GameScene.closeExpeditionMap()` (which clears `mapOverlayActive` and `isPaused`)
+     **before** `this.scene.resume('GameScene')`.
+  2. **The held-LB trap:** a freshly constructed `GamepadManager` starts with an all-false
+     previous-button snapshot, so the LB still held from the press that opened the map reads
+     as `justPressed` on `MapScene`'s first frame and would instantly zoom out. `MapScene`
+     arms LB-as-zoom-out only after it has seen LB released once.
+  3. **Arena is inert by construction**, not by care: `openExpeditionMap()` returns on
+     `worldMode.worldMap() === null`, which is exactly what `ArenaModeAdapter` returns, so
+     `M` and `LB` do nothing in an arena run and no scene is launched.
+  4. `MapScene` takes a **snapshot** at launch (world map reference, player position, facing)
+     rather than reading `GameScene` per frame: the game is paused, so nothing it would poll
+     can change, and the scene stays free of a live cross-scene dependency.
+  5. Deliberately left to `FEAT-MAPUI-DOORS-05`: the legend, the focused-sector tooltip, the
+     sector cursor, lock rings on gated doors, POI icons, secret badges and objective pins.
+     Interior wall stubs wait on `sectorWallSegments`, which contract 11.2 still lists as
+     unbuilt.
+  6. No new tests, deliberately: the scene and the renderer are Phaser-coupled (live scene,
+     `Graphics`, input plugin) and their math is already pinned by `mapProjection.test.ts`.
+     This matches the chunk's own "Test surface: none new" in doc 03 section 10.
+  7. `PlayerSpaceship.getFacingAngle()` is the one new accessor; nothing else about the ship
+     changed.
+  Files: `src/visual/SectorMapRenderer.ts`, `src/game/scenes/MapScene.ts`,
+  `src/visual/PlayerSpaceship.ts`, `src/game/managers/InputController.ts`,
+  `src/game/scenes/GameScene.ts`, `src/main.ts`.
+
+- [ ] **FEAT-MAPUI-CURSOR-HITTEST**: the two `FEAT-MAPUI-PROJECTION-02` functions left unbuilt
+  because they had no caller: `mapPointToSector(panelX, panelY, view, slopPx, candidates)`
+  (the containing cell, or the nearest candidate centre within `slopPx` when the containing
+  cell is not a known sector) and `nextSectorInDirection(currentGX, currentGY, direction,
+  discoveredCells)` (the nearest discovered sector inside a 90 degree cone). Value: they are
+  what makes a sector clickable and D-pad navigable, which is the whole input model of the
+  focused-sector tooltip. Deps: land with `FEAT-MAPUI-DOORS-05`, its only consumer. Spec:
+  `03-discovery-map-ui.md` section 2.1.
+
+- [ ] **FEAT-MAPUI-PAUSE-ROW**: a `MAP` row in the pause menu and a small map button beside
+  the touch action cluster, both expedition-only. Value: touch has no free physical button, so
+  on a phone the world map is currently unreachable. Deferred out of `FEAT-MAPUI-MAPSCENE-04`
+  because `PauseMenuManager`'s buttons are a hand-staggered layout whose row count is baked
+  into several parallel arrays, and that surgery has nothing to do with the map itself. Deps:
+  `FEAT-MAPUI-MAPSCENE-04`. Spec: `03-discovery-map-ui.md` section 5.
 
 - [ ] **FEAT-MAPUI-DOORS-05**: the map stops being a floor plan and becomes a plan: every
   closed door advertises what it wants. Gate shape glyphs plus a lock ring (never color alone),
@@ -3764,6 +3830,22 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MAPUI-FEEL** (36844a0): playtest the world map screen
+    (FEAT-MAPUI-MAPSCENE-04), opened with **M** or gamepad **LB** in `?expedition=1`. Agents
+    have no browser and must not tune pan speed or judge legibility blind. Owns:
+    (a) **pan speed**: 420 px/s at zoom 1, scaled by zoom so the felt speed is constant. Does
+    crossing a 48-sector world feel brisk or sluggish, on keyboard and on the left stick?
+    (b) **the zoom ladder**: three discrete levels (0.5, 1, 2) about the panel centre. Is that
+    enough range on a 48-sector world, or does it need a continuous zoom or a fourth level?
+    (c) **the tint**: visited sectors are their biome colour at 35% alpha with a solid border,
+    discovered ones a dark fill with a dashed border. Do the two read as clearly different
+    states under each colourblind pipeline this game ships, or does the tint wash out?
+    (d) **glyphs at 0.5**: door glyphs are 5 px at zoom 1 with a 3 px floor, so at zoom 0.5
+    they are at the floor. Are diamond, key, crack and chevron still distinguishable there, or
+    does the map need a minimum zoom for doors to be readable?
+    (e) **the clamp**: pan hard in any direction. The view stops with one cell of the known
+    box still on screen. Does that read as a wall you can push back off, or as the map getting
+    stuck?
   - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e, 40f9720, c296010, 50a059c, 73464cf, 2dc76e1, 491c7cc, 31b17c3, 6df8acc): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a

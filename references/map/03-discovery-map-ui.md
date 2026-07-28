@@ -317,6 +317,21 @@ Four things differ from section 1.4 above and are deliberate:
   payload, which fires exactly once per crossing, `'expedition:edge-traversed'`
   is **not** emitted as a separate event.
 
+**As built (FEAT-MAPUI-PROJECTION-02).** `src/visual/mapProjection.ts` shipped
+with `snapZoomLevel`, `sectorCellRect`, `worldPointToMap`, `centerViewOn`,
+`clampMapView`, `edgeAnchor` and `gridBoundsOfCells`. Two functions this section
+lists were **not** built: `mapPointToSector` and `nextSectorInDirection`. Their
+only consumer is the sector cursor and the focused-sector tooltip, which belong
+to `FEAT-MAPUI-DOORS-05`, so shipping them here would have meant two exported
+functions with no caller. They are re-filed as `FEAT-MAPUI-CURSOR-HITTEST` and
+land with the chunk that calls them. `gridBoundsOfCells` is an addition to this
+list, not in it: `MapScene` needs the discovered bounding box to clamp against,
+and deriving it inline in the scene would put grid math back in the render
+layer. `src/expedition/gateGlyphs.ts` keys its table off `EdgeKind` rather than
+inventing a union, because `EdgeKind` **is** the closed gate-type union contract
+11.2 asked for; the coverage test beside it goes red when a new border kind has
+no glyph or reuses a shape.
+
 ### 2.2 Phaser render layer (not unit-tested)
 
 - **`src/visual/SectorMapRenderer.ts`**: given a `Phaser.GameObjects.Graphics`,
@@ -563,6 +578,37 @@ The Metroid moment is specified precisely:
 4. When the enabling permanent power-up is acquired, every KNOWN edge of that
    gate type flips to the newly-passable ring and the section 7 toast fires.
    The map is now a to-do list, which is the entire Metroid trick.
+
+**As built (FEAT-MAPUI-MAPSCENE-04).** The MVP that shipped is a subset of the
+4.4 cell anatomy: unknown sectors draw nothing, discovered ones a dark fill with
+a dashed border, visited ones a biome tint at 35% with a solid border, plus the
+cleared-once notch, door glyphs on `KNOWN` non-Wall borders, and the ship marker
+rotated to its facing. The legend of this section, the focused-sector tooltip,
+the sector cursor, lock rings, POI icons, secret badges and objective pins are
+all `FEAT-MAPUI-DOORS-05`. Interior wall stubs wait on `sectorWallSegments`,
+which contract 11.2 still lists as unbuilt.
+
+Four decisions worth keeping:
+
+1. **Snapshot at launch, not a live read.** `MapScene` receives the world map
+   reference, the player's world position and its facing in its scene data. The
+   game is paused while the map is open, so nothing it would poll can change,
+   and the scene carries no live cross-scene dependency.
+2. **`closeExpeditionMap()` runs before the resume.** `GameScene`'s `resume`
+   handler calls `showPauseMenuFromSettings()` whenever the scene comes back
+   with `isPaused` still true, which is right for the settings return and wrong
+   here. `MapScene.close()` therefore clears `mapOverlayActive` and `isPaused`
+   through the new public `GameScene.closeExpeditionMap()` **before**
+   `this.scene.resume('GameScene')`, so the run comes back live.
+3. **LB is armed only after it is seen released.** A freshly constructed
+   `GamepadManager` starts with an all-false previous-button snapshot, so the LB
+   still held from the press that opened the map reads as `justPressed` on the
+   first frame and would instantly zoom out.
+4. **`MenuNavigator` is not used.** The MVP has no chrome row to navigate; it
+   arrives with the legend in `FEAT-MAPUI-DOORS-05`. The pause-menu `MAP` row and
+   the touch map button of section 5 are filed as `FEAT-MAPUI-PAUSE-ROW`, since
+   `PauseMenuManager`'s row count is baked into several parallel arrays and that
+   surgery is unrelated to the map itself.
 
 ---
 
