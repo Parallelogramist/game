@@ -69,6 +69,7 @@ import { beamReachFraction, projectileBlocked } from '../../world/weaponWallBeha
 import { setBarrierEventSink } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
+import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -727,6 +728,19 @@ export class GameScene extends Phaser.Scene {
     },
   };
 
+  /**
+   * Discovery is profile memory, so the manager outlives the scene while this handler must
+   * not: Phaser reuses the scene's emitter across a restart, so it is added in create and
+   * removed in shutdown like every other GameScene subscription.
+   */
+  private readonly sectorEnteredHandler = (
+    payload: { sectorKey: string; viaEdgeId: string | null },
+  ): void => {
+    const discovery = getDiscoveryManager();
+    discovery.markSectorEntered(payload.sectorKey);
+    if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
+  };
+
   init(data?: {
     restore?: boolean;
     runMode?: 'arena' | 'expedition';
@@ -791,6 +805,15 @@ export class GameScene extends Phaser.Scene {
   private createWorldMode(requested: RunModeKind | undefined): WorldModeAdapter {
     const mode = requested ?? (isExpeditionDevRouteRequested() ? 'expedition' : 'arena');
     return mode === 'expedition' ? new ExpeditionModeAdapter(this) : new ArenaModeAdapter(this);
+  }
+
+  /** Arena has no world map, so it never binds and never subscribes: an arena run cannot
+   *  write the discovery key, and the event it would carry is never emitted there. */
+  private bindExpeditionDiscovery(): void {
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    getDiscoveryManager().bindWorld(map);
+    this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
   }
 
   create(): void {
@@ -1056,6 +1079,7 @@ export class GameScene extends Phaser.Scene {
     setTelegraphManager(this.telegraphManager);
     setNavigationContext(this.worldMode.navigationContext());
     setBarrierEventSink(this.barrierEventSink);
+    this.bindExpeditionDiscovery();
 
     // Initialize off-screen threat indicators
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
@@ -2296,6 +2320,7 @@ export class GameScene extends Phaser.Scene {
     setTelegraphManager(this.telegraphManager);
     setNavigationContext(this.worldMode.navigationContext());
     setBarrierEventSink(this.barrierEventSink);
+    this.bindExpeditionDiscovery();
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
     this.minimapManager = new MinimapManager(this);
@@ -11286,6 +11311,7 @@ export class GameScene extends Phaser.Scene {
       setTelegraphManager(null);
       setNavigationContext(null);
       setBarrierEventSink(null);
+      this.events.off('expedition:sector-entered', this.sectorEnteredHandler);
     }
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();
