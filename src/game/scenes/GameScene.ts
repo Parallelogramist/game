@@ -63,6 +63,7 @@ import {
   pickInteriorPoint,
   repositionOntoSpawnRing,
 } from '../../world/spawnRing';
+import { projectileBlocked } from '../../world/weaponWallBehavior';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -4475,6 +4476,7 @@ export class GameScene extends Phaser.Scene {
    */
   private updateEnemyProjectiles(deltaTime: number): void {
     const despawn = inflateRect(this.worldMode.viewRect(), 20);
+    const worldMap = this.worldMode.worldMap();
     const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : 0;
     const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : 0;
     const hasPlayer = this.playerId !== -1;
@@ -4492,7 +4494,8 @@ export class GameScene extends Phaser.Scene {
 
         // Bounds check
         if (proj.sprite.x < despawn.minX || proj.sprite.x > despawn.maxX ||
-            proj.sprite.y < despawn.minY || proj.sprite.y > despawn.maxY) {
+            proj.sprite.y < despawn.minY || proj.sprite.y > despawn.maxY ||
+            projectileBlocked(worldMap, proj.sprite.x, proj.sprite.y)) {
           shouldRemove = true;
         }
       }
