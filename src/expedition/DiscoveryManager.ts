@@ -15,6 +15,7 @@ import {
   emptyDiscoveryState,
   emptyIdUniverse,
   revealOnEdgeTraversal,
+  revealOnPoiCollected,
   revealOnSectorEntry,
   sanitizeDiscoveryState,
 } from './discoveryRules';
@@ -62,6 +63,13 @@ export class DiscoveryManager {
   markEdgeTraversed(edgeId: string): DiscoveryChanges {
     if (!this.map) return emptyChanges();
     return this.commit(revealOnEdgeTraversal(this.state, this.universe, edgeId));
+  }
+
+  /** The only write path for a spent POI slot (README section 3.7's rule, applied to POIs).
+   *  Map memory, not the vault respawn gate: ability ownership is what decides that. */
+  markPoiCollected(poiId: string): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(revealOnPoiCollected(this.state, this.universe, poiId));
   }
 
   getDiscoveredSectorCount(): number {

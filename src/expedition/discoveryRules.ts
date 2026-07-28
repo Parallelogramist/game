@@ -201,6 +201,17 @@ export function revealOnEdgeTraversal(
   return changes;
 }
 
+export function revealOnPoiCollected(
+  state: DiscoveryState,
+  universe: WorldIdUniverse,
+  poiId: string,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  if (!universe.poiIds.has(poiId)) return changes;
+  addPoi(state, changes, poiId, PoiFlags.COLLECTED | PoiFlags.SEEN);
+  return changes;
+}
+
 function addSector(
   state: DiscoveryState, changes: DiscoveryChanges, id: string, flags: number,
 ): void {

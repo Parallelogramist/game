@@ -59,7 +59,8 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
-import { directionDelta } from '../../world/worldTypes';
+import { PoiKind, TILE_SIZE, directionDelta } from '../../world/worldTypes';
+import type { WorldMap } from '../../world/worldTypes';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
 import {
   EdgeSpawnConfig,
@@ -69,7 +70,9 @@ import {
   repositionOntoSpawnRing,
 } from '../../world/spawnRing';
 import { beamReachFraction, projectileBlocked } from '../../world/weaponWallBehavior';
-import { setBarrierEventSink } from '../../world/barrierState';
+import {
+  ABILITY_DOOR_OPEN_RADIUS, abilityDoorNearWorld, openAbilityGate, setBarrierEventSink,
+} from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
@@ -78,7 +81,7 @@ import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
-import { toNeonPair, PLAYER_NEON, ENEMY_COLORS } from '../../visual/NeonColors';
+import { toNeonPair, PLAYER_NEON, ENEMY_COLORS, WORLD_GEOMETRY_COLORS } from '../../visual/NeonColors';
 import { resetShapeTextureCache, VisualQuality } from '../../visual/GlowGraphics';
 import { createCachedEnemyVisual, resetEnemyTextureCache } from '../../visual/EnemyVisuals';
 import { generateGemAtlases, destroyGemAtlases } from '../../visual/Gem3DRenderer';
@@ -194,6 +197,10 @@ import { getCardCollectionManager } from '../../meta/CardCollectionManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
+import { getTraversalAbility } from '../../data/TraversalAbilities';
+import {
+  claimTraversalAbility, getOwnedTraversalAbilityIds,
+} from '../../meta/TraversalAbilityManager';
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
 import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
@@ -451,6 +458,17 @@ export class GameScene extends Phaser.Scene {
   private shrineSpawnTimer: number = 25;
   private static readonly SHRINE_INTERVAL = 38;
   private static readonly MAX_SHRINES = 2;
+
+  // Ability vaults (expedition only): the walk-in claim sites for traversal abilities.
+  // Rebuilt when the ship changes sector, keyed the way syncMinimapUnderlay is keyed.
+  private activeVaults: {
+    poiId: string; abilityId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
+  }[] = [];
+  private vaultSectorKey: string | null = null;
+  /** Owned traversal abilities, cached for the run: every read of the real store is a
+   *  SecureStorage decrypt, and both consumers here run per frame. */
+  private ownedTraversalAbilityIds: Set<string> = new Set();
+  private static readonly VAULT_CLAIM_RADIUS = 40;
 
   // Volatile-affix explosion queue (drained iteratively to avoid recursion)
   private volatileQueue: { x: number; y: number }[] = [];
@@ -832,6 +850,7 @@ export class GameScene extends Phaser.Scene {
   private bindExpeditionDiscovery(): void {
     const map = this.worldMode.worldMap();
     if (!map) return;
+    this.ownedTraversalAbilityIds = new Set(getOwnedTraversalAbilityIds());
     getDiscoveryManager().bindWorld(map);
     getDiscoveryManager().onDiscovery(this.discoveryPulseHandler);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
@@ -4172,6 +4191,8 @@ export class GameScene extends Phaser.Scene {
     this.activeShrines = [];
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
+    this.clearAbilityVaults();
+    this.vaultSectorKey = null;
     this.shrineSpawnTimer = 25;
     this.bounty = null;
     this.bountyCooldown = 20;
@@ -4371,6 +4392,154 @@ export class GameScene extends Phaser.Scene {
     if (this.toastManager && showToast) {
       this.toastManager.showToast({ title, description, icon: 'star', color: def.color, duration: 3200 });
     }
+  }
+
+  /**
+   * Ability vaults for the sector the ship is in. Rebuilt only when that sector changes, the
+   * same key-compare shape syncMinimapUnderlay uses, so the common frame does no work. A vault
+   * is spawned only for an ability this profile does not already own: ownership is the single
+   * source of truth for a spent vault, so there is no second collected-ids list to disagree
+   * with it.
+   */
+  private syncAbilityVaults(map: WorldMap, playerX: number, playerY: number): void {
+    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
+    if (key === this.vaultSectorKey) return;
+    this.vaultSectorKey = key;
+    this.clearAbilityVaults();
+
+    const sector = map.sectors.get(key);
+    if (!sector) return;
+    for (const slot of sector.poiSlots) {
+      if (slot.kind !== PoiKind.AbilityPowerUp) continue;
+      const abilityId = slot.grantsAbilityId;
+      if (!abilityId || this.ownedTraversalAbilityIds.has(abilityId)) continue;
+      this.addAbilityVault(
+        slot.id, abilityId,
+        sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
+        sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
+      );
+    }
+  }
+
+  private addAbilityVault(poiId: string, abilityId: string, x: number, y: number): void {
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    this.drawAbilityVault(graphics);
+    graphics.setDepth(4);
+    this.activeVaults.push({ poiId, abilityId, graphics, x, y });
+  }
+
+  /** A caged core in the gate's own violet, so the vault and the doors it opens read as one
+   *  system without inventing a second palette. */
+  private drawAbilityVault(graphics: Phaser.GameObjects.Graphics): void {
+    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
+    graphics.fillStyle(color, 0.18);
+    graphics.fillCircle(0, 0, 30);
+    graphics.lineStyle(3, color, 0.95);
+    graphics.strokeCircle(0, 0, 22);
+    const cage: Phaser.Geom.Point[] = [];
+    for (let corner = 0; corner < 6; corner++) {
+      const angle = (Math.PI / 3) * corner - Math.PI / 2;
+      cage.push(new Phaser.Geom.Point(Math.cos(angle) * 13, Math.sin(angle) * 13));
+    }
+    graphics.strokePoints(cage, true);
+    graphics.fillStyle(0xffffff, 0.9);
+    graphics.fillCircle(0, 0, 5);
+  }
+
+  private clearAbilityVaults(): void {
+    this.activeVaults.forEach(vault => vault.graphics.destroy());
+    this.activeVaults = [];
+  }
+
+  /**
+   * Walk-in claim, the shrine pattern. Permanent at the moment of pickup (doc 04 section 2):
+   * the write happens here, not at run end, so a death seconds later keeps the ability.
+   */
+  private claimAbilityVault(index: number): void {
+    const vault = this.activeVaults[index];
+    const definition = getTraversalAbility(vault.abilityId);
+    claimTraversalAbility(vault.abilityId);
+    this.ownedTraversalAbilityIds.add(vault.abilityId);
+    getDiscoveryManager().markPoiCollected(vault.poiId);
+
+    vault.graphics.destroy();
+    this.activeVaults.splice(index, 1);
+
+    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
+    this.effectsManager.playDeathBurst(vault.x, vault.y, color);
+    this.cameras.main.shake(160, 0.006);
+    this.soundManager.playLevelUp();
+    if (this.toastManager && definition) {
+      // Deliberately not definition.description: those name active systems (a blink, a
+      // charge, a tether) that no code grants yet, and a toast must not promise them.
+      this.toastManager.showToast({
+        title: `${definition.name.toUpperCase()} ACQUIRED`,
+        description: 'Doors keyed to it now open as you approach.',
+        icon: definition.icon,
+        color,
+        duration: 3600,
+      });
+    }
+  }
+
+  /** Pulse and walk-in test, the updateShrines shape. Iterated backwards because a claim
+   *  splices the entry out. */
+  private updateAbilityVaults(playerX: number, playerY: number): void {
+    if (this.activeVaults.length === 0) return;
+    const pulse = 1 + Math.sin(this.gameTime * 2.4) * 0.14;
+    const radius = GameScene.VAULT_CLAIM_RADIUS;
+    for (let i = this.activeVaults.length - 1; i >= 0; i--) {
+      const vault = this.activeVaults[i];
+      vault.graphics.setScale(pulse);
+      const dx = playerX - vault.x;
+      const dy = playerY - vault.y;
+      if (dx * dx + dy * dy < radius * radius) this.claimAbilityVault(i);
+    }
+  }
+
+  /**
+   * Doc 02 section 4.3. The ownership test runs only once a closed door is actually in reach,
+   * and against the cached id set rather than the store, so the common frame is four edge
+   * checks in one sector and no storage read.
+   */
+  private tryOpenAbilityDoor(map: WorldMap, playerX: number, playerY: number): void {
+    if (this.ownedTraversalAbilityIds.size === 0) return;
+    const door = abilityDoorNearWorld(map, playerX, playerY, ABILITY_DOOR_OPEN_RADIUS);
+    if (!door || !this.ownedTraversalAbilityIds.has(door.requiredId)) return;
+    if (!openAbilityGate(map, door.edgeId)) return;
+
+    // Same two lines as onBarrierBroken: the geometry layer caches its drawn window and the
+    // radar underlay is drawn once and only translated, so a tile change invalidates both.
+    this.worldMode.notifyGeometryChanged();
+    this.minimapUnderlayKey = null;
+
+    const definition = getTraversalAbility(door.requiredId);
+    this.effectsManager.playDeathBurst(door.x, door.y, WORLD_GEOMETRY_COLORS.gate.stroke);
+    this.cameras.main.shake(140, 0.006);
+    this.soundManager.playComboThreshold();
+    if (this.toastManager && definition) {
+      this.toastManager.showToast({
+        title: 'ROUTE OPEN',
+        description: `${definition.name} unsealed this door.`,
+        icon: definition.icon,
+        color: WORLD_GEOMETRY_COLORS.gate.stroke,
+        duration: 2800,
+      });
+    }
+  }
+
+  /** Arena is inert by construction, not by care: ArenaModeAdapter.worldMap() is null, so an
+   *  arena run never reaches a vault, a door or the sector key. */
+  private updateExpeditionAbilities(): void {
+    if (this.playerId === -1) return;
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+    this.syncAbilityVaults(map, playerX, playerY);
+    this.updateAbilityVaults(playerX, playerY);
+    this.tryOpenAbilityDoor(map, playerX, playerY);
   }
 
   /**
@@ -4984,6 +5153,9 @@ export class GameScene extends Phaser.Scene {
 
     // ═══ FIELD SHRINES ═══
     this.updateShrines(deltaSeconds);
+
+    // ═══ EXPEDITION: ABILITY VAULTS AND THE DOORS THEY OPEN ═══
+    this.updateExpeditionAbilities();
 
     // ═══ IN-RUN BOUNTIES ═══
     this.updateBounties(deltaSeconds);
@@ -5915,6 +6087,10 @@ export class GameScene extends Phaser.Scene {
       const chest = this.activeChests[i].graphics;
       if (!chest.active) continue;
       this.writeMinimapEntry(count++, chest.x, chest.y, 'pickup');
+    }
+    for (let i = 0; i < this.activeVaults.length; i++) {
+      const vault = this.activeVaults[i];
+      this.writeMinimapEntry(count++, vault.x, vault.y, 'pickup');
     }
     const consumableIds = minimapConsumableQuery(this.world);
     for (let i = 0; i < consumableIds.length; i++) {
@@ -11441,6 +11617,8 @@ export class GameScene extends Phaser.Scene {
     this.activeShrines = [];
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
+    this.clearAbilityVaults();
+    this.vaultSectorKey = null;
     this.bountyText?.destroy();
     this.bountyText = null;
     // Restore music to the user's volume (clears any combat-intensity lift).

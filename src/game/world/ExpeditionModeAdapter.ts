@@ -19,7 +19,8 @@ import { LEASH_RADIUS } from '../../world/spawnRing';
 import { STAGES } from '../../data/Stages';
 import { TRAVERSAL_ABILITY_GATE_ORDER } from '../../data/TraversalAbilities';
 import { generateWorld } from '../../world/generateWorld';
-import { applyBrokenBarriers } from '../../world/barrierState';
+import { applyBrokenBarriers, applyOwnedAbilityGates } from '../../world/barrierState';
+import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
 import {
   EDGE_DIRECTIONS, EdgeKind, directionDelta, edgeIdFor, worldBoundsRect,
@@ -117,6 +118,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
       this.map,
       loadWorldProfile(this.map.seed, this.map.worldGenVersion).brokenBreakableIds,
     );
+    // Ownership is the only persisted gate state: a door keyed to an ability this profile
+    // already earned is open before the renderer, the collision index or the flow field ever
+    // look at the grid, which is the whole of "already open on the next run".
+    applyOwnedAbilityGates(this.map, getOwnedTraversalAbilityIds());
     this.world = worldBoundsRect(this.map);
   }
 
