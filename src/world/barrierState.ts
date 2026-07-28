@@ -9,12 +9,17 @@
  * reported from the same choke point that already stops the projectile, and the barrier
  * carries a count of impacts rather than a Health component.
  *
+ * Ability doors live here too: they are the same shape (tile state on the shared grid, an
+ * edge id for identity, both mouths cleared at once) with a different key, and doc 02
+ * section 4 files them under the same barrier taxonomy.
+ *
  * Phaser-free like the rest of src/world/: nothing here may import Phaser, src/game/,
  * src/systems/ or the ECS. Persistence is the caller's job for the same reason (the store
  * lives in src/expedition/), which is what the event sink is for.
  */
 
 import {
+  EDGE_DIRECTIONS,
   SECTOR_TILE_COLS,
   SECTOR_TILE_ROWS,
   TILE_SIZE,
@@ -25,7 +30,8 @@ import {
   oppositeDirection,
   tileIndex,
 } from './worldTypes';
-import type { EdgeDirection, SectorDef, TileCoord, WorldMap } from './worldTypes';
+import type { EdgeDef, EdgeDirection, SectorDef, TileCoord, WorldMap } from './worldTypes';
+import { SECTOR_HEIGHT, SECTOR_WIDTH } from './worldSpace';
 
 /** Player projectile impacts a structural barrier absorbs before it collapses. */
 export const BARRIER_IMPACTS_TO_BREAK = 10;
@@ -171,6 +177,156 @@ export function applyBrokenBarriers(world: WorldMap, barrierIds: readonly string
     if (clearBarrier(world, barrierId)) applied++;
   }
   return applied;
+}
+
+/** Doc 02 section 4.3: a door the profile can pass opens when the ship gets this close. */
+export const ABILITY_DOOR_OPEN_RADIUS = 60;
+
+export interface ClosedAbilityDoor {
+  edgeId: string;
+  /** The ability id the profile must hold. Never undefined: an AbilityDoor without one is
+   *  not a candidate, because nothing could ever satisfy it. */
+  requiredId: string;
+  /** Centre of the door's mouth band in world px, for the caller's effects. */
+  x: number;
+  y: number;
+}
+
+/** The mouth band of one aperture in world px: one tile deep, the aperture span wide. */
+function mouthBandRect(
+  sector: SectorDef, direction: EdgeDirection, edge: EdgeDef,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const originX = sector.sx * SECTOR_WIDTH;
+  const originY = sector.sy * SECTOR_HEIGHT;
+  const spanStart = edge.apertureStart * TILE_SIZE;
+  const spanEnd = (edge.apertureEnd + 1) * TILE_SIZE;
+  switch (direction) {
+    case 'north':
+      return { minX: originX + spanStart, minY: originY,
+        maxX: originX + spanEnd, maxY: originY + TILE_SIZE };
+    case 'south':
+      return { minX: originX + spanStart, minY: originY + SECTOR_HEIGHT - TILE_SIZE,
+        maxX: originX + spanEnd, maxY: originY + SECTOR_HEIGHT };
+    case 'west':
+      return { minX: originX, minY: originY + spanStart,
+        maxX: originX + TILE_SIZE, maxY: originY + spanEnd };
+    case 'east':
+      return { minX: originX + SECTOR_WIDTH - TILE_SIZE, minY: originY + spanStart,
+        maxX: originX + SECTOR_WIDTH, maxY: originY + spanEnd };
+  }
+}
+
+function distanceToRect(
+  x: number, y: number,
+  rect: { minX: number; minY: number; maxX: number; maxY: number },
+): number {
+  const dx = Math.max(rect.minX - x, 0, x - rect.maxX);
+  const dy = Math.max(rect.minY - y, 0, y - rect.maxY);
+  return Math.hypot(dx, dy);
+}
+
+/** True while any of this sector's own mouth tiles for the aperture is still GateClosed. */
+function gateStillClosed(sector: SectorDef, direction: EdgeDirection): boolean {
+  const edge = sector.edges[direction];
+  for (let axisIndex = edge.apertureStart; axisIndex <= edge.apertureEnd; axisIndex++) {
+    const { tileX, tileY } = mouthTileAt(direction, axisIndex);
+    if (sector.tiles[tileIndex(tileX, tileY)] === TileKind.GateClosed) return true;
+  }
+  return false;
+}
+
+/**
+ * The nearest still-closed ability door within radius of a point, searched in the point's own
+ * sector only: both sectors stamp their own mouth band, so a player near a shared door is
+ * always near the band on their side of it. Ownership is the caller's test, not this one's.
+ */
+export function abilityDoorNearWorld(
+  world: WorldMap, x: number, y: number, radius: number,
+): ClosedAbilityDoor | null {
+  const sx = Math.floor(x / SECTOR_WIDTH);
+  const sy = Math.floor(y / SECTOR_HEIGHT);
+  const sector = sectorAt(world, sx, sy);
+  if (sector === undefined) return null;
+
+  let best: ClosedAbilityDoor | null = null;
+  let bestDistance = radius;
+  for (const direction of EDGE_DIRECTIONS) {
+    const edge = sector.edges[direction];
+    if (edge.kind !== EdgeKind.AbilityDoor || edge.requiredId === undefined) continue;
+    if (!gateStillClosed(sector, direction)) continue;
+    const band = mouthBandRect(sector, direction, edge);
+    const distance = distanceToRect(x, y, band);
+    if (distance > bestDistance) continue;
+    bestDistance = distance;
+    best = {
+      edgeId: edgeIdFor(sector.sx, sector.sy, direction),
+      requiredId: edge.requiredId,
+      x: (band.minX + band.maxX) / 2,
+      y: (band.minY + band.maxY) / 2,
+    };
+  }
+  return best;
+}
+
+/**
+ * Clears one side's mouth band. Guarded on AbilityDoor rather than on the tile kind, because
+ * a one-way membrane stamps GateClosed tiles too (sectorInterior's apertureMouthTile), and
+ * dissolving one would delete the escape rule the whole membrane exists for.
+ */
+function clearGateMouth(sector: SectorDef, direction: EdgeDirection): boolean {
+  const edge = sector.edges[direction];
+  if (edge.kind !== EdgeKind.AbilityDoor) return false;
+  let cleared = false;
+  for (let axisIndex = edge.apertureStart; axisIndex <= edge.apertureEnd; axisIndex++) {
+    const { tileX, tileY } = mouthTileAt(direction, axisIndex);
+    const index = tileIndex(tileX, tileY);
+    if (sector.tiles[index] !== TileKind.GateClosed) continue;
+    sector.tiles[index] = TileKind.Open;
+    cleared = true;
+  }
+  return cleared;
+}
+
+/** Opens both mouths of an ability door. False for an unknown, foreign or already-open one. */
+export function openAbilityGate(world: WorldMap, edgeId: string): boolean {
+  const match = EDGE_BARRIER_ID.exec(edgeId);
+  if (match === null) return false;
+  const sx = Number(match[1]);
+  const sy = Number(match[2]);
+  const direction = match[3] as EdgeDirection;
+  const near = sectorAt(world, sx, sy);
+  if (near === undefined) return false;
+  const { dsx, dsy } = directionDelta(direction);
+  const far = sectorAt(world, sx + dsx, sy + dsy);
+  const nearCleared = clearGateMouth(near, direction);
+  const farCleared = far !== undefined && clearGateMouth(far, oppositeDirection(direction));
+  return nearCleared || farCleared;
+}
+
+/**
+ * Replays ownership onto a freshly generated world: every door keyed to an ability the profile
+ * already holds is open before anything reads the grid. This is why no per-edge open state is
+ * persisted, and it is the whole of "already open on the next run".
+ */
+export function applyOwnedAbilityGates(
+  world: WorldMap, ownedAbilityIds: readonly string[],
+): number {
+  if (ownedAbilityIds.length === 0) return 0;
+  const owned = new Set(ownedAbilityIds);
+  const edgeIds = new Set<string>();
+  for (const sector of world.sectors.values()) {
+    for (const direction of EDGE_DIRECTIONS) {
+      const edge = sector.edges[direction];
+      if (edge.kind !== EdgeKind.AbilityDoor || edge.requiredId === undefined) continue;
+      if (!owned.has(edge.requiredId)) continue;
+      edgeIds.add(edgeIdFor(sector.sx, sector.sy, direction));
+    }
+  }
+  let opened = 0;
+  for (const edgeId of edgeIds) {
+    if (openAbilityGate(world, edgeId)) opened++;
+  }
+  return opened;
 }
 
 /**
