@@ -119,6 +119,9 @@ export const ALL_STORAGE_KEYS = [
   // InstallHint (device-local one-time stamp)
   'survivor-install-hint-at',
 
+  // WorldProfileStore (expedition world memory: barriers broken for good)
+  'survivor-world-profile',
+
   // ShipPaintManager (player-chosen hull paint; auto-transfers with the profile)
   'survivor-ship-paint',
 
