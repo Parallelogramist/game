@@ -2,6 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Health } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { beamReachFraction } from '../world/weaponWallBehavior';
 
 const STREAK_POOL_SIZE = 32;
 const SPREAD_RAD = 0.9;          // total fan angle of the pellet spread (~52°)
@@ -127,8 +128,13 @@ export class ScattergunWeapon extends BaseWeapon {
       const angle = aimAngle - SPREAD_RAD / 2 + SPREAD_RAD * spread + jitter;
       const dirX = Math.cos(angle);
       const dirY = Math.sin(angle);
-      const endX = shipX + dirX * pelletLength;
-      const endY = shipY + dirY * pelletLength;
+      // The clipped reach drives the projection test, the streak and the endpoint together, so
+      // a pellet cannot skewer an enemy standing behind the wall its streak stops at.
+      const reach = pelletLength * beamReachFraction(
+        ctx.worldMap, shipX, shipY, shipX + dirX * pelletLength, shipY + dirY * pelletLength,
+      );
+      const endX = shipX + dirX * reach;
+      const endY = shipY + dirY * reach;
 
       // Enemies along this pellet ray, ordered by distance from the ship.
       const hits: { id: number; projection: number }[] = [];
@@ -137,7 +143,7 @@ export class ScattergunWeapon extends BaseWeapon {
         const offsetX = Transform.x[enemyId] - shipX;
         const offsetY = Transform.y[enemyId] - shipY;
         const projection = offsetX * dirX + offsetY * dirY;
-        if (projection < 0 || projection > pelletLength) continue;
+        if (projection < 0 || projection > reach) continue;
         const perpX = offsetX - projection * dirX;
         const perpY = offsetY - projection * dirY;
         if (perpX * perpX + perpY * perpY > halfWidth * halfWidth) continue;

@@ -2,6 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { beamReachFraction } from '../world/weaponWallBehavior';
 
 // Pre-computed hexagon unit vectors for prism flash effect
 const HEXAGON_VERTICES: readonly { cos: number; sin: number }[] = (() => {
@@ -104,8 +105,16 @@ export class LaserBeamWeapon extends BaseWeapon {
       const endX = ctx.playerX + Math.cos(angle) * this.stats.range;
       const endY = ctx.playerY + Math.sin(angle) * this.stats.range;
 
+      // fireBeam scans damage and draws against the segment it is given, so clipping the
+      // endpoint once here stops the beam and its visual at the wall together.
+      const reachFraction = beamReachFraction(ctx.worldMap, ctx.playerX, ctx.playerY, endX, endY);
+      const clippedEndX = ctx.playerX + (endX - ctx.playerX) * reachFraction;
+      const clippedEndY = ctx.playerY + (endY - ctx.playerY) * reachFraction;
+
       // Fire beam and hit all enemies along it
-      this.fireBeam(ctx, ctx.playerX, ctx.playerY, endX, endY, angle, this.stats.damage, false);
+      this.fireBeam(
+        ctx, ctx.playerX, ctx.playerY, clippedEndX, clippedEndY, angle, this.stats.damage, false,
+      );
     }
   }
 
@@ -235,8 +244,16 @@ export class LaserBeamWeapon extends BaseWeapon {
         const endX = hitPos.x + Math.cos(angle) * refractRange;
         const endY = hitPos.y + Math.sin(angle) * refractRange;
 
+        // A refracted beam starts at a dead enemy's position, which can be inside rock once
+        // enemies stop phasing through walls; a zero fraction is the honest answer there.
+        const reachFraction = beamReachFraction(ctx.worldMap, hitPos.x, hitPos.y, endX, endY);
+        const clippedEndX = hitPos.x + (endX - hitPos.x) * reachFraction;
+        const clippedEndY = hitPos.y + (endY - hitPos.y) * reachFraction;
+
         // Fire the refracted beam (won't chain further due to isRefracted=true)
-        this.fireBeam(ctx, hitPos.x, hitPos.y, endX, endY, angle, refractedDamage, true);
+        this.fireBeam(
+          ctx, hitPos.x, hitPos.y, clippedEndX, clippedEndY, angle, refractedDamage, true,
+        );
       }
     }
   }

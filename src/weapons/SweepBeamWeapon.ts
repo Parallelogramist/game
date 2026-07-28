@@ -4,6 +4,7 @@ import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { HitCooldownTracker } from './WeaponUtils';
 import { isEnemyInBeam } from './sweepBeamLogic';
+import { beamReachFraction } from '../world/weaponWallBehavior';
 
 const ROTATION_SPEED = 2.4;        // rad/sec — a full sweep every ~2.6s (readable, not dizzying)
 const EVOLVED_ROTATION_MULT = 1.4; // Corona scythes faster
@@ -37,6 +38,7 @@ export class SweepBeamWeapon extends BaseWeapon {
   private beamGraphics: Phaser.GameObjects.Graphics | null = null;
   private hitCooldowns = new HitCooldownTracker();
   private currentQuality: VisualQuality = 'high';
+  private spokeReach: number[] = [];
 
   constructor() {
     const baseStats: WeaponStats = {
@@ -89,14 +91,22 @@ export class SweepBeamWeapon extends BaseWeapon {
     const time = ctx.gameTime;
 
     const enemies = ctx.getEnemies();
+    // One DDA per spoke per frame, reused by both the hit test and the draw so a spoke can
+    // never damage past the wall it is drawn stopping at.
+    while (this.spokeReach.length < spokes) this.spokeReach.push(0);
     for (let k = 0; k < spokes; k++) {
       const spokeAngle = this.angle + k * step;
       const cos = Math.cos(spokeAngle);
       const sin = Math.sin(spokeAngle);
+      const reach = length * beamReachFraction(
+        ctx.worldMap, ctx.playerX, ctx.playerY,
+        ctx.playerX + cos * length, ctx.playerY + sin * length,
+      );
+      this.spokeReach[k] = reach;
       for (const enemyId of enemies) {
         const ex = Transform.x[enemyId];
         const ey = Transform.y[enemyId];
-        if (!isEnemyInBeam(ex, ey, ctx.playerX, ctx.playerY, cos, sin, length, halfWidth)) continue;
+        if (!isEnemyInBeam(ex, ey, ctx.playerX, ctx.playerY, cos, sin, reach, halfWidth)) continue;
         if (!this.hitCooldowns.canHit(enemyId, time, this.stats.cooldown)) continue;
         ctx.damageEnemy(enemyId, this.stats.damage, knockback);
         this.hitCooldowns.recordHit(enemyId, time);
@@ -104,7 +114,7 @@ export class SweepBeamWeapon extends BaseWeapon {
       }
     }
 
-    this.drawBeams(ctx, spokes, step, length, halfWidth, evolved);
+    this.drawBeams(ctx, spokes, step, halfWidth, evolved);
 
     if (Math.random() < CLEANUP_CHANCE) this.hitCooldowns.cleanup(time, CLEANUP_MAX_AGE);
   }
@@ -113,7 +123,6 @@ export class SweepBeamWeapon extends BaseWeapon {
     ctx: WeaponContext,
     spokes: number,
     step: number,
-    length: number,
     halfWidth: number,
     evolved: boolean,
   ): void {
@@ -128,8 +137,9 @@ export class SweepBeamWeapon extends BaseWeapon {
 
     for (let k = 0; k < spokes; k++) {
       const spokeAngle = this.angle + k * step;
-      const ex = px + Math.cos(spokeAngle) * length;
-      const ey = py + Math.sin(spokeAngle) * length;
+      const reach = this.spokeReach[k];
+      const ex = px + Math.cos(spokeAngle) * reach;
+      const ey = py + Math.sin(spokeAngle) * reach;
 
       if (!lowQuality) {
         gfx.lineStyle(halfWidth * 2, color, 0.08);

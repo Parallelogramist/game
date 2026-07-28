@@ -33,6 +33,9 @@ interface Lance {
  * redrawn each frame into one shared Graphics (the self-drawing pattern of the recent
  * weapons, so no projectile-atlas frame is required). The line hit-test is trivial and
  * stays inline — no separate pure module or unit test.
+ * It is also the one weapon a wall does not stop: FEAT-BARRIER-BEAMS clips every other hitscan
+ * line at the first solid tile and deliberately leaves this one alone, because over-penetration
+ * is its identity. The omission is the exception, not a missed site.
  *
  * Mastery ("Killshot"): the locked (toughest) target takes double damage.
  * Evolution ("Annihilator", via piercing): harder, wider, overpenetrating lance.
