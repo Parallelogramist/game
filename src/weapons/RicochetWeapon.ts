@@ -29,7 +29,7 @@ interface RicochetBall {
 }
 
 /**
- * RicochetWeapon fires bouncing projectiles that reflect off screen edges.
+ * RicochetWeapon fires bouncing projectiles that reflect off the edges of the view.
  *
  * PERF: Ball bodies are atlas Images (batched draw). Trails on shared Graphics.
  * Velocity-stretch is approximated via setScale(stretchFactor, 1/stretchFactor).
@@ -175,6 +175,16 @@ export class RicochetWeapon extends BaseWeapon {
     this.bounceEffectsThisFrame = 0;
 
     const spatialHash = getEnemySpatialHash();
+    // The ball bounces off the camera window, which is what "screen edges" meant when the
+    // screen was the world. A box the size of the world would let it leave and never come
+    // back inside its lifetime; walls come with FEAT-BARRIER-PROJECTILE. A camera that
+    // outruns the ball drags it along an edge and spends its bounces, which is acceptable:
+    // it cannot follow the player forever, and each bounce is still one of a finite count.
+    const bounceMargin = 10;
+    const bounceMinX = ctx.view.minX + bounceMargin;
+    const bounceMaxX = ctx.view.maxX - bounceMargin;
+    const bounceMinY = ctx.view.minY + bounceMargin;
+    const bounceMaxY = ctx.view.maxY - bounceMargin;
 
     // Clear shared trail graphics once per frame
     if (this.trailGraphics) {
@@ -202,25 +212,24 @@ export class RicochetWeapon extends BaseWeapon {
       ball.y += ball.velocityY * ctx.deltaTime;
 
       // Wall bounces
-      const margin = 10;
       let bounced = false;
 
-      if (ball.x <= margin) {
-        ball.x = margin;
+      if (ball.x <= bounceMinX) {
+        ball.x = bounceMinX;
         ball.velocityX = Math.abs(ball.velocityX);
         bounced = true;
-      } else if (ball.x >= ctx.scene.scale.width - margin) {
-        ball.x = ctx.scene.scale.width - margin;
+      } else if (ball.x >= bounceMaxX) {
+        ball.x = bounceMaxX;
         ball.velocityX = -Math.abs(ball.velocityX);
         bounced = true;
       }
 
-      if (ball.y <= margin) {
-        ball.y = margin;
+      if (ball.y <= bounceMinY) {
+        ball.y = bounceMinY;
         ball.velocityY = Math.abs(ball.velocityY);
         bounced = true;
-      } else if (ball.y >= ctx.scene.scale.height - margin) {
-        ball.y = ctx.scene.scale.height - margin;
+      } else if (ball.y >= bounceMaxY) {
+        ball.y = bounceMaxY;
         ball.velocityY = -Math.abs(ball.velocityY);
         bounced = true;
       }
