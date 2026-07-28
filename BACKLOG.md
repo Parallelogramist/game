@@ -2895,12 +2895,46 @@ exploring pays is the end of Phase 5.
   `SAVE_VERSION` 2. Every DONE-CRITERION about how the fight looks and feels needs a human in a
   browser and is filed under **POLISH-EXPEDITION-FLIGHT**. Deps: W4, W5.
 
-- [ ] **FEAT-WORLD-SPACE-7**: save v2 and exact restore of a moving world. **Single owner of
-  `SAVE_VERSION` 2, the `expedition` block and the first real body of `migrateState()`**
-  (`GameStateManager.ts:815`); every other chunk adds optional namespaced sub-blocks and bumps
-  nothing. Done when the arena payload is byte-identical except `timestamp`, v1 saves load
-  unchanged, a mid-flight refresh restores position and camera scroll with no visible snap, and
-  a v2 payload fed to v1 validation is rejected cleanly. Deps: W4 (W6 for the lock criterion).
+- [x] **FEAT-WORLD-SPACE-7** (done — d49ac89, 1679d3e): an expedition run survives being
+  interrupted. Before this, every restore path hard-returned `new ArenaModeAdapter(this)`,
+  so a refresh, a UI-scale change or a phone rotation mid-flight silently converted the run
+  into an arena run: the player clamp yanked the ship from world `(4800, 2900)` into the
+  screen box, the camera stopped scrolling, and the world was gone. Now the save carries the
+  run's mode and its moving-view state, and the restore rebuilds the adapter from the save
+  before anything reads a rect off it, wires the camera and the two screen-sized view layers
+  the way the fresh path does, and re-applies the exact camera scroll and any live sector
+  lock. `SAVE_VERSION` is 2, but **an arena run keeps writing version 1 with its exact
+  pre-expedition payload** (`ARENA_SAVE_VERSION`): only an expedition save carries `runMode`
+  and the `expedition` block, so a client rollback rejects the one save it could not have
+  restored anyway and orphans nothing. Sibling epic chunks now append optional namespaced
+  sub-blocks beside `expedition` and bump nothing. Four deviations from doc 01 section 8.
+  (1) **`worldSeed` is not in the block.** Section 8.1 lists it as an integrity check against
+  the profile's persistent world, but W4's own deviation (1) means `generateWorld` is never
+  called and the flight rect is a hardcoded 5x5 plane, so there is no seed to check and
+  writing a `0` would be an inert placeholder. It arrives as an optional field with the
+  worldgen chunk, which needs no version bump. (2) **`currentSectorKey` is not in the block
+  either.** It is exactly derivable from the player transform the save already serializes
+  (`setupCamera` calls `sectorOfWorldPoint` on the restored ship), so a second independently
+  written copy could only ever diverge from the first. (3) **`migrateState` gained no
+  branch.** Section 8.2 asks for its "first real body"; the honest body for v1 is `return
+  state`, because v1 *is* the arena dialect of v2 and the restore site reads
+  `state.runMode ?? 'arena'`. Its comment now says that instead of naming version 1 as the
+  ceiling. (4) **The camera is restored with `centerOn`, not `setScroll`.** Phaser's
+  `preRender` centres the deadzone on `midPoint`, which `setScroll` does not update and
+  `centerOn` does, so `setScroll` would have mis-placed the deadzone for one frame after
+  every restore. Two things this deliberately does **not** restore, both pre-existing and
+  both filed: `activeBossType` is not persisted by any save version, so a refresh mid-boss
+  comes back without the boss-arena atmosphere in arena *and* expedition
+  (**BUG-BOSSFIGHT-RESTORE-ATMOSPHERE**), and the room geometry is what W7 restores, not the
+  fight's dressing. One new test file, two tests, pinning only the save-dialect split
+  (arena stays v1 with no new keys, expedition writes v2 and round-trips): it is invisible
+  to `tsc` and invisible in play, and it is the whole rollback guarantee. Everything else
+  added here is Phaser-coupled (a live camera, a deadzone, `camera.width`) and pinning it
+  would need the mock-scene scaffolding the standing order bans. Verified with
+  `tsc --noEmit`, the suite at 134 files / 1669 tests and `npm run build`. Every
+  DONE-CRITERION about whether the return is seamless needs a human in a browser and is
+  filed under **POLISH-EXPEDITION-FLIGHT** items (m), (n), (o). Deps: W4 (W6 for the lock
+  criterion).
 
 #### Phase 4: the map fills in
 
@@ -3078,6 +3112,23 @@ exploring pays is the end of Phase 5.
   `npm run build` are the floor. Playtest follow-up filed as **POLISH-ENDRUN-GAMEPAD** under
   `## Human gates`. File: `src/game/managers/PauseMenuManager.ts`.
 
+- [ ] **BUG-BOSSFIGHT-RESTORE-ATMOSPHERE** — a refresh mid-boss-fight comes back without
+  the boss fight's atmosphere. Value: the player who reloads during the hardest 90 seconds
+  of a run gets the boss, its health bar and its hazards, but a normal-looking room. This
+  is **pre-existing and arena-wide**, found while wiring FEAT-WORLD-SPACE-7, not caused by
+  it. `activeBossType` (`GameScene.ts:612`) is set only by `spawnBoss` (`:8774`) and is not
+  in `GameSaveState`, so after a restore it is `null`: `activateBossArena(typeId)` (`:8773`)
+  is never re-run, `spawnBossHazard` returns at its `if (!this.activeBossType) return;`
+  guard (`:8783`), and the HUD's `bossActive` flag (`:4840`) reads false, all while the boss
+  entity itself restores normally as an enemy. The release path is already safe either way:
+  `handleEnemyDeath` gates `deactivateBossArena()` + `releaseSectorLock()` on
+  `hasOtherAliveBoss` (`:3418-3423`), not on `activeBossType`, so a restored boss's death
+  still cleans up. Done when a refresh during a boss fight comes back with the arena
+  atmosphere and live boss hazards, in both arena and expedition, and a refresh with no boss
+  alive restores exactly as it does today. Pointer: persist the boss type alongside
+  `bossSpawned` in `GameSaveState` and re-run `activateBossArena` on the restore path; it is
+  an optional field, so no `SAVE_VERSION` bump.
+
 - [ ] **CHORE-ARCH-DOC-SYNC** — re-sync the architecture overview's content
   inventory. Value: `references/architecture-overview.md` is the
   agent-facing source of truth (CLAUDE.md points every session at it) but
@@ -3252,7 +3303,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3280,6 +3331,16 @@ Never agent work. The fleet must not do any of these.
     to phase 3. Every screen-derived hazard now lands inside the room, but the three
     player-relative ones (void_wyrm, the_bastion, the_pulsar) are deliberately unclamped
     and can land up to 200 px outside it. Is that visible, and does it matter?
+    (m) **the seamless return** (FEAT-WORLD-SPACE-7): fly to an arbitrary sector, then
+    refresh the page. Does the world come back at the same place with no visible camera
+    snap, or is there a jump on the first frame? (n) **the rotation round trip**: rotate
+    the phone mid-flight. The run round-trips through save and restore and comes back
+    inside the pause menu, so the question is whether the world behind the menu is where
+    it was. (o) **the sealed fight, restored**: refresh during a boss fight. The room
+    bounds and the field rect come back, but `activeBossType` is not persisted by any save
+    version, so the boss-arena atmosphere does not (BUG-BOSSFIGHT-RESTORE-ATMOSPHERE). Is
+    the fight still legible as a sealed room without its dressing, or does it read as
+    broken?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every

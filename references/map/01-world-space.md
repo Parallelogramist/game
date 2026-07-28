@@ -906,6 +906,28 @@ exact same place, camera and all; expedition becomes as crash-proof as the arena
 `migrateState`, validator ceiling, writer payload shape, arena byte-identity (all in
 the existing pure save test harness).
 
+*(As built (FEAT-WORLD-SPACE-7): four deviations from section 8. (1) `worldSeed` is not
+written. W4's flight rect is hardcoded and `generateWorld` is never called, so there is no
+seed to check against; it arrives as an optional field with the worldgen chunk, which needs
+no version bump. (2) `currentSectorKey` is not written either: it is exactly derivable from
+the player transform the save already carries, and `setupCamera` re-derives it on restore,
+so a second copy could only diverge. The block that ships is `{ cameraScrollX,
+cameraScrollY, sectorLockKey? }`, defined as `SerializedExpeditionState` in
+`src/game/world/WorldModeAdapter.ts` and type-imported by the save layer, matching how
+`SerializedHazardState` is already owned. (3) `migrateState` gained no branch. Section 8.2
+asks for its first real body; v1 is the arena dialect of v2 and the restore site reads
+`state.runMode ?? 'arena'`, so `return state` is the correct body and only its comment
+changed. (4) Section 8.3 step 4 says "set scrollX/scrollY exactly from the save"; the
+implementation calls `camera.centerOn(scrollX + width / 2, scrollY + height / 2)` instead,
+because Phaser's `preRender` centres the deadzone on `midPoint`, which `setScroll` leaves
+stale and `centerOn` updates. The restored scroll is identical; the deadzone is not
+mis-placed for a frame. Section 8.3 step 5's claim that boss-arena re-activation "is
+already handled by the existing boss-restore path" is **false against the tree**:
+`activeBossType` is in no save version, so nothing re-runs `activateBossArena`. W7 restores
+the lock geometry (camera bounds, field rect, AI rect); the missing atmosphere is
+pre-existing in arena too and is filed as `BUG-BOSSFIGHT-RESTORE-ATMOSPHERE`. The section 8
+test surface held: the only new tests are the two that pin the version dialect.)*
+
 ---
 
 ## 11. Explicit non-goals of this piece
