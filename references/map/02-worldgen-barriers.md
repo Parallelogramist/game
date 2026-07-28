@@ -795,6 +795,33 @@ survive contact with the code, and the chunk shipped the measured version.
    player. A Homing Missile blocked by a wall plays hit sparks and deactivates, because its full
    explosion lives in the target-hit branch and needs a target to damage.
 
+**As built (FEAT-BARRIER-BEAMS, hitscan half).** Three things this section assumed did not
+survive contact with the code.
+
+1. **"One DDA per beam per frame" is right for three weapons and wrong for the fourth.** Arc
+   Sweep, Laser Beam and Scattergun are swept or aimed lines and clip cleanly by scaling their
+   own reach by `beamReachFraction`. Focus Beam is a lock-on: its beam is drawn from the ship to
+   a locked entity, so clipping it would draw a stub pointing at a target it still burns. It
+   uses the same primitive as a line-of-sight test instead, dropping a lock the frame a wall
+   interposes and acquiring the nearest *visible* enemy rather than the nearest one. Acquisition
+   casts only when a candidate would improve the running best, so the cost is logarithmic in the
+   candidate count rather than one DDA per enemy per frame.
+2. **There is no "enemy/boss lasers" plural.** Every boss beam in the game reaches the world
+   through `GameScene.handleLaserBeam`, the single callback installed into
+   `enemy-ai/state.ts`'s `laserBeamCallback` slot, so the whole enemy half of this bullet is one
+   clip in one method, covering the renderer and the player hit test together. Neither
+   `the-machine.ts` nor `state.ts` was touched.
+3. **A line whose origin is inside rock has zero reach, and that is currently reachable.**
+   `raycastSolid` returns 0 when the start tile is solid. Enemies still phase through geometry
+   until `FEAT-WORLDGEN-NAV`, so a boss can stand in a wall and emit nothing, and a refracted
+   laser sourced at a dead enemy's position can do the same. Clipping is the correct answer to
+   both; the placement is the nav chunk's problem, not this one's.
+
+Flamethrower was not listed in section 7.1's archetype sweep at all. It is a cone that damages
+every enemy inside it every frame, which is the same shape as the splash this section already
+exempts, so it keeps the emanates default and is now named in
+`src/world/weaponWallBehavior.ts`'s archetype audit.
+
 ---
 
 ## 8. Spawning legality

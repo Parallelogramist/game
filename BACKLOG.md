@@ -3009,28 +3009,52 @@ exploring pays is the end of Phase 5.
   `tsc --noEmit` clean, suite green, `npm run build` clean. Browser-only questions are filed
   under **POLISH-EXPEDITION-FLIGHT** items (v) and (w). Deps: `FEAT-BARRIER-PLAYER`.
 
-- [ ] **FEAT-BARRIER-BEAMS** — the hitscan half of `FEAT-BARRIER-PROJECTILE`: instant lines get
-  clipped at the first solid tile via `raycastSolid`, which still has no game-code caller. Five
-  measured sites. (a) `SweepBeamWeapon` (`updateEffects`, `:76-108` and `drawBeams`): clip each
-  spoke's `length` once per frame and use the clipped length in both `isEnemyInBeam` and the
-  draw, via a pre-allocated per-spoke `number[]` field so the DDA runs once per spoke.
-  (b) `LaserBeamWeapon` (`:104-108`, and the refracted beams at `:233-239`): clip `endX`/`endY`
-  before `fireBeam`, which already takes explicit start and end points, so both the damage scan
-  and `drawBeam` follow for free. (c) `ScattergunWeapon` (`attack`, `:129-158`): clip
-  `pelletLength` per pellet before the projection test and before `spawnStreak`; as built it is
-  hitscan, not the travelling projectile doc 02 assumed. (d) The Machine's boss laser
-  (`enemy-ai/the-machine.ts:124-134` through `laserBeamCallback`): clip at the GameScene
-  callback, which is the single choke point for every boss beam. (e) `RailgunWeapon` is the
-  declared pierce exception and is realised by **not** clipping it, which is worth stating in
-  its class doc so the omission does not read as a miss. **The open design question is
-  `FocusBeamWeapon`**, which is a lock-on and not a swept line, so "clip the beam" has no
-  meaning for it: it needs a line-of-sight rule instead. Validating the existing lock each frame
-  is one raycast per beam and drops the lock when a wall interposes, but naive acquisition would
-  let a nearest enemy behind a pillar block a beam from locking a visible farther one; a
-  min-scan that only raycasts a candidate when it improves the best distance so far fixes that
-  for a handful of casts. Decide it with a measurement, not in passing. Value: without it a
-  laser still cuts through a wall the player is using as cover, which reads as the wall being
-  fake. Deps: `FEAT-BARRIER-PROJECTILE`. Spec: `02-worldgen-barriers.md` section 7.
+- [x] **FEAT-BARRIER-BEAMS** (done — 40f9720, c296010, 50a059c) — the hitscan half of the wall
+  pass: every instant line in the game now stops at rock. Before this a wall was cover against
+  darts, shurikens, drone and sentry bolts, guardian shards, missiles, glaives and all enemy
+  projectile fire, and transparent to every beam, which is worse than no wall at all: the player
+  learns that rock is cover, takes cover, and dies to a laser through it. `weaponWallBehavior.ts`
+  gains the second predicate `beamReachFraction(world, x1, y1, x2, y2)`, a null-guarded
+  `raycastSolid` returning the fraction of a requested line that survives the world's tiles, and
+  four sites scale their own geometry by it: Arc Sweep clips each spoke once per frame into a
+  pre-allocated `spokeReach` array that both `isEnemyInBeam` and `drawBeams` read, so a spoke can
+  never damage past the wall it is drawn stopping at; Laser Beam clips its main endpoint before
+  `fireBeam` (which scans damage and draws against the segment it is handed, so both follow for
+  free) and its refracted endpoints in `spawnRefractedBeams`; Scattergun clips each pellet's
+  reach, which drives the projection test, the endpoint and the streak together; and
+  `GameScene.handleLaserBeam` clips at the single choke point every boss beam goes through,
+  covering the renderer and the player hit test at once. **Arena is unchanged by construction,
+  not by care**: `ArenaModeAdapter.worldMap()` returns null, `beamReachFraction` returns exactly
+  1 for null, and every migrated expression either multiplies by that 1 or compares `>= 1`.
+  **Four deliberate calls.** (1) **Focus Beam got line of sight, not clipping.** It is a lock-on
+  rather than a swept line, so shortening its beam would draw a stub pointing at a target it
+  still burns. Instead a lock is dropped the frame a wall interposes, exactly as it is dropped
+  when the target dies or leaves range, and acquisition takes the nearest *visible* enemy. The
+  scan pays for a raycast only when a candidate would actually improve a tier, so a nearest enemy
+  behind a pillar cannot block a beam from locking a visible one further out, and an always-on
+  weapon does not put a DDA per enemy per frame on the field; the expected cast count over n
+  candidates is logarithmic, not linear. Breaking the line costs the heat ramp, which is what
+  makes cover worth taking against the arsenal's highest single-target DPS tool. (2) **Railgun is
+  unclipped on purpose** and its class doc now says so: doc 02 section 7.2 declares
+  over-penetration as its identity exception, and an exception realised by omission is
+  indistinguishable from a missed call site unless it is written down. (3) **A boss inside a wall
+  emits nothing.** `raycastSolid` returns 0 when the segment's own origin is solid, and enemies
+  still phase through geometry until `FEAT-WORLDGEN-NAV`, so the Machine can stand in rock and
+  produce zero-length lasers. That is the honest reading (a laser fired from inside a wall does
+  not come out of it) and the fix belongs to the nav chunk, not here. The same applies to a
+  refracted laser sourced at a dead enemy's position. (4) **Flamethrower stays unclipped and is
+  now named in the archetype audit.** It is a cone that damages every enemy inside it every
+  frame, which is precisely the "per-target line of sight on the hottest damage path" shape
+  section 7.1 already rejected for splash; leaving it out of the emanates list was a gap in the
+  prose, not a decision, and the module doc now closes it. **No new tests, deliberately**:
+  `beamReachFraction` is a null guard plus one multiplication over `raycastSolid`, which
+  `staticCollision.test.ts` already pins clear, blocked and origin-in-solid including the
+  one-way-membrane rule, and every other edit sits inside a Phaser-coupled
+  `attack`/`updateEffects`/scene method needing a live scene, `Graphics`, tweens and the spatial
+  hash. The suite stayed at 134 files / 1670 tests, which is itself the check that nothing was
+  added or broken. `sweepBeamLogic.ts` was not touched, so its tests are untouched. Verified:
+  `tsc --noEmit` clean, suite green, `npm run build` clean. Browser-only questions are filed
+  under **POLISH-EXPEDITION-FLIGHT** items (x) and (y). Deps: `FEAT-BARRIER-PROJECTILE`.
 
 - [ ] **FEAT-WORLDGEN-NAV**: enemies cope with walls via one flow field per current sector
   (BFS over 576 tiles) injected as a nullable `NavigationContext` beside the existing
@@ -3492,7 +3516,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e, 40f9720, c296010, 50a059c): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3556,6 +3580,16 @@ Never agent work. The fleet must not do any of these.
     passes every doorway the ship does but overlaps the wall slightly on contact. Does a room
     full of ricochets read as the weapon finally being at home, or does the ball visibly clip
     into the rock?
+    (x) **is a wall cover from a laser?** (FEAT-BARRIER-BEAMS): fly `?expedition=1`, put a wall
+    between the ship and the Machine, and let it fire. Its three lasers now stop at the wall
+    face. Then take Arc Sweep into a walled room and watch a spoke sweep across a corner: it
+    shortens as it crosses rock and lengthens again past it. Does a beam ending at a wall read
+    as the wall stopping it, or does the shortening spoke read as the weapon glitching?
+    (y) **does cover feel like it costs Focus Beam too much?** (FEAT-BARRIER-BEAMS): take Focus
+    Beam into a pillared sector and strafe so the pillar crosses the beam. The lock drops and
+    the heat ramp resets from RAMP_MIN each time it re-acquires, so fighting around cover costs
+    real damage. Is that the right price for a hold-to-melt weapon, or does a short grace period
+    before the lock drops feel better?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every
