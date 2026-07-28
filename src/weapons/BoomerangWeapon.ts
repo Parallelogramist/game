@@ -10,6 +10,7 @@ import {
   type BoomerangParams,
   type BoomerangState,
 } from './boomerangMotion';
+import { projectileBlocked } from '../world/weaponWallBehavior';
 
 const POOL_SIZE = 32;
 const CATCH_RADIUS = 22;
@@ -198,10 +199,22 @@ export class BoomerangWeapon extends BaseWeapon {
       }
 
       const result = stepBoomerang(glaive.motion, params, ctx.playerX, ctx.playerY, ctx.deltaTime);
-      glaive.motion = result.state;
-      if (result.caught) {
-        glaive.active = false;
-        continue;
+      // A glaive stopped dead against a wall would hang there until its safety lifetime
+      // retired it, silently deleting the volley's damage; turning it around keeps every
+      // throw a round trip. The return leg ignores geometry deliberately: it homes to the
+      // player, who can never be inside a wall, and a stalled return is the one way to lose
+      // a glaive for good. The block is tested on the candidate position, so the glaive
+      // stays at the last free point instead of ending the frame a step inside the rock.
+      if (glaive.motion.phase === 'outbound'
+          && projectileBlocked(ctx.worldMap, result.state.x, result.state.y)) {
+        glaive.motion.phase = 'returning';
+        glaive.motion.outboundElapsed = params.outboundDuration;
+      } else {
+        glaive.motion = result.state;
+        if (result.caught) {
+          glaive.active = false;
+          continue;
+        }
       }
 
       this.drawGlaive(ctx, glaive, baseSize);

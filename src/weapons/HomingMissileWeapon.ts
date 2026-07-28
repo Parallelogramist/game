@@ -6,6 +6,7 @@ import { getJuiceManager } from '../effects/JuiceManager';
 import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
 import { PROJECTILE_ATLAS_KEY, getMissileFrame } from '../visual/ProjectileAtlasRenderer';
+import { projectileBlocked } from '../world/weaponWallBehavior';
 
 const MISSILE_TRAIL_LENGTH = 12;
 const POOL_SIZE = 30;
@@ -252,6 +253,15 @@ export class HomingMissileWeapon extends BaseWeapon {
       const angle = Math.atan2(dy, dx);
       missile.actualX += (dx / dist) * missile.speed * ctx.deltaTime;
       missile.actualY += (dy / dist) * missile.speed * ctx.deltaTime;
+
+      // A missile that reached a wall ends there rather than gliding on through it. The full
+      // multi-layer explosion above belongs to the target-hit branch and needs a target to
+      // damage; a spark is the impact cue without duplicating forty lines of tweened rings.
+      if (projectileBlocked(ctx.worldMap, missile.actualX, missile.actualY)) {
+        ctx.effectsManager.playHitSparks(missile.actualX, missile.actualY, angle);
+        this.deactivateMissile(missile);
+        continue;
+      }
 
       // Corkscrew wobble (visual only)
       missile.wobblePhase += ctx.deltaTime * 8;
