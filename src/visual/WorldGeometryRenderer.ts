@@ -29,12 +29,18 @@ function styleOf(tileKind: number): TileStyle | null {
   }
 }
 
+/** Floor, not wall: kept out of styleOf so blocksAt() and the outline pass still treat a
+ *  hazard tile as empty space and a wall beside a strip keeps its own edge. */
+function hazardStyleOf(tileKind: number): TileStyle | null {
+  return tileKind === TileKind.HazardFloor ? WORLD_GEOMETRY_COLORS.hazard : null;
+}
+
 /**
- * Draws the expedition world's blocking tiles. HazardFloor is deliberately not drawn:
- * it does not block anything and has no behaviour until FEAT-BARRIER-GATES, and a
- * painted floor that does nothing is a promise the game does not keep. Ungenerated
- * space is not drawn either: every reachable tile is enclosed by a sector's own border
- * ring, so the void is unreachable and filling it would only hide the lattice.
+ * Draws the expedition world's blocking tiles, plus HazardFloor strips as an outlined floor
+ * wash (FEAT-BARRIER-HAZARD-STRIPS): they cost hull to cross, so they have to be legible
+ * before the ship is standing in one. Ungenerated space is not drawn: every reachable tile is
+ * enclosed by a sector's own border ring, so the void is unreachable and filling it would only
+ * hide the lattice.
  */
 export class WorldGeometryRenderer {
   private readonly graphics: Phaser.GameObjects.Graphics;
@@ -87,12 +93,19 @@ export class WorldGeometryRenderer {
   private drawSector(sector: SectorDef): void {
     const originX = sector.sx * SECTOR_WIDTH;
     const originY = sector.sy * SECTOR_HEIGHT;
-    this.fillSector(sector, originX, originY);
+    this.fillRuns(sector, originX, originY, styleOf, false);
+    this.fillRuns(sector, originX, originY, hazardStyleOf, true);
     this.outlineSector(sector, originX, originY);
   }
 
   /** One rect per horizontal run of same-kind tiles, so a wall is a few draws, not 576. */
-  private fillSector(sector: SectorDef, originX: number, originY: number): void {
+  private fillRuns(
+    sector: SectorDef,
+    originX: number,
+    originY: number,
+    resolve: (tileKind: number) => TileStyle | null,
+    strokeRuns: boolean,
+  ): void {
     for (let tileY = 0; tileY < SECTOR_TILE_ROWS; tileY++) {
       let runStart = -1;
       let runKind = -1;
@@ -100,17 +113,19 @@ export class WorldGeometryRenderer {
         const kind = tileX < SECTOR_TILE_COLS
           ? sector.tiles[tileIndex(tileX, tileY)]
           : -1;
-        const style = styleOf(kind);
+        const style = resolve(kind);
         if (runStart !== -1 && (style === null || kind !== runKind)) {
-          const runStyle = styleOf(runKind);
+          const runStyle = resolve(runKind);
           if (runStyle) {
+            const left = originX + runStart * TILE_SIZE;
+            const top = originY + tileY * TILE_SIZE;
+            const width = (tileX - runStart) * TILE_SIZE;
             this.graphics.fillStyle(runStyle.fill, 1);
-            this.graphics.fillRect(
-              originX + runStart * TILE_SIZE,
-              originY + tileY * TILE_SIZE,
-              (tileX - runStart) * TILE_SIZE,
-              TILE_SIZE,
-            );
+            this.graphics.fillRect(left, top, width, TILE_SIZE);
+            if (strokeRuns) {
+              this.graphics.lineStyle(OUTLINE_WIDTH, runStyle.stroke, OUTLINE_ALPHA);
+              this.graphics.strokeRect(left, top, width, TILE_SIZE);
+            }
           }
           runStart = -1;
           runKind = -1;

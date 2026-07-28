@@ -24,7 +24,7 @@ import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToRect } from '../../ecs/systems/MovementSystem';
 import type { WallCollisionContext } from '../../ecs/systems/MovementSystem';
 import { setNavigationContext } from '../../ecs/systems/enemy-ai/common';
-import { MoverKind, createCollisionResult, resolveCircleMove } from '../../world/staticCollision';
+import { MoverKind, createCollisionResult, resolveCircleMove, tileKindAt } from '../../world/staticCollision';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
@@ -59,7 +59,7 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
-import { PoiKind, TILE_SIZE, directionDelta } from '../../world/worldTypes';
+import { PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
 import {
@@ -316,6 +316,7 @@ const enemySpawnSpot = { x: 0, y: 0 };
 const blinkCollisionResult = createCollisionResult();
 const blinkDirection = { x: 0, y: 0 };
 const BLINK_DRIVE_ID = 'ability_blink_drive';
+const THERMAL_WARD_ID = 'ability_thermal_ward';
 
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
@@ -480,6 +481,12 @@ export class GameScene extends Phaser.Scene {
   private static readonly SEALED_DOOR_REANNOUNCE_SECONDS = 30;
   private sealedDoorNoticeEdgeId: string | null = null;
   private sealedDoorNoticeAt = 0;
+
+  /** Armed, not zeroed, so entering a strip costs a tick immediately: a 3-tile strip crossed
+   *  at base speed would otherwise be free. */
+  private hazardFloorTickTimer = TUNING.hazards.floorTickSeconds;
+  private static readonly HAZARD_NOTICE_REANNOUNCE_SECONDS = 30;
+  private hazardNoticeAt = Number.NEGATIVE_INFINITY;
 
   // Volatile-affix explosion queue (drained iteratively to avoid recursion)
   private volatileQueue: { x: number; y: number }[] = [];
@@ -1030,6 +1037,12 @@ export class GameScene extends Phaser.Scene {
     );
 
     this.damageCooldown = 0;
+    this.hazardFloorTickTimer = TUNING.hazards.floorTickSeconds;
+    this.hazardNoticeAt = Number.NEGATIVE_INFINITY;
+    // Carried over from FEAT-BARRIER-DOOR-READOUT (49a71a8), which assumed a restart cleared
+    // these: a stale gameTime here suppresses the first sealed-door notice of the next run.
+    this.sealedDoorNoticeEdgeId = null;
+    this.sealedDoorNoticeAt = 0;
     this.isGameOver = false;
     this.isPaused = false;
     // Scene restarts reuse this instance — a restart IS the flip's relayout,
@@ -4690,9 +4703,59 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Doc 02 section 4.6. HazardFloor gates by cost, never by blocking: the tile is walkable to
+   * the resolver and to the flow field, and only the player pays for standing on it.
+   */
+  private updateHazardFloorDamage(
+    map: WorldMap, playerX: number, playerY: number, deltaSeconds: number,
+  ): void {
+    const onHazard = tileKindAt(
+      map, Math.floor(playerX / TILE_SIZE), Math.floor(playerY / TILE_SIZE),
+    ) === TileKind.HazardFloor;
+    if (!onHazard) {
+      this.hazardFloorTickTimer = TUNING.hazards.floorTickSeconds;
+      return;
+    }
+
+    this.hazardFloorTickTimer += deltaSeconds;
+    if (this.hazardFloorTickTimer < TUNING.hazards.floorTickSeconds) return;
+    this.hazardFloorTickTimer -= TUNING.hazards.floorTickSeconds;
+
+    // Spent, not banked: an i-frame window (a blink, an ultimate, a hit just taken) skips this
+    // tick rather than stacking one up to land the instant the window closes.
+    if (this.damageCooldown > 0) return;
+
+    this.takeDamage(TUNING.hazards.floorTickDamage, undefined, 'Hazard Floor');
+    this.reportHazardField(playerX, playerY);
+  }
+
+  /** Names the key the same way a sealed door does: the cost is only fair if the player can
+   *  learn what answers it. Re-armed on run time, per run, not per strip. */
+  private reportHazardField(playerX: number, playerY: number): void {
+    if (this.gameTime - this.hazardNoticeAt < GameScene.HAZARD_NOTICE_REANNOUNCE_SECONDS) return;
+    this.hazardNoticeAt = this.gameTime;
+
+    const definition = getTraversalAbility(THERMAL_WARD_ID);
+    this.effectsManager.showDamageNumber(
+      playerX, playerY - 26, 'HAZARD', WORLD_GEOMETRY_COLORS.hazard.stroke,
+    );
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: 'HAZARD FIELD',
+        description: definition
+          ? `${definition.name} would ward this floor.`
+          : 'The hull is taking damage here.',
+        icon: 'warning',
+        color: WORLD_GEOMETRY_COLORS.hazard.stroke,
+        duration: 2800,
+      });
+    }
+  }
+
   /** Arena is inert by construction, not by care: ArenaModeAdapter.worldMap() is null, so an
    *  arena run never reaches a vault, a door or the sector key. */
-  private updateExpeditionAbilities(): void {
+  private updateExpeditionAbilities(deltaSeconds: number): void {
     if (this.playerId === -1) return;
     const map = this.worldMode.worldMap();
     if (!map) return;
@@ -4702,6 +4765,7 @@ export class GameScene extends Phaser.Scene {
     this.updateAbilityVaults(playerX, playerY);
     this.tryOpenAbilityDoor(map, playerX, playerY);
     this.reportSealedAbilityDoor(map, playerX, playerY);
+    this.updateHazardFloorDamage(map, playerX, playerY, deltaSeconds);
   }
 
   /**
@@ -5291,7 +5355,7 @@ export class GameScene extends Phaser.Scene {
     this.updateShrines(deltaSeconds);
 
     // ═══ EXPEDITION: ABILITY VAULTS AND THE DOORS THEY OPEN ═══
-    this.updateExpeditionAbilities();
+    this.updateExpeditionAbilities(deltaSeconds);
 
     // ═══ IN-RUN BOUNTIES ═══
     this.updateBounties(deltaSeconds);

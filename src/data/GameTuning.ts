@@ -100,6 +100,12 @@ export const TUNING = {
     energyDamageMultiplier: 1.25,
     fadeThreshold: 0.2,
 
+    /** Static HazardFloor strips in the expedition world (doc 02 section 4.6). Base hull is
+     *  50, a strip is 3 tiles (120 px) and base move speed is 150 px/s, so a straight crossing
+     *  costs two ticks: the entry tick and one more. */
+    floorTickSeconds: 0.6,
+    floorTickDamage: 4,
+
     // General spawner timing
     spawnStartTime: 120,         // seconds before first hazard (2 min safe zone)
     baseSpawnInterval: 12,       // seconds between spawns initially
