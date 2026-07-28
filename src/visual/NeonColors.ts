@@ -95,6 +95,18 @@ export const GRID_COLORS = {
 };
 
 /**
+ * Expedition wall geometry. Fills are dark enough that the grid lattice still reads as
+ * the floor while the walls read as mass; the stroke carries the neon, and each tile
+ * kind gets its own so a breakable pocket and a locked door are legible as different
+ * material before either one has behaviour.
+ */
+export const WORLD_GEOMETRY_COLORS = {
+  solid:     { fill: 0x0a1420, stroke: 0x0088cc },
+  breakable: { fill: 0x1e1408, stroke: 0xcc8833 },
+  gate:      { fill: 0x140a20, stroke: 0xaa44ff },
+} as const;
+
+/**
  * Projectile colors.
  *
  * Player projectiles live in the COOL zone (cyan / violet / blue). Enemy
