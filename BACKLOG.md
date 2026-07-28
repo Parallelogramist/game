@@ -3056,12 +3056,81 @@ exploring pays is the end of Phase 5.
   `tsc --noEmit` clean, suite green, `npm run build` clean. Browser-only questions are filed
   under **POLISH-EXPEDITION-FLIGHT** items (x) and (y). Deps: `FEAT-BARRIER-PROJECTILE`.
 
-- [ ] **FEAT-WORLDGEN-NAV**: enemies cope with walls via one flow field per current sector
-  (BFS over 576 tiles) injected as a nullable `NavigationContext` beside the existing
-  `telegraphManager` pattern in `enemy-ai/common.ts`. Done when enemies route around a U-shaped
-  wall, a null context leaves every enemy-ai unit test passing unmodified, a 5-minute soak
-  records zero embeds or tunnels, and **the 14 pure barrage-pattern modules keep their exact
-  signatures with their tests untouched**. Deps: `FEAT-BARRIER-PLAYER`, `FEAT-WORLDGEN-CORE`.
+- [x] **FEAT-WORLDGEN-NAV** (done — 7f9c6fa, 73464cf): enemies stop at walls and route around
+  them, which is what finally makes a wall cover. Every non-boss enemy resolves its velocity
+  integration and its knockback displacement through `resolveCircleMove`, and chase-family
+  steering takes one blend rule: with clear line of sight it steers exactly as before, otherwise
+  it steers one flow-field step around the rock in the way. Deviations from the plan and from
+  `02-worldgen-barriers.md`, each deliberate:
+  1. The flow field lives at **`src/world/flowField.ts`**, not the doc's
+     `src/ecs/systems/enemy-ai/navigation/flowField.ts`. README section 3.3 gives `src/world/`
+     as the home for pure world math and collision, README wins over any single doc, and a
+     `navigation/` subdirectory holding one file is surface with no second occupant.
+  2. The field covers a **3x3 sector block** (5184 tiles), not the doc's single sector, because
+     the camera straddles up to four sectors and a sector border ring is solid apart from its
+     apertures, so a one-sector field would leave every arriving enemy steering into that ring
+     with no route through it.
+  3. `computeFlowField` takes a **`WorldMap` and world coordinates**, not the doc's
+     `(tiles, targetTileX, targetTileY, out)`: a multi-sector block needs the cached sector index
+     that `staticCollision.tileKindAt` already owns, and a second copy of it would be a second
+     source of truth. That reader is now exported rather than duplicated.
+  4. The context member is **`flowStep`**, not `sampleFlowDirection` + `isSolidAt`: the
+     tile-to-world conversion needs the block origin, which lives with the field, and the one
+     caller that wanted `isSolidAt` (the teleporter's blink) is better served by the
+     already-shipped `freeSpotNear`.
+  5. **Bosses (`aiType >= 100`) deliberately do not collide**; minibosses (50-57) do. Doc 02
+     section 6.4: their patterns are tuned for an open room, a sector lock already seals the
+     fight, and a boss wedged in rock is an unwinnable run. A miniboss is an ordinary mover, and
+     one phasing through rock while its minions walk around reads worse than one taking the
+     doorway.
+  6. `MovementSystem`'s `PlayerWallCollision` is **renamed `WallCollisionContext`** and gains
+     `enemyRadius`, because it now describes both movers. Enemy radius is **12**, the number
+     `GameScene` already uses for player-enemy contact, rather than a second invented one.
+  7. **`createEnemy` snaps every spawn through `freeSpotNear`**, which legalizes the minion,
+     splitter, legion-child and restore paths in one edit instead of nine call-site edits.
+  8. **`isSpawnableWorldPoint` is now a point-level solid test**, not a tile snap or a
+     reachability filter; both of those stay `FEAT-WORLDGEN-SPAWN`.
+  9. **Zigzag's dart telegraph and the Charger's charge lane still aim at the player**, not
+     along the flow route: both name a committed straight-line threat, and a lane that curved
+     with the route would lie about where the lunge goes. A wall now stops the lunge through
+     collision, which is cover working.
+  10. **Arena is unchanged by construction, not by care.** `ArenaModeAdapter.navigationContext()`
+     returns null, so `chaseHeading` assigns the caller's own direct vector straight through and
+     every migrated velocity expression is the identical sequence of doubles. The one recomputed
+     quantity is `Transform.rotation`: `Math.atan2(dy, dx)` against `Math.atan2(dy/d, dx/d)`
+     differs as a double in 234,422 of 2,000,000 sampled angles by at most 4.44e-16 rad, and in
+     **0** samples after the `Types.f32` store the component actually uses.
+  11. Tests moved 134 files / 1670 tests to **135 / 1676**: one new file,
+     `src/world/flowField.test.ts`. It is the standing order's carve-out rather than a breach of
+     it, because a BFS distance field plus an 8-neighbour descent with a diagonal corner-cutting
+     rule is non-obvious logic with real regression risk and is pure (no Phaser, no ECS, no
+     scene). Every other edit sits inside a Phaser-coupled scene method or an ECS handler that
+     needs a live scene, `Graphics` and the spatial hash. The 14 pure barrage/pattern modules
+     were not touched, so their tests are untouched (chunk DONE-CRITERION). Verified:
+     `tsc --noEmit` clean, suite green, `npm run build` clean. Browser-only questions are filed
+     under **POLISH-EXPEDITION-FLIGHT** items (z), (aa) and (ab). Deps: `FEAT-BARRIER-PLAYER`,
+     `FEAT-WORLDGEN-CORE`.
+
+- [ ] **POLISH-NAV-STUCK-NUDGE**: doc 02 section 6.3's layer 3, the wall-tangent nudge for an
+  enemy whose net displacement over 1.5 s is under 8 px while its flow direction is valid.
+  Deliberately not built in `FEAT-WORLDGEN-NAV`: with the field routing around walls and the
+  resolver sliding along faces, the residual stuck case is unmeasured, and an unmeasured nudge is
+  a guess. Build it if the playtest (`POLISH-EXPEDITION-FLIGHT` item (z)) reports enemies pinned
+  on corners. Deps: `FEAT-WORLDGEN-NAV`. Spec: `02-worldgen-barriers.md` section 6.3.
+
+- [ ] **FEAT-BARRIER-WRAITH-PHASE**: doc 02 section 5.3's ghost rule, a `state === 1` phased
+  Wraith ignores walls and is snapped with `findNearestFreeCircleSpot` on unphase.
+  `FEAT-WORLDGEN-NAV` made every non-boss enemy collide including phased Wraiths, which is
+  correct but drops the ghost fantasy. Needs a per-mover exemption in `MovementSystem`'s enemy
+  branch plus an unphase hook in `wraith.ts`. Deps: `FEAT-WORLDGEN-NAV`. Spec:
+  `02-worldgen-barriers.md` section 5.3.
+
+- [ ] **CHORE-NAV-LOS-BUDGET**: `chaseHeading` casts one `raycastSolid` per chase-family enemy
+  per AI tick. LOD already throttles distant enemies to every 3rd or 6th frame, and doc 02
+  section 5.4 budgets a DDA at <= 32 steps, so this is expected to be fine; it has not been
+  profiled with 500+ enemies in a walled sector. Measure before optimizing, and if it does show
+  up, the cheap fix is to skip the cast when the previous tick had line of sight and neither
+  endpoint has crossed a tile. Deps: `FEAT-WORLDGEN-NAV`.
 
 - [x] **FEAT-WORLD-SPACE-6** (done — adac59b, 878cd62): a boss fight in the expedition world
   seals to one arena-sized room. When a boss spawns, the mode adapter narrows both the camera
@@ -3516,7 +3585,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e, 40f9720, c296010, 50a059c): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a, 10ec649, 8685b35, c532058, 4661bb7, a79ced9, e79da39, 1f8490e, 40f9720, c296010, 50a059c, 73464cf): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3590,6 +3659,17 @@ Never agent work. The fleet must not do any of these.
     the heat ramp resets from RAMP_MIN each time it re-acquires, so fighting around cover costs
     real damage. Is that the right price for a hold-to-melt weapon, or does a short grace period
     before the lock drops feel better?
+    (z) **do enemies read as routing, or as confused?** (FEAT-WORLDGEN-NAV): fly `?expedition=1`,
+    pull a mob, then put a wall between you and it. They should come round the doorway. The field
+    refreshes at 150 ms or a player tile crossing, and each enemy steers at the next tile centre
+    40 px ahead, so the question is whether that reads as pathing or as twitching at corners.
+    (aa) **is cover too strong now?** (FEAT-WORLDGEN-NAV): stand behind a pillar in a walled
+    sector for 60 s. Enemies must walk round, projectiles and beams already stop, so the pressure
+    behind cover may now be far below an arena minute at the same run time. Does that read as
+    earned cover, or as a safe spot that breaks the game?
+    (ab) **do bosses flying through rock read as wrong?** (FEAT-WORLDGEN-NAV): trigger a boss in
+    a walled sector. Bosses are deliberately exempt from geometry, so the boss crosses walls its
+    own minions have to walk around. Sealed-fight fantasy, or obvious bug?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every

@@ -726,6 +726,41 @@ deeper fix for bosses is upstream: boss arenas are generated mostly open (invari
 area floor), so boss patterns keep the space they were tuned for. Do not make bosses
 fight geometry; make the generator give bosses room.
 
+**As built (FEAT-WORLDGEN-NAV).** The chunk shipped this section with six deliberate
+departures from the design above, each recorded here so the next reader takes the code as the
+truth rather than the sketch.
+
+1. The flow field lives at `src/world/flowField.ts`, not
+   `src/ecs/systems/enemy-ai/navigation/flowField.ts`. README section 3.3 gives `src/world/` as
+   the home for pure world math and collision, and a `navigation/` subdirectory holding one file
+   is surface with no second occupant.
+2. The field covers a 3x3 sector block (5184 tiles), not one sector (576). The camera straddles
+   up to four sectors and a sector border ring is solid apart from its apertures, so a
+   one-sector field would leave every enemy arriving on the spawn ring steering into that ring
+   with no route through it.
+3. `computeFlowField(world, targetWorldX, targetWorldY, field)` takes a `WorldMap` and world
+   coordinates rather than `(tiles, targetTileX, targetTileY, out)`. A multi-sector block needs
+   the cached sector index that `staticCollision.tileKindAt` already owns; that reader was
+   exported rather than copied, so the sector lookup keeps one source of truth.
+4. The `NavigationContext` member is `flowStep(x, y, out)`, not `sampleFlowDirection` plus
+   `isSolidAt`. The tile-to-world conversion needs the block origin, which lives with the field,
+   and the one caller that wanted `isSolidAt`, the teleporter's blink destination, is served by
+   the already-shipped `freeSpotNear`.
+5. Bosses (`aiType >= 100`) do not collide with geometry, per section 6.4 above: a wedged boss
+   is an unwinnable run. Minibosses (`aiType` 50-57) do collide, because they are normal-sized
+   movers with chase-family steering and one phasing through rock while its minions walk around
+   the doorway reads worse than one that takes the doorway too.
+6. The Zigzag's dart telegraph and the Charger's charge lane still aim straight at the player
+   rather than along the flow route. Both name a committed straight-line threat, so a lane that
+   curved with the route would lie about where the lunge goes; a wall now stops the lunge
+   through collision instead, which is cover working.
+
+Of section 6.3's fallback layers, layers 1 and 2 shipped (the resolver's substepping and the
+existing spatial-hash separation), layer 3 is filed as `POLISH-NAV-STUCK-NUDGE` because the
+residual stuck case is unmeasured once the field routes around walls and the resolver slides
+along faces, and of layer 4 the teleporter half shipped (a blink destination snaps through
+`freeSpotNear`) while the phased-Wraith half is filed as `FEAT-BARRIER-WRAITH-PHASE`.
+
 ---
 
 ## 7. Projectile and weapon interaction
