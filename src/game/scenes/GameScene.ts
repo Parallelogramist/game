@@ -63,7 +63,7 @@ import {
   pickInteriorPoint,
   repositionOntoSpawnRing,
 } from '../../world/spawnRing';
-import { projectileBlocked } from '../../world/weaponWallBehavior';
+import { beamReachFraction, projectileBlocked } from '../../world/weaponWallBehavior';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -9596,8 +9596,16 @@ export class GameScene extends Phaser.Scene {
    * Handle laser beam effect from The Machine.
    */
   private handleLaserBeam(x1: number, y1: number, x2: number, y2: number, damage: number): void {
+    // Every boss beam reaches the world through this one callback, so clipping here covers the
+    // renderer and the player hit test at once. A boss standing inside rock yields a zero-length
+    // beam until FEAT-WORLDGEN-NAV stops enemies phasing through walls, which is the honest
+    // reading: a laser fired from inside a wall does not come out of it.
+    const reachFraction = beamReachFraction(this.worldMode.worldMap(), x1, y1, x2, y2);
+    const beamEndX = x1 + (x2 - x1) * reachFraction;
+    const beamEndY = y1 + (y2 - y1) * reachFraction;
+
     // Store laser for rendering
-    this.activeLasers.push({ x1, y1, x2, y2, lifetime: 0.1 });
+    this.activeLasers.push({ x1, y1, x2: beamEndX, y2: beamEndY, lifetime: 0.1 });
 
     // Check player collision with laser line
     if (this.playerId !== -1 && this.damageCooldown <= 0) {
@@ -9605,8 +9613,8 @@ export class GameScene extends Phaser.Scene {
       const playerY = Transform.y[this.playerId];
 
       // Point-to-line distance
-      const dx = x2 - x1;
-      const dy = y2 - y1;
+      const dx = beamEndX - x1;
+      const dy = beamEndY - y1;
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len > 0) {
         const t = Math.max(0, Math.min(1, ((playerX - x1) * dx + (playerY - y1) * dy) / (len * len)));
