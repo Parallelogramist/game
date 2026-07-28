@@ -5,9 +5,21 @@ import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
 import { findNearestEnemy } from './WeaponUtils';
 import { PROJECTILE_ATLAS_KEY, getRicochetFrame } from '../visual/ProjectileAtlasRenderer';
+import { MoverKind, createCollisionResult, resolveCircleMove } from '../world/staticCollision';
 
 const RICOCHET_TRAIL_LENGTH = 6;
 const POOL_SIZE = 40;
+
+// The drawn ball scales with the size stat and can grow wider than a doorway's clearance,
+// which would wedge it in an aperture it entered through; a fixed small collision radius
+// keeps every gap the ship fits through passable, at the cost of under a ball-width of
+// visual overlap on contact.
+const WALL_BOUNCE_RADIUS = 6;
+
+// Caller-owned scratch, reused every frame: this runs per live ball per frame and the repo's
+// pooling rule forbids allocating in it. It carries nothing between frames, so unlike the
+// systems in CLAUDE.md's reset rule it needs no reset function.
+const wallBounce = createCollisionResult();
 
 interface RicochetBall {
   sprite: Phaser.GameObjects.Image | null;
@@ -177,7 +189,7 @@ export class RicochetWeapon extends BaseWeapon {
     const spatialHash = getEnemySpatialHash();
     // The ball bounces off the camera window, which is what "screen edges" meant when the
     // screen was the world. A box the size of the world would let it leave and never come
-    // back inside its lifetime; walls come with FEAT-BARRIER-PROJECTILE. A camera that
+    // back inside its lifetime; walls are resolved above this clamp. A camera that
     // outruns the ball drags it along an edge and spends its bounces, which is acceptable:
     // it cannot follow the player forever, and each bounce is still one of a finite count.
     const bounceMargin = 10;
@@ -208,11 +220,33 @@ export class RicochetWeapon extends BaseWeapon {
       if (ball.trailCount < RICOCHET_TRAIL_LENGTH) ball.trailCount++;
 
       // Move
+      const prevX = ball.x;
+      const prevY = ball.y;
       ball.x += ball.velocityX * ctx.deltaTime;
       ball.y += ball.velocityY * ctx.deltaTime;
 
       // Wall bounces
       let bounced = false;
+
+      // Geometry resolves before the view clamp, not after: a ball reflected off a wall that
+      // happens to sit near the camera edge must keep the reflection the wall gave it, and
+      // the clamp below would otherwise overwrite the position the resolver just chose.
+      if (ctx.worldMap !== null) {
+        resolveCircleMove(
+          ctx.worldMap, prevX, prevY, ball.x, ball.y,
+          WALL_BOUNCE_RADIUS, MoverKind.Projectile, wallBounce,
+        );
+        ball.x = wallBounce.x;
+        ball.y = wallBounce.y;
+        if (wallBounce.hitX) {
+          ball.velocityX = -ball.velocityX;
+          bounced = true;
+        }
+        if (wallBounce.hitY) {
+          ball.velocityY = -ball.velocityY;
+          bounced = true;
+        }
+      }
 
       if (ball.x <= bounceMinX) {
         ball.x = bounceMinX;
