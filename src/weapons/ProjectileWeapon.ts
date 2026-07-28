@@ -4,6 +4,7 @@ import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
 import { PROJECTILE_ATLAS_KEY, getProjectileFrame } from '../visual/ProjectileAtlasRenderer';
+import { projectileBlocked } from '../world/weaponWallBehavior';
 
 /**
  * ProjectileWeapon fires auto-targeting projectiles at the nearest enemy.
@@ -304,7 +305,8 @@ export class ProjectileWeapon extends BaseWeapon {
 
       // Check bounds
       if (data.x < despawnMinX || data.x > despawnMaxX ||
-          data.y < despawnMinY || data.y > despawnMaxY) {
+          data.y < despawnMinY || data.y > despawnMaxY ||
+          projectileBlocked(ctx.worldMap, data.x, data.y)) {
         this.removeProjectile(ctx, data, size);
         continue;
       }

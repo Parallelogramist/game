@@ -11,6 +11,7 @@ import {
   computeRetaliationDamage,
   type GuardianState,
 } from './guardianLogic';
+import { projectileBlocked } from '../world/weaponWallBehavior';
 
 const SHARD_POOL_SIZE = 48;
 const SHARD_SPEED = 460;             // px/sec outward
@@ -211,7 +212,8 @@ export class GuardianWeapon extends BaseWeapon {
       if (
         shard.travelled > maxTravel ||
         shard.x < despawnMinX || shard.x > despawnMaxX ||
-        shard.y < despawnMinY || shard.y > despawnMaxY
+        shard.y < despawnMinY || shard.y > despawnMaxY ||
+        projectileBlocked(ctx.worldMap, shard.x, shard.y)
       ) {
         shard.active = false;
         continue;
