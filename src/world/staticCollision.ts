@@ -82,7 +82,7 @@ function globalTileOf(worldCoord: number): number {
 }
 
 /** TileKind at a global tile coord, or -1 where no sector is generated. */
-function tileKindAt(world: WorldMap, globalTileX: number, globalTileY: number): number {
+export function tileKindAt(world: WorldMap, globalTileX: number, globalTileY: number): number {
   const sx = Math.floor(globalTileX / SECTOR_TILE_COLS);
   const sy = Math.floor(globalTileY / SECTOR_TILE_ROWS);
   const sector = sectorAt(world, sx, sy);
