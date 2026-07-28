@@ -2,6 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Health } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
+import { beamReachFraction } from '../world/weaponWallBehavior';
 
 const BEAM_POOL_SIZE = 6;           // hard cap on simultaneous beams
 const TICK_INTERVAL = 0.2;          // seconds between damage ticks per beam
@@ -24,7 +25,9 @@ interface Beam {
  * FocusBeamWeapon ("Focus Beam") — the arsenal's only *sustained ramping lock-on beam*.
  * Always-on (no cooldown): each frame every beam locks the nearest live enemy in range and
  * burns hotter the longer it stays connected to the SAME target, snapping to a new target
- * the instant the current one dies or leaves range. A hold-to-melt anti-elite/boss DPS tool,
+ * the instant the current one dies or leaves range.
+ * A wall breaks the lock the same way: the beam refuses to hold or take a lock it has no clear
+ * line to, so cover costs it the heat it had built. A hold-to-melt anti-elite/boss DPS tool,
  * the inverse of the arsenal's aim-free crowd-clear. Unlike Laser (cursor-aimed, fixed),
  * Railgun (a discrete burst on the toughest enemy), Sweep (a rotating full beam) or
  * Flamethrower (a cone DoT), it maintains a lock and its damage ramps with connection time.
@@ -128,7 +131,8 @@ export class FocusBeamWeapon extends BaseWeapon {
       }
       if (beam.targetId >= 0) {
         const stillValid =
-          liveEnemies.has(beam.targetId) && this.distSq(ctx, beam.targetId) <= keepRangeSq;
+          liveEnemies.has(beam.targetId) && this.distSq(ctx, beam.targetId) <= keepRangeSq
+          && this.hasLineOfSight(ctx, beam.targetId);
         if (!stillValid) {
           beam.targetId = -1;
           beam.lockElapsed = 0;
@@ -183,6 +187,12 @@ export class FocusBeamWeapon extends BaseWeapon {
     return dx * dx + dy * dy;
   }
 
+  private hasLineOfSight(ctx: WeaponContext, enemyId: number): boolean {
+    return beamReachFraction(
+      ctx.worldMap, ctx.playerX, ctx.playerY, Transform.x[enemyId], Transform.y[enemyId],
+    ) >= 1;
+  }
+
   private acquireTarget(
     ctx: WeaponContext,
     liveEnemies: Set<number>,
@@ -196,11 +206,17 @@ export class FocusBeamWeapon extends BaseWeapon {
     for (const id of liveEnemies) {
       const d = this.distSq(ctx, id);
       if (d > acquireRangeSq) continue;
+      const unheld = !held.has(id);
+      // Pay for a line-of-sight cast only when this candidate could actually win a tier: a
+      // nearest-visible scan that raycast every candidate would put a DDA per enemy per frame
+      // on an always-on weapon.
+      if (d >= bestAnyDist && !(unheld && d < bestUnheldDist)) continue;
+      if (!this.hasLineOfSight(ctx, id)) continue;
       if (d < bestAnyDist) {
         bestAnyDist = d;
         bestAny = id;
       }
-      if (!held.has(id) && d < bestUnheldDist) {
+      if (unheld && d < bestUnheldDist) {
         bestUnheldDist = d;
         bestUnheld = id;
       }
