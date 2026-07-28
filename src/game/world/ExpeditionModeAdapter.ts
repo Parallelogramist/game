@@ -6,6 +6,7 @@ import {
   SECTOR_WIDTH,
   SectorCoord,
   WorldRect,
+  parseSectorKey,
   rectContains,
   rectHeight,
   rectWidth,
@@ -17,7 +18,7 @@ import {
 } from '../../world/worldSpace';
 import { LEASH_RADIUS } from '../../world/spawnRing';
 import { setEnemyAIFieldRect } from '../../ecs/systems/enemy-ai/state';
-import { WorldModeAdapter } from './WorldModeAdapter';
+import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter';
 
 /**
  * Expedition mode: the world is a plane the camera moves across, and the screen is a
@@ -53,6 +54,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
   private trails: TrailManager | null = null;
   private currentSector: SectorCoord | null = null;
   private lockedRoom: WorldRect | null = null;
+  private lockedSector: SectorCoord | null = null;
   private appliedCameraWidth = 0;
   private appliedCameraHeight = 0;
 
@@ -101,6 +103,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
   }
 
   lockToSector(sector: SectorCoord): void {
+    this.lockedSector = sector;
     this.lockedRoom = sectorRectWorld(sector);
     this.applyCameraBounds(this.lockedRoom);
     setEnemyAIFieldRect(this.lockedRoom);
@@ -108,9 +111,44 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
 
   releaseSectorLock(): void {
     if (!this.lockedRoom) return;
+    this.lockedSector = null;
     this.lockedRoom = null;
     this.applyCameraBounds(this.world);
     setEnemyAIFieldRect(this.world);
+  }
+
+  saveViewState(): SerializedExpeditionState {
+    const camera = this.scene.cameras.main;
+    return {
+      cameraScrollX: camera.scrollX,
+      cameraScrollY: camera.scrollY,
+      sectorLockKey: this.lockedSector ? sectorKey(this.lockedSector) : undefined,
+    };
+  }
+
+  restoreViewState(state: SerializedExpeditionState): void {
+    const sector = state.sectorLockKey ? parseSectorKey(state.sectorLockKey) : null;
+    if (sector) {
+      const centre = sectorCenterWorld(sector);
+      // A tampered or foreign key naming a sector outside the flight rect would clamp the
+      // camera to a room the player can never be in and strand the run.
+      if (rectContains(this.world, centre.x, centre.y)) this.lockToSector(sector);
+    }
+
+    const camera = this.scene.cameras.main;
+    if (Number.isFinite(state.cameraScrollX) && Number.isFinite(state.cameraScrollY)) {
+      // centerOn, not setScroll: it sets midPoint as well, which is what preRender centres
+      // the deadzone on, so frame 1 back resumes the exact camera the save was taken at
+      // instead of snapping by up to half a deadzone.
+      camera.centerOn(
+        state.cameraScrollX + camera.width / 2,
+        state.cameraScrollY + camera.height / 2,
+      );
+    }
+
+    this.syncView();
+    this.grid?.setViewScroll(camera.scrollX, camera.scrollY);
+    this.trails?.setViewScroll(camera.scrollX, camera.scrollY);
   }
 
   update(_deltaSeconds: number): void {

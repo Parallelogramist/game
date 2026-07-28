@@ -37,10 +37,18 @@ import type { SerializedTimedStatBuff } from '../systems/TimedStatBuffs';
 // Type-only import — HazardZoneSystem imports Phaser at runtime, but a type
 // import is erased at compile time, keeping the save layer Phaser-free.
 import type { SerializedHazardState } from '../systems/HazardZoneSystem';
+// Same type-only rule as the hazard import above: WorldModeAdapter imports Phaser, the
+// erased import keeps this layer Phaser-free, and the owning module stays the single
+// source of truth for the shape it serializes.
+import type { RunModeKind, SerializedExpeditionState } from '../game/world/WorldModeAdapter';
 
 // Storage key and version
 const STORAGE_KEY = 'survivor-game-state';
-const SAVE_VERSION = 1;
+// The ceiling the validator accepts. An arena run keeps writing ARENA_SAVE_VERSION so a
+// client rollback never orphans one: only an expedition save, which an old client cannot
+// restore anyway, is written at the new version and rejected wholesale by its own ceiling.
+const SAVE_VERSION = 2;
+const ARENA_SAVE_VERSION = 1;
 
 // Serialized entity types
 type EntityTag = 'player' | 'enemy' | 'xpGem' | 'healthPickup' | 'magnetPickup' | 'consumable';
@@ -477,6 +485,16 @@ export interface GameSaveState {
   shipId?: string;
   startingWeaponId?: string;
   pactIds?: string[];
+
+  // Written only by an expedition run (version 2). Absent means an arena run: the restore
+  // site reads `state.runMode ?? 'arena'`, which is why a version-1 payload needs no
+  // migration to be a valid version-2 one.
+  runMode?: RunModeKind;
+
+  // Moving-view state: camera scroll and, if a boss fight was sealed, the locked sector.
+  // Sibling epic chunks append their own optional namespaced blocks beside this one and
+  // bump nothing (doc 01 section 8.1).
+  expedition?: SerializedExpeditionState;
 }
 
 /**
@@ -700,10 +718,11 @@ export class GameStateManager {
     shipId?: string;
     startingWeaponId?: string;
     pactIds?: string[];
+    expedition?: SerializedExpeditionState;
   }): void {
     try {
       const state: GameSaveState = {
-        version: SAVE_VERSION,
+        version: gameData.expedition ? SAVE_VERSION : ARENA_SAVE_VERSION,
         timestamp: Date.now(),
 
         // Game progress
@@ -781,6 +800,8 @@ export class GameStateManager {
         shipId: gameData.shipId,
         startingWeaponId: gameData.startingWeaponId,
         pactIds: gameData.pactIds,
+        runMode: gameData.expedition ? 'expedition' : undefined,
+        expedition: gameData.expedition,
       };
 
       SecureStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -813,9 +834,9 @@ export class GameStateManager {
    * Migrate save state from older versions if needed.
    */
   private migrateState(state: GameSaveState): GameSaveState {
-    // Currently no migrations needed (version 1)
-    // Future migrations would be added here:
-    // if (state.version === 1) { /* migrate to v2 */ state.version = 2; }
+    // Version 1 needs no migration: it IS the arena dialect of version 2. It carries no
+    // `runMode`, and every restore site reads `state.runMode ?? 'arena'`, so a v1 payload
+    // is already a valid v2 arena payload. A future v3 would branch here.
     return state;
   }
 

@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
 import { SectorCoord, WorldRect } from '../../world/worldSpace';
-import { WorldModeAdapter } from './WorldModeAdapter';
+import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter';
 
 /**
  * Arena mode: the world IS the screen, which is why nothing in the shipped game
@@ -18,6 +18,8 @@ import { WorldModeAdapter } from './WorldModeAdapter';
  * before it reads the frame cache.
  * lockToSector and releaseSectorLock are that guarantee for FEAT-WORLD-SPACE-6: an
  * arena boss fight cannot narrow a rect that is already the whole screen.
+ * saveViewState returning null is that guarantee for FEAT-WORLD-SPACE-7: an arena run
+ * cannot write a version-2 payload, so a client rollback can never orphan one.
  */
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
@@ -59,6 +61,12 @@ export class ArenaModeAdapter implements WorldModeAdapter {
   lockToSector(_sector: SectorCoord): void {}
 
   releaseSectorLock(): void {}
+
+  saveViewState(): SerializedExpeditionState | null {
+    return null;
+  }
+
+  restoreViewState(_state: SerializedExpeditionState): void {}
 
   update(_deltaSeconds: number): void {}
 

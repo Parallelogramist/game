@@ -756,9 +756,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createWorldMode(requested: RunModeKind | undefined): WorldModeAdapter {
-    // A restore always lands in arena: save v2 is FEAT-WORLD-SPACE-7's, so there is no
-    // expedition payload to come back to and a scrolled camera would restore to nothing.
-    if (this.shouldRestore) return new ArenaModeAdapter(this);
     const mode = requested ?? (isExpeditionDevRouteRequested() ? 'expedition' : 'arena');
     return mode === 'expedition' ? new ExpeditionModeAdapter(this) : new ArenaModeAdapter(this);
   }
@@ -768,22 +765,31 @@ export class GameScene extends Phaser.Scene {
     // This is critical - Phaser doesn't automatically call shutdown() methods
     this.events.once('shutdown', this.shutdown, this);
 
+    // Check for restore mode first
+    let saveState: GameSaveState | null = null;
+    if (this.shouldRestore) {
+      saveState = getGameStateManager().load();
+      if (saveState) {
+        // A restored run's mode is the one it was saved in, never the one init() guessed
+        // from the URL, and the adapter has to exist before the field rect below is read
+        // off it. A refresh, a UI-scale change and an orientation flip all land here.
+        this.worldMode = this.createWorldMode(saveState.runMode);
+      } else {
+        // Fall through to normal init if load failed
+        console.warn('Failed to load save state, starting fresh game');
+        this.shouldRestore = false;
+      }
+    }
+
     // Set dynamic game bounds for systems that need screen dimensions
     setEnemyAIFieldRect(this.worldMode.fieldRect());
 
     // Listen for resize events (orientation change, Safari address bar collapse)
     this.scale.on('resize', this.handleResize, this);
 
-    // Check for restore mode first
-    if (this.shouldRestore) {
-      const saveState = getGameStateManager().load();
-      if (saveState) {
-        this.restoreGameState(saveState);
-        return;
-      }
-      // Fall through to normal init if load failed
-      console.warn('Failed to load save state, starting fresh game');
-      this.shouldRestore = false;
+    if (saveState) {
+      this.restoreGameState(saveState);
+      return;
     }
 
     // Reset all ECS systems to clear state from previous runs
@@ -2161,6 +2167,7 @@ export class GameScene extends Phaser.Scene {
       shipId: this.selectedShipId,
       startingWeaponId: this.startingWeaponId,
       pactIds: this.activePacts.map(pact => pact.id),
+      expedition: this.worldMode.saveViewState() ?? undefined,
     });
   }
 
@@ -2455,6 +2462,7 @@ export class GameScene extends Phaser.Scene {
         modifierIds: this.activeModifiers.map(modifier => modifier.id),
         pactIds: this.activePacts.map(pact => pact.id),
         gauntletMode: this.gauntletModeActive,
+        runMode: this.worldMode.kind,
       };
     }
 
@@ -2584,6 +2592,22 @@ export class GameScene extends Phaser.Scene {
 
     // Restore all entities
     this.restoreEntities(state);
+
+    // The camera and the two screen-sized view layers are wired only once the player
+    // visual exists, exactly as the fresh path does it, and the saved view is then
+    // re-applied on top. A following camera with a deadzone is not necessarily
+    // player-centred, so re-centring on the player instead would snap the world by up to
+    // half a deadzone on every refresh. Arena: both calls are no-ops.
+    if (this.playerId !== -1 && this.playerSpaceship) {
+      this.worldMode.setupCamera(
+        this.playerSpaceship.getContainer(),
+        this.gridBackground,
+        this.trailManager,
+      );
+      if (state.expedition) {
+        this.worldMode.restoreViewState(state.expedition);
+      }
+    }
 
     // Note: Twin links cannot be restored because entity IDs change on recreation.
     // The twin link system uses runtime entity IDs which are not preserved.

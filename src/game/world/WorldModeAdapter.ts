@@ -6,11 +6,23 @@ import { SectorCoord, WorldRect } from '../../world/worldSpace';
 export type RunModeKind = 'arena' | 'expedition';
 
 /**
+ * The moving-view state a run save carries. Arena has none: its view is the screen and
+ * never moves, which is why an arena run keeps writing a version-1 payload.
+ */
+export interface SerializedExpeditionState {
+  cameraScrollX: number;
+  cameraScrollY: number;
+  /** Sector key of a live boss lock ("col,row"); absent when the world is open. */
+  sectorLockKey?: string;
+}
+
+/**
  * The single seam between "the world is the screen" (arena) and a world the camera
  * moves across (expedition, FEAT-WORLD-SPACE-4 onward). Gameplay systems take a
  * WorldRect and never read the scale manager or the camera themselves.
  *
- * Every member of doc 01 section 7.2 has now landed. setupCamera takes the grid and the
+ * Every member of doc 01 section 7.2 has now landed, plus the save/restore pair section
+ * 8.3 needs. setupCamera takes the grid and the
  * trail buffer alongside the player visual because those are the two screen-sized layers
  * that must track the camera.
  */
@@ -64,6 +76,18 @@ export interface WorldModeAdapter {
 
   /** Restore the full world bounds. A no-op when nothing is locked. Arena: no-op. */
   releaseSectorLock(): void;
+
+  /**
+   * Moving-view state for the run save, or null for a mode whose view never moves.
+   * Returning null is what keeps the arena payload on version 1.
+   */
+  saveViewState(): SerializedExpeditionState | null;
+
+  /**
+   * Re-apply a saved view after a restore. Called once, after setupCamera, because the
+   * camera has to exist and be following before its scroll can be overridden.
+   */
+  restoreViewState(state: SerializedExpeditionState): void;
 
   /**
    * Once per frame from GameScene.update(), after deltaSeconds is final and before
