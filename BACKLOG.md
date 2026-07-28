@@ -3697,12 +3697,57 @@ exploring pays is the end of Phase 5.
   Carries the two `FEAT-POWER-VAULTS` done-criteria this chunk did not meet. Deps:
   `FEAT-POWER-VAULTS`. Spec: `04-content-quests-powerups-secrets.md` section 2, Claim flow.
 
-- [ ] **FEAT-POWER-ABILITY-EFFECTS**: the six traversal abilities have catalog descriptions
-  naming active systems (a blink with i-frames, a deployable breach charge, a tether across
-  void gaps) and **none of them exists**: owning an ability opens its doors and does nothing
-  else, which is why the claim toast deliberately prints a fixed line instead of
-  `definition.description`. Value: the reward for the deepest exploration in the game is
-  currently a key, not a capability. Deps: `FEAT-POWER-VAULTS`. Spec:
+- [x] **FEAT-POWER-ABILITY-EFFECTS** (blink half; done — c2dc1bb): the first traversal
+  ability is a capability instead of a key. In an expedition run a profile that owns
+  `ability_blink_drive` presses the dash button (SHIFT, gamepad RB or the touch button, all
+  three of which already funnel through `input-dash-requested`) and **blinks 220 px** in the
+  dash's own direction with **0.45 s of i-frames**, on a **6 s cooldown reduced 1 s per
+  purchased `dashLevel`** (doc 04's stated synergy, 6/5/4/3 s across that upgrade's
+  `maxLevel: 3`). The claim toast now prints `definition.description` for that ability instead
+  of the fixed placeholder line, gated by the new `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` set so
+  the other five keep the honest fallback.
+  - **The landing point is `resolveCircleMove`, the resolver ordinary movement already uses.**
+    That is the whole correctness argument and it is structural, not careful: a blink that
+    could cross a wall would cross a closed gate mouth too, and every ability door in the
+    world would stop meaning anything. Range 220 px is 5.5 tiles, far inside the resolver's
+    1280 px substep reach, so `CHORE-COLLIDE-TELEPORT-SNAP` does not apply. A blink whose
+    resolved travel is under 24 px (nose against a wall) is **refused, not spent**: error blip,
+    no teleport, cooldown untouched.
+  - **The blink reuses the dash's cooldown timer** rather than adding a second one. It is the
+    same button and the same verb, sharing the timer forbids a blink-then-dash double
+    mobility, and `dashCooldownTimer` is already in the run save, so a mid-run reload restores
+    the blink cooldown with **no new save field, no `SAVE_VERSION` bump and no storage key**.
+  - **`clampPlayerToRect` runs on the landing.** A boss sector lock narrows `fieldRect` without
+    changing any tile, and writing `Transform` directly would otherwise skip the per-frame
+    clamp for one frame, letting a blink leave a sealed fight.
+  - The touch cooldown arc is now fed the blink's cooldown as its total. Not cosmetic:
+    `TouchActionButtons.updateDashCooldown` early-returns on `total <= 0`, and
+    `playerStats.dashCooldown` is 0 for a profile that never bought `dashLevel`: a profile
+    that can still own the blink, because traversal abilities are earned and never purchased.
+  - Arena is inert by construction, not by care: `blinkDriveOwned()` requires
+    `worldMode.worldMap() !== null`, which is exactly what `ArenaModeAdapter` returns, so an
+    arena, daily, practice or gauntlet run cannot blink even on a profile that owns it.
+  - **No new tests, deliberately.** Every line added is Phaser-coupled scene wiring (Transform
+    writes, tweens, the sound and effects managers, the input plugin) whose only non-obvious
+    logic (can a blink cross geometry) is delegated to `resolveCircleMove`, already pinned by
+    `staticCollision.test.ts`. Guarded by `tsc`, the unchanged 141-file / 1737-test suite and
+    `npm run build`, the same shape as `FEAT-MAPUI-MAPSCENE-04`.
+  - Files: `src/data/GameTuning.ts`, `src/data/TraversalAbilities.ts`,
+    `src/game/managers/InputController.ts`, `src/game/scenes/GameScene.ts`. Feel is
+    unvalidated in a browser: see **POLISH-BLINK-FEEL** under `## Human gates`.
+
+- [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the five traversal abilities that are still keys
+  and nothing more, each blocked on a barrier flavour that does not exist yet rather than on
+  effort. `ability_breach_charges` needs a deployable placement path over the existing
+  `ConsumableKind.BOMB` blast plus the false-wall prospecting `FEAT-SECRET-CACHE` owns;
+  `ability_magno_tether` needs `barrier_void_gap` with anchor pylons, which no generator phase
+  emits; `ability_phase_cloak` needs `barrier_security_grid`, likewise unemitted;
+  `ability_thermal_ward` needs the hull drain `FEAT-BARRIER-HAZARD-STRIPS` will put on the 51
+  `TileKind.HazardFloor` tiles, so today it would negate nothing; `ability_signal_decryptor`
+  needs `EdgeKind.KeyDoor` actually placed (`FEAT-WORLDGEN-QUESTDOORS`) and the secret ping
+  `FEAT-DISCOVERY-SCAN-FRAGMENT` owns. Each one becomes a small chunk the moment its barrier
+  lands, and each must add its id to `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` so the claim toast
+  starts printing its real description. Deps: per ability, as listed. Spec:
   `04-content-quests-powerups-secrets.md` section 2.
 
 - [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
@@ -4041,6 +4086,19 @@ Never agent work. The fleet must not do any of these.
     vault inside the start sector; abrupt, possibly fine, human call. (d) **legibility**:
     whether six distinct locked doors are distinguishable in play, or whether they need the
     per-ability glyph `FEAT-MAPUI-DOORS-05` plans for the map screen.
+  - **POLISH-BLINK-FEEL** (c2dc1bb): playtest Blink Drive in `?expedition=1` on a profile
+    that owns it. Agents have no browser and must not tune a dodge verb blind. Owns:
+    (a) **range**: 220 px is about 2.8 dashes and 5.5 tiles: does it read as a dodge or as
+    traversal, and does it overshoot inside a cramped sector? (b) **cooldown**: 6 s at
+    `dashLevel` 0 down to 3 s at 3; the dash it replaces is 8 s down to 5 s, so a blink owner
+    is strictly more mobile than a dash owner, which is intended for an earned ability but
+    unproven against real enemy pressure. (c) **the i-frames**: 0.45 s versus the 0.3 s base
+    `iframeDuration`: enough to punch through a Legion swarm, or enough to trivialise it?
+    (d) **the refusal**: a blink with under 24 px of travel plays the error blip and keeps the
+    cooldown; does that read as "blocked" or as "the button is broken"? (e) **the camera**: the
+    expedition camera lerps to the ship, so a 220 px jump arrives before the view does. Is the
+    lag legible or nauseating? (f) **the ghosts**: 5 afterimages along the path plus a burst at
+    the origin: enough to sell a teleport, or does it need a distinct effect?
   - **POLISH-MAPUI-FEEL** (36844a0): playtest the world map screen
     (FEAT-MAPUI-MAPSCENE-04), opened with **M** or gamepad **LB** in `?expedition=1`. Agents
     have no browser and must not tune pan speed or judge legibility blind. Owns:

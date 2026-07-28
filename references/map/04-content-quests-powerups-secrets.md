@@ -113,6 +113,23 @@ as data. The per-level synergy magnitudes above stay this doc's spec for
 yet and a number in a catalog that no code reads is a second source of truth waiting to
 drift.)*
 
+**As built (FEAT-POWER-ABILITY-EFFECTS, blink half, c2dc1bb):** row 1 is implemented and rows
+2 to 6 are not; `FEAT-POWER-ABILITY-EFFECTS-REST` carries the rest and
+`IMPLEMENTED_TRAVERSAL_ABILITY_IDS` in `src/data/TraversalAbilities.ts` is the single record of
+which descriptions the claim toast is allowed to print. Three deviations from row 1's cell.
+(1) The blink does not get its own button or its own cooldown: it **replaces** the dash on the
+existing dash input and reuses `InputController`'s dash cooldown timer, because it is the same
+verb, because sharing the timer forbids blink-then-dash double mobility, and because that timer
+is already in the run save, so a mid-run reload restores the blink cooldown with no new save
+field. (2) The synergy is `-1 s` per `dashLevel` off a **6 s blink base**, not off the dash's
+own `8 - dashLevel` curve: applying the same reduction twice to one press would double-dip, and
+the blink must work at `dashLevel 0` because a traversal ability may never depend on a gold
+purchase (section 2's own first defence of the split). (3) The blink's landing point is
+`resolveCircleMove` at the player radius, so it stops at geometry instead of passing through it;
+the "energy membrane turns off once blinked through from either side" anti-soft-lock rule stays
+unbuilt with `barrier_flicker_screen` itself, and a blink that resolves under 24 px of travel is
+refused without spending the cooldown.
+
 ### Ordering / solvability constraint the worldgen must honor
 
 Acquisition order is fixed by index. Doc 02's generator MUST place vault *i* so it
