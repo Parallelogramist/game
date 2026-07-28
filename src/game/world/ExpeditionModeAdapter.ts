@@ -25,7 +25,16 @@ import {
   MoverKind,
   findNearestFreeCircleSpot,
   isSolidAtWorld,
+  raycastSolid,
 } from '../../world/staticCollision';
+import {
+  computeFlowField,
+  createFlowField,
+  flowStepPoint,
+} from '../../world/flowField';
+import type { FlowField } from '../../world/flowField';
+import { TILE_SIZE } from '../../world/worldTypes';
+import type { NavigationContext } from '../../ecs/systems/enemy-ai/common';
 import { WorldGeometryRenderer } from '../../visual/WorldGeometryRenderer';
 import { setEnemyAIFieldRect } from '../../ecs/systems/enemy-ai/state';
 import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter';
@@ -49,17 +58,27 @@ const EXPEDITION_WORLD_SEED = 20260727;
 
 const PLAYER_COLLISION_RADIUS = 16;
 
+/**
+ * 150 ms or a player tile crossing, whichever comes first: a stale field only ever points at
+ * where the player was one tile ago, and a refresh is one BFS over 5184 tiles.
+ */
+const FLOW_REFRESH_SECONDS = 0.15;
+
 const CAMERA_LERP = 0.12;
 const CAMERA_DEADZONE_WIDTH = 160;
 const CAMERA_DEADZONE_HEIGHT = 120;
 
-export class ExpeditionModeAdapter implements WorldModeAdapter {
+export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContext {
   readonly kind = 'expedition' as const;
 
   private readonly scene: Phaser.Scene;
   private readonly map: WorldMap;
   private readonly world: WorldRect;
   private readonly spotScratch: WorldPoint = { x: 0, y: 0 };
+  private readonly flow: FlowField = createFlowField();
+  private flowAge = FLOW_REFRESH_SECONDS;
+  private flowTileX = Number.NaN;
+  private flowTileY = Number.NaN;
   private geometry: WorldGeometryRenderer | null = null;
   private readonly view: WorldRect = { minX: 0, minY: 0, maxX: 0, maxY: 0 };
   private playerVisual: Phaser.GameObjects.Container | null = null;
@@ -127,11 +146,13 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     return this.lockedRoom ?? this.world;
   }
 
-  // Still the world plane, not the open tiles: enemies do not resolve against geometry
-  // until FEAT-WORLDGEN-NAV, so rejecting solid ring points would thin the spawn rate
-  // without changing a single enemy's path. Tile-level legality is FEAT-WORLDGEN-SPAWN.
+  // The point must be in open floor, not merely inside the world plane: from this chunk on an
+  // enemy resolves against geometry, so a ring point inside rock would spawn something that
+  // has to be shoved out by the resolver on its first step. Tile snapping and a reachability
+  // filter are still FEAT-WORLDGEN-SPAWN.
   isSpawnableWorldPoint(x: number, y: number): boolean {
-    return rectContains(this.world, x, y);
+    return rectContains(this.world, x, y)
+      && !isSolidAtWorld(this.map, x, y, MoverKind.Enemy);
   }
 
   leashRadius(): number | null {
@@ -189,6 +210,18 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     return this.map;
   }
 
+  navigationContext(): NavigationContext | null {
+    return this;
+  }
+
+  hasLineOfSight(x1: number, y1: number, x2: number, y2: number): boolean {
+    return raycastSolid(this.map, x1, y1, x2, y2, MoverKind.Enemy) >= 1;
+  }
+
+  flowStep(x: number, y: number, out: WorldPoint): boolean {
+    return flowStepPoint(this.flow, x, y, out);
+  }
+
   freeSpotNear(x: number, y: number, out: WorldPoint): void {
     if (!isSolidAtWorld(this.map, x, y, MoverKind.Player)) {
       out.x = x;
@@ -205,7 +238,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
     this.geometry = null;
   }
 
-  update(_deltaSeconds: number): void {
+  update(deltaSeconds: number): void {
     const camera = this.scene.cameras.main;
     if (camera.width !== this.appliedCameraWidth || camera.height !== this.appliedCameraHeight) {
       // A Safari address-bar collapse or an orientation flip changes the viewport under
@@ -219,6 +252,18 @@ export class ExpeditionModeAdapter implements WorldModeAdapter {
 
     const player = this.playerVisual;
     if (!player) return;
+
+    this.flowAge += deltaSeconds;
+    const playerTileX = Math.floor(player.x / TILE_SIZE);
+    const playerTileY = Math.floor(player.y / TILE_SIZE);
+    if (this.flowAge >= FLOW_REFRESH_SECONDS
+      || playerTileX !== this.flowTileX || playerTileY !== this.flowTileY) {
+      computeFlowField(this.map, player.x, player.y, this.flow);
+      this.flowAge = 0;
+      this.flowTileX = playerTileX;
+      this.flowTileY = playerTileY;
+    }
+
     const sector = sectorOfWorldPoint(player.x, player.y);
     if (!this.currentSector || !sectorsEqual(sector, this.currentSector)) {
       this.enterSector(sector);

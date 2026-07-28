@@ -1,6 +1,8 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
-import { PI_TWO } from './common';
+import { PI_TWO, chaseHeading, navigationContext } from './common';
 import { enemyAIFieldRect } from './state';
+
+const blinkSpot = { x: 0, y: 0 };
 
 /**
  * Teleporter — maintains mid-range with strafing, then periodically blinks to
@@ -33,8 +35,9 @@ export function updateTeleporterAI(
     }
   } else if (distance > 200) {
     // Far — approach at 0.6x speed
-    Velocity.x[enemyId] = (dx / distance) * speed * 0.6;
-    Velocity.y[enemyId] = (dy / distance) * speed * 0.6;
+    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+    Velocity.x[enemyId] = heading.x * speed * 0.6;
+    Velocity.y[enemyId] = heading.y * speed * 0.6;
   } else if (distance > 80) {
     // Mid range — strafe (tangent movement)
     const tangentX = -dy / distance;
@@ -62,6 +65,13 @@ export function updateTeleporterAI(
     // Keep on screen
     Transform.x[enemyId] = Math.max(enemyAIFieldRect.minX + 20, Math.min(enemyAIFieldRect.maxX - 20, Transform.x[enemyId]));
     Transform.y[enemyId] = Math.max(enemyAIFieldRect.minY + 20, Math.min(enemyAIFieldRect.maxY - 20, Transform.y[enemyId]));
+
+    const context = navigationContext;
+    if (context !== null) {
+      context.freeSpotNear(Transform.x[enemyId], Transform.y[enemyId], blinkSpot);
+      Transform.x[enemyId] = blinkSpot.x;
+      Transform.y[enemyId] = blinkSpot.y;
+    }
 
     EnemyAI.specialTimer[enemyId] = 2.0 + Math.random() * 1.5;
     // Brief pause after materializing

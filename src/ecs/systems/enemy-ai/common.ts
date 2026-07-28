@@ -35,3 +35,53 @@ export function setAIWorld(world: IWorld): void {
 export function isDestructible(entityId: number): boolean {
   return aiWorld !== null && hasComponent(aiWorld, Destructible, entityId);
 }
+
+/**
+ * Static-geometry queries for the run's world, injected by GameScene the same way
+ * telegraphManager is. Null in arena, and null is the byte-identical guarantee: with no
+ * context chaseHeading hands back the caller's own direct vector by assignment.
+ */
+export interface NavigationContext {
+  hasLineOfSight(x1: number, y1: number, x2: number, y2: number): boolean;
+  /** Centre of the next tile toward the player, false when there is no route. */
+  flowStep(x: number, y: number, out: { x: number; y: number }): boolean;
+  /** Nearest point a mover-sized circle fits, for teleport destinations. */
+  freeSpotNear(x: number, y: number, out: { x: number; y: number }): void;
+}
+
+export let navigationContext: NavigationContext | null = null;
+export function setNavigationContext(context: NavigationContext | null): void {
+  navigationContext = context;
+}
+
+const heading = { x: 0, y: 0 };
+const flowPoint = { x: 0, y: 0 };
+
+/**
+ * Where a chase-family handler should point this frame: straight at the player unless rock is
+ * in the way, in which case one flow-field step around it. Direction only, never speed or
+ * timers, so every distance-driven scale a handler already applies keeps measuring the real
+ * distance to the player. Returns a shared instance: read it before the next call, never retain it.
+ */
+export function chaseHeading(
+  enemyX: number,
+  enemyY: number,
+  playerX: number,
+  playerY: number,
+  directX: number,
+  directY: number,
+): { x: number; y: number } {
+  heading.x = directX;
+  heading.y = directY;
+  const context = navigationContext;
+  if (context === null) return heading;
+  if (context.hasLineOfSight(enemyX, enemyY, playerX, playerY)) return heading;
+  if (!context.flowStep(enemyX, enemyY, flowPoint)) return heading;
+  const stepX = flowPoint.x - enemyX;
+  const stepY = flowPoint.y - enemyY;
+  const stepLength = Math.sqrt(stepX * stepX + stepY * stepY);
+  if (stepLength < 1) return heading;
+  heading.x = stepX / stepLength;
+  heading.y = stepY / stepLength;
+  return heading;
+}

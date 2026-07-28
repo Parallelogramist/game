@@ -1,6 +1,6 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import { enemyAIFieldRect } from './state';
-import { PI_HALF, telegraphManager } from './common';
+import { PI_HALF, chaseHeading, telegraphManager } from './common';
 import { spawnTelegraph, chargerChargeTelegraph } from './telegraphs';
 
 /**
@@ -31,10 +31,11 @@ export function updateChargerAI(
   if (state === 0) {
     // Walking toward player
     if (distance > 1) {
-      Velocity.x[enemyId] = (dx / distance) * baseSpeed * 0.6;
-      Velocity.y[enemyId] = (dy / distance) * baseSpeed * 0.6;
+      const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+      Velocity.x[enemyId] = heading.x * baseSpeed * 0.6;
+      Velocity.y[enemyId] = heading.y * baseSpeed * 0.6;
       // Add π/2 so triangle tip leads (triangle points UP at rotation 0)
-      Transform.rotation[enemyId] = Math.atan2(dy, dx) + PI_HALF;
+      Transform.rotation[enemyId] = Math.atan2(heading.y, heading.x) + PI_HALF;
     }
 
     // Start charge preparation after 2-4 seconds or when close enough

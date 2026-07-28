@@ -1,5 +1,5 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
-import { PI_HALF, telegraphManager } from './common';
+import { PI_HALF, chaseHeading, telegraphManager } from './common';
 import { spawnTelegraph, zigzagDartTelegraph } from './telegraphs';
 
 /**
@@ -25,6 +25,7 @@ export function updateZigzagAI(
   if (distance <= 1) return;
 
   const baseSpeed = Velocity.speed[enemyId];
+  const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
   const phase = EnemyAI.phase[enemyId];
   // Variable phase speed: oscillates between 3-7 rad/s instead of constant 6
   EnemyAI.phase[enemyId] += deltaTime * (5 + Math.sin(phase * 0.7) * 2);
@@ -48,8 +49,8 @@ export function updateZigzagAI(
   const currentState = EnemyAI.state[enemyId];
 
   // Calculate perpendicular vector for the side-to-side oscillation
-  const perpX = -dy / distance;
-  const perpY = dx / distance;
+  const perpX = -heading.y;
+  const perpY = heading.x;
 
   // Windup slows slightly; dart reduces zigzag and doubles speed for a clean lunge.
   let speed = baseSpeed;
@@ -68,8 +69,8 @@ export function updateZigzagAI(
   const zigzagAmount = rawZigzag * amplitudeScale;
 
   // Combine forward movement with zigzag
-  const moveX = (dx / distance) + perpX * zigzagAmount;
-  const moveY = (dy / distance) + perpY * zigzagAmount;
+  const moveX = heading.x + perpX * zigzagAmount;
+  const moveY = heading.y + perpY * zigzagAmount;
   const moveMag = Math.sqrt(moveX * moveX + moveY * moveY);
 
   Velocity.x[enemyId] = (moveX / moveMag) * speed;

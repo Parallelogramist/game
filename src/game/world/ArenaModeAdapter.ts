@@ -3,6 +3,7 @@ import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
 import { SectorCoord, WorldPoint, WorldRect } from '../../world/worldSpace';
 import type { WorldMap } from '../../world/worldTypes';
+import type { NavigationContext } from '../../ecs/systems/enemy-ai/common';
 import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter';
 
 /**
@@ -23,6 +24,8 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  * cannot write a version-2 payload, so a client rollback can never orphan one.
  * worldMap returning null is that guarantee for FEAT-BARRIER-PLAYER: an arena run cannot
  * acquire a collision context, so its movement integration is the arithmetic it always was.
+ * navigationContext returning null is that guarantee for FEAT-WORLDGEN-NAV: an arena enemy
+ * cannot acquire a flow field, so chaseHeading hands its steering back unchanged.
  */
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
@@ -72,6 +75,10 @@ export class ArenaModeAdapter implements WorldModeAdapter {
   restoreViewState(_state: SerializedExpeditionState): void {}
 
   worldMap(): WorldMap | null {
+    return null;
+  }
+
+  navigationContext(): NavigationContext | null {
     return null;
   }
 

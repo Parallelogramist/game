@@ -1,4 +1,5 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
+import { chaseHeading } from './common';
 
 /**
  * Exploder — chases with an acceleration ramp (1x → 2.5x over time); the
@@ -23,9 +24,10 @@ export function updateExploderAI(enemyId: number, playerX: number, playerY: numb
 
     const baseSpeed = Velocity.speed[enemyId];
     const currentSpeed = baseSpeed * speedMultiplier;
-    Velocity.x[enemyId] = (dx / distance) * currentSpeed;
-    Velocity.y[enemyId] = (dy / distance) * currentSpeed;
-    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+    Velocity.x[enemyId] = heading.x * currentSpeed;
+    Velocity.y[enemyId] = heading.y * currentSpeed;
+    Transform.rotation[enemyId] = Math.atan2(heading.y, heading.x);
   } else {
     Velocity.x[enemyId] = 0;
     Velocity.y[enemyId] = 0;

@@ -1,17 +1,25 @@
-import { defineQuery, IWorld } from 'bitecs';
-import { Transform, Velocity } from '../components';
+import { defineQuery, hasComponent, IWorld } from 'bitecs';
+import { EnemyAI, Transform, Velocity } from '../components';
 import { WorldRect } from '../../world/worldSpace';
 import { MoverKind, createCollisionResult, resolveCircleMove } from '../../world/staticCollision';
 import type { WorldMap } from '../../world/worldTypes';
 
 const movementQuery = defineQuery([Transform, Velocity]);
 
-/** What the player resolves against, when the run's mode has geometry at all. */
-export interface PlayerWallCollision {
+/** What the movers resolve against, when the run's mode has geometry at all. */
+export interface WallCollisionContext {
   worldMap: WorldMap;
   playerId: number;
   playerRadius: number;
+  enemyRadius: number;
 }
+
+/**
+ * Bosses are exempt from geometry on purpose (doc 02 section 6.4): their patterns are tuned
+ * for an open room, a sector lock already seals the fight, and a boss wedged in rock is an
+ * unwinnable run. Minibosses are ordinary movers and do collide.
+ */
+const BOSS_AI_TYPE_FLOOR = 100;
 
 // Caller-owned scratch, reused every frame: this runs once per player per frame and the
 // repo's pooling rule forbids allocating in it. It carries no state between frames, so
@@ -20,13 +28,13 @@ const collisionResult = createCollisionResult();
 
 /**
  * MovementSystem applies velocity to position each frame.
- * The player additionally resolves against static geometry when the mode supplies it;
- * with no context the arithmetic is exactly what it was before walls existed.
+ * The player and every non-boss enemy additionally resolve against static geometry when the
+ * mode supplies it; with no context the arithmetic is exactly what it was before walls existed.
  */
 export function movementSystem(
   world: IWorld,
   deltaTime: number,
-  wallCollision?: PlayerWallCollision | null,
+  wallCollision?: WallCollisionContext | null,
 ): IWorld {
   const entities = movementQuery(world);
 
@@ -35,20 +43,38 @@ export function movementSystem(
     const nextX = Transform.x[entityId] + Velocity.x[entityId] * deltaTime;
     const nextY = Transform.y[entityId] + Velocity.y[entityId] * deltaTime;
 
-    if (wallCollision && entityId === wallCollision.playerId) {
-      resolveCircleMove(
-        wallCollision.worldMap,
-        Transform.x[entityId],
-        Transform.y[entityId],
-        nextX,
-        nextY,
-        wallCollision.playerRadius,
-        MoverKind.Player,
-        collisionResult,
-      );
-      Transform.x[entityId] = collisionResult.x;
-      Transform.y[entityId] = collisionResult.y;
-      continue;
+    if (wallCollision) {
+      if (entityId === wallCollision.playerId) {
+        resolveCircleMove(
+          wallCollision.worldMap,
+          Transform.x[entityId],
+          Transform.y[entityId],
+          nextX,
+          nextY,
+          wallCollision.playerRadius,
+          MoverKind.Player,
+          collisionResult,
+        );
+        Transform.x[entityId] = collisionResult.x;
+        Transform.y[entityId] = collisionResult.y;
+        continue;
+      }
+      if (hasComponent(world, EnemyAI, entityId)
+        && EnemyAI.aiType[entityId] < BOSS_AI_TYPE_FLOOR) {
+        resolveCircleMove(
+          wallCollision.worldMap,
+          Transform.x[entityId],
+          Transform.y[entityId],
+          nextX,
+          nextY,
+          wallCollision.enemyRadius,
+          MoverKind.Enemy,
+          collisionResult,
+        );
+        Transform.x[entityId] = collisionResult.x;
+        Transform.y[entityId] = collisionResult.y;
+        continue;
+      }
     }
 
     Transform.x[entityId] = nextX;

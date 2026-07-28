@@ -1,4 +1,5 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
+import { chaseHeading } from './common';
 
 /**
  * Wraith — alternates on randomized timers between corporeal (full speed,
@@ -22,9 +23,10 @@ export function updateWraithAI(enemyId: number, playerX: number, playerY: number
 
   if (distance > 1) {
     const speedMultiplier = state === 0 ? 1.0 : 0.5;
-    Velocity.x[enemyId] = (dx / distance) * speed * speedMultiplier;
-    Velocity.y[enemyId] = (dy / distance) * speed * speedMultiplier;
-    Transform.rotation[enemyId] = Math.atan2(dy, dx);
+    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+    Velocity.x[enemyId] = heading.x * speed * speedMultiplier;
+    Velocity.y[enemyId] = heading.y * speed * speedMultiplier;
+    Transform.rotation[enemyId] = Math.atan2(heading.y, heading.x);
   }
 
   if (state === 0) {

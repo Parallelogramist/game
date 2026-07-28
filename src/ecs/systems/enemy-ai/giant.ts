@@ -1,5 +1,5 @@
 import { Transform, Velocity, EnemyAI, EnemyType } from '../../components';
-import { telegraphManager } from './common';
+import { chaseHeading, telegraphManager } from './common';
 import { groundSlamCallback } from './state';
 import { spawnTelegraph, giantStompTelegraph } from './telegraphs';
 
@@ -26,9 +26,10 @@ export function updateGiantAI(enemyId: number, playerX: number, playerY: number,
     // Lumber — chase at base speed
     if (distance > 1) {
       const speed = Velocity.speed[enemyId];
-      Velocity.x[enemyId] = (dx / distance) * speed;
-      Velocity.y[enemyId] = (dy / distance) * speed;
-      Transform.rotation[enemyId] = Math.atan2(dy, dx);
+      const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+      Velocity.x[enemyId] = heading.x * speed;
+      Velocity.y[enemyId] = heading.y * speed;
+      Transform.rotation[enemyId] = Math.atan2(heading.y, heading.x);
     }
 
     // Start stomp windup after 4.0-6.0s

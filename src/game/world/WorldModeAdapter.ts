@@ -3,6 +3,7 @@ import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
 import { SectorCoord, WorldPoint, WorldRect } from '../../world/worldSpace';
 import type { WorldMap } from '../../world/worldTypes';
+import type { NavigationContext } from '../../ecs/systems/enemy-ai/common';
 
 export type RunModeKind = 'arena' | 'expedition';
 
@@ -97,6 +98,12 @@ export interface WorldModeAdapter {
    * builds from this is simply absent there and its movement path stays what it was.
    */
   worldMap(): WorldMap | null;
+
+  /**
+   * Geometry queries the enemy AI steers by, or null for a mode with no geometry. Null is what
+   * keeps arena steering the direct player vector it has always been.
+   */
+  navigationContext(): NavigationContext | null;
 
   /**
    * Nearest point where a player-sized circle fits, written into the caller's out-param.

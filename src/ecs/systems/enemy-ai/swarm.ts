@@ -1,6 +1,7 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import { EnemyAIType } from '../../../enemies/EnemyTypes';
 import { getEnemySpatialHash } from '../../../utils/SpatialHash';
+import { chaseHeading } from './common';
 
 /**
  * Swarm — boids-inspired flocking: chase blended with separation and cohesion
@@ -27,8 +28,9 @@ export function updateSwarmAI(enemyId: number, playerX: number, playerY: number,
   const speed = Velocity.speed[enemyId];
 
   // Chase vector (normalized toward player)
-  let chaseX = dx / distance;
-  let chaseY = dy / distance;
+  const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+  let chaseX = heading.x;
+  let chaseY = heading.y;
 
   // Query nearby entities via spatial hash
   let separationX = 0, separationY = 0;

@@ -22,7 +22,9 @@ import {
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToRect } from '../../ecs/systems/MovementSystem';
-import type { PlayerWallCollision } from '../../ecs/systems/MovementSystem';
+import type { WallCollisionContext } from '../../ecs/systems/MovementSystem';
+import { setNavigationContext } from '../../ecs/systems/enemy-ai/common';
+import { MoverKind, createCollisionResult, resolveCircleMove } from '../../world/staticCollision';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
@@ -291,6 +293,10 @@ const MINIBOSS_SPAWN_RING: EdgeSpawnConfig = { spawnOffset: 50, edgeInset: 100 }
  */
 const SPAWN_RING_ATTEMPTS = 5;
 const PLAYER_COLLISION_RADIUS = 16;
+const ENEMY_COLLISION_RADIUS = 12;
+const BOSS_KNOCKBACK_AI_TYPE_FLOOR = 100;
+const knockbackCollisionResult = createCollisionResult();
+const enemySpawnSpot = { x: 0, y: 0 };
 
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
@@ -696,7 +702,7 @@ export class GameScene extends Phaser.Scene {
   private selectedStageId: string = 'stage_deep_void';
   private draftedBlessingIds: string[] | null = null;
   private worldMode!: WorldModeAdapter;
-  private playerWallCollision: PlayerWallCollision | null = null;
+  private playerWallCollision: WallCollisionContext | null = null;
 
   init(data?: {
     restore?: boolean;
@@ -1025,6 +1031,7 @@ export class GameScene extends Phaser.Scene {
     this.telegraphManager = new TelegraphManager(this);
     this.telegraphManager.setQuality(this.visualQuality);
     setTelegraphManager(this.telegraphManager);
+    setNavigationContext(this.worldMode.navigationContext());
 
     // Initialize off-screen threat indicators
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
@@ -2263,6 +2270,7 @@ export class GameScene extends Phaser.Scene {
     this.telegraphManager = new TelegraphManager(this);
     this.telegraphManager.setQuality(this.visualQuality);
     setTelegraphManager(this.telegraphManager);
+    setNavigationContext(this.worldMode.navigationContext());
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
     this.minimapManager = new MinimapManager(this);
@@ -5305,14 +5313,29 @@ export class GameScene extends Phaser.Scene {
     // Cache decay factor once per frame (same deltaSeconds for all entities)
     const decayFactor = Math.pow(0.001, deltaSeconds);
     const field = this.worldMode.fieldRect();
+    const worldMap = this.worldMode.worldMap();
 
     for (const entityId of entities) {
       const velocityX = Knockback.velocityX[entityId];
       const velocityY = Knockback.velocityY[entityId];
 
       // Apply knockback to position
-      Transform.x[entityId] += velocityX * deltaSeconds;
-      Transform.y[entityId] += velocityY * deltaSeconds;
+      const nextX = Transform.x[entityId] + velocityX * deltaSeconds;
+      const nextY = Transform.y[entityId] + velocityY * deltaSeconds;
+
+      if (worldMap && EnemyAI.aiType[entityId] < BOSS_KNOCKBACK_AI_TYPE_FLOOR) {
+        resolveCircleMove(
+          worldMap, Transform.x[entityId], Transform.y[entityId], nextX, nextY,
+          ENEMY_COLLISION_RADIUS, MoverKind.Enemy, knockbackCollisionResult,
+        );
+        Transform.x[entityId] = knockbackCollisionResult.x;
+        Transform.y[entityId] = knockbackCollisionResult.y;
+        if (knockbackCollisionResult.hitX) Knockback.velocityX[entityId] = 0;
+        if (knockbackCollisionResult.hitY) Knockback.velocityY[entityId] = 0;
+      } else {
+        Transform.x[entityId] = nextX;
+        Transform.y[entityId] = nextY;
+      }
 
       // Clamp to the playfield so enemies can't be knocked out of bounds
       Transform.x[entityId] = Math.max(field.minX, Math.min(field.maxX, Transform.x[entityId]));
@@ -7223,17 +7246,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * The player's wall-collision context, rebuilt in place rather than allocated: this is
+   * The wall-collision context, rebuilt in place rather than allocated: this is
    * a per-frame call. Null in arena, which is what keeps its movement integration the
    * arithmetic it always was.
    */
-  private syncPlayerWallCollision(): PlayerWallCollision | null {
+  private syncPlayerWallCollision(): WallCollisionContext | null {
     const worldMap = this.worldMode.worldMap();
     if (!worldMap || this.playerId === -1) return null;
     const context = this.playerWallCollision ?? {
       worldMap,
       playerId: this.playerId,
       playerRadius: PLAYER_COLLISION_RADIUS,
+      enemyRadius: ENEMY_COLLISION_RADIUS,
     };
     context.worldMap = worldMap;
     context.playerId = this.playerId;
@@ -7313,6 +7337,13 @@ export class GameScene extends Phaser.Scene {
     enemyType: EnemyTypeDefinition,
     scaledStats: { health: number; speed: number; damage: number }
   ): number {
+    // Ring spawns are filtered by isSpawnableWorldPoint, but minion, splitter and legion
+    // children are placed at an offset from a parent and can land in rock, which now means
+    // a mover the resolver has to shove out on its first step.
+    this.worldMode.freeSpotNear(x, y, enemySpawnSpot);
+    x = enemySpawnSpot.x;
+    y = enemySpawnSpot.y;
+
     const entityId = addEntity(this.world);
 
     // ═══ CURSE MULTIPLIER (enemies are stronger, but give more rewards) ═══
@@ -11228,6 +11259,7 @@ export class GameScene extends Phaser.Scene {
       this.eliteAffixVisualManager.destroy();
       this.telegraphManager.destroy();
       setTelegraphManager(null);
+      setNavigationContext(null);
     }
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();
