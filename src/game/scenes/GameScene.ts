@@ -22,6 +22,7 @@ import {
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToRect } from '../../ecs/systems/MovementSystem';
+import type { PlayerWallCollision } from '../../ecs/systems/MovementSystem';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
@@ -288,6 +289,7 @@ const MINIBOSS_SPAWN_RING: EdgeSpawnConfig = { spawnOffset: 50, edgeInset: 100 }
  * make an all-blocked draw a 1-in-1024 event.
  */
 const SPAWN_RING_ATTEMPTS = 5;
+const PLAYER_COLLISION_RADIUS = 16;
 
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
@@ -693,6 +695,7 @@ export class GameScene extends Phaser.Scene {
   private selectedStageId: string = 'stage_deep_void';
   private draftedBlessingIds: string[] | null = null;
   private worldMode!: WorldModeAdapter;
+  private playerWallCollision: PlayerWallCollision | null = null;
 
   init(data?: {
     restore?: boolean;
@@ -764,6 +767,7 @@ export class GameScene extends Phaser.Scene {
     // Register shutdown event listener for proper cleanup on scene restart/stop
     // This is critical - Phaser doesn't automatically call shutdown() methods
     this.events.once('shutdown', this.shutdown, this);
+    this.playerWallCollision = null;
 
     // Check for restore mode first
     let saveState: GameSaveState | null = null;
@@ -773,7 +777,12 @@ export class GameScene extends Phaser.Scene {
         // A restored run's mode is the one it was saved in, never the one init() guessed
         // from the URL, and the adapter has to exist before the field rect below is read
         // off it. A refresh, a UI-scale change and an orientation flip all land here.
-        this.worldMode = this.createWorldMode(saveState.runMode);
+        // Rebuilt only on a real mismatch: an expedition adapter generates its whole world
+        // in its constructor (~32 ms measured), and init() already built the right one
+        // whenever the URL and the save agree.
+        if (saveState.runMode !== this.worldMode.kind) {
+          this.worldMode = this.createWorldMode(saveState.runMode);
+        }
       } else {
         // Fall through to normal init if load failed
         console.warn('Failed to load save state, starting fresh game');
@@ -2599,6 +2608,16 @@ export class GameScene extends Phaser.Scene {
     // player-centred, so re-centring on the player instead would snap the world by up to
     // half a deadzone on every refresh. Arena: both calls are no-ops.
     if (this.playerId !== -1 && this.playerSpaceship) {
+      // A save written before this world's geometry existed names a point the tiles may
+      // now fill, which would resume the run with the ship inside a wall. Arena's
+      // freeSpotNear is the identity, so this is inert there.
+      const freeSpot = { x: 0, y: 0 };
+      this.worldMode.freeSpotNear(
+        Transform.x[this.playerId], Transform.y[this.playerId], freeSpot,
+      );
+      Transform.x[this.playerId] = freeSpot.x;
+      Transform.y[this.playerId] = freeSpot.y;
+      this.playerSpaceship.getContainer().setPosition(freeSpot.x, freeSpot.y);
       this.worldMode.setupCamera(
         this.playerSpaceship.getContainer(),
         this.gridBackground,
@@ -5071,7 +5090,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    movementSystem(this.world, deltaSeconds);
+    movementSystem(this.world, deltaSeconds, this.syncPlayerWallCollision());
 
     // Process knockback for enemies
     this.processKnockback(deltaSeconds);
@@ -7198,6 +7217,25 @@ export class GameScene extends Phaser.Scene {
     registerSprite(entityId, playerVisual);
 
     return entityId;
+  }
+
+  /**
+   * The player's wall-collision context, rebuilt in place rather than allocated: this is
+   * a per-frame call. Null in arena, which is what keeps its movement integration the
+   * arithmetic it always was.
+   */
+  private syncPlayerWallCollision(): PlayerWallCollision | null {
+    const worldMap = this.worldMode.worldMap();
+    if (!worldMap || this.playerId === -1) return null;
+    const context = this.playerWallCollision ?? {
+      worldMap,
+      playerId: this.playerId,
+      playerRadius: PLAYER_COLLISION_RADIUS,
+    };
+    context.worldMap = worldMap;
+    context.playerId = this.playerId;
+    this.playerWallCollision = context;
+    return context;
   }
 
   /**
@@ -11153,6 +11191,12 @@ export class GameScene extends Phaser.Scene {
       camera.removeBounds();
       camera.setDeadzone();
       camera.setScroll(0, 0);
+    }
+
+    // The adapter owns Phaser objects of its own (the world geometry layer), and a scene
+    // restart reuses the scene but never the adapter.
+    if (this.worldMode) {
+      this.worldMode.destroy();
     }
 
     // Clean up grid background and trail manager
