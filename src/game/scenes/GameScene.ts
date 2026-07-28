@@ -397,6 +397,10 @@ export class GameScene extends Phaser.Scene {
   // screen and this flow holds isPaused.
   private marketActive: boolean = false;
 
+  // The world map (FEAT-MAPUI-MAPSCENE-04) is a sibling overlay to the pause menu, never a
+  // child: exactly one of them owns isPaused at a time.
+  private mapOverlayActive: boolean = false;
+
   // Damage cooldown (invincibility frames)
   private damageCooldown: number = 0;
 
@@ -506,6 +510,7 @@ export class GameScene extends Phaser.Scene {
   // input gating (ESC→pause, joystick) is suppressed for the duration.
   private introOverlayActive: boolean = false;
   private pauseRequestHandler: (() => void) | null = null;
+  private mapRequestHandler: (() => void) | null = null;
   private autoBuyToggleHandler: (() => void) | null = null;
 
   // Health drop chance (percentage)
@@ -814,6 +819,35 @@ export class GameScene extends Phaser.Scene {
     if (!map) return;
     getDiscoveryManager().bindWorld(map);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
+  }
+
+  /**
+   * The map pauses the game (03-discovery-map-ui.md section 4.2): at 100+ live enemies a map
+   * you cannot afford to read punishes the exploration loop it exists to reward.
+   */
+  private openExpeditionMap(): void {
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    if (this.isPaused || this.isGameOver || this.mapOverlayActive) return;
+    if (this.introOverlayActive || this.playerId === -1) return;
+    const container = this.playerSpaceship.getContainer();
+    this.mapOverlayActive = true;
+    this.isPaused = true;
+    this.scene.launch('MapScene', {
+      returnTo: 'GameScene',
+      map,
+      playerWorldX: container.x,
+      playerWorldY: container.y,
+      playerFacing: this.playerSpaceship.getFacingAngle(),
+    });
+    this.scene.pause();
+  }
+
+  /** Called by MapScene before it resumes this scene, so the resume handler sees no pause
+   *  left to explain and the run comes straight back live instead of into the pause menu. */
+  closeExpeditionMap(): void {
+    this.mapOverlayActive = false;
+    this.isPaused = false;
   }
 
   create(): void {
@@ -2107,6 +2141,13 @@ export class GameScene extends Phaser.Scene {
       this.toggleAutoBuy();
     };
     this.events.on('input-autobuy-toggled', this.autoBuyToggleHandler);
+
+    // Listen for world-map requests (M key / gamepad LB). Arena runs have no world map,
+    // so openExpeditionMap returns immediately and the binding is inert there.
+    this.mapRequestHandler = () => {
+      this.openExpeditionMap();
+    };
+    this.events.on('input-map-requested', this.mapRequestHandler);
   }
 
   /**
@@ -11218,6 +11259,17 @@ export class GameScene extends Phaser.Scene {
     if (this.autoBuyToggleHandler) {
       this.events.off('input-autobuy-toggled', this.autoBuyToggleHandler);
       this.autoBuyToggleHandler = null;
+    }
+
+    // Remove world-map request handler
+    if (this.mapRequestHandler) {
+      this.events.off('input-map-requested', this.mapRequestHandler);
+      this.mapRequestHandler = null;
+    }
+    // A restart while the map is open would leave the overlay scene running over the new run.
+    if (this.mapOverlayActive) {
+      this.scene.stop('MapScene');
+      this.mapOverlayActive = false;
     }
 
     // Clean up input controller (joystick, focus handlers, shift key)

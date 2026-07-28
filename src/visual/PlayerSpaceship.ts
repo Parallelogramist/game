@@ -935,6 +935,11 @@ export class PlayerSpaceship {
     return this.container;
   }
 
+  /** The map marker has to point where the ship points; nothing else reads this. */
+  public getFacingAngle(): number {
+    return this.currentAngle;
+  }
+
   public setQuality(quality: VisualQuality): void {
     if (quality === this.config.quality) return;
     this.config.quality = quality;

@@ -10,7 +10,7 @@
 import Phaser from 'phaser';
 import { InputState } from '../../ecs/systems/InputSystem';
 import { JoystickManager } from '../../ui/JoystickManager';
-import { GamepadManager, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_Y, GAMEPAD_BUTTON_START, GAMEPAD_BUTTON_SELECT } from '../../input/GamepadManager';
+import { GamepadManager, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_Y, GAMEPAD_BUTTON_START, GAMEPAD_BUTTON_SELECT, GAMEPAD_BUTTON_LB } from '../../input/GamepadManager';
 import { TUNING } from '../../data/GameTuning';
 import { getSprite } from '../../ecs/systems/SpriteSystem';
 import { PLAYER_NEON } from '../../visual/NeonColors';
@@ -58,6 +58,8 @@ export class InputController {
 
   // Q key handler reference for cleanup (ultimate ability)
   private ultimateKeyHandler: (() => void) | null = null;
+
+  private mapKeyHandler: (() => void) | null = null;
 
   // Pointerdown handler reference for cleanup
   private pointerDownHandler: ((pointer: Phaser.Input.Pointer) => void) | null = null;
@@ -110,6 +112,10 @@ export class InputController {
       // Gamepad auto-buy toggle: Select/Back button
       if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_SELECT)) {
         this.scene.events.emit('input-autobuy-toggled');
+      }
+      // Gamepad world map: LB shoulder button (expedition only; GameScene ignores it in arena)
+      if (this.gamepadManager.justPressed(GAMEPAD_BUTTON_LB)) {
+        this.scene.events.emit('input-map-requested');
       }
     }
 
@@ -323,6 +329,12 @@ export class InputController {
       this.ultimateKeyHandler = null;
     }
 
+    // Remove map (M) key handler
+    if (this.mapKeyHandler) {
+      this.scene.input.keyboard?.off('keydown-M', this.mapKeyHandler);
+      this.mapKeyHandler = null;
+    }
+
     // Remove pointerdown handler
     if (this.pointerDownHandler) {
       this.scene.input.off('pointerdown', this.pointerDownHandler);
@@ -406,6 +418,12 @@ export class InputController {
       this.scene.events.emit('input-ultimate-requested');
     };
     keyboard.on('keydown-Q', this.ultimateKeyHandler);
+
+    // M key for the expedition world map, the same store-and-remove shape as Q.
+    this.mapKeyHandler = () => {
+      this.scene.events.emit('input-map-requested');
+    };
+    keyboard.on('keydown-M', this.mapKeyHandler);
 
     // Create virtual joystick for touch input
     this.joystickManager = new JoystickManager(this.scene);
