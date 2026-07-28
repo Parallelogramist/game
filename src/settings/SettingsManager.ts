@@ -21,6 +21,7 @@ const STORAGE_KEY_SCREEN_SHAKE_INTENSITY = 'settings-screen-shake-intensity';
 const STORAGE_KEY_COLORBLIND_MODE = 'settings-colorblind-mode';
 const STORAGE_KEY_HIGH_CONTRAST = 'settings-high-contrast';
 const STORAGE_KEY_MINIMAP = 'settings-minimap-enabled';
+const STORAGE_KEY_MINIMAP_UNDERLAY = 'settings-minimap-underlay-enabled';
 export type DamageNumbersMode = 'all' | 'crits' | 'perfect_crits' | 'off';
 
 /** Color-vision-deficiency correction modes applied as a full-screen post-FX filter. */
@@ -45,6 +46,8 @@ export interface GameSettings {
   highContrast: boolean;
   /** Tactical minimap / threat radar on the right HUD edge. */
   minimapEnabled: boolean;
+  /** Current-sector walls and doors under the radar blips (expedition only). */
+  minimapUnderlayEnabled: boolean;
 }
 
 const DEFAULTS: GameSettings = {
@@ -63,6 +66,7 @@ const DEFAULTS: GameSettings = {
   colorblindMode: 'off',
   highContrast: false,
   minimapEnabled: true,
+  minimapUnderlayEnabled: true,
 };
 
 export class SettingsManager {
@@ -94,6 +98,9 @@ export class SettingsManager {
       colorblindMode: this.loadColorblindMode(),
       highContrast: this.loadBoolean(STORAGE_KEY_HIGH_CONTRAST, DEFAULTS.highContrast),
       minimapEnabled: this.loadBoolean(STORAGE_KEY_MINIMAP, DEFAULTS.minimapEnabled),
+      minimapUnderlayEnabled: this.loadBoolean(
+        STORAGE_KEY_MINIMAP_UNDERLAY, DEFAULTS.minimapUnderlayEnabled,
+      ),
     };
   }
 
@@ -281,6 +288,15 @@ export class SettingsManager {
     this.saveBoolean(STORAGE_KEY_MINIMAP, enabled);
   }
 
+  isMinimapUnderlayEnabled(): boolean {
+    return this.settings.minimapUnderlayEnabled;
+  }
+
+  setMinimapUnderlayEnabled(enabled: boolean): void {
+    this.settings.minimapUnderlayEnabled = enabled;
+    this.saveBoolean(STORAGE_KEY_MINIMAP_UNDERLAY, enabled);
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Combat Text Settings
   // ═══════════════════════════════════════════════════════════════════════════
@@ -404,6 +420,7 @@ export class SettingsManager {
     this.setColorblindMode(DEFAULTS.colorblindMode);
     this.setHighContrast(DEFAULTS.highContrast);
     this.setMinimapEnabled(DEFAULTS.minimapEnabled);
+    this.setMinimapUnderlayEnabled(DEFAULTS.minimapUnderlayEnabled);
   }
 }
 

@@ -43,7 +43,7 @@ import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../.
 type FocusZone =
   | 'sfx' | 'sfxVolume' | 'bgm' | 'bgmVolume' | 'playbackMode' | 'musicTracks'
   | 'screenShake' | 'reducedMotion' | 'gridEffects' | 'fpsCounter'
-  | 'colorblind' | 'highContrast' | 'minimap'
+  | 'colorblind' | 'highContrast' | 'minimap' | 'minimapUnderlay'
   | 'uiScale'
   | 'damageNumbers' | 'statusText'
   | 'exportProfile' | 'importProfile' | 'resetData' | 'back';
@@ -346,7 +346,7 @@ export class SettingsScene extends Phaser.Scene {
     const labelX = -width / 2 + scaledInt(this.layoutScale, 28);
     const controlX = width / 2 - scaledInt(this.layoutScale, 28);
     const startY = -height / 2 + scaledInt(this.layoutScale, 70);
-    const rowGap = scaledInt(this.layoutScale, 36);
+    const rowGap = scaledInt(this.layoutScale, 33);
 
     const buildToggleRow = (offsetRow: number, label: string, zone: FocusZone, getter: () => boolean, setter: (value: boolean) => void) => {
       const rowY = startY + rowGap * offsetRow;
@@ -394,7 +394,11 @@ export class SettingsScene extends Phaser.Scene {
       () => settingsManager.isMinimapEnabled(),
       (v) => settingsManager.setMinimapEnabled(v));
 
-    const uiScaleY = startY + rowGap * 7;
+    buildToggleRow(7, 'Map Underlay', 'minimapUnderlay',
+      () => settingsManager.isMinimapUnderlayEnabled(),
+      (v) => settingsManager.setMinimapUnderlayEnabled(v));
+
+    const uiScaleY = startY + rowGap * 8;
     this.addRowLabel(card, labelX, uiScaleY, 'UI Scale');
     this.uiScaleHandles = this.addStepperRow(card, controlX, uiScaleY, 'uiScale',
       () => `${Math.round(settingsManager.getUiScale() * 100)}%`,
@@ -972,6 +976,7 @@ export class SettingsScene extends Phaser.Scene {
       { zone: 'fpsCounter', enabled: settingsManager.isFpsCounterEnabled() },
       { zone: 'highContrast', enabled: settingsManager.isHighContrastEnabled() },
       { zone: 'minimap', enabled: settingsManager.isMinimapEnabled() },
+      { zone: 'minimapUnderlay', enabled: settingsManager.isMinimapUnderlayEnabled() },
       { zone: 'statusText', enabled: settingsManager.isStatusTextEnabled() },
     ];
     for (const { zone, enabled } of toggleStates) {
@@ -1024,7 +1029,7 @@ export class SettingsScene extends Phaser.Scene {
       'sfx', 'sfxVolume', 'bgm', 'bgmVolume', 'playbackMode', 'musicTracks',
       'damageNumbers', 'statusText',
       'screenShake', 'reducedMotion', 'gridEffects', 'fpsCounter',
-      'colorblind', 'highContrast', 'minimap',
+      'colorblind', 'highContrast', 'minimap', 'minimapUnderlay',
       'uiScale', 'exportProfile', 'importProfile', 'resetData',
       'back',
     ];
@@ -1169,6 +1174,9 @@ export class SettingsScene extends Phaser.Scene {
         break;
       case 'minimap':
         settingsManager.setMinimapEnabled(!settingsManager.isMinimapEnabled());
+        break;
+      case 'minimapUnderlay':
+        settingsManager.setMinimapUnderlayEnabled(!settingsManager.isMinimapUnderlayEnabled());
         break;
       case 'damageNumbers': {
         const modes: DamageNumbersMode[] = ['all', 'crits', 'perfect_crits', 'off'];
