@@ -1,5 +1,5 @@
 /**
- * flowField — one BFS per refresh over the 3x3 sector block around the player, output as
+ * flowField: one BFS per refresh over the 3x3 sector block around the player, output as
  * one 8-direction code per tile. Every chasing enemy then costs one array read instead of
  * a path search, which is the cost shape a 100+ enemy survivors game needs.
  *
