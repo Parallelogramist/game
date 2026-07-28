@@ -4,7 +4,7 @@ import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { PROJECTILE_ATLAS_KEY, getDroneProjectileFrame, getDroneBodyFrame } from '../visual/ProjectileAtlasRenderer';
-import { projectileBlocked } from '../world/weaponWallBehavior';
+import { playerProjectileBlocked } from '../world/weaponWallBehavior';
 
 interface Drone {
   bodySprite: Phaser.GameObjects.Image;
@@ -393,7 +393,7 @@ export class DroneWeapon extends BaseWeapon {
         // Bounds check
         if (proj.sprite.x < despawnMinX || proj.sprite.x > despawnMaxX ||
             proj.sprite.y < despawnMinY || proj.sprite.y > despawnMaxY ||
-            projectileBlocked(ctx.worldMap, proj.sprite.x, proj.sprite.y)) {
+            playerProjectileBlocked(ctx.worldMap, proj.sprite.x, proj.sprite.y)) {
           this.deactivateProjectile(proj);
           continue;
         }

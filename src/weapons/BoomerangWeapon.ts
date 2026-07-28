@@ -10,7 +10,7 @@ import {
   type BoomerangParams,
   type BoomerangState,
 } from './boomerangMotion';
-import { projectileBlocked } from '../world/weaponWallBehavior';
+import { playerProjectileBlocked } from '../world/weaponWallBehavior';
 
 const POOL_SIZE = 32;
 const CATCH_RADIUS = 22;
@@ -206,7 +206,7 @@ export class BoomerangWeapon extends BaseWeapon {
       // a glaive for good. The block is tested on the candidate position, so the glaive
       // stays at the last free point instead of ending the frame a step inside the rock.
       if (glaive.motion.phase === 'outbound'
-          && projectileBlocked(ctx.worldMap, result.state.x, result.state.y)) {
+          && playerProjectileBlocked(ctx.worldMap, result.state.x, result.state.y)) {
         glaive.motion.phase = 'returning';
         glaive.motion.outboundElapsed = params.outboundDuration;
       } else {

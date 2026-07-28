@@ -5,7 +5,7 @@ import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { findNearestEnemy } from './WeaponUtils';
 import { PROJECTILE_ATLAS_KEY, getShurikenFrame } from '../visual/ProjectileAtlasRenderer';
-import { projectileBlocked } from '../world/weaponWallBehavior';
+import { playerProjectileBlocked } from '../world/weaponWallBehavior';
 
 const POOL_SIZE = 30;
 
@@ -326,7 +326,7 @@ export class ShurikenWeapon extends BaseWeapon {
       // Check bounds
       if (shuriken.x < despawnMinX || shuriken.x > despawnMaxX ||
           shuriken.y < despawnMinY || shuriken.y > despawnMaxY ||
-          projectileBlocked(ctx.worldMap, shuriken.x, shuriken.y)) {
+          playerProjectileBlocked(ctx.worldMap, shuriken.x, shuriken.y)) {
         this.deactivateShuriken(shuriken);
         continue;
       }

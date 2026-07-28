@@ -9,7 +9,7 @@ import {
   type SentryParams,
   type SentryState,
 } from './sentryLogic';
-import { projectileBlocked } from '../world/weaponWallBehavior';
+import { playerProjectileBlocked } from '../world/weaponWallBehavior';
 
 const SENTRY_POOL_SIZE = 8;         // max concurrent turrets (count caps below this)
 const PROJECTILE_POOL_SIZE = 48;
@@ -263,7 +263,7 @@ export class SentryWeapon extends BaseWeapon {
         proj.travelled > PROJECTILE_MAX_TRAVEL ||
         proj.x < despawnMinX || proj.x > despawnMaxX ||
         proj.y < despawnMinY || proj.y > despawnMaxY ||
-        projectileBlocked(ctx.worldMap, proj.x, proj.y)
+        playerProjectileBlocked(ctx.worldMap, proj.x, proj.y)
       ) {
         proj.active = false;
         continue;

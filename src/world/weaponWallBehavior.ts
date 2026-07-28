@@ -9,7 +9,8 @@
  *
  * - Travels (stopped by a solid tile): Energy Darts, Shuriken, Drone bolts, Sentry bolts,
  *   Guardian shards, Homing Missiles, Boomerang glaives, and all enemy fire. Each calls
- *   projectileBlocked() from its own loop.
+ *   projectileBlocked() from its own loop. Player travellers call playerProjectileBlocked,
+ *   which also chips a breakable barrier; enemy fire calls projectileBlocked, which never does.
  * - Bounces (the one exception that needs the resolver, not this predicate): Ricochet, which
  *   calls resolveCircleMove directly for the reflection axis. Wrapping that here would add a
  *   pass-through with nothing to say.
@@ -33,6 +34,7 @@
  */
 
 import { MoverKind, isSolidAtWorld, raycastSolid } from './staticCollision';
+import { reportPlayerImpact } from './barrierState';
 import type { WorldMap } from './worldTypes';
 
 /**
@@ -42,6 +44,19 @@ import type { WorldMap } from './worldTypes';
  */
 export function projectileBlocked(world: WorldMap | null, x: number, y: number): boolean {
   return world !== null && isSolidAtWorld(world, x, y, MoverKind.Projectile);
+}
+
+/**
+ * The same test for a PLAYER projectile, which additionally lands one impact on whatever
+ * breakable barrier stopped it. Enemy fire keeps calling projectileBlocked: doc 02 section
+ * 4's table has enemy projectiles stopping at a destructible without damaging it, and the
+ * two callers are one GameScene loop and the boss laser.
+ */
+export function playerProjectileBlocked(world: WorldMap | null, x: number, y: number): boolean {
+  if (world === null) return false;
+  if (!isSolidAtWorld(world, x, y, MoverKind.Projectile)) return false;
+  reportPlayerImpact(world, x, y);
+  return true;
 }
 
 /**
