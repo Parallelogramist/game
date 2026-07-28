@@ -236,6 +236,14 @@ interface GatePlacement {
   finalRegion: Set<SectorKey>;
 }
 
+interface GateCandidate {
+  parent: GrowingSector;
+  child: GrowingSector;
+  subtree: Set<SectorKey>;
+  /** Longest downward path from child: the ceiling on how many gates can still nest. */
+  height: number;
+}
+
 function placeAbilityGates(
   sectors: Map<SectorKey, GrowingSector>,
   ordered: GrowingSector[],
@@ -246,10 +254,13 @@ function placeAbilityGates(
   const abilityOrder: string[] = [];
   const abilitySlotBySector = new Map<SectorKey, string[]>();
   const gateSubtrees: Set<SectorKey>[] = [];
+  const subtreeHeights = measureSubtreeHeights(ordered);
   let availableRegion = new Set<SectorKey>(ordered.map(sector => sector.key));
 
-  for (const abilityId of abilityIds) {
-    const candidates: { parent: GrowingSector; child: GrowingSector; subtree: Set<SectorKey> }[] = [];
+  for (let placed = 0; placed < abilityIds.length; placed++) {
+    const abilityId = abilityIds[placed];
+    const gatesLeft = abilityIds.length - placed;
+    const candidates: GateCandidate[] = [];
     for (const parent of ordered) {
       if (!availableRegion.has(parent.key)) continue;
       for (const childKey of parent.childKeys) {
@@ -258,13 +269,14 @@ function placeAbilityGates(
         const subtree = subtreeOf(sectors, child);
         const keyHasHome = [...availableRegion].some(key => !subtree.has(key));
         if (!keyHasHome) continue;
-        candidates.push({ parent, child, subtree });
+        candidates.push({
+          parent, child, subtree, height: subtreeHeights.get(childKey) ?? 0,
+        });
       }
     }
     if (candidates.length === 0) break;
 
-    const chosen = candidates[weightedPick(
-      candidates.map(candidate => 1 + candidate.child.depth), topologyRng)];
+    const chosen = pickGateCandidate(candidates, availableRegion.size, gatesLeft);
     const gateDirection = directionFrom(chosen.parent, chosen.child);
     attachEdge(chosen.parent, chosen.child, gateDirection,
       makeEdge(chosen.parent.sx, chosen.parent.sy, gateDirection, EdgeKind.AbilityDoor, {
@@ -286,6 +298,49 @@ function placeAbilityGates(
   }
 
   return { abilityOrder, abilitySlotBySector, gateSubtrees, finalRegion: availableRegion };
+}
+
+/**
+ * Nesting feasibility first, tier balance second. Weighting toward the deepest edge (the
+ * v1 rule) collapsed availableRegion onto a leaf subtree, after which no later gate had an
+ * edge left to sit on: over seeds 1..40 at seven sector budgets, 6 of 6 gates was placed
+ * zero times and the floor was 1. A candidate whose subtree is shorter than the gates
+ * still to place cannot host them, so it is excluded before balance is weighed at all.
+ */
+function pickGateCandidate(
+  candidates: GateCandidate[], regionSize: number, gatesLeft: number
+): GateCandidate {
+  const feasible = candidates.filter(candidate => candidate.height >= gatesLeft - 1);
+  const tallest = candidates.reduce(
+    (best, candidate) => Math.max(best, candidate.height), 0);
+  const pool = feasible.length > 0
+    ? feasible
+    : candidates.filter(candidate => candidate.height === tallest);
+  // gatesLeft gates cut a region of regionSize into gatesLeft + 1 equal tiers, so this
+  // gate's subtree wants every tier but the first.
+  const target = regionSize * gatesLeft / (gatesLeft + 1);
+  return pool.reduce((best, candidate) =>
+    compareGateCandidates(candidate, best, target) < 0 ? candidate : best);
+}
+
+function compareGateCandidates(a: GateCandidate, b: GateCandidate, target: number): number {
+  return Math.abs(a.subtree.size - target) - Math.abs(b.subtree.size - target)
+    || b.height - a.height
+    || compareKeys(a.child.key, b.child.key);
+}
+
+/** Children are strictly deeper than their parent, so one pass in descending depth order
+ *  settles every sector after all of its children. */
+function measureSubtreeHeights(ordered: GrowingSector[]): Map<SectorKey, number> {
+  const heights = new Map<SectorKey, number>();
+  for (const sector of [...ordered].sort((a, b) => b.depth - a.depth)) {
+    let height = 0;
+    for (const childKey of sector.childKeys) {
+      height = Math.max(height, 1 + (heights.get(childKey) ?? 0));
+    }
+    heights.set(sector.key, height);
+  }
+  return heights;
 }
 
 /** A loop edge that skips a gate would let a player into the locked subtree

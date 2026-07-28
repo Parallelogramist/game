@@ -223,6 +223,12 @@ describe('invariant 3 — gate-order solvability', () => {
       expect(reached.has(map.bossArenaKey)).toBe(true);
     }
   });
+
+  it('gates every ability the inputs ask for', () => {
+    for (const map of WORLDS) {
+      expect(map.abilityOrder).toEqual(INPUTS.abilityGateOrder);
+    }
+  });
 });
 
 describe('invariant 4 — no one-way soft-lock', () => {
