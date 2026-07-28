@@ -87,6 +87,8 @@ export class ArenaModeAdapter implements WorldModeAdapter {
     out.y = y;
   }
 
+  notifyGeometryChanged(): void {}
+
   destroy(): void {}
 
   update(_deltaSeconds: number): void {}

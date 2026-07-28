@@ -19,6 +19,8 @@ import { LEASH_RADIUS } from '../../world/spawnRing';
 import { STAGES } from '../../data/Stages';
 import { TRAVERSAL_ABILITY_GATE_ORDER } from '../../data/TraversalAbilities';
 import { generateWorld } from '../../world/generateWorld';
+import { applyBrokenBarriers } from '../../world/barrierState';
+import { loadWorldProfile } from '../../expedition/WorldProfileStore';
 import { worldBoundsRect } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
 import {
@@ -106,6 +108,13 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
         + `${EXPEDITION_WORLD_SEED}; the rest are ungated this world`,
       );
     }
+    // Replayed before anything reads the grid: the renderer, the collision index and the
+    // flow field all take this map as the truth, so a wall the profile remembers breaking
+    // must already be open the first time any of them look.
+    applyBrokenBarriers(
+      this.map,
+      loadWorldProfile(this.map.seed, this.map.worldGenVersion).brokenBreakableIds,
+    );
     this.world = worldBoundsRect(this.map);
   }
 
@@ -231,6 +240,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     if (findNearestFreeCircleSpot(this.map, x, y, PLAYER_COLLISION_RADIUS, out)) return;
     out.x = x;
     out.y = y;
+  }
+
+  notifyGeometryChanged(): void {
+    this.geometry?.invalidate();
   }
 
   destroy(): void {

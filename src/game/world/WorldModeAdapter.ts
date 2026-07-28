@@ -114,6 +114,14 @@ export interface WorldModeAdapter {
   freeSpotNear(x: number, y: number, out: WorldPoint): void;
 
   /**
+   * Something changed the tile grid this frame. Only the mode that owns a geometry renderer
+   * has anything to do: tiles are read live everywhere else (collision indexes hold the
+   * SectorDef itself, the flow field rebuilds within 150 ms), and only the drawing is
+   * cached. Arena: no-op.
+   */
+  notifyGeometryChanged(): void;
+
+  /**
    * Releases the Phaser objects the adapter owns. GameScene.shutdown calls it because a
    * scene restart reuses the scene but never the adapter, so nothing else would.
    */

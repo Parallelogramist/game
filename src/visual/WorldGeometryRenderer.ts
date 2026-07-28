@@ -74,6 +74,12 @@ export class WorldGeometryRenderer {
     }
   }
 
+  /** Forces the next update() to redraw: the cache keys on the visible sector window, and
+   *  a barrier break changes tiles without moving the camera. */
+  invalidate(): void {
+    this.drawnMinCol = Number.NaN;
+  }
+
   destroy(): void {
     this.graphics.destroy();
   }

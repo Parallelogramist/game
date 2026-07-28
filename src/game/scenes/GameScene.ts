@@ -66,6 +66,9 @@ import {
   repositionOntoSpawnRing,
 } from '../../world/spawnRing';
 import { beamReachFraction, projectileBlocked } from '../../world/weaponWallBehavior';
+import { setBarrierEventSink } from '../../world/barrierState';
+import type { BarrierEventSink } from '../../world/barrierState';
+import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
 import { ExpeditionModeAdapter } from '../world/ExpeditionModeAdapter';
@@ -704,6 +707,26 @@ export class GameScene extends Phaser.Scene {
   private worldMode!: WorldModeAdapter;
   private playerWallCollision: WallCollisionContext | null = null;
 
+  /**
+   * The one place a broken wall becomes permanent. Persisting here rather than inside
+   * barrierState is what keeps src/world/ free of the storage layer, and the write happens
+   * on the break rather than at run end because a wall broken in a run that ends in death
+   * is still broken.
+   */
+  private readonly barrierEventSink: BarrierEventSink = {
+    onBarrierChipped: (x, y) => {
+      this.effectsManager.playHitSparks(x, y, Math.random() * Math.PI * 2);
+    },
+    onBarrierBroken: (x, y, barrierId) => {
+      const map = this.worldMode.worldMap();
+      if (map) recordBrokenBarrier(map.seed, map.worldGenVersion, barrierId);
+      this.worldMode.notifyGeometryChanged();
+      this.effectsManager.playDeathBurst(x, y, 0xffaa44);
+      this.cameras.main.shake(120, 0.008);
+      this.soundManager.playComboThreshold();
+    },
+  };
+
   init(data?: {
     restore?: boolean;
     runMode?: 'arena' | 'expedition';
@@ -1032,6 +1055,7 @@ export class GameScene extends Phaser.Scene {
     this.telegraphManager.setQuality(this.visualQuality);
     setTelegraphManager(this.telegraphManager);
     setNavigationContext(this.worldMode.navigationContext());
+    setBarrierEventSink(this.barrierEventSink);
 
     // Initialize off-screen threat indicators
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
@@ -2271,6 +2295,7 @@ export class GameScene extends Phaser.Scene {
     this.telegraphManager.setQuality(this.visualQuality);
     setTelegraphManager(this.telegraphManager);
     setNavigationContext(this.worldMode.navigationContext());
+    setBarrierEventSink(this.barrierEventSink);
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
     this.minimapManager = new MinimapManager(this);
@@ -11260,6 +11285,7 @@ export class GameScene extends Phaser.Scene {
       this.telegraphManager.destroy();
       setTelegraphManager(null);
       setNavigationContext(null);
+      setBarrierEventSink(null);
     }
     if (this.offScreenIndicatorManager) {
       this.offScreenIndicatorManager.destroy();
