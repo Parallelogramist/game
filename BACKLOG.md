@@ -2223,14 +2223,34 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   handling already ship; only the placement pass and its input are missing. Deps:
   `FEAT-QUEST-CHAINS`, `FEAT-WORLDGEN-CORE`. Spec: `04-content-quests-powerups-secrets.md`.
 
-- [ ] **CHORE-WORLDGEN-BUDGET-GUARD**: `generateWorld` silently places fewer gates than
-  `abilityGateOrder` asks for when the sector budget cannot host them (it stops when no
-  candidate tree edge leaves room for the key, and `WorldMap.abilityOrder` records only what
-  was actually placed). The caller that eventually picks the budget should assert
-  `abilityOrder.length === abilityGateOrder.length` at its call site rather than discovering a
-  missing ability in play. W4 shipped with a hardcoded dev flight rect and never calls
-  `generateWorld`, so the first real call site is `FEAT-WORLDGEN-SPAWN` (Phase 4). Deps:
-  `FEAT-WORLDGEN-SPAWN`.
+- [x] **CHORE-WORLDGEN-BUDGET-GUARD** (done — 704d128): `generateWorld` silently places fewer
+  gates than `abilityGateOrder` asks for when the sector budget cannot host them (it stops
+  when no candidate tree edge leaves room for the key, and `WorldMap.abilityOrder` records
+  only what was actually placed). The first real call site is `FEAT-BARRIER-PLAYER`'s
+  `ExpeditionModeAdapter` constructor, which is where the shortfall is now surfaced.
+  **As built it is a `console.warn`, not the equality assert this chore specified, and the
+  measurement is why:** over seeds 1..40 at sector budgets 48, 64, 80, 96, 120, 160 and 200,
+  `abilityOrder.length === abilityGateOrder.length` holds for **0 of 40 seeds at every
+  budget**, with a floor of 1 gate placed. The assert as written would abort every expedition
+  run before it started, so it would have been a gate on a generator bug rather than on a
+  budget mistake. The underlying generator weakness is filed as `BUG-WORLDGEN-GATE-NESTING`
+  below; when that lands, tightening this warn into an assert becomes meaningful. Deps: none
+  (was `FEAT-WORLDGEN-SPAWN`, superseded by the earlier call site).
+
+- [ ] **BUG-WORLDGEN-GATE-NESTING** — `generateWorld` places at most a couple of ability
+  gates however big the sector budget is, so most traversal abilities end up gating nothing.
+  Measured over seeds 1..40 at sector budgets 48, 64, 80, 96, 120, 160 and 200:
+  `abilityOrder.length === 6` for **0 of 40 seeds at every budget**, and the minimum placed
+  is 1. Cause: `placeAbilityGates` (`src/world/generateWorld.ts:239-288`) sets
+  `availableRegion = chosen.subtree` after each gate, while `weightedPick` biases toward
+  deep children whose subtrees are small, so the candidate region collapses after the first
+  gate and later gates find no edge whose key still has a home. Nested gating is the intent;
+  collapsing to one gate is not. Fix is a placement rule that keeps the remaining region
+  large enough for the gates still to place (for example pick the candidate whose subtree is
+  closest to half the available region, rather than the deepest). **This bumps
+  `WORLDGEN_VERSION`**, so it wants to land before any world is persisted per profile.
+  Value: without it, `FEAT-POWER-VAULTS` has nothing to gate and the Metroid loop has no
+  locks. Deps: none. Spec: `02-worldgen-barriers.md` section 2.2.
 
 - [ ] **CHORE-COLLIDE-TELEPORT-SNAP**: `resolveCircleMove` caps at `MAX_SUBSTEPS = 64`
   (one sector width), so a recall-to-Hangar teleport must not be routed through it:
@@ -2254,12 +2274,14 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   rather than by test. Cover it when a chunk next touches that file for its own reason.
   Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 8.
 
-- [ ] **CHORE-WORLDGEN-ABILITY-ORDER-WIRE**: the real `generateWorld` call site must pass
-  `TRAVERSAL_ABILITY_GATE_ORDER` (`src/data/TraversalAbilities.ts`) as
-  `WorldGenInputs.abilityGateOrder`: it is now the canonical order, and a second hand-written
-  list at that call site would be the exact drift README section 3.6 forbids. W4 shipped with
-  a hardcoded dev flight rect and never calls `generateWorld`, so the first real call site is
-  `FEAT-WORLDGEN-SPAWN` (Phase 4). Deps: `FEAT-WORLDGEN-SPAWN`.
+- [x] **CHORE-WORLDGEN-ABILITY-ORDER-WIRE** (done — 704d128): the real `generateWorld` call
+  site passes `TRAVERSAL_ABILITY_GATE_ORDER` (`src/data/TraversalAbilities.ts`) as
+  `WorldGenInputs.abilityGateOrder`: it is the canonical order, and a second hand-written list
+  at that call site would be the exact drift README section 3.6 forbids. The first real call
+  site turned out to be `FEAT-BARRIER-PLAYER`'s `ExpeditionModeAdapter` constructor, not
+  `FEAT-WORLDGEN-SPAWN`, so this landed with that chunk. The catalog export is
+  `readonly TraversalAbilityId[]` and the input is `string[]`, so the call site spreads it
+  into a fresh array rather than casting. Deps: none (was `FEAT-WORLDGEN-SPAWN`).
 
 - [x] **FEAT-BARRIER-COLLIDE** (done — b445e15): the geometry `FEAT-WORLDGEN-CORE` emits
   can now **stop something**. `src/world/staticCollision.ts` is the first static collision
@@ -2829,12 +2851,65 @@ exploring pays is the end of Phase 5.
 
 #### Phase 3: walls matter
 
-- [ ] **FEAT-BARRIER-PLAYER**: the ship is blocked by something for the first time in this
-  game's history. Optional collision context in `MovementSystem.ts:10-30` (classic path
-  byte-identical when absent) and knockback resolve at `GameScene.ts:5144-5175` replacing the
-  screen clamp. Done when the player slides along walls, cannot dash through a 1-tile wall,
-  knockback never embeds an enemy in geometry, and classic mode makes zero resolver calls.
-  Deps: `FEAT-BARRIER-COLLIDE`, W2/W4.
+- [x] **FEAT-BARRIER-PLAYER** (done — eb3db3f, 704d128, 4a7466a): the ship is blocked by
+  something for the first time in this game's history, and the expedition run stops being a
+  featureless plane. `?expedition=1` now opens the generated 48-sector world at a fixed dev
+  seed (`generateWorld`'s first game-code call site in this repo's history: the flight rect
+  is the bounding box of the sectors it returns, via the new `worldBoundsRect`, and the start
+  point is the layout's own start sector rather than a hardcoded one). Its solid, breakable
+  and gate tiles are drawn by the new `src/visual/WorldGeometryRenderer.ts` at depth 2, and
+  the player's velocity integration routes through `resolveCircleMove` whenever the mode
+  supplies geometry, so the ship slides along a wall instead of sticking and cannot step over
+  a one-tile wall at dash speed (the substepping in `staticCollision.ts` is the anti-tunnel
+  story and is already pinned by that module's tests). Before this chunk the mode was a
+  hardcoded 5x5 empty rectangle with a `{2,2}` start, `generateWorld` had never been called
+  by game code, and `staticCollision.ts` had no caller at all. The seam is three new
+  `WorldModeAdapter` members (`worldMap`, `freeSpotNear`, `destroy`); arena implements all
+  three as no-ops, passes no collision context, and its movement integration is the
+  arithmetic it always was.
+  **Six deliberate deviations, each with its reason:**
+  (1) **This chunk owns the wall renderer, which no architecture document assigns to a
+  chunk.** `grep -rn -i "render.*wall\|WallRenderer" references/map/*.md` finds exactly one
+  mention of rendering walls and it is W4 saying it renders none. Collision without a
+  renderer ships invisible walls, which is worse than no walls, so
+  `src/visual/WorldGeometryRenderer.ts` lands here.
+  (2) **Enemies and knockback do not resolve against geometry.** Doc 02 section 5.3 lists
+  both under this chunk. Measured reason to defer: every sector carries a solid border ring
+  with apertures only on passable edges, and the spawn ring is camera-relative and lands just
+  outside a view that is roughly one sector, so colliding enemies would mostly spawn outside
+  the player's room, slide into a corner and stay there. The 1600 px leash does not reclaim
+  them because they are closer than that. Enemies get walls together with the flow field that
+  lets them route around one, in `FEAT-WORLDGEN-NAV`; `processKnockback` keeps its `fieldRect`
+  clamp until then so the two stay consistent.
+  (3) **The world seed is a module constant, not per profile.** Spine decision 2 wants a
+  per-profile seed; the store that would hold it (`survivor-world-profile`) arrives with
+  `FEAT-BARRIER-GATES`. A constant is still persistent and deterministic, which is all a saved
+  position needs, and it means no new storage key and no `SAVE_VERSION` bump.
+  `FEAT-WORLD-SPACE-7`'s promised optional `worldSeed` save field is therefore still not
+  needed: with a constant seed nothing can drift.
+  (4) **`isSpawnableWorldPoint` still tests the world plane, not the open tiles.** Rejecting
+  solid ring points would thin the spawn rate without changing any enemy's path while enemies
+  ignore geometry. Tile legality is `FEAT-WORLDGEN-SPAWN`.
+  (5) **`CHORE-WORLDGEN-BUDGET-GUARD` ships as a dev warning, not the assert it asked for.**
+  Measured over seeds 1..40 at sector budgets 48, 64, 80, 96, 120, 160 and 200: no seed at any
+  budget places all 6 gates, and the floor is 1. The equality assert the chore specified would
+  abort every expedition run. See `BUG-WORLDGEN-GATE-NESTING`.
+  (6) **`CHORE-COLLIDE-EMBEDDED-SNAP` stays open and this chunk tolerates it.** Its two new
+  `findNearestFreeCircleSpot` callers are a fresh run's start point (measured Open at the
+  start sector centre for every probed seed) and a restored transform, where landing on the
+  far side of a one-tile wall costs a short walk and never a stranded run.
+  **One new test, and only one:** `worldBoundsRect` derives the world plane from sector
+  coordinates that go negative (measured bounding boxes `(-6..4, -4..4)`, `(-4..5, -4..5)`,
+  `(-5..2, -6..7)`), so an off-by-one on the max side is invisible to `tsc`, invisible in a
+  diff, and shows up only as a camera that stops a sector short. Appended to
+  `generateWorld.test.ts`, 20 seeds. Everything else here is Phaser-coupled or already pinned
+  by `staticCollision.test.ts` (`FL-X01`, `FL-X05`). Verified: `tsc` clean, suite 134 files /
+  1670 tests green, `npm run build` clean, plus the structural greps (one `generateWorld` call
+  site, no `FLIGHT_RECT_SECTORS`/`START_SECTOR` left, `src/world/` still Phaser-free, GameScene
+  never touching the resolver directly). Browser-only questions are filed under
+  **POLISH-EXPEDITION-FLIGHT** items (p), (q), (r), (s).
+  Deps: `FEAT-BARRIER-COLLIDE`, W2/W4. Unblocks `FEAT-BARRIER-PROJECTILE` and
+  `FEAT-WORLDGEN-NAV`.
 
 - [ ] **FEAT-BARRIER-PROJECTILE**: walls become cover. Three archetype defaults applied at
   shared infrastructure (travel stops, emanate ignores, beam clips) plus exactly three
@@ -3303,7 +3378,7 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
-  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89): playtest the first flyable world
+  - **POLISH-EXPEDITION-FLIGHT** (35c777f, d0f973f, 878cd62, d49ac89, eb3db3f, 704d128, 4a7466a): playtest the first flyable world
     (FEAT-WORLD-SPACE-4), reached with `?expedition=1`. Agents have no browser and must not
     tune camera feel or judge a world blind. Owns: (a) **camera feel**: lerp 0.12 with a
     160x120 deadzone at max dash speed. Does it jitter, or does the ship leave the middle
@@ -3341,6 +3416,16 @@ Never agent work. The fleet must not do any of these.
     version, so the boss-arena atmosphere does not (BUG-BOSSFIGHT-RESTORE-ATMOSPHERE). Is
     the fight still legible as a sealed room without its dressing, or does it read as
     broken?
+    (p) **do the walls read as a world?** (FEAT-BARRIER-PLAYER): fly `?expedition=1`. The
+    rooms are the generated layout at a fixed seed. Does a sector read as a room with
+    doorways, or as noise? (q) **wall feel**: fly into a wall at full speed and along it.
+    The resolver kills only the blocked axis, so contact should slide rather than stick.
+    Does it read as a guide or as glue, and does a dash into a one-tile wall ever pass
+    through? (r) **enemies through walls**: enemies deliberately ignore geometry until
+    `FEAT-WORLDGEN-NAV`. Is that a tolerable intermediate to fly, or does it break the read
+    of the world badly enough that NAV should be the very next chunk? (s) **locked doors
+    with no key**: ability doors are drawn in purple and are solid, and no ability exists to
+    open them yet (`FEAT-POWER-VAULTS`). Does a dead end read as a locked door, or as a bug?
   - **POLISH-FIELDBOOST-RATES** (— 1a8049d) — playtest the four field boosts
     (FEAT-POWER-FIELDBOOSTS). Agents have no browser and must not tune a drop rate or a
     power curve blind. Owns: (a) **the 20% share** — field boosts take a fifth of every

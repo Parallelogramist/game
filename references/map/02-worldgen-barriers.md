@@ -893,6 +893,29 @@ knockback movement in expedition mode.
 - **Dependencies**: WS-* (world-space Transform + camera), FEAT-BARRIER-COLLIDE.
 - **Test surface**: none new beyond COLLIDE (this is wiring; Phaser-coupled).
 
+*(As built, `eb3db3f`, `704d128`, `4a7466a`: shipped with four deviations. (1) **The wall
+renderer landed here, and no chunk in any of these four documents owns it**: the only
+mention of rendering walls in `references/map/*.md` is doc 01's W4 saying it renders none.
+Wiring collision without a renderer would have shipped invisible walls, so
+`src/visual/WorldGeometryRenderer.ts` is part of this chunk: one world-space `Graphics` at
+`DepthLayers.WORLD_GEOMETRY` (2), solid/breakable/gate tiles merged into horizontal runs per
+row, outlined only on faces touching open space, redrawn only when the camera moves onto a
+different set of sectors. HazardFloor and ungenerated space are deliberately undrawn.
+(2) **Enemies and knockback do not resolve against geometry yet**, so section 5.3's knockback
+row and the enemy side of this chunk move to `FEAT-WORLDGEN-NAV`. The measurement that forced
+it: every sector carries a solid border ring with apertures only on passable edges, and the
+spawn ring is camera-relative, landing just outside a view roughly one sector across, so
+colliding enemies would mostly spawn outside the player's room and jam in a corner with no
+route around it. The 1600 px leash cannot reclaim them because they are nearer than that.
+`processKnockback` keeps its `fieldRect` clamp until the flow field exists. (3) **The world
+is one fixed dev seed** (`EXPEDITION_WORLD_SEED` in `ExpeditionModeAdapter.ts`), not a
+per-profile seed: the store that would hold one arrives with `FEAT-BARRIER-GATES`, and a
+constant is deterministic enough for a saved position with no `SAVE_VERSION` bump.
+(4) **`isSpawnableWorldPoint` is still plane-level**, testing the world bounding box rather
+than tile openness, because rejecting solid ring points would thin the spawn rate without
+changing an enemy's path while enemies ignore geometry. Tile legality remains
+`FEAT-WORLDGEN-SPAWN`.)*
+
 ### FEAT-BARRIER-PROJECTILE
 Walls become cover: projectile/beam interaction plus the three-exception table.
 - **Files**: `src/game/scenes/GameScene.ts:4331-4369` (enemy projectile solid sample
