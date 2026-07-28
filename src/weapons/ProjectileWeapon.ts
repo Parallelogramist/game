@@ -271,8 +271,13 @@ export class ProjectileWeapon extends BaseWeapon {
     const spatialHash = getEnemySpatialHash();
     const collisionRadius = 20;
     const collisionRadiusSq = collisionRadius * collisionRadius;
-    const sceneWidth = ctx.scene.scale.width;
-    const sceneHeight = ctx.scene.scale.height;
+    // Four numbers hoisted per frame rather than an inflateRect per frame: this is the
+    // repo's no-allocation rule on a path that runs for every live projectile, and in arena
+    // (view = 0,0,W,H) each one reduces to the -50 / +50 literal it replaced.
+    const despawnMinX = ctx.view.minX - 50;
+    const despawnMaxX = ctx.view.maxX + 50;
+    const despawnMinY = ctx.view.minY - 50;
+    const despawnMaxY = ctx.view.maxY + 50;
 
     // Soul Seeker trail colors
     const soulTrailColors = [0x99ddff, 0xcc99ff, 0xffec8b, 0xffffff];
@@ -298,8 +303,8 @@ export class ProjectileWeapon extends BaseWeapon {
       }
 
       // Check bounds
-      if (data.x < -50 || data.x > sceneWidth + 50 ||
-          data.y < -50 || data.y > sceneHeight + 50) {
+      if (data.x < despawnMinX || data.x > despawnMaxX ||
+          data.y < despawnMinY || data.y > despawnMaxY) {
         this.removeProjectile(ctx, data, size);
         continue;
       }

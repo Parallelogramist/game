@@ -238,8 +238,10 @@ export class SentryWeapon extends BaseWeapon {
 
   private updateProjectiles(ctx: WeaponContext, spatialHash: ReturnType<typeof getEnemySpatialHash>): void {
     const gfx = this.boltGraphics;
-    const width = ctx.scene.scale.width;
-    const height = ctx.scene.scale.height;
+    const despawnMinX = ctx.view.minX - 50;
+    const despawnMaxX = ctx.view.maxX + 50;
+    const despawnMinY = ctx.view.minY - 50;
+    const despawnMaxY = ctx.view.maxY + 50;
     const rail = this.isEvolved;
     const boltColor = rail ? RAIL_NEON : NEON;
     const collisionRadius = (rail ? 16 : 12) * this.stats.size;
@@ -258,8 +260,8 @@ export class SentryWeapon extends BaseWeapon {
 
       if (
         proj.travelled > PROJECTILE_MAX_TRAVEL ||
-        proj.x < -50 || proj.x > width + 50 ||
-        proj.y < -50 || proj.y > height + 50
+        proj.x < despawnMinX || proj.x > despawnMaxX ||
+        proj.y < despawnMinY || proj.y > despawnMaxY
       ) {
         proj.active = false;
         continue;

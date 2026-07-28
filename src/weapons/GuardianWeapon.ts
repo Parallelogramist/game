@@ -186,8 +186,10 @@ export class GuardianWeapon extends BaseWeapon {
   private updateShards(ctx: WeaponContext): void {
     const gfx = this.shardGraphics;
     const spatialHash = getEnemySpatialHash();
-    const width = ctx.scene.scale.width;
-    const height = ctx.scene.scale.height;
+    const despawnMinX = ctx.view.minX - 50;
+    const despawnMaxX = ctx.view.maxX + 50;
+    const despawnMinY = ctx.view.minY - 50;
+    const despawnMaxY = ctx.view.maxY + 50;
     const evolved = this.isEvolved;
     const color = evolved ? EVOLVED_CORE : CORE;
     const knockback = evolved ? EVOLVED_KNOCKBACK : SHARD_KNOCKBACK;
@@ -208,8 +210,8 @@ export class GuardianWeapon extends BaseWeapon {
 
       if (
         shard.travelled > maxTravel ||
-        shard.x < -50 || shard.x > width + 50 ||
-        shard.y < -50 || shard.y > height + 50
+        shard.x < despawnMinX || shard.x > despawnMaxX ||
+        shard.y < despawnMinY || shard.y > despawnMaxY
       ) {
         shard.active = false;
         continue;

@@ -354,6 +354,10 @@ export class DroneWeapon extends BaseWeapon {
     const collisionRadius = 18;
     const collisionRadiusSq = collisionRadius * collisionRadius;
     const spatialHash = getEnemySpatialHash();
+    const despawnMinX = ctx.view.minX - 50;
+    const despawnMaxX = ctx.view.maxX + 50;
+    const despawnMinY = ctx.view.minY - 50;
+    const despawnMaxY = ctx.view.maxY + 50;
 
     for (const proj of this.projectilePool) {
       if (!proj.active) continue;
@@ -386,8 +390,8 @@ export class DroneWeapon extends BaseWeapon {
         }
 
         // Bounds check
-        if (proj.sprite.x < -50 || proj.sprite.x > ctx.scene.scale.width + 50 ||
-            proj.sprite.y < -50 || proj.sprite.y > ctx.scene.scale.height + 50) {
+        if (proj.sprite.x < despawnMinX || proj.sprite.x > despawnMaxX ||
+            proj.sprite.y < despawnMinY || proj.sprite.y > despawnMaxY) {
           this.deactivateProjectile(proj);
           continue;
         }

@@ -174,6 +174,10 @@ export class ShurikenWeapon extends BaseWeapon {
     }
 
     const spatialHash = getEnemySpatialHash();
+    const despawnMinX = ctx.view.minX - 50;
+    const despawnMaxX = ctx.view.maxX + 50;
+    const despawnMinY = ctx.view.minY - 50;
+    const despawnMaxY = ctx.view.maxY + 50;
 
     // Clear shared effects graphics once per frame
     if (this.effectsGraphics) {
@@ -319,8 +323,8 @@ export class ShurikenWeapon extends BaseWeapon {
       }
 
       // Check bounds
-      if (shuriken.x < -50 || shuriken.x > ctx.scene.scale.width + 50 ||
-          shuriken.y < -50 || shuriken.y > ctx.scene.scale.height + 50) {
+      if (shuriken.x < despawnMinX || shuriken.x > despawnMaxX ||
+          shuriken.y < despawnMinY || shuriken.y > despawnMaxY) {
         this.deactivateShuriken(shuriken);
         continue;
       }
