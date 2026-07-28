@@ -3515,12 +3515,64 @@ exploring pays is the end of Phase 5.
   focused-sector tooltip naming the requirement or `mechanism unknown`, legend, objective pins,
   dimmed collected POIs. Deps: `FEAT-MAPUI-MAPSCENE-04`, gate types from `FEAT-BARRIER-GATES`.
 
-- [ ] **FEAT-MAPUI-RADAR-UNDERLAY-06**: the tactical radar becomes world-aware without losing
-  its threat identity: current-sector walls, door glyphs and dashed neighbor stubs slide under
-  the fixed center dot. New `'settings-minimap-underlay-enabled'` toggle, existing minimap
-  toggle untouched. Done when arena mode is pixel-identical, the underlay rebuilds only on
-  sector/revision/passability/settings change (rebuild counter asserts it), and the existing
-  `minimapProjection` tests stay green untouched. Deps: `FEAT-DISCOVERY-HOOKS-03`.
+- [x] **FEAT-MAPUI-RADAR-UNDERLAY-06** (done — 492b8f0, 9c670b7): the tactical radar became
+  world-aware without losing its threat identity.
+  1. What shipped end to end: in an expedition run the radar disc draws a **sector underlay**
+     beneath the blips, clipped to the disc by a geometry mask. It holds a biome wash at 12%
+     alpha, the sector's wall runs at 1.5 px and 60% alpha in the flown world's own
+     `WORLD_GEOMETRY_COLORS` strokes (so a breakable wall reads amber on the radar exactly as
+     it does in the world), a gate glyph on the mid-line of every non-Wall border, and a
+     dashed stub pointing out through each door whose neighbour the profile has already
+     charted. The geometry is drawn **once** in radar-scaled sector-local coordinates and only
+     translated per frame, so the world slides under the fixed white centre dot that already
+     served as the player marker. A reveal that puts new sectors on the map raises a
+     `+N NEW` pill for 2.5 s and expands a rim ring for 0.6 s, both suppressed under reduced
+     motion. The depth block was reshuffled to `MINIMAP + 1..+4` (1896-1899, underlay, sweep,
+     blips, pill), all still below `OFFSCREEN_ARROWS` at 1900; blips stay above the wall lines
+     so a boss on a wall line keeps its pop. New settings row `Map Underlay` turns just the
+     underlay off and leaves the threat radar exactly as it was.
+  2. **`sectorWallSegments` is now built** (`src/world/sectorWallSegments.ts`) and contract
+     11.2 no longer lists it as outstanding. The one rule worth knowing: **out-of-bounds counts
+     as blocking**, so only the border ring's *inner* face is emitted. Treating it as open
+     would draw both faces of a 1-tile ring, and at radar scale a 40 px tile is 2.5 px, so the
+     two lines smear into a band.
+  3. **The glyph, dash and biome-tint primitives moved out of `SectorMapRenderer`'s class** and
+     are now exported functions (`drawGateGlyph`, `strokeDashedLine`, `biomeTintFor`) that the
+     map screen and the radar both call, so the two surfaces cannot draw the same door two
+     different ways. The map screen draws identically: the old private `drawGlyph` computed
+     `Math.max(3, 5 * scale)` on its first line and the callsite now passes exactly that.
+  4. **The rebuild gate**, symptom first: the underlay is drawn once and only translated per
+     frame, so anything that changes what it drew has to invalidate it by hand. The key is
+     `"<col>,<row>:<discoveryRevision>"`; a broken barrier changes tiles without touching
+     either, so `onBarrierBroken` nulls the key on the line after `notifyGeometryChanged()`.
+     `[minimap] underlay rebuild #N` in the console is how a browser session proves the gate
+     holds.
+  5. **Arena is inert by construction, not by care:** `syncMinimapUnderlay` returns on
+     `worldMode.worldMap() === null`, which is what `ArenaModeAdapter` returns, so an arena run
+     never assembles an underlay and the radar there executes the identical arithmetic.
+  6. **`DiscoveryManager.onDiscovery` gained its first caller.** It is a single slot, so
+     `shutdown()` clears it (`onDiscovery(null)`) beside the `expedition:sector-entered`
+     removal, or a scene restart would leave the dead scene's handler installed for the rest of
+     the session.
+  7. **The VISUALS settings card did not grow.** At `layoutScale === 1` the DATA card below it
+     already bottoms out at y=634 against a BACK button whose top edge is y=657, so one more
+     36 px row would have overlapped them. The row was won by tightening `rowGap` from 36 to
+     33 (nine rows, last at y=154, card half-height 180). The next agent adding a VISUALS row
+     has no slack left and must resize the column, not the gap.
+  8. Deliberately not built: the doc 03 section 3.5 **visual quality-tier branch**, because the
+     underlay is already line work with no glow layers at any tier and the only low-tier delta
+     left is a single 12%-alpha `fillRect`. Also not built: lock rings on gated doors
+     (`isGatePassable` needs `FEAT-BARRIER-GATES`), POI icons, secret badges and objective pins
+     on the radar, all of which belong to `FEAT-MAPUI-DOORS-05`.
+  9. Tests: **one new file**, `src/world/sectorWallSegments.test.ts` (8 tests), which is the
+     standing order's pure-module carve-out rather than a breach of it. `minimapProjection.ts`
+     and `minimapProjection.test.ts` were not touched, as the chunk's DONE-CRITERIA requires.
+     Suite moved 140 files / 1720 tests to 141 / 1728.
+  Files: `src/world/sectorWallSegments.ts`, `src/world/sectorWallSegments.test.ts`,
+  `src/visual/SectorMapRenderer.ts`, `src/visual/MinimapManager.ts`,
+  `src/game/scenes/GameScene.ts`, `src/settings/SettingsManager.ts`,
+  `src/storage/StorageBootstrap.ts`, `src/game/scenes/SettingsScene.ts`,
+  `references/map/03-discovery-map-ui.md`.
 
 #### Phase 5: the Metroid loop closes
 
@@ -3830,6 +3882,21 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MINIMAP-UNDERLAY** (492b8f0, 9c670b7): playtest the world-aware radar in
+    `?expedition=1`. Agents have no browser and must not tune legibility blind. Owns:
+    (a) **density**: a 40 px tile is 2.5 px on the disc, so interior pockets are near the
+    limit of what a 1.5 px line can say. Do the walls read as a room, or as noise under the
+    blips?
+    (b) **the blip/wall contrast**: walls are the flown world's own stroke colours at 60%
+    alpha under blips at 95%. Does a boss blip still pop when it sits on a wall line, under
+    each colourblind pipeline?
+    (c) **glyph size**: door glyphs are `radarRadius * 0.12` (about 6.7 px at the default
+    radius). Are diamond, key, crack and chevron distinguishable at that size on the disc, or
+    does the radar need shape-only stubs instead?
+    (d) **the pulse**: a `+N NEW` pill for 2.5 s plus a 0.6 s rim ring on every reveal. In a
+    long expedition run does that read as a reward or as nagging, and is 2.5 s right?
+    (e) **the toggle default**: `Map Underlay` defaults on. Is the plain threat radar
+    actually preferable in a dense fight?
   - **POLISH-MAPUI-FEEL** (36844a0): playtest the world map screen
     (FEAT-MAPUI-MAPSCENE-04), opened with **M** or gamepad **LB** in `?expedition=1`. Agents
     have no browser and must not tune pan speed or judge legibility blind. Owns:

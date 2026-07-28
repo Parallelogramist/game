@@ -428,6 +428,20 @@ notifyDiscoveryPulse(newSectorCount: number): void;               // rim ping + 
 sector change, assemble the underlay from contract 11.1/11.2 data and call
 `setSectorUnderlay`; the per-frame call signature is unchanged.
 
+**As built (FEAT-MAPUI-RADAR-UNDERLAY-06, 492b8f0):** the shipped interface is
+`MinimapSectorUnderlay { originX, originY, segments, doors, biomeTint }`, which
+differs from the sketch above in three named ways. First, the origin needs both
+axes, so `sectorOriginX` became the pair `originX` / `originY`. Second,
+`segments` are `WallSegment` records from the new
+`src/world/sectorWallSegments.ts` and carry the owning `TileKind`, so the radar
+can colour a breakable wall the way the flown world does rather than painting
+every wall one colour. Third, a door carries `kind: EdgeKind` plus
+`horizontalWall` and `discoveredBeyond`, not `gateType: string` plus
+`passable`: `isGatePassable` does not exist yet (it needs `FEAT-BARRIER-GATES`)
+and `EdgeKind` is the closed union the generator actually emits, so the radar
+and the map screen feed the same `drawGateGlyph`. `setSectorUnderlay` and
+`notifyDiscoveryPulse` shipped with the signatures above.
+
 ### 3.5 Settings, reduced motion, quality
 
 - The existing toggle (`STORAGE_KEY_MINIMAP = 'settings-minimap-enabled'`,
@@ -960,6 +974,17 @@ borders. A second parallel index record would be duplicate state, so this
 contract is satisfied rather than outstanding. Still unbuilt from the list
 above: `isGatePassable`, `sectorWallSegments` and the biome tint lookup, which
 are `FEAT-MAPUI-MAPSCENE-04` / `FEAT-MAPUI-DOORS-05` business.
+
+**As built (FEAT-MAPUI-RADAR-UNDERLAY-06, 492b8f0): `sectorWallSegments` is now
+built**, in `src/world/sectorWallSegments.ts`. It takes a `SectorDef` rather
+than a `sectorId`, for the same reason the note above gives: there is no
+`WorldMapIndex`, and `SectorDef` is the id universe. It returns merged
+collinear wall runs plus one door anchor per non-Wall border, both in
+sector-local px, and out-of-bounds counts as blocking so the one-tile border
+ring yields its inner face alone. The biome tint lookup is satisfied for both
+map surfaces by `biomeTintFor` in `src/visual/SectorMapRenderer.ts`, which is
+derived from `STAGES` rather than a new table. That leaves `isGatePassable` as
+the only item from this list still unbuilt.
 
 ### 11.3 From `04-*` (quests, power-ups, secrets)
 
