@@ -5,3 +5,4 @@ logs/
 *.log
 # Local Claude Code state: personal settings + transient git worktrees
 .claude/
+.aiops/
