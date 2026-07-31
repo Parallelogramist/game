@@ -234,6 +234,19 @@ export function revealOnSecretFound(
   return changes;
 }
 
+/** Hinted is a pointer, never a find: it says a secret is worth flying to and nothing about
+ *  having reached it, so unlike revealOnSecretFound it must not imply FOUND. */
+export function revealOnSecretHinted(
+  state: DiscoveryState,
+  universe: WorldIdUniverse,
+  secretId: string,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  if (!universe.secretIds.has(secretId)) return changes;
+  addSecret(state, changes, secretId, SecretFlags.HINTED);
+  return changes;
+}
+
 function addSector(
   state: DiscoveryState, changes: DiscoveryChanges, id: string, flags: number,
 ): void {

@@ -135,6 +135,8 @@ export interface SectorMapDrawInput {
   panelHeight: number;
   sectorFlagsOf: (sectorKey: string) => number;
   edgeFlagsOf: (edgeId: string) => number;
+  /** Sectors carrying a secret the profile has been pointed at but has not found. */
+  hintedSectorKeys: ReadonlySet<string>;
   /** Traversal-ability ownership for this profile. A predicate rather than a Set so the
    *  renderer never learns where ownership is stored. */
   holdsAbility: (abilityId: string) => boolean;
@@ -189,6 +191,15 @@ export class SectorMapRenderer {
           cell.x + cell.width, cell.y,
           cell.x + cell.width, cell.y + notch,
         );
+      }
+
+      // Deliberately the same amber a found hidden room strokes in and the radar ping shimmers
+      // in: every secret surface speaks one colour. An undiscovered sector draws nothing at all
+      // (the `flags === 0` continue above), so a lead stays a riddle until the region is charted.
+      if (input.hintedSectorKeys.has(sector.key)) {
+        const badge = Math.max(3, 4.5 * input.view.scale);
+        graphics.fillStyle(HIDDEN_FOUND_STROKE, 1);
+        graphics.fillCircle(cell.x + badge + 2, cell.y + badge + 2, badge);
       }
 
       this.drawDoors(sector.sx, sector.sy, input);

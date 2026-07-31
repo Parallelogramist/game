@@ -17,6 +17,7 @@ import {
   revealOnEdgeTraversal,
   revealOnPoiCollected,
   revealOnSecretFound,
+  revealOnSecretHinted,
   revealOnSectorEntry,
   sanitizeDiscoveryState,
 } from './discoveryRules';
@@ -78,6 +79,41 @@ export class DiscoveryManager {
   markSecretFound(secretId: string): DiscoveryChanges {
     if (!this.map) return emptyChanges();
     return this.commit(revealOnSecretFound(this.state, this.universe, secretId));
+  }
+
+  /** Hint tier 2's only write path. Marks a secret worth flying to without claiming it has
+   *  been reached, so the chart may point at it and the completion percent does not move. */
+  markSecretHinted(secretId: string): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(revealOnSecretHinted(this.state, this.universe, secretId));
+  }
+
+  /** Secrets this profile has already been pointed at or has already found. */
+  getKnownSecretIds(): Set<string> {
+    const known = new Set<string>();
+    for (const [secretId, flags] of Object.entries(this.state.secrets)) {
+      if (flags !== 0) known.add(secretId);
+    }
+    return known;
+  }
+
+  getVisitedSectorKeys(): Set<string> {
+    const visited = new Set<string>();
+    for (const [sectorKey, flags] of Object.entries(this.state.sectors)) {
+      if ((flags & SectorFlags.VISITED) !== 0) visited.add(sectorKey);
+    }
+    return visited;
+  }
+
+  /** Open leads: pointed at and not yet found. */
+  getHintedSecretIds(): string[] {
+    const hinted: string[] = [];
+    for (const [secretId, flags] of Object.entries(this.state.secrets)) {
+      if ((flags & SecretFlags.HINTED) !== 0 && (flags & SecretFlags.FOUND) === 0) {
+        hinted.push(secretId);
+      }
+    }
+    return hinted;
   }
 
   getDiscoveredSectorCount(): number {

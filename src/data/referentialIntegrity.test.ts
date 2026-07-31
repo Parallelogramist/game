@@ -27,6 +27,7 @@ import { TRAVERSAL_ABILITIES } from './TraversalAbilities';
 import {
   EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER, getQuestForKeyId,
 } from './ExpeditionQuests';
+import { LORE_FRAGMENTS } from './LoreFragments';
 
 /**
  * Referential-integrity sweep: every cross-reference key in the data catalogs
@@ -59,6 +60,7 @@ function collectIconRefs(): IconRef[] {
   push('Blessings', BLESSINGS);
   push('TraversalAbilities', TRAVERSAL_ABILITIES);
   push('ExpeditionQuests', EXPEDITION_QUESTS);
+  push('LoreFragments', LORE_FRAGMENTS);
 
   for (const [shipId, tracks] of Object.entries(SHIP_MOD_TRACKS)) {
     push(`ShipMods:${shipId}`, tracks);

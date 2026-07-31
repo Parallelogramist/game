@@ -81,6 +81,7 @@ import {
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { buildSecretLead, chooseHintTarget } from '../../expedition/secretHints';
 import { SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
@@ -4847,6 +4848,7 @@ export class GameScene extends Phaser.Scene {
       duration: 3200,
     });
     this.recordExpeditionQuest({ kind: 'findSecret', secretKind: 'cache' });
+    this.grantSecretLead(cache.secretId);
   }
 
   /**
@@ -4934,6 +4936,38 @@ export class GameScene extends Phaser.Scene {
       duration: 3200,
     });
     this.recordExpeditionQuest({ kind: 'findSecret', secretKind: 'hiddenSector' });
+    this.grantSecretLead(sector.key);
+  }
+
+  /**
+   * Hint tier 2: a find hands over a lore fragment naming the next secret, so a chain of finds
+   * leads somewhere instead of each one starting from nothing. The pointer is the discovery
+   * store's HINTED flag, which persists per world with everything else the chart knows, so this
+   * adds no storage key and no save field. A secret inside an unvisited hidden sector is never
+   * named: that would hand back exactly what the breakable wall is hiding.
+   */
+  private grantSecretLead(sourceSecretId: string): void {
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    const discovery = getDiscoveryManager();
+    const targetSecretId = chooseHintTarget({
+      map,
+      knownSecretIds: discovery.getKnownSecretIds(),
+      visitedSectorKeys: discovery.getVisitedSectorKeys(),
+      sourceSecretId,
+    });
+    if (!targetSecretId) return;
+    const lead = buildSecretLead(map, targetSecretId);
+    if (!lead) return;
+
+    discovery.markSecretHinted(targetSecretId);
+    this.toastManager?.showToast({
+      title: lead.fragment.title.toUpperCase(),
+      description: lead.riddle,
+      icon: lead.fragment.icon,
+      color: WORLD_GEOMETRY_COLORS.breakable.stroke,
+      duration: 4600,
+    });
   }
 
   /** Arena is inert by construction: ArenaModeAdapter.worldMap() is null, so an arena run

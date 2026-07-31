@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { buildSecretLead } from '../../expedition/secretHints';
+import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_Y, GamepadManager } from '../../input/GamepadManager';
@@ -30,6 +32,13 @@ export interface MapSceneData {
 const PAN_SPEED = 420;
 const HEADER_HEIGHT = 76;
 const FOOTER_HEIGHT = 44;
+/** Rows the LEADS panel draws before it collapses the rest into a count. */
+const MAX_LEAD_ROWS = 4;
+
+function leadDistance(lead: SecretLead, ship: { col: number; row: number }): number {
+  const [sx, sy] = lead.sectorKey.split(',').map(Number);
+  return Math.max(Math.abs(sx - ship.col), Math.abs(sy - ship.row));
+}
 
 export class MapScene extends Phaser.Scene {
   private mapData!: WorldMap;
@@ -52,6 +61,8 @@ export class MapScene extends Phaser.Scene {
   private dragPointerId = -1;
   private dragLastX = 0;
   private dragLastY = 0;
+  private leads: SecretLead[] = [];
+  private hintedSectorKeys: ReadonlySet<string> = new Set();
 
   private panKeys!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key[]>;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -99,7 +110,15 @@ export class MapScene extends Phaser.Scene {
     makeBodyText(this, width / 2, height - 26,
       'WASD / ARROWS PAN   +/- ZOOM   C CENTRE   M / ESC CLOSE',
       { fontSize: 16, color: TEXT_COLORS.muted }).setDepth(2);
-    this.renderObjectivesPanel();
+    const leadsPanelY = this.renderObjectivesPanel();
+    const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
+    this.leads = discovery.getHintedSecretIds()
+      .map(secretId => buildSecretLead(this.mapData, secretId))
+      .filter((lead): lead is SecretLead => lead !== null)
+      .sort((a, b) => leadDistance(a, shipCell) - leadDistance(b, shipCell)
+        || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
+    this.hintedSectorKeys = new Set(this.leads.map(lead => lead.sectorKey));
+    this.renderLeadsPanel(leadsPanelY);
 
     this.graphics = this.add.graphics();
     this.graphics.setDepth(1);
@@ -177,9 +196,9 @@ export class MapScene extends Phaser.Scene {
    * plate sized from the measured heights, so a description that wraps on a narrow screen
    * cannot spill outside the panel.
    */
-  private renderObjectivesPanel(): void {
+  private renderObjectivesPanel(): number {
     const views = getActiveQuestStepViews();
-    if (views.length === 0) return;
+    if (views.length === 0) return HEADER_HEIGHT + 12;
 
     const panelX = 24;
     const panelY = HEADER_HEIGHT + 12;
@@ -202,6 +221,47 @@ export class MapScene extends Phaser.Scene {
         { fontSize: 12, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
         .setOrigin(0, 0).setDepth(4);
       cursorY += detail.height + 12;
+    }
+
+    this.add.rectangle(panelX, panelY, panelWidth, cursorY - panelY + 2, 0x0a1018, 0.9)
+      .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
+    return cursorY + 14;
+  }
+
+  /**
+   * Open leads, stacked under the objectives panel: a lore fragment named a sector and this is
+   * where the player reads it back once the toast is gone. Same layout shape as the objectives
+   * panel, so the two read as one column.
+   */
+  private renderLeadsPanel(panelY: number): void {
+    if (this.leads.length === 0) return;
+
+    const panelX = 24;
+    const panelWidth = Math.min(340, this.scale.width - 48);
+    const textWidth = panelWidth - 28;
+
+    makeBodyText(this, panelX + 14, panelY + 12, 'LEADS',
+      { fontSize: 14, color: TEXT_COLORS.muted, align: 'left' })
+      .setOrigin(0, 0).setDepth(4);
+
+    let cursorY = panelY + 34;
+    for (const lead of this.leads.slice(0, MAX_LEAD_ROWS)) {
+      const heading = makeBodyText(this, panelX + 14, cursorY, lead.fragment.title.toUpperCase(),
+        { fontSize: 15, align: 'left', wordWrapWidth: textWidth })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += heading.height + 2;
+      const detail = makeBodyText(this, panelX + 14, cursorY,
+        `${lead.fragment.text}  ${lead.riddle}`,
+        { fontSize: 12, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += detail.height + 12;
+    }
+    if (this.leads.length > MAX_LEAD_ROWS) {
+      const more = makeBodyText(this, panelX + 14, cursorY,
+        `+${this.leads.length - MAX_LEAD_ROWS} MORE`,
+        { fontSize: 12, color: TEXT_COLORS.muted, align: 'left' })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += more.height + 12;
     }
 
     this.add.rectangle(panelX, panelY, panelWidth, cursorY - panelY + 2, 0x0a1018, 0.9)
@@ -306,6 +366,7 @@ export class MapScene extends Phaser.Scene {
       panelHeight: this.scale.height,
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      hintedSectorKeys: this.hintedSectorKeys,
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
       holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
       playerWorldX: this.playerWorldX,
