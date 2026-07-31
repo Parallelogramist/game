@@ -63,10 +63,21 @@ export interface WorldModeAdapter {
   isSpawnableWorldPoint(x: number, y: number): boolean;
 
   /**
+   * Fallback entry point when every ring candidate was rejected: a spawnable point at an
+   * aperture mouth of the player's current sector, written into the caller's out-param.
+   * False when no door of the sector is currently passable — a sealed boss room. Arena:
+   * false, its ring never fails.
+   */
+  apertureSpawnPoint(out: WorldPoint): boolean;
+
+  /**
    * World px from the view centre past which a drifted regular is recycled onto the
    * spawn ring, or null for a mode whose player cannot outrun anything (arena).
    */
   leashRadius(): number | null;
+
+  /** Whether lockToSector is currently in force. Arena: false. */
+  isSectorLocked(): boolean;
 
   /**
    * Seal the playfield to one sector: a boss room. Narrows fieldRect and the camera

@@ -157,6 +157,20 @@ export function computeFlowField(
 }
 
 /**
+ * True when the tile under a world point holds a route to the field's target. The target
+ * tile itself reads false (distance 0 never gets a direction code), which is fine for the
+ * two callers: spawn candidates sit on the off-camera ring and aperture mouths, never on
+ * the player.
+ */
+export function flowReachable(field: FlowField, x: number, y: number): boolean {
+  const localX = globalTileOf(x) - field.originTileX;
+  const localY = globalTileOf(y) - field.originTileY;
+  if (localX < 0 || localX >= FLOW_BLOCK_COLS) return false;
+  if (localY < 0 || localY >= FLOW_BLOCK_ROWS) return false;
+  return field.directions[localY * FLOW_BLOCK_COLS + localX] !== FLOW_UNREACHABLE;
+}
+
+/**
  * The centre of the next tile along the route, or false when the point is outside the block
  * or its tile cannot reach the target. `out` is left untouched on false so a caller can
  * pre-load it with its own fallback.

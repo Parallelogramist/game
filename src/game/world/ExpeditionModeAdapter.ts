@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { GridBackground } from '../../visual/GridBackground';
 import { TrailManager } from '../../visual/TrailManager';
 import {
+  SECTOR_HEIGHT,
+  SECTOR_WIDTH,
   SectorCoord,
   WorldPoint,
   WorldRect,
@@ -23,9 +25,10 @@ import { applyBrokenBarriers, applyOwnedAbilityGates } from '../../world/barrier
 import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
 import {
-  EDGE_DIRECTIONS, EdgeKind, directionDelta, edgeIdFor, worldBoundsRect,
+  EDGE_DIRECTIONS, EdgeKind, TileKind, directionDelta, edgeIdFor, tileIndex, worldBoundsRect,
 } from '../../world/worldTypes';
-import type { WorldMap } from '../../world/worldTypes';
+import type { SectorDef, WorldMap } from '../../world/worldTypes';
+import { apertureTileAt } from '../../world/sectorInterior';
 import {
   MoverKind,
   findNearestFreeCircleSpot,
@@ -35,6 +38,7 @@ import {
 import {
   computeFlowField,
   createFlowField,
+  flowReachable,
   flowStepPoint,
 } from '../../world/flowField';
 import type { FlowField } from '../../world/flowField';
@@ -92,6 +96,8 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
   private currentSector: SectorCoord | null = null;
   private lockedRoom: WorldRect | null = null;
   private lockedSector: SectorCoord | null = null;
+  /** Tiles flipped to GateClosed by the boss seal, with their prior kinds for the revert. */
+  private readonly sealedTiles: { sector: SectorDef; index: number; kind: number }[] = [];
   private appliedCameraWidth = 0;
   private appliedCameraHeight = 0;
 
@@ -162,13 +168,34 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     return this.lockedRoom ?? this.world;
   }
 
-  // The point must be in open floor, not merely inside the world plane: from this chunk on an
-  // enemy resolves against geometry, so a ring point inside rock would spawn something that
-  // has to be shoved out by the resolver on its first step. Tile snapping and a reachability
-  // filter are still FEAT-WORLDGEN-SPAWN.
+  // Open floor AND connected to the player (FEAT-WORLDGEN-SPAWN): a ring point in a
+  // sealed pocket or behind a closed door would spawn an enemy that can never arrive.
+  // The flow field is the reachability oracle the spec asks for — its BFS walks exactly
+  // the tiles an enemy can, and it is at most one tile crossing stale.
   isSpawnableWorldPoint(x: number, y: number): boolean {
     return rectContains(this.world, x, y)
-      && !isSolidAtWorld(this.map, x, y, MoverKind.Enemy);
+      && !isSolidAtWorld(this.map, x, y, MoverKind.Enemy)
+      && flowReachable(this.flow, x, y);
+  }
+
+  apertureSpawnPoint(out: WorldPoint): boolean {
+    const current = this.currentSector;
+    if (!current) return false;
+    const sector = this.map.sectors.get(sectorKey(current));
+    if (!sector) return false;
+    const start = Math.floor(Math.random() * EDGE_DIRECTIONS.length);
+    for (let step = 0; step < EDGE_DIRECTIONS.length; step++) {
+      const direction = EDGE_DIRECTIONS[(start + step) % EDGE_DIRECTIONS.length];
+      const entry = sector.entryTiles[direction];
+      if (!entry) continue;
+      const x = sector.sx * SECTOR_WIDTH + (entry.tileX + 0.5) * TILE_SIZE;
+      const y = sector.sy * SECTOR_HEIGHT + (entry.tileY + 0.5) * TILE_SIZE;
+      if (!this.isSpawnableWorldPoint(x, y)) continue;
+      out.x = x;
+      out.y = y;
+      return true;
+    }
+    return false;
   }
 
   leashRadius(): number | null {
@@ -180,6 +207,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     this.lockedRoom = sectorRectWorld(sector);
     this.applyCameraBounds(this.lockedRoom);
     setEnemyAIFieldRect(this.lockedRoom);
+    this.sealSector(sector);
   }
 
   releaseSectorLock(): void {
@@ -188,6 +216,11 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     this.lockedRoom = null;
     this.applyCameraBounds(this.world);
     setEnemyAIFieldRect(this.world);
+    this.unsealSector();
+  }
+
+  isSectorLocked(): boolean {
+    return this.lockedRoom !== null;
   }
 
   saveViewState(): SerializedExpeditionState {
@@ -287,6 +320,51 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     const sector = sectorOfWorldPoint(player.x, player.y);
     if (!this.currentSector || !sectorsEqual(sector, this.currentSector)) {
       this.enterSector(sector);
+    }
+  }
+
+  /**
+   * Boss-room sealing (doc 02 section 8): on engage, every aperture of the locked sector
+   * flips to GateClosed; on victory it reverts to exactly the kind it held, including a
+   * mouth an owned ability already opened. Skipping tiles that are already Solid or
+   * GateClosed makes a double lock record nothing twice. Tiles are read live by the
+   * collision index, so only the drawing and the flow field need a nudge.
+   */
+  private sealSector(coord: SectorCoord): void {
+    const sector = this.map.sectors.get(sectorKey(coord));
+    if (!sector) return;
+    for (const direction of EDGE_DIRECTIONS) {
+      const edge = sector.edges[direction];
+      if (edge.kind === EdgeKind.Wall) continue;
+      for (let axisIndex = edge.apertureStart; axisIndex <= edge.apertureEnd; axisIndex++) {
+        const tile = apertureTileAt(direction, axisIndex, 0);
+        const index = tileIndex(tile.tileX, tile.tileY);
+        const kind = sector.tiles[index];
+        if (kind === TileKind.Solid || kind === TileKind.GateClosed) continue;
+        this.sealedTiles.push({ sector, index, kind });
+        sector.tiles[index] = TileKind.GateClosed;
+      }
+    }
+    this.onSealChanged();
+  }
+
+  private unsealSector(): void {
+    for (let entry = this.sealedTiles.length - 1; entry >= 0; entry--) {
+      const { sector, index, kind } = this.sealedTiles[entry];
+      sector.tiles[index] = kind;
+    }
+    this.sealedTiles.length = 0;
+    this.onSealChanged();
+  }
+
+  private onSealChanged(): void {
+    this.geometry?.invalidate();
+    const player = this.playerVisual;
+    if (player) {
+      computeFlowField(this.map, player.x, player.y, this.flow);
+      this.flowAge = 0;
+      this.flowTileX = Math.floor(player.x / TILE_SIZE);
+      this.flowTileY = Math.floor(player.y / TILE_SIZE);
     }
   }
 

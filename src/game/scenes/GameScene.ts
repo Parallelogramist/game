@@ -313,6 +313,7 @@ const ENEMY_COLLISION_RADIUS = 12;
 const BOSS_KNOCKBACK_AI_TYPE_FLOOR = 100;
 const knockbackCollisionResult = createCollisionResult();
 const enemySpawnSpot = { x: 0, y: 0 };
+const apertureSpawnSpot = { x: 0, y: 0 };
 const blinkCollisionResult = createCollisionResult();
 const blinkDirection = { x: 0, y: 0 };
 const BLINK_DRIVE_ID = 'ability_blink_drive';
@@ -755,6 +756,9 @@ export class GameScene extends Phaser.Scene {
   private selectedStageId: string = 'stage_deep_void';
   private draftedBlessingIds: string[] | null = null;
   private worldMode!: WorldModeAdapter;
+  // Bound once: updateHazardSpawner takes it every frame and an inline arrow would allocate.
+  private readonly hazardSpawnLegality = (x: number, y: number): boolean =>
+    this.worldMode.isSpawnableWorldPoint(x, y);
   private playerWallCollision: WallCollisionContext | null = null;
 
   /**
@@ -4779,10 +4783,15 @@ export class GameScene extends Phaser.Scene {
     if (!map) return;
     const playerX = Transform.x[this.playerId];
     const playerY = Transform.y[this.playerId];
-    this.syncAbilityVaults(map, playerX, playerY);
-    this.updateAbilityVaults(playerX, playerY);
-    this.tryOpenAbilityDoor(map, playerX, playerY);
-    this.reportSealedAbilityDoor(map, playerX, playerY);
+    // Under a boss seal the door machinery stands down: tryOpenAbilityDoor would clear
+    // the sealed mouth of an owned ability door mid-fight, and the readout would name a
+    // requirement the seal, not the door, is enforcing.
+    if (!this.worldMode.isSectorLocked()) {
+      this.syncAbilityVaults(map, playerX, playerY);
+      this.updateAbilityVaults(playerX, playerY);
+      this.tryOpenAbilityDoor(map, playerX, playerY);
+      this.reportSealedAbilityDoor(map, playerX, playerY);
+    }
     this.updateHazardFloorDamage(map, playerX, playerY, deltaSeconds);
   }
 
@@ -5518,7 +5527,8 @@ export class GameScene extends Phaser.Scene {
       updateHazardSpawner(
         deltaSeconds, this.gameTime,
         Transform.x[this.playerId], Transform.y[this.playerId],
-        this.worldMode.viewRect()
+        this.worldMode.viewRect(),
+        this.hazardSpawnLegality
       );
     }
 
@@ -7825,6 +7835,9 @@ export class GameScene extends Phaser.Scene {
       const point = pickEdgeSpawnPoint(view, config, Math.random);
       if (this.worldMode.isSpawnableWorldPoint(point.x, point.y)) return point;
     }
+    // A heavily walled sector can reject the whole ring; enemies then enter through the
+    // room's doors instead (doc 02 section 8), which also reads as intent rather than luck.
+    if (this.worldMode.apertureSpawnPoint(apertureSpawnSpot)) return apertureSpawnSpot;
     return null;
   }
 

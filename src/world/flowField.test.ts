@@ -10,7 +10,7 @@ import {
   TileKind, WALL_EDGE, tileIndex,
 } from './worldTypes';
 import type { EdgeDef, EdgeDirection, SectorDef, WorldMap } from './worldTypes';
-import { computeFlowField, createFlowField, flowStepPoint } from './flowField';
+import { computeFlowField, createFlowField, flowReachable, flowStepPoint } from './flowField';
 
 function makeSector(
   sx: number, sy: number,
@@ -127,6 +127,29 @@ describe('flowField', () => {
     const step = { x: 0, y: 0 };
 
     expect(flowStepPoint(field, -3 * SECTOR_TILE_COLS * TILE_SIZE, 0, step)).toBe(false);
+  });
+
+  it('reads open connected ground as reachable and a sealed pocket as not', () => {
+    // A 1-tile pocket at (10,9) fully ringed by wall: open floor, no route.
+    const world = makeWorld(tiles => {
+      paintRect(tiles, 9, 8, 11, 10, TileKind.Solid);
+      tiles[tileIndex(10, 9)] = TileKind.Open;
+    });
+    const field = fieldFor(world, 5, 9);
+    const openGround = tileCentre(14, 9);
+    const pocket = tileCentre(10, 9);
+    const insideWall = tileCentre(9, 8);
+
+    expect(flowReachable(field, openGround.x, openGround.y)).toBe(true);
+    expect(flowReachable(field, pocket.x, pocket.y)).toBe(false);
+    expect(flowReachable(field, insideWall.x, insideWall.y)).toBe(false);
+  });
+
+  it('reads a point outside the 3x3 block as unreachable', () => {
+    const field = fieldFor(makeWorld(() => {}), 10, 9);
+    const farOutside = tileCentre(SECTOR_TILE_COLS * 5, 9);
+
+    expect(flowReachable(field, farOutside.x, farOutside.y)).toBe(false);
   });
 
   it('never cuts a diagonal between two walls', () => {

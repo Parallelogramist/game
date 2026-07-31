@@ -60,6 +60,10 @@ export class ArenaModeAdapter implements WorldModeAdapter {
     return true;
   }
 
+  apertureSpawnPoint(_out: WorldPoint): boolean {
+    return false;
+  }
+
   leashRadius(): number | null {
     return null;
   }
@@ -67,6 +71,10 @@ export class ArenaModeAdapter implements WorldModeAdapter {
   lockToSector(_sector: SectorCoord): void {}
 
   releaseSectorLock(): void {}
+
+  isSectorLocked(): boolean {
+    return false;
+  }
 
   saveViewState(): SerializedExpeditionState | null {
     return null;

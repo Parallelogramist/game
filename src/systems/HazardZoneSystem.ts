@@ -429,6 +429,7 @@ export function updateHazardSpawner(
   playerX: number,
   playerY: number,
   view: WorldRect,
+  isLegalPoint?: (x: number, y: number) => boolean,
 ): void {
   const config = TUNING.hazards;
 
@@ -482,6 +483,13 @@ export function updateHazardSpawner(
     // Clamp back into the view rect
     spawnX = Math.max(view.minX + margin, Math.min(view.maxX - margin, spawnX));
     spawnY = Math.max(view.minY + margin, Math.min(view.maxY - margin, spawnY));
+  }
+
+  // A zone centred in rock or in a sealed pocket is a spawn slot wasted where nobody can
+  // be. Skip and let the next interval re-roll; arena passes no filter and is unchanged.
+  if (isLegalPoint && !isLegalPoint(spawnX, spawnY)) {
+    nextSpawnInterval = computeSpawnInterval(gameTime);
+    return;
   }
 
   spawnHazardZone(spawnX, spawnY, zoneRadius, hazardType, zoneDuration);

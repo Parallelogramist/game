@@ -205,7 +205,8 @@ function stampBorderRing(tiles: Uint8Array): void {
   }
 }
 
-function apertureTileAt(
+/** Sector-local tile of an aperture cell, `depth` tiles in from the border ring. */
+export function apertureTileAt(
   direction: EdgeDirection, axisIndex: number, depth: number
 ): TileCoord {
   switch (direction) {
