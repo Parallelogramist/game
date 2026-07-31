@@ -71,15 +71,18 @@ construction (no gold, arena relic table at the arena rate, already-capped `FIEL
 the gold row and both fragment rows were cut to `FEAT-SECRET-REWARD-GOLD` and
 `FEAT-SECRET-REWARD-FRAGMENTS`, so do not re-derive why they are absent.
 
-**The next session takes `FEAT-SECRET-HIDDEN-LIFETIME`**, the strongest remaining unblocked
-item: its only dep, `FEAT-SECRET-HIDDEN-SECTORS`, shipped at c242028, and it is now sharper
-than when it was filed, because hidden sectors already pay a real in-run reward as of b970287.
-What they still lack is purely the lifetime counter and the unlock/paint pair, which
-`FEAT-SECRET-REWARD-VARIETY` deliberately did not touch. After that, take
-`FEAT-DISCOVERY-WRITE-PATHS` (three of its four write paths now have live consumers).
-`FEAT-SECRET-LORE`, `FEAT-SECRET-SEQUENCE-PUZZLES` and `FEAT-DISCOVERY-SCAN-FRAGMENT` remain
-band 2 and are larger. `FEAT-ECON-WARDS` stays parked on the operator balance decision: do not
-unpark it. Operator focus: quests and lots of hidden rewards on the Metroid map.
+`FEAT-SECRET-HIDDEN-LIFETIME` (cf08619) closed the last gap in that chain: breaking into a
+hidden sector now feeds its own lifetime counter, `hiddenSectorsFoundTotal`, kept deliberately
+apart from `secretsFoundTotal` so the shipped cache thresholds could not move, and two cosmetic
+unlocks read it at 3 hidden sectors (one world) and 15 (five), each with a ship paint behind it.
+No version bump and no new UI: both conditions carry `getProgress`, so the vault rows, the
+post-run closest-to-unlock panel and the paint picker's locked cards already render them.
+
+**The next session takes `FEAT-DISCOVERY-WRITE-PATHS`**, since three of its four write paths
+now have live consumers. After it, the remaining band-2 items are larger: `FEAT-SECRET-LORE`,
+`FEAT-SECRET-SEQUENCE-PUZZLES` and `FEAT-DISCOVERY-SCAN-FRAGMENT`. `FEAT-ECON-WARDS` stays
+parked on the operator balance decision: do not unpark it. Band 1 is still out of unblocked
+items. Operator focus: quests and lots of hidden rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -4381,7 +4384,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   unsealed quest world reached, which held on 100 of 100 seeds. That is strictly stronger than
   a constant: it would fail if any wall cost the run a single sector.
 
-- [ ] **FEAT-SECRET-HIDDEN-LIFETIME** (new 2026-07-31, cut from `FEAT-SECRET-HIDDEN-SECTORS`):
+- [x] **FEAT-SECRET-HIDDEN-LIFETIME** (done, cf08619; filed 2026-07-31, cut from `FEAT-SECRET-HIDDEN-SECTORS`):
   a hidden sector found is not counted anywhere outside the per-world discovery state.
   `FEAT-SECRET-CACHE` shipped a lifetime `secretsFoundTotal` behind two hidden unlocks and two
   ship paints; hidden sectors deliberately did NOT join that counter, because conflating "a
@@ -4389,6 +4392,37 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   unlock thresholds. Wants its own lifetime counter and its own unlock/paint pair. Value: the
   strongest find in the game currently pays nothing that survives the world.
   Deps: `FEAT-SECRET-HIDDEN-SECTORS` (done). Spec: doc 04 section 5.3.
+  **As built.** `LifetimeStats` gained one field, `hiddenSectorsFoundTotal`, and it is
+  deliberately NOT a share of `secretsFoundTotal`: a room the map never drew is a different
+  find from a cache you walked into, and merging the two would have moved the two cache
+  unlock thresholds (5 and 25) that already shipped. There is exactly **one increment site**,
+  `AchievementManager.recordHiddenSectorFound()` called as the first statement of
+  `GameScene.announceHiddenSector`. It needed **no new dedupe check of its own**: that method
+  only fires behind the `changes.sectorsVisited` delta `DiscoveryManager.markSectorEntered`
+  reports once per sector per world and persists, so the count is honest on re-entry and on a
+  reload, and lands at the moment of the break-in rather than at run end. Two conditions read
+  it, `unlock_wall_breaker` at 3 and `unlock_void_mason` at 15; the thresholds are the
+  counter's own units, since `EXPEDITION_HIDDEN_SECTOR_COUNT = 3` makes 3 exactly one world
+  swept clean and 15 five worlds, which is why they are not the cache pair's 5/25. Behind them
+  sit two paints, `cosmetic_breaker_plate` (rank 16) and `cosmetic_voidmason_hull` (rank 17),
+  appended above `cosmetic_cartographer_weave` with **no existing rank renumbered**.
+  **No `ACHIEVEMENT_VERSION` bump and no save migration**: `sanitizeLifetimeStats` rebuilds
+  from `createDefaultLifetimeStats()` and fills every known key, so an old profile with no
+  such key in storage reads the new field back as 0 and keeps every other stat. **No UI work
+  either**: both conditions carry `getProgress`, so the ACHIEVEMENTS vault rows, the post-run
+  closest-to-unlock panel and the paint picker's locked cards render them from `getProgress`
+  and `hintText` with nothing added. Three tests pin the one invariant the split exists to
+  protect: 40 caches earn neither hidden-sector unlock, 40 hidden sectors earn neither cache
+  unlock, and each threshold fires on its own counter and not one short of it.
+
+- [ ] **CHORE-SECRET-HIDDEN-THRESHOLD-REVIEW** (new 2026-07-31, from
+  `FEAT-SECRET-HIDDEN-LIFETIME`): the two hidden-sector unlock thresholds (3 and 15) and both
+  hint strings are keyed to `EXPEDITION_HIDDEN_SECTOR_COUNT = 3`
+  (`src/game/world/ExpeditionModeAdapter.ts:76`), which is what makes them read as "one world"
+  and "five worlds". Nothing enforces that link, so raising or lowering that constant silently
+  turns both hints into wrong claims about how much play an unlock costs. Revisit the pair
+  whenever that constant moves. Value: keeps an unlock hint from lying to the player about the
+  price of a cosmetic. Deps: none.
 
 - [ ] **CHORE-DISCOVERY-HIDDEN-SCAN-GUARD** (new 2026-07-31, from
   `FEAT-SECRET-HIDDEN-SECTORS`): `FEAT-DISCOVERY-SCAN-FRAGMENT`'s `revealOnScanPulse` (a BFS

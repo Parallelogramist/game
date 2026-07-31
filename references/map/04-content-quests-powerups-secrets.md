@@ -503,8 +503,9 @@ Three tiers, cheapest first:
   `survivor-secrets-found` (new key in `ALL_STORAGE_KEYS`), owned by a small pure
   `SecretLedger` module.
 - **Consequences flow through the systems that already exist.** `LifetimeStats`
-  (`src/achievements/AchievementTypes.ts:224`) gains `secretsFoundTotal` and
-  `loreFragmentsFound`. New `HiddenUnlocks` conditions (`src/meta/HiddenUnlocks.ts:82+`,
+  (`src/achievements/AchievementTypes.ts:224`) carries `secretsFoundTotal` and
+  `hiddenSectorsFoundTotal` (both shipped) and still wants `loreFragmentsFound`, which
+  `FEAT-SECRET-LORE` owns. New `HiddenUnlocks` conditions (`src/meta/HiddenUnlocks.ts:82+`,
   key `hiddenUnlocksV1`) predicate on them, with `getProgress()` so they surface
   in the vault ACHIEVEMENTS tab, and stages keep gating with the existing
   `hidden:<conditionId>` mechanism. Secrets get no unlock system, no toast system
@@ -594,6 +595,29 @@ Three tiers, cheapest first:
   `FEAT-SECRET-REWARD-GOLD` (blocked on the same parked balance decision) and
   `FEAT-SECRET-REWARD-FRAGMENTS` (`revealOnMapFragment` and lore fragments do not exist, so
   either would have paid nothing).
+
+### As built (`FEAT-SECRET-HIDDEN-LIFETIME`, cf08619, 2026-07-31)
+
+- **Hidden sectors got their own counter, not a share of `secretsFoundTotal`**, which answers
+  the open question the `FEAT-SECRET-HIDDEN-SECTORS` block's last bullet left. The field is
+  `LifetimeStats.hiddenSectorsFoundTotal`, so the two cache thresholds (5 and 25) are untouched
+  and neither counter can earn the other's unlock.
+- **The increment rides the permanence gate that already exists.** `announceHiddenSector` fires
+  once per sector per world behind the `changes.sectorsVisited` delta, so the tally needs no
+  store of its own, no dedupe list and no run-end pass: it lands at the break-in and survives a
+  reload and a re-entry.
+- **Two conditions and two paints, in the units the counter actually has.**
+  `unlock_wall_breaker` at 3 is one world swept clean (`EXPEDITION_HIDDEN_SECTOR_COUNT`) and
+  `unlock_void_mason` at 15 is five, behind `cosmetic_breaker_plate` (rank 16) and
+  `cosmetic_voidmason_hull` (rank 17), with no existing paint rank renumbered.
+- **Nothing new to render.** This section's own "secrets get no unlock system, no toast system
+  and no vault tab of their own" rule holds: both conditions carry `getProgress`, so the vault
+  ACHIEVEMENTS rows, the post-run closest-to-unlock panel and the paint picker's locked cards
+  surface them from `getProgress` and `hintText` with zero UI work.
+- **No version bump anywhere.** `ACHIEVEMENT_VERSION`, `SAVE_VERSION`, `WORLDGEN_VERSION` and
+  `DISCOVERY_VERSION` are all unchanged, because `sanitizeLifetimeStats` rebuilds from
+  `createDefaultLifetimeStats()`, so every existing profile keeps its state and reads the new
+  field back as 0.
 
 ---
 
