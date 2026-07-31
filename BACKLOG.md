@@ -3524,20 +3524,15 @@ exploring pays is the end of Phase 5.
   rate comparable to a projectile build and Focus Beam does not damage a wall it is not firing
   at. Deps: `FEAT-BARRIER-BREACH`.
 
-- [ ] **BALANCE-BREAKABLE-DENSITY**: the dev seed yields 5 interior pockets and 1 breakable edge
-  across 48 sectors, because `carveBreakablePockets` needs a 2x2 all-Solid rect and fails most
-  of its `DECORATION_ATTEMPTS`. At that density a player may never meet a breakable wall, which
-  makes the whole mechanic invisible. Raising it is a generator change and bumps
-  `WORLDGEN_VERSION`, which now discards saved world profiles (harmless while expedition is
-  behind `?expedition=1`). Deps: none. Spec: `02-worldgen-barriers.md` section 4.2.
-
-- [ ] **BALANCE-HAZARD-DENSITY**: `stampHazardStrips` (`src/world/sectorInterior.ts`) draws
-  `Math.floor(rng() * 2)` strips of 3x1 per sector, so the dev seed yields ~17 strips over 48
-  sectors and a whole run can cross none. Now that a strip costs hull
-  (`FEAT-BARRIER-HAZARD-STRIPS`), that density decides whether the mechanic exists in play at
-  all. Raising it is a generator change and bumps `WORLDGEN_VERSION`, which discards saved world
-  profiles (harmless while expedition is behind `?expedition=1`). Pair with
-  `BALANCE-BREAKABLE-DENSITY`: same fix shape, same version bump, one commit. Deps: none.
+- [x] **BALANCE-BREAKABLE-DENSITY** + **BALANCE-HAZARD-DENSITY** (done — 68b96bf, one commit
+  as specced): pockets now 1-2 per sector with a 2x1/1x2 fallback shape when no 2x2 all-Solid
+  rect exists (Solid→Breakable can never block a path, so the invariant suite is untouched by
+  construction); hazard threshold 0.5 → 0.3 with deep sectors (danger >= 0.5) always carrying
+  at least one strip. Dev seed 20260727: pockets 6 → 49 across 38 of 48 sectors, hazard
+  sectors 22 → 33. `WORLDGEN_VERSION` 2 → 3; saved world profiles regenerate, harmless while
+  expedition ships behind `?expedition=1` — which is exactly why this landed BEFORE
+  `FEAT-EXPEDITION-PROMOTE`. In-browser feel is `POLISH-HAZARD-FEEL` / breakable-density
+  judgement under `## Human gates`.
 
 - [ ] **BALANCE-HAZARD-SCALING**: `TUNING.hazards.floorTickDamage` is flat (4), so a strip is a
   real decision at world level 1 and rounding error at world level 20, where armor and max
