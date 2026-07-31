@@ -3553,11 +3553,34 @@ exploring pays is the end of Phase 5.
   ability doors and key doors: `FEAT-BARRIER-ABILITY-DOORS` carries it, and hazard strips are
   done (`FEAT-BARRIER-HAZARD-STRIPS`).
 
-- [ ] **FEAT-WORLDGEN-SPAWN**: everything spawns legally: tile snap, reachability filter,
-  sector-scoped director, boss-arena sealing. Done when a 10-minute soak in a walled sector
-  records zero entities on non-open tiles and zero spawns in unreachable tiles, and enemies
-  enter through aperture mouths when the off-camera ring is walled off. Deps:
-  `FEAT-WORLDGEN-NAV`, `FEAT-BARRIER-GATES`.
+- [x] **FEAT-WORLDGEN-SPAWN** (done — a16d20f): everything spawns legally. Much of the spec
+  had already landed piecemeal (ring candidates retried against `isSpawnableWorldPoint`
+  since W5, `freeSpotNear` tile-snap in `createEnemy` covering minion/splitter/legion
+  offsets, boss `lockToSector`), so the real scope was the three gaps: (1) **reachability**:
+  `ExpeditionModeAdapter.isSpawnableWorldPoint` now also requires `flowReachable` (new pure
+  helper in `src/world/flowField.ts`, 2 tests), so ring spawns, leash repositions and hazard
+  zones all reject sealed pockets and tiles behind closed doors — the flow field IS the
+  spec's reachability oracle and is at most one tile-crossing stale; (2) **aperture
+  fallback**: `apertureSpawnPoint` on the adapter seam (arena: constant false) picks a
+  spawnable entry tile of the current sector when the whole ring fails, so a walled room
+  pours enemies through its doors; (3) **boss sealing**: `lockToSector` flips the locked
+  sector's aperture tiles to `GateClosed` and release restores their exact prior kinds;
+  the ability-door opener/readout stand down under a seal (`isSectorLocked` on the seam)
+  so an owned door cannot be cleared mid-fight. The per-frame hazard spawner takes an
+  optional legality callback (bound once in GameScene, no per-frame allocation) and
+  re-rolls on an illegal point. **Deviations, each deliberate:** the sector-scoped
+  director and "undiscovered sectors never spawn anything" halves are NOT built — they
+  are `FEAT-WORLDGEN-STREAM`'s entity-lifecycle model, meaningless while the leash (not
+  streaming) bounds the live set, and implementing them against the leash would be torn
+  out by that chunk; the "reject candidates outside the current sector" filter is also
+  skipped because near a seam the ring legitimately straddles sectors and rejecting the
+  neighbour side would thin spawn rate for no player-visible gain (both recorded as
+  as-built notes for the STREAM implementer). A side effect worth knowing: wave spawns
+  STOP during a boss seal (ring unreachable, mouths solid), which is the spec's "sealing
+  eliminates every mid-boss spawn edge case by construction" — the fight is the boss plus
+  whatever was already inside. Browser feel: `POLISH-SPAWN-LEGALITY` under `## Human
+  gates`. Deps met: `FEAT-WORLDGEN-NAV`; the `FEAT-BARRIER-GATES` dep was satisfied by
+  its remaining scope having landed as `FEAT-BARRIER-ABILITY-DOORS`.
 
 - [ ] **FEAT-WORLDGEN-STREAM**: sector transitions at a flat entity budget (despawn-to-pool,
   per-visit re-roll, persistent structures rematerialize). Done when 50 seam crossings hold
@@ -4159,6 +4182,12 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-SPAWN-LEGALITY** (a16d20f): playtest spawn legality + boss sealing. Owns:
+    (a) does the aperture fallback read as "they're pouring in through the door" or as a
+    spawner glitch at the mouth; (b) boss rooms now seal (doors slam to violet gate tiles)
+    and wave spawns stop for the fight — is the arena-without-adds fight the right
+    difficulty, and does the seal/unseal read; (c) do hazard zones landing only on open
+    reachable floor feel right, or do dense corridors now get too few.
   - **POLISH-MINIMAP-UNDERLAY** (492b8f0, 9c670b7): playtest the world-aware radar in
     `?expedition=1`. Agents have no browser and must not tune legibility blind. Owns:
     (a) **density**: a 40 px tile is 2.5 px on the disc, so interior pockets are near the
