@@ -240,6 +240,9 @@ export interface LifetimeStats {
   mostKillsInRun: number;   // Single-run kill record
   highestComboInRun: number; // Single-run combo record
   secretsFoundTotal: number;
+  /** Counted apart from secretsFoundTotal: a room the map never drew is a different find from
+   *  a cache you touched, and merging them would move the shipped cache-unlock thresholds. */
+  hiddenSectorsFoundTotal: number;
 }
 
 /**

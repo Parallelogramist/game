@@ -46,6 +46,7 @@ function makeLifetime(overrides: Partial<LifetimeStats> = {}): LifetimeStats {
     mostKillsInRun: 0,
     highestComboInRun: 0,
     secretsFoundTotal: 0,
+    hiddenSectorsFoundTotal: 0,
     ...overrides,
   };
 }
@@ -226,5 +227,31 @@ describe('orderVaultEntries — unlock vault ordering', () => {
     const ordered = orderVaultEntries({ unlock_no_longer_exists: { unlockedAt: 9000 } });
     expect(ordered).toHaveLength(HIDDEN_UNLOCKS.length);
     expect(ordered.every((entry) => entry.unlockedAt === null)).toBe(true);
+  });
+});
+
+describe('hidden-sector lifetime unlocks', () => {
+  const breakerPredicate = (context: UnlockEvaluationContext) =>
+    conditionById('unlock_wall_breaker').predicate(context);
+  const masonPredicate = (context: UnlockEvaluationContext) =>
+    conditionById('unlock_void_mason').predicate(context);
+
+  test('found caches alone never earn a hidden-sector unlock', () => {
+    const context = makeContext({ lifetime: { secretsFoundTotal: 40, hiddenSectorsFoundTotal: 0 } });
+    expect(breakerPredicate(context)).toBe(false);
+    expect(masonPredicate(context)).toBe(false);
+  });
+
+  test('hidden sectors alone never earn a cache unlock', () => {
+    const context = makeContext({ lifetime: { secretsFoundTotal: 0, hiddenSectorsFoundTotal: 40 } });
+    expect(conditionById('unlock_secret_seeker').predicate(context)).toBe(false);
+    expect(conditionById('unlock_secret_archivist').predicate(context)).toBe(false);
+  });
+
+  test('each threshold fires on its own counter and not one short of it', () => {
+    expect(breakerPredicate(makeContext({ lifetime: { hiddenSectorsFoundTotal: 2 } }))).toBe(false);
+    expect(breakerPredicate(makeContext({ lifetime: { hiddenSectorsFoundTotal: 3 } }))).toBe(true);
+    expect(masonPredicate(makeContext({ lifetime: { hiddenSectorsFoundTotal: 14 } }))).toBe(false);
+    expect(masonPredicate(makeContext({ lifetime: { hiddenSectorsFoundTotal: 15 } }))).toBe(true);
   });
 });

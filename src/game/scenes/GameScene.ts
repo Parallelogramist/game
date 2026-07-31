@@ -4909,6 +4909,7 @@ export class GameScene extends Phaser.Scene {
    *  beat as claimSecretCache so the two find-shapes read as one language, and now the same
    *  reward table, at the richer hiddenSector tier. */
   private announceHiddenSector(sector: SectorDef, worldSeed: number): void {
+    getAchievementManager().recordHiddenSectorFound();
     const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
     const spawnX = this.playerId !== -1
       ? Transform.x[this.playerId]

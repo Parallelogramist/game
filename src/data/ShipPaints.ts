@@ -32,6 +32,8 @@ export const SHIP_PAINTS: ShipPaint[] = [
   { unlockId: 'cosmetic_streak_flame',   name: 'Streak Flame',         rank: 13, color: { core: 0xffffff, glow: 0xffffcc } },
   { unlockId: 'cosmetic_secret_sigil',   name: 'Secret Sigil',         rank: 14, color: { core: 0xcc8833, glow: 0xffcc88 } },
   { unlockId: 'cosmetic_cartographer_weave', name: 'Cartographer Weave', rank: 15, color: { core: 0x44ffcc, glow: 0xaaffee } },
+  { unlockId: 'cosmetic_breaker_plate',  name: 'Breaker Plate',        rank: 16, color: { core: 0xff7733, glow: 0xffbb88 } },
+  { unlockId: 'cosmetic_voidmason_hull', name: 'Voidmason Hull',       rank: 17, color: { core: 0xff44ee, glow: 0xffaaf5 } },
 ];
 
 /**

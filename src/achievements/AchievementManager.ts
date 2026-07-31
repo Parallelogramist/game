@@ -64,6 +64,7 @@ function createDefaultLifetimeStats(): LifetimeStats {
     mostKillsInRun: 0,
     highestComboInRun: 0,
     secretsFoundTotal: 0,
+    hiddenSectorsFoundTotal: 0,
   };
 }
 
@@ -147,6 +148,7 @@ const LIFETIME_STAT_SPECS: Record<keyof LifetimeStats, StoredNumberSpec> = {
   mostKillsInRun: { floor: true, allowInfinity: false },
   highestComboInRun: { floor: true, allowInfinity: false },
   secretsFoundTotal: { floor: true, allowInfinity: false },
+  hiddenSectorsFoundTotal: { floor: true, allowInfinity: false },
 };
 
 /** Rebuild lifetime stats from the known fields only, coercing each value.
@@ -239,6 +241,13 @@ export class AchievementManager {
    *  per-seed discovery store: a regenerated world wipes the spatial flags, never the count. */
   recordSecretFound(): void {
     this.persistentState.lifetimeStats.secretsFoundTotal++;
+    this.savePersistentState();
+  }
+
+  /** Kept apart from recordSecretFound on purpose: merging the two counters would move the
+   *  cache unlock thresholds that already shipped. */
+  recordHiddenSectorFound(): void {
+    this.persistentState.lifetimeStats.hiddenSectorsFoundTotal++;
     this.savePersistentState();
   }
 

@@ -305,6 +305,24 @@ export const HIDDEN_UNLOCKS: HiddenUnlockCondition[] = [
     predicate: ({ lifetime }) => lifetime.secretsFoundTotal >= 25,
     getProgress: ({ lifetime }) => ({ current: Math.min(25, lifetime.secretsFoundTotal), target: 25 }),
   },
+  {
+    id: 'unlock_wall_breaker',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_breaker_plate',
+    displayName: 'Breaker Plate',
+    hintText: 'Break into 3 hidden sectors on expedition',
+    predicate: ({ lifetime }) => lifetime.hiddenSectorsFoundTotal >= 3,
+    getProgress: ({ lifetime }) => ({ current: Math.min(3, lifetime.hiddenSectorsFoundTotal), target: 3 }),
+  },
+  {
+    id: 'unlock_void_mason',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_voidmason_hull',
+    displayName: 'Voidmason Hull',
+    hintText: 'Break into 15 hidden sectors on expedition',
+    predicate: ({ lifetime }) => lifetime.hiddenSectorsFoundTotal >= 15,
+    getProgress: ({ lifetime }) => ({ current: Math.min(15, lifetime.hiddenSectorsFoundTotal), target: 15 }),
+  },
 ];
 
 // ---------------------------------------------------------------------------
