@@ -32,9 +32,10 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 **Expedition is the live default run mode since 02c4b74 (2026-07-31).** Fleet agents:
 work the **post-promote content plan** (search this file for "The post-promote content
-plan") top to bottom — band 1 starts at `FEAT-POI-CATALOG`, which turns the placed but
-inert Treasure/Shrine/Secret/QuestGiver slots into real rewards. Operator focus: quests
-and lots of hidden rewards on the Metroid map.
+plan") top to bottom. `FEAT-POI-CATALOG` shipped (302052a): Treasure and Shrine slots now
+pay real rewards, so band 1 starts at `FEAT-QUEST-CHAINS`, then `FEAT-ECON-WARDS`, then
+`FEAT-QUEST-BOARD` and `FEAT-WORLDGEN-QUESTDOORS`. Operator focus: quests and lots of
+hidden rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -2521,11 +2522,76 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   Deps: none (test fixture stands in for the generator). Spec: `03-discovery-map-ui.md`
   section 1.
 
-- [ ] **FEAT-POI-CATALOG**: one data contract for what fills a sector, so worldgen and
-  content can land independently. New `src/data/PoiCatalog.ts` and pure `src/world/poiRoll.ts`
-  (note: `src/world/`, not `src/systems/`, per README section 3.3); extend
-  `referentialIntegrity.test.ts`. Done when the same seed yields the same contents and every
-  icon ref is covered. Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 10.
+- [x] **FEAT-POI-CATALOG** (done — 302052a): the placed POI slots now pay. New
+  `src/data/PoiCatalog.ts` (8 content entries, 3 depth bands) and pure `src/world/poiRoll.ts`,
+  wired end-to-end so every `PoiKind.Treasure` and `PoiKind.Shrine` slot stocks itself the
+  first time this run's ship enters its sector.
+  1. **Wired, not landed as a data contract alone**: a catalog with no consumer is an inert
+     deliverable, and the `## Now` pointer's own words were "turns the placed but inert slots
+     into real rewards". The generator has placed these slots since `FEAT-WORLDGEN-CORE` and
+     the only consumer in the entire game was `syncAbilityVaults`, which skips every kind but
+     `AbilityPowerUp`.
+  2. **Five reward paths, all reuse**: `addTreasureChest` for the chest,
+     `addDestructible` (extracted from `spawnDestructible`, no behavior change on the timer
+     path) three times for a crate cache, `spawnFieldBoostPickup` twice for a boost cache,
+     `addShrine` for the four altars, and `addShrine('market')` for the FEAT-MARKET gold sink,
+     capped at one per world per run and weighted to zero in the shallow depth band.
+  3. **Determinism**: seeded per slot id from `poi:<worldSeed>:<runSalt>:<slotId>`, so a run
+     reproduces its own contents across a refresh while a new run re-rolls them. Layout stays
+     the profile's, contents are the run's (README section 1 spine rule 2).
+  4. **Persistence**: new optional `poiState` block (`runSalt`, `spawnedSlotIds`,
+     `oncePerRunSpawned`) beside `chestState`; no `SAVE_VERSION` bump, no `WORLDGEN_VERSION`
+     bump. Arena is untouched by construction: `worldMap()` is null there and
+     `expedition:sector-entered` is never emitted.
+  5. Six deliberate deviations, each with its reason:
+     a. **Slot kinds are honored, not overwritten.** Doc 04 section 1 models generic slots the
+        catalog fills; what shipped assigns a `PoiKind` at generation time, so each catalog
+        entry names the `slotKind` it may fill.
+     b. **`Secret` and `QuestGiver` slots stay inert**, left to `FEAT-SECRET-CACHE` and
+        `FEAT-QUEST-CHAINS`, which need found-state and quest data this chunk has no business
+        inventing.
+     c. **No icon field and no `referentialIntegrity.test.ts` extension**: nothing renders a
+        POI icon (there is no spawn toast), so an icon key would be data with no consumer.
+        This is the one done-when clause of the original entry that could not be met as
+        written, because there are zero icon refs to cover.
+     d. **POI chests keep neither the 30s despawn nor the chest drone**, unlike the timer
+        chests they otherwise reuse verbatim. The despawn would delete a placed reward
+        mid-fight; the drone would drag every cache in a 12800x7200 world at the player
+        through walls.
+     e. **`poi_ambush_nest` and `poi_nemesis_lair` from the doc 04 table are not built** (they
+        need a trigger volume and a `NemesisManager` anchor). Filed as `FEAT-POI-AMBUSH-NEST`
+        below.
+     f. **`weightedPick` was exported from `generateWorld.ts`** rather than re-implemented,
+        one word of diff.
+  6. **Tests**: 6 in `src/world/poiRoll.test.ts` (determinism, salt re-roll, slot-kind
+     honoring, once-per-run cap, depth gating, catalog well-formedness). No GameScene test:
+     every wiring edit lives in Phaser-coupled scene code that needs a live scene, `Graphics`
+     and the ECS, which is exactly the mock scaffolding the standing order bans.
+  7. Suite: 141 files / 1739 tests before, 142 / 1745 after.
+  Deps: none. Spec: `04-content-quests-powerups-secrets.md` sections 1 and 10.
+
+- [ ] **FEAT-POI-AMBUSH-NEST**: the two rolled POI kinds doc 04 section 1 lists that
+  `FEAT-POI-CATALOG` did not build. `poi_ambush_nest` is a trigger volume that runs a scripted
+  wave on the EVENT_POOL pattern and pays a guaranteed special chest; `poi_nemesis_lair`
+  anchors `NemesisManager`'s hunter to a lair sector instead of its 120s timer when in
+  expedition mode, paying a special chest on the kill. Value: the map's rewards currently never
+  fight back, so a deep room is pure upside; a nest is the risk half of the risk/reward. Both
+  are two more `POI_CONTENTS` entries plus one `spawnPoiContent` case each. Deps:
+  `FEAT-POI-CATALOG` (done). Spec: doc 04 section 1 rows 4 and 7.
+
+- [ ] **BALANCE-POI-DENSITY**: measure what a full world actually pays now. `placePoiSlots`
+  puts 1-3 random-kind slots in every one of ~48 sectors, so roughly half land on
+  Treasure/Shrine and are now live. Assert the total against `computeExpeditionGoldBudget` and
+  against the arena relic-roll rate before the content flood lands on top of it. Value: the
+  reward economy has to be locked before more content keys off it. Deps: `FEAT-ECON-WARDS`
+  (this is the POI half of its data test).
+
+- [ ] **CHORE-POI-CRATE-PERSIST**: a POI crate cache does not survive a refresh. Crates are ECS
+  destructibles and are not serialized (only chests and shrines are), while the slot is already
+  in `spawnedSlotIds`, so a refresh inside a crate room loses that cache for the run. Chests,
+  altars, the market and floor boosts all round-trip correctly. Either serialize destructibles
+  or defer marking a crate slot spawned until its crates are broken. Value: small, but it is
+  the only POI reward a refresh can silently eat. Deps: none.
 
 - [x] **FEAT-POWER-TRAVERSAL** (done — 8161ba7): the game's first permanent progression
   axis that is **earned rather than bought**. `src/data/TraversalAbilities.ts` is the
@@ -3910,11 +3976,13 @@ for discovery); read `references/map/README.md` first as always.
 
 **Band 1 — make the placed slots real (highest value per session).** The generator has
 placed `Treasure` / `Shrine` / `Secret` / `QuestGiver` POI slots in every world since
-`FEAT-WORLDGEN-CORE`, and only the ability vaults are real. Every other slot is an
-invisible no-op today, which means the default mode's map is emptier than it looks.
-`FEAT-POI-CATALOG` first, then `FEAT-QUEST-CHAINS` + `FEAT-ECON-WARDS` so the reward
-economy is locked BEFORE the content flood, then `FEAT-QUEST-BOARD` and
-`FEAT-WORLDGEN-QUESTDOORS`.
+`FEAT-WORLDGEN-CORE`, and for a long time only the ability vaults were real.
+`FEAT-POI-CATALOG` is **done (302052a)**: Treasure and Shrine slots now stock a chest, a
+crate cache, a field-boost cache, an altar or the once-per-run Black Market on first sector
+entry. `Secret` and `QuestGiver` slots are still inert and are exactly what
+`FEAT-SECRET-CACHE` (band 2) and `FEAT-QUEST-CHAINS` turn on. Next: `FEAT-QUEST-CHAINS` +
+`FEAT-ECON-WARDS` so the reward economy is locked BEFORE the content flood, then
+`FEAT-QUEST-BOARD` and `FEAT-WORLDGEN-QUESTDOORS`.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
@@ -4289,6 +4357,14 @@ Never agent work. The fleet must not do any of these.
     "map", is it reachable without shifting grip, and does the pause-menu World Map row
     read better or worse than a direct button for discoverability? Also confirm the
     six-row pause menu still fits above the hint text on the smallest supported viewport.
+  - **POLISH-POI-FEEL** (302052a): fly an expedition and judge what the rooms now pay.
+    (a) Is one reward per room roughly right, or does a 1-3 slot sector read as cluttered?
+    (b) Is a chest visible enough from a sector doorway to be worth the detour, or does it
+    need a minimap marker (`FEAT-MAPUI-DOORS-05` territory)? (c) Does the Black Market showing
+    up only in the deep bands read as a discovery or as a tease? (d) Do the four altars at
+    fixed spots make the 25s ambient shrine spawner feel redundant, and should it stand down in
+    expedition? (e) Do POI crates parking the ambient crate spawner (shared `destructibleCount`
+    against a cap of 6) starve the arena feel anywhere?
   - **POLISH-SPAWN-LEGALITY** (a16d20f): playtest spawn legality + boss sealing. Owns:
     (a) does the aperture fallback read as "they're pouring in through the door" or as a
     spawner glitch at the mouth; (b) boss rooms now seal (doors slam to violet gate tiles)

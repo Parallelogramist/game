@@ -56,6 +56,37 @@ Rules:
   toward chest/market/boost and away from crates. The shift table is data, not code.
 - Placed kinds always win a slot conflict; rolled kinds fill what remains.
 
+**As built (`FEAT-POI-CATALOG`, 302052a).** The chunk shipped wired rather than as a data
+contract alone: `src/data/PoiCatalog.ts` (the content table plus the depth-band weight
+scales), pure `src/world/poiRoll.ts` (`rollPoiContents`), and a `GameScene` consumer
+(`stockSectorPois`) that stocks a sector the first time this run's ship enters it. Where it
+departs from the model above:
+
+- **Slots carry a `PoiKind` from the generator** (`sectorInterior.placePoiSlots` assigns
+  `Treasure` / `Shrine` / `Secret` / `QuestGiver` / `AbilityPowerUp`), so the table's
+  generic-slot model does not hold. Each catalog entry instead names the `slotKind` it may
+  fill, and a slot kind the catalog does not cover simply stays unspawned.
+- **Live kinds:** `poi_treasure_chest`, `poi_crate_field`, `poi_field_boost_cache` and
+  `poi_black_market` (once per world per run, weight 0 in the shallow band) on `Treasure`
+  slots; four shrine archetypes on `Shrine` slots. `poi_ambush_nest` and `poi_nemesis_lair`
+  are not built and are filed as `FEAT-POI-AMBUSH-NEST`. `Secret` and `QuestGiver` slots stay
+  inert for `FEAT-SECRET-CACHE` and `FEAT-QUEST-CHAINS`, which own their persistent state.
+- **One catalog entry per shrine archetype** (`poi_shrine_cleanse` / `_power` / `_fortune` /
+  `_sacrifice`) instead of one `poi_shrine` carrying a `shrineType` string: `GameScene`'s
+  switch then maps each id to a `ShrineType` literal the compiler checks, so a typo is a red
+  build rather than an altar that silently never spawns.
+- **POI chests disable both the 30s despawn and the chest drone**, unlike the timer chests
+  they otherwise reuse verbatim. This is a world-sized map, not a screen: the despawn would
+  delete a placed reward the player is still flying toward, and the drone would drag every
+  cache in the world at the player through walls.
+- **No icon field**, so the catalog is deliberately absent from
+  `referentialIntegrity.test.ts`: nothing renders a POI icon and no spawn fires a toast, so an
+  icon key would be data with no consumer.
+- **Determinism key is `poi:<worldSeed>:<runSalt>:<slotId>`**, seeded per slot rather than per
+  sector so a half-stocked sector rolls identical contents for its remaining slots after a
+  refresh. The run's salt, its spawned-slot set and the once-per-run flag persist as the
+  optional `poiState` save block; neither `SAVE_VERSION` nor `WORLDGEN_VERSION` moved.
+
 ---
 
 ## 2. The traversal power-up set (the Metroid spine)
