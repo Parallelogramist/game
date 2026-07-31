@@ -36,6 +36,8 @@ function paintFourPointStar(graphics: Phaser.GameObjects.Graphics, outerRadius: 
 export interface TouchActionButtonsOptions {
   onDash: () => void;
   onUltimate: () => void;
+  /** Expedition only: opens the world map. The button is not created when absent. */
+  onOpenMap?: () => void;
   hudScale: number;
 }
 
@@ -50,6 +52,7 @@ export class TouchActionButtons {
 
   // Fullscreen button elements
   private fullscreenContainer: Phaser.GameObjects.Container | null = null;
+  private mapContainer: Phaser.GameObjects.Container | null = null;
 
   // Ultimate button elements
   private ultimateContainer: Phaser.GameObjects.Container | null = null;
@@ -65,6 +68,10 @@ export class TouchActionButtons {
     this.createDashButton();
     this.createUltimateButton();
     this.createFullscreenButton();
+    // Beside the fullscreen toggle rather than in the dash/ultimate thumb cluster: the map
+    // is a deliberate stop-and-look action, and a thumb-zone slot would eat mis-taps
+    // mid-combat and need a joystick exclusion of its own.
+    if (options.onOpenMap) this.createMapButton();
     this.setVisible(false);
   }
 
@@ -238,6 +245,74 @@ export class TouchActionButtons {
     this.positionFullscreenButton();
   }
 
+  private createMapButton(): void {
+    const buttonSize = Math.max(22 * this.options.hudScale, MIN_TOUCH_SIZE / 2);
+
+    this.mapContainer = this.scene.add.container(0, 0);
+    this.mapContainer.setDepth(BUTTON_DEPTH);
+    this.mapContainer.setScrollFactor(0);
+
+    // Soft shadow under panel (matches the fullscreen button).
+    const mapInkLayer = this.scene.add.graphics();
+    mapInkLayer.fillStyle(0x000000, 0.55);
+    mapInkLayer.fillRoundedRect(-buttonSize + 2, -buttonSize + 3, buttonSize * 2, buttonSize * 2, 8);
+    this.mapContainer.add(mapInkLayer);
+
+    // Body: deep violet with the expedition accent border.
+    const backgroundRect = this.scene.add.rectangle(0, 0, buttonSize * 2, buttonSize * 2, 0x241c3a, 0.85);
+    backgroundRect.setStrokeStyle(3, 0x8877cc, 0.85);
+    this.mapContainer.add(backgroundRect);
+
+    // Map icon — drawn diamond (sector cell) with a position dot.
+    const mapIcon = this.scene.add.graphics();
+    const diamondExtent = Math.round(buttonSize * 0.52);
+    const iconThickness = Math.max(2, Math.round(buttonSize * 0.14));
+    mapIcon.lineStyle(iconThickness, 0xf0eedf, 1);
+    mapIcon.beginPath();
+    mapIcon.moveTo(0, -diamondExtent);
+    mapIcon.lineTo(diamondExtent, 0);
+    mapIcon.lineTo(0, diamondExtent);
+    mapIcon.lineTo(-diamondExtent, 0);
+    mapIcon.closePath();
+    mapIcon.strokePath();
+    mapIcon.fillStyle(0xf0eedf, 1);
+    mapIcon.fillCircle(0, 0, Math.max(2, Math.round(buttonSize * 0.12)));
+    this.mapContainer.add(mapIcon);
+
+    const hitArea = new Phaser.Geom.Rectangle(
+      -buttonSize, -buttonSize, buttonSize * 2, buttonSize * 2
+    );
+    this.mapContainer.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
+    this.mapContainer.setName('mapButton');
+
+    this.mapContainer.on('pointerdown', () => {
+      if (!this.enabled) return;
+      this.options.onOpenMap?.();
+      this.scene.tweens.add({
+        targets: this.mapContainer,
+        scaleX: 0.85,
+        scaleY: 0.85,
+        duration: 50,
+        yoyo: true,
+      });
+    });
+
+    this.positionMapButton();
+  }
+
+  private positionMapButton(): void {
+    if (!this.mapContainer) return;
+    const width = this.scene.scale.width;
+    const padding = Math.max(16 * this.options.hudScale, 12);
+    const buttonSize = Math.max(22 * this.options.hudScale, MIN_TOUCH_SIZE / 2);
+    // Left of the fullscreen button, or in its slot on devices with no fullscreen API.
+    const fullscreenSlotWidth = this.fullscreenContainer ? buttonSize * 2 + 10 : 0;
+    this.mapContainer.setPosition(
+      width - padding - buttonSize - 50 * this.options.hudScale - fullscreenSlotWidth,
+      padding + buttonSize
+    );
+  }
+
   private positionDashButton(): void {
     if (!this.dashContainer) return;
     const width = this.scene.scale.width;
@@ -340,6 +415,7 @@ export class TouchActionButtons {
     if (this.dashCooldownArc) this.dashCooldownArc.setVisible(isVisible);
     if (this.ultimateContainer) this.ultimateContainer.setVisible(isVisible);
     if (this.fullscreenContainer) this.fullscreenContainer.setVisible(isVisible);
+    if (this.mapContainer) this.mapContainer.setVisible(isVisible);
   }
 
   /**
@@ -356,6 +432,7 @@ export class TouchActionButtons {
     this.positionDashButton();
     this.positionUltimateButton();
     this.positionFullscreenButton();
+    this.positionMapButton();
   }
 
   /**
@@ -406,6 +483,10 @@ export class TouchActionButtons {
     if (this.fullscreenContainer) {
       this.fullscreenContainer.destroy();
       this.fullscreenContainer = null;
+    }
+    if (this.mapContainer) {
+      this.mapContainer.destroy();
+      this.mapContainer = null;
     }
   }
 }

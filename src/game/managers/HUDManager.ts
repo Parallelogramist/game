@@ -114,6 +114,8 @@ interface HUDManagerOptions {
   worldLevel: number;
   onPauseClicked: () => void;
   onAutoBuyToggled: () => void;
+  /** Expedition only: whether this run has a world map. Decides the touch map button. */
+  hasWorldMap?: () => boolean;
 }
 
 const HUD_DEPTH = OverlayDepths.HUD;
@@ -816,6 +818,9 @@ export class HUDManager {
     this.touchActionButtons = new TouchActionButtons(this.scene, {
       onDash: () => this.scene.events.emit('input-dash-requested'),
       onUltimate: () => this.scene.events.emit('input-ultimate-requested'),
+      onOpenMap: this.options.hasWorldMap?.()
+        ? () => this.scene.events.emit('input-map-requested')
+        : undefined,
       hudScale: this.hudScale,
     });
 

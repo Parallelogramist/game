@@ -210,6 +210,10 @@ export interface PauseMenuOptions {
    */
   onRecordRunEnd: (goldEarned: number) => Pick<RunEarningSources, 'unlocks' | 'achievements'>;
   onOpenSettings: () => void;
+  /** Expedition only: whether the current mode has a world map. Decides the MAP row. */
+  hasWorldMap?: () => boolean;
+  /** Opens the world map; called after the menu has hidden itself and cleared the pause. */
+  onOpenMap?: () => void;
   onContinueRun: () => void;
   onNextWorld: (goldEarned: number) => void;
   getGameState: () => PauseGameState;
@@ -750,8 +754,29 @@ export class PauseMenuManager {
       onActivate: () => this.hidePauseMenu(),
     });
 
-    // Settings button (64px below resume)
-    const settingsButtonY = resumeButtonY + buttonSpacing;
+    // World Map button (expedition only, between Resume and Settings). Touch has no free
+    // physical button, so without this row a phone cannot open the map at all.
+    const mapRowVisible = this.options.hasWorldMap?.() === true
+      && this.options.onOpenMap !== undefined;
+    const mapBaseColor = 0x4a3a7a;
+    const mapHoverColor = 0x6a55aa;
+    let mapButtonBg: Phaser.GameObjects.Rectangle | null = null;
+    let mapButtonText: Phaser.GameObjects.Text | null = null;
+    if (mapRowVisible) {
+      const created = this.createLabeledButton({
+        x: buttonCenterX, y: resumeButtonY + buttonSpacing,
+        width: resumeButtonWidth, height: resumeButtonHeight,
+        label: '◈  World Map', fontSize: '24px',
+        baseColor: mapBaseColor, hoverColor: mapHoverColor, strokeColor: 0x8877cc,
+        bgName: 'mapButtonBg', textName: 'mapButtonText',
+        onActivate: () => { this.hidePauseMenu(); this.options.onOpenMap!(); },
+      });
+      mapButtonBg = created.bg;
+      mapButtonText = created.text;
+    }
+
+    // Settings button (64px below resume, or below the map row when it exists)
+    const settingsButtonY = resumeButtonY + buttonSpacing * (mapRowVisible ? 2 : 1);
     const settingsBaseColor = 0x446688;
     const settingsHoverColor = 0x5577aa;
     const { bg: settingsButtonBg, text: settingsButtonText } = this.createLabeledButton({
@@ -838,6 +863,9 @@ export class PauseMenuManager {
     // Keyboard + gamepad navigation for pause menu
     const pauseButtons = [
       { bg: resumeButtonBg, action: () => this.hidePauseMenu(), baseColor: resumeBaseColor, hoverColor: resumeHoverColor },
+      ...(mapButtonBg ? [
+        { bg: mapButtonBg, action: () => { this.hidePauseMenu(); this.options.onOpenMap!(); }, baseColor: mapBaseColor, hoverColor: mapHoverColor },
+      ] : []),
       { bg: settingsButtonBg, action: () => { this.hidePauseMenu(); this.options.onOpenSettings(); }, baseColor: settingsBaseColor, hoverColor: settingsHoverColor },
       { bg: restartButtonBg, action: () => this.showEndRunConfirmation('restart'), baseColor: restartBaseColor, hoverColor: restartHoverColor },
       { bg: quitMenuButtonBg, action: () => this.showEndRunConfirmation('menu'), baseColor: quitMenuBaseColor, hoverColor: quitMenuHoverColor },
@@ -865,6 +893,7 @@ export class PauseMenuManager {
     const animatedElements = [
       pauseTitle, pauseGoldDisplay,
       resumeButtonBg, resumeButtonText,
+      ...(mapButtonBg && mapButtonText ? [mapButtonBg, mapButtonText] : []),
       settingsButtonBg, settingsButtonText,
       restartButtonBg, restartButtonText,
       quitMenuButtonBg, quitMenuButtonText,
@@ -876,6 +905,7 @@ export class PauseMenuManager {
     // Disable buttons during stagger to prevent addButtonInteraction's killTweensOf
     // from canceling the alpha fade-in tween on hover
     const interactiveButtons = [resumeButtonBg, settingsButtonBg, restartButtonBg, quitMenuButtonBg, quitShopButtonBg];
+    if (mapButtonBg) interactiveButtons.push(mapButtonBg);
     interactiveButtons.forEach((btn) => btn.disableInteractive());
 
     const staggerDelay = 35;
@@ -915,6 +945,8 @@ export class PauseMenuManager {
       'pauseGoldText',
       'resumeButtonBg',
       'resumeButtonText',
+      'mapButtonBg',
+      'mapButtonText',
       'settingsButtonBg',
       'settingsButtonText',
       'restartButtonBg',

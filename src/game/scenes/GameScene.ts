@@ -1727,6 +1727,7 @@ export class GameScene extends Phaser.Scene {
       worldLevel: getMetaProgressionManager().getWorldLevel(),
       onPauseClicked: () => this.togglePauseMenu(),
       onAutoBuyToggled: () => this.toggleAutoBuy(),
+      hasWorldMap: () => this.worldMode.worldMap() !== null,
     });
     this.hudManager.create();
 
@@ -2874,6 +2875,7 @@ export class GameScene extends Phaser.Scene {
       worldLevel: getMetaProgressionManager().getWorldLevel(),
       onPauseClicked: () => this.togglePauseMenu(),
       onAutoBuyToggled: () => this.toggleAutoBuy(),
+      hasWorldMap: () => this.worldMode.worldMap() !== null,
     });
     this.hudManager.create();
 
@@ -6848,6 +6850,10 @@ export class GameScene extends Phaser.Scene {
         this.scene.start('ShopScene');
       },
       onRecordRunEnd: (goldEarned: number) => this.recordEarlyRunEnd(goldEarned),
+      hasWorldMap: () => this.worldMode.worldMap() !== null,
+      // The row's onActivate hides the menu first, so isPaused is already false and
+      // openExpeditionMap's guard passes; MapScene then re-pauses the scene itself.
+      onOpenMap: () => this.openExpeditionMap(),
       onOpenSettings: () => {
         this.isPaused = true; // Keep paused while in settings
         this.scene.launch('SettingsScene', { returnTo: 'GameScene' });
