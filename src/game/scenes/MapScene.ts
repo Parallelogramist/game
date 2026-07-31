@@ -251,7 +251,9 @@ export class MapScene extends Phaser.Scene {
         .setOrigin(0, 0).setDepth(4);
       cursorY += heading.height + 2;
       const detail = makeBodyText(this, panelX + 14, cursorY,
-        `${lead.fragment.text}  ${lead.riddle}`,
+        lead.sigils
+          ? `${lead.fragment.text}  ${lead.riddle}  ${lead.sigils}`
+          : `${lead.fragment.text}  ${lead.riddle}`,
         { fontSize: 12, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
         .setOrigin(0, 0).setDepth(4);
       cursorY += detail.height + 12;

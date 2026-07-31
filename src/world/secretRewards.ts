@@ -20,8 +20,9 @@ export type SecretRewardId =
   | 'secret_ordnance_pack'
   | 'secret_repair_bay';
 
-/** A cache is walked into; a hidden sector is a whole room the chart never drew. */
-export type SecretTier = 'cache' | 'hiddenSector';
+/** A cache is walked into; a hidden sector is a whole room the chart never drew; a puzzle
+ *  cache is a walk-in that made the player earn it. */
+export type SecretTier = 'cache' | 'hiddenSector' | 'puzzle';
 
 export interface SecretRewardDefinition {
   id: SecretRewardId;
@@ -110,6 +111,13 @@ export const SECRET_TIER_SCALES: Readonly<
   hiddenSector: {
     secret_twin_chests: 3,
     secret_relic_chest: 0.7,
+    secret_repair_bay: 0.6,
+  },
+  /** Earned rather than stumbled into, so it leans the hidden-sector way without matching a
+   *  whole undrawn room: half that lean on the jackpot, and the same push off the repair bay. */
+  puzzle: {
+    secret_twin_chests: 2,
+    secret_boost_bundle: 1.2,
     secret_repair_bay: 0.6,
   },
 };

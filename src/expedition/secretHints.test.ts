@@ -5,6 +5,7 @@ import type { SectorDef, WorldMap } from '../world/worldTypes';
 import { STAGES, getStageById } from '../data/Stages';
 import { LORE_FRAGMENTS } from '../data/LoreFragments';
 import { buildSecretLead, chooseHintTarget, describeSecretLocation } from './secretHints';
+import { buildSecretPuzzle, describePuzzleSequence } from '../world/secretPuzzles';
 
 const INPUTS = {
   abilityGateOrder: ['blink_drive', 'breach_charges', 'magno_tether',
@@ -156,5 +157,28 @@ describe('secretHints', () => {
       })).toBeNull();
       expect(buildSecretLead(world, 'secret_that_no_sector_carries')).toBeNull();
     }
+  });
+
+  test('a lead into a sealed cache carries its sigils, a walk-in lead carries none', () => {
+    let sawSealed = false;
+    let sawWalkIn = false;
+    for (const world of WORLDS) {
+      for (const { secretId, sector } of secretsOf(world)) {
+        const lead = buildSecretLead(world, secretId);
+        expect(lead).not.toBeNull();
+        const puzzle = buildSecretPuzzle({
+          worldSeed: world.seed, secretId, depth: sector.depth,
+        });
+        if (puzzle) {
+          sawSealed = true;
+          expect(lead!.sigils).toBe(describePuzzleSequence(puzzle));
+        } else {
+          sawWalkIn = true;
+          expect(lead!.sigils).toBeUndefined();
+        }
+      }
+    }
+    expect(sawSealed).toBe(true);
+    expect(sawWalkIn).toBe(true);
   });
 });

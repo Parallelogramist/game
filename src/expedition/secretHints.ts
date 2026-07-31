@@ -9,6 +9,7 @@
 
 import { EDGE_DIRECTIONS, EdgeKind, PoiKind } from '../world/worldTypes';
 import type { SectorDef, WorldMap } from '../world/worldTypes';
+import { buildSecretPuzzle, describePuzzleSequence } from '../world/secretPuzzles';
 import { getStageById } from '../data/Stages';
 import { hashStringToSeed } from '../utils/dailySeed';
 import { LORE_FRAGMENTS } from '../data/LoreFragments';
@@ -36,6 +37,8 @@ export interface SecretLead {
   depth: number;
   fragment: LoreFragmentDefinition;
   riddle: string;
+  /** Present only when the named cache is sealed: the order its ring wakes in. */
+  sigils?: string;
 }
 
 export function findSecretSector(map: WorldMap, secretId: string): SectorDef | null {
@@ -92,12 +95,16 @@ export function loreFragmentFor(worldSeed: number, secretId: string): LoreFragme
 export function buildSecretLead(map: WorldMap, secretId: string): SecretLead | null {
   const sector = findSecretSector(map, secretId);
   if (!sector) return null;
+  const puzzle = buildSecretPuzzle({
+    worldSeed: map.seed, secretId, depth: sector.depth,
+  });
   return {
     secretId,
     sectorKey: sector.key,
     depth: sector.depth,
     fragment: loreFragmentFor(map.seed, secretId),
     riddle: describeSecretLocation(map, sector),
+    ...(puzzle ? { sigils: describePuzzleSequence(puzzle) } : {}),
   };
 }
 
