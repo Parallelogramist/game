@@ -392,6 +392,34 @@ refresh and a save field would be new persistence carrying no fact. The one run-
 in the scene is the kill baseline, seeded from the already-restored `killCount` in
 `resetInRunFeatureState()`.)*
 
+**As built (`FEAT-WORLDGEN-QUESTDOORS`, 52e0802, 2026-07-31).** Finishing a quest chain now
+unlocks a sealed region of the map, which is the payoff this section's chains were pointing
+at. This doc names no quest-door mechanism, so the shape is recorded here rather than
+corrected anywhere above.
+
+*Keys are granted by chain heads, not by chain completion. `ExpeditionQuestDefinition` gained
+an optional `grantsKeyId`, set on `quest_survey_01` and `quest_gatecrash_01` only. Hanging the
+key off the head means both keys are earnable in the first hours; hanging them off the tails
+would have put one behind `quest_gatecrash_02`'s 1000 persistent kills. Two keys ship because
+the catalog has two chains: `EXPEDITION_QUEST_KEY_ORDER` is derived from the catalog, so
+`FEAT-QUEST-CATALOG-DEPTH` adds sealed regions for free.*
+
+*Placement is on optional bridge regions, not on the nested subtrees the ability gates use.
+`BACKLOG.md`'s chunk asked for "the same nested-subtree method after the ability gates", but
+nesting a quest door inside `finalRegion` would put it on the critical path to the boss and
+make a quest mandatory to finish the run. `placeQuestKeyDoors` instead converts only a bridge
+edge whose far side excludes the start sector, the boss arena, every ability-granting slot and
+every ability door, counting every non-`Wall` edge as a connection so a region reachable around
+the door is rejected rather than half-locked. The critical path stays passable with abilities
+alone, which is what keeps section 2's solvability constraint intact.*
+
+*No `WORLDGEN_VERSION` bump. The pass consumes no RNG (a deterministic scan plus an explicit
+sort) and only converts an existing `Open` edge, reusing the per-edge-id seeded `makeEdge`, so
+a seed's sector set, ability order, boss arena, POI slots and breakables are unchanged. Bumping
+the version would have regenerated every world and discarded the discovery state
+`FEAT-SECRET-CACHE` had just started filling. Held keys are derived from completed quest state
+on every read, so nothing new is persisted either.*
+
 ### Surfacing
 
 - HUD: the current step shares the bounty ticker line (`GameScene.ts:228` region);

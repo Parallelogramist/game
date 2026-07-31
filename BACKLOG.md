@@ -32,7 +32,7 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 **Expedition is the live default run mode since 02c4b74 (2026-07-31).** Fleet agents:
 work the **post-promote content plan** (search this file for "The post-promote content
-plan") top to bottom. Three band-1 chunks have shipped. `FEAT-QUEST-CHAINS` (5362cdb): five
+plan") top to bottom. Four band-1 chunks have shipped. `FEAT-QUEST-CHAINS` (5362cdb): five
 quests in two chains persist across deaths, advance on four signals the game already emits,
 and pay gold mid-run. `FEAT-QUEST-VIEW` (5a0295d): those objectives are now readable, on the
 bounty ticker line while no bounty runs and in an OBJECTIVES panel on the world map screen.
@@ -40,18 +40,23 @@ bounty ticker line while no bounty runs and in an OBJECTIVES panel on the world 
 carried finally spawn something. A concealed cache fades in as the ship closes, bursts into a
 special chest at the touch, stays found for that world across deaths and reloads, counts
 toward the map header's completion percent, and feeds a lifetime `secretsFoundTotal` behind
-two new hidden unlocks and two ship paints.
+two new hidden unlocks and two ship paints. `FEAT-WORLDGEN-QUESTDOORS` (52e0802): finishing a
+quest chain head now physically unlocks a sealed region of the map. The generator seals one
+optional region behind each of the two chain-head keys (both place on 101 of 101 seeds, 2 to
+12 sectors and 3 to 30 POI slots each), walking up with the key opens the door exactly as an
+ability door opens, and no `WORLDGEN_VERSION` bump was needed, so every existing profile
+keeps its discovery state.
 **`FEAT-ECON-WARDS` is parked on an operator balance decision, so it is NOT the next item**:
 doc 04 section 6 rules 2 and 6 are mutually inconsistent against the shipped catalogs and a
 faithful runtime clamp would cut quest rewards that already shipped. The numbers and the
 choice are recorded on that item's own entry; read it before touching the economy.
-Band 2's secret family is now unblocked by 756f346's found-state, and its two cheapest next
-items are **`FEAT-SECRET-AMBIENT-PING`** and **`FEAT-SECRET-REWARD-VARIETY`**, since found-state
-is the only dependency either one was waiting on. `FEAT-WORLDGEN-QUESTDOORS` is the other
-unblocked band-1 chunk. What is left of `FEAT-QUEST-BOARD` (map markers, the walk-in
-board) is blocked on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
-(`FEAT-QUEST-CATALOG-DEPTH`). Operator focus: quests and lots of hidden rewards on the
-Metroid map.
+**Band 1 is now out of unblocked items**: `FEAT-ECON-WARDS` is parked on that operator
+decision, and what is left of `FEAT-QUEST-BOARD` (map markers, the walk-in board) is blocked
+on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
+(`FEAT-QUEST-CATALOG-DEPTH`). The next session therefore takes band 2's cheapest unblocked
+items, **`FEAT-SECRET-AMBIENT-PING`** then **`FEAT-SECRET-HIDDEN-SECTORS`**: 756f346's
+found-state was the only dependency either was waiting on. Operator focus: quests and lots of
+hidden rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -2282,11 +2287,48 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   `src/world/sectorInterior.ts`, `src/world/generateWorld.ts`,
   `src/world/generateWorld.test.ts`.
 
-- [ ] **FEAT-WORLDGEN-QUESTDOORS**: emit `EdgeKind.KeyDoor` once `FEAT-QUEST-CHAINS`
-  supplies quest key ids as a generation input (`WorldGenInputs.questKeyOrder`), placed by
-  the same nested-subtree method after the ability gates. The enum member and the tile
-  handling already ship; only the placement pass and its input are missing. Deps:
-  `FEAT-QUEST-CHAINS`, `FEAT-WORLDGEN-CORE`. Spec: `04-content-quests-powerups-secrets.md`.
+- [x] **FEAT-WORLDGEN-QUESTDOORS** (done, 52e0802): completing a quest chain head now
+  physically unlocks a sealed region of the expedition map. `EdgeKind.KeyDoor` had shipped in
+  the enum, the map legend and the tile stamper since `FEAT-WORLDGEN-CORE`, but the generator
+  never emitted one and nothing granted a key, so the renderer drew it as permanently sealed.
+
+  1. **What shipped**: `grantsKeyId` on the two chain heads (`quest_survey_01` grants
+     `quest_key_survey`, `quest_gatecrash_01` grants `quest_key_gatecrash`);
+     `EXPEDITION_QUEST_KEY_ORDER` and `getQuestForKeyId()` beside the catalog;
+     `getEarnedQuestKeyIds()` derived from completed quest state; `placeQuestKeyDoors()`
+     sealing an optional bridge region behind each key; `applyEarnedQuestKeys()` replaying
+     held keys at world construction; `tryOpenQuestDoor()` and the quest branch of
+     `reportSealedDoor()` in `GameScene`; the map screen drawing a keyed door as passable
+     once the key is held (`holdsQuestKey`).
+  2. **The measured numbers** (re-measured at build time against the real generator): both
+     doors place on **101 of 101** seeds (the shipped seed `20260727` plus 100 spread seeds);
+     sealed regions run **2 to 12 sectors** (median 5) and **3 to 30 POI slots** (median 9),
+     none empty of slots. On `20260727` the doors are `edge:-1,0:east` (`quest_key_survey`,
+     8 sectors, 13 POI slots) and `edge:1,-1:south` (`quest_key_gatecrash`, 8 sectors, 17 POI
+     slots). The reward behind them is content that already ships: `FEAT-POI-CATALOG`
+     (302052a) stocks the Treasure/Shrine slots and `FEAT-SECRET-CACHE` (756f346) the Secret
+     ones, so a sealed region is full of real loot on day one.
+  3. **No `WORLDGEN_VERSION` bump, by design**: the pass consumes no RNG at all (a
+     deterministic scan plus an explicit sort) and only converts an existing `Open` edge,
+     reusing `makeEdge`, which is seeded per canonical edge id and so returns the identical
+     aperture. Sector set, `abilityOrder`, `bossArenaKey`, POI slots and breakables are
+     untouched, so every existing profile keeps its discovery state, including the secrets
+     756f346 just made findable. Pinned by the layout-parity test in `invariant 9`.
+  4. **No softlock, by construction**: a quest door may only sit on a **bridge** edge whose
+     far side excludes the start sector, the boss arena, every ability-granting POI slot and
+     every `AbilityDoor`. The bridge test counts every non-`Wall` edge as a connection, so a
+     region reachable around the door through a breakable or a one-way membrane is rejected
+     outright rather than half-locked, and the critical path stays passable with abilities
+     alone. `invariant 9`'s second test is the standing proof.
+  5. **Deviations from this item as written**: it asked for placement "by the same
+     nested-subtree method after the ability gates". Nesting quest doors inside `finalRegion`
+     would put them on the critical path to the boss, so placement is on optional bridge
+     regions instead, which is what keeps the softlock proof available. No
+     `WorldMap.questKeyOrder` readout was added because no consumer needs one: doors are
+     found by scanning edges.
+  6. **Persists nothing new**: no storage key, no `ALL_STORAGE_KEYS` entry, no
+     `GameSaveState` field, no `SAVE_VERSION` bump, no `WORLDGEN_VERSION` bump. Held keys are
+     derived on every read from the quest states `FEAT-QUEST-CHAINS` already persists.
 
 - [x] **CHORE-WORLDGEN-BUDGET-GUARD** (done — 704d128): `generateWorld` silently places fewer
   gates than `abilityGateOrder` asks for when the sector budget cannot host them (it stops
@@ -3998,10 +4040,12 @@ crate cache, a field-boost cache, an altar or the once-per-run Black Market on f
 entry. `Secret` and `QuestGiver` slots are still inert and are exactly what
 `FEAT-SECRET-CACHE` (band 2) and `FEAT-QUEST-CHAINS` turn on. `FEAT-QUEST-CHAINS` is now
 **done (5362cdb)**, but it deliberately left `QuestGiver` slots inert: quests auto-activate
-and surface as toasts, and walk-in accept plus the board are `FEAT-QUEST-BOARD`'s job. The
-order is now `FEAT-ECON-WARDS` so the reward economy is locked BEFORE the content flood
-(quest gold now exists for it to band), then `FEAT-QUEST-BOARD`, then
-`FEAT-WORLDGEN-QUESTDOORS`.
+and surface as toasts, and walk-in accept plus the board are `FEAT-QUEST-BOARD`'s job. `FEAT-WORLDGEN-QUESTDOORS` is now **done (52e0802)**: finishing a chain head
+seals and then unseals an optional region of the map. What is left of the band is
+`FEAT-ECON-WARDS`, so the reward economy is locked BEFORE the content flood (quest gold now
+exists for it to band), then `FEAT-QUEST-BOARD`. Both are currently blocked, the first on an
+operator balance decision and the second on `FEAT-MAPUI-DOORS-05` plus
+`FEAT-QUEST-CATALOG-DEPTH`, so band 2 is where the next unblocked work is.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
@@ -4205,6 +4249,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   `GameScene.claimSecretCache` (756f346) is now that producer, so `FEAT-QUEST-TRIGGERS-REST` can
   add the union member and a quest that hangs off it. Deps: `FEAT-QUEST-CATALOG-DEPTH` (needs a
   quest to hang it on).
+
+- [ ] **CHORE-QUESTDOOR-MAP-LEGEND** (new 2026-07-31, from `FEAT-WORLDGEN-QUESTDOORS`): the
+  `key` glyph now appears on real maps rather than never, so `FEAT-MAPUI-DOORS-05`'s legend
+  must name it and its focused-sector tooltip must say which quest keys it (the renderer
+  already knows: `getQuestForKeyId(edge.requiredId)` names the quest). Deps:
+  `FEAT-MAPUI-DOORS-05`.
+
+- [ ] **FEAT-QUESTDOOR-CATALOG-DEPTH** (new 2026-07-31, from `FEAT-WORLDGEN-QUESTDOORS`): only
+  the two chain heads grant keys, so only two regions can ever be sealed no matter how big the
+  world is. More heads means more sealed regions for free, since `EXPEDITION_QUEST_KEY_ORDER`
+  is derived from the catalog and the placement pass takes as many candidates as it is given
+  keys. Deps: `FEAT-QUEST-CATALOG-DEPTH`.
 
 - [ ] **FEAT-SECRET-LORE**: secrets are hinted, not stumbled into: lore fragments, riddles that
   name a location tag the profile's world actually contains (integrity-asserted), sequence
