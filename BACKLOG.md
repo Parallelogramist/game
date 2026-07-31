@@ -53,9 +53,14 @@ choice are recorded on that item's own entry; read it before touching the econom
 **Band 1 is now out of unblocked items**: `FEAT-ECON-WARDS` is parked on that operator
 decision, and what is left of `FEAT-QUEST-BOARD` (map markers, the walk-in board) is blocked
 on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
-(`FEAT-QUEST-CATALOG-DEPTH`). The next session therefore takes band 2's cheapest unblocked
-items, **`FEAT-SECRET-AMBIENT-PING`** then **`FEAT-SECRET-HIDDEN-SECTORS`**: 756f346's
-found-state was the only dependency either was waiting on. Operator focus: quests and lots of
+(`FEAT-QUEST-CATALOG-DEPTH`).
+`FEAT-SECRET-AMBIENT-PING` is now **done (9d8f9c5)**: within one screen of an unfound cache the
+radar shimmers in the breakable amber, brightening as the ship closes and going silent the
+frame the cache is claimed, so 756f346's caches are found by playing rather than by accident.
+The next session therefore takes band 2's next unblocked item,
+**`FEAT-SECRET-HIDDEN-SECTORS`** (whole sectors absent from the map until entered; note it
+bumps `WORLDGEN_VERSION`, which discards existing per-seed discovery state, and its own entry
+says so). Operator focus: quests and lots of
 hidden rewards on the Metroid map.
 
 ## Proposed (auto)
@@ -4268,14 +4273,47 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   **Scope note (2026-07-31): sequence puzzles moved to their own chunk below** — this item
   keeps fragments, riddles and the ping.
 
-- [ ] **FEAT-SECRET-AMBIENT-PING** (new 2026-07-31): hint tier 1 from doc 04 section 5 —
-  within one screen of an unfound secret, a faint minimap shimmer ping (respecting
-  `settings-minimap-enabled` and reduced motion). Value: with "lots of hidden rewards" the
-  difference between delight and pixel-hunt chore is the cheapest hint tier existing from
-  day one; it also makes every other secret chunk playtestable without a guide. Done when
-  the shimmer appears only inside the radius, never names the secret, and fires nothing
-  once the secret is found. Deps: `FEAT-SECRET-CACHE` (found-state),
-  `FEAT-MAPUI-RADAR-UNDERLAY-06` (shipped). Spec: doc 04 section 5, doc 03 minimap contract.
+- [x] **FEAT-SECRET-AMBIENT-PING** (done, 9d8f9c5): hint tier 1 from doc 04 section 5. Within one
+  screen of an unfound cache the radar shimmers, and it goes silent the frame the cache is
+  claimed. Value: `FEAT-SECRET-CACHE` (756f346) put real caches in every world but the reveal
+  ramp is only 300px wide, under a quarter of a 1280x720 sector, so a cache was found by
+  walking over it by accident and every later secret chunk was unplaytestable without a guide.
+  1. **What shipped**: pure `secretPingIntensity(distance, radius)` + `SECRET_PING_RADIUS`
+     (640, one viewport half-width, so the hint leads the 300px reveal by a full screen) in
+     `minimapProjection.ts`; `MinimapManager.setSecretPing(intensity)` with an eased level
+     (3/sec) so crossing the radius does not pop; the shimmer itself drawn into the existing
+     pooled blip Graphics as a 10%-alpha disc wash plus a 2px ring at `radius * 0.86` in the
+     breakable amber `0xcc8833`, under the blips so contacts always paint over the hint;
+     `GameScene.updateMinimap` feeding the nearest `activeSecretCaches` distance every frame.
+  2. **Deliberate calls**: (a) **non-directional**. The shimmer says "in this room", never
+     where, which is doc 04's own wording ("never names the secret") and keeps hint tier 3,
+     the decryptor scan that *does* mark position, worth building. (b) **Current sector only**,
+     because `activeSecretCaches` is the sector's own set and a neighbouring sector's cache is
+     not an object at all, so a cross-sector ping would tease something the reveal cannot then
+     show; a sector IS one screen, so "in this room" and "within one screen" coincide. Filed as
+     `CHORE-SECRET-PING-CROSS-SECTOR`. (c) **Reduced motion holds the shimmer steady** rather
+     than hiding it, matching how the discovery pill degrades: the information stays, the
+     breathing goes. (d) **Visual only**, no audio tier: filed as `POLISH-SECRET-PING-AUDIO`.
+  3. **Adds no state**: no storage key, no `ALL_STORAGE_KEYS` entry, no `GameSaveState` field,
+     no `SAVE_VERSION` or `WORLDGEN_VERSION` bump, no settings toggle. It is derived every
+     frame from (player position, unfound caches). `settings-minimap-enabled` gates it for
+     free, since `MinimapManager.update` returns on the first line when the radar is off, and
+     the disabled branch of `updateMinimap` feeds 0 so a death screen cannot hold a shimmer.
+  4. **Three tests, pure only**: the range gate, the monotone ramp and NaN / zero-radius. The
+     draw and the feed need a live scene and are covered by the suite staying at 144 files.
+
+- [ ] **CHORE-SECRET-PING-CROSS-SECTOR** (new 2026-07-31, from `FEAT-SECRET-AMBIENT-PING`): the
+  shimmer only sees `activeSecretCaches`, which is the current sector's unfound caches, so a
+  cache 400px away across a sector border pings nothing until the ship crosses. Fixing it means
+  reading the neighbouring sectors' `poiSlots` + found flags without spawning their graphics,
+  which is a second source of truth for "what is unfound near me". Worth doing only if
+  playtesting says the border silence reads as a bug rather than as a room boundary.
+
+- [ ] **POLISH-SECRET-PING-AUDIO** (new 2026-07-31, from `FEAT-SECRET-AMBIENT-PING`): an
+  audible tier for the same signal, a faint chirp whose interval shortens with
+  `secretPingIntensity`. Deliberately cut from the visual chunk: doc 04 tier 1 specifies a
+  minimap shimmer, and an audio cue needs a new `SoundManager` entry plus its own rate limiter
+  so it does not become a metronome in a sector with a cache in it.
 
 - [ ] **FEAT-SECRET-HIDDEN-SECTORS** (new 2026-07-31): whole sectors flagged hidden by the
   generator — absent from the map and the completion denominator until entered (doc 04

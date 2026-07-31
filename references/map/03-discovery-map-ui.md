@@ -442,6 +442,15 @@ and `EdgeKind` is the closed union the generator actually emits, so the radar
 and the map screen feed the same `drawGateGlyph`. `setSectorUnderlay` and
 `notifyDiscoveryPulse` shipped with the signatures above.
 
+**As built (`FEAT-SECRET-AMBIENT-PING`, 9d8f9c5):** the radar gained one more additive method,
+`setSecretPing(intensity: number): void`, fed every frame with the ambient hint strength for
+the nearest unfound secret (0 = nothing in range, from the pure `secretPingIntensity` in
+`minimapProjection.ts`). The manager clamps it, eases the drawn level toward it at 3/sec so
+crossing the radius does not pop, and draws a breakable-amber wash plus ring into the existing
+pooled blip Graphics beneath the contacts. It adds no field to `MinimapSectorUnderlay` and
+does not change the `update()` signature. Arena passes 0 by construction: `activeSecretCaches`
+is only ever populated in expedition mode.
+
 ### 3.5 Settings, reduced motion, quality
 
 - The existing toggle (`STORAGE_KEY_MINIMAP = 'settings-minimap-enabled'`,

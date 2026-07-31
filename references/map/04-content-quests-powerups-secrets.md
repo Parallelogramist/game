@@ -534,6 +534,21 @@ Three tiers, cheapest first:
   `(visited sectors + found secrets) / (sector count + secret count)`, which is what its own
   reserved comment described.
 
+### As built (`FEAT-SECRET-AMBIENT-PING`, 9d8f9c5, 2026-07-31)
+
+- **Hint tier 1 shipped non-directional and sector-scoped.** `SECRET_PING_RADIUS` is 640px,
+  one 1280x720 viewport half-width, so "within one screen" is measured from the ship and the
+  hint leads the cache's own 300px reveal ramp by a full screen. The shimmer is a disc wash
+  plus a ring on the radar, never a blip: it says a cache is in this room and never where,
+  which leaves tier 3 (the decryptor scan, which marks position in-sector) something to be.
+- **The set it reads is `GameScene.activeSecretCaches`**, the sector's unfound caches, so
+  "fires nothing once found" is structural rather than a check: a claim splices the cache out
+  of the list in the same frame. A neighbouring sector's cache does not ping, filed as
+  `CHORE-SECRET-PING-CROSS-SECTOR`.
+- **Reduced motion holds the shimmer steady instead of hiding it**, matching the discovery
+  pill: the information stays, the breathing goes. `settings-minimap-enabled` gates it for
+  free, since `MinimapManager.update` returns on its first line when the radar is off.
+
 ---
 
 ## 6. Reward economy
