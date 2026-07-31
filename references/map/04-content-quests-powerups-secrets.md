@@ -350,6 +350,48 @@ nothing itself. It is fed by pipes that already exist:
 - An in-progress escort resolves as failed for this run and is simply available
   again next run. No quest can ever become unclaimable through death.
 
+*(As built, `FEAT-QUEST-CHAINS`, 5362cdb: five quests in two chains shipped end to end, with
+seven deviations from this section. Each is listed with its reason, and each is either filed
+as a follow-up or owned by a named later chunk.*
+
+*Four trigger kinds shipped, not eight: `kill`, `reachDepth`, `openGate`, `claimAbility`.
+`findSecret` needs `FEAT-SECRET-CACHE` for found-state, `escortDrone` and `deliverItem` need
+entities nothing spawns, and `surviveInSector` needs a dwell timer that chunk had no business
+inventing. A union member with no producer is an inert deliverable, so the other four are
+absent from `QuestTrigger` rather than declared and dead. Filed as `FEAT-QUEST-TRIGGERS-REST`.*
+
+*The location trigger is `reachDepth`, an absolute sector depth folded with max, not
+`reachSector` keyed by `sectorTag`. No `sectorTag` or `routeTag` vocabulary is exported by
+`src/world/`: README section 3.1 reserves the names and doc 02 shipped none, so a tagged
+trigger would have needed a new generation input. `SectorDef.depth` is the existing semantic
+"how far out" measure and is already what `POI_DEPTH_BANDS` reads. Folding with max is also
+what makes a re-entered sector idempotent with no visited-set to persist.*
+
+*Quest status is `active` | `complete`, not the four-value union. `available` and `claimed`
+only mean something once a board can accept and claim a quest, which is `FEAT-QUEST-BOARD`.*
+
+*No `giverPoiTag` shipped, so `QuestGiver` POI slots stay inert and quests auto-activate.
+Walk-in accept is the board's job by name.*
+
+*No `completionRelicRoll` shipped. Its odds sit on the table `FEAT-ECON-WARDS` is about to
+lock, and econ rule 1 says exploration grants more rolls and never better odds, so authoring
+a roll now would author it against a table that is about to move. Filed as
+`FEAT-QUEST-COMPLETION-RELIC`.*
+
+*The run-scope clear moved. This section's death rule is unchanged in effect, but the clear
+runs at the START of the next expedition (`beginExpeditionQuestRun`) rather than at the
+run-end settle sites: a run can end through death, victory, the END RUN dialog or a closed
+tab, and a reset that only some of those paths reach would leak one run's counter into the
+next. The consequence is filed as `CHORE-QUEST-RUNEND-SETTLE`: a run-end surface that ever
+displays quest progress would show the dying run's un-cleared counters. Nothing reads them
+today.*
+
+*No `GameSaveState` field and no `SAVE_VERSION` bump. `ExpeditionQuestManager` writes every
+state change straight to `survivor-expedition-quests`, so step progress already survives a
+refresh and a save field would be new persistence carrying no fact. The one run-scoped value
+in the scene is the kill baseline, seeded from the already-restored `killCount` in
+`resetInRunFeatureState()`.)*
+
 ### Surfacing
 
 - HUD: the current step shares the bounty ticker line (`GameScene.ts:228` region);

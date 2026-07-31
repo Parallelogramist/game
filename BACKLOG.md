@@ -32,8 +32,10 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 **Expedition is the live default run mode since 02c4b74 (2026-07-31).** Fleet agents:
 work the **post-promote content plan** (search this file for "The post-promote content
-plan") top to bottom. `FEAT-POI-CATALOG` shipped (302052a): Treasure and Shrine slots now
-pay real rewards, so band 1 starts at `FEAT-QUEST-CHAINS`, then `FEAT-ECON-WARDS`, then
+plan") top to bottom. `FEAT-QUEST-CHAINS` has now shipped (5362cdb): five quests in two
+chains persist across deaths, advance on four signals the game already emits, and pay gold
+mid-run, so band 1 continues at `FEAT-ECON-WARDS` (it listed `FEAT-QUEST-CHAINS` as a dep
+and can now lock the quest-gold band against the daily-quest band), then
 `FEAT-QUEST-BOARD` and `FEAT-WORLDGEN-QUESTDOORS`. Operator focus: quests and lots of
 hidden rewards on the Metroid map.
 
@@ -3980,9 +3982,12 @@ placed `Treasure` / `Shrine` / `Secret` / `QuestGiver` POI slots in every world 
 `FEAT-POI-CATALOG` is **done (302052a)**: Treasure and Shrine slots now stock a chest, a
 crate cache, a field-boost cache, an altar or the once-per-run Black Market on first sector
 entry. `Secret` and `QuestGiver` slots are still inert and are exactly what
-`FEAT-SECRET-CACHE` (band 2) and `FEAT-QUEST-CHAINS` turn on. Next: `FEAT-QUEST-CHAINS` +
-`FEAT-ECON-WARDS` so the reward economy is locked BEFORE the content flood, then
-`FEAT-QUEST-BOARD` and `FEAT-WORLDGEN-QUESTDOORS`.
+`FEAT-SECRET-CACHE` (band 2) and `FEAT-QUEST-CHAINS` turn on. `FEAT-QUEST-CHAINS` is now
+**done (5362cdb)**, but it deliberately left `QuestGiver` slots inert: quests auto-activate
+and surface as toasts, and walk-in accept plus the board are `FEAT-QUEST-BOARD`'s job. The
+order is now `FEAT-ECON-WARDS` so the reward economy is locked BEFORE the content flood
+(quest gold now exists for it to band), then `FEAT-QUEST-BOARD`, then
+`FEAT-WORLDGEN-QUESTDOORS`.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
@@ -3997,13 +4002,68 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 `FEAT-BARRIER-BREACH-BEAMS`, `POLISH-NAV-STUCK-NUDGE`, `FEAT-BARRIER-WRAITH-PHASE`,
 `CHORE-NAV-LOS-BUDGET`, `BALANCE-HAZARD-SCALING` (blocked on its human gate).
 
-- [ ] **FEAT-QUEST-CHAINS**: the missing layer, multi-step objectives that span runs. Pure
-  `src/systems/QuestProgress.ts` state machine plus data defs and a manager in the
-  `DailyQuestManager` mold, fed by existing pipes rather than duplicate tracking. **Death rule:
-  completed steps are checkpoints and never regress; only run-scoped counters reset.** Done when
-  a two-step quest progresses across two separate runs and step gold pays mid-run. Ships on
-  kill-quests alone if the sector triggers are not ready. Deps: none hard (W4/GATES events for
-  location triggers).
+- [x] **FEAT-QUEST-CHAINS** (done, 5362cdb): multi-step objectives that span runs. New
+  `src/data/ExpeditionQuests.ts` (5 quests in 2 chains), pure
+  `src/systems/QuestProgress.ts` state machine, and `src/meta/ExpeditionQuestManager.ts`
+  in the `DailyQuestManager` mold, wired end-to-end into `GameScene`.
+  1. **What shipped**: five quests in two chains, auto-activated up to three at a time,
+     advancing on four triggers fed by pipes that already existed: `kill` as a delta polled
+     on the existing once-a-second daily-quest tick, `reachDepth` folded with max off
+     `expedition:sector-entered`, `openGate` from `tryOpenAbilityDoor`, and `claimAbility`
+     from `claimAbilityVault`. Step gold pays mid-run through
+     `MetaProgressionManager.addGold`, a finished quest hands off to its chain successor,
+     and toasts announce activation (`NEW OBJECTIVE`), each step (`OBJECTIVE COMPLETE`) and
+     each quest (`QUEST COMPLETE`).
+  2. **The death rule as built**: completed steps are checkpoints and never regress. Only an
+     in-progress `run`-scope counter is ever cleared, and it is cleared at the START of the
+     next expedition rather than at the run-end settle sites doc 04 names, because a run can
+     end through death, victory, the END RUN dialog or a closed tab, and a reset that only
+     some of those paths reach would leak one run's counter into the next.
+  3. **Persistence**: everything lives in `survivor-expedition-quests` (new
+     `ALL_STORAGE_KEYS` entry), written on every change, so there is **no `GameSaveState`
+     field and no `SAVE_VERSION` bump**. The one run-scoped value in the scene is the kill
+     baseline, seeded from the already-restored `killCount` in `resetInRunFeatureState()`,
+     which runs after `killCount` is assigned on both the fresh and the restore path.
+  4. **Five deliberate deviations from doc 04 section 4**:
+     a. **Four trigger kinds, not eight.** `findSecret` needs `FEAT-SECRET-CACHE`,
+        `escortDrone` and `deliverItem` need entities nothing spawns, and `surviveInSector`
+        needs a dwell timer this chunk had no business inventing. A union member with no
+        producer is an inert deliverable. Filed as `FEAT-QUEST-TRIGGERS-REST`.
+     b. **`reachDepth`, not `reachSector` by `sectorTag`.** No `sectorTag` / `routeTag`
+        vocabulary is exported by `src/world/` (README section 3.1 reserves the names, doc 02
+        shipped none), and inventing one here would be a generation input this chunk had no
+        mandate to add. `SectorDef.depth` is the existing "how far out" measure, already used
+        by `POI_DEPTH_BANDS`.
+     c. **Statuses are `active` | `complete`, not the four-value union.** `available` and
+        `claimed` only mean something once a board can accept and claim, which is
+        `FEAT-QUEST-BOARD`.
+     d. **No `giverPoiTag` and no `completionRelicRoll`.** The first needs the quest-giver POI
+        the board owns; the second needs a relic-roll call site whose odds `FEAT-ECON-WARDS`
+        is about to lock (econ rule 1: exploration grants more rolls, never better odds), so
+        rolling one now would author against a table that is about to move. Filed as
+        `FEAT-QUEST-COMPLETION-RELIC`.
+     e. **Surfacing is toasts only.** The HUD ticker line, map markers and the hangar board
+        are `FEAT-QUEST-BOARD` by name, so `QuestGiver` POI slots stay inert and quests
+        auto-activate instead of being accepted.
+
+- [ ] **FEAT-QUEST-TRIGGERS-REST**: the four doc 04 trigger kinds `FEAT-QUEST-CHAINS` could
+  not produce a signal for (`findSecret`, `surviveInSector`, `escortDrone`, `deliverItem`),
+  plus the `sectorTag` / `routeTag` vocabulary a `reachSector` trigger would need, exported
+  from the generator so quest and riddle referential integrity can assert against it. Deps:
+  `FEAT-SECRET-CACHE` (found-state), `FEAT-WORLDGEN-STREAM` (persistence-exemption API for
+  delivered items). Spec: doc 04 section 4 + README section 3.1.
+
+- [ ] **FEAT-QUEST-COMPLETION-RELIC**: `completionRelicRoll` on a chain's final quest, one
+  roll on the STANDARD relic table. Deliberately cut from `FEAT-QUEST-CHAINS` so the odds are
+  authored after `FEAT-ECON-WARDS` locks them (econ rule 1: exploration grants more rolls and
+  never better odds). Deps: `FEAT-ECON-WARDS`. Spec: doc 04 sections 4 and 6.
+
+- [ ] **CHORE-QUEST-RUNEND-SETTLE**: if any run-end surface ever shows quest progress (the
+  END RUN dialog, the death screen), the run-scope counters it displays will be the dying
+  run's un-cleared ones, because the clear happens at the next expedition's start. Either
+  clear at the run-end sites too (idempotent with the start-of-run clear) or have that surface
+  read through `settleRunScopeProgress`. Not a bug today: nothing reads them. Deps:
+  `FEAT-QUEST-BOARD`.
 
 - [ ] **FEAT-QUEST-BOARD**: quests become visible: HUD line sharing the bounty ticker only when
   it is idle, map markers, and a hangar board to accept and claim. Deps: `FEAT-QUEST-CHAINS`,
@@ -4365,6 +4425,15 @@ Never agent work. The fleet must not do any of these.
     fixed spots make the 25s ambient shrine spawner feel redundant, and should it stand down in
     expedition? (e) Do POI crates parking the ambient crate spawner (shared `destructibleCount`
     against a cap of 6) starve the arena feel anywhere?
+  - **POLISH-QUEST-FEEL** (5362cdb): fly an expedition and judge the quest layer.
+    (a) Do the `NEW OBJECTIVE` / `OBJECTIVE COMPLETE` / `QUEST COMPLETE` toasts read clearly,
+    and do they collide with the ability, shrine and daily-quest toasts already competing for
+    the one-at-a-time queue on a busy run? (b) Are the targets right: is 150 kills plus depth 2
+    a first-run chain, or does it close in the first ninety seconds? (c) Is depth 4 reachable on
+    a normal run, or does the second quest stall? (d) Is step gold (60 to 250) felt against the
+    run's other income, or is it noise? (e) Without a HUD line, does the player remember what
+    the current objective is, or does `FEAT-QUEST-BOARD` need to come next rather than
+    `FEAT-ECON-WARDS`?
   - **POLISH-SPAWN-LEGALITY** (a16d20f): playtest spawn legality + boss sealing. Owns:
     (a) does the aperture fallback read as "they're pouring in through the door" or as a
     spawner glitch at the mouth; (b) boss rooms now seal (doors slam to violet gate tiles)
