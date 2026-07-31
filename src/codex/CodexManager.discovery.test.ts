@@ -27,6 +27,7 @@ import { SecureStorage } from '../storage';
 import { CodexManager } from './CodexManager';
 import { WEAPON_SYNERGIES } from '../data/WeaponSynergies';
 import { weaponEvolutionDefinitions } from '../data/WeaponEvolutions';
+import { LORE_FRAGMENTS } from '../data/LoreFragments';
 
 const STORAGE_KEY = 'survivor-codex';
 
@@ -84,5 +85,41 @@ describe('CodexManager — synergy & evolution discovery', () => {
     expect(migrated.getDiscoveredSynergyCount()).toBe(0);
     expect(migrated.getTotalEvolutionCount()).toBe(weaponEvolutionDefinitions.length);
     expect(migrated.getDiscoveredEvolutionCount()).toBe(0);
+  });
+
+  test('fresh manager seeds every lore fragment as undiscovered', () => {
+    const manager = new CodexManager();
+    expect(manager.getTotalLoreCount()).toBe(LORE_FRAGMENTS.length);
+    expect(manager.getDiscoveredLoreCount()).toBe(0);
+    for (const fragment of LORE_FRAGMENTS) {
+      expect(manager.isLoreFragmentDiscovered(fragment.id)).toBe(false);
+    }
+  });
+
+  test('discoverLoreFragment marks, is idempotent, refuses unknown ids, and persists', () => {
+    const manager = new CodexManager();
+    const first = LORE_FRAGMENTS[0].id;
+    expect(manager.discoverLoreFragment(first)).toBe(true);
+    expect(manager.discoverLoreFragment(first)).toBe(false);
+    expect(manager.discoverLoreFragment('lore_not_a_real_fragment')).toBe(false);
+    expect(manager.getDiscoveredLoreCount()).toBe(1);
+
+    const reloaded = new CodexManager();
+    expect(reloaded.isLoreFragmentDiscovered(first)).toBe(true);
+    expect(reloaded.getDiscoveredLoreCount()).toBe(1);
+    expect(reloaded.getTotalLoreCount()).toBe(LORE_FRAGMENTS.length);
+  });
+
+  test('a pre-existing save with no lore field loads without wiping weapons', () => {
+    const seeded = new CodexManager();
+    seeded.discoverWeapon('projectile', 'Energy Darts');
+    const stored = JSON.parse(SecureStorage.getItem(STORAGE_KEY) as string);
+    delete stored.lore;
+    SecureStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+
+    const reloaded = new CodexManager();
+    expect(reloaded.isWeaponDiscovered('projectile')).toBe(true);
+    expect(reloaded.getTotalLoreCount()).toBe(LORE_FRAGMENTS.length);
+    expect(reloaded.getDiscoveredLoreCount()).toBe(0);
   });
 });

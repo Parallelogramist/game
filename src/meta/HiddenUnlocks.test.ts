@@ -23,6 +23,7 @@ import {
   type UnlockEvaluationContext,
 } from './HiddenUnlocks';
 import type { LifetimeStats } from '../achievements/AchievementTypes';
+import { LORE_FRAGMENTS } from '../data/LoreFragments';
 
 const STORAGE_KEY = 'hiddenUnlocksV1';
 
@@ -47,6 +48,7 @@ function makeLifetime(overrides: Partial<LifetimeStats> = {}): LifetimeStats {
     highestComboInRun: 0,
     secretsFoundTotal: 0,
     hiddenSectorsFoundTotal: 0,
+    loreFragmentsFound: 0,
     ...overrides,
   };
 }
@@ -253,5 +255,19 @@ describe('hidden-sector lifetime unlocks', () => {
     expect(breakerPredicate(makeContext({ lifetime: { hiddenSectorsFoundTotal: 3 } }))).toBe(true);
     expect(masonPredicate(makeContext({ lifetime: { hiddenSectorsFoundTotal: 14 } }))).toBe(false);
     expect(masonPredicate(makeContext({ lifetime: { hiddenSectorsFoundTotal: 15 } }))).toBe(true);
+  });
+
+  test('lore unlocks fire on their own counter at their own thresholds', () => {
+    const keeper = conditionById('unlock_lore_keeper').predicate;
+    const complete = conditionById('unlock_lore_complete').predicate;
+    expect(keeper(makeContext({ lifetime: { loreFragmentsFound: 4 } }))).toBe(false);
+    expect(keeper(makeContext({ lifetime: { loreFragmentsFound: 5 } }))).toBe(true);
+    expect(complete(makeContext({
+      lifetime: { loreFragmentsFound: LORE_FRAGMENTS.length - 1 },
+    }))).toBe(false);
+    expect(complete(makeContext({
+      lifetime: { loreFragmentsFound: LORE_FRAGMENTS.length },
+    }))).toBe(true);
+    expect(keeper(makeContext({ lifetime: { secretsFoundTotal: 40 } }))).toBe(false);
   });
 });

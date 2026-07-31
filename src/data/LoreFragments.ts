@@ -70,4 +70,34 @@ export const LORE_FRAGMENTS: readonly LoreFragmentDefinition[] = [
     text: 'Two names, one bet, and a course plotted somewhere nobody sane flies.',
     icon: 'book',
   },
+  {
+    id: 'lore_ferryman_toll',
+    title: "Ferryman's Toll",
+    text: 'Payment taken, passage granted. The return leg was never part of the price.',
+    icon: 'coins',
+  },
+  {
+    id: 'lore_quarantine_tag',
+    title: 'Quarantine Tag',
+    text: 'Sealed by order of a station that stopped answering the year this was printed.',
+    icon: 'warning',
+  },
+  {
+    id: 'lore_ghost_roster',
+    title: 'Ghost Roster',
+    text: 'A crew list where every name is struck out and rewritten in the same hand.',
+    icon: 'ghost',
+  },
+  {
+    id: 'lore_starving_chart',
+    title: 'Starving Chart',
+    text: 'A chart annotated by a shaking hand: this one is wrong, this one lies, this one is home.',
+    icon: 'radar',
+  },
+  {
+    id: 'lore_hull_epitaph',
+    title: 'Hull Epitaph',
+    text: 'Twelve names welded into a plate, with room left for a thirteenth.',
+    icon: 'skull',
+  },
 ];

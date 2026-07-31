@@ -13,6 +13,7 @@
 
 import { SecureStorage } from '../storage/SecureStorage';
 import { LifetimeStats } from '../achievements/AchievementTypes';
+import { LORE_FRAGMENTS } from '../data/LoreFragments';
 
 const STORAGE_KEY_HIDDEN_UNLOCKS = 'hiddenUnlocksV1';
 
@@ -322,6 +323,29 @@ export const HIDDEN_UNLOCKS: HiddenUnlockCondition[] = [
     hintText: 'Break into 15 hidden sectors on expedition',
     predicate: ({ lifetime }) => lifetime.hiddenSectorsFoundTotal >= 15,
     getProgress: ({ lifetime }) => ({ current: Math.min(15, lifetime.hiddenSectorsFoundTotal), target: 15 }),
+  },
+  {
+    id: 'unlock_lore_keeper',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_archivist_ink',
+    displayName: 'Archivist Ink',
+    hintText: 'Recover 5 lore fragments on expedition',
+    predicate: ({ lifetime }) => lifetime.loreFragmentsFound >= 5,
+    getProgress: ({ lifetime }) => ({
+      current: Math.min(5, lifetime.loreFragmentsFound), target: 5,
+    }),
+  },
+  {
+    id: 'unlock_lore_complete',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_full_ledger',
+    displayName: 'Complete Ledger',
+    hintText: 'Recover every lore fragment on expedition',
+    predicate: ({ lifetime }) => lifetime.loreFragmentsFound >= LORE_FRAGMENTS.length,
+    getProgress: ({ lifetime }) => ({
+      current: Math.min(LORE_FRAGMENTS.length, lifetime.loreFragmentsFound),
+      target: LORE_FRAGMENTS.length,
+    }),
   },
 ];
 

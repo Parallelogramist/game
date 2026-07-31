@@ -5150,6 +5150,10 @@ export class GameScene extends Phaser.Scene {
     if (!lead) return;
 
     discovery.markSecretHinted(targetSecretId);
+    const codex = getCodexManager();
+    if (codex.discoverLoreFragment(lead.fragment.id)) {
+      getAchievementManager().setLoreFragmentsFound(codex.getDiscoveredLoreCount());
+    }
     this.toastManager?.showToast({
       title: lead.fragment.title.toUpperCase(),
       description: lead.sigils ? `${lead.riddle}  ${lead.sigils}` : lead.riddle,

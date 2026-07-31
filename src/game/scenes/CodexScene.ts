@@ -10,6 +10,7 @@ import {
   CODEX_CATEGORIES,
   WeaponCodexEntry,
   EnemyCodexEntry,
+  LoreCodexEntry,
 } from '../../codex';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
@@ -18,6 +19,7 @@ import { RELICS, Relic, getRelicRarityColor, BOSS_TROPHIES } from '../../data/Re
 import { RUN_MODIFIERS, RunModifier } from '../../data/RunModifiers';
 import { PACTS, Pact } from '../../data/Pacts';
 import { BLESSINGS, Blessing } from '../../data/Blessings';
+import { LORE_FRAGMENTS, LoreFragmentDefinition } from '../../data/LoreFragments';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
 import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
@@ -44,6 +46,7 @@ interface CodexCardElements {
 }
 
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
+const LORE_CARD_HEIGHT = 104;
 const MODIFIER_CATEGORY_COLOR: Record<RunModifier['category'], number> = {
   offense: 0xff6644,
   defense: 0x44aaff,
@@ -281,6 +284,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${PACTS.length}`;
       } else if (category.id === 'blessings') {
         countLabel = `${BLESSINGS.length}`;
+      } else if (category.id === 'lore') {
+        countLabel = `${codexManager.getDiscoveredLoreCount()}/${codexManager.getTotalLoreCount()}`;
       } else if (category.id === 'runs') {
         countLabel = `${getRunHistory().length}`;
       }
@@ -409,6 +414,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'blessings':
         this.displayBlessings();
+        break;
+      case 'lore':
+        this.displayLore();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -1309,6 +1317,84 @@ export class CodexScene extends Phaser.Scene {
     this.codexCards.push({ container, cardBg });
   }
 
+  private displayLore(): void {
+    const codexManager = getCodexManager();
+    this.layoutCardGrid([...LORE_FRAGMENTS], LORE_CARD_HEIGHT, (fragment, x, y) => {
+      this.createLoreCard(fragment, codexManager.getLoreEntry(fragment.id), x, y);
+    });
+  }
+
+  private createLoreCard(
+    fragment: LoreFragmentDefinition,
+    entry: LoreCodexEntry | undefined,
+    x: number,
+    y: number,
+  ): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    const discovered = entry?.discovered ?? false;
+
+    // Border stays 0x4a4a7a — the exact color updateFocusVisuals restores for a
+    // non-weapon/non-enemy category — so focus in/out needs no special-casing.
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      LORE_CARD_HEIGHT / 2,
+      this.cardWidth,
+      LORE_CARD_HEIGHT,
+      discovered ? 0x2a3a5a : 0x1e1e34,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    // The breakable amber every other secret surface already speaks in.
+    const loreAccent = 0xcc8833;
+    const iconCenterX = 38;
+    const iconCenterY = Math.floor(LORE_CARD_HEIGHT / 2);
+
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, discovered ? loreAccent : 0x3a3a5a);
+    container.add(iconDisc);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: discovered ? fragment.icon : 'cancel',
+        size: 28,
+        tint: discovered ? loreAccent : ICON_TINTS.DISABLED,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 12, loreAccent);
+      container.add(fallback);
+    }
+
+    const textX = 75;
+
+    const nameText = this.add.text(textX, 12, discovered ? fragment.title : '???', {
+      fontSize: '16px',
+      color: discovered ? '#ffffff' : '#666666',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    const bodyText = this.add.text(
+      textX,
+      36,
+      discovered ? fragment.text : 'Recovered from a secret on expedition.',
+      {
+        fontSize: '12px',
+        color: discovered ? '#ddccaa' : '#555566',
+        fontFamily: FONT_FAMILY,
+        wordWrap: { width: this.cardWidth - textX - 14 },
+      },
+    );
+    container.add(bodyText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
   private displayEvolutions(): void {
     const codexManager = getCodexManager();
     const weaponInfoById = new Map<string, WeaponInfo>();
@@ -1762,7 +1848,11 @@ export class CodexScene extends Phaser.Scene {
     if (this.codexCards.length === 0) return;
 
     // Determine card height based on category (upgrades use smaller cards)
-    const currentCardHeight = this.currentCategory === 'upgrades' ? 60 : this.cardHeight;
+    const currentCardHeight = this.currentCategory === 'upgrades'
+      ? 60
+      : this.currentCategory === 'lore'
+        ? LORE_CARD_HEIGHT
+        : this.cardHeight;
     const row = Math.floor(this.selectedCardIndex / this.columns);
     const cardTopInContainer = 10 + row * (currentCardHeight + this.cardSpacing);
     const cardBottomInContainer = cardTopInContainer + currentCardHeight;

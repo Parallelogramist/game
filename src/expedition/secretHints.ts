@@ -85,11 +85,36 @@ export function chooseHintTarget(inputs: SecretHintInputs): string | null {
   return pool[index].secretId;
 }
 
-/** No run salt, the secretRewards.ts reasoning: a lead is read again every time the map screen
- *  opens, so a per-run roll would make the same fragment change its name mid-hunt. */
-export function loreFragmentFor(worldSeed: number, secretId: string): LoreFragmentDefinition {
-  const index = hashStringToSeed(`secretLore:${worldSeed}:${secretId}`) % LORE_FRAGMENTS.length;
-  return LORE_FRAGMENTS[index];
+/** Every secret id in the world, sorted, so a fragment's rank never depends on Map iteration
+ *  order. */
+function sortedSecretIds(map: WorldMap): string[] {
+  const ids: string[] = [];
+  for (const sector of map.sectors.values()) {
+    for (const slot of sector.poiSlots) {
+      if (slot.kind === PoiKind.Secret) ids.push(slot.id);
+    }
+  }
+  return ids.sort();
+}
+
+/**
+ * Fragments are DEALT by rank, not drawn independently per secret. Expedition flies one fixed
+ * world seed, so an independent draw leaves fragments permanently unreachable: 26 secrets
+ * drawing from a 13-row catalog lands on about 11 distinct, and the gap widens as the catalog
+ * grows. Dealing rank i the fragment at (offset + i) % length gives every fragment at least
+ * floor(secrets / length) ranks, so clearing the world completes the codex. The offset is
+ * seeded per world, so a future re-rolled world does not meet the fragments in the same order.
+ * No run salt, the secretRewards.ts reasoning: a lead is re-read every time the map screen
+ * opens, so a per-run roll would rename the same fragment mid-hunt.
+ */
+export function loreFragmentFor(map: WorldMap, secretId: string): LoreFragmentDefinition {
+  const rank = sortedSecretIds(map).indexOf(secretId);
+  if (rank < 0) {
+    return LORE_FRAGMENTS[
+      hashStringToSeed(`secretLore:${map.seed}:${secretId}`) % LORE_FRAGMENTS.length];
+  }
+  const offset = hashStringToSeed(`secretLore:${map.seed}`) % LORE_FRAGMENTS.length;
+  return LORE_FRAGMENTS[(offset + rank) % LORE_FRAGMENTS.length];
 }
 
 export function buildSecretLead(map: WorldMap, secretId: string): SecretLead | null {
@@ -102,7 +127,7 @@ export function buildSecretLead(map: WorldMap, secretId: string): SecretLead | n
     secretId,
     sectorKey: sector.key,
     depth: sector.depth,
-    fragment: loreFragmentFor(map.seed, secretId),
+    fragment: loreFragmentFor(map, secretId),
     riddle: describeSecretLocation(map, sector),
     ...(puzzle ? { sigils: describePuzzleSequence(puzzle) } : {}),
   };

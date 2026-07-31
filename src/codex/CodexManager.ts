@@ -13,12 +13,14 @@ import {
   UpgradeCodexEntry,
   SynergyCodexEntry,
   EvolutionCodexEntry,
+  LoreCodexEntry,
   CodexStatistics,
 } from './CodexTypes';
 import { getAllWeaponIds } from '../weapons';
 import { ENEMY_TYPES } from '../enemies/EnemyTypes';
 import { WEAPON_SYNERGIES, WeaponSynergy } from '../data/WeaponSynergies';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../data/WeaponEvolutions';
+import { LORE_FRAGMENTS } from '../data/LoreFragments';
 
 // Storage key
 const STORAGE_KEY_CODEX = 'survivor-codex';
@@ -85,6 +87,14 @@ function createDefaultEvolutionEntries(): Record<string, EvolutionCodexEntry> {
   return entries;
 }
 
+function createDefaultLoreEntries(): Record<string, LoreCodexEntry> {
+  const entries: Record<string, LoreCodexEntry> = {};
+  for (const fragment of LORE_FRAGMENTS) {
+    entries[fragment.id] = { id: fragment.id, discovered: false };
+  }
+  return entries;
+}
+
 function createDefaultStatistics(): CodexStatistics {
   return {
     totalRunsPlayed: 0,
@@ -107,6 +117,7 @@ function createDefaultCodexState(): CodexState {
     upgrades: createDefaultUpgradeEntries(),
     synergies: createDefaultSynergyEntries(),
     evolutions: createDefaultEvolutionEntries(),
+    lore: createDefaultLoreEntries(),
     statistics: createDefaultStatistics(),
   };
 }
@@ -261,6 +272,20 @@ function sanitizeEvolutions(raw: unknown): Record<string, EvolutionCodexEntry> {
     const discoveredAt = sanitizeDiscoveredAt(stored);
     if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
     result[id] = entry;
+  }
+  return result;
+}
+
+/** Rebuild lore entries from the known fragment ids only. Mirrors sanitizeEvolutions. */
+function sanitizeLore(raw: unknown): Record<string, LoreCodexEntry> {
+  const record = asStoredRecord(raw);
+  const result: Record<string, LoreCodexEntry> = {};
+  for (const fragment of LORE_FRAGMENTS) {
+    const stored = asStoredRecord(record[fragment.id]);
+    const entry: LoreCodexEntry = { id: fragment.id, discovered: stored.discovered === true };
+    const discoveredAt = sanitizeDiscoveredAt(stored);
+    if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
+    result[fragment.id] = entry;
   }
   return result;
 }
@@ -597,6 +622,45 @@ export class CodexManager {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // LORE FRAGMENT DISCOVERY
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Record that a lore fragment was recovered (first time). Returns true if this was a NEW
+   * discovery. Unknown ids are refused rather than inserted: the catalog is fixed and
+   * sanitizeLore rebuilds from it, so an inserted id would vanish on the next load after
+   * having already bumped the lifetime count. Deliberately does NOT fire onNewDiscovery: the
+   * lead toast fires at this exact moment, the discoverSynergy reasoning.
+   */
+  discoverLoreFragment(fragmentId: string): boolean {
+    const entry = this.state.lore[fragmentId];
+    if (!entry) return false;
+    const isNewDiscovery = !entry.discovered;
+    if (isNewDiscovery) {
+      entry.discovered = true;
+      entry.discoveredAt = Date.now();
+      this.saveState();
+    }
+    return isNewDiscovery;
+  }
+
+  isLoreFragmentDiscovered(fragmentId: string): boolean {
+    return this.state.lore[fragmentId]?.discovered ?? false;
+  }
+
+  getLoreEntry(fragmentId: string): LoreCodexEntry | undefined {
+    return this.state.lore[fragmentId];
+  }
+
+  getDiscoveredLoreCount(): number {
+    return Object.values(this.state.lore).filter((entry) => entry.discovered).length;
+  }
+
+  getTotalLoreCount(): number {
+    return Object.keys(this.state.lore).length;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // STATISTICS
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -695,6 +759,7 @@ export class CodexManager {
           upgrades: sanitizeUpgrades(parsed.upgrades),
           synergies: sanitizeSynergies(parsed.synergies),
           evolutions: sanitizeEvolutions(parsed.evolutions),
+          lore: sanitizeLore(parsed.lore),
           statistics: sanitizeStatistics(parsed.statistics),
         };
       }

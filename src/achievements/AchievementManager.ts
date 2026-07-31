@@ -65,6 +65,7 @@ function createDefaultLifetimeStats(): LifetimeStats {
     highestComboInRun: 0,
     secretsFoundTotal: 0,
     hiddenSectorsFoundTotal: 0,
+    loreFragmentsFound: 0,
   };
 }
 
@@ -149,6 +150,7 @@ const LIFETIME_STAT_SPECS: Record<keyof LifetimeStats, StoredNumberSpec> = {
   highestComboInRun: { floor: true, allowInfinity: false },
   secretsFoundTotal: { floor: true, allowInfinity: false },
   hiddenSectorsFoundTotal: { floor: true, allowInfinity: false },
+  loreFragmentsFound: { floor: true, allowInfinity: false },
 };
 
 /** Rebuild lifetime stats from the known fields only, coercing each value.
@@ -248,6 +250,16 @@ export class AchievementManager {
    *  cache unlock thresholds that already shipped. */
   recordHiddenSectorFound(): void {
     this.persistentState.lifetimeStats.hiddenSectorsFoundTotal++;
+    this.savePersistentState();
+  }
+
+  /** Assigned from the codex count, never incremented: the codex's discovered set is the one
+   *  source of truth, and a monotone assignment cannot drift from it the way a second counter
+   *  would. Monotone so a debug codex reset cannot walk a lifetime stat backwards. */
+  setLoreFragmentsFound(count: number): void {
+    const stats = this.persistentState.lifetimeStats;
+    if (!Number.isFinite(count) || count <= stats.loreFragmentsFound) return;
+    stats.loreFragmentsFound = Math.floor(count);
     this.savePersistentState();
   }
 

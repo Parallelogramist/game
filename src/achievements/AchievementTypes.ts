@@ -243,6 +243,10 @@ export interface LifetimeStats {
   /** Counted apart from secretsFoundTotal: a room the map never drew is a different find from
    *  a cache you touched, and merging them would move the shipped cache-unlock thresholds. */
   hiddenSectorsFoundTotal: number;
+  /** Distinct lore fragments ever recovered. A mirror of the codex's discovered set, which
+   *  stays the source of truth: this field exists only because HiddenUnlocks predicates are
+   *  handed LifetimeStats and nothing else. */
+  loreFragmentsFound: number;
 }
 
 /**

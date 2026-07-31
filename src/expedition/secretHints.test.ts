@@ -4,7 +4,7 @@ import { PoiKind } from '../world/worldTypes';
 import type { SectorDef, WorldMap } from '../world/worldTypes';
 import { STAGES, getStageById } from '../data/Stages';
 import { LORE_FRAGMENTS } from '../data/LoreFragments';
-import { buildSecretLead, chooseHintTarget, describeSecretLocation } from './secretHints';
+import { buildSecretLead, chooseHintTarget, describeSecretLocation, loreFragmentFor } from './secretHints';
 import { buildSecretPuzzle, describePuzzleSequence } from '../world/secretPuzzles';
 
 const INPUTS = {
@@ -180,5 +180,16 @@ describe('secretHints', () => {
     }
     expect(sawSealed).toBe(true);
     expect(sawWalkIn).toBe(true);
+  });
+
+  test('every lore fragment is dealt at least once in a world the player can clear', () => {
+    const liveWorld = generateWorld(20260727, INPUTS);
+    for (const world of [...WORLDS, liveWorld]) {
+      const dealt = new Set(
+        secretsOf(world).map(({ secretId }) => loreFragmentFor(world, secretId).id),
+      );
+      expect(secretsOf(world).length).toBeGreaterThanOrEqual(LORE_FRAGMENTS.length);
+      expect(dealt.size).toBe(LORE_FRAGMENTS.length);
+    }
   });
 });

@@ -57,6 +57,16 @@ export interface EvolutionCodexEntry {
 }
 
 /**
+ * Entry for a lore fragment recovered on expedition. Profile-wide on purpose: a lead dies with
+ * its world, the fragment it carried does not.
+ */
+export interface LoreCodexEntry {
+  id: string;
+  discovered: boolean;
+  discoveredAt?: number;
+}
+
+/**
  * Global statistics tracked across all runs.
  */
 export interface CodexStatistics {
@@ -81,13 +91,14 @@ export interface CodexState {
   upgrades: Record<string, UpgradeCodexEntry>;
   synergies: Record<string, SynergyCodexEntry>;
   evolutions: Record<string, EvolutionCodexEntry>;
+  lore: Record<string, LoreCodexEntry>;
   statistics: CodexStatistics;
 }
 
 /**
  * Codex categories for UI display.
  */
-export type CodexCategory = 'weapons' | 'enemies' | 'upgrades' | 'synergies' | 'relics' | 'evolutions' | 'ships' | 'statistics' | 'modifiers' | 'pacts' | 'blessings' | 'runs';
+export type CodexCategory = 'weapons' | 'enemies' | 'upgrades' | 'synergies' | 'relics' | 'evolutions' | 'ships' | 'statistics' | 'modifiers' | 'pacts' | 'blessings' | 'lore' | 'runs';
 
 /**
  * Category metadata for tabs.
@@ -109,6 +120,7 @@ export const CODEX_CATEGORIES: CodexCategoryInfo[] = [
   { id: 'modifiers', name: 'Modifiers', icon: 'dice' },
   { id: 'pacts', name: 'Pacts', icon: 'devil' },
   { id: 'blessings', name: 'Blessings', icon: 'angel' },
+  { id: 'lore', name: 'Lore', icon: 'book' },
   { id: 'statistics', name: 'Statistics', icon: 'chart' },
   { id: 'runs', name: 'Runs', icon: 'run' },
 ];
