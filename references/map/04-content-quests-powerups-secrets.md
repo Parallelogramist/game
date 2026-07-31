@@ -402,6 +402,32 @@ in the scene is the kill baseline, seeded from the already-restored `killCount` 
 - Board: the hangar sector renders available quests (walk-in interaction, shrine
   pattern), plus quest-giver POIs placed by `giverPoiTag`.
 
+*(As built: `FEAT-QUEST-VIEW`, 5a0295d. Bullet 1 shipped as specified. The ticker takes over the
+idle branch of `updateBounties()`, re-reads the quest store on a 1 s timer and cycles every 5 s
+across up to 3 active quests, rendering `OBJECTIVE · <description> <progress>/<target>`. It keeps
+the bounty line's own colour, because `setColor` on a per-frame path forces a full text re-render
+while the `OBJECTIVE ·` / `BOUNTY ·` prefixes distinguish the two modes for free. A `worldMap()`
+null check keeps the line empty for arena, daily, gauntlet and practice runs without a mode flag.*
+
+*Bullet 2 shipped as a text panel on the map screen (`MapScene.renderObjectivesPanel()`, active
+quests top-left with chain position and step progress), NOT as `getActiveQuestMarkers()`. None of
+the four triggers `FEAT-QUEST-CHAINS` could produce a signal for (`kill`, `reachDepth`, `openGate`,
+`claimAbility`) names a sector, so a `sectorTag` marker feed has nothing to key on, and doc 03's
+marker layer is `FEAT-MAPUI-DOORS-05`, which has not shipped: the feed would have had neither a key
+nor a consumer. It is filed against `FEAT-QUEST-BOARD` behind both deps.*
+
+*Bullet 3 did not ship. With quests auto-activating up to `ACTIVE_EXPEDITION_QUEST_LIMIT = 3` and
+the catalog holding exactly two chain heads, an accept UI has nothing to accept and a claim UI
+nothing to claim, since completion already pays automatically. It needs more chain heads than the
+cap first (`FEAT-QUEST-CATALOG-DEPTH`), so `QuestGiver` POI slots stay inert.*
+
+*The read model both surfaces render from is the pure `buildQuestStepViews(states, defs)` in
+`src/systems/QuestProgress.ts`, not a manager method: the manager only supplies the stored states
+through `getActiveQuestStepViews()`. One projection means the HUD and the map can never disagree,
+and it is where the display rules live (a completed quest, a state the catalog no longer resolves
+and a step index past the end are all absent rather than drawn blank, and progress is clamped to
+the target so an overshot persistent counter never displays as 412/400).*
+
 ### Anti-chore rules (enforced by data tests, section 6)
 
 - At most 3 active quests; a fourth accept is refused by the manager.

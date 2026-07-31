@@ -32,12 +32,17 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 **Expedition is the live default run mode since 02c4b74 (2026-07-31).** Fleet agents:
 work the **post-promote content plan** (search this file for "The post-promote content
-plan") top to bottom. `FEAT-QUEST-CHAINS` has now shipped (5362cdb): five quests in two
-chains persist across deaths, advance on four signals the game already emits, and pay gold
-mid-run, so band 1 continues at `FEAT-ECON-WARDS` (it listed `FEAT-QUEST-CHAINS` as a dep
-and can now lock the quest-gold band against the daily-quest band), then
-`FEAT-QUEST-BOARD` and `FEAT-WORLDGEN-QUESTDOORS`. Operator focus: quests and lots of
-hidden rewards on the Metroid map.
+plan") top to bottom. Two band-1 chunks have shipped. `FEAT-QUEST-CHAINS` (5362cdb): five
+quests in two chains persist across deaths, advance on four signals the game already emits,
+and pay gold mid-run. `FEAT-QUEST-VIEW` (5a0295d): those objectives are now readable, on the
+bounty ticker line while no bounty runs and in an OBJECTIVES panel on the world map screen.
+Band 1 continues at **`FEAT-ECON-WARDS` as rewritten** (its deliverable is an enforced cap a
+runtime path applies, not a test-only pass: read its entry before starting, and note that
+`FEAT-QUEST-VIEW` skipped it precisely because the test-only reading is busy-work), then
+`FEAT-WORLDGEN-QUESTDOORS`. What is left of `FEAT-QUEST-BOARD` (map markers, the walk-in
+board) is blocked on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
+(`FEAT-QUEST-CATALOG-DEPTH`). Operator focus: quests and lots of hidden rewards on the
+Metroid map.
 
 ## Proposed (auto)
 
@@ -4065,9 +4070,66 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   read through `settleRunScopeProgress`. Not a bug today: nothing reads them. Deps:
   `FEAT-QUEST-BOARD`.
 
-- [ ] **FEAT-QUEST-BOARD**: quests become visible: HUD line sharing the bounty ticker only when
-  it is idle, map markers, and a hangar board to accept and claim. Deps: `FEAT-QUEST-CHAINS`,
-  `FEAT-MAPUI-DOORS-05`.
+- [x] **FEAT-QUEST-VIEW** (done, 5a0295d): the active objective is now readable outside the
+  toast that announced it: mid-flight the current step fills the bounty ticker line whenever no
+  bounty is running, and the world map screen carries an OBJECTIVES panel listing every active
+  quest with its chain position and step progress. Before this, a player who alt-tabbed, died or
+  simply blinked had no way to learn what the objective was: the toast cleared in 3.6 seconds and
+  nothing else ever said it. This is doc 04 section 4's `### Surfacing` bullet 1 verbatim ("the
+  bounty owns the line while active, the quest step fills idle time. One line, never two") plus a
+  text answer to bullet 2.
+  1. **What shipped**: `buildQuestStepViews` in `src/systems/QuestProgress.ts`, one pure
+     projection from `(states, defs)` to what a surface draws, clamping an overshot persistent
+     counter to its target and dropping any state whose quest or step index the catalog no longer
+     resolves; `getActiveQuestStepViews()` on `ExpeditionQuestManager` as the single read-through;
+     the HUD ticker taking over the idle branch of `updateBounties()` at a 1 s store refresh and a
+     5 s cycle across up to 3 active quests, rendering `OBJECTIVE · <description>
+     <progress>/<target>`; and `MapScene.renderObjectivesPanel()`, a top-left panel laid out text
+     first with its backing plate sized from the measured heights so a wrapped description cannot
+     spill outside it. Both surfaces render from the one projection, so they can never disagree.
+  2. **Three deliberate cuts**:
+     a. **No map markers.** Doc 04's surfacing bullet 2 wants `getActiveQuestMarkers(): {
+        sectorTag, icon, label }[]` fed to doc 03's marker layer. That layer is
+        `FEAT-MAPUI-DOORS-05`, which has not shipped, and none of the four shipped triggers
+        (`kill`, `reachDepth`, `openGate`, `claimAbility`) names a sector to pin to. A marker feed
+        with no consumer and no sector vocabulary is speculative surface growth, so bullet 2
+        shipped as the text panel instead.
+     b. **No walk-in board, `QuestGiver` POI slots stay inert.** With quests auto-activating up to
+        `ACTIVE_EXPEDITION_QUEST_LIMIT = 3` and the catalog holding exactly two chain heads, an
+        accept UI would have nothing to accept and a claim UI nothing to claim (completion already
+        pays automatically). Left to `FEAT-QUEST-BOARD`, gated behind
+        `FEAT-QUEST-CATALOG-DEPTH`.
+     c. **No recolour of the ticker text.** The line keeps `#ffe26a` for both modes. `setColor`
+        marks the text dirty and forces a re-render, so calling it per frame to distinguish them
+        would cost a full text re-render every frame; the `OBJECTIVE ·` / `BOUNTY ·` prefixes
+        distinguish them for free.
+  3. **Persists nothing.** No storage key, no `ALL_STORAGE_KEYS` entry, no `GameSaveState` field,
+     no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump. It is a read-only projection over state
+     `FEAT-QUEST-CHAINS` already persists.
+  4. **The refresh is lazy and idle-only**, which is why neither the fresh-run nor the
+     refresh-restore path needed a second wiring site: the four ticker fields zero in
+     `resetInRunFeatureState()`, and a zero refresh timer means the first idle frame of the new run
+     re-reads the store by itself. A `worldMap()` null check keeps the line empty for arena, daily,
+     gauntlet and practice runs without a mode flag, and an active bounty never pays for any of it.
+
+- [ ] **FEAT-QUEST-CATALOG-DEPTH**: the catalog holds 5 quests in 2 chains and both heads
+  auto-activate at once, so a player who finishes them has no quests left and the 3-accept cap is
+  never contended. Value: a chain that keeps arriving is what makes the objective readouts
+  `FEAT-QUEST-VIEW` shipped worth looking at past the first hour, and more heads than the cap is
+  also the precondition that gives `FEAT-QUEST-BOARD`'s accept UI something to accept. Deps:
+  `FEAT-ECON-WARDS` (the quest-gold band new rewards must sit inside), and
+  `FEAT-QUEST-TRIGGERS-REST` for anything beyond the four shipped triggers.
+
+- [ ] **FEAT-QUEST-BOARD**: the remainder of quest surfacing after `FEAT-QUEST-VIEW` (5a0295d)
+  shipped its HUD-line half and answered map surfacing with a text panel. Two pieces are left.
+  (1) **Map markers**: `getActiveQuestMarkers()` feeding doc 03's marker layer, which needs
+  `FEAT-MAPUI-DOORS-05` for the layer itself **and** `FEAT-QUEST-TRIGGERS-REST` for a trigger kind
+  that names a sector, since none of the four shipped triggers does. (2) **The hangar walk-in
+  board** to accept and claim, which additionally needs `FEAT-QUEST-CATALOG-DEPTH`: accepting means
+  nothing until there are more chain heads than `ACTIVE_EXPEDITION_QUEST_LIMIT`, and claiming means
+  nothing while completion auto-pays. Accepting also turns the `available` / `claimed` statuses
+  `FEAT-QUEST-CHAINS` cut back on, and gives the inert `QuestGiver` POI slots their consumer. Deps:
+  `FEAT-MAPUI-DOORS-05`, `FEAT-QUEST-CATALOG-DEPTH`, `FEAT-QUEST-TRIGGERS-REST`.
 
 - [ ] **FEAT-SECRET-CACHE**: the world lies to you, pleasantly. False walls and hidden caches
   with persistent found-state, feeding `secretsFoundTotal` into `HiddenUnlocks` conditions and
@@ -4127,11 +4189,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   `FEAT-SECRET-CACHE`, `FEAT-SECRET-LORE` (fragment carrier). Spec: doc 04 section 5
   taxonomy row 3.
 
-- [ ] **FEAT-ECON-WARDS**: lock the economy so later content authoring cannot drift balance.
-  Exploration grants more relic ROLLS and never better odds (table deep-equality assert),
-  expedition bonus gold caps at 40% of the arena `computeRunGold` baseline, quest gold stays in
-  the daily-quest band, field boosts are capped by data test. Done when a deliberate violation
-  fixture goes red. Deps: `FEAT-POI-CATALOG`, `FEAT-POWER-FIELDBOOSTS`, `FEAT-QUEST-CHAINS`.
+- [ ] **FEAT-ECON-WARDS**: lock the economy so later content authoring cannot drift balance, as an
+  **enforced cap that a runtime path actually applies**, not only as a red fixture. Keep every
+  section 6 assert: exploration grants more relic ROLLS and never better odds (table deep-equality
+  assert), expedition bonus gold caps at 40% of the arena `computeRunGold` baseline, quest gold
+  stays in the daily-quest band, field boosts are capped by data test. But the deliverable is that
+  `computeExpeditionGoldBudget` and the field-boost caps are **read on the payout path and clamp a
+  real payout**, so an over-budget authoring mistake is corrected in the running game rather than
+  only reported by a test. Done when a deliberate violation fixture goes red **and** an
+  over-budget payout is observably clamped at runtime. `FEAT-QUEST-VIEW` (5a0295d) skipped this
+  chunk for exactly that reason: doc 04's chunk list describes it as "Tests: the chunk IS tests
+  plus one pure function", and a session whose whole deliverable is asserts against already-shipped
+  catalogs ships no capability. Deps: `FEAT-POI-CATALOG`, `FEAT-POWER-FIELDBOOSTS`,
+  `FEAT-QUEST-CHAINS`. Spec: doc 04 section 6.
 
 - [ ] **FEAT-MAPUI-TOUCH-A11Y-08**: the map earns phones and every accessibility setting the
   game already promises: drag pan, pinch zoom snapping to discrete levels, 48px chrome targets,
@@ -4431,9 +4501,18 @@ Never agent work. The fleet must not do any of these.
     the one-at-a-time queue on a busy run? (b) Are the targets right: is 150 kills plus depth 2
     a first-run chain, or does it close in the first ninety seconds? (c) Is depth 4 reachable on
     a normal run, or does the second quest stall? (d) Is step gold (60 to 250) felt against the
-    run's other income, or is it noise? (e) Without a HUD line, does the player remember what
-    the current objective is, or does `FEAT-QUEST-BOARD` need to come next rather than
-    `FEAT-ECON-WARDS`?
+    run's other income, or is it noise? (e) The HUD line this asked for has since shipped
+    (`FEAT-QUEST-VIEW`, 5a0295d), so the open question is now whether it actually resolves the
+    "what was my objective" problem in play, or whether remembering still depends on catching the
+    toast. Judge it alongside `POLISH-QUEST-VIEW` below.
+  - **POLISH-QUEST-VIEW** (5a0295d): fly an expedition and judge the two objective readouts.
+    (a) Does the objective line read clearly in the gap between bounties, or is the gap so short
+    that it is never actually seen? (b) Is a 5 s cycle between up-to-3 objectives legible, or does
+    the line change under the eye mid-read? (c) Does sharing one line with the bounty read as one
+    system, or as a flicker between two unrelated things? (d) Is the map OBJECTIVES panel in the
+    right corner, or does it cover sectors the player wants to read? (e) Does the panel make
+    `FEAT-QUEST-BOARD`'s walk-in board unnecessary, or does accepting a chosen quest still sound
+    better than auto-activation?
   - **POLISH-SPAWN-LEGALITY** (a16d20f): playtest spawn legality + boss sealing. Owns:
     (a) does the aperture fallback read as "they're pouring in through the door" or as a
     spawner glitch at the mouth; (b) boss rooms now seal (doors slam to violet gate tiles)
