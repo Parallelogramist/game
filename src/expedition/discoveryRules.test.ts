@@ -12,11 +12,11 @@ import {
 } from '../world/worldTypes';
 import type { EdgeDef, EdgeDirection, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
 import {
-  DISCOVERY_VERSION, EdgeFlags, PoiFlags, SectorFlags, emptyChanges,
+  DISCOVERY_VERSION, EdgeFlags, PoiFlags, SecretFlags, SectorFlags, emptyChanges,
 } from './DiscoveryTypes';
 import {
-  buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnSectorEntry,
-  sanitizeDiscoveryState,
+  buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnSecretFound,
+  revealOnSectorEntry, sanitizeDiscoveryState,
 } from './discoveryRules';
 
 const OPEN_EDGE: EdgeDef = { kind: EdgeKind.Open, apertureStart: 10, apertureEnd: 13 };
@@ -192,5 +192,39 @@ describe('discoveryRules', () => {
       { ...stored, worldSeed: SEED + 1 }, SEED, GEN_VERSION, universe,
     )).toEqual(fresh);
     expect(sanitizeDiscoveryState('not an object', SEED, GEN_VERSION, universe)).toEqual(fresh);
+  });
+});
+
+describe('revealOnSecretFound', () => {
+  it('finds a known secret and marks it found and hinted', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnSecretFound(state, universe, SECRET_POI_ID);
+
+    expect(changes.secretsFound).toEqual([SECRET_POI_ID]);
+    expect(state.secrets[SECRET_POI_ID] & SecretFlags.FOUND).toBe(SecretFlags.FOUND);
+    expect(state.secrets[SECRET_POI_ID] & SecretFlags.HINTED).toBe(SecretFlags.HINTED);
+  });
+
+  it('re-finding the same secret changes nothing', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    revealOnSecretFound(state, universe, SECRET_POI_ID);
+    const changes = revealOnSecretFound(state, universe, SECRET_POI_ID);
+
+    expect(changes.secretsFound).toEqual([]);
+    expect(changes.secretsHinted).toEqual([]);
+  });
+
+  it('rejects a secret id the world does not carry', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnSecretFound(state, universe, 'poi:9,9:9');
+
+    expect(changes).toEqual(emptyChanges());
+    expect(state.secrets['poi:9,9:9']).toBeUndefined();
   });
 });

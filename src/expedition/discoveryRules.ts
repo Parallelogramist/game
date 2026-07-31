@@ -212,6 +212,19 @@ export function revealOnPoiCollected(
   return changes;
 }
 
+/** Finding is permanent and implies hinted: repairSecret already treats FOUND without
+ *  HINTED as corrupt, so writing both keeps a live state byte-identical to a reloaded one. */
+export function revealOnSecretFound(
+  state: DiscoveryState,
+  universe: WorldIdUniverse,
+  secretId: string,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  if (!universe.secretIds.has(secretId)) return changes;
+  addSecret(state, changes, secretId, SecretFlags.FOUND | SecretFlags.HINTED);
+  return changes;
+}
+
 function addSector(
   state: DiscoveryState, changes: DiscoveryChanges, id: string, flags: number,
 ): void {
@@ -246,4 +259,16 @@ function addPoi(
   const gained = after & ~before;
   if ((gained & PoiFlags.SEEN) !== 0) changes.poisSeen.push(id);
   if ((gained & PoiFlags.COLLECTED) !== 0) changes.poisCollected.push(id);
+}
+
+function addSecret(
+  state: DiscoveryState, changes: DiscoveryChanges, id: string, flags: number,
+): void {
+  const before = state.secrets[id] ?? 0;
+  const after = before | flags;
+  if (after === before) return;
+  state.secrets[id] = after;
+  const gained = after & ~before;
+  if ((gained & SecretFlags.HINTED) !== 0) changes.secretsHinted.push(id);
+  if ((gained & SecretFlags.FOUND) !== 0) changes.secretsFound.push(id);
 }

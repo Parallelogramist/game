@@ -63,6 +63,7 @@ function createDefaultLifetimeStats(): LifetimeStats {
     speedRuns: 0,
     mostKillsInRun: 0,
     highestComboInRun: 0,
+    secretsFoundTotal: 0,
   };
 }
 
@@ -145,6 +146,7 @@ const LIFETIME_STAT_SPECS: Record<keyof LifetimeStats, StoredNumberSpec> = {
   speedRuns: { floor: true, allowInfinity: false },
   mostKillsInRun: { floor: true, allowInfinity: false },
   highestComboInRun: { floor: true, allowInfinity: false },
+  secretsFoundTotal: { floor: true, allowInfinity: false },
 };
 
 /** Rebuild lifetime stats from the known fields only, coercing each value.
@@ -230,6 +232,13 @@ export class AchievementManager {
   startNewRun(): void {
     this.runState = createFreshRunState();
     this.persistentState.lifetimeStats.totalRunsStarted++;
+    this.savePersistentState();
+  }
+
+  /** Permanent across world regeneration, which is why the tally lives here and not in the
+   *  per-seed discovery store: a regenerated world wipes the spatial flags, never the count. */
+  recordSecretFound(): void {
+    this.persistentState.lifetimeStats.secretsFoundTotal++;
     this.savePersistentState();
   }
 

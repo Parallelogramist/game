@@ -115,6 +115,10 @@ describe('DiscoveryManager', () => {
 
     expect(manager.getVisitedSectorCount()).toBe(1);
     expect(manager.getDiscoveredSectorCount()).toBe(2);
-    expect(manager.getCompletionPercent()).toBe(33);
+    expect(manager.getCompletionPercent()).toBe(25);
+
+    manager.markSecretFound('poi:0,0:1');
+    expect(manager.getFoundSecretCount()).toBe(1);
+    expect(manager.getCompletionPercent()).toBe(50);
   });
 });

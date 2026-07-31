@@ -286,6 +286,25 @@ export const HIDDEN_UNLOCKS: HiddenUnlockCondition[] = [
     hintText: 'Complete a world level 5 victory',
     predicate: ({ run, lifetime }) => run.wasVictory && lifetime.highestWorldLevel >= 5,
   },
+  // ═══ Expedition secrets ═══
+  {
+    id: 'unlock_secret_seeker',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_secret_sigil',
+    displayName: 'Secret Sigil',
+    hintText: 'Find 5 hidden caches on expedition',
+    predicate: ({ lifetime }) => lifetime.secretsFoundTotal >= 5,
+    getProgress: ({ lifetime }) => ({ current: Math.min(5, lifetime.secretsFoundTotal), target: 5 }),
+  },
+  {
+    id: 'unlock_secret_archivist',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_cartographer_weave',
+    displayName: 'Cartographer Weave',
+    hintText: 'Find 25 hidden caches on expedition',
+    predicate: ({ lifetime }) => lifetime.secretsFoundTotal >= 25,
+    getProgress: ({ lifetime }) => ({ current: Math.min(25, lifetime.secretsFoundTotal), target: 25 }),
+  },
 ];
 
 // ---------------------------------------------------------------------------

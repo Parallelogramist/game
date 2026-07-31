@@ -239,6 +239,7 @@ export interface LifetimeStats {
   speedRuns: number;        // Wins under 8 minutes
   mostKillsInRun: number;   // Single-run kill record
   highestComboInRun: number; // Single-run combo record
+  secretsFoundTotal: number;
 }
 
 /**

@@ -30,6 +30,8 @@ export const SHIP_PAINTS: ShipPaint[] = [
   { unlockId: 'cosmetic_cluster_badge',  name: 'Cluster Badge',        rank: 11, color: { core: 0x99ff22, glow: 0xccff88 } },
   { unlockId: 'cosmetic_damage_dealer',  name: 'Damage Dealer Badge',  rank: 12, color: { core: 0xff2244, glow: 0xff6688 } },
   { unlockId: 'cosmetic_streak_flame',   name: 'Streak Flame',         rank: 13, color: { core: 0xffffff, glow: 0xffffcc } },
+  { unlockId: 'cosmetic_secret_sigil',   name: 'Secret Sigil',         rank: 14, color: { core: 0xcc8833, glow: 0xffcc88 } },
+  { unlockId: 'cosmetic_cartographer_weave', name: 'Cartographer Weave', rank: 15, color: { core: 0x44ffcc, glow: 0xaaffee } },
 ];
 
 /**

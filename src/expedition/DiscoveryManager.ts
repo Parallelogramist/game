@@ -8,7 +8,7 @@
 
 import { SecureStorage } from '../storage';
 import type { WorldMap } from '../world/worldTypes';
-import { SectorFlags, emptyChanges, hasChanges } from './DiscoveryTypes';
+import { SecretFlags, SectorFlags, emptyChanges, hasChanges } from './DiscoveryTypes';
 import type { DiscoveryChanges, DiscoveryState } from './DiscoveryTypes';
 import {
   buildIdUniverse,
@@ -16,6 +16,7 @@ import {
   emptyIdUniverse,
   revealOnEdgeTraversal,
   revealOnPoiCollected,
+  revealOnSecretFound,
   revealOnSectorEntry,
   sanitizeDiscoveryState,
 } from './discoveryRules';
@@ -72,6 +73,13 @@ export class DiscoveryManager {
     return this.commit(revealOnPoiCollected(this.state, this.universe, poiId));
   }
 
+  /** The only write path for a found secret (README section 3.7). Permanent per world: the
+   *  found flag is what stops the cache respawning, so there is no second spawned-ids list. */
+  markSecretFound(secretId: string): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(revealOnSecretFound(this.state, this.universe, secretId));
+  }
+
   getDiscoveredSectorCount(): number {
     return this.countSectors(SectorFlags.DISCOVERED);
   }
@@ -80,12 +88,21 @@ export class DiscoveryManager {
     return this.countSectors(SectorFlags.VISITED);
   }
 
-  /** Visited sectors over the world's sectors. Secrets join the weighting the session
-   *  something can actually find one; today nothing writes a secret flag. */
+  getFoundSecretCount(): number {
+    let count = 0;
+    for (const flags of Object.values(this.state.secrets)) {
+      if ((flags & SecretFlags.FOUND) !== 0) count++;
+    }
+    return count;
+  }
+
+  /** Visited sectors plus found secrets over everything a profile can reach in this world.
+   *  Secrets joined the weighting the session something could actually find one. */
   getCompletionPercent(): number {
-    const total = this.universe.sectorKeys.size;
+    const total = this.universe.sectorKeys.size + this.universe.secretIds.size;
     if (total === 0) return 0;
-    return Math.round((this.getVisitedSectorCount() / total) * 100);
+    const found = this.getVisitedSectorCount() + this.getFoundSecretCount();
+    return Math.round((found / total) * 100);
   }
 
   /** Bumped by bindWorld as well as by every real change, so a renderer that caches

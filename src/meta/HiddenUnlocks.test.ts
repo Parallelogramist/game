@@ -45,6 +45,7 @@ function makeLifetime(overrides: Partial<LifetimeStats> = {}): LifetimeStats {
     speedRuns: 0,
     mostKillsInRun: 0,
     highestComboInRun: 0,
+    secretsFoundTotal: 0,
     ...overrides,
   };
 }

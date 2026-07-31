@@ -78,7 +78,7 @@ import {
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
-import { SectorFlags } from '../../expedition/DiscoveryTypes';
+import { SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
@@ -491,6 +491,10 @@ export class GameScene extends Phaser.Scene {
     poiId: string; abilityId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
   }[] = [];
   private vaultSectorKey: string | null = null;
+  private secretSectorKey: string | null = null;
+  private activeSecretCaches: {
+    secretId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
+  }[] = [];
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
@@ -501,6 +505,8 @@ export class GameScene extends Phaser.Scene {
    *  SecureStorage decrypt, and both consumers here run per frame. */
   private ownedTraversalAbilityIds: Set<string> = new Set();
   private static readonly VAULT_CLAIM_RADIUS = 40;
+  private static readonly SECRET_SENSE_RADIUS = 300;
+  private static readonly SECRET_CLAIM_RADIUS = 44;
   /** Wider than ABILITY_DOOR_OPEN_RADIUS (60) on purpose: the notice has to land while the
    *  door is still on screen and before the ship is nose-first against it. */
   private static readonly SEALED_DOOR_NOTICE_RADIUS = 150;
@@ -4313,6 +4319,8 @@ export class GameScene extends Phaser.Scene {
     this.activeChests = [];
     this.clearAbilityVaults();
     this.vaultSectorKey = null;
+    this.clearSecretCaches();
+    this.secretSectorKey = null;
     this.spawnedPoiSlotIds.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
@@ -4581,6 +4589,63 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Concealed caches for the sector the ship is in, the syncAbilityVaults shape. A cache is
+   * spawned only for a secret this profile has not found: the found flag is the single source
+   * of truth for a spent cache, so there is no second collected-ids list to disagree with it,
+   * and nothing about a cache needs to survive into the run save.
+   */
+  private syncSecretCaches(map: WorldMap, playerX: number, playerY: number): void {
+    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
+    if (key === this.secretSectorKey) return;
+    this.secretSectorKey = key;
+    this.clearSecretCaches();
+
+    const sector = map.sectors.get(key);
+    if (!sector) return;
+    const discovery = getDiscoveryManager();
+    for (const slot of sector.poiSlots) {
+      if (slot.kind !== PoiKind.Secret) continue;
+      if ((discovery.getSecretFlags(slot.id) & SecretFlags.FOUND) !== 0) continue;
+      this.addSecretCache(
+        slot.id,
+        sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
+        sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
+      );
+    }
+  }
+
+  private addSecretCache(secretId: string, x: number, y: number): void {
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    this.drawSecretCache(graphics);
+    graphics.setDepth(4);
+    graphics.setAlpha(0);
+    this.activeSecretCaches.push({ secretId, graphics, x, y });
+  }
+
+  /** The breakable amber rather than the vault's violet: a cache reads as terrain that is not
+   *  terrain, which is the same lie a false wall tells, without inventing a third palette. */
+  private drawSecretCache(graphics: Phaser.GameObjects.Graphics): void {
+    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
+    graphics.fillStyle(color, 0.14);
+    graphics.fillCircle(0, 0, 26);
+    graphics.lineStyle(2, color, 0.9);
+    const facets: Phaser.Geom.Point[] = [];
+    for (let corner = 0; corner < 4; corner++) {
+      const angle = (Math.PI / 2) * corner - Math.PI / 2;
+      facets.push(new Phaser.Geom.Point(Math.cos(angle) * 18, Math.sin(angle) * 18));
+    }
+    graphics.strokePoints(facets, true);
+    graphics.fillStyle(0xffe8c0, 0.85);
+    graphics.fillCircle(0, 0, 4);
+  }
+
+  private clearSecretCaches(): void {
+    this.activeSecretCaches.forEach(cache => cache.graphics.destroy());
+    this.activeSecretCaches = [];
+  }
+
+  /**
    * Stocks a sector the first time this run's ship enters it. A slot pays out once per run:
    * the spawned set is the memory, so walking back through a looted room re-stocks nothing.
    * Slot kinds the catalog does not cover (ability vault, quest anchor, secret) are left
@@ -4699,6 +4764,60 @@ export class GameScene extends Phaser.Scene {
       const dy = playerY - vault.y;
       if (dx * dx + dy * dy < radius * radius) this.claimAbilityVault(i);
     }
+  }
+
+  /**
+   * Fades a cache in on a quadratic ramp as the ship closes, so the far edge of the sense
+   * radius is a hint you can miss and the last stride is unmistakable. Alpha and scale only:
+   * the cache is never added to physics, so an unfound one costs nothing but a draw.
+   */
+  private updateSecretCaches(playerX: number, playerY: number): void {
+    if (this.activeSecretCaches.length === 0) return;
+    const senseRadius = GameScene.SECRET_SENSE_RADIUS;
+    const claimRadius = GameScene.SECRET_CLAIM_RADIUS;
+    const shimmer = 0.75 + Math.sin(this.gameTime * 3.1) * 0.25;
+    for (let i = this.activeSecretCaches.length - 1; i >= 0; i--) {
+      const cache = this.activeSecretCaches[i];
+      const dx = playerX - cache.x;
+      const dy = playerY - cache.y;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > senseRadius * senseRadius) {
+        if (cache.graphics.alpha !== 0) cache.graphics.setAlpha(0);
+        continue;
+      }
+      const closeness = 1 - Math.sqrt(distanceSq) / senseRadius;
+      cache.graphics.setAlpha(closeness * closeness * shimmer);
+      cache.graphics.setScale(0.8 + closeness * 0.35);
+      if (distanceSq < claimRadius * claimRadius) this.claimSecretCache(i);
+    }
+  }
+
+  /**
+   * Walk-in claim, the claimAbilityVault shape. Permanent at the moment of the touch, not at
+   * run end, so a death seconds later keeps the find. The payout is a special chest rather
+   * than direct gold: exploration grants more relic ROLLS on the unchanged arena table, never
+   * better odds (doc 04 econ rule 1), and it adds nothing to the expedition gold budget.
+   */
+  private claimSecretCache(index: number): void {
+    const cache = this.activeSecretCaches[index];
+    getDiscoveryManager().markSecretFound(cache.secretId);
+    getAchievementManager().recordSecretFound();
+
+    cache.graphics.destroy();
+    this.activeSecretCaches.splice(index, 1);
+
+    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
+    this.effectsManager.playDeathBurst(cache.x, cache.y, color);
+    this.cameras.main.shake(140, 0.005);
+    this.soundManager.playLevelUp();
+    this.addTreasureChest(cache.x, cache.y, true, true);
+    this.toastManager?.showToast({
+      title: 'HIDDEN CACHE FOUND',
+      description: 'The wall was never a wall.',
+      icon: 'star',
+      color,
+      duration: 3200,
+    });
   }
 
   /** Arena is inert by construction: ArenaModeAdapter.worldMap() is null, so an arena run
@@ -4961,6 +5080,8 @@ export class GameScene extends Phaser.Scene {
     if (!this.worldMode.isSectorLocked()) {
       this.syncAbilityVaults(map, playerX, playerY);
       this.updateAbilityVaults(playerX, playerY);
+      this.syncSecretCaches(map, playerX, playerY);
+      this.updateSecretCaches(playerX, playerY);
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.reportSealedAbilityDoor(map, playerX, playerY);
     }
@@ -12146,6 +12267,8 @@ export class GameScene extends Phaser.Scene {
     this.activeChests = [];
     this.clearAbilityVaults();
     this.vaultSectorKey = null;
+    this.clearSecretCaches();
+    this.secretSectorKey = null;
     this.bountyText?.destroy();
     this.bountyText = null;
     // Restore music to the user's volume (clears any combat-intensity lift).
