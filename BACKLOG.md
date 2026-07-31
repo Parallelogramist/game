@@ -103,6 +103,18 @@ in the map screen's LEADS panel. It needed no storage key and no version bump, b
 hangs off the `PoiKind.Secret` slot the cache already occupies: solving it is the same
 `markSecretFound` write a walk-in claim makes.
 
+`FEAT-SECRET-LORE-CODEX` (173c7f3) shipped the other half of that tier: a fragment is now a
+thing the profile owns instead of a toast the player had 4.6 seconds to read. A LORE tab in the
+Codex lists all 13 fragments, dark and titled `???` until recovered and permanently readable
+after, with a `7/13` count on the tab, and two hidden unlocks read a new
+`LifetimeStats.loreFragmentsFound` at 5 fragments and at all 13, each with a ship paint. The
+catalog grew 8 to 13 and `loreFragmentFor` changed with it: it used to hash each secret to a
+fragment independently, which cannot fill a collection when every profile flies one fixed world
+seed (the live seed 20260727 carries 26 secret slots, and 26 independent draws over 13 rows land
+on about 11 distinct), so it now deals `(hash(seed) + rank) % length` by the secret's rank in the
+world's sorted secret ids and clearing the world completes the collection. No storage key and no
+version bump: both loaders rebuild missing sub-trees and fields from their known id lists.
+
 **`FEAT-DISCOVERY-WRITE-PATHS` is NOT next**, contrary to the hand-off above it: three of its
 four paths are already wired and the fourth (`markSectorClearedOnce`) has no honest producer,
 because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director and a wave
@@ -111,11 +123,13 @@ that item, so do not re-derive it). The unblocked candidates are now
 `FEAT-DISCOVERY-SCAN-FRAGMENT` (standing warning, measured 2026-07-31: its two named
 deliverables `revealOnScanPulse` and `revealOnMapFragment` have no producer in the game,
 `ability_signal_decryptor` has no active and `fragmentRegions` appears nowhere in `src/`, so it
-is an inert-deliverable risk until one exists), `FEAT-SECRET-LORE-CODEX`,
-`CHORE-SECRET-LEAD-RADAR`, the newly filed `CHORE-SECRET-PUZZLE-RESUME`, and
-`FEAT-QUEST-CATALOG-DEPTH`, whose fourth chain head would be the first one the 3-accept cap
-ever actually gates but which its own entry puts behind the parked `FEAT-ECON-WARDS` balance
-decision. `FEAT-ECON-WARDS` stays parked on that operator balance decision: do not unpark it.
+is an inert-deliverable risk until one exists), `CHORE-SECRET-LEAD-RADAR`,
+`CHORE-SECRET-PUZZLE-RESUME`, the newly filed `CHORE-CODEX-CARD-SCROLL-HEIGHT` and
+`FEAT-SECRET-LORE-CATALOG-DEPTH` (which waits on a re-rollable world seed, since the fixed
+expedition seed is what caps the fragment catalog at 13), and `FEAT-QUEST-CATALOG-DEPTH`, whose
+fourth chain head would be the first one the 3-accept cap ever actually gates but which its own
+entry puts behind the parked `FEAT-ECON-WARDS` balance decision. `FEAT-ECON-WARDS` stays parked
+on that operator balance decision: do not unpark it.
 Band 1 is still out of unblocked items. Operator focus: quests and lots of hidden rewards on the
 Metroid map.
 
@@ -4426,13 +4440,69 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   button to press. Value: the late-game cleanup tool that makes 100% a goal instead of a pixel
   hunt. Deps: `FEAT-POWER-ABILITY-EFFECTS-REST`. Spec: doc 04 section 5, hint tier 3.
 
-- [ ] **FEAT-SECRET-LORE-CODEX** (new 2026-07-31, cut from `FEAT-SECRET-LORE`): the profile-wide
-  collection half. Which fragments have ever been recovered, a place to read them back
-  (`CodexScene` already has the tab machinery), and `LifetimeStats.loreFragmentsFound` plus a
-  hidden unlock reading it. Cut because per-world leads need no profile store, and doc 04
-  section 5's "secrets get no vault tab of their own" rule means the reading surface needs a
-  real decision about where it lives. Value: a completionist collection that spans worlds rather
-  than dying with each one. Deps: `FEAT-SECRET-LORE`.
+- [x] **FEAT-SECRET-LORE-CODEX** (done, 173c7f3): the profile-wide collection half of hint tier
+  2. A fragment's flavour line used to be readable in exactly one place, `MapScene`'s LEADS
+  panel, and only while its lead was still open (`getHintedSecretIds` filters to HINTED and not
+  FOUND), so acting on a lead deleted the text that sent you there. Value: George can open the
+  Codex, click LORE, and read back every fragment the expedition has ever handed him with a
+  `7/13` count on the tab.
+  1. **What shipped**: `CodexState.lore` plus five methods on `CodexManager`
+     (`discoverLoreFragment`, `isLoreFragmentDiscovered`, `getLoreEntry`,
+     `getDiscoveredLoreCount`, `getTotalLoreCount`); the LORE tab (a `CODEX_CATEGORIES` row, the
+     count label, `displayLore` / `createLoreCard`, dark and titled `???` until recovered);
+     `LifetimeStats.loreFragmentsFound` written by `AchievementManager.setLoreFragmentsFound`;
+     two hidden unlocks (`unlock_lore_keeper` at 5, `unlock_lore_complete` at all 13) with two
+     ship paints at ranks 18 and 19; and the recording call in `GameScene.grantSecretLead`,
+     which is the only producer.
+  2. **The catalog grew 8 to 13 and the selection rule changed with it.** Measured: the live
+     expedition world (`EXPEDITION_WORLD_SEED = 20260727`) holds 26 `PoiKind.Secret` slots across
+     its 48 sectors, and every profile flies that one seed, so the old independent per-secret
+     hash left several fragments permanently unreachable and made the collection uncompletable
+     (26 independent draws over 13 rows land on about 11 distinct). `loreFragmentFor` now takes
+     the `WorldMap` rather than the seed and deals fragment `(hash(seed) + rank) % length` by the
+     secret's rank in the world's sorted secret ids, which gives each of the 13 exactly two ranks
+     on the live world. `secretHints.test.ts` pins the invariant on all six seeds; if it ever
+     fails, shrink the catalog, never the assertion.
+  3. **It adds no storage key and no version bump.** `CODEX_VERSION` and `ACHIEVEMENT_VERSION`
+     are unchanged because both loaders rebuild missing sub-trees and fields from their known id
+     lists: the new sub-store rides the existing `survivor-codex` key and the new stat rides
+     `survivor-achievements`. A save written before this commit has no `lore` key and
+     `sanitizeLore(undefined)` returns the fully seeded undiscovered default, the same no-bump
+     path `synergies` and `evolutions` took.
+  4. **`loreFragmentsFound` is assigned from the codex count, never incremented**, so the codex's
+     discovered set stays the single source of truth. This is the direct answer to
+     `FEAT-SECRET-LORE`'s recorded reason for cutting the field ("a lifetime integer with no
+     reader is a second source of truth waiting to disagree"): it now has a reader (two unlock
+     predicates, which are handed `LifetimeStats` and nothing else) and a derived writer.
+  5. **No second toast, deliberately.** The lead toast already fires on the same frame with the
+     fragment's own title and text, doc 04 says secrets get no toast system of their own, and
+     `discoverSynergy` / `discoverEvolution` both avoid exactly this double-up.
+  6. **The reading surface is a Codex tab, not a vault tab.** Doc 04's taxonomy row for lore
+     fragments names "codex/vault UI shell" as the thing they reuse, and the "no vault tab of
+     their own" rule sits in the persistence section and is about not building a parallel unlock
+     system. Reusing the shipped tab machinery honours both: unlocks still go through
+     `HiddenUnlocks` with `getProgress`, so the vault rows, the post-run closest-to-unlock panel
+     and the paint picker render the two new ones with no new UI.
+  7. **One visible side effect on in-flight worlds**: a lead already open when this ships may now
+     quote a different fragment title and flavour line, because both the catalog length and the
+     selection rule changed. The riddle, the sector it names and the sigil order are derived
+     separately and do not move, and nothing persisted keyed off a fragment id before this
+     commit, so there is no saved state to invalidate.
+
+- [ ] **CHORE-CODEX-CARD-SCROLL-HEIGHT** (new 2026-07-31, from `FEAT-SECRET-LORE-CODEX`):
+  `CodexScene.ensureCardVisible` computes the scroll target from `this.cardHeight` (95) for
+  every category except `upgrades` and now `lore`, so keyboard/gamepad scroll-to-card is off by
+  a growing offset on `blessings` (96) and `evolutions` (120). Pre-existing, cosmetic, and only
+  visible when navigating those two tabs by D-pad past the fold. Fix by reading the height the
+  category's `layoutCardGrid` call actually used instead of a per-category ternary. Deps: none.
+
+- [ ] **FEAT-SECRET-LORE-CATALOG-DEPTH** (new 2026-07-31, from `FEAT-SECRET-LORE-CODEX`): the
+  fragment catalog is capped at 13 by the live world, not by the writing: `loreFragmentFor`
+  deals by rank over the 26 secret slots of the single fixed expedition seed, so a longer
+  catalog leaves singleton fragments an unlucky walk-in can strand. Growing it past 13 is
+  unblocked the moment a world can be re-rolled (README section 6's "world re-roll as a
+  season"), which multiplies the ranks a profile ever sees. Deps: a per-profile or re-rollable
+  world seed. Spec: doc 04 section 5, lore fragments.
 
 - [ ] **CHORE-SECRET-LEAD-RADAR** (new 2026-07-31, from `FEAT-SECRET-LORE`): a lead is only
   readable on the map screen. The in-run bounty ticker line (which `FEAT-QUEST-VIEW` already

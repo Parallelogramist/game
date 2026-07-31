@@ -701,6 +701,37 @@ Three tiers, cheapest first:
   room the chart never drew either. Econ rule 1 is untouched: no entry pays gold, so the tier
   only re-weights the existing table.
 
+### As built (`FEAT-SECRET-LORE-CODEX`, 173c7f3, 2026-07-31)
+
+- **The collection half of the taxonomy's lore row landed as a Codex tab.** That row names
+  "codex/vault UI shell" as the thing lore fragments reuse, and this chunk reused it literally: a
+  `CODEX_CATEGORIES` row, `CodexState.lore`, `displayLore` / `createLoreCard` in the shipped tab
+  machinery. The "secrets get no vault tab of their own" rule in the persistence section is about
+  not building a parallel unlock/toast system, and this chunk built neither: the two new unlocks
+  (`unlock_lore_keeper` at 5 fragments, `unlock_lore_complete` at all 13) go through
+  `HiddenUnlocks` with `getProgress` like every other cosmetic, and no new toast fires, because
+  the lead toast already carries the fragment's title and text on that exact frame.
+- **`LifetimeStats.loreFragmentsFound` is now built**, closing the field this section has listed
+  as wanted since `FEAT-SECRET-CACHE`. It is assigned from the codex's discovered count rather
+  than incremented, and monotonically, so the codex stays the one source of truth and a debug
+  codex reset cannot walk the lifetime stat backwards.
+- **`SecretLedger` and `survivor-secrets-found` stay unbuilt.** The "logical completion" this
+  section reserves them for is exactly what shipped, and it shipped inside the existing
+  `survivor-codex` key rather than as a second store, for the reason `FEAT-SECRET-CACHE` already
+  recorded. No `CODEX_VERSION` or `ACHIEVEMENT_VERSION` bump was needed: both loaders rebuild
+  missing sub-trees and fields from their known id lists.
+- **The fixed world seed is a design constraint on this section, not a detail.** Measured
+  2026-07-31: the live expedition world (`EXPEDITION_WORLD_SEED = 20260727`) holds 26
+  `PoiKind.Secret` slots across its 48 sectors, and every profile flies that one seed. An
+  independent per-secret hash therefore cannot fill a fragment catalog at all (26 independent
+  draws over 13 rows land on about 11 distinct, and the gap widens as the catalog grows), which
+  makes the collection uncompletable rather than merely uneven. `loreFragmentFor` now deals
+  `(hash(seed) + rank) % length` by the secret's rank in the world's sorted secret ids, so each
+  of the 13 fragments gets exactly two ranks on the live world and clearing it completes the
+  codex. That rank deal is what makes a fragment collection completable at all, and it is also
+  what caps the catalog at 13 until a world can be re-rolled
+  (`FEAT-SECRET-LORE-CATALOG-DEPTH`).
+
 ---
 
 ## 6. Reward economy
