@@ -549,6 +549,29 @@ Three tiers, cheapest first:
   pill: the information stays, the breathing goes. `settings-minimap-enabled` gates it for
   free, since `MinimapManager.update` returns on its first line when the radar is off.
 
+### As built (`FEAT-SECRET-HIDDEN-SECTORS`, c242028, 2026-07-31)
+
+- **Taxonomy row 2 shipped without a `WORLDGEN_VERSION` bump.** Sealing consumes no RNG and
+  only converts an existing `Open` edge through the per-canonical-edge-id `makeEdge`, and
+  `sectorInterior` branches on `edge.kind` in exactly one place (`apertureMouthTile`, the
+  depth-0 mouth tile), so POI ids, breakables, entry tiles, danger and biome are unchanged and
+  every existing profile keeps its discovery state. Concealment is a generation input
+  (`hiddenSectorCount`, default 0), the `questKeyOrder` shape, so the invariant suite's worlds
+  are untouched.
+- **A hidden sector is a dead-end leaf, deepest-first.** Not the start, not the boss arena, no
+  ability host, exactly one non-Wall edge which must still be `Open`, and never behind another
+  hidden sector. A leaf lies on no path between two other sectors, so gate-order solvability
+  with breakables treated as walls holds by construction rather than by a validator. Measured
+  over the 100 invariant seeds: 8-18 candidates per world, 0 seeds short of 3.
+- **The wall is the hint, the map is not.** The breakable mouth is visible in the room and on
+  the radar exactly like every other breakable, but the map suppresses both the sector outline
+  AND the door glyph until the sector is entered, so the chart never points at blank space.
+  A cache inside a hidden room needs nothing extra: `stockSectorPois` runs on entry, so the
+  `FEAT-SECRET-AMBIENT-PING` shimmer cannot leak through the wall either.
+- **Not built, deliberately: a lifetime counter.** Hidden sectors do NOT feed
+  `secretsFoundTotal`; conflating them with caches would move `FEAT-SECRET-CACHE`'s shipped
+  unlock thresholds. Filed as `FEAT-SECRET-HIDDEN-LIFETIME`.
+
 ---
 
 ## 6. Reward economy

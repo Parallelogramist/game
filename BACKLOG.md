@@ -54,14 +54,19 @@ choice are recorded on that item's own entry; read it before touching the econom
 decision, and what is left of `FEAT-QUEST-BOARD` (map markers, the walk-in board) is blocked
 on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
 (`FEAT-QUEST-CATALOG-DEPTH`).
-`FEAT-SECRET-AMBIENT-PING` is now **done (9d8f9c5)**: within one screen of an unfound cache the
-radar shimmers in the breakable amber, brightening as the ship closes and going silent the
-frame the cache is claimed, so 756f346's caches are found by playing rather than by accident.
+`FEAT-SECRET-AMBIENT-PING` is done (9d8f9c5): within one screen of an unfound cache the radar
+shimmers in the breakable amber. `FEAT-SECRET-HIDDEN-SECTORS` is now **done (c242028)**: three
+dead-end sectors per world are sealed behind a breakable wall and are absent from the map,
+from the map header's denominator and from the completion percent until the ship is inside
+them, then they are permanent and stroke in amber. It needed **no `WORLDGEN_VERSION` bump**,
+so every existing profile keeps its discovery state; read its entry before touching worldgen.
 The next session therefore takes band 2's next unblocked item,
-**`FEAT-SECRET-HIDDEN-SECTORS`** (whole sectors absent from the map until entered; note it
-bumps `WORLDGEN_VERSION`, which discards existing per-seed discovery state, and its own entry
-says so). Operator focus: quests and lots of
-hidden rewards on the Metroid map.
+**`FEAT-SECRET-REWARD-VARIETY`**, with the caveat that its own entry lists
+`FEAT-ECON-WARDS` as a dep and that item is parked on an operator balance decision, so if the
+executor judges the econ caps genuinely unfixable, take **`FEAT-DISCOVERY-WRITE-PATHS`**
+instead (the four discovery write paths whose callers do not exist yet, now that hidden
+sectors give three of them a live consumer). Operator focus: quests and lots of hidden
+rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -4315,7 +4320,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   minimap shimmer, and an audio cue needs a new `SoundManager` entry plus its own rate limiter
   so it does not become a metronome in a sector with a cache in it.
 
-- [ ] **FEAT-SECRET-HIDDEN-SECTORS** (new 2026-07-31): whole sectors flagged hidden by the
+- [x] **FEAT-SECRET-HIDDEN-SECTORS** (done, c242028): whole sectors flagged hidden by the
   generator — absent from the map and the completion denominator until entered (doc 04
   taxonomy row 2). Generator half: mark 2-4 non-critical-path leaf sectors
   `hidden: true` behind a breakable or false-wall edge (never gating an ability vault or
@@ -4327,6 +4332,58 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   adjacency or fragments, appears permanently after one entry, and the invariant suite
   still proves full reachability with breakables passable. Deps: `FEAT-SECRET-CACHE`,
   `FEAT-DISCOVERY-HOOKS-03` (shipped). Spec: doc 04 section 5 taxonomy + doc 02 generator.
+  **As built.** Three leaf sectors per world are sealed behind a breakable wall and flagged
+  `hidden`. **No `WORLDGEN_VERSION` bump was needed** (the entry above assumed one), for the
+  same reason `FEAT-WORLDGEN-QUESTDOORS` needed none: sealing consumes no RNG and only
+  converts an existing `Open` edge through `makeEdge`, which is seeded per canonical edge id,
+  and `sectorInterior` reads `edge.kind` in exactly one place (`apertureMouthTile`, the
+  depth-0 mouth tile). POI ids, breakables, entry tiles, danger and biome are byte-identical,
+  so **every existing profile keeps its discovery state**. Concealment is a generation input
+  (`hiddenSectorCount`, default 0) exactly like `questKeyOrder`, so the 100-seed invariant
+  suite and every non-expedition caller still generate today's worlds and invariants 0-9
+  cannot regress; invariant 10 covers the new world set. Selection is a pure function of the
+  finished layout: a sector that is not the start, not the boss arena, hosts no ability and
+  has exactly ONE non-Wall edge which is still `Open`, ranked deepest-first with the key
+  breaking ties, skipping any leaf whose neighbour is already concealed. A leaf is on no path
+  between two other sectors, so solvability with breakables treated as walls holds by
+  construction. Measured over the 100 invariant seeds: 8-18 candidates per world (median 12),
+  0 seeds short of 3, chosen depths 5-13, 1-3 POI slots each, and 123 of 300 also carry a
+  `PoiKind.Secret` slot, so a cache inside a hidden room stacks with `FEAT-SECRET-CACHE` for
+  free. On the live seed 20260727 the three are `-1,-5`, `0,6`, `1,-5`. Discovery: the
+  adjacency reveal in `revealOnSectorEntry` skips a hidden neighbour **and the door into it**
+  until that sector is `VISITED`, so the map cannot draw a door pointing at blank space; the
+  completion denominator and the map header both read the new
+  `DiscoveryManager.getKnowableSectorCount()`, which drops unvisited hidden sectors, so
+  finding one raises the percentage and can never lower it. Entering one for the first time
+  fires the `claimSecretCache` beat (burst, shake, level-up sting, `HIDDEN SECTOR FOUND`
+  toast), guarded on the returned `sectorsVisited` delta so a reload cannot re-fire it, and
+  the sector then strokes on the map in the breakable amber at a heavier weight.
+  **No new state, no `SAVE_VERSION` bump, no new storage key.**
+  **One deviation from the plan, in the test only.** Invariant 10's reachability case was
+  planned as `simulate(map, true).reached.size === map.sectors.size`, which cannot hold for
+  these worlds: `HIDDEN_INPUTS` extends `QUEST_INPUTS`, and quest key doors gate 9 to 10
+  sectors in **all 100** seeds with no key held, independently of concealment (measured; the
+  assertion was copied from invariant 3, whose `WORLDS` have no key doors). It now asserts the
+  property sealing must actually preserve, that the hidden world reaches **exactly** what the
+  unsealed quest world reached, which held on 100 of 100 seeds. That is strictly stronger than
+  a constant: it would fail if any wall cost the run a single sector.
+
+- [ ] **FEAT-SECRET-HIDDEN-LIFETIME** (new 2026-07-31, cut from `FEAT-SECRET-HIDDEN-SECTORS`):
+  a hidden sector found is not counted anywhere outside the per-world discovery state.
+  `FEAT-SECRET-CACHE` shipped a lifetime `secretsFoundTotal` behind two hidden unlocks and two
+  ship paints; hidden sectors deliberately did NOT join that counter, because conflating "a
+  cache you touched" with "a room that was never drawn" would silently move the existing
+  unlock thresholds. Wants its own lifetime counter and its own unlock/paint pair. Value: the
+  strongest find in the game currently pays nothing that survives the world.
+  Deps: `FEAT-SECRET-HIDDEN-SECTORS` (done). Spec: doc 04 section 5.3.
+
+- [ ] **CHORE-DISCOVERY-HIDDEN-SCAN-GUARD** (new 2026-07-31, from
+  `FEAT-SECRET-HIDDEN-SECTORS`): `FEAT-DISCOVERY-SCAN-FRAGMENT`'s `revealOnScanPulse` (a BFS
+  over the sector graph, not yet built) must carry the same guard `revealOnSectorEntry` now
+  carries: a hidden sector and the edge into it stay dark until it is VISITED, or the scanner
+  hands back exactly what the wall was hiding. Not a bug today (that function does not exist)
+  and filed so the future chunk cannot miss it. Value: keeps the hidden-sector payoff from
+  being quietly deleted by the next discovery feature. Deps: `FEAT-DISCOVERY-SCAN-FRAGMENT`.
 
 - [ ] **FEAT-SECRET-REWARD-VARIETY** (new 2026-07-31): what a found secret PAYS, as one
   data-driven table instead of per-chunk hardcoding: gold caches (band-checked by

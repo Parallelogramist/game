@@ -167,6 +167,20 @@ export interface DiscoveryChanges {
 }
 ```
 
+### As built (`FEAT-SECRET-HIDDEN-SECTORS`, c242028, 2026-07-31)
+
+The adjacency reveal has one exception. `revealOnSectorEntry` skips a neighbour flagged
+`SectorDef.hidden` (and the edge into it) while that neighbour is not yet `VISITED`, so a
+concealed sector is drawn neither as an outline nor as a door stub from next door. Entering it
+clears the exception permanently, since the same call marks it `VISITED` and marks its own
+edges `KNOWN`. `WorldIdUniverse` carries `hiddenSectorKeys` (a subset of `sectorKeys`, not a
+new id space, so the `MAX_DISCOVERY_IDS` budget is unmoved), and `getCompletionPercent` now
+divides by `getKnowableSectorCount()`: total sectors minus the hidden ones not yet entered,
+plus secrets. Numerator and denominator therefore rise together on a find, so discovering a
+hidden sector can raise the percentage and can never lower it. `MapScene`'s header reads the
+same count, so "N / M SECTORS EXPLORED" cannot leak M. Any future reveal path
+(`revealOnScanPulse`, map fragments) must carry the same guard: `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD`.
+
 ---
 
 ## 2. Purity split
