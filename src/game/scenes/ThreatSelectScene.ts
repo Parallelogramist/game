@@ -18,6 +18,7 @@ export interface ThreatSelectSceneData {
   modifierIds?: string[];
   pactIds?: string[];
   gauntletMode?: boolean;
+  runMode?: 'arena' | 'expedition';
   directorStrategy?: DirectorStrategy;
 }
 
@@ -283,6 +284,7 @@ export class ThreatSelectScene extends Phaser.Scene {
       directorStrategy: this.passthrough.directorStrategy,
       threatLevel: tier,
       gauntletMode: this.passthrough.gauntletMode === true,
+      runMode: this.passthrough.runMode,
     });
     this.cameras.main.fadeOut(150, 0, 0, 0);
     this.time.delayedCall(160, () => {
@@ -298,6 +300,7 @@ export class ThreatSelectScene extends Phaser.Scene {
         stageId: this.passthrough.stageId,
         pactIds: this.passthrough.pactIds ?? [],
         gauntletMode: this.passthrough.gauntletMode === true,
+        runMode: this.passthrough.runMode,
         directorStrategy: this.passthrough.directorStrategy,
         threatLevel: tier,
         modifierChoiceIds: rollModifierChoices(6).map((modifier) => modifier.id),

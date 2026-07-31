@@ -20,6 +20,7 @@ export interface ModifierDraftSceneData {
   stageId?: string;
   pactIds?: string[];
   gauntletMode?: boolean;
+  runMode?: 'arena' | 'expedition';
   directorStrategy?: DirectorStrategy;
   threatLevel?: number;
   modifierChoiceIds: string[];
@@ -346,6 +347,7 @@ export class ModifierDraftScene extends Phaser.Scene {
           modifierIds,
           pactIds: this.passthrough.pactIds ?? [],
           gauntletMode: this.passthrough.gauntletMode === true,
+          runMode: this.passthrough.runMode,
           directorStrategy: this.passthrough.directorStrategy,
           threatLevel: this.passthrough.threatLevel,
           blessingChoiceIds: rollBlessingChoices(blessingPicks).map((blessing) => blessing.id),
@@ -360,6 +362,7 @@ export class ModifierDraftScene extends Phaser.Scene {
           modifierIds,
           pactIds: this.passthrough.pactIds ?? [],
           gauntletMode: this.passthrough.gauntletMode === true,
+          runMode: this.passthrough.runMode,
           directorStrategy: this.passthrough.directorStrategy,
           threatLevel: this.passthrough.threatLevel,
         });

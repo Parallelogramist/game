@@ -16,6 +16,8 @@ export interface LastLoadout {
   directorStrategy?: DirectorStrategy;
   threatLevel: number;
   gauntletMode: boolean;
+  /** Absent on pre-promote payloads; the resolver then applies the expedition default. */
+  runMode?: 'arena' | 'expedition';
 }
 
 export function saveLastLoadout(loadout: LastLoadout): void {
@@ -50,6 +52,9 @@ export function sanitizeLoadout(raw: unknown): LastLoadout | null {
     directorStrategy: isDirectorStrategy(parsed.directorStrategy) ? parsed.directorStrategy : undefined,
     threatLevel: threat,
     gauntletMode: parsed.gauntletMode === true,
+    runMode: parsed.runMode === 'arena' || parsed.runMode === 'expedition'
+      ? parsed.runMode
+      : undefined,
   };
 }
 

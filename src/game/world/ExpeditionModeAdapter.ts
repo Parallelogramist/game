@@ -59,9 +59,11 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  */
 
 /**
- * One fixed world for the dev route: the layout has to be the same on every run and
- * every refresh or a saved position means nothing, and there is no per-profile world
- * store to seed from until FEAT-BARRIER-GATES adds `survivor-world-profile`.
+ * One fixed world seed: the layout has to be the same on every run and every refresh
+ * or a saved position and a remembered map mean nothing. Every profile flies the same
+ * layout for now; a per-profile seed is the "world re-roll as a season" long-term item
+ * (README section 6) and changing this constant has the same effect as a
+ * WORLDGEN_VERSION bump: discovery and world-profile state stop matching the world.
  */
 const EXPEDITION_WORLD_SEED = 20260727;
 

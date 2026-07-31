@@ -323,15 +323,6 @@ const THERMAL_WARD_ID = 'ability_thermal_ward';
 const LEASH_EXEMPT_XP_FLOOR = 30;
 
 /**
- * Expedition stays dev-only until FEAT-EXPEDITION-PROMOTE: no menu passes runMode, so
- * the URL param is the only entrance and there is nothing for a player to stumble into.
- */
-function isExpeditionDevRouteRequested(): boolean {
-  if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('expedition') === '1';
-}
-
-/**
  * GameScene is the main gameplay scene.
  * Manages the ECS world, player, enemies, and game loop.
  */
@@ -824,7 +815,7 @@ export class GameScene extends Phaser.Scene {
     practiceRematch?: PracticeRematchSeed;
   }): void {
     this.shouldRestore = data?.restore === true;
-    this.worldMode = this.createWorldMode(data?.runMode);
+    this.worldMode = this.createWorldMode(this.resolveRunMode(data));
     this.resumeIntoPauseMenu = data?.resumePaused === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
     this.selectedShipId = data?.shipId || 'ship_default';
@@ -862,8 +853,27 @@ export class GameScene extends Phaser.Scene {
     this.draftedBlessingIds = Array.isArray(data?.blessingIds) ? data.blessingIds : null;
   }
 
-  private createWorldMode(requested: RunModeKind | undefined): WorldModeAdapter {
-    const mode = requested ?? (isExpeditionDevRouteRequested() ? 'expedition' : 'arena');
+  /**
+   * FEAT-EXPEDITION-PROMOTE (operator decision 2026-07-27, flipped 2026-07-31):
+   * expedition IS the default run. An explicit runMode always wins; the fixed-room
+   * modes — daily/weekly, practice, gauntlet — stay on the arena substrate they are
+   * tuned for; everything else, including a cold profile's first run and the
+   * replay/surprise shortcut, starts an expedition. A restore guesses expedition too
+   * and create() rebuilds from the save's own mode, so a corrupt save falls through
+   * to a fresh run in the correct default rather than in yesterday's.
+   */
+  private resolveRunMode(data?: {
+    runMode?: RunModeKind;
+    dailyMode?: boolean;
+    gauntletMode?: boolean;
+    practiceMode?: boolean;
+  }): RunModeKind {
+    if (data?.runMode) return data.runMode;
+    if (data?.dailyMode || data?.gauntletMode || data?.practiceMode) return 'arena';
+    return 'expedition';
+  }
+
+  private createWorldMode(mode: RunModeKind): WorldModeAdapter {
     return mode === 'expedition' ? new ExpeditionModeAdapter(this) : new ArenaModeAdapter(this);
   }
 
@@ -919,14 +929,15 @@ export class GameScene extends Phaser.Scene {
     if (this.shouldRestore) {
       saveState = getGameStateManager().load();
       if (saveState) {
-        // A restored run's mode is the one it was saved in, never the one init() guessed
-        // from the URL, and the adapter has to exist before the field rect below is read
-        // off it. A refresh, a UI-scale change and an orientation flip all land here.
-        // Rebuilt only on a real mismatch: an expedition adapter generates its whole world
-        // in its constructor (~32 ms measured), and init() already built the right one
-        // whenever the URL and the save agree.
-        if (saveState.runMode !== this.worldMode.kind) {
-          this.worldMode = this.createWorldMode(saveState.runMode);
+        // A restored run's mode is the one it was saved in, never the one init() guessed,
+        // and the adapter has to exist before the field rect below is read off it. A
+        // refresh, a UI-scale change and an orientation flip all land here. Rebuilt only
+        // on a real mismatch: an expedition adapter generates its whole world in its
+        // constructor (~32 ms measured), and init() already built the right one whenever
+        // the guess and the save agree. `?? 'arena'` is the documented v1/v2 contract: an
+        // arena save of either version stores no runMode at all.
+        if ((saveState.runMode ?? 'arena') !== this.worldMode.kind) {
+          this.worldMode = this.createWorldMode(saveState.runMode ?? 'arena');
         }
       } else {
         // Fall through to normal init if load failed

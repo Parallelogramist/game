@@ -14,6 +14,7 @@ export interface DirectorSelectSceneData {
   modifierIds?: string[];
   pactIds?: string[];
   gauntletMode?: boolean;
+  runMode?: 'arena' | 'expedition';
 }
 
 /**
@@ -270,6 +271,7 @@ export class DirectorSelectScene extends Phaser.Scene {
         modifierIds: this.passthrough.modifierIds ?? [],
         pactIds: this.passthrough.pactIds ?? [],
         gauntletMode: this.passthrough.gauntletMode === true,
+        runMode: this.passthrough.runMode,
         directorStrategy: strategy ?? undefined,
       });
     });

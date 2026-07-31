@@ -69,14 +69,16 @@ export class WeaponSelectScene extends Phaser.Scene {
   private shipPreview: ShipPreview | null = null;
   /** True when this flow launches GAUNTLET (boss-rush) instead of a standard run. */
   private gauntletMode: boolean = false;
+  private runMode?: 'arena' | 'expedition';
   private relayoutOnly: boolean = false;
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
   }
 
-  init(data?: { gauntletMode?: boolean; relayout?: boolean }): void {
+  init(data?: { gauntletMode?: boolean; runMode?: 'arena' | 'expedition'; relayout?: boolean }): void {
     this.gauntletMode = data?.gauntletMode === true;
+    this.runMode = data?.runMode;
     this.relayoutOnly = data?.relayout === true;
   }
 
@@ -805,6 +807,7 @@ export class WeaponSelectScene extends Phaser.Scene {
         stageId: this.selectedStageId,
         modifierIds: selectedModifiers.map((m) => m.id),
         gauntletMode: this.gauntletMode,
+        runMode: this.runMode,
       });
       return;
     }
@@ -1008,6 +1011,7 @@ export class WeaponSelectScene extends Phaser.Scene {
       stageId: this.selectedStageId,
       modifierIds: selectedModifiers.map((m) => m.id),
       gauntletMode: this.gauntletMode,
+      runMode: this.runMode,
     });
   }
 

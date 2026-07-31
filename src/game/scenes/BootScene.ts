@@ -242,6 +242,30 @@ export class BootScene extends Phaser.Scene {
         startGauntlet();
       }
     };
+
+    // Arena skirmish (FEAT-EXPEDITION-PROMOTE): the fixed-room run the game shipped
+    // with, kept as an explicit choice now that the default START is an expedition.
+    // Same funnel, same save slot, so it gets the same overwrite confirmation.
+    const startSkirmish = async () => {
+      try {
+        if (musicManager.getPlaybackMode() !== 'off' && !musicManager.getIsPlaying()) {
+          await musicManager.play();
+        }
+        gameStateManager.clearSave();
+        transitionToScene(this, 'WeaponSelectScene', { gauntletMode: false, runMode: 'arena' });
+      } catch (error) {
+        console.error('Could not start skirmish:', error);
+        gameStateManager.clearSave();
+        this.scene.start('WeaponSelectScene', { gauntletMode: false, runMode: 'arena' });
+      }
+    };
+    const startSkirmishWithConfirmation = () => {
+      if (hasSave) {
+        this.showNewGameConfirmation(startSkirmish);
+      } else {
+        startSkirmish();
+      }
+    };
     const openShop = () => transitionToScene(this, 'ShopScene');
     const openAchievements = () => transitionToScene(this, 'AchievementScene');
     const openCodex = () => transitionToScene(this, 'CodexScene');
@@ -294,6 +318,7 @@ export class BootScene extends Phaser.Scene {
             modifierIds: selectRunModifiers(2).map((modifier) => modifier.id),
             pactIds: loadout.pactIds,
             gauntletMode: loadout.gauntletMode,
+            runMode: loadout.runMode,
             directorStrategy: loadout.directorStrategy,
             threatLevel: loadout.threatLevel,
           });
@@ -478,6 +503,7 @@ export class BootScene extends Phaser.Scene {
       onAchievements: openAchievements,
       onCodex: openCodex,
       onCards: openCards,
+      onSkirmish: startSkirmishWithConfirmation,
       onGauntlet: startGauntletWithConfirmation,
       onRunner: startRunner,
       onPractice: startPractice,
@@ -1219,6 +1245,7 @@ export class BootScene extends Phaser.Scene {
     onCards: () => void;
     onLeaderboard: () => void;
     onPaint: () => void;
+    onSkirmish: () => void;
     onGauntlet: () => void;
     onRunner: () => void;
     onPractice: () => void;
@@ -1226,7 +1253,7 @@ export class BootScene extends Phaser.Scene {
   }): void {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount, questBadge,
-      onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onGauntlet, onRunner, onPractice, onSurprise,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onSkirmish, onGauntlet, onRunner, onPractice, onSurprise,
     } = opts;
 
     interface DeckEntry {
@@ -1292,6 +1319,17 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentMagenta,
         action: onPaint,
         iconTint: 0xffbbff,
+      },
+      {
+        // Arena skirmish (FEAT-EXPEDITION-PROMOTE) — the fixed-room run, now an
+        // explicit mode beside the expedition default; danger role like the
+        // other game modes.
+        label: 'SKIRMISH',
+        iconKey: 'shield',
+        bodyHex: COLORS.bodyDanger,
+        accentHex: COLORS.accentDanger,
+        action: onSkirmish,
+        iconTint: 0xbbffcc,
       },
       {
         // Gauntlet boss-rush mode (FEAT-GAUNTLET) — a gameplay entry like

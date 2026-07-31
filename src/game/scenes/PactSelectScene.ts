@@ -12,6 +12,7 @@ export interface PactSelectSceneData {
   stageId?: string;
   modifierIds?: string[];
   gauntletMode?: boolean;
+  runMode?: 'arena' | 'expedition';
 }
 
 /**
@@ -302,6 +303,7 @@ export class PactSelectScene extends Phaser.Scene {
         modifierIds: this.passthrough.modifierIds ?? [],
         pactIds,
         gauntletMode: this.passthrough.gauntletMode === true,
+        runMode: this.passthrough.runMode,
       });
     });
   }

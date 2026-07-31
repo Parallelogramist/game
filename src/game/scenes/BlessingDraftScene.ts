@@ -19,6 +19,7 @@ export interface BlessingDraftSceneData {
   modifierIds?: string[];
   pactIds?: string[];
   gauntletMode?: boolean;
+  runMode?: 'arena' | 'expedition';
   directorStrategy?: DirectorStrategy;
   threatLevel?: number;
   blessingChoiceIds: string[];
@@ -300,6 +301,7 @@ export class BlessingDraftScene extends Phaser.Scene {
         modifierIds: this.passthrough.modifierIds ?? [],
         pactIds: this.passthrough.pactIds ?? [],
         gauntletMode: this.passthrough.gauntletMode === true,
+        runMode: this.passthrough.runMode,
         directorStrategy: this.passthrough.directorStrategy,
         threatLevel: this.passthrough.threatLevel,
         blessingIds,
