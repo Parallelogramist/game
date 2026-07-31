@@ -24,6 +24,7 @@ import { MILESTONES } from '../achievements/MilestoneDefinitions';
 import { ENEMY_TYPES, EnemyCategory } from '../enemies/EnemyTypes';
 import { BLESSINGS } from './Blessings';
 import { TRAVERSAL_ABILITIES } from './TraversalAbilities';
+import { EXPEDITION_QUESTS } from './ExpeditionQuests';
 
 /**
  * Referential-integrity sweep: every cross-reference key in the data catalogs
@@ -55,6 +56,7 @@ function collectIconRefs(): IconRef[] {
   push('Milestones', MILESTONES);
   push('Blessings', BLESSINGS);
   push('TraversalAbilities', TRAVERSAL_ABILITIES);
+  push('ExpeditionQuests', EXPEDITION_QUESTS);
 
   for (const [shipId, tracks] of Object.entries(SHIP_MOD_TRACKS)) {
     push(`ShipMods:${shipId}`, tracks);
@@ -171,5 +173,63 @@ describe('data catalog referential integrity', () => {
     expect(new Set(barrierIds).size, 'two abilities claiming one barrier type').toBe(
       barrierIds.length,
     );
+  });
+});
+
+describe('expedition quest data rules', () => {
+  const byId = new Map(EXPEDITION_QUESTS.map((quest) => [quest.id, quest]));
+
+  test('quest ids are unique and prefixed, and every quest has at least one step', () => {
+    expect(byId.size).toBe(EXPEDITION_QUESTS.length);
+    for (const quest of EXPEDITION_QUESTS) {
+      expect(quest.id.startsWith('quest_'), quest.id).toBe(true);
+      expect(quest.steps.length, quest.id).toBeGreaterThan(0);
+    }
+  });
+
+  test('step ids are globally unique and follow the q_<quest>.sN form', () => {
+    const stepIds = EXPEDITION_QUESTS.flatMap((quest) => quest.steps.map((step) => step.id));
+    expect(new Set(stepIds).size).toBe(stepIds.length);
+    for (const stepId of stepIds) expect(stepId, stepId).toMatch(/^q_[a-z0-9_]+\.s\d+$/);
+  });
+
+  test('nextQuestId resolves, is never a chain head twice, and chains are acyclic and at most 3 long', () => {
+    const successorCounts = new Map<string, number>();
+    for (const quest of EXPEDITION_QUESTS) {
+      if (quest.nextQuestId === undefined) continue;
+      expect(byId.has(quest.nextQuestId), quest.nextQuestId).toBe(true);
+      successorCounts.set(quest.nextQuestId, (successorCounts.get(quest.nextQuestId) ?? 0) + 1);
+    }
+    for (const [questId, count] of successorCounts) expect(count, questId).toBe(1);
+
+    for (const quest of EXPEDITION_QUESTS) {
+      const walked = new Set<string>([quest.id]);
+      let cursor = quest.nextQuestId;
+      while (cursor !== undefined) {
+        expect(walked.has(cursor), `cycle at ${cursor}`).toBe(false);
+        walked.add(cursor);
+        cursor = byId.get(cursor)?.nextQuestId;
+      }
+      expect(walked.size, quest.id).toBeLessThanOrEqual(3);
+    }
+  });
+
+  // Doc 04 section 4's anti-chore rule: a 'run'-scope step must be completable inside one
+  // expedition, so its target is bounded. A 'persistent' step accumulates across runs and is
+  // deliberately not.
+  test('every run-scope target is reachable in one expedition and rewards are positive', () => {
+    for (const quest of EXPEDITION_QUESTS) {
+      for (const step of quest.steps) {
+        expect(step.target, step.id).toBeGreaterThan(0);
+        expect(step.goldReward, step.id).toBeGreaterThan(0);
+        if (step.trigger.kind === 'reachDepth') {
+          expect(step.target, step.id).toBeLessThanOrEqual(8);
+        }
+        if (step.scope !== 'run') continue;
+        if (step.trigger.kind === 'kill') expect(step.target, step.id).toBeLessThanOrEqual(800);
+        if (step.trigger.kind === 'openGate') expect(step.target, step.id).toBeLessThanOrEqual(4);
+      }
+      expect(quest.completionGoldReward, quest.id).toBeGreaterThan(0);
+    }
   });
 });

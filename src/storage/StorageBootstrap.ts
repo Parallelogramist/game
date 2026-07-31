@@ -154,6 +154,10 @@ export const ALL_STORAGE_KEYS = [
   // TraversalAbilityManager (permanent expedition traversal abilities earned at
   // ability vaults; auto-transfers with the profile)
   'survivor-traversal-abilities',
+
+  // ExpeditionQuestManager (expedition quest chain progress + unpaid step gold;
+  // auto-transfers with the profile)
+  'survivor-expedition-quests',
 ];
 
 /**

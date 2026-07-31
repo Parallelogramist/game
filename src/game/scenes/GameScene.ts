@@ -123,6 +123,13 @@ import {
 } from '../../meta/PracticeBestTimes';
 import { settleDailyQuests, createDailyQuestWatcher, claimDailyQuestGold, type DailyQuestWatcher } from '../../meta/DailyQuestManager';
 import type { DailyQuestDefinition } from '../../data/DailyQuests';
+import {
+  beginExpeditionQuestRun,
+  recordExpeditionQuestEvent,
+  claimExpeditionQuestGold,
+} from '../../meta/ExpeditionQuestManager';
+import { getExpeditionQuest } from '../../data/ExpeditionQuests';
+import type { QuestEvent } from '../../systems/QuestProgress';
 import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
@@ -521,6 +528,10 @@ export class GameScene extends Phaser.Scene {
   private dailyQuestWatcher: DailyQuestWatcher | null = null;
   private lastDailyQuestCheck: number = 0;
 
+  // Expedition quests read kills as a DELTA off this baseline, so a restored run resumes
+  // from its saved killCount instead of re-crediting the whole run's kills.
+  private expeditionQuestKillBaseline: number = 0;
+
   // Pace ghost: the kill curve of the best-scoring run at this world level, and
   // this run's own samples, which replace it if this run scores a new best.
   private paceGhostCurve: number[] | null = null;
@@ -807,6 +818,8 @@ export class GameScene extends Phaser.Scene {
     discovery.markSectorEntered(payload.sectorKey);
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
     this.stockSectorPois(payload.sectorKey);
+    const sector = this.worldMode.worldMap()?.sectors.get(payload.sectorKey);
+    if (sector) this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
   };
 
   /** New sectors on the map are the one discovery event with a live HUD consequence. */
@@ -1212,6 +1225,7 @@ export class GameScene extends Phaser.Scene {
     setNavigationContext(this.worldMode.navigationContext());
     setBarrierEventSink(this.barrierEventSink);
     this.bindExpeditionDiscovery();
+    this.startExpeditionQuestRun();
 
     // Initialize off-screen threat indicators
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
@@ -4299,6 +4313,7 @@ export class GameScene extends Phaser.Scene {
     this.bountyText = null;
     this.dailyQuestWatcher = null;
     this.lastDailyQuestCheck = 0;
+    this.expeditionQuestKillBaseline = this.killCount;
     this.bossRotationCursor = -1;
     // Pace ghost. Practice and gauntlet get no ghost because neither writes a
     // best score, so there is nothing to race. A restored run lost its early
@@ -4653,6 +4668,7 @@ export class GameScene extends Phaser.Scene {
         duration: 3600,
       });
     }
+    this.recordExpeditionQuest({ kind: 'claimAbility', abilityId: vault.abilityId });
   }
 
   /** Pulse and walk-in test, the updateShrines shape. Iterated backwards because a claim
@@ -4811,6 +4827,7 @@ export class GameScene extends Phaser.Scene {
         duration: 2800,
       });
     }
+    this.recordExpeditionQuest({ kind: 'openGate' });
   }
 
   /**
@@ -5374,12 +5391,13 @@ export class GameScene extends Phaser.Scene {
       getAchievementManager().recordTimeSurvived(Math.floor(this.gameTime));
     }
 
-    // ═══ DAILY QUESTS (live, throttled to once per second) ═══
+    // ═══ DAILY + EXPEDITION QUESTS (live, throttled to once per second) ═══
     // Practice is excluded for the same reason as the line above and to match the
     // run-end settle sites 1:1: a sandbox run must never move the day's board.
     if (!this.practiceModeActive && this.gameTime - this.lastDailyQuestCheck >= 1.0) {
       this.lastDailyQuestCheck = this.gameTime;
       this.checkDailyQuestsLive();
+      this.checkExpeditionQuestKills();
     }
 
     // ═══ PACE GHOST (fixed 15 s sample grid, HUD refreshed once per second) ═══
@@ -7911,6 +7929,85 @@ export class GameScene extends Phaser.Scene {
       });
     }
     return owed;
+  }
+
+  /**
+   * Starts a fresh expedition's quest chains and announces anything new. Fresh runs only:
+   * a refresh-restore is the same run continuing, and re-running this would clear the
+   * run-scope counters the player already earned.
+   */
+  private startExpeditionQuestRun(): void {
+    if (!this.worldMode.worldMap()) return;
+    for (const quest of beginExpeditionQuestRun()) {
+      this.toastManager?.showToast({
+        title: 'NEW OBJECTIVE',
+        description: `${quest.name}: ${quest.steps[0].description}`,
+        icon: quest.icon,
+        color: 0x9fe8a0,
+        duration: 3600,
+      });
+    }
+  }
+
+  /**
+   * The one door every expedition quest event goes through. Arena, daily, gauntlet and
+   * practice runs have no world map, so the guard here is what keeps them out of the
+   * expedition chains without a mode flag at each call site.
+   */
+  private recordExpeditionQuest(event: QuestEvent): void {
+    if (!this.worldMode.worldMap()) return;
+    const rewards = recordExpeditionQuestEvent(event);
+    if (rewards.stepCompletions.length === 0
+      && rewards.questCompletions.length === 0
+      && rewards.activatedQuestIds.length === 0) {
+      return;
+    }
+
+    const owed = claimExpeditionQuestGold();
+    if (owed > 0) getMetaProgressionManager().addGold(owed);
+
+    for (const completion of rewards.stepCompletions) {
+      const quest = getExpeditionQuest(completion.questId);
+      const step = quest?.steps.find((entry) => entry.id === completion.stepId);
+      if (!quest || !step) continue;
+      this.toastManager?.showToast({
+        title: 'OBJECTIVE COMPLETE',
+        description: `${step.description} · +${completion.goldReward} gold`,
+        icon: quest.icon,
+        color: 0x7fd7ff,
+        duration: 3200,
+      });
+    }
+    for (const completion of rewards.questCompletions) {
+      const quest = getExpeditionQuest(completion.questId);
+      if (!quest) continue;
+      this.toastManager?.showToast({
+        title: 'QUEST COMPLETE',
+        description: `${quest.name} · +${completion.goldReward} gold`,
+        icon: quest.icon,
+        color: 0xffe26a,
+        duration: 3600,
+      });
+    }
+    for (const questId of rewards.activatedQuestIds) {
+      const quest = getExpeditionQuest(questId);
+      if (!quest) continue;
+      this.toastManager?.showToast({
+        title: 'NEW OBJECTIVE',
+        description: `${quest.name}: ${quest.steps[0].description}`,
+        icon: quest.icon,
+        color: 0x9fe8a0,
+        duration: 3600,
+      });
+    }
+  }
+
+  /** Kills reach quests as a delta, so the once-a-second poll cannot double-credit. */
+  private checkExpeditionQuestKills(): void {
+    const delta = this.killCount - this.expeditionQuestKillBaseline;
+    if (delta <= 0) return;
+    this.expeditionQuestKillBaseline = this.killCount;
+    this.recordExpeditionQuest({ kind: 'kill', amount: delta });
   }
 
   private createPlayer(x: number, y: number): number {
