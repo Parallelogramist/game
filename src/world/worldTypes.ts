@@ -14,7 +14,7 @@ import { SECTOR_WIDTH, SECTOR_HEIGHT } from './worldSpace';
 import type { WorldRect } from './worldSpace';
 
 /** Bump when generator output would change for a given seed. */
-export const WORLDGEN_VERSION = 2;
+export const WORLDGEN_VERSION = 3;
 
 export const TILE_SIZE = 40;
 export const SECTOR_TILE_COLS = SECTOR_WIDTH / TILE_SIZE;

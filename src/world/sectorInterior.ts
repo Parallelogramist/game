@@ -89,7 +89,9 @@ export function buildSectorInterior(input: SectorInteriorInput): SectorInteriorR
   if (isBossArena) openBossFloor(tiles);
 
   const breakables = isBossArena ? [] : carveBreakablePockets(tiles, rng, sx, sy);
-  if (input.danger >= 0.5) stampHazardStrips(tiles, rng, protectedTileIndices, apertureTileIndices);
+  if (input.danger >= 0.3) {
+    stampHazardStrips(tiles, rng, input.danger, protectedTileIndices, apertureTileIndices);
+  }
 
   return { tiles, entryTiles, poiSlots, breakables };
 }
@@ -446,21 +448,34 @@ function carveBreakablePockets(
   tiles: Uint8Array, rng: SeededRng, sx: number, sy: number
 ): BreakableRect[] {
   const pockets: BreakableRect[] = [];
-  const pocketCount = Math.floor(rng() * 2);
+  const pocketCount = 1 + Math.floor(rng() * 2);
   for (let pocket = 0; pocket < pocketCount; pocket++) {
-    for (let attempt = 0; attempt < DECORATION_ATTEMPTS; attempt++) {
-      const tileX = 2 + Math.floor(rng() * (SECTOR_TILE_COLS - 5));
-      const tileY = 2 + Math.floor(rng() * (SECTOR_TILE_ROWS - 5));
-      if (!isRectAll(tiles, tileX, tileY, 2, 2, TileKind.Solid)) continue;
-      stampRect(tiles, tileX, tileY, 2, 2, TileKind.Breakable);
-      pockets.push({
-        id: `breakable:${sx},${sy}:${pockets.length}`,
-        tileX, tileY, tileW: 2, tileH: 2,
-      });
-      break;
-    }
+    if (tryCarvePocket(tiles, rng, sx, sy, pockets, 2, 2)) continue;
+    // Open templates rarely hold a 2x2 all-Solid rect, which is why the dev seed
+    // yielded 5 pockets across 48 sectors. A 2x1 slab in a pillar or wall face is
+    // common, and converting Solid to Breakable can never block a path.
+    if (tryCarvePocket(tiles, rng, sx, sy, pockets, 2, 1)) continue;
+    tryCarvePocket(tiles, rng, sx, sy, pockets, 1, 2);
   }
   return pockets;
+}
+
+function tryCarvePocket(
+  tiles: Uint8Array, rng: SeededRng, sx: number, sy: number,
+  pockets: BreakableRect[], tileW: number, tileH: number
+): boolean {
+  for (let attempt = 0; attempt < DECORATION_ATTEMPTS; attempt++) {
+    const tileX = 2 + Math.floor(rng() * (SECTOR_TILE_COLS - 3 - tileW));
+    const tileY = 2 + Math.floor(rng() * (SECTOR_TILE_ROWS - 3 - tileH));
+    if (!isRectAll(tiles, tileX, tileY, tileW, tileH, TileKind.Solid)) continue;
+    stampRect(tiles, tileX, tileY, tileW, tileH, TileKind.Breakable);
+    pockets.push({
+      id: `breakable:${sx},${sy}:${pockets.length}`,
+      tileX, tileY, tileW, tileH,
+    });
+    return true;
+  }
+  return false;
 }
 
 function isRectAll(
@@ -480,10 +495,13 @@ function isRectAll(
 function stampHazardStrips(
   tiles: Uint8Array,
   rng: SeededRng,
+  danger: number,
   protectedTileIndices: Set<number>,
   apertureTileIndices: Set<number>
 ): void {
-  const stripCount = Math.floor(rng() * 2);
+  // Deep sectors always carry at least one strip; the shallow band (0.3-0.5) keeps the
+  // old coin flip so hazards ramp in rather than appearing everywhere at once.
+  const stripCount = danger >= 0.5 ? 1 + Math.floor(rng() * 2) : Math.floor(rng() * 2);
   for (let strip = 0; strip < stripCount; strip++) {
     for (let attempt = 0; attempt < DECORATION_ATTEMPTS; attempt++) {
       const tileX = 2 + Math.floor(rng() * (SECTOR_TILE_COLS - 6));
