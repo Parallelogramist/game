@@ -93,17 +93,31 @@ Crystal Caves" and fly there, instead of sweeping 48 sectors by hand. It needed 
 and no version bump, because `SecretFlags.HINTED` had shipped with the discovery layer and had
 never had a writer.
 
+`FEAT-SECRET-SEQUENCE-PUZZLES` (0da9243) shipped taxonomy row 3, the one row where the player
+does something with their hands: about a third of every world's caches now sit inside a ring of
+3 or 4 sigil pylons that wake in one order, and walking them in that order unseals the cache and
+pays from a new `puzzle` reward tier. The pylons never fade, so the ring itself is the tell that
+a cache is in the room, and the lore fragment that leads you to a sealed cache now names the
+order too ("Sigils wake in order: hexagon, then triangle, then diamond"), on the lead toast and
+in the map screen's LEADS panel. It needed no storage key and no version bump, because the ring
+hangs off the `PoiKind.Secret` slot the cache already occupies: solving it is the same
+`markSecretFound` write a walk-in claim makes.
+
 **`FEAT-DISCOVERY-WRITE-PATHS` is NOT next**, contrary to the hand-off above it: three of its
 four paths are already wired and the fourth (`markSectorClearedOnce`) has no honest producer,
 because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director and a wave
 spawner with a leash-bounded live set never makes a sector "cleared" (the blocker is now on
 that item, so do not re-derive it). The unblocked candidates are now
-`FEAT-SECRET-SEQUENCE-PUZZLES` and `FEAT-DISCOVERY-SCAN-FRAGMENT` (both had
-`FEAT-SECRET-LORE` as a dep and both are free of it), `FEAT-QUEST-CATALOG-DEPTH`, whose fourth
-chain head would be the first one the 3-accept cap ever actually gates, and the newly filed
-`FEAT-SECRET-LORE-CODEX`. `FEAT-ECON-WARDS` stays parked on the operator balance decision: do
-not unpark it. Band 1 is still out of unblocked items. Operator focus: quests and lots of hidden
-rewards on the Metroid map.
+`FEAT-DISCOVERY-SCAN-FRAGMENT` (standing warning, measured 2026-07-31: its two named
+deliverables `revealOnScanPulse` and `revealOnMapFragment` have no producer in the game,
+`ability_signal_decryptor` has no active and `fragmentRegions` appears nowhere in `src/`, so it
+is an inert-deliverable risk until one exists), `FEAT-SECRET-LORE-CODEX`,
+`CHORE-SECRET-LEAD-RADAR`, the newly filed `CHORE-SECRET-PUZZLE-RESUME`, and
+`FEAT-QUEST-CATALOG-DEPTH`, whose fourth chain head would be the first one the 3-accept cap
+ever actually gates but which its own entry puts behind the parked `FEAT-ECON-WARDS` balance
+decision. `FEAT-ECON-WARDS` stays parked on that operator balance decision: do not unpark it.
+Band 1 is still out of unblocked items. Operator focus: quests and lots of hidden rewards on the
+Metroid map.
 
 ## Proposed (auto)
 
@@ -4629,17 +4643,54 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   the only reward that pays in map knowledge rather than in power. Deps:
   `FEAT-DISCOVERY-SCAN-FRAGMENT`. Spec: doc 03 section 1.4 rules 4 and 5, doc 04 section 5.
 
-- [ ] **FEAT-SECRET-SEQUENCE-PUZZLES** (new 2026-07-31, split out of `FEAT-SECRET-LORE`):
-  2-4 switch nodes in a sector (shrine walk-in pattern) activated in an order hinted by a
-  lore fragment; wrong order resets with a distinct fizzle, right order opens a cache or a
-  hidden-sector edge. Pure order-checking state machine + data defs; persistence through
-  `SecretLedger` → `DiscoveryManager.markSecretFound` like every other secret. Done when a
-  puzzle solves across a death (completed activations are run-scoped, solved state is
-  permanent), the hint fragment names a tag the world verifiably contains
-  (integrity-asserted like riddles), and reduced-motion skips the celebration. The fragment
-  carrier now exists (`LORE_FRAGMENTS` + `src/expedition/secretHints.ts`, 885d3bb), so a puzzle
-  hint should reuse `describeSecretLocation` rather than authoring a second riddle grammar.
-  Deps: `FEAT-SECRET-CACHE`. Spec: doc 04 section 5 taxonomy row 3.
+- [x] **FEAT-SECRET-SEQUENCE-PUZZLES** (done, 0da9243): taxonomy row 3 from doc 04 section 5.
+  About a third of every world's hidden caches now sit inside a ring of 3 or 4 sigil pylons that
+  wake in one order, so a secret is something the player solves rather than something they walk
+  over. Value: the player can enter a room, see three pylons ringing a sealed cache, read
+  "Sigils wake in order: hexagon, then triangle, then diamond" on the map screen, wake them in
+  that order and take a payout from a richer reward tier. This is the one taxonomy row that adds
+  an interaction rather than another surface for text that already exists.
+  1. **What shipped**: `src/world/secretPuzzles.ts` (`PUZZLE_GLYPHS`, `buildSecretPuzzle`,
+     `describePuzzleSequence`, `PUZZLE_RING_RADIUS`); a `puzzle` tier in `secretRewards.ts`;
+     `SecretLead.sigils` filled by `buildSecretLead`; the ring itself in `GameScene`
+     (`buildActivePuzzle`, `drawPuzzleNode`, `updateSecretPuzzle`, `touchPuzzleNode`,
+     `noticeSealedCache`) and the sigil clause on the map screen's LEADS panel.
+  2. **A puzzle seals an existing cache and invents no persistence.** The ring hangs off a
+     `PoiKind.Secret` slot, so solving is `markSecretFound` on that slot id and the completion
+     percent, the lead chain, the `findSecret` quest trigger and `secretsFoundTotal` all keep
+     working. Doc 04's `SecretLedger` and the `survivor-secrets-found` key stay unbuilt for the
+     reason `FEAT-SECRET-CACHE` already recorded.
+  3. **The pylons never fade.** The ring is the tell that a cache is in the room, so about 30% of
+     secrets became findable by sight; the cache at its heart keeps the 300px ramp at half alpha
+     while sealed. A puzzle you cannot see is a pixel hunt with extra steps.
+  4. **The ring is shifted to fit the room, never clamped pylon by pylon** (1280x720 sector,
+     radius 150, margin 60): independent clamping can collapse two pylons onto one spot, which is
+     an unsolvable puzzle. `freeSpotNear` then keeps each out of rock.
+  5. **Wrong touch resets the whole ring; a lit pylon re-touched is a no-op**, and progress is
+     scoped to the sector visit while solved state is permanent at the moment of the last touch.
+  6. **Reduced motion skips the new flourishes only** (the wake tween and the fizzle shake); the
+     solve celebration is the unchanged `claimSecretCache` beat, so the two find-shapes still read
+     as one language.
+  7. **A lead names the order but never gates it**: 3 or 4 pylons stay brute-forceable, so the
+     lead saves the trial rather than holding the only key.
+  8. **Cut deliberately** (do not re-derive): the "or a hidden-sector edge" half to
+     `FEAT-SECRET-PUZZLE-DOOR`, and cross-visit progress to `CHORE-SECRET-PUZZLE-RESUME`.
+
+- [ ] **FEAT-SECRET-PUZZLE-DOOR** (new 2026-07-31, cut from `FEAT-SECRET-SEQUENCE-PUZZLES`): the
+  other half of doc 04's taxonomy row 3, a solved ring opening a hidden-sector EDGE rather than a
+  cache. Cut because a sector edge is not in `universe.secretIds`, so solving one has no
+  found-state to write, and because a hidden sector's breakable wall is already its gate: making
+  a ring the second gate needs a generator change and the `WORLDGEN_VERSION` bump that
+  `FEAT-SECRET-HIDDEN-SECTORS` deliberately avoided, which discards every existing profile's
+  discovery state. Value: a room you have to earn twice. Deps: `FEAT-WORLDGEN-STREAM`.
+  Spec: doc 04 section 5 taxonomy row 3.
+
+- [ ] **CHORE-SECRET-PUZZLE-RESUME** (new 2026-07-31, from `FEAT-SECRET-SEQUENCE-PUZZLES`):
+  partial ring progress dies when the ship leaves the sector, because the ring is rebuilt dark by
+  the same `clearSecretCaches` path that fires on a sector change. Harmless on a 3-pylon ring,
+  slightly annoying on a 4-pylon one you had to leave mid-solve. Holding it would mean a
+  run-scoped set of woken pylon ids on the cache entry plus a `poiState`-shaped save field.
+  Value: not re-walking a ring you had half solved. Deps: none.
 
 - [ ] **FEAT-ECON-WARDS**: lock the economy so later content authoring cannot drift balance, as an
   **enforced cap that a runtime path actually applies**, not only as a red fixture. Keep every

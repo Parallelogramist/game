@@ -675,6 +675,32 @@ Three tiers, cheapest first:
   `LifetimeStats.loreFragmentsFound` are `FEAT-SECRET-LORE-CODEX`, because a lifetime integer
   with no reader is a second source of truth waiting to disagree.
 
+### As built (`FEAT-SECRET-SEQUENCE-PUZZLES`, 0da9243, 2026-07-31)
+
+- **Taxonomy row 3 shipped as a ring around an existing cache slot**, not as a standalone
+  puzzle object. About 30% of cache slots seal behind 3 sigil pylons (4 past depth 5), so
+  found-state is `markSecretFound` on the slot id the cache already occupies: no `SecretLedger`,
+  no `survivor-secrets-found` key, no save field and no version bump were needed, and the
+  completion percent, the lead chain, the `findSecret` quest trigger and
+  `LifetimeStats.secretsFoundTotal` all keep working untouched. **The row's `GameScene.ts:4017`
+  shrine-pattern pointer is stale**: the walk-in shape it names now lives in `claimSecretCache` /
+  `updateSecretCaches`, and the puzzle reuses those rather than the shrine spawner.
+- **The hint half is the tier-2 lead, not a second grammar.** `SecretLead.sigils` carries
+  `describePuzzleSequence`, so the fragment that names the place also names the order ("Sigils
+  wake in order: hexagon, then triangle, then diamond"). The order is read off the ring itself,
+  so it cannot name a sigil the room lacks: the same integrity rule `describeSecretLocation`
+  follows, asserted over 5 generated worlds in `secretPuzzles.test.ts`. A lead is never a lock,
+  though: 3 or 4 pylons stay brute-forceable, so it saves the trial rather than holding the key.
+- **The hidden-sector-edge half is filed, not built** (`FEAT-SECRET-PUZZLE-DOOR`). A sector edge
+  is not in `universe.secretIds`, so solving one has no found-state to write, and a hidden
+  sector's breakable wall is already its gate: a second gate needs a generator change and the
+  `WORLDGEN_VERSION` bump `FEAT-SECRET-HIDDEN-SECTORS` deliberately avoided.
+- **The new `puzzle` reward tier** leans the `hiddenSector` way without matching it: half that
+  tier's lean on the twin-chest jackpot (2x rather than 3x) and the same push off the repair
+  bay. An earned find should not pay the table a walked-over find pays, but it is not a whole
+  room the chart never drew either. Econ rule 1 is untouched: no entry pays gold, so the tier
+  only re-weights the existing table.
+
 ---
 
 ## 6. Reward economy
