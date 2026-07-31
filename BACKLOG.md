@@ -3647,12 +3647,18 @@ exploring pays is the end of Phase 5.
   focused-sector tooltip. Deps: land with `FEAT-MAPUI-DOORS-05`, its only consumer. Spec:
   `03-discovery-map-ui.md` section 2.1.
 
-- [ ] **FEAT-MAPUI-PAUSE-ROW**: a `MAP` row in the pause menu and a small map button beside
-  the touch action cluster, both expedition-only. Value: touch has no free physical button, so
-  on a phone the world map is currently unreachable. Deferred out of `FEAT-MAPUI-MAPSCENE-04`
-  because `PauseMenuManager`'s buttons are a hand-staggered layout whose row count is baked
-  into several parallel arrays, and that surgery has nothing to do with the map itself. Deps:
-  `FEAT-MAPUI-MAPSCENE-04`. Spec: `03-discovery-map-ui.md` section 5.
+- [x] **FEAT-MAPUI-PAUSE-ROW** (done — d7b716d): a `World Map` row in the pause menu (between
+  Resume and Settings) and a drawn map button in the touch chrome, both existing only when
+  `worldMode.worldMap() !== null`, so every arena-substrate menu is unchanged. The pause row
+  works by ordering, not by new state: `hidePauseMenu()` runs first (clearing the pause flag
+  `openExpeditionMap` guards on), then the map opens and `MapScene` re-pauses the scene, so
+  closing the map returns to play. The touch button emits the existing `input-map-requested`
+  event; `HUDManager` passes an optional `hasWorldMap` predicate down to
+  `TouchActionButtons`. **One deliberate deviation from this item's own text:** the touch
+  button sits beside the fullscreen toggle in the top-right chrome cluster, not beside the
+  dash/ultimate thumb cluster — the map is a stop-and-look action, a thumb-zone slot would
+  eat mis-taps mid-combat, and it would need a `JoystickManager` exclusion of its own.
+  Browser check filed under **POLISH-MAP-ACCESS** in the playtest queue.
 
 - [ ] **FEAT-MAPUI-DOORS-05**: the map stops being a floor plan and becomes a plan: every
   closed door advertises what it wants. Gate shape glyphs plus a lock ring (never color alone),
@@ -4182,6 +4188,10 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-MAP-ACCESS** (d7b716d): on a phone, does the top-right map button read as
+    "map", is it reachable without shifting grip, and does the pause-menu World Map row
+    read better or worse than a direct button for discoverability? Also confirm the
+    six-row pause menu still fits above the hint text on the smallest supported viewport.
   - **POLISH-SPAWN-LEGALITY** (a16d20f): playtest spawn legality + boss sealing. Owns:
     (a) does the aperture fallback read as "they're pouring in through the door" or as a
     spawner glitch at the mouth; (b) boss rooms now seal (doors slam to violet gate tiles)
