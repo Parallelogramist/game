@@ -96,7 +96,7 @@ describe('classifyEnemyKind', () => {
 });
 
 describe('blipStyle', () => {
-  const kinds: MinimapBlipKind[] = ['enemy', 'pickup', 'elite', 'miniboss', 'boss'];
+  const kinds: MinimapBlipKind[] = ['enemy', 'pickup', 'secret', 'elite', 'miniboss', 'boss'];
 
   test('every kind resolves to a finite, drawable style', () => {
     for (const kind of kinds) {

@@ -24,7 +24,7 @@ const BASE_EDGE_PADDING = 16;
 const MINIMAP_DEPTH = OverlayDepths.MINIMAP;
 
 /** Ascending draw priority — bosses paint over the enemy swarm. */
-const DRAW_ORDER: MinimapBlipKind[] = ['enemy', 'pickup', 'elite', 'miniboss', 'boss'];
+const DRAW_ORDER: MinimapBlipKind[] = ['enemy', 'pickup', 'secret', 'elite', 'miniboss', 'boss'];
 
 /** Alpha the biome wash gets under the wall lines. Line work reads first; the wash only
  *  says "this room is charted". */

@@ -16,6 +16,7 @@ import {
   emptyIdUniverse,
   revealOnEdgeTraversal,
   revealOnPoiCollected,
+  revealOnScanPulse,
   revealOnSecretFound,
   revealOnSecretHinted,
   revealOnSectorEntry,
@@ -98,6 +99,16 @@ export class DiscoveryManager {
   markSecretHinted(secretId: string): DiscoveryChanges {
     if (!this.map) return emptyChanges();
     return this.commit(revealOnSecretHinted(this.state, this.universe, secretId));
+  }
+
+  /** Hint tier 3's only write path (README section 3.7): the decryptor's sweep. Charts outlines
+   *  and points at this room's secrets, and grants neither VISITED nor FOUND, so a sweep can
+   *  never move the completion percent. */
+  applyScanPulse(originSectorKey: string, graphRadius: number): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(
+      revealOnScanPulse(this.state, this.map, this.universe, originSectorKey, graphRadius),
+    );
   }
 
   /** Secrets this profile has already been pointed at or has already found. */

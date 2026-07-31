@@ -15,8 +15,8 @@ import {
   DISCOVERY_VERSION, EdgeFlags, PoiFlags, SecretFlags, SectorFlags, emptyChanges,
 } from './DiscoveryTypes';
 import {
-  buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnSecretFound,
-  revealOnSectorEntry, revealOnVaultGuardCleared, sanitizeDiscoveryState,
+  buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnScanPulse,
+  revealOnSecretFound, revealOnSectorEntry, revealOnVaultGuardCleared, sanitizeDiscoveryState,
 } from './discoveryRules';
 
 const OPEN_EDGE: EdgeDef = { kind: EdgeKind.Open, apertureStart: 10, apertureEnd: 13 };
@@ -61,6 +61,21 @@ function makeWorldWithHiddenEast(): WorldMap {
   const map = makeWorld();
   map.sectors.get('1,0')!.hidden = true;
   return map;
+}
+
+/** A 4-sector east chain, so a radius of 2 has something to fall short of. */
+function makeChainWorld(): WorldMap {
+  const sectors = new Map<string, SectorDef>();
+  for (let sx = 0; sx <= 3; sx++) {
+    const edges: Partial<Record<EdgeDirection, EdgeDef>> = {};
+    if (sx < 3) edges.east = OPEN_EDGE;
+    if (sx > 0) edges.west = OPEN_EDGE;
+    sectors.set(`${sx},0`, makeSector(sx, 0, edges));
+  }
+  return {
+    worldGenVersion: GEN_VERSION, seed: SEED, startKey: '0,0',
+    sectors, abilityOrder: [], bossArenaKey: '3,0',
+  };
 }
 
 describe('discoveryRules', () => {
@@ -286,5 +301,49 @@ describe('revealOnVaultGuardCleared', () => {
     const legacy = sanitizeDiscoveryState(
       { ...state, pois: { [PLAIN_POI_ID]: PoiFlags.SEEN } }, SEED, GEN_VERSION, universe);
     expect(legacy.pois[PLAIN_POI_ID] & PoiFlags.GUARD_CLEARED).toBe(0);
+  });
+});
+
+describe('revealOnScanPulse', () => {
+  it('charts every sector within the radius and stops one hop short of the rest', () => {
+    const map = makeChainWorld();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnScanPulse(state, map, universe, '0,0', 2);
+
+    expect(state.sectors['1,0']).toBe(SectorFlags.DISCOVERED);
+    expect(state.sectors['2,0']).toBe(SectorFlags.DISCOVERED);
+    expect(state.sectors['3,0'] ?? 0).toBe(0);
+    expect(state.sectors['1,0'] & SectorFlags.VISITED).toBe(0);
+    expect(state.sectors['2,0'] & SectorFlags.VISITED).toBe(0);
+    expect(changes.sectorsVisited).toEqual([]);
+    expect(changes.sectorsDiscovered).toContain('1,0');
+    expect(changes.sectorsDiscovered).toContain('2,0');
+    expect(changes.sectorsDiscovered).not.toContain('3,0');
+  });
+
+  it('never charts an unvisited hidden neighbour or the edge into it', () => {
+    const map = makeWorldWithHiddenEast();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnScanPulse(state, map, universe, '0,0', 3);
+
+    expect(state.sectors['1,0']).toBeUndefined();
+    expect(state.edges[SHARED_EDGE_ID]).toBeUndefined();
+    expect(changes.sectorsDiscovered).not.toContain('1,0');
+  });
+
+  it("hints the origin sector's secrets only, and never marks one found", () => {
+    const map = makeWorld();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnScanPulse(state, map, universe, '0,0', 2);
+
+    expect(state.secrets[SECRET_POI_ID]).toBe(SecretFlags.HINTED);
+    expect(changes.secretsHinted).toEqual([SECRET_POI_ID]);
+    expect(changes.secretsFound).toEqual([]);
   });
 });

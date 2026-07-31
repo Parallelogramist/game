@@ -21,7 +21,7 @@ export const MINIMAP_WORLD_RANGE = 900;
 export const MINIMAP_MINIBOSS_XP = 30;
 export const MINIMAP_BOSS_XP = 1000;
 
-export type MinimapBlipKind = 'enemy' | 'elite' | 'miniboss' | 'boss' | 'pickup';
+export type MinimapBlipKind = 'enemy' | 'elite' | 'miniboss' | 'boss' | 'pickup' | 'secret';
 
 export interface MinimapProjection {
   /** Radar-local x offset from center, in px (right = +). */
@@ -88,9 +88,12 @@ export interface MinimapBlipStyle {
 const BLIP_STYLES: Record<MinimapBlipKind, MinimapBlipStyle> = {
   enemy: { color: 0xff4444, radius: 1.5, priority: 0 },
   pickup: { color: 0xffd700, radius: 2.5, priority: 1 },
-  elite: { color: 0xff44ff, radius: 2.5, priority: 2 },
-  miniboss: { color: 0xffaa00, radius: 3.5, priority: 3 },
-  boss: { color: 0xff2222, radius: 4.5, priority: 4 },
+  // The breakable amber (WORLD_GEOMETRY_COLORS.breakable.stroke), the same colour the ambient
+  // shimmer uses, so a scanned cache reads as the thing the radar had been hinting at.
+  secret: { color: 0xcc8833, radius: 3, priority: 2 },
+  elite: { color: 0xff44ff, radius: 2.5, priority: 3 },
+  miniboss: { color: 0xffaa00, radius: 3.5, priority: 4 },
+  boss: { color: 0xff2222, radius: 4.5, priority: 5 },
 };
 
 /** Resolve the draw style for a blip kind; unknown kinds degrade to plain enemy. */

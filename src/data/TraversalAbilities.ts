@@ -132,6 +132,24 @@ export const VAULT_GUARD_PACKS: Record<
   ],
 };
 
+/**
+ * How far the decryptor's sweep reaches before luck widens it, in edge-hops. Two is the
+ * neighbourhood a player could have charted by flying one room in each direction and coming
+ * back, so the ability pays immediately without handing over the map.
+ */
+export const SCAN_PULSE_BASE_GRAPH_RADIUS = 2;
+export const SCAN_PULSE_MAX_GRAPH_RADIUS = 4;
+
+/** luckLevel is the decryptor's synergy hook (doc 04 section 2, "ping range scales"): one extra
+ *  hop per two purchased levels, so that upgrade's maxLevel of 5 tops the sweep out at 4. */
+export function scanPulseGraphRadius(luckLevel: number): number {
+  const purchasedLevels = Number.isFinite(luckLevel) ? Math.max(0, Math.floor(luckLevel)) : 0;
+  return Math.min(
+    SCAN_PULSE_MAX_GRAPH_RADIUS,
+    SCAN_PULSE_BASE_GRAPH_RADIUS + Math.floor(purchasedLevels / 2),
+  );
+}
+
 export function getTraversalAbility(id: string): TraversalAbilityDefinition | undefined {
   return TRAVERSAL_ABILITIES.find((ability) => ability.id === id);
 }
@@ -149,4 +167,5 @@ export function traversalAbilityIndex(id: string): number {
 export const IMPLEMENTED_TRAVERSAL_ABILITY_IDS: ReadonlySet<TraversalAbilityId> = new Set([
   'ability_blink_drive',
   'ability_thermal_ward',
+  'ability_signal_decryptor',
 ]);

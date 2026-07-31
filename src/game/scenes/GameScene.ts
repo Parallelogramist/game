@@ -222,6 +222,7 @@ import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
 import {
   getTraversalAbility, IMPLEMENTED_TRAVERSAL_ABILITY_IDS, VAULT_GUARD_PACKS,
+  scanPulseGraphRadius,
 } from '../../data/TraversalAbilities';
 import {
   claimTraversalAbility, getOwnedTraversalAbilityIds,
@@ -394,6 +395,7 @@ const blinkCollisionResult = createCollisionResult();
 const blinkDirection = { x: 0, y: 0 };
 const BLINK_DRIVE_ID = 'ability_blink_drive';
 const THERMAL_WARD_ID = 'ability_thermal_ward';
+const SIGNAL_DECRYPTOR_ID = 'ability_signal_decryptor';
 
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
@@ -902,6 +904,7 @@ export class GameScene extends Phaser.Scene {
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);
     }
+    this.runDecryptorScan(payload.sectorKey);
   };
 
   /** New sectors on the map are the one discovery event with a live HUD consequence. */
@@ -5321,6 +5324,58 @@ export class GameScene extends Phaser.Scene {
     return this.ownedTraversalAbilityIds.has(THERMAL_WARD_ID);
   }
 
+  /** The same arena guard blinkDriveOwned carries: ArenaModeAdapter.worldMap() is null, so an
+   *  arena run never sweeps even on a profile that has claimed the decryptor. */
+  private decryptorOwned(): boolean {
+    return this.worldMode.worldMap() !== null
+      && this.ownedTraversalAbilityIds.has(SIGNAL_DECRYPTOR_ID);
+  }
+
+  /**
+   * Hint tier 3 (doc 04 section 5): entering a room sweeps the neighbourhood. Sectors in range
+   * come back as outlines, never interiors, and this room's own unfound caches are pointed at.
+   *
+   * It fires on entry rather than on a button because a keyboard-only active would hand the
+   * ability to one of the three input paths; the radar blip in updateMinimap is the responsive
+   * half the spec's "active" was reaching for, and it is live on every input device.
+   *
+   * The fragment grant is not a bonus: MapScene's LEADS panel prints a fragment's text for every
+   * HINTED secret, so hinting without granting would spoil in LEADS what the Codex still lists
+   * as unrecovered.
+   */
+  private runDecryptorScan(sectorKey: string): void {
+    if (!this.decryptorOwned()) return;
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+
+    const changes = getDiscoveryManager().applyScanPulse(
+      sectorKey,
+      scanPulseGraphRadius(getMetaProgressionManager().getUpgradeLevel('luckLevel')),
+    );
+    if (changes.secretsHinted.length === 0) return;
+
+    const codex = getCodexManager();
+    let loggedAnyFragment = false;
+    for (const secretId of changes.secretsHinted) {
+      const lead = buildSecretLead(map, secretId);
+      if (lead && codex.discoverLoreFragment(lead.fragment.id)) loggedAnyFragment = true;
+    }
+    if (loggedAnyFragment) {
+      getAchievementManager().setLoreFragmentsFound(codex.getDiscoveredLoreCount());
+    }
+
+    const hintedCount = changes.secretsHinted.length;
+    this.toastManager?.showToast({
+      title: 'SIGNAL DECRYPTED',
+      description: hintedCount === 1
+        ? 'A cache is concealed in this sector.'
+        : `${hintedCount} caches are concealed in this sector.`,
+      icon: 'radar',
+      color: WORLD_GEOMETRY_COLORS.breakable.stroke,
+      duration: 3200,
+    });
+  }
+
   /** dashLevel is Blink Drive's synergy hook (doc 04 section 2): -1s per purchased level.
    *  The floor only bites if that upgrade's maxLevel is ever raised past the base. */
   private blinkCooldownSeconds(): number {
@@ -7205,6 +7260,18 @@ export class GameScene extends Phaser.Scene {
       const vault = this.activeVaults[i];
       this.writeMinimapEntry(count++, vault.x, vault.y, 'pickup');
     }
+
+    // Hint tier 3: the decryptor puts this room's unfound caches on the radar by POSITION,
+    // which is precisely what the ambient shimmer withholds. Without the ability the shimmer
+    // below is still all the player gets. activeSecretCaches is the sector's own unfound set,
+    // so a claim splices a cache out and its blip stops in the same frame.
+    if (this.decryptorOwned()) {
+      for (let i = 0; i < this.activeSecretCaches.length; i++) {
+        const cache = this.activeSecretCaches[i];
+        this.writeMinimapEntry(count++, cache.x, cache.y, 'secret');
+      }
+    }
+
     const consumableIds = minimapConsumableQuery(this.world);
     for (let i = 0; i < consumableIds.length; i++) {
       const consumableId = consumableIds[i];

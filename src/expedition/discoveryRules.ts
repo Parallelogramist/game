@@ -262,6 +262,70 @@ export function revealOnSecretHinted(
   return changes;
 }
 
+/**
+ * Scan pulse (doc 03 section 1.4 rule 4): a BFS out to `graphRadius` edge-hops over the sector
+ * graph. Reached sectors gain DISCOVERED and the edges crossed to reach them gain KNOWN, but
+ * only the ORIGIN sector's secrets gain HINTED: a sweep that pointed at every secret four hops
+ * out would delete hint tiers 1 and 2 in one press.
+ *
+ * Outlines, never interiors. Nothing here grants VISITED or FOUND, so the reason to fly there
+ * survives and the completion percent cannot move.
+ *
+ * The hidden-sector guard revealOnSectorEntry carries applies identically, and the BFS also
+ * refuses to expand THROUGH an unvisited hidden sector: charting the far side would answer the
+ * question the breakable wall exists to ask (CHORE-DISCOVERY-HIDDEN-SCAN-GUARD).
+ */
+export function revealOnScanPulse(
+  state: DiscoveryState,
+  map: WorldMap,
+  universe: WorldIdUniverse,
+  originSectorKey: string,
+  graphRadius: number,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  if (!universe.sectorKeys.has(originSectorKey)) return changes;
+  if (!Number.isFinite(graphRadius) || graphRadius < 0) return changes;
+
+  addSector(state, changes, originSectorKey, SectorFlags.DISCOVERED);
+
+  const originSector = map.sectors.get(originSectorKey);
+  if (originSector) {
+    for (const slot of originSector.poiSlots) {
+      if (slot.kind !== PoiKind.Secret) continue;
+      if (universe.secretIds.has(slot.id)) addSecret(state, changes, slot.id, SecretFlags.HINTED);
+    }
+  }
+
+  const hopsByKey = new Map<string, number>([[originSectorKey, 0]]);
+  const queue: string[] = [originSectorKey];
+  for (let head = 0; head < queue.length; head++) {
+    const sectorKey = queue[head];
+    const hops = hopsByKey.get(sectorKey) ?? 0;
+    if (hops >= graphRadius) continue;
+    const sector = map.sectors.get(sectorKey);
+    if (!sector) continue;
+
+    for (const direction of EDGE_DIRECTIONS) {
+      if (sector.edges[direction].kind === EdgeKind.Wall) continue;
+      const { dsx, dsy } = directionDelta(direction);
+      const neighbourKey = `${sector.sx + dsx},${sector.sy + dsy}`;
+      if (!universe.sectorKeys.has(neighbourKey)) continue;
+      if (universe.hiddenSectorKeys.has(neighbourKey)
+        && ((state.sectors[neighbourKey] ?? 0) & SectorFlags.VISITED) === 0) continue;
+
+      const edgeId = edgeIdFor(sector.sx, sector.sy, direction);
+      if (universe.edgeIds.has(edgeId)) addEdge(state, changes, edgeId, EdgeFlags.KNOWN);
+      addSector(state, changes, neighbourKey, SectorFlags.DISCOVERED);
+
+      if (hopsByKey.has(neighbourKey)) continue;
+      hopsByKey.set(neighbourKey, hops + 1);
+      queue.push(neighbourKey);
+    }
+  }
+
+  return changes;
+}
+
 function addSector(
   state: DiscoveryState, changes: DiscoveryChanges, id: string, flags: number,
 ): void {
