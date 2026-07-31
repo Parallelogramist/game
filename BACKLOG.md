@@ -78,11 +78,23 @@ unlocks read it at 3 hidden sectors (one world) and 15 (five), each with a ship 
 No version bump and no new UI: both conditions carry `getProgress`, so the vault rows, the
 post-run closest-to-unlock panel and the paint picker's locked cards already render them.
 
-**The next session takes `FEAT-DISCOVERY-WRITE-PATHS`**, since three of its four write paths
-now have live consumers. After it, the remaining band-2 items are larger: `FEAT-SECRET-LORE`,
-`FEAT-SECRET-SEQUENCE-PUZZLES` and `FEAT-DISCOVERY-SCAN-FRAGMENT`. `FEAT-ECON-WARDS` stays
-parked on the operator balance decision: do not unpark it. Band 1 is still out of unblocked
-items. Operator focus: quests and lots of hidden rewards on the Metroid map.
+`FEAT-QUEST-SECRET-CHAIN` (6e72c65) joined the two halves the last six sessions built: the
+`findSecret` trigger kind shipped with the chain that uses it, so a quest step can finally ask
+the player to explore rather than to kill, dive or open a door. `quest_secret_01` "Ghost
+Signals" hands off to `quest_secret_02` "Voidmason's Ledger", both producers
+(`claimSecretCache`, `announceHiddenSector`) record through the existing `worldMap()` guard,
+and no UI, storage key or version constant changed.
+
+**`FEAT-DISCOVERY-WRITE-PATHS` is NOT next**, contrary to the hand-off above it: three of its
+four paths are already wired and the fourth (`markSectorClearedOnce`) has no honest producer,
+because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director and a wave
+spawner with a leash-bounded live set never makes a sector "cleared" (the blocker is now on
+that item, so do not re-derive it). The unblocked candidates are the remaining band-2 items,
+which are larger: `FEAT-SECRET-LORE`, `FEAT-SECRET-SEQUENCE-PUZZLES` and
+`FEAT-DISCOVERY-SCAN-FRAGMENT`, plus `FEAT-QUEST-CATALOG-DEPTH`, whose fourth chain head would
+be the first one the 3-accept cap ever actually gates. `FEAT-ECON-WARDS` stays parked on the
+operator balance decision: do not unpark it. Band 1 is still out of unblocked items. Operator
+focus: quests and lots of hidden rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -3514,20 +3526,23 @@ exploring pays is the end of Phase 5.
     section 10.
   Deps: `FEAT-DISCOVERY-STATE-01`, W4.
 
-- [ ] **FEAT-DISCOVERY-WRITE-PATHS**: the four discovery write paths whose callers do not
-  exist yet, to be added as each caller lands. `markSectorClearedOnce` needs the sector
-  director from `FEAT-WORLDGEN-SPAWN`; **`markPoiCollected` is resolved (a2361d0)**, because
-  `FEAT-POWER-VAULTS` is the real pickup its caller was waiting on: `revealOnPoiCollected` sets
-  `PoiFlags.COLLECTED | PoiFlags.SEEN` and the ability-vault claim is the one call site. It is
-  write-only for now and that is deliberate, since ability ownership (not this flag) is what
-  decides whether a vault respawns; the flag is map memory. `markSecretFound` needs
-  `FEAT-SECRET-CACHE`, and README section 3.7 makes it the
-  only write path for the spatial found-flag, so `SecretLedger` must call it rather than keep
-  a parallel flag of its own. Their flags, their records and their sanitizer coverage already
-  shipped with `FEAT-DISCOVERY-STATE-01`, so each is one method plus its caller, with no
-  version bump. Value: without them the map can never show a cleared room, a collected
-  treasure or a found secret. Deps: one per bullet as listed. Spec:
-  `03-discovery-map-ui.md` sections 1.4, 2.1.
+- [ ] **FEAT-DISCOVERY-WRITE-PATHS**: **three of the four paths are already wired and only
+  `markSectorClearedOnce` is left, and it is blocked. Do not re-derive this.**
+  `markPoiCollected` is resolved (a2361d0), because `FEAT-POWER-VAULTS` is the real pickup its
+  caller was waiting on: `revealOnPoiCollected` sets `PoiFlags.COLLECTED | PoiFlags.SEEN` and
+  the ability-vault claim is the one call site. It is write-only for now and that is
+  deliberate, since ability ownership (not this flag) is what decides whether a vault respawns;
+  the flag is map memory. `markSecretFound` is resolved too (756f346, called at
+  `GameScene.ts:4831`), and README section 3.7 makes it the only write path for the spatial
+  found-flag, so `SecretLedger` calls it rather than keeping a parallel flag of its own;
+  `markSectorEntered` / `markEdgeTraversed` are wired at `GameScene.ts:852-853`.
+  `markSectorClearedOnce` has **no honest producer today**: `FEAT-WORLDGEN-SPAWN` (a16d20f)
+  deliberately did not build the sector-scoped director and deferred it to
+  `FEAT-WORLDGEN-STREAM`, and with a wave spawner and a leash-bounded live set there is no
+  moment at which a sector becomes "cleared", so building the flag now means inventing
+  semantics for a renderer notch (`SectorMapRenderer.ts:184`) rather than shipping a
+  capability. That notch stays unreachable until the director exists. Value: the map showing a
+  cleared room. Deps: `FEAT-WORLDGEN-STREAM`. Spec: `03-discovery-map-ui.md` sections 1.4, 2.1.
 
 - [ ] **FEAT-DISCOVERY-SCAN-FRAGMENT**: `revealOnScanPulse` (a BFS over the sector graph out
   to a hop radius) and `revealOnMapFragment` (reveal a fragment's region as outlines, never
@@ -4130,12 +4145,13 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
         are `FEAT-QUEST-BOARD` by name, so `QuestGiver` POI slots stay inert and quests
         auto-activate instead of being accepted.
 
-- [ ] **FEAT-QUEST-TRIGGERS-REST**: the four doc 04 trigger kinds `FEAT-QUEST-CHAINS` could
-  not produce a signal for (`findSecret`, `surviveInSector`, `escortDrone`, `deliverItem`),
-  plus the `sectorTag` / `routeTag` vocabulary a `reachSector` trigger would need, exported
-  from the generator so quest and riddle referential integrity can assert against it. Deps:
-  `FEAT-SECRET-CACHE` (found-state), `FEAT-WORLDGEN-STREAM` (persistence-exemption API for
-  delivered items). Spec: doc 04 section 4 + README section 3.1.
+- [ ] **FEAT-QUEST-TRIGGERS-REST**: the three doc 04 trigger kinds still without a producer
+  (`surviveInSector`, `escortDrone`, `deliverItem`), plus the `sectorTag` / `routeTag`
+  vocabulary a `reachSector` trigger would need, exported from the generator so quest and
+  riddle referential integrity can assert against it. `findSecret` is no longer one of them: it
+  shipped with `FEAT-QUEST-SECRET-CHAIN` (6e72c65) as
+  `{ kind: 'findSecret'; secretKind?: SecretTier }`. Deps: `FEAT-WORLDGEN-STREAM`
+  (persistence-exemption API for delivered items). Spec: doc 04 section 4 + README section 3.1.
 
 - [ ] **FEAT-QUEST-COMPLETION-RELIC**: `completionRelicRoll` on a chain's final quest, one
   roll on the STANDARD relic table. Deliberately cut from `FEAT-QUEST-CHAINS` so the odds are
@@ -4191,13 +4207,57 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
      re-reads the store by itself. A `worldMap()` null check keeps the line empty for arena, daily,
      gauntlet and practice runs without a mode flag, and an active bounty never pays for any of it.
 
-- [ ] **FEAT-QUEST-CATALOG-DEPTH**: the catalog holds 5 quests in 2 chains and both heads
-  auto-activate at once, so a player who finishes them has no quests left and the 3-accept cap is
-  never contended. Value: a chain that keeps arriving is what makes the objective readouts
-  `FEAT-QUEST-VIEW` shipped worth looking at past the first hour, and more heads than the cap is
-  also the precondition that gives `FEAT-QUEST-BOARD`'s accept UI something to accept. Deps:
-  `FEAT-ECON-WARDS` (the quest-gold band new rewards must sit inside), and
-  `FEAT-QUEST-TRIGGERS-REST` for anything beyond the four shipped triggers.
+- [x] **FEAT-QUEST-SECRET-CHAIN** (done, 6e72c65): quests finally ask the player to
+  explore. Five sessions built the secret layer (caches 756f346, the radar shimmer 9d8f9c5,
+  hidden sectors c242028, the reward table b970287, the lifetime counter cf08619) and no step in
+  any quest referred to it, because `findSecret` had no producer when `FEAT-QUEST-CHAINS`
+  authored the trigger union. Two producers exist now, so the kind shipped along with a chain
+  that uses it.
+  1. **The trigger is `{ kind: 'findSecret'; secretKind?: SecretTier }`, not doc 04's
+     `secretId?`**. A secret's id is generated per world (`poi:12,-3:0`), so a static catalog
+     cannot name one; the authorable axis is which KIND of find, and `SecretTier`
+     (`src/world/secretRewards.ts`) is the shipped vocabulary for exactly that split, imported
+     `import type` so no runtime edge from `src/data/` into `generateWorld` is created. Omitting
+     `secretKind` matches either kind, the `claimAbility` / `abilityId` shape.
+  2. **The chain**: `quest_secret_01` "Ghost Signals" (2 caches on one expedition, run-scope;
+     then one hidden sector, persistent) hands off to `quest_secret_02` "Voidmason's Ledger" (12
+     secrets of either kind; then 5 hidden sectors, both persistent). Gold 90/140 + 180 and
+     200/240 + 340, inside the shipped band of 60 to 250 per step and 120 to 350 per completion,
+     so like `FEAT-SECRET-REWARD-VARIETY` it did **not** wait on the parked `FEAT-ECON-WARDS`
+     decision.
+  3. **No `grantsKeyId`.** A third key feeds `EXPEDITION_QUEST_KEY_ORDER` into the generator and
+     would seal a third region on every seed; that is `FEAT-QUESTDOOR-CATALOG-DEPTH` and needs
+     its own placement evidence. This chunk changes no generated layout at all.
+  4. **Persistent counters start at activation**, not seeded from the lifetime
+     `secretsFoundTotal` / `hiddenSectorsFoundTotal`. That is how the shipped persistent kill
+     steps already behave, and seeding would turn the lifetime stats into a second source of
+     truth for quest progress.
+  5. **No UI work, and none was needed**: the HUD ticker and the map OBJECTIVES panel render
+     `getActiveQuestStepViews()` as-is, and `recordExpeditionQuest` already toasts and pays. It
+     also adds no storage key, no `SAVE_VERSION` / `WORLDGEN_VERSION` / `ACHIEVEMENT_VERSION`
+     bump; an existing profile picks the new head up on its next expedition, because
+     `seedQuestStates` seeds any head the profile does not hold.
+  6. **Three active quests is now the steady state**, which equals
+     `ACTIVE_EXPEDITION_QUEST_LIMIT`, so a fourth chain head will be the first one the accept
+     cap ever actually gates (the precondition `FEAT-QUEST-BOARD`'s accept UI is waiting on).
+  7. **Tests: two**, both on the optional-discriminator matching in
+     `QuestProgress.test.ts`, mirroring the shipped `an ability trigger matches only its named
+     ability`; plus one line in `referentialIntegrity.test.ts` bounding a run-scope `findSecret`
+     target at 3. The catalog rows themselves needed none: the integrity suite already asserts
+     ids, icons, step-id form, chain length, acyclicity and reward positivity over every entry.
+     The fixture's two new chain heads pushed `seedQuestStates`'s own seeding test past the
+     activeLimit of 3 it passed, so that limit became 4: with 4 heads and a cap of 3 the
+     "never re-seeds a held quest" half would have passed for a cap reason instead of a held
+     one, which is weakening the assertion rather than updating its count.
+  Deps met: `FEAT-SECRET-CACHE`, `FEAT-SECRET-HIDDEN-SECTORS`. Spec: doc 04 section 4.
+
+- [ ] **FEAT-QUEST-CATALOG-DEPTH**: the catalog holds 7 quests in 3 chains, and with all three
+  heads active at once the set now sits exactly at the 3-accept cap, so a **fourth** chain head
+  is what first contends it. Value: a chain that keeps arriving is what makes the objective
+  readouts `FEAT-QUEST-VIEW` shipped worth looking at past the first hour, and more heads than
+  the cap is also the precondition that gives `FEAT-QUEST-BOARD`'s accept UI something to
+  accept. Deps: `FEAT-ECON-WARDS` (the quest-gold band new rewards must sit inside), and
+  `FEAT-QUEST-TRIGGERS-REST` for anything beyond the five shipped triggers.
 
 - [ ] **FEAT-QUEST-BOARD**: the remainder of quest surfacing after `FEAT-QUEST-VIEW` (5a0295d)
   shipped its HUD-line half and answered map surfacing with a text panel. Two pieces are left.
@@ -4270,11 +4330,12 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   discards existing per-seed discovery state, which is exactly why 756f346 did not do it. Deps:
   `FEAT-BARRIER-GATES`.
 
-- [ ] **CHORE-QUEST-TRIGGER-FINDSECRET** (new 2026-07-31): `FEAT-QUEST-CHAINS` cut the
-  `findSecret` trigger kind because nothing in the game produced the signal.
-  `GameScene.claimSecretCache` (756f346) is now that producer, so `FEAT-QUEST-TRIGGERS-REST` can
-  add the union member and a quest that hangs off it. Deps: `FEAT-QUEST-CATALOG-DEPTH` (needs a
-  quest to hang it on).
+- [x] **CHORE-QUEST-TRIGGER-FINDSECRET** (done, 6e72c65) (new 2026-07-31): `FEAT-QUEST-CHAINS`
+  cut the `findSecret` trigger kind because nothing in the game produced the signal.
+  `GameScene.claimSecretCache` (756f346) is now that producer, and so is
+  `GameScene.announceHiddenSector` (c242028). `FEAT-QUEST-SECRET-CHAIN` added the union member
+  and the two-quest chain that hangs off it, so the kind shipped with a user of it rather than
+  inert.
 
 - [ ] **CHORE-QUESTDOOR-MAP-LEGEND** (new 2026-07-31, from `FEAT-WORLDGEN-QUESTDOORS`): the
   `key` glyph now appears on real maps rather than never, so `FEAT-MAPUI-DOORS-05`'s legend

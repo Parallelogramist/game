@@ -470,6 +470,30 @@ the target so an overshot persistent counter never displays as 412/400).*
   of a chain.
 - Chains are at most 3 quests long, and `nextQuestId` cycles are a red test.
 
+### As built (`FEAT-QUEST-SECRET-CHAIN`, 6e72c65, 2026-07-31)
+
+`findSecret` shipped, with three deliberate departures from the data shape above.
+
+1. **`secretKind?: SecretTier`, not `secretId?`.** A secret's id is generated per world
+   (`poi:12,-3:0`), so a static catalog can never name one and a `secretId` trigger would be
+   unauthorable. The authorable axis is which kind of find, and `SecretTier`
+   (`'cache' | 'hiddenSector'`, `src/world/secretRewards.ts`) is the split the reward table
+   already uses. Omitting it matches either kind, exactly as `claimAbility`'s optional
+   `abilityId` does.
+2. **The "auto-complete an already-found secret" anti-chore rule does not apply** to what
+   shipped: no step names a specific secret, every step counts finds, and a count step is
+   satisfied by playing rather than by re-finding anything.
+3. **Persistent counters start at activation.** A profile that had already found 40 caches
+   starts `quest_secret_02.s1` at 0, identical to the shipped persistent kill steps. Seeding
+   from `LifetimeStats.secretsFoundTotal` would make that counter a second source of truth for
+   quest progress.
+
+The producers are `GameScene.claimSecretCache` and `GameScene.announceHiddenSector`, each a
+single last-statement `recordExpeditionQuest` call behind the existing `worldMap()` guard, so
+arena, daily, gauntlet and practice runs stay out. The chain (`quest_secret_01` ->
+`quest_secret_02`) grants no quest key: a third key would seal a third region on every seed,
+which is `FEAT-QUESTDOOR-CATALOG-DEPTH`.
+
 ---
 
 ## 5. Secrets
