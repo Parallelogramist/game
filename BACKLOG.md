@@ -30,7 +30,11 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 ## Now
 
-(empty — next agent: take the topmost Next item)
+**Expedition is the live default run mode since 02c4b74 (2026-07-31).** Fleet agents:
+work the **post-promote content plan** (search this file for "The post-promote content
+plan") top to bottom — band 1 starts at `FEAT-POI-CATALOG`, which turns the placed but
+inert Treasure/Shrine/Secret/QuestGiver slots into real rewards. Operator focus: quests
+and lots of hidden rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -2176,10 +2180,12 @@ any single architecture doc** where they disagree. Then read the doc that owns y
 `04-content-quests-powerups-secrets.md`. Each doc's section 10 holds the full done-criteria
 for its chunks; the entries below are the index, not the spec.
 
-Three standing rules for the whole epic: **arena mode stays byte-identical** until
-`GATE-EXPEDITION-PROMOTE` is answered (everything ships behind the `?expedition=1` dev
-route), `src/world/` and `src/expedition/` **never import Phaser**, and every chunk leaves
-the game playable with the suite green.
+Three standing rules for the whole epic, updated 2026-07-31 now that
+`FEAT-EXPEDITION-PROMOTE` has run (02c4b74): **expedition is the live default**, so every
+chunk here changes the shipped game, not a dev route — the "arena byte-identical" rule is
+retired for expedition work but arena-substrate modes (skirmish, daily, practice, gauntlet)
+must stay untouched by construction, adapter-seam style; `src/world/` and `src/expedition/`
+**never import Phaser**; and every chunk leaves the game playable with the suite green.
 
 #### Phase 0: pure foundations (no game code imports these yet, zero risk)
 
@@ -3893,7 +3899,35 @@ exploring pays is the end of Phase 5.
   opened. Done when every animation degrades to an instant state under reduced motion and toast
   queueing stays one-at-a-time. Deps: `FEAT-MAPUI-RADAR-UNDERLAY-06`, `FEAT-POWER-VAULTS`.
 
-#### Phase 6: content and guard rails
+#### The post-promote content plan: quests + lots of hidden rewards (refined 2026-07-31)
+
+Operator direction: expedition is now the live default (02c4b74), and future fleet work
+on this repo concentrates on **quests** and **many hidden rewards for exploring the
+Metroid-style map**. This section is the refined plan; fleet agents work it **top to
+bottom in the bands below** unless an item's own deps force otherwise. The specs for
+every item live in `references/map/04-content-quests-powerups-secrets.md` (and doc 03
+for discovery); read `references/map/README.md` first as always.
+
+**Band 1 — make the placed slots real (highest value per session).** The generator has
+placed `Treasure` / `Shrine` / `Secret` / `QuestGiver` POI slots in every world since
+`FEAT-WORLDGEN-CORE`, and only the ability vaults are real. Every other slot is an
+invisible no-op today, which means the default mode's map is emptier than it looks.
+`FEAT-POI-CATALOG` first, then `FEAT-QUEST-CHAINS` + `FEAT-ECON-WARDS` so the reward
+economy is locked BEFORE the content flood, then `FEAT-QUEST-BOARD` and
+`FEAT-WORLDGEN-QUESTDOORS`.
+
+**Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
+`FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
+`FEAT-SECRET-SEQUENCE-PUZZLES`, `FEAT-DISCOVERY-SCAN-FRAGMENT`, the
+`FEAT-DISCOVERY-WRITE-PATHS` remainder, `FEAT-POWER-VAULT-GUARD`,
+`FEAT-POWER-ABILITY-EFFECTS-REST`, `FEAT-DISCOVERY-FEEDBACK-07`.
+
+**Band 3 — infrastructure the content leans on** (pull one forward when a band-1/2 item
+names it as a dep): `FEAT-WORLDGEN-STREAM` (owns the persistence-exemption API quest
+drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSOR-HITTEST`
+(quest/secret map markers), `FEAT-MAPUI-PAUSE-ROW` follow-ups, `FEAT-MAPUI-TOUCH-A11Y-08`,
+`FEAT-BARRIER-BREACH-BEAMS`, `POLISH-NAV-STUCK-NUDGE`, `FEAT-BARRIER-WRAITH-PHASE`,
+`CHORE-NAV-LOS-BUDGET`, `BALANCE-HAZARD-SCALING` (blocked on its human gate).
 
 - [ ] **FEAT-QUEST-CHAINS**: the missing layer, multi-step objectives that span runs. Pure
   `src/systems/QuestProgress.ts` state machine plus data defs and a manager in the
@@ -3916,6 +3950,54 @@ exploring pays is the end of Phase 5.
 - [ ] **FEAT-SECRET-LORE**: secrets are hinted, not stumbled into: lore fragments, riddles that
   name a location tag the profile's world actually contains (integrity-asserted), sequence
   puzzles, and the decryptor ping. Deps: `FEAT-SECRET-CACHE`, `FEAT-POWER-TRAVERSAL`.
+  **Scope note (2026-07-31): sequence puzzles moved to their own chunk below** — this item
+  keeps fragments, riddles and the ping.
+
+- [ ] **FEAT-SECRET-AMBIENT-PING** (new 2026-07-31): hint tier 1 from doc 04 section 5 —
+  within one screen of an unfound secret, a faint minimap shimmer ping (respecting
+  `settings-minimap-enabled` and reduced motion). Value: with "lots of hidden rewards" the
+  difference between delight and pixel-hunt chore is the cheapest hint tier existing from
+  day one; it also makes every other secret chunk playtestable without a guide. Done when
+  the shimmer appears only inside the radius, never names the secret, and fires nothing
+  once the secret is found. Deps: `FEAT-SECRET-CACHE` (found-state),
+  `FEAT-MAPUI-RADAR-UNDERLAY-06` (shipped). Spec: doc 04 section 5, doc 03 minimap contract.
+
+- [ ] **FEAT-SECRET-HIDDEN-SECTORS** (new 2026-07-31): whole sectors flagged hidden by the
+  generator — absent from the map and the completion denominator until entered (doc 04
+  taxonomy row 2). Generator half: mark 2-4 non-critical-path leaf sectors
+  `hidden: true` behind a breakable or false-wall edge (never gating an ability vault or
+  the boss, so solvability invariants are untouched); bumps `WORLDGEN_VERSION`. Discovery
+  half: hidden sectors excluded from `revealOnAdjacentDiscovery`/outline reveals; map
+  renderer draws nothing until first entry, then a distinct "hidden found" tint;
+  completion % counts them only once entered. Value: the strongest Metroid reward shape —
+  a room that was not on the map at all. Done when a hidden sector never appears from
+  adjacency or fragments, appears permanently after one entry, and the invariant suite
+  still proves full reachability with breakables passable. Deps: `FEAT-SECRET-CACHE`,
+  `FEAT-DISCOVERY-HOOKS-03` (shipped). Spec: doc 04 section 5 taxonomy + doc 02 generator.
+
+- [ ] **FEAT-SECRET-REWARD-VARIETY** (new 2026-07-31): what a found secret PAYS, as one
+  data-driven table instead of per-chunk hardcoding: gold caches (band-checked by
+  `FEAT-ECON-WARDS`), relic-roll chests (arena table, count-not-odds, per econ rule 1),
+  field-boost bundles (`FIELD_BOOSTS` shipped — 1a8049d), a consumable pack, a map
+  fragment (feeds `FEAT-DISCOVERY-SCAN-FRAGMENT`), and rarely a lore fragment
+  (feeds `FEAT-SECRET-LORE`). One pure `src/world/secretRewards.ts` roll keyed by secret
+  tier + depth band, deterministic per (seed, secretId), with a data test asserting every
+  entry sits inside the econ caps. Value: "lots of hidden rewards" only stays interesting
+  if finding the tenth secret can still surprise; a table also gives `FEAT-ECON-WARDS` one
+  choke point to assert. Done when every secret kind pays through this table and a
+  deliberate cap violation in a fixture goes red. Deps: `FEAT-SECRET-CACHE`,
+  `FEAT-ECON-WARDS`. Spec: doc 04 sections 5-6.
+
+- [ ] **FEAT-SECRET-SEQUENCE-PUZZLES** (new 2026-07-31, split out of `FEAT-SECRET-LORE`):
+  2-4 switch nodes in a sector (shrine walk-in pattern) activated in an order hinted by a
+  lore fragment; wrong order resets with a distinct fizzle, right order opens a cache or a
+  hidden-sector edge. Pure order-checking state machine + data defs; persistence through
+  `SecretLedger` → `DiscoveryManager.markSecretFound` like every other secret. Done when a
+  puzzle solves across a death (completed activations are run-scoped, solved state is
+  permanent), the hint fragment names a tag the world verifiably contains
+  (integrity-asserted like riddles), and reduced-motion skips the celebration. Deps:
+  `FEAT-SECRET-CACHE`, `FEAT-SECRET-LORE` (fragment carrier). Spec: doc 04 section 5
+  taxonomy row 3.
 
 - [ ] **FEAT-ECON-WARDS**: lock the economy so later content authoring cannot drift balance.
   Exploration grants more relic ROLLS and never better odds (table deep-equality assert),
@@ -3930,18 +4012,25 @@ exploring pays is the end of Phase 5.
 
 #### Phase 7: promotion
 
-- [ ] **FEAT-EXPEDITION-PROMOTE**: expedition becomes the default run mode and the arena
-  becomes the skirmish entry (operator decision 2026-07-27). Flips the `runMode` default in
-  `GameScene.init`, retires the `?expedition=1` dev route, reworks the BootScene entry and the
-  pre-run funnel (`WeaponSelectScene` to `PactSelectScene`) to start an expedition, and keeps
-  arena reachable as an explicit choice. **Arena stays the substrate for the daily challenge,
-  practice and boss-rotation modes**, which are tuned for a fixed room and must keep routing
-  there. Done when a cold profile starts an expedition, an existing v1 arena save still restores
-  as an arena run, every arena-only entry point (daily challenge, practice, gauntlet, endless)
-  still lands in an arena run, and world level, achievements and hidden unlocks fire correctly
-  from an expedition run. Deps: all of phases 0 to 6. **Do not start this chunk before phase 6
-  is complete**: promoting an unfinished mode ships a worse default game than exists today.
-  The readiness call itself is human (see `## Human gates`), including OQ-1 seam pop.
+- [x] **FEAT-EXPEDITION-PROMOTE** (done — 02c4b74; operator decision 2026-07-27, **flip
+  ordered by the operator 2026-07-31**, which supersedes this item's own "not before phase 6"
+  rule — the remaining phase-6 content ships as post-promote fleet work, see the plan section
+  below): expedition IS the default run. `GameScene.resolveRunMode` replaces the URL check —
+  explicit `runMode` wins, daily/weekly + practice + gauntlet resolve to arena, everything
+  else (cold profile, standard funnel, replay/surprise) starts an expedition; the
+  `?expedition=1` dev route is retired. Arena survives as a **SKIRMISH** card in the boot
+  menu's mode deck, threading `runMode: 'arena'` through the six funnel scenes exactly as
+  `gauntletMode` threads; `LastLoadout` gained an optional `runMode` so one-tap replay of a
+  skirmish stays a skirmish (absent on old payloads → the new default, correct). Restore
+  guesses expedition and `create()` rebuilds from the save's own mode via the documented
+  `runMode ?? 'arena'` contract, so v1 AND v2 arena saves restore as arena runs and a
+  corrupt save falls through to a fresh run in the correct default. World level,
+  achievements and hidden unlocks were verified mode-agnostic (gated only on
+  practice/gauntlet). Landed same-session behind it: spawn legality + boss sealing
+  (a16d20f), density (68b96bf) and non-keyboard map access (d7b716d), which were the real
+  "worse default game" risks. **The browser readiness pass the old gate wanted is NOT
+  waived**: it is now **POLISH-EXPEDITION-DEFAULT** in the playtest queue, OQ-1 seam pop
+  included, and a bad verdict reverts one commit.
 
 - [x] **FEAT-PWA-OFFLINE** — installable, offline-capable PWA (done —
   4a0c864). Full write-up moved to `BACKLOG-archive.md`. Playtest follow-up
@@ -4168,13 +4257,12 @@ exploring pays is the end of Phase 5.
 
 Never agent work. The fleet must not do any of these.
 
-- **GATE-EXPEDITION-PROMOTE** (EPIC-EXPEDITION): **answered 2026-07-27, expedition becomes
-  the default run mode.** What remains human is the *readiness* call, not the direction: only
-  a human flying the world in a browser can say the default is ready to change, and OQ-1 (seam
-  pop, `references/map/README.md` section 4.2) is a ship blocker for it. Until
-  `FEAT-EXPEDITION-PROMOTE` runs, every expedition chunk stays behind `?expedition=1` and the
-  arena run stays byte-identical. The architecture keeps the flip cheap: the mode seam
-  (`WorldModeAdapter`) is one object, not a fork of `GameScene`.
+- **GATE-EXPEDITION-PROMOTE** (EPIC-EXPEDITION): **answered 2026-07-27; flip EXECUTED
+  2026-07-31 by operator directive** ("finish it already"), which the session read as the
+  operator making the readiness call this gate reserved — recorded here so no future agent
+  treats the early flip as an agent overreach. The verification half is not waived: it moved
+  to **POLISH-EXPEDITION-DEFAULT** in the playtest queue below, and the mode seam keeps a
+  revert cheap (one commit, 02c4b74, flips it back).
 
 - **GATE-EXPEDITION-RECALL** (EPIC-EXPEDITION): **answered 2026-07-27, recall is a mid-run
   teleport, not a run ending.** Implemented by `FEAT-EXPEDITION-RECALL`. One knob is left for a
@@ -4188,6 +4276,15 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-EXPEDITION-DEFAULT** (02c4b74) — **the promoted default's readiness pass, top
+    of the queue.** Fly a full fresh run with no URL params. Owns: (a) **OQ-1 seam pop**
+    (README section 4.2) — with the leash rather than streaming bounding the live set, do
+    enemies visibly pop at sector boundaries, and does it read badly enough to need the
+    neighbor-activation mitigation; (b) does a first-time player understand they should
+    explore (no quests exist yet — is the world legible enough to carry the default while
+    the content phase lands); (c) SKIRMISH discoverability — does the card read as "the
+    old mode"; (d) v1 save restore, daily, practice, gauntlet all still feel arena-correct;
+    (e) verdict: keep the default, or revert 02c4b74 until the content phase catches up.
   - **POLISH-MAP-ACCESS** (d7b716d): on a phone, does the top-right map button read as
     "map", is it reachable without shifting grip, and does the pause-menu World Map row
     read better or worse than a direct button for discoverability? Also confirm the

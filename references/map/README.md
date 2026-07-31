@@ -194,8 +194,10 @@ progression block, which the vault ordering rule prevents.
   appear at the boundary. Mitigations, in order of preference if it reads badly:
   activate the neighbor sector's entities on approach, tighten the camera deadzone near
   seams, or make seams visually opaque (doorways, not open field). Decide from play,
-  not from theory. **Now that expedition is the default mode, this is a ship blocker for
-  `FEAT-EXPEDITION-PROMOTE` rather than a nice-to-have.**
+  not from theory. **The flip has run (02c4b74), so this check now lives in
+  POLISH-EXPEDITION-DEFAULT (backlog playtest queue) with revert as the escape hatch.**
+  Note the current build bounds the live set with the leash, not per-sector streaming,
+  so the classic "entities appear at the seam" shape may present as leash pop instead.
 - **OQ-3 map pause.** Doc 03 pauses gameplay while the map screen is open. Correct for
   a survivors game, but worth confirming it does not become a stall tactic once quests
   send players across the map, and worth re-checking once recall lives on that screen.
@@ -248,6 +250,14 @@ the end of Phase 6**: making an unfinished mode the default would ship a worse g
 the one that exists today, and the whole point of the additive build is that this
 decision stays cheap until the mode has earned it.
 
+**As built (2026-07-31): the operator overrode the phase ordering and ordered the flip
+early** ("finish it already"). `FEAT-EXPEDITION-PROMOTE` ran (02c4b74) after the density,
+spawn-legality/boss-sealing and map-access chunks landed in the same session; the phase-6
+content ships post-promote as the refined plan in `BACKLOG.md` ("The post-promote content
+plan"). The readiness playtest this section reserved for a human is not waived — it is
+**POLISH-EXPEDITION-DEFAULT** in the backlog's playtest queue, and the one-object mode
+seam keeps a revert a one-commit change.
+
 ## 6. Long-term improvements (after the 32 chunks)
 
 Deliberately not filed as work orders yet: each needs the v1 loop in front of a player
@@ -289,10 +299,10 @@ These are decisions or checks a fleet agent must not make alone. They belong in
 
 Both gates that blocked this plan are now **answered** (operator, 2026-07-27):
 
-- **GATE-EXPEDITION-PROMOTE: answered, expedition becomes the default run mode.** It
-  still ships behind `?expedition=1` for phases 0 to 6; `FEAT-EXPEDITION-PROMOTE` flips
-  the default once the mode has earned it. Arena survives as the skirmish entry and as
-  the substrate for the daily challenge, practice and boss-rotation modes.
+- **GATE-EXPEDITION-PROMOTE: answered, and the flip has RUN (02c4b74, 2026-07-31, by
+  operator directive).** The `?expedition=1` route is retired; arena survives as the
+  SKIRMISH menu card and as the substrate for the daily challenge, practice and
+  boss-rotation modes. The readiness verification moved to POLISH-EXPEDITION-DEFAULT.
 - **GATE-EXPEDITION-RECALL: answered, recall is a mid-run teleport, not a run ending.**
   Consequences and the one remaining tuning knob are in section 4.1.
 
