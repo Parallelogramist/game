@@ -483,6 +483,29 @@ Three tiers, cheapest first:
   and no vault tab of their own. Finding one fires an immediate lightweight toast
   (UI only) and everything durable happens in `evaluatePostRun()` as today.
 
+### As built (`FEAT-SECRET-CACHE`, 756f346, 2026-07-31)
+
+- **Taxonomy row 1 shipped as proximity-reveal, not false walls.** A cache sits on the open,
+  reachable floor a `PoiKind.Secret` slot already occupies and fades in on a quadratic ramp
+  inside a 300px sense radius, claimed by walking within 44px. Binding secret slots into
+  `sector.breakables` is a generator change plus a `WORLDGEN_VERSION` bump, which discards
+  every existing profile's discovery state, so the false-wall half is filed separately as
+  `FEAT-SECRET-FALSE-WALLS`.
+- **`recordSecretFound` / `isSecretFound` landed as `DiscoveryManager.markSecretFound` /
+  `getSecretFlags`**, against the flag store this doc's first bullet names. No new contract
+  was added: `SecretFlags.FOUND | HINTED` are written together (`repairSecret` already treats
+  FOUND without HINTED as corrupt) and the found flag doubles as the cache's spawn gate, so
+  there is no spawned-ids list to disagree with it.
+- **`SecretLedger` and the `survivor-secrets-found` key were not built.** Logical completion
+  is for puzzles and fragments, neither of which exists yet, and the only fact that does exist
+  today is a count, which `LifetimeStats.secretsFoundTotal` persists and sanitizes already.
+  Building the ledger now would be a second store holding one integer.
+- **`loreFragmentsFound` waits for `FEAT-SECRET-LORE`**, which owns the fragment that would
+  increment it.
+- **Completion percent now weights secrets.** `DiscoveryManager.getCompletionPercent()` scores
+  `(visited sectors + found secrets) / (sector count + secret count)`, which is what its own
+  reserved comment described.
+
 ---
 
 ## 6. Reward economy

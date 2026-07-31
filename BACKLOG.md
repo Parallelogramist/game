@@ -32,14 +32,23 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
 
 **Expedition is the live default run mode since 02c4b74 (2026-07-31).** Fleet agents:
 work the **post-promote content plan** (search this file for "The post-promote content
-plan") top to bottom. Two band-1 chunks have shipped. `FEAT-QUEST-CHAINS` (5362cdb): five
+plan") top to bottom. Three band-1 chunks have shipped. `FEAT-QUEST-CHAINS` (5362cdb): five
 quests in two chains persist across deaths, advance on four signals the game already emits,
 and pay gold mid-run. `FEAT-QUEST-VIEW` (5a0295d): those objectives are now readable, on the
 bounty ticker line while no bounty runs and in an OBJECTIVES panel on the world map screen.
-Band 1 continues at **`FEAT-ECON-WARDS` as rewritten** (its deliverable is an enforced cap a
-runtime path applies, not a test-only pass: read its entry before starting, and note that
-`FEAT-QUEST-VIEW` skipped it precisely because the test-only reading is busy-work), then
-`FEAT-WORLDGEN-QUESTDOORS`. What is left of `FEAT-QUEST-BOARD` (map markers, the walk-in
+`FEAT-SECRET-CACHE` (756f346): the `PoiKind.Secret` slots every generated world has always
+carried finally spawn something. A concealed cache fades in as the ship closes, bursts into a
+special chest at the touch, stays found for that world across deaths and reloads, counts
+toward the map header's completion percent, and feeds a lifetime `secretsFoundTotal` behind
+two new hidden unlocks and two ship paints.
+**`FEAT-ECON-WARDS` is parked on an operator balance decision, so it is NOT the next item**:
+doc 04 section 6 rules 2 and 6 are mutually inconsistent against the shipped catalogs and a
+faithful runtime clamp would cut quest rewards that already shipped. The numbers and the
+choice are recorded on that item's own entry; read it before touching the economy.
+Band 2's secret family is now unblocked by 756f346's found-state, and its two cheapest next
+items are **`FEAT-SECRET-AMBIENT-PING`** and **`FEAT-SECRET-REWARD-VARIETY`**, since found-state
+is the only dependency either one was waiting on. `FEAT-WORLDGEN-QUESTDOORS` is the other
+unblocked band-1 chunk. What is left of `FEAT-QUEST-BOARD` (map markers, the walk-in
 board) is blocked on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
 (`FEAT-QUEST-CATALOG-DEPTH`). Operator focus: quests and lots of hidden rewards on the
 Metroid map.
@@ -4131,11 +4140,71 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   `FEAT-QUEST-CHAINS` cut back on, and gives the inert `QuestGiver` POI slots their consumer. Deps:
   `FEAT-MAPUI-DOORS-05`, `FEAT-QUEST-CATALOG-DEPTH`, `FEAT-QUEST-TRIGGERS-REST`.
 
-- [ ] **FEAT-SECRET-CACHE**: the world lies to you, pleasantly. False walls and hidden caches
-  with persistent found-state, feeding `secretsFoundTotal` into `HiddenUnlocks` conditions and
-  the existing `hidden:<conditionId>` stage gates rather than a parallel unlock system.
-  **`DiscoveryManager.markSecretFound` stays the only write path for the spatial flag**
-  (README section 3.7). Deps: `FEAT-BARRIER-GATES`, `FEAT-DISCOVERY-HOOKS-03`.
+- [x] **FEAT-SECRET-CACHE** (done, 756f346): expedition sectors now hide caches a player can
+  actually find. Walking a sector, a concealed cache fades up out of nothing as the ship closes
+  on it, bursts open into a special treasure chest at the touch, and is gone from that world for
+  good. `PoiKind.Secret` slots have been placed in every generated world since
+  `FEAT-WORLDGEN-CORE` and nothing had ever spawned for them: the discovery layer shipped the
+  entire persistence half (`SecretFlags`, `DiscoveryState.secrets`, `WorldIdUniverse.secretIds`,
+  `repairSecret`, `getSecretFlags`) and was missing only a writer.
+  1. **What shipped**: `revealOnSecretFound` + a private `addSecret` in `discoveryRules.ts`,
+     writing `FOUND | HINTED` together so a live state is byte-identical to a reloaded one;
+     `DiscoveryManager.markSecretFound` as the single write path (README section 3.7) and
+     `getFoundSecretCount`; a reveal ramp in `GameScene.updateSecretCaches` that holds a cache at
+     alpha 0 past a 300px sense radius and fades it in quadratically inside it, so the far edge is
+     a hint you can miss and the last stride is unmistakable; a walk-in claim at 44px
+     (`claimSecretCache`) that marks the find, bursts, shakes, and pays a special treasure chest;
+     found-state permanent per world across deaths and reloads, since the found flag is itself the
+     spawn gate in `syncSecretCaches`; the map header's completion percent now weighting found
+     secrets alongside visited sectors; a lifetime `LifetimeStats.secretsFoundTotal` that survives
+     world regeneration (which wipes the per-seed discovery store); and two hidden-unlock
+     conditions (`unlock_secret_seeker` at 5 caches, `unlock_secret_archivist` at 25) with vault
+     progress bars, each paying a new ship paint (`cosmetic_secret_sigil` rank 14,
+     `cosmetic_cartographer_weave` rank 15).
+  2. **Five deliberate cuts**:
+     a. **No false walls.** Doc 04 taxonomy row 1 wants a `barrier_false_wall` that reads as
+        terrain. Binding secret slots into `sector.breakables` is a generator change and a
+        `WORLDGEN_VERSION` bump, which discards every existing profile's discovery state. Slots
+        already sit on open, reachable floor (`placePoiSlots` + `openNeighbourhood`), so
+        proximity-reveal ships the mechanic at zero generator risk. Filed as
+        `FEAT-SECRET-FALSE-WALLS` below.
+     b. **No `src/data/Secrets.ts` and no `SecretLedger` / `survivor-secrets-found` key.** Doc 04
+        asks for both. A reward table is `FEAT-SECRET-REWARD-VARIETY` by name, and a data file
+        with one entry plus a ledger holding one integer that `LifetimeStats` already persists and
+        sanitizes are both duplicate state. `SecretLedger`'s stated job is logical completion for
+        puzzles and fragments, neither of which exists yet.
+     c. **No minimap shimmer ping.** That is `FEAT-SECRET-AMBIENT-PING` explicitly (it owns the
+        minimap contract). This chunk's reveal is world-space, on the cache object itself.
+     d. **No `findSecret` quest trigger.** Adding the union member is `FEAT-QUEST-TRIGGERS-REST`
+        and no shipped quest uses it. This chunk creates the producer, so that item is now
+        unblocked: see `CHORE-QUEST-TRIGGER-FINDSECRET` below.
+     e. **No reduced-motion branch on the shimmer.** The sibling `updateAbilityVaults` pulses with
+        a raw sine and checks nothing; matching it is the repo's parallel-path rule rather than
+        inventing a second convention here.
+  3. **Persists nothing new**: no storage key, no `ALL_STORAGE_KEYS` entry, no `GameSaveState`
+     field, no `SAVE_VERSION` bump and no `WORLDGEN_VERSION` bump. A cache is rebuilt from
+     (map, found-flags) on every sector change exactly as an ability vault is rebuilt from
+     (map, ability ownership), so the found flag being the spawn gate leaves nothing to serialize
+     into the run save.
+  4. **Contract change**: `getCompletionPercent()`'s denominator is now
+     `sectorKeys.size + secretIds.size`, which is what the manager's own comment reserved. The
+     existing `DiscoveryManager` test moved 33 to 25 and gained a 50% case after a secret is found,
+     so it is strictly stronger than before rather than relaxed.
+
+- [ ] **FEAT-SECRET-FALSE-WALLS** (new 2026-07-31, cut from `FEAT-SECRET-CACHE`): the taxonomy
+  row-1 half that chunk deliberately skipped. Bind `PoiKind.Secret` slots into
+  `sector.breakables` so a cache sits behind terrain that has to be broken, reusing the shipped
+  `barrierState` / `clearBarrier` / `applyBrokenBarriers` persistence rather than a new store.
+  Value: the reveal becomes an act the player performs instead of a proximity fade that happens
+  to them, which is the actual Metroid shape. Note that it bumps `WORLDGEN_VERSION` and so
+  discards existing per-seed discovery state, which is exactly why 756f346 did not do it. Deps:
+  `FEAT-BARRIER-GATES`.
+
+- [ ] **CHORE-QUEST-TRIGGER-FINDSECRET** (new 2026-07-31): `FEAT-QUEST-CHAINS` cut the
+  `findSecret` trigger kind because nothing in the game produced the signal.
+  `GameScene.claimSecretCache` (756f346) is now that producer, so `FEAT-QUEST-TRIGGERS-REST` can
+  add the union member and a quest that hangs off it. Deps: `FEAT-QUEST-CATALOG-DEPTH` (needs a
+  quest to hang it on).
 
 - [ ] **FEAT-SECRET-LORE**: secrets are hinted, not stumbled into: lore fragments, riddles that
   name a location tag the profile's world actually contains (integrity-asserted), sequence
@@ -4202,6 +4271,23 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   plus one pure function", and a session whose whole deliverable is asserts against already-shipped
   catalogs ships no capability. Deps: `FEAT-POI-CATALOG`, `FEAT-POWER-FIELDBOOSTS`,
   `FEAT-QUEST-CHAINS`. Spec: doc 04 section 6.
+  **Blocked on an operator balance decision (measured 2026-07-31, `FEAT-SECRET-CACHE` session).**
+  Doc 04 section 6 gives this chunk two rules that are mutually inconsistent against the catalogs
+  already shipped, so it cannot be built as written without someone choosing which rule yields:
+  - Rule 2 caps POI + quest-step gold combined at 40% of the arena `computeRunGold` baseline.
+    `computeRunGold` (`src/meta/MetaProgressionManager.ts:132`) pays
+    `kills*2.5 + seconds/10 + level*10` with a floor of 50, so a representative run (100 kills,
+    300 s, level 10) scores 380 and the whole-run expedition budget is **152 gold**.
+  - Rule 6 puts quest gold in the daily band at "steps 100-300, chain completion 500-1000". The
+    shipped catalog (`src/data/ExpeditionQuests.ts`) already pays single steps of **200**, and its
+    two chains total **810** and **430**.
+  A faithful runtime clamp at rule 2's budget would therefore cut a single shipped quest step's
+  payout by more than 25% and gut both chain rewards, silently making quests feel worse than the
+  day they shipped. Which rule yields (raise the 40%, cut quest gold, or scope the budget to POI
+  payouts only) is a balance call with no answer derivable from the repo. `FEAT-SECRET-CACHE`
+  (756f346) skipped this chunk for that reason and routed its payout through the existing chest
+  pipeline (arena relic table, unchanged odds, more rolls), so it is econ-rule-1 compliant by
+  construction and adds nothing to whatever budget this chunk eventually enforces.
 
 - [ ] **FEAT-MAPUI-TOUCH-A11Y-08**: the map earns phones and every accessibility setting the
   game already promises: drag pan, pinch zoom snapping to discrete levels, 48px chrome targets,
