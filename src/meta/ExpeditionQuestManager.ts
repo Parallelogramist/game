@@ -109,6 +109,18 @@ export function getExpeditionQuestStates(): QuestInstanceState[] {
   return load().states;
 }
 
+/** Keys earned by completed quests. Derived, never stored: a second copy of "which quests
+ *  finished" is how a door and its quest log disagree. */
+export function getEarnedQuestKeyIds(): string[] {
+  const earned: string[] = [];
+  for (const state of load().states) {
+    if (state.status !== 'complete') continue;
+    const keyId = getExpeditionQuest(state.questId)?.grantsKeyId;
+    if (keyId !== undefined) earned.push(keyId);
+  }
+  return earned;
+}
+
 export type { QuestStepView } from '../systems/QuestProgress';
 
 /** What the HUD ticker and the map panel render. Cheap: SecureStorage.getItem is a cache read. */

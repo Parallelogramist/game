@@ -14,9 +14,10 @@ import type { BreakableRect, EdgeDef, EdgeDirection, SectorDef, WorldMap } from 
 import {
   ABILITY_DOOR_OPEN_RADIUS,
   BARRIER_IMPACTS_TO_BREAK,
-  abilityDoorNearWorld,
   applyBrokenBarriers,
+  applyEarnedQuestKeys,
   applyOwnedAbilityGates,
+  gatedDoorNearWorld,
   barrierIdAtWorld,
   clearBarrier,
   openAbilityGate,
@@ -182,6 +183,7 @@ describe('barrierState', () => {
 const GATE_START = 8;
 const GATE_END = 11;
 const GATE_ABILITY = 'ability_blink_drive';
+const QUEST_KEY = 'quest_key_test';
 
 /**
  * Sector 0,0 has an east AbilityDoor to 1,0 and a south OneWay membrane to 0,1. Both stamp
@@ -211,6 +213,25 @@ function makeGateWorld(): WorldMap {
     worldGenVersion: 1, seed: 1, startKey: '0,0',
     sectors: new Map([['0,0', near], ['1,0', far], ['0,1', below]]),
     abilityOrder: [GATE_ABILITY], bossArenaKey: '0,0',
+  };
+}
+
+/** makeGateWorld's quest-key twin: one east KeyDoor from 0,0 to 1,0, no membrane. */
+function makeQuestDoorWorld(): WorldMap {
+  const door: EdgeDef = {
+    kind: EdgeKind.KeyDoor, apertureStart: GATE_START, apertureEnd: GATE_END,
+    requiredId: QUEST_KEY,
+  };
+  const near = makeSector(0, 0, { east: door }, []);
+  const far = makeSector(1, 0, { west: door }, []);
+  for (let tileY = GATE_START; tileY <= GATE_END; tileY++) {
+    near.tiles[tileIndex(SECTOR_TILE_COLS - 1, tileY)] = TileKind.GateClosed;
+    far.tiles[tileIndex(0, tileY)] = TileKind.GateClosed;
+  }
+  return {
+    worldGenVersion: 1, seed: 1, startKey: '0,0',
+    sectors: new Map([['0,0', near], ['1,0', far]]),
+    abilityOrder: [], bossArenaKey: '0,0',
   };
 }
 
@@ -263,7 +284,8 @@ describe('ability gates', () => {
     const world = makeGateWorld();
     const bandCentreY = ((GATE_START + GATE_END + 1) / 2) * TILE_SIZE;
     const insideX = SECTOR_TILE_COLS * TILE_SIZE - TILE_SIZE - 40;
-    const found = abilityDoorNearWorld(world, insideX, bandCentreY, ABILITY_DOOR_OPEN_RADIUS);
+    const found = gatedDoorNearWorld(
+      world, insideX, bandCentreY, ABILITY_DOOR_OPEN_RADIUS, EdgeKind.AbilityDoor);
     expect(found).not.toBeNull();
     expect(found!.edgeId).toBe(edgeIdFor(0, 0, 'east'));
     expect(found!.requiredId).toBe(GATE_ABILITY);
@@ -274,7 +296,8 @@ describe('ability gates', () => {
     const world = makeGateWorld();
     const bandCentreY = ((GATE_START + GATE_END + 1) / 2) * TILE_SIZE;
     const farX = SECTOR_TILE_COLS * TILE_SIZE - TILE_SIZE - 120;
-    expect(abilityDoorNearWorld(world, farX, bandCentreY, ABILITY_DOOR_OPEN_RADIUS)).toBeNull();
+    expect(gatedDoorNearWorld(
+      world, farX, bandCentreY, ABILITY_DOOR_OPEN_RADIUS, EdgeKind.AbilityDoor)).toBeNull();
   });
 
   it('answers null once the door is open, so a claim fires its moment once', () => {
@@ -282,8 +305,8 @@ describe('ability gates', () => {
     const bandCentreY = ((GATE_START + GATE_END + 1) / 2) * TILE_SIZE;
     const insideX = SECTOR_TILE_COLS * TILE_SIZE - TILE_SIZE - 40;
     openAbilityGate(world, edgeIdFor(0, 0, 'east'));
-    expect(abilityDoorNearWorld(world, insideX, bandCentreY, ABILITY_DOOR_OPEN_RADIUS))
-      .toBeNull();
+    expect(gatedDoorNearWorld(
+      world, insideX, bandCentreY, ABILITY_DOOR_OPEN_RADIUS, EdgeKind.AbilityDoor)).toBeNull();
   });
 
   it('replays only the doors whose ability the profile owns', () => {
@@ -295,5 +318,15 @@ describe('ability gates', () => {
     expect(applyOwnedAbilityGates(owned, [GATE_ABILITY])).toBe(1);
     expect(gateMouthTiles(owned)).toEqual(new Array(8).fill(TileKind.Open));
     expect(membraneMouthTiles(owned)).toEqual(new Array(8).fill(TileKind.GateClosed));
+  });
+
+  it('replays only the quest doors whose key the profile has earned', () => {
+    const unearned = makeQuestDoorWorld();
+    expect(applyEarnedQuestKeys(unearned, ['quest_key_other'])).toBe(0);
+    expect(gateMouthTiles(unearned)).toEqual(new Array(8).fill(TileKind.GateClosed));
+
+    const earned = makeQuestDoorWorld();
+    expect(applyEarnedQuestKeys(earned, [QUEST_KEY])).toBe(1);
+    expect(gateMouthTiles(earned)).toEqual(new Array(8).fill(TileKind.Open));
   });
 });

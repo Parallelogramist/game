@@ -12,6 +12,7 @@ import {
   TileKind,
   WORLDGEN_VERSION,
   directionDelta,
+  edgeIdFor,
   oppositeDirection,
   tileIndex,
   worldBoundsRect,
@@ -354,6 +355,78 @@ describe('invariant 8 — version stamp and budget', () => {
       expect(map.seed).toBe(seed);
       expect(map.startKey).toBe('0,0');
       expect(map.sectors.size).toBe(48);
+    });
+  });
+});
+
+const QUEST_KEYS = ['quest_key_survey', 'quest_key_gatecrash'];
+const QUEST_INPUTS: WorldGenInputs = { ...INPUTS, questKeyOrder: QUEST_KEYS };
+const QUEST_WORLDS = SEEDS.map(seed => generateWorld(seed, QUEST_INPUTS));
+
+function keyDoorEdgeIdsByRequiredId(map: WorldMap): Map<string, Set<string>> {
+  const byRequiredId = new Map<string, Set<string>>();
+  for (const sector of map.sectors.values()) {
+    for (const direction of EDGE_DIRECTIONS) {
+      const edge = sector.edges[direction];
+      if (edge.kind !== EdgeKind.KeyDoor) continue;
+      const requiredId = edge.requiredId ?? '';
+      const edgeIds = byRequiredId.get(requiredId) ?? new Set<string>();
+      edgeIds.add(edgeIdFor(sector.sx, sector.sy, direction));
+      byRequiredId.set(requiredId, edgeIds);
+    }
+  }
+  return byRequiredId;
+}
+
+describe('invariant 9: quest key doors', () => {
+  it('places every requested quest key exactly once', () => {
+    for (const map of QUEST_WORLDS) {
+      const byRequiredId = keyDoorEdgeIdsByRequiredId(map);
+      expect([...byRequiredId.keys()].sort()).toEqual([...QUEST_KEYS].sort());
+      for (const edgeIds of byRequiredId.values()) expect(edgeIds.size).toBe(1);
+    }
+  });
+
+  it('leaves the boss and every ability reachable with no quest key held', () => {
+    for (const map of QUEST_WORLDS) {
+      const { reached, abilities } = simulate(map, true);
+      for (const sector of map.sectors.values()) {
+        const grantsAbility = sector.poiSlots.some(slot => slot.grantsAbilityId !== undefined);
+        if (grantsAbility) expect(reached.has(sector.key)).toBe(true);
+      }
+      for (const abilityId of map.abilityOrder) expect(abilities.has(abilityId)).toBe(true);
+      expect(reached.has(map.bossArenaKey)).toBe(true);
+    }
+  });
+
+  it('adds quest doors without moving anything else in the layout', () => {
+    WORLDS.forEach((plain, index) => {
+      const quest = QUEST_WORLDS[index];
+      expect([...quest.sectors.keys()]).toEqual([...plain.sectors.keys()]);
+      expect(quest.abilityOrder).toEqual(plain.abilityOrder);
+      expect(quest.bossArenaKey).toBe(plain.bossArenaKey);
+
+      for (const [key, questSector] of quest.sectors) {
+        const plainSector = plain.sectors.get(key)!;
+        expect(questSector.poiSlots).toEqual(plainSector.poiSlots);
+        expect(questSector.breakables).toEqual(plainSector.breakables);
+        expect(questSector.entryTiles).toEqual(plainSector.entryTiles);
+        expect(questSector.depth).toBe(plainSector.depth);
+        expect(questSector.danger).toBe(plainSector.danger);
+        expect(questSector.biomeId).toBe(plainSector.biomeId);
+
+        for (const direction of EDGE_DIRECTIONS) {
+          const questEdge = questSector.edges[direction];
+          const plainEdge = plainSector.edges[direction];
+          if (questEdge.kind !== EdgeKind.KeyDoor) {
+            expect(questEdge.kind).toBe(plainEdge.kind);
+          } else {
+            expect(plainEdge.kind).toBe(EdgeKind.Open);
+          }
+          expect(questEdge.apertureStart).toBe(plainEdge.apertureStart);
+          expect(questEdge.apertureEnd).toBe(plainEdge.apertureEnd);
+        }
+      }
     });
   });
 });

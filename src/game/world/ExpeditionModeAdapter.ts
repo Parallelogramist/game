@@ -21,7 +21,11 @@ import { LEASH_RADIUS } from '../../world/spawnRing';
 import { STAGES } from '../../data/Stages';
 import { TRAVERSAL_ABILITY_GATE_ORDER } from '../../data/TraversalAbilities';
 import { generateWorld } from '../../world/generateWorld';
-import { applyBrokenBarriers, applyOwnedAbilityGates } from '../../world/barrierState';
+import {
+  applyBrokenBarriers, applyEarnedQuestKeys, applyOwnedAbilityGates,
+} from '../../world/barrierState';
+import { EXPEDITION_QUEST_KEY_ORDER } from '../../data/ExpeditionQuests';
+import { getEarnedQuestKeyIds } from '../../meta/ExpeditionQuestManager';
 import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
 import {
@@ -107,6 +111,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     this.scene = scene;
     this.map = generateWorld(EXPEDITION_WORLD_SEED, {
       abilityGateOrder: [...TRAVERSAL_ABILITY_GATE_ORDER],
+      questKeyOrder: [...EXPEDITION_QUEST_KEY_ORDER],
       availableBiomeIds: STAGES.map(stage => stage.id),
     });
     if (this.map.abilityOrder.length < TRAVERSAL_ABILITY_GATE_ORDER.length) {
@@ -130,6 +135,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     // already earned is open before the renderer, the collision index or the flow field ever
     // look at the grid, which is the whole of "already open on the next run".
     applyOwnedAbilityGates(this.map, getOwnedTraversalAbilityIds());
+    applyEarnedQuestKeys(this.map, getEarnedQuestKeyIds());
     this.world = worldBoundsRect(this.map);
   }
 

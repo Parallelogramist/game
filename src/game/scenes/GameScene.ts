@@ -59,8 +59,9 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
-import { PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
+import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
+import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import { rollPoiContents } from '../../world/poiRoll';
 import type { PoiContentId } from '../../data/PoiCatalog';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
@@ -73,7 +74,7 @@ import {
 } from '../../world/spawnRing';
 import { beamReachFraction, projectileBlocked } from '../../world/weaponWallBehavior';
 import {
-  ABILITY_DOOR_OPEN_RADIUS, abilityDoorNearWorld, openAbilityGate, setBarrierEventSink,
+  ABILITY_DOOR_OPEN_RADIUS, gatedDoorNearWorld, openAbilityGate, setBarrierEventSink,
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
@@ -128,8 +129,9 @@ import {
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
   getActiveQuestStepViews,
+  getEarnedQuestKeyIds,
 } from '../../meta/ExpeditionQuestManager';
-import { getExpeditionQuest } from '../../data/ExpeditionQuests';
+import { getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
 import type { QuestEvent, QuestStepView } from '../../systems/QuestProgress';
 import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
@@ -504,6 +506,9 @@ export class GameScene extends Phaser.Scene {
   /** Owned traversal abilities, cached for the run: every read of the real store is a
    *  SecureStorage decrypt, and both consumers here run per frame. */
   private ownedTraversalAbilityIds: Set<string> = new Set();
+  /** Quest keys this profile has earned, cached for the run for the same reason as
+   *  ownedTraversalAbilityIds: the real read is a SecureStorage decrypt. */
+  private earnedQuestKeyIds: Set<string> = new Set();
   private static readonly VAULT_CLAIM_RADIUS = 40;
   private static readonly SECRET_SENSE_RADIUS = 300;
   private static readonly SECRET_CLAIM_RADIUS = 44;
@@ -936,6 +941,7 @@ export class GameScene extends Phaser.Scene {
     const map = this.worldMode.worldMap();
     if (!map) return;
     this.ownedTraversalAbilityIds = new Set(getOwnedTraversalAbilityIds());
+    this.earnedQuestKeyIds = new Set(getEarnedQuestKeyIds());
     getDiscoveryManager().bindWorld(map);
     getDiscoveryManager().onDiscovery(this.discoveryPulseHandler);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
@@ -960,6 +966,7 @@ export class GameScene extends Phaser.Scene {
       playerWorldY: container.y,
       playerFacing: this.playerSpaceship.getFacingAngle(),
       ownedAbilityIds: [...this.ownedTraversalAbilityIds],
+      earnedQuestKeyIds: [...this.earnedQuestKeyIds],
     });
     this.scene.pause();
   }
@@ -4939,7 +4946,9 @@ export class GameScene extends Phaser.Scene {
    */
   private tryOpenAbilityDoor(map: WorldMap, playerX: number, playerY: number): void {
     if (this.ownedTraversalAbilityIds.size === 0) return;
-    const door = abilityDoorNearWorld(map, playerX, playerY, ABILITY_DOOR_OPEN_RADIUS);
+    const door = gatedDoorNearWorld(
+      map, playerX, playerY, ABILITY_DOOR_OPEN_RADIUS, EdgeKind.AbilityDoor,
+    );
     if (!door || !this.ownedTraversalAbilityIds.has(door.requiredId)) return;
     if (!openAbilityGate(map, door.edgeId)) return;
 
@@ -4964,42 +4973,104 @@ export class GameScene extends Phaser.Scene {
     this.recordExpeditionQuest({ kind: 'openGate' });
   }
 
+  /** tryOpenAbilityDoor's quest-key twin: same radius, same cache-not-store test, same two
+   *  invalidations, and it feeds the openGate trigger the same way an ability door does. */
+  private tryOpenQuestDoor(map: WorldMap, playerX: number, playerY: number): void {
+    if (this.earnedQuestKeyIds.size === 0) return;
+    const door = gatedDoorNearWorld(
+      map, playerX, playerY, ABILITY_DOOR_OPEN_RADIUS, EdgeKind.KeyDoor,
+    );
+    if (!door || !this.earnedQuestKeyIds.has(door.requiredId)) return;
+    if (!openAbilityGate(map, door.edgeId)) return;
+
+    this.worldMode.notifyGeometryChanged();
+    this.minimapUnderlayKey = null;
+
+    const quest = getQuestForKeyId(door.requiredId);
+    const color = GATE_GLYPHS[EdgeKind.KeyDoor].color;
+    this.effectsManager.playDeathBurst(door.x, door.y, color);
+    this.cameras.main.shake(140, 0.006);
+    this.soundManager.playComboThreshold();
+    if (this.toastManager) {
+      this.toastManager.showToast({
+        title: 'ROUTE OPEN',
+        description: quest
+          ? `${quest.name} keyed this door.`
+          : 'A quest key unsealed this door.',
+        icon: quest?.icon ?? 'warning',
+        color,
+        duration: 2800,
+      });
+    }
+    this.recordExpeditionQuest({ kind: 'openGate' });
+  }
+
   /**
    * Doc 03 section 4.5's Metroid moment, delivered at the door instead of in a map tooltip:
-   * a sealed ability door names the key it wants the first time the ship comes near it.
+   * a sealed door names what opens it the first time the ship comes near it.
    *
    * Runs AFTER tryOpenAbilityDoor, never before: that call clears the mouth tiles of a door
    * this profile can pass, so by the time this scan runs, gateStillClosed() already rejects
    * it and the nearest remaining closed door is the one actually worth naming.
    */
-  private reportSealedAbilityDoor(map: WorldMap, playerX: number, playerY: number): void {
-    const door = abilityDoorNearWorld(
-      map, playerX, playerY, GameScene.SEALED_DOOR_NOTICE_RADIUS,
+  private reportSealedDoor(map: WorldMap, playerX: number, playerY: number): void {
+    const abilityDoor = gatedDoorNearWorld(
+      map, playerX, playerY, GameScene.SEALED_DOOR_NOTICE_RADIUS, EdgeKind.AbilityDoor,
     );
-    if (!door || this.ownedTraversalAbilityIds.has(door.requiredId)) return;
-    if (door.edgeId === this.sealedDoorNoticeEdgeId
-      && this.gameTime - this.sealedDoorNoticeAt
-        < GameScene.SEALED_DOOR_REANNOUNCE_SECONDS) {
+    if (abilityDoor && !this.ownedTraversalAbilityIds.has(abilityDoor.requiredId)) {
+      if (this.alreadyAnnouncedSealedDoor(abilityDoor.edgeId)) return;
+      const definition = getTraversalAbility(abilityDoor.requiredId);
+      const color = WORLD_GEOMETRY_COLORS.gate.stroke;
+      this.effectsManager.showDamageNumber(abilityDoor.x, abilityDoor.y - 20, 'SEALED', color);
+      this.soundManager.playError();
+      if (this.toastManager) {
+        this.toastManager.showToast({
+          title: 'SEALED DOOR',
+          description: definition
+            ? `${definition.name} opens this route.`
+            : 'Mechanism unknown.',
+          icon: definition?.icon ?? 'warning',
+          color,
+          duration: 2800,
+        });
+      }
       return;
     }
-    this.sealedDoorNoticeEdgeId = door.edgeId;
-    this.sealedDoorNoticeAt = this.gameTime;
 
-    const definition = getTraversalAbility(door.requiredId);
-    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
-    this.effectsManager.showDamageNumber(door.x, door.y - 20, 'SEALED', color);
+    const questDoor = gatedDoorNearWorld(
+      map, playerX, playerY, GameScene.SEALED_DOOR_NOTICE_RADIUS, EdgeKind.KeyDoor,
+    );
+    if (!questDoor || this.earnedQuestKeyIds.has(questDoor.requiredId)) return;
+    if (this.alreadyAnnouncedSealedDoor(questDoor.edgeId)) return;
+
+    const quest = getQuestForKeyId(questDoor.requiredId);
+    const color = GATE_GLYPHS[EdgeKind.KeyDoor].color;
+    this.effectsManager.showDamageNumber(questDoor.x, questDoor.y - 20, 'SEALED', color);
     this.soundManager.playError();
     if (this.toastManager) {
       this.toastManager.showToast({
-        title: 'SEALED DOOR',
-        description: definition
-          ? `${definition.name} opens this route.`
-          : 'Mechanism unknown.',
-        icon: definition?.icon ?? 'warning',
+        title: 'QUEST DOOR',
+        description: quest
+          ? `Finish ${quest.name} to key this route.`
+          : 'A quest key opens this route.',
+        icon: quest?.icon ?? 'warning',
         color,
         duration: 2800,
       });
     }
+  }
+
+  /** True when this edge already announced itself inside the re-announce window; stamps the
+   *  dedup fields otherwise. Shared by both door kinds so only one notice runs at a time. */
+  private alreadyAnnouncedSealedDoor(edgeId: string): boolean {
+    if (edgeId === this.sealedDoorNoticeEdgeId
+      && this.gameTime - this.sealedDoorNoticeAt
+        < GameScene.SEALED_DOOR_REANNOUNCE_SECONDS) {
+      return true;
+    }
+    this.sealedDoorNoticeEdgeId = edgeId;
+    this.sealedDoorNoticeAt = this.gameTime;
+    return false;
   }
 
   /**
@@ -5083,7 +5154,8 @@ export class GameScene extends Phaser.Scene {
       this.syncSecretCaches(map, playerX, playerY);
       this.updateSecretCaches(playerX, playerY);
       this.tryOpenAbilityDoor(map, playerX, playerY);
-      this.reportSealedAbilityDoor(map, playerX, playerY);
+      this.tryOpenQuestDoor(map, playerX, playerY);
+      this.reportSealedDoor(map, playerX, playerY);
     }
     this.updateHazardFloorDamage(map, playerX, playerY, deltaSeconds);
   }
@@ -8152,6 +8224,8 @@ export class GameScene extends Phaser.Scene {
     for (const completion of rewards.questCompletions) {
       const quest = getExpeditionQuest(completion.questId);
       if (!quest) continue;
+      const grantedKeyId = quest.grantsKeyId;
+      if (grantedKeyId !== undefined) this.earnedQuestKeyIds.add(grantedKeyId);
       this.toastManager?.showToast({
         title: 'QUEST COMPLETE',
         description: `${quest.name} · +${completion.goldReward} gold`,

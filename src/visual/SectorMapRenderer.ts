@@ -90,14 +90,20 @@ export function drawGateLockRing(
 }
 
 /**
- * Gated kinds only. A KeyDoor always reads sealed: nothing in the game grants a quest key
- * yet (FEAT-WORLDGEN-QUESTDOORS), and an edge with no requiredId can never be satisfied by
- * anything, so drawing it unlocked would be a lie.
+ * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
+ * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
+ * be satisfied by anything, so it always reads sealed.
  */
-function isGatedEdgeSealed(edge: EdgeDef, holdsAbility: (abilityId: string) => boolean): boolean {
+function isGatedEdgeSealed(
+  edge: EdgeDef,
+  holdsAbility: (abilityId: string) => boolean,
+  holdsQuestKey: (keyId: string) => boolean,
+): boolean {
   if (edge.kind !== EdgeKind.AbilityDoor && edge.kind !== EdgeKind.KeyDoor) return false;
   if (edge.requiredId === undefined) return true;
-  return !holdsAbility(edge.requiredId);
+  return edge.kind === EdgeKind.KeyDoor
+    ? !holdsQuestKey(edge.requiredId)
+    : !holdsAbility(edge.requiredId);
 }
 
 export function strokeDashedLine(
@@ -128,6 +134,8 @@ export interface SectorMapDrawInput {
   /** Traversal-ability ownership for this profile. A predicate rather than a Set so the
    *  renderer never learns where ownership is stored. */
   holdsAbility: (abilityId: string) => boolean;
+  /** Quest-key ownership, same predicate-not-Set reasoning as holdsAbility. */
+  holdsQuestKey: (keyId: string) => boolean;
   playerWorldX: number;
   playerWorldY: number;
   playerFacing: number;
@@ -201,7 +209,7 @@ export class SectorMapRenderer {
       drawGateGlyph(
         this.graphics, edge.kind, anchor.x, anchor.y, anchor.horizontalWall, glyphSize,
       );
-      if (isGatedEdgeSealed(edge, input.holdsAbility)) {
+      if (isGatedEdgeSealed(edge, input.holdsAbility, input.holdsQuestKey)) {
         drawGateLockRing(this.graphics, edge.kind, anchor.x, anchor.y, glyphSize);
       }
     }

@@ -182,10 +182,10 @@ export function applyBrokenBarriers(world: WorldMap, barrierIds: readonly string
 /** Doc 02 section 4.3: a door the profile can pass opens when the ship gets this close. */
 export const ABILITY_DOOR_OPEN_RADIUS = 60;
 
-export interface ClosedAbilityDoor {
+export interface ClosedGatedDoor {
   edgeId: string;
-  /** The ability id the profile must hold. Never undefined: an AbilityDoor without one is
-   *  not a candidate, because nothing could ever satisfy it. */
+  /** The ability id or quest key id the profile must hold. Never undefined: a gated edge
+   *  without one is not a candidate, because nothing could ever satisfy it. */
   requiredId: string;
   /** Centre of the door's mouth band in world px, for the caller's effects. */
   x: number;
@@ -236,23 +236,23 @@ function gateStillClosed(sector: SectorDef, direction: EdgeDirection): boolean {
 }
 
 /**
- * The nearest still-closed ability door within radius of a point, searched in the point's own
+ * The nearest still-closed gated door within radius of a point, searched in the point's own
  * sector only: both sectors stamp their own mouth band, so a player near a shared door is
  * always near the band on their side of it. Ownership is the caller's test, not this one's.
  */
-export function abilityDoorNearWorld(
-  world: WorldMap, x: number, y: number, radius: number,
-): ClosedAbilityDoor | null {
+export function gatedDoorNearWorld(
+  world: WorldMap, x: number, y: number, radius: number, kind: EdgeKind,
+): ClosedGatedDoor | null {
   const sx = Math.floor(x / SECTOR_WIDTH);
   const sy = Math.floor(y / SECTOR_HEIGHT);
   const sector = sectorAt(world, sx, sy);
   if (sector === undefined) return null;
 
-  let best: ClosedAbilityDoor | null = null;
+  let best: ClosedGatedDoor | null = null;
   let bestDistance = radius;
   for (const direction of EDGE_DIRECTIONS) {
     const edge = sector.edges[direction];
-    if (edge.kind !== EdgeKind.AbilityDoor || edge.requiredId === undefined) continue;
+    if (edge.kind !== kind || edge.requiredId === undefined) continue;
     if (!gateStillClosed(sector, direction)) continue;
     const band = mouthBandRect(sector, direction, edge);
     const distance = distanceToRect(x, y, band);
@@ -269,13 +269,13 @@ export function abilityDoorNearWorld(
 }
 
 /**
- * Clears one side's mouth band. Guarded on AbilityDoor rather than on the tile kind, because
- * a one-way membrane stamps GateClosed tiles too (sectorInterior's apertureMouthTile), and
- * dissolving one would delete the escape rule the whole membrane exists for.
+ * Clears one side's mouth band. Guarded on the gated kinds rather than on the tile kind,
+ * because a one-way membrane stamps GateClosed tiles too (sectorInterior's apertureMouthTile),
+ * and dissolving one would delete the escape rule the whole membrane exists for.
  */
 function clearGateMouth(sector: SectorDef, direction: EdgeDirection): boolean {
   const edge = sector.edges[direction];
-  if (edge.kind !== EdgeKind.AbilityDoor) return false;
+  if (edge.kind !== EdgeKind.AbilityDoor && edge.kind !== EdgeKind.KeyDoor) return false;
   let cleared = false;
   for (let axisIndex = edge.apertureStart; axisIndex <= edge.apertureEnd; axisIndex++) {
     const { tileX, tileY } = mouthTileAt(direction, axisIndex);
@@ -311,14 +311,28 @@ export function openAbilityGate(world: WorldMap, edgeId: string): boolean {
 export function applyOwnedAbilityGates(
   world: WorldMap, ownedAbilityIds: readonly string[],
 ): number {
-  if (ownedAbilityIds.length === 0) return 0;
-  const owned = new Set(ownedAbilityIds);
+  return applyGateKeys(world, EdgeKind.AbilityDoor, ownedAbilityIds);
+}
+
+/** The quest-key half of applyOwnedAbilityGates: a door keyed to a chain this profile already
+ *  finished is open before the renderer, the collision index or the flow field look. */
+export function applyEarnedQuestKeys(
+  world: WorldMap, earnedKeyIds: readonly string[],
+): number {
+  return applyGateKeys(world, EdgeKind.KeyDoor, earnedKeyIds);
+}
+
+function applyGateKeys(
+  world: WorldMap, kind: EdgeKind, heldIds: readonly string[],
+): number {
+  if (heldIds.length === 0) return 0;
+  const held = new Set(heldIds);
   const edgeIds = new Set<string>();
   for (const sector of world.sectors.values()) {
     for (const direction of EDGE_DIRECTIONS) {
       const edge = sector.edges[direction];
-      if (edge.kind !== EdgeKind.AbilityDoor || edge.requiredId === undefined) continue;
-      if (!owned.has(edge.requiredId)) continue;
+      if (edge.kind !== kind || edge.requiredId === undefined) continue;
+      if (!held.has(edge.requiredId)) continue;
       edgeIds.add(edgeIdFor(sector.sx, sector.sy, direction));
     }
   }

@@ -23,6 +23,7 @@ export interface MapSceneData {
   /** Passed in rather than read from the store here: GameScene already caches it for the
    *  run, and reading the real store is a SecureStorage decrypt. */
   ownedAbilityIds: readonly string[];
+  earnedQuestKeyIds: readonly string[];
 }
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
@@ -36,6 +37,7 @@ export class MapScene extends Phaser.Scene {
   private playerWorldY = 0;
   private playerFacing = 0;
   private ownedAbilityIds: ReadonlySet<string> = new Set();
+  private earnedQuestKeyIds: ReadonlySet<string> = new Set();
 
   private graphics!: Phaser.GameObjects.Graphics;
   private mapRenderer!: SectorMapRenderer;
@@ -69,6 +71,7 @@ export class MapScene extends Phaser.Scene {
     this.playerWorldY = data.playerWorldY;
     this.playerFacing = data.playerFacing;
     this.ownedAbilityIds = new Set(data.ownedAbilityIds ?? []);
+    this.earnedQuestKeyIds = new Set(data.earnedQuestKeyIds ?? []);
     this.closed = false;
     this.zoomOutArmed = false;
     this.dragPointerId = -1;
@@ -303,6 +306,7 @@ export class MapScene extends Phaser.Scene {
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
+      holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
       playerWorldX: this.playerWorldX,
       playerWorldY: this.playerWorldY,
       playerFacing: this.playerFacing,

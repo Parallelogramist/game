@@ -41,6 +41,7 @@ const SPINE_BIOME_ID = 'stage_deep_void';
 const REGION_DEPTH_SPAN = 2;
 const APERTURE_AXIS_MARGIN = 3;
 const GATE_TIER_DANGER_STEP = 0.08;
+const QUEST_DOOR_REGION_DIVISOR = 4;
 
 interface GrowingSector {
   sx: number;
@@ -96,6 +97,11 @@ export function generateWorld(seed: number, inputs: WorldGenInputs): WorldMap {
 
   const bossArenaKey = pickBossArenaKey(ordered, finalRegion);
   sectors.get(bossArenaKey)!.isBossArena = true;
+
+  placeQuestKeyDoors(
+    sectors, ordered, dedupePreservingOrder(inputs.questKeyOrder ?? []),
+    abilitySlotBySector, bossArenaKey, makeEdge,
+  );
 
   assignDangerAndBiomes(ordered, gateSubtrees, inputs.availableBiomeIds);
 
@@ -379,6 +385,115 @@ function plugLoopEdgesWithBreakables(
         makeEdge(sector.sx, sector.sy, direction, EdgeKind.Breakable));
     }
   }
+}
+
+interface QuestDoorCandidate {
+  near: GrowingSector;
+  far: GrowingSector;
+  direction: EdgeDirection;
+  edgeId: string;
+  farSide: Set<SectorKey>;
+}
+
+/**
+ * Seals optional regions behind quest keys. Deliberately consumes no RNG and only converts an
+ * existing Open edge, reusing makeEdge (seeded per canonical edge id), so the aperture it
+ * writes is the one that edge already had: adding quest doors leaves every other property of a
+ * seed's world byte-identical and needs no WORLDGEN_VERSION bump.
+ *
+ * A candidate must be a bridge whose far side holds no start sector, no boss arena, no
+ * ability-granting slot and no ability door. The bridge test counts every non-Wall edge as a
+ * connection, so a region reachable around the door through a breakable or a one-way membrane
+ * is rejected rather than half-locked, and the critical path stays passable with abilities alone.
+ */
+function placeQuestKeyDoors(
+  sectors: Map<SectorKey, GrowingSector>,
+  ordered: GrowingSector[],
+  questKeyIds: string[],
+  abilitySlotBySector: Map<SectorKey, string[]>,
+  bossArenaKey: SectorKey,
+  makeEdge: EdgeFactory
+): void {
+  if (questKeyIds.length === 0) return;
+  const regionCap = Math.max(2, Math.floor(ordered.length / QUEST_DOOR_REGION_DIVISOR));
+
+  const candidates: QuestDoorCandidate[] = [];
+  const inspected = new Set<string>();
+  for (const near of ordered) {
+    for (const direction of EDGE_DIRECTIONS) {
+      if (near.edges[direction].kind !== EdgeKind.Open) continue;
+      const far = neighbourOf(sectors, near, direction);
+      if (!far) continue;
+      const edgeId = edgeIdFor(near.sx, near.sy, direction);
+      if (inspected.has(edgeId)) continue;
+      inspected.add(edgeId);
+
+      const startSide = componentWithout(sectors, START_KEY, edgeId);
+      if (startSide.has(near.key) === startSide.has(far.key)) continue;
+      const farRoot = startSide.has(near.key) ? far : near;
+      const farSide = componentWithout(sectors, farRoot.key, edgeId);
+      if (farSide.size > regionCap) continue;
+      if (farSide.has(START_KEY) || farSide.has(bossArenaKey)) continue;
+      if (!isOptionalRegion(sectors, farSide, abilitySlotBySector)) continue;
+
+      candidates.push({ near, far, direction, edgeId, farSide });
+    }
+  }
+
+  // Biggest sealed region first so a key is worth the walk; the edge id breaks ties so the
+  // choice is a pure function of the layout.
+  candidates.sort((a, b) =>
+    b.farSide.size - a.farSide.size || compareKeys(a.edgeId, b.edgeId));
+
+  const claimed = new Set<SectorKey>();
+  let placed = 0;
+  for (const candidate of candidates) {
+    if (placed >= questKeyIds.length) break;
+    if ([...candidate.farSide].some(key => claimed.has(key))) continue;
+    attachEdge(candidate.near, candidate.far, candidate.direction,
+      makeEdge(candidate.near.sx, candidate.near.sy, candidate.direction, EdgeKind.KeyDoor, {
+        requiredId: questKeyIds[placed],
+      }));
+    for (const key of candidate.farSide) claimed.add(key);
+    placed++;
+  }
+}
+
+/** Every sector reachable from `from` across any non-Wall edge except `bannedEdgeId`. */
+function componentWithout(
+  sectors: Map<SectorKey, GrowingSector>,
+  from: SectorKey,
+  bannedEdgeId: string
+): Set<SectorKey> {
+  const reached = new Set<SectorKey>([from]);
+  const stack: SectorKey[] = [from];
+  while (stack.length > 0) {
+    const sector = sectors.get(stack.pop()!)!;
+    for (const direction of EDGE_DIRECTIONS) {
+      if (sector.edges[direction].kind === EdgeKind.Wall) continue;
+      if (edgeIdFor(sector.sx, sector.sy, direction) === bannedEdgeId) continue;
+      const neighbour = neighbourOf(sectors, sector, direction);
+      if (!neighbour || reached.has(neighbour.key)) continue;
+      reached.add(neighbour.key);
+      stack.push(neighbour.key);
+    }
+  }
+  return reached;
+}
+
+function isOptionalRegion(
+  sectors: Map<SectorKey, GrowingSector>,
+  region: Set<SectorKey>,
+  abilitySlotBySector: Map<SectorKey, string[]>
+): boolean {
+  for (const key of region) {
+    if (abilitySlotBySector.has(key)) return false;
+    const sector = sectors.get(key)!;
+    for (const direction of EDGE_DIRECTIONS) {
+      if (sector.edges[direction].kind === EdgeKind.AbilityDoor) return false;
+    }
+  }
+  return true;
 }
 
 function pickBossArenaKey(ordered: GrowingSector[], region: Set<SectorKey>): SectorKey {

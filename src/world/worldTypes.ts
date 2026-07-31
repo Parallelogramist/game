@@ -108,6 +108,9 @@ export interface WorldMap {
 
 export interface WorldGenInputs {
   abilityGateOrder: string[];
+  /** Quest key ids to seal optional regions behind, in order. Omitted means no quest doors,
+   *  which is what every non-expedition caller and the invariant suite want. */
+  questKeyOrder?: string[];
   availableBiomeIds: string[];
   sectorBudget?: number;
 }

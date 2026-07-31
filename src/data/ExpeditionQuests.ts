@@ -38,6 +38,9 @@ export interface ExpeditionQuestDefinition {
   readonly completionGoldReward: number;
   /** Chain link. Resolved + asserted acyclic by referentialIntegrity.test.ts. */
   readonly nextQuestId?: string;
+  /** Completing this quest hands the profile a key that opens the world's KeyDoor edges
+   *  carrying this id. Fed to the generator as WorldGenInputs.questKeyOrder. */
+  readonly grantsKeyId?: string;
 }
 
 export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
@@ -64,6 +67,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 120,
+    grantsKeyId: 'quest_key_survey',
     nextQuestId: 'quest_survey_02',
   },
   {
@@ -138,6 +142,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 150,
+    grantsKeyId: 'quest_key_gatecrash',
     nextQuestId: 'quest_gatecrash_02',
   },
   {
@@ -160,4 +165,16 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
 
 export function getExpeditionQuest(questId: string): ExpeditionQuestDefinition | undefined {
   return EXPEDITION_QUESTS.find((quest) => quest.id === questId);
+}
+
+/** The generation input the expedition world consumes as WorldGenInputs.questKeyOrder.
+ *  Catalog order, so a key's door placement is stable while the catalog is. */
+export const EXPEDITION_QUEST_KEY_ORDER: readonly string[] = EXPEDITION_QUESTS
+  .map((quest) => quest.grantsKeyId)
+  .filter((keyId): keyId is string => keyId !== undefined);
+
+/** The quest a sealed door should name. Undefined for a key no quest grants, which
+ *  referentialIntegrity.test.ts forbids. */
+export function getQuestForKeyId(keyId: string): ExpeditionQuestDefinition | undefined {
+  return EXPEDITION_QUESTS.find((quest) => quest.grantsKeyId === keyId);
 }

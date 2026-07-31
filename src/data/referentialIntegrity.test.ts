@@ -24,7 +24,9 @@ import { MILESTONES } from '../achievements/MilestoneDefinitions';
 import { ENEMY_TYPES, EnemyCategory } from '../enemies/EnemyTypes';
 import { BLESSINGS } from './Blessings';
 import { TRAVERSAL_ABILITIES } from './TraversalAbilities';
-import { EXPEDITION_QUESTS } from './ExpeditionQuests';
+import {
+  EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER, getQuestForKeyId,
+} from './ExpeditionQuests';
 
 /**
  * Referential-integrity sweep: every cross-reference key in the data catalogs
@@ -230,6 +232,17 @@ describe('expedition quest data rules', () => {
         if (step.trigger.kind === 'openGate') expect(step.target, step.id).toBeLessThanOrEqual(4);
       }
       expect(quest.completionGoldReward, quest.id).toBeGreaterThan(0);
+    }
+  });
+
+  test('grants each quest key from exactly one quest and lists them in EXPEDITION_QUEST_KEY_ORDER', () => {
+    const granted = EXPEDITION_QUESTS
+      .map((quest) => quest.grantsKeyId)
+      .filter((keyId): keyId is string => keyId !== undefined);
+    expect(new Set(granted).size).toBe(granted.length);
+    expect([...EXPEDITION_QUEST_KEY_ORDER]).toEqual(granted);
+    for (const keyId of granted) {
+      expect(getQuestForKeyId(keyId)?.grantsKeyId).toBe(keyId);
     }
   });
 });
