@@ -1,4 +1,5 @@
 import type { ExpeditionQuestDefinition, QuestTrigger } from '../data/ExpeditionQuests';
+import type { SecretTier } from '../world/secretRewards';
 
 /**
  * The pure expedition-quest state machine (doc 04 section 4). No Phaser, no storage, no
@@ -29,7 +30,8 @@ export type QuestEvent =
   | { kind: 'kill'; amount: number }
   | { kind: 'reachDepth'; depth: number }
   | { kind: 'openGate' }
-  | { kind: 'claimAbility'; abilityId: string };
+  | { kind: 'claimAbility'; abilityId: string }
+  | { kind: 'findSecret'; secretKind: SecretTier };
 
 export interface QuestStepCompletion {
   questId: string;
@@ -58,6 +60,9 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
     case 'claimAbility':
       return trigger.kind === 'claimAbility'
         && (trigger.abilityId === undefined || trigger.abilityId === event.abilityId);
+    case 'findSecret':
+      return trigger.kind === 'findSecret'
+        && (trigger.secretKind === undefined || trigger.secretKind === event.secretKind);
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -72,6 +77,7 @@ function foldEvent(progress: number, event: QuestEvent): number {
     case 'reachDepth': return Math.max(progress, event.depth);
     case 'openGate': return progress + 1;
     case 'claimAbility': return progress + 1;
+    case 'findSecret': return progress + 1;
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);

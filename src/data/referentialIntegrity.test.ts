@@ -230,6 +230,7 @@ describe('expedition quest data rules', () => {
         if (step.scope !== 'run') continue;
         if (step.trigger.kind === 'kill') expect(step.target, step.id).toBeLessThanOrEqual(800);
         if (step.trigger.kind === 'openGate') expect(step.target, step.id).toBeLessThanOrEqual(4);
+        if (step.trigger.kind === 'findSecret') expect(step.target, step.id).toBeLessThanOrEqual(3);
       }
       expect(quest.completionGoldReward, quest.id).toBeGreaterThan(0);
     }

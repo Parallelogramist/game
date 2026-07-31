@@ -1,3 +1,5 @@
+import type { SecretTier } from '../world/secretRewards';
+
 /**
  * Expedition quest chains: multi-step objectives that span runs (doc 04 section 4).
  *
@@ -9,15 +11,18 @@
  */
 
 /**
- * A trigger names WHICH signal a step listens to. The four kinds here are the four the
- * game already emits; doc 04's other four (findSecret, surviveInSector, escortDrone,
- * deliverItem) have no producer yet and are deliberately absent rather than inert.
+ * A trigger names WHICH signal a step listens to. The five kinds here are the five the game
+ * emits; doc 04's other three (surviveInSector, escortDrone, deliverItem) have no producer
+ * yet and are deliberately absent rather than inert.
  */
 export type QuestTrigger =
   | { kind: 'kill' }
   | { kind: 'reachDepth' }
   | { kind: 'openGate' }
-  | { kind: 'claimAbility'; abilityId?: string };
+  | { kind: 'claimAbility'; abilityId?: string }
+  /** Doc 04 authors this as `secretId?`, but a secret's id is generated per world
+   *  (`poi:12,-3:0`), so a static catalog can only name the KIND of find. */
+  | { kind: 'findSecret'; secretKind?: SecretTier };
 
 export interface ExpeditionQuestStep {
   readonly id: string;
@@ -160,6 +165,55 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 300,
+  },
+  {
+    id: 'quest_secret_01',
+    name: 'Ghost Signals',
+    icon: 'ghost',
+    steps: [
+      {
+        id: 'q_secret_01.s1',
+        description: 'Uncover two concealed caches on one expedition',
+        trigger: { kind: 'findSecret', secretKind: 'cache' },
+        target: 2,
+        scope: 'run',
+        goldReward: 90,
+      },
+      {
+        id: 'q_secret_01.s2',
+        description: 'Break into a hidden sector',
+        trigger: { kind: 'findSecret', secretKind: 'hiddenSector' },
+        target: 1,
+        scope: 'persistent',
+        goldReward: 140,
+      },
+    ],
+    completionGoldReward: 180,
+    nextQuestId: 'quest_secret_02',
+  },
+  {
+    id: 'quest_secret_02',
+    name: "Voidmason's Ledger",
+    icon: 'crystal',
+    steps: [
+      {
+        id: 'q_secret_02.s1',
+        description: 'Uncover twelve secrets across your expeditions',
+        trigger: { kind: 'findSecret' },
+        target: 12,
+        scope: 'persistent',
+        goldReward: 200,
+      },
+      {
+        id: 'q_secret_02.s2',
+        description: 'Break into five hidden sectors across your expeditions',
+        trigger: { kind: 'findSecret', secretKind: 'hiddenSector' },
+        target: 5,
+        scope: 'persistent',
+        goldReward: 240,
+      },
+    ],
+    completionGoldReward: 340,
   },
 ];
 

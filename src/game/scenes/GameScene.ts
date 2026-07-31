@@ -4846,6 +4846,7 @@ export class GameScene extends Phaser.Scene {
       color,
       duration: 3200,
     });
+    this.recordExpeditionQuest({ kind: 'findSecret', secretKind: 'cache' });
   }
 
   /**
@@ -4932,6 +4933,7 @@ export class GameScene extends Phaser.Scene {
       color,
       duration: 3200,
     });
+    this.recordExpeditionQuest({ kind: 'findSecret', secretKind: 'hiddenSector' });
   }
 
   /** Arena is inert by construction: ArenaModeAdapter.worldMap() is null, so an arena run

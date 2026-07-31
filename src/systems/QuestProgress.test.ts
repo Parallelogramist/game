@@ -38,6 +38,24 @@ const DEFS: readonly ExpeditionQuestDefinition[] = [
     ],
     completionGoldReward: 40,
   },
+  {
+    id: 'quest_d',
+    name: 'D',
+    icon: 'ghost',
+    steps: [
+      { id: 'q_d.s1', description: 'find 2 hidden sectors', trigger: { kind: 'findSecret', secretKind: 'hiddenSector' }, target: 2, scope: 'persistent', goldReward: 13 },
+    ],
+    completionGoldReward: 50,
+  },
+  {
+    id: 'quest_e',
+    name: 'E',
+    icon: 'crystal',
+    steps: [
+      { id: 'q_e.s1', description: 'find 2 secrets', trigger: { kind: 'findSecret' }, target: 2, scope: 'persistent', goldReward: 17 },
+    ],
+    completionGoldReward: 60,
+  },
 ];
 
 const active = (questId: string, stepIndex = 0, stepProgress = 0): QuestInstanceState =>
@@ -98,6 +116,20 @@ describe('recordQuestEvent', () => {
     expect(right.questCompletions).toEqual([{ questId: 'quest_c', goldReward: 40 }]);
   });
 
+  test('a secret trigger matches only its named secret kind', () => {
+    const wrong = recordQuestEvent([active('quest_d')], DEFS, { kind: 'findSecret', secretKind: 'cache' });
+    expect(wrong.states[0].stepProgress).toBe(0);
+    const right = recordQuestEvent([active('quest_d')], DEFS, { kind: 'findSecret', secretKind: 'hiddenSector' });
+    expect(right.states[0].stepProgress).toBe(1);
+  });
+
+  test('a secret trigger naming no kind counts either kind of find', () => {
+    const first = recordQuestEvent([active('quest_e')], DEFS, { kind: 'findSecret', secretKind: 'cache' });
+    expect(first.states[0].stepProgress).toBe(1);
+    const second = recordQuestEvent(first.states, DEFS, { kind: 'findSecret', secretKind: 'hiddenSector' });
+    expect(second.questCompletions).toEqual([{ questId: 'quest_e', goldReward: 60 }]);
+  });
+
   test('never mutates the states it was handed', () => {
     const states = [active('quest_a')];
     recordQuestEvent(states, DEFS, { kind: 'kill', amount: 10 });
@@ -118,9 +150,9 @@ describe('settleRunScopeProgress', () => {
 
 describe('seedQuestStates', () => {
   test('seeds chain heads only, never a successor, and never re-seeds a held quest', () => {
-    const seeded = seedQuestStates([], DEFS, 3);
-    expect(seeded.activatedQuestIds).toEqual(['quest_a', 'quest_c']);
-    const again = seedQuestStates(seeded.states, DEFS, 3);
+    const seeded = seedQuestStates([], DEFS, 4);
+    expect(seeded.activatedQuestIds).toEqual(['quest_a', 'quest_c', 'quest_d', 'quest_e']);
+    const again = seedQuestStates(seeded.states, DEFS, 4);
     expect(again.activatedQuestIds).toEqual([]);
   });
 
