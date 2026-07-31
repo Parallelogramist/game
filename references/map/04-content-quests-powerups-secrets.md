@@ -778,6 +778,43 @@ Three tiers, cheapest first:
   what caps the catalog at 13 until a world can be re-rolled
   (`FEAT-SECRET-LORE-CATALOG-DEPTH`).
 
+### As built (`FEAT-POWER-DECRYPTOR-SCAN`, e36b7f6, 2026-07-31)
+
+- **Hint tier 3 shipped.** The `FEAT-SECRET-HIDDEN-SECTORS` note above lists it as "not built,
+  deliberately", waiting on the ability's active as `FEAT-SECRET-DECRYPTOR-PING`. That is now
+  discharged: owning `ability_signal_decryptor` sweeps the sector graph on every sector entry,
+  charting sectors two to four edge-hops out as outlines with their connecting edges, and
+  pointing at any unfound cache in the room just entered.
+- **It fires on sector entry, not on a button, and that is a decision rather than a shortcut.**
+  Every existing action (dash, ultimate, map) is wired through three input paths:
+  `InputController` keyboard, `InputController` gamepad, and a `HUDManager` touch button with a
+  joystick exclusion check. A keyboard-only active would hand the ability to one third of the
+  players; all three plus a cooldown readout is a HUD-layout change larger than the feature
+  itself. Sector entry is the trigger every other discovery write already uses and the pure rule
+  is idempotent, so a re-entry that reveals nothing costs nothing. The pressable version is
+  filed as `POLISH-DECRYPTOR-ACTIVE-BUTTON`.
+- **The radar blip is the "marks position in-sector" half tier 1 reserved for tier 3.** The
+  `FEAT-SECRET-AMBIENT-PING` note above says the shimmer "says a cache is in this room and never
+  where"; with the decryptor owned, `updateMinimap` writes a `'secret'` blip at each unfound
+  cache's real position, in the breakable amber the shimmer already uses. The shimmer is
+  untouched and still works for a profile without the ability: proximity intensity and position
+  are different information and both are wanted.
+- **`luckLevel` is the synergy hook** the taxonomy row promised ("ping range scales"): two hops
+  base, one extra per two purchased levels, capped at four, so that upgrade's maxLevel of 5 tops
+  the sweep out. The numbers are a designed guess, not a measurement against the live 48-sector
+  graph, which is `BALANCE-DECRYPTOR-SCAN-RADIUS`.
+- **`ability_signal_decryptor` joined `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` as the third entry**,
+  so its claim toast now prints its real description instead of the generic line. Both clauses of
+  that description are true: the door half already worked, because `tryOpenAbilityDoor` is
+  generic over `door.requiredId` and opens any `EdgeKind.AbilityDoor` gated on an owned id.
+- **The scan grants each newly hinted secret's lore fragment, and that is an invariant, not a
+  bonus.** `MapScene.renderLeadsPanel` prints `lead.fragment.title` and `lead.fragment.text` for
+  every HINTED-and-not-FOUND secret, so a scan that hinted without granting would spoil a
+  fragment's full text in the LEADS panel while the Codex LORE tab still showed it as `???`. The
+  sweep therefore calls `discoverLoreFragment` and refreshes `setLoreFragmentsFound` exactly as
+  `grantSecretLead` does. The toast deliberately does not claim a fragment was logged, since an
+  already-recovered fragment would make that false.
+
 ---
 
 ## 6. Reward economy

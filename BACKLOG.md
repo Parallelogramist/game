@@ -127,6 +127,25 @@ are never written to the run save, on the `Destructible` precedent, so a refresh
 rebuilds the pack while a cleared vault stays cleared. It needed no storage key and no version
 bump. That closes the last two `FEAT-POWER-VAULTS` done-criteria.
 
+`FEAT-POWER-DECRYPTOR-SCAN` (e36b7f6) turned the Signal Decryptor from a door key with a lying
+description into the late-game cleanup tool. Owning it means entering any sector sweeps the
+surrounding graph: sectors two to four edge-hops out are charted as outlines with their
+connecting edges, and any unfound cache in the room you just entered is pointed at on the chart,
+logged in the codex, and painted on the radar **at its actual position**, which is precisely what
+hint tier 1's ambient shimmer withholds. It closed a **three-item circular block** in one chunk:
+`FEAT-DISCOVERY-SCAN-FRAGMENT`'s `revealOnScanPulse` carried a standing inert-deliverable warning
+because nothing in the game produced a scan pulse, `FEAT-POWER-ABILITY-EFFECTS-REST`'s decryptor
+clause was blocked on that ping, and `FEAT-SECRET-DECRYPTOR-PING` was blocked on
+`FEAT-POWER-ABILITY-EFFECTS-REST`. Shipping the sweep **as** the producer broke the cycle and
+discharged a fourth filed item, `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD`, whose guard shipped inside
+the function it was filed against. **The sweep fires on sector entry, not on a button, and that
+call is settled**: a keyboard-only active would hand the ability to one of the three input paths
+(`InputController` keyboard, gamepad, and a `HUDManager` touch button), and all three plus a
+cooldown readout is a HUD-layout change larger than the feature. The radar blip is the always-on
+half the spec's "active" was reaching for. The pressable version is filed as
+`POLISH-DECRYPTOR-ACTIVE-BUTTON`; do not re-derive it. It needed no storage key and no version
+bump, and it grants neither VISITED nor FOUND, so the completion percent cannot move.
+
 **Band 2 was the live band all along, and this item was on it.** The candidate list below used to
 omit `FEAT-POWER-VAULT-GUARD`, and band 1's note that band 2's next unblocked work lay elsewhere
 was wrong on that point: its only dep, `FEAT-POWER-VAULTS`, has been done since a2361d0.
@@ -136,13 +155,14 @@ four paths are already wired and the fourth (`markSectorClearedOnce`) has no hon
 because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director and a wave
 spawner with a leash-bounded live set never makes a sector "cleared" (the blocker is now on
 that item, so do not re-derive it). The unblocked candidates are now
-`FEAT-DISCOVERY-SCAN-FRAGMENT` (standing warning, measured 2026-07-31: its two named
-deliverables `revealOnScanPulse` and `revealOnMapFragment` have no producer in the game,
-`ability_signal_decryptor` has no active and `fragmentRegions` appears nowhere in `src/`, so it
-is an inert-deliverable risk until one exists), `CHORE-SECRET-LEAD-RADAR`,
-`CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, the newly filed
+`FEAT-DISCOVERY-SCAN-FRAGMENT` (now narrowed to `revealOnMapFragment` alone, since
+`revealOnScanPulse` shipped with its producer in e36b7f6; that remaining half is still an
+inert-deliverable risk, because `fragmentRegions` appears nowhere in `src/` and no generator
+emits one, so the unblocking work is a producer rather than the rule), `CHORE-SECRET-LEAD-RADAR`,
+`CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`,
 `BALANCE-VAULT-GUARD-SCALING` (`CHORE-VAULT-GUARD-MAP-MARK`, filed with it, is blocked on
-`FEAT-MAPUI-DOORS-05`) and
+`FEAT-MAPUI-DOORS-05`), the newly filed `POLISH-DECRYPTOR-ACTIVE-BUTTON` and
+`BALANCE-DECRYPTOR-SCAN-RADIUS`, and
 `FEAT-SECRET-LORE-CATALOG-DEPTH` (which waits on a re-rollable world seed, since the fixed
 expedition seed is what caps the fragment catalog at 13), and `FEAT-QUEST-CATALOG-DEPTH`, whose
 fourth chain head would be the first one the 3-accept cap ever actually gates but which its own
@@ -3599,16 +3619,18 @@ exploring pays is the end of Phase 5.
   capability. That notch stays unreachable until the director exists. Value: the map showing a
   cleared room. Deps: `FEAT-WORLDGEN-STREAM`. Spec: `03-discovery-map-ui.md` sections 1.4, 2.1.
 
-- [ ] **FEAT-DISCOVERY-SCAN-FRAGMENT**: `revealOnScanPulse` (a BFS over the sector graph out
-  to a hop radius) and `revealOnMapFragment` (reveal a fragment's region as outlines, never
-  as interiors, so the reason to fly there survives). Not built with
-  `FEAT-DISCOVERY-STATE-01` because the scan item is `04-*` content and `fragmentRegions`
-  appears nowhere in `src/`: no generator emits one, so both would have been inert. Value:
-  these are the two ways a player learns the map without walking it. `revealOnScanPulse` should
-  set HINTED through `DiscoveryManager.markSecretHinted` (885d3bb) rather than inventing a second
-  pointer, and `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD`'s guard is already implemented for leads in
-  `chooseHintTarget`, so copy it from there. Deps: `FEAT-POI-CATALOG`. Spec:
-  `03-discovery-map-ui.md` section 1.4, rules 4 and 5.
+- [ ] **FEAT-DISCOVERY-SCAN-FRAGMENT** (narrowed 2026-07-31): **half of this shipped.**
+  `revealOnScanPulse` (a BFS over the sector graph out to a hop radius) landed in e36b7f6
+  **together with its producer**, the Signal Decryptor's on-entry sweep, so it was never inert
+  and it carries the `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD` guard, now discharged. What remains is
+  `revealOnMapFragment` alone: reveal a fragment's region as outlines, never as interiors, so
+  the reason to fly there survives. **Standing warning, still true for this half**: it is an
+  inert deliverable until something produces its input. `fragmentRegions` (contract 11.2) appears
+  nowhere in `src/` and no generator emits one, so building the rule today would ship a function
+  no caller can feed. The unblocking work is a generator that emits fragment regions and a reward
+  that hands the player a map fragment, not the rule. Value: the second way a player learns the
+  map without walking it. Deps: `FEAT-POI-CATALOG`, plus a `fragmentRegions` producer. Spec:
+  `03-discovery-map-ui.md` section 1.4, rule 5.
 
 - [x] **FEAT-BARRIER-BREACH** (done — 2dc76e1, 491c7cc, 31b17c3, 6df8acc): the expedition
   world's cracked walls stop being a lie. The generator has always carved `TileKind.Breakable`
@@ -4183,17 +4205,20 @@ exploring pays is the end of Phase 5.
     `src/visual/SectorMapRenderer.ts`. Feel is unvalidated in a browser: see
     **POLISH-DOOR-READOUT** under `## Human gates`.
 
-- [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the four traversal abilities that are still keys
+- [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the traversal abilities that are still keys
   and nothing more, each blocked on a barrier flavour that does not exist yet rather than on
-  effort. `ability_breach_charges` needs a deployable placement path over the existing
-  `ConsumableKind.BOMB` blast plus the false-wall prospecting `FEAT-SECRET-CACHE` owns;
+  effort. **Three remain.** `ability_breach_charges` needs a deployable placement path over the
+  existing `ConsumableKind.BOMB` blast plus the false-wall prospecting `FEAT-SECRET-CACHE` owns;
   `ability_magno_tether` needs `barrier_void_gap` with anchor pylons, which no generator phase
-  emits; `ability_phase_cloak` needs `barrier_security_grid`, likewise unemitted;
+  emits; `ability_phase_cloak` needs `barrier_security_grid`, likewise unemitted.
   (`ability_thermal_ward` is **done — 74d78b3**: `FEAT-BARRIER-HAZARD-STRIPS` landed the hull
   drain and the ward now negates it, so it is the second ability in
-  `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and its claim toast prints its real description); `ability_signal_decryptor`
-  needs `EdgeKind.KeyDoor` actually placed (`FEAT-WORLDGEN-QUESTDOORS`) and the secret ping
-  `FEAT-DISCOVERY-SCAN-FRAGMENT` owns. Each one becomes a small chunk the moment its barrier
+  `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and its claim toast prints its real description.)
+  (`ability_signal_decryptor` is **done, e36b7f6**: its `EdgeKind.KeyDoor` dep was discharged by
+  `FEAT-WORLDGEN-QUESTDOORS` (52e0802) and `FEAT-POWER-DECRYPTOR-SCAN` shipped the secret ping,
+  so it is the **third** id in `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and both clauses of its
+  description are now true: `tryOpenAbilityDoor` already handled the door half generically.)
+  Each remaining one becomes a small chunk the moment its barrier
   lands, and each must add its id to `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` so the claim toast
   starts printing its real description. Deps: per ability, as listed. Spec:
   `04-content-quests-powerups-secrets.md` section 2.
@@ -4532,11 +4557,63 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   7. **Deps discharged**: `FEAT-SECRET-CACHE` (done) supplied the finds; `FEAT-POWER-TRAVERSAL`
      was only ever a dep of the ping, which is now its own item.
 
-- [ ] **FEAT-SECRET-DECRYPTOR-PING** (new 2026-07-31, cut from `FEAT-SECRET-LORE`): hint tier 3,
-  `ability_signal_decryptor`'s active marking unfound secrets in the current sector on the map.
-  Cut from the lore chunk because that ability has no active yet, so the marker would have no
-  button to press. Value: the late-game cleanup tool that makes 100% a goal instead of a pixel
-  hunt. Deps: `FEAT-POWER-ABILITY-EFFECTS-REST`. Spec: doc 04 section 5, hint tier 3.
+- [x] **FEAT-SECRET-DECRYPTOR-PING** (done, e36b7f6): hint tier 3. `ability_signal_decryptor`
+  stops being a door key with a description it could not pay. Value: George gets a permanent,
+  earned ship system that charts the neighbourhood as he flies and marks concealed caches by
+  position, turning 100% completion from a pixel hunt into a goal.
+  1. **What shipped**: `revealOnScanPulse` in `discoveryRules.ts` (a BFS over the sector graph),
+     `DiscoveryManager.applyScanPulse`, `scanPulseGraphRadius` plus its two radius constants in
+     `TraversalAbilities.ts`, a `'secret'` blip kind in `minimapProjection.ts` and `DRAW_ORDER`,
+     and `decryptorOwned` / `runDecryptorScan` in `GameScene` wired into `sectorEnteredHandler`
+     and `updateMinimap`. Sectors in range come back as outlines with their connecting edges, and
+     this room's unfound caches are pointed at on the chart, in the codex, and on the radar at
+     their real positions.
+  2. **It fires on sector entry, not on a button, and that call is settled.** Every existing
+     action is wired through three input paths (`InputController` keyboard, `InputController`
+     gamepad, and a `HUDManager` touch button with a joystick exclusion check), so a
+     keyboard-only active would hand the ability to one third of the players and all three plus a
+     cooldown readout is a HUD-layout change larger than the feature. Sector entry is the trigger
+     every other discovery write already uses and the rule is idempotent, so a re-entry that
+     reveals nothing returns empty changes and costs nothing. The pressable version is filed as
+     `POLISH-DECRYPTOR-ACTIVE-BUTTON`; do not re-derive this.
+  3. **Only the origin sector's secrets gain HINTED** (doc 03 section 1.4 rule 4 as written). A
+     sweep that pointed at every secret four hops out would delete hint tiers 1 and 2 in one
+     pass. The sweep grants neither VISITED nor FOUND, so it charts outlines and never interiors
+     and `getCompletionPercent()` cannot move.
+  4. **The lore-fragment grant is an invariant repair, not a bonus.** `MapScene.renderLeadsPanel`
+     prints a fragment's title and text for every HINTED-and-not-FOUND secret, so hinting without
+     granting would spoil in LEADS what the Codex LORE tab still listed as `???`. The scan calls
+     `discoverLoreFragment` and refreshes `setLoreFragmentsFound` exactly as `grantSecretLead`
+     does. The toast deliberately does not claim a fragment was logged: an already-recovered
+     fragment would make that false.
+  5. **Radius**: 2 edge-hops base, +1 per 2 purchased `luckLevel`, capped at 4, which is the
+     synergy hook doc 04's taxonomy row already promised ("ping range scales"). Whether a fully
+     upgraded sweep trivialises the live 48-sector graph is unmeasured and filed as
+     `BALANCE-DECRYPTOR-SCAN-RADIUS`.
+  6. **No storage key and no version bump**: no `ALL_STORAGE_KEYS` entry, no new
+     `DiscoveryChanges` field, and no `SAVE_VERSION` / `DISCOVERY_VERSION` / `WORLDGEN_VERSION` /
+     `CODEX_VERSION` / `ACHIEVEMENT_VERSION` move. The sweep reports through fields that already
+     existed, so every profile keeps its discovery state.
+  7. **Files touched**: `discoveryRules.ts`, `DiscoveryManager.ts`, `TraversalAbilities.ts`,
+     `minimapProjection.ts`, `MinimapManager.ts`, `GameScene.ts`, plus three tests in
+     `discoveryRules.test.ts` and a one-line widening in `minimapProjection.test.ts`.
+
+- [ ] **POLISH-DECRYPTOR-ACTIVE-BUTTON** (new 2026-07-31, from `FEAT-POWER-DECRYPTOR-SCAN`): doc
+  04's taxonomy row calls the decryptor ping an *active*, and it shipped as an automatic sweep on
+  sector entry instead. Making it pressable is not a keybind: it needs an input action on all
+  three paths (`InputController` keyboard and gamepad, plus a `HUDManager` touch button with the
+  joystick exclusion check every other touch action carries) and a cooldown readout, which is a
+  HUD-layout change larger than the feature it would wrap. If the operator wants the press, that
+  is the shape of the work, and the sweep itself already exists to call. Value: player agency
+  over when the neighbourhood gets charted. Deps: none.
+
+- [ ] **BALANCE-DECRYPTOR-SCAN-RADIUS** (new 2026-07-31, from `FEAT-POWER-DECRYPTOR-SCAN`): 2
+  edge-hops base rising to 4 at `luckLevel` 5 is a designed guess, not a measurement. Whether a
+  fully upgraded sweep trivialises the live seed's 48-sector graph wants counting reachable
+  sectors per sweep against the real generator (and how much of the map a single expedition
+  charts for free) before the numbers move. Value: keeps the ability an earned advantage rather
+  than a map giveaway. Deps: none, but it is a balance question, so it wants numbers, not a
+  guess.
 
 - [x] **FEAT-SECRET-LORE-CODEX** (done, 173c7f3): the profile-wide collection half of hint tier
   2. A fragment's flavour line used to be readable in exactly one place, `MapScene`'s LEADS
@@ -4737,13 +4814,13 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   whenever that constant moves. Value: keeps an unlock hint from lying to the player about the
   price of a cosmetic. Deps: none.
 
-- [ ] **CHORE-DISCOVERY-HIDDEN-SCAN-GUARD** (new 2026-07-31, from
-  `FEAT-SECRET-HIDDEN-SECTORS`): `FEAT-DISCOVERY-SCAN-FRAGMENT`'s `revealOnScanPulse` (a BFS
-  over the sector graph, not yet built) must carry the same guard `revealOnSectorEntry` now
-  carries: a hidden sector and the edge into it stay dark until it is VISITED, or the scanner
-  hands back exactly what the wall was hiding. Not a bug today (that function does not exist)
-  and filed so the future chunk cannot miss it. Value: keeps the hidden-sector payoff from
-  being quietly deleted by the next discovery feature. Deps: `FEAT-DISCOVERY-SCAN-FRAGMENT`.
+- [x] **CHORE-DISCOVERY-HIDDEN-SCAN-GUARD** (done, e36b7f6): the guard shipped inside
+  `revealOnScanPulse` in the very commit that created the function it was filed against, so it
+  was never live as a gap. An unvisited hidden neighbour is neither charted nor given its edge,
+  and the BFS additionally refuses to expand *through* one, so no sector on the far side of a
+  breakable wall can be charted around it either. Test 2 of the new `revealOnScanPulse` block in
+  `discoveryRules.test.ts` pins it, so a future widening of the sweep goes red rather than
+  quietly deleting the hidden-sector payoff.
 
 - [x] **FEAT-SECRET-REWARD-VARIETY** (done, b970287): what a found secret PAYS, as one
   data-driven table instead of per-chunk hardcoding: gold caches (band-checked by

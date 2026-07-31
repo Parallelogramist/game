@@ -181,6 +181,30 @@ hidden sector can raise the percentage and can never lower it. `MapScene`'s head
 same count, so "N / M SECTORS EXPLORED" cannot leak M. Any future reveal path
 (`revealOnScanPulse`, map fragments) must carry the same guard: `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD`.
 
+### As built (`FEAT-POWER-DECRYPTOR-SCAN`, e36b7f6, 2026-07-31)
+
+Rule 4 is built. `revealOnScanPulse(state, map, universe, originSectorKey, graphRadius)` shipped
+in the same commit as its producer (the Signal Decryptor's on-entry sweep), so it was never an
+inert deliverable. One signature note: it takes the `WorldMap` itself, exactly as
+`revealOnSectorEntry` does, rather than this section's hypothetical `index`. There is no
+`WorldMapIndex` in this codebase and never was, for the reason the module header already gives.
+
+The guard the block above asked for is implemented and pinned by a test. An unvisited hidden
+neighbour is neither charted nor given its edge, and the BFS additionally refuses to expand
+*through* one, so no sector on the far side of a breakable wall can be charted around it.
+`CHORE-DISCOVERY-HIDDEN-SCAN-GUARD` is discharged.
+
+Only the origin sector's secrets gain `HINTED`, per rule 4 as written: a sweep that pointed at
+every secret within the radius would delete hint tiers 1 and 2 in one pass. The sweep grants
+neither `VISITED` nor `FOUND`, so it charts outlines and never interiors and
+`getCompletionPercent()` cannot move.
+
+Rule 5, `revealOnMapFragment`, is still not built: `fragmentRegions` has no producer anywhere in
+`src/`, so building it now would be the inert deliverable rule 4 just avoided being.
+
+No `DISCOVERY_VERSION` bump and no new `DiscoveryChanges` field: the sweep reports through
+`sectorsDiscovered`, `edgesKnown` and `secretsHinted`, which already existed.
+
 ---
 
 ## 2. Purity split
