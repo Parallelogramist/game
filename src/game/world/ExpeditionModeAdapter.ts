@@ -71,6 +71,10 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  */
 const EXPEDITION_WORLD_SEED = 20260727;
 
+/** Three concealed rooms per world: enough that a run can stumble on one, few enough that
+ *  finding one still reads as a find. */
+const EXPEDITION_HIDDEN_SECTOR_COUNT = 3;
+
 const PLAYER_COLLISION_RADIUS = 16;
 
 /**
@@ -112,6 +116,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     this.map = generateWorld(EXPEDITION_WORLD_SEED, {
       abilityGateOrder: [...TRAVERSAL_ABILITY_GATE_ORDER],
       questKeyOrder: [...EXPEDITION_QUEST_KEY_ORDER],
+      hiddenSectorCount: EXPEDITION_HIDDEN_SECTOR_COUNT,
       availableBiomeIds: STAGES.map(stage => stage.id),
     });
     if (this.map.abilityOrder.length < TRAVERSAL_ABILITY_GATE_ORDER.length) {

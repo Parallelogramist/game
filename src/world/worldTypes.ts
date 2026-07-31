@@ -91,6 +91,9 @@ export interface SectorDef {
   poiSlots: PoiSlot[];
   isStart: boolean;
   isBossArena: boolean;
+  /** Absent from the map and from the completion denominator until the ship has been
+   *  inside it. Optional so the SectorDef literals in six test files stay valid. */
+  hidden?: boolean;
   depth: number;
   entryTiles: Partial<Record<EdgeDirection, TileCoord>>;
   breakables: BreakableRect[];
@@ -111,6 +114,9 @@ export interface WorldGenInputs {
   /** Quest key ids to seal optional regions behind, in order. Omitted means no quest doors,
    *  which is what every non-expedition caller and the invariant suite want. */
   questKeyOrder?: string[];
+  /** How many dead-end leaf sectors to conceal behind a breakable wall. Omitted or 0 means
+   *  none, which is what every non-expedition caller and the invariant suite want. */
+  hiddenSectorCount?: number;
   availableBiomeIds: string[];
   sectorBudget?: number;
 }

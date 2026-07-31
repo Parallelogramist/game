@@ -89,7 +89,8 @@ export class MapScene extends Phaser.Scene {
       fontSize: 38, letterSpacing: 3,
     }).setDepth(2);
     makeBodyText(this, width / 2, 72,
-      `${discovery.getVisitedSectorCount()} / ${this.mapData.sectors.size} SECTORS EXPLORED`
+      `${discovery.getVisitedSectorCount()} / ${discovery.getKnowableSectorCount()}`
+      + ` SECTORS EXPLORED`
       + `  ·  ${discovery.getCompletionPercent()}%`,
       { fontSize: 18, color: TEXT_COLORS.muted }).setDepth(2);
     makeBodyText(this, width / 2, height - 48,

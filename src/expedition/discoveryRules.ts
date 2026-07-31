@@ -42,6 +42,7 @@ export interface WorldIdUniverse {
   edgeIds: Set<string>;
   poiIds: Set<string>;
   secretIds: Set<string>;
+  hiddenSectorKeys: Set<string>;
   overCap: boolean;
 }
 
@@ -51,6 +52,7 @@ export function emptyIdUniverse(): WorldIdUniverse {
     edgeIds: new Set(),
     poiIds: new Set(),
     secretIds: new Set(),
+    hiddenSectorKeys: new Set(),
     overCap: false,
   };
 }
@@ -63,6 +65,7 @@ export function buildIdUniverse(map: WorldMap): WorldIdUniverse {
   const universe = emptyIdUniverse();
   for (const sector of map.sectors.values()) {
     universe.sectorKeys.add(sector.key);
+    if (sector.hidden === true) universe.hiddenSectorKeys.add(sector.key);
     for (const direction of EDGE_DIRECTIONS) {
       if (sector.edges[direction].kind === EdgeKind.Wall) continue;
       universe.edgeIds.add(edgeIdFor(sector.sx, sector.sy, direction));
@@ -171,10 +174,16 @@ export function revealOnSectorEntry(
 
   for (const direction of EDGE_DIRECTIONS) {
     if (sector.edges[direction].kind === EdgeKind.Wall) continue;
-    const edgeId = edgeIdFor(sector.sx, sector.sy, direction);
-    if (universe.edgeIds.has(edgeId)) addEdge(state, changes, edgeId, EdgeFlags.KNOWN);
     const { dsx, dsy } = directionDelta(direction);
     const neighbourKey = `${sector.sx + dsx},${sector.sy + dsy}`;
+    // A hidden sector is not on the chart until the ship is inside it, so neither its
+    // outline nor the door into it may leak from next door: a drawn door pointing at blank
+    // space would answer the question the room exists to ask. Entering it clears the guard
+    // for good, because the sector is VISITED from that moment on.
+    if (universe.hiddenSectorKeys.has(neighbourKey)
+      && ((state.sectors[neighbourKey] ?? 0) & SectorFlags.VISITED) === 0) continue;
+    const edgeId = edgeIdFor(sector.sx, sector.sy, direction);
+    if (universe.edgeIds.has(edgeId)) addEdge(state, changes, edgeId, EdgeFlags.KNOWN);
     if (universe.sectorKeys.has(neighbourKey)) {
       addSector(state, changes, neighbourKey, SectorFlags.DISCOVERED);
     }

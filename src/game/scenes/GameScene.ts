@@ -842,11 +842,14 @@ export class GameScene extends Phaser.Scene {
     payload: { sectorKey: string; viaEdgeId: string | null },
   ): void => {
     const discovery = getDiscoveryManager();
-    discovery.markSectorEntered(payload.sectorKey);
+    const changes = discovery.markSectorEntered(payload.sectorKey);
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
     this.stockSectorPois(payload.sectorKey);
     const sector = this.worldMode.worldMap()?.sectors.get(payload.sectorKey);
     if (sector) this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
+    if (sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
+      this.announceHiddenSector();
+    }
   };
 
   /** New sectors on the map are the one discovery event with a live HUD consequence. */
@@ -4826,6 +4829,25 @@ export class GameScene extends Phaser.Scene {
     this.toastManager?.showToast({
       title: 'HIDDEN CACHE FOUND',
       description: 'The wall was never a wall.',
+      icon: 'star',
+      color,
+      duration: 3200,
+    });
+  }
+
+  /** The one moment a room that was never drawn becomes permanent. Deliberately the same
+   *  beat as claimSecretCache so the two find-shapes read as one language. */
+  private announceHiddenSector(): void {
+    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
+    if (this.playerId !== -1) {
+      this.effectsManager.playDeathBurst(
+        Transform.x[this.playerId], Transform.y[this.playerId], color);
+    }
+    this.cameras.main.shake(140, 0.005);
+    this.soundManager.playLevelUp();
+    this.toastManager?.showToast({
+      title: 'HIDDEN SECTOR FOUND',
+      description: 'This room was never on the chart.',
       icon: 'star',
       color,
       duration: 3200,

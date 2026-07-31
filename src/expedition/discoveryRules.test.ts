@@ -57,6 +57,12 @@ function makeWorld(seed = SEED, worldGenVersion = GEN_VERSION): WorldMap {
   };
 }
 
+function makeWorldWithHiddenEast(): WorldMap {
+  const map = makeWorld();
+  map.sectors.get('1,0')!.hidden = true;
+  return map;
+}
+
 describe('discoveryRules', () => {
   it('collects sector keys, canonical edge ids, poi ids and secret ids', () => {
     const universe = buildIdUniverse(makeWorld());
@@ -115,6 +121,32 @@ describe('discoveryRules', () => {
     expect(changes.poisSeen).toEqual([PLAIN_POI_ID]);
     expect(state.pois[SECRET_POI_ID]).toBeUndefined();
     expect(state.secrets).toEqual({});
+  });
+
+  it('does not reveal a hidden neighbour or the door into it from next door', () => {
+    const map = makeWorldWithHiddenEast();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnSectorEntry(state, map, universe, '0,0');
+
+    expect(state.sectors['1,0']).toBeUndefined();
+    expect(state.edges[SHARED_EDGE_ID]).toBeUndefined();
+    expect(changes.sectorsDiscovered).not.toContain('1,0');
+    expect(changes.edgesKnown).not.toContain(SHARED_EDGE_ID);
+  });
+
+  it('puts a hidden sector on the map for good once it is entered', () => {
+    const map = makeWorldWithHiddenEast();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    revealOnSectorEntry(state, map, universe, '1,0');
+    expect(state.sectors['1,0']).toBe(SectorFlags.VISITED | SectorFlags.DISCOVERED);
+    expect(state.edges[SHARED_EDGE_ID]).toBe(EdgeFlags.KNOWN);
+
+    revealOnSectorEntry(state, map, universe, '0,0');
+    expect(state.sectors['1,0']).toBe(SectorFlags.VISITED | SectorFlags.DISCOVERED);
   });
 
   it('re-entering a known sector reports no change', () => {

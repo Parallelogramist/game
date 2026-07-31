@@ -96,10 +96,21 @@ export class DiscoveryManager {
     return count;
   }
 
+  /** Sectors a profile is allowed to know exist right now. A hidden sector joins the
+   *  denominator on the frame it is entered, at the same time as it joins the numerator, so
+   *  finding one can raise the percentage and can never lower it. */
+  getKnowableSectorCount(): number {
+    let count = this.universe.sectorKeys.size;
+    for (const key of this.universe.hiddenSectorKeys) {
+      if ((this.getSectorFlags(key) & SectorFlags.VISITED) === 0) count--;
+    }
+    return count;
+  }
+
   /** Visited sectors plus found secrets over everything a profile can reach in this world.
    *  Secrets joined the weighting the session something could actually find one. */
   getCompletionPercent(): number {
-    const total = this.universe.sectorKeys.size + this.universe.secretIds.size;
+    const total = this.getKnowableSectorCount() + this.universe.secretIds.size;
     if (total === 0) return 0;
     const found = this.getVisitedSectorCount() + this.getFoundSecretCount();
     return Math.round((found / total) * 100);

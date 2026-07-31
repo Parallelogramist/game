@@ -42,6 +42,7 @@ const REGION_DEPTH_SPAN = 2;
 const APERTURE_AXIS_MARGIN = 3;
 const GATE_TIER_DANGER_STEP = 0.08;
 const QUEST_DOOR_REGION_DIVISOR = 4;
+const HIDDEN_SECTOR_COUNT_CAP = 8;
 
 interface GrowingSector {
   sx: number;
@@ -103,6 +104,13 @@ export function generateWorld(seed: number, inputs: WorldGenInputs): WorldMap {
     abilitySlotBySector, bossArenaKey, makeEdge,
   );
 
+  const hiddenSectorKeys = placeHiddenSectors(
+    sectors, ordered,
+    Math.max(0, Math.min(HIDDEN_SECTOR_COUNT_CAP,
+      Math.floor(inputs.hiddenSectorCount ?? 0))),
+    abilitySlotBySector, bossArenaKey, makeEdge,
+  );
+
   assignDangerAndBiomes(ordered, gateSubtrees, inputs.availableBiomeIds);
 
   const sectorDefs = new Map<SectorKey, SectorDef>();
@@ -131,6 +139,7 @@ export function generateWorld(seed: number, inputs: WorldGenInputs): WorldMap {
       poiSlots: interior.poiSlots,
       isStart: sector.key === START_KEY,
       isBossArena: sector.isBossArena,
+      hidden: hiddenSectorKeys.has(sector.key),
       depth: sector.depth,
       entryTiles: interior.entryTiles,
       breakables: interior.breakables,
@@ -494,6 +503,60 @@ function isOptionalRegion(
     }
   }
   return true;
+}
+
+/**
+ * Conceals dead-end leaf sectors behind a breakable wall. Like placeQuestKeyDoors this
+ * consumes no RNG and only converts an existing Open edge through makeEdge (seeded per
+ * canonical edge id), so the aperture it writes is the one that edge already had and a
+ * seed's world is otherwise byte-identical: concealing costs no WORLDGEN_VERSION bump.
+ *
+ * A leaf is on no path between two other sectors, so sealing one can strand nothing and
+ * gate-order solvability with breakables treated as walls holds by construction rather than
+ * by a check. The start sector, the boss arena and any ability host are excluded anyway.
+ */
+function placeHiddenSectors(
+  sectors: Map<SectorKey, GrowingSector>,
+  ordered: GrowingSector[],
+  wanted: number,
+  abilitySlotBySector: Map<SectorKey, string[]>,
+  bossArenaKey: SectorKey,
+  makeEdge: EdgeFactory
+): Set<SectorKey> {
+  const hidden = new Set<SectorKey>();
+  if (wanted <= 0) return hidden;
+
+  const candidates: {
+    sector: GrowingSector; direction: EdgeDirection; neighbour: GrowingSector;
+  }[] = [];
+  for (const sector of ordered) {
+    if (sector.key === START_KEY || sector.key === bossArenaKey) continue;
+    if (abilitySlotBySector.has(sector.key)) continue;
+    const openDirections = EDGE_DIRECTIONS.filter(
+      direction => sector.edges[direction].kind !== EdgeKind.Wall);
+    if (openDirections.length !== 1) continue;
+    const direction = openDirections[0];
+    if (sector.edges[direction].kind !== EdgeKind.Open) continue;
+    const neighbour = neighbourOf(sectors, sector, direction);
+    if (!neighbour) continue;
+    candidates.push({ sector, direction, neighbour });
+  }
+
+  // Deepest first, so a concealed room rewards pushing outward; the key breaks ties so the
+  // choice is a pure function of the layout.
+  candidates.sort((a, b) =>
+    b.sector.depth - a.sector.depth || compareKeys(a.sector.key, b.sector.key));
+
+  for (const candidate of candidates) {
+    if (hidden.size >= wanted) break;
+    // Never conceal a room behind another concealed room: one wall, one secret.
+    if (hidden.has(candidate.neighbour.key)) continue;
+    attachEdge(candidate.sector, candidate.neighbour, candidate.direction,
+      makeEdge(candidate.sector.sx, candidate.sector.sy, candidate.direction,
+        EdgeKind.Breakable));
+    hidden.add(candidate.sector.key);
+  }
+  return hidden;
 }
 
 function pickBossArenaKey(ordered: GrowingSector[], region: Set<SectorKey>): SectorKey {

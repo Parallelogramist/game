@@ -363,6 +363,15 @@ const QUEST_KEYS = ['quest_key_survey', 'quest_key_gatecrash'];
 const QUEST_INPUTS: WorldGenInputs = { ...INPUTS, questKeyOrder: QUEST_KEYS };
 const QUEST_WORLDS = SEEDS.map(seed => generateWorld(seed, QUEST_INPUTS));
 
+const HIDDEN_COUNT = 3;
+const HIDDEN_INPUTS: WorldGenInputs = { ...QUEST_INPUTS, hiddenSectorCount: HIDDEN_COUNT };
+const HIDDEN_WORLDS = SEEDS.map(seed => generateWorld(seed, HIDDEN_INPUTS));
+
+function hiddenKeysOf(map: WorldMap): SectorKey[] {
+  return [...map.sectors.values()].filter(sector => sector.hidden === true)
+    .map(sector => sector.key).sort();
+}
+
 function keyDoorEdgeIdsByRequiredId(map: WorldMap): Map<string, Set<string>> {
   const byRequiredId = new Map<string, Set<string>>();
   for (const sector of map.sectors.values()) {
@@ -425,6 +434,73 @@ describe('invariant 9: quest key doors', () => {
           }
           expect(questEdge.apertureStart).toBe(plainEdge.apertureStart);
           expect(questEdge.apertureEnd).toBe(plainEdge.apertureEnd);
+        }
+      }
+    });
+  });
+});
+
+describe('invariant 10: hidden sectors', () => {
+  it('conceals exactly the requested count, each a dead end behind a breakable wall', () => {
+    for (const map of HIDDEN_WORLDS) {
+      const hiddenKeys = hiddenKeysOf(map);
+      expect(hiddenKeys.length).toBe(HIDDEN_COUNT);
+      for (const key of hiddenKeys) {
+        const sector = map.sectors.get(key)!;
+        expect(key).not.toBe(map.startKey);
+        expect(key).not.toBe(map.bossArenaKey);
+        expect(sector.poiSlots.some(slot => slot.kind === PoiKind.AbilityPowerUp)).toBe(false);
+        const ways = EDGE_DIRECTIONS.filter(
+          direction => sector.edges[direction].kind !== EdgeKind.Wall);
+        expect(ways.length).toBe(1);
+        expect(sector.edges[ways[0]].kind).toBe(EdgeKind.Breakable);
+        // Never a concealed room behind another concealed room.
+        const neighbourKey = neighbourKeyOf(sector, ways[0]);
+        expect(map.sectors.get(neighbourKey)!.hidden === true).toBe(false);
+      }
+    }
+  });
+
+  it('keeps every sector reachable, and the boss and abilities reachable through walls', () => {
+    HIDDEN_WORLDS.forEach((map, index) => {
+      // Quest key doors already gate part of every one of these worlds, so the property
+      // sealing has to preserve is "reaches exactly what the unsealed world reached", not
+      // "reaches all 48": no leaf a hidden wall closes may cost the run a single sector.
+      expect([...simulate(map, true).reached].sort())
+        .toEqual([...simulate(QUEST_WORLDS[index], true).reached].sort());
+      const { reached, abilities } = simulate(map, false);
+      for (const abilityId of map.abilityOrder) expect(abilities.has(abilityId)).toBe(true);
+      expect(reached.has(map.bossArenaKey)).toBe(true);
+    });
+  });
+
+  it('moves nothing in the layout but the sealed edges themselves', () => {
+    QUEST_WORLDS.forEach((plain, index) => {
+      const concealed = HIDDEN_WORLDS[index];
+      const hiddenKeys = new Set(hiddenKeysOf(concealed));
+      expect([...concealed.sectors.keys()]).toEqual([...plain.sectors.keys()]);
+      expect(concealed.abilityOrder).toEqual(plain.abilityOrder);
+      expect(concealed.bossArenaKey).toBe(plain.bossArenaKey);
+
+      for (const [key, concealedSector] of concealed.sectors) {
+        const plainSector = plain.sectors.get(key)!;
+        expect(concealedSector.poiSlots).toEqual(plainSector.poiSlots);
+        expect(concealedSector.breakables).toEqual(plainSector.breakables);
+        expect(concealedSector.entryTiles).toEqual(plainSector.entryTiles);
+        expect(concealedSector.depth).toBe(plainSector.depth);
+        expect(concealedSector.danger).toBe(plainSector.danger);
+        expect(concealedSector.biomeId).toBe(plainSector.biomeId);
+
+        for (const direction of EDGE_DIRECTIONS) {
+          const concealedEdge = concealedSector.edges[direction];
+          const plainEdge = plainSector.edges[direction];
+          const sealsAHiddenRoom = hiddenKeys.has(key)
+            || hiddenKeys.has(neighbourKeyOf(concealedSector, direction));
+          if (!sealsAHiddenRoom || concealedEdge.kind !== EdgeKind.Breakable) {
+            expect(concealedEdge.kind).toBe(plainEdge.kind);
+          }
+          expect(concealedEdge.apertureStart).toBe(plainEdge.apertureStart);
+          expect(concealedEdge.apertureEnd).toBe(plainEdge.apertureEnd);
         }
       }
     });

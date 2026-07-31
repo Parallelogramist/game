@@ -5,12 +5,16 @@ import type { EdgeDef, WorldMap } from '../world/worldTypes';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, sectorOfWorldPoint } from '../world/worldSpace';
 import { EdgeFlags, SectorFlags } from '../expedition/DiscoveryTypes';
 import { gateGlyphFor } from '../expedition/gateGlyphs';
+import { WORLD_GEOMETRY_COLORS } from './NeonColors';
 import { edgeAnchor, sectorCellRect, worldPointToMap } from './mapProjection';
 import type { MapViewTransform } from './mapProjection';
 
 const UNVISITED_FILL = 0x141d2c;
 const UNVISITED_STROKE = 0x3b4d6b;
 const VISITED_STROKE = 0x7fd4ff;
+/** The breakable amber the wall itself and the radar's secret ping already use, so a found
+ *  hidden room reads in the same language as the wall that hid it. */
+const HIDDEN_FOUND_STROKE = WORLD_GEOMETRY_COLORS.breakable.stroke;
 const VISITED_FILL_ALPHA = 0.35;
 const CLEARED_NOTCH = 0x9dffb0;
 const PLAYER_MARKER = 0x66ccff;
@@ -167,7 +171,8 @@ export class SectorMapRenderer {
         const tint = BIOME_TINTS.get(sector.biomeId) ?? FALLBACK_TINT;
         graphics.fillStyle(tint, VISITED_FILL_ALPHA);
         graphics.fillRect(cell.x, cell.y, cell.width, cell.height);
-        graphics.lineStyle(1.5, VISITED_STROKE, 1);
+        if (sector.hidden === true) graphics.lineStyle(2.5, HIDDEN_FOUND_STROKE, 1);
+        else graphics.lineStyle(1.5, VISITED_STROKE, 1);
         graphics.strokeRect(cell.x, cell.y, cell.width, cell.height);
       } else {
         graphics.fillStyle(UNVISITED_FILL, 1);
