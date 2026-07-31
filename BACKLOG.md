@@ -85,16 +85,25 @@ Signals" hands off to `quest_secret_02` "Voidmason's Ledger", both producers
 (`claimSecretCache`, `announceHiddenSector`) record through the existing `worldMap()` guard,
 and no UI, storage key or version constant changed.
 
+`FEAT-SECRET-LORE` (885d3bb) shipped hint tier 2: finding a cache or breaking into a hidden
+sector now hands over a lore fragment whose riddle names a real unfound secret elsewhere in the
+same world, marks it HINTED, badges its sector on the chart and lists it in a LEADS panel on the
+map screen. The player can read "A dead end north-east of the hangar, 5 jumps out, in the
+Crystal Caves" and fly there, instead of sweeping 48 sectors by hand. It needed no storage key
+and no version bump, because `SecretFlags.HINTED` had shipped with the discovery layer and had
+never had a writer.
+
 **`FEAT-DISCOVERY-WRITE-PATHS` is NOT next**, contrary to the hand-off above it: three of its
 four paths are already wired and the fourth (`markSectorClearedOnce`) has no honest producer,
 because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director and a wave
 spawner with a leash-bounded live set never makes a sector "cleared" (the blocker is now on
-that item, so do not re-derive it). The unblocked candidates are the remaining band-2 items,
-which are larger: `FEAT-SECRET-LORE`, `FEAT-SECRET-SEQUENCE-PUZZLES` and
-`FEAT-DISCOVERY-SCAN-FRAGMENT`, plus `FEAT-QUEST-CATALOG-DEPTH`, whose fourth chain head would
-be the first one the 3-accept cap ever actually gates. `FEAT-ECON-WARDS` stays parked on the
-operator balance decision: do not unpark it. Band 1 is still out of unblocked items. Operator
-focus: quests and lots of hidden rewards on the Metroid map.
+that item, so do not re-derive it). The unblocked candidates are now
+`FEAT-SECRET-SEQUENCE-PUZZLES` and `FEAT-DISCOVERY-SCAN-FRAGMENT` (both had
+`FEAT-SECRET-LORE` as a dep and both are free of it), `FEAT-QUEST-CATALOG-DEPTH`, whose fourth
+chain head would be the first one the 3-accept cap ever actually gates, and the newly filed
+`FEAT-SECRET-LORE-CODEX`. `FEAT-ECON-WARDS` stays parked on the operator balance decision: do
+not unpark it. Band 1 is still out of unblocked items. Operator focus: quests and lots of hidden
+rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -3549,9 +3558,11 @@ exploring pays is the end of Phase 5.
   as interiors, so the reason to fly there survives). Not built with
   `FEAT-DISCOVERY-STATE-01` because the scan item is `04-*` content and `fragmentRegions`
   appears nowhere in `src/`: no generator emits one, so both would have been inert. Value:
-  these are the two ways a player learns the map without walking it. Deps:
-  `FEAT-POI-CATALOG`, `FEAT-SECRET-LORE`. Spec: `03-discovery-map-ui.md` section 1.4, rules 4
-  and 5.
+  these are the two ways a player learns the map without walking it. `revealOnScanPulse` should
+  set HINTED through `DiscoveryManager.markSecretHinted` (885d3bb) rather than inventing a second
+  pointer, and `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD`'s guard is already implemented for leads in
+  `chooseHintTarget`, so copy it from there. Deps: `FEAT-POI-CATALOG`. Spec:
+  `03-discovery-map-ui.md` section 1.4, rules 4 and 5.
 
 - [x] **FEAT-BARRIER-BREACH** (done — 2dc76e1, 491c7cc, 31b17c3, 6df8acc): the expedition
   world's cracked walls stop being a lie. The generator has always carved `TileKind.Breakable`
@@ -3842,6 +3853,9 @@ exploring pays is the end of Phase 5.
   open and still lands with this item), the **legend side panel** (only a one-line footer hint
   exists), **POI icons**, **secret badges**, **objective pins** and **dimmed collected POIs**.
   The requirement *name* is currently learned at the door in world, not on the map.
+  **The secret-badge criterion is now partly met by `FEAT-SECRET-LORE` (885d3bb)**: a secret
+  that is hinted and not yet found badges its sector in the breakable amber. What remains of
+  that criterion is found/collected POI icons and the dimming.
 
 - [x] **FEAT-MAPUI-RADAR-UNDERLAY-06** (done — 492b8f0, 9c670b7): the tactical radar became
   world-aware without losing its threat identity.
@@ -4349,11 +4363,67 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   is derived from the catalog and the placement pass takes as many candidates as it is given
   keys. Deps: `FEAT-QUEST-CATALOG-DEPTH`.
 
-- [ ] **FEAT-SECRET-LORE**: secrets are hinted, not stumbled into: lore fragments, riddles that
-  name a location tag the profile's world actually contains (integrity-asserted), sequence
-  puzzles, and the decryptor ping. Deps: `FEAT-SECRET-CACHE`, `FEAT-POWER-TRAVERSAL`.
-  **Scope note (2026-07-31): sequence puzzles moved to their own chunk below** — this item
-  keeps fragments, riddles and the ping.
+- [x] **FEAT-SECRET-LORE** (done, 885d3bb): hint tier 2 from doc 04 section 5. A found secret
+  hands over a lore fragment whose riddle names a real unfound secret elsewhere in the player's
+  own generated world, so one find leads to the next instead of every find starting from
+  nothing. Value: `FEAT-SECRET-CACHE` (756f346) put 16 to 35 caches in every world and
+  `FEAT-SECRET-HIDDEN-SECTORS` (c242028) added 3 concealed rooms, but the only hint that existed
+  was the 640px radar shimmer, which says "in this room" and cannot say "in that room over
+  there". The player can now read "A dead end north-east of the hangar, 5 jumps out, in the
+  Crystal Caves" and fly there across as many runs as it takes.
+  1. **What shipped**: `LORE_FRAGMENTS` (8 authored fragments, `src/data/LoreFragments.ts`);
+     the pure `src/expedition/secretHints.ts` (`chooseHintTarget`, `buildSecretLead`,
+     `describeSecretLocation`, `loreFragmentFor`, `findSecretSector`); `revealOnSecretHinted` as
+     the discovery store's first HINTED writer; `DiscoveryManager.markSecretHinted` plus
+     `getKnownSecretIds` / `getVisitedSectorKeys` / `getHintedSecretIds`;
+     `GameScene.grantSecretLead` called from both find paths (`claimSecretCache`,
+     `announceHiddenSector`); the map screen's LEADS panel stacked under OBJECTIVES, nearest
+     lead first; and an amber lead badge in the top-left of a hinted sector's chart cell.
+  2. **The riddle is true by construction**: every clause is read off the sector itself (shape
+     from the non-Wall edge count, bearing from the hangar, graph depth, biome name), so no
+     authored text can claim a place the generated world lacks. That is doc 04's
+     "integrity assert" done-condition, and `secretHints.test.ts` asserts it over 5 generated
+     worlds (a riddle also never names a biome other than its own sector's).
+  3. **The hidden-sector guard**: a secret inside a hidden sector is never named until that
+     sector has been visited, because a lead into one hands back exactly what
+     `FEAT-SECRET-HIDDEN-SECTORS` (c242028) concealed. Measured: about 1.7 secrets per world sit
+     inside hidden sectors, so this is a live case and not a theoretical one.
+  4. **Persistence with no new state**: `SecretFlags.HINTED` already existed, along with the
+     sanitizer's `SECRET_VALID_MASK` and `repairSecret`'s FOUND-implies-HINTED rule, and nothing
+     had ever written it. No storage key, no `ALL_STORAGE_KEYS` entry, no `GameSaveState` field,
+     and no `SAVE_VERSION` / `WORLDGEN_VERSION` / `DISCOVERY_VERSION` / `ACHIEVEMENT_VERSION`
+     bump, so every existing profile keeps its discovery state and simply starts collecting
+     leads.
+  5. **The completion percent does not move**: `getFoundSecretCount` counts FOUND only, so a
+     lead changes what the player knows and never what the header claims.
+  6. **Cut deliberately, with reasons** (do not re-derive them): the decryptor ping (tier 3) to
+     `FEAT-SECRET-DECRYPTOR-PING`, because `ability_signal_decryptor` has no active yet and the
+     marker would have no button; the profile-wide fragment collection to
+     `FEAT-SECRET-LORE-CODEX`; and `LifetimeStats.loreFragmentsFound`, because the count it
+     would hold is derivable from the codex that does not exist yet, and a lifetime integer with
+     no reader is a second source of truth waiting to disagree (the same reasoning that cut
+     `SecretLedger` in `FEAT-SECRET-CACHE`).
+  7. **Deps discharged**: `FEAT-SECRET-CACHE` (done) supplied the finds; `FEAT-POWER-TRAVERSAL`
+     was only ever a dep of the ping, which is now its own item.
+
+- [ ] **FEAT-SECRET-DECRYPTOR-PING** (new 2026-07-31, cut from `FEAT-SECRET-LORE`): hint tier 3,
+  `ability_signal_decryptor`'s active marking unfound secrets in the current sector on the map.
+  Cut from the lore chunk because that ability has no active yet, so the marker would have no
+  button to press. Value: the late-game cleanup tool that makes 100% a goal instead of a pixel
+  hunt. Deps: `FEAT-POWER-ABILITY-EFFECTS-REST`. Spec: doc 04 section 5, hint tier 3.
+
+- [ ] **FEAT-SECRET-LORE-CODEX** (new 2026-07-31, cut from `FEAT-SECRET-LORE`): the profile-wide
+  collection half. Which fragments have ever been recovered, a place to read them back
+  (`CodexScene` already has the tab machinery), and `LifetimeStats.loreFragmentsFound` plus a
+  hidden unlock reading it. Cut because per-world leads need no profile store, and doc 04
+  section 5's "secrets get no vault tab of their own" rule means the reading surface needs a
+  real decision about where it lives. Value: a completionist collection that spans worlds rather
+  than dying with each one. Deps: `FEAT-SECRET-LORE`.
+
+- [ ] **CHORE-SECRET-LEAD-RADAR** (new 2026-07-31, from `FEAT-SECRET-LORE`): a lead is only
+  readable on the map screen. The in-run bounty ticker line (which `FEAT-QUEST-VIEW` already
+  time-shares with objectives) and the radar could both carry the nearest one. Value: acting on
+  a lead without stopping to open the map. Deps: none.
 
 - [x] **FEAT-SECRET-AMBIENT-PING** (done, 9d8f9c5): hint tier 1 from doc 04 section 5. Within one
   screen of an unfound cache the radar shimmers, and it goes silent the frame the cache is
@@ -4549,14 +4619,15 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   player can carry out of a failed run. Deps: `FEAT-ECON-WARDS`. Spec: doc 04 section 6 rule 2.
 
 - [ ] **FEAT-SECRET-REWARD-FRAGMENTS** (new 2026-07-31, cut from `FEAT-SECRET-REWARD-VARIETY`):
-  the map-fragment and lore-fragment rows of the reward table. Both were cut because the thing
-  they would pay does not exist: `revealOnMapFragment` and `fragmentRegions` are
-  `FEAT-DISCOVERY-SCAN-FRAGMENT`'s named deliverable and appear nowhere in `src/`, and lore
-  fragments are `FEAT-SECRET-LORE`'s. Shipping either now is an inert reward. Each is one
-  `SECRET_REWARDS` entry plus one `paySecretReward` case once its carrier lands. Value: a
-  fragment is the only reward that pays in map knowledge rather than in power. Deps:
-  `FEAT-DISCOVERY-SCAN-FRAGMENT` (map), `FEAT-SECRET-LORE` (lore). Spec: doc 03 section 1.4
-  rules 4 and 5, doc 04 section 5.
+  the map-fragment row of the reward table, and only that row. It was cut because the thing it
+  would pay does not exist: `revealOnMapFragment` and `fragmentRegions` are
+  `FEAT-DISCOVERY-SCAN-FRAGMENT`'s named deliverable and appear nowhere in `src/`, so shipping
+  it now is an inert reward. It is one `SECRET_REWARDS` entry plus one `paySecretReward` case
+  once that carrier lands. **The lore-fragment row is cut, not pending** (2026-07-31, 885d3bb):
+  `FEAT-SECRET-LORE` makes a fragment ride every qualifying find, so a `SECRET_REWARDS` lore
+  entry would make the player trade a chest for text they already get. Value: a map fragment is
+  the only reward that pays in map knowledge rather than in power. Deps:
+  `FEAT-DISCOVERY-SCAN-FRAGMENT`. Spec: doc 03 section 1.4 rules 4 and 5, doc 04 section 5.
 
 - [ ] **FEAT-SECRET-SEQUENCE-PUZZLES** (new 2026-07-31, split out of `FEAT-SECRET-LORE`):
   2-4 switch nodes in a sector (shrine walk-in pattern) activated in an order hinted by a
@@ -4565,9 +4636,10 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   `SecretLedger` → `DiscoveryManager.markSecretFound` like every other secret. Done when a
   puzzle solves across a death (completed activations are run-scoped, solved state is
   permanent), the hint fragment names a tag the world verifiably contains
-  (integrity-asserted like riddles), and reduced-motion skips the celebration. Deps:
-  `FEAT-SECRET-CACHE`, `FEAT-SECRET-LORE` (fragment carrier). Spec: doc 04 section 5
-  taxonomy row 3.
+  (integrity-asserted like riddles), and reduced-motion skips the celebration. The fragment
+  carrier now exists (`LORE_FRAGMENTS` + `src/expedition/secretHints.ts`, 885d3bb), so a puzzle
+  hint should reuse `describeSecretLocation` rather than authoring a second riddle grammar.
+  Deps: `FEAT-SECRET-CACHE`. Spec: doc 04 section 5 taxonomy row 3.
 
 - [ ] **FEAT-ECON-WARDS**: lock the economy so later content authoring cannot drift balance, as an
   **enforced cap that a runtime path actually applies**, not only as a red fixture. Keep every

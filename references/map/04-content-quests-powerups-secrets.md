@@ -643,6 +643,38 @@ Three tiers, cheapest first:
   `createDefaultLifetimeStats()`, so every existing profile keeps its state and reads the new
   field back as 0.
 
+### As built (`FEAT-SECRET-LORE`, 885d3bb, 2026-07-31)
+
+- **Hint tier 2 shipped as a lead chain, not a scavenger list.** Every find (cache or hidden
+  sector) names ONE further unfound secret, so the hunt is a chain rather than a checklist.
+  The pointer is `SecretFlags.HINTED`, which this section's persistence bullet already
+  specified and which had no writer until now: `revealOnSecretHinted` sets it without FOUND,
+  which is why `repairSecret`'s FOUND-implies-HINTED rule needed no change.
+- **The riddle is generated, the prose is authored, and the two cannot contradict.**
+  `LORE_FRAGMENTS` (`src/data/LoreFragments.ts`) carries flavour that names no place; the
+  location clause is read off the sector by `describeSecretLocation` (shape from the non-Wall
+  edge count, bearing from the hangar, graph depth, biome name). That discharges this doc's
+  "names a location tag that exists in the profile's generated world (integrity assert)"
+  without a tag vocabulary, which doc 02 does not export.
+- **Section 8's `Secrets.ts` row shipped as `LoreFragments.ts`.** The other
+  `SecretDefinition` fields already have owners: placement is the generator's, reward class is
+  `secretRewards.ts`'s, and found-state is the discovery store's, so what was left is the
+  fragments and the file is named for them.
+- **A lead never names a secret in an unvisited hidden sector**, which keeps
+  `FEAT-SECRET-HIDDEN-SECTORS`' payoff intact. `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD` asks the
+  future scan pulse for the same guard; `chooseHintTarget` is the reference implementation.
+- **Two surfaces read it, both already existing.** The map screen stacks a LEADS panel under
+  the OBJECTIVES panel `FEAT-QUEST-VIEW` shipped, nearest lead first, and `SectorMapRenderer`
+  badges a hinted sector in the breakable amber. An undiscovered sector still draws nothing,
+  so a lead stays a riddle until the region is charted.
+- **No new state anywhere.** No storage key, no `ALL_STORAGE_KEYS` entry, no save field, and no
+  `SAVE_VERSION` / `WORLDGEN_VERSION` / `DISCOVERY_VERSION` / `ACHIEVEMENT_VERSION` bump. The
+  completion percent is untouched: `getFoundSecretCount` counts FOUND only.
+- **Not built, deliberately.** Hint tier 3 (the decryptor ping) needs the ability's active and
+  is `FEAT-SECRET-DECRYPTOR-PING`; the profile-wide fragment collection and
+  `LifetimeStats.loreFragmentsFound` are `FEAT-SECRET-LORE-CODEX`, because a lifetime integer
+  with no reader is a second source of truth waiting to disagree.
+
 ---
 
 ## 6. Reward economy
