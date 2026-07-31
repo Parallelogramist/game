@@ -127,9 +127,10 @@ import {
   beginExpeditionQuestRun,
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
+  getActiveQuestStepViews,
 } from '../../meta/ExpeditionQuestManager';
 import { getExpeditionQuest } from '../../data/ExpeditionQuests';
-import type { QuestEvent } from '../../systems/QuestProgress';
+import type { QuestEvent, QuestStepView } from '../../systems/QuestProgress';
 import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
@@ -265,6 +266,12 @@ const COMBAT_SPEED_BONUS_CAP = 0.25;
 // from the random "Shrine of Sacrifice" event: these are placed objects the
 // player chooses to seek out, each a small risk/reward or boon.
 type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice' | 'market';
+
+// The objective ticker borrows the bounty line while no bounty is running (doc 04 section 4:
+// one line, never two). It re-reads the quest store on a timer instead of per frame, and only
+// while the line is idle, so an active bounty pays nothing for it.
+const QUEST_TICKER_REFRESH_SECONDS = 1;
+const QUEST_TICKER_CYCLE_SECONDS = 5;
 
 // In-run bounty objectives: rotating goals that reward a power-up burst.
 type BountyKind = 'kills' | 'elites' | 'flawless';
@@ -531,6 +538,10 @@ export class GameScene extends Phaser.Scene {
   // Expedition quests read kills as a DELTA off this baseline, so a restored run resumes
   // from its saved killCount instead of re-crediting the whole run's kills.
   private expeditionQuestKillBaseline: number = 0;
+  private expeditionQuestViews: QuestStepView[] = [];
+  private questTickerRefreshTimer: number = 0;
+  private questTickerCycleTimer: number = 0;
+  private questTickerIndex: number = 0;
 
   // Pace ghost: the kill curve of the best-scoring run at this world level, and
   // this run's own samples, which replace it if this run scores a new best.
@@ -4314,6 +4325,10 @@ export class GameScene extends Phaser.Scene {
     this.dailyQuestWatcher = null;
     this.lastDailyQuestCheck = 0;
     this.expeditionQuestKillBaseline = this.killCount;
+    this.expeditionQuestViews = [];
+    this.questTickerRefreshTimer = 0;
+    this.questTickerCycleTimer = 0;
+    this.questTickerIndex = 0;
     this.bossRotationCursor = -1;
     // Pace ghost. Practice and gauntlet get no ghost because neither writes a
     // best score, so there is nothing to race. A restored run lost its early
@@ -5010,7 +5025,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.bounty === null) {
-      this.bountyText.setText('');
+      this.updateObjectiveTicker(deltaSeconds);
       this.bountyCooldown -= deltaSeconds;
       if (this.bountyCooldown <= 0) this.startBounty();
       return;
@@ -5033,6 +5048,41 @@ export class GameScene extends Phaser.Scene {
       const label = this.bounty.kind === 'elites' ? 'Slay elites' : 'Slay enemies';
       this.bountyText.setText(`BOUNTY · ${label} ${this.bounty.progress}/${this.bounty.target} · ${seconds}s`);
     }
+  }
+
+  /**
+   * Fills the bounty line while no bounty is running. Arena, daily, gauntlet and practice runs
+   * have no world map, so the guard here is what keeps the line empty for them without a mode
+   * flag. Both the cycle step and the read are taken modulo the live length, because a quest
+   * completing between two frames shortens the array under the index.
+   */
+  private updateObjectiveTicker(deltaSeconds: number): void {
+    if (!this.bountyText) return;
+    if (!this.worldMode.worldMap()) {
+      this.bountyText.setText('');
+      return;
+    }
+
+    this.questTickerRefreshTimer -= deltaSeconds;
+    if (this.questTickerRefreshTimer <= 0) {
+      this.questTickerRefreshTimer = QUEST_TICKER_REFRESH_SECONDS;
+      this.expeditionQuestViews = getActiveQuestStepViews();
+    }
+    if (this.expeditionQuestViews.length === 0) {
+      this.bountyText.setText('');
+      return;
+    }
+
+    this.questTickerCycleTimer -= deltaSeconds;
+    if (this.questTickerCycleTimer <= 0) {
+      this.questTickerCycleTimer = QUEST_TICKER_CYCLE_SECONDS;
+      this.questTickerIndex = (this.questTickerIndex + 1) % this.expeditionQuestViews.length;
+    }
+
+    const view = this.expeditionQuestViews[
+      this.questTickerIndex % this.expeditionQuestViews.length];
+    this.bountyText.setText(
+      `OBJECTIVE · ${view.stepDescription} ${view.progress}/${view.target}`);
   }
 
   /** Starts a fresh random bounty. */

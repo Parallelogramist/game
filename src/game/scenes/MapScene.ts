@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_Y, GamepadManager } from '../../input/GamepadManager';
 import { SectorMapRenderer } from '../../visual/SectorMapRenderer';
@@ -94,6 +95,7 @@ export class MapScene extends Phaser.Scene {
     makeBodyText(this, width / 2, height - 26,
       'WASD / ARROWS PAN   +/- ZOOM   C CENTRE   M / ESC CLOSE',
       { fontSize: 16, color: TEXT_COLORS.muted }).setDepth(2);
+    this.renderObjectivesPanel();
 
     this.graphics = this.add.graphics();
     this.graphics.setDepth(1);
@@ -164,6 +166,42 @@ export class MapScene extends Phaser.Scene {
 
     this.events.once('shutdown', this.shutdown, this);
     this.redraw();
+  }
+
+  /**
+   * Active objectives, top-left, below the header. Text is laid out first and the backing
+   * plate sized from the measured heights, so a description that wraps on a narrow screen
+   * cannot spill outside the panel.
+   */
+  private renderObjectivesPanel(): void {
+    const views = getActiveQuestStepViews();
+    if (views.length === 0) return;
+
+    const panelX = 24;
+    const panelY = HEADER_HEIGHT + 12;
+    const panelWidth = Math.min(340, this.scale.width - 48);
+    const textWidth = panelWidth - 28;
+
+    makeBodyText(this, panelX + 14, panelY + 12, 'OBJECTIVES',
+      { fontSize: 14, color: TEXT_COLORS.muted, align: 'left' })
+      .setOrigin(0, 0).setDepth(4);
+
+    let cursorY = panelY + 34;
+    for (const view of views) {
+      const heading = makeBodyText(this, panelX + 14, cursorY,
+        `${view.questName}  ·  STEP ${view.stepNumber}/${view.stepCount}`,
+        { fontSize: 15, align: 'left', wordWrapWidth: textWidth })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += heading.height + 2;
+      const detail = makeBodyText(this, panelX + 14, cursorY,
+        `${view.stepDescription}   ${view.progress}/${view.target}`,
+        { fontSize: 12, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += detail.height + 12;
+    }
+
+    this.add.rectangle(panelX, panelY, panelWidth, cursorY - panelY + 2, 0x0a1018, 0.9)
+      .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
   }
 
   update(_time: number, delta: number): void {

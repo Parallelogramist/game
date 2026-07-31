@@ -185,3 +185,42 @@ export function settleRunScopeProgress(
     return { ...state, stepProgress: 0 };
   });
 }
+
+/**
+ * The read model every quest surface renders from. A completed quest, a state whose
+ * definition was re-authored away, and a step index past the end are all absent rather than
+ * drawn blank, and progress is clamped to the target so a persistent counter that overshot a
+ * step never displays as 412/400.
+ */
+export interface QuestStepView {
+  questName: string;
+  stepDescription: string;
+  progress: number;
+  target: number;
+  /** 1-based position of the current step within its quest. */
+  stepNumber: number;
+  stepCount: number;
+}
+
+export function buildQuestStepViews(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestStepView[] {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const views: QuestStepView[] = [];
+  for (const state of states) {
+    if (state.status !== 'active') continue;
+    const definition = byId.get(state.questId);
+    const step = definition?.steps[state.stepIndex];
+    if (!definition || !step) continue;
+    views.push({
+      questName: definition.name,
+      stepDescription: step.description,
+      progress: Math.min(state.stepProgress, step.target),
+      target: step.target,
+      stepNumber: state.stepIndex + 1,
+      stepCount: definition.steps.length,
+    });
+  }
+  return views;
+}

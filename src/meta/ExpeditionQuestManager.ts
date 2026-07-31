@@ -8,9 +8,11 @@ import {
   recordQuestEvent,
   seedQuestStates,
   settleRunScopeProgress,
+  buildQuestStepViews,
   type QuestEvent,
   type QuestInstanceState,
   type QuestProgressResult,
+  type QuestStepView,
 } from '../systems/QuestProgress';
 
 /**
@@ -105,6 +107,13 @@ function save(state: ExpeditionQuestSaveState): void {
 
 export function getExpeditionQuestStates(): QuestInstanceState[] {
   return load().states;
+}
+
+export type { QuestStepView } from '../systems/QuestProgress';
+
+/** What the HUD ticker and the map panel render. Cheap: SecureStorage.getItem is a cache read. */
+export function getActiveQuestStepViews(): QuestStepView[] {
+  return buildQuestStepViews(load().states, EXPEDITION_QUESTS);
 }
 
 /**

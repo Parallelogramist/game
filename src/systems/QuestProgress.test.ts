@@ -3,6 +3,7 @@ import {
   recordQuestEvent,
   seedQuestStates,
   settleRunScopeProgress,
+  buildQuestStepViews,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -126,5 +127,29 @@ describe('seedQuestStates', () => {
   test('honors the active cap', () => {
     const seeded = seedQuestStates([], DEFS, 1);
     expect(seeded.activatedQuestIds).toEqual(['quest_a']);
+  });
+});
+
+describe('buildQuestStepViews', () => {
+  test('projects each active quest onto its current step, clamping overshoot', () => {
+    const views = buildQuestStepViews([active('quest_a', 0, 4), active('quest_b', 0, 99)], DEFS);
+    expect(views).toEqual([
+      { questName: 'A', stepDescription: 'kill 10', progress: 4, target: 10, stepNumber: 1, stepCount: 2 },
+      { questName: 'B', stepDescription: 'open 2', progress: 2, target: 2, stepNumber: 1, stepCount: 1 },
+    ]);
+  });
+
+  test('reports the chain position of a later step', () => {
+    const views = buildQuestStepViews([active('quest_a', 1, 2)], DEFS);
+    expect(views[0]).toMatchObject({ stepDescription: 'depth 3', stepNumber: 2, stepCount: 2 });
+  });
+
+  test('omits completed quests and states the catalog no longer resolves', () => {
+    const states: QuestInstanceState[] = [
+      { questId: 'quest_a', stepIndex: 2, stepProgress: 0, status: 'complete' },
+      { questId: 'quest_gone', stepIndex: 0, stepProgress: 1, status: 'active' },
+      { questId: 'quest_b', stepIndex: 7, stepProgress: 1, status: 'active' },
+    ];
+    expect(buildQuestStepViews(states, DEFS)).toEqual([]);
   });
 });
