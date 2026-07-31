@@ -97,3 +97,28 @@ const BLIP_STYLES: Record<MinimapBlipKind, MinimapBlipStyle> = {
 export function blipStyle(kind: MinimapBlipKind): MinimapBlipStyle {
   return BLIP_STYLES[kind] ?? BLIP_STYLES.enemy;
 }
+
+/**
+ * World-space radius (px) inside which an unfound secret pings the radar. One 1280x720
+ * viewport's half-width, so the hint leads the world-space reveal ramp (a cache's 300px
+ * sense radius) by a full screen instead of arriving with it.
+ */
+export const SECRET_PING_RADIUS = 640;
+
+/**
+ * Ambient hint strength for the nearest unfound secret: 0 when nothing is in range, rising
+ * to 1 on top of it. Inside the radius the ramp starts at a floor rather than at zero, so
+ * the far edge is faint but actually visible, then climbs quadratically: the radar says
+ * "something is in this room" long before it says "you are standing on it". Non-finite
+ * distances and a degenerate radius read as nothing in range, so the radar can never draw a
+ * NaN shimmer.
+ */
+export function secretPingIntensity(
+  distance: number,
+  radius: number = SECRET_PING_RADIUS
+): number {
+  if (!Number.isFinite(distance) || !(radius > 0)) return 0;
+  if (distance >= radius) return 0;
+  const closeness = 1 - Math.max(0, distance) / radius;
+  return 0.25 + 0.75 * closeness * closeness;
+}

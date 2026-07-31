@@ -137,7 +137,12 @@ import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
-import { classifyEnemyKind, type MinimapBlipKind } from '../../visual/minimapProjection';
+import {
+  classifyEnemyKind,
+  secretPingIntensity,
+  SECRET_PING_RADIUS,
+  type MinimapBlipKind,
+} from '../../visual/minimapProjection';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
@@ -6675,6 +6680,7 @@ export class GameScene extends Phaser.Scene {
     if (!minimapEnabled || this.playerId === -1) {
       this.minimapManager.setSectorUnderlay(null);
       this.minimapUnderlayKey = null;
+      this.minimapManager.setSecretPing(0);
       this.minimapManager.update(0, 0, this.minimapEntries, 0, deltaSeconds);
       return;
     }
@@ -6726,6 +6732,22 @@ export class GameScene extends Phaser.Scene {
       const consumableId = consumableIds[i];
       this.writeMinimapEntry(count++, Transform.x[consumableId], Transform.y[consumableId], 'pickup');
     }
+
+    // Hint tier 1: the nearest unfound cache in this sector shimmers the radar. The set is
+    // the sector's own, so a claimed cache leaves it and stops pinging in the same frame.
+    let nearestSecretDistanceSq = Infinity;
+    for (let i = 0; i < this.activeSecretCaches.length; i++) {
+      const cache = this.activeSecretCaches[i];
+      const dx = cache.x - playerX;
+      const dy = cache.y - playerY;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq < nearestSecretDistanceSq) nearestSecretDistanceSq = distanceSq;
+    }
+    this.minimapManager.setSecretPing(
+      nearestSecretDistanceSq === Infinity
+        ? 0
+        : secretPingIntensity(Math.sqrt(nearestSecretDistanceSq), SECRET_PING_RADIUS),
+    );
 
     this.minimapManager.update(playerX, playerY, this.minimapEntries, count, deltaSeconds);
   }

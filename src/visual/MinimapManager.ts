@@ -39,6 +39,15 @@ const PULSE_COLOR = 0x9dffb0;
  *  neighbour reads the same on both surfaces. */
 const UNVISITED_STUB = 0x3b4d6b;
 
+/** Hint tier 1 draws in the breakable amber a cache itself is drawn in, so the radar hint
+ *  and the thing it hints at read as one language rather than two. */
+const SECRET_PING_COLOR = WORLD_GEOMETRY_COLORS.breakable.stroke;
+/** Per-second rate the drawn shimmer eases toward the fed intensity. Easing rather than
+ *  snapping is what keeps crossing the ping radius from popping. */
+const SECRET_PING_EASE_PER_SECOND = 3;
+/** Below this the shimmer is skipped entirely, so an out-of-range frame costs nothing. */
+const SECRET_PING_EPSILON = 0.01;
+
 /** Blocking tile kinds the underlay can draw, in a fixed order so lineStyle is set once
  *  per kind rather than once per segment. */
 const UNDERLAY_WALL_KINDS: ReadonlyArray<TileKind> = [
@@ -110,6 +119,9 @@ export class MinimapManager {
   private underlayRebuilds = 0;
   private pillRemaining = 0;
   private ringRemaining = 0;
+  private secretPingTarget = 0;
+  private secretPingLevel = 0;
+  private secretPingPhase = 0;
 
   constructor(scene: Phaser.Scene) {
     const hudScale = computeHudScale(scene.scale.width, scene.scale.height, getSettingsManager().getUiScale());
@@ -267,6 +279,8 @@ export class MinimapManager {
     if (!enabled) {
       this.pillRemaining = 0;
       this.ringRemaining = 0;
+      this.secretPingTarget = 0;
+      this.secretPingLevel = 0;
       this.pulseText.setVisible(false);
     }
   }
@@ -293,6 +307,17 @@ export class MinimapManager {
     this.pulseText.setVisible(true);
     this.pillRemaining = PULSE_PILL_SECONDS;
     this.ringRemaining = getSettingsManager().isReducedMotionEnabled() ? 0 : PULSE_RING_SECONDS;
+  }
+
+  /**
+   * Ambient hint tier 1: how strongly the nearest unfound secret should shimmer this frame,
+   * 0 meaning nothing is in range. Fed every frame by GameScene; the radar eases toward the
+   * value rather than snapping to it, and never learns which secret or where it is.
+   */
+  setSecretPing(intensity: number): void {
+    this.secretPingTarget = Number.isFinite(intensity)
+      ? Phaser.Math.Clamp(intensity, 0, 1)
+      : 0;
   }
 
   /**
@@ -335,6 +360,24 @@ export class MinimapManager {
 
     const radius = this.radarRadius;
     const count = Math.min(entryCount, entries.length);
+
+    const easeStep = deltaSeconds * SECRET_PING_EASE_PER_SECOND;
+    if (this.secretPingLevel < this.secretPingTarget) {
+      this.secretPingLevel = Math.min(this.secretPingTarget, this.secretPingLevel + easeStep);
+    } else if (this.secretPingLevel > this.secretPingTarget) {
+      this.secretPingLevel = Math.max(this.secretPingTarget, this.secretPingLevel - easeStep);
+    }
+    if (this.secretPingLevel > SECRET_PING_EPSILON) {
+      this.secretPingPhase += deltaSeconds;
+      // Reduced motion holds the shimmer at steady brightness: the hint stays, the breathing
+      // goes, exactly how the discovery pill degrades a few lines down.
+      const breath = reducedMotion ? 1 : 0.75 + Math.sin(this.secretPingPhase * 3.1) * 0.25;
+      const pingAlpha = this.secretPingLevel * breath;
+      graphics.fillStyle(SECRET_PING_COLOR, pingAlpha * 0.1);
+      graphics.fillCircle(0, 0, radius);
+      graphics.lineStyle(2, SECRET_PING_COLOR, pingAlpha * 0.55);
+      graphics.strokeCircle(0, 0, radius * 0.86);
+    }
 
     // Draw in ascending threat priority so bigger threats land on top.
     for (let orderIndex = 0; orderIndex < DRAW_ORDER.length; orderIndex++) {

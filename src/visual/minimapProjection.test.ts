@@ -7,6 +7,8 @@ import {
   MINIMAP_WORLD_RANGE,
   MINIMAP_MINIBOSS_XP,
   MINIMAP_BOSS_XP,
+  secretPingIntensity,
+  SECRET_PING_RADIUS,
   type MinimapBlipKind,
 } from './minimapProjection';
 
@@ -114,5 +116,27 @@ describe('blipStyle', () => {
 
   test('an unknown kind degrades to the plain-enemy style', () => {
     expect(blipStyle('mystery' as MinimapBlipKind)).toEqual(blipStyle('enemy'));
+  });
+});
+
+describe('secretPingIntensity', () => {
+  test('is silent when nothing is in range', () => {
+    expect(secretPingIntensity(SECRET_PING_RADIUS)).toBe(0);
+    expect(secretPingIntensity(SECRET_PING_RADIUS * 2)).toBe(0);
+  });
+
+  test('peaks on top of the secret and rises as the ship closes', () => {
+    expect(secretPingIntensity(0)).toBeCloseTo(1, 6);
+    const far = secretPingIntensity(SECRET_PING_RADIUS * 0.9);
+    const mid = secretPingIntensity(SECRET_PING_RADIUS * 0.5);
+    const near = secretPingIntensity(SECRET_PING_RADIUS * 0.1);
+    expect(far).toBeGreaterThan(0);
+    expect(mid).toBeGreaterThan(far);
+    expect(near).toBeGreaterThan(mid);
+  });
+
+  test('degenerate input reads as nothing in range', () => {
+    expect(secretPingIntensity(NaN)).toBe(0);
+    expect(secretPingIntensity(100, 0)).toBe(0);
   });
 });
