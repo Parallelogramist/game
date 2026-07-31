@@ -61,6 +61,8 @@ import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectH
 import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
+import { rollPoiContents } from '../../world/poiRoll';
+import type { PoiContentId } from '../../data/PoiCatalog';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
 import {
   EdgeSpawnConfig,
@@ -277,6 +279,18 @@ const POWER_SHRINE_BUFF_SECONDS = 8;
 // so this one number is the whole drop rate.
 const FIELD_BOOST_DROP_CHANCE = 0.20;
 
+// Share of treasure chests that come out "special" (3x rewards, guaranteed relic). One
+// number for the timer spawner and for map caches: expedition grants more chest ROLLS,
+// never better odds (doc 04 section 6 rule 1).
+const SPECIAL_CHEST_CHANCE = 0.15;
+
+// A crate cache is three crates ringed around the slot; the ring radius stays inside the
+// 3x3 tile pocket sectorInterior.openNeighbourhood guarantees around every POI slot, and
+// freeSpotNear snaps each one anyway.
+const POI_CRATE_FIELD_COUNT = 3;
+const POI_CRATE_FIELD_RADIUS = 34;
+const POI_CACHE_SPREAD = 22;
+
 // Pandemic: a poison death spreads to nearby enemies. pandemicSpread is a COUNT
 // of enemies infected (shop "Pandemic" 1-3 + "Pandemic Engine" relic +2), not a
 // radius -- so we query a fixed bloom radius here and cap infections to that count.
@@ -437,7 +451,9 @@ export class GameScene extends Phaser.Scene {
   // persisted across refresh-recovery (mirrors activeShrines) and torn down on
   // reset/shutdown. Position is read live from the graphics (chests drift toward
   // the player via the chest-drone), `isSpecial` is the rare 3x-reward flag.
-  private activeChests: { graphics: Phaser.GameObjects.Graphics; isSpecial: boolean }[] = [];
+  private activeChests: {
+    graphics: Phaser.GameObjects.Graphics; isSpecial: boolean; isPoiCache: boolean;
+  }[] = [];
 
   // Environmental destructibles (barrels/crates)
   private destructibleSpawnTimer: number = 12;
@@ -461,6 +477,12 @@ export class GameScene extends Phaser.Scene {
     poiId: string; abilityId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
   }[] = [];
   private vaultSectorKey: string | null = null;
+  // Expedition POI slots already stocked this run, the run's content salt, and whether the
+  // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
+  // re-stocks a looted sector nor re-rolls an unvisited one.
+  private spawnedPoiSlotIds: Set<string> = new Set();
+  private poiRunSalt: number = 0;
+  private poiOncePerRunSpawned: boolean = false;
   /** Owned traversal abilities, cached for the run: every read of the real store is a
    *  SecureStorage decrypt, and both consumers here run per frame. */
   private ownedTraversalAbilityIds: Set<string> = new Set();
@@ -784,6 +806,7 @@ export class GameScene extends Phaser.Scene {
     const discovery = getDiscoveryManager();
     discovery.markSectorEntered(payload.sectorKey);
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
+    this.stockSectorPois(payload.sectorKey);
   };
 
   /** New sectors on the map are the one discovery event with a live HUD consequence. */
@@ -2322,7 +2345,17 @@ export class GameScene extends Phaser.Scene {
         x: chest.graphics.x,
         y: chest.graphics.y,
         isSpecial: chest.isSpecial,
+        isPoiCache: chest.isPoiCache,
       })),
+      // Expedition only: an arena run has no slots, so it writes no block (same shape as
+      // `expedition:` below).
+      poiState: this.worldMode.worldMap()
+        ? {
+            runSalt: this.poiRunSalt,
+            spawnedSlotIds: Array.from(this.spawnedPoiSlotIds),
+            oncePerRunSpawned: this.poiOncePerRunSpawned,
+          }
+        : undefined,
       hazardState: getHazardState(),
       hasWon: this.hasWon,
       endlessState: {
@@ -2497,6 +2530,19 @@ export class GameScene extends Phaser.Scene {
         }
       }
       this.shrineSpawnTimer = state.shrineState.spawnTimer;
+    }
+
+    // Restore the run's POI memory. resetInRunFeatureState above cleared the spawned set and
+    // rolled a fresh salt; a restored run must keep the old salt (so an unvisited sector rolls
+    // the same contents it would have) and the old set (so a looted sector is not re-stocked).
+    // Ids are length-capped to guard a tampered save from growing an unbounded set. Absent on
+    // legacy + arena saves, where the fresh values win.
+    if (state.poiState && Number.isFinite(state.poiState.runSalt)) {
+      this.poiRunSalt = state.poiState.runSalt;
+      this.poiOncePerRunSpawned = state.poiState.oncePerRunSpawned === true;
+      this.spawnedPoiSlotIds = new Set(
+        (Array.isArray(state.poiState.spawnedSlotIds) ? state.poiState.spawnedSlotIds : [])
+          .filter(id => typeof id === 'string' && id.length > 0 && id.length <= 64));
     }
 
     // Restore spawn tracking
@@ -2718,7 +2764,8 @@ export class GameScene extends Phaser.Scene {
     if (state.chestState) {
       for (const chest of state.chestState) {
         if (Number.isFinite(chest.x) && Number.isFinite(chest.y)) {
-          this.addTreasureChest(chest.x, chest.y, chest.isSpecial === true);
+          this.addTreasureChest(
+            chest.x, chest.y, chest.isSpecial === true, chest.isPoiCache === true);
         }
       }
     }
@@ -4129,7 +4176,13 @@ export class GameScene extends Phaser.Scene {
       const pdy = y - Transform.y[this.playerId];
       if (pdx * pdx + pdy * pdy < 120 * 120) return false; // retry soon
     }
+    this.addDestructible(x, y);
+    return true;
+  }
 
+  /** Builds one crate at a fixed point. Shared by the ambient timer spawner and by map
+   *  caches, which place theirs and therefore skip the player-proximity retry. */
+  private addDestructible(x: number, y: number): void {
     const entityId = addEntity(this.world);
     addComponent(this.world, Transform, entityId);
     addComponent(this.world, Health, entityId);
@@ -4169,7 +4222,6 @@ export class GameScene extends Phaser.Scene {
     registerSprite(entityId, crate);
 
     this.destructibleCount++;
-    return true;
   }
 
   /**
@@ -4236,6 +4288,9 @@ export class GameScene extends Phaser.Scene {
     this.activeChests = [];
     this.clearAbilityVaults();
     this.vaultSectorKey = null;
+    this.spawnedPoiSlotIds.clear();
+    this.poiOncePerRunSpawned = false;
+    this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
     this.shrineSpawnTimer = 25;
     this.bounty = null;
     this.bountyCooldown = 20;
@@ -4493,6 +4548,78 @@ export class GameScene extends Phaser.Scene {
   private clearAbilityVaults(): void {
     this.activeVaults.forEach(vault => vault.graphics.destroy());
     this.activeVaults = [];
+  }
+
+  /**
+   * Stocks a sector the first time this run's ship enters it. A slot pays out once per run:
+   * the spawned set is the memory, so walking back through a looted room re-stocks nothing.
+   * Slot kinds the catalog does not cover (ability vault, quest anchor, secret) are left
+   * unspawned for the chunks that own them, which is why they are never added to the set.
+   */
+  private stockSectorPois(sectorKey: string): void {
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    const sector = map.sectors.get(sectorKey);
+    if (!sector) return;
+
+    const pending = sector.poiSlots.filter(slot => !this.spawnedPoiSlotIds.has(slot.id));
+    if (pending.length === 0) return;
+
+    const rolled = rollPoiContents({
+      worldSeed: map.seed,
+      runSalt: this.poiRunSalt,
+      depth: sector.depth,
+      slots: pending,
+      oncePerRunAvailable: !this.poiOncePerRunSpawned,
+    });
+
+    for (const entry of rolled) {
+      this.spawnedPoiSlotIds.add(entry.slot.id);
+      this.spawnPoiContent(
+        entry.contentId,
+        sector.sx * SECTOR_WIDTH + entry.slot.tileX * TILE_SIZE + TILE_SIZE / 2,
+        sector.sy * SECTOR_HEIGHT + entry.slot.tileY * TILE_SIZE + TILE_SIZE / 2,
+      );
+    }
+  }
+
+  /** Every content id maps to an existing reward path; the `never` default makes a future
+   *  catalog entry with no spawn a compile error rather than a silently empty room. */
+  private spawnPoiContent(contentId: PoiContentId, x: number, y: number): void {
+    switch (contentId) {
+      case 'poi_treasure_chest':
+        this.addTreasureChest(x, y, Math.random() < SPECIAL_CHEST_CHANCE, true);
+        return;
+      case 'poi_crate_field': {
+        const spot = { x: 0, y: 0 };
+        for (let index = 0; index < POI_CRATE_FIELD_COUNT; index++) {
+          const angle = (Math.PI * 2 * index) / POI_CRATE_FIELD_COUNT - Math.PI / 2;
+          this.worldMode.freeSpotNear(
+            x + Math.cos(angle) * POI_CRATE_FIELD_RADIUS,
+            y + Math.sin(angle) * POI_CRATE_FIELD_RADIUS,
+            spot,
+          );
+          this.addDestructible(spot.x, spot.y);
+        }
+        return;
+      }
+      case 'poi_field_boost_cache':
+        this.spawnFieldBoostPickup(x - POI_CACHE_SPREAD, y);
+        this.spawnFieldBoostPickup(x + POI_CACHE_SPREAD, y);
+        return;
+      case 'poi_black_market':
+        this.addShrine('market', x, y);
+        this.poiOncePerRunSpawned = true;
+        return;
+      case 'poi_shrine_cleanse':   this.addShrine('cleanse', x, y); return;
+      case 'poi_shrine_power':     this.addShrine('power', x, y); return;
+      case 'poi_shrine_fortune':   this.addShrine('fortune', x, y); return;
+      case 'poi_shrine_sacrifice': this.addShrine('sacrifice', x, y); return;
+      default: {
+        const unhandled: never = contentId;
+        console.warn(`Unhandled POI content id: ${String(unhandled)}`);
+      }
+    }
   }
 
   /**
@@ -6467,8 +6594,7 @@ export class GameScene extends Phaser.Scene {
     // Spawn at a random spot in the view, clear of the edges.
     const { x, y } = pickInteriorPoint(this.worldMode.viewRect(), 80, Math.random);
 
-    // 15% chance for a special chest with 3x rewards
-    const isSpecial = Math.random() < 0.15;
+    const isSpecial = Math.random() < SPECIAL_CHEST_CHANCE;
 
     this.addTreasureChest(x, y, isSpecial);
   }
@@ -6480,8 +6606,12 @@ export class GameScene extends Phaser.Scene {
    * chest. When collected (player gets close) it spawns XP gems and may drop a
    * relic; uncollected it auto-despawns after 30s. Tracking in activeChests lets
    * the chest survive refresh-recovery (mirrors addShrine).
+   *
+   * A POI cache is a placed map reward, so it keeps neither the 30s despawn (which would
+   * delete a reward the player is fighting his way toward) nor the chest-drone magnet
+   * (which would drag every cache in the world at the player, through walls).
    */
-  private addTreasureChest(x: number, y: number, isSpecial: boolean): void {
+  private addTreasureChest(x: number, y: number, isSpecial: boolean, isPoiCache = false): void {
     // Create visual chest using Graphics for detailed drawing
     const chestGraphics = this.add.graphics();
     chestGraphics.setPosition(x, y);
@@ -6489,7 +6619,7 @@ export class GameScene extends Phaser.Scene {
     chestGraphics.setDepth(5);
 
     // Register for persistence (saved by position + special flag) and teardown.
-    const chestRecord = { graphics: chestGraphics, isSpecial };
+    const chestRecord = { graphics: chestGraphics, isSpecial, isPoiCache };
     this.activeChests.push(chestRecord);
 
     // Pulsating effect (and gold sparkles for special chests)
@@ -6511,7 +6641,7 @@ export class GameScene extends Phaser.Scene {
 
     // Chest drone: magnetize chest toward player after delay
     let magnetTimer: Phaser.Time.TimerEvent | null = null;
-    if (this.playerStats.chestDroneDelay >= 0) {
+    if (!isPoiCache && this.playerStats.chestDroneDelay >= 0) {
       const magnetDelay = this.playerStats.chestDroneDelay * 1000;
       this.time.delayedCall(magnetDelay, () => {
         if (!chestGraphics.active || this.playerId === -1) return;
@@ -6601,9 +6731,11 @@ export class GameScene extends Phaser.Scene {
     };
 
     // Auto-despawn after 30 seconds if not collected
-    this.time.delayedCall(30000, () => {
-      if (chestGraphics.active) cleanup();
-    });
+    if (!isPoiCache) {
+      this.time.delayedCall(30000, () => {
+        if (chestGraphics.active) cleanup();
+      });
+    }
   }
 
   /**

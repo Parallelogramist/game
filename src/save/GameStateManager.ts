@@ -244,6 +244,19 @@ interface SerializedShrineState {
 }
 
 /**
+ * Serialized expedition POI state. `runSalt` is what makes a slot's contents re-roll per run
+ * but stay identical across a refresh; `spawnedSlotIds` is the run's memory of which slots
+ * have already paid out, so a re-entered sector does not re-stock itself; `oncePerRunSpawned`
+ * carries the Black Market's one-per-world-per-run cap. Absent on legacy + arena saves means
+ * resetInRunFeatureState's fresh values win.
+ */
+interface SerializedPoiState {
+  runSalt: number;
+  spawnedSlotIds: string[];
+  oncePerRunSpawned: boolean;
+}
+
+/**
  * Serialized on-field treasure chest. Chests are GameScene-owned Phaser graphics
  * (the pattern shrines/bounties mirror) and were the last walk-in reward NOT
  * persisted — a mid-run refresh despawned any uncollected chest, losing its XP
@@ -254,6 +267,10 @@ interface SerializedChestEntry {
   x: number;
   y: number;
   isSpecial: boolean;
+  /** POI cache: placed at a map slot, so it keeps neither the 30s despawn nor the
+   *  chest-drone magnet (which would drag world-wide caches through walls). Absent on
+   *  legacy saves means a normal timer chest, which is what those saves held. */
+  isPoiCache?: boolean;
 }
 
 /**
@@ -449,6 +466,10 @@ export interface GameSaveState {
   // otherwise despawn them and lose the reward. Persisted so the chests survive
   // refresh-recovery. Absent on legacy saves → no chests restored.
   chestState?: SerializedChestEntry[];
+
+  // Expedition POI slot contents (see SerializedPoiState). Written only by an expedition
+  // run; absent on arena + legacy saves, where the fresh-run defaults win.
+  poiState?: SerializedPoiState;
 
   // Live hazard zones (burn/ice/void/energy) + the auto-spawner pacing.
   // Module-owned by HazardZoneSystem and wiped by resetAllRunSystems on
@@ -710,6 +731,7 @@ export class GameStateManager {
     bountyState?: SerializedBountyState;
     shrineState?: SerializedShrineState;
     chestState?: SerializedChestEntry[];
+    poiState?: SerializedPoiState;
     hazardState?: SerializedHazardState;
     hasWon?: boolean;
     endlessState?: SerializedEndlessState;
@@ -792,6 +814,7 @@ export class GameStateManager {
         bountyState: gameData.bountyState,
         shrineState: gameData.shrineState,
         chestState: gameData.chestState,
+        poiState: gameData.poiState,
         hazardState: gameData.hazardState,
         hasWon: gameData.hasWon,
         endlessState: gameData.endlessState,

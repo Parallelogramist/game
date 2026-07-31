@@ -491,7 +491,7 @@ function subtreeOf(
   return members;
 }
 
-function weightedPick(weights: number[], rng: () => number): number {
+export function weightedPick(weights: number[], rng: () => number): number {
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   let roll = rng() * total;
   let picked = 0;
