@@ -60,9 +60,11 @@ import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
-import type { WorldMap } from '../../world/worldTypes';
+import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import { rollPoiContents } from '../../world/poiRoll';
+import { rollSecretReward } from '../../world/secretRewards';
+import type { SecretRewardDefinition } from '../../world/secretRewards';
 import type { PoiContentId } from '../../data/PoiCatalog';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
 import {
@@ -311,6 +313,10 @@ const SPECIAL_CHEST_CHANCE = 0.15;
 const POI_CRATE_FIELD_COUNT = 3;
 const POI_CRATE_FIELD_RADIUS = 34;
 const POI_CACHE_SPREAD = 22;
+const SECRET_REWARD_SPREAD = 26;
+const SECRET_REWARD_RADIUS = 34;
+const SECRET_REWARD_BUNDLE_COUNT = 3;
+const SECRET_REWARD_HEAL = 25;
 
 // Pandemic: a poison death spreads to nearby enemies. pandemicSpread is a COUNT
 // of enemies infected (shop "Pandemic" 1-3 + "Pandemic Engine" relic +2), not a
@@ -500,7 +506,8 @@ export class GameScene extends Phaser.Scene {
   private vaultSectorKey: string | null = null;
   private secretSectorKey: string | null = null;
   private activeSecretCaches: {
-    secretId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
+    secretId: string; reward: SecretRewardDefinition;
+    graphics: Phaser.GameObjects.Graphics; x: number; y: number;
   }[] = [];
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
@@ -845,10 +852,11 @@ export class GameScene extends Phaser.Scene {
     const changes = discovery.markSectorEntered(payload.sectorKey);
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
     this.stockSectorPois(payload.sectorKey);
-    const sector = this.worldMode.worldMap()?.sectors.get(payload.sectorKey);
+    const map = this.worldMode.worldMap();
+    const sector = map?.sectors.get(payload.sectorKey);
     if (sector) this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
-    if (sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
-      this.announceHiddenSector();
+    if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
+      this.announceHiddenSector(sector, map.seed);
     }
   };
 
@@ -4623,19 +4631,24 @@ export class GameScene extends Phaser.Scene {
       if ((discovery.getSecretFlags(slot.id) & SecretFlags.FOUND) !== 0) continue;
       this.addSecretCache(
         slot.id,
+        rollSecretReward({
+          worldSeed: map.seed, secretId: slot.id, depth: sector.depth, tier: 'cache',
+        }),
         sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
         sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
       );
     }
   }
 
-  private addSecretCache(secretId: string, x: number, y: number): void {
+  private addSecretCache(
+    secretId: string, reward: SecretRewardDefinition, x: number, y: number,
+  ): void {
     const graphics = this.add.graphics();
     graphics.setPosition(x, y);
     this.drawSecretCache(graphics);
     graphics.setDepth(4);
     graphics.setAlpha(0);
-    this.activeSecretCaches.push({ secretId, graphics, x, y });
+    this.activeSecretCaches.push({ secretId, reward, graphics, x, y });
   }
 
   /** The breakable amber rather than the vault's violet: a cache reads as terrain that is not
@@ -4809,9 +4822,9 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Walk-in claim, the claimAbilityVault shape. Permanent at the moment of the touch, not at
-   * run end, so a death seconds later keeps the find. The payout is a special chest rather
-   * than direct gold: exploration grants more relic ROLLS on the unchanged arena table, never
-   * better odds (doc 04 econ rule 1), and it adds nothing to the expedition gold budget.
+   * run end, so a death seconds later keeps the find. What it pays comes from the secret
+   * reward table, which is econ-neutral by construction: no entry pays gold, and a chest
+   * entry is the arena relic table at the arena rate (doc 04 econ rule 1).
    */
   private claimSecretCache(index: number): void {
     const cache = this.activeSecretCaches[index];
@@ -4825,30 +4838,96 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager.playDeathBurst(cache.x, cache.y, color);
     this.cameras.main.shake(140, 0.005);
     this.soundManager.playLevelUp();
-    this.addTreasureChest(cache.x, cache.y, true, true);
+    this.paySecretReward(cache.reward, cache.x, cache.y);
     this.toastManager?.showToast({
       title: 'HIDDEN CACHE FOUND',
-      description: 'The wall was never a wall.',
-      icon: 'star',
+      description: cache.reward.description,
+      icon: cache.reward.icon,
       color,
       duration: 3200,
     });
   }
 
-  /** The one moment a room that was never drawn becomes permanent. Deliberately the same
-   *  beat as claimSecretCache so the two find-shapes read as one language. */
-  private announceHiddenSector(): void {
-    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
-    if (this.playerId !== -1) {
-      this.effectsManager.playDeathBurst(
-        Transform.x[this.playerId], Transform.y[this.playerId], color);
+  /**
+   * Every reward id spends a rail that already exists. A special chest is the arena relic
+   * table at the arena rate, so depth pays in chest COUNT and never in better odds (doc 04
+   * econ rule 1), and nothing here pays gold, so a found secret still adds nothing to the
+   * expedition gold budget. The `never` default makes a future table entry with no payout a
+   * compile error rather than a secret that silently pays nothing.
+   */
+  private paySecretReward(reward: SecretRewardDefinition, x: number, y: number): void {
+    const spot = { x: 0, y: 0 };
+    switch (reward.id) {
+      case 'secret_relic_chest':
+        this.addTreasureChest(x, y, true, true);
+        return;
+      case 'secret_twin_chests':
+        this.addTreasureChest(x - SECRET_REWARD_SPREAD, y, true, true);
+        this.addTreasureChest(x + SECRET_REWARD_SPREAD, y, true, true);
+        return;
+      case 'secret_boost_bundle':
+        for (let index = 0; index < SECRET_REWARD_BUNDLE_COUNT; index++) {
+          this.secretRewardSpot(x, y, index, SECRET_REWARD_BUNDLE_COUNT, spot);
+          this.spawnFieldBoostPickup(spot.x, spot.y);
+        }
+        return;
+      case 'secret_ordnance_pack': {
+        const kinds = [ConsumableKind.BOMB, ConsumableKind.FREEZE, ConsumableKind.VACUUM];
+        for (let index = 0; index < kinds.length; index++) {
+          this.secretRewardSpot(x, y, index, kinds.length, spot);
+          spawnConsumablePickup(this.world, spot.x, spot.y, kinds[index], 0);
+        }
+        return;
+      }
+      case 'secret_repair_bay':
+        for (let index = 0; index < SECRET_REWARD_BUNDLE_COUNT; index++) {
+          this.secretRewardSpot(x, y, index, SECRET_REWARD_BUNDLE_COUNT, spot);
+          spawnHealthPickup(this.world, spot.x, spot.y, SECRET_REWARD_HEAL);
+        }
+        return;
+      default: {
+        const unhandled: never = reward.id;
+        console.warn(`Unhandled secret reward id: ${String(unhandled)}`);
+      }
     }
+  }
+
+  /** Ring layout, the poi_crate_field shape: freeSpotNear keeps a pickup out of rock even
+   *  when the cache sat against a wall. */
+  private secretRewardSpot(
+    x: number, y: number, index: number, count: number, out: { x: number; y: number },
+  ): void {
+    const angle = (Math.PI * 2 * index) / count - Math.PI / 2;
+    this.worldMode.freeSpotNear(
+      x + Math.cos(angle) * SECRET_REWARD_RADIUS,
+      y + Math.sin(angle) * SECRET_REWARD_RADIUS,
+      out,
+    );
+  }
+
+  /** The one moment a room that was never drawn becomes permanent. Deliberately the same
+   *  beat as claimSecretCache so the two find-shapes read as one language, and now the same
+   *  reward table, at the richer hiddenSector tier. */
+  private announceHiddenSector(sector: SectorDef, worldSeed: number): void {
+    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
+    const spawnX = this.playerId !== -1
+      ? Transform.x[this.playerId]
+      : sector.sx * SECTOR_WIDTH + SECTOR_WIDTH / 2;
+    const spawnY = this.playerId !== -1
+      ? Transform.y[this.playerId]
+      : sector.sy * SECTOR_HEIGHT + SECTOR_HEIGHT / 2;
+    const reward = rollSecretReward({
+      worldSeed, secretId: sector.key, depth: sector.depth, tier: 'hiddenSector',
+    });
+
+    this.effectsManager.playDeathBurst(spawnX, spawnY, color);
     this.cameras.main.shake(140, 0.005);
     this.soundManager.playLevelUp();
+    this.paySecretReward(reward, spawnX, spawnY);
     this.toastManager?.showToast({
       title: 'HIDDEN SECTOR FOUND',
-      description: 'This room was never on the chart.',
-      icon: 'star',
+      description: reward.description,
+      icon: reward.icon,
       color,
       duration: 3200,
     });
