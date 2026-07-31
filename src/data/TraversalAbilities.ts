@@ -103,6 +103,35 @@ export const TRAVERSAL_ABILITIES: readonly TraversalAbilityDefinition[] = [
 export const TRAVERSAL_ABILITY_GATE_ORDER: readonly TraversalAbilityId[] =
   TRAVERSAL_ABILITIES.map((ability) => ability.id);
 
+export interface VaultGuardMember {
+  /** ENEMY_TYPES key. */
+  readonly typeId: string;
+  readonly count: number;
+}
+
+/**
+ * The placed pack each vault spawns, by its ability's guardTier (doc 04 section 2, Claim flow).
+ *
+ * No member may be boss-tier. handleEnemyDeath runs the victory path on any death with
+ * xpValue >= 1000, so a boss in a side room would end the run from a vault; the decryptor's
+ * 'boss' tier is therefore a MINIBOSS-tier anchor (`stalker`, xpValue 300) plus a heavier
+ * escort, not an xpValue-1000 spawn. referentialIntegrity.test.ts pins both halves of that.
+ */
+export const VAULT_GUARD_PACKS: Record<
+  TraversalAbilityDefinition['guardTier'], readonly VaultGuardMember[]
+> = {
+  elite: [
+    { typeId: 'warden', count: 2 },
+    { typeId: 'shielded', count: 1 },
+    { typeId: 'tank', count: 1 },
+  ],
+  boss: [
+    { typeId: 'stalker', count: 1 },
+    { typeId: 'warden', count: 2 },
+    { typeId: 'shielded', count: 2 },
+  ],
+};
+
 export function getTraversalAbility(id: string): TraversalAbilityDefinition | undefined {
   return TRAVERSAL_ABILITIES.find((ability) => ability.id === id);
 }

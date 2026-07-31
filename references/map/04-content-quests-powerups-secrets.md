@@ -208,6 +208,52 @@ blink with i-frames, a deployable charge, a tether) that no code grants yet, and
 implemented effect of owning an ability is that its doors open, so printing them would promise
 a capability the player does not receive. `FEAT-POWER-ABILITY-EFFECTS` carries that.
 
+### As built (FEAT-POWER-VAULT-GUARD, 2026-07-31)
+
+The guard shipped as specified. Entering a sector that hosts an unclaimed vault stands a placed
+pack up in a ring around the core (`GameScene.spawnVaultGuards`, off `VAULT_GUARD_PACKS`), and
+while any member lives the core is inert: it draws in hazard orange at 55% alpha, the walk-in
+claim is refused, and a core inside 170px says so once per sector visit. Killing the last guard
+repaints the core in its own violet, writes the cleared flag and hands the shipped
+`claimAbilityVault` walk-in back unchanged.
+
+**The `vaultGuardCleared` save field named above did not ship, and was not forgotten.** The bit
+lives in the discovery store instead, as `PoiFlags.GUARD_CLEARED`, written through
+`DiscoveryManager.markVaultGuardCleared`. Three reasons. First, `GameSaveState` is the run save,
+so a cleared guard would die with the run and the same pack would be re-fought after every
+death, which is not what "earned" means on a profile that flies one fixed seed forever. Second,
+the discovery store is already keyed on `(worldSeed, worldGenVersion)` and already owns exactly
+this class of per-world fact: `SecretFlags.FOUND` is what keeps a claimed cache claimed across
+deaths and reloads. Third, it satisfies the carried "a mid-run reload restores a cleared guard"
+criterion and more, with zero save-state surface and no `SAVE_VERSION` bump. Widening
+`POI_VALID_MASK` to `0b111` needs no `DISCOVERY_VERSION` bump either: a wider mask only admits a
+bit that every value written before the commit already has unset.
+
+**No member of a pack may be boss-tier.** `handleEnemyDeath` runs the victory path on any death
+with `xpValue >= 1000`, so a boss standing in a side room would end the run the moment its vault
+was cleared. The decryptor vault's `'boss'` guardTier is therefore a miniboss-tier anchor (the
+Stalker, xpValue 300) plus a heavier escort, never an xpValue-1000 spawn.
+`referentialIntegrity.test.ts` pins both halves: every pack member resolves in `ENEMY_TYPES`, and
+none of them reaches the victory-path floor.
+
+**Guards are never written to the run save.** `serializeEntities` skips any enemy carrying
+`VaultGuardTag`, on the `Destructible` precedent immediately above it: an entity the world can
+rebuild is not saved. Persisting a guard would put the saved pack and the freshly-spawned pack in
+the same room after a refresh. Whether the fight was won is persisted, in the discovery store, so
+a refresh mid-fight rebuilds the pack while a cleared vault stays cleared.
+
+**Room-reset is the rule.** Leaving the sector despawns the pack silently (no rewards, no kill
+credit, so an unbeaten guard never routes through `handleEnemyDeath`), and re-entry rebuilds it
+at full strength. The despawn is not optional: the leash re-places any enemy below xpValue 30
+onto the view ring, so an abandoned pack would follow the ship across the whole world.
+
+Three surfaces were deliberately left alone. The radar still writes a plain `'pickup'` blip for
+a guarded core, because a second contact kind belongs to `FEAT-DISCOVERY-FEEDBACK-07` and the
+`FEAT-BARRIER-DOOR-READOUT` precedent already declined to encode a lock state into a glyph that
+small. `MapScene` is untouched, because vaults are not drawn on the sector chart at all yet and
+that glyph is `FEAT-MAPUI-DOORS-05`. `claimAbilityVault` itself is untouched: its only reachable
+caller now runs for an unguarded vault, so a second guard check inside it would be dead code.
+
 ---
 
 ## 3. Temporary power-ups in the world

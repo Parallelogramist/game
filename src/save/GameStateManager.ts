@@ -29,6 +29,7 @@ import {
   Consumable,
   ConsumablePickupTag,
   NemesisTag,
+  VaultGuardTag,
 } from '../ecs/components';
 import { PlayerStats } from '../data/Upgrades';
 import { EnemyAIType, getTypeIdFromAIType } from '../enemies/EnemyTypes';
@@ -894,6 +895,11 @@ export class GameStateManager {
     for (const entityId of enemyQuery(world)) {
       // Destructibles share EnemyTag but are transient — don't persist them.
       if (hasComponent(world, Destructible, entityId)) continue;
+      // A vault guard is a placed encounter rebuilt from the map on sector entry, never
+      // restored: persisting it would put the saved pack and the freshly-spawned pack in the
+      // same room after a refresh. Whether the fight was WON is persisted, in the discovery
+      // store, so a cleared vault stays cleared; only an unfinished fight restarts.
+      if (hasComponent(world, VaultGuardTag, entityId)) continue;
       entities.push(this.serializeEnemy(world, entityId));
     }
     for (const entityId of xpGemQuery(world)) entities.push(this.serializeXPGem(world, entityId));

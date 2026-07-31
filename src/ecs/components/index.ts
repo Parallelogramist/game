@@ -33,6 +33,11 @@ export const MagnetPickupTag = defineComponent();
 // world and the restore path can re-attach it without an entity-id mapping.
 export const NemesisTag = defineComponent();
 
+// Vault guard tag: a placed encounter entity ringing an ability vault core
+// (FEAT-POWER-VAULT-GUARD). A tag, not a scene field, because the save layer
+// must skip these from the world and the scene must test a tracked id's liveness.
+export const VaultGuardTag = defineComponent();
+
 // Health pickup component
 export const HealthPickup = defineComponent({
   healAmount: Types.f32,

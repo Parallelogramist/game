@@ -23,7 +23,7 @@ import { ACHIEVEMENTS, BOSS_KILL_TRACKING, SHIP_WIN_TRACKING, STAGE_WIN_TRACKING
 import { MILESTONES } from '../achievements/MilestoneDefinitions';
 import { ENEMY_TYPES, EnemyCategory } from '../enemies/EnemyTypes';
 import { BLESSINGS } from './Blessings';
-import { TRAVERSAL_ABILITIES } from './TraversalAbilities';
+import { TRAVERSAL_ABILITIES, VAULT_GUARD_PACKS } from './TraversalAbilities';
 import {
   EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER, getQuestForKeyId,
 } from './ExpeditionQuests';
@@ -177,6 +177,21 @@ describe('data catalog referential integrity', () => {
     expect(new Set(barrierIds).size, 'two abilities claiming one barrier type').toBe(
       barrierIds.length,
     );
+  });
+
+  test('every vault guard pack resolves and is never boss-tier', () => {
+    for (const ability of TRAVERSAL_ABILITIES) {
+      const pack = VAULT_GUARD_PACKS[ability.guardTier];
+      expect(pack.length).toBeGreaterThan(0);
+      for (const member of pack) {
+        const enemyType = ENEMY_TYPES[member.typeId];
+        expect(enemyType, `${ability.id} guard ${member.typeId}`).toBeDefined();
+        expect(member.count).toBeGreaterThan(0);
+        // xpValue >= 1000 runs handleEnemyDeath's victory path, which would end the run
+        // from a side room the moment the pack died.
+        expect(enemyType.xpValue).toBeLessThan(1000);
+      }
+    }
   });
 });
 

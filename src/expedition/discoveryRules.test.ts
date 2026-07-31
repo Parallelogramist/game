@@ -16,7 +16,7 @@ import {
 } from './DiscoveryTypes';
 import {
   buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnSecretFound,
-  revealOnSectorEntry, sanitizeDiscoveryState,
+  revealOnSectorEntry, revealOnVaultGuardCleared, sanitizeDiscoveryState,
 } from './discoveryRules';
 
 const OPEN_EDGE: EdgeDef = { kind: EdgeKind.Open, apertureStart: 10, apertureEnd: 13 };
@@ -195,7 +195,7 @@ describe('discoveryRules', () => {
     expect(state.sectors['1,0']).toBe(SectorFlags.DISCOVERED);
     expect(Object.keys(state.edges)).toEqual([SHARED_EDGE_ID]);
     expect(state.edges[SHARED_EDGE_ID]).toBe(0b11);
-    expect(state.pois[PLAIN_POI_ID]).toBe(0b11);
+    expect(state.pois[PLAIN_POI_ID]).toBe(0b111);
     expect(state.secrets).toEqual({});
   });
 
@@ -258,5 +258,33 @@ describe('revealOnSecretFound', () => {
 
     expect(changes).toEqual(emptyChanges());
     expect(state.secrets['poi:9,9:9']).toBeUndefined();
+  });
+});
+
+describe('revealOnVaultGuardCleared', () => {
+  it('clearing a vault guard is permanent and implies seen', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnVaultGuardCleared(state, universe, PLAIN_POI_ID);
+
+    expect(changes.poisGuardCleared).toEqual([PLAIN_POI_ID]);
+    expect(state.pois[PLAIN_POI_ID] & PoiFlags.GUARD_CLEARED).not.toBe(0);
+    expect(state.pois[PLAIN_POI_ID] & PoiFlags.SEEN).not.toBe(0);
+    expect(revealOnVaultGuardCleared(state, universe, PLAIN_POI_ID)).toEqual(emptyChanges());
+  });
+
+  it('a cleared guard survives a save round-trip and a pre-existing save reads uncleared', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+    revealOnVaultGuardCleared(state, universe, PLAIN_POI_ID);
+
+    const reloaded = sanitizeDiscoveryState(
+      JSON.parse(JSON.stringify(state)), SEED, GEN_VERSION, universe);
+    expect(reloaded.pois[PLAIN_POI_ID]).toBe(state.pois[PLAIN_POI_ID]);
+
+    const legacy = sanitizeDiscoveryState(
+      { ...state, pois: { [PLAIN_POI_ID]: PoiFlags.SEEN } }, SEED, GEN_VERSION, universe);
+    expect(legacy.pois[PLAIN_POI_ID] & PoiFlags.GUARD_CLEARED).toBe(0);
   });
 });

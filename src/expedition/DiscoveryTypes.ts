@@ -27,8 +27,10 @@ export const EDGE_VALID_MASK = 0b11;
 export const PoiFlags = {
   SEEN: 1 << 0,
   COLLECTED: 1 << 1,
+  /** Its placed guard encounter was killed. Permanent per world: the fight is never re-run. */
+  GUARD_CLEARED: 1 << 2,
 } as const;
-export const POI_VALID_MASK = 0b11;
+export const POI_VALID_MASK = 0b111;
 
 export const SecretFlags = {
   HINTED: 1 << 0,
@@ -59,6 +61,7 @@ export interface DiscoveryChanges {
   edgesTraversed: string[];
   poisSeen: string[];
   poisCollected: string[];
+  poisGuardCleared: string[];
   secretsHinted: string[];
   secretsFound: string[];
 }
@@ -71,6 +74,7 @@ export function emptyChanges(): DiscoveryChanges {
     edgesTraversed: [],
     poisSeen: [],
     poisCollected: [],
+    poisGuardCleared: [],
     secretsHinted: [],
     secretsFound: [],
   };
@@ -83,6 +87,7 @@ export function hasChanges(changes: DiscoveryChanges): boolean {
     || changes.edgesTraversed.length > 0
     || changes.poisSeen.length > 0
     || changes.poisCollected.length > 0
+    || changes.poisGuardCleared.length > 0
     || changes.secretsHinted.length > 0
     || changes.secretsFound.length > 0;
 }

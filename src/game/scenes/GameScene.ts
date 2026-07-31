@@ -18,6 +18,7 @@ import {
   StatusEffect,
   ConsumablePickupTag,
   NemesisTag,
+  VaultGuardTag,
 } from '../../ecs/components';
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
@@ -219,7 +220,9 @@ import { getCardCollectionManager } from '../../meta/CardCollectionManager';
 import { getBoostCardManager } from '../../meta/BoostCardManager';
 import { FLUX_CACHE_DROP_CHANCE } from '../../data/BoostCards';
 import { getShipModManager } from '../../meta/ShipModManager';
-import { getTraversalAbility, IMPLEMENTED_TRAVERSAL_ABILITY_IDS } from '../../data/TraversalAbilities';
+import {
+  getTraversalAbility, IMPLEMENTED_TRAVERSAL_ABILITY_IDS, VAULT_GUARD_PACKS,
+} from '../../data/TraversalAbilities';
 import {
   claimTraversalAbility, getOwnedTraversalAbilityIds,
 } from '../../meta/TraversalAbilityManager';
@@ -395,6 +398,13 @@ const THERMAL_WARD_ID = 'ability_thermal_ward';
 /** Boss-tier XP floor, the same threshold handleEnemyDeath uses; leash-exempt. */
 const LEASH_EXEMPT_XP_FLOOR = 30;
 
+/** Where a vault's placed pack stands up, measured from the core. */
+const VAULT_GUARD_RING_RADIUS = 120;
+/** Inside this, a guarded core says so once per sector visit. */
+const VAULT_GUARD_NOTICE_RADIUS = 170;
+/** Every guard is the same elite, so the encounter reads identically on every vault. */
+const VAULT_GUARD_AFFIX = EnemyAffixType.TITAN;
+
 /**
  * GameScene is the main gameplay scene.
  * Manages the ECS world, player, enemies, and game loop.
@@ -534,6 +544,7 @@ export class GameScene extends Phaser.Scene {
   // Rebuilt when the ship changes sector, keyed the way syncMinimapUnderlay is keyed.
   private activeVaults: {
     poiId: string; abilityId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
+    guarded: boolean; guardEntityIds: number[]; noticed: boolean;
   }[] = [];
   private vaultSectorKey: string | null = null;
   private secretSectorKey: string | null = null;
@@ -4616,15 +4627,86 @@ export class GameScene extends Phaser.Scene {
   private addAbilityVault(poiId: string, abilityId: string, x: number, y: number): void {
     const graphics = this.add.graphics();
     graphics.setPosition(x, y);
-    this.drawAbilityVault(graphics);
     graphics.setDepth(4);
-    this.activeVaults.push({ poiId, abilityId, graphics, x, y });
+    const vault = {
+      poiId, abilityId, graphics, x, y,
+      guarded: false, guardEntityIds: [] as number[], noticed: false,
+    };
+    this.activeVaults.push(vault);
+
+    if (!getDiscoveryManager().isVaultGuardCleared(poiId)) {
+      this.spawnVaultGuards(vault, abilityId);
+    }
+    // A pack that produced no entity (an unknown type id) leaves the core claimable rather
+    // than permanently sealed: the failure mode of a placed encounter must be open, not locked.
+    vault.guarded = vault.guardEntityIds.length > 0;
+    graphics.setAlpha(vault.guarded ? 0.55 : 1);
+    this.drawAbilityVault(
+      graphics,
+      vault.guarded ? WORLD_GEOMETRY_COLORS.hazard.stroke : WORLD_GEOMETRY_COLORS.gate.stroke,
+    );
+  }
+
+  /**
+   * A vault's pack, standing in an even ring around the core. Every member is forced to the
+   * same elite affix rather than rolled, so a guard is never a plain trash spawn and the
+   * encounter is identical on every visit. createEnemy runs freeSpotNear, so a ring point
+   * inside rock is shoved to open floor instead of spawning a mover in a wall.
+   */
+  private spawnVaultGuards(
+    vault: { poiId: string; x: number; y: number; guardEntityIds: number[] },
+    abilityId: string,
+  ): void {
+    const definition = getTraversalAbility(abilityId);
+    if (!definition) return;
+    const pack = VAULT_GUARD_PACKS[definition.guardTier];
+    const total = pack.reduce((sum, member) => sum + member.count, 0);
+    if (total === 0) return;
+
+    let placed = 0;
+    for (const member of pack) {
+      const enemyType = getEnemyType(member.typeId);
+      if (!enemyType) continue;
+      for (let index = 0; index < member.count; index++) {
+        const angle = (Math.PI * 2 * placed) / total - Math.PI / 2;
+        placed++;
+        const scaledStats = getScaledStats(
+          enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult,
+        );
+        const entityId = this.createEnemy(
+          vault.x + Math.cos(angle) * VAULT_GUARD_RING_RADIUS,
+          vault.y + Math.sin(angle) * VAULT_GUARD_RING_RADIUS,
+          enemyType, scaledStats,
+        );
+        addComponent(this.world, VaultGuardTag, entityId);
+        this.applyDampedAffixStats(entityId, VAULT_GUARD_AFFIX);
+        if (enemyType.xpValue >= 30) {
+          this.hudManager?.createBossHealthBar(entityId, enemyType.name, false);
+        }
+        vault.guardEntityIds.push(entityId);
+      }
+    }
+  }
+
+  /** Silent removal: no rewards, no kill flash, no kill/combo credit. A guard that was not
+   *  beaten was not killed, so it must not route through handleEnemyDeath. */
+  private despawnVaultGuard(enemyId: number): void {
+    if (!hasComponent(this.world, EnemyTag, enemyId)) return;
+    this.hudManager?.removeBossHealthBar(enemyId);
+    this.deathRippleManager.unregisterEnemy(enemyId);
+    this.statusEffectVisualManager.unregisterEnemy(enemyId);
+    this.eliteAffixVisualManager.unregisterEnemy(enemyId);
+    const sprite = getSprite(enemyId);
+    if (sprite) sprite.destroy();
+    unregisterSprite(enemyId);
+    removeEntity(this.world, enemyId);
+    this.enemyCount--;
   }
 
   /** A caged core in the gate's own violet, so the vault and the doors it opens read as one
-   *  system without inventing a second palette. */
-  private drawAbilityVault(graphics: Phaser.GameObjects.Graphics): void {
-    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
+   *  system without inventing a second palette. A guarded core takes hazard orange instead. */
+  private drawAbilityVault(graphics: Phaser.GameObjects.Graphics, color: number): void {
+    graphics.clear();
     graphics.fillStyle(color, 0.18);
     graphics.fillCircle(0, 0, 30);
     graphics.lineStyle(3, color, 0.95);
@@ -4640,7 +4722,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private clearAbilityVaults(): void {
-    this.activeVaults.forEach(vault => vault.graphics.destroy());
+    for (const vault of this.activeVaults) {
+      for (const entityId of vault.guardEntityIds) this.despawnVaultGuard(entityId);
+      vault.graphics.destroy();
+    }
     this.activeVaults = [];
   }
 
@@ -4880,6 +4965,53 @@ export class GameScene extends Phaser.Scene {
     this.recordExpeditionQuest({ kind: 'claimAbility', abilityId: vault.abilityId });
   }
 
+  /** A core that silently refuses the walk-in reads as a bug, the noticeSealedCache rule
+   *  applied to the vault. Once per sector visit, because the pack is rebuilt on re-entry. */
+  private noticeGuardedVault(
+    vault: { abilityId: string; x: number; y: number; noticed: boolean },
+  ): void {
+    vault.noticed = true;
+    const color = WORLD_GEOMETRY_COLORS.hazard.stroke;
+    this.effectsManager.showDamageNumber(vault.x, vault.y - 26, 'GUARDED', color);
+    const definition = getTraversalAbility(vault.abilityId);
+    this.toastManager?.showToast({
+      title: 'VAULT GUARDED',
+      description: definition
+        ? `${definition.name} stays sealed until its guard falls.`
+        : 'The core stays sealed until its guard falls.',
+      icon: 'skull',
+      color,
+      duration: 3200,
+    });
+  }
+
+  /** The last guard fell: the core drops to its own violet and the shipped walk-in claim takes
+   *  over on the next frame. The cleared flag is written here, not at the claim, because a
+   *  player who wins the fight and dies on the way to the core has already paid the price. */
+  private unsealAbilityVault(
+    vault: {
+      poiId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number;
+      guarded: boolean;
+    },
+  ): void {
+    vault.guarded = false;
+    getDiscoveryManager().markVaultGuardCleared(vault.poiId);
+
+    const color = WORLD_GEOMETRY_COLORS.gate.stroke;
+    vault.graphics.setAlpha(1);
+    this.drawAbilityVault(vault.graphics, color);
+    this.effectsManager.playDeathBurst(vault.x, vault.y, color);
+    if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(180, 0.007);
+    this.soundManager.playPurchase();
+    this.toastManager?.showToast({
+      title: 'VAULT UNSEALED',
+      description: 'The core is exposed. Fly into it to claim.',
+      icon: 'bolt',
+      color,
+      duration: 3000,
+    });
+  }
+
   /** Pulse and walk-in test, the updateShrines shape. Iterated backwards because a claim
    *  splices the entry out. */
   private updateAbilityVaults(playerX: number, playerY: number): void {
@@ -4891,7 +5023,22 @@ export class GameScene extends Phaser.Scene {
       vault.graphics.setScale(pulse);
       const dx = playerX - vault.x;
       const dy = playerY - vault.y;
-      if (dx * dx + dy * dy < radius * radius) this.claimAbilityVault(i);
+      const distanceSq = dx * dx + dy * dy;
+
+      if (vault.guarded) {
+        vault.guardEntityIds = vault.guardEntityIds.filter(entityId =>
+          hasComponent(this.world, VaultGuardTag, entityId)
+          && hasComponent(this.world, EnemyTag, entityId));
+        if (vault.guardEntityIds.length === 0) {
+          this.unsealAbilityVault(vault);
+        } else if (!vault.noticed
+          && distanceSq < VAULT_GUARD_NOTICE_RADIUS * VAULT_GUARD_NOTICE_RADIUS) {
+          this.noticeGuardedVault(vault);
+        }
+        continue;
+      }
+
+      if (distanceSq < radius * radius) this.claimAbilityVault(i);
     }
   }
 

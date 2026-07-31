@@ -8,7 +8,7 @@
 
 import { SecureStorage } from '../storage';
 import type { WorldMap } from '../world/worldTypes';
-import { SecretFlags, SectorFlags, emptyChanges, hasChanges } from './DiscoveryTypes';
+import { PoiFlags, SecretFlags, SectorFlags, emptyChanges, hasChanges } from './DiscoveryTypes';
 import type { DiscoveryChanges, DiscoveryState } from './DiscoveryTypes';
 import {
   buildIdUniverse,
@@ -19,6 +19,7 @@ import {
   revealOnSecretFound,
   revealOnSecretHinted,
   revealOnSectorEntry,
+  revealOnVaultGuardCleared,
   sanitizeDiscoveryState,
 } from './discoveryRules';
 import type { WorldIdUniverse } from './discoveryRules';
@@ -72,6 +73,17 @@ export class DiscoveryManager {
   markPoiCollected(poiId: string): DiscoveryChanges {
     if (!this.map) return emptyChanges();
     return this.commit(revealOnPoiCollected(this.state, this.universe, poiId));
+  }
+
+  /** The only write path for a cleared vault guard (README section 3.7's rule). Permanent per
+   *  world: the pack is the price of the key, and a price is paid once, not once per death. */
+  markVaultGuardCleared(poiId: string): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(revealOnVaultGuardCleared(this.state, this.universe, poiId));
+  }
+
+  isVaultGuardCleared(poiId: string): boolean {
+    return (this.getPoiFlags(poiId) & PoiFlags.GUARD_CLEARED) !== 0;
   }
 
   /** The only write path for a found secret (README section 3.7). Permanent per world: the

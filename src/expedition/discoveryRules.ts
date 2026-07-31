@@ -153,7 +153,9 @@ function repairEdge(flags: number): number {
 }
 
 function repairPoi(flags: number): number {
-  return (flags & PoiFlags.COLLECTED) !== 0 ? flags | PoiFlags.SEEN : flags;
+  return (flags & (PoiFlags.COLLECTED | PoiFlags.GUARD_CLEARED)) !== 0
+    ? flags | PoiFlags.SEEN
+    : flags;
 }
 
 function repairSecret(flags: number): number {
@@ -221,6 +223,19 @@ export function revealOnPoiCollected(
   return changes;
 }
 
+/** Clearing a guard is permanent per world and implies SEEN: you cannot kill a pack around a
+ *  core you never stood next to, and repairPoi already treats the pair as the repaired form. */
+export function revealOnVaultGuardCleared(
+  state: DiscoveryState,
+  universe: WorldIdUniverse,
+  poiId: string,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  if (!universe.poiIds.has(poiId)) return changes;
+  addPoi(state, changes, poiId, PoiFlags.GUARD_CLEARED | PoiFlags.SEEN);
+  return changes;
+}
+
 /** Finding is permanent and implies hinted: repairSecret already treats FOUND without
  *  HINTED as corrupt, so writing both keeps a live state byte-identical to a reloaded one. */
 export function revealOnSecretFound(
@@ -281,6 +296,7 @@ function addPoi(
   const gained = after & ~before;
   if ((gained & PoiFlags.SEEN) !== 0) changes.poisSeen.push(id);
   if ((gained & PoiFlags.COLLECTED) !== 0) changes.poisCollected.push(id);
+  if ((gained & PoiFlags.GUARD_CLEARED) !== 0) changes.poisGuardCleared.push(id);
 }
 
 function addSecret(
