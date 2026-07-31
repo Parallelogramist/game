@@ -54,19 +54,32 @@ choice are recorded on that item's own entry; read it before touching the econom
 decision, and what is left of `FEAT-QUEST-BOARD` (map markers, the walk-in board) is blocked
 on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
 (`FEAT-QUEST-CATALOG-DEPTH`).
-`FEAT-SECRET-AMBIENT-PING` is done (9d8f9c5): within one screen of an unfound cache the radar
-shimmers in the breakable amber. `FEAT-SECRET-HIDDEN-SECTORS` is now **done (c242028)**: three
-dead-end sectors per world are sealed behind a breakable wall and are absent from the map,
-from the map header's denominator and from the completion percent until the ship is inside
-them, then they are permanent and stroke in amber. It needed **no `WORLDGEN_VERSION` bump**,
-so every existing profile keeps its discovery state; read its entry before touching worldgen.
-The next session therefore takes band 2's next unblocked item,
-**`FEAT-SECRET-REWARD-VARIETY`**, with the caveat that its own entry lists
-`FEAT-ECON-WARDS` as a dep and that item is parked on an operator balance decision, so if the
-executor judges the econ caps genuinely unfixable, take **`FEAT-DISCOVERY-WRITE-PATHS`**
-instead (the four discovery write paths whose callers do not exist yet, now that hidden
-sectors give three of them a live consumer). Operator focus: quests and lots of hidden
-rewards on the Metroid map.
+**Band 2 has now shipped four chunks.** `FEAT-SECRET-AMBIENT-PING` (9d8f9c5): within one
+screen of an unfound cache the radar shimmers in the breakable amber.
+`FEAT-SECRET-HIDDEN-SECTORS` (c242028): three dead-end sectors per world are sealed behind a
+breakable wall and are absent from the map, from the map header's denominator and from the
+completion percent until the ship is inside them, then they are permanent and stroke in amber.
+It needed **no `WORLDGEN_VERSION` bump**, so every existing profile keeps its discovery state;
+read its entry before touching worldgen. `FEAT-SECRET-REWARD-VARIETY` (b970287): what a secret
+PAYS is now one table of five payouts in `src/world/secretRewards.ts` (a sealed chest, twin
+chests, a field-boost bundle, an ordnance pack, a repair bay), rolled deterministically per
+(world seed, tier, secret id) with no run salt. **Both** secret kinds pay through it: a
+walked-into cache at the `cache` tier and a hidden sector's first entry at the richer
+`hiddenSector` tier, so the strongest find in the game stopped paying nothing. It did **not**
+wait on the parked `FEAT-ECON-WARDS` decision because every entry is econ-neutral by
+construction (no gold, arena relic table at the arena rate, already-capped `FIELD_BOOSTS`);
+the gold row and both fragment rows were cut to `FEAT-SECRET-REWARD-GOLD` and
+`FEAT-SECRET-REWARD-FRAGMENTS`, so do not re-derive why they are absent.
+
+**The next session takes `FEAT-SECRET-HIDDEN-LIFETIME`**, the strongest remaining unblocked
+item: its only dep, `FEAT-SECRET-HIDDEN-SECTORS`, shipped at c242028, and it is now sharper
+than when it was filed, because hidden sectors already pay a real in-run reward as of b970287.
+What they still lack is purely the lifetime counter and the unlock/paint pair, which
+`FEAT-SECRET-REWARD-VARIETY` deliberately did not touch. After that, take
+`FEAT-DISCOVERY-WRITE-PATHS` (three of its four write paths now have live consumers).
+`FEAT-SECRET-LORE`, `FEAT-SECRET-SEQUENCE-PUZZLES` and `FEAT-DISCOVERY-SCAN-FRAGMENT` remain
+band 2 and are larger. `FEAT-ECON-WARDS` stays parked on the operator balance decision: do not
+unpark it. Operator focus: quests and lots of hidden rewards on the Metroid map.
 
 ## Proposed (auto)
 
@@ -4385,7 +4398,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   and filed so the future chunk cannot miss it. Value: keeps the hidden-sector payoff from
   being quietly deleted by the next discovery feature. Deps: `FEAT-DISCOVERY-SCAN-FRAGMENT`.
 
-- [ ] **FEAT-SECRET-REWARD-VARIETY** (new 2026-07-31): what a found secret PAYS, as one
+- [x] **FEAT-SECRET-REWARD-VARIETY** (done, b970287): what a found secret PAYS, as one
   data-driven table instead of per-chunk hardcoding: gold caches (band-checked by
   `FEAT-ECON-WARDS`), relic-roll chests (arena table, count-not-odds, per econ rule 1),
   field-boost bundles (`FIELD_BOOSTS` shipped — 1a8049d), a consumable pack, a map
@@ -4397,6 +4410,58 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   choke point to assert. Done when every secret kind pays through this table and a
   deliberate cap violation in a fixture goes red. Deps: `FEAT-SECRET-CACHE`,
   `FEAT-ECON-WARDS`. Spec: doc 04 sections 5-6.
+  **As built.** `src/world/secretRewards.ts` holds five payouts and nothing else:
+  `secret_relic_chest` (one sealed chest), `secret_twin_chests` (two, the depth jackpot),
+  `secret_boost_bundle` (three `FIELD_BOOSTS` charges in a ring), `secret_ordnance_pack`
+  (a bomb, a freeze and a vacuum charge) and `secret_repair_bay` (three health pickups).
+  **Both secret kinds roll it**, which is what discharges the "every secret kind pays
+  through this table" done-condition: a walked-into cache rolls at `tier: 'cache'` when it
+  spawns in `syncSecretCaches` (where the sector depth is in hand), and a hidden sector's
+  first entry rolls at the richer `tier: 'hiddenSector'` in `announceHiddenSector`, gated by
+  the `changes.sectorsVisited` delta that is already permanent per world. A hidden sector
+  therefore stopped paying zero. `GameScene.paySecretReward` maps each id to a spawn rail
+  that already existed (`addTreasureChest`, `spawnFieldBoostPickup`, `spawnConsumablePickup`,
+  `spawnHealthPickup`) behind a `never` default, because `src/world/` may not reach Phaser
+  or the ECS; that default makes a future unmapped entry a compile error rather than a
+  secret that silently pays nothing. **Determinism key:**
+  `secretReward:<worldSeed>:<tier>:<secretId>`, with **no run salt**, unlike `poiRoll`: a
+  found secret never respawns, so a per-run salt would make the payout unrepeatable rather
+  than varied. **Nothing persists**: the reward is a pure function of the world, so no save
+  field, no storage key, and no `SAVE_VERSION` / `WORLDGEN_VERSION` / `DISCOVERY_VERSION`
+  bump. `drawSecretCache` is untouched, so every cache still looks identical on the floor
+  and the `FEAT-SECRET-AMBIENT-PING` shimmer keeps saying "a cache is in this room" and no
+  more; the reward is named in the find toast, at the touch, because variety a player cannot
+  read is not variety. **The `FEAT-ECON-WARDS` dep was discharged by construction, not
+  waited on**: every entry is econ-neutral (no gold, chest entries are the arena relic table
+  at the arena rate per econ rule 1, field boosts come from the already-capped `FIELD_BOOSTS`
+  catalog), so the table adds zero to whatever expedition gold budget that parked item
+  eventually enforces, and it is a choke point that item can assert against rather than a
+  debt it inherits. That also made the entry's "deliberate cap violation goes red" test
+  unbuildable as written: with no gold entry there is no cap to violate, so the three tests
+  shipped instead pin the determinism, full-table reachability, and the shallow-band jackpot
+  exclusion. **Cut deliberately: the gold row and both fragment rows**, filed as
+  `FEAT-SECRET-REWARD-GOLD` (needs the same parked operator balance call) and
+  `FEAT-SECRET-REWARD-FRAGMENTS` (`revealOnMapFragment` and lore fragments do not exist yet,
+  so either would have shipped a reward that does nothing).
+
+- [ ] **FEAT-SECRET-REWARD-GOLD** (new 2026-07-31, cut from `FEAT-SECRET-REWARD-VARIETY`): the
+  gold-cache row of the reward table. Deliberately absent: every shipped entry is econ-neutral
+  by construction (no gold, arena relic table at the arena rate, already-capped field boosts),
+  which is exactly what let the table ship while `FEAT-ECON-WARDS` is parked. A gold entry is
+  the first thing that would land inside the disputed budget, so it needs the operator balance
+  call first. `ConsumableKind.GOLD` and `spawnConsumablePickup(..., value)` are the rail it
+  would use; the only new work is the band and the cap read. Value: gold is the one payout the
+  player can carry out of a failed run. Deps: `FEAT-ECON-WARDS`. Spec: doc 04 section 6 rule 2.
+
+- [ ] **FEAT-SECRET-REWARD-FRAGMENTS** (new 2026-07-31, cut from `FEAT-SECRET-REWARD-VARIETY`):
+  the map-fragment and lore-fragment rows of the reward table. Both were cut because the thing
+  they would pay does not exist: `revealOnMapFragment` and `fragmentRegions` are
+  `FEAT-DISCOVERY-SCAN-FRAGMENT`'s named deliverable and appear nowhere in `src/`, and lore
+  fragments are `FEAT-SECRET-LORE`'s. Shipping either now is an inert reward. Each is one
+  `SECRET_REWARDS` entry plus one `paySecretReward` case once its carrier lands. Value: a
+  fragment is the only reward that pays in map knowledge rather than in power. Deps:
+  `FEAT-DISCOVERY-SCAN-FRAGMENT` (map), `FEAT-SECRET-LORE` (lore). Spec: doc 03 section 1.4
+  rules 4 and 5, doc 04 section 5.
 
 - [ ] **FEAT-SECRET-SEQUENCE-PUZZLES** (new 2026-07-31, split out of `FEAT-SECRET-LORE`):
   2-4 switch nodes in a sector (shrine walk-in pattern) activated in an order hinted by a

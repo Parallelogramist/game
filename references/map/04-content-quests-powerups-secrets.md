@@ -572,6 +572,29 @@ Three tiers, cheapest first:
   `secretsFoundTotal`; conflating them with caches would move `FEAT-SECRET-CACHE`'s shipped
   unlock thresholds. Filed as `FEAT-SECRET-HIDDEN-LIFETIME`.
 
+### As built (`FEAT-SECRET-REWARD-VARIETY`, b970287, 2026-07-31)
+
+- **One table, both secret kinds.** `src/world/secretRewards.ts` holds five payouts and is
+  rolled by `GameScene` for a walked-into cache (`tier: 'cache'`, at spawn, where the sector
+  depth is in hand) and for a hidden sector's first entry (`tier: 'hiddenSector'`, gated by
+  `changes.sectorsVisited`, which is already permanent per world). Taxonomy row 2 therefore
+  pays a reward as well as a chart entry.
+- **Deterministic per world, not per run.** The key is
+  `secretReward:<worldSeed>:<tier>:<secretId>` with no run salt, because a found secret never
+  respawns: a per-run salt would make the payout unrepeatable rather than varied.
+- **Econ-neutral by construction, which is why it did not wait for `FEAT-ECON-WARDS`.** No
+  entry pays gold, chest entries are the arena relic table at the arena rate (section 6 rule 1,
+  depth pays in chest COUNT), and field boosts come from the already-capped `FIELD_BOOSTS`.
+  The table adds zero to the expedition gold budget that chunk will enforce, so it is a choke
+  point that chunk can assert against rather than a debt it inherits.
+- **The floor still gives nothing away.** `drawSecretCache` is unchanged, so every cache looks
+  identical on approach and the `FEAT-SECRET-AMBIENT-PING` shimmer keeps saying "a cache is in
+  this room" and nothing more. The reward is named in the find toast, at the touch.
+- **Not built, deliberately: the gold row and both fragment rows.** Filed as
+  `FEAT-SECRET-REWARD-GOLD` (blocked on the same parked balance decision) and
+  `FEAT-SECRET-REWARD-FRAGMENTS` (`revealOnMapFragment` and lore fragments do not exist, so
+  either would have paid nothing).
+
 ---
 
 ## 6. Reward economy
