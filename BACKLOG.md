@@ -115,6 +115,22 @@ on about 11 distinct), so it now deals `(hash(seed) + rank) % length` by the sec
 world's sorted secret ids and clearing the world completes the collection. No storage key and no
 version bump: both loaders rebuild missing sub-trees and fields from their known id lists.
 
+`FEAT-POWER-VAULT-GUARD` (7d33979) made the single largest reward in the map cost something. An
+ability vault used to be one squared-distance test away from being yours; now entering its sector
+stands a placed elite pack up in a ring around the core, the core reads GUARDED in hazard orange
+at 55% alpha and refuses the walk-in while any guard lives, and killing the last one unseals it
+with a burst, a shake and a toast before handing the shipped claim back untouched. Clearing a
+guard is permanent for that world: it writes `PoiFlags.GUARD_CLEARED` into the discovery store,
+which is keyed on `(worldSeed, worldGenVersion)`, rather than the `vaultGuardCleared` run-save
+field the entry named, because a price is paid once and not once per death. The guards themselves
+are never written to the run save, on the `Destructible` precedent, so a refresh mid-fight
+rebuilds the pack while a cleared vault stays cleared. It needed no storage key and no version
+bump. That closes the last two `FEAT-POWER-VAULTS` done-criteria.
+
+**Band 2 was the live band all along, and this item was on it.** The candidate list below used to
+omit `FEAT-POWER-VAULT-GUARD`, and band 1's note that band 2's next unblocked work lay elsewhere
+was wrong on that point: its only dep, `FEAT-POWER-VAULTS`, has been done since a2361d0.
+
 **`FEAT-DISCOVERY-WRITE-PATHS` is NOT next**, contrary to the hand-off above it: three of its
 four paths are already wired and the fourth (`markSectorClearedOnce`) has no honest producer,
 because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director and a wave
@@ -124,7 +140,9 @@ that item, so do not re-derive it). The unblocked candidates are now
 deliverables `revealOnScanPulse` and `revealOnMapFragment` have no producer in the game,
 `ability_signal_decryptor` has no active and `fragmentRegions` appears nowhere in `src/`, so it
 is an inert-deliverable risk until one exists), `CHORE-SECRET-LEAD-RADAR`,
-`CHORE-SECRET-PUZZLE-RESUME`, the newly filed `CHORE-CODEX-CARD-SCROLL-HEIGHT` and
+`CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, the newly filed
+`BALANCE-VAULT-GUARD-SCALING` (`CHORE-VAULT-GUARD-MAP-MARK`, filed with it, is blocked on
+`FEAT-MAPUI-DOORS-05`) and
 `FEAT-SECRET-LORE-CATALOG-DEPTH` (which waits on a re-rollable world seed, since the fixed
 expedition seed is what caps the fragment catalog at 13), and `FEAT-QUEST-CATALOG-DEPTH`, whose
 fourth chain head would be the first one the 3-accept cap ever actually gates but which its own
@@ -3994,14 +4012,94 @@ exploring pays is the end of Phase 5.
     `src/game/world/ExpeditionModeAdapter.ts`, `src/game/scenes/GameScene.ts`. Verified:
     `npx tsc --noEmit` clean, 141 files / 1736 tests green, `npm run build` clean.
 
-- [ ] **FEAT-POWER-VAULT-GUARD**: the encounter that makes a vault earned rather than found.
-  A vault spawns a placed elite pack (the decryptor vault a boss-tier spawn, per
-  `TraversalAbilityDefinition.guardTier`); the core is inert and reads GUARDED until the pack
-  is dead. Deferred out of `FEAT-POWER-VAULTS` because it needs the `spawnEnemy` elite path,
-  live entity-id tracking, and a new optional `vaultGuardCleared` field on `GameSaveState` for
-  the "mid-run reload restores a cleared guard" criterion, none of which the claim half needs.
-  Carries the two `FEAT-POWER-VAULTS` done-criteria this chunk did not meet. Deps:
-  `FEAT-POWER-VAULTS`. Spec: `04-content-quests-powerups-secrets.md` section 2, Claim flow.
+- [x] **FEAT-POWER-VAULT-GUARD** (done, 7d33979): the encounter that makes a vault earned rather
+  than found. `updateAbilityVaults` used to test one squared distance against
+  `VAULT_CLAIM_RADIUS = 40` and call `claimAbilityVault` on the same frame, so there was no cost
+  at all between reaching a vault and owning the ability it grants. At
+  `EXPEDITION_WORLD_SEED = 20260727` the three keys behind those cores are worth 27, then 45,
+  then 47, then 48 of 48 reachable sectors. Value: George now has to win a fight to take the
+  Metroid keys that open the whole spine of the map, instead of flying over a core that hands
+  them to him.
+  1. **What shipped**: entering a sector that hosts an unclaimed vault stands a placed pack up in
+     a ring 120 px around the core (`GameScene.spawnVaultGuards`, composed from the new
+     `VAULT_GUARD_PACKS` table: four guards on the five elite vaults, five on the decryptor's).
+     While any guard lives the core is inert: it draws in `hazard.stroke` orange at 55% alpha,
+     the walk-in claim is refused, and a core inside 170 px shows a `GUARDED` float and a
+     `VAULT GUARDED` toast once per sector visit. Killing the last guard unseals the vault with a
+     burst, a shake and a `VAULT UNSEALED` toast, repaints the core in its own violet, and hands
+     the shipped `claimAbilityVault` walk-in back untouched on the next frame.
+  2. **Deliberate deviation: the cleared bit is in the discovery store, not `GameSaveState`.**
+     Both this entry and `FEAT-POWER-VAULTS` named "a new optional `vaultGuardCleared` field on
+     `GameSaveState`". It shipped as `PoiFlags.GUARD_CLEARED` behind
+     `DiscoveryManager.markVaultGuardCleared` instead, for three reasons. (a) `GameSaveState` is
+     the run save, so a cleared guard would die with the run and the same pack would be re-fought
+     after every death, which is not what "earned" means when the profile flies one fixed seed
+     forever. (b) The discovery store is already keyed on `(worldSeed, worldGenVersion)` and
+     already owns exactly this class of per-world fact: `SecretFlags.FOUND` is what keeps a
+     claimed cache claimed across deaths and reloads (756f346). (c) It satisfies the carried
+     "a mid-run reload restores a cleared guard" criterion and more, with zero save-state surface
+     and no `SAVE_VERSION` bump.
+  3. **No pack member may be boss-tier**, and a test pins it. `handleEnemyDeath` runs the victory
+     path on any death with `xpValue >= 1000`, so a boss standing in a side room would end the
+     run the moment its vault was cleared. The decryptor vault's `'boss'` guardTier is therefore a
+     miniboss-tier anchor (the Stalker, xpValue 300) plus a heavier escort, never an
+     xpValue-1000 spawn.
+  4. **Guards are never written to the run save**, on the `Destructible` precedent immediately
+     above the new clause in `serializeEntities`: an entity the world can rebuild is not saved.
+     Persisting one would put the saved pack and the freshly-spawned pack in the same room after
+     a refresh. Whether the fight was won is persisted, in the discovery store, so a refresh
+     mid-fight rebuilds the pack while a cleared vault stays cleared. `restoreGameState` zeroes
+     `enemyCount` and re-increments per restored enemy, so the skip needs no second edit.
+  5. **Room-reset is the rule.** Leaving the sector despawns the pack silently (no rewards, no
+     kill or combo credit, so an unbeaten guard never routes through `handleEnemyDeath`) and
+     re-entry rebuilds it at full strength. The despawn is not optional: `applyEnemyLeash`
+     re-places any enemy below xpValue 30 onto the view ring, so an abandoned pack would follow
+     the ship across the whole world.
+  6. **It adds no storage key and bumps no version.** Widening `POI_VALID_MASK` to `0b111` needs
+     no `DISCOVERY_VERSION` bump, because `sanitizeRecord` stores `flags & validMask` and every
+     value written before this commit has bit 2 unset: a wider mask only admits a bit, it never
+     reinterprets an old one. Bumping would have discarded every profile's map memory for a
+     purely additive bit.
+  7. **This closes the two `FEAT-POWER-VAULTS` done-criteria** a2361d0 deferred ("the guard
+     clears" and "a mid-run reload restores a cleared guard"), which were the last two unmet
+     criteria of an item already checked off as the claim half.
+  8. **Three tests, and no scene test, deliberately.** Two in `discoveryRules.test.ts` (the new
+     bit is permanent and implies SEEN; a cleared guard survives a save round-trip while a
+     pre-existing save still reads uncleared, which is what proves the widened mask neither
+     resurrects a bit on old data nor drops the new one) and one in `referentialIntegrity.test.ts`
+     (every pack member resolves in `ENEMY_TYPES` and none reaches the victory-path floor: a
+     typo'd id would spawn a smaller pack than intended, a boss-tier member would end the run on
+     a win). The scene wiring is Phaser-coupled (`Graphics`, the effects/sound/HUD managers, the
+     ECS world) and pinning it needs exactly the mock-scene scaffolding the standing order bans,
+     the same call `FEAT-POWER-ABILITY-EFFECTS` (c2dc1bb) and `FEAT-BARRIER-DOOR-READOUT`
+     (49a71a8) both recorded.
+  9. **The radar, `MapScene` and `claimAbilityVault` are untouched**, each for its own reason. A
+     guarded core still writes a plain `'pickup'` blip, because a second contact kind is
+     `FEAT-DISCOVERY-FEEDBACK-07`'s territory and `FEAT-BARRIER-DOOR-READOUT` already declined to
+     encode a lock state into a ~6.7 px glyph. Vaults are not drawn on the sector chart at all
+     yet, and that glyph is `FEAT-MAPUI-DOORS-05`. `claimAbilityVault`'s only reachable caller now
+     runs for an unguarded vault, so a second guard check inside it would be dead code. Arena,
+     daily, practice and gauntlet are inert by construction, because
+     `updateExpeditionAbilities` returns when `worldMode.worldMap()` is null.
+  - Files: `src/expedition/DiscoveryTypes.ts`, `src/expedition/discoveryRules.ts`,
+    `src/expedition/DiscoveryManager.ts`, `src/data/TraversalAbilities.ts`,
+    `src/ecs/components/index.ts`, `src/save/GameStateManager.ts`,
+    `src/game/scenes/GameScene.ts`, `references/map/04-content-quests-powerups-secrets.md`,
+    `src/expedition/discoveryRules.test.ts`, `src/data/referentialIntegrity.test.ts`. Verified:
+    `npx tsc --noEmit` clean, 147 files / 1811 tests green, `npm run build` clean.
+
+- [ ] **CHORE-VAULT-GUARD-MAP-MARK** (new 2026-07-31, from `FEAT-POWER-VAULT-GUARD`): a guarded
+  vault is invisible on the sector chart and reads as a plain `'pickup'` blip on the radar, so the
+  player learns a room is defended only by flying into it. The chart glyph belongs to
+  `FEAT-MAPUI-DOORS-05` and the radar contact kind to `FEAT-DISCOVERY-FEEDBACK-07`, so this is the
+  small item that lands once either exists. Deps: `FEAT-MAPUI-DOORS-05`.
+
+- [ ] **BALANCE-VAULT-GUARD-SCALING** (new 2026-07-31, from `FEAT-POWER-VAULT-GUARD`): a pack
+  scales off `this.gameTime` at the moment of sector entry, so a vault reached at minute 1 is
+  materially softer than the same vault reached at minute 8, and a player who enters, leaves and
+  re-enters late faces a harder pack than one who fought immediately. Measure whether a
+  depth-derived floor is warranted before adding one. Deps: none, but it is a balance question, so
+  it wants numbers, not a guess.
 
 - [x] **FEAT-POWER-ABILITY-EFFECTS** (blink half; done — c2dc1bb): the first traversal
   ability is a capability instead of a key. In an expedition run a profile that owns

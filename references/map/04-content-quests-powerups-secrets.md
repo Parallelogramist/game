@@ -208,7 +208,7 @@ blink with i-frames, a deployable charge, a tether) that no code grants yet, and
 implemented effect of owning an ability is that its doors open, so printing them would promise
 a capability the player does not receive. `FEAT-POWER-ABILITY-EFFECTS` carries that.
 
-### As built (FEAT-POWER-VAULT-GUARD, 2026-07-31)
+### As built (FEAT-POWER-VAULT-GUARD, 7d33979, 2026-07-31)
 
 The guard shipped as specified. Entering a sector that hosts an unclaimed vault stands a placed
 pack up in a ring around the core (`GameScene.spawnVaultGuards`, off `VAULT_GUARD_PACKS`), and
