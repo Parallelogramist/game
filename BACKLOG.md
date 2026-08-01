@@ -559,6 +559,29 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   Leaderboard, Market, QuestBoard, Loadout, Map, Paint, MusicSettings, Credits, and
   the draft/select scenes. Done per batch: legible physical size at phone DPR in both
   orientations; file the POLISH playtest gate item once for the whole sweep.
+  **Batch 1 shipped (ec0b3cb, 21d358c): WeaponSelectScene + UpgradeScene.** The mechanism
+  the remaining batches should copy: resolve one scale per scene with the new
+  `resolveMenuFontScale(width, height, uiScale)` (`src/utils/HudScale.ts`), then scale the card
+  *container* (`card.container.setScale(scale)`), never the interior offsets, because every
+  MenuCard interior element is positioned in card-local units and MenuCard tweens `frame`, not
+  `container`, so hover/focus/press poses compose with it. Only scene-space geometry gets
+  hand-scaled: grid pitch, standalone text y and fontSize, and MenuButton x/y/width/height/
+  fontSize (a MenuButton is built at its passed size, so it never takes a setScale). Desktop is
+  byte-identical by construction: the scale resolves to 1.0 at every viewport that is not
+  density-compressed. WeaponSelectScene also gained a vertical clamp in `computeGridLayout` that
+  never shrinks a grid below its design size, so the pre-existing overflow below is untouched
+  rather than made worse. Remaining: ShopScene (batch 2, next), then Codex, Achievement, Cards,
+  Leaderboard, Market, QuestBoard, Loadout, Map, Paint, MusicSettings, Credits and the
+  draft/select scenes.
+- [ ] **BUG-WEAPON-GRID-OVERFLOW** (found 2026-08-01 by POLISH-MENU-DENSITY batch 1). Value: with a
+  full codex the pre-run weapon step lays 29 cards into 7 columns x 5 rows = 956 units of grid in a
+  720-unit-tall canvas, so `computeGridLayout` returns `startY = -88`
+  (`src/game/scenes/WeaponSelectScene.ts` `buildWeaponCards`, cardHeight 180, spacing 14,
+  maxColumns 7) and the top row renders off-screen: the player cannot see or reach several starting
+  weapons. Not a density bug, it reproduces at design scale on desktop 1280x720. The density batch
+  deliberately clamps the grid so it is never shrunk below design size, which keeps this bug exactly
+  as it is rather than making it worse. Fix needs a design call the operator owns: page the grid,
+  scroll it, or drop to a smaller card at high counts. Repro: discover all 29 weapons, start a run.
 - [ ] **BUG-HUD-FIXES**. Four HUD correctness fixes in
   `src/game/managers/HUDManager.ts`: (1) event-countdown bar fill uses unscaled
   `180 - 16` while the track was created scaled (`:1731` vs `:1634-1636`), so on
@@ -9516,6 +9539,16 @@ Never agent work. The fleet must not do any of these.
     scaling the whole card rather than one half feel wrong when tapping a half; (f) with
     PARALLELOGRAMIST and LEGAL moved into CREDITS, are they still findable, or does the site
     link want to stay on the main menu.
+  - **POLISH-MENU-DENSITY** (ec0b3cb, 21d358c): the menu density sweep, filed once for the
+    whole sweep as the item asks. Batch 1 covers the pre-run picker (stage, ship, weapon steps) and
+    the level-up cards. Open both on a phone in each orientation. Owns: (a) are weapon descriptions
+    and level-up card text legible at arm's length now, and is 1.6x landscape / 1.2x portrait the
+    right amount or does it want more; (b) do the breadcrumb chips still clear the BACK button in
+    portrait; (c) does the hangar ship preview still sit clear of the ship grid at the larger card
+    size; (d) do the level-up cards still clear the LEVEL UP title and the reroll/skip/banish row on
+    a phone in landscape; (e) does anything on desktop look different from before (it should not:
+    the scale resolves to 1.0 there); (f) the refit picker and the banish confirm modal, which only
+    appear with full weapon slots and a banish charge.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
