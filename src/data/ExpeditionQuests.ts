@@ -274,6 +274,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 180,
+    grantsKeyId: 'quest_key_secret',
     nextQuestId: 'quest_secret_02',
   },
   {
@@ -323,6 +324,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 200,
+    grantsKeyId: 'quest_key_purge',
     nextQuestId: 'quest_purge_02',
   },
   {

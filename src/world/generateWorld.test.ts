@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { STAGES, getStageById } from '../data/Stages';
+import { EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER } from '../data/ExpeditionQuests';
 import { generateWorld } from './generateWorld';
 import {
   EDGE_DIRECTIONS,
@@ -359,7 +360,7 @@ describe('invariant 8 — version stamp and budget', () => {
   });
 });
 
-const QUEST_KEYS = ['quest_key_survey', 'quest_key_gatecrash'];
+const QUEST_KEYS = [...EXPEDITION_QUEST_KEY_ORDER];
 const QUEST_INPUTS: WorldGenInputs = { ...INPUTS, questKeyOrder: QUEST_KEYS };
 const QUEST_WORLDS = SEEDS.map(seed => generateWorld(seed, QUEST_INPUTS));
 
@@ -386,6 +387,40 @@ function keyDoorEdgeIdsByRequiredId(map: WorldMap): Map<string, Set<string>> {
   }
   return byRequiredId;
 }
+
+const ALL_ABILITIES = new Set(INPUTS.abilityGateOrder);
+
+/** Reachability with every ability held and breakables broken, so a quest door whose key is not
+ *  in `heldKeyIds` is the only thing that can stop the walk. */
+function reachableHoldingKeys(map: WorldMap, heldKeyIds: readonly string[]): Set<SectorKey> {
+  const held = new Set(heldKeyIds);
+  const reached = new Set<SectorKey>([map.startKey]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const key of [...reached]) {
+      const sector = map.sectors.get(key)!;
+      for (const direction of EDGE_DIRECTIONS) {
+        const edge = sector.edges[direction];
+        const passable = edge.kind === EdgeKind.KeyDoor
+          ? edge.requiredId !== undefined && held.has(edge.requiredId)
+          : canTraverse(edge, direction, ALL_ABILITIES, true);
+        if (!passable) continue;
+        const neighbourKey = neighbourKeyOf(sector, direction);
+        if (!map.sectors.has(neighbourKey) || reached.has(neighbourKey)) continue;
+        reached.add(neighbourKey);
+        grew = true;
+      }
+    }
+  }
+  return reached;
+}
+
+/** The keys a player can earn without ever finding a secret. */
+const KEYS_NEEDING_NO_SECRET = EXPEDITION_QUESTS
+  .filter(quest => quest.grantsKeyId !== undefined
+    && !quest.steps.some(step => step.trigger.kind === 'findSecret'))
+  .map(quest => quest.grantsKeyId as string);
 
 describe('invariant 9: quest key doors', () => {
   it('places every requested quest key exactly once', () => {
@@ -437,6 +472,15 @@ describe('invariant 9: quest key doors', () => {
         }
       }
     });
+  });
+
+  it('never seals every hidden sector behind a key only a secret hunt pays for', () => {
+    for (const map of HIDDEN_WORLDS) {
+      const reached = reachableHoldingKeys(map, KEYS_NEEDING_NO_SECRET);
+      const reachableHidden = [...map.sectors.values()]
+        .filter(sector => sector.hidden === true && reached.has(sector.key));
+      expect(reachableHidden.length).toBeGreaterThan(0);
+    }
   });
 });
 
