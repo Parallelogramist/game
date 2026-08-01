@@ -97,7 +97,7 @@ import {
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import {
-  markWorldConquered, recordBrokenBarrier, recordDownedSecurityGrid,
+  getSectorMarks, markWorldConquered, recordBrokenBarrier, recordDownedSecurityGrid,
 } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead, chooseHintTarget, findSecretSector, leadSectorDistance } from '../../expedition/secretHints';
@@ -701,6 +701,10 @@ export class GameScene extends Phaser.Scene {
   /** Quest keys this profile has earned, cached for the run for the same reason as
    *  ownedTraversalAbilityIds: the real read is a SecureStorage decrypt. */
   private earnedQuestKeyIds: Set<string> = new Set();
+  /** Sector keys the player marked on the chart. Cached rather than read in syncRadarWaypoints:
+   *  that runs on a timer and each read is a SecureStorage decrypt. Marks can only change while
+   *  MapScene holds the pause, so refreshing on its close is exact. */
+  private markedSectorKeys: string[] = [];
   private static readonly VAULT_CLAIM_RADIUS = 40;
   private static readonly QUEST_BOARD_OPEN_RADIUS = 48;
   /** Wider than the open radius: the ship has to actually leave the board before it re-opens. */
@@ -1203,10 +1207,12 @@ export class GameScene extends Phaser.Scene {
   /** Arena has no world map, so it never binds and never subscribes: an arena run cannot
    *  write the discovery key, and the event it would carry is never emitted there. */
   private bindExpeditionDiscovery(): void {
+    this.markedSectorKeys = [];
     const map = this.worldMode.worldMap();
     if (!map) return;
     this.ownedTraversalAbilityIds = new Set(getOwnedTraversalAbilityIds());
     this.earnedQuestKeyIds = new Set(getEarnedQuestKeyIds());
+    this.markedSectorKeys = [...getSectorMarks(map.seed, map.worldGenVersion).keys()];
     getDiscoveryManager().bindWorld(map);
     const completionPercent = getDiscoveryManager().getCompletionPercent();
     this.mapCompletionMilestoneShown = highestCompletionMilestone(completionPercent);
@@ -1293,6 +1299,9 @@ export class GameScene extends Phaser.Scene {
   closeExpeditionMap(): void {
     this.mapOverlayActive = false;
     this.isPaused = false;
+    const map = this.worldMode.worldMap();
+    if (map) this.markedSectorKeys = [...getSectorMarks(map.seed, map.worldGenVersion).keys()];
+    this.radarWaypointTimer = 0;
   }
 
   /**
@@ -8687,6 +8696,7 @@ export class GameScene extends Phaser.Scene {
     }).map((site) => site.sectorKey);
     this.minimapManager.setWaypoints(buildRadarWaypoints({
       objectiveSectorKeys: pins.map((pin) => pin.sectorKey),
+      markSectorKeys: this.markedSectorKeys,
       leadSectorKeys,
       vaultSectorKeys,
       isCharted: (key) => discovery.getSectorFlags(key) !== 0,

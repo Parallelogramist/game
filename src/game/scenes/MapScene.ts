@@ -5,14 +5,20 @@ import { buildSecretLead, leadSectorDistance } from '../../expedition/secretHint
 import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestHazardObjectives, getActiveQuestMarkers, getQuestBoardEntries,
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
-import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
+import { GAMEPAD_BUTTON_A, GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB,
+  GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_X, GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT,
   GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP, GamepadManager } from '../../input/GamepadManager';
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
-  drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawVaultGuardRing,
+  drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawSectorMark,
+  drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
+import { getSectorMarks, setSectorMark } from '../../expedition/WorldProfileStore';
+import { SECTOR_MARKS, SECTOR_MARK_CYCLE,
+  nextSectorMarkKind } from '../../expedition/sectorMarks';
+import type { SectorMarkKind } from '../../expedition/sectorMarks';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
@@ -141,6 +147,7 @@ export class MapScene extends Phaser.Scene {
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
+  private markedSectorKinds: Map<string, SectorMarkKind> = new Map();
   private recallButton: MenuButton | null = null;
   private recallState: 'ready' | 'locked' | 'home' = 'ready';
   private detailHeadlineText!: Phaser.GameObjects.Text;
@@ -210,7 +217,7 @@ export class MapScene extends Phaser.Scene {
     const hintWidth = Math.max(120, width - 40 - RECALL_BUTTON_WIDTH);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
-      + '   ·   TAP A SECTOR   ·   R RECALL   ·   M / ESC CLOSE',
+      + '   ·   TAP A SECTOR   ·   P MARK   ·   R RECALL   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
     this.questPins = [
@@ -277,6 +284,7 @@ export class MapScene extends Phaser.Scene {
     this.graphics = this.add.graphics();
     this.graphics.setDepth(1);
     this.mapRenderer = new SectorMapRenderer(this.graphics);
+    this.markedSectorKinds = getSectorMarks(this.mapData.seed, this.mapData.worldGenVersion);
 
     this.knownCells = [];
     for (const sector of this.mapData.sectors.values()) {
@@ -319,6 +327,7 @@ export class MapScene extends Phaser.Scene {
         const key = event.key;
         if (key === 'm' || key === 'M' || key === 'Escape') { this.close(); return; }
         if (key === 'r' || key === 'R') { this.recall(); return; }
+        if (key === 'p' || key === 'P') { this.cycleMark(); return; }
         if (key === 'c' || key === 'C') { this.centreOnShip(); return; }
         if (key === '+' || key === '=') { this.stepZoom(1); return; }
         if (key === '-' || key === '_') this.stepZoom(-1);
@@ -557,6 +566,12 @@ export class MapScene extends Phaser.Scene {
         drawObjectiveUpdatedBadge(graphics, x, y - LEGEND_GLYPH_SIZE, LEGEND_GLYPH_SIZE * 1.2);
       },
     });
+    for (const kind of SECTOR_MARK_CYCLE) {
+      rows.push({
+        label: `${SECTOR_MARKS[kind].label} (yours)`,
+        draw: (graphics, x, y) => drawSectorMark(graphics, kind, x, y, LEGEND_GLYPH_SIZE),
+      });
+    }
 
     const rowHeight = 20;
     const panelWidth = 196;
@@ -672,9 +687,13 @@ export class MapScene extends Phaser.Scene {
       this.detailRewardsText.setText('');
       return;
     }
+    const markKind = this.markedSectorKinds.get(detail.sectorKey);
+    const markClause = markKind
+      ? `   ·   MARKED ${SECTOR_MARKS[markKind].label.toUpperCase()}`
+      : '';
     this.detailHeadlineText.setText(
       `${detail.headline.toUpperCase()}   ·   ${detail.place.toUpperCase()}`
-      + `   ·   SECTOR ${detail.sectorKey}`);
+      + `   ·   SECTOR ${detail.sectorKey}${markClause}`);
     this.detailDoorsText.setText(detail.doors.length > 0
       ? `DOORS   ${detail.doors.join('     ').toUpperCase()}`
       : 'DOORS   NONE CHARTED HERE YET');
@@ -708,6 +727,7 @@ export class MapScene extends Phaser.Scene {
       if (pad.justPressed(GAMEPAD_DPAD_DOWN)) this.moveCursor('down');
       if (pad.justPressed(GAMEPAD_DPAD_LEFT)) this.moveCursor('left');
       if (pad.justPressed(GAMEPAD_DPAD_RIGHT)) this.moveCursor('right');
+      if (pad.justPressed(GAMEPAD_BUTTON_A)) this.cycleMark();
       if (pad.justPressed(GAMEPAD_BUTTON_X)) {
         this.recall();
         return;
@@ -797,6 +817,20 @@ export class MapScene extends Phaser.Scene {
     this.viewDirty = true;
   }
 
+  /** One press walks none → come back → danger → unsolved → none on the focused sector. The
+   *  write is refused rather than shown when the store could not keep it, so the chart never
+   *  displays a mark a refresh would lose. */
+  private cycleMark(): void {
+    if (!this.focusedCell) return;
+    const key = sectorKey({ col: this.focusedCell.gridX, row: this.focusedCell.gridY });
+    const next = nextSectorMarkKind(this.markedSectorKinds.get(key) ?? null);
+    if (!setSectorMark(this.mapData.seed, this.mapData.worldGenVersion, key, next)) return;
+    if (next === null) this.markedSectorKinds.delete(key);
+    else this.markedSectorKinds.set(key, next);
+    this.refreshDetail();
+    this.viewDirty = true;
+  }
+
   /** Every view mutation funnels through the pure clamp: the scene never clamps itself. */
   private setView(candidate: MapViewTransform): void {
     const clamped = clampMapView(candidate, this.bounds, this.panelWidth(), this.panelHeight());
@@ -822,6 +856,7 @@ export class MapScene extends Phaser.Scene {
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       objectiveSectorKeys: this.objectiveSectorKeys,
+      markedSectorKinds: this.markedSectorKinds,
       updatedObjectiveSectorKeys: this.updatedObjectiveSectorKeys,
       hintedSectorKeys: this.hintedSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,

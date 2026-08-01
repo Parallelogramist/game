@@ -17,7 +17,7 @@
 
 import { parseSectorKey, sectorCenterWorld } from '../world/worldSpace';
 
-export type RadarWaypointKind = 'objective' | 'lead' | 'vault';
+export type RadarWaypointKind = 'objective' | 'mark' | 'lead' | 'vault';
 
 export interface RadarWaypoint {
   kind: RadarWaypointKind;
@@ -31,6 +31,8 @@ export interface RadarWaypointInputs {
   /** Each active objective's pinned sector; a null is an objective whose place is not charted
    *  yet, which buildQuestPins already resolved rather than leaking the real key. */
   objectiveSectorKeys: readonly (string | null)[];
+  /** Sectors the player marked on the chart, any kind. */
+  markSectorKeys: readonly string[];
   /** The sector each open lead names. */
   leadSectorKeys: readonly string[];
   /** Sectors holding an ability vault the profile has seen and not claimed. */
@@ -48,7 +50,12 @@ export interface RadarWaypointInputs {
  *  secret shimmer, and it clears the three-active-quest limit with a lead to spare. */
 export const MAX_RADAR_WAYPOINTS = 4;
 
-const KIND_ORDER: Record<RadarWaypointKind, number> = { objective: 0, lead: 1, vault: 2 };
+/** A player's own mark ranks above a lead and a vault and below an objective: the player asked
+ *  to be led back there, which outranks anything the game merely inferred, but an active
+ *  objective is the run's own next step and there are at most three of those. */
+const KIND_ORDER: Record<RadarWaypointKind, number> = {
+  objective: 0, mark: 1, lead: 2, vault: 3,
+};
 
 export function buildRadarWaypoints(inputs: RadarWaypointInputs): RadarWaypoint[] {
   const limit = inputs.maxWaypoints ?? MAX_RADAR_WAYPOINTS;
@@ -67,6 +74,7 @@ export function buildRadarWaypoints(inputs: RadarWaypointInputs): RadarWaypoint[
   };
 
   for (const sectorKey of inputs.objectiveSectorKeys) consider(sectorKey, 'objective');
+  for (const sectorKey of inputs.markSectorKeys) consider(sectorKey, 'mark');
   for (const sectorKey of inputs.leadSectorKeys) consider(sectorKey, 'lead');
   for (const sectorKey of inputs.vaultSectorKeys) consider(sectorKey, 'vault');
 

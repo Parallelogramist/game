@@ -58,9 +58,11 @@ const SECRET_PING_EPSILON = 0.01;
 
 /** A waypoint speaks the colour the chart already drew it in: the objective pin rose, the
  *  breakable amber every secret surface shares, and the ability door's violet for a vault,
- *  because a vault is what opens one, exactly as poiGlyphs already says. */
+ *  because a vault is what opens one, exactly as poiGlyphs already says. A player's own mark is
+ *  white, the one thing on either surface the player wrote rather than found. */
 const WAYPOINT_COLORS: Record<RadarWaypointKind, number> = {
   objective: OBJECTIVE_PIN,
+  mark: 0xffffff,
   lead: SECRET_PING_COLOR,
   vault: WORLD_GEOMETRY_COLORS.gate.stroke,
 };

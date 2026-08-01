@@ -13,10 +13,12 @@ vi.mock('../storage', () => {
 
 import { SecureStorage } from '../storage';
 import {
+  getSectorMarks,
   isWorldConquered,
   loadWorldProfile,
   markWorldConquered,
   recordBrokenBarrier,
+  setSectorMark,
 } from './WorldProfileStore';
 
 describe('world profile conquest', () => {
@@ -35,5 +37,28 @@ describe('world profile conquest', () => {
     }));
     expect(isWorldConquered(22, 1)).toBe(false);
     expect(loadWorldProfile(22, 1).brokenBreakableIds).toEqual(['edge:1,1:south']);
+  });
+});
+
+describe('world profile sector marks', () => {
+  test('a mark replaces its sector, clears on null, and survives beside a broken wall', () => {
+    recordBrokenBarrier(31, 1, 'edge:0,0:north');
+    expect(setSectorMark(31, 1, '2,-1', 'return')).toBe(true);
+    expect(setSectorMark(31, 1, '4,0', 'danger')).toBe(true);
+    expect(setSectorMark(31, 1, '2,-1', 'question')).toBe(true);
+    expect(getSectorMarks(31, 1)).toEqual(new Map([['2,-1', 'question'], ['4,0', 'danger']]));
+    expect(setSectorMark(31, 1, '2,-1', null)).toBe(true);
+    expect(getSectorMarks(31, 1)).toEqual(new Map([['4,0', 'danger']]));
+    expect(loadWorldProfile(31, 1).brokenBreakableIds).toEqual(['edge:0,0:north']);
+  });
+
+  test('a payload written before marks shipped keeps its walls, and a bad id is dropped', () => {
+    SecureStorage.setItem('survivor-world-profile', JSON.stringify({
+      version: 1, worldSeed: 32, worldGenVersion: 1,
+      brokenBreakableIds: ['edge:1,1:south'],
+      markedSectorIds: ['mark:1,1:sparkle', 'mark:1,1:danger', 7],
+    }));
+    expect(loadWorldProfile(32, 1).brokenBreakableIds).toEqual(['edge:1,1:south']);
+    expect(getSectorMarks(32, 1)).toEqual(new Map([['1,1', 'danger']]));
   });
 });

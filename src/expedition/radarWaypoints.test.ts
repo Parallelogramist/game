@@ -7,6 +7,7 @@ const CHARTED = new Set(['1,0', '2,0', '3,0']);
 function build(overrides: Partial<RadarWaypointInputs>) {
   return buildRadarWaypoints({
     objectiveSectorKeys: [],
+    markSectorKeys: [],
     leadSectorKeys: [],
     vaultSectorKeys: [],
     isCharted: (sectorKey) => CHARTED.has(sectorKey),

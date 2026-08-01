@@ -8,6 +8,8 @@ import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from '../expedition/Dis
 import { gateGlyphFor } from '../expedition/gateGlyphs';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../expedition/poiGlyphs';
 import type { PoiGlyph } from '../expedition/poiGlyphs';
+import { SECTOR_MARKS } from '../expedition/sectorMarks';
+import type { SectorMarkKind } from '../expedition/sectorMarks';
 import { WORLD_GEOMETRY_COLORS } from './NeonColors';
 import { edgeAnchor, sectorCellRect, worldPointToMap } from './mapProjection';
 import type { MapViewTransform } from './mapProjection';
@@ -27,6 +29,11 @@ const CURSOR_STROKE = 0xffffff;
 /** The objective pin. Rose is the one hue neither glyph table nor any chart stroke uses, so a
  *  pin can never be misread as a POI, a door or a secret. */
 export const OBJECTIVE_PIN = 0xff5fa2;
+/** Everything the world put on this chart has a hue of its own; everything the player wrote is
+ *  white, so a glance separates what was found from what was decided. It shares white with the
+ *  focus cursor deliberately: the cursor is four corner brackets on the cell's edge and a mark
+ *  is a glyph inside it, and both are the player's own hand rather than the world's. */
+const PLAYER_MARK = 0xffffff;
 const FALLBACK_TINT = 0x2a3a52;
 
 const DASH_LENGTH = 5;
@@ -253,6 +260,32 @@ export function drawObjectiveUpdatedBadge(
   graphics.fillCircle(centreX + size * 0.95, topY + size * 0.5, Math.max(1.5, size * 0.42));
 }
 
+/** Bottom-left of the cell: the objective pin owns the top edge, the cleared notch the top-right
+ *  corner and the hint badge the top-left, so this is the one corner a sector can always spare. */
+export function drawSectorMark(
+  graphics: Phaser.GameObjects.Graphics,
+  kind: SectorMarkKind, centreX: number, centreY: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1.5, size * 0.4), PLAYER_MARK, 1);
+  switch (SECTOR_MARKS[kind].shape) {
+    case 'chevron':
+      graphics.lineBetween(centreX - size, centreY + size * 0.5, centreX, centreY - size * 0.6);
+      graphics.lineBetween(centreX, centreY - size * 0.6, centreX + size, centreY + size * 0.5);
+      break;
+    case 'cross':
+      graphics.lineBetween(centreX - size, centreY - size, centreX + size, centreY + size);
+      graphics.lineBetween(centreX - size, centreY + size, centreX + size, centreY - size);
+      break;
+    case 'triangle':
+      graphics.strokePoints([
+        { x: centreX, y: centreY - size },
+        { x: centreX + size, y: centreY + size * 0.8 },
+        { x: centreX - size, y: centreY + size * 0.8 },
+      ], true);
+      break;
+  }
+}
+
 /**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
@@ -300,6 +333,9 @@ export interface SectorMapDrawInput {
   /** Sectors an active place-naming objective points at. Charted keys only: the caller resolves
    *  them against discovery, and an unknown sector draws nothing at all. */
   objectiveSectorKeys: ReadonlySet<string>;
+  /** What the player wrote on each sector, keyed by sector key. Required rather than optional,
+   *  on the updatedObjectiveSectorKeys precedent. */
+  markedSectorKinds: ReadonlyMap<string, SectorMarkKind>;
   /** The subset of objectiveSectorKeys whose objective moved since the chart was last opened.
    *  Required rather than optional, on the hazardSectorKinds precedent: a call site that
    *  forgets it is a compile error rather than a silently unbadged map. */
@@ -384,6 +420,13 @@ export class SectorMapRenderer {
         if (input.updatedObjectiveSectorKeys.has(sector.key)) {
           drawObjectiveUpdatedBadge(graphics, cell.x + cell.width / 2, cell.y, pinSize);
         }
+      }
+
+      const mark = input.markedSectorKinds.get(sector.key);
+      if (mark) {
+        const markSize = Math.max(3, 4.5 * input.view.scale);
+        drawSectorMark(graphics, mark,
+          cell.x + markSize + 3, cell.y + cell.height - markSize - 3, markSize);
       }
 
       this.drawPoiIcons(sector, input);
