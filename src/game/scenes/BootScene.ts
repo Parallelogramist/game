@@ -80,6 +80,16 @@ interface FocusEntry {
   onActivate: () => void;
 }
 
+interface ChallengeHalf {
+  label: string;
+  bodyHex: number;
+  accentHex: number;
+  accentTextStr: string;
+  challenge: DailyChallengeConfig;
+  best?: DailyLeaderboardEntry;
+  onActivate: () => void;
+}
+
 interface ConfirmationCopy {
   title: string;
   /** Newline-separated; the card grows to fit and the text is centred. */
@@ -737,42 +747,38 @@ export class BootScene extends Phaser.Scene {
       belowHeroY += scaledInt(layoutScale, 36);
     }
 
-    // ─── challenge cards (daily + weekly side by side) ──────────────────
-    const challengeWidth = scaledInt(layoutScale, 280);
+    // ─── challenge card (daily + weekly, one card, two tap zones) ───────
+    const challengeWidth = scaledInt(layoutScale, 596);
     const challengeHeight = scaledInt(layoutScale, 130);
-    const challengeGap = scaledInt(layoutScale, 36);
     const challengeRowY = belowHeroY + challengeHeight / 2 + scaledInt(layoutScale, 6);
 
-    this.createChallengeCard({
-      centerX: centerX - (challengeWidth + challengeGap) / 2,
+    this.createChallengeRow({
+      centerX,
       centerY: challengeRowY,
       width: challengeWidth,
       height: challengeHeight,
-      label: 'DAILY',
-      bodyHex: COLORS.bodyGold,
-      accentHex: COLORS.accentGold,
-      accentTextStr: COLORS.accentGoldStr,
-      challenge: dailyChallenge,
-      best: bestDaily,
       layoutScale,
       fontScale,
-      onActivate: startDailyRun,
-    });
-
-    this.createChallengeCard({
-      centerX: centerX + (challengeWidth + challengeGap) / 2,
-      centerY: challengeRowY,
-      width: challengeWidth,
-      height: challengeHeight,
-      label: 'WEEKLY',
-      bodyHex: COLORS.bodyMagenta,
-      accentHex: COLORS.accentMagenta,
-      accentTextStr: COLORS.accentMagentaStr,
-      challenge: weeklyChallenge,
-      best: bestWeekly,
-      layoutScale,
-      fontScale,
-      onActivate: startWeeklyRun,
+      halves: [
+        {
+          label: 'DAILY',
+          bodyHex: COLORS.bodyGold,
+          accentHex: COLORS.accentGold,
+          accentTextStr: COLORS.accentGoldStr,
+          challenge: dailyChallenge,
+          best: bestDaily,
+          onActivate: startDailyRun,
+        },
+        {
+          label: 'WEEKLY',
+          bodyHex: COLORS.bodyMagenta,
+          accentHex: COLORS.accentMagenta,
+          accentTextStr: COLORS.accentMagentaStr,
+          challenge: weeklyChallenge,
+          best: bestWeekly,
+          onActivate: startWeeklyRun,
+        },
+      ],
     });
 
     // ─── progression deck (Shop / Ach / Codex / Leaderboard) ────────────
@@ -1341,53 +1347,110 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  CHALLENGE CARD — Daily / Weekly side-by-side cards.
+  //  CHALLENGE ROW — one card, DAILY and WEEKLY as two independent halves.
   // ═══════════════════════════════════════════════════════════════════════
 
-  private createChallengeCard(opts: {
+  private createChallengeRow(opts: {
     centerX: number;
     centerY: number;
     width: number;
     height: number;
-    label: string;
-    bodyHex: number;
-    accentHex: number;
-    accentTextStr: string;
-    challenge: DailyChallengeConfig;
-    best?: DailyLeaderboardEntry;
     layoutScale: number;
     fontScale: number;
-    onActivate: () => void;
+    halves: ChallengeHalf[];
   }): void {
-    const {
-      centerX, centerY, width, height, label, bodyHex, accentHex, accentTextStr,
-      challenge, best, layoutScale, fontScale, onActivate,
-    } = opts;
-
+    const { centerX, centerY, width, height, layoutScale, fontScale, halves } = opts;
     const bannerHeight = scaledInt(layoutScale, 30);
 
+    // Built non-interactive so each half owns its own hit area: Phaser's
+    // topOnly input would otherwise let the card-wide zone and the half zones
+    // swallow each other.
     const card = createMenuCard(this, {
       x: centerX,
       y: centerY,
       width,
       height,
-      pulseSeed: label.length,
-      bodyFillColor: bodyHex,
-      accentColor: accentHex,
+      pulseSeed: 5,
+      bodyFillColor: COLORS.bodyPrimary,
+      accentColor: COLORS.accentPrimary,
       bannerHeight,
       shadowOffsetY: scaledInt(layoutScale, 6),
       shadowOffsetX: 0,
+      interactive: false,
     });
     this.cards.push(card);
 
-    // Banner label (DAILY / WEEKLY) centered in the colored strip.
-    const bannerCenterY = -height / 2 + bannerHeight / 2;
-    const bannerLabel = makeDisplayText(this, 0, bannerCenterY, `${label} CHALLENGE`, {
-      fontSize: scaledInt(fontScale, 14),
-      color: COLORS.headingWhite,
-      strokeWidth: 2,
-      letterSpacing: 3,
+    const halfWidth = width / 2;
+    const divider = this.add.graphics();
+    divider.lineStyle(2, COLORS.accentNeutral, 0.45);
+    divider.lineBetween(
+      0,
+      -height / 2 + bannerHeight,
+      0,
+      height / 2 - scaledInt(layoutScale, 8),
+    );
+    card.frame.add(divider);
+
+    halves.forEach((half, index) => {
+      this.addChallengeHalf({
+        card,
+        half,
+        halfCenterX: (index === 0 ? -1 : 1) * (halfWidth / 2),
+        halfWidth,
+        height,
+        bannerHeight,
+        layoutScale,
+        fontScale,
+      });
     });
+  }
+
+  private addChallengeHalf(opts: {
+    card: MenuCard;
+    half: ChallengeHalf;
+    halfCenterX: number;
+    halfWidth: number;
+    height: number;
+    bannerHeight: number;
+    layoutScale: number;
+    fontScale: number;
+  }): void {
+    const {
+      card, half, halfCenterX, halfWidth, height, bannerHeight, layoutScale, fontScale,
+    } = opts;
+    const { challenge, best, accentHex, accentTextStr } = half;
+
+    const inset = scaledInt(layoutScale, 5);
+    const panelX = halfCenterX - halfWidth / 2 + inset;
+    const panelY = -height / 2 + bannerHeight + inset;
+    const panelWidth = halfWidth - inset * 2;
+    const panelHeight = height / 2 - inset - panelY;
+
+    const tint = this.add.graphics();
+    tint.fillStyle(half.bodyHex, 0.55);
+    tint.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 5);
+    card.frame.add(tint);
+
+    const focusRing = this.add.graphics();
+    focusRing.lineStyle(2, accentHex, 1);
+    focusRing.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 5);
+    focusRing.setAlpha(0);
+    card.frame.add(focusRing);
+
+    // Banner label (DAILY / WEEKLY) centered over its own half.
+    const bannerCenterY = -height / 2 + bannerHeight / 2;
+    const bannerLabel = makeDisplayText(
+      this,
+      halfCenterX,
+      bannerCenterY,
+      `${half.label} CHALLENGE`,
+      {
+        fontSize: scaledInt(fontScale, 14),
+        color: COLORS.headingWhite,
+        strokeWidth: 2,
+        letterSpacing: 3,
+      },
+    );
     card.frame.add(bannerLabel);
 
     // Body lines: ship + weapon + mod summary.
@@ -1396,9 +1459,10 @@ export class BootScene extends Phaser.Scene {
     const modCount = challenge.modifierIds.filter((id) => Boolean(getModifierById(id))).length;
     const modSummary = modCount > 0 ? `${modCount} MOD${modCount === 1 ? '' : 'S'}` : 'NO MODS';
 
+    const bodyLeftX = halfCenterX - halfWidth / 2 + scaledInt(layoutScale, 20);
     const bodyTopY = -height / 2 + bannerHeight + scaledInt(layoutScale, 14);
     const shipText = this.add.text(
-      -width / 2 + scaledInt(layoutScale, 14),
+      bodyLeftX,
       bodyTopY,
       ship.toUpperCase(),
       {
@@ -1412,7 +1476,7 @@ export class BootScene extends Phaser.Scene {
     card.frame.add(shipText);
 
     const weaponText = this.add.text(
-      -width / 2 + scaledInt(layoutScale, 14),
+      bodyLeftX,
       bodyTopY + scaledInt(layoutScale, 18),
       `${weapon.toUpperCase()}  ·  ${modSummary}`,
       {
@@ -1428,7 +1492,7 @@ export class BootScene extends Phaser.Scene {
       getEnemyType(bossIdAtRotation(challengeBossRotationIndex(challenge.dateString)))?.name ?? '';
     if (challengeBossName) {
       const bossText = this.add.text(
-        -width / 2 + scaledInt(layoutScale, 14),
+        bodyLeftX,
         bodyTopY + scaledInt(layoutScale, 34),
         `BOSS: ${challengeBossName.toUpperCase()}`,
         {
@@ -1441,8 +1505,8 @@ export class BootScene extends Phaser.Scene {
       card.frame.add(bossText);
     }
 
-    // Best-score chip (bottom-right). Lives in a tinted pill so it reads as a
-    // discrete badge rather than dim placeholder text.
+    // Best-score chip (bottom-right of the half). Lives in a tinted pill so it
+    // reads as a discrete badge rather than dim placeholder text.
     const badgeY = height / 2 - scaledInt(layoutScale, 18);
     const badgeText = best
       ? `★ ${best.score.toLocaleString()} · ${best.killCount}k · ${this.formatTime(best.survivalSeconds)}${best.wasVictory ? '  W' : ''}`
@@ -1460,7 +1524,7 @@ export class BootScene extends Phaser.Scene {
     const badgeHeight = probe.height + padY * 2;
     probe.destroy();
 
-    const badgeX = width / 2 - badgeWidth / 2 - scaledInt(layoutScale, 12);
+    const badgeX = halfCenterX + halfWidth / 2 - badgeWidth / 2 - scaledInt(layoutScale, 18);
     const badgeBg = this.add.graphics();
     badgeBg.fillStyle(best ? accentHex : 0x000000, best ? 0.25 : 0.4);
     badgeBg.fillRoundedRect(
@@ -1489,7 +1553,53 @@ export class BootScene extends Phaser.Scene {
     }).setOrigin(0.5);
     card.frame.add(badge);
 
-    this.registerFocusable(card, onActivate);
+    const zone = this.add.zone(halfCenterX, 0, halfWidth, height)
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    card.frame.add(zone);
+
+    const localIndex = this.focusEntries.length;
+    let hovered = false;
+    let focused = false;
+    const syncHighlight = () => focusRing.setAlpha(hovered || focused ? 1 : 0);
+
+    zone.on('pointerover', () => {
+      hovered = true;
+      syncHighlight();
+      card.setHoverState(true);
+      if (this.selectedFocusIndex !== localIndex && !this.isOverlayOpen()) {
+        this.requestFocus(localIndex);
+      }
+    });
+    zone.on('pointerout', () => {
+      hovered = false;
+      syncHighlight();
+      card.setHoverState(false);
+      card.hitZone.emit('pointerout');
+    });
+    // The card is non-interactive, so its press-pose listeners never fire from
+    // its own hit zone — the focused half drives them instead.
+    zone.on('pointerdown', () => {
+      if (this.isOverlayOpen()) return;
+      card.hitZone.emit('pointerdown');
+      this.soundManager.playUIClick();
+      half.onActivate();
+    });
+    zone.on('pointerup', () => card.hitZone.emit('pointerup'));
+
+    this.focusEntries.push({
+      onFocus: () => {
+        focused = true;
+        syncHighlight();
+        card.setFocusState(true);
+      },
+      onBlur: () => {
+        focused = false;
+        syncHighlight();
+        card.setFocusState(false);
+      },
+      onActivate: half.onActivate,
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════
