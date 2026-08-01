@@ -1,6 +1,7 @@
 import { Transform, Velocity, EnemyAI, EnemyType, Health } from '../../components';
 import { xpGemPositionsCallback, consumeXPGemCallback } from './state';
 import { updateChaseAI } from './chase';
+import { navigationContext } from './common';
 
 /**
  * The Glutton (miniboss) — hunts XP gems within 400px and eats them to grow
@@ -34,6 +35,16 @@ export function updateGluttonAI(
         targetGem = gem;
       }
     }
+  }
+
+  // A gem behind rock is a trap: there is no flow route to anything but the player, so the
+  // Glutton presses into the wall between them until the gem despawns. Dropping the target hands
+  // the frame to the chase fallback below, which navigates. Under 15px the gem is being eaten and
+  // a ray would be trivially clear, so the gate does not run.
+  const context = navigationContext;
+  if (targetGem && nearestGemDist > 15 && context !== null
+    && !context.hasLineOfSight(enemyX, enemyY, targetGem.x, targetGem.y)) {
+    targetGem = null;
   }
 
   if (targetGem && nearestGemDist > 15) {

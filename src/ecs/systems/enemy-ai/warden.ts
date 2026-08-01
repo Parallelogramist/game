@@ -1,5 +1,5 @@
 import { Transform, Velocity, EnemyAI, EnemyType } from '../../components';
-import { PI_TWO, telegraphManager } from './common';
+import { PI_TWO, openSpot, telegraphManager } from './common';
 import { groundSlamCallback } from './state';
 import { spawnTelegraph, wardenSlamTelegraph } from './telegraphs';
 
@@ -45,8 +45,12 @@ export function updateWardenAI(enemyId: number, playerX: number, playerY: number
     // Recalculate patrol target every 3.5-4.5s
     if (EnemyAI.timer[enemyId] > 3.5 + EnemyAI.phase[enemyId]) {
       const offsetAngle = Math.random() * PI_TWO;
-      EnemyAI.targetX[enemyId] = playerX + Math.cos(offsetAngle) * 200;
-      EnemyAI.targetY[enemyId] = playerY + Math.sin(offsetAngle) * 200;
+      const patrolPoint = openSpot(
+        playerX + Math.cos(offsetAngle) * 200,
+        playerY + Math.sin(offsetAngle) * 200,
+      );
+      EnemyAI.targetX[enemyId] = patrolPoint.x;
+      EnemyAI.targetY[enemyId] = patrolPoint.y;
       EnemyAI.timer[enemyId] = 0;
       EnemyAI.phase[enemyId] = Math.random();
 
@@ -86,8 +90,12 @@ export function updateWardenAI(enemyId: number, playerX: number, playerY: number
     if (EnemyAI.timer[enemyId] > 2.0) {
       // Set new patrol target
       const offsetAngle = Math.random() * PI_TWO;
-      EnemyAI.targetX[enemyId] = playerX + Math.cos(offsetAngle) * 200;
-      EnemyAI.targetY[enemyId] = playerY + Math.sin(offsetAngle) * 200;
+      const patrolPoint = openSpot(
+        playerX + Math.cos(offsetAngle) * 200,
+        playerY + Math.sin(offsetAngle) * 200,
+      );
+      EnemyAI.targetX[enemyId] = patrolPoint.x;
+      EnemyAI.targetY[enemyId] = patrolPoint.y;
       EnemyAI.state[enemyId] = 0;
       EnemyAI.timer[enemyId] = 0;
       EnemyAI.phase[enemyId] = Math.random();

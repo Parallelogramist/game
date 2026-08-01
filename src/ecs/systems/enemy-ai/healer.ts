@@ -1,7 +1,7 @@
 import { IWorld } from 'bitecs';
 import { Transform, Velocity, EnemyAI, Health } from '../../components';
 import { getEnemySpatialHash } from '../../../utils/SpatialHash';
-import { PI_TWO, isDestructible } from './common';
+import { PI_TWO, isDestructible, openSpot } from './common';
 
 /**
  * Healer — flees the player inside 300px and wanders otherwise; every second
@@ -34,8 +34,12 @@ export function updateHealerAI(
     // Wander randomly
     if (Math.random() < 0.02) {
       const wanderAngle = Math.random() * PI_TWO;
-      EnemyAI.targetX[enemyId] = enemyX + Math.cos(wanderAngle) * 100;
-      EnemyAI.targetY[enemyId] = enemyY + Math.sin(wanderAngle) * 100;
+      const wanderPoint = openSpot(
+        enemyX + Math.cos(wanderAngle) * 100,
+        enemyY + Math.sin(wanderAngle) * 100,
+      );
+      EnemyAI.targetX[enemyId] = wanderPoint.x;
+      EnemyAI.targetY[enemyId] = wanderPoint.y;
     }
     const tdx = EnemyAI.targetX[enemyId] - enemyX;
     const tdy = EnemyAI.targetY[enemyId] - enemyY;

@@ -10,6 +10,9 @@ import { Transform, Velocity, EnemyAI } from '../../components';
 import { setNavigationContext } from './common';
 import type { NavigationContext } from './common';
 import { updateShooterAI } from './shooter';
+import { updateWardenAI } from './warden';
+import { updateGluttonAI } from './glutton';
+import { setXPGemCallbacks, resetEnemyAISystem } from './state';
 
 const world = createWorld();
 
@@ -36,7 +39,10 @@ function makeEnemy(x: number, y: number, speed: number): number {
   return entityId;
 }
 
-afterEach(() => setNavigationContext(null));
+afterEach(() => {
+  setNavigationContext(null);
+  resetEnemyAISystem();
+});
 
 describe('shooter', () => {
   it('walks the flow route when it is too far away to shoot', () => {
@@ -76,5 +82,56 @@ describe('shooter', () => {
 
     expect(Velocity.x[shooter]).toBeCloseTo(70);
     expect(Velocity.y[shooter]).toBeCloseTo(0);
+  });
+});
+
+describe('destinations picked near the player', () => {
+  it('snaps a warden patrol point out of rock', () => {
+    setNavigationContext({
+      hasLineOfSight: () => false,
+      flowStep: () => false,
+      isSolidAt: () => true,
+      freeSpotNear: (_x, _y, out) => { out.x = 777; out.y = 888; },
+    });
+    const warden = makeEnemy(0, 0, 100);
+    EnemyAI.state[warden] = 0;
+    EnemyAI.timer[warden] = 10;
+    EnemyAI.phase[warden] = 0;
+    EnemyAI.specialTimer[warden] = 5;
+
+    updateWardenAI(warden, 500, 0, 0.016);
+
+    expect(EnemyAI.targetX[warden]).toBe(777);
+    expect(EnemyAI.targetY[warden]).toBe(888);
+  });
+});
+
+describe('glutton', () => {
+  it('ignores a gem behind rock and chases the player instead', () => {
+    setNavigationContext(routedNorth());
+    setXPGemCallbacks(() => [{ x: -200, y: 0, entityId: 1 }], () => {});
+    const glutton = makeEnemy(0, 0, 100);
+
+    updateGluttonAI(glutton, 500, 0, 0.016);
+
+    expect(EnemyAI.state[glutton]).toBe(1);
+    expect(Velocity.x[glutton]).toBeCloseTo(0);
+    expect(Velocity.y[glutton]).toBeLessThan(0);
+  });
+
+  it('still eats a gem it can see', () => {
+    setNavigationContext({
+      hasLineOfSight: () => true,
+      flowStep: () => false,
+      isSolidAt: () => false,
+      freeSpotNear: (x, y, out) => { out.x = x; out.y = y; },
+    });
+    setXPGemCallbacks(() => [{ x: -200, y: 0, entityId: 1 }], () => {});
+    const glutton = makeEnemy(0, 0, 100);
+
+    updateGluttonAI(glutton, 500, 0, 0.016);
+
+    expect(EnemyAI.state[glutton]).toBe(0);
+    expect(Velocity.x[glutton]).toBeCloseTo(-120);
   });
 });
