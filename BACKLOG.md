@@ -222,7 +222,11 @@ LOCKED OUT panel: `BALANCE-LOCKOUT-PANEL-ROWS` and (waiting on
 and is off the board, and the three cuts it filed are candidates in its place:
 `FEAT-LOCKOUT-BOARD-BEARING`, `CHORE-LOCKOUT-VAULT-GUARD-TELL` and the play-gated
 `BALANCE-LOCKOUT-SOURCE-CLAUSE`. `CHORE-VOID-GAP-RADAR-UNDERLAY` is closed at that same commit
-and is off the board. The remainder of
+and is off the board. `FEAT-SEASON-SEED-SHARE` and `FEAT-SEASON-CHOICE-SEED-ENTRY` are both
+closed at `afd403c` and off the board, and the three cuts they filed are candidates in their
+place: `FEAT-SEASON-CODE-KEYBOARD-ENTRY`, `POLISH-SEED-CODE-BUTTON-COLOUR` and
+`BALANCE-CHART-ROW-SIX-BUTTONS` (which pairs with `POLISH-CHART-DIALOG-PORTRAIT` and
+`POLISH-MAP-HEADER-PORTRAIT`: same surface, same question). The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`
 (shipped at b75822d), so the list stays accurate.
@@ -1069,6 +1073,35 @@ destination, so the bearing points at the vault instead. It files `FEAT-LOCKOUT-
 so every existing profile and all 21 archivable worlds light it up the moment the build lands, and
 it moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and
 untouched.
+
+**`afd403c` made a world a thing you can hand to someone else.** The CHART dialog carries a sixth
+button, CODE, onto a `WORLD CODE` dialog that prints this world's code beside its seed
+(`PPW1-C299Z   ·   SEED 20260727` on the live world) and copies it on COPY; PASTE reads the
+clipboard, decodes it and opens a `FLY A SHARED WORLD?` confirmation carrying that world's preview
+before it commits. The world has been a pure function of one integer since `FEAT-WORLDGEN-CORE`,
+and `references/map/README.md` section 6 has carried the seed-sharing bullet unbuilt the whole
+time, so the capability cost exactly one pure module (`src/expedition/seedCode.ts`) plus two nested
+dialogs: nothing had to change in the generator, the store or the discovery chain. **The
+`chosenSeed === currentSeed` trap is correctness, not taste**: `bankSeasonAndSwitch` ignores a
+chosen seed equal to the live one and falls back to `rollNextExpeditionSeed`, so pasting your own
+code would have banked your world and flown a random different one; the dialog refuses that code by
+name instead. **The `parseInt` trap is correctness too**: `parseInt(body, 36)` truncates at the
+first character it cannot read and returns the prefix it managed, so `PPW1-C2 99Z` would have
+decoded to seed 436, a real flyable world nobody ever wrote a code for; the body's shape is proved
+before it is parsed, and the one test file names that exact case. A bare seed number is honoured as
+well as a code, because the dialog prints `SEED 20260727` right beside it and a player who writes
+down the number is pasting something we can read. A pasted seed already in the history is a
+**RETURN** by `bankSeasonAndSwitch`'s own rule (it restores that world's ordinal and leaves the
+history in place rather than minting a new one), and the confirmation says so on its own line. The
+CHART row went from five buttons to six, so `showNewGameConfirmation` now packs a row of six or
+more from the buttons' own measured text widths rather than the fixed step, deliberately instead of
+widening the card, because `POLISH-CHART-DIALOG-PORTRAIT` already flags that the CHART card only
+grows. It closes `FEAT-SEASON-SEED-SHARE` and `FEAT-SEASON-CHOICE-SEED-ENTRY` and files
+`FEAT-SEASON-CODE-KEYBOARD-ENTRY`, `POLISH-SEED-CODE-BUTTON-COLOUR` and
+`BALANCE-CHART-ROW-SIX-BUTTONS`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no
+`DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bump, so every existing profile and all 21
+archivable worlds light it up the moment the build lands, and it moves no gold, no relic roll and
+no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
 ## Proposed (auto)
 
@@ -5152,16 +5185,31 @@ exploring pays is the end of Phase 5.
   `MAX_BANKED_SEASONS + 1` (the live world is never a banked row and still needs a slot), and
   `worldArchive.test.ts` pins the inequality so the two caps cannot drift apart again.
 
-- [ ] **FEAT-SEASON-CHOICE-SEED-ENTRY** (new 2026-08-01, from FEAT-SEASON-WORLD-CHOICE): the
-  store half of `FEAT-SEASON-SEED-SHARE` now exists. `beginNextExpeditionSeason(record,
-  chosenSeed)` accepts ANY positive integer that is not the world being left, so flying a
-  world someone hands you is a paste path and a warning away, and `LoadoutScene`
-  (`copyTextToClipboard` + `navigator.clipboard.readText`) is the shipped idiom for both
-  halves. Cut here because a fourth button plus a code format plus its own confirmation is a
-  second feature, and because the warning is a different one from the three this dialog
-  already carries. Value: a world worth flying can be handed to someone else, and a code you
-  wrote down can be flown again. Deps: none. Narrows `FEAT-SEASON-SEED-SHARE` to the copy
-  half.
+- [x] **FEAT-SEASON-CHOICE-SEED-ENTRY** (done, afd403c): a pasted code flies the world it names.
+  PASTE on the WORLD CODE dialog reads the clipboard, decodes it through `decodeSeedCode` and opens
+  its own FLY A SHARED WORLD? confirmation carrying that world's preview (secrets, caches, depth,
+  deepest region) and a warning the three sibling dialogs do not: the worlds you are dealt next
+  follow on from the one you adopt. A code naming the world you are already flying is refused by
+  name rather than obeyed, because `switchExpeditionWorld` ignores a chosen seed equal to the live
+  one and rolls a random world instead. Full write-up in `BACKLOG-archive.md`.
+
+- [ ] **FEAT-SEASON-CODE-KEYBOARD-ENTRY** (new 2026-08-01, from FEAT-SEASON-CHOICE-SEED-ENTRY): the
+  paste path reads the clipboard and nothing else, so a code read off a phone screen cannot be
+  typed in. A text field is a new input surface this menu has never carried (every dialog here is
+  buttons plus a keyboard navigator), which is why it is its own item rather than a branch. Value:
+  a code you can see but not copy is still flyable. Deps: none.
+
+- [ ] **POLISH-SEED-CODE-BUTTON-COLOUR** (new 2026-08-01, from FEAT-SEASON-SEED-SHARE): every
+  choice button in `showNewGameConfirmation` renders in `COLORS.danger`, so COPY, which destroys
+  nothing, reads as destructive as NEW WORLD. Fixing it means a per-choice colour on the shared
+  helper, which is surface growth larger than the feature was. Value: a harmless button does not
+  read as a warning. Deps: none.
+
+- [ ] **BALANCE-CHART-ROW-SIX-BUTTONS** (new 2026-08-01, from FEAT-SEASON-SEED-SHARE): the CHART
+  row is six buttons wide now and packs from measured text widths rather than a fixed step. It fits
+  the 660 frame at the scales tried, but a narrow portrait viewport is untested and the labels are
+  what set the width. Pairs exactly with `POLISH-CHART-DIALOG-PORTRAIT` and
+  `POLISH-MAP-HEADER-PORTRAIT`: same surface, same question, fix them together. Deps: none.
 - [ ] **BALANCE-SEASON-CHOICE-COUNT** (new 2026-08-01, from FEAT-SEASON-WORLD-CHOICE): three
   candidates is what the button row fits and what 102 ms of generation buys; whether a player
   wants three or five, and whether secrets / caches / depth / deepest region are the four
@@ -5368,13 +5416,12 @@ exploring pays is the end of Phase 5.
   world on the catalog path (33 ms, rejected here) or a cached per-seed derivation. Value: a
   world's set reads as its own. Deps: none.
 
-- [ ] **FEAT-SEASON-SEED-SHARE** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS):
-  `references/map/README.md` section 6's seed-sharing bullet is now one text field away,
-  since `ExpeditionSeasonStore.currentSeed` is the only thing that picks a world and
-  `generateExpeditionWorld` is a pure function of it. Cut because it needs a paste field
-  plus a clear warning that adopting someone else's seed banks your own world and leaves
-  your deterministic chain, which is a different confirmation from the one that shipped.
-  Value: a world worth flying can be handed to someone else. Deps: none.
+- [x] **FEAT-SEASON-SEED-SHARE** (done, afd403c): a world can be handed to another player. The
+  CHART dialog carries a CODE button onto a WORLD CODE dialog that prints this world's code
+  (`PPW1-` + base36 of the seed) and copies it to the clipboard. **It shipped with its paste half**
+  (`FEAT-SEASON-CHOICE-SEED-ENTRY`) rather than alone, because one nested dialog carrying COPY and
+  PASTE is a smaller change than two buttons on a CHART row that was already five wide. Full
+  write-up in `BACKLOG-archive.md`.
 
 - [x] **FEAT-EXPEDITION-RECALL** (done, 183b2dc): Recall to Hangar as a mid-run teleport,
   so a player can push out, come home and push out again inside one life (operator decision

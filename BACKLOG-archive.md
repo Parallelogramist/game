@@ -3193,3 +3193,94 @@ archivable worlds light it up the moment the build lands. It moves no gold, no r
 no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched. Files
 `FEAT-LOCKOUT-BOARD-BEARING`, `CHORE-LOCKOUT-VAULT-GUARD-TELL` and
 `BALANCE-LOCKOUT-SOURCE-CLAUSE`.
+
+## FEAT-SEASON-SEED-SHARE + FEAT-SEASON-CHOICE-SEED-ENTRY · a world you can hand to someone else · DONE afd403c
+
+**What shipped.** The CHART dialog carries a sixth button, `CODE`, onto a new nested `WORLD CODE`
+dialog. That dialog prints the live world's code beside its seed (`PPW1-C299Z   ·   SEED 20260727`
+on the world this session was written against), and carries two choices: `COPY` puts the code on
+the clipboard, `PASTE` reads a code off it. A pasted code opens a second nested dialog,
+`FLY A SHARED WORLD?`, carrying that world's preview (secrets, caches, sectors out, deepest region)
+before it commits anything.
+
+**Why it cost so little.** The world has been a pure function of one integer since
+`FEAT-WORLDGEN-CORE`: `generateExpeditionWorld(seed)` is deterministic, and
+`ExpeditionSeasonStore.currentSeed` is the only thing that picks which world a profile flies.
+`references/map/README.md` section 6 has carried the "Seed sharing" bullet, unbuilt, since the epic
+was scoped. So the capability needed exactly one new pure module and two dialogs: no generator
+change, no store schema change, no new persistence.
+
+**The module contract.** `src/expedition/seedCode.ts`:
+
+- `encodeSeedCode(seed)` returns `'PPW1-' + seed.toString(36).toUpperCase()`. `PPW1-` is the
+  sibling of the build code's `PPS1-`: same origin, different payload, and a decoder can reject
+  anything that is not one of ours before it tries to parse it.
+- `decodeSeedCode(code)` returns `number | null`. It never throws and never guesses. It is tolerant
+  of case, of surrounding whitespace and newlines, and of a bare decimal seed; it is strict about
+  everything else, and an un-flyable seed is rejected rather than clamped, because a clamped seed
+  would silently fly a different world from the one the code was written for.
+
+**The ceiling is `MAX_EXPEDITION_WORLD_SEED + 1`, not `MAX_EXPEDITION_WORLD_SEED`.** The store now
+exports that constant (previously two copies of the literal `2_000_000_000`, one in
+`rollNextExpeditionSeed` and one in `rollNextExpeditionSeedChoices`) plus
+`isFlyableExpeditionSeed`, so "what seed the chain can deal" and "what seed a code may name" cannot
+drift apart. The `+ 1` is not slack: `rollNextExpeditionSeed` escapes a collision with the current
+seed by returning `next + 1`, which can land one past the top of its own range, and a world the
+chain can deal must stay flyable from a code.
+
+**The `chosenSeed === currentSeed` trap, as correctness rather than taste.**
+`bankSeasonAndSwitch` ignores a chosen seed equal to the live one and falls back to
+`rollNextExpeditionSeed`. Pasting your own code would therefore have banked your world and flown a
+random different one, which is the worst possible reading of "fly this world". The dialog refuses
+that code by name instead: *"That code is the world you are already flying."*
+
+**The `parseInt` trap, also correctness.** `parseInt(body, 36)` truncates at the first character it
+cannot read and returns the prefix it managed to parse, so `PPW1-C2 99Z` would have decoded to seed
+436: a real, flyable world that nobody ever wrote a code for. The body's shape is proved against
+`/^[0-9A-Z]{1,8}$/` **before** it is parsed rather than validated after, and the test names that
+exact case.
+
+**A bare seed number is honoured too.** The dialog prints `SEED 20260727` right beside the code, so
+a player who writes down the number instead of the code is pasting something we can read.
+`/^[0-9]{1,10}$/` takes that branch, and it enforces the same ceiling as the coded branch.
+
+**A pasted seed already in the history is a RETURN, and the confirmation says so.** That is
+`bankSeasonAndSwitch`'s own rule (`state.banked.find(season => season.seed === nextSeed)` restores
+that world's ordinal and leaves the history in place rather than minting a new one), so the
+sentence cannot lie. `returning` is read from `getBankedSeasons()` for exactly that reason, not
+from the progress summary.
+
+**Why the preview uses the unmemoised singular.** `previewExpeditionWorlds` is memoised on the
+joined seed list of the three candidates the CHART dialog previews. Calling it with one seed would
+evict that memo and make the CHART dialog regenerate three worlds (34 ms each) on its next open, so
+the pasted-world confirmation calls `previewExpeditionWorld(seed)` instead: one generateWorld, on a
+button press, never per frame.
+
+**Both dialogs reopen themselves to report a result.** `showNewGameConfirmation` always hides the
+overlay before it calls back, so there is nowhere to flash a status line into. Each dialog takes an
+optional `status` string and reopens itself carrying it (*"Code copied to the clipboard."*, *"No
+world code on the clipboard."*). This is the same mechanism `RETURN`'s `MORE` button already uses
+to page itself, so no "keep open" flag was added to the shared helper.
+
+**The CHART row went from five buttons to six** (three worlds, RETURN, CODE, BACK).
+`showNewGameConfirmation`'s fixed `halfStep` tops out at five: at six it puts the outer buttons at
+±325 against a 660-wide frame, so BACK crossed the frame edge. Past five buttons the row now packs
+from the buttons' own rendered widths with a scaled 16 px gap, centred on the card. The frame was
+deliberately **not** widened, because `POLISH-CHART-DIALOG-PORTRAIT` already flags that the CHART
+card only ever grows. Rows of five or fewer are untouched, so no shipped dialog moves by a pixel.
+
+**Tests.** One new file, `src/expedition/seedCode.test.ts`, six cases, warranted because
+`decodeSeedCode` is the only thing standing between a pasted string and banking the player's
+charted world to fly a different one. They pin the two destructive failure modes rather than chase
+coverage: a truncating `parseInt` (five malformed bodies that all decode to real seeds without the
+shape check) and an out-of-range seed (`PPW1-ZZZZZZZZ` is `36^8 - 1`, far past the ceiling, so it
+proves the range check and not just the shape check; `MAX_EXPEDITION_WORLD_SEED + 2` proves the
+bare-decimal branch enforces the same ceiling as the coded branch). 164 files / 1939 tests green,
+no regressions.
+
+No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no
+`WORLD_PROFILE_VERSION` bump: the code is copied, never stored, so every existing profile and all
+21 archivable worlds light it up the moment the build lands. It moves no gold, no relic roll and no
+reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched. Files
+`FEAT-SEASON-CODE-KEYBOARD-ENTRY`, `POLISH-SEED-CODE-BUTTON-COLOUR` and
+`BALANCE-CHART-ROW-SIX-BUTTONS`.

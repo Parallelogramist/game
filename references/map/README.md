@@ -307,6 +307,11 @@ first.
 - **Seed sharing.** The world is a pure function of a seed, so a shareable world code
   costs almost nothing and pairs with the existing daily-challenge and leaderboard
   systems.
+  **Built by `FEAT-SEASON-SEED-SHARE` + `FEAT-SEASON-CHOICE-SEED-ENTRY` (`afd403c`, 2026-08-01):**
+  `src/expedition/seedCode.ts` is the code (`PPW1-` plus base36 of the seed), the CHART dialog's
+  CODE button copies this world's, and PASTE decodes one and flies it through the same
+  `switchExpeditionWorld` commit CHART A NEW WORLD makes, so the adopted world banks the old one
+  with its chart and a seed already in the history is a RETURN rather than a new ordinal.
 - **Completion percentage as a first-class metric.** Sectors visited, secrets found,
   quests closed. It is the natural companion to the existing best-score and
   deepest-endless-cycle chase metrics, and it is what a Metroid map trains players to
