@@ -570,9 +570,17 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   byte-identical by construction: the scale resolves to 1.0 at every viewport that is not
   density-compressed. WeaponSelectScene also gained a vertical clamp in `computeGridLayout` that
   never shrinks a grid below its design size, so the pre-existing overflow below is untouched
-  rather than made worse. Remaining: ShopScene (batch 2, next), then Codex, Achievement, Cards,
+  rather than made worse.
+  **Batch 2 shipped (41f3d3a): ShopScene.** It needed a second scale the earlier
+  batches did not: its header packs three 200-unit chrome blocks (account chip, ASCEND, gold
+  chip + filter) into one row with ~50 units of slack per gap, so it overlaps itself past about
+  1.06x at 720 wide, while its card grid is bound the other way by the scroll band the header
+  leaves. `chromeScale` is clamped by a 680-unit header budget, `gridScale` by
+  `(height - 230 * chromeScale) / 238` so one whole card row always fits the band; both come
+  from `resolveMenuFontScale` and both resolve to 1.0 on desktop. Grid geometry now lives in one
+  `gridMetrics()` helper instead of three hand-kept copies. Remaining: Codex, Achievement, Cards,
   Leaderboard, Market, QuestBoard, Loadout, Map, Paint, MusicSettings, Credits and the
-  draft/select scenes.
+  draft/select scenes, but see BUG-MARKET-VERTICAL-SATURATION before picking MarketScene.
 - [ ] **BUG-WEAPON-GRID-OVERFLOW** (found 2026-08-01 by POLISH-MENU-DENSITY batch 1). Value: with a
   full codex the pre-run weapon step lays 29 cards into 7 columns x 5 rows = 956 units of grid in a
   720-unit-tall canvas, so `computeGridLayout` returns `startY = -88`
@@ -582,6 +590,23 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   deliberately clamps the grid so it is never shrunk below design size, which keeps this bug exactly
   as it is rather than making it worse. Fix needs a design call the operator owns: page the grid,
   scroll it, or drop to a smaller card at high counts. Repro: discover all 29 weapons, start a run.
+- [ ] **BUG-MARKET-VERTICAL-SATURATION** (found 2026-08-01 by POLISH-MENU-DENSITY batch 2). Value:
+  MarketScene looks like the easiest remaining density batch (it already has the
+  `cardScaleFactor` / `textBoost` shape UpgradeScene had) but it cannot take the batch-1 fix as
+  written. Its header is title 48px at y=84, subtitle at 134 and the wallet line at 166, and its
+  single card row is 320 units tall with a LEAVE button 56 below it, so a landscape phone canvas
+  (2000x720, density scale 1.6) is already vertically saturated at design scale: scaling the
+  header to 1.6 forces the card clamp down to about 0.48x, i.e. a *regression* against today's
+  1.0. Portrait gains almost nothing either (3 cards at 720 wide are width-bound at ~0.67x, and
+  textBoost is already capped at 1.2 there). Fixing it needs a layout call the operator owns:
+  drop the subtitle and fold the wallet into the title line on short canvases, stack the offers
+  vertically in portrait, or accept text-only scaling. Do not batch it blind.
+- [ ] **POLISH-TOOLTIP-DENSITY** (found 2026-08-01 by POLISH-MENU-DENSITY batch 2). Value: the
+  shared `src/ui/TooltipManager.ts` paints its own scene-space panel at a fixed font size, so
+  every tooltip in the density sweep's scenes stays phone-tiny no matter what the host scene
+  does. It is one shared widget rather than a per-scene fix, which is why it is filed separately
+  from the sweep. Low urgency: tooltips need hover, so they are effectively desktop-only today,
+  and this only matters once a touch path opens them.
 - [ ] **BUG-HUD-FIXES**. Four HUD correctness fixes in
   `src/game/managers/HUDManager.ts`: (1) event-countdown bar fill uses unscaled
   `180 - 16` while the track was created scaled (`:1731` vs `:1634-1636`), so on
@@ -9539,7 +9564,7 @@ Never agent work. The fleet must not do any of these.
     scaling the whole card rather than one half feel wrong when tapping a half; (f) with
     PARALLELOGRAMIST and LEGAL moved into CREDITS, are they still findable, or does the site
     link want to stay on the main menu.
-  - **POLISH-MENU-DENSITY** (ec0b3cb, 21d358c): the menu density sweep, filed once for the
+  - **POLISH-MENU-DENSITY** (ec0b3cb, 21d358c, 41f3d3a): the menu density sweep, filed once for the
     whole sweep as the item asks. Batch 1 covers the pre-run picker (stage, ship, weapon steps) and
     the level-up cards. Open both on a phone in each orientation. Owns: (a) are weapon descriptions
     and level-up card text legible at arm's length now, and is 1.6x landscape / 1.2x portrait the
@@ -9549,6 +9574,15 @@ Never agent work. The fleet must not do any of these.
     a phone in landscape; (e) does anything on desktop look different from before (it should not:
     the scale resolves to 1.0 there); (f) the refit picker and the banish confirm modal, which only
     appear with full weapon slots and a banish charge.
+    Batch 2 adds ShopScene: (g) is the shop's card text and buy price legible at arm's length
+    now, and are the buy/refund pills thumb-sized; (h) on a landscape phone the shop's scroll
+    band holds exactly one card row by construction: does that read as "big and scrollable" or
+    as "broken and cramped"; (i) in portrait the header deliberately scales less than the cards
+    (1.06x vs 1.2x) so ASCEND does not collide with the AFFORDABLE ONLY button: does the header
+    look undersized beside the bigger cards; (j) do the tab count badges still sit on their
+    pills without clipping at the screen edge; (k) the HANGAR ship preview is now skipped on any
+    density-scaled viewport, not just below 1280 wide: is losing it on a landscape phone the
+    right trade; (l) the ASCEND confirm modal, which only appears at the ascension threshold.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
