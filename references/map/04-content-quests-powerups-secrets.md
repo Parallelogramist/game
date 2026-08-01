@@ -1447,3 +1447,22 @@ referential integrity; `gateOpened(barrierTypeId)` events; hidden-sector flag.
 opened barriers; a marker layer accepting `{ sectorTag, icon, label, kind }` for
 quests, vaults and hints; minimap shimmer ping and decryptor ping surfaces;
 map-screen Recall to Hangar affordance.
+
+### As built (FEAT-EXPEDITION-WARDEN-THRONE, a14e1ae, 2026-08-01)
+
+The boss arena hosts the run's boss on purpose. A dormant Warden throne is drawn at the
+arena sector's centre while the ship is in the room (`GameScene.syncWardenThrone`, the
+per-sector `syncAbilityVaults` idiom); tripping it inside 150 px calls
+`beginRunBossFight`, extracted from `checkBossSpawn`, so the arena fight and the timed
+fight are the same code path and spend the boss rotation identically. A standing throne
+holds the scheduled spawn off for `WARDEN_THRONE_PATIENCE_SECONDS` (300) past
+`TUNING.bosses.spawnTime`, after which the timer fires unchanged and the throne stands
+down. Nothing about the throne is persisted: it is derived from `bossSpawned`, which the
+run save already carries, plus the map.
+
+A boss kill in expedition already ended the run in victory; it now also sets `conquered`
+on `WorldProfileStore` for that `(worldSeed, worldGenVersion)`, and the first conquest of
+a given world ticks `LifetimeStats.worldsConqueredTotal`, behind `unlock_warden_slain` (1)
+and `unlock_world_conqueror` (5). `WORLD_PROFILE_VERSION` did not move, so a profile
+written before the flag keeps its broken walls. The chart names the standing fight through
+the new `'warden'` `PoiHazardKind`, derived from `map.bossArenaKey` while `!bossSpawned`.

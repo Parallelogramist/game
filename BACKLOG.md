@@ -851,6 +851,29 @@ now silently drops contract progress as well as a sweep's room count, which is t
 that item asks for. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no
 `DISCOVERY_VERSION` bump.
 
+**`a14e1ae` put the fight back in the room built for it.** Every world has carried a boss
+arena since `FEAT-WORLDGEN-CORE`: `openBossFloor` clears a fighting floor in it,
+`sectorTags` exports `'boss-arena'`, the chart labels it and three quest steps send the
+player there. Nothing was ever in it, because `checkBossSpawn` fielded the run's boss at
+`TUNING.bosses.spawnTime` wherever the ship was standing, and the map's climax room was
+decoration. A dormant Warden throne now stands at the arena's centre while the ship is in
+the room, and nosing inside 150 px fields the run's OWN boss there through the new
+`beginRunBossFight`, extracted verbatim from `checkBossSpawn`, so the rotation spend, the
+entrance, the sector seal and the boss health bar are byte-identical to the timed spawn.
+The timer is made patient rather than removed, on the `poi_nemesis_lair` precedent: a
+standing throne holds it off for 300 s past its hour, then it fires as it always has and
+the throne stands down. Killing the boss wins the run exactly as before and now also
+writes `conquered` to the world profile, which is a property of the WORLD like a broken
+wall rather than of the run, so it is written at the kill and survives a death.
+`LifetimeStats.worldsConqueredTotal` ticks only on a world's first conquest, so the two
+unlocks behind it (1 world and 5, each with a ship paint) count worlds and never victories.
+`WORLD_PROFILE_VERSION` deliberately did not move: `conquered` reads
+`parsed.conquered === true`, so an existing payload reads false and keeps every remembered
+broken wall. It files `BALANCE-WARDEN-PATIENCE`, `FEAT-SEASON-BANKED-CONQUERED-MARK` and
+`FEAT-WARDEN-VICTORY-OVERLAY-LINE`. No storage key, no `SAVE_VERSION`, no
+`WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing profile lights it up
+the moment the build lands.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -4884,6 +4907,69 @@ exploring pays is the end of Phase 5.
      no `DISCOVERY_VERSION` bump, and `src/data/ExpeditionQuests.ts` is byte-identical, so
      `EXPEDITION_QUEST_KEY_ORDER` and every sealed region are unmoved and every existing
      profile gets its contracts the moment the build lands.
+
+- [x] **FEAT-EXPEDITION-WARDEN-THRONE** (done, a14e1ae) (new 2026-08-01): the world's boss
+  waits in the room the generator built for it. `generateWorld` has picked a
+  `bossArenaKey` and `openBossFloor` has cleared a fighting floor since
+  `FEAT-WORLDGEN-CORE`, `sectorTags` exports `'boss-arena'` and three shipped quest steps
+  send the player there, but `checkBossSpawn` fielded the boss at
+  `TUNING.bosses.spawnTime` wherever the ship was standing, so the heart of the map was
+  decoration and the run's climax was a stopwatch. Value: George can fly to the arena and
+  take the world's boss on purpose, and the world remembers being conquered.
+  1. **What shipped**: a dormant throne drawn at the arena's centre while the ship is in
+     the room (`syncWardenThrone`, the `syncAbilityVaults` per-sector idiom, so nothing is
+     persisted and no save field was needed); a 150 px trip that fields the run's own boss
+     through the new `beginRunBossFight`, extracted verbatim from `checkBossSpawn` so the
+     rotation spend, the entrance, the sector seal and the health bar are identical; a
+     `conquered` flag on `WorldProfileStore` written at the existing victory branch; a
+     `LifetimeStats.worldsConqueredTotal` behind `unlock_warden_slain` (1 world) and
+     `unlock_world_conqueror` (5), each with a ship paint; `CONQUERED` on the CHART tile
+     and a `Worlds Conquered` row on the codex Statistics tab.
+  2. **The timer is made patient, not removed**, on the `poi_nemesis_lair` precedent: a
+     standing throne holds the scheduled spawn off for `WARDEN_THRONE_PATIENCE_SECONDS`
+     (300) past `bossSpawnTime`, then it fires as it always has and the throne stands down
+     on the next sync, so a player who never walks into the arena meets the boss exactly as
+     before and loses nothing that shipped.
+  3. **The throne needs no persistence at all, and that is the design**: `bossSpawned` is
+     already in the run save, and the throne is derived from it plus the map, so a refresh
+     in the arena rebuilds it and a refresh after the fight does not.
+  4. **Any expedition victory conquers the world, not only a throne fight.** The boss is
+     the world's win condition wherever it is met; the throne owns WHERE and WHEN, not
+     WHETHER. `markWorldConquered` returns true only on the false→true transition, so the
+     lifetime counter counts distinct worlds and re-winning a world cannot walk the unlocks.
+  5. **`WORLD_PROFILE_VERSION` deliberately did NOT move.** `conquered` reads
+     `parsed.conquered === true`, so a payload written before it shipped reads false and
+     keeps every remembered broken wall; a bump would have discarded them.
+  6. **The chart tell is derived from the map, not from the graphic**: `dormantHazardSectors`
+     adds `map.bossArenaKey` as the new `'warden'` hazard kind while `!bossSpawned`, so the
+     sector readout names the fight from anywhere. It leaks nothing: the readout renders only
+     for a sector the profile has already charted, and it already says `Arena` there.
+  7. **Econ-neutral by construction**: no gold, no relic roll and no reward-table row, so
+     `FEAT-ECON-WARDS` stays parked and untouched. No storage key, no `SAVE_VERSION`, no
+     `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump.
+
+- [ ] **BALANCE-WARDEN-PATIENCE** (new 2026-08-01, from FEAT-EXPEDITION-WARDEN-THRONE):
+  `WARDEN_THRONE_PATIENCE_SECONDS` is 300 and the trip radius is 150 in a 1280 x 720 room,
+  both derived from the lair's shipped numbers rather than played. Whether an early warden
+  fight reads as a choice worth making or as a trap the room springs, and whether a player
+  who wants to explore past the hour resents the hold, are feel judgements that want a
+  browser. Deps: play.
+
+- [ ] **FEAT-SEASON-BANKED-CONQUERED-MARK** (new 2026-08-01, from
+  FEAT-EXPEDITION-WARDEN-THRONE): the CHART dialog's banked rows read `W1 42%` and say
+  nothing about whether that world was conquered, because the mark needs a field in
+  `ExpeditionSeasonStore`'s banked payload and its sanitizer, and the lifetime
+  `Worlds Conquered` row already carries the count. Pairs with
+  `FEAT-SEASON-BANKED-LIST-SURFACE`: build them together or the rows are edited twice.
+  Value: the history says which worlds were finished, not only how far they were charted.
+  Deps: none.
+
+- [ ] **FEAT-WARDEN-VICTORY-OVERLAY-LINE** (new 2026-08-01, from
+  FEAT-EXPEDITION-WARDEN-THRONE): the victory overlay does not say the world was conquered.
+  `showVictory` pauses the scene, so a toast at the kill would be drawn under it, and the
+  overlay's result/grade block takes no free-text line today. The record surfaces on the
+  CHART tile and the codex instead. Value: the moment names itself where the player is
+  already looking. Deps: none.
 
 - [ ] **BALANCE-CONTRACT-GOLD-PER-WORLD** (new 2026-08-01, from FEAT-QUEST-SEASON-CONTRACTS):
   three contracts pay about 1.7k to 2.0k gold per world, recurring, against roughly 6.7k
