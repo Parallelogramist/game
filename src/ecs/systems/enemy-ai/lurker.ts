@@ -1,5 +1,5 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
-import { PI_HALF } from './common';
+import { PI_HALF, chaseHeading } from './common';
 
 /**
  * Lurker — hit-and-run: cautious approach, quick 3.5x lunge at a stored
@@ -24,9 +24,10 @@ export function updateLurkerAI(enemyId: number, playerX: number, playerY: number
   if (state === 0) {
     // Approach cautiously
     if (distance > 1) {
-      Velocity.x[enemyId] = (dx / distance) * speed * 0.7;
-      Velocity.y[enemyId] = (dy / distance) * speed * 0.7;
-      Transform.rotation[enemyId] = Math.atan2(dy, dx) + PI_HALF;
+      const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+      Velocity.x[enemyId] = heading.x * speed * 0.7;
+      Velocity.y[enemyId] = heading.y * speed * 0.7;
+      Transform.rotation[enemyId] = Math.atan2(heading.y, heading.x) + PI_HALF;
     }
 
     // Transition to lunge when close or after timeout

@@ -1,6 +1,6 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import { minionSpawnCallback, groundSlamCallback } from './state';
-import { PI_TWO, telegraphManager } from './common';
+import { PI_TWO, chaseHeading, telegraphManager } from './common';
 import { checkBossPhaseTransition } from './boss-phase';
 import { spawnTelegraph, hordeKingSlamTelegraph } from './telegraphs';
 
@@ -39,8 +39,9 @@ export function updateHordeKingAI(
   if (state === 0) {
     // Approaching player
     if (distance > 100) {
-      Velocity.x[enemyId] = (dx / distance) * baseSpeed * phaseSpeedMult;
-      Velocity.y[enemyId] = (dy / distance) * baseSpeed * phaseSpeedMult;
+      const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+      Velocity.x[enemyId] = heading.x * baseSpeed * phaseSpeedMult;
+      Velocity.y[enemyId] = heading.y * baseSpeed * phaseSpeedMult;
     } else {
       Velocity.x[enemyId] *= 0.9;
       Velocity.y[enemyId] *= 0.9;

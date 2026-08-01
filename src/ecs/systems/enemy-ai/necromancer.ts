@@ -3,6 +3,7 @@ import {
   projectileSpawnCallback, minionSpawnCallback,
   deadEnemyPositions, deadPositionsReadPointer, advanceDeadPositionsPointer,
 } from './state';
+import { chaseHeading } from './common';
 
 /**
  * Necromancer (miniboss) — kites at ~250px firing 3-projectile spreads, and
@@ -35,8 +36,9 @@ export function updateNecromancerAI(
     Velocity.y[enemyId] = -(dy / distance) * speed;
   } else if (distance > preferredDistance + 50) {
     // Too far - approach slowly
-    Velocity.x[enemyId] = (dx / distance) * speed * 0.5;
-    Velocity.y[enemyId] = (dy / distance) * speed * 0.5;
+    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+    Velocity.x[enemyId] = heading.x * speed * 0.5;
+    Velocity.y[enemyId] = heading.y * speed * 0.5;
   } else {
     // In range - circle around
     const perpX = -dy / distance;

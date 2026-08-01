@@ -1,5 +1,6 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import { projectileSpawnCallback } from './state';
+import { chaseHeading } from './common';
 
 /**
  * Shooter — kites at ~200px (retreat / approach / strafe bands) and fires a
@@ -31,8 +32,9 @@ export function updateShooterAI(
     Velocity.y[enemyId] = -(dy / distance) * speed;
   } else if (distance > preferredDistance + 50) {
     // Too far - approach
-    Velocity.x[enemyId] = (dx / distance) * speed * 0.7;
-    Velocity.y[enemyId] = (dy / distance) * speed * 0.7;
+    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+    Velocity.x[enemyId] = heading.x * speed * 0.7;
+    Velocity.y[enemyId] = heading.y * speed * 0.7;
   } else {
     // In sweet spot - strafe with direction reversal
     const perpX = -dy / distance;

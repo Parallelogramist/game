@@ -1,5 +1,6 @@
 import { Transform, Velocity, EnemyAI, EnemyType, Health } from '../../components';
 import { getLinkedTwin } from './state';
+import { chaseHeading } from './common';
 
 /**
  * The Twins (miniboss pair, TwinA/TwinB) — linked enemies that chase in
@@ -50,8 +51,9 @@ export function updateTwinAI(
 
     // Chase player
     if (distance > 1) {
-      moveX += (dx / distance) * 0.7;
-      moveY += (dy / distance) * 0.7;
+      const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+      moveX += heading.x * 0.7;
+      moveY += heading.y * 0.7;
     }
 
     // Pull toward twin if too far apart
@@ -75,8 +77,9 @@ export function updateTwinAI(
     EnemyType.baseDamage[enemyId] = EnemyType.baseDamage[enemyId] * 1.5;
 
     if (distance > 1) {
-      Velocity.x[enemyId] = (dx / distance) * speed;
-      Velocity.y[enemyId] = (dy / distance) * speed;
+      const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+      Velocity.x[enemyId] = heading.x * speed;
+      Velocity.y[enemyId] = heading.y * speed;
     }
   }
 

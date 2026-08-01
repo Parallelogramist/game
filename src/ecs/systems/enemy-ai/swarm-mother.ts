@@ -1,6 +1,6 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import { minionSpawnCallback } from './state';
-import { PI_TWO } from './common';
+import { PI_TWO, chaseHeading } from './common';
 
 /**
  * Swarm Mother (miniboss) — drifts slowly toward the player, holding at
@@ -26,8 +26,9 @@ export function updateSwarmMotherAI(
 
   // Move slowly toward player
   if (distance > 100) {
-    Velocity.x[enemyId] = (dx / distance) * speed;
-    Velocity.y[enemyId] = (dy / distance) * speed;
+    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+    Velocity.x[enemyId] = heading.x * speed;
+    Velocity.y[enemyId] = heading.y * speed;
   } else {
     // Stay at medium range
     Velocity.x[enemyId] *= 0.9;

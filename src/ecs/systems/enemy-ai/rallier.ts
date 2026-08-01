@@ -1,6 +1,6 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
 import { getEnemySpatialHash } from '../../../utils/SpatialHash';
-import { PI_HALF } from './common';
+import { PI_HALF, chaseHeading } from './common';
 
 /**
  * Rallier — support elite: keeps ~180px from the player and every 2s
@@ -30,8 +30,9 @@ export function updateRallierAI(enemyId: number, playerX: number, playerY: numbe
     Velocity.y[enemyId] = -(dy / distance) * speed;
   } else if (distance > preferredDistance + 40) {
     // Too far — approach
-    Velocity.x[enemyId] = (dx / distance) * speed * 0.7;
-    Velocity.y[enemyId] = (dy / distance) * speed * 0.7;
+    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
+    Velocity.x[enemyId] = heading.x * speed * 0.7;
+    Velocity.y[enemyId] = heading.y * speed * 0.7;
   } else {
     // In range — strafe
     const perpX = -dy / distance;

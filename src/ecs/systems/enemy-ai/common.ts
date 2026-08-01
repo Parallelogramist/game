@@ -154,3 +154,19 @@ export function chaseHeading(
   heading.y = stepY / stepLength;
   return heading;
 }
+
+const spot = { x: 0, y: 0 };
+
+/**
+ * The nearest point that is not inside rock, for the handlers that pick a destination near the
+ * player (a patrol offset, a wander point) instead of steering at the player. A point inside a
+ * wall is a destination the enemy can never arrive at, so it presses into the wall until the
+ * timer that picked it expires. Returns a shared instance: read it before the next call,
+ * never retain it.
+ */
+export function openSpot(x: number, y: number): { x: number; y: number } {
+  spot.x = x;
+  spot.y = y;
+  navigationContext?.freeSpotNear(x, y, spot);
+  return spot;
+}
