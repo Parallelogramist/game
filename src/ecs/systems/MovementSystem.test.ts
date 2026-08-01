@@ -1,8 +1,13 @@
 import { describe, test, expect } from 'vitest';
-import { createWorld, addEntity } from 'bitecs';
-import { Transform } from '../components';
-import { clampPlayerToRect } from './MovementSystem';
+import { createWorld, addEntity, addComponent } from 'bitecs';
+import { EnemyAI, Transform, Velocity } from '../components';
+import { clampPlayerToRect, movementSystem } from './MovementSystem';
 import { rectFromScreen } from '../../world/worldSpace';
+import { EnemyAIType } from '../../enemies/EnemyTypes';
+import {
+  SECTOR_TILE_COUNT, SECTOR_TILE_ROWS, TILE_SIZE, TileKind, WALL_EDGE, tileIndex,
+} from '../../world/worldTypes';
+import type { SectorDef, WorldMap } from '../../world/worldTypes';
 
 /**
  * FEAT-WORLD-SPACE-2 replaced a screen-literal clamp with a rect clamp on the live
@@ -46,5 +51,58 @@ describe('clampPlayerToRect', () => {
 
     expect(Transform.x[playerId]).toBe(1296);
     expect(Transform.y[playerId]).toBe(736);
+  });
+});
+
+const WALL_TILE_X = 5;
+const WALL_LEFT_EDGE = WALL_TILE_X * TILE_SIZE;
+const ENEMY_RADIUS = 12;
+
+/** One open sector with a floor-to-ceiling solid column, the smallest world that can tell a
+ *  ghost from an enemy. Same literal shape staticCollision.test.ts builds. */
+function worldWithWallColumn(): WorldMap {
+  const tiles = new Uint8Array(SECTOR_TILE_COUNT).fill(TileKind.Open);
+  for (let tileY = 0; tileY < SECTOR_TILE_ROWS; tileY++) {
+    tiles[tileIndex(WALL_TILE_X, tileY)] = TileKind.Solid;
+  }
+  const sector: SectorDef = {
+    sx: 0, sy: 0, key: '0,0', biomeId: 'stage_deep_void', danger: 0, tiles,
+    edges: { north: WALL_EDGE, east: WALL_EDGE, south: WALL_EDGE, west: WALL_EDGE },
+    poiSlots: [], isStart: true, isBossArena: false, depth: 0,
+    entryTiles: {}, breakables: [],
+  };
+  return {
+    worldGenVersion: 1, seed: 1, startKey: '0,0',
+    sectors: new Map([['0,0', sector]]), abilityOrder: [], bossArenaKey: '0,0',
+  };
+}
+
+describe('movementSystem — the ghost rule', () => {
+  const flyAtTheWall = (state: number): number => {
+    const world = createWorld();
+    const wraithId = addEntity(world);
+    addComponent(world, Transform, wraithId);
+    addComponent(world, Velocity, wraithId);
+    addComponent(world, EnemyAI, wraithId);
+    Transform.x[wraithId] = WALL_LEFT_EDGE - 60;
+    Transform.y[wraithId] = 100;
+    Velocity.x[wraithId] = 160;
+    Velocity.y[wraithId] = 0;
+    EnemyAI.aiType[wraithId] = EnemyAIType.Wraith;
+    EnemyAI.state[wraithId] = state;
+
+    movementSystem(world, 1, {
+      worldMap: worldWithWallColumn(), playerId: -1,
+      playerRadius: 16, enemyRadius: ENEMY_RADIUS,
+    });
+    return Transform.x[wraithId];
+  };
+
+  test('a corporeal wraith is stopped by the wall', () => {
+    expect(flyAtTheWall(0)).toBeLessThanOrEqual(WALL_LEFT_EDGE - ENEMY_RADIUS);
+  });
+
+  test('a phased wraith passes through it', () => {
+    expect(flyAtTheWall(1)).toBe(WALL_LEFT_EDGE + 100);
   });
 });

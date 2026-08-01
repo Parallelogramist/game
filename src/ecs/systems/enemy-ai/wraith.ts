@@ -1,4 +1,5 @@
 import { Transform, Velocity, EnemyAI } from '../../components';
+import { EnemyAIType } from '../../../enemies/EnemyTypes';
 import { chaseHeading } from './common';
 
 /**
@@ -22,11 +23,24 @@ export function updateWraithAI(enemyId: number, playerX: number, playerY: number
   const state = EnemyAI.state[enemyId];
 
   if (distance > 1) {
-    const speedMultiplier = state === 0 ? 1.0 : 0.5;
-    const heading = chaseHeading(enemyX, enemyY, playerX, playerY, dx / distance, dy / distance);
-    Velocity.x[enemyId] = heading.x * speed * speedMultiplier;
-    Velocity.y[enemyId] = heading.y * speed * speedMultiplier;
-    Transform.rotation[enemyId] = Math.atan2(heading.y, heading.x);
+    const phased = state === 1;
+    const directX = dx / distance;
+    const directY = dy / distance;
+    // A ghost does not path around a wall it is allowed to walk through: while phased it takes
+    // the straight line, where chaseHeading would route it along the flow field the moment it
+    // loses line of sight. Two locals rather than the returned object because chaseHeading hands
+    // back a shared mutable heading and this path runs per wraith per AI tick.
+    let headingX = directX;
+    let headingY = directY;
+    if (!phased) {
+      const heading = chaseHeading(enemyX, enemyY, playerX, playerY, directX, directY);
+      headingX = heading.x;
+      headingY = heading.y;
+    }
+    const speedMultiplier = phased ? 0.5 : 1.0;
+    Velocity.x[enemyId] = headingX * speed * speedMultiplier;
+    Velocity.y[enemyId] = headingY * speed * speedMultiplier;
+    Transform.rotation[enemyId] = Math.atan2(headingY, headingX);
   }
 
   if (state === 0) {
@@ -44,4 +58,13 @@ export function updateWraithAI(enemyId: number, playerX: number, playerY: number
       EnemyAI.phase[enemyId] = Math.random(); // 3-4s corporeal
     }
   }
+}
+
+/**
+ * The one mover in the game that is allowed to be standing in rock. Lives here rather than at
+ * either call site because the movement resolver and the knockback resolver must agree with the
+ * AI about what "phased" means, and this module owns that vocabulary.
+ */
+export function isPhasedWraith(entityId: number): boolean {
+  return EnemyAI.aiType[entityId] === EnemyAIType.Wraith && EnemyAI.state[entityId] === 1;
 }

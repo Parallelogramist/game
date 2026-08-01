@@ -2,6 +2,7 @@ import { defineQuery, hasComponent, IWorld } from 'bitecs';
 import { EnemyAI, Transform, Velocity } from '../components';
 import { WorldRect } from '../../world/worldSpace';
 import { MoverKind, createCollisionResult, resolveCircleMove } from '../../world/staticCollision';
+import { isPhasedWraith } from './enemy-ai/wraith';
 import type { WorldMap } from '../../world/worldTypes';
 
 const movementQuery = defineQuery([Transform, Velocity]);
@@ -18,6 +19,9 @@ export interface WallCollisionContext {
  * Bosses are exempt from geometry on purpose (doc 02 section 6.4): their patterns are tuned
  * for an open room, a sector lock already seals the fight, and a boss wedged in rock is an
  * unwinnable run. Minibosses are ordinary movers and do collide.
+ * A phased Wraith is the other exemption, and it is a fantasy rather than a tuning problem:
+ * doc 02 section 5.3 gives it the ghost rule, and GameScene snaps it back onto legal floor when
+ * it turns corporeal.
  */
 const BOSS_AI_TYPE_FLOOR = 100;
 
@@ -60,7 +64,8 @@ export function movementSystem(
         continue;
       }
       if (hasComponent(world, EnemyAI, entityId)
-        && EnemyAI.aiType[entityId] < BOSS_AI_TYPE_FLOOR) {
+        && EnemyAI.aiType[entityId] < BOSS_AI_TYPE_FLOOR
+        && !isPhasedWraith(entityId)) {
         resolveCircleMove(
           wallCollision.worldMap,
           Transform.x[entityId],

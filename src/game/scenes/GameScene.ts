@@ -28,7 +28,8 @@ import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToRect } from '../../ecs/systems/MovementSystem';
 import type { WallCollisionContext } from '../../ecs/systems/MovementSystem';
 import { setNavigationContext } from '../../ecs/systems/enemy-ai/common';
-import { MoverKind, createCollisionResult, resolveCircleMove, tileKindAt } from '../../world/staticCollision';
+import { MoverKind, createCollisionResult, findNearestFreeCircleSpot, isSolidAtWorld, resolveCircleMove, tileKindAt } from '../../world/staticCollision';
+import { isPhasedWraith } from '../../ecs/systems/enemy-ai/wraith';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
@@ -449,6 +450,7 @@ const PLAYER_COLLISION_RADIUS = 16;
 const ENEMY_COLLISION_RADIUS = 12;
 const BOSS_KNOCKBACK_AI_TYPE_FLOOR = 100;
 const knockbackCollisionResult = createCollisionResult();
+const wraithSnapSpot = { x: 0, y: 0 };
 const enemySpawnSpot = { x: 0, y: 0 };
 const apertureSpawnSpot = { x: 0, y: 0 };
 const blinkCollisionResult = createCollisionResult();
@@ -8051,14 +8053,34 @@ export class GameScene extends Phaser.Scene {
     // Apply ice hazard slow to enemies (deferred from updateHazardZones, after AI sets velocities)
     applyIceHazardSlow();
 
-    // Update Wraith sprite alpha based on phase state
+    // Wraith phase state drives two things: the sprite alpha, and whether the wraith is allowed
+    // to be standing in rock (doc 02 section 5.3). The snap tests the state rather than a
+    // transition on purpose: a wraith that is corporeal and inside geometry is wrong however it
+    // got there, and retrying every frame costs one tile read and self-heals a knockback or a
+    // door that closed on it.
+    const wraithWorldMap = this.worldMode.worldMap();
     const wraithCheckEnemies = getFrameCacheEnemyIds();
     for (const enemyId of wraithCheckEnemies) {
-      if (EnemyAI.aiType[enemyId] === EnemyAIType.Wraith) {
-        const wraithSprite = getSprite(enemyId);
-        if (wraithSprite) {
-          wraithSprite.alpha = EnemyAI.state[enemyId] === 1 ? 0.2 : 1.0;
-        }
+      if (EnemyAI.aiType[enemyId] !== EnemyAIType.Wraith) continue;
+      const wraithSprite = getSprite(enemyId);
+      if (wraithSprite) {
+        wraithSprite.alpha = EnemyAI.state[enemyId] === 1 ? 0.2 : 1.0;
+      }
+      if (!wraithWorldMap || EnemyAI.state[enemyId] !== 0) continue;
+      const wraithX = Transform.x[enemyId];
+      const wraithY = Transform.y[enemyId];
+      if (!isSolidAtWorld(wraithWorldMap, wraithX, wraithY, MoverKind.Enemy)) continue;
+      if (findNearestFreeCircleSpot(
+        wraithWorldMap, wraithX, wraithY, ENEMY_COLLISION_RADIUS, wraithSnapSpot,
+      )) {
+        Transform.x[enemyId] = wraithSnapSpot.x;
+        Transform.y[enemyId] = wraithSnapSpot.y;
+      } else {
+        // Nowhere legal to put it, which means it is outside the generated world. Send it back
+        // through the wall it came from rather than freezing it there: it chases the player, so
+        // the next phase walks it home.
+        EnemyAI.state[enemyId] = 1;
+        EnemyAI.timer[enemyId] = 0;
       }
     }
 
@@ -8284,7 +8306,8 @@ export class GameScene extends Phaser.Scene {
       const nextX = Transform.x[entityId] + velocityX * deltaSeconds;
       const nextY = Transform.y[entityId] + velocityY * deltaSeconds;
 
-      if (worldMap && EnemyAI.aiType[entityId] < BOSS_KNOCKBACK_AI_TYPE_FLOOR) {
+      if (worldMap && EnemyAI.aiType[entityId] < BOSS_KNOCKBACK_AI_TYPE_FLOOR
+        && !isPhasedWraith(entityId)) {
         resolveCircleMove(
           worldMap, Transform.x[entityId], Transform.y[entityId], nextX, nextY,
           ENEMY_COLLISION_RADIUS, MoverKind.Enemy, knockbackCollisionResult,

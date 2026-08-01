@@ -43,7 +43,7 @@ export { updateSplitterAI, updateSplitterMiniAI } from './splitter';
 export { updateGhostAI } from './ghost';
 export { updateLurkerAI } from './lurker';
 export { updateWardenAI } from './warden';
-export { updateWraithAI } from './wraith';
+export { updateWraithAI, isPhasedWraith } from './wraith';
 export { updateRallierAI } from './rallier';
 
 // Miniboss behaviors, one module per handler
