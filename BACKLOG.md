@@ -557,6 +557,31 @@ well, whose stated blocker had already been dissolved by `SectorMapDrawInput` ca
 `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump (widening a valid mask is backward compatible
 in both directions), so every existing profile lights it up the moment the build lands.
 
+`035326c` gave a hive-clearing objective a place to point at, which is the last live objective
+kind that had none. `buildQuestHazardObjectives` lists every active quest whose CURRENT step is
+`clearHazard`, beside the shipped `buildQuestMarkers` and `buildQuestHoldObjectives`, and
+`buildHazardPins` in the shipped `questPins.ts` resolves that list to the nearest charted room
+holding a remembered hive. The pin reads `PoiFlags.HAZARD_NEST` from the discovery store rather
+than the run-scoped `activeAmbushNests` the entry originally proposed, which is what makes it
+survive the room being left and is exactly what `e073884` unblocked. ONE pin, the nearest, shared
+by every hazard objective because none of them names a different place, which is the rule
+`buildQuestPins` already settled for a many-sector tag. A room whose hive this run already took is
+excluded, derived from the persisted per-run `spawnedPoiSlotIds` minus the live `activeAmbushNests`,
+because a slot is stocked once per run so a cleared hive does not re-arm until the next expedition
+and a pin on it would point at a broken chest; a WOKEN nest is deliberately not spent, since the
+fight the objective wants is still live. An objective with no hive left to name emits NO pin at all
+rather than a null one, because a null reaches the OBJECTIVES panel as `NOT YET CHARTED`, which
+claims a place exists and is merely unmapped when the truth is that no hive has been found yet. A
+`hazardKind: 'lair'` step is deliberately never pinned and nothing is filed for it: a lair is placed
+only while the profile holds an unspawned nemesis and at most once per world per run, so `760ccc8`
+settled that it is never remembered and there is nothing to point at. No renderer, legend, glyph or
+UI code was written: the chart pin, the focused-sector readout's `An objective points here`, the
+OBJECTIVES panel's `PINNED ON THE CHART` suffix and the radar's objective bearing all already
+consume `QuestPin[]` or the `objectiveSectorKeys` set derived from it, so four surfaces lit up from
+two pure functions and four wiring edits. It filed the play-gated `BALANCE-QUEST-HAZARD-PIN-SPREAD`
+and `POLISH-QUEST-HAZARD-PANEL-HINT`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and
+no `DISCOVERY_VERSION` bump, so every existing profile lights it up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -572,9 +597,11 @@ two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TI
 the one still-open of the two the distinct fold filed that need no worldgen change,
 `BALANCE-QUEST-CHART-TARGETS`, plus the play-gated `BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS` the
 world stamp filed, plus the play-gated `BALANCE-QUEST-HAZARD-TARGETS` the fourth chain filed.
-`FEAT-QUEST-HAZARD-PIN`, the other cut it filed, is now unblocked and a candidate:
+`FEAT-QUEST-HAZARD-PIN`, the other cut it filed, has now shipped at `035326c`:
 `FEAT-MAPUI-HAZARD-GLYPH` and `FEAT-POI-HAZARD-DISCOVERY-MEMORY` (the two the hazard contacts
 filed) both shipped at `e073884`, which also filed the play-gated `BALANCE-POI-NEST-STABLE-RATE`.
+The hazard pin itself filed two cuts, both candidates: the play-gated
+`BALANCE-QUEST-HAZARD-PIN-SPREAD` and `POLISH-QUEST-HAZARD-PANEL-HINT`.
 `FEAT-QUEST-BOARD` has now shipped in full at `21925f3` (its other two deps were met at
 `0be97f5` and `6bfd119`), and filed three cuts of its own: the play-gated
 `BALANCE-QUEST-BOARD-DENSITY`, plus `FEAT-QUEST-BOARD-CLAIM` and `FEAT-QUEST-BOARD-NO-AUTOSEED`,
@@ -5160,7 +5187,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   than how many the roll offers, is a play question. Value: the fourth chain asks for a session
   of hunting rather than a season of it. Deps: play in a browser (`## Human gates`).
 
-- [ ] **FEAT-QUEST-HAZARD-PIN** (new 2026-07-31, from FEAT-QUEST-CATALOG-DEPTH): a `clearHazard`
+- [x] **FEAT-QUEST-HAZARD-PIN** (done, 035326c): a `clearHazard`
   step names no place, so it is the only live objective kind that hands the chart no pin and the
   radar no bearing, while `60e0e7f` already draws every dormant hive and den this run has found
   on both surfaces. Joining them means the marker feed reading run-scoped scene state
@@ -5171,6 +5198,47 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   shipped at e073884). The per-world hive record it wanted now exists as `PoiFlags.HAZARD_NEST`
   in the discovery store, so the marker feed can read discovery state rather than run-scoped
   scene state, and the lair half stays out of scope because a lair is never remembered.
+  **What shipped (035326c)**: the feed is `buildQuestHazardObjectives` beside the shipped
+  `buildQuestMarkers` and `buildQuestHoldObjectives`, one entry per active quest whose CURRENT
+  step is `clearHazard`, and the resolver is `buildHazardPins` in the shipped `questPins.ts`.
+  The pin reads `PoiFlags.HAZARD_NEST` from the discovery store, NOT the run-scoped
+  `activeAmbushNests` this entry originally proposed, which is what makes the pin survive the
+  room being left and is exactly what `e073884` unblocked. ONE pin, the nearest, shared by every
+  hazard objective because none of them names a different place, which is the rule
+  `buildQuestPins` already settled for a many-sector tag. A room whose hive this run already
+  took is excluded, derived from `spawnedPoiSlotIds` (per-run and persisted) minus the live
+  `activeAmbushNests`, because a slot is stocked once per run so a cleared hive does not re-arm
+  until the next expedition and a pin on it would point at a broken chest; a WOKEN nest is
+  deliberately not spent, since the fight the objective wants is still live. An objective with no
+  hive left to name emits NO pin at all, never a null one, because a null reaches the OBJECTIVES
+  panel as `NOT YET CHARTED`, which claims a place exists and is merely unmapped when the truth
+  is that no hive has been found yet. A `hazardKind: 'lair'` step is deliberately never pinned
+  and no item is filed for it: a lair is placed only while the profile holds an unspawned nemesis
+  and at most once per world per run, so `760ccc8` settled that it is never remembered and there
+  is nothing to point at. No renderer, legend, glyph or UI code was written: the chart pin
+  (`SectorMapRenderer` line 366), the focused-sector readout's `An objective points here`, the
+  OBJECTIVES panel's `PINNED ON THE CHART` suffix and the radar's objective bearing all already
+  consume `QuestPin[]` or the `objectiveSectorKeys` set derived from it. No storage key, no
+  `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing
+  profile lights it up the moment the build lands.
+
+- [ ] **BALANCE-QUEST-HAZARD-PIN-SPREAD** (new 2026-08-01, from FEAT-QUEST-HAZARD-PIN): the
+  pin is ONE room, the nearest remembered hive, on the rule buildQuestPins settled for a
+  many-sector tag. A hive is rarer than a biome region (a constant 9.7% to 20.9% of the
+  world's 25 Treasure slots, so roughly 3 to 5 per world, and only the ones walked into are
+  remembered), so pinning EVERY remembered hive would not be the twenty-pin noise that rule
+  was written against, and "clear 6 hives" might read better as a route than as a next stop.
+  It would swamp the radar's four-waypoint cap, which is the reason not to. Value: an
+  accumulating objective reads as a route rather than one stop at a time. Deps: none, but it
+  wants play, not a guess.
+
+- [ ] **POLISH-QUEST-HAZARD-PANEL-HINT** (new 2026-08-01, from FEAT-QUEST-HAZARD-PIN): a
+  hazard objective with no remembered hive emits no pin, so the OBJECTIVES panel shows it no
+  suffix at all, exactly as before this shipped. The honest line is neither of the two the
+  panel owns: not PINNED ON THE CHART and not NOT YET CHARTED, which claims a place exists and
+  is merely unmapped. A third string ("NO HIVE FOUND YET") needs the panel to know a pin is a
+  hazard pin, which is a field on QuestPin with one reader. Value: the panel says why a
+  hive objective has no pin instead of saying nothing. Deps: none.
 
 - [x] **FEAT-QUEST-BOARD** (done, 21925f3): the remainder of quest surfacing after `FEAT-QUEST-VIEW` (5a0295d)
   shipped its HUD-line half and answered map surfacing with a text panel. Two pieces are left.
