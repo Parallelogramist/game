@@ -323,12 +323,36 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   calls per show look like the same defect but early-out inside `TextStyle.setStroke`, since
   the pool is already built with that exact stroke. **Not verified in a browser:** files
   `POLISH-CRIT-SHIMMER`.
-- [ ] **BUG-KNOCKBACK-DEAD-PLAYER**. Value: latent dead code found by the wall audit:
+- [x] **BUG-KNOCKBACK-DEAD-PLAYER** (done, d9f6372). Value: latent dead code found by the wall audit:
   `GameScene.ts:4431-4432` and `:13056-13057` write player knockback, but
   `knockbackEnemyQuery` requires `EnemyTag` (`GameScene.ts:293`), so player knockback
   has never applied. Either wire a player path through `resolveCircleMove` (respecting
   walls) or delete the dead writes; do not leave dead code. If wiring it, file a
   POLISH item: player knockback is a feel change.
+  **What shipped:** wired, not deleted. Deleting the two writes would have been a tidy-up
+  with nothing to show for it; the ship never reacting to an Exploder blast or the Horde
+  King's slam was a missing hit reaction, so the fix is to make them land. The player entity
+  now carries `Knockback` (added in both `createPlayer` and `restorePlayer`, with all three
+  fields zeroed there because bitECS recycles entity ids and never clears a store on
+  `addComponent`, so a fresh player could otherwise inherit a dead enemy's shove). The enemy
+  query was left alone: `knockbackEnemyQuery` still requires `EnemyTag`, and a separate
+  `processPlayerKnockback` runs beside `processKnockback` each frame, because the enemy loop
+  is enemy-shaped (enemy radius, `MoverKind.Enemy`, the boss and phased-Wraith exemptions).
+  The player path resolves through `resolveCircleMove` at `PLAYER_COLLISION_RADIUS` with
+  `MoverKind.Player`, zeroes the blocked component on a wall hit, and decays on the same
+  `Math.pow(0.001, deltaSeconds)` curve as enemies. It is sequenced after `movementSystem`
+  so the shove lands on top of the frame's steering, and before `clampPlayerToRect` so it
+  can never push the ship out of the playfield. **Save shape is untouched:**
+  `serializeEnemy` is the only reader of `Knockback.*` into a save, and a restore starts the
+  ship at rest. **Also fixed on the way past:** all four deliberate player teleports (recall,
+  blink, magno tether, security-grid breach) now cancel an in-flight shove, since a teleport
+  that keeps dragging for a beat reads as the ability having failed. **Not retuned:** the
+  existing 300 and 400 magnitudes decay to about 43px and 58px of travel against a 40px
+  tile, roughly one to one and a half tiles over 0.83s, which is a shove rather than a
+  teleport. **Not touched:** the Juggernaut's `knockbackImmunity` guard was already at both
+  call sites; `playerStats.knockbackMultiplier` is deliberately not applied, since it scales
+  the player's knockback onto enemies and a gun relic should not make the ship easier to
+  throw. **Not verified in a browser:** files `POLISH-PLAYER-KNOCKBACK`.
 
 #### Band B: toast diet + main menu reduction
 
@@ -9294,6 +9318,25 @@ Never agent work. The fleet must not do any of these.
     and regular-crit numbers are tinted now as well, so weapon-coloured damage numbers should
     still match their weapon exactly. Nothing here is a knob: the palette maths is unchanged
     and every verdict is a one-line change in `EffectsManager`.
+  - **POLISH-PLAYER-KNOCKBACK** (new 2026-08-01, BUG-KNOCKBACK-DEAD-PLAYER): the ship can be
+    shoved for the first time. Two writes that had never applied now do: an Exploder's suicide
+    blast pushes at 300 and the Horde King's ground slam at 400, decaying to about 43px and
+    58px of travel over 0.83s against a 40px tile. None of it was seen in a browser. Needs a
+    human in `?expedition=1` eating both hits to judge (a) **the weight**: is one to one and a
+    half tiles of shove a hit reaction, or a nudge you cannot feel? Both magnitudes are single
+    constants at the two call sites. (b) **loss of control**: the shove is added on top of your
+    steering rather than replacing it, so you keep flying while being pushed. Confirm that
+    reads as being knocked back rather than as the controls going soft, and that it never
+    shoves you into a hazard you had no chance to avoid. (c) **iframes and dash**: knockback is
+    applied even when the damage itself is eaten by invulnerability, and even mid-dash. Should
+    a dash or an iframe window cancel the shove? Deliberately not decided in code. (d) **walls
+    and corners**: the shove resolves against geometry at the player radius and zeroes the
+    blocked axis on contact, so being slammed into a wall stops dead rather than sliding along
+    it. Confirm a blast that pins you into a corner does not wedge or jitter the ship.
+    (e) **the teleports**: recall, blink, magno tether and grid breach all cancel an in-flight
+    shove. Confirm blinking out of a blast feels like an escape and not like a rubber band.
+    (f) **the Juggernaut**: that ship is knockback-immune and both sites already honoured it.
+    Confirm it now visibly stands still through a slam that moves every other ship.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
