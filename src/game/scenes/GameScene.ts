@@ -156,10 +156,12 @@ import {
   getActiveQuestMarkers,
   getActiveQuestHazardObjectives,
   getActiveQuestHoldObjectives,
+  getActiveQuestEscortObjectives,
+  dropExpeditionQuestDrone,
   getActiveQuestStepViews,
   getEarnedQuestKeyIds,
 } from '../../meta/ExpeditionQuestManager';
-import { getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
+import { droneLabelOf, getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
 import type { QuestEvent } from '../../systems/QuestProgress';
 import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
@@ -500,6 +502,28 @@ const SIEGE_WAVE_INTERVAL_END_SECONDS = 12;
  *  clear must not accumulate an unwinnable room across a 90 s hold. */
 const SIEGE_MAX_LIVE_BESIEGERS = 14;
 
+/** The drone rides slightly above the ship's base 150 px/s, so it keeps up on a cruise, falls
+ *  behind a dash or a speed build, and closes the gap the moment the player stops. */
+const ESCORT_DRONE_SPEED = 165;
+const ESCORT_DRONE_FOLLOW_DISTANCE = 70;
+/** Past this it is snapped to the ship: a seam crossing or an outrun must lose the drone to
+ *  hostiles, never to geometry it cannot path around. */
+const ESCORT_DRONE_TETHER_PX = 900;
+const ESCORT_DRONE_MAX_HEALTH = 100;
+const ESCORT_DRONE_CONTACT_RADIUS = 60;
+const ESCORT_DRONE_DAMAGE_INTERVAL_SECONDS = 0.5;
+const ESCORT_DRONE_DAMAGE_PER_ATTACKER = 4;
+/** A swarm cannot delete it instantly: at most this many bodies bill it in one tick, so the
+ *  worst case is 16 dps and the drone lives 6 s inside a full room. */
+const ESCORT_DRONE_MAX_ATTACKERS = 2;
+/** A room the player has cleared around the drone heals it, which is what makes a long trip a
+ *  thing to manage rather than an attrition timer with one outcome. */
+const ESCORT_DRONE_REGEN_PER_SECOND = 3;
+const ESCORT_DRONE_DRAW_RADIUS = 11;
+/** The player's own projectile core (PROJECTILE_NEON.player.core), so the drone reads as YOURS
+ *  against every hostile palette in the game. */
+const ESCORT_DRONE_COLOR = 0x66ccff;
+
 /** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
  *  toasts even when a single find jumps two of them. */
 const MAP_COMPLETION_MILESTONES = [25, 50, 75, 100] as const;
@@ -689,6 +713,16 @@ export class GameScene extends Phaser.Scene {
     graphics: Phaser.GameObjects.Graphics; x: number; y: number;
   } | null = null;
   private wardenThroneSectorKey: string | null = null;
+  private escortDrone: {
+    graphics: Phaser.GameObjects.Graphics;
+    questId: string;
+    droneId: string;
+    x: number;
+    y: number;
+    health: number;
+  } | null = null;
+  private escortDroneSectorKey: string | null = null;
+  private escortDroneNextDamageAtSeconds = 0;
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
@@ -4835,6 +4869,7 @@ export class GameScene extends Phaser.Scene {
     this.clearNemesisLairs();
     this.clearWardenThrone();
     this.wardenThroneSectorKey = null;
+    this.clearEscortDrone();
     this.spawnedPoiSlotIds.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
@@ -5775,6 +5810,159 @@ export class GameScene extends Phaser.Scene {
       duration: 3200,
     });
     this.beginRunBossFight();
+  }
+
+  /** The drone exists exactly while one active objective says it should, the syncWardenThrone
+   *  idiom: state is the truth and the object is derived, so a refresh mid-escort rebuilds it and
+   *  an arrival that spends it removes it, both without a second code path. */
+  private syncEscortDrone(playerX: number, playerY: number): void {
+    const objective = getActiveQuestEscortObjectives()[0];
+    if (!objective) {
+      this.clearEscortDrone();
+      return;
+    }
+    if (this.escortDrone?.questId === objective.questId) return;
+    this.clearEscortDrone();
+    const spot = { x: 0, y: 0 };
+    this.worldMode.freeSpotNear(playerX, playerY, spot);
+    const graphics = this.add.graphics();
+    graphics.setPosition(spot.x, spot.y);
+    graphics.setDepth(4);
+    this.escortDrone = {
+      graphics,
+      questId: objective.questId,
+      droneId: objective.droneId,
+      x: spot.x,
+      y: spot.y,
+      health: ESCORT_DRONE_MAX_HEALTH,
+    };
+    this.escortDroneSectorKey = null;
+    this.escortDroneNextDamageAtSeconds = 0;
+    this.drawEscortDrone();
+    this.toastManager?.showToast({
+      title: 'ESCORT UNDER WAY',
+      description: `${droneLabelOf(objective.droneId)} is following you. Keep it alive.`,
+      icon: 'rocket',
+      color: ESCORT_DRONE_COLOR,
+      duration: 3000,
+    });
+  }
+
+  /**
+   * Follow, bill, heal, then report where it is. The ARRIVAL is produced here and not by
+   * sectorEnteredHandler, which is the whole difference between an escort and a delivery: the
+   * ship reaching the destination is not the objective, the drone reaching it is. The sector-key
+   * compare is what keeps this off the store on the common frame (syncQuestBoards' idiom).
+   */
+  private updateEscortDrone(playerX: number, playerY: number, deltaSeconds: number): void {
+    const drone = this.escortDrone;
+    if (!drone) return;
+
+    const toPlayerX = playerX - drone.x;
+    const toPlayerY = playerY - drone.y;
+    const distance = Math.hypot(toPlayerX, toPlayerY);
+    const spot = { x: 0, y: 0 };
+    if (distance > ESCORT_DRONE_TETHER_PX) {
+      this.worldMode.freeSpotNear(playerX, playerY, spot);
+    } else if (distance > ESCORT_DRONE_FOLLOW_DISTANCE) {
+      const step = Math.min(ESCORT_DRONE_SPEED * deltaSeconds, distance - ESCORT_DRONE_FOLLOW_DISTANCE);
+      this.worldMode.freeSpotNear(
+        drone.x + (toPlayerX / distance) * step,
+        drone.y + (toPlayerY / distance) * step,
+        spot,
+      );
+    } else {
+      spot.x = drone.x;
+      spot.y = drone.y;
+    }
+    drone.x = spot.x;
+    drone.y = spot.y;
+    drone.graphics.setPosition(spot.x, spot.y);
+
+    let attackers = 0;
+    for (const enemyId of getFrameCacheEnemyIds()) {
+      const dx = Transform.x[enemyId] - drone.x;
+      const dy = Transform.y[enemyId] - drone.y;
+      if (dx * dx + dy * dy > ESCORT_DRONE_CONTACT_RADIUS * ESCORT_DRONE_CONTACT_RADIUS) continue;
+      attackers++;
+      if (attackers >= ESCORT_DRONE_MAX_ATTACKERS) break;
+    }
+    if (attackers > 0) {
+      if (this.gameTime >= this.escortDroneNextDamageAtSeconds) {
+        this.escortDroneNextDamageAtSeconds = this.gameTime + ESCORT_DRONE_DAMAGE_INTERVAL_SECONDS;
+        drone.health -= attackers * ESCORT_DRONE_DAMAGE_PER_ATTACKER;
+      }
+    } else {
+      drone.health = Math.min(
+        ESCORT_DRONE_MAX_HEALTH,
+        drone.health + ESCORT_DRONE_REGEN_PER_SECOND * deltaSeconds,
+      );
+    }
+    this.drawEscortDrone();
+    if (drone.health <= 0) {
+      this.loseEscortDrone();
+      return;
+    }
+
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    const key = `${Math.floor(drone.x / SECTOR_WIDTH)},${Math.floor(drone.y / SECTOR_HEIGHT)}`;
+    if (key === this.escortDroneSectorKey) return;
+    this.escortDroneSectorKey = key;
+    const sector = map.sectors.get(key);
+    if (!sector) return;
+    this.recordExpeditionQuest({ kind: 'escortDrone', sectorTags: sectorTagsOf(sector) });
+  }
+
+  /** Fail-and-retry, never fail-forever (doc 04 section 4): the flag is cleared and nothing the
+   *  chain earned is touched, so the next board hands over another drone. */
+  private loseEscortDrone(): void {
+    const drone = this.escortDrone;
+    if (!drone) return;
+    this.effectsManager.playDeathBurst(drone.x, drone.y, ESCORT_DRONE_COLOR);
+    this.soundManager.playError();
+    const dropped = dropExpeditionQuestDrone();
+    this.clearEscortDrone();
+    this.toastManager?.showToast({
+      title: 'ESCORT LOST',
+      description: `${droneLabelOf(drone.droneId)} is down. Pick up another at any board.`,
+      icon: 'warning',
+      color: WORLD_GEOMETRY_COLORS.hazard.stroke,
+      duration: 3200,
+    });
+    for (const row of dropped) getDiscoveryManager().noteObjectiveUpdated(row.questId);
+  }
+
+  /** A ring in the player's own projectile colour with a damage arc, so its state is legible
+   *  from the ship without a HUD line: the top band is already bars, world, timer, kills and
+   *  gold, the same call FEAT-QUEST-SIEGE-HUD-TELL was cut on. */
+  private drawEscortDrone(): void {
+    const drone = this.escortDrone;
+    if (!drone) return;
+    const fraction = Math.max(0, Math.min(1, drone.health / ESCORT_DRONE_MAX_HEALTH));
+    const graphics = drone.graphics;
+    graphics.clear();
+    graphics.fillStyle(ESCORT_DRONE_COLOR, 0.16);
+    graphics.fillCircle(0, 0, ESCORT_DRONE_DRAW_RADIUS + 6);
+    graphics.lineStyle(2, ESCORT_DRONE_COLOR, 0.9);
+    graphics.strokeCircle(0, 0, ESCORT_DRONE_DRAW_RADIUS);
+    graphics.fillStyle(0xffffff, 0.9);
+    graphics.fillCircle(0, 0, 3);
+    graphics.lineStyle(
+      3,
+      fraction > 0.35 ? ESCORT_DRONE_COLOR : WORLD_GEOMETRY_COLORS.hazard.stroke,
+      0.95,
+    );
+    graphics.beginPath();
+    graphics.arc(0, 0, ESCORT_DRONE_DRAW_RADIUS + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fraction);
+    graphics.strokePath();
+  }
+
+  private clearEscortDrone(): void {
+    this.escortDrone?.graphics.destroy();
+    this.escortDrone = null;
+    this.escortDroneSectorKey = null;
+    this.escortDroneNextDamageAtSeconds = 0;
   }
 
   /** Trip test while dormant, liveness filter while awake. Iterated backwards because a clear
@@ -6935,6 +7123,8 @@ export class GameScene extends Phaser.Scene {
       this.updateNemesisLairs(playerX, playerY);
       this.syncWardenThrone(map, playerX, playerY);
       this.updateWardenThrone(playerX, playerY);
+      this.syncEscortDrone(playerX, playerY);
+      this.updateEscortDrone(playerX, playerY, deltaSeconds);
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.tryOpenQuestDoor(map, playerX, playerY);
       this.updateBreachCharges(map, playerX, playerY);

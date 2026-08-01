@@ -120,4 +120,15 @@ describe('ExpeditionQuestManager', () => {
     beginExpeditionQuestRun();
     expect(getExpeditionQuestStates().some((state) => state.cargoHeld === true)).toBe(false);
   });
+
+  test('a drone flag on a step that does not ask for one is dropped on load', () => {
+    SecureStorage.setItem(STORAGE_KEY, JSON.stringify({
+      states: [{
+        questId: 'quest_survey_01', stepIndex: 0, stepProgress: 0,
+        status: 'active', droneEscorting: true,
+      }],
+      pendingGold: 0,
+    }));
+    expect(getExpeditionQuestStates()[0].droneEscorting).toBeUndefined();
+  });
 });

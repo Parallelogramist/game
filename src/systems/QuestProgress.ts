@@ -35,6 +35,10 @@ export interface QuestInstanceState {
   /** True while a `deliverItem` step's crate is aboard. Absent for every other kind, and cleared
    *  by the death rule, by SET ASIDE and by the delivery itself: the crate is spent on arrival. */
   cargoHeld?: boolean;
+  /** True while a `escortDrone` step's drone is assigned and alive. Absent for every other kind,
+   *  and cleared by the death rule, by SET ASIDE, by the drone dying and by the arrival itself:
+   *  the drone is spent on delivery exactly as the crate is. */
+  droneEscorting?: boolean;
 }
 
 /**
@@ -60,6 +64,10 @@ export type QuestEvent =
    *  the hold is read by the fold and not by the match: arriving at the right place with an empty
    *  hold must count nothing rather than count as a delivery. */
   | { kind: 'deliverItem'; sectorTags: readonly SectorTag[] }
+  /** Every tag the sector the DRONE just entered answers to. The producer is the drone's own
+   *  position, not the ship's: an escort that the player outran and left two rooms back has not
+   *  arrived, which is the entire difference between this kind and deliverItem. */
+  | { kind: 'escortDrone'; sectorTags: readonly SectorTag[] }
   /** One cleared risk room, counted with +1 like a secret find. The producer fires once per
    *  hive whose wave is dead and once per hunter killed AT a woken den, so there is nothing to
    *  de-duplicate here. */
@@ -103,6 +111,9 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
     case 'deliverItem':
       return trigger.kind === 'deliverItem'
         && event.sectorTags.includes(trigger.destinationTag);
+    case 'escortDrone':
+      return trigger.kind === 'escortDrone'
+        && event.sectorTags.includes(trigger.destinationTag);
     case 'clearHazard':
       return trigger.kind === 'clearHazard'
         && (trigger.hazardKind === undefined || trigger.hazardKind === event.hazardKind);
@@ -119,6 +130,7 @@ interface StepProgress {
   visitedSectorKeys?: readonly string[];
   visitedWorldStamp?: string;
   cargoHeld?: boolean;
+  droneEscorting?: boolean;
 }
 
 function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
@@ -153,6 +165,11 @@ function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
     case 'deliverItem':
       return current.cargoHeld === true
         ? { ...current, progress: current.progress + 1, cargoHeld: undefined }
+        : current;
+    // The drone is spent on arrival, so a step asking for two escorts needs two assignments.
+    case 'escortDrone':
+      return current.droneEscorting === true
+        ? { ...current, progress: current.progress + 1, droneEscorting: undefined }
         : current;
     case 'clearHazard': return { ...current, progress: current.progress + 1 };
     default: {
@@ -192,6 +209,7 @@ export function recordQuestEvent(
         visitedSectorKeys: state.visitedSectorKeys,
         visitedWorldStamp: state.visitedWorldStamp,
         cargoHeld: state.cargoHeld,
+        droneEscorting: state.droneEscorting,
       },
       event,
     );
@@ -200,6 +218,7 @@ export function recordQuestEvent(
       state.visitedSectorKeys = folded.visitedSectorKeys;
       state.visitedWorldStamp = folded.visitedWorldStamp;
       state.cargoHeld = folded.cargoHeld;
+      state.droneEscorting = folded.droneEscorting;
       continue;
     }
 
@@ -213,6 +232,7 @@ export function recordQuestEvent(
     state.visitedSectorKeys = undefined;
     state.visitedWorldStamp = undefined;
     state.cargoHeld = undefined;
+    state.droneEscorting = undefined;
     if (state.stepIndex >= definition.steps.length) {
       state.status = 'complete';
       questCompletions.push({
@@ -317,6 +337,7 @@ export function setQuestAside(
     target.visitedSectorKeys = undefined;
     target.visitedWorldStamp = undefined;
     target.cargoHeld = undefined;
+    target.droneEscorting = undefined;
   }
   return { states: copied, changed: true };
 }
@@ -334,7 +355,8 @@ export function settleRunScopeProgress(
     if (state.status !== 'active') return state;
     if (state.stepProgress === 0
       && state.visitedSectorKeys === undefined
-      && state.cargoHeld !== true) return state;
+      && state.cargoHeld !== true
+      && state.droneEscorting !== true) return state;
     const step = byId.get(state.questId)?.steps[state.stepIndex];
     if (!step || step.scope === 'persistent') return state;
     return {
@@ -343,6 +365,7 @@ export function settleRunScopeProgress(
       visitedSectorKeys: undefined,
       visitedWorldStamp: undefined,
       cargoHeld: undefined,
+      droneEscorting: undefined,
     };
   });
 }
@@ -362,13 +385,14 @@ export interface QuestStepView {
   /** 1-based position of the current step within its quest. */
   stepNumber: number;
   stepCount: number;
-  /** A clause the ticker, the OBJECTIVES panel and nothing else render: what a delivery step is
-   *  waiting on. Absent for every kind that needs no second state to be legible. */
+  /** A clause the ticker, the OBJECTIVES panel and nothing else render: what a delivery or escort
+   *  step is waiting on. Absent for every kind that needs no second state to be legible. */
   note?: string;
 }
 
 const CARGO_ABOARD_NOTE = 'CARGO ABOARD';
-const CARGO_COLLECT_NOTE = 'COLLECT AT A BOARD';
+const BOARD_COLLECT_NOTE = 'COLLECT AT A BOARD';
+const DRONE_ESCORT_NOTE = 'DRONE ESCORTING';
 
 export function buildQuestStepViews(
   states: readonly QuestInstanceState[],
@@ -390,8 +414,10 @@ export function buildQuestStepViews(
       stepNumber: state.stepIndex + 1,
       stepCount: definition.steps.length,
       note: step.trigger.kind === 'deliverItem'
-        ? (state.cargoHeld === true ? CARGO_ABOARD_NOTE : CARGO_COLLECT_NOTE)
-        : undefined,
+        ? (state.cargoHeld === true ? CARGO_ABOARD_NOTE : BOARD_COLLECT_NOTE)
+        : step.trigger.kind === 'escortDrone'
+          ? (state.droneEscorting === true ? DRONE_ESCORT_NOTE : BOARD_COLLECT_NOTE)
+          : undefined,
     });
   }
   return views;
@@ -429,6 +455,18 @@ export function buildQuestMarkers(
       // An empty hold means the next place is a BOARD, and every charted board already draws its
       // own QuestGiver glyph, so a destination pin here would name the wrong errand.
       if (state.cargoHeld !== true) continue;
+      markers.push({
+        questId: definition.id,
+        label: definition.name,
+        icon: definition.icon,
+        sectorTag: trigger.destinationTag,
+      });
+      continue;
+    }
+    if (trigger.kind === 'escortDrone') {
+      // No drone means the next place is a BOARD, and every charted board already draws its own
+      // QuestGiver glyph, so a destination pin here would name the wrong errand.
+      if (state.droneEscorting !== true) continue;
       markers.push({
         questId: definition.id,
         label: definition.name,
@@ -625,4 +663,99 @@ export function loadQuestCargo(
     loaded.push(row);
   }
   return { states: next, loaded, aboard };
+}
+
+export interface QuestDroneRow {
+  questId: string;
+  droneId: string;
+}
+
+export interface QuestDroneAssignment {
+  states: QuestInstanceState[];
+  /** Drones this call just assigned. */
+  assigned: QuestDroneRow[];
+  /** Drones already under way before this call, so the board can say so without re-assigning. */
+  active: QuestDroneRow[];
+}
+
+/**
+ * What a walk-in board hands over for an escort objective: the drone for every ACTIVE quest whose
+ * current step is an escort. Idempotent for the reason loadQuestCargo is, and so that the board
+ * may call it on every re-render: a drone already under way is reported in `active` and never
+ * re-assigned, so a player cannot stack two drones on one step by walking back to the board.
+ */
+export function assignQuestDrone(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestDroneAssignment {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const next = states.map((state) => ({ ...state }));
+  const assigned: QuestDroneRow[] = [];
+  const active: QuestDroneRow[] = [];
+  for (const state of next) {
+    if (state.status !== 'active') continue;
+    const step = byId.get(state.questId)?.steps[state.stepIndex];
+    if (step?.trigger.kind !== 'escortDrone') continue;
+    const row = { questId: state.questId, droneId: step.trigger.droneId };
+    if (state.droneEscorting === true) {
+      active.push(row);
+      continue;
+    }
+    state.droneEscorting = true;
+    assigned.push(row);
+  }
+  return { states: next, assigned, active };
+}
+
+/**
+ * The drone died. Doc 04 section 4's escort rule is fail-and-retry, never fail-forever, so this
+ * clears the flag and nothing else: the step's counter, its index and every completed step are
+ * untouched, and the player picks up another drone at any board.
+ */
+export function dropQuestDrone(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): { states: QuestInstanceState[]; dropped: QuestDroneRow[] } {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const next = states.map((state) => ({ ...state }));
+  const dropped: QuestDroneRow[] = [];
+  for (const state of next) {
+    if (state.status !== 'active' || state.droneEscorting !== true) continue;
+    const step = byId.get(state.questId)?.steps[state.stepIndex];
+    if (step?.trigger.kind !== 'escortDrone') continue;
+    state.droneEscorting = undefined;
+    dropped.push({ questId: state.questId, droneId: step.trigger.droneId });
+  }
+  return { states: next, dropped };
+}
+
+/**
+ * The escort the scene should have a drone standing for, if any. buildQuestMarkers cannot answer
+ * this: it names the destination to PIN, and the scene needs the drone's identity to decide
+ * whether the object in the room is still the right one.
+ */
+export interface QuestEscortObjective {
+  questId: string;
+  droneId: string;
+  destinationTag: SectorTag;
+}
+
+export function buildQuestEscortObjectives(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestEscortObjective[] {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const objectives: QuestEscortObjective[] = [];
+  for (const state of states) {
+    if (state.status !== 'active' || state.droneEscorting !== true) continue;
+    const definition = byId.get(state.questId);
+    const step = definition?.steps[state.stepIndex];
+    if (!definition || step?.trigger.kind !== 'escortDrone') continue;
+    objectives.push({
+      questId: definition.id,
+      droneId: step.trigger.droneId,
+      destinationTag: step.trigger.destinationTag,
+    });
+  }
+  return objectives;
 }

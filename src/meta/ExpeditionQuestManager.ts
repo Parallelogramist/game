@@ -15,8 +15,13 @@ import {
   buildQuestHoldObjectives,
   buildQuestHazardObjectives,
   loadQuestCargo,
+  assignQuestDrone,
+  dropQuestDrone,
+  buildQuestEscortObjectives,
   type QuestBoardEntry,
   type QuestCargoRow,
+  type QuestDroneRow,
+  type QuestEscortObjective,
   type QuestEvent,
   type QuestHazardObjective,
   type QuestHoldObjective,
@@ -129,6 +134,7 @@ function sanitizeStates(
     const clampedIndex = Math.min(stepIndex, definition.steps.length);
     const isDistinctStep = definition.steps[clampedIndex]?.trigger.kind === 'reachSector';
     const isDeliveryStep = definition.steps[clampedIndex]?.trigger.kind === 'deliverItem';
+    const isEscortStep = definition.steps[clampedIndex]?.trigger.kind === 'escortDrone';
     // Set and stamp are kept or dropped together: a set whose world is unknown cannot be
     // checked against the live world, and a stamp with no set says nothing.
     const storedStamp = isDistinctStep ? sanitizeWorldStamp(entry.visitedWorldStamp) : undefined;
@@ -151,6 +157,8 @@ function sanitizeStates(
       // A crate is only meaningful on the step that asks for it, so a stale flag from a
       // re-authored catalog is dropped rather than carried onto whatever step is current now.
       cargoHeld: isDeliveryStep && entry.cargoHeld === true ? true : undefined,
+      // Same rule as the crate above: a drone is only meaningful on the step that asks for it.
+      droneEscorting: isEscortStep && entry.droneEscorting === true ? true : undefined,
     });
   }
   return states;
@@ -336,4 +344,34 @@ export function setExpeditionQuestAside(questId: string): boolean {
   if (!result.changed) return false;
   save({ states: result.states, pendingGold: stored.pendingGold });
   return true;
+}
+
+export type { QuestDroneRow, QuestEscortObjective } from '../systems/QuestProgress';
+
+/** The walk-in board assigning the drone an active escort objective asks for. Writes only when
+ *  something was actually assigned, so the board's re-render after an accept costs nothing. */
+export function assignExpeditionQuestDrone(): { assigned: QuestDroneRow[]; active: QuestDroneRow[] } {
+  const defs = questCatalog();
+  const state = load(defs);
+  const result = assignQuestDrone(state.states, defs);
+  if (result.assigned.length > 0) {
+    save({ states: result.states, pendingGold: state.pendingGold });
+  }
+  return { assigned: result.assigned, active: result.active };
+}
+
+/** The drone died. Returns what was lost so the scene can name it. */
+export function dropExpeditionQuestDrone(): QuestDroneRow[] {
+  const defs = questCatalog();
+  const state = load(defs);
+  const result = dropQuestDrone(state.states, defs);
+  if (result.dropped.length === 0) return [];
+  save({ states: result.states, pendingGold: state.pendingGold });
+  return result.dropped;
+}
+
+/** Same store read and same one-projection rule as getActiveQuestMarkers. */
+export function getActiveQuestEscortObjectives(): QuestEscortObjective[] {
+  const defs = questCatalog();
+  return buildQuestEscortObjectives(load(defs).states, defs);
 }

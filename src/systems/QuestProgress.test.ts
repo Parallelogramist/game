@@ -11,6 +11,7 @@ import {
   buildQuestHoldObjectives,
   buildQuestHazardObjectives,
   loadQuestCargo,
+  assignQuestDrone,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -461,6 +462,54 @@ describe('deliverItem', () => {
     expect(second.loaded).toEqual([]);
     expect(second.aboard).toEqual([{ questId: 'quest_run', itemId: 'cargo_test_core' }]);
     expect(loadQuestCargo([active('quest_a', 0, 0)], DEFS).loaded).toEqual([]);
+  });
+});
+
+describe('escortDrone', () => {
+  const ESCORT_DEFS: readonly ExpeditionQuestDefinition[] = [
+    {
+      id: 'quest_escort',
+      name: 'Escort',
+      icon: 'rocket',
+      steps: [
+        { id: 'q_escort.s1', description: 'escort', trigger: { kind: 'escortDrone', droneId: 'drone_test', destinationTag: 'biome:stage_inferno' }, target: 1, scope: 'run', goldReward: 15 },
+      ],
+      completionGoldReward: 25,
+    },
+  ];
+  const held: QuestInstanceState[] = [
+    { questId: 'quest_escort', stepIndex: 0, stepProgress: 0, status: 'active' },
+  ];
+
+  test('arriving with a drone completes the step and spends it', () => {
+    const assignedStates = assignQuestDrone(held, ESCORT_DEFS).states;
+    expect(assignedStates[0].droneEscorting).toBe(true);
+    const arrived = recordQuestEvent(assignedStates, ESCORT_DEFS,
+      { kind: 'escortDrone', sectorTags: ['biome:stage_inferno'] });
+    expect(arrived.stepCompletions)
+      .toEqual([{ questId: 'quest_escort', stepId: 'q_escort.s1', goldReward: 15 }]);
+    expect(arrived.states[0].droneEscorting).toBeUndefined();
+  });
+
+  test('arriving with no drone counts nothing', () => {
+    const result = recordQuestEvent(held, ESCORT_DEFS,
+      { kind: 'escortDrone', sectorTags: ['biome:stage_inferno'] });
+    expect(result.stepCompletions).toEqual([]);
+    expect(result.states[0].stepProgress).toBe(0);
+  });
+
+  test('the death rule drops an assigned drone even though the counter never moved', () => {
+    const assignedStates = assignQuestDrone(held, ESCORT_DEFS).states;
+    expect(settleRunScopeProgress(assignedStates, ESCORT_DEFS)[0].droneEscorting).toBeUndefined();
+  });
+
+  test('assigning is idempotent and reports a drone already under way', () => {
+    const first = assignQuestDrone(held, ESCORT_DEFS);
+    expect(first.assigned).toEqual([{ questId: 'quest_escort', droneId: 'drone_test' }]);
+    expect(first.active).toEqual([]);
+    const second = assignQuestDrone(first.states, ESCORT_DEFS);
+    expect(second.assigned).toEqual([]);
+    expect(second.active).toEqual([{ questId: 'quest_escort', droneId: 'drone_test' }]);
   });
 });
 

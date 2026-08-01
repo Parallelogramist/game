@@ -301,6 +301,13 @@ describe('expedition quest data rules', () => {
           // cargoLabelOf strips this prefix to build the board's display name.
           expect(step.trigger.itemId.startsWith('cargo_'), step.id).toBe(true);
         }
+        if (step.trigger.kind === 'escortDrone') {
+          // Each escort spends its drone and needs another board visit, the deliverItem bound.
+          expect(step.target, step.id).toBeLessThanOrEqual(2);
+          expectSectorTagResolves(step.trigger.destinationTag, step.id);
+          // droneLabelOf strips this prefix to build the board's display name.
+          expect(step.trigger.droneId.startsWith('drone_'), step.id).toBe(true);
+        }
         if (step.scope !== 'run') continue;
         if (step.trigger.kind === 'kill') expect(step.target, step.id).toBeLessThanOrEqual(800);
         if (step.trigger.kind === 'openGate') expect(step.target, step.id).toBeLessThanOrEqual(4);

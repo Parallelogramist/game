@@ -13,9 +13,9 @@ import type { PoiHazardKind } from './PoiCatalog';
  */
 
 /**
- * A trigger names WHICH signal a step listens to. The nine kinds here are the nine the game
- * emits; doc 04's last one (escortDrone) has no producer yet and is deliberately absent rather
- * than inert, because it needs an escortable entity nothing spawns.
+ * A trigger names WHICH signal a step listens to. All ten kinds have a producer: doc 04
+ * section 4's list is closed by escortDrone, and clearHazard is an eleventh the game emits
+ * that doc 04 predates.
  */
 export type QuestTrigger =
   | { kind: 'kill' }
@@ -44,6 +44,15 @@ export type QuestTrigger =
    *  number of deliveries, and each one spends the crate, so a second delivery needs a second
    *  load at a board. */
   | { kind: 'deliverItem'; itemId: string; destinationTag: SectorTag }
+  /** Doc 04 authors this as `{ routeTag: string }`. **No `routeTag` vocabulary is invented**:
+   *  the destination is the same closed two-family `SectorTag` union `reachSector` and
+   *  `deliverItem` use, because a `SectorTag` is a compile error when mistyped and
+   *  referentialIntegrity.test.ts can assert it resolves to a real stage, and a bare route
+   *  string is neither. The drone is a scene Graphics object on the syncWardenThrone idiom, not
+   *  an ECS entity, so like the delivery crate it needed no persistence-exemption API and did
+   *  not wait on FEAT-WORLDGEN-STREAM. A step's `target` is the number of escorts, and each one
+   *  spends the drone, so a second escort needs a second assignment at a board. */
+  | { kind: 'escortDrone'; droneId: string; destinationTag: SectorTag }
   /** The two risk rooms (a523eca, 760ccc8). An omitted kind counts either fight, which is how a
    *  breadth step is authored; a named one counts only that one. Doc 04 lists nine kinds and
    *  this is not among them: the hive and the den were authored after that doc, and a trigger
@@ -181,6 +190,18 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         scope: 'persistent',
         goldReward: 260,
       },
+      {
+        id: 'q_survey_03.s7',
+        description: 'Walk a survey probe into the Crystal Caves in one piece',
+        trigger: {
+          kind: 'escortDrone',
+          droneId: 'drone_survey_probe',
+          destinationTag: 'biome:stage_crystal_caves',
+        },
+        target: 1,
+        scope: 'run',
+        goldReward: 260,
+      },
     ],
     completionGoldReward: 350,
   },
@@ -254,6 +275,18 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         target: 6,
         scope: 'persistent',
         goldReward: 260,
+      },
+      {
+        id: 'q_gatecrash_02.s6',
+        description: 'Walk a breach drone into the Inferno in one piece',
+        trigger: {
+          kind: 'escortDrone',
+          droneId: 'drone_breach_unit',
+          destinationTag: 'biome:stage_inferno',
+        },
+        target: 1,
+        scope: 'run',
+        goldReward: 280,
       },
     ],
     completionGoldReward: 300,
@@ -393,6 +426,13 @@ export function getExpeditionQuest(questId: string): ExpeditionQuestDefinition |
  *  referentialIntegrity.test.ts pins the `cargo_` prefix every itemId carries. */
 export function cargoLabelOf(itemId: string): string {
   return itemId.replace(/^cargo_/, '').replace(/_/g, ' ').toUpperCase();
+}
+
+/** 'drone_survey_probe' -> 'SURVEY PROBE'. Derived rather than a second catalog field, the
+ *  cargoLabelOf rule: a display name beside the id is two sources of truth for one thing.
+ *  referentialIntegrity.test.ts pins the `drone_` prefix every droneId carries. */
+export function droneLabelOf(droneId: string): string {
+  return droneId.replace(/^drone_/, '').replace(/_/g, ' ').toUpperCase();
 }
 
 /** The generation input the expedition world consumes as WorldGenInputs.questKeyOrder.

@@ -8,10 +8,11 @@ import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
-import { cargoLabelOf } from '../../data/ExpeditionQuests';
+import { cargoLabelOf, droneLabelOf } from '../../data/ExpeditionQuests';
 import {
   ACTIVE_EXPEDITION_QUEST_LIMIT,
   acceptExpeditionQuest,
+  assignExpeditionQuestDrone,
   getQuestBoardEntries,
   loadExpeditionQuestCargo,
   setExpeditionQuestAside,
@@ -139,11 +140,26 @@ export class QuestBoardScene extends Phaser.Scene {
       this.changed = true;
       for (const row of cargo.loaded) getDiscoveryManager().noteObjectiveUpdated(row.questId);
     }
+    // The board assigns an escort drone on the same terms it hands over a crate, and for the
+    // same reason it is not a second card action: the card's action slot is SET ASIDE's.
+    const drones = assignExpeditionQuestDrone();
+    if (drones.assigned.length > 0) {
+      this.changed = true;
+      for (const row of drones.assigned) getDiscoveryManager().noteObjectiveUpdated(row.questId);
+    }
     const labelsOf = (rows: readonly { itemId: string }[]): string =>
       rows.map((row) => cargoLabelOf(row.itemId)).join(', ');
-    this.cargoNotice = cargo.loaded.length > 0
-      ? `CARGO LOADED · ${labelsOf(cargo.loaded)}`
-      : cargo.aboard.length > 0 ? `CARGO ABOARD · ${labelsOf(cargo.aboard)}` : '';
+    const droneLabelsOf = (rows: readonly { droneId: string }[]): string =>
+      rows.map((row) => droneLabelOf(row.droneId)).join(', ');
+    const notices: string[] = [];
+    if (cargo.loaded.length > 0) notices.push(`CARGO LOADED · ${labelsOf(cargo.loaded)}`);
+    else if (cargo.aboard.length > 0) notices.push(`CARGO ABOARD · ${labelsOf(cargo.aboard)}`);
+    if (drones.assigned.length > 0) {
+      notices.push(`DRONE ASSIGNED · ${droneLabelsOf(drones.assigned)}`);
+    } else if (drones.active.length > 0) {
+      notices.push(`DRONE UNDER WAY · ${droneLabelsOf(drones.active)}`);
+    }
+    this.cargoNotice = notices.join('   ');
     this.subtitleText?.setText(this.cargoNotice !== ''
       ? this.cargoNotice
       : 'Take on a contract, or set one aside for later');
