@@ -1,3 +1,5 @@
+import type { SuppressedToast } from '../achievements/AchievementTypes';
+
 /**
  * What a run's END earned the player: hidden unlocks, achievements and daily quests
  * that settle after the run-end overlay is already on screen. Each of those raises a
@@ -10,7 +12,8 @@ export type RunEarningTag =
   | 'STAGE'
   | 'COSMETIC'
   | 'ACHIEVEMENT'
-  | 'QUEST';
+  | 'QUEST'
+  | 'FOUND';
 
 export interface RunEarning {
   tag: RunEarningTag;
@@ -65,10 +68,46 @@ const VICTORY_LINE_NAMES = 2;
  * One-line readout for the victory overlay, which has no room for a panel. Null when
  * the run earned nothing.
  */
-export function formatRunEarningsLine(earnings: RunEarning[]): string | null {
+export function formatRunEarningsLine(
+  earnings: RunEarning[],
+  label: string = 'EARNED',
+): string | null {
   if (earnings.length === 0) return null;
   const shown = earnings.slice(0, VICTORY_LINE_NAMES).map((earning) => earning.name);
   const overflow = earnings.length - shown.length;
   const parts = overflow > 0 ? [...shown, `+${overflow} more`] : shown;
-  return `EARNED   ${parts.join('   ·   ')}`;
+  return `${label}   ${parts.join('   ·   ')}`;
+}
+
+/**
+ * What `recordEarlyRunEnd` hands back to the END RUN dialog. Notices arrive already built
+ * because only GameScene can reach the run's ToastManager.
+ */
+export interface EarlyRunEndRecord extends Pick<RunEarningSources, 'unlocks' | 'achievements'> {
+  notices: RunEarning[];
+}
+
+/**
+ * What the toast diet recorded instead of drawing. A run repeats the same title (sectors
+ * charted, relics, quest steps), so identical titles collapse into one counted row rather
+ * than filling the panel with near-duplicates.
+ */
+export function buildRunNotices(notices: SuppressedToast[]): RunEarning[] {
+  const byTitle = new Map<string, { detail: string; count: number }>();
+  for (const notice of notices) {
+    const existing = byTitle.get(notice.title);
+    if (existing) {
+      existing.count++;
+      continue;
+    }
+    byTitle.set(notice.title, {
+      detail: notice.description.replace(/\s*\n+\s*/g, ' · ').trim(),
+      count: 1,
+    });
+  }
+  return [...byTitle.entries()].map(([title, { detail, count }]) => ({
+    tag: 'FOUND' as const,
+    name: count > 1 ? `${title} ×${count}` : title,
+    detail,
+  }));
 }

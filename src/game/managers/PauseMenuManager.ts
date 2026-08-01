@@ -20,7 +20,7 @@ import { getDailyQuestBoard, getLiveDailyQuestBoard, previewDailyQuestSettle, se
 import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestDefinition, type DailyQuestRunData } from '../../data/DailyQuests';
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
 import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
-import { buildRunEarnings, formatRunEarningsLine, type RunEarning, type RunEarningSources, type RunEarningTag } from '../../meta/RunEarnings';
+import { buildRunEarnings, formatRunEarningsLine, type EarlyRunEndRecord, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -206,9 +206,10 @@ export interface PauseMenuOptions {
    * Ending a run IS a run end, so it must write every record a death writes. Only
    * GameScene holds the run state those records need, so it owns the recording.
    * Returns what the recording earned, because the unlock/achievement toasts it
-   * raises draw at OverlayDepths.HUD, under this dialog, and are never seen.
+   * raises draw at OverlayDepths.HUD, under this dialog, and are never seen. The record also
+   * carries the run's suppressed-toast notices, which have the same problem.
    */
-  onRecordRunEnd: (goldEarned: number) => Pick<RunEarningSources, 'unlocks' | 'achievements'>;
+  onRecordRunEnd: (goldEarned: number) => EarlyRunEndRecord;
   onOpenSettings: () => void;
   /** Expedition only: whether the current mode has a world map. Decides the MAP row. */
   hasWorldMap?: () => boolean;
@@ -256,6 +257,8 @@ export interface VictoryData {
   questGold?: number;
   /** What the run's end earned (see GameOverData.runEarnings). */
   runEarnings?: RunEarning[];
+  /** What the toast diet recorded instead of drawing (see GameOverData.runNotices). */
+  runNotices?: RunEarning[];
   clearedWorld: number;
   newWorldLevel: number;
   previousStreak: number;
@@ -302,7 +305,12 @@ const RUN_EARNING_TAG_COLORS: Record<RunEarningTag, string> = {
   COSMETIC: '#cc99ff',
   ACHIEVEMENT: '#ffdd44',
   QUEST: '#ffe26a',
+  FOUND: '#8899cc',
 };
+
+/** Never fewer rows than the panel showed before the cap adapted to the viewport. */
+const MIN_RUN_EARNING_ROWS = 3;
+const MAX_RUN_EARNING_ROWS = 6;
 
 /**
  * Below this width the death-screen recap surfaces cannot use the side margins or
@@ -331,6 +339,12 @@ export interface GameOverData {
    * only surface that reports them.
    */
   runEarnings?: RunEarning[];
+  /**
+   * What the toast diet suppressed during the run: secrets, routes, quest steps, lore.
+   * Snapshotted before the run-end settle, so a settled unlock/quest is never listed
+   * both here and in runEarnings.
+   */
+  runNotices?: RunEarning[];
   previousStreak: number;
   highestCombo: number;
   totalDamageDealt?: number;
@@ -1544,12 +1558,16 @@ export class PauseMenuManager {
         // Every toast the three lines above raised draws at OverlayDepths.HUD, under
         // this dialog, into a scene torn down by the next line, so the dialog names
         // them itself. A run that earned nothing leaves immediately, as before.
-        const runEarnings = buildRunEarnings({ ...recordedEarnings, quests: settledQuests });
-        if (runEarnings.length === 0) {
+        const { notices, ...earningSources } = recordedEarnings;
+        const runRows = [
+          ...buildRunEarnings({ ...earningSources, quests: settledQuests }),
+          ...notices,
+        ];
+        if (runRows.length === 0) {
           goToDestination();
           return;
         }
-        this.showEndRunEarned(runEarnings, goToDestination);
+        this.showEndRunEarned(runRows, goToDestination);
       },
     });
 
@@ -1677,7 +1695,10 @@ export class PauseMenuManager {
       centerX,
       dialogCenterY - 88,
       PAUSE_MENU_DEPTH + 1,
-      this.endRunEarnedElements
+      this.endRunEarnedElements,
+      // Continue sits at panelBottom + 49 and is 50 tall, so the panel must stop
+      // that much plus a margin above the bottom edge.
+      this.scene.scale.height - 100
     );
 
     let continueCommitted = false;
@@ -1934,6 +1955,26 @@ export class PauseMenuManager {
       earningsText.setName('victoryEarned');
     }
 
+    // The finds sit one line under the earnings, still inside the free band that ends at
+    // the stats panel (top centerY - 12), and take the earnings slot when nothing was earned.
+    const noticesLine = formatRunEarningsLine(data.runNotices ?? [], 'FOUND');
+    if (noticesLine) {
+      const noticesText = this.scene.add.text(
+        victoryCenterX,
+        this.scene.scale.height / 2 - (earningsLine ? 76 : 96),
+        noticesLine,
+        {
+          fontSize: '15px',
+          color: '#8899cc',
+          fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
+          fontStyle: 'bold',
+        }
+      );
+      noticesText.setOrigin(0.5);
+      noticesText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
+      noticesText.setName('victoryFound');
+    }
+
     // Recent-run trend strip (left margin, clear of the centered title/buttons).
     // Skipped at portrait widths: unlike the death screen, this overlay has no
     // free band above its title to fall back to.
@@ -2119,6 +2160,7 @@ export class PauseMenuManager {
       'victoryGoldPreview',
       'victoryGoldEconomy',
       'victoryEarned',
+      'victoryFound',
       'victoryStreak',
       'victoryConfetti',
       'victoryGradeBadge',
@@ -2487,14 +2529,20 @@ export class PauseMenuManager {
     // same slot: at 720 game units tall the stat panel, gold pill and CLOSEST TO UNLOCK
     // already reach the restart hint, so stacking a second panel pushes content off the
     // viewport. The run-end unlock/achievement/quest toasts draw at OverlayDepths.HUD,
-    // under this overlay, so this panel is the only place they are reported.
-    if (data.runEarnings && data.runEarnings.length > 0) {
+    // under this overlay, so this panel is the only place they are reported — as is
+    // everything the toast diet suppressed during the run.
+    const runRows = [...(data.runEarnings ?? []), ...(data.runNotices ?? [])];
+    if (runRows.length > 0) {
+      // Whatever still has to fit underneath: the restart hint always, plus each optional
+      // button below (REMATCH, COPY RESULT) at its 20 + 38 slot.
+      const tailReserve = 40 + (data.rematch ? 58 : 0) + (data.daily ? 58 : 0);
       contentBottomY = this.createRunEarningsPanel(
-        data.runEarnings,
+        runRows,
         centerX,
         contentBottomY + 18,
         depth,
-        animatedElements
+        animatedElements,
+        this.scene.scale.height - 24 - tailReserve
       );
     } else {
       // Between two "what you are close to" panels, the one with a deadline wins: today's
@@ -3475,23 +3523,30 @@ export class PauseMenuManager {
   }
 
   /**
-   * Renders an "EARNED THIS RUN" panel: what the run-end settle awarded, which is
-   * announced nowhere else (its toasts draw at OverlayDepths.HUD, under this overlay).
-   * Returns the new content bottom Y so the restart hint stacks below it.
+   * Renders a "THIS RUN" panel: what the run-end settle awarded, plus what the toast diet
+   * recorded instead of drawing, neither of which is announced anywhere else (both draw at
+   * OverlayDepths.HUD, under this overlay). Returns the new content bottom Y so the restart
+   * hint stacks below it. `bottomLimitY` is the lowest Y the panel may reach; the row count
+   * shrinks to respect it, but never below MIN_RUN_EARNING_ROWS.
    */
   private createRunEarningsPanel(
     earnings: RunEarning[],
     centerX: number,
     startY: number,
     depth: number,
-    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
+    animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[],
+    bottomLimitY: number
   ): number {
-    const maxRows = 3;
+    const rowHeight = 26;
+    const headerOffset = 18;
+    const rowsThatFit = Math.floor((bottomLimitY - startY - headerOffset - 28) / rowHeight);
+    const maxRows = Math.min(
+      MAX_RUN_EARNING_ROWS,
+      Math.max(MIN_RUN_EARNING_ROWS, rowsThatFit)
+    );
     const rows = earnings.slice(0, maxRows);
     const overflow = earnings.length - rows.length;
     const panelWidth = 340;
-    const rowHeight = 26;
-    const headerOffset = 18;
     const panelHeight = headerOffset + rows.length * rowHeight + (overflow > 0 ? 14 : 0) + 14;
 
     const panelBackground = this.scene.add.graphics();
@@ -3505,7 +3560,10 @@ export class PauseMenuManager {
     panelBackground.setDepth(depth).setScrollFactor(0);
     animatedElements.push(panelBackground);
 
-    const header = this.scene.add.text(centerX, startY + 6, 'EARNED THIS RUN', {
+    const headerLabel = earnings.some((earning) => earning.tag === 'FOUND')
+      ? 'THIS RUN'
+      : 'EARNED THIS RUN';
+    const header = this.scene.add.text(centerX, startY + 6, headerLabel, {
       fontSize: '12px',
       color: '#ffdd44',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
@@ -3549,10 +3607,13 @@ export class PauseMenuManager {
     });
 
     if (overflow > 0) {
+      const overflowNames = earnings.slice(rows.length).map((earning) => earning.name);
+      const named = overflowNames.slice(0, 3).join(' · ');
+      const overflowLine = `+${overflow} more:  ${named}${overflowNames.length > 3 ? ' …' : ''}`;
       const overflowText = this.scene.add.text(
         centerX,
         startY + headerOffset + 8 + rows.length * rowHeight,
-        `+${overflow} more`,
+        overflowLine.length > 58 ? `${overflowLine.slice(0, 55)}...` : overflowLine,
         {
           fontSize: '10px',
           color: '#8888aa',

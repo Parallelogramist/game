@@ -172,7 +172,7 @@ import {
 import { cargoLabelOf, droneLabelOf, getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
 import { questWorldStamp } from '../../systems/QuestProgress';
 import type { QuestEvent } from '../../systems/QuestProgress';
-import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
+import { buildRunEarnings, buildRunNotices, type EarlyRunEndRecord, type RunEarning } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
@@ -9943,6 +9943,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showVictory(): void {
+    const runNoticeRows = this.collectRunNotices();
     recordThreatCleared(this.threatLevel);
     this.hasWon = true;
     this.isPaused = true;
@@ -10092,6 +10093,7 @@ export class GameScene extends Phaser.Scene {
       goldLedger: runGoldLedger,
       questGold: runEndQuestGold,
       runEarnings,
+      runNotices: runNoticeRows,
       clearedWorld,
       newWorldLevel,
       previousStreak,
@@ -10213,6 +10215,7 @@ export class GameScene extends Phaser.Scene {
 
   private gameOver(): void {
     this.isGameOver = true;
+    const runNoticeRows = this.collectRunNotices();
 
     // Clean up boss warning elements
     this.cleanupBossWarning();
@@ -10457,6 +10460,7 @@ export class GameScene extends Phaser.Scene {
       goldLedger: runGoldLedger,
       questGold: runEndQuestGold,
       runEarnings,
+      runNotices: runNoticeRows,
       // Gauntlet deaths leave the streak untouched, so never show "Streak broken!" —
       // and neither does a practice death, which no longer breaks it.
       previousStreak: this.gauntletModeActive || practiceRun ? 0 : previousStreak,
@@ -10527,6 +10531,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * What the toast diet recorded instead of drawing this run. Read at the TOP of each
+   * run-end path, before the settle raises its own toasts: those become their own tagged
+   * rows, and reading afterwards would list every settled unlock and quest twice.
+   */
+  private collectRunNotices(): RunEarning[] {
+    if (this.practiceModeActive) return [];
+    return buildRunNotices(this.toastManager?.getSuppressed() ?? []);
+  }
+
+  /**
    * Records an early run end: pause menu, END RUN, Confirm. Ending a run is a real
    * run end (the save is cleared and the run's gold is banked), so it writes what
    * gameOver() writes, under the same `hasWon` guards: a run that already won and
@@ -10534,12 +10548,13 @@ export class GameScene extends Phaser.Scene {
    * Death-only work is absent on purpose. Nothing killed the player, so there is no
    * nemesis to persist, and the win streak is left intact (see POLISH-GOLD-TRUTH (h)).
    */
-  private recordEarlyRunEnd(goldEarned: number): Pick<RunEarningSources, 'unlocks' | 'achievements'> {
+  private recordEarlyRunEnd(goldEarned: number): EarlyRunEndRecord {
     // A practice run end records nothing — same reason as gameOver(). The gold and the
     // day's quest board are banked by the pause menu on this path, so it skips those
     // itself; everything else is skipped here.
-    if (this.practiceModeActive) return { unlocks: [], achievements: [] };
+    if (this.practiceModeActive) return { unlocks: [], achievements: [], notices: [] };
 
+    const runNoticeRows = this.collectRunNotices();
     const metaManager = getMetaProgressionManager();
     const worldLevel = metaManager.getWorldLevel();
     const highestComboThisRun = getHighestCombo();
@@ -10649,7 +10664,11 @@ export class GameScene extends Phaser.Scene {
       metaManager.recordRunCompleted();
     }
 
-    return { unlocks: newHiddenUnlocks, achievements: this.runEndAchievements ?? [] };
+    return {
+      unlocks: newHiddenUnlocks,
+      achievements: this.runEndAchievements ?? [],
+      notices: runNoticeRows,
+    };
   }
 
   /**
