@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
-  SECTOR_MARKS, SECTOR_MARK_CYCLE, nextSectorMarkKind, parseSectorMarkId, sectorMarkId,
+  MAX_SECTOR_NOTE_LENGTH, SECTOR_MARKS, SECTOR_MARK_CYCLE, nextSectorMarkKind, parseSectorMarkId,
+  sanitizeSectorNote, sectorMarkId,
 } from './sectorMarks';
 
 describe('sector marks', () => {
@@ -27,5 +28,23 @@ describe('sector marks', () => {
     const shapes = SECTOR_MARK_CYCLE.map(kind => SECTOR_MARKS[kind].shape);
     expect(shapes.filter(Boolean)).toHaveLength(SECTOR_MARK_CYCLE.length);
     expect(new Set(shapes).size).toBe(SECTOR_MARK_CYCLE.length);
+  });
+});
+
+describe('sector note text', () => {
+  test('a pasted multi-line note becomes one line', () => {
+    expect(sanitizeSectorNote('tether door\n\there   now')).toBe('tether door here now');
+  });
+
+  test('blank, whitespace-only and control-only notes are nothing, not empty strings', () => {
+    expect(sanitizeSectorNote('')).toBeNull();
+    expect(sanitizeSectorNote('   \n  ')).toBeNull();
+    expect(sanitizeSectorNote(' ')).toBeNull();
+  });
+
+  test('a long note is capped without splitting a character in half', () => {
+    const capped = sanitizeSectorNote('🛰'.repeat(MAX_SECTOR_NOTE_LENGTH + 10));
+    expect(Array.from(capped ?? '')).toHaveLength(MAX_SECTOR_NOTE_LENGTH);
+    expect(capped).toBe('🛰'.repeat(MAX_SECTOR_NOTE_LENGTH));
   });
 });

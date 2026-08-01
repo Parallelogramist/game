@@ -286,6 +286,18 @@ export function drawSectorMark(
   }
 }
 
+/** The tell that a mark carries words. It rides the mark's upper-right, the one side of the
+ *  bottom-left corner nothing else claims, and shares the mark's white so it reads as part of it
+ *  rather than as a seventh overlay. */
+export function drawSectorNoteDot(
+  graphics: Phaser.GameObjects.Graphics, markCentreX: number, markCentreY: number, size: number,
+): void {
+  graphics.fillStyle(PLAYER_MARK, 1);
+  graphics.fillCircle(
+    markCentreX + size * 1.1, markCentreY - size * 1.1, Math.max(1, size * 0.42),
+  );
+}
+
 /**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
@@ -336,6 +348,9 @@ export interface SectorMapDrawInput {
   /** What the player wrote on each sector, keyed by sector key. Required rather than optional,
    *  on the updatedObjectiveSectorKeys precedent. */
   markedSectorKinds: ReadonlyMap<string, SectorMarkKind>;
+  /** Marked sectors whose mark carries a typed note. Required rather than optional, on the
+   *  markedSectorKinds precedent: a call site that forgets it is a compile error. */
+  notedSectorKeys: ReadonlySet<string>;
   /** The subset of objectiveSectorKeys whose objective moved since the chart was last opened.
    *  Required rather than optional, on the hazardSectorKinds precedent: a call site that
    *  forgets it is a compile error rather than a silently unbadged map. */
@@ -425,8 +440,12 @@ export class SectorMapRenderer {
       const mark = input.markedSectorKinds.get(sector.key);
       if (mark) {
         const markSize = Math.max(3, 4.5 * input.view.scale);
-        drawSectorMark(graphics, mark,
-          cell.x + markSize + 3, cell.y + cell.height - markSize - 3, markSize);
+        const markX = cell.x + markSize + 3;
+        const markY = cell.y + cell.height - markSize - 3;
+        drawSectorMark(graphics, mark, markX, markY, markSize);
+        if (input.notedSectorKeys.has(sector.key)) {
+          drawSectorNoteDot(graphics, markX, markY, markSize);
+        }
       }
 
       this.drawPoiIcons(sector, input);

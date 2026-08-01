@@ -8,7 +8,8 @@
 
 import { SecureStorage } from '../storage';
 import { readArchivedWorld, writeArchivedWorld } from './worldArchive';
-import { parseSectorMarkId, sectorMarkId, SECTOR_MARK_ID_PATTERN } from './sectorMarks';
+import { parseSectorMarkId, sanitizeSectorNote, sectorMarkId,
+  SECTOR_MARK_ID_PATTERN } from './sectorMarks';
 import type { SectorMarkKind } from './sectorMarks';
 
 const STORAGE_KEY_WORLD_PROFILE = 'survivor-world-profile';
@@ -21,7 +22,12 @@ const MAX_REMEMBERED_BARRIERS = 2048;
  *  rather than a real one: no honest profile can reach it. */
 const MAX_SECTOR_MARKS = 128;
 
-const BARRIER_ID = /^(edge:-?\d+,-?\d+:(north|east|south|west)|breakable:-?\d+,-?\d+:\d+)$/;
+/** Same bound and the same reason as MAX_SECTOR_MARKS: at most one note per marked sector. */
+const MAX_SECTOR_NOTES = 128;
+
+const SECTOR_KEY = /^-?\d+,-?\d+$/;
+
+const BARRIER_ID =/^(edge:-?\d+,-?\d+:(north|east|south|west)|breakable:-?\d+,-?\d+:\d+)$/;
 const GRID_POI_ID = /^poi:-?\d+,-?\d+:\d+$/;
 
 export interface WorldProfileState {
@@ -37,6 +43,10 @@ export interface WorldProfileState {
    *  Optional in storage for the same reason `conquered` is: a payload written before this field
    *  shipped reads as an empty list, which is why WORLD_PROFILE_VERSION does NOT move. */
   markedSectorIds: string[];
+  /** What the player typed about a marked sector, keyed by `<gx>,<gy>`. Optional in storage for
+   *  the same reason `conquered` is: a payload written before this field shipped reads as no
+   *  notes, which is why WORLD_PROFILE_VERSION does NOT move. */
+  sectorNotes: Record<string, string>;
   /** True once this profile has killed this world's boss. Optional in storage on purpose:
    *  a payload written before this field shipped reads false, which is why
    *  WORLD_PROFILE_VERSION does NOT move: a bump would discard every remembered wall. */
@@ -48,6 +58,7 @@ function emptyProfile(worldSeed: number, worldGenVersion: number): WorldProfileS
     version: WORLD_PROFILE_VERSION, worldSeed, worldGenVersion, brokenBreakableIds: [],
     downedSecurityGridIds: [],
     markedSectorIds: [],
+    sectorNotes: {},
     conquered: false,
   };
 }
@@ -74,6 +85,17 @@ export function loadWorldProfile(
         const gridIds = Array.isArray(parsed.downedSecurityGridIds)
           ? parsed.downedSecurityGridIds : [];
         const markIds = Array.isArray(parsed.markedSectorIds) ? parsed.markedSectorIds : [];
+        const storedNotes = parsed.sectorNotes;
+        const sectorNotes: Record<string, string> = {};
+        if (storedNotes !== null && typeof storedNotes === 'object'
+          && !Array.isArray(storedNotes)) {
+          for (const [key, value] of Object.entries(storedNotes as Record<string, unknown>)) {
+            if (Object.keys(sectorNotes).length >= MAX_SECTOR_NOTES) break;
+            if (!SECTOR_KEY.test(key) || typeof value !== 'string') continue;
+            const note = sanitizeSectorNote(value);
+            if (note !== null) sectorNotes[key] = note;
+          }
+        }
         return {
           version: WORLD_PROFILE_VERSION,
           worldSeed,
@@ -87,6 +109,7 @@ export function loadWorldProfile(
           markedSectorIds: markIds
             .filter((id): id is string => typeof id === 'string' && SECTOR_MARK_ID_PATTERN.test(id))
             .slice(0, MAX_SECTOR_MARKS),
+          sectorNotes,
           conquered: parsed.conquered === true,
         };
       }
@@ -160,8 +183,10 @@ export function setSectorMark(
     id => parseSectorMarkId(id)?.sectorKey !== sector,
   );
   if (kind === null) {
-    if (remaining.length === profile.markedSectorIds.length) return true;
+    const hadNote = profile.sectorNotes[sector] !== undefined;
+    if (remaining.length === profile.markedSectorIds.length && !hadNote) return true;
     profile.markedSectorIds = remaining;
+    if (hadNote) delete profile.sectorNotes[sector];
     return saveWorldProfile(profile);
   }
   const id = sectorMarkId(sector, kind);
@@ -180,4 +205,30 @@ export function getSectorMarks(
     if (parsed) marks.set(parsed.sectorKey, parsed.kind);
   }
   return marks;
+}
+
+/** Writes one sector's note; `null`, or text that sanitizes to nothing, removes it. Returns false
+ *  when the write failed or the cap refused it, on setSectorMark's rule: a caller may never show a
+ *  note the store did not keep. */
+export function setSectorNote(
+  worldSeed: number, worldGenVersion: number, sector: string, note: string | null,
+): boolean {
+  if (!SECTOR_KEY.test(sector)) return false;
+  const profile = loadWorldProfile(worldSeed, worldGenVersion);
+  const cleaned = note === null ? null : sanitizeSectorNote(note);
+  if (cleaned === null) {
+    if (profile.sectorNotes[sector] === undefined) return true;
+    delete profile.sectorNotes[sector];
+    return saveWorldProfile(profile);
+  }
+  if (profile.sectorNotes[sector] === undefined
+    && Object.keys(profile.sectorNotes).length >= MAX_SECTOR_NOTES) return false;
+  profile.sectorNotes[sector] = cleaned;
+  return saveWorldProfile(profile);
+}
+
+export function getSectorNotes(
+  worldSeed: number, worldGenVersion: number,
+): Map<string, string> {
+  return new Map(Object.entries(loadWorldProfile(worldSeed, worldGenVersion).sectorNotes));
 }

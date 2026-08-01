@@ -13,12 +13,14 @@ import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
   drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawSectorMark,
-  drawVaultGuardRing,
+  drawSectorNoteDot, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
-import { getSectorMarks, setSectorMark } from '../../expedition/WorldProfileStore';
-import { SECTOR_MARKS, SECTOR_MARK_CYCLE,
-  nextSectorMarkKind } from '../../expedition/sectorMarks';
+import { getSectorMarks, getSectorNotes, setSectorMark,
+  setSectorNote } from '../../expedition/WorldProfileStore';
+import { MAX_SECTOR_NOTE_LENGTH, SECTOR_MARKS, SECTOR_MARK_CYCLE,
+  nextSectorMarkKind, sanitizeSectorNote } from '../../expedition/sectorMarks';
 import type { SectorMarkKind } from '../../expedition/sectorMarks';
+import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
@@ -67,6 +69,10 @@ export interface MapSceneData {
 const PAN_SPEED = 420;
 const HEADER_HEIGHT = 76;
 const FOOTER_HEIGHT = 44;
+/** Exactly the keys create() captures. Cleared and re-armed around the note field, because a
+ *  captured key is preventDefault-ed before the DOM input can ever see it, so W, A, S and D would
+ *  silently refuse to type. */
+const MAP_KEY_CAPTURES = 'W,A,S,D,UP,DOWN,LEFT,RIGHT';
 /** Rows the LEADS panel draws before it collapses the rest into a count. */
 const MAX_LEAD_ROWS = 4;
 /** Rows the LOCKED OUT panel draws before it collapses the rest into a count. Same cap and
@@ -148,6 +154,8 @@ export class MapScene extends Phaser.Scene {
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
   private markedSectorKinds: Map<string, SectorMarkKind> = new Map();
+  private sectorNotes: Map<string, string> = new Map();
+  private noteOverlayTeardown: (() => void) | null = null;
   private recallButton: MenuButton | null = null;
   private recallState: 'ready' | 'locked' | 'home' = 'ready';
   private detailHeadlineText!: Phaser.GameObjects.Text;
@@ -217,7 +225,7 @@ export class MapScene extends Phaser.Scene {
     const hintWidth = Math.max(120, width - 40 - RECALL_BUTTON_WIDTH);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
-      + '   ·   TAP A SECTOR   ·   P MARK   ·   R RECALL   ·   M / ESC CLOSE',
+      + '   ·   TAP A SECTOR   ·   P MARK   ·   N NOTE   ·   R RECALL   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
     this.questPins = [
@@ -285,6 +293,7 @@ export class MapScene extends Phaser.Scene {
     this.graphics.setDepth(1);
     this.mapRenderer = new SectorMapRenderer(this.graphics);
     this.markedSectorKinds = getSectorMarks(this.mapData.seed, this.mapData.worldGenVersion);
+    this.sectorNotes = getSectorNotes(this.mapData.seed, this.mapData.worldGenVersion);
 
     this.knownCells = [];
     for (const sector of this.mapData.sectors.values()) {
@@ -324,10 +333,12 @@ export class MapScene extends Phaser.Scene {
       this.panKeys.left = [cursors.left, keyboard.addKey('A')];
       this.panKeys.right = [cursors.right, keyboard.addKey('D')];
       this.keydownHandler = (event: KeyboardEvent) => {
+        if (this.noteOverlayTeardown) return;
         const key = event.key;
         if (key === 'm' || key === 'M' || key === 'Escape') { this.close(); return; }
         if (key === 'r' || key === 'R') { this.recall(); return; }
         if (key === 'p' || key === 'P') { this.cycleMark(); return; }
+        if (key === 'n' || key === 'N') { this.editNote(); return; }
         if (key === 'c' || key === 'C') { this.centreOnShip(); return; }
         if (key === '+' || key === '=') { this.stepZoom(1); return; }
         if (key === '-' || key === '_') this.stepZoom(-1);
@@ -572,6 +583,13 @@ export class MapScene extends Phaser.Scene {
         draw: (graphics, x, y) => drawSectorMark(graphics, kind, x, y, LEGEND_GLYPH_SIZE),
       });
     }
+    rows.push({
+      label: 'Note (yours)',
+      draw: (graphics, x, y) => {
+        drawSectorMark(graphics, SECTOR_MARK_CYCLE[0], x, y, LEGEND_GLYPH_SIZE);
+        drawSectorNoteDot(graphics, x, y, LEGEND_GLYPH_SIZE);
+      },
+    });
 
     const rowHeight = 20;
     const panelWidth = 196;
@@ -688,8 +706,10 @@ export class MapScene extends Phaser.Scene {
       return;
     }
     const markKind = this.markedSectorKinds.get(detail.sectorKey);
+    const note = this.sectorNotes.get(detail.sectorKey);
     const markClause = markKind
       ? `   ·   MARKED ${SECTOR_MARKS[markKind].label.toUpperCase()}`
+        + (note ? `   ·   "${note}"` : '')
       : '';
     this.detailHeadlineText.setText(
       `${detail.headline.toUpperCase()}   ·   ${detail.place.toUpperCase()}`
@@ -704,6 +724,7 @@ export class MapScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (this.closed) return;
+    if (this.noteOverlayTeardown) return;
     const seconds = delta * 0.001;
 
     let panX = 0;
@@ -825,10 +846,60 @@ export class MapScene extends Phaser.Scene {
     const key = sectorKey({ col: this.focusedCell.gridX, row: this.focusedCell.gridY });
     const next = nextSectorMarkKind(this.markedSectorKinds.get(key) ?? null);
     if (!setSectorMark(this.mapData.seed, this.mapData.worldGenVersion, key, next)) return;
-    if (next === null) this.markedSectorKinds.delete(key);
-    else this.markedSectorKinds.set(key, next);
+    if (next === null) {
+      this.markedSectorKinds.delete(key);
+      this.sectorNotes.delete(key);
+    } else this.markedSectorKinds.set(key, next);
     this.refreshDetail();
     this.viewDirty = true;
+  }
+
+  /** The typed half of a mark. The field is DOM over the canvas (the CodeEntryOverlay idiom), so
+   *  two things must stand down or the typing lands on the map instead of in the field: this
+   *  scene's own keydown handler and gamepad block, gated on noteOverlayTeardown, and the WASD /
+   *  cursor-key captures, which preventDefault those keys before any DOM input sees them. */
+  private editNote(): void {
+    if (!this.focusedCell || this.closed || this.noteOverlayTeardown) return;
+    const key = sectorKey({ col: this.focusedCell.gridX, row: this.focusedCell.gridY });
+    const existingKind = this.markedSectorKinds.get(key) ?? null;
+    const keyboard = this.input.keyboard;
+    keyboard?.clearCaptures();
+    const finish = (): void => {
+      this.noteOverlayTeardown = null;
+      keyboard?.addCapture(MAP_KEY_CAPTURES);
+      this.refreshDetail();
+      this.viewDirty = true;
+    };
+    this.noteOverlayTeardown = showCodeEntryOverlay<string | null>({
+      title: 'NOTE ON THIS SECTOR',
+      body: `Sector ${key}. Up to ${MAX_SECTOR_NOTE_LENGTH} characters.`
+        + ' Save an empty note to clear it.',
+      placeholder: this.sectorNotes.get(key) ?? 'tether door here',
+      submitLabel: 'SAVE NOTE',
+      autocapitalize: 'off',
+      decode: (typed) => ({ ok: true, value: sanitizeSectorNote(typed) }),
+      onSubmit: (note) => {
+        this.saveNote(key, existingKind, note);
+        finish();
+      },
+      onClose: finish,
+    });
+  }
+
+  /** A note needs a carrier on the chart, so writing one onto an unmarked sector places the first
+   *  cycle kind; the store owns the other half, where removing a mark removes its note. Refused
+   *  writes are not shown, on cycleMark's rule. */
+  private saveNote(
+    sector: string, existingKind: SectorMarkKind | null, note: string | null,
+  ): void {
+    if (note !== null && existingKind === null) {
+      const carrier = SECTOR_MARK_CYCLE[0];
+      if (!setSectorMark(this.mapData.seed, this.mapData.worldGenVersion, sector, carrier)) return;
+      this.markedSectorKinds.set(sector, carrier);
+    }
+    if (!setSectorNote(this.mapData.seed, this.mapData.worldGenVersion, sector, note)) return;
+    if (note === null) this.sectorNotes.delete(sector);
+    else this.sectorNotes.set(sector, note);
   }
 
   /** Every view mutation funnels through the pure clamp: the scene never clamps itself. */
@@ -857,6 +928,7 @@ export class MapScene extends Phaser.Scene {
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       objectiveSectorKeys: this.objectiveSectorKeys,
       markedSectorKinds: this.markedSectorKinds,
+      notedSectorKeys: new Set(this.sectorNotes.keys()),
       updatedObjectiveSectorKeys: this.updatedObjectiveSectorKeys,
       hintedSectorKeys: this.hintedSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,
@@ -884,6 +956,11 @@ export class MapScene extends Phaser.Scene {
   }
 
   shutdown(): void {
+    if (this.noteOverlayTeardown) {
+      this.noteOverlayTeardown();
+      this.noteOverlayTeardown = null;
+      this.input.keyboard?.addCapture(MAP_KEY_CAPTURES);
+    }
     if (this.keydownHandler) {
       this.input.keyboard?.off('keydown', this.keydownHandler);
       this.keydownHandler = null;

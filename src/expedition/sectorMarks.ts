@@ -48,3 +48,18 @@ export function parseSectorMarkId(
   if (!match) return null;
   return { sectorKey: match[1], kind: match[2] as SectorMarkKind };
 }
+
+/** A note is read back on the detail bar's one headline, so it is short by design and single-line
+ *  by construction: every control character and every whitespace run collapses to one space. */
+export const MAX_SECTOR_NOTE_LENGTH = 60;
+
+export function sanitizeSectorNote(raw: string): string | null {
+  let stripped = '';
+  for (const character of raw) {
+    const code = character.codePointAt(0) ?? 0;
+    stripped += code < 0x20 || code === 0x7f ? ' ' : character;
+  }
+  const characters = Array.from(stripped.replace(/\s+/g, ' ').trim());
+  const capped = characters.slice(0, MAX_SECTOR_NOTE_LENGTH).join('').trim();
+  return capped.length > 0 ? capped : null;
+}

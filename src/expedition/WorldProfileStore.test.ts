@@ -14,11 +14,13 @@ vi.mock('../storage', () => {
 import { SecureStorage } from '../storage';
 import {
   getSectorMarks,
+  getSectorNotes,
   isWorldConquered,
   loadWorldProfile,
   markWorldConquered,
   recordBrokenBarrier,
   setSectorMark,
+  setSectorNote,
 } from './WorldProfileStore';
 
 describe('world profile conquest', () => {
@@ -60,5 +62,34 @@ describe('world profile sector marks', () => {
     }));
     expect(loadWorldProfile(32, 1).brokenBreakableIds).toEqual(['edge:1,1:south']);
     expect(getSectorMarks(32, 1)).toEqual(new Map([['1,1', 'danger']]));
+  });
+});
+
+describe('world profile sector notes', () => {
+  test('a note replaces its sector, clears on null, and rides beside the marks', () => {
+    expect(setSectorMark(33, 1, '2,-1', 'danger')).toBe(true);
+    expect(setSectorNote(33, 1, '2,-1', '  boss killed me\ntwice  ')).toBe(true);
+    expect(setSectorNote(33, 1, '4,0', 'cache behind the rock')).toBe(true);
+    expect(getSectorNotes(33, 1)).toEqual(new Map([
+      ['2,-1', 'boss killed me twice'], ['4,0', 'cache behind the rock'],
+    ]));
+    expect(setSectorNote(33, 1, '2,-1', '   ')).toBe(true);
+    expect(getSectorNotes(33, 1)).toEqual(new Map([['4,0', 'cache behind the rock']]));
+    expect(getSectorMarks(33, 1)).toEqual(new Map([['2,-1', 'danger']]));
+  });
+
+  test('clearing a mark clears its note, and a payload written before notes shipped keeps its marks', () => {
+    SecureStorage.setItem('survivor-world-profile', JSON.stringify({
+      version: 1, worldSeed: 34, worldGenVersion: 1,
+      brokenBreakableIds: ['edge:1,1:south'],
+      markedSectorIds: ['mark:1,1:danger'],
+    }));
+    expect(getSectorNotes(34, 1)).toEqual(new Map());
+    expect(setSectorNote(34, 1, '1,1', 'tether door here')).toBe(true);
+    expect(setSectorMark(34, 1, '1,1', 'question')).toBe(true);
+    expect(getSectorNotes(34, 1)).toEqual(new Map([['1,1', 'tether door here']]));
+    expect(setSectorMark(34, 1, '1,1', null)).toBe(true);
+    expect(getSectorNotes(34, 1)).toEqual(new Map());
+    expect(loadWorldProfile(34, 1).brokenBreakableIds).toEqual(['edge:1,1:south']);
   });
 });
