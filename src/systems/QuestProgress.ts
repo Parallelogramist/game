@@ -1,6 +1,7 @@
 import type { ExpeditionQuestDefinition, QuestTrigger } from '../data/ExpeditionQuests';
 import type { SecretTier } from '../world/secretRewards';
 import type { SectorTag } from '../world/sectorTags';
+import type { PoiHazardKind } from '../data/PoiCatalog';
 
 /**
  * The pure expedition-quest state machine (doc 04 section 4). No Phaser, no storage, no
@@ -46,7 +47,11 @@ export type QuestEvent =
   | { kind: 'reachSector'; sectorKey: string; sectorTags: readonly SectorTag[]; worldStamp: string }
   /** ABSOLUTE unbroken seconds held in the sector whose tags these are, folded with max: a poll
    *  that repeats cannot double-credit, and leaving restarts the producer's count at 0. */
-  | { kind: 'surviveInSector'; sectorTags: readonly SectorTag[]; seconds: number };
+  | { kind: 'surviveInSector'; sectorTags: readonly SectorTag[]; seconds: number }
+  /** One cleared risk room, counted with +1 like a secret find. The producer fires once per
+   *  hive whose wave is dead and once per hunter killed AT a woken den, so there is nothing to
+   *  de-duplicate here. */
+  | { kind: 'clearHazard'; hazardKind: PoiHazardKind };
 
 export interface QuestStepCompletion {
   questId: string;
@@ -83,6 +88,9 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
         && (trigger.sectorTag === undefined || event.sectorTags.includes(trigger.sectorTag));
     case 'surviveInSector':
       return trigger.kind === 'surviveInSector' && event.sectorTags.includes(trigger.sectorTag);
+    case 'clearHazard':
+      return trigger.kind === 'clearHazard'
+        && (trigger.hazardKind === undefined || trigger.hazardKind === event.hazardKind);
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -125,6 +133,7 @@ function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
     // needs one visit that reaches the target.
     case 'surviveInSector':
       return { ...current, progress: Math.max(current.progress, event.seconds) };
+    case 'clearHazard': return { ...current, progress: current.progress + 1 };
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);

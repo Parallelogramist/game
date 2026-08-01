@@ -1,5 +1,6 @@
 import type { SecretTier } from '../world/secretRewards';
 import type { SectorTag } from '../world/sectorTags';
+import type { PoiHazardKind } from './PoiCatalog';
 
 /**
  * Expedition quest chains: multi-step objectives that span runs (doc 04 section 4).
@@ -12,7 +13,7 @@ import type { SectorTag } from '../world/sectorTags';
  */
 
 /**
- * A trigger names WHICH signal a step listens to. The seven kinds here are the seven the game
+ * A trigger names WHICH signal a step listens to. The eight kinds here are the eight the game
  * emits; doc 04's other two (escortDrone, deliverItem) have no producer yet and are
  * deliberately absent rather than inert.
  */
@@ -35,7 +36,14 @@ export type QuestTrigger =
   /** Doc 04 authors a `seconds` field beside the step's own `target`. The target IS the dwell
    *  in seconds here: one threshold in two fields is two sources of truth, and the shipped
    *  ticker renders `42/90` off the target for free. */
-  | { kind: 'surviveInSector'; sectorTag: SectorTag };
+  | { kind: 'surviveInSector'; sectorTag: SectorTag }
+  /** The two risk rooms (a523eca, 760ccc8). An omitted kind counts either fight, which is how a
+   *  breadth step is authored; a named one counts only that one. Doc 04 lists nine kinds and
+   *  this is not among them: the hive and the den were authored after that doc, and a trigger
+   *  the game already emits beats a ninth that nothing produces. A hazard's ROOM is rolled per
+   *  run into scene state, not into the catalog, so a step of this kind names no place and
+   *  therefore produces no chart pin and no radar bearing. */
+  | { kind: 'clearHazard'; hazardKind?: PoiHazardKind };
 
 export interface ExpeditionQuestStep {
   readonly id: string;
@@ -291,6 +299,55 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 340,
+  },
+  {
+    id: 'quest_purge_01',
+    name: 'Hive Clearance',
+    icon: 'spikes',
+    steps: [
+      {
+        id: 'q_purge_01.s1',
+        description: 'Clear two ambush hives on one expedition',
+        trigger: { kind: 'clearHazard', hazardKind: 'nest' },
+        target: 2,
+        scope: 'run',
+        goldReward: 100,
+      },
+      {
+        id: 'q_purge_01.s2',
+        description: 'Clear six ambush hives across your expeditions',
+        trigger: { kind: 'clearHazard', hazardKind: 'nest' },
+        target: 6,
+        scope: 'persistent',
+        goldReward: 160,
+      },
+    ],
+    completionGoldReward: 200,
+    nextQuestId: 'quest_purge_02',
+  },
+  {
+    id: 'quest_purge_02',
+    name: "The Hunter's Den",
+    icon: 'skull',
+    steps: [
+      {
+        id: 'q_purge_02.s1',
+        description: 'Kill the hunter at its lair',
+        trigger: { kind: 'clearHazard', hazardKind: 'lair' },
+        target: 1,
+        scope: 'persistent',
+        goldReward: 240,
+      },
+      {
+        id: 'q_purge_02.s2',
+        description: 'Clear ten risk rooms across your expeditions',
+        trigger: { kind: 'clearHazard' },
+        target: 10,
+        scope: 'persistent',
+        goldReward: 260,
+      },
+    ],
+    completionGoldReward: 320,
   },
 ];
 

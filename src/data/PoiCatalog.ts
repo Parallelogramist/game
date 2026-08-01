@@ -19,6 +19,14 @@ export type PoiContentId =
   | 'poi_shrine_fortune'
   | 'poi_shrine_sacrifice';
 
+/**
+ * The two risk rooms a Treasure slot rolls instead of loot: an ambush nest (a523eca) and a
+ * nemesis lair (760ccc8). It lives here rather than beside a renderer because the chart
+ * readout, the radar and the quest catalog all speak it, and this module is the only one all
+ * three may import without a cycle.
+ */
+export type PoiHazardKind = 'nest' | 'lair';
+
 export interface PoiContentDefinition {
   id: PoiContentId;
   /** The generator slot kind this entry may fill. */

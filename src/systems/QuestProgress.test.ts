@@ -351,3 +351,56 @@ describe('surviveInSector', () => {
     )).toEqual([]);
   });
 });
+
+describe('clearHazard', () => {
+  const HAZARD_DEFS: readonly ExpeditionQuestDefinition[] = [
+    {
+      id: 'quest_hive',
+      name: 'Hive',
+      icon: 'spikes',
+      steps: [{
+        id: 'q_hive.s1',
+        description: 'clear 2 hives',
+        trigger: { kind: 'clearHazard', hazardKind: 'nest' },
+        target: 2,
+        scope: 'run',
+        goldReward: 19,
+      }],
+      completionGoldReward: 70,
+    },
+    {
+      id: 'quest_purge',
+      name: 'Purge',
+      icon: 'skull',
+      steps: [{
+        id: 'q_purge.s1',
+        description: 'clear 2 risk rooms',
+        trigger: { kind: 'clearHazard' },
+        target: 2,
+        scope: 'persistent',
+        goldReward: 23,
+      }],
+      completionGoldReward: 80,
+    },
+  ];
+  const held = (questId: string): QuestInstanceState[] =>
+    [{ questId, stepIndex: 0, stepProgress: 0, status: 'active' }];
+
+  test('a hazard trigger matches only its named risk room', () => {
+    const wrong = recordQuestEvent(held('quest_hive'), HAZARD_DEFS,
+      { kind: 'clearHazard', hazardKind: 'lair' });
+    expect(wrong.states[0].stepProgress).toBe(0);
+    const right = recordQuestEvent(held('quest_hive'), HAZARD_DEFS,
+      { kind: 'clearHazard', hazardKind: 'nest' });
+    expect(right.states[0].stepProgress).toBe(1);
+  });
+
+  test('a hazard trigger naming no kind counts either fight', () => {
+    const first = recordQuestEvent(held('quest_purge'), HAZARD_DEFS,
+      { kind: 'clearHazard', hazardKind: 'nest' });
+    expect(first.states[0].stepProgress).toBe(1);
+    const second = recordQuestEvent(first.states, HAZARD_DEFS,
+      { kind: 'clearHazard', hazardKind: 'lair' });
+    expect(second.questCompletions).toEqual([{ questId: 'quest_purge', goldReward: 80 }]);
+  });
+});

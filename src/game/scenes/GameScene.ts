@@ -3870,7 +3870,10 @@ export class GameScene extends Phaser.Scene {
       // Killed at its den, so the den breaks open. The chest lands where the hunter fell, not
       // at the lair: the leash drags a chasing nemesis across the world, so a chest at the den
       // could be a reward the player never returns for.
-      if (this.breakOpenNemesisLair()) this.addTreasureChest(x, y, true, true);
+      if (this.breakOpenNemesisLair()) {
+        this.addTreasureChest(x, y, true, true);
+        this.recordExpeditionQuest({ kind: 'clearHazard', hazardKind: 'lair' });
+      }
     }
 
     // === TIERED DEATH EFFECTS ===
@@ -5234,6 +5237,7 @@ export class GameScene extends Phaser.Scene {
     nest.graphics.destroy();
     this.activeAmbushNests.splice(index, 1);
     this.addTreasureChest(nest.x, nest.y, true, true);
+    this.recordExpeditionQuest({ kind: 'clearHazard', hazardKind: 'nest' });
   }
 
   /** Teardown only: the wave is left to the world's own enemy teardown, because a nest's wave

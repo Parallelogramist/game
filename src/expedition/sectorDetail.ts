@@ -16,11 +16,12 @@ import { poiGlyphFor } from './poiGlyphs';
 import { getStageById } from '../data/Stages';
 import { getTraversalAbility } from '../data/TraversalAbilities';
 import { getQuestForKeyId } from '../data/ExpeditionQuests';
+import type { PoiHazardKind } from '../data/PoiCatalog';
 
-/** The two risk rooms a Treasure slot can roll instead of loot: a dormant ambush nest
- *  (a523eca) and a dormant nemesis lair (760ccc8). Both are run-scoped scene state, so a room
- *  this run has not entered names neither. */
-export type PoiHazardKind = 'nest' | 'lair';
+/** The two risk rooms a Treasure slot can roll instead of loot. Declared in the POI catalog,
+ *  which the quest catalog also reads; re-exported here so every map-side importer keeps its
+ *  existing import line. */
+export type { PoiHazardKind } from '../data/PoiCatalog';
 
 export interface SectorDetailInputs {
   map: WorldMap;
