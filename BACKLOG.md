@@ -517,7 +517,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   a consequence of the 72-unit card and is gone at 200. The orientation-flip requirement needed
   no code: the watcher restarts BootScene, and `shutdown()` already destroys an open submenu
   and its navigator. **Not verified in a browser:** files `POLISH-MENU-COLLAPSE`.
-- [ ] **POLISH-MENU-CONSOLIDATE** (menu chunk 3). Plan: merge DAILY + WEEKLY into one
+- [x] **POLISH-MENU-CONSOLIDATE** (menu chunk 3) (done, 106d1a1). Plan: merge DAILY + WEEKLY into one
   CHALLENGES card with two tap zones; trim the footer to SETTINGS, CREDITS, mute;
   move the PARALLELOGRAMIST and LEGAL external links into CreditsScene as link rows.
   Done: top-level tap targets <= 11 with a save present; focus traversal order
@@ -525,6 +525,26 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   pre-tap. Optional follow-up (cut freely): reopen an open submenu after an
   orientation flip by threading an `openSubmenu` id through the restart launchData the
   way `relayout: true` is threaded (`src/main.ts` orientation watcher).
+  **What shipped:** DAILY and WEEKLY are one card now, 596 design units wide, the exact
+  footprint the two 280-unit cards plus their 36-unit gap occupied, so nothing below the
+  challenge row moved by a pixel. The shared frame is neutral blue because `createMenuCard`
+  takes one body fill and one accent, and gold and magenta keep their identity inside their
+  own halves instead: an inset tinted panel, a focus ring, and the best-score badge pill. Each
+  half is its own hit zone with its own focus entry, so the card is one visual object and two
+  tap targets, and the banner keeps both titles verbatim (`DAILY CHALLENGE`,
+  `WEEKLY CHALLENGE`) rather than merging into one word, because a merged title would have
+  cost a fifth body row per half and the card cannot grow: landscape 1280x720 already clamps
+  the deck row against it. The card is built non-interactive so the halves own the input
+  (Phaser resolves only the topmost interactive object), and the press sink and spring the
+  rest of the menu has are kept by forwarding the pointer events to the card's inert hit zone,
+  where `createMenuCard` registers them. The footer dropped to SETTINGS, CREDITS and mute, and
+  PARALLELOGRAMIST and LEGAL moved into CreditsScene as two stacked, navigable link rows above
+  BACK, which stays the initially focused item. Top-level tap targets with a save present go
+  from 13 to 11 (hero, new-run link, DAILY, WEEKLY, three deck cards, SETTINGS, CREDITS, mute,
+  and the meta-stack tooltip card), and focus order reads hero, challenges, deck, footer. The
+  optional follow-up the item offered is cut as it allows, and filed as
+  `FEAT-MENU-SUBMENU-REOPEN` under `## Later`. **Not verified in a browser:** files
+  `POLISH-MENU-CONSOLIDATE`.
 
 #### Band C: UI/UX polish sweep (2026-08-01 review, 20 findings)
 
@@ -6314,6 +6334,11 @@ exploring pays is the end of Phase 5.
      `WORLD_ARCHIVE_VERSION`, no `WORLD_PROFILE_VERSION`, no `WORLDGEN_VERSION` and no
      `DISCOVERY_VERSION` bump**: a raised cap evicts nothing and reads every existing payload
      unchanged.
+- [ ] **FEAT-MENU-SUBMENU-REOPEN** (new 2026-08-01, cut from POLISH-MENU-CONSOLIDATE): an
+  orientation flip restarts BootScene, so an open GAME MODES or COLLECTION submenu closes and
+  the player lands back on the deck row. Thread an `openSubmenu` id through the restart
+  launchData the way `relayout: true` is already threaded (`src/main.ts` orientation watcher)
+  and reopen it in `create()`. Value: rotating a phone mid-menu currently loses your place.
 - [ ] **POLISH-RETURN-PAGE-JUMP** (new 2026-08-01, from FEAT-SEASON-RETURN-FULL-LIST): `MORE`
   walks one page at a time, so a full 20-world history is seven pages and the oldest world is
   six presses away. A `FIRST` button, or paging backwards on the left stick, would cost one
@@ -9478,6 +9503,19 @@ Never agent work. The fleet must not do any of these.
     visible beside CONTINUE, and is it discoverable there; (f) `GAME MODES` and `COLLECTION`
     are 10-character banner labels on a card sized for 8: do they fit at the operator's UI
     scale, or do they clip.
+  - **POLISH-MENU-CONSOLIDATE** (106d1a1): the merged challenge card and the trimmed
+    footer are reasoned entirely from the scale helpers, so opening the main menu on the
+    operator's real phone and desktop is the only way to know they read. Owns: (a) does one
+    card with two halves read as two choices, or as one card with a confusing split, and is
+    the divider plus the inset colour panels enough separation without a gap between them;
+    (b) the shared frame is neutral blue instead of gold and magenta: does the daily still
+    read as the gold one at a glance, or did the colour coding carry more than expected;
+    (c) is a half of a 596-unit card a comfortable thumb target in portrait, or does the
+    divider sit where a thumb lands; (d) does the per-half focus ring read clearly under
+    keyboard and gamepad, given the whole card lifts either way; (e) does the press sink now
+    scaling the whole card rather than one half feel wrong when tapping a half; (f) with
+    PARALLELOGRAMIST and LEGAL moved into CREDITS, are they still findable, or does the site
+    link want to stay on the main menu.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
