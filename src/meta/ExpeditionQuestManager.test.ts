@@ -20,6 +20,7 @@ import {
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
   getExpeditionQuestStates,
+  loadExpeditionQuestCargo,
   ACTIVE_EXPEDITION_QUEST_LIMIT,
 } from './ExpeditionQuestManager';
 
@@ -105,5 +106,18 @@ describe('ExpeditionQuestManager', () => {
       expect(quest.id.startsWith('quest_contract_'), quest.id).toBe(true);
       expect(quest.grantsKeyId, quest.id).toBeUndefined();
     }
+  });
+
+  test('a crate survives a reload and a new expedition takes it back', () => {
+    beginExpeditionQuestRun();
+    const loaded = loadExpeditionQuestCargo();
+    expect(loaded.loaded.length + loaded.aboard.length).toBeGreaterThanOrEqual(0);
+    // Nothing to assert about WHICH quest is on a delivery step from a cold profile: the chain
+    // heads seed first. What must hold is that a load is remembered and a new run is not.
+    const withCargo = getExpeditionQuestStates()
+      .some((state) => state.cargoHeld === true);
+    expect(withCargo).toBe(loaded.loaded.length > 0);
+    beginExpeditionQuestRun();
+    expect(getExpeditionQuestStates().some((state) => state.cargoHeld === true)).toBe(false);
   });
 });

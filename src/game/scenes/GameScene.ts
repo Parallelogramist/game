@@ -1089,13 +1089,17 @@ export class GameScene extends Phaser.Scene {
     const map = this.worldMode.worldMap();
     const sector = map?.sectors.get(payload.sectorKey);
     if (map && sector) {
+      const tags = sectorTagsOf(sector);
       this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
       this.recordExpeditionQuest({
         kind: 'reachSector',
         sectorKey: payload.sectorKey,
-        sectorTags: sectorTagsOf(sector),
+        sectorTags: tags,
         worldStamp: `${map.seed}:v${map.worldGenVersion}`,
       });
+      // A delivery lands on ARRIVAL, so the entry event is the producer. An arrival with an empty
+      // hold folds to nothing, which is why this is unconditional like the two above it.
+      this.recordExpeditionQuest({ kind: 'deliverItem', sectorTags: tags });
     }
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);

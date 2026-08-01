@@ -14,7 +14,9 @@ import {
   buildQuestMarkers,
   buildQuestHoldObjectives,
   buildQuestHazardObjectives,
+  loadQuestCargo,
   type QuestBoardEntry,
+  type QuestCargoRow,
   type QuestEvent,
   type QuestHazardObjective,
   type QuestHoldObjective,
@@ -126,6 +128,7 @@ function sanitizeStates(
     if (status !== 'complete' && stepIndex >= definition.steps.length) continue;
     const clampedIndex = Math.min(stepIndex, definition.steps.length);
     const isDistinctStep = definition.steps[clampedIndex]?.trigger.kind === 'reachSector';
+    const isDeliveryStep = definition.steps[clampedIndex]?.trigger.kind === 'deliverItem';
     // Set and stamp are kept or dropped together: a set whose world is unknown cannot be
     // checked against the live world, and a stamp with no set says nothing.
     const storedStamp = isDistinctStep ? sanitizeWorldStamp(entry.visitedWorldStamp) : undefined;
@@ -145,6 +148,9 @@ function sanitizeStates(
       status,
       visitedSectorKeys,
       visitedWorldStamp,
+      // A crate is only meaningful on the step that asks for it, so a stale flag from a
+      // re-authored catalog is dropped rather than carried onto whatever step is current now.
+      cargoHeld: isDeliveryStep && entry.cargoHeld === true ? true : undefined,
     });
   }
   return states;
@@ -293,6 +299,22 @@ export type { QuestBoardEntry } from '../systems/QuestProgress';
 export function getQuestBoardEntries(): QuestBoardEntry[] {
   const defs = questCatalog();
   return buildQuestBoardEntries(load(defs).states, defs, ACTIVE_EXPEDITION_QUEST_LIMIT);
+}
+
+export type { QuestCargoRow } from '../systems/QuestProgress';
+
+/**
+ * The walk-in board handing over what an active delivery objective asks for. Writes only when
+ * something actually loaded, so the board's re-render after an accept costs nothing.
+ */
+export function loadExpeditionQuestCargo(): { loaded: QuestCargoRow[]; aboard: QuestCargoRow[] } {
+  const defs = questCatalog();
+  const state = load(defs);
+  const result = loadQuestCargo(state.states, defs);
+  if (result.loaded.length > 0) {
+    save({ states: result.states, pendingGold: state.pendingGold });
+  }
+  return { loaded: result.loaded, aboard: result.aboard };
 }
 
 /** False when the cap refused the accept, which is what the board plays an error on. Banked gold

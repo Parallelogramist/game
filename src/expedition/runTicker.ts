@@ -35,8 +35,9 @@ export function buildRunTickerRows(inputs: RunTickerInputs): string[] {
   const rows: string[] = [];
   for (const view of inputs.views) {
     const updatedSuffix = inputs.updatedQuestIds.has(view.questId) ? ' · UPDATED' : '';
+    const note = view.note ? ` · ${view.note}` : '';
     rows.push(
-      `OBJECTIVE · ${view.stepDescription} ${view.progress}/${view.target}${updatedSuffix}`);
+      `OBJECTIVE · ${view.stepDescription} ${view.progress}/${view.target}${note}${updatedSuffix}`);
   }
   for (const lead of inputs.leads.slice(0, MAX_TICKER_LEADS)) {
     rows.push(`LEAD · ${lead.fragment.title.toUpperCase()} · ${lead.riddle}`);

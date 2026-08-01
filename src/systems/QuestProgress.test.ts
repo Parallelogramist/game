@@ -10,6 +10,7 @@ import {
   buildQuestMarkers,
   buildQuestHoldObjectives,
   buildQuestHazardObjectives,
+  loadQuestCargo,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -406,6 +407,60 @@ describe('clearHazard', () => {
     const second = recordQuestEvent(first.states, HAZARD_DEFS,
       { kind: 'clearHazard', hazardKind: 'lair' });
     expect(second.questCompletions).toEqual([{ questId: 'quest_purge', goldReward: 80 }]);
+  });
+});
+
+describe('deliverItem', () => {
+  const CARGO_DEFS: readonly ExpeditionQuestDefinition[] = [{
+    id: 'quest_run',
+    name: 'Run',
+    icon: 'clipboard',
+    steps: [{
+      id: 'quest_run.s1',
+      description: 'carry it out',
+      trigger: { kind: 'deliverItem', itemId: 'cargo_test_core', destinationTag: 'boss-arena' },
+      target: 1,
+      scope: 'run',
+      goldReward: 50,
+    }],
+    completionGoldReward: 100,
+  }];
+  const held: QuestInstanceState[] = [
+    { questId: 'quest_run', stepIndex: 0, stepProgress: 0, status: 'active' },
+  ];
+
+  test('an arrival with an empty hold is not a delivery', () => {
+    const result = recordQuestEvent(held, CARGO_DEFS,
+      { kind: 'deliverItem', sectorTags: ['boss-arena'] });
+    expect(result.stepCompletions).toEqual([]);
+    expect(result.states[0].stepProgress).toBe(0);
+  });
+
+  test('a crate aboard completes the step at the destination and is spent doing it', () => {
+    const loadedStates = loadQuestCargo(held, CARGO_DEFS).states;
+    expect(loadedStates[0].cargoHeld).toBe(true);
+    const wrongPlace = recordQuestEvent(loadedStates, CARGO_DEFS,
+      { kind: 'deliverItem', sectorTags: ['biome:stage_ion_field'] });
+    expect(wrongPlace.stepCompletions).toEqual([]);
+    expect(wrongPlace.states[0].cargoHeld).toBe(true);
+    const delivered = recordQuestEvent(loadedStates, CARGO_DEFS,
+      { kind: 'deliverItem', sectorTags: ['boss-arena'] });
+    expect(delivered.questCompletions).toEqual([{ questId: 'quest_run', goldReward: 100 }]);
+    expect(delivered.states[0].cargoHeld).toBeUndefined();
+  });
+
+  test('the death rule drops a crate even though the counter never moved', () => {
+    const loadedStates = loadQuestCargo(held, CARGO_DEFS).states;
+    expect(settleRunScopeProgress(loadedStates, CARGO_DEFS)[0].cargoHeld).toBeUndefined();
+  });
+
+  test('loading is idempotent and only ever loads an active delivery step', () => {
+    const first = loadQuestCargo(held, CARGO_DEFS);
+    expect(first.loaded).toEqual([{ questId: 'quest_run', itemId: 'cargo_test_core' }]);
+    const second = loadQuestCargo(first.states, CARGO_DEFS);
+    expect(second.loaded).toEqual([]);
+    expect(second.aboard).toEqual([{ questId: 'quest_run', itemId: 'cargo_test_core' }]);
+    expect(loadQuestCargo([active('quest_a', 0, 0)], DEFS).loaded).toEqual([]);
   });
 });
 

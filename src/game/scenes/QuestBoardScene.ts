@@ -8,10 +8,12 @@ import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { cargoLabelOf } from '../../data/ExpeditionQuests';
 import {
   ACTIVE_EXPEDITION_QUEST_LIMIT,
   acceptExpeditionQuest,
   getQuestBoardEntries,
+  loadExpeditionQuestCargo,
   setExpeditionQuestAside,
   type QuestBoardEntry,
 } from '../../meta/ExpeditionQuestManager';
@@ -43,6 +45,8 @@ export class QuestBoardScene extends Phaser.Scene {
   private activateHandlers: Array<() => void> = [];
   private contentContainer: Phaser.GameObjects.Container | null = null;
   private statusText: Phaser.GameObjects.Text | null = null;
+  private subtitleText: Phaser.GameObjects.Text | null = null;
+  private cargoNotice = '';
   private navigator: MenuNavigator | null = null;
   private leaveButton: MenuButton | null = null;
   private overlayUpdateHandler: ((time: number, delta: number) => void) | null = null;
@@ -61,6 +65,7 @@ export class QuestBoardScene extends Phaser.Scene {
     this.changed = false;
     this.resolved = false;
     this.focusedIndex = 0;
+    this.cargoNotice = '';
   }
 
   create(): void {
@@ -83,10 +88,12 @@ export class QuestBoardScene extends Phaser.Scene {
       letterSpacing: 3,
     }).setDepth(1);
 
-    makeBodyText(this, this.scale.width / 2, 118, 'Take on a contract, or set one aside for later', {
-      fontSize: 20,
-      color: TEXT_COLORS.muted,
-    }).setDepth(1);
+    this.subtitleText = makeBodyText(this, this.scale.width / 2, 118,
+      'Take on a contract, or set one aside for later', {
+        fontSize: 20,
+        color: TEXT_COLORS.muted,
+      });
+    this.subtitleText.setDepth(1);
 
     this.statusText = makeBodyText(this, this.scale.width / 2, 150, '', {
       fontSize: 18,
@@ -121,6 +128,25 @@ export class QuestBoardScene extends Phaser.Scene {
     this.cards = [];
     this.activateHandlers = [];
     this.contentContainer = this.add.container(0, 0);
+
+    // The board hands over what an active delivery asks for. Automatic rather than a second card
+    // action: the card's action slot is SET ASIDE's, and a second per-card action would either
+    // take it or need a new row type, which is a bigger layout change than the feature (the same
+    // call POLISH-DECRYPTOR-ACTIVE-BUTTON and FEAT-QUEST-SIEGE-HUD-TELL were cut on). Nothing is
+    // spent and nothing is forced, so consent is not needed to be handed a crate.
+    const cargo = loadExpeditionQuestCargo();
+    if (cargo.loaded.length > 0) {
+      this.changed = true;
+      for (const row of cargo.loaded) getDiscoveryManager().noteObjectiveUpdated(row.questId);
+    }
+    const labelsOf = (rows: readonly { itemId: string }[]): string =>
+      rows.map((row) => cargoLabelOf(row.itemId)).join(', ');
+    this.cargoNotice = cargo.loaded.length > 0
+      ? `CARGO LOADED · ${labelsOf(cargo.loaded)}`
+      : cargo.aboard.length > 0 ? `CARGO ABOARD · ${labelsOf(cargo.aboard)}` : '';
+    this.subtitleText?.setText(this.cargoNotice !== ''
+      ? this.cargoNotice
+      : 'Take on a contract, or set one aside for later');
 
     this.entries = getQuestBoardEntries();
     const activeCount = this.entries.filter((entry) => entry.status === 'active').length;
@@ -307,6 +333,7 @@ export class QuestBoardScene extends Phaser.Scene {
     this.leaveButton?.destroy();
     this.leaveButton = null;
     this.statusText = null;
+    this.subtitleText = null;
     this.tweens.killAll();
   }
 }

@@ -13,9 +13,9 @@ import type { PoiHazardKind } from './PoiCatalog';
  */
 
 /**
- * A trigger names WHICH signal a step listens to. The eight kinds here are the eight the game
- * emits; doc 04's other two (escortDrone, deliverItem) have no producer yet and are
- * deliberately absent rather than inert.
+ * A trigger names WHICH signal a step listens to. The nine kinds here are the nine the game
+ * emits; doc 04's last one (escortDrone) has no producer yet and is deliberately absent rather
+ * than inert, because it needs an escortable entity nothing spawns.
  */
 export type QuestTrigger =
   | { kind: 'kill' }
@@ -37,6 +37,13 @@ export type QuestTrigger =
    *  in seconds here: one threshold in two fields is two sources of truth, and the shipped
    *  ticker renders `42/90` off the target for free. */
   | { kind: 'surviveInSector'; sectorTag: SectorTag }
+  /** Doc 04 authors this as `{ itemId: string; destinationTag: string }`. The destination is the
+   *  same closed two-family `SectorTag` union `reachSector` uses, and the crate is NOT a world
+   *  entity: `cargoHeld` on the quest state is the whole of it, which is why this kind needed no
+   *  persistence-exemption API and did not wait on FEAT-WORLDGEN-STREAM. A step's `target` is the
+   *  number of deliveries, and each one spends the crate, so a second delivery needs a second
+   *  load at a board. */
+  | { kind: 'deliverItem'; itemId: string; destinationTag: SectorTag }
   /** The two risk rooms (a523eca, 760ccc8). An omitted kind counts either fight, which is how a
    *  breadth step is authored; a named one counts only that one. Doc 04 lists nine kinds and
    *  this is not among them: the hive and the den were authored after that doc, and a trigger
@@ -298,6 +305,18 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         scope: 'persistent',
         goldReward: 240,
       },
+      {
+        id: 'q_secret_02.s3',
+        description: 'Carry a ledger core out to the Ion Field',
+        trigger: {
+          kind: 'deliverItem',
+          itemId: 'cargo_ledger_core',
+          destinationTag: 'biome:stage_ion_field',
+        },
+        target: 1,
+        scope: 'run',
+        goldReward: 240,
+      },
     ],
     completionGoldReward: 340,
   },
@@ -348,6 +367,18 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         scope: 'persistent',
         goldReward: 260,
       },
+      {
+        id: 'q_purge_02.s3',
+        description: "Carry a purge charge to the warden's arena",
+        trigger: {
+          kind: 'deliverItem',
+          itemId: 'cargo_purge_charge',
+          destinationTag: 'boss-arena',
+        },
+        target: 1,
+        scope: 'run',
+        goldReward: 260,
+      },
     ],
     completionGoldReward: 320,
   },
@@ -355,6 +386,13 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
 
 export function getExpeditionQuest(questId: string): ExpeditionQuestDefinition | undefined {
   return EXPEDITION_QUESTS.find((quest) => quest.id === questId);
+}
+
+/** 'cargo_ledger_core' -> 'LEDGER CORE'. Derived rather than a second catalog field, because a
+ *  display name beside the id is two sources of truth for one thing.
+ *  referentialIntegrity.test.ts pins the `cargo_` prefix every itemId carries. */
+export function cargoLabelOf(itemId: string): string {
+  return itemId.replace(/^cargo_/, '').replace(/_/g, ' ').toUpperCase();
 }
 
 /** The generation input the expedition world consumes as WorldGenInputs.questKeyOrder.

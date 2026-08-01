@@ -32,6 +32,9 @@ export interface QuestInstanceState {
    *  regenerated world, so the set is dropped rather than added to when this does not match,
    *  which is what makes a 'persistent' distinct step safe. */
   visitedWorldStamp?: string;
+  /** True while a `deliverItem` step's crate is aboard. Absent for every other kind, and cleared
+   *  by the death rule, by SET ASIDE and by the delivery itself: the crate is spent on arrival. */
+  cargoHeld?: boolean;
 }
 
 /**
@@ -53,6 +56,10 @@ export type QuestEvent =
   /** ABSOLUTE unbroken seconds held in the sector whose tags these are, folded with max: a poll
    *  that repeats cannot double-credit, and leaving restarts the producer's count at 0. */
   | { kind: 'surviveInSector'; sectorTags: readonly SectorTag[]; seconds: number }
+  /** Every tag the entered sector answers to. The crate is what makes an arrival a DELIVERY, so
+   *  the hold is read by the fold and not by the match: arriving at the right place with an empty
+   *  hold must count nothing rather than count as a delivery. */
+  | { kind: 'deliverItem'; sectorTags: readonly SectorTag[] }
   /** One cleared risk room, counted with +1 like a secret find. The producer fires once per
    *  hive whose wave is dead and once per hunter killed AT a woken den, so there is nothing to
    *  de-duplicate here. */
@@ -93,6 +100,9 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
         && (trigger.sectorTag === undefined || event.sectorTags.includes(trigger.sectorTag));
     case 'surviveInSector':
       return trigger.kind === 'surviveInSector' && event.sectorTags.includes(trigger.sectorTag);
+    case 'deliverItem':
+      return trigger.kind === 'deliverItem'
+        && event.sectorTags.includes(trigger.destinationTag);
     case 'clearHazard':
       return trigger.kind === 'clearHazard'
         && (trigger.hazardKind === undefined || trigger.hazardKind === event.hazardKind);
@@ -108,6 +118,7 @@ interface StepProgress {
   progress: number;
   visitedSectorKeys?: readonly string[];
   visitedWorldStamp?: string;
+  cargoHeld?: boolean;
 }
 
 function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
@@ -138,6 +149,11 @@ function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
     // needs one visit that reaches the target.
     case 'surviveInSector':
       return { ...current, progress: Math.max(current.progress, event.seconds) };
+    // The crate is spent on the drop-off, so a step asking for two deliveries needs two loads.
+    case 'deliverItem':
+      return current.cargoHeld === true
+        ? { ...current, progress: current.progress + 1, cargoHeld: undefined }
+        : current;
     case 'clearHazard': return { ...current, progress: current.progress + 1 };
     default: {
       const unhandled: never = event;
@@ -175,6 +191,7 @@ export function recordQuestEvent(
         progress: state.stepProgress,
         visitedSectorKeys: state.visitedSectorKeys,
         visitedWorldStamp: state.visitedWorldStamp,
+        cargoHeld: state.cargoHeld,
       },
       event,
     );
@@ -182,6 +199,7 @@ export function recordQuestEvent(
       state.stepProgress = folded.progress;
       state.visitedSectorKeys = folded.visitedSectorKeys;
       state.visitedWorldStamp = folded.visitedWorldStamp;
+      state.cargoHeld = folded.cargoHeld;
       continue;
     }
 
@@ -194,6 +212,7 @@ export function recordQuestEvent(
     state.stepProgress = 0;
     state.visitedSectorKeys = undefined;
     state.visitedWorldStamp = undefined;
+    state.cargoHeld = undefined;
     if (state.stepIndex >= definition.steps.length) {
       state.status = 'complete';
       questCompletions.push({
@@ -297,6 +316,7 @@ export function setQuestAside(
     target.stepProgress = 0;
     target.visitedSectorKeys = undefined;
     target.visitedWorldStamp = undefined;
+    target.cargoHeld = undefined;
   }
   return { states: copied, changed: true };
 }
@@ -312,7 +332,9 @@ export function settleRunScopeProgress(
   const byId = new Map(defs.map((definition) => [definition.id, definition]));
   return states.map((state) => {
     if (state.status !== 'active') return state;
-    if (state.stepProgress === 0 && state.visitedSectorKeys === undefined) return state;
+    if (state.stepProgress === 0
+      && state.visitedSectorKeys === undefined
+      && state.cargoHeld !== true) return state;
     const step = byId.get(state.questId)?.steps[state.stepIndex];
     if (!step || step.scope === 'persistent') return state;
     return {
@@ -320,6 +342,7 @@ export function settleRunScopeProgress(
       stepProgress: 0,
       visitedSectorKeys: undefined,
       visitedWorldStamp: undefined,
+      cargoHeld: undefined,
     };
   });
 }
@@ -339,7 +362,13 @@ export interface QuestStepView {
   /** 1-based position of the current step within its quest. */
   stepNumber: number;
   stepCount: number;
+  /** A clause the ticker, the OBJECTIVES panel and nothing else render: what a delivery step is
+   *  waiting on. Absent for every kind that needs no second state to be legible. */
+  note?: string;
 }
+
+const CARGO_ABOARD_NOTE = 'CARGO ABOARD';
+const CARGO_COLLECT_NOTE = 'COLLECT AT A BOARD';
 
 export function buildQuestStepViews(
   states: readonly QuestInstanceState[],
@@ -360,6 +389,9 @@ export function buildQuestStepViews(
       target: step.target,
       stepNumber: state.stepIndex + 1,
       stepCount: definition.steps.length,
+      note: step.trigger.kind === 'deliverItem'
+        ? (state.cargoHeld === true ? CARGO_ABOARD_NOTE : CARGO_COLLECT_NOTE)
+        : undefined,
     });
   }
   return views;
@@ -393,6 +425,18 @@ export function buildQuestMarkers(
     const step = definition?.steps[state.stepIndex];
     if (!definition || !step) continue;
     const trigger = step.trigger;
+    if (trigger.kind === 'deliverItem') {
+      // An empty hold means the next place is a BOARD, and every charted board already draws its
+      // own QuestGiver glyph, so a destination pin here would name the wrong errand.
+      if (state.cargoHeld !== true) continue;
+      markers.push({
+        questId: definition.id,
+        label: definition.name,
+        icon: definition.icon,
+        sectorTag: trigger.destinationTag,
+      });
+      continue;
+    }
     if (trigger.kind !== 'reachSector' && trigger.kind !== 'surviveInSector') continue;
     // A tagless breadth step names no place, so there is nothing to pin and nothing to bear on.
     if (trigger.sectorTag === undefined) continue;
@@ -536,4 +580,49 @@ export function buildQuestBoardEntries(
     ...entries.filter((entry) => entry.status !== 'complete'),
     ...entries.filter((entry) => entry.status === 'complete'),
   ];
+}
+
+export interface QuestCargoRow {
+  questId: string;
+  itemId: string;
+}
+
+export interface QuestCargoLoad {
+  states: QuestInstanceState[];
+  /** Crates this call just handed over. */
+  loaded: QuestCargoRow[];
+  /** Crates already aboard before this call, so the board can say so without loading twice. */
+  aboard: QuestCargoRow[];
+}
+
+/**
+ * What a walk-in board hands over: the crate for every ACTIVE quest whose current step is a
+ * delivery. Idempotent, which is what lets the board call it on every re-render: a crate already
+ * aboard is reported in `aboard` and never re-loaded, so nothing is duplicated and no state moves.
+ *
+ * The board issues the crate rather than a world pickup doing it: the crate is a boolean on the
+ * quest state, so there is no entity to rematerialize after a refresh and no serializer exemption
+ * to ask FEAT-WORLDGEN-STREAM for.
+ */
+export function loadQuestCargo(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestCargoLoad {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const next = states.map((state) => ({ ...state }));
+  const loaded: QuestCargoRow[] = [];
+  const aboard: QuestCargoRow[] = [];
+  for (const state of next) {
+    if (state.status !== 'active') continue;
+    const step = byId.get(state.questId)?.steps[state.stepIndex];
+    if (step?.trigger.kind !== 'deliverItem') continue;
+    const row = { questId: state.questId, itemId: step.trigger.itemId };
+    if (state.cargoHeld === true) {
+      aboard.push(row);
+      continue;
+    }
+    state.cargoHeld = true;
+    loaded.push(row);
+  }
+  return { states: next, loaded, aboard };
 }

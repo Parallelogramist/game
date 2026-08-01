@@ -413,8 +413,9 @@ export class MapScene extends Phaser.Scene {
           ? '   · PINNED ON THE CHART'
           : '   · NOT YET CHARTED')
         : '';
+      const note = view.note ? `   · ${view.note}` : '';
       const detail = makeBodyText(this, panelX + 14, cursorY,
-        `${view.stepDescription}   ${view.progress}/${view.target}${pinned}`,
+        `${view.stepDescription}   ${view.progress}/${view.target}${note}${pinned}`,
         { fontSize: 12, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
         .setOrigin(0, 0).setDepth(4);
       cursorY += detail.height + 12;

@@ -293,6 +293,14 @@ describe('expedition quest data rules', () => {
           expect(step.target, step.id).toBeLessThanOrEqual(180);
           expectSectorTagResolves(step.trigger.sectorTag, step.id);
         }
+        if (step.trigger.kind === 'deliverItem') {
+          // Each delivery spends its crate and needs another board visit, so more than two in one
+          // step is a courier chore rather than an objective.
+          expect(step.target, step.id).toBeLessThanOrEqual(2);
+          expectSectorTagResolves(step.trigger.destinationTag, step.id);
+          // cargoLabelOf strips this prefix to build the board's display name.
+          expect(step.trigger.itemId.startsWith('cargo_'), step.id).toBe(true);
+        }
         if (step.scope !== 'run') continue;
         if (step.trigger.kind === 'kill') expect(step.target, step.id).toBeLessThanOrEqual(800);
         if (step.trigger.kind === 'openGate') expect(step.target, step.id).toBeLessThanOrEqual(4);
