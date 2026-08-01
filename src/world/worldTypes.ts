@@ -13,7 +13,11 @@
 import { SECTOR_WIDTH, SECTOR_HEIGHT } from './worldSpace';
 import type { WorldRect } from './worldSpace';
 
-/** Bump when generator output would change for a given seed. */
+/** Bump when a change would INVALIDATE stored state, not merely change output. Discovery is
+ *  keyed on sector keys, edge ids and POI ids and broken barriers on rect ids, so a pass that
+ *  moves none of those needs no bump: quest doors, hidden sectors and secret shells all
+ *  changed what a seed generates without one. A bump discards every profile's discovery state
+ *  and orphans every archived world. */
 export const WORLDGEN_VERSION = 3;
 
 export const TILE_SIZE = 40;
@@ -73,6 +77,9 @@ export interface PoiSlot {
   tileX: number;
   tileY: number;
   grantsAbilityId?: string;
+  /** Secret slots only: the cache sits in a pocket ringed by breakable tiles, so it has to be
+   *  broken into. Set by sectorInterior's sealing pass, never stored. */
+  sealed?: boolean;
 }
 
 export interface BreakableRect {

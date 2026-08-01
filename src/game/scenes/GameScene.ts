@@ -62,6 +62,7 @@ import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { sectorTagsOf } from '../../world/sectorTags';
+import { isSecretShellIntact, secretShellRingIndices } from '../../world/sectorInterior';
 import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
@@ -653,6 +654,9 @@ export class GameScene extends Phaser.Scene {
     secretId: string; reward: SecretRewardDefinition;
     graphics: Phaser.GameObjects.Graphics; x: number; y: number;
     puzzle: ActiveSecretPuzzle | null;
+    /** Set only for a walled cache. `tiles` is the live sector array a break mutates, and the
+     *  indices are precomputed so the per-frame read allocates nothing. */
+    shell: { tiles: Uint8Array; ringIndices: number[] } | null;
   }[] = [];
   /** Walk-in quest boards for the sector the ship is in, the syncAbilityVaults shape. The board
    *  is the QuestGiver slot's consumer; it holds no per-profile state of its own, so nothing
@@ -5215,6 +5219,12 @@ export class GameScene extends Phaser.Scene {
       const puzzle = buildSecretPuzzle({
         worldSeed: map.seed, secretId: slot.id, depth: sector.depth,
       });
+      const shell = slot.sealed === true
+        ? {
+          tiles: sector.tiles,
+          ringIndices: secretShellRingIndices(slot.tileX, slot.tileY),
+        }
+        : null;
       this.addSecretCache(
         slot.id,
         rollSecretReward({
@@ -5225,6 +5235,7 @@ export class GameScene extends Phaser.Scene {
         sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
         puzzle,
         sector,
+        shell,
       );
     }
   }
@@ -5232,6 +5243,7 @@ export class GameScene extends Phaser.Scene {
   private addSecretCache(
     secretId: string, reward: SecretRewardDefinition, x: number, y: number,
     puzzle: SecretPuzzle | null, sector: SectorDef,
+    shell: { tiles: Uint8Array; ringIndices: number[] } | null,
   ): void {
     const graphics = this.add.graphics();
     graphics.setPosition(x, y);
@@ -5241,6 +5253,7 @@ export class GameScene extends Phaser.Scene {
     this.activeSecretCaches.push({
       secretId, reward, graphics, x, y,
       puzzle: puzzle ? this.buildActivePuzzle(puzzle, x, y, sector) : null,
+      shell,
     });
   }
 
@@ -5948,7 +5961,9 @@ export class GameScene extends Phaser.Scene {
    * Fades a cache in on a quadratic ramp as the ship closes, so the far edge of the sense
    * radius is a hint you can miss and the last stride is unmistakable. Alpha and scale only:
    * the cache is never added to physics, so an unfound one costs nothing but a draw. A sealed
-   * cache holds at half that alpha and refuses the walk-in until its ring is woken.
+   * cache holds at half that alpha and refuses the walk-in until its ring is woken. A WALLED
+   * cache draws nothing at all until its shell has a hole, because there the break IS the
+   * reveal; the 44 px claim is out of reach through the wall anyway.
    */
   private updateSecretCaches(playerX: number, playerY: number): void {
     if (this.activeSecretCaches.length === 0) return;
@@ -5957,6 +5972,11 @@ export class GameScene extends Phaser.Scene {
     const shimmer = 0.75 + Math.sin(this.gameTime * 3.1) * 0.25;
     for (let i = this.activeSecretCaches.length - 1; i >= 0; i--) {
       const cache = this.activeSecretCaches[i];
+      if (cache.shell !== null
+        && isSecretShellIntact(cache.shell.tiles, cache.shell.ringIndices)) {
+        if (cache.graphics.alpha !== 0) cache.graphics.setAlpha(0);
+        continue;
+      }
       // The ring is read every frame at any distance: the pylons are the tell that a cache is
       // in this room, so unlike the cache itself they never fade out.
       if (cache.puzzle && this.updateSecretPuzzle(cache.puzzle, playerX, playerY)) {
@@ -6291,7 +6311,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.toastManager?.showToast({
       title: lead.fragment.title.toUpperCase(),
-      description: lead.sigils ? `${lead.riddle}  ${lead.sigils}` : lead.riddle,
+      description: [lead.riddle, lead.sigils, lead.wall].filter(Boolean).join('  '),
       icon: lead.fragment.icon,
       color: WORLD_GEOMETRY_COLORS.breakable.stroke,
       duration: 4600,

@@ -127,6 +127,8 @@ export function generateWorld(seed: number, inputs: WorldGenInputs): WorldMap {
       isStart: sector.key === START_KEY,
       isBossArena: sector.isBossArena,
       grantedAbilityIds: abilitySlotBySector.get(sector.key) ?? [],
+      worldSeed: seed,
+      depth: sector.depth,
     });
     sectorDefs.set(sector.key, {
       sx: sector.sx,

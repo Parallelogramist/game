@@ -20,6 +20,7 @@ import {
 } from './worldTypes';
 import type { EdgeDef, EdgeDirection, SectorDef, SectorKey, WorldGenInputs, WorldMap } from './worldTypes';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, sectorRectWorld } from './worldSpace';
+import { secretShellRingIndices } from './sectorInterior';
 
 const SEEDS = Array.from({ length: 100 }, (_, index) => index * 7919 + 12345);
 const INPUTS: WorldGenInputs = {
@@ -126,12 +127,13 @@ function expectedMouthTile(kind: EdgeKind): TileKind {
 }
 
 function floodTiles(
-  tiles: Uint8Array, seedX: number, seedY: number
+  tiles: Uint8Array, seedX: number, seedY: number, breakablesPassable = false
 ): Set<number> {
   const reached = new Set<number>();
   const seedIndex = tileIndex(seedX, seedY);
   const passable = (index: number) =>
-    tiles[index] === TileKind.Open || tiles[index] === TileKind.HazardFloor;
+    tiles[index] === TileKind.Open || tiles[index] === TileKind.HazardFloor
+    || (breakablesPassable && tiles[index] === TileKind.Breakable);
   if (!passable(seedIndex)) return reached;
   reached.add(seedIndex);
   const queue = [seedIndex];
@@ -253,7 +255,7 @@ describe('invariant 5 — interior connectivity', () => {
       for (const sector of map.sectors.values()) {
         const seed = firstEntryTile(sector);
         expect(seed).toBeDefined();
-        const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY);
+        const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY, true);
         for (const direction of EDGE_DIRECTIONS) {
           const entry = sector.entryTiles[direction];
           if (entry) expect(reached.has(tileIndex(entry.tileX, entry.tileY))).toBe(true);
@@ -263,6 +265,32 @@ describe('invariant 5 — interior connectivity', () => {
         }
       }
     }
+  });
+
+  // The only POI a wall may stand in front of is a sealed cache: a shell is the one pass that
+  // puts breakable tiles between an entry tile and a slot, and it must never reach another.
+  it('leaves only sealed caches behind breakable tiles', () => {
+    const behindAWall: string[] = [];
+    for (const map of WORLDS) {
+      for (const sector of map.sectors.values()) {
+        const seed = firstEntryTile(sector);
+        const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY);
+        for (const direction of EDGE_DIRECTIONS) {
+          const entry = sector.entryTiles[direction];
+          if (entry) expect(reached.has(tileIndex(entry.tileX, entry.tileY))).toBe(true);
+        }
+        for (const slot of sector.poiSlots) {
+          if (reached.has(tileIndex(slot.tileX, slot.tileY))) {
+            expect(slot.sealed).not.toBe(true);
+            continue;
+          }
+          if (slot.kind !== PoiKind.Secret || slot.sealed !== true) {
+            behindAWall.push(`seed ${map.seed} sector ${sector.key} slot ${slot.id}`);
+          }
+        }
+      }
+    }
+    expect(behindAWall).toEqual([]);
   });
 });
 
@@ -548,6 +576,62 @@ describe('invariant 10: hidden sectors', () => {
         }
       }
     });
+  });
+});
+
+describe('invariant 11: sealed secret caches', () => {
+  it('rings every sealed cache with registered breakables and leaves its pocket open', () => {
+    let sealed = 0;
+    for (const map of WORLDS) {
+      for (const sector of map.sectors.values()) {
+        const rectAt = new Map<number, typeof sector.breakables[number]>();
+        for (const rect of sector.breakables) {
+          for (let offsetY = 0; offsetY < rect.tileH; offsetY++) {
+            for (let offsetX = 0; offsetX < rect.tileW; offsetX++) {
+              rectAt.set(tileIndex(rect.tileX + offsetX, rect.tileY + offsetY), rect);
+            }
+          }
+        }
+        for (const slot of sector.poiSlots) {
+          if (slot.sealed !== true) continue;
+          sealed++;
+          expect(slot.kind).toBe(PoiKind.Secret);
+          expect(sector.isBossArena).toBe(false);
+          for (let tileY = slot.tileY - 1; tileY <= slot.tileY + 1; tileY++) {
+            for (let tileX = slot.tileX - 1; tileX <= slot.tileX + 1; tileX++) {
+              expect(sector.tiles[tileIndex(tileX, tileY)]).toBe(TileKind.Open);
+            }
+          }
+          const ring = secretShellRingIndices(slot.tileX, slot.tileY);
+          expect(ring).toHaveLength(16);
+          for (const index of ring) {
+            const kind = sector.tiles[index];
+            expect(kind === TileKind.Solid || kind === TileKind.Breakable).toBe(true);
+            if (kind !== TileKind.Breakable) continue;
+            // A breakable tile no rect covers is unbreakable in the run. The ring may reuse a
+            // carved pocket's cells, so the covering rect is 1x1 only when the shell made it.
+            expect(rectAt.get(index)).toBeDefined();
+          }
+        }
+      }
+    }
+    expect(sealed).toBeGreaterThan(100);
+  });
+
+  // Shell cells are appended after carveBreakablePockets, so every pocket keeps the id a
+  // profile already remembers breaking. Nothing else pins that ordering.
+  it('appends shell cells after every carved pocket', () => {
+    for (const map of WORLDS) {
+      for (const sector of map.sectors.values()) {
+        let seenShellCell = false;
+        sector.breakables.forEach((rect, index) => {
+          expect(rect.id).toBe(`breakable:${sector.sx},${sector.sy}:${index}`);
+          const isShellCell = rect.tileW === 1 && rect.tileH === 1;
+          if (isShellCell) seenShellCell = true;
+          else expect(seenShellCell).toBe(false);
+        });
+      }
+    }
   });
 });
 

@@ -9,7 +9,9 @@
  * pipeline a caller composes.
  */
 
+import { hashStringToSeed, mulberry32 } from '../utils/dailySeed';
 import type { SeededRng } from '../utils/dailySeed';
+import { buildSecretPuzzle } from './secretPuzzles';
 import {
   EDGE_DIRECTIONS,
   EdgeKind,
@@ -42,6 +44,11 @@ export interface SectorInteriorInput {
   isBossArena: boolean;
   /** Ability ids this sector must host an AbilityPowerUp slot for, in order. */
   grantedAbilityIds: string[];
+  /** WorldMap.seed. Only the secret-sealing pass reads it, and only through its own hash, so
+   *  it never touches the sector rng stream. */
+  worldSeed: number;
+  /** SectorDef.depth. Passed through to buildSecretPuzzle's share draw. */
+  depth: number;
 }
 
 export interface SectorInteriorResult {
@@ -60,6 +67,12 @@ const POI_MIN_SEPARATION = 3;
 const POI_PLACEMENT_ATTEMPTS = 30;
 const DECORATION_ATTEMPTS = 20;
 const BOSS_MIN_OPEN_TILES = Math.ceil(0.65 * SECTOR_TILE_COUNT);
+
+/** Share of the caches no sigil ring already seals that hide behind a false wall instead.
+ *  Measured over 101 worlds the three find-shapes land at 47% walk-in, 29% ring, 23% wall:
+ *  a quarter of the selected candidates are rejected by the footprint and flood guards below. */
+const SECRET_WALL_SHARE_PERCENT = 45;
+const SECRET_SHELL_RADIUS = 2;
 
 const RANDOM_POI_KINDS: readonly PoiKind[] = [
   PoiKind.QuestGiver, PoiKind.Secret, PoiKind.Treasure, PoiKind.Shrine,
@@ -91,6 +104,12 @@ export function buildSectorInterior(input: SectorInteriorInput): SectorInteriorR
   const breakables = isBossArena ? [] : carveBreakablePockets(tiles, rng, sx, sy);
   if (input.danger >= 0.3) {
     stampHazardStrips(tiles, rng, input.danger, protectedTileIndices, apertureTileIndices);
+  }
+  // LAST, and it draws no rng from `rng`: anything after it that reads tiles would start
+  // taking different branches on the same rolls, which moves every existing world.
+  if (!isBossArena) {
+    sealSecretCaches(tiles, poiSlots, breakables, entryTiles,
+      apertureTileIndices, protectedTileIndices, input);
   }
 
   return { tiles, entryTiles, poiSlots, breakables };
@@ -531,4 +550,156 @@ function isHazardRunLegal(
     if (protectedTileIndices.has(index) || apertureTileIndices.has(index)) return false;
   }
   return true;
+}
+
+/** The 16 ring cells two tiles out from a cache, as tile indices. A legal POI tile is always
+ *  2..cols-3 by 2..rows-3, so a real slot always yields 16; a hand-built SectorDef may not. */
+export function secretShellRingIndices(tileX: number, tileY: number): number[] {
+  const indices: number[] = [];
+  for (let offsetY = -SECRET_SHELL_RADIUS; offsetY <= SECRET_SHELL_RADIUS; offsetY++) {
+    for (let offsetX = -SECRET_SHELL_RADIUS; offsetX <= SECRET_SHELL_RADIUS; offsetX++) {
+      if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== SECRET_SHELL_RADIUS) continue;
+      const x = tileX + offsetX;
+      const y = tileY + offsetY;
+      if (x < 0 || x >= SECTOR_TILE_COLS || y < 0 || y >= SECTOR_TILE_ROWS) continue;
+      indices.push(tileIndex(x, y));
+    }
+  }
+  return indices;
+}
+
+/** The 3x3 pocket a shell encloses, as tile indices. */
+function secretPocketIndices(tileX: number, tileY: number): number[] {
+  const indices: number[] = [];
+  for (let y = tileY - 1; y <= tileY + 1; y++) {
+    for (let x = tileX - 1; x <= tileX + 1; x++) {
+      if (x < 0 || x >= SECTOR_TILE_COLS || y < 0 || y >= SECTOR_TILE_ROWS) continue;
+      indices.push(tileIndex(x, y));
+    }
+  }
+  return indices;
+}
+
+/** True while every ring cell still blocks: one broken cell is the way in. Takes precomputed
+ *  indices so a caller can read it every frame without allocating. */
+export function isSecretShellIntact(
+  tiles: Uint8Array, ringIndices: readonly number[]
+): boolean {
+  return ringIndices.every(index => !isPassable(tiles[index]));
+}
+
+/**
+ * Rings some of a sector's cache slots with breakable tiles, so the cache has to be broken
+ * into rather than drifted past (doc 04 section 5 taxonomy row 1).
+ *
+ * Deliberately best-effort and silent about it: a slot whose footprint reaches an aperture
+ * band or a neighbouring slot's cleared neighbourhood, whose ring a hazard strip crosses, or
+ * whose seal would strand anything stays an ordinary walk-in. Sealing 100% of a share is worth
+ * less than the guarantee that nothing is ever cut off, and a rejected slot is still a cache.
+ *
+ * Consumes no rng from the sector stream (see buildSectorInterior) and converts only passable
+ * tiles, never Solid: turning rock breakable would open a route the gate-order invariants
+ * proved did not exist.
+ */
+function sealSecretCaches(
+  tiles: Uint8Array,
+  poiSlots: PoiSlot[],
+  breakables: BreakableRect[],
+  entryTiles: Partial<Record<EdgeDirection, TileCoord>>,
+  apertureTileIndices: Set<number>,
+  protectedTileIndices: Set<number>,
+  input: SectorInteriorInput,
+): void {
+  let floodSeed: TileCoord | undefined;
+  for (const direction of EDGE_DIRECTIONS) {
+    const entry = entryTiles[direction];
+    if (entry) { floodSeed = entry; break; }
+  }
+  if (!floodSeed) return;
+
+  for (const slot of poiSlots) {
+    if (slot.kind !== PoiKind.Secret) continue;
+    if (buildSecretPuzzle({
+      worldSeed: input.worldSeed, secretId: slot.id, depth: input.depth,
+    }) !== null) continue;
+    const shareRng = mulberry32(hashStringToSeed(`secretWall:${input.worldSeed}:${slot.id}`));
+    if (shareRng() * 100 >= SECRET_WALL_SHARE_PERCENT) continue;
+
+    const ringIndices = secretShellRingIndices(slot.tileX, slot.tileY);
+    const pocketIndices = secretPocketIndices(slot.tileX, slot.tileY);
+    if (ringIndices.length !== 16 || pocketIndices.length !== 9) continue;
+    if (ringIndices.some(index => apertureTileIndices.has(index))) continue;
+    if (pocketIndices.some(index => apertureTileIndices.has(index))) continue;
+    // The ring sits two tiles out, so it never reaches this cache's own cleared neighbourhood,
+    // but it can reach a neighbouring slot's or an entry tile's, and those must stay walkable
+    // (invariant 6). Same guard isHazardRunLegal uses, for the same reason.
+    if (ringIndices.some(index => protectedTileIndices.has(index))) continue;
+    // A pocket cell already Breakable means an earlier slot's shell reached into this one.
+    if (pocketIndices.some(index => tiles[index] !== TileKind.Open)) continue;
+    // A hazard strip crossing the ring is a passable gap the seal cannot close.
+    if (ringIndices.some(index => tiles[index] === TileKind.HazardFloor)) continue;
+    const openRing = ringIndices.filter(index => tiles[index] === TileKind.Open);
+    if (openRing.length === 0) continue;
+
+    const reachedBefore = floodInterior(tiles, floodSeed);
+    for (const index of openRing) tiles[index] = TileKind.Breakable;
+    if (!sealHoldsUp(tiles, floodSeed, reachedBefore, openRing, pocketIndices,
+      poiSlots, entryTiles)) {
+      for (const index of openRing) tiles[index] = TileKind.Open;
+      continue;
+    }
+
+    for (const index of openRing) {
+      breakables.push({
+        id: `breakable:${input.sx},${input.sy}:${breakables.length}`,
+        tileX: index % SECTOR_TILE_COLS,
+        tileY: Math.floor(index / SECTOR_TILE_COLS),
+        tileW: 1,
+        tileH: 1,
+      });
+    }
+    slot.sealed = true;
+  }
+}
+
+/**
+ * Whether a seal already written to `tiles` cut off nothing but its own pocket. The exact
+ * count is the proof: everything reachable before must still be reachable, minus exactly the
+ * ring and the pocket. A spot check would pass a seal that also orphaned a corridor, and the
+ * exactness is what makes a shell identical across the plain, quest-door and hidden-sector
+ * variants of one seed, which those variants' tests compare rect by rect.
+ */
+function sealHoldsUp(
+  tiles: Uint8Array,
+  floodSeed: TileCoord,
+  reachedBefore: Uint8Array,
+  openRing: readonly number[],
+  pocketIndices: readonly number[],
+  poiSlots: readonly PoiSlot[],
+  entryTiles: Partial<Record<EdgeDirection, TileCoord>>,
+): boolean {
+  const reachedAfter = floodInterior(tiles, floodSeed);
+  const before = countReached(reachedBefore);
+  const after = countReached(reachedAfter);
+  if (after !== before - openRing.length - pocketIndices.length) return false;
+  if (pocketIndices.some(index => reachedAfter[index] === 1)) return false;
+  for (const direction of EDGE_DIRECTIONS) {
+    const entry = entryTiles[direction];
+    if (entry && reachedAfter[tileIndex(entry.tileX, entry.tileY)] !== 1) return false;
+  }
+  const pocket = new Set(pocketIndices);
+  for (const other of poiSlots) {
+    const index = tileIndex(other.tileX, other.tileY);
+    if (pocket.has(index)) continue;
+    // Compared against `before`, never against 1: a slot sealed earlier in this pass is
+    // already unreachable and must not veto the next one.
+    if (reachedBefore[index] === 1 && reachedAfter[index] !== 1) return false;
+  }
+  return true;
+}
+
+function countReached(reached: Uint8Array): number {
+  let total = 0;
+  for (let index = 0; index < SECTOR_TILE_COUNT; index++) total += reached[index];
+  return total;
 }

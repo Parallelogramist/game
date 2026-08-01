@@ -19,6 +19,10 @@ import type { LoreFragmentDefinition } from '../data/LoreFragments';
  *  lead predictable; the whole world makes a lead a cross-map errand. */
 const HINT_CANDIDATE_POOL = 3;
 
+/** What a lead says about a walled cache. Exported so the map panel and the in-run toast
+ *  cannot word it differently. */
+export const WALLED_CACHE_SENTENCE = 'It is sealed behind cracked rock: break in.';
+
 export interface SecretHintInputs {
   map: WorldMap;
   /** Secrets already FOUND or HINTED. Neither is worth pointing at again. */
@@ -39,6 +43,8 @@ export interface SecretLead {
   riddle: string;
   /** Present only when the named cache is sealed: the order its ring wakes in. */
   sigils?: string;
+  /** Present only when the named cache is walled in rather than ringed. */
+  wall?: string;
 }
 
 export function findSecretSector(map: WorldMap, secretId: string): SectorDef | null {
@@ -123,6 +129,8 @@ export function loreFragmentFor(map: WorldMap, secretId: string): LoreFragmentDe
 export function buildSecretLead(map: WorldMap, secretId: string): SecretLead | null {
   const sector = findSecretSector(map, secretId);
   if (!sector) return null;
+  const walled = sector.poiSlots.some(
+    slot => slot.id === secretId && slot.sealed === true);
   const puzzle = buildSecretPuzzle({
     worldSeed: map.seed, secretId, depth: sector.depth,
   });
@@ -133,6 +141,7 @@ export function buildSecretLead(map: WorldMap, secretId: string): SecretLead | n
     fragment: loreFragmentFor(map, secretId),
     riddle: describeSecretLocation(map, sector),
     ...(puzzle ? { sigils: describePuzzleSequence(puzzle) } : {}),
+    ...(walled ? { wall: WALLED_CACHE_SENTENCE } : {}),
   };
 }
 
