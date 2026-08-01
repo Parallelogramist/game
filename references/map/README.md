@@ -287,6 +287,11 @@ first.
   default at `02c4b74`. The other bullets in this section stay deferred. What a new world
   should re-lock for a profile that already owns every ability and key is an open operator
   call, filed as `BALANCE-SEASON-GATE-CARRYOVER`.
+  **Extended by `FEAT-SEASON-WORLD-CHOICE` (`c2ec2b5`, 2026-08-01):** the re-roll offers three
+  candidate worlds instead of one, previewed on the four facts that actually vary across seeds
+  (secret slots, treasure/shrine slots, deepest sector depth, deepest region). The first
+  candidate is `rollNextExpeditionSeed` itself, so the deterministic chain above is what a
+  player who always takes the first option still flies.
 - **Seed sharing.** The world is a pure function of a seed, so a shareable world code
   costs almost nothing and pairs with the existing daily-challenge and leaderboard
   systems.

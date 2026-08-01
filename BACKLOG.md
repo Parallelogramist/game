@@ -874,6 +874,26 @@ broken wall. It files `BALANCE-WARDEN-PATIENCE`, `FEAT-SEASON-BANKED-CONQUERED-M
 `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing profile lights it up
 the moment the build lands.
 
+**`c2ec2b5` made the re-roll a decision.** `fd406d3` gave the profile a world it could trade
+in and `20c8b6c` gave the trade a record worth chasing, but the successor was a single
+deterministic seed the player met only after committing. Measured over 41 worlds of the real
+chain, that seed decides 15 to 33 secret slots, 30 to 61 caches, a reach of 7 to 13 sectors
+and one of four deepest regions, while sector count, ability doors, quest doors and hidden
+sectors never move: the CHART dialog now previews three candidates on exactly the four facts
+that vary and lets the player fly the one they want. **Candidate A is the shipped chain by
+construction** (`rollNextExpeditionSeedChoices()[0]` IS `rollNextExpeditionSeed`), which is
+the chunk's one invariant: always taking the first option flies the identical sequence of
+worlds the store dealt before choosing existed, so nothing about the deterministic-chain
+contract had to be re-litigated. The alternates hash off `season:<seed>:<index>:alt<n>`, so
+there is still no clock and no `Math.random`. The shared confirmation overlay grew an optional
+`choiceLabels` row rather than a second dialog, and with the field absent its geometry,
+colours and focus are the shipped two-button dialog exactly, so the five other callers are
+untouched. It files `FEAT-SEASON-CHOICE-SEED-ENTRY` (which narrows `FEAT-SEASON-SEED-SHARE`
+to its copy half, because the store already accepts an arbitrary chosen seed),
+`BALANCE-SEASON-CHOICE-COUNT` and `POLISH-CHART-DIALOG-PORTRAIT`. No storage key, no
+`SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, and no econ surface, so
+`FEAT-ECON-WARDS` stays parked.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -4801,6 +4821,63 @@ exploring pays is the end of Phase 5.
   7. **No `SAVE_VERSION`, `WORLDGEN_VERSION` or `DISCOVERY_VERSION` bump** and no
      generator change, so every existing profile gets the capability the moment the build
      lands and arena mode is untouched by construction.
+
+- [x] **FEAT-SEASON-WORLD-CHOICE** (done, c2ec2b5) (new 2026-08-01, from
+  FEAT-EXPEDITION-SEASONS): trading in a world became a choice instead of a deal. The CHART
+  dialog rolled one successor (`rollNextExpeditionSeed`) and the player learned what they got
+  after committing, even though the spread across seeds is wide: measured over 41 worlds of
+  the real chain, a world carries **15 to 33 secret slots** (median 24), **30 to 61
+  treasure/shrine slots**, a deepest sector **7 to 13 out**, and one of four deepest regions,
+  while sector count (48), ability doors (6), quest doors (4) and hidden sectors (3) never
+  move. The dialog now lists three candidates with those four varying facts and offers
+  `FLY A` / `FLY B` / `FLY C` / `BACK`.
+  1. **Candidate A is the shipped chain**: `rollNextExpeditionSeedChoices()[0]` IS
+     `rollNextExpeditionSeed(currentSeed, currentIndex)`, so a player who always takes the
+     first option flies the identical sequence the store dealt before choosing existed. B and
+     C come from `season:<seed>:<index>:alt<n>` through the same `mulberry32`, so there is no
+     clock and no `Math.random` and another device offers the same three.
+  2. **An unusable choice falls back to the roll, never to the world being left.**
+     `bankSeasonAndRoll(state, record, chosenSeed?)` honours the seed only when
+     `isPositiveInteger` and `!== state.currentSeed`; a repeated seed would keep the old
+     world's discovery state alive under a new season number, which is what
+     `rollNextExpeditionSeed`'s equality guard already refuses.
+  3. **The preview costs the generator and nothing else.** `previewExpeditionWorld` folds one
+     `generateWorld` (34 ms measured on the Deck) into four numbers and throws the map away:
+     it never binds the discovery singleton and never hands a `WorldMap` to a caller, which is
+     the aliasing trap `summariseCurrentExpedition` is documented against.
+     `previewExpeditionWorlds` memoises on the seed list, so the press costs four generations
+     once and zero on a re-open.
+  4. **The shared confirmation grew a choice row, not a second dialog.** `ConfirmationCopy`
+     gained optional `choiceLabels` and `onConfirm` gained a `choiceIndex`; with the field
+     absent the button offsets, colours, columns and initial focus are the shipped
+     two-button dialog exactly, so the other five callers are untouched.
+  5. **No storage key, no `SEASON_STATE_VERSION`, `SAVE_VERSION`, `WORLDGEN_VERSION` or
+     `DISCOVERY_VERSION` bump**, and no econ surface: no gold, no reward table, no relic
+     roll, so `FEAT-ECON-WARDS` stays parked. Every existing profile gets it the moment the
+     build lands.
+  Value: the largest commitment in the game, retiring a charted world, becomes a decision
+  with information behind it instead of a coin flip.
+
+- [ ] **FEAT-SEASON-CHOICE-SEED-ENTRY** (new 2026-08-01, from FEAT-SEASON-WORLD-CHOICE): the
+  store half of `FEAT-SEASON-SEED-SHARE` now exists. `beginNextExpeditionSeason(record,
+  chosenSeed)` accepts ANY positive integer that is not the world being left, so flying a
+  world someone hands you is a paste path and a warning away, and `LoadoutScene`
+  (`copyTextToClipboard` + `navigator.clipboard.readText`) is the shipped idiom for both
+  halves. Cut here because a fourth button plus a code format plus its own confirmation is a
+  second feature, and because the warning is a different one from the three this dialog
+  already carries. Value: a world worth flying can be handed to someone else, and a code you
+  wrote down can be flown again. Deps: none. Narrows `FEAT-SEASON-SEED-SHARE` to the copy
+  half.
+- [ ] **BALANCE-SEASON-CHOICE-COUNT** (new 2026-08-01, from FEAT-SEASON-WORLD-CHOICE): three
+  candidates is what the button row fits and what 102 ms of generation buys; whether a player
+  wants three or five, and whether secrets / caches / depth / deepest region are the four
+  facts they actually choose on, is a feel judgement that wants a browser. The preview
+  deliberately omits every fact that does not vary across seeds. Deps: play.
+- [ ] **POLISH-CHART-DIALOG-PORTRAIT** (new 2026-08-01, from FEAT-SEASON-WORLD-CHOICE): the
+  CHART card now carries up to 15 body lines and four buttons across a 660-wide frame. It
+  fits landscape at every scale tried, but a narrow portrait viewport is untested and the
+  card only grows in height. Pairs with `POLISH-MAP-HEADER-PORTRAIT`: same surface, same
+  question, fix them together. Deps: none.
 
 - [ ] **BALANCE-SEASON-GATE-CARRYOVER** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS):
   traversal abilities and earned quest keys are profile-scope and the adapter applies them
