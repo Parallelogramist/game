@@ -72,6 +72,7 @@ import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import type { PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildHazardPins, buildQuestPins } from '../../expedition/questPins';
+import { findUnclaimedAbilityVaults } from '../../expedition/lockouts';
 import { buildRadarWaypoints } from '../../expedition/radarWaypoints';
 import type { RadarWaypoint } from '../../expedition/radarWaypoints';
 import { rollPoiContents } from '../../world/poiRoll';
@@ -8643,9 +8644,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Re-resolve the radar's bearings: each active objective's pinned sector and each open lead's
-   * named sector. Arena and every other no-map mode return on the first line, so the radar
-   * there is byte-identical to before.
+   * Re-resolve the radar's bearings: each active objective's pinned sector, each open lead's
+   * named sector, and every ability vault the ship has stood beside and not claimed. Arena and
+   * every other no-map mode return on the first line, so the radar there is byte-identical to
+   * before.
    */
   private syncRadarWaypoints(playerX: number, playerY: number): void {
     const map = this.worldMode.worldMap();
@@ -8677,9 +8679,16 @@ export class GameScene extends Phaser.Scene {
       const sector = findSecretSector(map, secretId);
       if (sector) leadSectorKeys.push(sector.key);
     }
+    const vaultSectorKeys = findUnclaimedAbilityVaults({
+      map,
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
+      holdsAbility: (abilityId) => this.ownedTraversalAbilityIds.has(abilityId),
+    }).map((site) => site.sectorKey);
     this.minimapManager.setWaypoints(buildRadarWaypoints({
       objectiveSectorKeys: pins.map((pin) => pin.sectorKey),
       leadSectorKeys,
+      vaultSectorKeys,
       isCharted: (key) => discovery.getSectorFlags(key) !== 0,
       shipSectorKey: sectorKey(shipCell),
       playerX,

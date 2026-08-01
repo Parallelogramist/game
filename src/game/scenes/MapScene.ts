@@ -3,7 +3,7 @@ import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { getCurrentExpeditionSeasonIndex } from '../../expedition/ExpeditionSeasonStore';
 import { buildSecretLead, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
-import { getActiveQuestHazardObjectives, getActiveQuestMarkers,
+import { getActiveQuestHazardObjectives, getActiveQuestMarkers, getQuestBoardEntries,
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_X, GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT,
@@ -18,7 +18,7 @@ import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDe
 import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
 import { buildLockoutRows } from '../../expedition/lockouts';
-import type { LockoutRow } from '../../expedition/lockouts';
+import type { LockoutQuestState, LockoutRow } from '../../expedition/lockouts';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
@@ -75,15 +75,36 @@ const CURSOR_HIT_SLOP = 16;
 const RECALL_BUTTON_WIDTH = 176;
 const RECALL_BUTTON_HEIGHT = 32;
 
+function sectorsOutClause(label: string, distance: number): string {
+  if (distance === 0) return `${label} IN THIS SECTOR`;
+  return `${label} ${distance} SECTOR${distance === 1 ? '' : 'S'} OUT`;
+}
+
 /** A zero clause is omitted rather than printed as "0 DOORS": a row exists only because
- *  something is nonzero. */
+ *  something is nonzero. The last clause is always where to go and earn it, which is the only
+ *  number on the line the player can act on. */
 function describeLockoutRow(row: LockoutRow): string {
   const clauses: string[] = [];
   if (row.doors > 0) clauses.push(`${row.doors} DOOR${row.doors === 1 ? '' : 'S'}`);
   if (row.sites > 0) clauses.push(`${row.sites} SITE${row.sites === 1 ? '' : 'S'}`);
-  clauses.push(row.nearestDistance === 0
-    ? 'NEAREST IN THIS SECTOR'
-    : `NEAREST ${row.nearestDistance} SECTOR${row.nearestDistance === 1 ? '' : 'S'} OUT`);
+  const source = row.source;
+  switch (source.kind) {
+    case 'vault':
+      clauses.push(sectorsOutClause('VAULT', source.distance));
+      break;
+    case 'questActive':
+      clauses.push(`ACTIVE STEP ${source.stepNumber}/${source.stepCount}`);
+      break;
+    case 'questBoard':
+      clauses.push(sectorsOutClause('BOARD', source.distance));
+      break;
+    case 'questSlotsFull':
+      clauses.push('ALL OBJECTIVE SLOTS FULL');
+      break;
+    case 'unfound':
+      clauses.push(row.kind === 'ability' ? 'VAULT NOT CHARTED' : 'NO BOARD CHARTED');
+      break;
+  }
   return clauses.join('  ·  ');
 }
 
@@ -223,6 +244,21 @@ export class MapScene extends Phaser.Scene {
       .sort((a, b) => leadSectorDistance(a, shipCell) - leadSectorDistance(b, shipCell)
         || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
     this.hintedSectorKeys = new Set(this.leads.map(lead => lead.sectorKey));
+    const stepViewByQuestId = new Map(
+      getActiveQuestStepViews().map(view => [view.questId, view]));
+    const boardEntryByQuestId = new Map(
+      getQuestBoardEntries().map(entry => [entry.questId, entry]));
+    const questStateOf = (questId: string): LockoutQuestState => {
+      const view = stepViewByQuestId.get(questId);
+      if (view) {
+        return { kind: 'active', stepNumber: view.stepNumber, stepCount: view.stepCount };
+      }
+      const entry = boardEntryByQuestId.get(questId);
+      if (!entry) return { kind: 'unoffered' };
+      // buildQuestBoardEntries sets acceptable = available AND under the 3-quest cap, and a
+      // completed chain never reaches here because holdsQuestKey already dropped the row.
+      return entry.acceptable ? { kind: 'acceptable' } : { kind: 'slotsFull' };
+    };
     this.lockouts = buildLockoutRows({
       map: this.mapData,
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
@@ -231,6 +267,7 @@ export class MapScene extends Phaser.Scene {
       secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
       holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
+      questStateOf,
       shipCell,
     });
     const routesPanelY = this.renderLeadsPanel(leadsPanelY);
@@ -411,9 +448,9 @@ export class MapScene extends Phaser.Scene {
   }
 
   /**
-   * Doc 03 section 4.5 rule 4, answered world-wide: what the profile still cannot open, and
-   * how much each missing thing would open. Drawn under LEADS, and absent entirely for a
-   * profile that is locked out of nothing.
+   * Doc 03 section 4.5 rule 4, answered world-wide: what the profile still cannot open, how
+   * much each missing thing would open, and where to go and earn each one. Drawn under LEADS,
+   * and absent entirely for a profile that is locked out of nothing.
    */
   private renderRoutesPanel(panelY: number): void {
     if (this.lockouts.length === 0) return;

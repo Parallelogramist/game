@@ -8,6 +8,7 @@ function build(overrides: Partial<RadarWaypointInputs>) {
   return buildRadarWaypoints({
     objectiveSectorKeys: [],
     leadSectorKeys: [],
+    vaultSectorKeys: [],
     isCharted: (sectorKey) => CHARTED.has(sectorKey),
     shipSectorKey: '0,0',
     playerX: SECTOR_WIDTH / 2,
@@ -41,5 +42,24 @@ describe('buildRadarWaypoints', () => {
       ['objective', '2,0'],
       ['lead', '1,0'],
     ]);
+  });
+
+  test('a vault ranks below an objective and a lead under the cap', () => {
+    const waypoints = build({
+      objectiveSectorKeys: ['3,0'],
+      leadSectorKeys: ['2,0'],
+      vaultSectorKeys: ['1,0'],
+      maxWaypoints: 2,
+    });
+    expect(waypoints.map((waypoint) => [waypoint.kind, waypoint.sectorKey])).toEqual([
+      ['objective', '3,0'],
+      ['lead', '2,0'],
+    ]);
+  });
+
+  test('a lead and a vault on one sector collapse to the lead', () => {
+    const waypoints = build({ leadSectorKeys: ['1,0'], vaultSectorKeys: ['1,0'] });
+    expect(waypoints).toHaveLength(1);
+    expect(waypoints[0].kind).toBe('lead');
   });
 });

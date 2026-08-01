@@ -56,11 +56,13 @@ const SECRET_PING_EASE_PER_SECOND = 3;
 /** Below this the shimmer is skipped entirely, so an out-of-range frame costs nothing. */
 const SECRET_PING_EPSILON = 0.01;
 
-/** A waypoint speaks the colour the chart already drew it in: the objective pin rose, and the
- *  breakable amber every secret surface shares. */
+/** A waypoint speaks the colour the chart already drew it in: the objective pin rose, the
+ *  breakable amber every secret surface shares, and the ability door's violet for a vault,
+ *  because a vault is what opens one, exactly as poiGlyphs already says. */
 const WAYPOINT_COLORS: Record<RadarWaypointKind, number> = {
   objective: OBJECTIVE_PIN,
   lead: SECRET_PING_COLOR,
+  vault: WORLD_GEOMETRY_COLORS.gate.stroke,
 };
 /** Where a rim chevron sits, as a fraction of the radius. 0.9 plus the chevron's own half-size
  *  lands its tip on the rim rather than outside the disc. */

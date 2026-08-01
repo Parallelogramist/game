@@ -17,6 +17,12 @@ const GATED = generateWorld(20260727, {
   availableBiomeIds: STAGES.map(stage => stage.id),
 });
 
+const KEYED = generateWorld(20260727, {
+  abilityGateOrder: ['ability_blink_drive'],
+  questKeyOrder: ['quest_key_survey'],
+  availableBiomeIds: STAGES.map(stage => stage.id),
+});
+
 function rowsFor(map: WorldMap = GATED, overrides: Partial<LockoutInputs> = {}) {
   return buildLockoutRows({
     map,
@@ -26,6 +32,7 @@ function rowsFor(map: WorldMap = GATED, overrides: Partial<LockoutInputs> = {}) 
     secretFlagsOf: () => SecretFlags.HINTED,
     holdsAbility: () => false,
     holdsQuestKey: () => false,
+    questStateOf: () => ({ kind: 'acceptable' as const }),
     shipCell: { col: 0, row: 0 },
     ...overrides,
   });
@@ -83,5 +90,49 @@ describe('buildLockoutRows', () => {
     const unhinted = rowsFor(GAPPED_MAP, { secretFlagsOf: () => 0 })
       .find(row => row.id === 'ability_magno_tether')?.sites ?? 0;
     expect(unhinted).toBe(0);
+  });
+
+  test('an ability row names the vault that grants it', () => {
+    const vaults = [...GATED.sectors.values()]
+      .filter(sector => sector.poiSlots.some(slot =>
+        slot.kind === PoiKind.AbilityPowerUp && slot.grantsAbilityId === 'ability_blink_drive'))
+      .map(sector => ({
+        key: sector.key,
+        distance: Math.max(Math.abs(sector.sx), Math.abs(sector.sy)),
+      }));
+    expect(vaults.length).toBeGreaterThan(0);
+    const nearest = Math.min(...vaults.map(vault => vault.distance));
+
+    const row = rowsFor().find(candidate => candidate.id === 'ability_blink_drive')!;
+    expect(row).toBeDefined();
+    expect(row.source.kind).toBe('vault');
+    if (row.source.kind !== 'vault') throw new Error('unreachable');
+    expect(row.source.distance).toBe(nearest);
+    expect(vaults.filter(vault => vault.distance === nearest).map(vault => vault.key))
+      .toContain(row.source.sectorKey);
+  });
+
+  test('a vault in a sector the profile has never entered names no place', () => {
+    const rows = rowsFor(GATED, { poiFlagsOf: () => 0 }).filter(row => row.kind === 'ability');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every(row => row.source.kind === 'unfound')).toBe(true);
+  });
+
+  test('an active quest names its step rather than a place', () => {
+    const rows = rowsFor(KEYED, {
+      questStateOf: () => ({ kind: 'active', stepNumber: 2, stepCount: 4 }),
+    }).filter(row => row.kind === 'questKey');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].source).toEqual({ kind: 'questActive', stepNumber: 2, stepCount: 4 });
+  });
+
+  test('an acceptable quest names the nearest board the profile has seen', () => {
+    const seen = rowsFor(KEYED).filter(row => row.kind === 'questKey');
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0].source.kind).toBe('questBoard');
+
+    const unseen = rowsFor(KEYED, { poiFlagsOf: () => 0 })
+      .find(row => row.id === seen[0].id)!;
+    expect(unseen.source.kind).toBe('unfound');
   });
 });

@@ -10,12 +10,14 @@
  * Two drops keep the radar from saying more than the chart does. An uncharted destination is
  * dropped, the same rule SectorMapRenderer's hinted badge and questPins both obey. A
  * destination in the sector the ship is already inside is dropped too, so the ambient shimmer
- * stays the only thing that speaks in the room it is withholding a position in.
+ * stays the only thing that speaks in the room it is withholding a position in. An unclaimed
+ * ability vault is the third kind, and it ranks last, so it can only take a slot no objective
+ * and no lead wanted.
  */
 
 import { parseSectorKey, sectorCenterWorld } from '../world/worldSpace';
 
-export type RadarWaypointKind = 'objective' | 'lead';
+export type RadarWaypointKind = 'objective' | 'lead' | 'vault';
 
 export interface RadarWaypoint {
   kind: RadarWaypointKind;
@@ -31,6 +33,8 @@ export interface RadarWaypointInputs {
   objectiveSectorKeys: readonly (string | null)[];
   /** The sector each open lead names. */
   leadSectorKeys: readonly string[];
+  /** Sectors holding an ability vault the profile has seen and not claimed. */
+  vaultSectorKeys: readonly string[];
   /** Non-zero discovery flags mean charted. */
   isCharted: (sectorKey: string) => boolean;
   /** The sector the ship is inside right now. */
@@ -44,7 +48,7 @@ export interface RadarWaypointInputs {
  *  secret shimmer, and it clears the three-active-quest limit with a lead to spare. */
 export const MAX_RADAR_WAYPOINTS = 4;
 
-const KIND_ORDER: Record<RadarWaypointKind, number> = { objective: 0, lead: 1 };
+const KIND_ORDER: Record<RadarWaypointKind, number> = { objective: 0, lead: 1, vault: 2 };
 
 export function buildRadarWaypoints(inputs: RadarWaypointInputs): RadarWaypoint[] {
   const limit = inputs.maxWaypoints ?? MAX_RADAR_WAYPOINTS;
@@ -64,6 +68,7 @@ export function buildRadarWaypoints(inputs: RadarWaypointInputs): RadarWaypoint[
 
   for (const sectorKey of inputs.objectiveSectorKeys) consider(sectorKey, 'objective');
   for (const sectorKey of inputs.leadSectorKeys) consider(sectorKey, 'lead');
+  for (const sectorKey of inputs.vaultSectorKeys) consider(sectorKey, 'vault');
 
   const distanceSquared = (waypoint: RadarWaypoint): number => {
     const deltaX = waypoint.worldX - inputs.playerX;
