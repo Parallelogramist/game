@@ -53,12 +53,37 @@ import {
   detectInstallPlatform, isRunningStandalone, loadInstallHintShownAt,
   saveInstallHintShownAt, shouldShowInstallHint, subscribeInstallPromptAvailable,
 } from '../../pwa/InstallHint';
+import {
+  beginNextExpeditionSeason,
+  getBankedSeasons,
+  getCurrentExpeditionSeasonIndex,
+} from '../../expedition/ExpeditionSeasonStore';
+import {
+  generateExpeditionWorld,
+  summariseCurrentExpedition,
+} from '../../expedition/expeditionWorld';
+import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 
 interface FocusEntry {
   onFocus: () => void;
   onBlur: () => void;
   onActivate: () => void;
 }
+
+interface ConfirmationCopy {
+  title: string;
+  /** Newline-separated; the card grows to fit and the text is centred. */
+  body: string;
+  confirmLabel: string;
+  cancelLabel: string;
+}
+
+const DEFAULT_CONFIRMATION_COPY: ConfirmationCopy = {
+  title: 'START NEW RUN?',
+  body: 'Your current run will be lost.',
+  confirmLabel: 'YES',
+  cancelLabel: 'NO',
+};
 
 export class BootScene extends Phaser.Scene {
   private soundManager!: SoundManager;
@@ -265,6 +290,49 @@ export class BootScene extends Phaser.Scene {
       } else {
         startSkirmish();
       }
+    };
+
+    // FEAT-EXPEDITION-SEASONS: the world seed is per profile now, so a charted world can
+    // be banked and traded for a fresh one. The summary costs one generateWorld (33 ms
+    // measured), which is why it happens on the press and not in create().
+    const openExpeditionSeasons = () => {
+      const summary = summariseCurrentExpedition();
+      const banked = getBankedSeasons();
+      const lines = [
+        `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`,
+        `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
+          + `   ·   ${summary.secretsFound} secrets`,
+        '',
+        'A new world resets the chart, the leads and every broken wall.',
+        'Traversal abilities and quest keys are kept, so doors you have',
+        'already earned open on sight.',
+      ];
+      if (hasSave) lines.push('', 'Your current run will be lost.');
+      if (banked.length > 0) {
+        lines.push('', `Banked: ${banked.slice(-5)
+          .map(season => `W${season.index} ${season.completionPercent}%`)
+          .join('   ·   ')}`);
+      }
+      this.showNewGameConfirmation(
+        () => {
+          const next = beginNextExpeditionSeason({
+            completionPercent: summary.completionPercent,
+            sectorsCharted: summary.sectorsCharted,
+            secretsFound: summary.secretsFound,
+          });
+          // A restored transform names a point in the world that just stopped existing.
+          gameStateManager.clearSave();
+          // Nothing in memory may keep pointing at the world that was just banked.
+          getDiscoveryManager().bindWorld(generateExpeditionWorld(next.currentSeed));
+          this.scene.restart();
+        },
+        {
+          title: 'CHART A NEW WORLD?',
+          body: lines.join('\n'),
+          confirmLabel: 'NEW WORLD',
+          cancelLabel: 'BACK',
+        },
+      );
     };
     const openShop = () => transitionToScene(this, 'ShopScene');
     const openAchievements = () => transitionToScene(this, 'AchievementScene');
@@ -509,6 +577,7 @@ export class BootScene extends Phaser.Scene {
       onPractice: startPractice,
       onLeaderboard: openLeaderboard,
       onPaint: openPaint,
+      onExpeditionSeasons: openExpeditionSeasons,
       onSurprise: startSurpriseRunWithConfirmation,
     });
 
@@ -1245,6 +1314,7 @@ export class BootScene extends Phaser.Scene {
     onCards: () => void;
     onLeaderboard: () => void;
     onPaint: () => void;
+    onExpeditionSeasons: () => void;
     onSkirmish: () => void;
     onGauntlet: () => void;
     onRunner: () => void;
@@ -1253,7 +1323,8 @@ export class BootScene extends Phaser.Scene {
   }): void {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount, questBadge,
-      onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onSkirmish, onGauntlet, onRunner, onPractice, onSurprise,
+      onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onExpeditionSeasons,
+      onSkirmish, onGauntlet, onRunner, onPractice, onSurprise,
     } = opts;
 
     interface DeckEntry {
@@ -1319,6 +1390,18 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentMagenta,
         action: onPaint,
         iconTint: 0xffbbff,
+      },
+      {
+        // Expedition seasons (FEAT-EXPEDITION-SEASONS): the profile's world and the
+        // record of the ones it has finished; a meta screen, so it takes the blue role
+        // rather than the danger role the game modes use.
+        label: 'CHART',
+        iconKey: 'globe',
+        bodyHex: COLORS.bodyPrimary,
+        accentHex: COLORS.accentPrimary,
+        action: onExpeditionSeasons,
+        badge: `W${getCurrentExpeditionSeasonIndex()}`,
+        iconTint: 0xaaccff,
       },
       {
         // Arena skirmish (FEAT-EXPEDITION-PROMOTE) — the fixed-room run, now an
@@ -1781,7 +1864,10 @@ export class BootScene extends Phaser.Scene {
   //  NEW-GAME CONFIRMATION
   // ═══════════════════════════════════════════════════════════════════════
 
-  private showNewGameConfirmation(onConfirm: () => void): void {
+  private showNewGameConfirmation(
+    onConfirm: () => void,
+    copy: ConfirmationCopy = DEFAULT_CONFIRMATION_COPY,
+  ): void {
     const centerX = this.cameras.main.centerX;
     const centerY = this.cameras.main.centerY;
     const layoutScale = computeMenuLayoutScale(this.scale.width, this.scale.height);
@@ -1800,8 +1886,10 @@ export class BootScene extends Phaser.Scene {
     dim.setInteractive();
     this.confirmationOverlay.add(dim);
 
-    const width = scaledInt(layoutScale, 420);
-    const height = scaledInt(layoutScale, 200);
+    const bodyLineCount = copy.body.split('\n').length;
+    const width = scaledInt(layoutScale, bodyLineCount > 1 ? 560 : 420);
+    const height = scaledInt(layoutScale, 200 + (bodyLineCount - 1) * 18);
+    const halfHeight = height / 2;
     const frame = this.add.graphics();
     frame.fillStyle(0x0a0a14, 0.98);
     frame.fillRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 10);
@@ -1809,30 +1897,38 @@ export class BootScene extends Phaser.Scene {
     frame.strokeRoundedRect(centerX - width / 2, centerY - height / 2, width, height, 10);
     this.confirmationOverlay.add(frame);
 
-    const title = this.add.text(centerX, centerY - scaledInt(layoutScale, 55), 'START NEW RUN?', {
-      fontSize: scaledFontPx(fontScale, 22),
-      color: '#ffffff',
-      fontFamily: MENU_FONT,
-      fontStyle: 'bold',
-      letterSpacing: 3,
-    }).setOrigin(0.5);
-    this.confirmationOverlay.add(title);
-
-    const body = this.add.text(centerX, centerY - scaledInt(layoutScale, 15), 'Your current run will be lost.', {
-      fontSize: scaledFontPx(fontScale, 14),
-      color: '#aabbcc',
-      fontFamily: MENU_FONT,
-    }).setOrigin(0.5);
-    this.confirmationOverlay.add(body);
-
-    const makeButton = (label: string, color: string, offsetX: number, action: () => void) => {
-      const button = this.add.text(centerX + offsetX, centerY + scaledInt(layoutScale, 40), label, {
-        fontSize: scaledFontPx(fontScale, 20),
-        color,
+    const title = this.add.text(
+      centerX, centerY - halfHeight + scaledInt(layoutScale, 45), copy.title, {
+        fontSize: scaledFontPx(fontScale, 22),
+        color: '#ffffff',
         fontFamily: MENU_FONT,
         fontStyle: 'bold',
         letterSpacing: 3,
-      }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      },
+    ).setOrigin(0.5);
+    this.confirmationOverlay.add(title);
+
+    const body = this.add.text(
+      centerX, centerY - halfHeight + scaledInt(layoutScale, 78), copy.body, {
+        fontSize: scaledFontPx(fontScale, 14),
+        color: '#aabbcc',
+        fontFamily: MENU_FONT,
+        align: 'center',
+      },
+    ).setOrigin(0.5, 0);
+    body.setLineSpacing(2);
+    this.confirmationOverlay.add(body);
+
+    const makeButton = (label: string, color: string, offsetX: number, action: () => void) => {
+      const button = this.add.text(
+        centerX + offsetX, centerY + halfHeight - scaledInt(layoutScale, 60), label, {
+          fontSize: scaledFontPx(fontScale, 20),
+          color,
+          fontFamily: MENU_FONT,
+          fontStyle: 'bold',
+          letterSpacing: 3,
+        },
+      ).setOrigin(0.5).setInteractive({ useHandCursor: true });
       button.setData('defaultColor', color);
       button.on('pointerdown', () => {
         this.soundManager.playUIClick();
@@ -1843,15 +1939,15 @@ export class BootScene extends Phaser.Scene {
       return button;
     };
 
-    const yesButton = makeButton('YES', COLORS.danger, -scaledInt(layoutScale, 70), () => {
+    const yesButton = makeButton(copy.confirmLabel, COLORS.danger, -scaledInt(layoutScale, 70), () => {
       this.hideNewGameConfirmation();
       onConfirm();
     });
-    const noButton = makeButton('NO', COLORS.safe, scaledInt(layoutScale, 70), () => {
+    const noButton = makeButton(copy.cancelLabel, COLORS.safe, scaledInt(layoutScale, 70), () => {
       this.hideNewGameConfirmation();
     });
 
-    const hint = this.add.text(centerX, centerY + scaledInt(layoutScale, 80), 'ESC cancels  ·  ← → to choose  ·  Enter to confirm', {
+    const hint = this.add.text(centerX, centerY + halfHeight - scaledInt(layoutScale, 20), 'ESC cancels  ·  ← → to choose  ·  Enter to confirm', {
       fontSize: scaledFontPx(fontScale, 11),
       color: '#8899aa',
       fontFamily: MENU_FONT,

@@ -18,16 +18,15 @@ import {
   sectorsEqual,
 } from '../../world/worldSpace';
 import { LEASH_RADIUS } from '../../world/spawnRing';
-import { STAGES } from '../../data/Stages';
 import { TRAVERSAL_ABILITY_GATE_ORDER } from '../../data/TraversalAbilities';
-import { generateWorld } from '../../world/generateWorld';
 import {
   applyBrokenBarriers, applyEarnedQuestKeys, applyOwnedAbilityGates,
 } from '../../world/barrierState';
-import { EXPEDITION_QUEST_KEY_ORDER } from '../../data/ExpeditionQuests';
 import { getEarnedQuestKeyIds } from '../../meta/ExpeditionQuestManager';
 import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
+import { generateExpeditionWorld } from '../../expedition/expeditionWorld';
+import { getCurrentExpeditionSeed } from '../../expedition/ExpeditionSeasonStore';
 import {
   EDGE_DIRECTIONS, EdgeKind, TileKind, directionDelta, edgeIdFor, tileIndex, worldBoundsRect,
 } from '../../world/worldTypes';
@@ -63,17 +62,13 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  */
 
 /**
- * One fixed world seed: the layout has to be the same on every run and every refresh
- * or a saved position and a remembered map mean nothing. Every profile flies the same
- * layout for now; a per-profile seed is the "world re-roll as a season" long-term item
- * (README section 6) and changing this constant has the same effect as a
- * WORLDGEN_VERSION bump: discovery and world-profile state stop matching the world.
+ * The world seed is per profile and lives in ExpeditionSeasonStore. It has to be the same
+ * on every run and every refresh or a saved position and a remembered map mean nothing,
+ * and the only thing that may change it is the player choosing a new world
+ * (FEAT-EXPEDITION-SEASONS). Changing it has the same effect as a WORLDGEN_VERSION bump,
+ * discovery and world-profile state stop matching the world, which is exactly why the
+ * re-roll banks the old world's completion first.
  */
-const EXPEDITION_WORLD_SEED = 20260727;
-
-/** Three concealed rooms per world: enough that a run can stumble on one, few enough that
- *  finding one still reads as a find. */
-const EXPEDITION_HIDDEN_SECTOR_COUNT = 3;
 
 const PLAYER_COLLISION_RADIUS = 16;
 
@@ -113,12 +108,8 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    this.map = generateWorld(EXPEDITION_WORLD_SEED, {
-      abilityGateOrder: [...TRAVERSAL_ABILITY_GATE_ORDER],
-      questKeyOrder: [...EXPEDITION_QUEST_KEY_ORDER],
-      hiddenSectorCount: EXPEDITION_HIDDEN_SECTOR_COUNT,
-      availableBiomeIds: STAGES.map(stage => stage.id),
-    });
+    const worldSeed = getCurrentExpeditionSeed();
+    this.map = generateExpeditionWorld(worldSeed);
     if (this.map.abilityOrder.length < TRAVERSAL_ABILITY_GATE_ORDER.length) {
       // The generator places a gate only while a candidate subtree still has room for its
       // key, so a short world silently ungates the rest. Surfaced here at the call site
@@ -126,7 +117,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
       console.warn(
         `[expedition] worldgen placed ${this.map.abilityOrder.length} of `
         + `${TRAVERSAL_ABILITY_GATE_ORDER.length} ability gates at seed `
-        + `${EXPEDITION_WORLD_SEED}; the rest are ungated this world`,
+        + `${worldSeed}; the rest are ungated this world`,
       );
     }
     // Replayed before anything reads the grid: the renderer, the collision index and the
