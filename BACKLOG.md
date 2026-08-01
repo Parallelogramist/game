@@ -150,7 +150,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   and the dead-end case that still holds the direct vector both belong to
   POLISH-ENEMY-NAV-SMOOTH, the next-but-one Band A item, which owns hysteresis and the stuck
   detector: they are deliberately not patched here.
-- [ ] **FEAT-ENEMY-NAV-COVERAGE** (F2a). Value: only the 9 chase-family handlers
+- [x] **FEAT-ENEMY-NAV-COVERAGE** (F2a) (done, df96584). Value: only the 9 chase-family handlers
   navigate at all; shooter, sniper, circle, lurker, glutton (gem mode), healer,
   rallier, necromancer, warden, twin, horde-king, swarm-mother steer raw vectors and
   hump walls (`enemy-ai/shooter.ts:32-35` is the canonical case). Plan: route the
@@ -159,6 +159,43 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   cornering a kiter is legitimate play. Cost ~1 LOS ray per converted enemy per frame,
   <= ~150 total, each <= ~32 tile steps. Done: converted handlers path around walls in
   expedition; arena unchanged (null context short-circuits).
+  **What shipped:** two commits, and the item's single prescription turned out to fit only part of
+  the job. Reading all twelve handlers showed they do not share one defect, they split three ways.
+  (1) **Steering at the player** (4986b0e): shooter, rallier, necromancer, swarm mother, horde king
+  (state 0), lurker (state 0), both twin chase components and the circler's inward radial term now
+  take the same three-line blend `chase.ts` has used since FEAT-WORLDGEN-NAV, so their pursuit
+  phases route around rock instead of pressing into it. The circler routes only when `radialFactor`
+  is positive: a routed heading multiplied by a negative factor points backwards along the route
+  rather than away from the player, so opening the orbit stays direct. (2) **Picking a destination
+  point near the player** (df96584): the warden's 200px patrol offset and the healer's 100px wander
+  point are random angles that nothing tested against geometry, so roughly one roll in three landed
+  inside rock and the enemy pressed into the wall until the timer that picked it expired, up to
+  4.5s for the warden, which re-rolls only on `timer > 3.5 + phase`. `chaseHeading` cannot help
+  them at all, because the field routes to the player and not to an arbitrary point; both now snap
+  through `freeSpotNear` via a new shared `openSpot(x, y)` helper in `common.ts`, the same
+  primitive the teleporter's blink destination already used. (3) **Chasing a third object**
+  (df96584): passing a gem to `chaseHeading` would be worse than useless, since the LOS half would
+  test the gem while the flow half routed to the *player*, so an occluded gem would send the
+  glutton at the player while it still believed it was gem-seeking. It instead drops a gem it has
+  no line of sight to, which hands the frame to its own already-routed chase fallback.
+  **Converted nothing, on purpose:** the sniper has no approach phase at all (`state === 1` scoot,
+  `distance < 300` retreat, otherwise strafe: every branch is retreat or strafe), and the healer's
+  flee is a retreat. Converting either would change kiting, which is the opposite of this item.
+  Every retreat, strafe, orbit-tangent and committed-lunge branch elsewhere stays on the raw vector
+  too, including the lurker's stored-point lunge and the warden's reposition. **Rotation was left
+  alone for the ranged families:** shooter, sniper and necromancer still face the player while
+  moving on the routed heading, exactly as the teleporter does, because rotation is what the player
+  reads as "where it is aiming" and changing it would move where they shoot. The lurker's approach
+  is the one exception, since its rotation already tracked its own movement the way the charger's
+  does. **Arena is unchanged by construction**, not by testing: `ArenaModeAdapter.navigationContext()`
+  returns null, `chaseHeading` then hands back the caller's own vector by assignment, `openSpot`
+  returns its own arguments, and the glutton's gem gate is guarded on a non-null context. Seven
+  tests pin the band split (which fails silently: a band converted by mistake still produces
+  plausible motion, it just stops kiting), the two new mechanisms and arena identity. Two live bugs
+  found while reading the handlers are filed rather than fixed, since neither is navigation:
+  `BUG-TWIN-BERSERK-DAMAGE` and `BUG-DECOY-FLOW-MISMATCH` under `## Proposed (auto)`. The playtest
+  half is `POLISH-ENEMY-NAV-COVERAGE` under `## Human gates`: twelve families changed how they move
+  and none of it was seen in a browser.
 - [ ] **POLISH-ENEMY-NAV-SMOOTH** (F2d + F2e). Value: the zero-width LOS ray flickers
   clear/blocked at doorway edges so headings alternate direct/flow (the pre-filed
   "twitching at corners" item), 8-dir flow quantization twitches at tile crossings,
@@ -4007,6 +4044,27 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   sector across a 32-tile run (`flowField.ts:88-95`). The other ~0.80ms is the BFS plus the
   8-neighbour descent and is structural. Done: measured per-call cost or refresh rate down, with
   `flowField.test.ts` and the leash-coverage test still green.
+- [ ] **BUG-TWIN-BERSERK-DAMAGE** (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: the
+  surviving Twin one-shots the player within a second of its partner dying, which reads as a
+  random insta-death rather than a boss mechanic. `twin.ts` runs
+  `EnemyType.baseDamage[enemyId] = EnemyType.baseDamage[enemyId] * 1.5` inside the dead-partner
+  branch, so it fires on every frame that branch is taken instead of once on the transition.
+  `baseDamage` is `Types.f32` (`src/ecs/components/index.ts:114`) and minibosses are exempt from
+  the LOD throttle (`EnemyAISystem.ts` gates it on `aiType < 50`), so at 60fps the multiplier
+  reaches ~1e10 after one second and `Infinity` inside two. Fix: apply the berserk buff once, on
+  the transition (an `EnemyAI.state` flag or a stored base value), not per frame. Done: a twin
+  whose partner dies deals a fixed 1.5x for the rest of the run, pinned by one pure test.
+- [ ] **BUG-DECOY-FLOW-MISMATCH** (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: a
+  hostile that broke off for the escort drone walks back toward the player the moment it loses
+  sight of the drone, which makes the decoy quest look broken. `EnemyAISystem.ts` substitutes the
+  decoy point for `targetX/targetY`, and `chaseHeading` tests line of sight against that target,
+  but its flow step comes from a field always built toward the player
+  (`ExpeditionModeAdapter.update`). Pre-existing since FEAT-WORLDGEN-NAV for the nine chase-family
+  handlers; FEAT-ENEMY-NAV-COVERAGE widened it to shooter and lurker, both in
+  `DECOY_AGGRO_AI_TYPES`. Options: a second field keyed to the decoy (a whole extra BFS, probably
+  too much for one drone), or the cheaper rule that a decoy follower with no line of sight to the
+  drone uses the wall-tangent rung rather than the player's route. Done: a follower behind a wall
+  from the drone moves around it toward the drone, never toward the player.
 
 ## Next
 
@@ -9096,6 +9154,20 @@ Never agent work. The fleet must not do any of these.
     collide more, which is the opposite of this item. Judge whether the visual overhang bothers
     you. (e) **enemies**: they got the teleport fix but not the slide or the slip, so they still
     scrape corners. Is that visible, or does `FEAT-ENEMY-NAV-COVERAGE` cover it?
+  - **POLISH-ENEMY-NAV-COVERAGE** (new 2026-08-01, FEAT-ENEMY-NAV-COVERAGE): twelve enemy
+    families changed how they move and none of it was validated in a browser. Needs a human
+    flying an expedition through walled sectors to judge (a) **the ranged families**: shooters,
+    ralliers and necromancers now walk the flow route while still facing you, so they can
+    approach sideways while shooting straight. Does that read as flanking or as a bug? (b)
+    **the circler**: only its inward radial term routes, so it can spiral in around a corner.
+    Does the orbit still read as an orbit? (c) **kiting**: retreat and strafe were deliberately
+    left direct so cornering a kiter still works. Confirm shooters and snipers still back into
+    walls and can be pinned. (d) **the warden**: its patrol points now snap off rock, so it
+    should stop standing still against a wall for four seconds. (e) **the glutton**: it now
+    abandons gems it cannot see and chases you instead. Is that a downgrade to its character?
+    (f) **the horde king and the twins**: boss and miniboss approaches route now, so a boss
+    can arrive from a doorway instead of a straight line. Does any arena feel too easy to
+    kite? Nothing here is a knob: every verdict is a band choice in one handler.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first

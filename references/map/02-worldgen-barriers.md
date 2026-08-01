@@ -857,7 +857,7 @@ deeper fix for bosses is upstream: boss arenas are generated mostly open (invari
 area floor), so boss patterns keep the space they were tuned for. Do not make bosses
 fight geometry; make the generator give bosses room.
 
-**As built (FEAT-WORLDGEN-NAV).** The chunk shipped this section with six deliberate
+**As built (FEAT-WORLDGEN-NAV).** The chunk shipped this section with seven deliberate
 departures from the design above, each recorded here so the next reader takes the code as the
 truth rather than the sketch.
 
@@ -889,6 +889,20 @@ truth rather than the sketch.
    rather than along the flow route. Both name a committed straight-line threat, so a lane that
    curved with the route would lie about where the lunge goes; a wall now stops the lunge
    through collision instead, which is cover working.
+7. Section 6.2's "chase-family handlers apply one blend rule" understates the job: reading all of
+   them for FEAT-ENEMY-NAV-COVERAGE showed three different defects, not one. Handlers that steer
+   at the player take the blend (now also shooter, rallier, necromancer, swarm mother, horde king,
+   lurker approach, twin chase and the circler's inward radial term). Handlers that pick a
+   *destination* near the player and then walk at it cannot use the blend at all, because the
+   field routes to the player and not to an arbitrary point: the warden's 200px patrol offset and
+   the healer's 100px wander point instead snap through `freeSpotNear` (helper `openSpot` in
+   `common.ts`), the same primitive the teleporter's blink already used, because a point rolled
+   inside rock was held for up to 4.5s of pressing into the wall. The glutton chases a third
+   object, so passing a gem to `chaseHeading` would test line of sight against the gem while
+   routing toward the player; it instead drops a gem it cannot see and falls through to its own
+   chase mode. Retreat, strafe, orbit-tangent and committed-lunge branches stay on the raw vector
+   everywhere, including the sniper, which has no approach phase at all: cornering a kiter is
+   legitimate play.
 
 Of section 6.3's fallback layers, layers 1 and 2 shipped (the resolver's substepping and the
 existing spatial-hash separation), layer 3 is filed as `POLISH-NAV-STUCK-NUDGE` because the
