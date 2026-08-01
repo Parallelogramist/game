@@ -10,6 +10,10 @@
  *
  * Phaser-free like the rest of src/world/: nothing here may import Phaser,
  * src/game/, src/systems/ or the ECS.
+ *
+ * A tile only ever blocks motion toward it: the per-axis clamp is skipped when the mover's
+ * centre is already on the tile's far side, or inside it. Without that check a ship resting on
+ * a doorway jamb was clamped to the jamb's opposite face, which read as a teleport through rock.
  */
 
 import {
@@ -205,12 +209,14 @@ function resolveAxisX(
       }
       const tileLeft = globalTileX * TILE_SIZE;
       if (stepDx > 0) {
+        if (x >= tileLeft) continue;
         const limit = tileLeft - clearance - COLLISION_EPSILON;
         if (candidateX > limit) {
           candidateX = limit;
           out.hitX = true;
         }
       } else {
+        if (x <= tileLeft + TILE_SIZE) continue;
         const limit = tileLeft + TILE_SIZE + clearance + COLLISION_EPSILON;
         if (candidateX < limit) {
           candidateX = limit;
@@ -249,12 +255,14 @@ function resolveAxisY(
       }
       const tileTop = globalTileY * TILE_SIZE;
       if (stepDy > 0) {
+        if (y >= tileTop) continue;
         const limit = tileTop - clearance - COLLISION_EPSILON;
         if (candidateY > limit) {
           candidateY = limit;
           out.hitY = true;
         }
       } else {
+        if (y <= tileTop + TILE_SIZE) continue;
         const limit = tileTop + TILE_SIZE + clearance + COLLISION_EPSILON;
         if (candidateY < limit) {
           candidateY = limit;

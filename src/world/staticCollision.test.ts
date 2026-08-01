@@ -368,3 +368,47 @@ describe('generated worlds', () => {
     }
   });
 });
+
+describe('a solid tile only blocks motion toward it', () => {
+  it('does not fling a mover resting on a jamb corner to the far side of the wall', () => {
+    const world = makeWorld(tiles => {
+      paintColumn(tiles, 10, TileKind.Solid);
+      tiles[tileIndex(10, 5)] = TileKind.Open;
+    });
+    const out = createCollisionResult();
+    const offCentreY = 5 * TILE_SIZE + 30;
+
+    resolveCircleMove(world, 300, offCentreY, 500, offCentreY, PLAYER_RADIUS, MoverKind.Player, out);
+    expect(out.hitX).toBe(true);
+    const restingX = out.x;
+
+    for (const stepY of [-1, -6, -20]) {
+      resolveCircleMove(
+        world, restingX, offCentreY, restingX, offCentreY + stepY,
+        PLAYER_RADIUS, MoverKind.Player, out,
+      );
+      expect(out.y).toBeCloseTo(offCentreY + stepY, 6);
+      expect(out.hitY).toBe(false);
+    }
+  });
+
+  it('still pushes an overlapping mover out on the side it came from', () => {
+    const world = makeWorld(tiles => paintColumn(tiles, 10, TileKind.Solid));
+    const out = createCollisionResult();
+    const insideY = tileCentre(8, 5).y;
+    const overlappingX = 10 * TILE_SIZE - 5;
+
+    resolveCircleMove(
+      world, overlappingX, insideY, overlappingX + 8, insideY,
+      PLAYER_RADIUS, MoverKind.Player, out,
+    );
+    expect(out.hitX).toBe(true);
+    expect(out.x).toBeLessThanOrEqual(10 * TILE_SIZE - PLAYER_RADIUS);
+
+    resolveCircleMove(
+      world, overlappingX, insideY, overlappingX - 8, insideY,
+      PLAYER_RADIUS, MoverKind.Player, out,
+    );
+    expect(out.x).toBeCloseTo(overlappingX - 8, 6);
+  });
+});
