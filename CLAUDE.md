@@ -14,16 +14,27 @@ immediately so nothing lives only in conversation. The human drives prioritizati
 
 See `package.json` scripts (dev/build/preview/test).
 
-No lint command configured. Tests use **Vitest** (`vitest.config.ts`, Node env). Coverage
-is thin — pure logic only (e.g. ECS save/load serialization); Phaser-coupled code is
-exercised by mocking its module boundary, not a live scene. Add a failing test first for
-new logic where it can run without a real Phaser scene.
+No lint command configured. Tests use **Vitest** (`vitest.config.ts`, Node env): 167 files,
+~1,978 tests, ~35s wall time. Pure logic is tested by mocking the Phaser/storage module
+boundary; Phaser-coupled code is verified by play, not by mocking a live scene. Add tests
+only where they genuinely pin logic (the workspace "Tests & comments" rule wins over any
+test-first habit); keep the suite green.
 
 ## Deployment
 
 GitHub Pages auto-deploys on push to `master`; see `.github/workflows/deploy.yml`.
 
+**Pushing is a human gate.** This repo is public and a push to `master` deploys
+game.parallelogramist.com, so agents never `git push` and never add remotes, no matter
+what workspace-level policy says about pushing private repos. See `BACKLOG.md`
+`## Human gates`.
+
 **Architecture Overview** → `references/architecture-overview.md` — full ECS/Phaser architecture: components & systems, scene flow, weapons, enemies, visual/audio/effects, meta-progression, and all in-run systems.
+
+**Expedition (the default run mode since 2026-07-31):** design authority is
+`references/map/README.md` (its section 3 contracts win on conflict). Pure world math
+lives in `src/world/` (never imports Phaser, `src/game/`, `src/systems/` or the ECS),
+run/profile state in `src/expedition/`, mode adapters in `src/game/world/`.
 
 ## Tooling
 
@@ -50,3 +61,7 @@ Icon atlas scripts live in `tools/` (SVG sources: game-icons.net).
 **Tween cleanup:** `this.tweens.killAll()` in shutdown. Tweens run after scene restart otherwise.
 
 **Encrypted storage:** All persistent data must use `SecureStorage` from `/src/storage/`, not raw `localStorage`.
+
+**Visible or feel changes:** file a `POLISH-*` item under BACKLOG `## Human gates` for
+operator playtest instead of retuning blind. New weapons and enemies must handle walls:
+see `src/world/weaponWallBehavior.ts` and `src/world/staticCollision.ts`.

@@ -2,8 +2,10 @@
 
 Single source of truth for deferred work, known issues, and improvement ideas.
 Fleet agents: pick the **topmost unchecked item you can finish in one session**
-(Now → Next → Later), build it **test-first**, check it off with the commit hash,
-append any follow-ups you discover, commit. The human reprioritizes freely.
+(Now → Next → Later), build it, check it off with the commit hash, append any
+follow-ups you discover, commit. Keep the suite green; add tests only where they
+genuinely pin the logic (the workspace "Tests & comments" rule wins over any
+test-first habit). The human reprioritizes freely.
 
 ## How this system works
 
@@ -19,8 +21,9 @@ append any follow-ups you discover, commit. The human reprioritizes freely.
   (tuning/feel), `BUG-`, `CHORE-`.
 
 > **Env note for fleet agents:** `npm run test`, `npx tsc --noEmit`, and
-> `npm run build` all run to completion in recent bg sessions (full suite ~473 green in
-> <1s). If a session hits a *total* bash hang (even `echo` never returns), don't burn the
+> `npm run build` all run to completion in recent bg sessions (full suite ~1,978 tests
+> across 167 files, about 35s: a 35s run is healthy, the hang signature is a
+> multi-minute silent stall). If a session hits a *total* bash hang (even `echo` never returns), don't burn the
 > session retrying — a fresh agent clears it. Never `pkill -f vitest` broadly (other fleet
 > agents share this host); kill only your own PID. This checkout has a local, gitignored
 > `.claude/settings.json` with `{"worktree":{"bgIsolation":"none"}}` so bg edits land on

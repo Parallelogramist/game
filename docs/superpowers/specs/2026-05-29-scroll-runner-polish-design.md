@@ -1,5 +1,9 @@
 # Scroll Runner Polish — Design
 
+> **STATUS: SHIPPED, including Area C.** The "Area C deferred, not implemented" line
+> below is superseded: the endless-runner mode shipped later as `RunnerScene`
+> (`src/game/scenes/RunnerScene.ts`, whose header cites this spec).
+
 **Date:** 2026-05-29
 **Status:** Approved (design); implementation = polish parts only this session
 **Scope decision:** "Design everything, build polish." This document specifies three

@@ -1,5 +1,8 @@
 # Ship Mod Tracks — Per-Ship Meta-Progression (FEAT-SHIP-MODS)
 
+> **STATUS: SHIPPED** (FEAT-SHIP-MODS-1 `261d9dc`, FEAT-SHIP-MODS-2 `ec6c47a`). Code is
+> the source of truth now; balance is owned by the live BALANCE-SHIP-MODS item.
+
 The last piece of the Sky Force Reloaded meta loop (see
 `2026-07-03-card-collection-meta-design.md` for the mapping): ships should
 feel like they GROW individually, not only through the global shop. Each ship

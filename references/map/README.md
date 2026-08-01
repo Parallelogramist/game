@@ -121,7 +121,7 @@ itself.
 ### 3.5 Save ownership
 
 **`FEAT-WORLD-SPACE-7` is the single owner of `SAVE_VERSION` 2, the `expedition`
-block and the first real body of `migrateState()`** (`GameStateManager.ts:815`).
+block and the first real body of `migrateState()`** (`GameStateManager.ts:898`).
 Every other chunk that needs run state adds an *optional namespaced sub-block* inside
 `expedition` and bumps nothing. If `FEAT-BARRIER-GATES` lands before W7, it implements
 the schema exactly as specified in doc 01 section 8.1 rather than inventing one.

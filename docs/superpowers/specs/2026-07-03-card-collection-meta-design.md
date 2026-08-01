@@ -1,5 +1,10 @@
 # Card Collection & Scanner Lottery — Meta-Progression Design
 
+> **STATUS: SHIPPED** (FEAT-CARDS-1 `caaba4e`, FEAT-CARDS-2 `08a196c`). Code is the
+> source of truth now; balance is owned by the live POLISH-CARDS playtest item. The
+> "FEAT-SHIP-MODS needs human economy sign-off first" line below is stale: sign-off
+> happened and ship mods shipped (`261d9dc`, `ec6c47a`).
+
 Inspiration: Sky Force Reloaded's meta loop — ship upgrades, card
 collection/discovery, and a light gold-lottery for card finds. The goal is the
 *feel* (compounding permanent progress, discovery moments, one-more-run pull),

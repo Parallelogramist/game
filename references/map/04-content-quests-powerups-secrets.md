@@ -1,8 +1,8 @@
 # 04: World Content: Quests, Power-Ups, Secrets, Reward Economy
 
 > **Amended 2026-07-27 by operator decision.** Expedition becomes the **default** run
-> mode (promoted by `FEAT-EXPEDITION-PROMOTE` after phase 6; it still ships behind
-> `?expedition=1` until then), and **Recall to Hangar is a mid-run teleport, not a run
+> mode (the flip ran at `02c4b74` on 2026-07-31; the `?expedition=1` dev route is
+> retired), and **Recall to Hangar is a mid-run teleport, not a run
 > ending**. Where this document assumes otherwise, `README.md` sections 4.1 and 7 win.
 
 
