@@ -929,6 +929,24 @@ quest state is a caller-supplied `questStateOf` predicate, required rather than 
 `MinimapSectorUnderlay.impassable` precedent, because `src/expedition/` never imports
 `src/meta/`, where the quest store lives.
 
+### As built (FEAT-SECRET-WALL-MAP-TELL + FEAT-SECRET-GAP-MAP-TELL, d5d012d, 2026-08-01)
+
+The lead badge this section's "secret badge" line names now carries one bit beyond "a lead
+points here": a filled amber disc is a lead the ship can walk into, a hollow amber ring is one
+whose every open lead is sealed against the profile right now. The rule is
+`findSealedLeadSectors` (`src/expedition/secretHints.ts`), pure and fed the same `SecretLead[]`
+the LEADS panel draws from, so the two cannot disagree; the shape is `drawLeadBadge`
+(`SectorMapRenderer.ts`) and the legend carries one `Lead here` and one `Lead sealed` row,
+generated from the same helper the chart calls.
+
+Three decisions worth keeping. (1) **Every, not any.** A sector holding one sealed cache and one
+walk-in reads unsealed, because the trip is still worth making. (2) **A void gap is a seal only
+while the Magno-Tether is unowned**, which is the same branch `sectorDetail.leadSealSuffix`
+takes for its `across a void gap open to you` clause. (3) **A sigil ring is not a seal**: it
+costs nothing the player might lack, and `SecretLead.sigils` already hands over the wake order.
+Which seal it is stays with the readout and the LEADS panel rather than becoming a third badge
+state, per this section's own "two find-shapes sharing one legend row" framing.
+
 ---
 
 ## 5. Key and binding plan

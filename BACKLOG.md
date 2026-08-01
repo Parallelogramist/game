@@ -1257,6 +1257,32 @@ daily, weekly, practice and gauntlet are untouched by construction, because `Are
 emits no sector event at all; and it moves no gold rail, no relic roll and no reward-table row, so
 `FEAT-ECON-WARDS` stays parked and untouched.
 
+**d5d012d made a lead you cannot walk into say so on the chart.** Every sector carrying an open
+lead drew the same filled amber dot, so a cache lying on open floor, one ringed by cracked rock
+and one across a void gap only the Magno-Tether crosses were indistinguishable until the player
+focused the cell or flew out to find the wall. A sector whose every open lead is sealed against
+the profile now badges as a hollow amber ring instead of a filled disc, so George opens the chart
+and sees at a glance which of his open leads he can fly to and take today. The rule is the new
+pure `findSealedLeadSectors` in `secretHints.ts`, fed the same `SecretLead[]` the LEADS panel
+draws from, so the chart and the panel cannot disagree about a route. **Every, not any**: a sector
+holding one sealed cache and one walk-in still reads unsealed, because the trip is worth making
+and a badge that called it sealed would send the player past a reward they could take. **A void
+gap counts only while the Magno-Tether is unowned**, which is the same branch
+`sectorDetail.leadSealSuffix` already takes for its `across a void gap open to you` clause.
+**A sigil ring is deliberately not a seal**: it costs nothing the player might lack, and
+`SecretLead.sigils` already hands over the wake order. Shape rather than a second colour, per
+`SectorMapRenderer`'s standing rule, and one shared `Lead sealed` legend row rather than one per
+seal kind, which is the "two find-shapes sharing one legend row is one design decision" call
+`FEAT-SECRET-GAP-MAP-TELL` asked for. It closes that item and `FEAT-SECRET-WALL-MAP-TELL`, and
+files `POLISH-LEAD-BADGE-SEAL-KIND`, `CHORE-LEAD-BADGE-RADAR` and `BALANCE-LEAD-SEAL-WALL-CLAUSE`.
+No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no
+`WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump, because everything it reads
+(`PoiSlot.sealed`, `PoiSlot.gapped`, `SecretFlags.HINTED`, ability ownership) already exists and
+is already loaded, so every existing profile lights it up the moment the build lands; arena,
+daily, weekly, practice and gauntlet are untouched by construction, because `MapScene` is
+expedition-only; and it moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS`
+stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -6404,7 +6430,7 @@ exploring pays is the end of Phase 5.
   real run feels around it. Value: a chasm that reads as an invitation rather than as a detour.
   Deps: none, but it wants play rather than a fourth guess.
 
-- [ ] **FEAT-SECRET-GAP-MAP-TELL** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER): the chart is
+- [x] **FEAT-SECRET-GAP-MAP-TELL** (done, d5d012d): the chart is
   sector-granular, so a gapped cache is legible only in the room itself and, as text, on the
   LEADS panel. It pairs exactly with `FEAT-SECRET-WALL-MAP-TELL`: both want a per-sector glyph
   saying "a cache here needs something you may not have", both need a legend row and a
@@ -6419,6 +6445,10 @@ exploring pays is the end of Phase 5.
   `FEAT-MAPUI-LEGEND-REQUIREMENTS`' surface. The world-wide question ("is anything here behind a
   gap I cannot cross") is now answered by the LOCKED OUT panel, so the remaining glyph is a
   convenience rather than the only route: do not re-derive that.
+  **The chart glyph shipped at `d5d012d`**, shared with `FEAT-SECRET-WALL-MAP-TELL` exactly as
+  this entry asked. A gapped lead badges sealed only while the Magno-Tether is unowned, which
+  is the same `across a void gap open to you` branch the readout already takes, so the chart
+  and the readout cannot disagree about a route.
 
 - [x] **CHORE-VOID-GAP-RADAR-UNDERLAY**: the radar draws a chasm and a fence as impassable area
   instead of as open floor (done, c2ad058). Both `TileKind.VoidGap` and `TileKind.SecurityGrid`
@@ -7099,7 +7129,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   a wall that reads as an invitation rather than a toll. Deps: none, but it wants play rather
   than a fourth guess.
 
-- [ ] **FEAT-SECRET-WALL-MAP-TELL** (new 2026-08-01, from FEAT-SECRET-FALSE-WALLS): the chart is
+- [x] **FEAT-SECRET-WALL-MAP-TELL** (done, d5d012d): the chart is
   sector-granular, so a walled cache is legible only in the world itself and, as text, on the
   LEADS panel. A per-sector glyph for "a cache here is sealed" would put it on the map, and
   `FEAT-MAPUI-POI-ICONS` already owns the glyph vocabulary and the legend rows it would need.
@@ -7113,6 +7143,37 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   world-wide question ("is anything out there behind something I cannot open") is now answered by
   the LOCKED OUT panel, so the remaining glyph is a convenience rather than the only route: do
   not re-derive that.
+  **The chart glyph shipped at `d5d012d`, and it is deliberately shared with
+  `FEAT-SECRET-GAP-MAP-TELL` rather than its own shape.** A sector whose every open lead is
+  sealed now badges as a hollow amber ring instead of a filled disc, through
+  `findSealedLeadSectors` in `secretHints.ts` and `drawLeadBadge` in `SectorMapRenderer.ts`,
+  with one shared `Lead sealed` legend row. That is the "two find-shapes sharing one legend
+  row is one design decision" call this pair's own entries asked for: **which** seal it is
+  stays with the readout and the LEADS panel, which already word it. Do not re-derive a
+  per-seal glyph; it is filed as `POLISH-LEAD-BADGE-SEAL-KIND`.
+
+- [ ] **POLISH-LEAD-BADGE-SEAL-KIND** (new 2026-08-01, from FEAT-SECRET-WALL-MAP-TELL): the
+  badge says a lead is sealed, not whether it is cracked rock or a void gap. The readout and the
+  LEADS panel both name the seal, so this is a scan-speed convenience; a third badge state costs
+  a third legend row, and the legend is already 23 rows against a panel that needs about 764 px
+  of viewport height before it stops overlapping the detail bar. Value: the chart says which
+  seal without focusing the cell. Deps: wants the legend-height question
+  `BALANCE-CHART-ROW-SIX-BUTTONS` / `POLISH-MAP-HEADER-PORTRAIT` answered first.
+
+- [ ] **CHORE-LEAD-BADGE-RADAR** (new 2026-08-01, from FEAT-SECRET-WALL-MAP-TELL): the radar's
+  lead bearing (05e832e) points at a sealed lead exactly as it points at a walk-in, so the
+  in-run surface still sends the player at a wall the chart now warns about. It wants the same
+  `findSealedLeadSectors` fed into `radarWaypoints.ts`, plus a second chevron treatment that does
+  not collide with the disc's existing hollow-ring-in-range vocabulary. Value: the bearing you
+  fly on knows what the chart knows. Deps: none.
+
+- [ ] **BALANCE-LEAD-SEAL-WALL-CLAUSE** (new 2026-08-01, from FEAT-SECRET-WALL-MAP-TELL):
+  cracked rock always reads as sealed, but most builds break rubble on contact and
+  `ability_breach_charges` opens it outright, so for many profiles a walled lead is a task
+  rather than a lockout. `FEAT-BARRIER-BREACH-REST` names the emanate-only ships that genuinely
+  cannot. Whether the badge should read the loadout, or keep the honest-but-blunt rule it ships
+  with, is a browser call. Value: a sealed badge means sealed for you. Deps: none, but it wants
+  play rather than a second guess.
 
 - [ ] **CHORE-SECRET-WALL-EMANATE-LOCKOUT** (new 2026-08-01, from FEAT-SECRET-FALSE-WALLS): the
   five ships that start on an emanating weapon (`aura`, `orbiting_blades`, `meteor`,
