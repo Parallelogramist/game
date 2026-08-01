@@ -800,6 +800,62 @@ carry, and it closes section 4's list.
 
 ---
 
+### As built (FEAT-QUEST-ESCORT-ENEMY-INTEREST, 9aea1bb, 2026-08-01)
+
+`escortDrone` shipped with a drone nothing aimed at. The billing loop charged the drone for
+hostiles that happened to stand within 60 px of it, and every one of them was walking at the ship,
+so an escort was protected by clearing the room exactly like every other objective. Hostiles now
+break off for it.
+
+1. **The decoy is a target swap in the dispatcher, not a change to any handler.**
+   `src/ecs/systems/enemy-ai/decoy.ts` holds one position, a follower set and the allow-list;
+   `enemyAISystem` selects the set once per frame and gives each enemy a `targetX`/`targetY` that
+   is the decoy for a follower and the player for everyone else. No behavior module changed, so a
+   Dash still telegraphs, an Exploder still fuses and a Lurker still retreats, each now measuring
+   the real distance to whatever it is walking at.
+2. **Selection is OUTSIDE the LOD skip.** `enemyAISystem` skips far enemies on 5 of every 6 frames;
+   selecting inside that skip would let a follower set flicker with the frame counter. The
+   selection loop runs over the whole query every frame a decoy exists, which is only while a quest
+   escort is under way.
+3. **Three gates, all deliberate.** Within `DECOY_AGGRO_RADIUS` (360 px) of the drone, because a
+   decoy is a local threat and never a room magnet; **outside** `DECOY_PLAYER_GUARD_RADIUS`
+   (200 px) of the ship, which is the whole counterplay, since flying to the drone takes its
+   attackers back off it; and in `DECOY_CHASER_AI_TYPES`, capped at the `DECOY_MAX_FOLLOWERS` (4)
+   nearest.
+4. **The allow-list is contact-damage chasers only, and every exclusion is a reason.** Circle
+   orbits at a standoff and would ring the drone without ever entering the 60 px billing radius;
+   Shooter and Sniper fire projectiles that cannot damage the drone, so retargeting them would
+   delete them from the fight; Healer flees its target; Teleporter's whole read is blinking next to
+   the ship; Giant and Warden deal telegraphed AOE the drone is not solid to; a Wraith is
+   intangible and harmless for half of its cycle; Rallier buffs its own allies. Every aiType >= 50
+   is absent on purpose: an escort must never be able to pull a miniboss or a boss off the player.
+5. **The damage model is untouched.** `ESCORT_DRONE_MAX_ATTACKERS` stays 2 and
+   `ESCORT_DRONE_DAMAGE_PER_ATTACKER` stays 4, so the worst case is still 16 dps. This changes who
+   walks at the drone, never what it costs when they arrive; the numbers stay
+   `BALANCE-QUEST-ESCORT-DRONE`'s.
+6. **The flow field still routes to the player, and that is a known, bounded approximation.**
+   `chaseHeading` falls back to `navigationContext.flowStep`, which is solved toward the ship, so a
+   follower with no line of sight to the drone walks toward the player instead. It is bounded by
+   the drone's own 900 px tether and by the 360 px aggro radius, so sight returns almost
+   immediately, and re-solving a second flow field per frame for at most four bodies is the exact
+   cost the nav layer exists to avoid. Filed as `CHORE-DECOY-FLOW-FIELD`.
+7. **The tell is a ring plus one rate-limited toast**, because the drone can be off-camera inside
+   its tether. The ring is drawn outside the health arc rather than on the drone body, since
+   `ESCORT_DRONE_COLOR` is the player's own projectile core and is what makes the drone read as
+   theirs. Both lag the follower set by one frame, because `updateExpeditionAbilities` runs before
+   `enemyAISystem`; reordering the escort block against every other expedition sync for one frame
+   was not worth it.
+8. **A crate was billing the drone.** `getFrameCacheEnemyIds()` is `[Transform, Health, EnemyTag]`
+   and destructible crates carry all three, so an inert crate parked beside the drone charged it
+   4 HP every half second. Fixed in the same loop with a `Destructible` skip.
+9. **No storage key and no version bump of any kind** (`SAVE_VERSION`, `WORLDGEN_VERSION`,
+   `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION`, `WORLD_ARCHIVE_VERSION` all untouched): the decoy
+   is live per-frame state and nothing here is persisted. Arena, daily, weekly, practice and
+   gauntlet are untouched by construction, because the drone is the only publisher of a decoy and
+   it exists only while an expedition quest escort step is active.
+
+---
+
 ### As built (`FEAT-QUEST-REACHSECTOR-DISTINCT`, 972573a, 2026-08-01)
 
 `reachSector` shipped as "arrive once, anywhere that matches". This commit lets one objective

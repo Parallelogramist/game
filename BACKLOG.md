@@ -1318,6 +1318,33 @@ arena, daily, weekly, practice and gauntlet are untouched by construction, becau
 `processKnockback` takes its raw-move branch and the snap block returns early; and it moves no
 gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**9aea1bb gave the escort something to defend against.** `escortDrone` shipped as the one quest verb
+that asks the player to protect rather than to kill, reach, hold, open, find or carry, and then
+nothing in the game ever aimed at the drone: hostiles were billed for standing near it while they
+walked at the ship, so an escort was protected by clearing the room exactly like every other
+objective. Up to four melee hostiles within 360 px of the drone and outside 200 px of the ship now
+break off and walk at the drone instead, nearest first, and the drone rings hazard-orange and toasts
+`DRONE UNDER FIRE` when they do. **The 200 px ship guard is the whole design, not a safety valve**:
+a hostile near the ship always prefers the ship, so flying back to your drone takes its attackers
+off it, which is what makes this an escort George intercepts rather than a room he sweeps. The
+mechanism is one target swap in the dispatcher (`enemyAISystem` hands each enemy a `targetX`, the
+decoy for a follower and the player for everyone else), so **no behavior handler changed** and every
+distance-driven scale still measures the real distance to whatever that enemy is walking at.
+**Selection runs outside the LOD skip**, or a follower set would flicker with the frame counter.
+**Ranged, AOE, support and every miniboss and boss type are excluded on purpose**: enemy projectiles
+cannot damage the drone, so retargeting a sniper would delete it from the fight, and an escort must
+never be able to pull a boss. The damage model is untouched, so `BALANCE-QUEST-ESCORT-DRONE` keeps
+its numbers and this session's own tuning is filed as `BALANCE-DECOY-AGGRO`. **It also fixed a bug
+in the shipped escort**: `getFrameCacheEnemyIds()` is `[Transform, Health, EnemyTag]` and
+destructible crates carry all three, so an inert crate parked beside the drone had been billing it
+4 HP every half second. It files `BALANCE-DECOY-AGGRO`, `CHORE-DECOY-FLOW-FIELD` and
+`FEAT-DECOY-RANGED-INTEREST`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no
+`DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump, because the
+decoy is live per-frame state and nothing here is persisted; arena, daily, weekly, practice and
+gauntlet are untouched by construction, because the escort drone is the only publisher of a decoy
+and it exists only while an expedition quest escort step is active; and it moves no gold, no relic
+roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -6805,12 +6832,58 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   exactly with `CHORE-QUEST-SIEGE-RESTORE` and `CHORE-QUEST-DWELL-RESTORE`, which have the same
   cause: fix them together or not at all. Value: a reload stops being a free heal. Deps: none.
 
-- [ ] **FEAT-QUEST-ESCORT-ENEMY-INTEREST** (new 2026-08-01, from FEAT-QUEST-ESCORT): hostiles
+- [x] **FEAT-QUEST-ESCORT-ENEMY-INTEREST** (done, 9aea1bb): hostiles
   never target the drone, they only bill it for standing near them, so an escort is protected by
   clearing the room rather than by intercepting anything aimed at it. Real targeting is a change
   to the chase family's target selection, which is larger than this feature and would also make
   the drone a lightning rod that pulls a room off the player. Value: an escort you defend rather
   than a room you sweep. Deps: none.
+  **What shipped**: `src/ecs/systems/enemy-ai/decoy.ts` publishes one decoy position, and
+  `enemyAISystem` gives each enemy a `targetX`/`targetY` that is the decoy for a follower and the
+  player for everyone else, so no behavior handler changed. Three gates: within 360 px of the
+  drone, **outside** 200 px of the ship, and in a closed allow-list of contact-damage chase types,
+  capped at the 4 nearest. **The 200 px ship guard is the feature, not a safety valve**: flying to
+  your drone takes its attackers back off it, which is what turns "clear the room" into
+  "intercept". **The lightning-rod risk this entry named is answered by the cap and the guard**,
+  not by refusing the change: at most four bodies hold the drone and every one of them comes back
+  the moment the player arrives. **The allow-list excludes Circle (orbits outside the 60 px
+  billing radius), Shooter and Sniper (projectiles cannot damage the drone at all, so retargeting
+  would delete them from the fight), Healer (flees its target), Teleporter (its read is blinking
+  next to the ship), Giant and Warden (telegraphed AOE the drone is not solid to), Wraith
+  (intangible for half its cycle) and Rallier (an ally aura)**; every aiType >= 50 is excluded so
+  an escort can never pull a boss. Selection runs OUTSIDE the LOD skip, or the follower set would
+  flicker with the frame counter. The damage model is untouched (still 2 attackers x 4 HP per
+  half second, still 16 dps worst case), so `BALANCE-QUEST-ESCORT-DRONE` keeps its numbers. The
+  tell is a pulsing hazard ring outside the health arc plus a `DRONE UNDER FIRE` toast rate-limited
+  to once per 20 s, because the drone can be off-camera inside its 900 px tether; both lag the
+  follower set by one frame, since `updateExpeditionAbilities` runs before `enemyAISystem`.
+  **A crate was billing the drone**: `getFrameCacheEnemyIds()` is `[Transform, Health, EnemyTag]`
+  and destructibles carry all three, so an inert crate beside the drone charged it 4 HP every half
+  second; fixed in the same loop. Files `BALANCE-DECOY-AGGRO`, `CHORE-DECOY-FLOW-FIELD` and
+  `FEAT-DECOY-RANGED-INTEREST`. No storage key and no version bump of any kind.
+
+- [ ] **BALANCE-DECOY-AGGRO** (new 2026-08-01, from FEAT-QUEST-ESCORT-ENEMY-INTEREST): 360 px of
+  drone aggro, 200 px of ship guard and 4 followers are designed guesses, unmeasured in a browser.
+  The guard radius is the one that decides whether the escort reads as a fight to break up or as a
+  drone that dies whenever you dash, and it interacts with the drone's own 165 px/s follow speed,
+  which `BALANCE-QUEST-ESCORT-DRONE` is separately holding. Judge the two together. Value: an
+  escort that is a decision rather than a leash. Deps: none, but it wants play, not a guess.
+
+- [ ] **CHORE-DECOY-FLOW-FIELD** (new 2026-08-01, from FEAT-QUEST-ESCORT-ENEMY-INTEREST): a
+  follower with no line of sight to the drone paths toward the PLAYER, because `chaseHeading` falls
+  back to `navigationContext.flowStep` and the flow field is solved toward the ship. Bounded and
+  self-correcting (the drone is inside a 900 px tether and the follower is inside a 360 px aggro
+  radius, so sight returns almost immediately), and holding it properly means a second flow-field
+  solve per frame for at most four bodies, which is the cost the nav layer exists to avoid. Value: a
+  hostile that rounds the corner toward the drone rather than toward you. Deps: none.
+
+- [ ] **FEAT-DECOY-RANGED-INTEREST** (new 2026-08-01, from FEAT-QUEST-ESCORT-ENEMY-INTEREST):
+  Shooter, Sniper, Bombard and every telegraphed-AOE type are excluded from the allow-list because
+  enemy projectiles and hazard zones cannot damage the drone at all, so retargeting one would
+  quietly remove it from the fight. Making the drone shootable is the honest version, and it is a
+  damage path rather than a targeting rule: it needs an enemy-projectile hit test against a scene
+  Graphics object that is not an ECS entity. Value: an escort threatened by the whole room rather
+  than by its melee half. Deps: none, but it is a new damage path, not a tuning knob.
 
 - [x] **FEAT-QUEST-SURVIVE-DANGER** (done, 126961c): a hold objective now answers back. While
   the ship holds a sector a live `surviveInSector` step names, the room sieges it: the ambush
