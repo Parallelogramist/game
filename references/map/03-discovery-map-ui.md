@@ -539,6 +539,32 @@ changed. Arena and every other no-map mode feed an empty list on the first line 
 `syncRadarWaypoints`, and so does the no-live-player branch of `updateMinimap`, which is what
 stops a held bearing being drawn against a (0,0) ship.
 
+**As built (`CHORE-VOID-GAP-RADAR-UNDERLAY`, c2ad058, 2026-08-01):** the underlay now draws the
+two impassable tile kinds that are area rather than face. `TileKind.VoidGap` and
+`TileKind.SecurityGrid` were invisible on the radar, so a gapped cache pocket and a fenced altar
+pocket both read as open floor and the radar implied a room was crossable when it was not. The
+new pure `sectorWallSegments.sectorImpassableRects` merges each horizontal run of same-kind
+impassable tiles into one `ImpassableRect` (row-major, no vertical merge: a pocket ring is one
+tile thick on an axis), `SectorOutline` carries them, and `MinimapSectorUnderlay` gained a
+**required** `impassable` field on the `hazardSectorKinds` precedent, so a call site that forgets
+it is a compile error rather than a radar that silently keeps drawing a gap as floor.
+
+`isOutlineBlocking` was **deliberately not widened** to cover the two kinds, which is the trap the
+chore was filed against: it also feeds `blocksAt`, so a wider predicate would stop every wall face
+adjacent to a gap or a fence from emitting its outline, and the room silhouette would break around
+exactly the pockets this was meant to reveal. A test in `sectorWallSegments.test.ts` now states
+that rather than a comment alone.
+
+Draw order in `rebuildUnderlay` is load-bearing: biome wash, then the impassable patches, then the
+wall faces, so a wall face touching a patch still draws on top of it. Each patch is filled at
+alpha 0.22 in the kind's own STROKE colour and rimmed in the same at the wall alpha, because the
+world FILL of a gap is nearly black and of a fence nearly so, which at 2.5 px per tile would read
+as nothing on a dark disc; a chasm therefore reads cyan and a fence pink exactly as they do in the
+room. No further wiring was needed for a tripped fence: `tryPhaseCloak` already nulls
+`minimapUnderlayKey`, so the patch disappears on the next rebuild. Arena is untouched by
+construction, since `syncMinimapUnderlay` returns on its first line when `worldMode.worldMap()` is
+null.
+
 ### 3.5 Settings, reduced motion, quality
 
 - The existing toggle (`STORAGE_KEY_MINIMAP = 'settings-minimap-enabled'`,
@@ -831,6 +857,39 @@ sector now has a cursor and a readout that names what its doors want. Seven poin
 7. **No storage key, no version bump, no new discovery writer.** The cursor is scene state and
    the readout is a projection over discovery flags that already ship, so every existing
    profile lights this up the moment the build lands.
+
+**As built (`FEAT-MAPUI-LOCKOUT-PANEL`, c2ad058, 2026-08-01).** Rule 4's "the map is now a to-do
+list, which is the entire Metroid trick" is now delivered **world-wide** rather than only per
+door. Every prior piece of it answered for one place: a lock ring on one border, a requirement
+clause in one focused sector's readout, a `SEALED DOOR` toast at one door. The question the player
+actually asks, what am I missing and what does it open, had no surface at all. A **LOCKED OUT**
+panel now sits under LEADS in the left column, listing every traversal ability and quest key the
+profile still lacks with the number of KNOWN sealed doors and charted reward sites each would open
+and the Chebyshev sector distance to the nearest of them, sorted by what opens the most
+(`MAGNO-TETHER · 4 DOORS · 2 SITES · NEAREST 3 SECTORS OUT`). It caps at 4 rows plus `+N MORE`,
+the same cap and reason as LEADS, and is absent entirely for a profile locked out of nothing.
+
+The panel is **text and adds no legend row**, which is why it does not touch
+`FEAT-MAPUI-LEGEND-REQUIREMENTS`: the legend is already 16 rows at `36 + rows.length * 20 + 8` px
+and clamped against `HEADER_HEIGHT`, so one row per distinct per-world requirement could overflow
+it on a short viewport. Answering the same question in prose costs no new glyph vocabulary.
+
+The rows come from the new pure `src/expedition/lockouts.ts`, predicate-driven exactly like
+`sectorDetail`, so it obeys the same three leak rules and those are correctness rather than taste:
+an uncharted sector contributes nothing, an unseen shrine contributes nothing, and an **un-hinted
+cache contributes nothing**, because a count carrying a nearest-distance is a position by another
+route. A gapped cache is counted at `SecretFlags.HINTED`, the weaker fact the LEADS panel and the
+corner badge already admit, never at SEEN (a Secret's id lives in `state.secrets`, not
+`state.pois`). Borders are deduped in a `countedEdges` set mirroring
+`SectorMapRenderer.drawnEdges`, since every border is reachable from both of the sectors that
+share it and an interior door would otherwise count twice.
+
+Two omissions are deliberate. **A false wall gets no row**: it wants a weapon rather than an
+ability, so it names nothing the player can go and earn (filed as `CHORE-LOCKOUT-BREAKABLE-ROW`
+against the five ships that start on an emanating weapon). **An edge with `requiredId ===
+undefined` gets no row**: `SectorMapRenderer.isGatedEdgeSealed` draws it permanently sealed
+because nothing can ever satisfy it, and a to-do list should not carry a line that can never be
+ticked.
 
 ---
 

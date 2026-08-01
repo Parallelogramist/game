@@ -215,7 +215,11 @@ that item, so do not re-derive it). The unblocked candidates are now `CHORE-SECR
 half discharged by `FEAT-MAPUI-POI-ICONS` and now waits on `FEAT-DISCOVERY-FEEDBACK-07` for the
 radar half), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
 `BALANCE-DECRYPTOR-SCAN-RADIUS`, the newly filed `BALANCE-MAP-FRAGMENT-YIELD` and
-`FEAT-SECRET-MAP-FRAGMENT-CODEX`. The remainder of
+`FEAT-SECRET-MAP-FRAGMENT-CODEX`, plus the three filed by `c2ad058`'s LOCKED OUT panel:
+`BALANCE-LOCKOUT-PANEL-ROWS`, `FEAT-LOCKOUT-RADAR-BEARING` and (waiting on
+`FEAT-BARRIER-BREACH-REST`'s operator call, so unblocked only in part)
+`CHORE-LOCKOUT-BREAKABLE-ROW`. `CHORE-VOID-GAP-RADAR-UNDERLAY` is closed at that same commit and
+is off the board. The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`
 (shipped at b75822d), so the list stays accurate.
@@ -996,6 +1000,39 @@ does not move: over 101 worlds the 2468 shrine slots yield 690 fenced altars, 28
 per world. It files `BALANCE-SECURITY-GRID-SHARE`, `FEAT-GRID-ENEMY-PHASE` and
 `FEAT-GRID-FENCE-CORRIDOR`. No storage key and no version bump of any kind, and it moves no gold,
 no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
+**c2ad058** turned the map into the to-do list doc 03 section 4.5 rule 4 always promised. Sixteen
+sessions built the exploration layer and every piece of that rule shipped **per door**: a lock
+ring on one border, a requirement clause in one focused sector's readout, a `SEALED DOOR` toast at
+one door. The world-wide question the player actually asks, what am I missing and what does it
+open, had never been answerable from any surface. A **LOCKED OUT** panel now sits under LEADS in
+the left column of the world map and names every traversal ability and quest key the profile still
+lacks, each with the number of KNOWN sealed doors and charted reward sites it would open and the
+Chebyshev distance to the nearest of them, sorted by what opens the most: `MAGNO-TETHER · 4 DOORS
+· 2 SITES · NEAREST 3 SECTORS OUT`. It caps at 4 rows plus a `+N MORE` line, the same cap and the
+same reason as `MAX_LEAD_ROWS`, and it is absent entirely for a profile locked out of nothing. The
+new pure `src/expedition/lockouts.ts` is predicate-driven like `sectorDetail`, so it obeys the
+same three leak rules the chart does, and those are correctness rather than taste: an uncharted
+sector contributes nothing, an unseen shrine contributes nothing, and an **un-hinted cache
+contributes nothing**, because a count carrying a nearest-distance is a position by another route.
+Borders are deduped in a `countedEdges` set the way `SectorMapRenderer.drawnEdges` dedups them,
+since every border is reachable from both of the sectors that share it and an interior door would
+otherwise count twice. Two omissions are settled, not oversights: **a false wall gets no row**,
+because it wants a weapon rather than an ability and so names nothing the player can go and earn,
+and **an edge with no `requiredId` gets no row**, because nothing can ever satisfy it and a to-do
+list should not carry a line that can never be ticked. The radar stopped lying alongside it:
+`sectorWallSegments.sectorImpassableRects` emits `TileKind.VoidGap` and `TileKind.SecurityGrid`
+tiles as filled, rimmed area, drawn between the biome wash and the wall faces, and
+`isOutlineBlocking` was **deliberately not widened**, because it also feeds `blocksAt` and every
+wall face touching a gap or a fence would lose its outline, which is the exact trap
+`CHORE-VOID-GAP-RADAR-UNDERLAY` was filed against; a test now states it. The focused-sector
+readout names the seal on a lead too, so the wall, the gap and the fence speak in one voice. It
+closes `CHORE-VOID-GAP-RADAR-UNDERLAY`, advances the readout half of `FEAT-SECRET-WALL-MAP-TELL`
+and `FEAT-SECRET-GAP-MAP-TELL`, and files `BALANCE-LOCKOUT-PANEL-ROWS`,
+`FEAT-LOCKOUT-RADAR-BEARING` and `CHORE-LOCKOUT-BREAKABLE-ROW`. No storage key, no `SAVE_VERSION`,
+no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bump, so every
+existing profile and all 21 archivable worlds light it up the moment the build lands, and it moves
+no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
 ## Proposed (auto)
 
@@ -5932,6 +5969,27 @@ exploring pays is the end of Phase 5.
   reachability proof of a different shape, which is why it is its own item rather than a tuning
   knob. Value: a fence that opens a shortcut rather than a pocket. Deps: none.
 
+- [ ] **BALANCE-LOCKOUT-PANEL-ROWS** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): the 4-row
+  cap, the `doors + sites` sort and the `NEAREST N SECTORS OUT` clause are designed guesses,
+  measured but never played. Whether the panel reads as a plan or as a wall of counts depends on
+  how many rows a mid-game profile actually carries, which nothing but a real run answers. Value:
+  the panel reads as a plan. Deps: none, but it wants play rather than a second guess.
+
+- [ ] **FEAT-LOCKOUT-RADAR-BEARING** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): a lockout
+  row already knows its nearest charted sector's distance, but nothing points at it once the chart
+  closes. `radarWaypoints.ts` carries `objective` and `lead` kinds and `05e832e` established the
+  pattern (a sector centre, never a position; an uncharted destination dropped). A third kind
+  would make a lockout a destination rather than a number. Value: the thing you are missing has a
+  bearing, not just a count. Deps: none.
+
+- [ ] **CHORE-LOCKOUT-BREAKABLE-ROW** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): a `sealed`
+  cache and an `EdgeKind.Breakable` border are absent from the LOCKED OUT panel on purpose,
+  because they want a weapon rather than an ability and so name nothing the player can go and
+  earn. That stops being true for the five ships that start on an emanating weapon, which is
+  exactly `CHORE-SECRET-WALL-EMANATE-LOCKOUT`'s gap. If `FEAT-BARRIER-BREACH-REST`'s operator call
+  ever lands, revisit whether a `Breach Charges` row belongs here. Value: no starting ship reads
+  the panel as complete when it is not. Deps: that operator call.
+
 - [ ] **BALANCE-SECRET-GAP-SHARE** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER): the 35% share
   of unclaimed caches, the 1.2 s to 0.5 s re-arm and the 3-tile span cap are designed guesses,
   measured but never played. They land the four find-shapes at 38.7% walk-in / 29.3% ring / 23.4%
@@ -5948,18 +6006,24 @@ exploring pays is the end of Phase 5.
   their own. **Fix them together or not at all**, because two find-shapes sharing one legend row
   is one design decision, not two. Value: the chart answers "is this one behind a gap" without
   flying there. Deps: none.
+  **Readout half shipped at c2ad058:** the focused sector's `A lead points here` line now names
+  the seal, and the gap clause says whether the ship can cross it (`· across a void gap` becomes
+  `· across a void gap open to you` once the Magno-Tether is held). What remains is only the
+  **per-sector chart glyph**, which still needs a legend row and therefore still sits on
+  `FEAT-MAPUI-LEGEND-REQUIREMENTS`' surface. The world-wide question ("is anything here behind a
+  gap I cannot cross") is now answered by the LOCKED OUT panel, so the remaining glyph is a
+  convenience rather than the only route: do not re-derive that.
 
-- [ ] **CHORE-VOID-GAP-RADAR-UNDERLAY** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER; extended
-  2026-08-01 by FEAT-POWER-PHASE-CLOAK to cover both kinds):
-  `MinimapManager.UNDERLAY_WALL_KINDS` lists Solid, Breakable and GateClosed, so both
-  `TileKind.VoidGap` and `TileKind.SecurityGrid` are invisible on the radar, the same silence
-  hazard strips already keep. The radar therefore draws a gapped or fenced pocket as open floor
-  and implies a room is crossable when it is not. **This is one chore, not two: do not file a
-  second for the fence.** And neither kind can simply be added to
-  `sectorWallSegments.isOutlineBlocking`, because that predicate also feeds `blocksAt`, so every
-  wall face touching a gap or a fence would lose its outline: the exact trap the hazard-strip
-  as-built note records. Value: the radar stops lying about which rooms a ship can walk through.
-  Deps: none.
+- [x] **CHORE-VOID-GAP-RADAR-UNDERLAY**: the radar draws a chasm and a fence as impassable area
+  instead of as open floor (done, c2ad058). Both `TileKind.VoidGap` and `TileKind.SecurityGrid`
+  are now emitted by the new `sectorWallSegments.sectorImpassableRects` as **filled, rimmed
+  rects** (row-major greedy horizontal merge, sector-local px) and drawn by
+  `MinimapManager.rebuildUnderlay` between the biome wash and the wall faces, washed in the
+  kind's own stroke colour so a chasm reads cyan and a fence pink exactly as they do in the room.
+  `isOutlineBlocking` was **deliberately not widened**, because it also feeds `blocksAt` and
+  every wall face touching a gap or a fence would then lose its outline: that trap is now stated
+  by a test in `sectorWallSegments.test.ts` rather than only by a comment. Full write-up in
+  `BACKLOG-archive.md`.
 
 - [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
   sector banner, fragment cascades, secret bloom, completion milestones at 25/50/75/100 and the
@@ -6574,6 +6638,13 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   Cut here because a new icon needs a legend row and a requirement clause, which is
   `FEAT-MAPUI-LEGEND-REQUIREMENTS`' surface rather than this chunk's. Value: the chart answers
   "is this one behind a wall" without flying there. Deps: none.
+  **Readout half shipped at c2ad058:** the focused sector's `A lead points here` line now names
+  the seal, so a lead onto a sealed cache reads `A lead points here · sealed behind cracked rock`
+  in the detail bar. What remains is only the **per-sector chart glyph**, which still needs a
+  legend row and therefore still sits on `FEAT-MAPUI-LEGEND-REQUIREMENTS`' surface. The
+  world-wide question ("is anything out there behind something I cannot open") is now answered by
+  the LOCKED OUT panel, so the remaining glyph is a convenience rather than the only route: do
+  not re-derive that.
 
 - [ ] **CHORE-SECRET-WALL-EMANATE-LOCKOUT** (new 2026-08-01, from FEAT-SECRET-FALSE-WALLS): the
   five ships that start on an emanating weapon (`aura`, `orbiting_blades`, `meteor`,
@@ -6761,6 +6832,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   map, and a sector with four doors carrying long requirement names can wrap the HOLDS row
   past the plate. Value: the readout stays inside its plate on a phone. Deps: none. Wants a
   browser check, so it pairs with POLISH-MAP-ACCESS in the playtest queue.
+  **Measured at c2ad058, when the LOCKED OUT panel joined the left column** (no redesign taken,
+  deliberately): the column runs from `HEADER_HEIGHT + 12` = 88 px down to
+  `height - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT`, so it has **484 px** in the 1280x720 landscape
+  base and 1044 px in the 720x1280 portrait base. At every cap at once (objectives at the
+  `ACTIVE_EXPEDITION_QUEST_LIMIT` of 3, leads at 4 rows plus `+N MORE`, lockouts at 4 rows plus
+  `+N MORE`) the stack measures roughly 194 + 269 + 255 = **718 px**, bottoming at y ~= 806: it
+  fits portrait with room to spare and **overruns landscape by ~234 px**, where before this
+  commit the same worst case was ~551 px and cleared the line by only 21 px. The overrun is
+  cosmetic rather than functional (the panels are `setDepth(3)`/`(4)` over the chart and the
+  legend is anchored on the right at `width - 24 - 196`, so nothing is pushed or occluded that
+  the player cannot pan past), and every cap firing at once needs a profile with 3 active quests,
+  5+ open leads and 5+ distinct lockouts. Fix belongs with this item and
+  `POLISH-CHART-DIALOG-PORTRAIT`, not in a fourth cut.
 
 - [x] **FEAT-QUEST-REACHSECTOR-DISTINCT** (done, 972573a) (new 2026-08-01, from
   FEAT-QUEST-REACHSECTOR): `reachSector` now counts DISTINCT sectors and its `sectorTag` is

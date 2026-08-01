@@ -3077,3 +3077,48 @@ primitives with zero existing coverage; a draw-call rewire has no pure logic to
 pin. Verified via `tsc --noEmit` + `npm run build` + the full Vitest suite
 (1310 tests green, no regressions). Playtest follow-up filed as
 **POLISH-MENUBUTTON-VARIANT** under `## Human gates`.
+
+## CHORE-VOID-GAP-RADAR-UNDERLAY · the radar drew a chasm and a fence as walkable floor · DONE c2ad058
+
+Filed 2026-08-01 from `FEAT-POWER-MAGNO-TETHER` and extended the same day by
+`FEAT-POWER-PHASE-CLOAK` to cover both kinds (one chore, never two).
+`MinimapManager.UNDERLAY_WALL_KINDS` listed only Solid, Breakable and GateClosed, so
+`TileKind.VoidGap` and `TileKind.SecurityGrid` were invisible on the radar, the same
+silence hazard strips keep. The radar therefore drew a gapped cache pocket or a fenced
+altar pocket as open floor and implied a room was crossable when it was not.
+
+The trap the item was filed against: neither kind can simply be added to
+`sectorWallSegments.isOutlineBlocking`, because that predicate also feeds `blocksAt`, so
+every wall face adjacent to a gap or a fence would stop emitting its outline and the room
+silhouette the radar exists to draw would break around exactly the pockets this was meant
+to reveal.
+
+Fixed by adding area rather than widening the face predicate. New
+`sectorWallSegments.sectorImpassableRects(sector)` walks the tile grid row-major and merges
+each horizontal run of same-kind impassable tiles into one `ImpassableRect` in sector-local
+px (no vertical merge: a pocket ring is one tile thick on an axis, so a second pass buys
+nothing). `SectorOutline` gained a required `impassable` field, `MinimapSectorUnderlay`
+gained a **required** `impassable` field on the `hazardSectorKinds` precedent (a call site
+that forgets it is a compile error, not a silently wrong radar), and
+`GameScene.syncMinimapUnderlay` passes `outline.impassable` through.
+
+`MinimapManager.rebuildUnderlay` draws the patches **after** the biome wash and **before**
+the wall-face loop, so a wall face touching a patch still draws on top. Each patch is
+filled at alpha 0.22 in the kind's STROKE colour and rimmed in the same at the wall alpha:
+the world FILL of a gap is nearly black and of a fence nearly so, which at 2.5 px per tile
+would read as nothing on a dark disc.
+
+`isOutlineBlocking` and `blocksAt` were not touched. Two cases in
+`sectorWallSegments.test.ts` pin it: one that both kinds emit rects and that a run of three
+adjacent same-kind tiles merges into exactly one rect, and one titled
+"a gap or a fence never becomes a wall face (widening isOutlineBlocking would erase the
+outlines that touch it)" so the reason survives after the session's context is gone.
+
+No wiring was needed for a tripped fence: the underlay key already invalidates when a fence
+goes dark (`tryPhaseCloak` nulls `minimapUnderlayKey`) and when a barrier collapses, so the
+patch disappears from the radar on the next rebuild. Arena and the other arena-substrate
+modes are untouched by construction: `syncMinimapUnderlay` returns on its first line when
+`worldMode.worldMap()` is null, so an arena run never assembles an underlay at all.
+
+No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no
+`WORLD_PROFILE_VERSION` bump. Shipped alongside the LOCKED OUT panel in the same commit.
