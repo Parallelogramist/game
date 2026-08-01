@@ -356,7 +356,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
 
 #### Band B: toast diet + main menu reduction
 
-- [ ] **FEAT-TOAST-TIERS**. Value: a typical expedition run fires 30-60 toasts (the
+- [x] **FEAT-TOAST-TIERS** (done, 7e6962e). Value: a typical expedition run fires 30-60 toasts (the
   bounty cycle alone is ~1/min plus a paired result toast; combo thresholds, barrier
   explainers and shrines add the rest); the operator wants roughly 1-2 per session,
   rarest unlocks only. Plan: add `tier?: 'critical' | 'rare' | 'notable' | 'ambient'`
@@ -396,6 +396,29 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   map-button badge; the field-boost toast (4639) is currently the only readout of what
   the timed buff does, so demoting it requires a HUD timed-buff indicator first (cut a
   follow-up item if not done in-session).
+
+  **What shipped:** four tiers on `ToastConfig` and one gate in `ToastManager.showToast`.
+  `critical` draws with a 60 s per-title cooldown, `rare` draws twice per run then records,
+  `notable` never draws and is recorded, `ambient` is dropped; a config with no tier defaults
+  to `notable`, so nothing new can spam. The decision half is pure
+  (`src/ui/toastGate.ts`, six tests) because the budget and the cooldown are the parts worth
+  pinning; the Phaser half is verified by play. All 69 GameScene sites carry a tier: 12
+  critical, 6 rare, 21 notable, 30 ambient. `ShopScene` calls `setUngated(true)` instead, per
+  the audit's menu-context note, so a failed purchase still answers the tap. Also fixed: the
+  `clearAll` timer leak the item named, by keeping the hide `TimerEvent` and removing it, so
+  a stale timer can no longer null out a newer toast. **Three deviations from this item's
+  text, deliberate.** (1) The Hidden Unlock toast was tiered `notable` rather than deleted:
+  it stays invisible either way, and recording it hands `FEAT-TOAST-ENDSCREEN` the payload it
+  is built to render. (2) The field-boost toast dropped to `ambient` with in-world floating
+  text carrying the percentage and duration, rather than waiting on a HUD indicator;
+  `FEAT-HUD-TIMED-BUFF` is filed for the persistent countdown. (3) The three bounty toasts
+  dropped to `ambient` with an in-world banner (`BOUNTY: 25 KILLS`, `BOUNTY CLEAR`, `BOUNTY
+  LOST`), because `setTopCenterLabel` is occupied by the world-level text and a real ticker is
+  its own feature: `FEAT-HUD-BOUNTY-TICKER`. The secret-lead toast was demoted only together
+  with a new one-time `secret-lead` tutorial hint pointing at the MAP LEADS panel, and
+  `RECALLED` took the demotion the item offered. `getSuppressed()` has no consumer until
+  `FEAT-TOAST-ENDSCREEN`, which is the next item in this band. **Not verified in a browser:**
+  files `POLISH-TOAST-DIET`.
 - [ ] **FEAT-TOAST-ENDSCREEN**. Dep: FEAT-TOAST-TIERS. Value: demoted `notable`
   events (secrets, quest steps, lore, synergies, evolutions) must land somewhere
   readable; the EARNED THIS RUN plumbing exists (`src/meta/RunEarnings.ts`,
@@ -4455,6 +4478,23 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   no `id` (it is keyed by `ConsumableKind`), so its four icon keys resolve today by luck
   rather than by test. Cover it when a chunk next touches that file for its own reason.
   Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 8.
+
+- [ ] **FEAT-HUD-TIMED-BUFF** (new 2026-08-01, from FEAT-TOAST-TIERS): the field-boost toast
+  is now `ambient`, so a timed stat buff announces itself once as floating text and then has
+  no readout at all. `this.timedStatBuffs` already carries stat, magnitude and expiry
+  (`GameScene.collectFieldBoost`), and nothing in `HUDManager` renders it. Value: a player can
+  see which surge is live and how long is left, which is what makes a boost worth chasing.
+  Plan: a compact icon strip beside the relic modifier strip (`HUDManager.updateRelicModifierStrip`
+  is the pattern), one icon per live buff with a shrinking bar. When it lands, delete the
+  floating text added by FEAT-TOAST-TIERS.
+
+- [ ] **FEAT-HUD-BOUNTY-TICKER** (new 2026-08-01, from FEAT-TOAST-TIERS): the bounty cycle's
+  three toasts are now `ambient` with an in-world banner, so the objective, its progress and
+  its timer are invisible between banners. Value: the bounty is a live 15 to 45 s objective;
+  a player who cannot see the count cannot chase it. Plan: a one-line HUD ticker
+  (`BOUNTY 12/25 · 0:14`) fed from `this.bounty`; `setTopCenterLabel` is NOT free (it writes
+  `worldLevelText`, `HUDManager.ts:857`), so this needs its own text object in the HUD's own
+  layout pass.
 
 - [x] **CHORE-WORLDGEN-ABILITY-ORDER-WIRE** (done — 704d128): the real `generateWorld` call
   site passes `TRAVERSAL_ABILITY_GATE_ORDER` (`src/data/TraversalAbilities.ts`) as
@@ -9337,6 +9377,14 @@ Never agent work. The fleet must not do any of these.
     shove. Confirm blinking out of a blast feels like an escape and not like a rubber band.
     (f) **the Juggernaut**: that ship is knockback-immune and both sites already honoured it.
     Confirm it now visibly stands still through a slam that moves every other ship.
+  - **POLISH-TOAST-DIET** (7e6962e): the toast diet is tuned entirely from a static audit, so
+    a run in a browser is the only way to know it cut the right things. Owns: (a) does a full
+    expedition now fire the one or two toasts the operator asked for, and are they the right
+    two; (b) is a rare budget of 2 per run right, or does an evolution plus an achievement
+    plus a nemesis kill in one run want 3; (c) does the in-world bounty banner read at all
+    during a fight, or is FEAT-HUD-BOUNTY-TICKER needed before the toasts can stay gone;
+    (d) does the field-boost floating text land legibly at the moment of pickup; (e) does the
+    one-time LEAD FILED hint actually send the player to the MAP.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
