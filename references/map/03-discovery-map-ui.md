@@ -523,6 +523,22 @@ pooled blip Graphics beneath the contacts. It adds no field to `MinimapSectorUnd
 does not change the `update()` signature. Arena passes 0 by construction: `activeSecretCaches`
 is only ever populated in expedition mode.
 
+**As built (`FEAT-MAPUI-OBJECTIVE-PIN-RADAR` + the radar half of `CHORE-SECRET-LEAD-RADAR`,
+05e832e):** one more additive method, `setWaypoints(waypoints: ReadonlyArray<RadarWaypoint>)`,
+fed at 1 Hz by `GameScene.syncRadarWaypoints`. Section 3.2 said the radar is the local view and
+the map screen is the world view, with no persistent inset widget between them; a waypoint is
+the seam that decision left open, and it stays inside the radar's identity because it is a
+bearing, not a map. Resolution is the pure `src/expedition/radarWaypoints.ts`, which takes
+sector KEYS rather than a `WorldMap` and returns sector CENTRES: the radar never learns an
+entity position, so hint tier 3 keeps being the only thing that marks one. Two drops are the
+contract: an uncharted destination and a destination in the ship's own sector, which is section
+1.4's reveal rule and the hinted badge's `flags === 0` gate restated for a third surface. Marks
+draw into the existing pooled blip Graphics after the contacts (four maximum), so the radar
+still costs one draw call, and neither `MinimapSectorUnderlay` nor the `update()` signature
+changed. Arena and every other no-map mode feed an empty list on the first line of
+`syncRadarWaypoints`, and so does the no-live-player branch of `updateMinimap`, which is what
+stops a held bearing being drawn against a (0,0) ship.
+
 ### 3.5 Settings, reduced motion, quality
 
 - The existing toggle (`STORAGE_KEY_MINIMAP = 'settings-minimap-enabled'`,

@@ -766,7 +766,10 @@ Three tiers, cheapest first:
 - **Two surfaces read it, both already existing.** The map screen stacks a LEADS panel under
   the OBJECTIVES panel `FEAT-QUEST-VIEW` shipped, nearest lead first, and `SectorMapRenderer`
   badges a hinted sector in the breakable amber. An undiscovered sector still draws nothing,
-  so a lead stays a riddle until the region is charted.
+  so a lead stays a riddle until the region is charted. **A third surface joined them in
+  05e832e**: the tactical radar carries every open lead as an amber bearing (sector centre only,
+  and dropped in the ship's own sector, so tier 1 keeps its silence), which is what made a lead
+  actionable without stopping to open the map.
 - **No new state anywhere.** No storage key, no `ALL_STORAGE_KEYS` entry, no save field, and no
   `SAVE_VERSION` / `WORLDGEN_VERSION` / `DISCOVERY_VERSION` / `ACHIEVEMENT_VERSION` bump. The
   completion percent is untouched: `getFoundSecretCount` counts FOUND only.

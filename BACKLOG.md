@@ -280,14 +280,29 @@ index. This **closes `FEAT-MAPUI-DOORS-05`** on its last remaining criterion and
 `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`** outright. No storage key, no `SAVE_VERSION` and no
 `WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the build lands.
 
-**The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-RADAR`,
+**`05e832e` made a destination survive closing the chart.** Three sessions built a navigation
+vocabulary that only existed on the map screen: an objective's pin (0be97f5), a lead's riddle
+and badge (885d3bb), the sector readout (45e7cb2). All of it ended at `MapScene.close()`, so the
+loop was read the chart, memorise a bearing, close it, fly, guess, reopen. The radar now carries
+up to four bearings, each active objective's pinned sector in the chart's rose and each open
+lead's named sector in the secret amber, as a hollow ring in range and a rim chevron beyond it.
+**A waypoint is a sector centre and never a position**, and an uncharted destination is dropped,
+which are the same two rules the chart itself obeys; a destination in the room the ship is
+already in is dropped as well, so hint tier 1 keeps being the only voice where it is
+deliberately withholding a position. This closes `FEAT-MAPUI-OBJECTIVE-PIN-RADAR` and the radar
+half of `CHORE-SECRET-LEAD-RADAR`, whose ticker half is now `CHORE-SECRET-LEAD-TICKER`. No
+storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights
+it up the moment the build lands.
+
+**The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
-`POLISH-MAP-DETAIL-BAR-PORTRAIT`, the now-unblocked `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`, plus
-the newly filed `FEAT-QUEST-REACHSECTOR-DISTINCT` and `FEAT-MAPUI-OBJECTIVE-PIN-RADAR`.
-`FEAT-ECON-WARDS` stays parked on its operator balance decision: do not unpark it.
+`POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
+`FEAT-QUEST-REACHSECTOR-DISTINCT`, plus the newly filed `POLISH-RADAR-WAYPOINT-LABEL` and
+`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`. `FEAT-ECON-WARDS` stays parked on its operator balance
+decision: do not unpark it.
 
 ## Proposed (auto)
 
@@ -4862,12 +4877,50 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   visited set, which is new persisted state in the quest save. Value: multi-destination
   objectives, the shape doc 04's `surviveInSector` and `escortDrone` also want. Deps: none.
 
-- [ ] **FEAT-MAPUI-OBJECTIVE-PIN-RADAR** (new 2026-08-01, from FEAT-QUEST-REACHSECTOR): the pin
-  is on the world map only. The in-flight radar (`MinimapManager`) draws doors and the secret
-  shimmer but nothing for an objective, so a player flying toward a pinned sector loses it the
-  moment the chart closes. Value: the objective stays visible while you are actually flying to
-  it. Deps: none. Pairs with `CHORE-SECRET-LEAD-RADAR`, which wants the same treatment for
-  leads.
+- [x] **FEAT-MAPUI-OBJECTIVE-PIN-RADAR** (done, 05e832e): the radar carries the bearing of every
+  place the chart pinned, and of every open lead, so a destination survives closing the map.
+  Value: George flies the arrow instead of memorising the chart.
+  1. **What shipped**: pure `src/expedition/radarWaypoints.ts` (`buildRadarWaypoints`,
+     `MAX_RADAR_WAYPOINTS = 4`), `MinimapManager.setWaypoints` plus a `drawWaypoints` pass into
+     the existing pooled blip Graphics, and a 1 Hz `GameScene.syncRadarWaypoints` feeding it the
+     same `buildQuestPins` call `MapScene` makes and the same `getHintedSecretIds` list the
+     LEADS panel reads, so the two surfaces cannot name different sectors. In range a waypoint
+     is a hollow ring at its true offset; beyond the radar's 900px world range `projectToRadar`
+     clamps it to the rim and it draws as a chevron along the bearing. Objectives draw in the
+     chart's pin rose (`OBJECTIVE_PIN`, now exported for exactly this), leads in the breakable
+     amber every secret surface already shares.
+  2. **A waypoint is a SECTOR, never a position** (`sectorCenterWorld`, never a cache's
+     coordinates). Pointing at a position is hint tier 3's earned privilege
+     (`FEAT-POWER-DECRYPTOR-SCAN`); doing it here would overrule tier 1's "in this room, never
+     where" for free. For the same reason a destination in the sector the ship is already inside
+     is dropped, so the ambient shimmer stays the only voice in the room it is withholding.
+  3. **An uncharted destination is dropped**, the rule `SectorMapRenderer`'s hinted badge and
+     `buildQuestPins` already obey. That is the one correctness invariant of the chunk and it is
+     what the three tests in `radarWaypoints.test.ts` pin.
+  4. **Four marks maximum**, objectives before leads, then nearest first, ties on sector key so
+     two equidistant destinations cannot swap between refreshes. A 56px disc already carries
+     blips, door glyphs and the shimmer.
+  5. **Refresh is a 1 Hz poll, not a subscription**, at the objective ticker's own cadence: the
+     set changes only on a quest step, a lead or a newly charted sector, and subscribing three
+     managers costs more than the poll. Filed as `CHORE-RADAR-WAYPOINT-EVENT-REFRESH`.
+  6. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no settings toggle: the
+     existing `settings-minimap-enabled` gates it for free, since `MinimapManager.update`
+     returns on its first line when the radar is off, and the dead-player branch feeds an empty
+     list so a held bearing can never draw against a (0,0) ship.
+
+- [ ] **POLISH-RADAR-WAYPOINT-LABEL** (new 2026-08-01, from FEAT-MAPUI-OBJECTIVE-PIN-RADAR): a
+  bearing says where, never what or how far. With four marks up, an objective and a lead in the
+  same quadrant are told apart only by colour. A hover/focus label or a jump count would say it,
+  but the disc is 56px and the mid-right HUD slot has no room for a legend. Value: knowing which
+  destination an arrow is without opening the chart. Deps: none. Wants a browser check, so it
+  pairs with POLISH-MAP-ACCESS in the playtest queue.
+
+- [ ] **CHORE-RADAR-WAYPOINT-EVENT-REFRESH** (new 2026-08-01, from
+  FEAT-MAPUI-OBJECTIVE-PIN-RADAR): `syncRadarWaypoints` polls once a second because the three
+  producers (quest progress, `getHintedSecretIds`, discovery flags) have no shared change
+  signal; `DiscoveryManager.getRevision()` covers two of the three, and the quest manager has no
+  revision at all. Value: a claimed lead stops pointing in the same frame rather than within a
+  second. Deps: none, but it wants a quest-side revision counter to be worth doing.
 
 - [x] **FEAT-SECRET-LORE-CODEX** (done, 173c7f3): the profile-wide collection half of hint tier
   2. A fragment's flavour line used to be readable in exactly one place, `MapScene`'s LEADS
@@ -4933,10 +4986,12 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   season"), which multiplies the ranks a profile ever sees. Deps: a per-profile or re-rollable
   world seed. Spec: doc 04 section 5, lore fragments.
 
-- [ ] **CHORE-SECRET-LEAD-RADAR** (new 2026-07-31, from `FEAT-SECRET-LORE`): a lead is only
-  readable on the map screen. The in-run bounty ticker line (which `FEAT-QUEST-VIEW` already
-  time-shares with objectives) and the radar could both carry the nearest one. Value: acting on
-  a lead without stopping to open the map. Deps: none.
+- [ ] **CHORE-SECRET-LEAD-TICKER** (was CHORE-SECRET-LEAD-RADAR, radar half done 05e832e): the
+  radar now carries every open lead as an amber bearing, so the map screen is no longer the only
+  surface that knows. What is left is the other half of the original item: the in-run bounty
+  ticker line (which `FEAT-QUEST-VIEW` already time-shares with objectives) could name the
+  nearest lead's riddle in words, which a bearing cannot. Value: knowing WHICH lead the arrow
+  is, without opening the map. Deps: none.
 
 - [x] **FEAT-SECRET-AMBIENT-PING** (done, 9d8f9c5): hint tier 1 from doc 04 section 5. Within one
   screen of an unfound cache the radar shimmers, and it goes silent the frame the cache is
