@@ -187,3 +187,123 @@ export function computePracticeControlLayout(
     startBottom: startY + PRACTICE_START_HEIGHT / 2,
   };
 }
+
+/** Design-space constants shared by the five pre-run card scenes. */
+const MENU_GRID_EDGE_MARGIN = 16;
+const MENU_GRID_COLUMN_GAP = 18;
+const MENU_GRID_ROW_GAP = 24;
+/** Units the begin button plus its clearance occupy above the canvas bottom. */
+const MENU_GRID_BOTTOM_RESERVE = 102;
+
+export interface MenuCardGridInput {
+  count: number;
+  cardWidth: number;
+  cardHeight: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  menuScale: number;
+  /** Lowest design-space unit the scene header paints. */
+  headerBottom: number;
+  /** The scene's legacy vertical anchor nudge (-10, or +4 in ThreatSelectScene). */
+  anchorOffset: number;
+}
+
+export interface MenuCardGrid {
+  perRow: number;
+  rowCount: number;
+  /** Scale to apply to each card container; never below 1. */
+  scale: number;
+  cardWidth: number;
+  cardHeight: number;
+  gap: number;
+  rowSpacing: number;
+  firstRowY: number;
+}
+
+export function computeMenuCardGrid(input: MenuCardGridInput): MenuCardGrid {
+  const {
+    count, cardWidth, cardHeight, canvasWidth, canvasHeight,
+    menuScale, headerBottom, anchorOffset,
+  } = input;
+
+  const basePerRow = Math.min(
+    Math.max(1, count),
+    Math.max(1, Math.floor(
+      (canvasWidth - MENU_GRID_EDGE_MARGIN + MENU_GRID_COLUMN_GAP)
+      / (cardWidth + MENU_GRID_COLUMN_GAP),
+    )),
+  );
+
+  // A viewport with no density compensation to spend must come out byte-identical
+  // to the pre-sweep layout, so it takes the legacy geometry unchanged.
+  if (menuScale <= 1) {
+    const rowCount = Math.ceil(Math.max(1, count) / basePerRow);
+    const rowSpacing = cardHeight + MENU_GRID_ROW_GAP;
+    const gridHeight = rowCount * cardHeight + (rowCount - 1) * MENU_GRID_ROW_GAP;
+    return {
+      perRow: basePerRow,
+      rowCount,
+      scale: 1,
+      cardWidth,
+      cardHeight,
+      gap: MENU_GRID_COLUMN_GAP,
+      rowSpacing,
+      firstRowY: Math.min(
+        canvasHeight / 2 + anchorOffset - gridHeight / 2 + cardHeight / 2,
+        canvasHeight - MENU_GRID_BOTTOM_RESERVE - cardHeight / 2
+          - (rowCount - 1) * rowSpacing,
+      ),
+    };
+  }
+
+  const band = canvasHeight - (MENU_GRID_BOTTOM_RESERVE + headerBottom) * menuScale;
+  let bestPerRow = basePerRow;
+  let bestFit = 0;
+  // Strictly-greater keeps today's column count on a tie, so fewer, larger columns
+  // are taken only when they genuinely buy scale.
+  for (let perRow = basePerRow; perRow >= 1; perRow--) {
+    const rowCount = Math.ceil(Math.max(1, count) / perRow);
+    const naturalRowWidth = perRow * cardWidth + (perRow - 1) * MENU_GRID_COLUMN_GAP;
+    const naturalGridHeight = rowCount * cardHeight + (rowCount - 1) * MENU_GRID_ROW_GAP;
+    const fit = Math.min(
+      menuScale,
+      (canvasWidth - MENU_GRID_EDGE_MARGIN) / naturalRowWidth,
+      band / naturalGridHeight,
+    );
+    if (fit > bestFit) {
+      bestFit = fit;
+      bestPerRow = perRow;
+    }
+  }
+
+  const scale = Math.max(1, bestFit);
+  const rowCount = Math.ceil(Math.max(1, count) / bestPerRow);
+  const scaledCardHeight = cardHeight * scale;
+  const rowSpacing = (cardHeight + MENU_GRID_ROW_GAP) * scale;
+  const gridHeight = rowCount * scaledCardHeight + (rowCount - 1) * MENU_GRID_ROW_GAP * scale;
+
+  return {
+    perRow: bestPerRow,
+    rowCount,
+    scale,
+    cardWidth: cardWidth * scale,
+    cardHeight: scaledCardHeight,
+    gap: MENU_GRID_COLUMN_GAP * scale,
+    rowSpacing,
+    firstRowY: headerBottom * menuScale
+      + Math.max(0, (band - gridHeight) / 2)
+      + scaledCardHeight / 2,
+  };
+}
+
+/**
+ * Shrinks an already-created centered text object until it fits `maxWidth`.
+ * Scaled headers are the one place a long string can outgrow a 720-wide portrait
+ * canvas, and the real rendered width is the only reliable measure of that.
+ */
+export function fitTextWidth(
+  text: { width: number; setScale(value: number): unknown },
+  maxWidth: number,
+): void {
+  if (maxWidth > 0 && text.width > maxWidth) text.setScale(maxWidth / text.width);
+}
