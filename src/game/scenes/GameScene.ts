@@ -143,6 +143,7 @@ import {
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
   getActiveQuestMarkers,
+  getActiveQuestHoldObjectives,
   getActiveQuestStepViews,
   getEarnedQuestKeyIds,
 } from '../../meta/ExpeditionQuestManager';
@@ -460,6 +461,14 @@ const NEMESIS_LAIR_COLOR = 0xff2233;
  *  a player who never flies to the den still meets the nemesis. */
 const NEMESIS_LAIR_PATIENCE_SECONDS = 360;
 
+/** How the room answers a hold objective. The gap between waves shrinks as the hold nears its
+ *  target, so the last stretch is the expensive one rather than the first. */
+const SIEGE_WAVE_INTERVAL_START_SECONDS = 24;
+const SIEGE_WAVE_INTERVAL_END_SECONDS = 12;
+/** A ceiling on the siege's OWN live bodies, under the director's maxEnemies: a player slow to
+ *  clear must not accumulate an unwinnable room across a 90 s hold. */
+const SIEGE_MAX_LIVE_BESIEGERS = 14;
+
 /** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
  *  toasts even when a single find jumps two of them. */
 const MAP_COMPLETION_MILESTONES = [25, 50, 75, 100] as const;
@@ -693,6 +702,11 @@ export class GameScene extends Phaser.Scene {
   // derived (gameTime - start) rather than accumulated: no drift, and no per-frame work.
   private expeditionDwellSectorKey: string | null = null;
   private expeditionDwellStartSeconds: number = 0;
+  /** The sector the live siege answers for, so re-polling the same room does not re-announce it
+   *  and leaving ends it. */
+  private siegeSectorKey: string | null = null;
+  private siegeNextWaveAtSeconds: number = 0;
+  private siegeBesiegerIds: number[] = [];
   private expeditionQuestViews: QuestStepView[] = [];
   private questTickerRefreshTimer: number = 0;
   private questTickerCycleTimer: number = 0;
@@ -4542,6 +4556,9 @@ export class GameScene extends Phaser.Scene {
     this.expeditionQuestKillBaseline = this.killCount;
     this.expeditionDwellSectorKey = null;
     this.expeditionDwellStartSeconds = 0;
+    this.siegeSectorKey = null;
+    this.siegeNextWaveAtSeconds = 0;
+    this.siegeBesiegerIds = [];
     this.expeditionQuestViews = [];
     this.questTickerRefreshTimer = 0;
     this.questTickerCycleTimer = 0;
@@ -6742,6 +6759,7 @@ export class GameScene extends Phaser.Scene {
       this.checkDailyQuestsLive();
       this.checkExpeditionQuestKills();
       this.checkExpeditionQuestDwell();
+      this.updateExpeditionSiege();
     }
 
     // ═══ PACE GHOST (fixed 15 s sample grid, HUD refreshed once per second) ═══
@@ -9444,6 +9462,98 @@ export class GameScene extends Phaser.Scene {
       sectorTags: sectorTagsOf(sector),
       seconds: secondsHeld,
     });
+  }
+
+  /**
+   * The room answers a hold objective. Without this a 'survive' step is a 'stand' step: the
+   * director spawns on the view ring wherever the ship is, so waiting out 90 s in a cleared
+   * corner costs exactly what flying costs. The dwell itself is untouched (absolute seconds
+   * folded with max, a853c83): pressure is the feature, never a new gate on the count, because
+   * gating it on live hostiles would stop the clock for the player who clears fastest.
+   */
+  private updateExpeditionSiege(): void {
+    const heldSectorKey = this.expeditionDwellSectorKey;
+    const sector = heldSectorKey === null
+      ? undefined
+      : this.worldMode.worldMap()?.sectors.get(heldSectorKey);
+    if (!sector || heldSectorKey === null) { this.endExpeditionSiege(); return; }
+
+    const holdObjectives = getActiveQuestHoldObjectives();
+    const sectorTags = sectorTagsOf(sector);
+    const heldObjective = holdObjectives.find(
+      (objective) => sectorTags.includes(objective.sectorTag),
+    );
+    if (!heldObjective) { this.endExpeditionSiege(); return; }
+
+    if (this.siegeSectorKey !== heldSectorKey) this.beginExpeditionSiege(heldSectorKey);
+
+    this.siegeBesiegerIds = this.siegeBesiegerIds.filter((entityId) =>
+      hasComponent(this.world, AmbushSpawnTag, entityId)
+      && hasComponent(this.world, EnemyTag, entityId));
+
+    // A boss owns the room while it lives, and the one arena hold in the catalog shares its
+    // sector: stacking a siege on top would make that step the hardest fight in the game by
+    // accident rather than by design.
+    if (this.activeBossType !== null) return;
+    if (this.gameTime < this.siegeNextWaveAtSeconds) return;
+    if (this.siegeBesiegerIds.length >= SIEGE_MAX_LIVE_BESIEGERS) return;
+
+    const secondsHeld = Math.max(0, this.gameTime - this.expeditionDwellStartSeconds);
+    const holdFraction = Math.min(1, secondsHeld / Math.max(1, heldObjective.target));
+    this.siegeNextWaveAtSeconds = this.gameTime
+      + SIEGE_WAVE_INTERVAL_START_SECONDS
+      + (SIEGE_WAVE_INTERVAL_END_SECONDS - SIEGE_WAVE_INTERVAL_START_SECONDS) * holdFraction;
+    this.spawnSiegeWave(sector.depth);
+  }
+
+  /** One announcement per room. Sound and toast only: the ticker already reads `42/60`, and a
+   *  siege line of its own is a HUD-layout change larger than the feature. */
+  private beginExpeditionSiege(sectorKey: string): void {
+    this.siegeSectorKey = sectorKey;
+    this.siegeNextWaveAtSeconds = this.gameTime;
+    this.siegeBesiegerIds = [];
+    this.soundManager.playBossWarning();
+    this.toastManager?.showToast({
+      title: 'THE ROOM ANSWERS',
+      description: 'Hold this sector and it will not let you.',
+      icon: 'warning',
+      color: WORLD_GEOMETRY_COLORS.hazard.stroke,
+      duration: 3200,
+    });
+  }
+
+  /** Tracking only. The besiegers are real enemies and are left to the world's own teardown, the
+   *  clearAmbushNest rule: a wave that already spawned is the player's fight, not the
+   *  objective's bookkeeping. */
+  private endExpeditionSiege(): void {
+    if (this.siegeSectorKey === null) return;
+    this.siegeSectorKey = null;
+    this.siegeNextWaveAtSeconds = 0;
+    this.siegeBesiegerIds = [];
+  }
+
+  /** The nest's pack, entering from the room's edges instead of standing up in a ring: a siege
+   *  closes in, an ambush is already there. AmbushSpawnTag rather than a new component because
+   *  both of its meanings are wanted verbatim: leash-exempt, so fleeing leaves the fight in the
+   *  room it belongs to, and skipped by the serializer, so a refresh cannot double the wave. */
+  private spawnSiegeWave(depth: number): void {
+    const pack = AMBUSH_NEST_WAVES[ambushWaveTier(depth)];
+    for (const member of pack) {
+      const enemyType = getEnemyType(member.typeId);
+      if (!enemyType) continue;
+      for (let index = 0; index < member.count; index++) {
+        if (this.siegeBesiegerIds.length >= SIEGE_MAX_LIVE_BESIEGERS) return;
+        if (this.enemyCount >= this.maxEnemies) return;
+        const spawnPoint = this.pickSpawnRingPoint(REGULAR_SPAWN_RING);
+        if (!spawnPoint) return;
+        const scaledStats = getScaledStats(
+          enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult,
+        );
+        const entityId = this.createEnemy(spawnPoint.x, spawnPoint.y, enemyType, scaledStats);
+        addComponent(this.world, AmbushSpawnTag, entityId);
+        this.siegeBesiegerIds.push(entityId);
+      }
+    }
   }
 
   private createPlayer(x: number, y: number): number {

@@ -5,6 +5,7 @@ import {
   settleRunScopeProgress,
   buildQuestStepViews,
   buildQuestMarkers,
+  buildQuestHoldObjectives,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -265,5 +266,15 @@ describe('surviveInSector', () => {
     expect(buildQuestMarkers(held, HOLD_DEFS)).toEqual([
       { questId: 'quest_hold', label: 'Hold', icon: 'radar', sectorTag: 'boss-arena' },
     ]);
+  });
+
+  test('a hold objective carries the step target, and a non-hold step is not one', () => {
+    expect(buildQuestHoldObjectives(held, HOLD_DEFS)).toEqual([
+      { questId: 'quest_hold', sectorTag: 'boss-arena', target: 60 },
+    ]);
+    expect(buildQuestHoldObjectives(
+      [{ questId: 'quest_a', stepIndex: 0, stepProgress: 0, status: 'active' }],
+      DEFS,
+    )).toEqual([]);
   });
 });

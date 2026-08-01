@@ -283,3 +283,36 @@ export function buildQuestMarkers(
   }
   return markers;
 }
+
+/**
+ * The sector a live objective asks the player to HOLD, with the seconds it asks for.
+ * buildQuestMarkers deliberately merges the two place-naming kinds and so cannot answer this:
+ * a reachSector step wants the ship to arrive, and only a hold step wants the room to answer.
+ */
+export interface QuestHoldObjective {
+  questId: string;
+  sectorTag: SectorTag;
+  /** The step's own target, which IS the dwell in seconds (a853c83: one threshold, one field). */
+  target: number;
+}
+
+export function buildQuestHoldObjectives(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestHoldObjective[] {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const objectives: QuestHoldObjective[] = [];
+  for (const state of states) {
+    if (state.status !== 'active') continue;
+    const definition = byId.get(state.questId);
+    const step = definition?.steps[state.stepIndex];
+    if (!definition || !step) continue;
+    if (step.trigger.kind !== 'surviveInSector') continue;
+    objectives.push({
+      questId: definition.id,
+      sectorTag: step.trigger.sectorTag,
+      target: step.target,
+    });
+  }
+  return objectives;
+}

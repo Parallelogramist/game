@@ -10,7 +10,9 @@ import {
   settleRunScopeProgress,
   buildQuestStepViews,
   buildQuestMarkers,
+  buildQuestHoldObjectives,
   type QuestEvent,
+  type QuestHoldObjective,
   type QuestInstanceState,
   type QuestMarker,
   type QuestProgressResult,
@@ -136,6 +138,14 @@ export type { QuestMarker } from '../systems/QuestProgress';
  *  same one-projection rule: the panel and the pins cannot disagree about what is active. */
 export function getActiveQuestMarkers(): QuestMarker[] {
   return buildQuestMarkers(load().states, EXPEDITION_QUESTS);
+}
+
+export type { QuestHoldObjective } from '../systems/QuestProgress';
+
+/** What the siege driver reads once a second. Same store read and same one-projection rule as
+ *  getActiveQuestMarkers, so the pressure can never answer for a room the pins do not point at. */
+export function getActiveQuestHoldObjectives(): QuestHoldObjective[] {
+  return buildQuestHoldObjectives(load().states, EXPEDITION_QUESTS);
 }
 
 /**
