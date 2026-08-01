@@ -222,3 +222,48 @@ describe('reachSector', () => {
     expect(buildQuestMarkers([active('quest_a', 0, 0)], DEFS)).toEqual([]);
   });
 });
+
+describe('surviveInSector', () => {
+  const HOLD_DEFS: readonly ExpeditionQuestDefinition[] = [{
+    id: 'quest_hold',
+    name: 'Hold',
+    icon: 'radar',
+    steps: [{
+      id: 'q_hold.s1',
+      description: 'hold the arena',
+      trigger: { kind: 'surviveInSector', sectorTag: 'boss-arena' },
+      target: 60,
+      scope: 'run',
+      goldReward: 21,
+    }],
+    completionGoldReward: 40,
+  }];
+  const held: QuestInstanceState[] = [
+    { questId: 'quest_hold', stepIndex: 0, stepProgress: 0, status: 'active' },
+  ];
+
+  test('folds dwell with max, ignores a sector whose tags do not match, and completes at target', () => {
+    const wrongRoom = recordQuestEvent(held, HOLD_DEFS,
+      { kind: 'surviveInSector', sectorTags: ['biome:stage_inferno'], seconds: 90 });
+    expect(wrongRoom.states[0].stepProgress).toBe(0);
+
+    const partial = recordQuestEvent(held, HOLD_DEFS,
+      { kind: 'surviveInSector', sectorTags: ['boss-arena'], seconds: 40 });
+    expect(partial.states[0].stepProgress).toBe(40);
+    expect(partial.stepCompletions).toEqual([]);
+
+    const restarted = recordQuestEvent(partial.states, HOLD_DEFS,
+      { kind: 'surviveInSector', sectorTags: ['boss-arena'], seconds: 5 });
+    expect(restarted.states[0].stepProgress).toBe(40);
+
+    const done = recordQuestEvent(partial.states, HOLD_DEFS,
+      { kind: 'surviveInSector', sectorTags: ['boss-arena'], seconds: 60 });
+    expect(done.questCompletions).toEqual([{ questId: 'quest_hold', goldReward: 40 }]);
+  });
+
+  test('a hold step names a place, so it carries a marker like reachSector', () => {
+    expect(buildQuestMarkers(held, HOLD_DEFS)).toEqual([
+      { questId: 'quest_hold', label: 'Hold', icon: 'radar', sectorTag: 'boss-arena' },
+    ]);
+  });
+});

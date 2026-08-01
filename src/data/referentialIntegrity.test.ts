@@ -250,6 +250,11 @@ describe('expedition quest data rules', () => {
   // Doc 04 section 4's anti-chore rule: a 'run'-scope step must be completable inside one
   // expedition, so its target is bounded. A 'persistent' step accumulates across runs and is
   // deliberately not.
+  const expectSectorTagResolves = (tag: string, stepId: string): void => {
+    if (tag === 'boss-arena') return;
+    expect(STAGE_IDS.has(tag.slice('biome:'.length)), stepId).toBe(true);
+  };
+
   test('every run-scope target is reachable in one expedition and rewards are positive', () => {
     for (const quest of EXPEDITION_QUESTS) {
       for (const step of quest.steps) {
@@ -262,10 +267,13 @@ describe('expedition quest data rules', () => {
           // The fold is +1 per sector entry with no visited-set, so any target above 1 could be
           // met by bouncing in and out of one room.
           expect(step.target, step.id).toBe(1);
-          const tag = step.trigger.sectorTag;
-          if (tag !== 'boss-arena') {
-            expect(STAGE_IDS.has(tag.slice('biome:'.length)), step.id).toBe(true);
-          }
+          expectSectorTagResolves(step.trigger.sectorTag, step.id);
+        }
+        if (step.trigger.kind === 'surviveInSector') {
+          // The target IS the dwell in seconds, and doc 04's anti-chore rule bounds a survive
+          // timer: a hold longer than this is a wait, not an objective.
+          expect(step.target, step.id).toBeLessThanOrEqual(180);
+          expectSectorTagResolves(step.trigger.sectorTag, step.id);
         }
         if (step.scope !== 'run') continue;
         if (step.trigger.kind === 'kill') expect(step.target, step.id).toBeLessThanOrEqual(800);

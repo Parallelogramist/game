@@ -35,7 +35,10 @@ export type QuestEvent =
   | { kind: 'findSecret'; secretKind: SecretTier }
   /** Every tag the entered sector answers to. Folded +1 per entry with no visited-set, which is
    *  why every reachSector step's target is 1 (asserted in referentialIntegrity.test.ts). */
-  | { kind: 'reachSector'; sectorTags: readonly SectorTag[] };
+  | { kind: 'reachSector'; sectorTags: readonly SectorTag[] }
+  /** ABSOLUTE unbroken seconds held in the sector whose tags these are, folded with max: a poll
+   *  that repeats cannot double-credit, and leaving restarts the producer's count at 0. */
+  | { kind: 'surviveInSector'; sectorTags: readonly SectorTag[]; seconds: number };
 
 export interface QuestStepCompletion {
   questId: string;
@@ -69,6 +72,8 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
         && (trigger.secretKind === undefined || trigger.secretKind === event.secretKind);
     case 'reachSector':
       return trigger.kind === 'reachSector' && event.sectorTags.includes(trigger.sectorTag);
+    case 'surviveInSector':
+      return trigger.kind === 'surviveInSector' && event.sectorTags.includes(trigger.sectorTag);
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -85,6 +90,9 @@ function foldEvent(progress: number, event: QuestEvent): number {
     case 'claimAbility': return progress + 1;
     case 'findSecret': return progress + 1;
     case 'reachSector': return progress + 1;
+    // A high-water mark, so a partial dwell survives leaving the room while COMPLETION still
+    // needs one visit that reaches the target.
+    case 'surviveInSector': return Math.max(progress, event.seconds);
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -242,9 +250,9 @@ export function buildQuestStepViews(
 
 /**
  * Doc 04 section 4's marker feed, the half `FEAT-QUEST-VIEW` cut for having no key and no
- * consumer. One entry per active quest whose CURRENT step names a place; a quest working a
- * kill, depth, gate, ability or secret step contributes nothing, because those name a thing
- * to do rather than somewhere to be.
+ * consumer. One entry per active quest whose CURRENT step names a place (`reachSector`,
+ * `surviveInSector`); a quest working a kill, depth, gate, ability or secret step contributes
+ * nothing, because those name a thing to do rather than somewhere to be.
  */
 export interface QuestMarker {
   questId: string;
@@ -263,12 +271,14 @@ export function buildQuestMarkers(
     if (state.status !== 'active') continue;
     const definition = byId.get(state.questId);
     const step = definition?.steps[state.stepIndex];
-    if (!definition || !step || step.trigger.kind !== 'reachSector') continue;
+    if (!definition || !step) continue;
+    const trigger = step.trigger;
+    if (trigger.kind !== 'reachSector' && trigger.kind !== 'surviveInSector') continue;
     markers.push({
       questId: definition.id,
       label: definition.name,
       icon: definition.icon,
-      sectorTag: step.trigger.sectorTag,
+      sectorTag: trigger.sectorTag,
     });
   }
   return markers;

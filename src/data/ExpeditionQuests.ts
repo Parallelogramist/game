@@ -12,9 +12,9 @@ import type { SectorTag } from '../world/sectorTags';
  */
 
 /**
- * A trigger names WHICH signal a step listens to. The six kinds here are the six the game
- * emits; doc 04's other three (surviveInSector, escortDrone, deliverItem) have no producer
- * yet and are deliberately absent rather than inert.
+ * A trigger names WHICH signal a step listens to. The seven kinds here are the seven the game
+ * emits; doc 04's other two (escortDrone, deliverItem) have no producer yet and are
+ * deliberately absent rather than inert.
  */
 export type QuestTrigger =
   | { kind: 'kill' }
@@ -27,7 +27,11 @@ export type QuestTrigger =
   /** Doc 04 authors this as `sectorTag: string`. The vocabulary is the closed two-family union
    *  in src/world/sectorTags.ts, and referentialIntegrity.test.ts asserts every biome tag
    *  resolves to a real stage, which the template-literal type cannot. */
-  | { kind: 'reachSector'; sectorTag: SectorTag };
+  | { kind: 'reachSector'; sectorTag: SectorTag }
+  /** Doc 04 authors a `seconds` field beside the step's own `target`. The target IS the dwell
+   *  in seconds here: one threshold in two fields is two sources of truth, and the shipped
+   *  ticker renders `42/90` off the target for free. */
+  | { kind: 'surviveInSector'; sectorTag: SectorTag };
 
 export interface ExpeditionQuestStep {
   readonly id: string;
@@ -134,6 +138,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         scope: 'persistent',
         goldReward: 220,
       },
+      {
+        id: 'q_survey_03.s4',
+        description: 'Hold the Ion Field for 60 seconds without leaving',
+        trigger: { kind: 'surviveInSector', sectorTag: 'biome:stage_ion_field' },
+        target: 60,
+        scope: 'run',
+        goldReward: 240,
+      },
     ],
     completionGoldReward: 350,
   },
@@ -183,6 +195,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         target: 1,
         scope: 'persistent',
         goldReward: 200,
+      },
+      {
+        id: 'q_gatecrash_02.s3',
+        description: "Hold the arena at the world's heart for 90 seconds",
+        trigger: { kind: 'surviveInSector', sectorTag: 'boss-arena' },
+        target: 90,
+        scope: 'run',
+        goldReward: 260,
       },
     ],
     completionGoldReward: 300,

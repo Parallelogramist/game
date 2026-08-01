@@ -689,6 +689,10 @@ export class GameScene extends Phaser.Scene {
   // Expedition quests read kills as a DELTA off this baseline, so a restored run resumes
   // from its saved killCount instead of re-crediting the whole run's kills.
   private expeditionQuestKillBaseline: number = 0;
+  // The sector the ship is currently holding and the run time it arrived, so a dwell is
+  // derived (gameTime - start) rather than accumulated: no drift, and no per-frame work.
+  private expeditionDwellSectorKey: string | null = null;
+  private expeditionDwellStartSeconds: number = 0;
   private expeditionQuestViews: QuestStepView[] = [];
   private questTickerRefreshTimer: number = 0;
   private questTickerCycleTimer: number = 0;
@@ -987,6 +991,8 @@ export class GameScene extends Phaser.Scene {
     const changes = discovery.markSectorEntered(payload.sectorKey);
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
     this.stockSectorPois(payload.sectorKey);
+    this.expeditionDwellSectorKey = payload.sectorKey;
+    this.expeditionDwellStartSeconds = this.gameTime;
     const map = this.worldMode.worldMap();
     const sector = map?.sectors.get(payload.sectorKey);
     if (sector) {
@@ -4534,6 +4540,8 @@ export class GameScene extends Phaser.Scene {
     this.dailyQuestWatcher = null;
     this.lastDailyQuestCheck = 0;
     this.expeditionQuestKillBaseline = this.killCount;
+    this.expeditionDwellSectorKey = null;
+    this.expeditionDwellStartSeconds = 0;
     this.expeditionQuestViews = [];
     this.questTickerRefreshTimer = 0;
     this.questTickerCycleTimer = 0;
@@ -6733,6 +6741,7 @@ export class GameScene extends Phaser.Scene {
       this.lastDailyQuestCheck = this.gameTime;
       this.checkDailyQuestsLive();
       this.checkExpeditionQuestKills();
+      this.checkExpeditionQuestDwell();
     }
 
     // ═══ PACE GHOST (fixed 15 s sample grid, HUD refreshed once per second) ═══
@@ -9419,6 +9428,22 @@ export class GameScene extends Phaser.Scene {
     if (delta <= 0) return;
     this.expeditionQuestKillBaseline = this.killCount;
     this.recordExpeditionQuest({ kind: 'kill', amount: delta });
+  }
+
+  /** Dwell reaches quests as the ABSOLUTE seconds held in the current sector, so the
+   *  once-a-second poll cannot double-credit and leaving restarts the count. */
+  private checkExpeditionQuestDwell(): void {
+    const heldSectorKey = this.expeditionDwellSectorKey;
+    if (heldSectorKey === null) return;
+    const sector = this.worldMode.worldMap()?.sectors.get(heldSectorKey);
+    if (!sector) return;
+    const secondsHeld = Math.floor(this.gameTime - this.expeditionDwellStartSeconds);
+    if (secondsHeld <= 0) return;
+    this.recordExpeditionQuest({
+      kind: 'surviveInSector',
+      sectorTags: sectorTagsOf(sector),
+      seconds: secondsHeld,
+    });
   }
 
   private createPlayer(x: number, y: number): number {
