@@ -335,6 +335,12 @@ first.
   `WorldProfileStore.markedSectorIds` is the memory (per world, archive-backed, so a banked world
   keeps its marks and `RETURN` brings them back), and a mark is a fourth radar waypoint kind so a
   mark is a bearing rather than only a glyph.
+  **Extended by `FEAT-MARK-NOTES` (`f6662c3`, 2026-08-01):** a mark carries words as well as a
+  shape. `N` on the focused sector opens a 60-character field over the chart
+  (`src/ui/CodeEntryOverlay.ts`, the shipped DOM-field idiom), `WorldProfileStore.sectorNotes` is
+  the memory, the sector readout quotes it back in the player's own case, and a dot on the mark
+  says which sectors carry one. A note on an unmarked sector places the `return` mark as its
+  carrier, and clearing a mark clears its note.
 
 ## 7. Human and operator gates
 

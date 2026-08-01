@@ -3466,3 +3466,101 @@ It moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` st
 untouched. Files `FEAT-MARK-NOTES` (a mark carries a kind and no words), `BALANCE-MARK-RADAR-RANK`
 (whether a mark should outrank a lead is a feel judgement that wants a browser) and
 `CHORE-MARK-STALE-CLEAR` (nothing tells the store when a mark's reason expired).
+
+## FEAT-MARK-NOTES · a mark you can write on, so the chart remembers why · DONE f6662c3
+
+`4fd97c3` gave the player three glyphs to stamp on a sector, and half of what makes an annotation
+an annotation was still missing: a mark carried a **kind and no words**, so "the door the tether
+opens", "boss killed me twice here" and "cache behind the cracked rock" were all the same DANGER
+cross whose meaning the player had to hold in their head between sessions. On a 48-sector world
+with 13 lore fragments, 26 secret slots and up to 128 marks, that is exactly the memory the map
+exists to replace. `references/map/README.md` section 6 calls map annotation "the single most
+requested feature of every Metroid-style map ever shipped"; this is the typed half of it.
+
+**What shipped, file by file:**
+
+- `src/expedition/sectorMarks.ts`: `MAX_SECTOR_NOTE_LENGTH = 60` and the pure `sanitizeSectorNote`.
+  Still Phaser-free and still importing neither `src/visual/` nor the store: the dependency runs
+  store → sectorMarks and never back.
+- `src/expedition/WorldProfileStore.ts`: `sectorNotes: Record<string, string>` plus its load
+  sanitizer, `setSectorNote`, `getSectorNotes`, and the one line in `setSectorMark` that drops a
+  sector's note when its mark is removed.
+- `src/visual/SectorMapRenderer.ts`: an exported `drawSectorNoteDot`, a required `notedSectorKeys`
+  draw input, and one dot per noted cell at the mark's upper-right.
+- `src/game/scenes/MapScene.ts`: loads the notes on create, binds `N` to `editNote`, opens the DOM
+  field with the capture dance, writes through `saveNote`, quotes the note on the detail headline,
+  adds the legend row and the footer hint, feeds `notedSectorKeys` to the renderer, and fires the
+  overlay teardown on scene death.
+
+**A note needs a carrier, and the store owns the other half.** Writing a note onto an unmarked
+sector places the first cycle kind (`return`, "come back here") as its carrier, because a note the
+chart cannot draw is a note the player cannot find: nothing would point at it and the only way back
+would be to remember the sector, which is the problem the feature exists to solve. The inverse rule
+lives in `setSectorMark`, **not** in the note API, and that placement is deliberate: `cycleMark`'s
+fourth press, a future pad binding and any other caller that removes a mark all get the cleanup for
+free, so no path can leave words on a sector with no glyph. `MapScene` mirrors it in its own cache
+(`cycleMark` deletes from `sectorNotes` too) because the scene never re-reads the store while it is
+open.
+
+**The key-capture trap: W, A, S and D do not type into the note field.** The literal symptom first,
+because that is what the next agent will be staring at: the field takes focus, every other letter
+types, and W/A/S/D plus the arrow keys produce nothing while the map pans behind the overlay. The
+diagnosis: `MapScene.create()` builds its pan keys with `keyboard.addKey('W')` and
+`keyboard.createCursorKeys()`, and Phaser's `addKey`/`addKeys` default `enableCapture` to `true`,
+so those key codes are `preventDefault`-ed at the document level before any DOM input can see them.
+The fix is `keyboard.clearCaptures()` when the field opens and `keyboard.addCapture('W,A,S,D,UP,
+DOWN,LEFT,RIGHT')` when it closes, both funnelled through one `finish()` so the submit path and the
+cancel path cannot diverge. `BootScene`'s shipped `TYPE` field never hit this because that scene
+captures nothing. Two more things stand down while the field is up, both gated on the same
+`noteOverlayTeardown` handle: the scene's own `keydown` handler (or `M` would close the chart
+mid-sentence) and the whole of `update()` (or the pad and the pan keys would drive the map under
+the overlay).
+
+**The sanitizer has three jobs, and one of them is not obvious.** It replaces every control
+character with a space, collapses every whitespace run to a single space and trims, so a pasted
+multi-line note becomes one line and cannot smuggle a newline onto a single-line headline; it caps
+the length; and it returns `null` rather than `''` for anything that sanitizes to nothing, so
+"empty" has exactly one representation and saving a blank field is the clear gesture. The cap walks
+`Array.from(...)` and slices **code points**, not `String.prototype.slice`'s UTF-16 units: slicing
+at 60 units can split a surrogate pair and leave a lone half that renders as a replacement box, so
+an emoji or an astral character at the boundary would corrupt the last glyph. The store re-runs the
+same sanitizer on load, so a hand-edited payload gets the same treatment as typed text.
+
+**Persistence: an optional field, and no version bump.** `sectorNotes` rides the payload
+`survivor-world-profile` already writes, exactly like `downedSecurityGridIds`, `markedSectorIds`
+and `conquered` before it, so a payload written before today reads as no notes and
+`WORLD_PROFILE_VERSION` stays `1`. A bump would discard every remembered wall, mark and grid for
+every profile, which is precisely what the optional-field idiom exists to avoid. No new storage
+key, no `ALL_STORAGE_KEYS` entry, no `GameSaveState` field, no `SAVE_VERSION`, no
+`WORLDGEN_VERSION`, no `DISCOVERY_VERSION`. `writeArchivedWorld` stores the profile whole, so a
+banked world carries its notes into the archive and `RETURN` brings them back with its walls. The
+cap is `MAX_SECTOR_NOTES = 128`, the same bound and the same reason as `MAX_SECTOR_MARKS`: it
+bounds a tampered payload rather than a real one, since no honest profile can reach it.
+
+**Three cuts, each on something this chunk does not own.** `FEAT-MARK-NOTE-TOUCH`: the field opens
+on `N` and on nothing else, so a phone or a pad-only player can read a note but not write one.
+Every face button is bound (A cycles the mark, B closes, X recalls, Y centres) and the footer's one
+button slot is RECALL's, so a second action is a layout answer, the same call
+`POLISH-DECRYPTOR-ACTIVE-BUTTON`, `FEAT-QUEST-SIEGE-HUD-TELL` and `FEAT-LOADOUT-CODE-ENTRY-BUTTON`
+were cut on; the DOM field itself does raise a phone's soft keyboard, so only the opener is
+missing. `FEAT-MARK-NOTES-PANEL`: a note is readable only by focusing its sector, and a world-wide
+NOTES panel would join a left column that is already three panels deep.
+`BALANCE-MARK-NOTE-LENGTH`: 60 characters is a designed guess, unmeasured in a browser, on a
+headline that already carries state, place, sector and the mark label before the quote starts.
+
+**Five tests, and why exactly those.** Three in `sectorMarks.test.ts` (a pasted multi-line note
+becomes one line; blank, whitespace-only and control-only notes are `null` rather than empty
+strings; a long note is capped without splitting a character in half) and two in
+`WorldProfileStore.test.ts` (a note replaces its sector, clears on null and rides beside the marks;
+clearing a mark clears its note, and a payload written before notes shipped keeps its marks). The
+sanitizer is non-obvious string logic on the boundary between a DOM field and a store, and the
+mark/note coupling is a real regression risk precisely because the clear path lives in
+`setSectorMark` rather than where a reader would look for it. Nothing was added for MapScene or the
+renderer: `vitest.config.ts` is `environment: 'node'`, so those would mean a document/Phaser stub,
+and the compile-time half is covered by making `notedSectorKeys` **required rather than optional**
+on the `markedSectorKinds` precedent, so a call site that forgets it is a compile error rather than
+a silently undotted chart. 165 files / 1950 tests green (baseline 165 / 1945), `npx tsc --noEmit`
+and `npm run build` clean.
+
+It moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and
+untouched.

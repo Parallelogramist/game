@@ -1105,6 +1105,31 @@ grows. It closes `FEAT-SEASON-SEED-SHARE` and `FEAT-SEASON-CHOICE-SEED-ENTRY` an
 archivable worlds light it up the moment the build lands, and it moves no gold, no relic roll and
 no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**`f6662c3` made a mark something you can write on.** `4fd97c3` gave the player three glyphs to
+stamp on a sector, and a glyph carries a kind and no words, so "the door the tether opens", "boss
+killed me twice here" and "cache behind the cracked rock" were all the same DANGER cross whose
+meaning only the player's memory held between sessions. `N` on the focused sector now opens a
+60-character typed field over the chart (`src/ui/CodeEntryOverlay.ts`, the shipped DOM-field
+idiom), the sector readout quotes the note back in the player's own case while every other clause
+on that line is uppercased (it is a quotation, and the quotes plus the case are what say so), and a
+dot on the mark's upper-right says which sectors carry one. **The carrier rule is correctness, not
+taste**: a note on an unmarked sector places the neutral `return` mark as its carrier, and clearing
+a mark clears its note, because a note the chart cannot draw is a note the player cannot find; the
+clear half lives in `setSectorMark` rather than in the note API, so no caller can leave words
+behind. **The settled key-capture finding, so nobody re-derives it**: `MapScene` captures W, A, S,
+D and the cursor keys, and a captured key is `preventDefault`-ed before a DOM field ever sees it,
+so the field is opened with `clearCaptures()` and closed by re-arming `MAP_KEY_CAPTURES`; without
+that dance the letters W, A, S and D silently refuse to type. `BootScene`'s shipped field never hit
+this because that scene captures nothing. Two cuts, both on layout the feature does not own: no
+touch or gamepad opener (`FEAT-MARK-NOTE-TOUCH`), because every face button is bound and the
+footer's one button slot is RECALL's, the same call `POLISH-DECRYPTOR-ACTIVE-BUTTON` and
+`FEAT-QUEST-SIEGE-HUD-TELL` were cut on; and no world-wide NOTES panel (`FEAT-MARK-NOTES-PANEL`),
+because the left column is already three panels deep. The 60-character bound is a designed guess a
+browser has not measured, filed as `BALANCE-MARK-NOTE-LENGTH`. No storage key, no `SAVE_VERSION`,
+no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bump, so every
+existing profile and every archived world lights it up the moment the build lands, and it moves no
+gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 **`c4ca973` made a code you can read a code you can type.** `afd403c` gave the game a share code
 whose only entry route was `navigator.clipboard.readText`, so a code on a friend's screen, in a
 screenshot or on paper was unreachable by every path in the game; `LoadoutScene` had the identical
@@ -5244,11 +5269,47 @@ exploring pays is the end of Phase 5.
   any kind**: the field is optional in storage on the `conquered` precedent. Full write-up in
   `BACKLOG-archive.md`.
 
-- [ ] **FEAT-MARK-NOTES** (new 2026-08-01, from FEAT-MAPUI-SECTOR-MARKS): a mark carries a kind
-  and no words, so "the door the tether opens" is a DANGER cross the player has to remember the
-  meaning of. A typed note needs the DOM overlay `src/ui/CodeEntryOverlay.ts` already proves over
-  this canvas, plus a per-mark string in the profile payload and a cap on its length. Value: the
-  chart remembers why, not only where. Deps: none.
+- [x] **FEAT-MARK-NOTES** (done, f6662c3) (new 2026-08-01, from FEAT-MAPUI-SECTOR-MARKS): a mark
+  carries words as well as a shape. `N` on the focused sector opens the DOM field
+  `src/ui/CodeEntryOverlay.ts` already proves over this canvas, up to 60 characters, and the sector
+  readout quotes the note back in the player's own case while every other clause on that line is
+  uppercased. A dot on the mark's upper-right says which sectors carry one, and the legend names
+  it. Three rules are correctness rather than taste: a note needs a carrier on the chart, so
+  writing one onto an unmarked sector places the neutral `return` mark; clearing a mark clears its
+  note, and that half lives in `setSectorMark` so no caller can leave words the chart cannot draw;
+  and the field is opened with `clearCaptures()` and closed by re-arming `MAP_KEY_CAPTURES`,
+  because MapScene captures W/A/S/D and the cursor keys and a captured key is `preventDefault`-ed
+  before a DOM input can ever see it. `sanitizeSectorNote` collapses every control character and
+  whitespace run to one space and caps by code point rather than by UTF-16 unit, so a note can
+  never end in half a character. Deliberate cuts: no touch or gamepad opener
+  (`FEAT-MARK-NOTE-TOUCH`), no world-wide NOTES panel (`FEAT-MARK-NOTES-PANEL`), and the
+  60-character bound is unmeasured in a browser (`BALANCE-MARK-NOTE-LENGTH`). **No storage key and
+  no version bump of any kind**: `sectorNotes` is optional in storage on the `markedSectorIds`
+  precedent, so every existing profile and every archived world keeps its walls, marks and
+  discovery state. Full write-up in `BACKLOG-archive.md`.
+
+- [ ] **FEAT-MARK-NOTE-TOUCH** (new 2026-08-01, from FEAT-MARK-NOTES): the field opens on `N` and
+  on nothing else, so a phone or a pad-only player can read a note but cannot write one. Every face
+  button is bound (A cycles the mark, B closes, X recalls, Y centres) and the footer's one button
+  slot is RECALL's, so a second action needs a layout answer this chunk does not own: the same call
+  `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `FEAT-QUEST-SIEGE-HUD-TELL` and
+  `FEAT-LOADOUT-CODE-ENTRY-BUTTON` were cut on. The DOM field itself does raise a phone's soft
+  keyboard, so only the opener is missing. Value: the map is annotatable on the device most likely
+  to be in the player's hands. Deps: none, but it pairs with `FEAT-CODE-ENTRY-GAMEPAD`, which wants
+  the same pad-to-DOM bridge.
+
+- [ ] **FEAT-MARK-NOTES-PANEL** (new 2026-08-01, from FEAT-MARK-NOTES): a note is readable only by
+  focusing its sector, so answering "what did I write anywhere in this world" means sweeping the
+  chart cell by cell. A NOTES panel beside OBJECTIVES / LEADS / LOCKED OUT would list them, and the
+  left column is already three panels deep, which is why it was cut rather than guessed at. Value:
+  the chart's annotations read as one list. Deps: wants `BALANCE-LOCKOUT-PANEL-ROWS`' play data on
+  how tall that column really gets.
+
+- [ ] **BALANCE-MARK-NOTE-LENGTH** (new 2026-08-01, from FEAT-MARK-NOTES): 60 characters is a
+  designed guess, unmeasured in a browser. The detail bar's headline already carries state, place,
+  sector and the mark label before the quote starts, and it word-wraps at `barWidth - 28`. Whether
+  60 fits on one line at the narrow portrait width, and whether it is enough to be worth typing, is
+  what a real run answers. Deps: play.
 
 - [ ] **BALANCE-MARK-RADAR-RANK** (new 2026-08-01, from FEAT-MAPUI-SECTOR-MARKS): marks rank
   second on the radar, above leads and vaults and below objectives, so a player carrying three
