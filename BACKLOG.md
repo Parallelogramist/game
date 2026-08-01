@@ -582,6 +582,31 @@ two pure functions and four wiring edits. It filed the play-gated `BALANCE-QUEST
 and `POLISH-QUEST-HAZARD-PANEL-HINT`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and
 no `DISCOVERY_VERSION` bump, so every existing profile lights it up the moment the build lands.
 
+`f1c7e09` let a beam or a ricochet break the wall it stops at, which is the last capability
+lockout in the breakable half of the map. Four weapons and five call sites moved: Arc Sweep's
+spokes, Laser Beam's main and refracted endpoints, Scattergun's pellets and Ricochet's two
+wall-bounce axes, on two new pure functions in the Phaser-free `src/world/`
+(`playerBeamReachFraction` beside the plain `beamReachFraction`, and `reportPlayerContactImpact`
+beside `reportPlayerImpact`, whose body was extracted into a shared private `landImpact` so a
+traveller and a beam break a wall through one path). The rate limit is the whole feature, because
+a beam is a per-frame state query rather than one projectile: ungated, Arc Sweep's spoke loop
+would report 60 impacts a second and vaporise a 10-impact wall in under a fifth of a second.
+`BARRIER_CONTACT_INTERVAL_SECONDS = 0.5` is measured rather than chosen, being Energy Darts' base
+cooldown, so ten contacts cost the same 5.0 s of sustained fire a starting projectile build pays,
+and it is keyed per barrier rather than per weapon because how long a wall takes to fall is a
+property of the wall, not of the loadout. Three sites are deliberately untouched, each for a
+stated reason: Focus Beam's `hasLineOfSight` is a per-frame probe fired at an enemy the weapon is
+only considering (chipping there would break every wall the ship looked past, and not doing so is
+the entry's own second done-criterion), the Machine's boss laser is enemy fire and doc 02 section
+4 has enemy projectiles stopping at a destructible without damaging it, and Railgun is the
+declared pierce exception realised by not clipping at all, so it has no impact point to report. A
+zero fraction reports nothing, since it means the origin is already inside rock, which is Laser
+Beam's documented refracted case and a line no part of which ever existed. No new UI, no storage
+key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump: chips and breaks
+already flow through `GameScene`'s barrier event sink including the `recordBrokenBarrier` persist,
+so every existing profile gets the capability the moment the build lands, and arena mode is
+unchanged by construction behind `ArenaModeAdapter`'s null `worldMap`.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -610,6 +635,10 @@ which are both operator-gated and so are not candidates.
 blocked on a re-rollable or per-profile world seed, so it is not a candidate.
 `FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
 (`escortDrone`, `deliverItem`) are blocked on `FEAT-WORLDGEN-STREAM`, so it is not a candidate.
+`FEAT-BARRIER-BREACH-BEAMS` has now shipped at `f1c7e09` and filed two cuts, neither of them a
+candidate: the play-gated `BALANCE-BARRIER-CONTACT-INTERVAL` (the 0.5 s interval is derived rather
+than played) and the operator-gated `FEAT-BARRIER-BREACH-REST` (whether emanating weapons should
+chip incidentally is an operator call).
 `FEAT-ECON-WARDS` stays parked on its
 operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
 for the same reason the rest of the POI table is.
@@ -4370,13 +4399,69 @@ exploring pays is the end of Phase 5.
   - **Thermal Ward's own half shipped with it** (`74d78b3`), because a cost with no answer is
     half a Metroid pair: see `FEAT-POWER-ABILITY-EFFECTS-REST`.
 
-- [ ] **FEAT-BARRIER-BREACH-BEAMS**: hitscan beams and Ricochet do not chip barriers, so a
-  beam-only or Ricochet-only build cannot open a shortcut at all. `beamReachFraction` is a
-  per-frame state query called for every live beam and doubles as Focus Beam's line-of-sight
-  probe, so it cannot carry an impact without restructuring those four weapons; Ricochet bounces
-  via `resolveCircleMove` and never reports an impact. Done when a beam build breaks a wall at a
-  rate comparable to a projectile build and Focus Beam does not damage a wall it is not firing
-  at. Deps: `FEAT-BARRIER-BREACH`.
+- [x] **FEAT-BARRIER-BREACH-BEAMS** (done, f1c7e09): hitscan beams and Ricochet do not chip
+  barriers, so a beam-only or Ricochet-only build cannot open a shortcut at all.
+  `beamReachFraction` is a per-frame state query called for every live beam and doubles as Focus
+  Beam's line-of-sight probe, so it cannot carry an impact without restructuring those four
+  weapons; Ricochet bounces via `resolveCircleMove` and never reports an impact. Done when a beam
+  build breaks a wall at a rate comparable to a projectile build and Focus Beam does not damage a
+  wall it is not firing at. Deps: `FEAT-BARRIER-BREACH`.
+
+  **What shipped.** Two new functions and no new file: `reportPlayerContactImpact` in
+  `barrierState.ts` and `playerBeamReachFraction` in `weaponWallBehavior.ts`, with the old
+  `reportPlayerImpact` body extracted into a shared private `landImpact` so a traveller and a beam
+  break a wall through one code path. The rate limit is the whole feature, and its value is
+  measured rather than chosen: `BARRIER_CONTACT_INTERVAL_SECONDS = 0.5` is Energy Darts' base
+  cooldown, so 10 contacts cost the same 5.0 s of sustained fire a starting projectile build pays,
+  which is this entry's own "comparable to a projectile build" satisfied by construction. Without
+  it Arc Sweep's per-frame spoke query would break a 10-impact wall in under a fifth of a second.
+  The limit is per barrier, not per weapon or per source, so a player carrying Arc Sweep and
+  Ricochet does not break a wall twice as fast: how long a wall takes to fall is a property of the
+  wall.
+
+  Four weapons and five call sites: Arc Sweep's spokes, Laser Beam's main and refracted endpoints,
+  Scattergun's pellets, and Ricochet's two wall-bounce axes. A scattergun fan lands one contact per
+  shot rather than one per pellet, which is the interval doing its job. Focus Beam is deliberately
+  untouched, which is this entry's second done-criterion: `hasLineOfSight` is a per-frame probe
+  fired at an enemy the weapon is only considering, and chipping there would break every wall the
+  ship looked past. The Machine's boss laser is untouched for doc 02 section 4's rule that enemy
+  fire stops at a destructible without damaging it, and Railgun for its own declared pierce
+  exception.
+
+  A zero fraction reports nothing, because it means the origin is already inside rock (Laser Beam's
+  documented refracted case, a beam starting at a dead enemy's position), and no part of that line
+  ever existed. The probe point is nudged one world pixel past the tile entry parameter
+  `raycastSolid` returns, since that parameter sits exactly on the tile boundary and can land on
+  either side of it under floating point; `TILE_SIZE` is 40, so it cannot reach the next tile. No
+  new UI, no storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump:
+  chips and breaks already flow through `GameScene`'s `barrierEventSink` (sparks, burst, shake,
+  sound, geometry redraw, radar underlay invalidation, and the `recordBrokenBarrier` persist), so
+  every existing profile gets it the moment the build lands. Arena mode is unchanged by
+  construction, because `ArenaModeAdapter` supplies a null `worldMap` and every new branch is
+  behind that null.
+
+- [ ] **BALANCE-BARRIER-CONTACT-INTERVAL** (new 2026-08-01, from FEAT-BARRIER-BREACH-BEAMS):
+  `BARRIER_CONTACT_INTERVAL_SECONDS` is 0.5, derived from Energy Darts' base cooldown so ten
+  contacts cost the same 5.0 s a starting projectile build pays, and never played. The two
+  builds do not pay it the same way: darts need an enemy to fire at (`if (!nearestEnemy) return;`),
+  so a traveller chips a wall incidentally during a fight, while Arc Sweep sweeps whether or not
+  anything is alive, which makes it the one weapon that can stand at a cracked wall and open it
+  on purpose. Whether that reads as a loadout identity or as too cheap a route past
+  `ability_breach_charges` is a browser call. Value: a wall costs what it looks like it costs.
+  Deps: none, but it wants play rather than a second guess.
+
+- [ ] **FEAT-BARRIER-BREACH-REST** (new 2026-08-01, from FEAT-BARRIER-BREACH-BEAMS): the damage
+  sources that still cannot chip a barrier at all, and the ships that start with one. Every
+  emanating weapon (auras, novas, pulses, storms, meteors, ground spikes, mines, orbitals, melee
+  arcs) ignores geometry by design, and `ShipCharacters` starts runs on `aura`,
+  `orbiting_blades`, `meteor`, `chain_lightning` and `ground_spike`, so those ships still reach a
+  cracked wall only through `ability_breach_charges`. Railgun is a separate case: it is the
+  declared pierce exception realised by not clipping at all, so it has no impact point to report.
+  Deliberately out of scope of the beams chunk, and not obviously right: a radius that chips
+  would break walls incidentally in every fight near one, which is the unpredictable punishment
+  `weaponWallBehavior.ts` cites for not clipping emanate damage in the first place. Value: no
+  starting ship is locked out of the breakable half of the map. Deps: an operator call on
+  whether incidental breaking is wanted.
 
 - [x] **BALANCE-BREAKABLE-DENSITY** + **BALANCE-HAZARD-DENSITY** (done — 68b96bf, one commit
   as specced): pockets now 1-2 per sector with a 2x1/1x2 fallback shape when no 2x2 all-Solid
