@@ -217,8 +217,8 @@ radar half), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
 `BALANCE-DECRYPTOR-SCAN-RADIUS`, the newly filed `BALANCE-MAP-FRAGMENT-YIELD` and
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`. The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
-`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` (blocked
-on `FEAT-MAPUI-DOORS-05` and `FEAT-QUEST-TRIGGERS-REST`), so the list stays accurate.
+`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`
+(shipped at b75822d), so the list stays accurate.
 `FEAT-QUEST-CATALOG-DEPTH` shipped its fourth chain head at `6bfd119` without unparking
 anything, so it is off this list. `FEAT-ECON-WARDS` stays parked
 on that operator balance decision: do not unpark it.
@@ -687,6 +687,27 @@ is the locked codex card, which now says a single world deals only some, because
 `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing profile keeps every
 fragment it already holds the moment the build lands.
 
+**`b75822d` made the chart say what changed while you were flying.** Six sessions built the
+vocabulary that says where three simultaneous objectives point (the pin at 0be97f5, the panel at
+5a0295d, the radar bearing at 05e832e, the hazard pin at 035326c), and every one of those
+surfaces was silently rewritten the moment a step completed: the toast lived 3.2 seconds and the
+rose wedge was simply somewhere else next time the map opened, with nothing on screen saying
+which chain had moved or whether any had. Doc 03 section 7 moment 5's `UPDATED` badge now rides
+the pin in the chart's cleared green and reads `· UPDATED` on the OBJECTIVES row, until the
+chart is next looked at. **The panel half is the feature rather than decoration**: a tagless
+distinct step names no place, a hazard step with no charted hive emits no pin at all and an
+uncharted destination resolves to null, so the chart cannot badge most updates and the panel row
+is the only surface that can. Four producers write it (a completed step, an activated successor,
+a fresh run's seeding, a board accept) and two deliberately do not: a completed quest has no pin
+and no row left to badge, and a set-aside leaves both surfaces. The overlay is a `Set` on
+`DiscoveryManager` beside moment 6's newly-passable edges, snapshotted and cleared by
+`MapScene.create` **above** the pin build, which is the one correctness invariant: snapshot
+later and the badge never shows, read the live set and it never clears. It filed
+`FEAT-DISCOVERY-BADGE-TICKER` and `POLISH-OBJECTIVE-PIN-PULSE`, and it leaves
+`FEAT-DISCOVERY-FEEDBACK-07` with moments 3 and 4 only, both motion. No storage key, no
+`SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing profile
+lights it up the moment the build lands.
+
 **Why a Phase 7 bug outranked the content bands this session, recorded so it is not
 re-derived:** band 1 has no unblocked item (`FEAT-ECON-WARDS` is parked on the operator and
 `FEAT-QUEST-BOARD` shipped at `21925f3`); band 2's remainder is either blocked
@@ -695,16 +716,15 @@ re-derived:** band 1 has no unblocked item (`FEAT-ECON-WARDS` is parked on the o
 `WORLDGEN_VERSION` bump) or is motion over state the game has already committed and already
 toasted, which doc 03 section 7 moment 4 itself calls "presentation only"
 (`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`); and every remaining band-3 entry is behind
-`FEAT-WORLDGEN-STREAM` since `183b2dc`. `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` is the one
-unblocked band-2 item that carries information rather than motion, and it stays the next
-candidate.
+`FEAT-WORLDGEN-STREAM` since `183b2dc`. `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` was the one
+unblocked band-2 item that carried information rather than motion, and it shipped at b75822d.
 
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
-`POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
+`POLISH-MAP-DETAIL-BAR-PORTRAIT`,
 `POLISH-RADAR-WAYPOINT-LABEL`,
 `CHORE-RADAR-WAYPOINT-EVENT-REFRESH`,
 plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`, and the
@@ -746,6 +766,8 @@ genuinely behind streaming now.
 `FEAT-ECON-WARDS` stays parked on its
 operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
 for the same reason the rest of the POI table is.
+`FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` has now shipped at b75822d and filed two cuts, both
+candidates: `FEAT-DISCOVERY-BADGE-TICKER` and `POLISH-OBJECTIVE-PIN-PULSE`.
 
 ## Proposed (auto)
 
@@ -5184,9 +5206,9 @@ exploring pays is the end of Phase 5.
   newly-passable ring on each of those doors until the map is next viewed. Both cross-cutting
   criteria hold: the banner is an instant static line under reduced motion (nothing else in that
   commit animates), and toast queueing is untouched, since every line still goes through
-  `ToastManager`. Remaining: moment 3's secret-icon bloom and moment 4's fragment cascade, both
-  now owned by `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`, and moment 5's objective-pin `UPDATED` badge,
-  now owned by `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`. Its deps were already met when that commit
+  `ToastManager`. Remaining: moment 3's secret-icon bloom and moment 4's fragment cascade, both now owned by
+  `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`. Moment 5's objective-pin `UPDATED` badge shipped at
+  b75822d, so what is left here is motion only. Its deps were already met when that commit
   landed: `FEAT-MAPUI-RADAR-UNDERLAY-06` (492b8f0/9c670b7), `FEAT-POWER-VAULTS` (a2361d0).
 
 - [ ] **FEAT-DISCOVERY-MAPOPEN-ANIMATIONS** (new 2026-07-31, from `FEAT-DISCOVERY-FEEDBACK-07`):
@@ -5198,12 +5220,70 @@ exploring pays is the end of Phase 5.
   `FEAT-DISCOVERY-FEEDBACK-07` is the shape that record would take. Value: the map replays what
   changed while you were flying, instead of quietly already being different. Deps: none.
 
-- [ ] **FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE** (new 2026-07-31, from `FEAT-DISCOVERY-FEEDBACK-07`):
-  doc 03 section 7 moment 5's `UPDATED` badge on an objective pin, held in the run overlay until
-  the pin is viewed so the map never nags twice. Both deps are now met: objective pins ship
-  with 0be97f5 and `reachSector` names a sector, so the badge has something to decorate. Value:
-  the map says which objective moved while you were flying.
-  Deps: none (both met by 0be97f5).
+- [x] **FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE** (done, b75822d): doc 03 section 7 moment 5, the last
+  information-carrying moment of that section. A player holds up to three chains at once and
+  every surface that says where they point (the chart pin 0be97f5, the OBJECTIVES panel 5a0295d,
+  the radar bearing 05e832e, the hazard pin 035326c) was silently rewritten when a step
+  completed: the toast lived 3.2 seconds and the wedge was simply somewhere else next time the
+  map opened. Now an objective that moved carries a green badge on its pin and reads
+  `· UPDATED` on its panel row, until the chart is next looked at.
+  1. **What shipped**: `updatedObjectiveQuestIds` on `DiscoveryManager` beside
+     `newlyPassableEdgeIds`, with `noteObjectiveUpdated` / `getUpdatedObjectiveQuestIds` /
+     `clearUpdatedObjectives`; the pure `updatedPinSectorKeys` in `questPins.ts` with one test;
+     `drawObjectiveUpdatedBadge` in `SectorMapRenderer.ts` plus a REQUIRED
+     `updatedObjectiveSectorKeys` on `SectorMapDrawInput`; the snapshot, the derived set, the
+     draw wiring, the legend row and the panel suffix in `MapScene`.
+  2. **Snapshot then clear, above the pins, is the one correctness invariant.**
+     `MapScene.create` copies the set and clears the manager's on the spot, exactly as moment 6
+     does with the newly-passable edges, and it does so before `questPins` is built and before
+     the panel renders. Snapshot after either and the badge never shows; read the live manager
+     set and it shows forever.
+  3. **Four producers, no fifth.** A completed step, an activated chain successor, a fresh run's
+     seeding, a board accept. A **completed quest** is deliberately not badged (it has no pin
+     and no panel row left, so the badge would name something the chart stopped drawing) and
+     neither is a **set-aside** (the objective leaves both surfaces). Its successor is badged by
+     the activation path, so a chain handoff still reads.
+  4. **The panel half is the feature, not decoration.** Three live objective shapes produce no
+     pin at all: a tagless `reachSector` distinct step names no place (972573a), a `clearHazard`
+     step with no remembered hive charted emits no pin rather than a null one (035326c), and an
+     uncharted destination resolves to null. The chart cannot badge any of them, so pin-only
+     would have left most objective updates unannounced.
+  5. **The badge is static**, a filled disc in the chart's `CLEARED_NOTCH` green on the pin's
+     right shoulder, clear of the top-right cleared notch and the top-left hint badge that
+     `drawObjectivePin` already reserves. Nothing animates, so unlike moment 1's banner it needs
+     no reduced-motion branch, and unlike moments 3 and 4 it carries information rather than
+     motion.
+  6. **`updatedObjectiveSectorKeys` is required, not optional**, on the `hazardSectorKinds`
+     precedent (60e0e7f): a call site that forgets it is a compile error rather than a silently
+     unbadged map. There is exactly one construction of `SectorMapDrawInput` in the repo.
+  7. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump:
+     the overlay is run state with a per-world lifetime that `saveState` never sees and
+     `bindWorld` clears, so a scene restart or a season swap can never badge an objective in a
+     world the ship is not in. Every existing profile lights it up the moment the build lands,
+     and arena, daily, gauntlet and practice are untouched by construction (both GameScene
+     producers sit behind the `worldMap()` guard and a board only spawns at a `QuestGiver` slot).
+  It leaves `FEAT-DISCOVERY-FEEDBACK-07` with moments 3 and 4 only, both owned by
+  `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`, and files `FEAT-DISCOVERY-BADGE-TICKER` and
+  `POLISH-OBJECTIVE-PIN-PULSE`.
+
+- [ ] **FEAT-DISCOVERY-BADGE-TICKER** (new 2026-08-01, from FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE):
+  the chart now says which objective moved, but only once the chart is open. In the run itself
+  the only tell is the OBJECTIVE COMPLETE toast, which lives 3.2 seconds, and the bounty ticker
+  line that time-shares with objectives (5a0295d) says nothing about a change. Cut for the
+  reason `FEAT-QUEST-SIEGE-HUD-TELL` and `POLISH-DECRYPTOR-ACTIVE-BUTTON` were: the portrait top
+  band is already bars, world, timer, kills and gold, so a persistent in-run marker is a layout
+  change larger than the feature, and the ticker line is a shared surface whose ownership rules
+  would have to change first. Value: knowing an objective moved without opening the chart.
+  Deps: none.
+
+- [ ] **POLISH-OBJECTIVE-PIN-PULSE** (new 2026-08-01, from FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE):
+  doc 03 section 4.4 asks for a slow-pulsing ring on an objective pin, static double-ring under
+  reduced motion; the pin ships as a static rose wedge and the new badge is a static disc. Not
+  built here on purpose: this chunk was picked over `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` precisely
+  because it carries information rather than motion, and adding the pulse would have imported
+  that item's own problem (the chart is one `Graphics` cleared on every pan, so a pulse needs a
+  tween owner and a redraw cadence the map screen does not have). Value: a pin that draws the eye
+  on a busy chart. Deps: none, but it belongs with `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`.
 
 #### The post-promote content plan: quests + lots of hidden rewards (refined 2026-07-31)
 

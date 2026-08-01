@@ -974,11 +974,22 @@ this chunk needs a reduced-motion branch except that one, because the ring and t
 static by construction. Toast queueing is untouched: every line goes through `ToastManager`,
 which already shows one at a time.
 
+Moment 5 is built (`FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`, b75822d). The overlay is a second
+`Set<string>` on `DiscoveryManager`, `updatedObjectiveQuestIds`, written by the four sites that
+change where an active objective points (a completed step, an activated chain successor, a fresh
+run's seeding, a board accept) and read by `MapScene.create`, which snapshots it and clears it on
+the spot **before** the pins are built. A completed quest and a set-aside are deliberately not
+written: neither leaves a pin or a panel row for the badge to name. The chart draws
+`drawObjectiveUpdatedBadge` on the pin, a static disc in the cleared green on its right shoulder
+(clear of the CLEARED_ONCE notch and the hint badge), and the OBJECTIVES panel appends
+`· UPDATED` to the objective's heading row. The panel half is required rather than cosmetic: a
+tagless distinct step, a hazard step with no charted hive and an uncharted destination all
+produce no pin, so the chart alone would leave most updates unannounced.
+
 Still open here: moment 3's secret-icon bloom and moment 4's fragment cascade, which are motion
 only (both toasts already ship) and need a per-open delta the map does not keep
-(`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`), and moment 5's pin `UPDATED` badge, which needs objective
-pins to exist first (`FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`). No `DISCOVERY_VERSION` bump, no new
-`DiscoveryChanges` field, no storage key: the overlay is not persisted at all.
+(`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`). No `DISCOVERY_VERSION` bump, no new `DiscoveryChanges`
+field, no storage key: neither overlay is persisted at all.
 
 ---
 
