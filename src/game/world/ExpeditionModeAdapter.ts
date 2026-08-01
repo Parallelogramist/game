@@ -281,6 +281,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     return flowStepPoint(this.flow, x, y, out);
   }
 
+  isSolidAt(x: number, y: number): boolean {
+    return isSolidAtWorld(this.map, x, y, MoverKind.Enemy);
+  }
+
   freeSpotNear(x: number, y: number, out: WorldPoint): void {
     if (!isSolidAtWorld(this.map, x, y, MoverKind.Player)) {
       out.x = x;
