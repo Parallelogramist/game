@@ -8808,14 +8808,14 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
-- [ ] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): `origin/master` carries one commit
-  local master does not, `b5d31a4` ("quest chains that unlock sealed regions of the
-  map", pushed 2026-07-31 13:20). It is the same patch as local `52e0802` (identical
-  diffstat, committed 5 minutes apart): a duplicate push from another checkout or a
-  pre-amend push. Local master is 119+ commits ahead and does not contain `b5d31a4`,
-  so the next push will not fast-forward. Operator options at push time: merge, or
-  `git push --force-with-lease` to drop the duplicate. Push remains the deploy
-  trigger; agents never touch this.
+- [x] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): **answered 2026-08-01, operator
+  directed the reconcile + deploy the same day.** `origin/master` carried one commit
+  local master did not, `b5d31a4` ("quest chains that unlock sealed regions of the
+  map", pushed 2026-07-31 13:20), the same patch as local `52e0802` (identical
+  diffstat, committed 5 minutes apart): a duplicate pre-amend push. Resolved by
+  `git push --force-with-lease`, dropping the duplicate in favor of the local
+  history that 119+ later commits were built on. Push remains the deploy trigger;
+  agents never push.
 
 - **GATE-EXPEDITION-PROMOTE** (EPIC-EXPEDITION): **answered 2026-07-27; flip EXECUTED
   2026-07-31 by operator directive** ("finish it already"), which the session read as the
