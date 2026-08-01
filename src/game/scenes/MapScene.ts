@@ -17,6 +17,8 @@ import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
+import { buildLockoutRows } from '../../expedition/lockouts';
+import type { LockoutRow } from '../../expedition/lockouts';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
@@ -61,6 +63,9 @@ const HEADER_HEIGHT = 76;
 const FOOTER_HEIGHT = 44;
 /** Rows the LEADS panel draws before it collapses the rest into a count. */
 const MAX_LEAD_ROWS = 4;
+/** Rows the LOCKED OUT panel draws before it collapses the rest into a count. Same cap and
+ *  same reason as MAX_LEAD_ROWS: the left column shares one screen with the chart. */
+const MAX_LOCKOUT_ROWS = 4;
 /** Fixed so the legend and the chart can be laid out once, at create time, against a bar
  *  whose height never depends on which sector happens to be focused. */
 const DETAIL_BAR_HEIGHT = 104;
@@ -69,6 +74,18 @@ const DETAIL_BAR_HEIGHT = 104;
 const CURSOR_HIT_SLOP = 16;
 const RECALL_BUTTON_WIDTH = 176;
 const RECALL_BUTTON_HEIGHT = 32;
+
+/** A zero clause is omitted rather than printed as "0 DOORS": a row exists only because
+ *  something is nonzero. */
+function describeLockoutRow(row: LockoutRow): string {
+  const clauses: string[] = [];
+  if (row.doors > 0) clauses.push(`${row.doors} DOOR${row.doors === 1 ? '' : 'S'}`);
+  if (row.sites > 0) clauses.push(`${row.sites} SITE${row.sites === 1 ? '' : 'S'}`);
+  clauses.push(row.nearestDistance === 0
+    ? 'NEAREST IN THIS SECTOR'
+    : `NEAREST ${row.nearestDistance} SECTOR${row.nearestDistance === 1 ? '' : 'S'} OUT`);
+  return clauses.join('  ·  ');
+}
 
 export class MapScene extends Phaser.Scene {
   private mapData!: WorldMap;
@@ -92,6 +109,7 @@ export class MapScene extends Phaser.Scene {
   private dragLastX = 0;
   private dragLastY = 0;
   private leads: SecretLead[] = [];
+  private lockouts: LockoutRow[] = [];
   private hintedSectorKeys: ReadonlySet<string> = new Set();
   private questPins: QuestPin[] = [];
   private objectiveSectorKeys: ReadonlySet<string> = new Set();
@@ -205,7 +223,18 @@ export class MapScene extends Phaser.Scene {
       .sort((a, b) => leadSectorDistance(a, shipCell) - leadSectorDistance(b, shipCell)
         || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
     this.hintedSectorKeys = new Set(this.leads.map(lead => lead.sectorKey));
-    this.renderLeadsPanel(leadsPanelY);
+    this.lockouts = buildLockoutRows({
+      map: this.mapData,
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
+      secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
+      holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
+      holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
+      shipCell,
+    });
+    const routesPanelY = this.renderLeadsPanel(leadsPanelY);
+    this.renderRoutesPanel(routesPanelY);
     this.renderLegendPanel();
 
     this.graphics = this.add.graphics();
@@ -344,8 +373,8 @@ export class MapScene extends Phaser.Scene {
    * where the player reads it back once the toast is gone. Same layout shape as the objectives
    * panel, so the two read as one column.
    */
-  private renderLeadsPanel(panelY: number): void {
-    if (this.leads.length === 0) return;
+  private renderLeadsPanel(panelY: number): number {
+    if (this.leads.length === 0) return panelY;
 
     const panelX = 24;
     const panelWidth = Math.min(340, this.scale.width - 48);
@@ -371,6 +400,46 @@ export class MapScene extends Phaser.Scene {
     if (this.leads.length > MAX_LEAD_ROWS) {
       const more = makeBodyText(this, panelX + 14, cursorY,
         `+${this.leads.length - MAX_LEAD_ROWS} MORE`,
+        { fontSize: 12, color: TEXT_COLORS.muted, align: 'left' })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += more.height + 12;
+    }
+
+    this.add.rectangle(panelX, panelY, panelWidth, cursorY - panelY + 2, 0x0a1018, 0.9)
+      .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
+    return cursorY + 14;
+  }
+
+  /**
+   * Doc 03 section 4.5 rule 4, answered world-wide: what the profile still cannot open, and
+   * how much each missing thing would open. Drawn under LEADS, and absent entirely for a
+   * profile that is locked out of nothing.
+   */
+  private renderRoutesPanel(panelY: number): void {
+    if (this.lockouts.length === 0) return;
+
+    const panelX = 24;
+    const panelWidth = Math.min(340, this.scale.width - 48);
+    const textWidth = panelWidth - 28;
+
+    makeBodyText(this, panelX + 14, panelY + 12, 'LOCKED OUT',
+      { fontSize: 14, color: TEXT_COLORS.muted, align: 'left' })
+      .setOrigin(0, 0).setDepth(4);
+
+    let cursorY = panelY + 34;
+    for (const row of this.lockouts.slice(0, MAX_LOCKOUT_ROWS)) {
+      const heading = makeBodyText(this, panelX + 14, cursorY, row.name.toUpperCase(),
+        { fontSize: 15, align: 'left', wordWrapWidth: textWidth })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += heading.height + 2;
+      const detail = makeBodyText(this, panelX + 14, cursorY, describeLockoutRow(row),
+        { fontSize: 12, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
+        .setOrigin(0, 0).setDepth(4);
+      cursorY += detail.height + 12;
+    }
+    if (this.lockouts.length > MAX_LOCKOUT_ROWS) {
+      const more = makeBodyText(this, panelX + 14, cursorY,
+        `+${this.lockouts.length - MAX_LOCKOUT_ROWS} MORE`,
         { fontSize: 12, color: TEXT_COLORS.muted, align: 'left' })
         .setOrigin(0, 0).setDepth(4);
       cursorY += more.height + 12;

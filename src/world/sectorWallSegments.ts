@@ -35,6 +35,59 @@ export interface WallSegment {
   kind: TileKind;
 }
 
+/** One merged horizontal run of same-kind impassable tiles, in sector-local px. */
+export interface ImpassableRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** VoidGap or SecurityGrid. */
+  kind: TileKind;
+}
+
+/** Tiles nothing walks through that are NOT wall faces: a chasm and a laser curtain. They are
+ *  drawn as filled area rather than as an outline, and they are deliberately absent from
+ *  isOutlineBlocking. Widening that predicate would also widen blocksAt, so every wall face
+ *  touching a gap or a fence would lose its outline: the trap the hazard-strip as-built note
+ *  already records. */
+export const IMPASSABLE_TILE_KINDS: ReadonlyArray<TileKind> = [
+  TileKind.VoidGap, TileKind.SecurityGrid,
+];
+
+function isImpassableFill(tileKind: number): boolean {
+  return tileKind === TileKind.VoidGap || tileKind === TileKind.SecurityGrid;
+}
+
+export function sectorImpassableRects(sector: SectorDef): ImpassableRect[] {
+  const rects: ImpassableRect[] = [];
+  for (let tileY = 0; tileY < SECTOR_TILE_ROWS; tileY++) {
+    let runStart = -1;
+    let runKind = TileKind.Open;
+    for (let tileX = 0; tileX <= SECTOR_TILE_COLS; tileX++) {
+      const kind = tileX < SECTOR_TILE_COLS
+        ? (sector.tiles[tileIndex(tileX, tileY)] as TileKind)
+        : TileKind.Open;
+      const carries = isImpassableFill(kind);
+      if (carries && runStart >= 0 && kind === runKind) continue;
+      if (runStart >= 0) {
+        rects.push({
+          x: runStart * TILE_SIZE,
+          y: tileY * TILE_SIZE,
+          width: (tileX - runStart) * TILE_SIZE,
+          height: TILE_SIZE,
+          kind: runKind,
+        });
+        runStart = -1;
+      }
+      if (carries) {
+        runStart = tileX;
+        runKind = kind;
+      }
+    }
+  }
+  return rects;
+}
+
 /** Where a border's aperture sits, and which way is out of the sector. */
 export interface SectorDoorAnchor {
   direction: EdgeDirection;
@@ -50,6 +103,8 @@ export interface SectorDoorAnchor {
 export interface SectorOutline {
   segments: WallSegment[];
   doors: SectorDoorAnchor[];
+  /** Chasm and fence tiles, which are area rather than face. See IMPASSABLE_TILE_KINDS. */
+  impassable: ImpassableRect[];
 }
 
 /** Same predicate as WorldGeometryRenderer.styleOf: Open and HazardFloor do not block. */
@@ -162,5 +217,5 @@ export function sectorWallSegments(sector: SectorDef): SectorOutline {
     if (anchor) doors.push(anchor);
   }
 
-  return { segments, doors };
+  return { segments, doors, impassable: sectorImpassableRects(sector) };
 }

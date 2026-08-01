@@ -8,7 +8,7 @@ import { OBJECTIVE_PIN, drawGateGlyph, strokeDashedLine } from './SectorMapRende
 import { SECTOR_HEIGHT, SECTOR_WIDTH } from '../world/worldSpace';
 import { TileKind } from '../world/worldTypes';
 import type { EdgeKind } from '../world/worldTypes';
-import type { WallSegment } from '../world/sectorWallSegments';
+import type { ImpassableRect, WallSegment } from '../world/sectorWallSegments';
 import {
   projectToRadar,
   blipStyle,
@@ -33,6 +33,11 @@ const DRAW_ORDER: MinimapBlipKind[] = [
  *  says "this room is charted". */
 const UNDERLAY_WASH_ALPHA = 0.12;
 const UNDERLAY_WALL_ALPHA = 0.6;
+/** The world fill of a gap is nearly black and of a fence nearly so, which at 2.5 px per tile
+ *  reads as nothing on a dark disc. The patch is therefore washed in the kind's STROKE colour
+ *  and rimmed in the same, so a chasm reads cyan and a fence pink exactly as they do in the
+ *  room. */
+const UNDERLAY_IMPASSABLE_FILL_ALPHA = 0.22;
 /** Seconds the "+N NEW" pill stays up after a reveal, and the rim ring's expand time. */
 const PULSE_PILL_SECONDS = 2.5;
 const PULSE_RING_SECONDS = 0.6;
@@ -76,6 +81,12 @@ function underlayStrokeFor(kind: TileKind): number {
   return WORLD_GEOMETRY_COLORS.solid.stroke;
 }
 
+function impassableColorsFor(kind: TileKind): { fill: number; stroke: number } {
+  return kind === TileKind.SecurityGrid
+    ? WORLD_GEOMETRY_COLORS.securityGrid
+    : WORLD_GEOMETRY_COLORS.voidGap;
+}
+
 /** A single radar contact fed per-frame from GameScene. */
 export interface MinimapEntry {
   worldX: number;
@@ -103,6 +114,10 @@ export interface MinimapSectorUnderlay {
   originY: number;
   segments: ReadonlyArray<WallSegment>;
   doors: ReadonlyArray<MinimapUnderlayDoor>;
+  /** Chasm and fence tiles of this sector. Required rather than optional, on the
+   *  hazardSectorKinds precedent: a call site that forgets it is a compile error rather than
+   *  a radar that silently keeps drawing a gap as floor. */
+  impassable: ReadonlyArray<ImpassableRect>;
   biomeTint: number;
 }
 
@@ -251,6 +266,18 @@ export class MinimapManager {
 
     graphics.fillStyle(underlay.biomeTint, UNDERLAY_WASH_ALPHA);
     graphics.fillRect(0, 0, SECTOR_WIDTH * scale, SECTOR_HEIGHT * scale);
+
+    for (const rect of underlay.impassable) {
+      const colors = impassableColorsFor(rect.kind);
+      graphics.fillStyle(colors.stroke, UNDERLAY_IMPASSABLE_FILL_ALPHA);
+      graphics.fillRect(
+        rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale,
+      );
+      graphics.lineStyle(1, colors.stroke, UNDERLAY_WALL_ALPHA);
+      graphics.strokeRect(
+        rect.x * scale, rect.y * scale, rect.width * scale, rect.height * scale,
+      );
+    }
 
     for (const kind of UNDERLAY_WALL_KINDS) {
       graphics.lineStyle(1.5, underlayStrokeFor(kind), UNDERLAY_WALL_ALPHA);

@@ -145,6 +145,7 @@ const HAZARD_LABELS: Record<PoiHazardKind, string> = {
 const HAZARD_NEST_LABEL = HAZARD_NEST_GLYPH.label;
 
 const PHASE_CLOAK_ABILITY_ID = 'ability_phase_cloak';
+const MAGNO_TETHER_ABILITY_ID = 'ability_magno_tether';
 
 function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[] {
   const lines: string[] = [];
@@ -186,6 +187,30 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
     lines.push(HAZARD_LABELS[hazard]);
   }
   if (inputs.objectiveSectorKeys.has(sector.key)) lines.push('An objective points here');
-  if (inputs.hintedSectorKeys.has(sector.key)) lines.push('A lead points here');
+  if (inputs.hintedSectorKeys.has(sector.key)) {
+    lines.push(`A lead points here${leadSealSuffix(sector, inputs)}`);
+  }
   return lines;
+}
+
+/** What still stands between the ship and the cache a lead names. Only a HINTED secret is
+ *  read, which is the same fact the chart's corner badge and the LEADS panel already admit. */
+function leadSealSuffix(sector: SectorDef, inputs: SectorDetailInputs): string {
+  let walled = false;
+  let gapped = false;
+  for (const slot of sector.poiSlots) {
+    if (slot.kind !== PoiKind.Secret) continue;
+    const flags = inputs.secretFlagsOf(slot.id);
+    if ((flags & SecretFlags.HINTED) === 0 || (flags & SecretFlags.FOUND) !== 0) continue;
+    if (slot.sealed === true) walled = true;
+    if (slot.gapped === true) gapped = true;
+  }
+  const clauses: string[] = [];
+  if (walled) clauses.push('sealed behind cracked rock');
+  if (gapped) {
+    clauses.push(inputs.holdsAbility(MAGNO_TETHER_ABILITY_ID)
+      ? 'across a void gap open to you'
+      : 'across a void gap');
+  }
+  return clauses.length === 0 ? '' : ` · ${clauses.join(' · ')}`;
 }

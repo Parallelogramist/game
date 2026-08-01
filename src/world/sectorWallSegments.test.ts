@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { sectorWallSegments, isOutlineBlocking } from './sectorWallSegments';
+import { sectorWallSegments, isOutlineBlocking, sectorImpassableRects } from './sectorWallSegments';
 import {
   EdgeKind, SECTOR_TILE_COLS, SECTOR_TILE_ROWS, TILE_SIZE, TileKind, tileIndex,
 } from './worldTypes';
@@ -95,5 +95,39 @@ describe('sectorWallSegments', () => {
     expect(sectorWallSegments(sector).doors).toHaveLength(0);
     expect(isOutlineBlocking(TileKind.HazardFloor)).toBe(false);
     expect(isOutlineBlocking(TileKind.GateClosed)).toBe(true);
+  });
+});
+
+describe('sectorImpassableRects', () => {
+  function gappedAndFencedSector(): SectorDef {
+    const sector = blankSector();
+    paint(sector, 2, 3, TileKind.VoidGap);
+    paint(sector, 3, 3, TileKind.VoidGap);
+    paint(sector, 4, 3, TileKind.VoidGap);
+    paint(sector, 7, 6, TileKind.SecurityGrid);
+    return sector;
+  }
+
+  test('a chasm and a fence both become filled rects, and a run of three merges into one', () => {
+    const rects = sectorImpassableRects(gappedAndFencedSector());
+    expect(rects.some(rect => rect.kind === TileKind.VoidGap)).toBe(true);
+    expect(rects.some(rect => rect.kind === TileKind.SecurityGrid)).toBe(true);
+    expect(rects.every(rect => rect.width >= TILE_SIZE && rect.height === TILE_SIZE)).toBe(true);
+    expect(rects).toContainEqual({
+      x: 2 * TILE_SIZE, y: 3 * TILE_SIZE, width: 3 * TILE_SIZE, height: TILE_SIZE,
+      kind: TileKind.VoidGap,
+    });
+    expect(rects).toContainEqual({
+      x: 7 * TILE_SIZE, y: 6 * TILE_SIZE, width: TILE_SIZE, height: TILE_SIZE,
+      kind: TileKind.SecurityGrid,
+    });
+  });
+
+  test('a gap or a fence never becomes a wall face (widening isOutlineBlocking would erase the outlines that touch it)', () => {
+    const { segments } = sectorWallSegments(gappedAndFencedSector());
+    expect(segments.every(segment => segment.kind !== TileKind.VoidGap
+      && segment.kind !== TileKind.SecurityGrid)).toBe(true);
+    expect(isOutlineBlocking(TileKind.VoidGap)).toBe(false);
+    expect(isOutlineBlocking(TileKind.SecurityGrid)).toBe(false);
   });
 });

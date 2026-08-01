@@ -113,6 +113,33 @@ describe('buildSectorDetail', () => {
     })!.rewards).toEqual(['Altar · grid open to you']);
   });
 
+  test('a lead onto a sealed cache names the wall that holds it', () => {
+    const slot: PoiSlot = {
+      id: 'poi:0,0:0', kind: PoiKind.Secret, tileX: 4, tileY: 4, sealed: true,
+    };
+    expect(buildSectorDetail({
+      ...BASE, map: makeWorld({}, [slot]),
+      secretFlagsOf: () => SecretFlags.HINTED,
+      hintedSectorKeys: new Set(['0,0']),
+    })!.rewards).toEqual(['A lead points here · sealed behind cracked rock']);
+  });
+
+  test('a lead across a gap names the gap, and says so differently once the tether is held', () => {
+    const slot: PoiSlot = {
+      id: 'poi:0,0:0', kind: PoiKind.Secret, tileX: 4, tileY: 4, gapped: true,
+    };
+    const gapped = {
+      ...BASE, map: makeWorld({}, [slot]),
+      secretFlagsOf: () => SecretFlags.HINTED,
+      hintedSectorKeys: new Set(['0,0']),
+    };
+    expect(buildSectorDetail(gapped)!.rewards)
+      .toEqual(['A lead points here · across a void gap']);
+    expect(buildSectorDetail({
+      ...gapped, holdsAbility: (id: string) => id === 'ability_magno_tether',
+    })!.rewards).toEqual(['A lead points here · across a void gap open to you']);
+  });
+
   test('an unknown sector and a cell outside the world both read as nothing', () => {
     const map = makeWorld({}, []);
     expect(buildSectorDetail({ ...BASE, map, sectorFlagsOf: () => 0 })).toBeNull();

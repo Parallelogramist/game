@@ -8624,6 +8624,7 @@ export class GameScene extends Phaser.Scene {
       originX: col * SECTOR_WIDTH,
       originY: row * SECTOR_HEIGHT,
       segments: outline.segments,
+      impassable: outline.impassable,
       doors: outline.doors.map(door => {
         const { dsx, dsy } = directionDelta(door.direction);
         return {
