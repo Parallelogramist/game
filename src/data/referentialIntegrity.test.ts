@@ -264,10 +264,15 @@ describe('expedition quest data rules', () => {
           expect(step.target, step.id).toBeLessThanOrEqual(8);
         }
         if (step.trigger.kind === 'reachSector') {
-          // The fold is +1 per sector entry with no visited-set, so any target above 1 could be
-          // met by bouncing in and out of one room.
-          expect(step.target, step.id).toBe(1);
-          expectSectorTagResolves(step.trigger.sectorTag, step.id);
+          // The fold counts DISTINCT sectors, so a target above 1 is authorable. It is bounded
+          // by what one expedition can reach at the live seed (16 sectors owning no ability and
+          // no quest key, measured 2026-08-01) and must be 'run'-scope: a persisted visited set
+          // holds sector keys a regenerated world would reuse for different rooms.
+          expect(step.target, step.id).toBeLessThanOrEqual(12);
+          if (step.target > 1) expect(step.scope, step.id).toBe('run');
+          if (step.trigger.sectorTag !== undefined) {
+            expectSectorTagResolves(step.trigger.sectorTag, step.id);
+          }
         }
         if (step.trigger.kind === 'surviveInSector') {
           // The target IS the dwell in seconds, and doc 04's anti-chore rule bounds a survive

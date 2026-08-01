@@ -59,6 +59,20 @@ function sanitizeCount(value: unknown): number {
   return Math.floor(value);
 }
 
+/** A generated world holds 48 sectors, so a longer set is a tampered file, not a sweep. */
+const MAX_VISITED_SECTOR_KEYS = 64;
+
+function sanitizeSectorKeys(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const keys: string[] = [];
+  for (const entry of value) {
+    if (keys.length >= MAX_VISITED_SECTOR_KEYS) break;
+    if (typeof entry !== 'string' || entry.length === 0 || keys.includes(entry)) continue;
+    keys.push(entry);
+  }
+  return keys.length > 0 ? keys : undefined;
+}
+
 /**
  * A state whose quest or step index no longer exists in the catalog is dropped, not
  * clamped: the content was re-authored, and inventing a step index is how a player gets
@@ -76,12 +90,21 @@ function sanitizeStates(value: unknown): QuestInstanceState[] {
     const status = entry.status === 'complete' ? 'complete' : 'active';
     const stepIndex = sanitizeCount(entry.stepIndex);
     if (status === 'active' && stepIndex >= definition.steps.length) continue;
+    const clampedIndex = Math.min(stepIndex, definition.steps.length);
+    // Progress on a distinct step is DERIVED from the visited set rather than trusted beside
+    // it: one count in two fields is two sources of truth.
+    const visitedSectorKeys = definition.steps[clampedIndex]?.trigger.kind === 'reachSector'
+      ? sanitizeSectorKeys(entry.visitedSectorKeys)
+      : undefined;
     seen.add(questId);
     states.push({
       questId,
-      stepIndex: Math.min(stepIndex, definition.steps.length),
-      stepProgress: sanitizeCount(entry.stepProgress),
+      stepIndex: clampedIndex,
+      stepProgress: visitedSectorKeys
+        ? visitedSectorKeys.length
+        : sanitizeCount(entry.stepProgress),
       status,
+      visitedSectorKeys,
     });
   }
   return states;

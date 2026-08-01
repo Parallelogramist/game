@@ -209,10 +209,10 @@ describe('reachSector', () => {
 
   test('advances only on an entry whose tags include the step tag', () => {
     const miss = recordQuestEvent(held, PLACE_DEFS,
-      { kind: 'reachSector', sectorTags: ['biome:stage_inferno'] });
+      { kind: 'reachSector', sectorKey: '1,0', sectorTags: ['biome:stage_inferno'] });
     expect(miss.stepCompletions).toEqual([]);
     const hit = recordQuestEvent(held, PLACE_DEFS,
-      { kind: 'reachSector', sectorTags: ['biome:stage_inferno', 'boss-arena'] });
+      { kind: 'reachSector', sectorKey: '2,0', sectorTags: ['biome:stage_inferno', 'boss-arena'] });
     expect(hit.questCompletions).toEqual([{ questId: 'quest_place', goldReward: 50 }]);
   });
 
@@ -221,6 +221,48 @@ describe('reachSector', () => {
       { questId: 'quest_place', label: 'Place', icon: 'radar', sectorTag: 'boss-arena' },
     ]);
     expect(buildQuestMarkers([active('quest_a', 0, 0)], DEFS)).toEqual([]);
+  });
+
+  test('counts distinct rooms, so a re-entry adds nothing and a tagless step counts any sector', () => {
+    const SWEEP_DEFS: readonly ExpeditionQuestDefinition[] = [{
+      id: 'quest_sweep',
+      name: 'Sweep',
+      icon: 'radar',
+      steps: [{
+        id: 'q_sweep.s1',
+        description: 'survey three rooms',
+        trigger: { kind: 'reachSector', sectorTag: 'biome:stage_inferno' },
+        target: 3,
+        scope: 'run',
+        goldReward: 17,
+      }],
+      completionGoldReward: 60,
+    }];
+    const sweeping: QuestInstanceState[] = [
+      { questId: 'quest_sweep', stepIndex: 0, stepProgress: 0, status: 'active' },
+    ];
+    const enter = (states: QuestInstanceState[], sectorKey: string) => recordQuestEvent(
+      states, SWEEP_DEFS,
+      { kind: 'reachSector', sectorKey, sectorTags: ['biome:stage_inferno'] },
+    );
+
+    const first = enter(sweeping, '1,0');
+    expect(first.states[0].stepProgress).toBe(1);
+    const again = enter(first.states, '1,0');
+    expect(again.states[0].stepProgress).toBe(1);
+    const second = enter(again.states, '2,0');
+    expect(second.states[0].stepProgress).toBe(2);
+    const done = enter(second.states, '3,0');
+    expect(done.questCompletions).toEqual([{ questId: 'quest_sweep', goldReward: 60 }]);
+    expect(done.states[0].visitedSectorKeys).toBeUndefined();
+
+    const TAGLESS_DEFS: readonly ExpeditionQuestDefinition[] = [{
+      ...SWEEP_DEFS[0],
+      steps: [{ ...SWEEP_DEFS[0].steps[0], trigger: { kind: 'reachSector' }, target: 2 }],
+    }];
+    const anyRoom = recordQuestEvent(sweeping, TAGLESS_DEFS,
+      { kind: 'reachSector', sectorKey: '9,9', sectorTags: ['biome:stage_verdant_rot'] });
+    expect(anyRoom.states[0].stepProgress).toBe(1);
   });
 });
 

@@ -1011,7 +1011,11 @@ export class GameScene extends Phaser.Scene {
     const sector = map?.sectors.get(payload.sectorKey);
     if (sector) {
       this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
-      this.recordExpeditionQuest({ kind: 'reachSector', sectorTags: sectorTagsOf(sector) });
+      this.recordExpeditionQuest({
+        kind: 'reachSector',
+        sectorKey: payload.sectorKey,
+        sectorTags: sectorTagsOf(sector),
+      });
     }
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);

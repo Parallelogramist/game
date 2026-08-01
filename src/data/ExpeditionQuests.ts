@@ -26,8 +26,10 @@ export type QuestTrigger =
   | { kind: 'findSecret'; secretKind?: SecretTier }
   /** Doc 04 authors this as `sectorTag: string`. The vocabulary is the closed two-family union
    *  in src/world/sectorTags.ts, and referentialIntegrity.test.ts asserts every biome tag
-   *  resolves to a real stage, which the template-literal type cannot. */
-  | { kind: 'reachSector'; sectorTag: SectorTag }
+   *  resolves to a real stage, which the template-literal type cannot. Progress counts DISTINCT
+   *  sectors, so a target above 1 asks for that many different rooms, and an omitted tag counts
+   *  every sector, which is how a breadth step is authored. */
+  | { kind: 'reachSector'; sectorTag?: SectorTag }
   /** Doc 04 authors a `seconds` field beside the step's own `target`. The target IS the dwell
    *  in seconds here: one threshold in two fields is two sources of truth, and the shipped
    *  ticker renders `42/90` off the target for free. */
@@ -146,6 +148,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         scope: 'run',
         goldReward: 240,
       },
+      {
+        id: 'q_survey_03.s5',
+        description: 'Chart eight sectors on one expedition',
+        trigger: { kind: 'reachSector' },
+        target: 8,
+        scope: 'run',
+        goldReward: 240,
+      },
     ],
     completionGoldReward: 350,
   },
@@ -203,6 +213,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         target: 90,
         scope: 'run',
         goldReward: 260,
+      },
+      {
+        id: 'q_gatecrash_02.s4',
+        description: 'Survey three sectors of the Crystal Caves',
+        trigger: { kind: 'reachSector', sectorTag: 'biome:stage_crystal_caves' },
+        target: 3,
+        scope: 'run',
+        goldReward: 240,
       },
     ],
     completionGoldReward: 300,

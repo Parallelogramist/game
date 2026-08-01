@@ -31,15 +31,20 @@ export function buildQuestPins(inputs: QuestPinInputs): QuestPin[] {
   return inputs.markers.map((marker) => ({
     questId: marker.questId,
     label: marker.label,
-    sectorKey: nearestChartedSector(inputs, marker.sectorTag),
+    sectorKey: nearestChartedSector(inputs, marker.sectorTag, marker.countedSectorKeys),
   }));
 }
 
-function nearestChartedSector(inputs: QuestPinInputs, tag: SectorTag): string | null {
+function nearestChartedSector(
+  inputs: QuestPinInputs,
+  tag: SectorTag,
+  countedSectorKeys: readonly string[] | undefined,
+): string | null {
   let bestKey: string | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const sector of inputs.map.sectors.values()) {
     if (inputs.sectorFlagsOf(sector.key) === 0) continue;
+    if (countedSectorKeys?.includes(sector.key)) continue;
     if (!sectorMatchesTag(sector, tag)) continue;
     const distance = Math.max(
       Math.abs(sector.sx - inputs.shipCell.col),

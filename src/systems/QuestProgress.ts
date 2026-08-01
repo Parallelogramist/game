@@ -19,6 +19,9 @@ export interface QuestInstanceState {
   stepIndex: number;
   stepProgress: number;
   status: QuestStatus;
+  /** Which sectors a reachSector step has already counted, so a re-entered room cannot pay
+   *  twice. Absent for every other kind and cleared the moment the step completes. */
+  visitedSectorKeys?: readonly string[];
 }
 
 /**
@@ -33,9 +36,10 @@ export type QuestEvent =
   | { kind: 'openGate' }
   | { kind: 'claimAbility'; abilityId: string }
   | { kind: 'findSecret'; secretKind: SecretTier }
-  /** Every tag the entered sector answers to. Folded +1 per entry with no visited-set, which is
-   *  why every reachSector step's target is 1 (asserted in referentialIntegrity.test.ts). */
-  | { kind: 'reachSector'; sectorTags: readonly SectorTag[] }
+  /** Every tag the entered sector answers to, plus the sector's own key: progress counts
+   *  DISTINCT sectors, so a room already counted adds nothing and a repeated entry is
+   *  idempotent (referentialIntegrity.test.ts bounds the target instead of pinning it to 1). */
+  | { kind: 'reachSector'; sectorKey: string; sectorTags: readonly SectorTag[] }
   /** ABSOLUTE unbroken seconds held in the sector whose tags these are, folded with max: a poll
    *  that repeats cannot double-credit, and leaving restarts the producer's count at 0. */
   | { kind: 'surviveInSector'; sectorTags: readonly SectorTag[]; seconds: number };
@@ -71,7 +75,8 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
       return trigger.kind === 'findSecret'
         && (trigger.secretKind === undefined || trigger.secretKind === event.secretKind);
     case 'reachSector':
-      return trigger.kind === 'reachSector' && event.sectorTags.includes(trigger.sectorTag);
+      return trigger.kind === 'reachSector'
+        && (trigger.sectorTag === undefined || event.sectorTags.includes(trigger.sectorTag));
     case 'surviveInSector':
       return trigger.kind === 'surviveInSector' && event.sectorTags.includes(trigger.sectorTag);
     default: {
@@ -82,21 +87,34 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
   }
 }
 
-function foldEvent(progress: number, event: QuestEvent): number {
+interface StepProgress {
+  progress: number;
+  visitedSectorKeys?: readonly string[];
+}
+
+function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
   switch (event.kind) {
-    case 'kill': return progress + Math.max(0, Math.floor(event.amount));
-    case 'reachDepth': return Math.max(progress, event.depth);
-    case 'openGate': return progress + 1;
-    case 'claimAbility': return progress + 1;
-    case 'findSecret': return progress + 1;
-    case 'reachSector': return progress + 1;
+    case 'kill':
+      return { ...current, progress: current.progress + Math.max(0, Math.floor(event.amount)) };
+    case 'reachDepth': return { ...current, progress: Math.max(current.progress, event.depth) };
+    case 'openGate': return { ...current, progress: current.progress + 1 };
+    case 'claimAbility': return { ...current, progress: current.progress + 1 };
+    case 'findSecret': return { ...current, progress: current.progress + 1 };
+    // Distinct rooms, so a multi-destination step cannot be met by bouncing in and out of one.
+    case 'reachSector': {
+      const visited = current.visitedSectorKeys ?? [];
+      if (visited.includes(event.sectorKey)) return current;
+      const nextVisited = [...visited, event.sectorKey];
+      return { progress: nextVisited.length, visitedSectorKeys: nextVisited };
+    }
     // A high-water mark, so a partial dwell survives leaving the room while COMPLETION still
     // needs one visit that reaches the target.
-    case 'surviveInSector': return Math.max(progress, event.seconds);
+    case 'surviveInSector':
+      return { ...current, progress: Math.max(current.progress, event.seconds) };
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
-      return progress;
+      return current;
     }
   }
 }
@@ -124,9 +142,13 @@ export function recordQuestEvent(
     const step = definition.steps[state.stepIndex];
     if (!step || !triggerMatches(step.trigger, event)) continue;
 
-    const value = foldEvent(state.stepProgress, event);
-    if (value < step.target) {
-      state.stepProgress = value;
+    const folded = foldEvent(
+      { progress: state.stepProgress, visitedSectorKeys: state.visitedSectorKeys },
+      event,
+    );
+    if (folded.progress < step.target) {
+      state.stepProgress = folded.progress;
+      state.visitedSectorKeys = folded.visitedSectorKeys;
       continue;
     }
 
@@ -137,6 +159,7 @@ export function recordQuestEvent(
     });
     state.stepIndex += 1;
     state.stepProgress = 0;
+    state.visitedSectorKeys = undefined;
     if (state.stepIndex >= definition.steps.length) {
       state.status = 'complete';
       questCompletions.push({
@@ -200,10 +223,11 @@ export function settleRunScopeProgress(
 ): QuestInstanceState[] {
   const byId = new Map(defs.map((definition) => [definition.id, definition]));
   return states.map((state) => {
-    if (state.status !== 'active' || state.stepProgress === 0) return state;
+    if (state.status !== 'active') return state;
+    if (state.stepProgress === 0 && state.visitedSectorKeys === undefined) return state;
     const step = byId.get(state.questId)?.steps[state.stepIndex];
     if (!step || step.scope === 'persistent') return state;
-    return { ...state, stepProgress: 0 };
+    return { ...state, stepProgress: 0, visitedSectorKeys: undefined };
   });
 }
 
@@ -259,6 +283,9 @@ export interface QuestMarker {
   label: string;
   icon: string;
   sectorTag: SectorTag;
+  /** Rooms this step has already counted. The pin must skip them or it points at a room that
+   *  would grant nothing. Absent for a step that counts no sectors. */
+  countedSectorKeys?: readonly string[];
 }
 
 export function buildQuestMarkers(
@@ -274,11 +301,14 @@ export function buildQuestMarkers(
     if (!definition || !step) continue;
     const trigger = step.trigger;
     if (trigger.kind !== 'reachSector' && trigger.kind !== 'surviveInSector') continue;
+    // A tagless breadth step names no place, so there is nothing to pin and nothing to bear on.
+    if (trigger.sectorTag === undefined) continue;
     markers.push({
       questId: definition.id,
       label: definition.name,
       icon: definition.icon,
       sectorTag: trigger.sectorTag,
+      countedSectorKeys: state.visitedSectorKeys,
     });
   }
   return markers;
