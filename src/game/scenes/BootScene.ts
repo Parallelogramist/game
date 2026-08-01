@@ -737,18 +737,6 @@ export class BootScene extends Phaser.Scene {
       belowHeroY += scaledInt(layoutScale, 36);
     }
 
-    // ─── loadouts link (when a last loadout OR any saved preset exists) ──
-    if (lastLoadout || loadLoadoutPresets().length > 0) {
-      this.createReplayLoadoutLink({
-        centerX,
-        centerY: belowHeroY,
-        layoutScale,
-        fontScale,
-        onActivate: () => transitionToScene(this, 'LoadoutScene'),
-      });
-      belowHeroY += scaledInt(layoutScale, 36);
-    }
-
     // ─── challenge cards (daily + weekly side by side) ──────────────────
     const challengeWidth = scaledInt(layoutScale, 280);
     const challengeHeight = scaledInt(layoutScale, 130);
@@ -827,6 +815,8 @@ export class BootScene extends Phaser.Scene {
       onPaint: openPaint,
       onExpeditionSeasons: openExpeditionSeasons,
       onSurprise: startSurpriseRunWithConfirmation,
+      showLoadouts: Boolean(lastLoadout) || loadLoadoutPresets().length > 0,
+      onLoadouts: () => transitionToScene(this, 'LoadoutScene'),
     });
 
     // ─── footer strip ───────────────────────────────────────────────────
@@ -1350,45 +1340,6 @@ export class BootScene extends Phaser.Scene {
     this.registerFocusable(card, onActivate);
   }
 
-  private createReplayLoadoutLink(opts: {
-    centerX: number;
-    centerY: number;
-    layoutScale: number;
-    fontScale: number;
-    onActivate: () => void;
-  }): void {
-    const { centerX, centerY, layoutScale, fontScale, onActivate } = opts;
-    const width = scaledInt(layoutScale, 190);
-    const height = scaledInt(layoutScale, 26);
-    const card = createMenuCard(this, {
-      x: centerX,
-      y: centerY,
-      width,
-      height,
-      pulseSeed: 23,
-      bodyFillColor: COLORS.bodyNeutral,
-      accentColor: COLORS.accentFocus,
-      bannerHeight: 0,
-      borderColor: COLORS.accentFocus,
-      borderWidth: 2,
-      cornerRadius: scaledInt(layoutScale, 8),
-      shadowOffsetY: scaledInt(layoutScale, 6),
-      shadowOffsetX: scaledInt(layoutScale, 3),
-    });
-    this.cards.push(card);
-
-    const text = this.add.text(0, 0, '✦  LOADOUTS  ✦', {
-      fontSize: scaledFontPx(fontScale, 12),
-      color: COLORS.accentFocusStr,
-      fontFamily: MENU_FONT,
-      fontStyle: 'bold',
-      letterSpacing: 3,
-    }).setOrigin(0.5);
-    card.frame.add(text);
-
-    this.registerFocusable(card, onActivate);
-  }
-
   // ═══════════════════════════════════════════════════════════════════════
   //  CHALLENGE CARD — Daily / Weekly side-by-side cards.
   // ═══════════════════════════════════════════════════════════════════════
@@ -1542,8 +1493,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  PROGRESSION DECK — one row of square cards: SHOP, COLLECT, CHART and the
-  //  game modes. The collection screens live behind COLLECT.
+  //  PROGRESSION DECK — one row of three wide cards: SHOP, GAME MODES and
+  //  COLLECTION. Everything else in the menu lives behind the latter two.
   // ═══════════════════════════════════════════════════════════════════════
 
   private createProgressionDeck(opts: {
@@ -1568,11 +1519,13 @@ export class BootScene extends Phaser.Scene {
     onRunner: () => void;
     onPractice: () => void;
     onSurprise: () => void;
+    showLoadouts: boolean;
+    onLoadouts: () => void;
   }): void {
     const {
       centerX, centerY, cardHeight, layoutScale, fontScale, goldAmount, questBadge,
       onShop, onAchievements, onCodex, onCards, onLeaderboard, onPaint, onExpeditionSeasons,
-      onSkirmish, onGauntlet, onRunner, onPractice, onSurprise,
+      onSkirmish, onGauntlet, onRunner, onPractice, onSurprise, showLoadouts, onLoadouts,
     } = opts;
 
     const submenuAction = (run: () => void) => () => {
@@ -1590,6 +1543,40 @@ export class BootScene extends Phaser.Scene {
       badge?: string;
       iconTint: number;
     }
+    const gameModeEntries: SubmenuEntry[] = [
+      {
+        label: 'SKIRMISH', iconKey: 'shield', accentRole: 'danger',
+        iconTint: 0xbbffcc, action: submenuAction(onSkirmish),
+      },
+      {
+        label: 'GAUNTLET', iconKey: 'sword', accentRole: 'danger',
+        iconTint: 0xffbbcc, action: submenuAction(onGauntlet),
+      },
+      {
+        label: 'RUNNER', iconKey: 'run', accentRole: 'danger',
+        iconTint: 0xffbbaa, action: submenuAction(onRunner),
+      },
+      {
+        label: 'PRACTICE', iconKey: 'target', accentRole: 'danger',
+        iconTint: 0xffddaa, action: submenuAction(onPractice),
+      },
+      {
+        label: 'SURPRISE', iconKey: 'dice', accentRole: 'gold',
+        iconTint: 0xffe2a0, action: submenuAction(onSurprise),
+      },
+      {
+        label: 'CHART', iconKey: 'globe', accentRole: 'primary',
+        badge: `W${getCurrentExpeditionSeasonIndex()}`,
+        iconTint: 0xaaccff, action: submenuAction(onExpeditionSeasons),
+      },
+    ];
+    if (showLoadouts) {
+      gameModeEntries.push({
+        label: 'LOADOUTS', iconKey: 'star', accentRole: 'neutral',
+        iconTint: 0x88ccff, action: submenuAction(onLoadouts),
+      });
+    }
+
     const entries: DeckEntry[] = [
       {
         label: 'SHOP',
@@ -1601,10 +1588,21 @@ export class BootScene extends Phaser.Scene {
         iconTint: 0xffe2a0,
       },
       {
+        // GAME MODES group (FEAT-MENU-COLLAPSE) — every non-expedition way to
+        // play, plus the world chart and the saved loadouts, one tap deeper.
+        // The hero card still launches an expedition in one tap.
+        label: 'GAME MODES',
+        iconKey: 'katana',
+        bodyHex: COLORS.bodyDanger,
+        accentHex: COLORS.accentDanger,
+        iconTint: 0xffbbcc,
+        action: () => this.openSubmenu('GAME MODES', gameModeEntries),
+      },
+      {
         // COLLECTION group (FEAT-MENU-SUBMENU-KIT) — achievements, codex, cards,
         // leaderboards and paint sit one tap deeper so the deck row stays wide
         // enough to hit on a phone.
-        label: 'COLLECT',
+        label: 'COLLECTION',
         iconKey: 'trophy',
         bodyHex: COLORS.bodyTeal,
         accentHex: COLORS.accentTeal,
@@ -1633,80 +1631,25 @@ export class BootScene extends Phaser.Scene {
           },
         ]),
       },
-      {
-        // Expedition seasons (FEAT-EXPEDITION-SEASONS): the profile's world and the
-        // record of the ones it has finished; a meta screen, so it takes the blue role
-        // rather than the danger role the game modes use.
-        label: 'CHART',
-        iconKey: 'globe',
-        bodyHex: COLORS.bodyPrimary,
-        accentHex: COLORS.accentPrimary,
-        action: onExpeditionSeasons,
-        badge: `W${getCurrentExpeditionSeasonIndex()}`,
-        iconTint: 0xaaccff,
-      },
-      {
-        // Arena skirmish (FEAT-EXPEDITION-PROMOTE) — the fixed-room run, now an
-        // explicit mode beside the expedition default; danger role like the
-        // other game modes.
-        label: 'SKIRMISH',
-        iconKey: 'shield',
-        bodyHex: COLORS.bodyDanger,
-        accentHex: COLORS.accentDanger,
-        action: onSkirmish,
-        iconTint: 0xbbffcc,
-      },
-      {
-        // Gauntlet boss-rush mode (FEAT-GAUNTLET) — a gameplay entry like
-        // RUNNER; the shared danger role marks both as game modes.
-        label: 'GAUNTLET',
-        iconKey: 'sword',
-        bodyHex: COLORS.bodyDanger,
-        accentHex: COLORS.accentDanger,
-        action: onGauntlet,
-        iconTint: 0xffbbcc,
-      },
-      {
-        // Endless-runner mode (FEAT-RUNNER-MODE) — a gameplay entry, so it
-        // fades like CONTINUE rather than sweeping like the meta screens.
-        label: 'RUNNER',
-        iconKey: 'run',
-        bodyHex: COLORS.bodyDanger,
-        accentHex: COLORS.accentDanger,
-        action: onRunner,
-        iconTint: 0xffbbaa,
-      },
-      {
-        // Practice mode — a gameplay entry like GAUNTLET/RUNNER, so it shares
-        // the danger role.
-        label: 'PRACTICE',
-        iconKey: 'target',
-        bodyHex: COLORS.bodyDanger,
-        accentHex: COLORS.accentDanger,
-        action: onPractice,
-        iconTint: 0xffddaa,
-      },
-      {
-        // Surprise Me (FEAT-SURPRISE-RUN) — one-tap fully-randomized run; a
-        // game-mode launcher like GAUNTLET/RUNNER/PRACTICE, but the gold role
-        // reads it as a lucky wildcard roll rather than a danger mode.
-        label: 'SURPRISE',
-        iconKey: 'dice',
-        bodyHex: COLORS.bodyGold,
-        accentHex: COLORS.accentGold,
-        action: onSurprise,
-        iconTint: 0xffe2a0,
-      },
     ];
 
-    // Fit-to-width: 8 cards at the design width (8×96 + 7×22 = 922 units)
-    // overflow the 720-unit portrait row, so shrink width+gap proportionally
-    // when needed. Landscape (1280) keeps the design size untouched.
+    // Fit-to-row: three cards at the design width (3×96 + 2×22 = 332 units)
+    // leave two thirds of the 696-unit portrait row empty, so the card widens
+    // to fill it — capped, and never the gap. A longer row still shrinks
+    // width+gap proportionally rather than overflowing.
+    const DECK_CARD_MAX_WIDTH = 200;
     const usableRowWidth = this.scale.width - scaledInt(layoutScale, 24);
     const naturalRowWidth = entries.length * opts.cardWidth + (entries.length - 1) * opts.gap;
     const rowShrink = naturalRowWidth > usableRowWidth ? usableRowWidth / naturalRowWidth : 1;
-    const cardWidth = Math.floor(opts.cardWidth * rowShrink);
     const gap = Math.floor(opts.gap * rowShrink);
+    const shrunkCardWidth = Math.floor(opts.cardWidth * rowShrink);
+    const availableWidthPerCard = Math.floor(
+      (usableRowWidth - gap * (entries.length - 1)) / entries.length,
+    );
+    const cardWidth = Math.max(
+      shrunkCardWidth,
+      Math.min(scaledInt(layoutScale, DECK_CARD_MAX_WIDTH), availableWidthPerCard),
+    );
 
     const totalWidth = entries.length * cardWidth + (entries.length - 1) * gap;
     const startX = centerX - totalWidth / 2 + cardWidth / 2;
@@ -1756,7 +1699,12 @@ export class BootScene extends Phaser.Scene {
       if (entry.badge) {
         const badgeY = cardHeight / 2 - scaledInt(layoutScale, 14);
         const badgeBg = this.add.graphics();
-        const badgeWidth = cardWidth - scaledInt(layoutScale, 16);
+        // Capped so a 4-digit gold count does not sit inside a 184-unit pill on
+        // the widened card; below a 104-unit card the cap never binds.
+        const badgeWidth = Math.min(
+          cardWidth - scaledInt(layoutScale, 16),
+          scaledInt(layoutScale, 88),
+        );
         const badgeHeight = scaledInt(layoutScale, 18);
         badgeBg.fillStyle(0x000000, 0.45);
         badgeBg.fillRoundedRect(-badgeWidth / 2, badgeY - badgeHeight / 2, badgeWidth, badgeHeight, 6);
