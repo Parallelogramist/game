@@ -5,6 +5,7 @@
  */
 
 import { WorldRect } from '../../../world/worldSpace';
+import { resetEnemyNavState } from './common';
 
 // ── Game time (set once per frame by updateAIGameTime) ──────────────────────
 export let cachedGameTime = 0;
@@ -144,4 +145,5 @@ export function resetEnemyAISystem(): void {
   consumeXPGemCallback = null;
   groundSlamCallback = null;
   laserBeamCallback = null;
+  resetEnemyNavState();
 }

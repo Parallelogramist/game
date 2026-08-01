@@ -3,7 +3,7 @@ import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, StatusEffect } from 
 import { EnemyAIType } from '../../enemies/EnemyTypes';
 // Shared constants + per-frame context (telegraph manager, world ref) live in
 // enemy-ai/common so behavior modules can use them without importing this file.
-import { setAIWorld } from './enemy-ai/common';
+import { setAIWorld, advanceNavClock, setNavFrame } from './enemy-ai/common';
 import { updateDecoyFollowers, isDecoyFollower } from './enemy-ai/decoy';
 // Enemy behaviors, one module per handler:
 // regular enemies (aiType < 50)
@@ -119,6 +119,7 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
   const decoy = updateDecoyFollowers(enemies, playerX, playerY);
 
   aiLodFrame++;
+  advanceNavClock(deltaTime);
 
   for (let i = 0; i < enemies.length; i++) {
     const enemyId = enemies[i];
@@ -143,6 +144,7 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
 
     // Update timers (only on frames where AI actually runs)
     EnemyAI.timer[enemyId] += lodDeltaTime;
+    setNavFrame(enemyId, lodDeltaTime);
 
     let targetX = playerX;
     let targetY = playerY;
