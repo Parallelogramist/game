@@ -725,6 +725,32 @@ solid only when the substep displacement has a negative dot with the membrane's
   ignore walls while phased (ghost fantasy, prevents stuck wraiths) and are snapped
   with `findNearestFreeCircleSpot` on unphase.
 
+### As built (FEAT-BARRIER-WRAITH-PHASE, 7c2550e, 2026-08-01)
+
+The Wraith bullet above is shipped. `isPhasedWraith(entityId)` (`enemy-ai/wraith.ts`) is the single
+definition of the exemption, and both resolvers consult it: `movementSystem`'s enemy branch and
+`GameScene.processKnockback` each skip `resolveCircleMove` for a phased Wraith and fall through to
+the raw integration, which is the pre-walls arithmetic. The knockback exemption is not decoration:
+without it a wraith shot while inside a wall has its knockback zeroed against geometry it is not
+in. The world-bounds clamp in `processKnockback` still applies, because a ghost may pass a wall but
+never leave the world.
+
+Three decisions worth keeping. (1) **A phased Wraith takes the straight line.** `updateWraithAI`
+bypasses `chaseHeading` while phased, because that helper falls back to the flow field the moment
+line of sight breaks, and a ghost detouring around a wall it can walk through is the fantasy broken
+in the other direction. (2) **The snap tests state, not a transition.** The Wraith loop in
+`GameScene` snaps any wraith that is corporeal AND `isSolidAtWorld(..., MoverKind.Enemy)`, every
+frame, rather than watching for a 1 -> 0 edge; that costs one tile read per wraith and self-heals a
+wraith knocked into rock or caught by a door that closed on it. If `findNearestFreeCircleSpot`
+fails, meaning the wraith is outside the generated world, it is returned to the phased state rather
+than frozen: it chases the player, so the next phase walks it home. (3) **Void gaps and security
+grids are crossed too**, since `isSolidAtWorld` reports both solid for `MoverKind.Enemy`. That is
+intended. `CHORE-WRAITH-PHASE-SEALED-POCKET` records the one consequence: a phased wraith can enter
+a boss-sealed sector or a fenced pocket, and leaves again on its next phase.
+
+`CHORE-COLLIDE-EMBEDDED-SNAP` stays open. Its own entry already names this caller as the harmless
+case, because a wraith unphases in a spot it was standing in rather than deep inside a blob.
+
 ### 5.4 Frame budget
 
 Per entity per frame: <= 2 substeps x 2 axes x 4 tile reads = 16 byte-array reads plus

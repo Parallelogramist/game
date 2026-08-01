@@ -1283,6 +1283,41 @@ daily, weekly, practice and gauntlet are untouched by construction, because `Map
 expedition-only; and it moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS`
 stays parked and untouched.
 
+**7c2550e made the Wraith a ghost again.** The Wraith is the one enemy in the catalog whose entire
+identity is intangibility, and it already dropped to 0.2 alpha and dealt no contact damage while
+phased; then `FEAT-WORLDGEN-NAV` gave every non-boss enemy geometry, phased Wraiths included, so a
+ghost bounced off rock exactly like a chaser and the phase read as a damage window rather than as a
+wall the player cannot hide behind. Now a phased Wraith crosses solid rock, breakable pockets,
+closed doors, void gaps and security-grid fences in a straight line at George, so a wall he ducks
+behind stops being cover for 1.5 to 2 seconds at a time instead of never. The exemption has one
+definition, the new `isPhasedWraith` in `enemy-ai/wraith.ts`, and both resolvers consult it:
+`movementSystem`'s enemy branch and `GameScene.processKnockback` each skip `resolveCircleMove` for
+a phased Wraith and fall through to the raw integration, which is the pre-walls arithmetic. **It
+takes the straight line while phased**, bypassing `chaseHeading`, because that helper falls back to
+the flow field the moment line of sight breaks and a ghost detouring around a wall it can walk
+through is the fantasy broken in the other direction. **The snap tests state, not a transition**:
+the Wraith loop `GameScene` already runs for the alpha snaps any wraith that is corporeal AND
+`isSolidAtWorld(..., MoverKind.Enemy)`, every frame, which costs one tile read and self-heals a
+wraith knocked into rock or caught by a door that closed on it; if `findNearestFreeCircleSpot`
+finds nowhere legal, meaning the wraith is outside the generated world, it is returned to the
+phased state rather than frozen, and the next phase walks it home. **The knockback exemption is
+not decoration**: without it a wraith shot while inside a wall would have its knockback zeroed
+against geometry it is not in, which reads as the ghost hitting an invisible wall. The
+world-bounds clamp in `processKnockback` stays, because a ghost may pass a wall but never leave
+the world. **Crossing void gaps and security grids is deliberate**, since `isSolidAtWorld` reports
+both solid for `MoverKind.Enemy`, and `CHORE-WRAITH-PHASE-SEALED-POCKET` records the one
+consequence: a phased wraith can enter a boss-sealed sector or a fenced pocket, and leaves again on
+its next phase. `CHORE-COLLIDE-EMBEDDED-SNAP` stays open and untouched, because its own entry
+already names this caller as the harmless case (a wraith unphases in a spot it was standing in
+rather than deep inside a blob). It files `BALANCE-WRAITH-PHASE-WINDOW`, `FEAT-WRAITH-PHASE-WALL-TELL`
+and `CHORE-WRAITH-PHASE-SEALED-POCKET`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`,
+no `DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump, because
+nothing here is persisted (`EnemyAI.state` is live ECS state on an enemy the serializer rebuilds);
+arena, daily, weekly, practice and gauntlet are untouched by construction, because
+`ArenaModeAdapter.worldMap()` returns null so `movementSystem` gets a null `wallCollision`,
+`processKnockback` takes its raw-move branch and the snap block returns early; and it moves no
+gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -4727,12 +4762,49 @@ exploring pays is the end of Phase 5.
   a guess. Build it if the playtest (`POLISH-EXPEDITION-FLIGHT` item (z)) reports enemies pinned
   on corners. Deps: `FEAT-WORLDGEN-NAV`. Spec: `02-worldgen-barriers.md` section 6.3.
 
-- [ ] **FEAT-BARRIER-WRAITH-PHASE**: doc 02 section 5.3's ghost rule, a `state === 1` phased
-  Wraith ignores walls and is snapped with `findNearestFreeCircleSpot` on unphase.
-  `FEAT-WORLDGEN-NAV` made every non-boss enemy collide including phased Wraiths, which is
-  correct but drops the ghost fantasy. Needs a per-mover exemption in `MovementSystem`'s enemy
+- [x] **FEAT-BARRIER-WRAITH-PHASE** (done, 7c2550e): doc 02 section 5.3's ghost rule, a
+  `state === 1` phased Wraith ignores walls and is snapped with `findNearestFreeCircleSpot` on
+  unphase. `FEAT-WORLDGEN-NAV` made every non-boss enemy collide including phased Wraiths, which
+  is correct but drops the ghost fantasy. Needs a per-mover exemption in `MovementSystem`'s enemy
   branch plus an unphase hook in `wraith.ts`. Deps: `FEAT-WORLDGEN-NAV`. Spec:
   `02-worldgen-barriers.md` section 5.3.
+
+  **Shipped at `7c2550e`.** A phased Wraith (`EnemyAI.state === 1`) is exempt from the movement
+  resolver and from the knockback resolver through the new `isPhasedWraith` in
+  `enemy-ai/wraith.ts`, and takes the straight line at the player rather than the flow-field
+  route `chaseHeading` would give it, because a ghost does not path around a wall it can walk
+  through. It is put back on legal floor by the Wraith loop `GameScene` already runs for the
+  alpha, which snaps any wraith that is **corporeal and standing in geometry** with
+  `findNearestFreeCircleSpot`: the state test, not a transition test, so a knockback or a door
+  that closed on it self-heals on the next frame. **A phased Wraith also crosses void gaps and
+  security-grid fences**, because `isSolidAtWorld` calls those solid for `MoverKind.Enemy`; that
+  is the ghost fantasy paying off and is deliberate, not an oversight. `CHORE-COLLIDE-EMBEDDED-SNAP`
+  stays open and untouched: its own entry already records that the far-side-of-a-one-tile-wall
+  case is harmless for exactly this caller.
+
+- [ ] **BALANCE-WRAITH-PHASE-WINDOW** (new 2026-08-01, from FEAT-BARRIER-WRAITH-PHASE): the 3-4 s
+  corporeal / 1.5-2.0 s phased cycle and the 0.5x phased speed were tuned when phasing meant only
+  "no contact damage" in an open arena. It now also means "crosses rock, closed doors, void gaps
+  and security fences", so the same window buys much more, and whether it reads as a threat you
+  reposition around or as an enemy that ignores the level needs a browser. Value: a phase window
+  that is a decision rather than a free pass through the map. Deps: none, but it wants play, not
+  a guess.
+
+- [ ] **FEAT-WRAITH-PHASE-WALL-TELL** (new 2026-08-01, from FEAT-BARRIER-WRAITH-PHASE): nothing
+  warns the player that a wraith is coming through the wall they are standing behind. The one tell
+  is the 0.2 sprite alpha, and while it matters most the wraith is inside geometry the player
+  cannot see past. The honest version is a tell on the wall rather than on the enemy (an amber
+  bleed on the tiles it is inside, or a radar mark that survives the wall), which is a new render
+  path in `WorldRenderer` rather than a tune. Value: cover that is about to fail says so. Deps:
+  none.
+
+- [ ] **CHORE-WRAITH-PHASE-SEALED-POCKET** (new 2026-08-01, from FEAT-BARRIER-WRAITH-PHASE): a
+  phased wraith can walk into a place a corporeal one cannot leave: a boss-sealed sector
+  (`lockToSector` flips the aperture tiles to `GateClosed`), or a security-grid pocket around a
+  fenced shrine altar. It is self-correcting rather than a soft-lock (the next phase, 3-4 s later,
+  walks it back out, and it chases the player the whole time), which is why it is filed rather
+  than fixed. Value: a wraith never spends a fight standing in a pocket the player has left. Deps:
+  none.
 
 - [ ] **CHORE-NAV-LOS-BUDGET**: `chaseHeading` casts one `raycastSolid` per chase-family enemy
   per AI tick. LOD already throttles distant enemies to every 3rd or 6th frame, and doc 02
