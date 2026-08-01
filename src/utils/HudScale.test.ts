@@ -14,6 +14,8 @@ import {
   computeRowStackFit,
   computePracticeControlLayout,
   PRACTICE_CONTROL_BOTTOM_RESERVE,
+  computeMenuCardGrid,
+  fitTextWidth,
 } from './HudScale';
 
 // Node env: window is undefined, so densityCompensation resolves to 1 and
@@ -99,5 +101,69 @@ describe('computePracticeControlLayout (the practice menu vertical budget)', () 
     expect(layout.shipY).toBeLessThan(layout.stepperY);
     expect(layout.stepperY).toBeLessThan(layout.evolveY);
     expect(layout.evolveY).toBeLessThan(layout.startY);
+  });
+});
+
+describe('computeMenuCardGrid', () => {
+  const pact = {
+    count: 8, cardWidth: 218, cardHeight: 230,
+    headerBottom: 150, anchorOffset: -10,
+  };
+  const modifier = {
+    count: 6, cardWidth: 220, cardHeight: 210,
+    headerBottom: 150, anchorOffset: -10,
+  };
+
+  test('desktop is byte-identical to the legacy layout', () => {
+    const grid = computeMenuCardGrid({
+      ...pact, canvasWidth: 1280, canvasHeight: 720, menuScale: 1,
+    });
+    expect(grid).toEqual({
+      perRow: 5, rowCount: 2, scale: 1, cardWidth: 218, cardHeight: 230,
+      gap: 18, rowSpacing: 254, firstRowY: 223,
+    });
+  });
+
+  test('a sub-1 scale still takes the legacy path', () => {
+    const grid = computeMenuCardGrid({
+      ...pact, canvasWidth: 1280, canvasHeight: 720, menuScale: 0.8,
+    });
+    expect(grid.scale).toBe(1);
+    expect(grid.perRow).toBe(5);
+    expect(grid.firstRowY).toBe(223);
+  });
+
+  test('a landscape phone grows the single row to the width it allows', () => {
+    const grid = computeMenuCardGrid({
+      ...modifier, canvasWidth: 2000, canvasHeight: 720, menuScale: 1.6,
+    });
+    expect(grid.perRow).toBe(6);
+    expect(grid.rowCount).toBe(1);
+    expect(grid.scale).toBeCloseTo(1.407, 2);
+  });
+
+  test('a portrait phone trades a column for the full density scale', () => {
+    const grid = computeMenuCardGrid({
+      ...modifier, canvasWidth: 720, canvasHeight: 1280, menuScale: 1.2,
+    });
+    expect(grid.perRow).toBe(2);
+    expect(grid.rowCount).toBe(3);
+    expect(grid.scale).toBeCloseTo(1.2, 5);
+  });
+
+  test('the grid never starts above the scaled header', () => {
+    const grid = computeMenuCardGrid({
+      ...pact, canvasWidth: 2000, canvasHeight: 720, menuScale: 1.6,
+    });
+    expect(grid.firstRowY - grid.cardHeight / 2).toBeGreaterThanOrEqual(150 * 1.6);
+  });
+
+  test('fitTextWidth only shrinks, and only when it must', () => {
+    const wide = { width: 900, scale: 1, setScale(v: number) { this.scale = v; } };
+    fitTextWidth(wide, 720);
+    expect(wide.scale).toBeCloseTo(0.8, 5);
+    const narrow = { width: 400, scale: 1, setScale(v: number) { this.scale = v; } };
+    fitTextWidth(narrow, 720);
+    expect(narrow.scale).toBe(1);
   });
 });
