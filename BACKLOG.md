@@ -1158,6 +1158,36 @@ no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bum
 profile and all 21 archivable worlds light it up the moment the build lands, and it moves no gold,
 no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**`5cb40bb` made an objective able to say "take this there".** Every quest verb the game had named
+one thing to do or at most one place to be; `deliverItem` is the first that names two, a board to
+collect at and somewhere else to arrive. It ships as the eighth trigger kind,
+`{ kind: 'deliverItem'; itemId: string; destinationTag: SectorTag }`, with the crate as a
+`cargoHeld` boolean on the quest state, the walk-in board as the issuer (`loadQuestCargo`, called
+at the top of `QuestBoardScene.rebuild()` so a re-accept hands it over on the spot), and the
+existing `expedition:sector-entered` handler as the producer. Three surfaces came for free: the
+chart pin and the radar bearing both read `buildQuestMarkers`, which now emits a destination marker
+while (and only while) the crate is aboard, because an empty hold means the next place is a board
+and every charted board already draws its own glyph. The one clause that had to be added is `note`
+on `QuestStepView`, rendered by the ticker and the OBJECTIVES panel as `CARGO ABOARD` or
+`COLLECT AT A BOARD`: without it a delivery step reads as `0/1` with no way to know which leg you
+are on. **The settled finding, so nobody re-derives it:** this kind did NOT need
+`FEAT-WORLDGEN-STREAM`. A persistence exemption is owed only to a crate the serializer can see, and
+a boolean in `survivor-expedition-quests` is not one, which is why the item's long-standing dep was
+wrong for `deliverItem` and stays right for `escortDrone` (that one genuinely has no escortable
+entity to spawn). Two steps use it, appends only, never inserts: `q_secret_02.s3` carries a ledger
+core to `biome:stage_ion_field` and `q_purge_02.s3` a purge charge to `boss-arena`. Both
+destinations are tags already proven present on the measured seeds, and no third tag was invented
+on purpose: a biome absent from a given world would make the step silently uncompletable there, and
+`expectSectorTagResolves` checks the vocabulary, not the world. The death rule as built is
+`scope: 'run'` on both steps, so the crate is dropped when the next expedition starts and SET ASIDE
+hands it back; `settleRunScopeProgress`' early-return guard had to widen to include `cargoHeld`, or
+a crate aboard with the counter still at 0 would have survived death untouched. Three cuts are
+filed rather than smuggled in: `FEAT-CARGO-PICKUP-ENTITY`, `FEAT-CARGO-DROP-IN-PLACE` and
+`BALANCE-CARGO-DELIVERY-TARGETS`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no
+`DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump, so every
+existing profile lights it up the moment the build lands, and it moves no gold rail, no relic roll
+and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -6462,8 +6492,8 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
         are `FEAT-QUEST-BOARD` by name, so `QuestGiver` POI slots stay inert and quests
         auto-activate instead of being accepted.
 
-- [ ] **FEAT-QUEST-TRIGGERS-REST**: the **two** doc 04 trigger kinds still without a producer
-  (`escortDrone`, `deliverItem`), plus `routeTag`, which only `escortDrone`
+- [ ] **FEAT-QUEST-TRIGGERS-REST**: the **one** doc 04 trigger kind still without a producer
+  (`escortDrone`), plus `routeTag`, which only `escortDrone`
   needs. `reachSector` and the `sectorTag` vocabulary shipped with 0be97f5:
   `src/world/sectorTags.ts` exports it from `src/world/` as this entry asked, and
   `referentialIntegrity.test.ts` asserts every biome tag resolves to a real stage. `findSecret`
@@ -6472,10 +6502,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   a853c83: the seventh kind ships as `{ kind: 'surviveInSector'; sectorTag }` with the step's own
   `target` carrying the dwell in seconds, folded with max off a per-second dwell poll in
   `GameScene.checkExpeditionQuestDwell`, and two steps use it (`q_survey_03.s4`,
-  `q_gatecrash_02.s3`). What is left is genuinely blocked: both remaining kinds need entities
-  nothing spawns plus `FEAT-WORLDGEN-STREAM`'s persistence-exemption API. Deps:
+  `q_gatecrash_02.s3`). What is left is genuinely blocked: the remaining kind needs an entity
+  nothing spawns plus `FEAT-WORLDGEN-STREAM`'s persistence-exemption API. `deliverItem` left this
+  list with `5cb40bb`: the eighth kind ships as
+  `{ kind: 'deliverItem'; itemId: string; destinationTag: SectorTag }`, its crate is a `cargoHeld`
+  boolean on the quest state rather than a world entity, the walk-in board issues it through
+  `loadQuestCargo`, and the producer is the existing `expedition:sector-entered` handler. **It did
+  not need `FEAT-WORLDGEN-STREAM` and that dep should not be re-derived onto it:** a
+  persistence-exemption API is only needed by a crate the serializer can see, and this one is a
+  store field. Two steps use it (`q_secret_02.s3` to the Ion Field, `q_purge_02.s3` to the boss
+  arena), appends only. Deps:
   `FEAT-WORLDGEN-STREAM`
-  (persistence-exemption API for delivered items). Spec: doc 04 section 4 + README section 3.1.
+  (persistence-exemption API for the escort drone). Spec: doc 04 section 4 + README section 3.1.
 
 - [ ] **BALANCE-QUEST-SURVIVE-TIMERS** (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): 60 s in
   the Ion Field and 90 s in the boss arena are designed guesses, unmeasured in a browser. Wants
@@ -6490,6 +6528,27 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   after a restore, which re-stamps it. Harmless (the max fold keeps the best partial and the
   player simply re-holds), but a 90 s hold interrupted by a reload is re-walked. Holding it
   means a `GameSaveState` field or a saved sector-entry stamp. Deps: none.
+
+- [ ] **FEAT-CARGO-PICKUP-ENTITY** (new 2026-08-01, from FEAT-QUEST-CARGO): the crate is handed
+  over by the board overlay and is never a thing in the room, so there is nothing to see, shoot
+  around or leave behind. A visible crate at the board's own position, picked up by a walk-in like
+  a cache is, would make the load a place rather than a menu, and it is exactly the case that
+  needs `FEAT-WORLDGEN-STREAM`'s persistence-exemption API (a crate mid-room must survive a
+  refresh without being re-rolled). Value: loading cargo happens in the world instead of in a
+  dialog. Deps: `FEAT-WORLDGEN-STREAM`.
+
+- [ ] **FEAT-CARGO-DROP-IN-PLACE** (new 2026-08-01, from FEAT-QUEST-CARGO): dying returns the
+  crate to the boards rather than dropping it where the ship died, because a dropped crate is a
+  world entity with a position that has to survive the run save. Recovering your own cargo from
+  the room that killed you is the better story; it wants the same entity
+  `FEAT-CARGO-PICKUP-ENTITY` wants. Value: a lost run leaves something to go back for. Deps:
+  `FEAT-CARGO-PICKUP-ENTITY`.
+
+- [ ] **BALANCE-CARGO-DELIVERY-TARGETS** (new 2026-08-01, from FEAT-QUEST-CARGO): the two
+  destinations (the Ion Field at depth 6 to 7, the boss arena) and the 240/260 gold are designed
+  numbers, in band but unplayed. Whether a delivery reads as a run with something at stake or as
+  a long walk needs a browser, alongside the rest of the play-gated queue. Value: a courier trip
+  that is a decision rather than a commute. Deps: none, but it wants play, not a guess.
 
 - [x] **FEAT-QUEST-SURVIVE-DANGER** (done, 126961c): a hold objective now answers back. While
   the ship holds a sector a live `surviveInSector` step names, the room sieges it: the ambush

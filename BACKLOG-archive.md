@@ -3564,3 +3564,85 @@ and `npm run build` clean.
 
 It moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and
 untouched.
+
+---
+
+## FEAT-QUEST-CARGO · an objective that says take this there · DONE 5cb40bb
+
+**What shipped, end to end.** `deliverItem` is doc 04's eighth trigger kind and the first quest
+verb that names two places. A quest step authored as
+`{ kind: 'deliverItem'; itemId: string; destinationTag: SectorTag }` puts a crate aboard when the
+player walks into a quest board (`loadQuestCargo`, wrapped by `loadExpeditionQuestCargo` and called
+at the top of `QuestBoardScene.rebuild()`), pins the destination on the chart and bears the radar
+on it for as long as the crate is aboard, and completes when the ship enters a sector the
+destination tag names. The board says which crate it just handed over on its subtitle line
+(`CARGO LOADED · LEDGER CORE`), the ticker and the map's OBJECTIVES panel say which leg of the
+errand is live (`CARGO ABOARD` / `COLLECT AT A BOARD`), and the producer is the
+`expedition:sector-entered` handler that already emitted `reachDepth` and `reachSector`.
+
+**The crate is a boolean, which is why `FEAT-WORLDGEN-STREAM` was never a dep.** The whole of the
+cargo is `cargoHeld?: boolean` on `QuestInstanceState`, in the `survivor-expedition-quests` store
+that is already written on every change. There is no entity in any room, so there is nothing for
+the world serializer to see, nothing to rematerialize after a refresh, and no persistence-exemption
+API to wait on. `FEAT-QUEST-TRIGGERS-REST` had carried that dep across both its remaining kinds
+since it was filed; it was right for `escortDrone`, which genuinely needs an escortable entity
+nothing spawns, and wrong for this one. The shape copied is `syncSecretCaches`' (the found flag IS
+the spawn gate) and the shipped `surviveInSector` producer's (scene state plus a store field).
+
+**The fold rule: the match tests the place, the fold tests the hold.** `triggerMatches` answers
+only "is this the destination", and `foldEvent` is what reads `cargoHeld`. That split is
+deliberate: arriving at the right sector with an empty hold must count *nothing*, and folding to
+`current` unchanged is how the machine says so without the match having to know about state it
+does not otherwise see. The crate is spent on the drop-off (`cargoHeld: undefined` on the same
+fold that increments), so a step asking for two deliveries needs two board visits, which is what
+bounds the kind at `target <= 2` in the integrity test.
+
+**The death rule, and the guard that had to widen.** Both authored steps are `scope: 'run'`, so a
+crate does not survive the expedition it was loaded on. `settleRunScopeProgress`' early return was
+the trap: it skipped any state with `stepProgress === 0` and no visited set, which is exactly the
+shape of a crate aboard before any delivery, so the crate would have survived death untouched. The
+guard now also requires `cargoHeld !== true` before returning early, and the settle clears the flag
+with the rest. `setQuestAside` clears it too: setting a delivery aside hands the crate back.
+
+**Two authored steps, appends only, on two proven tags.** `q_secret_02.s3` carries a ledger core
+out to `biome:stage_ion_field` (240 G) and `q_purge_02.s3` a purge charge to `boss-arena` (260 G).
+Appending to a chain tail is the only save-safe catalog edit, because `sanitizeStates` clamps a
+stored step index and an insert or a reorder would replay steps a profile already finished. No
+third destination tag was invented: `expectSectorTagResolves` checks that a tag names a real stage,
+not that the stage is present in a given world, so a biome that a particular world does not hold
+would make the step silently uncompletable there with no test able to catch it. Both tags are ones
+the shipped catalog already sends players to at the measured seeds.
+
+**Three surfaces free, one clause added.** The chart pin (`buildQuestPins`) and the radar bearing
+(`radarWaypoints`) both read `buildQuestMarkers`, so adding one clause there bought both: a
+delivery step emits a destination marker while the crate is aboard, and none while the hold is
+empty, because an empty hold means the next place is a *board* and every charted board already
+draws its own QuestGiver glyph, so a destination pin then would name the wrong errand. The board
+card came free from `buildQuestBoardEntries`. The one thing that had to be added is `note?: string`
+on `QuestStepView`: without it a delivery reads as `0/1` with no way to tell which leg is live.
+
+**Five tests, and why no others.** Four in `QuestProgress.test.ts` and one in
+`ExpeditionQuestManager.test.ts`, each pinning a rule invisible from the call site: an arrival with
+an empty hold is not a delivery; a crate aboard completes at the destination and is spent doing it;
+the death rule drops a crate even though the counter never moved (the widened early-return guard);
+loading is idempotent and only ever loads an active delivery step; and a crate survives a reload
+while a new expedition takes it back. The sixth touch is the existing data-lock clause in
+`referentialIntegrity.test.ts` (target bounded at 2, destination tag resolves, `cargo_` prefix,
+which `cargoLabelOf` strips to build the display name). Nothing was written for the ticker (a
+template-string concat) or for the two Phaser scenes (`vitest.config.ts` is `environment: 'node'`,
+so those would mean a Phaser/document stub, which the standing order bans as scaffolding).
+165 files / 1955 tests green (baseline 165 / 1950), `npx tsc --noEmit` and `npm run build` clean.
+
+**Three cuts, filed rather than smuggled in.** `FEAT-CARGO-PICKUP-ENTITY` (a visible crate at the
+board, picked up by a walk-in, which is exactly the case that DOES want
+`FEAT-WORLDGEN-STREAM`'s exemption API), `FEAT-CARGO-DROP-IN-PLACE` (dying leaves the crate where
+the ship died instead of returning it to the boards, which needs that same entity), and
+`BALANCE-CARGO-DELIVERY-TARGETS` (the two destinations and the 240/260 gold are designed numbers,
+in band but unplayed).
+
+No storage key, no `ALL_STORAGE_KEYS` entry, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no
+`DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump: the quest
+store has no version field and its sanitizer rebuilds missing ones, so every existing profile
+lights this up the moment the build lands. It adds no payout rail, no relic roll and no
+reward-table row, and both step rewards sit inside the shipped 60-to-260 per-step band, so
+`FEAT-ECON-WARDS` stays parked and untouched.

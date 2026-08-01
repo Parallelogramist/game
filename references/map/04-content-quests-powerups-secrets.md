@@ -703,6 +703,53 @@ The trigger above shipped a timer, not a fight. This commit makes a hold cost so
 
 ---
 
+### As built (FEAT-QUEST-CARGO, 5cb40bb, 2026-08-01)
+
+`deliverItem`, this section's eighth kind, ships with its producer and its readers. It is the first
+quest verb that names two places: a board to collect at, and somewhere else to arrive.
+
+1. **The data shape deviates from this section's, for `reachSector`'s reason.** Authored here as
+   `{ itemId: string; destinationTag: string }`, it ships as
+   `{ kind: 'deliverItem'; itemId: string; destinationTag: SectorTag }`. The destination is the same
+   closed two-family union in `src/world/sectorTags.ts` that `reachSector` and `surviveInSector`
+   use, so a typo is a compile error and `referentialIntegrity.test.ts` can assert every biome tag
+   resolves to a real stage, which a bare `string` cannot support.
+2. **The event carries no item id.** It is `{ kind: 'deliverItem'; sectorTags: readonly SectorTag[] }`
+   and nothing else: the step already names the crate it wants, so the event does not have to, and
+   the hold is read by the FOLD rather than by the match. `triggerMatches` answers only "is this the
+   destination"; `foldEvent` is what tests `cargoHeld`, so arriving at the right sector with an
+   empty hold counts nothing instead of counting as a delivery. The crate is spent on the
+   drop-off, so a step asking for two deliveries needs two board visits.
+3. **The crate is a `cargoHeld` boolean on the quest state, never a world entity, so this kind
+   needed no persistence-exemption API. Correct the record:** as-built note 7 in the two chunks
+   above says `deliverItem` is "blocked on `FEAT-WORLDGEN-STREAM`". That is now known to be **false
+   for `deliverItem`** and true only for `escortDrone`. An exemption is owed to a crate the world
+   serializer can see; a boolean in the `survivor-expedition-quests` store is not one. Do not
+   re-derive that dep onto this kind. (Those paragraphs are left as written: what each chunk
+   believed at the time is part of the record.)
+4. **The board is the issuer, and the load is automatic on the walk-in.** `loadQuestCargo(states,
+   defs)` hands over the crate for every active quest whose current step is a delivery, and is
+   idempotent: a crate already aboard is reported in `aboard` and never re-loaded, which is what
+   lets `QuestBoardScene.rebuild()` call it on every re-render (so a quest re-accepted at the board
+   is handed its crate on the spot, not on the next visit). It is not a second card action: the
+   card's action slot is SET ASIDE's, and a second one is a layout change larger than the feature.
+5. **The death rule is `scope: 'run'` on both authored steps**, so a crate does not survive the
+   expedition it was loaded on, and SET ASIDE hands it back. `settleRunScopeProgress`' early return
+   had to widen: it skipped any state with `stepProgress === 0` and no visited set, which is exactly
+   the shape of a crate aboard before any delivery, so the crate would otherwise have survived
+   death untouched.
+6. **What is left of this section's ten kinds:** `escortDrone` alone, plus the `routeTag`
+   vocabulary only it needs. It is genuinely blocked, on an escortable entity nothing spawns and on
+   `FEAT-WORLDGEN-STREAM`'s exemption API for it. `FEAT-QUEST-TRIGGERS-REST` stays open for those
+   two and nothing else.
+7. **No storage key and no version bump of any kind** (`SAVE_VERSION`, `WORLDGEN_VERSION`,
+   `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION`, `WORLD_ARCHIVE_VERSION` all untouched): the quest
+   store has no version field and its sanitizer rebuilds missing ones, so every existing profile
+   picks this up as soon as the build lands. The sanitizer drops a `cargoHeld` flag whose current
+   step is not a delivery, so a re-authored catalog cannot carry a stale crate onto another step.
+
+---
+
 ### As built (`FEAT-QUEST-REACHSECTOR-DISTINCT`, 972573a, 2026-08-01)
 
 `reachSector` shipped as "arrive once, anywhere that matches". This commit lets one objective
