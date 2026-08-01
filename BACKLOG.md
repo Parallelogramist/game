@@ -1230,6 +1230,33 @@ escort trip are different journeys. Three cuts are filed rather than smuggled in
 existing profile lights it up the moment the build lands, and it moves no gold rail, no relic roll
 and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**`cc20aed` made a room something you can leave.** Nothing in the expedition had ever un-spawned a
+floor pickup: `stockSectorPois` only adds, the leash follows the ship rather than the room, and the
+one bound on loot was `MAX_GEMS = 300`. That bound was doing quiet damage, and the finding is
+settled rather than a guess: `spawnXPGem` calls `autoCollectLowestValueGem` at the cap and that
+function fires `onXPCollectCallback`, so a swept world paid the player XP for gems in rooms they
+had not seen in twenty minutes, silently, with no effect and no sound. Leaving a sector now retires
+every XP gem, health pickup, magnet pickup and consumable still in that room and more than 600 px
+from the ship, through the new pure `src/world/sectorRetire.ts`. **The 600 px is the magnet rule,
+not a fudge**: a seam has no width, so a pickup being reeled in at the instant of crossing would
+otherwise vanish out of its own beam. **The recall case is the one that had to be designed rather
+than found**: `jumpViewTo` nulls `currentSector` precisely so the arrival can report
+`viaEdgeId: null`, which would also have thrown away the room the handoff has to empty, so the
+adapter stashes it in `jumpDeparted` and the event carries a separate `fromSectorKey` while
+`viaEdgeId` stays computed from the crossed sector alone. Placed POI contents are **not** retired
+and that is the whole safety story: re-arming a slot the player had partly looted would pay its
+reward twice, so `FEAT-WORLDGEN-STREAM-POI-RETIRE` carries it with the slot-to-objects registry it
+actually needs. Two more cuts are filed rather than smuggled in: `FEAT-WORLDGEN-STREAM-EXEMPT-API`,
+because doc 02's persistence-exemption API has no caller today (the cargo crate is a boolean in a
+store and the escort drone is a scene Graphics), which is the call `FEAT-WORLD-SPACE-1` made about
+`latticeScroll.ts`; and `FEAT-WORLDGEN-STREAM-DIRECTOR`, which is what still blocks
+`FEAT-DISCOVERY-WRITE-PATHS`' last write path. No storage key, no `SAVE_VERSION`, no
+`WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no
+`WORLD_ARCHIVE_VERSION` bump, so every existing profile gets it the moment the build lands; arena,
+daily, weekly, practice and gauntlet are untouched by construction, because `ArenaModeAdapter`
+emits no sector event at all; and it moves no gold rail, no relic roll and no reward-table row, so
+`FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -5113,8 +5140,66 @@ exploring pays is the end of Phase 5.
   entity and sprite counts flat against pool counters, ground gems do not survive exits, and
   broken walls and opened doors come back correctly. **Write the transition against "leave
   sector A, enter sector B", not "cross the edge between A and B"**: recall is a mid-run
-  teleport with no shared edge, and a jump must hold those same counters flat. Deps: W4 seam
-  events, `FEAT-BARRIER-GATES`, `FEAT-WORLDGEN-SPAWN`.
+  teleport with no shared edge, and a jump must hold those same counters flat.
+  **Slice 1 shipped (cc20aed): the departed room gives up its loose floor loot.**
+  `expedition:sector-entered` now carries `fromSectorKey`, and `GameScene.retireDepartedSector`
+  despawns every XP gem, health pickup, magnet pickup and consumable still lying in that room and
+  further than `SECTOR_RETIRE_KEEP_RADIUS = 600` px from the ship, through the pure
+  `src/world/sectorRetire.ts`. **The measured defect it fixes, so nobody re-derives it:**
+  `spawnXPGem` calls `autoCollectLowestValueGem` at `MAX_GEMS = 300`, and that function fires
+  `onXPCollectCallback` — it silently pays XP for a gem the player never touched. A swept world
+  therefore sat at the cap and quietly cashed in leftovers from rooms left an hour ago. A retired
+  gem goes through `consumeXPGem`, which pays nothing.
+  **The keep radius is the magnet rule**, not a fudge: a seam has no width, so without it a pickup
+  being reeled in at the instant of crossing would vanish out of the beam. **The recall case is
+  handled and must not regress**: `jumpViewTo` nulls `currentSector` so the arrival reports
+  `viaEdgeId: null`, so the adapter now stashes the departed sector in `jumpDeparted` and the event
+  carries it; `viaEdgeId` is still computed from the crossed sector alone.
+  **No save field, no storage key and no version bump**: a restore comes up with `currentSector`
+  null, reports `fromSectorKey: null`, retires nothing, and the next sector change clears the stale
+  room. **Deliberately NOT in slice 1**, each filed rather than smuggled in:
+  `FEAT-WORLDGEN-STREAM-POI-RETIRE` (placed POI contents),
+  `FEAT-WORLDGEN-STREAM-EXEMPT-API` (the persistence-exemption API, which today would have no
+  caller) and `FEAT-WORLDGEN-STREAM-DIRECTOR` (the sector-scoped director, which is what still
+  blocks `FEAT-DISCOVERY-WRITE-PATHS`' `markSectorClearedOnce`).
+  **The deps are met and should not be re-derived**: `FEAT-WORLDGEN-SPAWN` is done (a16d20f), the
+  WS-* seam handling ships as `ExpeditionModeAdapter.enterSector`, and `FEAT-BARRIER-GATES`'
+  remaining scope landed as `FEAT-BARRIER-ABILITY-DOORS` (that chunk's own entry records it).
+  Deps: none outstanding.
+
+- [ ] **FEAT-WORLDGEN-STREAM-POI-RETIRE** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): placed
+  POI contents (treasure chests, crate fields, field-boost caches, shrines, the black market,
+  ambush nests, nemesis lairs) survive a handoff today, because `spawnedPoiSlotIds` records that a
+  slot was stocked and nothing records whether its reward was taken. Re-arming a partly-looted slot
+  would pay it twice, so retiring them needs a slot-to-objects registry threaded through
+  `spawnPoiContent`'s eight branches plus an "untouched" test at retire time. They are bounded by
+  the world's slot count (1 to 3 per sector), unlike loot, which is unbounded per fight. **Value:**
+  a room re-stocks itself instead of keeping the leftovers of the last visit. Deps: none.
+
+- [ ] **FEAT-WORLDGEN-STREAM-EXEMPT-API** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): doc 02
+  section 11 promises a persistence-exemption API for quest drops that must survive a transition.
+  It has **no caller today**: the delivery crate is a `cargoHeld` boolean in
+  `survivor-expedition-quests` and the escort drone is a scene `Graphics`, so neither is a floor
+  entity a handoff could reach. Shipping the parameter now would be surface with no consumer, the
+  call `FEAT-WORLD-SPACE-1` made about `latticeScroll.ts`. Land it with its first real consumer,
+  `FEAT-CARGO-PICKUP-ENTITY`. **Value:** a quest drop can be a thing in the room without being
+  swept up when you step out of it. Deps: `FEAT-CARGO-PICKUP-ENTITY`.
+
+- [ ] **FEAT-WORLDGEN-STREAM-DIRECTOR** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): the
+  sector-scoped director and the "undiscovered sectors never spawn anything" rule that
+  `FEAT-WORLDGEN-SPAWN` (a16d20f) deferred here. Slice 1 did not touch it: enemies are leash-bound
+  and capped by `maxEnemies`, so they are already flat across a crossing, and making danger a
+  property of the room rather than of the ship is a balance change to the core swarm loop, not an
+  entity-lifecycle one. This is what still blocks `FEAT-DISCOVERY-WRITE-PATHS`'
+  `markSectorClearedOnce`: without it there is still no moment at which a sector becomes cleared.
+  **Value:** a fight you flee stays in the room you fled. Deps: an operator call on whether a fled
+  fight should stay behind.
+
+- [ ] **BALANCE-SECTOR-RETIRE-KEEP-RADIUS** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): 600 px
+  is a designed guess: under a sector's half diagonal (~735 px) so a room still empties, and
+  generously over the magnet ranges `setXPGemMagnetRange` reaches, but never measured in a browser
+  against a maxed magnet build. **Value:** the handoff never eats a pickup the player was already
+  reeling in. Deps: none, but it wants play rather than a second guess.
 
 - [x] **FEAT-EXPEDITION-SEASONS** (done, fd406d3) (new 2026-08-01, from
   `references/map/README.md` section 6): the expedition world stopped being one fixed

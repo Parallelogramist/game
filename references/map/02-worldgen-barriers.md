@@ -1194,6 +1194,33 @@ persistent structures rematerialize.
   list of barrier/hazard/POI instantiations), transition state round-trip in the run
   save.
 
+### As built (FEAT-WORLDGEN-STREAM slice 1, cc20aed, 2026-08-01)
+
+- **The handoff shipped first, the re-stock did not.** `expedition:sector-entered` carries a new
+  `fromSectorKey` beside `viaEdgeId`, and `GameScene.retireDepartedSector` despawns the departed
+  room's loose floor loot (XP gems, health, magnet, consumables) through the pure
+  `src/world/sectorRetire.ts`. `ground gems do not survive exits` is met; `flat entity budget` is
+  met for the only unbounded accumulator, since enemies are leash-bound and capped by
+  `maxEnemies` and POI contents are bounded by the world's slot count; `broken walls and opened
+  doors rematerialize` was already met by `FEAT-BARRIER-BREACH`'s tile state and needed no code.
+- **`viaEdgeId` and `fromSectorKey` are computed from different things on purpose.** A recall
+  nulls `currentSector` so the arrival reports `viaEdgeId: null` per README section 3.2; the
+  adapter now stashes the departed sector in `jumpDeparted` so the room still gets put away. This
+  is section 10's "written against leave A / enter B, not against the edge between them", done.
+- **Retirement is bounded by the DEPARTED room's rect, never by "outside the arrival".** A recall
+  is non-adjacent, so an arrival-relative test would sweep the whole world in one frame.
+- **A retired gem pays nothing.** `consumeXPGem` is `cleanupGem` + `removeEntity`; the silent
+  award lives in `autoCollectLowestValueGem`, which is the cap behaviour this slice exists to stop
+  reaching.
+- **No persistence-exemption API was built**, because nothing is a quest drop the handoff can
+  reach: the cargo crate is a store boolean, the escort drone is a scene `Graphics`. It lands with
+  `FEAT-CARGO-PICKUP-ENTITY` as `FEAT-WORLDGEN-STREAM-EXEMPT-API`.
+- **No run-save change.** A restore reports `fromSectorKey: null` and retires nothing; the next
+  sector change clears the stale room. The section's "transition state round-trip in the run save"
+  test surface is therefore vacuous for this slice.
+- **Not built, deliberately:** POI re-stock (`FEAT-WORLDGEN-STREAM-POI-RETIRE`) and the
+  sector-scoped director (`FEAT-WORLDGEN-STREAM-DIRECTOR`). The chunk stays OPEN.
+
 Suggested landing order: CORE -> COLLIDE -> (WS-* lands) -> PLAYER -> PROJECTILE ->
 NAV -> GATES -> SPAWN -> STREAM. CORE and COLLIDE are pure and can land before or in
 parallel with the world-space chunks.
