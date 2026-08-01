@@ -7,6 +7,7 @@
  */
 
 import { SecureStorage } from '../storage';
+import { readArchivedWorld, writeArchivedWorld } from './worldArchive';
 
 const STORAGE_KEY_WORLD_PROFILE = 'survivor-world-profile';
 const WORLD_PROFILE_VERSION = 1;
@@ -45,7 +46,9 @@ export function loadWorldProfile(
   try {
     const stored = SecureStorage.getItem(STORAGE_KEY_WORLD_PROFILE);
     if (stored) {
-      const parsed = JSON.parse(stored) as Partial<WorldProfileState> | null;
+      const parsed = readArchivedWorld(
+        JSON.parse(stored), worldSeed, worldGenVersion,
+      ) as Partial<WorldProfileState> | undefined;
       if (parsed
         && parsed.version === WORLD_PROFILE_VERSION
         && parsed.worldSeed === worldSeed
@@ -68,6 +71,19 @@ export function loadWorldProfile(
   return emptyProfile(worldSeed, worldGenVersion);
 }
 
+function saveWorldProfile(profile: WorldProfileState): boolean {
+  try {
+    const stored = SecureStorage.getItem(STORAGE_KEY_WORLD_PROFILE);
+    SecureStorage.setItem(STORAGE_KEY_WORLD_PROFILE, JSON.stringify(
+      writeArchivedWorld(stored ? JSON.parse(stored) : null, profile),
+    ));
+    return true;
+  } catch {
+    console.warn('Could not save world profile to storage');
+    return false;
+  }
+}
+
 /** Remembers one broken barrier immediately, so a death or a refresh cannot undo it. */
 export function recordBrokenBarrier(
   worldSeed: number, worldGenVersion: number, barrierId: string,
@@ -77,11 +93,7 @@ export function recordBrokenBarrier(
   if (profile.brokenBreakableIds.includes(barrierId)) return;
   if (profile.brokenBreakableIds.length >= MAX_REMEMBERED_BARRIERS) return;
   profile.brokenBreakableIds.push(barrierId);
-  try {
-    SecureStorage.setItem(STORAGE_KEY_WORLD_PROFILE, JSON.stringify(profile));
-  } catch {
-    console.warn('Could not save world profile to storage');
-  }
+  saveWorldProfile(profile);
 }
 
 /** Returns true only on the false→true transition, so the caller can count DISTINCT worlds
@@ -91,13 +103,7 @@ export function markWorldConquered(worldSeed: number, worldGenVersion: number): 
   const profile = loadWorldProfile(worldSeed, worldGenVersion);
   if (profile.conquered) return false;
   profile.conquered = true;
-  try {
-    SecureStorage.setItem(STORAGE_KEY_WORLD_PROFILE, JSON.stringify(profile));
-  } catch {
-    console.warn('Could not save world profile to storage');
-    return false;
-  }
-  return true;
+  return saveWorldProfile(profile);
 }
 
 export function isWorldConquered(worldSeed: number, worldGenVersion: number): boolean {

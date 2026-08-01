@@ -94,6 +94,20 @@ describe('DiscoveryManager', () => {
     expect(reader.getSectorFlags('0,0')).toBe(0);
   });
 
+  it('remembers a world that was left, so returning to it restores its flags', () => {
+    const first = new DiscoveryManager();
+    first.bindWorld(makeWorld(601));
+    first.markSectorEntered('0,0');
+
+    const second = new DiscoveryManager();
+    second.bindWorld(makeWorld(602));
+    second.markSectorEntered('0,0');
+
+    const returned = new DiscoveryManager();
+    returned.bindWorld(makeWorld(601));
+    expect(returned.getSectorFlags('0,0') & SectorFlags.VISITED).toBe(SectorFlags.VISITED);
+  });
+
   it('bumps the revision on a real change and not on a repeat', () => {
     const manager = new DiscoveryManager();
     manager.bindWorld(makeWorld(401));

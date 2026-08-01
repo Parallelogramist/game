@@ -27,6 +27,7 @@ import {
   sanitizeDiscoveryState,
 } from './discoveryRules';
 import type { WorldIdUniverse } from './discoveryRules';
+import { readArchivedWorld, writeArchivedWorld } from './worldArchive';
 
 const STORAGE_KEY_DISCOVERY = 'survivor-expedition-discovery';
 
@@ -283,7 +284,8 @@ export class DiscoveryManager {
       const stored = SecureStorage.getItem(STORAGE_KEY_DISCOVERY);
       if (stored) {
         return sanitizeDiscoveryState(
-          JSON.parse(stored), worldSeed, worldGenVersion, this.universe,
+          readArchivedWorld(JSON.parse(stored), worldSeed, worldGenVersion),
+          worldSeed, worldGenVersion, this.universe,
         );
       }
     } catch {
@@ -292,9 +294,15 @@ export class DiscoveryManager {
     return emptyDiscoveryState(worldSeed, worldGenVersion);
   }
 
+  /** Re-reads the archive on every commit rather than caching it, on the WorldProfileStore
+   *  precedent: two managers exist in tests and a cached archive would let one clobber the
+   *  other's worlds. A commit is a sector entry or a find, never a per-frame path. */
   private saveState(): void {
     try {
-      SecureStorage.setItem(STORAGE_KEY_DISCOVERY, JSON.stringify(this.state));
+      const stored = SecureStorage.getItem(STORAGE_KEY_DISCOVERY);
+      SecureStorage.setItem(STORAGE_KEY_DISCOVERY, JSON.stringify(
+        writeArchivedWorld(stored ? JSON.parse(stored) : null, this.state),
+      ));
     } catch {
       console.warn('Could not save expedition discovery to storage');
     }

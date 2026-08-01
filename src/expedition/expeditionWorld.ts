@@ -8,12 +8,13 @@ import { generateWorld } from '../world/generateWorld';
 import { STAGES, getStageById } from '../data/Stages';
 import { TRAVERSAL_ABILITY_GATE_ORDER } from '../data/TraversalAbilities';
 import { EXPEDITION_QUEST_KEY_ORDER } from '../data/ExpeditionQuests';
-import { PoiKind } from '../world/worldTypes';
+import { PoiKind, WORLDGEN_VERSION } from '../world/worldTypes';
 import type { WorldMap } from '../world/worldTypes';
 import {
   getCurrentExpeditionSeasonIndex,
   getCurrentExpeditionSeed,
 } from './ExpeditionSeasonStore';
+import type { BankedSeason } from './ExpeditionSeasonStore';
 import { getDiscoveryManager } from './DiscoveryManager';
 import { isWorldConquered } from './WorldProfileStore';
 
@@ -63,6 +64,25 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
     secretsFound: discovery.getFoundSecretCount(),
     conquered: isWorldConquered(seed, map.worldGenVersion),
   };
+}
+
+export interface BankedWorldRow extends BankedSeason {
+  conquered: boolean;
+}
+
+/**
+ * The banked history plus the one fact the season store does not carry. Conquest lives in
+ * WorldProfileStore keyed on (seed, generator version), so no world has to be generated to
+ * read it. A world banked under an older generator reads unconquered, which is honest: a
+ * version bump discards that world's memory anyway.
+ */
+export function describeBankedWorlds(
+  banked: readonly BankedSeason[],
+): readonly BankedWorldRow[] {
+  return banked.map(season => ({
+    ...season,
+    conquered: isWorldConquered(season.seed, WORLDGEN_VERSION),
+  }));
 }
 
 export interface ExpeditionWorldPreview {

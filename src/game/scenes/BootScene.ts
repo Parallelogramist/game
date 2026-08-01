@@ -54,16 +54,19 @@ import {
   saveInstallHintShownAt, shouldShowInstallHint, subscribeInstallPromptAvailable,
 } from '../../pwa/InstallHint';
 import {
-  beginNextExpeditionSeason,
   getBankedSeasons,
   getCurrentExpeditionSeasonIndex,
   getNextExpeditionSeedChoices,
+  getReturnableWorlds,
+  switchExpeditionWorld,
 } from '../../expedition/ExpeditionSeasonStore';
 import {
+  describeBankedWorlds,
   generateExpeditionWorld,
   previewExpeditionWorlds,
   summariseCurrentExpedition,
 } from '../../expedition/expeditionWorld';
+import type { ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 
 interface FocusEntry {
@@ -297,13 +300,64 @@ export class BootScene extends Phaser.Scene {
       }
     };
 
-    // FEAT-EXPEDITION-SEASONS: the world seed is per profile now, so a charted world can
-    // be banked and traded for a fresh one. FEAT-SEASON-WORLD-CHOICE: which fresh one is the
-    // player's pick out of three. The press costs four generateWorld calls (34 ms each,
+    // FEAT-EXPEDITION-SEASONS: the world seed is per profile now, so a charted world can be
+    // banked and traded for a fresh one. FEAT-SEASON-WORLD-CHOICE: which fresh one is the
+    // player's pick out of three. FEAT-SEASON-RETURN-TO-WORLD: a banked world keeps its chart,
+    // so leaving one is reversible. The press costs four generateWorld calls (34 ms each,
     // measured): the summary plus one preview per candidate, memoised on the candidate list.
+    const flyExpeditionWorld = (
+      summary: ExpeditionProgressSummary, targetSeed?: number,
+    ) => {
+      const next = switchExpeditionWorld({
+        completionPercent: summary.completionPercent,
+        sectorsCharted: summary.sectorsCharted,
+        secretsFound: summary.secretsFound,
+      }, targetSeed);
+      // A restored transform names a point in the world that just stopped being the live one.
+      gameStateManager.clearSave();
+      // Nothing in memory may keep pointing at the world that was just banked.
+      getDiscoveryManager().bindWorld(generateExpeditionWorld(next.currentSeed));
+      this.scene.restart();
+    };
+
+    const describeBankedRow = (row: { index: number; completionPercent: number;
+      sectorsCharted: number; secretsFound: number; conquered: boolean }) => (
+      `W${row.index}   ·   ${row.completionPercent}% charted`
+      + `   ·   ${row.sectorsCharted} sectors   ·   ${row.secretsFound} secrets`
+      + (row.conquered ? '   ·   CONQUERED' : '')
+    );
+
+    const openReturnToBankedWorld = (summary: ExpeditionProgressSummary) => {
+      const returnable = describeBankedWorlds(getReturnableWorlds());
+      const lines = [
+        `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
+          + (summary.conquered ? '   ·   CONQUERED' : ''),
+        `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
+          + `   ·   ${summary.secretsFound} secrets`,
+        '',
+        'The world you leave is banked with its chart.',
+        'A world you return to is exactly as you left it: the same',
+        'chart, the same broken walls, the same secrets found.',
+      ];
+      if (hasSave) lines.push('', 'Your current run will be lost.');
+      lines.push('', 'Fly back to:');
+      for (const row of returnable) lines.push(describeBankedRow(row));
+      this.showNewGameConfirmation(
+        (choiceIndex) => flyExpeditionWorld(summary, returnable[choiceIndex]?.seed),
+        {
+          title: 'RETURN TO A WORLD?',
+          body: lines.join('\n'),
+          confirmLabel: 'FLY',
+          cancelLabel: 'BACK',
+          choiceLabels: returnable.map(row => `FLY W${row.index}`),
+        },
+      );
+    };
+
     const openExpeditionSeasons = () => {
       const summary = summariseCurrentExpedition();
-      const banked = getBankedSeasons();
+      const banked = describeBankedWorlds(getBankedSeasons());
+      const returnable = getReturnableWorlds();
       const choices = getNextExpeditionSeedChoices();
       const previews = previewExpeditionWorlds(choices);
       const lines = [
@@ -313,6 +367,7 @@ export class BootScene extends Phaser.Scene {
           + `   ·   ${summary.secretsFound} secrets`,
         '',
         'A new world resets the chart, the leads and every broken wall.',
+        'The world you leave is banked and can be returned to.',
         'Traversal abilities and quest keys are kept, so doors you have',
         'already earned open on sight.',
       ];
@@ -327,31 +382,35 @@ export class BootScene extends Phaser.Scene {
         );
       }
       if (banked.length > 0) {
-        lines.push('', `Banked: ${banked.slice(-5)
-          .map(season => `W${season.index} ${season.completionPercent}%`)
+        const recent = banked.slice(-5);
+        lines.push('', `Banked: ${recent
+          .map(season => `W${season.index} ${season.completionPercent}%${season.conquered ? '*' : ''}`)
           .join('   ·   ')}`);
+        // An asterisk rather than a glyph: the menu font is only trusted for ASCII plus the
+        // middle dot this dialog already uses.
+        if (recent.some(season => season.conquered)) lines.push('* conquered');
       }
       this.showNewGameConfirmation(
         (choiceIndex) => {
-          // An out-of-range index cannot happen and would be harmless if it did: an
-          // undefined chosen seed falls back to the deterministic roll in the store.
-          const next = beginNextExpeditionSeason({
-            completionPercent: summary.completionPercent,
-            sectorsCharted: summary.sectorsCharted,
-            secretsFound: summary.secretsFound,
-          }, choices[choiceIndex]);
-          // A restored transform names a point in the world that just stopped existing.
-          gameStateManager.clearSave();
-          // Nothing in memory may keep pointing at the world that was just banked.
-          getDiscoveryManager().bindWorld(generateExpeditionWorld(next.currentSeed));
-          this.scene.restart();
+          // Past the last preview is the RETURN button, which is only present when there is
+          // something banked to return to.
+          if (choiceIndex >= choices.length) {
+            openReturnToBankedWorld(summary);
+            return;
+          }
+          // An out-of-range index cannot happen and would be harmless if it did: an undefined
+          // chosen seed falls back to the deterministic roll in the store.
+          flyExpeditionWorld(summary, choices[choiceIndex]);
         },
         {
           title: 'CHART A NEW WORLD?',
           body: lines.join('\n'),
           confirmLabel: 'NEW WORLD',
           cancelLabel: 'BACK',
-          choiceLabels: previews.map((_, index) => `FLY ${String.fromCharCode(65 + index)}`),
+          choiceLabels: [
+            ...previews.map((_, index) => `FLY ${String.fromCharCode(65 + index)}`),
+            ...(returnable.length > 0 ? ['RETURN'] : []),
+          ],
         },
       );
     };

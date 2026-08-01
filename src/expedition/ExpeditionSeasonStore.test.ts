@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   FIRST_EXPEDITION_WORLD_SEED,
   NEXT_WORLD_CHOICE_COUNT,
-  bankSeasonAndRoll,
+  bankSeasonAndSwitch,
   emptySeasonState,
   rollNextExpeditionSeed,
   rollNextExpeditionSeedChoices,
@@ -37,7 +37,7 @@ describe('expedition seasons', () => {
 
   it('banks the world being left and moves the profile onto the next one', () => {
     const before = emptySeasonState();
-    const after = bankSeasonAndRoll(
+    const after = bankSeasonAndSwitch(
       before, { completionPercent: 62, sectorsCharted: 28, secretsFound: 9 },
     );
     expect(after.banked).toEqual([{
@@ -55,7 +55,7 @@ describe('expedition seasons', () => {
   it('bounds the banked list and keeps a banked percent inside 0 to 100', () => {
     let state = emptySeasonState();
     for (let index = 0; index < 25; index++) {
-      state = bankSeasonAndRoll(
+      state = bankSeasonAndSwitch(
         state, { completionPercent: 140, sectorsCharted: 1, secretsFound: 0 },
       );
     }
@@ -80,11 +80,30 @@ describe('expedition seasons', () => {
   it('flies the chosen world, and never the world being left', () => {
     const before = emptySeasonState();
     const record = { completionPercent: 40, sectorsCharted: 20, secretsFound: 4 };
-    expect(bankSeasonAndRoll(before, record, 4242).currentSeed).toBe(4242);
-    expect(bankSeasonAndRoll(before, record, 4242).banked.length).toBe(1);
+    expect(bankSeasonAndSwitch(before, record, 4242).currentSeed).toBe(4242);
+    expect(bankSeasonAndSwitch(before, record, 4242).banked.length).toBe(1);
     const rolled = rollNextExpeditionSeed(before.currentSeed, before.currentIndex);
     for (const invalid of [0, -1, 1.5, Number.NaN, before.currentSeed]) {
-      expect(bankSeasonAndRoll(before, record, invalid).currentSeed).toBe(rolled);
+      expect(bankSeasonAndSwitch(before, record, invalid).currentSeed).toBe(rolled);
     }
+  });
+
+  it('returns to a banked world with the ordinal it had, and never reuses an ordinal', () => {
+    const record = { completionPercent: 50, sectorsCharted: 20, secretsFound: 5 };
+    const first = emptySeasonState();
+    const second = bankSeasonAndSwitch(first, record);          // W1 banked, now on W2
+    const third = bankSeasonAndSwitch(second, record);          // W2 banked, now on W3
+    expect(third.currentIndex).toBe(3);
+
+    const back = bankSeasonAndSwitch(third, record, first.currentSeed);
+    expect(back.currentSeed).toBe(first.currentSeed);
+    expect(back.currentIndex).toBe(1);
+    // The live world is never a banked row, and the world it was returned from now is.
+    expect(back.banked.map(season => season.seed)).not.toContain(first.currentSeed);
+    expect(back.banked.map(season => season.seed)).toContain(third.currentSeed);
+
+    // A fresh world after a return must not collide with W2 or W3.
+    const onward = bankSeasonAndSwitch(back, record, 4242);
+    expect(onward.currentIndex).toBe(4);
   });
 });
