@@ -2,8 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   FIRST_EXPEDITION_WORLD_SEED,
   NEXT_WORLD_CHOICE_COUNT,
+  RETURN_WORLD_CHOICE_COUNT,
   bankSeasonAndSwitch,
   emptySeasonState,
+  returnableWorldPage,
   rollNextExpeditionSeed,
   rollNextExpeditionSeedChoices,
   sanitizeSeasonState,
@@ -105,5 +107,28 @@ describe('expedition seasons', () => {
     // A fresh world after a return must not collide with W2 or W3.
     const onward = bankSeasonAndSwitch(back, record, 4242);
     expect(onward.currentIndex).toBe(4);
+  });
+
+  it('pages the whole banked history, most recent first, and wraps past the last page', () => {
+    const record = { completionPercent: 50, sectorsCharted: 20, secretsFound: 5 };
+    let state = emptySeasonState();
+    for (let world = 0; world < 7; world++) state = bankSeasonAndSwitch(state, record);
+
+    const firstPage = returnableWorldPage(state, 0);
+    expect(firstPage.pageCount).toBe(3);
+    expect(firstPage.rows.length).toBe(RETURN_WORLD_CHOICE_COUNT);
+    expect(firstPage.rows.map(row => row.index)).toEqual([7, 6, 5]);
+    expect(returnableWorldPage(state, 2).rows.map(row => row.index)).toEqual([1]);
+    // One MORE button has to reach the first page again from the last.
+    expect(returnableWorldPage(state, 3)).toEqual(firstPage);
+    expect(returnableWorldPage(state, -1).rows.map(row => row.index)).toEqual([1]);
+    // Every banked world is reachable, and no world is offered on two pages.
+    const paged = [0, 1, 2].flatMap(page => returnableWorldPage(state, page).rows.map(r => r.seed));
+    expect(new Set(paged).size).toBe(state.banked.length);
+
+    const empty = returnableWorldPage(emptySeasonState(), 0);
+    expect(empty.pageCount).toBe(1);
+    expect(empty.rows).toEqual([]);
+    expect(empty.page).toBe(0);
   });
 });

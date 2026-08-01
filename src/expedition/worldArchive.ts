@@ -9,10 +9,12 @@
 
 export const WORLD_ARCHIVE_VERSION = 1;
 
-/** The banked history caps at MAX_BANKED_SEASONS (20), so remembering 20 is what makes every
- *  row in it an honest offer. A fully explored world's discovery payload measured 3.0 KB
- *  (five seeds, 194 to 208 ids), so the whole archive is about 60 KB. */
-export const MAX_ARCHIVED_WORLDS = 20;
+/** One slot per banked row (MAX_BANKED_SEASONS, 20) PLUS one for the world being flown, which
+ *  is never a banked row. At 20 the live world took a slot from the oldest row, so that row
+ *  survived in the season store while its memory was evicted here and the return it offered
+ *  arrived at a blank chart. A fully explored world's discovery payload measured 3.0 KB
+ *  (five seeds, 194 to 208 ids), so the whole archive is about 63 KB. */
+export const MAX_ARCHIVED_WORLDS = 21;
 
 /** Every archived payload names its own world, which is what lets a write place itself and a
  *  payload written before the archive shipped be filed under its own key rather than dropped. */

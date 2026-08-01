@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { MAX_BANKED_SEASONS } from './ExpeditionSeasonStore';
 import {
   MAX_ARCHIVED_WORLDS,
   readArchivedWorld,
@@ -47,5 +48,12 @@ describe('world archive', () => {
     archive = writeArchivedWorld(archive, world(6, 'touched'));
     archive = writeArchivedWorld(archive, world(9001));
     expect(readArchivedWorld(archive, 6, 3)).toEqual(world(6, 'touched'));
+  });
+
+  it('remembers every world the banked history can offer, plus the one being flown', () => {
+    // The two caps live in different modules and evict on different rules (the season list on
+    // banking order, this on touch order), so a divergence would hand the return dialog a row
+    // that arrives at a blank chart.
+    expect(MAX_ARCHIVED_WORLDS).toBeGreaterThanOrEqual(MAX_BANKED_SEASONS + 1);
   });
 });

@@ -57,7 +57,7 @@ import {
   getBankedSeasons,
   getCurrentExpeditionSeasonIndex,
   getNextExpeditionSeedChoices,
-  getReturnableWorlds,
+  getReturnableWorldPage,
   switchExpeditionWorld,
 } from '../../expedition/ExpeditionSeasonStore';
 import {
@@ -303,8 +303,11 @@ export class BootScene extends Phaser.Scene {
     // FEAT-EXPEDITION-SEASONS: the world seed is per profile now, so a charted world can be
     // banked and traded for a fresh one. FEAT-SEASON-WORLD-CHOICE: which fresh one is the
     // player's pick out of three. FEAT-SEASON-RETURN-TO-WORLD: a banked world keeps its chart,
-    // so leaving one is reversible. The press costs four generateWorld calls (34 ms each,
-    // measured): the summary plus one preview per candidate, memoised on the candidate list.
+    // so leaving one is reversible.
+    // FEAT-SEASON-RETURN-FULL-LIST: the return dialog pages, so every banked world is
+    // reachable and not only the three most recent. The press costs four generateWorld calls
+    // (34 ms each, measured): the summary plus one preview per candidate, memoised on the
+    // candidate list.
     const flyExpeditionWorld = (
       summary: ExpeditionProgressSummary, targetSeed?: number,
     ) => {
@@ -327,8 +330,14 @@ export class BootScene extends Phaser.Scene {
       + (row.conquered ? '   ·   CONQUERED' : '')
     );
 
-    const openReturnToBankedWorld = (summary: ExpeditionProgressSummary) => {
-      const returnable = describeBankedWorlds(getReturnableWorlds());
+    // MORE walks the pages rather than a scrolling panel: the confirmation's button row fits
+    // five, which is three worlds plus MORE plus BACK, and the page index wraps so one button
+    // reaches every one of the 20 worlds the archive keeps.
+    const openReturnToBankedWorld = (
+      summary: ExpeditionProgressSummary, requestedPage = 0,
+    ): void => {
+      const { rows, page, pageCount } = getReturnableWorldPage(requestedPage);
+      const returnable = describeBankedWorlds(rows);
       const lines = [
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
@@ -340,16 +349,28 @@ export class BootScene extends Phaser.Scene {
         'chart, the same broken walls, the same secrets found.',
       ];
       if (hasSave) lines.push('', 'Your current run will be lost.');
-      lines.push('', 'Fly back to:');
+      lines.push('', pageCount > 1
+        ? `Fly back to   (page ${page + 1} of ${pageCount}):`
+        : 'Fly back to:');
       for (const row of returnable) lines.push(describeBankedRow(row));
       this.showNewGameConfirmation(
-        (choiceIndex) => flyExpeditionWorld(summary, returnable[choiceIndex]?.seed),
+        (choiceIndex) => {
+          // Past the last row is MORE, which is only present when there is another page.
+          if (choiceIndex >= returnable.length) {
+            openReturnToBankedWorld(summary, page + 1);
+            return;
+          }
+          flyExpeditionWorld(summary, returnable[choiceIndex]?.seed);
+        },
         {
           title: 'RETURN TO A WORLD?',
           body: lines.join('\n'),
           confirmLabel: 'FLY',
           cancelLabel: 'BACK',
-          choiceLabels: returnable.map(row => `FLY W${row.index}`),
+          choiceLabels: [
+            ...returnable.map(row => `FLY W${row.index}`),
+            ...(pageCount > 1 ? ['MORE'] : []),
+          ],
         },
       );
     };
@@ -357,7 +378,6 @@ export class BootScene extends Phaser.Scene {
     const openExpeditionSeasons = () => {
       const summary = summariseCurrentExpedition();
       const banked = describeBankedWorlds(getBankedSeasons());
-      const returnable = getReturnableWorlds();
       const choices = getNextExpeditionSeedChoices();
       const previews = previewExpeditionWorlds(choices);
       const lines = [
@@ -383,7 +403,11 @@ export class BootScene extends Phaser.Scene {
       }
       if (banked.length > 0) {
         const recent = banked.slice(-5);
-        lines.push('', `Banked: ${recent
+        // The count is what tells the player RETURN reaches more than the five rows shown.
+        const label = banked.length > recent.length
+          ? `Banked (${banked.length} worlds, last ${recent.length})`
+          : 'Banked';
+        lines.push('', `${label}: ${recent
           .map(season => `W${season.index} ${season.completionPercent}%${season.conquered ? '*' : ''}`)
           .join('   ·   ')}`);
         // An asterisk rather than a glyph: the menu font is only trusted for ASCII plus the
@@ -409,7 +433,7 @@ export class BootScene extends Phaser.Scene {
           cancelLabel: 'BACK',
           choiceLabels: [
             ...previews.map((_, index) => `FLY ${String.fromCharCode(65 + index)}`),
-            ...(returnable.length > 0 ? ['RETURN'] : []),
+            ...(banked.length > 0 ? ['RETURN'] : []),
           ],
         },
       );
