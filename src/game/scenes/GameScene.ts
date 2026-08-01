@@ -92,7 +92,9 @@ import {
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
-import { buildSecretLead, chooseHintTarget, findSecretSector } from '../../expedition/secretHints';
+import { buildSecretLead, chooseHintTarget, findSecretSector, leadSectorDistance } from '../../expedition/secretHints';
+import type { SecretLead } from '../../expedition/secretHints';
+import { buildRunTickerRows } from '../../expedition/runTicker';
 import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
 import { PoiFlags, SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
@@ -150,7 +152,7 @@ import {
   getEarnedQuestKeyIds,
 } from '../../meta/ExpeditionQuestManager';
 import { getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
-import type { QuestEvent, QuestStepView } from '../../systems/QuestProgress';
+import type { QuestEvent } from '../../systems/QuestProgress';
 import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
@@ -727,7 +729,7 @@ export class GameScene extends Phaser.Scene {
   private siegeSectorKey: string | null = null;
   private siegeNextWaveAtSeconds: number = 0;
   private siegeBesiegerIds: number[] = [];
-  private expeditionQuestViews: QuestStepView[] = [];
+  private expeditionTickerRows: string[] = [];
   private questTickerRefreshTimer: number = 0;
   private questTickerCycleTimer: number = 0;
   private questTickerIndex: number = 0;
@@ -4774,7 +4776,7 @@ export class GameScene extends Phaser.Scene {
     this.siegeBesiegerIds = [];
     this.recallChannelRemaining = 0;
     this.recallRing?.setVisible(false);
-    this.expeditionQuestViews = [];
+    this.expeditionTickerRows = [];
     this.questTickerRefreshTimer = 0;
     this.questTickerCycleTimer = 0;
     this.questTickerIndex = 0;
@@ -6649,6 +6651,9 @@ export class GameScene extends Phaser.Scene {
         stroke: '#000000',
         strokeThickness: Math.max(2, Math.round(3 * hudScale)),
         align: 'center',
+        // A lead row runs about 95 characters. Origin is (0.5, 1), so a second line grows
+        // upward from the same bottom edge and cannot reach the combo counter below.
+        wordWrap: { width: Math.min(this.scale.width - 48, 560) },
       }).setOrigin(0.5, 1).setScrollFactor(0).setDepth(DepthLayers.UI_OVERLAY);
       this.bountyText.setLetterSpacing(1);
     }
@@ -6680,14 +6685,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Fills the bounty line while no bounty is running. Arena, daily, gauntlet and practice runs
-   * have no world map, so the guard here is what keeps the line empty for them without a mode
-   * flag. Both the cycle step and the read are taken modulo the live length, because a quest
-   * completing between two frames shortens the array under the index.
+   * Fills the bounty line while no bounty is running, rotating every active objective and the
+   * two nearest open leads. Arena, daily, gauntlet and practice runs have no world map, so the
+   * guard here is what keeps the line empty for them without a mode flag. Both the cycle step
+   * and the read are taken modulo the live length, because a quest completing or a lead being
+   * claimed between two frames shortens the array under the index.
    */
   private updateObjectiveTicker(deltaSeconds: number): void {
     if (!this.bountyText) return;
-    if (!this.worldMode.worldMap()) {
+    const map = this.worldMode.worldMap();
+    if (!map) {
       this.bountyText.setText('');
       return;
     }
@@ -6695,9 +6702,15 @@ export class GameScene extends Phaser.Scene {
     this.questTickerRefreshTimer -= deltaSeconds;
     if (this.questTickerRefreshTimer <= 0) {
       this.questTickerRefreshTimer = QUEST_TICKER_REFRESH_SECONDS;
-      this.expeditionQuestViews = getActiveQuestStepViews();
+      this.expeditionTickerRows = buildRunTickerRows({
+        views: getActiveQuestStepViews(),
+        // Read, never clear. MapScene.create is the sole clearer of this overlay; clearing it
+        // here would retire the chart badge within a second of the step that raised it.
+        updatedQuestIds: getDiscoveryManager().getUpdatedObjectiveQuestIds(),
+        leads: this.buildTickerLeads(map),
+      });
     }
-    if (this.expeditionQuestViews.length === 0) {
+    if (this.expeditionTickerRows.length === 0) {
       this.bountyText.setText('');
       return;
     }
@@ -6705,13 +6718,23 @@ export class GameScene extends Phaser.Scene {
     this.questTickerCycleTimer -= deltaSeconds;
     if (this.questTickerCycleTimer <= 0) {
       this.questTickerCycleTimer = QUEST_TICKER_CYCLE_SECONDS;
-      this.questTickerIndex = (this.questTickerIndex + 1) % this.expeditionQuestViews.length;
+      this.questTickerIndex = (this.questTickerIndex + 1) % this.expeditionTickerRows.length;
     }
 
-    const view = this.expeditionQuestViews[
-      this.questTickerIndex % this.expeditionQuestViews.length];
     this.bountyText.setText(
-      `OBJECTIVE · ${view.stepDescription} ${view.progress}/${view.target}`);
+      this.expeditionTickerRows[this.questTickerIndex % this.expeditionTickerRows.length]);
+  }
+
+  /** Open leads, nearest first, resolved through the same buildSecretLead the map screen's
+   *  LEADS panel calls, so the two surfaces name the same lead first. */
+  private buildTickerLeads(map: WorldMap): SecretLead[] {
+    const shipCell = sectorOfWorldPoint(
+      Transform.x[this.playerId], Transform.y[this.playerId]);
+    return getDiscoveryManager().getHintedSecretIds()
+      .map(secretId => buildSecretLead(map, secretId))
+      .filter((lead): lead is SecretLead => lead !== null)
+      .sort((a, b) => leadSectorDistance(a, shipCell) - leadSectorDistance(b, shipCell)
+        || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
   }
 
   /** Starts a fresh random bounty. */

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
-import { buildSecretLead } from '../../expedition/secretHints';
+import { buildSecretLead, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestHazardObjectives, getActiveQuestMarkers,
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
@@ -67,11 +67,6 @@ const DETAIL_BAR_HEIGHT = 104;
 const CURSOR_HIT_SLOP = 16;
 const RECALL_BUTTON_WIDTH = 176;
 const RECALL_BUTTON_HEIGHT = 32;
-
-function leadDistance(lead: SecretLead, ship: { col: number; row: number }): number {
-  const [sx, sy] = lead.sectorKey.split(',').map(Number);
-  return Math.max(Math.abs(sx - ship.col), Math.abs(sy - ship.row));
-}
 
 export class MapScene extends Phaser.Scene {
   private mapData!: WorldMap;
@@ -196,7 +191,7 @@ export class MapScene extends Phaser.Scene {
     this.leads = discovery.getHintedSecretIds()
       .map(secretId => buildSecretLead(this.mapData, secretId))
       .filter((lead): lead is SecretLead => lead !== null)
-      .sort((a, b) => leadDistance(a, shipCell) - leadDistance(b, shipCell)
+      .sort((a, b) => leadSectorDistance(a, shipCell) - leadSectorDistance(b, shipCell)
         || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
     this.hintedSectorKeys = new Set(this.leads.map(lead => lead.sectorKey));
     this.renderLeadsPanel(leadsPanelY);

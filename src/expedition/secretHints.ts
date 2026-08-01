@@ -178,3 +178,13 @@ function bearingPhrase(dx: number, dy: number): string {
   if (vertical && horizontal) return `${vertical}-${horizontal}`;
   return vertical || horizontal;
 }
+
+/** Chebyshev distance in sector cells from the ship to a lead's sector. Shared so the map
+ *  screen's LEADS panel and the in-run ticker cannot disagree about which lead is nearest. */
+export function leadSectorDistance(
+  lead: SecretLead,
+  ship: { col: number; row: number },
+): number {
+  const [sectorCol, sectorRow] = lead.sectorKey.split(',').map(Number);
+  return Math.max(Math.abs(sectorCol - ship.col), Math.abs(sectorRow - ship.row));
+}
