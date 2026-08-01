@@ -750,6 +750,56 @@ quest verb that names two places: a board to collect at, and somewhere else to a
 
 ---
 
+### As built (FEAT-QUEST-ESCORT, 840753d, 2026-08-01)
+
+`escortDrone`, this section's tenth and last kind, ships with its producer and its readers. It is
+the only quest verb that asks the player to protect rather than to kill, reach, hold, open, find or
+carry, and it closes section 4's list.
+
+1. **`routeTag` was cut, not built.** This section authors the kind as `{ routeTag: string }`. No
+   `routeTag` vocabulary exists, and none should be added: it ships as
+   `{ kind: 'escortDrone'; droneId: string; destinationTag: SectorTag }`, on the same closed
+   two-family union in `src/world/sectorTags.ts` that `reachSector`, `surviveInSector` and
+   `deliverItem` use, for the same reason all three deviate. A `SectorTag` is a compile error when
+   mistyped and `referentialIntegrity.test.ts` can assert it resolves to a real stage; a bare route
+   string supports neither, and nothing else in the game would have consumed the second vocabulary.
+2. **The drone is a scene `Graphics` object, not an ECS entity, so no exemption was ever owed.**
+   `GameStateManager.serializeEntities` serializes exactly six queries (player, enemy, xp gem,
+   health pickup, magnet pickup, consumable); an object in none of them is not persisted at all. The
+   drone is one `Phaser.GameObjects.Graphics` in a scene field on the `syncWardenThrone` idiom, so
+   there is nothing for the serializer to see and no persistence-exemption API to wait on. The state
+   that outlives the frame is one boolean, `droneEscorting` on `QuestInstanceState`.
+3. **The producer is the DRONE's sector change, not the ship's.** This is the whole difference
+   between an escort and a delivery. `deliverItem` rides the existing `expedition:sector-entered`
+   handler, which fires on the ship; `escortDrone` is emitted from `GameScene.updateEscortDrone` off
+   the drone's own position, so an escort the player outran and left two rooms back has not arrived.
+   It fires only on a sector-key change, because `recordExpeditionQuestEvent` costs a `SecureStorage`
+   read plus a `JSON.parse` per call.
+4. **Fail-and-retry as built.** Losing the drone clears `droneEscorting` and nothing else: the
+   step's counter, its index and every completed step survive, and any board assigns another
+   (`assignQuestDrone`, idempotent for the reason `loadQuestCargo` is, so a player cannot stack two
+   drones on one step by walking back). Both authored steps are `scope: 'run'`, and
+   `settleRunScopeProgress`' early return had to widen a second time: it skips a state with
+   `stepProgress === 0` and no visited set, which is exactly the shape of a drone assigned before
+   any arrival.
+5. **The correction of record.** As-built note 6 in the section above says `escortDrone` is
+   "genuinely blocked, on an escortable entity nothing spawns and on `FEAT-WORLDGEN-STREAM`'s
+   exemption API for it". **Both halves are now known to be false.** No exemption was owed (note 2),
+   and the five shipped sync-shape objects (ability vault, quest board, secret cache, ambush nest,
+   warden throne) were each already the "escortable entity nothing spawns", each rebuilt on sector
+   entry from persistent state and each touching the save layer not at all. That paragraph is left
+   as written, because what each chunk believed at the time is part of the record; this note is the
+   correction. Do not re-derive either blocker.
+6. **This section's ten kinds are now closed.** All ten have a producer, and `clearHazard` is an
+   eleventh the game emits that this doc predates. `FEAT-QUEST-TRIGGERS-REST` is done.
+7. **No storage key and no version bump of any kind** (`SAVE_VERSION`, `WORLDGEN_VERSION`,
+   `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION`, `WORLD_ARCHIVE_VERSION` all untouched): the quest
+   store has no version field and its sanitizer rebuilds missing ones, so every existing profile
+   picks this up as soon as the build lands. The sanitizer drops a `droneEscorting` flag whose
+   current step is not an escort, exactly as it does a stale crate.
+
+---
+
 ### As built (`FEAT-QUEST-REACHSECTOR-DISTINCT`, 972573a, 2026-08-01)
 
 `reachSector` shipped as "arrive once, anywhere that matches". This commit lets one objective

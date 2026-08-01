@@ -3646,3 +3646,125 @@ store has no version field and its sanitizer rebuilds missing ones, so every exi
 lights this up the moment the build lands. It adds no payout rail, no relic roll and no
 reward-table row, and both step rewards sit inside the shipped 60-to-260 per-step band, so
 `FEAT-ECON-WARDS` stays parked and untouched.
+
+## FEAT-QUEST-ESCORT · the tenth trigger kind, an ally you can lose · DONE 840753d
+
+**What shipped, end to end.** `escortDrone` is the tenth and last of doc 04 section 4's trigger
+kinds and the only quest verb that asks the player to protect rather than to kill, reach, hold,
+open, find or carry. A step authored as
+`{ kind: 'escortDrone'; droneId: string; destinationTag: SectorTag }` is handed a drone when the
+player walks into a quest board (`assignQuestDrone`, wrapped by `assignExpeditionQuestDrone` and
+called at the top of `QuestBoardScene.rebuild()` beside the cargo load). The drone appears beside
+the ship, trails it under its own power, takes damage from hostiles standing near **it**, heals
+while the room around it is clear, and the step completes the moment the DRONE enters a sector the
+destination tag names. The board says what it just assigned on its subtitle line
+(`DRONE ASSIGNED · SURVEY PROBE`, or `DRONE UNDER WAY · …` on a re-render), the ticker and the
+map's OBJECTIVES panel say which leg is live (`DRONE ESCORTING` / `COLLECT AT A BOARD`), and the
+chart pin and radar bearing point at the destination for as long as a drone is actually under way.
+
+**Both stated blockers were false, and this is the record so neither is re-derived.**
+`FEAT-QUEST-TRIGGERS-REST` had carried two blockers on this kind since it was filed:
+FEAT-WORLDGEN-STREAM's persistence-exemption API, and "an escortable entity nothing spawns".
+Neither was real. `GameStateManager.serializeEntities` (`src/save/GameStateManager.ts:930-951`)
+serializes exactly six queries (player, enemy, xp gem, health pickup, magnet pickup, consumable);
+an object in none of them is not persisted, so there was nothing to exempt and no API to wait on.
+And the drone is not even an ECS entity: it is a `Phaser.GameObjects.Graphics` in one scene field,
+the shipped sync-shape idiom already used five times (ability vault, quest board, secret cache,
+ambush nest, warden throne), each rebuilt on sector entry from persistent state and each touching
+the save layer not at all. The five were themselves each already an example of the "escortable
+entity nothing spawns".
+
+**`routeTag` is a cut, not a deferral.** Doc 04 authors this kind's destination as
+`{ routeTag: string }`. No `routeTag` vocabulary was invented: the destination is the same closed
+two-family `SectorTag` union `reachSector` and `deliverItem` use, because a `SectorTag` is a
+compile error when mistyped and `referentialIntegrity.test.ts` can assert it resolves to a real
+stage, where a bare route string is neither. Doc 04's `routeTag` therefore closes as a recorded cut
+rather than as a vocabulary nothing else would use.
+
+**The producer is the drone's sector change, not the ship's.** This is the whole difference between
+an escort and a delivery. `deliverItem` rides the existing `expedition:sector-entered` handler,
+which fires on the SHIP. `escortDrone` fires from `GameScene.updateEscortDrone`, off the drone's
+own position, so an escort the player outran and left two rooms back has not arrived. The event
+is emitted only on a sector-key CHANGE (the `syncQuestBoards` idiom), because
+`recordExpeditionQuestEvent` does a `SecureStorage` read plus a `JSON.parse` per call and a
+per-frame producer would pay that every frame.
+
+**The fold rule and the death rule.** `triggerMatches` answers only "is this the destination", and
+`foldEvent` is what reads `droneEscorting`: arriving at the right sector with no drone counts
+nothing, exactly as an arrival with an empty hold is not a delivery. The drone is spent on arrival
+(`droneEscorting: undefined` on the same fold that increments), so a step asking for two escorts
+needs two board visits, which is what bounds the kind at `target <= 2` in the integrity test.
+Losing the drone is fail-and-retry, never fail-forever (doc 04 section 4): `dropQuestDrone` clears
+the flag and nothing else, so the step's counter, its index and every completed step survive and
+any board hands over another. `settleRunScopeProgress`' early-return guard had to widen a second
+time, for the same reason the cargo session widened it: it skipped any state with
+`stepProgress === 0` and no visited set, which is exactly the shape of a drone assigned before any
+arrival, so without `droneEscorting !== true` in that guard the drone would have survived death
+untouched. `setQuestAside` clears it too.
+
+**The drone's numbers, and what makes it a thing to manage.** 165 px/s (just over the ship's base
+150, so it keeps up on a cruise and falls behind a dash), a 70 px follow gap, a 900 px tether past
+which it is snapped to the ship so a seam crossing or an outrun loses it to hostiles and never to
+geometry. 100 HP; hostiles inside 60 px bill it 4 HP each per 0.5 s with at most two billing in one
+tick (16 dps worst case, about 6 s inside a full room); 3 HP/s regen whenever nothing is in contact,
+which is what makes a long trip a thing to manage rather than an attrition timer with one outcome.
+It draws as a ring in the player's own projectile core colour (`0x66ccff`) with a health arc that
+turns hazard-orange under 35%, so its state is legible from the ship without a HUD line: the top
+band is already bars, world, timer, kills and gold, the same call `FEAT-QUEST-SIEGE-HUD-TELL` was
+cut on.
+
+**Two authored steps, appends only, on two proven tags.** `q_survey_03.s7` walks a survey probe
+into `biome:stage_crystal_caves` (260 G) and `q_gatecrash_02.s6` a breach unit into
+`biome:stage_inferno` (280 G). Appending to a chain tail is the only save-safe catalog edit,
+because `sanitizeStates` clamps a stored step index and an insert would silently move every held
+player's current objective. Both tags are already load-bearing in the shipped catalog
+(`q_gatecrash_02.s4` asks for three Crystal Caves sectors, `.s5` for six Inferno sectors), so both
+are proven present at the measured seeds; `expectSectorTagResolves` checks the vocabulary, not the
+world, so a biome absent from a given world would make a step silently uncompletable there with no
+test able to catch it. The two `deliverItem` destinations were deliberately not reused, so the
+courier trip and the escort trip are different journeys. Both rewards sit inside the shipped
+200-to-280 per-step band.
+
+**File by file.** `src/data/ExpeditionQuests.ts` (the union member, `droneLabelOf`, the two
+appended steps), `src/systems/QuestProgress.ts` (`droneEscorting` state, the event member, the
+matcher and fold cases, the widened death-rule guard, the SET ASIDE clear, the view note, the
+marker block, `assignQuestDrone` / `dropQuestDrone` / `buildQuestEscortObjectives`),
+`src/meta/ExpeditionQuestManager.ts` (the sanitizer clause plus `assignExpeditionQuestDrone`,
+`dropExpeditionQuestDrone`, `getActiveQuestEscortObjectives`), `src/game/scenes/QuestBoardScene.ts`
+(the assign call and the extended subtitle notice), `src/game/scenes/GameScene.ts` (the escort
+constants, three scene fields, `syncEscortDrone` / `updateEscortDrone` / `loseEscortDrone` /
+`drawEscortDrone` / `clearEscortDrone`, and the wiring in `updateExpeditionAbilities` and
+`resetInRunFeatureState`). No UI file beyond the board: the ticker, the OBJECTIVES panel, the chart
+pin and the radar bearing already read `QuestStepView.note` and `buildQuestMarkers`, all shipped by
+`5cb40bb`, so a new note value and a new marker source reached all four surfaces for free.
+
+**Five tests, and why no others.** Four in `QuestProgress.test.ts` (arriving with a drone completes
+the step and spends it; arriving with no drone counts nothing; the death rule drops an assigned
+drone even though the counter never moved, which is the widened guard; assigning is idempotent and
+reports a drone already under way) and one in `ExpeditionQuestManager.test.ts` (a `droneEscorting`
+flag stored against a step that does not ask for one is dropped on load). The sixth touch is the
+data-lock clause in `referentialIntegrity.test.ts` (target bounded at 2, destination tag resolves,
+`drone_` prefix, which `droneLabelOf` strips to build the display name). The escort fixture is a
+local `ESCORT_DEFS` inside its own describe block, copying the `deliverItem` block's shipped
+`CARGO_DEFS` idiom: appending it to the shared `DEFS` would have changed the exact entry list
+`buildQuestBoardEntries` asserts, and weakening a passing test to fit a fixture is not allowed.
+Nothing was written for the scene methods: `vitest.config.ts` is `environment: 'node'`, so those
+would mean a live Phaser scene stub, which the standing order bans as scaffolding.
+165 files / 1960 tests green (baseline 165 / 1955), `npx tsc --noEmit` and `npm run build` clean.
+
+**Three cuts, filed rather than smuggled in.** `BALANCE-QUEST-ESCORT-DRONE` (every number above is
+designed, in band, and unplayed; whether the drone reads as a thing to protect or as a thing that
+dies in the first busy room needs a browser), `CHORE-QUEST-ESCORT-RESTORE` (a refresh mid-escort
+rebuilds the drone at full health beside the ship, because its health and position are scene state
+and the run save carries neither; strictly forgiving, and it pairs exactly with
+`CHORE-QUEST-SIEGE-RESTORE` and `CHORE-QUEST-DWELL-RESTORE`, which share the cause), and
+`FEAT-QUEST-ESCORT-ENEMY-INTEREST` (hostiles never target the drone, they only bill it for standing
+near them, so an escort is protected by clearing the room rather than by intercepting anything
+aimed at it; real targeting is a change to the chase family's target selection and would also make
+the drone a lightning rod that pulls a room off the player).
+
+No storage key, no `ALL_STORAGE_KEYS` entry, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no
+`DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump: the quest
+store has no version field and its sanitizer rebuilds missing ones, so every existing profile
+lights this up the moment the build lands. It adds no payout rail, no relic roll and no
+reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.

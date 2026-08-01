@@ -1188,6 +1188,48 @@ filed rather than smuggled in: `FEAT-CARGO-PICKUP-ENTITY`, `FEAT-CARGO-DROP-IN-P
 existing profile lights it up the moment the build lands, and it moves no gold rail, no relic roll
 and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**`840753d` gave the game its first thing that is on your side and can die.** Every objective the
+game had asked the player to kill, reach, hold, open, find or carry; `escortDrone` is the only one
+that asks them to protect, and it is the tenth and last of doc 04 section 4's trigger kinds, so
+this closes that list and `FEAT-QUEST-TRIGGERS-REST` with it. It ships as
+`{ kind: 'escortDrone'; droneId: string; destinationTag: SectorTag }`. The drone itself is a scene
+`Phaser.GameObjects.Graphics` on the `syncWardenThrone` idiom (state is the truth, the object is
+derived per sector), the walk-in board assigns it (`assignQuestDrone` at the top of
+`QuestBoardScene.rebuild()`, idempotent so walking back to a board cannot stack two drones on one
+step), and the producer is **the drone's own sector change** in `updateEscortDrone`, not the ship's
+`expedition:sector-entered`: an escort the player outran and left two rooms back has not arrived,
+which is the whole difference between this kind and `deliverItem`. It trails at 165 px/s with a
+70 px follow gap and a 900 px tether, hostiles inside 60 px bill it 4 HP each per half second with
+at most two billing at once (16 dps worst case, ~6 s inside a full room), and a room clear around
+it heals 3 HP/s, so a long trip is a thing to manage rather than an attrition timer with one
+outcome. Four surfaces came for free, exactly as `5cb40bb` set them up: the ticker and the
+OBJECTIVES panel render the new `DRONE ESCORTING` / `COLLECT AT A BOARD` note, and the chart pin
+and radar bearing read `buildQuestMarkers`, which emits the destination only while a drone is
+actually under way. **Both of the item's stated blockers were false, and neither should ever be
+re-derived:** `GameStateManager.serializeEntities` persists exactly six queries (player, enemy, xp
+gem, health pickup, magnet pickup, consumable) and a Graphics object is in none of them, so there
+was never a persistence-exemption API to owe and `FEAT-WORLDGEN-STREAM` was never a real dep; and
+the five shipped sync-shape objects (ability vault, quest board, secret cache, ambush nest, warden
+throne) were each already the "escortable entity nothing spawns". **`routeTag` is cut, not
+deferred:** the destination is the same closed `SectorTag` union `reachSector` and `deliverItem`
+use, because a `SectorTag` is a compile error when mistyped and `referentialIntegrity.test.ts` can
+assert it resolves to a real stage, where a bare route string is neither. The death rule as built
+is `scope: 'run'` on both steps and fail-and-retry rather than fail-forever: losing the drone
+clears the flag and nothing the chain earned, so any board hands over another, and
+`settleRunScopeProgress`' early-return guard had to widen again to include `droneEscorting`, or a
+drone assigned with the counter still at 0 would have survived death untouched (the same line the
+cargo session had to widen, for the same reason). Two steps use it, appends only, never inserts:
+`q_survey_03.s7` walks a survey probe into `biome:stage_crystal_caves` and `q_gatecrash_02.s6` a
+breach unit into `biome:stage_inferno`. Both tags are already load-bearing in the shipped catalog
+(`q_gatecrash_02.s4` and `.s5` depend on them), so both are proven present at the measured seeds,
+and the two `deliverItem` destinations were deliberately not reused so the courier trip and the
+escort trip are different journeys. Three cuts are filed rather than smuggled in:
+`BALANCE-QUEST-ESCORT-DRONE`, `CHORE-QUEST-ESCORT-RESTORE` and
+`FEAT-QUEST-ESCORT-ENEMY-INTEREST`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no
+`DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump, so every
+existing profile lights it up the moment the build lands, and it moves no gold rail, no relic roll
+and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -6492,9 +6534,9 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
         are `FEAT-QUEST-BOARD` by name, so `QuestGiver` POI slots stay inert and quests
         auto-activate instead of being accepted.
 
-- [ ] **FEAT-QUEST-TRIGGERS-REST**: the **one** doc 04 trigger kind still without a producer
-  (`escortDrone`), plus `routeTag`, which only `escortDrone`
-  needs. `reachSector` and the `sectorTag` vocabulary shipped with 0be97f5:
+- [x] **FEAT-QUEST-TRIGGERS-REST** (done, 840753d): every doc 04 trigger kind now has a producer,
+  and `routeTag` closes as a cut rather than as a vocabulary. `reachSector` and the `sectorTag`
+  vocabulary shipped with 0be97f5:
   `src/world/sectorTags.ts` exports it from `src/world/` as this entry asked, and
   `referentialIntegrity.test.ts` asserts every biome tag resolves to a real stage. `findSecret`
   left this list earlier: it shipped with `FEAT-QUEST-SECRET-CHAIN` (6e72c65) as
@@ -6511,9 +6553,23 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   not need `FEAT-WORLDGEN-STREAM` and that dep should not be re-derived onto it:** a
   persistence-exemption API is only needed by a crate the serializer can see, and this one is a
   store field. Two steps use it (`q_secret_02.s3` to the Ion Field, `q_purge_02.s3` to the boss
-  arena), appends only. Deps:
-  `FEAT-WORLDGEN-STREAM`
-  (persistence-exemption API for the escort drone). Spec: doc 04 section 4 + README section 3.1.
+  arena), appends only.
+
+  `escortDrone` left this list with `840753d`, which closes this item and doc 04
+  section 4's ten kinds. It ships as
+  `{ kind: 'escortDrone'; droneId: string; destinationTag: SectorTag }`, its drone is a scene
+  Graphics object on the `syncWardenThrone` idiom rather than an ECS entity, the walk-in board
+  assigns it through `assignQuestDrone`, and the producer is the DRONE's own sector change in
+  `updateEscortDrone`, not the ship's `expedition:sector-entered`. **Neither stated blocker was
+  real and neither should be re-derived:** `serializeEntities` persists six queries and a
+  Graphics is in none of them, so there was no persistence-exemption API to wait on, and the five
+  shipped sync-shape objects (vault, board, cache, nest, throne) were each already the
+  "escortable entity nothing spawns". **`routeTag` was deliberately never invented**: the
+  destination is the `SectorTag` union, for the compile-check and integrity-test reasons
+  `reachSector` gave, so doc 04's `routeTag` closes as a cut rather than as a vocabulary.
+
+  Deps: none outstanding (`FEAT-WORLDGEN-STREAM` was never really one).
+  Spec: doc 04 section 4 + README section 3.1.
 
 - [ ] **BALANCE-QUEST-SURVIVE-TIMERS** (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): 60 s in
   the Ion Field and 90 s in the boss arena are designed guesses, unmeasured in a browser. Wants
@@ -6549,6 +6605,25 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   numbers, in band but unplayed. Whether a delivery reads as a run with something at stake or as
   a long walk needs a browser, alongside the rest of the play-gated queue. Value: a courier trip
   that is a decision rather than a commute. Deps: none, but it wants play, not a guess.
+
+- [ ] **BALANCE-QUEST-ESCORT-DRONE** (new 2026-08-01, from FEAT-QUEST-ESCORT): 100 HP, 4 damage
+  per attacker per 0.5 s capped at 2 attackers, 3 HP/s regen out of contact, 165 px/s follow speed
+  and a 900 px tether are designed numbers, in band but unplayed. Whether the drone reads as a
+  thing to protect or as a thing that dies in the first busy room needs a browser. Value: an
+  escort that is a decision rather than a coin flip. Deps: none, but it wants play, not a guess.
+
+- [ ] **CHORE-QUEST-ESCORT-RESTORE** (new 2026-08-01, from FEAT-QUEST-ESCORT): a refresh
+  mid-escort rebuilds the drone at full health beside the ship, because the drone's health and
+  position are scene state and the run save carries neither. Strictly forgiving and it pairs
+  exactly with `CHORE-QUEST-SIEGE-RESTORE` and `CHORE-QUEST-DWELL-RESTORE`, which have the same
+  cause: fix them together or not at all. Value: a reload stops being a free heal. Deps: none.
+
+- [ ] **FEAT-QUEST-ESCORT-ENEMY-INTEREST** (new 2026-08-01, from FEAT-QUEST-ESCORT): hostiles
+  never target the drone, they only bill it for standing near them, so an escort is protected by
+  clearing the room rather than by intercepting anything aimed at it. Real targeting is a change
+  to the chase family's target selection, which is larger than this feature and would also make
+  the drone a lightning rod that pulls a room off the player. Value: an escort you defend rather
+  than a room you sweep. Deps: none.
 
 - [x] **FEAT-QUEST-SURVIVE-DANGER** (done, 126961c): a hold objective now answers back. While
   the ship holds a sector a live `surviveInSector` step names, the room sieges it: the ambush
