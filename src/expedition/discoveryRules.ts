@@ -326,6 +326,49 @@ export function revealOnScanPulse(
   return changes;
 }
 
+/**
+ * Map fragment (doc 03 section 1.4 rule 5): every granted sector gains DISCOVERED, and an edge
+ * gains KNOWN only when BOTH of its endpoints are in the grant. Outlines, never interiors:
+ * nothing here grants VISITED or FOUND, so the reason to fly there survives and the completion
+ * percent cannot move.
+ *
+ * The hidden-sector guard applies as everywhere else: an unvisited hidden sector is dropped
+ * from the grant, which also drops the edges into it, since an edge needs both endpoints.
+ */
+export function revealOnMapFragment(
+  state: DiscoveryState,
+  map: WorldMap,
+  universe: WorldIdUniverse,
+  grantedSectorKeys: readonly string[],
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  const granted = new Set<string>();
+  for (const sectorKey of grantedSectorKeys) {
+    if (!universe.sectorKeys.has(sectorKey)) continue;
+    if (universe.hiddenSectorKeys.has(sectorKey)
+      && ((state.sectors[sectorKey] ?? 0) & SectorFlags.VISITED) === 0) continue;
+    granted.add(sectorKey);
+  }
+
+  for (const sectorKey of granted) {
+    addSector(state, changes, sectorKey, SectorFlags.DISCOVERED);
+  }
+
+  for (const sectorKey of granted) {
+    const sector = map.sectors.get(sectorKey);
+    if (!sector) continue;
+    for (const direction of EDGE_DIRECTIONS) {
+      if (sector.edges[direction].kind === EdgeKind.Wall) continue;
+      const { dsx, dsy } = directionDelta(direction);
+      if (!granted.has(`${sector.sx + dsx},${sector.sy + dsy}`)) continue;
+      const edgeId = edgeIdFor(sector.sx, sector.sy, direction);
+      if (universe.edgeIds.has(edgeId)) addEdge(state, changes, edgeId, EdgeFlags.KNOWN);
+    }
+  }
+
+  return changes;
+}
+
 function addSector(
   state: DiscoveryState, changes: DiscoveryChanges, id: string, flags: number,
 ): void {

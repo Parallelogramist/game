@@ -18,7 +18,8 @@ export type SecretRewardId =
   | 'secret_twin_chests'
   | 'secret_boost_bundle'
   | 'secret_ordnance_pack'
-  | 'secret_repair_bay';
+  | 'secret_repair_bay'
+  | 'secret_map_fragment';
 
 /** A cache is walked into; a hidden sector is a whole room the chart never drew; a puzzle
  *  cache is a walk-in that made the player earn it. */
@@ -70,6 +71,12 @@ export const SECRET_REWARDS: readonly SecretRewardDefinition[] = [
     icon: 'heart',
     weight: 16,
   },
+  {
+    id: 'secret_map_fragment',
+    description: 'Survey data from a ship that got further than this one.',
+    icon: 'radar',
+    weight: 14,
+  },
 ];
 
 export interface SecretRewardDepthBand {
@@ -89,6 +96,7 @@ export const SECRET_REWARD_DEPTH_BANDS: readonly SecretRewardDepthBand[] = [
       secret_twin_chests: 1.5,
       secret_relic_chest: 1.1,
       secret_repair_bay: 0.9,
+      secret_map_fragment: 1.2,
     },
   },
   {
@@ -98,6 +106,7 @@ export const SECRET_REWARD_DEPTH_BANDS: readonly SecretRewardDepthBand[] = [
       secret_relic_chest: 1.2,
       secret_boost_bundle: 1.2,
       secret_repair_bay: 0.7,
+      secret_map_fragment: 1.3,
     },
   },
 ];
@@ -112,6 +121,7 @@ export const SECRET_TIER_SCALES: Readonly<
     secret_twin_chests: 3,
     secret_relic_chest: 0.7,
     secret_repair_bay: 0.6,
+    secret_map_fragment: 0.5,
   },
   /** Earned rather than stumbled into, so it leans the hidden-sector way without matching a
    *  whole undrawn room: half that lean on the jackpot, and the same push off the repair bay. */

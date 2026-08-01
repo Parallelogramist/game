@@ -15,8 +15,9 @@ import {
   DISCOVERY_VERSION, EdgeFlags, PoiFlags, SecretFlags, SectorFlags, emptyChanges,
 } from './DiscoveryTypes';
 import {
-  buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnScanPulse,
-  revealOnSecretFound, revealOnSectorEntry, revealOnVaultGuardCleared, sanitizeDiscoveryState,
+  buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnMapFragment,
+  revealOnScanPulse, revealOnSecretFound, revealOnSectorEntry, revealOnVaultGuardCleared,
+  sanitizeDiscoveryState,
 } from './discoveryRules';
 
 const OPEN_EDGE: EdgeDef = { kind: EdgeKind.Open, apertureStart: 10, apertureEnd: 13 };
@@ -345,5 +346,31 @@ describe('revealOnScanPulse', () => {
     expect(state.secrets[SECRET_POI_ID]).toBe(SecretFlags.HINTED);
     expect(changes.secretsHinted).toEqual([SECRET_POI_ID]);
     expect(changes.secretsFound).toEqual([]);
+  });
+});
+
+describe('revealOnMapFragment', () => {
+  it('charts the granted sectors as outlines and the edges between them', () => {
+    const map = makeWorld();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnMapFragment(state, map, universe, ['0,0', '1,0']);
+
+    expect(changes.sectorsDiscovered.sort()).toEqual(['0,0', '1,0']);
+    expect(changes.sectorsVisited).toEqual([]);
+    expect(changes.edgesKnown).toEqual([SHARED_EDGE_ID]);
+    expect(state.sectors['0,0'] & SectorFlags.VISITED).toBe(0);
+  });
+
+  it('never charts an unvisited hidden sector or the edge into it', () => {
+    const map = makeWorldWithHiddenEast();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+
+    const changes = revealOnMapFragment(state, map, universe, ['0,0', '1,0']);
+
+    expect(changes.sectorsDiscovered).toEqual(['0,0']);
+    expect(changes.edgesKnown).toEqual([]);
   });
 });

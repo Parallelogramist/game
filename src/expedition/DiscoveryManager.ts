@@ -15,6 +15,7 @@ import {
   emptyDiscoveryState,
   emptyIdUniverse,
   revealOnEdgeTraversal,
+  revealOnMapFragment,
   revealOnPoiCollected,
   revealOnScanPulse,
   revealOnSecretFound,
@@ -111,6 +112,15 @@ export class DiscoveryManager {
     );
   }
 
+  /** The only write path for a recovered map fragment (README section 3.7): outlines for a
+   *  slice of one region, never interiors, so the completion percent cannot move. */
+  applyMapFragment(grantedSectorKeys: readonly string[]): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(
+      revealOnMapFragment(this.state, this.map, this.universe, grantedSectorKeys),
+    );
+  }
+
   /** Secrets this profile has already been pointed at or has already found. */
   getKnownSecretIds(): Set<string> {
     const known = new Set<string>();
@@ -126,6 +136,14 @@ export class DiscoveryManager {
       if ((flags & SectorFlags.VISITED) !== 0) visited.add(sectorKey);
     }
     return visited;
+  }
+
+  getDiscoveredSectorKeys(): Set<string> {
+    const discovered = new Set<string>();
+    for (const [sectorKey, flags] of Object.entries(this.state.sectors)) {
+      if ((flags & SectorFlags.DISCOVERED) !== 0) discovered.add(sectorKey);
+    }
+    return discovered;
   }
 
   /** Open leads: pointed at and not yet found. */

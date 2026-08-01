@@ -85,6 +85,7 @@ import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead, chooseHintTarget } from '../../expedition/secretHints';
+import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
 import { SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
@@ -5178,10 +5179,10 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager.playDeathBurst(cache.x, cache.y, color);
     this.cameras.main.shake(140, 0.005);
     this.soundManager.playLevelUp();
-    this.paySecretReward(cache.reward, cache.x, cache.y);
+    const description = this.paySecretReward(cache.reward, cache.x, cache.y);
     this.toastManager?.showToast({
       title: cache.puzzle ? 'SEQUENCE UNSEALED' : 'HIDDEN CACHE FOUND',
-      description: cache.reward.description,
+      description,
       icon: cache.reward.icon,
       color,
       duration: 3200,
@@ -5195,43 +5196,78 @@ export class GameScene extends Phaser.Scene {
    * table at the arena rate, so depth pays in chest COUNT and never in better odds (doc 04
    * econ rule 1), and nothing here pays gold, so a found secret still adds nothing to the
    * expedition gold budget. The `never` default makes a future table entry with no payout a
-   * compile error rather than a secret that silently pays nothing.
+   * compile error rather than a secret that silently pays nothing. The one entry that pays no
+   * object is the map fragment, which spends itself into the discovery store and reports what
+   * it charted.
    */
-  private paySecretReward(reward: SecretRewardDefinition, x: number, y: number): void {
+  private paySecretReward(reward: SecretRewardDefinition, x: number, y: number): string {
     const spot = { x: 0, y: 0 };
     switch (reward.id) {
       case 'secret_relic_chest':
         this.addTreasureChest(x, y, true, true);
-        return;
+        return reward.description;
       case 'secret_twin_chests':
         this.addTreasureChest(x - SECRET_REWARD_SPREAD, y, true, true);
         this.addTreasureChest(x + SECRET_REWARD_SPREAD, y, true, true);
-        return;
+        return reward.description;
       case 'secret_boost_bundle':
         for (let index = 0; index < SECRET_REWARD_BUNDLE_COUNT; index++) {
           this.secretRewardSpot(x, y, index, SECRET_REWARD_BUNDLE_COUNT, spot);
           this.spawnFieldBoostPickup(spot.x, spot.y);
         }
-        return;
+        return reward.description;
       case 'secret_ordnance_pack': {
         const kinds = [ConsumableKind.BOMB, ConsumableKind.FREEZE, ConsumableKind.VACUUM];
         for (let index = 0; index < kinds.length; index++) {
           this.secretRewardSpot(x, y, index, kinds.length, spot);
           spawnConsumablePickup(this.world, spot.x, spot.y, kinds[index], 0);
         }
-        return;
+        return reward.description;
       }
       case 'secret_repair_bay':
         for (let index = 0; index < SECRET_REWARD_BUNDLE_COUNT; index++) {
           this.secretRewardSpot(x, y, index, SECRET_REWARD_BUNDLE_COUNT, spot);
           spawnHealthPickup(this.world, spot.x, spot.y, SECRET_REWARD_HEAL);
         }
-        return;
+        return reward.description;
+      case 'secret_map_fragment': {
+        const charted = this.grantMapFragment(x, y);
+        if (charted) return charted;
+        // A fully charted world still owes the player a find, so the fragment falls back to
+        // the payout a cache hands out most often rather than paying nothing.
+        this.addTreasureChest(x, y, true, true);
+        return 'Survey data, and nothing left to chart. A sealed chest instead.';
+      }
       default: {
         const unhandled: never = reward.id;
         console.warn(`Unhandled secret reward id: ${String(unhandled)}`);
+        return reward.description;
       }
     }
+  }
+
+  /**
+   * Hint tier 2's map half: a fragment charts a slice of a region the player has not flown,
+   * as outlines only. Returns the toast line naming the place, or null when there is nothing
+   * left to chart, which the caller pays as a chest instead so a find never pays nothing.
+   */
+  private grantMapFragment(x: number, y: number): string | null {
+    const map = this.worldMode.worldMap();
+    if (!map) return null;
+    const discovery = getDiscoveryManager();
+    const origin = sectorOfWorldPoint(x, y);
+    const grant = chooseMapFragmentGrant({
+      map,
+      discoveredSectorKeys: discovery.getDiscoveredSectorKeys(),
+      visitedSectorKeys: discovery.getVisitedSectorKeys(),
+      originSectorKey: `${origin.col},${origin.row}`,
+      maxSectors: MAP_FRAGMENT_MAX_SECTORS,
+    });
+    if (!grant) return null;
+    const charted = discovery.applyMapFragment(grant.sectorKeys).sectorsDiscovered.length;
+    if (charted === 0) return null;
+    return `Survey data: ${grant.regionName} charted, `
+      + `${charted} new sector${charted === 1 ? '' : 's'}.`;
   }
 
   /** Ring layout, the poi_crate_field shape: freeSpotNear keeps a pickup out of rock even
@@ -5266,10 +5302,10 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager.playDeathBurst(spawnX, spawnY, color);
     this.cameras.main.shake(140, 0.005);
     this.soundManager.playLevelUp();
-    this.paySecretReward(reward, spawnX, spawnY);
+    const description = this.paySecretReward(reward, spawnX, spawnY);
     this.toastManager?.showToast({
       title: 'HIDDEN SECTOR FOUND',
-      description: reward.description,
+      description,
       icon: reward.icon,
       color,
       duration: 3200,
