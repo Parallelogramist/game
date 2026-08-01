@@ -18,6 +18,7 @@ import {
   StatusEffect,
   ConsumablePickupTag,
   NemesisTag,
+  AmbushSpawnTag,
   VaultGuardTag,
 } from '../../ecs/components';
 import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
@@ -73,6 +74,7 @@ import type { SecretRewardDefinition } from '../../world/secretRewards';
 import { PUZZLE_RING_RADIUS, buildSecretPuzzle } from '../../world/secretPuzzles';
 import type { PuzzleGlyphId, SecretPuzzle } from '../../world/secretPuzzles';
 import type { PoiContentId } from '../../data/PoiCatalog';
+import { AMBUSH_NEST_WAVES, ambushWaveTier } from '../../data/PoiCatalog';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
 import {
   EdgeSpawnConfig,
@@ -368,6 +370,16 @@ interface ActiveSecretPuzzle {
   noticed: boolean;
 }
 
+interface ActiveAmbushNest {
+  graphics: Phaser.GameObjects.Graphics;
+  x: number;
+  y: number;
+  /** SectorDef.depth at spawn, kept so a restored nest wakes with the wave it was placed with. */
+  depth: number;
+  awake: boolean;
+  waveEntityIds: number[];
+}
+
 // Pandemic: a poison death spreads to nearby enemies. pandemicSpread is a COUNT
 // of enemies infected (shop "Pandemic" 1-3 + "Pandemic Engine" relic +2), not a
 // radius -- so we query a fixed bloom radius here and cap infections to that count.
@@ -420,6 +432,13 @@ const VAULT_GUARD_RING_RADIUS = 120;
 const VAULT_GUARD_NOTICE_RADIUS = 170;
 /** Every guard is the same elite, so the encounter reads identically on every vault. */
 const VAULT_GUARD_AFFIX = EnemyAffixType.TITAN;
+
+/** A nest is legible long before it is live: the ship trips it well inside the vault's notice
+ *  radius, so engaging is the player's decision and not the room's. */
+const AMBUSH_NEST_TRIGGER_RADIUS = 150;
+/** Where a woken nest's wave stands up, measured from the hive. */
+const AMBUSH_NEST_RING_RADIUS = 130;
+const AMBUSH_NEST_DRAW_RADIUS = 22;
 
 /** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
  *  toasts even when a single find jumps two of them. */
@@ -581,6 +600,10 @@ export class GameScene extends Phaser.Scene {
     graphics: Phaser.GameObjects.Graphics; x: number; y: number;
     puzzle: ActiveSecretPuzzle | null;
   }[] = [];
+  /** Ambush nests, expedition only. World-space and run-scoped like a chest rather than rebuilt
+   *  per sector like a vault: a nest carries no per-profile state, so leaving the room must not
+   *  reset a fight the player half-won. */
+  private activeAmbushNests: ActiveAmbushNest[] = [];
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
@@ -2512,6 +2535,9 @@ export class GameScene extends Phaser.Scene {
             runSalt: this.poiRunSalt,
             spawnedSlotIds: Array.from(this.spawnedPoiSlotIds),
             oncePerRunSpawned: this.poiOncePerRunSpawned,
+            nests: this.activeAmbushNests.map(nest => ({
+              x: nest.x, y: nest.y, depth: nest.depth,
+            })),
           }
         : undefined,
       hazardState: getHazardState(),
@@ -2701,6 +2727,14 @@ export class GameScene extends Phaser.Scene {
       this.spawnedPoiSlotIds = new Set(
         (Array.isArray(state.poiState.spawnedSlotIds) ? state.poiState.spawnedSlotIds : [])
           .filter(id => typeof id === 'string' && id.length > 0 && id.length <= 64));
+      // Restored dormant on purpose: the wave is not persisted, so a refresh mid-fight re-arms
+      // the ambush rather than leaving an unclearable hive. Coords and depth are sanitized the
+      // way chestState's are, against a tampered save.
+      for (const nest of Array.isArray(state.poiState.nests) ? state.poiState.nests : []) {
+        if (Number.isFinite(nest.x) && Number.isFinite(nest.y) && Number.isFinite(nest.depth)) {
+          this.addAmbushNest(nest.x, nest.y, nest.depth);
+        }
+      }
     }
 
     // Restore spawn tracking
@@ -4448,6 +4482,7 @@ export class GameScene extends Phaser.Scene {
     this.vaultSectorKey = null;
     this.clearSecretCaches();
     this.secretSectorKey = null;
+    this.clearAmbushNests();
     this.spawnedPoiSlotIds.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
@@ -4949,13 +4984,14 @@ export class GameScene extends Phaser.Scene {
         entry.contentId,
         sector.sx * SECTOR_WIDTH + entry.slot.tileX * TILE_SIZE + TILE_SIZE / 2,
         sector.sy * SECTOR_HEIGHT + entry.slot.tileY * TILE_SIZE + TILE_SIZE / 2,
+        sector.depth,
       );
     }
   }
 
   /** Every content id maps to an existing reward path; the `never` default makes a future
    *  catalog entry with no spawn a compile error rather than a silently empty room. */
-  private spawnPoiContent(contentId: PoiContentId, x: number, y: number): void {
+  private spawnPoiContent(contentId: PoiContentId, x: number, y: number, depth: number): void {
     switch (contentId) {
       case 'poi_treasure_chest':
         this.addTreasureChest(x, y, Math.random() < SPECIAL_CHEST_CHANCE, true);
@@ -4981,6 +5017,9 @@ export class GameScene extends Phaser.Scene {
         this.addShrine('market', x, y);
         this.poiOncePerRunSpawned = true;
         return;
+      case 'poi_ambush_nest':
+        this.addAmbushNest(x, y, depth);
+        return;
       case 'poi_shrine_cleanse':   this.addShrine('cleanse', x, y); return;
       case 'poi_shrine_power':     this.addShrine('power', x, y); return;
       case 'poi_shrine_fortune':   this.addShrine('fortune', x, y); return;
@@ -4989,6 +5028,150 @@ export class GameScene extends Phaser.Scene {
         const unhandled: never = contentId;
         console.warn(`Unhandled POI content id: ${String(unhandled)}`);
       }
+    }
+  }
+
+  /** A dormant hive on a Treasure slot. Alpha and a pulse only: nothing is added to physics and
+   *  no entity exists until the ship trips it. */
+  private addAmbushNest(x: number, y: number, depth: number): void {
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    graphics.setDepth(4);
+    const nest: ActiveAmbushNest = {
+      graphics, x, y, depth, awake: false, waveEntityIds: [],
+    };
+    this.drawAmbushNest(nest);
+    this.activeAmbushNests.push(nest);
+  }
+
+  /** The drawAbilityVault idiom in the hazard palette, so a room that bites reads as the same
+   *  system as a hazard strip rather than as a second vocabulary. A woken hive is opaque. */
+  private drawAmbushNest(nest: ActiveAmbushNest): void {
+    const color = WORLD_GEOMETRY_COLORS.hazard.stroke;
+    const graphics = nest.graphics;
+    graphics.clear();
+    graphics.setAlpha(nest.awake ? 1 : 0.55);
+    graphics.fillStyle(color, nest.awake ? 0.3 : 0.14);
+    graphics.fillCircle(0, 0, AMBUSH_NEST_DRAW_RADIUS + 8);
+    graphics.lineStyle(3, color, nest.awake ? 1 : 0.7);
+    graphics.strokeCircle(0, 0, AMBUSH_NEST_DRAW_RADIUS);
+    for (let spike = 0; spike < 5; spike++) {
+      const angle = (Math.PI * 2 * spike) / 5 - Math.PI / 2;
+      graphics.lineBetween(
+        Math.cos(angle) * AMBUSH_NEST_DRAW_RADIUS,
+        Math.sin(angle) * AMBUSH_NEST_DRAW_RADIUS,
+        Math.cos(angle) * (AMBUSH_NEST_DRAW_RADIUS + 10),
+        Math.sin(angle) * (AMBUSH_NEST_DRAW_RADIUS + 10),
+      );
+    }
+    graphics.fillStyle(nest.awake ? 0xffe8c0 : color, 0.9);
+    graphics.fillCircle(0, 0, 5);
+  }
+
+  /**
+   * The nest's pack, standing in an even ring around the hive. The spawnVaultGuards shape with
+   * two deliberate differences: no forced affix (a nest is a numbers fight, not an elite one)
+   * and no boss health bar (it would put five bars on screen at once). createEnemy runs
+   * freeSpotNear, so a ring point inside rock is shoved to open floor.
+   */
+  private spawnAmbushWave(nest: ActiveAmbushNest): void {
+    const pack = AMBUSH_NEST_WAVES[ambushWaveTier(nest.depth)];
+    const total = pack.reduce((sum, member) => sum + member.count, 0);
+    if (total === 0) return;
+
+    let placed = 0;
+    for (const member of pack) {
+      const enemyType = getEnemyType(member.typeId);
+      if (!enemyType) continue;
+      for (let index = 0; index < member.count; index++) {
+        const angle = (Math.PI * 2 * placed) / total - Math.PI / 2;
+        placed++;
+        const scaledStats = getScaledStats(
+          enemyType, this.gameTime, this.worldLevelHealthMult, this.worldLevelDamageMult,
+        );
+        const entityId = this.createEnemy(
+          nest.x + Math.cos(angle) * AMBUSH_NEST_RING_RADIUS,
+          nest.y + Math.sin(angle) * AMBUSH_NEST_RING_RADIUS,
+          enemyType, scaledStats,
+        );
+        addComponent(this.world, AmbushSpawnTag, entityId);
+        nest.waveEntityIds.push(entityId);
+      }
+    }
+  }
+
+  /** The trip. A wave that produced no entity is not a soft-lock: updateAmbushNests sees an
+   *  empty id list on the very next tick and pays the chest, so the failure mode of a placed
+   *  encounter is open, never sealed. */
+  private wakeAmbushNest(nest: ActiveAmbushNest): void {
+    nest.awake = true;
+    this.spawnAmbushWave(nest);
+    this.drawAmbushNest(nest);
+
+    const color = WORLD_GEOMETRY_COLORS.hazard.stroke;
+    this.effectsManager.playDeathBurst(nest.x, nest.y, color);
+    if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(200, 0.008);
+    this.soundManager.playBossWarning();
+    this.toastManager?.showToast({
+      title: 'NEST DISTURBED',
+      description: 'Clear the swarm and the hive is yours.',
+      icon: 'warning',
+      color,
+      duration: 3200,
+    });
+  }
+
+  /** The last of the wave fell. The hive bursts into the guaranteed special chest that is the
+   *  whole point of taking the fight; isPoiCache keeps the 30 s despawn and the chest drone off
+   *  it, the same as every other placed cache in a world-sized map. */
+  private clearAmbushNest(index: number): void {
+    const nest = this.activeAmbushNests[index];
+    const color = WORLD_GEOMETRY_COLORS.hazard.stroke;
+    this.effectsManager.playDeathBurst(nest.x, nest.y, color);
+    if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(180, 0.007);
+    this.soundManager.playPurchase();
+    this.toastManager?.showToast({
+      title: 'NEST CLEARED',
+      description: 'The hive breaks open.',
+      icon: 'gem',
+      color: WORLD_GEOMETRY_COLORS.gate.stroke,
+      duration: 3000,
+    });
+
+    nest.graphics.destroy();
+    this.activeAmbushNests.splice(index, 1);
+    this.addTreasureChest(nest.x, nest.y, true, true);
+  }
+
+  /** Teardown only: the wave is left to the world's own enemy teardown, because a nest's wave
+   *  are real enemies that already died or already count, unlike a vault's silent guards. */
+  private clearAmbushNests(): void {
+    for (const nest of this.activeAmbushNests) nest.graphics.destroy();
+    this.activeAmbushNests = [];
+  }
+
+  /** Trip test while dormant, liveness filter while awake. Iterated backwards because a clear
+   *  splices the entry out, the updateAbilityVaults shape. */
+  private updateAmbushNests(playerX: number, playerY: number): void {
+    if (this.activeAmbushNests.length === 0) return;
+    const pulse = 1 + Math.sin(this.gameTime * 3.1) * 0.08;
+    for (let i = this.activeAmbushNests.length - 1; i >= 0; i--) {
+      const nest = this.activeAmbushNests[i];
+      nest.graphics.setScale(pulse);
+
+      if (!nest.awake) {
+        const dx = playerX - nest.x;
+        const dy = playerY - nest.y;
+        if (dx * dx + dy * dy < AMBUSH_NEST_TRIGGER_RADIUS * AMBUSH_NEST_TRIGGER_RADIUS) {
+          this.wakeAmbushNest(nest);
+        }
+        continue;
+      }
+
+      nest.waveEntityIds = nest.waveEntityIds.filter(entityId =>
+        hasComponent(this.world, AmbushSpawnTag, entityId)
+        && hasComponent(this.world, EnemyTag, entityId));
+      if (nest.waveEntityIds.length === 0) this.clearAmbushNest(i);
     }
   }
 
@@ -5907,6 +6090,7 @@ export class GameScene extends Phaser.Scene {
       this.updateAbilityVaults(playerX, playerY);
       this.syncSecretCaches(map, playerX, playerY);
       this.updateSecretCaches(playerX, playerY);
+      this.updateAmbushNests(playerX, playerY);
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.tryOpenQuestDoor(map, playerX, playerY);
       this.updateBreachCharges(map, playerX, playerY);
@@ -9171,6 +9355,10 @@ export class GameScene extends Phaser.Scene {
     for (const enemyId of getFrameCacheEnemyIds()) {
       if (EnemyType.xpValue[enemyId] >= LEASH_EXEMPT_XP_FLOOR) continue;
       if (hasComponent(this.world, Destructible, enemyId)) continue;
+      // A nest's wave belongs to the room the player chose to enter. Without this, fleeing a
+      // woken nest teleports the whole wave onto the spawn ring beside the player and the
+      // ambush follows them into unrelated sectors.
+      if (hasComponent(this.world, AmbushSpawnTag, enemyId)) continue;
       if (!isBeyondLeash(
         Transform.x[enemyId], Transform.y[enemyId], centre.x, centre.y, leashRadius,
       )) continue;
@@ -13172,6 +13360,7 @@ export class GameScene extends Phaser.Scene {
     this.vaultSectorKey = null;
     this.clearSecretCaches();
     this.secretSectorKey = null;
+    this.clearAmbushNests();
     this.bountyText?.destroy();
     this.bountyText = null;
     this.sectorBannerText = null;

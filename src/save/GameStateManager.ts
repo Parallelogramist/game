@@ -29,6 +29,7 @@ import {
   Consumable,
   ConsumablePickupTag,
   NemesisTag,
+  AmbushSpawnTag,
   VaultGuardTag,
 } from '../ecs/components';
 import { PlayerStats } from '../data/Upgrades';
@@ -245,6 +246,17 @@ interface SerializedShrineState {
 }
 
 /**
+ * A live ambush nest. Only the placement is persisted: a restored nest comes back dormant, so a
+ * refresh mid-fight re-arms the ambush instead of leaving a hive that can never be cleared (its
+ * wave is skipped by the serializer) or one that pays its chest twice.
+ */
+interface SerializedAmbushNest {
+  x: number;
+  y: number;
+  depth: number;
+}
+
+/**
  * Serialized expedition POI state. `runSalt` is what makes a slot's contents re-roll per run
  * but stay identical across a refresh; `spawnedSlotIds` is the run's memory of which slots
  * have already paid out, so a re-entered sector does not re-stock itself; `oncePerRunSpawned`
@@ -255,6 +267,8 @@ interface SerializedPoiState {
   runSalt: number;
   spawnedSlotIds: string[];
   oncePerRunSpawned: boolean;
+  /** Absent on saves written before FEAT-POI-AMBUSH-NEST → no nests restored. */
+  nests?: SerializedAmbushNest[];
 }
 
 /**
@@ -900,6 +914,10 @@ export class GameStateManager {
       // same room after a refresh. Whether the fight was WON is persisted, in the discovery
       // store, so a cleared vault stays cleared; only an unfinished fight restarts.
       if (hasComponent(world, VaultGuardTag, entityId)) continue;
+      // Same rule as the vault guard above, for the same reason: a nest's wave is rebuilt when
+      // the restored nest is tripped again, so persisting it would leave a saved wave and a
+      // fresh wave in one room.
+      if (hasComponent(world, AmbushSpawnTag, entityId)) continue;
       entities.push(this.serializeEnemy(world, entityId));
     }
     for (const entityId of xpGemQuery(world)) entities.push(this.serializeXPGem(world, entityId));

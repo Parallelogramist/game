@@ -12,6 +12,7 @@ export type PoiContentId =
   | 'poi_crate_field'
   | 'poi_field_boost_cache'
   | 'poi_black_market'
+  | 'poi_ambush_nest'
   | 'poi_shrine_cleanse'
   | 'poi_shrine_power'
   | 'poi_shrine_fortune'
@@ -37,6 +38,7 @@ export const POI_CONTENTS: readonly PoiContentDefinition[] = [
   { id: 'poi_crate_field',       slotKind: PoiKind.Treasure, weight: 25 },
   { id: 'poi_field_boost_cache', slotKind: PoiKind.Treasure, weight: 10 },
   { id: 'poi_black_market',      slotKind: PoiKind.Treasure, weight: 2, oncePerRun: true },
+  { id: 'poi_ambush_nest',       slotKind: PoiKind.Treasure, weight: 15 },
   { id: 'poi_shrine_cleanse',    slotKind: PoiKind.Shrine,   weight: 3 },
   { id: 'poi_shrine_power',      slotKind: PoiKind.Shrine,   weight: 3 },
   { id: 'poi_shrine_fortune',    slotKind: PoiKind.Shrine,   weight: 2 },
@@ -56,7 +58,7 @@ export interface PoiDepthBand {
  * band is what keeps the one in-run gold sink an actual exploration payoff.
  */
 export const POI_DEPTH_BANDS: readonly PoiDepthBand[] = [
-  { minDepth: 0, weightScale: { poi_black_market: 0 } },
+  { minDepth: 0, weightScale: { poi_black_market: 0, poi_ambush_nest: 0.5 } },
   {
     minDepth: 3,
     weightScale: {
@@ -73,6 +75,36 @@ export const POI_DEPTH_BANDS: readonly PoiDepthBand[] = [
       poi_treasure_chest: 1.6,
       poi_field_boost_cache: 2,
       poi_black_market: 10,
+      poi_ambush_nest: 1.4,
     },
   },
 ];
+
+export interface AmbushWaveMember {
+  /** An id in ENEMY_TYPES; referentialIntegrity.test.ts fails the build on a typo. */
+  typeId: string;
+  count: number;
+}
+
+/**
+ * What a nest stands up when the ship trips it. Numbers rather than affixes: a vault guard is a
+ * wall the player must beat, a nest is a swarm the player may also outrun, so forcing an elite
+ * affix on nine bodies would make the optional room harder than the placed one.
+ */
+export const AMBUSH_NEST_WAVES: Record<'shallow' | 'deep', readonly AmbushWaveMember[]> = {
+  shallow: [
+    { typeId: 'swarm', count: 4 },
+    { typeId: 'zigzag', count: 2 },
+  ],
+  deep: [
+    { typeId: 'swarm', count: 4 },
+    { typeId: 'charger', count: 2 },
+    { typeId: 'lurker', count: 2 },
+    { typeId: 'shielded', count: 1 },
+  ],
+};
+
+/** The tier boundary is POI_DEPTH_BANDS' own middle band, not a second depth scale. */
+export function ambushWaveTier(depth: number): 'shallow' | 'deep' {
+  return depth >= 3 ? 'deep' : 'shallow';
+}

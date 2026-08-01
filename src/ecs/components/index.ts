@@ -38,6 +38,12 @@ export const NemesisTag = defineComponent();
 // must skip these from the world and the scene must test a tracked id's liveness.
 export const VaultGuardTag = defineComponent();
 
+// Ambush spawn tag: a member of the wave a nest stands up (FEAT-POI-AMBUSH-NEST). A tag for the
+// same two reasons VaultGuardTag is one: the save layer must skip these, and the scene tests a
+// tracked id's liveness against a recycled entity id. It additionally exempts the wave from the
+// enemy leash, so fleeing a nest leaves the fight in the room instead of dragging it along.
+export const AmbushSpawnTag = defineComponent();
+
 // Health pickup component
 export const HealthPickup = defineComponent({
   healAmount: Types.f32,

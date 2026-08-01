@@ -24,6 +24,7 @@ import { MILESTONES } from '../achievements/MilestoneDefinitions';
 import { ENEMY_TYPES, EnemyCategory } from '../enemies/EnemyTypes';
 import { BLESSINGS } from './Blessings';
 import { TRAVERSAL_ABILITIES, VAULT_GUARD_PACKS } from './TraversalAbilities';
+import { AMBUSH_NEST_WAVES } from './PoiCatalog';
 import {
   EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER, getQuestForKeyId,
 } from './ExpeditionQuests';
@@ -189,6 +190,18 @@ describe('data catalog referential integrity', () => {
         expect(member.count).toBeGreaterThan(0);
         // xpValue >= 1000 runs handleEnemyDeath's victory path, which would end the run
         // from a side room the moment the pack died.
+        expect(enemyType.xpValue).toBeLessThan(1000);
+      }
+    }
+  });
+
+  test('every ambush nest wave resolves and is never boss-tier', () => {
+    for (const [tier, pack] of Object.entries(AMBUSH_NEST_WAVES)) {
+      expect(pack.length, `${tier} wave is empty`).toBeGreaterThan(0);
+      for (const member of pack) {
+        const enemyType = ENEMY_TYPES[member.typeId];
+        expect(enemyType, `${tier} wave member ${member.typeId}`).toBeDefined();
+        expect(member.count).toBeGreaterThan(0);
         expect(enemyType.xpValue).toBeLessThan(1000);
       }
     }
