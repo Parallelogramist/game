@@ -321,6 +321,33 @@ moment the build lands. `poi_nemesis_lair`, the other doc 04 row, is **not** her
 on live meta state that the pure `rollPoiContents` cannot express, and its own persistence answer
 for a cross-run entity.
 
+**`760ccc8` gave the hunter a den instead of a stopwatch**, closing `FEAT-POI-NEMESIS-LAIR` and
+with it the last unbuilt row of the POI catalog. The nemesis was a timer: `checkNemesisSpawn`
+fired at 150 s and the hunter walked in from a screen edge, in expedition exactly as in an arena
+run, which made it the one setpiece a 48-sector explorable map could not host. `poi_nemesis_lair`
+now rolls a `Treasure` slot at weight 5 as a dormant den in enemy crimson (`0xff2233`, deliberately
+not the nest's hazard orange: a den and a hive are different fights, so they must not read the
+same) at 55% alpha, visible from across the room under the same legibility rule a `GUARDED` vault
+core obeys. It is placed **only while the profile holds a nemesis that has not yet spawned**, and
+at most **once per world per run**. The conditionality rides a **new `nemesisAvailable` roll input
+with its own budget** rather than `oncePerRun`, because `oncePerRun` is one shared world-wide slot
+the Black Market already claims and sharing it would have made lair and market silently delete
+each other from the table. The one-lair invariant is enforced twice: in-loop inside
+`rollPoiContents` for two slots in one sector, and by `activeNemesisLairs.length === 0` at the call
+site for two sectors. Nose inside 160 px and the den wakes: the nemesis stands up **at the lair**
+through the shipped `spawnNemesis` path given a position, so it arrives with the identical grudge
+scaling, `'miniboss'` timeline marker, boss health bar and warning, over a `THE LAIR STIRS` toast.
+Kill it and, on top of the gold and the relic the kill already paid, the den breaks open into a
+**guaranteed special chest** at the **kill** position, not at the den: the hunter is deliberately
+**not** leash-exempt (a hunter is supposed to follow), so a chest dropped at the den could land
+thousands of pixels from where the fight ended. **The timer is made patient, not removed**: a
+standing dormant den holds it off until `NEMESIS_LAIR_PATIENCE_SECONDS` (360), then it fires as it
+always has and every empty den stands down, so a player who never flies to the den still meets the
+hunter and loses nothing that ships today. The reload rule: a den round-trips as `{x, y, awake}` in
+the optional `poiState.lairs` and **never re-spawns a hunter**, because a `NemesisTag` enemy is not
+skipped by the serializer and comes back on its own. No storage key, no `SAVE_VERSION` and no
+`WORLDGEN_VERSION` bump.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -328,8 +355,9 @@ for a cross-run entity.
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
 `POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
 `FEAT-QUEST-REACHSECTOR-DISTINCT`, `POLISH-RADAR-WAYPOINT-LABEL`,
-`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, plus the newly filed `FEAT-POI-NEMESIS-LAIR` (a second
-chunk, not a second `case`) and `CHORE-AMBUSH-NEST-RADAR`. `FEAT-ECON-WARDS` stays parked on its
+`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, `CHORE-AMBUSH-NEST-RADAR` (now widened to cover the lair),
+plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`.
+`FEAT-ECON-WARDS` stays parked on its
 operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
 for the same reason the rest of the POI table is.
 
@@ -2941,15 +2969,55 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
      with its reason, so nobody re-derives why one of the two rows shipped alone.
   Deps: `FEAT-POI-CATALOG` (done). Spec: doc 04 section 1 row 4.
 
-- [ ] **FEAT-POI-NEMESIS-LAIR** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST): doc 04 section 1
-  row 7, the other half of the original item. The nemesis anchored to a lair sector instead of
-  its 120s timer when in expedition mode, paying a guaranteed special chest on the kill. Cut
-  because it needs three things the nest did not: a re-route of `NemesisManager`'s timer path for
-  expedition mode, a catalog weight conditional on live meta state (`rollPoiContents` is pure and
-  takes no meta input today, so "only if the manager holds a killer" cannot be expressed in
-  `POI_CONTENTS`), and a persistence answer for a cross-run entity that the run save already
-  tracks through `NemesisTag`. Value: the one enemy with a grudge gets a place to wait instead of
-  a countdown. Deps: none, but it is a second chunk, not a second `case`.
+- [x] **FEAT-POI-NEMESIS-LAIR** (done, 760ccc8): doc 04 section 1 row 7, the last unbuilt row of
+  the POI catalog. The one enemy with a grudge now has a place to wait instead of a countdown.
+  1. **Weight 5 on a `Treasure` slot, conditional on a live nemesis** through a **new
+     `nemesisAvailable` roll input carrying its own budget**, mutated in-loop the way
+     `oncePerRunAvailable` already is. Not `oncePerRun`: that is **one shared world-wide slot**
+     the Black Market already claims, so sharing it would have made lair and market mutually
+     exclusive, with a market placed anywhere deleting the lair from the table and no error
+     anywhere to say so.
+  2. **One lair per world per run, enforced twice**: the in-loop mutation inside
+     `rollPoiContents` stops a second lair landing on a second slot of the same sector, and
+     `activeNemesisLairs.length === 0` in the `stockSectorPois` call site stops one landing in a
+     later sector.
+  3. **The 150s timer is made patient, not removed.** A standing dormant den holds
+     `checkNemesisSpawn` off until `NEMESIS_LAIR_PATIENCE_SECONDS` (360); past that it fires
+     exactly as it always has and every empty den stands down. The literal doc reading (suppress
+     the timer in expedition) would have been a regression: a lair sits on a rolled slot, so a
+     player who never flies there would have met the hunter never and silently lost the gold and
+     the relic a shipped feature pays today.
+  4. **The same `spawnNemesis` for both arrivals**, given an optional `at` position, so the den's
+     hunter carries the identical grudge scaling, `'miniboss'` timeline marker, `NEMESIS` boss
+     bar and miniboss warning. It is deliberately **not** leash-exempt (unlike a nest's wave): a
+     hunter is supposed to follow. That is exactly why the guaranteed special chest pays at the
+     **kill** position and not at the den, where a chasing nemesis would have left it thousands
+     of pixels behind.
+  5. **No storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.** A den persists as
+     `{x, y, awake}` in the optional `poiState.lairs` and **never re-spawns a hunter on restore**:
+     a `NemesisTag` enemy is not skipped by `serializeEntities` (only `VaultGuardTag` and
+     `AmbushSpawnTag` are), so it round-trips as a full enemy on its own and a woken den comes
+     back awake and empty, its only remaining job the chest its kill pays.
+  Suite: 153 files / 1849 tests before, 153 / 1850 after. The one added test pins the new
+  conditional filter, whose two failure modes are both silent (too loose ships an inert POI that
+  wakes and spawns nothing, never passing ships a dead feature). No GameScene test: the wiring
+  needs a live Phaser scene. Deps: `FEAT-POI-CATALOG` (done). Spec: doc 04 section 1 row 7.
+
+- [ ] **BALANCE-NEMESIS-LAIR-TUNING** (new 2026-07-31, from FEAT-POI-NEMESIS-LAIR): weight 5, the
+  360 s patience window and the 160 px trip radius are a designed guess informed by no playtest.
+  The patience number in particular decides whether the lair is the normal way to meet the hunter
+  or a rarity, and nothing has measured how far into a run a player has typically explored. Wants
+  the same treatment `BALANCE-POI-DENSITY` is waiting to give the rest of the table. Value: the
+  den is where the fight happens, instead of a room the timer usually beats you to. Deps:
+  `FEAT-ECON-WARDS` (the guaranteed 3x chest is an econ entry like the rest of the table).
+
+- [ ] **CHORE-NEMESIS-LAIR-ORPHAN-AWAKE** (new 2026-07-31, from FEAT-POI-NEMESIS-LAIR): an awake
+  den whose hunter is absent from the entity list it was saved with (a tampered or truncated save)
+  restores awake and is never broken open, because the only thing that pays its chest is a
+  `NemesisTag` death. It is inert, not a soft-lock: nothing blocks on it and the run is otherwise
+  unaffected. The honest fix is to drop an awake lair on restore when `nemesisSpawned` is true but
+  the entity pass restored no `NemesisTag` enemy. Value: small; it is the one state where the den
+  can promise a chest it will never pay. Deps: none.
 
 - [ ] **BALANCE-AMBUSH-NEST-WAVES** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST): weight 15, the
   two pack sizes, the 0.5/1.4 band scales and the 150 px trip radius are a designed guess informed
@@ -2959,9 +3027,10 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   room stays worth taking instead of becoming the room you learn to skip. Deps: `FEAT-ECON-WARDS`
   (it is the risk half of the same econ question).
 
-- [ ] **CHORE-AMBUSH-NEST-RADAR** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST): a dormant nest is a
-  world-space graphic and nothing else, so it never appears on the radar or on the chart's sector
-  readout; the room only announces itself once it is already on screen. The shipped
+- [ ] **CHORE-AMBUSH-NEST-RADAR** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST; widened 2026-07-31 to
+  cover the nemesis lair): a dormant nest **or nemesis lair** is a world-space graphic and nothing
+  else, so it never appears on the radar or on the chart's sector readout; the room only announces
+  itself once it is already on screen. The shipped
   `sectorDetail` / `poiGlyphs` layer already names what a room holds and the radar already carries
   waypoints and the secret shimmer, so a hazard contact is the natural home for it. Value: the
   choice to take the fight can be made from the chart rather than from the doorway. Deps: none.

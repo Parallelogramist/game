@@ -73,7 +73,17 @@ departs from the model above:
   6-body wave up to depth 2 or a 9-body wave from depth 3 in a ring around itself, and bursts
   into a guaranteed special chest when the last of that wave falls. Its wave is leash-exempt and
   is never serialized, and the nest itself round-trips as `{x, y, depth}` in `poiState.nests`,
-  restored dormant. `poi_nemesis_lair` is not built and is filed as `FEAT-POI-NEMESIS-LAIR`.
+  restored dormant. `poi_nemesis_lair` is live at weight 5, conditional on the profile holding a
+  nemesis that has not yet spawned this run (a `nemesisAvailable` roll input with its own budget,
+  not the shared `oncePerRun` slot the market claims) and capped at one lair per world per run: a
+  dormant den that trips at 160 px and stands the nemesis up at itself through the same
+  `spawnNemesis` path the timer uses, so it arrives with the identical grudge scaling, boss bar
+  and warning. While a den stands untripped it holds the shipped 150 s timer off until the 360 s
+  patience window expires, after which the timer fires as it always has and every empty den stands
+  down. Killing the hunter pays a guaranteed special chest at the **kill** position, not at the
+  den, because a lair nemesis is deliberately not leash-exempt. A den round-trips as
+  `{x, y, awake}` in `poiState.lairs` and never re-spawns a hunter on restore, since a
+  `NemesisTag` enemy is not skipped by the serializer.
   `Secret` and `QuestGiver` slots stay inert for `FEAT-SECRET-CACHE` and `FEAT-QUEST-CHAINS`,
   which own their persistent state.
 - **One catalog entry per shrine archetype** (`poi_shrine_cleanse` / `_power` / `_fortune` /
