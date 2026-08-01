@@ -769,6 +769,41 @@ end of the run that started it. This commit lets one span expeditions.
 7. **No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` bump and no new file.** The stamp is
    one more optional field inside the existing `survivor-expedition-quests` value.
 
+### As built (`FEAT-QUEST-SEASON-CONTRACTS`, a8c1d38, 2026-08-01)
+
+Section 4's catalog is authored and once per profile, and `FEAT-EXPEDITION-SEASONS` keeps
+chain progress across a season, so a finished profile flew every later world with no
+objectives. A world now issues its own. Six points:
+
+1. **A contract is generated, not authored.** New pure `src/expedition/seasonQuests.ts` holds
+   six two-step templates and `buildSeasonQuests(worldSeed)` draws three of them with a
+   Fisher-Yates shuffle seeded on `contracts:<seed>`, memoised on the seed. The definitions it
+   returns are ordinary `ExpeditionQuestDefinition`s, so nothing downstream knows the
+   difference.
+2. **The catalog is the only seam.** `ExpeditionQuestManager.questCatalog()` returns
+   `[...EXPEDITION_QUESTS, ...buildSeasonQuests(getCurrentExpeditionSeed())]` and every
+   `QuestProgress` call the manager already made now takes it. `src/data/ExpeditionQuests.ts`
+   and `src/systems/QuestProgress.ts` are byte-identical.
+3. **Contracts sort after the chains, and that order is the invariant.** `seedQuestStates`
+   fills the three active slots in catalog order; a chain head grants the quest keys the
+   generator seals regions behind, so it must keep winning. A contract auto-activates once the
+   chains stop filling the cap, and is acceptable from the walk-in board before then because
+   `buildQuestBoardEntries` lists every unheld non-successor definition as `available`.
+4. **World-agnostic on purpose.** A contract is a function of the seed and never of the
+   generated map: the catalog is rebuilt on the path every quest read takes, and
+   `generateExpeditionWorld` costs 33 ms. `boss-arena` is the only `sectorTag` used, since
+   every world sets exactly one arena, and no biome tag appears because a biome exists per
+   world. `claimAbility` is excluded: a profile holding all six abilities can never claim a
+   seventh, and that profile is who this ships for.
+5. **Disposal is the unknown-id drop.** The id carries the seed
+   (`quest_contract_<seed>_<key>`), and `sanitizeStates` already drops a state whose quest id
+   is not in the catalog, so re-rolling the world retires its contracts with no migration.
+   Progress on a contract therefore cannot survive into a world that did not issue it.
+6. **Econ-neutral by construction**, on the `FEAT-QUEST-CATALOG-DEPTH` precedent: rewards sit
+   inside the shipped band (steps 60 to 260, completions 120 to 350) and bank into the
+   existing `pendingGold`, so no new payout rail exists and section 6 stays parked. No storage
+   key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.
+
 ---
 
 ## 5. Secrets

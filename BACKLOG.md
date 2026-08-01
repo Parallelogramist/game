@@ -825,6 +825,32 @@ reader anywhere in the game. It touches no gold, no relic roll and no reward-tab
 `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing
 profile lights it up the moment the build lands.
 
+**a8c1d38 gave a world objectives of its own.** Quest state is profile-scope and
+permanent and `fd406d3` keeps chain progress across a season, so a profile that finished the
+four authored chains flew every later world with **no quests at all**, which is the point the
+re-roll had just made worth doing. Every world now issues three contracts, drawn per seed from
+six templates in new pure `src/expedition/seasonQuests.ts` and merged behind
+`EXPEDITION_QUESTS` by a `questCatalog()` seam in `ExpeditionQuestManager`. **The merge order
+is the one invariant**: `seedQuestStates` fills the three active slots in catalog order, so an
+authored chain head, which grants the keys the generator seals regions behind, always wins a
+slot, and a contract auto-activates only once the chains stop filling the cap; it is visible
+and acceptable on the walk-in board before then, because `buildQuestBoardEntries` already lists
+every unheld non-successor definition. No UI shipped and none was needed: toasts, the ticker,
+the OBJECTIVES panel, chart pins, radar bearings and the board all take the catalog as a
+parameter. Contracts are derived from the SEED, never from the generated map, because the
+catalog is rebuilt on the path every quest read takes and `generateExpeditionWorld` costs
+33 ms; `boss-arena` is the one tag used and every world has exactly one, and `claimAbility` is
+deliberately absent because a finished profile can never claim a seventh ability. The id
+carries the seed, so a re-roll retires the old set through the unknown-id drop
+`sanitizeStates` already does, which is why there is no migration. Econ-neutral by
+construction on the `6bfd119` precedent: rewards sit inside the shipped band and ride the
+existing `pendingGold` rail, so `FEAT-ECON-WARDS` stays parked. It files
+`BALANCE-CONTRACT-GOLD-PER-WORLD`, `BALANCE-CONTRACT-SEASON-SCALING` and
+`FEAT-CONTRACT-TEMPLATE-DEPTH`, and it widens `FEAT-QUEST-SWEEP-WORLD-RESET-TELL`: a re-roll
+now silently drops contract progress as well as a sweep's room count, which is the same tell
+that item asks for. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no
+`DISCOVERY_VERSION` bump.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -4819,6 +4845,65 @@ exploring pays is the end of Phase 5.
   left because `MAX_BANKED_SEASONS` is 20 and a 20-row list wants its own scrolling panel
   rather than a codex stats row. Value: a per-world history worth keeping is readable where
   the rest of the record lives. Deps: none.
+
+- [x] **FEAT-QUEST-SEASON-CONTRACTS** (done, a8c1d38) (new 2026-08-01): a world issues its
+  own objectives. Quest state is profile-scope and permanent (a `complete` state is never
+  re-seeded) and `FEAT-EXPEDITION-SEASONS` keeps chain progress across a season, so a profile
+  that finished the four authored chains had **zero quests in every world it ever rolled
+  again**, at exactly the point the re-roll became worth doing. New pure
+  `src/expedition/seasonQuests.ts` holds six two-step contract templates and draws three per
+  seed, and `ExpeditionQuestManager` merges them behind the authored catalog. Value: the
+  objective layer keeps producing work past the authored catalog, and a new world pays in
+  objectives as well as in chart.
+  1. **What shipped**: `buildSeasonQuests(worldSeed)`, memoised on the seed, dealing
+     `quest_contract_<seed>_<key>` definitions from a Fisher-Yates draw over the six templates
+     (survey, ghost, purge, patrol, warden, vigil) seeded on `contracts:<seed>`; a
+     `questCatalog()` seam in `ExpeditionQuestManager` that appends them to `EXPEDITION_QUESTS`
+     and passes the merged list into every `QuestProgress` call the manager already made.
+  2. **No new surface at all.** Toasts, the run ticker, the OBJECTIVES panel, chart pins,
+     radar bearings and the walk-in board all take the catalog as a parameter, so widening it
+     lit every one of them up with no UI code.
+  3. **Order is the invariant**: contracts sit AFTER the chains, because `seedQuestStates`
+     fills the three active slots in catalog order and a chain head grants the quest keys the
+     generator seals regions behind. A contract auto-activates only once the chains stop
+     filling the cap, and is visible and acceptable before then because
+     `buildQuestBoardEntries` lists every unheld non-successor definition as `available`.
+  4. **World-agnostic by construction**: a contract is derived from the seed, never from the
+     generated map, because the catalog is rebuilt on the path every quest read takes and
+     `generateExpeditionWorld` costs 33 ms. `boss-arena` is the one tag used and every world
+     has exactly one. `claimAbility` is deliberately absent: a profile holding all six
+     abilities can never claim a seventh, and the exhausted profile is who this ships for.
+  5. **Disposal needs no migration**: the id carries the seed, so a re-roll retires the old
+     world's contracts through the unknown-id drop `sanitizeStates` already performs.
+  6. **Econ-neutral by construction**, on the `FEAT-QUEST-CATALOG-DEPTH` precedent: every
+     reward sits inside the shipped band (steps 60 to 260, completions 120 to 350) and rides
+     the existing `pendingGold` rail, so `FEAT-ECON-WARDS` stays parked and untouched. The
+     recurring per-world total (about 1.7k to 2.0k gold against roughly 6.7k one-time for the
+     whole authored catalog) is filed as the play-gated `BALANCE-CONTRACT-GOLD-PER-WORLD`.
+  7. No storage key, no `ALL_STORAGE_KEYS` entry, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and
+     no `DISCOVERY_VERSION` bump, and `src/data/ExpeditionQuests.ts` is byte-identical, so
+     `EXPEDITION_QUEST_KEY_ORDER` and every sealed region are unmoved and every existing
+     profile gets its contracts the moment the build lands.
+
+- [ ] **BALANCE-CONTRACT-GOLD-PER-WORLD** (new 2026-08-01, from FEAT-QUEST-SEASON-CONTRACTS):
+  three contracts pay about 1.7k to 2.0k gold per world, recurring, against roughly 6.7k
+  one-time for the whole authored catalog. Every row sits inside the shipped band and adds no
+  payout rail, which is what made the set econ-neutral to ship, but whether a per-world 1.8k
+  reads as a reward or as an income floor is a feel judgement that wants a browser and a
+  player. Deps: play, and `FEAT-ECON-WARDS` if the operator unparks it.
+
+- [ ] **BALANCE-CONTRACT-SEASON-SCALING** (new 2026-08-01, from FEAT-QUEST-SEASON-CONTRACTS):
+  targets are flat across worlds, so world 9's Grand Survey asks for the same twelve sectors
+  world 2's did. `getCurrentExpeditionSeasonIndex()` is already exported and scaling is one
+  multiplier, but how fast it should climb, and whether a contract should get harder at all
+  when the world does not, is a feel judgement. Deps: play.
+
+- [ ] **FEAT-CONTRACT-TEMPLATE-DEPTH** (new 2026-08-01, from FEAT-QUEST-SEASON-CONTRACTS):
+  six templates drawn three at a time means two consecutive worlds share a contract about half
+  the time. More templates is pure data against the shipped shape, and the triggers with no
+  template yet are the tagged-biome ones, which need the world map and therefore a generated
+  world on the catalog path (33 ms, rejected here) or a cached per-seed derivation. Value: a
+  world's set reads as its own. Deps: none.
 
 - [ ] **FEAT-SEASON-SEED-SHARE** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS):
   `references/map/README.md` section 6's seed-sharing bullet is now one text field away,
