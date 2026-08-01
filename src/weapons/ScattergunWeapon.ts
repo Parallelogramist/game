@@ -2,7 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform, Health } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
-import { beamReachFraction } from '../world/weaponWallBehavior';
+import { playerBeamReachFraction } from '../world/weaponWallBehavior';
 
 const STREAK_POOL_SIZE = 32;
 const SPREAD_RAD = 0.9;          // total fan angle of the pellet spread (~52°)
@@ -130,8 +130,9 @@ export class ScattergunWeapon extends BaseWeapon {
       const dirY = Math.sin(angle);
       // The clipped reach drives the projection test, the streak and the endpoint together, so
       // a pellet cannot skewer an enemy standing behind the wall its streak stops at.
-      const reach = pelletLength * beamReachFraction(
+      const reach = pelletLength * playerBeamReachFraction(
         ctx.worldMap, shipX, shipY, shipX + dirX * pelletLength, shipY + dirY * pelletLength,
+        ctx.gameTime,
       );
       const endX = shipX + dirX * reach;
       const endY = shipY + dirY * reach;

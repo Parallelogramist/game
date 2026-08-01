@@ -12,8 +12,9 @@
  *   projectileBlocked() from its own loop. Player travellers call playerProjectileBlocked,
  *   which also chips a breakable barrier; enemy fire calls projectileBlocked, which never does.
  * - Bounces (the one exception that needs the resolver, not this predicate): Ricochet, which
- *   calls resolveCircleMove directly for the reflection axis. Wrapping that here would add a
- *   pass-through with nothing to say.
+ *   calls resolveCircleMove directly for the reflection axis and reports its own contact impact
+ *   from the axis the resolver flagged, since only the caller knows which way the ball was
+ *   travelling when it was turned around.
  * - Emanates (ignores geometry entirely): auras, novas, pulses, storms, meteors, ground
  *   spikes, mines, wake, singularity, chain-lightning jumps, flamethrower cones, orbitals,
  *   melee arcs, and every splash radius including detonateArea. Small radii clipped by walls
@@ -22,9 +23,12 @@
  * - Grenade is a lob, not a traveller: it interpolates to a target point with an arc height
  *   and never samples a tile in flight, so it sails over a wall and needs nothing here.
  * - Hitscan lines (instant, no travel time): clipped at the first solid tile via
- *   beamReachFraction(). Arc Sweep clips each spoke, Laser Beam clips its main and refracted
- *   endpoints, Scattergun clips each pellet ray, and the Machine's boss laser clips at
- *   GameScene.handleLaserBeam, the one choke point every boss beam goes through. Focus Beam is
+ *   beamReachFraction(), and by playerBeamReachFraction() for a player line, which also chips
+ *   the breakable barrier it stopped at, rate limited per barrier because a swept line is a
+ *   per-frame query rather than one projectile. Arc Sweep clips each spoke, Laser Beam clips
+ *   its main and refracted endpoints, Scattergun clips each pellet ray, and the Machine's boss
+ *   laser clips at GameScene.handleLaserBeam, the one choke point every boss beam goes through,
+ *   on the plain fraction because it is enemy fire. Focus Beam is
  *   a lock-on rather than a swept line, so clipping has no meaning for it: it uses the same
  *   primitive as a line-of-sight test instead, and refuses to hold or take a lock through rock.
  *   Railgun is the declared pierce exception and is realised by not clipping it.
@@ -34,7 +38,7 @@
  */
 
 import { MoverKind, isSolidAtWorld, raycastSolid } from './staticCollision';
-import { reportPlayerImpact } from './barrierState';
+import { reportPlayerContactImpact, reportPlayerImpact } from './barrierState';
 import type { WorldMap } from './worldTypes';
 
 /**
@@ -71,4 +75,30 @@ export function beamReachFraction(
 ): number {
   if (world === null) return 1;
   return raycastSolid(world, x1, y1, x2, y2, MoverKind.Projectile);
+}
+
+/** World px past the entry point a beam's impact is probed at, so it lands inside the blocking
+ *  tile rather than on its boundary. TILE_SIZE is 40, so this cannot reach the next tile. */
+const BEAM_IMPACT_PROBE_PX = 1;
+
+/**
+ * The same fraction as beamReachFraction, for a PLAYER hitscan line, which additionally lands
+ * one rate-limited contact impact on whatever breakable barrier stopped it. A fraction of 0
+ * reports nothing: the origin is already inside rock, so no part of the line ever existed.
+ * Enemy hitscan (the boss laser) keeps calling beamReachFraction, on doc 02 section 4's rule
+ * that enemy fire stops at a destructible without damaging it.
+ */
+export function playerBeamReachFraction(
+  world: WorldMap | null, x1: number, y1: number, x2: number, y2: number, nowSeconds: number,
+): number {
+  if (world === null) return 1;
+  const fraction = raycastSolid(world, x1, y1, x2, y2, MoverKind.Projectile);
+  if (fraction <= 0 || fraction >= 1) return fraction;
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  if (length === 0) return fraction;
+  const probe = fraction + BEAM_IMPACT_PROBE_PX / length;
+  reportPlayerContactImpact(world, x1 + dx * probe, y1 + dy * probe, nowSeconds);
+  return fraction;
 }

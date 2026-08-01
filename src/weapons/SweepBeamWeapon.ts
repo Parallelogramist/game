@@ -4,7 +4,7 @@ import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { HitCooldownTracker } from './WeaponUtils';
 import { isEnemyInBeam } from './sweepBeamLogic';
-import { beamReachFraction } from '../world/weaponWallBehavior';
+import { playerBeamReachFraction } from '../world/weaponWallBehavior';
 
 const ROTATION_SPEED = 2.4;        // rad/sec — a full sweep every ~2.6s (readable, not dizzying)
 const EVOLVED_ROTATION_MULT = 1.4; // Corona scythes faster
@@ -98,9 +98,9 @@ export class SweepBeamWeapon extends BaseWeapon {
       const spokeAngle = this.angle + k * step;
       const cos = Math.cos(spokeAngle);
       const sin = Math.sin(spokeAngle);
-      const reach = length * beamReachFraction(
+      const reach = length * playerBeamReachFraction(
         ctx.worldMap, ctx.playerX, ctx.playerY,
-        ctx.playerX + cos * length, ctx.playerY + sin * length,
+        ctx.playerX + cos * length, ctx.playerY + sin * length, time,
       );
       this.spokeReach[k] = reach;
       for (const enemyId of enemies) {

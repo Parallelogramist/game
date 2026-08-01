@@ -6,6 +6,7 @@ import type { VisualQuality } from '../visual/GlowGraphics';
 import { findNearestEnemy } from './WeaponUtils';
 import { PROJECTILE_ATLAS_KEY, getRicochetFrame } from '../visual/ProjectileAtlasRenderer';
 import { MoverKind, createCollisionResult, resolveCircleMove } from '../world/staticCollision';
+import { reportPlayerContactImpact } from '../world/barrierState';
 
 const RICOCHET_TRAIL_LENGTH = 6;
 const POOL_SIZE = 40;
@@ -15,6 +16,10 @@ const POOL_SIZE = 40;
 // keeps every gap the ship fits through passable, at the cost of under a ball-width of
 // visual overlap on contact.
 const WALL_BOUNCE_RADIUS = 6;
+
+// Probed past the resting radius so the point lands inside the tile that turned the ball,
+// not on the face it is resting against.
+const BOUNCE_IMPACT_PROBE_PX = 2;
 
 // Caller-owned scratch, reused every frame: this runs per live ball per frame and the repo's
 // pooling rule forbids allocating in it. It carries nothing between frames, so unlike the
@@ -239,10 +244,22 @@ export class RicochetWeapon extends BaseWeapon {
         ball.x = wallBounce.x;
         ball.y = wallBounce.y;
         if (wallBounce.hitX) {
+          reportPlayerContactImpact(
+            ctx.worldMap,
+            ball.x + Math.sign(ball.velocityX) * (WALL_BOUNCE_RADIUS + BOUNCE_IMPACT_PROBE_PX),
+            ball.y,
+            ctx.gameTime,
+          );
           ball.velocityX = -ball.velocityX;
           bounced = true;
         }
         if (wallBounce.hitY) {
+          reportPlayerContactImpact(
+            ctx.worldMap,
+            ball.x,
+            ball.y + Math.sign(ball.velocityY) * (WALL_BOUNCE_RADIUS + BOUNCE_IMPACT_PROBE_PX),
+            ctx.gameTime,
+          );
           ball.velocityY = -ball.velocityY;
           bounced = true;
         }

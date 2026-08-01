@@ -13,6 +13,7 @@ import {
 import type { BreakableRect, EdgeDef, EdgeDirection, SectorDef, WorldMap } from './worldTypes';
 import {
   ABILITY_DOOR_OPEN_RADIUS,
+  BARRIER_CONTACT_INTERVAL_SECONDS,
   BARRIER_IMPACTS_TO_BREAK,
   applyBrokenBarriers,
   applyEarnedQuestKeys,
@@ -22,9 +23,11 @@ import {
   barrierIdAtWorld,
   clearBarrier,
   openAbilityGate,
+  reportPlayerContactImpact,
   reportPlayerImpact,
   setBarrierEventSink,
 } from './barrierState';
+import { playerBeamReachFraction } from './weaponWallBehavior';
 
 const APERTURE_START = 8;
 const APERTURE_END = 11;
@@ -365,5 +368,58 @@ describe('nearestBreakableBarrier', () => {
 
     expect(clearBarrier(world, POCKET.id)).toBe(true);
     expect(nearestBreakableBarrier(world, beside.x, beside.y, 40)).toBeNull();
+  });
+});
+
+describe('contact impacts', () => {
+  it('ignores a second contact inside the interval and takes the one after it', () => {
+    const world = makeWorld();
+    const chipped: string[] = [];
+    setBarrierEventSink({
+      onBarrierChipped: (_x, _y, id) => { chipped.push(id); },
+      onBarrierBroken: () => {},
+    });
+    const point = tileCentre(0, POCKET.tileX, POCKET.tileY);
+    reportPlayerContactImpact(world, point.x, point.y, 10);
+    reportPlayerContactImpact(world, point.x, point.y, 10 + BARRIER_CONTACT_INTERVAL_SECONDS / 2);
+    expect(chipped).toEqual([POCKET.id]);
+    reportPlayerContactImpact(world, point.x, point.y, 10 + BARRIER_CONTACT_INTERVAL_SECONDS);
+    expect(chipped).toEqual([POCKET.id, POCKET.id]);
+    setBarrierEventSink(null);
+  });
+
+  it('breaks the barrier after BARRIER_IMPACTS_TO_BREAK spaced contacts', () => {
+    const world = makeWorld();
+    let broken: string | null = null;
+    setBarrierEventSink({
+      onBarrierChipped: () => {},
+      onBarrierBroken: (_x, _y, id) => { broken = id; },
+    });
+    const point = tileCentre(0, POCKET.tileX, POCKET.tileY);
+    for (let impact = 0; impact < BARRIER_IMPACTS_TO_BREAK; impact++) {
+      reportPlayerContactImpact(
+        world, point.x, point.y, impact * BARRIER_CONTACT_INTERVAL_SECONDS,
+      );
+    }
+    expect(broken).toBe(POCKET.id);
+    expect(tileAt(world, '0,0', POCKET.tileX, POCKET.tileY)).toBe(TileKind.Open);
+    setBarrierEventSink(null);
+  });
+
+  // Lives here rather than in a weaponWallBehavior test file to reuse makeWorld()'s pocket.
+  it('lands a player beam impact on the barrier the line stopped at', () => {
+    const world = makeWorld();
+    const chipped: string[] = [];
+    setBarrierEventSink({
+      onBarrierChipped: (_x, _y, id) => { chipped.push(id); },
+      onBarrierBroken: () => {},
+    });
+    const from = tileCentre(0, POCKET.tileX - 3, POCKET.tileY);
+    const to = tileCentre(0, POCKET.tileX + 1, POCKET.tileY);
+    const fraction = playerBeamReachFraction(world, from.x, from.y, to.x, to.y, 0);
+    expect(fraction).toBeGreaterThan(0);
+    expect(fraction).toBeLessThan(1);
+    expect(chipped).toEqual([POCKET.id]);
+    setBarrierEventSink(null);
   });
 });

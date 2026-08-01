@@ -2,7 +2,7 @@ import { BaseWeapon, WeaponContext, WeaponStats } from './BaseWeapon';
 import { Transform } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
-import { beamReachFraction } from '../world/weaponWallBehavior';
+import { playerBeamReachFraction } from '../world/weaponWallBehavior';
 
 // Pre-computed hexagon unit vectors for prism flash effect
 const HEXAGON_VERTICES: readonly { cos: number; sin: number }[] = (() => {
@@ -107,7 +107,9 @@ export class LaserBeamWeapon extends BaseWeapon {
 
       // fireBeam scans damage and draws against the segment it is given, so clipping the
       // endpoint once here stops the beam and its visual at the wall together.
-      const reachFraction = beamReachFraction(ctx.worldMap, ctx.playerX, ctx.playerY, endX, endY);
+      const reachFraction = playerBeamReachFraction(
+        ctx.worldMap, ctx.playerX, ctx.playerY, endX, endY, ctx.gameTime,
+      );
       const clippedEndX = ctx.playerX + (endX - ctx.playerX) * reachFraction;
       const clippedEndY = ctx.playerY + (endY - ctx.playerY) * reachFraction;
 
@@ -246,7 +248,9 @@ export class LaserBeamWeapon extends BaseWeapon {
 
         // A refracted beam starts at a dead enemy's position, which can be inside rock once
         // enemies stop phasing through walls; a zero fraction is the honest answer there.
-        const reachFraction = beamReachFraction(ctx.worldMap, hitPos.x, hitPos.y, endX, endY);
+        const reachFraction = playerBeamReachFraction(
+          ctx.worldMap, hitPos.x, hitPos.y, endX, endY, ctx.gameTime,
+        );
         const clippedEndX = hitPos.x + (endX - hitPos.x) * reachFraction;
         const clippedEndY = hitPos.y + (endY - hitPos.y) * reachFraction;
 

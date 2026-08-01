@@ -51,6 +51,20 @@ const POCKET_BARRIER_ID = /^breakable:(-?\d+),(-?\d+):(\d+)$/;
 // this way: there is no reset function to forget to call.
 const impactsByWorld = new WeakMap<WorldMap, Map<string, number>>();
 
+/**
+ * Seconds a barrier ignores further CONTACT impacts after taking one. A swept beam is a
+ * per-frame state query and a ricochet can rattle, so an ungated contact would break a wall in
+ * a fifth of a second; a traveller reports one impact per projectile and needs no gate. The
+ * value is Energy Darts' base cooldown, so BARRIER_IMPACTS_TO_BREAK contacts cost the same 5.0 s
+ * of sustained fire a starting projectile build pays. It is per barrier rather than per weapon:
+ * how long a wall takes to fall is a property of the wall, not of the loadout.
+ */
+export const BARRIER_CONTACT_INTERVAL_SECONDS = 0.5;
+
+// Same WeakMap-by-world keying as impactsByWorld, for the same reason: a new run's world gets a
+// new entry and there is no reset function to forget to call.
+const contactAtByWorld = new WeakMap<WorldMap, Map<string, number>>();
+
 let eventSink: BarrierEventSink | null = null;
 
 export function setBarrierEventSink(sink: BarrierEventSink | null): void {
@@ -435,14 +449,7 @@ function applyGateKeys(
   return opened;
 }
 
-/**
- * One player projectile impact at a world point. A point in open floor or in permanent rock
- * is not an error, it is the common case: the caller reports every blocked projectile and
- * this decides whether anything there can be broken.
- */
-export function reportPlayerImpact(world: WorldMap, x: number, y: number): void {
-  const barrierId = barrierIdAtWorld(world, x, y);
-  if (barrierId === null) return;
+function landImpact(world: WorldMap, barrierId: string, x: number, y: number): void {
   let counters = impactsByWorld.get(world);
   if (counters === undefined) {
     counters = new Map<string, number>();
@@ -455,6 +462,44 @@ export function reportPlayerImpact(world: WorldMap, x: number, y: number): void 
     return;
   }
   counters.delete(barrierId);
+  contactAtByWorld.get(world)?.delete(barrierId);
   clearBarrier(world, barrierId);
   eventSink?.onBarrierBroken(x, y, barrierId);
+}
+
+/**
+ * One player projectile impact at a world point. A point in open floor or in permanent rock
+ * is not an error, it is the common case: the caller reports every blocked projectile and
+ * this decides whether anything there can be broken.
+ */
+export function reportPlayerImpact(world: WorldMap, x: number, y: number): void {
+  const barrierId = barrierIdAtWorld(world, x, y);
+  if (barrierId === null) return;
+  landImpact(world, barrierId, x, y);
+}
+
+/**
+ * The same impact from a source that can touch the same barrier many times a second: a swept
+ * beam, a clipped hitscan line, a bouncing ball. Rate limited per barrier by
+ * BARRIER_CONTACT_INTERVAL_SECONDS, so sustained contact costs what a traveller costs.
+ */
+export function reportPlayerContactImpact(
+  world: WorldMap, x: number, y: number, nowSeconds: number,
+): void {
+  const barrierId = barrierIdAtWorld(world, x, y);
+  if (barrierId === null) return;
+  let contactAt = contactAtByWorld.get(world);
+  if (contactAt === undefined) {
+    contactAt = new Map<string, number>();
+    contactAtByWorld.set(world, contactAt);
+  }
+  const previous = contactAt.get(barrierId);
+  // nowSeconds is the run's gameTime, which restarts at 0: a timestamp from the future is a
+  // new run against a reused world, and must not mute contact until the clock catches up.
+  const muted = previous !== undefined
+    && nowSeconds >= previous
+    && nowSeconds - previous < BARRIER_CONTACT_INTERVAL_SECONDS;
+  if (muted) return;
+  contactAt.set(barrierId, nowSeconds);
+  landImpact(world, barrierId, x, y);
 }
