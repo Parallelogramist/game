@@ -953,6 +953,26 @@ neighbourhood, so the pass now also rejects a ring touching `protectedTileIndice
 `FEAT-SECRET-WALL-MAP-TELL` and `CHORE-SECRET-WALL-EMANATE-LOCKOUT`. No storage key and no
 version bump of any kind, and no econ surface, so `FEAT-ECON-WARDS` stays parked.
 
+**24f1915** gave the third traversal ability something to open. Two of six abilities were keys
+with nothing behind them, and `FEAT-POWER-ABILITY-EFFECTS-REST` priced both at the same
+`WORLDGEN_VERSION` bump the false wall had just been priced at, which discards every profile's
+discovery state and orphans all 21 archivable worlds. **That price was not required, and this
+pass is strictly safer than the one that already disproved it**: discovery keys on sector keys,
+edge ids, POI ids and breakable rect ids, and `carveSecretGaps` moves none of them and registers
+zero breakable rects. Some caches now sit in a pocket ringed by `TileKind.VoidGap`, a chasm no
+weapon opens and no enemy crosses, which projectiles fly straight over, so the cache is fully
+visible from across it while being unreachable. A ship without the tether that noses up to one
+gets a `VOID GAP` toast naming Magno-Tether, the courtesy a sealed door and a hazard strip
+already extend; a ship with it drives in and is reeled across instantly on the `tryBlink`
+precedent, with `sprintLevel` shortening the re-arm. Two rules keep it honest: no ring cell may
+be a registered breakable, or one weapon would make the tether optional, and
+`cardinalCrossingExists` proves a straight reel in and straight back out before the ring
+converts, so a pocket is never a room with no way home. Measured over 101 worlds the four
+find-shapes now split 38.7% walk-in, 29.3% ring, 23.4% wall, 8.5% gap, a median 2 gapped caches
+per world. It files `BALANCE-SECRET-GAP-SHARE`, `FEAT-SECRET-GAP-MAP-TELL` and
+`CHORE-VOID-GAP-RADAR-UNDERLAY`. No storage key and no version bump of any kind, and it moves no
+gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -5702,10 +5722,12 @@ exploring pays is the end of Phase 5.
 
 - [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the traversal abilities that are still keys
   and nothing more, each blocked on a barrier flavour that does not exist yet rather than on
-  effort. **Two remain**, and both are blocked on a barrier flavour `TileKind` has no member for,
-  so each costs a `WORLDGEN_VERSION` bump that discards every profile's per-seed discovery state:
-  `ability_magno_tether` needs `barrier_void_gap` with anchor pylons and `ability_phase_cloak`
-  needs `barrier_security_grid`, neither of which any generator phase emits.
+  effort. **One remains**: `ability_phase_cloak` needs `barrier_security_grid`, which no
+  generator phase emits. **The `WORLDGEN_VERSION` price this entry used to quote for both
+  remaining abilities was never actually required** and 24f1915 proved it: a new `TileKind`
+  member and a whole tile-level barrier landed with no bump at all, because discovery is keyed
+  on sector keys, edge ids, POI ids and breakable rect ids and that pass moves none of them.
+  Do not re-price the last one on the old wording.
   (`ability_breach_charges` is **done — bd1d33d**: rubble seams now collapse under a charge the
   ship plants by nosing into them, so it is the **fourth** id in
   `IMPLEMENTED_TRAVERSAL_ABILITY_IDS`. Its barrier was the only one of the three the generator
@@ -5718,6 +5740,12 @@ exploring pays is the end of Phase 5.
   needs all three input paths plus a cooldown readout, a HUD-layout change larger than the feature.
   **The blast damages nothing**, because doc 04 section 2 makes "no ability grants damage" a hard
   type-level rule.)
+  (`ability_magno_tether` is **done, 24f1915**: `TileKind.VoidGap` and `carveSecretGaps` landed
+  `barrier_void_gap` as the last pass in the sector, so it is the **fifth** id in
+  `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and its claim toast prints a real description. **Anchor
+  pylons were deliberately not built and the description was reworded to stop promising them**,
+  the same call `ability_breach_charges` made about its prospecting clause. See
+  `FEAT-POWER-MAGNO-TETHER` for the full account.)
   (`ability_thermal_ward` is **done — 74d78b3**: `FEAT-BARRIER-HAZARD-STRIPS` landed the hull
   drain and the ward now negates it, so it is the second ability in
   `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and its claim toast prints its real description.)
@@ -5729,6 +5757,86 @@ exploring pays is the end of Phase 5.
   lands, and each must add its id to `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` so the claim toast
   starts printing its real description. Deps: per ability, as listed. Spec:
   `04-content-quests-powerups-secrets.md` section 2.
+
+- [x] **FEAT-POWER-MAGNO-TETHER** (done, 24f1915) (new 2026-08-01, from
+  `FEAT-POWER-ABILITY-EFFECTS-REST`): the third traversal ability stops being a key with nothing
+  to open. Doc 04 section 2 row 3. Value: the player sees a cache across a chasm no weapon
+  opens, learns by name that the Magno-Tether is the answer, earns it, and then drives into the
+  chasm and gets reeled across.
+  1. **What shipped**: `TileKind.VoidGap` and `PoiSlot.gapped` in `worldTypes.ts`,
+     `carveSecretGaps` + `cardinalCrossingExists` as the **last** pass in `buildSectorInterior`
+     (after `sealSecretCaches`, drawing no value from the sector rng), one branch each in
+     `isSolidForMotion` and `isSolidAtWorld` so a gap blocks hulls and enemies but passes
+     projectiles, the new pure `src/world/voidGaps.ts` (`findTetherCrossing`,
+     `voidGapNearWorld`), the instant reel `tryMagnoTether` on the `tryBlink` precedent, the
+     `VOID GAP` notice `reportVoidGap`, `SecretLead.gap` with `GAPPED_CACHE_SENTENCE` on both
+     lead surfaces, and the near-black teal-rimmed floor wash in `WorldGeometryRenderer`. One
+     new module, no new storage key.
+  2. **The version-bump price the parent entry quoted was never actually required**, and the
+     proof is `sealSecretCaches` (f534717): discovery state keys on sector keys, edge ids, POI
+     ids and breakable rect ids, and this pass moves none of them and registers **zero**
+     `BreakableRect`s, so it is strictly safer than the barrier that already shipped without a
+     bump. A bump would have discarded every profile's per-seed discovery state and orphaned all
+     21 archivable worlds for nothing.
+  3. **Measured, four find-shapes**: over 101 worlds (live seed 20260727 plus the 100 invariant
+     seeds) the 2480 secret slots split 38.7% plain walk-in (960), 29.3% sigil ring (727), 23.4%
+     false wall (581), 8.5% void gap (212). `SECRET_GAP_SHARE_PERCENT` is 35 of the slots
+     neither a ring nor a wall already claimed, and the footprint and flood guards take that to
+     an effective 18%. Median 2 gapped caches per world (min 0, max 6; live seed 20260727 has 1).
+  4. **Two correctness rules, both pinned by the suite.** No ring cell may be a registered
+     breakable, because a weapon opening one hole would make the tether optional and the whole
+     gate a lie (invariant 12 asserts no ring cell is covered by a rect). And
+     `cardinalCrossingExists` guarantees at least one straight reel in and straight back out per
+     gapped cache, checked before the ring converts, so a pocket can never become a room with no
+     way home. Recall remains the standing escape hatch it already was.
+  5. **The hop is instant, and that is settled: do not re-derive it.** A ship suspended over a
+     chasm would be a state the run save, the boss seal and the death path each need an answer
+     for, and `tryBlink` already proves a one-frame hop reads as movement rather than a teleport.
+     `updateExpeditionAbilities` runs before `movementSystem` in the frame, which is why the
+     instant hop is safe and a multi-frame one would fight the collision resolver.
+  6. **Proximity-and-heading rather than a button, and that is settled too**, on the
+     `POLISH-DECRYPTOR-ACTIVE-BUTTON` and breach-charge precedent: a pressable ability needs all
+     three input paths plus a cooldown readout, a HUD-layout change larger than the feature.
+     `Velocity` survives a collision (the resolver writes position and leaves velocity alone), so
+     a ship pressed against a rim still carries the heading the probe needs.
+  7. **Anchor pylon props were deliberately not built.** The teal rim is the tell; an entity per
+     rim cell would be up to 32 GameObjects per gapped cache for decoration, and the ability
+     description was reworded to stop promising them, exactly as `ability_breach_charges` did
+     with its prospecting clause.
+  8. **`sprintLevel` is the documented synergy hook and now has a real one**: it shortens the
+     reel's re-arm from 1.2 s toward a 0.5 s floor, 0.14 s per level, the way `dashLevel`
+     shortens the blink's cooldown.
+  9. **`ability_phase_cloak` is now the one inert ability**, and its blocker is genuinely
+     different rather than more of the same: `barrier_security_grid`'s spec is a **hold** with a
+     duration and an inside kill-switch, which is precisely the input-path problem this chunk
+     sidestepped by being passive, plus a per-world permanent write.
+  It files `BALANCE-SECRET-GAP-SHARE`, `FEAT-SECRET-GAP-MAP-TELL` and
+  `CHORE-VOID-GAP-RADAR-UNDERLAY`. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and
+  no `DISCOVERY_VERSION` bump, so every existing profile and all 21 archivable worlds light it up
+  on the next build. No econ surface, so `FEAT-ECON-WARDS` stays parked.
+
+- [ ] **BALANCE-SECRET-GAP-SHARE** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER): the 35% share
+  of unclaimed caches, the 1.2 s to 0.5 s re-arm and the 3-tile span cap are designed guesses,
+  measured but never played. They land the four find-shapes at 38.7% walk-in / 29.3% ring / 23.4%
+  wall / 8.5% gap over 101 worlds, a median 2 gapped caches per world (min 0, max 6), but whether
+  a chasm you cross in one frame every 1.2 s reads as a power or as a formality depends on how a
+  real run feels around it. Value: a chasm that reads as an invitation rather than as a detour.
+  Deps: none, but it wants play rather than a fourth guess.
+
+- [ ] **FEAT-SECRET-GAP-MAP-TELL** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER): the chart is
+  sector-granular, so a gapped cache is legible only in the room itself and, as text, on the
+  LEADS panel. It pairs exactly with `FEAT-SECRET-WALL-MAP-TELL`: both want a per-sector glyph
+  saying "a cache here needs something you may not have", both need a legend row and a
+  requirement clause, and both live on `FEAT-MAPUI-LEGEND-REQUIREMENTS`' surface rather than
+  their own. **Fix them together or not at all**, because two find-shapes sharing one legend row
+  is one design decision, not two. Value: the chart answers "is this one behind a gap" without
+  flying there. Deps: none.
+
+- [ ] **CHORE-VOID-GAP-RADAR-UNDERLAY** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER):
+  `MinimapManager.UNDERLAY_WALL_KINDS` lists Solid, Breakable and GateClosed, so a void gap is
+  invisible on the radar, the same silence hazard strips already keep. The radar therefore draws
+  a gapped pocket as open floor and implies a room is crossable when it is not. Value: the radar
+  stops lying about which rooms a ship can walk through. Deps: none.
 
 - [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
   sector banner, fragment cascades, secret bloom, completion milestones at 25/50/75/100 and the
