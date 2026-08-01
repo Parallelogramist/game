@@ -67,6 +67,7 @@ function createDefaultLifetimeStats(): LifetimeStats {
     hiddenSectorsFoundTotal: 0,
     loreFragmentsFound: 0,
     bestWorldCompletionPercent: 0,
+    worldsConqueredTotal: 0,
   };
 }
 
@@ -153,6 +154,7 @@ const LIFETIME_STAT_SPECS: Record<keyof LifetimeStats, StoredNumberSpec> = {
   hiddenSectorsFoundTotal: { floor: true, allowInfinity: false },
   loreFragmentsFound: { floor: true, allowInfinity: false },
   bestWorldCompletionPercent: { floor: true, allowInfinity: false },
+  worldsConqueredTotal: { floor: true, allowInfinity: false },
 };
 
 /** Rebuild lifetime stats from the known fields only, coercing each value.
@@ -275,6 +277,13 @@ export class AchievementManager {
     const clampedPercent = Math.min(100, Math.max(0, Math.floor(percent)));
     if (clampedPercent <= stats.bestWorldCompletionPercent) return;
     stats.bestWorldCompletionPercent = clampedPercent;
+    this.savePersistentState();
+  }
+
+  /** Ticked only by the world profile's first conquest of a given world (see
+   *  markWorldConquered), so this counts worlds and never victories. */
+  recordWorldConquered(): void {
+    this.persistentState.lifetimeStats.worldsConqueredTotal++;
     this.savePersistentState();
   }
 

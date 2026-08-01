@@ -21,11 +21,16 @@ export interface WorldProfileState {
   worldSeed: number;
   worldGenVersion: number;
   brokenBreakableIds: string[];
+  /** True once this profile has killed this world's boss. Optional in storage on purpose:
+   *  a payload written before this field shipped reads false, which is why
+   *  WORLD_PROFILE_VERSION does NOT move: a bump would discard every remembered wall. */
+  conquered: boolean;
 }
 
 function emptyProfile(worldSeed: number, worldGenVersion: number): WorldProfileState {
   return {
     version: WORLD_PROFILE_VERSION, worldSeed, worldGenVersion, brokenBreakableIds: [],
+    conquered: false,
   };
 }
 
@@ -53,6 +58,7 @@ export function loadWorldProfile(
           brokenBreakableIds: ids
             .filter((id): id is string => typeof id === 'string' && BARRIER_ID.test(id))
             .slice(0, MAX_REMEMBERED_BARRIERS),
+          conquered: parsed.conquered === true,
         };
       }
     }
@@ -76,4 +82,24 @@ export function recordBrokenBarrier(
   } catch {
     console.warn('Could not save world profile to storage');
   }
+}
+
+/** Returns true only on the false→true transition, so the caller can count DISTINCT worlds
+ *  conquered without a second store. A failed write returns false: nothing may be counted
+ *  that was not recorded. */
+export function markWorldConquered(worldSeed: number, worldGenVersion: number): boolean {
+  const profile = loadWorldProfile(worldSeed, worldGenVersion);
+  if (profile.conquered) return false;
+  profile.conquered = true;
+  try {
+    SecureStorage.setItem(STORAGE_KEY_WORLD_PROFILE, JSON.stringify(profile));
+  } catch {
+    console.warn('Could not save world profile to storage');
+    return false;
+  }
+  return true;
+}
+
+export function isWorldConquered(worldSeed: number, worldGenVersion: number): boolean {
+  return loadWorldProfile(worldSeed, worldGenVersion).conquered;
 }

@@ -90,7 +90,7 @@ import {
   openAbilityGate, setBarrierEventSink,
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
-import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
+import { markWorldConquered, recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead, chooseHintTarget, findSecretSector, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
@@ -468,6 +468,20 @@ const NEMESIS_LAIR_COLOR = 0xff2233;
  *  a player who never flies to the den still meets the nemesis. */
 const NEMESIS_LAIR_PATIENCE_SECONDS = 360;
 
+/** The world's boss waits in the room the generator built for it. The throne is legible from
+ *  across the arena and trips inside the lair's radius: the sector is 1280 x 720, so a ship
+ *  can still cross the room without taking the fight. */
+const WARDEN_THRONE_TRIGGER_RADIUS = 150;
+const WARDEN_THRONE_DRAW_RADIUS = 34;
+/** Deliberately not the lair's crimson and not the nest's hazard orange: a den, a hive and a
+ *  throne are three different fights, so they must not read the same across a room. */
+const WARDEN_THRONE_COLOR = 0xcc44ff;
+const WARDEN_THRONE_GLOW = 0xe6b3ff;
+/** How long the scheduled boss holds off while a throne is standing. Past it the timer fires
+ *  as it always has and the throne stands down, so a player who never walks in still meets
+ *  the boss and loses nothing that ships today. */
+const WARDEN_THRONE_PATIENCE_SECONDS = 300;
+
 /** How the room answers a hold objective. The gap between waves shrinks as the hold nears its
  *  target, so the last stretch is the expensive one rather than the first. */
 const SIEGE_WAVE_INTERVAL_START_SECONDS = 24;
@@ -655,6 +669,13 @@ export class GameScene extends Phaser.Scene {
   /** The nemesis lair, expedition only and at most one per world per run. World-space and
    *  run-scoped like a nest. */
   private activeNemesisLairs: ActiveNemesisLair[] = [];
+  /** The world's boss, waiting in its arena. Expedition only, one per world, and rebuilt per
+   *  sector like a vault rather than kept for the run: nothing about it is persisted, because
+   *  `bossSpawned` (which the run save already carries) is the whole of its state. */
+  private wardenThrone: {
+    graphics: Phaser.GameObjects.Graphics; x: number; y: number;
+  } | null = null;
+  private wardenThroneSectorKey: string | null = null;
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
@@ -1197,7 +1218,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Which rooms the chart may name as holding a dormant risk room. Nests first, then lairs,
-   *  so a sector holding both reads as the rarer and more dangerous of the two. */
+   *  then the warden, so a sector holding more than one reads as the rarest and most
+   *  dangerous of them. The warden is derived from the map rather than from a materialized
+   *  throne (which exists only while the ship is in the room) because the arena is already
+   *  named on the chart: saying the fight is still standing there leaks nothing. */
   private dormantHazardSectors(): { sectorKey: string; kind: PoiHazardKind }[] {
     const byKey = new Map<string, PoiHazardKind>();
     for (const nest of this.activeAmbushNests) {
@@ -1208,6 +1232,8 @@ export class GameScene extends Phaser.Scene {
       if (lair.awake) continue;
       byKey.set(sectorKey(sectorOfWorldPoint(lair.x, lair.y)), 'lair');
     }
+    const map = this.worldMode.worldMap();
+    if (map && !this.bossSpawned) byKey.set(map.bossArenaKey, 'warden');
     return [...byKey].map(([key, kind]) => ({ sectorKey: key, kind }));
   }
 
@@ -4180,6 +4206,7 @@ export class GameScene extends Phaser.Scene {
       if (!this.hasWon && !this.gauntletModeActive && !this.practiceModeActive) {
         const metaManager = getMetaProgressionManager();
         metaManager.advanceWorldLevel();
+        this.recordWorldConquered();
         this.showVictory();
       }
     } else if (xpValue >= 30) {
@@ -4763,6 +4790,8 @@ export class GameScene extends Phaser.Scene {
     this.questBoardSectorKey = null;
     this.clearAmbushNests();
     this.clearNemesisLairs();
+    this.clearWardenThrone();
+    this.wardenThroneSectorKey = null;
     this.spawnedPoiSlotIds.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
@@ -5605,6 +5634,95 @@ export class GameScene extends Phaser.Scene {
         this.wakeNemesisLair(lair);
       }
     }
+  }
+
+  /** The throne exists only while the ship is in the arena, the syncAbilityVaults idiom: it is
+   *  a fixed structure of the world, not a run-scoped body, so it needs no save field. */
+  private syncWardenThrone(map: WorldMap, playerX: number, playerY: number): void {
+    if (this.bossSpawned) {
+      this.clearWardenThrone();
+      return;
+    }
+    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
+    if (key === this.wardenThroneSectorKey) return;
+    this.wardenThroneSectorKey = key;
+    this.clearWardenThrone();
+    const sector = map.sectors.get(key);
+    if (!sector?.isBossArena) return;
+    const spot = { x: 0, y: 0 };
+    this.worldMode.freeSpotNear(
+      sector.sx * SECTOR_WIDTH + SECTOR_WIDTH / 2,
+      sector.sy * SECTOR_HEIGHT + SECTOR_HEIGHT / 2,
+      spot,
+    );
+    this.addWardenThrone(spot.x, spot.y);
+  }
+
+  private addWardenThrone(x: number, y: number): void {
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    graphics.setDepth(4);
+    this.wardenThrone = { graphics, x, y };
+    this.drawWardenThrone();
+  }
+
+  /** The drawNemesisLair idiom, spokes rather than barbs and in the seal's violet, so the
+   *  throne reads as the room's own machinery instead of as another body to fight. */
+  private drawWardenThrone(): void {
+    if (!this.wardenThrone) return;
+    const graphics = this.wardenThrone.graphics;
+    graphics.clear();
+    graphics.setAlpha(0.55);
+    graphics.fillStyle(WARDEN_THRONE_COLOR, 0.14);
+    graphics.fillCircle(0, 0, WARDEN_THRONE_DRAW_RADIUS + 10);
+    graphics.lineStyle(3, WARDEN_THRONE_COLOR, 0.8);
+    graphics.strokeCircle(0, 0, WARDEN_THRONE_DRAW_RADIUS);
+    graphics.lineStyle(2, WARDEN_THRONE_GLOW, 0.7);
+    for (let spoke = 0; spoke < 8; spoke++) {
+      const angle = (Math.PI * 2 * spoke) / 8 - Math.PI / 2;
+      graphics.lineBetween(
+        Math.cos(angle) * (WARDEN_THRONE_DRAW_RADIUS + 10),
+        Math.sin(angle) * (WARDEN_THRONE_DRAW_RADIUS + 10),
+        Math.cos(angle) * (WARDEN_THRONE_DRAW_RADIUS - 6),
+        Math.sin(angle) * (WARDEN_THRONE_DRAW_RADIUS - 6),
+      );
+    }
+    graphics.fillStyle(WARDEN_THRONE_GLOW, 0.9);
+    graphics.fillCircle(0, 0, 6);
+  }
+
+  private clearWardenThrone(): void {
+    this.wardenThrone?.graphics.destroy();
+    this.wardenThrone = null;
+  }
+
+  /** Trip test and pulse, the updateNemesisLairs shape. The throne is consumed by the trip:
+   *  what stands up is the boss itself, so there is nothing left to watch. */
+  private updateWardenThrone(playerX: number, playerY: number): void {
+    const throne = this.wardenThrone;
+    if (!throne) return;
+    throne.graphics.setScale(1 + Math.sin(this.gameTime * 1.7) * 0.07);
+    const dx = playerX - throne.x;
+    const dy = playerY - throne.y;
+    if (dx * dx + dy * dy >= WARDEN_THRONE_TRIGGER_RADIUS * WARDEN_THRONE_TRIGGER_RADIUS) return;
+    this.wakeWardenThrone(throne.x, throne.y);
+  }
+
+  /** The trip. The run's OWN boss is fielded here through the shipped accounting, so it
+   *  arrives with the same rotation spend, entrance, sector seal and health bar the timed
+   *  spawn gives it. No extra shake or sting: spawnBoss's entrance already carries both. */
+  private wakeWardenThrone(x: number, y: number): void {
+    if (this.bossSpawned) return;
+    this.clearWardenThrone();
+    this.effectsManager.playDeathBurst(x, y, WARDEN_THRONE_COLOR);
+    this.toastManager?.showToast({
+      title: 'THE WARDEN RISES',
+      description: 'The heart of the world answers.',
+      icon: 'skull',
+      color: WARDEN_THRONE_COLOR,
+      duration: 3200,
+    });
+    this.beginRunBossFight();
   }
 
   /** Trip test while dormant, liveness filter while awake. Iterated backwards because a clear
@@ -6596,6 +6714,8 @@ export class GameScene extends Phaser.Scene {
       this.updateSecretCaches(playerX, playerY);
       this.updateAmbushNests(playerX, playerY);
       this.updateNemesisLairs(playerX, playerY);
+      this.syncWardenThrone(map, playerX, playerY);
+      this.updateWardenThrone(playerX, playerY);
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.tryOpenQuestDoor(map, playerX, playerY);
       this.updateBreachCharges(map, playerX, playerY);
@@ -8973,6 +9093,18 @@ export class GameScene extends Phaser.Scene {
       pactIds: this.activePacts.map((pact) => pact.id),
       mode: this.runHistoryMode(),
     };
+  }
+
+  /** The world's boss is dead, so this world is conquered: a permanent property of the WORLD
+   *  (like a broken wall), not of the run, which is why it goes to the world profile and never
+   *  to the save. Arena is inert by construction: worldMap() is null there. Written before
+   *  showVictory so the run-end unlock pass sees the new count in the same frame. */
+  private recordWorldConquered(): void {
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    if (markWorldConquered(map.seed, map.worldGenVersion)) {
+      getAchievementManager().recordWorldConquered();
+    }
   }
 
   private showVictory(): void {
@@ -11486,7 +11618,16 @@ export class GameScene extends Phaser.Scene {
   /** Spawns this run's boss at 10 minutes and moves the rotation on. */
   private checkBossSpawn(): void {
     if (this.bossSpawned || this.gameTime < this.bossSpawnTime) return;
+    // A standing throne holds the timer off: the boss is at home and going there is the
+    // point. Past the patience window it stops waiting, and the throne stands down.
+    if (this.wardenThrone
+      && this.gameTime < this.bossSpawnTime + WARDEN_THRONE_PATIENCE_SECONDS) return;
+    this.beginRunBossFight();
+  }
 
+  /** Fields this run's boss and moves the rotation on. Shared by the timer and by the warden
+   *  throne, so a fight taken at the arena spends the rotation exactly as the timed one does. */
+  private beginRunBossFight(): void {
     this.bossSpawned = true;
 
     // Clean up boss warning elements
@@ -14076,6 +14217,8 @@ export class GameScene extends Phaser.Scene {
     this.questBoardSectorKey = null;
     this.clearAmbushNests();
     this.clearNemesisLairs();
+    this.clearWardenThrone();
+    this.wardenThroneSectorKey = null;
     this.bountyText?.destroy();
     this.bountyText = null;
     this.sectorBannerText = null;

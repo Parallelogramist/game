@@ -38,6 +38,8 @@ export const SHIP_PAINTS: ShipPaint[] = [
   { unlockId: 'cosmetic_full_ledger',    name: 'Complete Ledger',      rank: 19, color: { core: 0xffee88, glow: 0xfffbcc } },
   { unlockId: 'cosmetic_deep_survey',    name: 'Deep Survey Plate',    rank: 20, color: { core: 0x66ddff, glow: 0xbbf0ff } },
   { unlockId: 'cosmetic_charted_world',  name: 'Charted World Crest',  rank: 21, color: { core: 0x88ff99, glow: 0xccffdd } },
+  { unlockId: 'cosmetic_warden_crest',   name: 'Warden Crest',         rank: 22, color: { core: 0xcc44ff, glow: 0xe6b3ff } },
+  { unlockId: 'cosmetic_conqueror_mark', name: 'Conqueror Mark',       rank: 23, color: { core: 0xffcc33, glow: 0xffe9aa } },
 ];
 
 /**

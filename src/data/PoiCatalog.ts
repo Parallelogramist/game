@@ -25,7 +25,7 @@ export type PoiContentId =
  * readout, the radar and the quest catalog all speak it, and this module is the only one all
  * three may import without a cycle.
  */
-export type PoiHazardKind = 'nest' | 'lair';
+export type PoiHazardKind = 'nest' | 'lair' | 'warden';
 
 export interface PoiContentDefinition {
   id: PoiContentId;

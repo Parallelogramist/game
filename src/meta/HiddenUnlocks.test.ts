@@ -50,6 +50,7 @@ function makeLifetime(overrides: Partial<LifetimeStats> = {}): LifetimeStats {
     hiddenSectorsFoundTotal: 0,
     loreFragmentsFound: 0,
     bestWorldCompletionPercent: 0,
+    worldsConqueredTotal: 0,
     ...overrides,
   };
 }

@@ -369,6 +369,28 @@ export const HIDDEN_UNLOCKS: HiddenUnlockCondition[] = [
       current: Math.min(100, lifetime.bestWorldCompletionPercent), target: 100,
     }),
   },
+  {
+    id: 'unlock_warden_slain',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_warden_crest',
+    displayName: 'Warden Crest',
+    hintText: 'Conquer one expedition world',
+    predicate: ({ lifetime }) => lifetime.worldsConqueredTotal >= 1,
+    getProgress: ({ lifetime }) => ({
+      current: Math.min(1, lifetime.worldsConqueredTotal), target: 1,
+    }),
+  },
+  {
+    id: 'unlock_world_conqueror',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_conqueror_mark',
+    displayName: 'Conqueror Mark',
+    hintText: 'Conquer five expedition worlds',
+    predicate: ({ lifetime }) => lifetime.worldsConqueredTotal >= 5,
+    getProgress: ({ lifetime }) => ({
+      current: Math.min(5, lifetime.worldsConqueredTotal), target: 5,
+    }),
+  },
 ];
 
 // ---------------------------------------------------------------------------

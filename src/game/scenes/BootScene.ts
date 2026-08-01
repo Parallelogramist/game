@@ -299,7 +299,8 @@ export class BootScene extends Phaser.Scene {
       const summary = summariseCurrentExpedition();
       const banked = getBankedSeasons();
       const lines = [
-        `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`,
+        `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
+          + (summary.conquered ? '   ·   CONQUERED' : ''),
         `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
           + `   ·   ${summary.secretsFound} secrets`,
         '',

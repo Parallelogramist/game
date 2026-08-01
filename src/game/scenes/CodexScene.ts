@@ -1661,6 +1661,7 @@ export class CodexScene extends Phaser.Scene {
       { label: 'Critical Hits', value: lifetime.totalCriticalHits.toLocaleString() },
       { header: 'EXPLORATION' },
       { label: 'Worlds Banked', value: getBankedSeasons().length.toLocaleString() },
+      { label: 'Worlds Conquered', value: lifetime.worldsConqueredTotal.toLocaleString() },
       { label: 'Best World Charted', value: `${lifetime.bestWorldCompletionPercent}%` },
       { label: 'Secrets Found', value: lifetime.secretsFoundTotal.toLocaleString() },
       { label: 'Hidden Sectors', value: lifetime.hiddenSectorsFoundTotal.toLocaleString() },

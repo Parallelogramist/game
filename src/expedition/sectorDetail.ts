@@ -138,6 +138,7 @@ function requirementSuffix(edge: EdgeDef, inputs: SectorDetailInputs): string {
 const HAZARD_LABELS: Record<PoiHazardKind, string> = {
   nest: 'Ambush nest · dormant',
   lair: 'Nemesis lair · dormant',
+  warden: 'Warden throne · dormant',
 };
 
 const HAZARD_NEST_LABEL = HAZARD_NEST_GLYPH.label;

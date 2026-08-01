@@ -251,6 +251,10 @@ export interface LifetimeStats {
    *  season re-roll drops the live chart to 0 because DiscoveryManager is keyed on
    *  (seed, worldGenVersion), so this is written as a max and never as an assignment. */
   bestWorldCompletionPercent: number;
+  /** Distinct expedition worlds whose boss this profile has killed. Counted at the world
+   *  profile's own false→true transition, never per victory, so re-winning a world already
+   *  conquered cannot walk the unlocks behind it. */
+  worldsConqueredTotal: number;
 }
 
 /**

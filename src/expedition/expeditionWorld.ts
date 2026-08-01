@@ -14,6 +14,7 @@ import {
   getCurrentExpeditionSeed,
 } from './ExpeditionSeasonStore';
 import { getDiscoveryManager } from './DiscoveryManager';
+import { isWorldConquered } from './WorldProfileStore';
 
 /** Three concealed rooms per world: enough that a run can stumble on one, few enough that
  *  finding one still reads as a find. */
@@ -35,6 +36,7 @@ export interface ExpeditionProgressSummary {
   sectorsCharted: number;
   knowableSectors: number;
   secretsFound: number;
+  conquered: boolean;
 }
 
 /**
@@ -49,7 +51,8 @@ export interface ExpeditionProgressSummary {
 export function summariseCurrentExpedition(): ExpeditionProgressSummary {
   const seed = getCurrentExpeditionSeed();
   const discovery = getDiscoveryManager();
-  discovery.bindWorld(generateExpeditionWorld(seed));
+  const map = generateExpeditionWorld(seed);
+  discovery.bindWorld(map);
   return {
     seasonIndex: getCurrentExpeditionSeasonIndex(),
     seed,
@@ -57,5 +60,6 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
     sectorsCharted: discovery.getVisitedSectorCount(),
     knowableSectors: discovery.getKnowableSectorCount(),
     secretsFound: discovery.getFoundSecretCount(),
+    conquered: isWorldConquered(seed, map.worldGenVersion),
   };
 }
