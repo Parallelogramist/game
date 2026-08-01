@@ -221,10 +221,9 @@ radar half), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
 expedition seed is what caps the fragment catalog at 13). The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` (blocked
-on `FEAT-MAPUI-DOORS-05` and `FEAT-QUEST-TRIGGERS-REST`), so the list stays accurate. Also
-`FEAT-QUEST-CATALOG-DEPTH`, whose
-fourth chain head would be the first one the 3-accept cap ever actually gates but which its own
-entry puts behind the parked `FEAT-ECON-WARDS` balance decision. `FEAT-ECON-WARDS` stays parked
+on `FEAT-MAPUI-DOORS-05` and `FEAT-QUEST-TRIGGERS-REST`), so the list stays accurate.
+`FEAT-QUEST-CATALOG-DEPTH` shipped its fourth chain head at `6bfd119` without unparking
+anything, so it is off this list. `FEAT-ECON-WARDS` stays parked
 on that operator balance decision: do not unpark it.
 Band 1 is still out of unblocked items. Operator focus: quests and lots of hidden rewards on the
 Metroid map.
@@ -483,6 +482,30 @@ the chart names only the rooms this run has entered, and `FEAT-POI-HAZARD-DISCOV
 is what would change that. No storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so
 every existing profile lights it up the moment the build lands.
 
+`6bfd119` gave the objective system a fourth chain and the game its eighth trigger kind. Seven
+quests in three chains shipped, all three heads auto-activate at once against a 3-accept cap,
+and finishing them left the ticker, the OBJECTIVES panel, the chart pins and the radar
+bearings five sessions built with nothing left to say. `clearHazard` is the first kind that
+names a FIGHT IN A PLACE rather than a place, a thing found or a thing accumulated, and it
+ships with users rather than as an inert union member: `quest_purge_01` "Hive Clearance" asks
+for two hives on one expedition then six across expeditions, and hands off to
+`quest_purge_02` "The Hunter's Den", which wants the nemesis killed at its lair and ten risk
+rooms cleared. Both producers are the sites that already pay the guaranteed special chest, so
+credit and chest ride one predicate: a hive whose wave is dead, and a hunter killed AT a
+WOKEN den, which means the 360 s patience timer's screen-edge arrival pays neither. Targets
+were measured, not guessed: simulated over 300 run salts at the live seed 20260727, the
+world's 25 Treasure slots roll a mean of 3.7 nests per run entering every sector (p10 2,
+median 4) and 240 of 300 runs rolled a lair, while a ship owning no ability reaches 16
+sectors holding a mean of 1.5, so the single `run`-scope step asks 2 and everything else
+accumulates. `PoiHazardKind` moved from `sectorDetail.ts` into `PoiCatalog.ts` because the
+quest catalog must name it and `sectorDetail.ts` already imports the quest catalog: the old
+home would have been an import cycle. A `clearHazard` step names no place, so it produces no
+chart pin and no radar bearing, and that is correct rather than missing: a hazard's room is
+rolled per run into scene state, not authored into the catalog. Neither quest grants a key
+(`EXPEDITION_QUEST_KEY_ORDER` is unchanged, so the generator's inputs are untouched), and
+there is no storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing
+profile lights it up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -498,7 +521,12 @@ two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TI
 `BALANCE-QUEST-SIEGE-PRESSURE`, `FEAT-QUEST-SIEGE-HUD-TELL` and `CHORE-QUEST-SIEGE-RESTORE`, plus
 the one still-open of the two the distinct fold filed that need no worldgen change,
 `BALANCE-QUEST-CHART-TARGETS`, plus the play-gated `BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS` the
-world stamp filed. `FEAT-QUEST-SWEEP-WORLD-RESET-TELL` is filed by the same session but is
+world stamp filed, plus the play-gated `BALANCE-QUEST-HAZARD-TARGETS` the fourth chain filed.
+`FEAT-QUEST-HAZARD-PIN`, the other cut it filed, is blocked on
+`FEAT-POI-HAZARD-DISCOVERY-MEMORY`, so it is not a candidate.
+`FEAT-QUEST-BOARD` now waits only on its own hangar walk-in accept UI: both of its other deps
+are met, `FEAT-MAPUI-DOORS-05` at `0be97f5` and `FEAT-QUEST-CATALOG-DEPTH` at `6bfd119`.
+`FEAT-QUEST-SWEEP-WORLD-RESET-TELL` is filed by the same session but is
 blocked on a re-rollable or per-profile world seed, so it is not a candidate.
 `FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
 (`escortDrone`, `deliverItem`) are blocked on `FEAT-WORLDGEN-STREAM`, so it is not a candidate.
@@ -5025,13 +5053,40 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
      one, which is weakening the assertion rather than updating its count.
   Deps met: `FEAT-SECRET-CACHE`, `FEAT-SECRET-HIDDEN-SECTORS`. Spec: doc 04 section 4.
 
-- [ ] **FEAT-QUEST-CATALOG-DEPTH**: the catalog holds 7 quests in 3 chains, and with all three
+- [x] **FEAT-QUEST-CATALOG-DEPTH** (done, 6bfd119): the catalog holds 7 quests in 3 chains, and with all three
   heads active at once the set now sits exactly at the 3-accept cap, so a **fourth** chain head
   is what first contends it. Value: a chain that keeps arriving is what makes the objective
   readouts `FEAT-QUEST-VIEW` shipped worth looking at past the first hour, and more heads than
   the cap is also the precondition that gives `FEAT-QUEST-BOARD`'s accept UI something to
   accept. Deps: `FEAT-ECON-WARDS` (the quest-gold band new rewards must sit inside), and
   `FEAT-QUEST-TRIGGERS-REST` for anything beyond the five shipped triggers.
+  **Shipped as a fourth chain on a new eighth trigger kind** (`clearHazard`), not as more of the
+  same: `quest_purge_01` "Hive Clearance" hands off to `quest_purge_02` "The Hunter's Den", and
+  the two risk rooms `a523eca` and `760ccc8` built became the thing an objective asks for. The
+  `FEAT-ECON-WARDS` dep was NOT unparked and is not needed: every step and completion reward
+  sits inside the band the shipped catalog already occupies (steps 60 to 260, completions 120
+  to 350) and no new payout rail exists, so the chain is econ-neutral by construction, the same
+  reasoning that let `FEAT-SECRET-REWARD-VARIETY` ship. Neither new quest grants a key, because
+  a third entry in `EXPEDITION_QUEST_KEY_ORDER` reshapes the sealed regions and costs a
+  `WORLDGEN_VERSION` bump. `FEAT-QUEST-BOARD`'s catalog dep is now met: with four heads against
+  the 3-accept cap, accepting finally means something, and `FEAT-MAPUI-DOORS-05` closed with
+  `0be97f5`, so the board is blocked on nothing but its own walk-in UI.
+
+- [ ] **BALANCE-QUEST-HAZARD-TARGETS** (new 2026-07-31, from FEAT-QUEST-CATALOG-DEPTH): 2 hives
+  on one expedition, then 6, then 1 lair, then 10 risk rooms. The supply is measured (300 run
+  salts at seed 20260727: mean 3.7 nests per full-world run, p10 2, 240 of 300 runs with a
+  lair) but the PACE is not: how many nests a real expedition actually trips and clears, rather
+  than how many the roll offers, is a play question. Value: the fourth chain asks for a session
+  of hunting rather than a season of it. Deps: play in a browser (`## Human gates`).
+
+- [ ] **FEAT-QUEST-HAZARD-PIN** (new 2026-07-31, from FEAT-QUEST-CATALOG-DEPTH): a `clearHazard`
+  step names no place, so it is the only live objective kind that hands the chart no pin and the
+  radar no bearing, while `60e0e7f` already draws every dormant hive and den this run has found
+  on both surfaces. Joining them means the marker feed reading run-scoped scene state
+  (`activeAmbushNests` / `activeNemesisLairs`) rather than the catalog, which is a second source
+  for `buildQuestMarkers` and wants `FEAT-POI-HAZARD-DISCOVERY-MEMORY`'s per-world record first
+  so the pin survives the room being left. Value: the objective that says "clear two hives"
+  points at the two hives you have already found. Deps: `FEAT-POI-HAZARD-DISCOVERY-MEMORY`.
 
 - [ ] **FEAT-QUEST-BOARD**: the remainder of quest surfacing after `FEAT-QUEST-VIEW` (5a0295d)
   shipped its HUD-line half and answered map surfacing with a text panel. Two pieces are left.
