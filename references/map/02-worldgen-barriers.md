@@ -857,7 +857,7 @@ deeper fix for bosses is upstream: boss arenas are generated mostly open (invari
 area floor), so boss patterns keep the space they were tuned for. Do not make bosses
 fight geometry; make the generator give bosses room.
 
-**As built (FEAT-WORLDGEN-NAV).** The chunk shipped this section with seven deliberate
+**As built (FEAT-WORLDGEN-NAV).** The chunk shipped this section with eight deliberate
 departures from the design above, each recorded here so the next reader takes the code as the
 truth rather than the sketch.
 
@@ -903,12 +903,27 @@ truth rather than the sketch.
    chase mode. Retreat, strafe, orbit-tangent and committed-lunge branches stay on the raw vector
    everywhere, including the sniper, which has no approach phase at all: cornering a kiter is
    legitimate play.
+8. Section 6.3's layer 3 shipped with two dampers in front of it that the design above does not
+   name, because the nudge alone would have fired on enemies that were merely twitching. A
+   zero-width line-of-sight ray answers clear then blocked at a doorway edge and the flow field
+   is 8-direction quantized, so a raw heading alternates while the enemy has barely moved: a
+   line-of-sight flip must now hold 0.1s before the steering mode follows it, and the returned
+   heading eases toward its new value over 0.07s. Both are per enemy, keyed on the id the
+   dispatcher names before each handler runs (`setNavFrame`), and both are expressed in time
+   rather than in frames, so an enemy on the 3x or 6x LOD band turns over the same wall-clock
+   window; at 6x the window has already elapsed, so a distant enemy neither lags nor pays. A slot
+   untouched for 0.25s is re-seeded rather than eased from, which covers a recycled entity id and
+   the handlers that steer through `chaseHeading` in only some of their phases. The nudge itself
+   is 0.3s of wall-tangent motion at the enemy's own speed, armed only while the enemy is routing
+   and only when its handler actually commanded movement, with the side picked by two solidity
+   probes so it never shoves into the wall it is stuck on and fires nothing at all in a pocket.
+   Bosses are exempt, since departure 5 already leaves them uncollided
+   (POLISH-ENEMY-NAV-SMOOTH).
 
 Of section 6.3's fallback layers, layers 1 and 2 shipped (the resolver's substepping and the
-existing spatial-hash separation), layer 3 is filed as `POLISH-NAV-STUCK-NUDGE` because the
-residual stuck case is unmeasured once the field routes around walls and the resolver slides
-along faces, and of layer 4 the teleporter half shipped (a blink destination snaps through
-`freeSpotNear`) while the phased-Wraith half is filed as `FEAT-BARRIER-WRAITH-PHASE`.
+existing spatial-hash separation), layer 3 shipped in `POLISH-ENEMY-NAV-SMOOTH` behind the two
+dampers of departure 8 (`POLISH-NAV-STUCK-NUDGE` was its earlier, separate filing), and of layer 4
+the teleporter half shipped (a blink destination snaps through `freeSpotNear`) while the phased-Wraith half is filed as `FEAT-BARRIER-WRAITH-PHASE`.
 
 ---
 

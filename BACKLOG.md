@@ -196,7 +196,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `BUG-TWIN-BERSERK-DAMAGE` and `BUG-DECOY-FLOW-MISMATCH` under `## Proposed (auto)`. The playtest
   half is `POLISH-ENEMY-NAV-COVERAGE` under `## Human gates`: twelve families changed how they move
   and none of it was seen in a browser.
-- [ ] **POLISH-ENEMY-NAV-SMOOTH** (F2d + F2e). Value: the zero-width LOS ray flickers
+- [x] **POLISH-ENEMY-NAV-SMOOTH** (F2d + F2e) (done, 664d6ff). Value: the zero-width LOS ray flickers
   clear/blocked at doorway edges so headings alternate direct/flow (the pre-filed
   "twitching at corners" item), 8-dir flow quantization twitches at tile crossings,
   and the stuck detector designed in doc 02 section 6.3 rung 3 was never built. Plan:
@@ -209,6 +209,30 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   alternating LOS stub flips steering mode at most once per window; stuck nudge fires
   only after 1.5s under 8px. If ARCH-RESET-REGISTRY has landed, the new reset
   self-registers; otherwise add it to `resetAllRunSystems` by hand.
+  **What shipped:** two commits, and the item's "three arrays" was eleven, because the three
+  mechanisms need different state. (1) **The dampers** (aad93e1): a per-enemy committed
+  steering mode that a disagreeing line-of-sight answer only flips after holding 0.1s, so a
+  zero-width ray alternating on a doorway edge never flips it at all, plus a 0.07s ease on the
+  returned heading that also absorbs the flow field's 45-degree steps at tile crossings. Both are
+  time-based, not per-frame: `lodDeltaTime` is already 3x or 6x for distant enemies, so at 6x the
+  ease saturates and a far enemy neither lags nor pays. The ease runs in the direct mode too, not
+  only the routed one, because a stored heading that goes stale during a chase would make the
+  direct-to-routed transition ease away from the wrong vector. (2) **The nudge**
+  (664d6ff), doc 02 section 6.3's layer 3, designed in `FEAT-WORLDGEN-NAV` and never
+  built: an enemy that is routing and has not covered 8px in 1.5s gets 0.3s of wall-tangent
+  motion at its own speed, with the side chosen by two solidity probes and nothing fired at all
+  when both sides are rock. **The three exclusions cost no per-handler code**: the detector arms
+  only when `chaseHeading` took its non-direct branch, which already excludes retreats, strafes,
+  deliberate stationary phases and phased Wraiths (they never reach `chaseHeading`); a commanded
+  speed under 1 excludes anything parked on purpose; and the dispatcher gates on `aiType < 100`,
+  because departure 5 leaves bosses uncollided so a boss is never the wedged mover. **Unchanged
+  on purpose:** every existing caller and test is byte-identical, because `chaseHeading` keys the
+  damping on an enemy id the dispatcher supplies through `setNavFrame` and falls back to the old
+  path when there is none, and arena is unchanged twice over (a null context returns before any
+  of it, and `navRouted` can then never be true). The state resets through `resetEnemyAISystem`
+  rather than a new hook in `resetAllRunSystems`, so `GameScene` needed no edit. Files
+  `POLISH-ENEMY-NAV-SMOOTH-FEEL` for the playtest half and `PERF-NAV-STATE-CAPACITY` for the
+  4.1MB the eleven arrays cost at the ECS's 100000-entity capacity.
 - [ ] **FEAT-TARGETING-LOS** (F3). Value: 8 wall-blocked weapons acquire targets
   through walls and waste their shots into rock: ProjectileWeapon
   (`:134-137`, mastered retarget `:405`), Shuriken (`:122`), Boomerang (`:126`),
@@ -4044,6 +4068,13 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   sector across a 32-tile run (`flowField.ts:88-95`). The other ~0.80ms is the BFS plus the
   8-neighbour descent and is structural. Done: measured per-call cost or refresh rate down, with
   `flowField.test.ts` and the leash-coverage test still green.
+- [ ] **PERF-NAV-STATE-CAPACITY** (new 2026-08-01, from POLISH-ENEMY-NAV-SMOOTH): the eleven
+  per-enemy nav arrays in `enemy-ai/common.ts` are sized `Transform.x.length`, which is bitecs's
+  100000-entity world capacity, for about 4.1MB allocated at module load. That is honest rather
+  than tuned: the alternative is a fixed cap with a silent bounds cliff for any entity id past
+  it. If mobile memory ever shows, measure the real peak entity id first and only then decide
+  between a smaller world capacity (one `setDefaultSize` call, affects every component) and a
+  packed enemy-slot indirection. Do not shrink it on a guess.
 - [ ] **BUG-TWIN-BERSERK-DAMAGE** (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: the
   surviving Twin one-shots the player within a second of its partner dying, which reads as a
   random insta-death rather than a boss mechanic. `twin.ts` runs
@@ -5392,12 +5423,15 @@ exploring pays is the end of Phase 5.
      under **POLISH-EXPEDITION-FLIGHT** items (z), (aa) and (ab). Deps: `FEAT-BARRIER-PLAYER`,
      `FEAT-WORLDGEN-CORE`.
 
-- [ ] **POLISH-NAV-STUCK-NUDGE**: doc 02 section 6.3's layer 3, the wall-tangent nudge for an
+- [x] **POLISH-NAV-STUCK-NUDGE** (done, 664d6ff, as layer 3 of POLISH-ENEMY-NAV-SMOOTH): doc 02 section 6.3's layer 3, the wall-tangent nudge for an
   enemy whose net displacement over 1.5 s is under 8 px while its flow direction is valid.
   Deliberately not built in `FEAT-WORLDGEN-NAV`: with the field routing around walls and the
   resolver sliding along faces, the residual stuck case is unmeasured, and an unmeasured nudge is
   a guess. Build it if the playtest (`POLISH-EXPEDITION-FLIGHT` item (z)) reports enemies pinned
   on corners. Deps: `FEAT-WORLDGEN-NAV`. Spec: `02-worldgen-barriers.md` section 6.3.
+  Built after all, and not on the playtest evidence this item asked for: `POLISH-ENEMY-NAV-SMOOTH`
+  owns the same layer, and a nudge is safe to ship blind once it can only arm on an enemy that is
+  routing and commanded to move.
 
 - [x] **FEAT-BARRIER-WRAITH-PHASE** (done, 7c2550e): doc 02 section 5.3's ghost rule, a
   `state === 1` phased Wraith ignores walls and is snapped with `findNearestFreeCircleSpot` on
@@ -9168,6 +9202,17 @@ Never agent work. The fleet must not do any of these.
     (f) **the horde king and the twins**: boss and miniboss approaches route now, so a boss
     can arrive from a doorway instead of a straight line. Does any arena feel too easy to
     kite? Nothing here is a knob: every verdict is a band choice in one handler.
+  - **POLISH-ENEMY-NAV-SMOOTH-FEEL** (new 2026-08-01, POLISH-ENEMY-NAV-SMOOTH): three damping
+    constants were validated in unit tests and never in a browser. Needs a human flying
+    `?expedition=1` through doorways to judge (a) **the ease**: every routed enemy now turns over
+    0.07s instead of instantly, including while it can see you. Does that read as weight, or as
+    enemies steering like barges? `HEADING_SMOOTH_SECONDS` is one constant. (b) **the commit
+    window**: 0.1s of disagreement before the steering mode follows the ray. Too long and an
+    enemy keeps walking the route for a beat after it can see you; too short and the doorway
+    twitch comes back. (c) **the nudge**: 0.3s of wall-tangent shove after 1.5s pinned. Confirm
+    it reads as an enemy squeezing past a corner rather than as a shove from nowhere, and that
+    you never see one nudge in open ground. (d) **kiting**: the nudge cannot arm on a retreating
+    shooter or a strafing circler by construction. Confirm cornering a kiter still works.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
