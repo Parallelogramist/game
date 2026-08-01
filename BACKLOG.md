@@ -655,6 +655,20 @@ defect is **pre-existing and arena-wide**, so this is the one recent item that i
 expedition-only. It filed one cut, `CHORE-BOSSFIGHT-RESTORE-HAZARD-CADENCE`. No
 `SAVE_VERSION` bump, no storage key and no new UI.
 
+**`cf7c735` doubled what a quest chain is worth.** `FEAT-QUESTDOOR-CATALOG-DEPTH`'s only dep had
+been met since `6bfd119` and no session re-checked it, so two of the four chain heads were paying
+only gold. All four now grant a key, and on the live seed the share of the world behind a quest
+goes from 16 of 48 sectors to 23. The whole change is two `grantsKeyId` fields: the key order, the
+placement pass, the earned-key derivation, the NEW ROUTES toast, the map legend and the sector
+readout were all already written against "as many keys as the catalog grants". Verified against the
+real generator on 101 seeds: every key places exactly once, the boss and every ability host stay
+reachable holding no key, and a hidden sector is always reachable holding only the keys from chains
+that need no secret, which is what keeps `quest_secret_01` finishable now that a key can seal one
+away. One real side effect, recorded on the item: a quest door can consume an `Open` edge
+`placeHiddenSectors` wanted, so the live seed's concealed rooms move from `-1,-5 / 0,6 / 1,-5` to
+`0,6 / 1,-5 / 4,-2` while `poiSlots` stay identical. No version bump, no storage key and no new UI.
+It also discharged `CHORE-QUESTDOOR-MAP-LEGEND`, which shipped code had already satisfied.
+
 **Why a Phase 7 bug outranked the content bands this session, recorded so it is not
 re-derived:** band 1 has no unblocked item (`FEAT-ECON-WARDS` is parked on the operator and
 `FEAT-QUEST-BOARD` shipped at `21925f3`); band 2's remainder is either blocked
@@ -5618,17 +5632,54 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   and the two-quest chain that hangs off it, so the kind shipped with a user of it rather than
   inert.
 
-- [ ] **CHORE-QUESTDOOR-MAP-LEGEND** (new 2026-07-31, from `FEAT-WORLDGEN-QUESTDOORS`): the
-  `key` glyph now appears on real maps rather than never, so `FEAT-MAPUI-DOORS-05`'s legend
-  must name it and its focused-sector tooltip must say which quest keys it (the renderer
-  already knows: `getQuestForKeyId(edge.requiredId)` names the quest). Deps:
-  `FEAT-MAPUI-DOORS-05`.
+- [x] **CHORE-QUESTDOOR-MAP-LEGEND** (done, no code change, verified at cf7c735): both halves had
+  already shipped and the entry was stale. `MapScene.renderLegendPanel` draws a legend row for
+  every kind in `[Open, AbilityDoor, KeyDoor, Breakable, OneWay]`, labelled `Key door` out of
+  `GATE_GLYPHS`, and `sectorDetail.requirementSuffix` already resolves a key door through
+  `getQuestForKeyId` and reads ` · finish <quest name>`, or ` · open to you` once the key is held.
+  Ticked rather than rebuilt so no future session spends a session re-implementing it.
 
-- [ ] **FEAT-QUESTDOOR-CATALOG-DEPTH** (new 2026-07-31, from `FEAT-WORLDGEN-QUESTDOORS`): only
-  the two chain heads grant keys, so only two regions can ever be sealed no matter how big the
-  world is. More heads means more sealed regions for free, since `EXPEDITION_QUEST_KEY_ORDER`
-  is derived from the catalog and the placement pass takes as many candidates as it is given
-  keys. Deps: `FEAT-QUEST-CATALOG-DEPTH`.
+- [x] **FEAT-QUESTDOOR-CATALOG-DEPTH** (done, cf7c735): all four chain heads now grant a key, so
+  four regions of every world are quest-gated instead of two. `quest_secret_01` ("Ghost Signals")
+  grants `quest_key_secret` and `quest_purge_01` ("Hive Clearance") grants `quest_key_purge`, and
+  those two fields are the whole change: `EXPEDITION_QUEST_KEY_ORDER` derives from the catalog,
+  `placeQuestKeyDoors` takes as many candidates as it is given keys, `getEarnedQuestKeyIds`
+  derives held keys from completed quests (so a profile that already finished either head holds
+  the new key with no migration), and `GameScene` already calls `announceNewRoutes` on any
+  granted key. **Its dep had been met since `6bfd119`**, when `FEAT-QUEST-CATALOG-DEPTH` shipped
+  the third and fourth chains, which is why it sat off the unblocked candidate list for four
+  sessions. Do not re-derive that.
+  1. **Measured on the real generator, the 100 test seeds plus the live seed 20260727.** All four
+     keys place exactly once on 101 of 101 seeds (5 and 6 keys would too, so the catalog can keep
+     growing). Holding no key, the boss arena and every ability host stay reachable on 101 of 101,
+     which `placeQuestKeyDoors`' own `isOptionalRegion` filter guarantees by construction. Sealed
+     sector count goes from min 4 / median 10 / max 20 to min 8 / median 16 / max 29 of 48; on the
+     live seed it goes 16 to 23. Worst-case `Treasure` slots still reachable with no key held is 8,
+     so the purge head's two hives stay findable.
+  2. **The secrets chain cannot seal itself out, and that is the one new test.**
+     `quest_secret_01` asks the player to break into a hidden sector, and at four keys 20 of 101
+     seeds have every hidden sector behind a quest door when no key is held. Holding only the keys
+     from chains whose steps contain no `findSecret` trigger (survey, gatecrash, purge) a hidden
+     sector is reachable on 101 of 101, and those heads ask for kills, depth, gates and hives, none
+     of which a key gates. `generateWorld.test.ts` now derives its key list from
+     `EXPEDITION_QUEST_KEY_ORDER` rather than a stale two-element literal, so the three existing
+     invariant-9 tests moved to the shipped catalog for free.
+  3. **Two more keys can move a hidden sector, and on the live seed they do.**
+     `placeHiddenSectors` runs after `placeQuestKeyDoors` and needs an `Open` edge, so a candidate
+     a new quest door just consumed is passed over: on seed 20260727 the concealed rooms move from
+     `-1,-5 / 0,6 / 1,-5` to `0,6 / 1,-5 / 4,-2`, and 2 of the 100 test seeds move one too.
+     Accepted deliberately rather than fixed by reordering the passes, which would move far more
+     and would cost the version bump this change specifically avoids. Nothing else moves: `poiSlots`
+     are identical sector for sector, so every secret id, every lore fragment rank and the
+     completion denominator's secret half are stable, and only 6 sectors differ in `tiles`, which
+     are the seal and mouth tiles of the doors that moved. A live profile keeps its whole chart;
+     the cost is that one already charted room sits behind a breakable wall again, and an already
+     visited sector that becomes hidden stays drawn, because entering one is what makes it
+     permanent.
+  4. **No `WORLDGEN_VERSION`, `SAVE_VERSION` or `DISCOVERY_VERSION` bump, no storage key, no new
+     UI.** The map legend already carries the `Key door` row and the focused-sector readout already
+     reads `finish <quest name>`, so both new doors are legible the moment the build lands. That
+     also discharged `CHORE-QUESTDOOR-MAP-LEGEND`, ticked below with no code change.
 
 - [x] **FEAT-SECRET-LORE** (done, 885d3bb): hint tier 2 from doc 04 section 5. A found secret
   hands over a lore fragment whose riddle names a real unfound secret elsewhere in the player's
