@@ -18,7 +18,12 @@ import {
   assignQuestDrone,
   dropQuestDrone,
   buildQuestEscortObjectives,
+  dropQuestCargo,
+  reclaimQuestCargo,
+  buildQuestCargoDropObjectives,
   type QuestBoardEntry,
+  type QuestCargoDrop,
+  type QuestCargoDropObjective,
   type QuestCargoRow,
   type QuestDroneRow,
   type QuestEscortObjective,
@@ -107,6 +112,17 @@ function sanitizeWorldStamp(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : undefined;
 }
 
+function sanitizeCargoDrop(value: unknown): QuestCargoDrop | undefined {
+  if (!isPlainObject(value)) return undefined;
+  const worldStamp = sanitizeWorldStamp(value.worldStamp);
+  if (worldStamp === undefined) return undefined;
+  const { sectorKey, x, y } = value;
+  if (typeof sectorKey !== 'string' || sectorKey.length === 0) return undefined;
+  if (typeof x !== 'number' || !Number.isFinite(x)) return undefined;
+  if (typeof y !== 'number' || !Number.isFinite(y)) return undefined;
+  return { worldStamp, sectorKey, x, y };
+}
+
 /**
  * A state whose quest or step index no longer exists in the catalog is dropped, not
  * clamped: the content was re-authored, and inventing a step index is how a player gets
@@ -157,6 +173,11 @@ function sanitizeStates(
       // A crate is only meaningful on the step that asks for it, so a stale flag from a
       // re-authored catalog is dropped rather than carried onto whatever step is current now.
       cargoHeld: isDeliveryStep && entry.cargoHeld === true ? true : undefined,
+      // Same rule as the crate above: a drop is only meaningful on the step that asks for it,
+      // and a state can never be both holding and having dropped.
+      cargoDrop: isDeliveryStep && entry.cargoHeld !== true
+        ? sanitizeCargoDrop(entry.cargoDrop)
+        : undefined,
       // Same rule as the crate above: a drone is only meaningful on the step that asks for it.
       droneEscorting: isEscortStep && entry.droneEscorting === true ? true : undefined,
     });
@@ -207,18 +228,18 @@ export function getEarnedQuestKeyIds(): string[] {
 export type { QuestStepView } from '../systems/QuestProgress';
 
 /** What the HUD ticker and the map panel render. Cheap: SecureStorage.getItem is a cache read. */
-export function getActiveQuestStepViews(): QuestStepView[] {
+export function getActiveQuestStepViews(worldStamp: string): QuestStepView[] {
   const defs = questCatalog();
-  return buildQuestStepViews(load(defs).states, defs);
+  return buildQuestStepViews(load(defs).states, defs, worldStamp);
 }
 
 export type { QuestMarker } from '../systems/QuestProgress';
 
 /** Doc 04 section 4's map-marker feed. Same store read as getActiveQuestStepViews, and the
  *  same one-projection rule: the panel and the pins cannot disagree about what is active. */
-export function getActiveQuestMarkers(): QuestMarker[] {
+export function getActiveQuestMarkers(worldStamp: string): QuestMarker[] {
   const defs = questCatalog();
-  return buildQuestMarkers(load(defs).states, defs);
+  return buildQuestMarkers(load(defs).states, defs, worldStamp);
 }
 
 export type { QuestHoldObjective } from '../systems/QuestProgress';
@@ -374,4 +395,34 @@ export function dropExpeditionQuestDrone(): QuestDroneRow[] {
 export function getActiveQuestEscortObjectives(): QuestEscortObjective[] {
   const defs = questCatalog();
   return buildQuestEscortObjectives(load(defs).states, defs);
+}
+
+export type { QuestCargoDrop, QuestCargoDropObjective } from '../systems/QuestProgress';
+
+/** The run carrying it died. Returns what was left behind so the scene can name it. */
+export function dropExpeditionQuestCargo(drop: QuestCargoDrop): QuestCargoRow[] {
+  const defs = questCatalog();
+  const state = load(defs);
+  const result = dropQuestCargo(state.states, defs, drop);
+  if (result.dropped.length === 0) return [];
+  save({ states: result.states, pendingGold: state.pendingGold });
+  return result.dropped;
+}
+
+/** The ship flew into it. Returns the crate that went back aboard, or null. */
+export function reclaimExpeditionQuestCargo(questId: string): QuestCargoRow | null {
+  const defs = questCatalog();
+  const state = load(defs);
+  const result = reclaimQuestCargo(state.states, defs, questId);
+  if (result.reclaimed === null) return null;
+  save({ states: result.states, pendingGold: state.pendingGold });
+  return result.reclaimed;
+}
+
+/** Same store read and same one-projection rule as getActiveQuestMarkers. */
+export function getActiveQuestCargoDropObjectives(
+  worldStamp: string,
+): QuestCargoDropObjective[] {
+  const defs = questCatalog();
+  return buildQuestCargoDropObjectives(load(defs).states, defs, worldStamp);
 }

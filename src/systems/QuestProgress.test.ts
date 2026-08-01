@@ -12,6 +12,9 @@ import {
   buildQuestHazardObjectives,
   loadQuestCargo,
   assignQuestDrone,
+  dropQuestCargo,
+  reclaimQuestCargo,
+  buildQuestCargoDropObjectives,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -172,7 +175,7 @@ describe('seedQuestStates', () => {
 
 describe('buildQuestStepViews', () => {
   test('projects each active quest onto its current step, clamping overshoot', () => {
-    const views = buildQuestStepViews([active('quest_a', 0, 4), active('quest_b', 0, 99)], DEFS);
+    const views = buildQuestStepViews([active('quest_a', 0, 4), active('quest_b', 0, 99)], DEFS, 'w1');
     expect(views).toEqual([
       { questId: 'quest_a', questName: 'A', stepDescription: 'kill 10', progress: 4, target: 10, stepNumber: 1, stepCount: 2 },
       { questId: 'quest_b', questName: 'B', stepDescription: 'open 2', progress: 2, target: 2, stepNumber: 1, stepCount: 1 },
@@ -180,7 +183,7 @@ describe('buildQuestStepViews', () => {
   });
 
   test('reports the chain position of a later step', () => {
-    const views = buildQuestStepViews([active('quest_a', 1, 2)], DEFS);
+    const views = buildQuestStepViews([active('quest_a', 1, 2)], DEFS, 'w1');
     expect(views[0]).toMatchObject({ stepDescription: 'depth 3', stepNumber: 2, stepCount: 2 });
   });
 
@@ -190,7 +193,7 @@ describe('buildQuestStepViews', () => {
       { questId: 'quest_gone', stepIndex: 0, stepProgress: 1, status: 'active' },
       { questId: 'quest_b', stepIndex: 7, stepProgress: 1, status: 'active' },
     ];
-    expect(buildQuestStepViews(states, DEFS)).toEqual([]);
+    expect(buildQuestStepViews(states, DEFS, 'w1')).toEqual([]);
   });
 });
 
@@ -223,10 +226,10 @@ describe('reachSector', () => {
   });
 
   test('markers carry only the quests whose current step names a place', () => {
-    expect(buildQuestMarkers(held, PLACE_DEFS)).toEqual([
+    expect(buildQuestMarkers(held, PLACE_DEFS, 'w1')).toEqual([
       { questId: 'quest_place', label: 'Place', icon: 'radar', sectorTag: 'boss-arena' },
     ]);
-    expect(buildQuestMarkers([active('quest_a', 0, 0)], DEFS)).toEqual([]);
+    expect(buildQuestMarkers([active('quest_a', 0, 0)], DEFS, 'w1')).toEqual([]);
   });
 
   test('counts distinct rooms, so a re-entry adds nothing and a tagless step counts any sector', () => {
@@ -342,7 +345,7 @@ describe('surviveInSector', () => {
   });
 
   test('a hold step names a place, so it carries a marker like reachSector', () => {
-    expect(buildQuestMarkers(held, HOLD_DEFS)).toEqual([
+    expect(buildQuestMarkers(held, HOLD_DEFS, 'w1')).toEqual([
       { questId: 'quest_hold', label: 'Hold', icon: 'radar', sectorTag: 'boss-arena' },
     ]);
   });
@@ -462,6 +465,38 @@ describe('deliverItem', () => {
     expect(second.loaded).toEqual([]);
     expect(second.aboard).toEqual([{ questId: 'quest_run', itemId: 'cargo_test_core' }]);
     expect(loadQuestCargo([active('quest_a', 0, 0)], DEFS).loaded).toEqual([]);
+  });
+
+  describe('cargo dropped where the run died', () => {
+    const DROP = { worldStamp: 'seed:v9', sectorKey: '3,-2', x: 1234, y: -567 };
+
+    test('survives the run-scope settle and comes back aboard on reclaim', () => {
+      const loadedStates = loadQuestCargo(held, CARGO_DEFS).states;
+      const dropped = dropQuestCargo(loadedStates, CARGO_DEFS, DROP);
+      expect(dropped.dropped).toHaveLength(1);
+      expect(dropped.states[0].cargoHeld).toBeUndefined();
+      expect(dropped.states[0].cargoDrop).toEqual(DROP);
+
+      const settled = settleRunScopeProgress(dropped.states, CARGO_DEFS);
+      expect(settled[0].cargoDrop).toEqual(DROP);
+
+      expect(buildQuestCargoDropObjectives(settled, CARGO_DEFS, 'seed:v9')).toHaveLength(1);
+
+      const back = reclaimQuestCargo(settled, CARGO_DEFS, settled[0].questId);
+      expect(back.reclaimed?.itemId).toBe('cargo_test_core');
+      expect(back.states[0].cargoHeld).toBe(true);
+      expect(back.states[0].cargoDrop).toBeUndefined();
+    });
+
+    test('ignores a drop taken in another world', () => {
+      const loadedStates = loadQuestCargo(held, CARGO_DEFS).states;
+      const dropped = dropQuestCargo(loadedStates, CARGO_DEFS, DROP);
+      expect(buildQuestCargoDropObjectives(dropped.states, CARGO_DEFS, 'other:v9')).toHaveLength(0);
+      expect(buildQuestMarkers(dropped.states, CARGO_DEFS, 'other:v9')
+        .some((marker) => marker.sectorKey !== undefined)).toBe(false);
+      expect(buildQuestMarkers(dropped.states, CARGO_DEFS, 'seed:v9')
+        .some((marker) => marker.sectorKey === '3,-2')).toBe(true);
+    });
   });
 });
 

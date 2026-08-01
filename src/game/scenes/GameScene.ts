@@ -165,8 +165,12 @@ import {
   dropExpeditionQuestDrone,
   getActiveQuestStepViews,
   getEarnedQuestKeyIds,
+  getActiveQuestCargoDropObjectives,
+  reclaimExpeditionQuestCargo,
+  dropExpeditionQuestCargo,
 } from '../../meta/ExpeditionQuestManager';
-import { droneLabelOf, getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
+import { cargoLabelOf, droneLabelOf, getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
+import { questWorldStamp } from '../../systems/QuestProgress';
 import type { QuestEvent } from '../../systems/QuestProgress';
 import { buildRunEarnings, type RunEarningSources } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
@@ -536,6 +540,13 @@ const ESCORT_DRONE_COLOR = 0x66ccff;
  *  toast says it is under fire, rate-limited so a running fight beside it cannot spam the queue. */
 const ESCORT_DRONE_ALERT_COOLDOWN_SECONDS = 20;
 
+/** The board's own amber: a crate reads as quest freight, not as a secret (breakable amber) and
+ *  not as a vault (violet). */
+const QUEST_CARGO_COLOR = 0xffb347;
+const QUEST_CARGO_DRAW_RADIUS = 15;
+/** The secret cache's claim radius, so a crate and a cache feel the same to fly into. */
+const QUEST_CARGO_RECLAIM_RADIUS = 44;
+
 /** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
  *  toasts even when a single find jumps two of them. */
 const MAP_COMPLETION_MILESTONES = [25, 50, 75, 100] as const;
@@ -737,6 +748,16 @@ export class GameScene extends Phaser.Scene {
   private escortDroneNextDamageAtSeconds = 0;
   private escortDroneUnderFire = false;
   private escortDroneNextAlertAtSeconds = 0;
+  /** The crate a previous run left behind, while the ship is in the room holding it. Derived
+   *  from the quest store like the drone above, never persisted here. */
+  private questCargoDrop: {
+    graphics: Phaser.GameObjects.Graphics;
+    questId: string;
+    itemId: string;
+    x: number;
+    y: number;
+  } | null = null;
+  private questCargoDropSectorKey: string | null = null;
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
@@ -1145,7 +1166,7 @@ export class GameScene extends Phaser.Scene {
         kind: 'reachSector',
         sectorKey: payload.sectorKey,
         sectorTags: tags,
-        worldStamp: `${map.seed}:v${map.worldGenVersion}`,
+        worldStamp: questWorldStamp(map),
       });
       // A delivery lands on ARRIVAL, so the entry event is the producer. An arrival with an empty
       // hold folds to nothing, which is why this is unconditional like the two above it.
@@ -4886,6 +4907,8 @@ export class GameScene extends Phaser.Scene {
     this.clearWardenThrone();
     this.wardenThroneSectorKey = null;
     this.clearEscortDrone();
+    this.clearQuestCargoDrop();
+    this.questCargoDropSectorKey = null;
     this.spawnedPoiSlotIds.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
@@ -6054,6 +6077,80 @@ export class GameScene extends Phaser.Scene {
     clearEnemyDecoy();
   }
 
+  /** The crate exists exactly while a dropped-cargo objective names the room the ship is in, the
+   *  syncSecretCaches idiom: the store is the truth and the object is derived, so a refresh
+   *  mid-recovery rebuilds it and a reclaim removes it without a second code path. */
+  private syncQuestCargoDrop(map: WorldMap, playerX: number, playerY: number): void {
+    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
+    if (key === this.questCargoDropSectorKey) return;
+    this.questCargoDropSectorKey = key;
+    this.clearQuestCargoDrop();
+    const objective = getActiveQuestCargoDropObjectives(questWorldStamp(map))
+      .find((entry) => entry.drop.sectorKey === key);
+    if (!objective) return;
+    const graphics = this.add.graphics();
+    graphics.setPosition(objective.drop.x, objective.drop.y);
+    graphics.setDepth(4);
+    this.drawQuestCargoCrate(graphics);
+    this.questCargoDrop = {
+      graphics,
+      questId: objective.questId,
+      itemId: objective.itemId,
+      x: objective.drop.x,
+      y: objective.drop.y,
+    };
+  }
+
+  private updateQuestCargoDrop(playerX: number, playerY: number): void {
+    const crate = this.questCargoDrop;
+    if (!crate) return;
+    crate.graphics.setScale(1 + Math.sin(this.gameTime * 3.1) * 0.08);
+    const dx = playerX - crate.x;
+    const dy = playerY - crate.y;
+    if (dx * dx + dy * dy > QUEST_CARGO_RECLAIM_RADIUS * QUEST_CARGO_RECLAIM_RADIUS) return;
+    const reclaimed = reclaimExpeditionQuestCargo(crate.questId);
+    this.clearQuestCargoDrop();
+    if (!reclaimed) return;
+    this.effectsManager.playDeathBurst(crate.x, crate.y, QUEST_CARGO_COLOR);
+    this.soundManager.playPickupHealth();
+    this.toastManager?.showToast({
+      title: 'CARGO RECOVERED',
+      description: `${cargoLabelOf(reclaimed.itemId)} is back aboard. Finish the delivery.`,
+      icon: 'backpack',
+      color: QUEST_CARGO_COLOR,
+      duration: 3000,
+    });
+  }
+
+  private clearQuestCargoDrop(): void {
+    this.questCargoDrop?.graphics.destroy();
+    this.questCargoDrop = null;
+  }
+
+  private dropQuestCargoWhereShipDied(playerX: number, playerY: number): void {
+    const map = this.worldMode.worldMap();
+    if (!map) return;
+    dropExpeditionQuestCargo({
+      worldStamp: questWorldStamp(map),
+      sectorKey: `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`,
+      x: playerX,
+      y: playerY,
+    });
+  }
+
+  /** A square: the cache is a diamond and the drone is a ring, so the third world object a
+   *  quest puts in a room is legible without colour. */
+  private drawQuestCargoCrate(graphics: Phaser.GameObjects.Graphics): void {
+    const radius = QUEST_CARGO_DRAW_RADIUS;
+    graphics.fillStyle(QUEST_CARGO_COLOR, 0.16);
+    graphics.fillRect(-radius, -radius, radius * 2, radius * 2);
+    graphics.lineStyle(2, QUEST_CARGO_COLOR, 0.9);
+    graphics.strokeRect(-radius, -radius, radius * 2, radius * 2);
+    graphics.lineStyle(2, QUEST_CARGO_COLOR, 0.5);
+    graphics.lineBetween(-radius, 0, radius, 0);
+    graphics.lineBetween(0, -radius, 0, radius);
+  }
+
   /** Trip test while dormant, liveness filter while awake. Iterated backwards because a clear
    *  splices the entry out, the updateAbilityVaults shape. */
   private updateAmbushNests(playerX: number, playerY: number): void {
@@ -7214,6 +7311,8 @@ export class GameScene extends Phaser.Scene {
       this.updateWardenThrone(playerX, playerY);
       this.syncEscortDrone(playerX, playerY);
       this.updateEscortDrone(playerX, playerY, deltaSeconds);
+      this.syncQuestCargoDrop(map, playerX, playerY);
+      this.updateQuestCargoDrop(playerX, playerY);
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.tryOpenQuestDoor(map, playerX, playerY);
       this.updateBreachCharges(map, playerX, playerY);
@@ -7329,7 +7428,7 @@ export class GameScene extends Phaser.Scene {
     if (this.questTickerRefreshTimer <= 0) {
       this.questTickerRefreshTimer = QUEST_TICKER_REFRESH_SECONDS;
       this.expeditionTickerRows = buildRunTickerRows({
-        views: getActiveQuestStepViews(),
+        views: getActiveQuestStepViews(questWorldStamp(map)),
         // Read, never clear. MapScene.create is the sole clearer of this overlay; clearing it
         // here would retire the chart badge within a second of the step that raised it.
         updatedQuestIds: getDiscoveryManager().getUpdatedObjectiveQuestIds(),
@@ -8974,7 +9073,7 @@ export class GameScene extends Phaser.Scene {
     const pins = [
       ...buildQuestPins({
         map,
-        markers: getActiveQuestMarkers(),
+        markers: getActiveQuestMarkers(questWorldStamp(map)),
         sectorFlagsOf: (key) => discovery.getSectorFlags(key),
         shipCell,
       }),
@@ -9838,6 +9937,11 @@ export class GameScene extends Phaser.Scene {
 
     const playerX = Transform.x[this.playerId];
     const playerY = Transform.y[this.playerId];
+    // The crate is left in the room that killed you rather than returning to the boards: a
+    // delivery you lost is something to go back for. Taken HERE, at the killing blow, because
+    // gameOver() runs 2200 ms later from a delayedCall and the ship's transform is the position
+    // that matters. PRACTICE saves nothing, so it drops nothing.
+    if (!this.practiceModeActive) this.dropQuestCargoWhereShipDied(playerX, playerY);
     const juiceManager = getJuiceManager();
 
     // t=0: Hit stop freeze frame on the killing blow
@@ -14751,6 +14855,8 @@ export class GameScene extends Phaser.Scene {
     this.clearNemesisLairs();
     this.clearWardenThrone();
     this.wardenThroneSectorKey = null;
+    this.clearQuestCargoDrop();
+    this.questCargoDropSectorKey = null;
     this.bountyText?.destroy();
     this.bountyText = null;
     this.sectorBannerText = null;

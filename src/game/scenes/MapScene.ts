@@ -6,6 +6,7 @@ import { buildSecretLead, findSealedLeadSectors,
 import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestHazardObjectives, getActiveQuestMarkers, getQuestBoardEntries,
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
+import { questWorldStamp } from '../../systems/QuestProgress';
 import { GAMEPAD_BUTTON_A, GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB,
   GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_X, GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT,
@@ -233,7 +234,7 @@ export class MapScene extends Phaser.Scene {
     this.questPins = [
       ...buildQuestPins({
         map: this.mapData,
-        markers: getActiveQuestMarkers(),
+        markers: getActiveQuestMarkers(questWorldStamp(this.mapData)),
         sectorFlagsOf: (key) => discovery.getSectorFlags(key),
         shipCell,
       }),
@@ -264,7 +265,7 @@ export class MapScene extends Phaser.Scene {
     this.sealedLeadSectorKeys = findSealedLeadSectors(
       this.leads, (abilityId) => this.ownedAbilityIds.has(abilityId));
     const stepViewByQuestId = new Map(
-      getActiveQuestStepViews().map(view => [view.questId, view]));
+      getActiveQuestStepViews(questWorldStamp(this.mapData)).map(view => [view.questId, view]));
     const boardEntryByQuestId = new Map(
       getQuestBoardEntries().map(entry => [entry.questId, entry]));
     const questStateOf = (questId: string): LockoutQuestState => {
@@ -391,7 +392,7 @@ export class MapScene extends Phaser.Scene {
    * cannot spill outside the panel.
    */
   private renderObjectivesPanel(): number {
-    const views = getActiveQuestStepViews();
+    const views = getActiveQuestStepViews(questWorldStamp(this.mapData));
     if (views.length === 0) return HEADER_HEIGHT + 12;
 
     const panelX = 24;

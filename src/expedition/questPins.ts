@@ -32,7 +32,11 @@ export function buildQuestPins(inputs: QuestPinInputs): QuestPin[] {
   return inputs.markers.map((marker) => ({
     questId: marker.questId,
     label: marker.label,
-    sectorKey: nearestChartedSector(inputs, marker.sectorTag, marker.countedSectorKeys),
+    sectorKey: marker.sectorKey !== undefined
+      // A marker that already names its room skips the tag search, but not the chart's leak
+      // rule: an uncharted room still resolves to null rather than to its real key.
+      ? (inputs.sectorFlagsOf(marker.sectorKey) !== 0 ? marker.sectorKey : null)
+      : nearestChartedSector(inputs, marker.sectorTag, marker.countedSectorKeys),
   }));
 }
 

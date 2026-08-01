@@ -20,6 +20,22 @@ import type { PoiHazardKind } from '../data/PoiCatalog';
  */
 export type QuestStatus = 'active' | 'available' | 'complete';
 
+/** Where a `deliverItem` crate was left when the run carrying it died. */
+export interface QuestCargoDrop {
+  /** Compared for equality only, exactly as `visitedWorldStamp` is. */
+  worldStamp: string;
+  sectorKey: string;
+  x: number;
+  y: number;
+}
+
+/** The one definition of a world's identity for quest state. Structural rather than `WorldMap`,
+ *  so this module stays free of `src/world/` runtime imports. The format is the one already
+ *  stored in `visitedWorldStamp`, so existing states keep matching. */
+export function questWorldStamp(map: { seed: number; worldGenVersion: number }): string {
+  return `${map.seed}:v${map.worldGenVersion}`;
+}
+
 export interface QuestInstanceState {
   questId: string;
   stepIndex: number;
@@ -35,6 +51,11 @@ export interface QuestInstanceState {
   /** True while a `deliverItem` step's crate is aboard. Absent for every other kind, and cleared
    *  by the death rule, by SET ASIDE and by the delivery itself: the crate is spent on arrival. */
   cargoHeld?: boolean;
+  /** Set instead of clearing `cargoHeld` when the run carrying the crate died: the crate is in
+   *  the world now, not aboard and not back at a board. A sector key names a different room in a
+   *  regenerated world, so a drop whose stamp does not match the live world is ignored rather
+   *  than pointed at, the rule `visitedWorldStamp` already obeys. */
+  cargoDrop?: QuestCargoDrop;
   /** True while a `escortDrone` step's drone is assigned and alive. Absent for every other kind,
    *  and cleared by the death rule, by SET ASIDE, by the drone dying and by the arrival itself:
    *  the drone is spent on delivery exactly as the crate is. */
@@ -232,6 +253,7 @@ export function recordQuestEvent(
     state.visitedSectorKeys = undefined;
     state.visitedWorldStamp = undefined;
     state.cargoHeld = undefined;
+    state.cargoDrop = undefined;
     state.droneEscorting = undefined;
     if (state.stepIndex >= definition.steps.length) {
       state.status = 'complete';
@@ -337,6 +359,7 @@ export function setQuestAside(
     target.visitedSectorKeys = undefined;
     target.visitedWorldStamp = undefined;
     target.cargoHeld = undefined;
+    target.cargoDrop = undefined;
     target.droneEscorting = undefined;
   }
   return { states: copied, changed: true };
@@ -393,10 +416,20 @@ export interface QuestStepView {
 const CARGO_ABOARD_NOTE = 'CARGO ABOARD';
 const BOARD_COLLECT_NOTE = 'COLLECT AT A BOARD';
 const DRONE_ESCORT_NOTE = 'DRONE ESCORTING';
+const CARGO_ADRIFT_NOTE = 'CARGO ADRIFT';
+
+function cargoNote(state: QuestInstanceState, worldStamp: string): string {
+  const drop = state.cargoDrop;
+  if (drop !== undefined && drop.worldStamp === worldStamp) {
+    return `${CARGO_ADRIFT_NOTE} · ${drop.sectorKey}`;
+  }
+  return state.cargoHeld === true ? CARGO_ABOARD_NOTE : BOARD_COLLECT_NOTE;
+}
 
 export function buildQuestStepViews(
   states: readonly QuestInstanceState[],
   defs: readonly ExpeditionQuestDefinition[],
+  worldStamp: string,
 ): QuestStepView[] {
   const byId = new Map(defs.map((definition) => [definition.id, definition]));
   const views: QuestStepView[] = [];
@@ -414,7 +447,7 @@ export function buildQuestStepViews(
       stepNumber: state.stepIndex + 1,
       stepCount: definition.steps.length,
       note: step.trigger.kind === 'deliverItem'
-        ? (state.cargoHeld === true ? CARGO_ABOARD_NOTE : BOARD_COLLECT_NOTE)
+        ? cargoNote(state, worldStamp)
         : step.trigger.kind === 'escortDrone'
           ? (state.droneEscorting === true ? DRONE_ESCORT_NOTE : BOARD_COLLECT_NOTE)
           : undefined,
@@ -437,11 +470,15 @@ export interface QuestMarker {
   /** Rooms this step has already counted. The pin must skip them or it points at a room that
    *  would grant nothing. Absent for a step that counts no sectors. */
   countedSectorKeys?: readonly string[];
+  /** A pin that names a ROOM rather than a tag: a dropped crate is at one known position, not
+   *  wherever the nearest matching sector happens to be. When present it IS the pin. */
+  sectorKey?: string;
 }
 
 export function buildQuestMarkers(
   states: readonly QuestInstanceState[],
   defs: readonly ExpeditionQuestDefinition[],
+  worldStamp: string,
 ): QuestMarker[] {
   const byId = new Map(defs.map((definition) => [definition.id, definition]));
   const markers: QuestMarker[] = [];
@@ -452,6 +489,19 @@ export function buildQuestMarkers(
     if (!definition || !step) continue;
     const trigger = step.trigger;
     if (trigger.kind === 'deliverItem') {
+      // A dropped crate makes the next place the room it is lying in: not the destination, which
+      // it cannot reach, and not a board, which will not re-issue it.
+      const drop = state.cargoDrop;
+      if (drop !== undefined && drop.worldStamp === worldStamp) {
+        markers.push({
+          questId: definition.id,
+          label: definition.name,
+          icon: definition.icon,
+          sectorTag: trigger.destinationTag,
+          sectorKey: drop.sectorKey,
+        });
+        continue;
+      }
       // An empty hold means the next place is a BOARD, and every charted board already draws its
       // own QuestGiver glyph, so a destination pin here would name the wrong errand.
       if (state.cargoHeld !== true) continue;
@@ -730,6 +780,53 @@ export function dropQuestDrone(
 }
 
 /**
+ * The run carrying the crate ended in the room named by `drop`. The hold becomes a position:
+ * the crate is a thing in the world, not something a board re-issues. Returns what was dropped
+ * so the scene can name it.
+ */
+export function dropQuestCargo(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  drop: QuestCargoDrop,
+): { states: QuestInstanceState[]; dropped: QuestCargoRow[] } {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const next = states.map((state) => ({ ...state }));
+  const dropped: QuestCargoRow[] = [];
+  for (const state of next) {
+    if (state.status !== 'active' || state.cargoHeld !== true) continue;
+    const step = byId.get(state.questId)?.steps[state.stepIndex];
+    if (step?.trigger.kind !== 'deliverItem') continue;
+    state.cargoHeld = undefined;
+    state.cargoDrop = { ...drop };
+    dropped.push({ questId: state.questId, itemId: step.trigger.itemId });
+  }
+  return { states: next, dropped };
+}
+
+/**
+ * Walking into the crate puts it back aboard. Keyed on the quest rather than on a position: the
+ * scene built the object FROM this state, so it already knows whose crate it touched, and a
+ * position compare here would be a second source of truth for one thing.
+ */
+export function reclaimQuestCargo(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  questId: string,
+): { states: QuestInstanceState[]; reclaimed: QuestCargoRow | null } {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const next = states.map((state) => ({ ...state }));
+  const target = next.find((state) => state.questId === questId);
+  if (!target || target.status !== 'active' || target.cargoDrop === undefined) {
+    return { states: next, reclaimed: null };
+  }
+  const step = byId.get(questId)?.steps[target.stepIndex];
+  if (step?.trigger.kind !== 'deliverItem') return { states: next, reclaimed: null };
+  target.cargoDrop = undefined;
+  target.cargoHeld = true;
+  return { states: next, reclaimed: { questId, itemId: step.trigger.itemId } };
+}
+
+/**
  * The escort the scene should have a drone standing for, if any. buildQuestMarkers cannot answer
  * this: it names the destination to PIN, and the scene needs the drone's identity to decide
  * whether the object in the room is still the right one.
@@ -756,6 +853,31 @@ export function buildQuestEscortObjectives(
       droneId: step.trigger.droneId,
       destinationTag: step.trigger.destinationTag,
     });
+  }
+  return objectives;
+}
+
+/** The crate the scene should have an object standing for in this world, if any. */
+export interface QuestCargoDropObjective {
+  questId: string;
+  itemId: string;
+  drop: QuestCargoDrop;
+}
+
+export function buildQuestCargoDropObjectives(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  worldStamp: string,
+): QuestCargoDropObjective[] {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const objectives: QuestCargoDropObjective[] = [];
+  for (const state of states) {
+    if (state.status !== 'active') continue;
+    const drop = state.cargoDrop;
+    if (drop === undefined || drop.worldStamp !== worldStamp) continue;
+    const step = byId.get(state.questId)?.steps[state.stepIndex];
+    if (step?.trigger.kind !== 'deliverItem') continue;
+    objectives.push({ questId: state.questId, itemId: step.trigger.itemId, drop });
   }
   return objectives;
 }
