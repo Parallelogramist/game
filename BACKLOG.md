@@ -429,6 +429,37 @@ the next room that still pays rather than at one that would grant nothing. No ne
 HUD change (the ticker already renders `3/8` off the target), no storage key, no `SAVE_VERSION` and
 no `WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the build lands.
 
+**`b846074` let a sweep of rooms outlive the run that started it.** `972573a` had to pin every
+multi-destination step to `run` scope by assert, because `visitedSectorKeys` holds bare sector keys
+(`2,-1`) and a key names a POSITION rather than a room: regenerate the world and `2,-1` is a
+different room entirely, so a persisted set would credit rooms the player never charted. The set
+now carries the world it was collected in, stamped `<seed>:v<worldGenVersion>` and built inline at
+the one producer (`sectorEnteredHandler`), since the fold only ever compares it for equality and a
+shared helper would be surface with one caller. On a mismatch the set is dropped **whole** rather
+than merged or kept: there is no way to tell which of the old keys still name a room the player
+actually visited, and restarting a cross-run sweep at 0 is a smaller wrong than paying it for rooms
+it never saw. The store keeps set and stamp as one **atomic pair** (a set whose world is unknown
+cannot be checked, and a stamp with no set says nothing) and derives distinct progress from the set
+**unconditionally**: the old fallback to a stored count would have let a dropped set keep its stale
+number and then be overwritten by `1` on the next room, which the player would watch happen. The
+manager's change detection now compares the stamp as well as the count, and without that half the
+feature is silently dead: a world change that lands on the same room count (1 in the old world, 1 in
+the new) is recomputed on every single sector entry and saved on none, freezing the sweep at 1
+forever. Two steps ship with it, measured against the live seed **20260727** rather than guessed:
+the world holds **48** sectors (**45** non-hidden), a fully powered ship reaches all **48** and a
+ship owning nothing reaches **16**, so `q_survey_03.s6` asks for **20** tagless rooms, deliberately
+above what one first expedition can touch; the Inferno holds **16** reachable fully powered and **7**
+owning nothing, so `q_gatecrash_02.s5` asks for **6**. The tagged Inferno step gets the shipped chart
+pin and radar bearing and skips the rooms it already counted, so a cross-run objective points at the
+next room that still pays; the tagless one names no place and correctly produces neither. The
+run-scope-only assert is replaced by a scope-aware bound (12 in one run, 24 across runs) rather than
+deleted, so both scopes stay bounded. A **legacy** save written before this has keys but no stamp,
+so its set is dropped and its distinct progress reads 0, which costs nothing real: the only two
+distinct steps shipped before today were `run`-scope, and `beginExpeditionQuestRun` clears a
+run-scope set at the start of every expedition anyway. No new trigger kind, no HUD change, no
+storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights it
+up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -441,8 +472,10 @@ plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHA
 two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TIMERS` and
 `CHORE-QUEST-DWELL-RESTORE`, plus the three the siege itself filed:
 `BALANCE-QUEST-SIEGE-PRESSURE`, `FEAT-QUEST-SIEGE-HUD-TELL` and `CHORE-QUEST-SIEGE-RESTORE`, plus
-the two the distinct fold filed that need no worldgen change,
-`BALANCE-QUEST-CHART-TARGETS` and `CHORE-QUEST-DISTINCT-WORLD-STAMP`.
+the one still-open of the two the distinct fold filed that need no worldgen change,
+`BALANCE-QUEST-CHART-TARGETS`, plus the play-gated `BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS` the
+world stamp filed. `FEAT-QUEST-SWEEP-WORLD-RESET-TELL` is filed by the same session but is
+blocked on a re-rollable or per-profile world seed, so it is not a candidate.
 `FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
 (`escortDrone`, `deliverItem`) are blocked on `FEAT-WORLDGEN-STREAM`, so it is not a candidate.
 `FEAT-ECON-WARDS` stays parked on its
@@ -5195,13 +5228,29 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   truth in the catalog. Do not re-derive this without a generator that mixes biomes within a
   band. Value: an objective that names variety rather than distance. Deps: a worldgen change.
 
-- [ ] **CHORE-QUEST-DISTINCT-WORLD-STAMP** (new 2026-08-01, from
-  FEAT-QUEST-REACHSECTOR-DISTINCT): a distinct step is `run`-scope by assert because
-  `visitedSectorKeys` holds bare sector keys (`2,-1`), and a regenerated world reuses those
-  coordinates for different rooms, so a persistent set would over-credit after a
-  `WORLDGEN_VERSION` bump. Stamping the set with `(worldSeed, worldGenVersion)` and dropping it
-  on a mismatch is what a persistent multi-destination step needs first. Value: "survey twelve
-  rooms across your expeditions" becomes authorable. Deps: none.
+- [x] **CHORE-QUEST-DISTINCT-WORLD-STAMP** (done, b846074) (new 2026-08-01, from
+  FEAT-QUEST-REACHSECTOR-DISTINCT): the visited set of a distinct step now carries the world it
+  was collected in (`<seed>:v<worldGenVersion>`, built at the single producer) and is dropped
+  whole on a mismatch, so a `persistent` multi-destination step is safe and the run-scope-only
+  assert is gone. Two persistent sweeps ship with it, `q_survey_03.s6` (20 tagless rooms) and
+  `q_gatecrash_02.s5` (6 Inferno sectors). Value: "chart twenty rooms across your expeditions"
+  is now authorable and shipped.
+
+- [ ] **BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS** (new 2026-07-31, from
+  CHORE-QUEST-DISTINCT-WORLD-STAMP): 20 tagless rooms and 6 Inferno sectors are measured against
+  the generator at the live seed (48 sectors, 45 non-hidden, 16 reachable owning nothing; Inferno
+  16 and 7), never played. A cross-run sweep that outlives the chain around it reads as a chore
+  rather than a goal, and the right target depends on how many rooms a real expedition actually
+  charts. Value: a cross-run sweep that finishes near when the chain does. Deps: none, but it
+  wants play rather than a third guess.
+
+- [ ] **FEAT-QUEST-SWEEP-WORLD-RESET-TELL** (new 2026-07-31, from
+  CHORE-QUEST-DISTINCT-WORLD-STAMP): when the world changes, a persistent sweep silently drops
+  the rooms it had counted and the ticker simply reads a smaller number. Nothing says why. It
+  cannot fire today (one fixed seed, and a `WORLDGEN_VERSION` bump already discards discovery
+  state), so it is filed rather than built: it becomes real the moment README section 6's world
+  re-roll ships, which `FEAT-SECRET-LORE-CATALOG-DEPTH` also waits on. Value: a counter that
+  went backwards says why. Deps: a re-rollable or per-profile world seed.
 
 - [x] **FEAT-MAPUI-OBJECTIVE-PIN-RADAR** (done, 05e832e): the radar carries the bearing of every
   place the chart pinned, and of every open lead, so a destination survives closing the map.

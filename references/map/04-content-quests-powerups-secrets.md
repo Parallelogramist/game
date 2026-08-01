@@ -713,6 +713,53 @@ send the player to several different rooms.
 
 ---
 
+### As built (`CHORE-QUEST-DISTINCT-WORLD-STAMP`, b846074, 2026-07-31)
+
+A distinct step could only ever be `run`-scope, so every multi-destination objective died at the
+end of the run that started it. This commit lets one span expeditions.
+
+1. **The stamp.** The event gains a REQUIRED `worldStamp: string`, so the compiler forces every
+   producer to supply it, and `QuestInstanceState` gains an optional `visitedWorldStamp` beside
+   `visitedSectorKeys`. The format is `` `${map.seed}:v${map.worldGenVersion}` ``, built inline at
+   the single producer (`GameScene.sectorEnteredHandler`): the fold only ever compares it for
+   equality, so a shared helper would be surface with one caller. That handler's guard widened from
+   `if (sector)` to `if (map && sector)` purely so TypeScript narrows `map`; at runtime the two are
+   equivalent, since `sector` came from `map?.sectors.get()`.
+2. **A mismatch drops the set WHOLE**, rather than merging it or keeping it. A sector key names a
+   position, not a room: regenerate the world and `2,-1` is a different room, so there is no way to
+   tell which old keys still name somewhere the player visited. Restarting a cross-run sweep at 0 is
+   a smaller wrong than paying it for rooms it never charted. Re-entry idempotence is unchanged: a
+   room already in the set still returns the state untouched.
+3. **Set and stamp are one pair in `sanitizeStates`**, kept or dropped together (a set whose world
+   is unknown cannot be checked against the live world, and a stamp with no set says nothing), and
+   `stepProgress` for a distinct step is now derived from the set UNCONDITIONALLY. The old fallback
+   to the stored count is what would let a dropped set keep its stale number and then be overwritten
+   by `1` on the next room. Consequence: a legacy save written before this commit has keys but no
+   stamp, so its set is dropped and its distinct progress reads 0. That costs nothing real, because
+   both distinct steps shipped before today were `run`-scope and `beginExpeditionQuestRun` clears a
+   run-scope set at the start of every expedition anyway.
+4. **The manager saves a stamp-only change.** `recordExpeditionQuestEvent` compares
+   `visitedWorldStamp` as well as `stepProgress`. Without it, a world change landing on the same
+   count (1 room in the old world, 1 in the new) is recomputed on every sector entry and saved on
+   none, freezing the sweep at 1 forever. The keys need no comparison: with an equal stamp and an
+   equal count the fold either returned `current` or grew the set.
+5. **The data assert is scope-aware**, bounding `run` at 12 and `persistent` at 24, and the
+   run-scope-only pin is gone. The `run` bound is what one expedition reaches at the live seed
+   owning no traversal ability and no quest key (16, measured 2026-08-01); the `persistent` bound is
+   half the non-hidden sectors a fully powered ship reaches (45, measured 2026-07-31). Both scopes
+   stay bounded, and the hazard the pin stood in for now ships a fix in code.
+6. **Two steps ship with it**, appended and never inserted, measured at seed 20260727: the world
+   holds 48 sectors (45 non-hidden), a fully powered ship reaches all 48 and a ship owning nothing
+   reaches 16, so `q_survey_03.s6` charts 20 tagless rooms, deliberately above what one first
+   expedition can touch; the Inferno holds 16 reachable fully powered and 7 owning nothing, so
+   `q_gatecrash_02.s5` surveys 6 of them. The tagged Inferno step gets the shipped chart pin and
+   radar bearing, skipping the rooms it already counted; the tagless one names no place and
+   correctly produces neither.
+7. **No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` bump and no new file.** The stamp is
+   one more optional field inside the existing `survivor-expedition-quests` value.
+
+---
+
 ## 5. Secrets
 
 ### Taxonomy
