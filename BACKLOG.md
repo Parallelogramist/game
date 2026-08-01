@@ -1345,6 +1345,35 @@ gauntlet are untouched by construction, because the escort drone is the only pub
 and it exists only while an expedition quest escort step is active; and it moves no gold, no relic
 roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**8c3357c gave a lost delivery somewhere to be.** Dying with a quest crate aboard returned it to the
+boards, so a failed courier run left nothing behind and the delivery could only ever be re-issued
+from a menu. The crate now stays in the room that killed you: the hold becomes a position
+(`cargoDrop: { worldStamp, sectorKey, x, y }` beside `cargoHeld` on the quest state), the drop is
+taken at the killing blow in `playDeathSequence` off the ship's transform, and the crate waits there
+across deaths and reloads until the ship flies within 44 px of it and puts it back aboard. **George
+sees it without opening anything**: the HUD ticker and the OBJECTIVES panel read `CARGO ADRIFT · 3,-2`
+within a second of the next expedition starting, the chart pins that exact room, and the radar
+carries a bearing to it. All four came for free off surfaces that already render `view.note` and
+already draw every pin, which is why the whole feature is four production files.
+**The settled calls.** The crate is a derived scene `Graphics`, not an ECS entity, so
+`FEAT-CARGO-DROP-IN-PLACE`'s stated `FEAT-WORLDGEN-STREAM` dependency was never real: that chain
+assumed the serializer had to see it, and `FEAT-QUEST-ESCORT` (840753d) already settled that
+`serializeEntities` persists six queries and a `Graphics` is in none of them. `FEAT-CARGO-PICKUP-ENTITY`
+is updated in place rather than re-filed, with that dep struck. A drop is keyed to its world and a
+foreign stamp is ignored rather than pointed at, so `buildQuestMarkers` and `buildQuestStepViews`
+take the stamp as a REQUIRED argument: an omitted one would silently pin last world's room, and this
+repo's answer to that class of bug is a `tsc` error (`BUG-ENDRUN-GOLD-MULT`'s precedent).
+`settleRunScopeProgress` deliberately does NOT clear `cargoDrop` even though it clears everything
+beside it, because it runs at the start of the NEXT expedition and clearing there would delete the
+feature. Four cuts filed: `BALANCE-CARGO-RECLAIM-RADIUS`, `FEAT-CARGO-DROP-ON-END-RUN`,
+`CHORE-CARGO-DROP-STALE-CLEAR` and the `FEAT-CARGO-PICKUP-ENTITY` update. No storage key, no
+`SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no
+`WORLD_ARCHIVE_VERSION` bump, because the drop lives beside `cargoHeld` in the existing
+`survivor-expedition-quests` store; arena, daily, weekly, practice and gauntlet are untouched by
+construction, because `worldMap()` is null in all of them so the sync and the drop both return on
+their first line and practice is guarded explicitly on top of that; and it moves no gold, no relic
+roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -6802,17 +6831,70 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 - [ ] **FEAT-CARGO-PICKUP-ENTITY** (new 2026-08-01, from FEAT-QUEST-CARGO): the crate is handed
   over by the board overlay and is never a thing in the room, so there is nothing to see, shoot
   around or leave behind. A visible crate at the board's own position, picked up by a walk-in like
-  a cache is, would make the load a place rather than a menu, and it is exactly the case that
-  needs `FEAT-WORLDGEN-STREAM`'s persistence-exemption API (a crate mid-room must survive a
-  refresh without being re-rolled). Value: loading cargo happens in the world instead of in a
-  dialog. Deps: `FEAT-WORLDGEN-STREAM`.
+  a cache is, would make the load a place rather than a menu. **Updated 2026-08-01 by
+  `FEAT-CARGO-DROP-IN-PLACE` (8c3357c): the `FEAT-WORLDGEN-STREAM` dep is struck.** A crate is a
+  derived scene `Graphics` rebuilt from the quest store on every sector change, not an entity
+  `serializeEntities` can see, so no persistence-exemption API was ever owed; and the crate object,
+  its `drawQuestCargoCrate` and its 44 px walk-in radius all exist now. What is left is only moving
+  the board's hand-over from the overlay to a walk-in: a position for the board's own crate, and
+  `loadQuestCargo` fired by flying into it rather than by opening the card. Value: loading cargo
+  happens in the world instead of in a dialog. Deps: none.
 
-- [ ] **FEAT-CARGO-DROP-IN-PLACE** (new 2026-08-01, from FEAT-QUEST-CARGO): dying returns the
+- [x] **FEAT-CARGO-DROP-IN-PLACE** (done, 8c3357c): dying returns the
   crate to the boards rather than dropping it where the ship died, because a dropped crate is a
   world entity with a position that has to survive the run save. Recovering your own cargo from
   the room that killed you is the better story; it wants the same entity
   `FEAT-CARGO-PICKUP-ENTITY` wants. Value: a lost run leaves something to go back for. Deps:
   `FEAT-CARGO-PICKUP-ENTITY`.
+  **What shipped (8c3357c)**: the crate stays in the room that killed you. `dropQuestCargo` turns
+  the hold into a position, `cargoDrop: { worldStamp, sectorKey, x, y }` on `QuestInstanceState`,
+  behind four gates: the quest is `active`, its current step is a `deliverItem`, `cargoHeld` is
+  true, and the run is not practice (practice saves nothing, so it drops nothing). The drop is
+  taken at the killing blow in `playDeathSequence` off the ship's transform, because `gameOver()`
+  runs 2200 ms later from a `delayedCall` and the position that matters is gone by then. Arena,
+  daily, weekly and gauntlet are inert by construction: `worldMap()` is null there, so the drop and
+  the sync both return on their first line. A drop is keyed to its world through the one shared
+  `questWorldStamp(map)`, the rule `visitedWorldStamp` already obeys, and a foreign drop is ignored
+  rather than pointed at; `buildQuestMarkers` and `buildQuestStepViews` take that stamp as a
+  REQUIRED parameter, so an omitted one is a `tsc` error rather than a pin on last world's room.
+  **Four surfaces light up with no new rendering code**: the HUD ticker and the OBJECTIVES panel
+  read `CARGO ADRIFT · <sectorKey>` off the existing `view.note`, the OBJECTIVES row picks up its
+  PINNED suffix, the chart pins that room (`buildQuestPins` now honours an explicit `marker.sectorKey`
+  instead of searching by tag, still behind the chart's leak rule so an uncharted room resolves to
+  null), and the radar bearing follows the pin it already reads. Flying within 44 px of the crate,
+  the secret cache's claim radius, calls `reclaimQuestCargo` and puts it back aboard. **The stated
+  `FEAT-WORLDGEN-STREAM` dependency was never real for this half**: the crate is a derived scene
+  `Graphics` rebuilt from the store on every sector change, the call `FEAT-QUEST-ESCORT` (840753d)
+  already made for the drone, so there is nothing for `serializeEntities` to see and no
+  persistence-exemption API to wait on. `settleRunScopeProgress` deliberately PRESERVES `cargoDrop`
+  while clearing everything beside it: it runs at the start of the next expedition, so clearing
+  there would delete the feature. No storage key, no `SAVE_VERSION`, `WORLDGEN_VERSION`,
+  `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION` bump, and no gold, relic
+  roll or reward-table row moved. Four cuts filed: `FEAT-CARGO-PICKUP-ENTITY` (updated),
+  `BALANCE-CARGO-RECLAIM-RADIUS`, `FEAT-CARGO-DROP-ON-END-RUN` and `CHORE-CARGO-DROP-STALE-CLEAR`.
+
+- [ ] **BALANCE-CARGO-RECLAIM-RADIUS** (new 2026-08-01, from FEAT-CARGO-DROP-IN-PLACE): 44 px is
+  the secret cache's claim radius, borrowed so a crate and a cache feel the same to fly into, but
+  it was never measured against an object that NEVER fades and sits wherever the ship happened to
+  die, which can be inside a wall pocket or under a hazard. Whether recovery reads as walking into
+  your own crate or as fishing for a hitbox needs a browser. Value: picking your cargo back up
+  feels like a pickup, not a hunt. Deps: none, but it wants play, not a guess.
+
+- [ ] **FEAT-CARGO-DROP-ON-END-RUN** (new 2026-08-01, from FEAT-CARGO-DROP-IN-PLACE): ending a run
+  from the pause menu, and winning one, still return the crate to the boards exactly as before,
+  because a voluntary exit is not a loss and taking the crate off a player who chose to leave would
+  be a punishment the death rule never intended. Whether a deliberate exit should also strand the
+  crate is a design call, not an oversight: it changes END RUN from a clean stop into a forfeit.
+  Value: one rule for where a delivery goes when a run ends, whichever way it ends. Deps: none,
+  needs an operator call on whether END RUN is a loss.
+
+- [ ] **CHORE-CARGO-DROP-STALE-CLEAR** (new 2026-08-01, from FEAT-CARGO-DROP-IN-PLACE): a drop
+  taken in a world the profile has since re-seeded stays in `survivor-expedition-quests` forever.
+  Every surface ignores it (the world stamp does not match, so no marker, no note and no crate),
+  and the board can re-issue the crate, so it is harmless: one small object per quest, bounded by
+  the accept cap. It wants the same sweep `CHORE-MARK-STALE-CLEAR` wants, and should ship with it
+  rather than growing a second stale-state pass of its own. Value: the quest store does not
+  accumulate dead rooms. Deps: none, pairs with `CHORE-MARK-STALE-CLEAR`.
 
 - [ ] **BALANCE-CARGO-DELIVERY-TARGETS** (new 2026-08-01, from FEAT-QUEST-CARGO): the two
   destinations (the Ion Field at depth 6 to 7, the boss arena) and the 240/260 gold are designed

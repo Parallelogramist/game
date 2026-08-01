@@ -750,6 +750,53 @@ quest verb that names two places: a board to collect at, and somewhere else to a
 
 ---
 
+### As built (FEAT-CARGO-DROP-IN-PLACE, 8c3357c, 2026-08-01)
+
+A delivery lost to death is now something to go back for. Dying with the crate aboard no longer
+returns it to the boards: `dropQuestCargo` turns the hold into a position, `cargoDrop`
+(`{ worldStamp, sectorKey, x, y }`) on `QuestInstanceState`, and the crate waits in that room
+across deaths and reloads until the ship flies into it (`reclaimQuestCargo`, 44 px, the secret
+cache's claim radius).
+
+1. **The crate is a derived scene `Graphics`, not an ECS entity, so no exemption was owed here
+   either.** This is note 2 of the escort block applied to the crate: `serializeEntities` persists
+   six queries and a `Graphics` is in none of them. `GameScene.syncQuestCargoDrop` rebuilds it from
+   the store whenever the ship's sector key changes, the `syncSecretCaches` idiom, so a refresh
+   mid-recovery restores it and a reclaim removes it without a second code path. **Correct the
+   record for the other half too:** `FEAT-CARGO-PICKUP-ENTITY`'s stated `FEAT-WORLDGEN-STREAM`
+   dependency was never real for this feature, and the crate object, its draw and its walk-in
+   radius now all exist.
+2. **The drop is taken at the killing blow**, in `playDeathSequence` off the ship's transform, not
+   in `gameOver()`, which runs 2200 ms later from a `delayedCall` by which time the position that
+   matters is gone. Practice mode is guarded explicitly (it saves nothing, so it drops nothing),
+   and arena, daily, weekly and gauntlet are inert by construction: `worldMap()` is null there, so
+   both the drop and the sync return on their first line.
+3. **A drop is keyed to its world**, the rule `visitedWorldStamp` already obeys, through the one
+   shared `questWorldStamp(map)` (`${seed}:v${worldGenVersion}`). A sector key names a different
+   room in a regenerated world, so a foreign drop is ignored by every surface rather than pointed
+   at. `buildQuestMarkers` and `buildQuestStepViews` therefore take the stamp as a REQUIRED
+   parameter: an omitted one would silently pin last world's room, and `tsc` is this repo's answer
+   to that class of bug (`BUG-ENDRUN-GOLD-MULT`'s precedent).
+4. **Four surfaces light up with no new rendering code.** The step view's note becomes
+   `CARGO ADRIFT · <sectorKey>`, which the HUD ticker and the OBJECTIVES panel already render; the
+   marker carries a new `sectorKey` that `buildQuestPins` honours instead of searching by tag (still
+   behind the chart's leak rule: an uncharted room resolves to null), which pins the chart; and the
+   radar bearing follows the pin it already reads.
+5. **`settleRunScopeProgress` must NOT clear `cargoDrop`**, unlike the four places `cargoHeld` is
+   cleared. It runs at the start of the NEXT expedition, long after the drop was taken, so clearing
+   there deletes the feature. `cargoDrop` follows `cargoHeld` in exactly two sites: the
+   step-completion block of `recordQuestEvent`, and `setQuestAside`.
+6. **Deliberately not built:** a drop on the END RUN dialog or on victory (a voluntary exit is not
+   a loss, so it still returns the crate to the boards), a toast during the death cinematic (the
+   screen darkens at t=1200; the permanent ticker line is the better tell), and any change to the
+   board's hand-over.
+7. **No storage key and no version bump of any kind** (`SAVE_VERSION`, `WORLDGEN_VERSION`,
+   `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION`, `WORLD_ARCHIVE_VERSION` all untouched): the drop
+   lives beside `cargoHeld` in the existing `survivor-expedition-quests` store, and its sanitizer
+   drops a `cargoDrop` whose current step is not a delivery or whose state already holds the crate.
+
+---
+
 ### As built (FEAT-QUEST-ESCORT, 840753d, 2026-08-01)
 
 `escortDrone`, this section's tenth and last kind, ships with its producer and its readers. It is
