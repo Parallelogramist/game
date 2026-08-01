@@ -973,6 +973,30 @@ per world. It files `BALANCE-SECRET-GAP-SHARE`, `FEAT-SECRET-GAP-MAP-TELL` and
 `CHORE-VOID-GAP-RADAR-UNDERLAY`. No storage key and no version bump of any kind, and it moves no
 gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**a32bb24** gave the sixth and last traversal ability something to open, and
+`FEAT-POWER-ABILITY-EFFECTS-REST` closes with it: all six ids are now in
+`IMPLEMENTED_TRAVERSAL_ABILITY_IDS`, so no ability is a key with nothing behind it. **The
+`WORLDGEN_VERSION` price that entry quoted was not required and this pass is safer still than the
+two that already disproved it**: discovery keys on sector keys, edge ids, POI ids and breakable
+rect ids, and `fenceShrineAltars` moves none of them and registers zero breakable rects. Some
+shrine altars now sit in a pocket ringed by `TileKind.SecurityGrid`, a curtain of light no weapon
+opens, no enemy crosses and no tether reels across, which projectiles fly straight through, so the
+altar is fully visible while being unreachable. A ship without the cloak that noses up to one gets
+a `SECURITY GRID` toast naming Phase Cloak, the courtesy a sealed door, a hazard strip and a void
+gap already extend; a ship with it drives in and passes through intangible for 0.5 s plus 0.25 s
+per purchased `phaseLevel`, and **the fence never comes back**: passing trips its kill-switch,
+recorded per profile as the altar's POI id, so this is the first ability whose use changes the
+world across runs and across deaths, and it is why the pass needs no cooldown. Three rules keep it
+honest: no ring cell may be a registered breakable or a void gap, or a weapon or the tether would
+make the cloak optional; `cardinalCrossingExists` proves a straight approach before the ring
+converts; and `sealHoldsUp`'s exact reachable-count check proves the fence cut off its own pocket
+and nothing else. Shrine altars rather than a fifth cache find-shape, so no `oncePerRun` content,
+no Black Market, no nemesis lair and no quest sits behind a fence and the measured secret split
+does not move: over 101 worlds the 2468 shrine slots yield 690 fenced altars, 28.0%, a median 7
+per world. It files `BALANCE-SECURITY-GRID-SHARE`, `FEAT-GRID-ENEMY-PHASE` and
+`FEAT-GRID-FENCE-CORRIDOR`. No storage key and no version bump of any kind, and it moves no gold,
+no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -5720,14 +5744,13 @@ exploring pays is the end of Phase 5.
     `src/visual/SectorMapRenderer.ts`. Feel is unvalidated in a browser: see
     **POLISH-DOOR-READOUT** under `## Human gates`.
 
-- [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the traversal abilities that are still keys
-  and nothing more, each blocked on a barrier flavour that does not exist yet rather than on
-  effort. **One remains**: `ability_phase_cloak` needs `barrier_security_grid`, which no
-  generator phase emits. **The `WORLDGEN_VERSION` price this entry used to quote for both
-  remaining abilities was never actually required** and 24f1915 proved it: a new `TileKind`
-  member and a whole tile-level barrier landed with no bump at all, because discovery is keyed
-  on sector keys, edge ids, POI ids and breakable rect ids and that pass moves none of them.
-  Do not re-price the last one on the old wording.
+- [x] **FEAT-POWER-ABILITY-EFFECTS-REST** (done, a32bb24): **closed. All six traversal
+  abilities now have a real barrier in the world**, so none is a key with nothing to open and
+  every claim toast prints a real description. **The `WORLDGEN_VERSION` price this entry quoted
+  for the remaining abilities was never actually required** and three passes proved it
+  (f534717, 24f1915, a32bb24): a new `TileKind` member and a whole tile-level barrier land with
+  no bump at all, because discovery is keyed on sector keys, edge ids, POI ids and breakable rect
+  ids and none of those passes moves any of them. Do not re-price anything on the old wording.
   (`ability_breach_charges` is **done — bd1d33d**: rubble seams now collapse under a charge the
   ship plants by nosing into them, so it is the **fourth** id in
   `IMPLEMENTED_TRAVERSAL_ABILITY_IDS`. Its barrier was the only one of the three the generator
@@ -5746,6 +5769,12 @@ exploring pays is the end of Phase 5.
   pylons were deliberately not built and the description was reworded to stop promising them**,
   the same call `ability_breach_charges` made about its prospecting clause. See
   `FEAT-POWER-MAGNO-TETHER` for the full account.)
+  (`ability_phase_cloak` is **done, a32bb24**: `TileKind.SecurityGrid` and `fenceShrineAltars`
+  landed `barrier_security_grid` as the last pass in the sector, so it is the **sixth and last**
+  id in `IMPLEMENTED_TRAVERSAL_ABILITY_IDS`. **The hold and the enemy-body clause were
+  deliberately not built and the description was reworded to stop promising them**, the same call
+  the breach charge and the tether each made; the pass is proximity-and-heading and trips a
+  permanent per-profile kill-switch instead. See `FEAT-POWER-PHASE-CLOAK` for the full account.)
   (`ability_thermal_ward` is **done — 74d78b3**: `FEAT-BARRIER-HAZARD-STRIPS` landed the hull
   drain and the ward now negates it, so it is the second ability in
   `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and its claim toast prints its real description.)
@@ -5815,6 +5844,94 @@ exploring pays is the end of Phase 5.
   no `DISCOVERY_VERSION` bump, so every existing profile and all 21 archivable worlds light it up
   on the next build. No econ surface, so `FEAT-ECON-WARDS` stays parked.
 
+- [x] **FEAT-POWER-PHASE-CLOAK** (done, a32bb24) (new 2026-08-01, from
+  `FEAT-POWER-ABILITY-EFFECTS-REST`): the sixth and last traversal ability stops being a key with
+  nothing to open. Doc 04 section 2 row 4. Value: the player sees an altar behind a curtain of
+  light no weapon opens, learns by name that the Phase Cloak is the answer, earns it, drives
+  through, and the fence stays dark for good.
+  1. **What shipped**: `TileKind.SecurityGrid` and `PoiSlot.fenced` in `worldTypes.ts`,
+     `fenceShrineAltars` as the **last** pass in `buildSectorInterior` (after `carveSecretGaps`,
+     drawing no value from the sector rng), one branch each in `isSolidForMotion` and
+     `isSolidAtWorld` so a fence blocks hulls and enemies but passes projectiles, the new pure
+     `src/world/securityGrids.ts` (`findGridBreach`, `securityGridNearWorld`,
+     `isGridFenceIntact`, `clearSecurityGrid`, `applyDownedSecurityGrids`), the instant
+     `tryPhaseCloak` on the `tryBlink` precedent, the `SECURITY GRID` notice
+     `reportSecurityGrid`, `WorldProfileState.downedSecurityGridIds` plus
+     `recordDownedSecurityGrid` and its replay in `ExpeditionModeAdapter`, the chart's fenced
+     altar line in `sectorDetail.ts`, and the magenta-rimmed floor wash in
+     `WorldGeometryRenderer`. One new module, no new storage key.
+  2. **The version-bump price was never required, and this pass is safer still than the two
+     that already proved it** (`sealSecretCaches` f534717, `carveSecretGaps` 24f1915): discovery
+     keys on sector keys, edge ids, POI ids and breakable rect ids, and this pass moves none of
+     them and registers **zero** `BreakableRect`s. A bump would have discarded every profile's
+     per-seed discovery state and orphaned all 21 archivable worlds for nothing.
+  3. **Measured**: over 101 worlds (the 100 invariant seeds plus live seed 20260727) the 2468
+     shrine slots yield 690 fenced altars, 28.0% of all shrine slots.
+     `SECURITY_GRID_SHARE_PERCENT` is 40 and the footprint, hazard, breakable, gap and flood
+     guards reject the rest. Median 7 fenced altars per world (min 2, max 14); the live seed
+     20260727 has 23 shrine slots and 7 fenced. The share stayed at 40 because the median landed
+     inside the plan's own 2-to-8 band, so its one pre-authorised adjustment never fired.
+  4. **Three correctness rules, all pinned by the suite.** No ring cell may be a registered
+     breakable and none may be a void gap: the first is a hole any weapon opens and the second is
+     one the tether already crosses, and either would make the cloak optional and the whole gate a
+     lie (invariant 13 asserts every ring cell is Solid or SecurityGrid and that none is covered
+     by a rect). `cardinalCrossingExists` guarantees at least one straight approach per fenced
+     altar, checked before the ring converts. And `sealHoldsUp`'s exact reachable-count check is
+     what proves the fence cut off its own pocket and nothing else.
+  5. **Shrine altars rather than a fifth cache find-shape.** The four cache find-shapes already
+     split 38.7 / 29.3 / 23.4 / 8.5 and a fifth would slice the thinnest share thinner while
+     reading as more of the same. `PoiKind.Shrine` slots roll only the four shrine archetypes in
+     `POI_CONTENTS`, so fencing one touches no `oncePerRun` content, never the Black Market (a
+     `PoiKind.Treasure` roll), never a nemesis lair or an ambush nest, and no quest. The measured
+     secret split does not move at all, so `BALANCE-SECRET-GAP-SHARE` and its siblings stay valid.
+  6. **Proximity-and-heading rather than a hold, and that is settled: do not re-derive it.** Row
+     4's "hold to become intangible" needs a pressable ability, which needs all three input paths
+     plus a cooldown readout, a HUD-layout change larger than the feature. Same call
+     `POLISH-DECRYPTOR-ACTIVE-BUTTON` made, and the same one the breach charge and the tether both
+     shipped on.
+  7. **The kill-switch is permanent and per profile**, recorded as the altar's POI slot id in
+     `downedSecurityGridIds` and replayed at world build before the renderer, the collision index
+     or the flow field look. This is the **first ability whose use changes the world across runs
+     and across deaths**, and it is what removes the need for a cooldown: the fence is a one-shot
+     lock, so a cooldown would gate nothing, and a pocket whose fence is already down can never
+     become a room with no way home. It is also row 4's own anti-soft-lock rule, honoured rather
+     than worked around.
+  8. **`phaseLevel` is the documented synergy hook and now has a real one**: the pass grants 0.5 s
+     of i-frames plus 0.25 s per purchased level, so the ship stays intangible longer on the way
+     through.
+  9. **This closes `FEAT-POWER-ABILITY-EFFECTS-REST`**: all six traversal ability ids are now in
+     `IMPLEMENTED_TRAVERSAL_ABILITY_IDS`, so every claim toast prints a real description and no
+     ability is a key with nothing to open.
+  It files `BALANCE-SECURITY-GRID-SHARE`, `FEAT-GRID-ENEMY-PHASE` and `FEAT-GRID-FENCE-CORRIDOR`,
+  and extends `CHORE-VOID-GAP-RADAR-UNDERLAY`. No storage key, no `SAVE_VERSION`, no
+  `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump (one new **optional** world-profile field,
+  which is why `WORLD_PROFILE_VERSION` does not move either), so every existing profile and all 21
+  archivable worlds light it up on the next build. No econ surface, so `FEAT-ECON-WARDS` stays
+  parked and untouched.
+
+- [ ] **BALANCE-SECURITY-GRID-SHARE** (new 2026-08-01, from FEAT-POWER-PHASE-CLOAK): the 40%
+  share of shrine altars and the 0.5 s + 0.25 s per level i-frame curve are designed guesses,
+  measured but never played. They land 690 fenced altars over 101 worlds, 28.0% of all shrine
+  slots, a median 7 per world (min 2, max 14), but whether a fence you cross once and leave dark
+  reads as a power or as a formality depends on how a real run feels around it. Value: a fence
+  that reads as an invitation rather than as a detour. Deps: none, but it wants play rather than
+  a second guess.
+
+- [ ] **FEAT-GRID-ENEMY-PHASE** (new 2026-08-01, from FEAT-POWER-PHASE-CLOAK): row 4's "walks
+  through enemy bodies" clause is **not shipped** and the description was reworded to stop
+  promising it, the same call `ability_breach_charges` made about its prospecting clause and
+  `ability_magno_tether` made about its anchor pylons. Enemies have no solid bodies here, so the
+  honest version of that clause is a contact-damage exemption while the cloak is spending its
+  i-frames rather than a collision change. Value: the cloak reads as intangibility rather than as
+  a second door key. Deps: none.
+
+- [ ] **FEAT-GRID-FENCE-CORRIDOR** (new 2026-08-01, from FEAT-POWER-PHASE-CLOAK): the fence is
+  always a ring around a POI, never a band across a corridor pinch, because a band that strands a
+  region needs a **proven alternate route** and this chunk's flood guard proves the opposite
+  property: that the fence cut off its own pocket and nothing else. A corridor band wants a
+  reachability proof of a different shape, which is why it is its own item rather than a tuning
+  knob. Value: a fence that opens a shortcut rather than a pocket. Deps: none.
+
 - [ ] **BALANCE-SECRET-GAP-SHARE** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER): the 35% share
   of unclaimed caches, the 1.2 s to 0.5 s re-arm and the 3-tile span cap are designed guesses,
   measured but never played. They land the four find-shapes at 38.7% walk-in / 29.3% ring / 23.4%
@@ -5832,11 +5949,17 @@ exploring pays is the end of Phase 5.
   is one design decision, not two. Value: the chart answers "is this one behind a gap" without
   flying there. Deps: none.
 
-- [ ] **CHORE-VOID-GAP-RADAR-UNDERLAY** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER):
-  `MinimapManager.UNDERLAY_WALL_KINDS` lists Solid, Breakable and GateClosed, so a void gap is
-  invisible on the radar, the same silence hazard strips already keep. The radar therefore draws
-  a gapped pocket as open floor and implies a room is crossable when it is not. Value: the radar
-  stops lying about which rooms a ship can walk through. Deps: none.
+- [ ] **CHORE-VOID-GAP-RADAR-UNDERLAY** (new 2026-08-01, from FEAT-POWER-MAGNO-TETHER; extended
+  2026-08-01 by FEAT-POWER-PHASE-CLOAK to cover both kinds):
+  `MinimapManager.UNDERLAY_WALL_KINDS` lists Solid, Breakable and GateClosed, so both
+  `TileKind.VoidGap` and `TileKind.SecurityGrid` are invisible on the radar, the same silence
+  hazard strips already keep. The radar therefore draws a gapped or fenced pocket as open floor
+  and implies a room is crossable when it is not. **This is one chore, not two: do not file a
+  second for the fence.** And neither kind can simply be added to
+  `sectorWallSegments.isOutlineBlocking`, because that predicate also feeds `blocksAt`, so every
+  wall face touching a gap or a fence would lose its outline: the exact trap the hazard-strip
+  as-built note records. Value: the radar stops lying about which rooms a ship can walk through.
+  Deps: none.
 
 - [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
   sector banner, fragment cascades, secret bloom, completion milestones at 25/50/75/100 and the

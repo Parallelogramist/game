@@ -556,6 +556,21 @@ also drives `blocksAt`, so a hazard tile there would make every wall face touchi
 its outline. `ability_thermal_ward` negates the drain entirely, which is the section 4.6
 barrier/key pair closing.)*
 
+*(As built, `FEAT-POWER-PHASE-CLOAK` (a32bb24): **security grids**, the second barrier this
+section gained without a heading of its own. `TileKind.SecurityGrid` blocks hulls and enemies and
+**passes projectiles**, the same single branch in `isSolidForMotion` and `isSolidAtWorld` that
+`TileKind.VoidGap` takes, so an altar behind one is fully visible and shootable-past while being
+unreachable. It has **no impact model and no `Health`**: no weapon damages it, it is **never a
+`BreakableRect`** (which is what keeps every rect id a profile remembers pointing at the same
+rect), and the flow field needs no edit because `walkable` is already `Open || HazardFloor`. The
+only writer that ever clears one is `clearSecurityGrid` in `src/world/securityGrids.ts`, driven
+by the Phase Cloak passing through, and the clear is **permanent per profile**: the altar's POI
+slot id is stored in `WorldProfileState.downedSecurityGridIds` and replayed by
+`applyDownedSecurityGrids` at world build, before the renderer, the collision index or the flow
+field read the grid. Like the hazard strips it draws as its own `fillRuns` pass in
+`WorldGeometryRenderer`, never a case in `styleOf`, for the same `blocksAt` reason recorded
+above.)*
+
 ### 4.7 Persistence
 
 ```ts

@@ -191,6 +191,26 @@ needs `PoiKind.Secret` slots bound into `sector.breakables`, which is a generato
 unchanged: the break is persisted by `recordBrokenBarrier`, the same path a projectile break
 uses, so a breached wall stays open forever.
 
+**As built (FEAT-POWER-PHASE-CLOAK, `a32bb24`):** row 4 is implemented, and with it every row
+in the table, so `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` now holds all six ids. Four deviations
+from its cell. (1) The pass is **not a hold**: it fires on proximity and heading like the breach
+charge and the tether, because a pressable ability must reach `InputController`'s keyboard path,
+the gamepad path and a `HUDManager` touch button plus a cooldown readout, the same HUD-layout
+cost recorded on row 2. (2) The barrier is a **ring of `TileKind.SecurityGrid` around a shrine
+altar**, not a free-standing laser fence across a corridor: a band that strands a region needs a
+proven alternate route, whereas `fenceShrineAltars`' flood guard proves the opposite property,
+that the fence cut off its own pocket and nothing else. The corridor form is tracked as
+`FEAT-GRID-FENCE-CORRIDOR`. (3) The **enemy-body clause is not built** and the ability's
+`description` was reworded to stop promising it, exactly as row 2 did with prospecting and row 3
+with anchor pylons; enemies have no solid bodies here, so the honest version is a contact-damage
+exemption, tracked as `FEAT-GRID-ENEMY-PHASE`. (4) The cell's inside kill-switch ships as a
+**permanent per-profile write**, not an in-world switch: passing trips it, `clearSecurityGrid`
+opens every ring cell, and `WorldProfileState.downedSecurityGridIds` replays it at world build,
+so the fence stays dark across runs and across deaths. That is the row's own anti-soft-lock rule
+honoured rather than worked around, and it is why the pass needs no cooldown: the fence is a
+one-shot lock, so a cooldown would gate nothing. `phaseLevel` is the row's synergy hook and
+spends on i-frames, 0.5 s on the way through plus 0.25 s per purchased level.
+
 ### Ordering / solvability constraint the worldgen must honor
 
 Acquisition order is fixed by index. Doc 02's generator MUST place vault *i* so it
