@@ -21,7 +21,8 @@ export const MINIMAP_WORLD_RANGE = 900;
 export const MINIMAP_MINIBOSS_XP = 30;
 export const MINIMAP_BOSS_XP = 1000;
 
-export type MinimapBlipKind = 'enemy' | 'elite' | 'miniboss' | 'boss' | 'pickup' | 'secret';
+export type MinimapBlipKind =
+  'enemy' | 'elite' | 'miniboss' | 'boss' | 'pickup' | 'secret' | 'nest' | 'lair';
 
 export interface MinimapProjection {
   /** Radar-local x offset from center, in px (right = +). */
@@ -91,9 +92,15 @@ const BLIP_STYLES: Record<MinimapBlipKind, MinimapBlipStyle> = {
   // The breakable amber (WORLD_GEOMETRY_COLORS.breakable.stroke), the same colour the ambient
   // shimmer uses, so a scanned cache reads as the thing the radar had been hinting at.
   secret: { color: 0xcc8833, radius: 3, priority: 2 },
-  elite: { color: 0xff44ff, radius: 2.5, priority: 3 },
-  miniboss: { color: 0xffaa00, radius: 3.5, priority: 4 },
-  boss: { color: 0xff2222, radius: 4.5, priority: 5 },
+  // A dormant risk room, in the colour its own world-space graphic already draws in: the hive
+  // in the hazard stroke (WORLD_GEOMETRY_COLORS.hazard.stroke) and the den in the nemesis
+  // crimson (GameScene's NEMESIS_LAIR_COLOR). 760ccc8 settled that a den and a hive must not
+  // read the same, so the radar keeps them apart too.
+  nest: { color: 0xff6622, radius: 3, priority: 3 },
+  lair: { color: 0xff2233, radius: 3.5, priority: 4 },
+  elite: { color: 0xff44ff, radius: 2.5, priority: 5 },
+  miniboss: { color: 0xffaa00, radius: 3.5, priority: 6 },
+  boss: { color: 0xff2222, radius: 4.5, priority: 7 },
 };
 
 /** Resolve the draw style for a blip kind; unknown kinds degrade to plain enemy. */

@@ -65,6 +65,7 @@ import { sectorTagsOf } from '../../world/sectorTags';
 import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
+import type { PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildQuestPins } from '../../expedition/questPins';
 import { buildRadarWaypoints } from '../../expedition/radarWaypoints';
 import type { RadarWaypoint } from '../../expedition/radarWaypoints';
@@ -156,6 +157,7 @@ import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
 import {
   classifyEnemyKind,
   secretPingIntensity,
+  MINIMAP_WORLD_RANGE,
   SECRET_PING_RADIUS,
   type MinimapBlipKind,
 } from '../../visual/minimapProjection';
@@ -1156,8 +1158,24 @@ export class GameScene extends Phaser.Scene {
       playerFacing: this.playerSpaceship.getFacingAngle(),
       ownedAbilityIds: [...this.ownedTraversalAbilityIds],
       earnedQuestKeyIds: [...this.earnedQuestKeyIds],
+      hazardSectors: this.dormantHazardSectors(),
     });
     this.scene.pause();
+  }
+
+  /** Which rooms the chart may name as holding a dormant risk room. Nests first, then lairs,
+   *  so a sector holding both reads as the rarer and more dangerous of the two. */
+  private dormantHazardSectors(): { sectorKey: string; kind: PoiHazardKind }[] {
+    const byKey = new Map<string, PoiHazardKind>();
+    for (const nest of this.activeAmbushNests) {
+      if (nest.awake) continue;
+      byKey.set(sectorKey(sectorOfWorldPoint(nest.x, nest.y)), 'nest');
+    }
+    for (const lair of this.activeNemesisLairs) {
+      if (lair.awake) continue;
+      byKey.set(sectorKey(sectorOfWorldPoint(lair.x, lair.y)), 'lair');
+    }
+    return [...byKey].map(([key, kind]) => ({ sectorKey: key, kind }));
   }
 
   /** Called by MapScene before it resumes this scene, so the resume handler sees no pause
@@ -7853,6 +7871,30 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < this.activeVaults.length; i++) {
       const vault = this.activeVaults[i];
       this.writeMinimapEntry(count++, vault.x, vault.y, 'pickup');
+    }
+
+    // A dormant hive or den is a decision, so the radar names it a full range before the
+    // 150/160 px trip radius and before its own graphic reaches the screen edge. Range-gated
+    // rather than rim-clamped: nests and lairs are world-space and run-scoped, so every one
+    // rolled this run is still in these arrays, and rim contacts for rooms three sectors away
+    // would be permanent clutter. A WOKEN one is skipped: its wave and the hunter are already
+    // live enemy blips, and drawing the den too would double-count one fight.
+    const hazardRangeSq = MINIMAP_WORLD_RANGE * MINIMAP_WORLD_RANGE;
+    for (let i = 0; i < this.activeAmbushNests.length; i++) {
+      const nest = this.activeAmbushNests[i];
+      if (nest.awake) continue;
+      const dx = nest.x - playerX;
+      const dy = nest.y - playerY;
+      if (dx * dx + dy * dy > hazardRangeSq) continue;
+      this.writeMinimapEntry(count++, nest.x, nest.y, 'nest');
+    }
+    for (let i = 0; i < this.activeNemesisLairs.length; i++) {
+      const lair = this.activeNemesisLairs[i];
+      if (lair.awake) continue;
+      const dx = lair.x - playerX;
+      const dy = lair.y - playerY;
+      if (dx * dx + dy * dy > hazardRangeSq) continue;
+      this.writeMinimapEntry(count++, lair.x, lair.y, 'lair');
     }
 
     // Hint tier 3: the decryptor puts this room's unfound caches on the radar by POSITION,

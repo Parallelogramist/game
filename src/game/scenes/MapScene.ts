@@ -12,7 +12,7 @@ import {
   drawPoiGlyph, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
-import { buildSectorDetail } from '../../expedition/sectorDetail';
+import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildQuestPins } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
 import { poiGlyphFor } from '../../expedition/poiGlyphs';
@@ -39,6 +39,9 @@ export interface MapSceneData {
    *  run, and reading the real store is a SecureStorage decrypt. */
   ownedAbilityIds: readonly string[];
   earnedQuestKeyIds: readonly string[];
+  /** Sectors holding a dormant ambush nest or nemesis lair. Passed in rather than read here for
+   *  the same reason ownedAbilityIds is: it is run-scoped state GameScene already owns. */
+  hazardSectors: readonly { sectorKey: string; kind: PoiHazardKind }[];
 }
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
@@ -84,6 +87,7 @@ export class MapScene extends Phaser.Scene {
   private hintedSectorKeys: ReadonlySet<string> = new Set();
   private questPins: QuestPin[] = [];
   private objectiveSectorKeys: ReadonlySet<string> = new Set();
+  private hazardSectorKinds: ReadonlyMap<string, PoiHazardKind> = new Map();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
@@ -110,6 +114,9 @@ export class MapScene extends Phaser.Scene {
     this.playerFacing = data.playerFacing;
     this.ownedAbilityIds = new Set(data.ownedAbilityIds ?? []);
     this.earnedQuestKeyIds = new Set(data.earnedQuestKeyIds ?? []);
+    this.hazardSectorKinds = new Map(
+      (data.hazardSectors ?? []).map(entry => [entry.sectorKey, entry.kind]),
+    );
     this.closed = false;
     this.zoomOutArmed = false;
     this.dragPointerId = -1;
@@ -455,6 +462,7 @@ export class MapScene extends Phaser.Scene {
       holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
       objectiveSectorKeys: this.objectiveSectorKeys,
       hintedSectorKeys: this.hintedSectorKeys,
+      hazardSectorKinds: this.hazardSectorKinds,
     }) : null;
 
     if (!detail) {

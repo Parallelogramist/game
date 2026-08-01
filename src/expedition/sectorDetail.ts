@@ -17,6 +17,11 @@ import { getStageById } from '../data/Stages';
 import { getTraversalAbility } from '../data/TraversalAbilities';
 import { getQuestForKeyId } from '../data/ExpeditionQuests';
 
+/** The two risk rooms a Treasure slot can roll instead of loot: a dormant ambush nest
+ *  (a523eca) and a dormant nemesis lair (760ccc8). Both are run-scoped scene state, so a room
+ *  this run has not entered names neither. */
+export type PoiHazardKind = 'nest' | 'lair';
+
 export interface SectorDetailInputs {
   map: WorldMap;
   gridX: number;
@@ -33,6 +38,11 @@ export interface SectorDetailInputs {
   /** Sectors a lore fragment already points at. The chart's corner badge shows the same fact,
    *  so naming it here leaks nothing the map does not already show. */
   hintedSectorKeys: ReadonlySet<string>;
+  /** Sectors holding a DORMANT risk room, keyed by sector key, as THIS run rolled them. A woken
+   *  hive or den is a fight already in progress and is deliberately absent. Naming one leaks
+   *  nothing: a hazard exists only in a room the run has already entered, where its own
+   *  world-space graphic is visible from across the floor. */
+  hazardSectorKinds: ReadonlyMap<string, PoiHazardKind>;
 }
 
 export interface SectorDetailView {
@@ -124,6 +134,11 @@ function requirementSuffix(edge: EdgeDef, inputs: SectorDetailInputs): string {
   return '';
 }
 
+const HAZARD_LABELS: Record<PoiHazardKind, string> = {
+  nest: 'Ambush nest · dormant',
+  lair: 'Nemesis lair · dormant',
+};
+
 function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[] {
   const lines: string[] = [];
   for (const slot of sector.poiSlots) {
@@ -145,6 +160,8 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
       && (flags & PoiFlags.GUARD_CLEARED) === 0;
     lines.push(guarded ? `${glyph.label} · guarded` : glyph.label);
   }
+  const hazard = inputs.hazardSectorKinds.get(sector.key);
+  if (hazard !== undefined) lines.push(HAZARD_LABELS[hazard]);
   if (inputs.objectiveSectorKeys.has(sector.key)) lines.push('An objective points here');
   if (inputs.hintedSectorKeys.has(sector.key)) lines.push('A lead points here');
   return lines;

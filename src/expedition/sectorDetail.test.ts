@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { buildSectorDetail } from './sectorDetail';
+import { buildSectorDetail, type PoiHazardKind } from './sectorDetail';
 import { EdgeKind, PoiKind, SECTOR_TILE_COUNT, WALL_EDGE } from '../world/worldTypes';
 import type { EdgeDef, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
 import { PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
@@ -33,6 +33,7 @@ const BASE = {
   holdsQuestKey: () => false,
   objectiveSectorKeys: new Set<string>(),
   hintedSectorKeys: new Set<string>(),
+  hazardSectorKinds: new Map<string, PoiHazardKind>(),
 };
 
 describe('buildSectorDetail', () => {
