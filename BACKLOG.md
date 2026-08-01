@@ -46,7 +46,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
 
 #### Band A: main-mode feel (walls, line of sight, worst stutter)
 
-- [ ] **BUG-WALL-SLIDE** (fix design F1). Value: pressing 70-85 degrees into a wall
+- [x] **BUG-WALL-SLIDE** (fix design F1) (done, d0f3b81). Value: pressing 70-85 degrees into a wall
   slides at 15-30% speed (reads as glue), and doorway jambs progressively decelerate
   the ship into a stall (reads as corner catching). The resolver
   (`src/world/staticCollision.ts:156-179` `resolveCircleMove`, axis-separated, X first)
@@ -69,6 +69,36 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   progress >= 60% of full speed; doorway approach offset <= 10px from the jamb passes
   within N frames; collision invariants 10/11 stay green; arena byte-identical (null
   context). File **POLISH-WALL-FEEL** under Human gates for the playtest half.
+
+  **What shipped:** three parts, two commits. (1) **A prerequisite bug the item did not know
+  about** (d5932a5): `resolveAxisX` / `resolveAxisY` clamped against every solid tile in the swept
+  bounding box, including one the mover had already passed or was merely standing beside, so a
+  ship resting flush on a doorway jamb that pressed UP 1px was clamped to the jamb's far face and
+  jumped 60px DOWNWARD through solid rock, and a ship overlapping a wall column that pressed away
+  from the wall was thrown 40px through it to the far side. Four one-line side guards (one per
+  direction branch, keyed on the substep's START position, not the candidate) make a tile block
+  only motion toward it. Push-out is preserved and pinned by a test: a centre still on the near
+  side with a circle overlapping the tile is not skipped. Every mover shares the resolver, so
+  enemies, knockback, blink and ricochet get it for free. This was a hard prerequisite, not scope
+  creep: the F1b nudge is unsafe while a nudge into a jamb can teleport. (2) **F1a, the slide
+  transfer** (d0f3b81), in a new pure `src/world/moveAssist.ts`, player only: when exactly one
+  axis is blocked, the blocked component is paid back into the free axis at `SLIDE_TRANSFER` 0.75,
+  capped at the headroom below full step speed so wall-hugging approaches but never exceeds
+  open-field speed. Measured tangential travel as a share of full speed, before then after:
+  5 degrees off the normal 8.7% then 83.4%, 10 degrees 17% then 91.2%, 20 degrees and beyond 34%
+  then 100%. A press straight into the wall still stops dead. (3) **F1b, the corner slip**: a 32px
+  ship in a 40px door has 4px of margin per side, so a straight-on approach 8px off centre clipped
+  a jamb with no tangential input to transfer and stalled forever. When exactly one corner blocks
+  and the overlap is under `CORNER_SLIP_MAX_OVERLAP` 10px, the ship is nudged off it. Frames to
+  clear a 1-tile door, straight on, before then after: every offset from 6px to 14px off centre
+  was `never` and is now 17 or 18 frames, and 16px correctly stays `never` because there the ship
+  is squarely off the opening rather than clipping its jamb. **Cut deliberately:** F1d (raising
+  `playerRadius` 16 to 18) is cut, because making the ship collide MORE is the opposite of this
+  item; it is question (d) of `POLISH-WALL-FEEL`. Enemies got the teleport fix but neither assist,
+  since they steer from the flow field and `BUG-ENEMY-NAV-FALLBACK` owns their navigation;
+  `FEAT-ENEMY-SLIDE-ASSIST` is filed for after it. Files `POLISH-WALL-FEEL` (all five constants
+  are pure geometry validated in a sandbox, never in a browser) plus `FEAT-ENEMY-SLIDE-ASSIST` and
+  `BUG-KNOCKBACK-CORNER-CLIP`.
 - [ ] **BUG-ENEMY-NAV-FALLBACK** (F2b + F2c). Value: when line of sight is false AND
   the flow field misses, `chaseHeading` returns the raw direct vector
   (`src/ecs/systems/enemy-ai/common.ts:79`), so every enemy outside the flow block or
@@ -1770,6 +1800,45 @@ drone is live scene state and the projectile pool is rebuilt every run; arena, d
 practice and gauntlet are untouched by construction, because `this.escortDrone` is null in all of
 them and `updateDecoyFollowers` returns null when nothing has published a decoy; and it moves no
 gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
+**BUG-WALL-SLIDE shipped in two commits, and the first one is a bug the item never suspected.**
+The backlog called the doorway symptom "progressively decelerate the ship into a stall". Measured
+against the resolver as it stood, it was worse: a ship resting flush on a jamb corner at
+(387.509, 230) that pressed UP 1px came out at y 290, a 60px teleport DOWNWARD through the jamb,
+and a ship overlapping a wall column at x 395 that pressed WEST, away from the wall, came out at
+x 456, thrown through 40px of solid rock to the far side. Both are `resolveAxisX` / `resolveAxisY`
+clamping against a tile the mover is already beside or past, because the per-tile branch never
+asked which side of the tile the mover was on. **The guard** is four one-line skips, one per
+direction branch, keyed on the substep's start position rather than its candidate, since only the
+start answers "was the mover already on the far side". A tile now blocks only motion toward it.
+Push-out survives and is pinned: a centre still on the near side whose circle overlaps the tile is
+not skipped and is still ejected the way it came. Every mover shares the resolver, so enemies,
+knockback, blink and ricochet all inherit the fix, and that is why `BUG-KNOCKBACK-CORNER-CLIP` is
+filed: knockback zeroes on `hitX`/`hitY` and those flags are now honest, so it carries further
+along a wall than it did. The guard shipped first and alone on purpose, because the corner nudge
+below is unsafe while a nudge into a jamb can teleport. **The two assists** live in a new pure
+`src/world/moveAssist.ts` (Phaser-free, importing only `./worldTypes` and `./staticCollision`) and
+apply to the player only, through a single call swap in the player branch of `MovementSystem.ts`.
+The slide transfer pays a blocked component back into the free axis at 0.75, capped at the
+headroom under full step speed, so wall-hugging approaches but never beats open-field speed:
+pressing 5 degrees off the wall normal used to travel 8.7% of full speed and now travels 83.4%,
+10 degrees went 17% to 91.2%, and anything 20 degrees or more off the normal now travels at 100%.
+A press straight into a wall still stops dead, which is its own test. The corner slip answers the
+door: a 32px ship in a 40px opening has 4px of margin per side, so a straight-on approach 8px off
+centre clipped a jamb with no tangential input to transfer and stalled forever. With exactly one
+corner blocking and under 10px of overlap the ship is nudged off it, so every offset from 6px to
+14px off centre now clears the door in 17 or 18 frames where all of them were previously never,
+and 16px still refuses, correctly, because there the ship is squarely off the opening rather than
+clipping its jamb. **Cut on purpose:** F1d, raising `playerRadius` from 16 to 18, because making
+the ship collide more is the opposite of this item, and it is now question (d) of
+`POLISH-WALL-FEEL`; and the enemy assist, since enemies steer from the flow field and
+`BUG-ENEMY-NAV-FALLBACK` owns their navigation, filed as `FEAT-ENEMY-SLIDE-ASSIST` for after it.
+No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no
+`WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump was needed, because nothing here
+touches persisted state or generation: it is frame-local movement math. Arena, daily, weekly,
+practice and gauntlet are untouched by construction, because `wallCollision` is null in all of
+them and `movementSystem` skips the entire block when it is. The five constants are pure geometry
+validated in a sandbox and never in a browser, which is exactly what `POLISH-WALL-FEEL` is for.
 
 ## Proposed (auto)
 
@@ -3881,6 +3950,18 @@ gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked a
   `src/storage/` tests, and mocking a scene purely to assert a *skipped* call is scaffolding
   overreach. Floor: `tsc --noEmit` clean, 126 files / 1575 tests green, `npm run build` green.
   Pixels are the human's: see **POLISH-PRACTICE-RUNEND** in the playtest queue.
+
+- [ ] **FEAT-ENEMY-SLIDE-ASSIST** (new 2026-08-01, from BUG-WALL-SLIDE): enemies share the resolver
+  and got the teleport fix, but `resolvePlayerMoveWithAssist` is player-only, so a chaser scraping
+  a wall still keeps only its raw tangential projection. Cheap to extend (one call swap in the
+  enemy branch of `MovementSystem.ts` with `MoverKind.Enemy` threaded through) but it is a feel
+  change for ~150 movers at once and belongs after `FEAT-ENEMY-NAV-COVERAGE` lands. Value: pursuit
+  reads as competent rather than sticky.
+- [ ] **BUG-KNOCKBACK-CORNER-CLIP** (new 2026-08-01, from BUG-WALL-SLIDE): `GameScene.ts:8485`
+  resolves enemy knockback through the same resolver and zeroes `Knockback.velocityX/Y` on
+  `hitX`/`hitY`. The side guards make those flags honest (they no longer fire for a tile the enemy
+  is already past), so knockback now carries further along walls than it did. Worth one playtest
+  look before anything is retuned.
 
 ## Next
 
@@ -8956,6 +9037,20 @@ Never agent work. The fleet must not do any of these.
     spark + `BREACH` float is enough telegraph for the fuse without a ring or a countdown, and
     (c) whether auto-planting trivialises finding hidden sectors, whose walls are the same
     `EdgeKind.Breakable`.
+  - **POLISH-WALL-FEEL** (new 2026-08-01, d5932a5 + d0f3b81): the wall-feel
+    constants are pure geometry and were validated in a sandbox, never in a browser. Needs a human
+    flying `?expedition=1` through corridors and doorways to judge (a) **the transfer**: sliding
+    now reaches full open-field speed at any press 20 degrees or more off the wall normal and 83%
+    at 5 degrees. Does that read as the ship finding the wall, or as a rail that steers for you?
+    `SLIDE_TRANSFER` is one constant. (b) **the cap**: sliding is capped at open-field speed, so
+    wall-hugging is never faster than open flight. Confirm no route feels rewarded for scraping.
+    (c) **the slip window**: `CORNER_SLIP_MAX_OVERLAP` of 10px lets the ship enter a doorway from
+    up to 14px off centre and refuses at 16px. Is 14px generous enough on a phone stick, and does
+    16px refusing feel like a wall or like a bug? (d) **F1d**: `PLAYER_COLLISION_RADIUS` is 16
+    while the ship's nose renders wider. Raising it to 18 was cut here because it makes the ship
+    collide more, which is the opposite of this item. Judge whether the visual overhang bothers
+    you. (e) **enemies**: they got the teleport fix but not the slide or the slip, so they still
+    scrape corners. Is that visible, or does `FEAT-ENEMY-NAV-COVERAGE` cover it?
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
