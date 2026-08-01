@@ -607,6 +607,30 @@ already flow through `GameScene`'s barrier event sink including the `recordBroke
 so every existing profile gets the capability the moment the build lands, and arena mode is
 unchanged by construction behind `ArenaModeAdapter`'s null `worldMap`.
 
+**`fd406d3` gave the map a second world.** `EXPEDITION_WORLD_SEED = 20260727` was a
+module constant in `ExpeditionModeAdapter`, so every profile on every device flew one
+48-sector layout forever and the twenty sessions of caches, hidden sectors, sigil rings,
+quest doors and lore that filled it had nowhere to go once it was charted. The seed is now
+per profile in `src/expedition/ExpeditionSeasonStore.ts`, and a CHART tile on the main menu
+reports what this world has charted, lists the worlds already finished, and trades the
+current one for a fresh seed behind a confirmation. **The default is the safety story**:
+an absent or unreadable payload returns 20260727, so every existing profile keeps its
+world, its chart and every broken wall with no migration and no version bump. The reset is
+by construction rather than by a wipe, since the discovery store, the world-profile store
+and the distinct-step world stamp all key on the seed already and discard a foreign one.
+Abilities, quest keys, chain progress, gold and every lifetime counter survive a season;
+the in-run save is cleared, because a restored transform names a point in a world that
+stopped existing. This **unblocks two filed items** that named a re-rollable seed as their
+only dep, `FEAT-SECRET-LORE-CATALOG-DEPTH` and `FEAT-QUEST-SWEEP-WORLD-RESET-TELL`, and it
+filed three cuts of its own, none of them candidates: the operator-gated
+`BALANCE-SEASON-GATE-CARRYOVER` (a completed profile opens every door on sight in world 2),
+plus `FEAT-SEASON-RECORD-SURFACE` and `FEAT-SEASON-SEED-SHARE`, both of which want a UI
+budget the top band and the map header do not have. **`references/map/README.md` section
+6's deferral is discharged for this bullet only**, on the grounds that its stated
+precondition (the v1 loop in front of a player) was met when expedition became the live
+default at `02c4b74`: do not re-derive that call, and do not treat the other section 6
+bullets as unblocked by it.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -639,6 +663,12 @@ blocked on a re-rollable or per-profile world seed, so it is not a candidate.
 candidate: the play-gated `BALANCE-BARRIER-CONTACT-INTERVAL` (the 0.5 s interval is derived rather
 than played) and the operator-gated `FEAT-BARRIER-BREACH-REST` (whether emanating weapons should
 chip incidentally is an operator call).
+`FEAT-EXPEDITION-SEASONS` has now shipped at `fd406d3` and filed three cuts, none
+of them a candidate: the operator-gated `BALANCE-SEASON-GATE-CARRYOVER`, plus
+`FEAT-SEASON-RECORD-SURFACE` and `FEAT-SEASON-SEED-SHARE`, which both want UI budget the
+top band and the map header do not have. It **adds two items to the candidate list** by
+discharging their only dep: `FEAT-SECRET-LORE-CATALOG-DEPTH` and
+`FEAT-QUEST-SWEEP-WORLD-RESET-TELL`.
 `FEAT-ECON-WARDS` stays parked on its
 operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
 for the same reason the rest of the POI table is.
@@ -4529,6 +4559,76 @@ exploring pays is the end of Phase 5.
   teleport with no shared edge, and a jump must hold those same counters flat. Deps: W4 seam
   events, `FEAT-BARRIER-GATES`, `FEAT-WORLDGEN-SPAWN`.
 
+- [x] **FEAT-EXPEDITION-SEASONS** (done, fd406d3) (new 2026-08-01, from
+  `references/map/README.md` section 6): the expedition world stopped being one fixed
+  layout every profile explores once. The seed was the module constant
+  `EXPEDITION_WORLD_SEED = 20260727` in `ExpeditionModeAdapter`; it now lives per profile
+  in the new `src/expedition/ExpeditionSeasonStore.ts` (key
+  `survivor-expedition-seasons`), and a CHART tile on the main menu shows what this world
+  has charted, lists the worlds already finished, and trades the current one for a fresh
+  seed behind a confirmation.
+  1. **What shipped**: `ExpeditionSeasonStore` (pure `sanitizeSeasonState`,
+     `rollNextExpeditionSeed`, `bankSeasonAndRoll` plus the `SecureStorage` wrapper);
+     `src/expedition/expeditionWorld.ts` as the single place an expedition world is
+     generated (`generateExpeditionWorld`) and the single place the chart is read outside
+     a run (`summariseCurrentExpedition`); the adapter reading
+     `getCurrentExpeditionSeed()`; the key registered in `ALL_STORAGE_KEYS`; `BootScene`'s
+     confirmation overlay parameterised with title, body, button labels and a card height
+     that grows with the body; the CHART deck tile badged with the season ordinal.
+  2. **The default is the whole safety story**: `sanitizeSeasonState` returns
+     `FIRST_EXPEDITION_WORLD_SEED = 20260727` for a missing, foreign-version or
+     malformed payload, so every existing profile keeps its world, its chart and every
+     broken wall with no migration. Three of the four tests exist to pin exactly that.
+  3. **Reset by construction, not by a wipe**: the discovery store and the world-profile
+     store both key on `(worldSeed, worldGenVersion)` and already discard a payload
+     written for another pair, and a `persistent` distinct-step visited set already
+     carries a `<seed>:v<worldGenVersion>` stamp (b846074), so a new seed resets the
+     chart, the leads, the broken walls, the POI rolls and the cross-run sweeps without a
+     single delete. The old world's payloads are left in place, inert, until the new
+     world's first write overwrites them: do not add a cleanup pass.
+  4. **Kept across a season**: traversal abilities, earned quest keys, quest chain
+     progress, gold, every lifetime counter (`secretsFoundTotal`,
+     `hiddenSectorsFoundTotal`, `loreFragmentsFound`) and every hidden unlock. The
+     in-run save is the one thing cleared, because a restored transform names a point in
+     a world that stopped existing.
+  5. **The seed chain is deterministic**, `hash(season:<seed>:<index>)` through
+     `mulberry32`, never a clock or `Math.random`, so an exported profile keeps flying the
+     same chain of worlds on another device, and the roll can never return the seed being
+     left.
+  6. **The summary costs one `generateWorld`**, measured at 33 ms on the Deck, so it runs
+     on the button press and not in `create()`; the tile's badge reads the store alone.
+  7. **No `SAVE_VERSION`, `WORLDGEN_VERSION` or `DISCOVERY_VERSION` bump** and no
+     generator change, so every existing profile gets the capability the moment the build
+     lands and arena mode is untouched by construction.
+
+- [ ] **BALANCE-SEASON-GATE-CARRYOVER** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS):
+  traversal abilities and earned quest keys are profile-scope and the adapter applies them
+  to whatever world it builds, so a player who owns all six abilities and both chain keys
+  walks into world 2 with every ability door and every quest door already open. That is
+  what `references/map/README.md` section 6 asks for ("keeps traversal abilities") and
+  everything else in the new world is genuinely fresh, but it means the Metroid gating is
+  inert from season 2 onwards for a completed profile. Whether a new world should re-lock
+  some tier of it (and if so which) is a feel judgement, and the alternative (taking
+  abilities away) is the extract-to-keep model doc 04 section 7 explicitly rejects. Do not
+  decide this in an agent session. Deps: an operator call.
+
+- [ ] **FEAT-SEASON-RECORD-SURFACE** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS): the
+  banked seasons read only inside the CHART confirmation, so a player has to open a
+  destructive dialog to look at their record. A permanent home (a meta chip beside WORLD /
+  ASC / STREAK, or a line on the map header) was cut for the reason
+  `FEAT-QUEST-SIEGE-HUD-TELL` and `POLISH-DECRYPTOR-ACTIVE-BUTTON` were: both of those
+  bands are already at their layout budget, and a new row is a layout change larger than
+  the feature. Value: the completion chase is visible without reaching for the button that
+  ends it. Deps: none.
+
+- [ ] **FEAT-SEASON-SEED-SHARE** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS):
+  `references/map/README.md` section 6's seed-sharing bullet is now one text field away,
+  since `ExpeditionSeasonStore.currentSeed` is the only thing that picks a world and
+  `generateExpeditionWorld` is a pure function of it. Cut because it needs a paste field
+  plus a clear warning that adopting someone else's seed banks your own world and leaves
+  your deterministic chain, which is a different confirmation from the one that shipped.
+  Value: a world worth flying can be handed to someone else. Deps: none.
+
 - [ ] **FEAT-EXPEDITION-RECALL**: Recall to Hangar as a mid-run teleport, so a player can push
   out, come home, refit and push out again inside one life (operator decision 2026-07-27).
   Map-screen action; routes through the streaming activation path rather than moving the
@@ -5624,7 +5724,8 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   cannot fire today (one fixed seed, and a `WORLDGEN_VERSION` bump already discards discovery
   state), so it is filed rather than built: it becomes real the moment README section 6's world
   re-roll ships, which `FEAT-SECRET-LORE-CATALOG-DEPTH` also waits on. Value: a counter that
-  went backwards says why. Deps: a re-rollable or per-profile world seed.
+  went backwards says why. Deps: met by FEAT-EXPEDITION-SEASONS (fd406d3); the world reset
+  it wanted a tell for is now a thing the player can actually cause.
 
 - [x] **FEAT-MAPUI-OBJECTIVE-PIN-RADAR** (done, 05e832e): the radar carries the bearing of every
   place the chart pinned, and of every open lead, so a destination survives closing the map.
@@ -5732,8 +5833,9 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   deals by rank over the 26 secret slots of the single fixed expedition seed, so a longer
   catalog leaves singleton fragments an unlucky walk-in can strand. Growing it past 13 is
   unblocked the moment a world can be re-rolled (README section 6's "world re-roll as a
-  season"), which multiplies the ranks a profile ever sees. Deps: a per-profile or re-rollable
-  world seed. Spec: doc 04 section 5, lore fragments.
+  season"), which multiplies the ranks a profile ever sees. Deps: met by
+  FEAT-EXPEDITION-SEASONS (fd406d3), which made the world seed per profile and re-rollable.
+  Spec: doc 04 section 5, lore fragments.
 
 - [ ] **CHORE-SECRET-LEAD-TICKER** (was CHORE-SECRET-LEAD-RADAR, radar half done 05e832e): the
   radar now carries every open lead as an amber bearing, so the map screen is no longer the only

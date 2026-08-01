@@ -272,8 +272,16 @@ first.
   dark beyond the ship's light radius, one with low-gravity drift) reuse the barrier
   and hazard rails already built.
 - **World re-roll as a season.** A profile-level "new expedition" that regenerates the
-  world with a new seed, banks the previous completion percentage as a record, and
-  keeps traversal abilities. Turns the persistent world into a repeatable chase.
+  world with a new seed, banks the previous completion percentage as a record, and keeps
+  traversal abilities. Turns the persistent world into a repeatable chase. **Shipped as
+  `FEAT-EXPEDITION-SEASONS` (`fd406d3`, 2026-08-01):** the seed lives per profile
+  in `src/expedition/ExpeditionSeasonStore.ts`, `src/expedition/expeditionWorld.ts` is the
+  one place a world is built, and the CHART tile on the main menu banks and re-rolls
+  behind a confirmation. Its deferral above was read as discharged because the stated
+  precondition (the v1 loop in front of a player) was met when expedition became the live
+  default at `02c4b74`. The other bullets in this section stay deferred. What a new world
+  should re-lock for a profile that already owns every ability and key is an open operator
+  call, filed as `BALANCE-SEASON-GATE-CARRYOVER`.
 - **Seed sharing.** The world is a pure function of a seed, so a shareable world code
   costs almost nothing and pairs with the existing daily-challenge and leaderboard
   systems.
