@@ -3122,3 +3122,74 @@ modes are untouched by construction: `syncMinimapUnderlay` returns on its first 
 
 No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no
 `WORLD_PROFILE_VERSION` bump. Shipped alongside the LOCKED OUT panel in the same commit.
+
+## FEAT-LOCKOUT-RADAR-BEARING · a lockout names where to earn it, and the radar flies you there · DONE fdab006
+
+Filed 2026-08-01 from `FEAT-MAPUI-LOCKOUT-PANEL`. `c2ad058` shipped the half of the Metroid
+loop that names the problem: the LOCKED OUT panel counted the KNOWN sealed doors and the
+charted reward sites each missing traversal ability or quest key would open, and stopped
+there. The half that makes it a loop, *where you go to fix it*, had never been answerable
+from any surface, so the to-do list was a wall of counts rather than a route.
+
+**The deviation, stated rather than silently substituted.** The item as filed pointed the
+radar at the nearest *locked* sector. That is a taunt, not a destination: a chevron on a door
+you cannot open tells you nothing you can act on. The bearing points at the **ability vault**
+instead, and that is what makes the item's own value line ("the thing you are missing has a
+bearing, not just a count") actually true. It is safe because the generator already guarantees
+it: `placeAbilityGates` hosts each ability's vault **outside** that ability's own gated subtree
+(`hosts = ordered.filter(sector => availableRegion.has(sector.key) && !chosen.subtree.has(...))`,
+`generateWorld.ts:305`), so the vault for an ability you lack is always reachable *without*
+that ability.
+
+**The panel.** `LockoutRow` gained a `source`, a discriminated union with five variants, and
+the row's last clause is now that source rather than `NEAREST N SECTORS OUT`. An ability names
+the vault that grants it and its Chebyshev distance; a quest key names its live step
+(`ACTIVE STEP 2/4`), or the nearest board that will take the accept (`BOARD 1 SECTOR OUT`), or
+that all three objective slots are full. The two fallbacks are `VAULT NOT CHARTED` and
+`NO BOARD CHARTED`. A `chained` / predecessor-quest variant was deliberately **not** added:
+all four key-granting quests in `EXPEDITION_QUESTS` are chain heads, so a quest key locked
+behind a predecessor cannot occur today and a variant for it would be speculative surface.
+
+**`NEAREST N SECTORS OUT` was replaced, not dropped.** Two distances on one line read as noise
+and the source distance is the one the player can act on, so `nearestDistance` survives as a
+sort tiebreak: at the same opening count, an actionable row outranks an `unfound` one, and
+then the nearer payoff wins.
+
+**The leak rule is correctness, not taste.** A source is named only at `PoiFlags.SEEN`, which
+is written on sector ENTRY and is the exact flag `SectorMapRenderer` gates a POI icon on, so
+the panel can never name a place the chart refuses to draw. Both new scans
+(`findUnclaimedAbilityVaults` and the module-private `nearestSeenQuestBoard`) require it, the
+same rule the existing `HINTED`-not-`SEEN` treatment of a gapped cache already obeys. Neither
+scan checks `PoiFlags.COLLECTED`: claiming a vault calls `claimTraversalAbility` in the same
+function, so `holdsAbility` already covers it and a second check would be a second source of
+truth.
+
+**The radar half.** `radarWaypoints.ts` gained a third `'vault'` kind and a required
+`vaultSectorKeys` input, ranked last in `KIND_ORDER` so it can only take a slot no objective
+and no lead wanted under `MAX_RADAR_WAYPOINTS`. `consider`'s existing `bySectorKey` guard
+already makes a sector carrying both a lead and a vault read as the lead. `MinimapManager`
+draws it in `WORLD_GEOMETRY_COLORS.gate.stroke` (`0xaa44ff`), the ability door's own violet,
+because a vault is what opens one. `GameScene.syncRadarWaypoints` feeds it from
+`findUnclaimedAbilityVaults` on the existing 1 second timer, and deliberately does **not**
+filter to abilities that have a panel row: a vault is a permanent profile upgrade whatever it
+opens today, so pointing at every seen unclaimed one is both more useful and simpler than
+mirroring the panel's door-count filter. Arena and every other no-map mode are untouched by
+construction, since the method returns on its first line when `worldMode.worldMap()` is null.
+
+`questStateOf` is a **required** caller-supplied predicate on the `MinimapSectorUnderlay.impassable`
+precedent (a forgetful call site is a compile error, not a silently wrong panel), and it is a
+predicate rather than a direct read because `src/expedition/` never imports `src/meta/`, where
+the quest store and its `SecureStorage` dependency live. `MapScene` resolves it from
+`getActiveQuestStepViews()` and `getQuestBoardEntries()`.
+
+Six new cases pin it: four in `lockouts.test.ts` (the vault a row names, the two leak rules,
+and the active / acceptable quest-state branches) and two in `radarWaypoints.test.ts` (a vault
+ranks below an objective and a lead under the cap, and a vault sharing a sector with a lead
+collapses to the lead). 163 files / 1933 tests green, no regressions.
+
+No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no
+`WORLD_PROFILE_VERSION` and no generator change, so every existing profile and all 21
+archivable worlds light it up the moment the build lands. It moves no gold, no relic roll and
+no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched. Files
+`FEAT-LOCKOUT-BOARD-BEARING`, `CHORE-LOCKOUT-VAULT-GUARD-TELL` and
+`BALANCE-LOCKOUT-SOURCE-CLAUSE`.

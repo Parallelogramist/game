@@ -565,6 +565,17 @@ room. No further wiring was needed for a tripped fence: `tryPhaseCloak` already 
 construction, since `syncMinimapUnderlay` returns on its first line when `worldMode.worldMap()` is
 null.
 
+**As built (`FEAT-LOCKOUT-RADAR-BEARING`, fdab006, 2026-08-01):** `radarWaypoints.ts` carries a
+third kind, `'vault'`, fed by a required `vaultSectorKeys` input and drawn in the ability door's
+own violet (`WORLD_GEOMETRY_COLORS.gate.stroke`, `0xaa44ff`), because a vault is what opens one
+and `poiGlyphs` already draws it that colour on the chart. It ranks **last** in `KIND_ORDER`
+(objective 0, lead 1, vault 2), so under `MAX_RADAR_WAYPOINTS` it can only take a slot no
+objective and no lead wanted, and `consider`'s existing `bySectorKey` guard already makes a
+sector carrying both a lead and a vault read as the lead. `GameScene.syncRadarWaypoints` feeds it
+from `findUnclaimedAbilityVaults` on the same 1 Hz timer, and deliberately does not filter to
+abilities that have a LOCKED OUT row: a vault is a permanent profile upgrade whatever it opens
+today. The two drops and the arena empty-list contract above are unchanged.
+
 ### 3.5 Settings, reduced motion, quality
 
 - The existing toggle (`STORAGE_KEY_MINIMAP = 'settings-minimap-enabled'`,
@@ -890,6 +901,33 @@ against the five ships that start on an emanating weapon). **An edge with `requi
 undefined` gets no row**: `SectorMapRenderer.isGatedEdgeSealed` draws it permanently sealed
 because nothing can ever satisfy it, and a to-do list should not carry a line that can never be
 ticked.
+
+**As built (`FEAT-LOCKOUT-RADAR-BEARING`, fdab006, 2026-08-01).** The panel above named the
+problem and never the errand. Every row's last clause is now its **source**, a
+`LockoutSource` union on `LockoutRow`, replacing the `NEAREST N SECTORS OUT` clause:
+`MAGNO-TETHER · 4 DOORS · 2 SITES · VAULT 3 SECTORS OUT`. Four states, plus two fallbacks:
+
+- `VAULT n SECTORS OUT` (or `VAULT IN THIS SECTOR`), the nearest unclaimed ability vault that
+  grants it. It is always reachable **without** the ability it grants, because
+  `placeAbilityGates` hosts a vault outside its own gate's subtree by construction, so the row
+  can never point at a door the player cannot open.
+- `ACTIVE STEP n/m`, the quest that grants the key is accepted and running.
+- `BOARD n SECTORS OUT`, the quest is on offer and this is the nearest board the profile has
+  seen.
+- `ALL OBJECTIVE SLOTS FULL`, the quest is on offer but all three active slots are taken.
+- `VAULT NOT CHARTED` / `NO BOARD CHARTED`, the fallbacks when nothing charted starts it.
+
+**The SEEN rule behind them is the same leak rule as the three above, not a new one.** A source
+is named only at `PoiFlags.SEEN`, which is written on sector ENTRY and is the exact flag
+`SectorMapRenderer` gates a POI icon on, so the panel can never name a place the chart refuses
+to draw. Both new scans (`findUnclaimedAbilityVaults`, exported because the radar calls it
+directly, and the module-private `nearestSeenQuestBoard`) require it. `NEAREST N SECTORS OUT`
+was replaced rather than dropped: two distances on one line read as noise and the source
+distance is the actionable one, so `nearestDistance` survives only as the sort tiebreak, below a
+new rank that puts an actionable row above an `unfound` one at the same opening count. The
+quest state is a caller-supplied `questStateOf` predicate, required rather than optional on the
+`MinimapSectorUnderlay.impassable` precedent, because `src/expedition/` never imports
+`src/meta/`, where the quest store lives.
 
 ---
 

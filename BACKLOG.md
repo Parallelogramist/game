@@ -215,11 +215,14 @@ that item, so do not re-derive it). The unblocked candidates are now `CHORE-SECR
 half discharged by `FEAT-MAPUI-POI-ICONS` and now waits on `FEAT-DISCOVERY-FEEDBACK-07` for the
 radar half), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
 `BALANCE-DECRYPTOR-SCAN-RADIUS`, the newly filed `BALANCE-MAP-FRAGMENT-YIELD` and
-`FEAT-SECRET-MAP-FRAGMENT-CODEX`, plus the three filed by `c2ad058`'s LOCKED OUT panel:
-`BALANCE-LOCKOUT-PANEL-ROWS`, `FEAT-LOCKOUT-RADAR-BEARING` and (waiting on
+`FEAT-SECRET-MAP-FRAGMENT-CODEX`, plus the two still-open of the three filed by `c2ad058`'s
+LOCKED OUT panel: `BALANCE-LOCKOUT-PANEL-ROWS` and (waiting on
 `FEAT-BARRIER-BREACH-REST`'s operator call, so unblocked only in part)
-`CHORE-LOCKOUT-BREAKABLE-ROW`. `CHORE-VOID-GAP-RADAR-UNDERLAY` is closed at that same commit and
-is off the board. The remainder of
+`CHORE-LOCKOUT-BREAKABLE-ROW`. `FEAT-LOCKOUT-RADAR-BEARING`, the third, is closed at `fdab006`
+and is off the board, and the three cuts it filed are candidates in its place:
+`FEAT-LOCKOUT-BOARD-BEARING`, `CHORE-LOCKOUT-VAULT-GUARD-TELL` and the play-gated
+`BALANCE-LOCKOUT-SOURCE-CLAUSE`. `CHORE-VOID-GAP-RADAR-UNDERLAY` is closed at that same commit
+and is off the board. The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`
 (shipped at b75822d), so the list stays accurate.
@@ -804,6 +807,9 @@ candidates: `FEAT-DISCOVERY-BADGE-TICKER` and `POLISH-OBJECTIVE-PIN-PULSE`.
 Of those two, `FEAT-DISCOVERY-BADGE-TICKER` has now shipped at `4c96168` alongside
 `CHORE-SECRET-LEAD-TICKER`, so the candidate list gains `POLISH-TICKER-LEAD-SIGILS` and the
 play-gated `BALANCE-TICKER-ROW-CADENCE` and loses both of those names.
+`FEAT-LOCKOUT-RADAR-BEARING` has now shipped at `fdab006` and files three cuts, all three
+candidates: `FEAT-LOCKOUT-BOARD-BEARING`, `CHORE-LOCKOUT-VAULT-GUARD-TELL` and the play-gated
+`BALANCE-LOCKOUT-SOURCE-CLAUSE`.
 
 **20c8b6c put a reward at the end of the map.** Fourteen sessions built the exploration
 layer and three of its axes each carried a lifetime counter behind two hidden unlocks and two
@@ -1033,6 +1039,36 @@ and `FEAT-SECRET-GAP-MAP-TELL`, and files `BALANCE-LOCKOUT-PANEL-ROWS`,
 no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bump, so every
 existing profile and all 21 archivable worlds light it up the moment the build lands, and it moves
 no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
+**fdab006 turned the LOCKED OUT panel from a wall of counts into a route.** `c2ad058` shipped the
+half of the Metroid loop that names the problem: what you lack and how many doors and reward sites
+it would open. The half that makes it a loop, *where you go to fix it*, had never been answerable
+from any surface, and in Metroid the map is a to-do list precisely because finding the item is the
+errand. Every row's last clause is now the source rather than `NEAREST N SECTORS OUT`:
+`MAGNO-TETHER  ·  4 DOORS  ·  2 SITES  ·  VAULT 3 SECTORS OUT`. An ability names the vault that
+grants it; a quest key names its live step (`ACTIVE STEP 2/4`), or the nearest board that will
+take the accept (`BOARD 1 SECTOR OUT`), or `ALL OBJECTIVE SLOTS FULL`, and the two fallbacks are
+`VAULT NOT CHARTED` and `NO BOARD CHARTED`. **The vault for an ability you lack is always
+reachable without that ability**, because `placeAbilityGates` hosts each vault outside its own
+gate's subtree by construction, so naming it can never be a taunt and can never send you at a door
+you cannot open. **The leak rule is correctness rather than taste**: a source is named only at
+`PoiFlags.SEEN`, which is written on sector entry and is the exact flag `SectorMapRenderer` gates a
+POI icon on, so the panel can never name a place the chart refuses to draw. `NEAREST N SECTORS OUT`
+was **replaced rather than dropped**, and deliberately: two distances on one line read as noise,
+the source distance is the one the player can act on, and `nearestDistance` survives as the sort
+tiebreak so the nearer payoff still wins a tie at the same opening count. The radar carries it out
+of the chart: a third `'vault'` waypoint kind in the ability door's violet
+(`WORLD_GEOMETRY_COLORS.gate.stroke`), ranked last in `KIND_ORDER` so it can only take a slot no
+objective and no lead wanted, and pointing at **every** seen unclaimed vault rather than only ones
+with a panel row, because a vault is a permanent profile upgrade whatever it opens today. It closes
+`FEAT-LOCKOUT-RADAR-BEARING` and **deviates from how that item was filed**: the item asked for a
+bearing to the nearest *locked* sector, and a chevron on a door you cannot open is not a
+destination, so the bearing points at the vault instead. It files `FEAT-LOCKOUT-BOARD-BEARING`,
+`CHORE-LOCKOUT-VAULT-GUARD-TELL` and `BALANCE-LOCKOUT-SOURCE-CLAUSE`. No storage key, no
+`SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bump,
+so every existing profile and all 21 archivable worlds light it up the moment the build lands, and
+it moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and
+untouched.
 
 ## Proposed (auto)
 
@@ -5975,12 +6011,36 @@ exploring pays is the end of Phase 5.
   how many rows a mid-game profile actually carries, which nothing but a real run answers. Value:
   the panel reads as a plan. Deps: none, but it wants play rather than a second guess.
 
-- [ ] **FEAT-LOCKOUT-RADAR-BEARING** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): a lockout
-  row already knows its nearest charted sector's distance, but nothing points at it once the chart
-  closes. `radarWaypoints.ts` carries `objective` and `lead` kinds and `05e832e` established the
-  pattern (a sector centre, never a position; an uncharted destination dropped). A third kind
-  would make a lockout a destination rather than a number. Value: the thing you are missing has a
-  bearing, not just a count. Deps: none.
+- [x] **FEAT-LOCKOUT-RADAR-BEARING**: a lockout is a destination now, not a number (done,
+  fdab006). Every LOCKED OUT row ends in where to go and earn it (`VAULT 3 SECTORS OUT`,
+  `ACTIVE STEP 2/4`, `BOARD 1 SECTOR OUT`, `ALL OBJECTIVE SLOTS FULL`), and a third `'vault'`
+  radar waypoint kind in the ability door's violet flies you there once the chart closes.
+  **Deviates from how this item was filed**, deliberately: the item asked for a bearing to the
+  nearest *locked* sector, and the bearing points at the ability **vault** instead, because a
+  chevron on a door you cannot open is not a destination, it is a taunt. `placeAbilityGates`
+  hosts each vault outside its own gate's subtree, so the vault for an ability you lack is
+  always reachable without that ability and the bearing can never send you at a door you cannot
+  open. Full write-up in `BACKLOG-archive.md`.
+
+- [ ] **FEAT-LOCKOUT-BOARD-BEARING** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): the radar
+  carries a vault bearing but not a quest-board one. A `QuestGiver` slot is one of five random POI
+  kinds per sector, so boards are common and a chevron on each would drown the objective and the
+  lead the disc already carries; the panel names the nearest board instead. Value: a quest key you
+  can accept right now has a bearing too. Deps: wants `BALANCE-LOCKOUT-PANEL-ROWS`' play data on
+  how crowded the disc actually gets.
+
+- [ ] **CHORE-LOCKOUT-VAULT-GUARD-TELL** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): the
+  panel says `VAULT 3 SECTORS OUT` without saying the vault is still guarded, and a vault you saw
+  but did not take is usually one whose pack killed you. `PoiFlags.GUARD_CLEARED` already records
+  the answer per world, so this is a clause, not a system. Value: the panel does not send you back
+  into a fight you already lost, unwarned. Deps: none.
+
+- [ ] **BALANCE-LOCKOUT-SOURCE-CLAUSE** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): dropping
+  `NEAREST N SECTORS OUT` for the source distance is a designed call, measured but never played.
+  Whether losing the payoff distance costs anything, and whether `ACTIVE STEP 2/4` reads as
+  redundant beside the OBJECTIVES panel that already prints it, is what a real run answers.
+  Value: the row's last clause is the one the player acts on. Deps: none, but it wants play rather
+  than a second guess.
 
 - [ ] **CHORE-LOCKOUT-BREAKABLE-ROW** (new 2026-08-01, from FEAT-MAPUI-LOCKOUT-PANEL): a `sealed`
   cache and an `EdgeKind.Breakable` border are absent from the LOCKED OUT panel on purpose,
