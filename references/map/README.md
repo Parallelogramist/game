@@ -299,6 +299,11 @@ first.
   20 worlds under that same pair, and the CHART dialog can fly one of the three most recently
   banked worlds back exactly as it was left. A payload written before the archive shipped is
   filed under its own key rather than discarded, so no profile loses the world it is flying.
+  **Extended by `FEAT-SEASON-RETURN-FULL-LIST` (`370e7bd`, 2026-08-01):** the return list pages
+  three worlds at a time and `MORE` wraps through all 20, so every world the archive remembers
+  is flyable rather than only the three most recent, and the archive keeps
+  `MAX_BANKED_SEASONS + 1` worlds so a listed row can never arrive at a chart that was already
+  evicted.
 - **Seed sharing.** The world is a pure function of a seed, so a shareable world code
   costs almost nothing and pairs with the existing daily-challenge and leaderboard
   systems.

@@ -915,6 +915,22 @@ and files `FEAT-SEASON-RETURN-FULL-LIST`, `BALANCE-SEASON-RETURN-FRICTION` and
 `CHORE-ARCHIVE-EVICTION-TELL`. No storage key and no version bump of any kind, and no econ
 surface, so `FEAT-ECON-WARDS` stays parked.
 
+**`370e7bd` made the whole history reachable.** The archive `429788e` shipped keeps 20 worlds
+and the RETURN dialog offered three of them, so 17 remembered charts were storage the player
+could see counted and never fly to. `returnableWorldPage` deals the banked list three rows at a
+time, most recently banked first, and `MORE` walks the pages and wraps back to the first, in
+the same five-button row the CHART dialog already ships. **A scrolling picker was deliberately
+not built**: a wrapping page button reaches all 20 rows with one pure function, no new widget,
+no new scene and no new storage key, and that call is settled. It also closes
+`CHORE-ARCHIVE-EVICTION-TELL` by removing the gap rather than reporting it: the archive holds
+the live world as well as every banked row, so 21 worlds needed memory against 20 slots and the
+oldest row offered a return that arrived at a blank chart. `MAX_ARCHIVED_WORLDS` is
+`MAX_BANKED_SEASONS + 1` now and a test pins the two caps together, because they live in
+different modules and evict on different rules. It supersedes the remaining half of
+`FEAT-SEASON-BANKED-LIST-SURFACE` and files `POLISH-RETURN-PAGE-JUMP`,
+`FEAT-SEASON-RETURN-SORT` and `BALANCE-RETURN-PAGE-SIZE`. No storage key and no version bump of
+any kind, and no econ surface, so `FEAT-ECON-WARDS` stays parked.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -4926,25 +4942,76 @@ exploring pays is the end of Phase 5.
      no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump**, so every existing profile keeps
      the world it is flying and gains the memory the moment the build lands.
 
-- [ ] **FEAT-SEASON-RETURN-FULL-LIST** (new 2026-08-01, from FEAT-SEASON-RETURN-TO-WORLD): the
-  return dialog offers the three most recently banked worlds and the CHART dialog lists five
-  rows, against the 20 `MAX_BANKED_SEASONS` keeps and the 20 the archive now remembers, because
-  the shared confirmation overlay's button row fits five buttons at 660 wide and no more. A
-  scrolling picker is a different widget from the confirmation card, which is why it is cut
-  rather than squeezed. Value: every world the profile still remembers is reachable, not only
-  the last three. Deps: none. Supersedes the remaining half of
-  `FEAT-SEASON-BANKED-LIST-SURFACE`.
+- [x] **FEAT-SEASON-RETURN-FULL-LIST** (done, 370e7bd) (new 2026-08-01, from
+  FEAT-SEASON-RETURN-TO-WORLD): every world the profile remembers is flyable, not only the
+  three most recent. Value: a world charted to 78% four re-rolls ago is somewhere the player
+  can go back to, instead of a number on the CHART tile.
+  1. **What shipped**: `returnableWorldPage(state, page)` replaces `returnableWorlds`, dealing
+     `RETURN_WORLD_CHOICE_COUNT` rows most-recently-banked first with the page index wrapped
+     into range; `getReturnableWorldPage(page)` is its storage-backed reader; and
+     `openReturnToBankedWorld` takes a page, titles the list `Fly back to   (page 2 of 3):`
+     when there is more than one, and carries a `MORE` button that walks them.
+  2. **Paging, not a scrolling picker, and that is the settled call.** The shared confirmation
+     already ships a **five-button row at 660 wide** (the CHART dialog's `FLY A` / `FLY B` /
+     `FLY C` / `RETURN` / `BACK`), so three worlds plus `MORE` plus `BACK` is the geometry that
+     was already proven. A scrolling panel is a second widget, a second focus model and a
+     second layout to keep portrait-safe, for a list a wrapping button reaches in full. Do not
+     re-derive this.
+  3. **The page WRAPS rather than clamps**, because there is one `MORE` button and the oldest
+     page has to reach the first one again without closing the dialog. `pageCount` is
+     `Math.max(1, ...)`, so an empty history reads as page 1 of 1 and divides by nothing.
+  4. **It closes `CHORE-ARCHIVE-EVICTION-TELL` by removing the gap rather than telling the
+     player about it.** `MAX_BANKED_SEASONS` is 20 and `MAX_ARCHIVED_WORLDS` was 20, but the
+     archive also holds the world being flown, which is never a banked row: 21 worlds needing
+     memory against 20 slots, so at the cap the oldest row survived in the season store with
+     its payload already evicted and offered a return that arrived at a blank chart. The
+     archive cap is `MAX_BANKED_SEASONS + 1` now (63 KB at the measured 3.0 KB per fully
+     explored world), `MAX_BANKED_SEASONS` is exported for it, and `worldArchive.test.ts` pins
+     the inequality, because the two caps live in different modules and evict on different
+     rules (banking order there, touch order here) so nothing else would catch a divergence.
+  5. **The CHART dialog names the total.** Its `Banked:` line still shows the last five rows
+     and now reads `Banked (12 worlds, last 5):` when there are more, which is what tells the
+     player `RETURN` reaches further than the line does.
+  6. **Two tests, both pinning rules a reader cannot see from the call site**: the paging wrap
+     and page-completeness in `ExpeditionSeasonStore.test.ts`, the cap inequality in
+     `worldArchive.test.ts`. Nothing else was added: the dialog itself is Phaser-coupled and
+     needs the mock-scene scaffolding the standing order bans.
+  7. It **supersedes the remaining half of `FEAT-SEASON-BANKED-LIST-SURFACE`** (that entry's
+     own text says so) and files `POLISH-RETURN-PAGE-JUMP`, `FEAT-SEASON-RETURN-SORT` and
+     `BALANCE-RETURN-PAGE-SIZE`.
+  8. **No storage key, no `SAVE_VERSION`, no `SEASON_STATE_VERSION`, no
+     `WORLD_ARCHIVE_VERSION`, no `WORLD_PROFILE_VERSION`, no `WORLDGEN_VERSION` and no
+     `DISCOVERY_VERSION` bump**: a raised cap evicts nothing and reads every existing payload
+     unchanged.
+- [ ] **POLISH-RETURN-PAGE-JUMP** (new 2026-08-01, from FEAT-SEASON-RETURN-FULL-LIST): `MORE`
+  walks one page at a time, so a full 20-world history is seven pages and the oldest world is
+  six presses away. A `FIRST` button, or paging backwards on the left stick, would cost one
+  more slot in a button row that is already full at five. Value: the world you want is one
+  press away rather than six. Deps: none.
+- [ ] **FEAT-SEASON-RETURN-SORT** (new 2026-08-01, from FEAT-SEASON-RETURN-FULL-LIST): the
+  list is banking order only, most recent first. A player chasing `unlock_world_charted` wants
+  the world he left at 88%, not the world he left last, and nothing in the dialog can order by
+  completion, by secrets or by whether the world is conquered. Value: the history is searched
+  by what the player was doing there, not by when he left. Deps: none.
+- [ ] **BALANCE-RETURN-PAGE-SIZE** (new 2026-08-01, from FEAT-SEASON-RETURN-FULL-LIST): three
+  rows per page is what the shipped five-button row fits, not a measured read. Whether three at
+  a time reads as a list or as a slideshow, and whether the page count should instead be spent
+  on a wider card, wants a browser and a player. Deps: play.
 - [ ] **BALANCE-SEASON-RETURN-FRICTION** (new 2026-08-01, from FEAT-SEASON-RETURN-TO-WORLD):
   returning is free. It costs the run, and it banks the live world's record, and nothing else,
   so a player can bounce between two worlds every time one gets hard. Whether that reads as
   freedom or as an exit from every consequence the map has, and whether a return should cost
   anything at all, is a feel judgement that wants a browser and a player. Deps: play.
-- [ ] **CHORE-ARCHIVE-EVICTION-TELL** (new 2026-08-01, from FEAT-SEASON-RETURN-TO-WORLD): a
+- [x] **CHORE-ARCHIVE-EVICTION-TELL** (done, 370e7bd) (new 2026-08-01, from
+  FEAT-SEASON-RETURN-TO-WORLD): a
   21st world silently evicts the oldest world's memory while its banked row survives, because
   the row lives in `ExpeditionSeasonStore` and the memory lives in the archive, and only the
   archive has a cap that bites. The row would then offer a return that arrives at a blank
   chart. Both caps are 20 today so the two lists move together, but nothing enforces that they
   stay equal. Value: a row never offers something the archive cannot give back. Deps: none.
+  **Closed by removing the gap, not by telling the player about it**: `MAX_ARCHIVED_WORLDS` is
+  `MAX_BANKED_SEASONS + 1` (the live world is never a banked row and still needs a slot), and
+  `worldArchive.test.ts` pins the inequality so the two caps cannot drift apart again.
 
 - [ ] **FEAT-SEASON-CHOICE-SEED-ENTRY** (new 2026-08-01, from FEAT-SEASON-WORLD-CHOICE): the
   store half of `FEAT-SEASON-SEED-SHARE` now exists. `beginNextExpeditionSeason(record,
@@ -5026,13 +5093,19 @@ exploring pays is the end of Phase 5.
   edge, which is what the wrap replaced. Pairs with `POLISH-MAP-DETAIL-BAR-PORTRAIT`. Value: a
   header that reads on a phone. Deps: none, but it wants a browser at a real portrait width.
 
-- [ ] **FEAT-SEASON-BANKED-LIST-SURFACE** (new 2026-08-01, from FEAT-EXPEDITION-CHART-CHASE):
+- [x] **FEAT-SEASON-BANKED-LIST-SURFACE** (closed as superseded, 370e7bd) (new 2026-08-01, from
+  FEAT-EXPEDITION-CHART-CHASE):
   the per-world banked list (`Banked: W1 42%  ·  W2 67%`, last five only) still reads solely
   inside the CHART confirmation. `FEAT-EXPEDITION-CHART-CHASE` moved the count and the best
   chart out of that dialog, which is the part that drives the chase; the rows themselves were
   left because `MAX_BANKED_SEASONS` is 20 and a 20-row list wants its own scrolling panel
   rather than a codex stats row. Value: a per-world history worth keeping is readable where
   the rest of the record lives. Deps: none.
+  **Superseded by `FEAT-SEASON-RETURN-FULL-LIST` (370e7bd)**, which is what that entry said
+  would happen: the scrolling panel this asked for is not built and is not wanted, because the
+  paged RETURN dialog reads every one of the 20 rows with their charts, their sectors, their
+  secrets and their conquest marks, and flies any of them. The codex Statistics tab keeps the
+  count and the best chart, which is the part of the record that drives the chase.
 
 - [x] **FEAT-QUEST-SEASON-CONTRACTS** (done, a8c1d38) (new 2026-08-01): a world issues its
   own objectives. Quest state is profile-scope and permanent (a `complete` state is never
