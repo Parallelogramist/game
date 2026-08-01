@@ -181,6 +181,27 @@ hazard-orange ring, the colour its core reads `GUARDED` in. This **advances but 
 4's newly-passable ring all remain. It needed no storage key, no version bump and no new
 discovery writer, so every existing profile lights up the moment the build lands.
 
+`FEAT-DISCOVERY-FEEDBACK-07` (05b2c48) shipped the payoff half: claiming a traversal ability or
+finishing a chain that grants a quest key now toasts `NEW ROUTES ONLINE` naming how many sealed
+gates respond to it, and rings each of those exact doors on the chart until the map is next
+looked at, so a power-up becomes an itinerary instead of a thing to remember bouncing off. The
+count is `newlyPassableEdges`, a new pure rule in `discoveryRules.ts` with two tests. **The KNOWN
+filter is the correctness invariant**: a door the profile has never seen is not an itinerary, it
+is a spoiler, which is why the rule reads discovery state rather than the map alone. The run
+overlay holding those edge ids lives on `DiscoveryManager` as a plain `Set` that `saveState`
+never touches and `bindWorld` clears, so a scene restart or a world swap can never ring a door in
+a world the ship is not in; `MapScene.create` snapshots it and clears it on the spot, which is
+what "until first viewed" means in practice. Also landed from doc 03 section 7: milestone toasts
+at 25/50/75/100 percent charted, whose already-reached floor is seeded from the live percent at
+bind time so **no storage key was needed** to stop an earlier run's threshold re-toasting, and
+the first-entry banner naming biome, sector and depth. The banner sits **above the bounty line,
+not top-centre as section 7 asks**, for the reason `updateBounties` already recorded: in portrait
+the top band is bars left, world and timer centre, kills and gold right, with no room for a
+centred line. It is an instant static line under reduced motion. No storage key, no version bump
+and no new discovery writer, so every existing profile lights up the moment the build lands.
+`FEAT-DISCOVERY-FEEDBACK-07` **stays open**: moments 3, 4 and 5 remain, now split across the two
+cuts filed with it, and `CHORE-VAULT-GUARD-MAP-MARK`'s radar half therefore stays blocked on it.
+
 **Band 2 was the live band all along, and this item was on it.** The candidate list below used to
 omit `FEAT-POWER-VAULT-GUARD`, and band 1's note that band 2's next unblocked work lay elsewhere
 was wrong on that point: its only dep, `FEAT-POWER-VAULTS`, has been done since a2361d0.
@@ -197,7 +218,11 @@ radar half), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
 `BALANCE-DECRYPTOR-SCAN-RADIUS`, the newly filed `BALANCE-MAP-FRAGMENT-YIELD` and
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, and
 `FEAT-SECRET-LORE-CATALOG-DEPTH` (which waits on a re-rollable world seed, since the fixed
-expedition seed is what caps the fragment catalog at 13), and `FEAT-QUEST-CATALOG-DEPTH`, whose
+expedition seed is what caps the fragment catalog at 13). The remainder of
+`FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
+`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` (blocked
+on `FEAT-MAPUI-DOORS-05` and `FEAT-QUEST-TRIGGERS-REST`), so the list stays accurate. Also
+`FEAT-QUEST-CATALOG-DEPTH`, whose
 fourth chain head would be the first one the 3-accept cap ever actually gates but which its own
 entry puts behind the parked `FEAT-ECON-WARDS` balance decision. `FEAT-ECON-WARDS` stays parked
 on that operator balance decision: do not unpark it.
@@ -4302,8 +4327,34 @@ exploring pays is the end of Phase 5.
 - [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
   sector banner, fragment cascades, secret bloom, completion milestones at 25/50/75/100 and the
   payoff moment where gaining an ability toasts `NEW ROUTES ONLINE` and rings every door it just
-  opened. Done when every animation degrades to an instant state under reduced motion and toast
-  queueing stays one-at-a-time. Deps: `FEAT-MAPUI-RADAR-UNDERLAY-06`, `FEAT-POWER-VAULTS`.
+  opened. **Advanced but not finished by 05b2c48**, which met four of the done-criteria: the
+  first-entry banner (biome, sector key, depth), the 25/50/75/100 milestone toasts, the
+  `NEW ROUTES ONLINE` toast with the correct count of sealed gates responding to the gain (from
+  the new pure `newlyPassableEdges`, KNOWN-filtered so an unseen door is never spoiled), and the
+  newly-passable ring on each of those doors until the map is next viewed. Both cross-cutting
+  criteria hold: the banner is an instant static line under reduced motion (nothing else in that
+  commit animates), and toast queueing is untouched, since every line still goes through
+  `ToastManager`. Remaining: moment 3's secret-icon bloom and moment 4's fragment cascade, both
+  now owned by `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`, and moment 5's objective-pin `UPDATED` badge,
+  now owned by `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`. Its deps were already met when that commit
+  landed: `FEAT-MAPUI-RADAR-UNDERLAY-06` (492b8f0/9c670b7), `FEAT-POWER-VAULTS` (a2361d0).
+
+- [ ] **FEAT-DISCOVERY-MAPOPEN-ANIMATIONS** (new 2026-07-31, from `FEAT-DISCOVERY-FEEDBACK-07`):
+  doc 03 section 7 moments 3 and 4 want motion on the next map open, a one-time icon bloom on the
+  cell where a secret was just found and a 400 ms BFS cascade of the outlines a map fragment just
+  charted. Both toasts already ship (`HIDDEN CACHE FOUND`, `Survey data: ... charted`); what is
+  missing is only the animation, which needs a per-open delta of what changed since the map was
+  last looked at, and the map keeps no such record. The new-routes overlay shipped with
+  `FEAT-DISCOVERY-FEEDBACK-07` is the shape that record would take. Value: the map replays what
+  changed while you were flying, instead of quietly already being different. Deps: none.
+
+- [ ] **FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE** (new 2026-07-31, from `FEAT-DISCOVERY-FEEDBACK-07`):
+  doc 03 section 7 moment 5's `UPDATED` badge on an objective pin, held in the run overlay until
+  the pin is viewed so the map never nags twice. There are no objective pins to badge yet
+  (`FEAT-MAPUI-DOORS-05` owns them) and none of the shipped quest triggers names a sector to pin
+  to (`FEAT-QUEST-TRIGGERS-REST`), so a badge now would decorate nothing. Value: the map says
+  which objective moved while you were flying. Deps: `FEAT-MAPUI-DOORS-05`,
+  `FEAT-QUEST-TRIGGERS-REST`.
 
 #### The post-promote content plan: quests + lots of hidden rewards (refined 2026-07-31)
 

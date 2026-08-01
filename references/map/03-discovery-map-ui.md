@@ -868,6 +868,51 @@ deprecation note (`src/achievements/AchievementTypes.ts:286`).
    ring until first viewed on the map. This is the loudest moment by design:
    it converts a power-up into an itinerary.
 
+### As built (`FEAT-DISCOVERY-FEEDBACK-07` partial, 05b2c48, 2026-07-31)
+
+Moments 1, 2 and 6 are built. Moment 6 is the whole reason this chunk was worth a session:
+`newlyPassableEdges(state, map, universe, gainedId)` shipped in `discoveryRules.ts` (the
+signature this section's test-surface line names, taking the `WorldMap` itself as every other
+rule here does, since there is no `WorldMapIndex` and never was). It filters to **KNOWN** edges,
+which is the correctness invariant: a door the profile has never seen is not an itinerary, it is
+a spoiler.
+
+Both permanent-gain sites feed it: `claimAbilityVault` for a traversal ability and the
+quest-completion loop for a `grantsKeyId` quest key. The toast reads
+`NEW ROUTES ONLINE` / `<n> sealed gate(s) respond(s) to <name>` and is skipped entirely at zero,
+so an early claim never promises routes the chart has not drawn.
+
+The run overlay lives on `DiscoveryManager` as a plain `Set<string>` that `saveState` never
+touches and `bindWorld` clears, rather than in a new module: it is run state with a per-world
+lifetime, and `bindWorld` is already the per-world reset every GameScene create runs.
+`MapScene.create` snapshots it and calls `clearNewlyPassableEdges()` immediately, which is what
+"until first viewed on the map" means in practice: the rings survive every pan and zoom of that
+open and appear on no later one. The ring is `drawNewRouteRing`, the cleared-green at 2.4x the
+glyph size, outside the lock ring's 1.8x. The two can never land on one door, since a door keyed
+to what was just gained is by definition no longer sealed, and both gain sites add to the owned
+set before announcing. It carries a legend row of its own, so the vocabulary stays generated.
+
+Moment 2 is `showMilestoneToast` at 25/50/75/100, driven off `getCompletionPercent()` through
+the discovery callback whenever `sectorsVisited` or `secretsFound` is non-empty (exactly the two
+numerators; a hidden sector joins the denominator on the same frame it joins the numerator). The
+already-reached floor is seeded from the live percent at bind time, so a threshold crossed on an
+earlier run never re-toasts and **no storage key was needed to remember it**.
+
+Moment 1 is built with one deliberate deviation: the banner sits **above the bounty line, not
+top-centre**. `updateBounties` had already recorded why a centred top line does not fit in
+portrait (bars left, world and timer centre, kills and gold right share that band), and
+re-deriving that the hard way was not worth the screen. It names biome, sector key and depth,
+fades in and out over ~1.6s, and is an instant static line under reduced motion. No animation in
+this chunk needs a reduced-motion branch except that one, because the ring and the toasts are
+static by construction. Toast queueing is untouched: every line goes through `ToastManager`,
+which already shows one at a time.
+
+Still open here: moment 3's secret-icon bloom and moment 4's fragment cascade, which are motion
+only (both toasts already ship) and need a per-open delta the map does not keep
+(`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`), and moment 5's pin `UPDATED` badge, which needs objective
+pins to exist first (`FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`). No `DISCOVERY_VERSION` bump, no new
+`DiscoveryChanges` field, no storage key: the overlay is not persisted at all.
+
 ---
 
 ## 8. Accessibility and readability
