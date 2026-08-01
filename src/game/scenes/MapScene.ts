@@ -5,7 +5,12 @@ import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_Y, GamepadManager } from '../../input/GamepadManager';
-import { SectorMapRenderer } from '../../visual/SectorMapRenderer';
+import {
+  COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
+  drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawPoiGlyph, drawVaultGuardRing,
+} from '../../visual/SectorMapRenderer';
+import { gateGlyphFor } from '../../expedition/gateGlyphs';
+import { poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
 import {
@@ -13,6 +18,7 @@ import {
 } from '../../visual/mapProjection';
 import type { GridBounds, MapViewTransform } from '../../visual/mapProjection';
 import { sectorOfWorldPoint } from '../../world/worldSpace';
+import { EdgeKind, PoiKind } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
 import type { GameScene } from './GameScene';
 
@@ -119,6 +125,7 @@ export class MapScene extends Phaser.Scene {
         || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
     this.hintedSectorKeys = new Set(this.leads.map(lead => lead.sectorKey));
     this.renderLeadsPanel(leadsPanelY);
+    this.renderLegendPanel();
 
     this.graphics = this.add.graphics();
     this.graphics.setDepth(1);
@@ -270,6 +277,80 @@ export class MapScene extends Phaser.Scene {
       .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
   }
 
+  /**
+   * The map's own glyph vocabulary, generated from the two glyph tables so it cannot drift
+   * from what the renderer draws. Always visible rather than the TAB-toggled panel doc 03
+   * section 4.5 specifies: a toggle would need a keyboard key, a gamepad button and a touch
+   * target, which is three input paths for 196 px of screen the left-hand panels already
+   * overlay anyway.
+   */
+  private renderLegendPanel(): void {
+    const rows: Array<{
+      label: string;
+      draw: (graphics: Phaser.GameObjects.Graphics, x: number, y: number) => void;
+    }> = [];
+    for (const kind of [PoiKind.AbilityPowerUp, PoiKind.Treasure,
+      PoiKind.Shrine, PoiKind.Secret]) {
+      rows.push({
+        label: poiGlyphFor(kind).label,
+        draw: (graphics, x, y) => drawPoiGlyph(graphics, kind, x, y, LEGEND_GLYPH_SIZE, 1),
+      });
+    }
+    rows.push({
+      label: 'Guard still standing',
+      draw: (graphics, x, y) => {
+        drawPoiGlyph(graphics, PoiKind.AbilityPowerUp, x, y, LEGEND_GLYPH_SIZE, 1);
+        drawVaultGuardRing(graphics, x, y, LEGEND_GLYPH_SIZE);
+      },
+    });
+    rows.push({
+      label: 'Already claimed',
+      draw: (graphics, x, y) => {
+        drawPoiGlyph(graphics, PoiKind.AbilityPowerUp, x, y, LEGEND_GLYPH_SIZE, COLLECTED_ALPHA);
+        drawCollectedCheck(graphics, x, y, LEGEND_GLYPH_SIZE);
+      },
+    });
+    for (const kind of [EdgeKind.Open, EdgeKind.AbilityDoor, EdgeKind.KeyDoor,
+      EdgeKind.Breakable, EdgeKind.OneWay]) {
+      rows.push({
+        label: gateGlyphFor(kind).label,
+        draw: (graphics, x, y) =>
+          drawGateGlyph(graphics, kind, x, y, false, LEGEND_GLYPH_SIZE),
+      });
+    }
+    rows.push({
+      label: 'Still sealed',
+      draw: (graphics, x, y) => {
+        drawGateGlyph(graphics, EdgeKind.AbilityDoor, x, y, false, LEGEND_GLYPH_SIZE);
+        drawGateLockRing(graphics, EdgeKind.AbilityDoor, x, y, LEGEND_GLYPH_SIZE);
+      },
+    });
+
+    const rowHeight = 20;
+    const panelWidth = 196;
+    const panelHeight = 36 + rows.length * rowHeight + 8;
+    const panelX = this.scale.width - 24 - panelWidth;
+    const panelY = Math.max(HEADER_HEIGHT + 12,
+      this.scale.height - FOOTER_HEIGHT - 16 - panelHeight);
+
+    this.add.rectangle(panelX, panelY, panelWidth, panelHeight, 0x0a1018, 0.9)
+      .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
+    makeBodyText(this, panelX + 14, panelY + 10, 'LEGEND',
+      { fontSize: 14, color: TEXT_COLORS.muted, align: 'left' })
+      .setOrigin(0, 0).setDepth(5);
+
+    const graphics = this.add.graphics();
+    graphics.setDepth(4);
+    let rowY = panelY + 36;
+    for (const row of rows) {
+      row.draw(graphics, panelX + 22, rowY + 8);
+      makeBodyText(this, panelX + 40, rowY, row.label.toUpperCase(),
+        { fontSize: 12, color: TEXT_COLORS.muted, align: 'left' })
+        .setOrigin(0, 0).setDepth(5);
+      rowY += rowHeight;
+    }
+  }
+
   update(_time: number, delta: number): void {
     if (this.closed) return;
     const seconds = delta * 0.001;
@@ -369,6 +450,8 @@ export class MapScene extends Phaser.Scene {
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       hintedSectorKeys: this.hintedSectorKeys,
+      poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
+      secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
       holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
       playerWorldX: this.playerWorldX,

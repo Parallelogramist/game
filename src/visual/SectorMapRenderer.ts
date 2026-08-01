@@ -1,10 +1,12 @@
 import Phaser from 'phaser';
 import { STAGES } from '../data/Stages';
-import { EDGE_DIRECTIONS, EdgeKind, directionDelta, edgeIdFor } from '../world/worldTypes';
-import type { EdgeDef, WorldMap } from '../world/worldTypes';
+import { EDGE_DIRECTIONS, EdgeKind, PoiKind, TILE_SIZE, directionDelta,
+  edgeIdFor } from '../world/worldTypes';
+import type { EdgeDef, SectorDef, WorldMap } from '../world/worldTypes';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, sectorOfWorldPoint } from '../world/worldSpace';
-import { EdgeFlags, SectorFlags } from '../expedition/DiscoveryTypes';
+import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from '../expedition/DiscoveryTypes';
 import { gateGlyphFor } from '../expedition/gateGlyphs';
+import { poiGlyphFor } from '../expedition/poiGlyphs';
 import { WORLD_GEOMETRY_COLORS } from './NeonColors';
 import { edgeAnchor, sectorCellRect, worldPointToMap } from './mapProjection';
 import type { MapViewTransform } from './mapProjection';
@@ -22,6 +24,13 @@ const FALLBACK_TINT = 0x2a3a52;
 
 const DASH_LENGTH = 5;
 const DASH_GAP = 4;
+
+/** Doc 03 section 4.4: a COLLECTED point of interest renders at 40% with a check overlay. */
+export const COLLECTED_ALPHA = 0.4;
+/** The size the legend draws every glyph at, map zoom being irrelevant in a panel row. */
+export const LEGEND_GLYPH_SIZE = 5;
+/** The hazard orange the world already uses for a sealed, guarded vault core. */
+const GUARDED_RING = WORLD_GEOMETRY_COLORS.hazard.stroke;
 
 const BIOME_TINTS = new Map<string, number>(STAGES.map(stage => [stage.id, stage.gridPulseColor]));
 
@@ -94,6 +103,65 @@ export function drawGateLockRing(
 }
 
 /**
+ * One point of interest, at map scale. Vector shapes rather than the icon atlas doc 03
+ * section 4.4 names: the map is a single Graphics cleared on every pan, so atlas sprites
+ * would mean creating and destroying a GameObject per slot per redraw. The gate glyphs set
+ * this precedent.
+ */
+export function drawPoiGlyph(
+  graphics: Phaser.GameObjects.Graphics,
+  kind: PoiKind, x: number, y: number, size: number, alpha: number,
+): void {
+  const glyph = poiGlyphFor(kind);
+  if (glyph.shape === 'none') return;
+  graphics.lineStyle(Math.max(1, size * 0.4), glyph.color, alpha);
+  graphics.fillStyle(glyph.color, alpha);
+
+  switch (glyph.shape) {
+    case 'star': {
+      const inner = size * 0.45;
+      const points: Array<{ x: number; y: number }> = [];
+      for (let step = 0; step < 8; step++) {
+        const radius = step % 2 === 0 ? size : inner;
+        const angle = -Math.PI / 2 + (Math.PI * step) / 4;
+        points.push({ x: x + Math.cos(angle) * radius, y: y + Math.sin(angle) * radius });
+      }
+      graphics.fillPoints(points, true);
+      break;
+    }
+    case 'chest':
+      graphics.fillRect(x - size, y - size * 0.7, size * 2, size * 1.4);
+      graphics.lineStyle(Math.max(1, size * 0.3), UNVISITED_FILL, alpha);
+      graphics.lineBetween(x - size, y, x + size, y);
+      break;
+    case 'altar':
+      graphics.fillTriangle(x, y - size, x + size, y + size * 0.8, x - size, y + size * 0.8);
+      break;
+    case 'ring':
+      graphics.strokeCircle(x, y, size);
+      graphics.fillCircle(x, y, Math.max(1, size * 0.35));
+      break;
+  }
+}
+
+/** A vault whose placed pack is still standing. The same hazard orange the core itself
+ *  reads GUARDED in, so the chart and the room agree. */
+export function drawVaultGuardRing(
+  graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1, size * 0.35), GUARDED_RING, 0.9);
+  graphics.strokeCircle(x, y, size * 1.7);
+}
+
+export function drawCollectedCheck(
+  graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1, size * 0.35), CLEARED_NOTCH, 1);
+  graphics.lineBetween(x - size * 0.6, y, x - size * 0.1, y + size * 0.55);
+  graphics.lineBetween(x - size * 0.1, y + size * 0.55, x + size * 0.7, y - size * 0.6);
+}
+
+/**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
  * be satisfied by anything, so it always reads sealed.
@@ -137,6 +205,11 @@ export interface SectorMapDrawInput {
   edgeFlagsOf: (edgeId: string) => number;
   /** Sectors carrying a secret the profile has been pointed at but has not found. */
   hintedSectorKeys: ReadonlySet<string>;
+  /** Flags for a non-secret POI slot id. Predicate rather than a Map, matching holdsAbility:
+   *  the renderer never learns where discovery state is stored. */
+  poiFlagsOf: (poiId: string) => number;
+  /** Flags for a Secret slot, whose slot id IS the secret id (buildIdUniverse splits them). */
+  secretFlagsOf: (secretId: string) => number;
   /** Traversal-ability ownership for this profile. A predicate rather than a Set so the
    *  renderer never learns where ownership is stored. */
   holdsAbility: (abilityId: string) => boolean;
@@ -202,6 +275,7 @@ export class SectorMapRenderer {
         graphics.fillCircle(cell.x + badge + 2, cell.y + badge + 2, badge);
       }
 
+      this.drawPoiIcons(sector, input);
       this.drawDoors(sector.sx, sector.sy, input);
     }
 
@@ -228,6 +302,41 @@ export class SectorMapRenderer {
       if (isGatedEdgeSealed(edge, input.holdsAbility, input.holdsQuestKey)) {
         drawGateLockRing(this.graphics, edge.kind, anchor.x, anchor.y, glyphSize);
       }
+    }
+  }
+
+  private drawPoiIcons(sector: SectorDef, input: SectorMapDrawInput): void {
+    const size = Math.max(2, 3 * input.view.scale);
+    for (const slot of sector.poiSlots) {
+      if (poiGlyphFor(slot.kind).shape === 'none') continue;
+
+      let alpha = 1;
+      let collected = false;
+      let guarded = false;
+      if (slot.kind === PoiKind.Secret) {
+        // A secret draws only once it is FOUND. HINTED keeps the corner badge and an unfound
+        // secret must never leak its position from the chart: that is the whole point of the
+        // room, and revealOnSectorEntry skips secret slots for exactly this reason.
+        if ((input.secretFlagsOf(slot.id) & SecretFlags.FOUND) === 0) continue;
+      } else {
+        const flags = input.poiFlagsOf(slot.id);
+        if ((flags & PoiFlags.SEEN) === 0) continue;
+        collected = (flags & PoiFlags.COLLECTED) !== 0;
+        // Every VAULT_GUARD_PACKS entry is non-empty (pinned by referentialIntegrity.test.ts),
+        // so an uncleared vault really does still have its pack standing.
+        guarded = slot.kind === PoiKind.AbilityPowerUp && !collected
+          && (flags & PoiFlags.GUARD_CLEARED) === 0;
+        if (collected) alpha = COLLECTED_ALPHA;
+      }
+
+      const point = worldPointToMap(
+        sector.sx, sector.sy,
+        slot.tileX * TILE_SIZE + TILE_SIZE / 2, slot.tileY * TILE_SIZE + TILE_SIZE / 2,
+        SECTOR_WIDTH, SECTOR_HEIGHT, input.view,
+      );
+      drawPoiGlyph(this.graphics, slot.kind, point.x, point.y, size, alpha);
+      if (guarded) drawVaultGuardRing(this.graphics, point.x, point.y, size);
+      if (collected) drawCollectedCheck(this.graphics, point.x, point.y, size);
     }
   }
 
