@@ -72,7 +72,7 @@ const FOOTER_HEIGHT = 44;
 /** Exactly the keys create() captures. Cleared and re-armed around the note field, because a
  *  captured key is preventDefault-ed before the DOM input can ever see it, so W, A, S and D would
  *  silently refuse to type. */
-const MAP_KEY_CAPTURES = 'W,A,S,D,UP,DOWN,LEFT,RIGHT';
+const MAP_KEY_CAPTURES = 'W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,SHIFT';
 /** Rows the LEADS panel draws before it collapses the rest into a count. */
 const MAX_LEAD_ROWS = 4;
 /** Rows the LOCKED OUT panel draws before it collapses the rest into a count. Same cap and
