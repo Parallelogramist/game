@@ -403,18 +403,46 @@ answer. No HUD line (the ticker already renders `42/60`), no reward, no storage 
 `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the
 build lands.
 
+**`972573a` made an objective able to name more than one room.** Until it landed, `foldEvent` added
+1 per sector entry with no visited set, so any `reachSector` target above 1 was satisfiable by
+bouncing in and out of a single room, and `referentialIntegrity.test.ts` had to pin every
+place-naming step's target to exactly 1. Every objective in the game was therefore "arrive once,
+anywhere that matches", and a step like "survey three rooms of the Crystal Caves" was literally
+unauthorable. The fold now counts **DISTINCT sectors, unconditionally**, with no `distinct` flag on
+the trigger: a target of 1 behaves byte-identically under distinct counting, so every shipped step
+is untouched and there is no second rule to keep in sync, and the free consequence is that the kind
+becomes **idempotent** (a re-entered room can no longer double-count). The trigger's `sectorTag`
+becomes optional, where an absent tag counts every sector, which is how a breadth step is authored.
+Two steps ship with it, both measured against the live expedition seed **20260727** rather than
+guessed: `q_survey_03.s5` charts **8 tagless sectors** against the **16** that BFS from the hangar
+reaches across open and one-way edges owning no traversal ability and no quest key, and
+`q_gatecrash_02.s4` surveys **3 Crystal Caves sectors** against the **6** of that region reachable
+the same way, so each asks for half the ability-free supply. Distinctness by biome **REGION**
+("chart three regions") was deliberately **not** built: `assignDangerAndBiomes` assigns one biome
+per depth band, so a region count nearly restates the shipped `reachDepth` kind, and it is filed as
+`FEAT-QUEST-REGION-DISTINCT` rather than re-derived. A distinct step is **`run`-scope by assert**,
+because the visited set holds bare sector keys (`2,-1`) that a regenerated world reuses for
+different rooms, so a persisted set would silently over-credit after a `WORLDGEN_VERSION` bump. A
+tagless step names no place, so it produces no marker and therefore no chart pin and no radar
+bearing; a tagged one has its pin **skip the rooms already counted**, so chart and radar point at
+the next room that still pays rather than at one that would grant nothing. No new trigger kind, no
+HUD change (the ticker already renders `3/8` off the target), no storage key, no `SAVE_VERSION` and
+no `WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
 `POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
-`FEAT-QUEST-REACHSECTOR-DISTINCT`, `POLISH-RADAR-WAYPOINT-LABEL`,
+`POLISH-RADAR-WAYPOINT-LABEL`,
 `CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, `CHORE-AMBUSH-NEST-RADAR` (now widened to cover the lair),
 plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`, and the
 two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TIMERS` and
 `CHORE-QUEST-DWELL-RESTORE`, plus the three the siege itself filed:
-`BALANCE-QUEST-SIEGE-PRESSURE`, `FEAT-QUEST-SIEGE-HUD-TELL` and `CHORE-QUEST-SIEGE-RESTORE`.
+`BALANCE-QUEST-SIEGE-PRESSURE`, `FEAT-QUEST-SIEGE-HUD-TELL` and `CHORE-QUEST-SIEGE-RESTORE`, plus
+the two the distinct fold filed that need no worldgen change,
+`BALANCE-QUEST-CHART-TARGETS` and `CHORE-QUEST-DISTINCT-WORLD-STAMP`.
 `FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
 (`escortDrone`, `deliverItem`) are blocked on `FEAT-WORLDGEN-STREAM`, so it is not a candidate.
 `FEAT-ECON-WARDS` stays parked on its
@@ -5142,12 +5170,38 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   past the plate. Value: the readout stays inside its plate on a phone. Deps: none. Wants a
   browser check, so it pairs with POLISH-MAP-ACCESS in the playtest queue.
 
-- [ ] **FEAT-QUEST-REACHSECTOR-DISTINCT** (new 2026-08-01, from FEAT-QUEST-REACHSECTOR):
-  `foldEvent` adds 1 per sector entry with no visited-set, so every `reachSector` target must
-  be 1 (`referentialIntegrity.test.ts` asserts it) and a step like "chart three regions" is
-  unauthorable: it would be satisfiable by bouncing in and out of one room. Wants a per-step
-  visited set, which is new persisted state in the quest save. Value: multi-destination
-  objectives, the shape doc 04's `surviveInSector` and `escortDrone` also want. Deps: none.
+- [x] **FEAT-QUEST-REACHSECTOR-DISTINCT** (done, 972573a) (new 2026-08-01, from
+  FEAT-QUEST-REACHSECTOR): `reachSector` now counts DISTINCT sectors and its `sectorTag` is
+  optional, so a step can ask for several rooms ("survey three sectors of the Crystal Caves")
+  or for breadth with no place named ("chart eight sectors on one expedition"). A re-entered
+  room adds nothing, which also makes the kind idempotent. The visited set is a per-step
+  `visitedSectorKeys` on the quest save, cleared on step completion and by the death rule, and
+  a distinct step is `run`-scope by assert. Two steps ship with it, `q_survey_03.s5` and
+  `q_gatecrash_02.s4`. Value: objectives that make the player range across the map instead of
+  touching one room.
+
+- [ ] **BALANCE-QUEST-CHART-TARGETS** (new 2026-08-01, from FEAT-QUEST-REACHSECTOR-DISTINCT):
+  the two distinct targets (8 tagless sectors, 3 Crystal Caves sectors) are measured against
+  what the live seed reaches with no traversal ability and no quest key owned (16 sectors, 6 of
+  them Crystal Caves), never played. A player who owns abilities reaches far more, so the step
+  may read as free late and as a slog on a first run. Value: a sweep that costs what it looks
+  like it costs. Deps: none, but it wants play rather than a second guess.
+
+- [ ] **FEAT-QUEST-REGION-DISTINCT** (new 2026-08-01, cut from
+  FEAT-QUEST-REACHSECTOR-DISTINCT): distinctness by biome REGION rather than by sector, so
+  "chart three regions" is authorable. Cut deliberately: `assignDangerAndBiomes` assigns one
+  biome per depth band, so the regions a run crosses are very nearly a restatement of the
+  shipped `reachDepth` kind, and a second axis that measures the same thing is two sources of
+  truth in the catalog. Do not re-derive this without a generator that mixes biomes within a
+  band. Value: an objective that names variety rather than distance. Deps: a worldgen change.
+
+- [ ] **CHORE-QUEST-DISTINCT-WORLD-STAMP** (new 2026-08-01, from
+  FEAT-QUEST-REACHSECTOR-DISTINCT): a distinct step is `run`-scope by assert because
+  `visitedSectorKeys` holds bare sector keys (`2,-1`), and a regenerated world reuses those
+  coordinates for different rooms, so a persistent set would over-credit after a
+  `WORLDGEN_VERSION` bump. Stamping the set with `(worldSeed, worldGenVersion)` and dropping it
+  on a mismatch is what a persistent multi-destination step needs first. Value: "survey twelve
+  rooms across your expeditions" becomes authorable. Deps: none.
 
 - [x] **FEAT-MAPUI-OBJECTIVE-PIN-RADAR** (done, 05e832e): the radar carries the bearing of every
   place the chart pinned, and of every open lead, so a destination survives closing the map.

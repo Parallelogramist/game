@@ -672,6 +672,47 @@ The trigger above shipped a timer, not a fight. This commit makes a hold cost so
 
 ---
 
+### As built (`FEAT-QUEST-REACHSECTOR-DISTINCT`, 972573a, 2026-08-01)
+
+`reachSector` shipped as "arrive once, anywhere that matches". This commit lets one objective
+send the player to several different rooms.
+
+1. **The shapes.** The event is `{ kind: 'reachSector'; sectorKey: string; sectorTags: readonly
+   SectorTag[] }`: the entered room's own key rides alongside the tags it answers to. The trigger
+   is `{ kind: 'reachSector'; sectorTag?: SectorTag }`, where the tag is now optional.
+2. **The fold counts DISTINCT sectors.** Progress IS the size of the step's per-step visited set,
+   never a separate `+1`, so the count and the set cannot drift apart, and a room already counted
+   returns the state untouched: re-entering a room is idempotent. This is unconditional with no
+   flag on the trigger, because a target of 1 behaves identically under distinct counting, so
+   every step authored before this commit is unaffected.
+3. **An omitted tag means "any sector"**, which is how a breadth step ("chart eight sectors on one
+   expedition") is authored. Such a step names no place, so `buildQuestMarkers` deliberately skips
+   it: there is nothing to pin and nothing to take a bearing on.
+4. **`visitedSectorKeys` lives on `QuestInstanceState`**, cleared the moment the step completes
+   (in `recordQuestEvent`) and by the death rule (`settleRunScopeProgress`, which now also fires
+   for a state whose progress is 0 but whose set is not). On load `sanitizeStates` sanitizes it
+   (strings only, deduped, capped at `MAX_VISITED_SECTOR_KEYS`, and only when the current step is
+   a `reachSector` one) and DERIVES `stepProgress` from its length, so a tampered count cannot
+   disagree with the set it is supposed to summarise.
+5. **A target above 1 must be `run`-scope**, asserted by `referentialIntegrity.test.ts`, which
+   also bounds every `reachSector` target at 12. The reason is the key format: the set holds bare
+   sector keys like `2,-1`, and a regenerated world reuses those coordinates for different rooms,
+   so a persisted set would silently over-credit after a `WORLDGEN_VERSION` bump.
+6. **The pin skips a counted room.** `QuestMarker` carries `countedSectorKeys` and
+   `nearestChartedSector` filters them out, so the chart pin and the radar bearing derived from
+   the same pins point at the next room that still pays rather than at one that would grant
+   nothing.
+7. **Two steps ship with it**, appended and never inserted, with targets measured at the live
+   expedition seed 20260727: `q_survey_03.s5` charts 8 tagless sectors (16 are reachable from the
+   hangar across open and one-way edges owning no traversal ability and no quest key) and
+   `q_gatecrash_02.s4` surveys 3 Crystal Caves sectors (6 of that region are reachable the same
+   way), so each asks for half the ability-free supply.
+8. **No storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.** The visited set is a new
+   field inside the existing `survivor-expedition-quests` value, whose loader already tolerates a
+   missing field, so every existing profile lights it up the moment the build lands.
+
+---
+
 ## 5. Secrets
 
 ### Taxonomy
