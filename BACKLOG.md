@@ -348,6 +348,30 @@ the optional `poiState.lairs` and **never re-spawns a hunter**, because a `Nemes
 skipped by the serializer and comes back on its own. No storage key, no `SAVE_VERSION` and no
 `WORLDGEN_VERSION` bump.
 
+**`a853c83` let an objective ask you to hold a room instead of to pass through it**, closing the
+half of `FEAT-QUEST-TRIGGERS-REST` that was not blocked. Six trigger kinds shipped (`kill`,
+`reachDepth`, `openGate`, `claimAbility`, `findSecret`, `reachSector`) and every one of them was
+satisfied by arriving or by accumulating: fly far enough, kill enough, open a door, touch a vault,
+walk onto a cache. Nothing in the catalog could ask the player to stay anywhere. `surviveInSector`
+is the seventh kind and the first that costs time in a place, shaped as
+`{ kind: 'surviveInSector'; sectorTag }` with **no `seconds` field**: the step's own `target`
+carries the dwell in seconds, because one threshold in two fields is two sources of truth, and the
+shipped ticker renders `42/60` off `target` for free. The event carries the **absolute** unbroken
+dwell of the sector the ship is holding and folds with **max**, which is what makes a poll that
+repeats idempotent, lets a partial survive leaving the room, and still requires one single visit
+that reaches the target to complete. Two steps use it so it lands with a consumer rather than as an
+inert union member: hold the Ion Field for 60 s (`q_survey_03.s4`) and the arena at the world's
+heart for 90 s (`q_gatecrash_02.s3`), both `scope: 'run'` because "without leaving" is a
+within-one-expedition feat, and both **appended, never inserted**, because `sanitizeStates` keeps a
+completed quest complete and clamps a live `stepIndex` that an insert would re-point at a step the
+player never saw. The producer rides the **existing once-a-second quest block** rather than a new
+timer, so practice mode is excluded for free exactly as the kill poll is, and it derives the dwell
+as `gameTime` minus the stamp `sectorEnteredHandler` writes rather than accumulating per frame: no
+drift and no per-frame work. `buildQuestMarkers` widens from `reachSector`-only to any step that
+names a place, which hands the two new steps the chart pin (0be97f5) and the radar bearing
+(05e832e) with **no new UI and no new state**. No storage key, no `SAVE_VERSION` and no
+`WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -356,7 +380,10 @@ skipped by the serializer and comes back on its own. No storage key, no `SAVE_VE
 `POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
 `FEAT-QUEST-REACHSECTOR-DISTINCT`, `POLISH-RADAR-WAYPOINT-LABEL`,
 `CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, `CHORE-AMBUSH-NEST-RADAR` (now widened to cover the lair),
-plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`.
+plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`, and the
+three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TIMERS`, `CHORE-QUEST-DWELL-RESTORE` and
+`FEAT-QUEST-SURVIVE-DANGER`. `FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
+(`escortDrone`, `deliverItem`) are blocked on `FEAT-WORLDGEN-STREAM`, so it is not a candidate.
 `FEAT-ECON-WARDS` stays parked on its
 operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
 for the same reason the rest of the POI table is.
@@ -4695,14 +4722,41 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
         are `FEAT-QUEST-BOARD` by name, so `QuestGiver` POI slots stay inert and quests
         auto-activate instead of being accepted.
 
-- [ ] **FEAT-QUEST-TRIGGERS-REST**: the **three** doc 04 trigger kinds still without a producer
-  (`surviveInSector`, `escortDrone`, `deliverItem`), plus `routeTag`, which only `escortDrone`
+- [ ] **FEAT-QUEST-TRIGGERS-REST**: the **two** doc 04 trigger kinds still without a producer
+  (`escortDrone`, `deliverItem`), plus `routeTag`, which only `escortDrone`
   needs. `reachSector` and the `sectorTag` vocabulary shipped with 0be97f5:
   `src/world/sectorTags.ts` exports it from `src/world/` as this entry asked, and
   `referentialIntegrity.test.ts` asserts every biome tag resolves to a real stage. `findSecret`
   left this list earlier: it shipped with `FEAT-QUEST-SECRET-CHAIN` (6e72c65) as
-  `{ kind: 'findSecret'; secretKind?: SecretTier }`. Deps: `FEAT-WORLDGEN-STREAM`
+  `{ kind: 'findSecret'; secretKind?: SecretTier }`. `surviveInSector` left this list with
+  a853c83: the seventh kind ships as `{ kind: 'surviveInSector'; sectorTag }` with the step's own
+  `target` carrying the dwell in seconds, folded with max off a per-second dwell poll in
+  `GameScene.checkExpeditionQuestDwell`, and two steps use it (`q_survey_03.s4`,
+  `q_gatecrash_02.s3`). What is left is genuinely blocked: both remaining kinds need entities
+  nothing spawns plus `FEAT-WORLDGEN-STREAM`'s persistence-exemption API. Deps:
+  `FEAT-WORLDGEN-STREAM`
   (persistence-exemption API for delivered items). Spec: doc 04 section 4 + README section 3.1.
+
+- [ ] **BALANCE-QUEST-SURVIVE-TIMERS** (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): 60 s in
+  the Ion Field and 90 s in the boss arena are designed guesses, unmeasured in a browser. Wants
+  a judgement on whether holding a deep room that long reads as pressure or as a wait, and
+  whether the boss arena's lock makes its 90 s automatic. The data test bounds a survive timer
+  at 180 s, so there is room either way. Value: a hold objective that is a decision rather than
+  a timer. Deps: none, but it wants play, not a guess.
+
+- [ ] **CHORE-QUEST-DWELL-RESTORE** (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): a refresh
+  mid-hold restarts the dwell at 0, because the dwell start is scene state and the run save
+  carries no dwell field; the adapter re-fires `expedition:sector-entered` on the first frame
+  after a restore, which re-stamps it. Harmless (the max fold keeps the best partial and the
+  player simply re-holds), but a 90 s hold interrupted by a reload is re-walked. Holding it
+  means a `GameSaveState` field or a saved sector-entry stamp. Deps: none.
+
+- [ ] **FEAT-QUEST-SURVIVE-DANGER** (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): the dwell
+  counts in a room the player has already cleared exactly as fast as one under fire, so
+  "survive" is currently "stand". The stronger shape requires live hostiles nearby, or resets on
+  leaving combat. Filed rather than built because "under fire" needs a threat measure the scene
+  does not export today, and inventing one inside a trigger chunk is the kind of surface growth
+  `FL-X04` bans. Value: the objective asks for the thing its verb promises. Deps: none.
 
 - [ ] **FEAT-QUEST-COMPLETION-RELIC**: `completionRelicRoll` on a chain's final quest, one
   roll on the STANDARD relic table. Deliberately cut from `FEAT-QUEST-CHAINS` so the odds are

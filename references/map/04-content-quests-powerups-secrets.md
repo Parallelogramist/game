@@ -609,6 +609,32 @@ than something to do. Seven departures from the shape above.
 7. **`surviveInSector`, `escortDrone` and `deliverItem` are still absent with no producer, and
    `routeTag` is still unshipped.** `FEAT-QUEST-TRIGGERS-REST` stays open for those.
 
+### As built (`FEAT-QUEST-SURVIVE-TRIGGER`, a853c83, 2026-08-01)
+
+`surviveInSector` shipped, the seventh trigger kind, with a producer and two consumers on the
+same commit: a step can now cost time in a place instead of only arrival or accumulation.
+
+1. **Deviation from this section's own data shape: no `seconds` field on the trigger.** It is
+   `{ kind: 'surviveInSector'; sectorTag: SectorTag }`, and the step's own `target` carries the
+   dwell in seconds. One threshold in two fields is two sources of truth, and the shipped ticker
+   renders progress off `target` for free.
+2. **The event is `{ kind, sectorTags, seconds }` carrying ABSOLUTE unbroken dwell, folded with
+   max.** Idempotent under the once-a-second poll, a partial survives leaving the room, and
+   completion still needs a single visit that reaches the target.
+3. **The producer is `GameScene.checkExpeditionQuestDwell`**, on the existing once-a-second quest
+   block, so practice mode is excluded exactly as the kill poll is. `sectorEnteredHandler` stamps
+   the held sector key and the arrival `gameTime`, and the dwell is derived from that stamp rather
+   than accumulated per frame.
+4. **The anti-chore data test now bounds a survive timer at 180 s**, which is this section's "the
+   data test bounds kill targets and survive timers". The two authored steps are 60 s (the Ion
+   Field, `q_survey_03.s4`) and 90 s (the boss arena, `q_gatecrash_02.s3`), both appended never
+   inserted, both `scope: 'run'`.
+5. **`buildQuestMarkers` now emits for any place-naming step**, not `reachSector` only, so a hold
+   step gets the chart pin and the radar bearing with no new UI and no new state.
+6. **No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` bump.**
+7. **`escortDrone` and `deliverItem` remain the two kinds without a producer**, still blocked on
+   `FEAT-WORLDGEN-STREAM`. `FEAT-QUEST-TRIGGERS-REST` stays open for those two plus `routeTag`.
+
 ---
 
 ## 5. Secrets
