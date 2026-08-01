@@ -71,6 +71,24 @@ export class CreditsScene extends Phaser.Scene {
       { header: 'ICONS', body: 'game-icons.net\nCC BY 3.0' },
     ]);
 
+    // The main-menu footer no longer carries these; they live here as rows.
+    const externalLinks: Array<{ label: string; url: string }> = [
+      { label: 'PARALLELOGRAMIST', url: 'https://parallelogramist.com' },
+      { label: 'LEGAL', url: '/legal.html' },
+    ];
+    const linkTexts = externalLinks.map((link, index) => {
+      const text = makeBodyText(
+        this,
+        centerX,
+        screenHeight - 112 + index * 28,
+        link.label,
+        { fontSize: 16, color: TEXT_COLORS.muted, fontStyle: 'bold' },
+      ).setInteractive({ useHandCursor: true });
+      text.on('pointerover', () => this.menuNavigator?.selectIndex(index));
+      text.on('pointerdown', () => window.open(link.url, '_blank'));
+      return text;
+    });
+
     this.backButton = createMenuButton({
       scene: this,
       x: centerX,
@@ -87,7 +105,19 @@ export class CreditsScene extends Phaser.Scene {
 
     this.menuNavigator = new MenuNavigator({
       scene: this,
+      initialIndex: externalLinks.length,
       items: [
+        ...externalLinks.map((link, index) => ({
+          onFocus: () => {
+            linkTexts[index].setColor(ACCENT_COLORS_STR.focus);
+            linkTexts[index].setShadow(0, 0, ACCENT_COLORS_STR.focus, 6, false, true);
+          },
+          onBlur: () => {
+            linkTexts[index].setColor(TEXT_COLORS.muted);
+            linkTexts[index].setShadow(0, 0, 'transparent', 0);
+          },
+          onActivate: () => window.open(link.url, '_blank'),
+        })),
         {
           onFocus: () => this.backButton.setFocusState(true),
           onBlur: () => this.backButton.setFocusState(false),
@@ -98,7 +128,12 @@ export class CreditsScene extends Phaser.Scene {
     });
 
     // Entrance choreography: title, then the two cards, then the back button.
-    staggerEntrance(this, [title, ...this.cards.map((c) => c.container), this.backButton.container]);
+    staggerEntrance(this, [
+      title,
+      ...this.cards.map((c) => c.container),
+      ...linkTexts,
+      this.backButton.container,
+    ]);
     sweepIn(this);
 
     this.events.once('shutdown', this.shutdown, this);
