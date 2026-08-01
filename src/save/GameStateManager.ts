@@ -383,6 +383,12 @@ export interface GameSaveState {
   // Spawn tracking
   bossSpawned: boolean;
   bossWarningPhase?: number;
+  // The boss whose fight is live at save time (GameScene.activeBossType). Without it a
+  // refresh mid-fight restores the boss as an ordinary enemy into a room with no arena
+  // tint and no boss hazards, because spawnBossHazard returns at its activeBossType guard.
+  // Optional: absent means no fight was in progress, which is what every legacy save and
+  // every non-boss moment reads as, so no SAVE_VERSION bump.
+  activeBossType?: string;
   comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
   // Ultimate ("Overdrive") charge, 0..MAX. Optional → legacy saves (written
   // before the ultimate ability) restore with an empty meter.
@@ -725,6 +731,9 @@ export class GameStateManager {
     damageCooldown: number;
     bossSpawned: boolean;
     bossWarningPhase: number;
+    // Optional like the GameSaveState field it feeds: omitted (no live fight, legacy and
+    // test callers) serializes as absent.
+    activeBossType?: string;
     comboState?: { comboCount: number; comboDecayTimer: number; highestCombo: number };
     ultimateCharge?: number;
     cacheFoundThisRun?: boolean;
@@ -793,6 +802,7 @@ export class GameStateManager {
         // Spawn tracking
         bossSpawned: gameData.bossSpawned,
         bossWarningPhase: gameData.bossWarningPhase,
+        activeBossType: gameData.activeBossType,
         comboState: gameData.comboState,
         // ultimateCharge was declared + accepted but never written here, so the
         // Overdrive meter silently emptied on every refresh. Persist it now.

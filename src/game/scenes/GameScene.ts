@@ -2702,6 +2702,7 @@ export class GameScene extends Phaser.Scene {
       damageCooldown: this.damageCooldown,
       bossSpawned: this.bossSpawned,
       bossWarningPhase: this.bossWarningPhase,
+      activeBossType: this.activeBossType ?? undefined,
       comboState: getComboState(),
       ultimateCharge: getUltimateState().charge,
       cacheFoundThisRun: this.cacheFoundThisRun,
@@ -3253,6 +3254,31 @@ export class GameScene extends Phaser.Scene {
 
     // Restore all entities
     this.restoreEntities(state);
+
+    // The boss restores as an ordinary enemy, so without this the fight comes back with its
+    // health bar and nothing else: no arena tint, no boss hazards at all (spawnBossHazard
+    // returns at its activeBossType guard), no bossActive music cue, and no siege suppression.
+    // Assigned unconditionally first because create() returns at the restore branch and never
+    // reaches the fresh block that zeroes these two, so on a scene restart they can still hold
+    // the previous run's values.
+    this.activeBossType = null;
+    this.bossHazardTimer = 0;
+    const savedBossType = typeof state.activeBossType === 'string'
+      && state.activeBossType.length > 0
+      && state.activeBossType.length <= 64
+      && getEnemyType(state.activeBossType) !== undefined
+      ? state.activeBossType
+      : '';
+    // A tampered save must not be able to pin a permanent overlay on a bossless run: the
+    // arena is only re-entered when a boss really did come back, tested the way restoreEnemy
+    // and hasOtherAliveBoss test it.
+    const restoredBossIsAlive = state.entities.some(
+      entity => entity.enemyData !== undefined && entity.enemyData.xpValue >= 1000,
+    );
+    if (savedBossType !== '' && restoredBossIsAlive) {
+      activateBossArena(savedBossType);
+      this.activeBossType = savedBossType;
+    }
 
     // The camera and the two screen-sized view layers are wired only once the player
     // visual exists, exactly as the fresh path does it, and the saved view is then
