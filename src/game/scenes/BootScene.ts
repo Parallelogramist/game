@@ -63,11 +63,14 @@ import {
 import {
   describeBankedWorlds,
   generateExpeditionWorld,
+  previewExpeditionWorld,
   previewExpeditionWorlds,
   summariseCurrentExpedition,
 } from '../../expedition/expeditionWorld';
 import type { ExpeditionProgressSummary } from '../../expedition/expeditionWorld';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { decodeSeedCode, encodeSeedCode } from '../../expedition/seedCode';
+import { copyTextToClipboard } from '../../utils/Clipboard';
 
 interface FocusEntry {
   onFocus: () => void;
@@ -375,6 +378,99 @@ export class BootScene extends Phaser.Scene {
       );
     };
 
+    // FEAT-SEASON-CHOICE-SEED-ENTRY: adopting a shared world is the same commit CHART A NEW
+    // WORLD makes, so it banks the current world the same way and reuses flyExpeditionWorld.
+    // The warning is its own, because leaving your deterministic chain is not one of the three
+    // this dialog's siblings carry.
+    const openPastedWorldConfirmation = (
+      summary: ExpeditionProgressSummary, seed: number,
+    ): void => {
+      // One generateWorld, 34 ms measured, on a button press. Deliberately the unmemoised
+      // singular: previewExpeditionWorlds is keyed on the three-candidate list and a one-seed
+      // call would evict it, making the CHART dialog pay for three worlds again on reopen.
+      const preview = previewExpeditionWorld(seed);
+      const returning = getBankedSeasons().some(season => season.seed === seed);
+      const lines = [
+        `${encodeSeedCode(seed)}   ·   SEED ${seed}`,
+        `${preview.secretSlots} secrets   ·   ${preview.cacheSlots} caches`
+          + `   ·   ${preview.deepestSectorDepth} sectors out   ·   ${preview.deepestRegionName}`,
+        '',
+        `Leaving world ${summary.seasonIndex} banks it with its chart, so you can`,
+        'return to it. Traversal abilities and quest keys are kept.',
+        'The worlds you are dealt next follow on from this one.',
+      ];
+      if (returning) {
+        lines.push('', 'You have flown this world before: its chart comes back with it.');
+      }
+      if (hasSave) lines.push('', 'Your current run will be lost.');
+      this.showNewGameConfirmation(
+        () => flyExpeditionWorld(summary, seed),
+        {
+          title: 'FLY A SHARED WORLD?',
+          body: lines.join('\n'),
+          confirmLabel: 'FLY IT',
+          cancelLabel: 'BACK',
+        },
+      );
+    };
+
+    // FEAT-SEASON-SEED-SHARE: the copy half. Both halves live in one nested dialog rather than two
+    // buttons on the CHART row, which is already five wide. A status line rather than a flash:
+    // showNewGameConfirmation always closes before it calls back, so the dialog is reopened
+    // carrying its own result, exactly as RETURN's MORE button reopens itself on the next page.
+    const openSeedCodeDialog = (
+      summary: ExpeditionProgressSummary, status?: string,
+    ): void => {
+      const code = encodeSeedCode(summary.seed);
+      const lines = [
+        `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`,
+        `CODE   ${code}`,
+        '',
+        'Copy the code to hand this world to another player.',
+        'Paste a code to fly the world it names: the world you leave',
+        'is banked with its chart and can be returned to.',
+      ];
+      if (status) lines.push('', status);
+      this.showNewGameConfirmation(
+        (choiceIndex) => {
+          if (choiceIndex === 0) {
+            void copyTextToClipboard(code).then(copied => openSeedCodeDialog(
+              summary,
+              copied ? 'Code copied to the clipboard.' : 'Could not reach the clipboard.',
+            ));
+            return;
+          }
+          void (async () => {
+            let pasted = '';
+            try {
+              pasted = (await navigator.clipboard?.readText?.()) ?? '';
+            } catch {
+              pasted = '';
+            }
+            const seed = decodeSeedCode(pasted);
+            if (seed === null) {
+              openSeedCodeDialog(summary, 'No world code on the clipboard.');
+              return;
+            }
+            // switchExpeditionWorld ignores a chosen seed equal to the live one and rolls a
+            // random world instead, so pasting your own code would fly somewhere else entirely.
+            if (seed === summary.seed) {
+              openSeedCodeDialog(summary, 'That code is the world you are already flying.');
+              return;
+            }
+            openPastedWorldConfirmation(summary, seed);
+          })();
+        },
+        {
+          title: 'WORLD CODE',
+          body: lines.join('\n'),
+          confirmLabel: 'COPY',
+          cancelLabel: 'BACK',
+          choiceLabels: ['COPY', 'PASTE'],
+        },
+      );
+    };
+
     const openExpeditionSeasons = () => {
       const summary = summariseCurrentExpedition();
       const banked = describeBankedWorlds(getBankedSeasons());
@@ -416,9 +512,15 @@ export class BootScene extends Phaser.Scene {
       }
       this.showNewGameConfirmation(
         (choiceIndex) => {
-          // Past the last preview is the RETURN button, which is only present when there is
-          // something banked to return to.
-          if (choiceIndex >= choices.length) {
+          // The tail of the row is RETURN (only when something is banked) then CODE, so the two
+          // are indexed off the preview count rather than by "past the last preview".
+          const returnIndex = banked.length > 0 ? choices.length : -1;
+          const codeIndex = choices.length + (banked.length > 0 ? 1 : 0);
+          if (choiceIndex === codeIndex) {
+            openSeedCodeDialog(summary);
+            return;
+          }
+          if (choiceIndex === returnIndex) {
             openReturnToBankedWorld(summary);
             return;
           }
@@ -434,6 +536,7 @@ export class BootScene extends Phaser.Scene {
           choiceLabels: [
             ...previews.map((_, index) => `FLY ${String.fromCharCode(65 + index)}`),
             ...(banked.length > 0 ? ['RETURN'] : []),
+            'CODE',
           ],
         },
       );
@@ -2062,6 +2165,22 @@ export class BootScene extends Phaser.Scene {
         this.hideNewGameConfirmation();
       },
     );
+
+    // Five buttons is what the fixed step fits. The CHART row can now be six (three worlds,
+    // RETURN, CODE, BACK), so past that the row packs from the buttons' own measured widths
+    // rather than from a constant, which is what keeps a label off its neighbour and inside the
+    // frame without growing the card.
+    if (buttonCount >= 6) {
+      const rowButtons = [...choiceButtons, cancelButton];
+      const gap = scaledInt(layoutScale, 16);
+      const rowWidth = rowButtons.reduce((total, button) => total + button.width, 0)
+        + gap * (buttonCount - 1);
+      let cursor = centerX - rowWidth / 2;
+      for (const button of rowButtons) {
+        button.setX(cursor + button.width / 2);
+        cursor += button.width + gap;
+      }
+    }
 
     const hint = this.add.text(centerX, centerY + halfHeight - scaledInt(layoutScale, 20), 'ESC cancels  ·  ← → to choose  ·  Enter to confirm', {
       fontSize: scaledFontPx(fontScale, 11),

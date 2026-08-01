@@ -52,6 +52,17 @@ function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
+/** The top of rollNextExpeditionSeed's range. Exported because a shared world code has to name a
+ *  seed the chain itself could have dealt, and two copies of this number would drift. */
+export const MAX_EXPEDITION_WORLD_SEED = 2_000_000_000;
+
+/** Whether a seed can be flown at all. The `+ 1` is not slack: rollNextExpeditionSeed escapes a
+ *  collision with the current seed by returning `next + 1`, which can land one past the top of
+ *  its own range, and a world the chain can deal must stay flyable from a code. */
+export function isFlyableExpeditionSeed(value: unknown): value is number {
+  return isPositiveInteger(value) && value <= MAX_EXPEDITION_WORLD_SEED + 1;
+}
+
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, Math.round(value)));
@@ -103,7 +114,7 @@ export function sanitizeSeasonState(parsed: unknown): ExpeditionSeasonState {
  */
 export function rollNextExpeditionSeed(currentSeed: number, currentIndex: number): number {
   const rng = mulberry32(hashStringToSeed(`season:${currentSeed}:${currentIndex}`));
-  const next = 1 + Math.floor(rng() * 2_000_000_000);
+  const next = 1 + Math.floor(rng() * MAX_EXPEDITION_WORLD_SEED);
   return next === currentSeed ? next + 1 : next;
 }
 
@@ -130,7 +141,7 @@ export function rollNextExpeditionSeedChoices(
   const choices = [rollNextExpeditionSeed(currentSeed, currentIndex)];
   for (let alt = 1; alt <= 64 && choices.length < NEXT_WORLD_CHOICE_COUNT; alt += 1) {
     const rng = mulberry32(hashStringToSeed(`season:${currentSeed}:${currentIndex}:alt${alt}`));
-    const candidate = 1 + Math.floor(rng() * 2_000_000_000);
+    const candidate = 1 + Math.floor(rng() * MAX_EXPEDITION_WORLD_SEED);
     if (candidate === currentSeed || choices.includes(candidate)) continue;
     choices.push(candidate);
   }
