@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { Blessing, getBlessingById } from '../../data/Blessings';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import type { DirectorStrategy } from '../../systems/DirectorSystem';
+import { resolveMenuFontScale, scaledInt, computeMenuCardGrid, fitTextWidth } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 /**
  * Data threaded through from ModifierDraftScene. `blessingChoiceIds` is the fixed
@@ -58,6 +60,8 @@ export class BlessingDraftScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
   private isStarting: boolean = false;
+  private menuScale: number = 1;
+  private gridScale: number = 1;
 
   constructor() {
     super({ key: 'BlessingDraftScene' });
@@ -80,6 +84,7 @@ export class BlessingDraftScene extends Phaser.Scene {
   create(): void {
     const width = this.scale.width;
     const height = this.scale.height;
+    this.menuScale = resolveMenuFontScale(width, height, getSettingsManager().getUiScale());
     this.cameras.main.setBackgroundColor('#0a0a14');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
@@ -91,57 +96,65 @@ export class BlessingDraftScene extends Phaser.Scene {
       return;
     }
 
-    this.add.text(width / 2, 54, 'CLAIM YOUR BLESSINGS', {
-      fontSize: '44px',
+    const title = this.add.text(width / 2, scaledInt(this.menuScale, 54), 'CLAIM YOUR BLESSINGS', {
+      fontSize: `${scaledInt(this.menuScale, 44)}px`,
       color: '#66ccff',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    }).setOrigin(0.5).setLetterSpacing(3);
+      strokeThickness: 6 * this.menuScale,
+    }).setOrigin(0.5).setLetterSpacing(3 * this.menuScale);
+    fitTextWidth(title, width - 24);
 
-    this.add.text(width / 2, 102,
+    const subtitle = this.add.text(width / 2, scaledInt(this.menuScale, 102),
       `Choose ${this.requiredPicks} run-start ${this.requiredPicks === 1 ? 'blessing' : 'blessings'} — each is a pure bonus.`, {
-      fontSize: '17px',
+      fontSize: `${scaledInt(this.menuScale, 17)}px`,
       color: '#9999bb',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
+    fitTextWidth(subtitle, width - 24);
 
-    this.counterText = this.add.text(width / 2, 132, '', {
-      fontSize: '15px',
+    this.counterText = this.add.text(width / 2, scaledInt(this.menuScale, 132), '', {
+      fontSize: `${scaledInt(this.menuScale, 15)}px`,
       color: '#66ff99',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
-    }).setOrigin(0.5).setLetterSpacing(1);
+    }).setOrigin(0.5).setLetterSpacing(1 * this.menuScale);
     this.updateCounter();
 
     const cardWidth = 220;
     const cardHeight = 210;
-    const gap = 18;
     const count = this.choices.length;
-    const perRow = Math.min(count, Math.max(1, Math.floor((width - 16 + gap) / (cardWidth + gap))));
-    const rowCount = Math.ceil(count / perRow);
-    const rowSpacing = cardHeight + 24;
-    const totalGridHeight = rowCount * cardHeight + (rowCount - 1) * 24;
-    const firstRowY = Math.min(
-      height / 2 - 10 - totalGridHeight / 2 + cardHeight / 2,
-      height - 90 - 12 - cardHeight / 2 - (rowCount - 1) * rowSpacing,
-    );
+    const grid = computeMenuCardGrid({
+      count,
+      cardWidth,
+      cardHeight,
+      canvasWidth: width,
+      canvasHeight: height,
+      menuScale: this.menuScale,
+      headerBottom: 150,
+      anchorOffset: -10,
+    });
+    this.gridScale = grid.scale;
+    const perRow = grid.perRow;
 
     this.choices.forEach((blessing, index) => {
       const rowIndex = Math.floor(index / perRow);
       const cardsInRow = Math.min(perRow, count - rowIndex * perRow);
-      const rowWidth = cardsInRow * cardWidth + (cardsInRow - 1) * gap;
-      const cardX = (width - rowWidth) / 2 + cardWidth / 2 + (index % perRow) * (cardWidth + gap);
-      const cardY = firstRowY + rowIndex * rowSpacing;
+      const rowWidth = cardsInRow * grid.cardWidth + (cardsInRow - 1) * grid.gap;
+      const cardX = (width - rowWidth) / 2 + grid.cardWidth / 2
+        + (index % perRow) * (grid.cardWidth + grid.gap);
+      const cardY = grid.firstRowY + rowIndex * grid.rowSpacing;
       this.cards.push(this.createCard(blessing, cardX, cardY, cardWidth, cardHeight, index));
     });
 
-    const startButton = this.add.rectangle(width / 2, height - 64, 260, 52, 0x223322)
+    const buttonY = height - scaledInt(this.menuScale, 64);
+    const startButton = this.add.rectangle(width / 2, buttonY,
+      scaledInt(this.menuScale, 260), scaledInt(this.menuScale, 52), 0x223322)
       .setStrokeStyle(3, 0x66ff99)
       .setInteractive({ useHandCursor: true });
-    this.add.text(width / 2, height - 64, 'START RUN', {
-      fontSize: '22px',
+    this.add.text(width / 2, buttonY, 'START RUN', {
+      fontSize: `${scaledInt(this.menuScale, 22)}px`,
       color: '#88ffaa',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
@@ -188,7 +201,7 @@ export class BlessingDraftScene extends Phaser.Scene {
     card.border.setVisible(selected);
     card.selectedBadge.setVisible(selected);
     card.bg.setFillStyle(selected ? 0x18251c : 0x14141f);
-    card.container.setScale(selected ? 1.04 : 1);
+    card.container.setScale(selected ? this.gridScale * 1.04 : this.gridScale);
   }
 
   private updateCounter(): void {
@@ -248,6 +261,7 @@ export class BlessingDraftScene extends Phaser.Scene {
     }).setOrigin(0.5, 1).setVisible(false);
 
     container.add([bg, border, name, description, keyHint, selectedBadge]);
+    container.setScale(this.gridScale);
 
     bg.setInteractive({ useHandCursor: true });
     bg.on('pointerover', (pointer: Phaser.Input.Pointer) => {
