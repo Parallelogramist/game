@@ -5,6 +5,7 @@ import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
 import { PROJECTILE_ATLAS_KEY, getProjectileFrame } from '../visual/ProjectileAtlasRenderer';
 import { playerProjectileBlocked } from '../world/weaponWallBehavior';
+import { findNearestVisibleInHash } from './WeaponUtils';
 
 /**
  * ProjectileWeapon fires auto-targeting projectiles at the nearest enemy.
@@ -131,11 +132,8 @@ export class ProjectileWeapon extends BaseWeapon {
   }
 
   protected attack(ctx: WeaponContext): void {
-    const spatialHash = getEnemySpatialHash();
-    const nearestEnemy = spatialHash.findNearest(ctx.playerX, ctx.playerY, this.stats.range);
-
-    if (!nearestEnemy) return;
-    const nearestId = nearestEnemy.id;
+    const nearestId = findNearestVisibleInHash(ctx, ctx.playerX, ctx.playerY, this.stats.range);
+    if (nearestId === -1) return;
 
     const targetX = Transform.x[nearestId];
     const targetY = Transform.y[nearestId];
@@ -222,38 +220,6 @@ export class ProjectileWeapon extends BaseWeapon {
         child.sprite.setActive(true);
       }
     }
-  }
-
-  private findNearestEnemy(
-    _ctx: WeaponContext,
-    fromX: number,
-    fromY: number,
-    excludeIds: Set<number>
-  ): number {
-    const spatialHash = getEnemySpatialHash();
-    const searchRadius = this.stats.range * 1.5;
-    const searchRadiusSq = searchRadius * searchRadius;
-
-    const nearbyEnemies = spatialHash.query(fromX, fromY, searchRadius);
-
-    let nearestId = -1;
-    let nearestDistSq = searchRadiusSq;
-
-    for (const enemy of nearbyEnemies) {
-      if (excludeIds.has(enemy.id)) continue;
-      if (Health.current[enemy.id] <= 0) continue;
-
-      const dx = enemy.x - fromX;
-      const dy = enemy.y - fromY;
-      const distSq = dx * dx + dy * dy;
-
-      if (distSq < nearestDistSq) {
-        nearestDistSq = distSq;
-        nearestId = enemy.id;
-      }
-    }
-
-    return nearestId;
   }
 
   protected updateEffects(ctx: WeaponContext): void {
@@ -402,7 +368,9 @@ export class ProjectileWeapon extends BaseWeapon {
             if (data.sprite) {
               data.sprite.setFrame(getProjectileFrame(data.killCount, this.currentQuality));
             }
-            const newTarget = this.findNearestEnemy(ctx, data.x, data.y, data.hitEnemies);
+            const newTarget = findNearestVisibleInHash(
+              ctx, data.x, data.y, this.stats.range * 1.5, undefined, data.hitEnemies,
+            );
             if (newTarget !== -1) {
               const newAngle = Math.atan2(
                 Transform.y[newTarget] - data.y,

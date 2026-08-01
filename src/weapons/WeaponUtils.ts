@@ -1,4 +1,5 @@
 import { Transform, Health } from '../ecs/components';
+import { getEnemySpatialHash, type SpatialEntity } from '../utils/SpatialHash';
 import { beamReachFraction } from '../world/weaponWallBehavior';
 import { WeaponContext } from './BaseWeapon';
 
@@ -39,6 +40,7 @@ const DEFAULT_RANDOM_TRIES = 4;
 
 const probeIds: number[] = [];
 const probeDistancesSquared: number[] = [];
+const hashQueryBuffer: SpatialEntity[] = [];
 
 function hasLineOfSight(
   ctx: WeaponContext, fromX: number, fromY: number, toX: number, toY: number,
@@ -129,6 +131,37 @@ export function pickVisibleRandomEnemy(
     }
   }
   return -1;
+}
+
+/**
+ * The same scan against the enemy spatial hash, for weapons that acquire from a turret or a
+ * projectile rather than from the ship. Distances come from the hash's frame-start snapshot,
+ * exactly as SpatialHash.findNearest does, but the visibility cast uses the live Transform,
+ * which is the position the caller will actually aim at.
+ */
+export function findNearestVisibleInHash(
+  ctx: WeaponContext,
+  originX: number,
+  originY: number,
+  maxRange: number,
+  maxProbes: number = DEFAULT_VISIBILITY_PROBES,
+  excludeIds?: ReadonlySet<number>,
+): number {
+  hashQueryBuffer.length = 0;
+  getEnemySpatialHash().queryInto(originX, originY, maxRange, hashQueryBuffer);
+  const limitSquared = maxRange * maxRange;
+  const probeLimit = ctx.worldMap === null ? 1 : maxProbes;
+  resetProbes();
+  for (let i = 0; i < hashQueryBuffer.length; i++) {
+    const candidate = hashQueryBuffer[i];
+    if (excludeIds && excludeIds.has(candidate.id)) continue;
+    if (Health.current[candidate.id] <= 0) continue;
+    const dx = candidate.x - originX;
+    const dy = candidate.y - originY;
+    const distanceSquared = dx * dx + dy * dy;
+    if (distanceSquared < limitSquared) offerProbe(candidate.id, distanceSquared, probeLimit);
+  }
+  return firstVisibleProbe(ctx, originX, originY);
 }
 
 /**

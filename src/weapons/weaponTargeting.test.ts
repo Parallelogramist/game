@@ -7,13 +7,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createWorld, addEntity, addComponent } from 'bitecs';
 import { Transform, Health } from '../ecs/components';
-import { resetEnemySpatialHash } from '../utils/SpatialHash';
+import { getEnemySpatialHash, resetEnemySpatialHash } from '../utils/SpatialHash';
 import {
   SECTOR_TILE_ROWS, SECTOR_TILE_COUNT, TileKind, WALL_EDGE, tileIndex,
 } from '../world/worldTypes';
 import type { SectorDef, WorldMap } from '../world/worldTypes';
 import {
-  findNearestVisibleEnemy, pickVisibleRandomEnemy,
+  findNearestVisibleEnemy, findNearestVisibleInHash, pickVisibleRandomEnemy,
 } from './WeaponUtils';
 import type { WeaponContext } from './BaseWeapon';
 
@@ -115,5 +115,30 @@ describe('pickVisibleRandomEnemy', () => {
   it('returns -1 for an empty candidate list without casting', () => {
     const ctx = makeContext([], walledWorld);
     expect(pickVisibleRandomEnemy(ctx, 100, 100, [])).toBe(-1);
+  });
+});
+
+describe('findNearestVisibleInHash', () => {
+  function fillHash(): void {
+    const hash = getEnemySpatialHash();
+    hash.insert(occludedNear, 600, 100);
+    hash.insert(occludedFar, 620, 100);
+    hash.insert(visible, 100, 650);
+  }
+
+  it('takes the plain nearest enemy in a mode with no geometry', () => {
+    fillHash();
+    expect(findNearestVisibleInHash(makeContext([], null), 100, 100, 800)).toBe(occludedNear);
+  });
+
+  it('walks past a nearer target behind rock to one it can see', () => {
+    fillHash();
+    expect(findNearestVisibleInHash(makeContext([], walledWorld), 100, 100, 800)).toBe(visible);
+  });
+
+  it('honors the exclude set, and returns -1 when it empties the visible candidates', () => {
+    fillHash();
+    const ctx = makeContext([], walledWorld);
+    expect(findNearestVisibleInHash(ctx, 100, 100, 800, 8, new Set([visible]))).toBe(-1);
   });
 });

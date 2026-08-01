@@ -10,6 +10,7 @@ import {
   type SentryState,
 } from './sentryLogic';
 import { playerProjectileBlocked } from '../world/weaponWallBehavior';
+import { findNearestVisibleInHash } from './WeaponUtils';
 
 const SENTRY_POOL_SIZE = 8;         // max concurrent turrets (count caps below this)
 const PROJECTILE_POOL_SIZE = 48;
@@ -182,8 +183,10 @@ export class SentryWeapon extends BaseWeapon {
     for (const sentry of this.sentries) {
       if (!sentry.active) continue;
 
-      const target = spatialHash.findNearest(sentry.motion.x, sentry.motion.y, this.stats.range);
-      const step = stepSentry(sentry.motion, params, ctx.deltaTime, target !== null);
+      const targetId = findNearestVisibleInHash(
+        ctx, sentry.motion.x, sentry.motion.y, this.stats.range,
+      );
+      const step = stepSentry(sentry.motion, params, ctx.deltaTime, targetId !== -1);
       sentry.motion = step.state;
 
       if (step.expired) {
@@ -191,10 +194,10 @@ export class SentryWeapon extends BaseWeapon {
         continue;
       }
 
-      if (target) {
+      if (targetId !== -1) {
         sentry.aimAngle = Math.atan2(
-          Transform.y[target.id] - sentry.motion.y,
-          Transform.x[target.id] - sentry.motion.x
+          Transform.y[targetId] - sentry.motion.y,
+          Transform.x[targetId] - sentry.motion.x
         );
         if (step.fired) this.fireBolt(ctx, sentry, sentry.aimAngle);
       } else {

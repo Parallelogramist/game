@@ -5,6 +5,7 @@ import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { PROJECTILE_ATLAS_KEY, getDroneProjectileFrame, getDroneBodyFrame } from '../visual/ProjectileAtlasRenderer';
 import { playerProjectileBlocked } from '../world/weaponWallBehavior';
+import { findNearestVisibleInHash } from './WeaponUtils';
 
 interface Drone {
   bodySprite: Phaser.GameObjects.Image;
@@ -294,11 +295,9 @@ export class DroneWeapon extends BaseWeapon {
     drone.shootCooldown -= ctx.deltaTime;
 
     if (drone.shootCooldown <= 0) {
-      const spatialHash = getEnemySpatialHash();
-      const nearestEnemy = spatialHash.findNearest(droneX, droneY, this.stats.range);
+      const nearestId = findNearestVisibleInHash(ctx, droneX, droneY, this.stats.range);
 
-      if (nearestEnemy) {
-        const nearestId = nearestEnemy.id;
+      if (nearestId !== -1) {
         drone.targetId = nearestId;
         const isSynchronized = this.isMastered() && (targetCounts.get(nearestId) || 0) >= 2;
         this.fireDroneProjectile(ctx, droneX, droneY, nearestId, isSynchronized);
