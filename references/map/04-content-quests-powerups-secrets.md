@@ -513,6 +513,17 @@ the bounty line's own colour, because `setColor` on a per-frame path forces a fu
 while the `OBJECTIVE ·` / `BOUNTY ·` prefixes distinguish the two modes for free. A `worldMap()`
 null check keeps the line empty for arena, daily, gauntlet and practice runs without a mode flag.*
 
+*(Extended by `4c96168`: the idle branch is no longer objectives-only. Pure
+`src/expedition/runTicker.ts` builds the rotation, listing every active objective and then the
+two nearest open leads, and a `LEAD ·` prefix joins the `BOUNTY ·` / `OBJECTIVE ·` vocabulary
+so the line still keeps one colour for the reason recorded above. An objective row appends
+` · UPDATED` while its quest sits in the discovery layer's updated-objective overlay; the
+ticker reads that overlay and never clears it, because `MapScene.create` is the sole clearer
+and both surfaces must retire the badge on the same map open. The Text gains a `wordWrap`, so
+a lead's riddle takes a second line upward from the same bottom edge rather than running off
+the screen. Doc 04 section 5's sigil clause is deliberately absent from a ticker row and is
+filed as `POLISH-TICKER-LEAD-SIGILS`.)*
+
 *Bullet 2 shipped as a text panel on the map screen (`MapScene.renderObjectivesPanel()`, active
 quests top-left with chain position and step progress), NOT as `getActiveQuestMarkers()`. None of
 the four triggers `FEAT-QUEST-CHAINS` could produce a signal for (`kill`, `reachDepth`, `openGate`,

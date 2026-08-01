@@ -708,6 +708,32 @@ later and the badge never shows, read the live set and it never clears. It filed
 `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing profile
 lights it up the moment the build lands.
 
+**`4c96168` moved two map-screen answers into the run.** The radar has carried up to four
+bearings since `05e832e`, the amber ones pointing at open leads, and it could not say WHICH
+secret any of them was: the riddle that names it was drawn only in the map screen's LEADS
+panel. `b75822d` had the same shape, badging the objective that moved but only once the chart
+was open. Both gaps were the same one HUD line, whose idle branch `5a0295d` had given exactly
+one claimant. The ownership rules are now written down in pure `src/expedition/runTicker.ts`:
+every active objective first (a directive), then the two nearest open leads (an invitation),
+one prefix per source in the `BOUNTY ·` / `OBJECTIVE ·` vocabulary that already shipped. An
+objective row appends ` · UPDATED` for any quest in the chart badge's own overlay, and
+**the ticker reads that overlay and never clears it**, which is the chunk's one correctness
+invariant: `MapScene.create` stays the sole clearer, so both surfaces retire the badge on the
+same map open, and clearing from a per-frame path would kill the chart badge a second after
+the step that raised it with no test going red. Leads cap at 2 because the cycle shows one row
+per 5 s and objectives are already capped at 3, so the worst case is five rows; they sort
+through the one shared `leadSectorDistance` the LEADS panel now calls too, so the two surfaces
+cannot name a different lead first. No colour change, on the settled ground doc 04 already
+records (`setColor` on a per-frame path forces a full text re-render). It discharges
+`CHORE-SECRET-LEAD-TICKER` and `FEAT-DISCOVERY-BADGE-TICKER` in full and files
+`POLISH-TICKER-LEAD-SIGILS` and `BALANCE-TICKER-ROW-CADENCE`. **It also dissolves a blocker
+three other entries share:** `FEAT-QUEST-SIEGE-HUD-TELL`, `FEAT-SEASON-RECORD-SURFACE` and
+`POLISH-DECRYPTOR-ACTIVE-BUTTON` were each cut on "a new HUD line is a layout change larger
+than the feature", and the ticker is now a multi-claimant rotating line with settled ownership
+rules, so anything that can be a ticker row no longer needs a line of its own. No storage key,
+no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing
+profile lights it up the moment the build lands.
+
 **Why a Phase 7 bug outranked the content bands this session, recorded so it is not
 re-derived:** band 1 has no unblocked item (`FEAT-ECON-WARDS` is parked on the operator and
 `FEAT-QUEST-BOARD` shipped at `21925f3`); band 2's remainder is either blocked
@@ -719,7 +745,7 @@ toasted, which doc 03 section 7 moment 4 itself calls "presentation only"
 `FEAT-WORLDGEN-STREAM` since `183b2dc`. `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` was the one
 unblocked band-2 item that carried information rather than motion, and it shipped at b75822d.
 
-**The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
+**The unblocked candidate list, restated:**
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
@@ -768,6 +794,9 @@ operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is 
 for the same reason the rest of the POI table is.
 `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` has now shipped at b75822d and filed two cuts, both
 candidates: `FEAT-DISCOVERY-BADGE-TICKER` and `POLISH-OBJECTIVE-PIN-PULSE`.
+Of those two, `FEAT-DISCOVERY-BADGE-TICKER` has now shipped at `4c96168` alongside
+`CHORE-SECRET-LEAD-TICKER`, so the candidate list gains `POLISH-TICKER-LEAD-SIGILS` and the
+play-gated `BALANCE-TICKER-ROW-CADENCE` and loses both of those names.
 
 ## Proposed (auto)
 
@@ -5266,15 +5295,33 @@ exploring pays is the end of Phase 5.
   `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`, and files `FEAT-DISCOVERY-BADGE-TICKER` and
   `POLISH-OBJECTIVE-PIN-PULSE`.
 
-- [ ] **FEAT-DISCOVERY-BADGE-TICKER** (new 2026-08-01, from FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE):
-  the chart now says which objective moved, but only once the chart is open. In the run itself
-  the only tell is the OBJECTIVE COMPLETE toast, which lives 3.2 seconds, and the bounty ticker
-  line that time-shares with objectives (5a0295d) says nothing about a change. Cut for the
-  reason `FEAT-QUEST-SIEGE-HUD-TELL` and `POLISH-DECRYPTOR-ACTIVE-BUTTON` were: the portrait top
-  band is already bars, world, timer, kills and gold, so a persistent in-run marker is a layout
-  change larger than the feature, and the ticker line is a shared surface whose ownership rules
-  would have to change first. Value: knowing an objective moved without opening the chart.
-  Deps: none.
+- [x] **FEAT-DISCOVERY-BADGE-TICKER** (done, 4c96168) (new 2026-08-01, from
+  FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE): the objective row on the in-run ticker line now reads
+  ` · UPDATED` for any quest in the same overlay the chart badge reads, so a moved objective is
+  visible without opening the chart and without the 3.2 s toast. The stated blocker (the ticker
+  being "a shared surface whose ownership rules would have to change first") was discharged by
+  writing those rules down: pure `src/expedition/runTicker.ts` decides what may claim the idle
+  bounty line and in what order (every active objective, then the two nearest open leads), and
+  a prefix names the source the way `BOUNTY ·` and `OBJECTIVE ·` already did. **The ticker
+  READS the overlay and never clears it**: `MapScene.create` stays the sole clearer, so both
+  surfaces retire the badge on the same map open. Clearing from the ticker would retire the
+  chart badge within a second of the step that raised it and no test would go red.
+
+- [ ] **POLISH-TICKER-LEAD-SIGILS** (new 2026-08-01, from CHORE-SECRET-LEAD-TICKER): the map
+  screen's LEADS panel and the lead toast both render `lead.sigils` ("Sigils wake in order:
+  hexagon, then triangle, then diamond") and the ticker row deliberately does not. A lead row
+  is already about 95 characters and wraps to two lines at the shipped `wordWrap` width;
+  the sigil clause roughly doubles it, and a three-line HUD row is a layout question rather
+  than a string change. Value: solving a sealed ring without opening the map. Deps: none, but
+  it wants the ticker row's height budget answered first.
+
+- [ ] **BALANCE-TICKER-ROW-CADENCE** (new 2026-08-01, from CHORE-SECRET-LEAD-TICKER): the line
+  advances one row every `QUEST_TICKER_CYCLE_SECONDS` (5), which was chosen when the cycle held
+  at most three objectives. With `MAX_TICKER_LEADS` (2) on top, the worst case is five rows and
+  a 25 s round trip back to a given row. Both numbers are derived from the shipped cycle rather
+  than played, and whether 25 s reads as a rotation or as a row you never see is a feel
+  judgement. Value: a rotating line whose period matches how often a player looks at it. Deps:
+  playtest.
 
 - [ ] **POLISH-OBJECTIVE-PIN-PULSE** (new 2026-08-01, from FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE):
   doc 03 section 4.4 asks for a slow-pulsing ring on an objective pin, static double-ring under
@@ -6104,12 +6151,14 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   chase or as a grind is a feel judgement that wants a browser and a player, alongside
   `BALANCE-QUEST-HAZARD-TARGETS` and the rest of the play-gated queue. Deps: playtest.
 
-- [ ] **CHORE-SECRET-LEAD-TICKER** (was CHORE-SECRET-LEAD-RADAR, radar half done 05e832e): the
-  radar now carries every open lead as an amber bearing, so the map screen is no longer the only
-  surface that knows. What is left is the other half of the original item: the in-run bounty
-  ticker line (which `FEAT-QUEST-VIEW` already time-shares with objectives) could name the
-  nearest lead's riddle in words, which a bearing cannot. Value: knowing WHICH lead the arrow
-  is, without opening the map. Deps: none.
+- [x] **CHORE-SECRET-LEAD-TICKER** (done, 4c96168) (was CHORE-SECRET-LEAD-RADAR, radar half done
+  05e832e): the amber bearing has a name now. The in-run ticker line rotates a
+  `LEAD · <FRAGMENT TITLE> · <riddle>` row for each of the two nearest open leads, so a player
+  can read "A dead end north-east of the hangar, 5 jumps out, in the Crystal Caves" while
+  flying instead of pausing into the map screen's LEADS panel to learn which ring is which.
+  Both surfaces sort through the one shared `leadSectorDistance` in `secretHints.ts`, so they
+  cannot disagree about which lead is nearest. The sigil clause the panel renders is cut to
+  `POLISH-TICKER-LEAD-SIGILS`.
 
 - [x] **FEAT-SECRET-AMBIENT-PING** (done, 9d8f9c5): hint tier 1 from doc 04 section 5. Within one
   screen of an unfound cache the radar shimmers, and it goes silent the frame the cache is
