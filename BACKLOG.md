@@ -5233,6 +5233,35 @@ exploring pays is the end of Phase 5.
   pairing this needed. The build-code path got the same field on the dead end it already had. Full
   write-up in `BACKLOG-archive.md`.
 
+- [x] **FEAT-MAPUI-SECTOR-MARKS** (done, 4fd97c3) (new 2026-08-01, from
+  `references/map/README.md` section 6's last unbuilt bullet): the chart stopped being read-only.
+  `P` or gamepad **A** on the focused sector walks none → COME BACK HERE → DANGER → UNSOLVED →
+  none, the mark draws white in the cell's bottom-left (every hue on this chart belongs to
+  something the world placed; white is the player's own hand), the detail bar names it, and the
+  radar carries a white chevron to it once the chart closes. Marks live in `WorldProfileStore`'s
+  new `markedSectorIds`, so they are per world, survive death and a refresh, travel with a banked
+  world through the archive and come back with `RETURN`. **No storage key and no version bump of
+  any kind**: the field is optional in storage on the `conquered` precedent. Full write-up in
+  `BACKLOG-archive.md`.
+
+- [ ] **FEAT-MARK-NOTES** (new 2026-08-01, from FEAT-MAPUI-SECTOR-MARKS): a mark carries a kind
+  and no words, so "the door the tether opens" is a DANGER cross the player has to remember the
+  meaning of. A typed note needs the DOM overlay `src/ui/CodeEntryOverlay.ts` already proves over
+  this canvas, plus a per-mark string in the profile payload and a cap on its length. Value: the
+  chart remembers why, not only where. Deps: none.
+
+- [ ] **BALANCE-MARK-RADAR-RANK** (new 2026-08-01, from FEAT-MAPUI-SECTOR-MARKS): marks rank
+  second on the radar, above leads and vaults and below objectives, so a player carrying three
+  active quests sees at most one mark on a 4-slot disc. Whether the thing the player asked for
+  should outrank the thing the run inferred is a feel judgement that wants a browser. Deps: play.
+
+- [ ] **CHORE-MARK-STALE-CLEAR** (new 2026-08-01, from FEAT-MAPUI-SECTOR-MARKS): a mark on a door
+  the profile can now open stays until the player clears it by hand, because nothing tells the
+  store that the reason expired. `buildLockoutRows` already knows which sectors are still barred,
+  so a `return` mark whose sector has no remaining blocker could fade or badge itself. Value: the
+  chart stops pointing at solved problems. Deps: none, but it wants play data on how many marks a
+  real profile carries.
+
 - [ ] **FEAT-CODE-ENTRY-GAMEPAD** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the field
   is a DOM element and the scene's `MenuNavigator` is disabled while it is up, so a pad-only player
   can open `TYPE` but cannot reach the field, the `FLY IT` button or `CANCEL`. Every other overlay

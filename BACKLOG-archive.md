@@ -3370,3 +3370,99 @@ No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`
 the moment the build lands. It moves no gold, no relic roll and no reward-table row, so
 `FEAT-ECON-WARDS` stays parked and untouched. Files `FEAT-CODE-ENTRY-GAMEPAD`,
 `FEAT-LOADOUT-CODE-ENTRY-BUTTON` and `POLISH-CODE-ENTRY-LIVE-VALIDATE`.
+
+## FEAT-MAPUI-SECTOR-MARKS · the chart takes the player's own marks, and the radar flies you back to them · DONE 4fd97c3
+
+Every mark on this chart was authored by the game: objective pins, lead badges, POI glyphs, door
+glyphs, the cleared notch, the guard ring. The player could not write one byte onto their own map.
+`references/map/README.md` section 6 named it as the last unbuilt bullet with no unmet
+precondition, and it closes the loop the four sessions before it opened: `c2ad058` + `fdab006`
+shipped LOCKED OUT and a vault bearing, `885d3bb` shipped leads, `52e0802` shipped quest doors, so
+the player now routinely stands in front of something they must come back for and the only place to
+record that was outside the game. A derived panel can answer *what the profile lacks*; only a mark
+answers *what THIS player wants to come back to*.
+
+**What shipped, file by file:**
+
+- `src/expedition/sectorMarks.ts` (new): the vocabulary. Three kinds (`return` / `danger` /
+  `question`), their shapes (chevron / cross / triangle) and labels in one `SECTOR_MARKS` table,
+  the cycle order, `nextSectorMarkKind`, and the persisted-id codec (`sectorMarkId`,
+  `parseSectorMarkId`, `SECTOR_MARK_ID_PATTERN`). Pure and Phaser-free like the rest of
+  `src/expedition/`, and carrying **no colour**, because `src/expedition/` must not import
+  `src/visual/` (the rule `poiGlyphs.ts`'s header states, dependency runs the other way).
+- `src/expedition/WorldProfileStore.ts`: `markedSectorIds: string[]` plus its sanitizer,
+  `setSectorMark` and `getSectorMarks`.
+- `src/expedition/radarWaypoints.ts`: a fourth `RadarWaypointKind`, `'mark'`, ranked second, fed by
+  a required `markSectorKeys` input.
+- `src/visual/SectorMapRenderer.ts`: the `PLAYER_MARK` colour, an exported `drawSectorMark`, a
+  required `markedSectorKinds` draw input and one draw call per marked cell.
+- `src/visual/MinimapManager.ts`: `WAYPOINT_COLORS.mark`.
+- `src/game/scenes/MapScene.ts`: loads the marks on create, binds `P` and gamepad **A** to
+  `cycleMark`, persists, redraws, names the mark on the detail headline, and generates three legend
+  rows from the same table it draws from.
+- `src/game/scenes/GameScene.ts`: the cached `markedSectorKeys`, loaded on bind, refreshed on map
+  close, fed to `buildRadarWaypoints`.
+
+**Four states on one binding, not place-and-clear on two.** One press walks
+none → come back here → danger → unsolved → none, so the same button both places and removes and
+the screen needs no second binding: `MapScene`'s keyboard handler and the pad's face buttons were
+both nearly full (`p` was free, and **A** was the one face button `update` did not already bind:
+**B** and **START** close, **X** recalls, **Y** centres, the bumpers zoom). A fourth press clearing
+the mark is also the only removal gesture that needs no confirmation, because the next press puts it
+back.
+
+**White, and the bottom-left corner.** Every other hue on this chart belongs to something the world
+placed (rose objective pin, amber secret, green cleared notch, hazard-orange guard ring, the gate
+palette), so white is what separates *what was found* from *what was decided* at a glance. It
+shares white with the focus cursor deliberately: the cursor is four corner brackets on the cell's
+edge, a mark is a glyph inside it, and both are the player's own hand. The bottom-left is the one
+corner every other overlay leaves free (the pin owns the top edge, the notch the top-right, the
+hint badge the top-left), so a sector can carry all five overlays and still be read. The draw sits
+inside the same `flags === 0 continue` guard the rest obeys, so an uncharted sector can never show
+a visible mark.
+
+**No version bump of any kind, on the `conquered` precedent.** `markedSectorIds` is
+optional-in-storage: a payload written before this field shipped reads as an empty list rather than
+a mismatch, exactly as `conquered` and `downedSecurityGridIds` already do, so
+`WORLD_PROFILE_VERSION` does **not** move and every existing profile keeps every remembered wall
+and lights the feature up the moment the build lands. No new storage key either
+(`survivor-world-profile` was already preloaded in `StorageBootstrap.ts`), and no `SAVE_VERSION`,
+`WORLDGEN_VERSION`, `DISCOVERY_VERSION` or `SEASON_STATE_VERSION` bump. Marks ride the same world
+archive the broken walls do, so they bank with a world and come back with `RETURN`. The sanitizer
+drops anything the id pattern rejects and caps the list at 128, which bounds a tampered payload
+rather than a real one: one mark per sector and a generated world is 48 sectors. `setSectorMark`
+returns the store's own success, and `cycleMark` shows nothing the store refused, so the chart can
+never display a mark a refresh would lose.
+
+**Radar rank, and why the read is cached.** A mark ranks above a lead and a vault and below an
+objective: the player asked to be led back there, which outranks anything the game merely inferred,
+but an active objective is the run's own next step and there are at most three of those. The disc
+holds four. `GameScene.markedSectorKeys` is a cached field rather than a read inside
+`syncRadarWaypoints`, because that runs on `RADAR_WAYPOINT_REFRESH_SECONDS` and **every read of the
+real store is a `SecureStorage` decrypt** (the same rule `ownedTraversalAbilityIds` and
+`earnedQuestKeyIds` already follow). Refreshing it in `closeExpeditionMap` is exact rather than
+approximate: marks can only change while `MapScene` holds the pause. That close also zeroes
+`radarWaypointTimer`, so a mark placed on the chart is a bearing on the disc the moment the chart
+closes rather than up to a refresh later. `bindExpeditionDiscovery` clears the field as its **first
+statement**, before the `worldMap()` guard, so an arena run and a restart cannot inherit the last
+expedition's marks.
+
+**Six tests, and why only six.** Four in the new `src/expedition/sectorMarks.test.ts` (the cycle
+wraps to null; an id round-trips for a negative sector; a malformed or unknown-kind id is rejected
+rather than coerced; every cycled kind has a glyph and no two share a shape) and two in
+`WorldProfileStore.test.ts` (a mark replaces its sector, clears on null and survives beside a broken
+wall; a payload written before marks shipped keeps its walls while a bad id is dropped). The two
+things worth pinning are **persisted-format rules that fail silently**: an id the sanitizer's regex
+rejects is data loss the player reads as "my marks vanished", and a pre-field payload must still
+read its walls. Everything else this chunk adds is drawing and wiring, and `vitest.config.ts` is
+`environment: 'node'`, so a MapScene or renderer test would mean a document/Phaser stub: fixture
+scaffolding for glue with no branchy logic. The compile-time half is not nothing, though: both new
+inputs (`markedSectorKinds`, `markSectorKeys`) are **required rather than optional**, on the
+`updatedObjectiveSectorKeys` precedent, so a call site that forgets one is a compile error rather
+than a silently unmarked chart or radar. 165 files / 1945 tests green (baseline 164 / 1939),
+`npx tsc --noEmit` and `npm run build` clean.
+
+It moves no gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and
+untouched. Files `FEAT-MARK-NOTES` (a mark carries a kind and no words), `BALANCE-MARK-RADAR-RANK`
+(whether a mark should outrank a lead is a feel judgement that wants a browser) and
+`CHORE-MARK-STALE-CLEAR` (nothing tells the store when a mark's reason expired).

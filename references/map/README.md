@@ -329,6 +329,12 @@ first.
   as a static one.
 - **Map annotation.** Player-placed pins on the map screen, the single most requested
   feature of every Metroid-style map ever shipped.
+  **Built by `FEAT-MAPUI-SECTOR-MARKS` (`4fd97c3`, 2026-08-01):** `P` or gamepad **A** on
+  the focused sector cycles none → come back here → danger → unsolved → none;
+  `src/expedition/sectorMarks.ts` is the vocabulary and the persisted-id codec,
+  `WorldProfileStore.markedSectorIds` is the memory (per world, archive-backed, so a banked world
+  keeps its marks and `RETURN` brings them back), and a mark is a fourth radar waypoint kind so a
+  mark is a bearing rather than only a glyph.
 
 ## 7. Human and operator gates
 
