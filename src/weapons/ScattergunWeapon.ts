@@ -3,6 +3,7 @@ import { Transform, Health } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { playerBeamReachFraction } from '../world/weaponWallBehavior';
+import { findNearestVisibleEnemy } from './WeaponUtils';
 
 const STREAK_POOL_SIZE = 32;
 const SPREAD_RAD = 0.9;          // total fan angle of the pellet spread (~52°)
@@ -96,19 +97,8 @@ export class ScattergunWeapon extends BaseWeapon {
     const shipX = ctx.playerX;
     const shipY = ctx.playerY;
 
-    // Aim at the nearest live enemy.
-    let nearestId = -1;
-    let bestDistSq = Infinity;
-    for (const enemyId of enemies) {
-      if (Health.current[enemyId] <= 0) continue;
-      const dx = Transform.x[enemyId] - shipX;
-      const dy = Transform.y[enemyId] - shipY;
-      const distSq = dx * dx + dy * dy;
-      if (distSq < bestDistSq) {
-        bestDistSq = distSq;
-        nearestId = enemyId;
-      }
-    }
+    // Aim at the nearest live enemy the pellets can actually reach.
+    const nearestId = findNearestVisibleEnemy(ctx, shipX, shipY);
     if (nearestId < 0) return;
 
     const aimAngle = Math.atan2(Transform.y[nearestId] - shipY, Transform.x[nearestId] - shipX);

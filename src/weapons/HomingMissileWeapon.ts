@@ -7,6 +7,7 @@ import { DepthLayers } from '../visual/DepthLayers';
 import type { VisualQuality } from '../visual/GlowGraphics';
 import { PROJECTILE_ATLAS_KEY, getMissileFrame } from '../visual/ProjectileAtlasRenderer';
 import { playerProjectileBlocked } from '../world/weaponWallBehavior';
+import { pickVisibleRandomEnemy } from './WeaponUtils';
 
 const MISSILE_TRAIL_LENGTH = 12;
 const POOL_SIZE = 30;
@@ -119,8 +120,8 @@ export class HomingMissileWeapon extends BaseWeapon {
     if (enemies.length === 0) return;
 
     for (let i = 0; i < this.stats.count; i++) {
-      const targetIndex = Math.floor(Math.random() * enemies.length);
-      const targetId = enemies[targetIndex];
+      const targetId = pickVisibleRandomEnemy(ctx, ctx.playerX, ctx.playerY, enemies);
+      if (targetId === -1) continue;
       this.createMissile(ctx, ctx.playerX, ctx.playerY, targetId, false,
         this.stats.damage, this.stats.speed, this.stats.duration);
     }
@@ -176,7 +177,12 @@ export class HomingMissileWeapon extends BaseWeapon {
       if (targetHealth === undefined || targetHealth <= 0) {
         const enemies = getEnemyIds();
         if (enemies.length > 0) {
-          missile.targetId = enemies[Math.floor(Math.random() * enemies.length)];
+          const visibleId = pickVisibleRandomEnemy(
+            ctx, missile.actualX, missile.actualY, enemies,
+          );
+          missile.targetId = visibleId !== -1
+            ? visibleId
+            : enemies[Math.floor(Math.random() * enemies.length)];
         } else {
           this.deactivateMissile(missile);
           continue;
@@ -345,14 +351,22 @@ export class HomingMissileWeapon extends BaseWeapon {
     const bombletSpeed = this.stats.speed * 1.2;
     const bombletLifetime = 1.5;
 
-    const potentialTargets = nearbyEnemies.filter(e => e.id !== excludeTargetId && Health.current[e.id] > 0);
+    const potentialTargetIds: number[] = [];
+    for (const candidate of nearbyEnemies) {
+      if (candidate.id === excludeTargetId) continue;
+      if (Health.current[candidate.id] <= 0) continue;
+      potentialTargetIds.push(candidate.id);
+    }
 
     for (let i = 0; i < bombletCount; i++) {
       const spreadAngle = (i / bombletCount) * Math.PI * 2 + Math.random() * 0.5;
 
       let targetId: number;
-      if (potentialTargets.length > 0) {
-        targetId = potentialTargets[Math.floor(Math.random() * potentialTargets.length)].id;
+      const visibleId = pickVisibleRandomEnemy(ctx, x, y, potentialTargetIds);
+      if (visibleId !== -1) {
+        targetId = visibleId;
+      } else if (potentialTargetIds.length > 0) {
+        targetId = potentialTargetIds[Math.floor(Math.random() * potentialTargetIds.length)];
       } else if (nearbyEnemies.length > 0) {
         targetId = nearbyEnemies[Math.floor(Math.random() * nearbyEnemies.length)].id;
       } else {

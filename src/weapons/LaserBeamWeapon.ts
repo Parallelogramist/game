@@ -3,6 +3,7 @@ import { Transform } from '../ecs/components';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
 import { playerBeamReachFraction } from '../world/weaponWallBehavior';
+import { findNearestVisibleEnemy, pickVisibleRandomEnemy } from './WeaponUtils';
 
 // Pre-computed hexagon unit vectors for prism flash effect
 const HEXAGON_VERTICES: readonly { cos: number; sin: number }[] = (() => {
@@ -75,27 +76,10 @@ export class LaserBeamWeapon extends BaseWeapon {
 
     // Find targets for each beam
     for (let b = 0; b < this.stats.count; b++) {
-      // Find a random enemy to target
-      let targetId = -1;
-      // OPTIMIZATION: Use squared distance for comparisons
-      let targetDistSq = Infinity;
-
-      // For first beam, target nearest. For others, spread out
-      if (b === 0) {
-        for (const enemyId of enemies) {
-          const dx = Transform.x[enemyId] - ctx.playerX;
-          const dy = Transform.y[enemyId] - ctx.playerY;
-          const distSq = dx * dx + dy * dy;
-
-          if (distSq < targetDistSq) {
-            targetDistSq = distSq;
-            targetId = enemyId;
-          }
-        }
-      } else {
-        // Random enemy for additional beams
-        targetId = enemies[Math.floor(Math.random() * enemies.length)];
-      }
+      // First beam takes the nearest visible enemy, the rest spread out over random ones.
+      const targetId = b === 0
+        ? findNearestVisibleEnemy(ctx, ctx.playerX, ctx.playerY)
+        : pickVisibleRandomEnemy(ctx, ctx.playerX, ctx.playerY, enemies);
 
       if (targetId === -1) continue;
 

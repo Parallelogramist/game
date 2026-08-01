@@ -3,7 +3,7 @@ import { Transform } from '../ecs/components';
 import { getEnemySpatialHash } from '../utils/SpatialHash';
 import { DepthLayers } from '../visual/DepthLayers';
 import { VisualQuality } from '../visual/GlowGraphics';
-import { findNearestEnemy } from './WeaponUtils';
+import { findNearestVisibleEnemy } from './WeaponUtils';
 import { PROJECTILE_ATLAS_KEY, getShurikenFrame } from '../visual/ProjectileAtlasRenderer';
 import { playerProjectileBlocked } from '../world/weaponWallBehavior';
 
@@ -119,7 +119,7 @@ export class ShurikenWeapon extends BaseWeapon {
     const enemies = ctx.getEnemies();
     if (enemies.length === 0) return;
 
-    const nearestId = findNearestEnemy(ctx, ctx.playerX, ctx.playerY, this.stats.range);
+    const nearestId = findNearestVisibleEnemy(ctx, ctx.playerX, ctx.playerY, this.stats.range);
     const baseAngle = nearestId !== -1 ?
       Math.atan2(Transform.y[nearestId] - ctx.playerY, Transform.x[nearestId] - ctx.playerX) :
       Math.random() * Math.PI * 2;
