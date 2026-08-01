@@ -18,6 +18,7 @@ import {
   applyEarnedQuestKeys,
   applyOwnedAbilityGates,
   gatedDoorNearWorld,
+  nearestBreakableBarrier,
   barrierIdAtWorld,
   clearBarrier,
   openAbilityGate,
@@ -328,5 +329,41 @@ describe('ability gates', () => {
     const earned = makeQuestDoorWorld();
     expect(applyEarnedQuestKeys(earned, [QUEST_KEY])).toBe(1);
     expect(gateMouthTiles(earned)).toEqual(new Array(8).fill(TileKind.Open));
+  });
+});
+
+describe('nearestBreakableBarrier', () => {
+  const plugBandCentreY = ((APERTURE_START + APERTURE_END + 1) / 2) * TILE_SIZE;
+  const justInsidePlugX = SECTOR_TILE_COLS * TILE_SIZE - TILE_SIZE - 30;
+
+  it('names the canonical edge id of an intact plug from inside the radius', () => {
+    const world = makeWorld();
+    const found = nearestBreakableBarrier(world, justInsidePlugX, plugBandCentreY, 40);
+    expect(found).not.toBeNull();
+    expect(found!.barrierId).toBe(edgeIdFor(0, 0, 'east'));
+    expect(found!.y).toBeCloseTo(plugBandCentreY);
+  });
+
+  it('answers null from beyond the radius and once the plug is already cleared', () => {
+    const world = makeWorld();
+    const farX = SECTOR_TILE_COLS * TILE_SIZE - TILE_SIZE - 200;
+    expect(nearestBreakableBarrier(world, farX, plugBandCentreY, 40)).toBeNull();
+
+    expect(clearBarrier(world, edgeIdFor(0, 0, 'east'))).toBe(true);
+    expect(nearestBreakableBarrier(world, justInsidePlugX, plugBandCentreY, 40)).toBeNull();
+  });
+
+  it('finds an interior pocket and stops finding it after it is cleared', () => {
+    const world = makeWorld();
+    const beside = {
+      x: (POCKET.tileX + POCKET.tileW) * TILE_SIZE + 20,
+      y: (POCKET.tileY + POCKET.tileH / 2) * TILE_SIZE,
+    };
+    const found = nearestBreakableBarrier(world, beside.x, beside.y, 40);
+    expect(found).not.toBeNull();
+    expect(found!.barrierId).toBe(POCKET.id);
+
+    expect(clearBarrier(world, POCKET.id)).toBe(true);
+    expect(nearestBreakableBarrier(world, beside.x, beside.y, 40)).toBeNull();
   });
 });

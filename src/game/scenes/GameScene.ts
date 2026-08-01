@@ -79,7 +79,8 @@ import {
 } from '../../world/spawnRing';
 import { beamReachFraction, projectileBlocked } from '../../world/weaponWallBehavior';
 import {
-  ABILITY_DOOR_OPEN_RADIUS, gatedDoorNearWorld, openAbilityGate, setBarrierEventSink,
+  ABILITY_DOOR_OPEN_RADIUS, clearBarrier, gatedDoorNearWorld, nearestBreakableBarrier,
+  openAbilityGate, setBarrierEventSink,
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
@@ -591,6 +592,16 @@ export class GameScene extends Phaser.Scene {
   private static readonly SEALED_DOOR_REANNOUNCE_SECONDS = 30;
   private sealedDoorNoticeEdgeId: string | null = null;
   private sealedDoorNoticeAt = 0;
+  /** Tight on purpose: PLAYER_COLLISION_RADIUS is 16, so a ship this close to a seam is
+   *  nose-first against it rather than merely passing by a sector border. */
+  private static readonly BREACH_CHARGE_PLANT_RADIUS = 40;
+  /** Doc 04 row 2's "placement delay". The fuse runs on gameTime and is deliberately not
+   *  cancelled when the ship leaves: a planted charge is planted. */
+  private static readonly BREACH_CHARGE_FUSE_SECONDS = 1.0;
+  private breachChargeBarrierId: string | null = null;
+  private breachChargeX = 0;
+  private breachChargeY = 0;
+  private breachChargeDetonatesAt = 0;
 
   /** Armed, not zeroed, so entering a strip costs a tick immediately: a 3-tile strip crossed
    *  at base speed would otherwise be free. */
@@ -1209,6 +1220,8 @@ export class GameScene extends Phaser.Scene {
     // these: a stale gameTime here suppresses the first sealed-door notice of the next run.
     this.sealedDoorNoticeEdgeId = null;
     this.sealedDoorNoticeAt = 0;
+    this.breachChargeBarrierId = null;
+    this.breachChargeDetonatesAt = 0;
     this.isGameOver = false;
     this.isPaused = false;
     // Scene restarts reuse this instance — a restart IS the flip's relayout,
@@ -5696,6 +5709,40 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Doc 04 section 2 row 2, the rubble half. The detonation hands the break to
+   * barrierEventSink rather than repeating its body, so a charged break and a projectile
+   * break persist, invalidate and sound exactly the same by construction.
+   */
+  private updateBreachCharges(map: WorldMap, playerX: number, playerY: number): void {
+    if (!this.ownedTraversalAbilityIds.has('ability_breach_charges')) return;
+
+    if (this.breachChargeBarrierId !== null) {
+      if (this.gameTime < this.breachChargeDetonatesAt) return;
+      const barrierId = this.breachChargeBarrierId;
+      this.breachChargeBarrierId = null;
+      if (clearBarrier(map, barrierId)) {
+        this.barrierEventSink.onBarrierBroken(this.breachChargeX, this.breachChargeY, barrierId);
+      }
+      return;
+    }
+
+    const target = nearestBreakableBarrier(
+      map, playerX, playerY, GameScene.BREACH_CHARGE_PLANT_RADIUS,
+    );
+    if (target === null) return;
+
+    this.breachChargeBarrierId = target.barrierId;
+    this.breachChargeX = target.x;
+    this.breachChargeY = target.y;
+    this.breachChargeDetonatesAt = this.gameTime + GameScene.BREACH_CHARGE_FUSE_SECONDS;
+    this.effectsManager.playHitSparks(target.x, target.y, Math.random() * Math.PI * 2);
+    this.effectsManager.showDamageNumber(
+      target.x, target.y - 20, 'BREACH', WORLD_GEOMETRY_COLORS.breakable.stroke,
+    );
+    this.soundManager.playUIClick();
+  }
+
+  /**
    * Doc 03 section 4.5's Metroid moment, delivered at the door instead of in a map tooltip:
    * a sealed door names what opens it the first time the ship comes near it.
    *
@@ -5845,6 +5892,7 @@ export class GameScene extends Phaser.Scene {
       this.updateSecretCaches(playerX, playerY);
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.tryOpenQuestDoor(map, playerX, playerY);
+      this.updateBreachCharges(map, playerX, playerY);
       this.reportSealedDoor(map, playerX, playerY);
     }
     this.updateHazardFloorDamage(map, playerX, playerY, deltaSeconds);

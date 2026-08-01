@@ -52,7 +52,7 @@ export const TRAVERSAL_ABILITIES: readonly TraversalAbilityDefinition[] = [
   {
     id: 'ability_breach_charges',
     name: 'Breach Charges',
-    description: 'Deployable charge that blows open rubble seams and false walls.',
+    description: 'Rubble seams collapse under a planted charge as the ship closes on them.',
     icon: 'bomb',
     barrierTypeId: 'barrier_cracked_wall',
     guardTier: 'elite',
@@ -166,6 +166,7 @@ export function traversalAbilityIndex(id: string): number {
  */
 export const IMPLEMENTED_TRAVERSAL_ABILITY_IDS: ReadonlySet<TraversalAbilityId> = new Set([
   'ability_blink_drive',
+  'ability_breach_charges',
   'ability_thermal_ward',
   'ability_signal_decryptor',
 ]);

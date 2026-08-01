@@ -30,7 +30,9 @@ import {
   oppositeDirection,
   tileIndex,
 } from './worldTypes';
-import type { EdgeDef, EdgeDirection, SectorDef, TileCoord, WorldMap } from './worldTypes';
+import type {
+  BreakableRect, EdgeDef, EdgeDirection, SectorDef, TileCoord, WorldMap,
+} from './worldTypes';
 import { SECTOR_HEIGHT, SECTOR_WIDTH } from './worldSpace';
 
 /** Player projectile impacts a structural barrier absorbs before it collapses. */
@@ -265,6 +267,96 @@ export function gatedDoorNearWorld(
       y: (band.minY + band.maxY) / 2,
     };
   }
+  return best;
+}
+
+/** True while any mouth tile of a breakable plug is still standing. */
+function plugStillIntact(sector: SectorDef, direction: EdgeDirection): boolean {
+  const edge = sector.edges[direction];
+  for (let axisIndex = edge.apertureStart; axisIndex <= edge.apertureEnd; axisIndex++) {
+    const { tileX, tileY } = mouthTileAt(direction, axisIndex);
+    if (sector.tiles[tileIndex(tileX, tileY)] === TileKind.Breakable) return true;
+  }
+  return false;
+}
+
+function pocketRectWorld(
+  sector: SectorDef, rect: BreakableRect,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const originX = sector.sx * SECTOR_WIDTH;
+  const originY = sector.sy * SECTOR_HEIGHT;
+  return {
+    minX: originX + rect.tileX * TILE_SIZE,
+    minY: originY + rect.tileY * TILE_SIZE,
+    maxX: originX + (rect.tileX + rect.tileW) * TILE_SIZE,
+    maxY: originY + (rect.tileY + rect.tileH) * TILE_SIZE,
+  };
+}
+
+function pocketStillIntact(sector: SectorDef, rect: BreakableRect): boolean {
+  for (let offsetY = 0; offsetY < rect.tileH; offsetY++) {
+    for (let offsetX = 0; offsetX < rect.tileW; offsetX++) {
+      const index = tileIndex(rect.tileX + offsetX, rect.tileY + offsetY);
+      if (sector.tiles[index] === TileKind.Breakable) return true;
+    }
+  }
+  return false;
+}
+
+export interface BreakableTarget {
+  /** Canonical barrier id: the edge id for a plug, the rect id for a pocket. */
+  barrierId: string;
+  /** Centre of the barrier's rect in world px, for the caller's effects. */
+  x: number;
+  y: number;
+}
+
+/**
+ * The nearest still-intact breakable barrier within radius, searched in the point's own
+ * sector only for the same reason gatedDoorNearWorld is: both sides of a plug stamp their
+ * own mouth band, so a ship near a shared seam is always near the band on its own side.
+ * An already-cleared plug or pocket is never returned, which is what stops a caller from
+ * re-arming forever on a hole it already opened.
+ */
+export function nearestBreakableBarrier(
+  world: WorldMap, x: number, y: number, radius: number,
+): BreakableTarget | null {
+  const sx = Math.floor(x / SECTOR_WIDTH);
+  const sy = Math.floor(y / SECTOR_HEIGHT);
+  const sector = sectorAt(world, sx, sy);
+  if (sector === undefined) return null;
+
+  let best: BreakableTarget | null = null;
+  let bestDistance = radius;
+
+  for (const direction of EDGE_DIRECTIONS) {
+    const edge = sector.edges[direction];
+    if (edge.kind !== EdgeKind.Breakable) continue;
+    if (!plugStillIntact(sector, direction)) continue;
+    const band = mouthBandRect(sector, direction, edge);
+    const distance = distanceToRect(x, y, band);
+    if (distance > bestDistance) continue;
+    bestDistance = distance;
+    best = {
+      barrierId: edgeIdFor(sector.sx, sector.sy, direction),
+      x: (band.minX + band.maxX) / 2,
+      y: (band.minY + band.maxY) / 2,
+    };
+  }
+
+  for (const rect of sector.breakables) {
+    if (!pocketStillIntact(sector, rect)) continue;
+    const box = pocketRectWorld(sector, rect);
+    const distance = distanceToRect(x, y, box);
+    if (distance > bestDistance) continue;
+    bestDistance = distance;
+    best = {
+      barrierId: rect.id,
+      x: (box.minX + box.maxX) / 2,
+      y: (box.minY + box.maxY) / 2,
+    };
+  }
+
   return best;
 }
 
