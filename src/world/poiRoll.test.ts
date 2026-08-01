@@ -10,7 +10,10 @@ function slots(kind: PoiKind, count: number, prefix = 's'): PoiSlot[] {
   }));
 }
 
-const BASE = { worldSeed: 20260727, runSalt: 7, depth: 0, oncePerRunAvailable: true };
+const BASE = {
+  worldSeed: 20260727, runSalt: 7, depth: 0,
+  oncePerRunAvailable: true, nemesisAvailable: false,
+};
 
 describe('rollPoiContents', () => {
   test('is deterministic for the same seed, salt and slots', () => {
@@ -53,6 +56,18 @@ describe('rollPoiContents', () => {
 
     const spent = rollPoiContents({ ...deep, oncePerRunAvailable: false });
     expect(spent.some(entry => entry.contentId === 'poi_black_market')).toBe(false);
+  });
+
+  test('a nemesis lair needs a live nemesis and never doubles up', () => {
+    const deep = { ...BASE, depth: 6, slots: slots(PoiKind.Treasure, 60) };
+    const salts = [1, 2, 3, 4, 5, 6, 7, 8];
+    const lairsPerSalt = (nemesisAvailable: boolean) => salts.map(runSalt =>
+      rollPoiContents({ ...deep, runSalt, nemesisAvailable })
+        .filter(entry => entry.contentId === 'poi_nemesis_lair').length);
+
+    expect(lairsPerSalt(false)).toEqual(salts.map(() => 0));
+    // Max 1, not "some salt has 1": it must be placeable AND never twice in one roll.
+    expect(Math.max(...lairsPerSalt(true))).toBe(1);
   });
 
   test('the depth bands gate the market to the deep world', () => {

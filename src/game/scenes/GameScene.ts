@@ -380,6 +380,16 @@ interface ActiveAmbushNest {
   waveEntityIds: number[];
 }
 
+interface ActiveNemesisLair {
+  graphics: Phaser.GameObjects.Graphics;
+  x: number;
+  y: number;
+  /** True once the hunter has been stood up here. An awake lair holds no entity id: the
+   *  nemesis is a serialized enemy that outlives a refresh on its own, so the kill is
+   *  matched by NemesisTag in handleEnemyDeath, never by a remembered id. */
+  awake: boolean;
+}
+
 // Pandemic: a poison death spreads to nearby enemies. pandemicSpread is a COUNT
 // of enemies infected (shop "Pandemic" 1-3 + "Pandemic Engine" relic +2), not a
 // radius -- so we query a fixed bloom radius here and cap infections to that count.
@@ -439,6 +449,16 @@ const AMBUSH_NEST_TRIGGER_RADIUS = 150;
 /** Where a woken nest's wave stands up, measured from the hive. */
 const AMBUSH_NEST_RING_RADIUS = 130;
 const AMBUSH_NEST_DRAW_RADIUS = 22;
+
+/** A lair is legible from across the room like a nest, and trips a touch further out because
+ *  what stands up is one large body rather than a ring the ship can thread. */
+const NEMESIS_LAIR_TRIGGER_RADIUS = 160;
+const NEMESIS_LAIR_DRAW_RADIUS = 26;
+const NEMESIS_LAIR_COLOR = 0xff2233;
+/** How long the hunter waits at home before giving up and coming to the player instead. Past
+ *  this the shipped 150 s timer fires as it always has and every dormant lair stands down, so
+ *  a player who never flies to the den still meets the nemesis. */
+const NEMESIS_LAIR_PATIENCE_SECONDS = 360;
 
 /** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
  *  toasts even when a single find jumps two of them. */
@@ -604,6 +624,9 @@ export class GameScene extends Phaser.Scene {
    *  per sector like a vault: a nest carries no per-profile state, so leaving the room must not
    *  reset a fight the player half-won. */
   private activeAmbushNests: ActiveAmbushNest[] = [];
+  /** The nemesis lair, expedition only and at most one per world per run. World-space and
+   *  run-scoped like a nest. */
+  private activeNemesisLairs: ActiveNemesisLair[] = [];
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
@@ -2538,6 +2561,9 @@ export class GameScene extends Phaser.Scene {
             nests: this.activeAmbushNests.map(nest => ({
               x: nest.x, y: nest.y, depth: nest.depth,
             })),
+            lairs: this.activeNemesisLairs.map(lair => ({
+              x: lair.x, y: lair.y, awake: lair.awake,
+            })),
           }
         : undefined,
       hazardState: getHazardState(),
@@ -2733,6 +2759,14 @@ export class GameScene extends Phaser.Scene {
       for (const nest of Array.isArray(state.poiState.nests) ? state.poiState.nests : []) {
         if (Number.isFinite(nest.x) && Number.isFinite(nest.y) && Number.isFinite(nest.depth)) {
           this.addAmbushNest(nest.x, nest.y, nest.depth);
+        }
+      }
+      // Never re-spawns a hunter: a NemesisTag enemy is serialized like any other and is
+      // restored by the entity pass, so a woken den comes back awake and empty and its only
+      // remaining job is the chest its kill pays.
+      for (const lair of Array.isArray(state.poiState.lairs) ? state.poiState.lairs : []) {
+        if (Number.isFinite(lair.x) && Number.isFinite(lair.y)) {
+          this.addNemesisLair(lair.x, lair.y, lair.awake === true);
         }
       }
     }
@@ -3790,6 +3824,10 @@ export class GameScene extends Phaser.Scene {
         color: 0xff6644,
         duration: 3200,
       });
+      // Killed at its den, so the den breaks open. The chest lands where the hunter fell, not
+      // at the lair: the leash drags a chasing nemesis across the world, so a chest at the den
+      // could be a reward the player never returns for.
+      if (this.breakOpenNemesisLair()) this.addTreasureChest(x, y, true, true);
     }
 
     // === TIERED DEATH EFFECTS ===
@@ -4483,6 +4521,7 @@ export class GameScene extends Phaser.Scene {
     this.clearSecretCaches();
     this.secretSectorKey = null;
     this.clearAmbushNests();
+    this.clearNemesisLairs();
     this.spawnedPoiSlotIds.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
@@ -4976,6 +5015,9 @@ export class GameScene extends Phaser.Scene {
       depth: sector.depth,
       slots: pending,
       oncePerRunAvailable: !this.poiOncePerRunSpawned,
+      nemesisAvailable: this.nemesisRecord !== null
+        && !this.nemesisSpawned
+        && this.activeNemesisLairs.length === 0,
     });
 
     for (const entry of rolled) {
@@ -5019,6 +5061,9 @@ export class GameScene extends Phaser.Scene {
         return;
       case 'poi_ambush_nest':
         this.addAmbushNest(x, y, depth);
+        return;
+      case 'poi_nemesis_lair':
+        this.addNemesisLair(x, y, false);
         return;
       case 'poi_shrine_cleanse':   this.addShrine('cleanse', x, y); return;
       case 'poi_shrine_power':     this.addShrine('power', x, y); return;
@@ -5148,6 +5193,113 @@ export class GameScene extends Phaser.Scene {
   private clearAmbushNests(): void {
     for (const nest of this.activeAmbushNests) nest.graphics.destroy();
     this.activeAmbushNests = [];
+  }
+
+  /** A dormant den on a Treasure slot. Alpha and a pulse only: nothing is added to physics and
+   *  no entity exists until the ship trips it. `awake` is a parameter because the restore path
+   *  rebuilds a woken den without re-spawning its hunter. */
+  private addNemesisLair(x: number, y: number, awake: boolean): void {
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    graphics.setDepth(4);
+    const lair: ActiveNemesisLair = { graphics, x, y, awake };
+    this.drawNemesisLair(lair);
+    this.activeNemesisLairs.push(lair);
+  }
+
+  /** The drawAmbushNest idiom in enemy crimson with inward barbs rather than outward spikes:
+   *  a den and a hive are different fights, so they must not read the same across a room. */
+  private drawNemesisLair(lair: ActiveNemesisLair): void {
+    const color = NEMESIS_LAIR_COLOR;
+    const graphics = lair.graphics;
+    graphics.clear();
+    graphics.setAlpha(lair.awake ? 1 : 0.55);
+    graphics.fillStyle(color, lair.awake ? 0.3 : 0.14);
+    graphics.fillCircle(0, 0, NEMESIS_LAIR_DRAW_RADIUS + 8);
+    graphics.lineStyle(3, color, lair.awake ? 1 : 0.7);
+    graphics.strokeCircle(0, 0, NEMESIS_LAIR_DRAW_RADIUS);
+    graphics.lineStyle(2, color, lair.awake ? 0.9 : 0.6);
+    graphics.strokeCircle(0, 0, NEMESIS_LAIR_DRAW_RADIUS - 9);
+    for (let barb = 0; barb < 6; barb++) {
+      const angle = (Math.PI * 2 * barb) / 6 - Math.PI / 2;
+      graphics.lineBetween(
+        Math.cos(angle) * NEMESIS_LAIR_DRAW_RADIUS,
+        Math.sin(angle) * NEMESIS_LAIR_DRAW_RADIUS,
+        Math.cos(angle) * (NEMESIS_LAIR_DRAW_RADIUS - 9),
+        Math.sin(angle) * (NEMESIS_LAIR_DRAW_RADIUS - 9),
+      );
+    }
+    graphics.fillStyle(lair.awake ? 0xffe8c0 : color, 0.9);
+    graphics.fillCircle(0, 0, 5);
+  }
+
+  /** The trip. The hunter is stood up AT the den through the shipped spawn path, so it arrives
+   *  with the same grudge scaling, boss bar, timeline marker and warning the timed spawn gives
+   *  it. A spawn that fails leaves the den dormant and the timer to handle it, so a failure is
+   *  a delay and never a dead room. */
+  private wakeNemesisLair(lair: ActiveNemesisLair): void {
+    if (!this.nemesisRecord || this.nemesisSpawned) return;
+    if (!this.spawnNemesis(this.nemesisRecord, { x: lair.x, y: lair.y })) return;
+    this.nemesisSpawned = true;
+    lair.awake = true;
+    this.drawNemesisLair(lair);
+
+    this.effectsManager.playDeathBurst(lair.x, lair.y, NEMESIS_LAIR_COLOR);
+    if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(220, 0.009);
+    this.soundManager.playBossWarning();
+    this.toastManager?.showToast({
+      title: 'THE LAIR STIRS',
+      description: 'It has been waiting for you.',
+      icon: 'skull',
+      color: NEMESIS_LAIR_COLOR,
+      duration: 3200,
+    });
+  }
+
+  /** Teardown only: the hunter is a real enemy the world's own teardown already owns. */
+  private clearNemesisLairs(): void {
+    for (const lair of this.activeNemesisLairs) lair.graphics.destroy();
+    this.activeNemesisLairs = [];
+  }
+
+  /** The timer beat the player to it, so the den is empty. Returns nothing: a stood-down lair
+   *  pays no chest, because the fight it was the price of never happened there. */
+  private standDownNemesisLairs(): void {
+    for (const lair of this.activeNemesisLairs) {
+      if (lair.awake) continue;
+      this.effectsManager.playDeathBurst(lair.x, lair.y, NEMESIS_LAIR_COLOR);
+      lair.graphics.destroy();
+    }
+    this.activeNemesisLairs = this.activeNemesisLairs.filter(lair => lair.awake);
+  }
+
+  /** The hunter fell. Returns true if a woken den was standing, so the caller pays the
+   *  guaranteed special chest that is the whole reason to take the fight at the den rather
+   *  than wait for the hunter to come to you. */
+  private breakOpenNemesisLair(): boolean {
+    const index = this.activeNemesisLairs.findIndex(lair => lair.awake);
+    if (index === -1) return false;
+    const lair = this.activeNemesisLairs[index];
+    this.effectsManager.playDeathBurst(lair.x, lair.y, NEMESIS_LAIR_COLOR);
+    lair.graphics.destroy();
+    this.activeNemesisLairs.splice(index, 1);
+    return true;
+  }
+
+  /** Trip test while dormant, pulse only once awake: a woken den holds no wave to watch, since
+   *  the hunter's death is matched in handleEnemyDeath. */
+  private updateNemesisLairs(playerX: number, playerY: number): void {
+    if (this.activeNemesisLairs.length === 0) return;
+    const pulse = 1 + Math.sin(this.gameTime * 2.3) * 0.09;
+    for (const lair of this.activeNemesisLairs) {
+      lair.graphics.setScale(pulse);
+      if (lair.awake) continue;
+      const dx = playerX - lair.x;
+      const dy = playerY - lair.y;
+      if (dx * dx + dy * dy < NEMESIS_LAIR_TRIGGER_RADIUS * NEMESIS_LAIR_TRIGGER_RADIUS) {
+        this.wakeNemesisLair(lair);
+      }
+    }
   }
 
   /** Trip test while dormant, liveness filter while awake. Iterated backwards because a clear
@@ -6091,6 +6243,7 @@ export class GameScene extends Phaser.Scene {
       this.syncSecretCaches(map, playerX, playerY);
       this.updateSecretCaches(playerX, playerY);
       this.updateAmbushNests(playerX, playerY);
+      this.updateNemesisLairs(playerX, playerY);
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.tryOpenQuestDoor(map, playerX, playerY);
       this.updateBreachCharges(map, playerX, playerY);
@@ -9728,21 +9881,27 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Fields the cross-run hunter once, at NEMESIS_SPAWN_TIME_SECONDS. Held back
-   * (rather than skipped) while the field is full, so a swarm at 2:30 delays the
-   * hunter instead of cancelling it.
+   * Fields the cross-run hunter once, at NEMESIS_SPAWN_TIME_SECONDS, or later, if a lair
+   * is standing and the patience window has not run out (the lair is the preferred
+   * arrival). Held back (rather than skipped) while the field is full, so a swarm at 2:30
+   * delays the hunter instead of cancelling it.
    */
   private checkNemesisSpawn(): void {
     if (this.nemesisSpawned || !this.nemesisRecord) return;
     if (this.gameTime < NEMESIS_SPAWN_TIME_SECONDS) return;
+    // A standing den holds the timer off: the hunter is at home and going there is the
+    // point. Past the patience window it stops waiting, and every empty den stands down.
+    if (this.gameTime < NEMESIS_LAIR_PATIENCE_SECONDS
+      && this.activeNemesisLairs.some(lair => !lair.awake)) return;
     if (this.enemyCount >= this.maxEnemies) return;
     this.nemesisSpawned = this.spawnNemesis(this.nemesisRecord);
+    if (this.nemesisSpawned) this.standDownNemesisLairs();
   }
 
   /**
-   * Spawns the run's nemesis at a screen edge. Scaling is applied AFTER
-   * createEnemy so time/world-level/curse scaling and any natural elite affix roll
-   * are already baked in and the grudge multiplies the finished enemy.
+   * Spawns the run's nemesis at a screen edge, or at a lair when one is given. Scaling is
+   * applied AFTER createEnemy so time/world-level/curse scaling and any natural elite affix
+   * roll are already baked in and the grudge multiplies the finished enemy.
    *
    * xpValue is floored at 30 on purpose: that is this codebase's miniboss test
    * (`handleEnemyDeath`'s loot tiers, the run-timeline 'bossDown' marker, and the
@@ -9750,12 +9909,12 @@ export class GameScene extends Phaser.Scene {
    * setpiece. Without the floor a nemesis built from a Shambler would silently
    * drop out of all three.
    */
-  private spawnNemesis(record: NemesisRecord): boolean {
+  private spawnNemesis(record: NemesisRecord, at?: { x: number; y: number }): boolean {
     const enemyType = getEnemyType(record.typeId);
     if (!enemyType) return false;
     this.recordRunTimelineEvent('miniboss');
 
-    const spawnPoint = this.pickSpawnRingPoint(MINIBOSS_SPAWN_RING);
+    const spawnPoint = at ?? this.pickSpawnRingPoint(MINIBOSS_SPAWN_RING);
     if (!spawnPoint) return false;
     const { x, y } = spawnPoint;
 
@@ -13361,6 +13520,7 @@ export class GameScene extends Phaser.Scene {
     this.clearSecretCaches();
     this.secretSectorKey = null;
     this.clearAmbushNests();
+    this.clearNemesisLairs();
     this.bountyText?.destroy();
     this.bountyText = null;
     this.sectorBannerText = null;

@@ -257,6 +257,18 @@ interface SerializedAmbushNest {
 }
 
 /**
+ * A nemesis lair. Unlike a nest's wave, the hunter itself is NOT skipped by serializeEntities
+ * (only VaultGuardTag and AmbushSpawnTag are), so it round-trips as a full enemy and a woken
+ * den must never re-spawn one on restore: it restores awake and empty, holding only the
+ * promise of the chest its kill pays.
+ */
+interface SerializedNemesisLair {
+  x: number;
+  y: number;
+  awake: boolean;
+}
+
+/**
  * Serialized expedition POI state. `runSalt` is what makes a slot's contents re-roll per run
  * but stay identical across a refresh; `spawnedSlotIds` is the run's memory of which slots
  * have already paid out, so a re-entered sector does not re-stock itself; `oncePerRunSpawned`
@@ -269,6 +281,8 @@ interface SerializedPoiState {
   oncePerRunSpawned: boolean;
   /** Absent on saves written before FEAT-POI-AMBUSH-NEST → no nests restored. */
   nests?: SerializedAmbushNest[];
+  /** Absent on saves written before FEAT-POI-NEMESIS-LAIR → no lair restored. */
+  lairs?: SerializedNemesisLair[];
 }
 
 /**

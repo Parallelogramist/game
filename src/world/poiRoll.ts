@@ -15,6 +15,12 @@ export interface PoiRollInput {
   slots: readonly PoiSlot[];
   /** False once a once-per-run content has already spawned somewhere in this world. */
   oncePerRunAvailable: boolean;
+  /**
+   * False unless the profile holds a nemesis that has not yet spawned this run and no lair
+   * is already standing. Live meta state the caller owns, kept out of this module so the
+   * roll stays pure and seeded, exactly as `oncePerRunAvailable` is.
+   */
+  nemesisAvailable: boolean;
 }
 
 export interface RolledPoi {
@@ -34,12 +40,14 @@ export interface RolledPoi {
 export function rollPoiContents(input: PoiRollInput): RolledPoi[] {
   const scale = depthBandScale(input.depth);
   let oncePerRunAvailable = input.oncePerRunAvailable;
+  let nemesisAvailable = input.nemesisAvailable;
   const rolled: RolledPoi[] = [];
 
   for (const slot of input.slots) {
     const candidates = POI_CONTENTS.filter(content =>
       content.slotKind === slot.kind &&
       (oncePerRunAvailable || content.oncePerRun !== true) &&
+      (nemesisAvailable || content.requiresNemesis !== true) &&
       effectiveWeight(content, scale) > 0);
     if (candidates.length === 0) continue;
 
@@ -48,6 +56,7 @@ export function rollPoiContents(input: PoiRollInput): RolledPoi[] {
     const picked = candidates[
       weightedPick(candidates.map(content => effectiveWeight(content, scale)), rng)];
     if (picked.oncePerRun === true) oncePerRunAvailable = false;
+    if (picked.requiresNemesis === true) nemesisAvailable = false;
     rolled.push({ slot, contentId: picked.id });
   }
 

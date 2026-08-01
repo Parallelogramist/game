@@ -13,6 +13,7 @@ export type PoiContentId =
   | 'poi_field_boost_cache'
   | 'poi_black_market'
   | 'poi_ambush_nest'
+  | 'poi_nemesis_lair'
   | 'poi_shrine_cleanse'
   | 'poi_shrine_power'
   | 'poi_shrine_fortune'
@@ -26,6 +27,12 @@ export interface PoiContentDefinition {
   weight: number;
   /** At most one of these spawns per world per run. */
   oncePerRun?: boolean;
+  /**
+   * Only offered while the caller reports a live nemesis and no lair already standing.
+   * A separate budget from `oncePerRun`, which is one shared world-wide slot the Black
+   * Market already claims.
+   */
+  requiresNemesis?: true;
 }
 
 /**
@@ -39,6 +46,7 @@ export const POI_CONTENTS: readonly PoiContentDefinition[] = [
   { id: 'poi_field_boost_cache', slotKind: PoiKind.Treasure, weight: 10 },
   { id: 'poi_black_market',      slotKind: PoiKind.Treasure, weight: 2, oncePerRun: true },
   { id: 'poi_ambush_nest',       slotKind: PoiKind.Treasure, weight: 15 },
+  { id: 'poi_nemesis_lair',      slotKind: PoiKind.Treasure, weight: 5, requiresNemesis: true },
   { id: 'poi_shrine_cleanse',    slotKind: PoiKind.Shrine,   weight: 3 },
   { id: 'poi_shrine_power',      slotKind: PoiKind.Shrine,   weight: 3 },
   { id: 'poi_shrine_fortune',    slotKind: PoiKind.Shrine,   weight: 2 },
