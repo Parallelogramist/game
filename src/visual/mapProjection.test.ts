@@ -4,6 +4,8 @@ import {
   clampMapView,
   edgeAnchor,
   gridBoundsOfCells,
+  mapPointToSector,
+  nextSectorInDirection,
   sectorCellRect,
   snapZoomLevel,
   worldPointToMap,
@@ -138,5 +140,51 @@ describe('gridBoundsOfCells', () => {
 
   test('an empty list has no bounds', () => {
     expect(gridBoundsOfCells([])).toBeNull();
+  });
+});
+
+describe('mapPointToSector', () => {
+  const CANDIDATES = [{ gridX: 0, gridY: 0 }, { gridX: 2, gridY: 0 }, { gridX: 0, gridY: 1 }];
+
+  test('a point inside a known cell hits that cell', () => {
+    expect(mapPointToSector(10, 10, ORIGIN_VIEW, 8, CANDIDATES)).toEqual({ gridX: 0, gridY: 0 });
+    expect(mapPointToSector(140, 30, ORIGIN_VIEW, 8, CANDIDATES)).toEqual({ gridX: 2, gridY: 0 });
+  });
+
+  test('a point in an unknown cell falls to the nearest known centre within the slop', () => {
+    // Cell (1,0) is not a candidate; (0,0)'s centre is 32,18 and (2,0)'s is 160,18.
+    expect(mapPointToSector(70, 18, ORIGIN_VIEW, 60, CANDIDATES)).toEqual({ gridX: 0, gridY: 0 });
+    expect(mapPointToSector(70, 18, ORIGIN_VIEW, 8, CANDIDATES)).toBeNull();
+  });
+
+  test('a non-finite point or a dead scale has no hit', () => {
+    expect(mapPointToSector(NaN, 10, ORIGIN_VIEW, 8, CANDIDATES)).toBeNull();
+    expect(mapPointToSector(10, 10, { originX: 0, originY: 0, scale: 0 }, 8, CANDIDATES))
+      .toBeNull();
+  });
+});
+
+describe('nextSectorInDirection', () => {
+  const CELLS = [
+    { gridX: 0, gridY: 0 }, { gridX: 1, gridY: 0 }, { gridX: 3, gridY: 0 },
+    { gridX: 0, gridY: 2 }, { gridX: 1, gridY: 1 },
+  ];
+
+  test('takes the nearest cell inside the cone and ignores the ones behind it', () => {
+    expect(nextSectorInDirection(0, 0, 'right', CELLS)).toEqual({ gridX: 1, gridY: 0 });
+    expect(nextSectorInDirection(3, 0, 'left', CELLS)).toEqual({ gridX: 1, gridY: 0 });
+    expect(nextSectorInDirection(0, 0, 'down', CELLS)).toEqual({ gridX: 1, gridY: 1 });
+  });
+
+  test('the cone edge is inclusive, so a pure diagonal is reachable', () => {
+    expect(nextSectorInDirection(0, 0, 'right', [{ gridX: 1, gridY: 1 }]))
+      .toEqual({ gridX: 1, gridY: 1 });
+    expect(nextSectorInDirection(0, 0, 'up', [{ gridX: 1, gridY: 1 }])).toBeNull();
+  });
+
+  test('an empty set, the current cell alone, or a non-finite origin has no next', () => {
+    expect(nextSectorInDirection(0, 0, 'right', [])).toBeNull();
+    expect(nextSectorInDirection(0, 0, 'right', [{ gridX: 0, gridY: 0 }])).toBeNull();
+    expect(nextSectorInDirection(NaN, 0, 'right', CELLS)).toBeNull();
   });
 });

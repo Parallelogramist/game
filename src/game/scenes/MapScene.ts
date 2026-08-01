@@ -4,20 +4,24 @@ import { buildSecretLead } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
-  GAMEPAD_BUTTON_Y, GamepadManager } from '../../input/GamepadManager';
+  GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT, GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP,
+  GamepadManager } from '../../input/GamepadManager';
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawPoiGlyph,
   drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
+import { buildSectorDetail } from '../../expedition/sectorDetail';
 import { poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
 import {
-  MAP_ZOOM_LEVELS, centerViewOn, clampMapView, gridBoundsOfCells, snapZoomLevel,
+  MAP_ZOOM_LEVELS, centerViewOn, clampMapView, gridBoundsOfCells, mapPointToSector,
+  nextSectorInDirection, snapZoomLevel,
 } from '../../visual/mapProjection';
-import type { GridBounds, MapViewTransform } from '../../visual/mapProjection';
+import type { GridBounds, GridCell, MapCursorDirection,
+  MapViewTransform } from '../../visual/mapProjection';
 import { sectorOfWorldPoint } from '../../world/worldSpace';
 import { EdgeKind, PoiKind } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
@@ -41,6 +45,12 @@ const HEADER_HEIGHT = 76;
 const FOOTER_HEIGHT = 44;
 /** Rows the LEADS panel draws before it collapses the rest into a count. */
 const MAX_LEAD_ROWS = 4;
+/** Fixed so the legend and the chart can be laid out once, at create time, against a bar
+ *  whose height never depends on which sector happens to be focused. */
+const DETAIL_BAR_HEIGHT = 104;
+/** How far a click or a hover may miss a cell and still focus it: about half a cell at the
+ *  0.5 zoom, where cells are 32x18. */
+const CURSOR_HIT_SLOP = 16;
 
 function leadDistance(lead: SecretLead, ship: { col: number; row: number }): number {
   const [sx, sy] = lead.sectorKey.split(',').map(Number);
@@ -71,6 +81,11 @@ export class MapScene extends Phaser.Scene {
   private leads: SecretLead[] = [];
   private hintedSectorKeys: ReadonlySet<string> = new Set();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
+  private knownCells: GridCell[] = [];
+  private focusedCell: GridCell | null = null;
+  private detailHeadlineText!: Phaser.GameObjects.Text;
+  private detailDoorsText!: Phaser.GameObjects.Text;
+  private detailRewardsText!: Phaser.GameObjects.Text;
 
   private panKeys!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key[]>;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -116,12 +131,10 @@ export class MapScene extends Phaser.Scene {
       + ` SECTORS EXPLORED`
       + `  ·  ${discovery.getCompletionPercent()}%`,
       { fontSize: 18, color: TEXT_COLORS.muted }).setDepth(2);
-    makeBodyText(this, width / 2, height - 48,
-      'RINGED DOORS ARE STILL SEALED   ·   FLY UP TO ONE TO LEARN ITS KEY',
-      { fontSize: 14, color: TEXT_COLORS.muted }).setDepth(2);
     makeBodyText(this, width / 2, height - 26,
-      'WASD / ARROWS PAN   +/- ZOOM   C CENTRE   M / ESC CLOSE',
-      { fontSize: 16, color: TEXT_COLORS.muted }).setDepth(2);
+      'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
+      + '   ·   HOVER OR TAP A SECTOR TO INSPECT   ·   M / ESC CLOSE',
+      { fontSize: 14, color: TEXT_COLORS.muted }).setDepth(2);
     const leadsPanelY = this.renderObjectivesPanel();
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
     this.leads = discovery.getHintedSecretIds()
@@ -137,15 +150,17 @@ export class MapScene extends Phaser.Scene {
     this.graphics.setDepth(1);
     this.mapRenderer = new SectorMapRenderer(this.graphics);
 
-    const knownCells: Array<{ gridX: number; gridY: number }> = [];
+    this.knownCells = [];
     for (const sector of this.mapData.sectors.values()) {
       if (discovery.getSectorFlags(sector.key) !== 0) {
-        knownCells.push({ gridX: sector.sx, gridY: sector.sy });
+        this.knownCells.push({ gridX: sector.sx, gridY: sector.sy });
       }
     }
     const shipSector = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
-    if (knownCells.length === 0) knownCells.push({ gridX: shipSector.col, gridY: shipSector.row });
-    this.bounds = gridBoundsOfCells(knownCells)
+    if (this.knownCells.length === 0) {
+      this.knownCells.push({ gridX: shipSector.col, gridY: shipSector.row });
+    }
+    this.bounds = gridBoundsOfCells(this.knownCells)
       ?? { minGX: shipSector.col, minGY: shipSector.row,
            maxGX: shipSector.col, maxGY: shipSector.row };
 
@@ -154,6 +169,12 @@ export class MapScene extends Phaser.Scene {
       shipSector.col, shipSector.row, MAP_ZOOM_LEVELS[this.zoomIndex],
       this.panelWidth(), this.panelHeight(),
     ));
+
+    this.renderDetailBar();
+    this.focusedCell = this.knownCells.find(
+      cell => cell.gridX === shipSector.col && cell.gridY === shipSector.row,
+    ) ?? this.knownCells[0] ?? null;
+    this.refreshDetail();
 
     const keyboard = this.input.keyboard;
     this.panKeys = {
@@ -184,9 +205,15 @@ export class MapScene extends Phaser.Scene {
       this.dragPointerId = pointer.id;
       this.dragLastX = pointer.x;
       this.dragLastY = pointer.y;
+      this.focusFromPointer(pointer);
     };
     this.pointerMoveHandler = (pointer) => {
-      if (pointer.id !== this.dragPointerId || !pointer.isDown) return;
+      if (pointer.id !== this.dragPointerId || !pointer.isDown) {
+        // Mouse hover: doc 03 section 4.5 rule 3 accepts cursor, tap OR hover, and hover is
+        // the one path that costs no key, no button and no touch target.
+        this.focusFromPointer(pointer);
+        return;
+      }
       this.panBy(pointer.x - this.dragLastX, pointer.y - this.dragLastY);
       this.dragLastX = pointer.x;
       this.dragLastY = pointer.y;
@@ -344,7 +371,7 @@ export class MapScene extends Phaser.Scene {
     const panelHeight = 36 + rows.length * rowHeight + 8;
     const panelX = this.scale.width - 24 - panelWidth;
     const panelY = Math.max(HEADER_HEIGHT + 12,
-      this.scale.height - FOOTER_HEIGHT - 16 - panelHeight);
+      this.scale.height - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT - 24 - panelHeight);
 
     this.add.rectangle(panelX, panelY, panelWidth, panelHeight, 0x0a1018, 0.9)
       .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
@@ -362,6 +389,63 @@ export class MapScene extends Phaser.Scene {
         .setOrigin(0, 0).setDepth(5);
       rowY += rowHeight;
     }
+  }
+
+  /**
+   * The readout. Three Text objects created once and re-set on focus change: rebuilding them
+   * per focus would churn GameObjects on every D-pad tap and every mouse move across the
+   * chart.
+   */
+  private renderDetailBar(): void {
+    const barX = 24;
+    const barWidth = this.scale.width - 48;
+    const barY = this.scale.height - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT;
+    const textWidth = barWidth - 28;
+
+    this.add.rectangle(barX, barY, barWidth, DETAIL_BAR_HEIGHT, 0x0a1018, 0.92)
+      .setOrigin(0, 0).setDepth(3).setStrokeStyle(1, 0x2b3a4d, 0.9);
+    this.detailHeadlineText = makeBodyText(this, barX + 14, barY + 12, '',
+      { fontSize: 17, align: 'left', wordWrapWidth: textWidth })
+      .setOrigin(0, 0).setDepth(4);
+    this.detailDoorsText = makeBodyText(this, barX + 14, barY + 40, '',
+      { fontSize: 13, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
+      .setOrigin(0, 0).setDepth(4);
+    this.detailRewardsText = makeBodyText(this, barX + 14, barY + 74, '',
+      { fontSize: 13, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
+      .setOrigin(0, 0).setDepth(4);
+  }
+
+  private refreshDetail(): void {
+    const discovery = getDiscoveryManager();
+    const detail = this.focusedCell ? buildSectorDetail({
+      map: this.mapData,
+      gridX: this.focusedCell.gridX,
+      gridY: this.focusedCell.gridY,
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
+      secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
+      holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
+      holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
+      hintedSectorKeys: this.hintedSectorKeys,
+    }) : null;
+
+    if (!detail) {
+      this.detailHeadlineText.setText('NO SECTOR SELECTED');
+      this.detailDoorsText.setText(
+        'HOVER OR TAP A CHARTED SECTOR, OR PUSH THE D-PAD, TO READ WHAT IT HOLDS');
+      this.detailRewardsText.setText('');
+      return;
+    }
+    this.detailHeadlineText.setText(
+      `${detail.headline.toUpperCase()}   ·   ${detail.place.toUpperCase()}`
+      + `   ·   SECTOR ${detail.sectorKey}`);
+    this.detailDoorsText.setText(detail.doors.length > 0
+      ? `DOORS   ${detail.doors.join('     ').toUpperCase()}`
+      : 'DOORS   NONE CHARTED HERE YET');
+    this.detailRewardsText.setText(detail.rewards.length > 0
+      ? `HOLDS   ${detail.rewards.join('     ').toUpperCase()}`
+      : 'HOLDS   NOTHING THE CHART KNOWS OF');
   }
 
   update(_time: number, delta: number): void {
@@ -385,6 +469,10 @@ export class MapScene extends Phaser.Scene {
       if (pad.justPressed(GAMEPAD_BUTTON_RB)) this.stepZoom(1);
       if (this.zoomOutArmed && pad.justPressed(GAMEPAD_BUTTON_LB)) this.stepZoom(-1);
       if (pad.justPressed(GAMEPAD_BUTTON_Y)) this.centreOnShip();
+      if (pad.justPressed(GAMEPAD_DPAD_UP)) this.moveCursor('up');
+      if (pad.justPressed(GAMEPAD_DPAD_DOWN)) this.moveCursor('down');
+      if (pad.justPressed(GAMEPAD_DPAD_LEFT)) this.moveCursor('left');
+      if (pad.justPressed(GAMEPAD_DPAD_RIGHT)) this.moveCursor('right');
       if (pad.justPressed(GAMEPAD_BUTTON_B) || pad.justPressed(GAMEPAD_BUTTON_START)) {
         this.close();
         return;
@@ -404,7 +492,9 @@ export class MapScene extends Phaser.Scene {
 
   private panelWidth(): number { return this.scale.width; }
 
-  private panelHeight(): number { return this.scale.height - HEADER_HEIGHT - FOOTER_HEIGHT; }
+  private panelHeight(): number {
+    return this.scale.height - HEADER_HEIGHT - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT;
+  }
 
   private panBy(deltaX: number, deltaY: number): void {
     this.setView({
@@ -436,6 +526,36 @@ export class MapScene extends Phaser.Scene {
       shipSector.col, shipSector.row, MAP_ZOOM_LEVELS[this.zoomIndex],
       this.panelWidth(), this.panelHeight(),
     ));
+    this.setFocus({ gridX: shipSector.col, gridY: shipSector.row });
+  }
+
+  private focusFromPointer(pointer: Phaser.Input.Pointer): void {
+    if (pointer.y < HEADER_HEIGHT) return;
+    if (pointer.y > this.scale.height - FOOTER_HEIGHT - DETAIL_BAR_HEIGHT) return;
+    const cell = mapPointToSector(
+      pointer.x, pointer.y, this.view, CURSOR_HIT_SLOP, this.knownCells,
+    );
+    if (cell) this.setFocus(cell);
+  }
+
+  private moveCursor(direction: MapCursorDirection): void {
+    if (!this.focusedCell) {
+      if (this.knownCells.length > 0) this.setFocus(this.knownCells[0]);
+      return;
+    }
+    const next = nextSectorInDirection(
+      this.focusedCell.gridX, this.focusedCell.gridY, direction, this.knownCells,
+    );
+    if (next) this.setFocus(next);
+  }
+
+  private setFocus(cell: GridCell): void {
+    if (this.focusedCell
+      && this.focusedCell.gridX === cell.gridX
+      && this.focusedCell.gridY === cell.gridY) return;
+    this.focusedCell = cell;
+    this.refreshDetail();
+    this.viewDirty = true;
   }
 
   /** Every view mutation funnels through the pure clamp: the scene never clamps itself. */
@@ -464,6 +584,7 @@ export class MapScene extends Phaser.Scene {
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       hintedSectorKeys: this.hintedSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,
+      focusedCell: this.focusedCell,
       poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
       secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),

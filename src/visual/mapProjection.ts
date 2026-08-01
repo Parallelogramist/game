@@ -177,3 +177,82 @@ export function gridBoundsOfCells(cells: ReadonlyArray<GridCell>): GridBounds | 
   }
   return bounds;
 }
+
+export type MapCursorDirection = 'up' | 'down' | 'left' | 'right';
+
+/**
+ * The cell a panel-space point lands in, or the nearest candidate centre within slopPx when
+ * it lands on the void. Candidates are the cells worth hitting (the profile's known
+ * sectors), so a tap on unexplored space can never focus a sector the player has not seen.
+ */
+export function mapPointToSector(
+  panelX: number, panelY: number, view: MapViewTransform, slopPx: number,
+  candidates: ReadonlyArray<GridCell>,
+): GridCell | null {
+  if (!Number.isFinite(panelX) || !Number.isFinite(panelY)) return null;
+  if (!Number.isFinite(view.originX) || !Number.isFinite(view.originY)) return null;
+  if (!Number.isFinite(view.scale) || view.scale <= 0) return null;
+
+  const cellWidth = MAP_BASE_CELL_WIDTH * view.scale;
+  const cellHeight = MAP_BASE_CELL_HEIGHT * view.scale;
+  const containingX = Math.floor((panelX - view.originX) / cellWidth);
+  const containingY = Math.floor((panelY - view.originY) / cellHeight);
+  const slop = Number.isFinite(slopPx) && slopPx > 0 ? slopPx : 0;
+
+  let nearest: GridCell | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const cell of candidates) {
+    if (!Number.isFinite(cell.gridX) || !Number.isFinite(cell.gridY)) continue;
+    if (cell.gridX === containingX && cell.gridY === containingY) {
+      return { gridX: containingX, gridY: containingY };
+    }
+    const rect = sectorCellRect(cell.gridX, cell.gridY, view);
+    const distance = Math.hypot(
+      panelX - (rect.x + rect.width / 2), panelY - (rect.y + rect.height / 2),
+    );
+    if (distance > slop) continue;
+    const closer = nearest === null || distance < nearestDistance - 1e-9;
+    const tied = nearest !== null && Math.abs(distance - nearestDistance) <= 1e-9
+      && (cell.gridY < nearest.gridY
+        || (cell.gridY === nearest.gridY && cell.gridX < nearest.gridX));
+    if (closer || tied) {
+      nearest = { gridX: cell.gridX, gridY: cell.gridY };
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
+
+/**
+ * The nearest candidate inside a 90 degree cone from the current cell: the D-pad model for
+ * the sector cursor. The cone edge is inclusive, so a pure diagonal is reachable from both
+ * of its two directions and no charted sector is stranded.
+ */
+export function nextSectorInDirection(
+  currentGridX: number, currentGridY: number,
+  direction: MapCursorDirection,
+  discoveredCells: ReadonlyArray<GridCell>,
+): GridCell | null {
+  if (!Number.isFinite(currentGridX) || !Number.isFinite(currentGridY)) return null;
+  let best: GridCell | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const cell of discoveredCells) {
+    if (!Number.isFinite(cell.gridX) || !Number.isFinite(cell.gridY)) continue;
+    const deltaX = cell.gridX - currentGridX;
+    const deltaY = cell.gridY - currentGridY;
+    if (deltaX === 0 && deltaY === 0) continue;
+    const inCone = direction === 'right' ? deltaX > 0 && Math.abs(deltaY) <= deltaX
+      : direction === 'left' ? deltaX < 0 && Math.abs(deltaY) <= -deltaX
+      : direction === 'down' ? deltaY > 0 && Math.abs(deltaX) <= deltaY
+      : deltaY < 0 && Math.abs(deltaX) <= -deltaY;
+    if (!inCone) continue;
+    const distance = deltaX * deltaX + deltaY * deltaY;
+    if (best === null || distance < bestDistance
+      || (distance === bestDistance
+        && (cell.gridY < best.gridY || (cell.gridY === best.gridY && cell.gridX < best.gridX)))) {
+      best = { gridX: cell.gridX, gridY: cell.gridY };
+      bestDistance = distance;
+    }
+  }
+  return best;
+}

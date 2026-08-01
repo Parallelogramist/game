@@ -20,6 +20,9 @@ const HIDDEN_FOUND_STROKE = WORLD_GEOMETRY_COLORS.breakable.stroke;
 const VISITED_FILL_ALPHA = 0.35;
 const CLEARED_NOTCH = 0x9dffb0;
 const PLAYER_MARKER = 0x66ccff;
+/** The focused-sector cursor. White is the one value no glyph in either table uses, so the
+ *  cursor always reads on top of whatever it is bracketing. */
+const CURSOR_STROKE = 0xffffff;
 const FALLBACK_TINT = 0x2a3a52;
 
 const DASH_LENGTH = 5;
@@ -172,6 +175,25 @@ export function drawCollectedCheck(
   graphics.lineBetween(x - size * 0.1, y + size * 0.55, x + size * 0.7, y - size * 0.6);
 }
 
+/** Four corner brackets, never a fill: shape rather than colour is this map's standing rule,
+ *  and brackets leave the cell's own icons readable underneath. */
+export function drawSectorCursor(
+  graphics: Phaser.GameObjects.Graphics,
+  x: number, y: number, width: number, height: number,
+): void {
+  const armX = Math.max(4, width * 0.28);
+  const armY = Math.max(3, height * 0.28);
+  graphics.lineStyle(2, CURSOR_STROKE, 1);
+  graphics.lineBetween(x, y, x + armX, y);
+  graphics.lineBetween(x, y, x, y + armY);
+  graphics.lineBetween(x + width - armX, y, x + width, y);
+  graphics.lineBetween(x + width, y, x + width, y + armY);
+  graphics.lineBetween(x, y + height - armY, x, y + height);
+  graphics.lineBetween(x, y + height, x + armX, y + height);
+  graphics.lineBetween(x + width - armX, y + height, x + width, y + height);
+  graphics.lineBetween(x + width, y + height - armY, x + width, y + height);
+}
+
 /**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
@@ -218,6 +240,8 @@ export interface SectorMapDrawInput {
   hintedSectorKeys: ReadonlySet<string>;
   /** Doors opened by a gain this run and not yet looked at. Empty on every ordinary open. */
   newlyPassableEdgeIds: ReadonlySet<string>;
+  /** The sector the readout is describing. Null when nothing is focused. */
+  focusedCell: { gridX: number; gridY: number } | null;
   /** Flags for a non-secret POI slot id. Predicate rather than a Map, matching holdsAbility:
    *  the renderer never learns where discovery state is stored. */
   poiFlagsOf: (poiId: string) => number;
@@ -292,6 +316,10 @@ export class SectorMapRenderer {
       this.drawDoors(sector.sx, sector.sy, input);
     }
 
+    if (input.focusedCell) {
+      const cell = sectorCellRect(input.focusedCell.gridX, input.focusedCell.gridY, input.view);
+      drawSectorCursor(graphics, cell.x, cell.y, cell.width, cell.height);
+    }
     this.drawPlayerMarker(input);
   }
 
