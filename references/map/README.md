@@ -182,6 +182,11 @@ again inside one life. Three consequences the implementing chunks must honor:
   damage, so recall is a decision made in a lull rather than a panic button. The exact
   friction (channel time, cooldown, gold cost, or none) is a tuning value owned by
   `FEAT-EXPEDITION-RECALL` and validated by a human in a browser.
+  **Shipped at `183b2dc`** as `TUNING.player.recallChannelSeconds = 3`, a channel
+  broken by any hit that actually lands and by a boss seal closing; the browser verdict is
+  `POLISH-EXPEDITION-RECALL`. The first bullet's streaming obligation was found to be moot:
+  this repo bounds its live set with the leash, not with sector activation, so a recall has
+  no sector to deactivate.
 
 The stranding guarantee doc 04 relies on is unchanged: recall is always *available*
 outside a lock, so physical stranding is impossible and a soft-lock reduces to a

@@ -631,6 +631,19 @@ precondition (the v1 loop in front of a player) was met when expedition became t
 default at `02c4b74`: do not re-derive that call, and do not treat the other section 6
 bullets as unblocked by it.
 
+**`183b2dc` gave the run a way home.** `GATE-EXPEDITION-RECALL` was answered on
+2026-07-27 and the item then sat blocked on `FEAT-WORLDGEN-STREAM`, which this session found
+was a stale dep: the repo bounds its live entity set with the leash, not with sector
+activation, so a teleport has nothing to deactivate and the counters stay flat by
+construction. RECALL now sits in the world map's footer (plus `R` and gamepad `X`), holds the
+ship for `TUNING.player.recallChannelSeconds` (3) seconds, breaks on any hit that actually
+lands or on a boss seal closing, and otherwise puts the ship at the hangar with the run still
+running and the save written on the spot. It is **blocked inside a sector lock** as a
+correctness rule rather than a balance taste, since teleporting out of a sealed room would
+strand the lock with the boss alive in it. The friction value is the one thing left for a
+human and is filed as `POLISH-EXPEDITION-RECALL` in the playtest queue; the reload case is
+filed as `CHORE-EXPEDITION-RECALL-CHANNEL-RESTORE`. No storage key and no version bump.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -669,6 +682,12 @@ of them a candidate: the operator-gated `BALANCE-SEASON-GATE-CARRYOVER`, plus
 top band and the map header do not have. It **adds two items to the candidate list** by
 discharging their only dep: `FEAT-SECRET-LORE-CATALOG-DEPTH` and
 `FEAT-QUEST-SWEEP-WORLD-RESET-TELL`.
+`FEAT-EXPEDITION-RECALL` has now shipped at `183b2dc` and filed one cut,
+`CHORE-EXPEDITION-RECALL-CHANNEL-RESTORE`, plus the playtest-queue item
+`POLISH-EXPEDITION-RECALL` its own entry mandated. It removes the last band-3 item that was
+reachable without `FEAT-WORLDGEN-STREAM`, so the remaining band-3 entries
+(`FEAT-QUEST-TRIGGERS-REST`'s two kinds, `FEAT-DISCOVERY-WRITE-PATHS`' fourth path) are all
+genuinely behind streaming now.
 `FEAT-ECON-WARDS` stays parked on its
 operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
 for the same reason the rest of the POI table is.
@@ -4629,17 +4648,50 @@ exploring pays is the end of Phase 5.
   your deterministic chain, which is a different confirmation from the one that shipped.
   Value: a world worth flying can be handed to someone else. Deps: none.
 
-- [ ] **FEAT-EXPEDITION-RECALL**: Recall to Hangar as a mid-run teleport, so a player can push
-  out, come home, refit and push out again inside one life (operator decision 2026-07-27).
-  Map-screen action; routes through the streaming activation path rather than moving the
-  Transform directly; fires `expedition:sector-entered` with `viaEdgeId: null`. Done when a
-  recall from any reachable sector arrives at the hangar with entity and sprite counters flat,
-  **is refused during a boss sector lock** (correctness: teleporting out of a sealed fight
-  strands the lock), survives a mid-run reload, and carries a friction knob (recommended
-  default: a short channel that breaks on damage) exposed as a single tuning constant. Deps:
-  `FEAT-WORLDGEN-STREAM`, `FEAT-MAPUI-MAPSCENE-04`, `FEAT-WORLD-SPACE-6`. Spec:
-  `references/map/README.md` section 4.1. Feel and price are unvalidated in a browser: file
-  `POLISH-EXPEDITION-RECALL` under `## Human gates` when it lands.
+- [x] **FEAT-EXPEDITION-RECALL** (done, 183b2dc): Recall to Hangar as a mid-run teleport,
+  so a player can push out, come home and push out again inside one life (operator decision
+  2026-07-27, GATE-EXPEDITION-RECALL). Value: a deep push is a round trip instead of a
+  commitment to die out there or fly all the way back.
+  1. **What shipped**: a RECALL button in the world map's footer (plus `R` and gamepad `X`),
+     `GameScene.beginExpeditionRecall()`, a `TUNING.player.recallChannelSeconds = 3` channel
+     ticked in `update()` ahead of `worldMode.update`, and `WorldModeAdapter.jumpViewTo`, whose
+     expedition implementation centres the camera, resyncs the grid, the trail buffer and the
+     geometry window, and nulls `currentSector`.
+  2. **The declared `FEAT-WORLDGEN-STREAM` dep was stale and is now discharged, do not
+     re-derive it.** There is no streaming activation path in this repo: the adapter derives
+     the current sector from the player container every frame, and the live entity set is
+     bounded by the leash (`LEASH_RADIUS`), never by the sector. `applyEnemyLeash`
+     **repositions** a drifted regular onto the new view ring instead of despawning it, so a
+     teleport creates and destroys nothing and the entry's "entity and sprite counters flat"
+     criterion holds by construction. Section 4.1's "leaks the departed sector's entities"
+     worry was written against an activation model this repo never built.
+  3. **`viaEdgeId: null` is bought by nulling `currentSector`, not by a special case.**
+     `enterSector` already reports null when there is no previous sector, so a recall that
+     happens to land next door cannot be mis-reported as having crossed the border it shares.
+     The cost is that a recall while already standing in the hangar re-fires
+     `expedition:sector-entered` for the same sector, which is the same event shape a restore
+     already produces, so nothing downstream is surprised by it.
+  4. **The channel is the whole friction and it breaks on real damage only.** The break sits
+     on the same line the flawless bounty breaks on, past the shield, dash-iframe, dodge and
+     phase branches, so an avoided hit is not a hit. A boss seal closing under a live channel
+     breaks it too, because `beginExpeditionRecall` refuses to start one inside a lock and
+     letting an in-flight one land would be the same escape. No gold cost and no cooldown:
+     which of the three is right is `POLISH-EXPEDITION-RECALL`'s question.
+  5. **Arrival saves immediately.** Autosave is a 30 s timer, so without the explicit
+     `saveGameState()` a reload seconds after arriving would resume the run at the departed
+     position. A reload DURING the channel cancels it (the countdown is scene state, like the
+     quest dwell timer): filed as `CHORE-EXPEDITION-RECALL-CHANNEL-RESTORE`.
+  6. **No refit, no return trip, no storage key**, no `SAVE_VERSION`, no `WORLDGEN_VERSION`
+     and no `DISCOVERY_VERSION` bump, so every existing profile gets the verb the moment the
+     build lands, and arena is unchanged by construction behind `ArenaModeAdapter`'s no-op
+     `jumpViewTo` and null `worldMap`.
+
+- [ ] **CHORE-EXPEDITION-RECALL-CHANNEL-RESTORE** (new 2026-08-01, from
+  FEAT-EXPEDITION-RECALL): a refresh mid-channel drops the recall and the player re-presses
+  it, because `recallChannelRemaining` is scene state and the run save carries no field for
+  it. Harmless (nothing is spent and nothing is owed), and the same shape as
+  `CHORE-QUEST-DWELL-RESTORE`, which is why it is filed rather than built: holding it means a
+  `GameSaveState` field for a 3 second timer. Deps: none.
 
 - [x] **FEAT-MAPUI-MAPSCENE-04** (done — 36844a0): the first visible payoff, a pannable and
   zoomable world map that fills in. What shipped end to end: **M** or gamepad **LB** in an
@@ -6388,8 +6440,11 @@ Never agent work. The fleet must not do any of these.
   revert cheap (one commit, 02c4b74, flips it back).
 
 - **GATE-EXPEDITION-RECALL** (EPIC-EXPEDITION): **answered 2026-07-27, recall is a mid-run
-  teleport, not a run ending.** Implemented by `FEAT-EXPEDITION-RECALL`. One knob is left for a
-  human: the friction on it. A free instant escape deletes the risk of travelling home wounded,
+  teleport, not a run ending.** Implemented by `FEAT-EXPEDITION-RECALL` at `183b2dc`, which
+  shipped the recommended default (a 3 second channel that breaks on damage) as
+  `TUNING.player.recallChannelSeconds`. The knob itself is still the human's and is now
+  filed as `POLISH-EXPEDITION-RECALL` in the playtest queue below. A free instant escape
+  deletes the risk of travelling home wounded,
   so the recommended default is a short channel that breaks on damage; whether that is right,
   or wants a cooldown or a gold price instead, is a browser call. Context:
   `references/map/README.md` section 4.1.
@@ -6399,6 +6454,14 @@ Never agent work. The fleet must not do any of these.
   never `git push` or add remotes. Publishing/store submission likewise.
 - **Playtest queue** (code complete; needs a human in a browser — agents must not retune
   blind):
+  - **POLISH-EXPEDITION-RECALL** (183b2dc): the friction knob
+    `GATE-EXPEDITION-RECALL` reserved for a human. Fly out five or six sectors and come home.
+    Owns: (a) is a 3 second channel that breaks on damage the right price, or does it want a
+    cooldown, a gold cost, or none at all; (b) does the charge collar around the ship read as
+    "hold still" without a HUD line; (c) does recall make deep pushes feel safe enough to be
+    boring; (d) does the footer RECALL button crowd the control hint on a phone (related:
+    `POLISH-MAP-DETAIL-BAR-PORTRAIT`). The knob is one constant, so any verdict is a
+    one-line change.
   - **POLISH-EXPEDITION-DEFAULT** (02c4b74) — **the promoted default's readiness pass, top
     of the queue.** Fly a full fresh run with no URL params. Owns: (a) **OQ-1 seam pop**
     (README section 4.2) — with the leash rather than streaming bounding the live set, do
