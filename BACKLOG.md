@@ -526,6 +526,37 @@ QuestGiver slot, roughly 24 per world, because `placePoiSlots` gives the start s
 coin-flip chance of holding one, so a hangar-only board could not be relied on to exist. No
 storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.
 
+**`FEAT-POI-HAZARD-DISCOVERY-MEMORY` shipped (e073884): a hive is a permanent feature of a room
+and the chart remembers it forever.** A hive used to be rolled per run: `rollPoiContents` seeds on
+`poi:${worldSeed}:${runSalt}:${slot.id}`, so the same Treasure slot was a hive this expedition and
+a crate the next, and the only record of where one stood was the run-scoped `activeAmbushNests`
+array that `resetInRunFeatureState()` clears, so `60e0e7f`'s chart readout and radar contact knew
+only the rooms THIS run had entered. Both halves ship together, because a remembered hive that
+re-rolls away is a chart that lies. Hive-ness is now drawn once per `(worldSeed, slot.id)` by
+`isStableAmbushNestSlot` and never re-drawn, while loot keeps re-rolling per run exactly as it
+did. The denominator is what keeps it run-independent: it is the slot kind's NOMINAL table weight
+at that depth, including `poi_black_market` and `poi_nemesis_lair` even when a run has already
+spent them, because a denominator moving with `oncePerRunAvailable` or `nemesisAvailable` would
+let hive-ness flip between expeditions, which is the exact thing being fixed. The measured
+consequence, filed as a play-gated cut rather than tuned here: the rate is now a constant 9.7% at
+depth 0 to 2, 15.5% at 3 to 5 and 20.9% at 6 or deeper, where it used to vary between those
+numbers and about 4.5 points higher once the market and the lair were spent. Walking in writes the
+new `PoiFlags.HAZARD_NEST` bit at the spawn site in `stockSectorPois`, not from a recomputed
+predicate in `revealOnSectorEntry`, so the chart can only ever claim a hive that actually spawned:
+one predicate, one source of truth. The focused-sector readout names the slot `Ambush nest`
+instead of `Cache` and suppresses the room-level line that would restate it, and the chart draws
+the slot as a stroked hexagon with a filled core in the hazard orange the world-space hive and the
+radar contact already read in. The nemesis lair is deliberately never remembered and never drawn
+on the chart: it is placed only while the profile holds an unspawned nemesis and at most once per
+world per run, so its room genuinely moves, and a persistent marker would be the lie stability was
+added to prevent. The radar is untouched by construction: hazard contacts are range-gated at
+`MINIMAP_WORLD_RANGE` (900 world px), so a remembered hive in another room is out of range and one
+in the room the ship is in is already drawn from run state. It closes `FEAT-MAPUI-HAZARD-GLYPH` as
+well, whose stated blocker had already been dissolved by `SectorMapDrawInput` carrying
+`poiFlagsOf`, and it unblocks `FEAT-QUEST-HAZARD-PIN`. No storage key, no `SAVE_VERSION`, no
+`WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump (widening a valid mask is backward compatible
+in both directions), so every existing profile lights it up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -533,8 +564,7 @@ storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
 `POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
 `POLISH-RADAR-WAYPOINT-LABEL`,
-`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, `FEAT-MAPUI-HAZARD-GLYPH` and
-`FEAT-POI-HAZARD-DISCOVERY-MEMORY` (the two the hazard contacts filed),
+`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`,
 plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`, and the
 two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TIMERS` and
 `CHORE-QUEST-DWELL-RESTORE`, plus the three the siege itself filed:
@@ -542,8 +572,9 @@ two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TI
 the one still-open of the two the distinct fold filed that need no worldgen change,
 `BALANCE-QUEST-CHART-TARGETS`, plus the play-gated `BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS` the
 world stamp filed, plus the play-gated `BALANCE-QUEST-HAZARD-TARGETS` the fourth chain filed.
-`FEAT-QUEST-HAZARD-PIN`, the other cut it filed, is blocked on
-`FEAT-POI-HAZARD-DISCOVERY-MEMORY`, so it is not a candidate.
+`FEAT-QUEST-HAZARD-PIN`, the other cut it filed, is now unblocked and a candidate:
+`FEAT-MAPUI-HAZARD-GLYPH` and `FEAT-POI-HAZARD-DISCOVERY-MEMORY` (the two the hazard contacts
+filed) both shipped at `e073884`, which also filed the play-gated `BALANCE-POI-NEST-STABLE-RATE`.
 `FEAT-QUEST-BOARD` has now shipped in full at `21925f3` (its other two deps were met at
 `0be97f5` and `6bfd119`), and filed three cuts of its own: the play-gated
 `BALANCE-QUEST-BOARD-DENSITY`, plus `FEAT-QUEST-BOARD-CLAIM` and `FEAT-QUEST-BOARD-NO-AUTOSEED`,
@@ -3230,7 +3261,7 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   waypoints and the secret shimmer, so a hazard contact is the natural home for it. Value: the
   choice to take the fight can be made from the chart rather than from the doorway. Deps: none.
 
-- [ ] **FEAT-MAPUI-HAZARD-GLYPH** (new 2026-08-01, from CHORE-AMBUSH-NEST-RADAR): the chart
+- [x] **FEAT-MAPUI-HAZARD-GLYPH** (done, e073884): the chart
   READOUT now names a dormant nest or lair, but the glyph layer still draws a plain chest for
   it, because `drawPoiIcons` calls `drawPoiGlyph(graphics, slot.kind, ...)` and both risk rooms
   are `PoiKind.Treasure`. Distinguishing them needs a per-slot override threaded into
@@ -3239,7 +3270,14 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   design pass rather than a bolt-on. Value: the risk room is visible at a glance instead of only
   when a sector is focused. Deps: none.
 
-- [ ] **FEAT-POI-HAZARD-DISCOVERY-MEMORY** (new 2026-08-01, from CHORE-AMBUSH-NEST-RADAR): the
+  **What shipped:** its stated blocker was wrong on both counts. `SectorMapDrawInput` already
+  carried `poiFlagsOf`, so a persisted flag needed no new input threaded through anything, and it
+  is ONE legend row rather than two because the lair is deliberately never drawn on the chart
+  (see `FEAT-POI-HAZARD-DISCOVERY-MEMORY` below). A remembered hive draws as a stroked hexagon
+  with a filled core in the hazard orange, keeping `poiGlyphs.ts`'s law intact: shape carries the
+  meaning, colour only groups the family.
+
+- [x] **FEAT-POI-HAZARD-DISCOVERY-MEMORY** (done, e073884) (new 2026-08-01, from CHORE-AMBUSH-NEST-RADAR): the
   chart names only the risk rooms THIS run has entered, because a nest or lair is rolled by
   `rollPoiContents` on first sector entry into `activeAmbushNests` / `activeNemesisLairs`, which
   `resetInRunFeatureState()` clears every run. Holding it across runs means a per-world record
@@ -3247,6 +3285,27 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   precedent (7d33979), and an answer for a re-rolled slot, since `poiRunSalt` re-rolls contents
   every run and a remembered hive may not be there next time. Value: planning a route around the
   fights you have already found. Deps: none.
+
+  **What shipped:** three settled calls. (1) The re-rolled-slot problem is answered by making the
+  placement stable rather than by making the memory tentative: `isStableAmbushNestSlot` draws
+  hive-ness once per `(worldSeed, slot.id)`, never off `poiRunSalt`, so a remembered hive is
+  still a hive next expedition while every other content keeps re-rolling per run. (2) The draw
+  uses the slot kind's NOMINAL table weight at that depth as its denominator, including entries a
+  run has already spent, because a denominator moving with `oncePerRunAvailable` or
+  `nemesisAvailable` would let hive-ness flip between runs, which is the exact thing stability
+  exists to stop. (3) The nemesis lair is deliberately NOT remembered and gets no chart glyph: it
+  is placed only while the profile holds an unspawned nemesis and at most once per world per run,
+  so its room genuinely moves, and a persistent marker would be the lie stability was added to
+  prevent. The lair keeps its run-scoped room-level readout line and its crimson radar contact.
+
+- [ ] **BALANCE-POI-NEST-STABLE-RATE** (new 2026-08-01, from FEAT-POI-HAZARD-DISCOVERY-MEMORY):
+  hive placement is now a fixed draw against the slot kind's NOMINAL table weight, so the
+  rate is a constant 9.7% shallow, 15.5% at depth 3 to 5 and 20.9% at depth 6, where it
+  used to vary with whether the run had already spent the market and the lair. Simulate
+  hives per run and per world at the live seed 20260727 against the pre-change mean of 3.7
+  and confirm the fixed rate has not thinned the loot table or thickened the fights. Value:
+  the risk axis of the reward economy is now a constant and should be measured as one.
+  Deps: none, but play-gated (needs the operator's read on how a stable hive map feels).
 
 - [ ] **BALANCE-POI-DENSITY**: measure what a full world actually pays now. `placePoiSlots`
   puts 1-3 random-kind slots in every one of ~48 sectors, so roughly half land on
@@ -5108,7 +5167,10 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   (`activeAmbushNests` / `activeNemesisLairs`) rather than the catalog, which is a second source
   for `buildQuestMarkers` and wants `FEAT-POI-HAZARD-DISCOVERY-MEMORY`'s per-world record first
   so the pin survives the room being left. Value: the objective that says "clear two hives"
-  points at the two hives you have already found. Deps: `FEAT-POI-HAZARD-DISCOVERY-MEMORY`.
+  points at the two hives you have already found. Deps: none (FEAT-POI-HAZARD-DISCOVERY-MEMORY
+  shipped at e073884). The per-world hive record it wanted now exists as `PoiFlags.HAZARD_NEST`
+  in the discovery store, so the marker feed can read discovery state rather than run-scoped
+  scene state, and the lair half stays out of scope because a lair is never remembered.
 
 - [x] **FEAT-QUEST-BOARD** (done, 21925f3): the remainder of quest surfacing after `FEAT-QUEST-VIEW` (5a0295d)
   shipped its HUD-line half and answered map surfacing with a text panel. Two pieces are left.
