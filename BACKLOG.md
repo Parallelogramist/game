@@ -894,6 +894,27 @@ to its copy half, because the store already accepts an arbitrary chosen seed),
 `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, and no econ surface, so
 `FEAT-ECON-WARDS` stays parked.
 
+**`429788e` made leaving a world reversible.** Fifteen sessions built an exploration layer on
+top of two single-slot stores: one discovery payload and one world profile, each discarded the
+moment the world being bound did not match its `(worldSeed, worldGenVersion)` pair. So every
+re-roll destroyed the chart, the found secrets, the open leads, the cleared vault guards, the
+broken walls and the conquest of the world just left, which made `bestWorldCompletionPercent` a
+record a player could only ever lose ground against and made `unlock_world_charted` at 100%
+unfinishable for anyone who ever pressed NEW WORLD. Both stores now read and write through one
+archive keyed on that same pair (new pure `src/expedition/worldArchive.ts`, 20 worlds, measured
+at 3.0 KB each fully explored), and the CHART dialog gains a fifth button that opens a second
+confirmation listing the three most recently banked worlds with their charts, their sectors,
+their secrets and a CONQUERED mark. **The legacy payload is migrated, never discarded, and that
+is the one invariant**: both sanitizers already reject a payload whose seed and generator
+version do not match, so the old single payload is presented under its own key and each
+caller's existing sanitizer decides, with no shape-sniffing. A returned-to world keeps the
+ordinal the player saw and leaves the history; a new world takes `max(currentIndex,
+max(banked.index)) + 1`, because a plain increment would hand two worlds the same `W4`. It
+discharges `FEAT-SEASON-BANKED-CONQUERED-MARK` in full, advances `FEAT-SEASON-BANKED-LIST-SURFACE`,
+and files `FEAT-SEASON-RETURN-FULL-LIST`, `BALANCE-SEASON-RETURN-FRICTION` and
+`CHORE-ARCHIVE-EVICTION-TELL`. No storage key and no version bump of any kind, and no econ
+surface, so `FEAT-ECON-WARDS` stays parked.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -4857,6 +4878,73 @@ exploring pays is the end of Phase 5.
      build lands.
   Value: the largest commitment in the game, retiring a charted world, becomes a decision
   with information behind it instead of a coin flip.
+
+- [x] **FEAT-SEASON-RETURN-TO-WORLD** (done, 429788e) (new 2026-08-01): banking a world stops
+  erasing it. `DiscoveryManager` and `WorldProfileStore` were each a single slot: one payload
+  under one key, discarded the moment the world being bound did not match its `(worldSeed,
+  worldGenVersion)` pair, so rolling the next world permanently destroyed the chart, the found
+  secrets, the open leads, the cleared vault guards, the broken walls and the conquest of the
+  world just left. Both now read and write through one archive keyed on that same pair, and the
+  CHART dialog gains a RETURN button that flies a banked world back exactly as it was.
+  Value: retiring a world at 78% stops being a permanent loss, so the 100% chase behind
+  `unlock_world_charted` is something a profile can actually finish.
+  1. **What shipped**: new pure `src/expedition/worldArchive.ts`
+     (`WORLD_ARCHIVE_VERSION`, `MAX_ARCHIVED_WORLDS = 20`, `worldArchiveKey`,
+     `readArchivedWorld`, `writeArchivedWorld`); both stores routed through it;
+     `bankSeasonAndRoll` renamed `bankSeasonAndSwitch` with return semantics;
+     `beginNextExpeditionSeason` renamed `switchExpeditionWorld`; `returnableWorlds` +
+     `RETURN_WORLD_CHOICE_COUNT = 3`; `describeBankedWorlds` in `expeditionWorld.ts`; a fifth
+     CHART button and a second confirmation listing the three most recently banked worlds.
+  2. **A payload written before the archive shipped is migrated, never discarded**, and that is
+     the one catastrophic failure this chunk could have caused. It needs **no shape-sniffing**:
+     both sanitizers already reject a payload whose `(worldSeed, worldGenVersion)` does not
+     match the world being bound, so the legacy payload is simply presented under its own key
+     and each caller's existing sanitizer decides. Pinned by `worldArchive.test.ts`.
+  3. **A returned-to world keeps the ordinal the player saw, and a new world never reuses one.**
+     Switching to a seed already in `banked` restores that row's `index` and removes the row;
+     switching to one that is not allocates `max(currentIndex, max(banked.index)) + 1`. A plain
+     `currentIndex + 1` would have handed two different worlds the same `W4`. The live world is
+     never a banked row: both the target seed and the current seed are filtered out before the
+     world being left is appended, so bouncing between two worlds cannot grow duplicate rows.
+  4. **The archive key is `<seed>:<gen>`, a string with a colon in it, deliberately.** Eviction
+     at the cap relies on JS object key insertion order, which integer-like keys do NOT obey, so
+     a bare numeric key would silently break the LRU. Written as a comment in the module.
+  5. **The cap is 20 because `MAX_BANKED_SEASONS` is 20**: remembering exactly the history the
+     dialog can show is what makes every row in it an honest offer. Measured, not estimated: a
+     **fully explored** world's discovery payload is **3.0 KB** (five seeds via `vite-node`,
+     194 to 208 ids, 2920 to 3074 bytes), so the whole archive is about 60 KB.
+  6. **Econ-neutral by construction**: no gold, no reward table, no relic roll, so
+     `FEAT-ECON-WARDS` stays parked and untouched. Returning to a world cannot re-farm anything
+     either: discovery flags are what came back, so a secret already found stays found, and
+     `markWorldConquered` returns false on a re-kill so `worldsConqueredTotal` counts distinct
+     worlds exactly as it did.
+  7. It **discharges `FEAT-SEASON-BANKED-CONQUERED-MARK` in full** (the banked rows carry a
+     conquest mark, read from `WorldProfileStore` with no world generated) and **advances but
+     does not close `FEAT-SEASON-BANKED-LIST-SURFACE`**: five rows are listed and three are
+     flyable, against the 20 `MAX_BANKED_SEASONS` allows, which still wants a scrolling panel.
+  8. **No storage key, no `SAVE_VERSION`, no `SEASON_STATE_VERSION`, no `WORLD_PROFILE_VERSION`,
+     no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump**, so every existing profile keeps
+     the world it is flying and gains the memory the moment the build lands.
+
+- [ ] **FEAT-SEASON-RETURN-FULL-LIST** (new 2026-08-01, from FEAT-SEASON-RETURN-TO-WORLD): the
+  return dialog offers the three most recently banked worlds and the CHART dialog lists five
+  rows, against the 20 `MAX_BANKED_SEASONS` keeps and the 20 the archive now remembers, because
+  the shared confirmation overlay's button row fits five buttons at 660 wide and no more. A
+  scrolling picker is a different widget from the confirmation card, which is why it is cut
+  rather than squeezed. Value: every world the profile still remembers is reachable, not only
+  the last three. Deps: none. Supersedes the remaining half of
+  `FEAT-SEASON-BANKED-LIST-SURFACE`.
+- [ ] **BALANCE-SEASON-RETURN-FRICTION** (new 2026-08-01, from FEAT-SEASON-RETURN-TO-WORLD):
+  returning is free. It costs the run, and it banks the live world's record, and nothing else,
+  so a player can bounce between two worlds every time one gets hard. Whether that reads as
+  freedom or as an exit from every consequence the map has, and whether a return should cost
+  anything at all, is a feel judgement that wants a browser and a player. Deps: play.
+- [ ] **CHORE-ARCHIVE-EVICTION-TELL** (new 2026-08-01, from FEAT-SEASON-RETURN-TO-WORLD): a
+  21st world silently evicts the oldest world's memory while its banked row survives, because
+  the row lives in `ExpeditionSeasonStore` and the memory lives in the archive, and only the
+  archive has a cap that bites. The row would then offer a return that arrives at a blank
+  chart. Both caps are 20 today so the two lists move together, but nothing enforces that they
+  stay equal. Value: a row never offers something the archive cannot give back. Deps: none.
 
 - [ ] **FEAT-SEASON-CHOICE-SEED-ENTRY** (new 2026-08-01, from FEAT-SEASON-WORLD-CHOICE): the
   store half of `FEAT-SEASON-SEED-SHARE` now exists. `beginNextExpeditionSeason(record,

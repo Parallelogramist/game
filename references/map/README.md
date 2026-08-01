@@ -292,6 +292,13 @@ first.
   (secret slots, treasure/shrine slots, deepest sector depth, deepest region). The first
   candidate is `rollNextExpeditionSeed` itself, so the deterministic chain above is what a
   player who always takes the first option still flies.
+  **Extended by `FEAT-SEASON-RETURN-TO-WORLD` (`429788e`, 2026-08-01):** banking a world no
+  longer erases it. `DiscoveryManager` and `WorldProfileStore` were single-slot and discarded
+  any payload whose `(worldSeed, worldGenVersion)` did not match the world being bound; both
+  now read and write through `src/expedition/worldArchive.ts`, one storage key holding up to
+  20 worlds under that same pair, and the CHART dialog can fly one of the three most recently
+  banked worlds back exactly as it was left. A payload written before the archive shipped is
+  filed under its own key rather than discarded, so no profile loses the world it is flying.
 - **Seed sharing.** The world is a pure function of a seed, so a shareable world code
   costs almost nothing and pairs with the existing daily-challenge and leaderboard
   systems.
