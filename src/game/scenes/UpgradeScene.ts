@@ -12,6 +12,8 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
+import { resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
@@ -77,6 +79,7 @@ export class UpgradeScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private cardNavigator: MenuNavigator | null = null;
   private cardScaleFactor: number = 1;
+  private menuScale: number = 1;
   private entranceComplete: boolean = false;
   private cardEntranceDone: boolean[] = [];
   private soundManager!: SoundManager;
@@ -144,6 +147,11 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width,
+      this.scale.height,
+      getSettingsManager().getUiScale(),
+    );
     this.cardEntries = [];
     this.utilityButtons = [];
     this.cardScaleFactor = 1;
@@ -167,17 +175,17 @@ export class UpgradeScene extends Phaser.Scene {
     const isWeaponMilestone = this.playerLevel > 0 && this.playerLevel % 5 === 0;
     const titleString = isWeaponMilestone ? 'WEAPON MILESTONE!' : 'LEVEL UP!';
     const titleColor = isWeaponMilestone ? ACCENT_COLORS_STR.primary : ACCENT_COLORS_STR.focus;
-    const title = makeDisplayText(this, this.scale.width / 2, 80, titleString, {
-      fontSize: 48,
+    const title = makeDisplayText(this, this.scale.width / 2, scaledInt(this.menuScale, 80), titleString, {
+      fontSize: scaledInt(this.menuScale, 48),
       color: titleColor,
-      strokeWidth: 6,
+      strokeWidth: scaledInt(this.menuScale, 6),
       letterSpacing: 3,
     });
     title.setDepth(1);
 
     const subtitleText = isWeaponMilestone ? 'Pick a new weapon!' : 'Choose an upgrade';
-    const subtitle = makeBodyText(this, this.scale.width / 2, 130, subtitleText, {
-      fontSize: 22,
+    const subtitle = makeBodyText(this, this.scale.width / 2, scaledInt(this.menuScale, 130), subtitleText, {
+      fontSize: scaledInt(this.menuScale, 22),
       color: isWeaponMilestone ? ACCENT_COLORS_STR.primary : TEXT_COLORS.muted,
     });
     subtitle.setDepth(1);
@@ -185,7 +193,7 @@ export class UpgradeScene extends Phaser.Scene {
     if (this.isLastWeaponSlot) {
       const warningCard = createMenuCard(this, {
         x: this.scale.width / 2,
-        y: 175,
+        y: scaledInt(this.menuScale, 175),
         width: 460,
         height: 50,
         bodyFillColor: BODY_COLORS.danger,
@@ -199,6 +207,7 @@ export class UpgradeScene extends Phaser.Scene {
         shadowAlpha: 0.4,
       });
       warningCard.container.setDepth(2);
+      warningCard.container.setScale(this.menuScale);
       const warningLabel = makeDisplayText(this, 0, this.weaponSlotsInfo ? -8 : 0,
         '⚠ FINAL WEAPON SLOT — Choose wisely!', {
           fontSize: 16,
@@ -305,16 +314,16 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private createUtilityButtons(): void {
-    const buttonY = this.scale.height - 60;
-    const buttonSpacing = 200;
+    const buttonY = this.scale.height - scaledInt(this.menuScale, 60);
+    const buttonSpacing = scaledInt(this.menuScale, 200);
     const startX = this.scale.width / 2 - buttonSpacing;
 
     // Discoverability: locking is only useful when a reroll can pin against it.
     if (this.canLock()) {
       const lockHint = makeBodyText(
-        this, this.scale.width / 2, buttonY - 40,
+        this, this.scale.width / 2, buttonY - scaledInt(this.menuScale, 40),
         '🔒 Click a card\'s lock — or [L] / pad ✗ — to keep it on reroll',
-        { fontSize: 13, color: TEXT_COLORS.muted },
+        { fontSize: scaledInt(this.menuScale, 13), color: TEXT_COLORS.muted },
       );
       lockHint.setDepth(10);
     }
@@ -363,11 +372,11 @@ export class UpgradeScene extends Phaser.Scene {
     const button = createMenuButton({
       scene: this,
       x, y,
-      width: 180,
-      height: 46,
+      width: scaledInt(this.menuScale, 180),
+      height: scaledInt(this.menuScale, 46),
       label,
       variant,
-      fontSize: 14,
+      fontSize: scaledInt(this.menuScale, 14),
       onActivate: () => {
         if (enabled) onClick();
       },
@@ -440,9 +449,9 @@ export class UpgradeScene extends Phaser.Scene {
     this.isBanishMode = !this.isBanishMode;
 
     if (this.isBanishMode) {
-      this.banishModeText = makeDisplayText(this, this.scale.width / 2, 215,
+      this.banishModeText = makeDisplayText(this, this.scale.width / 2, scaledInt(this.menuScale, 215),
         '🚫 BANISH MODE — Click an upgrade to remove it permanently', {
-          fontSize: 16,
+          fontSize: scaledInt(this.menuScale, 16),
           color: ACCENT_COLORS_STR.danger,
         });
       this.banishModeText.setDepth(20);
@@ -516,6 +525,7 @@ export class UpgradeScene extends Phaser.Scene {
       interactive: false,
     });
     confirmCard.container.setDepth(31);
+    confirmCard.container.setScale(this.menuScale);
 
     const banner = makeDisplayText(this, 0, confirmCard.bannerTopY + 18, opts.bannerLabel, {
       fontSize: 18,
@@ -541,13 +551,13 @@ export class UpgradeScene extends Phaser.Scene {
 
     const confirmButton = createMenuButton({
       scene: this,
-      x: centerX - 70,
-      y: centerY + 70,
-      width: 130,
-      height: 42,
+      x: centerX - scaledInt(this.menuScale, 70),
+      y: centerY + scaledInt(this.menuScale, 70),
+      width: scaledInt(this.menuScale, 130),
+      height: scaledInt(this.menuScale, 42),
       label: opts.confirmLabel,
       variant: 'danger',
-      fontSize: 15,
+      fontSize: scaledInt(this.menuScale, 15),
       onActivate: () => {
         this.destroyBanishConfirmation();
         opts.onConfirm();
@@ -560,13 +570,13 @@ export class UpgradeScene extends Phaser.Scene {
 
     const cancelButton = createMenuButton({
       scene: this,
-      x: centerX + 70,
-      y: centerY + 70,
-      width: 130,
-      height: 42,
+      x: centerX + scaledInt(this.menuScale, 70),
+      y: centerY + scaledInt(this.menuScale, 70),
+      width: scaledInt(this.menuScale, 130),
+      height: scaledInt(this.menuScale, 42),
       label: 'Cancel',
       variant: 'neutral',
-      fontSize: 15,
+      fontSize: scaledInt(this.menuScale, 15),
       onActivate: () => {
         this.soundManager.playUIClick();
         this.destroyBanishConfirmation();
@@ -593,6 +603,8 @@ export class UpgradeScene extends Phaser.Scene {
     const centerY = this.scale.height / 2;
     const rows = this.equippedWeapons;
     const cardHeight = 132 + rows.length * 46;
+    const scale = this.menuScale;
+    const scaledCardHeight = cardHeight * scale;
 
     this.pendingRefitUpgrade = newUpgrade;
     this.soundManager.playUIClick();
@@ -618,6 +630,7 @@ export class UpgradeScene extends Phaser.Scene {
       interactive: false,
     });
     pickerCard.container.setDepth(31);
+    pickerCard.container.setScale(scale);
 
     const banner = makeDisplayText(this, 0, pickerCard.bannerTopY + 18, 'REFIT: TRADE A WEAPON', {
       fontSize: 18,
@@ -635,17 +648,17 @@ export class UpgradeScene extends Phaser.Scene {
     pickerCard.frame.add(intro);
     this.refitElements.push(pickerCard.container);
 
-    const firstRowY = centerY - cardHeight / 2 + 118;
+    const firstRowY = centerY - scaledCardHeight / 2 + scaledInt(scale, 118);
     rows.forEach((weapon, index) => {
       const rowButton = createMenuButton({
         scene: this,
         x: centerX,
-        y: firstRowY + index * 46,
-        width: 360,
-        height: 40,
+        y: firstRowY + index * scaledInt(scale, 46),
+        width: scaledInt(scale, 360),
+        height: scaledInt(scale, 40),
         label: `[${index + 1}]  ${weapon.name}  ·  Lv ${weapon.level}`,
         variant: 'neutral',
-        fontSize: 15,
+        fontSize: scaledInt(scale, 15),
         onActivate: () => this.confirmRefit(index),
       });
       rowButton.container.setDepth(32);
@@ -657,12 +670,12 @@ export class UpgradeScene extends Phaser.Scene {
     const cancelButton = createMenuButton({
       scene: this,
       x: centerX,
-      y: centerY + cardHeight / 2 - 28,
-      width: 160,
-      height: 40,
+      y: centerY + scaledCardHeight / 2 - scaledInt(scale, 28),
+      width: scaledInt(scale, 160),
+      height: scaledInt(scale, 40),
       label: 'Cancel  [ESC]',
       variant: 'neutral',
-      fontSize: 15,
+      fontSize: scaledInt(scale, 15),
       onActivate: () => {
         this.soundManager.playUIClick();
         this.destroyRefitPicker();
@@ -756,16 +769,17 @@ export class UpgradeScene extends Phaser.Scene {
     const numRows = rows.length;
     const maxCardsInAnyRow = Math.max(...rows.map((row) => row.length));
     const baseMaxRowWidth = maxCardsInAnyRow * baseCardWidth + (maxCardsInAnyRow - 1) * baseCardSpacing;
-    const availableWidth = this.scale.width - horizontalMargin * 2;
-    let scaleFactor = Math.min(1, availableWidth / baseMaxRowWidth);
+    const availableWidth = this.scale.width - scaledInt(this.menuScale, horizontalMargin) * 2;
+    let scaleFactor = Math.min(this.menuScale, availableWidth / baseMaxRowWidth);
 
-    if (numRows > 1) {
-      const verticalMarginTop = 200;
-      const verticalMarginBottom = 110;
-      const availableHeight = this.scale.height - verticalMarginTop - verticalMarginBottom;
-      const baseTotalHeight = numRows * baseCardHeight + (numRows - 1) * baseRowSpacing;
-      scaleFactor = Math.min(scaleFactor, availableHeight / baseTotalHeight);
-    }
+    // The vertical clamp used to be a multi-row concern only. Once the density
+    // scale can push scaleFactor past 1 a single 340-unit row can also outgrow
+    // the band between the title and the utility buttons, so it always applies.
+    const verticalMarginTop = scaledInt(this.menuScale, 200);
+    const verticalMarginBottom = scaledInt(this.menuScale, 110);
+    const availableHeight = this.scale.height - verticalMarginTop - verticalMarginBottom;
+    const baseTotalHeight = numRows * baseCardHeight + (numRows - 1) * baseRowSpacing;
+    scaleFactor = Math.min(scaleFactor, availableHeight / baseTotalHeight);
 
     this.cardScaleFactor = scaleFactor;
     const cardWidth = baseCardWidth * scaleFactor;
@@ -845,7 +859,7 @@ export class UpgradeScene extends Phaser.Scene {
     });
     card.container.setDepth(2);
 
-    const textBoost = Math.min(1.2, 1 / this.cardScaleFactor);
+    const textBoost = Math.min(1.2, this.menuScale / this.cardScaleFactor);
     const halfH = height / 2;
     const halfW = width / 2;
 
