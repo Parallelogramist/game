@@ -578,9 +578,24 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   leaves. `chromeScale` is clamped by a 680-unit header budget, `gridScale` by
   `(height - 230 * chromeScale) / 238` so one whole card row always fits the band; both come
   from `resolveMenuFontScale` and both resolve to 1.0 on desktop. Grid geometry now lives in one
-  `gridMetrics()` helper instead of three hand-kept copies. Remaining: Codex, Achievement, Cards,
-  Leaderboard, Market, QuestBoard, Loadout, Map, Paint, MusicSettings, Credits and the
-  draft/select scenes, but see BUG-MARKET-VERTICAL-SATURATION before picking MarketScene.
+  `gridMetrics()` helper instead of three hand-kept copies.
+  **Batch 3 shipped (9df1c0d, fb6eb6d): the five pre-run funnel scenes.** PactSelectScene,
+  DirectorSelectScene, ThreatSelectScene, ModifierDraftScene and BlessingDraftScene were one
+  layout copied five times (same 44px title at y=54, same six lines of grid arithmetic, same
+  260x52 begin button at `height - 64`), so they now share `computeMenuCardGrid` in
+  `src/utils/HudScale.ts`. It resolves the circular part of the problem in one place (columns
+  depend on scale, scale depends on row count, row count depends on columns) and returns the
+  legacy geometry unchanged whenever `menuScale <= 1`. That early return is what makes desktop
+  byte-identical, structurally rather than arithmetically, and it is pinned by a test in
+  `src/utils/HudScale.test.ts`. The header and the begin button take `menuScale`: they are
+  single centered items with the whole canvas width to themselves, guarded by the new
+  `fitTextWidth` so a long title cannot overrun a 720-wide portrait canvas. The grid takes the
+  clamped `gridScale`, floored at 1 so a viewport that is already tight is never shrunk below
+  its design size (the same call batch 1 made in `computeGridLayout`). On a portrait phone the
+  six-card scenes drop from three columns to two and take the full 1.2x; on a landscape phone
+  they keep one row at 1.41x to 1.60x. Remaining: Codex, Achievement, Cards, Leaderboard,
+  QuestBoard, Loadout, Map, Paint, MusicSettings, Credits, but see
+  BUG-MARKET-VERTICAL-SATURATION before picking MarketScene.
 - [ ] **BUG-WEAPON-GRID-OVERFLOW** (found 2026-08-01 by POLISH-MENU-DENSITY batch 1). Value: with a
   full codex the pre-run weapon step lays 29 cards into 7 columns x 5 rows = 956 units of grid in a
   720-unit-tall canvas, so `computeGridLayout` returns `startY = -88`
@@ -607,6 +622,22 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   does. It is one shared widget rather than a per-scene fix, which is why it is filed separately
   from the sweep. Low urgency: tooltips need hover, so they are effectively desktop-only today,
   and this only matters once a touch path opens them.
+- [ ] **BUG-PACT-GRID-HEADER-OVERLAP** (found 2026-08-01 by POLISH-MENU-DENSITY batch 3). Value: at
+  desktop 1280x720 the eight pacts wrap to 5 + 3, and `computeMenuCardGrid`'s legacy path
+  reproduces the pre-sweep anchor exactly: `firstRowY` 223 with a 230-tall card puts the first
+  row's top edge at y=108, above the `NONE SELECTED` counter line at y=132, so the counter is
+  painted over the top of the first card row. Not a density bug: it reproduces at design scale
+  on desktop, and batch 3 deliberately preserved it byte-identically rather than fixing it
+  under cover of a scaling change. Fix needs a layout call the operator owns: move the counter,
+  shorten the pact card, or let the grid start below the header and accept a shorter last row.
+  Repro: open the pact step on desktop 1280x720 with all 8 pacts.
+- [ ] **POLISH-FUNNEL-PACT-SATURATION** (found 2026-08-01 by POLISH-MENU-DENSITY batch 3). Value:
+  PactSelectScene is the one funnel scene the density batch barely helps: 8 cards of 218 units
+  saturate both axes, so it resolves to 1.02x in portrait (3 columns, width-bound at 704 of 720
+  units) and 1.061x in landscape (one row of 8, width-bound at 1984 of 2000), against 1.2x /
+  1.41-1.60x for the four six-card scenes. Its card text stays near phone-tiny. Everything
+  cheap has been taken; going further needs a layout call the operator owns: a shorter pact
+  card, a scrollable grid, or paging the eight pacts. Do not retune the scale constants blind.
 - [ ] **BUG-HUD-FIXES**. Four HUD correctness fixes in
   `src/game/managers/HUDManager.ts`: (1) event-countdown bar fill uses unscaled
   `180 - 16` while the track was created scaled (`:1731` vs `:1634-1636`), so on
@@ -9564,7 +9595,7 @@ Never agent work. The fleet must not do any of these.
     scaling the whole card rather than one half feel wrong when tapping a half; (f) with
     PARALLELOGRAMIST and LEGAL moved into CREDITS, are they still findable, or does the site
     link want to stay on the main menu.
-  - **POLISH-MENU-DENSITY** (ec0b3cb, 21d358c, 41f3d3a): the menu density sweep, filed once for the
+  - **POLISH-MENU-DENSITY** (ec0b3cb, 21d358c, 41f3d3a, 9df1c0d, fb6eb6d): the menu density sweep, filed once for the
     whole sweep as the item asks. Batch 1 covers the pre-run picker (stage, ship, weapon steps) and
     the level-up cards. Open both on a phone in each orientation. Owns: (a) are weapon descriptions
     and level-up card text legible at arm's length now, and is 1.6x landscape / 1.2x portrait the
@@ -9583,6 +9614,17 @@ Never agent work. The fleet must not do any of these.
     pills without clipping at the screen edge; (k) the HANGAR ship preview is now skipped on any
     density-scaled viewport, not just below 1280 wide: is losing it on a landscape phone the
     right trade; (l) the ASCEND confirm modal, which only appears at the ascension threshold.
+    Batch 3 adds the five pre-run funnel scenes (pact, directive, threat, modifier draft,
+    blessing draft): (m) walk the whole funnel on a phone in both orientations: is the card text
+    legible at arm's length now, and do the five steps read as one consistent screen or as five
+    differently-sized ones; (n) in portrait the six-card scenes drop from three columns to two to
+    buy 1.2x: is a taller, scroll-free two-column grid better than three columns that fit on one
+    screen; (o) on a landscape phone the header takes the full 1.6x while the grid is clamped to
+    1.41-1.47x by the band the header leaves: does the header read as oversized beside the cards,
+    and would capping it buy more useful card size; (p) PactSelectScene is stuck at ~1.02-1.06x
+    (see POLISH-FUNNEL-PACT-SATURATION): does it now look conspicuously smaller than the four
+    scenes around it in the same funnel; (q) does anything on desktop look different from before
+    (it should not: every non-density viewport takes the legacy path by construction).
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
