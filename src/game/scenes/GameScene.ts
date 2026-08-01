@@ -539,6 +539,13 @@ const ESCORT_DRONE_COLOR = 0x66ccff;
 /** The drone can be off-camera inside its 900 px tether, so the ring alone is not enough: one
  *  toast says it is under fire, rate-limited so a running fight beside it cannot spam the queue. */
 const ESCORT_DRONE_ALERT_COOLDOWN_SECONDS = 20;
+/** The player's own projectile hit radius (updateEnemyProjectiles tests distSq < 400 against the
+ *  ship), borrowed so a shot lands on the drone the way it lands on you. */
+const ESCORT_DRONE_PROJECTILE_HIT_RADIUS = 20;
+/** Contact already suppresses regen while it lasts; a projectile has no duration, so it suppresses
+ *  it for a window instead. Without this a lone Shooter's 6 dps loses to a 3 hp/s regen that
+ *  resumes the same frame and being shot would cost the drone nothing. */
+const ESCORT_DRONE_PROJECTILE_REGEN_LOCKOUT_SECONDS = 2;
 
 /** The board's own amber: a crate reads as quest freight, not as a secret (breakable amber) and
  *  not as a vault (violet). */
@@ -748,6 +755,7 @@ export class GameScene extends Phaser.Scene {
   private escortDroneNextDamageAtSeconds = 0;
   private escortDroneUnderFire = false;
   private escortDroneNextAlertAtSeconds = 0;
+  private escortDroneRegenBlockedUntilSeconds = 0;
   /** The crate a previous run left behind, while the ship is in the room holding it. Derived
    *  from the quest store like the drone above, never persisted here. */
   private questCargoDrop: {
@@ -5925,6 +5933,7 @@ export class GameScene extends Phaser.Scene {
     this.escortDroneNextDamageAtSeconds = 0;
     this.escortDroneUnderFire = false;
     this.escortDroneNextAlertAtSeconds = 0;
+    this.escortDroneRegenBlockedUntilSeconds = 0;
     this.drawEscortDrone();
     this.toastManager?.showToast({
       title: 'ESCORT UNDER WAY',
@@ -5983,7 +5992,7 @@ export class GameScene extends Phaser.Scene {
         this.escortDroneNextDamageAtSeconds = this.gameTime + ESCORT_DRONE_DAMAGE_INTERVAL_SECONDS;
         drone.health -= attackers * ESCORT_DRONE_DAMAGE_PER_ATTACKER;
       }
-    } else {
+    } else if (this.gameTime >= this.escortDroneRegenBlockedUntilSeconds) {
       drone.health = Math.min(
         ESCORT_DRONE_MAX_HEALTH,
         drone.health + ESCORT_DRONE_REGEN_PER_SECOND * deltaSeconds,
@@ -6016,6 +6025,20 @@ export class GameScene extends Phaser.Scene {
     const sector = map.sectors.get(key);
     if (!sector) return;
     this.recordExpeditionQuest({ kind: 'escortDrone', sectorTags: sectorTagsOf(sector) });
+  }
+
+  /** The drone's only ranged damage path. Separate from the contact billing above on purpose: a
+   *  hit is instantaneous, so it blocks regen for a window rather than for as long as it lasts,
+   *  and BALANCE-QUEST-ESCORT-DRONE's contact numbers are left exactly as shipped. */
+  private damageEscortDroneByProjectile(damage: number, hitX: number, hitY: number, travelAngle: number): void {
+    const drone = this.escortDrone;
+    if (!drone) return;
+    drone.health -= damage;
+    this.escortDroneRegenBlockedUntilSeconds =
+      this.gameTime + ESCORT_DRONE_PROJECTILE_REGEN_LOCKOUT_SECONDS;
+    this.effectsManager.playHitSparks(hitX, hitY, travelAngle);
+    this.drawEscortDrone();
+    if (drone.health <= 0) this.loseEscortDrone();
   }
 
   /** Fail-and-retry, never fail-forever (doc 04 section 4): the flag is cleared and nothing the
@@ -6074,6 +6097,7 @@ export class GameScene extends Phaser.Scene {
     this.escortDroneNextDamageAtSeconds = 0;
     this.escortDroneUnderFire = false;
     this.escortDroneNextAlertAtSeconds = 0;
+    this.escortDroneRegenBlockedUntilSeconds = 0;
     clearEnemyDecoy();
   }
 
@@ -7629,6 +7653,24 @@ export class GameScene extends Phaser.Scene {
 
         if (distSq < 400) { // 20 * 20
           this.takeDamage(proj.damage, undefined, 'Enemy Fire');
+          shouldRemove = true;
+        }
+      }
+
+      // The escort drone is solid to enemy fire (FEAT-DECOY-RANGED-INTEREST). Null outside the
+      // expedition, so every other mode skips this on the first read.
+      const escortDrone = this.escortDrone;
+      if (!shouldRemove && escortDrone) {
+        const droneDx = escortDrone.x - proj.sprite.x;
+        const droneDy = escortDrone.y - proj.sprite.y;
+        if (droneDx * droneDx + droneDy * droneDy
+            < ESCORT_DRONE_PROJECTILE_HIT_RADIUS * ESCORT_DRONE_PROJECTILE_HIT_RADIUS) {
+          this.damageEscortDroneByProjectile(
+            proj.damage,
+            proj.sprite.x,
+            proj.sprite.y,
+            Math.atan2(proj.vy, proj.vx),
+          );
           shouldRemove = true;
         }
       }

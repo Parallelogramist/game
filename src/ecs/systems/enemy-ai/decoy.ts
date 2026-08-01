@@ -18,16 +18,17 @@ export const DECOY_PLAYER_GUARD_RADIUS = 200;
 export const DECOY_MAX_FOLLOWERS = 4;
 
 /**
- * The regular AI types whose entire attack is walking into their target, and therefore the only
- * ones a decoy can honestly redirect. Every exclusion is deliberate: Circle orbits at a standoff
- * and would ring the drone without entering the 60 px billing radius; Shooter and Sniper fire
- * projectiles that cannot damage the drone at all, so retargeting them would delete them from the
- * fight; Healer flees its target; Teleporter's whole read is blinking next to the ship; Giant and
- * Warden deal telegraphed AOE the drone is not solid to; a Wraith is intangible and harmless for
- * half of its cycle; Rallier buffs its own allies rather than touching anything. Minibosses and
- * bosses (aiType >= 50) are absent on purpose: an escort must never be able to pull a boss.
+ * The regular AI types a decoy can honestly redirect: every type whose attack can actually reach
+ * the drone. The melee family walks into its target; Shooter and Sniper fire pooled enemy
+ * projectiles, which the drone is solid to since FEAT-DECOY-RANGED-INTEREST, so aiming them at it
+ * is a real threat rather than deleting them from the fight. Every exclusion is deliberate: Circle
+ * orbits at a standoff and has no attack at all; Healer flees its target; Teleporter's whole read
+ * is blinking next to the ship; Giant and Warden deal telegraphed AOE the drone is still not solid
+ * to (FEAT-DECOY-AOE-INTEREST); a Wraith is intangible and harmless for half of its cycle; Rallier
+ * buffs its own allies rather than touching anything. Minibosses and bosses (aiType >= 50) are
+ * absent on purpose: an escort must never be able to pull a boss.
  */
-export const DECOY_CHASER_AI_TYPES: ReadonlySet<EnemyAIType> = new Set([
+export const DECOY_AGGRO_AI_TYPES: ReadonlySet<EnemyAIType> = new Set([
   EnemyAIType.Chase,
   EnemyAIType.Zigzag,
   EnemyAIType.Dash,
@@ -39,6 +40,8 @@ export const DECOY_CHASER_AI_TYPES: ReadonlySet<EnemyAIType> = new Set([
   EnemyAIType.Lurker,
   EnemyAIType.Ghost,
   EnemyAIType.SplitterMini,
+  EnemyAIType.Shooter,
+  EnemyAIType.Sniper,
 ]);
 
 const decoyPoint = { x: 0, y: 0 };
@@ -94,7 +97,7 @@ export function updateDecoyFollowers(
     const toPlayerY = enemyY - playerY;
     if (toPlayerX * toPlayerX + toPlayerY * toPlayerY <= guardRadiusSq) continue;
 
-    if (!DECOY_CHASER_AI_TYPES.has(EnemyAI.aiType[enemyId])) continue;
+    if (!DECOY_AGGRO_AI_TYPES.has(EnemyAI.aiType[enemyId])) continue;
 
     insertFollower(enemyId, decoyDistSq);
   }

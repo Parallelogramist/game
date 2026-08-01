@@ -63,13 +63,22 @@ describe('updateDecoyFollowers', () => {
     expect(isDecoyFollower(chaser)).toBe(false);
   });
 
-  test('ranged and boss types never break off, however close they are', () => {
+  test('non-attacking and boss types never break off, however close they are', () => {
     setEnemyDecoy(DECOY_X, DECOY_Y);
-    const sniper = makeEnemy(DECOY_X + 10, DECOY_Y, EnemyAIType.Sniper);
+    const orbiter = makeEnemy(DECOY_X + 10, DECOY_Y, EnemyAIType.Circle);
     const healer = makeEnemy(DECOY_X + 12, DECOY_Y, EnemyAIType.Healer);
     const boss = makeEnemy(DECOY_X + 14, DECOY_Y, EnemyAIType.HordeKing);
-    updateDecoyFollowers([sniper, healer, boss], PLAYER_X, PLAYER_Y);
+    updateDecoyFollowers([orbiter, healer, boss], PLAYER_X, PLAYER_Y);
     expect(getDecoyFollowerCount()).toBe(0);
+  });
+
+  test('a ranged hostile near the decoy and away from the ship breaks off to shoot it', () => {
+    setEnemyDecoy(DECOY_X, DECOY_Y);
+    const sniper = makeEnemy(DECOY_X + 100, DECOY_Y, EnemyAIType.Sniper);
+    const shooter = makeEnemy(DECOY_X + 120, DECOY_Y, EnemyAIType.Shooter);
+    updateDecoyFollowers([sniper, shooter], PLAYER_X, PLAYER_Y);
+    expect(isDecoyFollower(sniper)).toBe(true);
+    expect(isDecoyFollower(shooter)).toBe(true);
   });
 
   test('only the nearest DECOY_MAX_FOLLOWERS hold the decoy', () => {

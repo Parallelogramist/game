@@ -57,7 +57,7 @@ export {
   DECOY_AGGRO_RADIUS,
   DECOY_PLAYER_GUARD_RADIUS,
   DECOY_MAX_FOLLOWERS,
-  DECOY_CHASER_AI_TYPES,
+  DECOY_AGGRO_AI_TYPES,
 } from './decoy';
 
 // Miniboss behaviors, one module per handler
