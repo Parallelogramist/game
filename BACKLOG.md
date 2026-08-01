@@ -484,7 +484,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   reads `COLLECT` (8 characters is the row's fitting maximum) while the overlay title reads
   `COLLECTION`. `createProgressionDeck`'s signature is unchanged; the five callbacks moved
   into the submenu entries. **Not verified in a browser:** files `POLISH-MENU-SUBMENU`.
-- [ ] **FEAT-MENU-COLLAPSE** (menu chunk 2). Dep: FEAT-MENU-SUBMENU-KIT. Plan:
+- [x] **FEAT-MENU-COLLAPSE** (menu chunk 2) (done, b6a497a). Dep: FEAT-MENU-SUBMENU-KIT. Plan:
   replace the 12-entry deck array (`BootScene.ts:1584-1703`) with three cards: **GAME
   MODES** (SKIRMISH, GAUNTLET, RUNNER, PRACTICE, SURPRISE, CHART with its world badge,
   LOADOUTS), **COLLECTION** (already collapsed by FEAT-MENU-SUBMENU-KIT, leave it as-is),
@@ -498,6 +498,25 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   pre-existing action reachable in <= 2 taps, expedition still 1 tap, portrait deck
   cards >= 120px wide, confirm-overwrite flows still fire, orientation flip cleanly
   closes an open submenu (no orphaned navigator).
+  **What shipped:** the deck row is three cards, SHOP, GAME MODES and COLLECTION. GAME MODES
+  is a second `SubmenuOverlay` carrying SKIRMISH, GAUNTLET, RUNNER, PRACTICE, SURPRISE, CHART
+  with its world badge, and LOADOUTS when a last loadout or a saved preset exists; every
+  action closure moved across verbatim, so the confirm-overwrite flows and the LoadoutScene
+  pending-replay handoff are untouched. The expedition still launches in one tap from the hero
+  card, and nothing outside BootScene starts any of the collapsed scenes. LOADOUTS left the
+  hero column entirely and `createReplayLoadoutLink` was deleted: that reclaims 36 design units
+  of vertical space, which landscape 1280x720 needed, because the deck row is clamped by
+  `maxDeckY` there and was overlapping the challenge cards. The row math grew a second
+  direction: three cards at the 96-unit design width filled only 332 of the 696-unit portrait
+  row, so a card now widens to fill the row as well as shrinking to fit it, capped at 200
+  units. A portrait deck card goes from ~72 to 200 units, roughly 26 to 108 CSS px on a 390pt
+  phone, and the cap resolves identically in landscape so the row does not change size when the
+  device rotates. Two knock-on fixes: the badge pill is capped at 88 units, since
+  `cardWidth - 16` would have drawn a 184-unit pill around a gold count, and the card label
+  reverted from `COLLECT` to `COLLECTION`, because the 8-character limit that shortened it was
+  a consequence of the 72-unit card and is gone at 200. The orientation-flip requirement needed
+  no code: the watcher restarts BootScene, and `shutdown()` already destroys an open submenu
+  and its navigator. **Not verified in a browser:** files `POLISH-MENU-COLLAPSE`.
 - [ ] **POLISH-MENU-CONSOLIDATE** (menu chunk 3). Plan: merge DAILY + WEEKLY into one
   CHALLENGES card with two tap zones; trim the footer to SETTINGS, CREDITS, mute;
   move the PARALLELOGRAMIST and LEGAL external links into CreditsScene as link rows.
@@ -9447,6 +9466,18 @@ Never agent work. The fleet must not do any of these.
     rather than a scene change; (e) does a dim tap close feel discoverable, and does the hint
     line read on a phone; (f) with COLLECT removed the deck is 8 cards at ~72 units in
     portrait: wide enough, or does FEAT-MENU-COLLAPSE need to land before it is comfortable.
+  - **POLISH-MENU-COLLAPSE** (b6a497a): the three-card deck and the 200-unit card
+    cap are reasoned entirely from the scale helpers, so opening the main menu on the
+    operator's real phone and desktop is the only way to know they read. Owns: (a) does a
+    three-card row read as a finished main menu, or does it read as a game with three screens;
+    (b) is 200 units the right cap, or does the row want to run closer to the full 696 in
+    portrait; (c) with seven entries the landscape GAME MODES grid is 3 + 3 + 1, a ragged last
+    row: acceptable, or does the grid want centring; (d) is burying SKIRMISH, GAUNTLET, RUNNER
+    and PRACTICE one tap deep right, or does one of them get used often enough to deserve the
+    top level back; (e) does LOADOUTS belong under GAME MODES at all now that it is no longer
+    visible beside CONTINUE, and is it discoverable there; (f) `GAME MODES` and `COLLECTION`
+    are 10-character banner labels on a card sized for 8: do they fit at the operator's UI
+    scale, or do they clip.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
