@@ -286,6 +286,19 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     out.y = y;
   }
 
+  jumpViewTo(x: number, y: number): void {
+    const camera = this.scene.cameras.main;
+    camera.centerOn(x, y);
+    this.syncView();
+    this.grid?.setViewScroll(camera.scrollX, camera.scrollY);
+    this.trails?.setViewScroll(camera.scrollX, camera.scrollY);
+    this.geometry?.update(this.view);
+    // Nulled rather than assigned: enterSector reports viaEdgeId null when there is no
+    // previous sector, which is README section 3.2's contract for an arrival that crossed
+    // no border. update() re-derives the real sector on the very next frame.
+    this.currentSector = null;
+  }
+
   notifyGeometryChanged(): void {
     this.geometry?.invalidate();
   }

@@ -125,6 +125,15 @@ export interface WorldModeAdapter {
   freeSpotNear(x: number, y: number, out: WorldPoint): void;
 
   /**
+   * Put the view on a world point the ship did not travel to, and forget which sector it was
+   * last in. A recall crosses the whole world in one frame: without this the following
+   * camera's lerp would slide across every sector in between, and the arrival would be
+   * reported as if it had crossed the border it happens to share with its neighbour.
+   * Arena: no-op, its view is the screen and never moves.
+   */
+  jumpViewTo(x: number, y: number): void;
+
+  /**
    * Something changed the tile grid this frame. Only the mode that owns a geometry renderer
    * has anything to do: tiles are read live everywhere else (collision indexes hold the
    * SectorDef itself, the flow field rebuilds within 150 ms), and only the drawing is

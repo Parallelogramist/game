@@ -266,7 +266,7 @@ import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
 import { PauseMenuManager } from '../managers/PauseMenuManager';
 import type { DamageSourceTally } from '../managers/buildStats';
 import { RUN_TIMELINE_EVENT_CAP, type RunTimelineEvent, type RunTimelineEventKind } from '../managers/runTimeline';
-import { DISPLAY_FONT } from '../../visual/MenuStyle';
+import { ACCENT_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 
 // Module-level queries (defined once, not per-frame)
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
@@ -903,6 +903,11 @@ export class GameScene extends Phaser.Scene {
 
   // Boss arena hazard zone spawning
   private activeBossType: string | null = null;
+
+  /** Seconds left on a live recall channel, 0 when none is running. Run-scoped and not
+   *  serialized: a reload cancels the channel, it never lands the jump for you. */
+  private recallChannelRemaining = 0;
+  private recallRing: Phaser.GameObjects.Graphics | null = null;
   private bossHazardTimer: number = 0;
   private hazardDamageMultiplier: number = 1.0;
 
@@ -1178,6 +1183,7 @@ export class GameScene extends Phaser.Scene {
       earnedQuestKeyIds: [...this.earnedQuestKeyIds],
       hazardSectors: this.dormantHazardSectors(),
       spentNestSectorKeys: this.spentAmbushNestSectorKeys(),
+      recallAvailable: !this.worldMode.isSectorLocked(),
     });
     this.scene.pause();
   }
@@ -1226,6 +1232,116 @@ export class GameScene extends Phaser.Scene {
   closeExpeditionMap(): void {
     this.mapOverlayActive = false;
     this.isPaused = false;
+  }
+
+  /**
+   * Called by MapScene when the player triggers RECALL. Returns false when the run refuses it.
+   *
+   * The boss-lock refusal is a correctness constraint and not a balance taste (README section
+   * 4.1): teleporting out of a sealed room strands the lock with the boss alive inside it.
+   */
+  beginExpeditionRecall(): boolean {
+    if (this.worldMode.worldMap() === null) return false;
+    if (this.isGameOver || this.playerId === -1) return false;
+    if (this.recallChannelRemaining > 0) return false;
+    if (this.worldMode.isSectorLocked()) {
+      this.soundManager.playError();
+      this.toastManager?.showToast({
+        title: 'RECALL BLOCKED',
+        description: 'The room is sealed. Finish the fight first.',
+        icon: 'rocket',
+        color: ACCENT_COLORS.danger,
+        duration: 2800,
+      });
+      return false;
+    }
+
+    this.recallChannelRemaining = TUNING.player.recallChannelSeconds;
+    this.toastManager?.showToast({
+      title: 'RECALL ENGAGED',
+      description: `Hold steady for ${TUNING.player.recallChannelSeconds} seconds.`
+        + ' A hit breaks the lock.',
+      icon: 'rocket',
+      color: ACCENT_COLORS.primary,
+      duration: 2600,
+    });
+    return true;
+  }
+
+  private cancelExpeditionRecall(reason: string): void {
+    if (this.recallChannelRemaining <= 0) return;
+    this.recallChannelRemaining = 0;
+    this.recallRing?.setVisible(false);
+    this.soundManager.playError();
+    this.toastManager?.showToast({
+      title: 'RECALL BROKEN',
+      description: reason,
+      icon: 'rocket',
+      color: ACCENT_COLORS.danger,
+      duration: 2600,
+    });
+  }
+
+  /**
+   * Ticked before worldMode.update so the arrival frame is the frame the adapter sees the new
+   * sector in, which is what makes the arrival's expedition:sector-entered land immediately
+   * rather than a frame later.
+   */
+  private updateExpeditionRecall(deltaSeconds: number): void {
+    this.recallChannelRemaining -= deltaSeconds;
+    if (this.recallChannelRemaining > 0) {
+      this.drawRecallRing(
+        1 - this.recallChannelRemaining / TUNING.player.recallChannelSeconds,
+      );
+      return;
+    }
+
+    this.recallChannelRemaining = 0;
+    this.recallRing?.setVisible(false);
+
+    const home = this.worldMode.playerStartPoint();
+    Transform.x[this.playerId] = home.x;
+    Transform.y[this.playerId] = home.y;
+    Velocity.x[this.playerId] = 0;
+    Velocity.y[this.playerId] = 0;
+    // The container as well as the Transform, the restoreGameState precedent: the adapter
+    // reads the container to decide which sector the ship is in, and the camera follows it.
+    this.playerSpaceship.getContainer().setPosition(home.x, home.y);
+    this.worldMode.jumpViewTo(home.x, home.y);
+
+    this.effectsManager.playDeathBurst(home.x, home.y, PLAYER_NEON.glow);
+    this.cameras.main.shake(120, 0.004);
+    this.soundManager.playSynergyActivation();
+    this.toastManager?.showToast({
+      title: 'RECALLED',
+      description: 'The hangar has the ship. The expedition continues.',
+      icon: 'rocket',
+      color: ACCENT_COLORS.primary,
+      duration: 3000,
+    });
+    // Autosave is on a 30 s timer, so without this a reload seconds after arriving would
+    // resume the run wherever the ship was before the jump.
+    this.saveGameState();
+  }
+
+  private drawRecallRing(fraction: number): void {
+    if (!this.recallRing) {
+      this.recallRing = this.add.graphics();
+      this.recallRing.setDepth(9);
+    }
+    const ring = this.recallRing;
+    ring.setVisible(true);
+    ring.clear();
+    ring.lineStyle(3, PLAYER_NEON.glow, 0.9);
+    ring.beginPath();
+    ring.arc(
+      Transform.x[this.playerId],
+      Transform.y[this.playerId],
+      34,
+      -Math.PI / 2,
+      -Math.PI / 2 + Math.PI * 2 * fraction,
+    );
+    ring.strokePath();
   }
 
   create(): void {
@@ -4630,6 +4746,8 @@ export class GameScene extends Phaser.Scene {
     this.siegeSectorKey = null;
     this.siegeNextWaveAtSeconds = 0;
     this.siegeBesiegerIds = [];
+    this.recallChannelRemaining = 0;
+    this.recallRing?.setVisible(false);
     this.expeditionQuestViews = [];
     this.questTickerRefreshTimer = 0;
     this.questTickerCycleTimer = 0;
@@ -6904,6 +7022,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.gameTime += deltaSeconds;
+    if (this.recallChannelRemaining > 0) this.updateExpeditionRecall(deltaSeconds);
     this.worldMode.update(deltaSeconds);
     this.applyEnemyLeash();
     this.updateCloseCallWatch();
@@ -7816,6 +7935,12 @@ export class GameScene extends Phaser.Scene {
     // A flawless bounty fails the moment real damage lands.
     if (this.bounty?.kind === 'flawless') {
       this.bountyFlawlessBroken = true;
+    }
+
+    // Same line the flawless bounty breaks on, and for the same reason: a blocked, dodged,
+    // phased or fully shielded hit is not a hit, so it must not break the channel either.
+    if (this.recallChannelRemaining > 0) {
+      this.cancelExpeditionRecall('A hit broke the recall lock.');
     }
 
     // Track damage for Health-Adaptive auto-upgrade intelligence (tier 3)
@@ -11400,6 +11525,12 @@ export class GameScene extends Phaser.Scene {
       this.worldMode.lockToSector(sectorOfWorldPoint(anchor.x, anchor.y));
     }
 
+    // A seal that closed under a live channel has to break it: beginExpeditionRecall refuses
+    // to start one inside a lock, and letting an in-flight one land would be the same escape.
+    if (this.recallChannelRemaining > 0) {
+      this.cancelExpeditionRecall('The room sealed around the ship.');
+    }
+
     const room = this.worldMode.fieldRect();
     const x = rectCenter(room).x;
     const y = room.minY - 100;
@@ -13689,6 +13820,12 @@ export class GameScene extends Phaser.Scene {
       this.escKey.destroy();
       this.escKey = null;
     }
+
+    if (this.recallRing) {
+      this.recallRing.destroy();
+      this.recallRing = null;
+    }
+    this.recallChannelRemaining = 0;
 
     // Remove auto-buy toggle key listener
     if (this.autoBuyKeyHandler) {

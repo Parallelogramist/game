@@ -82,6 +82,13 @@ export const TUNING = {
     blinkIframeSeconds: 0.45,
     blinkMinTravel: 24,
     blinkGhostCount: 5,
+
+    /**
+     * FEAT-EXPEDITION-RECALL's single friction knob (GATE-EXPEDITION-RECALL). A recall costs
+     * no gold and no cooldown, so standing still and untouched IS the whole price: it makes
+     * recall a decision taken in a lull instead of a panic button out of a fight.
+     */
+    recallChannelSeconds: 3,
   },
 
   /** Endless mode (post-victory) intervals */

@@ -5,8 +5,8 @@ import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestHazardObjectives, getActiveQuestMarkers,
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
-  GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT, GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP,
-  GamepadManager } from '../../input/GamepadManager';
+  GAMEPAD_BUTTON_X, GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT,
+  GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP, GamepadManager } from '../../input/GamepadManager';
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
@@ -19,13 +19,15 @@ import type { QuestPin } from '../../expedition/questPins';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
+import { createMenuButton } from '../../visual/MenuButton';
+import type { MenuButton } from '../../visual/MenuButton';
 import {
   MAP_ZOOM_LEVELS, centerViewOn, clampMapView, gridBoundsOfCells, mapPointToSector,
   nextSectorInDirection, snapZoomLevel,
 } from '../../visual/mapProjection';
 import type { GridBounds, GridCell, MapCursorDirection,
   MapViewTransform } from '../../visual/mapProjection';
-import { sectorOfWorldPoint } from '../../world/worldSpace';
+import { sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { EdgeKind, PoiKind } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
 import type { GameScene } from './GameScene';
@@ -46,6 +48,9 @@ export interface MapSceneData {
   /** Rooms whose permanent hive this run has already taken. Run-scoped like hazardSectors, and
    *  for the same reason it is passed in rather than read here. */
   spentNestSectorKeys: readonly string[];
+  /** False while a boss seal holds the room. Passed in because only GameScene knows: a recall
+   *  out of a sealed fight would strand the lock. */
+  recallAvailable: boolean;
 }
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
@@ -60,6 +65,8 @@ const DETAIL_BAR_HEIGHT = 104;
 /** How far a click or a hover may miss a cell and still focus it: about half a cell at the
  *  0.5 zoom, where cells are 32x18. */
 const CURSOR_HIT_SLOP = 16;
+const RECALL_BUTTON_WIDTH = 176;
+const RECALL_BUTTON_HEIGHT = 32;
 
 function leadDistance(lead: SecretLead, ship: { col: number; row: number }): number {
   const [sx, sy] = lead.sectorKey.split(',').map(Number);
@@ -96,6 +103,8 @@ export class MapScene extends Phaser.Scene {
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
+  private recallButton: MenuButton | null = null;
+  private recallState: 'ready' | 'locked' | 'home' = 'ready';
   private detailHeadlineText!: Phaser.GameObjects.Text;
   private detailDoorsText!: Phaser.GameObjects.Text;
   private detailRewardsText!: Phaser.GameObjects.Text;
@@ -123,6 +132,7 @@ export class MapScene extends Phaser.Scene {
       (data.hazardSectors ?? []).map(entry => [entry.sectorKey, entry.kind]),
     );
     this.spentNestSectorKeys = new Set(data.spentNestSectorKeys ?? []);
+    this.recallState = data.recallAvailable === false ? 'locked' : 'ready';
     this.closed = false;
     this.zoomOutArmed = false;
     this.dragPointerId = -1;
@@ -148,10 +158,11 @@ export class MapScene extends Phaser.Scene {
       + ` SECTORS EXPLORED`
       + `  ·  ${discovery.getCompletionPercent()}%`,
       { fontSize: 18, color: TEXT_COLORS.muted }).setDepth(2);
-    makeBodyText(this, width / 2, height - 26,
+    const hintWidth = Math.max(120, width - 40 - RECALL_BUTTON_WIDTH);
+    makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
-      + '   ·   HOVER OR TAP A SECTOR TO INSPECT   ·   M / ESC CLOSE',
-      { fontSize: 14, color: TEXT_COLORS.muted }).setDepth(2);
+      + '   ·   TAP A SECTOR   ·   R RECALL   ·   M / ESC CLOSE',
+      { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
     this.questPins = [
       ...buildQuestPins({
@@ -209,6 +220,7 @@ export class MapScene extends Phaser.Scene {
     ));
 
     this.renderDetailBar();
+    this.createRecallButton();
     this.focusedCell = this.knownCells.find(
       cell => cell.gridX === shipSector.col && cell.gridY === shipSector.row,
     ) ?? this.knownCells[0] ?? null;
@@ -227,6 +239,7 @@ export class MapScene extends Phaser.Scene {
       this.keydownHandler = (event: KeyboardEvent) => {
         const key = event.key;
         if (key === 'm' || key === 'M' || key === 'Escape') { this.close(); return; }
+        if (key === 'r' || key === 'R') { this.recall(); return; }
         if (key === 'c' || key === 'C') { this.centreOnShip(); return; }
         if (key === '+' || key === '=') { this.stepZoom(1); return; }
         if (key === '-' || key === '_') this.stepZoom(-1);
@@ -468,6 +481,47 @@ export class MapScene extends Phaser.Scene {
       .setOrigin(0, 0).setDepth(4);
   }
 
+  /**
+   * The recall action. It lives in the footer rather than beside the chart because every
+   * other edge of this screen is already spoken for: objectives and leads top-left, legend
+   * right, detail bar along the bottom.
+   */
+  private createRecallButton(): void {
+    const shipSector = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
+    if (this.recallState === 'ready' && sectorKey(shipSector) === this.mapData.startKey) {
+      this.recallState = 'home';
+    }
+    const label = this.recallState === 'locked' ? 'ROOM SEALED'
+      : this.recallState === 'home' ? 'AT THE HANGAR'
+      : 'RECALL';
+
+    this.recallButton = createMenuButton({
+      scene: this,
+      x: this.scale.width - 20 - RECALL_BUTTON_WIDTH / 2,
+      y: this.scale.height - FOOTER_HEIGHT / 2,
+      width: RECALL_BUTTON_WIDTH,
+      height: RECALL_BUTTON_HEIGHT,
+      label,
+      variant: this.recallState === 'ready' ? 'primary' : 'neutral',
+      onActivate: () => this.recall(),
+    });
+    this.recallButton.container.setDepth(6);
+    this.recallButton.card.hitZone.on('pointerover', () =>
+      this.recallButton?.setHoverState(true));
+    this.recallButton.card.hitZone.on('pointerout', () =>
+      this.recallButton?.setHoverState(false));
+    if (this.recallState !== 'ready') this.recallButton.setEnabled(false);
+  }
+
+  /** Resumes the run first, then starts the channel on the live scene: the channel is ticked
+   *  from GameScene.update, which does not run while this scene holds the pause. */
+  private recall(): void {
+    if (this.recallState !== 'ready' || this.closed) return;
+    const gameScene = this.scene.get('GameScene') as GameScene | undefined;
+    this.close();
+    gameScene?.beginExpeditionRecall();
+  }
+
   private refreshDetail(): void {
     const discovery = getDiscoveryManager();
     const detail = this.focusedCell ? buildSectorDetail({
@@ -528,6 +582,10 @@ export class MapScene extends Phaser.Scene {
       if (pad.justPressed(GAMEPAD_DPAD_DOWN)) this.moveCursor('down');
       if (pad.justPressed(GAMEPAD_DPAD_LEFT)) this.moveCursor('left');
       if (pad.justPressed(GAMEPAD_DPAD_RIGHT)) this.moveCursor('right');
+      if (pad.justPressed(GAMEPAD_BUTTON_X)) {
+        this.recall();
+        return;
+      }
       if (pad.justPressed(GAMEPAD_BUTTON_B) || pad.justPressed(GAMEPAD_BUTTON_START)) {
         this.close();
         return;
@@ -681,6 +739,8 @@ export class MapScene extends Phaser.Scene {
       this.input.off('pointerup', this.pointerUpHandler);
       this.pointerUpHandler = null;
     }
+    this.recallButton?.destroy();
+    this.recallButton = null;
     this.gamepadManager?.destroy();
     this.gamepadManager = null;
     this.tweens.killAll();

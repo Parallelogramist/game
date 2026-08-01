@@ -95,6 +95,8 @@ export class ArenaModeAdapter implements WorldModeAdapter {
     out.y = y;
   }
 
+  jumpViewTo(_x: number, _y: number): void {}
+
   notifyGeometryChanged(): void {}
 
   destroy(): void {}
