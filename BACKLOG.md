@@ -931,6 +931,28 @@ different modules and evict on different rules. It supersedes the remaining half
 `FEAT-SEASON-RETURN-SORT` and `BALANCE-RETURN-PAGE-SIZE`. No storage key and no version bump of
 any kind, and no econ surface, so `FEAT-ECON-WARDS` stays parked.
 
+**`f534717` made a secret something you break into.** Fifteen sessions of exploration layer had
+produced exactly two find-shapes for a cache: the walk-in fade (`756f346`) and the sigil ring
+(`0da9243`). Taxonomy row 1, the false wall, had been open since the cache shipped, priced out by
+one sentence on its own entry: it bumps `WORLDGEN_VERSION` and so discards every profile's
+discovery state, which after `429788e` orphans all 21 archived worlds rather than one. **That
+price was never actually required, and the two passes that prove it were already in the file**:
+`placeQuestKeyDoors` and `placeHiddenSectors` each change what a seed generates and each state
+that consuming no RNG and converting only existing state costs no bump. A shell is the same
+shape one tile-level down. `sealSecretCaches` rings a cache's 3x3 pocket with 1x1 breakables
+after the last pass that reads tiles, drawing only from its own `secretWall:` hash, and rolls a
+candidate back unless the reachable-tile count drops by exactly the ring plus the pocket, so
+nothing is ever stranded and a shell is identical across the plain, quest-door and hidden-sector
+variants of one seed. Shell rects append after `carveBreakablePockets`, which is what keeps
+every pocket id a profile remembers breaking pointing at the same rect. Measured over 101 worlds
+the three find-shapes now split 47.3% walk-in, 29.3% ring, 23.4% wall. A walled cache draws
+nothing until its ring has a hole, because there the break IS the reveal. **The suite paid for
+itself here**: invariant 6 caught a ring cell landing in a neighbouring slot's cleared
+neighbourhood, so the pass now also rejects a ring touching `protectedTileIndices`, the guard
+`isHazardRunLegal` already used. It files `BALANCE-SECRET-WALL-SHARE`,
+`FEAT-SECRET-WALL-MAP-TELL` and `CHORE-SECRET-WALL-EMANATE-LOCKOUT`. No storage key and no
+version bump of any kind, and no econ surface, so `FEAT-ECON-WARDS` stays parked.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -6244,14 +6266,92 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
      existing `DiscoveryManager` test moved 33 to 25 and gained a 50% case after a secret is found,
      so it is strictly stronger than before rather than relaxed.
 
-- [ ] **FEAT-SECRET-FALSE-WALLS** (new 2026-07-31, cut from `FEAT-SECRET-CACHE`): the taxonomy
-  row-1 half that chunk deliberately skipped. Bind `PoiKind.Secret` slots into
-  `sector.breakables` so a cache sits behind terrain that has to be broken, reusing the shipped
-  `barrierState` / `clearBarrier` / `applyBrokenBarriers` persistence rather than a new store.
-  Value: the reveal becomes an act the player performs instead of a proximity fade that happens
-  to them, which is the actual Metroid shape. Note that it bumps `WORLDGEN_VERSION` and so
-  discards existing per-seed discovery state, which is exactly why 756f346 did not do it. Deps:
-  `FEAT-BARRIER-GATES`.
+- [x] **FEAT-SECRET-FALSE-WALLS** (done, f534717) (new 2026-07-31, cut from `FEAT-SECRET-CACHE`):
+  doc 04 section 5 taxonomy row 1. About a quarter of every world's caches now sit in a 3x3
+  pocket ringed by breakable tiles, so the reveal is an act the player performs rather than a
+  fade that happens to them. Value: the player sees a 5x5 amber box across a room, shoots one
+  cell of it ten times, flies in through the hole and takes the cache, and the hole is still
+  there on the next life.
+  1. **What shipped**: `sealSecretCaches` + `sealHoldsUp` in `sectorInterior.ts` (the module
+     that already owns every tile write), the exported `secretShellRingIndices` /
+     `isSecretShellIntact` pair, `PoiSlot.sealed`, `SecretLead.wall` with
+     `WALLED_CACHE_SENTENCE` on both lead surfaces, and a `shell` field on
+     `GameScene.activeSecretCaches` that keeps a walled cache at alpha 0 until its ring has a
+     hole. No new module, no new storage key.
+  2. **The stated `WORLDGEN_VERSION` cost was avoidable and was avoided.** The pass consumes no
+     rng from the sector stream (its own `secretWall:<seed>:<slotId>` hash, the `secretPuzzle:`
+     idiom) and runs after `stampHazardStrips`, so no world moves; discovery is keyed on sector,
+     edge and POI ids and broken barriers on rect ids, and shell rects are appended AFTER
+     `carveBreakablePockets`, so every pocket id a profile remembers breaking still means the
+     same rect. `placeQuestKeyDoors` and `placeHiddenSectors` set that precedent; the
+     `WORLDGEN_VERSION` comment now states the operative rule so the next four items do not
+     price themselves out on the old wording.
+  3. **Nothing is ever cut off, by exact arithmetic rather than a spot check.** A candidate is
+     sealed, flooded, and rolled back unless the reachable count drops by exactly the ring plus
+     the nine pocket cells. That exactness is also why a shell is identical across the plain,
+     quest-door and hidden-sector variants of one seed, which invariants 9 and 10 compare rect
+     by rect. Only passable tiles convert, never Solid: turning rock breakable would open a
+     route the gate-order invariants proved did not exist.
+  4. **Deliberately best-effort, and silent about it.** A slot whose 5x5 footprint reaches an
+     aperture band, whose ring a hazard strip crosses, whose pocket an earlier shell already
+     reached, or whose seal would strand anything stays an ordinary walk-in. Measured over 101
+     worlds, 199 of 780 share-selected candidates were rejected that way.
+     **The plan's rejection list was one guard short and the suite caught it**: a ring cell can
+     land in a NEIGHBOURING slot's or an entry tile's cleared 3x3 neighbourhood, because POI
+     separation is only 3, and invariant 6 pins those neighbourhoods walkable. The pass now
+     rejects a ring touching `protectedTileIndices`, the same guard `isHazardRunLegal` uses. A
+     shell's own pocket is never affected: the ring sits at Chebyshev distance exactly 2 and a
+     slot's own cleared neighbourhood reaches only 1.
+  5. **Measured, three find-shapes**: over 101 worlds (live seed 20260727 plus the 100 invariant
+     seeds) the 2480 secret slots split 47.3% plain walk-in, 29.3% sigil ring, 23.4% false wall.
+     `SECRET_WALL_SHARE_PERCENT` is 45 of the slots no ring already seals, and the guards above
+     take it from 45% to an effective 23%. Median 5 walled caches per world (min 1, max 12; live
+     seed 5) and a median 76 extra 1x1 breakable rects (min 4, max 164; live seed 69), against
+     the 50 to 90 pockets a world already carried.
+  6. **A walled cache is never also a ringed one**, because solving a ring from outside a wall
+     would make the wall decoration. `buildSecretPuzzle` is called for the share test rather
+     than a second predicate, so the 30% share has one source of truth.
+  7. **Invariant 5 was replaced by a strictly stronger pair, never weakened.** `floodTiles` took
+     the `breakablesPassable` parameter `canTraverse` in the same file already had: with
+     breakables passable every POI is still reachable, and with them impassable the ONLY
+     unreachable POI tiles are sealed secret slots. New invariant 11 pins the shell shape and
+     the pocket-first id ordering. Its per-cell rect check asserts every breakable ring cell is
+     covered by a registered rect rather than that the rect is 1x1: a ring legitimately reuses a
+     carved pocket's cells, and a pocket whose top-left lands on the ring is indistinguishable
+     from a shell cell by lookup, so the 1x1 claim was not expressible. The ordering test pins
+     the shape instead.
+  8. **It discharges the false-wall prospecting clause `FEAT-POWER-ABILITY-EFFECTS-REST` records
+     as unshipped**: `nearestBreakableBarrier` reads `sector.breakables`, so
+     `ability_breach_charges` blows open a false wall with no extra code. That item stays open
+     for its two remaining abilities.
+  It files `BALANCE-SECRET-WALL-SHARE`, `FEAT-SECRET-WALL-MAP-TELL` and
+  `CHORE-SECRET-WALL-EMANATE-LOCKOUT`. No storage key and no version bump of any kind, and no
+  econ surface, so `FEAT-ECON-WARDS` stays parked.
+
+- [ ] **BALANCE-SECRET-WALL-SHARE** (new 2026-08-01, from FEAT-SECRET-FALSE-WALLS): 45% of the
+  caches no sigil ring seals is a measured guess, never played, and the footprint guards pull it
+  down to an effective 23%. It lands the three find-shapes at 47% walk-in / 29% ring / 23% wall
+  over 101 worlds, but whether a median 5 walled caches per world reads as a hunt or as a chore
+  depends on how long ten impacts on a 1x1 cell actually takes with a real weapon in hand. Value:
+  a wall that reads as an invitation rather than a toll. Deps: none, but it wants play rather
+  than a fourth guess.
+
+- [ ] **FEAT-SECRET-WALL-MAP-TELL** (new 2026-08-01, from FEAT-SECRET-FALSE-WALLS): the chart is
+  sector-granular, so a walled cache is legible only in the world itself and, as text, on the
+  LEADS panel. A per-sector glyph for "a cache here is sealed" would put it on the map, and
+  `FEAT-MAPUI-POI-ICONS` already owns the glyph vocabulary and the legend rows it would need.
+  Cut here because a new icon needs a legend row and a requirement clause, which is
+  `FEAT-MAPUI-LEGEND-REQUIREMENTS`' surface rather than this chunk's. Value: the chart answers
+  "is this one behind a wall" without flying there. Deps: none.
+
+- [ ] **CHORE-SECRET-WALL-EMANATE-LOCKOUT** (new 2026-08-01, from FEAT-SECRET-FALSE-WALLS): the
+  five ships that start on an emanating weapon (`aura`, `orbiting_blades`, `meteor`,
+  `chain_lightning`, `ground_spike`) cannot chip a barrier at all, so until they pick up a
+  traveller weapon they cannot open a false wall either. Tolerable today, because the share
+  leaves 47% of caches as plain walk-ins and every run levels into a traveller sooner or later,
+  and it is exactly the gap `FEAT-BARRIER-BREACH-REST` describes, which is parked on an operator
+  call about whether incidental breaking is wanted. Value: no starting ship is locked out of a
+  find-shape. Deps: that operator call.
 
 - [x] **CHORE-QUEST-TRIGGER-FINDSECRET** (done, 6e72c65) (new 2026-07-31): `FEAT-QUEST-CHAINS`
   cut the `findSecret` trigger kind because nothing in the game produced the signal.
