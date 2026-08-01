@@ -398,7 +398,11 @@ and deriving it inline in the scene would put grid math back in the render
 layer. `src/expedition/gateGlyphs.ts` keys its table off `EdgeKind` rather than
 inventing a union, because `EdgeKind` **is** the closed gate-type union contract
 11.2 asked for; the coverage test beside it goes red when a new border kind has
-no glyph or reuses a shape.
+no glyph or reuses a shape. Both missing functions have since shipped with
+`FEAT-MAPUI-CURSOR-HITTEST` (45e7cb2), `mapPointToSector` taking a fifth
+`candidates` parameter because the containing-cell test cannot know which cells
+are known without it, and both resolving ties by lower `gridY` then lower
+`gridX` so no result depends on candidate ordering.
 
 ### 2.2 Phaser render layer (not unit-tested)
 
@@ -764,6 +768,53 @@ its FOUND-secret icon and its dimmed-collected rule now ship, plus a legend. Nin
    already shipped, so an existing profile lights up the moment the build lands. The renderer
    learns state through two predicates (`poiFlagsOf`, `secretFlagsOf`), matching the
    `holdsAbility` precedent: it never learns where the state is stored.
+
+**As built (`FEAT-MAPUI-DOORS-05` cursor and readout, 45e7cb2, 2026-07-31).** The focused
+sector now has a cursor and a readout that names what its doors want. Seven points:
+
+1. **The cursor is four corner brackets, never a fill.** `drawSectorCursor` strokes 28% arms
+   into each corner of the focused cell in white, the one value neither glyph table uses. A
+   fill or a colour swap would either hide the cell's own icons or repeat a meaning some
+   glyph already owns, and shape-over-colour is this map's standing rule (section 4.5 rule 2).
+   It draws after the sector loop and before the player marker, so no later cell paints over
+   it and the ship still wins the top layer.
+2. **Three input paths: hover, tap and the D-pad.** WASD and the arrows stay the chart's pan
+   (shipped in `FEAT-MAPUI-MAPSCENE-04`), so rebinding them to the cursor would have taken the
+   pan away, and no free key pair was worth spending here. `nextSectorInDirection` gives the
+   D-pad a 90 degree cone with an inclusive edge, so a pure diagonal is reachable from both of
+   its directions and no charted sector is stranded. The left stick keeps panning. The
+   keyboard gap is filed as `FEAT-MAPUI-CURSOR-KEYBOARD`.
+3. **The readout is a fixed-height bottom bar, not the floating tooltip this section names.**
+   104 px, three `Text` objects created once in `create()` and re-set on focus change rather
+   than rebuilt, since a mouse dragged across the chart would otherwise churn GameObjects
+   every frame. Fixed height is what lets `panelHeight()` reserve its space: `centerViewOn`
+   and `clampMapView` both read that, so the chart centres and clamps **above** the bar and
+   can never be scrolled underneath it. A tooltip that follows the cursor would have needed
+   its own collision rules against the objectives, leads and legend panels. Portrait wrapping
+   is filed as `POLISH-MAP-DETAIL-BAR-PORTRAIT`.
+4. **Rule 3's requirement naming, with one deliberate deviation.** An ability door reads
+   `requires Blink Drive`, flips to `open to you` once the profile holds it, and a key door
+   reads `finish <quest>`. `mechanism unknown` fires when the requirement does not resolve to
+   a definition, **not** when a codex surface has never SEEN the ability as this section's
+   wording asks. The shipped in-world door toast (`GameScene.reportSealedDoor`) already names
+   the ability the moment the ship touches the door, so withholding the same name on the map
+   would be an inconsistency rather than mystery. The two branches are deliberately the same
+   ones that toast takes, so the map and the door can never disagree about a route.
+5. **The leak guard carries over unchanged.** `src/expedition/sectorDetail.ts` is pure and
+   Phaser-free, learns state through the same predicates the renderer uses, and obeys the same
+   FOUND-only secret rule: an unfound secret contributes nothing and a POI contributes nothing
+   until it is SEEN. A readout that named what the chart refuses to draw would be the same
+   spoiler by another route. A hinted sector says only "A lead points here", which is the
+   sector-level fact the amber corner badge already shows, and adds no position.
+6. **This section's rule 4 was already discharged**: the newly-passable ring
+   (`drawNewRouteRing`) and its `NEW ROUTES ONLINE` toast shipped with
+   `FEAT-DISCOVERY-FEEDBACK-07` (05b2c48). With the cursor and readout landed,
+   `FEAT-MAPUI-DOORS-05`'s only remaining criterion is **objective pins**, which stay blocked:
+   none of the five shipped quest triggers names a sector to pin to
+   (`FEAT-QUEST-TRIGGERS-REST`).
+7. **No storage key, no version bump, no new discovery writer.** The cursor is scene state and
+   the readout is a projection over discovery flags that already ship, so every existing
+   profile lights this up the moment the build lands.
 
 ---
 

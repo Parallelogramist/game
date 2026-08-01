@@ -246,12 +246,32 @@ and no generator change, so every existing profile keeps its discovery state.
 `FEAT-POWER-ABILITY-EFFECTS-REST` **is no longer a band-2 item with an unblocked half**: its two
 remaining abilities each cost a version bump that discards per-seed discovery state.
 
+**`45e7cb2` made the map answer a question for the first time.** Hovering, tapping or D-padding
+onto any charted sector brackets it with a white corner cursor and fills a fixed readout bar
+naming that sector's state, biome and graph depth, every KNOWN door with the ability or quest it
+asks for, and everything the chart already admits the room holds. Until now the chart drew the
+shape of every door and would not say what any of them wanted: the only way to learn a
+requirement was to nose the ship into the door and read the `SEALED DOOR` toast, which is exactly
+the errand a world map exists to remove. The readout is a new pure module,
+`src/expedition/sectorDetail.ts`, obeying the renderer's own leak rules (an unfound secret is
+never named, a POI contributes nothing until it is SEEN), so the readout can never name what the
+chart refuses to draw. It **carried `FEAT-MAPUI-CURSOR-HITTEST`**, whose two functions were cut
+from `FEAT-MAPUI-PROJECTION-02` for having no caller: this was the caller, and that item is now
+closed. `FEAT-MAPUI-DOORS-05` now has **objective pins as its only remaining criterion**, and they
+stay blocked because none of the five shipped quest triggers names a sector to pin to
+(`FEAT-QUEST-TRIGGERS-REST`); its rule 4 (the newly-passable ring plus toast) was already shipped
+by `FEAT-DISCOVERY-FEEDBACK-07` (05b2c48) and that entry had simply not caught up. WASD and the
+arrows stay the pan, so the cursor rides hover, tap and the D-pad, and the keyboard gap is filed
+as `FEAT-MAPUI-CURSOR-KEYBOARD`. No storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump,
+so every existing profile lights this up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-RADAR`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
-`FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`, plus the newly filed
-`BALANCE-BREACH-CHARGE-FUSE`. `FEAT-ECON-WARDS` stays parked on its operator balance decision: do
-not unpark it.
+`FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
+`BALANCE-BREACH-CHARGE-FUSE`, plus the newly filed `FEAT-MAPUI-CURSOR-KEYBOARD` and
+`POLISH-MAP-DETAIL-BAR-PORTRAIT`. `FEAT-ECON-WARDS` stays parked on its operator balance decision:
+do not unpark it.
 
 ## Proposed (auto)
 
@@ -3990,14 +4010,17 @@ exploring pays is the end of Phase 5.
   `src/visual/PlayerSpaceship.ts`, `src/game/managers/InputController.ts`,
   `src/game/scenes/GameScene.ts`, `src/main.ts`.
 
-- [ ] **FEAT-MAPUI-CURSOR-HITTEST**: the two `FEAT-MAPUI-PROJECTION-02` functions left unbuilt
+- [x] **FEAT-MAPUI-CURSOR-HITTEST** (done, 45e7cb2): the two `FEAT-MAPUI-PROJECTION-02` functions
+  left unbuilt
   because they had no caller: `mapPointToSector(panelX, panelY, view, slopPx, candidates)`
   (the containing cell, or the nearest candidate centre within `slopPx` when the containing
   cell is not a known sector) and `nextSectorInDirection(currentGX, currentGY, direction,
   discoveredCells)` (the nearest discovered sector inside a 90 degree cone). Value: they are
   what makes a sector clickable and D-pad navigable, which is the whole input model of the
   focused-sector tooltip. Deps: land with `FEAT-MAPUI-DOORS-05`, its only consumer. Spec:
-  `03-discovery-map-ui.md` section 2.1.
+  `03-discovery-map-ui.md` section 2.1. Both shipped with the signatures doc 03 section 2.1
+  names, except that `mapPointToSector` takes the candidate cell list this entry itself
+  specified, since the containing-cell test cannot know which cells are known without it.
 
 - [x] **FEAT-MAPUI-PAUSE-ROW** (done — d7b716d): a `World Map` row in the pause menu (between
   Resume and Settings) and a drawn map button in the touch chrome, both existing only when
@@ -4027,11 +4050,24 @@ exploring pays is the end of Phase 5.
   POIs at 40% alpha with a green check, and the **legend side panel**, which is generated from
   `POI_GLYPHS` plus `GATE_GLYPHS` so it cannot drift from the renderer. `PoiKind.QuestGiver`
   draws nothing on purpose and belongs to `FEAT-QUEST-BOARD`; do not file it here.
-  What remains here is the focused-sector **cursor and tooltip** (which is why
-  `FEAT-MAPUI-CURSOR-HITTEST` is still open and still lands with this item), **objective pins**,
-  and doc 03 section 4.5 rule 4's **newly-passable ring** plus its toast. The requirement *name*
-  is still learned at the door in world, not on the map: the legend rows carry generic kind
-  labels, and naming this world's requirement is filed as `FEAT-MAPUI-LEGEND-REQUIREMENTS`.
+  **The focused-sector cursor and tooltip shipped (45e7cb2)**: a bracket cursor on the focused
+  cell, moved by hover, tap and the D-pad, and a fixed readout bar naming the sector's state,
+  biome, graph depth, every KNOWN door with its requirement, and everything the chart already
+  admits it holds. That carried `FEAT-MAPUI-CURSOR-HITTEST`, which is now closed.
+  **Rule 4 was already discharged and this entry had not caught up**: the newly-passable ring
+  (`drawNewRouteRing`) and its `NEW ROUTES ONLINE` toast shipped with
+  `FEAT-DISCOVERY-FEEDBACK-07` (05b2c48), and the "what remains" line predates that commit. Do
+  not re-derive this.
+  **What actually remains is objective pins alone**, and they stay blocked: none of the five
+  shipped quest triggers (`kill`, `reachDepth`, `openGate`, `claimAbility`, `findSecret`) names
+  a sector to pin to, which is `FEAT-QUEST-TRIGGERS-REST`. So `FEAT-QUEST-BOARD`'s map-marker
+  half is still gated, on pins rather than on the whole layer.
+  **One deliberate deviation from doc 03 rule 3**: `mechanism unknown` tracks whether the
+  requirement resolves to a definition, not whether a codex surface has SEEN it. The shipped
+  in-world `SEALED DOOR` toast (`GameScene.reportSealedDoor`) already names the ability the
+  moment you touch the door, so withholding the same name on the map would be an inconsistency,
+  not mystery. The legend rows still carry generic kind labels; naming this world's requirement
+  in the legend stays filed as `FEAT-MAPUI-LEGEND-REQUIREMENTS`.
 
 - [ ] **FEAT-MAPUI-LEGEND-TOGGLE** (new 2026-07-31, from `FEAT-MAPUI-POI-ICONS`): the legend
   panel is always visible, because a toggle needs a keyboard key, a gamepad button and a touch
@@ -4784,6 +4820,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   a cooldown between charges, a longer fuse in deep sectors, or to stay free because a
   traversal ability is meant to trivialise its own barrier the way `tryOpenAbilityDoor` does.
   Deps: `POLISH-BREACH-CHARGE-FEEL`.
+
+- [ ] **FEAT-MAPUI-CURSOR-KEYBOARD** (new 2026-07-31, from FEAT-MAPUI-DOORS-05): the sector
+  cursor has no keyboard path. WASD and the arrows are the chart's pan (shipped in
+  FEAT-MAPUI-MAPSCENE-04) and rebinding them would take the pan away, so this chunk gave the
+  cursor to hover, tap and the D-pad only. A keyboard-only player can inspect a sector with
+  the mouse but not from the keys. Value: the one input path of the four that cannot reach a
+  shipped readout. Deps: none, but it needs a free key pair or a pan/cursor mode toggle.
+
+- [ ] **POLISH-MAP-DETAIL-BAR-PORTRAIT** (new 2026-07-31, from FEAT-MAPUI-DOORS-05): the
+  readout bar is a fixed 104 px so the chart region, the legend anchor and the clamp can all
+  be laid out once at create time. On a short portrait screen that is a bigger share of the
+  map, and a sector with four doors carrying long requirement names can wrap the HOLDS row
+  past the plate. Value: the readout stays inside its plate on a phone. Deps: none. Wants a
+  browser check, so it pairs with POLISH-MAP-ACCESS in the playtest queue.
 
 - [x] **FEAT-SECRET-LORE-CODEX** (done, 173c7f3): the profile-wide collection half of hint tier
   2. A fragment's flavour line used to be readable in exactly one place, `MapScene`'s LEADS
