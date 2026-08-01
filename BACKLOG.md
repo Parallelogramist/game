@@ -460,6 +460,29 @@ run-scope set at the start of every expedition anyway. No new trigger kind, no H
 storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights it
 up the moment the build lands.
 
+`60e0e7f` puts the two risk rooms on the surfaces the player actually reads. A dormant ambush
+nest and a dormant nemesis lair were world-space `Graphics` and nothing else, so a room holding a
+nine-body hive or the hunter's den announced itself only once it was already on screen, and the
+chart's readout, reading a SEEN `PoiKind.Treasure` slot, called it a `Cache`. Both now write a
+radar contact while dormant, the nest in the hazard stroke (`0xff6622`) and the lair in the
+nemesis crimson (`0xff2233`), kept deliberately apart because `760ccc8` settled that a den and a
+hive must not read the same, and both sit in `DRAW_ORDER` above the secret shimmer and below the
+live threats so a static room marker never paints over the elite currently shooting at you. A
+**woken** hazard is skipped on both surfaces: its wave and the hunter are already live enemy
+blips, and drawing the den as well would count one fight twice. The radar is **range-gated at
+`MINIMAP_WORLD_RANGE` (900), not rim-clamped**, because nests and lairs are world-space and
+run-scoped so every one rolled this run is still in the array, and rim contacts for rooms three
+sectors away would be permanent clutter rather than information. The chart's line is
+**room-level**, standing beside the slot's own `Cache` line rather than replacing it: the run
+state knows a hazard's position and not which of a sector's several Treasure slots rolled it.
+`hazardSectorKinds` is a **required** input on `SectorDetailInputs`, beside `objectiveSectorKeys`
+and `hintedSectorKeys`, so a call site that forgets it is a compile error rather than a silently
+empty readout. The knowledge is **run-scoped by construction**: a hazard is rolled by
+`rollPoiContents` on first sector entry into scene state `resetInRunFeatureState()` clears, so
+the chart names only the rooms this run has entered, and `FEAT-POI-HAZARD-DISCOVERY-MEMORY` below
+is what would change that. No storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so
+every existing profile lights it up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -467,7 +490,8 @@ up the moment the build lands.
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
 `POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
 `POLISH-RADAR-WAYPOINT-LABEL`,
-`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, `CHORE-AMBUSH-NEST-RADAR` (now widened to cover the lair),
+`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, `FEAT-MAPUI-HAZARD-GLYPH` and
+`FEAT-POI-HAZARD-DISCOVERY-MEMORY` (the two the hazard contacts filed),
 plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`, and the
 two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TIMERS` and
 `CHORE-QUEST-DWELL-RESTORE`, plus the three the siege itself filed:
@@ -3148,13 +3172,31 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   room stays worth taking instead of becoming the room you learn to skip. Deps: `FEAT-ECON-WARDS`
   (it is the risk half of the same econ question).
 
-- [ ] **CHORE-AMBUSH-NEST-RADAR** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST; widened 2026-07-31 to
+- [x] **CHORE-AMBUSH-NEST-RADAR** (done, 60e0e7f) (new 2026-08-01, from FEAT-POI-AMBUSH-NEST; widened 2026-07-31 to
   cover the nemesis lair): a dormant nest **or nemesis lair** is a world-space graphic and nothing
   else, so it never appears on the radar or on the chart's sector readout; the room only announces
   itself once it is already on screen. The shipped
   `sectorDetail` / `poiGlyphs` layer already names what a room holds and the radar already carries
   waypoints and the secret shimmer, so a hazard contact is the natural home for it. Value: the
   choice to take the fight can be made from the chart rather than from the doorway. Deps: none.
+
+- [ ] **FEAT-MAPUI-HAZARD-GLYPH** (new 2026-08-01, from CHORE-AMBUSH-NEST-RADAR): the chart
+  READOUT now names a dormant nest or lair, but the glyph layer still draws a plain chest for
+  it, because `drawPoiIcons` calls `drawPoiGlyph(graphics, slot.kind, ...)` and both risk rooms
+  are `PoiKind.Treasure`. Distinguishing them needs a per-slot override threaded into
+  `SectorMapDrawInput` plus two legend rows, and `poiGlyphs.ts`'s own law is that shape carries
+  the meaning and colour only groups the family, so a two-colour ring decorator wants its own
+  design pass rather than a bolt-on. Value: the risk room is visible at a glance instead of only
+  when a sector is focused. Deps: none.
+
+- [ ] **FEAT-POI-HAZARD-DISCOVERY-MEMORY** (new 2026-08-01, from CHORE-AMBUSH-NEST-RADAR): the
+  chart names only the risk rooms THIS run has entered, because a nest or lair is rolled by
+  `rollPoiContents` on first sector entry into `activeAmbushNests` / `activeNemesisLairs`, which
+  `resetInRunFeatureState()` clears every run. Holding it across runs means a per-world record
+  in the discovery store keyed on (worldSeed, worldGenVersion), the `PoiFlags.GUARD_CLEARED`
+  precedent (7d33979), and an answer for a re-rolled slot, since `poiRunSalt` re-rolls contents
+  every run and a remembered hive may not be there next time. Value: planning a route around the
+  fights you have already found. Deps: none.
 
 - [ ] **BALANCE-POI-DENSITY**: measure what a full world actually pays now. `placePoiSlots`
   puts 1-3 random-kind slots in every one of ~48 sectors, so roughly half land on
