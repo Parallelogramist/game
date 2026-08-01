@@ -14,6 +14,7 @@ import { getStageById } from '../../data/Stages';
 import { getWeaponInfoList } from '../../weapons';
 import { copyTextToClipboard } from '../../utils/Clipboard';
 import { encodeLoadoutCode, decodeLoadoutCode } from '../../meta/LoadoutCode';
+import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
 
 const TITLE_FONT = '"Atkinson Hyperlegible", Arial, sans-serif';
 
@@ -34,6 +35,7 @@ export class LoadoutScene extends Phaser.Scene {
   private navigator: MenuNavigator | null = null;
   private isLeaving = false;
   private flashText: Phaser.GameObjects.Text | null = null;
+  private codeEntryTeardown: (() => void) | null = null;
 
   constructor() {
     super({ key: 'LoadoutScene' });
@@ -45,6 +47,7 @@ export class LoadoutScene extends Phaser.Scene {
     this.isLeaving = false;
     this.navigator = null;
     this.flashText = null;
+    this.codeEntryTeardown = null;
     this.cameras.main.setBackgroundColor('#0a0a14');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
@@ -274,9 +277,41 @@ export class LoadoutScene extends Phaser.Scene {
     const loadout = decodeLoadoutCode(clipboardText);
     if (loadout) {
       this.launch(loadout);
-    } else {
-      this.showFlash('No valid build code on the clipboard');
+      return;
     }
+    this.openBuildCodeEntry();
+  }
+
+  /**
+   * The bar is a fixed two-button layout sized off cardWidth, so a third button here is a layout
+   * change larger than the feature; the typed field takes over the dead end the paste path already
+   * had instead. A clipboard hit still launches in one press exactly as before.
+   */
+  private openBuildCodeEntry(): void {
+    if (this.isLeaving || this.codeEntryTeardown) return;
+    this.navigator?.setEnabled(false);
+    this.codeEntryTeardown = showCodeEntryOverlay<LastLoadout>({
+      title: 'ENTER BUILD CODE',
+      body: 'Type or paste a build code to launch that run.',
+      placeholder: 'PPS1-...',
+      submitLabel: 'LAUNCH',
+      autocapitalize: 'off',
+      decode: (typed) => {
+        const typedLoadout = decodeLoadoutCode(typed);
+        return typedLoadout
+          ? { ok: true, value: typedLoadout }
+          : { ok: false, error: 'That is not a build code.' };
+      },
+      onSubmit: (typedLoadout) => {
+        this.codeEntryTeardown = null;
+        this.navigator?.setEnabled(true);
+        this.launch(typedLoadout);
+      },
+      onClose: () => {
+        this.codeEntryTeardown = null;
+        this.navigator?.setEnabled(true);
+      },
+    });
   }
 
   private showFlash(message: string): void {
@@ -309,6 +344,8 @@ export class LoadoutScene extends Phaser.Scene {
       this.navigator.destroy();
       this.navigator = null;
     }
+    this.codeEntryTeardown?.();
+    this.codeEntryTeardown = null;
     this.tweens.killAll();
     this.flashText?.destroy();
     this.flashText = null;

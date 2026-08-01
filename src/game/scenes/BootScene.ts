@@ -47,6 +47,7 @@ import {
   loadLastExportAt, loadLastNudgeAt, saveLastNudgeAt, shouldShowBackupNudge,
 } from '../../storage';
 import { showInstallHintOverlay } from '../../ui/InstallHintOverlay';
+import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
 import { getDailyQuestCompletionCount } from '../../meta/DailyQuestManager';
 import { DAILY_QUEST_COUNT } from '../../data/DailyQuests';
 import {
@@ -109,6 +110,7 @@ export class BootScene extends Phaser.Scene {
   private menuBackground: MenuBackground | null = null;
   private backupOverlayTeardown: (() => void) | null = null;
   private installHintTeardown: (() => void) | null = null;
+  private codeEntryTeardown: (() => void) | null = null;
   private installPromptUnsubscribe: (() => void) | null = null;
   private cards: MenuCard[] = [];
   private titleTicker: ((timeSeconds: number) => void) | null = null;
@@ -166,6 +168,7 @@ export class BootScene extends Phaser.Scene {
     this.updateHandler = null;
     this.backupOverlayTeardown = null;
     this.installHintTeardown = null;
+    this.codeEntryTeardown = null;
     this.installPromptUnsubscribe = null;
 
     const musicManager = getMusicManager();
@@ -427,8 +430,9 @@ export class BootScene extends Phaser.Scene {
         `CODE   ${code}`,
         '',
         'Copy the code to hand this world to another player.',
-        'Paste a code to fly the world it names: the world you leave',
-        'is banked with its chart and can be returned to.',
+        'Paste a code, or TYPE one you can read but not copy, to fly',
+        'the world it names: the world you leave is banked with its',
+        'chart and can be returned to.',
       ];
       if (status) lines.push('', status);
       this.showNewGameConfirmation(
@@ -438,6 +442,40 @@ export class BootScene extends Phaser.Scene {
               summary,
               copied ? 'Code copied to the clipboard.' : 'Could not reach the clipboard.',
             ));
+            return;
+          }
+          if (choiceIndex === 2) {
+            // showNewGameConfirmation closed the dialog and resumeMainNavigator rebuilt the menu
+            // navigator before this ran, so it is live behind the DOM field and would eat every
+            // keystroke; this is the same pairing maybeShowBackupReminder uses.
+            this.menuNavigator?.setEnabled(false);
+            this.codeEntryTeardown = showCodeEntryOverlay<number>({
+              title: 'ENTER A WORLD CODE',
+              body: 'Type a world code, or the seed number printed beside it.',
+              placeholder: 'PPW1-...',
+              submitLabel: 'FLY IT',
+              autocapitalize: 'characters',
+              decode: (typed) => {
+                const typedSeed = decodeSeedCode(typed);
+                if (typedSeed === null) return { ok: false, error: 'That is not a world code.' };
+                // switchExpeditionWorld ignores a chosen seed equal to the live one and rolls a
+                // random world instead, so accepting your own code would fly somewhere else.
+                if (typedSeed === summary.seed) {
+                  return { ok: false, error: 'That is the world you are already flying.' };
+                }
+                return { ok: true, value: typedSeed };
+              },
+              onSubmit: (typedSeed) => {
+                this.codeEntryTeardown = null;
+                this.menuNavigator?.setEnabled(true);
+                openPastedWorldConfirmation(summary, typedSeed);
+              },
+              onClose: () => {
+                this.codeEntryTeardown = null;
+                this.menuNavigator?.setEnabled(true);
+                openSeedCodeDialog(summary);
+              },
+            });
             return;
           }
           void (async () => {
@@ -466,7 +504,7 @@ export class BootScene extends Phaser.Scene {
           body: lines.join('\n'),
           confirmLabel: 'COPY',
           cancelLabel: 'BACK',
-          choiceLabels: ['COPY', 'PASTE'],
+          choiceLabels: ['COPY', 'PASTE', 'TYPE'],
         },
       );
     };
@@ -2277,6 +2315,8 @@ export class BootScene extends Phaser.Scene {
 
     this.installHintTeardown?.();
     this.installHintTeardown = null;
+    this.codeEntryTeardown?.();
+    this.codeEntryTeardown = null;
     this.installPromptUnsubscribe?.();
     this.installPromptUnsubscribe = null;
 
