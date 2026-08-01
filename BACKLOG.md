@@ -458,7 +458,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   instead. The slot contention the item flagged at `PauseMenuManager:2487` needed no rework:
   earnings and notices share one panel, so the CLOSEST TO UNLOCK / quest-board `else` branch
   is untouched. **Not verified in a browser:** files `POLISH-TOAST-ENDSCREEN`.
-- [ ] **FEAT-MENU-SUBMENU-KIT** (menu chunk 1). Value: BootScene (the real main-menu
+- [x] **FEAT-MENU-SUBMENU-KIT** (menu chunk 1) (done, c7d2416). Value: BootScene (the real main-menu
   hub, 2,325 lines) carries 21-23 tap targets; its 12-card deck row is 1394 natural
   units squeezed into a 696-unit portrait row, so every card is ~48px wide on phones.
   Plan: new `src/visual/SubmenuOverlay.ts` taking `{scene, title, entries: [{label,
@@ -470,11 +470,25 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `showNewGameConfirmation` in-scene pattern (`BootScene.ts:2112-2266`; CHART nests it
   three deep). Done: renders and navigates by touch, keyboard and gamepad; close
   restores main-navigator focus; landed unused or behind one entry; suite green.
+  **What shipped:** `src/visual/SubmenuOverlay.ts`, a modal card list built on `MenuCard`
+  (not the DOM OverlayKit) that owns its own `MenuNavigator`, dim layer, entrance and idle
+  tick; ESC, gamepad B and a dim tap all close it, and the caller pauses/resumes its own
+  navigator around it so closing restores focus to the card that opened it. The pure layout
+  half is `src/visual/submenuGrid.ts` (six tests): one column in portrait, up to three in
+  landscape, row height from `computeHudScale` so a phone row stays finger-sized rather than
+  the ~35 CSS px the capped menu font density would leave it at, and a clamp that shrinks
+  rows to fit a short viewport instead of overflowing. **It landed behind one entry, not
+  unused:** the deck's ACHIEVE, CODEX, CARDS, LEADERS and PAINT cards became a single
+  COLLECT card carrying the quest badge, so the row is 8 cards instead of 12 and the natural
+  width drops from 1394 to 922 units, taking a portrait card from ~47 to ~72 units. The card
+  reads `COLLECT` (8 characters is the row's fitting maximum) while the overlay title reads
+  `COLLECTION`. `createProgressionDeck`'s signature is unchanged; the five callbacks moved
+  into the submenu entries. **Not verified in a browser:** files `POLISH-MENU-SUBMENU`.
 - [ ] **FEAT-MENU-COLLAPSE** (menu chunk 2). Dep: FEAT-MENU-SUBMENU-KIT. Plan:
   replace the 12-entry deck array (`BootScene.ts:1584-1703`) with three cards: **GAME
   MODES** (SKIRMISH, GAUNTLET, RUNNER, PRACTICE, SURPRISE, CHART with its world badge,
-  LOADOUTS), **COLLECTION** (ACHIEVEMENTS with its quest badge, CODEX, CARDS, PAINT,
-  LEADERBOARDS), **SHOP** (stays top-level: gold badge, highest-frequency meta
+  LOADOUTS), **COLLECTION** (already collapsed by FEAT-MENU-SUBMENU-KIT, leave it as-is),
+  **SHOP** (stays top-level: gold badge, highest-frequency meta
   destination, mirrors GameScene's quit-to-shop deep link `GameScene.ts:9588`). Move
   the existing action closures verbatim into submenu entries; badges travel with their
   entries. Fix the stale "5 small square cards" / "7 cards" comments (`:1542`,
@@ -9421,6 +9435,18 @@ Never agent work. The fleet must not do any of these.
     the victory overlay's second FOUND line legible in its band, and does it crowd the stats
     panel when EARNED is also present; (e) do the `TITLE ×N` collapsed rows read correctly,
     or does merging (say) two different secrets under one title lose something worth seeing.
+  - **POLISH-MENU-SUBMENU** (c7d2416): the submenu kit's sizing and the
+    deck collapse are reasoned entirely from the scale helpers, so opening the main menu on
+    the operator's real phone and desktop is the only way to know they read. Owns: (a) does
+    the COLLECT card read as a group rather than as a missing screen, or does losing five
+    visible icons feel like the game removed features; (b) is one extra tap to
+    ACHIEVEMENTS acceptable given it is the badge-carrying destination, or should it stay
+    top-level; (c) is the submenu row height actually finger-sized on the phone, and does
+    the three-column landscape grid look right for five entries (3 + 2, with a ragged second
+    row); (d) does the dim at 0.72 leave enough of the menu visible to feel like an overlay
+    rather than a scene change; (e) does a dim tap close feel discoverable, and does the hint
+    line read on a phone; (f) with COLLECT removed the deck is 8 cards at ~72 units in
+    portrait: wide enough, or does FEAT-MENU-COLLAPSE need to land before it is comfortable.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
