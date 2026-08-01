@@ -14,8 +14,10 @@ import {
   buildQuestStepViews,
   buildQuestMarkers,
   buildQuestHoldObjectives,
+  buildQuestHazardObjectives,
   type QuestBoardEntry,
   type QuestEvent,
+  type QuestHazardObjective,
   type QuestHoldObjective,
   type QuestInstanceState,
   type QuestMarker,
@@ -190,6 +192,15 @@ export type { QuestHoldObjective } from '../systems/QuestProgress';
  *  getActiveQuestMarkers, so the pressure can never answer for a room the pins do not point at. */
 export function getActiveQuestHoldObjectives(): QuestHoldObjective[] {
   return buildQuestHoldObjectives(load().states, EXPEDITION_QUESTS);
+}
+
+export type { QuestHazardObjective } from '../systems/QuestProgress';
+
+/** Which objectives the chart and the radar may point at a remembered hive for. Same store
+ *  read and same one-projection rule as getActiveQuestMarkers, so the panel and the pins
+ *  cannot disagree about what is active. */
+export function getActiveQuestHazardObjectives(): QuestHazardObjective[] {
+  return buildQuestHazardObjectives(load().states, EXPEDITION_QUESTS);
 }
 
 /**

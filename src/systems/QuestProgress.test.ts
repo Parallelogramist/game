@@ -9,6 +9,7 @@ import {
   buildQuestStepViews,
   buildQuestMarkers,
   buildQuestHoldObjectives,
+  buildQuestHazardObjectives,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -446,5 +447,61 @@ describe('the quest board', () => {
       .toEqual(['quest_b', 'quest_c', 'quest_d', 'quest_e', 'quest_a']);
     expect(entries[0]).toMatchObject({ status: 'available', acceptable: true, progress: 1 });
     expect(entries[entries.length - 1]).toMatchObject({ status: 'complete', acceptable: false, goldRemaining: 0 });
+  });
+});
+
+describe('buildQuestHazardObjectives', () => {
+  const HAZARD_DEFS: readonly ExpeditionQuestDefinition[] = [
+    {
+      id: 'quest_nest',
+      name: 'Nest',
+      icon: 'radar',
+      steps: [{
+        id: 'q_nest.s1',
+        description: 'clear hives',
+        trigger: { kind: 'clearHazard', hazardKind: 'nest' },
+        target: 2,
+        scope: 'run',
+        goldReward: 10,
+      }],
+      completionGoldReward: 20,
+    },
+    {
+      id: 'quest_lair',
+      name: 'Lair',
+      icon: 'radar',
+      steps: [{
+        id: 'q_lair.s1',
+        description: 'kill the hunter at its den',
+        trigger: { kind: 'clearHazard', hazardKind: 'lair' },
+        target: 1,
+        scope: 'persistent',
+        goldReward: 10,
+      }],
+      completionGoldReward: 20,
+    },
+    {
+      id: 'quest_any',
+      name: 'Any',
+      icon: 'radar',
+      steps: [{
+        id: 'q_any.s1',
+        description: 'clear risk rooms',
+        trigger: { kind: 'clearHazard' },
+        target: 10,
+        scope: 'persistent',
+        goldReward: 10,
+      }],
+      completionGoldReward: 20,
+    },
+  ];
+
+  test('carries nest and breadth steps, never a lair and never a non-hazard step', () => {
+    const held = [active('quest_nest'), active('quest_lair'), active('quest_any')];
+    expect(buildQuestHazardObjectives(held, HAZARD_DEFS)).toEqual([
+      { questId: 'quest_nest', label: 'Nest' },
+      { questId: 'quest_any', label: 'Any' },
+    ]);
+    expect(buildQuestHazardObjectives([active('quest_a', 0, 0)], DEFS)).toEqual([]);
   });
 });

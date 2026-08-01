@@ -1,7 +1,8 @@
 import { describe, test, expect } from 'vitest';
 import { generateWorld } from '../world/generateWorld';
 import { STAGES } from '../data/Stages';
-import { buildQuestPins } from './questPins';
+import { buildHazardPins, buildQuestPins } from './questPins';
+import { PoiFlags } from './DiscoveryTypes';
 import type { QuestMarker } from '../systems/QuestProgress';
 
 const MAP = generateWorld(20260727, {
@@ -44,5 +45,49 @@ describe('buildQuestPins', () => {
     const distanceOf = (sx: number, sy: number) => Math.max(Math.abs(sx), Math.abs(sy));
     const nearest = Math.min(...region.map(sector => distanceOf(sector.sx, sector.sy)));
     expect(distanceOf(chosen.sx, chosen.sy)).toBe(nearest);
+  });
+});
+
+describe('buildHazardPins', () => {
+  const NEST_OBJECTIVES = [{ questId: 'quest_nest', label: 'Nest' }];
+  const SECTORS = [...MAP.sectors.values()];
+
+  function hazardPinsFor(nestSectorKeys: readonly string[], spent: readonly string[] = []) {
+    const nestSlotIds = new Set(
+      SECTORS.filter(sector => nestSectorKeys.includes(sector.key))
+        .flatMap(sector => sector.poiSlots.map(slot => slot.id)),
+    );
+    return buildHazardPins({
+      map: MAP,
+      objectives: NEST_OBJECTIVES,
+      sectorFlagsOf: (key) => (nestSectorKeys.includes(key) ? 1 : 0),
+      poiFlagsOf: (poiId) => (nestSlotIds.has(poiId) ? PoiFlags.HAZARD_NEST : 0),
+      spentNestSectorKeys: new Set(spent),
+      shipCell: { col: 0, row: 0 },
+    });
+  }
+
+  test('pins the nearest remembered hive', () => {
+    const withSlots = SECTORS.filter(sector => sector.poiSlots.length > 0);
+    expect(withSlots.length).toBeGreaterThan(1);
+    const distanceOf = (sx: number, sy: number) => Math.max(Math.abs(sx), Math.abs(sy));
+    const sorted = [...withSlots]
+      .sort((a, b) => distanceOf(a.sx, a.sy) - distanceOf(b.sx, b.sy));
+    const near = sorted[0];
+    const far = sorted[sorted.length - 1];
+    expect(distanceOf(far.sx, far.sy)).toBeGreaterThan(distanceOf(near.sx, near.sy));
+    expect(hazardPinsFor([near.key, far.key])[0].sectorKey).toBe(near.key);
+  });
+
+  test('skips a hive already taken this run, and emits no pin when none is left', () => {
+    const withSlots = SECTORS.filter(sector => sector.poiSlots.length > 0);
+    const distanceOf = (sx: number, sy: number) => Math.max(Math.abs(sx), Math.abs(sy));
+    const sorted = [...withSlots]
+      .sort((a, b) => distanceOf(a.sx, a.sy) - distanceOf(b.sx, b.sy));
+    const near = sorted[0];
+    const far = sorted[sorted.length - 1];
+    expect(hazardPinsFor([near.key, far.key], [near.key])[0].sectorKey).toBe(far.key);
+    expect(hazardPinsFor([near.key], [near.key])).toEqual([]);
+    expect(hazardPinsFor([])).toEqual([]);
   });
 });

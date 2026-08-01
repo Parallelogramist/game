@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
-import { getActiveQuestMarkers, getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
+import { getActiveQuestHazardObjectives, getActiveQuestMarkers,
+  getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT, GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP,
   GamepadManager } from '../../input/GamepadManager';
@@ -13,7 +14,7 @@ import {
 } from '../../visual/SectorMapRenderer';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
-import { buildQuestPins } from '../../expedition/questPins';
+import { buildHazardPins, buildQuestPins } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
@@ -42,6 +43,9 @@ export interface MapSceneData {
   /** Sectors holding a dormant ambush nest or nemesis lair. Passed in rather than read here for
    *  the same reason ownedAbilityIds is: it is run-scoped state GameScene already owns. */
   hazardSectors: readonly { sectorKey: string; kind: PoiHazardKind }[];
+  /** Rooms whose permanent hive this run has already taken. Run-scoped like hazardSectors, and
+   *  for the same reason it is passed in rather than read here. */
+  spentNestSectorKeys: readonly string[];
 }
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
@@ -88,6 +92,7 @@ export class MapScene extends Phaser.Scene {
   private questPins: QuestPin[] = [];
   private objectiveSectorKeys: ReadonlySet<string> = new Set();
   private hazardSectorKinds: ReadonlyMap<string, PoiHazardKind> = new Map();
+  private spentNestSectorKeys: ReadonlySet<string> = new Set();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
@@ -117,6 +122,7 @@ export class MapScene extends Phaser.Scene {
     this.hazardSectorKinds = new Map(
       (data.hazardSectors ?? []).map(entry => [entry.sectorKey, entry.kind]),
     );
+    this.spentNestSectorKeys = new Set(data.spentNestSectorKeys ?? []);
     this.closed = false;
     this.zoomOutArmed = false;
     this.dragPointerId = -1;
@@ -147,12 +153,22 @@ export class MapScene extends Phaser.Scene {
       + '   ·   HOVER OR TAP A SECTOR TO INSPECT   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
-    this.questPins = buildQuestPins({
-      map: this.mapData,
-      markers: getActiveQuestMarkers(),
-      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
-      shipCell,
-    });
+    this.questPins = [
+      ...buildQuestPins({
+        map: this.mapData,
+        markers: getActiveQuestMarkers(),
+        sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+        shipCell,
+      }),
+      ...buildHazardPins({
+        map: this.mapData,
+        objectives: getActiveQuestHazardObjectives(),
+        sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+        poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
+        spentNestSectorKeys: this.spentNestSectorKeys,
+        shipCell,
+      }),
+    ];
     this.objectiveSectorKeys = new Set(
       this.questPins
         .map(pin => pin.sectorKey)

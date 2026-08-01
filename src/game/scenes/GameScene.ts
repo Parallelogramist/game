@@ -66,7 +66,7 @@ import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../wo
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import type { PoiHazardKind } from '../../expedition/sectorDetail';
-import { buildQuestPins } from '../../expedition/questPins';
+import { buildHazardPins, buildQuestPins } from '../../expedition/questPins';
 import { buildRadarWaypoints } from '../../expedition/radarWaypoints';
 import type { RadarWaypoint } from '../../expedition/radarWaypoints';
 import { rollPoiContents } from '../../world/poiRoll';
@@ -94,7 +94,7 @@ import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead, chooseHintTarget, findSecretSector } from '../../expedition/secretHints';
 import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
-import { SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
+import { PoiFlags, SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
@@ -144,6 +144,7 @@ import {
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
   getActiveQuestMarkers,
+  getActiveQuestHazardObjectives,
   getActiveQuestHoldObjectives,
   getActiveQuestStepViews,
   getEarnedQuestKeyIds,
@@ -1176,6 +1177,7 @@ export class GameScene extends Phaser.Scene {
       ownedAbilityIds: [...this.ownedTraversalAbilityIds],
       earnedQuestKeyIds: [...this.earnedQuestKeyIds],
       hazardSectors: this.dormantHazardSectors(),
+      spentNestSectorKeys: this.spentAmbushNestSectorKeys(),
     });
     this.scene.pause();
   }
@@ -1193,6 +1195,30 @@ export class GameScene extends Phaser.Scene {
       byKey.set(sectorKey(sectorOfWorldPoint(lair.x, lair.y)), 'lair');
     }
     return [...byKey].map(([key, kind]) => ({ sectorKey: key, kind }));
+  }
+
+  /** Rooms whose permanent hive this run has already taken: the slot was stocked (spawnedPoiSlotIds
+   *  is per-run and persisted) and no hive stands there now. A slot is stocked once per run, so a
+   *  cleared hive does not re-arm until the next expedition and a pin on it would point at a broken
+   *  chest. A WOKEN nest is deliberately not spent: the fight the objective wants is still live. */
+  private spentAmbushNestSectorKeys(): string[] {
+    const map = this.worldMode.worldMap();
+    if (!map) return [];
+    const liveNestSectorKeys = new Set(
+      this.activeAmbushNests.map(nest => sectorKey(sectorOfWorldPoint(nest.x, nest.y))),
+    );
+    const discovery = getDiscoveryManager();
+    const spent: string[] = [];
+    for (const sector of map.sectors.values()) {
+      if (liveNestSectorKeys.has(sector.key)) continue;
+      for (const slot of sector.poiSlots) {
+        if (!this.spawnedPoiSlotIds.has(slot.id)) continue;
+        if ((discovery.getPoiFlags(slot.id) & PoiFlags.HAZARD_NEST) === 0) continue;
+        spent.push(sector.key);
+        break;
+      }
+    }
+    return spent;
   }
 
   /** Called by MapScene before it resumes this scene, so the resume handler sees no pause
@@ -8121,12 +8147,23 @@ export class GameScene extends Phaser.Scene {
     }
     const discovery = getDiscoveryManager();
     const shipCell = sectorOfWorldPoint(playerX, playerY);
-    const pins = buildQuestPins({
-      map,
-      markers: getActiveQuestMarkers(),
-      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
-      shipCell,
-    });
+    const spentNestSectorKeys = new Set(this.spentAmbushNestSectorKeys());
+    const pins = [
+      ...buildQuestPins({
+        map,
+        markers: getActiveQuestMarkers(),
+        sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+        shipCell,
+      }),
+      ...buildHazardPins({
+        map,
+        objectives: getActiveQuestHazardObjectives(),
+        sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+        poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
+        spentNestSectorKeys,
+        shipCell,
+      }),
+    ];
     const leadSectorKeys: string[] = [];
     for (const secretId of discovery.getHintedSecretIds()) {
       const sector = findSecretSector(map, secretId);

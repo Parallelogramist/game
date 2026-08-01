@@ -441,6 +441,35 @@ export function buildQuestHoldObjectives(
 }
 
 /**
+ * The objectives asking for a cleared risk room. A step naming 'lair' is deliberately absent:
+ * a lair is placed only while the profile holds an unspawned nemesis and at most once per
+ * world per run, so it is never remembered and there is nothing to point at. An omitted
+ * hazardKind counts either fight, and a remembered hive satisfies it.
+ */
+export interface QuestHazardObjective {
+  questId: string;
+  label: string;
+}
+
+export function buildQuestHazardObjectives(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestHazardObjective[] {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const objectives: QuestHazardObjective[] = [];
+  for (const state of states) {
+    if (state.status !== 'active') continue;
+    const definition = byId.get(state.questId);
+    const step = definition?.steps[state.stepIndex];
+    if (!definition || !step) continue;
+    if (step.trigger.kind !== 'clearHazard') continue;
+    if (step.trigger.hazardKind === 'lair') continue;
+    objectives.push({ questId: definition.id, label: definition.name });
+  }
+  return objectives;
+}
+
+/**
  * What the walk-in board renders: one row per chain the player may act on. The offerable set is
  * every chain HEAD plus every chain the profile already holds, which is what lets a successor the
  * player set aside be picked back up while an unreached successor stays out of the list (it is
