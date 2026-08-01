@@ -99,7 +99,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `FEAT-ENEMY-SLIDE-ASSIST` is filed for after it. Files `POLISH-WALL-FEEL` (all five constants
   are pure geometry validated in a sandbox, never in a browser) plus `FEAT-ENEMY-SLIDE-ASSIST` and
   `BUG-KNOCKBACK-CORNER-CLIP`.
-- [ ] **BUG-ENEMY-NAV-FALLBACK** (F2b + F2c). Value: when line of sight is false AND
+- [x] **BUG-ENEMY-NAV-FALLBACK** (F2b + F2c) (done, 770ccae). Value: when line of sight is false AND
   the flow field misses, `chaseHeading` returns the raw direct vector
   (`src/ecs/systems/enemy-ai/common.ts:79`), so every enemy outside the flow block or
   chasing an unreachable player beelines into a wall and grinds it forever. The flow
@@ -116,6 +116,40 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   outside-the-block fallback class entirely. Pure tests: stubbed context (LOS false,
   flow miss, synthetic solid grid) returns a tangent, never the direct vector; flow
   block covers a point 1600px from a player standing at a sector corner.
+  **What shipped:** two commits. (1) **F2c, the flow block** (2f86c06): the 3x3
+  sector-snapped block became 96x96 tiles centred on the player's own tile. Snapping to the sector
+  grid meant a player standing near a sector corner got as little as one sector of field on the
+  short side, so an enemy well inside its 1600px leash could sit outside the block entirely.
+  Measured against the old resolver with the player on a sector's first tile, 4 of 6
+  leash-distance probes (west, north, south, north-west) had no route at all; all 6 do now. 48
+  tiles reaches 1920px in every direction. It is not free: computeFlowField measured 0.391ms
+  before and 0.967ms after over a 7x7-sector world, 2.47x rather than the ~1.8x this item
+  predicted, split roughly 0.17ms tile reads and 0.80ms BFS plus descent. Still under a
+  millisecond on a field that refreshes at most every 0.15s or on a player tile crossing, and
+  PERF-FLOW-REFRESH is filed for the cheap wins if it ever shows. (2) **F2b, the wall-tangent
+  rung** (770ccae): NavigationContext gained isSolidAt (ExpeditionModeAdapter answers it
+  with isSolidAtWorld under MoverKind.Enemy), and chaseHeading's flow-miss branch now probes 24px
+  ahead and, when that is rock, turns onto the wall tangent instead of returning the raw direct
+  vector. **The sign rule in this item's plan was wrong and was replaced.** It said to keep the
+  tangent "that closes distance to the player", but every caller passes the unit vector toward the
+  player, so the two perpendicular probes are mirror images about the enemy-to-player line and are
+  always equidistant from it: measured, both sides scored 166976.000000 and differed only in the
+  last mantissa bits, so the rule would have picked a side on rounding noise. What shipped instead
+  scores each side by geometry: 0 if the tangent probe is rock, 1 if it is open but an L-offset
+  probe past the obstacle is still rock, 2 if both are open, and takes the higher score. That
+  turns the enemy toward the end of the wall rather than the long way round, and a tie keeps the
+  positive perpendicular so every enemy rounds an obstacle the same way instead of swapping sides
+  frame to frame. Verified on seven layouts: infinite wall turns tangent, a wall ending north
+  turns north, its mirror turns south, a diagonal approach turns onto the player's side, a dead
+  end with both tangents solid keeps the direct vector, and open ground is untouched. At most five
+  tile reads, and only for enemies that already failed both cheaper rungs. **Unchanged on
+  purpose:** arena steering is byte-identical (a null context still returns the caller's own
+  vector by assignment), an enemy with line of sight still takes the straight line, phased wraiths
+  still bypass chaseHeading, and only the 9 chase-family handlers reach any of this until
+  FEAT-ENEMY-NAV-COVERAGE routes the rest. The direct/tangent flicker as an enemy clears a wall
+  and the dead-end case that still holds the direct vector both belong to
+  POLISH-ENEMY-NAV-SMOOTH, the next-but-one Band A item, which owns hysteresis and the stuck
+  detector: they are deliberately not patched here.
 - [ ] **FEAT-ENEMY-NAV-COVERAGE** (F2a). Value: only the 9 chase-family handlers
   navigate at all; shooter, sniper, circle, lurker, glutton (gem mode), healer,
   rallier, necromancer, warden, twin, horde-king, swarm-mother steer raw vectors and
@@ -3962,6 +3996,17 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   `hitX`/`hitY`. The side guards make those flags honest (they no longer fire for a tile the enemy
   is already past), so knockback now carries further along walls than it did. Worth one playtest
   look before anything is retuned.
+- [ ] **PERF-FLOW-REFRESH**. Value: computeFlowField measured 0.967ms per call after
+  BUG-ENEMY-NAV-FALLBACK grew the block to 96x96 (0.391ms before), and ExpeditionModeAdapter
+  recomputes it on *every* player tile crossing as well as every 0.15s, so a ship crossing tiles
+  at ~10Hz pays it ~10 times a second. Two cheap wins, neither taken then because the item's scope
+  was navigation: (a) the tile-crossing trigger duplicates the 0.15s timer, since a field one or
+  two tiles stale still routes correctly, so it can go or become a "moved >= 4 tiles" check
+  (`ExpeditionModeAdapter.ts:336-337`); (b) the walkable prefill calls `tileKindAt` 9216 times per
+  refresh (~0.17ms of the total), each redoing the sector lookup, when a row walk could hold the
+  sector across a 32-tile run (`flowField.ts:88-95`). The other ~0.80ms is the BFS plus the
+  8-neighbour descent and is structural. Done: measured per-call cost or refresh rate down, with
+  `flowField.test.ts` and the leash-coverage test still green.
 
 ## Next
 

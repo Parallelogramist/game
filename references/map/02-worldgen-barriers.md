@@ -865,18 +865,22 @@ truth rather than the sketch.
    `src/ecs/systems/enemy-ai/navigation/flowField.ts`. README section 3.3 gives `src/world/` as
    the home for pure world math and collision, and a `navigation/` subdirectory holding one file
    is surface with no second occupant.
-2. The field covers a 3x3 sector block (5184 tiles), not one sector (576). The camera straddles
-   up to four sectors and a sector border ring is solid apart from its apertures, so a
-   one-sector field would leave every enemy arriving on the spawn ring steering into that ring
-   with no route through it.
+2. The field covers a 96x96-tile block centred on the player's own tile (9216 tiles), not one
+   sector (576) and no longer the 3x3 sector-snapped block it first shipped as. Sector snapping
+   left a player near a sector corner with as little as one sector of field on the short side, so
+   an enemy well inside its 1600px leash could sit outside the block and fall through to the raw
+   direct vector: measured, 4 of 6 leash-distance probes from a sector corner tile had no route.
+   48 tiles reaches 1920px in every direction. It costs 0.97ms per refresh against 0.39ms, on a
+   field that refreshes at most every 0.15s or on a player tile crossing (BUG-ENEMY-NAV-FALLBACK).
 3. `computeFlowField(world, targetWorldX, targetWorldY, field)` takes a `WorldMap` and world
    coordinates rather than `(tiles, targetTileX, targetTileY, out)`. A multi-sector block needs
    the cached sector index that `staticCollision.tileKindAt` already owns; that reader was
    exported rather than copied, so the sector lookup keeps one source of truth.
-4. The `NavigationContext` member is `flowStep(x, y, out)`, not `sampleFlowDirection` plus
-   `isSolidAt`. The tile-to-world conversion needs the block origin, which lives with the field,
-   and the one caller that wanted `isSolidAt`, the teleporter's blink destination, is served by
-   the already-shipped `freeSpotNear`.
+4. The `NavigationContext` member is `flowStep(x, y, out)`, not `sampleFlowDirection`: the
+   tile-to-world conversion needs the block origin, which lives with the field. `isSolidAt` was
+   dropped at first because the only caller that wanted it, the teleporter's blink destination, is
+   served by `freeSpotNear`; it was added back by BUG-ENEMY-NAV-FALLBACK, which needs point
+   solidity probes for the wall-tangent rung under the flow field.
 5. Bosses (`aiType >= 100`) do not collide with geometry, per section 6.4 above: a wedged boss
    is an unwinnable run. Minibosses (`aiType` 50-57) do collide, because they are normal-sized
    movers with chase-family steering and one phasing through rock while its minions walk around
