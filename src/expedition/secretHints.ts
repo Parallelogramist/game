@@ -98,14 +98,17 @@ function sortedSecretIds(map: WorldMap): string[] {
 }
 
 /**
- * Fragments are DEALT by rank, not drawn independently per secret. Expedition flies one fixed
- * world seed, so an independent draw leaves fragments permanently unreachable: 26 secrets
- * drawing from a 13-row catalog lands on about 11 distinct, and the gap widens as the catalog
- * grows. Dealing rank i the fragment at (offset + i) % length gives every fragment at least
- * floor(secrets / length) ranks, so clearing the world completes the codex. The offset is
- * seeded per world, so a future re-rolled world does not meet the fragments in the same order.
- * No run salt, the secretRewards.ts reasoning: a lead is re-read every time the map screen
- * opens, so a per-run roll would rename the same fragment mid-hunt.
+ * Fragments are DEALT by rank, not drawn independently per secret: an independent draw repeats
+ * and strands rows (26 secrets drawing from a 13-row catalog lands on about 11 distinct).
+ * Dealing rank i the fragment at (offset + i) % length makes a world's deal a contiguous,
+ * repeat-free window, so one world hands over exactly min(secrets, catalog) distinct fragments.
+ * The catalog is deliberately longer than most worlds (26 rows against a median 24 secret slots
+ * measured over 101 seeds), so for most seeds the codex is completed across a season re-roll
+ * rather than inside one world; the live seed 20260727 carries exactly 26, so the default
+ * profile can still finish it where it stands. The offset is seeded per world, so a re-rolled
+ * world deals a different window. No run salt, the secretRewards.ts reasoning: a lead is
+ * re-read every time the map screen opens, so a per-run roll would rename the same fragment
+ * mid-hunt.
  */
 export function loreFragmentFor(map: WorldMap, secretId: string): LoreFragmentDefinition {
   const rank = sortedSecretIds(map).indexOf(secretId);

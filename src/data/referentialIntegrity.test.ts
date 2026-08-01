@@ -206,6 +206,17 @@ describe('data catalog referential integrity', () => {
       }
     }
   });
+
+  test('lore fragment ids are unique and every title fits a toast heading', () => {
+    const ids = LORE_FRAGMENTS.map((fragment) => fragment.id);
+    expect(new Set(ids).size, 'duplicate lore fragment ids').toBe(ids.length);
+    for (const fragment of LORE_FRAGMENTS) {
+      // The title is uppercased into a toast heading (GameScene) and the LEADS panel heading
+      // (MapScene); neither wraps, and 17 is the widest that fits.
+      expect(fragment.title.length, fragment.id).toBeLessThanOrEqual(17);
+      expect(fragment.text.trim().length, fragment.id).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('expedition quest data rules', () => {

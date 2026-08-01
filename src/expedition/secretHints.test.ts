@@ -182,14 +182,18 @@ describe('secretHints', () => {
     expect(sawWalkIn).toBe(true);
   });
 
-  test('every lore fragment is dealt at least once in a world the player can clear', () => {
+  test('a world deals a repeat-free window of the catalog, min(secrets, catalog)', () => {
     const liveWorld = generateWorld(20260727, INPUTS);
     for (const world of [...WORLDS, liveWorld]) {
+      const secrets = secretsOf(world);
       const dealt = new Set(
-        secretsOf(world).map(({ secretId }) => loreFragmentFor(world, secretId).id),
+        secrets.map(({ secretId }) => loreFragmentFor(world, secretId).id),
       );
-      expect(secretsOf(world).length).toBeGreaterThanOrEqual(LORE_FRAGMENTS.length);
-      expect(dealt.size).toBe(LORE_FRAGMENTS.length);
+      expect(dealt.size, `seed ${world.seed}`)
+        .toBe(Math.min(secrets.length, LORE_FRAGMENTS.length));
     }
+    // The live seed holds one slot per catalog row, which is what keeps the default profile's
+    // collection finishable without a season re-roll.
+    expect(secretsOf(liveWorld).length).toBeGreaterThanOrEqual(LORE_FRAGMENTS.length);
   });
 });

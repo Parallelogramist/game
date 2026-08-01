@@ -1382,7 +1382,7 @@ export class CodexScene extends Phaser.Scene {
     const bodyText = this.add.text(
       textX,
       36,
-      discovered ? fragment.text : 'Recovered from a secret on expedition.',
+      discovered ? fragment.text : 'Recovered from a secret. One world deals only some.',
       {
         fontSize: '12px',
         color: discovered ? '#ddccaa' : '#555566',
