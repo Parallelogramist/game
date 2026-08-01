@@ -12,7 +12,7 @@ import { EDGE_DIRECTIONS, EdgeKind, PoiKind, edgeIdFor } from '../world/worldTyp
 import type { EdgeDef, EdgeDirection, SectorDef, WorldMap } from '../world/worldTypes';
 import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 import { gateGlyphFor } from './gateGlyphs';
-import { poiGlyphFor } from './poiGlyphs';
+import { HAZARD_NEST_GLYPH, poiGlyphFor } from './poiGlyphs';
 import { getStageById } from '../data/Stages';
 import { getTraversalAbility } from '../data/TraversalAbilities';
 import { getQuestForKeyId } from '../data/ExpeditionQuests';
@@ -140,8 +140,11 @@ const HAZARD_LABELS: Record<PoiHazardKind, string> = {
   lair: 'Nemesis lair · dormant',
 };
 
+const HAZARD_NEST_LABEL = HAZARD_NEST_GLYPH.label;
+
 function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[] {
   const lines: string[] = [];
+  let nestNamedBySlot = false;
   for (const slot of sector.poiSlots) {
     const glyph = poiGlyphFor(slot.kind);
     if (glyph.shape === 'none') continue;
@@ -153,6 +156,11 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
     }
     const flags = inputs.poiFlagsOf(slot.id);
     if ((flags & PoiFlags.SEEN) === 0) continue;
+    if ((flags & PoiFlags.HAZARD_NEST) !== 0) {
+      lines.push(HAZARD_NEST_LABEL);
+      nestNamedBySlot = true;
+      continue;
+    }
     if ((flags & PoiFlags.COLLECTED) !== 0) {
       lines.push(`${glyph.label} · claimed`);
       continue;
@@ -162,7 +170,12 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
     lines.push(guarded ? `${glyph.label} · guarded` : glyph.label);
   }
   const hazard = inputs.hazardSectorKinds.get(sector.key);
-  if (hazard !== undefined) lines.push(HAZARD_LABELS[hazard]);
+  // The run-scoped nest line would restate the slot line above it, which is slot-precise and
+  // survives the run. The lair keeps its room-level line: it is never remembered, because it
+  // is conditional on live nemesis state and its room genuinely moves between runs.
+  if (hazard !== undefined && !(hazard === 'nest' && nestNamedBySlot)) {
+    lines.push(HAZARD_LABELS[hazard]);
+  }
   if (inputs.objectiveSectorKeys.has(sector.key)) lines.push('An objective points here');
   if (inputs.hintedSectorKeys.has(sector.key)) lines.push('A lead points here');
   return lines;

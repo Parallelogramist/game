@@ -264,6 +264,23 @@ describe('discoveryRules', () => {
     expect(sanitizeDiscoveryState('not an object', SEED, GEN_VERSION, universe)).toEqual(fresh);
   });
 
+  it('a remembered hive survives a reload', () => {
+    const universe = buildIdUniverse(makeWorld());
+    const stored = {
+      version: DISCOVERY_VERSION,
+      worldSeed: SEED,
+      worldGenVersion: GEN_VERSION,
+      sectors: {},
+      edges: {},
+      pois: { [PLAIN_POI_ID]: PoiFlags.HAZARD_NEST },
+      secrets: {},
+    };
+
+    const reloaded = sanitizeDiscoveryState(stored, SEED, GEN_VERSION, universe);
+
+    expect(reloaded.pois[PLAIN_POI_ID]).toBe(PoiFlags.HAZARD_NEST | PoiFlags.SEEN);
+  });
+
   it('names only the KNOWN doors keyed to the gained id', () => {
     const map = makeDoorWorld();
     const universe = buildIdUniverse(map);

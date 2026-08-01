@@ -15,6 +15,7 @@ import {
   emptyDiscoveryState,
   emptyIdUniverse,
   newlyPassableEdges,
+  revealOnAmbushNestSighted,
   revealOnEdgeTraversal,
   revealOnMapFragment,
   revealOnPoiCollected,
@@ -93,6 +94,14 @@ export class DiscoveryManager {
 
   isVaultGuardCleared(poiId: string): boolean {
     return (this.getPoiFlags(poiId) & PoiFlags.GUARD_CLEARED) !== 0;
+  }
+
+  /** The only write path for a hive the ship has walked in on. Permanent per world because
+   *  poiRoll draws hive-ness off the world seed alone, so the room really does hold one on
+   *  every future expedition. */
+  markAmbushNestSighted(poiId: string): DiscoveryChanges {
+    if (!this.map) return emptyChanges();
+    return this.commit(revealOnAmbushNestSighted(this.state, this.universe, poiId));
   }
 
   /** The only write path for a found secret (README section 3.7). Permanent per world: the

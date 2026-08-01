@@ -29,8 +29,12 @@ export const PoiFlags = {
   COLLECTED: 1 << 1,
   /** Its placed guard encounter was killed. Permanent per world: the fight is never re-run. */
   GUARD_CLEARED: 1 << 2,
+  /** This Treasure slot is one of the world's permanent hives, and the ship has been in the
+   *  room. Permanent per world because the hive is: poiRoll draws hive-ness off the world
+   *  seed alone, so the marker cannot outlive what it names. */
+  HAZARD_NEST: 1 << 3,
 } as const;
-export const POI_VALID_MASK = 0b111;
+export const POI_VALID_MASK = 0b1111;
 
 export const SecretFlags = {
   HINTED: 1 << 0,
@@ -62,6 +66,7 @@ export interface DiscoveryChanges {
   poisSeen: string[];
   poisCollected: string[];
   poisGuardCleared: string[];
+  poisHazardNest: string[];
   secretsHinted: string[];
   secretsFound: string[];
 }
@@ -75,6 +80,7 @@ export function emptyChanges(): DiscoveryChanges {
     poisSeen: [],
     poisCollected: [],
     poisGuardCleared: [],
+    poisHazardNest: [],
     secretsHinted: [],
     secretsFound: [],
   };
@@ -88,6 +94,7 @@ export function hasChanges(changes: DiscoveryChanges): boolean {
     || changes.poisSeen.length > 0
     || changes.poisCollected.length > 0
     || changes.poisGuardCleared.length > 0
+    || changes.poisHazardNest.length > 0
     || changes.secretsHinted.length > 0
     || changes.secretsFound.length > 0;
 }

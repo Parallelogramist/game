@@ -5151,6 +5151,9 @@ export class GameScene extends Phaser.Scene {
         sector.sy * SECTOR_HEIGHT + entry.slot.tileY * TILE_SIZE + TILE_SIZE / 2,
         sector.depth,
       );
+      if (entry.contentId === 'poi_ambush_nest') {
+        getDiscoveryManager().markAmbushNestSighted(entry.slot.id);
+      }
     }
   }
 

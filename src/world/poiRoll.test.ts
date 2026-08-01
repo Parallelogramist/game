@@ -78,6 +78,32 @@ describe('rollPoiContents', () => {
     expect(deep.some(entry => entry.contentId === 'poi_black_market')).toBe(true);
   });
 
+  test('a hive is a property of the world, not of the run', () => {
+    const treasure = slots(PoiKind.Treasure, 80);
+    const hivesFor = (runSalt: number) => new Set(
+      rollPoiContents({ ...BASE, depth: 6, runSalt, slots: treasure })
+        .filter(entry => entry.contentId === 'poi_ambush_nest')
+        .map(entry => entry.slot.id));
+
+    const first = hivesFor(1);
+    expect(first.size).toBeGreaterThan(0);
+    for (const runSalt of [2, 3, 4, 5]) {
+      expect([...hivesFor(runSalt)].sort()).toEqual([...first].sort());
+    }
+  });
+
+  test('a hive ignores the market and nemesis budgets a run has spent', () => {
+    const treasure = slots(PoiKind.Treasure, 80);
+    const hiveIds = (extra: { oncePerRunAvailable: boolean; nemesisAvailable: boolean }) =>
+      rollPoiContents({ ...BASE, depth: 6, slots: treasure, ...extra })
+        .filter(entry => entry.contentId === 'poi_ambush_nest')
+        .map(entry => entry.slot.id)
+        .sort();
+
+    expect(hiveIds({ oncePerRunAvailable: false, nemesisAvailable: false }))
+      .toEqual(hiveIds({ oncePerRunAvailable: true, nemesisAvailable: true }));
+  });
+
   test('the catalog itself is well formed', () => {
     const ids = POI_CONTENTS.map(content => content.id);
     expect(new Set(ids).size).toBe(ids.length);

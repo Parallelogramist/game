@@ -44,8 +44,13 @@ export function rollPoiContents(input: PoiRollInput): RolledPoi[] {
   const rolled: RolledPoi[] = [];
 
   for (const slot of input.slots) {
+    if (isStableAmbushNestSlot(input.worldSeed, slot, input.depth)) {
+      rolled.push({ slot, contentId: 'poi_ambush_nest' });
+      continue;
+    }
     const candidates = POI_CONTENTS.filter(content =>
       content.slotKind === slot.kind &&
+      content.id !== 'poi_ambush_nest' &&
       (oncePerRunAvailable || content.oncePerRun !== true) &&
       (nemesisAvailable || content.requiresNemesis !== true) &&
       effectiveWeight(content, scale) > 0);
@@ -75,4 +80,31 @@ function depthBandScale(depth: number): Partial<Record<PoiContentId, number>> {
     if (depth >= band.minDepth) scale = band.weightScale;
   }
   return scale;
+}
+
+/**
+ * Whether this slot is one of the world's permanent hives.
+ *
+ * Seeded on the world seed and the slot id ALONE, never on the run salt: a room the chart
+ * remembers as a hive has to still be one next expedition, which is what makes the
+ * remembered marker true rather than a guess. The denominator is the slot kind's NOMINAL
+ * table weight at this depth, including entries a given run has already spent, because a
+ * denominator that moved with `oncePerRunAvailable` or `nemesisAvailable` would let
+ * hive-ness flip between runs, which is the whole thing this rule exists to stop.
+ */
+export function isStableAmbushNestSlot(
+  worldSeed: number, slot: PoiSlot, depth: number,
+): boolean {
+  const nest = POI_CONTENTS.find(content => content.id === 'poi_ambush_nest');
+  if (!nest || nest.slotKind !== slot.kind) return false;
+  const scale = depthBandScale(depth);
+  const nestWeight = effectiveWeight(nest, scale);
+  if (nestWeight <= 0) return false;
+  let nominalTotal = 0;
+  for (const content of POI_CONTENTS) {
+    if (content.slotKind === slot.kind) nominalTotal += effectiveWeight(content, scale);
+  }
+  if (nominalTotal <= 0) return false;
+  const rng = mulberry32(hashStringToSeed(`poi-hive:${worldSeed}:${slot.id}`));
+  return rng() < nestWeight / nominalTotal;
 }

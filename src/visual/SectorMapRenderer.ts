@@ -6,7 +6,8 @@ import type { EdgeDef, SectorDef, WorldMap } from '../world/worldTypes';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, sectorOfWorldPoint } from '../world/worldSpace';
 import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from '../expedition/DiscoveryTypes';
 import { gateGlyphFor } from '../expedition/gateGlyphs';
-import { poiGlyphFor } from '../expedition/poiGlyphs';
+import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../expedition/poiGlyphs';
+import type { PoiGlyph } from '../expedition/poiGlyphs';
 import { WORLD_GEOMETRY_COLORS } from './NeonColors';
 import { edgeAnchor, sectorCellRect, worldPointToMap } from './mapProjection';
 import type { MapViewTransform } from './mapProjection';
@@ -118,7 +119,22 @@ export function drawPoiGlyph(
   graphics: Phaser.GameObjects.Graphics,
   kind: PoiKind, x: number, y: number, size: number, alpha: number,
 ): void {
-  const glyph = poiGlyphFor(kind);
+  drawGlyph(graphics, poiGlyphFor(kind), x, y, size, alpha);
+}
+
+/** The profile's memory of a permanent hive, drawn in place of that slot's Cache chest.
+ *  Its own entry point rather than a PoiKind, because the kind is Treasure either way. */
+export function drawAmbushNestGlyph(
+  graphics: Phaser.GameObjects.Graphics,
+  x: number, y: number, size: number, alpha: number,
+): void {
+  drawGlyph(graphics, HAZARD_NEST_GLYPH, x, y, size, alpha);
+}
+
+function drawGlyph(
+  graphics: Phaser.GameObjects.Graphics,
+  glyph: PoiGlyph, x: number, y: number, size: number, alpha: number,
+): void {
   if (glyph.shape === 'none') return;
   graphics.lineStyle(Math.max(1, size * 0.4), glyph.color, alpha);
   graphics.fillStyle(glyph.color, alpha);
@@ -152,6 +168,16 @@ export function drawPoiGlyph(
       graphics.lineBetween(x - size * 0.5, y + size * 0.3, x - size * 0.5, y + size);
       graphics.lineBetween(x + size * 0.5, y + size * 0.3, x + size * 0.5, y + size);
       break;
+    case 'hive': {
+      const points: Array<{ x: number; y: number }> = [];
+      for (let step = 0; step < 6; step++) {
+        const angle = -Math.PI / 2 + (Math.PI * step) / 3;
+        points.push({ x: x + Math.cos(angle) * size, y: y + Math.sin(angle) * size });
+      }
+      graphics.strokePoints(points, true, true);
+      graphics.fillCircle(x, y, Math.max(1, size * 0.4));
+      break;
+    }
   }
 }
 
@@ -387,6 +413,7 @@ export class SectorMapRenderer {
       let alpha = 1;
       let collected = false;
       let guarded = false;
+      let hive = false;
       if (slot.kind === PoiKind.Secret) {
         // A secret draws only once it is FOUND. HINTED keeps the corner badge and an unfound
         // secret must never leak its position from the chart: that is the whole point of the
@@ -395,6 +422,7 @@ export class SectorMapRenderer {
       } else {
         const flags = input.poiFlagsOf(slot.id);
         if ((flags & PoiFlags.SEEN) === 0) continue;
+        hive = (flags & PoiFlags.HAZARD_NEST) !== 0;
         collected = (flags & PoiFlags.COLLECTED) !== 0;
         // Every VAULT_GUARD_PACKS entry is non-empty (pinned by referentialIntegrity.test.ts),
         // so an uncleared vault really does still have its pack standing.
@@ -408,6 +436,10 @@ export class SectorMapRenderer {
         slot.tileX * TILE_SIZE + TILE_SIZE / 2, slot.tileY * TILE_SIZE + TILE_SIZE / 2,
         SECTOR_WIDTH, SECTOR_HEIGHT, input.view,
       );
+      if (hive) {
+        drawAmbushNestGlyph(this.graphics, point.x, point.y, size, alpha);
+        continue;
+      }
       drawPoiGlyph(this.graphics, slot.kind, point.x, point.y, size, alpha);
       if (guarded) drawVaultGuardRing(this.graphics, point.x, point.y, size);
       if (collected) drawCollectedCheck(this.graphics, point.x, point.y, size);

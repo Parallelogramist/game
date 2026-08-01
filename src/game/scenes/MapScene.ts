@@ -9,13 +9,13 @@ import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
-  drawPoiGlyph, drawVaultGuardRing,
+  drawAmbushNestGlyph, drawPoiGlyph, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildQuestPins } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
-import { poiGlyphFor } from '../../expedition/poiGlyphs';
+import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
 import {
@@ -357,6 +357,10 @@ export class MapScene extends Phaser.Scene {
         draw: (graphics, x, y) => drawPoiGlyph(graphics, kind, x, y, LEGEND_GLYPH_SIZE, 1),
       });
     }
+    rows.push({
+      label: HAZARD_NEST_GLYPH.label,
+      draw: (graphics, x, y) => drawAmbushNestGlyph(graphics, x, y, LEGEND_GLYPH_SIZE, 1),
+    });
     rows.push({
       label: 'Guard still standing',
       draw: (graphics, x, y) => {

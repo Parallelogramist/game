@@ -72,6 +72,25 @@ describe('buildSectorDetail', () => {
       .toEqual(['E Ability door · mechanism unknown']);
   });
 
+  test('a remembered hive replaces the cache line and is never said twice', () => {
+    const slot: PoiSlot = { id: 'poi:0,0:1', kind: PoiKind.Treasure, tileX: 4, tileY: 4 };
+    const map = makeWorld({}, [slot]);
+    const remembered = {
+      ...BASE, map,
+      poiFlagsOf: () => PoiFlags.SEEN | PoiFlags.HAZARD_NEST,
+    };
+
+    expect(buildSectorDetail(remembered)!.rewards).toEqual(['Ambush nest']);
+    expect(buildSectorDetail({
+      ...remembered,
+      hazardSectorKinds: new Map<string, PoiHazardKind>([['0,0', 'nest']]),
+    })!.rewards).toEqual(['Ambush nest']);
+    expect(buildSectorDetail({
+      ...remembered,
+      hazardSectorKinds: new Map<string, PoiHazardKind>([['0,0', 'lair']]),
+    })!.rewards).toEqual(['Ambush nest', 'Nemesis lair · dormant']);
+  });
+
   test('an unknown sector and a cell outside the world both read as nothing', () => {
     const map = makeWorld({}, []);
     expect(buildSectorDetail({ ...BASE, map, sectorFlagsOf: () => 0 })).toBeNull();

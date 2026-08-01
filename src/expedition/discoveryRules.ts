@@ -153,7 +153,7 @@ function repairEdge(flags: number): number {
 }
 
 function repairPoi(flags: number): number {
-  return (flags & (PoiFlags.COLLECTED | PoiFlags.GUARD_CLEARED)) !== 0
+  return (flags & (PoiFlags.COLLECTED | PoiFlags.GUARD_CLEARED | PoiFlags.HAZARD_NEST)) !== 0
     ? flags | PoiFlags.SEEN
     : flags;
 }
@@ -233,6 +233,19 @@ export function revealOnVaultGuardCleared(
   const changes = emptyChanges();
   if (!universe.poiIds.has(poiId)) return changes;
   addPoi(state, changes, poiId, PoiFlags.GUARD_CLEARED | PoiFlags.SEEN);
+  return changes;
+}
+
+/** Permanent per world and implies SEEN: a hive is only ever marked from inside the room
+ *  that spawned it, and repairPoi already treats the pair as the repaired form. */
+export function revealOnAmbushNestSighted(
+  state: DiscoveryState,
+  universe: WorldIdUniverse,
+  poiId: string,
+): DiscoveryChanges {
+  const changes = emptyChanges();
+  if (!universe.poiIds.has(poiId)) return changes;
+  addPoi(state, changes, poiId, PoiFlags.HAZARD_NEST | PoiFlags.SEEN);
   return changes;
 }
 
@@ -431,6 +444,7 @@ function addPoi(
   if ((gained & PoiFlags.SEEN) !== 0) changes.poisSeen.push(id);
   if ((gained & PoiFlags.COLLECTED) !== 0) changes.poisCollected.push(id);
   if ((gained & PoiFlags.GUARD_CLEARED) !== 0) changes.poisGuardCleared.push(id);
+  if ((gained & PoiFlags.HAZARD_NEST) !== 0) changes.poisHazardNest.push(id);
 }
 
 function addSecret(
