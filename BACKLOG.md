@@ -419,7 +419,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `RECALLED` took the demotion the item offered. `getSuppressed()` has no consumer until
   `FEAT-TOAST-ENDSCREEN`, which is the next item in this band. **Not verified in a browser:**
   files `POLISH-TOAST-DIET`.
-- [ ] **FEAT-TOAST-ENDSCREEN**. Dep: FEAT-TOAST-TIERS. Value: demoted `notable`
+- [x] **FEAT-TOAST-ENDSCREEN** (done, 056e67c). Dep: FEAT-TOAST-TIERS. Value: demoted `notable`
   events (secrets, quest steps, lore, synergies, evolutions) must land somewhere
   readable; the EARNED THIS RUN plumbing exists (`src/meta/RunEarnings.ts`,
   `buildRunEarnings` at GameScene ~`:10137` death / ~`:9856` victory / ~`:10379` END
@@ -432,6 +432,32 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `PauseMenuManager:2487-2522`: the CLOSEST TO UNLOCK panel only renders when
   runEarnings is empty AND the quest board is settled; rework so it can coexist,
   inside the 720-unit height budget.
+  **What shipped:** `getSuppressed()` finally has a consumer. A new pure `buildRunNotices`
+  turns the run's suppressed toasts into `FOUND`-tagged rows, deduping repeats of one title
+  into `TITLE ×N` and flattening multi-line descriptions, and the rows are concatenated after
+  the earnings on all three run-end paths: the death screen panel, the END RUN dialog panel,
+  and a new second `FOUND` line on the victory overlay beside the existing `EARNED` line. The
+  double-count trap is handled by ordering, not matching: the notices are snapshotted as the
+  first statement of each run-end path, before `evaluateHiddenUnlocks`, `payDailyQuests` and
+  the run-end achievement pass raise their own toasts, so a settled unlock or quest is listed
+  once, under its own tag. Practice runs report no notices, matching what the early-end path
+  already did. The panel's hard 3-row cap became a viewport-aware cap clamped to [3, 6]: the
+  floor means no viewport ever gets a smaller panel than before, and the ceiling is reached
+  where `Phaser.Scale.EXPAND` gives the room (portrait phones, 16:10 desktops, the END RUN
+  dialog). Its `+N more` line now names up to three of the overflowed finds instead of just
+  counting them, and its header reads `THIS RUN` when finds are present.
+  **Two deviations from this item's text, deliberate.** (1) `RunEarningTag` gained one member,
+  `FOUND`, not the six (LORE, SECRET, ROUTE, SYNERGY, EVOLVE, BOUNTY) the item proposed: a
+  `SuppressedToast` carries no category, so those six could only be assigned by pattern
+  matching the toast title or icon, a classifier that breaks silently on the next reword, and
+  they are redundant because the toast title already IS the category (`SIGNAL DECRYPTED`,
+  `NEW ROUTES`). (2) Notices are built by a separate `buildRunNotices` and concatenated at the
+  render sites, rather than folded into `buildRunEarnings` and `RunEarningSources`: the
+  victory one-liner reads `EARNED  A · B · +N more`, and folding eleven in-run finds into that
+  count would misreport what the win awarded. The victory overlay gets its own `FOUND` line
+  instead. The slot contention the item flagged at `PauseMenuManager:2487` needed no rework:
+  earnings and notices share one panel, so the CLOSEST TO UNLOCK / quest-board `else` branch
+  is untouched. **Not verified in a browser:** files `POLISH-TOAST-ENDSCREEN`.
 - [ ] **FEAT-MENU-SUBMENU-KIT** (menu chunk 1). Value: BootScene (the real main-menu
   hub, 2,325 lines) carries 21-23 tap targets; its 12-card deck row is 1394 natural
   units squeezed into a 696-unit portrait row, so every card is ~48px wide on phones.
@@ -9385,6 +9411,16 @@ Never agent work. The fleet must not do any of these.
     during a fight, or is FEAT-HUD-BOUNTY-TICKER needed before the toasts can stay gone;
     (d) does the field-boost floating text land legibly at the moment of pickup; (e) does the
     one-time LEAD FILED hint actually send the player to the MAP.
+  - **POLISH-TOAST-ENDSCREEN** (056e67c): the run-end finds list is assembled and laid out
+    entirely from static reasoning, so a run in a browser is the only way to know it reads.
+    Owns: (a) is the FOUND list actually interesting, or is it filled with run-start noise
+    (the relic/modifier trio fires in the first seconds and is `notable`, so it lands here);
+    (b) does the adaptive 3 to 6 row cap pick a sane count on the operator's actual display,
+    and does the panel ever collide with the restart hint, REMATCH or COPY RESULT; (c) does
+    the `+N more:  A · B · C` overflow line fit the 340-wide panel without clipping; (d) is
+    the victory overlay's second FOUND line legible in its band, and does it crowd the stats
+    panel when EARNED is also present; (e) do the `TITLE ×N` collapsed rows read correctly,
+    or does merging (say) two different secrets under one title lose something worth seeing.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
