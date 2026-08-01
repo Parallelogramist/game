@@ -206,3 +206,37 @@ export function leadSectorDistance(
   const [sectorCol, sectorRow] = lead.sectorKey.split(',').map(Number);
   return Math.max(Math.abs(sectorCol - ship.col), Math.abs(sectorRow - ship.row));
 }
+
+/** Repeated as a local const rather than imported: `sectorDetail.ts` and `lockouts.ts` each
+ *  already declare their own, and this module stays free of the ability catalog. */
+const MAGNO_TETHER_ABILITY_ID = 'ability_magno_tether';
+
+/**
+ * Sector keys whose every open lead is sealed against the profile right now, so the chart can
+ * draw those badges differently from the ones the ship can simply fly to and walk into.
+ *
+ * **Every**, not any: a sector holding one sealed cache and one walk-in is still worth the
+ * trip, and a badge that called it sealed would send the player past a reward they could take.
+ *
+ * A gap counts as sealed only while the Magno-Tether is unowned, matching the readout's
+ * `across a void gap open to you` clause. Cracked rock always counts: it is what the readout
+ * already calls `sealed behind cracked rock`. A sigil ring is deliberately NOT a seal: it
+ * costs nothing the player might lack, and `SecretLead.sigils` already hands over the order.
+ */
+export function findSealedLeadSectors(
+  leads: readonly SecretLead[],
+  holdsAbility: (abilityId: string) => boolean,
+): Set<string> {
+  const crossesGaps = holdsAbility(MAGNO_TETHER_ABILITY_ID);
+  const sealedBySector = new Map<string, boolean>();
+  for (const lead of leads) {
+    const sealed = lead.wall !== undefined
+      || (lead.gap !== undefined && !crossesGaps);
+    sealedBySector.set(lead.sectorKey, (sealedBySector.get(lead.sectorKey) ?? true) && sealed);
+  }
+  const keys = new Set<string>();
+  for (const [sectorKey, sealed] of sealedBySector) {
+    if (sealed) keys.add(sectorKey);
+  }
+  return keys;
+}

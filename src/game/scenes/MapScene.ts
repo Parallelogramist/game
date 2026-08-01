@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { getCurrentExpeditionSeasonIndex } from '../../expedition/ExpeditionSeasonStore';
-import { buildSecretLead, leadSectorDistance } from '../../expedition/secretHints';
+import { buildSecretLead, findSealedLeadSectors,
+  leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestHazardObjectives, getActiveQuestMarkers, getQuestBoardEntries,
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
@@ -12,7 +13,7 @@ import { GAMEPAD_BUTTON_A, GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_R
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
-  drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawSectorMark,
+  drawLeadBadge, drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawSectorMark,
   drawSectorNoteDot, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { getSectorMarks, getSectorNotes, setSectorMark,
@@ -144,6 +145,7 @@ export class MapScene extends Phaser.Scene {
   private leads: SecretLead[] = [];
   private lockouts: LockoutRow[] = [];
   private hintedSectorKeys: ReadonlySet<string> = new Set();
+  private sealedLeadSectorKeys: ReadonlySet<string> = new Set();
   private questPins: QuestPin[] = [];
   private objectiveSectorKeys: ReadonlySet<string> = new Set();
   private updatedObjectiveQuestIds: ReadonlySet<string> = new Set();
@@ -259,6 +261,8 @@ export class MapScene extends Phaser.Scene {
       .sort((a, b) => leadSectorDistance(a, shipCell) - leadSectorDistance(b, shipCell)
         || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
     this.hintedSectorKeys = new Set(this.leads.map(lead => lead.sectorKey));
+    this.sealedLeadSectorKeys = findSealedLeadSectors(
+      this.leads, (abilityId) => this.ownedAbilityIds.has(abilityId));
     const stepViewByQuestId = new Map(
       getActiveQuestStepViews().map(view => [view.questId, view]));
     const boardEntryByQuestId = new Map(
@@ -543,6 +547,14 @@ export class MapScene extends Phaser.Scene {
         drawPoiGlyph(graphics, PoiKind.AbilityPowerUp, x, y, LEGEND_GLYPH_SIZE, COLLECTED_ALPHA);
         drawCollectedCheck(graphics, x, y, LEGEND_GLYPH_SIZE);
       },
+    });
+    rows.push({
+      label: 'Lead here',
+      draw: (graphics, x, y) => drawLeadBadge(graphics, x, y, LEGEND_GLYPH_SIZE, false),
+    });
+    rows.push({
+      label: 'Lead sealed',
+      draw: (graphics, x, y) => drawLeadBadge(graphics, x, y, LEGEND_GLYPH_SIZE, true),
     });
     for (const kind of [EdgeKind.Open, EdgeKind.AbilityDoor, EdgeKind.KeyDoor,
       EdgeKind.Breakable, EdgeKind.OneWay]) {
@@ -932,6 +944,7 @@ export class MapScene extends Phaser.Scene {
       notedSectorKeys: new Set(this.sectorNotes.keys()),
       updatedObjectiveSectorKeys: this.updatedObjectiveSectorKeys,
       hintedSectorKeys: this.hintedSectorKeys,
+      sealedLeadSectorKeys: this.sealedLeadSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,
       focusedCell: this.focusedCell,
       poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),

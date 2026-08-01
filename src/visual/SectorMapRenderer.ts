@@ -260,6 +260,28 @@ export function drawObjectiveUpdatedBadge(
   graphics.fillCircle(centreX + size * 0.95, topY + size * 0.5, Math.max(1.5, size * 0.42));
 }
 
+/**
+ * The corner badge saying a lore fragment points into this sector. A filled disc is a lead the
+ * ship can fly to and walk into; a hollow ring is one sealed against the profile right now.
+ *
+ * The ring rather than a second colour, on this file's standing rule: shape carries the
+ * meaning. Which seal it is (cracked rock, or a void gap) is deliberately not encoded here:
+ * the focused-sector readout and the LEADS panel both already name it, and a third badge state
+ * would cost a third legend row on a panel that is already 21 rows tall.
+ */
+export function drawLeadBadge(
+  graphics: Phaser.GameObjects.Graphics,
+  x: number, y: number, radius: number, sealed: boolean,
+): void {
+  if (!sealed) {
+    graphics.fillStyle(HIDDEN_FOUND_STROKE, 1);
+    graphics.fillCircle(x, y, radius);
+    return;
+  }
+  graphics.lineStyle(Math.max(1.25, radius * 0.45), HIDDEN_FOUND_STROKE, 1);
+  graphics.strokeCircle(x, y, radius * 0.85);
+}
+
 /** Bottom-left of the cell: the objective pin owns the top edge, the cleared notch the top-right
  *  corner and the hint badge the top-left, so this is the one corner a sector can always spare. */
 export function drawSectorMark(
@@ -342,6 +364,10 @@ export interface SectorMapDrawInput {
   edgeFlagsOf: (edgeId: string) => number;
   /** Sectors carrying a secret the profile has been pointed at but has not found. */
   hintedSectorKeys: ReadonlySet<string>;
+  /** The subset of hintedSectorKeys whose every lead is sealed against the profile. Required
+   *  rather than optional, on the markedSectorKinds precedent: a call site that forgets it is
+   *  a compile error rather than a silently mislabelled chart. */
+  sealedLeadSectorKeys: ReadonlySet<string>;
   /** Sectors an active place-naming objective points at. Charted keys only: the caller resolves
    *  them against discovery, and an unknown sector draws nothing at all. */
   objectiveSectorKeys: ReadonlySet<string>;
@@ -425,8 +451,8 @@ export class SectorMapRenderer {
       // (the `flags === 0` continue above), so a lead stays a riddle until the region is charted.
       if (input.hintedSectorKeys.has(sector.key)) {
         const badge = Math.max(3, 4.5 * input.view.scale);
-        graphics.fillStyle(HIDDEN_FOUND_STROKE, 1);
-        graphics.fillCircle(cell.x + badge + 2, cell.y + badge + 2, badge);
+        drawLeadBadge(graphics, cell.x + badge + 2, cell.y + badge + 2, badge,
+          input.sealedLeadSectorKeys.has(sector.key));
       }
 
       if (input.objectiveSectorKeys.has(sector.key)) {

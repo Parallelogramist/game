@@ -4,7 +4,9 @@ import { PoiKind } from '../world/worldTypes';
 import type { SectorDef, WorldMap } from '../world/worldTypes';
 import { STAGES, getStageById } from '../data/Stages';
 import { LORE_FRAGMENTS } from '../data/LoreFragments';
-import { buildSecretLead, chooseHintTarget, describeSecretLocation, loreFragmentFor } from './secretHints';
+import { buildSecretLead, chooseHintTarget, describeSecretLocation, findSealedLeadSectors,
+  GAPPED_CACHE_SENTENCE, loreFragmentFor, WALLED_CACHE_SENTENCE } from './secretHints';
+import type { SecretLead } from './secretHints';
 import { buildSecretPuzzle, describePuzzleSequence } from '../world/secretPuzzles';
 
 const INPUTS = {
@@ -195,5 +197,38 @@ describe('secretHints', () => {
     // The live seed holds one slot per catalog row, which is what keeps the default profile's
     // collection finishable without a season re-roll.
     expect(secretsOf(liveWorld).length).toBeGreaterThanOrEqual(LORE_FRAGMENTS.length);
+  });
+});
+
+describe('findSealedLeadSectors', () => {
+  const lead = (sectorKey: string, seal: 'wall' | 'gap' | 'none'): SecretLead => ({
+    secretId: `${sectorKey}:${seal}`,
+    sectorKey,
+    depth: 3,
+    fragment: LORE_FRAGMENTS[0],
+    riddle: 'A dead end.',
+    ...(seal === 'wall' ? { wall: WALLED_CACHE_SENTENCE } : {}),
+    ...(seal === 'gap' ? { gap: GAPPED_CACHE_SENTENCE } : {}),
+  });
+  const holdsNothing = (): boolean => false;
+  const holdsEverything = (): boolean => true;
+
+  test('a walled lead seals its sector', () => {
+    expect([...findSealedLeadSectors([lead('1,1', 'wall')], holdsNothing)]).toEqual(['1,1']);
+  });
+
+  test('a gapped lead seals its sector only while the tether is unowned', () => {
+    expect(findSealedLeadSectors([lead('2,2', 'gap')], holdsNothing).has('2,2')).toBe(true);
+    expect(findSealedLeadSectors([lead('2,2', 'gap')], holdsEverything).has('2,2')).toBe(false);
+  });
+
+  test('a plain lead is a walk-in', () => {
+    expect(findSealedLeadSectors([lead('3,3', 'none')], holdsNothing).size).toBe(0);
+  });
+
+  test('one walk-in in the sector keeps the whole sector unsealed', () => {
+    const sealed = findSealedLeadSectors(
+      [lead('4,4', 'wall'), lead('4,4', 'none')], holdsNothing);
+    expect(sealed.has('4,4')).toBe(false);
   });
 });
