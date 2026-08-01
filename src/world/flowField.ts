@@ -1,5 +1,5 @@
 /**
- * flowField: one BFS per refresh over the 3x3 sector block around the player, output as
+ * flowField: one BFS per refresh over the tile block around the player, output as
  * one 8-direction code per tile. Every chasing enemy then costs one array read instead of
  * a path search, which is the cost shape a 100+ enemy survivors game needs.
  *
@@ -7,25 +7,23 @@
  * src/systems/ or the ECS.
  */
 
-import {
-  SECTOR_TILE_COLS,
-  SECTOR_TILE_ROWS,
-  TILE_SIZE,
-  TileKind,
-} from './worldTypes';
+import { TILE_SIZE, TileKind } from './worldTypes';
 import type { WorldMap } from './worldTypes';
 import { tileKindAt } from './staticCollision';
 
 /**
- * Three sectors wide because enemies enter on the spawn ring just outside the camera, which
- * straddles up to four sectors, and a sector border ring is solid apart from its apertures:
- * a field covering only the player's sector would leave every arriving enemy steering
- * straight into that ring with no route through it.
+ * Sized from the enemy leash, not from sectors. A 3x3 sector block snapped to the sector grid
+ * left a player standing near a sector corner with as little as one sector of field on the short
+ * side, so an enemy well inside its 1600px leash could sit outside the block entirely and fall
+ * through to the raw direct vector. Centred on the player's own tile, 48 tiles reaches 1920px in
+ * every direction, which covers the leash with room to spare.
  */
-export const FLOW_BLOCK_SECTORS = 3;
-export const FLOW_BLOCK_COLS = SECTOR_TILE_COLS * FLOW_BLOCK_SECTORS;
-export const FLOW_BLOCK_ROWS = SECTOR_TILE_ROWS * FLOW_BLOCK_SECTORS;
+export const FLOW_BLOCK_COLS = 96;
+export const FLOW_BLOCK_ROWS = 96;
 export const FLOW_BLOCK_TILE_COUNT = FLOW_BLOCK_COLS * FLOW_BLOCK_ROWS;
+
+const FLOW_BLOCK_HALF_COLS = FLOW_BLOCK_COLS >> 1;
+const FLOW_BLOCK_HALF_ROWS = FLOW_BLOCK_ROWS >> 1;
 
 /** No route from this tile to the target (walled off, outside the block, or the target itself). */
 export const FLOW_UNREACHABLE = 255;
@@ -74,10 +72,8 @@ export function computeFlowField(
 ): void {
   const targetTileX = globalTileOf(targetWorldX);
   const targetTileY = globalTileOf(targetWorldY);
-  const originTileX = Math.floor(targetTileX / SECTOR_TILE_COLS) * SECTOR_TILE_COLS
-    - SECTOR_TILE_COLS;
-  const originTileY = Math.floor(targetTileY / SECTOR_TILE_ROWS) * SECTOR_TILE_ROWS
-    - SECTOR_TILE_ROWS;
+  const originTileX = targetTileX - FLOW_BLOCK_HALF_COLS;
+  const originTileY = targetTileY - FLOW_BLOCK_HALF_ROWS;
   field.originTileX = originTileX;
   field.originTileY = originTileY;
 

@@ -145,7 +145,7 @@ describe('flowField', () => {
     expect(flowReachable(field, insideWall.x, insideWall.y)).toBe(false);
   });
 
-  it('reads a point outside the 3x3 block as unreachable', () => {
+  it('reads a point beyond the block as unreachable', () => {
     const field = fieldFor(makeWorld(() => {}), 10, 9);
     const farOutside = tileCentre(SECTOR_TILE_COLS * 5, 9);
 
@@ -167,6 +167,31 @@ describe('flowField', () => {
       const stepTileX = Math.floor(step.x / TILE_SIZE);
       const stepTileY = Math.floor(step.y / TILE_SIZE);
       expect(Math.abs(stepTileX - 11) + Math.abs(stepTileY - 8)).toBe(1);
+    }
+  });
+
+  it('covers the whole enemy leash from a player standing on a sector corner tile', () => {
+    const sectors = new Map<string, SectorDef>();
+    for (let sy = -3; sy <= 3; sy++) {
+      for (let sx = -3; sx <= 3; sx++) {
+        sectors.set(`${sx},${sy}`, makeSector(sx, sy, () => {}));
+      }
+    }
+    const world: WorldMap = {
+      worldGenVersion: 1, seed: 1, startKey: '0,0', sectors,
+      abilityOrder: [], bossArenaKey: '0,0',
+    };
+    const field = createFlowField();
+    const player = tileCentre(0, 0);
+    computeFlowField(world, player.x, player.y, field);
+
+    const leash = 1600;
+    const diagonalLeash = Math.round(leash * Math.SQRT1_2);
+    for (const [offsetX, offsetY] of [
+      [-leash, 0], [leash, 0], [0, -leash], [0, leash],
+      [-diagonalLeash, -diagonalLeash], [diagonalLeash, diagonalLeash],
+    ]) {
+      expect(flowReachable(field, player.x + offsetX, player.y + offsetY)).toBe(true);
     }
   });
 });
