@@ -66,6 +66,7 @@ function createDefaultLifetimeStats(): LifetimeStats {
     secretsFoundTotal: 0,
     hiddenSectorsFoundTotal: 0,
     loreFragmentsFound: 0,
+    bestWorldCompletionPercent: 0,
   };
 }
 
@@ -151,6 +152,7 @@ const LIFETIME_STAT_SPECS: Record<keyof LifetimeStats, StoredNumberSpec> = {
   secretsFoundTotal: { floor: true, allowInfinity: false },
   hiddenSectorsFoundTotal: { floor: true, allowInfinity: false },
   loreFragmentsFound: { floor: true, allowInfinity: false },
+  bestWorldCompletionPercent: { floor: true, allowInfinity: false },
 };
 
 /** Rebuild lifetime stats from the known fields only, coercing each value.
@@ -260,6 +262,19 @@ export class AchievementManager {
     const stats = this.persistentState.lifetimeStats;
     if (!Number.isFinite(count) || count <= stats.loreFragmentsFound) return;
     stats.loreFragmentsFound = Math.floor(count);
+    this.savePersistentState();
+  }
+
+  /** Monotone for the same reason setLoreFragmentsFound is, and a stronger one: banking a
+   *  world rolls a new seed, and the discovery store is keyed on it, so the live percent falls
+   *  to 0 the instant the player finishes the world that set the record. Clamped to 100 so a
+   *  future denominator change cannot put the 100% unlock out of reach or brick it open. */
+  recordWorldCompletionPercent(percent: number): void {
+    if (!Number.isFinite(percent)) return;
+    const stats = this.persistentState.lifetimeStats;
+    const clampedPercent = Math.min(100, Math.max(0, Math.floor(percent)));
+    if (clampedPercent <= stats.bestWorldCompletionPercent) return;
+    stats.bestWorldCompletionPercent = clampedPercent;
     this.savePersistentState();
   }
 

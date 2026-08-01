@@ -247,6 +247,10 @@ export interface LifetimeStats {
    *  stays the source of truth: this field exists only because HiddenUnlocks predicates are
    *  handed LifetimeStats and nothing else. */
   loreFragmentsFound: number;
+  /** Highest completion percent (0 to 100) ever reached in a single expedition world. A
+   *  season re-roll drops the live chart to 0 because DiscoveryManager is keyed on
+   *  (seed, worldGenVersion), so this is written as a max and never as an assignment. */
+  bestWorldCompletionPercent: number;
 }
 
 /**

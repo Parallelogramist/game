@@ -347,6 +347,28 @@ export const HIDDEN_UNLOCKS: HiddenUnlockCondition[] = [
       target: LORE_FRAGMENTS.length,
     }),
   },
+  {
+    id: 'unlock_deep_survey',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_deep_survey',
+    displayName: 'Deep Survey Plate',
+    hintText: 'Chart one expedition world to 50%',
+    predicate: ({ lifetime }) => lifetime.bestWorldCompletionPercent >= 50,
+    getProgress: ({ lifetime }) => ({
+      current: Math.min(50, lifetime.bestWorldCompletionPercent), target: 50,
+    }),
+  },
+  {
+    id: 'unlock_world_charted',
+    target: 'cosmetic',
+    unlockId: 'cosmetic_charted_world',
+    displayName: 'Charted World Crest',
+    hintText: 'Chart one expedition world to 100%',
+    predicate: ({ lifetime }) => lifetime.bestWorldCompletionPercent >= 100,
+    getProgress: ({ lifetime }) => ({
+      current: Math.min(100, lifetime.bestWorldCompletionPercent), target: 100,
+    }),
+  },
 ];
 
 // ---------------------------------------------------------------------------

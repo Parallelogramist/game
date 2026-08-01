@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { getCurrentExpeditionSeasonIndex } from '../../expedition/ExpeditionSeasonStore';
 import { buildSecretLead, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { getActiveQuestHazardObjectives, getActiveQuestMarkers,
@@ -19,6 +20,7 @@ import type { QuestPin } from '../../expedition/questPins';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
+import { getAchievementManager } from '../../achievements';
 import { createMenuButton } from '../../visual/MenuButton';
 import type { MenuButton } from '../../visual/MenuButton';
 import {
@@ -152,11 +154,20 @@ export class MapScene extends Phaser.Scene {
     makeDisplayText(this, width / 2, 40, 'WORLD MAP', {
       fontSize: 38, letterSpacing: 3,
     }).setDepth(2);
+    const completionPercent = discovery.getCompletionPercent();
+    const bestCompletionPercent =
+      getAchievementManager().getLifetimeStats().bestWorldCompletionPercent;
+    // Omitted while this world IS the record: "34%  ·  BEST 34%" reads as noise, and on the
+    // first world that is every open until something is banked.
+    const bestClause = bestCompletionPercent > completionPercent
+      ? `  ·  BEST ${bestCompletionPercent}%`
+      : '';
     makeBodyText(this, width / 2, 72,
-      `${discovery.getVisitedSectorCount()} / ${discovery.getKnowableSectorCount()}`
-      + ` SECTORS EXPLORED`
-      + `  ·  ${discovery.getCompletionPercent()}%`,
-      { fontSize: 18, color: TEXT_COLORS.muted }).setDepth(2);
+      `WORLD ${getCurrentExpeditionSeasonIndex()}`
+      + `  ·  ${discovery.getVisitedSectorCount()} / ${discovery.getKnowableSectorCount()}`
+      + ` SECTORS`
+      + `  ·  ${completionPercent}%${bestClause}`,
+      { fontSize: 18, color: TEXT_COLORS.muted, wordWrapWidth: width - 40 }).setDepth(2);
     const hintWidth = Math.max(120, width - 40 - RECALL_BUTTON_WIDTH);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'

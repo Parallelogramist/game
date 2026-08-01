@@ -1054,11 +1054,14 @@ export class GameScene extends Phaser.Scene {
     this.runDecryptorScan(payload.sectorKey);
   };
 
-  /** The two discovery events with a live consequence: new outlines pulse the radar, and a
-   *  find that moves the completion percent may cross a milestone. */
+  /** The three discovery events with a live consequence: new outlines pulse the radar, and a
+   *  find that moves the completion percent both feeds the lifetime chart record and may cross
+   *  a milestone. */
   private readonly discoveryPulseHandler = (changes: DiscoveryChanges): void => {
     if (changes.sectorsVisited.length > 0 || changes.secretsFound.length > 0) {
-      this.checkMapCompletionMilestone();
+      const completionPercent = getDiscoveryManager().getCompletionPercent();
+      getAchievementManager().recordWorldCompletionPercent(completionPercent);
+      this.checkMapCompletionMilestone(completionPercent);
     }
     if (changes.sectorsDiscovered.length === 0) return;
     this.minimapManager?.notifyDiscoveryPulse(changes.sectorsDiscovered.length);
@@ -1157,8 +1160,11 @@ export class GameScene extends Phaser.Scene {
     this.ownedTraversalAbilityIds = new Set(getOwnedTraversalAbilityIds());
     this.earnedQuestKeyIds = new Set(getEarnedQuestKeyIds());
     getDiscoveryManager().bindWorld(map);
-    this.mapCompletionMilestoneShown =
-      highestCompletionMilestone(getDiscoveryManager().getCompletionPercent());
+    const completionPercent = getDiscoveryManager().getCompletionPercent();
+    this.mapCompletionMilestoneShown = highestCompletionMilestone(completionPercent);
+    // A profile that charted before this shipped reads correct on its first bind instead of
+    // only after its next find. Monotone, so a bind can never lower the record.
+    getAchievementManager().recordWorldCompletionPercent(completionPercent);
     getDiscoveryManager().onDiscovery(this.discoveryPulseHandler);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
   }
@@ -5684,9 +5690,9 @@ export class GameScene extends Phaser.Scene {
 
   /** Doc 03 section 7 moment 2. Fires on the run that crosses a threshold and never again,
    *  because the floor is seeded from the live percent when the world binds. */
-  private checkMapCompletionMilestone(): void {
+  private checkMapCompletionMilestone(completionPercent: number): void {
     const discovery = getDiscoveryManager();
-    const reached = highestCompletionMilestone(discovery.getCompletionPercent());
+    const reached = highestCompletionMilestone(completionPercent);
     if (reached <= this.mapCompletionMilestoneShown) return;
     this.mapCompletionMilestoneShown = reached;
     this.toastManager?.showMilestoneToast(

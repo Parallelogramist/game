@@ -36,6 +36,8 @@ export const SHIP_PAINTS: ShipPaint[] = [
   { unlockId: 'cosmetic_voidmason_hull', name: 'Voidmason Hull',       rank: 17, color: { core: 0xff44ee, glow: 0xffaaf5 } },
   { unlockId: 'cosmetic_archivist_ink',  name: 'Archivist Ink',        rank: 18, color: { core: 0x3388ff, glow: 0x99ccff } },
   { unlockId: 'cosmetic_full_ledger',    name: 'Complete Ledger',      rank: 19, color: { core: 0xffee88, glow: 0xfffbcc } },
+  { unlockId: 'cosmetic_deep_survey',    name: 'Deep Survey Plate',    rank: 20, color: { core: 0x66ddff, glow: 0xbbf0ff } },
+  { unlockId: 'cosmetic_charted_world',  name: 'Charted World Crest',  rank: 21, color: { core: 0x88ff99, glow: 0xccffdd } },
 ];
 
 /**

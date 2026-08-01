@@ -37,6 +37,7 @@ import { getRunHistory, RunSummary } from '../../meta/RunHistoryManager';
 import { getShipRecord } from '../../meta/ShipRecords';
 import { getGradeColor } from '../../utils/PerformanceGrade';
 import { getAchievementManager } from '../../achievements';
+import { getBankedSeasons } from '../../expedition/ExpeditionSeasonStore';
 
 type FocusZone = 'tabs' | 'grid' | 'back';
 
@@ -1658,6 +1659,13 @@ export class CodexScene extends Phaser.Scene {
       { label: 'Flawless Wins', value: lifetime.perfectRuns.toLocaleString() },
       { label: 'Speed Wins (<8m)', value: lifetime.speedRuns.toLocaleString() },
       { label: 'Critical Hits', value: lifetime.totalCriticalHits.toLocaleString() },
+      { header: 'EXPLORATION' },
+      { label: 'Worlds Banked', value: getBankedSeasons().length.toLocaleString() },
+      { label: 'Best World Charted', value: `${lifetime.bestWorldCompletionPercent}%` },
+      { label: 'Secrets Found', value: lifetime.secretsFoundTotal.toLocaleString() },
+      { label: 'Hidden Sectors', value: lifetime.hiddenSectorsFoundTotal.toLocaleString() },
+      { label: 'Lore Fragments',
+        value: `${lifetime.loreFragmentsFound} / ${LORE_FRAGMENTS.length}` },
     ];
 
     rows.push({ header: 'BY SHIP' });
