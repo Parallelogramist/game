@@ -42,6 +42,12 @@ export class DiscoveryManager {
    *  a scene restart or a world swap can never ring a door in a world the ship is not in. */
   private readonly newlyPassableEdgeIds = new Set<string>();
 
+  /** Doc 03 section 7 moment 5: objectives whose pin moved since the chart was last opened.
+   *  Run state with a per-world lifetime, exactly like newlyPassableEdgeIds: saveState
+   *  serializes `state` alone and bindWorld clears this, so a scene restart or a season swap
+   *  can never badge an objective in a world the ship is not in. */
+  private readonly updatedObjectiveQuestIds = new Set<string>();
+
   /** Binds to one generated world and reloads the profile's memory of it. The universe is
    *  built first because the sanitizer rebuilds the state from exactly those ids. */
   bindWorld(map: WorldMap): void {
@@ -50,6 +56,7 @@ export class DiscoveryManager {
     this.state = this.loadState(map.seed, map.worldGenVersion);
     this.revision++;
     this.newlyPassableEdgeIds.clear();
+    this.updatedObjectiveQuestIds.clear();
   }
 
   getSectorFlags(sectorKey: string): number {
@@ -154,6 +161,21 @@ export class DiscoveryManager {
    *  set and calls this, so the rings survive that whole open and no later one. */
   clearNewlyPassableEdges(): void {
     this.newlyPassableEdgeIds.clear();
+  }
+
+  /** The only writer of moment 5's overlay. Called by every site that changes WHERE an active
+   *  objective points: a completed step, an activated chain successor, a fresh run's seeding,
+   *  and a board accept. */
+  noteObjectiveUpdated(questId: string): void {
+    this.updatedObjectiveQuestIds.add(questId);
+  }
+
+  getUpdatedObjectiveQuestIds(): ReadonlySet<string> {
+    return this.updatedObjectiveQuestIds;
+  }
+
+  clearUpdatedObjectives(): void {
+    this.updatedObjectiveQuestIds.clear();
   }
 
   /** Secrets this profile has already been pointed at or has already found. */

@@ -9738,6 +9738,7 @@ export class GameScene extends Phaser.Scene {
   private startExpeditionQuestRun(): void {
     if (!this.worldMode.worldMap()) return;
     for (const quest of beginExpeditionQuestRun()) {
+      getDiscoveryManager().noteObjectiveUpdated(quest.id);
       this.toastManager?.showToast({
         title: 'NEW OBJECTIVE',
         description: `${quest.name}: ${quest.steps[0].description}`,
@@ -9764,6 +9765,16 @@ export class GameScene extends Phaser.Scene {
 
     const owed = claimExpeditionQuestGold();
     if (owed > 0) getMetaProgressionManager().addGold(owed);
+
+    const discovery = getDiscoveryManager();
+    // A finished quest is deliberately not badged: it has no pin and no panel row left, so the
+    // badge would name something the chart has stopped drawing. Its successor is badged below.
+    const finishedQuestIds = new Set(rewards.questCompletions.map(entry => entry.questId));
+    for (const completion of rewards.stepCompletions) {
+      if (finishedQuestIds.has(completion.questId)) continue;
+      discovery.noteObjectiveUpdated(completion.questId);
+    }
+    for (const questId of rewards.activatedQuestIds) discovery.noteObjectiveUpdated(questId);
 
     for (const completion of rewards.stepCompletions) {
       const quest = getExpeditionQuest(completion.questId);

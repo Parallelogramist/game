@@ -242,6 +242,17 @@ export function drawObjectivePin(
   );
 }
 
+/** Doc 03 section 7 moment 5: an objective that moved while the ship was flying, badged on its
+ *  own pin until the chart is next looked at. Green is the chart's one "this is new" hue, and
+ *  it never lands on a pin elsewhere, so it cannot be confused with the newly-opened door ring
+ *  it shares a colour with. Static by construction, so it needs no reduced-motion branch. */
+export function drawObjectiveUpdatedBadge(
+  graphics: Phaser.GameObjects.Graphics, centreX: number, topY: number, size: number,
+): void {
+  graphics.fillStyle(CLEARED_NOTCH, 1);
+  graphics.fillCircle(centreX + size * 0.95, topY + size * 0.5, Math.max(1.5, size * 0.42));
+}
+
 /**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
@@ -289,6 +300,10 @@ export interface SectorMapDrawInput {
   /** Sectors an active place-naming objective points at. Charted keys only: the caller resolves
    *  them against discovery, and an unknown sector draws nothing at all. */
   objectiveSectorKeys: ReadonlySet<string>;
+  /** The subset of objectiveSectorKeys whose objective moved since the chart was last opened.
+   *  Required rather than optional, on the hazardSectorKinds precedent: a call site that
+   *  forgets it is a compile error rather than a silently unbadged map. */
+  updatedObjectiveSectorKeys: ReadonlySet<string>;
   /** Doors opened by a gain this run and not yet looked at. Empty on every ordinary open. */
   newlyPassableEdgeIds: ReadonlySet<string>;
   /** The sector the readout is describing. Null when nothing is focused. */
@@ -364,8 +379,11 @@ export class SectorMapRenderer {
       }
 
       if (input.objectiveSectorKeys.has(sector.key)) {
-        drawObjectivePin(graphics, cell.x + cell.width / 2, cell.y,
-          Math.max(4, 6 * input.view.scale));
+        const pinSize = Math.max(4, 6 * input.view.scale);
+        drawObjectivePin(graphics, cell.x + cell.width / 2, cell.y, pinSize);
+        if (input.updatedObjectiveSectorKeys.has(sector.key)) {
+          drawObjectiveUpdatedBadge(graphics, cell.x + cell.width / 2, cell.y, pinSize);
+        }
       }
 
       this.drawPoiIcons(sector, input);

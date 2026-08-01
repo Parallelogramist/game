@@ -117,3 +117,22 @@ function nearestRememberedNestSector(inputs: HazardPinInputs): string | null {
   }
   return bestKey;
 }
+
+/**
+ * Which charted sectors carry a pin whose objective moved. A null-pinned objective contributes
+ * nothing, because there is no cell to badge, and several objectives can share one pin
+ * (buildHazardPins gives every hazard objective the same nearest hive), so the fold is a union:
+ * a badge says "something here changed", never "exactly one thing did".
+ */
+export function updatedPinSectorKeys(
+  pins: readonly QuestPin[],
+  updatedQuestIds: ReadonlySet<string>,
+): Set<string> {
+  const sectorKeys = new Set<string>();
+  for (const pin of pins) {
+    if (pin.sectorKey === null) continue;
+    if (!updatedQuestIds.has(pin.questId)) continue;
+    sectorKeys.add(pin.sectorKey);
+  }
+  return sectorKeys;
+}

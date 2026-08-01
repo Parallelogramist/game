@@ -10,11 +10,11 @@ import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
   drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
-  drawAmbushNestGlyph, drawPoiGlyph, drawVaultGuardRing,
+  drawObjectiveUpdatedBadge, drawAmbushNestGlyph, drawPoiGlyph, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
-import { buildHazardPins, buildQuestPins } from '../../expedition/questPins';
+import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
@@ -98,6 +98,8 @@ export class MapScene extends Phaser.Scene {
   private hintedSectorKeys: ReadonlySet<string> = new Set();
   private questPins: QuestPin[] = [];
   private objectiveSectorKeys: ReadonlySet<string> = new Set();
+  private updatedObjectiveQuestIds: ReadonlySet<string> = new Set();
+  private updatedObjectiveSectorKeys: ReadonlySet<string> = new Set();
   private hazardSectorKinds: ReadonlyMap<string, PoiHazardKind> = new Map();
   private spentNestSectorKeys: ReadonlySet<string> = new Set();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
@@ -150,6 +152,8 @@ export class MapScene extends Phaser.Scene {
     // rings survive every pan and zoom of THIS open and appear on no later one.
     this.newlyPassableEdgeIds = new Set(discovery.getNewlyPassableEdgeIds());
     discovery.clearNewlyPassableEdges();
+    this.updatedObjectiveQuestIds = new Set(discovery.getUpdatedObjectiveQuestIds());
+    discovery.clearUpdatedObjectives();
     makeDisplayText(this, width / 2, 40, 'WORLD MAP', {
       fontSize: 38, letterSpacing: 3,
     }).setDepth(2);
@@ -184,6 +188,9 @@ export class MapScene extends Phaser.Scene {
       this.questPins
         .map(pin => pin.sectorKey)
         .filter((key): key is string => key !== null),
+    );
+    this.updatedObjectiveSectorKeys = updatedPinSectorKeys(
+      this.questPins, this.updatedObjectiveQuestIds,
     );
     const leadsPanelY = this.renderObjectivesPanel();
     this.leads = discovery.getHintedSecretIds()
@@ -303,8 +310,9 @@ export class MapScene extends Phaser.Scene {
 
     let cursorY = panelY + 34;
     for (const view of views) {
+      const updated = this.updatedObjectiveQuestIds.has(view.questId) ? '   · UPDATED' : '';
       const heading = makeBodyText(this, panelX + 14, cursorY,
-        `${view.questName}  ·  STEP ${view.stepNumber}/${view.stepCount}`,
+        `${view.questName}  ·  STEP ${view.stepNumber}/${view.stepCount}${updated}`,
         { fontSize: 15, align: 'left', wordWrapWidth: textWidth })
         .setOrigin(0, 0).setDepth(4);
       cursorY += heading.height + 2;
@@ -430,6 +438,13 @@ export class MapScene extends Phaser.Scene {
       label: 'Objective',
       draw: (graphics, x, y) =>
         drawObjectivePin(graphics, x, y - LEGEND_GLYPH_SIZE, LEGEND_GLYPH_SIZE * 1.2),
+    });
+    rows.push({
+      label: 'Objective moved',
+      draw: (graphics, x, y) => {
+        drawObjectivePin(graphics, x, y - LEGEND_GLYPH_SIZE, LEGEND_GLYPH_SIZE * 1.2);
+        drawObjectiveUpdatedBadge(graphics, x, y - LEGEND_GLYPH_SIZE, LEGEND_GLYPH_SIZE * 1.2);
+      },
     });
 
     const rowHeight = 20;
@@ -696,6 +711,7 @@ export class MapScene extends Phaser.Scene {
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       objectiveSectorKeys: this.objectiveSectorKeys,
+      updatedObjectiveSectorKeys: this.updatedObjectiveSectorKeys,
       hintedSectorKeys: this.hintedSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,
       focusedCell: this.focusedCell,

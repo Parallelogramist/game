@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { generateWorld } from '../world/generateWorld';
 import { STAGES } from '../data/Stages';
-import { buildHazardPins, buildQuestPins } from './questPins';
+import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from './questPins';
 import { PoiFlags } from './DiscoveryTypes';
 import type { QuestMarker } from '../systems/QuestProgress';
 
@@ -89,5 +89,19 @@ describe('buildHazardPins', () => {
     expect(hazardPinsFor([near.key, far.key], [near.key])[0].sectorKey).toBe(far.key);
     expect(hazardPinsFor([near.key], [near.key])).toEqual([]);
     expect(hazardPinsFor([])).toEqual([]);
+  });
+});
+
+describe('updatedPinSectorKeys', () => {
+  test('drops an updated objective with nowhere to point and unions the rest', () => {
+    const pins = [
+      { questId: 'quest_a', label: 'A', sectorKey: '1,0' },
+      { questId: 'quest_b', label: 'B', sectorKey: null },
+      { questId: 'quest_c', label: 'C', sectorKey: '1,0' },
+      { questId: 'quest_d', label: 'D', sectorKey: '2,0' },
+    ];
+    const updated = updatedPinSectorKeys(pins, new Set(['quest_b', 'quest_c']));
+    expect([...updated]).toEqual(['1,0']);
+    expect(updatedPinSectorKeys(pins, new Set())).toEqual(new Set());
   });
 });

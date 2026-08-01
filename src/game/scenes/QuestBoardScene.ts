@@ -7,6 +7,7 @@ import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, TEXT_COLORS } from '../../visual/MenuStyle';
+import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import {
   ACTIVE_EXPEDITION_QUEST_LIMIT,
   acceptExpeditionQuest,
@@ -261,13 +262,15 @@ export class QuestBoardScene extends Phaser.Scene {
 
   private toggle(entry: QuestBoardEntry): void {
     if (this.resolved) return;
-    const applied = entry.status === 'active'
-      ? setExpeditionQuestAside(entry.questId)
-      : acceptExpeditionQuest(entry.questId);
+    const accepting = entry.status !== 'active';
+    const applied = accepting
+      ? acceptExpeditionQuest(entry.questId)
+      : setExpeditionQuestAside(entry.questId);
     if (!applied) {
       this.soundManager.playError();
       return;
     }
+    if (accepting) getDiscoveryManager().noteObjectiveUpdated(entry.questId);
     this.changed = true;
     this.soundManager.playUIClick();
     this.rebuild();
