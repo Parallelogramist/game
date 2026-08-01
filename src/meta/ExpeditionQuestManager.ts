@@ -1,7 +1,6 @@
 import { SecureStorage } from '../storage';
 import {
   EXPEDITION_QUESTS,
-  getExpeditionQuest,
   type ExpeditionQuestDefinition,
 } from '../data/ExpeditionQuests';
 import {
@@ -25,6 +24,8 @@ import {
   type QuestStatus,
   type QuestStepView,
 } from '../systems/QuestProgress';
+import { buildSeasonQuests } from '../expedition/seasonQuests';
+import { getCurrentExpeditionSeed } from '../expedition/ExpeditionSeasonStore';
 
 /**
  * Persists expedition quest chains for this profile (doc 04 section 4).
@@ -39,6 +40,19 @@ const STORAGE_KEY_EXPEDITION_QUESTS = 'survivor-expedition-quests';
 
 /** Doc 04 section 4's anti-chore rule: a fourth accept is refused. */
 export const ACTIVE_EXPEDITION_QUEST_LIMIT = 3;
+
+/**
+ * The authored chains plus the contracts the world this profile is on issues
+ * (FEAT-QUEST-SEASON-CONTRACTS). Contracts sit AFTER the chains, which is the one ordering
+ * rule that matters: seedQuestStates fills the three active slots in catalog order, so a chain
+ * head, which grants the keys the generator seals regions behind, always wins a slot over a
+ * contract, and a contract auto-activates only once the chains stop filling the cap. A
+ * contract id carries its seed, so re-rolling the world retires the old set through the
+ * unknown-id drop sanitizeStates already does.
+ */
+function questCatalog(): readonly ExpeditionQuestDefinition[] {
+  return [...EXPEDITION_QUESTS, ...buildSeasonQuests(getCurrentExpeditionSeed())];
+}
 
 interface ExpeditionQuestSaveState {
   states: QuestInstanceState[];
@@ -91,14 +105,17 @@ function sanitizeWorldStamp(value: unknown): string | undefined {
  * clamped: the content was re-authored, and inventing a step index is how a player gets
  * paid for a step that is not the one they see.
  */
-function sanitizeStates(value: unknown): QuestInstanceState[] {
+function sanitizeStates(
+  value: unknown,
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestInstanceState[] {
   if (!Array.isArray(value)) return [];
   const states: QuestInstanceState[] = [];
   const seen = new Set<string>();
   for (const entry of value) {
     if (!isPlainObject(entry)) continue;
     const questId = typeof entry.questId === 'string' ? entry.questId : '';
-    const definition = getExpeditionQuest(questId);
+    const definition = defs.find((entry) => entry.id === questId);
     if (!definition || seen.has(questId)) continue;
     const status: QuestStatus = entry.status === 'complete' ? 'complete'
       : entry.status === 'available' ? 'available'
@@ -133,13 +150,14 @@ function sanitizeStates(value: unknown): QuestInstanceState[] {
   return states;
 }
 
-function load(): ExpeditionQuestSaveState {
+function load(defs: readonly ExpeditionQuestDefinition[] = questCatalog()):
+ExpeditionQuestSaveState {
   try {
     const raw = SecureStorage.getItem(STORAGE_KEY_EXPEDITION_QUESTS);
     const stored: unknown = raw ? JSON.parse(raw) : null;
     if (!isPlainObject(stored)) return { states: [], pendingGold: 0 };
     return {
-      states: sanitizeStates(stored.states),
+      states: sanitizeStates(stored.states, defs),
       pendingGold: sanitizeCount(stored.pendingGold),
     };
   } catch {
@@ -162,10 +180,11 @@ export function getExpeditionQuestStates(): QuestInstanceState[] {
 /** Keys earned by completed quests. Derived, never stored: a second copy of "which quests
  *  finished" is how a door and its quest log disagree. */
 export function getEarnedQuestKeyIds(): string[] {
+  const defs = questCatalog();
   const earned: string[] = [];
-  for (const state of load().states) {
+  for (const state of load(defs).states) {
     if (state.status !== 'complete') continue;
-    const keyId = getExpeditionQuest(state.questId)?.grantsKeyId;
+    const keyId = defs.find((entry) => entry.id === state.questId)?.grantsKeyId;
     if (keyId !== undefined) earned.push(keyId);
   }
   return earned;
@@ -175,7 +194,8 @@ export type { QuestStepView } from '../systems/QuestProgress';
 
 /** What the HUD ticker and the map panel render. Cheap: SecureStorage.getItem is a cache read. */
 export function getActiveQuestStepViews(): QuestStepView[] {
-  return buildQuestStepViews(load().states, EXPEDITION_QUESTS);
+  const defs = questCatalog();
+  return buildQuestStepViews(load(defs).states, defs);
 }
 
 export type { QuestMarker } from '../systems/QuestProgress';
@@ -183,7 +203,8 @@ export type { QuestMarker } from '../systems/QuestProgress';
 /** Doc 04 section 4's map-marker feed. Same store read as getActiveQuestStepViews, and the
  *  same one-projection rule: the panel and the pins cannot disagree about what is active. */
 export function getActiveQuestMarkers(): QuestMarker[] {
-  return buildQuestMarkers(load().states, EXPEDITION_QUESTS);
+  const defs = questCatalog();
+  return buildQuestMarkers(load(defs).states, defs);
 }
 
 export type { QuestHoldObjective } from '../systems/QuestProgress';
@@ -191,7 +212,8 @@ export type { QuestHoldObjective } from '../systems/QuestProgress';
 /** What the siege driver reads once a second. Same store read and same one-projection rule as
  *  getActiveQuestMarkers, so the pressure can never answer for a room the pins do not point at. */
 export function getActiveQuestHoldObjectives(): QuestHoldObjective[] {
-  return buildQuestHoldObjectives(load().states, EXPEDITION_QUESTS);
+  const defs = questCatalog();
+  return buildQuestHoldObjectives(load(defs).states, defs);
 }
 
 export type { QuestHazardObjective } from '../systems/QuestProgress';
@@ -200,7 +222,8 @@ export type { QuestHazardObjective } from '../systems/QuestProgress';
  *  read and same one-projection rule as getActiveQuestMarkers, so the panel and the pins
  *  cannot disagree about what is active. */
 export function getActiveQuestHazardObjectives(): QuestHazardObjective[] {
-  return buildQuestHazardObjectives(load().states, EXPEDITION_QUESTS);
+  const defs = questCatalog();
+  return buildQuestHazardObjectives(load(defs).states, defs);
 }
 
 /**
@@ -213,12 +236,13 @@ export function getActiveQuestHazardObjectives(): QuestHazardObjective[] {
  * some of those paths reach would leak one run's counter into the next.
  */
 export function beginExpeditionQuestRun(): ExpeditionQuestDefinition[] {
-  const state = load();
-  const settled = settleRunScopeProgress(state.states, EXPEDITION_QUESTS);
-  const seeded = seedQuestStates(settled, EXPEDITION_QUESTS, ACTIVE_EXPEDITION_QUEST_LIMIT);
+  const defs = questCatalog();
+  const state = load(defs);
+  const settled = settleRunScopeProgress(state.states, defs);
+  const seeded = seedQuestStates(settled, defs, ACTIVE_EXPEDITION_QUEST_LIMIT);
   save({ states: seeded.states, pendingGold: state.pendingGold });
   return seeded.activatedQuestIds
-    .map((questId) => getExpeditionQuest(questId))
+    .map((questId) => defs.find((entry) => entry.id === questId))
     .filter((definition): definition is ExpeditionQuestDefinition => definition !== undefined);
 }
 
@@ -227,9 +251,10 @@ export function beginExpeditionQuestRun(): ExpeditionQuestDefinition[] {
  * actually changed, so the once-a-second kill poll is free on a frame that earned nothing.
  */
 export function recordExpeditionQuestEvent(event: QuestEvent): ExpeditionQuestRewards {
-  const state = load();
+  const defs = questCatalog();
+  const state = load(defs);
   if (state.states.length === 0) return EMPTY_REWARDS;
-  const result = recordQuestEvent(state.states, EXPEDITION_QUESTS, event);
+  const result = recordQuestEvent(state.states, defs, event);
 
   const earned = result.stepCompletions.reduce((total, entry) => total + entry.goldReward, 0)
     + result.questCompletions.reduce((total, entry) => total + entry.goldReward, 0);
@@ -266,16 +291,16 @@ export type { QuestBoardEntry } from '../systems/QuestProgress';
 /** What the walk-in board renders. Same store read and same one-projection rule as
  *  getActiveQuestStepViews: the board and the ticker cannot disagree about what is active. */
 export function getQuestBoardEntries(): QuestBoardEntry[] {
-  return buildQuestBoardEntries(load().states, EXPEDITION_QUESTS, ACTIVE_EXPEDITION_QUEST_LIMIT);
+  const defs = questCatalog();
+  return buildQuestBoardEntries(load(defs).states, defs, ACTIVE_EXPEDITION_QUEST_LIMIT);
 }
 
 /** False when the cap refused the accept, which is what the board plays an error on. Banked gold
  *  is carried through untouched: accepting a quest is not a payout event. */
 export function acceptExpeditionQuest(questId: string): boolean {
-  const stored = load();
-  const result = acceptQuest(
-    stored.states, EXPEDITION_QUESTS, questId, ACTIVE_EXPEDITION_QUEST_LIMIT,
-  );
+  const defs = questCatalog();
+  const stored = load(defs);
+  const result = acceptQuest(stored.states, defs, questId, ACTIVE_EXPEDITION_QUEST_LIMIT);
   if (!result.accepted) return false;
   save({ states: result.states, pendingGold: stored.pendingGold });
   return true;
@@ -283,8 +308,9 @@ export function acceptExpeditionQuest(questId: string): boolean {
 
 /** False when the quest was not active to begin with. */
 export function setExpeditionQuestAside(questId: string): boolean {
-  const stored = load();
-  const result = setQuestAside(stored.states, EXPEDITION_QUESTS, questId);
+  const defs = questCatalog();
+  const stored = load(defs);
+  const result = setQuestAside(stored.states, defs, questId);
   if (!result.changed) return false;
   save({ states: result.states, pendingGold: stored.pendingGold });
   return true;

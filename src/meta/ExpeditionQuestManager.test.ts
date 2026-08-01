@@ -14,6 +14,7 @@ vi.mock('../storage', () => {
 });
 
 import { SecureStorage } from '../storage';
+import { EXPEDITION_QUESTS } from '../data/ExpeditionQuests';
 import {
   beginExpeditionQuestRun,
   recordExpeditionQuestEvent,
@@ -85,5 +86,24 @@ describe('ExpeditionQuestManager', () => {
     const [restated] = getExpeditionQuestStates();
     expect(restated.stepProgress).toBe(1);
     expect(restated.visitedWorldStamp).toBe('w2');
+  });
+
+  test('a profile whose authored chains are all done is issued this world\'s contracts', () => {
+    const completedAuthored = EXPEDITION_QUESTS.map((quest) => ({
+      questId: quest.id,
+      stepIndex: quest.steps.length,
+      stepProgress: 0,
+      status: 'complete' as const,
+    }));
+    SecureStorage.setItem(STORAGE_KEY, JSON.stringify({
+      states: completedAuthored, pendingGold: 0,
+    }));
+
+    const activated = beginExpeditionQuestRun();
+    expect(activated.length).toBe(ACTIVE_EXPEDITION_QUEST_LIMIT);
+    for (const quest of activated) {
+      expect(quest.id.startsWith('quest_contract_'), quest.id).toBe(true);
+      expect(quest.grantsKeyId, quest.id).toBeUndefined();
+    }
   });
 });
