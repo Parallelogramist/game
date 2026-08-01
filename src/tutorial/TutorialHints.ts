@@ -15,7 +15,8 @@ export type TutorialHintId =
   | 'evolution-progress'
   | 'first-miniboss'
   | 'ultimate-ready'
-  | 'shop';
+  | 'shop'
+  | 'secret-lead';
 
 export interface TutorialHintDef {
   id: TutorialHintId;
@@ -78,6 +79,14 @@ export const TUTORIAL_HINT_DEFS: readonly TutorialHintDef[] = [
     icon: 'coins',
     color: 0x44aaff,
     duration: 3000,
+  },
+  {
+    id: 'secret-lead',
+    title: 'LEAD FILED',
+    description: 'Riddles and sigil orders are kept on the MAP, under LEADS.',
+    icon: 'radar',
+    color: 0xcc66ff,
+    duration: 4000,
   },
 ];
 

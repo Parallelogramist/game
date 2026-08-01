@@ -199,6 +199,7 @@ export class ShopScene extends Phaser.Scene {
 
     this.soundManager = new SoundManager(this);
     this.toastManager = getToastManager(this);
+    this.toastManager.setUngated(true);
 
     this.upgradeCards = [];
     this.hangarCards = [];

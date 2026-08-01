@@ -1400,6 +1400,7 @@ export class GameScene extends Phaser.Scene {
     if (this.worldMode.isSectorLocked()) {
       this.soundManager.playError();
       this.toastManager?.showToast({
+        tier: 'critical',
         title: 'RECALL BLOCKED',
         description: 'The room is sealed. Finish the fight first.',
         icon: 'rocket',
@@ -1411,6 +1412,7 @@ export class GameScene extends Phaser.Scene {
 
     this.recallChannelRemaining = TUNING.player.recallChannelSeconds;
     this.toastManager?.showToast({
+      tier: 'critical',
       title: 'RECALL ENGAGED',
       description: `Hold steady for ${TUNING.player.recallChannelSeconds} seconds.`
         + ' A hit breaks the lock.',
@@ -1427,6 +1429,7 @@ export class GameScene extends Phaser.Scene {
     this.recallRing?.setVisible(false);
     this.soundManager.playError();
     this.toastManager?.showToast({
+      tier: 'critical',
       title: 'RECALL BROKEN',
       description: reason,
       icon: 'rocket',
@@ -1467,6 +1470,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(120, 0.004);
     this.soundManager.playSynergyActivation();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'RECALLED',
       description: 'The hangar has the ship. The expedition continues.',
       icon: 'rocket',
@@ -1563,11 +1567,15 @@ export class GameScene extends Phaser.Scene {
     const achievementManager = getAchievementManager();
     achievementManager.startNewRun();
     this.toastManager = getToastManager(this);
+    this.toastManager.resetSession();
 
-    // Single-source hidden unlock toasts. Evaluator fires this per new unlock,
-    // so the end-of-run loop no longer needs to iterate results itself.
+    // Single-source hidden unlocks. Evaluator fires this per new unlock, so the end-of-run
+    // loop no longer needs to iterate results itself. Tiered `notable` because it only ever
+    // fires at run end, under the pause overlay (HUD depth 1000 vs 2100), where a toast has
+    // never been visible: the unlock is kept for the run-end screen instead.
     getHiddenUnlockManager().setOnNewUnlock((condition) => {
       this.toastManager.showToast({
+        tier: 'notable',
         title: 'Hidden Unlock!',
         description: `${condition.displayName} — ${condition.hintText}`,
         icon: 'star',
@@ -1943,6 +1951,7 @@ export class GameScene extends Phaser.Scene {
       this.playerStats.rerollsRemaining += boostBonus.rerollsAdd ?? 0;
       this.playerStats.banishesRemaining += boostBonus.banishesAdd ?? 0;
       this.toastManager.showToast({
+        tier: 'notable',
         title: 'BOOST ACTIVE',
         description: `${armedBoost.name} — ${armedBoost.description} this run`,
         icon: armedBoost.icon,
@@ -1976,6 +1985,7 @@ export class GameScene extends Phaser.Scene {
     if (this.activeBlessings.length > 0) {
       const firstBlessing = this.activeBlessings[0];
       this.toastManager.showToast({
+        tier: 'notable',
         title: this.activeBlessings.length === 1 ? 'BLESSED' : `BLESSED ×${this.activeBlessings.length}`,
         description: this.activeBlessings.map(blessing => `${blessing.name} (${blessing.description})`).join(' · '),
         icon: firstBlessing.icon,
@@ -2011,6 +2021,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (carriedOverLabels.length > 0) {
       this.toastManager.showToast({
+        tier: 'notable',
         title: carriedOverLabels.length === 1 ? 'REMEMBERED' : `REMEMBERED ×${carriedOverLabels.length}`,
         description: `${carriedOverLabels.join(' · ')} carried over from your last run`,
         icon: 'brain',
@@ -2522,6 +2533,7 @@ export class GameScene extends Phaser.Scene {
     this.syncStatsToPlayer();
     this.grantBuildHeal(this.playerStats.currentHealth - healthBeforeRelic);
     this.toastManager.showToast({
+      tier: 'notable',
       title: `Relic: ${equipped.name}`,
       description: equipped.description,
       icon: equipped.icon,
@@ -2543,6 +2555,7 @@ export class GameScene extends Phaser.Scene {
     this.syncStatsToPlayer();
     this.grantBuildHeal(this.playerStats.currentHealth - healthBeforeRelic);
     this.toastManager.showToast({
+      tier: 'notable',
       title: `${relic.name} · Rank ${relicRankNumeral(newRank)}`,
       description: relic.description,
       icon: relic.icon,
@@ -2685,6 +2698,7 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager.playDeathBurst(x, y, offer.color);
     this.soundManager.playLevelUp();
     this.toastManager?.showToast({
+      tier: 'notable',
       title: `Bought: ${offer.name}`,
       description: `${offer.price} gold spent — ${metaManager.getGold()} left.`,
       icon: offer.icon,
@@ -3050,6 +3064,7 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize toast manager early (needed before game loop starts)
     this.toastManager = getToastManager(this);
+    this.toastManager.resetSession();
 
     // Restore game progress
     this.gameTime = state.gameTime;
@@ -4138,6 +4153,7 @@ export class GameScene extends Phaser.Scene {
         const cacheCard = getCardCollectionManager().rollCacheDiscovery();
         if (cacheCard) {
           this.toastManager?.showToast({
+            tier: 'rare',
             title: 'DATA CACHE RECOVERED',
             description: 'Decrypting at run end…',
             icon: 'star',
@@ -4148,6 +4164,7 @@ export class GameScene extends Phaser.Scene {
           // Archive complete — pay the cache out in gold instead.
           getMetaProgressionManager().addGold(250);
           this.toastManager?.showToast({
+            tier: 'rare',
             title: 'DATA CACHE RECOVERED',
             description: 'Archive complete — salvaged for +250 gold.',
             icon: 'coins',
@@ -4168,6 +4185,7 @@ export class GameScene extends Phaser.Scene {
       const boost = getBoostCardManager().rollFluxCache();
       if (boost) {
         this.toastManager?.showToast({
+          tier: 'notable',
           title: 'FLUX CACHE',
           description: `${boost.name} armed for next run`,
           icon: boost.icon,
@@ -4210,6 +4228,7 @@ export class GameScene extends Phaser.Scene {
       getMetaProgressionManager().addGold(nemesisGoldReward(grudge));
       this.grantRelicChoice(1);
       this.toastManager?.showToast({
+        tier: 'rare',
         title: 'NEMESIS SLAIN',
         description: `+${nemesisGoldReward(grudge)} gold  ·  relic recovered`,
         icon: 'skull',
@@ -4615,6 +4634,7 @@ export class GameScene extends Phaser.Scene {
         this.soundManager.playPurchase();
         if (this.toastManager) {
           this.toastManager.showToast({
+            tier: 'ambient',
             title: `Gold Cache +${amount}`,
             description: 'Bonus gold banked for the shop.',
             icon: 'coins',
@@ -4651,8 +4671,17 @@ export class GameScene extends Phaser.Scene {
       this.syncStatsToPlayer();
     }
     this.soundManager.playSynergyActivation();
+    if (this.playerId !== -1) {
+      this.effectsManager.showDamageNumber(
+        Transform.x[this.playerId], Transform.y[this.playerId] - 26,
+        `+${Math.round((boost.magnitude - 1) * 100)}% ${boost.effectLabel.toUpperCase()}`
+          + ` ${boost.durationSeconds}s`,
+        getConsumableKindColor(boost.kind),
+      );
+    }
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: boost.name,
         description: `+${Math.round((boost.magnitude - 1) * 100)}% ${boost.effectLabel} for ${boost.durationSeconds}s.`,
         icon: boost.icon,
@@ -4723,6 +4752,7 @@ export class GameScene extends Phaser.Scene {
     this.soundManager.playUltimate();
 
     this.toastManager.showToast({
+      tier: 'ambient',
       title: ultimate.name.toUpperCase(),
       description: ultimate.description,
       icon: 'lightning',
@@ -5037,6 +5067,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: def.label,
         description: 'A shrine has appeared — walk into it.',
         icon: 'star',
@@ -5139,7 +5170,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.toastManager && showToast) {
-      this.toastManager.showToast({ title, description, icon: 'star', color: def.color, duration: 3200 });
+      this.toastManager.showToast({ title, description, tier: 'ambient', icon: 'star', color: def.color, duration: 3200 });
     }
   }
 
@@ -5679,6 +5710,7 @@ export class GameScene extends Phaser.Scene {
     if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(200, 0.008);
     this.soundManager.playBossWarning();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'NEST DISTURBED',
       description: 'Clear the swarm and the hive is yours.',
       icon: 'warning',
@@ -5697,6 +5729,7 @@ export class GameScene extends Phaser.Scene {
     if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(180, 0.007);
     this.soundManager.playPurchase();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'NEST CLEARED',
       description: 'The hive breaks open.',
       icon: 'gem',
@@ -5770,6 +5803,7 @@ export class GameScene extends Phaser.Scene {
     if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(220, 0.009);
     this.soundManager.playBossWarning();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'THE LAIR STIRS',
       description: 'It has been waiting for you.',
       icon: 'skull',
@@ -5904,6 +5938,7 @@ export class GameScene extends Phaser.Scene {
     this.clearWardenThrone();
     this.effectsManager.playDeathBurst(x, y, WARDEN_THRONE_COLOR);
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'THE WARDEN RISES',
       description: 'The heart of the world answers.',
       icon: 'skull',
@@ -5944,6 +5979,7 @@ export class GameScene extends Phaser.Scene {
     this.escortDroneRegenBlockedUntilSeconds = 0;
     this.drawEscortDrone();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'ESCORT UNDER WAY',
       description: `${droneLabelOf(objective.droneId)} is following you. Keep it alive.`,
       icon: 'rocket',
@@ -6011,6 +6047,7 @@ export class GameScene extends Phaser.Scene {
       this.escortDroneNextAlertAtSeconds = this.gameTime + ESCORT_DRONE_ALERT_COOLDOWN_SECONDS;
       this.soundManager.playError();
       this.toastManager?.showToast({
+        tier: 'critical',
         title: 'DRONE UNDER FIRE',
         description: `${droneLabelOf(drone.droneId)} has hostiles on it. Get back to it.`,
         icon: 'warning',
@@ -6059,6 +6096,7 @@ export class GameScene extends Phaser.Scene {
     const dropped = dropExpeditionQuestDrone();
     this.clearEscortDrone();
     this.toastManager?.showToast({
+      tier: 'critical',
       title: 'ESCORT LOST',
       description: `${droneLabelOf(drone.droneId)} is down. Pick up another at any board.`,
       icon: 'warning',
@@ -6146,6 +6184,7 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager.playDeathBurst(crate.x, crate.y, QUEST_CARGO_COLOR);
     this.soundManager.playPickupHealth();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'CARGO RECOVERED',
       description: `${cargoLabelOf(reclaimed.itemId)} is back aboard. Finish the delivery.`,
       icon: 'backpack',
@@ -6230,6 +6269,7 @@ export class GameScene extends Phaser.Scene {
       // Only an ability whose description names a system that exists may print it: the rest
       // still open doors and nothing more, and a toast must not promise what it cannot pay.
       this.toastManager.showToast({
+        tier: 'rare',
         title: `${definition.name.toUpperCase()} ACQUIRED`,
         description: IMPLEMENTED_TRAVERSAL_ABILITY_IDS.has(definition.id)
           ? definition.description
@@ -6254,6 +6294,7 @@ export class GameScene extends Phaser.Scene {
     const opened = getDiscoveryManager().noteGainedPassKey(gainedId);
     if (opened.length === 0) return;
     this.toastManager?.showToast({
+      tier: 'notable',
       title: 'NEW ROUTES ONLINE',
       description: opened.length === 1
         ? `1 sealed gate responds to ${sourceName}.`
@@ -6290,6 +6331,7 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager.showDamageNumber(vault.x, vault.y - 26, 'GUARDED', color);
     const definition = getTraversalAbility(vault.abilityId);
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'VAULT GUARDED',
       description: definition
         ? `${definition.name} stays sealed until its guard falls.`
@@ -6319,6 +6361,7 @@ export class GameScene extends Phaser.Scene {
     if (!getSettingsManager().isReducedMotionEnabled()) this.cameras.main.shake(180, 0.007);
     this.soundManager.playPurchase();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'VAULT UNSEALED',
       description: 'The core is exposed. Fly into it to claim.',
       icon: 'bolt',
@@ -6513,7 +6556,15 @@ export class GameScene extends Phaser.Scene {
   private noticeSealedCache(puzzle: ActiveSecretPuzzle): void {
     if (puzzle.noticed) return;
     puzzle.noticed = true;
+    const sigilAnchor = puzzle.nodes[0];
+    if (sigilAnchor) {
+      this.effectsManager.showDamageNumber(
+        sigilAnchor.x, sigilAnchor.y - 26, 'SEALED CACHE',
+        WORLD_GEOMETRY_COLORS.breakable.stroke,
+      );
+    }
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'SEALED CACHE',
       description:
         `${puzzle.nodes.length} sigils ring this cache, and they wake in one order.`,
@@ -6544,6 +6595,7 @@ export class GameScene extends Phaser.Scene {
     this.soundManager.playLevelUp();
     const description = this.paySecretReward(cache.reward, cache.x, cache.y);
     this.toastManager?.showToast({
+      tier: 'notable',
       title: cache.puzzle ? 'SEQUENCE UNSEALED' : 'HIDDEN CACHE FOUND',
       description,
       icon: cache.reward.icon,
@@ -6667,6 +6719,7 @@ export class GameScene extends Phaser.Scene {
     this.soundManager.playLevelUp();
     const description = this.paySecretReward(reward, spawnX, spawnY);
     this.toastManager?.showToast({
+      tier: 'notable',
       title: 'HIDDEN SECTOR FOUND',
       description,
       icon: reward.icon,
@@ -6755,12 +6808,24 @@ export class GameScene extends Phaser.Scene {
       getAchievementManager().setLoreFragmentsFound(codex.getDiscoveredLoreCount());
     }
     this.toastManager?.showToast({
+      tier: 'notable',
       title: lead.fragment.title.toUpperCase(),
       description: [lead.riddle, lead.sigils, lead.wall, lead.gap].filter(Boolean).join('  '),
       icon: lead.fragment.icon,
       color: WORLD_GEOMETRY_COLORS.breakable.stroke,
       duration: 4600,
     });
+    if (getTutorialHintManager().maybeShow('secret-lead')) {
+      const leadHint = getTutorialHintDef('secret-lead');
+      this.toastManager?.showToast({
+        title: leadHint.title,
+        description: leadHint.description,
+        tier: 'critical',
+        icon: leadHint.icon,
+        color: leadHint.color,
+        duration: leadHint.duration,
+      });
+    }
   }
 
   /** Arena is inert by construction: ArenaModeAdapter.worldMap() is null, so an arena run
@@ -6816,6 +6881,7 @@ export class GameScene extends Phaser.Scene {
 
     const hintedCount = changes.secretsHinted.length;
     this.toastManager?.showToast({
+      tier: 'notable',
       title: 'SIGNAL DECRYPTED',
       description: hintedCount === 1
         ? 'A cache is concealed in this sector.'
@@ -6952,6 +7018,7 @@ export class GameScene extends Phaser.Scene {
     this.soundManager.playComboThreshold();
     if (this.toastManager && definition) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: 'ROUTE OPEN',
         description: `${definition.name} unsealed this door.`,
         icon: definition.icon,
@@ -6982,6 +7049,7 @@ export class GameScene extends Phaser.Scene {
     this.soundManager.playComboThreshold();
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: 'ROUTE OPEN',
         description: quest
           ? `${quest.name} keyed this door.`
@@ -7092,6 +7160,7 @@ export class GameScene extends Phaser.Scene {
       playerX, playerY - 26, 'VOID GAP', WORLD_GEOMETRY_COLORS.voidGap.stroke,
     );
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'VOID GAP',
       description: definition
         ? `${definition.name} would reel the ship across.`
@@ -7159,6 +7228,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(120, 0.004);
     this.soundManager.playComboThreshold();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'GRID DOWN',
       description: 'The fence is dark for good: the cloak tripped its kill-switch.',
       icon: 'ghost',
@@ -7180,6 +7250,7 @@ export class GameScene extends Phaser.Scene {
       playerX, playerY - 26, 'SECURITY GRID', WORLD_GEOMETRY_COLORS.securityGrid.stroke,
     );
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'SECURITY GRID',
       description: definition
         ? `${definition.name} would carry the ship through.`
@@ -7210,6 +7281,7 @@ export class GameScene extends Phaser.Scene {
       this.soundManager.playError();
       if (this.toastManager) {
         this.toastManager.showToast({
+          tier: 'ambient',
           title: 'SEALED DOOR',
           description: definition
             ? `${definition.name} opens this route.`
@@ -7234,6 +7306,7 @@ export class GameScene extends Phaser.Scene {
     this.soundManager.playError();
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: 'QUEST DOOR',
         description: quest
           ? `Finish ${quest.name} to key this route.`
@@ -7311,6 +7384,7 @@ export class GameScene extends Phaser.Scene {
     );
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: 'HAZARD FIELD',
         description: definition
           ? `${definition.name} would ward this floor.`
@@ -7497,6 +7571,14 @@ export class GameScene extends Phaser.Scene {
         || (a.secretId < b.secretId ? -1 : a.secretId > b.secretId ? 1 : 0));
   }
 
+  /** The bounty cycle lost its toasts to the diet, so the beat lands in-world instead. */
+  private showBountyBanner(text: string, color: number): void {
+    if (this.playerId === -1) return;
+    this.effectsManager.showDamageNumber(
+      Transform.x[this.playerId], Transform.y[this.playerId] - 34, text, color,
+    );
+  }
+
   /** Starts a fresh random bounty. */
   private startBounty(): void {
     const kinds: BountyKind[] = ['kills', 'elites', 'flawless'];
@@ -7509,8 +7591,17 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.bounty = { kind, target: 0, progress: 0, timeLeft: 15 };
     }
+    this.showBountyBanner(
+      this.bounty.kind === 'flawless'
+        ? 'BOUNTY: NO HITS 15s'
+        : this.bounty.kind === 'elites'
+          ? 'BOUNTY: 3 ELITES'
+          : `BOUNTY: ${this.bounty.target} KILLS`,
+      0xffe26a,
+    );
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: 'New Bounty',
         description: kind === 'flawless'
           ? 'Survive 15s without taking damage.'
@@ -7541,8 +7632,10 @@ export class GameScene extends Phaser.Scene {
     getMetaProgressionManager().addGold(60 + this.worldLevel * 12);
     this.effectsManager.playGoldSparkle(playerX, playerY, 12);
     this.soundManager.playComboThreshold();
+    this.showBountyBanner('BOUNTY CLEAR', 0x66ff99);
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: 'Bounty Complete!',
         description: 'Reward dropped: power-ups + gold.',
         icon: 'star',
@@ -7555,8 +7648,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private failBounty(): void {
+    this.showBountyBanner('BOUNTY LOST', 0xff6666);
     if (this.toastManager) {
       this.toastManager.showToast({
+        tier: 'ambient',
         title: 'Bounty Failed',
         description: 'Another will appear shortly.',
         icon: 'skull',
@@ -7579,6 +7674,7 @@ export class GameScene extends Phaser.Scene {
   private showSynergyToast(synergy: WeaponSynergy): void {
     if (!this.toastManager) return;
     this.toastManager.showToast({
+      tier: 'notable',
       title: `Synergy: ${synergy.name}`,
       description: synergy.description,
       icon: 'chain',
@@ -8413,6 +8509,7 @@ export class GameScene extends Phaser.Scene {
       const ultHint = getTutorialHintDef('ultimate-ready');
       const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
       this.toastManager.showToast({
+        tier: 'critical',
         title: ultHint.title,
         description: getHintDescription(ultHint, isTouchDevice),
         icon: ultHint.icon,
@@ -8596,6 +8693,7 @@ export class GameScene extends Phaser.Scene {
       const def = getTutorialHintDef('dash-danger');
       const isTouchDevice = this.input.manager.touch !== null && this.sys.game.device.input.touch;
       this.toastManager.showToast({
+        tier: 'critical',
         title: def.title,
         description: getHintDescription(def, isTouchDevice),
         icon: def.icon,
@@ -9531,6 +9629,7 @@ export class GameScene extends Phaser.Scene {
 
     if (fight.dirty) {
       this.toastManager.showToast({
+        tier: 'critical',
         title: `FIGHT ${timeText}`,
         description: 'Other spawns joined this fight — not recorded.',
         icon: 'target',
@@ -9562,6 +9661,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.toastManager.showToast({
+      tier: 'critical',
       title: isNewBest ? `NEW BEST ${timeText}` : `FIGHT ${timeText}`,
       description,
       icon: 'target',
@@ -10621,6 +10721,7 @@ export class GameScene extends Phaser.Scene {
     }
     for (const quest of completed) {
       this.toastManager?.showToast({
+        tier: 'notable',
         title: 'Daily Quest Complete',
         description: `${quest.name} · +${quest.gold} gold`,
         icon: quest.icon,
@@ -10641,6 +10742,7 @@ export class GameScene extends Phaser.Scene {
     for (const quest of beginExpeditionQuestRun()) {
       getDiscoveryManager().noteObjectiveUpdated(quest.id);
       this.toastManager?.showToast({
+        tier: 'notable',
         title: 'NEW OBJECTIVE',
         description: `${quest.name}: ${quest.steps[0].description}`,
         icon: quest.icon,
@@ -10682,6 +10784,7 @@ export class GameScene extends Phaser.Scene {
       const step = quest?.steps.find((entry) => entry.id === completion.stepId);
       if (!quest || !step) continue;
       this.toastManager?.showToast({
+        tier: 'notable',
         title: 'OBJECTIVE COMPLETE',
         description: `${step.description} · +${completion.goldReward} gold`,
         icon: quest.icon,
@@ -10698,6 +10801,7 @@ export class GameScene extends Phaser.Scene {
         this.announceNewRoutes(grantedKeyId, quest.name, quest.icon);
       }
       this.toastManager?.showToast({
+        tier: 'notable',
         title: 'QUEST COMPLETE',
         description: `${quest.name} · +${completion.goldReward} gold`,
         icon: quest.icon,
@@ -10709,6 +10813,7 @@ export class GameScene extends Phaser.Scene {
       const quest = getExpeditionQuest(questId);
       if (!quest) continue;
       this.toastManager?.showToast({
+        tier: 'notable',
         title: 'NEW OBJECTIVE',
         description: `${quest.name}: ${quest.steps[0].description}`,
         icon: quest.icon,
@@ -10792,6 +10897,7 @@ export class GameScene extends Phaser.Scene {
     this.siegeBesiegerIds = [];
     this.soundManager.playBossWarning();
     this.toastManager?.showToast({
+      tier: 'ambient',
       title: 'THE ROOM ANSWERS',
       description: 'Hold this sector and it will not let you.',
       icon: 'warning',
@@ -11202,6 +11308,7 @@ export class GameScene extends Phaser.Scene {
     if (getTutorialHintManager().maybeShow('first-miniboss')) {
       const minibossHint = getTutorialHintDef('first-miniboss');
       this.toastManager.showToast({
+        tier: 'critical',
         title: minibossHint.title,
         description: minibossHint.description,
         icon: minibossHint.icon,
@@ -11934,6 +12041,7 @@ export class GameScene extends Phaser.Scene {
       // Award bonus XP
       this.playerStats.xp += 50;
       this.toastManager.showToast({
+        tier: 'ambient',
         title: `COMBO x${threshold.count}`,
         description: 'XP Burst!',
         icon: 'lightning',
@@ -11953,6 +12061,7 @@ export class GameScene extends Phaser.Scene {
       getJuiceManager().hitStop(50, 0.85);
       getJuiceManager().impactFlash(0.35, 120);
       this.toastManager.showToast({
+        tier: 'ambient',
         title: `COMBO x${threshold.count}`,
         description: 'Power Surge! +50% damage',
         icon: 'sword',
@@ -12003,6 +12112,7 @@ export class GameScene extends Phaser.Scene {
       }
       getJuiceManager().hitStop(80, 0.95);
       this.toastManager.showToast({
+        tier: 'ambient',
         title: `COMBO x${threshold.count}`,
         description: 'ANNIHILATION!',
         icon: 'explosion',
@@ -12287,6 +12397,7 @@ export class GameScene extends Phaser.Scene {
 
     // Surface exactly which deal fired so the player knows what changed.
     this.toastManager.showToast({
+      tier: 'notable',
       title: pickedDeal.title,
       description: pickedDeal.detail,
       icon: 'star',
@@ -13428,6 +13539,7 @@ export class GameScene extends Phaser.Scene {
           this.effectsManager.playGoldSparkle(evolveX - 20, evolveY - 15, 6);
           this.effectsManager.playGoldSparkle(evolveX + 20, evolveY + 15, 6);
           this.toastManager.showToast({
+            tier: 'rare',
             title: 'Ship Evolved!',
             description: `${evolutionResult.tierName} form achieved`,
             icon: 'star',
@@ -13501,6 +13613,7 @@ export class GameScene extends Phaser.Scene {
     if (this.playerStats.level === 2 && getTutorialHintManager().maybeShow('first-level-up')) {
       const levelUpHint = getTutorialHintDef('first-level-up');
       this.toastManager.showToast({
+        tier: 'critical',
         title: levelUpHint.title,
         description: levelUpHint.description,
         icon: levelUpHint.icon,
@@ -13934,6 +14047,7 @@ export class GameScene extends Phaser.Scene {
     this.scrappedWeaponIds.push(weaponId);
     this.banishedUpgradeIds.add(`add_${weaponId}`);
     this.toastManager?.showToast({
+      tier: 'notable',
       title: `SCRAPPED: ${scrappedName}`,
       description: 'Slot freed for the refit',
       icon: scrappedIcon,
@@ -14078,6 +14192,7 @@ export class GameScene extends Phaser.Scene {
 
       // 7. Existing toast + sound
       this.toastManager.showToast({
+        tier: 'rare',
         title: `EVOLVED: ${evolutionResult.evolution.evolvedName}`,
         description: evolutionResult.evolution.evolvedDescription,
         icon: evolutionResult.weapon.icon,
@@ -14098,6 +14213,7 @@ export class GameScene extends Phaser.Scene {
       if (blocked && getTutorialHintManager().maybeShow('evolution-progress')) {
         const evolutionHint = getTutorialHintDef('evolution-progress');
         this.toastManager.showToast({
+          tier: 'critical',
           title: evolutionHint.title,
           description: formatEvolutionHint(blocked),
           icon: evolutionHint.icon,

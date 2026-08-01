@@ -293,11 +293,24 @@ export interface RunEndData {
 // TOAST NOTIFICATION
 // ═══════════════════════════════════════════════════════════════════════════
 
+export type ToastTier = 'critical' | 'rare' | 'notable' | 'ambient';
+
 export interface ToastConfig {
   title: string;
   description: string;
   icon: string;
   color: number;          // Phaser tint color
   duration: number;       // Display duration in ms
+  /** Gate class. Absent means `'notable'`: never drawn, kept for the run-end screen. */
+  tier?: ToastTier;
   playSound?: boolean;    // Deprecated — sound is now handled by the caller via SoundManager
+}
+
+/** A toast the gate refused to draw, kept so the run-end screen can list it. */
+export interface SuppressedToast {
+  title: string;
+  description: string;
+  icon: string;
+  color: number;
+  tier: ToastTier;
 }

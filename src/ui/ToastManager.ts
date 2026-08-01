@@ -6,7 +6,8 @@
  */
 
 import Phaser from 'phaser';
-import { ToastConfig } from '../achievements/AchievementTypes';
+import { ToastConfig, SuppressedToast } from '../achievements/AchievementTypes';
+import { createToastGateState, decideToast, ToastGateState } from './toastGate';
 import { createIcon } from '../utils/IconRenderer';
 import { computeHudScale } from '../utils/HudScale';
 import { getSettingsManager } from '../settings';
@@ -20,6 +21,7 @@ const BASE_TOAST_MARGIN = 16;
 const BASE_TOAST_PADDING = 14;
 const SLIDE_DURATION = 300;
 const DEFAULT_DISPLAY_DURATION = 3000;
+const MAX_SUPPRESSED_TOASTS = 40;
 
 const TOAST_BG_COLOR = BODY_COLORS.primary;
 const TOAST_BORDER_COLOR = ACCENT_COLORS.neutral;
@@ -31,6 +33,11 @@ export class ToastManager {
   private toastQueue: ToastConfig[] = [];
   private activeToast: Phaser.GameObjects.Container | null = null;
   private isAnimating: boolean = false;
+  private gateState: ToastGateState = createToastGateState();
+  private suppressed: SuppressedToast[] = [];
+  private ungated: boolean = false;
+  /** Kept so clearAll can cancel it: a stale hide timer used to null out a newer toast. */
+  private hideTimer: Phaser.Time.TimerEvent | null = null;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -42,14 +49,55 @@ export class ToastManager {
   }
 
   /**
-   * Queue a toast notification to display.
+   * Queue a toast notification to display, if its tier earns the screen.
    * If no toast is currently showing, displays immediately.
    */
   showToast(config: ToastConfig): void {
+    if (!this.ungated) {
+      const verdict = decideToast(
+        this.gateState,
+        config.tier ?? 'notable',
+        config.title,
+        this.scene.time.now,
+      );
+      if (verdict === 'drop') return;
+      if (verdict === 'suppress') {
+        this.recordSuppressed(config);
+        return;
+      }
+    }
     this.toastQueue.push(config);
     if (!this.activeToast && !this.isAnimating) {
       this.displayNextToast();
     }
+  }
+
+  private recordSuppressed(config: ToastConfig): void {
+    this.suppressed.push({
+      title: config.title,
+      description: config.description,
+      icon: config.icon,
+      color: config.color,
+      tier: config.tier ?? 'notable',
+    });
+    if (this.suppressed.length > MAX_SUPPRESSED_TOASTS) this.suppressed.shift();
+  }
+
+  /** Everything the gate refused to draw this session, oldest first. */
+  getSuppressed(): SuppressedToast[] {
+    return [...this.suppressed];
+  }
+
+  /** Menu scenes opt out of the diet: their toasts answer a tap the player just made. */
+  setUngated(ungated: boolean): void {
+    this.ungated = ungated;
+  }
+
+  /** New run: the rare budget and the critical cooldowns start over. */
+  resetSession(): void {
+    this.clearAll();
+    this.gateState = createToastGateState();
+    this.suppressed = [];
   }
 
   /**
@@ -67,6 +115,7 @@ export class ToastManager {
       icon,
       color: 0xffdd44, // Gold for milestones
       duration: DEFAULT_DISPLAY_DURATION,
+      tier: 'rare',
     });
   }
 
@@ -80,6 +129,7 @@ export class ToastManager {
       icon,
       color: 0x44ff88, // Green for achievements
       duration: 4000, // Slightly longer for achievements
+      tier: 'rare',
     });
   }
 
@@ -222,9 +272,13 @@ export class ToastManager {
       ease: 'Back.easeOut',
       onComplete: () => {
         // Wait for display duration, then slide out
-        this.scene.time.delayedCall(config.duration || DEFAULT_DISPLAY_DURATION, () => {
-          this.slideOutToast(container);
-        });
+        this.hideTimer = this.scene.time.delayedCall(
+          config.duration || DEFAULT_DISPLAY_DURATION,
+          () => {
+            this.hideTimer = null;
+            this.slideOutToast(container);
+          },
+        );
       },
     });
   }
@@ -255,6 +309,8 @@ export class ToastManager {
    * Clear all pending toasts and hide current toast.
    */
   clearAll(): void {
+    this.hideTimer?.remove();
+    this.hideTimer = null;
     this.toastQueue = [];
     if (this.activeToast) {
       this.scene.tweens.killTweensOf(this.activeToast);
