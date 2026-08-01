@@ -815,6 +815,32 @@ Three tiers, cheapest first:
   `grantSecretLead` does. The toast deliberately does not claim a fragment was logged, since an
   already-recovered fragment would make that false.
 
+### As built (`FEAT-SECRET-MAP-FRAGMENT`, 1150f3b, 2026-07-31)
+
+- **The reward table has a sixth row, `secret_map_fragment`** (weight 14, `radar` icon),
+  reachable at every tier. The live world carries 25 secret slots, so at that weight roughly 3
+  fragments land per world. Recovering one hands over survey data instead of loot: up to 8
+  sectors of a named biome region elsewhere in the world are charted as outlines, with the edges
+  between them, and the toast names the place (`Survey data: Crystal Caves charted, 8 new
+  sectors.`).
+- **The depth bands scale it 1 / 1.2 / 1.3 and the `hiddenSector` tier scales it 0.5.** The
+  shallow band is left alone because an early fragment is already useful when almost nothing is
+  charted; a room the chart never drew is the strongest find in the game and should mostly pay
+  loot, which is what the tier scale buys.
+- **It is econ-neutral and does not touch the parked `FEAT-ECON-WARDS` decision.** It pays no
+  gold, no relic roll and no item, only chart knowledge, so the expedition gold budget is
+  unchanged.
+- **`paySecretReward` now returns the toast description**, because the fragment is the one entry
+  whose payout text is only knowable after it runs: it names the region it charted and counts the
+  sectors it added. Both callers, `claimSecretCache` and `announceHiddenSector`, print the
+  returned line instead of `reward.description`.
+- **The fallback:** a fully charted world pays a sealed chest and says so
+  (`Survey data, and nothing left to chart. A sealed chest instead.`), so a find never pays
+  nothing.
+- **Cut deliberately:** the animated cascade of newly revealed outlines (doc 03 section 7) stays
+  with `FEAT-DISCOVERY-FEEDBACK-07`, which already owns "fragment cascades". Nothing was filed
+  twice for it.
+
 ---
 
 ## 6. Reward economy

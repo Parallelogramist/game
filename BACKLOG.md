@@ -146,6 +146,21 @@ half the spec's "active" was reaching for. The pressable version is filed as
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`; do not re-derive it. It needed no storage key and no version
 bump, and it grants neither VISITED nor FOUND, so the completion percent cannot move.
 
+`FEAT-SECRET-MAP-FRAGMENT` (1150f3b) gave the secret reward table a sixth row that pays in map
+knowledge instead of loot. Recovering `secret_map_fragment` charts up to 8 sectors of a named
+biome region **elsewhere in the world** as outlines, with the edges between them, and the toast
+names the place (`Survey data: Crystal Caves charted, 8 new sectors.`). **No `fragmentRegions`
+table was added and none is wanted:** a `biomeId` IS a region, because `assignDangerAndBiomes`
+assigns one per depth band, so it is contiguous by construction and already carries a
+player-facing name, and doc 03 contract 11.2 is satisfied by the derived grant in the new pure
+`src/expedition/mapFragments.ts`. The 8-sector cap is measured, not guessed: at the live seed the
+world's 48 sectors fall into 5 regions of 5, 16, 18, 8 and 1, so an uncapped whole-region reveal
+would hand over 37% of the map from one cache. The chooser prefers a region the player is not
+standing in, skips unvisited hidden sectors, and a fully charted world falls back to a sealed
+chest so a find never pays nothing. It needed no storage key and no version bump, and nothing it
+writes grants VISITED, so the completion percent cannot move. That discharges
+`FEAT-DISCOVERY-SCAN-FRAGMENT` in full: both its rules now ship with producers.
+
 **Band 2 was the live band all along, and this item was on it.** The candidate list below used to
 omit `FEAT-POWER-VAULT-GUARD`, and band 1's note that band 2's next unblocked work lay elsewhere
 was wrong on that point: its only dep, `FEAT-POWER-VAULTS`, has been done since a2361d0.
@@ -154,15 +169,12 @@ was wrong on that point: its only dep, `FEAT-POWER-VAULTS`, has been done since 
 four paths are already wired and the fourth (`markSectorClearedOnce`) has no honest producer,
 because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director and a wave
 spawner with a leash-bounded live set never makes a sector "cleared" (the blocker is now on
-that item, so do not re-derive it). The unblocked candidates are now
-`FEAT-DISCOVERY-SCAN-FRAGMENT` (now narrowed to `revealOnMapFragment` alone, since
-`revealOnScanPulse` shipped with its producer in e36b7f6; that remaining half is still an
-inert-deliverable risk, because `fragmentRegions` appears nowhere in `src/` and no generator
-emits one, so the unblocking work is a producer rather than the rule), `CHORE-SECRET-LEAD-RADAR`,
+that item, so do not re-derive it). The unblocked candidates are now `CHORE-SECRET-LEAD-RADAR`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`,
 `BALANCE-VAULT-GUARD-SCALING` (`CHORE-VAULT-GUARD-MAP-MARK`, filed with it, is blocked on
-`FEAT-MAPUI-DOORS-05`), the newly filed `POLISH-DECRYPTOR-ACTIVE-BUTTON` and
-`BALANCE-DECRYPTOR-SCAN-RADIUS`, and
+`FEAT-MAPUI-DOORS-05`), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
+`BALANCE-DECRYPTOR-SCAN-RADIUS`, the newly filed `BALANCE-MAP-FRAGMENT-YIELD` and
+`FEAT-SECRET-MAP-FRAGMENT-CODEX`, and
 `FEAT-SECRET-LORE-CATALOG-DEPTH` (which waits on a re-rollable world seed, since the fixed
 expedition seed is what caps the fragment catalog at 13), and `FEAT-QUEST-CATALOG-DEPTH`, whose
 fourth chain head would be the first one the 3-accept cap ever actually gates but which its own
@@ -3619,18 +3631,38 @@ exploring pays is the end of Phase 5.
   capability. That notch stays unreachable until the director exists. Value: the map showing a
   cleared room. Deps: `FEAT-WORLDGEN-STREAM`. Spec: `03-discovery-map-ui.md` sections 1.4, 2.1.
 
-- [ ] **FEAT-DISCOVERY-SCAN-FRAGMENT** (narrowed 2026-07-31): **half of this shipped.**
-  `revealOnScanPulse` (a BFS over the sector graph out to a hop radius) landed in e36b7f6
-  **together with its producer**, the Signal Decryptor's on-entry sweep, so it was never inert
-  and it carries the `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD` guard, now discharged. What remains is
-  `revealOnMapFragment` alone: reveal a fragment's region as outlines, never as interiors, so
-  the reason to fly there survives. **Standing warning, still true for this half**: it is an
-  inert deliverable until something produces its input. `fragmentRegions` (contract 11.2) appears
-  nowhere in `src/` and no generator emits one, so building the rule today would ship a function
-  no caller can feed. The unblocking work is a generator that emits fragment regions and a reward
-  that hands the player a map fragment, not the rule. Value: the second way a player learns the
-  map without walking it. Deps: `FEAT-POI-CATALOG`, plus a `fragmentRegions` producer. Spec:
-  `03-discovery-map-ui.md` section 1.4, rule 5.
+- [x] **FEAT-DISCOVERY-SCAN-FRAGMENT** (done, e36b7f6 + 1150f3b): both rules ship with their
+  producers, so neither was ever inert. `revealOnScanPulse` (a BFS over the sector graph out to a
+  hop radius) landed in e36b7f6 with the Signal Decryptor's on-entry sweep, carrying the
+  `CHORE-DISCOVERY-HIDDEN-SCAN-GUARD` guard, now discharged. `revealOnMapFragment` landed in
+  1150f3b with the `secret_map_fragment` reward row that feeds it: a recovered fragment charts a
+  slice of a region as outlines, never as interiors, so the reason to fly there survives and the
+  completion percent cannot move. **The `fragmentRegions` question is settled and no table was
+  added.** A `biomeId` IS a region: `assignDangerAndBiomes` assigns one per depth band, so a
+  region is contiguous by construction and already carries a player-facing name, and contract
+  11.2 is satisfied by the derived grant in `src/expedition/mapFragments.ts`. A stored parallel
+  table would be the duplicate state `discoveryRules.ts` already refuses for the same reason
+  there is no `WorldMapIndex`. A grant is capped at `MAP_FRAGMENT_MAX_SECTORS = 8`, measured
+  rather than guessed: at the live seed the world's 48 sectors fall into 5 regions of 5, 16, 18,
+  8 and 1, so an uncapped whole-region reveal would be 37% of the map for one cache. Value: the
+  second way a player learns the map without walking it. Spec: `03-discovery-map-ui.md` section
+  1.4, rule 5.
+
+- [ ] **BALANCE-MAP-FRAGMENT-YIELD** (new 2026-07-31, from FEAT-SECRET-MAP-FRAGMENT): weight 14
+  and an 8-sector cap are a designed guess informed by one seed. Wants counting, against the real
+  generator, how many sectors a whole expedition charts for free from fragments, and how that
+  stacks with a maxed decryptor sweep, which `BALANCE-DECRYPTOR-SCAN-RADIUS` is separately
+  measuring, before the numbers move. Value: a find that pays map knowledge stays worth flying
+  for instead of charting the world from the couch. Deps: none, but it is a balance question, so
+  it wants numbers, not a guess.
+
+- [ ] **FEAT-SECRET-MAP-FRAGMENT-CODEX** (new 2026-07-31, from FEAT-SECRET-MAP-FRAGMENT): a
+  fragment currently spends itself into the chart and is never a thing the profile owns, unlike a
+  lore fragment. A Codex entry per region charted plus a lifetime counter was cut for the reason
+  `FEAT-SECRET-LORE` cut `loreFragmentsFound` at the time: the count is derivable from the
+  discovery store, and a lifetime integer with no reader is a second source of truth waiting to
+  disagree. Value: survey data becomes a collection the player can revisit rather than a toast
+  that scrolls away. Deps: none.
 
 - [x] **FEAT-BARRIER-BREACH** (done — 2dc76e1, 491c7cc, 31b17c3, 6df8acc): the expedition
   world's cracked walls stop being a lie. The generator has always carved `TileKind.Breakable`

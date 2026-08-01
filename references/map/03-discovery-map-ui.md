@@ -205,6 +205,36 @@ Rule 5, `revealOnMapFragment`, is still not built: `fragmentRegions` has no prod
 No `DISCOVERY_VERSION` bump and no new `DiscoveryChanges` field: the sweep reports through
 `sectorsDiscovered`, `edgesKnown` and `secretsHinted`, which already existed.
 
+### As built (`FEAT-SECRET-MAP-FRAGMENT`, 1150f3b, 2026-07-31)
+
+Rule 5 is built. `revealOnMapFragment(state, map, universe, grantedSectorKeys)` takes the
+`WorldMap` itself, exactly the `revealOnScanPulse` shape above, not a `WorldMapIndex`.
+
+**There is no `fragmentRegions` table and none was added.** A `biomeId` IS a region:
+`assignDangerAndBiomes` assigns one per depth band, so a region is contiguous by construction
+and already carries a player-facing name (`getStageById(biomeId).name`, which `secretHints`
+already prints in riddles). Contract 11.2 is satisfied by the derived grant in
+`src/expedition/mapFragments.ts`, not by stored state; a parallel `Record<fragmentId,
+sectorId[]>` would be exactly the duplicate state this module's header already refuses.
+
+A grant is capped at `MAP_FRAGMENT_MAX_SECTORS = 8`, and that number is measured rather than
+guessed. Against the live seed 20260727 the world's 48 sectors fall into 5 regions of 5, 16, 18,
+8 and 1, so an uncapped "reveal the whole region" would chart 37% of the map from one cache.
+
+Edges gain `KNOWN` only when **both** endpoints are in the grant, per rule 5 as written, so a
+fragment never draws a door into a room it did not chart.
+
+The hidden-sector guard is carried twice, once in the chooser and again in the rule, so a grant
+assembled anywhere else still cannot chart a concealed room. Dropping an unvisited hidden sector
+from the grant also drops every edge into it, since an edge needs both endpoints.
+
+No `DISCOVERY_VERSION` bump and no new `DiscoveryChanges` field: the reveal reports through
+`sectorsDiscovered` and `edgesKnown`, which already existed. Nothing grants `VISITED`, so the
+reason to fly there survives and `getCompletionPercent()` cannot move.
+
+`FEAT-DISCOVERY-SCAN-FRAGMENT` is fully discharged: both its rules now ship with producers, so
+neither is an inert deliverable.
+
 ---
 
 ## 2. Purity split
