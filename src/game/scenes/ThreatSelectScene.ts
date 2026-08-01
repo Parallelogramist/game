@@ -5,6 +5,8 @@ import { loadThreatBest, loadThreatLastSelected, saveThreatLastSelected } from '
 import { saveLastLoadout } from '../../meta/LastLoadout';
 import type { DirectorStrategy } from '../../systems/DirectorSystem';
 import { rollModifierChoices } from '../../data/RunModifiers';
+import { resolveMenuFontScale, scaledInt, computeMenuCardGrid, fitTextWidth } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 /**
  * Data threaded through from DirectorSelectScene; forwarded verbatim to GameScene
@@ -46,6 +48,8 @@ export class ThreatSelectScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
   private isStarting: boolean = false;
+  private menuScale: number = 1;
+  private gridScale: number = 1;
 
   constructor() {
     super({ key: 'ThreatSelectScene' });
@@ -67,63 +71,73 @@ export class ThreatSelectScene extends Phaser.Scene {
   create(): void {
     const width = this.scale.width;
     const height = this.scale.height;
+    this.menuScale = resolveMenuFontScale(width, height, getSettingsManager().getUiScale());
     this.cameras.main.setBackgroundColor('#140a0a');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
-    this.add.text(width / 2, 54, 'SET THREAT LEVEL', {
-      fontSize: '44px',
+    const title = this.add.text(width / 2, scaledInt(this.menuScale, 54), 'SET THREAT LEVEL', {
+      fontSize: `${scaledInt(this.menuScale, 44)}px`,
       color: '#ff6644',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    }).setOrigin(0.5).setLetterSpacing(3);
+      strokeThickness: 6 * this.menuScale,
+    }).setOrigin(0.5).setLetterSpacing(3 * this.menuScale);
+    fitTextWidth(title, width - 24);
 
-    this.add.text(width / 2, 100, 'Raise the stakes — tougher enemies, richer rewards.', {
-      fontSize: '17px',
+    const subtitle = this.add.text(width / 2, scaledInt(this.menuScale, 100),
+      'Raise the stakes — tougher enemies, richer rewards.', {
+      fontSize: `${scaledInt(this.menuScale, 17)}px`,
       color: '#bb9999',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
+    fitTextWidth(subtitle, width - 24);
 
     const best = loadThreatBest();
-    this.add.text(width / 2, 126, best > 0 ? `Highest cleared: THREAT ${best}` : 'Highest cleared: none yet', {
-      fontSize: '15px',
+    const bestLine = this.add.text(width / 2, scaledInt(this.menuScale, 126),
+      best > 0 ? `Highest cleared: THREAT ${best}` : 'Highest cleared: none yet', {
+      fontSize: `${scaledInt(this.menuScale, 15)}px`,
       color: '#ffcc66',
       fontFamily: 'Arial',
       fontStyle: 'bold',
     }).setOrigin(0.5);
+    fitTextWidth(bestLine, width - 24);
 
     // Threat cards in centered rows; narrow (portrait) viewports wrap the row.
     const cardWidth = 210;
     const cardHeight = 200;
-    const gap = 18;
     const count = THREAT_TIERS.length;
-    const perRow = Math.min(count, Math.max(1, Math.floor((width - 16 + gap) / (cardWidth + gap))));
-    const rowCount = Math.ceil(count / perRow);
-    const rowSpacing = cardHeight + 24;
-    const totalGridHeight = rowCount * cardHeight + (rowCount - 1) * 24;
-    // Center rows on the anchor; keep the last row clear of the BEGIN button
-    // (top edge at height - 90).
-    const firstRowY = Math.min(
-      height / 2 + 4 - totalGridHeight / 2 + cardHeight / 2,
-      height - 90 - 12 - cardHeight / 2 - (rowCount - 1) * rowSpacing,
-    );
+    const grid = computeMenuCardGrid({
+      count,
+      cardWidth,
+      cardHeight,
+      canvasWidth: width,
+      canvasHeight: height,
+      menuScale: this.menuScale,
+      headerBottom: 144,
+      anchorOffset: 4,
+    });
+    this.gridScale = grid.scale;
+    const perRow = grid.perRow;
 
     THREAT_TIERS.forEach((tier, index) => {
       const rowIndex = Math.floor(index / perRow);
       const cardsInRow = Math.min(perRow, count - rowIndex * perRow);
-      const rowWidth = cardsInRow * cardWidth + (cardsInRow - 1) * gap;
-      const cardX = (width - rowWidth) / 2 + cardWidth / 2 + (index % perRow) * (cardWidth + gap);
-      const cardY = firstRowY + rowIndex * rowSpacing;
+      const rowWidth = cardsInRow * grid.cardWidth + (cardsInRow - 1) * grid.gap;
+      const cardX = (width - rowWidth) / 2 + grid.cardWidth / 2
+        + (index % perRow) * (grid.cardWidth + grid.gap);
+      const cardY = grid.firstRowY + rowIndex * grid.rowSpacing;
       this.cards.push(this.createCard(tier, cardX, cardY, cardWidth, cardHeight, index, best));
     });
 
     // Begin button.
-    const beginButton = this.add.rectangle(width / 2, height - 64, 260, 52, 0x223322)
+    const buttonY = height - scaledInt(this.menuScale, 64);
+    const beginButton = this.add.rectangle(width / 2, buttonY,
+      scaledInt(this.menuScale, 260), scaledInt(this.menuScale, 52), 0x223322)
       .setStrokeStyle(3, 0x66ff99)
       .setInteractive({ useHandCursor: true });
-    const beginLabel = this.add.text(width / 2, height - 64, 'BEGIN RUN', {
-      fontSize: '22px',
+    const beginLabel = this.add.text(width / 2, buttonY, 'BEGIN RUN', {
+      fontSize: `${scaledInt(this.menuScale, 22)}px`,
       color: '#88ffaa',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
@@ -190,7 +204,7 @@ export class ThreatSelectScene extends Phaser.Scene {
     card.border.setVisible(selected);
     card.selectedBadge.setVisible(selected);
     card.bg.setFillStyle(selected ? 0x251818 : 0x14141f);
-    card.container.setScale(selected ? 1.04 : 1);
+    card.container.setScale(selected ? this.gridScale * 1.04 : this.gridScale);
   }
 
   private createCard(tier: ThreatTier, x: number, y: number, w: number, h: number, index: number, best: number): ThreatCard {
@@ -241,6 +255,7 @@ export class ThreatSelectScene extends Phaser.Scene {
     }).setOrigin(0.5, 1).setVisible(false);
 
     container.add([bg, border, name, description, reward, keyHint, selectedBadge]);
+    container.setScale(this.gridScale);
 
     // Chase marker: a static gold tag on the tier equal to the persisted best
     // cleared (tier 0 never shows it — clearing "normal" is not a chase rung).

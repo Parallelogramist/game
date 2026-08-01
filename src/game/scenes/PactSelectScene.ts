@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { PACTS, MAX_PACTS, Pact } from '../../data/Pacts';
 import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
+import { resolveMenuFontScale, scaledInt, computeMenuCardGrid, fitTextWidth } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 /**
  * Data threaded through from WeaponSelectScene; forwarded verbatim to GameScene
@@ -44,6 +46,8 @@ export class PactSelectScene extends Phaser.Scene {
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
   private menuNavigator: MenuNavigator | null = null;
   private isStarting: boolean = false;
+  private menuScale: number = 1;
+  private gridScale: number = 1;
 
   constructor() {
     super({ key: 'PactSelectScene' });
@@ -65,64 +69,72 @@ export class PactSelectScene extends Phaser.Scene {
   create(): void {
     const width = this.scale.width;
     const height = this.scale.height;
+    this.menuScale = resolveMenuFontScale(width, height, getSettingsManager().getUiScale());
     this.cameras.main.setBackgroundColor('#0a0a14');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
-    this.add.text(width / 2, 54, 'FORGE A PACT', {
-      fontSize: '44px',
+    const title = this.add.text(width / 2, scaledInt(this.menuScale, 54), 'FORGE A PACT', {
+      fontSize: `${scaledInt(this.menuScale, 44)}px`,
       color: '#ff5577',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    }).setOrigin(0.5).setLetterSpacing(3);
+      strokeThickness: 6 * this.menuScale,
+    }).setOrigin(0.5).setLetterSpacing(3 * this.menuScale);
+    fitTextWidth(title, width - 24);
 
-    this.add.text(width / 2, 102, `Optional — accept curses for greater rewards (up to ${MAX_PACTS}).`, {
-      fontSize: '17px',
+    const subtitle = this.add.text(width / 2, scaledInt(this.menuScale, 102),
+      `Optional — accept curses for greater rewards (up to ${MAX_PACTS}).`, {
+      fontSize: `${scaledInt(this.menuScale, 17)}px`,
       color: '#9999bb',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
+    fitTextWidth(subtitle, width - 24);
 
     // Live selection counter — makes "zero is fine" explicit and shows the
     // cap without the player having to count green borders.
-    this.counterText = this.add.text(width / 2, 132, '', {
-      fontSize: '15px',
+    this.counterText = this.add.text(width / 2, scaledInt(this.menuScale, 132), '', {
+      fontSize: `${scaledInt(this.menuScale, 15)}px`,
       color: '#66ff99',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
-    }).setOrigin(0.5).setLetterSpacing(1);
+    }).setOrigin(0.5).setLetterSpacing(1 * this.menuScale);
     this.updateCounter();
 
     // Pact cards in centered rows; narrow (portrait) viewports wrap the row.
     const cardWidth = 218;
     const cardHeight = 230;
-    const gap = 18;
-    const perRow = Math.min(PACTS.length, Math.max(1, Math.floor((width - 16 + gap) / (cardWidth + gap))));
-    const rowCount = Math.ceil(PACTS.length / perRow);
-    const rowSpacing = cardHeight + 24;
-    const totalGridHeight = rowCount * cardHeight + (rowCount - 1) * 24;
-    // Center rows on the legacy single-row anchor; keep the last row clear of
-    // the BEGIN button (top edge at height - 90).
-    const firstRowY = Math.min(
-      height / 2 - 10 - totalGridHeight / 2 + cardHeight / 2,
-      height - 90 - 12 - cardHeight / 2 - (rowCount - 1) * rowSpacing,
-    );
+    const grid = computeMenuCardGrid({
+      count: PACTS.length,
+      cardWidth,
+      cardHeight,
+      canvasWidth: width,
+      canvasHeight: height,
+      menuScale: this.menuScale,
+      headerBottom: 150,
+      anchorOffset: -10,
+    });
+    this.gridScale = grid.scale;
+    const perRow = grid.perRow;
 
     PACTS.forEach((pact, index) => {
       const rowIndex = Math.floor(index / perRow);
       const cardsInRow = Math.min(perRow, PACTS.length - rowIndex * perRow);
-      const rowWidth = cardsInRow * cardWidth + (cardsInRow - 1) * gap;
-      const cardX = (width - rowWidth) / 2 + cardWidth / 2 + (index % perRow) * (cardWidth + gap);
-      const cardY = firstRowY + rowIndex * rowSpacing;
+      const rowWidth = cardsInRow * grid.cardWidth + (cardsInRow - 1) * grid.gap;
+      const cardX = (width - rowWidth) / 2 + grid.cardWidth / 2
+        + (index % perRow) * (grid.cardWidth + grid.gap);
+      const cardY = grid.firstRowY + rowIndex * grid.rowSpacing;
       this.cards.push(this.createCard(pact, cardX, cardY, cardWidth, cardHeight, index));
     });
 
     // Begin button.
-    const beginButton = this.add.rectangle(width / 2, height - 64, 260, 52, 0x223322)
+    const buttonY = height - scaledInt(this.menuScale, 64);
+    const beginButton = this.add.rectangle(width / 2, buttonY,
+      scaledInt(this.menuScale, 260), scaledInt(this.menuScale, 52), 0x223322)
       .setStrokeStyle(3, 0x66ff99)
       .setInteractive({ useHandCursor: true });
-    const beginLabel = this.add.text(width / 2, height - 64, 'BEGIN RUN', {
-      fontSize: '22px',
+    const beginLabel = this.add.text(width / 2, buttonY, 'BEGIN RUN', {
+      fontSize: `${scaledInt(this.menuScale, 22)}px`,
       color: '#88ffaa',
       fontFamily: '"Atkinson Hyperlegible", Arial, sans-serif',
       fontStyle: 'bold',
@@ -184,7 +196,7 @@ export class PactSelectScene extends Phaser.Scene {
     card.border.setVisible(selected);
     card.selectedBadge.setVisible(selected);
     card.bg.setFillStyle(selected ? 0x18251c : 0x14141f);
-    card.container.setScale(selected ? 1.04 : 1);
+    card.container.setScale(selected ? this.gridScale * 1.04 : this.gridScale);
   }
 
   private updateCounter(): void {
@@ -255,6 +267,7 @@ export class PactSelectScene extends Phaser.Scene {
     }).setOrigin(0.5, 1).setVisible(false);
 
     container.add([bg, border, name, downside, reward, keyHint, selectedBadge]);
+    container.setScale(this.gridScale);
 
     bg.setInteractive({ useHandCursor: true });
     // Hover-follows-mouse only: on touch, a tap fires pointerover with no
