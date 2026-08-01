@@ -291,7 +291,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   unused and went with it. One new test file, `src/weapons/weaponTargeting.test.ts` (12 tests),
   pins the probe cap, the arena short-circuit, the dead-enemy skip and the exclude set. Files
   `POLISH-TARGETING-LOS` for the playtest half.
-- [ ] **BUG-CRIT-SHIMMER-STUTTER**. Value: frame hitches during crit-heavy fights,
+- [x] **BUG-CRIT-SHIMMER-STUTTER** (done, 3437fe8). Value: frame hitches during crit-heavy fights,
   worst on mobile. `src/effects/EffectsManager.ts:488`: the perfect-crit shimmer calls
   `text.setColor(...)` every frame for up to 3s per damage number, and Phaser's
   `TextStyle.setColor` re-rasterizes the canvas and re-uploads the texture
@@ -299,6 +299,30 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   step the shimmer palette at 10Hz, or pre-render the ~8 shimmer tints as pooled Text
   objects (or tint a sprite). Done: zero per-frame setColor in the shimmer path,
   shimmer still visibly animates.
+  **What shipped:** the shimmer no longer touches the text's style at all on WebGL. Phaser's
+  `TextStyle.setColor` is `this.color = color; return this.update(false)`, and that `update`
+  ends in `parent.updateText()`, a full canvas re-rasterize plus `texture.refresh()`, with no
+  early-out on an unchanged colour. The perfect-crit palette index changes about every 3ms
+  (the phase completes a cycle every 200ms and sweeps the 32 entries twice per cycle), so at
+  60fps it changed every frame and each concurrent perfect crit cost one texture upload per
+  frame for its full 3 second life. **The item's first suggestion, stepping the palette at
+  10Hz, was measured against that number and rejected:** sampling a 5Hz pulse at 10Hz reads as
+  a two-colour flicker, not a shimmer, and de-duplicating the index would have saved nothing
+  because the index genuinely changes every frame. What shipped instead is `setTint`, which
+  `Text` supports through `Components.Tint` and which `TextWebGLRenderer` feeds straight into
+  `batchTexture`: four integer field writes per frame and zero texture work. The pool's base
+  fill becomes `#ffffff` so the multiply reproduces the exact gold, the 32-entry palette
+  became numeric (`SHIMMER_TINTS`), and all four colour sites (the three tiers in
+  `showDamageNumber` plus the shimmer step) now share one `applyDamageNumberColor` helper.
+  **Kept on purpose:** the canvas renderer ignores Text tint entirely (`TextCanvasRenderer` is
+  a bare `batchSprite`), and `GameConfig.ts` is `Phaser.AUTO`, so a canvas fallback keeps the
+  old `setColor` path and the old `#e8ecf4` pool fill. Tinting unconditionally would have
+  rendered every damage number pure white there. The canvas path is therefore no faster than
+  before and no slower; the WebGL path, which is what every browser that can run this game
+  selects, is where the hitch is gone. **Not touched:** the three `setStroke('#050810', 2)`
+  calls per show look like the same defect but early-out inside `TextStyle.setStroke`, since
+  the pool is already built with that exact stroke. **Not verified in a browser:** files
+  `POLISH-CRIT-SHIMMER`.
 - [ ] **BUG-KNOCKBACK-DEAD-PLAYER**. Value: latent dead code found by the wall audit:
   `GameScene.ts:4431-4432` and `:13056-13057` write player knockback, but
   `knockbackEnemyQuery` requires `EnemyTag` (`GameScene.ts:293`), so player knockback
@@ -9256,6 +9280,20 @@ Never agent work. The fleet must not do any of these.
     broken, and should a sentry reposition rather than sweep? (d) **missiles**: a launch with
     no visible target is skipped entirely, so a volley can come out short. Better than flying
     into a wall, or worse than it?
+  - **POLISH-CRIT-SHIMMER** (new 2026-08-01, BUG-CRIT-SHIMMER-STUTTER): the perfect-crit
+    shimmer switched from `setColor` (which re-rasterizes the text canvas every frame) to
+    `setTint` (which the WebGL batcher applies for free), and no frame of it was seen in a
+    browser. Needs a human in `?expedition=1` landing perfect crits to judge (a) **the
+    colour**: tint multiplies against a white fill, so the gold should be the same gold as
+    before. Confirm the numbers still read gold rather than washed out or bleached white.
+    (b) **the stroke**: the dark `#050810` outline is now multiplied by the shimmer tint too,
+    so it should stay near-black at every step. Confirm it never flickers or disappears
+    against a bright background. (c) **the hitch itself**: the bug was frame hitches during
+    crit-heavy fights, worst on mobile. Confirm a dense fight with several perfect crits
+    alive at once no longer stutters, ideally on a phone. (d) **the other two tiers**: normal
+    and regular-crit numbers are tinted now as well, so weapon-coloured damage numbers should
+    still match their weapon exactly. Nothing here is a knob: the palette maths is unchanged
+    and every verdict is a one-line change in `EffectsManager`.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
