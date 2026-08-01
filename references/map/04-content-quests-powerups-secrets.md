@@ -68,9 +68,14 @@ departs from the model above:
   fill, and a slot kind the catalog does not cover simply stays unspawned.
 - **Live kinds:** `poi_treasure_chest`, `poi_crate_field`, `poi_field_boost_cache` and
   `poi_black_market` (once per world per run, weight 0 in the shallow band) on `Treasure`
-  slots; four shrine archetypes on `Shrine` slots. `poi_ambush_nest` and `poi_nemesis_lair`
-  are not built and are filed as `FEAT-POI-AMBUSH-NEST`. `Secret` and `QuestGiver` slots stay
-  inert for `FEAT-SECRET-CACHE` and `FEAT-QUEST-CHAINS`, which own their persistent state.
+  slots; four shrine archetypes on `Shrine` slots. `poi_ambush_nest` is live too, at weight 15
+  (x0.5 in the shallow band, x1.4 at depth 6): a dormant hive that trips at 150 px and stands a
+  6-body wave up to depth 2 or a 9-body wave from depth 3 in a ring around itself, and bursts
+  into a guaranteed special chest when the last of that wave falls. Its wave is leash-exempt and
+  is never serialized, and the nest itself round-trips as `{x, y, depth}` in `poiState.nests`,
+  restored dormant. `poi_nemesis_lair` is not built and is filed as `FEAT-POI-NEMESIS-LAIR`.
+  `Secret` and `QuestGiver` slots stay inert for `FEAT-SECRET-CACHE` and `FEAT-QUEST-CHAINS`,
+  which own their persistent state.
 - **One catalog entry per shrine archetype** (`poi_shrine_cleanse` / `_power` / `_fortune` /
   `_sacrifice`) instead of one `poi_shrine` carrying a `shrineType` string: `GameScene`'s
   switch then maps each id to a `ShrineType` literal the compiler checks, so a typo is a red
@@ -79,9 +84,9 @@ departs from the model above:
   they otherwise reuse verbatim. This is a world-sized map, not a screen: the despawn would
   delete a placed reward the player is still flying toward, and the drone would drag every
   cache in the world at the player through walls.
-- **No icon field**, so the catalog is deliberately absent from
-  `referentialIntegrity.test.ts`: nothing renders a POI icon and no spawn fires a toast, so an
-  icon key would be data with no consumer.
+- **No icon field**, because nothing renders a POI icon: an icon key would be data with no
+  consumer. `referentialIntegrity.test.ts` reaches the catalog only for `AMBUSH_NEST_WAVES`,
+  whose bare string enemy ids do have a consumer and would otherwise fail silently.
 - **Determinism key is `poi:<worldSeed>:<runSalt>:<slotId>`**, seeded per slot rather than per
   sector so a half-stocked sector rolls identical contents for its remaining slots after a
   refresh. The run's salt, its spawned-slot set and the once-per-run flag persist as the

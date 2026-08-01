@@ -294,15 +294,44 @@ half of `CHORE-SECRET-LEAD-RADAR`, whose ticker half is now `CHORE-SECRET-LEAD-T
 storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights
 it up the moment the build lands.
 
+**`a523eca` made a deep room able to go wrong.** Every `Treasure` slot in the world paid out and
+nothing else, so flying into a far room was pure upside and the map carried a reward axis with no
+risk axis under it. `poi_ambush_nest` now rolls those slots at weight 15, scaled to 0.5 in the
+shallow band and 1.4 at depth 6, as a dormant hive drawn in hazard orange at 55% alpha. It is
+visible from across the room on purpose, so engaging is the player's decision and not the room's
+trap, which is the same legibility rule a `GUARDED` vault core obeys. Nose inside 150 px and it
+wakes: six bodies up to depth 2 (`swarm` x4, `zigzag` x2), nine from depth 3 (`swarm` x4,
+`charger` x2, `lurker` x2, `shielded` x1), standing up in a 130 px ring, over a boss-warning
+sting and a `NEST DISTURBED` toast. Kill the last of the wave and the hive bursts into a
+**guaranteed special chest**, which is the risk premium: a plain chest already rolls the same
+slot at weight 30, so a nest paying the same thing would be strictly worse than what it replaced.
+**Three deliberate divergences from the vault guard it otherwise mirrors**: no forced elite affix
+(a nest is a swarm the player may also outrun, and nine TITAN bodies in an optional room would
+beat the placed encounter), no boss health bars (nine would be five bars too many), and the wave
+is **leash-exempt** via a new `AmbushSpawnTag`, so fleeing leaves the fight in the room it belongs
+to instead of dragging the whole wave onto the spawn ring beside the ship. A nest is world-space
+and run-scoped like a chest rather than rebuilt per sector like a vault, because it carries no
+per-profile state and leaving must not reset a fight the player half-won. The reload rule: the
+wave is skipped by the serializer on the `VaultGuardTag` precedent and each nest round-trips as
+`{x, y, depth}` in the optional `poiState.nests`, restored **dormant**, so a refresh mid-fight
+re-arms the ambush rather than leaving an unclearable hive or paying its chest twice. No storage
+key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights it up the
+moment the build lands. `poi_nemesis_lair`, the other doc 04 row, is **not** here and is filed as
+`FEAT-POI-NEMESIS-LAIR`: it needs a `NemesisManager` timer re-route, a catalog weight conditional
+on live meta state that the pure `rollPoiContents` cannot express, and its own persistence answer
+for a cross-run entity.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
 `POLISH-MAP-DETAIL-BAR-PORTRAIT`, `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`,
-`FEAT-QUEST-REACHSECTOR-DISTINCT`, plus the newly filed `POLISH-RADAR-WAYPOINT-LABEL` and
-`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`. `FEAT-ECON-WARDS` stays parked on its operator balance
-decision: do not unpark it.
+`FEAT-QUEST-REACHSECTOR-DISTINCT`, `POLISH-RADAR-WAYPOINT-LABEL`,
+`CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, plus the newly filed `FEAT-POI-NEMESIS-LAIR` (a second
+chunk, not a second `case`) and `CHORE-AMBUSH-NEST-RADAR`. `FEAT-ECON-WARDS` stays parked on its
+operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
+for the same reason the rest of the POI table is.
 
 ## Proposed (auto)
 
@@ -2874,14 +2903,68 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   7. Suite: 141 files / 1739 tests before, 142 / 1745 after.
   Deps: none. Spec: `04-content-quests-powerups-secrets.md` sections 1 and 10.
 
-- [ ] **FEAT-POI-AMBUSH-NEST**: the two rolled POI kinds doc 04 section 1 lists that
-  `FEAT-POI-CATALOG` did not build. `poi_ambush_nest` is a trigger volume that runs a scripted
-  wave on the EVENT_POOL pattern and pays a guaranteed special chest; `poi_nemesis_lair`
-  anchors `NemesisManager`'s hunter to a lair sector instead of its 120s timer when in
-  expedition mode, paying a special chest on the kill. Value: the map's rewards currently never
-  fight back, so a deep room is pure upside; a nest is the risk half of the risk/reward. Both
-  are two more `POI_CONTENTS` entries plus one `spawnPoiContent` case each. Deps:
-  `FEAT-POI-CATALOG` (done). Spec: doc 04 section 1 rows 4 and 7.
+- [x] **FEAT-POI-AMBUSH-NEST** (done, a523eca): the map's rewards started fighting back. Doc 04
+  section 1 row 4 is live; row 7 is not, and is filed below rather than folded in.
+  1. **What shipped**: a dormant hive on `PoiKind.Treasure` slots at weight 15 (x0.5 in the
+     shallow band, x1.4 at depth 6), drawn in `WORLD_GEOMETRY_COLORS.hazard.stroke` at 55% alpha
+     with a slow pulse and tripped at 150 px. Waking stands a 6-body wave (`swarm` x4,
+     `zigzag` x2) up to depth 2 and a 9-body wave (`swarm` x4, `charger` x2, `lurker` x2,
+     `shielded` x1) from depth 3 in a 130 px ring, with a burst, a shake, a boss-warning sting
+     and a `NEST DISTURBED` toast. Clearing the last of the wave bursts the hive into a
+     **guaranteed special chest** via `addTreasureChest(x, y, true, true)`. The guaranteed 3x is
+     the risk premium and not a bonus: a plain chest already rolls this slot at weight 30, so a
+     nest paying the same roll would be strictly worse than the thing it replaced.
+  2. **Three deliberate divergences from `spawnVaultGuards`**, which it otherwise mirrors:
+     **no forced elite affix** (a vault guard is a wall the player must beat, a nest is a swarm
+     they may also outrun, and nine TITAN bodies would make the optional room harder than the
+     placed one), **no boss health bars** (nine of them is five bars too many on one screen), and
+     the wave is **leash-exempt** through the new `AmbushSpawnTag`. Without that exemption
+     `applyEnemyLeash` repositions every non-boss enemy past 1600 px onto the spawn ring beside
+     the player, so fleeing a woken nest would drag its whole wave into unrelated sectors.
+  3. **Run-scoped and world-space, never rebuilt per sector.** Chests and shrines behave this
+     way; vaults and secret caches do not, because they are rebuilt from per-profile flags. A
+     nest has no per-profile state at all, so leaving the room must not reset a fight the player
+     half-won. The reload rule follows from that: wave entities are skipped by `serializeEntities`
+     on the `VaultGuardTag` precedent, and each nest round-trips as `{x, y, depth}` in the
+     existing optional `poiState` block, restored **dormant**. A refresh mid-fight therefore
+     re-arms the ambush rather than leaving an unclearable hive or paying its chest twice.
+  4. **Persists nothing new**: no storage key, no `SAVE_VERSION` bump (an optional field absent
+     on a legacy save restores nothing, the rule `chestState` already carries) and no
+     `WORLDGEN_VERSION` bump (a nest fills a slot the generator has placed since
+     `FEAT-WORLDGEN-CORE`, so nothing about the world changes).
+  5. **Tests: exactly one**, an `AMBUSH_NEST_WAVES` resolution check appended to the existing
+     `referentialIntegrity.test.ts` block that already covers `VAULT_GUARD_PACKS`. The wave table
+     holds bare string enemy ids, so a typo would produce a nest that wakes, spawns nothing and
+     silently pays its chest for free. Suite: 153 files / 1848 tests before, 153 / 1849 after. No
+     GameScene test: the wiring needs a live Phaser scene.
+  6. **The scoped-out half**: `poi_nemesis_lair` (doc 04 row 7) is `FEAT-POI-NEMESIS-LAIR` below,
+     with its reason, so nobody re-derives why one of the two rows shipped alone.
+  Deps: `FEAT-POI-CATALOG` (done). Spec: doc 04 section 1 row 4.
+
+- [ ] **FEAT-POI-NEMESIS-LAIR** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST): doc 04 section 1
+  row 7, the other half of the original item. The nemesis anchored to a lair sector instead of
+  its 120s timer when in expedition mode, paying a guaranteed special chest on the kill. Cut
+  because it needs three things the nest did not: a re-route of `NemesisManager`'s timer path for
+  expedition mode, a catalog weight conditional on live meta state (`rollPoiContents` is pure and
+  takes no meta input today, so "only if the manager holds a killer" cannot be expressed in
+  `POI_CONTENTS`), and a persistence answer for a cross-run entity that the run save already
+  tracks through `NemesisTag`. Value: the one enemy with a grudge gets a place to wait instead of
+  a countdown. Deps: none, but it is a second chunk, not a second `case`.
+
+- [ ] **BALANCE-AMBUSH-NEST-WAVES** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST): weight 15, the
+  two pack sizes, the 0.5/1.4 band scales and the 150 px trip radius are a designed guess informed
+  by no playtest and no count of what a full world now pays. Wants the same treatment
+  `BALANCE-POI-DENSITY` is waiting to give the rest of the table: numbers run against the real
+  generator, and against `computeExpeditionGoldBudget`, before any of them move. Value: the risk
+  room stays worth taking instead of becoming the room you learn to skip. Deps: `FEAT-ECON-WARDS`
+  (it is the risk half of the same econ question).
+
+- [ ] **CHORE-AMBUSH-NEST-RADAR** (new 2026-08-01, from FEAT-POI-AMBUSH-NEST): a dormant nest is a
+  world-space graphic and nothing else, so it never appears on the radar or on the chart's sector
+  readout; the room only announces itself once it is already on screen. The shipped
+  `sectorDetail` / `poiGlyphs` layer already names what a room holds and the radar already carries
+  waypoints and the secret shimmer, so a hazard contact is the natural home for it. Value: the
+  choice to take the fight can be made from the chart rather than from the doorway. Deps: none.
 
 - [ ] **BALANCE-POI-DENSITY**: measure what a full world actually pays now. `placePoiSlots`
   puts 1-3 random-kind slots in every one of ~48 sectors, so roughly half land on
