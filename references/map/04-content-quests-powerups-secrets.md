@@ -555,6 +555,45 @@ arena, daily, gauntlet and practice runs stay out. The chain (`quest_secret_01` 
 `quest_secret_02`) grants no quest key: a third key would seal a third region on every seed,
 which is `FEAT-QUESTDOOR-CATALOG-DEPTH`.
 
+### As built (`FEAT-QUEST-REACHSECTOR`, 0be97f5, 2026-08-01)
+
+`reachSector` shipped, the sixth trigger kind and the first that names somewhere to be rather
+than something to do. Seven departures from the shape above.
+
+1. **`sectorTag` is a closed union, not a bare `string`.**
+   `` 'boss-arena' | `biome:${string}` `` in `src/world/sectorTags.ts`, and it **is** the
+   vocabulary README section 3.1 reserved and doc 02 never shipped. `sectorMatchesTag` is a
+   predicate over a `SectorDef`, never a lookup from tag to key, so README's "semantic labels,
+   never identity" rule holds: a tag describes a sector, it does not name one.
+2. **POI-derived tags are deliberately absent.** A tag only works as a destination if the chart
+   may admit it before the ship has been in the room, and `revealOnSectorEntry` sets
+   `PoiFlags.SEEN` on a slot only on entry. A vault, altar or cache tag would therefore light
+   its pin at the exact moment the step it belongs to completes, and a hidden sector is off the
+   chart until it is broken into. `isBossArena` and `biomeId` are the two facts
+   `buildSectorDetail` already reads out for any charted sector, so pinning them leaks nothing
+   the readout does not already say.
+3. **`getActiveQuestMarkers()` shipped exactly as section 4's Surfacing bullet 2 names it**,
+   returning `{ questId, label, icon, sectorTag }` per active quest whose CURRENT step names a
+   place. `questId` was added because the objectives panel joins markers to step views on it,
+   and `label` is the quest name.
+4. **The pin is resolved by `src/expedition/questPins.ts` to the nearest CHARTED match, one per
+   objective.** Measured across 41 seeds including the live `20260727`: an altar sits in 13 to
+   26 of 48 sectors and a biome region is 1 to 20, so pinning every match is noise rather than
+   a plan. Nearest is Chebyshev, the metric `MapScene.leadDistance` already uses, so leads and
+   pins order by the same idea of near. An uncharted destination resolves to null (rendered as
+   `NOT YET CHARTED`) rather than to its real key.
+5. **The fold is +1 per entry with no visited-set**, so every `reachSector` target is 1 and
+   `referentialIntegrity.test.ts` asserts it: any higher target could be met by bouncing in and
+   out of one room. The multi-destination version is filed as
+   `FEAT-QUEST-REACHSECTOR-DISTINCT`.
+6. **Two steps were appended to existing quests rather than a fourth chain head added.** A
+   fourth head is `FEAT-QUEST-CATALOG-DEPTH`, which sits behind the parked `FEAT-ECON-WARDS`
+   decision, and an append is the only save-safe catalog edit: `sanitizeStates` keeps a
+   `complete` state complete and clamps its index, while an insert or a reorder would replay
+   steps a profile already finished.
+7. **`surviveInSector`, `escortDrone` and `deliverItem` are still absent with no producer, and
+   `routeTag` is still unshipped.** `FEAT-QUEST-TRIGGERS-REST` stays open for those.
+
 ---
 
 ## 5. Secrets

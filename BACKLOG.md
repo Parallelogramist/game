@@ -265,13 +265,29 @@ arrows stay the pan, so the cursor rides hover, tap and the D-pad, and the keybo
 as `FEAT-MAPUI-CURSOR-KEYBOARD`. No storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump,
 so every existing profile lights this up the moment the build lands.
 
+**`0be97f5` made an objective name a place.** `reachSector` is the sixth trigger kind and the
+first that names somewhere to be rather than something to do, which is what the chart needed
+before it could pin anything. The vocabulary is `src/world/sectorTags.ts`'s `'boss-arena'` plus
+`` `biome:<stageId>` ``, and POI-derived tags are deliberately absent because `PoiFlags.SEEN`
+lands only on sector entry: a vault or altar pin would appear at the exact moment the step it
+belongs to completes (settled, do not re-derive). One pin per objective, the nearest CHARTED
+sector carrying the tag, because an altar sits in 13 to 26 of 48 sectors and a biome region is 1
+to 20, measured across 41 seeds, so pinning every match is noise rather than a plan. Two steps
+were appended, `q_survey_03.s3` (`biome:stage_ion_field`, depth 6 to 7 on every seed measured)
+and `q_gatecrash_02.s2` (`boss-arena`, exactly one sector on all 41 seeds measured); appends
+only, never inserts, because `sanitizeStates` keeps a completed quest complete and clamps its
+index. This **closes `FEAT-MAPUI-DOORS-05`** on its last remaining criterion and **unblocks
+`FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`** outright. No storage key, no `SAVE_VERSION` and no
+`WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-RADAR`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
-`BALANCE-BREACH-CHARGE-FUSE`, plus the newly filed `FEAT-MAPUI-CURSOR-KEYBOARD` and
-`POLISH-MAP-DETAIL-BAR-PORTRAIT`. `FEAT-ECON-WARDS` stays parked on its operator balance decision:
-do not unpark it.
+`BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
+`POLISH-MAP-DETAIL-BAR-PORTRAIT`, the now-unblocked `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`, plus
+the newly filed `FEAT-QUEST-REACHSECTOR-DISTINCT` and `FEAT-MAPUI-OBJECTIVE-PIN-RADAR`.
+`FEAT-ECON-WARDS` stays parked on its operator balance decision: do not unpark it.
 
 ## Proposed (auto)
 
@@ -4035,7 +4051,7 @@ exploring pays is the end of Phase 5.
   eat mis-taps mid-combat, and it would need a `JoystickManager` exclusion of its own.
   Browser check filed under **POLISH-MAP-ACCESS** in the playtest queue.
 
-- [ ] **FEAT-MAPUI-DOORS-05**: the map stops being a floor plan and becomes a plan: every
+- [x] **FEAT-MAPUI-DOORS-05** (done, 0be97f5): the map stops being a floor plan and becomes a plan: every
   closed door advertises what it wants. Gate shape glyphs plus a lock ring (never color alone),
   focused-sector tooltip naming the requirement or `mechanism unknown`, legend, objective pins,
   dimmed collected POIs. Deps: `FEAT-MAPUI-MAPSCENE-04`, gate types from `FEAT-BARRIER-GATES`.
@@ -4058,10 +4074,14 @@ exploring pays is the end of Phase 5.
   (`drawNewRouteRing`) and its `NEW ROUTES ONLINE` toast shipped with
   `FEAT-DISCOVERY-FEEDBACK-07` (05b2c48), and the "what remains" line predates that commit. Do
   not re-derive this.
-  **What actually remains is objective pins alone**, and they stay blocked: none of the five
-  shipped quest triggers (`kill`, `reachDepth`, `openGate`, `claimAbility`, `findSecret`) names
-  a sector to pin to, which is `FEAT-QUEST-TRIGGERS-REST`. So `FEAT-QUEST-BOARD`'s map-marker
-  half is still gated, on pins rather than on the whole layer.
+  **Objective pins shipped with 0be97f5 and this item is closed.** A pin is the nearest
+  CHARTED sector carrying the active step's `sectorTag`, drawn as a rose wedge at the cell's
+  top edge, with a legend row and an `An objective points here` line in the focused-sector
+  readout. The vocabulary is `src/world/sectorTags.ts`'s `'boss-arena'` plus
+  `` `biome:<stageId>` ``; POI-derived tags are deliberately absent because `PoiFlags.SEEN` is
+  only set on entry, so a vault pin would appear at the exact moment the step it belongs to
+  completes. `FEAT-QUEST-BOARD`'s map-marker half is no longer blocked on this layer, only on
+  `FEAT-QUEST-CATALOG-DEPTH` for its accept UI.
   **One deliberate deviation from doc 03 rule 3**: `mechanism unknown` tracks whether the
   requirement resolves to a definition, not whether a codex surface has SEEN it. The shipped
   in-world `SEALED DOOR` toast (`GameScene.reportSealedDoor`) already names the ability the
@@ -4422,11 +4442,10 @@ exploring pays is the end of Phase 5.
 
 - [ ] **FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE** (new 2026-07-31, from `FEAT-DISCOVERY-FEEDBACK-07`):
   doc 03 section 7 moment 5's `UPDATED` badge on an objective pin, held in the run overlay until
-  the pin is viewed so the map never nags twice. There are no objective pins to badge yet
-  (`FEAT-MAPUI-DOORS-05` owns them) and none of the shipped quest triggers names a sector to pin
-  to (`FEAT-QUEST-TRIGGERS-REST`), so a badge now would decorate nothing. Value: the map says
-  which objective moved while you were flying. Deps: `FEAT-MAPUI-DOORS-05`,
-  `FEAT-QUEST-TRIGGERS-REST`.
+  the pin is viewed so the map never nags twice. Both deps are now met: objective pins ship
+  with 0be97f5 and `reachSector` names a sector, so the badge has something to decorate. Value:
+  the map says which objective moved while you were flying.
+  Deps: none (both met by 0be97f5).
 
 #### The post-promote content plan: quests + lots of hidden rewards (refined 2026-07-31)
 
@@ -4509,11 +4528,12 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
         are `FEAT-QUEST-BOARD` by name, so `QuestGiver` POI slots stay inert and quests
         auto-activate instead of being accepted.
 
-- [ ] **FEAT-QUEST-TRIGGERS-REST**: the three doc 04 trigger kinds still without a producer
-  (`surviveInSector`, `escortDrone`, `deliverItem`), plus the `sectorTag` / `routeTag`
-  vocabulary a `reachSector` trigger would need, exported from the generator so quest and
-  riddle referential integrity can assert against it. `findSecret` is no longer one of them: it
-  shipped with `FEAT-QUEST-SECRET-CHAIN` (6e72c65) as
+- [ ] **FEAT-QUEST-TRIGGERS-REST**: the **three** doc 04 trigger kinds still without a producer
+  (`surviveInSector`, `escortDrone`, `deliverItem`), plus `routeTag`, which only `escortDrone`
+  needs. `reachSector` and the `sectorTag` vocabulary shipped with 0be97f5:
+  `src/world/sectorTags.ts` exports it from `src/world/` as this entry asked, and
+  `referentialIntegrity.test.ts` asserts every biome tag resolves to a real stage. `findSecret`
+  left this list earlier: it shipped with `FEAT-QUEST-SECRET-CHAIN` (6e72c65) as
   `{ kind: 'findSecret'; secretKind?: SecretTier }`. Deps: `FEAT-WORLDGEN-STREAM`
   (persistence-exemption API for delivered items). Spec: doc 04 section 4 + README section 3.1.
 
@@ -4834,6 +4854,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   map, and a sector with four doors carrying long requirement names can wrap the HOLDS row
   past the plate. Value: the readout stays inside its plate on a phone. Deps: none. Wants a
   browser check, so it pairs with POLISH-MAP-ACCESS in the playtest queue.
+
+- [ ] **FEAT-QUEST-REACHSECTOR-DISTINCT** (new 2026-08-01, from FEAT-QUEST-REACHSECTOR):
+  `foldEvent` adds 1 per sector entry with no visited-set, so every `reachSector` target must
+  be 1 (`referentialIntegrity.test.ts` asserts it) and a step like "chart three regions" is
+  unauthorable: it would be satisfiable by bouncing in and out of one room. Wants a per-step
+  visited set, which is new persisted state in the quest save. Value: multi-destination
+  objectives, the shape doc 04's `surviveInSector` and `escortDrone` also want. Deps: none.
+
+- [ ] **FEAT-MAPUI-OBJECTIVE-PIN-RADAR** (new 2026-08-01, from FEAT-QUEST-REACHSECTOR): the pin
+  is on the world map only. The in-flight radar (`MinimapManager`) draws doors and the secret
+  shimmer but nothing for an objective, so a player flying toward a pinned sector loses it the
+  moment the chart closes. Value: the objective stays visible while you are actually flying to
+  it. Deps: none. Pairs with `CHORE-SECRET-LEAD-RADAR`, which wants the same treatment for
+  leads.
 
 - [x] **FEAT-SECRET-LORE-CODEX** (done, 173c7f3): the profile-wide collection half of hint tier
   2. A fragment's flavour line used to be readable in exactly one place, `MapScene`'s LEADS
