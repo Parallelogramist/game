@@ -161,6 +161,26 @@ chest so a find never pays nothing. It needed no storage key and no version bump
 writes grants VISITED, so the completion percent cannot move. That discharges
 `FEAT-DISCOVERY-SCAN-FRAGMENT` in full: both its rules now ship with producers.
 
+`FEAT-MAPUI-POI-ICONS` (12e1779) made the chart name what each room still holds. Nine sessions
+put hidden rewards on the Metroid map and the map itself drew none of them; now every charted
+sector draws its ability vault, its cache, its altar and every secret already found, so a reward
+is located instead of re-swept. New pure `src/expedition/poiGlyphs.ts` in the `gateGlyphs.ts`
+shape (shape carries the meaning, colour groups the family) with a closed-union coverage test,
+vector glyphs rather than the icon atlas doc 03 section 4.4 names (the map is one `Graphics`
+cleared on every pan, so atlas sprites would create and destroy a GameObject per slot per
+redraw), and a legend generated from `POI_GLYPHS` plus `GATE_GLYPHS` at runtime so the vocabulary
+cannot drift from what the renderer draws. **`PoiKind.QuestGiver` deliberately draws nothing**:
+nothing spawns at a quest-anchor slot yet, so an icon would point at empty floor, and that slot
+belongs to `FEAT-QUEST-BOARD`, which lights it up. No separate item was filed for it; do not file
+one. **The leak guard is the one correctness invariant**: a `Secret` slot draws only at
+`SecretFlags.FOUND`, never on `PoiFlags.SEEN`, because a Secret slot's id lives in
+`state.secrets` and drawing on SEEN would leak every unfound cache position onto the chart.
+`CHORE-VAULT-GUARD-MAP-MARK`'s chart half is discharged here: an uncleared vault carries a
+hazard-orange ring, the colour its core reads `GUARDED` in. This **advances but does not finish**
+`FEAT-MAPUI-DOORS-05`: the focused-sector cursor and tooltip, objective pins and section 4.5 rule
+4's newly-passable ring all remain. It needed no storage key, no version bump and no new
+discovery writer, so every existing profile lights up the moment the build lands.
+
 **Band 2 was the live band all along, and this item was on it.** The candidate list below used to
 omit `FEAT-POWER-VAULT-GUARD`, and band 1's note that band 2's next unblocked work lay elsewhere
 was wrong on that point: its only dep, `FEAT-POWER-VAULTS`, has been done since a2361d0.
@@ -171,8 +191,9 @@ because `FEAT-WORLDGEN-SPAWN` deliberately skipped the sector-scoped director an
 spawner with a leash-bounded live set never makes a sector "cleared" (the blocker is now on
 that item, so do not re-derive it). The unblocked candidates are now `CHORE-SECRET-LEAD-RADAR`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`,
-`BALANCE-VAULT-GUARD-SCALING` (`CHORE-VAULT-GUARD-MAP-MARK`, filed with it, is blocked on
-`FEAT-MAPUI-DOORS-05`), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
+`BALANCE-VAULT-GUARD-SCALING` (`CHORE-VAULT-GUARD-MAP-MARK`, filed with it, has had its chart
+half discharged by `FEAT-MAPUI-POI-ICONS` and now waits on `FEAT-DISCOVERY-FEEDBACK-07` for the
+radar half), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
 `BALANCE-DECRYPTOR-SCAN-RADIUS`, the newly filed `BALANCE-MAP-FRAGMENT-YIELD` and
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, and
 `FEAT-SECRET-LORE-CATALOG-DEPTH` (which waits on a re-rollable world seed, since the fixed
@@ -3948,14 +3969,33 @@ exploring pays is the end of Phase 5.
   dimmed collected POIs. Deps: `FEAT-MAPUI-MAPSCENE-04`, gate types from `FEAT-BARRIER-GATES`.
   **Two criteria are already met by FEAT-BARRIER-DOOR-READOUT (49a71a8)**: the shape glyph is
   drawn for every KNOWN gated border, and the lock ring is drawn for every gated door whose
-  requirement the profile does not hold (no ring once it does). What remains here is the
-  focused-sector **cursor and tooltip** (which is why `FEAT-MAPUI-CURSOR-HITTEST` is still
-  open and still lands with this item), the **legend side panel** (only a one-line footer hint
-  exists), **POI icons**, **secret badges**, **objective pins** and **dimmed collected POIs**.
-  The requirement *name* is currently learned at the door in world, not on the map.
+  requirement the profile does not hold (no ring once it does).
   **The secret-badge criterion is now partly met by `FEAT-SECRET-LORE` (885d3bb)**: a secret
-  that is hinted and not yet found badges its sector in the breakable amber. What remains of
-  that criterion is found/collected POI icons and the dimming.
+  that is hinted and not yet found badges its sector in the breakable amber.
+  **Four more criteria shipped with `FEAT-MAPUI-POI-ICONS` (12e1779)**: POI icons (ability
+  vault, cache, altar) at each slot's real tile centre on every SEEN slot, the found-secret
+  icon (FOUND only, so an unfound cache position never leaks onto the chart), dimmed collected
+  POIs at 40% alpha with a green check, and the **legend side panel**, which is generated from
+  `POI_GLYPHS` plus `GATE_GLYPHS` so it cannot drift from the renderer. `PoiKind.QuestGiver`
+  draws nothing on purpose and belongs to `FEAT-QUEST-BOARD`; do not file it here.
+  What remains here is the focused-sector **cursor and tooltip** (which is why
+  `FEAT-MAPUI-CURSOR-HITTEST` is still open and still lands with this item), **objective pins**,
+  and doc 03 section 4.5 rule 4's **newly-passable ring** plus its toast. The requirement *name*
+  is still learned at the door in world, not on the map: the legend rows carry generic kind
+  labels, and naming this world's requirement is filed as `FEAT-MAPUI-LEGEND-REQUIREMENTS`.
+
+- [ ] **FEAT-MAPUI-LEGEND-TOGGLE** (new 2026-07-31, from `FEAT-MAPUI-POI-ICONS`): the legend
+  panel is always visible, because a toggle needs a keyboard key, a gamepad button and a touch
+  target, which is three input paths for 196 px of chart. Make it collapsible once one of those
+  paths is worth spending. Value: a player who has learned the vocabulary gets that 196 px of
+  chart back. Deps: none.
+
+- [ ] **FEAT-MAPUI-LEGEND-REQUIREMENTS** (new 2026-07-31, from `FEAT-MAPUI-POI-ICONS`): doc 03
+  section 4.5 wants the legend's gate rows to name the requirement for *this* world ("requires
+  Ion Projector"), not the generic kind ("Ability door"). The names exist in
+  `TRAVERSAL_ABILITIES` and the world's own `abilityOrder`; the open question is what an unseen
+  requirement reads as, which section 4.5 rule 3 answers with `mechanism unknown`. Value: the
+  map answers "what do I need" without flying to the door. Deps: none.
 
 - [x] **FEAT-MAPUI-RADAR-UNDERLAY-06** (done — 492b8f0, 9c670b7): the tactical radar became
   world-aware without losing its threat identity.
@@ -4144,9 +4184,13 @@ exploring pays is the end of Phase 5.
 
 - [ ] **CHORE-VAULT-GUARD-MAP-MARK** (new 2026-07-31, from `FEAT-POWER-VAULT-GUARD`): a guarded
   vault is invisible on the sector chart and reads as a plain `'pickup'` blip on the radar, so the
-  player learns a room is defended only by flying into it. The chart glyph belongs to
-  `FEAT-MAPUI-DOORS-05` and the radar contact kind to `FEAT-DISCOVERY-FEEDBACK-07`, so this is the
-  small item that lands once either exists. Deps: `FEAT-MAPUI-DOORS-05`.
+  player learns a room is defended only by flying into it. **The chart half shipped with
+  `FEAT-MAPUI-POI-ICONS` (12e1779)**: a SEEN, unclaimed ability vault whose `PoiFlags.GUARD_CLEARED`
+  is unset draws a hazard-orange ring around its glyph, the colour its core reads `GUARDED` in.
+  That is safe because `referentialIntegrity.test.ts` pins every `VAULT_GUARD_PACKS` entry
+  non-empty, so an uncleared vault really does still have a pack standing. What remains is only
+  the radar contact kind, which stays with `FEAT-DISCOVERY-FEEDBACK-07`.
+  Deps: `FEAT-DISCOVERY-FEEDBACK-07`.
 
 - [ ] **BALANCE-VAULT-GUARD-SCALING** (new 2026-07-31, from `FEAT-POWER-VAULT-GUARD`): a pack
   scales off `this.gameTime` at the moment of sector entry, so a vault reached at minute 1 is

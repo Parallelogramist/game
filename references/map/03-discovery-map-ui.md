@@ -719,6 +719,52 @@ Four decisions worth keeping:
    `PauseMenuManager`'s row count is baked into several parallel arrays and that
    surgery is unrelated to the map itself.
 
+**As built (`FEAT-MAPUI-POI-ICONS`, 12e1779, 2026-07-31).** The 4.4 cell anatomy's POI icons,
+its FOUND-secret icon and its dimmed-collected rule now ship, plus a legend. Nine points:
+
+1. **Four of the five `PoiKind`s draw.** `PoiKind.QuestGiver` deliberately draws nothing:
+   nothing spawns at a quest-anchor slot yet (`FEAT-QUEST-CHAINS` left them inert), so an
+   icon would point at empty floor. It lights up with `FEAT-QUEST-BOARD`, which already owns
+   that slot. No separate backlog item was filed for it.
+2. **Vector glyphs, not the icon atlas this section names.** `src/expedition/poiGlyphs.ts`
+   is a `Record<PoiKind, PoiGlyph>` in the `gateGlyphs.ts` shape (`shape`, `label`, `color`)
+   with a closed-union coverage test beside it. The map is one `Graphics` cleared on every
+   pan, so `createIcon` sprites would mean creating and destroying a GameObject per slot per
+   redraw. Colour groups the family and shape names the thing: a vault is the ability door's
+   violet, a found secret the breakable wall's amber.
+3. **Icons sit at the slot's real tile centre**, through `worldPointToMap`, the player-marker
+   precedent. A sector is 32 x 18 tiles inside a 64 x 36 px cell at zoom 1, so the
+   generator's `POI_MIN_SEPARATION` of 3 tiles is 6 px there and 12 px at zoom 2. Zoom 2 is
+   the reading zoom; glyph radius is `max(2, 3 * scale)`.
+4. **The leak guard is the important line.** A `Secret` slot draws only at
+   `SecretFlags.FOUND`. HINTED keeps the corner badge `FEAT-SECRET-LORE` shipped, and an
+   unfound, unhinted secret draws nothing, which is why `revealOnSectorEntry` skips secret
+   slots when it stamps `PoiFlags.SEEN`. Every other kind needs `PoiFlags.SEEN`, which is
+   written only on sector entry, so a DISCOVERED-but-unvisited outline stays empty.
+5. **`COLLECTED` renders at 40% alpha with a green check**, this section's rule verbatim.
+   Only ability vaults ever set it: `rollPoiContents` re-rolls Treasure and Shrine contents
+   per run off `runSalt`, so those icons promise "a cache stocks here each run", never "this
+   exact chest is still waiting".
+6. **An uncleared vault draws a hazard-orange guard ring**, the colour its core reads
+   `GUARDED` in. That is `CHORE-VAULT-GUARD-MAP-MARK`'s chart half, discharged here; the
+   radar contact kind stays with `FEAT-DISCOVERY-FEEDBACK-07`. "Not `GUARD_CLEARED` implies
+   a pack is still standing" is safe because `referentialIntegrity.test.ts` pins every
+   `VAULT_GUARD_PACKS` entry non-empty with per-member `count > 0`.
+7. **The legend is a static right-hand panel, not the TAB-toggled one specified above.** It
+   is generated from `POI_GLYPHS` and `GATE_GLYPHS` at runtime, so it cannot drift from the
+   map, and it lists the two state rings as their own rows. A toggle would need a keyboard
+   key, a gamepad button and a touch target: three input paths for 196 px the left-hand
+   panels already overlay. Filed as `FEAT-MAPUI-LEGEND-TOGGLE`. The rows carry generic
+   labels ("Ability door"), not this section's rule 3 requirement names ("requires Ion
+   Projector"), which are filed as `FEAT-MAPUI-LEGEND-REQUIREMENTS`.
+8. **Still open on `FEAT-MAPUI-DOORS-05`**: the focused-sector cursor and tooltip (with the
+   two unbuilt `FEAT-MAPUI-CURSOR-HITTEST` projection functions), objective pins, and rule
+   4's newly-passable ring plus its toast.
+9. **No storage key, no version bump, no new discovery writer.** Every flag this chunk reads
+   already shipped, so an existing profile lights up the moment the build lands. The renderer
+   learns state through two predicates (`poiFlagsOf`, `secretFlagsOf`), matching the
+   `holdsAbility` precedent: it never learns where the state is stored.
+
 ---
 
 ## 5. Key and binding plan
