@@ -58,12 +58,15 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
+import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { sectorTagsOf } from '../../world/sectorTags';
 import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
+import { buildQuestPins } from '../../expedition/questPins';
+import { buildRadarWaypoints } from '../../expedition/radarWaypoints';
+import type { RadarWaypoint } from '../../expedition/radarWaypoints';
 import { rollPoiContents } from '../../world/poiRoll';
 import { rollSecretReward } from '../../world/secretRewards';
 import type { SecretRewardDefinition } from '../../world/secretRewards';
@@ -86,7 +89,7 @@ import {
 import type { BarrierEventSink } from '../../world/barrierState';
 import { recordBrokenBarrier } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
-import { buildSecretLead, chooseHintTarget } from '../../expedition/secretHints';
+import { buildSecretLead, chooseHintTarget, findSecretSector } from '../../expedition/secretHints';
 import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
 import { SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
@@ -137,6 +140,7 @@ import {
   beginExpeditionQuestRun,
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
+  getActiveQuestMarkers,
   getActiveQuestStepViews,
   getEarnedQuestKeyIds,
 } from '../../meta/ExpeditionQuestManager';
@@ -291,6 +295,13 @@ type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice' | 'market';
 // while the line is idle, so an active bounty pays nothing for it.
 const QUEST_TICKER_REFRESH_SECONDS = 1;
 const QUEST_TICKER_CYCLE_SECONDS = 5;
+/** How often the radar re-resolves its bearings. The set only changes on a quest step, a lead
+ *  or a newly charted sector, so a poll at the objective ticker's own cadence is cheaper than
+ *  subscribing three managers. */
+const RADAR_WAYPOINT_REFRESH_SECONDS = 1;
+/** Fed while there is no live player, so a held bearing can never be drawn against a (0,0)
+ *  ship position. */
+const EMPTY_RADAR_WAYPOINTS: readonly RadarWaypoint[] = [];
 
 // In-run bounty objectives: rotating goals that reward a power-up burst.
 type BountyKind = 'kills' | 'elites' | 'flawless';
@@ -856,6 +867,7 @@ export class GameScene extends Phaser.Scene {
   private minimapManager!: MinimapManager;
   // Reusable per-frame radar contact buffer — grown once, never re-allocated.
   private minimapEntries: MinimapEntry[] = [];
+  private radarWaypointTimer = 0;
   private static readonly MINIMAP_MAX_ENEMY_BLIPS = 48;
 
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
@@ -4452,6 +4464,7 @@ export class GameScene extends Phaser.Scene {
     this.questTickerRefreshTimer = 0;
     this.questTickerCycleTimer = 0;
     this.questTickerIndex = 0;
+    this.radarWaypointTimer = 0;
     this.bossRotationCursor = -1;
     // Pace ghost. Practice and gauntlet get no ghost because neither writes a
     // best score, so there is nothing to race. A restored run lost its early
@@ -7418,6 +7431,8 @@ export class GameScene extends Phaser.Scene {
       this.minimapManager.setSectorUnderlay(null);
       this.minimapUnderlayKey = null;
       this.minimapManager.setSecretPing(0);
+      this.minimapManager.setWaypoints(EMPTY_RADAR_WAYPOINTS);
+      this.radarWaypointTimer = 0;
       this.minimapManager.update(0, 0, this.minimapEntries, 0, deltaSeconds);
       return;
     }
@@ -7425,6 +7440,12 @@ export class GameScene extends Phaser.Scene {
     const playerX = Transform.x[this.playerId];
     const playerY = Transform.y[this.playerId];
     this.syncMinimapUnderlay(playerX, playerY);
+
+    this.radarWaypointTimer -= deltaSeconds;
+    if (this.radarWaypointTimer <= 0) {
+      this.radarWaypointTimer = RADAR_WAYPOINT_REFRESH_SECONDS;
+      this.syncRadarWaypoints(playerX, playerY);
+    }
 
     const enemyIds = getFrameCacheEnemyIds();
     // Stride-sample regular enemies so dense swarms stay near the blip cap while
@@ -7544,6 +7565,40 @@ export class GameScene extends Phaser.Scene {
       }),
       biomeTint: biomeTintFor(sector.biomeId),
     });
+  }
+
+  /**
+   * Re-resolve the radar's bearings: each active objective's pinned sector and each open lead's
+   * named sector. Arena and every other no-map mode return on the first line, so the radar
+   * there is byte-identical to before.
+   */
+  private syncRadarWaypoints(playerX: number, playerY: number): void {
+    const map = this.worldMode.worldMap();
+    if (!map) {
+      this.minimapManager.setWaypoints(EMPTY_RADAR_WAYPOINTS);
+      return;
+    }
+    const discovery = getDiscoveryManager();
+    const shipCell = sectorOfWorldPoint(playerX, playerY);
+    const pins = buildQuestPins({
+      map,
+      markers: getActiveQuestMarkers(),
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      shipCell,
+    });
+    const leadSectorKeys: string[] = [];
+    for (const secretId of discovery.getHintedSecretIds()) {
+      const sector = findSecretSector(map, secretId);
+      if (sector) leadSectorKeys.push(sector.key);
+    }
+    this.minimapManager.setWaypoints(buildRadarWaypoints({
+      objectiveSectorKeys: pins.map((pin) => pin.sectorKey),
+      leadSectorKeys,
+      isCharted: (key) => discovery.getSectorFlags(key) !== 0,
+      shipSectorKey: sectorKey(shipCell),
+      playerX,
+      playerY,
+    }));
   }
 
   /**

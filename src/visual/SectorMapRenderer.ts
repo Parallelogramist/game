@@ -25,7 +25,7 @@ const PLAYER_MARKER = 0x66ccff;
 const CURSOR_STROKE = 0xffffff;
 /** The objective pin. Rose is the one hue neither glyph table nor any chart stroke uses, so a
  *  pin can never be misread as a POI, a door or a secret. */
-const OBJECTIVE_PIN = 0xff5fa2;
+export const OBJECTIVE_PIN = 0xff5fa2;
 const FALLBACK_TINT = 0x2a3a52;
 
 const DASH_LENGTH = 5;

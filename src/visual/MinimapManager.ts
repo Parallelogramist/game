@@ -4,7 +4,7 @@ import { getSettingsManager } from '../settings';
 import { OverlayDepths } from './DepthLayers';
 import { WORLD_GEOMETRY_COLORS } from './NeonColors';
 import { makeBodyText } from './DisplayText';
-import { drawGateGlyph, strokeDashedLine } from './SectorMapRenderer';
+import { OBJECTIVE_PIN, drawGateGlyph, strokeDashedLine } from './SectorMapRenderer';
 import { SECTOR_HEIGHT, SECTOR_WIDTH } from '../world/worldSpace';
 import { TileKind } from '../world/worldTypes';
 import type { EdgeKind } from '../world/worldTypes';
@@ -15,6 +15,7 @@ import {
   MINIMAP_WORLD_RANGE,
   type MinimapBlipKind,
 } from './minimapProjection';
+import type { RadarWaypoint, RadarWaypointKind } from '../expedition/radarWaypoints';
 
 /** Radar disc radius (px) at HUD scale 1.0. */
 const BASE_RADAR_RADIUS = 56;
@@ -47,6 +48,19 @@ const SECRET_PING_COLOR = WORLD_GEOMETRY_COLORS.breakable.stroke;
 const SECRET_PING_EASE_PER_SECOND = 3;
 /** Below this the shimmer is skipped entirely, so an out-of-range frame costs nothing. */
 const SECRET_PING_EPSILON = 0.01;
+
+/** A waypoint speaks the colour the chart already drew it in: the objective pin rose, and the
+ *  breakable amber every secret surface shares. */
+const WAYPOINT_COLORS: Record<RadarWaypointKind, number> = {
+  objective: OBJECTIVE_PIN,
+  lead: SECRET_PING_COLOR,
+};
+/** Where a rim chevron sits, as a fraction of the radius. 0.9 plus the chevron's own half-size
+ *  lands its tip on the rim rather than outside the disc. */
+const WAYPOINT_RIM_INSET = 0.9;
+/** Half-angle (radians) between the chevron's tip and each base corner: wide enough to read as
+ *  an arrowhead at 11px rather than as a sliver. */
+const WAYPOINT_CHEVRON_SPREAD = 2.4;
 
 /** Blocking tile kinds the underlay can draw, in a fixed order so lineStyle is set once
  *  per kind rather than once per segment. */
@@ -122,6 +136,7 @@ export class MinimapManager {
   private secretPingTarget = 0;
   private secretPingLevel = 0;
   private secretPingPhase = 0;
+  private waypoints: ReadonlyArray<RadarWaypoint> = [];
 
   constructor(scene: Phaser.Scene) {
     const hudScale = computeHudScale(scene.scale.width, scene.scale.height, getSettingsManager().getUiScale());
@@ -281,6 +296,7 @@ export class MinimapManager {
       this.ringRemaining = 0;
       this.secretPingTarget = 0;
       this.secretPingLevel = 0;
+      this.waypoints = [];
       this.pulseText.setVisible(false);
     }
   }
@@ -318,6 +334,14 @@ export class MinimapManager {
     this.secretPingTarget = Number.isFinite(intensity)
       ? Phaser.Math.Clamp(intensity, 0, 1)
       : 0;
+  }
+
+  /**
+   * The destinations to carry a bearing for this refresh, resolved by the pure
+   * radarWaypoints module. Sector centres only: the radar never learns a secret's position.
+   */
+  setWaypoints(waypoints: ReadonlyArray<RadarWaypoint>): void {
+    this.waypoints = waypoints;
   }
 
   /**
@@ -400,6 +424,8 @@ export class MinimapManager {
       }
     }
 
+    this.drawWaypoints(graphics, playerX, playerY);
+
     if (this.ringRemaining > 0) {
       this.ringRemaining = Math.max(0, this.ringRemaining - deltaSeconds);
       const progress = 1 - this.ringRemaining / PULSE_RING_SECONDS;
@@ -416,6 +442,43 @@ export class MinimapManager {
         // the information stays, the animation goes.
         this.pulseText.setAlpha(Math.min(1, this.pillRemaining / 0.5));
       }
+    }
+  }
+
+  /**
+   * Draw one mark per waypoint into the already-cleared blip Graphics. In range it is a hollow
+   * ring at the true offset; out of range projectToRadar has clamped it to the rim, so it
+   * becomes a chevron pointing along the bearing and the player can fly the arrow.
+   */
+  private drawWaypoints(
+    graphics: Phaser.GameObjects.Graphics, playerX: number, playerY: number,
+  ): void {
+    const radius = this.radarRadius;
+    const size = Math.max(4, radius * 0.1);
+    for (const waypoint of this.waypoints) {
+      const projected = projectToRadar(
+        waypoint.worldX - playerX, waypoint.worldY - playerY, radius, MINIMAP_WORLD_RANGE,
+      );
+      const color = WAYPOINT_COLORS[waypoint.kind] ?? WAYPOINT_COLORS.lead;
+      if (!projected.atRim) {
+        graphics.lineStyle(1.5, color, 0.95);
+        graphics.strokeCircle(projected.x, projected.y, size * 0.6);
+        graphics.fillStyle(color, 0.95);
+        graphics.fillCircle(projected.x, projected.y, 1.5);
+        continue;
+      }
+      const angle = Math.atan2(projected.y, projected.x);
+      const centerX = Math.cos(angle) * radius * WAYPOINT_RIM_INSET;
+      const centerY = Math.sin(angle) * radius * WAYPOINT_RIM_INSET;
+      graphics.fillStyle(color, 0.95);
+      graphics.fillTriangle(
+        centerX + Math.cos(angle) * size,
+        centerY + Math.sin(angle) * size,
+        centerX + Math.cos(angle + WAYPOINT_CHEVRON_SPREAD) * size,
+        centerY + Math.sin(angle + WAYPOINT_CHEVRON_SPREAD) * size,
+        centerX + Math.cos(angle - WAYPOINT_CHEVRON_SPREAD) * size,
+        centerY + Math.sin(angle - WAYPOINT_CHEVRON_SPREAD) * size,
+      );
     }
   }
 
