@@ -10,6 +10,7 @@ import {
   MoverKind, createCollisionResult, resolveCircleMove, raycastSolid,
   isSolidAtWorld, findNearestFreeCircleSpot,
 } from './staticCollision';
+import { resolvePlayerMoveWithAssist } from './moveAssist';
 
 const PLAYER_RADIUS = 16;
 const COLLISION_EPSILON = 0.001;
@@ -410,5 +411,131 @@ describe('a solid tile only blocks motion toward it', () => {
       PLAYER_RADIUS, MoverKind.Player, out,
     );
     expect(out.x).toBeCloseTo(overlappingX - 8, 6);
+  });
+});
+
+const ASSIST_STEP = 8;
+
+function framesThroughVerticalDoor(startY: number, assisted: boolean): number {
+  const world = makeWorld(tiles => {
+    paintColumn(tiles, 10, TileKind.Solid);
+    tiles[tileIndex(10, 5)] = TileKind.Open;
+  });
+  const out = createCollisionResult();
+  let x = 300;
+  let y = startY;
+  for (let frame = 0; frame < 200; frame++) {
+    if (assisted) {
+      resolvePlayerMoveWithAssist(world, x, y, x + ASSIST_STEP, y, PLAYER_RADIUS, out);
+    } else {
+      resolveCircleMove(world, x, y, x + ASSIST_STEP, y, PLAYER_RADIUS, MoverKind.Player, out);
+    }
+    x = out.x;
+    y = out.y;
+    if (x > 11 * TILE_SIZE) return frame;
+  }
+  return -1;
+}
+
+function framesThroughHorizontalDoor(startX: number, assisted: boolean): number {
+  const world = makeWorld(tiles => {
+    paintRow(tiles, 10, TileKind.Solid);
+    tiles[tileIndex(5, 10)] = TileKind.Open;
+  });
+  const out = createCollisionResult();
+  let x = startX;
+  let y = 300;
+  for (let frame = 0; frame < 200; frame++) {
+    if (assisted) {
+      resolvePlayerMoveWithAssist(world, x, y, x, y + ASSIST_STEP, PLAYER_RADIUS, out);
+    } else {
+      resolveCircleMove(world, x, y, x, y + ASSIST_STEP, PLAYER_RADIUS, MoverKind.Player, out);
+    }
+    x = out.x;
+    y = out.y;
+    if (y > 11 * TILE_SIZE) return frame;
+  }
+  return -1;
+}
+
+describe('moveAssist — wall slide and doorway slip', () => {
+  const APPROACH_DEGREES = [5, 10, 20, 30, 45, 60, 80];
+
+  it('keeps most of the ship speed pressing at an angle into a vertical wall', () => {
+    const world = makeWorld(tiles => paintColumn(tiles, 10, TileKind.Solid));
+    const out = createCollisionResult();
+    const startX = 10 * TILE_SIZE - PLAYER_RADIUS - 0.1;
+    const startY = tileCentre(8, 5).y;
+
+    for (const degrees of APPROACH_DEGREES) {
+      const radians = degrees * Math.PI / 180;
+      resolvePlayerMoveWithAssist(
+        world, startX, startY,
+        startX + ASSIST_STEP * Math.cos(radians),
+        startY + ASSIST_STEP * Math.sin(radians),
+        PLAYER_RADIUS, out,
+      );
+      expect(out.hitX).toBe(true);
+      expect(out.y - startY).toBeGreaterThanOrEqual(ASSIST_STEP * 0.6);
+      expect(out.y - startY).toBeLessThanOrEqual(ASSIST_STEP + COLLISION_EPSILON);
+    }
+  });
+
+  it('keeps most of the ship speed pressing at an angle into a horizontal wall', () => {
+    const world = makeWorld(tiles => paintRow(tiles, 10, TileKind.Solid));
+    const out = createCollisionResult();
+    const startX = tileCentre(5, 8).x;
+    const startY = 10 * TILE_SIZE - PLAYER_RADIUS - 0.1;
+
+    for (const degrees of APPROACH_DEGREES) {
+      const radians = degrees * Math.PI / 180;
+      resolvePlayerMoveWithAssist(
+        world, startX, startY,
+        startX + ASSIST_STEP * Math.sin(radians),
+        startY + ASSIST_STEP * Math.cos(radians),
+        PLAYER_RADIUS, out,
+      );
+      expect(out.hitY).toBe(true);
+      expect(out.x - startX).toBeGreaterThanOrEqual(ASSIST_STEP * 0.6);
+      expect(out.x - startX).toBeLessThanOrEqual(ASSIST_STEP + COLLISION_EPSILON);
+    }
+  });
+
+  it('still stops dead on a press straight into a flat wall', () => {
+    const world = makeWorld(tiles => paintColumn(tiles, 10, TileKind.Solid));
+    const out = createCollisionResult();
+    const startX = 10 * TILE_SIZE - PLAYER_RADIUS - 0.1;
+    const startY = tileCentre(8, 5).y;
+
+    resolvePlayerMoveWithAssist(world, startX, startY, startX + ASSIST_STEP, startY, PLAYER_RADIUS, out);
+
+    expect(out.y).toBe(startY);
+    expect(out.x).toBeLessThanOrEqual(10 * TILE_SIZE - PLAYER_RADIUS);
+  });
+
+  it('slips into a vertical doorway the ship would otherwise never enter', () => {
+    const doorCentreY = 5 * TILE_SIZE + TILE_SIZE / 2;
+    for (const offset of [-14, -12, -10, -8, -6, 6, 8, 10, 12, 14]) {
+      expect(framesThroughVerticalDoor(doorCentreY + offset, false)).toBe(-1);
+      const assistedFrames = framesThroughVerticalDoor(doorCentreY + offset, true);
+      expect(assistedFrames).toBeGreaterThan(0);
+      expect(assistedFrames).toBeLessThanOrEqual(25);
+    }
+  });
+
+  it('slips into a horizontal doorway the same way', () => {
+    const doorCentreX = 5 * TILE_SIZE + TILE_SIZE / 2;
+    for (const offset of [-14, -12, -10, -8, 8, 10, 12, 14]) {
+      expect(framesThroughHorizontalDoor(doorCentreX + offset, false)).toBe(-1);
+      const assistedFrames = framesThroughHorizontalDoor(doorCentreX + offset, true);
+      expect(assistedFrames).toBeGreaterThan(0);
+      expect(assistedFrames).toBeLessThanOrEqual(25);
+    }
+  });
+
+  it('leaves a ship squarely off the doorway blocked', () => {
+    const doorCentreY = 5 * TILE_SIZE + TILE_SIZE / 2;
+    expect(framesThroughVerticalDoor(doorCentreY - 16, true)).toBe(-1);
+    expect(framesThroughVerticalDoor(doorCentreY + 16, true)).toBe(-1);
   });
 });

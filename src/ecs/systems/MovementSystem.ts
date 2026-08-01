@@ -2,6 +2,7 @@ import { defineQuery, hasComponent, IWorld } from 'bitecs';
 import { EnemyAI, Transform, Velocity } from '../components';
 import { WorldRect } from '../../world/worldSpace';
 import { MoverKind, createCollisionResult, resolveCircleMove } from '../../world/staticCollision';
+import { resolvePlayerMoveWithAssist } from '../../world/moveAssist';
 import { isPhasedWraith } from './enemy-ai/wraith';
 import type { WorldMap } from '../../world/worldTypes';
 
@@ -49,14 +50,13 @@ export function movementSystem(
 
     if (wallCollision) {
       if (entityId === wallCollision.playerId) {
-        resolveCircleMove(
+        resolvePlayerMoveWithAssist(
           wallCollision.worldMap,
           Transform.x[entityId],
           Transform.y[entityId],
           nextX,
           nextY,
           wallCollision.playerRadius,
-          MoverKind.Player,
           collisionResult,
         );
         Transform.x[entityId] = collisionResult.x;
