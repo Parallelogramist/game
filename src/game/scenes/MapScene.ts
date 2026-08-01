@@ -7,7 +7,8 @@ import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_
   GAMEPAD_BUTTON_Y, GamepadManager } from '../../input/GamepadManager';
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
-  drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawPoiGlyph, drawVaultGuardRing,
+  drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawPoiGlyph,
+  drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { poiGlyphFor } from '../../expedition/poiGlyphs';
@@ -69,6 +70,7 @@ export class MapScene extends Phaser.Scene {
   private dragLastY = 0;
   private leads: SecretLead[] = [];
   private hintedSectorKeys: ReadonlySet<string> = new Set();
+  private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
 
   private panKeys!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key[]>;
   private keydownHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -102,6 +104,10 @@ export class MapScene extends Phaser.Scene {
     this.add.rectangle(0, 0, width, height, 0x05080f, 0.94).setOrigin(0, 0);
 
     const discovery = getDiscoveryManager();
+    // Doc 03 section 7 moment 6's "until first viewed": snapshot first, then clear, so the
+    // rings survive every pan and zoom of THIS open and appear on no later one.
+    this.newlyPassableEdgeIds = new Set(discovery.getNewlyPassableEdgeIds());
+    discovery.clearNewlyPassableEdges();
     makeDisplayText(this, width / 2, 40, 'WORLD MAP', {
       fontSize: 38, letterSpacing: 3,
     }).setDepth(2);
@@ -325,6 +331,13 @@ export class MapScene extends Phaser.Scene {
         drawGateLockRing(graphics, EdgeKind.AbilityDoor, x, y, LEGEND_GLYPH_SIZE);
       },
     });
+    rows.push({
+      label: 'Newly opened',
+      draw: (graphics, x, y) => {
+        drawGateGlyph(graphics, EdgeKind.AbilityDoor, x, y, false, LEGEND_GLYPH_SIZE);
+        drawNewRouteRing(graphics, x, y, LEGEND_GLYPH_SIZE);
+      },
+    });
 
     const rowHeight = 20;
     const panelWidth = 196;
@@ -450,6 +463,7 @@ export class MapScene extends Phaser.Scene {
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
       hintedSectorKeys: this.hintedSectorKeys,
+      newlyPassableEdgeIds: this.newlyPassableEdgeIds,
       poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
       secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),

@@ -15,7 +15,8 @@ import {
   DISCOVERY_VERSION, EdgeFlags, PoiFlags, SecretFlags, SectorFlags, emptyChanges,
 } from './DiscoveryTypes';
 import {
-  buildIdUniverse, emptyDiscoveryState, revealOnEdgeTraversal, revealOnMapFragment,
+  buildIdUniverse, emptyDiscoveryState, newlyPassableEdges, revealOnEdgeTraversal,
+  revealOnMapFragment,
   revealOnScanPulse, revealOnSecretFound, revealOnSectorEntry, revealOnVaultGuardCleared,
   sanitizeDiscoveryState,
 } from './discoveryRules';
@@ -76,6 +77,27 @@ function makeChainWorld(): WorldMap {
   return {
     worldGenVersion: GEN_VERSION, seed: SEED, startKey: '0,0',
     sectors, abilityOrder: [], bossArenaKey: '3,0',
+  };
+}
+
+const DASH_DOOR: EdgeDef = {
+  kind: EdgeKind.AbilityDoor, apertureStart: 10, apertureEnd: 13, requiredId: 'ability_dash',
+};
+const SURVEY_KEY_DOOR: EdgeDef = {
+  kind: EdgeKind.KeyDoor, apertureStart: 10, apertureEnd: 13, requiredId: 'quest_key_survey',
+};
+
+/** Two dash doors, one of them a hop further out than sector entry ever reveals, plus a quest
+ *  key door: enough to separate "keyed to the id" from "the player has seen it". */
+function makeDoorWorld(): WorldMap {
+  const origin = makeSector(0, 0, { east: DASH_DOOR, south: SURVEY_KEY_DOOR });
+  const east = makeSector(1, 0, { west: DASH_DOOR, east: DASH_DOOR });
+  const far = makeSector(2, 0, { west: DASH_DOOR });
+  const south = makeSector(0, 1, { north: SURVEY_KEY_DOOR });
+  return {
+    worldGenVersion: GEN_VERSION, seed: SEED, startKey: '0,0',
+    sectors: new Map([['0,0', origin], ['1,0', east], ['2,0', far], ['0,1', south]]),
+    abilityOrder: [], bossArenaKey: '2,0',
   };
 }
 
@@ -240,6 +262,27 @@ describe('discoveryRules', () => {
       { ...stored, worldSeed: SEED + 1 }, SEED, GEN_VERSION, universe,
     )).toEqual(fresh);
     expect(sanitizeDiscoveryState('not an object', SEED, GEN_VERSION, universe)).toEqual(fresh);
+  });
+
+  it('names only the KNOWN doors keyed to the gained id', () => {
+    const map = makeDoorWorld();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+    revealOnSectorEntry(state, map, universe, '0,0');
+
+    expect(newlyPassableEdges(state, map, universe, 'ability_dash'))
+      .toEqual(['edge:0,0:east']);
+    expect(newlyPassableEdges(state, map, universe, 'quest_key_survey'))
+      .toEqual(['edge:0,0:south']);
+  });
+
+  it('names nothing for an id no door in this world asks for', () => {
+    const map = makeDoorWorld();
+    const universe = buildIdUniverse(map);
+    const state = emptyDiscoveryState(SEED, GEN_VERSION);
+    revealOnSectorEntry(state, map, universe, '0,0');
+
+    expect(newlyPassableEdges(state, map, universe, 'ability_thermal_ward')).toEqual([]);
   });
 });
 

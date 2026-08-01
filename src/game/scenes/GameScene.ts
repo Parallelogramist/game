@@ -408,6 +408,18 @@ const VAULT_GUARD_NOTICE_RADIUS = 170;
 /** Every guard is the same elite, so the encounter reads identically on every vault. */
 const VAULT_GUARD_AFFIX = EnemyAffixType.TITAN;
 
+/** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
+ *  toasts even when a single find jumps two of them. */
+const MAP_COMPLETION_MILESTONES = [25, 50, 75, 100] as const;
+
+function highestCompletionMilestone(percent: number): number {
+  let reached = 0;
+  for (const milestone of MAP_COMPLETION_MILESTONES) {
+    if (percent >= milestone) reached = milestone;
+  }
+  return reached;
+}
+
 /**
  * GameScene is the main gameplay scene.
  * Manages the ECS world, player, enemies, and game loop.
@@ -612,6 +624,12 @@ export class GameScene extends Phaser.Scene {
   private questTickerRefreshTimer: number = 0;
   private questTickerCycleTimer: number = 0;
   private questTickerIndex: number = 0;
+
+  // Highest map-completion milestone this profile has already been shown for the bound world.
+  // Seeded from the live percent at bind time, so a threshold crossed on an earlier run never
+  // re-toasts and no storage key is needed to remember it.
+  private mapCompletionMilestoneShown: number = 0;
+  private sectorBannerText: Phaser.GameObjects.Text | null = null;
 
   // Pace ghost: the kill curve of the best-scoring run at this world level, and
   // this run's own samples, which replace it if this run scores a new best.
@@ -905,11 +923,18 @@ export class GameScene extends Phaser.Scene {
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);
     }
+    if (sector && changes.sectorsVisited.includes(payload.sectorKey)) {
+      this.showSectorBanner(sector);
+    }
     this.runDecryptorScan(payload.sectorKey);
   };
 
-  /** New sectors on the map are the one discovery event with a live HUD consequence. */
+  /** The two discovery events with a live consequence: new outlines pulse the radar, and a
+   *  find that moves the completion percent may cross a milestone. */
   private readonly discoveryPulseHandler = (changes: DiscoveryChanges): void => {
+    if (changes.sectorsVisited.length > 0 || changes.secretsFound.length > 0) {
+      this.checkMapCompletionMilestone();
+    }
     if (changes.sectorsDiscovered.length === 0) return;
     this.minimapManager?.notifyDiscoveryPulse(changes.sectorsDiscovered.length);
   };
@@ -1007,6 +1032,8 @@ export class GameScene extends Phaser.Scene {
     this.ownedTraversalAbilityIds = new Set(getOwnedTraversalAbilityIds());
     this.earnedQuestKeyIds = new Set(getEarnedQuestKeyIds());
     getDiscoveryManager().bindWorld(map);
+    this.mapCompletionMilestoneShown =
+      highestCompletionMilestone(getDiscoveryManager().getCompletionPercent());
     getDiscoveryManager().onDiscovery(this.discoveryPulseHandler);
     this.events.on('expedition:sector-entered', this.sectorEnteredHandler);
   }
@@ -4966,7 +4993,45 @@ export class GameScene extends Phaser.Scene {
         duration: 3600,
       });
     }
+    this.announceNewRoutes(
+      vault.abilityId, definition?.name ?? 'the new system', definition?.icon ?? 'bolt',
+    );
     this.recordExpeditionQuest({ kind: 'claimAbility', abilityId: vault.abilityId });
+  }
+
+  /**
+   * Doc 03 section 7 moment 6, the loudest moment by design: it converts a power-up into an
+   * itinerary. Silent when nothing the player has actually charted is keyed to the gain, so a
+   * first-hour claim does not promise routes the map has never drawn.
+   */
+  private announceNewRoutes(gainedId: string, sourceName: string, icon: string): void {
+    const opened = getDiscoveryManager().noteGainedPassKey(gainedId);
+    if (opened.length === 0) return;
+    this.toastManager?.showToast({
+      title: 'NEW ROUTES ONLINE',
+      description: opened.length === 1
+        ? `1 sealed gate responds to ${sourceName}.`
+        : `${opened.length} sealed gates respond to ${sourceName}.`,
+      icon,
+      color: WORLD_GEOMETRY_COLORS.gate.stroke,
+      duration: 3600,
+    });
+  }
+
+  /** Doc 03 section 7 moment 2. Fires on the run that crosses a threshold and never again,
+   *  because the floor is seeded from the live percent when the world binds. */
+  private checkMapCompletionMilestone(): void {
+    const discovery = getDiscoveryManager();
+    const reached = highestCompletionMilestone(discovery.getCompletionPercent());
+    if (reached <= this.mapCompletionMilestoneShown) return;
+    this.mapCompletionMilestoneShown = reached;
+    this.toastManager?.showMilestoneToast(
+      `${reached}% CHARTED`,
+      'This world is opening up.',
+      'radar',
+      `${discovery.getVisitedSectorCount()} of ${discovery.getKnowableSectorCount()} sectors`
+      + `  ·  ${discovery.getFoundSecretCount()} secrets recovered`,
+    );
   }
 
   /** A core that silently refuses the walk-in reads as a bug, the noticeSealedCache rule
@@ -5312,6 +5377,57 @@ export class GameScene extends Phaser.Scene {
     });
     this.recordExpeditionQuest({ kind: 'findSecret', secretKind: 'hiddenSector' });
     this.grantSecretLead(sector.key);
+  }
+
+  /**
+   * Doc 03 section 7 moment 1: a banner, deliberately not a toast, because at expedition pace a
+   * toast per room is spam and would push the toasts that actually pay out down a queue. It
+   * sits above the bounty line rather than top-centre as section 7 asks, for the reason
+   * updateBounties already records: in portrait the top band is bars left, world and timer
+   * centre, kills and gold right, with no room for a centred line.
+   */
+  private showSectorBanner(sector: SectorDef): void {
+    const hudScale = computeHudScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
+    const biomeName = getStageById(sector.biomeId)?.name ?? 'Uncharted Space';
+    const banner = this.add.text(
+      this.scale.width / 2,
+      this.scale.height - Math.round((96 + 40 + 26) * hudScale),
+      `${biomeName.toUpperCase()}  ·  SECTOR ${sector.key}  ·  DEPTH ${sector.depth}`,
+      {
+        fontSize: `${Math.round(15 * hudScale)}px`,
+        fontFamily: DISPLAY_FONT,
+        fontStyle: 'bold',
+        color: '#7fd4ff',
+        stroke: '#000000',
+        strokeThickness: Math.max(2, Math.round(3 * hudScale)),
+        align: 'center',
+      },
+    ).setOrigin(0.5, 1).setScrollFactor(0).setDepth(DepthLayers.UI_OVERLAY);
+    banner.setLetterSpacing(1);
+    // Two rooms crossed inside one banner's life would otherwise draw both on the same line.
+    this.sectorBannerText?.destroy();
+    this.sectorBannerText = banner;
+
+    const clear = (): void => {
+      banner.destroy();
+      if (this.sectorBannerText === banner) this.sectorBannerText = null;
+    };
+    if (getSettingsManager().isReducedMotionEnabled()) {
+      this.time.delayedCall(1600, clear);
+      return;
+    }
+    banner.setAlpha(0);
+    this.tweens.add({
+      targets: banner, alpha: 1, duration: 260, ease: 'Sine.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: banner, alpha: 0, duration: 340, delay: 1000, ease: 'Sine.easeIn',
+          onComplete: clear,
+        });
+      },
+    });
   }
 
   /**
@@ -8828,7 +8944,10 @@ export class GameScene extends Phaser.Scene {
       const quest = getExpeditionQuest(completion.questId);
       if (!quest) continue;
       const grantedKeyId = quest.grantsKeyId;
-      if (grantedKeyId !== undefined) this.earnedQuestKeyIds.add(grantedKeyId);
+      if (grantedKeyId !== undefined) {
+        this.earnedQuestKeyIds.add(grantedKeyId);
+        this.announceNewRoutes(grantedKeyId, quest.name, quest.icon);
+      }
       this.toastManager?.showToast({
         title: 'QUEST COMPLETE',
         description: `${quest.name} · +${completion.goldReward} gold`,
@@ -12948,6 +13067,7 @@ export class GameScene extends Phaser.Scene {
     this.secretSectorKey = null;
     this.bountyText?.destroy();
     this.bountyText = null;
+    this.sectorBannerText = null;
     // Restore music to the user's volume (clears any combat-intensity lift).
     resetMusicIntensityDriver();
 

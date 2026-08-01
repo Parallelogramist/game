@@ -153,6 +153,17 @@ export function drawVaultGuardRing(
   graphics.strokeCircle(x, y, size * 1.7);
 }
 
+/** A door a just-claimed ability or key opened, until the map has been looked at once. Drawn
+ *  outside the lock-ring radius in the cleared-green the chart already reads as "done here":
+ *  the two rings can never land on one door, since a door keyed to what you just gained is by
+ *  definition no longer sealed. */
+export function drawNewRouteRing(
+  graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number,
+): void {
+  graphics.lineStyle(Math.max(1, size * 0.35), CLEARED_NOTCH, 1);
+  graphics.strokeCircle(x, y, size * 2.4);
+}
+
 export function drawCollectedCheck(
   graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number,
 ): void {
@@ -205,6 +216,8 @@ export interface SectorMapDrawInput {
   edgeFlagsOf: (edgeId: string) => number;
   /** Sectors carrying a secret the profile has been pointed at but has not found. */
   hintedSectorKeys: ReadonlySet<string>;
+  /** Doors opened by a gain this run and not yet looked at. Empty on every ordinary open. */
+  newlyPassableEdgeIds: ReadonlySet<string>;
   /** Flags for a non-secret POI slot id. Predicate rather than a Map, matching holdsAbility:
    *  the renderer never learns where discovery state is stored. */
   poiFlagsOf: (poiId: string) => number;
@@ -301,6 +314,9 @@ export class SectorMapRenderer {
       );
       if (isGatedEdgeSealed(edge, input.holdsAbility, input.holdsQuestKey)) {
         drawGateLockRing(this.graphics, edge.kind, anchor.x, anchor.y, glyphSize);
+      }
+      if (input.newlyPassableEdgeIds.has(edgeId)) {
+        drawNewRouteRing(this.graphics, anchor.x, anchor.y, glyphSize);
       }
     }
   }

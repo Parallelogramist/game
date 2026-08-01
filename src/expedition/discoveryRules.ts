@@ -369,6 +369,33 @@ export function revealOnMapFragment(
   return changes;
 }
 
+/**
+ * Doc 03 section 7 moment 6: the doors a just-gained permanent id opens. KNOWN is the whole
+ * filter, and it is why this reads discovery state rather than the map alone: a door the
+ * profile has never seen is not an itinerary, it is a spoiler. Canonical edge ids make the two
+ * sides of one border the same string, so a door is named once however it is reached.
+ */
+export function newlyPassableEdges(
+  state: DiscoveryState,
+  map: WorldMap,
+  universe: WorldIdUniverse,
+  gainedId: string,
+): string[] {
+  const opened = new Set<string>();
+  for (const sector of map.sectors.values()) {
+    for (const direction of EDGE_DIRECTIONS) {
+      const edge = sector.edges[direction];
+      if (edge.kind !== EdgeKind.AbilityDoor && edge.kind !== EdgeKind.KeyDoor) continue;
+      if (edge.requiredId !== gainedId) continue;
+      const edgeId = edgeIdFor(sector.sx, sector.sy, direction);
+      if (!universe.edgeIds.has(edgeId)) continue;
+      if (((state.edges[edgeId] ?? 0) & EdgeFlags.KNOWN) === 0) continue;
+      opened.add(edgeId);
+    }
+  }
+  return [...opened].sort();
+}
+
 function addSector(
   state: DiscoveryState, changes: DiscoveryChanges, id: string, flags: number,
 ): void {

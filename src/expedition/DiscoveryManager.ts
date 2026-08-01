@@ -14,6 +14,7 @@ import {
   buildIdUniverse,
   emptyDiscoveryState,
   emptyIdUniverse,
+  newlyPassableEdges,
   revealOnEdgeTraversal,
   revealOnMapFragment,
   revealOnPoiCollected,
@@ -35,6 +36,11 @@ export class DiscoveryManager {
   private revision = 0;
   private discoveryCallback: ((changes: DiscoveryChanges) => void) | null = null;
 
+  /** Run overlay, never persisted: the doors a just-gained ability or key opened, held until
+   *  the map is next opened. saveState serializes `state` alone, and bindWorld clears this, so
+   *  a scene restart or a world swap can never ring a door in a world the ship is not in. */
+  private readonly newlyPassableEdgeIds = new Set<string>();
+
   /** Binds to one generated world and reloads the profile's memory of it. The universe is
    *  built first because the sanitizer rebuilds the state from exactly those ids. */
   bindWorld(map: WorldMap): void {
@@ -42,6 +48,7 @@ export class DiscoveryManager {
     this.universe = buildIdUniverse(map);
     this.state = this.loadState(map.seed, map.worldGenVersion);
     this.revision++;
+    this.newlyPassableEdgeIds.clear();
   }
 
   getSectorFlags(sectorKey: string): number {
@@ -119,6 +126,25 @@ export class DiscoveryManager {
     return this.commit(
       revealOnMapFragment(this.state, this.map, this.universe, grantedSectorKeys),
     );
+  }
+
+  /** Doc 03 section 7 moment 6's only write path: records which KNOWN doors a permanent gain
+   *  just opened and returns them, so the caller can say how many without a second query. */
+  noteGainedPassKey(gainedId: string): string[] {
+    if (!this.map) return [];
+    const opened = newlyPassableEdges(this.state, this.map, this.universe, gainedId);
+    for (const edgeId of opened) this.newlyPassableEdgeIds.add(edgeId);
+    return opened;
+  }
+
+  getNewlyPassableEdgeIds(): ReadonlySet<string> {
+    return this.newlyPassableEdgeIds;
+  }
+
+  /** "Until first viewed on the map" (doc 03 section 7 moment 6): the map screen snapshots the
+   *  set and calls this, so the rings survive that whole open and no later one. */
+  clearNewlyPassableEdges(): void {
+    this.newlyPassableEdgeIds.clear();
   }
 
   /** Secrets this profile has already been pointed at or has already found. */
