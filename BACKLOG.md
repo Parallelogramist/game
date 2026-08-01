@@ -644,6 +644,29 @@ strand the lock with the boss alive in it. The friction value is the one thing l
 human and is filed as `POLISH-EXPEDITION-RECALL` in the playtest queue; the reload case is
 filed as `CHORE-EXPEDITION-RECALL-CHANNEL-RESTORE`. No storage key and no version bump.
 
+**`f96c30f` gave the refreshed boss fight its room back.** `activeBossType` was the one part of
+a live boss fight that no save carried, so reloading during the hardest 90 seconds of a run
+brought the boss and its health bar back into a room with no arena tint, no boss hazards at
+all (`spawnBossHazard` returns at its `activeBossType` guard), no boss music cue, no grid
+combat surge and no siege suppression. The save now carries the live boss type as an optional
+field and the restore path re-enters through `activateBossArena` behind two guards: the id has
+to resolve through `getEnemyType`, and a restored entity has to carry `xpValue >= 1000`. The
+defect is **pre-existing and arena-wide**, so this is the one recent item that is not
+expedition-only. It filed one cut, `CHORE-BOSSFIGHT-RESTORE-HAZARD-CADENCE`. No
+`SAVE_VERSION` bump, no storage key and no new UI.
+
+**Why a Phase 7 bug outranked the content bands this session, recorded so it is not
+re-derived:** band 1 has no unblocked item (`FEAT-ECON-WARDS` is parked on the operator and
+`FEAT-QUEST-BOARD` shipped at `21925f3`); band 2's remainder is either blocked
+(`FEAT-DISCOVERY-WRITE-PATHS` and `FEAT-QUEST-TRIGGERS-REST` behind `FEAT-WORLDGEN-STREAM`,
+`FEAT-POWER-ABILITY-EFFECTS-REST` behind two barrier flavours that each cost a
+`WORLDGEN_VERSION` bump) or is motion over state the game has already committed and already
+toasted, which doc 03 section 7 moment 4 itself calls "presentation only"
+(`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`); and every remaining band-3 entry is behind
+`FEAT-WORLDGEN-STREAM` since `183b2dc`. `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` is the one
+unblocked band-2 item that carries information rather than motion, and it stays the next
+candidate.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -6261,22 +6284,48 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   `npm run build` are the floor. Playtest follow-up filed as **POLISH-ENDRUN-GAMEPAD** under
   `## Human gates`. File: `src/game/managers/PauseMenuManager.ts`.
 
-- [ ] **BUG-BOSSFIGHT-RESTORE-ATMOSPHERE** — a refresh mid-boss-fight comes back without
-  the boss fight's atmosphere. Value: the player who reloads during the hardest 90 seconds
-  of a run gets the boss, its health bar and its hazards, but a normal-looking room. This
-  is **pre-existing and arena-wide**, found while wiring FEAT-WORLD-SPACE-7, not caused by
-  it. `activeBossType` (`GameScene.ts:612`) is set only by `spawnBoss` (`:8774`) and is not
-  in `GameSaveState`, so after a restore it is `null`: `activateBossArena(typeId)` (`:8773`)
-  is never re-run, `spawnBossHazard` returns at its `if (!this.activeBossType) return;`
-  guard (`:8783`), and the HUD's `bossActive` flag (`:4840`) reads false, all while the boss
-  entity itself restores normally as an enemy. The release path is already safe either way:
-  `handleEnemyDeath` gates `deactivateBossArena()` + `releaseSectorLock()` on
-  `hasOtherAliveBoss` (`:3418-3423`), not on `activeBossType`, so a restored boss's death
-  still cleans up. Done when a refresh during a boss fight comes back with the arena
-  atmosphere and live boss hazards, in both arena and expedition, and a refresh with no boss
-  alive restores exactly as it does today. Pointer: persist the boss type alongside
-  `bossSpawned` in `GameSaveState` and re-run `activateBossArena` on the restore path; it is
-  an optional field, so no `SAVE_VERSION` bump.
+- [x] **BUG-BOSSFIGHT-RESTORE-ATMOSPHERE** (done, f96c30f): a refresh mid-boss-fight now comes
+  back to the boss fight. `activeBossType` was scene state that no save carried, so after a
+  restore it was `null` while the boss itself came back as an ordinary serialized enemy with
+  its health bar: the room kept its normal tint, `spawnBossHazard` returned at its
+  `if (!this.activeBossType)` guard so the boss stopped using its own hazard pattern entirely,
+  the music driver's `bossActive` signal read false, the grid's combat surge lost its boss
+  term (which is the only cue a gauntlet or endless boss has, since those never set
+  `bossSpawned`), and `checkExpeditionSiege` lost the suppression that keeps a quest siege
+  from stacking waves onto a fight that owns the room.
+  1. **What shipped**: one optional `activeBossType` on `GameSaveState`, written from
+     `GameScene.saveGameState` as `this.activeBossType ?? undefined` (`??` because
+     `JSON.stringify` drops `undefined` and keeps `null`), and a restore block directly after
+     `restoreEntities` that re-enters the fight through `activateBossArena`.
+  2. **The restore is a re-entry, not a replay of `spawnBoss`**: no boss entrance, no hit
+     stop, no camera shake, no timeline event and no `lockToSector`. The entrance already
+     happened, the timeline already knows it is incomplete after a restore
+     (`runTimelineComplete = !shouldRestore`), and in expedition the seal is `sectorLockKey`
+     on the expedition save, which `ExpeditionModeAdapter.restoreViewState` already restores.
+  3. **Two guards, both against a tampered or mismatched save**: the saved id must resolve
+     through `getEnemyType`, and at least one restored entity must carry the repo's own boss
+     test, `enemyData.xpValue >= 1000` (the threshold `restoreEnemy` and `hasOtherAliveBoss`
+     both use). Either failing leaves the run exactly as it restores today, so a corrupt field
+     can never pin a permanent overlay on a bossless run.
+  4. **The restore path now mirrors the fresh path's reset**: `activeBossType = null` and
+     `bossHazardTimer = 0` are assigned before the guard, because `create()` returns at the
+     restore branch and never reaches the fresh block that zeroes them, so on a scene restart
+     the hazard countdown could still hold the previous run's value.
+  5. **No `SAVE_VERSION` bump**: the field is optional and `isStructurallyValidSaveState`
+     validates only the always-written fields the restore path dereferences unguarded, so
+     every legacy save loads exactly as before and reads as no fight in progress.
+  6. **Both modes by construction**: `activateBossArena` is a screen-fixed overlay and
+     `spawnBossHazard` reads `worldMode.fieldRect()`, which is the screen in arena and the
+     locked sector in expedition. Minibosses are untouched: `activeBossType` is a boss-only
+     latch and this change does not widen it.
+
+- [ ] **CHORE-BOSSFIGHT-RESTORE-HAZARD-CADENCE** (new 2026-08-01, from
+  BUG-BOSSFIGHT-RESTORE-ATMOSPHERE): `bossHazardTimer` is not persisted, so a restored fight
+  spawns the boss's next hazard on the first frame back rather than at whatever was left of
+  its 4 to 8 second interval. It is zeroed deliberately, mirroring what `spawnBoss` does at
+  the start of a fight, and it errs toward the boss rather than the player. Holding it would
+  mean one more optional number on the save plus a clamp against a stale or tampered value.
+  Value: a refresh does not hand the boss a free hazard. Deps: none.
 
 - [ ] **CHORE-ARCH-DOC-SYNC** — re-sync the architecture overview's content
   inventory. Value: `references/architecture-overview.md` is the
