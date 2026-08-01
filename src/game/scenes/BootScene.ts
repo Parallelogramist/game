@@ -42,6 +42,7 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { MENU_COLORS as COLORS, MENU_FONT, DISPLAY_FONT } from '../../visual/MenuStyle';
 import { makeDisplayText } from '../../visual/DisplayText';
+import { createSubmenuOverlay, SubmenuEntry, SubmenuOverlay } from '../../visual/SubmenuOverlay';
 import { showBackupReminderOverlay } from '../../ui/ProfileTransferOverlay';
 import {
   loadLastExportAt, loadLastNudgeAt, saveLastNudgeAt, shouldShowBackupNudge,
@@ -103,6 +104,7 @@ export class BootScene extends Phaser.Scene {
   private confirmationOverlay: Phaser.GameObjects.Container | null = null;
   private confirmationNavigator: MenuNavigator | null = null;
   private metaTooltip: Phaser.GameObjects.Container | null = null;
+  private submenu: SubmenuOverlay | null = null;
   private tooltipEscHandler: ((event: KeyboardEvent) => void) | null = null;
   private selectedFocusIndex: number = 0;
   private focusEntries: FocusEntry[] = [];
@@ -163,6 +165,7 @@ export class BootScene extends Phaser.Scene {
     this.confirmationOverlay = null;
     this.confirmationNavigator = null;
     this.metaTooltip = null;
+    this.submenu = null;
     this.tooltipEscHandler = null;
     this.titleTicker = null;
     this.updateHandler = null;
@@ -1539,8 +1542,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   // ═══════════════════════════════════════════════════════════════════════
-  //  PROGRESSION DECK — 5 small square cards in a row.
-  //  (5 × 96 + 4 × 22 = 568 px at scale 1 — comfortably inside 1280.)
+  //  PROGRESSION DECK — one row of square cards: SHOP, COLLECT, CHART and the
+  //  game modes. The collection screens live behind COLLECT.
   // ═══════════════════════════════════════════════════════════════════════
 
   private createProgressionDeck(opts: {
@@ -1572,6 +1575,12 @@ export class BootScene extends Phaser.Scene {
       onSkirmish, onGauntlet, onRunner, onPractice, onSurprise,
     } = opts;
 
+    const submenuAction = (run: () => void) => () => {
+      this.soundManager.playUIClick();
+      this.closeSubmenu();
+      run();
+    };
+
     interface DeckEntry {
       label: string;
       iconKey: string;
@@ -1592,49 +1601,37 @@ export class BootScene extends Phaser.Scene {
         iconTint: 0xffe2a0,
       },
       {
-        label: 'ACHIEVE',
+        // COLLECTION group (FEAT-MENU-SUBMENU-KIT) — achievements, codex, cards,
+        // leaderboards and paint sit one tap deeper so the deck row stays wide
+        // enough to hit on a phone.
+        label: 'COLLECT',
         iconKey: 'trophy',
         bodyHex: COLORS.bodyTeal,
         accentHex: COLORS.accentTeal,
-        action: onAchievements,
         badge: questBadge,
         iconTint: 0xaaffee,
-      },
-      {
-        label: 'CODEX',
-        iconKey: 'book',
-        bodyHex: COLORS.bodyMagenta,
-        accentHex: COLORS.accentMagenta,
-        action: onCodex,
-        iconTint: 0xeebbff,
-      },
-      {
-        // Card archive — safe-green keeps every deck entry role-distinct
-        // (gold/teal/magenta/green/blue).
-        label: 'CARDS',
-        iconKey: 'gem',
-        bodyHex: COLORS.bodySafe,
-        accentHex: COLORS.accentSafe,
-        action: onCards,
-        iconTint: 0xaaffcc,
-      },
-      {
-        label: 'LEADERS',
-        iconKey: 'crown',
-        bodyHex: COLORS.bodyPrimary,
-        accentHex: COLORS.accentPrimary,
-        action: onLeaderboard,
-        iconTint: 0xbbddff,
-      },
-      {
-        // Ship-paint picker (FEAT-SHIP-PAINT-PICKER) — a cosmetic/meta screen,
-        // sweeps like the other meta cards.
-        label: 'PAINT',
-        iconKey: 'aura',
-        bodyHex: COLORS.bodyMagenta,
-        accentHex: COLORS.accentMagenta,
-        action: onPaint,
-        iconTint: 0xffbbff,
+        action: () => this.openSubmenu('COLLECTION', [
+          {
+            label: 'ACHIEVEMENTS', iconKey: 'trophy', accentRole: 'teal',
+            badge: questBadge, iconTint: 0xaaffee, action: submenuAction(onAchievements),
+          },
+          {
+            label: 'CODEX', iconKey: 'book', accentRole: 'magenta',
+            iconTint: 0xeebbff, action: submenuAction(onCodex),
+          },
+          {
+            label: 'CARDS', iconKey: 'gem', accentRole: 'safe',
+            iconTint: 0xaaffcc, action: submenuAction(onCards),
+          },
+          {
+            label: 'LEADERBOARDS', iconKey: 'crown', accentRole: 'primary',
+            iconTint: 0xbbddff, action: submenuAction(onLeaderboard),
+          },
+          {
+            label: 'PAINT', iconKey: 'aura', accentRole: 'magenta',
+            iconTint: 0xffbbff, action: submenuAction(onPaint),
+          },
+        ]),
       },
       {
         // Expedition seasons (FEAT-EXPEDITION-SEASONS): the profile's world and the
@@ -1702,7 +1699,7 @@ export class BootScene extends Phaser.Scene {
       },
     ];
 
-    // Fit-to-width: 7 cards at the design width (7×96 + 6×22 = 804 units)
+    // Fit-to-width: 8 cards at the design width (8×96 + 7×22 = 922 units)
     // overflow the 720-unit portrait row, so shrink width+gap proportionally
     // when needed. Landscape (1280) keeps the design size untouched.
     const usableRowWidth = this.scale.width - scaledInt(layoutScale, 24);
@@ -1972,8 +1969,27 @@ export class BootScene extends Phaser.Scene {
     }
   }
 
+  private openSubmenu(title: string, entries: SubmenuEntry[]): void {
+    if (this.submenu) return;
+    this.pauseMainNavigator();
+    this.submenu = createSubmenuOverlay({
+      scene: this,
+      title,
+      entries,
+      onClose: () => this.closeSubmenu(),
+    });
+  }
+
+  private closeSubmenu(): void {
+    if (!this.submenu) return;
+    this.submenu.destroy();
+    this.submenu = null;
+    this.resumeMainNavigator();
+  }
+
   private isOverlayOpen(): boolean {
-    return this.confirmationOverlay !== null || this.metaTooltip !== null;
+    return this.confirmationOverlay !== null || this.metaTooltip !== null
+      || this.submenu !== null;
   }
 
   private attachFocusableInteraction(
@@ -2303,6 +2319,8 @@ export class BootScene extends Phaser.Scene {
     }
     this.metaTooltip?.destroy();
     this.metaTooltip = null;
+    this.submenu?.destroy();
+    this.submenu = null;
 
     for (const card of this.cards) card.destroy();
     this.cards = [];
