@@ -105,6 +105,7 @@ export const WORLD_GEOMETRY_COLORS = {
   breakable: { fill: 0x1e1408, stroke: 0xcc8833 },
   gate:      { fill: 0x140a20, stroke: 0xaa44ff },
   hazard:    { fill: 0x2a1206, stroke: 0xff6622 },
+  voidGap:   { fill: 0x02060a, stroke: 0x22ddcc },
 } as const;
 
 /**

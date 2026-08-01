@@ -117,6 +117,8 @@ function isSolidForMotion(
   const kind = tileKindAt(world, globalTileX, globalTileY);
   if (kind === -1) return true;
   if (kind === TileKind.Open || kind === TileKind.HazardFloor) return false;
+  // A gap is a hole in the floor, not a wall: a shot flies over it, a hull does not.
+  if (kind === TileKind.VoidGap) return moverKind !== MoverKind.Projectile;
   if (kind !== TileKind.GateClosed) return true;
   if (moverKind === MoverKind.Enemy) return true;
   const membrane = oneWayEdgeAt(world, globalTileX, globalTileY);
@@ -140,6 +142,7 @@ export function isSolidAtWorld(
   const kind = tileKindAt(world, globalTileX, globalTileY);
   if (kind === -1) return true;
   if (kind === TileKind.Open || kind === TileKind.HazardFloor) return false;
+  if (kind === TileKind.VoidGap) return moverKind !== MoverKind.Projectile;
   if (kind !== TileKind.GateClosed) return true;
   if (moverKind !== MoverKind.Projectile) return true;
   return oneWayEdgeAt(world, globalTileX, globalTileY) === null;

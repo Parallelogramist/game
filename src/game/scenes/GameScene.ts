@@ -63,6 +63,7 @@ import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectH
 import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { sectorTagsOf } from '../../world/sectorTags';
 import { isSecretShellIntact, secretShellRingIndices } from '../../world/sectorInterior';
+import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
 import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
@@ -439,6 +440,7 @@ const apertureSpawnSpot = { x: 0, y: 0 };
 const blinkCollisionResult = createCollisionResult();
 const blinkDirection = { x: 0, y: 0 };
 const BLINK_DRIVE_ID = 'ability_blink_drive';
+const MAGNO_TETHER_ID = 'ability_magno_tether';
 const THERMAL_WARD_ID = 'ability_thermal_ward';
 const SIGNAL_DECRYPTOR_ID = 'ability_signal_decryptor';
 
@@ -716,6 +718,16 @@ export class GameScene extends Phaser.Scene {
   private breachChargeX = 0;
   private breachChargeY = 0;
   private breachChargeDetonatesAt = 0;
+  /** Doc 04 section 2 row 3. sprintLevel is the tether's synergy hook and shortens the
+   *  re-arm; at that upgrade's maxLevel of 5 it lands exactly on the floor. */
+  private static readonly TETHER_COOLDOWN_BASE_SECONDS = 1.2;
+  private static readonly TETHER_COOLDOWN_MIN_SECONDS = 0.5;
+  private static readonly TETHER_COOLDOWN_PER_SPRINT_LEVEL = 0.14;
+  private tetherReadyAt = 0;
+  /** A world puts the ship back against the same chasm many times in one run, so the notice
+   *  re-arms on run time rather than per gap. */
+  private static readonly VOID_GAP_NOTICE_REANNOUNCE_SECONDS = 25;
+  private voidGapNoticeAt = Number.NEGATIVE_INFINITY;
 
   /** Armed, not zeroed, so entering a strip costs a tick immediately: a 3-tile strip crossed
    *  at base speed would otherwise be free. */
@@ -1524,6 +1536,8 @@ export class GameScene extends Phaser.Scene {
     this.sealedDoorNoticeAt = 0;
     this.breachChargeBarrierId = null;
     this.breachChargeDetonatesAt = 0;
+    this.tetherReadyAt = 0;
+    this.voidGapNoticeAt = Number.NEGATIVE_INFINITY;
     this.isGameOver = false;
     this.isPaused = false;
     // Scene restarts reuse this instance — a restart IS the flip's relayout,
@@ -6311,7 +6325,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.toastManager?.showToast({
       title: lead.fragment.title.toUpperCase(),
-      description: [lead.riddle, lead.sigils, lead.wall].filter(Boolean).join('  '),
+      description: [lead.riddle, lead.sigils, lead.wall, lead.gap].filter(Boolean).join('  '),
       icon: lead.fragment.icon,
       color: WORLD_GEOMETRY_COLORS.breakable.stroke,
       duration: 4600,
@@ -6582,6 +6596,79 @@ export class GameScene extends Phaser.Scene {
     this.soundManager.playUIClick();
   }
 
+  /** sprintLevel is the tether's synergy hook (doc 04 section 2 row 3): the reel re-arms
+   *  faster. The floor only bites if that upgrade's maxLevel is ever raised past 5. */
+  private magnoTetherCooldownSeconds(): number {
+    return Math.max(
+      GameScene.TETHER_COOLDOWN_MIN_SECONDS,
+      GameScene.TETHER_COOLDOWN_BASE_SECONDS
+        - GameScene.TETHER_COOLDOWN_PER_SPRINT_LEVEL
+          * getMetaProgressionManager().getUpgradeLevel('sprintLevel'),
+    );
+  }
+
+  /**
+   * Doc 04 section 2 row 3, the crossing half. The hop is instant, the tryBlink precedent: a
+   * ship suspended over a chasm would be a state the run save, the boss seal and the death
+   * path each need an answer for, and the reel is over in less time than any of them notices.
+   *
+   * The heading is Velocity, not an aim stick, the breach-charge precedent: a pressable
+   * ability would have to reach all three input paths plus a cooldown readout, which is a
+   * HUD-layout change larger than the feature.
+   */
+  private tryMagnoTether(map: WorldMap, playerX: number, playerY: number): void {
+    if (!this.ownedTraversalAbilityIds.has(MAGNO_TETHER_ID)) {
+      this.reportVoidGap(map, playerX, playerY);
+      return;
+    }
+    if (this.gameTime < this.tetherReadyAt) return;
+
+    const crossing = findTetherCrossing(
+      map, playerX, playerY, Velocity.x[this.playerId], Velocity.y[this.playerId],
+    );
+    if (crossing === null) return;
+
+    Transform.x[this.playerId] = crossing.x;
+    Transform.y[this.playerId] = crossing.y;
+    clampPlayerToRect(this.world, this.playerId, this.worldMode.fieldRect());
+    this.tetherReadyAt = this.gameTime + this.magnoTetherCooldownSeconds();
+
+    const ghostCount = TUNING.player.blinkGhostCount;
+    for (let ghost = 0; ghost < ghostCount; ghost++) {
+      const along = ghost / (ghostCount - 1);
+      this.spawnDashAfterimage(
+        playerX + (crossing.x - playerX) * along,
+        playerY + (crossing.y - playerY) * along,
+      );
+    }
+    this.effectsManager.playHitSparks(crossing.anchorX, crossing.anchorY, 0);
+    this.cameras.main.shake(70, 0.002);
+    this.soundManager.playSynergyActivation();
+  }
+
+  /** Names the key the way a sealed door and a hazard strip already do: a barrier is only
+   *  fair if the player can learn what answers it. */
+  private reportVoidGap(map: WorldMap, playerX: number, playerY: number): void {
+    if (this.gameTime - this.voidGapNoticeAt
+      < GameScene.VOID_GAP_NOTICE_REANNOUNCE_SECONDS) return;
+    if (!voidGapNearWorld(map, playerX, playerY)) return;
+    this.voidGapNoticeAt = this.gameTime;
+
+    const definition = getTraversalAbility(MAGNO_TETHER_ID);
+    this.effectsManager.showDamageNumber(
+      playerX, playerY - 26, 'VOID GAP', WORLD_GEOMETRY_COLORS.voidGap.stroke,
+    );
+    this.toastManager?.showToast({
+      title: 'VOID GAP',
+      description: definition
+        ? `${definition.name} would reel the ship across.`
+        : 'Nothing the ship carries crosses this.',
+      icon: 'chain',
+      color: WORLD_GEOMETRY_COLORS.voidGap.stroke,
+      duration: 2800,
+    });
+  }
+
   /**
    * Doc 03 section 4.5's Metroid moment, delivered at the door instead of in a map tooltip:
    * a sealed door names what opens it the first time the ship comes near it.
@@ -6739,6 +6826,7 @@ export class GameScene extends Phaser.Scene {
       this.tryOpenAbilityDoor(map, playerX, playerY);
       this.tryOpenQuestDoor(map, playerX, playerY);
       this.updateBreachCharges(map, playerX, playerY);
+      this.tryMagnoTether(map, playerX, playerY);
       this.reportSealedDoor(map, playerX, playerY);
     }
     this.updateHazardFloorDamage(map, playerX, playerY, deltaSeconds);

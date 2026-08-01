@@ -23,6 +23,10 @@ const HINT_CANDIDATE_POOL = 3;
  *  cannot word it differently. */
 export const WALLED_CACHE_SENTENCE = 'It is sealed behind cracked rock: break in.';
 
+/** What a lead says about a gapped cache. Exported for the same reason the walled sentence
+ *  is: the map panel and the in-run toast must not word it differently. */
+export const GAPPED_CACHE_SENTENCE = 'A void gap rings it: only the Magno-Tether crosses.';
+
 export interface SecretHintInputs {
   map: WorldMap;
   /** Secrets already FOUND or HINTED. Neither is worth pointing at again. */
@@ -45,6 +49,8 @@ export interface SecretLead {
   sigils?: string;
   /** Present only when the named cache is walled in rather than ringed. */
   wall?: string;
+  /** Present only when the named cache sits behind a void gap. */
+  gap?: string;
 }
 
 export function findSecretSector(map: WorldMap, secretId: string): SectorDef | null {
@@ -131,6 +137,8 @@ export function buildSecretLead(map: WorldMap, secretId: string): SecretLead | n
   if (!sector) return null;
   const walled = sector.poiSlots.some(
     slot => slot.id === secretId && slot.sealed === true);
+  const gapped = sector.poiSlots.some(
+    slot => slot.id === secretId && slot.gapped === true);
   const puzzle = buildSecretPuzzle({
     worldSeed: map.seed, secretId, depth: sector.depth,
   });
@@ -142,6 +150,7 @@ export function buildSecretLead(map: WorldMap, secretId: string): SecretLead | n
     riddle: describeSecretLocation(map, sector),
     ...(puzzle ? { sigils: describePuzzleSequence(puzzle) } : {}),
     ...(walled ? { wall: WALLED_CACHE_SENTENCE } : {}),
+    ...(gapped ? { gap: GAPPED_CACHE_SENTENCE } : {}),
   };
 }
 

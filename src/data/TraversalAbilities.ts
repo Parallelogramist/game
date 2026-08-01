@@ -60,7 +60,7 @@ export const TRAVERSAL_ABILITIES: readonly TraversalAbilityDefinition[] = [
   {
     id: 'ability_magno_tether',
     name: 'Magno-Tether',
-    description: 'Reel across void gaps between anchor pylons.',
+    description: 'Void gaps stop being walls: the tether reels the ship across.',
     icon: 'chain',
     barrierTypeId: 'barrier_void_gap',
     synergyUpgradeId: 'sprintLevel',
@@ -167,6 +167,7 @@ export function traversalAbilityIndex(id: string): number {
 export const IMPLEMENTED_TRAVERSAL_ABILITY_IDS: ReadonlySet<TraversalAbilityId> = new Set([
   'ability_blink_drive',
   'ability_breach_charges',
+  'ability_magno_tether',
   'ability_thermal_ward',
   'ability_signal_decryptor',
 ]);

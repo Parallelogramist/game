@@ -127,13 +127,15 @@ function expectedMouthTile(kind: EdgeKind): TileKind {
 }
 
 function floodTiles(
-  tiles: Uint8Array, seedX: number, seedY: number, breakablesPassable = false
+  tiles: Uint8Array, seedX: number, seedY: number,
+  breakablesPassable = false, gapsPassable = false
 ): Set<number> {
   const reached = new Set<number>();
   const seedIndex = tileIndex(seedX, seedY);
   const passable = (index: number) =>
     tiles[index] === TileKind.Open || tiles[index] === TileKind.HazardFloor
-    || (breakablesPassable && tiles[index] === TileKind.Breakable);
+    || (breakablesPassable && tiles[index] === TileKind.Breakable)
+    || (gapsPassable && tiles[index] === TileKind.VoidGap);
   if (!passable(seedIndex)) return reached;
   reached.add(seedIndex);
   const queue = [seedIndex];
@@ -250,12 +252,12 @@ describe('invariant 4 — no one-way soft-lock', () => {
 });
 
 describe('invariant 5 — interior connectivity', () => {
-  it('connects every entry tile and POI tile within each sector', () => {
+  it('connects every entry tile and POI tile once rubble and gaps can be crossed', () => {
     for (const map of WORLDS) {
       for (const sector of map.sectors.values()) {
         const seed = firstEntryTile(sector);
         expect(seed).toBeDefined();
-        const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY, true);
+        const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY, true, true);
         for (const direction of EDGE_DIRECTIONS) {
           const entry = sector.entryTiles[direction];
           if (entry) expect(reached.has(tileIndex(entry.tileX, entry.tileY))).toBe(true);
@@ -269,7 +271,7 @@ describe('invariant 5 — interior connectivity', () => {
 
   // The only POI a wall may stand in front of is a sealed cache: a shell is the one pass that
   // puts breakable tiles between an entry tile and a slot, and it must never reach another.
-  it('leaves only sealed caches behind breakable tiles', () => {
+  it('leaves only sealed and gapped caches unreachable on foot', () => {
     const behindAWall: string[] = [];
     for (const map of WORLDS) {
       for (const sector of map.sectors.values()) {
@@ -282,9 +284,11 @@ describe('invariant 5 — interior connectivity', () => {
         for (const slot of sector.poiSlots) {
           if (reached.has(tileIndex(slot.tileX, slot.tileY))) {
             expect(slot.sealed).not.toBe(true);
+            expect(slot.gapped).not.toBe(true);
             continue;
           }
-          if (slot.kind !== PoiKind.Secret || slot.sealed !== true) {
+          if (slot.kind !== PoiKind.Secret
+            || (slot.sealed !== true && slot.gapped !== true)) {
             behindAWall.push(`seed ${map.seed} sector ${sector.key} slot ${slot.id}`);
           }
         }
@@ -317,7 +321,8 @@ describe('invariant 6 — aperture and POI clearance', () => {
 
   it('leaves no blocking tile around any POI or entry tile', () => {
     const isBlocking = (kind: number) =>
-      kind === TileKind.Solid || kind === TileKind.Breakable || kind === TileKind.GateClosed;
+      kind === TileKind.Solid || kind === TileKind.Breakable
+      || kind === TileKind.GateClosed || kind === TileKind.VoidGap;
     const violations: string[] = [];
     for (const map of WORLDS) {
       for (const sector of map.sectors.values()) {
@@ -632,6 +637,61 @@ describe('invariant 11: sealed secret caches', () => {
         });
       }
     }
+  });
+});
+
+describe('invariant 12: void-gapped secret caches', () => {
+  it('rings every gapped cache with void tiles no weapon opens, and leaves a way back', () => {
+    const inBounds = (tileX: number, tileY: number) =>
+      tileX >= 0 && tileX < SECTOR_TILE_COLS && tileY >= 0 && tileY < SECTOR_TILE_ROWS;
+    let gapped = 0;
+    for (const map of WORLDS) {
+      for (const sector of map.sectors.values()) {
+        const breakableIndices = new Set<number>();
+        for (const rect of sector.breakables) {
+          for (let offsetY = 0; offsetY < rect.tileH; offsetY++) {
+            for (let offsetX = 0; offsetX < rect.tileW; offsetX++) {
+              breakableIndices.add(tileIndex(rect.tileX + offsetX, rect.tileY + offsetY));
+            }
+          }
+        }
+        for (const slot of sector.poiSlots) {
+          if (slot.gapped !== true) continue;
+          gapped++;
+          expect(slot.kind).toBe(PoiKind.Secret);
+          expect(slot.sealed).not.toBe(true);
+          expect(sector.isBossArena).toBe(false);
+          for (let tileY = slot.tileY - 1; tileY <= slot.tileY + 1; tileY++) {
+            for (let tileX = slot.tileX - 1; tileX <= slot.tileX + 1; tileX++) {
+              expect(sector.tiles[tileIndex(tileX, tileY)]).toBe(TileKind.Open);
+            }
+          }
+          const ring = secretShellRingIndices(slot.tileX, slot.tileY);
+          expect(ring).toHaveLength(16);
+          let voidCells = 0;
+          for (const index of ring) {
+            const kind = sector.tiles[index];
+            expect(kind === TileKind.Solid || kind === TileKind.VoidGap).toBe(true);
+            // A registered breakable in the ring would be a hole any weapon opens, and the
+            // tether would stop being the key.
+            expect(breakableIndices.has(index)).toBe(false);
+            if (kind === TileKind.VoidGap) voidCells++;
+          }
+          expect(voidCells).toBeGreaterThan(0);
+          const crossings = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([stepX, stepY]) => {
+            const outerX = slot.tileX + stepX * 3;
+            const outerY = slot.tileY + stepY * 3;
+            if (!inBounds(outerX, outerY)) return false;
+            const outer = sector.tiles[tileIndex(outerX, outerY)];
+            return sector.tiles[tileIndex(slot.tileX + stepX * 2, slot.tileY + stepY * 2)]
+                === TileKind.VoidGap
+              && (outer === TileKind.Open || outer === TileKind.HazardFloor);
+          });
+          expect(crossings.length).toBeGreaterThan(0);
+        }
+      }
+    }
+    expect(gapped).toBeGreaterThan(50);
   });
 });
 

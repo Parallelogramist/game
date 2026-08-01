@@ -35,6 +35,12 @@ function hazardStyleOf(tileKind: number): TileStyle | null {
   return tileKind === TileKind.HazardFloor ? WORLD_GEOMETRY_COLORS.hazard : null;
 }
 
+/** Floor, not wall, for the same reason a hazard strip is: styleOf drives blocksAt and the
+ *  outline pass, and a gap must not grow wall faces or steal a neighbouring wall's edge. */
+function voidStyleOf(tileKind: number): TileStyle | null {
+  return tileKind === TileKind.VoidGap ? WORLD_GEOMETRY_COLORS.voidGap : null;
+}
+
 /**
  * Draws the expedition world's blocking tiles, plus HazardFloor strips as an outlined floor
  * wash (FEAT-BARRIER-HAZARD-STRIPS): they cost hull to cross, so they have to be legible
@@ -95,6 +101,7 @@ export class WorldGeometryRenderer {
     const originY = sector.sy * SECTOR_HEIGHT;
     this.fillRuns(sector, originX, originY, styleOf, false);
     this.fillRuns(sector, originX, originY, hazardStyleOf, true);
+    this.fillRuns(sector, originX, originY, voidStyleOf, true);
     this.outlineSector(sector, originX, originY);
   }
 
