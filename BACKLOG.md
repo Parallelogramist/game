@@ -750,7 +750,8 @@ unblocked band-2 item that carried information rather than motion, and it shippe
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
 `FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`,
 `BALANCE-BREACH-CHARGE-FUSE`, `FEAT-MAPUI-CURSOR-KEYBOARD`,
-`POLISH-MAP-DETAIL-BAR-PORTRAIT`,
+`POLISH-MAP-DETAIL-BAR-PORTRAIT`, `POLISH-MAP-HEADER-PORTRAIT`,
+`FEAT-SEASON-BANKED-LIST-SURFACE`, the play-gated `BALANCE-CHART-CHASE-THRESHOLDS`,
 `POLISH-RADAR-WAYPOINT-LABEL`,
 `CHORE-RADAR-WAYPOINT-EVENT-REFRESH`,
 plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`, and the
@@ -778,9 +779,11 @@ candidate: the play-gated `BALANCE-BARRIER-CONTACT-INTERVAL` (the 0.5 s interval
 than played) and the operator-gated `FEAT-BARRIER-BREACH-REST` (whether emanating weapons should
 chip incidentally is an operator call).
 `FEAT-EXPEDITION-SEASONS` has now shipped at `fd406d3` and filed three cuts, none
-of them a candidate: the operator-gated `BALANCE-SEASON-GATE-CARRYOVER`, plus
-`FEAT-SEASON-RECORD-SURFACE` and `FEAT-SEASON-SEED-SHARE`, which both want UI budget the
-top band and the map header do not have. It **adds two items to the candidate list** by
+of them a candidate at the time: the operator-gated `BALANCE-SEASON-GATE-CARRYOVER`, plus
+`FEAT-SEASON-RECORD-SURFACE` and `FEAT-SEASON-SEED-SHARE`, which both wanted UI budget the
+top band and the map header did not have. `FEAT-SEASON-RECORD-SURFACE` has since shipped at
+20c8b6c by extending the map header in place instead of adding a row, and files
+`FEAT-SEASON-BANKED-LIST-SURFACE` in its place. It **adds two items to the candidate list** by
 discharging their only dep: `FEAT-SECRET-LORE-CATALOG-DEPTH` and
 `FEAT-QUEST-SWEEP-WORLD-RESET-TELL`.
 `FEAT-EXPEDITION-RECALL` has now shipped at `183b2dc` and filed one cut,
@@ -797,6 +800,30 @@ candidates: `FEAT-DISCOVERY-BADGE-TICKER` and `POLISH-OBJECTIVE-PIN-PULSE`.
 Of those two, `FEAT-DISCOVERY-BADGE-TICKER` has now shipped at `4c96168` alongside
 `CHORE-SECRET-LEAD-TICKER`, so the candidate list gains `POLISH-TICKER-LEAD-SIGILS` and the
 play-gated `BALANCE-TICKER-ROW-CADENCE` and loses both of those names.
+
+**20c8b6c put a reward at the end of the map.** Fourteen sessions built the exploration
+layer and three of its axes each carried a lifetime counter behind two hidden unlocks and two
+ship paints; the map itself carried none. `checkMapCompletionMilestone` toasted at 25 / 50 /
+75 / 100 percent charted and nothing else in the repo read the completion percent again, so
+bringing a 48-sector world with 26 secret slots to 100% paid a line of text that lived 3.2
+seconds. New `LifetimeStats.bestWorldCompletionPercent` is written by the two places that
+already knew the number, `bindExpeditionDiscovery` (so a profile that charted before this
+shipped is correct on its first bind, with no storage key needed) and `discoveryPulseHandler`
+(on every find that moves it), and `unlock_deep_survey` at 50 and `unlock_world_charted` at 100
+hang `cosmetic_deep_survey` and `cosmetic_charted_world` off it. **The record is a monotone max
+and that is the chunk's one invariant**: banking a world rolls a new seed and the discovery
+store is keyed on `(seed, worldGenVersion)`, so the live percent falls to 0 at the exact moment
+the player finishes the world that set the record. Both conditions carry `getProgress`, so the
+vault UNLOCKS tab, the paint picker and the post-run CLOSEST TO UNLOCK panel render them with
+no wiring at all. It closes `FEAT-SEASON-RECORD-SURFACE` on the way: the map header now reads
+`WORLD 3  ·  12 / 48 SECTORS  ·  34%  ·  BEST 78%`, paying for the two new clauses by
+shortening `SECTORS EXPLORED`, and a new EXPLORATION section on the codex Statistics tab
+surfaces the banked-world count, the best chart and the three exploration counters that had no
+reader anywhere in the game. It touches no gold, no relic roll and no reward-table row, so
+`FEAT-ECON-WARDS` stays parked and untouched. It files `BALANCE-CHART-CHASE-THRESHOLDS`,
+`POLISH-MAP-HEADER-PORTRAIT` and `FEAT-SEASON-BANKED-LIST-SURFACE`. No storage key, no
+`SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing
+profile lights it up the moment the build lands.
 
 ## Proposed (auto)
 
@@ -4737,14 +4764,61 @@ exploring pays is the end of Phase 5.
   abilities away) is the extract-to-keep model doc 04 section 7 explicitly rejects. Do not
   decide this in an agent session. Deps: an operator call.
 
-- [ ] **FEAT-SEASON-RECORD-SURFACE** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS): the
-  banked seasons read only inside the CHART confirmation, so a player has to open a
-  destructive dialog to look at their record. A permanent home (a meta chip beside WORLD /
-  ASC / STREAK, or a line on the map header) was cut for the reason
-  `FEAT-QUEST-SIEGE-HUD-TELL` and `POLISH-DECRYPTOR-ACTIVE-BUTTON` were: both of those
-  bands are already at their layout budget, and a new row is a layout change larger than
-  the feature. Value: the completion chase is visible without reaching for the button that
-  ends it. Deps: none.
+- [x] **FEAT-SEASON-RECORD-SURFACE** (done, 20c8b6c) (new 2026-08-01, from
+  FEAT-EXPEDITION-SEASONS): the banked seasons read only inside the CHART confirmation, so a
+  player had to open a destructive dialog to look at their record. The layout budget that cut
+  it is gone two ways. The map header extends in place rather than gaining a row: it now reads
+  `WORLD 3  ·  12 / 48 SECTORS  ·  34%  ·  BEST 78%`, paying for the two new clauses by
+  shortening `SECTORS EXPLORED` to `SECTORS`, and the BEST clause is omitted while the live
+  world is itself the record. The codex Statistics tab gains an EXPLORATION section carrying
+  the banked-world count, the best chart, and the three exploration counters that had no
+  reader anywhere. The per-world banked list stays in the CHART dialog, filed as
+  `FEAT-SEASON-BANKED-LIST-SURFACE`. Value: the completion chase is visible without reaching
+  for the button that ends it.
+
+- [x] **FEAT-EXPEDITION-CHART-CHASE** (done, 20c8b6c) (new 2026-08-01): charting a world
+  finally pays. Every other exploration axis carried a lifetime counter behind two hidden
+  unlocks and two ship paints (`secretsFoundTotal`, `hiddenSectorsFoundTotal`,
+  `loreFragmentsFound`); the map itself carried none, so `checkMapCompletionMilestone` fired a
+  3.2 s toast at 25 / 50 / 75 / 100 percent and nothing in the repo read the completion percent
+  again. New `LifetimeStats.bestWorldCompletionPercent` is written by the two places that
+  already knew it (`bindExpeditionDiscovery`, so an existing profile is correct on its first
+  bind, and `discoveryPulseHandler`, on every find that moves the number), and two conditions
+  read it at 50 and 100 with `cosmetic_deep_survey` and `cosmetic_charted_world` behind them.
+  **The record is a monotone max and that is the one invariant**: banking a world rolls a new
+  seed, `DiscoveryManager` is keyed on `(seed, worldGenVersion)`, so the live percent drops to
+  0 at the exact moment the player finishes the world that set the record, and an assignment
+  would erase it with nothing going red. Both unlocks carry `getProgress`, so the vault UNLOCKS
+  tab, the paint picker's locked cards and the post-run CLOSEST TO UNLOCK panel render them
+  with no wiring. It touches no gold, no relic roll and no reward table, so `FEAT-ECON-WARDS`
+  stays parked. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no
+  `DISCOVERY_VERSION` bump. Value: the largest act of exploration in the game is a goal with a
+  reward at the end of it instead of a toast that scrolls away.
+
+- [ ] **BALANCE-CHART-CHASE-THRESHOLDS** (new 2026-08-01, from FEAT-EXPEDITION-CHART-CHASE):
+  50% and 100% are designed rungs, unmeasured in a browser. The open question is whether 100%
+  is reachable on a median world at all: `getCompletionPercent` divides by knowable sectors
+  plus every secret id, secret slots measured 12 to 34 across 101 seeds, and a quest door can
+  seal a region behind a chain the player may not finish. If a median world cannot be closed,
+  the crest is a paint nobody earns rather than an endgame chase. Value: a 100% chase that can
+  actually be finished. Deps: none, but it wants play and a seed sweep, not a guess.
+
+- [ ] **POLISH-MAP-HEADER-PORTRAIT** (new 2026-08-01, from FEAT-EXPEDITION-CHART-CHASE): the
+  map header subtitle gained two clauses (`WORLD n` and `BEST n%`) and a `wordWrapWidth` as the
+  safety valve, so on a narrow portrait phone it may take two lines. `makeBodyText` centres on
+  origin (0.5, 0.5) at y 72, so a wrapped block spans roughly y 54 to 90 while the OBJECTIVES
+  panel starts at `HEADER_HEIGHT + 12` = 88. The panel is drawn after and is opaque, so the
+  worst case is two pixels of the subtitle hidden behind it rather than text running off the
+  edge, which is what the wrap replaced. Pairs with `POLISH-MAP-DETAIL-BAR-PORTRAIT`. Value: a
+  header that reads on a phone. Deps: none, but it wants a browser at a real portrait width.
+
+- [ ] **FEAT-SEASON-BANKED-LIST-SURFACE** (new 2026-08-01, from FEAT-EXPEDITION-CHART-CHASE):
+  the per-world banked list (`Banked: W1 42%  ·  W2 67%`, last five only) still reads solely
+  inside the CHART confirmation. `FEAT-EXPEDITION-CHART-CHASE` moved the count and the best
+  chart out of that dialog, which is the part that drives the chase; the rows themselves were
+  left because `MAX_BANKED_SEASONS` is 20 and a 20-row list wants its own scrolling panel
+  rather than a codex stats row. Value: a per-world history worth keeping is readable where
+  the rest of the record lives. Deps: none.
 
 - [ ] **FEAT-SEASON-SEED-SHARE** (new 2026-08-01, from FEAT-EXPEDITION-SEASONS):
   `references/map/README.md` section 6's seed-sharing bullet is now one text field away,

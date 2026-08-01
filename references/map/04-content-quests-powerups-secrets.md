@@ -802,9 +802,9 @@ Three tiers, cheapest first:
   `survivor-secrets-found` (new key in `ALL_STORAGE_KEYS`), owned by a small pure
   `SecretLedger` module.
 - **Consequences flow through the systems that already exist.** `LifetimeStats`
-  (`src/achievements/AchievementTypes.ts:224`) carries `secretsFoundTotal` and
-  `hiddenSectorsFoundTotal` (both shipped) and still wants `loreFragmentsFound`, which
-  `FEAT-SECRET-LORE` owns. New `HiddenUnlocks` conditions (`src/meta/HiddenUnlocks.ts:82+`,
+  (`src/achievements/AchievementTypes.ts:224`) carries four exploration counters, all shipped:
+  `secretsFoundTotal`, `hiddenSectorsFoundTotal`, `loreFragmentsFound` (`FEAT-SECRET-LORE`) and
+  `bestWorldCompletionPercent` (`FEAT-EXPEDITION-CHART-CHASE`). New `HiddenUnlocks` conditions (`src/meta/HiddenUnlocks.ts:82+`,
   key `hiddenUnlocksV1`) predicate on them, with `getProgress()` so they surface
   in the vault ACHIEVEMENTS tab, and stages keep gating with the existing
   `hidden:<conditionId>` mechanism. Secrets get no unlock system, no toast system
@@ -1072,6 +1072,33 @@ Three tiers, cheapest first:
 - **Cut deliberately:** the animated cascade of newly revealed outlines (doc 03 section 7) stays
   with `FEAT-DISCOVERY-FEEDBACK-07`, which already owns "fragment cascades". Nothing was filed
   twice for it.
+
+### As built (`FEAT-EXPEDITION-CHART-CHASE`, 20c8b6c, 2026-08-01)
+
+The map itself became the fourth exploration axis to pay. `LifetimeStats` gains
+`bestWorldCompletionPercent`, the highest completion percent ever reached in a single
+expedition world, and two conditions read it: `unlock_deep_survey` at 50 with
+`cosmetic_deep_survey`, and `unlock_world_charted` at 100 with `cosmetic_charted_world`.
+
+1. **The record is a monotone max, never an assignment.** `bankSeasonAndRoll` gives the profile
+   a fresh seed and `DiscoveryManager` is keyed on `(seed, worldGenVersion)`, so the live
+   percent drops to 0 the moment the player banks the world that set the record. The recorder
+   returns early on anything not greater than what is stored, mirroring `setLoreFragmentsFound`,
+   and clamps to 100 so a future denominator change cannot brick either threshold.
+2. **Two writers, both already holding the number**: `bindExpeditionDiscovery`, which is why a
+   profile that charted before this shipped is correct on its first bind and no storage key was
+   needed, and `discoveryPulseHandler`, on every find that moves the percent.
+   `checkMapCompletionMilestone` takes the percent as an argument rather than recomputing it,
+   so one read serves the record, the milestone and nothing else.
+3. **No mode flag.** `bindExpeditionDiscovery` returns early when there is no world map, so
+   arena, daily, gauntlet and practice are excluded for free, and the recorder is a max over
+   the profile's own discovery state, so no mode can inflate it past what that state says.
+4. **The unlocks fire at run end**, through the shipped `evaluatePostRun`, exactly as every
+   other exploration unlock does. Both carry `getProgress`, so the post-run CLOSEST TO UNLOCK
+   panel tracks the chase without a line of new UI.
+5. **Nothing in the reward economy moved**: no gold, no relic roll, no reward-table row, so
+   `FEAT-ECON-WARDS` stays parked. The record surface is the map header extended in place plus
+   a new EXPLORATION section on the codex Statistics tab.
 
 ---
 
