@@ -1457,6 +1457,7 @@ export class GameScene extends Phaser.Scene {
     Transform.y[this.playerId] = home.y;
     Velocity.x[this.playerId] = 0;
     Velocity.y[this.playerId] = 0;
+    this.clearPlayerKnockback();
     // The container as well as the Transform, the restoreGameState precedent: the adapter
     // reads the container to decide which sector the ship is in, and the camera follows it.
     this.playerSpaceship.getContainer().setPosition(home.x, home.y);
@@ -3729,6 +3730,7 @@ export class GameScene extends Phaser.Scene {
     addComponent(this.world, Health, entityId);
     addComponent(this.world, PlayerTag, entityId);
     addComponent(this.world, SpriteRef, entityId);
+    addComponent(this.world, Knockback, entityId);
 
     // Restore transform
     Transform.x[entityId] = entity.transform.x;
@@ -3741,6 +3743,12 @@ export class GameScene extends Phaser.Scene {
       Velocity.y[entityId] = entity.velocity.y;
       Velocity.speed[entityId] = entity.velocity.speed;
     }
+
+    // Not restored, deliberately: the save has no player knockback field (serializeEnemy
+    // is the only writer of one), and a mid-shove resume should start the ship at rest.
+    Knockback.velocityX[entityId] = 0;
+    Knockback.velocityY[entityId] = 0;
+    Knockback.decay[entityId] = 0.001;
 
     // Restore health from playerStats (more reliable than entity data)
     Health.current[entityId] = this.playerStats.currentHealth;
@@ -6898,6 +6906,7 @@ export class GameScene extends Phaser.Scene {
     Transform.x[this.playerId] = blinkCollisionResult.x;
     Transform.y[this.playerId] = blinkCollisionResult.y;
     clampPlayerToRect(this.world, this.playerId, this.worldMode.fieldRect());
+    this.clearPlayerKnockback();
 
     this.damageCooldown = Math.max(this.damageCooldown, TUNING.player.blinkIframeSeconds);
     this.inputController.setDashCooldownTimer(this.blinkCooldownSeconds());
@@ -7054,6 +7063,7 @@ export class GameScene extends Phaser.Scene {
     Transform.x[this.playerId] = crossing.x;
     Transform.y[this.playerId] = crossing.y;
     clampPlayerToRect(this.world, this.playerId, this.worldMode.fieldRect());
+    this.clearPlayerKnockback();
     this.tetherReadyAt = this.gameTime + this.magnoTetherCooldownSeconds();
 
     const ghostCount = TUNING.player.blinkGhostCount;
@@ -7127,6 +7137,7 @@ export class GameScene extends Phaser.Scene {
     Transform.x[this.playerId] = breach.x;
     Transform.y[this.playerId] = breach.y;
     clampPlayerToRect(this.world, this.playerId, this.worldMode.fieldRect());
+    this.clearPlayerKnockback();
     this.damageCooldown = Math.max(this.damageCooldown, this.phaseCloakIframeSeconds());
 
     // Same two lines as onBarrierBroken: the geometry layer caches its drawn window and
@@ -8262,6 +8273,7 @@ export class GameScene extends Phaser.Scene {
 
     // Process knockback for enemies
     this.processKnockback(deltaSeconds);
+    this.processPlayerKnockback(deltaSeconds);
 
     // Keep player on screen
     if (this.playerId !== -1) {
@@ -8510,6 +8522,57 @@ export class GameScene extends Phaser.Scene {
       if (Math.abs(Knockback.velocityY[entityId]) < 1) {
         Knockback.velocityY[entityId] = 0;
       }
+    }
+  }
+
+  /**
+   * Cancels an in-flight shove. Called from every deliberate player relocation: a
+   * teleport that still drags the ship for a beat afterwards reads as the ability
+   * having failed.
+   */
+  private clearPlayerKnockback(): void {
+    Knockback.velocityX[this.playerId] = 0;
+    Knockback.velocityY[this.playerId] = 0;
+  }
+
+  /**
+   * Player half of processKnockback. Separate because the enemy loop's query requires
+   * EnemyTag and its body is enemy-shaped (enemy radius, enemy mover kind, the boss and
+   * phased-Wraith exemptions), none of which apply to the ship.
+   */
+  private processPlayerKnockback(deltaSeconds: number): void {
+    if (this.playerId === -1) return;
+
+    const velocityX = Knockback.velocityX[this.playerId];
+    const velocityY = Knockback.velocityY[this.playerId];
+    if (velocityX === 0 && velocityY === 0) return;
+
+    const nextX = Transform.x[this.playerId] + velocityX * deltaSeconds;
+    const nextY = Transform.y[this.playerId] + velocityY * deltaSeconds;
+    const worldMap = this.worldMode.worldMap();
+
+    if (worldMap) {
+      resolveCircleMove(
+        worldMap, Transform.x[this.playerId], Transform.y[this.playerId], nextX, nextY,
+        PLAYER_COLLISION_RADIUS, MoverKind.Player, knockbackCollisionResult,
+      );
+      Transform.x[this.playerId] = knockbackCollisionResult.x;
+      Transform.y[this.playerId] = knockbackCollisionResult.y;
+      if (knockbackCollisionResult.hitX) Knockback.velocityX[this.playerId] = 0;
+      if (knockbackCollisionResult.hitY) Knockback.velocityY[this.playerId] = 0;
+    } else {
+      Transform.x[this.playerId] = nextX;
+      Transform.y[this.playerId] = nextY;
+    }
+
+    const decayFactor = Math.pow(0.001, deltaSeconds);
+    Knockback.velocityX[this.playerId] *= decayFactor;
+    Knockback.velocityY[this.playerId] *= decayFactor;
+    if (Math.abs(Knockback.velocityX[this.playerId]) < 1) {
+      Knockback.velocityX[this.playerId] = 0;
+    }
+    if (Math.abs(Knockback.velocityY[this.playerId]) < 1) {
+      Knockback.velocityY[this.playerId] = 0;
     }
   }
 
@@ -10780,6 +10843,7 @@ export class GameScene extends Phaser.Scene {
     addComponent(this.world, Health, entityId);
     addComponent(this.world, PlayerTag, entityId);
     addComponent(this.world, SpriteRef, entityId);
+    addComponent(this.world, Knockback, entityId);
 
     // Set component values
     Transform.x[entityId] = x;
@@ -10789,6 +10853,12 @@ export class GameScene extends Phaser.Scene {
     Velocity.x[entityId] = 0;
     Velocity.y[entityId] = 0;
     Velocity.speed[entityId] = 200; // Pixels per second
+
+    // bitECS recycles entity ids and never clears a store on addComponent, so a fresh
+    // player can inherit the shove a dead enemy was carrying on that id.
+    Knockback.velocityX[entityId] = 0;
+    Knockback.velocityY[entityId] = 0;
+    Knockback.decay[entityId] = 0.001;
 
     // Seed health from the built stats, never a placeholder: syncStatsToPlayer only
     // ever clamps current HP *downward* (correct mid-run — new max HP must not heal
