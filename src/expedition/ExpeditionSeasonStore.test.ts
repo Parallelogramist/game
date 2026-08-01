@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   FIRST_EXPEDITION_WORLD_SEED,
+  NEXT_WORLD_CHOICE_COUNT,
   bankSeasonAndRoll,
   emptySeasonState,
   rollNextExpeditionSeed,
+  rollNextExpeditionSeedChoices,
   sanitizeSeasonState,
 } from './ExpeditionSeasonStore';
 
@@ -60,5 +62,29 @@ describe('expedition seasons', () => {
     expect(state.banked.length).toBe(20);
     expect(state.banked.every(season => season.completionPercent === 100)).toBe(true);
     expect(state.currentIndex).toBe(26);
+  });
+
+  it('offers distinct worlds and leads with the one the chain already dealt', () => {
+    const choices = rollNextExpeditionSeedChoices(FIRST_EXPEDITION_WORLD_SEED, 1);
+    expect(choices.length).toBe(NEXT_WORLD_CHOICE_COUNT);
+    // Index 0 is the contract: a player who always takes the first option must fly the
+    // exact chain the store dealt before choosing existed.
+    expect(choices[0]).toBe(rollNextExpeditionSeed(FIRST_EXPEDITION_WORLD_SEED, 1));
+    expect(new Set(choices).size).toBe(choices.length);
+    expect(choices.includes(FIRST_EXPEDITION_WORLD_SEED)).toBe(false);
+    expect(choices.every(seed => Number.isInteger(seed) && seed > 0)).toBe(true);
+    expect(rollNextExpeditionSeedChoices(FIRST_EXPEDITION_WORLD_SEED, 1)).toEqual(choices);
+    expect(rollNextExpeditionSeedChoices(FIRST_EXPEDITION_WORLD_SEED, 2)).not.toEqual(choices);
+  });
+
+  it('flies the chosen world, and never the world being left', () => {
+    const before = emptySeasonState();
+    const record = { completionPercent: 40, sectorsCharted: 20, secretsFound: 4 };
+    expect(bankSeasonAndRoll(before, record, 4242).currentSeed).toBe(4242);
+    expect(bankSeasonAndRoll(before, record, 4242).banked.length).toBe(1);
+    const rolled = rollNextExpeditionSeed(before.currentSeed, before.currentIndex);
+    for (const invalid of [0, -1, 1.5, Number.NaN, before.currentSeed]) {
+      expect(bankSeasonAndRoll(before, record, invalid).currentSeed).toBe(rolled);
+    }
   });
 });

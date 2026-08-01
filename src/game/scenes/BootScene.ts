@@ -57,9 +57,11 @@ import {
   beginNextExpeditionSeason,
   getBankedSeasons,
   getCurrentExpeditionSeasonIndex,
+  getNextExpeditionSeedChoices,
 } from '../../expedition/ExpeditionSeasonStore';
 import {
   generateExpeditionWorld,
+  previewExpeditionWorlds,
   summariseCurrentExpedition,
 } from '../../expedition/expeditionWorld';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
@@ -76,6 +78,9 @@ interface ConfirmationCopy {
   body: string;
   confirmLabel: string;
   cancelLabel: string;
+  /** When present, one button per label replaces the single confirm button and the index of
+   *  the pressed one is handed to onConfirm. Absent means the two-button dialog. */
+  choiceLabels?: readonly string[];
 }
 
 const DEFAULT_CONFIRMATION_COPY: ConfirmationCopy = {
@@ -293,11 +298,14 @@ export class BootScene extends Phaser.Scene {
     };
 
     // FEAT-EXPEDITION-SEASONS: the world seed is per profile now, so a charted world can
-    // be banked and traded for a fresh one. The summary costs one generateWorld (33 ms
-    // measured), which is why it happens on the press and not in create().
+    // be banked and traded for a fresh one. FEAT-SEASON-WORLD-CHOICE: which fresh one is the
+    // player's pick out of three. The press costs four generateWorld calls (34 ms each,
+    // measured): the summary plus one preview per candidate, memoised on the candidate list.
     const openExpeditionSeasons = () => {
       const summary = summariseCurrentExpedition();
       const banked = getBankedSeasons();
+      const choices = getNextExpeditionSeedChoices();
+      const previews = previewExpeditionWorlds(choices);
       const lines = [
         `WORLD ${summary.seasonIndex}   ·   SEED ${summary.seed}`
           + (summary.conquered ? '   ·   CONQUERED' : ''),
@@ -309,18 +317,29 @@ export class BootScene extends Phaser.Scene {
         'already earned open on sight.',
       ];
       if (hasSave) lines.push('', 'Your current run will be lost.');
+      lines.push('', 'Choose the world you fly next:');
+      for (const [index, preview] of previews.entries()) {
+        lines.push(
+          `${String.fromCharCode(65 + index)}   ${preview.secretSlots} secrets`
+          + `   ·   ${preview.cacheSlots} caches`
+          + `   ·   ${preview.deepestSectorDepth} sectors out`
+          + `   ·   ${preview.deepestRegionName}`,
+        );
+      }
       if (banked.length > 0) {
         lines.push('', `Banked: ${banked.slice(-5)
           .map(season => `W${season.index} ${season.completionPercent}%`)
           .join('   ·   ')}`);
       }
       this.showNewGameConfirmation(
-        () => {
+        (choiceIndex) => {
+          // An out-of-range index cannot happen and would be harmless if it did: an
+          // undefined chosen seed falls back to the deterministic roll in the store.
           const next = beginNextExpeditionSeason({
             completionPercent: summary.completionPercent,
             sectorsCharted: summary.sectorsCharted,
             secretsFound: summary.secretsFound,
-          });
+          }, choices[choiceIndex]);
           // A restored transform names a point in the world that just stopped existing.
           gameStateManager.clearSave();
           // Nothing in memory may keep pointing at the world that was just banked.
@@ -332,6 +351,7 @@ export class BootScene extends Phaser.Scene {
           body: lines.join('\n'),
           confirmLabel: 'NEW WORLD',
           cancelLabel: 'BACK',
+          choiceLabels: previews.map((_, index) => `FLY ${String.fromCharCode(65 + index)}`),
         },
       );
     };
@@ -1866,7 +1886,7 @@ export class BootScene extends Phaser.Scene {
   // ═══════════════════════════════════════════════════════════════════════
 
   private showNewGameConfirmation(
-    onConfirm: () => void,
+    onConfirm: (choiceIndex: number) => void,
     copy: ConfirmationCopy = DEFAULT_CONFIRMATION_COPY,
   ): void {
     const centerX = this.cameras.main.centerX;
@@ -1888,7 +1908,9 @@ export class BootScene extends Phaser.Scene {
     this.confirmationOverlay.add(dim);
 
     const bodyLineCount = copy.body.split('\n').length;
-    const width = scaledInt(layoutScale, bodyLineCount > 1 ? 560 : 420);
+    const width = scaledInt(
+      layoutScale, copy.choiceLabels ? 660 : (bodyLineCount > 1 ? 560 : 420),
+    );
     const height = scaledInt(layoutScale, 200 + (bodyLineCount - 1) * 18);
     const halfHeight = height / 2;
     const frame = this.add.graphics();
@@ -1940,13 +1962,23 @@ export class BootScene extends Phaser.Scene {
       return button;
     };
 
-    const yesButton = makeButton(copy.confirmLabel, COLORS.danger, -scaledInt(layoutScale, 70), () => {
-      this.hideNewGameConfirmation();
-      onConfirm();
-    });
-    const noButton = makeButton(copy.cancelLabel, COLORS.safe, scaledInt(layoutScale, 70), () => {
-      this.hideNewGameConfirmation();
-    });
+    const choiceLabels = copy.choiceLabels ?? [copy.confirmLabel];
+    const buttonCount = choiceLabels.length + 1;
+    // 70 reproduces the shipped two-button offsets exactly; 65 is what four buttons fit in.
+    const halfStep = scaledInt(layoutScale, buttonCount <= 2 ? 70 : 65);
+    const offsetFor = (index: number) => (index - (buttonCount - 1) / 2) * halfStep * 2;
+
+    const choiceButtons = choiceLabels.map((label, index) => makeButton(
+      label, COLORS.danger, offsetFor(index), () => {
+        this.hideNewGameConfirmation();
+        onConfirm(index);
+      },
+    ));
+    const cancelButton = makeButton(
+      copy.cancelLabel, COLORS.safe, offsetFor(choiceLabels.length), () => {
+        this.hideNewGameConfirmation();
+      },
+    );
 
     const hint = this.add.text(centerX, centerY + halfHeight - scaledInt(layoutScale, 20), 'ESC cancels  ·  ← → to choose  ·  Enter to confirm', {
       fontSize: scaledFontPx(fontScale, 11),
@@ -1968,21 +2000,21 @@ export class BootScene extends Phaser.Scene {
 
     this.confirmationNavigator = new MenuNavigator({
       scene: this,
-      columns: 2,
-      initialIndex: 1,
+      columns: buttonCount,
+      initialIndex: choiceLabels.length,
       items: [
-        {
-          onFocus: () => highlightButton(yesButton, true),
-          onBlur: () => highlightButton(yesButton, false),
+        ...choiceButtons.map((button, index) => ({
+          onFocus: () => highlightButton(button, true),
+          onBlur: () => highlightButton(button, false),
           onActivate: () => {
             this.soundManager.playUIClick();
             this.hideNewGameConfirmation();
-            onConfirm();
+            onConfirm(index);
           },
-        },
+        })),
         {
-          onFocus: () => highlightButton(noButton, true),
-          onBlur: () => highlightButton(noButton, false),
+          onFocus: () => highlightButton(cancelButton, true),
+          onBlur: () => highlightButton(cancelButton, false),
           onActivate: () => {
             this.soundManager.playUIClick();
             this.hideNewGameConfirmation();

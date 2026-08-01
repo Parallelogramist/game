@@ -105,10 +105,40 @@ export function rollNextExpeditionSeed(currentSeed: number, currentIndex: number
   return next === currentSeed ? next + 1 : next;
 }
 
-/** Pure: the state that replaces `state` once the player commits to a new world. */
+/** Three is what the CHART dialog's button row fits beside BACK, and each candidate costs one
+ *  generateWorld (34 ms measured on the Deck) to preview. */
+export const NEXT_WORLD_CHOICE_COUNT = 3;
+
+/**
+ * The worlds this profile may trade into. Index 0 IS rollNextExpeditionSeed, so a player who
+ * always takes the first option flies exactly the chain the store dealt before choosing
+ * existed; the alternates come from the same hash family, so nothing here needs a clock or
+ * Math.random and the same profile restored elsewhere is offered the same three.
+ *
+ * The alt loop is bounded rather than "until three": an unbounded search over a hash that
+ * cannot collide in practice is still an unbounded loop in the menu's press path.
+ */
+export function rollNextExpeditionSeedChoices(
+  currentSeed: number, currentIndex: number,
+): number[] {
+  const choices = [rollNextExpeditionSeed(currentSeed, currentIndex)];
+  for (let alt = 1; alt <= 64 && choices.length < NEXT_WORLD_CHOICE_COUNT; alt += 1) {
+    const rng = mulberry32(hashStringToSeed(`season:${currentSeed}:${currentIndex}:alt${alt}`));
+    const candidate = 1 + Math.floor(rng() * 2_000_000_000);
+    if (candidate === currentSeed || choices.includes(candidate)) continue;
+    choices.push(candidate);
+  }
+  return choices;
+}
+
+/** Pure: the state that replaces `state` once the player commits to a new world. A chosen
+ *  seed is honoured only when it is usable and is not the world being left: a repeated seed
+ *  would keep the old world's discovery state alive under a new season number, which is what
+ *  rollNextExpeditionSeed's own equality guard refuses. */
 export function bankSeasonAndRoll(
   state: ExpeditionSeasonState,
   record: { completionPercent: number; sectorsCharted: number; secretsFound: number },
+  chosenSeed?: number,
 ): ExpeditionSeasonState {
   const banked = [
     ...state.banked,
@@ -120,9 +150,12 @@ export function bankSeasonAndRoll(
       secretsFound: Math.max(0, Math.trunc(record.secretsFound)),
     },
   ].slice(-MAX_BANKED_SEASONS);
+  const nextSeed = isPositiveInteger(chosenSeed) && chosenSeed !== state.currentSeed
+    ? chosenSeed
+    : rollNextExpeditionSeed(state.currentSeed, state.currentIndex);
   return {
     version: SEASON_STATE_VERSION,
-    currentSeed: rollNextExpeditionSeed(state.currentSeed, state.currentIndex),
+    currentSeed: nextSeed,
     currentIndex: state.currentIndex + 1,
     banked,
   };
@@ -150,12 +183,18 @@ export function getBankedSeasons(): readonly BankedSeason[] {
   return loadExpeditionSeasons().banked;
 }
 
+export function getNextExpeditionSeedChoices(): number[] {
+  const state = loadExpeditionSeasons();
+  return rollNextExpeditionSeedChoices(state.currentSeed, state.currentIndex);
+}
+
 /** Commits the new world. The caller must also clear the in-run save: a restored player
  *  transform names a point in the world that just stopped existing. */
 export function beginNextExpeditionSeason(
   record: { completionPercent: number; sectorsCharted: number; secretsFound: number },
+  chosenSeed?: number,
 ): ExpeditionSeasonState {
-  const next = bankSeasonAndRoll(loadExpeditionSeasons(), record);
+  const next = bankSeasonAndRoll(loadExpeditionSeasons(), record, chosenSeed);
   try {
     SecureStorage.setItem(STORAGE_KEY_SEASONS, JSON.stringify(next));
   } catch {
