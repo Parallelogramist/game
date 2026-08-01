@@ -33,9 +33,373 @@ test-first habit). The human reprioritizes freely.
 
 ## Now
 
+### The polish and architecture pass (operator-ordered 2026-08-01): WORK THIS FIRST
+
+**This plan outranks the post-promote content plan below** (operator decision,
+2026-08-01). Six investigations ran that day (UI/UX desktop+mobile, toast audit,
+main-menu IA, wall collision + line of sight, steering-doc audit, architecture review)
+and the operator authorized every recommendation. Work bands in order (A then B then C
+then D then E), topmost unchecked item first, one item per session unless an item says
+otherwise. Pointers come from the 2026-08-01 tree at `05d8a3a`: re-verify line numbers
+before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest item under
+`## Human gates` instead of retuning blind.
+
+#### Band A: main-mode feel (walls, line of sight, worst stutter)
+
+- [ ] **BUG-WALL-SLIDE** (fix design F1). Value: pressing 70-85 degrees into a wall
+  slides at 15-30% speed (reads as glue), and doorway jambs progressively decelerate
+  the ship into a stall (reads as corner catching). The resolver
+  (`src/world/staticCollision.ts:156-179` `resolveCircleMove`, axis-separated, X first)
+  already slides correctly; the feel bugs are (1) tangential speed is the raw
+  projection, never renormalized, and (2) the circle-vs-corner clearance formula
+  (`:196-205`, `:240-249`) tightens the blocked-axis limit as the circle laterally
+  nears a tile corner. Plan: **F1a** in `src/ecs/systems/MovementSystem.ts:50-65`
+  player branch: after `resolveCircleMove`, when exactly one of hitX/hitY is set,
+  re-run the freed axis with `extra = |blockedStep| * SLIDE_TRANSFER * sign(freeStep)`
+  (SLIDE_TRANSFER 0.6-0.85, only when the free-axis input is nonzero so perpendicular
+  presses still stop); one extra resolve on wall-contact frames, player only. **F1b**
+  corner assist, pure helper beside the resolver (or new `src/world/moveAssist.ts`):
+  when an axis is blocked solely by a corner overlap under 10px (`radius - gap < 10`
+  on exactly one corner tile) and the adjacent tile in the tangent direction is Open,
+  convert the blocked component into tangential motion toward the open side (about 4
+  `tileKindAt` reads on contact frames). **F1d** (optional): raise
+  `WallCollisionContext.playerRadius` (`GameScene.ts:10783`) to 18 to cover the visual
+  nose; the 16px damage circle stays. Pure tests (reuse the `staticCollision.test.ts`
+  synthetic-sector fixture): approach-angle sweep 10-80 degrees asserts tangential
+  progress >= 60% of full speed; doorway approach offset <= 10px from the jamb passes
+  within N frames; collision invariants 10/11 stay green; arena byte-identical (null
+  context). File **POLISH-WALL-FEEL** under Human gates for the playtest half.
+- [ ] **BUG-ENEMY-NAV-FALLBACK** (F2b + F2c). Value: when line of sight is false AND
+  the flow field misses, `chaseHeading` returns the raw direct vector
+  (`src/ecs/systems/enemy-ai/common.ts:79`), so every enemy outside the flow block or
+  chasing an unreachable player beelines into a wall and grinds it forever. The flow
+  block is snapped to the player's sector (`src/world/flowField.ts:77-79`), 3x3
+  sectors, while the leash allows enemies 1600px out. Plan: **F2b**: add
+  `isSolidAt(x, y)` to `NavigationContext` (`common.ts:44-50`; implement in
+  `ExpeditionModeAdapter` via `isSolidAtWorld(..., MoverKind.Enemy)`); on flow miss,
+  probe `enemy + direct*24px`; if solid, project the direct vector onto the wall
+  tangent, sign chosen by probing both tangent directions and keeping the one that
+  closes distance to the player (<= 3 tile reads, fallback class only). **F2c**: make
+  the flow block player-tile-centred, ~96x96 tiles (`flowField.ts:25-28, 77-82` only;
+  `flowStepPoint`/`flowReachable` already work off `originTileX/Y`); ~1.8x today's
+  BFS, still well under a millisecond every 150ms, and it erases the
+  outside-the-block fallback class entirely. Pure tests: stubbed context (LOS false,
+  flow miss, synthetic solid grid) returns a tangent, never the direct vector; flow
+  block covers a point 1600px from a player standing at a sector corner.
+- [ ] **FEAT-ENEMY-NAV-COVERAGE** (F2a). Value: only the 9 chase-family handlers
+  navigate at all; shooter, sniper, circle, lurker, glutton (gem mode), healer,
+  rallier, necromancer, warden, twin, horde-king, swarm-mother steer raw vectors and
+  hump walls (`enemy-ai/shooter.ts:32-35` is the canonical case). Plan: route the
+  pursuit/approach phases of those handlers through `chaseHeading` (same 3-line
+  pattern as `chase.ts:25`). Deliberately leave retreat/strafe/orbit phases direct:
+  cornering a kiter is legitimate play. Cost ~1 LOS ray per converted enemy per frame,
+  <= ~150 total, each <= ~32 tile steps. Done: converted handlers path around walls in
+  expedition; arena unchanged (null context short-circuits).
+- [ ] **POLISH-ENEMY-NAV-SMOOTH** (F2d + F2e). Value: the zero-width LOS ray flickers
+  clear/blocked at doorway edges so headings alternate direct/flow (the pre-filed
+  "twitching at corners" item), 8-dir flow quantization twitches at tile crossings,
+  and the stuck detector designed in doc 02 section 6.3 rung 3 was never built. Plan:
+  per-enemy nav-state module (three arrays sized ~8192, allocated once,
+  `resetEnemyNavState()` wired per the CLAUDE.md reset rule): an LOS flip must persist
+  ~100ms before the steering mode switches; lerp the returned heading ~0.25/frame;
+  stuck = displacement under 8px over 1.5s while flow-following, answered with a
+  perpendicular impulse for ~0.3s applied in the `enemyAISystem` loop (skip bosses,
+  phased wraiths, and handlers in deliberate stationary phases). Pure tests:
+  alternating LOS stub flips steering mode at most once per window; stuck nudge fires
+  only after 1.5s under 8px. If ARCH-RESET-REGISTRY has landed, the new reset
+  self-registers; otherwise add it to `resetAllRunSystems` by hand.
+- [ ] **FEAT-TARGETING-LOS** (F3). Value: 8 wall-blocked weapons acquire targets
+  through walls and waste their shots into rock: ProjectileWeapon
+  (`:134-137`, mastered retarget `:405`), Shuriken (`:122`), Boomerang (`:126`),
+  LaserBeam (`:84-98`), Scattergun (`:99-114`), HomingMissile (`:117-126, :179,
+  :355-361`), Drone (`:297-306`), Sentry (`:185-197`). Plan: add
+  `findNearestVisibleEnemy(ctx, originX, originY, maxRange, maxProbes = 8)` to
+  `src/weapons/WeaponUtils.ts` beside `findNearestEnemy` (`:8`): collect the nearest
+  maxProbes candidates into a module-scratch fixed buffer (no per-frame allocation),
+  walk ascending, return the first with
+  `beamReachFraction(ctx.worldMap, ...) >= 1`; `worldMap === null` (arena) returns
+  the first candidate with zero raycasts so arena is byte-identical; all occluded
+  returns -1. Fallback semantics: Projectile / Laser first beam / Scattergun hold
+  fire on -1 (identical to their existing empty-range early return; `BaseWeapon.update`
+  `:163-166` consumes the cooldown either way, same as today); Shuriken/Boomerang keep
+  their random-angle blind fallback by design; HomingMissile and Laser extra beams
+  re-roll a random candidate up to 4 times for visibility, else skip that projectile;
+  Drone/Sentry probe from the turret's own position; the mastered retarget probes from
+  the projectile position. **Do NOT touch the emanate/lob/pierce/bounce list**: Aura,
+  FrostNova, Pulse, Storm, Meteor, GroundSpike, Mine, Wake, Singularity,
+  ChainLightning, Flamethrower, Katana, OrbitingBlades, Flail, Reaper, Grenade (lobs),
+  Railgun (declared pierce exception), Ricochet (wall hit is a bounce), Guardian,
+  SweepBeam (clipping is the cover mechanic), FocusBeam (already gated,
+  `FocusBeamWeapon.ts:190-225` is the model implementation). Perf: raycasts happen on
+  attack frames only; worst case ~300 DDAs of <= 32 tile steps, on par with what enemy
+  AI already spends. Pure tests with a stub WeaponContext: null worldMap returns the
+  exact id `findNearestEnemy` returns (arena identity); nearest occluded + second
+  visible returns the second; all occluded returns -1; occlusion checks <= maxProbes.
+- [ ] **BUG-CRIT-SHIMMER-STUTTER**. Value: frame hitches during crit-heavy fights,
+  worst on mobile. `src/effects/EffectsManager.ts:488`: the perfect-crit shimmer calls
+  `text.setColor(...)` every frame for up to 3s per damage number, and Phaser's
+  `TextStyle.setColor` re-rasterizes the canvas and re-uploads the texture
+  unconditionally; several concurrent crits = several texture uploads per frame. Plan:
+  step the shimmer palette at 10Hz, or pre-render the ~8 shimmer tints as pooled Text
+  objects (or tint a sprite). Done: zero per-frame setColor in the shimmer path,
+  shimmer still visibly animates.
+- [ ] **BUG-KNOCKBACK-DEAD-PLAYER**. Value: latent dead code found by the wall audit:
+  `GameScene.ts:4431-4432` and `:13056-13057` write player knockback, but
+  `knockbackEnemyQuery` requires `EnemyTag` (`GameScene.ts:293`), so player knockback
+  has never applied. Either wire a player path through `resolveCircleMove` (respecting
+  walls) or delete the dead writes; do not leave dead code. If wiring it, file a
+  POLISH item: player knockback is a feel change.
+
+#### Band B: toast diet + main menu reduction
+
+- [ ] **FEAT-TOAST-TIERS**. Value: a typical expedition run fires 30-60 toasts (the
+  bounty cycle alone is ~1/min plus a paired result toast; combo thresholds, barrier
+  explainers and shrines add the rest); the operator wants roughly 1-2 per session,
+  rarest unlocks only. Plan: add `tier?: 'critical' | 'rare' | 'notable' | 'ambient'`
+  to `ToastConfig` (`src/achievements/AchievementTypes.ts:296`, default `'notable'`
+  for unmigrated callers) and make `ToastManager.showToast`
+  (`src/ui/ToastManager.ts`) the single gate: `critical` always shows (keep that
+  population tiny) with a per-title 60s cooldown backstop; `rare` has a **hard budget
+  of 2 per session** (`rareShownCount` reset from GameScene `create()` ~`:1556`;
+  ShopScene `:201` is menu context, leave ungated or give it a generous budget);
+  `notable` never toasts, recorded via a new `getSuppressed(): SuppressedToast[]` for
+  the end screen; `ambient` drops entirely (floating text/SFX already duplicate those
+  sites; add floating text to the SEALED CACHE site `GameScene.ts:6484`, the one
+  explainer lacking it). Also fix the found bug: `clearAll` kills tweens but not the
+  pending `delayedCall` (`ToastManager.ts:225-228` vs `:257-265`), so a stale timer
+  can null out a newly shown toast; keep the TimerEvent and `.remove()` it. Delete the
+  dead Hidden Unlock toast at `GameScene.ts:1561` (it only fires at run end, under the
+  overlay: HUD depth 1000 vs pause-menu 2100, so it has never been visible). Tier
+  assignments (full audit 2026-08-01): **critical**: recall flow 1394/1405/1421/1460
+  (1460 may drop to ambient), DRONE UNDER FIRE 5996, ESCORT LOST 6030, the 7 one-time
+  tutorial hints, ShopScene error/feedback 1430/1663/1696/1719, practice results
+  9428/9459. **rare** (the 2-budget): achievements 1611, milestones 1574, weapon
+  EVOLVED 13968, Ship Evolved 13318, NEMESIS SLAIN 4196, DATA CACHE 4124/4134, X%
+  CHARTED 6242, first-claim traversal ability 6200. **notable** (end screen only):
+  secrets 6514/6637, secret lead 6725 (see judgment note), SIGNAL DECRYPTED 6786,
+  quests 10518/10538/10579/10595/10606, NEW ROUTES 6224, synergy 7546, devil's deal
+  12177, relics 2515/2536, FLUX CACHE 4154, run-start trio 1936/1969/2004 (better:
+  merge into one summary toast), SCRAPPED 13824. **ambient** (drop): pickups
+  4601/4639, ultimate 4709, shrines 5023/5126, nests 5665/5683, lair/warden 5756/5890,
+  barrier explainers 6260/6484/7060/7147/7177/7201/7278 (first encounter per run may
+  keep a toast: they teach fairness rules), VAULT UNSEALED 6289, ROUTE OPEN 6921/6951,
+  GRID DOWN 7126, bounty cycle 7478/7510/7524 (a HUD ticker line is the acceptable
+  replacement if any surface is wanted), combos 11824/11843/11893, CARGO RECOVERED
+  6116, ESCORT UNDER WAY 5929, siege 10689. Judgment notes: the secret-lead toast
+  (6725) carries the riddle AND sigil order, but the map LEADS panel
+  (`MapScene.renderLeadsPanel` `:439`) renders the identical payload, so demote it to
+  notable ONLY together with a one-time "Leads are kept on the MAP" hint or a brief
+  map-button badge; the field-boost toast (4639) is currently the only readout of what
+  the timed buff does, so demoting it requires a HUD timed-buff indicator first (cut a
+  follow-up item if not done in-session).
+- [ ] **FEAT-TOAST-ENDSCREEN**. Dep: FEAT-TOAST-TIERS. Value: demoted `notable`
+  events (secrets, quest steps, lore, synergies, evolutions) must land somewhere
+  readable; the EARNED THIS RUN plumbing exists (`src/meta/RunEarnings.ts`,
+  `buildRunEarnings` at GameScene ~`:10137` death / ~`:9856` victory / ~`:10379` END
+  RUN, panel `PauseMenuManager.createRunEarningsPanel:3482`) but caps at 3 rows and
+  `RunEarningTag` has no kinds for them. Plan: extend `RunEarningTag` (or add a
+  parallel `RunNotice` type) with LORE, SECRET, ROUTE, SYNERGY, EVOLVE, BOUNTY; extend
+  `RunEarningSources`; collect a `runNotices` list in GameScene (fold
+  `getSuppressed()` in) and feed all three run-end paths; raise the panel cap from 3
+  to ~6 rows or add a compact RUN LOG group. Mind the slot contention at
+  `PauseMenuManager:2487-2522`: the CLOSEST TO UNLOCK panel only renders when
+  runEarnings is empty AND the quest board is settled; rework so it can coexist,
+  inside the 720-unit height budget.
+- [ ] **FEAT-MENU-SUBMENU-KIT** (menu chunk 1). Value: BootScene (the real main-menu
+  hub, 2,325 lines) carries 21-23 tap targets; its 12-card deck row is 1394 natural
+  units squeezed into a 696-unit portrait row, so every card is ~48px wide on phones.
+  Plan: new `src/visual/SubmenuOverlay.ts` taking `{scene, title, entries: [{label,
+  iconKey, badge?, accentRole, action}], onClose}`: dim + card grid (vertical list in
+  portrait, 2-3 columns landscape, cards >= 56px tall), its own MenuNavigator,
+  ESC/back/dim-tap closes, caller pauses/resumes the main navigator (reuse the
+  `pauseMainNavigator`/`resumeMainNavigator` pair, `BootScene.ts:1964-1973`). Do NOT
+  build on OverlayKit (DOM kit, no gamepad/keyboard nav); generalize the proven
+  `showNewGameConfirmation` in-scene pattern (`BootScene.ts:2112-2266`; CHART nests it
+  three deep). Done: renders and navigates by touch, keyboard and gamepad; close
+  restores main-navigator focus; landed unused or behind one entry; suite green.
+- [ ] **FEAT-MENU-COLLAPSE** (menu chunk 2). Dep: FEAT-MENU-SUBMENU-KIT. Plan:
+  replace the 12-entry deck array (`BootScene.ts:1584-1703`) with three cards: **GAME
+  MODES** (SKIRMISH, GAUNTLET, RUNNER, PRACTICE, SURPRISE, CHART with its world badge,
+  LOADOUTS), **COLLECTION** (ACHIEVEMENTS with its quest badge, CODEX, CARDS, PAINT,
+  LEADERBOARDS), **SHOP** (stays top-level: gold badge, highest-frequency meta
+  destination, mirrors GameScene's quit-to-shop deep link `GameScene.ts:9588`). Move
+  the existing action closures verbatim into submenu entries; badges travel with their
+  entries. Fix the stale "5 small square cards" / "7 cards" comments (`:1542`,
+  `:1705`). No external deep links break: nothing outside BootScene starts any of
+  these scenes (verified 2026-08-01); the LoadoutScene pending-replay handoff
+  (`BootScene.ts:863-866`) and quit-to-shop must keep working. Done: every
+  pre-existing action reachable in <= 2 taps, expedition still 1 tap, portrait deck
+  cards >= 120px wide, confirm-overwrite flows still fire, orientation flip cleanly
+  closes an open submenu (no orphaned navigator).
+- [ ] **POLISH-MENU-CONSOLIDATE** (menu chunk 3). Plan: merge DAILY + WEEKLY into one
+  CHALLENGES card with two tap zones; trim the footer to SETTINGS, CREDITS, mute;
+  move the PARALLELOGRAMIST and LEGAL external links into CreditsScene as link rows.
+  Done: top-level tap targets <= 11 with a save present; focus traversal order
+  coherent (hero, challenges, deck, footer); daily best/boss info still visible
+  pre-tap. Optional follow-up (cut freely): reopen an open submenu after an
+  orientation flip by threading an `openSubmenu` id through the restart launchData the
+  way `relayout: true` is threaded (`src/main.ts` orientation watcher).
+
+#### Band C: UI/UX polish sweep (2026-08-01 review, 20 findings)
+
+- [ ] **POLISH-MENU-DENSITY**. Value: HIGH, mobile. Only BootScene, SettingsScene and
+  PracticeScene apply density compensation; the other 19 menu scenes render at
+  roughly half the intended physical size on phones (5-7pt text, 18pt buttons). The
+  helper already exists: `computeMenuFontScale` + portrait variant,
+  `src/utils/HudScale.ts:78-104`. Plan: in each scene's `create()`, compute the scale
+  and multiply font sizes and button/hit-zone heights. Batch 2-3 scenes per session;
+  start with the hottest path: WeaponSelectScene (breadcrumb chips `:178-196`, weapon
+  descriptions `:953-958`), UpgradeScene, ShopScene; then Codex, Achievement, Cards,
+  Leaderboard, Market, QuestBoard, Loadout, Map, Paint, MusicSettings, Credits, and
+  the draft/select scenes. Done per batch: legible physical size at phone DPR in both
+  orientations; file the POLISH playtest gate item once for the whole sweep.
+- [ ] **BUG-HUD-FIXES**. Four HUD correctness fixes in
+  `src/game/managers/HUDManager.ts`: (1) event-countdown bar fill uses unscaled
+  `180 - 16` while the track was created scaled (`:1731` vs `:1634-1636`), so on
+  phones it never fills past ~half: store the scaled width at creation. (2)
+  AUTO-UPGRADE pill: `handleResize` moves bg/text but not the painted
+  `autoBuyToggleGfx`, and the `toggleX/Y` data stash used by `refreshAutoBuyPanel`
+  is never refreshed (`:2111-2118` vs `:2289-2334`, `:2365-2375`): update the stash
+  and repaint. (3) boss HP `padStart` in a proportional font does nothing
+  (`:1281-1283`): `setFixedSize` or right-align. (4) each hit queues an 80ms
+  `delayedCall` restoring a stale HP-threshold color, flickering under DoT
+  (`:1176-1179`): replace with a single `flashUntil` timestamp checked in `update()`.
+- [ ] **BUG-TWEEN-HYGIENE**. Value: verified stutter/GC sources (Phaser never
+  auto-removes tweens of destroyed targets). (1) `updateUpgradeIcons` rebuilds via
+  `removeAll(true)` without killing the highlight glow's `repeat: -1` pulse
+  (`HUDManager.ts:1302`, `:1356-1365`): dozens of orphaned infinite tweens per run;
+  `killTweensOf(glowRect)` first. (2) TouchActionButtons press yoyo stacks without
+  `killTweensOf`, so the dash button drifts/sticks under spam
+  (`src/ui/TouchActionButtons.ts:131-137, 179-185, 291-297`): copy the
+  `updateUltimateCharge:356` idiom (`killTweensOf` + `setScale(1)` first). (3)
+  post-victory overtime calls `timerTextRef.setColor` every frame
+  (`HUDManager.ts:904-906`): set once on the won transition. (4) FPS readout
+  `setText` every frame (`:2159`): throttle to 4Hz. (5) boss-bar drain
+  `Linear(current, target, 0.1)` per frame is framerate-dependent, ~2.4x faster at
+  144Hz (`:1278`): exponential factor scaled by deltaSeconds.
+- [ ] **POLISH-REDUCED-MOTION**. Value: the OS `prefers-reduced-motion` setting is
+  honored only by the HTML boot loader (`index.html:142-147`), never in-game, and
+  card fly-ins ignore the in-game setting too. Plan: seed the SettingsManager default
+  (`src/settings/SettingsManager.ts:63, 88`) from
+  `matchMedia('(prefers-reduced-motion: reduce)')`; gate `animateEntrance` in
+  `UpgradeScene.ts:1321-1344`, `MarketScene.ts:329-337`, `RelicDraftScene.ts:311-319`
+  on `isReducedMotionEnabled()` (snap to final pose, as `staggerEntrance` already
+  does).
+- [ ] **POLISH-UX-SMALL**. Batch of small verified issues: (1) toasts rest exactly
+  over the pause button + kills/gold stack, and 3+ line descriptions overflow the
+  fixed 78-unit panel (`src/ui/ToastManager.ts:117-119, 199-207`): anchor below the
+  stats stack and size the panel from `title.height + desc.height`. (2) touch players
+  see "Press 1-9 / R" keyboard hints (`WeaponSelectScene.ts:850-855`): gate on
+  `device.input.touch` like `HUDManager.ts:800-801`. (3) emoji glyphs on an otherwise
+  all-vector UI render as platform tofu (`WeaponSelectScene.ts:841` die,
+  `UpgradeScene.ts:203` warning sign): draw them. (4) `MenuButton` activates on bare
+  `pointerup`, so a finger sliding onto a button fires it
+  (`src/visual/MenuButton.ts:99-101`): adopt WeaponSelect's `pressedCardId`
+  down-then-up-on-same-target idiom. (5) MenuCard eagerly allocates 20+ hidden fleck
+  Graphics per card (~400-900 objects on card-heavy scenes) at entry
+  (`src/visual/MenuCard.ts:336-379`): lazy-build on first hover/focus.
+- [ ] **POLISH-MENU-RESIZE**. Value: desktop window resize leaves every menu laid out
+  for the old size (only GameScene `:1524` and RunnerScene `:138` listen for resize;
+  the orientation watcher `src/main.ts:180-197` only fires on portrait/landscape
+  flips; `MenuBackground` bakes screen size at creation). Plan: shared menu path
+  listens for `scale.on('resize')` debounced ~250ms and re-runs the existing
+  `scene.restart({...launchData, relayout: true})` machinery. Also give the four
+  modal scenes excluded from the orientation restart (Upgrade, RelicDraft, Market,
+  QuestBoard; `main.ts:185-195`) a positions-only `handleResize` that re-centers
+  existing containers, so rotating mid-modal no longer strands cards half off-screen.
+
+#### Band D: architecture (staged extraction; behavior-preserving, save shapes frozen)
+
+- [ ] **ARCH-RESET-REGISTRY** (chunk 1, first: de-risks every later move). Value:
+  `resetAllRunSystems` (`GameScene.ts:14142-14191`) is a hand-maintained list of 37
+  reset calls over 41 module-level-state systems; one forgotten registration is
+  cross-run state bleed, the documented worst bug class, and nothing enforces
+  completeness (contrast `src/storage/StorageBootstrap.test.ts:32-43`, which enforces
+  storage keys). Plan: `src/systems/runResetRegistry.ts` with
+  `registerRunReset(name, fn)`; each zero-arg reset module self-registers at import;
+  `resetAllRunSystems()` becomes `runAllRunResets()` plus the explicit scene-bound
+  tail (`resetShapeTextureCache(this)`, `destroyGemAtlases(this)`, relic reset); a
+  vitest scans `src/systems` + `src/ecs` sources for `export function reset*` and
+  asserts each is registered.
+- [ ] **ARCH-AUTOBUY-EXTRACT** (chunk 2). Move `selectAutoBuyUpgrade`,
+  `calculateBaseScore`, `calculateGatePlanningBonus`, `calculateHealthAdaptiveBonus`,
+  `calculateWeaponSynergyBonus` (`GameScene.ts:13476-13660`) into pure
+  `src/game/autobuy/autoBuyScoring.ts` taking a plain snapshot, behind the existing
+  call signatures (thin delegates stay in GameScene). Tests: scoring invariants
+  (weapon level-ups not starved by overflow; gate-planning bonus near thresholds).
+- [ ] **ARCH-ENEMY-PROJECTILES** (chunk 3). Move
+  `spawnEnemyProjectile`/`updateEnemyProjectiles` (`:7571-7652`) and
+  `handleLaserBeam`/`updateLaserBeams` (`:13181-13257`) into
+  `src/game/combat/EnemyProjectileManager.ts` (constructor takes scene + callbacks,
+  mirroring `PauseMenuManager`'s options pattern `:416`), including its save/restore
+  slice (`serialize()`/`restore()` called from
+  `saveGameState`/`restoreGameState`). Save shape must stay byte-identical (existing
+  `GameStateManager.*.test.ts` fixtures must pass untouched). Add a pure
+  motion/TTL step test.
+- [ ] **ARCH-MINIMAP-FEED** (chunk 4). Move
+  `writeMinimapEntry`/`updateMinimap`/`syncMinimapUnderlay`/`syncRadarWaypoints`
+  (`:8864-9116`) into `src/game/managers/MinimapFeed.ts` over the already-pure
+  `minimapProjection.ts` and `expedition/radarWaypoints.ts`. Keep the pooled entry
+  buffer (no new per-frame allocations). Add a blip-kind priority classification
+  test.
+- [ ] **ARCH-POI-MANAGERS** (chunk 5, two sessions allowed). Value: the expedition
+  field-POI layer is ~2,470 lines inside GameScene (`:4889-7355`), the single
+  largest and highest-churn cluster; every new POI kind hand-copies a 6-method
+  family plus save/restore plus sector-retire wiring (the CLAUDE.md "parallel code
+  path consistency" failure mode, live). Plan: shared `FieldPoiManager` interface
+  (`sync(map, px, py)`, `update(px, py)`, `clear()`, `serialize()`/`restore()`) in
+  `src/game/expeditionField/`, constructed with scene + callbacks (toast, reward
+  payout, pause). **5a** static POIs: shrines, quest boards, secret caches, ability
+  vaults (`:4971-5395`, `:6183-6534`). **5b** actor POIs: ambush nests, nemesis
+  lairs, warden throne, escort drone, quest cargo (`:5586-6180`). Move method
+  families verbatim behind the interface; `resetInRunFeatureState` (`:4889`)
+  delegates to `managers.forEach(m => m.clear())`. Save payloads unchanged (existing
+  shrine/expedition GameStateManager tests must pass untouched). Add pure
+  proximity/state-machine tests (wake radius, claim eligibility) as plain functions.
+- [ ] **ARCH-RUNEND-SETTLEMENT** (chunk 6). Move the computation inside
+  `gameOver`/`recordEarlyRunEnd`/`evaluateHiddenUnlocks`/`payDailyQuests`
+  (`:10009-10533`) into pure `src/game/runend/runSettlement.ts`: inputs (kills, time,
+  level, mode, pacts, world level) to outputs (gold breakdown, unlock list, quest
+  payouts); the scene keeps presentation only. Unit tests per mode: normal, gauntlet,
+  daily, endless, practice (practice must settle to zero, the `:7815` invariant).
+  Coordinate with FEAT-TOAST-ENDSCREEN (band B): whoever lands second rebases on the
+  first.
+- [ ] **ARCH-BOSS-DIRECTORS** (chunk 7, last: needs the manager pattern routine).
+  Move `checkBossSpawn`/`beginRunBossFight`/`spawnBoss`/`showBossEntrance`/
+  `handleBossPhaseTransition`/`spawnBossPhaseHazards` plus the
+  `updateGauntletMode`/`checkEndlessModeSpawns` families (`:11283-13258`, ~1,975
+  lines) into `src/game/directors/{BossFightDirector, GauntletDirector,
+  EndlessDirector}.ts`, reusing the already-pure helpers in `src/game/gauntlet/` and
+  `src/game/endless/`. Guardrails: the 14 enemy-ai tests plus
+  `GameStateManager.bossfight/endless` tests; add pure tests for boss-rotation index
+  and gauntlet wave progression.
+- [ ] **CHORE-ARCH-TOOLING** (chunk 8, any time after chunk 2). (1) Delete the dead
+  `enemyPositionsArray`/`getEnemyPositions` (`src/ecs/FrameCache.ts:28, 97-102`):
+  zero consumers, allocates a fresh object per enemy per frame (up to 120k dead
+  allocations/sec at the 2,000-enemy cap). (2) ESLint flat config
+  (no-floating-promises, unused imports) plus an import-cycle/boundary check (dpdm or
+  eslint-plugin-import) encoding the `src/world` purity rule that today lives only in
+  a comment (`worldTypes.ts:9-10`). (3) A bundle-size line in the deploy workflow
+  that fails on a >10% jump.
+
+#### Band E: docs
+
+- [ ] **CHORE-ARCHDOC-REFRESH**. Value: `references/architecture-overview.md` (which
+  CLAUDE.md sells as covering "all in-run systems") omits expedition entirely (the
+  default mode), shows 12 of 25 scenes, wrong AI-type ranges (says 50-55/100-102;
+  real enum is minibosses 50-57, bosses 100-113, `src/enemies/EnemyTypes.ts:28-50`),
+  15 evolutions vs 30 (`src/data/WeaponEvolutions.ts`), 25 enemy visual types vs 43,
+  and is missing Cards/Scanner, Ship Mods/HANGAR, RunnerScene, boost cards, daily
+  quests and the draft/loadout/practice scenes. Plan: add an Expedition/World section
+  that points at `references/map/` as the design authority (this file covers the
+  shared arena substrate); regenerate the scene flow from `src/main.ts:166`; fix the
+  counts above; prefer code pointers over volatile numbers (it already does this for
+  weapons via WeaponRegistry: do the same for scenes and enemies); stamp a "last
+  verified against src: <date>" line.
+
 **Expedition is the live default run mode since 02c4b74 (2026-07-31).** Fleet agents:
-work the **post-promote content plan** (search this file for "The post-promote content
-plan") top to bottom. Four band-1 chunks have shipped. `FEAT-QUEST-CHAINS` (5362cdb): five
+after the pass above is exhausted, work the **post-promote content plan** (search this
+file for "The post-promote content plan") top to bottom. Four band-1 chunks have shipped. `FEAT-QUEST-CHAINS` (5362cdb): five
 quests in two chains persist across deaths, advance on four signals the game already emits,
 and pay gold mid-run. `FEAT-QUEST-VIEW` (5a0295d): those objectives are now readable, on the
 bounty ticker line while no bounty runs and in an OBJECTIVES panel on the world map screen.
@@ -8378,6 +8742,15 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): `origin/master` carries one commit
+  local master does not, `b5d31a4` ("quest chains that unlock sealed regions of the
+  map", pushed 2026-07-31 13:20). It is the same patch as local `52e0802` (identical
+  diffstat, committed 5 minutes apart): a duplicate push from another checkout or a
+  pre-amend push. Local master is 119+ commits ahead and does not contain `b5d31a4`,
+  so the next push will not fast-forward. Operator options at push time: merge, or
+  `git push --force-with-lease` to drop the duplicate. Push remains the deploy
+  trigger; agents never touch this.
 
 - **GATE-EXPEDITION-PROMOTE** (EPIC-EXPEDITION): **answered 2026-07-27; flip EXECUTED
   2026-07-31 by operator directive** ("finish it already"), which the session read as the
