@@ -41,6 +41,8 @@ import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { createMenuTabs, MenuTabs } from '../../visual/MenuTab';
 import { ShipPreview } from '../../visual/ShipPreview';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
+import { resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
@@ -55,6 +57,18 @@ type FocusZone = 'tabs' | 'grid' | 'back';
 /** Extra shop tab (after the upgrade categories) hosting per-ship mod tracks. */
 const HANGAR_TAB_ID = 'hangar' as const;
 type ShopTabId = UpgradeCategory | typeof HANGAR_TAB_ID;
+
+// Base geometry the density scale re-derives. The header is width-bound and the
+// card grid is height-bound, so they take different clamps off the same scale.
+const HEADER_CHROME_BUDGET = 680;
+const GRID_MASK_TOP = 170;
+const GRID_BOTTOM_RESERVE = 230;
+const GRID_TOP_INSET = 18;
+const GRID_COLUMN_GAP = 24;
+const GRID_ROW_GAP = 18;
+const GRID_EDGE_MARGIN = 32;
+const GRID_OVERSCROLL = 30;
+const SCROLL_BAND_BOTTOM = 80;
 
 interface UpgradeCardElements {
   card: MenuCard;
@@ -90,6 +104,17 @@ interface TabBadgeElements {
   background: Phaser.GameObjects.Graphics;
   text: Phaser.GameObjects.Text;
   container: Phaser.GameObjects.Container;
+}
+
+interface ShopGridMetrics {
+  cardWidth: number;
+  cardHeight: number;
+  columnPitch: number;
+  rowPitch: number;
+  startX: number;
+  startY: number;
+  bandTop: number;
+  bandHeight: number;
 }
 
 const CATEGORY_ROLES: Record<UpgradeCategory, RoleColorKey> = {
@@ -180,6 +205,8 @@ export class ShopScene extends Phaser.Scene {
   private emptyStateText: Phaser.GameObjects.Text | null = null;
 
   private columns = 4;
+  private chromeScale: number = 1;
+  private gridScale: number = 1;
   private readonly cardWidth = 220;
   private readonly cardHeight = 220;
   private readonly accountChipWidth = 200;
@@ -191,11 +218,27 @@ export class ShopScene extends Phaser.Scene {
   create(): void {
     const centerX = this.scale.width / 2;
 
-    // Portrait / narrow viewports: as many 220px columns as fit with margins
+    const rawScale = resolveMenuFontScale(
+      this.scale.width,
+      this.scale.height,
+      getSettingsManager().getUiScale(),
+    );
+    // The header's three 200-unit chrome blocks collide before the grid runs out
+    // of room, and the grid's scroll band must still hold one whole card row.
+    this.chromeScale = Math.min(rawScale, this.scale.width / HEADER_CHROME_BUDGET);
+    this.gridScale = Math.min(
+      rawScale,
+      (this.scale.height - GRID_BOTTOM_RESERVE * this.chromeScale) / (this.cardHeight + GRID_TOP_INSET),
+    );
+
+    // Portrait / narrow viewports: as many columns as fit with margins
     // (720-wide portrait → 2). Grid layout, navigator rows, and
     // ensureCardVisible all derive from this.columns, so one assignment at
     // create keeps them consistent.
-    this.columns = Math.max(1, Math.min(4, Math.floor((this.scale.width - 32) / (this.cardWidth + 24))));
+    this.columns = Math.max(1, Math.min(4, Math.floor(
+      (this.scale.width - GRID_EDGE_MARGIN * this.gridScale)
+      / ((this.cardWidth + GRID_COLUMN_GAP) * this.gridScale),
+    )));
 
     this.soundManager = new SoundManager(this);
     this.toastManager = getToastManager(this);
@@ -244,10 +287,10 @@ export class ShopScene extends Phaser.Scene {
     this.events.on('update', this.bgUpdateHandler);
 
     // Title heading.
-    const title = makeDisplayText(this, centerX, 32, 'SHOP', {
-      fontSize: 36,
+    const title = makeDisplayText(this, centerX, scaledInt(this.chromeScale, 32), 'SHOP', {
+      fontSize: scaledInt(this.chromeScale, 36),
       color: ACCENT_COLORS_STR.gold,
-      strokeWidth: 5,
+      strokeWidth: scaledInt(this.chromeScale, 5),
       letterSpacing: 3,
     });
     title.setDepth(2);
@@ -257,8 +300,8 @@ export class ShopScene extends Phaser.Scene {
     // Account level chip (top-left).
     const metaManager = getMetaProgressionManager();
     const accountLevelChip = createMenuCard(this, {
-      x: 110,
-      y: 38,
+      x: scaledInt(this.chromeScale, 110),
+      y: scaledInt(this.chromeScale, 38),
       width: this.accountChipWidth,
       height: 50,
       bodyFillColor: BODY_COLORS.primary,
@@ -272,6 +315,7 @@ export class ShopScene extends Phaser.Scene {
       shadowAlpha: 0.4,
     });
     accountLevelChip.container.setDepth(2);
+    accountLevelChip.container.setScale(this.chromeScale);
 
     const accountLabel = makeBodyText(this, -85, -10, 'ACCOUNT LV', {
       fontSize: 11,
@@ -311,8 +355,8 @@ export class ShopScene extends Phaser.Scene {
 
     // Gold chip (top-right).
     const goldChip = createMenuCard(this, {
-      x: this.scale.width - 130,
-      y: 38,
+      x: this.scale.width - scaledInt(this.chromeScale, 130),
+      y: scaledInt(this.chromeScale, 38),
       width: 200,
       height: 50,
       bodyFillColor: BODY_COLORS.gold,
@@ -326,6 +370,7 @@ export class ShopScene extends Phaser.Scene {
       shadowAlpha: 0.4,
     });
     goldChip.container.setDepth(2);
+    goldChip.container.setScale(this.chromeScale);
     const goldLabel = makeBodyText(this, -85, -8, 'GOLD', {
       fontSize: 11,
       color: TEXT_COLORS.muted,
@@ -353,9 +398,9 @@ export class ShopScene extends Phaser.Scene {
     if (ascensionLevel > 0) {
       const statBonus = Math.round((ascensionManager.getStatMultiplier() - 1) * 100);
       const goldBonus = Math.round((ascensionManager.getGoldMultiplier() - 1) * 100);
-      const ascText = makeBodyText(this, centerX, 56,
+      const ascText = makeBodyText(this, centerX, scaledInt(this.chromeScale, 56),
         `Asc. ${ascensionLevel}  ·  +${statBonus}% stats  ·  +${goldBonus}% gold`, {
-          fontSize: 11,
+          fontSize: scaledInt(this.chromeScale, 11),
           color: ACCENT_COLORS_STR.magenta,
         });
       ascText.setDepth(2);
@@ -377,12 +422,12 @@ export class ShopScene extends Phaser.Scene {
     this.backButton = createMenuButton({
       scene: this,
       x: centerX,
-      y: this.scale.height - 32,
-      width: 220,
-      height: 40,
+      y: this.scale.height - scaledInt(this.chromeScale, 32),
+      width: scaledInt(this.chromeScale, 220),
+      height: scaledInt(this.chromeScale, 40),
       label: '← BACK TO MENU',
       variant: 'neutral',
-      fontSize: 14,
+      fontSize: scaledInt(this.chromeScale, 14),
       onActivate: () => {
         this.soundManager.playUIClick();
         transitionToScene(this, 'BootScene');
@@ -461,17 +506,17 @@ export class ShopScene extends Phaser.Scene {
   }
 
   private createCategoryTabs(): void {
-    const tabY = 130;
-    const tabHeight = 38;
+    const tabY = scaledInt(this.chromeScale, 130);
+    const tabHeight = scaledInt(this.chromeScale, 38);
     const totalTabs = SHOP_TABS.length;
     // 88px reserve (not 60): the count badges hang off each pill's top-right
     // corner and the focus glow adds a few px — at exactly-720 portrait a
     // tighter reserve clipped the HANGAR pill's badge at the screen edge.
-    const desiredWidth = Math.floor((this.scale.width - 88) / totalTabs);
-    const tabWidth = Math.min(desiredWidth, 180);
+    const desiredWidth = Math.floor((this.scale.width - scaledInt(this.chromeScale, 88)) / totalTabs);
+    const tabWidth = Math.min(desiredWidth, scaledInt(this.chromeScale, 180));
     // 8 tabs at 720px → 82px each: full category names no longer fit, so
     // swap to the compact label set rather than letting text overflow.
-    const useShortLabels = tabWidth < 85;
+    const useShortLabels = tabWidth < scaledInt(this.chromeScale, 85);
 
     this.menuTabs = createMenuTabs({
       scene: this,
@@ -484,8 +529,8 @@ export class ShopScene extends Phaser.Scene {
       })),
       tabWidth,
       tabHeight,
-      spacing: 8,
-      fontSize: 12,
+      spacing: scaledInt(this.chromeScale, 8),
+      fontSize: scaledInt(this.chromeScale, 12),
       initialActiveId: this.currentCategory,
       onChange: (id) => {
         const idx = SHOP_TABS.findIndex((tab) => tab.id === id);
@@ -499,10 +544,10 @@ export class ShopScene extends Phaser.Scene {
   }
 
   private createFilterButton(): void {
-    const buttonWidth = 200;
-    const buttonHeight = 28;
-    const buttonX = this.scale.width - 130;
-    const buttonY = 92;
+    const buttonWidth = scaledInt(this.chromeScale, 200);
+    const buttonHeight = scaledInt(this.chromeScale, 28);
+    const buttonX = this.scale.width - scaledInt(this.chromeScale, 130);
+    const buttonY = scaledInt(this.chromeScale, 92);
 
     this.filterButton = createMenuButton({
       scene: this,
@@ -512,7 +557,7 @@ export class ShopScene extends Phaser.Scene {
       height: buttonHeight,
       label: this.affordableOnlyFilter ? '✓ AFFORDABLE ONLY' : '◯ AFFORDABLE ONLY',
       variant: this.affordableOnlyFilter ? 'safe' : 'neutral',
-      fontSize: 11,
+      fontSize: scaledInt(this.chromeScale, 11),
       onActivate: () => {
         this.soundManager.playUIClick();
         this.toggleAffordableFilter();
@@ -600,7 +645,7 @@ export class ShopScene extends Phaser.Scene {
         const container = this.add.container(0, 0);
         const background = this.add.graphics();
         const text = makeDisplayText(this, 0, 0, '', {
-          fontSize: 11,
+          fontSize: scaledInt(this.chromeScale, 11),
           color: '#0a1018',
           letterSpacing: 0.5,
         });
@@ -615,14 +660,17 @@ export class ShopScene extends Phaser.Scene {
 
       badge.text.setText(String(count));
       const labelWidth = badge.text.width;
-      const padding = 6;
-      const badgeWidth = Math.max(18, labelWidth + padding * 2);
-      const badgeHeight = 16;
+      const padding = scaledInt(this.chromeScale, 6);
+      const badgeWidth = Math.max(scaledInt(this.chromeScale, 18), labelWidth + padding * 2);
+      const badgeHeight = scaledInt(this.chromeScale, 16);
 
       // Pin badge to the top-right corner of the tab button.
       const tabHalfWidth = button.card.width / 2;
       const tabHalfHeight = button.card.height / 2;
-      badge.container.setPosition(tabHalfWidth - 6, -tabHalfHeight + 2);
+      badge.container.setPosition(
+        tabHalfWidth - scaledInt(this.chromeScale, 6),
+        -tabHalfHeight + scaledInt(this.chromeScale, 2),
+      );
       badge.container.setVisible(true);
 
       badge.background.clear();
@@ -674,14 +722,41 @@ export class ShopScene extends Phaser.Scene {
     this.upgradeContainer = this.add.container(0, 0);
     this.upgradeContainer.setDepth(2);
 
-    const maskY = 170;
-    const maskHeight = this.scale.height - 230;
+    const maskY = GRID_MASK_TOP * this.chromeScale;
+    const maskHeight = this.scale.height - GRID_BOTTOM_RESERVE * this.chromeScale;
     const maskGraphics = this.add.graphics();
     maskGraphics.fillStyle(0xffffff);
     maskGraphics.fillRect(0, maskY, this.scale.width, maskHeight);
 
     this.upgradeContainer.setMask(maskGraphics.createGeometryMask());
     maskGraphics.setVisible(false);
+  }
+
+  private gridMetrics(): ShopGridMetrics {
+    const scale = this.gridScale;
+    const cardWidth = this.cardWidth * scale;
+    const cardHeight = this.cardHeight * scale;
+    const columnGap = GRID_COLUMN_GAP * scale;
+    const rowWidth = this.columns * cardWidth + (this.columns - 1) * columnGap;
+    return {
+      cardWidth,
+      cardHeight,
+      columnPitch: cardWidth + columnGap,
+      rowPitch: cardHeight + GRID_ROW_GAP * scale,
+      startX: (this.scale.width - rowWidth) / 2 + cardWidth / 2,
+      startY: GRID_MASK_TOP * this.chromeScale + GRID_TOP_INSET * scale,
+      bandTop: GRID_MASK_TOP * this.chromeScale,
+      bandHeight: this.scale.height - GRID_BOTTOM_RESERVE * this.chromeScale,
+    };
+  }
+
+  private cardPosition(index: number, metrics: ShopGridMetrics): { x: number; y: number } {
+    const col = index % this.columns;
+    const row = Math.floor(index / this.columns);
+    return {
+      x: metrics.startX + col * metrics.columnPitch,
+      y: metrics.startY + row * metrics.rowPitch + metrics.cardHeight / 2,
+    };
   }
 
   /**
@@ -730,8 +805,8 @@ export class ShopScene extends Phaser.Scene {
       const message = this.affordableOnlyFilter
         ? 'No affordable upgrades in this category.\nEarn more gold or toggle the filter off.'
         : 'No upgrades available.';
-      this.emptyStateText = this.add.text(this.scale.width / 2, 320, message, {
-        fontSize: '16px',
+      this.emptyStateText = this.add.text(this.scale.width / 2, scaledInt(this.chromeScale, 320), message, {
+        fontSize: `${scaledInt(this.chromeScale, 16)}px`,
         fontFamily: MENU_FONT,
         color: TEXT_COLORS.muted,
         align: 'center',
@@ -743,26 +818,19 @@ export class ShopScene extends Phaser.Scene {
       return;
     }
 
-    const startY = 188;
-    const horizontalSpacing = 24;
-    const verticalSpacing = 18;
-
-    const totalRowWidth = this.columns * this.cardWidth + (this.columns - 1) * horizontalSpacing;
-    const startX = (this.scale.width - totalRowWidth) / 2 + this.cardWidth / 2;
+    const metrics = this.gridMetrics();
 
     upgrades.forEach((upgrade, index) => {
-      const col = index % this.columns;
-      const row = Math.floor(index / this.columns);
-      const cardX = startX + col * (this.cardWidth + horizontalSpacing);
-      const cardY = startY + row * (this.cardHeight + verticalSpacing) + this.cardHeight / 2;
+      const { x, y } = this.cardPosition(index, metrics);
       const isUnlocked = accountLevel >= upgrade.unlockLevel;
-      this.createUpgradeCard(cardX, cardY, this.cardWidth, this.cardHeight, upgrade, isUnlocked, index);
+      this.createUpgradeCard(x, y, this.cardWidth, this.cardHeight, upgrade, isUnlocked, index);
     });
 
     const rows = Math.ceil(upgrades.length / this.columns);
-    const contentHeight = rows * (this.cardHeight + verticalSpacing);
-    const visibleHeight = this.scale.height - 230;
-    this.maxScrollY = Math.max(0, contentHeight - visibleHeight + 30);
+    this.maxScrollY = Math.max(
+      0,
+      rows * metrics.rowPitch - metrics.bandHeight + GRID_OVERSCROLL * this.gridScale,
+    );
   }
 
   private createUpgradeCard(
@@ -801,6 +869,7 @@ export class ShopScene extends Phaser.Scene {
 
     if (!isUnlocked) card.container.setAlpha(0.7);
     this.upgradeContainer.add(card.container);
+    card.container.setScale(this.gridScale);
 
     // Banner label.
     const nameText = makeDisplayText(this, 0, card.bannerTopY + 18, upgrade.name.toUpperCase(), {
@@ -1054,8 +1123,8 @@ export class ShopScene extends Phaser.Scene {
       const message = this.affordableOnlyFilter
         ? 'No affordable ship mods.\nEarn more gold or toggle the filter off.'
         : 'No ship mods available.';
-      this.emptyStateText = this.add.text(this.scale.width / 2, 320, message, {
-        fontSize: '16px',
+      this.emptyStateText = this.add.text(this.scale.width / 2, scaledInt(this.chromeScale, 320), message, {
+        fontSize: `${scaledInt(this.chromeScale, 16)}px`,
         fontFamily: MENU_FONT,
         color: TEXT_COLORS.muted,
         align: 'center',
@@ -1067,36 +1136,23 @@ export class ShopScene extends Phaser.Scene {
       return;
     }
 
-    const startY = 188;
-    const horizontalSpacing = 24;
-    const verticalSpacing = 18;
-
-    const totalRowWidth = this.columns * this.cardWidth + (this.columns - 1) * horizontalSpacing;
-    const startX = (this.scale.width - totalRowWidth) / 2 + this.cardWidth / 2;
-
-    const positionAt = (index: number): { x: number; y: number } => {
-      const col = index % this.columns;
-      const row = Math.floor(index / this.columns);
-      return {
-        x: startX + col * (this.cardWidth + horizontalSpacing),
-        y: startY + row * (this.cardHeight + verticalSpacing) + this.cardHeight / 2,
-      };
-    };
+    const metrics = this.gridMetrics();
 
     entries.forEach(({ ship, track }, index) => {
-      const { x, y } = positionAt(index);
+      const { x, y } = this.cardPosition(index, metrics);
       this.createShipModCard(x, y, this.cardWidth, this.cardHeight, ship, track, index);
     });
 
     if (includeTeaser) {
-      const { x, y } = positionAt(entries.length);
+      const { x, y } = this.cardPosition(entries.length, metrics);
       this.createHangarTeaserCard(x, y, this.cardWidth, this.cardHeight, lockedShipCount, entries.length);
     }
 
     const rows = Math.ceil(totalCards / this.columns);
-    const contentHeight = rows * (this.cardHeight + verticalSpacing);
-    const visibleHeight = this.scale.height - 230;
-    this.maxScrollY = Math.max(0, contentHeight - visibleHeight + 30);
+    this.maxScrollY = Math.max(
+      0,
+      rows * metrics.rowPitch - metrics.bandHeight + GRID_OVERSCROLL * this.gridScale,
+    );
   }
 
   /**
@@ -1115,7 +1171,9 @@ export class ShopScene extends Phaser.Scene {
     // the whole width. There is no slot that fits even a shrunken hull
     // without overlapping that chrome, so skip the preview entirely rather
     // than squeeze it in.
-    if (this.scale.width < 1280) return;
+    // A density-scaled header is even fuller than the 720-wide case below, so
+    // the same reasoning skips the preview there too.
+    if (this.scale.width < 1280 || this.chromeScale > 1) return;
 
     // Landscape: header band, right of the ASCEND button area (which spans
     // centerX ± 100). The tier label renders at y + 58 × (scale / 1.6); with
@@ -1199,6 +1257,7 @@ export class ShopScene extends Phaser.Scene {
       cornerRadius: 8,
     });
     this.upgradeContainer.add(card.container);
+    card.container.setScale(this.gridScale);
 
     // Banner: track name.
     const nameText = makeDisplayText(this, 0, card.bannerTopY + 18, track.name.toUpperCase(), {
@@ -1356,6 +1415,7 @@ export class ShopScene extends Phaser.Scene {
     });
     card.container.setAlpha(0.7);
     this.upgradeContainer.add(card.container);
+    card.container.setScale(this.gridScale);
 
     const nameText = makeDisplayText(this, 0, card.bannerTopY + 18, 'LOCKED', {
       fontSize: 14,
@@ -1467,8 +1527,8 @@ export class ShopScene extends Phaser.Scene {
     if (!card) return;
     this.tweens.add({
       targets: card.card.container,
-      scaleX: 1.06,
-      scaleY: 1.06,
+      scaleX: this.gridScale * 1.06,
+      scaleY: this.gridScale * 1.06,
       duration: 110,
       yoyo: true,
       ease: 'Sine.easeOut',
@@ -1485,7 +1545,8 @@ export class ShopScene extends Phaser.Scene {
     );
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.y > 170 && pointer.y < this.scale.height - 80) {
+      const metrics = this.gridMetrics();
+      if (pointer.y > metrics.bandTop && pointer.y < this.scale.height - SCROLL_BAND_BOTTOM * this.chromeScale) {
         this.isDragging = true;
         this.lastPointerY = pointer.y;
       }
@@ -1608,15 +1669,17 @@ export class ShopScene extends Phaser.Scene {
   }
 
   private ensureCardVisible(): void {
-    const row = Math.floor(this.selectedCardIndex / this.columns);
-    const cardY = 188 + row * (this.cardHeight + 18) + this.cardHeight / 2;
-    const visibleTop = this.scrollY + 170;
-    const visibleBottom = this.scrollY + this.scale.height - 80;
+    const metrics = this.gridMetrics();
+    const { y: cardY } = this.cardPosition(this.selectedCardIndex, metrics);
+    const halfHeight = metrics.cardHeight / 2;
+    const bandBottom = this.scale.height - SCROLL_BAND_BOTTOM * this.chromeScale;
+    const visibleTop = this.scrollY + metrics.bandTop;
+    const visibleBottom = this.scrollY + bandBottom;
 
-    if (cardY - this.cardHeight / 2 < visibleTop) {
-      this.scrollY = Math.max(0, cardY - this.cardHeight / 2 - 170);
-    } else if (cardY + this.cardHeight / 2 > visibleBottom) {
-      this.scrollY = Math.min(this.maxScrollY, cardY + this.cardHeight / 2 - (this.scale.height - 80));
+    if (cardY - halfHeight < visibleTop) {
+      this.scrollY = Math.max(0, cardY - halfHeight - metrics.bandTop);
+    } else if (cardY + halfHeight > visibleBottom) {
+      this.scrollY = Math.min(this.maxScrollY, cardY + halfHeight - bandBottom);
     }
 
     this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, this.maxScrollY);
@@ -1732,8 +1795,8 @@ export class ShopScene extends Phaser.Scene {
     if (!card) return;
     this.tweens.add({
       targets: card.card.container,
-      scaleX: 1.06,
-      scaleY: 1.06,
+      scaleX: this.gridScale * 1.06,
+      scaleY: this.gridScale * 1.06,
       duration: 110,
       yoyo: true,
       ease: 'Sine.easeOut',
@@ -1851,12 +1914,12 @@ export class ShopScene extends Phaser.Scene {
       const button = createMenuButton({
         scene: this,
         x: centerX,
-        y: 78,
-        width: 200,
-        height: 36,
+        y: scaledInt(this.chromeScale, 78),
+        width: scaledInt(this.chromeScale, 200),
+        height: scaledInt(this.chromeScale, 36),
         label: '✦ ASCEND ✦',
         variant: 'magenta',
-        fontSize: 14,
+        fontSize: scaledInt(this.chromeScale, 14),
         onActivate: () => {
           this.soundManager.playUIClick();
           this.showAscensionConfirmation(nextLevel, nextStatBonus, nextGoldBonus);
@@ -1889,10 +1952,11 @@ export class ShopScene extends Phaser.Scene {
     // y=56 is the Asc. line's slot, free when there is no ascension yet; y=74
     // sits under it otherwise. The hint and the button are mutually exclusive
     // (one shows iff !canAscend), so neither can collide with the button at 78.
-    this.ascensionHintText = makeBodyText(this, centerX, ascensionLevel > 0 ? 74 : 56, hint, {
-      fontSize: 11,
-      color: ACCENT_COLORS_STR.magenta,
-    });
+    this.ascensionHintText = makeBodyText(this, centerX,
+      scaledInt(this.chromeScale, ascensionLevel > 0 ? 74 : 56), hint, {
+        fontSize: scaledInt(this.chromeScale, 11),
+        color: ACCENT_COLORS_STR.magenta,
+      });
     this.ascensionHintText.setDepth(2);
   }
 
@@ -2022,6 +2086,7 @@ export class ShopScene extends Phaser.Scene {
       interactive: false,
     });
     confirmCard.container.setDepth(101);
+    confirmCard.container.setScale(this.chromeScale);
 
     const banner = makeDisplayText(this, 0, confirmCard.bannerTopY + 24, `ASCEND TO LEVEL ${nextLevel}`, {
       fontSize: 20,
@@ -2054,13 +2119,13 @@ export class ShopScene extends Phaser.Scene {
 
     const confirmButton = createMenuButton({
       scene: this,
-      x: centerX - 80,
-      y: centerY + 130,
-      width: 140,
-      height: 44,
+      x: centerX - scaledInt(this.chromeScale, 80),
+      y: centerY + scaledInt(this.chromeScale, 130),
+      width: scaledInt(this.chromeScale, 140),
+      height: scaledInt(this.chromeScale, 44),
       label: '✦ ASCEND ✦',
       variant: 'magenta',
-      fontSize: 15,
+      fontSize: scaledInt(this.chromeScale, 15),
       onActivate: () => {
         this.soundManager.playUIClick();
         cleanup();
@@ -2073,13 +2138,13 @@ export class ShopScene extends Phaser.Scene {
 
     const cancelButton = createMenuButton({
       scene: this,
-      x: centerX + 80,
-      y: centerY + 130,
-      width: 140,
-      height: 44,
+      x: centerX + scaledInt(this.chromeScale, 80),
+      y: centerY + scaledInt(this.chromeScale, 130),
+      width: scaledInt(this.chromeScale, 140),
+      height: scaledInt(this.chromeScale, 44),
       label: 'Cancel',
       variant: 'neutral',
-      fontSize: 15,
+      fontSize: scaledInt(this.chromeScale, 15),
       onActivate: () => {
         this.soundManager.playUIClick();
         cleanup();
