@@ -53,19 +53,26 @@ export class EffectsManager {
   // Pre-computed color hex strings to avoid per-frame string allocation
   private colorHexCache = new Map<number, string>();
 
+  /**
+   * Phaser's canvas renderer ignores Text tint, so only WebGL can leave the
+   * setColor path: every setColor call re-rasterizes the text canvas and
+   * re-uploads its texture, with no early-out on an unchanged colour.
+   */
+  private damageTextSupportsTint = false;
+
   // Helper at module scope — define after class via const trick
   // (placed inside the class for clarity but only used by showDamageNumber)
 
-  // Pre-computed shimmer palette for perfect crit color animation (gold → white → gold)
-  private static readonly SHIMMER_PALETTE: string[] = (() => {
-    const palette: string[] = [];
+  // Pre-computed shimmer palette for perfect crit color animation (gold -> white -> gold)
+  private static readonly SHIMMER_TINTS: number[] = (() => {
+    const tints: number[] = [];
     for (let i = 0; i < 32; i++) {
       const shimmerIntensity = i / 31;
       const green = Math.round(215 + (255 - 215) * shimmerIntensity);
       const blue = Math.round(255 * shimmerIntensity);
-      palette.push('#ff' + green.toString(16).padStart(2, '0') + blue.toString(16).padStart(2, '0'));
+      tints.push(0xff0000 | (green << 8) | blue);
     }
-    return palette;
+    return tints;
   })();
 
   // Throttling for mass death events
@@ -74,6 +81,7 @@ export class EffectsManager {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
+    this.damageTextSupportsTint = scene.game.renderer.type === Phaser.WEBGL;
     this.initParticleEmitters();
     this.initDamageNumberPool();
   }
@@ -166,7 +174,7 @@ export class EffectsManager {
         fontSize: '18px',
         fontFamily: DISPLAY_FONT,
         fontStyle: 'bold',
-        color: '#e8ecf4',
+        color: this.damageTextSupportsTint ? '#ffffff' : '#e8ecf4',
         stroke: '#050810',
         strokeThickness: 2,
       });
@@ -346,6 +354,23 @@ export class EffectsManager {
   }
 
   /**
+   * Colour a pooled damage number. Tint is free (four field writes, applied by the
+   * WebGL batcher); setColor is not, so it is only used where tint does nothing.
+   */
+  private applyDamageNumberColor(text: Phaser.GameObjects.Text, color: number): void {
+    if (this.damageTextSupportsTint) {
+      text.setTint(color);
+      return;
+    }
+    let hexColor = this.colorHexCache.get(color);
+    if (!hexColor) {
+      hexColor = '#' + color.toString(16).padStart(6, '0');
+      this.colorHexCache.set(color, hexColor);
+    }
+    text.setColor(hexColor);
+  }
+
+  /**
    * Show floating damage number or text at position.
    * Uses object pooling for performance.
    * @param x - X position
@@ -427,20 +452,15 @@ export class EffectsManager {
     let scale: number;
     if (isPerfectCrit) {
       scale = 1.9;
-      pooledNumber.text.setColor('#ffd700');
+      this.applyDamageNumberColor(pooledNumber.text, 0xffd700);
       pooledNumber.text.setStroke('#050810', 2);
     } else if (isCrit) {
       scale = 1.5;
-      pooledNumber.text.setColor('#ffd94a');
+      this.applyDamageNumberColor(pooledNumber.text, 0xffd94a);
       pooledNumber.text.setStroke('#050810', 2);
     } else {
       scale = typeof value === 'number' ? 0.9 * Math.min(1 + value / 50, 1.4) : 0.9;
-      let hexColor = this.colorHexCache.get(color);
-      if (!hexColor) {
-        hexColor = '#' + color.toString(16).padStart(6, '0');
-        this.colorHexCache.set(color, hexColor);
-      }
-      pooledNumber.text.setColor(hexColor);
+      this.applyDamageNumberColor(pooledNumber.text, color);
       pooledNumber.text.setStroke('#050810', 2);
     }
 
@@ -482,10 +502,10 @@ export class EffectsManager {
       if (pooledNumber.isPerfectCrit) {
         pooledNumber.shimmerPhase += deltaMs * 0.005; // Smooth pulse speed
 
-        // Smooth sine wave for color shimmer (gold → white → gold) via pre-computed palette
+        // Smooth sine wave for color shimmer (gold -> white -> gold) via pre-computed palette
         const shimmerIntensity = (Math.sin(pooledNumber.shimmerPhase * Math.PI * 2) + 1) * 0.5;
         const paletteIndex = Math.floor(shimmerIntensity * 31);
-        pooledNumber.text.setColor(EffectsManager.SHIMMER_PALETTE[paletteIndex]);
+        this.applyDamageNumberColor(pooledNumber.text, EffectsManager.SHIMMER_TINTS[paletteIndex]);
 
         // Emit gold sparkles at random intervals (capped at 5 emissions per frame to prevent particle explosion)
         if (sparkleEmissionsThisFrame < 5 && pooledNumber.elapsed >= pooledNumber.nextSparkleTime && this.goldSparkleEmitter) {
