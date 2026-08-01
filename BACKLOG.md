@@ -51,9 +51,8 @@ doc 04 section 6 rules 2 and 6 are mutually inconsistent against the shipped cat
 faithful runtime clamp would cut quest rewards that already shipped. The numbers and the
 choice are recorded on that item's own entry; read it before touching the economy.
 **Band 1 is now out of unblocked items**: `FEAT-ECON-WARDS` is parked on that operator
-decision, and what is left of `FEAT-QUEST-BOARD` (map markers, the walk-in board) is blocked
-on `FEAT-MAPUI-DOORS-05` and on having more chain heads than the accept cap
-(`FEAT-QUEST-CATALOG-DEPTH`).
+decision, and `FEAT-QUEST-BOARD` has shipped in full, its map-marker half at `0be97f5` +
+`05e832e` and its walk-in board at `21925f3`.
 **Band 2 has now shipped four chunks.** `FEAT-SECRET-AMBIENT-PING` (9d8f9c5): within one
 screen of an unfound cache the radar shimmers in the breakable amber.
 `FEAT-SECRET-HIDDEN-SECTORS` (c242028): three dead-end sectors per world are sealed behind a
@@ -506,6 +505,27 @@ rolled per run into scene state, not authored into the catalog. Neither quest gr
 there is no storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing
 profile lights it up the moment the build lands.
 
+**`FEAT-QUEST-BOARD` shipped its remaining half (21925f3): the objective system is a choice
+now, not an assignment.** The fourth chain was unreachable on every profile the moment it
+landed: `seedQuestStates` fills a 3-accept cap from a 4-head catalog in catalog order, so
+`quest_purge_01` sat behind a door with no handle until an entire earlier chain finished. The
+board is the handle, and it is the first thing ever to spawn at a `PoiKind.QuestGiver` slot,
+which every generated world has placed since `FEAT-WORLDGEN-CORE` and nothing had consumed.
+Walking in opens a card grid of every offerable chain (every head, plus every chain the profile
+already holds, so a set-aside successor can be picked back up while an unreached one stays out),
+and each card toggles between ACCEPT and SET ASIDE as often as the player likes. `'available'`
+is the status that makes it safe: a chain the profile HOLDS but has set aside, which keeps its
+step index and every persistent counter and clears only an in-progress run counter, so accepting
+it again resumes rather than restarts. The cap is enforced in `acceptQuest`, never in the
+overlay, because a second copy of the rule in the UI is exactly how the board and
+`seedQuestStates` would come to disagree about how many objectives a player may hold. Two things
+were kept on purpose rather than changed: auto-seeding (a profile that never finds a board must
+still have objectives) and the automatic gold payout (claiming at the board would TAKE gold away
+from the player until they walked to one), both filed as cuts. Density is one board per
+QuestGiver slot, roughly 24 per world, because `placePoiSlots` gives the start sector only a
+coin-flip chance of holding one, so a hangar-only board could not be relied on to exist. No
+storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -524,8 +544,10 @@ the one still-open of the two the distinct fold filed that need no worldgen chan
 world stamp filed, plus the play-gated `BALANCE-QUEST-HAZARD-TARGETS` the fourth chain filed.
 `FEAT-QUEST-HAZARD-PIN`, the other cut it filed, is blocked on
 `FEAT-POI-HAZARD-DISCOVERY-MEMORY`, so it is not a candidate.
-`FEAT-QUEST-BOARD` now waits only on its own hangar walk-in accept UI: both of its other deps
-are met, `FEAT-MAPUI-DOORS-05` at `0be97f5` and `FEAT-QUEST-CATALOG-DEPTH` at `6bfd119`.
+`FEAT-QUEST-BOARD` has now shipped in full at `21925f3` (its other two deps were met at
+`0be97f5` and `6bfd119`), and filed three cuts of its own: the play-gated
+`BALANCE-QUEST-BOARD-DENSITY`, plus `FEAT-QUEST-BOARD-CLAIM` and `FEAT-QUEST-BOARD-NO-AUTOSEED`,
+which are both operator-gated and so are not candidates.
 `FEAT-QUEST-SWEEP-WORLD-RESET-TELL` is filed by the same session but is
 blocked on a re-rollable or per-profile world seed, so it is not a candidate.
 `FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
@@ -5088,7 +5110,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   so the pin survives the room being left. Value: the objective that says "clear two hives"
   points at the two hives you have already found. Deps: `FEAT-POI-HAZARD-DISCOVERY-MEMORY`.
 
-- [ ] **FEAT-QUEST-BOARD**: the remainder of quest surfacing after `FEAT-QUEST-VIEW` (5a0295d)
+- [x] **FEAT-QUEST-BOARD** (done, 21925f3): the remainder of quest surfacing after `FEAT-QUEST-VIEW` (5a0295d)
   shipped its HUD-line half and answered map surfacing with a text panel. Two pieces are left.
   (1) **Map markers**: `getActiveQuestMarkers()` feeding doc 03's marker layer, which needs
   `FEAT-MAPUI-DOORS-05` for the layer itself **and** `FEAT-QUEST-TRIGGERS-REST` for a trigger kind
@@ -5098,6 +5120,46 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   nothing while completion auto-pays. Accepting also turns the `available` / `claimed` statuses
   `FEAT-QUEST-CHAINS` cut back on, and gives the inert `QuestGiver` POI slots their consumer. Deps:
   `FEAT-MAPUI-DOORS-05`, `FEAT-QUEST-CATALOG-DEPTH`, `FEAT-QUEST-TRIGGERS-REST`.
+  **What shipped (21925f3)**: piece (2), the walk-in board. Piece (1), the map markers, had
+  already been discharged in two commits: the chart pins at `0be97f5` and the radar bearings at
+  `05e832e`, so nothing of it was left to build here. A `QuestBoardScene` overlay now opens on
+  walking into any `PoiKind.QuestGiver` slot (the first thing ever to spawn at one), listing every
+  offerable chain as a card the player can ACCEPT or SET ASIDE as often as they like, with LEAVE
+  always live. `'available'` is the status behind it, the one `FEAT-QUEST-CHAINS` cut back on:
+  a chain the profile holds but has set aside, counting against nothing and keeping its step index
+  and every persistent counter, dropping only an in-progress run counter (the death rule applied to
+  one quest). The accept cap lives in `acceptQuest`, not in the overlay, so the board and
+  `seedQuestStates` cannot disagree about how many objectives a player may hold. The QuestGiver
+  glyph stops drawing `shape: 'none'`, so the chart, the map legend, the sector readout and the
+  radar all name a board with no new discovery writer. **Two halves were deliberately cut, not
+  built**: claiming at the board (`FEAT-QUEST-BOARD-CLAIM`), because auto-pay is shipped behaviour
+  and re-routing it would take gold away from the player until they walked to a board; and removing
+  the auto-seed (`FEAT-QUEST-BOARD-NO-AUTOSEED`), because a profile that never finds a board would
+  then hold no objectives at all. Board density filed as `BALANCE-QUEST-BOARD-DENSITY`. No storage
+  key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights the
+  boards up the moment the build lands.
+
+- [ ] **BALANCE-QUEST-BOARD-DENSITY** (new 2026-07-31, from `FEAT-QUEST-BOARD`): one board spawns
+  per `PoiKind.QuestGiver` slot, and `placePoiSlots` requests 1 to 3 random slots per sector each
+  with a 1-in-4 chance of that kind, so a 48-sector world holds roughly 24 boards. That is
+  deliberate (the hangar cannot be relied on to hold one, and the vault's one-spawn-per-slot rule
+  keeps chart and world in agreement), but whether it reads as a service or as clutter needs
+  play. Value: the board is findable without the chart turning into a wall of the same icon.
+  Deps: none, needs a human at the controls.
+
+- [ ] **FEAT-QUEST-BOARD-CLAIM** (new 2026-07-31, from `FEAT-QUEST-BOARD`): the other half the
+  original entry named, claiming finished quests at the board instead of the automatic
+  `pendingGold` payout. Deliberately not built: auto-pay is shipped behaviour, so re-routing it
+  would take gold away from the player until they walked to a board. It only becomes right if the
+  operator wants the board to be a place you must return to. Value: the board becomes a
+  destination, not just a switchboard. Deps: an operator call on whether auto-pay should stop.
+
+- [ ] **FEAT-QUEST-BOARD-NO-AUTOSEED** (new 2026-07-31, from `FEAT-QUEST-BOARD`):
+  `beginExpeditionQuestRun` still auto-fills free accept slots from unheld chain heads, so a
+  player who sets a chain aside and accepts nothing is handed another one next expedition. Kept
+  on purpose (a profile that never finds a board would otherwise have no objectives at all), but
+  once boards are common the auto-fill may read as the game overriding a choice. Value: the
+  player's accept list stays exactly what they left it. Deps: an operator call.
 
 - [x] **FEAT-SECRET-CACHE** (done, 756f346): expedition sectors now hide caches a player can
   actually find. Walking a sector, a concealed cache fades up out of nothing as the ship closes
