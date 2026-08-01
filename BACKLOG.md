@@ -223,10 +223,12 @@ and is off the board, and the three cuts it filed are candidates in its place:
 `FEAT-LOCKOUT-BOARD-BEARING`, `CHORE-LOCKOUT-VAULT-GUARD-TELL` and the play-gated
 `BALANCE-LOCKOUT-SOURCE-CLAUSE`. `CHORE-VOID-GAP-RADAR-UNDERLAY` is closed at that same commit
 and is off the board. `FEAT-SEASON-SEED-SHARE` and `FEAT-SEASON-CHOICE-SEED-ENTRY` are both
-closed at `afd403c` and off the board, and the three cuts they filed are candidates in their
-place: `FEAT-SEASON-CODE-KEYBOARD-ENTRY`, `POLISH-SEED-CODE-BUTTON-COLOUR` and
-`BALANCE-CHART-ROW-SIX-BUTTONS` (which pairs with `POLISH-CHART-DIALOG-PORTRAIT` and
-`POLISH-MAP-HEADER-PORTRAIT`: same surface, same question). The remainder of
+closed at `afd403c` and off the board. Of the three cuts they filed,
+`FEAT-SEASON-CODE-KEYBOARD-ENTRY` is now closed at `c4ca973` and off the board too, while
+`POLISH-SEED-CODE-BUTTON-COLOUR` and `BALANCE-CHART-ROW-SIX-BUTTONS` remain candidates (the latter
+pairs with `POLISH-CHART-DIALOG-PORTRAIT` and `POLISH-MAP-HEADER-PORTRAIT`: same surface, same
+question). The three cuts `c4ca973` filed are candidates in its place: `FEAT-CODE-ENTRY-GAMEPAD`,
+`FEAT-LOADOUT-CODE-ENTRY-BUTTON` and `POLISH-CODE-ENTRY-LIVE-VALIDATE`. The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`
 (shipped at b75822d), so the list stays accurate.
@@ -1102,6 +1104,34 @@ grows. It closes `FEAT-SEASON-SEED-SHARE` and `FEAT-SEASON-CHOICE-SEED-ENTRY` an
 `DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bump, so every existing profile and all 21
 archivable worlds light it up the moment the build lands, and it moves no gold, no relic roll and
 no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
+**`c4ca973` made a code you can read a code you can type.** `afd403c` gave the game a share code
+whose only entry route was `navigator.clipboard.readText`, so a code on a friend's screen, in a
+screenshot or on paper was unreachable by every path in the game; `LoadoutScene` had the identical
+hole with the identical dead-end flash (`No valid build code on the clipboard`). The `WORLD CODE`
+dialog now carries a third choice, `TYPE`, onto a DOM text field, and the build-code path opens the
+same field where its flash used to be. **The settled cost finding, so nobody re-derives it:** the
+item claimed a text field was a new input surface this menu had never carried. It was not.
+`src/ui/OverlayKit.ts` and `showProfileImportOverlay` had shipped a typed field over the canvas
+since profile transfer, and `maybeShowBackupReminder` is the shipped pairing this copied:
+`setEnabled(false)` on show, `setEnabled(true)` on close, the teardown handle nulled and fired in
+`shutdown()`. Verifying that estimate is what turned this from a new-surface item into one small
+module plus two wirings. **The one correctness rule is carried over whole from the clipboard
+path**: a typed seed equal to the live one is refused by name, because `switchExpeditionWorld`
+ignores a chosen seed equal to the current one and rolls a random world instead, so accepting your
+own code would fly somewhere else. **The one case-sensitivity rule**: the field takes
+`autocapitalize` per call site, `'off'` for the base64 build code (a phone shifting to caps would
+corrupt it) and `'characters'` for the base36 world code, which its own decoder uppercases anyway.
+`LoadoutScene` got the field on its dead end rather than a third bar button because the bar is a
+fixed two-button layout sized off `cardWidth`, and a third button is a layout change larger than
+the feature: the same call `POLISH-DECRYPTOR-ACTIVE-BUTTON` and `FEAT-QUEST-SIEGE-HUD-TELL` were
+cut on. A clipboard hit still launches in one press. **The known limit, stated rather than
+hidden**: `LoadoutScene` opens the field after an `await` on the clipboard, so the focus call is
+outside the originating gesture and a phone may not raise its keyboard until the field is tapped;
+`BootScene`'s `TYPE` press is synchronous and does not have this. No storage key, no `SAVE_VERSION`,
+no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no `WORLD_PROFILE_VERSION` bump, so every existing
+profile and all 21 archivable worlds light it up the moment the build lands, and it moves no gold,
+no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
 ## Proposed (auto)
 
@@ -5193,11 +5223,33 @@ exploring pays is the end of Phase 5.
   name rather than obeyed, because `switchExpeditionWorld` ignores a chosen seed equal to the live
   one and rolls a random world instead. Full write-up in `BACKLOG-archive.md`.
 
-- [ ] **FEAT-SEASON-CODE-KEYBOARD-ENTRY** (new 2026-08-01, from FEAT-SEASON-CHOICE-SEED-ENTRY): the
-  paste path reads the clipboard and nothing else, so a code read off a phone screen cannot be
-  typed in. A text field is a new input surface this menu has never carried (every dialog here is
-  buttons plus a keyboard navigator), which is why it is its own item rather than a branch. Value:
-  a code you can see but not copy is still flyable. Deps: none.
+- [x] **FEAT-SEASON-CODE-KEYBOARD-ENTRY** (done, c4ca973): a world code you can read is now a world
+  code you can fly. The `WORLD CODE` dialog carries a third choice, `TYPE`, onto a DOM text field
+  that decodes what is typed through the same `decodeSeedCode` the clipboard path uses and hands a
+  valid seed to the same `FLY A SHARED WORLD?` confirmation. **The entry's own cost estimate was
+  wrong and checking it is what made this small**: a text field was not a new surface:
+  `src/ui/OverlayKit.ts` and `showProfileImportOverlay` had shipped one over the canvas all along,
+  and `BootScene` already mounted DOM overlays with the `MenuNavigator.setEnabled(false)` + teardown
+  pairing this needed. The build-code path got the same field on the dead end it already had. Full
+  write-up in `BACKLOG-archive.md`.
+
+- [ ] **FEAT-CODE-ENTRY-GAMEPAD** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the field
+  is a DOM element and the scene's `MenuNavigator` is disabled while it is up, so a pad-only player
+  can open `TYPE` but cannot reach the field, the `FLY IT` button or `CANCEL`. Every other overlay
+  in `src/ui/` has the same shape and the same gap, so the honest fix is a shared on-screen keyboard
+  or a pad-to-DOM focus bridge rather than a patch on this one field. Value: a pad-only player can
+  enter a code. Deps: none.
+
+- [ ] **FEAT-LOADOUT-CODE-ENTRY-BUTTON** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the
+  build-code field is reachable only through `PASTE & LAUNCH CODE`'s failure path, so a player whose
+  clipboard holds a valid but unwanted build code is launched into it instead of getting the field.
+  A third bar button is the fix and it is the layout change this chunk declined. Value: typed build
+  entry is a destination, not a consolation. Deps: none.
+
+- [ ] **POLISH-CODE-ENTRY-LIVE-VALIDATE** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY):
+  the field validates on submit only, so a mistyped character reads as valid until the button is
+  pressed. Both decoders are pure and cheap enough to run on every keystroke and colour the border.
+  Value: a typo announces itself while you are still looking at it. Deps: none.
 
 - [ ] **POLISH-SEED-CODE-BUTTON-COLOUR** (new 2026-08-01, from FEAT-SEASON-SEED-SHARE): every
   choice button in `showNewGameConfirmation` renders in `COLORS.danger`, so COPY, which destroys

@@ -3284,3 +3284,89 @@ No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`
 reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched. Files
 `FEAT-SEASON-CODE-KEYBOARD-ENTRY`, `POLISH-SEED-CODE-BUTTON-COLOUR` and
 `BALANCE-CHART-ROW-SIX-BUTTONS`.
+
+## FEAT-SEASON-CODE-KEYBOARD-ENTRY · a code you can read is a code you can type · DONE c4ca973
+
+`afd403c` gave the game a share code whose only entry route was `navigator.clipboard.readText`, so
+a code on a friend's screen, in a screenshot, in a forum post read on another device or written on
+paper was unreachable by every path in the game. Secondarily, `readText` is the least universally
+available clipboard call there is (unimplemented or prompt-gated depending on the browser), so
+where it is missing or declined the paste half was unreachable too. `LoadoutScene` had the
+identical hole with the identical dead end: `showFlash('No valid build code on the clipboard')`.
+A share feature whose codes cannot be entered by hand is half-shipped, and this is the other half.
+
+What shipped: the `WORLD CODE` dialog carries a third choice, `TYPE`, onto a DOM text field that
+decodes what is typed through the same `decodeSeedCode` the clipboard path uses and hands a valid
+seed to the same `FLY A SHARED WORLD?` confirmation, so a typed code and a pasted one converge on
+one confirmation carrying one world preview. The build-code path opens the same field where its
+flash used to be. One shared module covers both, because it is one logical change.
+
+**The entry's own cost estimate was wrong, and checking it is what made this small.** The item
+claimed *"a text field is a new input surface this menu has never carried (every dialog here is
+buttons plus a keyboard navigator)"*. It was not new. `src/ui/OverlayKit.ts` (backdrop, panel,
+title, body, button, button row) and `showProfileImportOverlay` in
+`src/ui/ProfileTransferOverlay.ts` had shipped a typed field over the Phaser canvas since profile
+transfer, and `BootScene.maybeShowBackupReminder` is the shipped pairing this copied verbatim:
+`MenuNavigator.setEnabled(false)` on show, `setEnabled(true)` on close, the teardown handle nulled
+on both callbacks and fired in `shutdown()`. So the ladder stopped at *existing primitive this repo
+already ships*, and the work was one small module plus two wirings rather than a new input surface.
+
+The module contract, for a zero-memory successor:
+
+- `showCodeEntryOverlay<T>(opts) => teardown`. It builds its chrome from `OverlayKit`, appends to
+  `document.body`, focuses the field, and returns a teardown.
+- **The overlay removes itself before it calls `onSubmit` or `onClose`**, and the returned teardown
+  is idempotent (`if (backdrop.isConnected) backdrop.remove()`). That pair is what makes the
+  unconditional `this.codeEntryTeardown?.()` in each scene's `shutdown()` safe: firing a stale
+  handle after the overlay already closed itself is a no-op, so an orientation flip restarting
+  `LoadoutScene` cannot leave a DOM field stranded over the canvas or double-remove one.
+- `decode: (typed) => { ok: true; value: T } | { ok: false; error: string }`. The error string is
+  written to the field's own status line rather than raised as a toast or a flash, because the
+  overlay owns the screen while it is up: a message printed anywhere else is behind it. A failed
+  decode leaves the typed text in place so it can be corrected rather than retyped.
+- `Enter` submits and `Escape` cancels **on the element itself**. The scene's `MenuNavigator` is
+  disabled while the field is up, so without those handlers neither key would do anything at all.
+  (Phaser's keyboard plugin listens on `window` and nothing in this repo calls `keyboard.addCapture`,
+  so keystrokes do reach the navigator's handler, which is exactly why it must be disabled, but
+  Phaser does not `preventDefault` them, so caret movement inside the field is unaffected.)
+- `16px` on the field is not taste: it is the floor below which iOS Safari zooms the viewport when
+  a field takes focus.
+
+**The one correctness rule, carried over whole from the clipboard path**: a typed seed equal to the
+live one is refused by name (`That is the world you are already flying.`), because
+`switchExpeditionWorld` ignores a chosen seed equal to the current one and rolls a random world
+instead, so accepting your own code would bank your world and fly somewhere else entirely.
+
+**The one case-sensitivity rule**: `autocapitalize` is a per-call-site option, `'off'` for the
+base64 build code (a phone shifting to caps would corrupt it) and `'characters'` for the base36
+world code, which `decodeSeedCode` uppercases anyway and which reads better in caps. The overlay
+itself never changes case: `decodeSeedCode` trims and uppercases, `decodeLoadoutCode` trims only,
+and that split belongs to the decoders.
+
+`LoadoutScene` got the field on the dead end its paste path already had rather than a third bar
+button, because the bar is a fixed two-button layout sized off `cardWidth` and a third button is a
+layout change larger than the feature: the same call `POLISH-DECRYPTOR-ACTIVE-BUTTON` and
+`FEAT-QUEST-SIEGE-HUD-TELL` were cut on. A clipboard hit still launches in one press exactly as
+before. **The known limit, stated rather than hidden**: that path opens the field after an `await`
+on the clipboard, so the focus call is outside the originating gesture and a phone may not raise
+its keyboard until the field is tapped. `BootScene`'s `TYPE` press is synchronous and does not have
+this. `FEAT-LOADOUT-CODE-ENTRY-BUTTON` is the filed fix for the reachability half.
+
+The `WORLD CODE` dialog goes from two choices to three, making `buttonCount` 4 with BACK. The
+shipped fixed step already fits it (`halfStep` 65, offsets -195 / -65 / +65 / +195 in a 660-wide
+card), so `buttonCount >= 6` stays false and the six-button repack `afd403c` added is untouched.
+
+**No test was added, deliberately.** The only non-obvious logic in the feature is decoding, and
+both decoders already ship with their own tests (`src/expedition/seedCode.test.ts`, including the
+`parseInt` truncation trap, and the loadout-code suite); this chunk adds no decoding logic, it
+calls them. Everything else it adds is DOM construction and wiring, and `vitest.config.ts` is
+`environment: 'node'`, so a DOM test here would mean switching the suite to jsdom or hand-rolling a
+document stub: fixture scaffolding for glue with no branchy logic in it. 164 files / 1939 tests
+green, identical to the baseline, and `npm run build` (`tsc && vite build`) passing is the
+mechanical ceiling for the DOM half in a session with no browser.
+
+No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no
+`WORLD_PROFILE_VERSION` bump, so every existing profile and all 21 archivable worlds light it up
+the moment the build lands. It moves no gold, no relic roll and no reward-table row, so
+`FEAT-ECON-WARDS` stays parked and untouched. Files `FEAT-CODE-ENTRY-GAMEPAD`,
+`FEAT-LOADOUT-CODE-ENTRY-BUTTON` and `POLISH-CODE-ENTRY-LIVE-VALIDATE`.

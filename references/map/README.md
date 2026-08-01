@@ -312,6 +312,9 @@ first.
   CODE button copies this world's, and PASTE decodes one and flies it through the same
   `switchExpeditionWorld` commit CHART A NEW WORLD makes, so the adopted world banks the old one
   with its chart and a seed already in the history is a RETURN rather than a new ordinal.
+  `FEAT-SEASON-CODE-KEYBOARD-ENTRY` (`c4ca973`, 2026-08-01) added the TYPE choice and a typed field
+  over the canvas that decodes through that same `decodeSeedCode`, so a code is enterable without a
+  clipboard: one read off another screen, a screenshot or paper is flyable.
 - **Completion percentage as a first-class metric.** Sectors visited, secrets found,
   quests closed. It is the natural companion to the existing best-score and
   deepest-endless-cycle chase metrics, and it is what a Metroid map trains players to
