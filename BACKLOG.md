@@ -215,9 +215,7 @@ that item, so do not re-derive it). The unblocked candidates are now `CHORE-SECR
 half discharged by `FEAT-MAPUI-POI-ICONS` and now waits on `FEAT-DISCOVERY-FEEDBACK-07` for the
 radar half), `POLISH-DECRYPTOR-ACTIVE-BUTTON`,
 `BALANCE-DECRYPTOR-SCAN-RADIUS`, the newly filed `BALANCE-MAP-FRAGMENT-YIELD` and
-`FEAT-SECRET-MAP-FRAGMENT-CODEX`, and
-`FEAT-SECRET-LORE-CATALOG-DEPTH` (which waits on a re-rollable world seed, since the fixed
-expedition seed is what caps the fragment catalog at 13). The remainder of
+`FEAT-SECRET-MAP-FRAGMENT-CODEX`. The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE` (blocked
 on `FEAT-MAPUI-DOORS-05` and `FEAT-QUEST-TRIGGERS-REST`), so the list stays accurate.
@@ -620,9 +618,9 @@ by construction rather than by a wipe, since the discovery store, the world-prof
 and the distinct-step world stamp all key on the seed already and discard a foreign one.
 Abilities, quest keys, chain progress, gold and every lifetime counter survive a season;
 the in-run save is cleared, because a restored transform names a point in a world that
-stopped existing. This **unblocks two filed items** that named a re-rollable seed as their
-only dep, `FEAT-SECRET-LORE-CATALOG-DEPTH` and `FEAT-QUEST-SWEEP-WORLD-RESET-TELL`, and it
-filed three cuts of its own, none of them candidates: the operator-gated
+stopped existing. This **unblocked two filed items** that named a re-rollable seed as their
+only dep, of which `FEAT-QUEST-SWEEP-WORLD-RESET-TELL` is still open (the first shipped at
+`abce9ea`), and it filed three cuts of its own, none of them candidates: the operator-gated
 `BALANCE-SEASON-GATE-CARRYOVER` (a completed profile opens every door on sight in world 2),
 plus `FEAT-SEASON-RECORD-SURFACE` and `FEAT-SEASON-SEED-SHARE`, both of which want a UI
 budget the top band and the map header do not have. **`references/map/README.md` section
@@ -668,6 +666,26 @@ away. One real side effect, recorded on the item: a quest door can consume an `O
 `placeHiddenSectors` wanted, so the live seed's concealed rooms move from `-1,-5 / 0,6 / 1,-5` to
 `0,6 / 1,-5 / 4,-2` while `poiSlots` stay identical. No version bump, no storage key and no new UI.
 It also discharged `CHORE-QUESTDOOR-MAP-LEGEND`, which shipped code had already satisfied.
+
+**`abce9ea` gave the season re-roll something to pay for.** `fd406d3` made the expedition world
+per profile and re-rollable, but nothing in the game yet cost more than one world: every
+collection, counter and unlock was reachable inside world 1, so banking a chart was a reset
+rather than a chase. `LORE_FRAGMENTS` now holds 26 rows instead of 13, which is exactly the live
+seed's own secret-slot count, so the default profile can still complete the collection where it
+stands while the median world (24 slots, measured over 101 seeds that range 12 to 34) deals only
+part of it. The dealing rule is untouched and that is the whole reason the change is 13 rows of
+data: `(offset + rank) % length` makes a world's deal a contiguous repeat-free window, so a world
+hands over exactly `min(secrets, catalog)` distinct fragments, and every consumer was already
+length-derived, so the Codex grid, the `n/26` tab count, the Complete Ledger unlock, its
+closest-to-unlock progress row, the lead toast and the LEADS panel all widened with no wiring.
+Cross-season coverage is probabilistic and was measured rather than assumed: a median of 2
+seasons, p90 3, max 5 over 300 chains through the real `rollNextExpeditionSeed`. The guaranteed
+alternative is filed as `FEAT-SECRET-LORE-SEASON-STRIDE`, and the length itself as the
+play-gated `BALANCE-LORE-CATALOG-LENGTH`; do not re-derive either. The one string beside the data
+is the locked codex card, which now says a single world deals only some, because a player at
+24/26 with no secrets left was otherwise told nothing. No storage key, no `SAVE_VERSION`, no
+`WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump, so every existing profile keeps every
+fragment it already holds the moment the build lands.
 
 **Why a Phase 7 bug outranked the content bands this session, recorded so it is not
 re-derived:** band 1 has no unblocked item (`FEAT-ECON-WARDS` is parked on the operator and
@@ -5954,14 +5972,57 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   visible when navigating those two tabs by D-pad past the fold. Fix by reading the height the
   category's `layoutCardGrid` call actually used instead of a per-category ternary. Deps: none.
 
-- [ ] **FEAT-SECRET-LORE-CATALOG-DEPTH** (new 2026-07-31, from `FEAT-SECRET-LORE-CODEX`): the
-  fragment catalog is capped at 13 by the live world, not by the writing: `loreFragmentFor`
-  deals by rank over the 26 secret slots of the single fixed expedition seed, so a longer
-  catalog leaves singleton fragments an unlucky walk-in can strand. Growing it past 13 is
-  unblocked the moment a world can be re-rolled (README section 6's "world re-roll as a
-  season"), which multiplies the ranks a profile ever sees. Deps: met by
-  FEAT-EXPEDITION-SEASONS (fd406d3), which made the world seed per profile and re-rollable.
-  Spec: doc 04 section 5, lore fragments.
+- [x] **FEAT-SECRET-LORE-CATALOG-DEPTH** (done, abce9ea): the fragment catalog grew from 13 rows
+  to 26 and the codex stopped being completable inside one world. The cap was never the writing:
+  `loreFragmentFor` deals rank *i* the fragment at `(offset + i) % length`, so a world's deal is
+  a contiguous repeat-free window and one world hands over exactly `min(secrets, catalog)`
+  distinct fragments (verified on 200 seeds this session: the identity held on every one). With
+  13 rows every world with 13 or more secret slots dealt the whole catalog, so the collection,
+  the `n/13` tab count and the Complete Ledger paint behind `unlock_lore_complete` were all
+  exhaustible in world 1 and `FEAT-EXPEDITION-SEASONS` had nothing to pay for.
+  **26 is the live seed's own secret-slot count**, measured rather than chosen: 20260727 carries
+  exactly 26 `PoiKind.Secret` slots (identical with or without `questKeyOrder`, so `cf7c735`'s
+  quest doors did not move them), while across 101 consecutive seeds a world holds 12 to 34 with
+  a median of 24. So the default profile can still finish the collection where it stands, and
+  every re-rolled world deals only part of it. **The dealing rule is deliberately unchanged**:
+  cross-season coverage is probabilistic, and it was measured rather than assumed, at a median
+  of **2 seasons, p90 3, max 5** over 300 independent chains following the real
+  `rollNextExpeditionSeed`, with 103 of 300 finishing in one. Guaranteeing it would mean
+  threading profile state (`getCurrentExpeditionSeasonIndex`) into a module whose contract is
+  that it is pure and that a lead never renames itself, for a tail a further re-roll already
+  closes; it is filed as `FEAT-SECRET-LORE-SEASON-STRIDE` rather than re-derived.
+  **Thirteen rows of data lit four surfaces with no wiring**, because every consumer was already
+  length-derived: the Codex LORE grid and its `n/26` count, `unlock_lore_complete` (whose target
+  is `LORE_FRAGMENTS.length`) and its closest-to-unlock progress row, the in-run lead toast and
+  the map screen's LEADS panel. One string changed beside the data: a locked lore card now reads
+  `Recovered from a secret. One world deals only some.`, because a player who has cleared every
+  secret and sits at 24/26 was otherwise told nothing about why or where the rest are. One test
+  changed contract with the feature that changed it, `secretHints.test.ts`'s dealing test, whose
+  replacement asserts `dealt.size === min(secrets, catalog)`: identical to the old assertion
+  whenever a world is big enough, and strictly stronger in the case the old one could not reach.
+  One guard was added in `referentialIntegrity.test.ts` for the 17-character title budget that
+  `LoreFragments.ts` documented and nothing enforced (the title is uppercased into a toast
+  heading and the LEADS panel heading, neither of which wraps). No storage key, no
+  `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump: `sanitizeLore` rebuilds
+  from the known id list, so an existing profile gains 13 undiscovered rows on load and keeps
+  every fragment it already holds. Spec: doc 04 section 5, lore fragments.
+
+- [ ] **FEAT-SECRET-LORE-SEASON-STRIDE** (new 2026-08-01, from FEAT-SECRET-LORE-CATALOG-DEPTH):
+  the fragment window a world deals starts at `hash(worldSeed) % length`, so coverage across
+  seasons is probabilistic rather than guaranteed. Measured over 300 independent chains through
+  the real `rollNextExpeditionSeed`, a player who clears every world completes all 26 in a median
+  of 2 seasons, p90 3, max 5, and 103 of 300 finish in one. A guaranteed version would advance
+  the offset along the season chain instead (`getCurrentExpeditionSeasonIndex` already exists),
+  but that threads profile state into a module whose whole contract is that it is pure and that a
+  lead never renames itself between map opens, and it would have to answer what happens when a
+  profile adopts a foreign seed. Cut because a further re-roll already closes the tail. Value:
+  the last fragment stops being a coin flip. Deps: none.
+
+- [ ] **BALANCE-LORE-CATALOG-LENGTH** (new 2026-08-01, from FEAT-SECRET-LORE-CATALOG-DEPTH):
+  26 rows against a measured median of 24 secret slots per world is a chase length derived from
+  the live seed's own count, not from play. Whether a median 2-season collection reads as a
+  chase or as a grind is a feel judgement that wants a browser and a player, alongside
+  `BALANCE-QUEST-HAZARD-TARGETS` and the rest of the play-gated queue. Deps: playtest.
 
 - [ ] **CHORE-SECRET-LEAD-TICKER** (was CHORE-SECRET-LEAD-RADAR, radar half done 05e832e): the
   radar now carries every open lead as an amber bearing, so the map screen is no longer the only
