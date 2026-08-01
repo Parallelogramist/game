@@ -339,6 +339,8 @@ const SPECIAL_CHEST_CHANCE = 0.15;
 const POI_CRATE_FIELD_COUNT = 3;
 const POI_CRATE_FIELD_RADIUS = 34;
 const POI_CACHE_SPREAD = 22;
+/** The quest-anchor cyan poiGlyphs.ts draws the board with; kept identical on purpose. */
+const QUEST_BOARD_COLOR = 0x66ddff;
 const SECRET_REWARD_SPREAD = 26;
 const SECRET_REWARD_RADIUS = 34;
 const SECRET_REWARD_BUNDLE_COUNT = 3;
@@ -566,6 +568,10 @@ export class GameScene extends Phaser.Scene {
   // screen and this flow holds isPaused.
   private marketActive: boolean = false;
 
+  // Quest board (FEAT-QUEST-BOARD): true while the QuestBoardScene overlay owns the screen and
+  // this flow holds isPaused.
+  private questBoardActive: boolean = false;
+
   // The world map (FEAT-MAPUI-MAPSCENE-04) is a sibling overlay to the pause menu, never a
   // child: exactly one of them owns isPaused at a time.
   private mapOverlayActive: boolean = false;
@@ -631,6 +637,14 @@ export class GameScene extends Phaser.Scene {
     graphics: Phaser.GameObjects.Graphics; x: number; y: number;
     puzzle: ActiveSecretPuzzle | null;
   }[] = [];
+  /** Walk-in quest boards for the sector the ship is in, the syncAbilityVaults shape. The board
+   *  is the QuestGiver slot's consumer; it holds no per-profile state of its own, so nothing
+   *  about it reaches the run save. `engaged` is the re-open latch: a board is never consumed, so
+   *  without it the ship would still be inside the open radius the frame the overlay closes. */
+  private activeQuestBoards: {
+    poiId: string; graphics: Phaser.GameObjects.Graphics; x: number; y: number; engaged: boolean;
+  }[] = [];
+  private questBoardSectorKey: string | null = null;
   /** Ambush nests, expedition only. World-space and run-scoped like a chest rather than rebuilt
    *  per sector like a vault: a nest carries no per-profile state, so leaving the room must not
    *  reset a fight the player half-won. */
@@ -651,6 +665,9 @@ export class GameScene extends Phaser.Scene {
    *  ownedTraversalAbilityIds: the real read is a SecureStorage decrypt. */
   private earnedQuestKeyIds: Set<string> = new Set();
   private static readonly VAULT_CLAIM_RADIUS = 40;
+  private static readonly QUEST_BOARD_OPEN_RADIUS = 48;
+  /** Wider than the open radius: the ship has to actually leave the board before it re-opens. */
+  private static readonly QUEST_BOARD_REARM_RADIUS = 110;
   private static readonly SECRET_SENSE_RADIUS = 300;
   private static readonly SECRET_CLAIM_RADIUS = 44;
   /** Wider than ABILITY_DOOR_OPEN_RADIUS (60) on purpose: the notice has to land while the
@@ -4566,6 +4583,8 @@ export class GameScene extends Phaser.Scene {
     this.vaultSectorKey = null;
     this.clearSecretCaches();
     this.secretSectorKey = null;
+    this.clearQuestBoards();
+    this.questBoardSectorKey = null;
     this.clearAmbushNests();
     this.clearNemesisLairs();
     this.spawnedPoiSlotIds.clear();
@@ -4618,6 +4637,7 @@ export class GameScene extends Phaser.Scene {
     this.relicDraftActive = false;
     this.relicDraftOwnsPause = false;
     this.marketActive = false;
+    this.questBoardActive = false;
   }
 
   /**
@@ -4913,6 +4933,58 @@ export class GameScene extends Phaser.Scene {
       vault.graphics.destroy();
     }
     this.activeVaults = [];
+  }
+
+  /**
+   * Quest boards for the sector the ship is in, the syncAbilityVaults shape and the same
+   * key-compare, so the common frame does no work. One board per QuestGiver slot: that is the
+   * vault's own precedent, so the chart's glyph and the world's object agree slot for slot.
+   */
+  private syncQuestBoards(map: WorldMap, playerX: number, playerY: number): void {
+    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
+    if (key === this.questBoardSectorKey) return;
+    this.questBoardSectorKey = key;
+    this.clearQuestBoards();
+
+    const sector = map.sectors.get(key);
+    if (!sector) return;
+    for (const slot of sector.poiSlots) {
+      if (slot.kind !== PoiKind.QuestGiver) continue;
+      this.addQuestBoard(
+        slot.id,
+        sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
+        sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
+      );
+    }
+  }
+
+  private addQuestBoard(poiId: string, x: number, y: number): void {
+    const graphics = this.add.graphics();
+    graphics.setPosition(x, y);
+    graphics.setDepth(4);
+    this.drawQuestBoard(graphics);
+    this.activeQuestBoards.push({ poiId, graphics, x, y, engaged: false });
+  }
+
+  /** A standing notice board in the quest-anchor cyan the chart glyph and the map legend use, so
+   *  the room and the chart name the same thing. */
+  private drawQuestBoard(graphics: Phaser.GameObjects.Graphics): void {
+    const color = QUEST_BOARD_COLOR;
+    graphics.clear();
+    graphics.fillStyle(color, 0.15);
+    graphics.fillCircle(0, 0, 28);
+    graphics.lineStyle(3, color, 0.95);
+    graphics.strokeRect(-20, -24, 40, 30);
+    graphics.lineBetween(-11, 6, -11, 22);
+    graphics.lineBetween(11, 6, 11, 22);
+    graphics.fillStyle(color, 0.85);
+    graphics.fillRect(-13, -17, 26, 4);
+    graphics.fillRect(-13, -9, 17, 4);
+  }
+
+  private clearQuestBoards(): void {
+    for (const board of this.activeQuestBoards) board.graphics.destroy();
+    this.activeQuestBoards = [];
   }
 
   /**
@@ -5526,6 +5598,51 @@ export class GameScene extends Phaser.Scene {
 
       if (distanceSq < radius * radius) this.claimAbilityVault(i);
     }
+  }
+
+  /** Pulse and walk-in test, the updateAbilityVaults shape. A board is never consumed, so it
+   *  latches instead of splicing: it re-arms only once the ship has left the re-arm radius. */
+  private updateQuestBoards(playerX: number, playerY: number): void {
+    if (this.activeQuestBoards.length === 0) return;
+    const pulse = 1 + Math.sin(this.gameTime * 1.8) * 0.06;
+    const openRadius = GameScene.QUEST_BOARD_OPEN_RADIUS;
+    const rearmRadius = GameScene.QUEST_BOARD_REARM_RADIUS;
+    for (const board of this.activeQuestBoards) {
+      board.graphics.setScale(pulse);
+      const dx = playerX - board.x;
+      const dy = playerY - board.y;
+      const distanceSq = dx * dx + dy * dy;
+      if (board.engaged) {
+        if (distanceSq > rearmRadius * rearmRadius) board.engaged = false;
+        continue;
+      }
+      if (distanceSq < openRadius * openRadius) {
+        board.engaged = true;
+        this.openQuestBoard();
+        return;
+      }
+    }
+  }
+
+  /** Opens the objective board over a paused run, openMarket's contract exactly. update() returns
+   *  early while isPaused, so nothing here can re-enter while the overlay is up. */
+  private openQuestBoard(): void {
+    if (this.questBoardActive || this.scene.isActive('QuestBoardScene')) return;
+    this.questBoardActive = true;
+    this.isPaused = true;
+    this.scene.launch('QuestBoardScene', {
+      onClose: (changed: boolean) => {
+        this.questBoardActive = false;
+        this.isPaused = false;
+        // The ticker re-reads on its own timer; zeroing it puts an accept on the HUD next frame
+        // instead of up to QUEST_TICKER_REFRESH_SECONDS later.
+        if (changed) this.questTickerRefreshTimer = 0;
+        if (this.pendingOrientationRelayout) {
+          this.pendingOrientationRelayout = false;
+          this.handleOrientationFlip();
+        }
+      },
+    });
   }
 
   /**
@@ -6292,6 +6409,8 @@ export class GameScene extends Phaser.Scene {
     if (!this.worldMode.isSectorLocked()) {
       this.syncAbilityVaults(map, playerX, playerY);
       this.updateAbilityVaults(playerX, playerY);
+      this.syncQuestBoards(map, playerX, playerY);
+      this.updateQuestBoards(playerX, playerY);
       this.syncSecretCaches(map, playerX, playerY);
       this.updateSecretCaches(playerX, playerY);
       this.updateAmbushNests(playerX, playerY);
@@ -7876,6 +7995,10 @@ export class GameScene extends Phaser.Scene {
       const vault = this.activeVaults[i];
       this.writeMinimapEntry(count++, vault.x, vault.y, 'pickup');
     }
+    for (let i = 0; i < this.activeQuestBoards.length; i++) {
+      const board = this.activeQuestBoards[i];
+      this.writeMinimapEntry(count++, board.x, board.y, 'pickup');
+    }
 
     // A dormant hive or den is a decision, so the radar names it a full range before the
     // 150/160 px trip radius and before its own graphic reaches the screen edge. Range-gated
@@ -8585,14 +8708,15 @@ export class GameScene extends Phaser.Scene {
     // center-anchored, so a flip there is cosmetic only.
     if (this.isGameOver) return;
     if (this.hasWon && this.isPaused && !this.pauseMenuManager.isPauseMenuOpen) return;
-    // Level-up modal open: a GameScene restart underneath would orphan it.
-    // Defer — the HUD keeps itself anchored via the live resize path
-    // meanwhile, and the selection-complete handler settles the relayout
-    // once the (last queued) modal closes.
+    // Level-up modal or the quest board open: a GameScene restart underneath
+    // would orphan it. Defer, since the HUD keeps itself anchored via the live
+    // resize path meanwhile, and the closing handler (selection-complete, or
+    // the board's onClose) settles the relayout once the last one closes.
     if (
       this.scene.isActive('UpgradeScene') ||
       this.scene.isActive('RelicDraftScene') ||
-      this.scene.isActive('MarketScene')
+      this.scene.isActive('MarketScene') ||
+      this.scene.isActive('QuestBoardScene')
     ) {
       this.pendingOrientationRelayout = true;
       return;
@@ -13705,6 +13829,8 @@ export class GameScene extends Phaser.Scene {
     this.vaultSectorKey = null;
     this.clearSecretCaches();
     this.secretSectorKey = null;
+    this.clearQuestBoards();
+    this.questBoardSectorKey = null;
     this.clearAmbushNests();
     this.clearNemesisLairs();
     this.bountyText?.destroy();

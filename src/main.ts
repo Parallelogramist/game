@@ -5,6 +5,7 @@ import { GameScene } from './game/scenes/GameScene';
 import { UpgradeScene } from './game/scenes/UpgradeScene';
 import { RelicDraftScene } from './game/scenes/RelicDraftScene';
 import { MarketScene } from './game/scenes/MarketScene';
+import { QuestBoardScene } from './game/scenes/QuestBoardScene';
 import { MusicSettingsScene } from './game/scenes/MusicSettingsScene';
 import { SettingsScene } from './game/scenes/SettingsScene';
 import { ShopScene } from './game/scenes/ShopScene';
@@ -162,7 +163,7 @@ window.addEventListener('unhandledrejection', (event) => {
     ...GAME_CONFIG,
     width: initialBase.width,
     height: initialBase.height,
-    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, RelicDraftScene, MarketScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, PaintScene, CardsScene, WeaponSelectScene, PactSelectScene, DirectorSelectScene, ThreatSelectScene, ModifierDraftScene, BlessingDraftScene, PracticeScene, LeaderboardScene, LoadoutScene, MapScene],
+    scene: [BootScene, GameScene, RunnerScene, UpgradeScene, RelicDraftScene, MarketScene, MusicSettingsScene, SettingsScene, ShopScene, CreditsScene, AchievementScene, CodexScene, PaintScene, CardsScene, WeaponSelectScene, PactSelectScene, DirectorSelectScene, ThreatSelectScene, ModifierDraftScene, BlessingDraftScene, PracticeScene, LeaderboardScene, LoadoutScene, MapScene, QuestBoardScene],
   };
 
   // Initialize the game
@@ -181,13 +182,14 @@ window.addEventListener('unhandledrejection', (event) => {
       const key = scene.scene.key;
       if (key === 'GameScene') {
         (scene as GameScene).handleOrientationFlip();
-      } else if (key !== 'UpgradeScene' && key !== 'RelicDraftScene' && key !== 'MarketScene') {
-        // RelicDraftScene and MarketScene are skipped for the same reason as
-        // UpgradeScene: a restart would regress their mid-modal state, re-fire
-        // the entrance and orphan the onClose closure that belongs to the live
-        // GameScene. They close back into a GameScene that has re-laid itself
-        // out (handleOrientationFlip defers while either is up and settles once
-        // it closes).
+      } else if (key !== 'UpgradeScene' && key !== 'RelicDraftScene' && key !== 'MarketScene'
+        && key !== 'QuestBoardScene') {
+        // RelicDraftScene, MarketScene and QuestBoardScene are skipped for the
+        // same reason as UpgradeScene: a restart would regress their mid-modal
+        // state, re-fire the entrance and orphan the onClose closure that
+        // belongs to the live GameScene. They close back into a GameScene that
+        // has re-laid itself out (handleOrientationFlip defers while any of them
+        // is up and settles once it closes).
         const launchData = (scene.sys.settings.data ?? {}) as Record<string, unknown>;
         scene.scene.restart({ ...launchData, relayout: true });
       }

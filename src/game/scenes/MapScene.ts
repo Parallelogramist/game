@@ -351,7 +351,7 @@ export class MapScene extends Phaser.Scene {
       draw: (graphics: Phaser.GameObjects.Graphics, x: number, y: number) => void;
     }> = [];
     for (const kind of [PoiKind.AbilityPowerUp, PoiKind.Treasure,
-      PoiKind.Shrine, PoiKind.Secret]) {
+      PoiKind.Shrine, PoiKind.Secret, PoiKind.QuestGiver]) {
       rows.push({
         label: poiGlyphFor(kind).label,
         draw: (graphics, x, y) => drawPoiGlyph(graphics, kind, x, y, LEGEND_GLYPH_SIZE, 1),

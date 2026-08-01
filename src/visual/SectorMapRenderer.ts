@@ -147,6 +147,11 @@ export function drawPoiGlyph(
       graphics.strokeCircle(x, y, size);
       graphics.fillCircle(x, y, Math.max(1, size * 0.35));
       break;
+    case 'board':
+      graphics.fillRect(x - size, y - size, size * 2, size * 1.3);
+      graphics.lineBetween(x - size * 0.5, y + size * 0.3, x - size * 0.5, y + size);
+      graphics.lineBetween(x + size * 0.5, y + size * 0.3, x + size * 0.5, y + size);
+      break;
   }
 }
 

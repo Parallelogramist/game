@@ -14,7 +14,7 @@
 
 import { PoiKind } from '../world/worldTypes';
 
-export type PoiGlyphShape = 'none' | 'star' | 'chest' | 'altar' | 'ring';
+export type PoiGlyphShape = 'none' | 'star' | 'chest' | 'altar' | 'ring' | 'board';
 
 export interface PoiGlyph {
   shape: PoiGlyphShape;
@@ -25,14 +25,16 @@ export interface PoiGlyph {
 
 export const POI_GLYPHS: Record<PoiKind, PoiGlyph> = {
   [PoiKind.AbilityPowerUp]: { shape: 'star',  label: 'Ability vault', color: 0xaa44ff },
-  [PoiKind.QuestGiver]:     { shape: 'none',  label: 'Quest anchor',  color: 0x66ddff },
+  [PoiKind.QuestGiver]:     { shape: 'board', label: 'Quest board',   color: 0x66ddff },
   [PoiKind.Secret]:         { shape: 'ring',  label: 'Found secret',  color: 0xcc8833 },
   [PoiKind.Treasure]:       { shape: 'chest', label: 'Cache',         color: 0xffcc44 },
   [PoiKind.Shrine]:         { shape: 'altar', label: 'Altar',         color: 0x44ffaa },
 };
 
-/** A kind from tampered or future data falls back to the quest-anchor glyph, which draws
- *  nothing: an unknown slot must not invent a promise. */
+/** A kind from tampered or future data draws nothing: an unknown slot must not invent a promise.
+ *  Its own constant rather than a real entry, since every PoiKind now draws something. */
+const UNKNOWN_POI_GLYPH: PoiGlyph = { shape: 'none', label: 'Unknown site', color: 0x8898b0 };
+
 export function poiGlyphFor(kind: PoiKind): PoiGlyph {
-  return POI_GLYPHS[kind] ?? POI_GLYPHS[PoiKind.QuestGiver];
+  return POI_GLYPHS[kind] ?? UNKNOWN_POI_GLYPH;
 }

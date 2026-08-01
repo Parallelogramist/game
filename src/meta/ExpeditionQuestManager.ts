@@ -5,17 +5,22 @@ import {
   type ExpeditionQuestDefinition,
 } from '../data/ExpeditionQuests';
 import {
+  acceptQuest,
   recordQuestEvent,
   seedQuestStates,
+  setQuestAside,
   settleRunScopeProgress,
+  buildQuestBoardEntries,
   buildQuestStepViews,
   buildQuestMarkers,
   buildQuestHoldObjectives,
+  type QuestBoardEntry,
   type QuestEvent,
   type QuestHoldObjective,
   type QuestInstanceState,
   type QuestMarker,
   type QuestProgressResult,
+  type QuestStatus,
   type QuestStepView,
 } from '../systems/QuestProgress';
 
@@ -93,9 +98,13 @@ function sanitizeStates(value: unknown): QuestInstanceState[] {
     const questId = typeof entry.questId === 'string' ? entry.questId : '';
     const definition = getExpeditionQuest(questId);
     if (!definition || seen.has(questId)) continue;
-    const status = entry.status === 'complete' ? 'complete' : 'active';
+    const status: QuestStatus = entry.status === 'complete' ? 'complete'
+      : entry.status === 'available' ? 'available'
+      : 'active';
     const stepIndex = sanitizeCount(entry.stepIndex);
-    if (status === 'active' && stepIndex >= definition.steps.length) continue;
+    // An unfinished quest whose index is past the end of its chain is nonsense in either live
+    // status, so the guard follows the status rather than the word 'active'.
+    if (status !== 'complete' && stepIndex >= definition.steps.length) continue;
     const clampedIndex = Math.min(stepIndex, definition.steps.length);
     const isDistinctStep = definition.steps[clampedIndex]?.trigger.kind === 'reachSector';
     // Set and stamp are kept or dropped together: a set whose world is unknown cannot be
@@ -239,4 +248,33 @@ export function claimExpeditionQuestGold(): number {
   if (owed <= 0) return 0;
   save({ states: state.states, pendingGold: 0 });
   return owed;
+}
+
+export type { QuestBoardEntry } from '../systems/QuestProgress';
+
+/** What the walk-in board renders. Same store read and same one-projection rule as
+ *  getActiveQuestStepViews: the board and the ticker cannot disagree about what is active. */
+export function getQuestBoardEntries(): QuestBoardEntry[] {
+  return buildQuestBoardEntries(load().states, EXPEDITION_QUESTS, ACTIVE_EXPEDITION_QUEST_LIMIT);
+}
+
+/** False when the cap refused the accept, which is what the board plays an error on. Banked gold
+ *  is carried through untouched: accepting a quest is not a payout event. */
+export function acceptExpeditionQuest(questId: string): boolean {
+  const stored = load();
+  const result = acceptQuest(
+    stored.states, EXPEDITION_QUESTS, questId, ACTIVE_EXPEDITION_QUEST_LIMIT,
+  );
+  if (!result.accepted) return false;
+  save({ states: result.states, pendingGold: stored.pendingGold });
+  return true;
+}
+
+/** False when the quest was not active to begin with. */
+export function setExpeditionQuestAside(questId: string): boolean {
+  const stored = load();
+  const result = setQuestAside(stored.states, EXPEDITION_QUESTS, questId);
+  if (!result.changed) return false;
+  save({ states: result.states, pendingGold: stored.pendingGold });
+  return true;
 }

@@ -13,7 +13,12 @@ import type { PoiHazardKind } from '../data/PoiCatalog';
  * settleRunScopeProgress, and stepIndex only ever increases.
  */
 
-export type QuestStatus = 'active' | 'complete';
+/**
+ * 'available' is a chain the player HOLDS but has set aside at the board. It counts against
+ * nothing (not the accept cap, not the fold, not any read model) and keeps everything it has
+ * earned, so accepting it again resumes rather than restarts.
+ */
+export type QuestStatus = 'active' | 'available' | 'complete';
 
 export interface QuestInstanceState {
   questId: string;
@@ -243,6 +248,60 @@ export function seedQuestStates(
 }
 
 /**
+ * The board's ACCEPT. The cap is enforced HERE rather than in the overlay, because a second copy
+ * of the rule in the UI is how the board and seedQuestStates come to disagree about how many
+ * objectives a player may hold. A refused accept returns `accepted: false` and untouched states.
+ */
+export function acceptQuest(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  questId: string,
+  activeLimit: number,
+): { states: QuestInstanceState[]; accepted: boolean } {
+  const copied = states.map((state) => ({ ...state }));
+  const definition = defs.find((entry) => entry.id === questId);
+  if (!definition || definition.steps.length === 0) return { states: copied, accepted: false };
+  if (copied.filter((state) => state.status === 'active').length >= activeLimit) {
+    return { states: copied, accepted: false };
+  }
+
+  const held = copied.find((state) => state.questId === questId);
+  if (held) {
+    if (held.status !== 'available') return { states: copied, accepted: false };
+    held.status = 'active';
+    return { states: copied, accepted: true };
+  }
+  copied.push({ questId, stepIndex: 0, stepProgress: 0, status: 'active' });
+  return { states: copied, accepted: true };
+}
+
+/**
+ * The board's SET ASIDE, the only way to free an accept slot. It destroys nothing the chain has
+ * earned: the step index and every 'persistent' counter survive, and only the in-progress
+ * 'run'-scope counter is cleared, which is the death rule (settleRunScopeProgress) applied to one
+ * quest. A run counter left standing while the quest sat on the board would be credited to
+ * whichever later run happened to re-accept it.
+ */
+export function setQuestAside(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  questId: string,
+): { states: QuestInstanceState[]; changed: boolean } {
+  const copied = states.map((state) => ({ ...state }));
+  const target = copied.find((state) => state.questId === questId);
+  if (!target || target.status !== 'active') return { states: copied, changed: false };
+
+  const step = defs.find((definition) => definition.id === questId)?.steps[target.stepIndex];
+  target.status = 'available';
+  if (step && step.scope === 'run') {
+    target.stepProgress = 0;
+    target.visitedSectorKeys = undefined;
+    target.visitedWorldStamp = undefined;
+  }
+  return { states: copied, changed: true };
+}
+
+/**
  * The death rule. Clears the counter of an in-progress 'run'-scope step and nothing else:
  * 'persistent' counters and every completed step survive untouched.
  */
@@ -379,4 +438,73 @@ export function buildQuestHoldObjectives(
     });
   }
   return objectives;
+}
+
+/**
+ * What the walk-in board renders: one row per chain the player may act on. The offerable set is
+ * every chain HEAD plus every chain the profile already holds, which is what lets a successor the
+ * player set aside be picked back up while an unreached successor stays out of the list (it is
+ * reached by finishing its predecessor, never accepted).
+ */
+export interface QuestBoardEntry {
+  questId: string;
+  name: string;
+  icon: string;
+  status: QuestStatus;
+  /** The step the player would work next; the last step for a finished chain. */
+  stepDescription: string;
+  progress: number;
+  target: number;
+  /** 1-based position of that step within its chain. */
+  stepNumber: number;
+  stepCount: number;
+  /** Gold the rest of this chain still pays, including its completion bonus. 0 once complete. */
+  goldRemaining: number;
+  /** True only where the board would take the accept RIGHT NOW: available AND under the cap. */
+  acceptable: boolean;
+}
+
+export function buildQuestBoardEntries(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  activeLimit: number,
+): QuestBoardEntry[] {
+  const successorIds = new Set(
+    defs.map((definition) => definition.nextQuestId).filter((id): id is string => Boolean(id)),
+  );
+  const byQuestId = new Map(states.map((state) => [state.questId, state]));
+  const capReached = states.filter((state) => state.status === 'active').length >= activeLimit;
+
+  const entries: QuestBoardEntry[] = [];
+  for (const definition of defs) {
+    if (definition.steps.length === 0) continue;
+    const held = byQuestId.get(definition.id);
+    if (successorIds.has(definition.id) && !held) continue;
+
+    const status = held?.status ?? 'available';
+    const stepIndex = Math.min(held?.stepIndex ?? 0, definition.steps.length - 1);
+    const step = definition.steps[stepIndex];
+    const remainingSteps = status === 'complete' ? [] : definition.steps.slice(stepIndex);
+    entries.push({
+      questId: definition.id,
+      name: definition.name,
+      icon: definition.icon,
+      status,
+      stepDescription: step.description,
+      progress: status === 'complete' ? step.target : Math.min(held?.stepProgress ?? 0, step.target),
+      target: step.target,
+      stepNumber: stepIndex + 1,
+      stepCount: definition.steps.length,
+      goldRemaining: remainingSteps.reduce((total, entry) => total + entry.goldReward, 0)
+        + (status === 'complete' ? 0 : definition.completionGoldReward),
+      acceptable: status === 'available' && !capReached,
+    });
+  }
+
+  // Complete chains sink to the end: they are a record, not a choice, and keeping them out of the
+  // navigator's leading run means the focused card is always one the player can act on.
+  return [
+    ...entries.filter((entry) => entry.status !== 'complete'),
+    ...entries.filter((entry) => entry.status === 'complete'),
+  ];
 }

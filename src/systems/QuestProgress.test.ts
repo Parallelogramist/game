@@ -1,8 +1,11 @@
 import { describe, test, expect } from 'vitest';
 import {
+  acceptQuest,
   recordQuestEvent,
   seedQuestStates,
+  setQuestAside,
   settleRunScopeProgress,
+  buildQuestBoardEntries,
   buildQuestStepViews,
   buildQuestMarkers,
   buildQuestHoldObjectives,
@@ -402,5 +405,46 @@ describe('clearHazard', () => {
     const second = recordQuestEvent(first.states, HAZARD_DEFS,
       { kind: 'clearHazard', hazardKind: 'lair' });
     expect(second.questCompletions).toEqual([{ questId: 'quest_purge', goldReward: 80 }]);
+  });
+});
+
+describe('the quest board', () => {
+  test('refuses an accept at the cap and takes it once a slot is freed', () => {
+    const held: QuestInstanceState[] = [active('quest_a'), active('quest_c'), active('quest_d')];
+    const refused = acceptQuest(held, DEFS, 'quest_e', 3);
+    expect(refused.accepted).toBe(false);
+    expect(refused.states).toHaveLength(3);
+
+    const freed = setQuestAside(held, DEFS, 'quest_a');
+    expect(freed.changed).toBe(true);
+    const taken = acceptQuest(freed.states, DEFS, 'quest_e', 3);
+    expect(taken.accepted).toBe(true);
+    expect(taken.states.find((state) => state.questId === 'quest_e')?.status).toBe('active');
+    expect(taken.states.find((state) => state.questId === 'quest_a')?.status).toBe('available');
+  });
+
+  test('setting aside keeps a persistent counter and clears a run counter', () => {
+    // quest_a step 0 is 'run', step 1 is 'persistent'.
+    const runScope = setQuestAside([active('quest_a', 0, 7)], DEFS, 'quest_a');
+    expect(runScope.states[0]).toMatchObject({ status: 'available', stepIndex: 0, stepProgress: 0 });
+
+    const persistent = setQuestAside([active('quest_a', 1, 2)], DEFS, 'quest_a');
+    expect(persistent.states[0]).toMatchObject({ status: 'available', stepIndex: 1, stepProgress: 2 });
+
+    const resumed = acceptQuest(persistent.states, DEFS, 'quest_a', 3);
+    expect(resumed.states[0]).toMatchObject({ status: 'active', stepIndex: 1, stepProgress: 2 });
+  });
+
+  test('offers every head plus held chains, and sinks complete ones to the end', () => {
+    const states: QuestInstanceState[] = [
+      { questId: 'quest_a', stepIndex: 2, stepProgress: 0, status: 'complete' },
+      { questId: 'quest_b', stepIndex: 0, stepProgress: 1, status: 'available' },
+    ];
+    const entries = buildQuestBoardEntries(states, DEFS, 3);
+    // quest_b is a successor, listed only because it is held; quest_a sinks for being complete.
+    expect(entries.map((entry) => entry.questId))
+      .toEqual(['quest_b', 'quest_c', 'quest_d', 'quest_e', 'quest_a']);
+    expect(entries[0]).toMatchObject({ status: 'available', acceptable: true, progress: 1 });
+    expect(entries[entries.length - 1]).toMatchObject({ status: 'complete', acceptable: false, goldRemaining: 0 });
   });
 });
