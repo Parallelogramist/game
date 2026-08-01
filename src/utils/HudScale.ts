@@ -103,6 +103,21 @@ export function computeMenuFontScalePortrait(
   return Math.max(0.5, Math.min(2.5, layoutScale * density * userMultiplier));
 }
 
+/**
+ * The menu scale a scene should actually use: the portrait companion when the
+ * viewport is taller than it is wide, the landscape one otherwise. Four scenes
+ * had already hand-written this ternary; the density sweep adds more.
+ */
+export function resolveMenuFontScale(
+  canvasWidth: number,
+  canvasHeight: number,
+  userMultiplier: number = 1.0
+): number {
+  return canvasHeight > canvasWidth
+    ? computeMenuFontScalePortrait(canvasWidth, canvasHeight, userMultiplier)
+    : computeMenuFontScale(canvasWidth, canvasHeight, userMultiplier);
+}
+
 /** Returns a scaled font size string like '28px'. */
 export function scaledFontPx(scale: number, basePixels: number): string {
   return `${Math.round(basePixels * scale)}px`;

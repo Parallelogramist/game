@@ -20,6 +20,8 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
+import { resolveMenuFontScale, scaledInt, computeRowStackFit } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 import {
   ACCENT_COLORS,
   ACCENT_COLORS_STR,
@@ -36,6 +38,8 @@ interface WeaponCardRef {
 }
 
 type WeaponSelectStep = 'stage' | 'ship' | 'weapon';
+
+const GRID_TOP_RESERVE = 160;
 
 /**
  * Pre-run picker — 3-step card flow:
@@ -71,6 +75,7 @@ export class WeaponSelectScene extends Phaser.Scene {
   private gauntletMode: boolean = false;
   private runMode?: 'arena' | 'expedition';
   private relayoutOnly: boolean = false;
+  private menuScale: number = 1;
 
   constructor() {
     super({ key: 'WeaponSelectScene' });
@@ -83,6 +88,11 @@ export class WeaponSelectScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width,
+      this.scale.height,
+      getSettingsManager().getUiScale(),
+    );
     this.events.once('shutdown', this.shutdown, this);
     this.soundManager = new SoundManager(this);
 
@@ -175,11 +185,18 @@ export class WeaponSelectScene extends Phaser.Scene {
       weapon: 'WEAPON',
     };
 
-    const chipWidth = 110;
-    const chipHeight = 34;
-    const spacing = 12;
+    const scale = this.menuScale;
+    const chipWidth = scaledInt(scale, 110);
+    const chipHeight = scaledInt(scale, 34);
+    const spacing = scaledInt(scale, 12);
+    const headerY = scaledInt(scale, 28);
+    const backWidth = scaledInt(scale, 130);
+    const backX = scaledInt(scale, 80);
     const totalWidth = this.availableSteps.length * chipWidth + (this.availableSteps.length - 1) * spacing;
-    const startX = this.scale.width / 2 - totalWidth / 2 + chipWidth / 2;
+    const startX = Math.max(
+      this.scale.width / 2 - totalWidth / 2 + chipWidth / 2,
+      backX + backWidth / 2 + spacing + chipWidth / 2,
+    );
 
     this.availableSteps.forEach((step, index) => {
       const cx = startX + index * (chipWidth + spacing);
@@ -187,19 +204,19 @@ export class WeaponSelectScene extends Phaser.Scene {
       const button = createMenuButton({
         scene: this,
         x: cx,
-        y: 28,
+        y: headerY,
         width: chipWidth,
         height: chipHeight,
         label: crumbLabels[step],
         variant: isActive ? 'primary' : 'neutral',
-        fontSize: 13,
+        fontSize: scaledInt(scale, 13),
       });
       if (!isActive) button.container.setAlpha(0.65);
       this.stepButtons.push(button);
     });
 
-    const counter = makeBodyText(this, this.scale.width / 2, 56, `${currentIndex + 1} / ${totalSteps}`, {
-      fontSize: 11,
+    const counter = makeBodyText(this, this.scale.width / 2, scaledInt(scale, 56), `${currentIndex + 1} / ${totalSteps}`, {
+      fontSize: scaledInt(scale, 11),
       color: TEXT_COLORS.dim,
     });
     this.stepObjects.push(counter);
@@ -207,13 +224,13 @@ export class WeaponSelectScene extends Phaser.Scene {
     const isFirstStep = currentIndex === 0;
     const backButton = createMenuButton({
       scene: this,
-      x: 80,
-      y: 28,
-      width: 130,
+      x: backX,
+      y: headerY,
+      width: backWidth,
       height: chipHeight,
       label: isFirstStep ? '← MAIN MENU' : '← BACK',
       variant: 'neutral',
-      fontSize: 12,
+      fontSize: scaledInt(scale, 12),
       onActivate: () => this.goBack(),
     });
     backButton.card.hitZone.on('pointerover', () => backButton.setHoverState(true));
@@ -288,7 +305,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     const cardSpacing = 24;
     const lockedStages = this.getLockedStages();
     const totalStageCount = stages.length + lockedStages.length;
-    const layout = this.computeGridLayout(totalStageCount, cardWidth, cardHeight, cardSpacing, 4, 30);
+    const layout = this.computeGridLayout(totalStageCount, cardWidth, cardHeight, cardSpacing, 4, 30, 40);
 
     const focusable: { card: MenuCard; nameText: Phaser.GameObjects.Text; stage: StageDefinition }[] = [];
     stages.forEach((stage, index) => {
@@ -353,6 +370,8 @@ export class WeaponSelectScene extends Phaser.Scene {
       const { x: cardX, y: cardY } = layout.positionAt(gridIndex);
       this.renderLockedStageCard(stage, gridIndex, cardX, cardY, cardWidth, cardHeight);
     });
+
+    for (const card of this.stepCards) card.container.setScale(layout.scale);
 
     this.destroyMenuNavigator();
     this.menuNavigator = new MenuNavigator({
@@ -487,22 +506,23 @@ export class WeaponSelectScene extends Phaser.Scene {
     const cardSpacing = 22;
     const lockedShips = this.getLockedShips();
     const totalShipCount = ships.length + lockedShips.length;
-    const layout = this.computeGridLayout(totalShipCount, cardWidth, cardHeight, cardSpacing, 4, 30);
+    const layout = this.computeGridLayout(totalShipCount, cardWidth, cardHeight, cardSpacing, 4, 30, 40);
 
     // Hangar preview — the real in-run ship hull cycling its evolution
     // tiers, tracking the focused card. Beside the grid in landscape,
     // above it in portrait; skipped when a tall portrait grid leaves no
     // headroom (the preview must never sit on the cards).
     const portrait = this.scale.height > this.scale.width;
-    const gridTop = layout.startY - cardHeight / 2;
-    const previewRoom = !portrait || gridTop - 130 >= 200;
+    const gridTop = layout.startY - (cardHeight * layout.scale) / 2;
+    const previewGap = scaledInt(this.menuScale, 130);
+    const previewRoom = !portrait || gridTop - previewGap >= scaledInt(this.menuScale, 200);
     if (previewRoom) {
       const gridRight = this.scale.width / 2 + layout.totalGridWidth / 2;
       const previewX = portrait
         ? this.scale.width / 2
-        : Math.min(this.scale.width - 110, (gridRight + this.scale.width) / 2);
-      const previewY = portrait ? gridTop - 130 : this.scale.height / 2 - 10;
-      this.shipPreview = new ShipPreview(this, previewX, previewY);
+        : Math.min(this.scale.width - scaledInt(this.menuScale, 110), (gridRight + this.scale.width) / 2);
+      const previewY = portrait ? gridTop - previewGap : this.scale.height / 2 - 10;
+      this.shipPreview = new ShipPreview(this, previewX, previewY, 1.6 * this.menuScale);
       this.shipPreview.setShip(ships[0]);
     }
 
@@ -616,6 +636,8 @@ export class WeaponSelectScene extends Phaser.Scene {
       const { x: cardX, y: cardY } = layout.positionAt(gridIndex);
       this.renderLockedShipCard(ship, gridIndex, cardX, cardY, cardWidth, cardHeight);
     });
+
+    for (const card of this.stepCards) card.container.setScale(layout.scale);
 
     this.destroyMenuNavigator();
     this.menuNavigator = new MenuNavigator({
@@ -741,24 +763,27 @@ export class WeaponSelectScene extends Phaser.Scene {
 
   private renderStepTitle(title: string, subtitle: string, titleColor: string): void {
     const centerX = this.scale.width / 2;
-    const titleText = makeDisplayText(this, centerX, 90, title, {
-      fontSize: 36,
+    const scale = this.menuScale;
+    const titleText = makeDisplayText(this, centerX, scaledInt(scale, 90), title, {
+      fontSize: scaledInt(scale, 36),
       color: titleColor,
-      strokeWidth: 5,
+      strokeWidth: scaledInt(scale, 5),
       letterSpacing: 3,
     });
     this.stepObjects.push(titleText);
 
     // The subtitle line doubles as the mode marker so every step of a
-    // gauntlet flow says so (same slot — no layout shift).
+    // gauntlet flow says so (same slot — no layout shift). It wraps because
+    // the gauntlet prefix pushes it past 720 units once density-scaled.
     const subtitleText = makeBodyText(
       this,
       centerX,
-      130,
+      scaledInt(scale, 130),
       this.gauntletMode ? `GAUNTLET · BOSS RUSH — ${subtitle}` : subtitle,
       {
-        fontSize: 14,
+        fontSize: scaledInt(scale, 14),
         color: this.gauntletMode ? '#ff88aa' : TEXT_COLORS.muted,
+        wordWrapWidth: this.scale.width - 40,
       },
     );
     this.stepObjects.push(subtitleText);
@@ -771,26 +796,49 @@ export class WeaponSelectScene extends Phaser.Scene {
     cardSpacing: number,
     maxColumns: number,
     yOffset: number = 0,
+    bottomReserve: number = 40,
   ) {
     const centerX = this.scale.width / 2;
+    const scaledCardWidth = cardWidth * this.menuScale;
     // Cap columns to what fits the viewport width so portrait (720) wraps
     // instead of overflowing; wide viewports keep the requested max.
-    const fitColumns = Math.max(1, Math.floor((this.scale.width - 32) / (cardWidth + cardSpacing)));
+    const fitColumns = Math.max(
+      1,
+      Math.floor((this.scale.width - 32) / (scaledCardWidth + cardSpacing * this.menuScale)),
+    );
     const columns = Math.min(count, maxColumns, fitColumns);
     const rows = Math.ceil(count / columns);
-    const totalGridWidth = columns * cardWidth + (columns - 1) * cardSpacing;
-    const totalGridHeight = rows * cardHeight + (rows - 1) * cardSpacing;
-    const startX = centerX - totalGridWidth / 2 + cardWidth / 2;
-    const startY = this.scale.height / 2 - totalGridHeight / 2 + yOffset;
+
+    const availableHeight =
+      this.scale.height - (GRID_TOP_RESERVE + bottomReserve) * this.menuScale;
+    const heightFit = computeRowStackFit(
+      rows,
+      cardHeight * this.menuScale,
+      cardSpacing * this.menuScale,
+      availableHeight,
+    );
+    // A grid that already overflows at design size (29 weapons at a full codex)
+    // keeps today's size rather than shrinking further into illegibility; only
+    // grids that fit take the density boost.
+    const scale = Math.max(Math.min(1, this.menuScale), this.menuScale * heightFit);
+
+    const scaledWidth = cardWidth * scale;
+    const scaledHeight = cardHeight * scale;
+    const scaledSpacing = cardSpacing * scale;
+    const totalGridWidth = columns * scaledWidth + (columns - 1) * scaledSpacing;
+    const totalGridHeight = rows * scaledHeight + (rows - 1) * scaledSpacing;
+    const startX = centerX - totalGridWidth / 2 + scaledWidth / 2;
+    const startY = this.scale.height / 2 - totalGridHeight / 2 + yOffset * scale;
 
     return {
       columns,
+      scale,
       totalGridWidth,
       totalGridHeight,
       startY,
       positionAt: (index: number) => ({
-        x: startX + (index % columns) * (cardWidth + cardSpacing),
-        y: startY + Math.floor(index / columns) * (cardHeight + cardSpacing),
+        x: startX + (index % columns) * (scaledWidth + scaledSpacing),
+        y: startY + Math.floor(index / columns) * (scaledHeight + scaledSpacing),
       }),
     };
   }
@@ -823,7 +871,8 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.registerPressedCardClearing();
 
     this.weaponCardRefs = [];
-    const gridColumns = this.buildWeaponCards(discoveredWeapons);
+    const layout = this.buildWeaponCards(discoveredWeapons);
+    for (const card of this.stepCards) card.container.setScale(layout.scale);
 
     const pickRandom = () => {
       const randomWeapon = discoveredWeapons[Math.floor(Math.random() * discoveredWeapons.length)];
@@ -831,25 +880,26 @@ export class WeaponSelectScene extends Phaser.Scene {
     };
 
     const centerX = this.scale.width / 2;
-    const randomButtonY = this.scale.height - 60;
+    const scale = this.menuScale;
+    const randomButtonY = this.scale.height - scaledInt(scale, 60);
     const randomButton = createMenuButton({
       scene: this,
       x: centerX,
       y: randomButtonY,
-      width: 200,
-      height: 48,
+      width: scaledInt(scale, 200),
+      height: scaledInt(scale, 48),
       label: '🎲 RANDOM',
       variant: 'gold',
-      fontSize: 18,
+      fontSize: scaledInt(scale, 18),
       onActivate: pickRandom,
     });
     randomButton.card.hitZone.on('pointerover', () => randomButton.setHoverState(true));
     randomButton.card.hitZone.on('pointerout', () => randomButton.setHoverState(false));
     this.stepButtons.push(randomButton);
 
-    const hint = makeBodyText(this, centerX, this.scale.height - 22,
+    const hint = makeBodyText(this, centerX, this.scale.height - scaledInt(scale, 22),
       'Press 1-9 to quick select  |  R for random', {
-        fontSize: 11,
+        fontSize: scaledInt(scale, 11),
         color: TEXT_COLORS.dim,
       });
     this.stepObjects.push(hint);
@@ -872,7 +922,7 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.menuNavigator = new MenuNavigator({
       scene: this,
       items: navigableItems,
-      columns: gridColumns,
+      columns: layout.columns,
       wrap: true,
       onCancel: () => this.goBack(),
     });
@@ -891,17 +941,17 @@ export class WeaponSelectScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown', this.weaponStepKeyHandler);
   }
 
-  private buildWeaponCards(weapons: WeaponInfo[]): number {
+  private buildWeaponCards(weapons: WeaponInfo[]) {
     const cardWidth = 150;
     const cardHeight = 180;
     const cardSpacing = 14;
-    const layout = this.computeGridLayout(weapons.length, cardWidth, cardHeight, cardSpacing, 7, 30);
+    const layout = this.computeGridLayout(weapons.length, cardWidth, cardHeight, cardSpacing, 7, 30, 100);
 
     weapons.forEach((weaponInfo, index) => {
       const { x: cardX, y: cardY } = layout.positionAt(index);
       this.createWeaponCard(weaponInfo, cardX, cardY, cardWidth, cardHeight, index + 1);
     });
-    return layout.columns;
+    return layout;
   }
 
   private focusWeaponCard(cardRef: WeaponCardRef): void {
