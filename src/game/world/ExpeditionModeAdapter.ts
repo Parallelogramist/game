@@ -100,6 +100,10 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
   private grid: GridBackground | null = null;
   private trails: TrailManager | null = null;
   private currentSector: SectorCoord | null = null;
+  /** The sector a jumpViewTo left. A recall nulls currentSector so the arrival reports
+   *  viaEdgeId null (README section 3.2), which would otherwise also lose the room the handoff
+   *  has to put away. */
+  private jumpDeparted: SectorCoord | null = null;
   private lockedRoom: WorldRect | null = null;
   private lockedSector: SectorCoord | null = null;
   /** Tiles flipped to GateClosed by the boss seal, with their prior kinds for the revert. */
@@ -298,6 +302,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     // Nulled rather than assigned: enterSector reports viaEdgeId null when there is no
     // previous sector, which is README section 3.2's contract for an arrival that crossed
     // no border. update() re-derives the real sector on the very next frame.
+    this.jumpDeparted = this.currentSector;
     this.currentSector = null;
   }
 
@@ -415,13 +420,16 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
   }
 
   private enterSector(sector: SectorCoord): void {
-    const previous = this.currentSector;
+    const crossedFrom = this.currentSector;
+    const departed = crossedFrom ?? this.jumpDeparted;
+    this.jumpDeparted = null;
     this.currentSector = sector;
     const key = sectorKey(sector);
     this.scene.events.emit('expedition:sector-entered', {
       sectorKey: key,
       coord: sector,
-      viaEdgeId: previous ? this.sharedEdgeId(previous, sector) : null,
+      viaEdgeId: crossedFrom ? this.sharedEdgeId(crossedFrom, sector) : null,
+      fromSectorKey: departed && !sectorsEqual(departed, sector) ? sectorKey(departed) : null,
     });
     console.log(`[expedition] sector-entered ${key}`);
   }

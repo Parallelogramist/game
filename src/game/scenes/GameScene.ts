@@ -17,6 +17,8 @@ import {
   Destructible,
   StatusEffect,
   ConsumablePickupTag,
+  HealthPickupTag,
+  MagnetPickupTag,
   NemesisTag,
   AmbushSpawnTag,
   VaultGuardTag,
@@ -60,6 +62,7 @@ import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
+import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { sectorTagsOf } from '../../world/sectorTags';
 import { isSecretShellIntact, secretShellRingIndices } from '../../world/sectorInterior';
@@ -283,6 +286,9 @@ import { ACCENT_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 // Module-level queries (defined once, not per-frame)
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
 const minimapConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
+const retireHealthQuery = defineQuery([Transform, HealthPickupTag]);
+const retireMagnetQuery = defineQuery([Transform, MagnetPickupTag]);
+const retireConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
 
 const HUD_OVERLAY_DEPTH = OverlayDepths.HUD_OVERLAY; // Warnings / notifications / coach marks — above HUD, below minimap. NOT the pause menu (PauseMenuManager).
 
@@ -727,6 +733,7 @@ export class GameScene extends Phaser.Scene {
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
   private spawnedPoiSlotIds: Set<string> = new Set();
+  private readonly retireCandidates: RetireCandidate[] = [];
   private poiRunSalt: number = 0;
   private poiOncePerRunSpawned: boolean = false;
   /** Owned traversal abilities, cached for the run: every read of the real store is a
@@ -1112,11 +1119,12 @@ export class GameScene extends Phaser.Scene {
    * removed in shutdown like every other GameScene subscription.
    */
   private readonly sectorEnteredHandler = (
-    payload: { sectorKey: string; viaEdgeId: string | null },
+    payload: { sectorKey: string; viaEdgeId: string | null; fromSectorKey: string | null },
   ): void => {
     const discovery = getDiscoveryManager();
     const changes = discovery.markSectorEntered(payload.sectorKey);
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
+    this.retireDepartedSector(payload.fromSectorKey);
     this.stockSectorPois(payload.sectorKey);
     this.expeditionDwellSectorKey = payload.sectorKey;
     this.expeditionDwellStartSeconds = this.gameTime;
@@ -5409,6 +5417,52 @@ export class GameScene extends Phaser.Scene {
       cache.puzzle?.nodes.forEach(node => node.graphics.destroy());
     });
     this.activeSecretCaches = [];
+  }
+
+  /**
+   * FEAT-WORLDGEN-STREAM: the room the ship just left gives up its loose floor loot. Placed POI
+   * contents are NOT retired (FEAT-WORLDGEN-STREAM-POI-RETIRE): re-arming a slot the player had
+   * partly looted would pay its reward twice.
+   */
+  private retireDepartedSector(fromSectorKey: string | null): void {
+    if (!fromSectorKey || this.playerId < 0) return;
+    const playerX = Transform.x[this.playerId];
+    const playerY = Transform.y[this.playerId];
+
+    this.retireCandidates.length = 0;
+    for (const gem of getXPGemPositions()) {
+      this.retireCandidates.push({ entityId: gem.entityId, x: gem.x, y: gem.y });
+    }
+    for (const gemId of planSectorRetire({
+      fromSectorKey, playerX, playerY, candidates: this.retireCandidates,
+    })) {
+      consumeXPGem(gemId);
+    }
+
+    for (const query of [retireHealthQuery, retireMagnetQuery, retireConsumableQuery]) {
+      this.retireCandidates.length = 0;
+      for (const entityId of query(this.world)) {
+        this.retireCandidates.push({
+          entityId, x: Transform.x[entityId], y: Transform.y[entityId],
+        });
+      }
+      for (const entityId of planSectorRetire({
+        fromSectorKey, playerX, playerY, candidates: this.retireCandidates,
+      })) {
+        this.destroyRetiredPickup(entityId);
+      }
+    }
+  }
+
+  /** Sprite first, then the registration, then the entity: the removal order this repo's
+   *  CLAUDE.md pins, and the one healthPickupSystem already uses on collection. */
+  private destroyRetiredPickup(entityId: number): void {
+    const sprite = getSprite(entityId);
+    if (sprite) {
+      sprite.destroy();
+      unregisterSprite(entityId);
+    }
+    removeEntity(this.world, entityId);
   }
 
   /**
