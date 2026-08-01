@@ -1741,6 +1741,36 @@ construction, because `worldMap()` is null in all of them so the sync and the dr
 their first line and practice is guarded explicitly on top of that; and it moves no gold, no relic
 roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
 
+**31f3c85 made the escort worth intercepting.** `9aea1bb` gave the drone attackers and gave it only
+its melee half: the allow-list's own comment recorded that Shooter and Sniper "fire projectiles
+that cannot damage the drone at all, so retargeting them would delete them from the fight", so half
+the catalog was harmless to the one object a quest asks the player to defend. The drone is now
+solid to enemy fire, and the two ranged regular types join the decoy allow-list, so a Sniper that
+has broken off kites to 350 px of the DRONE and shoots it while George is somewhere else in the
+room. **The retargeting half was free**: `enemyAISystem` already hands every handler a
+`targetX/targetY`, and `updateShooterAI` and `updateSniperAI` aim, kite and fire at whatever they
+are handed, so no behavior handler changed. **The damage path is the feature**: one hit test in
+`updateEnemyProjectiles`, after the player's so a shot that hits the ship is spent on the ship, at
+the player's own 20 px radius, billing the projectile's full damage and consuming it. **No owner
+filter and no cap, and that is safe by measurement, not by hope**: only Shooter, Sniper,
+Necromancer, Void Wyrm and The Machine fire pooled enemy projectiles at all, and every bullet-hell
+boss attacks through `TelegraphManager`, so nothing in the game can delete the drone in a barrage.
+A Shooter is 6 dps and a Sniper 6.7 against a melee cap of 16, which is the shipped band.
+**Melee balance did not move**: the contact block, `ESCORT_DRONE_MAX_ATTACKERS` and the contact
+radius are untouched for `BALANCE-QUEST-ESCORT-DRONE` to judge, and the new regen lockout is
+projectile-only, because a hit is instantaneous and a 3 hp/s regen resuming the same frame would
+make being shot cost the drone nothing. **Telegraphed AOE is still not a threat to it**, which is
+why Giant, Warden and Bombard stay off the allow-list; that is a second damage path against
+`TelegraphManager` and it is filed as `FEAT-DECOY-AOE-INTEREST`. The set was renamed
+`DECOY_CHASER_AI_TYPES` to `DECOY_AGGRO_AI_TYPES`, because a set named chaser holding a Sniper is a
+name that lies. It files `FEAT-DECOY-AOE-INTEREST` and `BALANCE-DRONE-PROJECTILE-HIT`, and updates
+`BALANCE-DECOY-AGGRO` in place. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no
+`DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no `WORLD_ARCHIVE_VERSION` bump, because the
+drone is live scene state and the projectile pool is rebuilt every run; arena, daily, weekly,
+practice and gauntlet are untouched by construction, because `this.escortDrone` is null in all of
+them and `updateDecoyFollowers` returns null when nothing has published a decoy; and it moves no
+gold, no relic roll and no reward-table row, so `FEAT-ECON-WARDS` stays parked and untouched.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -7315,7 +7345,13 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   drone aggro, 200 px of ship guard and 4 followers are designed guesses, unmeasured in a browser.
   The guard radius is the one that decides whether the escort reads as a fight to break up or as a
   drone that dies whenever you dash, and it interacts with the drone's own 165 px/s follow speed,
-  which `BALANCE-QUEST-ESCORT-DRONE` is separately holding. Judge the two together. Value: an
+  which `BALANCE-QUEST-ESCORT-DRONE` is separately holding. Judge the two together.
+  **Updated 2026-08-01 by `FEAT-DECOY-RANGED-INTEREST` (31f3c85): the radius now also decides ranged
+  aggro, and a Sniper's 350 px preferred standoff sits 10 px inside it**, so a Sniper holding
+  station at its preferred range from the drone is a follower by 10 px and can flicker in and out
+  of the set frame to frame at the boundary. The only visible consequence is which way it aims, but
+  it means 360 is now two decisions rather than one: judge it against the Sniper's standoff as well
+  as against the melee break-off. Value: an
   escort that is a decision rather than a leash. Deps: none, but it wants play, not a guess.
 
 - [ ] **CHORE-DECOY-FLOW-FIELD** (new 2026-08-01, from FEAT-QUEST-ESCORT-ENEMY-INTEREST): a
@@ -7326,13 +7362,42 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   solve per frame for at most four bodies, which is the cost the nav layer exists to avoid. Value: a
   hostile that rounds the corner toward the drone rather than toward you. Deps: none.
 
-- [ ] **FEAT-DECOY-RANGED-INTEREST** (new 2026-08-01, from FEAT-QUEST-ESCORT-ENEMY-INTEREST):
+- [x] **FEAT-DECOY-RANGED-INTEREST** (done, 31f3c85) (new 2026-08-01, from
+  FEAT-QUEST-ESCORT-ENEMY-INTEREST):
   Shooter, Sniper, Bombard and every telegraphed-AOE type are excluded from the allow-list because
   enemy projectiles and hazard zones cannot damage the drone at all, so retargeting one would
   quietly remove it from the fight. Making the drone shootable is the honest version, and it is a
   damage path rather than a targeting rule: it needs an enemy-projectile hit test against a scene
   Graphics object that is not an ECS entity. Value: an escort threatened by the whole room rather
   than by its melee half. Deps: none, but it is a new damage path, not a tuning knob.
+
+  **What shipped (31f3c85)**: the drone is solid to enemy fire and Shooter and Sniper join the decoy
+  allow-list, so an escort is threatened from range. The hit test is one block in
+  `updateEnemyProjectiles`, after the player's and at the player's own 20 px radius, billing the
+  projectile's full `damage` and consuming it; no owner filter, because a bullet is a thing in the
+  room, and no cap, because every bullet-hell boss attacks through `TelegraphManager` rather than
+  through this pool. The retargeting needed no handler change: `enemyAISystem` already hands every
+  handler its `targetX/targetY`. Melee billing is untouched for `BALANCE-QUEST-ESCORT-DRONE` to
+  judge, and the projectile-only regen lockout
+  (`ESCORT_DRONE_PROJECTILE_REGEN_LOCKOUT_SECONDS = 2`) is what stops a 3 hp/s regen from erasing a
+  Shooter's 6 dps. Telegraphed AOE is deliberately still not a threat and is
+  `FEAT-DECOY-AOE-INTEREST`.
+
+- [ ] **FEAT-DECOY-AOE-INTEREST** (new 2026-08-01, from FEAT-DECOY-RANGED-INTEREST): Giant, Warden
+  and Bombard still cannot touch the drone, so a room whose whole threat is telegraphed AOE is a
+  room an escort walks through untouched. It is a second damage path, not a list entry: their
+  attacks are `TelegraphManager` zones rather than pooled projectiles, so it needs a zone-versus-
+  point test with its own tick and its own answer to a zone that lingers, which is why it was cut
+  rather than folded in. Value: an escort threatened by every attack in the game rather than by the
+  two that travel. Deps: none, but it is a damage path against a different system.
+
+- [ ] **BALANCE-DRONE-PROJECTILE-HIT** (new 2026-08-01, from FEAT-DECOY-RANGED-INTEREST): the 20 px
+  hit radius is the player's own, borrowed so a shot lands on the drone the way it lands on you,
+  and it was never measured against an object drawn at 11 px that hovers 70 px off the ship's tail;
+  the 2 s regen lockout is a designed guess against a Shooter's 2.0 s cadence and a Sniper's 3.0 s.
+  Whether a drone parked between the player and a Sniper reads as a shield worth spending or as a
+  drone that dies to fire the player never saw is what a browser answers. Value: ranged pressure
+  that costs the escort without deleting it. Deps: none, but it wants play, not a third guess.
 
 - [x] **FEAT-QUEST-SURVIVE-DANGER** (done, 126961c): a hold objective now answers back. While
   the ship holds a sector a live `surviveInSector` step names, the room sieges it: the ambush
