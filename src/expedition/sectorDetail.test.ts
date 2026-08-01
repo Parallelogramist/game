@@ -1,7 +1,8 @@
 import { describe, test, expect } from 'vitest';
 import { buildSectorDetail, type PoiHazardKind } from './sectorDetail';
-import { EdgeKind, PoiKind, SECTOR_TILE_COUNT, WALL_EDGE } from '../world/worldTypes';
+import { EdgeKind, PoiKind, SECTOR_TILE_COUNT, TileKind, WALL_EDGE } from '../world/worldTypes';
 import type { EdgeDef, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
+import { secretShellRingIndices } from '../world/sectorInterior';
 import { PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 
 function makeWorld(
@@ -35,6 +36,16 @@ const BASE = {
   hintedSectorKeys: new Set<string>(),
   hazardSectorKinds: new Map<string, PoiHazardKind>(),
 };
+
+function makeFencedAltarWorld(): WorldMap {
+  const slot: PoiSlot = {
+    id: 'poi:0,0:2', kind: PoiKind.Shrine, tileX: 8, tileY: 5, fenced: true,
+  };
+  const map = makeWorld({}, [slot]);
+  const tiles = map.sectors.get('0,0')!.tiles;
+  for (const index of secretShellRingIndices(8, 5)) tiles[index] = TileKind.SecurityGrid;
+  return map;
+}
 
 describe('buildSectorDetail', () => {
   test('an unfound secret is never named, a found one is', () => {
@@ -89,6 +100,17 @@ describe('buildSectorDetail', () => {
       ...remembered,
       hazardSectorKinds: new Map<string, PoiHazardKind>([['0,0', 'lair']]),
     })!.rewards).toEqual(['Ambush nest', 'Nemesis lair · dormant']);
+  });
+
+  test('a fenced altar names the grid to a ship without the cloak', () => {
+    expect(buildSectorDetail({ ...BASE, map: makeFencedAltarWorld() })!.rewards)
+      .toEqual(['Altar · behind a security grid']);
+  });
+
+  test('the same altar reads as open once the cloak is held', () => {
+    expect(buildSectorDetail({
+      ...BASE, map: makeFencedAltarWorld(), holdsAbility: () => true,
+    })!.rewards).toEqual(['Altar · grid open to you']);
   });
 
   test('an unknown sector and a cell outside the world both read as nothing', () => {

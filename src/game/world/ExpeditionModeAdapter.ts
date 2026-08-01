@@ -25,6 +25,7 @@ import {
 import { getEarnedQuestKeyIds } from '../../meta/ExpeditionQuestManager';
 import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
+import { applyDownedSecurityGrids } from '../../world/securityGrids';
 import { generateExpeditionWorld } from '../../expedition/expeditionWorld';
 import { getCurrentExpeditionSeed } from '../../expedition/ExpeditionSeasonStore';
 import {
@@ -123,10 +124,11 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     // Replayed before anything reads the grid: the renderer, the collision index and the
     // flow field all take this map as the truth, so a wall the profile remembers breaking
     // must already be open the first time any of them look.
-    applyBrokenBarriers(
-      this.map,
-      loadWorldProfile(this.map.seed, this.map.worldGenVersion).brokenBreakableIds,
-    );
+    const profile = loadWorldProfile(this.map.seed, this.map.worldGenVersion);
+    applyBrokenBarriers(this.map, profile.brokenBreakableIds);
+    // A fence this profile already phased through is dark before the renderer, the
+    // collision index or the flow field look, exactly as a broken wall is open.
+    applyDownedSecurityGrids(this.map, profile.downedSecurityGridIds);
     // Ownership is the only persisted gate state: a door keyed to an ability this profile
     // already earned is open before the renderer, the collision index or the flow field ever
     // look at the grid, which is the whole of "already open on the next run".

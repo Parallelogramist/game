@@ -16,12 +16,17 @@ const WORLD_PROFILE_VERSION = 1;
 const MAX_REMEMBERED_BARRIERS = 2048;
 
 const BARRIER_ID = /^(edge:-?\d+,-?\d+:(north|east|south|west)|breakable:-?\d+,-?\d+:\d+)$/;
+const GRID_POI_ID = /^poi:-?\d+,-?\d+:\d+$/;
 
 export interface WorldProfileState {
   version: number;
   worldSeed: number;
   worldGenVersion: number;
   brokenBreakableIds: string[];
+  /** Security grids this profile has phased through, by POI slot id. Optional in storage
+   *  for the same reason `conquered` is: a payload written before this field shipped reads
+   *  as an empty list, which is why WORLD_PROFILE_VERSION does NOT move. */
+  downedSecurityGridIds: string[];
   /** True once this profile has killed this world's boss. Optional in storage on purpose:
    *  a payload written before this field shipped reads false, which is why
    *  WORLD_PROFILE_VERSION does NOT move: a bump would discard every remembered wall. */
@@ -31,6 +36,7 @@ export interface WorldProfileState {
 function emptyProfile(worldSeed: number, worldGenVersion: number): WorldProfileState {
   return {
     version: WORLD_PROFILE_VERSION, worldSeed, worldGenVersion, brokenBreakableIds: [],
+    downedSecurityGridIds: [],
     conquered: false,
   };
 }
@@ -54,12 +60,17 @@ export function loadWorldProfile(
         && parsed.worldSeed === worldSeed
         && parsed.worldGenVersion === worldGenVersion) {
         const ids = Array.isArray(parsed.brokenBreakableIds) ? parsed.brokenBreakableIds : [];
+        const gridIds = Array.isArray(parsed.downedSecurityGridIds)
+          ? parsed.downedSecurityGridIds : [];
         return {
           version: WORLD_PROFILE_VERSION,
           worldSeed,
           worldGenVersion,
           brokenBreakableIds: ids
             .filter((id): id is string => typeof id === 'string' && BARRIER_ID.test(id))
+            .slice(0, MAX_REMEMBERED_BARRIERS),
+          downedSecurityGridIds: gridIds
+            .filter((id): id is string => typeof id === 'string' && GRID_POI_ID.test(id))
             .slice(0, MAX_REMEMBERED_BARRIERS),
           conquered: parsed.conquered === true,
         };
@@ -93,6 +104,19 @@ export function recordBrokenBarrier(
   if (profile.brokenBreakableIds.includes(barrierId)) return;
   if (profile.brokenBreakableIds.length >= MAX_REMEMBERED_BARRIERS) return;
   profile.brokenBreakableIds.push(barrierId);
+  saveWorldProfile(profile);
+}
+
+/** Remembers one tripped kill-switch immediately, so a death or a refresh cannot relight
+ *  a fence the ship already walked through. */
+export function recordDownedSecurityGrid(
+  worldSeed: number, worldGenVersion: number, poiId: string,
+): void {
+  if (!GRID_POI_ID.test(poiId)) return;
+  const profile = loadWorldProfile(worldSeed, worldGenVersion);
+  if (profile.downedSecurityGridIds.includes(poiId)) return;
+  if (profile.downedSecurityGridIds.length >= MAX_REMEMBERED_BARRIERS) return;
+  profile.downedSecurityGridIds.push(poiId);
   saveWorldProfile(profile);
 }
 

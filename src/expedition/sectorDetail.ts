@@ -16,6 +16,7 @@ import { HAZARD_NEST_GLYPH, poiGlyphFor } from './poiGlyphs';
 import { getStageById } from '../data/Stages';
 import { getTraversalAbility } from '../data/TraversalAbilities';
 import { getQuestForKeyId } from '../data/ExpeditionQuests';
+import { isGridFenceIntact } from '../world/securityGrids';
 import type { PoiHazardKind } from '../data/PoiCatalog';
 
 /** The two risk rooms a Treasure slot can roll instead of loot. Declared in the POI catalog,
@@ -143,6 +144,8 @@ const HAZARD_LABELS: Record<PoiHazardKind, string> = {
 
 const HAZARD_NEST_LABEL = HAZARD_NEST_GLYPH.label;
 
+const PHASE_CLOAK_ABILITY_ID = 'ability_phase_cloak';
+
 function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[] {
   const lines: string[] = [];
   let nestNamedBySlot = false;
@@ -164,6 +167,11 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
     }
     if ((flags & PoiFlags.COLLECTED) !== 0) {
       lines.push(`${glyph.label} · claimed`);
+      continue;
+    }
+    if (slot.kind === PoiKind.Shrine && isGridFenceIntact(sector, slot)) {
+      lines.push(`${glyph.label} · ${inputs.holdsAbility(PHASE_CLOAK_ABILITY_ID)
+        ? 'grid open to you' : 'behind a security grid'}`);
       continue;
     }
     const guarded = slot.kind === PoiKind.AbilityPowerUp

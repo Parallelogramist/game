@@ -64,6 +64,9 @@ import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { sectorTagsOf } from '../../world/sectorTags';
 import { isSecretShellIntact, secretShellRingIndices } from '../../world/sectorInterior';
 import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
+import {
+  clearSecurityGrid, findGridBreach, securityGridNearWorld,
+} from '../../world/securityGrids';
 import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
@@ -92,7 +95,9 @@ import {
   openAbilityGate, setBarrierEventSink,
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
-import { markWorldConquered, recordBrokenBarrier } from '../../expedition/WorldProfileStore';
+import {
+  markWorldConquered, recordBrokenBarrier, recordDownedSecurityGrid,
+} from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead, chooseHintTarget, findSecretSector, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
@@ -441,6 +446,7 @@ const blinkCollisionResult = createCollisionResult();
 const blinkDirection = { x: 0, y: 0 };
 const BLINK_DRIVE_ID = 'ability_blink_drive';
 const MAGNO_TETHER_ID = 'ability_magno_tether';
+const PHASE_CLOAK_ID = 'ability_phase_cloak';
 const THERMAL_WARD_ID = 'ability_thermal_ward';
 const SIGNAL_DECRYPTOR_ID = 'ability_signal_decryptor';
 
@@ -728,6 +734,10 @@ export class GameScene extends Phaser.Scene {
    *  re-arms on run time rather than per gap. */
   private static readonly VOID_GAP_NOTICE_REANNOUNCE_SECONDS = 25;
   private voidGapNoticeAt = Number.NEGATIVE_INFINITY;
+  private static readonly PHASE_IFRAME_BASE_SECONDS = 0.5;
+  private static readonly PHASE_IFRAME_PER_PHASE_LEVEL = 0.25;
+  private static readonly SECURITY_GRID_NOTICE_REANNOUNCE_SECONDS = 25;
+  private securityGridNoticeAt = Number.NEGATIVE_INFINITY;
 
   /** Armed, not zeroed, so entering a strip costs a tick immediately: a 3-tile strip crossed
    *  at base speed would otherwise be free. */
@@ -1538,6 +1548,7 @@ export class GameScene extends Phaser.Scene {
     this.breachChargeDetonatesAt = 0;
     this.tetherReadyAt = 0;
     this.voidGapNoticeAt = Number.NEGATIVE_INFINITY;
+    this.securityGridNoticeAt = Number.NEGATIVE_INFINITY;
     this.isGameOver = false;
     this.isPaused = false;
     // Scene restarts reuse this instance — a restart IS the flip's relayout,
@@ -6669,6 +6680,93 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** phaseLevel is the cloak's synergy hook (doc 04 section 2 row 4, "+0.25 s cloak
+   *  duration per level"): the ship stays intangible longer on the way through. */
+  private phaseCloakIframeSeconds(): number {
+    return GameScene.PHASE_IFRAME_BASE_SECONDS
+      + GameScene.PHASE_IFRAME_PER_PHASE_LEVEL
+        * getMetaProgressionManager().getUpgradeLevel('phaseLevel');
+  }
+
+  /**
+   * Doc 04 section 2 row 4. The pass is instant on the tryBlink precedent, and it needs no
+   * cooldown because the fence does not come back: passing trips its kill-switch, which is
+   * the row's own anti-soft-lock rule and is also why a fenced pocket can never become a
+   * room with no way home.
+   *
+   * The heading is Velocity, not an aim stick, the breach-charge and tether precedent: a
+   * pressable ability would have to reach all three input paths plus a cooldown readout,
+   * which is a HUD-layout change larger than the feature.
+   */
+  private tryPhaseCloak(map: WorldMap, playerX: number, playerY: number): void {
+    if (!this.ownedTraversalAbilityIds.has(PHASE_CLOAK_ID)) {
+      this.reportSecurityGrid(map, playerX, playerY);
+      return;
+    }
+    const breach = findGridBreach(
+      map, playerX, playerY, Velocity.x[this.playerId], Velocity.y[this.playerId],
+    );
+    if (breach === null) return;
+    // Ordered so nothing is recorded that did not happen: the tile write is the authority
+    // and it refuses a fence that is already dark.
+    if (!clearSecurityGrid(map, breach.poiId)) return;
+    recordDownedSecurityGrid(map.seed, map.worldGenVersion, breach.poiId);
+
+    Transform.x[this.playerId] = breach.x;
+    Transform.y[this.playerId] = breach.y;
+    clampPlayerToRect(this.world, this.playerId, this.worldMode.fieldRect());
+    this.damageCooldown = Math.max(this.damageCooldown, this.phaseCloakIframeSeconds());
+
+    // Same two lines as onBarrierBroken: the geometry layer caches its drawn window and
+    // the radar underlay is drawn once and only translated.
+    this.worldMode.notifyGeometryChanged();
+    this.minimapUnderlayKey = null;
+
+    const ghostCount = TUNING.player.blinkGhostCount;
+    for (let ghost = 0; ghost < ghostCount; ghost++) {
+      const along = ghost / (ghostCount - 1);
+      this.spawnDashAfterimage(
+        playerX + (breach.x - playerX) * along,
+        playerY + (breach.y - playerY) * along,
+      );
+    }
+    this.effectsManager.playDeathBurst(
+      breach.fenceX, breach.fenceY, WORLD_GEOMETRY_COLORS.securityGrid.stroke,
+    );
+    this.cameras.main.shake(120, 0.004);
+    this.soundManager.playComboThreshold();
+    this.toastManager?.showToast({
+      title: 'GRID DOWN',
+      description: 'The fence is dark for good: the cloak tripped its kill-switch.',
+      icon: 'ghost',
+      color: WORLD_GEOMETRY_COLORS.securityGrid.stroke,
+      duration: 2800,
+    });
+  }
+
+  /** Names the key the way a sealed door, a hazard strip and a void gap already do: a
+   *  barrier is only fair if the player can learn what answers it. */
+  private reportSecurityGrid(map: WorldMap, playerX: number, playerY: number): void {
+    if (this.gameTime - this.securityGridNoticeAt
+      < GameScene.SECURITY_GRID_NOTICE_REANNOUNCE_SECONDS) return;
+    if (!securityGridNearWorld(map, playerX, playerY)) return;
+    this.securityGridNoticeAt = this.gameTime;
+
+    const definition = getTraversalAbility(PHASE_CLOAK_ID);
+    this.effectsManager.showDamageNumber(
+      playerX, playerY - 26, 'SECURITY GRID', WORLD_GEOMETRY_COLORS.securityGrid.stroke,
+    );
+    this.toastManager?.showToast({
+      title: 'SECURITY GRID',
+      description: definition
+        ? `${definition.name} would carry the ship through.`
+        : 'Nothing the ship carries passes this.',
+      icon: 'ghost',
+      color: WORLD_GEOMETRY_COLORS.securityGrid.stroke,
+      duration: 2800,
+    });
+  }
+
   /**
    * Doc 03 section 4.5's Metroid moment, delivered at the door instead of in a map tooltip:
    * a sealed door names what opens it the first time the ship comes near it.
@@ -6827,6 +6925,7 @@ export class GameScene extends Phaser.Scene {
       this.tryOpenQuestDoor(map, playerX, playerY);
       this.updateBreachCharges(map, playerX, playerY);
       this.tryMagnoTether(map, playerX, playerY);
+      this.tryPhaseCloak(map, playerX, playerY);
       this.reportSealedDoor(map, playerX, playerY);
     }
     this.updateHazardFloorDamage(map, playerX, playerY, deltaSeconds);

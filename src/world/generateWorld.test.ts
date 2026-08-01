@@ -128,14 +128,15 @@ function expectedMouthTile(kind: EdgeKind): TileKind {
 
 function floodTiles(
   tiles: Uint8Array, seedX: number, seedY: number,
-  breakablesPassable = false, gapsPassable = false
+  breakablesPassable = false, gapsPassable = false, gridsPassable = false
 ): Set<number> {
   const reached = new Set<number>();
   const seedIndex = tileIndex(seedX, seedY);
   const passable = (index: number) =>
     tiles[index] === TileKind.Open || tiles[index] === TileKind.HazardFloor
     || (breakablesPassable && tiles[index] === TileKind.Breakable)
-    || (gapsPassable && tiles[index] === TileKind.VoidGap);
+    || (gapsPassable && tiles[index] === TileKind.VoidGap)
+    || (gridsPassable && tiles[index] === TileKind.SecurityGrid);
   if (!passable(seedIndex)) return reached;
   reached.add(seedIndex);
   const queue = [seedIndex];
@@ -252,12 +253,12 @@ describe('invariant 4 — no one-way soft-lock', () => {
 });
 
 describe('invariant 5 — interior connectivity', () => {
-  it('connects every entry tile and POI tile once rubble and gaps can be crossed', () => {
+  it('connects every entry tile and POI tile once rubble, gaps and fences can be crossed', () => {
     for (const map of WORLDS) {
       for (const sector of map.sectors.values()) {
         const seed = firstEntryTile(sector);
         expect(seed).toBeDefined();
-        const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY, true, true);
+        const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY, true, true, true);
         for (const direction of EDGE_DIRECTIONS) {
           const entry = sector.entryTiles[direction];
           if (entry) expect(reached.has(tileIndex(entry.tileX, entry.tileY))).toBe(true);
@@ -269,9 +270,9 @@ describe('invariant 5 — interior connectivity', () => {
     }
   });
 
-  // The only POI a wall may stand in front of is a sealed cache: a shell is the one pass that
-  // puts breakable tiles between an entry tile and a slot, and it must never reach another.
-  it('leaves only sealed and gapped caches unreachable on foot', () => {
+  // A shell, a gap ring and a fence ring are the three passes that put something between an
+  // entry tile and a slot, and none of them may ever reach another slot.
+  it('leaves only sealed, gapped and fenced slots unreachable on foot', () => {
     const behindAWall: string[] = [];
     for (const map of WORLDS) {
       for (const sector of map.sectors.values()) {
@@ -285,10 +286,13 @@ describe('invariant 5 — interior connectivity', () => {
           if (reached.has(tileIndex(slot.tileX, slot.tileY))) {
             expect(slot.sealed).not.toBe(true);
             expect(slot.gapped).not.toBe(true);
+            expect(slot.fenced).not.toBe(true);
             continue;
           }
-          if (slot.kind !== PoiKind.Secret
-            || (slot.sealed !== true && slot.gapped !== true)) {
+          const legallyUnreachable =
+            (slot.kind === PoiKind.Secret && (slot.sealed === true || slot.gapped === true))
+            || (slot.kind === PoiKind.Shrine && slot.fenced === true);
+          if (!legallyUnreachable) {
             behindAWall.push(`seed ${map.seed} sector ${sector.key} slot ${slot.id}`);
           }
         }
@@ -322,7 +326,8 @@ describe('invariant 6 — aperture and POI clearance', () => {
   it('leaves no blocking tile around any POI or entry tile', () => {
     const isBlocking = (kind: number) =>
       kind === TileKind.Solid || kind === TileKind.Breakable
-      || kind === TileKind.GateClosed || kind === TileKind.VoidGap;
+      || kind === TileKind.GateClosed || kind === TileKind.VoidGap
+      || kind === TileKind.SecurityGrid;
     const violations: string[] = [];
     for (const map of WORLDS) {
       for (const sector of map.sectors.values()) {
@@ -692,6 +697,60 @@ describe('invariant 12: void-gapped secret caches', () => {
       }
     }
     expect(gapped).toBeGreaterThan(50);
+  });
+});
+
+describe('invariant 13: fenced shrine altars', () => {
+  it('rings every fenced altar with grid tiles no weapon opens, and leaves a way in', () => {
+    const inBounds = (tileX: number, tileY: number) =>
+      tileX >= 0 && tileX < SECTOR_TILE_COLS && tileY >= 0 && tileY < SECTOR_TILE_ROWS;
+    let fenced = 0;
+    for (const map of WORLDS) {
+      for (const sector of map.sectors.values()) {
+        const breakableIndices = new Set<number>();
+        for (const rect of sector.breakables) {
+          for (let offsetY = 0; offsetY < rect.tileH; offsetY++) {
+            for (let offsetX = 0; offsetX < rect.tileW; offsetX++) {
+              breakableIndices.add(tileIndex(rect.tileX + offsetX, rect.tileY + offsetY));
+            }
+          }
+        }
+        for (const slot of sector.poiSlots) {
+          if (slot.fenced !== true) continue;
+          fenced++;
+          expect(slot.kind).toBe(PoiKind.Shrine);
+          expect(sector.isBossArena).toBe(false);
+          for (let tileY = slot.tileY - 1; tileY <= slot.tileY + 1; tileY++) {
+            for (let tileX = slot.tileX - 1; tileX <= slot.tileX + 1; tileX++) {
+              expect(sector.tiles[tileIndex(tileX, tileY)]).toBe(TileKind.Open);
+            }
+          }
+          const ring = secretShellRingIndices(slot.tileX, slot.tileY);
+          expect(ring).toHaveLength(16);
+          let fenceCells = 0;
+          for (const index of ring) {
+            const kind = sector.tiles[index];
+            expect(kind === TileKind.Solid || kind === TileKind.SecurityGrid).toBe(true);
+            // A registered breakable or a void gap in the ring would be a way through that
+            // is not the cloak, and the gate would stop being the cloak's.
+            expect(breakableIndices.has(index)).toBe(false);
+            if (kind === TileKind.SecurityGrid) fenceCells++;
+          }
+          expect(fenceCells).toBeGreaterThan(0);
+          const breaches = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([stepX, stepY]) => {
+            const outerX = slot.tileX + stepX * 3;
+            const outerY = slot.tileY + stepY * 3;
+            if (!inBounds(outerX, outerY)) return false;
+            const outer = sector.tiles[tileIndex(outerX, outerY)];
+            return sector.tiles[tileIndex(slot.tileX + stepX * 2, slot.tileY + stepY * 2)]
+                === TileKind.SecurityGrid
+              && (outer === TileKind.Open || outer === TileKind.HazardFloor);
+          });
+          expect(breaches.length).toBeGreaterThan(0);
+        }
+      }
+    }
+    expect(fenced).toBeGreaterThan(50);
   });
 });
 

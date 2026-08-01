@@ -106,6 +106,7 @@ export const WORLD_GEOMETRY_COLORS = {
   gate:      { fill: 0x140a20, stroke: 0xaa44ff },
   hazard:    { fill: 0x2a1206, stroke: 0xff6622 },
   voidGap:   { fill: 0x02060a, stroke: 0x22ddcc },
+  securityGrid: { fill: 0x1c0714, stroke: 0xff3ea5 },
 } as const;
 
 /**

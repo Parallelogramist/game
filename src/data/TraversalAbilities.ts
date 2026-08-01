@@ -69,7 +69,7 @@ export const TRAVERSAL_ABILITIES: readonly TraversalAbilityDefinition[] = [
   {
     id: 'ability_phase_cloak',
     name: 'Phase Cloak',
-    description: 'Hold to pass through security grids and enemy bodies.',
+    description: 'Security grids part for the cloak, and stay dark once passed.',
     icon: 'ghost',
     barrierTypeId: 'barrier_security_grid',
     synergyUpgradeId: 'phaseLevel',
@@ -168,6 +168,7 @@ export const IMPLEMENTED_TRAVERSAL_ABILITY_IDS: ReadonlySet<TraversalAbilityId> 
   'ability_blink_drive',
   'ability_breach_charges',
   'ability_magno_tether',
+  'ability_phase_cloak',
   'ability_thermal_ward',
   'ability_signal_decryptor',
 ]);

@@ -79,6 +79,12 @@ const SECRET_SHELL_RADIUS = 2;
  *  split recorded on FEAT-POWER-MAGNO-TETHER in BACKLOG.md. */
 const SECRET_GAP_SHARE_PERCENT = 35;
 
+/** Share of a sector's shrine altars that stand behind a laser fence. Shrine slots are a
+ *  different POI kind from the caches, so this share moves none of the four secret
+ *  find-shapes. Measured over 101 worlds the fenced count lands at the median recorded on
+ *  FEAT-POWER-PHASE-CLOAK in BACKLOG.md. */
+const SECURITY_GRID_SHARE_PERCENT = 40;
+
 const CARDINAL_STEPS: readonly (readonly [number, number])[] =
   [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
@@ -113,12 +119,15 @@ export function buildSectorInterior(input: SectorInteriorInput): SectorInteriorR
   if (input.danger >= 0.3) {
     stampHazardStrips(tiles, rng, input.danger, protectedTileIndices, apertureTileIndices);
   }
-  // LAST, and it draws no rng from `rng`: anything after it that reads tiles would start
-  // taking different branches on the same rolls, which moves every existing world.
+  // LAST, and none of the three draws rng from `rng`: anything after them that reads tiles
+  // would start taking different branches on the same rolls, which moves every existing
+  // world. Order matters between them: each reads the tiles the previous one left.
   if (!isBossArena) {
     sealSecretCaches(tiles, poiSlots, breakables, entryTiles,
       apertureTileIndices, protectedTileIndices, input);
     carveSecretGaps(tiles, poiSlots, entryTiles,
+      apertureTileIndices, protectedTileIndices, input);
+    fenceShrineAltars(tiles, poiSlots, entryTiles,
       apertureTileIndices, protectedTileIndices, input);
   }
 
@@ -715,8 +724,8 @@ function countReached(reached: Uint8Array): number {
 }
 
 /**
- * Whether at least one cardinal reel in and straight back out survives the seal: the pocket
- * cell at distance 1, an Open ring cell at 2 that is about to become a gap, and reachable
+ * Whether at least one cardinal approach survives the ring: the pocket cell at distance 1,
+ * an Open ring cell at 2 that is about to be converted, and reachable
  * floor at 3. Without one, a pocket the tether puts the ship inside could have no way back,
  * and the only exit left would be Recall.
  */
@@ -798,5 +807,62 @@ function carveSecretGaps(
       continue;
     }
     slot.gapped = true;
+  }
+}
+
+/**
+ * Rings some of a sector's shrine altars with security grid tiles, so the altar is visible
+ * through the fence and only the Phase Cloak reaches it (doc 04 section 2 row 4).
+ *
+ * Runs after carveSecretGaps and reads the tiles it left, which is why a gap cell in the
+ * ring is a rejection rather than a coincidence. Consumes no rng from the sector stream
+ * (see buildSectorInterior), converts only Open tiles, and registers no BreakableRect, so
+ * every rect id a profile remembers breaking still points at the same rect.
+ */
+function fenceShrineAltars(
+  tiles: Uint8Array,
+  poiSlots: PoiSlot[],
+  entryTiles: Partial<Record<EdgeDirection, TileCoord>>,
+  apertureTileIndices: Set<number>,
+  protectedTileIndices: Set<number>,
+  input: SectorInteriorInput,
+): void {
+  let floodSeed: TileCoord | undefined;
+  for (const direction of EDGE_DIRECTIONS) {
+    const entry = entryTiles[direction];
+    if (entry) { floodSeed = entry; break; }
+  }
+  if (!floodSeed) return;
+
+  for (const slot of poiSlots) {
+    if (slot.kind !== PoiKind.Shrine) continue;
+    const shareRng = mulberry32(hashStringToSeed(`securityGrid:${input.worldSeed}:${slot.id}`));
+    if (shareRng() * 100 >= SECURITY_GRID_SHARE_PERCENT) continue;
+
+    const ringIndices = secretShellRingIndices(slot.tileX, slot.tileY);
+    const pocketIndices = secretPocketIndices(slot.tileX, slot.tileY);
+    if (ringIndices.length !== 16 || pocketIndices.length !== 9) continue;
+    if (ringIndices.some(index => apertureTileIndices.has(index))) continue;
+    if (pocketIndices.some(index => apertureTileIndices.has(index))) continue;
+    if (ringIndices.some(index => protectedTileIndices.has(index))) continue;
+    if (pocketIndices.some(index => tiles[index] !== TileKind.Open)) continue;
+    if (ringIndices.some(index => tiles[index] === TileKind.HazardFloor)) continue;
+    // A breakable cell is a hole any weapon opens and a gap cell is one the tether already
+    // crosses: either would make the cloak optional and the whole gate a lie.
+    if (ringIndices.some(index => tiles[index] === TileKind.Breakable)) continue;
+    if (ringIndices.some(index => tiles[index] === TileKind.VoidGap)) continue;
+    const openRing = ringIndices.filter(index => tiles[index] === TileKind.Open);
+    if (openRing.length === 0) continue;
+
+    const reachedBefore = floodInterior(tiles, floodSeed);
+    if (!cardinalCrossingExists(tiles, slot.tileX, slot.tileY, reachedBefore)) continue;
+
+    for (const index of openRing) tiles[index] = TileKind.SecurityGrid;
+    if (!sealHoldsUp(tiles, floodSeed, reachedBefore, openRing, pocketIndices,
+      poiSlots, entryTiles)) {
+      for (const index of openRing) tiles[index] = TileKind.Open;
+      continue;
+    }
+    slot.fenced = true;
   }
 }
