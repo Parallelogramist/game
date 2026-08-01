@@ -3,7 +3,7 @@ import { Transform, Velocity, PlayerTag, EnemyTag, EnemyAI, StatusEffect } from 
 import { EnemyAIType } from '../../enemies/EnemyTypes';
 // Shared constants + per-frame context (telegraph manager, world ref) live in
 // enemy-ai/common so behavior modules can use them without importing this file.
-import { setAIWorld, advanceNavClock, setNavFrame } from './enemy-ai/common';
+import { setAIWorld, advanceNavClock, setNavFrame, applyStuckNudge } from './enemy-ai/common';
 import { updateDecoyFollowers, isDecoyFollower } from './enemy-ai/decoy';
 // Enemy behaviors, one module per handler:
 // regular enemies (aiType < 50)
@@ -281,6 +281,11 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
       default:
         updateChaseAI(enemyId, targetX, targetY);
     }
+
+    // Doc 02 section 6.3 layer 3. Bosses are exempt: departure 5 leaves them uncollided, so a
+    // boss is never the wedged mover this frees. Before the freeze scale, so a frozen enemy
+    // shoves at its frozen speed.
+    if (aiType < EnemyAIType.HordeKing) applyStuckNudge();
 
     // Apply freeze slow if enemy is frozen
     const freezeDuration = StatusEffect.freezeDuration[enemyId];

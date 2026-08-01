@@ -1,5 +1,5 @@
 import { IWorld, hasComponent } from 'bitecs';
-import { Destructible, Transform } from '../../components';
+import { Destructible, Transform, Velocity } from '../../components';
 import type { TelegraphManager } from '../../../effects/TelegraphManager';
 
 /**
@@ -84,9 +84,18 @@ const losFlipTimer = new Float32Array(NAV_CAPACITY);
 const smoothedHeadingX = new Float32Array(NAV_CAPACITY);
 const smoothedHeadingY = new Float32Array(NAV_CAPACITY);
 const lastNavTime = new Float32Array(NAV_CAPACITY).fill(-1);
+const anchorX = new Float32Array(NAV_CAPACITY);
+const anchorY = new Float32Array(NAV_CAPACITY);
+const stuckTimer = new Float32Array(NAV_CAPACITY);
+const nudgeTimer = new Float32Array(NAV_CAPACITY);
+const nudgeX = new Float32Array(NAV_CAPACITY);
+const nudgeY = new Float32Array(NAV_CAPACITY);
 
 const LOS_COMMIT_SECONDS = 0.1;
 const HEADING_SMOOTH_SECONDS = 0.07;
+const STUCK_WINDOW_SECONDS = 1.5;
+const STUCK_DISTANCE = 8;
+const NUDGE_SECONDS = 0.3;
 
 /**
  * Past this a slot is re-seeded rather than eased from. Covers an entity id recycled onto a new
@@ -99,6 +108,7 @@ const NAV_SLOT_STALE_SECONDS = 0.25;
 let navClock = 0;
 let navEnemyId = -1;
 let navDelta = 0;
+let navRouted = false;
 
 /** Once per dispatcher frame, before any enemy is stepped. */
 export function advanceNavClock(deltaSeconds: number): void {
@@ -112,6 +122,7 @@ export function advanceNavClock(deltaSeconds: number): void {
 export function setNavFrame(enemyId: number, deltaSeconds: number): void {
   navEnemyId = enemyId;
   navDelta = deltaSeconds;
+  navRouted = false;
 }
 
 export function resetEnemyNavState(): void {
@@ -120,9 +131,16 @@ export function resetEnemyNavState(): void {
   smoothedHeadingX.fill(0);
   smoothedHeadingY.fill(0);
   lastNavTime.fill(-1);
+  anchorX.fill(0);
+  anchorY.fill(0);
+  stuckTimer.fill(0);
+  nudgeTimer.fill(0);
+  nudgeX.fill(0);
+  nudgeY.fill(0);
   navClock = 0;
   navEnemyId = -1;
   navDelta = 0;
+  navRouted = false;
 }
 
 /**
@@ -290,6 +308,7 @@ export function chaseHeading(
   const fresh = navClock - lastNavTime[enemyId] > NAV_SLOT_STALE_SECONDS;
   lastNavTime[enemyId] = navClock;
   if (!commitDirectMode(enemyId, rawDirect, fresh)) {
+    navRouted = true;
     routeHeading(context, enemyX, enemyY, directX, directY);
   }
   smoothHeading(enemyId, fresh);
@@ -310,4 +329,95 @@ export function openSpot(x: number, y: number): { x: number; y: number } {
   spot.y = y;
   navigationContext?.freeSpotNear(x, y, spot);
   return spot;
+}
+
+/**
+ * Turns the wedged enemy onto the wall tangent, on the side that is actually open. Both sides
+ * rock means a pocket, where a shove is worse than the wedge, so nothing fires.
+ */
+function startNudge(enemyId: number, enemyX: number, enemyY: number): void {
+  const velocityX = Velocity.x[enemyId];
+  const velocityY = Velocity.y[enemyId];
+  const speed = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+  // A handler parked on purpose is standing still, not stuck.
+  if (speed < 1) return;
+
+  let sideX = -velocityY / speed;
+  let sideY = velocityX / speed;
+  const context = navigationContext;
+  if (context !== null) {
+    const positiveBlocked = context.isSolidAt(
+      enemyX + sideX * WALL_PROBE_DISTANCE,
+      enemyY + sideY * WALL_PROBE_DISTANCE,
+    );
+    const negativeBlocked = context.isSolidAt(
+      enemyX - sideX * WALL_PROBE_DISTANCE,
+      enemyY - sideY * WALL_PROBE_DISTANCE,
+    );
+    if (positiveBlocked && negativeBlocked) return;
+    if (positiveBlocked) {
+      sideX = -sideX;
+      sideY = -sideY;
+    }
+  }
+
+  nudgeX[enemyId] = sideX;
+  nudgeY[enemyId] = sideY;
+  nudgeTimer[enemyId] = NUDGE_SECONDS;
+}
+
+/**
+ * Doc 02 section 6.3's layer 3. An enemy that is routing and has not covered STUCK_DISTANCE in
+ * STUCK_WINDOW_SECONDS is wedged on geometry neither the field nor the tangent could see, and
+ * gets a short shove along the wall rather than a teleport. Armed only while routing, so a
+ * retreating shooter, a deliberate stationary phase and a phased Wraith (which never reaches
+ * chaseHeading) are excluded without a per-handler test. Call once per enemy per AI tick, after
+ * its handler has written Velocity.
+ */
+export function applyStuckNudge(): void {
+  const enemyId = navEnemyId;
+  if (enemyId < 0) return;
+  const enemyX = Transform.x[enemyId];
+  const enemyY = Transform.y[enemyId];
+
+  if (nudgeTimer[enemyId] > 0) {
+    nudgeTimer[enemyId] -= navDelta;
+    const velocityX = Velocity.x[enemyId];
+    const velocityY = Velocity.y[enemyId];
+    const speed = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+    if (speed > 0) {
+      Velocity.x[enemyId] = nudgeX[enemyId] * speed;
+      Velocity.y[enemyId] = nudgeY[enemyId] * speed;
+    }
+    if (nudgeTimer[enemyId] <= 0) {
+      anchorX[enemyId] = enemyX;
+      anchorY[enemyId] = enemyY;
+      stuckTimer[enemyId] = 0;
+    }
+    return;
+  }
+
+  if (!navRouted) {
+    anchorX[enemyId] = enemyX;
+    anchorY[enemyId] = enemyY;
+    stuckTimer[enemyId] = 0;
+    return;
+  }
+
+  const driftX = enemyX - anchorX[enemyId];
+  const driftY = enemyY - anchorY[enemyId];
+  if (driftX * driftX + driftY * driftY > STUCK_DISTANCE * STUCK_DISTANCE) {
+    anchorX[enemyId] = enemyX;
+    anchorY[enemyId] = enemyY;
+    stuckTimer[enemyId] = 0;
+    return;
+  }
+
+  stuckTimer[enemyId] += navDelta;
+  if (stuckTimer[enemyId] < STUCK_WINDOW_SECONDS) return;
+
+  stuckTimer[enemyId] = 0;
+  anchorX[enemyId] = enemyX;
+  anchorY[enemyId] = enemyY;
+  startNudge(enemyId, enemyX, enemyY);
 }

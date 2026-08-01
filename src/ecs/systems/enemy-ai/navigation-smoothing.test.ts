@@ -4,8 +4,11 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
+import { createWorld, addEntity, addComponent } from 'bitecs';
+import { Transform, Velocity } from '../../components';
 import {
   chaseHeading, setNavigationContext, setNavFrame, advanceNavClock, resetEnemyNavState,
+  applyStuckNudge,
 } from './common';
 import type { NavigationContext } from './common';
 
@@ -103,5 +106,74 @@ describe('heading easing', () => {
     north = false;
     advanceNavClock(0.3);
     expect(tick().x).toBeCloseTo(1);
+  });
+});
+
+const world = createWorld();
+
+/** An enemy that steers at a player it cannot see, one tick at a time. */
+function routedEnemy(): number {
+  const entityId = addEntity(world);
+  addComponent(world, Transform, entityId);
+  addComponent(world, Velocity, entityId);
+  Transform.x[entityId] = 0;
+  Transform.y[entityId] = 0;
+  return entityId;
+}
+
+function routedTick(entityId: number, speed = 100): void {
+  advanceNavClock(0.016);
+  setNavFrame(entityId, 0.016);
+  const heading = chaseHeading(Transform.x[entityId], Transform.y[entityId], 500, 0, 1, 0);
+  Velocity.x[entityId] = heading.x * speed;
+  Velocity.y[entityId] = heading.y * speed;
+  applyStuckNudge();
+}
+
+describe('stuck nudge', () => {
+  it('shoves along the wall once the enemy has been pinned for the window', () => {
+    setNavigationContext(context(() => false));
+    const enemy = routedEnemy();
+
+    for (let i = 0; i < 94; i++) routedTick(enemy);   // 1.504s, where the window elapses and arms
+    expect(Velocity.x[enemy]).toBeCloseTo(0);
+
+    routedTick(enemy);                                 // the first tick the nudge steers
+    expect(Math.abs(Velocity.x[enemy])).toBeGreaterThan(90);
+    expect(Math.abs(Velocity.y[enemy])).toBeLessThan(10);
+  });
+
+  it('never fires while the enemy is making progress', () => {
+    setNavigationContext(context(() => false));
+    const enemy = routedEnemy();
+
+    for (let i = 0; i < 200; i++) {
+      Transform.y[enemy] -= 1;
+      routedTick(enemy);
+    }
+    expect(Velocity.x[enemy]).toBeCloseTo(0);
+    expect(Velocity.y[enemy]).toBeLessThan(0);
+  });
+
+  it('takes the open side when the near tangent is rock', () => {
+    setNavigationContext({
+      hasLineOfSight: () => false,
+      flowStep: (x, y, out) => { out.x = x; out.y = y - 40; return true; },
+      isSolidAt: (x) => x > 0,
+      freeSpotNear: (x, y, out) => { out.x = x; out.y = y; },
+    });
+    const enemy = routedEnemy();
+
+    for (let i = 0; i < 95; i++) routedTick(enemy);
+    expect(Velocity.x[enemy]).toBeLessThan(-90);
+  });
+
+  it('leaves arena steering alone, where there is no context to route through', () => {
+    setNavigationContext(null);
+    const enemy = routedEnemy();
+
+    for (let i = 0; i < 200; i++) routedTick(enemy);
+    expect(Velocity.x[enemy]).toBeCloseTo(100);
+    expect(Velocity.y[enemy]).toBeCloseTo(0);
   });
 });
