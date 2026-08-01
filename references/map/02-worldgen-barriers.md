@@ -1021,6 +1021,32 @@ every enemy inside it every frame, which is the same shape as the splash this se
 exempts, so it keeps the emanates default and is now named in
 `src/world/weaponWallBehavior.ts`'s archetype audit.
 
+**As built (FEAT-TARGETING-LOS, acquisition half).** This section specified what happens to
+a shot once it exists and said nothing about how a target is chosen, so eight weapons went
+on picking the nearest enemy through rock and the travel and beam rules above then deleted
+the shot. Three things were decided while building it.
+
+1. **Acquisition is a nearest-first scan with a probe cap, not a true nearest-visible
+   sort.** `findNearestVisibleEnemy` and `findNearestVisibleInHash` keep the nearest 8
+   candidates in a module-scope scratch buffer and raycast them in ascending order,
+   returning the first with a clear line and -1 when all 8 are behind rock. A true
+   nearest-visible answer costs one DDA per enemy per attack frame; the cap makes the worst
+   case 8. Focus Beam keeps the different scan described in bullet 1 of the beams block
+   above, because a lock-on also has to drop a lock mid-burn.
+2. **A weapon with no visible target does not fire blind.** Energy Darts, Scattergun and the
+   first laser beam hold fire, which costs the cooldown exactly as an empty enemy list
+   already did. Shuriken and Boomerang keep their random-angle throw, which is their
+   designed no-target behavior. Homing Missile and the extra laser beams draw a random
+   candidate up to 4 times looking for a visible one: the missile then skips that launch,
+   while the in-flight retarget and the cluster bomblets fall back to the old random pick
+   rather than deleting a missile already flying. Drones and sentries simply do not shoot,
+   and a sentry falls to its idle sweep.
+3. **Every scan skips an enemy at zero health.** The frame cache and the spatial hash are
+   both built once at frame start, so an enemy killed earlier in the same frame is still in
+   both. Scattergun and the Soul Seeker retarget already filtered it; the shared helpers now
+   do it for all eight, which is the one behavior that also changes in arena mode, where the
+   visibility test is a constant true and the scan collapses to a single candidate.
+
 ---
 
 ## 8. Spawning legality

@@ -233,7 +233,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   rather than a new hook in `resetAllRunSystems`, so `GameScene` needed no edit. Files
   `POLISH-ENEMY-NAV-SMOOTH-FEEL` for the playtest half and `PERF-NAV-STATE-CAPACITY` for the
   4.1MB the eleven arrays cost at the ECS's 100000-entity capacity.
-- [ ] **FEAT-TARGETING-LOS** (F3). Value: 8 wall-blocked weapons acquire targets
+- [x] **FEAT-TARGETING-LOS** (F3) (done, c21f66d). Value: 8 wall-blocked weapons acquire targets
   through walls and waste their shots into rock: ProjectileWeapon
   (`:134-137`, mastered retarget `:405`), Shuriken (`:122`), Boomerang (`:126`),
   LaserBeam (`:84-98`), Scattergun (`:99-114`), HomingMissile (`:117-126, :179,
@@ -260,6 +260,37 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   AI already spends. Pure tests with a stub WeaponContext: null worldMap returns the
   exact id `findNearestEnemy` returns (arena identity); nearest occluded + second
   visible returns the second; all occluded returns -1; occlusion checks <= maxProbes.
+  **What shipped:** three commits (`bb2c227` the frame-cache half, `c21f66d` the spatial-hash
+  half, and the `docs(backlog)` commit that carries this paragraph). The shared scan lives in `src/weapons/WeaponUtils.ts` as three
+  exports: `findNearestVisibleEnemy` over `ctx.getEnemies()`, `findNearestVisibleInHash` over
+  the enemy spatial hash for weapons that acquire from a turret or a flying projectile rather
+  than from the ship, and `pickVisibleRandomEnemy` for the spread-fire weapons. All three gate a
+  candidate on `beamReachFraction(ctx.worldMap, ...) >= 1`. A true nearest-visible sort was
+  rejected because it costs one DDA per enemy per attack frame: instead the two nearest-scans
+  keep the nearest `DEFAULT_VISIBILITY_PROBES` (8) candidates in a module-scope scratch buffer,
+  raycast them in ascending order, and return the first clear one or -1 when all 8 are behind
+  rock, so the worst case is 8 walks of at most `range / 40` tile steps. Per-weapon fallbacks,
+  all deliberate: **hold fire** on -1 for Energy Darts, Scattergun, the first laser beam, drones
+  (cooldown not reset, so the drone retries next frame exactly as it does today with nothing in
+  range) and sentries (which fall to the existing idle sweep); **blind throw** kept for Shuriken
+  and Boomerang, whose random-angle fallback is their designed no-target behavior; **re-roll then
+  degrade** for the extra laser beams and Homing Missile, which draw up to `DEFAULT_RANDOM_TRIES`
+  (4) random candidates, after which the laser skips that beam and a missile *launch* is skipped,
+  while a missile already in flight and the cluster bomblets fall back to today's random pick
+  rather than being deleted. The Soul Seeker retarget probes from the projectile's own position.
+  Every scan now skips an enemy at zero health, because the frame cache and the hash are both
+  built once at frame start so an enemy killed earlier in the same frame is still in both: that
+  is the one behavior that **also changes in arena**, where three weapons stop aiming at a corpse
+  too, and it is strictly better. Arena is otherwise identical **by construction, not by
+  testing**: `beamReachFraction` returns 1 for a null `worldMap` and both nearest-scans collapse
+  `maxProbes` to 1 when `ctx.worldMap === null`, so arena does a plain min-scan and casts zero
+  rays. `RicochetWeapon.ts:144` deliberately keeps the old `findNearestEnemy`, which is untouched,
+  because a wall hit is a bounce rather than a block. `ProjectileWeapon`'s private
+  `findNearestEnemy` was deleted in favor of the shared helper, which preserves its `range * 1.5`
+  search radius, its `hitEnemies` exclusion and its health filter; its `_ctx` parameter was
+  unused and went with it. One new test file, `src/weapons/weaponTargeting.test.ts` (12 tests),
+  pins the probe cap, the arena short-circuit, the dead-enemy skip and the exclude set. Files
+  `POLISH-TARGETING-LOS` for the playtest half.
 - [ ] **BUG-CRIT-SHIMMER-STUTTER**. Value: frame hitches during crit-heavy fights,
   worst on mobile. `src/effects/EffectsManager.ts:488`: the perfect-crit shimmer calls
   `text.setColor(...)` every frame for up to 3s per damage number, and Phaser's
@@ -9213,6 +9244,18 @@ Never agent work. The fleet must not do any of these.
     it reads as an enemy squeezing past a corner rather than as a shove from nowhere, and that
     you never see one nudge in open ground. (d) **kiting**: the nudge cannot arm on a retreating
     shooter or a strafing circler by construction. Confirm cornering a kiter still works.
+  - **POLISH-TARGETING-LOS** (new 2026-08-01, FEAT-TARGETING-LOS): eight weapons now refuse
+    to acquire a target behind rock, and none of it was seen in a browser. Needs a human in
+    `?expedition=1` fighting from behind cover to judge (a) **holding fire**: Energy Darts,
+    Scattergun and the first laser beam go quiet with an enemy visible on screen but rock in
+    the way. Does that read as "get line of sight" or as "my gun is broken"? A muzzle-level
+    tell may be wanted. (b) **the probe cap**: the scan gives up after the 8 nearest
+    candidates, so in a packed corridor a weapon can stay quiet while a shootable enemy sits
+    9th nearest. `DEFAULT_VISIBILITY_PROBES` is one constant. (c) **turrets**: drones and
+    sentries parked beside a wall now idle instead of shooting through it. Do they read as
+    broken, and should a sentry reposition rather than sweep? (d) **missiles**: a launch with
+    no visible target is skipped entirely, so a volley can come out short. Better than flying
+    into a wall, or worse than it?
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first

@@ -32,6 +32,15 @@
  *   a lock-on rather than a swept line, so clipping has no meaning for it: it uses the same
  *   primitive as a line-of-sight test instead, and refuses to hold or take a lock through rock.
  *   Railgun is the declared pierce exception and is realised by not clipping it.
+ * - Target ACQUISITION is a separate question from damage delivery, and it is answered in
+ *   src/weapons/WeaponUtils.ts rather than here: findNearestVisibleEnemy,
+ *   findNearestVisibleInHash and pickVisibleRandomEnemy all gate a candidate on
+ *   beamReachFraction() >= 1 before a weapon will aim at it. The eight weapons whose shot
+ *   rock can stop (Energy Darts, Shuriken, Boomerang, Laser Beam, Scattergun, Homing
+ *   Missile, Drone, Sentry) acquire through them, so they hold fire or re-roll instead of
+ *   spending a shot on a target behind a wall. Emanate, lob, bounce and pierce weapons keep
+ *   acquiring the plain nearest enemy, because geometry does not stop their damage. Focus
+ *   Beam keeps its own inline scan: it also has to drop a lock the frame a wall interposes.
  *
  * Phaser-free like the rest of src/world/: nothing here may import Phaser, src/game/,
  * src/systems/ or the ECS.
