@@ -30,6 +30,7 @@ import type { WallCollisionContext } from '../../ecs/systems/MovementSystem';
 import { setNavigationContext } from '../../ecs/systems/enemy-ai/common';
 import { MoverKind, createCollisionResult, findNearestFreeCircleSpot, isSolidAtWorld, resolveCircleMove, tileKindAt } from '../../world/staticCollision';
 import { isPhasedWraith } from '../../ecs/systems/enemy-ai/wraith';
+import { setEnemyDecoy, clearEnemyDecoy, resetDecoySystem, getDecoyFollowerCount } from '../../ecs/systems/enemy-ai/decoy';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
 import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
@@ -531,6 +532,9 @@ const ESCORT_DRONE_DRAW_RADIUS = 11;
 /** The player's own projectile core (PROJECTILE_NEON.player.core), so the drone reads as YOURS
  *  against every hostile palette in the game. */
 const ESCORT_DRONE_COLOR = 0x66ccff;
+/** The drone can be off-camera inside its 900 px tether, so the ring alone is not enough: one
+ *  toast says it is under fire, rate-limited so a running fight beside it cannot spam the queue. */
+const ESCORT_DRONE_ALERT_COOLDOWN_SECONDS = 20;
 
 /** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
  *  toasts even when a single find jumps two of them. */
@@ -731,6 +735,8 @@ export class GameScene extends Phaser.Scene {
   } | null = null;
   private escortDroneSectorKey: string | null = null;
   private escortDroneNextDamageAtSeconds = 0;
+  private escortDroneUnderFire = false;
+  private escortDroneNextAlertAtSeconds = 0;
   // Expedition POI slots already stocked this run, the run's content salt, and whether the
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
@@ -5894,6 +5900,8 @@ export class GameScene extends Phaser.Scene {
     };
     this.escortDroneSectorKey = null;
     this.escortDroneNextDamageAtSeconds = 0;
+    this.escortDroneUnderFire = false;
+    this.escortDroneNextAlertAtSeconds = 0;
     this.drawEscortDrone();
     this.toastManager?.showToast({
       title: 'ESCORT UNDER WAY',
@@ -5934,9 +5942,13 @@ export class GameScene extends Phaser.Scene {
     drone.x = spot.x;
     drone.y = spot.y;
     drone.graphics.setPosition(spot.x, spot.y);
+    setEnemyDecoy(spot.x, spot.y);
 
     let attackers = 0;
     for (const enemyId of getFrameCacheEnemyIds()) {
+      // The frame cache is [Transform, Health, EnemyTag], which crates carry too, so an inert
+      // crate parked beside the drone was billing it 4 HP every half second.
+      if (hasComponent(this.world, Destructible, enemyId)) continue;
       const dx = Transform.x[enemyId] - drone.x;
       const dy = Transform.y[enemyId] - drone.y;
       if (dx * dx + dy * dy > ESCORT_DRONE_CONTACT_RADIUS * ESCORT_DRONE_CONTACT_RADIUS) continue;
@@ -5954,6 +5966,19 @@ export class GameScene extends Phaser.Scene {
         drone.health + ESCORT_DRONE_REGEN_PER_SECOND * deltaSeconds,
       );
     }
+    const underFire = getDecoyFollowerCount() > 0;
+    if (underFire && !this.escortDroneUnderFire && this.gameTime >= this.escortDroneNextAlertAtSeconds) {
+      this.escortDroneNextAlertAtSeconds = this.gameTime + ESCORT_DRONE_ALERT_COOLDOWN_SECONDS;
+      this.soundManager.playError();
+      this.toastManager?.showToast({
+        title: 'DRONE UNDER FIRE',
+        description: `${droneLabelOf(drone.droneId)} has hostiles on it. Get back to it.`,
+        icon: 'warning',
+        color: WORLD_GEOMETRY_COLORS.hazard.stroke,
+        duration: 2600,
+      });
+    }
+    this.escortDroneUnderFire = underFire;
     this.drawEscortDrone();
     if (drone.health <= 0) {
       this.loseEscortDrone();
@@ -6012,6 +6037,11 @@ export class GameScene extends Phaser.Scene {
     graphics.beginPath();
     graphics.arc(0, 0, ESCORT_DRONE_DRAW_RADIUS + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fraction);
     graphics.strokePath();
+    if (getDecoyFollowerCount() > 0) {
+      const alertPulse = 0.45 + Math.sin(this.gameTime * 7) * 0.25;
+      graphics.lineStyle(2, WORLD_GEOMETRY_COLORS.hazard.stroke, alertPulse);
+      graphics.strokeCircle(0, 0, ESCORT_DRONE_DRAW_RADIUS + 13);
+    }
   }
 
   private clearEscortDrone(): void {
@@ -6019,6 +6049,9 @@ export class GameScene extends Phaser.Scene {
     this.escortDrone = null;
     this.escortDroneSectorKey = null;
     this.escortDroneNextDamageAtSeconds = 0;
+    this.escortDroneUnderFire = false;
+    this.escortDroneNextAlertAtSeconds = 0;
+    clearEnemyDecoy();
   }
 
   /** Trip test while dormant, liveness filter while awake. Iterated backwards because a clear
@@ -14006,6 +14039,7 @@ export class GameScene extends Phaser.Scene {
     resetInputSystem();
     resetSpriteSystem();
     resetEnemyAISystem();
+    resetDecoySystem();
     resetBossCallbacks();
     resetXPGemSystem();
     resetHealthPickupSystem();

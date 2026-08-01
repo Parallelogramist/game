@@ -46,6 +46,20 @@ export { updateWardenAI } from './warden';
 export { updateWraithAI, isPhasedWraith } from './wraith';
 export { updateRallierAI } from './rallier';
 
+// A friendly object hostiles break off to attack (quest escort drone)
+export {
+  setEnemyDecoy,
+  clearEnemyDecoy,
+  resetDecoySystem,
+  updateDecoyFollowers,
+  isDecoyFollower,
+  getDecoyFollowerCount,
+  DECOY_AGGRO_RADIUS,
+  DECOY_PLAYER_GUARD_RADIUS,
+  DECOY_MAX_FOLLOWERS,
+  DECOY_CHASER_AI_TYPES,
+} from './decoy';
+
 // Miniboss behaviors, one module per handler
 export { updateGluttonAI } from './glutton';
 export { updateSwarmMotherAI } from './swarm-mother';

@@ -4,6 +4,7 @@ import { EnemyAIType } from '../../enemies/EnemyTypes';
 // Shared constants + per-frame context (telegraph manager, world ref) live in
 // enemy-ai/common so behavior modules can use them without importing this file.
 import { setAIWorld } from './enemy-ai/common';
+import { updateDecoyFollowers, isDecoyFollower } from './enemy-ai/decoy';
 // Enemy behaviors, one module per handler:
 // regular enemies (aiType < 50)
 import { updateChaseAI } from './enemy-ai/chase';
@@ -112,6 +113,11 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
   const playerVelX = Velocity.x[playerId];
   const playerVelY = Velocity.y[playerId];
 
+  // Where a hostile that has broken off for the escort drone should walk, or null when nothing is
+  // decoying. Selected once per frame, OUTSIDE the LOD skip, so a follower set cannot flicker with
+  // the frame counter.
+  const decoy = updateDecoyFollowers(enemies, playerX, playerY);
+
   aiLodFrame++;
 
   for (let i = 0; i < enemies.length; i++) {
@@ -138,133 +144,140 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
     // Update timers (only on frames where AI actually runs)
     EnemyAI.timer[enemyId] += lodDeltaTime;
 
+    let targetX = playerX;
+    let targetY = playerY;
+    if (decoy !== null && isDecoyFollower(enemyId)) {
+      targetX = decoy.x;
+      targetY = decoy.y;
+    }
+
     switch (aiType) {
       case EnemyAIType.Chase:
-        updateChaseAI(enemyId, playerX, playerY);
+        updateChaseAI(enemyId, targetX, targetY);
         break;
       case EnemyAIType.Zigzag:
-        updateZigzagAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateZigzagAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Dash:
-        updateDashAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateDashAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Circle:
-        updateCircleAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateCircleAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Swarm:
-        updateSwarmAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateSwarmAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Tank:
-        updateTankAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateTankAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Exploder:
-        updateExploderAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateExploderAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Splitter:
-        updateSplitterAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateSplitterAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Shooter:
-        updateShooterAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateShooterAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Sniper:
-        updateSniperAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateSniperAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Healer:
-        updateHealerAI(world, enemyId, playerX, playerY, lodDeltaTime);
+        updateHealerAI(world, enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Shielded:
-        updateShieldedAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateShieldedAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Teleporter:
-        updateTeleporterAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateTeleporterAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Giant:
-        updateGiantAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateGiantAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Lurker:
-        updateLurkerAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateLurkerAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Warden:
-        updateWardenAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateWardenAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Wraith:
-        updateWraithAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateWraithAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Rallier:
-        updateRallierAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateRallierAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Ghost:
-        updateGhostAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateGhostAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.SplitterMini:
-        updateSplitterMiniAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateSplitterMiniAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       // Minibosses
       case EnemyAIType.Glutton:
-        updateGluttonAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateGluttonAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.SwarmMother:
-        updateSwarmMotherAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateSwarmMotherAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Charger:
-        updateChargerAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateChargerAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Necromancer:
-        updateNecromancerAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateNecromancerAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.TwinA:
       case EnemyAIType.TwinB:
-        updateTwinAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateTwinAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Bombard:
-        updateBombardAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateBombardAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Stalker:
-        updateStalkerAI(enemyId, playerX, playerY, playerVelX, playerVelY, lodDeltaTime);
+        updateStalkerAI(enemyId, targetX, targetY, playerVelX, playerVelY, lodDeltaTime);
         break;
       // Bosses
       case EnemyAIType.HordeKing:
-        updateHordeKingAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateHordeKingAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.VoidWyrm:
-        updateVoidWyrmAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateVoidWyrmAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.TheMachine:
-        updateTheMachineAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateTheMachineAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Bastion:
-        updateBastionAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateBastionAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Pulsar:
-        updatePulsarAI(enemyId, playerX, playerY, lodDeltaTime);
+        updatePulsarAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Obelisk:
-        updateObeliskAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateObeliskAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Helix:
-        updateHelixAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateHelixAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Tessellator:
-        updateTessellatorAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateTessellatorAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Tremor:
-        updateTremorAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateTremorAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Diviner:
-        updateDivinerAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateDivinerAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Eclipse:
-        updateEclipseAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateEclipseAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.Legion:
-        updateLegionAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateLegionAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       case EnemyAIType.LegionFragment:
       case EnemyAIType.LegionMote:
-        updateLegionFragmentAI(enemyId, playerX, playerY, lodDeltaTime);
+        updateLegionFragmentAI(enemyId, targetX, targetY, lodDeltaTime);
         break;
       default:
-        updateChaseAI(enemyId, playerX, playerY);
+        updateChaseAI(enemyId, targetX, targetY);
     }
 
     // Apply freeze slow if enemy is frozen
