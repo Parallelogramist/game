@@ -9,8 +9,10 @@ import {
   seedQuestStates,
   settleRunScopeProgress,
   buildQuestStepViews,
+  buildQuestMarkers,
   type QuestEvent,
   type QuestInstanceState,
+  type QuestMarker,
   type QuestProgressResult,
   type QuestStepView,
 } from '../systems/QuestProgress';
@@ -126,6 +128,14 @@ export type { QuestStepView } from '../systems/QuestProgress';
 /** What the HUD ticker and the map panel render. Cheap: SecureStorage.getItem is a cache read. */
 export function getActiveQuestStepViews(): QuestStepView[] {
   return buildQuestStepViews(load().states, EXPEDITION_QUESTS);
+}
+
+export type { QuestMarker } from '../systems/QuestProgress';
+
+/** Doc 04 section 4's map-marker feed. Same store read as getActiveQuestStepViews, and the
+ *  same one-projection rule: the panel and the pins cannot disagree about what is active. */
+export function getActiveQuestMarkers(): QuestMarker[] {
+  return buildQuestMarkers(load().states, EXPEDITION_QUESTS);
 }
 
 /**

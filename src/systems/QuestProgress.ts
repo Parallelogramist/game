@@ -1,5 +1,6 @@
 import type { ExpeditionQuestDefinition, QuestTrigger } from '../data/ExpeditionQuests';
 import type { SecretTier } from '../world/secretRewards';
+import type { SectorTag } from '../world/sectorTags';
 
 /**
  * The pure expedition-quest state machine (doc 04 section 4). No Phaser, no storage, no
@@ -31,7 +32,10 @@ export type QuestEvent =
   | { kind: 'reachDepth'; depth: number }
   | { kind: 'openGate' }
   | { kind: 'claimAbility'; abilityId: string }
-  | { kind: 'findSecret'; secretKind: SecretTier };
+  | { kind: 'findSecret'; secretKind: SecretTier }
+  /** Every tag the entered sector answers to. Folded +1 per entry with no visited-set, which is
+   *  why every reachSector step's target is 1 (asserted in referentialIntegrity.test.ts). */
+  | { kind: 'reachSector'; sectorTags: readonly SectorTag[] };
 
 export interface QuestStepCompletion {
   questId: string;
@@ -63,6 +67,8 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
     case 'findSecret':
       return trigger.kind === 'findSecret'
         && (trigger.secretKind === undefined || trigger.secretKind === event.secretKind);
+    case 'reachSector':
+      return trigger.kind === 'reachSector' && event.sectorTags.includes(trigger.sectorTag);
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -78,6 +84,7 @@ function foldEvent(progress: number, event: QuestEvent): number {
     case 'openGate': return progress + 1;
     case 'claimAbility': return progress + 1;
     case 'findSecret': return progress + 1;
+    case 'reachSector': return progress + 1;
     default: {
       const unhandled: never = event;
       console.warn(`Unhandled quest event kind: ${JSON.stringify(unhandled)}`);
@@ -199,6 +206,7 @@ export function settleRunScopeProgress(
  * step never displays as 412/400.
  */
 export interface QuestStepView {
+  questId: string;
   questName: string;
   stepDescription: string;
   progress: number;
@@ -220,6 +228,7 @@ export function buildQuestStepViews(
     const step = definition?.steps[state.stepIndex];
     if (!definition || !step) continue;
     views.push({
+      questId: definition.id,
       questName: definition.name,
       stepDescription: step.description,
       progress: Math.min(state.stepProgress, step.target),
@@ -229,4 +238,38 @@ export function buildQuestStepViews(
     });
   }
   return views;
+}
+
+/**
+ * Doc 04 section 4's marker feed, the half `FEAT-QUEST-VIEW` cut for having no key and no
+ * consumer. One entry per active quest whose CURRENT step names a place; a quest working a
+ * kill, depth, gate, ability or secret step contributes nothing, because those name a thing
+ * to do rather than somewhere to be.
+ */
+export interface QuestMarker {
+  questId: string;
+  label: string;
+  icon: string;
+  sectorTag: SectorTag;
+}
+
+export function buildQuestMarkers(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+): QuestMarker[] {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const markers: QuestMarker[] = [];
+  for (const state of states) {
+    if (state.status !== 'active') continue;
+    const definition = byId.get(state.questId);
+    const step = definition?.steps[state.stepIndex];
+    if (!definition || !step || step.trigger.kind !== 'reachSector') continue;
+    markers.push({
+      questId: definition.id,
+      label: definition.name,
+      icon: definition.icon,
+      sectorTag: step.trigger.sectorTag,
+    });
+  }
+  return markers;
 }

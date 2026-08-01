@@ -23,6 +23,9 @@ const PLAYER_MARKER = 0x66ccff;
 /** The focused-sector cursor. White is the one value no glyph in either table uses, so the
  *  cursor always reads on top of whatever it is bracketing. */
 const CURSOR_STROKE = 0xffffff;
+/** The objective pin. Rose is the one hue neither glyph table nor any chart stroke uses, so a
+ *  pin can never be misread as a POI, a door or a secret. */
+const OBJECTIVE_PIN = 0xff5fa2;
 const FALLBACK_TINT = 0x2a3a52;
 
 const DASH_LENGTH = 5;
@@ -194,6 +197,20 @@ export function drawSectorCursor(
   graphics.lineBetween(x + width, y + height - armY, x + width, y + height);
 }
 
+/** A wedge pointing down into the cell from its top edge: it sits clear of the CLEARED_ONCE
+ *  notch in the top-right corner and the hint badge in the top-left, so a sector can carry all
+ *  three at once and still be read. */
+export function drawObjectivePin(
+  graphics: Phaser.GameObjects.Graphics, centreX: number, topY: number, size: number,
+): void {
+  graphics.fillStyle(OBJECTIVE_PIN, 1);
+  graphics.fillTriangle(
+    centreX - size, topY + size * 0.25,
+    centreX + size, topY + size * 0.25,
+    centreX, topY + size * 1.7,
+  );
+}
+
 /**
  * Gated kinds only. A door reads sealed until the profile holds what it asks for: a traversal
  * ability for an AbilityDoor, a quest key for a KeyDoor. An edge with no requiredId can never
@@ -238,6 +255,9 @@ export interface SectorMapDrawInput {
   edgeFlagsOf: (edgeId: string) => number;
   /** Sectors carrying a secret the profile has been pointed at but has not found. */
   hintedSectorKeys: ReadonlySet<string>;
+  /** Sectors an active place-naming objective points at. Charted keys only: the caller resolves
+   *  them against discovery, and an unknown sector draws nothing at all. */
+  objectiveSectorKeys: ReadonlySet<string>;
   /** Doors opened by a gain this run and not yet looked at. Empty on every ordinary open. */
   newlyPassableEdgeIds: ReadonlySet<string>;
   /** The sector the readout is describing. Null when nothing is focused. */
@@ -310,6 +330,11 @@ export class SectorMapRenderer {
         const badge = Math.max(3, 4.5 * input.view.scale);
         graphics.fillStyle(HIDDEN_FOUND_STROKE, 1);
         graphics.fillCircle(cell.x + badge + 2, cell.y + badge + 2, badge);
+      }
+
+      if (input.objectiveSectorKeys.has(sector.key)) {
+        drawObjectivePin(graphics, cell.x + cell.width / 2, cell.y,
+          Math.max(4, 6 * input.view.scale));
       }
 
       this.drawPoiIcons(sector, input);

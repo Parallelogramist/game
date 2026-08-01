@@ -27,6 +27,9 @@ export interface SectorDetailInputs {
   secretFlagsOf: (secretId: string) => number;
   holdsAbility: (abilityId: string) => boolean;
   holdsQuestKey: (keyId: string) => boolean;
+  /** Sectors an active objective points at. The chart draws the same pin, so naming it here
+   *  leaks nothing the map does not already show. */
+  objectiveSectorKeys: ReadonlySet<string>;
   /** Sectors a lore fragment already points at. The chart's corner badge shows the same fact,
    *  so naming it here leaks nothing the map does not already show. */
   hintedSectorKeys: ReadonlySet<string>;
@@ -142,6 +145,7 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
       && (flags & PoiFlags.GUARD_CLEARED) === 0;
     lines.push(guarded ? `${glyph.label} · guarded` : glyph.label);
   }
+  if (inputs.objectiveSectorKeys.has(sector.key)) lines.push('An objective points here');
   if (inputs.hintedSectorKeys.has(sector.key)) lines.push('A lead points here');
   return lines;
 }

@@ -4,6 +4,7 @@ import {
   seedQuestStates,
   settleRunScopeProgress,
   buildQuestStepViews,
+  buildQuestMarkers,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -166,8 +167,8 @@ describe('buildQuestStepViews', () => {
   test('projects each active quest onto its current step, clamping overshoot', () => {
     const views = buildQuestStepViews([active('quest_a', 0, 4), active('quest_b', 0, 99)], DEFS);
     expect(views).toEqual([
-      { questName: 'A', stepDescription: 'kill 10', progress: 4, target: 10, stepNumber: 1, stepCount: 2 },
-      { questName: 'B', stepDescription: 'open 2', progress: 2, target: 2, stepNumber: 1, stepCount: 1 },
+      { questId: 'quest_a', questName: 'A', stepDescription: 'kill 10', progress: 4, target: 10, stepNumber: 1, stepCount: 2 },
+      { questId: 'quest_b', questName: 'B', stepDescription: 'open 2', progress: 2, target: 2, stepNumber: 1, stepCount: 1 },
     ]);
   });
 
@@ -183,5 +184,41 @@ describe('buildQuestStepViews', () => {
       { questId: 'quest_b', stepIndex: 7, stepProgress: 1, status: 'active' },
     ];
     expect(buildQuestStepViews(states, DEFS)).toEqual([]);
+  });
+});
+
+describe('reachSector', () => {
+  const PLACE_DEFS: readonly ExpeditionQuestDefinition[] = [{
+    id: 'quest_place',
+    name: 'Place',
+    icon: 'radar',
+    steps: [{
+      id: 'q_place.s1',
+      description: 'reach arena',
+      trigger: { kind: 'reachSector', sectorTag: 'boss-arena' },
+      target: 1,
+      scope: 'persistent',
+      goldReward: 13,
+    }],
+    completionGoldReward: 50,
+  }];
+  const held: QuestInstanceState[] = [
+    { questId: 'quest_place', stepIndex: 0, stepProgress: 0, status: 'active' },
+  ];
+
+  test('advances only on an entry whose tags include the step tag', () => {
+    const miss = recordQuestEvent(held, PLACE_DEFS,
+      { kind: 'reachSector', sectorTags: ['biome:stage_inferno'] });
+    expect(miss.stepCompletions).toEqual([]);
+    const hit = recordQuestEvent(held, PLACE_DEFS,
+      { kind: 'reachSector', sectorTags: ['biome:stage_inferno', 'boss-arena'] });
+    expect(hit.questCompletions).toEqual([{ questId: 'quest_place', goldReward: 50 }]);
+  });
+
+  test('markers carry only the quests whose current step names a place', () => {
+    expect(buildQuestMarkers(held, PLACE_DEFS)).toEqual([
+      { questId: 'quest_place', label: 'Place', icon: 'radar', sectorTag: 'boss-arena' },
+    ]);
+    expect(buildQuestMarkers([active('quest_a', 0, 0)], DEFS)).toEqual([]);
   });
 });

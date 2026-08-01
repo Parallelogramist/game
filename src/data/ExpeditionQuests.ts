@@ -1,4 +1,5 @@
 import type { SecretTier } from '../world/secretRewards';
+import type { SectorTag } from '../world/sectorTags';
 
 /**
  * Expedition quest chains: multi-step objectives that span runs (doc 04 section 4).
@@ -11,7 +12,7 @@ import type { SecretTier } from '../world/secretRewards';
  */
 
 /**
- * A trigger names WHICH signal a step listens to. The five kinds here are the five the game
+ * A trigger names WHICH signal a step listens to. The six kinds here are the six the game
  * emits; doc 04's other three (surviveInSector, escortDrone, deliverItem) have no producer
  * yet and are deliberately absent rather than inert.
  */
@@ -22,7 +23,11 @@ export type QuestTrigger =
   | { kind: 'claimAbility'; abilityId?: string }
   /** Doc 04 authors this as `secretId?`, but a secret's id is generated per world
    *  (`poi:12,-3:0`), so a static catalog can only name the KIND of find. */
-  | { kind: 'findSecret'; secretKind?: SecretTier };
+  | { kind: 'findSecret'; secretKind?: SecretTier }
+  /** Doc 04 authors this as `sectorTag: string`. The vocabulary is the closed two-family union
+   *  in src/world/sectorTags.ts, and referentialIntegrity.test.ts asserts every biome tag
+   *  resolves to a real stage, which the template-literal type cannot. */
+  | { kind: 'reachSector'; sectorTag: SectorTag };
 
 export interface ExpeditionQuestStep {
   readonly id: string;
@@ -121,6 +126,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         scope: 'persistent',
         goldReward: 200,
       },
+      {
+        id: 'q_survey_03.s3',
+        description: 'Chart the Ion Field, out past the crystal belt',
+        trigger: { kind: 'reachSector', sectorTag: 'biome:stage_ion_field' },
+        target: 1,
+        scope: 'persistent',
+        goldReward: 220,
+      },
     ],
     completionGoldReward: 350,
   },
@@ -162,6 +175,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         target: 1000,
         scope: 'persistent',
         goldReward: 250,
+      },
+      {
+        id: 'q_gatecrash_02.s2',
+        description: "Chart the arena at the world's heart",
+        trigger: { kind: 'reachSector', sectorTag: 'boss-arena' },
+        target: 1,
+        scope: 'persistent',
+        goldReward: 200,
       },
     ],
     completionGoldReward: 300,

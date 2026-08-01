@@ -60,6 +60,7 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorOfWorldPoint } from '../../world/worldSpace';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
+import { sectorTagsOf } from '../../world/sectorTags';
 import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
@@ -930,7 +931,10 @@ export class GameScene extends Phaser.Scene {
     this.stockSectorPois(payload.sectorKey);
     const map = this.worldMode.worldMap();
     const sector = map?.sectors.get(payload.sectorKey);
-    if (sector) this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
+    if (sector) {
+      this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
+      this.recordExpeditionQuest({ kind: 'reachSector', sectorTags: sectorTagsOf(sector) });
+    }
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);
     }

@@ -2,17 +2,19 @@ import Phaser from 'phaser';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
 import { buildSecretLead } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
-import { getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
+import { getActiveQuestMarkers, getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT, GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP,
   GamepadManager } from '../../input/GamepadManager';
 import {
   COLLECTED_ALPHA, LEGEND_GLYPH_SIZE, SectorMapRenderer,
-  drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawPoiGlyph,
-  drawVaultGuardRing,
+  drawCollectedCheck, drawGateGlyph, drawGateLockRing, drawNewRouteRing, drawObjectivePin,
+  drawPoiGlyph, drawVaultGuardRing,
 } from '../../visual/SectorMapRenderer';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail } from '../../expedition/sectorDetail';
+import { buildQuestPins } from '../../expedition/questPins';
+import type { QuestPin } from '../../expedition/questPins';
 import { poiGlyphFor } from '../../expedition/poiGlyphs';
 import { makeBodyText, makeDisplayText } from '../../visual/DisplayText';
 import { TEXT_COLORS } from '../../visual/MenuStyle';
@@ -80,6 +82,8 @@ export class MapScene extends Phaser.Scene {
   private dragLastY = 0;
   private leads: SecretLead[] = [];
   private hintedSectorKeys: ReadonlySet<string> = new Set();
+  private questPins: QuestPin[] = [];
+  private objectiveSectorKeys: ReadonlySet<string> = new Set();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
@@ -135,8 +139,19 @@ export class MapScene extends Phaser.Scene {
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
       + '   ·   HOVER OR TAP A SECTOR TO INSPECT   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted }).setDepth(2);
-    const leadsPanelY = this.renderObjectivesPanel();
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
+    this.questPins = buildQuestPins({
+      map: this.mapData,
+      markers: getActiveQuestMarkers(),
+      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
+      shipCell,
+    });
+    this.objectiveSectorKeys = new Set(
+      this.questPins
+        .map(pin => pin.sectorKey)
+        .filter((key): key is string => key !== null),
+    );
+    const leadsPanelY = this.renderObjectivesPanel();
     this.leads = discovery.getHintedSecretIds()
       .map(secretId => buildSecretLead(this.mapData, secretId))
       .filter((lead): lead is SecretLead => lead !== null)
@@ -244,6 +259,7 @@ export class MapScene extends Phaser.Scene {
     const panelY = HEADER_HEIGHT + 12;
     const panelWidth = Math.min(340, this.scale.width - 48);
     const textWidth = panelWidth - 28;
+    const pinnedByQuestId = new Map(this.questPins.map(pin => [pin.questId, pin.sectorKey]));
 
     makeBodyText(this, panelX + 14, panelY + 12, 'OBJECTIVES',
       { fontSize: 14, color: TEXT_COLORS.muted, align: 'left' })
@@ -256,8 +272,13 @@ export class MapScene extends Phaser.Scene {
         { fontSize: 15, align: 'left', wordWrapWidth: textWidth })
         .setOrigin(0, 0).setDepth(4);
       cursorY += heading.height + 2;
+      const pinned = pinnedByQuestId.has(view.questId)
+        ? (pinnedByQuestId.get(view.questId) !== null
+          ? '   · PINNED ON THE CHART'
+          : '   · NOT YET CHARTED')
+        : '';
       const detail = makeBodyText(this, panelX + 14, cursorY,
-        `${view.stepDescription}   ${view.progress}/${view.target}`,
+        `${view.stepDescription}   ${view.progress}/${view.target}${pinned}`,
         { fontSize: 12, color: TEXT_COLORS.muted, align: 'left', wordWrapWidth: textWidth })
         .setOrigin(0, 0).setDepth(4);
       cursorY += detail.height + 12;
@@ -365,6 +386,11 @@ export class MapScene extends Phaser.Scene {
         drawNewRouteRing(graphics, x, y, LEGEND_GLYPH_SIZE);
       },
     });
+    rows.push({
+      label: 'Objective',
+      draw: (graphics, x, y) =>
+        drawObjectivePin(graphics, x, y - LEGEND_GLYPH_SIZE, LEGEND_GLYPH_SIZE * 1.2),
+    });
 
     const rowHeight = 20;
     const panelWidth = 196;
@@ -427,6 +453,7 @@ export class MapScene extends Phaser.Scene {
       secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
       holdsAbility: (abilityId) => this.ownedAbilityIds.has(abilityId),
       holdsQuestKey: (keyId) => this.earnedQuestKeyIds.has(keyId),
+      objectiveSectorKeys: this.objectiveSectorKeys,
       hintedSectorKeys: this.hintedSectorKeys,
     }) : null;
 
@@ -582,6 +609,7 @@ export class MapScene extends Phaser.Scene {
       panelHeight: this.scale.height,
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       edgeFlagsOf: (edgeId) => discovery.getEdgeFlags(edgeId),
+      objectiveSectorKeys: this.objectiveSectorKeys,
       hintedSectorKeys: this.hintedSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,
       focusedCell: this.focusedCell,

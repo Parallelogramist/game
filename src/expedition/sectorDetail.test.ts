@@ -31,6 +31,7 @@ const BASE = {
   secretFlagsOf: () => 0,
   holdsAbility: () => false,
   holdsQuestKey: () => false,
+  objectiveSectorKeys: new Set<string>(),
   hintedSectorKeys: new Set<string>(),
 };
 

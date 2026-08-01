@@ -197,6 +197,7 @@ describe('data catalog referential integrity', () => {
 
 describe('expedition quest data rules', () => {
   const byId = new Map(EXPEDITION_QUESTS.map((quest) => [quest.id, quest]));
+  const STAGE_IDS = new Set(STAGES.map((stage) => stage.id));
 
   test('quest ids are unique and prefixed, and every quest has at least one step', () => {
     expect(byId.size).toBe(EXPEDITION_QUESTS.length);
@@ -243,6 +244,15 @@ describe('expedition quest data rules', () => {
         expect(step.goldReward, step.id).toBeGreaterThan(0);
         if (step.trigger.kind === 'reachDepth') {
           expect(step.target, step.id).toBeLessThanOrEqual(8);
+        }
+        if (step.trigger.kind === 'reachSector') {
+          // The fold is +1 per sector entry with no visited-set, so any target above 1 could be
+          // met by bouncing in and out of one room.
+          expect(step.target, step.id).toBe(1);
+          const tag = step.trigger.sectorTag;
+          if (tag !== 'boss-arena') {
+            expect(STAGE_IDS.has(tag.slice('biome:'.length)), step.id).toBe(true);
+          }
         }
         if (step.scope !== 'run') continue;
         if (step.trigger.kind === 'kill') expect(step.target, step.id).toBeLessThanOrEqual(800);
