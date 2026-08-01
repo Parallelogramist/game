@@ -68,4 +68,22 @@ describe('ExpeditionQuestManager', () => {
     expect(after?.stepProgress).toBe(0);
     expect(after?.stepIndex).toBe(0);
   });
+
+  test('a sweep that changes world saves the new stamp even when the room count does not move', () => {
+    SecureStorage.setItem(STORAGE_KEY, JSON.stringify({
+      states: [{ questId: 'quest_survey_03', stepIndex: 5, stepProgress: 0, status: 'active' }],
+      pendingGold: 0,
+    }));
+    const enter = (sectorKey: string, worldStamp: string) => recordExpeditionQuestEvent(
+      { kind: 'reachSector', sectorKey, sectorTags: [], worldStamp },
+    );
+
+    enter('1,0', 'w1');
+    expect(getExpeditionQuestStates()[0].stepProgress).toBe(1);
+
+    enter('1,0', 'w2');
+    const [restated] = getExpeditionQuestStates();
+    expect(restated.stepProgress).toBe(1);
+    expect(restated.visitedWorldStamp).toBe('w2');
+  });
 });

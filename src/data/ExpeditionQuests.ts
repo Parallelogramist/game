@@ -28,7 +28,9 @@ export type QuestTrigger =
    *  in src/world/sectorTags.ts, and referentialIntegrity.test.ts asserts every biome tag
    *  resolves to a real stage, which the template-literal type cannot. Progress counts DISTINCT
    *  sectors, so a target above 1 asks for that many different rooms, and an omitted tag counts
-   *  every sector, which is how a breadth step is authored. */
+   *  every sector, which is how a breadth step is authored. The visited set carries the world it
+   *  was collected in, so a 'persistent' sweep may span expeditions without a regenerated world
+   *  over-crediting it. */
   | { kind: 'reachSector'; sectorTag?: SectorTag }
   /** Doc 04 authors a `seconds` field beside the step's own `target`. The target IS the dwell
    *  in seconds here: one threshold in two fields is two sources of truth, and the shipped
@@ -156,6 +158,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         scope: 'run',
         goldReward: 240,
       },
+      {
+        id: 'q_survey_03.s6',
+        description: 'Chart twenty rooms across your expeditions',
+        trigger: { kind: 'reachSector' },
+        target: 20,
+        scope: 'persistent',
+        goldReward: 260,
+      },
     ],
     completionGoldReward: 350,
   },
@@ -221,6 +231,14 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
         target: 3,
         scope: 'run',
         goldReward: 240,
+      },
+      {
+        id: 'q_gatecrash_02.s5',
+        description: 'Survey six sectors of the Inferno across your expeditions',
+        trigger: { kind: 'reachSector', sectorTag: 'biome:stage_inferno' },
+        target: 6,
+        scope: 'persistent',
+        goldReward: 260,
       },
     ],
     completionGoldReward: 300,

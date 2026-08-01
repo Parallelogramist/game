@@ -264,12 +264,14 @@ describe('expedition quest data rules', () => {
           expect(step.target, step.id).toBeLessThanOrEqual(8);
         }
         if (step.trigger.kind === 'reachSector') {
-          // The fold counts DISTINCT sectors, so a target above 1 is authorable. It is bounded
-          // by what one expedition can reach at the live seed (16 sectors owning no ability and
-          // no quest key, measured 2026-08-01) and must be 'run'-scope: a persisted visited set
-          // holds sector keys a regenerated world would reuse for different rooms.
-          expect(step.target, step.id).toBeLessThanOrEqual(12);
-          if (step.target > 1) expect(step.scope, step.id).toBe('run');
+          // The fold counts DISTINCT sectors, so a target above 1 asks for that many different
+          // rooms. A 'run' sweep is bounded by what one expedition reaches at the live seed
+          // owning no traversal ability and no quest key (16 sectors, measured 2026-08-01); a
+          // 'persistent' one accumulates across expeditions and is bounded by the non-hidden
+          // sectors a fully powered ship reaches (45, measured 2026-07-31), halved. The visited
+          // set carries the world it was collected in and is dropped on a mismatch, which is
+          // what makes the persistent case safe.
+          expect(step.target, step.id).toBeLessThanOrEqual(step.scope === 'run' ? 12 : 24);
           if (step.trigger.sectorTag !== undefined) {
             expectSectorTagResolves(step.trigger.sectorTag, step.id);
           }

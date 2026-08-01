@@ -1009,12 +1009,13 @@ export class GameScene extends Phaser.Scene {
     this.expeditionDwellStartSeconds = this.gameTime;
     const map = this.worldMode.worldMap();
     const sector = map?.sectors.get(payload.sectorKey);
-    if (sector) {
+    if (map && sector) {
       this.recordExpeditionQuest({ kind: 'reachDepth', depth: sector.depth });
       this.recordExpeditionQuest({
         kind: 'reachSector',
         sectorKey: payload.sectorKey,
         sectorTags: sectorTagsOf(sector),
+        worldStamp: `${map.seed}:v${map.worldGenVersion}`,
       });
     }
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {

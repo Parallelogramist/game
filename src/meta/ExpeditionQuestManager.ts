@@ -73,6 +73,12 @@ function sanitizeSectorKeys(value: unknown): readonly string[] | undefined {
   return keys.length > 0 ? keys : undefined;
 }
 
+/** A world stamp is opaque to the store: it is only ever compared for equality, so the only
+ *  thing to validate is that it is a short non-empty string. */
+function sanitizeWorldStamp(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 && value.length <= 64 ? value : undefined;
+}
+
 /**
  * A state whose quest or step index no longer exists in the catalog is dropped, not
  * clamped: the content was re-authored, and inventing a step index is how a player gets
@@ -91,20 +97,26 @@ function sanitizeStates(value: unknown): QuestInstanceState[] {
     const stepIndex = sanitizeCount(entry.stepIndex);
     if (status === 'active' && stepIndex >= definition.steps.length) continue;
     const clampedIndex = Math.min(stepIndex, definition.steps.length);
-    // Progress on a distinct step is DERIVED from the visited set rather than trusted beside
-    // it: one count in two fields is two sources of truth.
-    const visitedSectorKeys = definition.steps[clampedIndex]?.trigger.kind === 'reachSector'
+    const isDistinctStep = definition.steps[clampedIndex]?.trigger.kind === 'reachSector';
+    // Set and stamp are kept or dropped together: a set whose world is unknown cannot be
+    // checked against the live world, and a stamp with no set says nothing.
+    const storedStamp = isDistinctStep ? sanitizeWorldStamp(entry.visitedWorldStamp) : undefined;
+    const visitedSectorKeys = storedStamp !== undefined
       ? sanitizeSectorKeys(entry.visitedSectorKeys)
       : undefined;
+    const visitedWorldStamp = visitedSectorKeys !== undefined ? storedStamp : undefined;
     seen.add(questId);
     states.push({
       questId,
       stepIndex: clampedIndex,
-      stepProgress: visitedSectorKeys
-        ? visitedSectorKeys.length
+      // Progress on a distinct step is DERIVED from the visited set, never trusted beside it:
+      // one count in two fields is two sources of truth.
+      stepProgress: isDistinctStep
+        ? visitedSectorKeys?.length ?? 0
         : sanitizeCount(entry.stepProgress),
       status,
       visitedSectorKeys,
+      visitedWorldStamp,
     });
   }
   return states;
@@ -203,7 +215,13 @@ export function recordExpeditionQuestEvent(event: QuestEvent): ExpeditionQuestRe
     + result.questCompletions.reduce((total, entry) => total + entry.goldReward, 0);
   const changed = earned > 0
     || result.activatedQuestIds.length > 0
-    || result.states.some((next, index) => next.stepProgress !== state.states[index]?.stepProgress);
+    || result.states.some((next, index) => {
+      const prior = state.states[index];
+      // The stamp too: a world change can reset a distinct step to one room and leave the count
+      // where it was, and a reset that is never saved is recomputed forever.
+      return next.stepProgress !== prior?.stepProgress
+        || next.visitedWorldStamp !== prior?.visitedWorldStamp;
+    });
   if (!changed) return EMPTY_REWARDS;
 
   save({ states: result.states, pendingGold: state.pendingGold + earned });

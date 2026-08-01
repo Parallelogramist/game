@@ -209,10 +209,10 @@ describe('reachSector', () => {
 
   test('advances only on an entry whose tags include the step tag', () => {
     const miss = recordQuestEvent(held, PLACE_DEFS,
-      { kind: 'reachSector', sectorKey: '1,0', sectorTags: ['biome:stage_inferno'] });
+      { kind: 'reachSector', sectorKey: '1,0', sectorTags: ['biome:stage_inferno'], worldStamp: 'w1' });
     expect(miss.stepCompletions).toEqual([]);
     const hit = recordQuestEvent(held, PLACE_DEFS,
-      { kind: 'reachSector', sectorKey: '2,0', sectorTags: ['biome:stage_inferno', 'boss-arena'] });
+      { kind: 'reachSector', sectorKey: '2,0', sectorTags: ['biome:stage_inferno', 'boss-arena'], worldStamp: 'w1' });
     expect(hit.questCompletions).toEqual([{ questId: 'quest_place', goldReward: 50 }]);
   });
 
@@ -243,7 +243,7 @@ describe('reachSector', () => {
     ];
     const enter = (states: QuestInstanceState[], sectorKey: string) => recordQuestEvent(
       states, SWEEP_DEFS,
-      { kind: 'reachSector', sectorKey, sectorTags: ['biome:stage_inferno'] },
+      { kind: 'reachSector', sectorKey, sectorTags: ['biome:stage_inferno'], worldStamp: 'w1' },
     );
 
     const first = enter(sweeping, '1,0');
@@ -261,8 +261,39 @@ describe('reachSector', () => {
       steps: [{ ...SWEEP_DEFS[0].steps[0], trigger: { kind: 'reachSector' }, target: 2 }],
     }];
     const anyRoom = recordQuestEvent(sweeping, TAGLESS_DEFS,
-      { kind: 'reachSector', sectorKey: '9,9', sectorTags: ['biome:stage_verdant_rot'] });
+      { kind: 'reachSector', sectorKey: '9,9', sectorTags: ['biome:stage_verdant_rot'], worldStamp: 'w1' });
     expect(anyRoom.states[0].stepProgress).toBe(1);
+  });
+
+  test('drops the rooms counted in another world, so a regenerated map cannot over-credit', () => {
+    const CROSS_RUN_DEFS: readonly ExpeditionQuestDefinition[] = [{
+      id: 'quest_cross',
+      name: 'Cross',
+      icon: 'radar',
+      steps: [{
+        id: 'q_cross.s1',
+        description: 'survey three rooms across expeditions',
+        trigger: { kind: 'reachSector' },
+        target: 3,
+        scope: 'persistent',
+        goldReward: 19,
+      }],
+      completionGoldReward: 70,
+    }];
+    const enter = (states: QuestInstanceState[], sectorKey: string, worldStamp: string) =>
+      recordQuestEvent(states, CROSS_RUN_DEFS,
+        { kind: 'reachSector', sectorKey, sectorTags: [], worldStamp });
+
+    const start: QuestInstanceState[] = [
+      { questId: 'quest_cross', stepIndex: 0, stepProgress: 0, status: 'active' },
+    ];
+    const oldWorld = enter(enter(start, '1,0', 'w1').states, '2,0', 'w1');
+    expect(oldWorld.states[0].stepProgress).toBe(2);
+
+    const newWorld = enter(oldWorld.states, '1,0', 'w2');
+    expect(newWorld.states[0].stepProgress).toBe(1);
+    expect(newWorld.states[0].visitedSectorKeys).toEqual(['1,0']);
+    expect(newWorld.states[0].visitedWorldStamp).toBe('w2');
   });
 });
 

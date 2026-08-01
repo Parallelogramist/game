@@ -22,6 +22,10 @@ export interface QuestInstanceState {
   /** Which sectors a reachSector step has already counted, so a re-entered room cannot pay
    *  twice. Absent for every other kind and cleared the moment the step completes. */
   visitedSectorKeys?: readonly string[];
+  /** The world those keys were collected in. A key like `2,-1` names a different room in a
+   *  regenerated world, so the set is dropped rather than added to when this does not match,
+   *  which is what makes a 'persistent' distinct step safe. */
+  visitedWorldStamp?: string;
 }
 
 /**
@@ -36,10 +40,10 @@ export type QuestEvent =
   | { kind: 'openGate' }
   | { kind: 'claimAbility'; abilityId: string }
   | { kind: 'findSecret'; secretKind: SecretTier }
-  /** Every tag the entered sector answers to, plus the sector's own key: progress counts
-   *  DISTINCT sectors, so a room already counted adds nothing and a repeated entry is
-   *  idempotent (referentialIntegrity.test.ts bounds the target instead of pinning it to 1). */
-  | { kind: 'reachSector'; sectorKey: string; sectorTags: readonly SectorTag[] }
+  /** Every tag the entered sector answers to, the sector's own key, and the world that key
+   *  belongs to: progress counts DISTINCT sectors, so a room already counted adds nothing, and
+   *  a set collected in another world is dropped instead of over-crediting. */
+  | { kind: 'reachSector'; sectorKey: string; sectorTags: readonly SectorTag[]; worldStamp: string }
   /** ABSOLUTE unbroken seconds held in the sector whose tags these are, folded with max: a poll
    *  that repeats cannot double-credit, and leaving restarts the producer's count at 0. */
   | { kind: 'surviveInSector'; sectorTags: readonly SectorTag[]; seconds: number };
@@ -90,6 +94,7 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
 interface StepProgress {
   progress: number;
   visitedSectorKeys?: readonly string[];
+  visitedWorldStamp?: string;
 }
 
 function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
@@ -101,11 +106,20 @@ function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
     case 'claimAbility': return { ...current, progress: current.progress + 1 };
     case 'findSecret': return { ...current, progress: current.progress + 1 };
     // Distinct rooms, so a multi-destination step cannot be met by bouncing in and out of one.
+    // A set collected in another world is dropped whole rather than added to: a sector key is
+    // reused by a regenerated world for a different room, and over-crediting a cross-run sweep
+    // is worse than restarting it.
     case 'reachSector': {
-      const visited = current.visitedSectorKeys ?? [];
+      const visited = current.visitedWorldStamp === event.worldStamp
+        ? current.visitedSectorKeys ?? []
+        : [];
       if (visited.includes(event.sectorKey)) return current;
       const nextVisited = [...visited, event.sectorKey];
-      return { progress: nextVisited.length, visitedSectorKeys: nextVisited };
+      return {
+        progress: nextVisited.length,
+        visitedSectorKeys: nextVisited,
+        visitedWorldStamp: event.worldStamp,
+      };
     }
     // A high-water mark, so a partial dwell survives leaving the room while COMPLETION still
     // needs one visit that reaches the target.
@@ -143,12 +157,17 @@ export function recordQuestEvent(
     if (!step || !triggerMatches(step.trigger, event)) continue;
 
     const folded = foldEvent(
-      { progress: state.stepProgress, visitedSectorKeys: state.visitedSectorKeys },
+      {
+        progress: state.stepProgress,
+        visitedSectorKeys: state.visitedSectorKeys,
+        visitedWorldStamp: state.visitedWorldStamp,
+      },
       event,
     );
     if (folded.progress < step.target) {
       state.stepProgress = folded.progress;
       state.visitedSectorKeys = folded.visitedSectorKeys;
+      state.visitedWorldStamp = folded.visitedWorldStamp;
       continue;
     }
 
@@ -160,6 +179,7 @@ export function recordQuestEvent(
     state.stepIndex += 1;
     state.stepProgress = 0;
     state.visitedSectorKeys = undefined;
+    state.visitedWorldStamp = undefined;
     if (state.stepIndex >= definition.steps.length) {
       state.status = 'complete';
       questCompletions.push({
@@ -227,7 +247,12 @@ export function settleRunScopeProgress(
     if (state.stepProgress === 0 && state.visitedSectorKeys === undefined) return state;
     const step = byId.get(state.questId)?.steps[state.stepIndex];
     if (!step || step.scope === 'persistent') return state;
-    return { ...state, stepProgress: 0, visitedSectorKeys: undefined };
+    return {
+      ...state,
+      stepProgress: 0,
+      visitedSectorKeys: undefined,
+      visitedWorldStamp: undefined,
+    };
   });
 }
 
