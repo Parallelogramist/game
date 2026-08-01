@@ -229,6 +229,30 @@ on that operator balance decision: do not unpark it.
 Band 1 is still out of unblocked items. Operator focus: quests and lots of hidden rewards on the
 Metroid map.
 
+**`bd1d33d` shipped `ability_breach_charges`' rubble half.** Owning Breach Charges plants a
+charge on any still-intact rubble seam within 40 px of the ship, and 1.0 s of run time later the
+seam clears through the **existing** `barrierEventSink`, so a charged break and a projectile break
+are the same break: same `recordBrokenBarrier` persistence, same geometry and radar invalidation,
+same burst, shake and sound. It is the **fourth of six traversal abilities** to become real, and
+the reason it was reachable when the last two are not is that its barrier is the only one the
+generator already emits (`TileKind.Breakable` pockets, `EdgeKind.Breakable` plugs); both
+`ability_magno_tether` and `ability_phase_cloak` need a barrier flavour `TileKind` has no member
+for. The hole it closes is a real one: hitscan beams and Ricochet never report an impact
+(`FEAT-BARRIER-BREACH-BEAMS`), so before this a beam-only or Ricochet-only build could not open a
+single rubble barrier anywhere in the world, which locked it out of all 3 hidden sectors and every
+rubble shortcut. **`FEAT-BARRIER-BREACH-BEAMS` stays open** for the no-ability case: the fix here
+is an earnable answer, not a weapon fix. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`
+and no generator change, so every existing profile keeps its discovery state.
+`FEAT-POWER-ABILITY-EFFECTS-REST` **is no longer a band-2 item with an unblocked half**: its two
+remaining abilities each cost a version bump that discards per-seed discovery state.
+
+**The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-RADAR`,
+`CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
+`POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
+`FEAT-SECRET-MAP-FRAGMENT-CODEX`, `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`, plus the newly filed
+`BALANCE-BREACH-CHARGE-FUSE`. `FEAT-ECON-WARDS` stays parked on its operator balance decision: do
+not unpark it.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -4308,10 +4332,22 @@ exploring pays is the end of Phase 5.
 
 - [ ] **FEAT-POWER-ABILITY-EFFECTS-REST**: the traversal abilities that are still keys
   and nothing more, each blocked on a barrier flavour that does not exist yet rather than on
-  effort. **Three remain.** `ability_breach_charges` needs a deployable placement path over the
-  existing `ConsumableKind.BOMB` blast plus the false-wall prospecting `FEAT-SECRET-CACHE` owns;
-  `ability_magno_tether` needs `barrier_void_gap` with anchor pylons, which no generator phase
-  emits; `ability_phase_cloak` needs `barrier_security_grid`, likewise unemitted.
+  effort. **Two remain**, and both are blocked on a barrier flavour `TileKind` has no member for,
+  so each costs a `WORLDGEN_VERSION` bump that discards every profile's per-seed discovery state:
+  `ability_magno_tether` needs `barrier_void_gap` with anchor pylons and `ability_phase_cloak`
+  needs `barrier_security_grid`, neither of which any generator phase emits.
+  (`ability_breach_charges` is **done — bd1d33d**: rubble seams now collapse under a charge the
+  ship plants by nosing into them, so it is the **fourth** id in
+  `IMPLEMENTED_TRAVERSAL_ABILITY_IDS`. Its barrier was the only one of the three the generator
+  already emits (`TileKind.Breakable` pockets and `EdgeKind.Breakable` plugs) so it needed no
+  generator change, no `WORLDGEN_VERSION` bump and no storage key. **Its false-wall prospecting
+  clause is NOT shipped and its `description` was reworded to stop promising it**: that half needs
+  `PoiKind.Secret` slots bound into `sector.breakables`, which is `FEAT-SECRET-FALSE-WALLS` and
+  carries the version-bump cost on its own entry. **The plant is proximity, not a button, and that
+  call is settled** on the same grounds as `POLISH-DECRYPTOR-ACTIVE-BUTTON`: a pressable ability
+  needs all three input paths plus a cooldown readout, a HUD-layout change larger than the feature.
+  **The blast damages nothing**, because doc 04 section 2 makes "no ability grants damage" a hard
+  type-level rule.)
   (`ability_thermal_ward` is **done — 74d78b3**: `FEAT-BARRIER-HAZARD-STRIPS` landed the hull
   drain and the ward now negates it, so it is the second ability in
   `IMPLEMENTED_TRAVERSAL_ABILITY_IDS` and its claim toast prints its real description.)
@@ -4741,6 +4777,13 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   charts for free) before the numbers move. Value: keeps the ability an earned advantage rather
   than a map giveaway. Deps: none, but it is a balance question, so it wants numbers, not a
   guess.
+
+- [ ] **BALANCE-BREACH-CHARGE-FUSE** (new 2026-07-31, from `FEAT-POWER-ABILITY-EFFECTS-REST`):
+  the charge costs nothing but 1.0 s of hovering, so once the ability is owned every rubble
+  seam in the world is free. Decide against `POLISH-BREACH-CHARGE-FEEL` whether the fuse wants
+  a cooldown between charges, a longer fuse in deep sectors, or to stay free because a
+  traversal ability is meant to trivialise its own barrier the way `tryOpenAbilityDoor` does.
+  Deps: `POLISH-BREACH-CHARGE-FEEL`.
 
 - [x] **FEAT-SECRET-LORE-CODEX** (done, 173c7f3): the profile-wide collection half of hint tier
   2. A fragment's flavour line used to be readable in exactly one place, `MapScene`'s LEADS
@@ -5468,6 +5511,13 @@ Never agent work. The fleet must not do any of these.
     visibly dim for a warded ship?
     (f) **density**: the dev seed has ~17 strips of 3 tiles across 48 sectors, so a run can miss
     hazard floor entirely. See `BALANCE-HAZARD-DENSITY`.
+  - **POLISH-BREACH-CHARGE-FEEL** (new 2026-07-31): the breach charge's 40 px plant radius and
+    1.0 s fuse are unvalidated in a browser. Needs a human flying a run with
+    `ability_breach_charges` owned to judge (a) whether 40 px reads as "nose against the wall" or
+    as accidental, especially along a sector border carrying a breakable plug, (b) whether the
+    spark + `BREACH` float is enough telegraph for the fuse without a ring or a countdown, and
+    (c) whether auto-planting trivialises finding hidden sectors, whose walls are the same
+    `EdgeKind.Breakable`.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first

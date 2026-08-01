@@ -161,6 +161,21 @@ the "energy membrane turns off once blinked through from either side" anti-soft-
 unbuilt with `barrier_flicker_screen` itself, and a blink that resolves under 24 px of travel is
 refused without spending the cooldown.
 
+**As built (FEAT-POWER-ABILITY-EFFECTS-REST, breach-charge half, `bd1d33d`):** row 2 is
+implemented, in the rubble half only, with three deviations from its cell. (1) The charge is
+**not deployed on a button**: it plants when the ship comes within 40 px of a still-intact
+breakable barrier, because a pressable ability must reach `InputController`'s keyboard path,
+the gamepad path and a `HUDManager` touch button plus a cooldown readout, which is the same
+HUD-layout cost that made `FEAT-POWER-DECRYPTOR-SCAN` fire its sweep on sector entry. The
+cell's "placement delay" ships as a 1.0 s fuse that runs on `gameTime` and is not cancelled by
+the ship leaving. (2) The blast **damages nothing** and reuses no `ConsumableKind.BOMB` damage
+path, only the break's existing visual and audio, because section 2's own rule forbids a
+traversal ability granting damage. (3) The **false-wall prospecting clause is not built**: it
+needs `PoiKind.Secret` slots bound into `sector.breakables`, which is a generator change and a
+`WORLDGEN_VERSION` bump, tracked as `FEAT-SECRET-FALSE-WALLS`. The anti-soft-lock rule holds
+unchanged: the break is persisted by `recordBrokenBarrier`, the same path a projectile break
+uses, so a breached wall stays open forever.
+
 ### Ordering / solvability constraint the worldgen must honor
 
 Acquisition order is fixed by index. Doc 02's generator MUST place vault *i* so it
