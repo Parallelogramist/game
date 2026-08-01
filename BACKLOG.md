@@ -372,6 +372,37 @@ names a place, which hands the two new steps the chart pin (0be97f5) and the rad
 (05e832e) with **no new UI and no new state**. No storage key, no `SAVE_VERSION` and no
 `WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the build lands.
 
+**`126961c` made "survive" mean survive**: a room the player is told to hold now sieges him, where
+the day before he could park the ship in a cleared corner of the Ion Field and watch the timer
+count to 60. **Neither shape the backlog entry proposed was buildable.** "Requires live hostiles
+nearby" is a no-op: the director's spawn loop already places every ambient body on the **view ring
+around the ship** (`spawnEnemy` via `pickSpawnRingPoint(REGULAR_SPAWN_RING)`), so hostiles are near
+the player everywhere and always, and a "contested" gate would be true on essentially every poll.
+"Resets on leaving combat" is perverse: it stops the clock for the player who clears the room
+fastest, punishing good play, and it fights the settled max-fold that lets a partial hold survive.
+So the third shape ships instead: the dwell rule is untouched and **pressure is the feature**.
+While the ship holds a sector a live `surviveInSector` step names, the room answers with the ambush
+nest's own pack (`AMBUSH_NEST_WAVES[ambushWaveTier(depth)]`, 6 bodies shallow and 9 deep), entering
+from the view ring rather than standing up in a ring the way a woken nest does, on a gap that
+shrinks **linearly from 24 s to 12 s** with the fraction of the step's own target already held, so
+the last stretch of a 90 s hold is the expensive one rather than the first. Two caps bound it: a
+live `SIEGE_MAX_LIVE_BESIEGERS` of 14 on the siege's own bodies, under the director's global
+`maxEnemies`. The besiegers carry **`AmbushSpawnTag` rather than a new component**, because both of
+that tag's meanings are wanted verbatim: leash-exempt, so fleeing leaves the fight in the room it
+belongs to, and skipped by the serializer, so a refresh cannot double a wave. No new enemy table
+either, and no new ECS component. The siege **holds its fire while `activeBossType` is set**: the
+one arena hold in the catalog shares its sector with a boss, and stacking a siege on top would make
+that step the hardest fight in the game by accident rather than by design. It rides the **existing
+once-a-second quest block**, not a new timer, so practice mode is excluded for free by that block's
+own guard and only expedition can ever siege (`expeditionDwellSectorKey` is written solely by the
+expedition-only `sectorEnteredHandler`, so arena and gauntlet never do). The dwell contract itself
+is deliberately unchanged: absolute unbroken seconds folded with max, so a partial hold still
+survives leaving the room. `buildQuestHoldObjectives` is the one new pure read, because
+`buildQuestMarkers` merges the two place-naming kinds and cannot say which of them wants the room to
+answer. No HUD line (the ticker already renders `42/60`), no reward, no storage key, no
+`SAVE_VERSION` and no `WORLDGEN_VERSION` bump, so every existing profile lights it up the moment the
+build lands.
+
 **The unblocked candidate list, restated:** `CHORE-SECRET-LEAD-TICKER`,
 `CHORE-SECRET-PUZZLE-RESUME`, `CHORE-CODEX-CARD-SCROLL-HEIGHT`, `BALANCE-VAULT-GUARD-SCALING`,
 `POLISH-DECRYPTOR-ACTIVE-BUTTON`, `BALANCE-DECRYPTOR-SCAN-RADIUS`, `BALANCE-MAP-FRAGMENT-YIELD`,
@@ -381,8 +412,10 @@ names a place, which hands the two new steps the chart pin (0be97f5) and the rad
 `FEAT-QUEST-REACHSECTOR-DISTINCT`, `POLISH-RADAR-WAYPOINT-LABEL`,
 `CHORE-RADAR-WAYPOINT-EVENT-REFRESH`, `CHORE-AMBUSH-NEST-RADAR` (now widened to cover the lair),
 plus the newly filed `BALANCE-NEMESIS-LAIR-TUNING` and `CHORE-NEMESIS-LAIR-ORPHAN-AWAKE`, and the
-three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TIMERS`, `CHORE-QUEST-DWELL-RESTORE` and
-`FEAT-QUEST-SURVIVE-DANGER`. `FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
+two still-open of the three the survive trigger filed: `BALANCE-QUEST-SURVIVE-TIMERS` and
+`CHORE-QUEST-DWELL-RESTORE`, plus the three the siege itself filed:
+`BALANCE-QUEST-SIEGE-PRESSURE`, `FEAT-QUEST-SIEGE-HUD-TELL` and `CHORE-QUEST-SIEGE-RESTORE`.
+`FEAT-QUEST-TRIGGERS-REST` stays open but its remaining two kinds
 (`escortDrone`, `deliverItem`) are blocked on `FEAT-WORLDGEN-STREAM`, so it is not a candidate.
 `FEAT-ECON-WARDS` stays parked on its
 operator balance decision: do not unpark it, and `BALANCE-AMBUSH-NEST-WAVES` is filed behind it
@@ -4751,12 +4784,45 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   player simply re-holds), but a 90 s hold interrupted by a reload is re-walked. Holding it
   means a `GameSaveState` field or a saved sector-entry stamp. Deps: none.
 
-- [ ] **FEAT-QUEST-SURVIVE-DANGER** (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): the dwell
-  counts in a room the player has already cleared exactly as fast as one under fire, so
-  "survive" is currently "stand". The stronger shape requires live hostiles nearby, or resets on
-  leaving combat. Filed rather than built because "under fire" needs a threat measure the scene
-  does not export today, and inventing one inside a trigger chunk is the kind of surface growth
-  `FL-X04` bans. Value: the objective asks for the thing its verb promises. Deps: none.
+- [x] **FEAT-QUEST-SURVIVE-DANGER** (done, 126961c): a hold objective now answers back. While
+  the ship holds a sector a live `surviveInSector` step names, the room sieges it: the ambush
+  nest's own pack (`AMBUSH_NEST_WAVES` by `ambushWaveTier(depth)`, 6 bodies shallow / 9 deep)
+  enters from the view ring on a gap that shrinks from 24 s to 12 s as the hold nears its target,
+  under a live cap of 14 besiegers on top of the director's own `maxEnemies`. **Neither shape the
+  entry proposed was buildable**: "requires live hostiles nearby" is a no-op, because `spawnEnemy`
+  already places every ambient body on the view ring around the ship, so hostiles are near the
+  player everywhere; and "resets on leaving combat" stops the clock for the player who clears
+  fastest and fights the settled max-fold. So the dwell rule is untouched and pressure is the
+  feature. Besiegers carry `AmbushSpawnTag` rather than a new component because both of its
+  meanings are wanted: leash-exempt, so fleeing leaves the fight in the room, and skipped by the
+  serializer, so a refresh cannot double a wave. The siege holds its fire while `activeBossType`
+  is set, so the arena hold is not silently the hardest fight in the game. It rides the existing
+  once-a-second quest block, so practice mode is excluded for free and arena/gauntlet never siege
+  (`expeditionDwellSectorKey` is written only by the expedition-only `sectorEnteredHandler`). No
+  HUD line (the ticker already reads `42/60`), no new enemy table, no reward, no storage key, no
+  `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.
+
+- [ ] **BALANCE-QUEST-SIEGE-PRESSURE** (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): the
+  siege's numbers are designed guesses, unmeasured in a browser: a 24 s to 12 s wave gap, the
+  nest's own pack as the wave, and a live cap of 14. Two bounds it leans on are also unmeasured,
+  the 90 s arena hold at depth 6 to 7 and the re-entry case, where leaving and re-entering a hold
+  room starts a fresh siege while the previous leash-exempt besiegers are still standing, so only
+  the director's global `maxEnemies` bounds the pile. Value: a hold that reads as a fight rather
+  than as a wall. Deps: none, but it wants play, not a guess.
+
+- [ ] **FEAT-QUEST-SIEGE-HUD-TELL** (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): the siege
+  announces itself once, with the `THE ROOM ANSWERS` toast, and after 3.2 s nothing on screen
+  distinguishes a sieged room from a busy one. A persistent tell (a tint on the objective ticker
+  line, or a rim on the radar) was cut for the reason `POLISH-DECRYPTOR-ACTIVE-BUTTON` was: a new
+  HUD line is a layout change larger than the feature, and the portrait top band is already bars,
+  world, timer, kills and gold. Value: the player can see why the room got harder. Deps: none.
+
+- [ ] **CHORE-QUEST-SIEGE-RESTORE** (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): a refresh
+  mid-hold drops every besieger (they carry `AmbushSpawnTag`, which the serializer skips) and
+  restarts the siege at wave 1 with a second `THE ROOM ANSWERS` toast, because the siege fields
+  are scene state and the run save carries none. Harmless and strictly easier for the player, and
+  it pairs exactly with `CHORE-QUEST-DWELL-RESTORE`, which has the same cause: fix them together
+  or not at all. Deps: none.
 
 - [ ] **FEAT-QUEST-COMPLETION-RELIC**: `completionRelicRoll` on a chain's final quest, one
   roll on the STANDARD relic table. Deliberately cut from `FEAT-QUEST-CHAINS` so the odds are

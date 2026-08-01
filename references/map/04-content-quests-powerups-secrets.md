@@ -635,6 +635,41 @@ same commit: a step can now cost time in a place instead of only arrival or accu
 7. **`escortDrone` and `deliverItem` remain the two kinds without a producer**, still blocked on
    `FEAT-WORLDGEN-STREAM`. `FEAT-QUEST-TRIGGERS-REST` stays open for those two plus `routeTag`.
 
+### As built (`FEAT-QUEST-SURVIVE-DANGER`, 126961c, 2026-08-01)
+
+The trigger above shipped a timer, not a fight. This commit makes a hold cost something.
+
+1. **A hold is now a siege.** While the ship holds a sector that a live `surviveInSector` step
+   names, the room fights back. The read is `getActiveQuestHoldObjectives()`, backed by the new
+   pure `buildQuestHoldObjectives(states, defs)`: `buildQuestMarkers` merges the two place-naming
+   kinds (item 5 above) and so cannot say which of them wants the room to answer.
+2. **The wave is the ambush nest's own pack**, `AMBUSH_NEST_WAVES[ambushWaveTier(depth)]` by the
+   held sector's depth, entering on the view ring via `pickSpawnRingPoint(REGULAR_SPAWN_RING)`
+   rather than standing up in a ring around a nest: a siege closes in, an ambush is already there.
+   No new enemy table.
+3. **The escalation is linear in the hold.** The gap between waves runs from
+   `SIEGE_WAVE_INTERVAL_START_SECONDS` (24) to `SIEGE_WAVE_INTERVAL_END_SECONDS` (12), scaled by
+   the fraction of the step's own `target` already held, so the last stretch of a 90 s hold is the
+   expensive one rather than the first.
+4. **Two caps bound it:** `SIEGE_MAX_LIVE_BESIEGERS` (14) on the siege's own live bodies, under
+   the director's global `maxEnemies`, which the wave also re-checks per spawn.
+5. **Besiegers carry `AmbushSpawnTag`, not a new component**, because both of that tag's meanings
+   are wanted verbatim: leash-exempt, so fleeing leaves the fight in the room it belongs to, and
+   skipped by the serializer, so a refresh cannot double a wave.
+6. **The siege holds its fire while `activeBossType` is set.** A boss owns the room while it
+   lives, and the one arena hold in the catalog shares its sector: stacking a siege on top would
+   make that step the hardest fight in the game by accident rather than by design.
+7. **The dwell contract of item 2 above is untouched**, and that is deliberate. Neither shape the
+   backlog entry proposed was buildable: "requires live hostiles nearby" is a no-op, because
+   `spawnEnemy` already places every ambient body on the view ring around the ship, so hostiles
+   are near the player everywhere; and "resets on leaving combat" stops the clock for the player
+   who clears fastest and fights the settled max-fold. Pressure is the feature, never a new gate
+   on the count. The driver rides the same once-a-second quest block as the producer, so practice
+   is excluded for free and only expedition can siege.
+8. **No HUD line** (the ticker already renders `42/60`; a siege line of its own is a HUD-layout
+   change larger than the feature), **no reward, no storage key, no `SAVE_VERSION` and no
+   `WORLDGEN_VERSION` bump.**
+
 ---
 
 ## 5. Secrets
