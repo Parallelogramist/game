@@ -368,6 +368,19 @@ first.
   care about.
 - **Boss rooms as gates, not just fights.** A sector lock that also holds a traversal
   ability behind it makes bosses structural rather than optional.
+
+  **Built by `FEAT-WORLDGEN-WARDEN-SEAL` (`0f632ea`, 2026-08-02):** conquering a world opens a
+  region of it. `WARDEN_SEAL_KEY_ID` is a reserved KeyDoor id no quest grants, appended (never
+  inserted) to `generateExpeditionWorld`'s `questKeyOrder`, and `getHeldWorldKeyIds` hands it to
+  the profile once `isWorldConquered` is true, so `placeQuestKeyDoors` seals the region and
+  `applyEarnedQuestKeys` opens it with no new mechanism. Measured over 101 seeds: the four
+  shipped quest doors are byte-identical and exactly one warden door places, which is why no
+  `WORLDGEN_VERSION` bump was needed. **The other half of this bullet is deliberately NOT built:**
+  a traversal ability behind the seal would put an ability outside the ordering guarantee
+  `placeAbilityGates` exists to hold (vault i reachable using only abilities before it), and the
+  candidate rule already refuses any region holding an ability slot or an ability door, which is
+  the same rule that keeps the boss arena itself always reachable. Do not re-derive this: moving
+  an ability behind the Warden is a solvability change, not a placement tweak.
 - **Escort and delivery quests that use the geography.** Once navigation and streaming
   are proven, the quest triggers already specced (deliver, escort, reach) become
   cheap content.

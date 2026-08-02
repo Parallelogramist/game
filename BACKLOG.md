@@ -8451,6 +8451,46 @@ exploring pays is the end of Phase 5.
      `FEAT-ECON-WARDS` stays parked and untouched. No storage key, no `SAVE_VERSION`, no
      `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump.
 
+- [x] **FEAT-WORLDGEN-WARDEN-SEAL** (done, `0f632ea`) (new 2026-08-02, from
+  `references/map/README.md` section 6, "Boss rooms as gates, not just fights"): conquering a
+  world now opens a region of it. `FEAT-EXPEDITION-WARDEN-THRONE` made the boss a place;
+  `markWorldConquered` wrote a flag whose only two readers were the CHART tile summary and the
+  banked-world rows, so no generator, barrier, door or POI had ever read it and the world was
+  exactly as large after the Warden died as before. Value: conquest pays in map, not only in a
+  badge.
+  1. **What shipped**: one reserved KeyDoor id, `WARDEN_SEAL_KEY_ID = 'key_warden_seal'`, that no
+     quest grants, appended to `generateExpeditionWorld`'s `questKeyOrder`; one producer,
+     `getHeldWorldKeyIds(worldSeed, worldGenVersion)` in `ExpeditionQuestManager`, which is the
+     earned quest keys plus that id once `isWorldConquered` is true; and the four surfaces that
+     had to stop calling it a quest door (the walk-up open toast, the sealed-door notice, the
+     chart readout suffix and a new `warden` LOCKED OUT row whose source is the boss arena).
+  2. **No new mechanism at all.** `placeQuestKeyDoors` seals the region and `applyEarnedQuestKeys`
+     opens it, both unchanged, so the seal is drawn, routed around, flow-fielded and charted by
+     the code that already does it for the four quest doors.
+  3. **Appended, never inserted, and measured rather than argued.** Over 101 seeds of the real
+     expedition inputs and 100 of `generateWorld.test.ts`'s own fixture, adding the fifth key
+     left all four shipped quest doors on byte-identical edge sets and placed exactly one warden
+     door, on every seed. That is why `WORLDGEN_VERSION` did **not** move and no profile lost its
+     discovery state, which is `placeQuestKeyDoors`' own documented no-RNG, convert-an-Open-edge
+     argument and the `FEAT-WORLDGEN-QUESTDOORS` precedent. `SAVE_VERSION`, `DISCOVERY_VERSION`,
+     `WORLD_PROFILE_VERSION`, `ALL_STORAGE_KEYS` and `src/data/ExpeditionQuests.ts`'s
+     `EXPEDITION_QUEST_KEY_ORDER` are all unmoved.
+  4. **The region is small, and the number is measured, not designed**: 1 sector at the median
+     over 101 seeds, 2 at most, never 0, holding 1 to 6 POI slots (median 2) and up to 3 secret
+     slots. `placeQuestKeyDoors` sorts candidates biggest-first and assigns positionally, so the
+     four quest keys take the big regions (survey median 5, gatecrash 3, secret 2, purge 2) and
+     the appended key takes the largest one they leave. Making it bigger means placing the key
+     first, which reassigns every shipped quest door and costs the version bump above: that is
+     question (c) of `POLISH-WARDEN-SEAL`.
+  5. **It cannot strand anything, by the existing rule rather than a new check**: a candidate
+     region may not hold the start sector, the boss arena, an ability-granting slot or an ability
+     door, so the Warden is always reachable without the key the Warden grants.
+  6. **The honest cost, stated**: a profile that had already charted the claimed region finds it
+     sealed until it conquers that world. Same trade `FEAT-WORLDGEN-QUESTDOORS` made for four
+     regions, and it is the feature rather than a side effect.
+  7. One test, in `src/world/generateWorld.test.ts`: the append-stability pin, which fails
+     silently when broken (every player's quest doors would quietly demand the wrong key).
+
 - [ ] **BALANCE-WARDEN-PATIENCE** (new 2026-08-01, from FEAT-EXPEDITION-WARDEN-THRONE):
   `WARDEN_THRONE_PATIENCE_SECONDS` is 300 and the trip radius is 150 in a 1280 x 720 room,
   both derived from the lair's shipped numbers rather than played. Whether an early warden
@@ -11923,6 +11963,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-WARDEN-SEAL** (new 2026-08-02, from FEAT-WORLDGEN-WARDEN-SEAL). Conquering a world
+  now seals and later opens a region of it, and none of it has been seen in a browser. Questions
+  for the operator: (a) a pre-conquest player loses a room they may already have charted, so does
+  the seal read as a promise or as the game taking something back? (b) the sealed-door notice says
+  `WARDEN SEAL / Conquer this world to open this route.` and the readout says `slay the Warden`,
+  which is the only place in the game that asks for a boss kill by name: does it read as an
+  objective or as a wall? (c) the region is 1 sector at the median and 2 at most, because the four
+  quest keys claim the big ones first. Making it the biggest region means placing the key first,
+  which reassigns every shipped quest door, forces a `WORLDGEN_VERSION` bump and discards every
+  profile's discovery state: worth it, or is one earned room enough? (d) the LOCKED OUT panel now
+  carries a `The Warden` row alongside the ability and quest rows, competing for the same limited
+  rows `BALANCE-LOCKOUT-PANEL-ROWS` is already asking about. Do not retune any of this blind.
 
 - [ ] **POLISH-SWEEP-CASCADE** (new 2026-08-02, from FEAT-DISCOVERY-SCAN-CASCADE). The map-open
   cascade now has a second trigger and none of it has been seen. Questions for the operator:
