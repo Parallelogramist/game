@@ -65,21 +65,16 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
-import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { sectorTagsOf } from '../../world/sectorTags';
 import { isSecretShellIntact, secretShellRingIndices } from '../../world/sectorInterior';
 import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
 import {
   clearSecurityGrid, findGridBreach, securityGridNearWorld,
 } from '../../world/securityGrids';
-import { EdgeKind, PoiKind, TILE_SIZE, TileKind, directionDelta } from '../../world/worldTypes';
+import { EdgeKind, PoiKind, TILE_SIZE, TileKind } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import type { PoiHazardKind } from '../../expedition/sectorDetail';
-import { buildHazardPins, buildQuestPins } from '../../expedition/questPins';
-import { findUnclaimedAbilityVaults } from '../../expedition/lockouts';
-import { buildRadarWaypoints } from '../../expedition/radarWaypoints';
-import type { RadarWaypoint } from '../../expedition/radarWaypoints';
 import { rollPoiContents } from '../../world/poiRoll';
 import { rollSecretReward } from '../../world/secretRewards';
 import type { SecretRewardDefinition } from '../../world/secretRewards';
@@ -105,11 +100,11 @@ import {
   getSectorMarks, markWorldConquered, recordBrokenBarrier, recordDownedSecurityGrid,
 } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
-import { buildSecretLead, chooseHintTarget, findSecretSector, leadSectorDistance } from '../../expedition/secretHints';
+import { buildSecretLead, chooseHintTarget, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { buildRunTickerRows } from '../../expedition/runTicker';
 import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
-import { PoiFlags, SecretFlags, SectorFlags } from '../../expedition/DiscoveryTypes';
+import { PoiFlags, SecretFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
@@ -158,8 +153,6 @@ import {
   beginExpeditionQuestRun,
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
-  getActiveQuestMarkers,
-  getActiveQuestHazardObjectives,
   getActiveQuestHoldObjectives,
   getActiveQuestEscortObjectives,
   dropExpeditionQuestDrone,
@@ -175,14 +168,8 @@ import type { QuestEvent } from '../../systems/QuestProgress';
 import { buildRunEarnings, buildRunNotices, type EarlyRunEndRecord, type RunEarning } from '../../meta/RunEarnings';
 import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
-import { MinimapManager, type MinimapEntry } from '../../visual/MinimapManager';
-import {
-  classifyEnemyKind,
-  secretPingIntensity,
-  MINIMAP_WORLD_RANGE,
-  SECRET_PING_RADIUS,
-  type MinimapBlipKind,
-} from '../../visual/minimapProjection';
+import { MinimapManager } from '../../visual/MinimapManager';
+import { MinimapFeed } from '../managers/MinimapFeed';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
@@ -291,7 +278,6 @@ import { ACCENT_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 
 // Module-level queries (defined once, not per-frame)
 const knockbackEnemyQuery = defineQuery([Transform, Knockback, EnemyTag]);
-const minimapConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
 const retireHealthQuery = defineQuery([Transform, HealthPickupTag]);
 const retireMagnetQuery = defineQuery([Transform, MagnetPickupTag]);
 const retireConsumableQuery = defineQuery([Transform, ConsumablePickupTag]);
@@ -325,13 +311,6 @@ type ShrineType = 'cleanse' | 'power' | 'fortune' | 'sacrifice' | 'market';
 // while the line is idle, so an active bounty pays nothing for it.
 const QUEST_TICKER_REFRESH_SECONDS = 1;
 const QUEST_TICKER_CYCLE_SECONDS = 5;
-/** How often the radar re-resolves its bearings. The set only changes on a quest step, a lead
- *  or a newly charted sector, so a poll at the objective ticker's own cadence is cheaper than
- *  subscribing three managers. */
-const RADAR_WAYPOINT_REFRESH_SECONDS = 1;
-/** Fed while there is no live player, so a held bearing can never be drawn against a (0,0)
- *  ship position. */
-const EMPTY_RADAR_WAYPOINTS: readonly RadarWaypoint[] = [];
 
 // In-run bounty objectives: rotating goals that reward a power-up burst.
 type BountyKind = 'kills' | 'elites' | 'flawless';
@@ -653,9 +632,6 @@ export class GameScene extends Phaser.Scene {
   // The world map (FEAT-MAPUI-MAPSCENE-04) is a sibling overlay to the pause menu, never a
   // child: exactly one of them owns isPaused at a time.
   private mapOverlayActive: boolean = false;
-
-  /** Sector + discovery-revision the radar underlay was last built for; null forces a rebuild. */
-  private minimapUnderlayKey: string | null = null;
 
   // Damage cooldown (invincibility frames)
   private damageCooldown: number = 0;
@@ -1080,10 +1056,7 @@ export class GameScene extends Phaser.Scene {
 
   // Tactical minimap / threat radar (mid-right HUD edge)
   private minimapManager!: MinimapManager;
-  // Reusable per-frame radar contact buffer — grown once, never re-allocated.
-  private minimapEntries: MinimapEntry[] = [];
-  private radarWaypointTimer = 0;
-  private static readonly MINIMAP_MAX_ENEMY_BLIPS = 48;
+  private minimapFeed!: MinimapFeed;
 
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
   private isAutoBuyEnabled: boolean = false;
@@ -1137,7 +1110,7 @@ export class GameScene extends Phaser.Scene {
       const map = this.worldMode.worldMap();
       if (map) recordBrokenBarrier(map.seed, map.worldGenVersion, barrierId);
       this.worldMode.notifyGeometryChanged();
-      this.minimapUnderlayKey = null;   // a collapsed wall changes the tiles the radar drew
+      this.minimapFeed.invalidateUnderlay();   // a collapsed wall changes the tiles the radar drew
       this.effectsManager.playDeathBurst(x, y, 0xffaa44);
       this.cameras.main.shake(120, 0.008);
       this.soundManager.playComboThreshold();
@@ -1378,7 +1351,7 @@ export class GameScene extends Phaser.Scene {
     this.isPaused = false;
     const map = this.worldMode.worldMap();
     if (map) this.markedSectorKeys = [...getSectorMarks(map.seed, map.worldGenVersion).keys()];
-    this.radarWaypointTimer = 0;
+    this.minimapFeed.invalidateWaypoints();
   }
 
   /**
@@ -1797,7 +1770,7 @@ export class GameScene extends Phaser.Scene {
     this.offScreenIndicatorManager.setWorld(this.world);
 
     // Initialize the tactical minimap / threat radar
-    this.minimapManager = new MinimapManager(this);
+    this.createMinimapFeed();
 
     // Initialize mastery visuals manager for level 10 stat indicators
     this.masteryVisualsManager = new MasteryVisualsManager(this);
@@ -3066,7 +3039,7 @@ export class GameScene extends Phaser.Scene {
     this.bindExpeditionDiscovery();
     this.offScreenIndicatorManager = new OffScreenIndicatorManager(this);
     this.offScreenIndicatorManager.setWorld(this.world);
-    this.minimapManager = new MinimapManager(this);
+    this.createMinimapFeed();
     this.masteryVisualsManager = new MasteryVisualsManager(this);
     this.shieldBarrierVisual = new ShieldBarrierVisual(this);
 
@@ -4934,6 +4907,28 @@ export class GameScene extends Phaser.Scene {
     removeEntity(this.world, enemyId);
   }
 
+  /** One place, called from both create paths: the fresh run and the restore. */
+  private createMinimapFeed(): void {
+    this.minimapManager = new MinimapManager(this);
+    this.minimapFeed = new MinimapFeed(this.minimapManager, {
+      world: () => this.world,
+      playerId: () => this.playerId,
+      minimapEnabled: () => getSettingsManager().isMinimapEnabled(),
+      worldMap: () => this.worldMode.worldMap(),
+      biomeTint: biomeTintFor,
+      chests: () => this.activeChests,
+      vaults: () => this.activeVaults,
+      questBoards: () => this.activeQuestBoards,
+      ambushNests: () => this.activeAmbushNests,
+      nemesisLairs: () => this.activeNemesisLairs,
+      secretCaches: () => this.activeSecretCaches,
+      decryptorOwned: () => this.decryptorOwned(),
+      spentNestSectorKeys: () => this.spentAmbushNestSectorKeys(),
+      markedSectorKeys: () => this.markedSectorKeys,
+      holdsAbility: (abilityId) => this.ownedTraversalAbilityIds.has(abilityId),
+    });
+  }
+
   /**
    * Resets per-run state for the session's new field systems (destructibles,
    * shrines, bounties). Called on BOTH the fresh-start and restore paths so
@@ -4985,7 +4980,9 @@ export class GameScene extends Phaser.Scene {
     this.questTickerRefreshTimer = 0;
     this.questTickerCycleTimer = 0;
     this.questTickerIndex = 0;
-    this.radarWaypointTimer = 0;
+    // Optional: the fresh path runs this before createMinimapFeed(), and a feed built after it
+    // starts with the timer already zero anyway.
+    this.minimapFeed?.invalidateWaypoints();
     this.bossRotationCursor = -1;
     // Pace ghost. Practice and gauntlet get no ghost because neither writes a
     // best score, so there is nothing to race. A restored run lost its early
@@ -7017,7 +7014,7 @@ export class GameScene extends Phaser.Scene {
     // Same two lines as onBarrierBroken: the geometry layer caches its drawn window and the
     // radar underlay is drawn once and only translated, so a tile change invalidates both.
     this.worldMode.notifyGeometryChanged();
-    this.minimapUnderlayKey = null;
+    this.minimapFeed.invalidateUnderlay();
 
     const definition = getTraversalAbility(door.requiredId);
     this.effectsManager.playDeathBurst(door.x, door.y, WORLD_GEOMETRY_COLORS.gate.stroke);
@@ -7047,7 +7044,7 @@ export class GameScene extends Phaser.Scene {
     if (!openAbilityGate(map, door.edgeId)) return;
 
     this.worldMode.notifyGeometryChanged();
-    this.minimapUnderlayKey = null;
+    this.minimapFeed.invalidateUnderlay();
 
     const quest = getQuestForKeyId(door.requiredId);
     const color = GATE_GLYPHS[EdgeKind.KeyDoor].color;
@@ -7219,7 +7216,7 @@ export class GameScene extends Phaser.Scene {
     // Same two lines as onBarrierBroken: the geometry layer caches its drawn window and
     // the radar underlay is drawn once and only translated.
     this.worldMode.notifyGeometryChanged();
-    this.minimapUnderlayKey = null;
+    this.minimapFeed.invalidateUnderlay();
 
     const ghostCount = TUNING.player.blinkGhostCount;
     for (let ghost = 0; ghost < ghostCount; ghost++) {
@@ -8336,8 +8333,7 @@ export class GameScene extends Phaser.Scene {
     // Update off-screen threat indicators
     this.offScreenIndicatorManager.update(deltaSeconds);
 
-    // Update the tactical minimap / threat radar
-    this.updateMinimap(deltaSeconds);
+    this.minimapFeed.update(deltaSeconds);
 
     // Update visual quality based on FPS (auto-scaling)
     this.updateVisualQuality(delta);
@@ -8957,258 +8953,6 @@ export class GameScene extends Phaser.Scene {
         playerSprite.setFillStyle(0x4488ff); // Return to normal blue
       });
     }
-  }
-
-  /**
-   * Writes a radar contact into the reusable buffer at `index`, growing it by one
-   * slot on first use of that index. Returns nothing — caller tracks the count.
-   */
-  private writeMinimapEntry(index: number, worldX: number, worldY: number, kind: MinimapBlipKind): void {
-    let slot = this.minimapEntries[index];
-    if (!slot) {
-      slot = { worldX: 0, worldY: 0, kind: 'enemy' };
-      this.minimapEntries.push(slot);
-    }
-    slot.worldX = worldX;
-    slot.worldY = worldY;
-    slot.kind = kind;
-  }
-
-  /**
-   * Gathers this frame's radar contacts (bosses/minibosses/elites always shown;
-   * regular enemies sampled to a cap to keep the radar readable + cheap; treasure
-   * chests as pickups) and hands them to the MinimapManager. Reuses the shared
-   * per-frame enemy query and a pooled entry buffer — allocates nothing per frame.
-   */
-  private updateMinimap(deltaSeconds: number): void {
-    if (!this.minimapManager) return;
-
-    // Keep the manager's enabled state in sync with the live settings toggle.
-    const minimapEnabled = getSettingsManager().isMinimapEnabled();
-    if (minimapEnabled !== this.minimapManager.isEnabled()) {
-      this.minimapManager.setEnabled(minimapEnabled);
-    }
-    if (!minimapEnabled || this.playerId === -1) {
-      this.minimapManager.setSectorUnderlay(null);
-      this.minimapUnderlayKey = null;
-      this.minimapManager.setSecretPing(0);
-      this.minimapManager.setWaypoints(EMPTY_RADAR_WAYPOINTS);
-      this.radarWaypointTimer = 0;
-      this.minimapManager.update(0, 0, this.minimapEntries, 0, deltaSeconds);
-      return;
-    }
-
-    const playerX = Transform.x[this.playerId];
-    const playerY = Transform.y[this.playerId];
-    this.syncMinimapUnderlay(playerX, playerY);
-
-    this.radarWaypointTimer -= deltaSeconds;
-    if (this.radarWaypointTimer <= 0) {
-      this.radarWaypointTimer = RADAR_WAYPOINT_REFRESH_SECONDS;
-      this.syncRadarWaypoints(playerX, playerY);
-    }
-
-    const enemyIds = getFrameCacheEnemyIds();
-    // Stride-sample regular enemies so dense swarms stay near the blip cap while
-    // still conveying density; high-value threats (boss/miniboss/elite) bypass it.
-    const stride = Math.max(1, Math.ceil(enemyIds.length / GameScene.MINIMAP_MAX_ENEMY_BLIPS));
-    let count = 0;
-    let regularSeen = 0;
-
-    for (let i = 0; i < enemyIds.length; i++) {
-      const entityId = enemyIds[i];
-      // Crates share the enemy pipeline but are stationary props, not threats.
-      if (hasComponent(this.world, Destructible, entityId)) continue;
-
-      const xpValue = EnemyType.xpValue[entityId] || 1;
-      const isElite = hasComponent(this.world, EnemyAffix, entityId);
-      const kind = classifyEnemyKind(xpValue, isElite);
-
-      if (kind === 'enemy') {
-        // Sample regular enemies to the cap.
-        if (regularSeen % stride !== 0) {
-          regularSeen++;
-          continue;
-        }
-        regularSeen++;
-      }
-      this.writeMinimapEntry(count++, Transform.x[entityId], Transform.y[entityId], kind);
-    }
-
-    // Pickups: treasure chests + floor consumables (bomb/freeze/vacuum/gold) are
-    // the "go grab this" radar contacts.
-    for (let i = 0; i < this.activeChests.length; i++) {
-      const chest = this.activeChests[i].graphics;
-      if (!chest.active) continue;
-      this.writeMinimapEntry(count++, chest.x, chest.y, 'pickup');
-    }
-    for (let i = 0; i < this.activeVaults.length; i++) {
-      const vault = this.activeVaults[i];
-      this.writeMinimapEntry(count++, vault.x, vault.y, 'pickup');
-    }
-    for (let i = 0; i < this.activeQuestBoards.length; i++) {
-      const board = this.activeQuestBoards[i];
-      this.writeMinimapEntry(count++, board.x, board.y, 'pickup');
-    }
-
-    // A dormant hive or den is a decision, so the radar names it a full range before the
-    // 150/160 px trip radius and before its own graphic reaches the screen edge. Range-gated
-    // rather than rim-clamped: nests and lairs are world-space and run-scoped, so every one
-    // rolled this run is still in these arrays, and rim contacts for rooms three sectors away
-    // would be permanent clutter. A WOKEN one is skipped: its wave and the hunter are already
-    // live enemy blips, and drawing the den too would double-count one fight.
-    const hazardRangeSq = MINIMAP_WORLD_RANGE * MINIMAP_WORLD_RANGE;
-    for (let i = 0; i < this.activeAmbushNests.length; i++) {
-      const nest = this.activeAmbushNests[i];
-      if (nest.awake) continue;
-      const dx = nest.x - playerX;
-      const dy = nest.y - playerY;
-      if (dx * dx + dy * dy > hazardRangeSq) continue;
-      this.writeMinimapEntry(count++, nest.x, nest.y, 'nest');
-    }
-    for (let i = 0; i < this.activeNemesisLairs.length; i++) {
-      const lair = this.activeNemesisLairs[i];
-      if (lair.awake) continue;
-      const dx = lair.x - playerX;
-      const dy = lair.y - playerY;
-      if (dx * dx + dy * dy > hazardRangeSq) continue;
-      this.writeMinimapEntry(count++, lair.x, lair.y, 'lair');
-    }
-
-    // Hint tier 3: the decryptor puts this room's unfound caches on the radar by POSITION,
-    // which is precisely what the ambient shimmer withholds. Without the ability the shimmer
-    // below is still all the player gets. activeSecretCaches is the sector's own unfound set,
-    // so a claim splices a cache out and its blip stops in the same frame.
-    if (this.decryptorOwned()) {
-      for (let i = 0; i < this.activeSecretCaches.length; i++) {
-        const cache = this.activeSecretCaches[i];
-        this.writeMinimapEntry(count++, cache.x, cache.y, 'secret');
-      }
-    }
-
-    const consumableIds = minimapConsumableQuery(this.world);
-    for (let i = 0; i < consumableIds.length; i++) {
-      const consumableId = consumableIds[i];
-      this.writeMinimapEntry(count++, Transform.x[consumableId], Transform.y[consumableId], 'pickup');
-    }
-
-    // Hint tier 1: the nearest unfound cache in this sector shimmers the radar. The set is
-    // the sector's own, so a claimed cache leaves it and stops pinging in the same frame.
-    let nearestSecretDistanceSq = Infinity;
-    for (let i = 0; i < this.activeSecretCaches.length; i++) {
-      const cache = this.activeSecretCaches[i];
-      const dx = cache.x - playerX;
-      const dy = cache.y - playerY;
-      const distanceSq = dx * dx + dy * dy;
-      if (distanceSq < nearestSecretDistanceSq) nearestSecretDistanceSq = distanceSq;
-    }
-    this.minimapManager.setSecretPing(
-      nearestSecretDistanceSq === Infinity
-        ? 0
-        : secretPingIntensity(Math.sqrt(nearestSecretDistanceSq), SECRET_PING_RADIUS),
-    );
-
-    this.minimapManager.update(playerX, playerY, this.minimapEntries, count, deltaSeconds);
-  }
-
-  /**
-   * Rebuild the radar's sector underlay only when what it draws could have changed: the
-   * sector under the ship, the discovery revision (which door stubs are earned), or a broken
-   * barrier (which nulls the key from the event sink). Arena returns on the first line, so an
-   * arena run never assembles one and the radar there is byte-identical to before.
-   */
-  private syncMinimapUnderlay(playerX: number, playerY: number): void {
-    const map = this.worldMode.worldMap();
-    if (!map) return;
-    const col = Math.floor(playerX / SECTOR_WIDTH);
-    const row = Math.floor(playerY / SECTOR_HEIGHT);
-    const discovery = getDiscoveryManager();
-    const key = `${col},${row}:${discovery.getRevision()}`;
-    if (key === this.minimapUnderlayKey) return;
-    this.minimapUnderlayKey = key;
-
-    const sector = map.sectors.get(`${col},${row}`);
-    if (!sector) {
-      this.minimapManager.setSectorUnderlay(null);
-      return;
-    }
-
-    const outline = sectorWallSegments(sector);
-    const charted = SectorFlags.DISCOVERED | SectorFlags.VISITED;
-    this.minimapManager.setSectorUnderlay({
-      originX: col * SECTOR_WIDTH,
-      originY: row * SECTOR_HEIGHT,
-      segments: outline.segments,
-      impassable: outline.impassable,
-      doors: outline.doors.map(door => {
-        const { dsx, dsy } = directionDelta(door.direction);
-        return {
-          localX: door.localX,
-          localY: door.localY,
-          outwardX: door.outwardX,
-          outwardY: door.outwardY,
-          kind: door.kind,
-          horizontalWall: door.direction === 'north' || door.direction === 'south',
-          discoveredBeyond:
-            (discovery.getSectorFlags(`${col + dsx},${row + dsy}`) & charted) !== 0,
-        };
-      }),
-      biomeTint: biomeTintFor(sector.biomeId),
-    });
-  }
-
-  /**
-   * Re-resolve the radar's bearings: each active objective's pinned sector, each open lead's
-   * named sector, and every ability vault the ship has stood beside and not claimed. Arena and
-   * every other no-map mode return on the first line, so the radar there is byte-identical to
-   * before.
-   */
-  private syncRadarWaypoints(playerX: number, playerY: number): void {
-    const map = this.worldMode.worldMap();
-    if (!map) {
-      this.minimapManager.setWaypoints(EMPTY_RADAR_WAYPOINTS);
-      return;
-    }
-    const discovery = getDiscoveryManager();
-    const shipCell = sectorOfWorldPoint(playerX, playerY);
-    const spentNestSectorKeys = new Set(this.spentAmbushNestSectorKeys());
-    const pins = [
-      ...buildQuestPins({
-        map,
-        markers: getActiveQuestMarkers(questWorldStamp(map)),
-        sectorFlagsOf: (key) => discovery.getSectorFlags(key),
-        shipCell,
-      }),
-      ...buildHazardPins({
-        map,
-        objectives: getActiveQuestHazardObjectives(),
-        sectorFlagsOf: (key) => discovery.getSectorFlags(key),
-        poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
-        spentNestSectorKeys,
-        shipCell,
-      }),
-    ];
-    const leadSectorKeys: string[] = [];
-    for (const secretId of discovery.getHintedSecretIds()) {
-      const sector = findSecretSector(map, secretId);
-      if (sector) leadSectorKeys.push(sector.key);
-    }
-    const vaultSectorKeys = findUnclaimedAbilityVaults({
-      map,
-      sectorFlagsOf: (key) => discovery.getSectorFlags(key),
-      poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
-      holdsAbility: (abilityId) => this.ownedTraversalAbilityIds.has(abilityId),
-    }).map((site) => site.sectorKey);
-    this.minimapManager.setWaypoints(buildRadarWaypoints({
-      objectiveSectorKeys: pins.map((pin) => pin.sectorKey),
-      markSectorKeys: this.markedSectorKeys,
-      leadSectorKeys,
-      vaultSectorKeys,
-      isCharted: (key) => discovery.getSectorFlags(key) !== 0,
-      shipSectorKey: sectorKey(shipCell),
-      playerX,
-      playerY,
-    }));
   }
 
   /**

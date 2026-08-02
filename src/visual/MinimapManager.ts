@@ -110,7 +110,7 @@ export interface MinimapUnderlayDoor {
   discoveredBeyond: boolean;
 }
 
-/** The current sector as the radar draws it. Assembled by GameScene, which owns the
+/** The current sector as the radar draws it. Assembled by MinimapFeed, which owns the
  *  discovery state; this module owns only the drawing. */
 export interface MinimapSectorUnderlay {
   /** World coords of the sector's top-left corner. */
