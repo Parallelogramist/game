@@ -1185,7 +1185,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   unreachable, so it is gone), and the `if (this.toastManager)` wrap is now the `showToast` dep's
   own optional chain. Behaviour-preserving: no radius, interval, colour, alpha, pulse, toast or
   reward changed, and the suite held at 177 files / 2077 tests with no new tests written.
-- [ ] **ARCH-RUNEND-SETTLEMENT** (chunk 6). Move the computation inside
+- [x] **ARCH-RUNEND-SETTLEMENT** (chunk 6, done, `b0a4688`). Move the computation inside
   `gameOver`/`recordEarlyRunEnd`/`evaluateHiddenUnlocks`/`payDailyQuests`
   (`:10009-10533`) into pure `src/game/runend/runSettlement.ts`: inputs (kills, time,
   level, mode, pacts, world level) to outputs (gold breakdown, unlock list, quest
@@ -1193,6 +1193,38 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   daily, endless, practice (practice must settle to zero, the `:7815` invariant).
   Coordinate with FEAT-TOAST-ENDSCREEN (band B): whoever lands second rebases on the
   first.
+  **What shipped (`b0a4688`):** `src/game/runend/runSettlement.ts`, ~200 lines: one `RunFacts`
+  snapshot of the eleven numbers every run-end consumer reshapes, four builders over it
+  (`buildRunEndData` for the achievement payload, `buildQuestRunData` for the quest settle,
+  `buildUnlockContext` for both hidden-unlock calls, `recordCodexRunEnd` for the codex's seven
+  positional stats), and `recordRunOutcome`, which posts the run to the best-score table, the pace
+  ghost, the ship records, the daily leaderboard, the run history, the gauntlet board and the
+  endless board behind one stated set of gates. `gameOver` and `recordEarlyRunEnd` both build the
+  snapshot once through a new private `buildRunFacts` and hand it to the module; `evaluateHiddenUnlocks`
+  is gone, its three callers now build the context from facts. **The item's "pure module" framing
+  did not survive contact:** almost nothing here is computation, it is fan-out to eight
+  singleton-backed recorders, so purity would have meant a dependency-injection object of eight
+  functions for no gain. The module is instead Phaser-free and scene-free and is tested by mocking
+  the recorder modules, which is the boundary this repo already tests at. **One deliberate
+  behavioural delta, unobservable:** a practice death used to reach `recordGauntletRun` /
+  `recordEndlessRun` in `gameOver` (practice runs can enter endless), and now records nothing at
+  all; `SecureStorage` was already dropping those writes, so this only makes the practice promise
+  true in the code instead of true by a downstream guard. **`payDailyQuests` was deliberately left
+  in the scene**: it is already the single shared helper for its three callers, its gold half is
+  four lines and its other half is a toast loop. Behaviour-preserving otherwise: no gold formula,
+  score weight, grade threshold, leaderboard cap or save shape changed. Six tests pin the mode
+  routing (practice writes nothing, normal/gauntlet/daily/endless each post exactly their own
+  records, the pace ghost saves only on a new best while recording).
+- [ ] **ARCH-RUNEND-VICTORY** (chunk 6b, filed 2026-08-02 by chunk 6). `showVictory`
+  (`GameScene.ts:8840`) is the third run-end path and still hand-rolls every payload chunk 6 moved:
+  its own `RunEndData` literal (plus `shipId`/`stageId`, which the loss paths omit), its own
+  `DailyQuestRunData`, its own `computeRunScore`/`recordScore`/`savePaceGhost`/`recordShipRun`/
+  `recordDailyRun`/`recordRun` cascade against `worldLevel - 1`. Chunk 6 changed exactly one line
+  there (the unlock evaluation) because the item named the other three methods only. Scope: give
+  `buildRunEndData` an optional build-identity argument, give `recordRunOutcome` a
+  `scoreWorldLevel` override, and route `showVictory` through both. Guardrail: victory records
+  against the world level the run was PLAYED at, not the advanced one — that off-by-one is the
+  whole reason it looks different.
 - [ ] **ARCH-BOSS-DIRECTORS** (chunk 7, last: needs the manager pattern routine).
   Move `checkBossSpawn`/`beginRunBossFight`/`spawnBoss`/`showBossEntrance`/
   `handleBossPhaseTransition`/`spawnBossPhaseHazards` plus the
