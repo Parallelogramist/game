@@ -5099,7 +5099,7 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   `hitX`/`hitY`. The side guards make those flags honest (they no longer fire for a tile the enemy
   is already past), so knockback now carries further along walls than it did. Worth one playtest
   look before anything is retuned.
-- [ ] **PERF-FLOW-REFRESH**. Value: computeFlowField measured 0.967ms per call after
+- [x] **PERF-FLOW-REFRESH** (done, 1d97e5f). Value: computeFlowField measured 0.967ms per call after
   BUG-ENEMY-NAV-FALLBACK grew the block to 96x96 (0.391ms before), and ExpeditionModeAdapter
   recomputes it on *every* player tile crossing as well as every 0.15s, so a ship crossing tiles
   at ~10Hz pays it ~10 times a second. Two cheap wins, neither taken then because the item's scope
@@ -5110,6 +5110,41 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   sector across a 32-tile run (`flowField.ts:88-95`). The other ~0.80ms is the BFS plus the
   8-neighbour descent and is structural. Done: measured per-call cost or refresh rate down, with
   `flowField.test.ts` and the leash-coverage test still green.
+  **What shipped:** one commit, both halves. (a) **The trigger is now the field's own inputs.**
+  computeFlowField is a pure function of the tile grid and the player's position, so it is
+  rebuilt when one of those two moves and not on a clock: `notifyGeometryChanged` rebuilds on
+  the spot (the boss seal already did this, and every mid-run tile writer already routes through
+  it: a broken wall `GameScene.ts:1105`, an ability door `:6725`, a quest door `:6755`, a
+  breached security grid `:6927`), and the per-frame check became a 4-tile distance from the
+  tile the field was centred on instead of any tile change. The seconds timer is demoted from
+  primary trigger to a backstop and raised 0.15s -> 1.0s, so the seconds no longer have to be
+  the thing that catches an opened door. **The invariant, and the reason 4 is not a taste
+  choice:** the block reaches 48 tiles = 1920px from its centre and an enemy is leashed at
+  1600px, so 160px of drift still leaves every leashed enemy inside the field (1920 - 160 = 1760
+  >= 1600). Raising FLOW_REFRESH_TILE_DISTANCE without redoing that arithmetic drops leashed
+  enemies out of the block and back onto the direct vector, which is the fallback class
+  BUG-ENEMY-NAV-FALLBACK exists to have erased. (b) **The prefill stops resolving the sector
+  once per tile.** New `readTileKindRun` in `staticCollision.ts` reads a horizontal run with one
+  sector lookup; a sector is 32 tiles wide (SECTOR_WIDTH 1280 / TILE_SIZE 40) so a 96-tile row
+  costs 3 or 4 lookups, and a refresh costs ~384 sector resolutions instead of 9216. It lives
+  beside `tileKindAt` because that module already owns `sectorAt` and the global-to-sector
+  arithmetic. One new test pins it against `tileKindAt` tile for tile, inside sectors, across
+  seams and outside the world, at a non-zero out-offset (an off-by-one in the offset is
+  invisible at 0); `flowField.test.ts` was left untouched and green, which is the proof the
+  prefill rewrite is behaviour-preserving. **The numbers:** 0.967ms per call is
+  BUG-ENEMY-NAV-FALLBACK's measurement and is the only measured input here. Before: 6.5-9.7ms/s
+  (6.67 rebuilds/s from the timer alone, ~10/s with the tile trigger at 300px/s diagonal).
+  After: ~1/s at the base 150px/s moveSpeed (4 tiles takes 1.07s, so the 1.0s backstop leads),
+  ~1.9/s at 300px/s, ~2.5/s at 400px/s, giving 0.8-2.1ms/s. **The after-figure is arithmetic
+  from the trigger, not a fresh in-browser measurement**, and the in-frame ~1ms spike goes from
+  about ten times a second to about two. **Deliberately not done:** the BFS and the 8-neighbour
+  descent (~0.80ms of the 0.967ms) are untouched, so per-call cost is only ~14% down; the win
+  here is the rate, not the call. `onSealChanged` was deleted rather than left beside the new
+  path: once `notifyGeometryChanged` rebuilds the field the two bodies were identical, and
+  CLAUDE.md's parallel-code-path rule is exactly about two paths reaching one outcome. Arena is
+  untouched by construction (`ArenaModeAdapter.notifyGeometryChanged` is empty and no arena path
+  reaches computeFlowField). The feel half is POLISH-FLOW-REFRESH-FEEL under `## Human gates`:
+  the adapter is Phaser-coupled, so none of this was seen in a browser.
 - [ ] **PERF-NAV-STATE-CAPACITY** (new 2026-08-01, from POLISH-ENEMY-NAV-SMOOTH): the eleven
   per-enemy nav arrays in `enemy-ai/common.ts` are sized `Transform.x.length`, which is bitecs's
   100000-entity world capacity, for about 4.1MB allocated at module load. That is honest rather
@@ -11760,6 +11795,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-FLOW-REFRESH-FEEL** (new 2026-08-02, from PERF-FLOW-REFRESH). Value: enemies now
+  steer on a field centred up to 160 px behind the ship and rebuilt on a geometry change, a
+  4-tile move or once a second, instead of on every 40 px crossed. The arithmetic says every
+  leashed enemy stays inside the block (1,920 px reach, 1,600 px leash, 160 px drift) and an
+  opened door rebuilds immediately, but the adapter is Phaser-coupled so none of it was seen in
+  a browser. Questions: (a) does a pack rounding a wall still arrive, or does it read as cutting
+  the corner behind you; (b) after a blink, a recall or a sortie does anything visibly hesitate
+  before re-acquiring; (c) is FLOW_REFRESH_TILE_DISTANCE 4 (160 px) the right drift or should it
+  be 2 (80 px, still 3.3 rebuilds/s at 300 px/s); (d) does a boss seal or a breached security
+  grid still redirect the pack the same frame. Deps: play.
 
 - [ ] **POLISH-CODEX-SURVEY-TAB** (new 2026-08-02, from FEAT-SECRET-MAP-FRAGMENT-CODEX). Value: the
   Codex tab strip went from 13 tabs to 14 and none of it has been seen on a real viewport.
