@@ -8596,12 +8596,49 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   at 180 s, so there is room either way. Value: a hold objective that is a decision rather than
   a timer. Deps: none, but it wants play, not a guess.
 
-- [ ] **CHORE-QUEST-DWELL-RESTORE** (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): a refresh
+- [x] **CHORE-QUEST-DWELL-RESTORE** (done, 225426c, 2026-08-02) (new 2026-08-01, from FEAT-QUEST-TRIGGERS-REST): a refresh
   mid-hold restarts the dwell at 0, because the dwell start is scene state and the run save
   carries no dwell field; the adapter re-fires `expedition:sector-entered` on the first frame
   after a restore, which re-stamps it. Harmless (the max fold keeps the best partial and the
   player simply re-holds), but a 90 s hold interrupted by a reload is re-walked. Holding it
   means a `GameSaveState` field or a saved sector-entry stamp. Deps: none.
+  **What shipped (shared with `CHORE-QUEST-SIEGE-RESTORE` and `CHORE-QUEST-ESCORT-RESTORE`, which
+  their own entries said to fix together or not at all):** one optional `questRunState` block on
+  `GameSaveState`, written only by an expedition run and absent on arena + legacy saves, so no
+  `SAVE_VERSION` moved: the `poiState` contract, doc 01 section 8.1. It carries the dwell sector
+  and its ABSOLUTE start second, the siege's sector and its next-wave time, and the escort drone's
+  quest, position and health.
+  1. **The dwell needed a guard, not just a field.** `resetInRunFeatureState` nulls the stamp on
+     restore and then the adapter re-announces the current room on its first frame
+     (`ExpeditionModeAdapter` enters a sector whenever `currentSector` is null), so a restored stamp
+     was overwritten one frame later. `sectorEnteredHandler` now re-stamps only when the key
+     actually changes. Normal play always changes it, so nothing about a real crossing moved.
+  2. **The siege comes back without its besiegers, on purpose.** The wave carries `AmbushSpawnTag`
+     and the serializer skips it, and a saved bitECS entity id would alias whatever entity that slot
+     was handed on the fresh world, so the ids are deliberately not persisted. What survives is the
+     room's identity and the wave clock: `updateExpeditionSiege` finds `siegeSectorKey` already
+     equal to the held key, so `beginExpeditionSiege` does not fire and the second `THE ROOM ANSWERS`
+     toast is gone, while `siegeNextWaveAtSeconds` keeps the cadence the hold had earned rather than
+     restarting at wave 1.
+  3. **The drone is adopted, never rebuilt by the restore path.** It is derived from the quest store
+     by `syncEscortDrone` on the next frame, so the restore stashes a `restoredEscortDrone` that the
+     first sync consumes, keyed by `questId`, so a save restored after the objective changed is
+     ignored rather than misapplied, and consumed whether or not it matched, so it can never be
+     picked up by a later drone. The saved point still goes through `freeSpotNear`, because a spot
+     that was legal then is not guaranteed legal now. Health is clamped to 1..100 against a tampered
+     save. A resumed drone does not re-announce `ESCORT UNDER WAY`.
+  4. **Econ-neutral and balance-neutral by construction:** no tuning constant moved, so
+     `BALANCE-QUEST-ESCORT-DRONE`, `BALANCE-QUEST-SIEGE-PRESSURE` and `BALANCE-QUEST-SURVIVE-TIMERS`
+     keep their numbers and their open playtest asks. No storage key, and no `SAVE_VERSION`,
+     `WORLDGEN_VERSION`, `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION`
+     moved. Arena, daily, weekly, practice and gauntlet are untouched by construction: the block is
+     written only when `worldMode.worldMap()` is non-null.
+  5. **Deliberately not persisted, so nobody re-derives it:** the five per-drone cooldown clocks
+     (sub-second i-frame windows, no visible payoff) and `escortDroneSectorKey`. The latter makes a
+     restored drone re-report its current sector once, which folds to nothing: `triggerMatches`
+     advances an `escortDrone` step only when the reported tags include the step's `destinationTag`,
+     and a drone standing on its destination would have completed and been cleared before the save.
+  6. Files one follow-up: `BALANCE-QUEST-SIEGE-REFRESH-WAVE`.
 
 - [x] **FEAT-CARGO-PICKUP-ENTITY** (done, 372c301, 2026-08-02): the crate is handed
   over by the board overlay and is never a thing in the room, so there is nothing to see, shoot
@@ -8712,11 +8749,13 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   thing to protect or as a thing that dies in the first busy room needs a browser. Value: an
   escort that is a decision rather than a coin flip. Deps: none, but it wants play, not a guess.
 
-- [ ] **CHORE-QUEST-ESCORT-RESTORE** (new 2026-08-01, from FEAT-QUEST-ESCORT): a refresh
+- [x] **CHORE-QUEST-ESCORT-RESTORE** (done, 225426c, 2026-08-02) (new 2026-08-01, from FEAT-QUEST-ESCORT): a refresh
   mid-escort rebuilds the drone at full health beside the ship, because the drone's health and
   position are scene state and the run save carries neither. Strictly forgiving and it pairs
   exactly with `CHORE-QUEST-SIEGE-RESTORE` and `CHORE-QUEST-DWELL-RESTORE`, which have the same
   cause: fix them together or not at all. Value: a reload stops being a free heal. Deps: none.
+  **What shipped:** the escort third of the shared `questRunState` block. Full write-up under
+  `CHORE-QUEST-DWELL-RESTORE`, which the three were fixed together with as all three entries required.
 
 - [x] **FEAT-QUEST-ESCORT-ENEMY-INTEREST** (done, 9aea1bb): hostiles
   never target the drone, they only bill it for standing near them, so an escort is protected by
@@ -8890,12 +8929,24 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   HUD line is a layout change larger than the feature, and the portrait top band is already bars,
   world, timer, kills and gold. Value: the player can see why the room got harder. Deps: none.
 
-- [ ] **CHORE-QUEST-SIEGE-RESTORE** (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): a refresh
+- [x] **CHORE-QUEST-SIEGE-RESTORE** (done, 225426c, 2026-08-02) (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): a refresh
   mid-hold drops every besieger (they carry `AmbushSpawnTag`, which the serializer skips) and
   restarts the siege at wave 1 with a second `THE ROOM ANSWERS` toast, because the siege fields
   are scene state and the run save carries none. Harmless and strictly easier for the player, and
   it pairs exactly with `CHORE-QUEST-DWELL-RESTORE`, which has the same cause: fix them together
   or not at all. Deps: none.
+  **What shipped:** the siege third of the shared `questRunState` block. Full write-up under
+  `CHORE-QUEST-DWELL-RESTORE`, which the three were fixed together with as all three entries required.
+
+- [ ] **BALANCE-QUEST-SIEGE-REFRESH-WAVE** (new 2026-08-02, from CHORE-QUEST-SIEGE-RESTORE): a
+  restore keeps the siege's room and its next-wave time but loses every besieger already standing,
+  because they carry `AmbushSpawnTag` and the serializer skips it. That is strictly easier than not
+  refreshing, and it is now a smaller gap than the wave-1 restart it replaced, but a player who
+  refreshes on purpose still clears the room for free. Closing it means either serializing the
+  besiegers (a tagged-enemy carve-out in a serializer whose whole rule is that ambush spawns are
+  not saved) or paying the loss forward by shortening `siegeNextWaveAtSeconds` on restore, which is
+  a feel judgement about how punishing a refresh should be. Value: a refresh is not a way to skip a
+  siege wave. Deps: none, but the second option wants play rather than a guess.
 
 - [ ] **FEAT-QUEST-COMPLETION-RELIC**: `completionRelicRoll` on a chain's final quest, one
   roll on the STANDARD relic table. Deliberately cut from `FEAT-QUEST-CHAINS` so the odds are
