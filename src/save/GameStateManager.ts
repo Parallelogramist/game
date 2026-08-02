@@ -268,6 +268,25 @@ interface SerializedNemesisLair {
   awake: boolean;
 }
 
+/** One object a POI slot put on the floor, written with its LIVE position (the chestState
+ *  rule: a chest drifts toward the player, so the spawn coords would be stale). */
+export type SerializedPoiSlotObject =
+  | { kind: 'chest'; x: number; y: number; isSpecial: boolean }
+  | { kind: 'crate'; x: number; y: number }
+  | { kind: 'boost'; x: number; y: number; consumable: number };
+
+/**
+ * One stocked POI slot and what is still standing in it. `intact` is the pay-twice guard:
+ * false means the player had already taken part of this slot, so the restored record must be
+ * protected from the loose-loot sweep but must never be retired and re-rolled.
+ */
+interface SerializedPoiSlot {
+  id: string;
+  sectorKey: string;
+  intact: boolean;
+  objects: SerializedPoiSlotObject[];
+}
+
 /**
  * Serialized expedition POI state. `runSalt` is what makes a slot's contents re-roll per run
  * but stay identical across a refresh; `spawnedSlotIds` is the run's memory of which slots
@@ -283,6 +302,9 @@ interface SerializedPoiState {
   nests?: SerializedAmbushNest[];
   /** Absent on saves written before FEAT-POI-NEMESIS-LAIR → no lair restored. */
   lairs?: SerializedNemesisLair[];
+  /** Absent on saves written before this change → no slot records restored, so a restored run
+   *  retires no POI slot and its crates are lost, exactly as it behaved before. */
+  slots?: SerializedPoiSlot[];
 }
 
 /**

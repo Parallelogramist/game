@@ -182,7 +182,9 @@ import { selectBlessings, getBlessingById, type Blessing } from '../../data/Bles
 import { recordRunBuild, selectKeptUpgrades } from '../../data/KeptUpgrades';
 import { getPactById, type Pact } from '../../data/Pacts';
 import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpawner, applyIceHazardSlow, resetHazardZoneSystem, setHazardZoneWorldLevel, setHazardZoneEffectsManager, setHazardZoneQuality, setHazardZoneStage, getHazardState, restoreHazardState } from '../../systems/HazardZoneSystem';
-import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
+import {
+  getGameStateManager, GameSaveState, SerializedPoiSlotObject,
+} from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage, flushStorage } from '../../storage';
 import { updateFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
@@ -324,6 +326,7 @@ const SPECIAL_CHEST_CHANCE = 0.15;
 const POI_CRATE_FIELD_COUNT = 3;
 const POI_CRATE_FIELD_RADIUS = 34;
 const POI_CACHE_SPREAD = 22;
+const POI_RELINK_TOLERANCE = 1;
 const SECRET_REWARD_SPREAD = 26;
 const SECRET_REWARD_RADIUS = 34;
 const SECRET_REWARD_BUNDLE_COUNT = 3;
@@ -347,6 +350,10 @@ type PoiSlotObject =
 interface PoiSlotRecord {
   sectorKey: string;
   objects: PoiSlotObject[];
+  /** Restored from a save that had already been partly looted. Such a record exists only to
+   *  protect its survivors from the loose-loot sweep: retiring it would delete the slot id and
+   *  the next entry would re-roll it, paying the same slot twice. Always false in live play. */
+  partlyLooted: boolean;
 }
 
 interface ActiveAmbushNest {
@@ -681,8 +688,8 @@ export class GameScene extends Phaser.Scene {
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
   private spawnedPoiSlotIds: Set<string> = new Set();
-  /** Live objects per stocked POI slot, keyed by slot id. In-memory only: a refresh-restore
-   *  comes up empty, so a restored run retires no slot and behaves as it did before. */
+  /** Live objects per stocked POI slot, keyed by slot id. Persisted through `poiState.slots`
+   *  and rebuilt by relinkRestoredPoiSlots, so a refresh keeps a room's placed rewards. */
   private readonly poiSlotObjects: Map<string, PoiSlotRecord> = new Map();
   private readonly retireCandidates: RetireCandidate[] = [];
   private poiRunSalt: number = 0;
@@ -2858,6 +2865,13 @@ export class GameScene extends Phaser.Scene {
             lairs: this.activeNemesisLairs.map(lair => ({
               x: lair.x, y: lair.y, awake: lair.awake,
             })),
+            slots: Array.from(this.poiSlotObjects, ([id, record]) => ({
+              id,
+              sectorKey: record.sectorKey,
+              intact: !record.partlyLooted
+                && record.objects.every(object => this.isPoiObjectAlive(object)),
+              objects: this.serializePoiSlotObjects(record),
+            })).filter(slot => slot.objects.length > 0),
           }
         : undefined,
       // Expedition only, the poiState rule: an arena run holds no expedition objective, so it
@@ -3342,6 +3356,10 @@ export class GameScene extends Phaser.Scene {
     // Restore all entities
     this.restoreEntities(state);
 
+    // After the entity + chest passes, never before: the POI records re-link to the handles
+    // those passes create.
+    this.relinkRestoredPoiSlots(state);
+
     // The boss restores as an ordinary enemy, so without this the fight comes back with its
     // health bar and nothing else: no arena tint, no boss hazards at all (the hazard cadence
     // returns early with no live boss), no bossActive music cue, and no siege suppression.
@@ -3597,6 +3615,71 @@ export class GameScene extends Phaser.Scene {
       this.totalDamageDealt += amount;
       getAchievementManager().recordDamageDealt(amount);
     });
+  }
+
+  /**
+   * Rebuilds `poiSlotObjects` from `poiState.slots` after the entity and chest passes have run.
+   * Chests and boosts are RE-LINKED to the handles those passes already created (re-spawning
+   * them would put two of each in the room), while crates are re-spawned here because
+   * serializeEntities skips every Destructible as transient, which is the whole reason a POI
+   * crate cache did not survive a refresh.
+   */
+  private relinkRestoredPoiSlots(state: GameSaveState): void {
+    const slots = state.poiState?.slots;
+    if (!Array.isArray(slots)) return;
+
+    const unclaimedChests = this.activeChests.filter(chest => chest.isPoiCache);
+    const unclaimedBoosts: number[] = [];
+    for (const entityId of retireConsumableQuery(this.world)) unclaimedBoosts.push(entityId);
+
+    for (const slot of slots) {
+      if (typeof slot?.id !== 'string' || !this.spawnedPoiSlotIds.has(slot.id)) continue;
+      if (typeof slot.sectorKey !== 'string' || slot.sectorKey.length === 0) continue;
+      if (!Array.isArray(slot.objects)) continue;
+
+      const objects: PoiSlotObject[] = [];
+      let missingHandle = false;
+      for (const saved of slot.objects) {
+        if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) {
+          missingHandle = true;
+          continue;
+        }
+        if (saved.kind === 'chest') {
+          const index = unclaimedChests.findIndex(chest =>
+            Math.abs(chest.graphics.x - saved.x) <= POI_RELINK_TOLERANCE
+            && Math.abs(chest.graphics.y - saved.y) <= POI_RELINK_TOLERANCE);
+          if (index < 0) { missingHandle = true; continue; }
+          objects.push({ kind: 'chest', chest: unclaimedChests[index] });
+          unclaimedChests.splice(index, 1);
+        } else if (saved.kind === 'crate') {
+          objects.push({ kind: 'crate', entityId: this.addDestructible(saved.x, saved.y) });
+        } else if (saved.kind === 'boost') {
+          const index = unclaimedBoosts.findIndex(entityId =>
+            Consumable.kind[entityId] === saved.consumable
+            && Math.abs(Transform.x[entityId] - saved.x) <= POI_RELINK_TOLERANCE
+            && Math.abs(Transform.y[entityId] - saved.y) <= POI_RELINK_TOLERANCE);
+          if (index < 0) { missingHandle = true; continue; }
+          objects.push({
+            kind: 'boost',
+            entityId: unclaimedBoosts[index],
+            consumable: saved.consumable as ConsumableKind,
+          });
+          unclaimedBoosts.splice(index, 1);
+        } else {
+          missingHandle = true;
+        }
+      }
+
+      if (objects.length === 0) continue;
+      // A handle the save promised and the restore did not produce means this record is no
+      // longer a faithful picture of the slot, so it is treated as partly looted: protected,
+      // never retired. Same conservative side as `intact: false`.
+      this.poiSlotObjects.set(slot.id, {
+        sectorKey: slot.sectorKey,
+        objects,
+        partlyLooted: slot.intact !== true || missingHandle,
+      });
+    }
   }
 
   /**
@@ -5175,6 +5258,10 @@ export class GameScene extends Phaser.Scene {
   private retirePoiSlots(fromSectorKey: string): void {
     for (const [slotId, record] of this.poiSlotObjects) {
       if (record.sectorKey !== fromSectorKey) continue;
+      // A restored partly-looted slot passes the every-alive test below, because only its
+      // survivors were ever written: retiring it would re-roll a slot the player already
+      // took part of.
+      if (record.partlyLooted) continue;
       if (!record.objects.every(object => this.isPoiObjectAlive(object))) continue;
       for (const object of record.objects) this.destroyPoiObject(object);
       this.poiSlotObjects.delete(slotId);
@@ -5191,6 +5278,36 @@ export class GameScene extends Phaser.Scene {
       }
     }
     return protectedIds;
+  }
+
+  /** The still-alive objects of one slot, with their live positions, for `poiState.slots`. */
+  private serializePoiSlotObjects(record: PoiSlotRecord): SerializedPoiSlotObject[] {
+    const serialized: SerializedPoiSlotObject[] = [];
+    for (const object of record.objects) {
+      if (!this.isPoiObjectAlive(object)) continue;
+      if (object.kind === 'chest') {
+        serialized.push({
+          kind: 'chest' as const,
+          x: object.chest.graphics.x,
+          y: object.chest.graphics.y,
+          isSpecial: object.chest.isSpecial,
+        });
+      } else if (object.kind === 'crate') {
+        serialized.push({
+          kind: 'crate' as const,
+          x: Transform.x[object.entityId],
+          y: Transform.y[object.entityId],
+        });
+      } else {
+        serialized.push({
+          kind: 'boost' as const,
+          x: Transform.x[object.entityId],
+          y: Transform.y[object.entityId],
+          consumable: object.consumable,
+        });
+      }
+    }
+    return serialized;
   }
 
   /**
@@ -5228,7 +5345,9 @@ export class GameScene extends Phaser.Scene {
         sector.depth,
       );
       if (spawnedObjects.length > 0) {
-        this.poiSlotObjects.set(entry.slot.id, { sectorKey, objects: spawnedObjects });
+        this.poiSlotObjects.set(entry.slot.id, {
+          sectorKey, objects: spawnedObjects, partlyLooted: false,
+        });
       }
       if (entry.contentId === 'poi_ambush_nest') {
         getDiscoveryManager().markAmbushNestSighted(entry.slot.id);
