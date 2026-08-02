@@ -10600,12 +10600,33 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   seal without focusing the cell. Deps: wants the legend-height question
   `BALANCE-CHART-ROW-SIX-BUTTONS` / `POLISH-MAP-HEADER-PORTRAIT` answered first.
 
-- [ ] **CHORE-LEAD-BADGE-RADAR** (new 2026-08-01, from FEAT-SECRET-WALL-MAP-TELL): the radar's
+- [x] **CHORE-LEAD-BADGE-RADAR** (done, a34c924) (new 2026-08-01, from FEAT-SECRET-WALL-MAP-TELL): the radar's
   lead bearing (05e832e) points at a sealed lead exactly as it points at a walk-in, so the
   in-run surface still sends the player at a wall the chart now warns about. It wants the same
   `findSealedLeadSectors` fed into `radarWaypoints.ts`, plus a second chevron treatment that does
   not collide with the disc's existing hollow-ring-in-range vocabulary. Value: the bearing you
   fly on knows what the chart knows. Deps: none.
+  **What shipped:** `RadarWaypoint` carries a `sealed` flag and `RadarWaypointInputs` a REQUIRED
+  `sealedLeadSectorKeys`, so the compiler forces the one caller to wire it. `MinimapFeed` now builds
+  the open leads with `buildSecretLead` instead of looking their sectors up with `findSecretSector`
+  and hands `findSealedLeadSectors` the same answer the chart uses, so the two surfaces cannot
+  disagree about what is sealed.
+  **The treatment is the chart's own, not a new one:** `drawLeadBadge` already says a filled disc is
+  a walk-in and a hollow ring is a seal, so on the disc a sealed lead is hollow too. The rim chevron
+  is stroked instead of filled (shrunk by half its stroke width so its tip still lands on the rim
+  where the filled one's does), and the in-range mark keeps its hollow ring and drops its filled
+  1.5 px centre dot. Nothing changes for an unsealed waypoint of any kind, so the hollow-ring-in-
+  range vocabulary the item warned about is untouched: the only thing that moved is whether a
+  shape's interior is filled.
+  **Only a lead can seal**, and a sector carrying both an objective and a sealed lead collapses to
+  an UNSEALED objective, because the objective is what the player is being sent for and it is not
+  the thing behind the rock. That interaction is the one test this added. A guarded vault reading as
+  a plain contact is a different item, `CHORE-VAULT-GUARD-MAP-MARK`, and it is unblocked now:
+  its dep `FEAT-DISCOVERY-FEEDBACK-07` is done (05b2c48 + b75822d + db7de53).
+  **Arena and every no-map mode are untouched by construction:** `MinimapFeed.syncWaypoints` returns
+  on its first line when `worldMap()` is null, so skirmish, daily, weekly, practice and gauntlet
+  never reach a changed line. No save field, no storage key and no version constant moved. The feel
+  half is `POLISH-LEAD-SEAL-RADAR` under `## Human gates`.
 
 - [ ] **BALANCE-LEAD-SEAL-WALL-CLAUSE** (new 2026-08-01, from FEAT-SECRET-WALL-MAP-TELL):
   cracked rock always reads as sealed, but most builds break rubble on contact and
@@ -11667,6 +11688,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-LEAD-SEAL-RADAR** (new 2026-08-02, from CHORE-LEAD-BADGE-RADAR). Value: a sealed lead
+  now draws hollow on the radar and none of it has been seen in a browser. Questions for the
+  operator, flying a world with at least one walled lead open: (a) at 56 px does a stroked chevron
+  read as the same arrow in a different state, or as a smaller or fainter arrow; (b) is the stroke
+  width (`max(1.5, size * 0.35)`, about 2 px) enough to survive the amber against the disc, or does
+  a sealed chevron want to be the only mark with an outline AND a gap in it; (c) in range, is
+  dropping the 1.5 px centre dot legible at all, or should an in-range seal say nothing rather than
+  say it invisibly; (d) with four bearings up, do a sealed and an unsealed lead in the same quadrant
+  tell apart at a glance, given both are the same amber; (e) does hollow read as "sealed" without
+  the chart open, or does it read as "further away". Everything here is geometry validated by
+  inspection, never in a browser: do not retune the constants blind. Deps: play.
 
 - [ ] **POLISH-DEATH-RIPPLE-VIEW** (new 2026-08-02, from CHORE-WORLDSPACE-DEATHRIPPLE-RECT). Value:
   the death ripple is now sized to the view rather than to raw world coordinates, and its two
