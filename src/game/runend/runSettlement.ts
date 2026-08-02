@@ -47,6 +47,13 @@ export interface RunEndModes {
   paceSamples: readonly number[] | null;
   shipId: string;
   build: RunBuildIdentity;
+  /**
+   * World level for the SCORE-side records only (best score, pace ghost, grade, run
+   * history). Victory advances the world level before settling, so those belong to the
+   * level the run was actually PLAYED at, while the achievement/codex/unlock records keep
+   * `facts.worldLevel`. Defaults to `facts.worldLevel`.
+   */
+  scoreWorldLevel?: number;
 }
 
 export interface RunOutcome {
@@ -57,9 +64,16 @@ export interface RunOutcome {
   paceGhostReplaced: boolean;
 }
 
-export function buildRunEndData(facts: RunFacts): RunEndData {
+/**
+ * `identity` is supplied only by the victory path: `SHIP_WIN_TRACKING` /
+ * `STAGE_WIN_TRACKING` credit a win, so a loss has nothing to credit and omits both keys.
+ */
+export function buildRunEndData(
+  facts: RunFacts,
+  identity?: { shipId: string; stageId: string }
+): RunEndData {
   const metaManager = getMetaProgressionManager();
-  return {
+  const runEndData: RunEndData = {
     wasVictory: facts.wasVictory,
     killCount: facts.killCount,
     levelReached: facts.levelReached,
@@ -72,6 +86,11 @@ export function buildRunEndData(facts: RunFacts): RunEndData {
     bestStreak: metaManager.getBestStreak(),
     highestCombo: facts.highestCombo,
   };
+  if (identity) {
+    runEndData.shipId = identity.shipId;
+    runEndData.stageId = identity.stageId;
+  }
+  return runEndData;
 }
 
 export function buildQuestRunData(facts: RunFacts): DailyQuestRunData {
@@ -127,6 +146,8 @@ export function recordRunOutcome(facts: RunFacts, modes: RunEndModes): RunOutcom
   const outcome: RunOutcome = { paceGhostReplaced: false };
   if (modes.practice) return outcome;
 
+  const scoreWorldLevel = modes.scoreWorldLevel ?? facts.worldLevel;
+
   if (modes.gauntlet) {
     recordGauntletRun({
       timestamp: Date.now(),
@@ -145,13 +166,13 @@ export function recordRunOutcome(facts: RunFacts, modes: RunEndModes): RunOutcom
       highestCombo: facts.highestCombo,
       wasVictory: facts.wasVictory,
     });
-    const scoreResult = recordScore(facts.worldLevel, runScore);
+    const scoreResult = recordScore(scoreWorldLevel, runScore);
     outcome.score = scoreResult;
     if (modes.paceSamples && scoreResult.isNewBest) {
-      outcome.paceGhostReplaced = savePaceGhost(facts.worldLevel, modes.paceSamples);
+      outcome.paceGhostReplaced = savePaceGhost(scoreWorldLevel, modes.paceSamples);
     }
     recordShipRun(modes.shipId, facts.wasVictory, scoreResult.score);
-    outcome.grade = computePerformanceGrade(runScore, facts.worldLevel, facts.wasVictory);
+    outcome.grade = computePerformanceGrade(runScore, scoreWorldLevel, facts.wasVictory);
 
     if (modes.daily) {
       recordDailyRun(modes.daily.challengeType, modes.daily.dateString, {
@@ -174,7 +195,7 @@ export function recordRunOutcome(facts: RunFacts, modes: RunEndModes): RunOutcom
       score: scoreResult.score,
       grade: outcome.grade.grade,
       victory: facts.wasVictory,
-      worldLevel: facts.worldLevel,
+      worldLevel: scoreWorldLevel,
       ...modes.build,
     });
   }

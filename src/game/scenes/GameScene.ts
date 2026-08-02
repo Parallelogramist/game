@@ -123,9 +123,7 @@ import { rollAffix, rollBossAffix, rollParagonAffix, affixDisplayName, softenBos
 import { EndlessMutatorType, ENDLESS_MUTATOR_META, rollEndlessMutator, sanitizeEndlessMutator } from '../../data/EndlessMutators';
 import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
-import { computeRunScore, computePerformanceGrade } from '../../utils/PerformanceGrade';
-import { recordScore } from '../../meta/BestScoreManager';
-import { getPaceGhost, savePaceGhost, paceDeltaKills, PACE_SAMPLE_INTERVAL_SECONDS, MAX_PACE_SAMPLES } from '../../meta/PaceGhostManager';
+import { getPaceGhost, paceDeltaKills, PACE_SAMPLE_INTERVAL_SECONDS, MAX_PACE_SAMPLES } from '../../meta/PaceGhostManager';
 import {
   advanceBossRotation,
   bossIdAtRotation,
@@ -136,7 +134,6 @@ import {
   NEMESIS_SPAWN_TIME_SECONDS, NEMESIS_SPRITE_SCALE, NemesisRecord,
   clearNemesis, getNemesis, nemesisGoldReward, nemesisLabel, nemesisScaling, recordNemesisKill,
 } from '../../meta/NemesisManager';
-import { recordShipRun } from '../../meta/ShipRecords';
 import {
   formatFightTime,
   getPracticeBest,
@@ -162,7 +159,6 @@ import { cargoLabelOf, droneLabelOf, getExpeditionQuest, getQuestForKeyId } from
 import { questWorldStamp } from '../../systems/QuestProgress';
 import type { QuestEvent } from '../../systems/QuestProgress';
 import { buildRunEarnings, buildRunNotices, type EarlyRunEndRecord, type RunEarning } from '../../meta/RunEarnings';
-import { recordRun, getRecentRuns } from '../../meta/RunHistoryManager';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
 import { MinimapManager } from '../../visual/MinimapManager';
 import { MinimapFeed } from '../managers/MinimapFeed';
@@ -238,7 +234,6 @@ import { getUltimateForShip, getShipUltimate, type ShipUltimateDefinition } from
 import type { PracticeUltimateChoice } from '../../data/PracticeUltimates';
 import { SHIP_NEON_PALETTES } from '../../visual/NeonColors';
 import {
-  recordDailyRun,
   generateDailyChallenge,
   generateWeeklyChallenge,
 } from '../../meta/DailyChallengeManager';
@@ -8872,84 +8867,53 @@ export class GameScene extends Phaser.Scene {
     // Parity with gameOver()'s snapshot — the victory payout itself is banked later, by
     // the NEXT WORLD handler, so it is never in here either.
     const runGoldLedger = metaManager.getRunLedger();
-    // Record the run's best score (victories count too — see results grade).
-    // World level was already advanced at the boss-kill site, so record against
-    // the level the run was actually played at. Capture the result + grade so the
-    // victory overlay can show them (parity with the game-over overlay).
+    // hasWon is already true above, so these facts carry wasVictory. Their worldLevel is
+    // the ADVANCED one (the boss-kill site advanced it before calling here), which is what
+    // the achievement, codex and unlock records on this path have always used;
+    // scoreWorldLevel below sends the score-side records to the level actually played.
+    const runFacts = this.buildRunFacts(goldEarned, metaManager.getCurrentStreak());
     const victoryWorldLevel = Math.max(1, metaManager.getWorldLevel() - 1);
-    const victoryRunScore = computeRunScore({
-      killCount: this.killCount,
-      survivalSeconds: this.gameTime,
-      level: this.playerStats.level,
-      damageDealt: this.totalDamageDealt,
-      highestCombo: getHighestCombo(),
-      wasVictory: true,
-    });
-    const victoryScoreResult = recordScore(victoryWorldLevel, victoryRunScore);
-    if (this.paceRecordingEnabled && victoryScoreResult.isNewBest) {
-      if (savePaceGhost(victoryWorldLevel, this.paceSamples)) this.paceGhostReplaced = true;
-    }
-    recordShipRun(this.selectedShipId, true, victoryScoreResult.score);
-    const victoryGrade = computePerformanceGrade(victoryRunScore, victoryWorldLevel, true);
 
-    // Record the daily-challenge leaderboard entry on victory too. Victories flow
-    // through showVictory (not gameOver), so without this a won daily run — the
-    // best possible outcome — would never post a score. Ranked by composite score.
-    if (this.dailyModeActive && this.dailyDateString) {
-      recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
-        survivalSeconds: this.gameTime,
-        killCount: this.killCount,
-        levelReached: this.playerStats.level,
-        wasVictory: true,
-        score: victoryRunScore,
-      });
-    }
+    // Victory is unreachable in gauntlet and in practice (the boss-kill site guards on
+    // both), and endless is only ever entered AFTER a victory, so all three are constants.
+    const runOutcome = recordRunOutcome(runFacts, {
+      practice: false,
+      gauntlet: false,
+      gauntletWave: 0,
+      endless: false,
+      endlessCycle: 0,
+      daily: this.dailyModeActive && this.dailyDateString
+        ? { challengeType: this.dailyChallengeType, dateString: this.dailyDateString }
+        : null,
+      paceSamples: this.paceRecordingEnabled ? this.paceSamples : null,
+      shipId: this.selectedShipId,
+      build: this.runHistoryBuild(),
+      scoreWorldLevel: victoryWorldLevel,
+    });
+    // Never assign the flag directly — parity with gameOver().
+    if (runOutcome.paceGhostReplaced) this.paceGhostReplaced = true;
+    const {
+      score: victoryScoreResult,
+      grade: victoryGrade,
+      priorRuns: victoryPriorRuns,
+    } = runOutcome;
 
     // Armed before recordRunEnd so the achievements this win unlocks are captured for
     // the overlay; their toast is drawn under it.
     this.runEndAchievements = [];
 
-    getAchievementManager().recordRunEnd({
-      wasVictory: true,
-      killCount: this.killCount,
-      levelReached: this.playerStats.level,
-      survivalTimeSeconds: this.gameTime,
-      worldLevel: metaManager.getWorldLevel(),
-      damageDealt: this.totalDamageDealt,
-      damageTaken: this.totalDamageTaken,
-      goldEarned,
-      accountLevel: metaManager.getAccountLevel(),
-      bestStreak: metaManager.getBestStreak(),
-      highestCombo: getHighestCombo(),
+    getAchievementManager().recordRunEnd(buildRunEndData(runFacts, {
       shipId: this.selectedShipId,
       stageId: this.selectedStageId,
-    });
+    }));
 
     // Fold this run into today's quest board. Hooked at the exact recordRunEnd
     // sites so quest eligibility matches achievement eligibility 1:1 — practice
     // runs never reach here, gauntlet/daily runs do.
-    const runEndQuests = settleDailyQuests({
-      wasVictory: true,
-      killCount: this.killCount,
-      levelReached: this.playerStats.level,
-      survivalTimeSeconds: this.gameTime,
-      damageDealt: this.totalDamageDealt,
-      damageTaken: this.totalDamageTaken,
-      goldEarned,
-      highestCombo: getHighestCombo(),
-    });
+    const runEndQuests = settleDailyQuests(buildQuestRunData(runFacts));
     const runEndQuestGold = this.payDailyQuests(runEndQuests);
 
-    // Record run end statistics in codex
-    getCodexManager().recordRunEnd(
-      this.gameTime,
-      this.killCount,
-      this.totalDamageDealt,
-      goldEarned,
-      true, // wasVictory
-      metaManager.getWorldLevel(),
-      this.playerStats.level
-    );
+    recordCodexRunEnd(runFacts);
 
     // Capture streak before incrementing for display
     const previousStreak = metaManager.getCurrentStreak();
@@ -8973,21 +8937,6 @@ export class GameScene extends Phaser.Scene {
     const newWorldLevel = metaManager.getWorldLevel();
     const clearedWorld = newWorldLevel - 1;
 
-    // Recent-run history: read the prior runs (for the "RECENT" overlay strip)
-    // before recording this one, so the strip shows the runs leading up to it.
-    const victoryPriorRuns = getRecentRuns(3);
-    recordRun({
-      timestamp: Date.now(),
-      durationSeconds: this.gameTime,
-      kills: this.killCount,
-      level: this.playerStats.level,
-      score: victoryScoreResult.score,
-      grade: victoryGrade.grade,
-      victory: true,
-      worldLevel: victoryWorldLevel,
-      ...this.runHistoryBuild(),
-    });
-
     this.pauseMenuManager.showVictory({
       killCount: this.killCount,
       gameTime: this.gameTime,
@@ -9008,18 +8957,18 @@ export class GameScene extends Phaser.Scene {
       // into endless and later dies hits gameOver() with the reveal already
       // consumed, so it can't double-fire.
       discoveredCard: this.consumeCardRevealForEndScreen(),
-      runScore: victoryScoreResult.score,
-      bestScore: victoryScoreResult.best,
-      isNewBest: victoryScoreResult.isNewBest,
+      runScore: victoryScoreResult?.score,
+      bestScore: victoryScoreResult?.best,
+      isNewBest: victoryScoreResult?.isNewBest,
       recentRuns: victoryPriorRuns,
-      daily: this.dailyModeActive && this.dailyDateString
+      daily: this.dailyModeActive && this.dailyDateString && victoryGrade && victoryScoreResult
         ? {
             challengeType: this.dailyChallengeType,
             dateString: this.dailyDateString,
             modifierNames: this.activeModifiers.map((modifier) => modifier.name),
             grade: victoryGrade.grade,
             survivalSeconds: this.gameTime,
-            score: victoryRunScore,
+            score: victoryScoreResult.score,
             wasVictory: true,
           }
         : undefined,

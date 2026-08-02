@@ -144,4 +144,25 @@ describe('recordRunOutcome', () => {
     expect(savePaceGhost).not.toHaveBeenCalled();
     expect(stale.paceGhostReplaced).toBe(false);
   });
+
+  test('scoreWorldLevel sends the score-side records to the level actually played', () => {
+    recordRunOutcome({ ...FACTS, wasVictory: true }, modes({ scoreWorldLevel: 2 }));
+
+    expect(recordScore).toHaveBeenCalledWith(2, expect.any(Number));
+    expect(savePaceGhost).toHaveBeenCalledWith(2, [1, 2, 3]);
+    expect(vi.mocked(recordRun).mock.calls[0][0]).toMatchObject({ worldLevel: 2, victory: true });
+  });
+
+  test('scoreWorldLevel leaves the gauntlet and endless boards on the run world level', () => {
+    recordRunOutcome(FACTS, modes({
+      scoreWorldLevel: 2,
+      gauntlet: true,
+      gauntletWave: 3,
+      endless: true,
+      endlessCycle: 1,
+    }));
+
+    expect(vi.mocked(recordGauntletRun).mock.calls[0][0]).toMatchObject({ worldLevel: 3 });
+    expect(vi.mocked(recordEndlessRun).mock.calls[0][0]).toMatchObject({ worldLevel: 3 });
+  });
 });
