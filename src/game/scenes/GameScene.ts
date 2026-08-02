@@ -633,6 +633,10 @@ export class GameScene extends Phaser.Scene {
   /** The blast path's own i-frame clock. The barrage families land many strike points in one
    *  burst, so an ungated path would spend the drone's whole 100 HP in a few frames. */
   private escortDroneNextBlastAtSeconds = 0;
+  /** A saved drone waiting for syncEscortDrone to adopt it, keyed by its quest. Held rather than
+   *  applied at restore time because the drone is derived from the quest store on the next frame,
+   *  never rebuilt by the restore path itself. */
+  private restoredEscortDrone: { questId: string; x: number; y: number; health: number } | null = null;
   /** The crate a previous run left behind, while the ship is in the room holding it. Derived
    *  from the quest store like the drone above, never persisted here. */
   private questCargoDrop: {
@@ -1051,8 +1055,13 @@ export class GameScene extends Phaser.Scene {
     if (payload.viaEdgeId) discovery.markEdgeTraversed(payload.viaEdgeId);
     this.retireDepartedSector(payload.fromSectorKey);
     this.stockSectorPois(payload.sectorKey);
-    this.expeditionDwellSectorKey = payload.sectorKey;
-    this.expeditionDwellStartSeconds = this.gameTime;
+    // Re-entering the room you are already holding does not restart the hold. Normal play always
+    // changes the key, so this only fires after a restore, where the adapter re-announces the
+    // current sector on its first frame and would otherwise reset a nearly finished hold to zero.
+    if (this.expeditionDwellSectorKey !== payload.sectorKey) {
+      this.expeditionDwellSectorKey = payload.sectorKey;
+      this.expeditionDwellStartSeconds = this.gameTime;
+    }
     const map = this.worldMode.worldMap();
     const sector = map?.sectors.get(payload.sectorKey);
     if (map && sector) {
@@ -2817,6 +2826,24 @@ export class GameScene extends Phaser.Scene {
             })),
           }
         : undefined,
+      // Expedition only, the poiState rule: an arena run holds no expedition objective, so it
+      // writes no block at all.
+      questRunState: this.worldMode.worldMap()
+        ? {
+            dwellSectorKey: this.expeditionDwellSectorKey ?? undefined,
+            dwellStartSeconds: this.expeditionDwellStartSeconds,
+            siegeSectorKey: this.siegeSectorKey ?? undefined,
+            siegeNextWaveAtSeconds: this.siegeNextWaveAtSeconds,
+            escortDrone: this.escortDrone
+              ? {
+                  questId: this.escortDrone.questId,
+                  x: this.escortDrone.x,
+                  y: this.escortDrone.y,
+                  health: this.escortDrone.health,
+                }
+              : undefined,
+          }
+        : undefined,
       hazardState: getHazardState(),
       hasWon: this.hasWon,
       endlessState: this.endlessDirector.serialize(),
@@ -3003,6 +3030,43 @@ export class GameScene extends Phaser.Scene {
           this.addNemesisLair(lair.x, lair.y, lair.awake === true);
         }
       }
+    }
+
+    // Restore the run's live quest objective. resetInRunFeatureState above cleared the dwell stamp,
+    // ended the siege and destroyed the drone, so a refresh mid-objective restarted a 90 s hold at
+    // zero, re-announced THE ROOM ANSWERS with a fresh wave clock, and handed back a full-health
+    // drone. gameTime is already restored above, so the absolute stamps land against the right
+    // clock. Every field is sanitized the way poiState's are, against a tampered save. Absent on
+    // legacy + arena saves, where the reset defaults win.
+    const questRun = state.questRunState;
+    if (questRun) {
+      if (typeof questRun.dwellSectorKey === 'string'
+        && questRun.dwellSectorKey.length > 0
+        && Number.isFinite(questRun.dwellStartSeconds)) {
+        this.expeditionDwellSectorKey = questRun.dwellSectorKey;
+        this.expeditionDwellStartSeconds = Math.max(
+          0,
+          Math.min(this.gameTime, questRun.dwellStartSeconds as number),
+        );
+      }
+      // Restored WITHOUT its besiegers, which is the honest half: the wave carries AmbushSpawnTag
+      // and the serializer skips it, so what survives is the room's identity and its cadence. The
+      // key matching the dwell key above is what keeps beginExpeditionSiege from re-announcing.
+      if (typeof questRun.siegeSectorKey === 'string'
+        && questRun.siegeSectorKey.length > 0
+        && Number.isFinite(questRun.siegeNextWaveAtSeconds)) {
+        this.siegeSectorKey = questRun.siegeSectorKey;
+        this.siegeNextWaveAtSeconds = Math.max(0, questRun.siegeNextWaveAtSeconds as number);
+      }
+      const savedDrone = questRun.escortDrone;
+      this.restoredEscortDrone = savedDrone
+        && typeof savedDrone.questId === 'string'
+        && savedDrone.questId.length > 0
+        && Number.isFinite(savedDrone.x)
+        && Number.isFinite(savedDrone.y)
+        && Number.isFinite(savedDrone.health)
+        ? savedDrone
+        : null;
     }
 
     // Restore spawn tracking
@@ -4843,6 +4907,7 @@ export class GameScene extends Phaser.Scene {
     this.clearWardenThrone();
     this.wardenThroneSectorKey = null;
     this.clearEscortDrone();
+    this.restoredEscortDrone = null;
     this.clearQuestCargoDrop();
     this.questCargoDropSectorKey = null;
     this.spawnedPoiSlotIds.clear();
@@ -5445,8 +5510,18 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.escortDrone?.questId === objective.questId) return;
     this.clearEscortDrone();
+    // Consumed on the first assignment whether or not it matched, so a saved drone can never be
+    // adopted by a later quest's drone. freeSpotNear runs on the saved point too: a legal spot
+    // then is not guaranteed legal now, and a tampered save must not park it inside a wall.
+    const restored = this.restoredEscortDrone;
+    this.restoredEscortDrone = null;
+    const resumed = restored && restored.questId === objective.questId ? restored : null;
     const spot = { x: 0, y: 0 };
-    this.worldMode.freeSpotNear(playerX, playerY, spot);
+    this.worldMode.freeSpotNear(
+      resumed ? resumed.x : playerX,
+      resumed ? resumed.y : playerY,
+      spot,
+    );
     const graphics = this.add.graphics();
     graphics.setPosition(spot.x, spot.y);
     graphics.setDepth(4);
@@ -5456,7 +5531,9 @@ export class GameScene extends Phaser.Scene {
       droneId: objective.droneId,
       x: spot.x,
       y: spot.y,
-      health: ESCORT_DRONE_MAX_HEALTH,
+      health: resumed
+        ? Math.max(1, Math.min(ESCORT_DRONE_MAX_HEALTH, resumed.health))
+        : ESCORT_DRONE_MAX_HEALTH,
     };
     this.escortDroneSectorKey = null;
     this.escortDroneNextDamageAtSeconds = 0;
@@ -5465,6 +5542,8 @@ export class GameScene extends Phaser.Scene {
     this.escortDroneRegenBlockedUntilSeconds = 0;
     this.escortDroneNextBlastAtSeconds = 0;
     this.drawEscortDrone();
+    // A drone that was already under way does not announce itself again.
+    if (resumed) return;
     this.toastManager?.showToast({
       tier: 'ambient',
       title: 'ESCORT UNDER WAY',

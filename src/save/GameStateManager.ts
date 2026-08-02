@@ -286,6 +286,27 @@ interface SerializedPoiState {
 }
 
 /**
+ * The live quest objective state a run is standing in the middle of. Every field is optional and
+ * every consumer keeps the reset default when it is absent, so a legacy or arena save needs no
+ * migration and SAVE_VERSION does not move (doc 01 section 8.1).
+ */
+interface SerializedQuestRunState {
+  /** The sector being held and the ABSOLUTE run time the ship arrived. Absolute because gameTime
+   *  is restored verbatim, the same contract timedDamageBuffs' `expiresAt` rides. */
+  dwellSectorKey?: string;
+  dwellStartSeconds?: number;
+  /** The sector a live siege answers for, and when its next wave is due (absolute run time).
+   *  The besiegers themselves are deliberately NOT here: they carry AmbushSpawnTag, which the
+   *  serializer skips, and a restored bitECS entity id would alias whatever entity that slot got
+   *  handed to on the fresh world. */
+  siegeSectorKey?: string;
+  siegeNextWaveAtSeconds?: number;
+  /** The live escort drone, keyed by the quest that owns it so a save restored after the objective
+   *  changed is ignored rather than misapplied to a different drone. */
+  escortDrone?: { questId: string; x: number; y: number; health: number };
+}
+
+/**
  * Serialized on-field treasure chest. Chests are GameScene-owned Phaser graphics
  * (the pattern shrines/bounties mirror) and were the last walk-in reward NOT
  * persisted — a mid-run refresh despawned any uncollected chest, losing its XP
@@ -505,6 +526,13 @@ export interface GameSaveState {
   // Expedition POI slot contents (see SerializedPoiState). Written only by an expedition
   // run; absent on arena + legacy saves, where the fresh-run defaults win.
   poiState?: SerializedPoiState;
+
+  // Live quest objective state (see SerializedQuestRunState) — the dwell stamp, the siege the hold
+  // provoked, and the escort drone. All three are GameScene fields that resetInRunFeatureState
+  // wipes on restore, so a mid-objective refresh restarted the hold at 0, re-announced the siege
+  // and handed back a full-health drone. Written only by an expedition run; absent on arena +
+  // legacy saves, where the reset defaults win.
+  questRunState?: SerializedQuestRunState;
 
   // Live hazard zones (burn/ice/void/energy) + the auto-spawner pacing.
   // Module-owned by HazardZoneSystem and wiped by resetAllRunSystems on
@@ -770,6 +798,7 @@ export class GameStateManager {
     shrineState?: SerializedShrineState;
     chestState?: SerializedChestEntry[];
     poiState?: SerializedPoiState;
+    questRunState?: SerializedQuestRunState;
     hazardState?: SerializedHazardState;
     hasWon?: boolean;
     endlessState?: SerializedEndlessState;
@@ -854,6 +883,7 @@ export class GameStateManager {
         shrineState: gameData.shrineState,
         chestState: gameData.chestState,
         poiState: gameData.poiState,
+        questRunState: gameData.questRunState,
         hazardState: gameData.hazardState,
         hasWon: gameData.hasWon,
         endlessState: gameData.endlessState,
