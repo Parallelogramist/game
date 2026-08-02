@@ -14,6 +14,7 @@ import {
   SynergyCodexEntry,
   EvolutionCodexEntry,
   LoreCodexEntry,
+  SurveyCodexEntry,
   CodexStatistics,
 } from './CodexTypes';
 import { getAllWeaponIds } from '../weapons';
@@ -21,6 +22,7 @@ import { ENEMY_TYPES } from '../enemies/EnemyTypes';
 import { WEAPON_SYNERGIES, WeaponSynergy } from '../data/WeaponSynergies';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../data/WeaponEvolutions';
 import { LORE_FRAGMENTS } from '../data/LoreFragments';
+import { STAGES } from '../data/Stages';
 
 // Storage key
 const STORAGE_KEY_CODEX = 'survivor-codex';
@@ -95,6 +97,16 @@ function createDefaultLoreEntries(): Record<string, LoreCodexEntry> {
   return entries;
 }
 
+function createDefaultSurveyEntries(): Record<string, SurveyCodexEntry> {
+  const entries: Record<string, SurveyCodexEntry> = {};
+  for (const stage of STAGES) {
+    entries[stage.id] = {
+      id: stage.id, discovered: false, fragmentsRecovered: 0, sectorsCharted: 0,
+    };
+  }
+  return entries;
+}
+
 function createDefaultStatistics(): CodexStatistics {
   return {
     totalRunsPlayed: 0,
@@ -118,6 +130,7 @@ function createDefaultCodexState(): CodexState {
     synergies: createDefaultSynergyEntries(),
     evolutions: createDefaultEvolutionEntries(),
     lore: createDefaultLoreEntries(),
+    survey: createDefaultSurveyEntries(),
     statistics: createDefaultStatistics(),
   };
 }
@@ -286,6 +299,26 @@ function sanitizeLore(raw: unknown): Record<string, LoreCodexEntry> {
     const discoveredAt = sanitizeDiscoveredAt(stored);
     if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
     result[fragment.id] = entry;
+  }
+  return result;
+}
+
+/** Rebuild survey entries from the known stage ids only. Mirrors sanitizeLore, plus the two
+ *  lifetime counters through boundedStoredNumber so a tampered payload cannot inflate them. */
+function sanitizeSurvey(raw: unknown): Record<string, SurveyCodexEntry> {
+  const record = asStoredRecord(raw);
+  const result: Record<string, SurveyCodexEntry> = {};
+  for (const stage of STAGES) {
+    const stored = asStoredRecord(record[stage.id]);
+    const entry: SurveyCodexEntry = {
+      id: stage.id,
+      discovered: stored.discovered === true,
+      fragmentsRecovered: boundedStoredNumber(stored.fragmentsRecovered, 0, COUNT_SPEC),
+      sectorsCharted: boundedStoredNumber(stored.sectorsCharted, 0, COUNT_SPEC),
+    };
+    const discoveredAt = sanitizeDiscoveredAt(stored);
+    if (discoveredAt !== undefined) entry.discoveredAt = discoveredAt;
+    result[stage.id] = entry;
   }
   return result;
 }
@@ -661,6 +694,43 @@ export class CodexManager {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // REGION SURVEY (map fragments)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Record that a map fragment charted `sectorsCharted` new sectors of `stageId`. Returns true
+   * when this was the profile's first survey of that region. Unknown ids are refused rather than
+   * inserted, the discoverLoreFragment reasoning: sanitizeSurvey rebuilds from STAGES, so an
+   * inserted id would vanish on the next load after having already bumped a lifetime count.
+   */
+  recordRegionSurveyed(stageId: string, sectorsCharted: number): boolean {
+    const entry = this.state.survey[stageId];
+    if (!entry) return false;
+    const charted = Math.max(0, Math.floor(sectorsCharted));
+    const isNewDiscovery = !entry.discovered;
+    if (isNewDiscovery) {
+      entry.discovered = true;
+      entry.discoveredAt = Date.now();
+    }
+    entry.fragmentsRecovered += 1;
+    entry.sectorsCharted += charted;
+    this.saveState();
+    return isNewDiscovery;
+  }
+
+  getSurveyEntry(stageId: string): SurveyCodexEntry | undefined {
+    return this.state.survey[stageId];
+  }
+
+  getSurveyedRegionCount(): number {
+    return Object.values(this.state.survey).filter((entry) => entry.discovered).length;
+  }
+
+  getTotalSurveyRegionCount(): number {
+    return Object.keys(this.state.survey).length;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // STATISTICS
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -760,6 +830,7 @@ export class CodexManager {
           synergies: sanitizeSynergies(parsed.synergies),
           evolutions: sanitizeEvolutions(parsed.evolutions),
           lore: sanitizeLore(parsed.lore),
+          survey: sanitizeSurvey(parsed.survey),
           statistics: sanitizeStatistics(parsed.statistics),
         };
       }

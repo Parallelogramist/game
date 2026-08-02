@@ -11,6 +11,7 @@ import {
   WeaponCodexEntry,
   EnemyCodexEntry,
   LoreCodexEntry,
+  SurveyCodexEntry,
 } from '../../codex';
 import { createIcon, ICON_TINTS } from '../../utils/IconRenderer';
 import { getWeaponInfoList, WeaponInfo } from '../../weapons';
@@ -20,6 +21,7 @@ import { RUN_MODIFIERS, RunModifier } from '../../data/RunModifiers';
 import { PACTS, Pact } from '../../data/Pacts';
 import { BLESSINGS, Blessing } from '../../data/Blessings';
 import { LORE_FRAGMENTS, LoreFragmentDefinition } from '../../data/LoreFragments';
+import { STAGES, StageDefinition } from '../../data/Stages';
 import { weaponEvolutionDefinitions, WeaponEvolution } from '../../data/WeaponEvolutions';
 import { createUpgrades } from '../../data/Upgrades';
 import { ENEMY_TYPES, EnemyTypeDefinition } from '../../enemies/EnemyTypes';
@@ -56,6 +58,9 @@ interface CodexCardElements {
 
 const FONT_FAMILY = '"Atkinson Hyperlegible", Arial, sans-serif';
 const LORE_CARD_HEIGHT = 104;
+// Taller than the lore card because a survey row carries a title, a counters line AND the
+// region's own description, which wraps to three lines at the 340-unit card width.
+const SURVEY_CARD_HEIGHT = 116;
 const MODIFIER_CATEGORY_COLOR: Record<RunModifier['category'], number> = {
   offense: 0xff6644,
   defense: 0x44aaff,
@@ -289,8 +294,8 @@ export class CodexScene extends Phaser.Scene {
           fontFamily: FONT_FAMILY,
         });
       tabText.setOrigin(0.5);
-      // 13 tabs make a desktop tab 88 units wide, which a 14px label already overran into
-      // its own count; the scaled label would overrun much further.
+      // 14 tabs make a desktop tab 81 units wide (was 88 at 13), which a 14px label already
+      // overran into its own count; the scaled label would overrun much further.
       fitTextWidth(tabText, tabWidth - scaledInt(this.menuScale, 28) - 10);
 
       // Count text (discovered/total)
@@ -321,6 +326,8 @@ export class CodexScene extends Phaser.Scene {
         countLabel = `${BLESSINGS.length}`;
       } else if (category.id === 'lore') {
         countLabel = `${codexManager.getDiscoveredLoreCount()}/${codexManager.getTotalLoreCount()}`;
+      } else if (category.id === 'survey') {
+        countLabel = `${codexManager.getSurveyedRegionCount()}/${codexManager.getTotalSurveyRegionCount()}`;
       } else if (category.id === 'runs') {
         countLabel = `${getRunHistory().length}`;
       }
@@ -455,6 +462,9 @@ export class CodexScene extends Phaser.Scene {
         break;
       case 'lore':
         this.displayLore();
+        break;
+      case 'survey':
+        this.displaySurvey();
         break;
       case 'statistics':
         this.displayStatistics();
@@ -1433,6 +1443,101 @@ export class CodexScene extends Phaser.Scene {
     this.codexCards.push({ container, cardBg });
   }
 
+  private displaySurvey(): void {
+    const codexManager = getCodexManager();
+    this.layoutCardGrid([...STAGES], SURVEY_CARD_HEIGHT, (stage, x, y) => {
+      this.createSurveyCard(stage, codexManager.getSurveyEntry(stage.id), x, y);
+    });
+  }
+
+  private createSurveyCard(
+    stage: StageDefinition,
+    entry: SurveyCodexEntry | undefined,
+    x: number,
+    y: number,
+  ): void {
+    const container = this.add.container(x, y);
+    this.contentContainer.add(container);
+
+    const discovered = entry?.discovered ?? false;
+
+    const cardBg = this.add.rectangle(
+      this.cardWidth / 2,
+      SURVEY_CARD_HEIGHT / 2,
+      this.cardWidth,
+      SURVEY_CARD_HEIGHT,
+      discovered ? 0x2a3a5a : 0x1e1e34,
+    );
+    cardBg.setStrokeStyle(2, 0x4a4a7a);
+    container.add(cardBg);
+
+    // The same amber createLoreCard uses: both collections come out of a secret cache.
+    const surveyAccent = 0xcc8833;
+    const iconCenterX = 38;
+    const iconCenterY = Math.floor(SURVEY_CARD_HEIGHT / 2);
+
+    const iconDisc = this.add.circle(iconCenterX, iconCenterY, 24, 0x1a2a4a);
+    iconDisc.setStrokeStyle(2, discovered ? surveyAccent : 0x3a3a5a);
+    container.add(iconDisc);
+    try {
+      const icon = createIcon(this, {
+        x: iconCenterX,
+        y: iconCenterY,
+        iconKey: discovered ? 'globe' : 'cancel',
+        size: 28,
+        tint: discovered ? surveyAccent : ICON_TINTS.DISABLED,
+      });
+      container.add(icon);
+    } catch {
+      const fallback = this.add.circle(iconCenterX, iconCenterY, 12, surveyAccent);
+      container.add(fallback);
+    }
+
+    const textX = 75;
+
+    const nameText = this.add.text(textX, 12, discovered ? stage.name : '???', {
+      fontSize: '16px',
+      color: discovered ? '#ffffff' : '#666666',
+      fontFamily: FONT_FAMILY,
+      fontStyle: 'bold',
+    });
+    container.add(nameText);
+
+    if (discovered && entry) {
+      const sectors = entry.sectorsCharted;
+      const fragments = entry.fragmentsRecovered;
+      const statsText = this.add.text(
+        textX,
+        34,
+        `${sectors} SECTOR${sectors === 1 ? '' : 'S'} CHARTED`
+          + ` · ${fragments} FRAGMENT${fragments === 1 ? '' : 'S'}`,
+        {
+          fontSize: '12px',
+          color: '#ddaa66',
+          fontFamily: FONT_FAMILY,
+        },
+      );
+      container.add(statsText);
+    }
+
+    const bodyText = this.add.text(
+      textX,
+      54,
+      discovered
+        ? stage.description
+        : 'Survey data charts a region you have not flown. Recovered from a secret cache.',
+      {
+        fontSize: '12px',
+        color: discovered ? '#ddccaa' : '#555566',
+        fontFamily: FONT_FAMILY,
+        wordWrap: { width: this.cardWidth - textX - 14 },
+      },
+    );
+    container.add(bodyText);
+
+    this.codexCards.push({ container, cardBg });
+  }
+
   private displayEvolutions(): void {
     const codexManager = getCodexManager();
     const weaponInfoById = new Map<string, WeaponInfo>();
@@ -1898,7 +2003,9 @@ export class CodexScene extends Phaser.Scene {
       ? 60
       : this.currentCategory === 'lore'
         ? LORE_CARD_HEIGHT
-        : this.cardHeight;
+        : this.currentCategory === 'survey'
+          ? SURVEY_CARD_HEIGHT
+          : this.cardHeight;
     const row = Math.floor(this.selectedCardIndex / this.columns);
     const cardTopInBand = (10 + row * (currentCardHeight + this.cardSpacing)) * this.menuScale;
     const cardBottomInBand = cardTopInBand + currentCardHeight * this.menuScale;

@@ -19,6 +19,8 @@ import type { WorldMap } from '../world/worldTypes';
 export const MAP_FRAGMENT_MAX_SECTORS = 8;
 
 export interface MapFragmentGrant {
+  /** The region's StageDefinition id, unprefixed: the key a profile-wide record uses. */
+  stageId: string;
   regionId: string;
   /** Player-facing region name, for the toast. */
   regionName: string;
@@ -36,6 +38,7 @@ export interface MapFragmentInput {
 }
 
 interface RegionCandidate {
+  stageId: string;
   regionId: string;
   regionName: string;
   minDepth: number;
@@ -61,6 +64,7 @@ export function chooseMapFragmentGrant(input: MapFragmentInput): MapFragmentGran
     let candidate = candidatesByRegion.get(regionId);
     if (!candidate) {
       candidate = {
+        stageId: sector.biomeId,
         regionId,
         regionName: getStageById(sector.biomeId)?.name ?? 'uncharted space',
         minDepth: sector.depth,
@@ -90,6 +94,7 @@ export function chooseMapFragmentGrant(input: MapFragmentInput): MapFragmentGran
   chosen.uncharted.sort((left, right) =>
     left.depth - right.depth || (left.key < right.key ? -1 : 1));
   return {
+    stageId: chosen.stageId,
     regionId: chosen.regionId,
     regionName: chosen.regionName,
     sectorKeys: chosen.uncharted.slice(0, maxSectors).map(entry => entry.key),

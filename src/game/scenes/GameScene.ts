@@ -6377,6 +6377,7 @@ export class GameScene extends Phaser.Scene {
     if (!grant) return null;
     const charted = discovery.applyMapFragment(grant.sectorKeys).sectorsDiscovered.length;
     if (charted === 0) return null;
+    getCodexManager().recordRegionSurveyed(grant.stageId, charted);
     return `Survey data: ${grant.regionName} charted, `
       + `${charted} new sector${charted === 1 ? '' : 's'}.`;
   }

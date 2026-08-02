@@ -67,6 +67,21 @@ export interface LoreCodexEntry {
 }
 
 /**
+ * A region the profile has ever charted from a recovered map fragment. Profile-wide for the
+ * LoreCodexEntry reason and one more: a world's discovery store dies with its seed, so without
+ * this a fragment leaves nothing behind at all. Keyed by StageDefinition.id.
+ */
+export interface SurveyCodexEntry {
+  id: string;
+  discovered: boolean;
+  discoveredAt?: number;
+  /** Lifetime map fragments spent on this region, across every expedition. */
+  fragmentsRecovered: number;
+  /** Lifetime sectors this region has yielded to those fragments. */
+  sectorsCharted: number;
+}
+
+/**
  * Global statistics tracked across all runs.
  */
 export interface CodexStatistics {
@@ -92,13 +107,14 @@ export interface CodexState {
   synergies: Record<string, SynergyCodexEntry>;
   evolutions: Record<string, EvolutionCodexEntry>;
   lore: Record<string, LoreCodexEntry>;
+  survey: Record<string, SurveyCodexEntry>;
   statistics: CodexStatistics;
 }
 
 /**
  * Codex categories for UI display.
  */
-export type CodexCategory = 'weapons' | 'enemies' | 'upgrades' | 'synergies' | 'relics' | 'evolutions' | 'ships' | 'statistics' | 'modifiers' | 'pacts' | 'blessings' | 'lore' | 'runs';
+export type CodexCategory = 'weapons' | 'enemies' | 'upgrades' | 'synergies' | 'relics' | 'evolutions' | 'ships' | 'statistics' | 'modifiers' | 'pacts' | 'blessings' | 'lore' | 'survey' | 'runs';
 
 /**
  * Category metadata for tabs.
@@ -121,6 +137,7 @@ export const CODEX_CATEGORIES: CodexCategoryInfo[] = [
   { id: 'pacts', name: 'Pacts', icon: 'devil' },
   { id: 'blessings', name: 'Blessings', icon: 'angel' },
   { id: 'lore', name: 'Lore', icon: 'book' },
+  { id: 'survey', name: 'Survey', icon: 'globe' },
   { id: 'statistics', name: 'Statistics', icon: 'chart' },
   { id: 'runs', name: 'Runs', icon: 'run' },
 ];
