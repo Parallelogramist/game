@@ -5744,12 +5744,21 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   reward economy has to be locked before more content keys off it. Deps: `FEAT-ECON-WARDS`
   (this is the POI half of its data test).
 
-- [ ] **CHORE-POI-CRATE-PERSIST**: a POI crate cache does not survive a refresh. Crates are ECS
-  destructibles and are not serialized (only chests and shrines are), while the slot is already
-  in `spawnedSlotIds`, so a refresh inside a crate room loses that cache for the run. Chests,
-  altars, the market and floor boosts all round-trip correctly. Either serialize destructibles
-  or defer marking a crate slot spawned until its crates are broken. Value: small, but it is
+- [x] **CHORE-POI-CRATE-PERSIST** (done, 1b7641e, 2026-08-02): a POI crate cache did not survive a
+  refresh. Crates are ECS destructibles and are not serialized (only chests and shrines are), while
+  the slot is already in `spawnedSlotIds`, so a refresh inside a crate room lost that cache for the
+  run. Chests, altars, the market and floor boosts all round-trip correctly. Value: small, but it is
   the only POI reward a refresh can silently eat. Deps: none.
+
+  **What shipped:** the third option, neither of the two this entry guessed at. `serializeEntities`
+  is untouched and a crate slot is still marked spawned when it is stocked; instead the new
+  `poiState.slots` record carries each surviving POI crate's live position and
+  `relinkRestoredPoiSlots` re-spawns them after the entity pass. Closed for **POI** crate caches
+  only: **ambient** crates stay transient on purpose, because they are what the serializer's
+  "destructibles are transient" comment is about and making every destructible persistent is a
+  question about the ambient spawn cadence, not about a placed reward. A restored crate comes back
+  at full health, filed as `CHORE-POI-CRATE-HEALTH-PERSIST`. Shipped with
+  `CHORE-POI-RETIRE-RESTORE-BLIND`, which is the same save-shape question from the other side.
 
 - [x] **FEAT-POWER-TRAVERSAL** (done — 8161ba7): the game's first permanent progression
   axis that is **earned rather than bought**. `src/data/TraversalAbilities.ts` is the
@@ -7035,8 +7044,9 @@ exploring pays is the end of Phase 5.
   discovery memory that makes a hive a permanent chart marker; a nemesis lair carries `awake` plus
   `nemesisSpawned`. Each carries state a retire would have to unwind and none of them is loot, so
   they are filed as `FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES` below rather than smuggled in. The
-  restore blindness is `CHORE-POI-RETIRE-RESTORE-BLIND`, and the feel question is
-  `POLISH-POI-RETIRE-RESTOCK` under `## Human gates`.
+  restore blindness was `CHORE-POI-RETIRE-RESTORE-BLIND`, now **closed (1b7641e)**, so what remains
+  of this slice is the structures item alone. The feel question is `POLISH-POI-RETIRE-RESTOCK` under
+  `## Human gates`.
 
 - [ ] **FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES** (new 2026-08-02, from
   `FEAT-WORLDGEN-STREAM-POI-RETIRE`): the five structure branches the loot slice left standing, so a
@@ -7050,16 +7060,61 @@ exploring pays is the end of Phase 5.
   cheap next to a 3-entity crate field, which is why this is a tidiness win rather than an
   entity-budget one. **Value:** a room's furniture is put away with its loot. Deps: none.
 
-- [ ] **CHORE-POI-RETIRE-RESTORE-BLIND** (new 2026-08-02, from
-  `FEAT-WORLDGEN-STREAM-POI-RETIRE`): `poiSlotObjects` is in-memory, so after a refresh-restore a
-  run retires no POI slot at all AND its field-boost caches are once again swept by
-  `retireConsumableQuery`, because the restored pickups come back through `restoreConsumable` with
-  no POI provenance: the one defect the slice fixed is re-armed by a refresh. Chosen on purpose,
-  the same call slice 1 made, and it keeps `SAVE_VERSION` still. Holding it would mean a
-  `poiState`-shaped map of slot id to spawned object descriptors, which is the same save-shape
-  question `CHORE-POI-CRATE-PERSIST` (`BACKLOG.md:5747`) asks from the other side, so the two want
-  to ship together. **Value:** a refresh stops re-arming the one defect this slice fixed.
+- [x] **CHORE-POI-RETIRE-RESTORE-BLIND** (done, 1b7641e, 2026-08-02, from
+  `FEAT-WORLDGEN-STREAM-POI-RETIRE`): `poiSlotObjects` was in-memory, so after a refresh-restore a
+  run retired no POI slot at all AND its field-boost caches were once again swept by
+  `retireConsumableQuery`, because the restored pickups came back through `restoreConsumable` with
+  no POI provenance: the one defect the slice fixed was re-armed by a refresh. Holding it meant a
+  `poiState`-shaped map of slot id to spawned object descriptors, the same save-shape question
+  `CHORE-POI-CRATE-PERSIST` asks from the other side, which is why the two shipped together.
+  **Value:** a refresh stops re-arming the one defect this slice fixed. Deps: none.
+
+  **What shipped:** `poiState` gained an optional `slots` array. Each stocked slot writes its
+  still-alive objects at their **live** positions (the `chestState` rule: a chest drifts toward the
+  player, so spawn coords would be stale) plus an `intact` flag. A slot whose every object has
+  already been taken writes nothing at all, because it has nothing to protect and nothing to
+  restore, and its id stays in `spawnedSlotIds` regardless.
+
+  **Re-link, do not re-spawn, and why:** chests and boosts are already restored today, by
+  `chestState` and by `restoreConsumable`. Re-spawning them from `slots` would put two chests and
+  two boosts in the room, so `relinkRestoredPoiSlots` instead matches each saved object back to the
+  handle those passes created, by kind and position within `POI_RELINK_TOLERANCE` (1 px, because
+  positions round-trip through JSON unchanged), removing each matched handle from the candidate list
+  so two slots can never claim the same one. Only crates are re-spawned, because nothing else
+  creates them: `serializeEntities` skips every `Destructible` as transient. That is also what keeps
+  the whole change out of the serializer: no exclusion pass, no marker component, one added type.
+  **Call order is load-bearing:** the re-link runs immediately after `restoreEntities`, never in the
+  `poiState` block, which runs long before both the chest pass and the entity pass, when no handle
+  exists yet.
+
+  **The pay-twice invariant, the one thing that must not be got wrong:** a slot restored with
+  `intact: false` is partly looted. Its survivors must be protected from the loose-loot sweep but
+  the slot must **never** be retired, because retiring deletes it from `spawnedPoiSlotIds` and the
+  next entry re-rolls it, paying the player the same slot twice. `record.objects.every(alive)` is
+  TRUE for such a record (only the survivors were ever written), so the every-alive test alone does
+  not catch it: `PoiSlotRecord.partlyLooted` is its own flag with its own guard, checked before that
+  test in `retirePoiSlots`. A handle the save promised and the restore did not produce sets the same
+  flag, the conservative side.
+
+  **No `SAVE_VERSION` bump, no storage key, no `WORLDGEN_VERSION` / `DISCOVERY_VERSION` /
+  `WORLD_PROFILE_VERSION` move:** `slots` is an optional field on the already-optional
+  expedition-only `poiState` block, the shape `nests?` and `lairs?` were added in. A legacy save has
+  no `slots`, restores no record, and behaves exactly as it did before. Arena, daily, weekly,
+  practice and gauntlet are untouched by construction, because `poiState` is written only when
+  `worldMode.worldMap()` is non-null and is null in all of them.
+
+- [ ] **CHORE-POI-CRATE-HEALTH-PERSIST** (new 2026-08-02, from `CHORE-POI-RETIRE-RESTORE-BLIND`): a
+  restored POI crate comes back at full health. `Destructible` health is not serialized and
+  `addDestructible` re-rolls hp from the current `gameTime`, so the damage already dealt to a POI
+  crate is lost on restore. **Value:** a crate you had nearly broken is not handed back whole.
   Deps: none.
+
+- [ ] **CHORE-POI-SLOT-RELINK-TOLERANCE** (new 2026-08-02, from `CHORE-POI-RETIRE-RESTORE-BLIND`):
+  `POI_RELINK_TOLERANCE` is 1 px, chosen because positions round-trip through JSON unchanged. It has
+  never been exercised against a magnetized boost drifting at save time, where the saved position
+  and the restored one could diverge and the re-link would silently drop the handle (treating the
+  slot as partly looted). **Value:** the re-link cannot silently miss a handle. Deps: none, but it
+  wants a play check rather than a second guess.
 
 - [ ] **FEAT-WORLDGEN-STREAM-EXEMPT-API** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): doc 02
   section 11 promises a persistence-exemption API for quest drops that must survive a transition.
@@ -8660,7 +8715,7 @@ band 2 is itself fully shipped except the `markSectorClearedOnce` remainder of
 blocked on an operator call. The unblocked work has therefore moved to the cuts filed off
 shipped band-1 and band-2 items, plus band 3's `FEAT-WORLDGEN-STREAM` slices, of which
 `FEAT-WORLDGEN-STREAM-POI-RETIRE` is now **done (2de1840)** and should not be re-picked: what
-remains of it is `FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES` and `CHORE-POI-RETIRE-RESTORE-BLIND`.
+remains of it is `FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES`.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
