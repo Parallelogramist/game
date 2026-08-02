@@ -7988,12 +7988,49 @@ exploring pays is the end of Phase 5.
   `FEAT-SEASON-BANKED-LIST-SURFACE` closed as superseded at `370e7bd`. Nothing was left to build,
   and leaving it unticked was costing a future session the re-derivation.
 
-- [ ] **FEAT-WARDEN-VICTORY-OVERLAY-LINE** (new 2026-08-01, from
+- [x] **FEAT-WARDEN-VICTORY-OVERLAY-LINE** (done, 2846e9a) (new 2026-08-01, from
   FEAT-EXPEDITION-WARDEN-THRONE): the victory overlay does not say the world was conquered.
   `showVictory` pauses the scene, so a toast at the kill would be drawn under it, and the
   overlay's result/grade block takes no free-text line today. The record surfaces on the
   CHART tile and the codex instead. Value: the moment names itself where the player is
   already looking. Deps: none.
+
+  **What shipped:** on an expedition win the kicker above `VICTORY!` reads
+  `W7 CONQUERED  ·  62% CHARTED  ·  3 WORLDS DOWN` instead of `WORLD 3 CLEARED  ·  BOSS
+  DEFEATED`: the world by the same `W<n>` the CHART tile and the banked rows use, its completion
+  at the instant the boss died, and the lifetime count this win moved. A re-conquest reads
+  `W7 CONQUERED AGAIN` and claims no milestone. A trophy takes the third clause ahead of the
+  milestone, and below 900 px of canvas there is no third clause at all, because the kicker does
+  not wrap.
+
+  **The kicker was replaced rather than added to, and that is the whole reason this is cheap.**
+  There is no free centred band above the title: the kicker is at `centerY - 214`, the 58 px
+  title spans roughly `-201` to `-143`, the score line is at `-124`, earnings at `-96`, finds at
+  `-96` or `-76`, and the stats panel starts at `-12`. Reusing the kicker string costs no new
+  GameObject, no new name in the teardown list and no layout risk, and the meta world level the
+  old line carried is still drawn below as `Next: World N` from the same `newWorldLevel`.
+
+  **The item's premise that "the overlay's result/grade block takes no free-text line today" was
+  already stale and should not be carried forward.** `VictoryData.runNotices` has been a
+  free-text row list since the Band B toast diet. It was still the wrong home: it is documented
+  as what the toast diet suppressed, a conquest is not a suppressed toast, and a `FOUND` row
+  under the stats panel is the quietest slot on the screen rather than the loudest.
+
+  **Arena-substrate modes are untouched by construction**, not by a mode check:
+  `expeditionConquest` is produced only when `worldMode.worldMap()` is non-null, and
+  `buildVictoryKicker` returns today's two arena strings byte for byte when it is absent, which
+  is what two of the eight cases in `victoryKicker.test.ts` assert.
+
+  **`firstConquest` is read before the write, not taken from `markWorldConquered`.** That
+  function also returns false when the profile save itself fails, which is a different fact from
+  "already conquered", and the difference is the whole line: the screen would say
+  `CONQUERED AGAIN` for a first kill whose save had just failed. The achievement gate is
+  unchanged, so `worldsConqueredTotal` counts exactly what it counted before, and the milestone
+  clause is suppressed at a total of 0 rather than printing `0 WORLDS DOWN`.
+
+  **No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no
+  `WORLD_PROFILE_VERSION` bump**: nothing is persisted and nothing new is read from a store that
+  did not already carry it. Files `POLISH-VICTORY-CONQUEST-KICKER` for the playtest half.
 
 - [ ] **BALANCE-CONTRACT-GOLD-PER-WORLD** (new 2026-08-01, from FEAT-QUEST-SEASON-CONTRACTS):
   three contracts pay about 1.7k to 2.0k gold per world, recurring, against roughly 6.7k
@@ -11134,6 +11171,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-VICTORY-CONQUEST-KICKER** (new 2026-08-02, from
+  FEAT-WARDEN-VICTORY-OVERLAY-LINE). Value: the expedition's biggest moment should land as a
+  moment. Every part of the new kicker was validated by reading the code and by unit tests over
+  the pure builder, never in a browser and never at the end of a real expedition. Four questions
+  only a player answers: (a) does `W7 CONQUERED  ·  62% CHARTED  ·  3 WORLDS DOWN` read as a
+  climax, or does three clauses at 16 px with 6 px letter spacing read as a status bar; (b) does
+  dropping `BOSS DEFEATED` from the expedition line lose anything, given the confetti and the
+  fanfare already say it; (c) is 900 px the right width to drop the third clause, or does the
+  two-clause line look bare on a landscape phone that clears it; (d) does `CONQUERED AGAIN` read
+  as an acknowledgement or as a scold. Deps: play.
 
 - [ ] **BALANCE-GRID-BAND-SHARE** (new 2026-08-02, from FEAT-GRID-FENCE-CORRIDOR). Value: a fence
   across a corridor should read as a shortcut worth earning, not as a toll booth. The share is a
