@@ -23,28 +23,27 @@ import {
   AmbushSpawnTag,
   VaultGuardTag,
 } from '../../ecs/components';
-import { inputSystem, resetInputSystem } from '../../ecs/systems/InputSystem';
+import { inputSystem } from '../../ecs/systems/InputSystem';
 import { InputController } from '../managers/InputController';
 import { movementSystem, clampPlayerToRect } from '../../ecs/systems/MovementSystem';
 import type { WallCollisionContext } from '../../ecs/systems/MovementSystem';
 import { setNavigationContext } from '../../ecs/systems/enemy-ai/common';
 import { MoverKind, createCollisionResult, findNearestFreeCircleSpot, isSolidAtWorld, resolveCircleMove, tileKindAt } from '../../world/staticCollision';
 import { isPhasedWraith } from '../../ecs/systems/enemy-ai/wraith';
-import { setEnemyDecoy, clearEnemyDecoy, resetDecoySystem, getDecoyFollowerCount } from '../../ecs/systems/enemy-ai/decoy';
+import { setEnemyDecoy, clearEnemyDecoy, getDecoyFollowerCount } from '../../ecs/systems/enemy-ai/decoy';
 import { enemyAISystem, getWardenSlowMultiplier, setTelegraphManager } from '../../ecs/systems/EnemyAISystem';
-import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, resetEnemyAISystem, resetBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
+import { setEnemyProjectileCallback, setMinionSpawnCallback, setXPGemCallbacks, recordEnemyDeath, linkTwins, unlinkTwin, setBossCallbacks, getAllTwinLinks, setEnemyAIFieldRect, updateAIGameTime, setBossPhaseTransitionCallback } from '../../ecs/systems/enemy-ai/state';
 import { exploderFuseTelegraph, spawnTelegraph } from '../../ecs/systems/enemy-ai/telegraphs';
 import { armExploderFuse, tickExploderFuses, EXPLODER_BLAST_RADIUS, EXPLODER_BLAST_DAMAGE, type ExploderFuse } from '../../ecs/systems/enemy-ai/exploder-fuse';
-import { resetBossPhaseTracking, resetBastionStrikes, resetPulsarStrikes, resetBombardStrikes, resetStalkerStrikes, resetObeliskStrikes, resetHelixStrikes, resetTessellatorStrikes, resetTremorStrikes, resetDivinerStrikes, resetEclipseStrikes, resetLegionSystem, registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
-import { resetWeaponSystem } from '../../ecs/systems/WeaponSystem';
-import { resetCollisionSystem, setCombatStats } from '../../ecs/systems/CollisionSystem';
-import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, applyBurn, resetStatusEffectSystem } from '../../ecs/systems/StatusEffectSystem';
+import { registerLegionRoot, registerLegionChild, onLegionMemberDeath, registerRestoredLegionMembers, forEachLegionGroup, legionPotentialMultiplier, legionPoolFromMember, legionChildSpawnOffsets, legionGenerationForType } from '../../ecs/systems/EnemyAISystem';
+import { setCombatStats } from '../../ecs/systems/CollisionSystem';
+import { statusEffectSystem, setStatusEffectSystemEffectsManager, setStatusEffectSystemDeathCallback, setStatusEffectDamageCallback, applyPoison, applyFreeze, applyBurn } from '../../ecs/systems/StatusEffectSystem';
 import { getScaledStats, getEnemyType, getEnemyArmor, EnemyTypeDefinition, EnemyAIType } from '../../enemies/EnemyTypes';
-import { spriteSystem, registerSprite, getSprite, unregisterSprite, resetSpriteSystem } from '../../ecs/systems/SpriteSystem';
-import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, resetXPGemSystem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
-import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, resetHealthPickupSystem, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
-import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager, resetMagnetPickupSystem } from '../../ecs/systems/MagnetPickupSystem';
-import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, resetConsumablePickupSystem, ConsumableKind, getConsumableKindColor } from '../../ecs/systems/ConsumablePickupSystem';
+import { spriteSystem, registerSprite, getSprite, unregisterSprite } from '../../ecs/systems/SpriteSystem';
+import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, setXPGemEffectsManager, setXPGemSoundManager, setXPGemMagnetRange, setXPGemTrailManager, setXPGemWorldReference, getXPGemPositions, consumeXPGem, magnetizeAllGems, setXPGemQuality } from '../../ecs/systems/XPGemSystem';
+import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
+import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager } from '../../ecs/systems/MagnetPickupSystem';
+import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, ConsumableKind, getConsumableKindColor } from '../../ecs/systems/ConsumablePickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades, getWeaponUpgrades } from '../../data/Upgrades';
 import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
 import {
@@ -57,7 +56,7 @@ import {
   MARKET_CONTRABAND_BANISHES,
 } from '../../data/MarketOffers';
 import { EffectsManager } from '../../effects/EffectsManager';
-import { getJuiceManager, resetJuiceManager } from '../../effects/JuiceManager';
+import { getJuiceManager } from '../../effects/JuiceManager';
 import { SoundManager } from '../../audio/SoundManager';
 import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
@@ -195,7 +194,7 @@ import { setHazardZoneScene, spawnHazardZone, updateHazardZones, updateHazardSpa
 import { getGameStateManager, GameSaveState } from '../../save/GameStateManager';
 import { getSettingsManager } from '../../settings';
 import { SecureStorage, flushStorage } from '../../storage';
-import { updateFrameCache, resetFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
+import { updateFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
 import {
   GAUNTLET_BREATHER_SECONDS,
   GAUNTLET_DAMAGE_MULT_PER_WAVE,
@@ -210,13 +209,12 @@ import { loadGauntletBestWave, saveGauntletBestWaveIfHigher } from '../gauntlet/
 import { recordGauntletRun } from '../gauntlet/GauntletLeaderboard';
 import { loadEndlessBestCycle, saveEndlessBestCycleIfHigher } from '../endless/EndlessBestCycle';
 import { recordEndlessRun } from '../endless/EndlessLeaderboard';
-import { resetEnemySpatialHash, getEnemySpatialHash } from '../../utils/SpatialHash';
+import { getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
 import { getCodexManager } from '../../codex';
-import { resetComboSystem, recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
+import { recordComboKill, updateComboSystem, getComboCount, getHighestCombo, getComboTier, getComboDecayPercent, getComboBuffDamageMultiplier, isComboBuffActive, getComboBuffRemainingPercent, getComboState, restoreComboState, type ComboTier } from '../../systems/ComboSystem';
 import {
-  resetUltimateSystem,
   addUltimateChargeFromKill,
   addUltimateChargeFromDamage,
   getUltimateChargeRatio,
@@ -230,7 +228,8 @@ import {
   fillUltimateCharge,
 } from '../../systems/UltimateSystem';
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
-import { resetEventSystem, updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
+import { updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
+import { runAllRunResets } from '../../systems/runResetRegistry';
 import { expireTimedStatBuffs, normalizeTimedStatBuffs, applyFieldBoost, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
 import { FIELD_BOOSTS, getFieldBoostByKind, type FieldBoostDefinition } from '../../data/FieldBoosts';
 import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
@@ -14382,49 +14381,18 @@ export class GameScene extends Phaser.Scene {
   /**
    * Resets every module-level / singleton system that holds run-scoped state so
    * a new run starts clean. Called from BOTH the fresh-start and save-restore
-   * paths in create() — keep this the single source of truth so a newly added
-   * system can never be reset on one path but not the other (a class of
-   * stale-state bug CLAUDE.md explicitly warns about).
+   * paths in create(). The zero-argument module resets live in
+   * `src/systems/runResetRegistry.ts`, where `runResetRegistry.test.ts` fails the
+   * build if a `reset*` export under src/systems or src/ecs is missing from the
+   * list; only the calls that need the scene or the run's strategy stay here.
    */
   private resetAllRunSystems(): void {
-    resetInputSystem();
-    resetSpriteSystem();
-    resetEnemyAISystem();
-    resetDecoySystem();
-    resetBossCallbacks();
-    resetXPGemSystem();
-    resetHealthPickupSystem();
-    resetMagnetPickupSystem();
-    resetConsumablePickupSystem();
-    resetWeaponSystem();
-    resetCollisionSystem();
-    resetStatusEffectSystem();
-    resetFrameCache();
-    resetEnemySpatialHash();
+    runAllRunResets();
     resetShapeTextureCache(this);
     resetEnemyTextureCache(this);
     destroyGemAtlases(this);
     destroyProjectileAtlases(this);
-    resetComboSystem();
-    resetUltimateSystem();
-    resetEventSystem();
     resetDirectorSystem(this.directorStrategy);
-    resetBossPhaseTracking();
-    resetBastionStrikes();
-    resetPulsarStrikes();
-    resetBombardStrikes();
-    resetStalkerStrikes();
-    resetObeliskStrikes();
-    resetHelixStrikes();
-    resetTessellatorStrikes();
-    resetTremorStrikes();
-    resetDivinerStrikes();
-    resetEclipseStrikes();
-    resetLegionSystem();
-    resetBossArenaSystem();
-    resetHazardZoneSystem();
-    resetMusicIntensityDriver();
-    resetJuiceManager();
     this.trophyUnlockedThisRun = null;
     // A boss's trophy is earned by beating it and spends from the NEXT run
     // onward: the boss kill ends this one. The codex's persisted per-enemy kill
