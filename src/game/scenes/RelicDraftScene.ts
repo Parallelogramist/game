@@ -7,7 +7,9 @@ import { createMenuCard, MenuCard } from '../../visual/MenuCard';
 import { createMenuOverlay, MenuOverlay } from '../../visual/MenuOverlay';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
 import { ACCENT_COLORS_STR, MENU_FONT, TEXT_COLORS } from '../../visual/MenuStyle';
-import { computeCardGridInBand, fitTextWidth, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import {
+  CardGridInBand, computeCardGridInBand, fitTextWidth, resolveMenuFontScale, scaledInt,
+} from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 
 /** Data passed to RelicDraftScene by GameScene.processRelicChoiceQueue(). */
@@ -74,6 +76,7 @@ export class RelicDraftScene extends Phaser.Scene {
   private cardScaleFactor: number = 1;
   private menuScale: number = 1;
   private gridColumns: number = 1;
+  private headerTexts: Phaser.GameObjects.Text[] = [];
   private entranceComplete: boolean = false;
   private selectionMade: boolean = false;
 
@@ -95,6 +98,7 @@ export class RelicDraftScene extends Phaser.Scene {
     this.cardEntries = [];
     this.cardScaleFactor = 1;
     this.gridColumns = 1;
+    this.headerTexts = [];
     this.menuScale = resolveMenuFontScale(
       this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
     );
@@ -130,17 +134,11 @@ export class RelicDraftScene extends Phaser.Scene {
     subtitle.setDepth(1);
     fitTextWidth(subtitle, this.scale.width - 24);
 
+    this.headerTexts = [title, subtitle];
+
     this.createRelicCards();
 
-    this.cardNavigator = new MenuNavigator({
-      scene: this,
-      columns: Math.max(1, this.gridColumns),
-      items: this.cardEntries.map((entry) => ({
-        onFocus: () => this.applyCardHover(entry.index, true),
-        onBlur: () => this.applyCardHover(entry.index, false),
-        onActivate: () => this.selectRelic(entry.relic),
-      })),
-    });
+    this.createCardNavigator();
 
     this.keydownHandler = (event: KeyboardEvent) => {
       if (!this.entranceComplete) return;
@@ -162,10 +160,22 @@ export class RelicDraftScene extends Phaser.Scene {
     entry.card.setHoverState(hovered);
   }
 
-  private createRelicCards(): void {
-    const count = Math.max(1, this.choices.length);
-    const grid = computeCardGridInBand({
-      count,
+  private createCardNavigator(): void {
+    this.cardNavigator?.destroy();
+    this.cardNavigator = new MenuNavigator({
+      scene: this,
+      columns: Math.max(1, this.gridColumns),
+      items: this.cardEntries.map((entry) => ({
+        onFocus: () => this.applyCardHover(entry.index, true),
+        onBlur: () => this.applyCardHover(entry.index, false),
+        onActivate: () => this.selectRelic(entry.relic),
+      })),
+    });
+  }
+
+  private computeRelicGrid(): CardGridInBand {
+    return computeCardGridInBand({
+      count: Math.max(1, this.choices.length),
       cardWidth: RELIC_CARD_WIDTH,
       cardHeight: RELIC_CARD_HEIGHT,
       cardSpacing: RELIC_CARD_SPACING,
@@ -178,18 +188,29 @@ export class RelicDraftScene extends Phaser.Scene {
       menuScale: this.menuScale,
       anchorOffset: RELIC_ROW_ANCHOR_OFFSET,
     });
+  }
+
+  private relicCardPosition(grid: CardGridInBand, index: number): { x: number; y: number } {
+    const count = Math.max(1, this.choices.length);
+    const rowIndex = Math.floor(index / grid.columns);
+    const cardsInRow = Math.min(grid.columns, count - rowIndex * grid.columns);
+    // A short last row would otherwise sit left-aligned under a full one.
+    const rowInset = ((grid.columns - cardsInRow) * grid.columnPitch) / 2;
+    return {
+      x: grid.firstColumnX + rowInset + (index % grid.columns) * grid.columnPitch,
+      y: grid.firstRowY + rowIndex * grid.rowPitch,
+    };
+  }
+
+  private createRelicCards(): void {
+    const grid = this.computeRelicGrid();
     this.cardScaleFactor = grid.scale;
     this.gridColumns = grid.columns;
 
     this.choices.forEach((relic, index) => {
-      const rowIndex = Math.floor(index / grid.columns);
-      const cardsInRow = Math.min(grid.columns, count - rowIndex * grid.columns);
-      // A short last row would otherwise sit left-aligned under a full one.
-      const rowInset = ((grid.columns - cardsInRow) * grid.columnPitch) / 2;
-      const cardX = grid.firstColumnX + rowInset + (index % grid.columns) * grid.columnPitch;
-      const cardY = grid.firstRowY + rowIndex * grid.rowPitch;
+      const position = this.relicCardPosition(grid, index);
       const entry = this.createCardEntry(
-        cardX, cardY, RELIC_CARD_WIDTH, RELIC_CARD_HEIGHT, relic, index,
+        position.x, position.y, RELIC_CARD_WIDTH, RELIC_CARD_HEIGHT, relic, index,
       );
       entry.card.container.setScale(grid.scale);
       this.cardEntries.push(entry);
@@ -288,6 +309,42 @@ export class RelicDraftScene extends Phaser.Scene {
     });
 
     return { card, relic, index };
+  }
+
+  /**
+   * Re-place the draft grid on the live canvas. Positions and card scale only: the text
+   * inside a card was sized at creation and is not re-rendered.
+   */
+  handleResize(): void {
+    if (this.selectionMade) return;
+
+    this.menuOverlay?.destroy();
+    this.menuOverlay = createMenuOverlay(this, { dim: 0.7, drifterCount: 4 });
+
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
+
+    const centerX = this.scale.width / 2;
+    for (const text of this.headerTexts) {
+      text.setX(centerX);
+      text.setScale(1);
+      fitTextWidth(text, this.scale.width - 24);
+    }
+
+    const grid = this.computeRelicGrid();
+    this.cardScaleFactor = grid.scale;
+    this.gridColumns = grid.columns;
+    this.cardEntries.forEach((entry, index) => {
+      const position = this.relicCardPosition(grid, index);
+      this.tweens.killTweensOf(entry.card.container);
+      entry.card.container.setPosition(position.x, position.y);
+      entry.card.container.setScale(grid.scale);
+      entry.card.container.setAlpha(1);
+    });
+    this.entranceComplete = true;
+
+    this.createCardNavigator();
   }
 
   private selectRelic(relic: Relic): void {

@@ -53,6 +53,7 @@ export class QuestBoardScene extends Phaser.Scene {
   private contentContainer: Phaser.GameObjects.Container | null = null;
   private statusText: Phaser.GameObjects.Text | null = null;
   private subtitleText: Phaser.GameObjects.Text | null = null;
+  private titleText: Phaser.GameObjects.Text | null = null;
   private cargoNotice = '';
   private navigator: MenuNavigator | null = null;
   private leaveButton: MenuButton | null = null;
@@ -93,14 +94,14 @@ export class QuestBoardScene extends Phaser.Scene {
     };
     this.events.on('update', this.overlayUpdateHandler);
 
-    const title = makeDisplayText(this, this.scale.width / 2, scaledInt(this.menuScale, 72), 'QUEST BOARD', {
+    this.titleText = makeDisplayText(this, this.scale.width / 2, scaledInt(this.menuScale, 72), 'QUEST BOARD', {
       fontSize: scaledInt(this.menuScale, 44),
       color: ACCENT_COLORS_STR.teal,
       strokeWidth: scaledInt(this.menuScale, 6),
       letterSpacing: 3 * this.menuScale,
     });
-    title.setDepth(1);
-    fitTextWidth(title, this.scale.width - 24);
+    this.titleText.setDepth(1);
+    fitTextWidth(this.titleText, this.scale.width - 24);
 
     this.subtitleText = makeBodyText(this, this.scale.width / 2, scaledInt(this.menuScale, 118),
       'Take on a contract, or set one aside for later', {
@@ -176,7 +177,10 @@ export class QuestBoardScene extends Phaser.Scene {
     this.subtitleText?.setText(this.cargoNotice !== ''
       ? this.cargoNotice
       : 'Take on a contract, or set one aside for later');
-    if (this.subtitleText) fitTextWidth(this.subtitleText, this.scale.width - 24);
+    if (this.subtitleText) {
+      this.subtitleText.setScale(1);
+      fitTextWidth(this.subtitleText, this.scale.width - 24);
+    }
 
     this.entries = getQuestBoardEntries();
     const activeCount = this.entries.filter((entry) => entry.status === 'active').length;
@@ -184,7 +188,10 @@ export class QuestBoardScene extends Phaser.Scene {
       `ACCEPTED ${activeCount} / ${ACTIVE_EXPEDITION_QUEST_LIMIT}`
       + (activeCount >= ACTIVE_EXPEDITION_QUEST_LIMIT ? ' (set one aside to take another)' : ''),
     );
-    if (this.statusText) fitTextWidth(this.statusText, this.scale.width - 24);
+    if (this.statusText) {
+      this.statusText.setScale(1);
+      fitTextWidth(this.statusText, this.scale.width - 24);
+    }
 
     const layout = this.computeGridLayout(this.entries.length);
     this.gridScale = layout.scale;
@@ -217,6 +224,32 @@ export class QuestBoardScene extends Phaser.Scene {
       initialIndex: Math.min(this.focusedIndex, Math.max(0, items.length - 1)),
       onCancel: () => this.leave(),
     });
+  }
+
+  /** Re-place the header and footer on the live canvas, then re-render the board into it. */
+  handleResize(): void {
+    if (this.resolved) return;
+
+    this.menuOverlay?.destroy();
+    this.menuOverlay = createMenuOverlay(this, { dim: 0.7, drifterCount: 4 });
+
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
+
+    const centerX = this.scale.width / 2;
+    if (this.titleText) {
+      this.titleText.setX(centerX);
+      this.titleText.setScale(1);
+      fitTextWidth(this.titleText, this.scale.width - 24);
+    }
+    this.subtitleText?.setX(centerX);
+    this.statusText?.setX(centerX);
+    this.leaveButton?.container.setPosition(
+      centerX, this.scale.height - scaledInt(this.menuScale, 44),
+    );
+
+    this.rebuild();
   }
 
   private computeGridLayout(count: number) {

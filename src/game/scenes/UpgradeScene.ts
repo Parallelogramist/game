@@ -72,6 +72,9 @@ type RefitOffer = Upgrade & { requiresSwap?: boolean };
  *  - Weapon unlocks → primary body / primary accent (new toy)
  *  - Mastered upgrade banner → focus accent (golden punch)
  */
+const UPGRADE_CARD_WIDTH = 280;
+const UPGRADE_CARD_HEIGHT = 340;
+
 export class UpgradeScene extends Phaser.Scene {
   private upgrades: Upgrade[] = [];
   private onSelectCallback: ((upgrade: Upgrade, scrapWeaponId?: string) => void) | null = null;
@@ -111,6 +114,10 @@ export class UpgradeScene extends Phaser.Scene {
 
   private menuOverlay: MenuOverlay | null = null;
   private utilityButtons: MenuButton[] = [];
+  private headerTexts: Phaser.GameObjects.Text[] = [];
+  private lockHintText: Phaser.GameObjects.Text | null = null;
+  private warningCard: MenuCard | null = null;
+  private closing: boolean = false;
   private overlayUpdateHandler: ((time: number, delta: number) => void) | null = null;
 
   constructor() {
@@ -156,6 +163,10 @@ export class UpgradeScene extends Phaser.Scene {
     this.utilityButtons = [];
     this.cardScaleFactor = 1;
     this.entranceComplete = false;
+    this.headerTexts = [];
+    this.lockHintText = null;
+    this.warningCard = null;
+    this.closing = false;
     this.soundManager = new SoundManager(this);
     this.tooltipManager = new TooltipManager(this);
     // Lock toggles sit on top of the card hit-zone; topOnly ensures clicking a
@@ -189,6 +200,7 @@ export class UpgradeScene extends Phaser.Scene {
       color: isWeaponMilestone ? ACCENT_COLORS_STR.primary : TEXT_COLORS.muted,
     });
     subtitle.setDepth(1);
+    this.headerTexts = [title, subtitle];
 
     if (this.isLastWeaponSlot) {
       const warningCard = createMenuCard(this, {
@@ -208,6 +220,7 @@ export class UpgradeScene extends Phaser.Scene {
       });
       warningCard.container.setDepth(2);
       warningCard.container.setScale(this.menuScale);
+      this.warningCard = warningCard;
       const warningLabel = makeDisplayText(this, 0, this.weaponSlotsInfo ? -8 : 0,
         'FINAL WEAPON SLOT: Choose wisely!', {
           fontSize: 16,
@@ -309,6 +322,7 @@ export class UpgradeScene extends Phaser.Scene {
   }
 
   private fadeOutAndInvoke(callback: (() => void) | null): void {
+    this.closing = true;
     this.tweens.add({
       targets: this.children.list,
       alpha: 0,
@@ -320,9 +334,29 @@ export class UpgradeScene extends Phaser.Scene {
     });
   }
 
+  private utilityButtonRowY(): number {
+    return this.scale.height - scaledInt(this.menuScale, 60);
+  }
+
+  private utilityButtonSpacing(): number {
+    return scaledInt(this.menuScale, 200);
+  }
+
+  private layoutUtilityButtons(): void {
+    const buttonY = this.utilityButtonRowY();
+    const buttonSpacing = this.utilityButtonSpacing();
+    const startX = this.scale.width / 2 - buttonSpacing;
+    this.utilityButtons.forEach((button, index) => {
+      button.container.setPosition(startX + index * buttonSpacing, buttonY);
+    });
+    this.lockHintText?.setPosition(
+      this.scale.width / 2, buttonY - scaledInt(this.menuScale, 40),
+    );
+  }
+
   private createUtilityButtons(): void {
-    const buttonY = this.scale.height - scaledInt(this.menuScale, 60);
-    const buttonSpacing = scaledInt(this.menuScale, 200);
+    const buttonY = this.utilityButtonRowY();
+    const buttonSpacing = this.utilityButtonSpacing();
     const startX = this.scale.width / 2 - buttonSpacing;
 
     // Discoverability: locking is only useful when a reroll can pin against it.
@@ -333,6 +367,7 @@ export class UpgradeScene extends Phaser.Scene {
         { fontSize: scaledInt(this.menuScale, 13), color: TEXT_COLORS.muted },
       );
       lockHint.setDepth(10);
+      this.lockHintText = lockHint;
     }
 
     this.utilityButtons.push(
@@ -399,6 +434,36 @@ export class UpgradeScene extends Phaser.Scene {
 
     if (tooltip) this.tooltipManager.attach(button.card.hitZone, tooltip);
     return button;
+  }
+
+  /**
+   * Re-place the modal on the live canvas. Positions and card scale only: the text inside a
+   * card was sized against the scale factor it was created at and is not re-rendered.
+   */
+  handleResize(): void {
+    if (this.closing) return;
+
+    this.menuOverlay?.destroy();
+    this.menuOverlay = createMenuOverlay(this, { dim: 0.7, drifterCount: 4 });
+
+    // The banish confirmation and the refit picker each bake a full-canvas dim rect at
+    // creation and are one tap to reopen, so a resize dismisses them rather than re-laying
+    // them out.
+    this.destroyBanishConfirmation();
+    this.destroyRefitPicker();
+
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
+
+    const centerX = this.scale.width / 2;
+    for (const text of this.headerTexts) text.setX(centerX);
+    this.warningCard?.container.setPosition(centerX, scaledInt(this.menuScale, 175));
+    this.warningCard?.container.setScale(this.menuScale);
+    this.banishModeText?.setPosition(centerX, scaledInt(this.menuScale, 215));
+
+    this.layoutUpgradeCards();
+    this.layoutUtilityButtons();
   }
 
   private handleReroll(): void {
@@ -751,31 +816,32 @@ export class UpgradeScene extends Phaser.Scene {
     this.utilityButtons = [];
   }
 
-  private createUpgradeCards(): void {
-    const baseCardWidth = 280;
-    const baseCardHeight = 340;
+  private computeUpgradeCardLayout(): {
+    scaleFactor: number;
+    positions: { x: number; y: number }[];
+  } {
     const baseCardSpacing = 36;
     const baseRowSpacing = 28;
     const horizontalMargin = 60;
 
     const numCards = this.upgrades.length;
-    const rows: Upgrade[][] = [];
+    const rowCounts: number[] = [];
 
     // Narrow (portrait) viewports wrap earlier: 4 cards on one 720-wide row
-    // shrink to ~0.49× (unreadable); 2×2 keeps them at ~0.66× and portrait
+    // shrink to ~0.49x (unreadable); 2x2 keeps them at ~0.66x and portrait
     // has the vertical room to spare.
     const singleRowMax = this.scale.width < 800 ? 3 : 4;
     if (numCards <= singleRowMax) {
-      rows.push(this.upgrades.slice());
+      rowCounts.push(numCards);
     } else {
       const firstRowCount = Math.ceil(numCards / 2);
-      rows.push(this.upgrades.slice(0, firstRowCount));
-      rows.push(this.upgrades.slice(firstRowCount));
+      rowCounts.push(firstRowCount, numCards - firstRowCount);
     }
 
-    const numRows = rows.length;
-    const maxCardsInAnyRow = Math.max(...rows.map((row) => row.length));
-    const baseMaxRowWidth = maxCardsInAnyRow * baseCardWidth + (maxCardsInAnyRow - 1) * baseCardSpacing;
+    const numRows = rowCounts.length;
+    const maxCardsInAnyRow = Math.max(...rowCounts);
+    const baseMaxRowWidth =
+      maxCardsInAnyRow * UPGRADE_CARD_WIDTH + (maxCardsInAnyRow - 1) * baseCardSpacing;
     const availableWidth = this.scale.width - scaledInt(this.menuScale, horizontalMargin) * 2;
     let scaleFactor = Math.min(this.menuScale, availableWidth / baseMaxRowWidth);
 
@@ -785,33 +851,62 @@ export class UpgradeScene extends Phaser.Scene {
     const verticalMarginTop = scaledInt(this.menuScale, 200);
     const verticalMarginBottom = scaledInt(this.menuScale, 110);
     const availableHeight = this.scale.height - verticalMarginTop - verticalMarginBottom;
-    const baseTotalHeight = numRows * baseCardHeight + (numRows - 1) * baseRowSpacing;
+    const baseTotalHeight = numRows * UPGRADE_CARD_HEIGHT + (numRows - 1) * baseRowSpacing;
     scaleFactor = Math.min(scaleFactor, availableHeight / baseTotalHeight);
 
-    this.cardScaleFactor = scaleFactor;
-    const cardWidth = baseCardWidth * scaleFactor;
-    const cardHeight = baseCardHeight * scaleFactor;
+    const cardWidth = UPGRADE_CARD_WIDTH * scaleFactor;
+    const cardHeight = UPGRADE_CARD_HEIGHT * scaleFactor;
     const cardSpacing = baseCardSpacing * scaleFactor;
     const rowSpacing = baseRowSpacing * scaleFactor;
 
     const totalRowsHeight = numRows * cardHeight + (numRows - 1) * rowSpacing;
     const startY = this.scale.height / 2 - totalRowsHeight / 2 + cardHeight / 2 + 30;
 
-    let globalIndex = 0;
-
-    rows.forEach((rowUpgrades, rowIndex) => {
-      const rowWidth = rowUpgrades.length * cardWidth + (rowUpgrades.length - 1) * cardSpacing;
+    const positions: { x: number; y: number }[] = [];
+    rowCounts.forEach((cardsInRow, rowIndex) => {
+      const rowWidth = cardsInRow * cardWidth + (cardsInRow - 1) * cardSpacing;
       const rowStartX = (this.scale.width - rowWidth) / 2 + cardWidth / 2;
       const rowY = startY + rowIndex * (cardHeight + rowSpacing);
-
-      rowUpgrades.forEach((upgrade, columnIndex) => {
-        const cardX = rowStartX + columnIndex * (cardWidth + cardSpacing);
-        const entry = this.createCardEntry(cardX, rowY, baseCardWidth, baseCardHeight, upgrade, globalIndex);
-        entry.card.container.setScale(scaleFactor);
-        this.cardEntries.push(entry);
-        globalIndex++;
-      });
+      for (let columnIndex = 0; columnIndex < cardsInRow; columnIndex++) {
+        positions.push({
+          x: rowStartX + columnIndex * (cardWidth + cardSpacing),
+          y: rowY,
+        });
+      }
     });
+
+    return { scaleFactor, positions };
+  }
+
+  private createUpgradeCards(): void {
+    const layout = this.computeUpgradeCardLayout();
+    this.cardScaleFactor = layout.scaleFactor;
+
+    this.upgrades.forEach((upgrade, index) => {
+      const position = layout.positions[index];
+      const entry = this.createCardEntry(
+        position.x, position.y, UPGRADE_CARD_WIDTH, UPGRADE_CARD_HEIGHT, upgrade, index,
+      );
+      entry.card.container.setScale(layout.scaleFactor);
+      this.cardEntries.push(entry);
+    });
+  }
+
+  private layoutUpgradeCards(): void {
+    const layout = this.computeUpgradeCardLayout();
+    this.cardScaleFactor = layout.scaleFactor;
+    this.cardEntries.forEach((entry, index) => {
+      const position = layout.positions[index];
+      if (!position) return;
+      // A resize mid-entrance would otherwise let the slide-in tween drag the card back to
+      // its pre-resize target y, so the entrance is settled here rather than replayed.
+      this.tweens.killTweensOf(entry.card.container);
+      entry.card.container.setPosition(position.x, position.y);
+      entry.card.container.setScale(layout.scaleFactor);
+      entry.card.container.setAlpha(1);
+      this.cardEntranceDone[index] = true;
+    });
+    this.entranceComplete = true;
   }
 
   /** Pick a body+accent color role for an upgrade based on its type. */

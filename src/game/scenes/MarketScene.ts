@@ -26,6 +26,11 @@ interface MarketCardEntry {
 }
 
 const LOCKED_CARD_ALPHA = 0.45;
+const BASE_CARD_WIDTH = 264;
+const BASE_CARD_HEIGHT = 320;
+const BASE_CARD_SPACING = 34;
+const CARD_ROW_EDGE_MARGIN = 60;
+const LEAVE_BUTTON_GAP = 56;
 
 /**
  * MarketScene — the Black Market's 1-of-3 priced overlay (FEAT-MARKET).
@@ -48,6 +53,7 @@ export class MarketScene extends Phaser.Scene {
   private overlayUpdateHandler: ((time: number, delta: number) => void) | null = null;
   private cardScaleFactor: number = 1;
   private cardRowBottomY: number = 0;
+  private headerTexts: Phaser.GameObjects.Text[] = [];
   private entranceComplete: boolean = false;
   private resolved: boolean = false;
 
@@ -66,6 +72,7 @@ export class MarketScene extends Phaser.Scene {
   create(): void {
     this.cardEntries = [];
     this.cardScaleFactor = 1;
+    this.headerTexts = [];
     this.soundManager = new SoundManager(this);
     this.input.setTopOnly(true);
 
@@ -98,12 +105,14 @@ export class MarketScene extends Phaser.Scene {
     });
     walletText.setDepth(1);
 
+    this.headerTexts = [title, subtitle, walletText];
+
     this.createOfferCards();
 
     this.leaveButton = createMenuButton({
       scene: this,
       x: this.scale.width / 2,
-      y: this.cardRowBottomY + 56,
+      y: this.cardRowBottomY + LEAVE_BUTTON_GAP,
       width: 220,
       height: 52,
       label: 'LEAVE',
@@ -145,29 +154,38 @@ export class MarketScene extends Phaser.Scene {
     entry.card.setHoverState(hovered);
   }
 
-  private createOfferCards(): void {
-    const baseCardWidth = 264;
-    const baseCardHeight = 320;
-    const baseCardSpacing = 34;
-    const horizontalMargin = 60;
+  private computeOfferRowGeometry(): {
+    scaleFactor: number;
+    startX: number;
+    rowY: number;
+    pitch: number;
+  } {
     const count = Math.max(1, this.offers.length);
-
-    const baseRowWidth = count * baseCardWidth + (count - 1) * baseCardSpacing;
-    const availableWidth = this.scale.width - horizontalMargin * 2;
+    const baseRowWidth = count * BASE_CARD_WIDTH + (count - 1) * BASE_CARD_SPACING;
+    const availableWidth = this.scale.width - CARD_ROW_EDGE_MARGIN * 2;
     const scaleFactor = Math.min(1, availableWidth / baseRowWidth);
-    this.cardScaleFactor = scaleFactor;
-
-    const cardWidth = baseCardWidth * scaleFactor;
-    const cardSpacing = baseCardSpacing * scaleFactor;
+    const cardWidth = BASE_CARD_WIDTH * scaleFactor;
+    const cardSpacing = BASE_CARD_SPACING * scaleFactor;
     const rowWidth = this.offers.length * cardWidth + (this.offers.length - 1) * cardSpacing;
-    const startX = (this.scale.width - rowWidth) / 2 + cardWidth / 2;
-    const rowY = this.scale.height / 2 + 20;
-    this.cardRowBottomY = rowY + (baseCardHeight * scaleFactor) / 2;
+    return {
+      scaleFactor,
+      startX: (this.scale.width - rowWidth) / 2 + cardWidth / 2,
+      rowY: this.scale.height / 2 + 20,
+      pitch: cardWidth + cardSpacing,
+    };
+  }
+
+  private createOfferCards(): void {
+    const geometry = this.computeOfferRowGeometry();
+    this.cardScaleFactor = geometry.scaleFactor;
+    this.cardRowBottomY = geometry.rowY + (BASE_CARD_HEIGHT * geometry.scaleFactor) / 2;
 
     this.offers.forEach((offer, index) => {
-      const cardX = startX + index * (cardWidth + cardSpacing);
-      const entry = this.createCardEntry(cardX, rowY, baseCardWidth, baseCardHeight, offer, index);
-      entry.card.container.setScale(scaleFactor);
+      const cardX = geometry.startX + index * geometry.pitch;
+      const entry = this.createCardEntry(
+        cardX, geometry.rowY, BASE_CARD_WIDTH, BASE_CARD_HEIGHT, offer, index,
+      );
+      entry.card.container.setScale(geometry.scaleFactor);
       this.cardEntries.push(entry);
     });
   }
@@ -257,6 +275,36 @@ export class MarketScene extends Phaser.Scene {
     });
 
     return { card, offer, index };
+  }
+
+  /**
+   * Re-place the offer row on the live canvas. Positions and card scale only: the text inside
+   * a card was sized against the scale factor it was created at and is not re-rendered.
+   */
+  handleResize(): void {
+    if (this.resolved) return;
+
+    this.menuOverlay?.destroy();
+    this.menuOverlay = createMenuOverlay(this, { dim: 0.7, drifterCount: 4 });
+
+    const centerX = this.scale.width / 2;
+    for (const text of this.headerTexts) text.setX(centerX);
+
+    const geometry = this.computeOfferRowGeometry();
+    this.cardScaleFactor = geometry.scaleFactor;
+    this.cardRowBottomY = geometry.rowY + (BASE_CARD_HEIGHT * geometry.scaleFactor) / 2;
+
+    this.cardEntries.forEach((entry, index) => {
+      // A resize mid-entrance would otherwise let the slide-in tween drag the card back to
+      // its pre-resize target y, so the entrance is settled here rather than replayed.
+      this.tweens.killTweensOf(entry.card.container);
+      entry.card.container.setPosition(geometry.startX + index * geometry.pitch, geometry.rowY);
+      entry.card.container.setScale(geometry.scaleFactor);
+      entry.card.container.setAlpha(entry.offer.locked ? LOCKED_CARD_ALPHA : 1);
+    });
+    this.entranceComplete = true;
+
+    this.leaveButton?.container.setPosition(centerX, this.cardRowBottomY + LEAVE_BUTTON_GAP);
   }
 
   private buyOffer(offer: MarketOfferView): void {
