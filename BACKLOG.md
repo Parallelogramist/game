@@ -8827,7 +8827,9 @@ routing: `EXEMPT-API` still has no consumer even after `FEAT-CARGO-PICKUP-ENTITY
 it is speculative surface), and `DIRECTOR` is explicitly waiting on an operator call. Among the
 cuts, `FEAT-QUEST-PUZZLE-AUTHORED-STEP` is now **done (3743d0d)**: the authored catalog carries the
 `quest_sigil_01` → `quest_sigil_02` ring chain, so the `puzzle` secret tier finally has a permanent
-objective behind it and the item should not be re-picked.
+objective behind it and the item should not be re-picked. `CHORE-SECRET-PUZZLE-RESUME` is
+**done (e6d4eea)** as well: a partly-woken ring now keeps its lit pylons across a sector change and
+a refresh, so it should not be re-picked either.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
@@ -10344,12 +10346,56 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   discovery state. Value: a room you have to earn twice. Deps: `FEAT-WORLDGEN-STREAM`.
   Spec: doc 04 section 5 taxonomy row 3.
 
-- [ ] **CHORE-SECRET-PUZZLE-RESUME** (new 2026-07-31, from `FEAT-SECRET-SEQUENCE-PUZZLES`):
+- [x] **CHORE-SECRET-PUZZLE-RESUME** (done, e6d4eea) (new 2026-07-31, from
+  `FEAT-SECRET-SEQUENCE-PUZZLES`):
   partial ring progress dies when the ship leaves the sector, because the ring is rebuilt dark by
   the same `clearSecretCaches` path that fires on a sector change. Harmless on a 3-pylon ring,
   slightly annoying on a 4-pylon one you had to leave mid-solve. Holding it would mean a
   run-scoped set of woken pylon ids on the cache entry plus a `poiState`-shaped save field.
   Value: not re-walking a ring you had half solved. Deps: none.
+
+  **What shipped.** `SecretCacheManager` now holds a run-scoped `puzzleProgress` map keyed by the
+  cache's secret id. `buildActivePuzzle` reads it to relight the pylons a rebuilt ring had already
+  woken, `touchPuzzleNode` writes it on every advance and every fizzle, `claimCache` deletes the
+  claimed ring's entry, and `clear()` wipes the whole map so a new run and a scene shutdown start
+  every ring dark. The refresh half is a `puzzles` array on the existing optional `poiState`
+  run-save block, so the memory survives a page reload as well as a sector change.
+
+  **A count, not a set of woken pylon ids.** The item guessed at a set; a single integer per ring
+  is strictly smaller and exactly as expressive. `buildSecretPuzzle` deals a ring its glyphs from
+  one `PUZZLE_GLYPHS.slice` and shuffles that same slice into `sequence`, so glyph ids inside a
+  ring are unique and the lit pylons are precisely the first `progress` entries of that sequence.
+
+  **No new storage key and no version bump.** It rides `poiState` beside `nests`, `lairs` and
+  `slots`, a block written only by an expedition run (`this.worldMode.worldMap()` guards the
+  write). A save from before this change carries no `puzzles` array, so every ring comes back
+  dark, which is the old behavior. `SAVE_VERSION`, `WORLDGEN_VERSION` and `DISCOVERY_VERSION` all
+  stay put.
+
+  **The clamp lives in the ring, not in the sanitizer.** A restored count at or past
+  `sequence.length` would light every pylon, and a lit pylon is a no-op touch, so the ring would
+  refuse every input and could never be solved. `buildActivePuzzle` clamps to
+  `sequence.length - 1`. The ring is the only thing that knows its own length, so the scene's
+  sanitizer keeps its neighbours' shape (type and positivity checks plus a length cap) and needs
+  to know nothing about glyph counts.
+
+  **The restore must sit below `resetInRunFeatureState`.** That method calls
+  `secretCacheManager.clear()` on both the fresh and the restore path and runs before the
+  `poiState` block, so a restore placed above it is wiped silently with no test going red. The
+  loop sits inside the `poiState` guard, under the nemesis-lair loop.
+
+  **A ring with woken pylons starts `noticed`.** `noticeSealedCache` fires the SEALED CACHE toast
+  once per sector visit, and its comment justified that with "the ring is rebuilt dark every time
+  the ship re-enters the room". This change makes that sentence false, so the behavior moved with
+  it: a player looking at lit sigils does not need to be told the cache is sealed. Both comments
+  that carried the stale reason were corrected rather than left to mislead the next author.
+
+  **No new test** (deliberate, not an omission). `SecretCacheManager` builds
+  `Phaser.GameObjects.Graphics` in `buildActivePuzzle` and `addCache`, and this repo's `CLAUDE.md`
+  is explicit that Phaser-coupled code is verified by play rather than by mocking a live scene.
+  The pure rule the change leans on (a ring's `sequence` is a permutation of unique glyph ids) is
+  already pinned by `src/world/secretPuzzles.test.ts`. Follow-up filed:
+  `POLISH-PUZZLE-RESUME-TELL` under `## Human gates`.
 
 - [ ] **FEAT-ECON-WARDS**: lock the economy so later content authoring cannot drift balance, as an
   **enforced cap that a runtime path actually applies**, not only as a red fixture. Keep every
@@ -10668,6 +10714,15 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-PUZZLE-RESUME-TELL** (new 2026-08-02, from CHORE-SECRET-PUZZLE-RESUME): a ring you
+  half woke now comes back lit, and the SEALED CACHE toast no longer re-announces when you return
+  to it, because a player looking at lit sigils already knows the cache is sealed. Both are
+  deliberate and both are unplayed: whether a returning ring reads as the game keeping your place
+  or as an unexplained state, and whether a player who left mid-solve wants the sigil ORDER
+  restated (the map screen's LEADS panel and the ticker still carry it, the toast no longer does),
+  is a feel judgement a browser answers and a count cannot. Value: coming back to a ring reads as
+  continuity rather than as a puzzle that moved. Deps: playtest.
 
 - [ ] **POLISH-POI-RETIRE-RESTOCK** (new 2026-08-02, from FEAT-WORLDGEN-STREAM-POI-RETIRE,
   2de1840). Value: an untouched POI reward now leaves with the room and the room stocks itself
