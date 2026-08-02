@@ -6990,14 +6990,76 @@ exploring pays is the end of Phase 5.
   remaining scope landed as `FEAT-BARRIER-ABILITY-DOORS` (that chunk's own entry records it).
   Deps: none outstanding.
 
-- [ ] **FEAT-WORLDGEN-STREAM-POI-RETIRE** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): placed
-  POI contents (treasure chests, crate fields, field-boost caches, shrines, the black market,
-  ambush nests, nemesis lairs) survive a handoff today, because `spawnedPoiSlotIds` records that a
-  slot was stocked and nothing records whether its reward was taken. Re-arming a partly-looted slot
-  would pay it twice, so retiring them needs a slot-to-objects registry threaded through
-  `spawnPoiContent`'s eight branches plus an "untouched" test at retire time. They are bounded by
-  the world's slot count (1 to 3 per sector), unlike loot, which is unbounded per fight. **Value:**
-  a room re-stocks itself instead of keeping the leftovers of the last visit. Deps: none.
+- [x] **FEAT-WORLDGEN-STREAM-POI-RETIRE** (done, 2de1840, 2026-08-02, from
+  `FEAT-WORLDGEN-STREAM`): placed POI contents (treasure chests, crate fields, field-boost caches,
+  shrines, the black market, ambush nests, nemesis lairs) survived a handoff, because
+  `spawnedPoiSlotIds` recorded that a slot was stocked and nothing recorded whether its reward was
+  taken. Re-arming a partly-looted slot would pay it twice, so retiring them needed a
+  slot-to-objects registry threaded through `spawnPoiContent`'s eight branches plus an "untouched"
+  test at retire time. They are bounded by the world's slot count (1 to 3 per sector), unlike loot,
+  which is unbounded per fight. **Value:** a room re-stocks itself instead of keeping the leftovers
+  of the last visit. Deps: none.
+
+  **What shipped:** the loot half. A POI slot in the room the ship just left is retired when every
+  object it spawned is still on the floor, meaning the player never touched it: those objects are
+  destroyed and the slot leaves `spawnedPoiSlotIds`, so walking back in re-rolls and stocks the room
+  again instead of finding hundreds of rooms' leftovers still alive. A slot the player took part of
+  is left exactly as it was, because re-arming it would pay its reward twice, and its survivors are
+  additionally exempted from the loose-loot sweep.
+
+  **The measured defect it fixes, so nobody re-derives it:** `spawnFieldBoostPickup` goes through
+  `spawnConsumablePickup`, which adds `ConsumablePickupTag`, and slice 1's sweep is
+  `retireConsumableQuery = defineQuery([Transform, ConsumablePickupTag])` with no discrimination. So
+  a `poi_field_boost_cache` the player walked past was destroyed on the way out and never came back,
+  because the slot stayed in `spawnedPoiSlotIds`: a placed reward lost with no tell, in the same
+  commit whose own doc comment said placed POI contents were not retired. Placed POI entities are
+  now collected into a protected id set that the loose-loot sweep skips.
+
+  **Retire order is load-bearing:** the POI pass runs first, so an untouched slot's objects are gone
+  before the generic sweep looks, and the protected set is computed after it, so it holds only the
+  survivors of partly-looted slots. A retired chest goes through the `cleanup` closure rather than a
+  bare `graphics.destroy()`, because a POI cache has no auto-despawn but does run a 50 ms pulse
+  timer and a 100 ms collect timer forever; destroying only the graphics leaks both per retired
+  chest. `POI_CRATE_FIELD_COUNT` is 3, so a crate field is 3 entities, and a retired crate
+  decrements `destructibleCount`, which gates ambient crate spawning against
+  `MAX_DESTRUCTIBLES = 6`: skipping that decrement would silently stop crates ever spawning again.
+
+  **No save field, no storage key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump**: the
+  slot-to-objects registry is in-memory only. After a refresh-restore it comes up empty, so a
+  restored run retires no POI slot and behaves exactly as it did before, the same graceful
+  degradation slice 1 chose when a restore reports `fromSectorKey: null`.
+
+  **What was cut and why:** the five structure branches. The market is once-per-run through
+  `poiOncePerRunSpawned`; shrines are `ShrineManager`'s with their own `serialize()`/`restore()` and
+  a `MAX_SHRINES` cap; an ambush nest carries `awake`, `waveEntityIds` and a `markAmbushNestSighted`
+  discovery memory that makes a hive a permanent chart marker; a nemesis lair carries `awake` plus
+  `nemesisSpawned`. Each carries state a retire would have to unwind and none of them is loot, so
+  they are filed as `FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES` below rather than smuggled in. The
+  restore blindness is `CHORE-POI-RETIRE-RESTORE-BLIND`, and the feel question is
+  `POLISH-POI-RETIRE-RESTOCK` under `## Human gates`.
+
+- [ ] **FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES** (new 2026-08-02, from
+  `FEAT-WORLDGEN-STREAM-POI-RETIRE`): the five structure branches the loot slice left standing, so a
+  departed room still keeps its furniture. Each carries state a retire would have to unwind, which
+  is why the loot slice stopped: the black market is once-per-run through `poiOncePerRunSpawned`, so
+  retiring one has to decide whether the run gets a second market; shrines belong to `ShrineManager`
+  with their own `serialize()`/`restore()` and a `MAX_SHRINES` cap, so the registry is not the only
+  memory of them; an ambush nest carries `awake`, `waveEntityIds` and a `markAmbushNestSighted`
+  chart memory that makes a sighted hive a permanent map marker; a nemesis lair carries `awake` plus
+  `nemesisSpawned`. They are one `Graphics` each and hold no ECS entity until tripped, so they are
+  cheap next to a 3-entity crate field, which is why this is a tidiness win rather than an
+  entity-budget one. **Value:** a room's furniture is put away with its loot. Deps: none.
+
+- [ ] **CHORE-POI-RETIRE-RESTORE-BLIND** (new 2026-08-02, from
+  `FEAT-WORLDGEN-STREAM-POI-RETIRE`): `poiSlotObjects` is in-memory, so after a refresh-restore a
+  run retires no POI slot at all AND its field-boost caches are once again swept by
+  `retireConsumableQuery`, because the restored pickups come back through `restoreConsumable` with
+  no POI provenance: the one defect the slice fixed is re-armed by a refresh. Chosen on purpose,
+  the same call slice 1 made, and it keeps `SAVE_VERSION` still. Holding it would mean a
+  `poiState`-shaped map of slot id to spawned object descriptors, which is the same save-shape
+  question `CHORE-POI-CRATE-PERSIST` (`BACKLOG.md:5747`) asks from the other side, so the two want
+  to ship together. **Value:** a refresh stops re-arming the one defect this slice fixed.
+  Deps: none.
 
 - [ ] **FEAT-WORLDGEN-STREAM-EXEMPT-API** (new 2026-08-01, from `FEAT-WORLDGEN-STREAM`): doc 02
   section 11 promises a persistence-exemption API for quest drops that must survive a transition.
@@ -8596,7 +8658,9 @@ operator balance decision and the second on `FEAT-MAPUI-DOORS-05` plus
 band 2 is itself fully shipped except the `markSectorClearedOnce` remainder of
 `FEAT-DISCOVERY-WRITE-PATHS`, which is blocked on `FEAT-WORLDGEN-STREAM-DIRECTOR`, itself
 blocked on an operator call. The unblocked work has therefore moved to the cuts filed off
-shipped band-1 and band-2 items, plus band 3's `FEAT-WORLDGEN-STREAM` slices.
+shipped band-1 and band-2 items, plus band 3's `FEAT-WORLDGEN-STREAM` slices, of which
+`FEAT-WORLDGEN-STREAM-POI-RETIRE` is now **done (2de1840)** and should not be re-picked: what
+remains of it is `FEAT-WORLDGEN-STREAM-POI-RETIRE-STRUCTURES` and `CHORE-POI-RETIRE-RESTORE-BLIND`.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
@@ -10437,6 +10501,22 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-POI-RETIRE-RESTOCK** (new 2026-08-02, from FEAT-WORLDGEN-STREAM-POI-RETIRE,
+  2de1840). Value: an untouched POI reward now leaves with the room and the room stocks itself
+  again on return, so the handoff should read as a living world rather than as a reward being
+  taken away, but nothing about that is a number a test can settle. Questions only a playtest
+  answers: (a) does a room emptying behind you and re-stocking on return read as "the world is
+  alive", or as "the game took my chest" when you flew out to heal and came back for it?
+  (b) is the re-roll changing a room's content between visits right? The roll is seeded
+  `poi:${worldSeed}:${runSalt}:${slotId}` so it is stable, but the candidate list narrows once
+  the once-per-run market has spawned or a nemesis lair is standing, so a re-stocked Treasure
+  slot can legitimately come back as a different reward than the one you walked away from.
+  (c) an untouched crate field comes back at the `30 + gameTime * 0.6` HP formula of the moment
+  it re-stocks, so it is tougher than when it was first placed: does that matter, or is it
+  invisible next to weapon scaling? (d) a partly-looted slot is deliberately left standing
+  forever, so a room where you shot one crate of three keeps the other two for the whole
+  expedition: does that asymmetry read as a rule or as a bug?
 
 - [ ] **POLISH-CARGO-CRATE-FEEL** (new 2026-08-02, from FEAT-CARGO-PICKUP-ENTITY, 372c301).
   Value: a delivery's crate now stands beside the quest board and is flown into, but every number
