@@ -4940,12 +4940,58 @@ per world.
   overreach. Floor: `tsc --noEmit` clean, 126 files / 1575 tests green, `npm run build` green.
   Pixels are the human's: see **POLISH-PRACTICE-RUNEND** in the playtest queue.
 
-- [ ] **FEAT-ENEMY-SLIDE-ASSIST** (new 2026-08-01, from BUG-WALL-SLIDE): enemies share the resolver
+- [x] **FEAT-ENEMY-SLIDE-ASSIST** (done, 10eb22c, 2026-08-02) (new 2026-08-01, from BUG-WALL-SLIDE): enemies share the resolver
   and got the teleport fix, but `resolvePlayerMoveWithAssist` is player-only, so a chaser scraping
   a wall still keeps only its raw tangential projection. Cheap to extend (one call swap in the
   enemy branch of `MovementSystem.ts` with `MoverKind.Enemy` threaded through) but it is a feel
   change for ~150 movers at once and belongs after `FEAT-ENEMY-NAV-COVERAGE` lands. Value: pursuit
   reads as competent rather than sticky.
+  **What shipped:** `resolvePlayerMoveWithAssist` became `resolveMoveWithAssist` with a
+  `moverKind: MoverKind` threaded through it and through both corner-slip helpers, so the module
+  stopped hard-coding `MoverKind.Player` in its six `isSolidAtWorld` probes and its two
+  `resolveCircleMove` calls. The kind is threaded rather than assumed because the resolver answers
+  a one-way membrane differently for a hull than for an enemy. The enemy branch of `movementSystem`
+  then swapped its bare `resolveCircleMove` for `resolveMoveWithAssist` on an identical argument
+  list: one name, nothing else in the branch moved. `resolveCircleMove` left the file's import list
+  because it has no caller there any more and `tsc` runs with unused-symbol checking on.
+  **The five geometry constants are shared with the player, not duplicated** (`SLIDE_TRANSFER`
+  0.75, `CORNER_SLIP_TRANSFER` 0.75, `CORNER_SLIP_MAX_OVERLAP` 10, `CORNER_PROBE_AHEAD` 2,
+  `CORNER_PROBE_INSET` 0.5, `CORNER_SLIP_MARGIN` 1): they are tile geometry rather than ship
+  tuning, and a second set would be a second thing to tune.
+  **Measured, enemy radius 12, 8px step, tangential motion as a share of a full step.** The angle
+  sweep into a flat wall, bare then assisted: 5 degrees 8.7% to 83.4%, 10 degrees 17.4% to 91.2%,
+  20 degrees 34.2% to 100.0%, 30 degrees 50.0% to 100.0%, 45 degrees 70.7% to 100.0%, 60 degrees
+  86.6% to 100.0%, 80 degrees 98.5% to 100.0%. So a chaser pressed 5 degrees off the normal went
+  from crawling at a twelfth of its speed to keeping five sixths of it, and everything from 20
+  degrees out now slides at full open-field speed (capped there, never above it). The doorway:
+  every one of the eight offsets tested (10, 12, 14 and 16px either side of a 40px door centre)
+  stalled forever without the assist, returning -1 after 200 frames of pressing on the jamb, and
+  every one of the eight clears with it, in 17 or 18 frames. Nothing that used to stall still
+  stalls.
+  **What did not change.** Bosses (`aiType >= 100`) and phased Wraiths still bypass the whole
+  geometry block: the existing branch guards already excluded them and this change did not move
+  them. Knockback still resolves through the bare `resolveCircleMove` in `GameScene`, because
+  `BUG-KNOCKBACK-CORNER-CLIP` owns that path and is play-gated. Arena, daily, weekly, practice and
+  gauntlet are untouched by construction rather than by a flag: `movementSystem` skips the entire
+  geometry block when `wallCollision` is null, and it is null in all of them.
+  **Interaction with what already shipped:** `POLISH-ENEMY-NAV-SMOOTH`'s stuck nudge (0.3s of
+  wall-tangent shove once an enemy has moved under 8px for 1.5s while routing) still exists and is
+  unchanged. The slide assist is the always-on cheap layer beneath it, so the nudge should fire
+  noticeably less often rather than be replaced by it.
+  **The cost, honestly:** at most three extra `isSolidAtWorld` point samples plus one short
+  single-axis `resolveCircleMove` per mover per frame, and only on a frame where exactly one axis
+  contacted geometry (the `blockedX === blockedY` early return is the guard). `TUNING.spawn.maxEnemies`
+  is 2000, so the worst case is 2000 movers each paying that, not free. No LOD or distance gate was
+  added on purpose: an enemy's wall behaviour must not depend on its distance from the camera,
+  which would be a new inconsistency rather than a saving.
+  **No persisted state moved.** No storage key, no `SAVE_VERSION`, `WORLDGEN_VERSION`,
+  `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` or `WORLD_ARCHIVE_VERSION`: this is frame-local
+  movement math and touches no generation. Two tests were added to `staticCollision.test.ts` (the
+  angle sweep and the doorway contract) because the regression they pin fails silently: an enemy
+  that cannot get through a doorway still produces plausible motion, it just presses on the jamb
+  forever. Floor: `tsc --noEmit` clean, 185 files / 2126 tests green, `npm run build` green.
+  Pixels are the human's: this files **POLISH-ENEMY-SLIDE-FEEL** in the playtest queue and closes
+  question (e) of **POLISH-WALL-FEEL**.
 - [ ] **BUG-KNOCKBACK-CORNER-CLIP** (new 2026-08-01, from BUG-WALL-SLIDE): `GameScene.ts:8485`
   resolves enemy knockback through the same resolver and zeroes `Knockback.velocityX/Y` on
   `hitX`/`hitY`. The side guards make those flags honest (they no longer fire for a tile the enemy
@@ -10659,8 +10705,27 @@ Never agent work. The fleet must not do any of these.
     16px refusing feel like a wall or like a bug? (d) **F1d**: `PLAYER_COLLISION_RADIUS` is 16
     while the ship's nose renders wider. Raising it to 18 was cut here because it makes the ship
     collide more, which is the opposite of this item. Judge whether the visual overhang bothers
-    you. (e) **enemies**: they got the teleport fix but not the slide or the slip, so they still
-    scrape corners. Is that visible, or does `FEAT-ENEMY-NAV-COVERAGE` cover it?
+    you. (e) **enemies**: answered. `FEAT-ENEMY-SLIDE-ASSIST` gave every wall-colliding enemy the
+    same slide and slip on the same constants; judge it under `POLISH-ENEMY-SLIDE-FEEL` instead.
+  - **POLISH-ENEMY-SLIDE-FEEL** (new 2026-08-02, 10eb22c): every wall-colliding enemy now runs the
+    same slide transfer and corner slip the ship runs, on the same constants, and none of it was
+    seen in a browser. Needs a human flying `?expedition=1` into corridor and doorway fights to
+    judge (a) **the transfer**: a chaser pressed 20 degrees or more off a wall normal now keeps
+    full open-field speed where it kept 34% or less before, and 83% at 5 degrees where it kept
+    8.7%. Does a swarm pressed against a wall read as competent pursuit, or as enemies gliding on
+    rails? `SLIDE_TRANSFER` is one shared constant, so changing it changes the ship too. (b) **the
+    doorway slip**: a chaser 10 to 16px off the centre of a 40px door used to press on the jamb
+    forever and now clears it in 17 or 18 frames, so a corridor fight can be followed through a
+    door. Does that make retreating through a doorway pointless as a tactic? (c) **the shared
+    constants**: the enemy assist reuses the player's five rather than getting its own set,
+    because they are tile geometry. If enemy feel wants different numbers, splitting them is the
+    change, and that is a decision rather than a tune. (d) **the stuck nudge**:
+    `POLISH-ENEMY-NAV-SMOOTH`'s 0.3s wall-tangent shove should now fire much less often, since the
+    assist resolves most of what used to strand an enemy. Confirm you never see the slide and the
+    nudge fight each other, and say if the nudge now looks redundant. (e) **difficulty**: this
+    makes every non-boss enemy strictly better at reaching you near geometry, for free. Does
+    expedition need counter-tuning (spawn density or chaser speed near walls), or does the routing
+    work already shipped make the pressure feel earned?
   - **POLISH-ENEMY-NAV-COVERAGE** (new 2026-08-01, FEAT-ENEMY-NAV-COVERAGE): twelve enemy
     families changed how they move and none of it was validated in a browser. Needs a human
     flying an expedition through walled sectors to judge (a) **the ranged families**: shooters,
