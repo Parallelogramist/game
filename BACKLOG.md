@@ -1012,12 +1012,35 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `elite-auras.ts` `wardenSlowMultiplier` is rebuilt at the top of every `applyEliteAuras`,
   and `EnemyAISystem.ts` `aiLodFrame` is a monotonic LOD counter. Neither needs one.
   No playtest item is filed: nothing visible or feel-related changed.
-- [ ] **ARCH-AUTOBUY-EXTRACT** (chunk 2). Move `selectAutoBuyUpgrade`,
+- [x] **ARCH-AUTOBUY-EXTRACT** (chunk 2) (done, 9e4d0af). Move `selectAutoBuyUpgrade`,
   `calculateBaseScore`, `calculateGatePlanningBonus`, `calculateHealthAdaptiveBonus`,
   `calculateWeaponSynergyBonus` (`GameScene.ts:13476-13660`) into pure
   `src/game/autobuy/autoBuyScoring.ts` taking a plain snapshot, behind the existing
   call signatures (thin delegates stay in GameScene). Tests: scoring invariants
   (weapon level-ups not starved by overflow; gate-planning bonus near thresholds).
+
+  **What shipped:** two commits. (1) The five scoring methods left `GameScene` for pure
+  `src/game/autobuy/autoBuyScoring.ts`, which takes an `AutoBuyContext` snapshot (player level,
+  auto-upgrade tier, health-struggling flag, whether a weapon slot is free, the equipped weapon
+  ids, the run's upgrade pool) and exports `scoreAutoBuyUpgrade` plus `selectAutoBuyUpgrade`.
+  `GameScene` keeps a 12-line delegate, the call site in `processAutoBuyLevelUp` is untouched,
+  and the module imports nothing at runtime, so it needs no run-reset entry. (2) **The
+  extraction immediately exposed a live defect the item did not know about:** tier-4 Weapon
+  Synergy Intelligence, the top auto-upgrade unlock, named 13 weapon ids in three hardcoded
+  lists while `WeaponRegistry` holds 29. A run built on any of the other 16 (drone, sentry,
+  boomerang, scatter, reaper, wake, pulse, flail, sweep_beam, railgun, focus, mine, singularity,
+  guardian, storm, grenade) scored a flat 0 synergy bonus, so the tier the player paid for
+  behaved exactly like tier 3. The three lists became `WEAPON_SYNERGY_FAMILY`, one entry per
+  registry id, with the 16 newcomers assigned from the `WEAPON_MASTERY_CATEGORY` table
+  `WeaponManager` already maintains (mastery `summon` maps to the projectile family, because
+  drone and sentry fire projectiles; mastery `explosive` and `beam` map to beamAoe, alongside
+  the meteor and ground_spike already there; mastery `melee`, `aura` and `orbital` map to
+  meleeAura). The stat sets and the +15 constant are unchanged and all 13 previously-listed
+  weapons keep their family, so no existing loadout scores differently. A source-scanning test
+  fails the build when a `WeaponRegistry` id has no family or a family names a stat id that no
+  longer exists, so weapon #30 cannot silently repeat this. Verified by negative control:
+  deleting `grenade` from the table fails the suite naming it. Files
+  **POLISH-AUTOBUY-SYNERGY** for the playtest half.
 - [ ] **ARCH-ENEMY-PROJECTILES** (chunk 3). Move
   `spawnEnemyProjectile`/`updateEnemyProjectiles` (`:7571-7652`) and
   `handleLaserBeam`/`updateLaserBeams` (`:13181-13257`) into
@@ -9623,6 +9646,22 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-AUTOBUY-SYNERGY** (new 2026-08-02, from ARCH-AUTOBUY-EXTRACT). Value: tier-4
+  auto-upgrade now scores 29 weapons instead of 13, and which family each of the 16 newly
+  covered weapons belongs to is a balance judgement no test can settle. The assignment was
+  derived from `WEAPON_MASTERY_CATEGORY`, not from play. Questions: (a) drone and sentry are
+  filed under the projectile family, so a summon build now biases the auto-picker toward
+  multishot/piercing/velocity/reach — is that what a drone build actually wants, or should
+  summons want haste and might instead? (b) the explosive weapons (mine, singularity, guardian,
+  storm, grenade) went to the beamAoe family, which wants might/reach/haste — grenade and
+  singularity both read projectile speed, so does velocity belong in their bonus? (c)
+  `homing_missile` was left in the projectile family where the original code put it even though
+  mastery calls it explosive: check a missile build still gets sensible picks. (d) the +15
+  per-family constant and the fact that families stack (a mixed loadout can pay +30 or +45 on
+  one stat) were both inherited unchanged — with 29 weapons covered instead of 13, stacking is
+  far more common than it was, so watch whether tier 4 now over-weights a single stat. (e)
+  broadest question: with the gap closed, does tier 4 visibly pick differently from tier 3 in a
+  real run, which is the whole point of the unlock?
 - [ ] **POLISH-MENU-RESIZE-FEEL** (new 2026-08-02, from POLISH-MENU-RESIZE). Value: the resize
   path is pure geometry with no browser in the loop, and the three routing choices it makes are
   judgement calls that only show up in a real window. Questions: (a) a menu scene *restarts* on
