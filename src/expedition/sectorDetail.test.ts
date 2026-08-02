@@ -37,6 +37,7 @@ const BASE = {
   objectiveSectorKeys: new Set<string>(),
   hintedSectorKeys: new Set<string>(),
   hazardSectorKinds: new Map<string, PoiHazardKind>(),
+  bloomedSectorKeys: new Set<string>(),
 };
 
 function makeFencedAltarWorld(): WorldMap {

@@ -45,6 +45,10 @@ export interface SectorDetailInputs {
    *  nothing: a hazard exists only in a room the run has already entered, where its own
    *  world-space graphic is visible from across the floor. */
   hazardSectorKinds: ReadonlyMap<string, PoiHazardKind>;
+  /** Rooms this expedition's ambient bloom grew fresh hazard ground in. Required rather than
+   *  optional, on the hazardSectorKinds precedent: a call site that forgets it is a compile error
+   *  rather than a chart that silently stops naming a room that changed. */
+  bloomedSectorKeys: ReadonlySet<string>;
 }
 
 export interface SectorDetailView {
@@ -189,6 +193,14 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
   } else if (intactBands > 1) {
     lines.push(`${intactBands} corridor grids · ${inputs.holdsAbility(PHASE_CLOAK_ABILITY_ID)
       ? 'shortcuts open to you' : 'blocking shortcuts'}`);
+  }
+  // Same VISITED rule the corridor-grid rows above take: a bloom is terrain rather than a reward,
+  // but naming it in a room the profile has only charted as an outline would describe an interior
+  // the chart refuses to draw. A room the profile HAS explored is exactly the case this exists
+  // for: the ground it learned is not the ground it will land on.
+  if (inputs.bloomedSectorKeys.has(sector.key)
+    && (inputs.sectorFlagsOf(sector.key) & SectorFlags.VISITED) !== 0) {
+    lines.push('Bloomed ground · fresh hazard strips');
   }
   const hazard = inputs.hazardSectorKinds.get(sector.key);
   // The run-scoped nest line would restate the slot line above it, which is slot-precise and

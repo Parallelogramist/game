@@ -72,7 +72,7 @@ import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
 import {
   clearSecurityGrid, findGridBreach, securityGridNearWorld,
 } from '../../world/securityGrids';
-import { EdgeKind, TILE_SIZE, TileKind } from '../../world/worldTypes';
+import { EdgeKind, TILE_SIZE, TileKind, WORLDGEN_VERSION } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import type { PoiHazardKind } from '../../expedition/sectorDetail';
@@ -99,11 +99,13 @@ import {
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import {
-  getSectorMarks, isWorldConquered, markWorldConquered, recordBrokenBarrier,
-  recordDownedSecurityGrid,
+  advanceExpeditionCount, getSectorMarks, isWorldConquered, markWorldConquered,
+  recordBrokenBarrier, recordDownedSecurityGrid,
 } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
-import { getCurrentExpeditionSeasonIndex } from '../../expedition/ExpeditionSeasonStore';
+import {
+  getCurrentExpeditionSeasonIndex, getCurrentExpeditionSeed,
+} from '../../expedition/ExpeditionSeasonStore';
 import { buildSecretLead, chooseHintTarget, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { buildRunTickerRows } from '../../expedition/runTicker';
@@ -1148,7 +1150,9 @@ export class GameScene extends Phaser.Scene {
       this.announceHiddenSector(sector, map.seed);
     }
     if (sector && changes.sectorsVisited.includes(payload.sectorKey)) {
-      this.showSectorBanner(sector, regionChanged);
+      this.showSectorBanner(
+        sector, regionChanged, this.worldMode.bloomedSectorKeys().includes(payload.sectorKey),
+      );
     }
     this.runDecryptorScan(payload.sectorKey);
   };
@@ -1189,7 +1193,14 @@ export class GameScene extends Phaser.Scene {
     practiceRematch?: PracticeRematchSeed;
   }): void {
     this.shouldRestore = data?.restore === true;
-    this.worldMode = this.createWorldMode(this.resolveRunMode(data));
+    const runMode = this.resolveRunMode(data);
+    // Before createWorldMode, because the expedition adapter builds the world in its constructor
+    // and reads this count to decide which rooms bloom. Fresh runs only: a restore is the same
+    // expedition continuing, and a bump there would move the blooms under the ship mid-run.
+    if (runMode === 'expedition' && !this.shouldRestore) {
+      advanceExpeditionCount(getCurrentExpeditionSeed(), WORLDGEN_VERSION);
+    }
+    this.worldMode = this.createWorldMode(runMode);
     this.resumeIntoPauseMenu = data?.resumePaused === true;
     this.startingWeaponId = data?.startingWeapon || 'projectile';
     this.selectedShipId = data?.shipId || 'ship_default';
@@ -1292,6 +1303,7 @@ export class GameScene extends Phaser.Scene {
       earnedQuestKeyIds: [...this.earnedQuestKeyIds],
       hazardSectors: this.dormantHazardSectors(),
       spentNestSectorKeys: this.spentAmbushNestSectorKeys(),
+      bloomedSectors: this.worldMode.bloomedSectorKeys(),
       recallAvailable: !this.worldMode.isSectorLocked(),
       sortieAvailable: this.sortieAnchor !== null,
     });
@@ -6418,7 +6430,7 @@ export class GameScene extends Phaser.Scene {
    * The second line states the region's pack and the hazard its ground grows, and only fires on
    * a region change: repeating it per room would make a rule read as noise.
    */
-  private showSectorBanner(sector: SectorDef, regionChanged: boolean): void {
+  private showSectorBanner(sector: SectorDef, regionChanged: boolean, bloomed: boolean): void {
     const hudScale = computeHudScale(
       this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
     );
@@ -6428,10 +6440,16 @@ export class GameScene extends Phaser.Scene {
     const headline =
       `${biomeName.toUpperCase()}  ·  SECTOR ${sector.key}  ·  DEPTH ${sector.depth}`;
     const signature = regionChanged ? describeRegionSignature(this.activeStageId) : null;
+    // Its own line rather than a fourth clause on the signature: a bloom is a fact about THIS
+    // room, and the signature line is a rule about the whole region. Three lines only in the rare
+    // room that is both a region border and a bloom.
+    const lines = [headline];
+    if (signature !== null) lines.push(signature);
+    if (bloomed) lines.push('THE GROUND HAS BLOOMED');
     const banner = this.add.text(
       this.scale.width / 2,
       this.scale.height - Math.round((96 + 40 + 26) * hudScale),
-      signature === null ? headline : `${headline}\n${signature}`,
+      lines.join('\n'),
       {
         fontSize: `${Math.round(15 * hudScale)}px`,
         fontFamily: DISPLAY_FONT,

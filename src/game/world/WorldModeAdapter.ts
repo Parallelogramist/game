@@ -111,6 +111,12 @@ export interface WorldModeAdapter {
   worldMap(): WorldMap | null;
 
   /**
+   * Rooms this expedition's ambient bloom grew fresh hazard ground in. Arena has none, so the
+   * banner and the chart readout both fall through to what they printed before this shipped.
+   */
+  bloomedSectorKeys(): readonly string[];
+
+  /**
    * Geometry queries the enemy AI steers by, or null for a mode with no geometry. Null is what
    * keeps arena steering the direct player vector it has always been.
    */

@@ -27,6 +27,8 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
  * navigationContext returning null is that guarantee for FEAT-WORLDGEN-NAV: an arena enemy
  * cannot acquire a flow field, so chaseHeading hands its steering back unchanged.
  */
+const NO_BLOOMED_SECTORS: readonly string[] = Object.freeze([]);
+
 export class ArenaModeAdapter implements WorldModeAdapter {
   readonly kind = 'arena' as const;
 
@@ -84,6 +86,10 @@ export class ArenaModeAdapter implements WorldModeAdapter {
 
   worldMap(): WorldMap | null {
     return null;
+  }
+
+  bloomedSectorKeys(): readonly string[] {
+    return NO_BLOOMED_SECTORS;
   }
 
   navigationContext(): NavigationContext | null {

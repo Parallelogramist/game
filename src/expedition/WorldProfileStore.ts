@@ -25,6 +25,10 @@ const MAX_SECTOR_MARKS = 128;
 /** Same bound and the same reason as MAX_SECTOR_MARKS: at most one note per marked sector. */
 const MAX_SECTOR_NOTES = 128;
 
+/** Bounds a tampered payload, not a real one: a profile would have to fly one world a hundred
+ *  thousand times to reach it. */
+const MAX_EXPEDITION_COUNT = 100000;
+
 const SECTOR_KEY = /^-?\d+,-?\d+$/;
 
 const BARRIER_ID =/^(edge:-?\d+,-?\d+:(north|east|south|west)|breakable:-?\d+,-?\d+:\d+)$/;
@@ -47,6 +51,11 @@ export interface WorldProfileState {
    *  the same reason `conquered` is: a payload written before this field shipped reads as no
    *  notes, which is why WORLD_PROFILE_VERSION does NOT move. */
   sectorNotes: Record<string, string>;
+  /** How many expeditions this profile has launched into this world. Drives which rooms bloom
+   *  (src/world/ambientStir.ts). Optional in storage for the same reason `conquered` is: a
+   *  payload written before this field shipped reads as 0, which is why WORLD_PROFILE_VERSION
+   *  does NOT move. */
+  expeditionCount: number;
   /** True once this profile has killed this world's boss. Optional in storage on purpose:
    *  a payload written before this field shipped reads false, which is why
    *  WORLD_PROFILE_VERSION does NOT move: a bump would discard every remembered wall. */
@@ -59,8 +68,14 @@ function emptyProfile(worldSeed: number, worldGenVersion: number): WorldProfileS
     downedSecurityGridIds: [],
     markedSectorIds: [],
     sectorNotes: {},
+    expeditionCount: 0,
     conquered: false,
   };
+}
+
+function sanitizeExpeditionCount(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return 0;
+  return Math.min(MAX_EXPEDITION_COUNT, Math.max(0, Math.floor(value)));
 }
 
 /**
@@ -110,6 +125,7 @@ export function loadWorldProfile(
             .filter((id): id is string => typeof id === 'string' && SECTOR_MARK_ID_PATTERN.test(id))
             .slice(0, MAX_SECTOR_MARKS),
           sectorNotes,
+          expeditionCount: sanitizeExpeditionCount(parsed.expeditionCount),
           conquered: parsed.conquered === true,
         };
       }
@@ -231,4 +247,16 @@ export function getSectorNotes(
   worldSeed: number, worldGenVersion: number,
 ): Map<string, string> {
   return new Map(Object.entries(loadWorldProfile(worldSeed, worldGenVersion).sectorNotes));
+}
+
+/**
+ * Counts one more expedition into this world and returns the new ordinal. Called exactly once per
+ * FRESH expedition: a refresh-restore is the same run continuing, and bumping there would repaint
+ * the world's blooms under a ship already standing in it.
+ */
+export function advanceExpeditionCount(worldSeed: number, worldGenVersion: number): number {
+  const profile = loadWorldProfile(worldSeed, worldGenVersion);
+  profile.expeditionCount = Math.min(MAX_EXPEDITION_COUNT, profile.expeditionCount + 1);
+  saveWorldProfile(profile);
+  return profile.expeditionCount;
 }
