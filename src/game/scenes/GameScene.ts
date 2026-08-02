@@ -230,6 +230,7 @@ import { expireTimedStatBuffs, normalizeTimedStatBuffs, applyFieldBoost, buildTi
 import { FIELD_BOOSTS, getFieldBoostByKind, type FieldBoostDefinition } from '../../data/FieldBoosts';
 import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, setDirectorStage, type DirectorStrategy } from '../../systems/DirectorSystem';
+import { describeRegionSignature } from '../../systems/regionSignature';
 import { getThreatTier, clampThreatTier } from '../../data/ThreatTiers';
 import { recordThreatCleared } from '../../meta/ThreatProgress';
 import { getHiddenUnlockManager, type HiddenUnlockCondition } from '../../meta/HiddenUnlocks';
@@ -1129,12 +1130,12 @@ export class GameScene extends Phaser.Scene {
       // hold folds to nothing, which is why this is unconditional like the two above it.
       this.recordExpeditionQuest({ kind: 'deliverItem', sectorTags: tags });
     }
-    if (sector) this.applySectorStage(sector);
+    const regionChanged = sector ? this.applySectorStage(sector) : false;
     if (map && sector?.hidden === true && changes.sectorsVisited.includes(payload.sectorKey)) {
       this.announceHiddenSector(sector, map.seed);
     }
     if (sector && changes.sectorsVisited.includes(payload.sectorKey)) {
-      this.showSectorBanner(sector);
+      this.showSectorBanner(sector, regionChanged);
     }
     this.runDecryptorScan(payload.sectorKey);
   };
@@ -6324,16 +6325,23 @@ export class GameScene extends Phaser.Scene {
    * sits above the bounty line rather than top-centre as section 7 asks, for the reason
    * updateBounties already records: in portrait the top band is bars left, world and timer
    * centre, kills and gold right, with no room for a centred line.
+   * The second line states the region's pack and only fires on a region change: repeating it
+   * per room would make a rule read as noise.
    */
-  private showSectorBanner(sector: SectorDef): void {
+  private showSectorBanner(sector: SectorDef, regionChanged: boolean): void {
     const hudScale = computeHudScale(
       this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
     );
-    const biomeName = getStageById(sector.biomeId)?.name ?? 'Uncharted Space';
+    // activeStageId, not sector.biomeId: a spine sector is stamped stage_deep_void but runs
+    // the funnel pick, so the biomeId would name a region the room does not behave like.
+    const biomeName = getStageById(this.activeStageId)?.name ?? 'Uncharted Space';
+    const headline =
+      `${biomeName.toUpperCase()}  ·  SECTOR ${sector.key}  ·  DEPTH ${sector.depth}`;
+    const signature = regionChanged ? describeRegionSignature(this.activeStageId) : null;
     const banner = this.add.text(
       this.scale.width / 2,
       this.scale.height - Math.round((96 + 40 + 26) * hudScale),
-      `${biomeName.toUpperCase()}  ·  SECTOR ${sector.key}  ·  DEPTH ${sector.depth}`,
+      signature === null ? headline : `${headline}\n${signature}`,
       {
         fontSize: `${Math.round(15 * hudScale)}px`,
         fontFamily: DISPLAY_FONT,
@@ -12894,16 +12902,19 @@ export class GameScene extends Phaser.Scene {
    * its hazard signature and its pack from the region it belongs to. The spine keeps whatever the
    * player launched with, so a funnel stage pick still governs the world's home region
    * instead of being overwritten a frame after launch.
+   * Returns whether this entry actually crossed a region border, which is the banner's cue
+   * to state the new region's signature instead of repeating it room by room.
    */
-  private applySectorStage(sector: SectorDef): void {
+  private applySectorStage(sector: SectorDef): boolean {
     const regionStageId = sector.biomeId === SPINE_BIOME_ID
       ? this.selectedStageId
       : sector.biomeId;
     const stage = getStageById(regionStageId) ?? getDefaultStage();
-    if (stage.id === this.activeStageId) return;
+    if (stage.id === this.activeStageId) return false;
     setHazardZoneStage(stage.id);
     setDirectorStage(stage.id);
     this.applyStageVisuals(stage.id);
+    return true;
   }
 
   /**
