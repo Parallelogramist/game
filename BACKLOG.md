@@ -942,15 +942,34 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   press-first gate would make it dead. No test: all five are mutations on live Phaser objects,
   which `CLAUDE.md` says are verified by play, and no existing test references `ToastManager`,
   `createMenuButton` or `createMenuCard`. Files `POLISH-UX-SMALL-FEEL` under Human gates.
-- [ ] **POLISH-MENU-RESIZE**. Value: desktop window resize leaves every menu laid out
-  for the old size (only GameScene `:1524` and RunnerScene `:138` listen for resize;
-  the orientation watcher `src/main.ts:180-197` only fires on portrait/landscape
-  flips; `MenuBackground` bakes screen size at creation). Plan: shared menu path
-  listens for `scale.on('resize')` debounced ~250ms and re-runs the existing
-  `scene.restart({...launchData, relayout: true})` machinery. Also give the four
-  modal scenes excluded from the orientation restart (Upgrade, RelicDraft, Market,
-  QuestBoard; `main.ts:185-195`) a positions-only `handleResize` that re-centers
-  existing containers, so rotating mid-modal no longer strands cards half off-screen.
+- [x] **POLISH-MENU-RESIZE** (done, 3be0d67). Value: desktop window resize left every
+  menu laid out for the old size, and rotating a phone mid-modal stranded the cards off-screen.
+  **What shipped:** the single debounced viewport watcher (`src/utils/Orientation.ts`,
+  `installOrientationWatcher` -> `installViewportWatcher`) now fires on any *game size* change
+  rather than only on a portrait/landscape flip, and reports `orientationFlipped` so the caller
+  can tell the two apart. That closes the actual hole: under `Phaser.Scale.EXPAND` the long axis
+  grows to match the window aspect, so `scale.width`/`scale.height` move on every desktop resize,
+  while every menu composes its layout in `create()` from those two numbers and never reads them
+  again. `src/main.ts` routes the change three ways. Menu scenes restart on the existing
+  `{...launchData, relayout: true}` machinery, unchanged. **The four modals excluded from the
+  orientation restart** (Upgrade, RelicDraft, Market, QuestBoard) gained a positions-only public
+  `handleResize()` that re-centres what already exists: each recreates its `MenuOverlay` (which
+  bakes canvas size at creation), recomputes its own card geometry through a helper now shared
+  with `create()`, and re-places the header, the card grid and the footer button. Each guards on
+  its own resolved/closing flag, because the close path fades `this.children.list` as one
+  multi-target tween and `killTweensOf` on a single card would kill the whole tween and strand
+  the scene with `onClose` never fired. Card *text* is not re-rendered: it was sized against the
+  scale factor at creation, so the pass is positions plus container scale only. RelicDraftScene
+  also rebuilds its `MenuNavigator`, whose column count is baked at construction and can change
+  with the canvas. UpgradeScene dismisses its banish confirmation and refit picker rather than
+  re-laying them out: each bakes a full-canvas dim rect and both are one tap to reopen.
+  **A prerequisite bug the item did not know about:** `main.ts` restarted **RunnerScene** on an
+  orientation flip, and RunnerScene never reads `relayout`, so the restart re-entered `create()`
+  fresh and destroyed the in-progress endless-runner run (distance, score, kills all reset). It
+  already owns a correct `scale.on('resize')` handler (`RunnerScene.ts:138`) that Phaser fires on
+  the flip's own `setGameSize`, so the restart was both lossy and redundant. Extending the
+  watcher to plain resizes would have fired that data loss on every window drag, so RunnerScene
+  joins GameScene in the self-handling branch. Files `POLISH-MENU-RESIZE-FEEL` under Human gates.
 
 #### Band D: architecture (staged extraction; behavior-preserving, save shapes frozen)
 
@@ -9576,6 +9595,21 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-MENU-RESIZE-FEEL** (new 2026-08-02, from POLISH-MENU-RESIZE). Value: the resize
+  path is pure geometry with no browser in the loop, and the three routing choices it makes are
+  judgement calls that only show up in a real window. Questions: (a) a menu scene *restarts* on
+  every settled resize, so a slow drag across the screen re-runs `create()` once per 250ms pause:
+  does that read as a flicker on the main menu or the codex, and is 250ms the right debounce?
+  (b) the four modals are re-placed rather than restarted, so their card *text* keeps the font
+  size it was created at while the card container rescales: at the extremes (a portrait phone
+  rotated to landscape mid-level-up) does the text read too small inside a now-larger card, and
+  is re-rendering the text worth the mid-modal state risk? (c) UpgradeScene dismisses the banish
+  confirmation and the refit picker on a resize instead of re-laying them out: is a dismissal
+  surprising enough to need a toast, or is silently closing right? (d) each modal recreates its
+  `MenuOverlay` on resize, which re-seeds the drifting light streaks at new random positions:
+  is the jump visible? (e) RunnerScene no longer restarts on an orientation flip, so a rotate
+  mid-run now keeps the run and only re-places the HUD and clamps the ship into the new bounds:
+  check that a rotate mid-run leaves the ship somewhere fair rather than jammed against an edge.
 - [ ] **POLISH-GRID-FIT-SCALE** (new 2026-08-01, from BUG-WEAPON-GRID-OVERFLOW +
   BUG-PACT-GRID-HEADER-OVERLAP). Value: the fitted grid is pure geometry validated in tests,
   never in a browser, so the two constants it introduces want an operator eye once. Questions:
