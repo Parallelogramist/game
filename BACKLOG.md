@@ -5463,7 +5463,7 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   Deps: `BUG-WORLDGEN-GATE-NESTING`. Value: a silent gate shortfall becomes impossible to
   ship again. Spec: `02-worldgen-barriers.md` section 2.2.
 
-- [ ] **CHORE-WORLDSPACE-DEATHRIPPLE-RECT** — `DeathRippleManager.spawnRipple`
+- [x] **CHORE-WORLDSPACE-DEATHRIPPLE-RECT** (done, 648e217) — `DeathRippleManager.spawnRipple`
   (`src/visual/DeathRippleManager.ts:179-180`) computes `maxRadius` from
   `Math.max(x, scene.scale.width - x)` while `x`/`y` are world coordinates, and the manager sets
   no `setScrollFactor`, so its graphics are world-space. In arena the two spaces coincide and the
@@ -5473,6 +5473,27 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   `WeaponContext.view` now does (`BUG-WEAPONS-VIEW-RECT`) and derive `maxRadius` from the view's
   half-extents around the ripple origin. Cosmetic only, no gameplay effect, which is why it was
   filed rather than folded into that chunk. Deps: none.
+  **What shipped:** the manager takes the run's view rect through the `WorldModeAdapter.viewRect()`
+  seam (`setViewRectProvider`, bound at both `DeathRippleManager` construction sites in
+  `GameScene`, the fresh-run path and `restoreGameState`), and `spawnRipple` measures `maxRadius`
+  from the origin to the farthest corner of that rect instead of the farthest corner of the screen.
+  The provider is optional and a manager built without one keeps the screen-rect fallback, so no
+  other consumer could be broken by the change; there are none today.
+  **Arena is byte-identical by construction, not by care:** `ArenaModeAdapter.syncToScreen` returns
+  `minX 0, minY 0, maxX scale.width, maxY scale.height`, which is exactly the rect the old
+  expression built, so skirmish, daily, weekly, practice and gauntlet compute the same number they
+  always did.
+  **The measurement, so nobody re-derives it:** a kill at world x 5000 gave `maxDistX = 5000`, so
+  the ring expanded to about 5.8k px at `RIPPLE_SPEED` 300 px/s, roughly 19 seconds of life against
+  the 2 to 3 seconds a screen-sized sweep takes. It was never only slow: `detectRippleCollisions`
+  white-flashes every enemy the band passes, so a stale ring kept firing the death-flash tell on
+  enemies that had nothing to do with the kill, and `MAX_RIPPLES` 8 stayed full of rings from rooms
+  the ship had already left.
+  **Not a class of one by accident:** every other screen-sized visual layer (`TrailManager`,
+  `GridBackground`, `LightingSystem`, `ParallaxBackground`, `OffScreenIndicatorManager`) calls
+  `setScrollFactor(0)` and is screen-space on purpose, so this manager was the only world-space
+  drawer sizing itself from `scene.scale`. No save field, no storage key and no version constant
+  moved. The feel half is `POLISH-DEATH-RIPPLE-VIEW` under `## Human gates`.
 
 - [ ] **CHORE-COLLIDE-TELEPORT-SNAP**: `resolveCircleMove` caps at `MAX_SUBSTEPS = 64`
   (one sector width), so a recall-to-Hangar teleport must not be routed through it:
@@ -11646,6 +11667,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-DEATH-RIPPLE-VIEW** (new 2026-08-02, from CHORE-WORLDSPACE-DEATHRIPPLE-RECT). Value:
+  the death ripple is now sized to the view rather than to raw world coordinates, and its two
+  constants (`RIPPLE_SPEED` 300 px/s, `RIPPLE_BAND_WIDTH` 75) were tuned against an arena screen
+  and have never been seen sweeping an expedition room. Questions for the operator, in a real
+  expedition: (a) does a kill read as one flash sized to what is on screen; (b) at 300 px/s does
+  the band cross the view fast enough to read as a shockwave rather than as a slow ring; (c) does a
+  kill just outside the view still read correctly, given a ripple whose origin is outside the rect
+  is deliberately still sized to reach the far edge; (d) with several kills at once, do up to 8
+  concurrent rings read as energy or as noise; (e) does the white enemy flash the band triggers
+  still land on the right enemies at the right moment now that stale rings are gone. Both constants
+  are geometry validated by inspection, never in a browser: do not retune them blind. Deps: play.
 
 - [ ] **POLISH-WORLD-AMBIENT-SHIFT** (new 2026-08-02, from FEAT-STIR-COLLAPSE). Value: three rooms
   per expedition now open two seams of rock and drop three runs of rubble each, and none of it has
