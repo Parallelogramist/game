@@ -7596,7 +7596,7 @@ exploring pays is the end of Phase 5.
   which moves that figure from 62% to 58% (`1 - C(10,3)/C(13,3)` = 1 - 120/286): the ask here is
   unchanged, since a 58% repeat rate is still a feel call that wants play.
 
-- [ ] **BUG-QUEST-INFERNO-SWEEP-TARGET** (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
+- [x] **BUG-QUEST-INFERNO-SWEEP-TARGET** (done, 2f4df7d) (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
   the authored `q_gatecrash_02.s5` asks for six Inferno sectors, and Inferno's measured minimum
   over 300 seeds is **three** non-hidden sectors, so that persistent step is uncompletable in
   the thinnest worlds. It is world-stamped (`CHORE-QUEST-DISTINCT-WORLD-STAMP`, b846074), so
@@ -7604,6 +7604,40 @@ exploring pays is the end of Phase 5.
   can sit at 3/6 for a whole world. `BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS` measured that step
   against the live seed only (Inferno 16), which is why the floor was never seen. Value: an
   authored objective that every world can actually supply. Deps: none.
+  **What shipped: the class, not the number.** A `reachSector` target is now clamped to what the
+  world being flown actually holds for that step's tag, so no authored survey step can ask for
+  more rooms than exist. `buildSectorSupply` (`src/world/sectorTags.ts`) walks a `WorldMap` once
+  into a `{ anyTag, byTag }` snapshot, excluding hidden sectors deliberately: they are off the
+  chart until a breakable wall is broken, so a target only a hidden room could satisfy is one the
+  player cannot plan for. `effectiveStepTarget` (`src/systems/QuestProgress.ts`) applies it in
+  `recordQuestEvent`, `buildQuestStepViews` and `buildQuestBoardEntries`, threaded through
+  `ExpeditionQuestManager` and the three scenes as an optional trailing parameter, so a run with
+  no world map (arena, daily, gauntlet, practice) keeps its authored target unchanged.
+  **Measured over 500 seeds** at `(20260727 + i * 2654435761) % 2147483647`, expedition inputs,
+  hidden sectors excluded: `biome:stage_inferno` min 3 / median 12 / max 18;
+  `biome:stage_crystal_caves` min 6 / median 15 / max 24; `biome:stage_ion_field` min 2 /
+  median 10 / max 22; untagged a constant 45; `boss-arena` a constant 1; zero worlds hold none of
+  any tag. **12 of those 500 seeds (2.4%) hold fewer than six non-hidden Inferno rooms**, which is
+  where `q_gatecrash_02.s5` parked at 3/6, 4/6 or 5/6 for a whole world and stranded `s6` behind
+  it plus the chain's 300-gold completion bonus. Two shipped season contract steps sat on the same
+  margin and are protected by the same fix: `prospect.s1` asked 3 Inferno rooms against a measured
+  minimum of 3, `prospect.s2` asked 5 Crystal Caves rooms against a measured minimum of 6.
+  A description may now carry a `{target}` token so a clamped step never reads a number it no
+  longer asks for: `q_gatecrash_02.s4`, `q_gatecrash_02.s5` and the two `prospect` contract steps
+  use it, and every toast, ticker row and board card renders through `renderStepDescription`.
+  A zero-supply tag floors at 1 rather than 0, because a target of 0 would satisfy
+  `progress >= target` on the spot and pay the step's gold for nothing. **No `WORLDGEN_VERSION`,
+  no `SAVE_VERSION` and no storage key moved, and no authored number was retuned**
+  (`BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS` still owns that, and it wants play). Every other
+  trigger counts kills, seconds, gates or items and is untouched.
+
+- [ ] **CHORE-QUEST-TAG-ZERO-SUPPLY** (new 2026-08-02, from BUG-QUEST-INFERNO-SWEEP-TARGET):
+  a step whose tag the world holds none of is still uncompletable. The clamp floors at 1 rather
+  than 0 so it cannot pay out for nothing, but nothing substitutes a reachable tag. It cannot
+  fire today (measured over 500 seeds: Inferno min 3, Crystal Caves min 6, Ion Field min 2,
+  `boss-arena` exactly 1, zero worlds with none), so it is filed rather than built; it becomes
+  real the moment a catalog names a biome a thin world can omit. Value: an authored objective
+  never names a region the world did not generate. Deps: none.
 
 - [x] **FEAT-QUEST-SECRET-PUZZLE-TIER** (done, 442889a, 2026-08-02) (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
   `SecretTier` carries `'puzzle'` and `src/world/secretRewards.ts` pays a `puzzle` tier, but no
@@ -9652,6 +9686,8 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   rather than a goal, and the right target depends on how many rooms a real expedition actually
   charts. Value: a cross-run sweep that finishes near when the chain does. Deps: none, but it
   wants play rather than a third guess.
+  The uncompletable tail is gone as of `2f4df7d` (a target above the world's supply now clamps),
+  so what is left on this item is purely whether the number reads as a goal or a chore.
 
 - [ ] **FEAT-QUEST-SWEEP-WORLD-RESET-TELL** (new 2026-07-31, from
   CHORE-QUEST-DISTINCT-WORLD-STAMP): when the world changes, a persistent sweep silently drops
