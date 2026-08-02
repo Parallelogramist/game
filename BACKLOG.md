@@ -11665,7 +11665,7 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   ticker and a bounty is active most of the time, so a shared line would flicker and mostly show the bounty;
   that trade is filed for a human eye as **POLISH-QUEST-HUD** under `## Human gates`.
 
-- [ ] **FEAT-QUEST-BOARD-VICTORY** — carry the DAILY QUESTS panel onto the victory screen and the
+- [x] **FEAT-QUEST-BOARD-VICTORY** (done, 9fa70c4) — carry the DAILY QUESTS panel onto the victory screen and the
   RUN ENDED earned panel. Value: FEAT-QUEST-BOARD-ENDSCREEN (`e6c24bb`) put the board on the death
   screen only, because that is the one run-end surface with a one-motivational-panel slot;
   `showVictory` has no such slot (its elements are torn down by `destroyElementsByName`, not the
@@ -11673,6 +11673,27 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   for the same reason. A player who wins or cashes out still cannot see what today's board wants.
   Pointer: `PauseMenuManager.showVictory` (~`:1689`), `showEndRunEarned` (~`:1602`),
   `createDailyQuestBoardPanel`.
+  **What shipped:** both surfaces now draw `createDailyQuestBoardPanel`, reading
+  `getDailyQuestBoard()` post-settle (`GameScene.ts:9389` runs before `showVictory`;
+  `PauseMenuManager.ts:1546` runs before `showEndRunEarned`), so the rows already count the run
+  the player just finished. **Victory takes the new-card reveal's slot and only when no card
+  dropped**, the same yield the death screen's PERSONAL BESTS panel makes; the 340-wide panel
+  needs 1200 px of width to clear both the 400-wide stats panel and the right edge (the algebra
+  says 1194), so below that it uses the centered below-the-buttons slot the portrait reveal uses,
+  and it is dropped rather than clipped when that slot would run off a short viewport.
+  **RUN ENDED reserves the height instead of overflowing:** `createRunEarningsPanel` already
+  adapts its row count to a `bottomLimitY` and never shrinks below `MIN_RUN_EARNING_ROWS`, so the
+  cap simply drops by the board's height plus 12 and Continue moves to `contentBottom + 49`.
+  The new `dailyQuestBoardPanelHeight(questCount)` is the single source of that height, since two
+  callers must know it before the panel exists. `victoryStatCellElements` became
+  `victoryOwnedElements` and now holds Graphics as well as Text, because the panel emits both and
+  a second parallel collector for one panel is surface growth.
+  **Deliberate calls:** a complete board still draws on both new surfaces (unlike the death
+  screen, where the slot is contested by CLOSEST TO UNLOCK, neither new slot is contested and
+  `DAILY QUESTS 3/3` after a win is the payoff, not a dead chase); the death screen itself is
+  untouched; and none of it has been seen on a real viewport, so the feel questions are filed as
+  `POLISH-QUEST-BOARD-VICTORY` under Human gates. No test: this is Phaser scene layout, which
+  `CLAUDE.md` says is verified by play, not by mocking a live scene.
 
 - [ ] **CHORE-ICON-PADLOCK** (new 2026-08-02, from POLISH-UX-SMALL). Value: three lock
   glyphs still render as platform emoji in an all-vector UI (`UpgradeScene.ts:325` reroll
@@ -11705,6 +11726,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-QUEST-BOARD-VICTORY** (new 2026-08-02, from FEAT-QUEST-BOARD-VICTORY). Value: the
+  DAILY QUESTS board now draws on the victory screen and the RUN ENDED panel, and none of it has
+  been seen on a real viewport. Questions for the operator: (1) on a win at 1280 or wider the
+  board sits in the right column at `centerY - 64`, opposite the recent-runs strip: does it read
+  as part of the celebration or as clutter over the confetti? (2) between 900 and 1200 wide it
+  drops to the centered slot below the buttons, and under 900 it shares that slot's rules with the
+  portrait card reveal: check a phone in both orientations for a clipped or floating panel.
+  (3) a run that reveals a card shows no board at all, by design: is that the right yield, or
+  should the board win on a win? (4) on RUN ENDED the earnings panel now gives up rows to make
+  room (never fewer than three): end a run with six earnings and confirm nothing important got
+  pushed into the `+N more` line.
 
 - [ ] **POLISH-MENU-SUBMENU-REOPEN** (new 2026-08-02, from FEAT-MENU-SUBMENU-REOPEN). Value: a
   submenu now survives an orientation flip and none of it has been seen on a phone. Questions for
