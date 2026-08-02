@@ -15,8 +15,17 @@ import { getWeaponInfoList } from '../../weapons';
 import { copyTextToClipboard } from '../../utils/Clipboard';
 import { encodeLoadoutCode, decodeLoadoutCode } from '../../meta/LoadoutCode';
 import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
+import { fitTextWidth, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 const TITLE_FONT = '"Atkinson Hyperlegible", Arial, sans-serif';
+/**
+ * Design-space units the scene needs outside the row stack: 160 above the first row, then
+ * the flash line, the build-code bar, BACK and the bottom margin below it. The stack is one
+ * full-height column, so scaling past this budget is what would drop its last row behind
+ * the bar.
+ */
+const CHROME_RESERVE = 335;
 
 interface LoadoutRow {
   kind: 'replay' | 'preset' | 'save';
@@ -34,6 +43,7 @@ interface LoadoutRow {
 export class LoadoutScene extends Phaser.Scene {
   private navigator: MenuNavigator | null = null;
   private isLeaving = false;
+  private layoutScale = 1;
   private flashText: Phaser.GameObjects.Text | null = null;
   private codeEntryTeardown: (() => void) | null = null;
 
@@ -51,26 +61,33 @@ export class LoadoutScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#0a0a14');
     this.cameras.main.fadeIn(200, 0, 0, 0);
 
-    this.add.text(width / 2, 54, 'LOADOUTS', {
-      fontSize: '44px',
+    const rows = this.buildRows();
+    const menuScale = resolveMenuFontScale(width, height, getSettingsManager().getUiScale());
+    const naturalStackHeight = rows.length * 62 + Math.max(0, rows.length - 1) * 14;
+    this.layoutScale = Math.min(menuScale, height / (naturalStackHeight + CHROME_RESERVE));
+
+    const title = this.add.text(width / 2, scaledInt(this.layoutScale, 54), 'LOADOUTS', {
+      fontSize: `${scaledInt(this.layoutScale, 44)}px`,
       color: '#66ccff',
       fontFamily: TITLE_FONT,
       fontStyle: 'bold',
       stroke: '#000000',
-      strokeThickness: 6,
-    }).setOrigin(0.5).setLetterSpacing(3);
+      strokeThickness: 6 * this.layoutScale,
+    }).setOrigin(0.5).setLetterSpacing(3 * this.layoutScale);
+    fitTextWidth(title, width - 24);
 
-    this.add.text(width / 2, 102, 'Replay a run, save a favourite, or share builds with codes.', {
-      fontSize: '16px',
-      color: '#9999bb',
-      fontFamily: 'Arial',
-    }).setOrigin(0.5);
+    const subtitle = this.add.text(width / 2, scaledInt(this.layoutScale, 102),
+      'Replay a run, save a favourite, or share builds with codes.', {
+        fontSize: `${scaledInt(this.layoutScale, 16)}px`,
+        color: '#9999bb',
+        fontFamily: 'Arial',
+      }).setOrigin(0.5);
+    fitTextWidth(subtitle, width - 24);
 
-    const rows = this.buildRows();
-    const cardWidth = Math.min(560, width - 40);
-    const cardHeight = 62;
-    const gap = 14;
-    const firstRowY = 160;
+    const cardWidth = Math.min(scaledInt(this.layoutScale, 560), width - scaledInt(this.layoutScale, 40));
+    const cardHeight = scaledInt(this.layoutScale, 62);
+    const gap = scaledInt(this.layoutScale, 14);
+    const firstRowY = scaledInt(this.layoutScale, 160);
 
     const navigableItems: NavigableItem[] = [];
 
@@ -80,22 +97,23 @@ export class LoadoutScene extends Phaser.Scene {
         .setStrokeStyle(2, 0x333344)
         .setInteractive({ useHandCursor: true });
 
-      const leftX = width / 2 - cardWidth / 2 + 18;
-      this.add.text(leftX, rowCenterY - 12, row.label, {
-        fontSize: '18px',
+      const leftX = width / 2 - cardWidth / 2 + scaledInt(this.layoutScale, 18);
+      this.add.text(leftX, rowCenterY - scaledInt(this.layoutScale, 12), row.label, {
+        fontSize: `${scaledInt(this.layoutScale, 18)}px`,
         color: row.kind === 'save' ? '#88ffaa' : '#ffffff',
         fontFamily: TITLE_FONT,
         fontStyle: 'bold',
       }).setOrigin(0, 0.5);
       if (row.detail) {
-        this.add.text(leftX, rowCenterY + 13, row.detail, {
-          fontSize: '13px',
+        this.add.text(leftX, rowCenterY + scaledInt(this.layoutScale, 13), row.detail, {
+          fontSize: `${scaledInt(this.layoutScale, 13)}px`,
           color: '#9aabd0',
           fontFamily: 'Arial',
         }).setOrigin(0, 0.5);
       }
-      this.add.text(width / 2 + cardWidth / 2 - 18, rowCenterY, row.kind === 'save' ? 'SAVE' : 'PLAY', {
-        fontSize: '14px',
+      this.add.text(width / 2 + cardWidth / 2 - scaledInt(this.layoutScale, 18), rowCenterY,
+        row.kind === 'save' ? 'SAVE' : 'PLAY', {
+        fontSize: `${scaledInt(this.layoutScale, 14)}px`,
         color: row.kind === 'save' ? '#88ffaa' : '#ffd24a',
         fontFamily: TITLE_FONT,
         fontStyle: 'bold',
@@ -119,10 +137,11 @@ export class LoadoutScene extends Phaser.Scene {
     // A fixed two-button bar above BACK, deliberately NOT extra list rows — so
     // the tuned row list (replay/presets/save) and its density stay untouched.
     const codeSourceLoadout = loadLastLoadout();
-    const barY = height - 112;
-    const barButtonWidth = Math.min(258, (cardWidth - 18) / 2);
-    const barButtonHeight = 42;
-    const barGap = 16;
+    const barY = height - scaledInt(this.layoutScale, 112);
+    const barButtonWidth = Math.min(scaledInt(this.layoutScale, 258),
+      (cardWidth - scaledInt(this.layoutScale, 18)) / 2);
+    const barButtonHeight = scaledInt(this.layoutScale, 42);
+    const barGap = scaledInt(this.layoutScale, 16);
     const copyCenterX = width / 2 - (barButtonWidth + barGap) / 2;
     const pasteCenterX = codeSourceLoadout
       ? width / 2 + (barButtonWidth + barGap) / 2
@@ -134,7 +153,7 @@ export class LoadoutScene extends Phaser.Scene {
         .setStrokeStyle(2, 0x3a5a7a)
         .setInteractive({ useHandCursor: true });
       this.add.text(copyCenterX, barY, 'COPY BUILD CODE', {
-        fontSize: '14px',
+        fontSize: `${scaledInt(this.layoutScale, 14)}px`,
         color: '#88ccff',
         fontFamily: TITLE_FONT,
         fontStyle: 'bold',
@@ -156,7 +175,7 @@ export class LoadoutScene extends Phaser.Scene {
       .setStrokeStyle(2, 0x3a5a7a)
       .setInteractive({ useHandCursor: true });
     this.add.text(pasteCenterX, barY, 'PASTE & LAUNCH CODE', {
-      fontSize: '14px',
+      fontSize: `${scaledInt(this.layoutScale, 14)}px`,
       color: '#88ccff',
       fontFamily: TITLE_FONT,
       fontStyle: 'bold',
@@ -172,11 +191,13 @@ export class LoadoutScene extends Phaser.Scene {
       onActivate: doPaste,
     });
 
-    const backButton = this.add.rectangle(width / 2, height - 54, 220, 46, 0x1a1a2a)
+    const backY = height - scaledInt(this.layoutScale, 54);
+    const backButton = this.add.rectangle(width / 2, backY,
+      scaledInt(this.layoutScale, 220), scaledInt(this.layoutScale, 46), 0x1a1a2a)
       .setStrokeStyle(2, 0x5566aa)
       .setInteractive({ useHandCursor: true });
-    this.add.text(width / 2, height - 54, 'BACK', {
-      fontSize: '20px',
+    this.add.text(width / 2, backY, 'BACK', {
+      fontSize: `${scaledInt(this.layoutScale, 20)}px`,
       color: '#aabbdd',
       fontFamily: TITLE_FONT,
       fontStyle: 'bold',
@@ -316,8 +337,9 @@ export class LoadoutScene extends Phaser.Scene {
 
   private showFlash(message: string): void {
     this.flashText?.destroy();
-    this.flashText = this.add.text(this.scale.width / 2, this.scale.height - 158, message, {
-      fontSize: '15px',
+    this.flashText = this.add.text(this.scale.width / 2,
+      this.scale.height - scaledInt(this.layoutScale, 158), message, {
+      fontSize: `${scaledInt(this.layoutScale, 15)}px`,
       color: '#ffe08a',
       fontFamily: 'Arial',
     }).setOrigin(0.5);
