@@ -4941,7 +4941,7 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   **Two neighbours checked and deliberately left alone**: `glutton.ts:64-70` grows the same
   field but inside its eat-a-gem branch with a speed cap, and `applyNemesisScaling`
   (`GameScene.ts:10052`) has a single call site, so neither compounds.
-- [ ] **BUG-DECOY-FLOW-MISMATCH** (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: a
+- [x] **BUG-DECOY-FLOW-MISMATCH** (done, 68c8433) (new 2026-08-01, found by FEAT-ENEMY-NAV-COVERAGE). Value: a
   hostile that broke off for the escort drone walks back toward the player the moment it loses
   sight of the drone, which makes the decoy quest look broken. `EnemyAISystem.ts` substitutes the
   decoy point for `targetX/targetY`, and `chaseHeading` tests line of sight against that target,
@@ -4952,6 +4952,26 @@ validated in a sandbox and never in a browser, which is exactly what `POLISH-WAL
   too much for one drone), or the cheaper rule that a decoy follower with no line of sight to the
   drone uses the wall-tangent rung rather than the player's route. Done: a follower behind a wall
   from the drone moves around it toward the drone, never toward the player.
+
+  **What shipped**: `setNavFrame` now carries a third argument saying whether this enemy's
+  target is off the flow route, and `routeHeading` skips the flow rung when it is, dropping
+  straight to the wall tangent. The tangent is derived from the caller's own direct vector,
+  which points at the drone, so the player-derived input leaves the path entirely rather than
+  being outvoted. `EnemyAISystem` computes the flag from the same
+  `decoy !== null && isDecoyFollower(enemyId)` test that already substituted the target, so
+  there is exactly one producer and no handler signature moved.
+  **The second flow field is cut, not deferred**: `computeFlowField` measures 0.967 ms per call
+  since BUG-ENEMY-NAV-FALLBACK grew the block to 96x96 tiles, and solving it a second time
+  every refresh for at most `DECOY_MAX_FOLLOWERS` = 4 bodies is the cost the nav layer exists
+  to avoid. `CHORE-DECOY-FLOW-FIELD` filed the same defect from the escort side and is ticked
+  by this commit as a duplicate.
+  **Nothing persists**: the flag is module state overwritten once per enemy per AI tick and
+  cleared by `resetEnemyNavState`, which `resetEnemyAISystem` already calls, so no component
+  field, storage key or version constant moved and no save migration is owed. Arena, daily,
+  weekly, gauntlet and practice never call `setEnemyDecoy`, so the flag is always false there
+  and their routing is byte-identical.
+  **The stuck nudge is unchanged and still covers the tail**: a follower on the tangent is
+  routing, so `navRouted` is set and `applyStuckNudge` still arms for one wedged in a pocket.
 
 - [ ] **CHORE-NEMESIS-SCALING-COMMENT** (new 2026-08-02, found by BUG-TWIN-BERSERK-DAMAGE):
   the doc comment on `GameScene.applyNemesisScaling` (`:10047-10051`) says it is "Shared by the
@@ -8534,13 +8554,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   as against the melee break-off. Value: an
   escort that is a decision rather than a leash. Deps: none, but it wants play, not a guess.
 
-- [ ] **CHORE-DECOY-FLOW-FIELD** (new 2026-08-01, from FEAT-QUEST-ESCORT-ENEMY-INTEREST): a
+- [x] **CHORE-DECOY-FLOW-FIELD** (done, 68c8433) (new 2026-08-01, from FEAT-QUEST-ESCORT-ENEMY-INTEREST): a
   follower with no line of sight to the drone paths toward the PLAYER, because `chaseHeading` falls
   back to `navigationContext.flowStep` and the flow field is solved toward the ship. Bounded and
   self-correcting (the drone is inside a 900 px tether and the follower is inside a 360 px aggro
   radius, so sight returns almost immediately), and holding it properly means a second flow-field
   solve per frame for at most four bodies, which is the cost the nav layer exists to avoid. Value: a
   hostile that rounds the corner toward the drone rather than toward you. Deps: none.
+
+  **Duplicate of `BUG-DECOY-FLOW-MISMATCH`, closed by the same commit.** Its "second flow-field
+  solve per frame" reading was the option deliberately cut; the wall tangent is what shipped.
 
 - [x] **FEAT-DECOY-RANGED-INTEREST** (done, 31f3c85) (new 2026-08-01, from
   FEAT-QUEST-ESCORT-ENEMY-INTEREST):
