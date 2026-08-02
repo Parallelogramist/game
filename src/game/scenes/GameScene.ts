@@ -194,9 +194,15 @@ import {
   gauntletWaveSpawnPlan,
 } from '../gauntlet/gauntletWaves';
 import { loadGauntletBestWave, saveGauntletBestWaveIfHigher } from '../gauntlet/GauntletBestWave';
-import { recordGauntletRun } from '../gauntlet/GauntletLeaderboard';
 import { loadEndlessBestCycle, saveEndlessBestCycleIfHigher } from '../endless/EndlessBestCycle';
-import { recordEndlessRun } from '../endless/EndlessLeaderboard';
+import {
+  buildQuestRunData,
+  buildRunEndData,
+  buildUnlockContext,
+  recordCodexRunEnd,
+  recordRunOutcome,
+  type RunFacts,
+} from '../runend/runSettlement';
 import { getEnemySpatialHash } from '../../utils/SpatialHash';
 import { getAchievementManager, AchievementDefinition, MilestoneDefinition, MilestoneReward } from '../../achievements';
 import { getToastManager, ToastManager } from '../../ui';
@@ -8954,7 +8960,9 @@ export class GameScene extends Phaser.Scene {
     // Evaluate hidden unlocks for the victory path. Done *after* incrementStreak()
     // so streak-based unlocks (e.g. Streak Flame) see the streak this win produced
     // rather than the pre-victory value.
-    const newHiddenUnlocks = this.evaluateHiddenUnlocks(getHighestCombo(), true, newStreak);
+    const newHiddenUnlocks = getHiddenUnlockManager().evaluatePostRun(
+      buildUnlockContext(this.buildRunFacts(goldEarned, newStreak))
+    );
     const runEarnings = buildRunEarnings({
       unlocks: newHiddenUnlocks,
       achievements: this.runEndAchievements ?? [],
@@ -9175,7 +9183,7 @@ export class GameScene extends Phaser.Scene {
       highestCombo: lifetimeStatsBeforeUpdate.highestComboInRun,
     };
 
-    const highestComboThisRun = getHighestCombo();
+    const runFacts = this.buildRunFacts(goldEarned, metaManager.getCurrentStreak());
 
     // Run-end quest settle is paid AFTER the ledger snapshot above, so it is in no
     // other run-end number. Reported as its own recap row.
@@ -9188,40 +9196,9 @@ export class GameScene extends Phaser.Scene {
 
     // Record run end statistics (only if not already recorded in showVictory)
     if (!this.hasWon && !practiceRun) {
-      getAchievementManager().recordRunEnd({
-        wasVictory: false,
-        killCount: this.killCount,
-        levelReached: this.playerStats.level,
-        survivalTimeSeconds: this.gameTime,
-        worldLevel: metaManager.getWorldLevel(),
-        damageDealt: this.totalDamageDealt,
-        damageTaken: this.totalDamageTaken,
-        goldEarned,
-        accountLevel: metaManager.getAccountLevel(),
-        bestStreak: metaManager.getBestStreak(),
-        highestCombo: highestComboThisRun,
-      });
-
-      getCodexManager().recordRunEnd(
-        this.gameTime,
-        this.killCount,
-        this.totalDamageDealt,
-        goldEarned,
-        false, // wasVictory
-        metaManager.getWorldLevel(),
-        this.playerStats.level
-      );
-
-      runEndQuests = settleDailyQuests({
-        wasVictory: false,
-        killCount: this.killCount,
-        levelReached: this.playerStats.level,
-        survivalTimeSeconds: this.gameTime,
-        damageDealt: this.totalDamageDealt,
-        damageTaken: this.totalDamageTaken,
-        goldEarned,
-        highestCombo: highestComboThisRun,
-      });
+      getAchievementManager().recordRunEnd(buildRunEndData(runFacts));
+      recordCodexRunEnd(runFacts);
+      runEndQuests = settleDailyQuests(buildQuestRunData(runFacts));
       runEndQuestGold = this.payDailyQuests(runEndQuests);
     }
 
@@ -9232,110 +9209,42 @@ export class GameScene extends Phaser.Scene {
     // endless run, so getCurrentStreak() reflects this run's true streak here.
     const newHiddenUnlocks: HiddenUnlockCondition[] = practiceRun
       ? []
-      : this.evaluateHiddenUnlocks(
-          highestComboThisRun,
-          this.hasWon,
-          metaManager.getCurrentStreak()
-        );
+      : getHiddenUnlockManager().evaluatePostRun(buildUnlockContext(runFacts));
     const runEarnings = buildRunEarnings({
       unlocks: newHiddenUnlocks,
       achievements: this.runEndAchievements ?? [],
       quests: runEndQuests,
     });
-    const unlockProgressForPanel = getHiddenUnlockManager().getTopProgress({
-      run: {
-        wasVictory: this.hasWon,
-        killCount: this.killCount,
-        levelReached: this.playerStats.level,
-        survivalTimeSeconds: this.gameTime,
-        highestCombo: highestComboThisRun,
-        damageTaken: this.totalDamageTaken,
-        damageDealt: this.totalDamageDealt,
-        weaponIdsUsed: [
-          ...(this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? []),
-          ...this.scrappedWeaponIds,
-        ],
-        worldLevel: metaManager.getWorldLevel(),
-        noDamageTaken: this.totalDamageTaken === 0,
-        winStreak: metaManager.getCurrentStreak(),
-      },
-      lifetime: getAchievementManager().getLifetimeStats(),
-    }, 3);
+    const unlockProgressForPanel = getHiddenUnlockManager().getTopProgress(
+      buildUnlockContext(runFacts),
+      3
+    );
 
     // Performance grade + per-run best score (persisted by world level).
     // GAUNTLET runs are measured in waves reached instead — they skip the
     // composite score, the per-world-level best table, the daily leaderboard,
     // and the recent-runs strip so boss-rush results never pollute
     // standard-mode records.
-    const runWorldLevel = metaManager.getWorldLevel();
-    let performanceGrade: { grade: string; color: string } | undefined;
-    let scoreResult: { score: number; best: number; isNewBest: boolean } | undefined;
-    let gameOverPriorRuns: ReturnType<typeof getRecentRuns> | undefined;
-    if (!this.gauntletModeActive && !practiceRun) {
-      const runScore = computeRunScore({
-        killCount: this.killCount,
-        survivalSeconds: this.gameTime,
-        level: this.playerStats.level,
-        damageDealt: this.totalDamageDealt,
-        highestCombo: highestComboThisRun,
-        wasVictory: this.hasWon,
-      });
-      scoreResult = recordScore(runWorldLevel, runScore);
-      if (this.paceRecordingEnabled && scoreResult.isNewBest) {
-        if (savePaceGhost(runWorldLevel, this.paceSamples)) this.paceGhostReplaced = true;
-      }
-      recordShipRun(this.selectedShipId, this.hasWon, scoreResult.score);
-      performanceGrade = computePerformanceGrade(runScore, runWorldLevel, this.hasWon);
-
-      // Record daily leaderboard entry (only stores if it beats the prior best).
-      // Ranked by the same composite score used for the grade/best-score above.
-      if (this.dailyModeActive && this.dailyDateString) {
-        recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
-          survivalSeconds: this.gameTime,
-          killCount: this.killCount,
-          levelReached: this.playerStats.level,
-          wasVictory: this.hasWon,
-          score: runScore,
-        });
-      }
-
-      // Recent-run history: read prior runs (for the "RECENT" overlay strip) before
-      // recording this one, so the strip shows the runs leading up to it.
-      gameOverPriorRuns = getRecentRuns(3);
-      recordRun({
-        timestamp: Date.now(),
-        durationSeconds: this.gameTime,
-        kills: this.killCount,
-        level: this.playerStats.level,
-        score: scoreResult.score,
-        grade: performanceGrade.grade,
-        victory: this.hasWon,
-        worldLevel: runWorldLevel,
-        ...this.runHistoryBuild(),
-      });
-    }
-
-    if (this.gauntletModeActive) {
-      recordGauntletRun({
-        timestamp: Date.now(),
-        wave: Math.max(1, this.gauntletWave),
-        kills: this.killCount,
-        durationSeconds: this.gameTime,
-        levelReached: this.playerStats.level,
-        worldLevel: runWorldLevel,
-      });
-    }
-
-    if (this.endlessModeActive && this.endlessCycleNumber >= 1) {
-      recordEndlessRun({
-        timestamp: Date.now(),
-        cycle: this.endlessCycleNumber,
-        kills: this.killCount,
-        durationSeconds: this.gameTime,
-        levelReached: this.playerStats.level,
-        worldLevel: runWorldLevel,
-      });
-    }
+    const runOutcome = recordRunOutcome(runFacts, {
+      practice: practiceRun,
+      gauntlet: this.gauntletModeActive,
+      gauntletWave: this.gauntletWave,
+      endless: this.endlessModeActive,
+      endlessCycle: this.endlessCycleNumber,
+      daily: this.dailyModeActive && this.dailyDateString
+        ? { challengeType: this.dailyChallengeType, dateString: this.dailyDateString }
+        : null,
+      paceSamples: this.paceRecordingEnabled ? this.paceSamples : null,
+      shipId: this.selectedShipId,
+      build: this.runHistoryBuild(),
+    });
+    // Never assign the flag directly: a won-then-died endless run had showVictory set it first.
+    if (runOutcome.paceGhostReplaced) this.paceGhostReplaced = true;
+    const {
+      score: scoreResult,
+      grade: performanceGrade,
+      priorRuns: gameOverPriorRuns,
+    } = runOutcome;
 
     this.pendingRematchLaunch = this.buildRematchSeed();
     // Persist the grudge exactly once per death, and show only what was stored —
@@ -9359,7 +9268,7 @@ export class GameScene extends Phaser.Scene {
       // Gauntlet deaths leave the streak untouched, so never show "Streak broken!" —
       // and neither does a practice death, which no longer breaks it.
       previousStreak: this.gauntletModeActive || practiceRun ? 0 : previousStreak,
-      highestCombo: highestComboThisRun,
+      highestCombo: runFacts.highestCombo,
       totalDamageDealt: this.totalDamageDealt,
       totalDamageTaken: this.totalDamageTaken,
       damageBySource: this.getDamageTakenBySource(),
@@ -9426,6 +9335,30 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * The run's measured numbers at run end — the one snapshot every settlement path reads.
+   * `winStreak` is a parameter because each path has to read it at a different moment relative
+   * to its own streak mutation.
+   */
+  private buildRunFacts(goldEarned: number, winStreak: number): RunFacts {
+    return {
+      wasVictory: this.hasWon,
+      killCount: this.killCount,
+      levelReached: this.playerStats.level,
+      survivalTimeSeconds: this.gameTime,
+      damageDealt: this.totalDamageDealt,
+      damageTaken: this.totalDamageTaken,
+      highestCombo: getHighestCombo(),
+      goldEarned,
+      worldLevel: getMetaProgressionManager().getWorldLevel(),
+      weaponIdsUsed: [
+        ...(this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? []),
+        ...this.scrappedWeaponIds,
+      ],
+      winStreak,
+    };
+  }
+
+  /**
    * What the toast diet recorded instead of drawing this run. Read at the TOP of each
    * run-end path, before the settle raises its own toasts: those become their own tagged
    * rows, and reading afterwards would list every settled unlock and quest twice.
@@ -9451,8 +9384,7 @@ export class GameScene extends Phaser.Scene {
 
     const runNoticeRows = this.collectRunNotices();
     const metaManager = getMetaProgressionManager();
-    const worldLevel = metaManager.getWorldLevel();
-    const highestComboThisRun = getHighestCombo();
+    const runFacts = this.buildRunFacts(goldEarned, metaManager.getCurrentStreak());
 
     // Armed before recordRunEnd so the achievement-unlock callback captures what this
     // run end earns; gameOver() arms it the same way, for the same reason.
@@ -9463,97 +9395,28 @@ export class GameScene extends Phaser.Scene {
     metaManager.recordRunUpgrades(recordRunBuild(this.upgrades));
 
     if (!this.hasWon) {
-      getAchievementManager().recordRunEnd({
-        wasVictory: false,
-        killCount: this.killCount,
-        levelReached: this.playerStats.level,
-        survivalTimeSeconds: this.gameTime,
-        worldLevel,
-        damageDealt: this.totalDamageDealt,
-        damageTaken: this.totalDamageTaken,
-        goldEarned,
-        accountLevel: metaManager.getAccountLevel(),
-        bestStreak: metaManager.getBestStreak(),
-        highestCombo: highestComboThisRun,
-      });
-
-      getCodexManager().recordRunEnd(
-        this.gameTime,
-        this.killCount,
-        this.totalDamageDealt,
-        goldEarned,
-        false, // wasVictory
-        worldLevel,
-        this.playerStats.level
-      );
+      getAchievementManager().recordRunEnd(buildRunEndData(runFacts));
+      recordCodexRunEnd(runFacts);
     }
 
     // After recordRunEnd so the lifetime-stat conditions see this run, the order
     // gameOver() uses. The toast this raises lands at HUD depth under the confirm
     // dialog, so the names are returned for the dialog to report instead.
-    const newHiddenUnlocks = this.evaluateHiddenUnlocks(
-      highestComboThisRun,
-      this.hasWon,
-      metaManager.getCurrentStreak()
-    );
+    const newHiddenUnlocks = getHiddenUnlockManager().evaluatePostRun(buildUnlockContext(runFacts));
 
-    if (!this.gauntletModeActive) {
-      const runScore = computeRunScore({
-        killCount: this.killCount,
-        survivalSeconds: this.gameTime,
-        level: this.playerStats.level,
-        damageDealt: this.totalDamageDealt,
-        highestCombo: highestComboThisRun,
-        wasVictory: this.hasWon,
-      });
-      const scoreResult = recordScore(worldLevel, runScore);
-      if (this.paceRecordingEnabled && scoreResult.isNewBest) {
-        savePaceGhost(worldLevel, this.paceSamples);
-      }
-      recordShipRun(this.selectedShipId, this.hasWon, scoreResult.score);
-
-      if (this.dailyModeActive && this.dailyDateString) {
-        recordDailyRun(this.dailyChallengeType, this.dailyDateString, {
-          survivalSeconds: this.gameTime,
-          killCount: this.killCount,
-          levelReached: this.playerStats.level,
-          wasVictory: this.hasWon,
-          score: runScore,
-        });
-      }
-
-      recordRun({
-        timestamp: Date.now(),
-        durationSeconds: this.gameTime,
-        kills: this.killCount,
-        level: this.playerStats.level,
-        score: scoreResult.score,
-        grade: computePerformanceGrade(runScore, worldLevel, this.hasWon).grade,
-        victory: this.hasWon,
-        worldLevel,
-        ...this.runHistoryBuild(),
-      });
-    } else {
-      recordGauntletRun({
-        timestamp: Date.now(),
-        wave: Math.max(1, this.gauntletWave),
-        kills: this.killCount,
-        durationSeconds: this.gameTime,
-        levelReached: this.playerStats.level,
-        worldLevel,
-      });
-    }
-
-    if (this.endlessModeActive && this.endlessCycleNumber >= 1) {
-      recordEndlessRun({
-        timestamp: Date.now(),
-        cycle: this.endlessCycleNumber,
-        kills: this.killCount,
-        durationSeconds: this.gameTime,
-        levelReached: this.playerStats.level,
-        worldLevel,
-      });
-    }
+    recordRunOutcome(runFacts, {
+      practice: false,
+      gauntlet: this.gauntletModeActive,
+      gauntletWave: this.gauntletWave,
+      endless: this.endlessModeActive,
+      endlessCycle: this.endlessCycleNumber,
+      daily: this.dailyModeActive && this.dailyDateString
+        ? { challengeType: this.dailyChallengeType, dateString: this.dailyDateString }
+        : null,
+      paceSamples: this.paceRecordingEnabled ? this.paceSamples : null,
+      shipId: this.selectedShipId,
+      build: this.runHistoryBuild(),
+    });
 
     if (!this.hasWon) {
       metaManager.recordRunCompleted();
@@ -9564,39 +9427,6 @@ export class GameScene extends Phaser.Scene {
       achievements: this.runEndAchievements ?? [],
       notices: runNoticeRows,
     };
-  }
-
-  /**
-   * Evaluates hidden unlock conditions after a run and fires toast notifications
-   * for any newly earned unlocks.
-   */
-  private evaluateHiddenUnlocks(
-    highestComboValue: number,
-    wasVictory: boolean,
-    winStreak: number
-  ): HiddenUnlockCondition[] {
-    const weaponIdsUsedThisRun = [
-      ...(this.weaponManager?.getAllWeapons().map((weapon) => weapon.id) ?? []),
-      ...this.scrappedWeaponIds,
-    ];
-    const lifetimeStats = getAchievementManager().getLifetimeStats();
-    // Toast dispatch lives on the onNewUnlock callback registered in create().
-    return getHiddenUnlockManager().evaluatePostRun({
-      run: {
-        wasVictory,
-        killCount: this.killCount,
-        levelReached: this.playerStats.level,
-        survivalTimeSeconds: this.gameTime,
-        highestCombo: highestComboValue,
-        damageTaken: this.totalDamageTaken,
-        damageDealt: this.totalDamageDealt,
-        weaponIdsUsed: weaponIdsUsedThisRun,
-        worldLevel: getMetaProgressionManager().getWorldLevel(),
-        noDamageTaken: this.totalDamageTaken === 0,
-        winStreak,
-      },
-      lifetime: lifetimeStats,
-    });
   }
 
   /**
