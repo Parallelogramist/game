@@ -7302,6 +7302,67 @@ exploring pays is the end of Phase 5.
   against a maxed magnet build. **Value:** the handoff never eats a pickup the player was already
   reeling in. Deps: none, but it wants play rather than a second guess.
 
+- [x] **FEAT-BIOME-REGION-STAGE** (done, 8c5ebb2) (new 2026-08-02, from
+  `references/map/README.md` section 6, "Biome mechanics, not just tints"): an expedition's
+  named regions stopped being labels. Every sector has carried a `biomeId` since
+  `FEAT-WORLDGEN-CORE`, drawn from every id in `STAGES` (`expeditionWorld.ts:30`), and the
+  banner read it back to the player on entry while the chart tinted by it, but nothing in the
+  running game read it: the two things a stage actually does, its hazard bias
+  (`setHazardZoneStage`) and its grid palette plus ambient overlay (`applyStageVisuals`), were
+  applied once per run from the funnel pick and never again. A 48-sector world therefore
+  announced INFERNO and played whatever was chosen before launch. Now the room takes both from
+  the region it belongs to. Value: the region you fly into changes what the room throws at you
+  and what it looks like.
+
+  **What shipped.** `GameScene.applySectorStage(sector)`, called from `sectorEnteredHandler`
+  before the banner and outside its first-visit gate, resolves the region's stage and, when it
+  differs from the one in force, calls `setHazardZoneStage` and `applyStageVisuals` with it.
+  `applyStageVisuals` gained a stage-id parameter defaulting to the run's own pick, so both
+  existing create-path calls mean exactly what they meant before, and it now destroys any
+  previous `stageAmbientOverlay` before painting one: without that, every region border would
+  stack another tinted rectangle over the run. The new private `activeStageId` is the single
+  comparison point and is written only by `applyStageVisuals`, which is why it needs no reset
+  across a Phaser scene restart: both create paths seed it from `selectedStageId`.
+
+  **The spine keeps the player's pick.** `SPINE_BIOME_ID` (`stage_deep_void`) is assigned to
+  exactly one region per world, the home region, because `orderBiomesByHarshness` puts it first
+  and `assignDangerAndBiomes` maps region index to that order. A sector in it resolves to
+  `selectedStageId` instead of to its own biome, so a stage picked in the funnel is not visibly
+  overwritten one frame after launch, the opening minutes of a run are unchanged, and the world
+  diverges only as the ship pushes out of the spine.
+
+  **Arena is unchanged by construction.** The only new call site hangs off
+  `expedition:sector-entered`, which only `ExpeditionModeAdapter` emits, so skirmish, daily,
+  weekly, practice and gauntlet keep the single funnel-picked stage they have today.
+
+  **Cost is a region border, not a room.** The early return compares the resolved stage id, and
+  regions span 5 to 18 sectors at the live seed, so an ordinary crossing does nothing and a
+  border does one palette write plus one rectangle swap.
+
+  **Nothing is persisted**: the active stage is derived from the sector on entry, so no storage
+  key, no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION` and no
+  `WORLD_PROFILE_VERSION` moves. After a restore the adapter re-announces the current sector on
+  its first frame, so the right region re-applies with no restore-path change.
+
+  **Deliberately cut, filed as `FEAT-BIOME-REGION-MULTIPLIERS`:** the stage's enemy-health,
+  enemy-damage, XP and gold multipliers.
+
+- [ ] **FEAT-BIOME-REGION-MULTIPLIERS** (new 2026-08-02, from FEAT-BIOME-REGION-STAGE): the
+  other half of a stage. A region governs its room's hazards and its palette now, but its
+  `enemyHealthMultiplier`, `enemyDamageMultiplier`, `xpMultiplier` and `goldMultiplier` still
+  come from the funnel pick for the whole world, so Inferno's +15% damage and +25% gold do not
+  arrive with the Inferno region. Cut rather than smuggled in, for two concrete reasons. (1)
+  **They are accumulators, not settings.** `worldLevelHealthMult`, `worldLevelDamageMult` and
+  `worldLevelXPMult` are escalated multiplicatively by the endless and gauntlet directors
+  through `escalateWorldMultipliers` (`GameScene.ts:920-922`, `:936-938`), and
+  `playerStats.goldMultiplier` is grown by in-run upgrades, so a per-region re-apply must
+  factor the stage's contribution out of a stored base rather than re-multiply, or it
+  compounds and clobbers real run state. (2) **Whether danger should vary by region at all is
+  a balance call**: the generator already varies `sector.danger` per region, so stacking a
+  stage multiplier on top may double-count the same axis. Value: a harsh region is harsh, not
+  just red. Deps: an operator call on whether region difficulty should stack with
+  `sector.danger`.
+
 - [x] **FEAT-EXPEDITION-SEASONS** (done, fd406d3) (new 2026-08-01, from
   `references/map/README.md` section 6): the expedition world stopped being one fixed
   layout every profile explores once. The seed was the module constant
@@ -11171,6 +11232,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-BIOME-REGION-SHIFT** (new 2026-08-02, from FEAT-BIOME-REGION-STAGE). Value: a
+  region border should read as a threshold, not as a glitch. Everything about the transition
+  was validated by reading the code, never in a browser. Four questions only a player answers:
+  (a) does the palette snap at a region border read as arriving somewhere, or as a pop, given
+  it lands in the same instant as the sector banner that names the region; (b) `stage_deep_void`
+  has `ambientOverlayAlpha` 0 while Inferno has 0.05, so most of the change is carried by the
+  grid line colour: is that enough to feel, or does a region want more than a tint; (c) does the
+  hazard mix change register during play, or does the `spawnIntervalMultiplier` swing of 0.7 to
+  1.0 pass unnoticed next to the wave pressure; (d) now that the world's regions carry stages,
+  should the funnel still offer a stage step for an expedition at all, or is that pick a
+  skirmish concept whose only remaining expedition job is colouring the spine. Deps: play.
 
 - [ ] **POLISH-VICTORY-CONQUEST-KICKER** (new 2026-08-02, from
   FEAT-WARDEN-VICTORY-OVERLAY-LINE). Value: the expedition's biggest moment should land as a

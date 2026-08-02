@@ -276,6 +276,15 @@ first.
   palette. Sector-scale mechanics (a biome where walls move, one where the grid is
   dark beyond the ship's light radius, one with low-gravity drift) reuse the barrier
   and hazard rails already built.
+  **First slice shipped as `FEAT-BIOME-REGION-STAGE` (`8c5ebb2`, 2026-08-02):**
+  a sector's `biomeId` now drives the room's hazard bias and its grid palette plus ambient
+  overlay, applied on `expedition:sector-entered` and skipped when the region does not change.
+  The deferral above was read as discharged by the same argument the seasons bullet records:
+  the stated precondition (the v1 loop in front of a player) was met when expedition became the
+  live default at `02c4b74`. The spine region keeps the stage the player picked in the funnel,
+  so the home region is still theirs. Sector-scale mechanics beyond the shipped stage
+  properties (moving walls, a dark biome, low-gravity drift) stay deferred, and the stage
+  multipliers are filed as `FEAT-BIOME-REGION-MULTIPLIERS`.
 - **World re-roll as a season.** A profile-level "new expedition" that regenerates the
   world with a new seed, banks the previous completion percentage as a record, and keeps
   traversal abilities. Turns the persistent world into a repeatable chase. **Shipped as
