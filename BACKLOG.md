@@ -1041,7 +1041,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   longer exists, so weapon #30 cannot silently repeat this. Verified by negative control:
   deleting `grenade` from the table fails the suite naming it. Files
   **POLISH-AUTOBUY-SYNERGY** for the playtest half.
-- [ ] **ARCH-ENEMY-PROJECTILES** (chunk 3). Move
+- [x] **ARCH-ENEMY-PROJECTILES** (chunk 3) (done, 25df3a1). Move
   `spawnEnemyProjectile`/`updateEnemyProjectiles` (`:7571-7652`) and
   `handleLaserBeam`/`updateLaserBeams` (`:13181-13257`) into
   `src/game/combat/EnemyProjectileManager.ts` (constructor takes scene + callbacks,
@@ -1050,6 +1050,22 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `saveGameState`/`restoreGameState`). Save shape must stay byte-identical (existing
   `GameStateManager.*.test.ts` fixtures must pass untouched). Add a pure
   motion/TTL step test.
+  **What shipped:** `spawnEnemyProjectile` / `updateEnemyProjectiles` / `handleLaserBeam` /
+  `updateLaserBeams` and their three fields left `GameScene` for
+  `src/game/combat/EnemyProjectileManager.ts`, over a new pure
+  `src/game/combat/enemyProjectileStep.ts` holding the per-frame TTL / motion / hit-test decision.
+  The manager takes scene + options in the `PauseMenuManager` shape; the eleven GameScene sites
+  it replaced included the two near-duplicate wiring blocks (fresh path in `create()`, restore
+  path in `setupSystemCallbacks()`), which now name the same manager method instead of two
+  copies of the same lambda. **The save/restore slice this item asked for was deliberately not
+  built:** nothing about enemy fire is persisted today (`grep -n "projectile\|laser"
+  src/save/GameStateManager.ts` is empty), so adding `serialize()`/`restore()` would have added
+  new fields to the save and broken this item's own "save shape must stay byte-identical" rule.
+  The manager exposes `clear()` (the two run-reset sites) and `destroy()` (shutdown) instead.
+  Behaviour is unchanged including the ordering the pure step now pins: TTL before move, despawn
+  rect before the tile query, player before escort drone, and the drone re-read per projectile so
+  a drone killed by one shot is not hit again by the next in the same frame. Files
+  `BUG-ENEMY-FIRE-IFRAMES` under Human gates, found while porting.
 - [ ] **ARCH-MINIMAP-FEED** (chunk 4). Move
   `writeMinimapEntry`/`updateMinimap`/`syncMinimapUnderlay`/`syncRadarWaypoints`
   (`:8864-9116`) into `src/game/managers/MinimapFeed.ts` over the already-pure
@@ -1087,10 +1103,10 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `src/game/endless/`. Guardrails: the 14 enemy-ai tests plus
   `GameStateManager.bossfight/endless` tests; add pure tests for boss-rotation index
   and gauntlet wave progression.
-- [ ] **CHORE-ARCH-TOOLING** (chunk 8, any time after chunk 2). (1) Delete the dead
-  `enemyPositionsArray`/`getEnemyPositions` (`src/ecs/FrameCache.ts:28, 97-102`):
-  zero consumers, allocates a fresh object per enemy per frame (up to 120k dead
-  allocations/sec at the 2,000-enemy cap). (2) ESLint flat config
+- [ ] **CHORE-ARCH-TOOLING** (chunk 8, any time after chunk 2). (1) **Done** (647393a): the dead
+  `enemyPositionsArray`/`getEnemyPositions` are gone from `src/ecs/FrameCache.ts`. They had zero
+  consumers repo-wide and allocated one object per enemy per frame, up to 120k dead
+  allocations/sec at the 2,000-enemy cap. Parts (2) and (3) below are still open. (2) ESLint flat config
   (no-floating-promises, unused imports) plus an import-cycle/boundary check (dpdm or
   eslint-plugin-import) encoding the `src/world` purity rule that today lives only in
   a comment (`worldTypes.ts:9-10`). (3) A bundle-size line in the deploy workflow
@@ -9646,6 +9662,22 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- **BUG-ENEMY-FIRE-IFRAMES** (found 2026-08-02 while porting ARCH-ENEMY-PROJECTILES; a balance
+  call, so filed rather than fixed). `takeDamage` (`GameScene.ts:8829`) *sets* the i-frame window
+  (`this.damageCooldown = this.playerStats.iframeDuration`) but never *checks* it — every other
+  damage source gates before calling: contact damage (`:8527`), ground slam (`:13287`), the boss
+  laser (`:13436`), and the `:7360` path. Enemy bullets do not: the projectile loop calls
+  `takeDamage` unconditionally. Consequences, both live: (a) a volley from several ranged enemies
+  landing in the same 0.3 s window deals full damage per pellet, where the same number of bodies
+  touching you deals it once; (b) with the shield barrier up, **each pellet burns one charge**
+  (`:8836` decrements before any cooldown is consulted, and the shield branch returns before the
+  cooldown is even set). **The question is which is intended**, and it is a feel call, not a bug
+  report: gating enemy bullets on i-frames weakens every ranged enemy and every projectile boss at
+  once, and `RunModifiers.ts:180` (a modifier that zeroes `iframeDuration`) shows the window is
+  already a deliberate balance lever. Three answers are possible and only playtest decides:
+  (1) gate bullets like everything else; (2) leave damage ungated but stop the shield barrier
+  eating more than one charge per window; (3) leave it exactly as it is and record that bullets
+  are meant to pierce i-frames. Nothing was changed pending the answer.
 - [ ] **POLISH-AUTOBUY-SYNERGY** (new 2026-08-02, from ARCH-AUTOBUY-EXTRACT). Value: tier-4
   auto-upgrade now scores 29 weapons instead of 13, and which family each of the 16 newly
   covered weapons belongs to is a balance judgement no test can settle. The assignment was
