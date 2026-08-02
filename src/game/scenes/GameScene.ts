@@ -125,12 +125,6 @@ import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { getPaceGhost, paceDeltaKills, PACE_SAMPLE_INTERVAL_SECONDS, MAX_PACE_SAMPLES } from '../../meta/PaceGhostManager';
 import {
-  advanceBossRotation,
-  bossIdAtRotation,
-  challengeBossRotationIndex,
-  getBossRotationIndex,
-} from '../../meta/BossRotationManager';
-import {
   NEMESIS_SPAWN_TIME_SECONDS, NEMESIS_SPRITE_SCALE, NemesisRecord,
   clearNemesis, getNemesis, nemesisGoldReward, nemesisLabel, nemesisScaling, recordNemesisKill,
 } from '../../meta/NemesisManager';
@@ -182,6 +176,7 @@ import { updateFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ec
 import { loadGauntletBestWave } from '../gauntlet/GauntletBestWave';
 import { GauntletDirector } from '../directors/GauntletDirector';
 import { EndlessDirector } from '../directors/EndlessDirector';
+import { BossFightDirector } from '../directors/BossFightDirector';
 import { loadEndlessBestCycle } from '../endless/EndlessBestCycle';
 import {
   buildQuestRunData,
@@ -416,10 +411,6 @@ const WARDEN_THRONE_DRAW_RADIUS = 34;
  *  throne are three different fights, so they must not read the same across a room. */
 const WARDEN_THRONE_COLOR = 0xcc44ff;
 const WARDEN_THRONE_GLOW = 0xe6b3ff;
-/** How long the scheduled boss holds off while a throne is standing. Past it the timer fires
- *  as it always has and the throne stands down, so a player who never walks in still meets
- *  the boss and loses nothing that ships today. */
-const WARDEN_THRONE_PATIENCE_SECONDS = 300;
 
 /** How the room answers a hold objective. The gap between waves shrinks as the hold nears its
  *  target, so the last stretch is the expensive one rather than the first. */
@@ -822,20 +813,10 @@ export class GameScene extends Phaser.Scene {
   private minibossSpawnTimes: { typeId: string; time: number; spawned: boolean }[] =
     TUNING.minibosses.schedule.map(entry => ({ ...entry, spawned: false }));
 
-  /**
-   * Rotation position the run's NEXT variety boss spawns from (endless waves,
-   * gauntlet). Run-local and never written back: only a rotation-fed 10-minute
-   * boss moves the persisted rotation. -1 = unseeded.
-   */
-  private bossRotationCursor = -1;
-  private bossSpawnTime = TUNING.bosses.spawnTime;
-  private bossSpawned = false;
-
   // Weapon evolution level reduction from shop upgrade
   private evolutionLevelReduction: number = 0;
 
   // Boss warning sequence
-  private bossWarningPhase: number = 0; // 0=none, 1=stirs, 2=trembles, 3=incoming
   private bossWarningText: Phaser.GameObjects.Text | null = null;
   private bossWarningVignette: Phaser.GameObjects.Graphics | null = null;
   private bossIntroObjects: Array<Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text | Phaser.GameObjects.Graphics> = [];
@@ -905,6 +886,17 @@ export class GameScene extends Phaser.Scene {
     playGoldSparkle: (x, y, particleCount) => this.effectsManager.playGoldSparkle(x, y, particleCount),
   });
 
+  private readonly bossFightDirector = new BossFightDirector({
+    gameTime: () => this.gameTime,
+    wardenThroneStanding: () => this.wardenThrone !== null,
+    isDailyMode: () => this.dailyModeActive,
+    dailyDateString: () => this.dailyDateString,
+    isPracticeMode: () => this.practiceModeActive,
+    cleanupBossWarning: () => this.cleanupBossWarning(),
+    spawnBoss: (typeId) => this.spawnBoss(typeId),
+    spawnBossHazard: (bossTypeId) => this.spawnBossHazard(bossTypeId),
+  });
+
   private enemyProjectileManager!: EnemyProjectileManager;
 
   // World level scaling (loaded at start of run)
@@ -925,14 +917,10 @@ export class GameScene extends Phaser.Scene {
   private threatLevel: number = 0;
   private activeBlessings: Blessing[] = [];
 
-  // Boss arena hazard zone spawning
-  private activeBossType: string | null = null;
-
   /** Seconds left on a live recall channel, 0 when none is running. Run-scoped and not
    *  serialized: a reload cancels the channel, it never lands the jump for you. */
   private recallChannelRemaining = 0;
   private recallRing: Phaser.GameObjects.Graphics | null = null;
-  private bossHazardTimer: number = 0;
   private hazardDamageMultiplier: number = 1.0;
 
   // Post-processing pipelines (WebGL only)
@@ -1242,7 +1230,7 @@ export class GameScene extends Phaser.Scene {
       byKey.set(sectorKey(sectorOfWorldPoint(lair.x, lair.y)), 'lair');
     }
     const map = this.worldMode.worldMap();
-    if (map && !this.bossSpawned) byKey.set(map.bossArenaKey, 'warden');
+    if (map && !this.bossFightDirector.hasSpawned()) byKey.set(map.bossArenaKey, 'warden');
     return [...byKey].map(([key, kind]) => ({ sectorKey: key, kind }));
   }
 
@@ -1579,8 +1567,7 @@ export class GameScene extends Phaser.Scene {
     this.pendingRematchLaunch = null;
     this.syncCacheGuardWithPendingReveal();
     this.magnetSpawnTimer = 0;
-    this.bossSpawned = false;
-    this.bossWarningPhase = 0;
+    this.bossFightDirector.resetForNewRun();
     // Scene restarts reuse this instance — drop refs to intro objects the
     // previous run's shutdown already destroyed.
     this.bossIntroObjects = [];
@@ -1624,8 +1611,6 @@ export class GameScene extends Phaser.Scene {
     setBossArenaScene(this);
     setHazardZoneScene(this);
     setHazardZoneQuality(this.visualQuality);
-    this.activeBossType = null;
-    this.bossHazardTimer = 0;
     this.hazardDamageMultiplier = 1.0;
 
     // Initialize post-processing pipelines (WebGL only)
@@ -2759,9 +2744,9 @@ export class GameScene extends Phaser.Scene {
       gemMagnetTimer: this.gemMagnetTimer,
       dashCooldownTimer: this.inputController.getDashCooldownRemaining(),
       damageCooldown: this.damageCooldown,
-      bossSpawned: this.bossSpawned,
-      bossWarningPhase: this.bossWarningPhase,
-      activeBossType: this.activeBossType ?? undefined,
+      bossSpawned: this.bossFightDirector.hasSpawned(),
+      bossWarningPhase: this.bossFightDirector.getWarningPhase(),
+      activeBossType: this.bossFightDirector.getActiveBossType() ?? undefined,
       comboState: getComboState(),
       ultimateCharge: getUltimateState().charge,
       cacheFoundThisRun: this.cacheFoundThisRun,
@@ -3014,8 +2999,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Restore spawn tracking
-    this.bossSpawned = state.bossSpawned;
-    this.bossWarningPhase = state.bossWarningPhase ?? 0;
+    this.bossFightDirector.restoreSpawnTracking(state.bossSpawned, state.bossWarningPhase ?? 0);
     if (state.comboState) {
       restoreComboState(state.comboState);
     }
@@ -3254,13 +3238,12 @@ export class GameScene extends Phaser.Scene {
     this.restoreEntities(state);
 
     // The boss restores as an ordinary enemy, so without this the fight comes back with its
-    // health bar and nothing else: no arena tint, no boss hazards at all (spawnBossHazard
-    // returns at its activeBossType guard), no bossActive music cue, and no siege suppression.
-    // Assigned unconditionally first because create() returns at the restore branch and never
-    // reaches the fresh block that zeroes these two, so on a scene restart they can still hold
-    // the previous run's values.
-    this.activeBossType = null;
-    this.bossHazardTimer = 0;
+    // health bar and nothing else: no arena tint, no boss hazards at all (the hazard cadence
+    // returns early with no live boss), no bossActive music cue, and no siege suppression.
+    // Cleared unconditionally first because create() returns at the restore branch and never
+    // reaches the fresh block that zeroes this, so on a scene restart it can still hold the
+    // previous run's values.
+    this.bossFightDirector.clearActiveBoss();
     const savedBossType = typeof state.activeBossType === 'string'
       && state.activeBossType.length > 0
       && state.activeBossType.length <= 64
@@ -3275,7 +3258,7 @@ export class GameScene extends Phaser.Scene {
     );
     if (savedBossType !== '' && restoredBossIsAlive) {
       activateBossArena(savedBossType);
-      this.activeBossType = savedBossType;
+      this.bossFightDirector.setActiveBoss(savedBossType);
     }
 
     // The camera and the two screen-sized view layers are wired only once the player
@@ -4155,7 +4138,7 @@ export class GameScene extends Phaser.Scene {
       // the fight's atmosphere/lighting while its siblings live.
       if (!this.hasOtherAliveBoss(enemyId)) {
         deactivateBossArena();
-        this.activeBossType = null;
+        this.bossFightDirector.clearActiveBoss();
         this.worldMode.releaseSectorLock();
       }
 
@@ -4880,7 +4863,7 @@ export class GameScene extends Phaser.Scene {
     // Optional: the fresh path runs this before createMinimapFeed(), and a feed built after it
     // starts with the timer already zero anyway.
     this.minimapFeed?.invalidateWaypoints();
-    this.bossRotationCursor = -1;
+    this.bossFightDirector.resetRotationCursor();
     // Pace ghost. Practice and gauntlet get no ghost because neither writes a
     // best score, so there is nothing to race. A restored run lost its early
     // samples with the page, so it still races the ghost but records no curve.
@@ -5356,7 +5339,7 @@ export class GameScene extends Phaser.Scene {
   /** The throne exists only while the ship is in the arena, the syncAbilityVaults idiom: it is
    *  a fixed structure of the world, not a run-scoped body, so it needs no save field. */
   private syncWardenThrone(map: WorldMap, playerX: number, playerY: number): void {
-    if (this.bossSpawned) {
+    if (this.bossFightDirector.hasSpawned()) {
       this.clearWardenThrone();
       return;
     }
@@ -5429,7 +5412,7 @@ export class GameScene extends Phaser.Scene {
    *  arrives with the same rotation spend, entrance, sector seal and health bar the timed
    *  spawn gives it. No extra shake or sting: spawnBoss's entrance already carries both. */
   private wakeWardenThrone(x: number, y: number): void {
-    if (this.bossSpawned) return;
+    if (this.bossFightDirector.hasSpawned()) return;
     this.clearWardenThrone();
     this.effectsManager.playDeathBurst(x, y, WARDEN_THRONE_COLOR);
     this.toastManager?.showToast({
@@ -5440,7 +5423,7 @@ export class GameScene extends Phaser.Scene {
       color: WARDEN_THRONE_COLOR,
       duration: 3200,
     });
-    this.beginRunBossFight();
+    this.bossFightDirector.beginFight();
   }
 
   /** The drone exists exactly while one active objective says it should, the syncWardenThrone
@@ -7221,7 +7204,7 @@ export class GameScene extends Phaser.Scene {
       hpFraction: this.playerId !== -1 && Health.max[this.playerId] > 0
         ? Health.current[this.playerId] / Health.max[this.playerId]
         : 1,
-      bossActive: this.activeBossType !== null,
+      bossActive: this.bossFightDirector.isBossActive(),
     });
 
     // ═══ HP REGENERATION ═══
@@ -7315,7 +7298,7 @@ export class GameScene extends Phaser.Scene {
       this.updateBossWarning(deltaSeconds);
 
       // Check for boss spawn
-      this.checkBossSpawn();
+      this.bossFightDirector.checkTimedSpawn();
 
       // Check for endless mode spawns (post-victory)
       if (this.endlessDirector.isActive()) {
@@ -7357,15 +7340,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Spawn boss-specific hazard zones during boss fights
-    if (this.activeBossType) {
-      this.bossHazardTimer -= deltaSeconds;
-      if (this.bossHazardTimer <= 0) {
-        this.spawnBossHazard();
-      }
-    }
+    this.bossFightDirector.updateHazardCadence(deltaSeconds);
 
     // Suppress events during boss warning phase 2+
-    setSuppressEvents(this.bossWarningPhase >= 2);
+    setSuppressEvents(this.bossFightDirector.getWarningPhase() >= 2);
 
     // Advance director credit budget (used by spawnEnemy to pick enemy types)
     updateDirector(this.gameTime, this.worldLevel);
@@ -8556,10 +8534,7 @@ export class GameScene extends Phaser.Scene {
       for (const minibossEntry of this.minibossSpawnTimes) {
         if (minibossEntry.time <= this.gameTime) minibossEntry.spawned = true;
       }
-      if (this.gameTime >= this.bossSpawnTime) {
-        this.bossSpawned = true;
-        this.cleanupBossWarning();
-      }
+      this.bossFightDirector.skipTimedSpawnIfDue();
     }
 
     this.endlessDirector.applyPracticeRung(rung.endlessCycle);
@@ -9487,7 +9462,7 @@ export class GameScene extends Phaser.Scene {
     // A boss owns the room while it lives, and the one arena hold in the catalog shares its
     // sector: stacking a siege on top would make that step the hardest fight in the game by
     // accident rather than by design.
-    if (this.activeBossType !== null) return;
+    if (this.bossFightDirector.isBossActive()) return;
     if (this.gameTime < this.siegeNextWaveAtSeconds) return;
     if (this.siegeBesiegerIds.length >= SIEGE_MAX_LIVE_BESIEGERS) return;
 
@@ -10110,23 +10085,23 @@ export class GameScene extends Phaser.Scene {
    * Phase 1 at 2 min before boss, Phase 2 at 1 min, Phase 3 at 30 sec.
    */
   private updateBossWarning(_deltaSeconds: number): void {
-    if (this.endlessDirector.isActive() || this.bossSpawned || this.bossSpawnTime <= 0) return;
+    if (this.endlessDirector.isActive()
+      || this.bossFightDirector.hasSpawned()
+      || !this.bossFightDirector.hasScheduledSpawn()) return;
 
     const warningDepth = HUD_OVERLAY_DEPTH - 50;
     const screenCenterX = this.scale.width / 2;
     const screenCenterY = this.scale.height / 2;
 
     // Phase 1: "Something stirs in the void..." at bossSpawnTime - 120 (e.g. 8:00)
-    if (this.bossWarningPhase < 1 && this.gameTime >= this.bossSpawnTime - 120) {
-      this.bossWarningPhase = 1;
-
+    if (this.bossFightDirector.claimWarningPhase(1)) {
       // Destroy any existing warning text before creating new one
       if (this.bossWarningText) {
         this.bossWarningText.destroy();
       }
 
       const upcomingBossName =
-        getEnemyType(bossIdAtRotation(this.runBossRotationIndex()))?.name ?? 'Something';
+        getEnemyType(this.bossFightDirector.upcomingBossTypeId())?.name ?? 'Something';
       this.bossWarningText = this.add.text(screenCenterX, screenCenterY, `${upcomingBossName} stirs in the void...`, {
         fontFamily: '"Atkinson Hyperlegible", Arial, monospace',
         fontSize: '28px',
@@ -10158,9 +10133,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Phase 2: "The ground trembles..." at bossSpawnTime - 60 (e.g. 9:00)
-    if (this.bossWarningPhase < 2 && this.gameTime >= this.bossSpawnTime - 60) {
-      this.bossWarningPhase = 2;
-
+    if (this.bossFightDirector.claimWarningPhase(2)) {
       // Destroy any existing warning text before creating new one
       if (this.bossWarningText) {
         this.bossWarningText.destroy();
@@ -10197,8 +10170,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Periodic rumble shakes in last 10 seconds before boss
-    if (this.bossWarningPhase >= 2 && !this.bossSpawned) {
-      const timeRemaining = Math.max(0, Math.ceil(this.bossSpawnTime - this.gameTime));
+    if (this.bossFightDirector.getWarningPhase() >= 2 && !this.bossFightDirector.hasSpawned()) {
+      const timeRemaining = Math.max(0, Math.ceil(this.bossFightDirector.secondsUntilSpawn()));
       if (timeRemaining <= 10) {
         if (Math.abs(Math.sin(this.gameTime * 1.5)) < 0.05) {
           getJuiceManager().screenShake(0.003, 150);
@@ -10207,8 +10180,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Phase 3: "BOSS INCOMING" at bossSpawnTime - 5
-    if (this.bossWarningPhase < 3 && this.gameTime >= this.bossSpawnTime - 5) {
-      this.bossWarningPhase = 3;
+    if (this.bossFightDirector.claimWarningPhase(3)) {
       this.soundManager.playBossWarning();
       getJuiceManager().screenShake(0.008, 400);
       getJuiceManager().impactFlash(0.15, 100);
@@ -11071,49 +11043,6 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /**
-   * Rotation position this run's 10-minute boss sits at. A daily/weekly is
-   * seeded from its challenge date, so the same challenge is the same fight
-   * everywhere; every other run takes the next boss on the persisted rotation.
-   */
-  private runBossRotationIndex(): number {
-    if (this.dailyModeActive && this.dailyDateString) {
-      return challengeBossRotationIndex(this.dailyDateString);
-    }
-    return getBossRotationIndex();
-  }
-
-  /** Spawns this run's boss at 10 minutes and moves the rotation on. */
-  private checkBossSpawn(): void {
-    if (this.bossSpawned || this.gameTime < this.bossSpawnTime) return;
-    // A standing throne holds the timer off: the boss is at home and going there is the
-    // point. Past the patience window it stops waiting, and the throne stands down.
-    if (this.wardenThrone
-      && this.gameTime < this.bossSpawnTime + WARDEN_THRONE_PATIENCE_SECONDS) return;
-    this.beginRunBossFight();
-  }
-
-  /** Fields this run's boss and moves the rotation on. Shared by the timer and by the warden
-   *  throne, so a fight taken at the arena spends the rotation exactly as the timed one does. */
-  private beginRunBossFight(): void {
-    this.bossSpawned = true;
-
-    // Clean up boss warning elements
-    this.cleanupBossWarning();
-
-    const rotationIndex = this.runBossRotationIndex();
-    // Later variety spawns this run continue past the boss just fielded.
-    this.bossRotationCursor = rotationIndex + 1;
-    // The rotation moves only when the player actually MEETS the boss, and only
-    // for rotation-fed runs: a daily fields a date-seeded boss, and a practice
-    // session must never spend the rotation.
-    if (!this.dailyModeActive && !this.practiceModeActive) {
-      advanceBossRotation();
-    }
-
-    this.spawnBoss(bossIdAtRotation(rotationIndex));
-  }
-
   /** Affixed bosses are replay-variety only: endless cycle 2+ / gauntlet wave 6+. */
   private bossAffixEligible(): boolean {
     if (this.practiceModeActive) return true;
@@ -11193,7 +11122,7 @@ export class GameScene extends Phaser.Scene {
     // The room is the sector the player is standing in when the fight starts. A second
     // boss in the same fight (gauntlet waves, endless cycle 3+) joins that room instead
     // of moving it, which is why this is latched on activeBossType and not unconditional.
-    if (!this.activeBossType) {
+    if (!this.bossFightDirector.getActiveBossType()) {
       const anchor = this.playerId !== -1
         ? { x: Transform.x[this.playerId], y: Transform.y[this.playerId] }
         : rectCenter(this.worldMode.viewRect());
@@ -11252,26 +11181,22 @@ export class GameScene extends Phaser.Scene {
 
     // Activate boss arena atmosphere
     activateBossArena(typeId);
-    this.activeBossType = typeId;
-    this.bossHazardTimer = 0;
+    this.bossFightDirector.setActiveBoss(typeId);
   }
 
   /**
    * Spawns boss-specific hazard zones during boss fights.
    * Each boss type creates different hazard patterns.
    */
-  private spawnBossHazard(): void {
-    if (!this.activeBossType) return;
-
+  private spawnBossHazard(bossTypeId: string): number {
     const field = this.worldMode.fieldRect();
 
-    switch (this.activeBossType) {
+    switch (bossTypeId) {
       case 'horde_king':
         // Burn zones at random positions, the fire lord scorches the room
         const burnPoint = pickInteriorPoint(field, 100, Math.random);
         spawnHazardZone(burnPoint.x, burnPoint.y, 80, 'burn', 6);
-        this.bossHazardTimer = 4;
-        break;
+        return 4;
 
       case 'void_wyrm':
         // Void rifts near player — pulls enemies into gravity wells
@@ -11284,8 +11209,7 @@ export class GameScene extends Phaser.Scene {
             100, 'void', 8
           );
         }
-        this.bossHazardTimer = 5;
-        break;
+        return 5;
 
       case 'the_machine':
         // Ice patches + energy wells — mechanical precision
@@ -11296,8 +11220,7 @@ export class GameScene extends Phaser.Scene {
           const energyPoint = pickInteriorPoint(field, 100, Math.random);
           spawnHazardZone(energyPoint.x, energyPoint.y, 60, 'energy', 10);
         }
-        this.bossHazardTimer = 6;
-        break;
+        return 6;
 
       case 'the_bastion':
         // Smouldering shell craters near the player — lingering siege scars
@@ -11310,8 +11233,7 @@ export class GameScene extends Phaser.Scene {
             70, 'burn', 6
           );
         }
-        this.bossHazardTimer = 5;
-        break;
+        return 5;
 
       case 'the_pulsar':
         // Warped-space wells around the player — the collapsed star bends space
@@ -11324,54 +11246,46 @@ export class GameScene extends Phaser.Scene {
             90, 'void', 7
           );
         }
-        this.bossHazardTimer = 5;
-        break;
+        return 5;
 
       case 'the_obelisk':
         // Leaking containment energy — scattered charged wells the player can use.
         const wellPoint = pickInteriorPoint(field, 100, Math.random);
         spawnHazardZone(wellPoint.x, wellPoint.y, 70, 'energy', 9);
-        this.bossHazardTimer = 6;
-        break;
+        return 6;
 
       case 'the_helix':
         // Spiralling energy collapses matter inward — a swirling void well.
         const spiralPoint = pickInteriorPoint(field, 120, Math.random);
         spawnHazardZone(spiralPoint.x, spiralPoint.y, 80, 'void', 8);
-        this.bossHazardTimer = 6;
-        break;
+        return 6;
 
       case 'the_tessellator':
         // Crystalline shards frost the tiles between barrages — a slick ice patch.
         const frostPoint = pickInteriorPoint(field, 100, Math.random);
         spawnHazardZone(frostPoint.x, frostPoint.y, 70, 'ice', 8);
-        this.bossHazardTimer = 6;
-        break;
+        return 6;
 
       case 'the_tremor':
         // Seismic fissures crack the arena floor between shockwaves — scorched ground.
         const fissurePoint = pickInteriorPoint(field, 100, Math.random);
         spawnHazardZone(fissurePoint.x, fissurePoint.y, 80, 'burn', 6);
-        this.bossHazardTimer = 6;
-        break;
+        return 6;
 
       case 'the_diviner':
         // Warped void rifts tear open where the eye's gaze lingers between cages.
         const riftPoint = pickInteriorPoint(field, 100, Math.random);
         spawnHazardZone(riftPoint.x, riftPoint.y, 80, 'void', 6);
-        this.bossHazardTimer = 6;
-        break;
+        return 6;
 
       case 'the_eclipse':
         // Umbral cold lingers where the shadow fell between pulses — a slick frost patch.
         const umbralPoint = pickInteriorPoint(field, 100, Math.random);
         spawnHazardZone(umbralPoint.x, umbralPoint.y, 80, 'ice', 6);
-        this.bossHazardTimer = 6;
-        break;
+        return 6;
 
       default:
-        this.bossHazardTimer = 5;
-        break;
+        return 5;
     }
   }
 
@@ -11607,12 +11521,7 @@ export class GameScene extends Phaser.Scene {
    * rotation, which belongs to the 10-minute boss.
    */
   private spawnNextBoss(): void {
-    if (this.bossRotationCursor < 0) {
-      this.bossRotationCursor = getBossRotationIndex();
-    }
-    const bossTypeId = bossIdAtRotation(this.bossRotationCursor);
-    this.bossRotationCursor += 1;
-    this.spawnBoss(bossTypeId);
+    this.spawnBoss(this.bossFightDirector.nextVarietyBossTypeId());
   }
 
   /** True while any miniboss/boss-tier enemy (xpValue >= 30) is alive. */
@@ -12803,7 +12712,7 @@ export class GameScene extends Phaser.Scene {
     // live boss-fight cue rides on activeBossType there.
     const maxEnemies = 100;
     const enemyRatio = this.enemyCount / maxEnemies;
-    const bossFightLive = this.bossSpawned || this.activeBossType !== null;
+    const bossFightLive = this.bossFightDirector.hasSpawned() || this.bossFightDirector.isBossActive();
     const bossActive = bossFightLive ? 0.3 : 0;
     const combatIntensity = Math.min(1, enemyRatio * 0.5 + bossActive);
     this.gridBackground.setCombatIntensity(combatIntensity);
@@ -13134,7 +13043,7 @@ export class GameScene extends Phaser.Scene {
     // Clean up boss arena and hazard zones
     resetBossArenaSystem();
     resetHazardZoneSystem();
-    this.activeBossType = null;
+    this.bossFightDirector.clearActiveBoss();
 
     // Clean up post-processing and lighting
     if (this.lightingSystem) {
