@@ -5368,7 +5368,7 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   `src/world/generateWorld.test.ts`. Pacing is unvalidated in a browser: see
   **POLISH-GATE-PACING** under `## Human gates`.
 
-- [ ] **BALANCE-GATE-TIER-FLOOR**: after `BUG-WORLDGEN-GATE-NESTING`, 47 of 700 reachable
+- [x] **BALANCE-GATE-TIER-FLOOR** (done, ad9a8dd): after `BUG-WORLDGEN-GATE-NESTING`, 47 of 700 reachable
   tiers across 100 seeds open **1 sector or fewer**, so some abilities are a key to a single
   room. Down from ~41% of tiers under the rejected weighted-shortlist variant and from a
   world with no gates at all, but an ability that unlocks one room reads as a non-reward.
@@ -5383,6 +5383,37 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   before and after with the tier-increment probe described in
   `BUG-WORLDGEN-GATE-NESTING`. Deps: `BUG-WORLDGEN-GATE-NESTING`. Value: each earned
   ability visibly opens a chunk of the map. Spec: `02-worldgen-barriers.md` section 2.2.
+  **What shipped:** two structural changes and one prerequisite. (1) **Depth-biased growth**:
+  `growSpanningTree` now multiplies each frontier weight by `(1 + depth) ** 3`, so the tree grows
+  a long main line with side branches instead of a bush. Average max tree depth goes 9.4 to 17.4
+  at budget 48, while the shape metrics that carry the map's character barely move: connections
+  per world 48.9 to 48.3, dead-end sectors 15.4 to 14.8, bounding box 109 to 111 cells. (2) **A
+  minimum-tier filter**: `pickGateCandidate` keeps only candidates leaving at least 2 sectors on
+  the near side and `gatesLeft * 2` on the far side, falling back to the height-only pool when
+  nothing qualifies (14 of 6000 gates over 1000 seeds). Neither change consumes RNG. Result over
+  the invariant suite's 100 seeds: tiers opening one sector or fewer go **47 of 700 to 0 of 700**,
+  smallest tier 1 to 2, all 6 gates still placed on 100 of 100 seeds. Over 1000 spread seeds, 510
+  of 7000 to 2 of 7000. The dev seed 20260727 goes from `33/1/3/1/4/2/4` sectors per ability to
+  `7/6/7/12/3/6/7`, which also answers clause (a) of `POLISH-GATE-PACING`: the first ability no
+  longer arrives with two thirds of the map already open. **The filter alone does nothing**, which
+  is why the tree had to change: measured on its own it moved 47 of 700 to 40 of 700 at a floor of
+  2 and made it worse at 3 and 4, exactly as this item predicted. **The prerequisite:**
+  `secretHints.test.ts` asserts the live seed holds one Secret slot per lore fragment, "which is
+  what keeps the default profile's collection finishable without a season re-roll". That was seed
+  luck, not a guarantee: 125 of 200 seeds already held fewer than 26 (min 11, mean 24.4), and seed
+  20260727 landed on exactly 26 by accident, so any layout change and even a bare
+  `WORLDGEN_VERSION` bump would have turned that test red. A new `topUpSecretSlots` pass converts
+  spare Treasure slots to Secret, one per sector per round in sector order, until the world holds
+  `LORE_FRAGMENTS.length` of them; the lore collection is now finishable in **every** world rather
+  than the launch one. Secret slots per world go min 12 to min 26 (mean 24.2 to 26.9) and treasure
+  slots 24.0 to 20.8. Converted slots are walk-in caches by construction, because the pass runs
+  after the interior sealing passes. **`WORLDGEN_VERSION` is bumped 3 to 4** and needs no
+  migration: `loadWorldProfile`, the sector-mark store and `isWorldConquered` already return fresh
+  state on a mismatch, and traversal-ability ownership is stored by id. **One new test**
+  (invariant 15) pins both floors, because both failures are silent: the world still generates,
+  still passes every other invariant and still plays. Files: `src/world/generateWorld.ts`,
+  `src/world/worldTypes.ts`, `src/world/generateWorld.test.ts`. It files
+  `BALANCE-POI-TREASURE-SHARE` and `CHORE-WORLDGEN-TIER-FALLBACK`.
 
 - [ ] **CHORE-WORLDGEN-GATE-COUNT-ASSERT**: tighten `ExpeditionModeAdapter`'s
   `[expedition] worldgen placed N of M ability gates` `console.warn` into a hard assert once
@@ -11081,6 +11112,23 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   `tools/build-icon-atlas.cjs`, a `lock` entry in `src/utils/IconMap.ts` and its frame name
   in that file's `VALID_FRAMES`, then the three call sites.
 
+- [ ] **BALANCE-POI-TREASURE-SHARE** (new 2026-08-02, from BALANCE-GATE-TIER-FLOOR): the
+  secret-slot floor converts spare Treasure slots until a world holds one per lore fragment,
+  which costs an average of 3 treasure slots per world (24.0 to 20.8 over 1000 seeds) and up
+  to 14 on a secret-poor seed. Whether the treasure economy still pays at that share, or
+  whether the floor should draw from Shrine slots too, or whether `placePoiSlots` should
+  simply weight Secret higher in its four-kind draw so the top-up rarely fires, is a balance
+  call with a measured cost. Value: the loot economy stays worth the detour.
+
+- [ ] **CHORE-WORLDGEN-TIER-FALLBACK** (new 2026-08-02, from BALANCE-GATE-TIER-FLOOR): 2 of
+  7000 tiers across 1000 spread seeds still open a single sector, because the strict
+  minimum-tier pool can come up empty and `pickGateCandidate` falls back to the height-only
+  pool (14 of 6000 gates). The invariant suite's own 100 seeds are clean, so invariant 15 is
+  green, but the floor is a strong tendency rather than a proof. Deciding whether to make it
+  total (a second relaxation rung was measured and rejected: it changed 11 one-sector tiers
+  to 12) or to accept the tail needs the shape of those two worlds. Value: the guarantee is
+  either real or honestly labelled.
+
 ---
 
 ## Human gates
@@ -11735,17 +11783,24 @@ Never agent work. The fleet must not do any of these.
     between the header and the canvas floor is what binds: is that big enough at arm's length,
     or should the title and subtitle shrink to buy the cards more room.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
-    Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
-    the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
-    ability arrives after roughly half the map is already open and the last four each add
-    almost nothing; whether that reads as a Metroid ramp or as a flat map with a locked tail
-    is a feel call. (b) **the one-sector tiers**: 47 of 700 tiers across 100 seeds open <= 1
-    sector, and whether that is "a secret room" or "a wasted key" decides whether
-    `BALANCE-GATE-TIER-FLOOR` is worth its second `WORLDGEN_VERSION` bump. (c) **tier 0**: 2
+    Agents have no browser and must not retune the generator blind. Owns:
+    (a) **ramp**: at the dev seed the reachable world now grows 7/6/7/12/3/6/7 sectors per
+    ability (it was 27/11/4/2/1/2/1 at da25d6c and 33/1/3/1/4/2/4 just before
+    BALANCE-GATE-TIER-FLOOR): does that read as a Metroid ramp, and is the fourth ability's
+    12-sector jump a highlight or a lull either side of it. (b) **the one-sector tiers**:
+    answered and shipped. BALANCE-GATE-TIER-FLOOR paid the second WORLDGEN_VERSION bump and
+    took 47 of 700 tiers at or below one sector to 0 of 700, floor 2. What is left for the
+    browser is whether a two-sector tier reads as a reward or still as a wasted key. (c) **tier 0**: 2
     of 100 seeds gate the world at the start sector's only exit, with that ability's own
     vault inside the start sector; abrupt, possibly fine, human call. (d) **legibility**:
     whether six distinct locked doors are distinguishable in play, or whether they need the
     per-ability glyph `FEAT-MAPUI-DOORS-05` plans for the map screen.
+    (e) **linearity**: depth-biased growth roughly doubled the average max tree depth (9.4
+    to 17.4 at 48 sectors) while leaving connections (48.9 to 48.3) and dead ends (15.4 to
+    14.8) alone, so the world is the same size and density with a longer main line. Whether
+    that reads as a journey or as a corridor is the one thing the numbers cannot answer;
+    `DEPTH_GROWTH_BIAS` in `src/world/generateWorld.ts` is the single knob (measured: 2
+    gives max depth 15.1, 4 gives 19.4).
   - **POLISH-BLINK-FEEL** (c2dc1bb): playtest Blink Drive in `?expedition=1` on a profile
     that owns it. Agents have no browser and must not tune a dodge verb blind. Owns:
     (a) **range**: 220 px is about 2.8 dashes and 5.5 tiles: does it read as a dodge or as

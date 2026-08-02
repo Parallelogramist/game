@@ -311,6 +311,22 @@ increments 27/11/4/2/1/2/1 sectors and the boss arena behind all six keys. This 
 `reconcileDiscoveryState` already drop state on a version mismatch and ability ownership
 is stored by id.)*
 
+*(As built, `BALANCE-GATE-TIER-FLOOR`: phase A's frontier weight gains a third term,
+`(1 + depth) ** DEPTH_GROWTH_BIAS` with the bias at 3, and phase C's feasibility filter
+gains a minimum-tier constraint: a candidate must leave at least `MIN_GATE_TIER_SECTORS`
+(2) sectors on the near side and `gatesLeft * MIN_GATE_TIER_SECTORS` on the far side, with
+the height-only pool as the fallback. Both are deterministic and consume no RNG. The
+straightness bias and the `sectorBudget / 6` box limit are unchanged. Feasibility alone
+could not fix the tiers because the tree was the constraint: a bushy tree caps a root
+child's subtree near a quarter of the world, so the equal-tier target was unreachable for
+the first gate and the error compounded downward, and the filter on its own moved 47 of 700
+one-sector tiers only to 40. Together they reach 0 of 700 on the invariant suite's seeds
+with a floor of 2, at the cost of roughly doubling average max tree depth, 9.4 to 17.4;
+connections per world (48.9 to 48.3), dead ends (15.4 to 14.8) and bounding box are
+effectively unchanged. `generateWorld` also gained `topUpSecretSlots`, which converts spare
+Treasure slots to Secret in sector order until a world holds one per lore fragment: the
+count was previously a per-seed accident that fell short on 125 of 200 seeds.)*
+
 **Phase D: biomes and danger.** `danger = depth / maxDepth`, then +0.08 per gate tier
 crossed, clamped to 1. Partition the tree into contiguous regions of 4-8 sectors
 (subtree slicing); assign each region a stage id from `inputs.availableBiomeIds` sorted
