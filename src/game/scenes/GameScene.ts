@@ -120,7 +120,7 @@ import { ShieldBarrierVisual } from '../../visual/ShieldBarrierVisual';
 import { StatusEffectVisualManager } from '../../visual/StatusEffectVisualManager';
 import { EliteAffixVisualManager } from '../../visual/EliteAffixVisualManager';
 import { rollAffix, rollBossAffix, rollParagonAffix, affixDisplayName, softenBossAffixScale, vampiricHealFraction, AFFIX_META, EnemyAffixType } from '../../data/Affixes';
-import { EndlessMutatorType, ENDLESS_MUTATOR_META, rollEndlessMutator, sanitizeEndlessMutator } from '../../data/EndlessMutators';
+import { EndlessMutatorType, ENDLESS_MUTATOR_META } from '../../data/EndlessMutators';
 import { TelegraphManager } from '../../effects/TelegraphManager';
 import { DepthLayers, OverlayDepths } from '../../visual/DepthLayers';
 import { getPaceGhost, paceDeltaKills, PACE_SAMPLE_INTERVAL_SECONDS, MAX_PACE_SAMPLES } from '../../meta/PaceGhostManager';
@@ -181,7 +181,8 @@ import { SecureStorage, flushStorage } from '../../storage';
 import { updateFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
 import { loadGauntletBestWave } from '../gauntlet/GauntletBestWave';
 import { GauntletDirector } from '../directors/GauntletDirector';
-import { loadEndlessBestCycle, saveEndlessBestCycleIfHigher } from '../endless/EndlessBestCycle';
+import { EndlessDirector } from '../directors/EndlessDirector';
+import { loadEndlessBestCycle } from '../endless/EndlessBestCycle';
 import {
   buildQuestRunData,
   buildRunEndData,
@@ -251,10 +252,7 @@ import {
   type RematchTarget,
   type PracticeRematchSeed,
 } from '../../data/PracticeTargets';
-import {
-  PracticeArenaRung,
-  endlessCycleRampFactor,
-} from '../../data/PracticeArena';
+import { PracticeArenaRung } from '../../data/PracticeArena';
 import { practiceBuildPlayerLevel } from '../../data/PracticeBuild';
 import { evaluateDashDangerHint, findBlockedEvolution, formatEvolutionHint, getHintDescription, getTutorialHintDef } from '../../tutorial/TutorialHints';
 import { getTutorialHintManager } from '../../tutorial/TutorialHintManager';
@@ -845,17 +843,6 @@ export class GameScene extends Phaser.Scene {
   private bossIntroRuleState: { spread: number } | null = null;
   private bossCountdownText: Phaser.GameObjects.Text | null = null;
 
-  // Endless mode (post-victory continuation)
-  private endlessModeActive = false;
-  private endlessModeTime = 0;           // Time elapsed since continue was chosen
-  private endlessMinibossTimer = 0;      // Countdown to next miniboss (60s intervals)
-  private endlessBossTimer = 0;          // Countdown to next boss wave (escalating intervals)
-  private endlessCycleNumber = 0;        // How many endless boss waves have been defeated
-  private endlessBossIntervalSeconds = 300; // Starts at 5 min between waves, shortens per cycle
-  private endlessMutator: EndlessMutatorType = EndlessMutatorType.NONE;
-  private endlessHudCycleShown = -1;     // Last cycle pushed to the HUD label (lazy sync survives restore ordering)
-  private endlessNewBestThisRun = false;  // Drives the end screen's "NEW BEST!" callout
-
   // GAUNTLET mode (boss-rush waves; replaces the stage's timed miniboss/boss
   // schedule — trash spawns keep flowing for the XP economy)
   private gauntletModeActive = false;
@@ -876,6 +863,27 @@ export class GameScene extends Phaser.Scene {
   private practiceRematchSeed: PracticeRematchSeed | null = null;
   private pendingRematchSpawn: PracticeDockState | null = null;
   private pendingRematchLaunch: PracticeRematchSeed | null = null;
+  private readonly endlessDirector = new EndlessDirector({
+    spawnWaveEntry: (kind) => {
+      if (kind === 'boss') this.spawnNextBoss();
+      else this.spawnRandomMiniboss();
+    },
+    scheduleWaveEntry: (kind, delayMs) => {
+      this.time.delayedCall(delayMs, () => {
+        if (kind === 'boss') this.spawnNextBoss();
+        else this.spawnRandomMiniboss();
+      });
+    },
+    showWaveBanner: (message, color) => this.showWaveBanner(message, color),
+    hudReady: () => !!this.hudManager,
+    setTopCenterLabel: (label) => this.hudManager.setTopCenterLabel(label),
+    escalateWorldMultipliers: (healthMult, damageMult, xpMult) => {
+      this.worldLevelHealthMult *= healthMult;
+      this.worldLevelDamageMult *= damageMult;
+      this.worldLevelXPMult *= xpMult;
+    },
+    isPracticeMode: () => this.practiceModeActive,
+  });
   private readonly gauntletDirector = new GauntletDirector({
     hasAliveThreat: () => this.hasAliveGauntletThreat(),
     spawnWaveEntry: (kind) => {
@@ -1578,15 +1586,7 @@ export class GameScene extends Phaser.Scene {
     this.bossIntroObjects = [];
     this.bossIntroRuleState = null;
     this.bossCountdownText = null;
-    this.endlessModeActive = false;
-    this.endlessModeTime = 0;
-    this.endlessMinibossTimer = 0;
-    this.endlessBossTimer = 0;
-    this.endlessCycleNumber = 0;
-    this.endlessBossIntervalSeconds = 300;
-    this.endlessMutator = EndlessMutatorType.NONE;
-    this.endlessHudCycleShown = -1;
-    this.endlessNewBestThisRun = false;
+    this.endlessDirector.resetForNewRun();
     // gauntletModeActive itself comes from init data — only the progression resets.
     this.gauntletDirector.resetForNewRun(this.gauntletModeActive);
     this.enemyProjectileManager.clear();
@@ -2827,16 +2827,7 @@ export class GameScene extends Phaser.Scene {
         : undefined,
       hazardState: getHazardState(),
       hasWon: this.hasWon,
-      endlessState: {
-        active: this.endlessModeActive,
-        time: this.endlessModeTime,
-        minibossTimer: this.endlessMinibossTimer,
-        bossTimer: this.endlessBossTimer,
-        cycleNumber: this.endlessCycleNumber,
-        bossIntervalSeconds: this.endlessBossIntervalSeconds,
-        mutator: this.endlessMutator,
-        newBestThisRun: this.endlessNewBestThisRun,
-      },
+      endlessState: this.endlessDirector.serialize(),
       gauntletState: {
         active: this.gauntletModeActive,
         ...this.gauntletDirector.serialize(),
@@ -3061,24 +3052,7 @@ export class GameScene extends Phaser.Scene {
     // a non-finite entry falls back to its fresh default instead of poisoning the
     // run loop with NaN timers.
     this.hasWon = state.hasWon === true;
-    const savedEndless = state.endlessState;
-    if (savedEndless && typeof savedEndless === 'object') {
-      const sanitizeEndless = (value: unknown, fallback: number, min: number, max: number): number =>
-        (typeof value === 'number' && Number.isFinite(value))
-          ? Math.max(min, Math.min(max, value))
-          : fallback;
-      this.endlessModeActive = savedEndless.active === true;
-      this.endlessModeTime = sanitizeEndless(savedEndless.time, 0, 0, 1e9);
-      this.endlessCycleNumber = sanitizeEndless(savedEndless.cycleNumber, 0, 0, 10_000);
-      this.endlessBossIntervalSeconds = sanitizeEndless(savedEndless.bossIntervalSeconds, 300, 120, 300);
-      this.endlessMinibossTimer = sanitizeEndless(savedEndless.minibossTimer, 45, 0, 600);
-      this.endlessBossTimer = sanitizeEndless(savedEndless.bossTimer, this.endlessBossIntervalSeconds, 0, 600);
-      this.endlessMutator = this.endlessModeActive
-        ? sanitizeEndlessMutator(savedEndless.mutator)
-        : EndlessMutatorType.NONE;
-      this.endlessNewBestThisRun = savedEndless.newBestThisRun === true;
-      this.endlessHudCycleShown = -1;
-    }
+    this.endlessDirector.restore(state.endlessState);
 
     // Restore GAUNTLET progression. Assigned unconditionally (scene restarts
     // reuse this instance, so stale fields from a prior gauntlet run must not
@@ -4435,7 +4409,7 @@ export class GameScene extends Phaser.Scene {
     const goldValue = kind === ConsumableKind.GOLD
       ? Math.round(
           (25 + Math.floor(this.gameTime * 0.5) + this.worldLevel * 10)
-            * ENDLESS_MUTATOR_META[this.endlessMutator].goldDropScale
+            * ENDLESS_MUTATOR_META[this.endlessDirector.getMutator()].goldDropScale
             * bossGoldScale,
         )
       : 0;
@@ -7344,8 +7318,8 @@ export class GameScene extends Phaser.Scene {
       this.checkBossSpawn();
 
       // Check for endless mode spawns (post-victory)
-      if (this.endlessModeActive) {
-        this.checkEndlessModeSpawns(deltaSeconds);
+      if (this.endlessDirector.isActive()) {
+        this.endlessDirector.update(deltaSeconds);
       }
     }
 
@@ -8571,7 +8545,7 @@ export class GameScene extends Phaser.Scene {
    */
   private applyPracticeArena(rung: PracticeArenaRung): void {
     if (!this.practiceModeActive) return;
-    if (rung.gameTime <= this.gameTime && rung.endlessCycle <= this.endlessCycleNumber) return;
+    if (rung.gameTime <= this.gameTime && rung.endlessCycle <= this.endlessDirector.getCycle()) return;
 
     if (rung.gameTime > this.gameTime) {
       this.gameTime = rung.gameTime;
@@ -8588,21 +8562,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    if (rung.endlessCycle > this.endlessCycleNumber) {
-      const ramp = endlessCycleRampFactor(this.endlessCycleNumber, rung.endlessCycle);
-      this.worldLevelHealthMult *= ramp.health;
-      this.worldLevelDamageMult *= ramp.damage;
-      this.worldLevelXPMult *= ramp.xp;
-
-      this.endlessModeActive = true;
-      this.endlessModeTime = 0;
-      this.endlessCycleNumber = rung.endlessCycle;
-      this.endlessBossIntervalSeconds = Math.max(120, 300 - rung.endlessCycle * 45);
-      this.endlessBossTimer = this.endlessBossIntervalSeconds;
-      this.endlessMinibossTimer = Math.max(20, 45 - rung.endlessCycle * 5);
-      this.endlessHudCycleShown = -1;
-      this.showEndlessCycleBanner(rung.endlessCycle);
-    }
+    this.endlessDirector.applyPracticeRung(rung.endlessCycle);
   }
 
   /**
@@ -8612,8 +8572,7 @@ export class GameScene extends Phaser.Scene {
    */
   private setPracticeMutator(mutator: EndlessMutatorType): void {
     if (!this.practiceModeActive) return;
-    this.endlessMutator = mutator;
-    this.endlessHudCycleShown = -1;
+    this.endlessDirector.setMutator(mutator);
   }
 
   /**
@@ -8664,13 +8623,7 @@ export class GameScene extends Phaser.Scene {
       },
       onContinueRun: () => {
         // Enable endless mode spawning
-        this.endlessModeActive = true;
-        this.endlessModeTime = 0;
-        this.endlessMinibossTimer = 45;   // First miniboss in 45 seconds (faster than old 60)
-        this.endlessBossTimer = this.endlessBossIntervalSeconds; // First post-victory boss in 5 min
-        this.endlessCycleNumber = 0;
-        this.endlessMutator = EndlessMutatorType.NONE;
-        this.endlessNewBestThisRun = false;
+        this.endlessDirector.activateForContinue();
         console.log('[Endless Mode] Activated - miniboss in 60s, boss in 600s');
 
         // Reset grid physics - boss death applies massive forces that springs can't recover from
@@ -8775,7 +8728,7 @@ export class GameScene extends Phaser.Scene {
   private runHistoryMode(): 'normal' | 'gauntlet' | 'daily' | 'endless' {
     if (this.dailyModeActive) return 'daily';
     if (this.gauntletModeActive) return 'gauntlet';
-    if (this.endlessModeActive) return 'endless';
+    if (this.endlessDirector.isActive()) return 'endless';
     return 'normal';
   }
 
@@ -9142,8 +9095,8 @@ export class GameScene extends Phaser.Scene {
       practice: practiceRun,
       gauntlet: this.gauntletModeActive,
       gauntletWave: this.gauntletDirector.getWave(),
-      endless: this.endlessModeActive,
-      endlessCycle: this.endlessCycleNumber,
+      endless: this.endlessDirector.isActive(),
+      endlessCycle: this.endlessDirector.getCycle(),
       daily: this.dailyModeActive && this.dailyDateString
         ? { challengeType: this.dailyChallengeType, dateString: this.dailyDateString }
         : null,
@@ -9217,11 +9170,11 @@ export class GameScene extends Phaser.Scene {
             isNewBest: this.gauntletDirector.isNewBestThisRun(),
           }
         : undefined,
-      endless: this.endlessModeActive && this.endlessCycleNumber >= 1
+      endless: this.endlessDirector.isActive() && this.endlessDirector.getCycle() >= 1
         ? {
-            cycle: this.endlessCycleNumber,
+            cycle: this.endlessDirector.getCycle(),
             bestCycle: loadEndlessBestCycle(),
-            isNewBest: this.endlessNewBestThisRun,
+            isNewBest: this.endlessDirector.isNewBestThisRun(),
           }
         : undefined,
       daily: this.dailyModeActive && this.dailyDateString && performanceGrade && scoreResult
@@ -9321,8 +9274,8 @@ export class GameScene extends Phaser.Scene {
       practice: false,
       gauntlet: this.gauntletModeActive,
       gauntletWave: this.gauntletDirector.getWave(),
-      endless: this.endlessModeActive,
-      endlessCycle: this.endlessCycleNumber,
+      endless: this.endlessDirector.isActive(),
+      endlessCycle: this.endlessDirector.getCycle(),
       daily: this.dailyModeActive && this.dailyDateString
         ? { challengeType: this.dailyChallengeType, dateString: this.dailyDateString }
         : null,
@@ -9825,7 +9778,7 @@ export class GameScene extends Phaser.Scene {
     // ═══ ELITE AFFIX (natural regular spawns only) ═══
     // Exclude minibosses/bosses (xp >= 30) AND spawned-only minions, which route
     // through createEnemy too (ghost/splitter_mini/turret) — an elite ghost is odd.
-    const mutatorMeta = ENDLESS_MUTATOR_META[this.endlessMutator];
+    const mutatorMeta = ENDLESS_MUTATOR_META[this.endlessDirector.getMutator()];
     const isSpawnedOnly = enemyType.id === 'ghost' || enemyType.id === 'splitter_mini' || enemyType.id === 'turret';
     if (enemyType.xpValue < 30 && !isSpawnedOnly) {
       const affix = rollAffix(mutatorMeta.affixChanceMultiplier);
@@ -9845,7 +9798,7 @@ export class GameScene extends Phaser.Scene {
 
     // Endless-cycle mutator: trash-tier spawn effects only (boss/miniboss feel is
     // owned by the affix system; xpValue >= 30 stays untouched).
-    if (enemyType.xpValue < 30 && this.endlessMutator !== EndlessMutatorType.NONE) {
+    if (enemyType.xpValue < 30 && this.endlessDirector.getMutator() !== EndlessMutatorType.NONE) {
       Velocity.speed[entityId] *= mutatorMeta.trashSpeedScale;
       EnemyType.xpValue[entityId] = Math.min(65535, Math.round(EnemyType.xpValue[entityId] * mutatorMeta.trashXpScale));
       EnemyType.armor[entityId] += mutatorMeta.trashArmorBonus;
@@ -10157,7 +10110,7 @@ export class GameScene extends Phaser.Scene {
    * Phase 1 at 2 min before boss, Phase 2 at 1 min, Phase 3 at 30 sec.
    */
   private updateBossWarning(_deltaSeconds: number): void {
-    if (this.endlessModeActive || this.bossSpawned || this.bossSpawnTime <= 0) return;
+    if (this.endlessDirector.isActive() || this.bossSpawned || this.bossSpawnTime <= 0) return;
 
     const warningDepth = HUD_OVERLAY_DEPTH - 50;
     const screenCenterX = this.scale.width / 2;
@@ -11165,21 +11118,21 @@ export class GameScene extends Phaser.Scene {
   private bossAffixEligible(): boolean {
     if (this.practiceModeActive) return true;
     if (this.gauntletModeActive) return this.gauntletDirector.getWave() >= 6;
-    return this.endlessModeActive && this.endlessCycleNumber >= 2;
+    return this.endlessDirector.isActive() && this.endlessDirector.getCycle() >= 2;
   }
 
   /** Affixed minibosses are replay-variety only: endless cycle 2+ / gauntlet wave 4+. */
   private minibossAffixEligible(): boolean {
     if (this.practiceModeActive) return true;
     if (this.gauntletModeActive) return this.gauntletDirector.getWave() >= 4;
-    return this.endlessModeActive && this.endlessCycleNumber >= 2;
+    return this.endlessDirector.isActive() && this.endlessDirector.getCycle() >= 2;
   }
 
   /** Paragon (double-affix) elites: deep runs only — endless cycle 4+ / gauntlet wave 10+. */
   private paragonEligible(): boolean {
     if (this.practiceModeActive) return true;
     if (this.gauntletModeActive) return this.gauntletDirector.getWave() >= 10;
-    return this.endlessModeActive && this.endlessCycleNumber >= 4;
+    return this.endlessDirector.isActive() && this.endlessDirector.getCycle() >= 4;
   }
 
   /** Practice fields the affix the operator picked; every other mode rolls. */
@@ -11599,79 +11552,6 @@ export class GameScene extends Phaser.Scene {
     this.bossIntroObjects = [];
   }
 
-  /**
-   * Checks and handles spawns for endless mode (post-victory continuation).
-   * Spawns a random miniboss every 60 seconds.
-   * Spawns a miniboss + boss every 600 seconds (10 minutes).
-   */
-  private checkEndlessModeSpawns(deltaSeconds: number): void {
-    this.syncEndlessHudLabel();
-    this.endlessModeTime += deltaSeconds;
-    this.endlessMinibossTimer -= deltaSeconds;
-    this.endlessBossTimer -= deltaSeconds;
-
-    // Miniboss cadence: starts at 45s, tightens by 5s per cycle (floor 20s).
-    const minibossIntervalSeconds = Math.max(20, 45 - this.endlessCycleNumber * 5);
-    if (this.endlessMinibossTimer <= 0) {
-      this.endlessMinibossTimer = minibossIntervalSeconds;
-      this.spawnRandomMiniboss();
-      // Cycle 2+: spawn a second miniboss after a short delay for density.
-      if (this.endlessCycleNumber >= 2) {
-        this.time.delayedCall(3000, () => this.spawnRandomMiniboss());
-      }
-    }
-
-    // Boss waves: interval shortens each cycle (5min → 4min → 3min → 2min floor).
-    if (this.endlessBossTimer <= 0) {
-      this.endlessCycleNumber += 1;
-      if (!this.practiceModeActive && saveEndlessBestCycleIfHigher(this.endlessCycleNumber)) {
-        this.endlessNewBestThisRun = true;
-        getAchievementManager().recordEndlessCycleReached(this.endlessCycleNumber);
-      }
-      // Practice fields the mutator the operator picked; every other mode rolls.
-      this.endlessMutator = this.practiceModeActive
-        ? this.endlessMutator
-        : rollEndlessMutator(this.endlessMutator);
-      // Each cycle tightens the next interval by 45s (minimum 120s = 2 min).
-      this.endlessBossIntervalSeconds = Math.max(120, 300 - this.endlessCycleNumber * 45);
-      this.endlessBossTimer = this.endlessBossIntervalSeconds;
-
-      // Ramp world-level-style multipliers per cycle so each wave hits harder.
-      this.worldLevelHealthMult *= 1.25;
-      this.worldLevelDamageMult *= 1.15;
-      this.worldLevelXPMult *= 1.10;
-
-      this.showEndlessCycleBanner(this.endlessCycleNumber);
-
-      // Boss wave composition escalates:
-      //   cycle 1: +1 miniboss + boss
-      //   cycle 2: +2 minibosses + boss
-      //   cycle 3+: +3 minibosses + TWO bosses back-to-back
-      const minibossCountPerWave = Math.min(3, 1 + this.endlessCycleNumber);
-      for (let spawnIndex = 0; spawnIndex < minibossCountPerWave; spawnIndex++) {
-        this.time.delayedCall(spawnIndex * 1500, () => this.spawnRandomMiniboss());
-      }
-
-      this.time.delayedCall(2500, () => this.spawnNextBoss());
-      if (this.endlessCycleNumber >= 3) {
-        this.time.delayedCall(7000, () => this.spawnNextBoss());
-      }
-    }
-  }
-
-  /**
-   * Displays a large "CYCLE N — escalated" banner when a new endless wave starts,
-   * naming the cycle's rolled mutator. Gives the player a clear landmark for
-   * their post-victory progression.
-   */
-  private showEndlessCycleBanner(cycleNumber: number): void {
-    const mutatorMeta = ENDLESS_MUTATOR_META[this.endlessMutator];
-    const bannerMessage = this.endlessMutator === EndlessMutatorType.NONE
-      ? `CYCLE ${cycleNumber}\nESCALATION`
-      : `CYCLE ${cycleNumber} · ${mutatorMeta.name}\n${mutatorMeta.description}`;
-    this.showWaveBanner(bannerMessage, cycleNumber >= 3 ? '#ff3366' : '#ffaa44');
-  }
-
   /** Large center-screen wave landmark banner (endless cycles + gauntlet waves). */
   private showWaveBanner(bannerMessage: string, bannerColor: string): void {
     const bannerDepth = 1200;
@@ -11752,22 +11632,6 @@ export class GameScene extends Phaser.Scene {
       if (enemyId !== dyingBossId && (EnemyType.xpValue[enemyId] || 0) >= 1000) return true;
     }
     return false;
-  }
-
-  /**
-   * Pushes the endless cycle + mutator into the HUD's top-center slot ("WORLD N"
-   * in standard runs). Lazy re-sync for the same reason as the gauntlet label:
-   * the restore path builds the HUD after endlessState is applied.
-   */
-  private syncEndlessHudLabel(): void {
-    if (this.endlessCycleNumber < 1 || this.endlessHudCycleShown === this.endlessCycleNumber || !this.hudManager) return;
-    this.endlessHudCycleShown = this.endlessCycleNumber;
-    const mutatorMeta = ENDLESS_MUTATOR_META[this.endlessMutator];
-    this.hudManager.setTopCenterLabel(
-      this.endlessMutator === EndlessMutatorType.NONE
-        ? `CYCLE ${this.endlessCycleNumber}`
-        : `CYCLE ${this.endlessCycleNumber} · ${mutatorMeta.name}`,
-    );
   }
 
   /**

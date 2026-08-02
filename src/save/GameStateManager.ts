@@ -313,7 +313,7 @@ interface SerializedChestEntry {
  * → reset defaults win (endless inactive). The difficulty ramp itself rides on
  * the separately-persisted worldLevel*Mult fields.
  */
-interface SerializedEndlessState {
+export interface SerializedEndlessState {
   active: boolean;
   time: number;
   minibossTimer: number;

@@ -12,7 +12,7 @@ import { EndlessMutatorType, ENDLESS_MUTATOR_META } from './EndlessMutators';
  *
  * Cycle rungs sit on the gates that change arena behavior: cycle 2 is where a second
  * miniboss joins each cadence tick, cycle 5 is where the miniboss cadence hits its
- * 20s floor (both in checkEndlessModeSpawns).
+ * 20s floor (both in EndlessDirector.update).
  */
 export interface PracticeArenaRung {
   /** Run clock the rung fields. */
@@ -33,7 +33,7 @@ export const PRACTICE_ARENA_LADDER: readonly PracticeArenaRung[] = [
 
 /**
  * Per-cycle escalation a real endless run compounds one cycle at a time (see
- * checkEndlessModeSpawns: worldLevelHealthMult *= 1.25 etc. per cycle). Mirrored
+ * EndlessDirector.update: worldLevelHealthMult *= 1.25 etc. per cycle). Mirrored
  * here by hand so a practice jump to cycle N fields the same numbers cycle N would.
  */
 const ENDLESS_CYCLE_RAMP = { health: 1.25, damage: 1.15, xp: 1.1 } as const;
