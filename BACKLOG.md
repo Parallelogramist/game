@@ -7363,6 +7363,39 @@ exploring pays is the end of Phase 5.
   just red. Deps: an operator call on whether region difficulty should stack with
   `sector.danger`.
 
+- [x] **FEAT-BIOME-REGION-PACKS** (done, 65b250a) (new 2026-08-02, from
+  FEAT-BIOME-REGION-STAGE): the second slice of README section 6's "biome mechanics, not just
+  tints". `FEAT-BIOME-REGION-STAGE` (8c5ebb2) gave a region its hazard bias and its palette;
+  the enemy it sends was still the same everywhere, because `pickEnemyFromDirector` weighted
+  by `spawnWeight` times a strategy category multiplier and by nothing else (`grep -rn "stage"
+  src/systems/DirectorSystem.ts` returned zero hits). New `STAGE_SPAWN_BIASES` in
+  `DirectorSystem.ts` is the twin of `HazardZoneSystem`'s `STAGE_HAZARD_BIASES`: per-stage
+  weight multipliers keyed by enemy id, applied by `setDirectorStage` at the same three sites
+  `setHazardZoneStage` occupies (run setup, restore, region change). Ion Field leans Shooter /
+  Sniper / Circler / Rallier, Crystal Caves Shielded / Tank / Splitter / Giant, Inferno
+  Exploder / Dasher, Verdant Rot Swarm / Healer / Splitter, Molten Vault Giant / Tank / Warden,
+  Endless Void Teleporter / Wraith / Lurker. **`stage_deep_void` is an empty row on purpose**,
+  so the default stage multiplies every weight by exactly 1.0 and consumes the same single
+  `Math.random()`: a default-stage run is unchanged. **Deliberately out of scope, filed not
+  smuggled:** the `maxAffordableBias` branch stays a uniform pick among the most expensive
+  affordable types (`FEAT-REGION-PACKS-TOPTIER`), and no multiplier is 0, so a small affordable
+  pool can never sum to a zero total weight. No save field, no storage key, no version bump:
+  the bias is re-derived on restore from the restored stage, the hazard rule. Arena, daily,
+  weekly and gauntlet are biased too, on purpose and symmetrically, because the hazard table
+  has biased them per stage since it shipped. One test, in `referentialIntegrity.test.ts`: a
+  typo in an enemy-id key is otherwise silent. Value: a named region is a different fight, not
+  a different colour.
+
+- [ ] **FEAT-REGION-PACKS-TOPTIER** (new 2026-08-02, from FEAT-BIOME-REGION-PACKS): the
+  region bias reaches the weighted branch of `pickEnemyFromDirector` only. The
+  `maxAffordableBias` branch above it picks uniformly among the most expensive affordable
+  types, so the `elite` strategy (bias 0.8) sees the region roughly one spawn in five, against
+  nine in ten for `swarm` (0.1). Making that branch weighted by the region multiplier alone
+  would be distribution-identical when unbiased, but it changes which `Math.random()` value
+  maps to which type, so it is a balance change to the strategy's identity rather than a wiring
+  fix. Value: the region is the same place whichever strategy the run rolled. Deps: none, but
+  it wants `BALANCE-BIOME-REGION-PACKS`' play data first.
+
 - [x] **FEAT-EXPEDITION-SEASONS** (done, fd406d3) (new 2026-08-01, from
   `references/map/README.md` section 6): the expedition world stopped being one fixed
   layout every profile explores once. The seed was the module constant
@@ -8935,6 +8968,12 @@ exploring pays is the end of Phase 5.
   honest version of that clause is a contact-damage exemption while the cloak is spending its
   i-frames rather than a collision change. Value: the cloak reads as intangibility rather than as
   a second door key. Deps: none.
+  **Measured 2026-08-02, do not re-derive:** the contact-damage exemption this item asks for is
+  already shipped. `GameScene.tryPhaseCloak` ends with
+  `this.damageCooldown = Math.max(this.damageCooldown, this.phaseCloakIframeSeconds())`
+  (`:6796`), and `phaseCloakIframeSeconds` grows with the `phaseLevel` upgrade, so the ship is
+  already untouchable for the whole cloak. What is left of the item is a *tell* (the ship does
+  not read as intangible while it is), which is a visual question, not a damage one.
 
 - [x] **FEAT-GRID-FENCE-CORRIDOR** (done, 699582a) (new 2026-08-01, from FEAT-POWER-PHASE-CLOAK): the fence is
   always a ring around a POI, never a band across a corridor pinch, because a band that strands a
@@ -11232,6 +11271,15 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **BALANCE-BIOME-REGION-PACKS** (new 2026-08-02, from FEAT-BIOME-REGION-PACKS): the six
+  region tables are designed guesses in the shape of `STAGE_HAZARD_BIASES`, never played. The
+  suppressions are the risk, not the boosts: Inferno drops `healer` to 0.3 and Crystal Caves
+  drops `exploder` to 0.4, so a long stay in one region can read as a thinner catalog rather
+  than as a signature. Whether 3.0 is a signature or a monoculture, and whether the boosted
+  type should instead be one the region's own hazard punishes you for ignoring, wants a
+  browser. Value: a region reads as its own place rather than as one enemy on repeat.
+  Deps: playtest.
 
 - [ ] **POLISH-BIOME-REGION-SHIFT** (new 2026-08-02, from FEAT-BIOME-REGION-STAGE). Value: a
   region border should read as a threshold, not as a glitch. Everything about the transition

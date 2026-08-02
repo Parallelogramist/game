@@ -282,7 +282,13 @@ first.
   The deferral above was read as discharged by the same argument the seasons bullet records:
   the stated precondition (the v1 loop in front of a player) was met when expedition became the
   live default at `02c4b74`. The spine region keeps the stage the player picked in the funnel,
-  so the home region is still theirs. Sector-scale mechanics beyond the shipped stage
+  so the home region is still theirs.
+  **Second slice shipped as `FEAT-BIOME-REGION-PACKS` (`65b250a`, 2026-08-02):**
+  the region also picks the pack. `STAGE_SPAWN_BIASES` in `src/systems/DirectorSystem.ts`
+  multiplies the director's weighted roll per enemy id, set by `setDirectorStage` at the same
+  three sites the hazard bias uses, so the Ion Field shoots at you and the Crystal Caves send
+  armour. `stage_deep_void` is deliberately unbiased, so the default stage is unchanged.
+  Sector-scale mechanics beyond the shipped stage
   properties (moving walls, a dark biome, low-gravity drift) stay deferred, and the stage
   multipliers are filed as `FEAT-BIOME-REGION-MULTIPLIERS`.
 - **World re-roll as a season.** A profile-level "new expedition" that regenerates the
