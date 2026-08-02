@@ -98,9 +98,11 @@ import {
 } from '../../world/barrierState';
 import type { BarrierEventSink } from '../../world/barrierState';
 import {
-  getSectorMarks, markWorldConquered, recordBrokenBarrier, recordDownedSecurityGrid,
+  getSectorMarks, isWorldConquered, markWorldConquered, recordBrokenBarrier,
+  recordDownedSecurityGrid,
 } from '../../expedition/WorldProfileStore';
 import { getDiscoveryManager } from '../../expedition/DiscoveryManager';
+import { getCurrentExpeditionSeasonIndex } from '../../expedition/ExpeditionSeasonStore';
 import { buildSecretLead, chooseHintTarget, leadSectorDistance } from '../../expedition/secretHints';
 import type { SecretLead } from '../../expedition/secretHints';
 import { buildRunTickerRows } from '../../expedition/runTicker';
@@ -4383,8 +4385,7 @@ export class GameScene extends Phaser.Scene {
       if (!this.hasWon && !this.gauntletModeActive && !this.practiceModeActive) {
         const metaManager = getMetaProgressionManager();
         metaManager.advanceWorldLevel();
-        this.recordWorldConquered();
-        this.showVictory();
+        this.showVictory(this.recordWorldConquered());
       }
     } else if (xpValue >= 30) {
       // ══════ MINIBOSS DEATH — shockwave ring + flash ══════
@@ -9164,16 +9165,22 @@ export class GameScene extends Phaser.Scene {
   /** The world's boss is dead, so this world is conquered: a permanent property of the WORLD
    *  (like a broken wall), not of the run, which is why it goes to the world profile and never
    *  to the save. Arena is inert by construction: worldMap() is null there. Written before
-   *  showVictory so the run-end unlock pass sees the new count in the same frame. */
-  private recordWorldConquered(): void {
+   *  showVictory so the run-end unlock pass sees the new count in the same frame.
+   *  Returns null outside expedition, else whether this win was this world's FIRST conquest,
+   *  which is what the victory kicker names. */
+  private recordWorldConquered(): boolean | null {
     const map = this.worldMode.worldMap();
-    if (!map) return;
+    if (!map) return null;
+    // Read before the write: markWorldConquered also returns false when the profile SAVE
+    // fails, which is a different fact from "this world was already conquered".
+    const alreadyConquered = isWorldConquered(map.seed, map.worldGenVersion);
     if (markWorldConquered(map.seed, map.worldGenVersion)) {
       getAchievementManager().recordWorldConquered();
     }
+    return !alreadyConquered;
   }
 
-  private showVictory(): void {
+  private showVictory(firstConquest: boolean | null): void {
     const runNoticeRows = this.collectRunNotices();
     recordThreatCleared(this.threatLevel);
     this.hasWon = true;
@@ -9287,6 +9294,12 @@ export class GameScene extends Phaser.Scene {
       newStreak,
       streakBonusPercent: metaManager.getStreakBonusPercent(),
       trophyUnlockedName: this.trophyUnlockedThisRun ?? undefined,
+      expeditionConquest: firstConquest === null ? undefined : {
+        seasonIndex: getCurrentExpeditionSeasonIndex(),
+        completionPercent: getDiscoveryManager().getCompletionPercent(),
+        firstConquest,
+        worldsConqueredTotal: getAchievementManager().getLifetimeStats().worldsConqueredTotal,
+      },
       performanceGrade: victoryGrade,
       // Reveal (and consume) the data-cache card here. A won run that continues
       // into endless and later dies hits gameOver() with the reveal already

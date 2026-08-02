@@ -21,6 +21,7 @@ import { DAILY_QUEST_COUNT, formatQuestValue, type DailyQuestDefinition, type Da
 import { summarizeRunPace } from '../../meta/PaceGhostManager';
 import { computeRunNetGold, formatRunEconomyLine } from '../../meta/RunEconomy';
 import { buildRunEarnings, formatRunEarningsLine, type EarlyRunEndRecord, type RunEarning, type RunEarningTag } from '../../meta/RunEarnings';
+import { buildVictoryKicker, type VictoryConquest } from '../runend/victoryKicker';
 
 /**
  * Paint a sharp menu panel: soft shadow + dark navy body + thin accent
@@ -266,6 +267,9 @@ export interface VictoryData {
   streakBonusPercent: number;
   /** Relic unlocked by a first-ever kill of this run's boss (FEAT-BOSS-TROPHY). */
   trophyUnlockedName?: string;
+  /** The expedition world this win conquered. Absent in every arena-substrate mode
+   *  (skirmish, daily, weekly, practice, gauntlet), where there is no world to conquer. */
+  expeditionConquest?: VictoryConquest;
   /** S–F performance grade for this run (parity with the game-over overlay). */
   performanceGrade?: { grade: string; color: string };
   /** Card discovered from an in-run data cache — revealed on this screen. */
@@ -1750,10 +1754,14 @@ export class PauseMenuManager {
     // Create victory overlay with fade-in
     this.createFadeInOverlay('victoryOverlay', 0.8, 200);
 
-    // Kicker — world + boss context above the title, display style.
-    const kickerLine = data.trophyUnlockedName
-      ? `WORLD ${data.clearedWorld} CLEARED  ·  TROPHY UNLOCKED: ${data.trophyUnlockedName.toUpperCase()}`
-      : `WORLD ${data.clearedWorld} CLEARED  ·  BOSS DEFEATED`;
+    // Kicker — world + boss context above the title, display style. An expedition win names
+    // the world it conquered here instead; `Next: World N` below still carries the meta level.
+    const kickerLine = buildVictoryKicker({
+      clearedWorld: data.clearedWorld,
+      trophyName: data.trophyUnlockedName,
+      conquest: data.expeditionConquest,
+      canvasWidth: this.scene.scale.width,
+    });
     const worldClearedText = this.scene.add.text(
       this.scene.scale.width / 2,
       this.scene.scale.height / 2 - 214,
