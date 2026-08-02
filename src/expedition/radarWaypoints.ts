@@ -25,6 +25,8 @@ export interface RadarWaypoint {
   /** Centre of the named sector in world space. Never an entity position. */
   worldX: number;
   worldY: number;
+  /** True only for a lead whose every cache is sealed against the profile right now. */
+  sealed: boolean;
 }
 
 export interface RadarWaypointInputs {
@@ -35,6 +37,9 @@ export interface RadarWaypointInputs {
   markSectorKeys: readonly string[];
   /** The sector each open lead names. */
   leadSectorKeys: readonly string[];
+  /** The subset of leadSectorKeys whose EVERY lead is sealed, from findSealedLeadSectors. A
+   *  vault's guard is deliberately not a seal here: that is CHORE-VAULT-GUARD-MAP-MARK. */
+  sealedLeadSectorKeys: ReadonlySet<string>;
   /** Sectors holding an ability vault the profile has seen and not claimed. */
   vaultSectorKeys: readonly string[];
   /** Non-zero discovery flags mean charted. */
@@ -70,7 +75,8 @@ export function buildRadarWaypoints(inputs: RadarWaypointInputs): RadarWaypoint[
     const cell = parseSectorKey(sectorKey);
     if (!cell) return;
     const centre = sectorCenterWorld(cell);
-    bySectorKey.set(sectorKey, { kind, sectorKey, worldX: centre.x, worldY: centre.y });
+    const sealed = kind === 'lead' && inputs.sealedLeadSectorKeys.has(sectorKey);
+    bySectorKey.set(sectorKey, { kind, sectorKey, worldX: centre.x, worldY: centre.y, sealed });
   };
 
   for (const sectorKey of inputs.objectiveSectorKeys) consider(sectorKey, 'objective');

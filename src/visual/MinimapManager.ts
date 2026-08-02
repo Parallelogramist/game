@@ -482,6 +482,10 @@ export class MinimapManager {
    * Draw one mark per waypoint into the already-cleared blip Graphics. In range it is a hollow
    * ring at the true offset; out of range projectToRadar has clamped it to the rim, so it
    * becomes a chevron pointing along the bearing and the player can fly the arrow.
+   *
+   * A sealed lead draws hollow in both, which is drawLeadBadge's chart vocabulary carried onto
+   * the disc rather than a second one: a filled shape is a place the ship can fly to and walk
+   * into, an outline is one sealed against the profile right now.
    */
   private drawWaypoints(
     graphics: Phaser.GameObjects.Graphics, playerX: number, playerY: number,
@@ -496,6 +500,7 @@ export class MinimapManager {
       if (!projected.atRim) {
         graphics.lineStyle(1.5, color, 0.95);
         graphics.strokeCircle(projected.x, projected.y, size * 0.6);
+        if (waypoint.sealed) continue;
         graphics.fillStyle(color, 0.95);
         graphics.fillCircle(projected.x, projected.y, 1.5);
         continue;
@@ -503,15 +508,23 @@ export class MinimapManager {
       const angle = Math.atan2(projected.y, projected.x);
       const centerX = Math.cos(angle) * radius * WAYPOINT_RIM_INSET;
       const centerY = Math.sin(angle) * radius * WAYPOINT_RIM_INSET;
+      const strokeWidth = Math.max(1.5, size * 0.35);
+      // A stroke straddles its path, so the sealed chevron shrinks by half of one and its tip
+      // still lands on the rim where the filled chevron's does.
+      const reach = waypoint.sealed ? size - strokeWidth / 2 : size;
+      const tipX = centerX + Math.cos(angle) * reach;
+      const tipY = centerY + Math.sin(angle) * reach;
+      const leftX = centerX + Math.cos(angle + WAYPOINT_CHEVRON_SPREAD) * reach;
+      const leftY = centerY + Math.sin(angle + WAYPOINT_CHEVRON_SPREAD) * reach;
+      const rightX = centerX + Math.cos(angle - WAYPOINT_CHEVRON_SPREAD) * reach;
+      const rightY = centerY + Math.sin(angle - WAYPOINT_CHEVRON_SPREAD) * reach;
+      if (waypoint.sealed) {
+        graphics.lineStyle(strokeWidth, color, 0.95);
+        graphics.strokeTriangle(tipX, tipY, leftX, leftY, rightX, rightY);
+        continue;
+      }
       graphics.fillStyle(color, 0.95);
-      graphics.fillTriangle(
-        centerX + Math.cos(angle) * size,
-        centerY + Math.sin(angle) * size,
-        centerX + Math.cos(angle + WAYPOINT_CHEVRON_SPREAD) * size,
-        centerY + Math.sin(angle + WAYPOINT_CHEVRON_SPREAD) * size,
-        centerX + Math.cos(angle - WAYPOINT_CHEVRON_SPREAD) * size,
-        centerY + Math.sin(angle - WAYPOINT_CHEVRON_SPREAD) * size,
-      );
+      graphics.fillTriangle(tipX, tipY, leftX, leftY, rightX, rightY);
     }
   }
 

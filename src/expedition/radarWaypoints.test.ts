@@ -9,6 +9,7 @@ function build(overrides: Partial<RadarWaypointInputs>) {
     objectiveSectorKeys: [],
     markSectorKeys: [],
     leadSectorKeys: [],
+    sealedLeadSectorKeys: new Set<string>(),
     vaultSectorKeys: [],
     isCharted: (sectorKey) => CHARTED.has(sectorKey),
     shipSectorKey: '0,0',
@@ -62,5 +63,20 @@ describe('buildRadarWaypoints', () => {
     const waypoints = build({ leadSectorKeys: ['1,0'], vaultSectorKeys: ['1,0'] });
     expect(waypoints).toHaveLength(1);
     expect(waypoints[0].kind).toBe('lead');
+  });
+
+  test('only a lead seals, and an objective on the same sector clears the seal', () => {
+    const waypoints = build({
+      objectiveSectorKeys: ['2,0'],
+      leadSectorKeys: ['1,0', '2,0'],
+      vaultSectorKeys: ['3,0'],
+      sealedLeadSectorKeys: new Set(['1,0', '2,0', '3,0']),
+    });
+    expect(waypoints.map((waypoint) => [waypoint.kind, waypoint.sectorKey, waypoint.sealed]))
+      .toEqual([
+        ['objective', '2,0', false],
+        ['lead', '1,0', true],
+        ['vault', '3,0', false],
+      ]);
   });
 });

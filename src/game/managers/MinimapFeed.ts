@@ -12,7 +12,9 @@ import { SectorFlags } from '../../expedition/DiscoveryTypes';
 import { findUnclaimedAbilityVaults } from '../../expedition/lockouts';
 import { buildHazardPins, buildQuestPins } from '../../expedition/questPins';
 import { buildRadarWaypoints, type RadarWaypoint } from '../../expedition/radarWaypoints';
-import { findSecretSector } from '../../expedition/secretHints';
+import {
+  buildSecretLead, findSealedLeadSectors, type SecretLead,
+} from '../../expedition/secretHints';
 import {
   getActiveQuestHazardObjectives,
   getActiveQuestMarkers,
@@ -361,21 +363,24 @@ export class MinimapFeed {
         shipCell,
       }),
     ];
-    const leadSectorKeys: string[] = [];
+    const leads: SecretLead[] = [];
     for (const secretId of discovery.getHintedSecretIds()) {
-      const sector = findSecretSector(map, secretId);
-      if (sector) leadSectorKeys.push(sector.key);
+      const lead = buildSecretLead(map, secretId);
+      if (lead) leads.push(lead);
     }
+    const holdsAbility = (abilityId: string): boolean => this.options.holdsAbility(abilityId);
+    const sealedLeadSectorKeys = findSealedLeadSectors(leads, holdsAbility);
     const vaultSectorKeys = findUnclaimedAbilityVaults({
       map,
       sectorFlagsOf: (key) => discovery.getSectorFlags(key),
       poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
-      holdsAbility: (abilityId) => this.options.holdsAbility(abilityId),
+      holdsAbility,
     }).map((site) => site.sectorKey);
     this.radar.setWaypoints(buildRadarWaypoints({
       objectiveSectorKeys: pins.map((pin) => pin.sectorKey),
       markSectorKeys: this.options.markedSectorKeys(),
-      leadSectorKeys,
+      leadSectorKeys: leads.map((lead) => lead.sectorKey),
+      sealedLeadSectorKeys,
       vaultSectorKeys,
       isCharted: (key) => discovery.getSectorFlags(key) !== 0,
       shipSectorKey: sectorKey(shipCell),
