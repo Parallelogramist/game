@@ -593,12 +593,43 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   clamped `gridScale`, floored at 1 so a viewport that is already tight is never shrunk below
   its design size (the same call batch 1 made in `computeGridLayout`). On a portrait phone the
   six-card scenes drop from three columns to two and take the full 1.2x; on a landscape phone
-  they keep one row at 1.41x to 1.60x. Remaining: Codex, Achievement, Cards, Leaderboard,
-  QuestBoard, Loadout, Map, Paint, MusicSettings, Credits, but see
-  BUG-MARKET-VERTICAL-SATURATION before picking MarketScene. BUG-WEAPON-GRID-OVERFLOW and
+  they keep one row at 1.41x to 1.60x. BUG-WEAPON-GRID-OVERFLOW and
   BUG-PACT-GRID-HEADER-OVERLAP are now closed (`8f5cc49`), so the two "do not batch blind"
   warnings that referenced them no longer block anything except BUG-MARKET-VERTICAL-SATURATION
   and POLISH-FUNNEL-PACT-SATURATION, which stay open.
+  **Batch 4 shipped (`00c5462`, `a4ce597`, `4f6e8e0`, `9a736bc`, `26ce1b8`): PaintScene,
+  QuestBoardScene and LoadoutScene.** Two of the three were carrying the same live overflow
+  defect BUG-WEAPON-GRID-OVERFLOW named, so this batch is a bug fix as much as a density pass.
+  PaintScene draws 24 cards (23 paints plus the SHIP DEFAULT opt-out) and composed them as 4
+  columns by 6 rows, which is 980 units of grid in a 720-unit canvas: `startY` resolved to -110,
+  so the entire first row, SHIP DEFAULT included, painted above y=0 and a player who picked a
+  paint could never click their way back to the stock hull. It is now 7 columns by 4 rows at
+  scale 0.858, spanning exactly y=92 to y=648. QuestBoardScene anchored on `(height + 96) / 2`,
+  which at the 4 chains a fresh profile sees put the card row's top edge at y=140 while its own
+  `ACCEPTED n/3` counter is drawn at y=150, and the cards are at depth 2 over the counter's
+  depth 1, so the board covered its own status line; the row is now clamped to y=302. At the
+  full 9 chains it was 4 columns by 3 rows with `startY` -14, hiding the whole top row and
+  running the bottom row under LEAVE; it is now 5 columns by 2 rows at 0.849, spanning y=168 to
+  y=640. The mechanism is one new pure helper, `computeCardGridInBand` in
+  `src/utils/HudScale.ts`, which wraps the existing `computeGridFit` and `computeRowStackFit`:
+  it keeps the scene's composed geometry while that still fits the band between header and
+  footer (clamping the anchor so a fitting grid is also placed inside the band, which is the
+  quest-board counter fix), and otherwise jointly picks the column count and uniform scale that
+  best fill the band. WeaponSelectScene was deliberately left on its own private copy of that
+  wrapper rather than refactored onto the shared one: it works, it is pinned by tests, and
+  rewriting a just-shipped hot-path scene for zero user-facing gain is rework.
+  LoadoutScene had no overflow, but it is one full-height vertical column rather than a card
+  grid, so it takes the ShopScene batch-2 shape instead: a closed-form clamp
+  `min(menuScale, height / (stack + 335))`, where 335 is everything the scene needs outside the
+  row stack (the header above it, then the flash line, the build-code bar, BACK and the bottom
+  margin). Desktop at UI Scale 1.0 stays exactly 1.0 and is therefore byte-identical, a portrait
+  phone takes the full 1.2, and a 2000x720 landscape phone takes 1.027 at five rows, in every
+  case leaving the last row clear of the build-code bar.
+  Remaining: Codex, Achievement, Cards, Leaderboard, MusicSettings, Credits, plus MarketScene
+  behind BUG-MARKET-VERTICAL-SATURATION, plus **MapScene, which needs its own session**: it is
+  1002 lines of hand-laid absolute panels (a 340-wide left column at x=24, a 196-wide legend,
+  and a zoomed map viewport between them), so density-scaling its chrome trades away map area.
+  That is a layout call the operator owns, not a mechanical batch.
 - [x] **BUG-WEAPON-GRID-OVERFLOW** (done, `8f5cc49`). The pre-run weapon grid painted outside the
   canvas at 15+ discovered weapons and hid its whole first row at 29; an over-tall grid now fits the
   band. Full write-up in `BACKLOG-archive.md`.
@@ -9313,6 +9344,15 @@ Never agent work. The fleet must not do any of these.
   its 11 ships were already 4 units over their band at 4 columns (top edge y=48 against a
   160-unit header reserve): it now lays 5 columns x 3 rows at 0.992 instead of 4 x 3 — is the
   wider, shallower ship grid an improvement, and does the hangar preview still sit clear of it?
+  Density batch 4 (2026-08-02) put PaintScene and QuestBoardScene on the same shared fitter, so
+  three more questions belong here rather than in a new gate item: (f) the ship-paint grid is now
+  7 columns x 4 rows at 0.858 on desktop rather than 4 x 6, so a paint card is 154x129: does it
+  still read, and is the wider grid an improvement? (g) the quest board at four chains moved down
+  28 units to clear its own ACCEPTED counter, and at a full board it is 5 columns x 2 rows at
+  0.849 rather than 4 x 3: check both against the paused GameScene behind them, since this is an
+  overlay rather than a full scene. (h) LoadoutScene can only grow where the canvas is taller
+  than the design height, so a landscape phone gets 1.027 while portrait gets the full 1.2: is
+  the landscape case worth anything, or should that scene stay unscaled outside portrait?
 
 - [x] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): **answered 2026-08-01, operator
   directed the reconcile + deploy the same day.** `origin/master` carried one commit
