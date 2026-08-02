@@ -981,6 +981,14 @@ export class GameScene extends Phaser.Scene {
   /** Seconds left on a live recall channel, 0 when none is running. Run-scoped and not
    *  serialized: a reload cancels the channel, it never lands the jump for you. */
   private recallChannelRemaining = 0;
+  /** Where the live channel will put the ship, captured when it starts. */
+  private recallChannelTarget: { x: number; y: number } | null = null;
+  /** Whether the live channel is the outbound leg, so the copy and the anchor bookkeeping can
+   *  tell the two directions apart. */
+  private recallChannelIsSortie = false;
+  /** Where the last recall departed from, and the only place SORTIE will ever put the ship.
+   *  Null until a recall leaves a sector other than the hangar; spent by the return leg. */
+  private sortieAnchor: { x: number; y: number } | null = null;
   private recallRing: Phaser.GameObjects.Graphics | null = null;
   private phaseBleedRenderer: PhaseBleedRenderer | null = null;
   private hazardDamageMultiplier: number = 1.0;
@@ -1285,6 +1293,7 @@ export class GameScene extends Phaser.Scene {
       hazardSectors: this.dormantHazardSectors(),
       spentNestSectorKeys: this.spentAmbushNestSectorKeys(),
       recallAvailable: !this.worldMode.isSectorLocked(),
+      sortieAvailable: this.sortieAnchor !== null,
     });
     this.scene.pause();
   }
@@ -1344,20 +1353,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Called by MapScene when the player triggers RECALL. Returns false when the run refuses it.
+   * The body both directions share. Recall and sortie are one verb with one cost, so a player
+   * learns the rule once and neither direction can drift away from the other.
    *
    * The boss-lock refusal is a correctness constraint and not a balance taste (README section
    * 4.1): teleporting out of a sealed room strands the lock with the boss alive inside it.
    */
-  beginExpeditionRecall(): boolean {
+  private beginExpeditionJump(kind: 'recall' | 'sortie'): boolean {
+    const isSortie = kind === 'sortie';
+    const target = isSortie ? this.sortieAnchor : this.worldMode.playerStartPoint();
+    if (target === null) return false;
     if (this.worldMode.worldMap() === null) return false;
     if (this.isGameOver || this.playerId === -1) return false;
     if (this.recallChannelRemaining > 0) return false;
+    const label = isSortie ? 'SORTIE' : 'RECALL';
     if (this.worldMode.isSectorLocked()) {
       this.soundManager.playError();
       this.toastManager?.showToast({
         tier: 'critical',
-        title: 'RECALL BLOCKED',
+        title: `${label} BLOCKED`,
         description: 'The room is sealed. Finish the fight first.',
         icon: 'rocket',
         color: ACCENT_COLORS.danger,
@@ -1366,10 +1380,12 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
+    this.recallChannelTarget = { x: target.x, y: target.y };
+    this.recallChannelIsSortie = isSortie;
     this.recallChannelRemaining = TUNING.player.recallChannelSeconds;
     this.toastManager?.showToast({
       tier: 'critical',
-      title: 'RECALL ENGAGED',
+      title: `${label} ENGAGED`,
       description: `Hold steady for ${TUNING.player.recallChannelSeconds} seconds.`
         + ' A hit breaks the lock.',
       icon: 'rocket',
@@ -1379,19 +1395,52 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
+  /** Called by MapScene when the player triggers RECALL. Returns false when the run refuses it. */
+  beginExpeditionRecall(): boolean {
+    return this.beginExpeditionJump('recall');
+  }
+
+  /**
+   * Called by MapScene when the player triggers SORTIE, the return leg of a recall. Returns false
+   * when the run refuses it, including when no recall has left an anchor this run.
+   */
+  beginExpeditionSortie(): boolean {
+    return this.beginExpeditionJump('sortie');
+  }
+
   private cancelExpeditionRecall(reason: string): void {
     if (this.recallChannelRemaining <= 0) return;
+    const label = this.recallChannelIsSortie ? 'SORTIE' : 'RECALL';
     this.recallChannelRemaining = 0;
+    this.recallChannelTarget = null;
+    this.recallChannelIsSortie = false;
     this.recallRing?.setVisible(false);
     this.soundManager.playError();
     this.toastManager?.showToast({
       tier: 'critical',
-      title: 'RECALL BROKEN',
+      title: `${label} BROKEN`,
       description: reason,
       icon: 'rocket',
       color: ACCENT_COLORS.danger,
       duration: 2600,
     });
+  }
+
+  /** Where a recall departed from, so the return leg has somewhere to go. A departure from the
+   *  hangar itself records nothing: a sortie into the room the ship is already standing in is not
+   *  a trip, and keeping the previous anchor would be worse, because it would fly the ship
+   *  somewhere it never asked to return to. */
+  private rememberSortieAnchor(): void {
+    const map = this.worldMode.worldMap();
+    if (!map) {
+      this.sortieAnchor = null;
+      return;
+    }
+    const fromX = Transform.x[this.playerId];
+    const fromY = Transform.y[this.playerId];
+    this.sortieAnchor = sectorKey(sectorOfWorldPoint(fromX, fromY)) === map.startKey
+      ? null
+      : { x: fromX, y: fromY };
   }
 
   /**
@@ -1411,24 +1460,41 @@ export class GameScene extends Phaser.Scene {
     this.recallChannelRemaining = 0;
     this.recallRing?.setVisible(false);
 
-    const home = this.worldMode.playerStartPoint();
-    Transform.x[this.playerId] = home.x;
-    Transform.y[this.playerId] = home.y;
+    const isSortie = this.recallChannelIsSortie;
+    const target = this.recallChannelTarget ?? this.worldMode.playerStartPoint();
+    this.recallChannelTarget = null;
+    this.recallChannelIsSortie = false;
+
+    // Read before the ship moves. The outbound leg spends the anchor, because a recall buys one
+    // return and not a shuttle; the inbound leg records a fresh one.
+    if (isSortie) this.sortieAnchor = null;
+    else this.rememberSortieAnchor();
+
+    // Snapped the way a restored transform is: a saved point can be stale against geometry that
+    // changed under it, and freeSpotNear is this repo's single answer for "where does the ship
+    // fit". A fresh recall target is already legal, so the snap is a no-op there.
+    const arrival: WorldPoint = { x: target.x, y: target.y };
+    this.worldMode.freeSpotNear(target.x, target.y, arrival);
+
+    Transform.x[this.playerId] = arrival.x;
+    Transform.y[this.playerId] = arrival.y;
     Velocity.x[this.playerId] = 0;
     Velocity.y[this.playerId] = 0;
     this.clearPlayerKnockback();
     // The container as well as the Transform, the restoreGameState precedent: the adapter
     // reads the container to decide which sector the ship is in, and the camera follows it.
-    this.playerSpaceship.getContainer().setPosition(home.x, home.y);
-    this.worldMode.jumpViewTo(home.x, home.y);
+    this.playerSpaceship.getContainer().setPosition(arrival.x, arrival.y);
+    this.worldMode.jumpViewTo(arrival.x, arrival.y);
 
-    this.effectsManager.playDeathBurst(home.x, home.y, PLAYER_NEON.glow);
+    this.effectsManager.playDeathBurst(arrival.x, arrival.y, PLAYER_NEON.glow);
     this.cameras.main.shake(120, 0.004);
     this.soundManager.playSynergyActivation();
     this.toastManager?.showToast({
       tier: 'ambient',
-      title: 'RECALLED',
-      description: 'The hangar has the ship. The expedition continues.',
+      title: isSortie ? 'BACK IN THE FIELD' : 'RECALLED',
+      description: isSortie
+        ? 'The ship is where it left off. The push continues.'
+        : 'The hangar has the ship. The expedition continues.',
       icon: 'rocket',
       color: ACCENT_COLORS.primary,
       duration: 3000,
@@ -2915,6 +2981,11 @@ export class GameScene extends Phaser.Scene {
               : undefined,
           }
         : undefined,
+      // Expedition only, the poiState rule. Persisted because a return trip is a promise the
+      // player already paid a 3 second channel for, so a refresh must not silently cancel it.
+      sortieAnchor: this.sortieAnchor && this.worldMode.worldMap()
+        ? { x: this.sortieAnchor.x, y: this.sortieAnchor.y }
+        : undefined,
       hazardState: getHazardState(),
       hasWon: this.hasWon,
       endlessState: this.endlessDirector.serialize(),
@@ -3117,6 +3188,14 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+
+    // Coords sanitized the way chestState's are, against a tampered save. Absent on legacy and
+    // arena saves, where resetInRunFeatureState's null wins.
+    const savedSortieAnchor = state.sortieAnchor;
+    this.sortieAnchor = savedSortieAnchor
+      && Number.isFinite(savedSortieAnchor.x) && Number.isFinite(savedSortieAnchor.y)
+      ? { x: savedSortieAnchor.x, y: savedSortieAnchor.y }
+      : null;
 
     // Restore the run's live quest objective. resetInRunFeatureState above cleared the dwell stamp,
     // ended the siege and destroyed the drone, so a refresh mid-objective restarted a 90 s hold at
@@ -5097,6 +5176,9 @@ export class GameScene extends Phaser.Scene {
     this.siegeNextWaveAtSeconds = 0;
     this.siegeBesiegerIds = [];
     this.recallChannelRemaining = 0;
+    this.recallChannelTarget = null;
+    this.recallChannelIsSortie = false;
+    this.sortieAnchor = null;
     this.recallRing?.setVisible(false);
     this.expeditionTickerRows = [];
     this.questTickerRefreshTimer = 0;
@@ -13494,6 +13576,9 @@ export class GameScene extends Phaser.Scene {
       this.recallRing = null;
     }
     this.recallChannelRemaining = 0;
+    this.recallChannelTarget = null;
+    this.recallChannelIsSortie = false;
+    this.sortieAnchor = null;
 
     if (this.phaseBleedRenderer) {
       this.phaseBleedRenderer.destroy();

@@ -326,6 +326,16 @@ interface SerializedPoiState {
 }
 
 /**
+ * Where the return leg of a recall will put the ship. Optional and absent on every arena and
+ * legacy save, where the reset default wins, so no migration and SAVE_VERSION does not move
+ * (doc 01 section 8.1).
+ */
+interface SerializedSortieAnchor {
+  x: number;
+  y: number;
+}
+
+/**
  * The live quest objective state a run is standing in the middle of. Every field is optional and
  * every consumer keeps the reset default when it is absent, so a legacy or arena save needs no
  * migration and SAVE_VERSION does not move (doc 01 section 8.1).
@@ -573,6 +583,12 @@ export interface GameSaveState {
   // and handed back a full-health drone. Written only by an expedition run; absent on arena +
   // legacy saves, where the reset defaults win.
   questRunState?: SerializedQuestRunState;
+
+  // Where a recall departed from, so SORTIE can fly the ship back (see SerializedSortieAnchor).
+  // Written only by an expedition run that holds one; absent on arena + legacy saves, where the
+  // reset default of null wins. A refresh must not quietly cancel a return trip the player
+  // already paid a channel for.
+  sortieAnchor?: SerializedSortieAnchor;
 
   // Live hazard zones (burn/ice/void/energy) + the auto-spawner pacing.
   // Module-owned by HazardZoneSystem and wiped by resetAllRunSystems on
@@ -839,6 +855,7 @@ export class GameStateManager {
     chestState?: SerializedChestEntry[];
     poiState?: SerializedPoiState;
     questRunState?: SerializedQuestRunState;
+    sortieAnchor?: SerializedSortieAnchor;
     hazardState?: SerializedHazardState;
     hasWon?: boolean;
     endlessState?: SerializedEndlessState;
@@ -924,6 +941,7 @@ export class GameStateManager {
         chestState: gameData.chestState,
         poiState: gameData.poiState,
         questRunState: gameData.questRunState,
+        sortieAnchor: gameData.sortieAnchor,
         hazardState: gameData.hazardState,
         hasWon: gameData.hasWon,
         endlessState: gameData.endlessState,

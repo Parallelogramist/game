@@ -69,6 +69,9 @@ export interface MapSceneData {
   /** False while a boss seal holds the room. Passed in because only GameScene knows: a recall
    *  out of a sealed fight would strand the lock. */
   recallAvailable: boolean;
+  /** True when a recall left an anchor this run. Passed in for the same reason recallAvailable is:
+   *  only GameScene knows, and reading it here would be a second source of truth. */
+  sortieAvailable: boolean;
 }
 
 /** Panel-space pixels per second at zoom 1; scaled by zoom so the pan feels constant. */
@@ -178,7 +181,8 @@ export class MapScene extends Phaser.Scene {
    *  reads a held button as a first press. Exactly the zoomOutArmed guard LB needs, for exactly
    *  the same reason: without it the note field opens by itself on the frame the chart appears. */
   private noteKeyArmed = false;
-  private recallState: 'ready' | 'locked' | 'home' = 'ready';
+  private recallState: 'ready' | 'locked' | 'home' | 'sortie' = 'ready';
+  private sortieAvailable = false;
   private detailHeadlineText!: Phaser.GameObjects.Text;
   private detailDoorsText!: Phaser.GameObjects.Text;
   private detailRewardsText!: Phaser.GameObjects.Text;
@@ -207,6 +211,7 @@ export class MapScene extends Phaser.Scene {
     );
     this.spentNestSectorKeys = new Set(data.spentNestSectorKeys ?? []);
     this.recallState = data.recallAvailable === false ? 'locked' : 'ready';
+    this.sortieAvailable = data.sortieAvailable === true;
     this.closed = false;
     this.zoomOutArmed = false;
     this.noteKeyArmed = false;
@@ -260,7 +265,8 @@ export class MapScene extends Phaser.Scene {
       - FOOTER_BUTTON_GAP - NOTE_BUTTON_WIDTH);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
-      + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE   ·   R RECALL   ·   M / ESC CLOSE',
+      + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE   ·   R RECALL / SORTIE'
+      + '   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
     this.questPins = [
@@ -698,10 +704,14 @@ export class MapScene extends Phaser.Scene {
   private createRecallButton(): void {
     const shipSector = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
     if (this.recallState === 'ready' && sectorKey(shipSector) === this.mapData.startKey) {
-      this.recallState = 'home';
+      // The one button the hangar used to kill outright: standing home with a recall behind you,
+      // it is the way back out.
+      this.recallState = this.sortieAvailable ? 'sortie' : 'home';
     }
+    const live = this.recallState === 'ready' || this.recallState === 'sortie';
     const label = this.recallState === 'locked' ? 'ROOM SEALED'
       : this.recallState === 'home' ? 'AT THE HANGAR'
+      : this.recallState === 'sortie' ? 'SORTIE'
       : 'RECALL';
 
     this.recallButton = createMenuButton({
@@ -711,7 +721,7 @@ export class MapScene extends Phaser.Scene {
       width: RECALL_BUTTON_WIDTH,
       height: RECALL_BUTTON_HEIGHT,
       label,
-      variant: this.recallState === 'ready' ? 'primary' : 'neutral',
+      variant: live ? 'primary' : 'neutral',
       onActivate: () => this.recall(),
     });
     this.recallButton.container.setDepth(6);
@@ -719,7 +729,7 @@ export class MapScene extends Phaser.Scene {
       this.recallButton?.setHoverState(true));
     this.recallButton.card.hitZone.on('pointerout', () =>
       this.recallButton?.setHoverState(false));
-    if (this.recallState !== 'ready') this.recallButton.setEnabled(false);
+    if (!live) this.recallButton.setEnabled(false);
   }
 
   /** The touch and mouse opener for the note field, left of RECALL. Disabled rather than hidden
@@ -744,12 +754,16 @@ export class MapScene extends Phaser.Scene {
   }
 
   /** Resumes the run first, then starts the channel on the live scene: the channel is ticked
-   *  from GameScene.update, which does not run while this scene holds the pause. */
+   *  from GameScene.update, which does not run while this scene holds the pause. One method for
+   *  both directions, because one button, one key and one gamepad face fire it. */
   private recall(): void {
-    if (this.recallState !== 'ready' || this.closed) return;
+    if (this.closed) return;
+    if (this.recallState !== 'ready' && this.recallState !== 'sortie') return;
+    const isSortie = this.recallState === 'sortie';
     const gameScene = this.scene.get('GameScene') as GameScene | undefined;
     this.close();
-    gameScene?.beginExpeditionRecall();
+    if (isSortie) gameScene?.beginExpeditionSortie();
+    else gameScene?.beginExpeditionRecall();
   }
 
   private refreshDetail(): void {
