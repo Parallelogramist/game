@@ -123,7 +123,12 @@ function triggerMatches(trigger: QuestTrigger, event: QuestEvent): boolean {
         && (trigger.abilityId === undefined || trigger.abilityId === event.abilityId);
     case 'findSecret':
       return trigger.kind === 'findSecret'
-        && (trigger.secretKind === undefined || trigger.secretKind === event.secretKind);
+        && (trigger.secretKind === undefined
+          || trigger.secretKind === event.secretKind
+          // A sigil ring seals a CACHE slot, so a step that asks for a cache is satisfied by a
+          // solved ring and shipped 'cache' steps keep counting the ~30% of slots that seal.
+          // Never the reverse: a ring step must not be met by walking into an open one.
+          || (trigger.secretKind === 'cache' && event.secretKind === 'puzzle'));
     case 'reachSector':
       return trigger.kind === 'reachSector'
         && (trigger.sectorTag === undefined || event.sectorTags.includes(trigger.sectorTag));

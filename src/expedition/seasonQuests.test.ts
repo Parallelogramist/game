@@ -87,10 +87,12 @@ describe('seasonQuests', () => {
             expect(step.target, step.id).toBeLessThanOrEqual(2);
             expect(trigger.droneId.startsWith('drone_'), step.id).toBe(true);
           }
-          if (trigger.kind === 'findSecret') {
-            // 'puzzle' is in SecretTier but no producer emits it, so a step naming it could
-            // never tick.
-            expect(trigger.secretKind, step.id).not.toBe('puzzle');
+          if (trigger.kind === 'findSecret' && trigger.secretKind === 'puzzle') {
+            // buildSecretPuzzle seals ~30% of a world's cache slots with no depth term, and
+            // measured over 300 seeds through the real generator the thinnest world holds two
+            // rings (median seven, zero worlds with fewer than two). Steps are sequential, so a
+            // template asking for two would need three in the worst case and never tick there.
+            expect(step.target, step.id).toBeLessThanOrEqual(1);
           }
           const tag = trigger.kind === 'reachSector' ? trigger.sectorTag
             : trigger.kind === 'surviveInSector' ? trigger.sectorTag
@@ -123,6 +125,6 @@ describe('seasonQuests', () => {
     }
 
     // 400 seeds x 3 draws sees every template many times over; a miss means the pool shrank.
-    expect(seenKeys.size).toBe(12);
+    expect(seenKeys.size).toBe(13);
   });
 });

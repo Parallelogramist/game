@@ -142,6 +142,23 @@ describe('recordQuestEvent', () => {
     expect(second.questCompletions).toEqual([{ questId: 'quest_e', goldReward: 60 }]);
   });
 
+  test('a solved ring counts for a cache step but a walk-in never counts for a ring step', () => {
+    const RING_DEFS: readonly ExpeditionQuestDefinition[] = [{
+      id: 'quest_ring',
+      name: 'Ring',
+      icon: 'chain',
+      steps: [
+        { id: 'q_ring.s1', description: 'find a cache', trigger: { kind: 'findSecret', secretKind: 'cache' }, target: 1, scope: 'run', goldReward: 11 },
+        { id: 'q_ring.s2', description: 'solve a ring', trigger: { kind: 'findSecret', secretKind: 'puzzle' }, target: 1, scope: 'run', goldReward: 13 },
+      ],
+      completionGoldReward: 40,
+    }];
+    const sealed = recordQuestEvent([active('quest_ring')], RING_DEFS, { kind: 'findSecret', secretKind: 'puzzle' });
+    expect(sealed.stepCompletions).toEqual([{ questId: 'quest_ring', stepId: 'q_ring.s1', goldReward: 11 }]);
+    const walkIn = recordQuestEvent([active('quest_ring', 1)], RING_DEFS, { kind: 'findSecret', secretKind: 'cache' });
+    expect(walkIn.states[0].stepProgress).toBe(0);
+  });
+
   test('never mutates the states it was handed', () => {
     const states = [active('quest_a')];
     recordQuestEvent(states, DEFS, { kind: 'kill', amount: 10 });

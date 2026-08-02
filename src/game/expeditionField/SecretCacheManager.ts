@@ -362,7 +362,9 @@ export class SecretCacheManager implements FieldPoiManager {
       color,
       duration: 3200,
     });
-    this.deps.recordExpeditionQuest({ kind: 'findSecret', secretKind: 'cache' });
+    this.deps.recordExpeditionQuest({
+      kind: 'findSecret', secretKind: cache.puzzle ? 'puzzle' : 'cache',
+    });
     this.deps.grantSecretLead(cache.secretId);
   }
 

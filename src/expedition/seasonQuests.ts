@@ -46,8 +46,10 @@ interface ContractTemplate {
  * by construction and FEAT-ECON-WARDS stays parked. Every trigger here has a shipped producer,
  * and none asks for a one-time act a finished profile can no longer perform: claimAbility is
  * absent on purpose, because a profile holding all six abilities can never claim a seventh.
- * Every biome tag names one of the four regions guaranteed to exist (see the module header),
- * and no template names 'puzzle': SecretTier carries that value but no producer emits it.
+ * Every biome tag names one of the four regions guaranteed to exist (see the module header).
+ * 'cipher' is the one template that names the 'puzzle' tier, and asks for exactly one ring:
+ * about 30% of a world's cache slots seal behind a sigil ring, and over 300 seeds the thinnest
+ * world seals only two (median seven), so a sweep of them is not authorable but a single one is.
  */
 const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
   {
@@ -329,6 +331,28 @@ const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
       },
     ],
     completionGoldReward: 310,
+  },
+  {
+    key: 'cipher',
+    name: 'Contract · Sigil Cipher',
+    icon: 'chain',
+    steps: [
+      {
+        description: 'Wake a sigil ring in its own order on one expedition',
+        trigger: { kind: 'findSecret', secretKind: 'puzzle' },
+        target: 1,
+        scope: 'run',
+        goldReward: 160,
+      },
+      {
+        description: 'Uncover four caches across your expeditions',
+        trigger: { kind: 'findSecret', secretKind: 'cache' },
+        target: 4,
+        scope: 'persistent',
+        goldReward: 210,
+      },
+    ],
+    completionGoldReward: 300,
   },
 ];
 
