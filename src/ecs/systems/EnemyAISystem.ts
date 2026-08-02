@@ -144,14 +144,16 @@ export function enemyAISystem(world: IWorld, deltaTime: number = 0.016): IWorld 
 
     // Update timers (only on frames where AI actually runs)
     EnemyAI.timer[enemyId] += lodDeltaTime;
-    setNavFrame(enemyId, lodDeltaTime);
 
     let targetX = playerX;
     let targetY = playerY;
+    let followsDecoy = false;
     if (decoy !== null && isDecoyFollower(enemyId)) {
       targetX = decoy.x;
       targetY = decoy.y;
+      followsDecoy = true;
     }
+    setNavFrame(enemyId, lodDeltaTime, followsDecoy);
 
     switch (aiType) {
       case EnemyAIType.Chase:

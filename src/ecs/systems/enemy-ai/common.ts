@@ -109,6 +109,7 @@ let navClock = 0;
 let navEnemyId = -1;
 let navDelta = 0;
 let navRouted = false;
+let navTargetOffFlowRoute = false;
 
 /** Once per dispatcher frame, before any enemy is stepped. */
 export function advanceNavClock(deltaSeconds: number): void {
@@ -118,11 +119,21 @@ export function advanceNavClock(deltaSeconds: number): void {
 /**
  * Once per enemy per AI tick, before its handler runs. Without it chaseHeading keeps its
  * undamped behavior, which is what a direct call from a unit test gets.
+ *
+ * `targetOffFlowRoute` says this enemy is steering at something the flow field was not solved
+ * for, which today means a hostile that broke off for a quest escort drone. The field is
+ * rebuilt toward the ship on every refresh, so its step is an answer to the wrong question for
+ * those bodies and routeHeading has to skip it.
  */
-export function setNavFrame(enemyId: number, deltaSeconds: number): void {
+export function setNavFrame(
+  enemyId: number,
+  deltaSeconds: number,
+  targetOffFlowRoute: boolean = false,
+): void {
   navEnemyId = enemyId;
   navDelta = deltaSeconds;
   navRouted = false;
+  navTargetOffFlowRoute = targetOffFlowRoute;
 }
 
 export function resetEnemyNavState(): void {
@@ -141,6 +152,7 @@ export function resetEnemyNavState(): void {
   navEnemyId = -1;
   navDelta = 0;
   navRouted = false;
+  navTargetOffFlowRoute = false;
 }
 
 /**
@@ -210,7 +222,8 @@ function routeHeading(
   enemyX: number, enemyY: number,
   directX: number, directY: number,
 ): void {
-  if (!context.flowStep(enemyX, enemyY, flowPoint)) {
+  // The field routes to the ship, so for an off-flow target its step is a step at the player.
+  if (navTargetOffFlowRoute || !context.flowStep(enemyX, enemyY, flowPoint)) {
     applyWallTangent(context, enemyX, enemyY, directX, directY);
     return;
   }

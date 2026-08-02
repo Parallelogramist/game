@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { createWorld, addEntity, addComponent } from 'bitecs';
 import { EnemyAI, Transform } from '../../components';
 import { EnemyAIType } from '../../../enemies/EnemyTypes';
@@ -10,6 +10,14 @@ import {
   getDecoyFollowerCount,
   DECOY_MAX_FOLLOWERS,
 } from './decoy';
+import {
+  chaseHeading,
+  setNavigationContext,
+  setNavFrame,
+  advanceNavClock,
+  resetEnemyNavState,
+} from './common';
+import type { NavigationContext } from './common';
 
 const world = createWorld();
 
@@ -91,5 +99,73 @@ describe('updateDecoyFollowers', () => {
     expect(getDecoyFollowerCount()).toBe(DECOY_MAX_FOLLOWERS);
     for (const entityId of nearest) expect(isDecoyFollower(entityId)).toBe(true);
     for (const entityId of farther) expect(isDecoyFollower(entityId)).toBe(false);
+  });
+});
+
+/**
+ * The flow field is solved toward the ship, so a follower that falls to it walks away from the
+ * drone. The failure is silent: the enemy still moves plausibly, just in the wrong direction.
+ */
+describe('a follower steering at the drone', () => {
+  const FOLLOWER_ID = 4101;
+  const FOLLOWER_X = 300;
+  const DRONE_X = 600;
+  const TICK_SECONDS = 0.016;
+
+  /** No sight of anything, and a flow route that always steps one tile west, toward the ship. */
+  function routedTowardTheShip(
+    isSolidAt: (x: number, y: number) => boolean,
+  ): NavigationContext {
+    return {
+      hasLineOfSight: () => false,
+      flowStep: (x, y, out) => { out.x = x - 40; out.y = y; return true; },
+      isSolidAt,
+      freeSpotNear: (x, y, out) => { out.x = x; out.y = y; },
+    };
+  }
+
+  /** One AI tick for a body at FOLLOWER_X steering east at `targetX`. */
+  function tick(targetX: number, targetIsOffFlowRoute: boolean): { x: number; y: number } {
+    advanceNavClock(TICK_SECONDS);
+    setNavFrame(FOLLOWER_ID, TICK_SECONDS, targetIsOffFlowRoute);
+    const direction = Math.sign(targetX - FOLLOWER_X);
+    const heading = chaseHeading(FOLLOWER_X, 0, targetX, 0, direction, 0);
+    return { x: heading.x, y: heading.y };
+  }
+
+  beforeEach(() => {
+    resetEnemyNavState();
+  });
+
+  afterEach(() => {
+    setNavigationContext(null);
+    resetEnemyNavState();
+  });
+
+  test('keeps walking at the drone in the open instead of taking the route to the ship', () => {
+    setNavigationContext(routedTowardTheShip(() => false));
+
+    const heading = tick(DRONE_X, true);
+
+    expect(heading.x).toBeCloseTo(1);
+    expect(heading.y).toBeCloseTo(0);
+  });
+
+  test('turns along a wall between it and the drone, never back toward the ship', () => {
+    setNavigationContext(routedTowardTheShip(x => Math.floor(x / 40) === 8));
+
+    const heading = tick(DRONE_X, true);
+
+    expect(heading.x).toBeCloseTo(0);
+    expect(Math.abs(heading.y)).toBeCloseTo(1);
+  });
+
+  test('a hostile still chasing the ship keeps the flow route', () => {
+    setNavigationContext(routedTowardTheShip(x => Math.floor(x / 40) === 8));
+
+    const heading = tick(0, false);
+
+    expect(heading.x).toBeCloseTo(-1);
+    expect(heading.y).toBeCloseTo(0);
   });
 });
