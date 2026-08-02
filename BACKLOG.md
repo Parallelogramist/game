@@ -1570,7 +1570,10 @@ should not be re-picked, leaving `FEAT-LOADOUT-CODE-ENTRY-BUTTON` and
 anything, so it is off this list. `FEAT-ECON-WARDS` stays parked
 on that operator balance decision: do not unpark it.
 Band 1 is still out of unblocked items. Operator focus: quests and lots of hidden rewards on the
-Metroid map.
+Metroid map. `FEAT-QUEST-BOARD` shipped in full at `21925f3` and all three of its cuts need an
+operator call or play, so band 1 is out again; `FEAT-EXPEDITION-SORTIE` (`0748a6e`) came off
+README section 4.1's unbuilt half instead, and its sibling `FEAT-EXPEDITION-HANGAR-REFIT` is
+parked on the same `FEAT-ECON-WARDS` call.
 
 **`bd1d33d` shipped `ability_breach_charges`' rubble half.** Owning Breach Charges plants a
 charge on any still-intact rubble seam within 40 px of the ship, and 1.0 s of run time later the
@@ -8521,6 +8524,8 @@ exploring pays is the end of Phase 5.
      and no `DISCOVERY_VERSION` bump, so every existing profile gets the verb the moment the
      build lands, and arena is unchanged by construction behind `ArenaModeAdapter`'s no-op
      `jumpViewTo` and null `worldMap`.
+     **The return trip shipped at `0748a6e` as `FEAT-EXPEDITION-SORTIE`**, so cut 6 is now only
+     about the refit, which is filed as `FEAT-EXPEDITION-HANGAR-REFIT`.
 
 - [ ] **CHORE-EXPEDITION-RECALL-CHANNEL-RESTORE** (new 2026-08-01, from
   FEAT-EXPEDITION-RECALL): a refresh mid-channel drops the recall and the player re-presses
@@ -8528,6 +8533,58 @@ exploring pays is the end of Phase 5.
   it. Harmless (nothing is spent and nothing is owed), and the same shape as
   `CHORE-QUEST-DWELL-RESTORE`, which is why it is filed rather than built: holding it means a
   `GameSaveState` field for a 3 second timer. Deps: none.
+
+- [x] **FEAT-EXPEDITION-SORTIE** (done, 0748a6e) (new 2026-08-02, from the unbuilt half of
+  `FEAT-EXPEDITION-RECALL`'s as-built cut 6): recall stopped being a one-way trip. The chart's
+  footer button, `R` and gamepad `X` now read `SORTIE` while the ship stands at the hangar with a
+  recall behind it, and firing it flies the ship back to the exact point the recall departed from.
+  Value: a deep push is a round trip, because until now the price of pressing RECALL at depth 6
+  was the rest of the expedition.
+  1. **What shipped**: `GameScene.beginExpeditionJump(kind)` is the shared body of
+     `beginExpeditionRecall` and the new public `beginExpeditionSortie`, so the two directions
+     cannot drift apart; `rememberSortieAnchor` records the departure point on arrival;
+     `updateExpeditionRecall` lands whichever destination the channel captured; and
+     `MapScene.recallState` gains a fourth value, `sortie`, which is the state the button used to
+     spend as the dead `AT THE HANGAR`.
+  2. **One verb, one cost.** SORTIE runs the identical `TUNING.player.recallChannelSeconds`
+     channel with the identical progress ring, breaks on the same real damage past the shield,
+     dash-iframe, dodge and phase branches, and is refused inside a boss lock for the same
+     correctness reason (README section 4.1). Nothing here is a second friction knob to tune.
+  3. **One return per recall, never a shuttle.** The anchor is spent on arrival and a second
+     recall overwrites it, so SORTIE always means "back to where you last left from". A recall
+     that departs from the hangar sector records nothing at all: a trip into the room the ship is
+     standing in is not a trip, and keeping the older anchor would fly the ship somewhere it never
+     asked to return to.
+  4. **Only at the hangar, deliberately.** The button is one button, so the rule is: away from
+     home `R` brings you back, at home `R` sends you out. Offering the return leg from anywhere
+     would need a third footer button for a case recall itself has already solved (recall puts you
+     at the hangar, which is where the return leg lives).
+  5. **The anchor survives a refresh** as an optional top-level `sortieAnchor` block on the run
+     save, written only by an expedition run, exactly the `poiState` / `questRunState` idiom, with
+     its coords sanitized against a tampered save the way `chestState`'s are. A promise the player
+     already paid a channel for must not be cancelled by a page reload. The mid-channel case is
+     unchanged and is still `CHORE-EXPEDITION-RECALL-CHANNEL-RESTORE`, which now covers both
+     directions.
+  6. **Arrival is snapped through `freeSpotNear`**, the restore path's own answer for "where does
+     the ship fit", because a stored point can be stale against geometry that changed under it. A
+     fresh recall target is already legal, so the snap is a no-op on the inbound leg.
+  7. **Econ-untouched, so the parked `FEAT-ECON-WARDS` call cannot reach it**: no payout, no
+     price, no gold. **No new tests**: every edit is inside Phaser-coupled scene code and the
+     change adds no pure function, so pinning it would need exactly the mock-scene scaffolding the
+     standing order bans. The suite stayed flat, which is the check that nothing was added or
+     broken. No storage key, no `SAVE_VERSION`, no `WORLDGEN_VERSION` and no `DISCOVERY_VERSION`
+     bump, so every existing profile gets the verb the moment the build lands, and arena is
+     unchanged by construction (`beginExpeditionJump` refuses a null `worldMap`).
+
+- [ ] **FEAT-EXPEDITION-HANGAR-REFIT** (new 2026-08-02, from `FEAT-EXPEDITION-RECALL`'s cut 6):
+  the other unbuilt half, a refit at the hangar so coming home is worth the flight rather than
+  only worth the escape. Deliberately not built with the sortie: the refit surface already exists
+  as the Black Market (`MarketOffers.ts` sells repair, supply, relic plus a rotating fourth card),
+  and `PoiCatalog.ts:77` sets `poi_black_market` weight to 0 at depth 0 on purpose, so a permanent
+  hangar shop is a decision to double per-run market access. That is a balance call inside the
+  same budget `FEAT-ECON-WARDS` is parked on, not an oversight. Value: the hangar is a place you
+  go to, not only a place you land. Deps: `FEAT-ECON-WARDS`, plus an operator call on whether the
+  hangar should sell at all.
 
 - [x] **FEAT-MAPUI-MAPSCENE-04** (done — 36844a0): the first visible payoff, a pannable and
   zoomable world map that fills in. What shipped end to end: **M** or gamepad **LB** in an
@@ -11463,6 +11520,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-EXPEDITION-SORTIE** (new 2026-08-02, from FEAT-EXPEDITION-SORTIE). Value: the
+  return leg should feel like a decision, not a free undo. Everything about it was designed and
+  read in code, never in a browser. Four questions only a player answers: (a) is a free return
+  correct, or should it cost gold or a cooldown the way `POLISH-EXPEDITION-RECALL` asks of the
+  inbound leg, given the pair together is now "leave a losing fight and resume it" for the price
+  of 6 seconds of holding still; (b) does `SORTIE` read as "go back out" on a button that says
+  `RECALL` everywhere else, or does it need words the footer has no room for; (c) is
+  hangar-only the right gate, or does having to fly home to use the return leg read as a bug the
+  first time a player presses `R` two rooms out and gets sent home instead; (d) does arriving on
+  top of the fight you fled read as a return or as an ambush, given the anchor is a position and
+  not a sector and the room re-rolls its contents. Deps: play.
 
 - [ ] **POLISH-REGION-SIGNATURE-BANNER** (new 2026-08-02, from FEAT-REGION-SIGNATURE-BANNER).
   Value: a region's rule should land in the second it is read. Everything about the line was

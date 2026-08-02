@@ -187,6 +187,12 @@ again inside one life. Three consequences the implementing chunks must honor:
   `POLISH-EXPEDITION-RECALL`. The first bullet's streaming obligation was found to be moot:
   this repo bounds its live set with the leash, not with sector activation, so a recall has
   no sector to deactivate.
+  **The return leg shipped at `0748a6e`** as `FEAT-EXPEDITION-SORTIE`: at the hangar with a recall
+  behind it, the same footer button, `R` and gamepad `X` read `SORTIE` and fly the ship back to
+  the point the recall departed from, through the same channel with the same break rules. One
+  return per recall, spent on arrival and persisted across a refresh. The sentence's remaining
+  word is `refit`, filed as `FEAT-EXPEDITION-HANGAR-REFIT` and parked on the `FEAT-ECON-WARDS`
+  balance call.
 
 The stranding guarantee doc 04 relies on is unchanged: recall is always *available*
 outside a lock, so physical stranding is impossible and a soft-lock reduces to a
