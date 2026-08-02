@@ -254,7 +254,7 @@ import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager'
 import { computeHudScale } from '../../utils/HudScale';
 import type { CardDefinition } from '../../data/Cards';
 import { Relic, getRelicRarityColor, getBossTrophy, getUnlockedBossTrophies } from '../../data/Relics';
-import { getStageById, getDefaultStage } from '../../data/Stages';
+import { getStageById, getDefaultStage, resolveStageAmbientDarkness, BASE_AMBIENT_DARKNESS } from '../../data/Stages';
 import { TUNING, STORAGE_KEY_AUTO_BUY } from '../../data/GameTuning';
 import { HUDManager, UpgradeIconData, EvolutionInfo } from '../managers/HUDManager';
 import { getEvolutionForWeapon } from '../../data/WeaponEvolutions';
@@ -1067,6 +1067,10 @@ export class GameScene extends Phaser.Scene {
   /** The stage whose palette and hazard bias are in force right now. Equals selectedStageId
    *  in every arena-substrate mode; an expedition moves it as the ship crosses regions. */
   private activeStageId: string = 'stage_deep_void';
+  /** The active region's ambient darkness, resolved by applyStageVisuals. Held on the scene
+   *  because applyStageVisuals runs BEFORE the LightingSystem is constructed on the
+   *  fresh-start path, so the system reads it at construction instead of being pushed to. */
+  private activeStageAmbientDarkness: number = BASE_AMBIENT_DARKNESS;
   private draftedBlessingIds: string[] | null = null;
   private worldMode!: WorldModeAdapter;
   // Bound once: updateHazardSpawner takes it every frame and an inline arrow would allocate.
@@ -1705,6 +1709,9 @@ export class GameScene extends Phaser.Scene {
 
     // Initialize dynamic lighting system
     this.lightingSystem = new LightingSystem(this);
+    // applyStageVisuals runs before this on the fresh-start path, so the region's darkness
+    // is already resolved and has to be read here rather than pushed from there.
+    this.lightingSystem.setAmbientDarkness(this.activeStageAmbientDarkness);
     // Start with quality-appropriate settings
     if (this.visualQuality === 'low') {
       this.lightingSystem.setEnabled(false);
@@ -12871,8 +12878,10 @@ export class GameScene extends Phaser.Scene {
   private applyStageVisuals(stageId: string = this.selectedStageId): void {
     const stage = getStageById(stageId) ?? getDefaultStage();
     this.activeStageId = stage.id;
-    const previousOverlay = this.children.getByName('stageAmbientOverlay');
-    if (previousOverlay) previousOverlay.destroy();
+    for (const overlayName of ['stageAmbientOverlay', 'stageDarknessOverlay']) {
+      const previousOverlay = this.children.getByName(overlayName);
+      if (previousOverlay) previousOverlay.destroy();
+    }
     if (this.gridBackground) {
       this.gridBackground.setColorPalette(
         stage.gridLineColor,
@@ -12880,8 +12889,8 @@ export class GameScene extends Phaser.Scene {
         stage.gridWarpHighlightColor
       );
     }
+    const overlayDepth = 2; // above grid (depth 0-1), below gameplay
     if (stage.ambientOverlayAlpha > 0) {
-      const overlayDepth = 2; // above grid (depth 0-1), below gameplay
       this.add
         .rectangle(
           this.scale.width / 2,
@@ -12894,6 +12903,28 @@ export class GameScene extends Phaser.Scene {
         .setDepth(overlayDepth)
         .setScrollFactor(0)
         .setName('stageAmbientOverlay');
+    }
+
+    this.activeStageAmbientDarkness = resolveStageAmbientDarkness(stage);
+    this.lightingSystem?.setAmbientDarkness(this.activeStageAmbientDarkness);
+    // The lighting pass is switched off entirely on low quality, so a dark region would
+    // silently be no region at all there. The fallback is a flat black plate at the ambient
+    // overlay's depth: it reads as an unlit place without hiding a single threat, because
+    // depth 2 is under gameplay. A low-end device gets the atmosphere, never a harder game.
+    const darknessBoost = this.activeStageAmbientDarkness - BASE_AMBIENT_DARKNESS;
+    if (darknessBoost > 0 && this.visualQuality === 'low') {
+      this.add
+        .rectangle(
+          this.scale.width / 2,
+          this.scale.height / 2,
+          this.scale.width,
+          this.scale.height,
+          0x000000,
+          darknessBoost
+        )
+        .setDepth(overlayDepth)
+        .setScrollFactor(0)
+        .setName('stageDarknessOverlay');
     }
   }
 
@@ -13348,6 +13379,10 @@ export class GameScene extends Phaser.Scene {
       if (this.lightingSystem) {
         this.lightingSystem.setEnabled(newQuality !== 'low');
       }
+      // Which of the two dark-region paths is in force is a function of the quality setting,
+      // so the region has to be re-applied when it changes. applyStageVisuals is idempotent
+      // by contract and re-applies the SAME stage, so nothing else moves.
+      this.applyStageVisuals(this.activeStageId);
       // Update bloom quality — remove on low, adjust parameters on medium/high
       if (this.renderer.type === Phaser.WEBGL) {
         if (newQuality === 'low' && this.bloomPipeline) {

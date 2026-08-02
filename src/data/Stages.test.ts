@@ -1,5 +1,11 @@
 import { describe, test, expect } from 'vitest';
-import { STAGES, getStageById, getDefaultStage } from './Stages';
+import {
+  STAGES,
+  getStageById,
+  getDefaultStage,
+  BASE_AMBIENT_DARKNESS,
+  resolveStageAmbientDarkness,
+} from './Stages';
 import { HIDDEN_UNLOCKS } from '../meta/HiddenUnlocks';
 
 // The gate syntaxes the StageDefinition doc promises (the shared parser in
@@ -57,6 +63,22 @@ describe('STAGES — table integrity', () => {
     for (const stage of STAGES) {
       expect(stage.ambientOverlayAlpha, stage.id).toBeGreaterThanOrEqual(0);
       expect(stage.ambientOverlayAlpha, stage.id).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test('a stage with no darkness boost resolves to exactly the shipped baseline', () => {
+    for (const stage of STAGES) {
+      if (stage.ambientDarknessBoost === undefined) {
+        expect(resolveStageAmbientDarkness(stage), stage.id).toBe(BASE_AMBIENT_DARKNESS);
+      }
+    }
+  });
+
+  test('every resolved ambient darkness stays inside [0, 1]', () => {
+    for (const stage of STAGES) {
+      const resolved = resolveStageAmbientDarkness(stage);
+      expect(resolved, stage.id).toBeGreaterThanOrEqual(0);
+      expect(resolved, stage.id).toBeLessThanOrEqual(1);
     }
   });
 });

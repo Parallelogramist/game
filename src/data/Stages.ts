@@ -8,6 +8,11 @@
  * others unlock via HiddenUnlockManager conditions or world level progression.
  */
 
+/** The lighting system's ambient darkness with no region boost applied: what every stage
+ *  shipped with before regions could dim a room. LightingSystem reads this same constant,
+ *  so the baseline cannot drift between the table and the renderer. */
+export const BASE_AMBIENT_DARKNESS = 0.35;
+
 export interface StageDefinition {
   id: string;
   name: string;
@@ -19,6 +24,9 @@ export interface StageDefinition {
   gridWarpHighlightColor: number;
   ambientOverlayColor: number; // 0 means no overlay
   ambientOverlayAlpha: number;
+  /** Extra ambient darkness this region adds on top of BASE_AMBIENT_DARKNESS, 0 to 1.
+   *  Absent means the region is lit exactly as every stage always was. */
+  ambientDarknessBoost?: number;
 
   // Gameplay modifiers
   enemyHealthMultiplier: number;
@@ -64,12 +72,13 @@ export const STAGES: readonly StageDefinition[] = [
   {
     id: 'stage_crystal_caves',
     name: 'Crystal Caves',
-    description: 'Shimmering crystal grid. +20% XP gain, tougher enemies.',
+    description: 'A shimmering crystal grid where almost no light reaches. +20% XP gain, tougher enemies.',
     gridLineColor: 0x6644aa,
     gridPulseColor: 0x8855cc,
     gridWarpHighlightColor: 0xcc88ff,
     ambientOverlayColor: 0x4422aa,
     ambientOverlayAlpha: 0.06,
+    ambientDarknessBoost: 0.28,
     enemyHealthMultiplier: 1.2,
     enemyDamageMultiplier: 1.0,
     xpMultiplier: 1.2,
@@ -144,4 +153,10 @@ export function getStageById(stageId: string): StageDefinition | undefined {
 
 export function getDefaultStage(): StageDefinition {
   return STAGES[0];
+}
+
+/** What the lighting system's ambient darkness should be while this stage is the active
+ *  region. Clamped so an authoring mistake can dim a room but never black it out. */
+export function resolveStageAmbientDarkness(stage: StageDefinition): number {
+  return Math.min(1, BASE_AMBIENT_DARKNESS + Math.max(0, stage.ambientDarknessBoost ?? 0));
 }

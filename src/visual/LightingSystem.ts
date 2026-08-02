@@ -10,6 +10,7 @@
  */
 import Phaser from 'phaser';
 import { OverlayDepths } from './DepthLayers';
+import { BASE_AMBIENT_DARKNESS } from '../data/Stages';
 
 interface LightSource {
   x: number;
@@ -27,7 +28,7 @@ export class LightingSystem {
   private enabled: boolean = true;
 
   // Ambient darkness level (0 = no effect, 1 = pitch black before lights)
-  private ambientDarkness: number = 0.35;
+  private ambientDarkness: number = BASE_AMBIENT_DARKNESS;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
