@@ -1560,8 +1560,9 @@ closed at `afd403c` and off the board. Of the three cuts they filed,
 pairs with `POLISH-CHART-DIALOG-PORTRAIT` and `POLISH-MAP-HEADER-PORTRAIT`: same surface, same
 question). Of the three cuts `c4ca973` filed, `FEAT-CODE-ENTRY-GAMEPAD` is now **done (0afee01)** and
 should not be re-picked, leaving `FEAT-LOADOUT-CODE-ENTRY-BUTTON` and
-`POLISH-CODE-ENTRY-LIVE-VALIDATE` as candidates, plus the one cut it filed in its place,
-`FEAT-OVERLAY-PAD-FOCUS-REST`. The remainder of
+`POLISH-CODE-ENTRY-LIVE-VALIDATE` as candidates, while the one cut it filed in its place,
+`FEAT-OVERLAY-PAD-FOCUS-REST`, is now **done (53b0752)** and should not be re-picked, leaving
+`CHORE-OVERLAY-PAD-POLL-SHARE` as its own cut. The remainder of
 `FEAT-DISCOVERY-FEEDBACK-07` is now split across the two cuts filed with it,
 `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (unblocked) and `FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE`
 (shipped at b75822d), so the list stays accurate.
@@ -7543,7 +7544,7 @@ exploring pays is the end of Phase 5.
   `DISCOVERY_VERSION` and `WORLD_PROFILE_VERSION` are all untouched, so every existing profile
   lights it up the moment the build lands.
 
-- [ ] **FEAT-OVERLAY-PAD-FOCUS-REST** (new 2026-08-02, from FEAT-CODE-ENTRY-GAMEPAD): the on-screen
+- [x] **FEAT-OVERLAY-PAD-FOCUS-REST** (done, 53b0752) (new 2026-08-02, from FEAT-CODE-ENTRY-GAMEPAD): the on-screen
   keyboard reaches every typed field, because there is only one, but the button-only overlays still
   have no pad path: `showProfileExportOverlay`'s DOWNLOAD FILE / COPY / CLOSE, the backup nudge's
   BACK UP NOW / NOT NOW, the import overlay's CHOOSE FILE / CONTINUE / CANCEL and its OVERWRITE
@@ -7552,6 +7553,52 @@ exploring pays is the end of Phase 5.
   focus model, so the fix is a shared focused-button ring over `buildButtonRow` driven by the same
   poll this item added, not a second keyboard. Value: a pad-only player can back up and restore a
   profile. Deps: none.
+
+  **What shipped:** a shared `attachOverlayPadFocus(panel)` in new `src/ui/OverlayPadFocus.ts`, a
+  rAF poll that paints a focus ring over whatever `<button>` elements the panel currently holds. It
+  is wired into all five surfaces this entry named: `showProfileExportOverlay`'s DOWNLOAD FILE /
+  COPY / CLOSE, the backup nudge's BACK UP NOW / NOT NOW, the import overlay's CHOOSE FILE /
+  CONTINUE / CANCEL, its OVERWRITE confirmation, and INSTALL / NOT NOW / GOT IT.
+
+  **It queries rather than registers.** Every `<button>` inside an OverlayKit panel is a row action,
+  so the ring needs no per-call-site list and keeps working across the two panels that
+  `replaceChildren()` themselves (the export panel raised from the backup nudge, and the import
+  overlay's paste-to-confirm transition).
+
+  **B is bound by a marker, not by position.** `markPadCancel` stamps `data-pad-cancel` on the
+  dismissing button at build time, so a re-rendered panel re-marks its own. `OVERWRITE` is
+  deliberately unmarked.
+
+  **The ring opens on the safe exit,** the marked cancel button when there is one. These modals
+  raise themselves without the player asking, and one of them erases the profile.
+
+  **Hidden until a pad is used,** and the revealing input is consumed, so a mouse or keyboard player
+  sees the overlays exactly as before and a first press of A cannot also fire a button.
+
+  **Focus is an outline, not a border colour,** so the primary/muted/danger variant `buildButton`
+  painted stays readable underneath; clearing restores `background: none`, `buildButton`'s own
+  value, so no per-variant bookkeeping is needed.
+
+  **`CodeEntryOverlay` was left alone.** Its poll is fused to a 54-key 2-D grid with shift state;
+  sharing a poller would mean rewriting shipped browser-only code for ~35 lines of boilerplate.
+  Filed as `CHORE-OVERLAY-PAD-POLL-SHARE`.
+
+  **No test.** Vitest runs `environment: 'node'` with no jsdom (`vitest.config.ts`), and every line
+  of this feature is DOM plus the Gamepad API. A jsdom install and a fake-gamepad harness would be
+  scaffolding larger than the feature. The suite is unchanged at 186 files / 2136 tests, which is
+  the evidence.
+
+  **Keyboard was never the gap** and is untouched: a bare `<button>` is natively tabbable and
+  answers Enter, which is why no `keydown` handler was added.
+
+- [ ] **CHORE-OVERLAY-PAD-POLL-SHARE** (new 2026-08-02, from FEAT-OVERLAY-PAD-FOCUS-REST): two
+  gamepad polls now exist, `CodeEntryOverlay`'s key-grid poll and `OverlayPadFocus`'s button ring,
+  and they duplicate about 35 lines of connected-pad lookup, edge detection and repeat timing (the
+  400 ms / 110 ms / 0.5 constants are declared twice). Deliberately not shared on the second
+  consumer: the code-entry poll is fused to a 54-key 2-D grid with wrap, shift state and a symbol
+  table, so extracting a common poller means rewriting shipped, browser-only code that no test in a
+  Node-env suite can cover. Value: one place to fix a pad quirk instead of two. Deps: none, but it
+  wants a third consumer before the extraction earns itself.
 
 - [ ] **FEAT-LOADOUT-CODE-ENTRY-BUTTON** (new 2026-08-01, from FEAT-SEASON-CODE-KEYBOARD-ENTRY): the
   build-code field is reachable only through `PASTE & LAUNCH CODE`'s failure path, so a player whose
@@ -10771,6 +10818,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-OVERLAY-PAD-RING-FEEL** (new 2026-08-02, from FEAT-OVERLAY-PAD-FOCUS-REST). Value: a
+  pad-only player can now answer all five DOM overlays, but every choice was made against the
+  overlay chrome in a text editor and never against a thumb on a real stick. Questions only a
+  playtest answers: (a) does a 2 px outline plus a 0.18 alpha fill read as focus against
+  `buildButton`'s own coloured border, or does it just look like a hover? (b) the ring opens on the
+  safe exit (CLOSE, NOT NOW, CANCEL, GOT IT), so reaching the affirmative always costs one d-pad
+  press: right for a modal you asked for, or an obstacle on the export panel where DOWNLOAD FILE is
+  the point? (c) left and up both step back and right and down both step forward, because the row
+  is one wrapping list: does that read as natural on a two-line row in portrait? (d) the
+  `A SELECT   B BACK` hint appears only when the ring does and sits below the button row: is it
+  noticed there? (e) 400 ms to first repeat and 110 ms between repeats is inherited from the
+  keyboard overlay, where a row is 10 keys wide; across 2 to 3 buttons it may be too eager.
+  Deps: playtest.
 
 - [ ] **POLISH-PAD-KEYBOARD-FEEL** (new 2026-08-02, from FEAT-CODE-ENTRY-GAMEPAD). Value: a
   pad-only player can now type, but every number in the panel was chosen against the overlay's own
