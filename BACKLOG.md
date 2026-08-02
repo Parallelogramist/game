@@ -656,8 +656,40 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `setVisible(false)`, which is the rule AchievementScene has always had. The badge is still
   added to the container either way, because `updateTabVisuals()` reads `container.list[3]` by
   index.
-  Remaining: MusicSettings and Credits (485 and 214 lines, 11 and 6 font sites: a cheap pair for
-  batch 6), Leaderboard, MarketScene behind BUG-MARKET-VERTICAL-SATURATION, **MapScene, which
+  **Batch 6 shipped (`e10305b`, `047f611`, `55e41db`, `2041e0c`): CreditsScene,
+  MusicSettingsScene and LeaderboardScene.** The three take three different shapes, and which one a
+  scene takes is forced by where its card interiors are positioned. Credits is a fixed two-card
+  block, so it takes one uniform scale capped by a vertical budget (92 above the cards, 130 below
+  them) and a second cap on width, because side by side the two card centres are only 0.36 of the
+  canvas apart; the cards themselves are container-scaled, so all four interior font sites are
+  untouched. MusicSettings is a scroll view and takes the ShopScene split of two scales: the chrome
+  is capped so it never eats more than 60% of the canvas, while the 28-row track list takes the
+  full density scale, because growing a scrolled row costs only scroll distance. Leaderboard is
+  both at once: its six bests tiles are container-scaled while its entry rows are hand-scaled,
+  since the row cells sit at screen-space column fractions rather than card-local offsets.
+  The shared piece is `fitMenuScale(menuScale, available, design)` in `src/utils/HudScale.ts`,
+  three lines, `max(1, min(menuScale, available / design))`. The floor at 1 is what makes desktop
+  byte-identical structurally rather than arithmetically: a viewport with no density to spend
+  resolves to exactly 1.0, and every `scaledInt(1, k)` returns `k`. Measured: Credits 1.0 on
+  desktop, 1.2371 on a 2000x720 landscape phone (saturated, so the card block is clamped to a
+  centre of 336.5 instead of its composed 370), 1.2 in portrait; Music chrome 1.0 / 1.2706 / 1.2
+  with the list at 1.0 / 1.6 / 1.2; Leaderboard 1.0 / 1.3284 / 1.2.
+  **Two deliberate desktop changes, both in LeaderboardScene, and nothing else on desktop moves in
+  any of the three.** (1) `maxRows` was the constant 12, which put row 11's card at y 649-679 while
+  the BACK button spans 640-684 and the 800-wide rows are centred over it: the rows painted under
+  their own footer. The count is now derived from the band free below the list and resolves to 11
+  on desktop, 10 plus the "... N more" line when the history is longer than fits, 6 on a landscape
+  phone and the full 12 in portrait. (2) The 7-tab filter strip is 818 design units wide, so on a
+  720-unit portrait canvas two tabs (RUNNER, ENDLESS) were already off-canvas at scale 1. The strip
+  now takes its own `tabScale`, capped by the canvas width; desktop's cap is 1.545 so it resolves
+  to 1.0 and is unchanged, while portrait shrinks to 0.86 and the whole strip becomes reachable.
+  **One more removal worth naming:** MusicSettings computed its band as
+  `max(380, height - 170 - 170)`. At 720 tall both terms are 380, so the floor was inert on every
+  real viewport; below 720 it forced the list past the canvas bottom, and against scaled chrome it
+  would have pushed the list under its own hints. The floor is gone and the band is simply what the
+  chrome leaves.
+  Remaining: **RelicDraftScene**, the one scene the original item's list missed and the only
+  mechanical batch left (batch 7); MarketScene behind BUG-MARKET-VERTICAL-SATURATION, **MapScene, which
   still needs its own session**: it is 1002 lines of hand-laid absolute panels (a 340-wide left
   column at x=24, a 196-wide legend, and a zoomed map viewport between them), so density-scaling
   its chrome trades away map area, a layout call the operator owns rather than a mechanical
@@ -9722,6 +9754,21 @@ Never agent work. The fleet must not do any of these.
     tab keep the count and drop the icon; (u) the achievements screen keeps two columns on a
     landscape phone and drops to one in portrait: does the one-column portrait list read as
     generous or as wasteful.
+    Batch 6 adds CreditsScene, MusicSettingsScene and LeaderboardScene: (v) open the music picker
+    on a phone in both orientations and toggle a few of the 28 tracks: are the rows thumb-sized
+    now, and does a landscape band that holds about 4.7 rows read as scrollable or as broken;
+    (w) the music chrome is deliberately capped at 1.27x on a landscape phone while the track rows
+    take the full 1.6x, so SELECT ALL / DESELECT ALL are noticeably smaller than the rows they act
+    on: is that the right trade or should the buttons match the rows; (x) the leaderboard now shows
+    11 rows on desktop instead of 12 (10 plus a "... N more" line when the history is longer),
+    because row 12 was painting under the BACK button: is losing the row the right fix, or should
+    the history become a scroll band like the codex; (y) on a portrait phone the 7 leaderboard
+    filter tabs shrink to 0.86x to fit the 720-unit canvas, which makes their labels about 11px:
+    readable, or should the strip wrap to two rows in portrait (that would also change the desktop
+    7-in-a-row layout and is therefore your call); (z) the credits cards stay at their design size
+    on a landscape phone because the canvas is vertically saturated there, so only the title, the
+    links and BACK grow: does the panel look inconsistent, and is dropping one of the two credit
+    cards to a single scrolling column the better answer.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
