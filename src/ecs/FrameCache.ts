@@ -12,7 +12,7 @@ import { getEnemySpatialHash, SpatialEntity } from '../utils/SpatialHash';
  *
  * Usage:
  * 1. Call `updateFrameCache(world)` at the START of each game update
- * 2. Use `getEnemyIds()`, `getEnemyPositions()`, etc. throughout the frame
+ * 2. Use `getEnemyIds()`, `getEnemyCount()`, etc. throughout the frame
  * 3. Cache is automatically cleared on next `updateFrameCache()` call
  */
 
@@ -24,9 +24,6 @@ let cachedEnemyIds: number[] = [];
 let cachedEnemyCount: number = 0;
 let cacheValid: boolean = false;
 
-// Pre-allocated arrays to avoid GC pressure
-const enemyPositionsArray: { id: number; x: number; y: number }[] = [];
-
 // O(1) lookup set for isActiveEnemy
 const activeEnemySet: Set<number> = new Set();
 
@@ -37,7 +34,7 @@ const activeEnemySet: Set<number> = new Set();
  * This function:
  * 1. Queries all enemies from ECS
  * 2. Populates the global enemy spatial hash
- * 3. Caches enemy IDs and positions for reuse
+ * 3. Caches enemy IDs for reuse
  */
 export function updateFrameCache(world: IWorld): void {
   // Query enemies from ECS (this is the ONLY place we query per frame)
@@ -48,8 +45,6 @@ export function updateFrameCache(world: IWorld): void {
   const spatialHash = getEnemySpatialHash();
   spatialHash.clear();
 
-  // Reuse position array and active set to avoid allocation
-  enemyPositionsArray.length = 0;
   activeEnemySet.clear();
 
   // Populate spatial hash, position cache, and active set
@@ -63,9 +58,6 @@ export function updateFrameCache(world: IWorld): void {
 
     // O(1) active enemy lookup
     activeEnemySet.add(entityId);
-
-    // Cache position data
-    enemyPositionsArray.push({ id: entityId, x, y });
   }
 
   cacheValid = true;
@@ -91,18 +83,6 @@ export function getEnemyCount(): number {
 }
 
 /**
- * Get all enemy positions.
- * Returns the cached array - do NOT modify this array!
- */
-export function getEnemyPositions(): readonly { id: number; x: number; y: number }[] {
-  if (!cacheValid) {
-    console.warn('FrameCache: getEnemyPositions called before updateFrameCache');
-    return [];
-  }
-  return enemyPositionsArray;
-}
-
-/**
  * Check if the cache is valid (updateFrameCache was called this frame).
  */
 export function isCacheValid(): boolean {
@@ -123,7 +103,6 @@ export function invalidateFrameCache(): void {
 export function resetFrameCache(): void {
   cachedEnemyIds = [];
   cachedEnemyCount = 0;
-  enemyPositionsArray.length = 0;
   activeEnemySet.clear();
   cacheValid = false;
 }
