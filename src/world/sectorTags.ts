@@ -38,3 +38,28 @@ export function sectorKeysWithTag(map: WorldMap, tag: SectorTag): SectorKey[] {
   }
   return keys;
 }
+
+/** How many sectors of one world can ever answer each tag. `anyTag` is the untagged total,
+ *  which a breadth step counts against. */
+export interface SectorSupplySnapshot {
+  anyTag: number;
+  byTag: Readonly<Record<string, number>>;
+}
+
+/**
+ * One walk of a world, so a reachSector step can be asked for no more rooms than the world
+ * holds. Hidden sectors are excluded deliberately: they are off the chart until a breakable
+ * wall is broken, so a target that only a hidden room can satisfy is a target the player
+ * cannot plan for. Counting them would also be the wrong direction of error: a step the
+ * player can finish early is fine, one they cannot finish at all is the bug this fixes.
+ */
+export function buildSectorSupply(map: WorldMap): SectorSupplySnapshot {
+  const byTag: Record<string, number> = {};
+  let anyTag = 0;
+  for (const sector of map.sectors.values()) {
+    if (sector.hidden === true) continue;
+    anyTag += 1;
+    for (const tag of sectorTagsOf(sector)) byTag[tag] = (byTag[tag] ?? 0) + 1;
+  }
+  return { anyTag, byTag };
+}

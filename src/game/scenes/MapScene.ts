@@ -44,6 +44,7 @@ import {
 } from '../../visual/mapProjection';
 import type { GridBounds, GridCell, MapCursorDirection,
   MapViewTransform } from '../../visual/mapProjection';
+import { buildSectorSupply } from '../../world/sectorTags';
 import { sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { EdgeKind, PoiKind } from '../../world/worldTypes';
 import type { WorldMap } from '../../world/worldTypes';
@@ -281,10 +282,12 @@ export class MapScene extends Phaser.Scene {
     this.hintedSectorKeys = new Set(this.leads.map(lead => lead.sectorKey));
     this.sealedLeadSectorKeys = findSealedLeadSectors(
       this.leads, (abilityId) => this.ownedAbilityIds.has(abilityId));
+    const supply = buildSectorSupply(this.mapData);
     const stepViewByQuestId = new Map(
-      getActiveQuestStepViews(questWorldStamp(this.mapData)).map(view => [view.questId, view]));
+      getActiveQuestStepViews(questWorldStamp(this.mapData), supply)
+        .map(view => [view.questId, view]));
     const boardEntryByQuestId = new Map(
-      getQuestBoardEntries().map(entry => [entry.questId, entry]));
+      getQuestBoardEntries(supply).map(entry => [entry.questId, entry]));
     const questStateOf = (questId: string): LockoutQuestState => {
       const view = stepViewByQuestId.get(questId);
       if (view) {
@@ -409,7 +412,8 @@ export class MapScene extends Phaser.Scene {
    * cannot spill outside the panel.
    */
   private renderObjectivesPanel(): number {
-    const views = getActiveQuestStepViews(questWorldStamp(this.mapData));
+    const views = getActiveQuestStepViews(
+      questWorldStamp(this.mapData), buildSectorSupply(this.mapData));
     if (views.length === 0) return HEADER_HEIGHT + 12;
 
     const panelX = 24;

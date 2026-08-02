@@ -16,6 +16,8 @@ import {
   reclaimQuestCargo,
   buildQuestCargoDropObjectives,
   buildQuestCargoStatus,
+  effectiveStepTarget,
+  renderStepDescription,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -710,5 +712,79 @@ describe('buildQuestHazardObjectives', () => {
       { questId: 'quest_any', label: 'Any' },
     ]);
     expect(buildQuestHazardObjectives([active('quest_a', 0, 0)], DEFS)).toEqual([]);
+  });
+});
+
+describe('world-aware reachSector targets', () => {
+  const SUPPLY = { anyTag: 45, byTag: { 'biome:stage_inferno': 4, 'boss-arena': 1 } };
+  const SWEEP: readonly ExpeditionQuestDefinition[] = [{
+    id: 'quest_sweep',
+    name: 'Sweep',
+    icon: 'radar',
+    steps: [{
+      id: 'q_sweep.s1',
+      description: 'Survey {target} sectors of the Inferno',
+      trigger: { kind: 'reachSector', sectorTag: 'biome:stage_inferno' },
+      target: 6,
+      scope: 'persistent',
+      goldReward: 10,
+    }],
+    completionGoldReward: 20,
+  }];
+
+  const walk = (rooms: number) => {
+    let states: QuestInstanceState[] =
+      [{ questId: 'quest_sweep', stepIndex: 0, stepProgress: 0, status: 'active' }];
+    let completions = 0;
+    for (let room = 0; room < rooms; room += 1) {
+      const result = recordQuestEvent(states, SWEEP, {
+        kind: 'reachSector',
+        sectorKey: `${room},0`,
+        sectorTags: ['biome:stage_inferno'],
+        worldStamp: 'w1',
+      }, SUPPLY);
+      states = result.states;
+      completions += result.stepCompletions.length;
+    }
+    return { states, completions };
+  };
+
+  test('a step completes at what the world supplies, not at the authored target', () => {
+    expect(walk(3).completions).toBe(0);
+    const done = walk(4);
+    expect(done.completions).toBe(1);
+    expect(done.states[0].status).toBe('complete');
+  });
+
+  test('the authored target stands when no world is bound', () => {
+    const result = recordQuestEvent(
+      [{ questId: 'quest_sweep', stepIndex: 0, stepProgress: 0, status: 'active' }],
+      SWEEP,
+      { kind: 'reachSector', sectorKey: '0,0', sectorTags: ['biome:stage_inferno'], worldStamp: 'w1' },
+      null,
+    );
+    expect(result.stepCompletions).toHaveLength(0);
+    expect(effectiveStepTarget(SWEEP[0].steps[0], null)).toBe(6);
+  });
+
+  test('a tag the world has none of floors at 1 rather than paying out for nothing', () => {
+    const empty = { anyTag: 45, byTag: {} };
+    expect(effectiveStepTarget(SWEEP[0].steps[0], empty)).toBe(1);
+    const result = recordQuestEvent(
+      [{ questId: 'quest_sweep', stepIndex: 0, stepProgress: 0, status: 'active' }],
+      SWEEP,
+      { kind: 'kill', amount: 1 },
+      empty,
+    );
+    expect(result.stepCompletions).toHaveLength(0);
+  });
+
+  test('the view reads the clamped number in both its text and its target', () => {
+    const views = buildQuestStepViews(
+      [{ questId: 'quest_sweep', stepIndex: 0, stepProgress: 0, status: 'active' }],
+      SWEEP, 'w1', SUPPLY);
+    expect(views[0].target).toBe(4);
+    expect(views[0].stepDescription).toBe('Survey 4 sectors of the Inferno');
+    expect(renderStepDescription(SWEEP[0].steps[0], 6)).toBe('Survey 6 sectors of the Inferno');
   });
 });

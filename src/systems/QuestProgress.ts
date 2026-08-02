@@ -1,6 +1,10 @@
-import type { ExpeditionQuestDefinition, QuestTrigger } from '../data/ExpeditionQuests';
+import type {
+  ExpeditionQuestDefinition,
+  ExpeditionQuestStep,
+  QuestTrigger,
+} from '../data/ExpeditionQuests';
 import type { SecretTier } from '../world/secretRewards';
-import type { SectorTag } from '../world/sectorTags';
+import type { SectorSupplySnapshot, SectorTag } from '../world/sectorTags';
 import type { PoiHazardKind } from '../data/PoiCatalog';
 
 /**
@@ -211,10 +215,41 @@ function foldEvent(current: StepProgress, event: QuestEvent): StepProgress {
  * quest: the value it carries belongs to the step that was current when it arrived, and
  * letting it cascade would pay a second step the player never worked.
  */
+/**
+ * What a step's target means in the world being flown. Only `reachSector` counts distinct
+ * rooms, so only it can ask for more than a world holds: `assignDangerAndBiomes` gives each
+ * depth band one biome, so a region's room count is a property of the seed. Measured over 500
+ * seeds, 12 hold fewer than the six Inferno rooms `q_gatecrash_02.s5` asks for, which parked
+ * that chain forever. Every other trigger counts kills, seconds, gates or items and is not
+ * world-bound. A null supply (arena, daily, gauntlet, practice: no world map) means the
+ * authored target stands.
+ *
+ * The floor of 1 is not cosmetic: a zero-supply tag clamped to 0 would satisfy `progress >=
+ * target` on the spot and pay the step's gold for nothing. No shipped tag measures zero, so
+ * the floor is the guard rather than the behaviour.
+ */
+export function effectiveStepTarget(
+  step: ExpeditionQuestStep,
+  supply: SectorSupplySnapshot | null | undefined,
+): number {
+  if (!supply || step.trigger.kind !== 'reachSector') return step.target;
+  const available = step.trigger.sectorTag === undefined
+    ? supply.anyTag
+    : (supply.byTag[step.trigger.sectorTag] ?? 0);
+  return Math.max(1, Math.min(step.target, available));
+}
+
+/** A description may carry `{target}` so a clamped step does not read a number it no longer
+ *  asks for. A description without the token renders unchanged. */
+export function renderStepDescription(step: ExpeditionQuestStep, target: number): string {
+  return step.description.replace('{target}', String(target));
+}
+
 export function recordQuestEvent(
   states: readonly QuestInstanceState[],
   defs: readonly ExpeditionQuestDefinition[],
   event: QuestEvent,
+  supply?: SectorSupplySnapshot | null,
 ): QuestProgressResult {
   const byId = new Map(defs.map((definition) => [definition.id, definition]));
   const next: QuestInstanceState[] = states.map((state) => ({ ...state }));
@@ -239,7 +274,7 @@ export function recordQuestEvent(
       },
       event,
     );
-    if (folded.progress < step.target) {
+    if (folded.progress < effectiveStepTarget(step, supply)) {
       state.stepProgress = folded.progress;
       state.visitedSectorKeys = folded.visitedSectorKeys;
       state.visitedWorldStamp = folded.visitedWorldStamp;
@@ -435,6 +470,7 @@ export function buildQuestStepViews(
   states: readonly QuestInstanceState[],
   defs: readonly ExpeditionQuestDefinition[],
   worldStamp: string,
+  supply?: SectorSupplySnapshot | null,
 ): QuestStepView[] {
   const byId = new Map(defs.map((definition) => [definition.id, definition]));
   const views: QuestStepView[] = [];
@@ -443,12 +479,13 @@ export function buildQuestStepViews(
     const definition = byId.get(state.questId);
     const step = definition?.steps[state.stepIndex];
     if (!definition || !step) continue;
+    const target = effectiveStepTarget(step, supply);
     views.push({
       questId: definition.id,
       questName: definition.name,
-      stepDescription: step.description,
-      progress: Math.min(state.stepProgress, step.target),
-      target: step.target,
+      stepDescription: renderStepDescription(step, target),
+      progress: Math.min(state.stepProgress, target),
+      target,
       stepNumber: state.stepIndex + 1,
       stepCount: definition.steps.length,
       note: step.trigger.kind === 'deliverItem'
@@ -634,6 +671,7 @@ export function buildQuestBoardEntries(
   states: readonly QuestInstanceState[],
   defs: readonly ExpeditionQuestDefinition[],
   activeLimit: number,
+  supply?: SectorSupplySnapshot | null,
 ): QuestBoardEntry[] {
   const successorIds = new Set(
     defs.map((definition) => definition.nextQuestId).filter((id): id is string => Boolean(id)),
@@ -651,14 +689,15 @@ export function buildQuestBoardEntries(
     const stepIndex = Math.min(held?.stepIndex ?? 0, definition.steps.length - 1);
     const step = definition.steps[stepIndex];
     const remainingSteps = status === 'complete' ? [] : definition.steps.slice(stepIndex);
+    const target = effectiveStepTarget(step, supply);
     entries.push({
       questId: definition.id,
       name: definition.name,
       icon: definition.icon,
       status,
-      stepDescription: step.description,
-      progress: status === 'complete' ? step.target : Math.min(held?.stepProgress ?? 0, step.target),
-      target: step.target,
+      stepDescription: renderStepDescription(step, target),
+      progress: status === 'complete' ? target : Math.min(held?.stepProgress ?? 0, target),
+      target,
       stepNumber: stepIndex + 1,
       stepCount: definition.steps.length,
       goldRemaining: remainingSteps.reduce((total, entry) => total + entry.goldReward, 0)

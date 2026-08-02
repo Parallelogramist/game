@@ -38,6 +38,7 @@ import {
   type QuestStatus,
   type QuestStepView,
 } from '../systems/QuestProgress';
+import type { SectorSupplySnapshot } from '../world/sectorTags';
 import { buildSeasonQuests } from '../expedition/seasonQuests';
 import { getCurrentExpeditionSeed } from '../expedition/ExpeditionSeasonStore';
 
@@ -230,9 +231,12 @@ export function getEarnedQuestKeyIds(): string[] {
 export type { QuestStepView } from '../systems/QuestProgress';
 
 /** What the HUD ticker and the map panel render. Cheap: SecureStorage.getItem is a cache read. */
-export function getActiveQuestStepViews(worldStamp: string): QuestStepView[] {
+export function getActiveQuestStepViews(
+  worldStamp: string,
+  supply?: SectorSupplySnapshot | null,
+): QuestStepView[] {
   const defs = questCatalog();
-  return buildQuestStepViews(load(defs).states, defs, worldStamp);
+  return buildQuestStepViews(load(defs).states, defs, worldStamp, supply);
 }
 
 export type { QuestMarker } from '../systems/QuestProgress';
@@ -287,11 +291,14 @@ export function beginExpeditionQuestRun(): ExpeditionQuestDefinition[] {
  * Folds one event in and banks whatever it earned. Storage is written only when something
  * actually changed, so the once-a-second kill poll is free on a frame that earned nothing.
  */
-export function recordExpeditionQuestEvent(event: QuestEvent): ExpeditionQuestRewards {
+export function recordExpeditionQuestEvent(
+  event: QuestEvent,
+  supply?: SectorSupplySnapshot | null,
+): ExpeditionQuestRewards {
   const defs = questCatalog();
   const state = load(defs);
   if (state.states.length === 0) return EMPTY_REWARDS;
-  const result = recordQuestEvent(state.states, defs, event);
+  const result = recordQuestEvent(state.states, defs, event, supply);
 
   const earned = result.stepCompletions.reduce((total, entry) => total + entry.goldReward, 0)
     + result.questCompletions.reduce((total, entry) => total + entry.goldReward, 0);
@@ -327,9 +334,9 @@ export type { QuestBoardEntry } from '../systems/QuestProgress';
 
 /** What the walk-in board renders. Same store read and same one-projection rule as
  *  getActiveQuestStepViews: the board and the ticker cannot disagree about what is active. */
-export function getQuestBoardEntries(): QuestBoardEntry[] {
+export function getQuestBoardEntries(supply?: SectorSupplySnapshot | null): QuestBoardEntry[] {
   const defs = questCatalog();
-  return buildQuestBoardEntries(load(defs).states, defs, ACTIVE_EXPEDITION_QUEST_LIMIT);
+  return buildQuestBoardEntries(load(defs).states, defs, ACTIVE_EXPEDITION_QUEST_LIMIT, supply);
 }
 
 export type { QuestCargoRow } from '../systems/QuestProgress';

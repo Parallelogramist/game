@@ -31,7 +31,11 @@ export type QuestTrigger =
    *  sectors, so a target above 1 asks for that many different rooms, and an omitted tag counts
    *  every sector, which is how a breadth step is authored. The visited set carries the world it
    *  was collected in, so a 'persistent' sweep may span expeditions without a regenerated world
-   *  over-crediting it. */
+   *  over-crediting it.
+   *  A target is CLAMPED to what the world being flown holds (`effectiveStepTarget`), because a
+   *  region's room count is a property of the seed: write `{target}` in the description of any
+   *  step whose count could exceed a thin world's supply, or the text will name a number the
+   *  step no longer asks for. */
   | { kind: 'reachSector'; sectorTag?: SectorTag }
   /** Doc 04 authors a `seconds` field beside the step's own `target`. The target IS the dwell
    *  in seconds here: one threshold in two fields is two sources of truth, and the shipped
@@ -262,7 +266,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
       {
         id: 'q_gatecrash_02.s4',
-        description: 'Survey three sectors of the Crystal Caves',
+        description: 'Survey {target} sectors of the Crystal Caves',
         trigger: { kind: 'reachSector', sectorTag: 'biome:stage_crystal_caves' },
         target: 3,
         scope: 'run',
@@ -270,7 +274,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
       {
         id: 'q_gatecrash_02.s5',
-        description: 'Survey six sectors of the Inferno across your expeditions',
+        description: 'Survey {target} sectors of the Inferno across your expeditions',
         trigger: { kind: 'reachSector', sectorTag: 'biome:stage_inferno' },
         target: 6,
         scope: 'persistent',

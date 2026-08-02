@@ -18,6 +18,7 @@ import {
   setExpeditionQuestAside,
   type QuestBoardEntry,
 } from '../../meta/ExpeditionQuestManager';
+import type { SectorSupplySnapshot } from '../../world/sectorTags';
 import { computeCardGridInBand, fitTextWidth, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
 import { getSettingsManager } from '../../settings';
 
@@ -26,6 +27,9 @@ export interface QuestBoardSceneData {
   /** Which world the crate notice is about: a crate dropped in another world is still owed by a
    *  board. */
   worldStamp: string;
+  /** What this world can supply to a reachSector step, so the board shows the same clamped
+   *  target the ticker does. Null outside an expedition. */
+  sectorSupply: SectorSupplySnapshot | null;
   /** Called exactly once; true when at least one accept or set-aside actually landed. */
   onClose: (changed: boolean) => void;
 }
@@ -59,6 +63,7 @@ export class QuestBoardScene extends Phaser.Scene {
   private titleText: Phaser.GameObjects.Text | null = null;
   private cargoNotice = '';
   private worldStamp = '';
+  private sectorSupply: SectorSupplySnapshot | null = null;
   private navigator: MenuNavigator | null = null;
   private leaveButton: MenuButton | null = null;
   private overlayUpdateHandler: ((time: number, delta: number) => void) | null = null;
@@ -77,6 +82,7 @@ export class QuestBoardScene extends Phaser.Scene {
   init(data: QuestBoardSceneData): void {
     this.onCloseCallback = data.onClose ?? null;
     this.worldStamp = data.worldStamp ?? '';
+    this.sectorSupply = data.sectorSupply ?? null;
     this.changed = false;
     this.resolved = false;
     this.focusedIndex = 0;
@@ -181,7 +187,7 @@ export class QuestBoardScene extends Phaser.Scene {
       fitTextWidth(this.subtitleText, this.scale.width - 24);
     }
 
-    this.entries = getQuestBoardEntries();
+    this.entries = getQuestBoardEntries(this.sectorSupply);
     const activeCount = this.entries.filter((entry) => entry.status === 'active').length;
     this.statusText?.setText(
       `ACCEPTED ${activeCount} / ${ACTIVE_EXPEDITION_QUEST_LIMIT}`

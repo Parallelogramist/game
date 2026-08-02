@@ -250,14 +250,14 @@ const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
     icon: 'crystal',
     steps: [
       {
-        description: 'Chart three Inferno rooms on one expedition',
+        description: 'Chart {target} Inferno rooms on one expedition',
         trigger: { kind: 'reachSector', sectorTag: 'biome:stage_inferno' },
         target: 3,
         scope: 'run',
         goldReward: 130,
       },
       {
-        description: 'Chart five rooms of the Crystal Caves',
+        description: 'Chart {target} rooms of the Crystal Caves',
         trigger: { kind: 'reachSector', sectorTag: 'biome:stage_crystal_caves' },
         target: 5,
         scope: 'persistent',

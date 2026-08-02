@@ -64,7 +64,8 @@ import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from
 import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
-import { sectorTagsOf } from '../../world/sectorTags';
+import { buildSectorSupply, sectorTagsOf } from '../../world/sectorTags';
+import type { SectorSupplySnapshot } from '../../world/sectorTags';
 import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
 import {
   clearSecurityGrid, findGridBreach, securityGridNearWorld,
@@ -155,7 +156,8 @@ import {
   dropExpeditionQuestCargo,
 } from '../../meta/ExpeditionQuestManager';
 import { cargoLabelOf, droneLabelOf, getExpeditionQuest, getQuestForKeyId } from '../../data/ExpeditionQuests';
-import { questWorldStamp } from '../../systems/QuestProgress';
+import type { ExpeditionQuestStep } from '../../data/ExpeditionQuests';
+import { effectiveStepTarget, questWorldStamp, renderStepDescription } from '../../systems/QuestProgress';
 import type { QuestEvent } from '../../systems/QuestProgress';
 import { buildRunEarnings, buildRunNotices, type EarlyRunEndRecord, type RunEarning } from '../../meta/RunEarnings';
 import { OffScreenIndicatorManager } from '../../visual/OffScreenIndicatorManager';
@@ -5893,6 +5895,7 @@ export class GameScene extends Phaser.Scene {
     const map = this.worldMode.worldMap();
     this.scene.launch('QuestBoardScene', {
       worldStamp: map ? questWorldStamp(map) : '',
+      sectorSupply: map ? buildSectorSupply(map) : null,
       onClose: (changed: boolean) => {
         this.questBoardActive = false;
         this.isPaused = false;
@@ -6841,7 +6844,7 @@ export class GameScene extends Phaser.Scene {
     if (this.questTickerRefreshTimer <= 0) {
       this.questTickerRefreshTimer = QUEST_TICKER_REFRESH_SECONDS;
       this.expeditionTickerRows = buildRunTickerRows({
-        views: getActiveQuestStepViews(questWorldStamp(map)),
+        views: getActiveQuestStepViews(questWorldStamp(map), buildSectorSupply(map)),
         // Read, never clear. MapScene.create is the sole clearer of this overlay; clearing it
         // here would retire the chart badge within a second of the step that raised it.
         updatedQuestIds: getDiscoveryManager().getUpdatedObjectiveQuestIds(),
@@ -9477,12 +9480,23 @@ export class GameScene extends Phaser.Scene {
       this.toastManager?.showToast({
         tier: 'notable',
         title: 'NEW OBJECTIVE',
-        description: `${quest.name}: ${quest.steps[0].description}`,
+        description: `${quest.name}: ${this.questStepText(quest.steps[0])}`,
         icon: quest.icon,
         color: 0x9fe8a0,
         duration: 3600,
       });
     }
+  }
+
+  /** Null outside an expedition, which is what makes the arena, daily, gauntlet and practice
+   *  runs keep their authored targets. */
+  private questSectorSupply(): SectorSupplySnapshot | null {
+    const map = this.worldMode.worldMap();
+    return map ? buildSectorSupply(map) : null;
+  }
+
+  private questStepText(step: ExpeditionQuestStep): string {
+    return renderStepDescription(step, effectiveStepTarget(step, this.questSectorSupply()));
   }
 
   /**
@@ -9492,7 +9506,7 @@ export class GameScene extends Phaser.Scene {
    */
   private recordExpeditionQuest(event: QuestEvent): void {
     if (!this.worldMode.worldMap()) return;
-    const rewards = recordExpeditionQuestEvent(event);
+    const rewards = recordExpeditionQuestEvent(event, this.questSectorSupply());
     if (rewards.stepCompletions.length === 0
       && rewards.questCompletions.length === 0
       && rewards.activatedQuestIds.length === 0) {
@@ -9519,7 +9533,7 @@ export class GameScene extends Phaser.Scene {
       this.toastManager?.showToast({
         tier: 'notable',
         title: 'OBJECTIVE COMPLETE',
-        description: `${step.description} · +${completion.goldReward} gold`,
+        description: `${this.questStepText(step)} · +${completion.goldReward} gold`,
         icon: quest.icon,
         color: 0x7fd7ff,
         duration: 3200,
@@ -9548,7 +9562,7 @@ export class GameScene extends Phaser.Scene {
       this.toastManager?.showToast({
         tier: 'notable',
         title: 'NEW OBJECTIVE',
-        description: `${quest.name}: ${quest.steps[0].description}`,
+        description: `${quest.name}: ${this.questStepText(quest.steps[0])}`,
         icon: quest.icon,
         color: 0x9fe8a0,
         duration: 3600,
