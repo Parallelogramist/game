@@ -1154,7 +1154,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   rebuild would destroy placed ones; and they are the only static POI with run-save state, written
   and read by the mode-agnostic save path. Filing them under `src/game/expeditionField/` would be
   wrong. **5b** (actor POIs) is unchanged.
-- [ ] **ARCH-SHRINE-MANAGER** (chunk 5c, split out of ARCH-POI-MANAGERS 2026-08-02). Value: field
+- [x] **ARCH-SHRINE-MANAGER** (chunk 5c, done, `fe8fd67`). Value: field
   shrines are ~180 lines and 4 scene fields that no manager owns, and they are the last in-run
   field feature still hand-rolled inside `GameScene` after chunk 5 closed. They are **not** a
   `FieldPoiManager` (see the finding recorded on ARCH-POI-MANAGERS above), so this is a plain
@@ -1170,6 +1170,21 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   stay publicly reachable: `spawnPoiContent` places shrines at POI slots. Behaviour-preserving,
   no retune. Guardrail: the existing `GameStateManager` shrine save/restore tests must pass
   untouched.
+  **What shipped (`fe8fd67`):** `ShrineManager`, ~190 lines, owning the four moved methods,
+  both fields, both statics, the `ShrineType` union and the `SHRINE_DEFS` table, plus a
+  `serialize()` / `restore()` pair for the `shrineState` save block whose shape did not change (the
+  `GameStateManager` shrine test passes untouched). **The home is `src/game/managers/`, not the
+  `src/game/field/` this item proposed:** there is no treasure-chest module to sit beside, and
+  `src/game/managers/` is where the previous extraction in this band put `MinimapFeed`, so a
+  one-file new directory would have been surface growth for nothing. It is a plain class, not a
+  `FieldPoiManager`, for the reasons recorded on ARCH-POI-MANAGERS. `triggerShrine` stayed in the
+  scene as planned and now takes `(type, x, y)` through the `trigger` dep; the two
+  `POWER_SHRINE_BUFF_*` constants stayed with it. Two guards changed shape without changing
+  behaviour: the old `playerId === -1` early return is now the caller's guard around
+  `update(delta, playerX, playerY)` (which also makes the spawn loop's second playerId check
+  unreachable, so it is gone), and the `if (this.toastManager)` wrap is now the `showToast` dep's
+  own optional chain. Behaviour-preserving: no radius, interval, colour, alpha, pulse, toast or
+  reward changed, and the suite held at 177 files / 2077 tests with no new tests written.
 - [ ] **ARCH-RUNEND-SETTLEMENT** (chunk 6). Move the computation inside
   `gameOver`/`recordEarlyRunEnd`/`evaluateHiddenUnlocks`/`payDailyQuests`
   (`:10009-10533`) into pure `src/game/runend/runSettlement.ts`: inputs (kills, time,
