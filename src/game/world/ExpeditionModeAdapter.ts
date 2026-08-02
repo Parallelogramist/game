@@ -75,10 +75,21 @@ import { SerializedExpeditionState, WorldModeAdapter } from './WorldModeAdapter'
 const PLAYER_COLLISION_RADIUS = 16;
 
 /**
- * 150 ms or a player tile crossing, whichever comes first: a stale field only ever points at
- * where the player was one tile ago, and a refresh is one BFS over 5184 tiles.
+ * The field is a pure function of the tile grid and the player's tile, so it is rebuilt when one
+ * of those two inputs moves: on a geometry change (notifyGeometryChanged, which every mid-run
+ * tile writer already calls) and when the ship has left the tile the field was centred on by
+ * FLOW_REFRESH_TILE_DISTANCE. The seconds are a backstop against a future tile writer that
+ * forgets to announce itself, not the primary trigger: rebuilding on every 40 px tile crossing
+ * cost one BFS over 9,216 tiles up to ten times a second.
+ *
+ * 4 tiles is bounded by the enemy leash, not chosen by taste. The block reaches 1,920 px from
+ * its centre and an enemy is leashed at 1,600 px, so the ship may drift 160 px before the
+ * rebuild lands and every leashed enemy is still inside the field. Raising this constant
+ * without redoing that arithmetic puts enemies outside the block, where they fall through to
+ * the direct vector.
  */
-const FLOW_REFRESH_SECONDS = 0.15;
+const FLOW_REFRESH_SECONDS = 1.0;
+const FLOW_REFRESH_TILE_DISTANCE = 4;
 
 const CAMERA_LERP = 0.12;
 const CAMERA_DEADZONE_WIDTH = 160;
@@ -333,11 +344,23 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
 
   notifyGeometryChanged(): void {
     this.geometry?.invalidate();
+    // A door that just opened or a wall that just broke is a new route, and the field is the
+    // only thing that knows routes: rebuild here rather than leaving it to the backstop.
+    this.refreshFlowField();
   }
 
   destroy(): void {
     this.geometry?.destroy();
     this.geometry = null;
+  }
+
+  private refreshFlowField(): void {
+    const player = this.playerVisual;
+    if (!player) return;
+    computeFlowField(this.map, player.x, player.y, this.flow);
+    this.flowAge = 0;
+    this.flowTileX = Math.floor(player.x / TILE_SIZE);
+    this.flowTileY = Math.floor(player.y / TILE_SIZE);
   }
 
   update(deltaSeconds: number): void {
@@ -359,11 +382,9 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     const playerTileX = Math.floor(player.x / TILE_SIZE);
     const playerTileY = Math.floor(player.y / TILE_SIZE);
     if (this.flowAge >= FLOW_REFRESH_SECONDS
-      || playerTileX !== this.flowTileX || playerTileY !== this.flowTileY) {
-      computeFlowField(this.map, player.x, player.y, this.flow);
-      this.flowAge = 0;
-      this.flowTileX = playerTileX;
-      this.flowTileY = playerTileY;
+      || Math.abs(playerTileX - this.flowTileX) >= FLOW_REFRESH_TILE_DISTANCE
+      || Math.abs(playerTileY - this.flowTileY) >= FLOW_REFRESH_TILE_DISTANCE) {
+      this.refreshFlowField();
     }
 
     const sector = sectorOfWorldPoint(player.x, player.y);
@@ -394,7 +415,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
         sector.tiles[index] = TileKind.GateClosed;
       }
     }
-    this.onSealChanged();
+    this.notifyGeometryChanged();
   }
 
   private unsealSector(): void {
@@ -403,18 +424,7 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
       sector.tiles[index] = kind;
     }
     this.sealedTiles.length = 0;
-    this.onSealChanged();
-  }
-
-  private onSealChanged(): void {
-    this.geometry?.invalidate();
-    const player = this.playerVisual;
-    if (player) {
-      computeFlowField(this.map, player.x, player.y, this.flow);
-      this.flowAge = 0;
-      this.flowTileX = Math.floor(player.x / TILE_SIZE);
-      this.flowTileY = Math.floor(player.y / TILE_SIZE);
-    }
+    this.notifyGeometryChanged();
   }
 
   private applyCameraBounds(bounds: WorldRect): void {

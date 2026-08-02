@@ -8,7 +8,7 @@ import {
 import type { EdgeDef, EdgeDirection, SectorDef, WorldMap } from './worldTypes';
 import {
   MoverKind, createCollisionResult, resolveCircleMove, raycastSolid,
-  isSolidAtWorld, findNearestFreeCircleSpot,
+  isSolidAtWorld, findNearestFreeCircleSpot, readTileKindRun, tileKindAt, TILE_KIND_OUTSIDE,
 } from './staticCollision';
 import { resolveMoveWithAssist } from './moveAssist';
 
@@ -579,5 +579,29 @@ describe('moveAssist — wall slide and doorway slip', () => {
     }
     expect(stalled).toBeGreaterThan(0);
     expect(cleared).toBe(stalled);
+  });
+});
+
+describe('readTileKindRun', () => {
+  it('agrees with tileKindAt inside sectors, across seams and outside the world', () => {
+    const world = generateWorld(20260727, {
+      abilityGateOrder: ['blink_drive', 'breach_charges', 'magno_tether',
+        'phase_cloak', 'thermal_ward', 'signal_decryptor'],
+      availableBiomeIds: STAGES.map(stage => stage.id),
+    });
+    const runLength = 96;
+    const out = new Uint8Array(runLength + 3);
+    // Start well outside the generated world so the run crosses the void, the first seam and
+    // several whole sectors: the offsets a 96-tile flow row actually sees.
+    for (let globalTileY = -20; globalTileY <= 40; globalTileY += 7) {
+      for (let startGlobalTileX = -37; startGlobalTileX <= 70; startGlobalTileX += 11) {
+        out.fill(0);
+        readTileKindRun(world, startGlobalTileX, globalTileY, runLength, out, 3);
+        for (let step = 0; step < runLength; step++) {
+          const expected = tileKindAt(world, startGlobalTileX + step, globalTileY);
+          expect(out[3 + step]).toBe(expected === -1 ? TILE_KIND_OUTSIDE : expected);
+        }
+      }
+    }
   });
 });

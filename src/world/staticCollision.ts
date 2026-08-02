@@ -96,6 +96,48 @@ export function tileKindAt(world: WorldMap, globalTileX: number, globalTileY: nu
   return sector.tiles[tileIndex(localTileX, localTileY)];
 }
 
+/**
+ * A tile coordinate with no generated sector under it. tileKindAt reports -1; this is that same
+ * absence narrowed to a byte, which is safe because TileKind's largest member is 6.
+ */
+export const TILE_KIND_OUTSIDE = 255;
+
+/**
+ * tileKindAt across a horizontal run of tiles, resolving each sector once per run instead of
+ * once per tile. computeFlowField reads 9,216 tiles per refresh and paid the sector lookup on
+ * every one of them; a run never spans more than one sector, and a sector is 32 tiles wide, so
+ * a 96-tile row costs 3 or 4 lookups.
+ */
+export function readTileKindRun(
+  world: WorldMap,
+  startGlobalTileX: number,
+  globalTileY: number,
+  count: number,
+  out: Uint8Array,
+  outOffset: number,
+): void {
+  const sy = Math.floor(globalTileY / SECTOR_TILE_ROWS);
+  const localTileY = globalTileY - sy * SECTOR_TILE_ROWS;
+  let written = 0;
+  while (written < count) {
+    const globalTileX = startGlobalTileX + written;
+    const sx = Math.floor(globalTileX / SECTOR_TILE_COLS);
+    const localTileX = globalTileX - sx * SECTOR_TILE_COLS;
+    const runLength = Math.min(SECTOR_TILE_COLS - localTileX, count - written);
+    const sector = sectorAt(world, sx, sy);
+    const runStart = outOffset + written;
+    if (sector === undefined) {
+      out.fill(TILE_KIND_OUTSIDE, runStart, runStart + runLength);
+    } else {
+      const sectorRowBase = tileIndex(0, localTileY);
+      for (let step = 0; step < runLength; step++) {
+        out[runStart + step] = sector.tiles[sectorRowBase + localTileX + step];
+      }
+    }
+    written += runLength;
+  }
+}
+
 function ringEdgeAt(sector: SectorDef, localTileX: number, localTileY: number): EdgeDef | null {
   if (localTileY === 0) return sector.edges.north;
   if (localTileY === SECTOR_TILE_ROWS - 1) return sector.edges.south;

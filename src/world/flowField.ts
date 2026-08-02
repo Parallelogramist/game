@@ -9,7 +9,7 @@
 
 import { TILE_SIZE, TileKind } from './worldTypes';
 import type { WorldMap } from './worldTypes';
-import { tileKindAt } from './staticCollision';
+import { readTileKindRun } from './staticCollision';
 
 /**
  * Sized from the enemy leash, not from sectors. A 3x3 sector block snapped to the sector grid
@@ -56,6 +56,7 @@ const UNVISITED = 0xffff;
 const distances = new Uint16Array(FLOW_BLOCK_TILE_COUNT);
 const walkable = new Uint8Array(FLOW_BLOCK_TILE_COUNT);
 const queue = new Int32Array(FLOW_BLOCK_TILE_COUNT);
+const kinds = new Uint8Array(FLOW_BLOCK_TILE_COUNT);
 
 function globalTileOf(worldCoord: number): number {
   return Math.floor(worldCoord / TILE_SIZE);
@@ -82,12 +83,13 @@ export function computeFlowField(
   directions.fill(FLOW_UNREACHABLE);
 
   for (let localY = 0; localY < FLOW_BLOCK_ROWS; localY++) {
-    const rowBase = localY * FLOW_BLOCK_COLS;
-    for (let localX = 0; localX < FLOW_BLOCK_COLS; localX++) {
-      const kind = tileKindAt(world, originTileX + localX, originTileY + localY);
-      walkable[rowBase + localX] = (kind === TileKind.Open || kind === TileKind.HazardFloor)
-        ? 1 : 0;
-    }
+    readTileKindRun(
+      world, originTileX, originTileY + localY, FLOW_BLOCK_COLS, kinds, localY * FLOW_BLOCK_COLS,
+    );
+  }
+  for (let index = 0; index < FLOW_BLOCK_TILE_COUNT; index++) {
+    const kind = kinds[index];
+    walkable[index] = (kind === TileKind.Open || kind === TileKind.HazardFloor) ? 1 : 0;
   }
 
   const targetLocalX = targetTileX - originTileX;
