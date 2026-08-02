@@ -851,7 +851,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   the same defect. No test: all five are mutations on live Phaser objects inside scene-coupled
   managers, which `CLAUDE.md` says are verified by play, not by mocking a scene. Files
   `POLISH-TWEEN-HYGIENE` under Human gates for the three visible halves.
-- [ ] **POLISH-REDUCED-MOTION**. Value: the OS `prefers-reduced-motion` setting is
+- [x] **POLISH-REDUCED-MOTION** (done, 515063b). Value: the OS `prefers-reduced-motion` setting is
   honored only by the HTML boot loader (`index.html:142-147`), never in-game, and
   card fly-ins ignore the in-game setting too. Plan: seed the SettingsManager default
   (`src/settings/SettingsManager.ts:63, 88`) from
@@ -859,6 +859,43 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `UpgradeScene.ts:1321-1344`, `MarketScene.ts:329-337`, `RelicDraftScene.ts:311-319`
   on `isReducedMotionEnabled()` (snap to final pose, as `staggerEntrance` already
   does).
+
+  **What shipped (515063b):** both halves, four files. The Reduced Motion toggle has been in
+  Settings for a long time and nine systems honor it (`SceneTransition.ts:86,133,194`,
+  `MenuBackground.ts:41`, `MinimapManager.ts:358`, `PauseMenuManager.ts:1790`,
+  `CardsScene.ts:652`, `BootScene.ts:990`, `RunnerScene.ts:483`, `HUDManager.ts:416`), but the
+  three modal card scenes each rolled their own private `animateEntrance` instead of the shared
+  `staggerEntrance`, and none of the three checked the setting. Those three are the largest motion
+  in the game: every card starts 200px below the bottom of the screen at alpha 0 and rides a 400ms
+  `Back.easeOut` up into place, on every level-up, every market visit and every relic drop. All
+  three now return early when the setting is on, leaving each card at the resting pose the layout
+  already gave it, which is exactly what the shared `staggerEntrance` does in the same case
+  (`SceneTransition.ts:194`). **Two things were deliberately kept, not skipped.** (1) The 80ms
+  `entranceComplete` `delayedCall` stays in all three: it swallows the click that opened the
+  scene, so it is an input guard, not a tween timer, and dropping it would make a reduced-motion
+  player fire the first card by accident. (2) UpgradeScene's `cardEntranceDone` flags are set
+  `true` immediately, because the per-card click handlers at `:292` and `:300` refuse a card whose
+  flag is false and only the tween's `onComplete` ever set it, so a bare early return would have
+  made the upgrade cards permanently unclickable under reduced motion. MarketScene needed a third
+  thing: `LOCKED_CARD_ALPHA` is referenced exactly once in that file, inside the entrance tween, so
+  its branch applies the dimming to locked offers directly. Without that, a locked offer would have
+  rendered at full opacity and read as buyable. RelicDraftScene alone could take a bare early
+  return, since the only alpha it writes is the one it is skipping. The second half seeds the
+  first-run default: `SettingsManager` now reads `matchMedia('(prefers-reduced-motion: reduce)')`
+  through a `prefersReducedMotion()` helper guarded for the Node test environment, and passes it as
+  the `loadBoolean` fallback rather than as an override, so it applies only when the storage key is
+  absent and any explicit player choice still wins forever. `resetToDefaults` resets to the same
+  OS-derived value, so Reset To Defaults cannot silently override a preference a fresh install
+  honored. Until now that OS preference reached only the HTML boot loader's CSS
+  (`index.html:142`), never the game. **Not done, on purpose:** no `matchMedia` change listener (a
+  live OS flip would stomp the player's explicit toggle); the modal close fades
+  (`UpgradeScene:1325`, `MarketScene:310`, `RelicDraftScene:331`) still play, matching
+  `transitionToScene`, which keeps a 150ms fade under reduced motion and drops only the movement;
+  and the card hover pops are untouched, since they answer a deliberate input rather than arriving
+  unbidden. No test: the three scene changes are mutations on live Phaser objects, which
+  `CLAUDE.md` says are verified by play, and the settings change is a three-line environment guard
+  over `loadBoolean`'s already-covered precedence. Files `POLISH-REDUCED-MOTION-FEEL` under Human
+  gates.
 - [ ] **POLISH-UX-SMALL**. Batch of small verified issues: (1) toasts rest exactly
   over the pause button + kills/gold stack, and 3+ line descriptions overflow the
   fixed 78-unit panel (`src/ui/ToastManager.ts:117-119, 199-207`): anchor below the
@@ -9546,6 +9583,16 @@ Never agent work. The fleet must not do any of these.
   right feel, or was the faster high-refresh drain accidentally better? (o) the FPS counter
   now updates 4x a second rather than every frame — steady enough to read, or too laggy to
   catch a hitch? Toggling the counter in Settings also takes up to 250 ms to show or hide it.
+
+- [ ] **POLISH-REDUCED-MOTION-FEEL** (new 2026-08-02, from POLISH-REDUCED-MOTION at 515063b).
+  Value: the change is invisible with the setting off and it changes the three most-seen
+  modals with it on, so it wants an operator eye once, in a browser, both ways. Questions:
+  (p) turn Reduced Motion on in Settings, then take a level-up, a market visit and a relic
+  drop: the cards should simply be there, laid out correctly, clickable after about 80ms, with
+  a locked market offer still visibly dimmed. Does the instant appearance read as intentional,
+  or does it read as a missing animation, i.e. is a short fade in place (no movement) worth
+  adding? (q) with the setting off, confirm nothing changed at all: cards should still fly up
+  from below exactly as before, on all three scenes.
 
 - [x] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): **answered 2026-08-01, operator
   directed the reconcile + deploy the same day.** `origin/master` carried one commit
