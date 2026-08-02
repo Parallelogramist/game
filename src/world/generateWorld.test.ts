@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { STAGES, getStageById } from '../data/Stages';
-import { EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER } from '../data/ExpeditionQuests';
+import {
+  EXPEDITION_QUESTS,
+  EXPEDITION_QUEST_KEY_ORDER,
+  WARDEN_SEAL_KEY_ID,
+} from '../data/ExpeditionQuests';
 import { LORE_FRAGMENTS } from '../data/LoreFragments';
 import { generateWorld } from './generateWorld';
 import {
@@ -520,6 +524,23 @@ describe('invariant 9: quest key doors', () => {
         .filter(sector => sector.hidden === true && reached.has(sector.key));
       expect(reachableHidden.length).toBeGreaterThan(0);
     }
+  });
+
+  it('appends the warden seal without moving any shipped quest door', () => {
+    const sealInputs: WorldGenInputs = {
+      ...QUEST_INPUTS,
+      questKeyOrder: [...QUEST_KEYS, WARDEN_SEAL_KEY_ID],
+    };
+    SEEDS.forEach((seed, index) => {
+      const before = keyDoorEdgeIdsByRequiredId(QUEST_WORLDS[index]);
+      const after = keyDoorEdgeIdsByRequiredId(generateWorld(seed, sealInputs));
+      for (const questKeyId of QUEST_KEYS) {
+        expect([...(after.get(questKeyId) ?? [])].sort())
+          .toEqual([...(before.get(questKeyId) ?? [])].sort());
+      }
+      expect(after.get(WARDEN_SEAL_KEY_ID)?.size ?? 0).toBe(1);
+      expect(before.has(WARDEN_SEAL_KEY_ID)).toBe(false);
+    });
   });
 });
 

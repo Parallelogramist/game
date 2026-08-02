@@ -1,6 +1,7 @@
 import { SecureStorage } from '../storage';
 import {
   EXPEDITION_QUESTS,
+  WARDEN_SEAL_KEY_ID,
   type ExpeditionQuestDefinition,
 } from '../data/ExpeditionQuests';
 import {
@@ -41,6 +42,7 @@ import {
 import type { SectorSupplySnapshot } from '../world/sectorTags';
 import { buildSeasonQuests } from '../expedition/seasonQuests';
 import { getCurrentExpeditionSeed } from '../expedition/ExpeditionSeasonStore';
+import { isWorldConquered } from '../expedition/WorldProfileStore';
 
 /**
  * Persists expedition quest chains for this profile (doc 04 section 4).
@@ -242,6 +244,17 @@ export function getEarnedQuestKeyIds(): string[] {
     if (keyId !== undefined) earned.push(keyId);
   }
   return earned;
+}
+
+/** Every KeyDoor id this profile holds for one world: the quest keys it earned, plus the warden
+ *  seal once that world is conquered. One producer on purpose, because the door replay, the
+ *  in-run door-open test and the chart all have to agree about the same set. It lives here
+ *  rather than in src/expedition/ because src/meta/ imports src/expedition/ and never the
+ *  reverse. */
+export function getHeldWorldKeyIds(worldSeed: number, worldGenVersion: number): string[] {
+  const held = getEarnedQuestKeyIds();
+  if (isWorldConquered(worldSeed, worldGenVersion)) held.push(WARDEN_SEAL_KEY_ID);
+  return held;
 }
 
 export type { QuestStepView } from '../systems/QuestProgress';

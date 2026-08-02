@@ -137,8 +137,14 @@ function describeLockoutRow(row: LockoutRow): string {
     case 'questSlotsFull':
       clauses.push('ALL OBJECTIVE SLOTS FULL');
       break;
+    case 'wardenArena':
+      clauses.push(sectorsOutClause('ARENA', source.distance));
+      break;
     case 'unfound':
-      clauses.push(row.kind === 'ability' ? 'VAULT NOT CHARTED' : 'NO BOARD CHARTED');
+      clauses.push(
+        row.kind === 'ability' ? 'VAULT NOT CHARTED'
+          : row.kind === 'warden' ? 'ARENA NOT CHARTED'
+            : 'NO BOARD CHARTED');
       break;
   }
   return clauses.join('  ·  ');

@@ -15,13 +15,13 @@ import { EDGE_DIRECTIONS, EdgeKind, PoiKind, edgeIdFor } from '../world/worldTyp
 import type { SectorDef, WorldMap } from '../world/worldTypes';
 import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 import { getTraversalAbility } from '../data/TraversalAbilities';
-import { getQuestForKeyId } from '../data/ExpeditionQuests';
+import { WARDEN_SEAL_KEY_ID, WARDEN_SEAL_LABEL, getQuestForKeyId } from '../data/ExpeditionQuests';
 import { countIntactGridBands, isGridFenceIntact } from '../world/securityGrids';
 
 const MAGNO_TETHER_ABILITY_ID = 'ability_magno_tether';
 const PHASE_CLOAK_ABILITY_ID = 'ability_phase_cloak';
 
-export type LockoutKind = 'ability' | 'questKey';
+export type LockoutKind = 'ability' | 'questKey' | 'warden';
 
 /** Where the profile goes to earn a lockout row. A place only where the chart already draws
  *  one: every sectorKey here belongs to a POI slot the profile has actually stood beside. */
@@ -35,6 +35,10 @@ export type LockoutSource =
   | { kind: 'questBoard'; sectorKey: string; distance: number }
   /** The quest is on offer but all three objective slots are taken. */
   | { kind: 'questSlotsFull' }
+  /** The world's boss arena, and only once the profile has charted it: naming a distance to a
+   *  sector the chart refuses to draw would leak a position, the same rule the vault and board
+   *  scans obey. */
+  | { kind: 'wardenArena'; sectorKey: string; distance: number }
   /** Nothing charted starts it: the vault or the board is still unfound. */
   | { kind: 'unfound' };
 
@@ -66,7 +70,7 @@ export interface LockoutRow {
   /** Traversal ability id or quest key id. Stable across opens. */
   id: string;
   kind: LockoutKind;
-  /** Ability name, or the name of the quest that grants the key. */
+  /** Ability name, the name of the quest that grants the key, or the Warden. */
   name: string;
   /** KNOWN sector borders this would open. */
   doors: number;
@@ -210,6 +214,10 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
         continue;
       }
       if (inputs.holdsQuestKey(edge.requiredId)) continue;
+      if (edge.requiredId === WARDEN_SEAL_KEY_ID) {
+        bump(`warden:${WARDEN_SEAL_KEY_ID}`, 'warden', WARDEN_SEAL_LABEL, 'doors', distance);
+        continue;
+      }
       const quest = getQuestForKeyId(edge.requiredId);
       if (!quest) continue;
       bump(`questKey:${edge.requiredId}`, 'questKey', quest.name, 'doors', distance);
@@ -282,6 +290,15 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
         sectorKey: site.sectorKey,
         distance: Math.max(
           Math.abs(site.sx - inputs.shipCell.col), Math.abs(site.sy - inputs.shipCell.row)),
+      };
+    }
+    if (accumulator.kind === 'warden') {
+      const arena = inputs.map.sectors.get(inputs.map.bossArenaKey);
+      if (!arena || inputs.sectorFlagsOf(arena.key) === 0) return { kind: 'unfound' };
+      return {
+        kind: 'wardenArena',
+        sectorKey: arena.key,
+        distance: sectorDistance(arena, inputs.shipCell),
       };
     }
     const quest = getQuestForKeyId(accumulator.id);

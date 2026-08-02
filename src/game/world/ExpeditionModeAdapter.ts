@@ -22,7 +22,7 @@ import { TRAVERSAL_ABILITY_GATE_ORDER } from '../../data/TraversalAbilities';
 import {
   applyBrokenBarriers, applyEarnedQuestKeys, applyOwnedAbilityGates,
 } from '../../world/barrierState';
-import { getEarnedQuestKeyIds } from '../../meta/ExpeditionQuestManager';
+import { getHeldWorldKeyIds } from '../../meta/ExpeditionQuestManager';
 import { getOwnedTraversalAbilityIds } from '../../meta/TraversalAbilityManager';
 import { loadWorldProfile } from '../../expedition/WorldProfileStore';
 import { applyDownedSecurityGrids } from '../../world/securityGrids';
@@ -151,7 +151,8 @@ export class ExpeditionModeAdapter implements WorldModeAdapter, NavigationContex
     // already earned is open before the renderer, the collision index or the flow field ever
     // look at the grid, which is the whole of "already open on the next run".
     applyOwnedAbilityGates(this.map, getOwnedTraversalAbilityIds());
-    applyEarnedQuestKeys(this.map, getEarnedQuestKeyIds());
+    applyEarnedQuestKeys(
+      this.map, getHeldWorldKeyIds(this.map.seed, this.map.worldGenVersion));
     // Last of the replay block on purpose: the four passes above turn remembered walls, downed
     // grids and owned gates into Open floor, and a bloom may legally use the ground they opened.
     // It paints only over Open and only with the non-blocking HazardFloor kind, so it cannot

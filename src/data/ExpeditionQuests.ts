@@ -572,6 +572,15 @@ export const EXPEDITION_QUEST_KEY_ORDER: readonly string[] = EXPEDITION_QUESTS
   .map((quest) => quest.grantsKeyId)
   .filter((keyId): keyId is string => keyId !== undefined);
 
+/** The one KeyDoor id no quest grants: the profile holds it once it has conquered this world.
+ *  APPENDED after EXPEDITION_QUEST_KEY_ORDER at the generator call site and never inserted into
+ *  it, because placeQuestKeyDoors assigns keys to candidate regions positionally, so an id added
+ *  anywhere but the end would hand every shipped quest door a different requiredId. */
+export const WARDEN_SEAL_KEY_ID = 'key_warden_seal';
+
+/** What a warden-sealed door names as its requirement, everywhere a quest name would go. */
+export const WARDEN_SEAL_LABEL = 'The Warden';
+
 /** The quest a sealed door should name. Undefined for a key no quest grants, which
  *  referentialIntegrity.test.ts forbids. */
 export function getQuestForKeyId(keyId: string): ExpeditionQuestDefinition | undefined {

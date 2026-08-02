@@ -1,7 +1,7 @@
 /**
  * The manager's one job with a silent failure mode is deciding whether a stored payload
  * belongs to the world being played: get the (worldSeed, worldGenVersion) binding wrong and
- * a profile inherits another world's map, which looks like a working map. These five pin the
+ * a profile inherits another world's map, which looks like a working map. These seven pin the
  * round trip, both halves of that binding, the revision a renderer will cache against, and
  * the counts the map header will read.
  */

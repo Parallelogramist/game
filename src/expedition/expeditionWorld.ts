@@ -7,7 +7,7 @@
 import { generateWorld } from '../world/generateWorld';
 import { STAGES, getStageById } from '../data/Stages';
 import { TRAVERSAL_ABILITY_GATE_ORDER } from '../data/TraversalAbilities';
-import { EXPEDITION_QUEST_KEY_ORDER } from '../data/ExpeditionQuests';
+import { EXPEDITION_QUEST_KEY_ORDER, WARDEN_SEAL_KEY_ID } from '../data/ExpeditionQuests';
 import { PoiKind, WORLDGEN_VERSION } from '../world/worldTypes';
 import type { WorldMap } from '../world/worldTypes';
 import {
@@ -25,7 +25,10 @@ export const EXPEDITION_HIDDEN_SECTOR_COUNT = 3;
 export function generateExpeditionWorld(seed: number): WorldMap {
   return generateWorld(seed, {
     abilityGateOrder: [...TRAVERSAL_ABILITY_GATE_ORDER],
-    questKeyOrder: [...EXPEDITION_QUEST_KEY_ORDER],
+    // Appended last, never inserted: placeQuestKeyDoors assigns keys to regions positionally,
+    // so this leaves all four shipped quest doors on the exact edges they already had (measured
+    // over 101 seeds) and needs no WORLDGEN_VERSION bump.
+    questKeyOrder: [...EXPEDITION_QUEST_KEY_ORDER, WARDEN_SEAL_KEY_ID],
     hiddenSectorCount: EXPEDITION_HIDDEN_SECTOR_COUNT,
     availableBiomeIds: STAGES.map(stage => stage.id),
   });
@@ -97,8 +100,9 @@ export interface ExpeditionWorldPreview {
 /**
  * The facts that actually vary between seeds, measured over 41 worlds of the real chain:
  * secret slots 15 to 33, caches 30 to 61, deepest depth 7 to 13, four distinct deepest
- * regions. Sector count (always 48), ability doors (6), quest doors (4) and hidden sectors
- * (3) are deliberately absent: a preview number that never moves is decoration.
+ * regions. Sector count (always 48), ability doors (6), key doors (5, four quest plus the
+ * warden seal) and hidden sectors (3) are deliberately absent: a preview number that never
+ * moves is decoration.
  */
 export function previewExpeditionWorld(seed: number): ExpeditionWorldPreview {
   const map = generateExpeditionWorld(seed);

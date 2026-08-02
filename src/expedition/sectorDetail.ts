@@ -15,7 +15,7 @@ import { gateGlyphFor } from './gateGlyphs';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from './poiGlyphs';
 import { getStageById } from '../data/Stages';
 import { getTraversalAbility } from '../data/TraversalAbilities';
-import { getQuestForKeyId } from '../data/ExpeditionQuests';
+import { WARDEN_SEAL_KEY_ID, getQuestForKeyId } from '../data/ExpeditionQuests';
 import { countIntactGridBands, isGridFenceIntact } from '../world/securityGrids';
 import type { PoiHazardKind } from '../data/PoiCatalog';
 
@@ -132,8 +132,14 @@ function requirementSuffix(edge: EdgeDef, inputs: SectorDetailInputs): string {
       : ` · requires ${definition.name}`;
   }
   if (edge.kind === EdgeKind.KeyDoor) {
-    const quest = edge.requiredId ? getQuestForKeyId(edge.requiredId) : undefined;
-    if (!quest || edge.requiredId === undefined) return ' · mechanism unknown';
+    if (edge.requiredId === undefined) return ' · mechanism unknown';
+    if (edge.requiredId === WARDEN_SEAL_KEY_ID) {
+      return inputs.holdsQuestKey(edge.requiredId)
+        ? ' · open to you'
+        : ' · slay the Warden';
+    }
+    const quest = getQuestForKeyId(edge.requiredId);
+    if (!quest) return ' · mechanism unknown';
     return inputs.holdsQuestKey(edge.requiredId)
       ? ' · open to you'
       : ` · finish ${quest.name}`;

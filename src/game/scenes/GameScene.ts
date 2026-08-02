@@ -156,7 +156,7 @@ import {
   getActiveQuestEscortObjectives,
   dropExpeditionQuestDrone,
   getActiveQuestStepViews,
-  getEarnedQuestKeyIds,
+  getHeldWorldKeyIds,
   getActiveQuestCargoDropObjectives,
   getExpeditionQuestCargoStatus,
   loadExpeditionQuestCargo,
@@ -164,7 +164,7 @@ import {
   dropExpeditionQuestCargo,
   getExpeditionQuestFromCatalog,
 } from '../../meta/ExpeditionQuestManager';
-import { cargoLabelOf, droneLabelOf, getQuestForKeyId } from '../../data/ExpeditionQuests';
+import { WARDEN_SEAL_KEY_ID, cargoLabelOf, droneLabelOf, getQuestForKeyId } from '../../data/ExpeditionQuests';
 import type { ExpeditionQuestStep } from '../../data/ExpeditionQuests';
 import { effectiveStepTarget, questWorldStamp, renderStepDescription } from '../../systems/QuestProgress';
 import type { QuestEvent } from '../../systems/QuestProgress';
@@ -1273,7 +1273,8 @@ export class GameScene extends Phaser.Scene {
     const map = this.worldMode.worldMap();
     if (!map) return;
     this.ownedTraversalAbilityIds = new Set(getOwnedTraversalAbilityIds());
-    this.earnedQuestKeyIds = new Set(getEarnedQuestKeyIds());
+    this.earnedQuestKeyIds = new Set(
+      getHeldWorldKeyIds(map.seed, map.worldGenVersion));
     this.markedSectorKeys = [...getSectorMarks(map.seed, map.worldGenVersion).keys()];
     getDiscoveryManager().bindWorld(map);
     const completionPercent = getDiscoveryManager().getCompletionPercent();
@@ -6757,7 +6758,8 @@ export class GameScene extends Phaser.Scene {
     this.worldMode.notifyGeometryChanged();
     this.minimapFeed.invalidateUnderlay();
 
-    const quest = getQuestForKeyId(door.requiredId);
+    const wardenSeal = door.requiredId === WARDEN_SEAL_KEY_ID;
+    const quest = wardenSeal ? undefined : getQuestForKeyId(door.requiredId);
     const color = GATE_GLYPHS[EdgeKind.KeyDoor].color;
     this.effectsManager.playDeathBurst(door.x, door.y, color);
     this.cameras.main.shake(140, 0.006);
@@ -6766,10 +6768,12 @@ export class GameScene extends Phaser.Scene {
       this.toastManager.showToast({
         tier: 'ambient',
         title: 'ROUTE OPEN',
-        description: quest
-          ? `${quest.name} keyed this door.`
-          : 'A quest key unsealed this door.',
-        icon: quest?.icon ?? 'warning',
+        description: wardenSeal
+          ? 'The fall of the Warden unsealed this door.'
+          : quest
+            ? `${quest.name} keyed this door.`
+            : 'A quest key unsealed this door.',
+        icon: wardenSeal ? 'skull' : quest?.icon ?? 'warning',
         color,
         duration: 2800,
       });
@@ -7017,18 +7021,21 @@ export class GameScene extends Phaser.Scene {
     if (!questDoor || this.earnedQuestKeyIds.has(questDoor.requiredId)) return;
     if (this.alreadyAnnouncedSealedDoor(questDoor.edgeId)) return;
 
-    const quest = getQuestForKeyId(questDoor.requiredId);
+    const wardenSealed = questDoor.requiredId === WARDEN_SEAL_KEY_ID;
+    const quest = wardenSealed ? undefined : getQuestForKeyId(questDoor.requiredId);
     const color = GATE_GLYPHS[EdgeKind.KeyDoor].color;
     this.effectsManager.showDamageNumber(questDoor.x, questDoor.y - 20, 'SEALED', color);
     this.soundManager.playError();
     if (this.toastManager) {
       this.toastManager.showToast({
         tier: 'ambient',
-        title: 'QUEST DOOR',
-        description: quest
-          ? `Finish ${quest.name} to key this route.`
-          : 'A quest key opens this route.',
-        icon: quest?.icon ?? 'warning',
+        title: wardenSealed ? 'WARDEN SEAL' : 'QUEST DOOR',
+        description: wardenSealed
+          ? 'Conquer this world to open this route.'
+          : quest
+            ? `Finish ${quest.name} to key this route.`
+            : 'A quest key opens this route.',
+        icon: wardenSealed ? 'skull' : quest?.icon ?? 'warning',
         color,
         duration: 2800,
       });
