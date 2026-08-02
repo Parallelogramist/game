@@ -802,7 +802,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   framerate-dependent boss-bar drain on the line above it belongs to BUG-TWEEN-HYGIENE.
   No test: every one of the four is a mutation on a live Phaser object inside the scene-coupled
   HUD manager, which `CLAUDE.md` says is verified by play, not by mocking a scene.
-- [ ] **BUG-TWEEN-HYGIENE**. Value: verified stutter/GC sources (Phaser never
+- [x] **BUG-TWEEN-HYGIENE** (done, 6f902b1). Value: verified stutter/GC sources (Phaser never
   auto-removes tweens of destroyed targets). (1) `updateUpgradeIcons` rebuilds via
   `removeAll(true)` without killing the highlight glow's `repeat: -1` pulse
   (`HUDManager.ts:1302`, `:1356-1365`): dozens of orphaned infinite tweens per run;
@@ -815,6 +815,42 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `setText` every frame (`:2159`): throttle to 4Hz. (5) boss-bar drain
   `Linear(current, target, 0.1)` per frame is framerate-dependent, ~2.4x faster at
   144Hz (`:1278`): exponential factor scaled by deltaSeconds.
+
+  **What shipped (6f902b1):** all five, two files. (1) `updateUpgradeIcons` rebuilds the
+  icon strip with `removeAll(true)`, which destroys the children but leaves their tweens
+  running — Phaser never retires a tween whose target is gone — so every rebuild stranded one
+  `repeat: -1` glow pulse per highlighted icon, forever, on a destroyed Rectangle. The rebuild
+  now kills the tweens of every child first. Killing by child rather than by tracked glow
+  rectangle keeps it correct if another icon element gains a tween later, and it costs nothing:
+  the method runs on upgrade acquisition and highlight expiry, never per frame. `destroy()` was
+  deliberately left alone — `GameScene` shutdown already calls `tweens.killAll()` immediately
+  after `hudManager.destroy()`. (2) All three touch action buttons (dash, ultimate, map) played
+  their press feedback as a bare `yoyo` tween, and a yoyo returns to the value it *started* at,
+  not to 1. Tapping again mid-yoyo therefore started the new tween from ~0.9 and returned there,
+  so spamming dash ratcheted the button down and it stuck shrunk until something else rescaled
+  it. Each handler now kills in-flight tweens and snaps back to scale 1 before adding the press
+  tween, the idiom `updateUltimateCharge` already used on the ultimate container — which also
+  removes a genuine conflict, since the ready pop tweens the same object. The fullscreen button
+  has no press tween and was not touched. (3) The post-victory gold timer colour was re-applied
+  by `setColor` on every frame of overtime; a latch applies it on the first won frame. Same
+  pixels. (4) The FPS readout called `setText` (and `getSettingsManager().isFpsCounterEnabled()`,
+  and `setVisible`) every frame, re-rasterizing the label 60 times a second to show a number
+  nobody can read that fast. It is now throttled to 4Hz. The `fpsHistory` sampling and the
+  quality auto-scaler underneath it were left on every frame, because that is what makes the
+  auto-scale responsive. **Visible consequence:** toggling the FPS counter in Settings now takes
+  up to 250 ms to take effect. (5) The boss health bar drained with a fixed per-frame
+  `Phaser.Math.Linear(width, target, 0.1)`, which is a per-*frame* rate, not a per-second one —
+  at 144Hz the bar drained about 2.4x faster than the 60Hz feel it was tuned for. The factor is
+  now `1 - Math.exp(-BOSS_BAR_DRAIN_RATE * deltaSeconds)` with the rate 6.32 chosen so that a
+  60Hz frame reproduces exactly 0.1, i.e. desktop-at-60 is unchanged by construction. That is the
+  repo's existing idiom (`InputSystem.ts:132`, `PlayerSpaceship.ts:263`,
+  `MusicIntensityDriver.ts:57`). **Deliberately untouched:** the boss bar's drain still ignores
+  Reduced Motion (the setting has never gated it, and `POLISH-REDUCED-MOTION` is the open item
+  that owns that question), and the boss-bar damage flash's 80 ms `delayedCall` at `:1272` stays
+  — unlike the HP bar's, it restores a constant colour nothing rewrites per frame, so it is not
+  the same defect. No test: all five are mutations on live Phaser objects inside scene-coupled
+  managers, which `CLAUDE.md` says are verified by play, not by mocking a scene. Files
+  `POLISH-TWEEN-HYGIENE` under Human gates for the three visible halves.
 - [ ] **POLISH-REDUCED-MOTION**. Value: the OS `prefers-reduced-motion` setting is
   honored only by the HTML boot loader (`index.html:142-147`), never in-game, and
   card fly-ins ignore the in-game setting too. Plan: seed the SettingsManager default
@@ -9498,6 +9534,18 @@ Never agent work. The fleet must not do any of these.
   readout at full duration and empties cleanly to zero. (l) rotate the device mid-run with
   AUTO-UPGRADE purchased: the pill's painted background should follow the text to the new
   corner, hover/press should highlight it in place, and the tap target should still cover it.
+
+- [ ] **POLISH-TWEEN-HYGIENE** (new 2026-08-02, from BUG-TWEEN-HYGIENE at 6f902b1).
+  Value: three of the five tween fixes change what something looks like, and all three are
+  either touch-only or high-refresh-only, so they want an operator eye once. Questions:
+  (m) tap dash and ultimate rapidly on a phone: the press pop should now fire cleanly from
+  full size every time instead of the button shrinking and staying shrunk — does the press
+  still read as a press at spam rates, or does killing the in-flight tween make it feel
+  clipped? (n) the boss health bar now drains at the 60Hz-tuned rate on every display, so on
+  a 120/144Hz screen it is roughly 2.4x slower than it was yesterday: is the slower drain the
+  right feel, or was the faster high-refresh drain accidentally better? (o) the FPS counter
+  now updates 4x a second rather than every frame — steady enough to read, or too laggy to
+  catch a hitch? Toggling the counter in Settings also takes up to 250 ms to show or hide it.
 
 - [x] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): **answered 2026-08-01, operator
   directed the reconcile + deploy the same day.** `origin/master` carried one commit
