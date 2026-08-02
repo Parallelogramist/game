@@ -15,6 +15,7 @@ import {
   computePracticeControlLayout,
   PRACTICE_CONTROL_BOTTOM_RESERVE,
   computeMenuCardGrid,
+  computeGridFit,
   fitTextWidth,
 } from './HudScale';
 
@@ -114,14 +115,27 @@ describe('computeMenuCardGrid', () => {
     headerBottom: 150, anchorOffset: -10,
   };
 
-  test('desktop is byte-identical to the legacy layout', () => {
+  test('desktop is byte-identical to the legacy layout where the grid fits', () => {
+    const grid = computeMenuCardGrid({
+      ...modifier, canvasWidth: 1280, canvasHeight: 720, menuScale: 1,
+    });
+    expect(grid).toEqual({
+      perRow: 5, rowCount: 2, scale: 1, cardWidth: 220, cardHeight: 210,
+      gap: 18, rowSpacing: 234, firstRowY: 233,
+    });
+  });
+
+  test('a desktop grid taller than its band shrinks instead of overrunning the header', () => {
     const grid = computeMenuCardGrid({
       ...pact, canvasWidth: 1280, canvasHeight: 720, menuScale: 1,
     });
-    expect(grid).toEqual({
-      perRow: 5, rowCount: 2, scale: 1, cardWidth: 218, cardHeight: 230,
-      gap: 18, rowSpacing: 254, firstRowY: 223,
-    });
+    expect(grid.perRow).toBe(5);
+    expect(grid.rowCount).toBe(2);
+    expect(grid.scale).toBeCloseTo(0.9669, 4);
+    expect(grid.firstRowY - grid.cardHeight / 2).toBeGreaterThanOrEqual(150);
+    const gridBottom =
+      grid.firstRowY + (grid.rowCount - 1) * grid.rowSpacing + grid.cardHeight / 2;
+    expect(gridBottom).toBeLessThanOrEqual(720 - 102);
   });
 
   test('a sub-1 scale still takes the legacy path', () => {
@@ -165,5 +179,33 @@ describe('computeMenuCardGrid', () => {
     const narrow = { width: 400, scale: 1, setScale(v: number) { this.scale = v; } };
     fitTextWidth(narrow, 720);
     expect(narrow.scale).toBe(1);
+  });
+});
+
+describe('computeGridFit (the weapon grid at a full codex)', () => {
+  const weapon = {
+    cardWidth: 150, cardHeight: 180, columnGap: 14, rowGap: 14,
+    availableWidth: 1248, availableHeight: 460,
+    maxScale: 1, minScale: 0.7,
+  };
+
+  test('a grid that already fits keeps its designed column count and full scale', () => {
+    const fit = computeGridFit({ ...weapon, count: 14, maxColumns: 7 });
+    expect(fit).toEqual({ columns: 7, rows: 2, scale: 1 });
+  });
+
+  test('29 weapons trade rows for columns instead of painting off-screen', () => {
+    const fit = computeGridFit({ ...weapon, count: 29, maxColumns: 10 });
+    expect(fit.columns).toBe(10);
+    expect(fit.rows).toBe(3);
+    expect(fit.scale).toBeCloseTo(0.7675, 4);
+    const gridHeight =
+      fit.rows * 180 * fit.scale + (fit.rows - 1) * 14 * fit.scale;
+    expect(gridHeight).toBeLessThanOrEqual(460);
+  });
+
+  test('the floor wins when even the best column count cannot fit', () => {
+    const fit = computeGridFit({ ...weapon, count: 29, maxColumns: 10, availableHeight: 90 });
+    expect(fit.scale).toBe(0.7);
   });
 });
