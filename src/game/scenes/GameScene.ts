@@ -65,20 +65,17 @@ import { WeaponSynergy } from '../../data/WeaponSynergies';
 import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
 import { sectorTagsOf } from '../../world/sectorTags';
-import { isSecretShellIntact, secretShellRingIndices } from '../../world/sectorInterior';
 import { findTetherCrossing, voidGapNearWorld } from '../../world/voidGaps';
 import {
   clearSecurityGrid, findGridBreach, securityGridNearWorld,
 } from '../../world/securityGrids';
-import { EdgeKind, PoiKind, TILE_SIZE, TileKind } from '../../world/worldTypes';
+import { EdgeKind, TILE_SIZE, TileKind } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
 import type { PoiHazardKind } from '../../expedition/sectorDetail';
 import { rollPoiContents } from '../../world/poiRoll';
 import { rollSecretReward } from '../../world/secretRewards';
 import type { SecretRewardDefinition } from '../../world/secretRewards';
-import { PUZZLE_RING_RADIUS, buildSecretPuzzle } from '../../world/secretPuzzles';
-import type { PuzzleGlyphId, SecretPuzzle } from '../../world/secretPuzzles';
 import type { PoiContentId } from '../../data/PoiCatalog';
 import { AMBUSH_NEST_WAVES, ambushWaveTier } from '../../data/PoiCatalog';
 import { biomeTintFor } from '../../visual/SectorMapRenderer';
@@ -103,7 +100,7 @@ import { buildSecretLead, chooseHintTarget, leadSectorDistance } from '../../exp
 import type { SecretLead } from '../../expedition/secretHints';
 import { buildRunTickerRows } from '../../expedition/runTicker';
 import { MAP_FRAGMENT_MAX_SECTORS, chooseMapFragmentGrant } from '../../expedition/mapFragments';
-import { PoiFlags, SecretFlags } from '../../expedition/DiscoveryTypes';
+import { PoiFlags } from '../../expedition/DiscoveryTypes';
 import type { DiscoveryChanges } from '../../expedition/DiscoveryTypes';
 import { RunModeKind, WorldModeAdapter } from '../world/WorldModeAdapter';
 import { ArenaModeAdapter } from '../world/ArenaModeAdapter';
@@ -171,6 +168,7 @@ import { MinimapManager } from '../../visual/MinimapManager';
 import { MinimapFeed } from '../managers/MinimapFeed';
 import { AbilityVaultManager } from '../expeditionField/AbilityVaultManager';
 import { QuestBoardManager } from '../expeditionField/QuestBoardManager';
+import { SecretCacheManager } from '../expeditionField/SecretCacheManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
 import { BloomPipeline } from '../../visual/BloomPipeline';
 import { LightingSystem } from '../../visual/LightingSystem';
@@ -343,35 +341,6 @@ const SECRET_REWARD_SPREAD = 26;
 const SECRET_REWARD_RADIUS = 34;
 const SECRET_REWARD_BUNDLE_COUNT = 3;
 const SECRET_REWARD_HEAL = 25;
-
-/** Sigil pylons ringing a sealed cache. Draw-only, never added to physics, like the cache. */
-const PUZZLE_NODE_TOUCH_RADIUS = 56;
-const PUZZLE_NODE_DRAW_RADIUS = 20;
-/** Clearance between the ring and the sector border, so a ring never crosses into the room
- *  next door and two pylons can never be shifted onto the same spot. */
-const PUZZLE_RING_MARGIN = 60;
-/** A sealed cache still fades in on the normal ramp, just dimmer: it is there, it is shut. */
-const SEALED_CACHE_ALPHA = 0.5;
-
-interface ActivePuzzleNode {
-  glyphId: PuzzleGlyphId;
-  sides: number;
-  x: number;
-  y: number;
-  graphics: Phaser.GameObjects.Graphics;
-  lit: boolean;
-}
-
-interface ActiveSecretPuzzle {
-  definition: SecretPuzzle;
-  nodes: ActivePuzzleNode[];
-  /** How much of the sequence is woken. Reset to 0 by any wrong touch. */
-  progress: number;
-  /** Which node the ship is standing on, so holding still does not re-fire it. -1 for none. */
-  occupiedNodeIndex: number;
-  /** Whether the sealed-cache notice has been shown this sector visit. */
-  noticed: boolean;
-}
 
 interface ActiveAmbushNest {
   graphics: Phaser.GameObjects.Graphics;
@@ -665,15 +634,6 @@ export class GameScene extends Phaser.Scene {
   private static readonly SHRINE_INTERVAL = 38;
   private static readonly MAX_SHRINES = 2;
 
-  private secretSectorKey: string | null = null;
-  private activeSecretCaches: {
-    secretId: string; reward: SecretRewardDefinition;
-    graphics: Phaser.GameObjects.Graphics; x: number; y: number;
-    puzzle: ActiveSecretPuzzle | null;
-    /** Set only for a walled cache. `tiles` is the live sector array a break mutates, and the
-     *  indices are precomputed so the per-frame read allocates nothing. */
-    shell: { tiles: Uint8Array; ringIndices: number[] } | null;
-  }[] = [];
   /** Ambush nests, expedition only. World-space and run-scoped like a chest rather than rebuilt
    *  per sector like a vault: a nest carries no per-profile state, so leaving the room must not
    *  reset a fight the player half-won. */
@@ -728,8 +688,6 @@ export class GameScene extends Phaser.Scene {
    *  that runs on a timer and each read is a SecureStorage decrypt. Marks can only change while
    *  MapScene holds the pause, so refreshing on its close is exact. */
   private markedSectorKeys: string[] = [];
-  private static readonly SECRET_SENSE_RADIUS = 300;
-  private static readonly SECRET_CLAIM_RADIUS = 44;
   /** Wider than ABILITY_DOOR_OPEN_RADIUS (60) on purpose: the notice has to land while the
    *  door is still on screen and before the ship is nose-first against it. */
   private static readonly SEALED_DOOR_NOTICE_RADIUS = 150;
@@ -1027,6 +985,7 @@ export class GameScene extends Phaser.Scene {
   private minimapFeed!: MinimapFeed;
   private abilityVaultManager!: AbilityVaultManager;
   private questBoardManager!: QuestBoardManager;
+  private secretCacheManager!: SecretCacheManager;
 
   // Auto-buy feature (auto-selects upgrades on level-up without pausing)
   private isAutoBuyEnabled: boolean = false;
@@ -4909,6 +4868,21 @@ export class GameScene extends Phaser.Scene {
       gameTime: () => this.gameTime,
       openBoard: () => this.openQuestBoard(),
     });
+    this.secretCacheManager = new SecretCacheManager(this, {
+      gameTime: () => this.gameTime,
+      freeSpotNear: (x, y, out) => this.worldMode.freeSpotNear(x, y, out),
+      shakeCamera: (duration, intensity) => this.shakeCamera(duration, intensity),
+      playDeathBurst: (x, y, color) => this.effectsManager.playDeathBurst(x, y, color),
+      showDamageNumber: (x, y, text, color) =>
+        this.effectsManager.showDamageNumber(x, y, text, color),
+      playError: () => this.soundManager.playError(),
+      playPurchase: () => this.soundManager.playPurchase(),
+      playLevelUp: () => this.soundManager.playLevelUp(),
+      showToast: (config) => this.toastManager?.showToast(config),
+      payReward: (reward, x, y) => this.paySecretReward(reward, x, y),
+      grantSecretLead: (secretId) => this.grantSecretLead(secretId),
+      recordExpeditionQuest: (event) => this.recordExpeditionQuest(event),
+    });
   }
 
   /** One place, called from both create paths: the fresh run and the restore. */
@@ -4925,7 +4899,7 @@ export class GameScene extends Phaser.Scene {
       questBoards: () => this.questBoardManager.contacts(),
       ambushNests: () => this.activeAmbushNests,
       nemesisLairs: () => this.activeNemesisLairs,
-      secretCaches: () => this.activeSecretCaches,
+      secretCaches: () => this.secretCacheManager.contacts(),
       decryptorOwned: () => this.decryptorOwned(),
       spentNestSectorKeys: () => this.spentAmbushNestSectorKeys(),
       markedSectorKeys: () => this.markedSectorKeys,
@@ -4949,8 +4923,7 @@ export class GameScene extends Phaser.Scene {
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
     this.abilityVaultManager.clear();
-    this.clearSecretCaches();
-    this.secretSectorKey = null;
+    this.secretCacheManager.clear();
     this.questBoardManager.clear();
     this.clearAmbushNests();
     this.clearNemesisLairs();
@@ -5193,145 +5166,6 @@ export class GameScene extends Phaser.Scene {
     unregisterSprite(enemyId);
     removeEntity(this.world, enemyId);
     this.enemyCount--;
-  }
-
-  /**
-   * Concealed caches for the sector the ship is in, the syncAbilityVaults shape. A cache is
-   * spawned only for a secret this profile has not found: the found flag is the single source
-   * of truth for a spent cache, so there is no second collected-ids list to disagree with it,
-   * and nothing about a cache needs to survive into the run save.
-   */
-  private syncSecretCaches(map: WorldMap, playerX: number, playerY: number): void {
-    const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
-    if (key === this.secretSectorKey) return;
-    this.secretSectorKey = key;
-    this.clearSecretCaches();
-
-    const sector = map.sectors.get(key);
-    if (!sector) return;
-    const discovery = getDiscoveryManager();
-    for (const slot of sector.poiSlots) {
-      if (slot.kind !== PoiKind.Secret) continue;
-      if ((discovery.getSecretFlags(slot.id) & SecretFlags.FOUND) !== 0) continue;
-      const puzzle = buildSecretPuzzle({
-        worldSeed: map.seed, secretId: slot.id, depth: sector.depth,
-      });
-      const shell = slot.sealed === true
-        ? {
-          tiles: sector.tiles,
-          ringIndices: secretShellRingIndices(slot.tileX, slot.tileY),
-        }
-        : null;
-      this.addSecretCache(
-        slot.id,
-        rollSecretReward({
-          worldSeed: map.seed, secretId: slot.id, depth: sector.depth,
-          tier: puzzle ? 'puzzle' : 'cache',
-        }),
-        sector.sx * SECTOR_WIDTH + slot.tileX * TILE_SIZE + TILE_SIZE / 2,
-        sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
-        puzzle,
-        sector,
-        shell,
-      );
-    }
-  }
-
-  private addSecretCache(
-    secretId: string, reward: SecretRewardDefinition, x: number, y: number,
-    puzzle: SecretPuzzle | null, sector: SectorDef,
-    shell: { tiles: Uint8Array; ringIndices: number[] } | null,
-  ): void {
-    const graphics = this.add.graphics();
-    graphics.setPosition(x, y);
-    this.drawSecretCache(graphics);
-    graphics.setDepth(4);
-    graphics.setAlpha(0);
-    this.activeSecretCaches.push({
-      secretId, reward, graphics, x, y,
-      puzzle: puzzle ? this.buildActivePuzzle(puzzle, x, y, sector) : null,
-      shell,
-    });
-  }
-
-  /** The breakable amber rather than the vault's violet: a cache reads as terrain that is not
-   *  terrain, which is the same lie a false wall tells, without inventing a third palette. */
-  private drawSecretCache(graphics: Phaser.GameObjects.Graphics): void {
-    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
-    graphics.fillStyle(color, 0.14);
-    graphics.fillCircle(0, 0, 26);
-    graphics.lineStyle(2, color, 0.9);
-    const facets: Phaser.Geom.Point[] = [];
-    for (let corner = 0; corner < 4; corner++) {
-      const angle = (Math.PI / 2) * corner - Math.PI / 2;
-      facets.push(new Phaser.Geom.Point(Math.cos(angle) * 18, Math.sin(angle) * 18));
-    }
-    graphics.strokePoints(facets, true);
-    graphics.fillStyle(0xffe8c0, 0.85);
-    graphics.fillCircle(0, 0, 4);
-  }
-
-  /**
-   * The whole ring is SHIFTED to fit the room, never clamped pylon by pylon: clamping two
-   * pylons independently can collapse them onto one spot, and a pylon you cannot reach on its
-   * own is an unsolvable puzzle. freeSpotNear then keeps each one out of rock, the same nudge
-   * secretRewardSpot uses for reward pickups.
-   */
-  private buildActivePuzzle(
-    definition: SecretPuzzle, cacheX: number, cacheY: number, sector: SectorDef,
-  ): ActiveSecretPuzzle {
-    const originX = sector.sx * SECTOR_WIDTH;
-    const originY = sector.sy * SECTOR_HEIGHT;
-    const inset = PUZZLE_RING_RADIUS + PUZZLE_RING_MARGIN;
-    const ringX = Phaser.Math.Clamp(cacheX, originX + inset, originX + SECTOR_WIDTH - inset);
-    const ringY = Phaser.Math.Clamp(cacheY, originY + inset, originY + SECTOR_HEIGHT - inset);
-    const spot = { x: 0, y: 0 };
-
-    const nodes = definition.nodes.map(node => {
-      this.worldMode.freeSpotNear(ringX + node.offsetX, ringY + node.offsetY, spot);
-      const graphics = this.add.graphics();
-      graphics.setPosition(spot.x, spot.y);
-      graphics.setDepth(4);
-      const active: ActivePuzzleNode = {
-        glyphId: node.glyphId, sides: node.sides, x: spot.x, y: spot.y, graphics, lit: false,
-      };
-      this.drawPuzzleNode(active);
-      return active;
-    });
-
-    return { definition, nodes, progress: 0, occupiedNodeIndex: -1, noticed: false };
-  }
-
-  /** The drawSecretCache idiom at a variable corner count, so the sigil a riddle names is
-   *  legible without colour: three corners is the triangle, six is the hexagon. */
-  private drawPuzzleNode(node: ActivePuzzleNode): void {
-    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
-    const graphics = node.graphics;
-    graphics.clear();
-    graphics.fillStyle(color, node.lit ? 0.3 : 0.1);
-    graphics.fillCircle(0, 0, PUZZLE_NODE_DRAW_RADIUS);
-    graphics.lineStyle(2, color, node.lit ? 1 : 0.5);
-    const corners: Phaser.Geom.Point[] = [];
-    for (let corner = 0; corner < node.sides; corner++) {
-      const angle = (Math.PI * 2 * corner) / node.sides - Math.PI / 2;
-      corners.push(new Phaser.Geom.Point(
-        Math.cos(angle) * PUZZLE_NODE_DRAW_RADIUS,
-        Math.sin(angle) * PUZZLE_NODE_DRAW_RADIUS,
-      ));
-    }
-    graphics.strokePoints(corners, true);
-    if (node.lit) {
-      graphics.fillStyle(0xffe8c0, 0.9);
-      graphics.fillCircle(0, 0, 4);
-    }
-  }
-
-  private clearSecretCaches(): void {
-    this.activeSecretCaches.forEach(cache => {
-      cache.graphics.destroy();
-      cache.puzzle?.nodes.forEach(node => node.graphics.destroy());
-    });
-    this.activeSecretCaches = [];
   }
 
   /**
@@ -6142,167 +5976,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Fades a cache in on a quadratic ramp as the ship closes, so the far edge of the sense
-   * radius is a hint you can miss and the last stride is unmistakable. Alpha and scale only:
-   * the cache is never added to physics, so an unfound one costs nothing but a draw. A sealed
-   * cache holds at half that alpha and refuses the walk-in until its ring is woken. A WALLED
-   * cache draws nothing at all until its shell has a hole, because there the break IS the
-   * reveal; the 44 px claim is out of reach through the wall anyway.
-   */
-  private updateSecretCaches(playerX: number, playerY: number): void {
-    if (this.activeSecretCaches.length === 0) return;
-    const senseRadius = GameScene.SECRET_SENSE_RADIUS;
-    const claimRadius = GameScene.SECRET_CLAIM_RADIUS;
-    const shimmer = 0.75 + Math.sin(this.gameTime * 3.1) * 0.25;
-    for (let i = this.activeSecretCaches.length - 1; i >= 0; i--) {
-      const cache = this.activeSecretCaches[i];
-      if (cache.shell !== null
-        && isSecretShellIntact(cache.shell.tiles, cache.shell.ringIndices)) {
-        if (cache.graphics.alpha !== 0) cache.graphics.setAlpha(0);
-        continue;
-      }
-      // The ring is read every frame at any distance: the pylons are the tell that a cache is
-      // in this room, so unlike the cache itself they never fade out.
-      if (cache.puzzle && this.updateSecretPuzzle(cache.puzzle, playerX, playerY)) {
-        this.claimSecretCache(i);
-        continue;
-      }
-      const dx = playerX - cache.x;
-      const dy = playerY - cache.y;
-      const distanceSq = dx * dx + dy * dy;
-      if (distanceSq > senseRadius * senseRadius) {
-        if (cache.graphics.alpha !== 0) cache.graphics.setAlpha(0);
-        continue;
-      }
-      const closeness = 1 - Math.sqrt(distanceSq) / senseRadius;
-      cache.graphics.setAlpha(
-        closeness * closeness * shimmer * (cache.puzzle ? SEALED_CACHE_ALPHA : 1));
-      cache.graphics.setScale(0.8 + closeness * 0.35);
-      if (distanceSq < claimRadius * claimRadius) {
-        if (cache.puzzle) this.noticeSealedCache(cache.puzzle);
-        else this.claimSecretCache(i);
-      }
-    }
-  }
-
-  /**
-   * Returns true on the frame the ring completes. Only the nearest pylon inside the touch
-   * radius is considered, and only when it CHANGES: standing on a woken pylon must not
-   * re-fire it, and a ring that fires every frame would fizzle itself.
-   */
-  private updateSecretPuzzle(
-    puzzle: ActiveSecretPuzzle, playerX: number, playerY: number,
-  ): boolean {
-    let nearestIndex = -1;
-    let nearestDistanceSq = PUZZLE_NODE_TOUCH_RADIUS * PUZZLE_NODE_TOUCH_RADIUS;
-    for (let i = 0; i < puzzle.nodes.length; i++) {
-      const node = puzzle.nodes[i];
-      const dx = playerX - node.x;
-      const dy = playerY - node.y;
-      const distanceSq = dx * dx + dy * dy;
-      if (distanceSq < nearestDistanceSq) {
-        nearestDistanceSq = distanceSq;
-        nearestIndex = i;
-      }
-    }
-    if (nearestIndex === puzzle.occupiedNodeIndex) return false;
-    puzzle.occupiedNodeIndex = nearestIndex;
-    if (nearestIndex === -1) return false;
-    return this.touchPuzzleNode(puzzle, nearestIndex);
-  }
-
-  /**
-   * Re-touching a lit pylon is a no-op, never a fizzle: drifting back across one while lining
-   * up the next is not a mistake, and on a four-pylon ring punishing it would be miserable.
-   */
-  private touchPuzzleNode(puzzle: ActiveSecretPuzzle, index: number): boolean {
-    const node = puzzle.nodes[index];
-    if (node.lit) return false;
-    const reducedMotion = getSettingsManager().isReducedMotionEnabled();
-
-    if (node.glyphId !== puzzle.definition.sequence[puzzle.progress]) {
-      puzzle.progress = 0;
-      for (const other of puzzle.nodes) {
-        other.lit = false;
-        this.drawPuzzleNode(other);
-      }
-      this.soundManager.playError();
-      this.effectsManager.playDeathBurst(node.x, node.y);
-      if (!reducedMotion) this.shakeCamera(90, 0.003);
-      return false;
-    }
-
-    node.lit = true;
-    puzzle.progress++;
-    this.drawPuzzleNode(node);
-    this.soundManager.playPurchase();
-    if (!reducedMotion) {
-      this.tweens.add({
-        targets: node.graphics,
-        scale: { from: 1.35, to: 1 },
-        duration: 220,
-        ease: 'Quad.easeOut',
-      });
-    }
-    return puzzle.progress === puzzle.definition.sequence.length;
-  }
-
-  /** A sealed cache that silently refuses the walk-in reads as a bug. Once per sector visit,
-   *  because the ring is rebuilt dark every time the ship re-enters the room. */
-  private noticeSealedCache(puzzle: ActiveSecretPuzzle): void {
-    if (puzzle.noticed) return;
-    puzzle.noticed = true;
-    const sigilAnchor = puzzle.nodes[0];
-    if (sigilAnchor) {
-      this.effectsManager.showDamageNumber(
-        sigilAnchor.x, sigilAnchor.y - 26, 'SEALED CACHE',
-        WORLD_GEOMETRY_COLORS.breakable.stroke,
-      );
-    }
-    this.toastManager?.showToast({
-      tier: 'ambient',
-      title: 'SEALED CACHE',
-      description:
-        `${puzzle.nodes.length} sigils ring this cache, and they wake in one order.`,
-      icon: 'gear',
-      color: WORLD_GEOMETRY_COLORS.breakable.stroke,
-      duration: 3200,
-    });
-  }
-
-  /**
-   * Walk-in claim, the claimAbilityVault shape. Permanent at the moment of the touch, not at
-   * run end, so a death seconds later keeps the find. What it pays comes from the secret
-   * reward table, which is econ-neutral by construction: no entry pays gold, and a chest
-   * entry is the arena relic table at the arena rate (doc 04 econ rule 1).
-   */
-  private claimSecretCache(index: number): void {
-    const cache = this.activeSecretCaches[index];
-    getDiscoveryManager().markSecretFound(cache.secretId);
-    getAchievementManager().recordSecretFound();
-
-    cache.graphics.destroy();
-    cache.puzzle?.nodes.forEach(node => node.graphics.destroy());
-    this.activeSecretCaches.splice(index, 1);
-
-    const color = WORLD_GEOMETRY_COLORS.breakable.stroke;
-    this.effectsManager.playDeathBurst(cache.x, cache.y, color);
-    this.cameras.main.shake(140, 0.005);
-    this.soundManager.playLevelUp();
-    const description = this.paySecretReward(cache.reward, cache.x, cache.y);
-    this.toastManager?.showToast({
-      tier: 'notable',
-      title: cache.puzzle ? 'SEQUENCE UNSEALED' : 'HIDDEN CACHE FOUND',
-      description,
-      icon: cache.reward.icon,
-      color,
-      duration: 3200,
-    });
-    this.recordExpeditionQuest({ kind: 'findSecret', secretKind: 'cache' });
-    this.grantSecretLead(cache.secretId);
-  }
-
-  /**
    * Every reward id spends a rail that already exists. A special chest is the arena relic
    * table at the arena rate, so depth pays in chest COUNT and never in better odds (doc 04
    * econ rule 1), and nothing here pays gold, so a found secret still adds nothing to the
@@ -7108,8 +6781,8 @@ export class GameScene extends Phaser.Scene {
       this.abilityVaultManager.update(playerX, playerY);
       this.questBoardManager.sync(map, playerX, playerY);
       this.questBoardManager.update(playerX, playerY);
-      this.syncSecretCaches(map, playerX, playerY);
-      this.updateSecretCaches(playerX, playerY);
+      this.secretCacheManager.sync(map, playerX, playerY);
+      this.secretCacheManager.update(playerX, playerY);
       this.updateAmbushNests(playerX, playerY);
       this.updateNemesisLairs(playerX, playerY);
       this.syncWardenThrone(map, playerX, playerY);
@@ -14143,8 +13816,7 @@ export class GameScene extends Phaser.Scene {
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
     this.abilityVaultManager.clear();
-    this.clearSecretCaches();
-    this.secretSectorKey = null;
+    this.secretCacheManager.clear();
     this.questBoardManager.clear();
     this.clearAmbushNests();
     this.clearNemesisLairs();
