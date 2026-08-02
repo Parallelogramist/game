@@ -973,7 +973,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
 
 #### Band D: architecture (staged extraction; behavior-preserving, save shapes frozen)
 
-- [ ] **ARCH-RESET-REGISTRY** (chunk 1, first: de-risks every later move). Value:
+- [x] **ARCH-RESET-REGISTRY** (chunk 1) (done, 54aa234). Value:
   `resetAllRunSystems` (`GameScene.ts:14142-14191`) is a hand-maintained list of 37
   reset calls over 41 module-level-state systems; one forgotten registration is
   cross-run state bleed, the documented worst bug class, and nothing enforces
@@ -984,6 +984,34 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   tail (`resetShapeTextureCache(this)`, `destroyGemAtlases(this)`, relic reset); a
   vitest scans `src/systems` + `src/ecs` sources for `export function reset*` and
   asserts each is registered.
+  **What shipped:** the 38-call hand-maintained list in `resetAllRunSystems`
+  (`GameScene.ts`) became `runAllRunResets()` over `src/systems/runResetRegistry.ts`, which
+  holds the 33 zero-argument run-scoped resets in the exact order the scene always called
+  them, plus a five-call tail in the scene for the ones that need an argument (the four
+  texture/atlas destroys that take the scene, and `resetDirectorSystem(this.directorStrategy)`).
+  `runResetRegistry.test.ts` source-scans `src/systems` + `src/ecs` for
+  `export function reset*` and fails the build when one is neither in the registry nor a
+  documented exemption, so a run-scoped system added by a later Band D chunk cannot silently
+  bleed its state into the next run. Two exemptions are declared, and each carries its own
+  assertion so it cannot rot: `resetDirectorSystem` (the scene calls it with the run's
+  strategy) and `resetEnemyNavState` (`resetEnemyAISystem` calls it, and that is registered).
+  Behavior is unchanged: every one of the 33 resets is a wipe or a destroy, and none creates a
+  texture or reads director state, so moving the five parameterized calls to the tail
+  reorders only calls that cannot observe each other.
+  **Deliberate deviation from this item's plan sketch:** `registerRunReset(name, fn)` with
+  per-module self-registration was NOT built. Self-registration only runs if something still
+  imports the module, and `noUnusedLocals` forces GameScene to drop those imports, so it would
+  have turned "forgot the call" into "forgot the import" with the same silent failure and less
+  greppability, while the scanner test still passed. The static array gives the same
+  enforcement with an order that does not depend on bundler import evaluation and entries
+  TypeScript must resolve.
+  **The registry started complete** (audited before the change): all 41 `reset*` exports are
+  already reached, `resetEnemyNavState` via `resetEnemyAISystem` and the four `*ForTests` /
+  `*ForTesting` helpers being suite-only. The only two module-level `let`s under
+  `src/systems` + `src/ecs` with no reset at all are correct as they stand:
+  `elite-auras.ts` `wardenSlowMultiplier` is rebuilt at the top of every `applyEliteAuras`,
+  and `EnemyAISystem.ts` `aiLodFrame` is a monotonic LOD counter. Neither needs one.
+  No playtest item is filed: nothing visible or feel-related changed.
 - [ ] **ARCH-AUTOBUY-EXTRACT** (chunk 2). Move `selectAutoBuyUpgrade`,
   `calculateBaseScore`, `calculateGatePlanningBonus`, `calculateHealthAdaptiveBonus`,
   `calculateWeaponSynergyBonus` (`GameScene.ts:13476-13660`) into pure
