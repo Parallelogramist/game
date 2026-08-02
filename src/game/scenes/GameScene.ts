@@ -45,6 +45,7 @@ import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setH
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager } from '../../ecs/systems/MagnetPickupSystem';
 import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, ConsumableKind, getConsumableKindColor } from '../../ecs/systems/ConsumablePickupSystem';
 import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades, getWeaponUpgrades } from '../../data/Upgrades';
+import { selectAutoBuyUpgrade as selectBestAutoBuyUpgrade } from '../autobuy/autoBuyScoring';
 import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
 import {
   buildMarketOffers,
@@ -13704,196 +13705,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Selects the best upgrade using tier-aware weighted selection.
-   *
-   * Base Strategy (Tier 1):
-   * - Weapon milestones (5, 10, 15...): Prefer new weapons > weapon level-ups
-   * - Normal levels: Balance stats, prefer lower-level stats for even distribution
-   * - Priority stats get a bonus: might, haste, vitality, swiftness
-   *
-   * Intelligence Upgrades:
-   * - Tier 2: Gate Planning - avoids break-level bottlenecks (3, 6, 9)
-   * - Tier 3: Health-Adaptive - prioritizes defense when struggling
-   * - Tier 4: Weapon Synergy - picks stats that match owned weapons
+   * Selects the best upgrade for auto-buy. The scoring lives in
+   * `src/game/autobuy/autoBuyScoring.ts`; the scene only supplies the run snapshot.
    */
   private selectAutoBuyUpgrade(availableUpgrades: CombinedUpgrade[]): CombinedUpgrade {
-    const autoUpgradeLevel = getMetaProgressionManager().getAutoUpgradeLevel();
-
-    // Calculate scores for each upgrade with tier-aware bonuses
-    const scoredUpgrades = availableUpgrades.map(upgrade => {
-      let score = this.calculateBaseScore(upgrade);
-
-      // Tier 2+: Gate Planning Intelligence
-      if (autoUpgradeLevel >= 2) {
-        score += this.calculateGatePlanningBonus(upgrade);
-      }
-
-      // Tier 3+: Health-Adaptive Intelligence
-      if (autoUpgradeLevel >= 3 && this.isHealthStruggling) {
-        score += this.calculateHealthAdaptiveBonus(upgrade);
-      }
-
-      // Tier 4: Weapon Synergy Intelligence
-      if (autoUpgradeLevel >= 4) {
-        score += this.calculateWeaponSynergyBonus(upgrade);
-      }
-
-      return { upgrade, score };
+    return selectBestAutoBuyUpgrade(availableUpgrades, {
+      playerLevel: this.playerStats.level,
+      autoUpgradeLevel: getMetaProgressionManager().getAutoUpgradeLevel(),
+      isHealthStruggling: this.isHealthStruggling,
+      canAddWeapon: this.weaponManager.canAddWeapon(),
+      ownedWeaponIds: this.weaponManager.getAllWeapons().map(weapon => weapon.id),
+      upgrades: this.upgrades,
     });
-
-    // Sort by score descending
-    scoredUpgrades.sort((a, b) => b.score - a.score);
-
-    // Add small randomness to top choices to avoid predictability
-    const topChoices = scoredUpgrades.filter(s => s.score >= scoredUpgrades[0].score - 10);
-    const selectedIndex = Math.floor(Math.random() * Math.min(topChoices.length, 2));
-
-    return topChoices[selectedIndex].upgrade;
-  }
-
-  /**
-   * Calculates base score for an upgrade (Tier 1 logic).
-   */
-  private calculateBaseScore(upgrade: CombinedUpgrade): number {
-    const playerLevel = this.playerStats.level;
-    const isWeaponMilestone = playerLevel % 5 === 0;
-    let score = 0;
-
-    if (upgrade.upgradeType === 'weapon') {
-      // Safety: Never auto-select new weapons when at max slots
-      if (upgrade.type === 'add' && !this.weaponManager.canAddWeapon()) {
-        return -1000; // Heavily penalize - should already be filtered, but safety check
-      }
-
-      // Weapon scoring
-      if (isWeaponMilestone) {
-        // On weapon milestones, strongly prefer new weapons
-        if (upgrade.type === 'add') {
-          score = 100; // New weapons get highest priority
-        } else {
-          score = 50 + (upgrade.maxLevel - upgrade.currentLevel); // Level-ups get medium priority
-        }
-      } else {
-        // Normal levels: prefer leveling existing weapons
-        if (upgrade.type === 'level') {
-          score = 40 + (10 - upgrade.currentLevel); // Lower level weapons get priority
-        } else {
-          score = 20; // New weapons less preferred on non-milestones
-        }
-      }
-    } else {
-      // Stat upgrade scoring
-      if (isWeaponMilestone) {
-        score = 0; // Should not appear on weapon milestones, but safety
-      } else {
-        // Limit Break overflow upgrades have maxLevel 999; a raw deficit score
-        // would dwarf everything and starve weapon level-ups. Score them modestly
-        // (they're a fallback only).
-        const overflowUpgrade = this.upgrades.find(u => u.id === upgrade.id);
-        if (overflowUpgrade?.isOverflow) {
-          return 35;
-        }
-        // Balance stats - prefer lower level stats for even distribution
-        const levelDeficit = upgrade.maxLevel - upgrade.currentLevel;
-        score = 30 + levelDeficit * 5;
-
-        // Bonus for commonly useful stats
-        const priorityStats = ['might', 'haste', 'vitality', 'swiftness'];
-        if (priorityStats.includes(upgrade.id)) {
-          score += 10;
-        }
-      }
-    }
-
-    return score;
-  }
-
-  /**
-   * Tier 2: Gate Planning Intelligence.
-   * Gives bonus to stats approaching break level gates (3, 6, 9) to prevent bottlenecks.
-   * Smarter than basic - looks ahead and balances stats toward the next gate.
-   */
-  private calculateGatePlanningBonus(upgrade: CombinedUpgrade): number {
-    if (upgrade.upgradeType !== 'stat') return 0;
-
-    // Check if this is a stat upgrade subject to gates
-    const upgradeData = this.upgrades.find(u => u.id === upgrade.id);
-    if (!upgradeData || !upgradeData.isStatUpgrade) return 0;
-
-    const GATES = [3, 6, 9];
-    const currentLevel = upgrade.currentLevel;
-
-    // Find the next gate this upgrade needs to reach
-    const nextGate = GATES.find(g => g > currentLevel);
-    if (!nextGate) return 0; // Past all gates
-
-    // Find stats that are owned but below this gate
-    const ownedStats = this.upgrades.filter(u => u.isStatUpgrade && u.currentLevel > 0);
-    const statsBelowGate = ownedStats.filter(u => u.currentLevel < nextGate);
-
-    // If this upgrade is at or approaching the gate, and other stats need catching up
-    if (currentLevel === nextGate - 1 || currentLevel === nextGate) {
-      // This stat is ready for the gate - deprioritize unless others are caught up
-      if (statsBelowGate.length > 1) {
-        return -10; // Wait for others to catch up
-      }
-    }
-
-    // If this upgrade is below the next gate, give bonus to help reach it
-    if (currentLevel < nextGate && statsBelowGate.length > 0) {
-      return 15; // Bonus to help reach gate
-    }
-
-    return 0;
-  }
-
-  /**
-   * Tier 3: Health-Adaptive Intelligence.
-   * Prioritizes defensive stats when player has taken significant damage since last level-up.
-   */
-  private calculateHealthAdaptiveBonus(upgrade: CombinedUpgrade): number {
-    if (upgrade.upgradeType !== 'stat') return 0;
-
-    // Defensive stats that help survival
-    const defensiveStats = ['vitality', 'shieldBarrier'];
-    if (defensiveStats.includes(upgrade.id)) {
-      return 30; // Strong preference for survival when struggling
-    }
-
-    return 0;
-  }
-
-  /**
-   * Tier 4: Weapon Synergy Intelligence.
-   * Picks stats that complement the player's current weapon loadout.
-   */
-  private calculateWeaponSynergyBonus(upgrade: CombinedUpgrade): number {
-    if (upgrade.upgradeType !== 'stat') return 0;
-
-    const ownedWeapons = this.weaponManager.getAllWeapons();
-    const weaponIds = ownedWeapons.map(w => w.id);
-
-    // Projectile weapons benefit from: multishot, piercing, velocity, reach
-    const projectileWeapons = ['projectile', 'ricochet', 'homing_missile', 'shuriken'];
-    const hasProjectileWeapons = projectileWeapons.some(id => weaponIds.includes(id));
-    const projectileStats = ['multishot', 'piercing', 'velocity', 'reach'];
-
-    // Melee/aura weapons benefit from: haste, might, swiftness
-    const meleeAuraWeapons = ['katana', 'aura', 'orbiting_blades', 'frost_nova'];
-    const hasMeleeAura = meleeAuraWeapons.some(id => weaponIds.includes(id));
-    const meleeStats = ['haste', 'might', 'swiftness'];
-
-    // Beam/AoE weapons benefit from: might, reach, haste
-    const beamAoeWeapons = ['laser_beam', 'flamethrower', 'meteor', 'ground_spike', 'chain_lightning'];
-    const hasBeamAoe = beamAoeWeapons.some(id => weaponIds.includes(id));
-    const beamStats = ['might', 'reach', 'haste'];
-
-    let bonus = 0;
-    if (hasProjectileWeapons && projectileStats.includes(upgrade.id)) bonus += 15;
-    if (hasMeleeAura && meleeStats.includes(upgrade.id)) bonus += 15;
-    if (hasBeamAoe && beamStats.includes(upgrade.id)) bonus += 15;
-
-    return bonus;
   }
 
   /**
