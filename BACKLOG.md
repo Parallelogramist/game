@@ -7418,7 +7418,8 @@ exploring pays is the end of Phase 5.
   fix. Value: the region is the same place whichever strategy the run rolled. Deps: none, but
   it wants `BALANCE-BIOME-REGION-PACKS`' play data first.
 
-- [ ] **FEAT-REGION-SIGNATURE-HAZARDS** (new 2026-08-02, from FEAT-REGION-SIGNATURE-BANNER):
+- [x] **FEAT-REGION-SIGNATURE-HAZARDS** (done, 94b183c) (new 2026-08-02, from
+  FEAT-REGION-SIGNATURE-BANNER):
   the other half of a signature. A region's hazard lean (`STAGE_HAZARD_BIASES`) is as much its
   character as its pack, and a `BLOOMS ICE` clause would slot straight into
   `describeRegionSignature`'s clause list. Cut for a mechanical reason, not a preference: that
@@ -7428,6 +7429,37 @@ exploring pays is the end of Phase 5.
   module both the system and the describer read, which is a relocation touching a live spawner
   and is worth its own slice. Value: the banner names the ground as well as the pack.
   Deps: none.
+  **What shipped:** the extraction the item named, then the clause. `HazardType`,
+  `StageHazardBias`, `DEFAULT_STAGE_BIAS` and `STAGE_HAZARD_BIASES` moved verbatim out of
+  `HazardZoneSystem` into the new pure `src/systems/stageHazardBias.ts`, which is the hazard twin
+  of `STAGE_SPAWN_BIASES`' home in `DirectorSystem`; the spawner now imports what it used to
+  declare and rolls against the identical numbers. `describeRegionSignature` reads the second
+  table and appends a third clause, so the banner reads
+  `SENDS SHIELDED AND TANK  ·  FEW EXPLODER  ·  BLOOMS ICE`. **One hazard is named, not two**, and
+  only when its multiplier is above 1: the line already carries two enemy names and a headline
+  above it, and Endless Void boosts both void 3.0 and energy 2.0, so naming every boost would have
+  put five nouns on one banner line. Ties resolve by hazard type ascending, the same stability rule
+  the enemy half uses. **The four hazard words are authored in the describer** (`burn` reads as
+  `FIRE`), because `HazardType` has no display name anywhere in the catalog: the union is the only
+  spelling that existed, and `BLOOMS BURN` is not English. **`stage_deep_void` is unchanged**: it is
+  unbiased in both tables, so it still prints no second line at all. **The unknown-stage early
+  return was dropped** in favour of the empty-clause guard, so a stage present in one table and
+  missing from the other now says what it can instead of nothing. Nothing is persisted, no storage
+  key and no version moves, and `HazardZoneSystem`'s public surface is unchanged except that
+  `HazardType` is exported from its new home (nothing outside the module imported it).
+  **Deliberately cut, filed as `FEAT-REGION-SIGNATURE-HAZARD-DEPTH`:** the suppressed hazard and the
+  `spawnIntervalMultiplier`.
+
+- [ ] **FEAT-REGION-SIGNATURE-HAZARD-DEPTH** (new 2026-08-02, from
+  FEAT-REGION-SIGNATURE-HAZARDS): two facts the hazard clause holds back, both cut for line
+  length rather than for doubt. (1) The **suppressed** hazard: Inferno drops ice to 0.2 and
+  Crystal Caves drops burn to 0.3, which is as much a signature as what blooms, but a fourth
+  clause would make the banner's second line longer than its headline. (2)
+  **`spawnIntervalMultiplier`**: Endless Void spawns hazards at 0.7x the interval, 43% more
+  often, and the banner says nothing about cadence. Both want the operator's read on how long
+  the second line may get before it stops being read at all, which is question (e) of
+  `POLISH-REGION-SIGNATURE-BANNER`. Value: the ground's full rule, not half of it.
+  Deps: that playtest answer.
 
 - [ ] **FEAT-REGION-SIGNATURE-CHART** (new 2026-08-02, from FEAT-REGION-SIGNATURE-BANNER):
   the signature is a threshold moment, so a player planning a route on the chart still cannot
@@ -11325,12 +11357,15 @@ Never agent work. The fleet must not do any of these.
 - [ ] **POLISH-REGION-SIGNATURE-BANNER** (new 2026-08-02, from FEAT-REGION-SIGNATURE-BANNER).
   Value: a region's rule should land in the second it is read. Everything about the line was
   validated by reading the code and by unit tests over the pure describer, never in a browser.
-  Four questions only a player answers: (a) does a two-line banner at 15 px times `hudScale`
+  Five questions only a player answers: (a) does a two-line banner at 15 px times `hudScale`
   stay legible on a phone, given the second line grows upward into the play field where enemies
   are; (b) is `FEW EXPLODER` useful or noise, given a suppression is a thing that does not
   happen; (c) do the catalog's own names read as a pack (`TINY SWARM`, `ZIGZAG RUNNER`) or as
   debug ids leaking to the player; (d) naming two boosted types is a guess, and Molten Vault
-  boosts four: is two a signature or an undersell. Deps: play.
+  boosts four: is two a signature or an undersell; (e) the line now carries three clauses and up
+  to 57 characters (`SENDS TINY SWARM AND HEALER  ·  FEW SNIPER  ·  BLOOMS VOID`) against a
+  headline of about 40, so it is the longest thing on the screen: does it still read in the second
+  it is up on a phone, and is `BLOOMS FIRE` the right word for a burn zone. Deps: play.
 
 - [ ] **BALANCE-BIOME-REGION-PACKS** (new 2026-08-02, from FEAT-BIOME-REGION-PACKS): the six
   region tables are designed guesses in the shape of `STAGE_HAZARD_BIASES`, never played. The

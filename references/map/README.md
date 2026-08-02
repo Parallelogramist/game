@@ -296,8 +296,12 @@ first.
   `sector.biomeId` to `this.activeStageId` in the same change, because a spine sector is
   stamped `stage_deep_void` while running the funnel pick and was therefore announcing the
   wrong region. `stage_deep_void` prints no second line, so a Deep Void expedition is
-  unchanged. The hazard half of a signature is filed as `FEAT-REGION-SIGNATURE-HAZARDS`: its
-  table is private to a Phaser-importing module and needs an extraction first.
+  unchanged. **Fourth slice shipped as `FEAT-REGION-SIGNATURE-HAZARDS` (`94b183c`, 2026-08-02):**
+  the signature names the ground too. `STAGE_HAZARD_BIASES` moved out of the Phaser-importing
+  `HazardZoneSystem` into the pure `src/systems/stageHazardBias.ts`, which both the spawner and
+  the describer now read, so the banner's third clause (`BLOOMS ICE`) comes from the table the
+  hazards actually roll against. One hazard is named and only when it is boosted, so
+  `stage_deep_void` still prints no second line.
   Sector-scale mechanics beyond the shipped stage
   properties (moving walls, a dark biome, low-gravity drift) stay deferred, and the stage
   multipliers are filed as `FEAT-BIOME-REGION-MULTIPLIERS`.
