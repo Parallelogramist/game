@@ -16,6 +16,7 @@ const BOSS_SPAWN_TIME = 600;
 const makeDeps = (overrides: Partial<BossFightDeps> = {}) => ({
   gameTime: vi.fn(() => BOSS_SPAWN_TIME),
   wardenThroneStanding: vi.fn(() => false),
+  wardenBossTypeId: vi.fn((): string | null => null),
   isDailyMode: vi.fn(() => false),
   dailyDateString: vi.fn(() => ''),
   isPracticeMode: vi.fn(() => false),

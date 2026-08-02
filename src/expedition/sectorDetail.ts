@@ -53,6 +53,10 @@ export interface SectorDetailInputs {
    *  the bloomedSectorKeys precedent: a call site that forgets it is a compile error rather than a
    *  chart that silently stops naming a room that changed. */
   shiftedSectorKeys: ReadonlySet<string>;
+  /** The name of the boss that guards THIS world. Required rather than optional on the
+   *  bloomedSectorKeys precedent: a call site that forgets it is a compile error rather than a
+   *  throne that silently stops naming its Warden. */
+  wardenName: string;
 }
 
 export interface SectorDetailView {
@@ -150,10 +154,9 @@ function requirementSuffix(edge: EdgeDef, inputs: SectorDetailInputs): string {
   return '';
 }
 
-const HAZARD_LABELS: Record<PoiHazardKind, string> = {
+const HAZARD_LABELS: Record<Exclude<PoiHazardKind, 'warden'>, string> = {
   nest: 'Ambush nest · dormant',
   lair: 'Nemesis lair · dormant',
-  warden: 'Warden throne · dormant',
 };
 
 const HAZARD_NEST_LABEL = HAZARD_NEST_GLYPH.label;
@@ -224,7 +227,9 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
   // survives the run. The lair keeps its room-level line: it is never remembered, because it
   // is conditional on live nemesis state and its room genuinely moves between runs.
   if (hazard !== undefined && !(hazard === 'nest' && nestNamedBySlot)) {
-    lines.push(HAZARD_LABELS[hazard]);
+    lines.push(hazard === 'warden'
+      ? `Warden throne · ${inputs.wardenName} · dormant`
+      : HAZARD_LABELS[hazard]);
   }
   if (inputs.objectiveSectorKeys.has(sector.key)) lines.push('An objective points here');
   if (inputs.hintedSectorKeys.has(sector.key)) {

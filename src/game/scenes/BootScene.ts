@@ -58,9 +58,13 @@ import {
 import {
   getBankedSeasons,
   getCurrentExpeditionSeasonIndex,
+  getCurrentExpeditionSeed,
   getNextExpeditionSeedChoices,
   switchExpeditionWorld,
 } from '../../expedition/ExpeditionSeasonStore';
+import { wardenBossIdForWorld } from '../../expedition/wardenIdentity';
+import { WORLDGEN_VERSION } from '../../world/worldTypes';
+import type { RunModeKind } from '../world/WorldModeAdapter';
 import {
   describeBankedWorlds,
   generateExpeditionWorld,
@@ -235,11 +239,15 @@ export class BootScene extends Phaser.Scene {
     const saveInfo = gameStateManager.getSaveInfo();
     const lastLoadout = loadLastLoadout();
 
-    // The boss the hero card's button will actually field: a saved daily run
-    // keeps its date-seeded boss, everything else takes the persisted rotation.
+    // The boss the hero card's button will actually field: a saved daily keeps its date-seeded
+    // boss, an expedition (the live default for a fresh run) meets that world's own Warden, and
+    // only an arena run still takes the persisted rotation.
+    const heroRunMode: RunModeKind = hasSave ? saveInfo.runMode ?? 'arena' : 'expedition';
     const upcomingBossId = hasSave && saveInfo.dailyDate
       ? bossIdAtRotation(challengeBossRotationIndex(saveInfo.dailyDate))
-      : getUpcomingBossId();
+      : heroRunMode === 'expedition'
+        ? wardenBossIdForWorld(getCurrentExpeditionSeed(), WORLDGEN_VERSION)
+        : getUpcomingBossId();
     const upcomingBossName = getEnemyType(upcomingBossId)?.name ?? '';
 
     const dailyChallenge = generateDailyChallenge();
@@ -450,7 +458,8 @@ export class BootScene extends Phaser.Scene {
       const lines = [
         `${encodeSeedCode(seed)}   ·   SEED ${seed}`,
         `${preview.secretSlots} secrets   ·   ${preview.cacheSlots} caches`
-          + `   ·   ${preview.deepestSectorDepth} sectors out   ·   ${preview.deepestRegionName}`,
+          + `   ·   ${preview.deepestSectorDepth} sectors out   ·   ${preview.deepestRegionName}`
+          + `   ·   ${preview.wardenName}`,
         '',
         `Leaving world ${summary.seasonIndex} banks it with its chart, so you can`,
         'return to it. Traversal abilities and quest keys are kept.',
@@ -573,6 +582,7 @@ export class BootScene extends Phaser.Scene {
           + (summary.conquered ? '   ·   CONQUERED' : ''),
         `Charted ${summary.completionPercent}%   ·   ${summary.sectorsCharted} / ${summary.knowableSectors} sectors`
           + `   ·   ${summary.secretsFound} secrets`,
+        `Warden: ${summary.wardenName}`,
         '',
         'A new world resets the chart, the leads and every broken wall.',
         'The world you leave is banked and can be returned to.',
@@ -586,7 +596,8 @@ export class BootScene extends Phaser.Scene {
           `${String.fromCharCode(65 + index)}   ${preview.secretSlots} secrets`
           + `   ·   ${preview.cacheSlots} caches`
           + `   ·   ${preview.deepestSectorDepth} sectors out`
-          + `   ·   ${preview.deepestRegionName}`,
+          + `   ·   ${preview.deepestRegionName}`
+          + `   ·   ${preview.wardenName}`,
         );
       }
       if (banked.length > 0) {

@@ -39,6 +39,7 @@ const BASE = {
   hazardSectorKinds: new Map<string, PoiHazardKind>(),
   bloomedSectorKeys: new Set<string>(),
   shiftedSectorKeys: new Set<string>(),
+  wardenName: 'The Warden',
 };
 
 function makeFencedAltarWorld(): WorldMap {

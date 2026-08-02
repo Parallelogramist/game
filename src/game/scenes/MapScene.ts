@@ -25,6 +25,7 @@ import type { SectorMarkKind } from '../../expedition/sectorMarks';
 import { showCodeEntryOverlay } from '../../ui/CodeEntryOverlay';
 import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
+import { wardenBossNameForWorld } from '../../expedition/wardenIdentity';
 import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
 import { planMapOpenReveal, sampleMapOpenReveal } from '../../expedition/mapReveal';
@@ -801,6 +802,7 @@ export class MapScene extends Phaser.Scene {
       hazardSectorKinds: this.hazardSectorKinds,
       bloomedSectorKeys: this.bloomedSectorKeys,
       shiftedSectorKeys: this.shiftedSectorKeys,
+      wardenName: wardenBossNameForWorld(this.mapData.seed, this.mapData.worldGenVersion),
     }) : null;
 
     if (!detail) {

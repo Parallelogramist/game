@@ -17,6 +17,9 @@ export interface BossFightDeps {
   gameTime(): number;
   /** True while the world's boss still stands in its arena. */
   wardenThroneStanding(): boolean;
+  /** The boss this expedition world's own Warden IS, or null when the run flies no world
+   *  (arena, daily, weekly, gauntlet and practice all read null and keep the rotation). */
+  wardenBossTypeId(): string | null;
   /** A daily fields a date-seeded boss and never moves the persisted rotation. */
   isDailyMode(): boolean;
   /** Empty when the run carries no date. Both daily deps are needed, not one: a daily with
@@ -128,9 +131,10 @@ export class BossFightDirector {
     return getBossRotationIndex();
   }
 
-  /** The boss the warning ladder names before it arrives. */
+  /** The boss the warning ladder names before it arrives. A world's Warden outranks the
+   *  rotation, because that is the boss the fight will actually field. */
   upcomingBossTypeId(): string {
-    return bossIdAtRotation(this.rotationIndex());
+    return this.deps.wardenBossTypeId() ?? bossIdAtRotation(this.rotationIndex());
   }
 
   /** Spawns this run's boss at 10 minutes and moves the rotation on. */
@@ -149,6 +153,16 @@ export class BossFightDirector {
     this.spawned = true;
 
     this.deps.cleanupBossWarning();
+
+    // A world's Warden is the world's, not the rotation's: it is not rotation-fed, so it
+    // neither spends the persisted rotation nor moves the run-local variety cursor past a
+    // boss this run never fielded.
+    const wardenTypeId = this.deps.wardenBossTypeId();
+    if (wardenTypeId !== null) {
+      this.rotationCursor = this.rotationIndex();
+      this.deps.spawnBoss(wardenTypeId);
+      return;
+    }
 
     const rotationIndex = this.rotationIndex();
     // Later variety spawns this run continue past the boss just fielded.

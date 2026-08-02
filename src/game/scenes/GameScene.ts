@@ -75,6 +75,7 @@ import {
 import { EdgeKind, TILE_SIZE, TileKind, WORLDGEN_VERSION } from '../../world/worldTypes';
 import type { SectorDef, WorldMap } from '../../world/worldTypes';
 import { GATE_GLYPHS } from '../../expedition/gateGlyphs';
+import { wardenBossIdForWorld } from '../../expedition/wardenIdentity';
 import type { PoiHazardKind } from '../../expedition/sectorDetail';
 import { rollPoiContents } from '../../world/poiRoll';
 import { rollSecretReward } from '../../world/secretRewards';
@@ -954,6 +955,7 @@ export class GameScene extends Phaser.Scene {
   private readonly bossFightDirector = new BossFightDirector({
     gameTime: () => this.gameTime,
     wardenThroneStanding: () => this.wardenThrone !== null,
+    wardenBossTypeId: () => this.expeditionWardenBossTypeId(),
     isDailyMode: () => this.dailyModeActive,
     dailyDateString: () => this.dailyDateString,
     isPracticeMode: () => this.practiceModeActive,
@@ -5811,6 +5813,13 @@ export class GameScene extends Phaser.Scene {
         this.wakeNemesisLair(lair);
       }
     }
+  }
+
+  /** Null outside an expedition, which is what keeps arena, daily, weekly, gauntlet and
+   *  practice on the rotation exactly as they are today. */
+  private expeditionWardenBossTypeId(): string | null {
+    const map = this.worldMode.worldMap();
+    return map ? wardenBossIdForWorld(map.seed, map.worldGenVersion) : null;
   }
 
   /** The throne exists only while the ship is in the arena, the syncAbilityVaults idiom: it is

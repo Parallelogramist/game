@@ -17,6 +17,7 @@ import {
 import type { BankedSeason } from './ExpeditionSeasonStore';
 import { getDiscoveryManager } from './DiscoveryManager';
 import { isWorldConquered } from './WorldProfileStore';
+import { wardenBossNameForWorld } from './wardenIdentity';
 
 /** Three concealed rooms per world: enough that a run can stumble on one, few enough that
  *  finding one still reads as a find. */
@@ -41,6 +42,7 @@ export interface ExpeditionProgressSummary {
   sectorsCharted: number;
   knowableSectors: number;
   secretsFound: number;
+  wardenName: string;
   conquered: boolean;
 }
 
@@ -65,6 +67,7 @@ export function summariseCurrentExpedition(): ExpeditionProgressSummary {
     sectorsCharted: discovery.getVisitedSectorCount(),
     knowableSectors: discovery.getKnowableSectorCount(),
     secretsFound: discovery.getFoundSecretCount(),
+    wardenName: wardenBossNameForWorld(seed, map.worldGenVersion),
     conquered: isWorldConquered(seed, map.worldGenVersion),
   };
 }
@@ -95,6 +98,9 @@ export interface ExpeditionWorldPreview {
   cacheSlots: number;
   deepestSectorDepth: number;
   deepestRegionName: string;
+  /** Who guards it. The one preview fact that is not a count: choosing a world is choosing a
+   *  guardian, and it is fixed for that world forever. */
+  wardenName: string;
 }
 
 /**
@@ -130,6 +136,7 @@ export function previewExpeditionWorld(seed: number): ExpeditionWorldPreview {
     cacheSlots,
     deepestSectorDepth,
     deepestRegionName: getStageById(deepestBiomeId)?.name ?? deepestBiomeId,
+    wardenName: wardenBossNameForWorld(seed, map.worldGenVersion),
   };
 }
 

@@ -648,6 +648,9 @@ export interface SaveInfo {
   timestamp?: number;
   /** Set only while the save is a live daily/weekly run — the menu names that challenge's boss, not the rotation's. */
   dailyDate?: string;
+  /** Which mode the save resumes into. Absent means arena, matching `state.runMode ?? 'arena'`
+   *  at every other restore site, so a version-1 payload needs no migration. */
+  runMode?: RunModeKind;
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -792,6 +795,7 @@ export class GameStateManager {
       worldLevel: saveState.worldLevel,
       timestamp: saveState.timestamp,
       dailyDate: saveState.dailyState?.active ? saveState.dailyState.date : undefined,
+      runMode: saveState.runMode,
     };
   }
 
