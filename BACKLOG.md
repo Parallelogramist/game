@@ -1117,6 +1117,32 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   delegates to `managers.forEach(m => m.clear())`. Save payloads unchanged (existing
   shrine/expedition GameStateManager tests must pass untouched). Add pure
   proximity/state-machine tests (wake radius, claim eligibility) as plain functions.
+  **Shipped so far (5a-i, `f796c44`):** the shared contract
+  `src/game/expeditionField/FieldPoiManager.ts` (`sync(map, px, py)` / `update(px, py)` /
+  `clear()`), plus `AbilityVaultManager` and `QuestBoardManager` implementing it. `clear()`
+  deliberately also forgets the sector key, which is what used to be a remembered two-line
+  ritual at all three call sites (run reset, sector change, scene shutdown). `serialize()` /
+  `restore()` from the plan above is **not** in the interface yet: neither vaults nor boards
+  carry run-save state, so it would have no caller — it lands with the family that needs it.
+  Three methods stayed in `GameScene` on purpose and are reached through the deps closures:
+  `despawnVaultGuard` (ECS + sprite teardown shared with the scene's other despawn paths, and
+  moving it would drag four visual managers plus the live enemy counter into the POI layer),
+  `announceNewRoutes` (a second caller at run end), and `openQuestBoard` (owns `isPaused`, the
+  `questBoardActive` latch a second reader tests, and the deferred orientation relayout).
+  Behavior-preserving: no radius, pulse, colour, toast or guard pack changed, and the suite held
+  at 177 files / 2077 tests with no new tests written (all of it is Phaser-coupled, which
+  `CLAUDE.md` says is verified by play).
+
+  **Still open — 5a-ii (next session):** the other two static families. **Shrines**
+  (`updateShrines` / `spawnShrine` / `addShrine` / `drawShrine` / `triggerShrine`) do not fit
+  `sync(map, px, py)` at all — they are timer-paced into `worldMode.viewRect()` rather than
+  sector-synced, and they are the only static POI with run-save state (`addShrine` is shared
+  with `restoreGameState`), so they are what should force the `serialize()`/`restore()` decision.
+  **Secret caches** are the sync/update/clear family plus a ~250-line reward tail
+  (`updateSecretPuzzle`, `touchPuzzleNode`, `noticeSealedCache`, `claimSecretCache`,
+  `paySecretReward`, `grantMapFragment`, `secretRewardSpot`, and the adjacent
+  `grantSecretLead` / `announceHiddenSector` / `showSectorBanner`) whose ownership split is a
+  real design call, not a mechanical move. **5b** (actor POIs) is unchanged.
 - [ ] **ARCH-RUNEND-SETTLEMENT** (chunk 6). Move the computation inside
   `gameOver`/`recordEarlyRunEnd`/`evaluateHiddenUnlocks`/`payDailyQuests`
   (`:10009-10533`) into pure `src/game/runend/runSettlement.ts`: inputs (kills, time,
