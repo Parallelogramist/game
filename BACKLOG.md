@@ -1264,7 +1264,8 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `src/game/endless/`. Guardrails: the 14 enemy-ai tests plus
   `GameStateManager.bossfight/endless` tests; add pure tests for boss-rotation index
   and gauntlet wave progression.
-  **Gauntlet third shipped** (5d7cefa), two directors still to go. The eight progression
+  **Gauntlet third shipped** (5d7cefa); **endless third shipped** (539bfa8), one director
+  still to go. The eight progression
   fields and the four methods (`updateGauntletMode`, `startGauntletWave`,
   `completeGauntletWave`, `syncGauntletHudLabel`) moved to
   `src/game/directors/GauntletDirector.ts` behind a 9-function `GauntletDeps` (alive-scan,
@@ -1280,14 +1281,31 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   countdown into wave 1, the release-frame scan skip, the restored-mid-combat re-queue
   (the subtle one: a wrong port hands out a free wave clear on a mid-wave refresh), and
   the clear payout. Behaviour-preserving, so there is **no `POLISH-*` item to playtest**.
-  Suite goes 178 → 179 files and 2085 → 2089 tests, all green. Remaining scope:
-  `BossFightDirector` (`runBossRotationIndex`/`checkBossSpawn`/`beginRunBossFight`/
-  `spawnBoss`/`spawnBossHazard`/`showBossEntrance`/`cleanupBossIntro`/
-  `handleBossPhaseTransition`/`spawnBossPhaseHazards`) and `EndlessDirector`
-  (`checkEndlessModeSpawns`/`showEndlessCycleBanner`/`spawnRandomMiniboss`/
-  `spawnNextBoss`/`syncEndlessHudLabel`), plus the boss-rotation-index test this item
-  asks for. Note that `showWaveBanner` is shared by both remaining families, so it should
-  stay in the scene until the last of them moves.
+  Suite goes 178 → 179 files and 2085 → 2089 tests, all green.
+  The **endless third** moved the nine progression fields and the three methods
+  (`checkEndlessModeSpawns`, `showEndlessCycleBanner`, `syncEndlessHudLabel`) to
+  `src/game/directors/EndlessDirector.ts` behind a 7-function `EndlessDeps` (frame spawn,
+  staggered spawn, banner, HUD-ready, HUD label, world multipliers, practice flag). The
+  scene keeps `practiceModeActive` and every spawn, banner and HUD primitive the director
+  calls back into; `showWaveBanner`, `spawnRandomMiniboss` and `spawnNextBoss` stay put
+  because all three director families share them. `spawnWaveEntry` and `scheduleWaveEntry`
+  are deliberately two deps rather than one with a delay argument: the wave stagger rides
+  `time.delayedCall`, and `delayedCall(0)` fires a step later than a synchronous call, so a
+  single "0 means now" dep would have silently reordered the first miniboss against the
+  banner. The save shape is byte-identical (`serialize()` emits the same eight keys in the
+  same order under `endlessState`), so no save-version bump and legacy saves keep loading;
+  `SerializedEndlessState` is now exported for the director's type import. Three tests pin
+  the cycle-up branch: the miniboss cadence plus the cycle-2 double-up, the cycle-up wave
+  composition (best-cycle banked, interval tightened to 255s, two staggered minibosses and
+  one boss, no second boss below cycle 3), and practice never rolling the mutator or
+  writing the endless leaderboard. Behaviour-preserving, so there is **no `POLISH-*` item
+  to playtest**. Suite goes 179 → 180 files and 2089 → 2092 tests, all green.
+  Remaining scope: `BossFightDirector` (`runBossRotationIndex`/`checkBossSpawn`/
+  `beginRunBossFight`/`spawnBoss`/`spawnBossHazard`/`showBossEntrance`/`cleanupBossIntro`/
+  `handleBossPhaseTransition`/`spawnBossPhaseHazards`), plus the boss-rotation-index test
+  this item asks for. Note that `showWaveBanner` (and now also `spawnRandomMiniboss` /
+  `spawnNextBoss`) is shared by the remaining family, so it should stay in the scene until
+  that last family moves.
 - [ ] **CHORE-ARCH-TOOLING** (chunk 8, any time after chunk 2). (1) **Done** (647393a): the dead
   `enemyPositionsArray`/`getEnemyPositions` are gone from `src/ecs/FrameCache.ts`. They had zero
   consumers repo-wide and allocated one object per enemy per frame, up to 120k dead
