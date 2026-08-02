@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { STAGES, getStageById } from '../data/Stages';
 import { EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER } from '../data/ExpeditionQuests';
+import { LORE_FRAGMENTS } from '../data/LoreFragments';
 import { generateWorld } from './generateWorld';
 import {
   EDGE_DIRECTIONS,
@@ -802,6 +803,43 @@ describe('invariant 14: security grid corridor bands', () => {
       }
     }
     expect(bands).toBeGreaterThan(200);
+  });
+});
+
+describe('invariant 15: reward floors', () => {
+  /** Sectors reachable holding exactly the first `held` abilities of the gate order. */
+  function reachedCount(map: WorldMap, held: number): number {
+    const abilities = new Set(map.abilityOrder.slice(0, held));
+    const reached = new Set<SectorKey>([map.startKey]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const key of [...reached]) {
+        const sector = map.sectors.get(key)!;
+        for (const direction of EDGE_DIRECTIONS) {
+          if (!canTraverse(sector.edges[direction], direction, abilities, true)) continue;
+          const neighbourKey = neighbourKeyOf(sector, direction);
+          if (!map.sectors.has(neighbourKey) || reached.has(neighbourKey)) continue;
+          reached.add(neighbourKey);
+          grew = true;
+        }
+      }
+    }
+    return reached.size;
+  }
+
+  it('opens at least two sectors per ability and can deal the whole lore catalog', () => {
+    for (const map of WORLDS) {
+      let previous = 0;
+      for (let held = 0; held <= map.abilityOrder.length; held++) {
+        const reached = reachedCount(map, held);
+        expect(reached - previous, `seed ${map.seed} tier ${held}`).toBeGreaterThanOrEqual(2);
+        previous = reached;
+      }
+      const secrets = [...map.sectors.values()].reduce((count, sector) =>
+        count + sector.poiSlots.filter(slot => slot.kind === PoiKind.Secret).length, 0);
+      expect(secrets, `seed ${map.seed}`).toBeGreaterThanOrEqual(LORE_FRAGMENTS.length);
+    }
   });
 });
 

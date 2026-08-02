@@ -18,7 +18,7 @@ import type { WorldRect } from './worldSpace';
  *  moves none of those needs no bump: quest doors, hidden sectors, secret shells, void gaps and
  *  shrine fences all changed what a seed generates without one. A bump discards every profile's discovery state
  *  and orphans every archived world. */
-export const WORLDGEN_VERSION = 3;
+export const WORLDGEN_VERSION = 4;
 
 export const TILE_SIZE = 40;
 export const SECTOR_TILE_COLS = SECTOR_WIDTH / TILE_SIZE;

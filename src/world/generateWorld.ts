@@ -9,16 +9,19 @@
  * implemented correctly, never a filter over candidate worlds.
  *
  * Phaser-free like the rest of src/world/: the only imports outside this
- * directory are src/utils/dailySeed and src/data/Stages, both dependency-free.
+ * directory are src/utils/dailySeed, src/data/Stages and src/data/LoreFragments,
+ * all dependency-free.
  */
 
 import { getStageById } from '../data/Stages';
+import { LORE_FRAGMENTS } from '../data/LoreFragments';
 import { hashStringToSeed, mulberry32 } from '../utils/dailySeed';
 import { buildSectorInterior } from './sectorInterior';
 import {
   DEFAULT_SECTOR_BUDGET,
   EDGE_DIRECTIONS,
   EdgeKind,
+  PoiKind,
   SECTOR_TILE_COLS,
   SECTOR_TILE_ROWS,
   WALL_EDGE,
@@ -43,6 +46,16 @@ const APERTURE_AXIS_MARGIN = 3;
 const GATE_TIER_DANGER_STEP = 0.08;
 const QUEST_DOOR_REGION_DIVISOR = 4;
 const HIDDEN_SECTOR_COUNT_CAP = 8;
+
+/** Grow depth-first enough that a nested gate has a large subtree to cut. A bushy tree caps
+ *  a root child's subtree near a quarter of the world, which puts the equal-tier target out
+ *  of reach for the first gate and compounds downward: measured over the invariant suite's
+ *  100 seeds, 47 of 700 tiers opened one sector or fewer. */
+const DEPTH_GROWTH_BIAS = 3;
+
+/** An ability that opens one room reads as a non-reward, so a gate must leave at least this
+ *  many sectors on its near side and room for every later gate to do the same. */
+const MIN_GATE_TIER_SECTORS = 2;
 
 interface GrowingSector {
   sx: number;
@@ -149,6 +162,8 @@ export function generateWorld(seed: number, inputs: WorldGenInputs): WorldMap {
     });
   }
 
+  topUpSecretSlots(sectorDefs, ordered);
+
   // Layout is derived from the seed and is never where mutable state lives:
   // opened doors and broken walls belong to WorldProfileState, so a frozen
   // EdgeDef stops a later chunk from growing a second source of truth.
@@ -164,6 +179,34 @@ export function generateWorld(seed: number, inputs: WorldGenInputs): WorldMap {
     abilityOrder,
     bossArenaKey,
   };
+}
+
+/** Hidden-lore collection is finishable only in a world holding a slot per catalog row, and
+ *  one slot in four is drawn as a Secret, so most worlds fall short by luck: 125 of 200
+ *  seeds held fewer than the catalog's 26 before this pass, the shipped seed landing on
+ *  exactly 26 by accident. Converting spare Treasure slots in sector order, one per sector
+ *  per round, spreads the top-up across the map and consumes no RNG. */
+function topUpSecretSlots(
+  sectorDefs: Map<SectorKey, SectorDef>, ordered: GrowingSector[]
+): void {
+  let secrets = 0;
+  for (const sector of sectorDefs.values()) {
+    for (const slot of sector.poiSlots) if (slot.kind === PoiKind.Secret) secrets++;
+  }
+  while (secrets < LORE_FRAGMENTS.length) {
+    let converted = false;
+    for (const growing of ordered) {
+      if (secrets >= LORE_FRAGMENTS.length) break;
+      const sector = sectorDefs.get(growing.key)!;
+      if (sector.isBossArena) continue;
+      const slot = sector.poiSlots.find(candidate => candidate.kind === PoiKind.Treasure);
+      if (!slot) continue;
+      slot.kind = PoiKind.Secret;
+      secrets++;
+      converted = true;
+    }
+    if (!converted) break;
+  }
 }
 
 type EdgeFactory = (
@@ -191,6 +234,7 @@ function growSpanningTree(
       let weight = 1;
       if (candidate.direction === from.growthDirection) weight *= 3;
       if (Math.abs(from.sx + dsx) > boxLimit || Math.abs(from.sy + dsy) > boxLimit) weight *= 0.15;
+      weight *= Math.pow(1 + from.depth, DEPTH_GROWTH_BIAS);
       return weight;
     });
 
@@ -324,11 +368,20 @@ function placeAbilityGates(
  * edge left to sit on: over seeds 1..40 at seven sector budgets, 6 of 6 gates was placed
  * zero times and the floor was 1. A candidate whose subtree is shorter than the gates
  * still to place cannot host them, so it is excluded before balance is weighed at all.
+ * A second filter (BALANCE-GATE-TIER-FLOOR) keeps only candidates that leave
+ * MIN_GATE_TIER_SECTORS on the near side and gatesLeft * MIN_GATE_TIER_SECTORS on the far
+ * side, so no ability opens a single room and every later gate still has room to do the
+ * same. It falls back to the height-only pool when nothing qualifies: on 1000 spread seeds
+ * that fallback fires for 14 of 6000 gates.
  */
 function pickGateCandidate(
   candidates: GateCandidate[], regionSize: number, gatesLeft: number
 ): GateCandidate {
-  const feasible = candidates.filter(candidate => candidate.height >= gatesLeft - 1);
+  const tallEnough = candidates.filter(candidate => candidate.height >= gatesLeft - 1);
+  const strict = tallEnough.filter(candidate =>
+    regionSize - candidate.subtree.size >= MIN_GATE_TIER_SECTORS
+    && candidate.subtree.size >= gatesLeft * MIN_GATE_TIER_SECTORS);
+  const feasible = strict.length > 0 ? strict : tallEnough;
   const tallest = candidates.reduce(
     (best, candidate) => Math.max(best, candidate.height), 0);
   const pool = feasible.length > 0
