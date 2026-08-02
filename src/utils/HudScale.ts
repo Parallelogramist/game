@@ -485,3 +485,40 @@ export function fitTextWidth(
 ): void {
   if (maxWidth > 0 && text.width > maxWidth) text.setScale(maxWidth / text.width);
 }
+
+/**
+ * Design-space units above a scene's masked scroll band: the title row plus the tab strip.
+ * CodexScene and AchievementScene both compose against these two numbers and both had the
+ * derived `height - 180` copied into five places each.
+ */
+export const MENU_SCROLL_TOP_RESERVE = 120;
+/** Design-space units below it: the back button and its clearance. */
+export const MENU_SCROLL_BOTTOM_RESERVE = 60;
+
+export interface ScrollViewMetrics {
+  /** Screen y where the masked band starts. */
+  top: number;
+  /** The masked band's height, in screen units. */
+  height: number;
+  /** The canvas width expressed in the scaled content container's own units. */
+  contentWidth: number;
+}
+
+/**
+ * The masked band a scrolling menu scene paints into, once its chrome is density-scaled.
+ *
+ * These scenes scale the scroll container itself rather than each card, so everything inside
+ * keeps its composed geometry and only the container's units shrink: `contentWidth` is what
+ * the scene must measure a grid against, never the canvas width.
+ */
+export function computeScrollViewMetrics(
+  canvasWidth: number,
+  canvasHeight: number,
+  menuScale: number,
+): ScrollViewMetrics {
+  return {
+    top: MENU_SCROLL_TOP_RESERVE * menuScale,
+    height: canvasHeight - (MENU_SCROLL_TOP_RESERVE + MENU_SCROLL_BOTTOM_RESERVE) * menuScale,
+    contentWidth: canvasWidth / menuScale,
+  };
+}
