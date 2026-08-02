@@ -2850,6 +2850,23 @@ no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no `WORLD_PROF
 practice and gauntlet are untouched by construction, because `MapScene` is launched from the
 expedition path only. Files `POLISH-MAP-NOTE-OPENERS`; `FEAT-MARK-NOTES-PANEL` stays open.
 
+**99c5e0c let the banked history be searched by what you did there.** The RETURN dialog dealt 20
+banked worlds three to a page in banking order and nothing else, so the world left at 88% charted
+was up to six `MORE` presses away and the dialog could answer only "which world did I leave last".
+A `SORT` button now cycles four orders (most recent, most charted, most secrets, conquered first)
+and the heading line names the one in force. **The ordering could not live in the season store**:
+`conquered` is not a `BankedSeason` field, it is read from `WorldProfileStore` by
+`describeBankedWorlds`, so the sort went into a new pure `src/expedition/returnWorlds.ts` and the
+store's `returnableWorldPage` / `getReturnableWorldPage` were deleted rather than left as a second
+pager over the same list. **The tiebreak is the correctness half**: every order ends in a banking
+recency comparison written out in the comparator, because two worlds left at the same percent are
+common and the list must not depend on the engine's sort stability. The order is dialog-local and
+threaded through the reopen exactly as the page is, so no storage key, no sanitizer clause and no
+version constant of any kind moved, and a SORT press resets to page 1 so a re-ordered page never
+names worlds the player was not shown. Arena, daily, weekly, practice and gauntlet are untouched by
+construction. Files `POLISH-RETURN-SORT-ORDERS`; advances but does not close
+`POLISH-RETURN-PAGE-JUMP`.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -7402,11 +7419,49 @@ exploring pays is the end of Phase 5.
   six presses away. A `FIRST` button, or paging backwards on the left stick, would cost one
   more slot in a button row that is already full at five. Value: the world you want is one
   press away rather than six. Deps: none.
-- [ ] **FEAT-SEASON-RETURN-SORT** (new 2026-08-01, from FEAT-SEASON-RETURN-FULL-LIST): the
+- [x] **FEAT-SEASON-RETURN-SORT** (done, 99c5e0c) (new 2026-08-01, from
+  FEAT-SEASON-RETURN-FULL-LIST): the
   list is banking order only, most recent first. A player chasing `unlock_world_charted` wants
   the world he left at 88%, not the world he left last, and nothing in the dialog can order by
   completion, by secrets or by whether the world is conquered. Value: the history is searched
   by what the player was doing there, not by when he left. Deps: none.
+
+  **What shipped.** A `SORT` button on the RETURN dialog cycles the banked history through four
+  orders: most recent first (the shipped behaviour and still the default a dialog opens on), most
+  charted first, most secrets first, and conquered first. Every fact a sort keys on was already
+  printed on the row by `describeBankedRow`, so the change is an ordering and never a new readout.
+
+  **The ordering lives in a new pure `src/expedition/returnWorlds.ts`, not in the season store,
+  and that is forced rather than chosen.** `conquered` is not a field of `BankedSeason`: it is
+  read from `WorldProfileStore` by `describeBankedWorlds` in `expeditionWorld.ts`, so a store-side
+  sort could not see it and importing `expeditionWorld.ts` into `ExpeditionSeasonStore.ts` would
+  make a cycle. The new module owns `sortReturnWorlds` and `returnWorldPage`, and
+  `ReturnableWorldPage` / `returnableWorldPage` / `getReturnableWorldPage` were deleted from the
+  store rather than left beside it, because two pagers over the same list is exactly the drift the
+  archive-cap test exists to catch elsewhere.
+
+  **Every order falls back to banking recency, written out rather than left to sort stability.**
+  Two worlds left at the same percent are common, and a list the player is choosing from must not
+  depend on the engine's implementation. The rows are decorated with their recency index and the
+  comparator ends in `|| (a.recency - b.recency)`, which makes each of the four orders total.
+
+  **The order is dialog-local, never persisted.** It is threaded through the reopen recursion
+  exactly as `page` already is, so there is no storage key, no sanitizer clause and no version
+  constant behind it. A `SORT` press also resets to page 1, because a re-ordered page 3 would name
+  worlds the player has not been shown.
+
+  **The button row reaches its proven maximum of six** (three `FLY W…`, `MORE`, `SORT`, `BACK`),
+  which is the measured-width packing path `showNewGameConfirmation` already ships for the CHART
+  row. `SORT` appears only when more than one world is banked, and `MORE` only when there is more
+  than one page, so a profile with one banked world still sees the two-button row it saw before.
+
+  It **advances but does not close `POLISH-RETURN-PAGE-JUMP`**: sorting by charted puts the world
+  worth returning to on page 1, which is most of what that item was reaching for, but walking
+  backwards through pages is still one press at a time. No storage key, no `SAVE_VERSION`, no
+  `SEASON_STATE_VERSION`, no `WORLD_ARCHIVE_VERSION`, no `WORLD_PROFILE_VERSION`, no
+  `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump. Arena, daily, weekly, practice and gauntlet
+  are untouched by construction, because this dialog opens off the expedition CHART tile only.
+  Files `POLISH-RETURN-SORT-ORDERS`.
 - [ ] **BALANCE-RETURN-PAGE-SIZE** (new 2026-08-01, from FEAT-SEASON-RETURN-FULL-LIST): three
   rows per page is what the shipped five-button row fits, not a measured read. Whether three at
   a time reads as a list or as a slideshow, and whether the page count should instead be spent
@@ -7855,7 +7910,8 @@ exploring pays is the end of Phase 5.
   who wants to explore past the hour resents the hold, are feel judgements that want a
   browser. Deps: play.
 
-- [ ] **FEAT-SEASON-BANKED-CONQUERED-MARK** (new 2026-08-01, from
+- [x] **FEAT-SEASON-BANKED-CONQUERED-MARK** (done, 429788e, ticked
+  2026-08-02) (new 2026-08-01, from
   FEAT-EXPEDITION-WARDEN-THRONE): the CHART dialog's banked rows read `W1 42%` and say
   nothing about whether that world was conquered, because the mark needs a field in
   `ExpeditionSeasonStore`'s banked payload and its sanitizer, and the lifetime
@@ -7863,6 +7919,15 @@ exploring pays is the end of Phase 5.
   `FEAT-SEASON-BANKED-LIST-SURFACE`: build them together or the rows are edited twice.
   Value: the history says which worlds were finished, not only how far they were charted.
   Deps: none.
+
+  **Shipped inside `FEAT-SEASON-RETURN-TO-WORLD` (`429788e`) and simply left unticked.** That
+  entry's own point 7 says it "discharges `FEAT-SEASON-BANKED-CONQUERED-MARK` in full". Re-verified
+  in `src/` before ticking (2026-08-02): `describeBankedWorlds`
+  (`src/expedition/expeditionWorld.ts:79`) grafts `conquered` onto every banked row from
+  `isWorldConquered`, with no world generated, and `describeBankedRow`
+  (`src/game/scenes/BootScene.ts:350`) appends `   ·   CONQUERED` to the row it draws. The paired
+  `FEAT-SEASON-BANKED-LIST-SURFACE` closed as superseded at `370e7bd`. Nothing was left to build,
+  and leaving it unticked was costing a future session the re-derivation.
 
 - [ ] **FEAT-WARDEN-VICTORY-OVERLAY-LINE** (new 2026-08-01, from
   FEAT-EXPEDITION-WARDEN-THRONE): the victory overlay does not say the world was conquered.
@@ -10881,6 +10946,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-RETURN-SORT-ORDERS** (new 2026-08-02, from FEAT-SEASON-RETURN-SORT). Value: the
+  four orders and the six-button row are validated by reading the code and by arithmetic on
+  fixtures, never in a browser. Four questions only a player answers: (a) are `charted`, `secrets`
+  and `conquered` the three the player actually reaches for, or is `sectors` or "least charted
+  first" the one that is missing; (b) does `conquered` read as useful, given that a conquered
+  world is the one you are LEAST likely to fly back to, so the row may want to sort conquered
+  LAST; (c) does the six-button row (three FLY, MORE, SORT, BACK) stay inside the 660-wide frame
+  at a narrow portrait width, which is the same question `BALANCE-CHART-ROW-SIX-BUTTONS` and
+  `POLISH-CHART-DIALOG-PORTRAIT` ask of the CHART row; (d) does a bare `SORT` label read as
+  "change the order" when the current order is named in the heading line rather than on the
+  button. Deps: none, wants a browser.
 
 - [ ] **POLISH-MAP-NOTE-OPENERS** (new 2026-08-02, from FEAT-MARK-NOTE-TOUCH, 6138bff). Value: the
   two new openers are geometry and a button index, validated by reading the code and by arithmetic
