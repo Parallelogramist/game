@@ -7849,11 +7849,28 @@ exploring pays is the end of Phase 5.
      `WORLD_ARCHIVE_VERSION`, no `WORLD_PROFILE_VERSION`, no `WORLDGEN_VERSION` and no
      `DISCOVERY_VERSION` bump**: a raised cap evicts nothing and reads every existing payload
      unchanged.
-- [ ] **FEAT-MENU-SUBMENU-REOPEN** (new 2026-08-01, cut from POLISH-MENU-CONSOLIDATE): an
+- [x] **FEAT-MENU-SUBMENU-REOPEN** (done, 5819f30) (new 2026-08-01, cut from POLISH-MENU-CONSOLIDATE): an
   orientation flip restarts BootScene, so an open GAME MODES or COLLECTION submenu closes and
   the player lands back on the deck row. Thread an `openSubmenu` id through the restart
   launchData the way `relayout: true` is already threaded (`src/main.ts` orientation watcher)
   and reopen it in `create()`. Value: rotating a phone mid-menu currently loses your place.
+  **What shipped:** the submenu's own title is the id. `BootScene.openSubmenu` records it in
+  `openSubmenuTitle`, `closeSubmenu` and the teardown clear it, and the new public
+  `getOpenSubmenuTitle()` is read by `src/main.ts`'s viewport watcher, which now has its own
+  `BootScene` branch restarting the scene with `{ ...launchData, relayout: true, openSubmenu }`.
+  A new `init(data?: BootLaunchData)` accepts the title only alongside `relayout: true`, matching
+  the seven sibling scenes, so the three plain `scene.start('BootScene')` callers (RunnerScene,
+  LoadoutScene, GameScene) still open on the deck row. `createProgressionDeck` hoists the
+  COLLECTION rows out of their inline array into `collectionEntries` and names both openers, which
+  is what lets the reopen call the exact same closure the card does rather than a second copy of
+  the list. The reopen fires at the end of `create()` right after `buildMainNavigator`, because
+  `openSubmenu` pauses that navigator and would otherwise find none.
+  **Two deliberate cuts.** Focus inside the reopened submenu resets to its first card and the
+  overlay replays its entrance: `SubmenuOverlay`'s public interface is `{ destroy() }`, so holding
+  the focus index means growing that interface for a frame the player cannot see mid-rotation.
+  Filed as `POLISH-MENU-SUBMENU-REOPEN` under Human gates rather than guessed at. No test: the
+  logic is one Phaser lifecycle hook plus a scene-instance branch, which `CLAUDE.md` says is
+  verified by play, not by mocking a live scene.
 - [ ] **POLISH-RETURN-PAGE-JUMP** (new 2026-08-01, from FEAT-SEASON-RETURN-FULL-LIST): `MORE`
   walks one page at a time, so a full 20-world history is seven pages and the oldest world is
   six presses away. A `FIRST` button, or paging backwards on the left stick, would cost one
@@ -11689,6 +11706,14 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 
 Never agent work. The fleet must not do any of these.
 
+- [ ] **POLISH-MENU-SUBMENU-REOPEN** (new 2026-08-02, from FEAT-MENU-SUBMENU-REOPEN). Value: a
+  submenu now survives an orientation flip and none of it has been seen on a phone. Questions for
+  the operator: (1) the reopened overlay replays its entrance stagger, so a flip reads as the
+  submenu popping in again rather than staying put: is that fine, or should a relayout reopen skip
+  the entrance? (2) focus lands on the submenu's first card rather than the one that was
+  highlighted, which a gamepad or keyboard player will notice and a touch player will not: worth
+  holding the index? (3) confirm nothing stacks: flip with a submenu open and check no second dim
+  layer, no double navigator, and that ESC / the back card still close it once.
 - [ ] **POLISH-LEAD-SEAL-RADAR** (new 2026-08-02, from CHORE-LEAD-BADGE-RADAR). Value: a sealed lead
   now draws hollow on the radar and none of it has been seen in a browser. Questions for the
   operator, flying a world with at least one walled lead open: (a) at 56 px does a stroked chevron
