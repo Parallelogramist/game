@@ -195,6 +195,71 @@ const MENU_GRID_ROW_GAP = 24;
 /** Units the begin button plus its clearance occupy above the canvas bottom. */
 const MENU_GRID_BOTTOM_RESERVE = 102;
 
+/**
+ * How far a saturated grid may shrink below design size before legibility loses to
+ * fitting. At the full 29-weapon codex the best grid resolves to 0.768, so this floor
+ * is only reached on a viewport that is cramped on both axes at once.
+ */
+export const MENU_GRID_MIN_SCALE = 0.7;
+
+export interface GridFitInput {
+  count: number;
+  cardWidth: number;
+  cardHeight: number;
+  columnGap: number;
+  rowGap: number;
+  availableWidth: number;
+  availableHeight: number;
+  /** Largest column count to consider, inclusive. */
+  maxColumns: number;
+  /** The scene's density scale; the solver never scales a grid past it. */
+  maxScale: number;
+  minScale: number;
+}
+
+export interface GridFit {
+  columns: number;
+  rows: number;
+  scale: number;
+}
+
+/**
+ * Picks the column count whose uniform scale best fills the band, then that scale.
+ * Searched descending because the fit saturates at `maxScale`: on a tie the wider,
+ * shallower grid is the one the scenes were composed around.
+ */
+export function computeGridFit(input: GridFitInput): GridFit {
+  const {
+    count, cardWidth, cardHeight, columnGap, rowGap,
+    availableWidth, availableHeight, maxColumns, maxScale, minScale,
+  } = input;
+  const safeCount = Math.max(1, count);
+  const topColumns = Math.max(1, Math.min(safeCount, Math.floor(maxColumns)));
+
+  let bestColumns = topColumns;
+  let bestFit = -Infinity;
+  for (let columns = topColumns; columns >= 1; columns--) {
+    const rows = Math.ceil(safeCount / columns);
+    const rowWidth = columns * cardWidth + (columns - 1) * columnGap;
+    const gridHeight = rows * cardHeight + (rows - 1) * rowGap;
+    const fit = Math.min(
+      maxScale,
+      rowWidth > 0 ? availableWidth / rowWidth : maxScale,
+      gridHeight > 0 ? availableHeight / gridHeight : maxScale,
+    );
+    if (fit > bestFit) {
+      bestFit = fit;
+      bestColumns = columns;
+    }
+  }
+
+  return {
+    columns: bestColumns,
+    rows: Math.ceil(safeCount / bestColumns),
+    scale: Math.max(minScale, Math.min(maxScale, bestFit)),
+  };
+}
+
 export interface MenuCardGridInput {
   count: number;
   cardWidth: number;
@@ -234,13 +299,18 @@ export function computeMenuCardGrid(input: MenuCardGridInput): MenuCardGrid {
     )),
   );
 
+  const band = canvasHeight - (MENU_GRID_BOTTOM_RESERVE + headerBottom) * menuScale;
+
   // A viewport with no density compensation to spend must come out byte-identical
   // to the pre-sweep layout, so it takes the legacy geometry unchanged.
   if (menuScale <= 1) {
     const rowCount = Math.ceil(Math.max(1, count) / basePerRow);
     const rowSpacing = cardHeight + MENU_GRID_ROW_GAP;
     const gridHeight = rowCount * cardHeight + (rowCount - 1) * MENU_GRID_ROW_GAP;
-    return {
+    // Byte-identical legacy geometry, but only where it fits: the eight pacts are 484
+    // units against a 468-unit band, and centring an over-tall grid anyway is what put
+    // the first card row on top of the counter line.
+    if (gridHeight <= band) return {
       perRow: basePerRow,
       rowCount,
       scale: 1,
@@ -256,28 +326,21 @@ export function computeMenuCardGrid(input: MenuCardGridInput): MenuCardGrid {
     };
   }
 
-  const band = canvasHeight - (MENU_GRID_BOTTOM_RESERVE + headerBottom) * menuScale;
-  let bestPerRow = basePerRow;
-  let bestFit = 0;
-  // Strictly-greater keeps today's column count on a tie, so fewer, larger columns
-  // are taken only when they genuinely buy scale.
-  for (let perRow = basePerRow; perRow >= 1; perRow--) {
-    const rowCount = Math.ceil(Math.max(1, count) / perRow);
-    const naturalRowWidth = perRow * cardWidth + (perRow - 1) * MENU_GRID_COLUMN_GAP;
-    const naturalGridHeight = rowCount * cardHeight + (rowCount - 1) * MENU_GRID_ROW_GAP;
-    const fit = Math.min(
-      menuScale,
-      (canvasWidth - MENU_GRID_EDGE_MARGIN) / naturalRowWidth,
-      band / naturalGridHeight,
-    );
-    if (fit > bestFit) {
-      bestFit = fit;
-      bestPerRow = perRow;
-    }
-  }
-
-  const scale = Math.max(1, bestFit);
-  const rowCount = Math.ceil(Math.max(1, count) / bestPerRow);
+  const fit = computeGridFit({
+    count,
+    cardWidth,
+    cardHeight,
+    columnGap: MENU_GRID_COLUMN_GAP,
+    rowGap: MENU_GRID_ROW_GAP,
+    availableWidth: canvasWidth - MENU_GRID_EDGE_MARGIN,
+    availableHeight: band,
+    maxColumns: basePerRow,
+    maxScale: menuScale,
+    minScale: MENU_GRID_MIN_SCALE,
+  });
+  const bestPerRow = fit.columns;
+  const scale = fit.scale;
+  const rowCount = fit.rows;
   const scaledCardHeight = cardHeight * scale;
   const rowSpacing = (cardHeight + MENU_GRID_ROW_GAP) * scale;
   const gridHeight = rowCount * scaledCardHeight + (rowCount - 1) * MENU_GRID_ROW_GAP * scale;
