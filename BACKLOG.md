@@ -896,7 +896,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `CLAUDE.md` says are verified by play, and the settings change is a three-line environment guard
   over `loadBoolean`'s already-covered precedence. Files `POLISH-REDUCED-MOTION-FEEL` under Human
   gates.
-- [ ] **POLISH-UX-SMALL**. Batch of small verified issues: (1) toasts rest exactly
+- [x] **POLISH-UX-SMALL** (done, 7d1a00a). Batch of small verified issues: (1) toasts rest exactly
   over the pause button + kills/gold stack, and 3+ line descriptions overflow the
   fixed 78-unit panel (`src/ui/ToastManager.ts:117-119, 199-207`): anchor below the
   stats stack and size the panel from `title.height + desc.height`. (2) touch players
@@ -909,6 +909,39 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   down-then-up-on-same-target idiom. (5) MenuCard eagerly allocates 20+ hidden fleck
   Graphics per card (~400-900 objects on card-heavy scenes) at entry
   (`src/visual/MenuCard.ts:336-379`): lazy-build on first hover/focus.
+
+  **What shipped (7d1a00a):** all five, six files, no test. (1) Toasts rested at the top
+  margin, which is exactly where `HUDManager` puts the pause button and the kills/gold/pace stack,
+  so on a phone every toast covered the only touch route into the pause menu; and the body was a
+  fixed 78 units, so any description of 3 lines or more spilled out of the panel. `ToastManager`
+  now builds its title and description first, sizes the panel to
+  `max(78 * hudScale, textBlock + padding * 2)`, and anchors its rest position under the lowest
+  bottom edge of whichever of `pauseButtonBg` / `killCountText` / `goldPreviewText` /
+  `paceDeltaText` / `relicStripContainer` the host scene actually built, clamped to stay on
+  screen. Scenes with no HUD rail (the shop, the menus) find none of those names and keep the old
+  top-margin rest, so nothing moved there. `HUDManager` gained one line, a `setName` on the relic
+  strip container, because it was the one rail element with no name to look up. (2) The weapon
+  picker told touch players to "Press 1-9 to quick select | R for random" on a device with no
+  keyboard; the hint is now gated on the same `input.manager.touch !== null &&
+  device.input.touch` test `HUDManager.ts:808` already uses for the movement hint. (3) Three
+  emoji in an otherwise all-vector UI now draw from the game's own icon atlas or drop: the die on
+  the RANDOM button became a tinted `dice` icon (`perspective-dice-six`), the final-weapon-slot
+  warning became a `warning` icon (`hazard-sign`) beside its label, and the banish banner simply
+  lost its no-entry glyph, since a centered variable-width line has nothing to anchor an icon
+  against. Both of those strings also lost an em dash to a colon. (4) `MenuButton` activated on a
+  bare `pointerup`, so a finger dragged across a menu fired whichever button it lifted off,
+  spending a reroll or a banish by accident; it now requires the press to have begun on the same
+  button, the `pressedCardId` idiom `WeaponSelectScene` already uses. (5) `MenuCard` allocated
+  its 20-to-48 `Graphics` fleck pool at construction, i.e. 400 to 900 hidden objects on a
+  24-card scene, nearly all on cards never pointed at; the pool now builds on first hover or
+  focus, the single gateway both hover and focus already route through. **Not done, on purpose:**
+  the padlock glyphs (`UpgradeScene.ts:325`, `ShopScene.ts:1008,1427`) stay, because the atlas
+  has no lock frame and `createIcon` would silently fall back to `cross-mark`; filed as
+  CHORE-ICON-PADLOCK under Later. `HUDManager`'s pause button keeps its release-only handler:
+  its own comment records that iOS can cancel `touchstart` at the top screen edge, so a
+  press-first gate would make it dead. No test: all five are mutations on live Phaser objects,
+  which `CLAUDE.md` says are verified by play, and no existing test references `ToastManager`,
+  `createMenuButton` or `createMenuCard`. Files `POLISH-UX-SMALL-FEEL` under Human gates.
 - [ ] **POLISH-MENU-RESIZE**. Value: desktop window resize leaves every menu laid out
   for the old size (only GameScene `:1524` and RunnerScene `:138` listen for resize;
   the orientation watcher `src/main.ts:180-197` only fires on portrait/landscape
@@ -9528,6 +9561,15 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   Pointer: `PauseMenuManager.showVictory` (~`:1689`), `showEndRunEarned` (~`:1602`),
   `createDailyQuestBoardPanel`.
 
+- [ ] **CHORE-ICON-PADLOCK** (new 2026-08-02, from POLISH-UX-SMALL). Value: three lock
+  glyphs still render as platform emoji in an all-vector UI (`UpgradeScene.ts:325` reroll
+  lock hint, `ShopScene.ts:1008` locked-upgrade level gate, `ShopScene.ts:1427` locked
+  slot). They were left out of POLISH-UX-SMALL because `public/icons/game-icons.json` has
+  no lock frame, so `createIcon` falls back to `cross-mark` and warns per render. Needs a
+  CC-BY padlock from game-icons.net added to `tools/icon-sources`, an atlas rebuild via
+  `tools/build-icon-atlas.cjs`, a `lock` entry in `src/utils/IconMap.ts` and its frame name
+  in that file's `VALID_FRAMES`, then the three call sites.
+
 ---
 
 ## Human gates
@@ -9593,6 +9635,24 @@ Never agent work. The fleet must not do any of these.
   or does it read as a missing animation, i.e. is a short fade in place (no movement) worth
   adding? (q) with the setting off, confirm nothing changed at all: cards should still fly up
   from below exactly as before, on all three scenes.
+
+- [ ] **POLISH-UX-SMALL-FEEL** (new 2026-08-02, from POLISH-UX-SMALL at 7d1a00a).
+  Value: four of the five fixes are only visible in a browser, and two of them move things
+  the operator looks at constantly, so they want one pass on a phone and one on desktop.
+  Questions: (r) in a run on a phone, trigger a toast (any level-up milestone will do): it
+  should now sit clear of the pause button and the kills/gold/pace stack rather than over
+  them, and a long achievement description should be fully inside its panel rather than
+  clipped. Does the lower rest position read as deliberate, or has it dropped too far down
+  the screen, and once relics accumulate does it clear the relic strip too? (s) on a phone,
+  open the weapon picker: the "Press 1-9 / R" line should be gone and the RANDOM button
+  should carry a drawn die icon rather than an emoji. Does the icon sit right next to the
+  label, or does it crowd or overlap it at portrait width? (t) on desktop, confirm the
+  keyboard hint is still there. (u) press and hold on any menu button, drag the pointer
+  onto a different button, release: nothing should fire. Then press and release on one
+  button normally: it should fire as before. Try the same on a phone, including on the
+  level-up cards and the shop grid. (v) hover a few cards on the pre-run weapon grid and
+  the Cards scene: the rim sparks should still appear on hover exactly as before, with no
+  first-hover hitch.
 
 - [x] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): **answered 2026-08-01, operator
   directed the reconcile + deploy the same day.** `origin/master` carried one commit
