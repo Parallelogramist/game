@@ -63,7 +63,7 @@ import { getMetaProgressionManager } from '../../meta/MetaProgressionManager';
 import { getAscensionManager } from '../../meta/AscensionManager';
 import { WeaponManager, createWeapon, ProjectileWeapon, getWeaponInfoList } from '../../weapons';
 import { WeaponSynergy } from '../../data/WeaponSynergies';
-import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, inflateRect, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
+import { SECTOR_HEIGHT, SECTOR_WIDTH, WorldPoint, rectCenter, rectHeight, rectWidth, sectorKey, sectorOfWorldPoint } from '../../world/worldSpace';
 import { planSectorRetire, type RetireCandidate } from '../../world/sectorRetire';
 import { sectorWallSegments } from '../../world/sectorWallSegments';
 import { sectorTagsOf } from '../../world/sectorTags';
@@ -95,7 +95,7 @@ import {
   pickInteriorPoint,
   repositionOntoSpawnRing,
 } from '../../world/spawnRing';
-import { beamReachFraction, projectileBlocked } from '../../world/weaponWallBehavior';
+import { EnemyProjectileManager } from '../combat/EnemyProjectileManager';
 import {
   ABILITY_DOOR_OPEN_RADIUS, clearBarrier, gatedDoorNearWorld, nearestBreakableBarrier,
   openAbilityGate, setBarrierEventSink,
@@ -539,9 +539,6 @@ const ESCORT_DRONE_COLOR = 0x66ccff;
 /** The drone can be off-camera inside its 900 px tether, so the ring alone is not enough: one
  *  toast says it is under fire, rate-limited so a running fight beside it cannot spam the queue. */
 const ESCORT_DRONE_ALERT_COOLDOWN_SECONDS = 20;
-/** The player's own projectile hit radius (updateEnemyProjectiles tests distSq < 400 against the
- *  ship), borrowed so a shot lands on the drone the way it lands on you. */
-const ESCORT_DRONE_PROJECTILE_HIT_RADIUS = 20;
 /** Contact already suppresses regen while it lasts; a projectile has no duration, so it suppresses
  *  it for a window instead. Without this a lone Shooter's 6 dps loses to a 3 hp/s regen that
  *  resumes the same frame and being shot would cost the drone nothing. */
@@ -1010,10 +1007,7 @@ export class GameScene extends Phaser.Scene {
   private gauntletHudWaveShown = -1;     // Last wave pushed to the HUD label (lazy sync survives restore ordering)
   private gauntletRestoredMidCombat = false; // Restored into 'combat': an empty first scan re-queues the wave instead of clearing it
 
-  // Active laser beams (for visual rendering)
-  private activeLasers: { x1: number; y1: number; x2: number; y2: number; lifetime: number }[] = [];
-  // Pooled graphics object for rendering lasers (avoids per-frame allocation)
-  private laserGraphics: Phaser.GameObjects.Graphics | null = null;
+  private enemyProjectileManager!: EnemyProjectileManager;
 
   // World level scaling (loaded at start of run)
   private worldLevel: number = 1;
@@ -1508,6 +1502,21 @@ export class GameScene extends Phaser.Scene {
     this.events.once('shutdown', this.shutdown, this);
     this.playerWallCollision = null;
 
+    // Ahead of the restore branch below, which returns early: both paths need it.
+    this.enemyProjectileManager = new EnemyProjectileManager(this, {
+      worldMap: () => this.worldMode.worldMap(),
+      viewRect: () => this.worldMode.viewRect(),
+      playerPosition: () => this.playerId === -1
+        ? null
+        : { x: Transform.x[this.playerId], y: Transform.y[this.playerId] },
+      escortDronePosition: () => this.escortDrone,
+      damagePlayer: (amount, sourceLabel) => this.takeDamage(amount, undefined, sourceLabel),
+      damageEscortDrone: (damage, hitX, hitY, travelAngle) =>
+        this.damageEscortDroneByProjectile(damage, hitX, hitY, travelAngle),
+      playerDamageReady: () => this.damageCooldown <= 0,
+      shakeCamera: (durationMs, intensity) => this.shakeCamera(durationMs, intensity),
+    });
+
     // Check for restore mode first
     let saveState: GameSaveState | null = null;
     if (this.shouldRestore) {
@@ -1700,8 +1709,7 @@ export class GameScene extends Phaser.Scene {
       this.gauntletNewBestThisRun = true;
       getAchievementManager().recordGauntletWaveReached(1);
     }
-    this.activeLasers = [];
-    this.enemyProjectiles = [];
+    this.enemyProjectileManager.clear();
     // Reset miniboss spawn tracking and shuffle order for variety
     for (const miniboss of this.minibossSpawnTimes) {
       miniboss.spawned = false;
@@ -2200,7 +2208,7 @@ export class GameScene extends Phaser.Scene {
 
     // Setup enemy projectile callback for shooter/sniper enemies
     setEnemyProjectileCallback((x, y, angle, speed, damage) => {
-      this.spawnEnemyProjectile(x, y, angle, speed, damage);
+      this.enemyProjectileManager.spawn(x, y, angle, speed, damage);
     });
 
     // Setup minion spawn callback for SwarmMother and Necromancer
@@ -2215,7 +2223,7 @@ export class GameScene extends Phaser.Scene {
     // Setup boss callbacks for ground slam and laser beam
     setBossCallbacks(
       (x, y, radius, damage) => this.handleGroundSlam(x, y, radius, damage),
-      (x1, y1, x2, y2, damage) => this.handleLaserBeam(x1, y1, x2, y2, damage)
+      (x1, y1, x2, y2, damage) => this.enemyProjectileManager.fireLaser(x1, y1, x2, y2, damage)
     );
 
     // Fire a phase-transition effect when a boss crosses 66% / 33% HP.
@@ -3386,8 +3394,7 @@ export class GameScene extends Phaser.Scene {
     // the flag; an abandoned-run pending reveal lacks the save).
     this.syncCacheGuardWithPendingReveal();
     this.cacheFoundThisRun = this.cacheFoundThisRun || state.cacheFoundThisRun === true;
-    this.activeLasers = [];
-    this.enemyProjectiles = [];
+    this.enemyProjectileManager.clear();
 
     // Initialize upgrades list
     this.upgrades = createUpgrades();
@@ -3648,7 +3655,7 @@ export class GameScene extends Phaser.Scene {
 
     // Setup enemy projectile callback
     setEnemyProjectileCallback((x, y, angle, speed, damage) => {
-      this.spawnEnemyProjectile(x, y, angle, speed, damage);
+      this.enemyProjectileManager.spawn(x, y, angle, speed, damage);
     });
 
     // Setup minion spawn callback
@@ -3663,7 +3670,7 @@ export class GameScene extends Phaser.Scene {
     // Setup boss callbacks
     setBossCallbacks(
       (x, y, radius, damage) => this.handleGroundSlam(x, y, radius, damage),
-      (x1, y1, x2, y2, damage) => this.handleLaserBeam(x1, y1, x2, y2, damage)
+      (x1, y1, x2, y2, damage) => this.enemyProjectileManager.fireLaser(x1, y1, x2, y2, damage)
     );
 
     // Fire a phase-transition effect when a boss crosses 66% / 33% HP.
@@ -7687,114 +7694,6 @@ export class GameScene extends Phaser.Scene {
   private gridEnemyDataPool: { x: number; y: number; weight: number }[] = [];
   private gridEnemyDataLength: number = 0;
 
-  // Enemy projectiles storage
-  private enemyProjectiles: {
-    sprite: Phaser.GameObjects.Arc;
-    vx: number;
-    vy: number;
-    damage: number;
-    lifetime: number;
-  }[] = [];
-
-  /**
-   * Spawn an enemy projectile that moves toward player.
-   */
-  private spawnEnemyProjectile(
-    x: number,
-    y: number,
-    angle: number,
-    speed: number,
-    damage: number
-  ): void {
-    // Enemy projectiles use a distinct signature: saturated crimson core with a
-    // warm-gold ring. Ring color lies outside the player weapon palette (cyan /
-    // violet / blue) so the player can recognize incoming threats even in dense
-    // combat where orange fire weapons are active.
-    const sprite = this.add.circle(x, y, 8, 0xff2233);
-    sprite.setStrokeStyle(3, 0xffcc66);
-    sprite.setDepth(5);
-
-    this.enemyProjectiles.push({
-      sprite,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      damage,
-      lifetime: 4,
-    });
-  }
-
-  /**
-   * Update enemy projectiles - move and check collision with player.
-   */
-  private updateEnemyProjectiles(deltaTime: number): void {
-    const despawn = inflateRect(this.worldMode.viewRect(), 20);
-    const worldMap = this.worldMode.worldMap();
-    const playerX = this.playerId !== -1 ? Transform.x[this.playerId] : 0;
-    const playerY = this.playerId !== -1 ? Transform.y[this.playerId] : 0;
-    const hasPlayer = this.playerId !== -1;
-
-    // Reverse iteration with swap-and-pop for O(1) removal
-    for (let i = this.enemyProjectiles.length - 1; i >= 0; i--) {
-      const proj = this.enemyProjectiles[i];
-      proj.lifetime -= deltaTime;
-
-      let shouldRemove = proj.lifetime <= 0;
-
-      if (!shouldRemove) {
-        proj.sprite.x += proj.vx * deltaTime;
-        proj.sprite.y += proj.vy * deltaTime;
-
-        // Bounds check
-        if (proj.sprite.x < despawn.minX || proj.sprite.x > despawn.maxX ||
-            proj.sprite.y < despawn.minY || proj.sprite.y > despawn.maxY ||
-            projectileBlocked(worldMap, proj.sprite.x, proj.sprite.y)) {
-          shouldRemove = true;
-        }
-      }
-
-      // Check collision with player (squared distance avoids sqrt)
-      if (!shouldRemove && hasPlayer) {
-        const dx = playerX - proj.sprite.x;
-        const dy = playerY - proj.sprite.y;
-        const distSq = dx * dx + dy * dy;
-
-        if (distSq < 400) { // 20 * 20
-          this.takeDamage(proj.damage, undefined, 'Enemy Fire');
-          shouldRemove = true;
-        }
-      }
-
-      // The escort drone is solid to enemy fire (FEAT-DECOY-RANGED-INTEREST). Null outside the
-      // expedition, so every other mode skips this on the first read.
-      const escortDrone = this.escortDrone;
-      if (!shouldRemove && escortDrone) {
-        const droneDx = escortDrone.x - proj.sprite.x;
-        const droneDy = escortDrone.y - proj.sprite.y;
-        if (droneDx * droneDx + droneDy * droneDy
-            < ESCORT_DRONE_PROJECTILE_HIT_RADIUS * ESCORT_DRONE_PROJECTILE_HIT_RADIUS) {
-          this.damageEscortDroneByProjectile(
-            proj.damage,
-            proj.sprite.x,
-            proj.sprite.y,
-            Math.atan2(proj.vy, proj.vx),
-          );
-          shouldRemove = true;
-        }
-      }
-
-      if (shouldRemove) {
-        proj.sprite.destroy();
-        // Swap with last element and pop — O(1) removal
-        const lastIndex = this.enemyProjectiles.length - 1;
-        if (i < lastIndex) {
-          this.enemyProjectiles[i] = this.enemyProjectiles[lastIndex];
-        }
-        this.enemyProjectiles.pop();
-      }
-    }
-  }
-
-
   /**
    * Builds the upgrade icon data array for the HUD manager.
    * Combines active stat upgrades and weapon data into a unified format.
@@ -8291,7 +8190,7 @@ export class GameScene extends Phaser.Scene {
     this.hudManager.updateEventIndicator(getActiveEvent()?.event ?? null);
 
     // Update laser beams
-    this.updateLaserBeams(deltaSeconds);
+    this.enemyProjectileManager.updateLasers(deltaSeconds);
 
     // Update input state (joystick, keyboard, mouse, gamepad sync)
     const inputState = this.inputController.update();
@@ -8395,7 +8294,7 @@ export class GameScene extends Phaser.Scene {
     statusEffectSystem(this.world, delta);
 
     // Update enemy projectiles
-    this.updateEnemyProjectiles(deltaSeconds);
+    this.enemyProjectileManager.update(deltaSeconds);
 
     // Check player-enemy collision for damage
     this.checkPlayerEnemyCollision();
@@ -13418,82 +13317,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Handle laser beam effect from The Machine.
-   */
-  private handleLaserBeam(x1: number, y1: number, x2: number, y2: number, damage: number): void {
-    // Every boss beam reaches the world through this one callback, so clipping here covers the
-    // renderer and the player hit test at once. A boss standing inside rock yields a zero-length
-    // beam until FEAT-WORLDGEN-NAV stops enemies phasing through walls, which is the honest
-    // reading: a laser fired from inside a wall does not come out of it.
-    const reachFraction = beamReachFraction(this.worldMode.worldMap(), x1, y1, x2, y2);
-    const beamEndX = x1 + (x2 - x1) * reachFraction;
-    const beamEndY = y1 + (y2 - y1) * reachFraction;
-
-    // Store laser for rendering
-    this.activeLasers.push({ x1, y1, x2: beamEndX, y2: beamEndY, lifetime: 0.1 });
-
-    // Check player collision with laser line
-    if (this.playerId !== -1 && this.damageCooldown <= 0) {
-      const playerX = Transform.x[this.playerId];
-      const playerY = Transform.y[this.playerId];
-
-      // Point-to-line distance
-      const dx = beamEndX - x1;
-      const dy = beamEndY - y1;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 0) {
-        const t = Math.max(0, Math.min(1, ((playerX - x1) * dx + (playerY - y1) * dy) / (len * len)));
-        const closestX = x1 + t * dx;
-        const closestY = y1 + t * dy;
-        const dist = Math.sqrt((playerX - closestX) ** 2 + (playerY - closestY) ** 2);
-
-        if (dist < 25) {
-          this.takeDamage(damage, undefined, 'Laser Beam');
-
-          // Screen shake on laser hit
-          if (getSettingsManager().isScreenShakeEnabled()) {
-            this.shakeCamera(150, 0.008);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Update and render active laser beams.
-   */
-  private updateLaserBeams(deltaTime: number): void {
-    // Update lifetimes and remove expired
-    this.activeLasers = this.activeLasers.filter(laser => {
-      laser.lifetime -= deltaTime;
-      return laser.lifetime > 0;
-    });
-
-    // Create pooled graphics object if needed (reuse to avoid per-frame allocation)
-    if (!this.laserGraphics) {
-      this.laserGraphics = this.add.graphics();
-      this.laserGraphics.setDepth(50);
-    }
-
-    // Clear previous frame and redraw all lasers
-    this.laserGraphics.clear();
-
-    for (const laser of this.activeLasers) {
-      // Outer glow
-      this.laserGraphics.lineStyle(12, 0xff4400, 0.3);
-      this.laserGraphics.lineBetween(laser.x1, laser.y1, laser.x2, laser.y2);
-
-      // Inner beam
-      this.laserGraphics.lineStyle(4, 0xff8800, 1);
-      this.laserGraphics.lineBetween(laser.x1, laser.y1, laser.x2, laser.y2);
-
-      // Core
-      this.laserGraphics.lineStyle(2, 0xffffff, 1);
-      this.laserGraphics.lineBetween(laser.x1, laser.y1, laser.x2, laser.y2);
-    }
-  }
-
-  /**
    * Creates the visual representation for an enemy based on its type.
    * Uses layered glow effects for Geometry Wars neon aesthetic.
    */
@@ -14917,18 +14740,7 @@ export class GameScene extends Phaser.Scene {
     // Kill all active tweens to prevent them from continuing
     this.tweens.killAll();
 
-    // Clear enemy projectiles
-    for (const proj of this.enemyProjectiles) {
-      proj.sprite.destroy();
-    }
-    this.enemyProjectiles = [];
-
-    // Clear active lasers and destroy pooled graphics
-    this.activeLasers = [];
-    if (this.laserGraphics) {
-      this.laserGraphics.destroy();
-      this.laserGraphics = null;
-    }
+    this.enemyProjectileManager.destroy();
 
     // Clean up effects manager
     if (this.effectsManager) {
