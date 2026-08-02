@@ -10,11 +10,17 @@ import { transitionToScene, sweepIn, staggerEntrance } from '../../utils/SceneTr
 import { SHIP_PAINTS, ShipPaint, resolveActivePaint, SHIP_DEFAULT_PAINT_CHOICE } from '../../data/ShipPaints';
 import { HIDDEN_UNLOCKS, getHiddenUnlockManager } from '../../meta/HiddenUnlocks';
 import { getShipPaintManager } from '../../storage/ShipPaintManager';
+import { computeCardGridInBand, fitTextWidth, resolveMenuFontScale, scaledInt } from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 
 const CARD_WIDTH = 180;
 const CARD_HEIGHT = 150;
 const CARD_SPACING = 16;
 const MAX_COLUMNS = 4;
+/** Design-space units the title and subtitle occupy above the grid band. */
+const HEADER_RESERVE = 92;
+/** Design-space units the BACK button occupies below it. */
+const FOOTER_RESERVE = 72;
 
 export class PaintScene extends Phaser.Scene {
   private soundManager!: SoundManager;
@@ -25,12 +31,17 @@ export class PaintScene extends Phaser.Scene {
   private backButton: MenuButton | null = null;
   private paintCards: MenuCard[] = [];
   private selectHandlers: Array<() => void> = [];
+  private menuScale = 1;
+  private gridScale = 1;
 
   constructor() {
     super({ key: 'PaintScene' });
   }
 
   create(): void {
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
     this.soundManager = new SoundManager(this);
     const centerX = this.scale.width / 2;
 
@@ -41,23 +52,26 @@ export class PaintScene extends Phaser.Scene {
     };
     this.events.on('update', this.bgUpdateHandler);
 
-    const title = makeDisplayText(this, centerX, 40, 'SHIP PAINT', {
-      fontSize: 32, color: ACCENT_COLORS_STR.primary, strokeWidth: 5, letterSpacing: 4,
+    const title = makeDisplayText(this, centerX, scaledInt(this.menuScale, 40), 'SHIP PAINT', {
+      fontSize: scaledInt(this.menuScale, 32), color: ACCENT_COLORS_STR.primary,
+      strokeWidth: scaledInt(this.menuScale, 5), letterSpacing: 4 * this.menuScale,
     });
-    const subtitle = makeBodyText(this, centerX, 72, 'Choose your hull colour — or revert to the ship default', {
-      fontSize: 13, color: TEXT_COLORS.muted,
+    fitTextWidth(title, this.scale.width - 24);
+    const subtitle = makeBodyText(this, centerX, scaledInt(this.menuScale, 72), 'Choose your hull colour — or revert to the ship default', {
+      fontSize: scaledInt(this.menuScale, 13), color: TEXT_COLORS.muted,
     });
+    fitTextWidth(subtitle, this.scale.width - 24);
 
     this.buildGrid();
 
     this.backButton = createMenuButton({
       scene: this,
       x: centerX,
-      y: this.scale.height - 36,
-      width: 220, height: 44,
+      y: this.scale.height - scaledInt(this.menuScale, 36),
+      width: scaledInt(this.menuScale, 220), height: scaledInt(this.menuScale, 44),
       label: '← BACK TO MENU',
       variant: 'neutral',
-      fontSize: 14,
+      fontSize: scaledInt(this.menuScale, 14),
       onActivate: () => {
         this.soundManager.playUIClick();
         transitionToScene(this, 'BootScene');
@@ -78,21 +92,28 @@ export class PaintScene extends Phaser.Scene {
     this.events.once('shutdown', this.shutdown, this);
   }
 
-  // Grid geometry — mirrors WeaponSelectScene.computeGridLayout (responsive columns).
+  // Grid geometry: the shared band fitter, so 24 cards cannot paint outside the canvas.
   private computeGridLayout(count: number, yOffset: number) {
-    const centerX = this.scale.width / 2;
-    const fitColumns = Math.max(1, Math.floor((this.scale.width - 32) / (CARD_WIDTH + CARD_SPACING)));
-    const columns = Math.min(count, MAX_COLUMNS, fitColumns);
-    const rows = Math.ceil(count / columns);
-    const totalGridWidth = columns * CARD_WIDTH + (columns - 1) * CARD_SPACING;
-    const totalGridHeight = rows * CARD_HEIGHT + (rows - 1) * CARD_SPACING;
-    const startX = centerX - totalGridWidth / 2 + CARD_WIDTH / 2;
-    const startY = this.scale.height / 2 - totalGridHeight / 2 + yOffset;
+    const grid = computeCardGridInBand({
+      count,
+      cardWidth: CARD_WIDTH,
+      cardHeight: CARD_HEIGHT,
+      cardSpacing: CARD_SPACING,
+      maxColumns: MAX_COLUMNS,
+      canvasWidth: this.scale.width,
+      canvasHeight: this.scale.height,
+      edgeMargin: 32,
+      topReserve: HEADER_RESERVE,
+      bottomReserve: FOOTER_RESERVE,
+      menuScale: this.menuScale,
+      anchorOffset: yOffset,
+    });
     return {
-      columns,
+      columns: grid.columns,
+      scale: grid.scale,
       positionAt: (index: number) => ({
-        x: startX + (index % columns) * (CARD_WIDTH + CARD_SPACING),
-        y: startY + Math.floor(index / columns) * (CARD_HEIGHT + CARD_SPACING),
+        x: grid.firstColumnX + (index % grid.columns) * grid.columnPitch,
+        y: grid.firstRowY + Math.floor(index / grid.columns) * grid.rowPitch,
       }),
     };
   }
@@ -116,6 +137,7 @@ export class PaintScene extends Phaser.Scene {
     // total for layout = 1 (ship default) + unlocked + locked
     const total = 1 + unlockedPaints.length + lockedPaints.length;
     const layout = this.computeGridLayout(total, 20);
+    this.gridScale = layout.scale;
 
     // index 0 — SHIP DEFAULT (always selectable opt-out)
     const defPos = layout.positionAt(0);
@@ -161,6 +183,7 @@ export class PaintScene extends Phaser.Scene {
       bannerHeight: 40, borderWidth: 3, borderColor: accent, cornerRadius: 8,
       interactive: true,
     });
+    card.container.setScale(this.gridScale);
     this.contentContainer!.add(card.container);
     this.paintCards.push(card);
     this.selectHandlers[opts.gridIndex] = opts.onSelect;
@@ -197,6 +220,7 @@ export class PaintScene extends Phaser.Scene {
       bannerHeight: 40, borderWidth: 3, borderColor: ACCENT_COLORS.neutral, cornerRadius: 8,
       interactive: false,
     });
+    card.container.setScale(this.gridScale);
     this.contentContainer!.add(card.container);
     this.paintCards.push(card);
 
