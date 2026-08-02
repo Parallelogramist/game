@@ -16,6 +16,7 @@ import {
   PRACTICE_CONTROL_BOTTOM_RESERVE,
   computeMenuCardGrid,
   computeGridFit,
+  computeCardGridInBand,
   fitTextWidth,
 } from './HudScale';
 
@@ -207,5 +208,74 @@ describe('computeGridFit (the weapon grid at a full codex)', () => {
   test('the floor wins when even the best column count cannot fit', () => {
     const fit = computeGridFit({ ...weapon, count: 29, maxColumns: 10, availableHeight: 90 });
     expect(fit.scale).toBe(0.7);
+  });
+});
+
+describe('computeCardGridInBand (the paint and quest-board grids)', () => {
+  const paint = {
+    count: 24, cardWidth: 180, cardHeight: 150, cardSpacing: 16, maxColumns: 4,
+    edgeMargin: 32, topReserve: 92, bottomReserve: 72, anchorOffset: 20,
+  };
+  const board = {
+    cardWidth: 236, cardHeight: 268, cardSpacing: 20, maxColumns: 4,
+    edgeMargin: 48, topReserve: 168, bottomReserve: 80, anchorOffset: 48,
+  };
+
+  test('24 ship paints fit the band instead of painting above the canvas', () => {
+    // Composed: 4 columns x 6 rows = 980 units of grid, centred at startY -110, so the
+    // whole first row (SHIP DEFAULT included) sat off the top of a 720-tall canvas.
+    const grid = computeCardGridInBand({
+      ...paint, canvasWidth: 1280, canvasHeight: 720, menuScale: 1,
+    });
+    expect(grid.columns).toBe(7);
+    expect(grid.rows).toBe(4);
+    expect(grid.scale).toBeCloseTo(0.858025, 5);
+    expect(grid.firstColumnX).toBeCloseTo(135.4815, 3);
+    expect(grid.firstRowY).toBeCloseTo(156.3519, 3);
+    const topEdge = grid.firstRowY - (paint.cardHeight * grid.scale) / 2;
+    const bottomEdge = grid.firstRowY + (grid.rows - 1) * grid.rowPitch
+      + (paint.cardHeight * grid.scale) / 2;
+    expect(topEdge).toBeCloseTo(92, 3);
+    expect(bottomEdge).toBeCloseTo(648, 3);
+  });
+
+  test('the paint grid stays inside the band on a portrait phone', () => {
+    const grid = computeCardGridInBand({
+      ...paint, canvasWidth: 720, canvasHeight: 1280, menuScale: 1.2,
+    });
+    expect(grid.columns).toBe(4);
+    expect(grid.rows).toBe(6);
+    const topEdge = grid.firstRowY - (paint.cardHeight * grid.scale) / 2;
+    const bottomEdge = grid.firstRowY + (grid.rows - 1) * grid.rowPitch
+      + (paint.cardHeight * grid.scale) / 2;
+    expect(topEdge).toBeGreaterThanOrEqual(paint.topReserve * 1.2);
+    expect(bottomEdge).toBeLessThanOrEqual(1280 - paint.bottomReserve * 1.2);
+  });
+
+  test('a one-row quest board keeps its geometry but clears the counter line', () => {
+    const grid = computeCardGridInBand({
+      ...board, count: 4, canvasWidth: 1280, canvasHeight: 720, menuScale: 1,
+    });
+    expect(grid.columns).toBe(4);
+    expect(grid.rows).toBe(1);
+    expect(grid.scale).toBe(1);
+    expect(grid.firstColumnX).toBe(256);
+    // The composed anchor is 274, which put the card's top edge at y=140 under a status
+    // line drawn at y=150. Clamped to the band top instead.
+    expect(grid.firstRowY).toBe(302);
+  });
+
+  test('a full quest board fits the band instead of hiding its top row', () => {
+    const grid = computeCardGridInBand({
+      ...board, count: 9, canvasWidth: 1280, canvasHeight: 720, menuScale: 1,
+    });
+    expect(grid.columns).toBe(5);
+    expect(grid.rows).toBe(2);
+    expect(grid.scale).toBeCloseTo(0.848921, 5);
+    expect(grid.firstRowY).toBeCloseTo(281.7554, 3);
+    const topEdge = grid.firstRowY - (board.cardHeight * grid.scale) / 2;
+    const bottomEdge = grid.firstRowY + grid.rowPitch + (board.cardHeight * grid.scale) / 2;
+    expect(topEdge).toBeCloseTo(168, 3);
+    expect(bottomEdge).toBeCloseTo(640, 3);
   });
 });
