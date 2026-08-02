@@ -49,6 +49,11 @@ import { getCurrentExpeditionSeed } from '../expedition/ExpeditionSeasonStore';
  * claimExpeditionQuestGold(), exactly as DailyQuestManager does it: banking first means a
  * failed payout leaves the gold owed rather than lost, and claiming (rather than adding
  * each reward inline) sweeps up anything an earlier failure left behind.
+ *
+ * Relic rolls bank the same way, in `pendingRelicRolls`, and are handed out by
+ * claimExpeditionQuestRelicRolls(): a chain that finishes at the victory frame cannot open a
+ * draft in the run that earned it, so the roll waits for the next expedition instead of being
+ * lost.
  */
 
 const STORAGE_KEY_EXPEDITION_QUESTS = 'survivor-expedition-quests';
@@ -72,6 +77,7 @@ function questCatalog(): readonly ExpeditionQuestDefinition[] {
 interface ExpeditionQuestSaveState {
   states: QuestInstanceState[];
   pendingGold: number;
+  pendingRelicRolls: number;
 }
 
 export interface ExpeditionQuestRewards {
@@ -193,13 +199,14 @@ ExpeditionQuestSaveState {
   try {
     const raw = SecureStorage.getItem(STORAGE_KEY_EXPEDITION_QUESTS);
     const stored: unknown = raw ? JSON.parse(raw) : null;
-    if (!isPlainObject(stored)) return { states: [], pendingGold: 0 };
+    if (!isPlainObject(stored)) return { states: [], pendingGold: 0, pendingRelicRolls: 0 };
     return {
       states: sanitizeStates(stored.states, defs),
       pendingGold: sanitizeCount(stored.pendingGold),
+      pendingRelicRolls: sanitizeCount(stored.pendingRelicRolls),
     };
   } catch {
-    return { states: [], pendingGold: 0 };
+    return { states: [], pendingGold: 0, pendingRelicRolls: 0 };
   }
 }
 
@@ -281,7 +288,11 @@ export function beginExpeditionQuestRun(): ExpeditionQuestDefinition[] {
   const state = load(defs);
   const settled = settleRunScopeProgress(state.states, defs);
   const seeded = seedQuestStates(settled, defs, ACTIVE_EXPEDITION_QUEST_LIMIT);
-  save({ states: seeded.states, pendingGold: state.pendingGold });
+  save({
+    states: seeded.states,
+    pendingGold: state.pendingGold,
+    pendingRelicRolls: state.pendingRelicRolls,
+  });
   return seeded.activatedQuestIds
     .map((questId) => defs.find((entry) => entry.id === questId))
     .filter((definition): definition is ExpeditionQuestDefinition => definition !== undefined);
@@ -302,7 +313,10 @@ export function recordExpeditionQuestEvent(
 
   const earned = result.stepCompletions.reduce((total, entry) => total + entry.goldReward, 0)
     + result.questCompletions.reduce((total, entry) => total + entry.goldReward, 0);
+  const earnedRelicRolls = result.questCompletions
+    .filter((entry) => entry.relicRoll === true).length;
   const changed = earned > 0
+    || earnedRelicRolls > 0
     || result.activatedQuestIds.length > 0
     || result.states.some((next, index) => {
       const prior = state.states[index];
@@ -313,7 +327,11 @@ export function recordExpeditionQuestEvent(
     });
   if (!changed) return EMPTY_REWARDS;
 
-  save({ states: result.states, pendingGold: state.pendingGold + earned });
+  save({
+    states: result.states,
+    pendingGold: state.pendingGold + earned,
+    pendingRelicRolls: state.pendingRelicRolls + earnedRelicRolls,
+  });
   return {
     stepCompletions: result.stepCompletions,
     questCompletions: result.questCompletions,
@@ -326,7 +344,18 @@ export function claimExpeditionQuestGold(): number {
   const state = load();
   const owed = state.pendingGold;
   if (owed <= 0) return 0;
-  save({ states: state.states, pendingGold: 0 });
+  save({ states: state.states, pendingGold: 0, pendingRelicRolls: state.pendingRelicRolls });
+  return owed;
+}
+
+/** Hands the caller every unpaid relic roll and zeroes the bank (claimExpeditionQuestGold's
+ *  shape). A roll banked at a victory or a death is claimed at the next expedition's start,
+ *  which is the only reason it is banked rather than granted where it was earned. */
+export function claimExpeditionQuestRelicRolls(): number {
+  const state = load();
+  const owed = state.pendingRelicRolls;
+  if (owed <= 0) return 0;
+  save({ states: state.states, pendingGold: state.pendingGold, pendingRelicRolls: 0 });
   return owed;
 }
 
@@ -350,7 +379,11 @@ export function loadExpeditionQuestCargo(): { loaded: QuestCargoRow[]; aboard: Q
   const state = load(defs);
   const result = loadQuestCargo(state.states, defs);
   if (result.loaded.length > 0) {
-    save({ states: result.states, pendingGold: state.pendingGold });
+    save({
+      states: result.states,
+      pendingGold: state.pendingGold,
+      pendingRelicRolls: state.pendingRelicRolls,
+    });
   }
   return { loaded: result.loaded, aboard: result.aboard };
 }
@@ -362,7 +395,11 @@ export function acceptExpeditionQuest(questId: string): boolean {
   const stored = load(defs);
   const result = acceptQuest(stored.states, defs, questId, ACTIVE_EXPEDITION_QUEST_LIMIT);
   if (!result.accepted) return false;
-  save({ states: result.states, pendingGold: stored.pendingGold });
+  save({
+    states: result.states,
+    pendingGold: stored.pendingGold,
+    pendingRelicRolls: stored.pendingRelicRolls,
+  });
   return true;
 }
 
@@ -372,7 +409,11 @@ export function setExpeditionQuestAside(questId: string): boolean {
   const stored = load(defs);
   const result = setQuestAside(stored.states, defs, questId);
   if (!result.changed) return false;
-  save({ states: result.states, pendingGold: stored.pendingGold });
+  save({
+    states: result.states,
+    pendingGold: stored.pendingGold,
+    pendingRelicRolls: stored.pendingRelicRolls,
+  });
   return true;
 }
 
@@ -385,7 +426,11 @@ export function assignExpeditionQuestDrone(): { assigned: QuestDroneRow[]; activ
   const state = load(defs);
   const result = assignQuestDrone(state.states, defs);
   if (result.assigned.length > 0) {
-    save({ states: result.states, pendingGold: state.pendingGold });
+    save({
+      states: result.states,
+      pendingGold: state.pendingGold,
+      pendingRelicRolls: state.pendingRelicRolls,
+    });
   }
   return { assigned: result.assigned, active: result.active };
 }
@@ -396,7 +441,11 @@ export function dropExpeditionQuestDrone(): QuestDroneRow[] {
   const state = load(defs);
   const result = dropQuestDrone(state.states, defs);
   if (result.dropped.length === 0) return [];
-  save({ states: result.states, pendingGold: state.pendingGold });
+  save({
+    states: result.states,
+    pendingGold: state.pendingGold,
+    pendingRelicRolls: state.pendingRelicRolls,
+  });
   return result.dropped;
 }
 
@@ -414,7 +463,11 @@ export function dropExpeditionQuestCargo(drop: QuestCargoDrop): QuestCargoRow[] 
   const state = load(defs);
   const result = dropQuestCargo(state.states, defs, drop);
   if (result.dropped.length === 0) return [];
-  save({ states: result.states, pendingGold: state.pendingGold });
+  save({
+    states: result.states,
+    pendingGold: state.pendingGold,
+    pendingRelicRolls: state.pendingRelicRolls,
+  });
   return result.dropped;
 }
 
@@ -424,7 +477,11 @@ export function reclaimExpeditionQuestCargo(questId: string): QuestCargoRow | nu
   const state = load(defs);
   const result = reclaimQuestCargo(state.states, defs, questId);
   if (result.reclaimed === null) return null;
-  save({ states: result.states, pendingGold: state.pendingGold });
+  save({
+    states: result.states,
+    pendingGold: state.pendingGold,
+    pendingRelicRolls: state.pendingRelicRolls,
+  });
   return result.reclaimed;
 }
 

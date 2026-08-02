@@ -89,6 +89,10 @@ export interface ExpeditionQuestDefinition {
   readonly icon: string;
   readonly steps: readonly ExpeditionQuestStep[];
   readonly completionGoldReward: number;
+  /** One roll on the STANDARD relic table when the quest completes (doc 04 section 4). Econ
+   *  rule 1 is "more rolls, never better odds", so this pays through the unchanged draft the
+   *  chest pipeline already uses and adds nothing to the gold budget. */
+  readonly completionRelicRoll?: boolean;
   /** Chain link. Resolved + asserted acyclic by referentialIntegrity.test.ts. */
   readonly nextQuestId?: string;
   /** Completing this quest hands the profile a key that opens the world's KeyDoor edges
@@ -215,6 +219,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 350,
+    completionRelicRoll: true,
   },
   {
     id: 'quest_gatecrash_01',
@@ -301,6 +306,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 300,
+    completionRelicRoll: true,
   },
   {
     id: 'quest_secret_01',
@@ -363,6 +369,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 340,
+    completionRelicRoll: true,
   },
   {
     id: 'quest_purge_01',
@@ -425,6 +432,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 320,
+    completionRelicRoll: true,
   },
   /** Neither sigil quest grants a key ON PURPOSE. EXPEDITION_QUEST_KEY_ORDER is derived from
    *  catalog order and fed to the generator as WorldGenInputs.questKeyOrder, so a fifth key
@@ -486,6 +494,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 340,
+    completionRelicRoll: true,
   },
   {
     id: 'quest_warden_01',
@@ -535,6 +544,7 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
       },
     ],
     completionGoldReward: 340,
+    completionRelicRoll: true,
   },
 ];
 

@@ -332,7 +332,8 @@ export class QuestBoardScene extends Phaser.Scene {
 
     const progressLabel = entry.status === 'complete'
       ? 'CHAIN COMPLETE'
-      : `${Math.floor(entry.progress)} / ${entry.target}  ·  ${entry.goldRemaining} G LEFT`;
+      : `${Math.floor(entry.progress)} / ${entry.target}  ·  ${entry.goldRemaining} G`
+        + (entry.relicOnCompletion ? ' + RELIC' : '') + ' LEFT';
     card.frame.add(makeBodyText(this, 0, CARD_HEIGHT / 2 - 56, progressLabel, {
       fontSize: 12,
       color: entry.status === 'complete' ? TEXT_COLORS.muted : ACCENT_COLORS_STR.gold,

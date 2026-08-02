@@ -111,6 +111,10 @@ export interface QuestStepCompletion {
 export interface QuestCompletion {
   questId: string;
   goldReward: number;
+  /** Straight from the definition's completionRelicRoll. Left undefined rather than false when
+   *  the quest pays no relic, so a completion object stays deep-equal to the one it was before
+   *  this field existed. */
+  relicRoll?: boolean;
 }
 
 export interface QuestProgressResult {
@@ -308,6 +312,7 @@ export function recordQuestEvent(
       questCompletions.push({
         questId: definition.id,
         goldReward: definition.completionGoldReward,
+        relicRoll: definition.completionRelicRoll,
       });
     }
   }
@@ -683,6 +688,9 @@ export interface QuestBoardEntry {
   stepCount: number;
   /** Gold the rest of this chain still pays, including its completion bonus. 0 once complete. */
   goldRemaining: number;
+  /** Whether finishing this quest also pays a relic roll, so the board can say so before the
+   *  player commits to the chain. */
+  relicOnCompletion: boolean;
   /** True only where the board would take the accept RIGHT NOW: available AND under the cap. */
   acceptable: boolean;
 }
@@ -722,6 +730,7 @@ export function buildQuestBoardEntries(
       stepCount: definition.steps.length,
       goldRemaining: remainingSteps.reduce((total, entry) => total + entry.goldReward, 0)
         + (status === 'complete' ? 0 : definition.completionGoldReward),
+      relicOnCompletion: definition.completionRelicRoll === true,
       acceptable: status === 'available' && !capReached,
     });
   }

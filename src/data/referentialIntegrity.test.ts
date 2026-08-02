@@ -275,6 +275,12 @@ describe('expedition quest data rules', () => {
       }
       expect(walked.size, quest.id).toBeLessThanOrEqual(3);
     }
+
+    // A chain tail is the only thing that pays a relic roll, so a seventh chain added without
+    // one would silently ship a payout-free ending. Nothing else in the suite would notice.
+    for (const quest of EXPEDITION_QUESTS) {
+      expect(quest.completionRelicRoll === true, quest.id).toBe(quest.nextQuestId === undefined);
+    }
   });
 
   // Doc 04 section 4's anti-chore rule: a 'run'-scope step must be completable inside one

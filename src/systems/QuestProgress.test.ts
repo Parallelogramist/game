@@ -166,6 +166,27 @@ describe('recordQuestEvent', () => {
     recordQuestEvent(states, DEFS, { kind: 'kill', amount: 10 });
     expect(states[0]).toEqual(active('quest_a'));
   });
+
+  test('a completion carries its definition\'s relic roll and omits it otherwise', () => {
+    const relicDefs: readonly ExpeditionQuestDefinition[] = [
+      {
+        id: 'quest_relic', name: 'R', icon: 'clipboard',
+        steps: [{ id: 'q_relic.s1', description: 'kill 1', trigger: { kind: 'kill' }, target: 1, scope: 'run', goldReward: 1 }],
+        completionGoldReward: 10,
+        completionRelicRoll: true,
+      },
+      {
+        id: 'quest_plain', name: 'P', icon: 'clipboard',
+        steps: [{ id: 'q_plain.s1', description: 'kill 1', trigger: { kind: 'kill' }, target: 1, scope: 'run', goldReward: 1 }],
+        completionGoldReward: 10,
+      },
+    ];
+    const done = recordQuestEvent(
+      [active('quest_relic'), active('quest_plain')], relicDefs, { kind: 'kill', amount: 1 },
+    );
+    expect(done.questCompletions.find((entry) => entry.questId === 'quest_relic')?.relicRoll).toBe(true);
+    expect(done.questCompletions.find((entry) => entry.questId === 'quest_plain')?.relicRoll).toBeUndefined();
+  });
 });
 
 describe('settleRunScopeProgress', () => {

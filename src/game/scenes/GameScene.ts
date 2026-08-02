@@ -151,6 +151,7 @@ import {
   beginExpeditionQuestRun,
   recordExpeditionQuestEvent,
   claimExpeditionQuestGold,
+  claimExpeditionQuestRelicRolls,
   getActiveQuestHoldObjectives,
   getActiveQuestEscortObjectives,
   dropExpeditionQuestDrone,
@@ -9915,6 +9916,22 @@ export class GameScene extends Phaser.Scene {
    */
   private startExpeditionQuestRun(): void {
     if (!this.worldMode.worldMap()) return;
+    // A chain that finished at the victory frame banked its roll rather than losing it: the
+    // draft queue is dead once hasWon is set. It arrives here, on the next flight out.
+    const carriedRelicRolls = claimExpeditionQuestRelicRolls();
+    if (carriedRelicRolls > 0) {
+      this.grantRelicChoice(carriedRelicRolls);
+      this.toastManager?.showToast({
+        tier: 'notable',
+        title: 'QUEST REWARD',
+        description: carriedRelicRolls === 1
+          ? 'A finished chain sends a relic with you'
+          : `${carriedRelicRolls} finished chains send relics with you`,
+        icon: 'crown',
+        color: 0xffe26a,
+        duration: 3600,
+      });
+    }
     for (const quest of beginExpeditionQuestRun()) {
       getDiscoveryManager().noteObjectiveUpdated(quest.id);
       this.toastManager?.showToast({
@@ -9965,6 +9982,11 @@ export class GameScene extends Phaser.Scene {
     const owed = claimExpeditionQuestGold();
     if (owed > 0) getMetaProgressionManager().addGold(owed);
 
+    // Queued, not opened: processRelicChoiceQueue owns when a draft may take the screen, and
+    // refuses while the level-up, settings or pause overlays hold it.
+    const owedRelicRolls = claimExpeditionQuestRelicRolls();
+    if (owedRelicRolls > 0) this.grantRelicChoice(owedRelicRolls);
+
     const discovery = getDiscoveryManager();
     // A finished quest is deliberately not badged: it has no pin and no panel row left, so the
     // badge would name something the chart has stopped drawing. Its successor is badged below.
@@ -9999,7 +10021,8 @@ export class GameScene extends Phaser.Scene {
       this.raiseQuestToast({
         tier: 'notable',
         title: 'QUEST COMPLETE',
-        description: `${quest.name} · +${completion.goldReward} gold`,
+        description: `${quest.name} · +${completion.goldReward} gold`
+          + (completion.relicRoll === true ? ' · relic recovered' : ''),
         icon: quest.icon,
         color: 0xffe26a,
         duration: 3600,
