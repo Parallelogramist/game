@@ -419,6 +419,67 @@ export const EXPEDITION_QUESTS: readonly ExpeditionQuestDefinition[] = [
     ],
     completionGoldReward: 320,
   },
+  /** Neither sigil quest grants a key ON PURPOSE. EXPEDITION_QUEST_KEY_ORDER is derived from
+   *  catalog order and fed to the generator as WorldGenInputs.questKeyOrder, so a fifth key
+   *  would move KeyDoor placement in every world and cost a WORLDGEN_VERSION bump, which
+   *  discards every existing profile's discovery state. */
+  {
+    id: 'quest_sigil_01',
+    name: 'Sigil Work',
+    icon: 'swirl',
+    steps: [
+      {
+        id: 'q_sigil_01.s1',
+        description: 'Wake a sigil ring in order and take the cache it seals',
+        trigger: { kind: 'findSecret', secretKind: 'puzzle' },
+        target: 1,
+        scope: 'run',
+        goldReward: 110,
+      },
+      {
+        id: 'q_sigil_01.s2',
+        description: 'Solve three sigil rings across your expeditions',
+        trigger: { kind: 'findSecret', secretKind: 'puzzle' },
+        target: 3,
+        scope: 'persistent',
+        goldReward: 170,
+      },
+    ],
+    completionGoldReward: 220,
+    nextQuestId: 'quest_sigil_02',
+  },
+  {
+    id: 'quest_sigil_02',
+    name: 'The Sealed Choir',
+    icon: 'sparkle',
+    steps: [
+      {
+        id: 'q_sigil_02.s1',
+        description: 'Solve eight sigil rings across your expeditions',
+        trigger: { kind: 'findSecret', secretKind: 'puzzle' },
+        target: 8,
+        scope: 'persistent',
+        goldReward: 240,
+      },
+      {
+        id: 'q_sigil_02.s2',
+        description: 'Uncover twenty secrets across your expeditions',
+        trigger: { kind: 'findSecret' },
+        target: 20,
+        scope: 'persistent',
+        goldReward: 250,
+      },
+      {
+        id: 'q_sigil_02.s3',
+        description: 'Chart {target} rooms across your expeditions',
+        trigger: { kind: 'reachSector' },
+        target: 24,
+        scope: 'persistent',
+        goldReward: 260,
+      },
+    ],
+    completionGoldReward: 340,
+  },
 ];
 
 export function getExpeditionQuest(questId: string): ExpeditionQuestDefinition | undefined {
