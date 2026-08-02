@@ -1255,7 +1255,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   is **no `POLISH-*` item to playtest**. Two tests pin the world-level split (it corrupts the
   best-score table silently in both directions); they land in the existing
   `runSettlement.test.ts`, so the suite holds at 178 files and goes 2083 → 2085 tests, all green.
-- [ ] **ARCH-BOSS-DIRECTORS** (chunk 7, last: needs the manager pattern routine).
+- [x] **ARCH-BOSS-DIRECTORS** (chunk 7, last) (done, 58b0358).
   Move `checkBossSpawn`/`beginRunBossFight`/`spawnBoss`/`showBossEntrance`/
   `handleBossPhaseTransition`/`spawnBossPhaseHazards` plus the
   `updateGauntletMode`/`checkEndlessModeSpawns` families (`:11283-13258`, ~1,975
@@ -1264,8 +1264,8 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   `src/game/endless/`. Guardrails: the 14 enemy-ai tests plus
   `GameStateManager.bossfight/endless` tests; add pure tests for boss-rotation index
   and gauntlet wave progression.
-  **Gauntlet third shipped** (5d7cefa); **endless third shipped** (539bfa8), one director
-  still to go. The eight progression
+  **Gauntlet third shipped** (5d7cefa); **endless third shipped** (539bfa8); **boss third
+  shipped** (58b0358), all three directors landed. The eight progression
   fields and the four methods (`updateGauntletMode`, `startGauntletWave`,
   `completeGauntletWave`, `syncGauntletHudLabel`) moved to
   `src/game/directors/GauntletDirector.ts` behind a 9-function `GauntletDeps` (alive-scan,
@@ -1300,12 +1300,43 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   one boss, no second boss below cycle 3), and practice never rolling the mutator or
   writing the endless leaderboard. Behaviour-preserving, so there is **no `POLISH-*` item
   to playtest**. Suite goes 179 → 180 files and 2089 → 2092 tests, all green.
-  Remaining scope: `BossFightDirector` (`runBossRotationIndex`/`checkBossSpawn`/
-  `beginRunBossFight`/`spawnBoss`/`spawnBossHazard`/`showBossEntrance`/`cleanupBossIntro`/
-  `handleBossPhaseTransition`/`spawnBossPhaseHazards`), plus the boss-rotation-index test
-  this item asks for. Note that `showWaveBanner` (and now also `spawnRandomMiniboss` /
-  `spawnNextBoss`) is shared by the remaining family, so it should stay in the scene until
-  that last family moves.
+  The **boss third** (58b0358) closes the item. Six progression fields
+  (`bossRotationCursor`, `bossSpawnTime`, `bossSpawned`, `bossWarningPhase`,
+  `activeBossType`, `bossHazardTimer`) and three methods (`runBossRotationIndex`,
+  `checkBossSpawn`, `beginRunBossFight`) moved to
+  `src/game/directors/BossFightDirector.ts` behind an 8-function `BossFightDeps` (run
+  clock, standing throne, daily flag, daily date string, practice flag, warning cleanup,
+  boss spawn, hazard paint). The save shape is byte-identical: `bossSpawned`,
+  `bossWarningPhase` and `activeBossType` are **top-level** save keys, not a nested block,
+  so they stayed in their existing literal positions and are now read from director getters
+  (`hasSpawned()`, `getWarningPhase()`, `getActiveBossType()`). No version bump, and legacy
+  saves keep loading. `spawnBossHazard` changed signature: it takes the boss id and returns
+  the seconds until its next beat, so the eleven per-case `this.bossHazardTimer = N`
+  assignments plus the `default` became `return N` and the cadence now lives with the state
+  that owns it. The warning ladder became `claimWarningPhase(1|2|3)`, true exactly once on
+  the tick a beat comes due; the three claims still run in ascending order inside one tick,
+  which is how a frame long enough to cross several thresholds still plays every beat in
+  order, exactly as the original independent `if`s did. One deliberate deviation:
+  `clearActiveBoss()` also zeroes the hazard timer, which `GameScene.ts:4158` did not. It is
+  unobservable, and the proof is worth writing down: the only reader of the timer is the
+  cadence tick, which returns early unless `activeBossType !== null`, and the only other
+  writer is `setActiveBoss`, which zeroes it on the next fight. Deliberately did **not**
+  move: `spawnBoss`, `showBossEntrance`, `cleanupBossIntro`, `cleanupBossWarning`,
+  `handleBossPhaseTransition`, `spawnBossPhaseHazards`, the body of `spawnBossHazard` and
+  the whole warning presentation are Phaser (tweens, `this.add.text`, graphics, camera
+  shake, the HUD boss bar, `createEnemy`). Moving them would need a 20-plus function deps
+  surface, which is precisely what keeping them in the scene avoids, and it is the same
+  boundary the gauntlet third drew around `hasAliveGauntletThreat` and the endless third
+  drew around `showWaveBanner` / `spawnRandomMiniboss` / `spawnNextBoss`. Seven tests pin
+  the branches that fail **silently** when a port goes wrong: a standard run fielding the
+  live rotation slot and spending it, a daily fielding its date-seeded boss and never
+  spending, a daily with no date string reading the live rotation yet still not spending
+  it, practice never spending, the warden throne's 300s patience window (held at +299,
+  fires at +300), the variety cursor walking past the fielded boss without spending, and
+  the hazard cadence re-arming from the delay the scene reports. None of them throws when
+  broken; they just quietly field the wrong boss or drift every player's persisted rotation.
+  Behaviour-preserving, so there is **no `POLISH-*` item to playtest**. Suite goes 180 → 181
+  files and 2092 → 2099 tests, all green.
 - [ ] **CHORE-ARCH-TOOLING** (chunk 8, any time after chunk 2). (1) **Done** (647393a): the dead
   `enemyPositionsArray`/`getEnemyPositions` are gone from `src/ecs/FrameCache.ts`. They had zero
   consumers repo-wide and allocated one object per enemy per frame, up to 120k dead
