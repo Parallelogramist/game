@@ -106,6 +106,12 @@ interface ConfirmationCopy {
   choiceLabels?: readonly string[];
 }
 
+/** What BootScene is restarted with. Only main.ts's orientation watcher sets either field. */
+interface BootLaunchData {
+  relayout?: boolean;
+  openSubmenu?: string;
+}
+
 const DEFAULT_CONFIRMATION_COPY: ConfirmationCopy = {
   title: 'START NEW RUN?',
   body: 'Your current run will be lost.',
@@ -120,6 +126,9 @@ export class BootScene extends Phaser.Scene {
   private confirmationNavigator: MenuNavigator | null = null;
   private metaTooltip: Phaser.GameObjects.Container | null = null;
   private submenu: SubmenuOverlay | null = null;
+  private openSubmenuTitle: string | null = null;
+  private submenuOpeners = new Map<string, () => void>();
+  private pendingSubmenuTitle: string | null = null;
   private tooltipEscHandler: ((event: KeyboardEvent) => void) | null = null;
   private selectedFocusIndex: number = 0;
   private focusEntries: FocusEntry[] = [];
@@ -135,6 +144,15 @@ export class BootScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'BootScene' });
+  }
+
+  /** `relayout` is set only by main.ts's orientation watcher, which pairs it with the title of
+   *  the submenu that was open so a flip puts the player back where they were. A fresh entry
+   *  carries neither field and always opens on the deck row. */
+  init(data?: BootLaunchData): void {
+    this.pendingSubmenuTitle = data?.relayout === true && typeof data.openSubmenu === 'string'
+      ? data.openSubmenu
+      : null;
   }
 
   preload(): void {
@@ -875,6 +893,14 @@ export class BootScene extends Phaser.Scene {
 
     // ─── menu nav ───────────────────────────────────────────────────────
     this.buildMainNavigator(this.selectedFocusIndex);
+
+    // A resize or orientation flip restarts this scene (src/main.ts), which would otherwise drop
+    // a player browsing a submenu back onto the deck row. Fires after the navigator is built
+    // because openSubmenu pauses it.
+    if (this.pendingSubmenuTitle !== null) {
+      this.submenuOpeners.get(this.pendingSubmenuTitle)?.();
+      this.pendingSubmenuTitle = null;
+    }
 
     this.maybeShowBackupReminder(metaManager.getRunsCompleted());
     this.maybeShowInstallHint(metaManager.getRunsCompleted());
@@ -1710,6 +1736,37 @@ export class BootScene extends Phaser.Scene {
       });
     }
 
+    const collectionEntries: SubmenuEntry[] = [
+      {
+        label: 'ACHIEVEMENTS', iconKey: 'trophy', accentRole: 'teal',
+        badge: questBadge, iconTint: 0xaaffee, action: submenuAction(onAchievements),
+      },
+      {
+        label: 'CODEX', iconKey: 'book', accentRole: 'magenta',
+        iconTint: 0xeebbff, action: submenuAction(onCodex),
+      },
+      {
+        label: 'CARDS', iconKey: 'gem', accentRole: 'safe',
+        iconTint: 0xaaffcc, action: submenuAction(onCards),
+      },
+      {
+        label: 'LEADERBOARDS', iconKey: 'crown', accentRole: 'primary',
+        iconTint: 0xbbddff, action: submenuAction(onLeaderboard),
+      },
+      {
+        label: 'PAINT', iconKey: 'aura', accentRole: 'magenta',
+        iconTint: 0xffbbff, action: submenuAction(onPaint),
+      },
+    ];
+
+    // Keyed by the title the overlay itself shows, so a restart can reopen exactly what was open.
+    const openGameModes = () => this.openSubmenu('GAME MODES', gameModeEntries);
+    const openCollection = () => this.openSubmenu('COLLECTION', collectionEntries);
+    this.submenuOpeners = new Map([
+      ['GAME MODES', openGameModes],
+      ['COLLECTION', openCollection],
+    ]);
+
     const entries: DeckEntry[] = [
       {
         label: 'SHOP',
@@ -1729,7 +1786,7 @@ export class BootScene extends Phaser.Scene {
         bodyHex: COLORS.bodyDanger,
         accentHex: COLORS.accentDanger,
         iconTint: 0xffbbcc,
-        action: () => this.openSubmenu('GAME MODES', gameModeEntries),
+        action: openGameModes,
       },
       {
         // COLLECTION group (FEAT-MENU-SUBMENU-KIT) — achievements, codex, cards,
@@ -1741,28 +1798,7 @@ export class BootScene extends Phaser.Scene {
         accentHex: COLORS.accentTeal,
         badge: questBadge,
         iconTint: 0xaaffee,
-        action: () => this.openSubmenu('COLLECTION', [
-          {
-            label: 'ACHIEVEMENTS', iconKey: 'trophy', accentRole: 'teal',
-            badge: questBadge, iconTint: 0xaaffee, action: submenuAction(onAchievements),
-          },
-          {
-            label: 'CODEX', iconKey: 'book', accentRole: 'magenta',
-            iconTint: 0xeebbff, action: submenuAction(onCodex),
-          },
-          {
-            label: 'CARDS', iconKey: 'gem', accentRole: 'safe',
-            iconTint: 0xaaffcc, action: submenuAction(onCards),
-          },
-          {
-            label: 'LEADERBOARDS', iconKey: 'crown', accentRole: 'primary',
-            iconTint: 0xbbddff, action: submenuAction(onLeaderboard),
-          },
-          {
-            label: 'PAINT', iconKey: 'aura', accentRole: 'magenta',
-            iconTint: 0xffbbff, action: submenuAction(onPaint),
-          },
-        ]),
+        action: openCollection,
       },
     ];
 
@@ -2051,6 +2087,7 @@ export class BootScene extends Phaser.Scene {
   private openSubmenu(title: string, entries: SubmenuEntry[]): void {
     if (this.submenu) return;
     this.pauseMainNavigator();
+    this.openSubmenuTitle = title;
     this.submenu = createSubmenuOverlay({
       scene: this,
       title,
@@ -2063,7 +2100,14 @@ export class BootScene extends Phaser.Scene {
     if (!this.submenu) return;
     this.submenu.destroy();
     this.submenu = null;
+    this.openSubmenuTitle = null;
     this.resumeMainNavigator();
+  }
+
+  /** The open submenu's title, or null. main.ts's orientation watcher reads it before firing the
+   *  restart, so the rebuilt menu can reopen the same one. */
+  getOpenSubmenuTitle(): string | null {
+    return this.openSubmenuTitle;
   }
 
   private isOverlayOpen(): boolean {
@@ -2400,6 +2444,7 @@ export class BootScene extends Phaser.Scene {
     this.metaTooltip = null;
     this.submenu?.destroy();
     this.submenu = null;
+    this.openSubmenuTitle = null;
 
     for (const card of this.cards) card.destroy();
     this.cards = [];

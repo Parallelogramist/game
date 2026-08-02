@@ -173,7 +173,8 @@ window.addEventListener('unhandledrejection', (event) => {
   // (under EXPAND) any desktop window resize. Menu scenes restart with their original launch
   // payload (sys.settings.data) plus `relayout: true` — the flag a scene holding
   // half-composed input reads to re-render at the new size instead of resetting to defaults
-  // the way a fresh entry does.
+  // the way a fresh entry does. BootScene additionally gets the title of any open submenu back,
+  // so a flip mid-browse does not close it.
   //
   // GameScene and RunnerScene are NOT restarted on a plain resize: both subscribe to Phaser's
   // own scale 'resize' event and have already re-laid themselves out by the time this runs.
@@ -195,6 +196,16 @@ window.addEventListener('unhandledrejection', (event) => {
         || scene instanceof MarketScene || scene instanceof QuestBoardScene
       ) {
         scene.handleResize();
+      } else if (scene instanceof BootScene) {
+        // Restarted like any other menu scene, plus the title of the submenu that was open so
+        // create() puts it back. The key is always written: an undefined overrides a stale title
+        // left in launchData by an earlier flip.
+        const launchData = (scene.sys.settings.data ?? {}) as Record<string, unknown>;
+        scene.scene.restart({
+          ...launchData,
+          relayout: true,
+          openSubmenu: scene.getOpenSubmenuTitle() ?? undefined,
+        });
       } else {
         const launchData = (scene.sys.settings.data ?? {}) as Record<string, unknown>;
         scene.scene.restart({ ...launchData, relayout: true });
