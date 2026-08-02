@@ -9668,14 +9668,42 @@ exploring pays is the end of Phase 5.
   Not seen on a canvas by the session that built it: see `POLISH-MAPOPEN-REVEAL` under
   `## Human gates` for the playtest half.
 
-- [ ] **FEAT-DISCOVERY-SCAN-CASCADE** (new 2026-08-02, cut from `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`):
-  the decryptor sweep charts outlines too, through `DiscoveryManager.applyScanPulse`, and would
-  cascade for free now that db7de53 exists: feed `newlyChartedSectorKeys` from that call's
-  `sectorsDiscovered` the same way `applyMapFragment` already does, and the existing plan, sampler
-  and renderer path carry it with no other change. It was cut there because doc 03 moment 4 names
-  the map fragment specifically, the sweep already has its own in-run feedback, and one more
-  producer is one more thing to verify on a chunk nobody had played yet. Value: the sweep shows
-  you what it found instead of only telling you it swept. Deps: none.
+- [x] **FEAT-DISCOVERY-SCAN-CASCADE** (done, 3bb5cb7) (new 2026-08-02, cut from
+  `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`): the decryptor's sweep now shows the chart what it
+  charted. Value: `revealOnScanPulse` puts every sector within the sweep's graph radius on the
+  map at once, and the only surface that said so was the radar pulse: `applyScanPulse` committed
+  the discovery and never fed `newlyChartedSectorKeys`, so the map-open cascade `db7de53` built
+  for a map fragment never played for the ability the player spends `luckLevel` on, and opening
+  the chart after a sweep meant hunting for cells that had changed.
+  **What shipped:** three lines in `src/expedition/DiscoveryManager.ts`. `applyScanPulse` now
+  feeds the same run overlay `applyMapFragment` does, one loop after its own `commit`, off
+  `changes.sectorsDiscovered` rather than the sweep's footprint, so a sweep over rooms already on
+  the chart cascades nothing. **Nothing else moved:** `MapScene.create` already snapshots and
+  clears the overlay on exactly one open, `planMapOpenReveal` already caps the whole cascade at
+  `MAP_REVEAL_CASCADE_MS` 400 ms however many cells it covers (the stagger is derived from the
+  max hop), and reduced motion already drops the replay rather than queueing it, so a sweep that
+  charts twenty rooms costs exactly what one that charts two costs. `GameScene.ts` and
+  `MapScene.ts` are untouched.
+  **The feed is per write path, not in `commit`, deliberately:** `markSectorEntered` discovers
+  neighbours on ordinary entry, so a feed in `commit` would replay on nearly every map open. The
+  opt-in matches `markSecretFound` and `applyMapFragment`, which each feed their own overlay after
+  their own commit.
+  **Two neighbours considered and cut, with reasons, so they are not re-derived:** (a)
+  `runDecryptorScan` still returns early when a sweep hints no secret, because its notice is
+  `tier: 'notable'` and therefore never drawn in-run, while `recordSuppressed` evicts FIFO past
+  `MAX_SUPPRESSED_TOASTS` 40, so a notice per sector entry would push real notices out of the
+  run-end recap; (b) a "N rooms charted" clause on the existing `SIGNAL DECRYPTED` description was
+  dropped because `buildRunNotices` dedups by title keeping the first description, so a later
+  sweep's count would never reach the recap.
+  **One test, and it is the point:** no test covered the overlay feed for any write path, and a
+  missing feed fails silently (no error, just an animation that never plays, on a Phaser-coupled
+  path). One appended case in `src/expedition/DiscoveryManager.test.ts` reuses that file's
+  existing `makeWorld` fixture and pins both halves: a first sweep charts `0,0` and `1,0`, and a
+  repeat sweep charts nothing. No storage key, no sanitizer clause and no version constant of any
+  kind moved. Arena is inert by construction: `decryptorOwned` returns false when
+  `worldMode.worldMap()` is null. Suite 190 files / 2175 tests to 190 / 2176. The seen half is
+  **POLISH-SWEEP-CASCADE** under `## Human gates`. Doc 03 section 7 moment 4 now names the sweep
+  as its second producer, and its stale "Still open here" paragraph is corrected.
 
 - [x] **FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE** (done, b75822d): doc 03 section 7 moment 5, the last
   information-carrying moment of that section. A player holds up to three chains at once and
@@ -11895,6 +11923,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-SWEEP-CASCADE** (new 2026-08-02, from FEAT-DISCOVERY-SCAN-CASCADE). The map-open
+  cascade now has a second trigger and none of it has been seen. Questions for the operator:
+  (a) the decryptor sweeps on every sector entry, so early in a world the cascade can play on
+  most map opens, where a map fragment made it a rare event: does a frequent replay read as the
+  chart keeping up or as a delay before the map is usable? (b) sweeps accumulate between map
+  opens, so one open can cascade rooms charted from several different origins, and
+  `planMapOpenReveal` seeds its BFS from the first of them: does the ripple still read as
+  spreading outward, or as two unrelated patches fading in? (c) the whole cascade is 400 ms
+  whatever it covers, so a twenty-room sweep fades each cell faster than a two-room one: is the
+  wide case still legible? Deps: play.
 
 - [ ] **POLISH-UNLOCK-STING** (new 2026-08-02, from FEAT-EARNED-SOUND). A new sound now plays
   on all three run-end screens and none of it has been heard. Questions for the operator:
