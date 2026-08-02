@@ -8093,7 +8093,7 @@ exploring pays is the end of Phase 5.
   by a test in `sectorWallSegments.test.ts` rather than only by a comment. Full write-up in
   `BACKLOG-archive.md`.
 
-- [ ] **FEAT-DISCOVERY-FEEDBACK-07**: discovery becomes felt, not just stored: first-entry
+- [x] **FEAT-DISCOVERY-FEEDBACK-07** (done, 05b2c48 + b75822d + db7de53): discovery becomes felt, not just stored: first-entry
   sector banner, fragment cascades, secret bloom, completion milestones at 25/50/75/100 and the
   payoff moment where gaining an ability toasts `NEW ROUTES ONLINE` and rings every door it just
   opened. **Advanced but not finished by 05b2c48**, which met four of the done-criteria: the
@@ -8107,8 +8107,10 @@ exploring pays is the end of Phase 5.
   `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`. Moment 5's objective-pin `UPDATED` badge shipped at
   b75822d, so what is left here is motion only. Its deps were already met when that commit
   landed: `FEAT-MAPUI-RADAR-UNDERLAY-06` (492b8f0/9c670b7), `FEAT-POWER-VAULTS` (a2361d0).
+  **Closed at db7de53**: moments 3 and 4 were the last two open, and they shipped together with
+  `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`, so doc 03 section 7 now has no open moments left.
 
-- [ ] **FEAT-DISCOVERY-MAPOPEN-ANIMATIONS** (new 2026-07-31, from `FEAT-DISCOVERY-FEEDBACK-07`):
+- [x] **FEAT-DISCOVERY-MAPOPEN-ANIMATIONS** (done, db7de53) (new 2026-07-31, from `FEAT-DISCOVERY-FEEDBACK-07`):
   doc 03 section 7 moments 3 and 4 want motion on the next map open, a one-time icon bloom on the
   cell where a secret was just found and a 400 ms BFS cascade of the outlines a map fragment just
   charted. Both toasts already ship (`HIDDEN CACHE FOUND`, `Survey data: ... charted`); what is
@@ -8116,6 +8118,51 @@ exploring pays is the end of Phase 5.
   last looked at, and the map keeps no such record. The new-routes overlay shipped with
   `FEAT-DISCOVERY-FEEDBACK-07` is the shape that record would take. Value: the map replays what
   changed while you were flying, instead of quietly already being different. Deps: none.
+  **Shipped at db7de53.** The missing per-open delta is now two run overlays on
+  `DiscoveryManager`, `newlyFoundSecretIds` and `newlyChartedSectorKeys`, sitting beside
+  `newlyPassableEdgeIds` and cleared by `bindWorld` exactly as it is. Both are written from
+  *inside* the manager, by `markSecretFound` and `applyMapFragment`, off the `DiscoveryChanges`
+  those calls already return rather than off their arguments: that is what makes a re-claimed
+  secret bloom nothing and an already-charted sector cascade nothing, and it is why no producer
+  call site moved (`GameScene`, `SecretCacheManager` and `discoveryRules` are untouched in the
+  diff). `MapScene.create` snapshots both sets and calls `clearMapOpenReveal()` on the spot,
+  which is moment 6's own snapshot-then-clear invariant: snapshot after the clear and the replay
+  never runs, read the live set instead and it replays on every open forever.
+  The shape lives in the new pure, Phaser-free `src/expedition/mapReveal.ts` (the
+  `mapFragments.ts` precedent, importing only `world/worldTypes`). A BFS over non-Wall edges,
+  walking only through the granted set, orders the outlines by hop from the first granted sector,
+  so they ripple outward from where the grant starts. The per-hop stagger is *derived*
+  (`(400 - 160) / maxHop`) rather than fixed, which is what holds the whole cascade at 400 ms
+  whether the grant is two sectors deep or eight: a fixed stagger would run 8 sectors to well
+  over a second. The disconnected-slice fallback exists because a grant slices one region by
+  depth and a region is contiguous only by construction, so a wall can still cut a slice in two:
+  a straggler the walk cannot reach lands one hop behind everything it did, instead of never
+  fading in at all. Those two behaviours plus the timing window are the only things tested
+  (`mapReveal.test.ts`, 4 tests): they fail silently, since a wrong stagger just looks like a
+  slightly different animation and a lost straggler looks like a cell that was never granted.
+  In the renderer, a cell still fading in draws its outline and nothing else (`if (cellAlpha < 1)
+  continue` right after the fill/stroke block): its notch, badges, pin, mark, icons and doors all
+  join at full alpha the instant the cascade reaches it. That is the reason no alpha has to be
+  threaded through five glyph helpers for one 400 ms replay. The bloom is a separate expanding
+  amber ring drawn outside the glyph in `drawPoiIcons`, so the icon it points at stays readable.
+  Reduced motion **clears the overlays without playing them**, so a skipped replay is dropped
+  rather than banked to ambush a later open. No storage key, no `SAVE_VERSION`, no
+  `WORLDGEN_VERSION` and no `DISCOVERY_VERSION` bump was needed, because the overlays are run
+  state `bindWorld` already clears: every existing profile gets this on the build that lands.
+  Two deliberate cuts, both filed rather than pulled in: the decryptor sweep (`applyScanPulse`)
+  also charts outlines and would cascade for free, filed as `FEAT-DISCOVERY-SCAN-CASCADE`, and
+  `POLISH-OBJECTIVE-PIN-PULSE`, which becomes cheap now that this redraw cadence exists.
+  Not seen on a canvas by the session that built it: see `POLISH-MAPOPEN-REVEAL` under
+  `## Human gates` for the playtest half.
+
+- [ ] **FEAT-DISCOVERY-SCAN-CASCADE** (new 2026-08-02, cut from `FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`):
+  the decryptor sweep charts outlines too, through `DiscoveryManager.applyScanPulse`, and would
+  cascade for free now that db7de53 exists: feed `newlyChartedSectorKeys` from that call's
+  `sectorsDiscovered` the same way `applyMapFragment` already does, and the existing plan, sampler
+  and renderer path carry it with no other change. It was cut there because doc 03 moment 4 names
+  the map fragment specifically, the sweep already has its own in-run feedback, and one more
+  producer is one more thing to verify on a chunk nobody had played yet. Value: the sweep shows
+  you what it found instead of only telling you it swept. Deps: none.
 
 - [x] **FEAT-DISCOVERY-OBJECTIVE-PIN-BADGE** (done, b75822d): doc 03 section 7 moment 5, the last
   information-carrying moment of that section. A player holds up to three chains at once and
@@ -9546,12 +9593,19 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   would use; the only new work is the band and the cap read. Value: gold is the one payout the
   player can carry out of a failed run. Deps: `FEAT-ECON-WARDS`. Spec: doc 04 section 6 rule 2.
 
-- [ ] **FEAT-SECRET-REWARD-FRAGMENTS** (new 2026-07-31, cut from `FEAT-SECRET-REWARD-VARIETY`):
-  the map-fragment row of the reward table, and only that row. It was cut because the thing it
-  would pay does not exist: `revealOnMapFragment` and `fragmentRegions` are
-  `FEAT-DISCOVERY-SCAN-FRAGMENT`'s named deliverable and appear nowhere in `src/`, so shipping
-  it now is an inert reward. It is one `SECRET_REWARDS` entry plus one `paySecretReward` case
-  once that carrier lands. **The lore-fragment row is cut, not pending** (2026-07-31, 885d3bb):
+- [x] **FEAT-SECRET-REWARD-FRAGMENTS** (done, e36b7f6 + 1150f3b) (new 2026-07-31, cut from `FEAT-SECRET-REWARD-VARIETY`):
+  the map-fragment row of the reward table, and only that row. **It shipped as part of
+  `FEAT-DISCOVERY-SCAN-FRAGMENT` (e36b7f6 + 1150f3b), which was its stated blocker, and the item
+  was simply left unticked.** Re-verified in `src/` before ticking (2026-08-02): the
+  `secret_map_fragment` row is `src/world/secretRewards.ts:75`, with its tier weights at `:99`,
+  `:109` and `:124`, and `paySecretReward` handles the case at `src/game/scenes/GameScene.ts:5821`,
+  routing through `grantMapFragment` to `discovery.applyMapFragment`. Nothing was left to build.
+  It was cut originally because the thing it
+  would pay did not exist: `revealOnMapFragment` and `fragmentRegions` are
+  `FEAT-DISCOVERY-SCAN-FRAGMENT`'s named deliverable and appeared nowhere in `src/`, so shipping
+  it then would have been an inert reward. It was one `SECRET_REWARDS` entry plus one
+  `paySecretReward` case once that carrier landed, and that is exactly how it landed.
+  **The lore-fragment row is cut, not pending** (2026-07-31, 885d3bb):
   `FEAT-SECRET-LORE` makes a fragment ride every qualifying find, so a `SECRET_REWARDS` lore
   entry would make the player trade a chest for text they already get. Value: a map fragment is
   the only reward that pays in map knowledge rather than in power. Deps:
@@ -9923,6 +9977,20 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAPOPEN-REVEAL** (new 2026-08-02, from FEAT-DISCOVERY-MAPOPEN-ANIMATIONS, db7de53).
+  Value: the map-open replay (a secret-find bloom, a 400 ms outward cascade of the outlines a map
+  fragment just charted) is wired, typed, built and its pure half is tested, but no session has
+  seen it on a canvas: every duration and radius in it is a number chosen to match its neighbours
+  rather than one that was played. Questions only a run answers: (a) is 400 ms for the whole
+  cascade a reveal or a flicker at eight sectors, and does the 160 ms per-cell fade read at map
+  zoom 0.5? (b) does the amber bloom ring read against the biome tint of a visited cell, or does
+  it want the cell dimmed under it? (c) 520 ms of bloom against 400 ms of cascade was chosen so a
+  lone find still registers: when both fire at once, does the pair read as one event or two?
+  (d) the replay is skipped entirely under reduced motion rather than shown as a static tell:
+  should a just-charted cell instead carry a static badge the way a moved objective does? (e) a
+  player who opens the map mid-flight and pans immediately will pan through the cascade: does
+  that read as broken?
 
 - [ ] **POLISH-BUFF-STRIP** (new 2026-08-02, from FEAT-HUD-TIMED-BUFF). Value: the new timed-buff
   strip is the first thing on the HUD's right column below the relic strip, and every number in it
