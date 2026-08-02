@@ -4893,11 +4893,33 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
   Files: `src/meta/HiddenUnlocks.ts`, `src/meta/HiddenUnlocks.test.ts`,
   `src/game/scenes/AchievementScene.ts`.
 
-- [ ] **FEAT-EARNED-SOUND**: give a run-end hidden unlock its own sting. Value: the death screen
-  already fires `playAchievementUnlock()` for a card reveal (the card-reveal delayed call in
-  `PauseMenuManager`), but a *ship* unlock now arrives as a silent panel row under the game-over
-  sound, so the biggest meta-progression moment in the game is the quietest thing on the screen.
-  Pointers: `src/audio/SoundManager.ts`, the `createRunEarningsPanel` call site.
+- [x] **FEAT-EARNED-SOUND** (done, 8c4e71b): a run-end permanent unlock now has a sound.
+  Value: of the three things `buildRunEarnings` reports, achievements sting as they fire
+  (`GameScene.ts:1683`) and quest payouts toast, while a hidden unlock played nothing
+  anywhere: `setOnNewUnlock` (`GameScene.ts:1632`) raises a toast the end overlay covers by
+  design, so the rarest reward in the game reached the player as a silent row inside a
+  stagger fade.
+  **What shipped:** `playUnlockEarned()` in `src/audio/SoundManager.ts`, a low bloom
+  (C3 + G3) opening into an octave (C4 + G4) and resolving on C5 with an E5 sparkle. It is
+  voiced on `PICKUP_HEALTH`, the one loaded sample no other run-end cue touches, so it is
+  distinguishable from the card-reveal chime that can fire on the same screen a second
+  earlier. `hasPermanentUnlock` in `src/meta/RunEarnings.ts` decides when it plays, reading a
+  tag set derived from `UNLOCK_TARGET_TAGS` itself so a future unlock target cannot drop out
+  of it silently; `ACHIEVEMENT`, `QUEST` and `FOUND` rows deliberately do not qualify.
+  **All three run-end surfaces sting, one rule:** the death screen at the earnings panel's
+  own stagger slot (`unlockStingSlot * 120 + 300`, which is seconds after the game-over doom
+  chord and after the card chime), the END RUN dialog at a flat 180 ms (nothing there
+  staggers), and the victory overlay at 760 ms, which clears both the fanfare's last voice at
+  540 ms and the card chime's tail at 520 ms.
+  **Fired at the surfaces, not inside `setOnNewUnlock`:** that callback runs inside
+  `evaluatePostRun`, while `playGameOver()` or `playVictoryFanfare()` is still sounding, so a
+  sting there would be buried under exactly the sound this item was filed about.
+  **One sting per run end, not one per row**, so a run that unlocks several things is not
+  three overlapping chimes. **No new tests, deliberately:** the predicate is one `Array.some`
+  over a derived set with no drift to pin, and everything else schedules against a live
+  Phaser scene, which `CLAUDE.md` says is verified by play. Suite unchanged at 190 files /
+  2175 tests, `tsc --noEmit` clean, `npm run build` clean. The audible half is
+  **POLISH-UNLOCK-STING** under `## Human gates`.
 
 - [x] **FEAT-ENDRUN-RECORD-TRUTH** — ending a run from the pause menu now records the run end
   (done — 09b0f8f). Value: `showEndRunConfirmation` cleared the save and banked the gold, then wrote
@@ -11873,6 +11895,16 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-UNLOCK-STING** (new 2026-08-02, from FEAT-EARNED-SOUND). A new sound now plays
+  on all three run-end screens and none of it has been heard. Questions for the operator:
+  (a) is the C3+G3 to C4+G4 to C5 bloom distinguishable from the card-reveal chime when both
+  fire on the same death screen, or do they read as one long jingle? (b) the death-screen
+  sting is tied to the earnings panel's stagger slot, so on a busy run it can land several
+  seconds after the screen opens: does that read as a payoff arriving or as a stray noise?
+  (c) 760 ms on the victory overlay puts the sting right after the fanfare's tail: too close,
+  or right? (d) the sting fires once even when a run unlocked three things at once: should a
+  multi-unlock run sound bigger? Deps: play.
 
 - [ ] **POLISH-QUEST-CONTRACT-TOAST** (new 2026-08-02, from CHORE-QUEST-CONTRACT-COMPLETE-TOAST).
   Three toast sources that had never fired now do, and none of it has been seen in a browser.
