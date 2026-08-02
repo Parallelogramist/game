@@ -32,6 +32,14 @@ import { MenuNavigator, NavigableItem } from '../../input/MenuNavigator';
 import { createMenuBackground, MenuBackground } from '../../visual/MenuBackground';
 import { createMenuButton, MenuButton } from '../../visual/MenuButton';
 import { makeDisplayText, makeBodyText } from '../../visual/DisplayText';
+import {
+  computeScrollViewMetrics,
+  fitTextWidth,
+  resolveMenuFontScale,
+  scaledFontPx,
+  scaledInt,
+} from '../../utils/HudScale';
+import { getSettingsManager } from '../../settings';
 import { ACCENT_COLORS_STR, TEXT_COLORS } from '../../visual/MenuStyle';
 import { getRunHistory, RunSummary } from '../../meta/RunHistoryManager';
 import { getShipRecord } from '../../meta/ShipRecords';
@@ -82,7 +90,13 @@ export class CodexScene extends Phaser.Scene {
   private readonly cardWidth = 340;
   private readonly cardHeight = 95;
   private readonly cardSpacing = 14;
-  private readonly columns = 2;
+  private columns = 2;
+  /** Density compensation for this viewport; exactly 1 on every desktop viewport. */
+  private menuScale = 1;
+  private scrollBandTop = 0;
+  private scrollBandHeight = 0;
+  /** The canvas width in the scaled content container's own units. */
+  private contentSpaceWidth = 0;
 
   // Keyboard navigation state
   private focusZone: FocusZone = 'tabs';
@@ -97,6 +111,18 @@ export class CodexScene extends Phaser.Scene {
 
   create(): void {
     const centerX = this.scale.width / 2;
+    this.menuScale = resolveMenuFontScale(
+      this.scale.width, this.scale.height, getSettingsManager().getUiScale(),
+    );
+    const scrollView = computeScrollViewMetrics(
+      this.scale.width, this.scale.height, this.menuScale,
+    );
+    this.scrollBandTop = scrollView.top;
+    this.scrollBandHeight = scrollView.height;
+    this.contentSpaceWidth = scrollView.contentWidth;
+    // Two 340-unit columns need 694 of the container's own units; a density-scaled
+    // portrait canvas has 600, so it drops to one.
+    this.columns = this.contentSpaceWidth < this.cardWidth * 2 + this.cardSpacing ? 1 : 2;
 
     this.soundManager = new SoundManager(this);
 
@@ -117,12 +143,13 @@ export class CodexScene extends Phaser.Scene {
     this.events.on('update', this.bgUpdateHandler);
 
     // Title heading.
-    const title = makeDisplayText(this, centerX, 36, 'CODEX', {
-      fontSize: 32,
+    const title = makeDisplayText(this, centerX, scaledInt(this.menuScale, 36), 'CODEX', {
+      fontSize: scaledInt(this.menuScale, 32),
       color: ACCENT_COLORS_STR.primary,
-      strokeWidth: 5,
-      letterSpacing: 4,
+      strokeWidth: scaledInt(this.menuScale, 5),
+      letterSpacing: 4 * this.menuScale,
     });
+    fitTextWidth(title, this.scale.width - 24);
 
     // Completion percentage display (top right).
     const codexManager = getCodexManager();
@@ -132,23 +159,26 @@ export class CodexScene extends Phaser.Scene {
     const enemyCount = codexManager.getDiscoveredEnemyCount();
     const totalEnemies = codexManager.getTotalEnemyCount();
 
-    const completionLabel = makeBodyText(this, this.scale.width - 20, 18, 'COMPLETION', {
-      fontSize: 11,
-      color: TEXT_COLORS.muted,
-    });
+    const completionLabel = makeBodyText(this, this.scale.width - scaledInt(this.menuScale, 20),
+      scaledInt(this.menuScale, 18), 'COMPLETION', {
+        fontSize: scaledInt(this.menuScale, 11),
+        color: TEXT_COLORS.muted,
+      });
     completionLabel.setOrigin(1, 0);
 
-    const completionValue = makeDisplayText(this, this.scale.width - 20, 36,
+    const completionValue = makeDisplayText(this, this.scale.width - scaledInt(this.menuScale, 20),
+      scaledInt(this.menuScale, 36),
       `${completionPercent}%`, {
-        fontSize: 18,
+        fontSize: scaledInt(this.menuScale, 18),
         color: ACCENT_COLORS_STR.primary,
-        letterSpacing: 1,
+        letterSpacing: 1 * this.menuScale,
       });
     completionValue.setOrigin(1, 0.5);
 
-    const subStats = makeBodyText(this, this.scale.width - 20, 56,
+    const subStats = makeBodyText(this, this.scale.width - scaledInt(this.menuScale, 20),
+      scaledInt(this.menuScale, 56),
       `${weaponCount}/${totalWeapons} weapons   ·   ${enemyCount}/${totalEnemies} enemies`, {
-        fontSize: 11,
+        fontSize: scaledInt(this.menuScale, 11),
         color: TEXT_COLORS.muted,
       });
     subStats.setOrigin(1, 0);
@@ -166,12 +196,12 @@ export class CodexScene extends Phaser.Scene {
     this.backButton = createMenuButton({
       scene: this,
       x: centerX,
-      y: this.scale.height - 36,
-      width: 220,
-      height: 44,
+      y: this.scale.height - scaledInt(this.menuScale, 36),
+      width: scaledInt(this.menuScale, 220),
+      height: scaledInt(this.menuScale, 44),
       label: '← BACK TO MENU',
       variant: 'neutral',
-      fontSize: 14,
+      fontSize: scaledInt(this.menuScale, 14),
       onActivate: () => {
         this.soundManager.playUIClick();
         transitionToScene(this, 'BootScene');
@@ -216,9 +246,9 @@ export class CodexScene extends Phaser.Scene {
   }
 
   private createCategoryTabs(): void {
-    const tabY = 70;
-    const tabHeight = 36;
-    const tabSpacing = 8;
+    const tabY = scaledInt(this.menuScale, 70);
+    const tabHeight = scaledInt(this.menuScale, 36);
+    const tabSpacing = scaledInt(this.menuScale, 8);
     const totalTabs = CODEX_CATEGORIES.length;
     const tabWidth = Math.floor((this.scale.width - 40 - (totalTabs - 1) * tabSpacing) / totalTabs);
     const startX = 20;
@@ -244,20 +274,24 @@ export class CodexScene extends Phaser.Scene {
 
       // Tab icon
       const tabIcon = createIcon(this, {
-        x: 14,
+        x: scaledInt(this.menuScale, 14),
         y: tabHeight / 2,
         iconKey: category.icon,
-        size: 16,
+        size: scaledInt(this.menuScale, 16),
         tint: isSelected ? ICON_TINTS.DEFAULT : ICON_TINTS.DISABLED,
       });
 
       // Tab text
-      const tabText = this.add.text((tabWidth + 28) / 2, tabHeight / 2, category.name, {
-        fontSize: '14px',
-        color: isSelected ? '#ffffff' : '#888888',
-        fontFamily: FONT_FAMILY,
-      });
+      const tabText = this.add.text(
+        (tabWidth + scaledInt(this.menuScale, 28)) / 2, tabHeight / 2, category.name, {
+          fontSize: scaledFontPx(this.menuScale, 14),
+          color: isSelected ? '#ffffff' : '#888888',
+          fontFamily: FONT_FAMILY,
+        });
       tabText.setOrigin(0.5);
+      // 13 tabs make a desktop tab 88 units wide, which a 14px label already overran into
+      // its own count; the scaled label would overrun much further.
+      fitTextWidth(tabText, tabWidth - scaledInt(this.menuScale, 28) - 10);
 
       // Count text (discovered/total)
       let countLabel = '';
@@ -292,12 +326,17 @@ export class CodexScene extends Phaser.Scene {
       }
 
       if (countLabel) {
-        const countText = this.add.text(tabWidth - 8, tabHeight / 2, countLabel, {
-          fontSize: '11px',
-          color: isSelected ? '#88aaff' : '#666666',
-          fontFamily: FONT_FAMILY,
-        });
+        const countText = this.add.text(
+          tabWidth - scaledInt(this.menuScale, 8), tabHeight / 2, countLabel, {
+            fontSize: scaledFontPx(this.menuScale, 11),
+            color: isSelected ? '#88aaff' : '#666666',
+            fontFamily: FONT_FAMILY,
+          });
         countText.setOrigin(1, 0.5);
+        // 28 = the icon gutter the name is centred against, plus a 6-unit gap.
+        if (tabText.width + countText.width + scaledInt(this.menuScale, 34) > tabWidth) {
+          countText.setVisible(false);
+        }
         tabContainer.add([tabBg, tabIcon, tabText, countText]);
       } else {
         tabContainer.add([tabBg, tabIcon, tabText]);
@@ -367,14 +406,12 @@ export class CodexScene extends Phaser.Scene {
   }
 
   private createContentContainer(): void {
-    const containerY = 120;
-    const containerHeight = this.scale.height - 180;
-
-    this.contentContainer = this.add.container(0, containerY);
+    this.contentContainer = this.add.container(0, this.scrollBandTop);
+    this.contentContainer.setScale(this.menuScale);
 
     const maskGraphics = this.make.graphics({ x: 0, y: 0 });
     maskGraphics.fillStyle(0xffffff);
-    maskGraphics.fillRect(0, containerY, this.scale.width, containerHeight);
+    maskGraphics.fillRect(0, this.scrollBandTop, this.scale.width, this.scrollBandHeight);
     const mask = maskGraphics.createGeometryMask();
     this.contentContainer.setMask(mask);
   }
@@ -383,7 +420,7 @@ export class CodexScene extends Phaser.Scene {
     this.contentContainer.removeAll(true);
     this.codexCards = [];
     this.scrollY = 0;
-    this.contentContainer.y = 120;
+    this.contentContainer.y = this.scrollBandTop;
 
     switch (category) {
       case 'weapons':
@@ -433,7 +470,8 @@ export class CodexScene extends Phaser.Scene {
    * one card at the given (x,y) position.
    */
   private layoutCardGrid<T>(items: T[], cardHeight: number, render: (item: T, x: number, y: number) => void): void {
-    const startX = (this.scale.width - this.cardWidth * 2 - this.cardSpacing) / 2;
+    const gridWidth = this.cardWidth * this.columns + this.cardSpacing * (this.columns - 1);
+    const startX = (this.contentSpaceWidth - gridWidth) / 2;
     const startY = 10;
 
     items.forEach((item, index) => {
@@ -445,9 +483,8 @@ export class CodexScene extends Phaser.Scene {
     });
 
     const totalRows = Math.ceil(items.length / this.columns);
-    const contentHeight = totalRows * (cardHeight + this.cardSpacing);
-    const viewHeight = this.scale.height - 180;
-    this.maxScrollY = Math.max(0, contentHeight - viewHeight);
+    const contentHeight = totalRows * (cardHeight + this.cardSpacing) * this.menuScale;
+    this.maxScrollY = Math.max(0, contentHeight - this.scrollBandHeight);
   }
 
   private displayWeapons(): void {
@@ -674,7 +711,7 @@ export class CodexScene extends Phaser.Scene {
 
     if (upgradeEntries.length === 0) {
       const noDataText = this.add.text(
-        this.scale.width / 2,
+        this.contentSpaceWidth / 2,
         100,
         'No upgrades discovered yet.\nPlay more runs to discover upgrades!',
         {
@@ -1047,7 +1084,7 @@ export class CodexScene extends Phaser.Scene {
 
     if (runs.length === 0) {
       const emptyText = this.add.text(
-        this.scale.width / 2,
+        this.contentSpaceWidth / 2,
         60,
         'No runs recorded yet.\nFinish a run to start your history.',
         {
@@ -1633,7 +1670,7 @@ export class CodexScene extends Phaser.Scene {
     const stats = codexManager.getStatistics();
     const lifetime = getAchievementManager().getLifetimeStats();
 
-    const startX = this.scale.width / 2;
+    const startX = this.contentSpaceWidth / 2;
     const startY = 20;
     const lineHeight = 42;
 
@@ -1680,14 +1717,14 @@ export class CodexScene extends Phaser.Scene {
       });
     }
 
-    const rowWidth = this.scale.width - 80;
+    const rowWidth = this.contentSpaceWidth - 80;
     let zebra = 0;
 
     rows.forEach((row, index) => {
       const y = startY + index * lineHeight;
 
       if ('header' in row) {
-        const headerText = this.add.text(this.scale.width / 2, y + 12, row.header, {
+        const headerText = this.add.text(this.contentSpaceWidth / 2, y + 12, row.header, {
           fontSize: '15px',
           color: ACCENT_COLORS_STR.gold,
           fontFamily: FONT_FAMILY,
@@ -1700,7 +1737,7 @@ export class CodexScene extends Phaser.Scene {
       }
 
       const rowBg = this.add.rectangle(
-        this.scale.width / 2,
+        this.contentSpaceWidth / 2,
         y + lineHeight / 2 - 4,
         rowWidth,
         lineHeight - 4,
@@ -1727,9 +1764,8 @@ export class CodexScene extends Phaser.Scene {
       this.contentContainer.add(valueText);
     });
 
-    const contentBottom = startY + rows.length * lineHeight;
-    const viewHeight = this.scale.height - 180;
-    this.maxScrollY = Math.max(0, contentBottom - viewHeight);
+    const contentBottom = (startY + rows.length * lineHeight) * this.menuScale;
+    this.maxScrollY = Math.max(0, contentBottom - this.scrollBandHeight);
   }
 
   private formatTime(seconds: number): string {
@@ -1746,7 +1782,7 @@ export class CodexScene extends Phaser.Scene {
   private setupScrollInput(): void {
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number) => {
       this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY * 0.5, 0, this.maxScrollY);
-      this.contentContainer.y = 120 - this.scrollY;
+      this.contentContainer.y = this.scrollBandTop - this.scrollY;
     });
 
     let lastY = 0;
@@ -1755,10 +1791,11 @@ export class CodexScene extends Phaser.Scene {
     });
 
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.isDown && pointer.y > 120 && pointer.y < this.scale.height - 60) {
+      if (pointer.isDown && pointer.y > this.scrollBandTop
+        && pointer.y < this.scrollBandTop + this.scrollBandHeight) {
         const deltaY = lastY - pointer.y;
         this.scrollY = Phaser.Math.Clamp(this.scrollY + deltaY, 0, this.maxScrollY);
-        this.contentContainer.y = 120 - this.scrollY;
+        this.contentContainer.y = this.scrollBandTop - this.scrollY;
         lastY = pointer.y;
       }
     });
@@ -1863,18 +1900,17 @@ export class CodexScene extends Phaser.Scene {
         ? LORE_CARD_HEIGHT
         : this.cardHeight;
     const row = Math.floor(this.selectedCardIndex / this.columns);
-    const cardTopInContainer = 10 + row * (currentCardHeight + this.cardSpacing);
-    const cardBottomInContainer = cardTopInContainer + currentCardHeight;
-    const viewHeight = this.scale.height - 180;
+    const cardTopInBand = (10 + row * (currentCardHeight + this.cardSpacing)) * this.menuScale;
+    const cardBottomInBand = cardTopInBand + currentCardHeight * this.menuScale;
 
-    if (cardTopInContainer < this.scrollY) {
-      this.scrollY = cardTopInContainer;
-    } else if (cardBottomInContainer > this.scrollY + viewHeight) {
-      this.scrollY = cardBottomInContainer - viewHeight;
+    if (cardTopInBand < this.scrollY) {
+      this.scrollY = cardTopInBand;
+    } else if (cardBottomInBand > this.scrollY + this.scrollBandHeight) {
+      this.scrollY = cardBottomInBand - this.scrollBandHeight;
     }
 
     this.scrollY = Phaser.Math.Clamp(this.scrollY, 0, this.maxScrollY);
-    this.contentContainer.y = 120 - this.scrollY;
+    this.contentContainer.y = this.scrollBandTop - this.scrollY;
   }
 
   private updateFocusVisuals(): void {
