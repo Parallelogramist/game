@@ -384,6 +384,17 @@ first.
   at every consumer and the painter writes only over `TileKind.Open`, so no route can close. The
   "a wall collapsed" half does block and therefore needs a `sealHoldsUp`-shaped proof; it is filed
   as `FEAT-STIR-COLLAPSE`.
+  **Second slice shipped as `FEAT-STIR-COLLAPSE` (`2462679`, 2026-08-02):** the wall half, both
+  directions. Three further rooms per expedition open two 2-tile seams of rock into floor and then
+  drop three 2-tile runs of rubble across floor, in that order, so a pinch that was a room's only
+  route can legally take rubble once the seam has opened an alternate. Rubble is `TileKind.Solid`
+  and never `TileKind.Breakable`, because a breakable needs a rect id and ids have to agree with
+  `brokenBreakableIds`, a per-profile memory that outlives the expedition ordinal. Each run is
+  written, then proved: the room's reachable area, flooded from a doorway, must move by exactly the
+  tiles the run wrote, every doorway must still be reached and no POI slot that was reachable may
+  have stopped being. That is `sealHoldsUp`'s exactness argument (`src/world/sectorInterior.ts`)
+  applied to an overlay, and it is what the deferral above was waiting on. A run that fails the
+  proof is reverted and the attempt is spent. No version constant and no storage key moved.
 - **Map annotation.** Player-placed pins on the map screen, the single most requested
   feature of every Metroid-style map ever shipped.
   **Built by `FEAT-MAPUI-SECTOR-MARKS` (`4fd97c3`, 2026-08-01):** `P` or gamepad **A** on

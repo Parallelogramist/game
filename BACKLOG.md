@@ -1404,8 +1404,10 @@ the gold row and both fragment rows were cut to `FEAT-SECRET-REWARD-GOLD` and
 **`FEAT-WORLD-AMBIENT-STIR` (`7291ff6`) took README section 6's last cheaply reachable unbuilt
 bullet, ambient world state.** Three rooms per expedition now grow fresh hazard ground, keyed on a
 new per-world `expeditionCount`, so a charted room is not the room the profile left. The "a wall
-collapsed" half of that bullet is cut to `FEAT-STIR-COLLAPSE` on a mechanical reason (blocking
-geometry needs a reachability proof, non-blocking hazard ground needs none); do not re-derive it.
+collapsed" half of that bullet has now shipped too, as `FEAT-STIR-COLLAPSE` (`2462679`): three
+further rooms per expedition open seams of rock and drop rubble, and each run is proved by an exact
+reachability delta (the room's reachable area, flooded from a doorway, must move by exactly the
+tiles the run wrote), which is the proof the deferral was waiting on.
 Of that section's remaining bullets, moving walls and low-gravity drift stay deferred on their own
 merits, the arena retune and completion-percentage-as-a-metric want play, and boss rooms as gates
 would change how a boss is summoned rather than how a room is built.
@@ -7478,15 +7480,57 @@ exploring pays is the end of Phase 5.
   Files `POLISH-WORLD-AMBIENT-BLOOM`, `FEAT-STIR-COLLAPSE`, `FEAT-STIR-CHART-CELL` and
   `BALANCE-STIR-BLOOM-SPREAD`.
 
-- [ ] **FEAT-STIR-COLLAPSE** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): the other half of
-  README section 6's bullet, a wall that collapsed between expeditions. Cut on a mechanical
-  reason, not a preference: hazard ground never blocks, so the bloom needed no reachability
-  argument at all, while a new wall can strand a POI or close the only route to a region and
-  therefore needs the `sealHoldsUp`-shaped proof `FEAT-GRID-FENCE-CORRIDOR` built for corridor
-  bands. The opposite direction (a seam that opens between expeditions) has the mirror problem:
-  it would have to agree with `brokenBreakableIds`, which is a per-profile memory of walls the
-  player broke. Value: a route that was not there last life. Deps: none, but it wants
+- [x] **FEAT-STIR-COLLAPSE** (done, 2462679) (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): the
+  other half of README section 6's bullet, a wall that collapsed between expeditions. Cut on a
+  mechanical reason, not a preference: hazard ground never blocks, so the bloom needed no
+  reachability argument at all, while a new wall can strand a POI or close the only route to a
+  region and therefore needs the `sealHoldsUp`-shaped proof `FEAT-GRID-FENCE-CORRIDOR` built for
+  corridor bands. The opposite direction (a seam that opens between expeditions) has the mirror
+  problem: it would have to agree with `brokenBreakableIds`, which is a per-profile memory of walls
+  the player broke. Value: a route that was not there last life. Deps: none, but it wants
   `POLISH-WORLD-AMBIENT-BLOOM`'s answer on whether ambient change reads as alive or as noise.
+
+  **What shipped:** both directions in one pass, because they share one predicate, one room draw,
+  one banner clause and one chart row. Three rooms per expedition (`SHIFTED_SECTORS_PER_EXPEDITION`,
+  its own `ambientShift` salt rather than the bloom's, so a room that lands in both prints both
+  clauses) open two 2-tile seams of rock into floor (`BREACH_RUNS_PER_SECTOR`) and then drop three
+  2-tile runs of rubble across floor (`COLLAPSE_RUNS_PER_SECTOR`). The seam pass runs first and that
+  ordering is the design, not an accident: a pinch that was a room's only route can legally take
+  rubble once the seam has opened an alternate, so the pair genuinely re-routes a room instead of
+  only decorating it. The arrival banner adds `THE WALLS HAVE SHIFTED` and the chart's sector
+  readout adds `Shifted walls · the room changed shape`, both under the same VISITED gate the bloom
+  row takes.
+
+  Rubble is `TileKind.Solid` and never `TileKind.Breakable`, which answers the mirror problem this
+  entry named: a breakable needs a `BreakableRect` id, and ids have to agree with
+  `WorldProfileStore.brokenBreakableIds`, a per-profile memory that outlives the expedition ordinal,
+  so an id minted per ordinal would rot in that set every expedition. Solid rubble has no id and is
+  persisted nowhere. A seam writes `Open` over `Solid` only, so it can never open a sealed secret
+  shell, a void-gapped cache, a corridor grid band, a closed ability gate or a quest-key door.
+
+  The proof this entry was waiting on is an exact reachability delta, not a spot check. Each run is
+  written, then the sector's interior is flooded from a doorway: the reached count must move by
+  exactly the tiles the run wrote (+2 for a seam, -2 for rubble), every doorway must still be
+  reached, and no POI slot that was reachable before may be unreachable after. That is
+  `sealHoldsUp`'s own exactness argument (`src/world/sectorInterior.ts`) applied to an overlay: a
+  spot check would pass a seam that also connected a sealed pocket, or rubble that also orphaned a
+  corridor. A run that fails the proof is fully reverted and the attempt is spent, so a room whose
+  every candidate was illegal or unprovable is simply not reported as shifted. Both flood primitives
+  were exported rather than reimplemented (`floodInterior`, `countReached`).
+
+  No version constant and no storage key moved: `WORLDGEN_VERSION`, `SAVE_VERSION`,
+  `DISCOVERY_VERSION` and `WORLD_PROFILE_VERSION` all stay where they are, because this is a
+  post-generation overlay keyed on the `expeditionCount` that already exists, moving no sector key,
+  edge id, POI id or breakable rect id. It runs after the bloom in `ExpeditionModeAdapter`, so the
+  shipped bloom placement is byte-identical. Arena is inert by construction rather than by testing:
+  `ArenaModeAdapter.shiftedSectorKeys()` returns a frozen empty array, so neither the banner clause
+  nor the chart row can fire there. Four new `it` blocks in `src/world/ambientStir.test.ts` pin the
+  draw's determinism and ageing, the reachability invariant measured on the output map with an
+  independently written flood, the two-kinds-only rule, and the three excluded room kinds; suite
+  190 files / 2171 tests green (baseline 2167), `npx tsc --noEmit` exit 0, `npm run build` exit 0.
+  No deviation from the plan: every constant, string and signature shipped as specified, and test
+  1's `toBeGreaterThanOrEqual(4)` held across all five seeds with no lowering. Files
+  `POLISH-WORLD-AMBIENT-SHIFT` and extends `FEAT-STIR-CHART-CELL` to cover both marks.
 
 - [ ] **FEAT-STIR-CHART-CELL** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): a bloomed room is
   named in the focused-sector readout but carries no mark on the chart cell, so finding which
@@ -7495,6 +7539,9 @@ exploring pays is the end of Phase 5.
   objective-updated badge, sector marks and POI icons, so another mark needs a legend row and a
   placement the chart has not budgeted. Value: a room that changed is a place, not a line you
   have to go looking for. Deps: the same chart-crowding call `FEAT-GRID-BAND-CHART-CELL` waits on.
+  A shifted room's readout row shipped with `FEAT-STIR-COLLAPSE` (`2462679`) and lands in the same
+  readout with the same chart-crowding question, so this one item now covers both marks and no twin
+  item is filed for the shift.
 
 - [ ] **BALANCE-STIR-BLOOM-SPREAD** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR): three rooms
   per expedition and four extra 3x1 runs per room are measured against the generator (a sector is
@@ -11599,6 +11646,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-WORLD-AMBIENT-SHIFT** (new 2026-08-02, from FEAT-STIR-COLLAPSE). Value: three rooms
+  per expedition now open two seams of rock and drop three runs of rubble each, and none of it has
+  been seen in a browser. Questions for the operator, in a real expedition and then a second one in
+  the same world: (a) does a room whose walls moved read as the world being alive, or as the game
+  cheating a layout the player had learned; (b) is `THE WALLS HAVE SHIFTED` on the banner enough of
+  a tell, or does rubble that was not there want its own colour or a sound; (c) do 2-tile runs read
+  as rubble and as a seam at all, or are they small enough to be missed while flying; (d) is a
+  Solid block correct, or should rubble be shootable, given the write-up records why a Breakable was
+  refused; (e) does the shift want to be the SAME three rooms the bloom picked, so one room tells
+  one story, rather than an independent draw that stirs six. All five constants are pure geometry
+  validated in tests, never in a browser: do not retune them blind. Deps: play.
 
 - [ ] **POLISH-WORLD-AMBIENT-BLOOM** (new 2026-08-02, from FEAT-WORLD-AMBIENT-STIR). Value: three
   rooms per expedition now grow four extra hazard runs each and none of it has been seen in a
