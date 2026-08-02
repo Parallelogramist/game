@@ -229,7 +229,7 @@ import { runAllRunResets } from '../../systems/runResetRegistry';
 import { expireTimedStatBuffs, normalizeTimedStatBuffs, applyFieldBoost, buildTimedBuffRows, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
 import { FIELD_BOOSTS, getFieldBoostByKind, type FieldBoostDefinition } from '../../data/FieldBoosts';
 import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
-import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, type DirectorStrategy } from '../../systems/DirectorSystem';
+import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, setDirectorStage, type DirectorStrategy } from '../../systems/DirectorSystem';
 import { getThreatTier, clampThreatTier } from '../../data/ThreatTiers';
 import { recordThreatCleared } from '../../meta/ThreatProgress';
 import { getHiddenUnlockManager, type HiddenUnlockCondition } from '../../meta/HiddenUnlocks';
@@ -2050,6 +2050,7 @@ export class GameScene extends Phaser.Scene {
     // Bias the hazard spawner so each biome has a signature mix (Inferno →
     // burn, Crystal Caves → ice, Endless Void → void+energy).
     setHazardZoneStage(activeStage.id);
+    setDirectorStage(activeStage.id);
 
     // ═══ SPAWNING ═══
     this.playerStats.treasureInterval = metaManager.getStartingTreasureInterval();
@@ -3300,6 +3301,7 @@ export class GameScene extends Phaser.Scene {
     setHazardZoneWorldLevel(this.worldLevel);
     const restoredStage = getStageById(this.selectedStageId) ?? getDefaultStage();
     setHazardZoneStage(restoredStage.id);
+    setDirectorStage(restoredStage.id);
 
     // Restore live hazard zones + the auto-spawner pacing. resetAllRunSystems
     // above wiped the module (setHazardZoneScene re-initialized the pool), so a
@@ -12888,8 +12890,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * An expedition's named regions ARE stages: the room takes its palette, its ambient light
-   * and its hazard signature from the region it belongs to. The spine keeps whatever the
+   * An expedition's named regions ARE stages: the room takes its palette, its ambient light,
+   * its hazard signature and its pack from the region it belongs to. The spine keeps whatever the
    * player launched with, so a funnel stage pick still governs the world's home region
    * instead of being overwritten a frame after launch.
    */
@@ -12900,6 +12902,7 @@ export class GameScene extends Phaser.Scene {
     const stage = getStageById(regionStageId) ?? getDefaultStage();
     if (stage.id === this.activeStageId) return;
     setHazardZoneStage(stage.id);
+    setDirectorStage(stage.id);
     this.applyStageVisuals(stage.id);
   }
 

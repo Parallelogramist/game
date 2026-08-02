@@ -29,6 +29,7 @@ import {
   EXPEDITION_QUESTS, EXPEDITION_QUEST_KEY_ORDER, getQuestForKeyId,
 } from './ExpeditionQuests';
 import { LORE_FRAGMENTS } from './LoreFragments';
+import { STAGE_SPAWN_BIASES } from '../systems/DirectorSystem';
 
 /**
  * Referential-integrity sweep: every cross-reference key in the data catalogs
@@ -215,6 +216,24 @@ describe('data catalog referential integrity', () => {
       // (MapScene); neither wraps, and 17 is the widest that fits.
       expect(fragment.title.length, fragment.id).toBeLessThanOrEqual(17);
       expect(fragment.text.trim().length, fragment.id).toBeGreaterThan(0);
+    }
+  });
+
+  test('every stage spawn bias names a real stage and a naturally-spawning non-boss enemy', () => {
+    for (const stage of STAGES) {
+      expect(Object.keys(STAGE_SPAWN_BIASES), stage.id).toContain(stage.id);
+    }
+    for (const [stageId, bias] of Object.entries(STAGE_SPAWN_BIASES)) {
+      expect(STAGES.some((stage) => stage.id === stageId), stageId).toBe(true);
+      for (const [enemyId, multiplier] of Object.entries(bias)) {
+        const label = `${stageId}/${enemyId}`;
+        const enemyType = ENEMY_TYPES[enemyId];
+        expect(enemyType, label).toBeDefined();
+        expect(enemyType.spawnWeight, label).toBeGreaterThan(0);
+        expect(enemyType.category, label).not.toBe(EnemyCategory.Miniboss);
+        expect(enemyType.category, label).not.toBe(EnemyCategory.Boss);
+        expect(multiplier, label).toBeGreaterThan(0);
+      }
     }
   });
 });

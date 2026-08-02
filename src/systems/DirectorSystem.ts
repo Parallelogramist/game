@@ -43,6 +43,64 @@ const STRATEGY_CONFIG: Record<DirectorStrategy, {
 };
 
 // ---------------------------------------------------------------------------
+// Region spawn bias — a biome sends its own pack
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-stage weight multipliers on the director's weighted roll, keyed by enemy id.
+ * The twin of HazardZoneSystem's STAGE_HAZARD_BIASES: a region already picks the
+ * hazard mix and the palette, and this is the third thing a named region owes the
+ * player, the pack that lives there. An id absent from a stage's row is 1.0, and
+ * stage_deep_void is empty on purpose so the default stage rolls exactly as before.
+ * Every value is > 0: a 0 would let a small affordable pool sum to a zero total
+ * weight, which the roll below cannot divide.
+ */
+export const STAGE_SPAWN_BIASES: Record<string, Readonly<Record<string, number>>> = {
+  // The familiar expanse. No bias at all — this is the shape every other row deviates from.
+  stage_deep_void: {},
+  // Inferno: things that rush and burst. Suppressed shields and healers — nothing
+  // patient survives here.
+  stage_inferno: {
+    exploder: 3.0, dasher: 2.2, zigzag: 1.6, swarm: 1.4, shielded: 0.4, healer: 0.3,
+  },
+  // Crystal Caves: armoured and splitting, matching the stage's own tougher-enemies
+  // promise. Rushers and bursts are rare in the lattice.
+  stage_crystal_caves: {
+    shielded: 3.0, tank: 2.4, splitter: 2.0, giant: 1.6, dasher: 0.5, exploder: 0.4,
+  },
+  // Endless Void: things that blink, lurk and wait. Heavy bodies are rare in the rift.
+  stage_endless_void: {
+    teleporter: 3.0, wraith: 3.0, lurker: 2.0, warden: 1.6, tank: 0.5, exploder: 0.6,
+  },
+  // Ion Field: the charged plain shoots back. Everything ranged, plus the Rallier
+  // riding the storm; melee bodies thin out.
+  stage_ion_field: {
+    shooter: 3.0, sniper: 2.5, circler: 2.0, rallier: 1.8, tank: 0.5, exploder: 0.5,
+  },
+  // Verdant Rot: it multiplies and it mends. Ranged pressure drops off in the damp.
+  stage_verdant_rot: {
+    swarm: 3.0, healer: 2.5, splitter: 2.4, lurker: 1.8, shooter: 0.6, sniper: 0.5,
+  },
+  // Molten Vault: the ore is guarded by the heaviest things in the catalog, and the
+  // chaff is burned off.
+  stage_molten_vault: {
+    giant: 3.0, tank: 2.5, warden: 2.2, exploder: 1.6, zigzag: 0.5, swarm: 0.5,
+  },
+};
+
+const DEFAULT_STAGE_SPAWN_BIAS: Readonly<Record<string, number>> = {};
+
+let activeSpawnBias: Readonly<Record<string, number>> = DEFAULT_STAGE_SPAWN_BIAS;
+
+/**
+ * Point the director at a stage's pack. Called from the same three places
+ * setHazardZoneStage is: run setup, save restore, and an expedition region change.
+ */
+export function setDirectorStage(stageId: string): void {
+  activeSpawnBias = STAGE_SPAWN_BIASES[stageId] ?? DEFAULT_STAGE_SPAWN_BIAS;
+}
+
+// ---------------------------------------------------------------------------
 // Module state
 // ---------------------------------------------------------------------------
 
@@ -208,7 +266,8 @@ export function pickEnemyFromDirector(
         type.category === EnemyCategory.Basic ? config.basicMultiplier :
         type.category === EnemyCategory.Elite ? config.eliteMultiplier :
         1.0;
-      return { type, weight: baseWeight * multiplier };
+      const regionMultiplier = activeSpawnBias[type.id] ?? 1.0;
+      return { type, weight: baseWeight * multiplier * regionMultiplier };
     });
 
     const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
@@ -239,6 +298,7 @@ export function resetDirectorSystem(forced?: DirectorStrategy): void {
   creditsEarned = 0;
   lastGameTime = 0;
   enemyCostCache.clear();
+  activeSpawnBias = DEFAULT_STAGE_SPAWN_BIAS;
   pickDirectorStrategy(forced);
 }
 
