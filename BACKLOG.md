@@ -6492,13 +6492,36 @@ exploring pays is the end of Phase 5.
   that is a decision rather than a free pass through the map. Deps: none, but it wants play, not
   a guess.
 
-- [ ] **FEAT-WRAITH-PHASE-WALL-TELL** (new 2026-08-01, from FEAT-BARRIER-WRAITH-PHASE): nothing
+- [x] **FEAT-WRAITH-PHASE-WALL-TELL** (done, d534c03, 2026-08-02): nothing
   warns the player that a wraith is coming through the wall they are standing behind. The one tell
   is the 0.2 sprite alpha, and while it matters most the wraith is inside geometry the player
   cannot see past. The honest version is a tell on the wall rather than on the enemy (an amber
   bleed on the tiles it is inside, or a radar mark that survives the wall), which is a new render
   path in `WorldRenderer` rather than a tune. Value: cover that is about to fail says so. Deps:
   none.
+  **What shipped:** three new files and one new depth constant. `src/world/phaseBleed.ts` is the
+  pure, Phaser-free collector: given the world map and one phased mover it appends every wall tile
+  the mover's circle (expanded by `PHASE_BLEED_MARGIN`) overlaps to a caller-owned pooled array,
+  deduped across movers so two wraiths in one wall light it once rather than twice as deep.
+  `src/world/phaseBleed.test.ts` pins that overlap math (the standing-inside case, the wall-kind
+  filter, the margin boundary in both directions, the cross-mover dedupe).
+  `src/visual/PhaseBleedRenderer.ts` owns one Graphics, cleared and refilled each frame, filling
+  and outlining each tile in the Wraith palette's own cyan (`ENEMY_COLORS.phasing`), and
+  `DepthLayers.WRAITH_BLEED` is 3: above the world geometry at 2 so the bleed reads as light on
+  the rock rather than under it, below the trail at 4 so it never occludes the ship's own trail.
+  The wall set is `Solid | Breakable | GateClosed` and deliberately **not** `isSolidAtWorld`,
+  which also calls a void gap and a security-grid fence solid for an enemy: those are floor washes
+  the player can already see through, so bleeding them would claim cover where there is none.
+  The tell is expedition-only by construction rather than by a mode branch, because the whole
+  block is gated on `worldMode.worldMap()`, which is null in arena: skirmish, daily, practice and
+  gauntlet allocate no layer and never draw, and no arena substrate was touched. The pulse pins
+  flat at full brightness under the reduced-motion setting (the caller owns the clock, so the
+  renderer never reads settings). No save field, no storage key and no `WORLDGEN_VERSION` bump was
+  needed. The constants a future session would retune: `PHASE_BLEED_MARGIN` 10 in
+  `src/world/phaseBleed.ts`; `FILL_ALPHA_MIN` 0.10, `FILL_ALPHA_MAX` 0.26, `EDGE_ALPHA_MIN` 0.30,
+  `EDGE_ALPHA_MAX` 0.65 and `EDGE_WIDTH` 2 in `src/visual/PhaseBleedRenderer.ts`; and
+  `PHASE_BLEED_PULSE_RATE` 0.006 in `GameScene.ts`. Playtest half filed as
+  `POLISH-WRAITH-BLEED-FEEL` under `## Human gates`.
 
 - [ ] **CHORE-WRAITH-PHASE-SEALED-POCKET** (new 2026-08-01, from FEAT-BARRIER-WRAITH-PHASE): a
   phased wraith can walk into a place a corporeal one cannot leave: a boss-sealed sector
@@ -10390,6 +10413,20 @@ Never agent work. The fleet must not do any of these.
   the board's subtitle actually send the player back out, or does it read as a status line they
   ignore? The constants are `QUEST_CARGO_BOARD_OFFSET` 104 and `QUEST_CARGO_PICKUP_RADIUS` 44 in
   `src/game/expeditionField/questCargoCrate.ts`.
+
+- [ ] **POLISH-WRAITH-BLEED-FEEL** (new 2026-08-02, from FEAT-WRAITH-PHASE-WALL-TELL, d534c03).
+  Value: a phased Wraith now lights the wall tiles it is inside, but every number in the tell
+  was chosen against its neighbours in the palette and pinned by a pure overlap test, never
+  seen on a canvas. Questions only a playtest answers: (a) at 0.10 to 0.26 fill alpha, does the
+  bleed read through the wall's own 0x0088cc stroke, or does it disappear against a lit sector?
+  (b) is a ~1 Hz pulse a warning or a distraction in a fight with twenty other things moving?
+  (c) does the Wraith cyan 0x44eedd read as distinct from the void-gap teal 0x22ddcc when both
+  are on screen, or do they blur into one "the floor is weird here" signal? (d) is the 10 px
+  margin enough lead time to actually back off, or does the tell arrive with the wraith? (e)
+  with several wraiths in one wall the dedupe keeps it one layer deep: does that read as one
+  threat when it is three? The constants are PHASE_BLEED_MARGIN in src/world/phaseBleed.ts, the
+  four alpha bounds in src/visual/PhaseBleedRenderer.ts and PHASE_BLEED_PULSE_RATE in
+  GameScene.ts.
 
 - [ ] **POLISH-MAPOPEN-REVEAL** (new 2026-08-02, from FEAT-DISCOVERY-MAPOPEN-ANIMATIONS, db7de53).
   Value: the map-open replay (a secret-find bloom, a 400 ms outward cascade of the outlines a map
