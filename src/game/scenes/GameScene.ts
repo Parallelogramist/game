@@ -44,7 +44,7 @@ import { xpGemSystem, spawnXPGem, setXPGemSystemScene, setXPCollectCallback, set
 import { healthPickupSystem, spawnHealthPickup, setHealthPickupSystemScene, setHealthCollectCallback, setHealthPickupEffectsManager, setHealthPickupSoundManager, setHealthPickupMagnetRange, magnetizeAllHealthPickups } from '../../ecs/systems/HealthPickupSystem';
 import { magnetPickupSystem, spawnMagnetPickup, setMagnetPickupSystemScene, setMagnetPickupEffectsManager, setMagnetPickupSoundManager } from '../../ecs/systems/MagnetPickupSystem';
 import { consumablePickupSystem, spawnConsumablePickup, setConsumablePickupSystemScene, setConsumablePickupEffectsManager, setConsumableCollectCallback, ConsumableKind, getConsumableKindColor } from '../../ecs/systems/ConsumablePickupSystem';
-import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades, getWeaponUpgrades } from '../../data/Upgrades';
+import { PlayerStats, createDefaultPlayerStats, calculateXPForLevel, Upgrade, createUpgrades, CombinedUpgrade, getRandomCombinedUpgrades, getWeaponUpgrades, WeaponUpgrade } from '../../data/Upgrades';
 import { selectAutoBuyUpgrade as selectBestAutoBuyUpgrade } from '../autobuy/autoBuyScoring';
 import { mergeLockedIntoOffers } from '../../data/upgradeLocks';
 import {
@@ -6321,7 +6321,8 @@ export class GameScene extends Phaser.Scene {
    * expedition gold budget. The `never` default makes a future table entry with no payout a
    * compile error rather than a secret that silently pays nothing. The one entry that pays no
    * object is the map fragment, which spends itself into the discovery store and reports what
-   * it charted.
+   * it charted. The armory pays no object either: it spends the shared weapon-upgrade path and
+   * reports what it armed.
    */
   private paySecretReward(reward: SecretRewardDefinition, x: number, y: number): string {
     const spot = { x: 0, y: 0 };
@@ -6361,6 +6362,13 @@ export class GameScene extends Phaser.Scene {
         this.addTreasureChest(x, y, true, true);
         return 'Survey data, and nothing left to chart. A sealed chest instead.';
       }
+      case 'secret_armory_cache': {
+        const armed = this.grantArmoryWeapon();
+        if (armed) return armed;
+        // Nothing left to arm or refit, so the armory falls back the way the fragment does.
+        this.addTreasureChest(x, y, true, true);
+        return 'The racks are welded shut. A sealed chest instead.';
+      }
       default: {
         const unhandled: never = reward.id;
         console.warn(`Unhandled secret reward id: ${String(unhandled)}`);
@@ -6392,6 +6400,48 @@ export class GameScene extends Phaser.Scene {
     getCodexManager().recordRegionSurveyed(grant.stageId, charted);
     return `Survey data: ${grant.regionName} charted, `
       + `${charted} new sector${charted === 1 ? '' : 's'}.`;
+  }
+
+  /**
+   * The one payout that changes the build rather than the inventory. A new weapon is otherwise
+   * milestone-only (`getRandomCombinedUpgrades` gates `type: 'add'` behind `level % 5`), so a
+   * deep cache is the only free off-milestone source of one.
+   *
+   * It spends the shared apply path `applyMarketPurchase` spends, so achievements, codex
+   * discovery, stat sync, build heal and the evolution check all come with it. A banished or
+   * scrapped weapon is refused for `scrapWeapon`'s own reason: re-taking one at level 1 would
+   * launder the trade. Returns null only when there is nothing left to arm or refit, and the
+   * caller pays a chest instead so a find never pays nothing.
+   */
+  private grantArmoryWeapon(): string | null {
+    const weaponUpgrades = getWeaponUpgrades(this.weaponManager);
+    if (this.weaponManager.canAddWeapon()) {
+      const addable = weaponUpgrades.filter(
+        candidate => candidate.type === 'add' && !this.banishedUpgradeIds.has(candidate.id),
+      );
+      if (addable.length > 0) {
+        const rolled = Phaser.Utils.Array.GetRandom(addable);
+        const recruit = this.findWeaponUpgrade('add', rolled.weaponId);
+        if (recruit) {
+          this.applyCombinedUpgrade(recruit);
+          return `${rolled.name} comes online, still in its shipping seals.`;
+        }
+      }
+    }
+    // A full or exhausted arsenal is refitted instead, on the least-invested system: the rule
+    // the Black Market's arsenal card already picks by, so the two never disagree.
+    let leastInvested: WeaponUpgrade | null = null;
+    for (const candidate of weaponUpgrades) {
+      if (candidate.type !== 'level') continue;
+      if (!leastInvested || candidate.currentLevel < leastInvested.currentLevel) {
+        leastInvested = candidate;
+      }
+    }
+    if (!leastInvested) return null;
+    const refit = this.findWeaponUpgrade('level', leastInvested.weaponId);
+    if (!refit) return null;
+    this.applyCombinedUpgrade(refit);
+    return `${leastInvested.name} refitted to level ${leastInvested.currentLevel + 1}.`;
   }
 
   /** Ring layout, the poi_crate_field shape: freeSpotNear keeps a pickup out of rock even

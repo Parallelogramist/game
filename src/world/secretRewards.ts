@@ -16,6 +16,7 @@ import { weightedPick } from './generateWorld';
 export type SecretRewardId =
   | 'secret_relic_chest'
   | 'secret_twin_chests'
+  | 'secret_armory_cache'
   | 'secret_boost_bundle'
   | 'secret_ordnance_pack'
   | 'secret_repair_bay'
@@ -39,6 +40,9 @@ export interface SecretRewardDefinition {
  * `secret_twin_chests` sits at index 1 rather than last because the shallow band zeroes it:
  * weightedPick walks past a zero weight, and a zero in the final slot is the one position
  * where that reasoning needs a second look.
+ *
+ * `secret_armory_cache` sits at index 2 for the same reason: the shallow band zeroes it too, and
+ * two zeroable rows both belong away from the fallback slot.
  */
 export const SECRET_REWARDS: readonly SecretRewardDefinition[] = [
   {
@@ -52,6 +56,12 @@ export const SECRET_REWARDS: readonly SecretRewardDefinition[] = [
     description: 'Two sealed chests, and nobody came back for either.',
     icon: 'gem',
     weight: 8,
+  },
+  {
+    id: 'secret_armory_cache',
+    description: 'An armory crate, and the racks inside are still loaded.',
+    icon: 'sword',
+    weight: 10,
   },
   {
     id: 'secret_boost_bundle',
@@ -89,7 +99,7 @@ export interface SecretRewardDepthBand {
 /** Depth is graph distance from the hangar, so the jackpot is unreachable in the first ring
  *  and climbs outward: the knob for depth is chest COUNT, never table quality. */
 export const SECRET_REWARD_DEPTH_BANDS: readonly SecretRewardDepthBand[] = [
-  { minDepth: 0, weightScale: { secret_twin_chests: 0 } },
+  { minDepth: 0, weightScale: { secret_twin_chests: 0, secret_armory_cache: 0 } },
   {
     minDepth: 3,
     weightScale: {
@@ -97,6 +107,7 @@ export const SECRET_REWARD_DEPTH_BANDS: readonly SecretRewardDepthBand[] = [
       secret_relic_chest: 1.1,
       secret_repair_bay: 0.9,
       secret_map_fragment: 1.2,
+      secret_armory_cache: 1.2,
     },
   },
   {
@@ -107,6 +118,7 @@ export const SECRET_REWARD_DEPTH_BANDS: readonly SecretRewardDepthBand[] = [
       secret_boost_bundle: 1.2,
       secret_repair_bay: 0.7,
       secret_map_fragment: 1.3,
+      secret_armory_cache: 1.6,
     },
   },
 ];
@@ -122,6 +134,7 @@ export const SECRET_TIER_SCALES: Readonly<
     secret_relic_chest: 0.7,
     secret_repair_bay: 0.6,
     secret_map_fragment: 0.5,
+    secret_armory_cache: 1.5,
   },
   /** Earned rather than stumbled into, so it leans the hidden-sector way without matching a
    *  whole undrawn room: half that lean on the jackpot, and the same push off the repair bay. */
@@ -129,6 +142,7 @@ export const SECRET_TIER_SCALES: Readonly<
     secret_twin_chests: 2,
     secret_boost_bundle: 1.2,
     secret_repair_bay: 0.6,
+    secret_armory_cache: 1.25,
   },
 };
 

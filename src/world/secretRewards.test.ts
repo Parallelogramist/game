@@ -34,13 +34,15 @@ describe('secret rewards', () => {
     expect([...seen].sort()).toEqual(SECRET_REWARDS.map(reward => reward.id).slice().sort());
   });
 
-  it('keeps the twin-chest jackpot out of the shallow ring at every tier', () => {
+  it('keeps the twin-chest jackpot and the armory out of the shallow ring at every tier', () => {
     for (const tier of TIERS) {
       for (const depth of [0, 1, 2]) {
         for (let index = 0; index < 500; index++) {
-          expect(rollSecretReward({
+          const rolled = rollSecretReward({
             worldSeed: 20260727, secretId: `poi:${index}`, depth, tier,
-          }).id).not.toBe('secret_twin_chests');
+          }).id;
+          expect(rolled).not.toBe('secret_twin_chests');
+          expect(rolled).not.toBe('secret_armory_cache');
         }
       }
     }
