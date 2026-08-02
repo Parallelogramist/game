@@ -135,4 +135,16 @@ describe('DiscoveryManager', () => {
     expect(manager.getFoundSecretCount()).toBe(1);
     expect(manager.getCompletionPercent()).toBe(50);
   });
+
+  it('cascades the rooms a decryptor sweep charted, and nothing it had charted already', () => {
+    const manager = new DiscoveryManager();
+    manager.bindWorld(makeWorld(701));
+
+    manager.applyScanPulse('0,0', 1);
+    expect([...manager.getNewlyChartedSectorKeys()]).toEqual(['0,0', '1,0']);
+
+    manager.clearMapOpenReveal();
+    manager.applyScanPulse('0,0', 1);
+    expect(manager.getNewlyChartedSectorKeys().size).toBe(0);
+  });
 });

@@ -1061,7 +1061,11 @@ deprecation note (`src/achievements/AchievementTypes.ts:286`).
    description: <region name> })`; on the next map open the newly revealed
    outlines cascade in over 400ms in BFS order from the region's entry sector
    (instant under reduced motion). The cascade is presentation only; state is
-   already committed.
+   already committed. The decryptor's sweep is this moment's **second
+   producer**: `applyScanPulse` feeds the same run overlay off its own
+   `sectorsDiscovered`, so the rooms a sweep charted cascade on the next open
+   exactly as a fragment's do, and a sweep over already-charted rooms plays
+   nothing.
 5. **Objective updated**: piece 04 owns quest toasts; this piece renders the
    pin `UPDATED` badge until viewed (run overlay), so the map never nags twice.
 6. **Gate now openable**: on a permanent power-up gain event (contract 11.3),
@@ -1123,10 +1127,10 @@ written: neither leaves a pin or a panel row for the badge to name. The chart dr
 tagless distinct step, a hazard step with no charted hive and an uncharted destination all
 produce no pin, so the chart alone would leave most updates unannounced.
 
-Still open here: moment 3's secret-icon bloom and moment 4's fragment cascade, which are motion
-only (both toasts already ship) and need a per-open delta the map does not keep
-(`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS`). No `DISCOVERY_VERSION` bump, no new `DiscoveryChanges`
-field, no storage key: neither overlay is persisted at all.
+Nothing is open here: moment 3's secret-icon bloom and moment 4's cascade shipped with
+`FEAT-DISCOVERY-MAPOPEN-ANIMATIONS` (`db7de53`), and the decryptor sweep joined moment 4 as its
+second producer with `FEAT-DISCOVERY-SCAN-CASCADE`. No `DISCOVERY_VERSION` bump, no new
+`DiscoveryChanges` field, no storage key: neither overlay is persisted at all.
 
 ---
 

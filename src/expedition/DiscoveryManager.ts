@@ -143,9 +143,13 @@ export class DiscoveryManager {
    *  never move the completion percent. */
   applyScanPulse(originSectorKey: string, graphRadius: number): DiscoveryChanges {
     if (!this.map) return emptyChanges();
-    return this.commit(
+    const changes = this.commit(
       revealOnScanPulse(this.state, this.map, this.universe, originSectorKey, graphRadius),
     );
+    // Moment 4's second producer, on the fragment's rule: sectorsDiscovered, not the sweep's
+    // footprint, so sweeping rooms already on the chart cascades nothing.
+    for (const sectorKey of changes.sectorsDiscovered) this.newlyChartedSectorKeys.add(sectorKey);
+    return changes;
   }
 
   /** The only write path for a recovered map fragment (README section 3.7): outlines for a
