@@ -625,11 +625,50 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   margin). Desktop at UI Scale 1.0 stays exactly 1.0 and is therefore byte-identical, a portrait
   phone takes the full 1.2, and a 2000x720 landscape phone takes 1.027 at five rows, in every
   case leaving the last row clear of the build-code bar.
-  Remaining: Codex, Achievement, Cards, Leaderboard, MusicSettings, Credits, plus MarketScene
-  behind BUG-MARKET-VERTICAL-SATURATION, plus **MapScene, which needs its own session**: it is
-  1002 lines of hand-laid absolute panels (a 340-wide left column at x=24, a 196-wide legend,
-  and a zoomed map viewport between them), so density-scaling its chrome trades away map area.
-  That is a layout call the operator owns, not a mechanical batch.
+  **Batch 5 shipped (`8e6091f`, `9134bcb`, `e7695ce`, `cba4e32`): CodexScene and
+  AchievementScene.** These two are pure scroll views: a masked container over content that
+  already scrolls, so growing the content costs nothing but scroll distance. That makes the
+  mechanism different from every earlier batch. Instead of scaling each card, the fix scales the
+  **scroll container itself**, once, with `contentContainer.setScale(menuScale)`. Every card,
+  label and font inside it scales for free, which is why all 13 Codex card builders and all 3
+  Achievement card builders are untouched. The price is that anything living inside the
+  container which measured itself against the canvas width must instead measure against
+  `contentSpaceWidth = canvasWidth / menuScale`: 6 such sites in Codex (the two empty states,
+  and the statistics table's `startX`, `rowWidth`, header x and row background x) and 3 in
+  Achievement (the grid origin in each of the achievements, daily quest and vault tabs). The
+  matching rule on the other axis is that `scrollY` stays in **screen** units, because
+  `container.y` is, so every content-space extent is multiplied by `menuScale` before it is
+  compared against the band. Mixing those two is the one subtle way to break this change, and it
+  shows up as a list that will not scroll to its end.
+  The shared helper is `computeScrollViewMetrics` in `src/utils/HudScale.ts`, naming
+  `MENU_SCROLL_TOP_RESERVE` (120, the title row plus the tab strip) and
+  `MENU_SCROLL_BOTTOM_RESERVE` (60, the back button and its clearance). It returns the band top,
+  the band height and `contentWidth`, replacing the derived `height - 180` literal that each
+  scene had copied five times. Measured: desktop 1.0, band 120 to 660; a 2000x720 landscape
+  phone 1.6, band 192 to 624; a 720x1280 portrait phone 1.2, band 144 to 1208. Codex drops to
+  one column in portrait because 600 container units cannot hold two 340-unit cards plus their
+  14-unit gap (694).
+  **Two deliberate desktop changes, both in CodexScene**, and nothing else on desktop moves in
+  either scene. With 13 tabs a desktop tab is only 88 units wide while its 14px label measures
+  roughly 70 and its count is drawn at `tabWidth - 8`, so the label already overran its tab and
+  collided with its own count before this batch. The label is now shrunk to fit with
+  `fitTextWidth`, and a count badge that cannot fit beside its label is hidden with
+  `setVisible(false)`, which is the rule AchievementScene has always had. The badge is still
+  added to the container either way, because `updateTabVisuals()` reads `container.list[3]` by
+  index.
+  Remaining: MusicSettings and Credits (485 and 214 lines, 11 and 6 font sites: a cheap pair for
+  batch 6), Leaderboard, MarketScene behind BUG-MARKET-VERTICAL-SATURATION, **MapScene, which
+  still needs its own session**: it is 1002 lines of hand-laid absolute panels (a 340-wide left
+  column at x=24, a 196-wide legend, and a zoomed map viewport between them), so density-scaling
+  its chrome trades away map area, a layout call the operator owns rather than a mechanical
+  batch. And **CardsScene, which cannot take the mechanical fix at all**: it composes two fixed
+  design boxes (1280x720 landscape, 720x1280 portrait) centred with `offsetX`/`offsetY`, and 24
+  tiles of 148x134 fill both boxes, so the uniform scale either box admits is exactly
+  `min(canvasW/1280, canvasH/720) = 1.0` in landscape and `min(720/720, 1280/1280) = 1.0` in
+  portrait. There is nothing to spend. It is the same saturation
+  BUG-MARKET-VERTICAL-SATURATION describes and needs the same operator layout call: drop a
+  column, or re-flow into the unused width a landscape phone canvas leaves outside the design
+  box.
 - [x] **BUG-WEAPON-GRID-OVERFLOW** (done, `8f5cc49`). The pre-run weapon grid painted outside the
   canvas at 15+ discovered weapons and hid its whole first row at 29; an over-tall grid now fits the
   band. Full write-up in `BACKLOG-archive.md`.
@@ -9671,6 +9710,18 @@ Never agent work. The fleet must not do any of these.
     (see POLISH-FUNNEL-PACT-SATURATION): does it now look conspicuously smaller than the four
     scenes around it in the same funnel; (q) does anything on desktop look different from before
     (it should not: every non-density viewport takes the legacy path by construction).
+    Batch 5 adds CodexScene and AchievementScene, the two scroll views: (r) open the codex on a
+    phone in both orientations and read a weapon and a lore entry: is the body text legible at
+    arm's length now, and does scrolling a 1.6x list feel like a fair trade for about 2.8 card
+    rows in view instead of 5; (s) the codex tab strip is 13 tabs wide, so on a portrait phone
+    each tab is about 45 units and the label is shrunk to fit: is that readable at all, or
+    should the strip wrap to two rows in portrait, which would also change the desktop
+    13-in-a-row layout and is therefore your call; (t) on desktop two codex tab labels are now
+    shrunk to fit their tab and a count badge that cannot fit beside its label is hidden, which
+    is what AchievementScene already did: is hiding the count the right answer, or should the
+    tab keep the count and drop the icon; (u) the achievements screen keeps two columns on a
+    landscape phone and drops to one in portrait: does the one-column portrait list read as
+    generous or as wasteful.
   - **POLISH-GATE-PACING** (da25d6c): playtest the six-gate progression in `?expedition=1`.
     Agents have no browser and must not retune the generator blind. Owns: (a) **ramp**: at
     the dev seed the reachable world grows 27/11/4/2/1/2/1 sectors per ability, so the first
