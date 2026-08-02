@@ -26,7 +26,7 @@ import { RunnerScene } from './game/scenes/RunnerScene';
 import { LoadoutScene } from './game/scenes/LoadoutScene';
 import { MapScene } from './game/scenes/MapScene';
 import { initializeStorage, flushStorage } from './storage';
-import { baseSizeForViewport, installOrientationWatcher } from './utils/Orientation';
+import { baseSizeForViewport, installViewportWatcher } from './utils/Orientation';
 import { copyTextToClipboard } from './utils/Clipboard';
 import { BloomPipeline } from './visual/BloomPipeline';
 import { DistortionPipeline } from './visual/DistortionPipeline';
@@ -169,27 +169,33 @@ window.addEventListener('unhandledrejection', (event) => {
   // Initialize the game
   const game = new Phaser.Game(config);
 
-  // Swap the base size on orientation flips and re-lay-out whatever is live.
-  // Menu scenes restart with their original launch payload (sys.settings.data)
-  // plus `relayout: true` — the flag a scene holding half-composed input reads
-  // to re-render at the new size instead of resetting to defaults the way a
-  // fresh entry does. GameScene does its save-restore round trip (the same
-  // machinery as a mid-run UI-scale change). UpgradeScene is deliberately
-  // skipped: a restart would regress mid-modal state (rerolled offers, card
-  // locks); it closes back into a GameScene that has already re-laid itself out.
-  installOrientationWatcher(game, () => {
+  // Re-lay-out whatever is live whenever the canvas changes size — an orientation flip, or
+  // (under EXPAND) any desktop window resize. Menu scenes restart with their original launch
+  // payload (sys.settings.data) plus `relayout: true` — the flag a scene holding
+  // half-composed input reads to re-render at the new size instead of resetting to defaults
+  // the way a fresh entry does.
+  //
+  // GameScene and RunnerScene are NOT restarted on a plain resize: both subscribe to Phaser's
+  // own scale 'resize' event and have already re-laid themselves out by the time this runs.
+  // RunnerScene is not restarted on a flip either, because it never reads `relayout`, so a
+  // restart would silently reset an in-progress run's distance, score and kills.
+  //
+  // The four in-run modals are re-placed in situ rather than restarted: a restart would
+  // regress mid-modal state (rerolled offers, card locks, an accepted contract) and re-fire
+  // the entrance. Their handleResize() re-centres what already exists.
+  installViewportWatcher(game, ({ orientationFlipped }) => {
     for (const scene of game.scene.getScenes(true)) {
       const key = scene.scene.key;
       if (key === 'GameScene') {
-        (scene as GameScene).handleOrientationFlip();
-      } else if (key !== 'UpgradeScene' && key !== 'RelicDraftScene' && key !== 'MarketScene'
-        && key !== 'QuestBoardScene') {
-        // RelicDraftScene, MarketScene and QuestBoardScene are skipped for the
-        // same reason as UpgradeScene: a restart would regress their mid-modal
-        // state, re-fire the entrance and orphan the onClose closure that
-        // belongs to the live GameScene. They close back into a GameScene that
-        // has re-laid itself out (handleOrientationFlip defers while any of them
-        // is up and settles once it closes).
+        if (orientationFlipped) (scene as GameScene).handleOrientationFlip();
+      } else if (key === 'RunnerScene') {
+        continue;
+      } else if (
+        scene instanceof UpgradeScene || scene instanceof RelicDraftScene
+        || scene instanceof MarketScene || scene instanceof QuestBoardScene
+      ) {
+        scene.handleResize();
+      } else {
         const launchData = (scene.sys.settings.data ?? {}) as Record<string, unknown>;
         scene.scene.restart({ ...launchData, relayout: true });
       }
