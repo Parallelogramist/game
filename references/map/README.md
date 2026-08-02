@@ -302,8 +302,20 @@ first.
   the describer now read, so the banner's third clause (`BLOOMS ICE`) comes from the table the
   hazards actually roll against. One hazard is named and only when it is boosted, so
   `stage_deep_void` still prints no second line.
-  Sector-scale mechanics beyond the shipped stage
-  properties (moving walls, a dark biome, low-gravity drift) stay deferred, and the stage
+  **Fifth slice shipped as `FEAT-BIOME-REGION-DARK` (`daf82d7`, 2026-08-02):**
+  the first slice that changes what a region does to the player rather than what it sends.
+  `StageDefinition.ambientDarknessBoost` feeds the pure `resolveStageAmbientDarkness`, which
+  `applyStageVisuals` pushes into `LightingSystem.setAmbientDarkness` at the same sites the
+  hazard and pack biases use, and Crystal Caves (the third region of every world, at depths
+  4-5) resolves to 0.63 against the shipped 0.35 baseline: outside the ship's light pool the
+  world falls to about a third of its brightness. This is the answer to
+  `POLISH-BIOME-REGION-SHIFT` (b), whether a region wants more than a tint. The `low`
+  visual-quality path disables lighting entirely, so it gets a flat black plate under gameplay
+  instead: the atmosphere, never a harder game. Six of the seven stages carry no boost and are
+  byte-identical.
+  Of the three named sector-scale mechanics the dark biome is now built; moving walls and
+  low-gravity drift stay deferred on their own merits, because each needs new navigation,
+  collision or movement machinery rather than a knob that already shipped. The stage
   multipliers are filed as `FEAT-BIOME-REGION-MULTIPLIERS`.
 - **World re-roll as a season.** A profile-level "new expedition" that regenerates the
   world with a new seed, banks the previous completion percentage as a record, and keeps

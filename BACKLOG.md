@@ -7369,6 +7369,68 @@ exploring pays is the end of Phase 5.
   **Deliberately cut, filed as `FEAT-BIOME-REGION-MULTIPLIERS`:** the stage's enemy-health,
   enemy-damage, XP and gold multipliers.
 
+- [x] **FEAT-BIOME-REGION-DARK** (done, daf82d7) (new 2026-08-02, from
+  `references/map/README.md` section 6): the fifth slice of "biome mechanics, not just tints",
+  and the first that changes what a region does to the player rather than what it sends at
+  them. Crystal Caves now runs dark: `StageDefinition` gained an optional
+  `ambientDarknessBoost`, the pure `resolveStageAmbientDarkness` adds it to the new exported
+  `BASE_AMBIENT_DARKNESS` (0.35, the number `LightingSystem` had hardcoded and now imports so
+  the two cannot drift), and `applyStageVisuals` pushes the result into
+  `LightingSystem.setAmbientDarkness` at the same three sites the hazard and pack biases
+  already occupy. Crystal Caves resolves to 0.63, so the world outside the ship's light pool
+  falls to roughly a third of its brightness while the pool itself is unchanged.
+  **Value:** a region you have to fly by your own light, which is the direct answer to
+  `POLISH-BIOME-REGION-SHIFT` question (b), "is a tint enough to feel, or does a region want
+  more than a tint". Deps: none.
+
+  **The knob was already there and nothing had ever turned it.** `LightingSystem` shipped with
+  `setAmbientDarkness(0..1)` and `grep -rn "setAmbientDarkness" src` returned the declaration
+  and no caller, so this slice is wiring rather than machinery. That is also why the dark biome
+  went first of README section 6's three named sector-scale mechanics: moving walls need new
+  navigation and collision work and low-gravity drift is a movement-feel rewrite, so those two
+  stay deferred on their own merits rather than on the shared one.
+
+  **Crystal Caves is not a seed accident, it is the third region of every world.**
+  `assignDangerAndBiomes` keys the region on `floor(depth / 2)` and `orderBiomesByHarshness` is
+  a fixed sort (spine, then ascending health+damage, ties by key), which puts Deep Void at
+  depths 0-1, Inferno 2-3, Crystal Caves 4-5, Ion Field 6-7, Verdant Rot 8-9, Molten Vault
+  10-11, Endless Void 12+. Measured deepest depth runs 7 to 13 across seeds, so every world
+  reaches it and no world starts in it. Endless Void was rejected: stacking darkness on the
+  deepest region's +50%/+50% is a difficulty spike no one can judge without play.
+
+  **The low-quality path is built, not skipped.** `visualQuality: 'low'` disables the whole
+  lighting pass, so the dark region would silently have been no region at all there. The
+  fallback is a second named overlay, `stageDarknessOverlay`, a flat black plate at the ambient
+  overlay's depth 2 carrying the boost as its alpha. Depth 2 is under gameplay, so it dims the
+  grid and reads as an unlit place without hiding one enemy: a low-end device gets the
+  atmosphere and never a harder game. Because which path is live depends on the setting, the
+  quality-change handler re-applies the stage.
+
+  **Arena, daily, weekly, practice and gauntlet are dark too when the funnel pick is Crystal
+  Caves**, on purpose and symmetrically, the same call `FEAT-BIOME-REGION-PACKS` recorded:
+  the hazard table has biased those modes per stage since it shipped.
+
+  **No save field, no storage key, no `SAVE_VERSION`, `WORLDGEN_VERSION`, `DISCOVERY_VERSION`
+  or `WORLD_PROFILE_VERSION` move**: the darkness is re-derived from the active stage on every
+  apply, the hazard-bias rule. Six of the seven stages carry no boost and resolve to exactly
+  the shipped 0.35, which is the one thing `Stages.test.ts` pins.
+
+  **Deliberately cut, filed not smuggled:** the banner clause
+  (`FEAT-REGION-DARK-SIGNATURE-CLAUSE`), because a fourth clause lands inside the parked
+  operator question `POLISH-REGION-SIGNATURE-BANNER` (e). The ship's light radius was not
+  touched: `COMBO_TIER_LIGHT_RADIUS` already scales it with combo tier and a second knob is a
+  feel call, filed as question (b) of `POLISH-REGION-DARK`.
+
+- [ ] **FEAT-REGION-DARK-SIGNATURE-CLAUSE** (new 2026-08-02, from FEAT-BIOME-REGION-DARK): the
+  banner names what a region sends and what its ground grows, and says nothing about a region
+  that has taken the lights out, which is the most immediately felt thing about it. A `RUNS
+  DARK` clause would slot into `describeRegionSignature`'s list beside the hazard clause and
+  `ambientDarknessBoost` is already pure data, so the wiring is trivial and the **line budget
+  is not**: the second line already carries up to 57 characters against a headline of about 40.
+  Value: the region states the rule the player is about to be surprised by. Deps: question (e)
+  of `POLISH-REGION-SIGNATURE-BANNER`, the same gate `FEAT-REGION-SIGNATURE-HAZARD-DEPTH`
+  waits on.
+
 - [ ] **FEAT-BIOME-REGION-MULTIPLIERS** (new 2026-08-02, from FEAT-BIOME-REGION-STAGE): the
   other half of a stage. A region governs its room's hazards and its palette now, but its
   `enemyHealthMultiplier`, `enemyDamageMultiplier`, `xpMultiplier` and `goldMultiplier` still
@@ -11387,6 +11449,22 @@ Never agent work. The fleet must not do any of these.
   1.0 pass unnoticed next to the wave pressure; (d) now that the world's regions carry stages,
   should the funnel still offer a stage step for an expedition at all, or is that pick a
   skirmish concept whose only remaining expedition job is colouring the spine. Deps: play.
+
+- [ ] **POLISH-REGION-DARK** (new 2026-08-02, from FEAT-BIOME-REGION-DARK). Value: a dark
+  region has to read as atmosphere plus tension, never as a rendering fault or a blindfold.
+  Every number was chosen from the code and from the shipped baseline, never in a browser.
+  Five questions only a player answers: (a) 0.63 resolved darkness leaves the unlit world at
+  roughly a third brightness, which was picked to be legible rather than dramatic: is it too
+  timid to register, or already too dark to fight in; (b) should the ship's light radius grow
+  in a dark region (`COMBO_TIER_LIGHT_RADIUS` scales it with combo today, so a dark region
+  currently rewards a combo twice), or does a fixed pool make the region its own; (c) do the
+  neon enemy palettes and the hazard zone colours survive a MULTIPLY pass at that alpha, or
+  does a strip of ice go invisible before the ship reaches it; (d) the `low` visual-quality
+  fallback dims the grid but not gameplay, so a low-end device sees a darker room and an
+  unhidden threat: is that acceptable, or should low quality simply not go dark at all; (e)
+  Crystal Caves is the third region of every world, so a dark stretch is guaranteed once per
+  expedition: is one dark region the right dose, or does the world want a second one deeper in.
+  Deps: play.
 
 - [ ] **POLISH-VICTORY-CONQUEST-KICKER** (new 2026-08-02, from
   FEAT-WARDEN-VICTORY-OVERLAY-LINE). Value: the expedition's biggest moment should land as a
