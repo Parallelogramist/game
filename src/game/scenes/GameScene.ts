@@ -6325,8 +6325,8 @@ export class GameScene extends Phaser.Scene {
    * sits above the bounty line rather than top-centre as section 7 asks, for the reason
    * updateBounties already records: in portrait the top band is bars left, world and timer
    * centre, kills and gold right, with no room for a centred line.
-   * The second line states the region's pack and only fires on a region change: repeating it
-   * per room would make a rule read as noise.
+   * The second line states the region's pack and the hazard its ground grows, and only fires on
+   * a region change: repeating it per room would make a rule read as noise.
    */
   private showSectorBanner(sector: SectorDef, regionChanged: boolean): void {
     const hudScale = computeHudScale(
