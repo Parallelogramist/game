@@ -8,7 +8,7 @@ import { getActiveQuestHazardObjectives, getActiveQuestMarkers, getQuestBoardEnt
   getActiveQuestStepViews } from '../../meta/ExpeditionQuestManager';
 import { questWorldStamp } from '../../systems/QuestProgress';
 import { GAMEPAD_BUTTON_A, GAMEPAD_BUTTON_B, GAMEPAD_BUTTON_LB, GAMEPAD_BUTTON_RB,
-  GAMEPAD_BUTTON_START,
+  GAMEPAD_BUTTON_RT, GAMEPAD_BUTTON_START,
   GAMEPAD_BUTTON_X, GAMEPAD_BUTTON_Y, GAMEPAD_DPAD_DOWN, GAMEPAD_DPAD_LEFT,
   GAMEPAD_DPAD_RIGHT, GAMEPAD_DPAD_UP, GamepadManager } from '../../input/GamepadManager';
 import {
@@ -92,6 +92,10 @@ const DETAIL_BAR_HEIGHT = 104;
 const CURSOR_HIT_SLOP = 16;
 const RECALL_BUTTON_WIDTH = 176;
 const RECALL_BUTTON_HEIGHT = 32;
+const NOTE_BUTTON_WIDTH = 120;
+/** Gap between the two footer buttons, matching the 20 px margin's visual rhythm at a smaller
+ *  scale so the pair reads as one group rather than as two strays. */
+const FOOTER_BUTTON_GAP = 12;
 
 function sectorsOutClause(label: string, distance: number): string {
   if (distance === 0) return `${label} IN THIS SECTOR`;
@@ -166,6 +170,11 @@ export class MapScene extends Phaser.Scene {
   private sectorNotes: Map<string, string> = new Map();
   private noteOverlayTeardown: (() => void) | null = null;
   private recallButton: MenuButton | null = null;
+  private noteButton: MenuButton | null = null;
+  /** RT may already be held when the map opens (the ship auto-fires), and a fresh GamepadManager
+   *  reads a held button as a first press. Exactly the zoomOutArmed guard LB needs, for exactly
+   *  the same reason: without it the note field opens by itself on the frame the chart appears. */
+  private noteKeyArmed = false;
   private recallState: 'ready' | 'locked' | 'home' = 'ready';
   private detailHeadlineText!: Phaser.GameObjects.Text;
   private detailDoorsText!: Phaser.GameObjects.Text;
@@ -197,6 +206,7 @@ export class MapScene extends Phaser.Scene {
     this.recallState = data.recallAvailable === false ? 'locked' : 'ready';
     this.closed = false;
     this.zoomOutArmed = false;
+    this.noteKeyArmed = false;
     this.dragPointerId = -1;
   }
 
@@ -243,10 +253,11 @@ export class MapScene extends Phaser.Scene {
       + ` SECTORS`
       + `  ·  ${completionPercent}%${bestClause}`,
       { fontSize: 18, color: TEXT_COLORS.muted, wordWrapWidth: width - 40 }).setDepth(2);
-    const hintWidth = Math.max(120, width - 40 - RECALL_BUTTON_WIDTH);
+    const hintWidth = Math.max(120, width - 40 - RECALL_BUTTON_WIDTH
+      - FOOTER_BUTTON_GAP - NOTE_BUTTON_WIDTH);
     makeBodyText(this, 20 + hintWidth / 2, height - 26,
       'WASD / ARROWS PAN   ·   +/- ZOOM   ·   C CENTRE'
-      + '   ·   TAP A SECTOR   ·   P MARK   ·   N NOTE   ·   R RECALL   ·   M / ESC CLOSE',
+      + '   ·   TAP A SECTOR   ·   P MARK   ·   N / RT NOTE   ·   R RECALL   ·   M / ESC CLOSE',
       { fontSize: 14, color: TEXT_COLORS.muted, wordWrapWidth: hintWidth }).setDepth(2);
     const shipCell = sectorOfWorldPoint(this.playerWorldX, this.playerWorldY);
     this.questPins = [
@@ -342,6 +353,7 @@ export class MapScene extends Phaser.Scene {
 
     this.renderDetailBar();
     this.createRecallButton();
+    this.createNoteButton();
     this.focusedCell = this.knownCells.find(
       cell => cell.gridX === shipSector.col && cell.gridY === shipSector.row,
     ) ?? this.knownCells[0] ?? null;
@@ -707,6 +719,27 @@ export class MapScene extends Phaser.Scene {
     if (this.recallState !== 'ready') this.recallButton.setEnabled(false);
   }
 
+  /** The touch and mouse opener for the note field, left of RECALL. Disabled rather than hidden
+   *  while nothing is focused, so the footer never reflows and the affordance is legible before
+   *  the player has tapped a sector: the label says what the chart can do, the state says what it
+   *  can do right now. */
+  private createNoteButton(): void {
+    this.noteButton = createMenuButton({
+      scene: this,
+      x: this.scale.width - 20 - RECALL_BUTTON_WIDTH - FOOTER_BUTTON_GAP - NOTE_BUTTON_WIDTH / 2,
+      y: this.scale.height - FOOTER_HEIGHT / 2,
+      width: NOTE_BUTTON_WIDTH,
+      height: RECALL_BUTTON_HEIGHT,
+      label: 'NOTE',
+      variant: 'neutral',
+      onActivate: () => this.editNote(),
+    });
+    this.noteButton.container.setDepth(6);
+    this.noteButton.card.hitZone.on('pointerover', () => this.noteButton?.setHoverState(true));
+    this.noteButton.card.hitZone.on('pointerout', () => this.noteButton?.setHoverState(false));
+    this.noteButton.setEnabled(this.focusedCell !== null);
+  }
+
   /** Resumes the run first, then starts the channel on the live scene: the channel is ticked
    *  from GameScene.update, which does not run while this scene holds the pause. */
   private recall(): void {
@@ -776,6 +809,7 @@ export class MapScene extends Phaser.Scene {
       panX -= stick.x;
       panY -= stick.y;
       if (!this.zoomOutArmed && !pad.isDown(GAMEPAD_BUTTON_LB)) this.zoomOutArmed = true;
+      if (!this.noteKeyArmed && !pad.isDown(GAMEPAD_BUTTON_RT)) this.noteKeyArmed = true;
       if (pad.justPressed(GAMEPAD_BUTTON_RB)) this.stepZoom(1);
       if (this.zoomOutArmed && pad.justPressed(GAMEPAD_BUTTON_LB)) this.stepZoom(-1);
       if (pad.justPressed(GAMEPAD_BUTTON_Y)) this.centreOnShip();
@@ -784,6 +818,10 @@ export class MapScene extends Phaser.Scene {
       if (pad.justPressed(GAMEPAD_DPAD_LEFT)) this.moveCursor('left');
       if (pad.justPressed(GAMEPAD_DPAD_RIGHT)) this.moveCursor('right');
       if (pad.justPressed(GAMEPAD_BUTTON_A)) this.cycleMark();
+      if (this.noteKeyArmed && pad.justPressed(GAMEPAD_BUTTON_RT)) {
+        this.editNote();
+        return;
+      }
       if (pad.justPressed(GAMEPAD_BUTTON_X)) {
         this.recall();
         return;
@@ -878,6 +916,7 @@ export class MapScene extends Phaser.Scene {
     this.focusedCell = cell;
     this.refreshDetail();
     this.viewDirty = true;
+    this.noteButton?.setEnabled(true);
   }
 
   /** One press walks none → come back → danger → unsolved → none on the focused sector. The
@@ -1026,6 +1065,8 @@ export class MapScene extends Phaser.Scene {
     }
     this.recallButton?.destroy();
     this.recallButton = null;
+    this.noteButton?.destroy();
+    this.noteButton = null;
     this.gamepadManager?.destroy();
     this.gamepadManager = null;
     this.tweens.killAll();
