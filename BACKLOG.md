@@ -2911,6 +2911,44 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-QUEST-WORLD-BOUND-TELL** (done, dea5d49) (new 2026-08-02, from
+  FEAT-QUEST-SWEEP-WORLD-RESET-TELL): a cross-run room sweep says which world it belongs to,
+  before you trade that world away and after you have. Value: George can see, at the moment the
+  CHART dialog offers to trade this world for another, exactly which objectives count rooms in it
+  and will restart, and the run in the new world names the objective that restarted instead of its
+  ticker silently counting down from the world he left.
+  1. **What shipped**: `worldBoundStepProgress` and `dropStaleWorldBoundProgress` in
+     `src/systems/QuestProgress.ts`; `getWorldBoundStepProgress` and
+     `dropStaleExpeditionQuestWorldProgress` in `ExpeditionQuestManager`; `worldGenVersion` on
+     `ExpeditionProgressSummary`; an `OBJECTIVE RESTARTED` toast at the fresh-expedition bind; and
+     the warning lines in all three world-change dialogs.
+  2. **The latent lie it fixes, symptom first.** The ticker read `14 / 20` for the first seconds
+     of a run in a freshly charted world and then snapped to `1 / 20` with nothing said, because
+     `buildQuestStepViews` renders `state.stepProgress` with no reference to `visitedWorldStamp`
+     and `foldQuestEvent`'s `reachSector` branch only drops the stale set when the next room-entry
+     event arrives. The drop is now eager at the bind, so the count is honest on the first frame.
+  3. **Eager equals lazy, deliberately.** The outcome is identical because a run cannot reach a
+     `reachSector` event without entering a room first; the change is *when* the truth is visible,
+     not *what* is true. The three cleared fields are exactly the three `settleRunScopeProgress`
+     clears, so the two paths cannot disagree about what "no progress" means.
+  4. **All three world-change dialogs carry the warning, not just CHART.** RETURN and the pasted
+     seed code change the flown world too, so a warning on one of the three would be a rule the
+     player learns and then gets caught by.
+  5. **Fires once per world change**, with no new bookkeeping: the drop clears the stamp that
+     produced it, so the next bind finds nothing stale.
+  6. **Only `reachSector` steps qualify**, because it is the only trigger kind that writes
+     `visitedSectorKeys` / `visitedWorldStamp`, which is what makes the wording ("counts rooms in
+     this world") true rather than approximately true.
+  7. **Econ-neutral and storage-neutral by construction**, so the parked `FEAT-ECON-WARDS` call
+     cannot reach it: no gold, no relic roll, no change to relic odds, `FIELD_BOOSTS` untouched.
+     No storage key and no version constant moved (`SAVE_VERSION`, `WORLDGEN_VERSION`,
+     `DISCOVERY_VERSION`, `WORLD_PROFILE_VERSION` all stay put), so every existing profile gets it
+     the moment the build lands. Arena is unchanged by construction: expedition quests are the
+     only consumer.
+  8. **Two tests, and why they were warranted** under the standing order: the stamp comparison is
+     non-obvious and the eager drop must provably leave a matching-stamp step alone. Both live in
+     the existing `QuestProgress.test.ts`; no new file, no mock, no fixture factory.
+  9. **Filed with it**: `POLISH-QUEST-WORLD-BOUND-TELL` under `## Human gates`.
 - [x] **FEAT-SECRET-REWARD-ARMORY** (done, 07e73a4) (new 2026-08-02): a found secret can hand the
   run a weapon it did not bring. Value: a deep secret can now change the build of the run in
   progress, because `secret_armory_cache` arms the ship with a weapon off the every-5th-level
@@ -11249,14 +11287,17 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   The uncompletable tail is gone as of `2f4df7d` (a target above the world's supply now clamps),
   so what is left on this item is purely whether the number reads as a goal or a chore.
 
-- [ ] **FEAT-QUEST-SWEEP-WORLD-RESET-TELL** (new 2026-07-31, from
+- [x] **FEAT-QUEST-SWEEP-WORLD-RESET-TELL** (done, dea5d49) (new 2026-07-31, from
   CHORE-QUEST-DISTINCT-WORLD-STAMP): when the world changes, a persistent sweep silently drops
   the rooms it had counted and the ticker simply reads a smaller number. Nothing says why. It
   cannot fire today (one fixed seed, and a `WORLDGEN_VERSION` bump already discards discovery
   state), so it is filed rather than built: it becomes real the moment README section 6's world
   re-roll ships, which `FEAT-SECRET-LORE-CATALOG-DEPTH` also waits on. Value: a counter that
   went backwards says why. Deps: met by FEAT-EXPEDITION-SEASONS (fd406d3); the world reset
-  it wanted a tell for is now a thing the player can actually cause.
+  it wanted a tell for is now a thing the player can actually cause. Shipped as
+  FEAT-QUEST-WORLD-BOUND-TELL, which also added the warning half this entry did not ask for: the
+  three world-change dialogs name the objectives that will restart before the trade, not only
+  after it.
 
 - [x] **FEAT-MAPUI-OBJECTIVE-PIN-RADAR** (done, 05e832e): the radar carries the bearing of every
   place the chart pinned, and of every open lead, so a destination survives closing the map.
@@ -12079,6 +12120,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-QUEST-WORLD-BOUND-TELL** (new 2026-08-02, from FEAT-QUEST-WORLD-BOUND-TELL). A
+  world change now says what it costs a room sweep, before and after, and none of it has been
+  read on a screen. Questions for the operator: (a) the CHART, RETURN and shared-seed dialogs
+  each gain up to one line per bound objective on top of bodies that already run 10 to 20 lines:
+  does that land as the warning it is, or does it push the FLY buttons off a short canvas?
+  (b) the warning names the objective and its room count but not that the rooms are lost rather
+  than paused: is `restarts with it` clear enough, or should it say the count goes to zero?
+  (c) `OBJECTIVE RESTARTED` fires at the start of the first expedition in a new world, alongside
+  the `NEW OBJECTIVE` toasts and any carried quest relic: is one more toast in that opening
+  burst readable, or should the restart be folded into the objective panel only? Do not retune
+  any of this blind.
 
 - [ ] **BALANCE-SECRET-REWARD-ARMORY** (new 2026-08-02, from FEAT-SECRET-REWARD-ARMORY). A deep
   secret can now hand the run a weapon, and none of it has been played. Questions for the
