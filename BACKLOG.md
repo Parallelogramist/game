@@ -2832,6 +2832,24 @@ in the worst case and be uncompletable in ~3.7% of worlds, the shape
 four plain caches, whose floor is twelve slots, taking the pool to thirteen templates drawn three
 per world.
 
+**6138bff put the chart's pen in the player's hands on every device.** `MapScene` opened the note
+field from exactly one place, `keydown` on `n`, so a Deck or a phone could cycle a sector mark with
+gamepad A and then attach no words to it: the typed half of `FEAT-MARK-NOTES` was keyboard-only.
+The right trigger now opens the field on the focused sector, and a NOTE button sits in the footer
+left of RECALL for touch and mouse, both calling the same `editNote()` the key always called.
+**The costly half was already shipped:** `showCodeEntryOverlay` has carried an on-screen pad
+keyboard since `0afee01`, so only the opener was ever missing, which is why an item filed as
+blocked on a layout answer cost one scene file. **The layout answer is settled here:** `RT` is the
+one free physical control on this scene, and the hint line's wrap width reserves the second button
+rather than the footer borrowing RECALL's slot. **The arming guard is correctness:** a fresh
+`GamepadManager` reads a held button as a first press, so `noteKeyArmed` refuses RT until it has
+been seen released, the same shape `zoomOutArmed` already needs for LB, and it resets in `init()`
+beside `zoomOutArmed` because a Phaser scene instance outlives a single map open. No storage key,
+no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION` and no
+`WORLD_ARCHIVE_VERSION` bump, because no persistence code was touched; arena, daily, weekly,
+practice and gauntlet are untouched by construction, because `MapScene` is launched from the
+expedition path only. Files `POLISH-MAP-NOTE-OPENERS`; `FEAT-MARK-NOTES-PANEL` stays open.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -7457,7 +7475,7 @@ exploring pays is the end of Phase 5.
   precedent, so every existing profile and every archived world keeps its walls, marks and
   discovery state. Full write-up in `BACKLOG-archive.md`.
 
-- [ ] **FEAT-MARK-NOTE-TOUCH** (new 2026-08-01, from FEAT-MARK-NOTES): the field opens on `N` and
+- [x] **FEAT-MARK-NOTE-TOUCH** (done, 6138bff) (new 2026-08-01, from FEAT-MARK-NOTES): the field opens on `N` and
   on nothing else, so a phone or a pad-only player can read a note but cannot write one. Every face
   button is bound (A cycles the mark, B closes, X recalls, Y centres) and the footer's one button
   slot is RECALL's, so a second action needs a layout answer this chunk does not own: the same call
@@ -7466,6 +7484,51 @@ exploring pays is the end of Phase 5.
   keyboard, so only the opener is missing. Value: the map is annotatable on the device most likely
   to be in the player's hands. Deps: none, but it pairs with `FEAT-CODE-ENTRY-GAMEPAD`, which wants
   the same pad-to-DOM bridge.
+
+  **What shipped.** The note field has two more openers and is unchanged behind them. On a pad,
+  the right trigger opens it on the focused sector; on touch and mouse, a NOTE button sits in the
+  footer to the left of RECALL. Both call the same `MapScene.editNote()` the `N` key has always
+  called, so the field, the 60-character cap, the sanitizer, the mark-carrier rule and the store
+  write are all byte-identical to what `f6662c3` shipped.
+
+  **The expensive half was already built.** `editNote` opens `showCodeEntryOverlay`, and that
+  overlay has carried a full on-screen pad keyboard since `0afee01`: a `PAD_KEYS` grid with D-pad
+  navigation and `A TYPE  B CANCEL  X DELETE  Y SHIFT  START SAVE NOTE`, hidden until a pad is
+  actually used. So the only thing standing between a Deck and an annotated chart was the opener,
+  which is why an item filed as blocked on a layout answer cost one scene file.
+
+  **The layout answer this item was cut on, settled.** All four face buttons are bound (A cycles
+  the mark, B closes, X recalls, Y centres) and both bumpers zoom, so the opener is `RT`: the only
+  free button on this scene that is a real physical control on a Deck, and it is referenced nowhere
+  else in the repo. The footer grew a second button rather than borrowing RECALL's slot, and the
+  hint line's `wordWrapWidth` reserves it, so the two buttons and the hint text share the bar
+  without overlap: `hintWidth` is 932 in the 1280x720 base and 372 in the 720x1280 base, both over
+  the shipped 120 floor.
+
+  **The arming guard is correctness, not polish.** A fresh `GamepadManager` reads a button that was
+  already held as a first press, so a player holding RT when the chart opens would have the note
+  field appear by itself. `noteKeyArmed` refuses the press until RT has been seen released, which is
+  exactly the shipped `zoomOutArmed` guard LB needs for the same reason, and it is why the two arm
+  lines sit together. It resets in `init()` on the line below `zoomOutArmed`'s reset, because a
+  Phaser scene instance outlives a single map open and a once-armed flag would leave the second
+  open unguarded.
+
+  **The button is disabled, never hidden, while nothing is focused.** A hidden button reflows
+  nothing here (the footer is laid out once at create time) but it does hide the affordance from a
+  player who has not yet tapped a sector, and the chart's whole job on a phone is to say what it can
+  do. `setFocus` is the single funnel for pointer, hover and D-pad focus alike, so one line there
+  enables it for all three paths.
+
+  **No storage key and no version bump of any kind**, and no persistence code was touched:
+  `setSectorNote`, `sanitizeSectorNote` and `saveNote` are unchanged, so every existing profile and
+  every archived world keeps its marks, its notes and its discovery state. Arena, daily, weekly,
+  practice and gauntlet are untouched by construction, because `MapScene` is launched from the
+  expedition path only.
+
+  **Deliberately not built:** no test, because `MapScene` is a live Phaser scene and this repo's
+  `CLAUDE.md` verifies Phaser-coupled code by play rather than by mocking a scene, and the pure
+  rules underneath are already pinned and unchanged. `FEAT-MARK-NOTES-PANEL` stays open and is
+  untouched. The feel questions are `POLISH-MAP-NOTE-OPENERS` under `## Human gates`.
 
 - [ ] **FEAT-MARK-NOTES-PANEL** (new 2026-08-01, from FEAT-MARK-NOTES): a note is readable only by
   focusing its sector, so answering "what did I write anywhere in this world" means sweeping the
@@ -10818,6 +10881,15 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-MAP-NOTE-OPENERS** (new 2026-08-02, from FEAT-MARK-NOTE-TOUCH, 6138bff). Value: the
+  two new openers are geometry and a button index, validated by reading the code and by arithmetic
+  against the two base resolutions, never in a browser and never on the Deck. Four questions, all
+  wanting a real chart on a real screen: (a) is `RT` the right pad opener, or does `SELECT` / `L3`
+  read better in the hand than a trigger the player associates with firing; (b) does the footer read
+  as crowded in portrait, where the hint line drops from 932 px to 372 px of wrap width beside two
+  buttons; (c) is 120 px wide enough for `NOTE` at the button's derived font size; (d) should the
+  button hide rather than disable while no sector is focused. Deps: playtest.
 
 - [ ] **POLISH-OVERLAY-PAD-RING-FEEL** (new 2026-08-02, from FEAT-OVERLAY-PAD-FOCUS-REST). Value: a
   pad-only player can now answer all five DOM overlays, but every choice was made against the
