@@ -630,6 +630,9 @@ export class GameScene extends Phaser.Scene {
   private escortDroneUnderFire = false;
   private escortDroneNextAlertAtSeconds = 0;
   private escortDroneRegenBlockedUntilSeconds = 0;
+  /** The blast path's own i-frame clock. The barrage families land many strike points in one
+   *  burst, so an ungated path would spend the drone's whole 100 HP in a few frames. */
+  private escortDroneNextBlastAtSeconds = 0;
   /** The crate a previous run left behind, while the ship is in the room holding it. Derived
    *  from the quest store like the drone above, never persisted here. */
   private questCargoDrop: {
@@ -4281,6 +4284,8 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+
+    this.damageEscortDroneByBlast(damage, x, y, radius);
   }
 
   /**
@@ -5458,6 +5463,7 @@ export class GameScene extends Phaser.Scene {
     this.escortDroneUnderFire = false;
     this.escortDroneNextAlertAtSeconds = 0;
     this.escortDroneRegenBlockedUntilSeconds = 0;
+    this.escortDroneNextBlastAtSeconds = 0;
     this.drawEscortDrone();
     this.toastManager?.showToast({
       tier: 'ambient',
@@ -5553,9 +5559,10 @@ export class GameScene extends Phaser.Scene {
     this.recordExpeditionQuest({ kind: 'escortDrone', sectorTags: sectorTagsOf(sector) });
   }
 
-  /** The drone's only ranged damage path. Separate from the contact billing above on purpose: a
-   *  hit is instantaneous, so it blocks regen for a window rather than for as long as it lasts,
-   *  and BALANCE-QUEST-ESCORT-DRONE's contact numbers are left exactly as shipped. */
+  /** The drone's instantaneous damage path: pooled enemy fire, boss beams, and every blast through
+   *  damageEscortDroneByBlast below. Separate from the contact billing above on purpose: a hit is
+   *  instantaneous, so it blocks regen for a window rather than for as long as it lasts, and
+   *  BALANCE-QUEST-ESCORT-DRONE's contact numbers are left exactly as shipped. */
   private damageEscortDroneByProjectile(damage: number, hitX: number, hitY: number, travelAngle: number): void {
     const drone = this.escortDrone;
     if (!drone) return;
@@ -5565,6 +5572,21 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager.playHitSparks(hitX, hitY, travelAngle);
     this.drawEscortDrone();
     if (drone.health <= 0) this.loseEscortDrone();
+  }
+
+  /** The two blast choke points, handleGroundSlam and handleExplosion, applied to the drone at its
+   *  centre against the same radius the player is tested with, so a blast bills it over exactly the
+   *  footprint the telegraph drew. Gated at the contact path's own cadence because a barrage lands
+   *  many strike points in one burst. */
+  private damageEscortDroneByBlast(damage: number, blastX: number, blastY: number, radius: number): void {
+    const drone = this.escortDrone;
+    if (!drone) return;
+    const gapX = drone.x - blastX;
+    const gapY = drone.y - blastY;
+    if (gapX * gapX + gapY * gapY >= radius * radius) return;
+    if (this.gameTime < this.escortDroneNextBlastAtSeconds) return;
+    this.escortDroneNextBlastAtSeconds = this.gameTime + ESCORT_DRONE_DAMAGE_INTERVAL_SECONDS;
+    this.damageEscortDroneByProjectile(damage, drone.x, drone.y, Math.atan2(gapY, gapX));
   }
 
   /** Fail-and-retry, never fail-forever (doc 04 section 4): the flag is cleared and nothing the
@@ -5625,6 +5647,7 @@ export class GameScene extends Phaser.Scene {
     this.escortDroneUnderFire = false;
     this.escortDroneNextAlertAtSeconds = 0;
     this.escortDroneRegenBlockedUntilSeconds = 0;
+    this.escortDroneNextBlastAtSeconds = 0;
     clearEnemyDecoy();
   }
 
@@ -11616,6 +11639,8 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+
+    this.damageEscortDroneByBlast(damage, x, y, radius);
 
     // Screen shake
     if (getSettingsManager().isScreenShakeEnabled()) {

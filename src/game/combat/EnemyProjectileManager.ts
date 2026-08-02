@@ -148,6 +148,24 @@ export class EnemyProjectileManager {
         }
       }
     }
+
+    // Ungated on purpose, unlike the ground-blast path: a volley fires once per charge cycle, so a
+    // drone inside two crossing beams eating both is what standing in a laser grid means.
+    const drone = this.options.escortDronePosition();
+    const laneDx = beamEndX - x1;
+    const laneDy = beamEndY - y1;
+    const laneLengthSquared = laneDx * laneDx + laneDy * laneDy;
+    if (drone && laneLengthSquared > 0) {
+      const droneAlong = Math.max(0, Math.min(1,
+        ((drone.x - x1) * laneDx + (drone.y - y1) * laneDy) / laneLengthSquared));
+      const droneClosestX = x1 + droneAlong * laneDx;
+      const droneClosestY = y1 + droneAlong * laneDy;
+      const droneGapX = drone.x - droneClosestX;
+      const droneGapY = drone.y - droneClosestY;
+      if (droneGapX * droneGapX + droneGapY * droneGapY < LASER_HIT_HALF_WIDTH * LASER_HIT_HALF_WIDTH) {
+        this.options.damageEscortDrone(damage, droneClosestX, droneClosestY, Math.atan2(laneDy, laneDx));
+      }
+    }
   }
 
   updateLasers(deltaTime: number): void {
