@@ -758,7 +758,7 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   1.41-1.60x for the four six-card scenes. Its card text stays near phone-tiny. Everything
   cheap has been taken; going further needs a layout call the operator owns: a shorter pact
   card, a scrollable grid, or paging the eight pacts. Do not retune the scale constants blind.
-- [ ] **BUG-HUD-FIXES**. Four HUD correctness fixes in
+- [x] **BUG-HUD-FIXES** (done, d902641). Four HUD correctness fixes in
   `src/game/managers/HUDManager.ts`: (1) event-countdown bar fill uses unscaled
   `180 - 16` while the track was created scaled (`:1731` vs `:1634-1636`), so on
   phones it never fills past ~half: store the scaled width at creation. (2)
@@ -769,6 +769,39 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   (`:1281-1283`): `setFixedSize` or right-align. (4) each hit queues an 80ms
   `delayedCall` restoring a stale HP-threshold color, flickering under DoT
   (`:1176-1179`): replace with a single `flashUntil` timestamp checked in `update()`.
+
+  **What shipped (d902641):** all four, one file. (1) `updateEventIndicator` recomputed its
+  track width as the literal `180 - 16` while `createEventIndicator` painted it at
+  `scaledSize(180) - scaledSize(16)`, so the fill was capped at 164 units against a track
+  that is 343 units wide on the iPhone-landscape canvas `HudScale.ts:8-11` documents
+  (hudScale 2.087): the bar could never pass 47.8% of itself at full time remaining. The
+  scaled width is now stashed at creation in `eventIndicatorBarWidth` and read by the
+  update; desktop is unchanged, where both expressions are 164. (2) `handleResize` moved the
+  AUTO-UPGRADE pill's hit rectangle and its text but never its painted `Graphics`, which is
+  screen-space and unparented, and never the `toggleX/Y/W/H` stash that `refreshAutoBuyPanel`
+  repaints from — so an orientation flip left the pill's background behind at the old corner
+  and every later repaint put it back there. Resize now also resizes the hit rectangle
+  (hudScale changes on a flip, so the pill's size genuinely changes), refreshes the input hit
+  area, updates all four stashed values and repaints. The `pointerover` handler was closing
+  over the creation-time constants and had the same stale-position bug, so it moved onto the
+  new shared `paintAutoBuyPanel(accent)` alongside `refreshAutoBuyPanel`. (3) The boss HP
+  readout padded the current-HP number with spaces to match the max-HP width, which cannot
+  work in `DISPLAY_FONT` (Rajdhani is proportional; a space is far narrower than a digit), so
+  the ` / MAX` half slid every time the current number gained or lost a digit. The text is now
+  right-aligned at the bar's inner right edge (origin 1, x `barWidth / 2 - scaledSize(6)`) and
+  the padding is gone: only the changing digits move. **This is a visible change** and it is
+  question (i) of POLISH-HUD-FIXES under Human gates. (4) The white damage pulse on the HP bar
+  had never rendered: `updateHUD` set the fill white on a damage frame and then unconditionally
+  re-set it to the threshold colour ~40 lines later in the *same* frame, while each hit also
+  queued an 80 ms `delayedCall` restoring a threshold colour computed from that hit's HP ratio
+  — one dead timer per damage tick, and a stale colour under DoT. A single
+  `hpDamageFlashUntilMs` timestamp now gates that per-frame `setFillStyle`, so the pulse
+  actually shows for `HP_DAMAGE_FLASH_MS` (80) and no timer is queued at all. **Deliberately
+  left alone:** the boss-bar flash at `:1269` uses the same `delayedCall` shape but restores a
+  constant colour that nothing else writes per frame, so it is not the same defect; the
+  framerate-dependent boss-bar drain on the line above it belongs to BUG-TWEEN-HYGIENE.
+  No test: every one of the four is a mutation on a live Phaser object inside the scene-coupled
+  HUD manager, which `CLAUDE.md` says is verified by play, not by mocking a scene.
 - [ ] **BUG-TWEEN-HYGIENE**. Value: verified stutter/GC sources (Phaser never
   auto-removes tweens of destroyed targets). (1) `updateUpgradeIcons` rebuilds via
   `removeAll(true)` without killing the highlight glow's `repeat: -1` pulse
@@ -9451,6 +9484,20 @@ Never agent work. The fleet must not do any of these.
   overlay rather than a full scene. (h) LoadoutScene can only grow where the canvas is taller
   than the design height, so a landscape phone gets 1.027 while portrait gets the full 1.2: is
   the landscape case worth anything, or should that scene stay unscaled outside portrait?
+
+- [ ] **POLISH-HUD-FIXES** (new 2026-08-02, from BUG-HUD-FIXES at d902641). Value: three of the
+  four HUD fixes only bite on a phone or after an orientation flip, and one changes what the
+  boss bar looks like on every screen, so they want an operator eye once. Questions: (i) the
+  boss HP readout moved from centred to right-aligned at the bar's inner right edge, which is
+  what stops it sliding as the digit count changes — does it read better there, given the fill
+  drains left-to-right so the right end of the bar empties first? (j) the white damage pulse on
+  the player HP bar now actually renders (it never did); at 80 ms under sustained
+  damage-over-time, is it informative or is it strobing, and should it be suppressed when
+  Reduced Motion is on, which it currently is not? (k) the run-event countdown bar now fills its
+  whole track on a phone instead of stopping at ~48% — check the bar reaches the right-hand time
+  readout at full duration and empties cleanly to zero. (l) rotate the device mid-run with
+  AUTO-UPGRADE purchased: the pill's painted background should follow the text to the new
+  corner, hover/press should highlight it in place, and the tap target should still cover it.
 
 - [x] **HUMAN-PUSH-RECONCILE** (found 2026-08-01): **answered 2026-08-01, operator
   directed the reconcile + deploy the same day.** `origin/master` carried one commit
