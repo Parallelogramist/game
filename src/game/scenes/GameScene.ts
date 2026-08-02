@@ -16,6 +16,7 @@ import {
   EnemyAffix,
   Destructible,
   StatusEffect,
+  Consumable,
   ConsumablePickupTag,
   HealthPickupTag,
   MagnetPickupTag,
@@ -328,6 +329,26 @@ const SECRET_REWARD_RADIUS = 34;
 const SECRET_REWARD_BUNDLE_COUNT = 3;
 const SECRET_REWARD_HEAL = 25;
 
+interface ActiveChestRecord {
+  graphics: Phaser.GameObjects.Graphics;
+  isSpecial: boolean;
+  isPoiCache: boolean;
+  /** Optional only because it closes over timers declared later in addTreasureChest; it is
+   *  always assigned before that method returns. */
+  cleanup?: () => void;
+}
+
+/** One field object a POI slot put on the floor, carrying the handle its liveness is read from. */
+type PoiSlotObject =
+  | { kind: 'chest'; chest: ActiveChestRecord }
+  | { kind: 'crate'; entityId: number }
+  | { kind: 'boost'; entityId: number; consumable: ConsumableKind };
+
+interface PoiSlotRecord {
+  sectorKey: string;
+  objects: PoiSlotObject[];
+}
+
 interface ActiveAmbushNest {
   graphics: Phaser.GameObjects.Graphics;
   x: number;
@@ -595,9 +616,7 @@ export class GameScene extends Phaser.Scene {
   // persisted across refresh-recovery (mirrors the field shrines) and torn down on
   // reset/shutdown. Position is read live from the graphics (chests drift toward
   // the player via the chest-drone), `isSpecial` is the rare 3x-reward flag.
-  private activeChests: {
-    graphics: Phaser.GameObjects.Graphics; isSpecial: boolean; isPoiCache: boolean;
-  }[] = [];
+  private activeChests: ActiveChestRecord[] = [];
 
   // Environmental destructibles (barrels/crates)
   private destructibleSpawnTimer: number = 12;
@@ -662,6 +681,9 @@ export class GameScene extends Phaser.Scene {
   // one-per-run Black Market has been placed. Persisted (poiState) so a refresh neither
   // re-stocks a looted sector nor re-rolls an unvisited one.
   private spawnedPoiSlotIds: Set<string> = new Set();
+  /** Live objects per stocked POI slot, keyed by slot id. In-memory only: a refresh-restore
+   *  comes up empty, so a restored run retires no slot and behaves as it did before. */
+  private readonly poiSlotObjects: Map<string, PoiSlotRecord> = new Map();
   private readonly retireCandidates: RetireCandidate[] = [];
   private poiRunSalt: number = 0;
   private poiOncePerRunSpawned: boolean = false;
@@ -4485,9 +4507,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Spawns one uniformly-chosen field boost pickup. */
-  private spawnFieldBoostPickup(x: number, y: number): void {
+  private spawnFieldBoostPickup(x: number, y: number): { entityId: number; consumableKind: ConsumableKind } {
     const boost = FIELD_BOOSTS[Math.floor(Math.random() * FIELD_BOOSTS.length)];
-    spawnConsumablePickup(this.world, x, y, boost.kind, 0);
+    return {
+      entityId: spawnConsumablePickup(this.world, x, y, boost.kind, 0),
+      consumableKind: boost.kind,
+    };
   }
 
   /**
@@ -4724,7 +4749,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Builds one crate at a fixed point. Shared by the ambient timer spawner and by map
    *  caches, which place theirs and therefore skip the player-proximity retry. */
-  private addDestructible(x: number, y: number): void {
+  private addDestructible(x: number, y: number): number {
     const entityId = addEntity(this.world);
     addComponent(this.world, Transform, entityId);
     addComponent(this.world, Health, entityId);
@@ -4764,6 +4789,7 @@ export class GameScene extends Phaser.Scene {
     registerSprite(entityId, crate);
 
     this.destructibleCount++;
+    return entityId;
   }
 
   /**
@@ -4923,6 +4949,7 @@ export class GameScene extends Phaser.Scene {
     this.clearQuestCargoDrop();
     this.questCargoDropSectorKey = null;
     this.spawnedPoiSlotIds.clear();
+    this.poiSlotObjects.clear();
     this.poiOncePerRunSpawned = false;
     this.poiRunSalt = Math.floor(Math.random() * 0x7fffffff);
     this.bounty = null;
@@ -5061,14 +5088,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * FEAT-WORLDGEN-STREAM: the room the ship just left gives up its loose floor loot. Placed POI
-   * contents are NOT retired (FEAT-WORLDGEN-STREAM-POI-RETIRE): re-arming a slot the player had
-   * partly looted would pay its reward twice.
+   * FEAT-WORLDGEN-STREAM: the room the ship just left gives up its loose floor loot, and any
+   * POI slot in it whose reward the player never touched (FEAT-WORLDGEN-STREAM-POI-RETIRE).
+   * A partly-looted slot keeps what is left of it: re-arming it would pay its reward twice.
    */
   private retireDepartedSector(fromSectorKey: string | null): void {
     if (!fromSectorKey || this.playerId < 0) return;
     const playerX = Transform.x[this.playerId];
     const playerY = Transform.y[this.playerId];
+
+    this.retirePoiSlots(fromSectorKey);
+    const protectedPoiIds = this.protectedPoiEntityIds();
 
     this.retireCandidates.length = 0;
     for (const gem of getXPGemPositions()) {
@@ -5083,6 +5113,7 @@ export class GameScene extends Phaser.Scene {
     for (const query of [retireHealthQuery, retireMagnetQuery, retireConsumableQuery]) {
       this.retireCandidates.length = 0;
       for (const entityId of query(this.world)) {
+        if (protectedPoiIds.has(entityId)) continue;
         this.retireCandidates.push({
           entityId, x: Transform.x[entityId], y: Transform.y[entityId],
         });
@@ -5104,6 +5135,62 @@ export class GameScene extends Phaser.Scene {
       unregisterSprite(entityId);
     }
     removeEntity(this.world, entityId);
+  }
+
+  /** A slot is untouched only while every object it spawned is still on the floor. */
+  private isPoiObjectAlive(object: PoiSlotObject): boolean {
+    switch (object.kind) {
+      case 'chest':
+        return this.activeChests.includes(object.chest);
+      case 'crate':
+        return hasComponent(this.world, Destructible, object.entityId);
+      case 'boost':
+        // The kind comparison closes the one way a bitECS id can lie here: it was recycled
+        // onto a different pickup after this one was collected.
+        return hasComponent(this.world, ConsumablePickupTag, object.entityId)
+          && Consumable.kind[object.entityId] === object.consumable;
+    }
+  }
+
+  private destroyPoiObject(object: PoiSlotObject): void {
+    switch (object.kind) {
+      case 'chest':
+        object.chest.cleanup?.();
+        return;
+      case 'crate':
+        this.destroyRetiredPickup(object.entityId);
+        this.destructibleCount = Math.max(0, this.destructibleCount - 1);
+        return;
+      case 'boost':
+        this.destroyRetiredPickup(object.entityId);
+        return;
+    }
+  }
+
+  /**
+   * Untouched slots in the departed room give their reward back to the generator: the objects
+   * go away and the slot leaves `spawnedPoiSlotIds`, so the next entry stocks it again. A slot
+   * the player took part of is left alone, because re-arming it would pay it twice.
+   */
+  private retirePoiSlots(fromSectorKey: string): void {
+    for (const [slotId, record] of this.poiSlotObjects) {
+      if (record.sectorKey !== fromSectorKey) continue;
+      if (!record.objects.every(object => this.isPoiObjectAlive(object))) continue;
+      for (const object of record.objects) this.destroyPoiObject(object);
+      this.poiSlotObjects.delete(slotId);
+      this.spawnedPoiSlotIds.delete(slotId);
+    }
+  }
+
+  /** Entity ids the loose-loot sweep must not take: a placed POI reward is not floor litter. */
+  private protectedPoiEntityIds(): Set<number> {
+    const protectedIds = new Set<number>();
+    for (const record of this.poiSlotObjects.values()) {
+      for (const object of record.objects) {
+        if (object.kind !== 'chest') protectedIds.add(object.entityId);
+      }
+    }
+    return protectedIds;
   }
 
   /**
@@ -5134,12 +5221,15 @@ export class GameScene extends Phaser.Scene {
 
     for (const entry of rolled) {
       this.spawnedPoiSlotIds.add(entry.slot.id);
-      this.spawnPoiContent(
+      const spawnedObjects = this.spawnPoiContent(
         entry.contentId,
         sector.sx * SECTOR_WIDTH + entry.slot.tileX * TILE_SIZE + TILE_SIZE / 2,
         sector.sy * SECTOR_HEIGHT + entry.slot.tileY * TILE_SIZE + TILE_SIZE / 2,
         sector.depth,
       );
+      if (spawnedObjects.length > 0) {
+        this.poiSlotObjects.set(entry.slot.id, { sectorKey, objects: spawnedObjects });
+      }
       if (entry.contentId === 'poi_ambush_nest') {
         getDiscoveryManager().markAmbushNestSighted(entry.slot.id);
       }
@@ -5148,13 +5238,16 @@ export class GameScene extends Phaser.Scene {
 
   /** Every content id maps to an existing reward path; the `never` default makes a future
    *  catalog entry with no spawn a compile error rather than a silently empty room. */
-  private spawnPoiContent(contentId: PoiContentId, x: number, y: number, depth: number): void {
+  private spawnPoiContent(contentId: PoiContentId, x: number, y: number, depth: number): PoiSlotObject[] {
     switch (contentId) {
       case 'poi_treasure_chest':
-        this.addTreasureChest(x, y, Math.random() < SPECIAL_CHEST_CHANCE, true);
-        return;
+        return [{
+          kind: 'chest',
+          chest: this.addTreasureChest(x, y, Math.random() < SPECIAL_CHEST_CHANCE, true),
+        }];
       case 'poi_crate_field': {
         const spot = { x: 0, y: 0 };
+        const crates: PoiSlotObject[] = [];
         for (let index = 0; index < POI_CRATE_FIELD_COUNT; index++) {
           const angle = (Math.PI * 2 * index) / POI_CRATE_FIELD_COUNT - Math.PI / 2;
           this.worldMode.freeSpotNear(
@@ -5162,31 +5255,36 @@ export class GameScene extends Phaser.Scene {
             y + Math.sin(angle) * POI_CRATE_FIELD_RADIUS,
             spot,
           );
-          this.addDestructible(spot.x, spot.y);
+          crates.push({ kind: 'crate', entityId: this.addDestructible(spot.x, spot.y) });
         }
-        return;
+        return crates;
       }
-      case 'poi_field_boost_cache':
-        this.spawnFieldBoostPickup(x - POI_CACHE_SPREAD, y);
-        this.spawnFieldBoostPickup(x + POI_CACHE_SPREAD, y);
-        return;
+      case 'poi_field_boost_cache': {
+        const left = this.spawnFieldBoostPickup(x - POI_CACHE_SPREAD, y);
+        const right = this.spawnFieldBoostPickup(x + POI_CACHE_SPREAD, y);
+        return [
+          { kind: 'boost', entityId: left.entityId, consumable: left.consumableKind },
+          { kind: 'boost', entityId: right.entityId, consumable: right.consumableKind },
+        ];
+      }
       case 'poi_black_market':
         this.shrineManager.addShrine('market', x, y);
         this.poiOncePerRunSpawned = true;
-        return;
+        return [];
       case 'poi_ambush_nest':
         this.addAmbushNest(x, y, depth);
-        return;
+        return [];
       case 'poi_nemesis_lair':
         this.addNemesisLair(x, y, false);
-        return;
-      case 'poi_shrine_cleanse':   this.shrineManager.addShrine('cleanse', x, y); return;
-      case 'poi_shrine_power':     this.shrineManager.addShrine('power', x, y); return;
-      case 'poi_shrine_fortune':   this.shrineManager.addShrine('fortune', x, y); return;
-      case 'poi_shrine_sacrifice': this.shrineManager.addShrine('sacrifice', x, y); return;
+        return [];
+      case 'poi_shrine_cleanse':   this.shrineManager.addShrine('cleanse', x, y); return [];
+      case 'poi_shrine_power':     this.shrineManager.addShrine('power', x, y); return [];
+      case 'poi_shrine_fortune':   this.shrineManager.addShrine('fortune', x, y); return [];
+      case 'poi_shrine_sacrifice': this.shrineManager.addShrine('sacrifice', x, y); return [];
       default: {
         const unhandled: never = contentId;
         console.warn(`Unhandled POI content id: ${String(unhandled)}`);
+        return [];
       }
     }
   }
@@ -8372,7 +8470,7 @@ export class GameScene extends Phaser.Scene {
    * delete a reward the player is fighting his way toward) nor the chest-drone magnet
    * (which would drag every cache in the world at the player, through walls).
    */
-  private addTreasureChest(x: number, y: number, isSpecial: boolean, isPoiCache = false): void {
+  private addTreasureChest(x: number, y: number, isSpecial: boolean, isPoiCache = false): ActiveChestRecord {
     // Create visual chest using Graphics for detailed drawing
     const chestGraphics = this.add.graphics();
     chestGraphics.setPosition(x, y);
@@ -8380,7 +8478,7 @@ export class GameScene extends Phaser.Scene {
     chestGraphics.setDepth(5);
 
     // Register for persistence (saved by position + special flag) and teardown.
-    const chestRecord = { graphics: chestGraphics, isSpecial, isPoiCache };
+    const chestRecord: ActiveChestRecord = { graphics: chestGraphics, isSpecial, isPoiCache };
     this.activeChests.push(chestRecord);
 
     // Pulsating effect (and gold sparkles for special chests)
@@ -8497,6 +8595,9 @@ export class GameScene extends Phaser.Scene {
         if (chestGraphics.active) cleanup();
       });
     }
+
+    chestRecord.cleanup = cleanup;
+    return chestRecord;
   }
 
   /**
@@ -13275,6 +13376,7 @@ export class GameScene extends Phaser.Scene {
     this.shrineManager.clear();
     this.activeChests.forEach(chest => chest.graphics.destroy());
     this.activeChests = [];
+    this.poiSlotObjects.clear();
     this.abilityVaultManager.clear();
     this.secretCacheManager.clear();
     this.questBoardManager.clear();
