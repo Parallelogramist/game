@@ -2911,6 +2911,39 @@ shortcut would have silently reopened next run. Files `FEAT-GRID-BAND-CHART-TELL
 
 ## Proposed (auto)
 
+- [x] **FEAT-SECRET-REWARD-ARMORY** (done, 07e73a4) (new 2026-08-02): a found secret can hand the
+  run a weapon it did not bring. Value: a deep secret can now change the build of the run in
+  progress, because `secret_armory_cache` arms the ship with a weapon off the every-5th-level
+  milestone that is otherwise the only free source of one.
+  1. **What shipped**: `secret_armory_cache` as the seventh row of `SECRET_REWARDS` (weight 10,
+     icon `sword`), zeroed below depth 3, scaled 1.2x at depth 3 and 1.6x at depth 6, and leaning
+     1.5x at the `hiddenSector` tier and 1.25x at `puzzle`; `GameScene.grantArmoryWeapon()`
+     spending the shared `applyCombinedUpgrade` path; a claim toast naming the weapon it armed.
+     About 8.9% of a depth-3 cache-tier secret and about 10.2% of a depth-6 one, against 0% below
+     depth 3.
+  2. **A weapon is otherwise milestone-only.** `getRandomCombinedUpgrades` gates `type: 'add'`
+     behind `playerLevel % 5 === 0`, and the only other mid-run source is the Black Market's paid
+     `recruit` card, so this is the first free off-milestone weapon in the game.
+  3. **Three branches, and a find never pays nothing**: a free slot with something addable arms a
+     new weapon; a full or exhausted arsenal refits the least-invested system (the Black Market's
+     own rule, so the two never disagree); everything maxed falls back to a sealed chest, which is
+     `secret_map_fragment`'s shipped fallback shape.
+  4. **Banished and scrapped weapons are refused**, for `scrapWeapon`'s stated reason: re-taking a
+     traded weapon at level 1 would launder the trade.
+  5. **Index 2, not the end of the table.** `weightedPick` stops its walk at `weights.length - 1`,
+     so the final slot is its fallback and a zero-weighted row does not belong there. Do not tidy
+     the row to the end.
+  6. **Adding a row re-rolls the payout of every still-unfound secret**, because the weights vector
+     changed length. Harmless and deliberate: a payout is never previewed before the claim, and an
+     already-found secret is `FOUND` and never re-paid.
+  7. **Econ-neutral by construction**, so the parked `FEAT-ECON-WARDS` call cannot reach it: no
+     gold, no relic roll, no change to relic odds, `FIELD_BOOSTS` untouched. The same argument
+     `FEAT-SECRET-REWARD-VARIETY` and `FEAT-EXPEDITION-SORTIE` shipped on.
+  8. **No storage key and no version bump**: `SAVE_VERSION`, `WORLDGEN_VERSION`,
+     `DISCOVERY_VERSION` and `WORLD_PROFILE_VERSION` all stay put, so every existing profile gets
+     the row the moment the build lands. Arena is unchanged by construction: the whole
+     secret-cache rail is expedition-only.
+  9. **Filed with it**: `BALANCE-SECRET-REWARD-ARMORY` under `## Human gates`.
 - [x] **FEAT-WARDEN-ROSTER** (done, faa5190) (new 2026-08-02, from FEAT-WARDEN-IDENTITY): the twelve
   Wardens become a lifetime chase. `FEAT-WARDEN-IDENTITY` made each world's guardian a fixed,
   named property of that world, but nothing recorded which guardians a profile had actually
@@ -12046,6 +12079,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **BALANCE-SECRET-REWARD-ARMORY** (new 2026-08-02, from FEAT-SECRET-REWARD-ARMORY). A deep
+  secret can now hand the run a weapon, and none of it has been played. Questions for the
+  operator: (a) about 9% of depth-3 secrets and 10% of depth-6 ones roll the armory, which is
+  roughly one free weapon per world: does that read as a reason to detour or as the milestone
+  cadence being undercut? (b) the fallback refits the least-invested weapon when the arsenal is
+  full, so a player at four slots gets a level rather than a choice: is a forced level the right
+  consolation, or should a full arsenal pay the chest instead? (c) the row is zeroed below
+  depth 3 so the first ring never pays a weapon: is that far enough out? (d) the grant runs the
+  shared apply path, so a refit can fire the WEAPON EVOLVED celebration from a cache claim, on
+  top of the claim's own toast and camera shake: does that read as a payoff or as two events
+  colliding? Do not retune any of this blind.
 
 - [ ] **POLISH-WARDEN-IDENTITY** (new 2026-08-02, from FEAT-WARDEN-IDENTITY). Every world now has
   a fixed Warden, named in four places, and none of it has been seen in a browser. Questions for
