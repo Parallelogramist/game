@@ -26,6 +26,7 @@ import type {
   BreakableRect,
   EdgeDef,
   EdgeDirection,
+  GridBandDef,
   PoiSlot,
   TileCoord,
 } from './worldTypes';
@@ -56,6 +57,7 @@ export interface SectorInteriorResult {
   entryTiles: Partial<Record<EdgeDirection, TileCoord>>;
   poiSlots: PoiSlot[];
   breakables: BreakableRect[];
+  gridBands: GridBandDef[];
 }
 
 const INTERIOR_MIN_X = 1;
@@ -84,6 +86,13 @@ const SECRET_GAP_SHARE_PERCENT = 35;
  *  find-shapes. Measured over 101 worlds the fenced count lands at the median recorded on
  *  FEAT-POWER-PHASE-CLOAK in BACKLOG.md. */
 const SECURITY_GRID_SHARE_PERCENT = 40;
+
+/** Share of sectors that carry a corridor band. Measured over the 100 invariant seeds the pass
+ *  lands a median 6 bands per world (min 1, max 13), beside the median 7 fenced altars. */
+const GRID_BAND_SHARE_PERCENT = 20;
+
+/** The widest pinch a band may plug. Wider than this is a room, not a corridor. */
+const GRID_BAND_MAX_TILES = 3;
 
 const CARDINAL_STEPS: readonly (readonly [number, number])[] =
   [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -119,9 +128,10 @@ export function buildSectorInterior(input: SectorInteriorInput): SectorInteriorR
   if (input.danger >= 0.3) {
     stampHazardStrips(tiles, rng, input.danger, protectedTileIndices, apertureTileIndices);
   }
-  // LAST, and none of the three draws rng from `rng`: anything after them that reads tiles
+  // LAST, and none of the four draws rng from `rng`: anything after them that reads tiles
   // would start taking different branches on the same rolls, which moves every existing
   // world. Order matters between them: each reads the tiles the previous one left.
+  let gridBands: GridBandDef[] = [];
   if (!isBossArena) {
     sealSecretCaches(tiles, poiSlots, breakables, entryTiles,
       apertureTileIndices, protectedTileIndices, input);
@@ -129,9 +139,11 @@ export function buildSectorInterior(input: SectorInteriorInput): SectorInteriorR
       apertureTileIndices, protectedTileIndices, input);
     fenceShrineAltars(tiles, poiSlots, entryTiles,
       apertureTileIndices, protectedTileIndices, input);
+    gridBands = fenceCorridorPinches(tiles, poiSlots, entryTiles,
+      apertureTileIndices, protectedTileIndices, input);
   }
 
-  return { tiles, entryTiles, poiSlots, breakables };
+  return { tiles, entryTiles, poiSlots, breakables, gridBands };
 }
 
 function clampedIndex(roll: number, length: number): number {
@@ -865,4 +877,121 @@ function fenceShrineAltars(
     }
     slot.fenced = true;
   }
+}
+
+/**
+ * Plugs one of a sector's corridor pinches with a security grid band, so the Phase Cloak opens a
+ * permanent shortcut rather than only a dead-end pocket (BACKLOG FEAT-GRID-FENCE-CORRIDOR).
+ *
+ * The proof is the opposite of the one sealSecretCaches makes. There, a seal is legal when it cut
+ * off exactly its own pocket; here, a band is legal only when it cut off NOTHING: everything
+ * reachable before must still be reachable with the band solid, minus the band cells themselves.
+ * sealHoldsUp states exactly that when the pocket list is empty, so a pinch that is the only way
+ * through is left open and a band can never gate a region.
+ *
+ * Runs last and consumes no rng from the sector stream (see buildSectorInterior), converts only
+ * Open tiles and registers no BreakableRect, so every id a profile already remembers still points
+ * at the same thing.
+ */
+function fenceCorridorPinches(
+  tiles: Uint8Array,
+  poiSlots: PoiSlot[],
+  entryTiles: Partial<Record<EdgeDirection, TileCoord>>,
+  apertureTileIndices: Set<number>,
+  protectedTileIndices: Set<number>,
+  input: SectorInteriorInput,
+): GridBandDef[] {
+  let floodSeed: TileCoord | undefined;
+  for (const direction of EDGE_DIRECTIONS) {
+    const entry = entryTiles[direction];
+    if (entry) { floodSeed = entry; break; }
+  }
+  if (!floodSeed) return [];
+
+  const shareRng = mulberry32(hashStringToSeed(
+    `gridBand:${input.worldSeed}:${input.sx},${input.sy}`));
+  if (shareRng() * 100 >= GRID_BAND_SHARE_PERCENT) return [];
+
+  for (const band of corridorPinchCandidates(tiles)) {
+    if (band.some(index => apertureTileIndices.has(index))) continue;
+    if (band.some(index => protectedTileIndices.has(index))) continue;
+    // A band beside an altar ring would put two fence spans in one pass, and GRID_MAX_SPAN_TILES
+    // caps what a single cloak pass may cross.
+    if (band.some(index => securityGridWithinOneTile(tiles, index))) continue;
+
+    const reachedBefore = floodInterior(tiles, floodSeed);
+    for (const index of band) tiles[index] = TileKind.SecurityGrid;
+    if (!sealHoldsUp(tiles, floodSeed, reachedBefore, band, [], poiSlots, entryTiles)) {
+      for (const index of band) tiles[index] = TileKind.Open;
+      continue;
+    }
+    return [{ id: `band:${input.sx},${input.sy}:0`, tileIndices: band }];
+  }
+  return [];
+}
+
+function securityGridWithinOneTile(tiles: Uint8Array, index: number): boolean {
+  const centreX = index % SECTOR_TILE_COLS;
+  const centreY = Math.floor(index / SECTOR_TILE_COLS);
+  for (let offsetY = -1; offsetY <= 1; offsetY++) {
+    for (let offsetX = -1; offsetX <= 1; offsetX++) {
+      const tileX = centreX + offsetX;
+      const tileY = centreY + offsetY;
+      if (tileX < 0 || tileX >= SECTOR_TILE_COLS) continue;
+      if (tileY < 0 || tileY >= SECTOR_TILE_ROWS) continue;
+      if (tiles[tileIndex(tileX, tileY)] === TileKind.SecurityGrid) return true;
+    }
+  }
+  return false;
+}
+
+/** Every straight run of Open tiles that plugs a corridor, vertical runs first then horizontal,
+ *  both in scan order so the pass is deterministic for a seed. */
+function corridorPinchCandidates(tiles: Uint8Array): number[][] {
+  const candidates: number[][] = [];
+  for (let tileX = INTERIOR_MIN_X; tileX <= INTERIOR_MAX_X; tileX++) {
+    for (let tileY = INTERIOR_MIN_Y; tileY <= INTERIOR_MAX_Y; tileY++) {
+      const run = pinchRun(tiles, tileX, tileY, 0, 1);
+      if (run) candidates.push(run);
+    }
+  }
+  for (let tileY = INTERIOR_MIN_Y; tileY <= INTERIOR_MAX_Y; tileY++) {
+    for (let tileX = INTERIOR_MIN_X; tileX <= INTERIOR_MAX_X; tileX++) {
+      const run = pinchRun(tiles, tileX, tileY, 1, 0);
+      if (run) candidates.push(run);
+    }
+  }
+  return candidates;
+}
+
+/**
+ * The run of Open tiles starting at (tileX, tileY) and growing along (stepX, stepY), or null when
+ * it is not a pinch. A pinch starts and ends against Solid rock, so no weapon and no tether opens
+ * a way around the band; it is at most GRID_BAND_MAX_TILES long, so it is a corridor rather than a
+ * room; and it carries walkable floor on both flanks of every cell, so the cloak has somewhere to
+ * come out on either side.
+ */
+function pinchRun(
+  tiles: Uint8Array, tileX: number, tileY: number, stepX: number, stepY: number,
+): number[] | null {
+  if (tiles[tileIndex(tileX, tileY)] !== TileKind.Open) return null;
+  if (tiles[tileIndex(tileX - stepX, tileY - stepY)] !== TileKind.Solid) return null;
+
+  const flankX = stepY;
+  const flankY = stepX;
+  const run: number[] = [];
+  let cursorX = tileX;
+  let cursorY = tileY;
+  while (cursorX <= INTERIOR_MAX_X && cursorY <= INTERIOR_MAX_Y
+    && tiles[tileIndex(cursorX, cursorY)] === TileKind.Open) {
+    if (run.length === GRID_BAND_MAX_TILES) return null;
+    if (!isPassable(tiles[tileIndex(cursorX - flankX, cursorY - flankY)])) return null;
+    if (!isPassable(tiles[tileIndex(cursorX + flankX, cursorY + flankY)])) return null;
+    run.push(tileIndex(cursorX, cursorY));
+    cursorX += stepX;
+    cursorY += stepY;
+  }
+  if (run.length === 0) return null;
+  if (tiles[tileIndex(cursorX, cursorY)] !== TileKind.Solid) return null;
+  return run;
 }

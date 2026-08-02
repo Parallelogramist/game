@@ -6780,8 +6780,8 @@ export class GameScene extends Phaser.Scene {
     if (breach === null) return;
     // Ordered so nothing is recorded that did not happen: the tile write is the authority
     // and it refuses a fence that is already dark.
-    if (!clearSecurityGrid(map, breach.poiId)) return;
-    recordDownedSecurityGrid(map.seed, map.worldGenVersion, breach.poiId);
+    if (!clearSecurityGrid(map, breach.gridId)) return;
+    recordDownedSecurityGrid(map.seed, map.worldGenVersion, breach.gridId);
 
     Transform.x[this.playerId] = breach.x;
     Transform.y[this.playerId] = breach.y;
@@ -6810,7 +6810,9 @@ export class GameScene extends Phaser.Scene {
     this.toastManager?.showToast({
       tier: 'ambient',
       title: 'GRID DOWN',
-      description: 'The fence is dark for good: the cloak tripped its kill-switch.',
+      description: breach.kind === 'corridor'
+        ? 'The corridor is open for good: the cloak tripped its kill-switch.'
+        : 'The fence is dark for good: the cloak tripped its kill-switch.',
       icon: 'ghost',
       color: WORLD_GEOMETRY_COLORS.securityGrid.stroke,
       duration: 2800,

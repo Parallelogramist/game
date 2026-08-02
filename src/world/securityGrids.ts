@@ -22,6 +22,7 @@ export const GRID_MAX_SPAN_TILES = 2;
 export const SECURITY_GRID_NOTICE_TILES = 2;
 
 const GRID_POI_ID = /^poi:(-?\d+),(-?\d+):\d+$/;
+const GRID_BAND_ID = /^band:(-?\d+),(-?\d+):\d+$/;
 
 export interface GridBreach {
   /** Centre of the tile the ship lands on, inside the fenced pocket. */
@@ -30,8 +31,10 @@ export interface GridBreach {
   /** Centre of the first fence tile: where the cloak bites. */
   fenceX: number;
   fenceY: number;
-  /** PoiSlot.id of the altar this fence rings: the id the profile remembers. */
-  poiId: string;
+  /** The id the profile remembers: a fenced altar's PoiSlot.id, or a corridor band's id. */
+  gridId: string;
+  /** Which fence was crossed. Only the toast reads it; the kill-switch is the same either way. */
+  kind: 'altar' | 'corridor';
 }
 
 function isFloor(kind: number): boolean {
@@ -63,14 +66,30 @@ function fencedSlotAt(
   return null;
 }
 
+/** The corridor band a global fence tile belongs to, or null. */
+function gridBandIdAt(
+  world: WorldMap, globalTileX: number, globalTileY: number,
+): string | null {
+  const sx = Math.floor(globalTileX / SECTOR_TILE_COLS);
+  const sy = Math.floor(globalTileY / SECTOR_TILE_ROWS);
+  const sector = world.sectors.get(`${sx},${sy}`);
+  if (sector === undefined) return null;
+  const localIndex = (globalTileY - sy * SECTOR_TILE_ROWS) * SECTOR_TILE_COLS
+    + (globalTileX - sx * SECTOR_TILE_COLS);
+  for (const band of sector.gridBands ?? []) {
+    if (band.tileIndices.includes(localIndex)) return band.id;
+  }
+  return null;
+}
+
 /**
  * Where a cloaked ship at (x, y) heading (dirX, dirY) comes out, or null when there is no
  * fence there to pass. The direction is snapped to its dominant axis for the same reason
  * the tether's is: a generated ring is axis-aligned and a diagonal probe would have to
  * pick a corner arbitrarily.
  *
- * A landing with no fenced slot owning it answers null rather than a breach: the id is
- * what the profile remembers, so a fence nothing can name must not go down.
+ * A landing owned by neither a fenced slot nor a corridor band answers null rather than a breach:
+ * the id is what the profile remembers, so a fence nothing can name must not go down.
  */
 export function findGridBreach(
   world: WorldMap, x: number, y: number, dirX: number, dirY: number,
@@ -105,14 +124,18 @@ export function findGridBreach(
   if (!isFloor(tileKindAt(world, landingTileX, landingTileY))) return null;
 
   const slot = fencedSlotAt(world, landingTileX, landingTileY);
-  if (slot === null) return null;
+  const gridId = slot !== null
+    ? slot.id
+    : gridBandIdAt(world, fenceTileX, fenceTileY);
+  if (gridId === null) return null;
 
   return {
     x: tileCentre(landingTileX),
     y: tileCentre(landingTileY),
     fenceX: tileCentre(fenceTileX),
     fenceY: tileCentre(fenceTileY),
-    poiId: slot.id,
+    gridId,
+    kind: slot !== null ? 'altar' : 'corridor',
   };
 }
 
@@ -138,14 +161,28 @@ export function isGridFenceIntact(sector: SectorDef, slot: PoiSlot): boolean {
     .some(index => sector.tiles[index] === TileKind.SecurityGrid);
 }
 
-/** Trips one fence's kill-switch for good. False for an unknown, foreign or already dark
- *  fence, which is what stops a caller from recording the same id twice. */
-export function clearSecurityGrid(world: WorldMap, poiId: string): boolean {
-  const match = GRID_POI_ID.exec(poiId);
+/** Trips one fence's kill-switch for good, altar ring or corridor band. False for an unknown,
+ *  foreign or already dark fence, which is what stops a caller from recording the same id twice. */
+export function clearSecurityGrid(world: WorldMap, gridId: string): boolean {
+  const band = GRID_BAND_ID.exec(gridId);
+  if (band !== null) {
+    const sector = world.sectors.get(`${Number(band[1])},${Number(band[2])}`);
+    if (sector === undefined) return false;
+    const definition = (sector.gridBands ?? []).find(candidate => candidate.id === gridId);
+    if (definition === undefined) return false;
+    let clearedBand = false;
+    for (const index of definition.tileIndices) {
+      if (sector.tiles[index] !== TileKind.SecurityGrid) continue;
+      sector.tiles[index] = TileKind.Open;
+      clearedBand = true;
+    }
+    return clearedBand;
+  }
+  const match = GRID_POI_ID.exec(gridId);
   if (match === null) return false;
   const sector = world.sectors.get(`${Number(match[1])},${Number(match[2])}`);
   if (sector === undefined) return false;
-  const slot = sector.poiSlots.find(candidate => candidate.id === poiId);
+  const slot = sector.poiSlots.find(candidate => candidate.id === gridId);
   if (slot === undefined || slot.fenced !== true) return false;
   let cleared = false;
   for (const index of secretShellRingIndices(slot.tileX, slot.tileY)) {

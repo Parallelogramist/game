@@ -754,6 +754,57 @@ describe('invariant 13: fenced shrine altars', () => {
   });
 });
 
+describe('invariant 14: security grid corridor bands', () => {
+  it('plugs a corridor only where another route to both flanks survives', () => {
+    let bands = 0;
+    for (const map of WORLDS) {
+      for (const sector of map.sectors.values()) {
+        const definitions = sector.gridBands ?? [];
+        expect(definitions.length).toBeLessThanOrEqual(1);
+        for (const band of definitions) {
+          bands++;
+          expect(sector.isBossArena).toBe(false);
+          expect(band.id).toBe(`band:${sector.sx},${sector.sy}:0`);
+          expect(band.tileIndices.length).toBeGreaterThan(0);
+          expect(band.tileIndices.length).toBeLessThanOrEqual(3);
+          for (const index of band.tileIndices) {
+            expect(sector.tiles[index]).toBe(TileKind.SecurityGrid);
+          }
+
+          // The proof, restated from the outside: with the band still solid, the flanks of every
+          // cell are BOTH reachable on foot from an entry tile. A band that was the only way
+          // through would leave one flank stranded, and the cloak would be a key, not a shortcut.
+          const seed = firstEntryTile(sector);
+          expect(seed).toBeDefined();
+          const reached = floodTiles(sector.tiles, seed!.tileX, seed!.tileY);
+          // A one-cell band shares a column with itself, so that test cannot say which way it
+          // runs: read the orientation off its flanks, which the pass left walkable on exactly
+          // one axis and capped with rock on the other.
+          const column = band.tileIndices[0] % SECTOR_TILE_COLS;
+          const row = Math.floor(band.tileIndices[0] / SECTOR_TILE_COLS);
+          const sideKinds = [
+            sector.tiles[tileIndex(column - 1, row)], sector.tiles[tileIndex(column + 1, row)],
+          ];
+          const vertical = band.tileIndices.length > 1
+            ? band.tileIndices.every(index => index % SECTOR_TILE_COLS === column)
+            : sideKinds.every(kind => kind === TileKind.Open || kind === TileKind.HazardFloor);
+          for (const index of band.tileIndices) {
+            const tileX = index % SECTOR_TILE_COLS;
+            const tileY = Math.floor(index / SECTOR_TILE_COLS);
+            const flanks = vertical
+              ? [[tileX - 1, tileY], [tileX + 1, tileY]]
+              : [[tileX, tileY - 1], [tileX, tileY + 1]];
+            for (const [flankX, flankY] of flanks) {
+              expect(reached.has(tileIndex(flankX, flankY))).toBe(true);
+            }
+          }
+        }
+      }
+    }
+    expect(bands).toBeGreaterThan(200);
+  });
+});
+
 describe('worldBoundsRect', () => {
   it('spans exactly the generated sectors, including negative coordinates', () => {
     for (let seed = 1; seed <= 20; seed++) {

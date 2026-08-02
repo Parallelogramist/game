@@ -28,14 +28,14 @@ const MAX_SECTOR_NOTES = 128;
 const SECTOR_KEY = /^-?\d+,-?\d+$/;
 
 const BARRIER_ID =/^(edge:-?\d+,-?\d+:(north|east|south|west)|breakable:-?\d+,-?\d+:\d+)$/;
-const GRID_POI_ID = /^poi:-?\d+,-?\d+:\d+$/;
+const GRID_ID = /^(poi|band):-?\d+,-?\d+:\d+$/;
 
 export interface WorldProfileState {
   version: number;
   worldSeed: number;
   worldGenVersion: number;
   brokenBreakableIds: string[];
-  /** Security grids this profile has phased through, by POI slot id. Optional in storage
+  /** Security grids this profile has phased through, by fenced-altar POI slot id or corridor band id. Optional in storage
    *  for the same reason `conquered` is: a payload written before this field shipped reads
    *  as an empty list, which is why WORLD_PROFILE_VERSION does NOT move. */
   downedSecurityGridIds: string[];
@@ -104,7 +104,7 @@ export function loadWorldProfile(
             .filter((id): id is string => typeof id === 'string' && BARRIER_ID.test(id))
             .slice(0, MAX_REMEMBERED_BARRIERS),
           downedSecurityGridIds: gridIds
-            .filter((id): id is string => typeof id === 'string' && GRID_POI_ID.test(id))
+            .filter((id): id is string => typeof id === 'string' && GRID_ID.test(id))
             .slice(0, MAX_REMEMBERED_BARRIERS),
           markedSectorIds: markIds
             .filter((id): id is string => typeof id === 'string' && SECTOR_MARK_ID_PATTERN.test(id))
@@ -148,13 +148,13 @@ export function recordBrokenBarrier(
 /** Remembers one tripped kill-switch immediately, so a death or a refresh cannot relight
  *  a fence the ship already walked through. */
 export function recordDownedSecurityGrid(
-  worldSeed: number, worldGenVersion: number, poiId: string,
+  worldSeed: number, worldGenVersion: number, gridId: string,
 ): void {
-  if (!GRID_POI_ID.test(poiId)) return;
+  if (!GRID_ID.test(gridId)) return;
   const profile = loadWorldProfile(worldSeed, worldGenVersion);
-  if (profile.downedSecurityGridIds.includes(poiId)) return;
+  if (profile.downedSecurityGridIds.includes(gridId)) return;
   if (profile.downedSecurityGridIds.length >= MAX_REMEMBERED_BARRIERS) return;
-  profile.downedSecurityGridIds.push(poiId);
+  profile.downedSecurityGridIds.push(gridId);
   saveWorldProfile(profile);
 }
 

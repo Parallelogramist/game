@@ -96,6 +96,15 @@ export interface BreakableRect {
   tileX: number; tileY: number; tileW: number; tileH: number;
 }
 
+/** A straight run of security grid tiles plugging one corridor pinch. Written only where a
+ *  second route to both flanks survives, so a band is a shortcut the Phase Cloak opens, never
+ *  a gate: see sectorInterior's fenceCorridorPinches. */
+export interface GridBandDef {
+  id: string;
+  /** Local tile indices of every fence cell, in scan order. */
+  tileIndices: number[];
+}
+
 export interface SectorDef {
   sx: number;
   sy: number;
@@ -113,6 +122,9 @@ export interface SectorDef {
   depth: number;
   entryTiles: Partial<Record<EdgeDirection, TileCoord>>;
   breakables: BreakableRect[];
+  /** Corridor pinches this sector fenced. Optional so the SectorDef literals in six test files
+   *  stay valid, exactly as `hidden` is. */
+  gridBands?: GridBandDef[];
 }
 
 export interface WorldMap {

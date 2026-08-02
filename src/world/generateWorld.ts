@@ -145,6 +145,7 @@ export function generateWorld(seed: number, inputs: WorldGenInputs): WorldMap {
       depth: sector.depth,
       entryTiles: interior.entryTiles,
       breakables: interior.breakables,
+      gridBands: interior.gridBands,
     });
   }
 
