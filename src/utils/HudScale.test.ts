@@ -18,6 +18,7 @@ import {
   computeGridFit,
   computeCardGridInBand,
   fitTextWidth,
+  computeScrollViewMetrics,
 } from './HudScale';
 
 // Node env: window is undefined, so densityCompensation resolves to 1 and
@@ -277,5 +278,35 @@ describe('computeCardGridInBand (the paint and quest-board grids)', () => {
     const bottomEdge = grid.firstRowY + grid.rowPitch + (board.cardHeight * grid.scale) / 2;
     expect(topEdge).toBeCloseTo(168, 3);
     expect(bottomEdge).toBeCloseTo(640, 3);
+  });
+});
+
+describe('computeScrollViewMetrics (density-scaled scroll band)', () => {
+  test('an unscaled viewport keeps the pre-sweep band exactly', () => {
+    const metrics = computeScrollViewMetrics(1280, 720, 1);
+    expect(metrics.top).toBe(120);
+    expect(metrics.height).toBe(540);
+    expect(metrics.contentWidth).toBe(1280);
+  });
+
+  test('a landscape phone spends 1.6 on chrome and still leaves a scrollable band', () => {
+    const metrics = computeScrollViewMetrics(2000, 720, 1.6);
+    expect(metrics.top).toBeCloseTo(192, 6);
+    expect(metrics.height).toBeCloseTo(432, 6);
+    expect(metrics.contentWidth).toBeCloseTo(1250, 6);
+  });
+
+  test('a portrait phone at 1.2 has room for one codex column, not two', () => {
+    const metrics = computeScrollViewMetrics(720, 1280, 1.2);
+    expect(metrics.top).toBeCloseTo(144, 6);
+    expect(metrics.height).toBeCloseTo(1064, 6);
+    expect(metrics.contentWidth).toBeCloseTo(600, 6);
+    // Two 340-unit codex cards plus their 14-unit gap need 694 of those units.
+    expect(metrics.contentWidth).toBeLessThan(340 * 2 + 14);
+  });
+
+  test('the band shrinks as the chrome grows, on the same canvas', () => {
+    expect(computeScrollViewMetrics(2000, 720, 1).height)
+      .toBeGreaterThan(computeScrollViewMetrics(2000, 720, 1.6).height);
   });
 });
