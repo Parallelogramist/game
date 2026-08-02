@@ -207,7 +207,7 @@ import {
 import { resetMusicIntensityDriver, updateMusicIntensity } from '../../audio/MusicIntensityDriver';
 import { updateEventSystem, setSuppressEvents, getEventState, restoreEventState, getActiveEvent, getEventStatBuff, RunEvent } from '../../systems/EventSystem';
 import { runAllRunResets } from '../../systems/runResetRegistry';
-import { expireTimedStatBuffs, normalizeTimedStatBuffs, applyFieldBoost, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
+import { expireTimedStatBuffs, normalizeTimedStatBuffs, applyFieldBoost, buildTimedBuffRows, type TimedStatBuff, type TimedStatField } from '../../systems/TimedStatBuffs';
 import { FIELD_BOOSTS, getFieldBoostByKind, type FieldBoostDefinition } from '../../data/FieldBoosts';
 import { resolveSlowAfterResistance } from '../../systems/SlowResistance';
 import { resetDirectorSystem, updateDirector, pickEnemyFromDirector, getDirectorState, restoreDirectorState, getCurrentStrategy, isDirectorStrategy, type DirectorStrategy } from '../../systems/DirectorSystem';
@@ -598,6 +598,10 @@ export class GameScene extends Phaser.Scene {
   // Surge XP, Golden Tide gem value). Driven off gameTime so they persist across
   // refresh and revert at the correct moment.
   private timedStatBuffs: TimedStatBuff[] = [];
+
+  /** Scratch the HUD buff strip's bar width is measured against. `buildTimedBuffRows` owns its
+   *  contents; the scene only has to hold it across frames and clear it with the buff list. */
+  private timedBuffPeakSeconds: Partial<Record<TimedStatField, number>> = {};
 
   /** Ambush nests, expedition only. World-space and run-scoped like a chest rather than rebuilt
    *  per sector like a vault: a nest carries no per-profile state, so leaving the room must not
@@ -4480,14 +4484,6 @@ export class GameScene extends Phaser.Scene {
       this.syncStatsToPlayer();
     }
     this.soundManager.playSynergyActivation();
-    if (this.playerId !== -1) {
-      this.effectsManager.showDamageNumber(
-        Transform.x[this.playerId], Transform.y[this.playerId] - 26,
-        `+${Math.round((boost.magnitude - 1) * 100)}% ${boost.effectLabel.toUpperCase()}`
-          + ` ${boost.durationSeconds}s`,
-        getConsumableKindColor(boost.kind),
-      );
-    }
     if (this.toastManager) {
       this.toastManager.showToast({
         tier: 'ambient',
@@ -4882,6 +4878,7 @@ export class GameScene extends Phaser.Scene {
     this.scrappedWeaponIds = [];
     // Cleared on fresh start; the restore path re-populates from the save after.
     this.timedStatBuffs = [];
+    this.timedBuffPeakSeconds = {};
     // Armed Exploder fuses are transient combat state (not persisted): clearing
     // on both paths means a scene restart mid-fuse can never detonate stale
     // fuses into the new run.
@@ -7563,6 +7560,7 @@ export class GameScene extends Phaser.Scene {
       ultimateReady: isUltimateReady(),
       bossHealthData: bossHealthPayload,
       runGoldMultiplier: this.playerStats.goldMultiplier,
+      timedBuffRows: buildTimedBuffRows(this.timedStatBuffs, this.gameTime, this.timedBuffPeakSeconds),
     });
 
     // One-time teach on the rising edge: the first time the ultimate charges,

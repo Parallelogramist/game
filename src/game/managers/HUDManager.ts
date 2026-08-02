@@ -16,6 +16,7 @@ import { RunModifier } from '../../data/RunModifiers';
 import { Blessing } from '../../data/Blessings';
 import { ACCENT_COLORS, ACCENT_COLORS_STR, BODY_COLORS, DISPLAY_FONT } from '../../visual/MenuStyle';
 import { OverlayDepths } from '../../visual/DepthLayers';
+import type { TimedBuffRow, TimedStatField } from '../../systems/TimedStatBuffs';
 
 /**
  * Draws a sharp HUD panel into the supplied Graphics object: soft shadow +
@@ -55,6 +56,37 @@ function paintHudPanel(
   graphics.fillRect(centerX - halfW + 4, centerY + halfH - 3, width - 8, 2);
 }
 
+/** The field-boost icon for each buffable stat, so a live surge reads in the strip exactly as it
+ *  did on the pickup toast. Surges from shrines, events and ultimates share the stat's icon
+ *  rather than carrying one of their own: the strip answers "which stat is up", not "what gave
+ *  it to me". */
+const TIMED_BUFF_ICON_KEYS: Record<TimedStatField, string> = {
+  damageMultiplier: 'lightning',
+  moveSpeed: 'boot',
+  xpMultiplier: 'telescope',
+  gemValueMultiplier: 'gem',
+};
+
+/** Offense red, resource gold and defense blue are the relic strip's own modifier-category
+ *  colours, so the two stacked rows read as one language. */
+const TIMED_BUFF_COLORS: Record<TimedStatField, number> = {
+  damageMultiplier: 0xff6644,
+  moveSpeed: 0x66ffaa,
+  xpMultiplier: 0x44aaff,
+  gemValueMultiplier: 0xffcc22,
+};
+
+const TIMED_BUFF_ICON_BASE_SIZE = 24;
+const TIMED_BUFF_BAR_BASE_HEIGHT = 3;
+/** Shared by the relic strip and the buff strip beneath it: the second row is anchored off the
+ *  first row's height, so one literal has to serve both or they drift apart. */
+const RELIC_STRIP_ICON_BASE_SIZE = 26;
+
+/** `1.5` reads as `x1.5` and `3` as `x3`, never `x3.0`. */
+function formatBuffMagnitude(magnitude: number): string {
+  return `x${magnitude.toFixed(1).replace(/\.0$/, '')}`;
+}
+
 interface BossHealthBar {
   entityId: number;
   name: string;
@@ -88,6 +120,10 @@ export interface HUDUpdateState {
   bossHealthData: Array<{ entityId: number; currentHP: number; maxHP: number }>;
   /** Ship/stage/pact/relic/blessing/modifier gold bonus — keeps the HUD payout preview equal to what a run-end path pays. */
   runGoldMultiplier: number;
+  /** Live timed stat surges, one row per buffed stat. REQUIRED, on the `hazardSectorKinds`
+   *  precedent: a call site that forgets it is a compile error rather than a silently dead strip.
+   *  There is exactly one construction of this object in the repo. */
+  timedBuffRows: readonly TimedBuffRow[];
 }
 
 export interface EvolutionInfo {
@@ -277,6 +313,14 @@ export class HUDManager {
   private relicStripTooltipBg: Phaser.GameObjects.Rectangle | null = null;
   private relicStripTooltipTitle: Phaser.GameObjects.Text | null = null;
   private relicStripTooltipDesc: Phaser.GameObjects.Text | null = null;
+
+  // Timed-buff strip: one slot per live timed stat surge, directly under the relic strip.
+  private timedBuffContainer: Phaser.GameObjects.Container | null = null;
+  private timedBuffSlots: Array<{
+    stat: TimedStatField;
+    magnitude: number;
+    barFill: Phaser.GameObjects.Rectangle;
+  }> = [];
 
   // Visual quality (auto-scales based on FPS)
   private visualQuality: VisualQuality = 'high';
@@ -1299,6 +1343,9 @@ export class HUDManager {
 
     // Update mastery icon effects (HUD glow + particles)
     this.masteryIconEffects.update(state.deltaSeconds);
+
+    // Live timed stat surges (field boosts, shrines, events, ship ultimates).
+    this.updateTimedBuffStrip(state.timedBuffRows);
   }
 
   /**
@@ -1793,7 +1840,7 @@ export class HUDManager {
     this.hideRelicTooltip();
     container.removeAll(true);
 
-    const iconSize = this.scaledSize(26);
+    const iconSize = this.scaledSize(RELIC_STRIP_ICON_BASE_SIZE);
     const iconSpacing = this.scaledSize(4);
     const modifierCategoryColors: Record<string, number> = {
       offense: 0xff6644,
@@ -1960,6 +2007,107 @@ export class HUDManager {
   }
 
   /**
+   * Repaints the timed-buff strip: one slot per live row, each a stat icon with a bar that drains
+   * as the surge runs out. Slots are rebuilt only when the rows themselves change, so a normal
+   * frame moves at most four bar widths and allocates nothing.
+   */
+  updateTimedBuffStrip(rows: readonly TimedBuffRow[]): void {
+    if (rows.length === 0) {
+      if (this.timedBuffContainer && this.timedBuffSlots.length > 0) {
+        this.timedBuffContainer.removeAll(true);
+        this.timedBuffSlots = [];
+      }
+      return;
+    }
+    if (!this.timedBuffContainer) this.createTimedBuffStrip();
+    const container = this.timedBuffContainer!;
+    const iconSize = this.scaledSize(TIMED_BUFF_ICON_BASE_SIZE);
+
+    if (this.timedBuffSlotsMatch(rows)) {
+      for (let index = 0; index < rows.length; index++) {
+        this.timedBuffSlots[index].barFill.width = iconSize * rows[index].remainingFraction;
+      }
+      return;
+    }
+
+    container.removeAll(true);
+    this.timedBuffSlots = [];
+    const spacing = this.scaledSize(4);
+    const barHeight = this.scaledSize(TIMED_BUFF_BAR_BASE_HEIGHT);
+    rows.forEach((row, index) => {
+      // Slots extend leftward from the container anchor (the right edge), the relic strip's rule.
+      const x = -(iconSize / 2) - index * (iconSize + spacing);
+      const y = iconSize / 2;
+      const color = TIMED_BUFF_COLORS[row.stat];
+
+      const slotPanel = this.scene.add.graphics();
+      paintHudPanel(slotPanel, x, y, iconSize, iconSize, BODY_COLORS.primary, color, 6);
+      container.add(slotPanel);
+
+      container.add(createIcon(this.scene, {
+        x, y,
+        iconKey: TIMED_BUFF_ICON_KEYS[row.stat],
+        size: Math.floor(iconSize * 0.68),
+        tint: 0xffffff,
+      }));
+
+      const magnitudeBadge = this.scene.add.text(
+        x + iconSize / 2 - 2, y + iconSize / 2 - 2, formatBuffMagnitude(row.magnitude),
+        {
+          fontFamily: DISPLAY_FONT,
+          fontSize: `${this.scaledSize(10)}px`,
+          color: ACCENT_COLORS_STR.focus,
+          stroke: '#000000',
+          strokeThickness: 3,
+        },
+      );
+      magnitudeBadge.setOrigin(1, 1);
+      container.add(magnitudeBadge);
+
+      const barY = y + iconSize / 2 + this.scaledSize(5);
+      const barTrack = this.scene.add.rectangle(
+        x - iconSize / 2, barY, iconSize, barHeight, 0x000000, 0.55);
+      barTrack.setOrigin(0, 0.5);
+      container.add(barTrack);
+
+      const barFill = this.scene.add.rectangle(
+        x - iconSize / 2, barY, iconSize * row.remainingFraction, barHeight, color, 1);
+      barFill.setOrigin(0, 0.5);
+      container.add(barFill);
+
+      this.timedBuffSlots.push({ stat: row.stat, magnitude: row.magnitude, barFill });
+    });
+  }
+
+  /** True while the live slots already stand for exactly these rows, which is what keeps the
+   *  strip off the rebuild path on the common frame. */
+  private timedBuffSlotsMatch(rows: readonly TimedBuffRow[]): boolean {
+    if (this.timedBuffSlots.length !== rows.length) return false;
+    for (let index = 0; index < rows.length; index++) {
+      const slot = this.timedBuffSlots[index];
+      if (slot.stat !== rows[index].stat || slot.magnitude !== rows[index].magnitude) return false;
+    }
+    return true;
+  }
+
+  private createTimedBuffStrip(): void {
+    const scaledPadding = this.scaledSize(HUD_EDGE_PADDING);
+    this.timedBuffContainer = this.scene.add.container(
+      this.scene.scale.width - scaledPadding, this.computeTimedBuffStripTopY());
+    this.timedBuffContainer.setName('timedBuffContainer');
+    this.timedBuffContainer.setDepth(HUD_DEPTH);
+    this.timedBuffContainer.setScrollFactor(0);
+    this.timedBuffContainer.setAlpha(HUD_ALPHA);
+  }
+
+  /** Directly under the relic strip's icon row, sharing its right edge. */
+  private computeTimedBuffStripTopY(): number {
+    return this.computeRelicStripTopY()
+      + this.scaledSize(RELIC_STRIP_ICON_BASE_SIZE)
+      + this.scaledSize(8);
+  }
+
+  /**
    * Top edge for the relic/modifier strip: clear of the pace line, which is now
    * the bottom of the stats stack. Anchors off the live pace text when available
    * (it already carries the portrait pause-button drop); otherwise mirrors the
@@ -2097,6 +2245,14 @@ export class HUDManager {
     // the stats stack (and pinned to the right edge) after any resize.
     if (this.relicStripContainer) {
       this.relicStripContainer.setPosition(statsRightX, this.computeRelicStripTopY());
+    }
+
+    // Slots are painted at the scale that was live when they were built, so drop them and let
+    // the next frame rebuild at the scale handleResize just recomputed.
+    if (this.timedBuffContainer) {
+      this.timedBuffContainer.setPosition(statsRightX, this.computeTimedBuffStripTopY());
+      this.timedBuffContainer.removeAll(true);
+      this.timedBuffSlots = [];
     }
 
     // Combo readout lives at BOTTOM-CENTER (see creation) — re-anchor it
@@ -2289,6 +2445,10 @@ export class HUDManager {
     // Destroy touch action buttons
     this.touchActionButtons?.destroy();
     this.touchActionButtons = null;
+
+    this.timedBuffContainer?.destroy();
+    this.timedBuffContainer = null;
+    this.timedBuffSlots = [];
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

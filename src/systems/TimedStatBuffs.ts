@@ -109,3 +109,69 @@ export function applyFieldBoost(
   refreshed[existingIndex] = { ...refreshed[existingIndex], expiresAt };
   return { buffs: refreshed, applied: false };
 }
+
+/** Fixed strip order, so a row never changes place when a neighbour expires. */
+const TIMED_BUFF_STAT_ORDER: readonly TimedStatField[] = [
+  'damageMultiplier',
+  'moveSpeed',
+  'xpMultiplier',
+  'gemValueMultiplier',
+];
+
+export interface TimedBuffRow {
+  stat: TimedStatField;
+  /** Product of every live buff on this stat: two damage surges read as one x3 row. */
+  magnitude: number;
+  /** Whole seconds until the next buff on this stat reverts, floored at 1 while live. */
+  secondsRemaining: number;
+  /** 0..1 of the widest window this row has held, which is what the bar draws. */
+  remainingFraction: number;
+}
+
+const NO_TIMED_BUFF_ROWS: readonly TimedBuffRow[] = [];
+
+/**
+ * The HUD strip's rows: one per stat with at least one live buff, never one per buff, so the
+ * strip is bounded by the four stat fields and two surges on one stat read as their combined
+ * multiplier with the countdown of whichever reverts first.
+ *
+ * `peakSecondsByStat` is caller-owned scratch this function mutates. A buff records no duration,
+ * only an absolute expiry, so a bar needs a reference width: it is the widest remaining time the
+ * row has been seen holding. A field boost that refreshes an existing buff pushes the remaining
+ * time back above the peak, which re-widens the bar exactly as a fresh pickup would.
+ */
+export function buildTimedBuffRows(
+  buffs: readonly TimedStatBuff[],
+  gameTime: number,
+  peakSecondsByStat: Partial<Record<TimedStatField, number>>,
+): readonly TimedBuffRow[] {
+  if (buffs.length === 0) {
+    for (const stat of TIMED_BUFF_STAT_ORDER) delete peakSecondsByStat[stat];
+    return NO_TIMED_BUFF_ROWS;
+  }
+  const rows: TimedBuffRow[] = [];
+  for (const stat of TIMED_BUFF_STAT_ORDER) {
+    let magnitude = 1;
+    let soonest = Infinity;
+    for (const buff of buffs) {
+      if (buff.stat !== stat) continue;
+      const remaining = buff.expiresAt - gameTime;
+      if (remaining <= 0) continue;
+      magnitude *= buff.magnitude;
+      if (remaining < soonest) soonest = remaining;
+    }
+    if (soonest === Infinity) {
+      delete peakSecondsByStat[stat];
+      continue;
+    }
+    const peak = Math.max(peakSecondsByStat[stat] ?? 0, soonest);
+    peakSecondsByStat[stat] = peak;
+    rows.push({
+      stat,
+      magnitude,
+      secondsRemaining: Math.max(1, Math.ceil(soonest)),
+      remainingFraction: Math.min(1, soonest / peak),
+    });
+  }
+  return rows;
+}

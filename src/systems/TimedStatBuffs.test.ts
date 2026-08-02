@@ -3,7 +3,9 @@ import {
   expireTimedStatBuffs,
   normalizeTimedStatBuffs,
   applyFieldBoost,
+  buildTimedBuffRows,
   type TimedStatBuff,
+  type TimedStatField,
 } from './TimedStatBuffs';
 
 describe('expireTimedStatBuffs', () => {
@@ -131,5 +133,59 @@ describe('applyFieldBoost', () => {
     applyFieldBoost(existing, 'moveSpeed', 1.4, 12, 108);
 
     expect(existing).toEqual([{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 112 }]);
+  });
+});
+
+describe('buildTimedBuffRows', () => {
+  test('folds every live buff on one stat into a single combined row', () => {
+    const buffs: TimedStatBuff[] = [
+      { stat: 'damageMultiplier', magnitude: 2, expiresAt: 110 },
+      { stat: 'damageMultiplier', magnitude: 1.5, expiresAt: 120 },
+    ];
+    const rows = buildTimedBuffRows(buffs, 100, {});
+    expect(rows).toHaveLength(1);
+    expect(rows[0].stat).toBe('damageMultiplier');
+    expect(rows[0].magnitude).toBe(3);
+    expect(rows[0].secondsRemaining).toBe(10);
+  });
+
+  test('orders rows by the fixed strip order, not by expiry', () => {
+    const buffs: TimedStatBuff[] = [
+      { stat: 'gemValueMultiplier', magnitude: 2, expiresAt: 105 },
+      { stat: 'damageMultiplier', magnitude: 2, expiresAt: 130 },
+    ];
+    const rows = buildTimedBuffRows(buffs, 100, {});
+    expect(rows.map((row) => row.stat)).toEqual(['damageMultiplier', 'gemValueMultiplier']);
+  });
+
+  test('drops a stat whose buffs have all expired and forgets its peak', () => {
+    const peaks: Partial<Record<TimedStatField, number>> = {};
+    const buffs: TimedStatBuff[] = [{ stat: 'xpMultiplier', magnitude: 2, expiresAt: 110 }];
+    expect(buildTimedBuffRows(buffs, 100, peaks)).toHaveLength(1);
+    expect(peaks.xpMultiplier).toBe(10);
+    expect(buildTimedBuffRows(buffs, 110, peaks)).toEqual([]);
+    expect(peaks.xpMultiplier).toBeUndefined();
+  });
+
+  test('the bar drains from full and never exceeds full', () => {
+    const peaks: Partial<Record<TimedStatField, number>> = {};
+    const buffs: TimedStatBuff[] = [{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 112 }];
+    expect(buildTimedBuffRows(buffs, 100, peaks)[0].remainingFraction).toBe(1);
+    expect(buildTimedBuffRows(buffs, 106, peaks)[0].remainingFraction).toBe(0.5);
+  });
+
+  test('a refreshed buff re-widens the bar instead of pinning it below full', () => {
+    const peaks: Partial<Record<TimedStatField, number>> = {};
+    const held: TimedStatBuff[] = [{ stat: 'moveSpeed', magnitude: 1.4, expiresAt: 112 }];
+    buildTimedBuffRows(held, 100, peaks);
+    expect(buildTimedBuffRows(held, 108, peaks)[0].remainingFraction).toBeCloseTo(1 / 3, 5);
+    const refreshed = applyFieldBoost(held, 'moveSpeed', 1.4, 12, 108).buffs;
+    expect(buildTimedBuffRows(refreshed, 108, peaks)[0].remainingFraction).toBe(1);
+  });
+
+  test('an empty buff list clears every remembered peak', () => {
+    const peaks: Partial<Record<TimedStatField, number>> = { damageMultiplier: 20 };
+    expect(buildTimedBuffRows([], 100, peaks)).toEqual([]);
+    expect(peaks.damageMultiplier).toBeUndefined();
   });
 });
