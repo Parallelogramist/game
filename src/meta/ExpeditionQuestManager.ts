@@ -21,10 +21,12 @@ import {
   dropQuestCargo,
   reclaimQuestCargo,
   buildQuestCargoDropObjectives,
+  buildQuestCargoStatus,
   type QuestBoardEntry,
   type QuestCargoDrop,
   type QuestCargoDropObjective,
   type QuestCargoRow,
+  type QuestCargoStatus,
   type QuestDroneRow,
   type QuestEscortObjective,
   type QuestEvent,
@@ -425,4 +427,13 @@ export function getActiveQuestCargoDropObjectives(
 ): QuestCargoDropObjective[] {
   const defs = questCatalog();
   return buildQuestCargoDropObjectives(load(defs).states, defs, worldStamp);
+}
+
+export type { QuestCargoStatus } from '../systems/QuestProgress';
+
+/** Same store read and same one-projection rule as getActiveQuestMarkers: the crate in the room
+ *  and the board's own notice cannot disagree about what is waiting. */
+export function getExpeditionQuestCargoStatus(worldStamp: string): QuestCargoStatus {
+  const defs = questCatalog();
+  return buildQuestCargoStatus(load(defs).states, defs, worldStamp);
 }

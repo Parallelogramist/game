@@ -15,6 +15,7 @@ import {
   dropQuestCargo,
   reclaimQuestCargo,
   buildQuestCargoDropObjectives,
+  buildQuestCargoStatus,
   type QuestInstanceState,
 } from './QuestProgress';
 import type { ExpeditionQuestDefinition } from '../data/ExpeditionQuests';
@@ -497,6 +498,56 @@ describe('deliverItem', () => {
       expect(buildQuestMarkers(dropped.states, CARGO_DEFS, 'seed:v9')
         .some((marker) => marker.sectorKey === '3,-2')).toBe(true);
     });
+  });
+});
+
+describe('buildQuestCargoStatus', () => {
+  const WORLD_STAMP = '20260727:v1';
+  const CARGO_DEFS: readonly ExpeditionQuestDefinition[] = [{
+    id: 'quest_run',
+    name: 'Run',
+    icon: 'clipboard',
+    steps: [{
+      id: 'quest_run.s1',
+      description: 'carry it out',
+      trigger: { kind: 'deliverItem', itemId: 'cargo_test_core', destinationTag: 'boss-arena' },
+      target: 1,
+      scope: 'run',
+      goldReward: 50,
+    }],
+    completionGoldReward: 100,
+  }];
+  const held: QuestInstanceState[] = [
+    { questId: 'quest_run', stepIndex: 0, stepProgress: 0, status: 'active' },
+  ];
+  const dropAt = (worldStamp: string): QuestInstanceState[] =>
+    dropQuestCargo(loadQuestCargo(held, CARGO_DEFS).states, CARGO_DEFS,
+      { worldStamp, sectorKey: '3,-2', x: 1234, y: -567 }).states;
+
+  test('a crate aboard is aboard and never pending', () => {
+    const status = buildQuestCargoStatus(
+      loadQuestCargo(held, CARGO_DEFS).states, CARGO_DEFS, WORLD_STAMP,
+    );
+    expect(status.aboard).toEqual([{ questId: 'quest_run', itemId: 'cargo_test_core' }]);
+    expect(status.pending).toEqual([]);
+  });
+
+  test('a delivery with no crate anywhere is pending', () => {
+    const status = buildQuestCargoStatus(held, CARGO_DEFS, WORLD_STAMP);
+    expect(status.pending).toEqual([{ questId: 'quest_run', itemId: 'cargo_test_core' }]);
+    expect(status.aboard).toEqual([]);
+  });
+
+  test('a crate lying in this world is neither pending nor aboard', () => {
+    const status = buildQuestCargoStatus(dropAt(WORLD_STAMP), CARGO_DEFS, WORLD_STAMP);
+    expect(status.pending).toEqual([]);
+    expect(status.aboard).toEqual([]);
+  });
+
+  test('a crate lying in another world is pending again', () => {
+    const status = buildQuestCargoStatus(dropAt('other:v9'), CARGO_DEFS, WORLD_STAMP);
+    expect(status.pending).toEqual([{ questId: 'quest_run', itemId: 'cargo_test_core' }]);
+    expect(status.aboard).toEqual([]);
   });
 });
 

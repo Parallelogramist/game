@@ -1,14 +1,21 @@
 import Phaser from 'phaser';
 import { SECTOR_HEIGHT, SECTOR_WIDTH } from '../../world/worldSpace';
 import { PoiKind, TILE_SIZE } from '../../world/worldTypes';
+import type { WorldPoint } from '../../world/worldSpace';
 import type { WorldMap } from '../../world/worldTypes';
 import type { FieldPoiContact, FieldPoiManager } from './FieldPoiManager';
+import {
+  drawQuestCargoCrate,
+  pickCargoCratePoint,
+  QUEST_CARGO_PICKUP_RADIUS,
+} from './questCargoCrate';
 
 /** The quest-anchor cyan poiGlyphs.ts draws the board with; kept identical on purpose. */
 const QUEST_BOARD_COLOR = 0x66ddff;
 const QUEST_BOARD_OPEN_RADIUS = 48;
 /** Wider than the open radius: the ship has to actually leave the board before it re-opens. */
 const QUEST_BOARD_REARM_RADIUS = 110;
+const CRATE_POINT: WorldPoint = { x: 0, y: 0 };
 
 interface ActiveQuestBoard {
   poiId: string;
@@ -16,6 +23,7 @@ interface ActiveQuestBoard {
   x: number;
   y: number;
   engaged: boolean;
+  crate: { graphics: Phaser.GameObjects.Graphics; x: number; y: number } | null;
 }
 
 export interface QuestBoardDeps {
@@ -23,6 +31,10 @@ export interface QuestBoardDeps {
   /** Opens the objective board over a paused run. Stays in the scene: it owns `isPaused`, the
    *  overlay latch a second reader also tests, and the deferred orientation relayout. */
   openBoard(): void;
+  /** True while an active delivery step's crate is still waiting to be collected. */
+  cargoPending(): boolean;
+  /** The ship flew into the crate. Loads every waiting crate and announces it. */
+  collectCargo(crateX: number, crateY: number): void;
 }
 
 /**
@@ -34,6 +46,7 @@ export interface QuestBoardDeps {
 export class QuestBoardManager implements FieldPoiManager {
   private boards: ActiveQuestBoard[] = [];
   private sectorKey: string | null = null;
+  private map: WorldMap | null = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -50,6 +63,7 @@ export class QuestBoardManager implements FieldPoiManager {
   sync(map: WorldMap, playerX: number, playerY: number): void {
     const key = `${Math.floor(playerX / SECTOR_WIDTH)},${Math.floor(playerY / SECTOR_HEIGHT)}`;
     if (key === this.sectorKey) return;
+    this.map = map;
     this.sectorKey = key;
     this.destroyBoards();
 
@@ -63,6 +77,35 @@ export class QuestBoardManager implements FieldPoiManager {
         sector.sy * SECTOR_HEIGHT + slot.tileY * TILE_SIZE + TILE_SIZE / 2,
       );
     }
+    this.refreshCargo();
+  }
+
+  /** The crate is derived from the quest store, the syncQuestCargoDrop idiom: the store is the
+   *  truth and the object is rebuilt from it, so a refresh mid-errand restores it and a pickup
+   *  removes it without a second code path. Called on sector change, on the once-a-second quest
+   *  tick and when the board overlay closes on a change. */
+  refreshCargo(): void {
+    if (this.boards.length === 0) return;
+    const map = this.map;
+    if (map === null || !this.deps.cargoPending()) {
+      for (const board of this.boards) this.destroyCrate(board);
+      return;
+    }
+    for (const board of this.boards) {
+      if (board.crate !== null) continue;
+      pickCargoCratePoint(map, board.x, board.y, CRATE_POINT);
+      const graphics = this.scene.add.graphics();
+      graphics.setPosition(CRATE_POINT.x, CRATE_POINT.y);
+      graphics.setDepth(4);
+      drawQuestCargoCrate(graphics);
+      board.crate = { graphics, x: CRATE_POINT.x, y: CRATE_POINT.y };
+    }
+  }
+
+  private destroyCrate(board: ActiveQuestBoard): void {
+    if (board.crate === null) return;
+    board.crate.graphics.destroy();
+    board.crate = null;
   }
 
   /** Pulse and walk-in test, the AbilityVaultManager shape. A board is never consumed, so it
@@ -72,6 +115,18 @@ export class QuestBoardManager implements FieldPoiManager {
     const pulse = 1 + Math.sin(this.deps.gameTime() * 1.8) * 0.06;
     for (const board of this.boards) {
       board.graphics.setScale(pulse);
+      const crate = board.crate;
+      if (crate !== null) {
+        crate.graphics.setScale(pulse);
+        const crateDx = playerX - crate.x;
+        const crateDy = playerY - crate.y;
+        if (crateDx * crateDx + crateDy * crateDy
+          < QUEST_CARGO_PICKUP_RADIUS * QUEST_CARGO_PICKUP_RADIUS) {
+          this.deps.collectCargo(crate.x, crate.y);
+          this.refreshCargo();
+          return;
+        }
+      }
       const dx = playerX - board.x;
       const dy = playerY - board.y;
       const distanceSq = dx * dx + dy * dy;
@@ -90,6 +145,7 @@ export class QuestBoardManager implements FieldPoiManager {
   clear(): void {
     this.destroyBoards();
     this.sectorKey = null;
+    this.map = null;
   }
 
   private addBoard(poiId: string, x: number, y: number): void {
@@ -97,11 +153,14 @@ export class QuestBoardManager implements FieldPoiManager {
     graphics.setPosition(x, y);
     graphics.setDepth(4);
     drawQuestBoard(graphics);
-    this.boards.push({ poiId, graphics, x, y, engaged: false });
+    this.boards.push({ poiId, graphics, x, y, engaged: false, crate: null });
   }
 
   private destroyBoards(): void {
-    for (const board of this.boards) board.graphics.destroy();
+    for (const board of this.boards) {
+      this.destroyCrate(board);
+      board.graphics.destroy();
+    }
     this.boards = [];
   }
 }

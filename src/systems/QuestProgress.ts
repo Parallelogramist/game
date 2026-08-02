@@ -881,3 +881,40 @@ export function buildQuestCargoDropObjectives(
   }
   return objectives;
 }
+
+export interface QuestCargoStatus {
+  /** Delivery steps whose crate is still waiting at a board: not aboard, and not lying in this
+   *  world where a run dropped it. This is what puts a crate beside a board. */
+  pending: QuestCargoRow[];
+  /** Delivery steps whose crate is already aboard. */
+  aboard: QuestCargoRow[];
+}
+
+/**
+ * The three-way split every cargo surface reads. A drop stamped for ANOTHER world is pending,
+ * not adrift, which is the same call `cargoNote` already makes when it falls through to
+ * BOARD_COLLECT_NOTE: that crate is unreachable from here, so a board must re-issue it.
+ */
+export function buildQuestCargoStatus(
+  states: readonly QuestInstanceState[],
+  defs: readonly ExpeditionQuestDefinition[],
+  worldStamp: string,
+): QuestCargoStatus {
+  const byId = new Map(defs.map((definition) => [definition.id, definition]));
+  const pending: QuestCargoRow[] = [];
+  const aboard: QuestCargoRow[] = [];
+  for (const state of states) {
+    if (state.status !== 'active') continue;
+    const step = byId.get(state.questId)?.steps[state.stepIndex];
+    if (step?.trigger.kind !== 'deliverItem') continue;
+    const row = { questId: state.questId, itemId: step.trigger.itemId };
+    if (state.cargoHeld === true) {
+      aboard.push(row);
+      continue;
+    }
+    const drop = state.cargoDrop;
+    if (drop !== undefined && drop.worldStamp === worldStamp) continue;
+    pending.push(row);
+  }
+  return { pending, aboard };
+}

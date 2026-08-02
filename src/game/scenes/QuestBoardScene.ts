@@ -13,8 +13,8 @@ import {
   ACTIVE_EXPEDITION_QUEST_LIMIT,
   acceptExpeditionQuest,
   assignExpeditionQuestDrone,
+  getExpeditionQuestCargoStatus,
   getQuestBoardEntries,
-  loadExpeditionQuestCargo,
   setExpeditionQuestAside,
   type QuestBoardEntry,
 } from '../../meta/ExpeditionQuestManager';
@@ -23,6 +23,9 @@ import { getSettingsManager } from '../../settings';
 
 /** Data passed to QuestBoardScene by GameScene.openQuestBoard(). */
 export interface QuestBoardSceneData {
+  /** Which world the crate notice is about: a crate dropped in another world is still owed by a
+   *  board. */
+  worldStamp: string;
   /** Called exactly once; true when at least one accept or set-aside actually landed. */
   onClose: (changed: boolean) => void;
 }
@@ -55,6 +58,7 @@ export class QuestBoardScene extends Phaser.Scene {
   private subtitleText: Phaser.GameObjects.Text | null = null;
   private titleText: Phaser.GameObjects.Text | null = null;
   private cargoNotice = '';
+  private worldStamp = '';
   private navigator: MenuNavigator | null = null;
   private leaveButton: MenuButton | null = null;
   private overlayUpdateHandler: ((time: number, delta: number) => void) | null = null;
@@ -72,6 +76,7 @@ export class QuestBoardScene extends Phaser.Scene {
 
   init(data: QuestBoardSceneData): void {
     this.onCloseCallback = data.onClose ?? null;
+    this.worldStamp = data.worldStamp ?? '';
     this.changed = false;
     this.resolved = false;
     this.focusedIndex = 0;
@@ -144,16 +149,10 @@ export class QuestBoardScene extends Phaser.Scene {
     this.activateHandlers = [];
     this.contentContainer = this.add.container(0, 0);
 
-    // The board hands over what an active delivery asks for. Automatic rather than a second card
-    // action: the card's action slot is SET ASIDE's, and a second per-card action would either
-    // take it or need a new row type, which is a bigger layout change than the feature (the same
-    // call POLISH-DECRYPTOR-ACTIVE-BUTTON and FEAT-QUEST-SIEGE-HUD-TELL were cut on). Nothing is
-    // spent and nothing is forced, so consent is not needed to be handed a crate.
-    const cargo = loadExpeditionQuestCargo();
-    if (cargo.loaded.length > 0) {
-      this.changed = true;
-      for (const row of cargo.loaded) getDiscoveryManager().noteObjectiveUpdated(row.questId);
-    }
+    // The board no longer hands the crate over: it stands beside the board and is flown into
+    // (FEAT-CARGO-PICKUP-ENTITY), so loading is a place rather than a menu side effect. This
+    // read is what names it on the card header; nothing here writes.
+    const cargo = getExpeditionQuestCargoStatus(this.worldStamp);
     // The board assigns an escort drone on the same terms it hands over a crate, and for the
     // same reason it is not a second card action: the card's action slot is SET ASIDE's.
     const drones = assignExpeditionQuestDrone();
@@ -166,7 +165,7 @@ export class QuestBoardScene extends Phaser.Scene {
     const droneLabelsOf = (rows: readonly { droneId: string }[]): string =>
       rows.map((row) => droneLabelOf(row.droneId)).join(', ');
     const notices: string[] = [];
-    if (cargo.loaded.length > 0) notices.push(`CARGO LOADED · ${labelsOf(cargo.loaded)}`);
+    if (cargo.pending.length > 0) notices.push(`CARGO WAITING OUTSIDE · ${labelsOf(cargo.pending)}`);
     else if (cargo.aboard.length > 0) notices.push(`CARGO ABOARD · ${labelsOf(cargo.aboard)}`);
     if (drones.assigned.length > 0) {
       notices.push(`DRONE ASSIGNED · ${droneLabelsOf(drones.assigned)}`);

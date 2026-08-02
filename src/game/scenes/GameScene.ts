@@ -146,6 +146,8 @@ import {
   getActiveQuestStepViews,
   getEarnedQuestKeyIds,
   getActiveQuestCargoDropObjectives,
+  getExpeditionQuestCargoStatus,
+  loadExpeditionQuestCargo,
   reclaimExpeditionQuestCargo,
   dropExpeditionQuestCargo,
 } from '../../meta/ExpeditionQuestManager';
@@ -158,6 +160,11 @@ import { MinimapManager } from '../../visual/MinimapManager';
 import { MinimapFeed } from '../managers/MinimapFeed';
 import { AbilityVaultManager } from '../expeditionField/AbilityVaultManager';
 import { QuestBoardManager } from '../expeditionField/QuestBoardManager';
+import {
+  drawQuestCargoCrate,
+  QUEST_CARGO_COLOR,
+  QUEST_CARGO_PICKUP_RADIUS,
+} from '../expeditionField/questCargoCrate';
 import { SecretCacheManager } from '../expeditionField/SecretCacheManager';
 import { SHRINE_DEFS, ShrineManager, type ShrineType } from '../managers/ShrineManager';
 import { DistortionPipeline } from '../../visual/DistortionPipeline';
@@ -448,13 +455,6 @@ const ESCORT_DRONE_ALERT_COOLDOWN_SECONDS = 20;
  *  it for a window instead. Without this a lone Shooter's 6 dps loses to a 3 hp/s regen that
  *  resumes the same frame and being shot would cost the drone nothing. */
 const ESCORT_DRONE_PROJECTILE_REGEN_LOCKOUT_SECONDS = 2;
-
-/** The board's own amber: a crate reads as quest freight, not as a secret (breakable amber) and
- *  not as a vault (violet). */
-const QUEST_CARGO_COLOR = 0xffb347;
-const QUEST_CARGO_DRAW_RADIUS = 15;
-/** The secret cache's claim radius, so a crate and a cache feel the same to fly into. */
-const QUEST_CARGO_RECLAIM_RADIUS = 44;
 
 /** Doc 03 section 7 moment 2. Ascending, so the highest threshold crossed is the one that
  *  toasts even when a single find jumps two of them. */
@@ -4760,6 +4760,12 @@ export class GameScene extends Phaser.Scene {
     this.questBoardManager = new QuestBoardManager(this, {
       gameTime: () => this.gameTime,
       openBoard: () => this.openQuestBoard(),
+      cargoPending: () => {
+        const map = this.worldMode.worldMap();
+        if (!map) return false;
+        return getExpeditionQuestCargoStatus(questWorldStamp(map)).pending.length > 0;
+      },
+      collectCargo: (crateX: number, crateY: number) => this.collectQuestBoardCargo(crateX, crateY),
     });
     this.secretCacheManager = new SecretCacheManager(this, {
       gameTime: () => this.gameTime,
@@ -5636,7 +5642,7 @@ export class GameScene extends Phaser.Scene {
     const graphics = this.add.graphics();
     graphics.setPosition(objective.drop.x, objective.drop.y);
     graphics.setDepth(4);
-    this.drawQuestCargoCrate(graphics);
+    drawQuestCargoCrate(graphics);
     this.questCargoDrop = {
       graphics,
       questId: objective.questId,
@@ -5652,7 +5658,7 @@ export class GameScene extends Phaser.Scene {
     crate.graphics.setScale(1 + Math.sin(this.gameTime * 3.1) * 0.08);
     const dx = playerX - crate.x;
     const dy = playerY - crate.y;
-    if (dx * dx + dy * dy > QUEST_CARGO_RECLAIM_RADIUS * QUEST_CARGO_RECLAIM_RADIUS) return;
+    if (dx * dx + dy * dy > QUEST_CARGO_PICKUP_RADIUS * QUEST_CARGO_PICKUP_RADIUS) return;
     const reclaimed = reclaimExpeditionQuestCargo(crate.questId);
     this.clearQuestCargoDrop();
     if (!reclaimed) return;
@@ -5662,6 +5668,27 @@ export class GameScene extends Phaser.Scene {
       tier: 'ambient',
       title: 'CARGO RECOVERED',
       description: `${cargoLabelOf(reclaimed.itemId)} is back aboard. Finish the delivery.`,
+      icon: 'backpack',
+      color: QUEST_CARGO_COLOR,
+      duration: 3000,
+    });
+  }
+
+  /** The walk-in that replaced the board overlay's silent hand-over. loadExpeditionQuestCargo is
+   *  idempotent and loads every waiting delivery at once, which is the contract the overlay
+   *  already had: one crate is the board's pallet, not one crate per contract. */
+  private collectQuestBoardCargo(crateX: number, crateY: number): void {
+    const loaded = loadExpeditionQuestCargo().loaded;
+    if (loaded.length === 0) return;
+    for (const row of loaded) getDiscoveryManager().noteObjectiveUpdated(row.questId);
+    this.questTickerRefreshTimer = 0;
+    this.effectsManager.playDeathBurst(crateX, crateY, QUEST_CARGO_COLOR);
+    this.soundManager.playPickupHealth();
+    this.toastManager?.showToast({
+      tier: 'ambient',
+      title: 'CARGO LOADED',
+      description: `${loaded.map((row) => cargoLabelOf(row.itemId)).join(', ')} is aboard.`
+        + ' Make the delivery.',
       icon: 'backpack',
       color: QUEST_CARGO_COLOR,
       duration: 3000,
@@ -5682,19 +5709,6 @@ export class GameScene extends Phaser.Scene {
       x: playerX,
       y: playerY,
     });
-  }
-
-  /** A square: the cache is a diamond and the drone is a ring, so the third world object a
-   *  quest puts in a room is legible without colour. */
-  private drawQuestCargoCrate(graphics: Phaser.GameObjects.Graphics): void {
-    const radius = QUEST_CARGO_DRAW_RADIUS;
-    graphics.fillStyle(QUEST_CARGO_COLOR, 0.16);
-    graphics.fillRect(-radius, -radius, radius * 2, radius * 2);
-    graphics.lineStyle(2, QUEST_CARGO_COLOR, 0.9);
-    graphics.strokeRect(-radius, -radius, radius * 2, radius * 2);
-    graphics.lineStyle(2, QUEST_CARGO_COLOR, 0.5);
-    graphics.lineBetween(-radius, 0, radius, 0);
-    graphics.lineBetween(0, -radius, 0, radius);
   }
 
   /** Trip test while dormant, liveness filter while awake. Iterated backwards because a clear
@@ -5764,13 +5778,18 @@ export class GameScene extends Phaser.Scene {
     if (this.questBoardActive || this.scene.isActive('QuestBoardScene')) return;
     this.questBoardActive = true;
     this.isPaused = true;
+    const map = this.worldMode.worldMap();
     this.scene.launch('QuestBoardScene', {
+      worldStamp: map ? questWorldStamp(map) : '',
       onClose: (changed: boolean) => {
         this.questBoardActive = false;
         this.isPaused = false;
         // The ticker re-reads on its own timer; zeroing it puts an accept on the HUD next frame
         // instead of up to QUEST_TICKER_REFRESH_SECONDS later.
-        if (changed) this.questTickerRefreshTimer = 0;
+        if (changed) {
+          this.questTickerRefreshTimer = 0;
+          this.questBoardManager.refreshCargo();
+        }
         if (this.pendingOrientationRelayout) {
           this.pendingOrientationRelayout = false;
           this.handleOrientationFlip();
@@ -7041,6 +7060,7 @@ export class GameScene extends Phaser.Scene {
       this.checkDailyQuestsLive();
       this.checkExpeditionQuestKills();
       this.checkExpeditionQuestDwell();
+      this.questBoardManager.refreshCargo();
       this.updateExpeditionSiege();
     }
 
