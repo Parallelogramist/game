@@ -5216,7 +5216,7 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   rather than by test. Cover it when a chunk next touches that file for its own reason.
   Deps: none. Spec: `04-content-quests-powerups-secrets.md` section 8.
 
-- [ ] **FEAT-HUD-TIMED-BUFF** (new 2026-08-01, from FEAT-TOAST-TIERS): the field-boost toast
+- [x] **FEAT-HUD-TIMED-BUFF** (new 2026-08-01, from FEAT-TOAST-TIERS) (done, 2e319bc): the field-boost toast
   is now `ambient`, so a timed stat buff announces itself once as floating text and then has
   no readout at all. `this.timedStatBuffs` already carries stat, magnitude and expiry
   (`GameScene.collectFieldBoost`), and nothing in `HUDManager` renders it. Value: a player can
@@ -5225,13 +5225,41 @@ Parallel-safe. Each is a pure module plus the tests that pin it.
   is the pattern), one icon per live buff with a shrinking bar. When it lands, delete the
   floating text added by FEAT-TOAST-TIERS.
 
-- [ ] **FEAT-HUD-BOUNTY-TICKER** (new 2026-08-01, from FEAT-TOAST-TIERS): the bounty cycle's
-  three toasts are now `ambient` with an in-world banner, so the objective, its progress and
-  its timer are invisible between banners. Value: the bounty is a live 15 to 45 s objective;
-  a player who cannot see the count cannot chase it. Plan: a one-line HUD ticker
-  (`BOUNTY 12/25 · 0:14`) fed from `this.bounty`; `setTopCenterLabel` is NOT free (it writes
-  `worldLevelText`, `HUDManager.ts:857`), so this needs its own text object in the HUD's own
-  layout pass.
+  **What shipped:** live timed stat surges now have a readout for the whole time they last. A new
+  pure `buildTimedBuffRows` (`src/systems/TimedStatBuffs.ts`) folds `timedStatBuffs` into at most
+  four rows, one per buffed stat rather than one per buff, so two damage surges read as their
+  combined multiplier with the countdown of whichever reverts first, and the row order is fixed
+  rather than expiry-sorted so an icon never changes place while the player is looking at it.
+  `HUDManager.updateTimedBuffStrip` paints one slot per row under the relic strip, sharing its
+  right edge: the stat's field-boost icon, an `x2` style multiplier badge and a bar that drains
+  as the surge runs out. The floating pickup text `FEAT-TOAST-TIERS` added as a stopgap is
+  deleted; the ambient toast and the pickup sound are untouched.
+  1. **The bar needed no save change.** A `TimedStatBuff` records an absolute expiry and no
+     duration, so the bar's full width is the widest remaining time the row has been seen
+     holding, kept in a caller-owned `timedBuffPeakSeconds` scratch map. A field boost that
+     refreshes an existing buff pushes remaining back above the peak, which re-widens the bar
+     exactly as a fresh pickup does. Storing a `durationSeconds` instead would have changed the
+     serialized buff shape for a cosmetic bar.
+  2. **The peak map is cleared with the buff list** (`GameScene.ts`, the fresh-run reset), because
+     a `GameScene` instance survives `scene.restart()` and a stale peak would start the next run's
+     first bar part-drained.
+  3. **Rebuild is gated on the rows, not the frame:** while the same stats at the same multipliers
+     are live, a frame moves at most four bar widths and allocates nothing;
+     `buildTimedBuffRows` returns a shared empty array when nothing is live.
+  4. **Nothing animates**, so there is no reduced-motion branch: the bar moves only because the
+     number it draws moved. No tooltip and no seconds text, on purpose: the badge plus the bar
+     carry the readout, and both would cost another per-frame text render on a HUD band that is
+     already tight on phones. `POLISH-BUFF-STRIP` asks the operator whether the seconds are wanted.
+  5. Six tests pin the fold, the fixed order, the expiry drop, the drain, the refresh re-widen and
+     the empty-list clear: each fails **silently** when a port goes wrong. The Phaser half is
+     verified by play per the repo rule. Suite goes 2099 to 2105 tests across the same 181 files.
+
+- [x] **FEAT-HUD-BOUNTY-TICKER** (done, no code change, verified at 2e319bc) (new
+  2026-08-01, from FEAT-TOAST-TIERS): the entry was stale when it was filed. The line it asks for
+  ships: `GameScene.ts:6690` writes `BOUNTY · <label> <progress>/<target> · <n>s` to the
+  `bountyText` object created at `:6653`, and `src/expedition/runTicker.ts` records the ownership
+  rule ("the bounty owns it while active", the objective and lead rows claim it only while idle).
+  Its warning about `setTopCenterLabel` was right and is why the line has its own text object.
 
 - [x] **CHORE-WORLDGEN-ABILITY-ORDER-WIRE** (done — 704d128): the real `generateWorld` call
   site passes `TRAVERSAL_ABILITY_GATE_ORDER` (`src/data/TraversalAbilities.ts`) as
@@ -9895,6 +9923,21 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-BUFF-STRIP** (new 2026-08-02, from FEAT-HUD-TIMED-BUFF). Value: the new timed-buff
+  strip is the first thing on the HUD's right column below the relic strip, and every number in it
+  is geometry chosen to match its neighbours rather than played. Questions only a run answers:
+  (a) is the bar enough, or does a surge need its seconds spelled out the way the event indicator
+  spells out its own (deliberately cut: another per-frame text render plus about 12 scaled pixels
+  on a band Band C already calls saturated on phones)? (b) on a short landscape phone canvas
+  (2000x720, density scale 1.6) the relic strip alone already reaches down toward the radar's top
+  edge, and this row sits about 37 scaled pixels below it: does it crowd the radar, and if so
+  should the pair move or should the buff row go bottom-centre with the bounty line? (c) is the
+  multiplier badge (`x1.5`) legible at phone scale against the icon behind it, or does it want the
+  icon dimmed? (d) deleting the floating pickup text (this item's own instruction) leaves the
+  pickup moment with the ambient toast and the sound only: does the pickup still land? (e) the
+  four stat colours are borrowed from the relic strip's modifier categories, so a damage surge and
+  an offense modifier are the same red one row apart: is that one language or one collision?
 
 - **BUG-ENEMY-FIRE-IFRAMES** (found 2026-08-02 while porting ARCH-ENEMY-PROJECTILES; a balance
   call, so filed rather than fixed). `takeDamage` (`GameScene.ts:8829`) *sets* the i-frame window
