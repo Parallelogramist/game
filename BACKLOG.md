@@ -8793,13 +8793,56 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   Shooter's 6 dps. Telegraphed AOE is deliberately still not a threat and is
   `FEAT-DECOY-AOE-INTEREST`.
 
-- [ ] **FEAT-DECOY-AOE-INTEREST** (new 2026-08-01, from FEAT-DECOY-RANGED-INTEREST): Giant, Warden
+- [x] **FEAT-DECOY-AOE-INTEREST** (done, a344be3) (new 2026-08-01, from FEAT-DECOY-RANGED-INTEREST): Giant, Warden
   and Bombard still cannot touch the drone, so a room whose whole threat is telegraphed AOE is a
   room an escort walks through untouched. It is a second damage path, not a list entry: their
   attacks are `TelegraphManager` zones rather than pooled projectiles, so it needs a zone-versus-
   point test with its own tick and its own answer to a zone that lingers, which is why it was cut
   rather than folded in. Value: an escort threatened by every attack in the game rather than by the
   two that travel. Deps: none, but it is a damage path against a different system.
+
+  **What shipped:** the drone stopped being immune to the whole area-damage half of the bestiary.
+  1. **Two choke points, not three enemies.** Tracing every `this.takeDamage(...)` call site in
+     `GameScene.ts` shows the scene has exactly two blast paths, and both tested the player and
+     nobody else: `handleGroundSlam` (`:11567`), which is where `groundSlamCallback` lands for
+     Giant, Warden, Horde King and the eight barrage handlers Bombard, Eclipse, Obelisk, Tremor,
+     Diviner, Helix, Tessellator and Bastion, and `handleExplosion` (`:4254`), which serves exploder
+     corpse fuses and VOLATILE elite detonations. One new helper, `damageEscortDroneByBlast`, is
+     called from both, so this covers eleven-plus families rather than the three this item named.
+     No behavior module and no AI handler changed: the telegraph geometry, the windups and the
+     damage numbers are all exactly as shipped.
+  2. **The hit test is the player's own.** A blast bills the drone when the drone's centre is
+     inside the same `radius` the player is tested against, so the drone is hit by exactly the
+     footprint the telegraph drew and no new radius constant enters the file. `ESCORT_DRONE_HIT_
+     RADIUS` stayed a projectile-only idea; a blast is an area, not a pellet.
+  3. **One blast per 0.5 s.** The barrage families drop many strike points in one burst, so an
+     ungated path would spend a 100 HP drone in a handful of frames with nothing the player could
+     do about it. `escortDroneNextBlastAtSeconds` gates the path at
+     `ESCORT_DRONE_DAMAGE_INTERVAL_SECONDS`, the cadence the contact path already bills at, so the
+     drone gained an i-frame rule without the file gaining a tuning constant. It is the drone's
+     analogue of the player's `damageCooldown`, which both callers already honour.
+  4. **Damage rides the shipped instantaneous path.** `damageEscortDroneByBlast` delegates to
+     `damageEscortDroneByProjectile`, so a blast subtracts full damage, suppresses regen for
+     `ESCORT_DRONE_PROJECTILE_REGEN_LOCKOUT_SECONDS`, throws hit sparks at the drone and loses the
+     drone at zero, exactly as a bullet does. Contact billing is untouched, which is what keeps
+     `BALANCE-QUEST-ESCORT-DRONE`'s numbers readable.
+  5. **Boss beams too.** `EnemyProjectileManager.fireLaser` ran its closest-point test against the
+     player alone; it now runs the same test against the drone at `LASER_HIT_HALF_WIDTH`. It needed
+     no new wiring at all, because `escortDronePosition` and `damageEscortDrone` have been options
+     on that manager since `FEAT-DECOY-RANGED-INTEREST`. It is ungated on purpose: a volley fires
+     once per charge cycle, so a drone standing inside two crossing beams eating both is what
+     standing in a laser grid means, while the gate above exists for bursts.
+  6. **Deliberately out, with its reason:** the ambient hazard floor
+     (`TUNING.hazards.floorTickDamage`, `GameScene.ts:6554`). That is the room rather than an
+     attack, it is the one player-damage source with no enemy behind it, and the drone hovers.
+     Nothing is filed for it: an escort route that crosses a burn strip should cost the player, not
+     the drone.
+  7. **Arena is byte-identical and nothing new is persisted.** `this.escortDrone` is null outside an
+     active expedition escort objective, so all three new hooks return on their first line in the
+     arena and in every non-escort expedition run. The one new field is a scene number set to 0
+     wherever its five siblings already are (`syncEscortDrone` and `clearEscortDrone`), so a refresh
+     mid-escort rebuilds the drone with a clean gate. No storage key, no `SAVE_VERSION`, no
+     `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION`.
 
 - [ ] **BALANCE-DRONE-PROJECTILE-HIT** (new 2026-08-01, from FEAT-DECOY-RANGED-INTEREST): the 20 px
   hit radius is the player's own, borrowed so a shot lands on the drone the way it lands on you,
@@ -8808,6 +8851,11 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   Whether a drone parked between the player and a Sniper reads as a shield worth spending or as a
   drone that dies to fire the player never saw is what a browser answers. Value: ranged pressure
   that costs the escort without deleting it. Deps: none, but it wants play, not a third guess.
+  **Widened 2026-08-02 by `FEAT-DECOY-AOE-INTEREST` (a344be3): the same question now covers blasts.**
+  A ground slam or an explosion bills the drone full damage through this item's regen lockout, at
+  most once per 0.5 s, and a boss beam bills it ungated. Whether a Horde King slam taking a third
+  of the drone's HP reads as pressure worth repositioning for or as a deletion the player never saw
+  is the same browser question as the numbers above. Answer them in one sitting, not separately.
 
 - [x] **FEAT-QUEST-SURVIVE-DANGER** (done, 126961c): a hold objective now answers back. While
   the ship holds a sector a live `surviveInSector` step names, the room sieges it: the ambush
