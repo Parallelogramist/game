@@ -3,6 +3,7 @@ import {
   BODY_FONT, COLOR_MUTED_TEXT, COLOR_PRIMARY,
   buildBackdrop, buildBody, buildButton, buildButtonRow, buildPanel, buildTitle,
 } from './OverlayKit';
+import { attachOverlayPadFocus, markPadCancel } from './OverlayPadFocus';
 
 // Drawn, not emoji: every rendered glyph in this game is a drawn shape, and a
 // system-font emoji would render differently (or not at all) per platform.
@@ -41,7 +42,11 @@ export function showInstallHintOverlay(opts: {
   const backdrop = buildBackdrop();
   const panel = buildPanel();
 
+  let detachPadFocus: (() => void) | null = null;
+
   const teardown = (): void => {
+    detachPadFocus?.();
+    detachPadFocus = null;
     if (backdrop.isConnected) backdrop.remove();
   };
   const close = (): void => {
@@ -56,7 +61,7 @@ export function showInstallHintOverlay(opts: {
     panel.appendChild(buildStep(ADD_ICON_SVG, '2. Choose "Add to Home Screen", then Add.'));
 
     const row = buildButtonRow();
-    const gotItButton = buildButton('GOT IT', 'muted');
+    const gotItButton = markPadCancel(buildButton('GOT IT', 'muted'));
     gotItButton.addEventListener('click', close);
     row.appendChild(gotItButton);
     panel.appendChild(row);
@@ -73,7 +78,7 @@ export function showInstallHintOverlay(opts: {
     });
     row.appendChild(installButton);
 
-    const laterButton = buildButton('NOT NOW', 'muted');
+    const laterButton = markPadCancel(buildButton('NOT NOW', 'muted'));
     laterButton.addEventListener('click', close);
     row.appendChild(laterButton);
     panel.appendChild(row);
@@ -81,6 +86,7 @@ export function showInstallHintOverlay(opts: {
 
   backdrop.appendChild(panel);
   document.body.appendChild(backdrop);
+  detachPadFocus = attachOverlayPadFocus(panel);
 
   return teardown;
 }

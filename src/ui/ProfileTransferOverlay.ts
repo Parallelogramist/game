@@ -7,6 +7,7 @@ import {
   BODY_FONT, COLOR_DANGER, COLOR_MUTED_BORDER, COLOR_PRIMARY,
   buildBackdrop, buildBody, buildButton, buildButtonRow, buildPanel, buildTitle,
 } from './OverlayKit';
+import { attachOverlayPadFocus, markPadCancel } from './OverlayPadFocus';
 
 function buildTextarea(readonly: boolean, placeholder?: string): HTMLTextAreaElement {
   const textarea = document.createElement('textarea');
@@ -68,7 +69,7 @@ function renderExportPanel(panel: HTMLDivElement, opts: {
   });
   row.appendChild(copyButton);
 
-  const closeButton = buildButton('CLOSE', 'muted');
+  const closeButton = markPadCancel(buildButton('CLOSE', 'muted'));
   closeButton.addEventListener('click', () => {
     opts.teardown();
     opts.onClose();
@@ -86,7 +87,11 @@ export function showProfileExportOverlay(opts: {
   const backdrop = buildBackdrop();
   const panel = buildPanel();
 
+  let detachPadFocus: (() => void) | null = null;
+
   const teardown = (): void => {
+    detachPadFocus?.();
+    detachPadFocus = null;
     if (backdrop.isConnected) backdrop.remove();
   };
 
@@ -99,6 +104,7 @@ export function showProfileExportOverlay(opts: {
 
   backdrop.appendChild(panel);
   document.body.appendChild(backdrop);
+  detachPadFocus = attachOverlayPadFocus(panel);
 
   return teardown;
 }
@@ -110,7 +116,11 @@ export function showBackupReminderOverlay(opts: {
   const backdrop = buildBackdrop();
   const panel = buildPanel();
 
+  let detachPadFocus: (() => void) | null = null;
+
   const teardown = (): void => {
+    detachPadFocus?.();
+    detachPadFocus = null;
     if (backdrop.isConnected) backdrop.remove();
   };
 
@@ -137,7 +147,7 @@ export function showBackupReminderOverlay(opts: {
   });
   row.appendChild(backUpButton);
 
-  const laterButton = buildButton('NOT NOW', 'muted');
+  const laterButton = markPadCancel(buildButton('NOT NOW', 'muted'));
   laterButton.addEventListener('click', () => {
     teardown();
     opts.onClose();
@@ -147,6 +157,7 @@ export function showBackupReminderOverlay(opts: {
   panel.appendChild(row);
   backdrop.appendChild(panel);
   document.body.appendChild(backdrop);
+  detachPadFocus = attachOverlayPadFocus(panel);
 
   return teardown;
 }
@@ -155,7 +166,11 @@ export function showProfileImportOverlay(onImported: () => void, onClose: () => 
   const backdrop = buildBackdrop();
   const panel = buildPanel();
 
+  let detachPadFocus: (() => void) | null = null;
+
   const teardown = (): void => {
+    detachPadFocus?.();
+    detachPadFocus = null;
     if (backdrop.isConnected) backdrop.remove();
   };
 
@@ -211,7 +226,7 @@ export function showProfileImportOverlay(onImported: () => void, onClose: () => 
     });
     row.appendChild(continueButton);
 
-    const cancelButton = buildButton('CANCEL', 'muted');
+    const cancelButton = markPadCancel(buildButton('CANCEL', 'muted'));
     cancelButton.addEventListener('click', () => {
       teardown();
       onClose();
@@ -246,7 +261,7 @@ export function showProfileImportOverlay(onImported: () => void, onClose: () => 
     });
     row.appendChild(overwriteButton);
 
-    const cancelButton = buildButton('CANCEL', 'muted');
+    const cancelButton = markPadCancel(buildButton('CANCEL', 'muted'));
     cancelButton.addEventListener('click', () => renderPasteState());
     row.appendChild(cancelButton);
 
@@ -256,6 +271,7 @@ export function showProfileImportOverlay(onImported: () => void, onClose: () => 
   renderPasteState();
   backdrop.appendChild(panel);
   document.body.appendChild(backdrop);
+  detachPadFocus = attachOverlayPadFocus(panel);
 
   return teardown;
 }
