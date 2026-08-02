@@ -5,6 +5,61 @@ Active work lives in `BACKLOG.md` — this file is append-only history.
 
 ---
 
+## BUG-WEAPON-GRID-OVERFLOW — the pre-run weapon grid painted off-canvas · DONE 8f5cc49
+
+- **The bug** (found 2026-08-01 by POLISH-MENU-DENSITY batch 1). With a full codex the pre-run
+  weapon step lays 29 cards into 7 columns x 5 rows = 956 units of grid in a 720-unit-tall canvas,
+  so `computeGridLayout` returns `startY = -88` (`src/game/scenes/WeaponSelectScene.ts`
+  `buildWeaponCards`, cardHeight 180, spacing 14, maxColumns 7) and the top row renders off-screen:
+  the player cannot see or reach several starting weapons. Not a density bug, it reproduces at
+  design scale on desktop 1280x720. The density batch deliberately clamped the grid so it is never
+  shrunk below design size, which kept this bug exactly as it was rather than making it worse.
+  Repro: discover all 29 weapons, start a run.
+- **What shipped.** Both card grid solvers shared one root cause: each floored its scale at design
+  size and neither had any fallback when the natural grid was taller than the band between header
+  and footer, so an over-tall grid was centred anyway and simply painted outside the canvas. The
+  descending column search `computeMenuCardGrid` already ran is now the exported pure
+  `computeGridFit` in `src/utils/HudScale.ts`, which jointly picks the column count and the uniform
+  scale that best fill the band, floored at the new `MENU_GRID_MIN_SCALE` of 0.7 instead of a hard
+  1.0. Both call sites reach it **only** when the current path overflows (`gridHeight <= band` guards
+  the menu grid's legacy early return, `this.menuScale * heightFit < 1` guards the weapon grid), so
+  every layout that fits today keeps its exact current geometry, structurally rather than
+  arithmetically. Measured before and after at desktop 1280x720: 29 weapons went from 7 columns x
+  5 rows at scale 1 with `startY` -88 (first row entirely off-screen, last row past the canvas
+  bottom) to 10 columns x 3 rows at 0.768 with `startY` 241 and a 436-unit grid inside the 460-unit
+  band. The fitted branch may exceed the caller's `maxColumns`, and does here, because no column
+  count at or below 7 leaves the cards legible at that count: 7 columns resolves to 0.481.
+  Verification is pure geometry in `src/utils/HudScale.test.ts` (`computeGridFit` at a full codex,
+  a fitting grid, and the floor); the Phaser scene method stays play-verified per the repo's rule.
+  **Not verified in a browser:** files `POLISH-GRID-FIT-SCALE` under `## Human gates`.
+- **Also caught by the same guard.** The ship step overflows today too and therefore takes the
+  fitted branch: its 11 ships at 4 columns are 524 units against a 520-unit band, putting the top
+  card edge at y=48 under a 160-unit header reserve. It now lays 5 columns x 3 rows at 0.992, with
+  the grid spanning exactly the band (top edge y=160, bottom y=680). The stage step is unaffected
+  (7 stages, 2 rows, 342 units, fits). This is recorded in `POLISH-GRID-FIT-SCALE` question (e).
+
+## BUG-PACT-GRID-HEADER-OVERLAP — the pact counter painted over the first card row · DONE 8f5cc49
+
+- **The bug** (found 2026-08-01 by POLISH-MENU-DENSITY batch 3). At desktop 1280x720 the eight
+  pacts wrap to 5 + 3, and `computeMenuCardGrid`'s legacy path reproduced the pre-sweep anchor
+  exactly: `firstRowY` 223 with a 230-tall card puts the first row's top edge at y=108, above the
+  `NONE SELECTED` counter line at y=132, so the counter is painted over the top of the first card
+  row. Not a density bug: it reproduces at design scale on desktop, and batch 3 deliberately
+  preserved it byte-identically rather than fixing it under cover of a scaling change. Repro: open
+  the pact step on desktop 1280x720 with all 8 pacts.
+- **What shipped.** Same fix, same commit, same shared root cause as BUG-WEAPON-GRID-OVERFLOW
+  above: the eight pacts are a 484-unit grid against a 468-unit band, and centring an over-tall
+  grid anyway is what put the first card row on top of the counter. The legacy early return now
+  fires only when the grid actually fits the band, so the pact grid falls through to
+  `computeGridFit` and resolves to `firstRowY` 261 at scale 0.967, a 3.3% shrink that buys exactly
+  the 16 units the overlap needed: top edge exactly y=150 (the header bottom), grid bottom exactly
+  y=618 (the 618-unit band floor). The column count is unchanged at 5. The desktop-invariance test
+  that used to pin this scene's buggy geometry moved to the modifier draft, whose grid genuinely
+  fits at 444 units against 468, and the pact case now pins the fix instead of the overlap.
+  POLISH-FUNNEL-PACT-SATURATION is unaffected and stays open: its complaint is that pact only
+  reaches 1.02x on a phone, and the new floor sits below 1 and never raises a phone scale.
+  **Not verified in a browser:** files `POLISH-GRID-FIT-SCALE` under `## Human gates`.
+
 ## FEAT-WEAPON-PULSE — new 20th weapon, the Pulse Cannon · DONE 8e0f453
 
 - **The gap.** The backlog's `## Now`/`## Next` were exhausted and the remaining `## Later`
