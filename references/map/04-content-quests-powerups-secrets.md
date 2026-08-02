@@ -1053,8 +1053,12 @@ objectives. A world now issues its own. Six points:
 4. **World-agnostic on purpose.** A contract is a function of the seed and never of the
    generated map: the catalog is rebuilt on the path every quest read takes, and
    `generateExpeditionWorld` costs 33 ms. `boss-arena` is the only `sectorTag` used, since
-   every world sets exactly one arena, and no biome tag appears because a biome exists per
-   world. `claimAbility` is excluded: a profile holding all six abilities can never claim a
+   every world sets exactly one arena. **The reason given here for using no biome tag was
+   wrong**: the biome of a depth region is a constant across every world, because
+   `availableBiomeIds` is always the whole `STAGES` table and `orderBiomesByHarshness` reads no
+   seed, so the four shallowest regions are safe to name without generating anything. That was
+   measured and acted on by `FEAT-CONTRACT-TEMPLATE-DEPTH` (below), which added six templates
+   using them. `claimAbility` is excluded: a profile holding all six abilities can never claim a
    seventh, and that profile is who this ships for.
 5. **Disposal is the unknown-id drop.** The id carries the seed
    (`quest_contract_<seed>_<key>`), and `sanitizeStates` already drops a state whose quest id
@@ -1064,6 +1068,35 @@ objectives. A world now issues its own. Six points:
    inside the shipped band (steps 60 to 260, completions 120 to 350) and bank into the
    existing `pendingGold`, so no new payout rail exists and section 6 stays parked. No storage
    key, no `SAVE_VERSION` and no `WORLDGEN_VERSION` bump.
+
+### As built (`FEAT-CONTRACT-TEMPLATE-DEPTH`, 0806256, 2026-08-02)
+
+1. **The pool doubled, the draw did not.** Twelve templates, still `CONTRACTS_PER_WORLD = 3`
+   per world, so the expected number of contracts two consecutive worlds share fell from 1.5
+   of 3 to 0.75 and the chance of an identical set from 5.0% to 0.45% (2000 seed pairs
+   measured: mean shared 0.770, identical 0.35%). `chooseTemplates`, `buildSeasonQuests`, the
+   memo and `CONTRACTS_PER_WORLD` are byte-identical: the whole change is six data entries.
+2. **Biome tags are safe without generating a world, and that is the settled call.**
+   `expeditionWorld.ts` passes `availableBiomeIds: STAGES.map(stage => stage.id)` for every
+   world, so the input is the whole stage table and is never seed- or profile-dependent.
+   `orderBiomesByHarshness` sorts that fixed list by `enemyHealthMultiplier +
+   enemyDamageMultiplier` with an id tiebreak, after pinning `SPINE_BIOME_ID` at index 0, and
+   reads no rng. `assignDangerAndBiomes` then takes `orderedBiomes[min(floor(depth / 2),
+   len - 1)]` with `REGION_DEPTH_SPAN = 2`. So depth region k is the same biome in every world:
+   region 0 to 3 is always deep void, inferno, crystal caves, ion field. Measured over 300 seeds
+   through the real generator, counting non-hidden sectors: maxDepth min 6 / p10 8 / median 9 /
+   max 15, deep void 2/3/4/5, inferno 3/8/11/18, crystal caves 6/10/15/24, ion field 2/6/10/20
+   as min/p10/med/max, with zero worlds missing any of the four. `stage_verdant_rot`,
+   `stage_molten_vault` and `stage_endless_void` are NOT guaranteed and are never named. Every
+   target is at or under the floor of the biome it names.
+3. **Two trigger kinds gained their first generated consumer.** `deliverItem` (`courier`) and
+   `escortDrone` (`convoy`) work unchanged because `loadQuestCargo` and `assignQuestDrone` read
+   the step trigger off the quest state and never the catalog it came from; a second live escort
+   is serialised by `syncEscortDrone`'s `getActiveQuestEscortObjectives()[0]` pick rather than
+   lost, which is shipped behaviour two authored chains already exercise.
+4. **Econ-neutral and version-free**, on the `a8c1d38` precedent: same reward band (steps 60 to
+   260, completions 120 to 350), same `pendingGold` rail, section 6 stays parked, and no storage
+   key or version constant moved.
 
 ---
 

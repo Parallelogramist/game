@@ -2774,6 +2774,40 @@ practice and gauntlet are untouched by construction, because `wallCollision` is 
 them and `movementSystem` skips the entire block when it is. The five constants are pure geometry
 validated in a sandbox and never in a browser, which is exactly what `POLISH-WALL-FEEL` is for.
 
+**0806256 made a world's contract set its own.** The generated season-contract pool went from
+six templates to twelve while the draw stayed at three per world, so the expected number of
+contracts two consecutive worlds share fell from 1.5 of 3 to 0.75, and the chance of an
+identical set from 5.0% to 0.45% (2000 seed pairs measured: mean shared 0.770, identical
+0.35%). Four of the six new templates run on trigger shapes no generated contract could ask
+for before: `courier` and `convoy` give `deliverItem` and `escortDrone` their first consumer
+outside the authored chains, and `prospect` and `bulwark` are the first biome-tagged
+`reachSector` and `surviveInSector` anywhere in the catalog. **The item's stated blocker was
+false, and this is the settled call: do not re-derive it.** Naming a biome needs neither a
+generated world on the catalog path (the 33 ms this file rejected) nor a cached per-seed
+derivation, because `availableBiomeIds` is always the whole `STAGES` table and
+`orderBiomesByHarshness` reads no rng and no seed, so `assignDangerAndBiomes` gives depth
+region k the same biome in every world: region 0 to 3 is always deep void, inferno, crystal
+caves, ion field. Measured over 300 seeds through the real generator, counting non-hidden
+sectors: maxDepth min 6 / p10 8 / median 9 / max 15, deep void 2/3/4/5, inferno 3/8/11/18,
+crystal caves 6/10/15/24, ion field 2/6/10/20, and zero worlds missing any of the four. Verdant
+rot, molten vault and endless void are not guaranteed and are never named. Every target sits at
+or under the floor of the biome it names, so no contract this pool issues is uncompletable.
+`deliverItem` and `escortDrone` needed no code at all, because `loadQuestCargo` and
+`assignQuestDrone` walk quest states and read the step's trigger kind rather than the catalog it
+came from, and a second live escort is serialised by `syncEscortDrone`'s `[0]` pick instead of
+being lost. Econ-neutral by construction on the `a8c1d38` precedent: same reward band, same
+`pendingGold` rail, so `FEAT-ECON-WARDS` stays parked and untouched. No storage key and no
+version constant moved, and arena, daily, weekly, practice and gauntlet are untouched by
+construction because `questCatalog()` is read on the expedition path only. **Cut on purpose:**
+the persistent `reachSector` bound of 24 that `referentialIntegrity.test.ts` applies to the
+authored catalog was deliberately NOT imported into the new contract test, because the shipped
+`survey` template asks for 26 and importing it would turn a green suite red on code this item is
+not changing. Filed on the way out: `BALANCE-CONTRACT-TEMPLATE-COUNT` (twelve still leaves a 62%
+chance of one shared contract, a feel call that wants play), `BUG-QUEST-INFERNO-SWEEP-TARGET`
+(the authored six-Inferno sweep is uncompletable in the thinnest worlds, since the measured floor
+is three) and `FEAT-QUEST-SECRET-PUZZLE-TIER` (`SecretTier` carries `'puzzle'` but no producer
+emits it).
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -7416,12 +7450,75 @@ exploring pays is the end of Phase 5.
   multiplier, but how fast it should climb, and whether a contract should get harder at all
   when the world does not, is a feel judgement. Deps: play.
 
-- [ ] **FEAT-CONTRACT-TEMPLATE-DEPTH** (new 2026-08-01, from FEAT-QUEST-SEASON-CONTRACTS):
+- [x] **FEAT-CONTRACT-TEMPLATE-DEPTH** (done, 0806256, 2026-08-02) (new 2026-08-01, from FEAT-QUEST-SEASON-CONTRACTS):
   six templates drawn three at a time means two consecutive worlds share a contract about half
   the time. More templates is pure data against the shipped shape, and the triggers with no
   template yet are the tagged-biome ones, which need the world map and therefore a generated
   world on the catalog path (33 ms, rejected here) or a cached per-seed derivation. Value: a
   world's set reads as its own. Deps: none.
+  **What shipped:** `CONTRACT_TEMPLATES` went from six entries to twelve, with the draw
+  untouched at three per world, so the expected number of contracts two consecutive worlds
+  share fell from 1.5 of 3 to 0.75 of 3 and the chance of an identical set from 5.0% to 0.45%
+  (measured over 2000 seed pairs: mean shared 0.770, identical 0.35%). The item's own
+  "about half the time" was the 5.0% understated. The six new keys: `courier` (a `deliverItem`
+  run to the arena, then two more into the Ion Field), `convoy` (an `escortDrone` into the
+  Crystal Caves, then two more through the Inferno), `prospect` (biome-tagged `reachSector`
+  on Inferno and Crystal Caves), `bulwark` (a biome-tagged `surviveInSector` hold in the
+  Inferno plus a three-lair `clearHazard` hunt), `homefront` (a `findSecret secretKind:
+  'cache'` pair plus a Deep Void sweep) and `frontier` (a deeper `reachDepth` of 5 plus a
+  900-kill count). **The entry's stated blocker was false and must not be re-derived.** No
+  generated world and no cached per-seed derivation were needed: `expeditionWorld.ts:30`
+  passes `availableBiomeIds: STAGES.map(stage => stage.id)` for every world, and
+  `orderBiomesByHarshness` sorts that fixed list by health plus damage multiplier with an id
+  tiebreak after pinning `stage_deep_void`, reading no rng and no seed, so
+  `assignDangerAndBiomes` gives depth region k the same biome in every world (region 0 to 3 is
+  always deep void, inferno, crystal caves, ion field; `REGION_DEPTH_SPAN = 2`). Measured over
+  300 seeds through the real `generateExpeditionWorld`, counting non-hidden sectors only:
+  maxDepth min 6, p10 8, median 9, max 15; `stage_deep_void` 2/3/4/5, `stage_inferno` 3/8/11/18,
+  `stage_crystal_caves` 6/10/15/24, `stage_ion_field` 2/6/10/20 as min/p10/med/max, with zero
+  of the 300 worlds missing any of the four. `stage_verdant_rot`, `stage_molten_vault` and
+  `stage_endless_void` are NOT guaranteed and are therefore never named by a contract. Every
+  target sits at or under the measured floor of the biome it names, so a contract this pool
+  issues is completable in every world measured. The two trigger kinds that shipped with
+  producers but had no consumer in the generated catalog, `deliverItem` and `escortDrone`, now
+  have one, and both work unchanged because `loadQuestCargo` (`QuestProgress.ts:695`) and
+  `assignQuestDrone` (`QuestProgress.ts:737`) walk quest STATES and read the step's trigger
+  kind, so they are catalog-agnostic. A second live escort is serialised rather than lost:
+  `syncEscortDrone` (`GameScene.ts:5435`) derives the drone from
+  `getActiveQuestEscortObjectives()[0]`, so the second assignment gets its drone once the
+  first arrives. That is shipped behaviour (two authored chains already carry escort steps)
+  and nothing here changes it. Econ-neutral by construction on the `a8c1d38` precedent: every
+  step gold is inside 60 to 260, every completion inside 120 to 350, and everything rides the
+  existing `pendingGold` rail, so `FEAT-ECON-WARDS` stays parked and untouched. No storage key,
+  no `SAVE_VERSION`, no `WORLDGEN_VERSION`, no `DISCOVERY_VERSION`, no `WORLD_PROFILE_VERSION`
+  and no `WORLD_ARCHIVE_VERSION` bump; arena, daily, weekly, practice and gauntlet are
+  untouched by construction, because `questCatalog()` is only read on the expedition path.
+  Files three follow-ups: `BALANCE-CONTRACT-TEMPLATE-COUNT`, `BUG-QUEST-INFERNO-SWEEP-TARGET`
+  and `FEAT-QUEST-SECRET-PUZZLE-TIER`.
+
+- [ ] **BALANCE-CONTRACT-TEMPLATE-COUNT** (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
+  twelve templates leave a 62% chance that two consecutive worlds share at least one contract
+  (`1 - C(9,3)/C(12,3)`), down from 95% at six but still common. Whether a repeat across a
+  re-roll reads as a returning fixture or as the game running out of ideas is a feel judgement,
+  and the pool has now been sized twice without a browser. Value: a fresh world's set reads as
+  new. Deps: none, but it wants play rather than a third guess at the pool size.
+
+- [ ] **BUG-QUEST-INFERNO-SWEEP-TARGET** (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
+  the authored `q_gatecrash_02.s5` asks for six Inferno sectors, and Inferno's measured minimum
+  over 300 seeds is **three** non-hidden sectors, so that persistent step is uncompletable in
+  the thinnest worlds. It is world-stamped (`CHORE-QUEST-DISTINCT-WORLD-STAMP`, b846074), so
+  the visited set is dropped on a re-roll and the player is not permanently stuck, but the step
+  can sit at 3/6 for a whole world. `BALANCE-QUEST-PERSISTENT-SWEEP-TARGETS` measured that step
+  against the live seed only (Inferno 16), which is why the floor was never seen. Value: an
+  authored objective that every world can actually supply. Deps: none.
+
+- [ ] **FEAT-QUEST-SECRET-PUZZLE-TIER** (new 2026-08-02, from FEAT-CONTRACT-TEMPLATE-DEPTH):
+  `SecretTier` carries `'puzzle'` and `src/world/secretRewards.ts` pays a `puzzle` tier, but no
+  `findSecret` producer ever emits it: `SecretCacheManager.ts:365` reports every claim as
+  `'cache'`, walk-in and sigil-ring alike, so a `findSecret secretKind: 'puzzle'` step would
+  never tick. Either the manager should report the tier it actually paid, or the union member
+  should go. Value: a quest can ask for the one find-shape the player solves with their hands.
+  Deps: none.
 
 - [x] **FEAT-SEASON-SEED-SHARE** (done, afd403c): a world can be handed to another player. The
   CHART dialog carries a CODE button onto a WORLD CODE dialog that prints this world's code
@@ -8319,7 +8416,11 @@ seals and then unseals an optional region of the map. What is left of the band i
 `FEAT-ECON-WARDS`, so the reward economy is locked BEFORE the content flood (quest gold now
 exists for it to band), then `FEAT-QUEST-BOARD`. Both are currently blocked, the first on an
 operator balance decision and the second on `FEAT-MAPUI-DOORS-05` plus
-`FEAT-QUEST-CATALOG-DEPTH`, so band 2 is where the next unblocked work is.
+`FEAT-QUEST-CATALOG-DEPTH`, so band 2 is where the next unblocked work is. As of 2026-08-02
+band 2 is itself fully shipped except the `markSectorClearedOnce` remainder of
+`FEAT-DISCOVERY-WRITE-PATHS`, which is blocked on `FEAT-WORLDGEN-STREAM-DIRECTOR`, itself
+blocked on an operator call. The unblocked work has therefore moved to the cuts filed off
+shipped band-1 and band-2 items, plus band 3's `FEAT-WORLDGEN-STREAM` slices.
 
 **Band 2 — lots of hidden rewards.** `FEAT-SECRET-CACHE`, `FEAT-SECRET-AMBIENT-PING`,
 `FEAT-SECRET-HIDDEN-SECTORS`, `FEAT-SECRET-REWARD-VARIETY`, `FEAT-SECRET-LORE`,
