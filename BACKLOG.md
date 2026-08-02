@@ -1066,12 +1066,43 @@ before editing, the tree moves fast. Feel changes file a `POLISH-*` playtest ite
   rect before the tile query, player before escort drone, and the drone re-read per projectile so
   a drone killed by one shot is not hit again by the next in the same frame. Files
   `BUG-ENEMY-FIRE-IFRAMES` under Human gates, found while porting.
-- [ ] **ARCH-MINIMAP-FEED** (chunk 4). Move
+- [x] **ARCH-MINIMAP-FEED** (chunk 4) (done, bce9be2). Move
   `writeMinimapEntry`/`updateMinimap`/`syncMinimapUnderlay`/`syncRadarWaypoints`
   (`:8864-9116`) into `src/game/managers/MinimapFeed.ts` over the already-pure
   `minimapProjection.ts` and `expedition/radarWaypoints.ts`. Keep the pooled entry
   buffer (no new per-frame allocations). Add a blip-kind priority classification
   test.
+  **What shipped:** the four methods and their three pieces of state (the pooled entry buffer,
+  the underlay key, the bearing timer) left `GameScene` for `src/game/managers/MinimapFeed.ts`,
+  which imports **no Phaser at all**. Two choices bought that: the `MinimapManager` it drives is
+  injected behind a structural `MinimapRadar` interface (the scene still constructs, pulses and
+  destroys the manager), and `biomeTintFor` is taken as a `biomeTint` callback because it lives
+  in the Phaser-importing `SectorMapRenderer`. Everything else the pass reads off the scene —
+  the ECS world, the player id, the six POI arrays, the decryptor flag, the marked sectors, the
+  owned abilities — is a getter on one options object, built in one new private
+  `createMinimapFeed()` that both create paths call, so the fresh path and the restore path can
+  no longer drift apart.
+  **A latent cross-run bug closed by construction:** `minimapUnderlayKey` was a scene *instance*
+  field, and Phaser reuses the scene instance across a restart (the file says so itself at
+  `create()`: "Class property initializers only run once on instantiation, not on scene
+  restart"). The key therefore outlived the `MinimapManager` it described — `create()` builds a
+  new one per run — so a run that started in the same sector at the same discovery revision the
+  last run ended on hit the early return and drew **no sector walls at all** until the ship
+  changed rooms. The feed is constructed fresh per run, so its key starts null and the underlay
+  is assembled.
+  **The test this item asked for already existed.** "A blip-kind priority classification test"
+  is `src/visual/minimapProjection.test.ts`, which has covered `classifyEnemyKind` and
+  `blipStyle` (where `priority` lives) since the radar shipped; writing it again would have been
+  coverage padding. The four tests written instead pin the part that was genuinely untested and
+  fails silently: the stride sampler holds regular blips at or under the 48 cap while every
+  boss, miniboss and elite bypasses it and crates never become contacts; a risk room is drawn
+  only while dormant AND inside `MINIMAP_WORLD_RANGE`; cache *positions* need the decryptor
+  while the tier-1 shimmer does not; and the shimmer tracks the nearest cache, or nothing.
+  **Behaviour is otherwise unchanged**, including the per-frame allocation budget: the entry
+  buffer is still pooled and grown once (it is now re-grown once per run rather than once per
+  page, which costs one array of ~50 small objects at run start and nothing per frame). No
+  save/restore slice: nothing about the radar is persisted, and the item did not ask for one.
+  No `POLISH-*` item is filed — nothing visible or feel-related changed.
 - [ ] **ARCH-POI-MANAGERS** (chunk 5, two sessions allowed). Value: the expedition
   field-POI layer is ~2,470 lines inside GameScene (`:4889-7355`), the single
   largest and highest-churn cluster; every new POI kind hand-copies a 6-method
