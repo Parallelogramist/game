@@ -13,10 +13,10 @@
 
 import { EDGE_DIRECTIONS, EdgeKind, PoiKind, edgeIdFor } from '../world/worldTypes';
 import type { SectorDef, WorldMap } from '../world/worldTypes';
-import { EdgeFlags, PoiFlags, SecretFlags } from './DiscoveryTypes';
+import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 import { getTraversalAbility } from '../data/TraversalAbilities';
 import { getQuestForKeyId } from '../data/ExpeditionQuests';
-import { isGridFenceIntact } from '../world/securityGrids';
+import { countIntactGridBands, isGridFenceIntact } from '../world/securityGrids';
 
 const MAGNO_TETHER_ABILITY_ID = 'ability_magno_tether';
 const PHASE_CLOAK_ABILITY_ID = 'ability_phase_cloak';
@@ -72,6 +72,9 @@ export interface LockoutRow {
   doors: number;
   /** Charted reward sites this would reach. */
   sites: number;
+  /** Lit corridor grids, in rooms the ship has walked, this would permanently open. Counted
+   *  apart from doors and sites because a band is neither a sector border nor a reward. */
+  shortcuts: number;
   /** Chebyshev sector distance from the ship to the nearest counted place. Not rendered any
    *  more, since the source distance is the actionable one: kept as the sort tiebreak so two
    *  rows opening the same amount put the nearer payoff first. */
@@ -99,6 +102,7 @@ interface Accumulator {
   name: string;
   doors: number;
   sites: number;
+  shortcuts: number;
   nearestDistance: number;
 }
 
@@ -165,7 +169,7 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
 
   const bump = (
     key: string, kind: LockoutKind, name: string,
-    field: 'doors' | 'sites', distance: number,
+    field: 'doors' | 'sites' | 'shortcuts', distance: number,
   ): void => {
     const existing = rows.get(key);
     if (existing) {
@@ -179,12 +183,14 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
       name,
       doors: field === 'doors' ? 1 : 0,
       sites: field === 'sites' ? 1 : 0,
+      shortcuts: field === 'shortcuts' ? 1 : 0,
       nearestDistance: distance,
     });
   };
 
   for (const sector of inputs.map.sectors.values()) {
-    if (inputs.sectorFlagsOf(sector.key) === 0) continue;
+    const sectorFlags = inputs.sectorFlagsOf(sector.key);
+    if (sectorFlags === 0) continue;
     const distance = sectorDistance(sector, inputs.shipCell);
 
     for (const direction of EDGE_DIRECTIONS) {
@@ -231,6 +237,19 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
       const cloak = getTraversalAbility(PHASE_CLOAK_ABILITY_ID);
       if (!cloak) continue;
       bump(`ability:${cloak.id}`, 'ability', cloak.name, 'sites', distance);
+    }
+
+    // A band is interior geometry with no POI slot, so SEEN is unavailable and DISCOVERED is
+    // too weak: SectorFlags.VISITED is the flag that already means "its interior may render".
+    if ((sectorFlags & SectorFlags.VISITED) !== 0
+      && !inputs.holdsAbility(PHASE_CLOAK_ABILITY_ID)) {
+      const intactBands = countIntactGridBands(sector);
+      const cloak = intactBands > 0 ? getTraversalAbility(PHASE_CLOAK_ABILITY_ID) : undefined;
+      if (cloak) {
+        for (let counted = 0; counted < intactBands; counted++) {
+          bump(`ability:${cloak.id}`, 'ability', cloak.name, 'shortcuts', distance);
+        }
+      }
     }
   }
 
@@ -287,7 +306,7 @@ export function buildLockoutRows(inputs: LockoutInputs): LockoutRow[] {
   // count: the panel is a plan, so the actionable line goes first.
   const actionRank = (row: LockoutRow): number => (row.source.kind === 'unfound' ? 1 : 0);
   return built.sort((a, b) =>
-    (b.doors + b.sites) - (a.doors + a.sites)
+    (b.doors + b.sites + b.shortcuts) - (a.doors + a.sites + a.shortcuts)
     || actionRank(a) - actionRank(b)
     || a.nearestDistance - b.nearestDistance
     || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)

@@ -16,7 +16,7 @@ import { HAZARD_NEST_GLYPH, poiGlyphFor } from './poiGlyphs';
 import { getStageById } from '../data/Stages';
 import { getTraversalAbility } from '../data/TraversalAbilities';
 import { getQuestForKeyId } from '../data/ExpeditionQuests';
-import { isGridFenceIntact } from '../world/securityGrids';
+import { countIntactGridBands, isGridFenceIntact } from '../world/securityGrids';
 import type { PoiHazardKind } from '../data/PoiCatalog';
 
 /** The two risk rooms a Treasure slot can roll instead of loot. Declared in the POI catalog,
@@ -178,6 +178,17 @@ function describeRewards(sector: SectorDef, inputs: SectorDetailInputs): string[
     const guarded = slot.kind === PoiKind.AbilityPowerUp
       && (flags & PoiFlags.GUARD_CLEARED) === 0;
     lines.push(guarded ? `${glyph.label} · guarded` : glyph.label);
+  }
+  // Same VISITED rule lockouts.ts takes, and for the same reason: a band has no POI slot, so
+  // there is no SEEN to gate on and a merely charted room must not have its interior named.
+  const intactBands = (inputs.sectorFlagsOf(sector.key) & SectorFlags.VISITED) !== 0
+    ? countIntactGridBands(sector) : 0;
+  if (intactBands === 1) {
+    lines.push(`Corridor grid · ${inputs.holdsAbility(PHASE_CLOAK_ABILITY_ID)
+      ? 'shortcut open to you' : 'blocking a shortcut'}`);
+  } else if (intactBands > 1) {
+    lines.push(`${intactBands} corridor grids · ${inputs.holdsAbility(PHASE_CLOAK_ABILITY_ID)
+      ? 'shortcuts open to you' : 'blocking shortcuts'}`);
   }
   const hazard = inputs.hazardSectorKinds.get(sector.key);
   // The run-scoped nest line would restate the slot line above it, which is slot-precise and

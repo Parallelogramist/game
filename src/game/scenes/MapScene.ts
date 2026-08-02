@@ -109,6 +109,9 @@ function describeLockoutRow(row: LockoutRow): string {
   const clauses: string[] = [];
   if (row.doors > 0) clauses.push(`${row.doors} DOOR${row.doors === 1 ? '' : 'S'}`);
   if (row.sites > 0) clauses.push(`${row.sites} SITE${row.sites === 1 ? '' : 'S'}`);
+  if (row.shortcuts > 0) {
+    clauses.push(`${row.shortcuts} SHORTCUT${row.shortcuts === 1 ? '' : 'S'}`);
+  }
   const source = row.source;
   switch (source.kind) {
     case 'vault':

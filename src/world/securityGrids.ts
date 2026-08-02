@@ -161,6 +161,17 @@ export function isGridFenceIntact(sector: SectorDef, slot: PoiSlot): boolean {
     .some(index => sector.tiles[index] === TileKind.SecurityGrid);
 }
 
+/** How many of a sector's corridor bands are still lit. A band with any cell alive counts as
+ *  intact: the kill-switch clears every cell of one band in a single pass, so a half-dark band
+ *  cannot happen in play. */
+export function countIntactGridBands(sector: SectorDef): number {
+  let intact = 0;
+  for (const band of sector.gridBands ?? []) {
+    if (band.tileIndices.some(index => sector.tiles[index] === TileKind.SecurityGrid)) intact++;
+  }
+  return intact;
+}
+
 /** Trips one fence's kill-switch for good, altar ring or corridor band. False for an unknown,
  *  foreign or already dark fence, which is what stops a caller from recording the same id twice. */
 export function clearSecurityGrid(world: WorldMap, gridId: string): boolean {

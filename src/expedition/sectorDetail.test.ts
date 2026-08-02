@@ -1,7 +1,9 @@
 import { describe, test, expect } from 'vitest';
 import { buildSectorDetail, type PoiHazardKind } from './sectorDetail';
-import { EdgeKind, PoiKind, SECTOR_TILE_COUNT, TileKind, WALL_EDGE } from '../world/worldTypes';
-import type { EdgeDef, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
+import {
+  EdgeKind, PoiKind, SECTOR_TILE_COLS, SECTOR_TILE_COUNT, TileKind, WALL_EDGE,
+} from '../world/worldTypes';
+import type { EdgeDef, GridBandDef, PoiSlot, SectorDef, WorldMap } from '../world/worldTypes';
 import { secretShellRingIndices } from '../world/sectorInterior';
 import { PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
 
@@ -44,6 +46,20 @@ function makeFencedAltarWorld(): WorldMap {
   const map = makeWorld({}, [slot]);
   const tiles = map.sectors.get('0,0')!.tiles;
   for (const index of secretShellRingIndices(8, 5)) tiles[index] = TileKind.SecurityGrid;
+  return map;
+}
+
+function makeBandedWorld(bandCount: number): WorldMap {
+  const map = makeWorld({}, []);
+  const sector = map.sectors.get('0,0')!;
+  const bands: GridBandDef[] = [];
+  for (let bandIndex = 0; bandIndex < bandCount; bandIndex++) {
+    const row = 3 + bandIndex;
+    const tileIndices = [SECTOR_TILE_COLS * row + 6, SECTOR_TILE_COLS * row + 7];
+    for (const index of tileIndices) sector.tiles[index] = TileKind.SecurityGrid;
+    bands.push({ id: `band:0,0:${bandIndex}`, tileIndices });
+  }
+  sector.gridBands = bands;
   return map;
 }
 
@@ -144,5 +160,18 @@ describe('buildSectorDetail', () => {
     const map = makeWorld({}, []);
     expect(buildSectorDetail({ ...BASE, map, sectorFlagsOf: () => 0 })).toBeNull();
     expect(buildSectorDetail({ ...BASE, map, gridX: 9, gridY: 9 })).toBeNull();
+  });
+
+  test('a corridor grid is named only in a room the ship has been inside', () => {
+    const map = makeBandedWorld(2);
+    expect(buildSectorDetail({ ...BASE, map })!.rewards)
+      .toEqual(['2 corridor grids · blocking shortcuts']);
+    expect(buildSectorDetail({ ...BASE, map, holdsAbility: () => true })!.rewards)
+      .toEqual(['2 corridor grids · shortcuts open to you']);
+    expect(buildSectorDetail({
+      ...BASE, map, sectorFlagsOf: () => SectorFlags.DISCOVERED,
+    })!.rewards).toEqual([]);
+    expect(buildSectorDetail({ ...BASE, map: makeBandedWorld(1) })!.rewards)
+      .toEqual(['Corridor grid · blocking a shortcut']);
   });
 });

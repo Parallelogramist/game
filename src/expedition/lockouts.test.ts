@@ -3,8 +3,8 @@ import { generateWorld } from '../world/generateWorld';
 import { STAGES } from '../data/Stages';
 import { buildLockoutRows } from './lockouts';
 import type { LockoutInputs } from './lockouts';
-import { EdgeFlags, PoiFlags, SecretFlags } from './DiscoveryTypes';
-import { EDGE_DIRECTIONS, EdgeKind, PoiKind, edgeIdFor } from '../world/worldTypes';
+import { EdgeFlags, PoiFlags, SecretFlags, SectorFlags } from './DiscoveryTypes';
+import { EDGE_DIRECTIONS, EdgeKind, PoiKind, TileKind, edgeIdFor } from '../world/worldTypes';
 import type { WorldMap } from '../world/worldTypes';
 
 const MAP = generateWorld(20260727, {
@@ -134,5 +134,26 @@ describe('buildLockoutRows', () => {
     const unseen = rowsFor(KEYED, { poiFlagsOf: () => 0 })
       .find(row => row.id === seen[0].id)!;
     expect(unseen.source.kind).toBe('unfound');
+  });
+
+  test('a lit corridor band counts only in a room the ship has actually been inside', () => {
+    let expected = 0;
+    for (const sector of GATED.sectors.values()) {
+      for (const band of sector.gridBands ?? []) {
+        if (band.tileIndices.some(index => sector.tiles[index] === TileKind.SecurityGrid)) {
+          expected++;
+        }
+      }
+    }
+    expect(expected).toBeGreaterThan(0);
+
+    const visited = rowsFor(GATED, {
+      sectorFlagsOf: () => SectorFlags.DISCOVERED | SectorFlags.VISITED,
+    }).find(row => row.id === 'ability_phase_cloak');
+    expect(visited?.shortcuts).toBe(expected);
+
+    const chartedOnly = rowsFor(GATED, { sectorFlagsOf: () => SectorFlags.DISCOVERED })
+      .find(row => row.id === 'ability_phase_cloak');
+    expect(chartedOnly?.shortcuts ?? 0).toBe(0);
   });
 });
