@@ -316,6 +316,14 @@ const RUN_EARNING_TAG_COLORS: Record<RunEarningTag, string> = {
 const MIN_RUN_EARNING_ROWS = 3;
 const MAX_RUN_EARNING_ROWS = 6;
 
+const QUEST_BOARD_ROW_HEIGHT = 22;
+
+/** How tall createDailyQuestBoardPanel draws: header and padding, plus one row per quest.
+ *  Both run-end surfaces reserve this before the panel exists, so Continue keeps its slot. */
+function dailyQuestBoardPanelHeight(questCount: number): number {
+  return 32 + questCount * QUEST_BOARD_ROW_HEIGHT;
+}
+
 /**
  * Below this width the death-screen recap surfaces cannot use the side margins or
  * the below-column slots (both are spoken for at portrait widths) and move into the
@@ -425,8 +433,9 @@ export class PauseMenuManager {
   // Victory choice handlers (for cleanup)
   private victoryContinueHandler: (() => void) | null = null;
   private victoryNextWorldHandler: (() => void) | null = null;
-  /** Victory stat-cell texts — collector-torn-down (see addVictoryCell). */
-  private victoryStatCellElements: Phaser.GameObjects.Text[] = [];
+  /** Victory elements with no name of their own: the stat cells (see addVictoryCell) and the
+   *  DAILY QUESTS panel. Torn down by reference in handleVictoryContinue. */
+  private victoryOwnedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[] = [];
   private gameOverRestartHandler: (() => void) | null = null;
   private gameOverRematchHandler: (() => void) | null = null;
   private gameOverGamepadPoll: Phaser.Time.TimerEvent | null = null;
@@ -1694,16 +1703,41 @@ export class PauseMenuManager {
     titleText.setDepth(PAUSE_MENU_DEPTH + 1).setScrollFactor(0);
     titleText.setName('endRunEarnedTitle');
 
+    // Confirm folded this run into today's board a moment ago, so the board under the earnings
+    // reads this-run-inclusive. The earnings panel gives up the height the board needs (its own
+    // row count adapts, never below MIN_RUN_EARNING_ROWS) so Continue keeps its slot.
+    const questBoard = getDailyQuestBoard();
+    const questBoardHeight = questBoard.length > 0
+      ? dailyQuestBoardPanelHeight(questBoard.length)
+      : 0;
+    const questBoardReserve = questBoardHeight > 0 ? questBoardHeight + 12 : 0;
+
     const panelBottomY = this.createRunEarningsPanel(
       earnings,
       centerX,
       dialogCenterY - 88,
       PAUSE_MENU_DEPTH + 1,
       this.endRunEarnedElements,
-      // Continue sits at panelBottom + 49 and is 50 tall, so the panel must stop
-      // that much plus a margin above the bottom edge.
-      this.scene.scale.height - 100
+      // Continue sits at contentBottom + 49 and is 50 tall, so the panel must stop that much
+      // plus a margin above the bottom edge, less whatever the board below it takes.
+      this.scene.scale.height - 100 - questBoardReserve
     );
+
+    // Dropped rather than clipped when the panel's own minimum row count ate the reserve on a
+    // short viewport. 86 = Continue's centre offset 49 plus its half-height 25 plus a 12 margin.
+    let contentBottomY = panelBottomY;
+    if (
+      questBoardHeight > 0
+      && panelBottomY + 12 + questBoardHeight + 86 <= this.scene.scale.height
+    ) {
+      contentBottomY = this.createDailyQuestBoardPanel(
+        questBoard,
+        centerX,
+        panelBottomY + 12,
+        PAUSE_MENU_DEPTH + 1,
+        this.endRunEarnedElements
+      );
+    }
 
     let continueCommitted = false;
     const commitContinue = () => {
@@ -1713,7 +1747,7 @@ export class PauseMenuManager {
     };
 
     const { bg: continueButtonBg } = this.createLabeledButton({
-      x: centerX, y: panelBottomY + 49,
+      x: centerX, y: contentBottomY + 49,
       width: 200, height: 50,
       label: 'Continue', fontSize: '24px',
       baseColor: 0x44aa44, hoverColor: 0x55bb55, strokeColor: 0x66cc66,
@@ -1849,7 +1883,7 @@ export class PauseMenuManager {
         .setOrigin(0, 0.5).setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
       const v = this.scene.add.text(rightX, victoryCellRow, value, END_STAT_VALUE_STYLE)
         .setOrigin(1, 0.5).setDepth(PAUSE_MENU_DEPTH + 2).setScrollFactor(0);
-      this.victoryStatCellElements.push(l, v);
+      this.victoryOwnedElements.push(l, v);
     };
     addVictoryCell(victoryCX - victoryStatsWidth / 2 + 18, victoryCX - 22, 'Kills', String(data.killCount));
     addVictoryCell(victoryCX + 22, victoryCX + victoryStatsWidth / 2 - 18, 'Level', String(data.playerLevel));
@@ -2129,6 +2163,36 @@ export class PauseMenuManager {
       this.scene.time.delayedCall(320, () => this.soundManager.playAchievementUnlock());
     }
 
+    // Today's board, in the slot the new-card reveal would have taken. GameScene settles this
+    // run into it before the overlay opens, so the rows already count this win. A reveal is the
+    // rarer moment and keeps the slot when a card dropped, the same yield the death screen's
+    // PERSONAL BESTS panel makes.
+    if (!data.discoveredCard) {
+      const victoryQuestBoard = getDailyQuestBoard();
+      if (victoryQuestBoard.length > 0) {
+        const questBoardHeight = dailyQuestBoardPanelHeight(victoryQuestBoard.length);
+        // The 340-wide panel needs 1194 px to clear both the 400-wide stats panel and the right
+        // edge, so below 1200 it takes the centered below-the-buttons slot the portrait reveal
+        // uses, and it is dropped rather than clipped when that slot runs off a short viewport.
+        const wideVictorySlot = this.scene.scale.width >= 1200;
+        const questBoardX = wideVictorySlot
+          ? Math.min(this.scene.scale.width * 0.82, this.scene.scale.width - 144)
+          : this.scene.scale.width / 2;
+        const questBoardTop = wideVictorySlot
+          ? this.scene.scale.height / 2 - 64
+          : this.scene.scale.height / 2 + 250;
+        if (questBoardTop + questBoardHeight + 12 <= this.scene.scale.height) {
+          this.createDailyQuestBoardPanel(
+            victoryQuestBoard,
+            questBoardX,
+            questBoardTop,
+            PAUSE_MENU_DEPTH + 1,
+            this.victoryOwnedElements
+          );
+        }
+      }
+    }
+
     // Keyboard handlers (store for cleanup). Pointer click handlers are wired
     // by createLabeledButton above.
     this.victoryContinueHandler = () => this.handleVictoryContinue();
@@ -2147,11 +2211,11 @@ export class PauseMenuManager {
     this.clearVictoryKeyboardHandlers();
 
     // Remove all victory UI elements
-    for (const cellText of this.victoryStatCellElements) {
-      this.scene.tweens.killTweensOf(cellText);
-      cellText.destroy();
+    for (const element of this.victoryOwnedElements) {
+      this.scene.tweens.killTweensOf(element);
+      element.destroy();
     }
-    this.victoryStatCellElements = [];
+    this.victoryOwnedElements = [];
 
     this.destroyElementsByName([
       'victoryOverlay',
@@ -3735,9 +3799,9 @@ export class PauseMenuManager {
     animatedElements: (Phaser.GameObjects.Text | Phaser.GameObjects.Graphics)[]
   ): number {
     const panelWidth = 340;
-    const rowHeight = 22;
+    const rowHeight = QUEST_BOARD_ROW_HEIGHT;
     const headerOffset = 18;
-    const panelHeight = headerOffset + board.length * rowHeight + 14;
+    const panelHeight = dailyQuestBoardPanelHeight(board.length);
     const completeCount = board.filter((entry) => entry.complete).length;
 
     const panelBackground = this.scene.add.graphics();
