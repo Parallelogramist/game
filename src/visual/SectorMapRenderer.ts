@@ -10,6 +10,7 @@ import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../expedition/poiGlyphs';
 import type { PoiGlyph } from '../expedition/poiGlyphs';
 import { SECTOR_MARKS } from '../expedition/sectorMarks';
 import type { SectorMarkKind } from '../expedition/sectorMarks';
+import type { MapOpenReveal } from '../expedition/mapReveal';
 import { WORLD_GEOMETRY_COLORS } from './NeonColors';
 import { edgeAnchor, sectorCellRect, worldPointToMap } from './mapProjection';
 import type { MapViewTransform } from './mapProjection';
@@ -208,6 +209,19 @@ export function drawNewRouteRing(
   graphics.strokeCircle(x, y, size * 2.4);
 }
 
+/** Doc 03 section 7 moment 3: the cell where a secret was just found blooms once, the first time
+ *  the chart is looked at afterwards. Amber is the language the lead badge and a found hidden
+ *  room already speak, and the ring expands OUT of the glyph rather than covering it, so the
+ *  icon it is pointing at stays readable for the whole bloom. */
+export function drawSecretBloomRing(
+  graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number, progress: number,
+): void {
+  if (!(progress < 1)) return;
+  const grown = progress < 0 ? 0 : progress;
+  graphics.lineStyle(Math.max(1, size * 0.4 * (1 - grown)), HIDDEN_FOUND_STROKE, 1 - grown);
+  graphics.strokeCircle(x, y, size * (1.2 + grown * 3.8));
+}
+
 export function drawCollectedCheck(
   graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number,
 ): void {
@@ -383,6 +397,11 @@ export interface SectorMapDrawInput {
   updatedObjectiveSectorKeys: ReadonlySet<string>;
   /** Doors opened by a gain this run and not yet looked at. Empty on every ordinary open. */
   newlyPassableEdgeIds: ReadonlySet<string>;
+  /** Doc 03 section 7 moments 3 and 4: the one-time replay running on THIS map open. Required
+   *  rather than optional, on the updatedObjectiveSectorKeys precedent: a call site that forgets
+   *  it is a compile error rather than a chart that silently never replays anything. Null on
+   *  every ordinary open and on every open under reduced motion. */
+  mapOpenReveal: MapOpenReveal | null;
   /** The sector the readout is describing. Null when nothing is focused. */
   focusedCell: { gridX: number; gridY: number } | null;
   /** Flags for a non-secret POI slot id. Predicate rather than a Map, matching holdsAbility:
@@ -418,23 +437,30 @@ export class SectorMapRenderer {
     for (const sector of input.map.sectors.values()) {
       const flags = input.sectorFlagsOf(sector.key);
       if (flags === 0) continue;               // Unknown draws nothing: the void is the invitation.
+      const cellAlpha = input.mapOpenReveal?.cascadeAlphaBySectorKey.get(sector.key) ?? 1;
+      if (cellAlpha <= 0) continue;
       const cell = sectorCellRect(sector.sx, sector.sy, input.view);
       if (cell.x + cell.width < 0 || cell.y + cell.height < 0) continue;
       if (cell.x > input.panelWidth || cell.y > input.panelHeight) continue;
 
       if ((flags & SectorFlags.VISITED) !== 0) {
         const tint = BIOME_TINTS.get(sector.biomeId) ?? FALLBACK_TINT;
-        graphics.fillStyle(tint, VISITED_FILL_ALPHA);
+        graphics.fillStyle(tint, VISITED_FILL_ALPHA * cellAlpha);
         graphics.fillRect(cell.x, cell.y, cell.width, cell.height);
-        if (sector.hidden === true) graphics.lineStyle(2.5, HIDDEN_FOUND_STROKE, 1);
-        else graphics.lineStyle(1.5, VISITED_STROKE, 1);
+        if (sector.hidden === true) graphics.lineStyle(2.5, HIDDEN_FOUND_STROKE, cellAlpha);
+        else graphics.lineStyle(1.5, VISITED_STROKE, cellAlpha);
         graphics.strokeRect(cell.x, cell.y, cell.width, cell.height);
       } else {
-        graphics.fillStyle(UNVISITED_FILL, 1);
+        graphics.fillStyle(UNVISITED_FILL, cellAlpha);
         graphics.fillRect(cell.x, cell.y, cell.width, cell.height);
-        graphics.lineStyle(1, UNVISITED_STROKE, 1);
+        graphics.lineStyle(1, UNVISITED_STROKE, cellAlpha);
         this.strokeDashedRect(cell.x, cell.y, cell.width, cell.height);
       }
+
+      // A cell still fading in draws its outline and nothing else: its notch, badges, pin, mark,
+      // icons and doors all join at full alpha the instant the cascade reaches it. That is why no
+      // alpha has to be threaded through five glyph helpers for one 400 ms replay.
+      if (cellAlpha < 1) continue;
 
       if ((flags & SectorFlags.CLEARED_ONCE) !== 0) {
         const notch = Math.max(3, 5 * input.view.scale);
@@ -549,6 +575,10 @@ export class SectorMapRenderer {
       drawPoiGlyph(this.graphics, slot.kind, point.x, point.y, size, alpha);
       if (guarded) drawVaultGuardRing(this.graphics, point.x, point.y, size);
       if (collected) drawCollectedCheck(this.graphics, point.x, point.y, size);
+      const reveal = input.mapOpenReveal;
+      if (reveal && reveal.bloomSecretIds.has(slot.id)) {
+        drawSecretBloomRing(this.graphics, point.x, point.y, size, reveal.bloomProgress);
+      }
     }
   }
 

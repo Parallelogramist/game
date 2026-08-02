@@ -49,6 +49,13 @@ export class DiscoveryManager {
    *  can never badge an objective in a world the ship is not in. */
   private readonly updatedObjectiveQuestIds = new Set<string>();
 
+  /** Doc 03 section 7 moments 3 and 4: what changed on the chart while the ship was flying, so
+   *  the next map open can replay it. Run overlays with a per-world lifetime, exactly like
+   *  newlyPassableEdgeIds: saveState serializes `state` alone and bindWorld clears these, so a
+   *  scene restart or a season swap can never replay a change in a world the ship is not in. */
+  private readonly newlyFoundSecretIds = new Set<string>();
+  private readonly newlyChartedSectorKeys = new Set<string>();
+
   /** Binds to one generated world and reloads the profile's memory of it. The universe is
    *  built first because the sanitizer rebuilds the state from exactly those ids. */
   bindWorld(map: WorldMap): void {
@@ -58,6 +65,8 @@ export class DiscoveryManager {
     this.revision++;
     this.newlyPassableEdgeIds.clear();
     this.updatedObjectiveQuestIds.clear();
+    this.newlyFoundSecretIds.clear();
+    this.newlyChartedSectorKeys.clear();
   }
 
   getSectorFlags(sectorKey: string): number {
@@ -116,7 +125,10 @@ export class DiscoveryManager {
    *  found flag is what stops the cache respawning, so there is no second spawned-ids list. */
   markSecretFound(secretId: string): DiscoveryChanges {
     if (!this.map) return emptyChanges();
-    return this.commit(revealOnSecretFound(this.state, this.universe, secretId));
+    const changes = this.commit(revealOnSecretFound(this.state, this.universe, secretId));
+    // Off the changes, not the argument: re-claiming an already-found secret must bloom nothing.
+    for (const foundId of changes.secretsFound) this.newlyFoundSecretIds.add(foundId);
+    return changes;
   }
 
   /** Hint tier 2's only write path. Marks a secret worth flying to without claiming it has
@@ -140,9 +152,12 @@ export class DiscoveryManager {
    *  slice of one region, never interiors, so the completion percent cannot move. */
   applyMapFragment(grantedSectorKeys: readonly string[]): DiscoveryChanges {
     if (!this.map) return emptyChanges();
-    return this.commit(
+    const changes = this.commit(
       revealOnMapFragment(this.state, this.map, this.universe, grantedSectorKeys),
     );
+    // sectorsDiscovered, not the grant: a sector already on the chart cascades nothing.
+    for (const sectorKey of changes.sectorsDiscovered) this.newlyChartedSectorKeys.add(sectorKey);
+    return changes;
   }
 
   /** Doc 03 section 7 moment 6's only write path: records which KNOWN doors a permanent gain
@@ -177,6 +192,22 @@ export class DiscoveryManager {
 
   clearUpdatedObjectives(): void {
     this.updatedObjectiveQuestIds.clear();
+  }
+
+  getNewlyFoundSecretIds(): ReadonlySet<string> {
+    return this.newlyFoundSecretIds;
+  }
+
+  getNewlyChartedSectorKeys(): ReadonlySet<string> {
+    return this.newlyChartedSectorKeys;
+  }
+
+  /** The same "until first viewed on the map" rule the newly-passable rings follow (doc 03
+   *  section 7 moment 6): MapScene.create snapshots both sets and calls this, so the replay
+   *  happens on exactly one open and on no later one. */
+  clearMapOpenReveal(): void {
+    this.newlyFoundSecretIds.clear();
+    this.newlyChartedSectorKeys.clear();
   }
 
   /** Secrets this profile has already been pointed at or has already found. */

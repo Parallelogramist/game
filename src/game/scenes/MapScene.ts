@@ -27,6 +27,9 @@ import { gateGlyphFor } from '../../expedition/gateGlyphs';
 import { buildSectorDetail, type PoiHazardKind } from '../../expedition/sectorDetail';
 import { buildHazardPins, buildQuestPins, updatedPinSectorKeys } from '../../expedition/questPins';
 import type { QuestPin } from '../../expedition/questPins';
+import { planMapOpenReveal, sampleMapOpenReveal } from '../../expedition/mapReveal';
+import type { MapRevealPlan } from '../../expedition/mapReveal';
+import { getSettingsManager } from '../../settings';
 import { buildLockoutRows } from '../../expedition/lockouts';
 import type { LockoutQuestState, LockoutRow } from '../../expedition/lockouts';
 import { HAZARD_NEST_GLYPH, poiGlyphFor } from '../../expedition/poiGlyphs';
@@ -154,6 +157,8 @@ export class MapScene extends Phaser.Scene {
   private hazardSectorKinds: ReadonlyMap<string, PoiHazardKind> = new Map();
   private spentNestSectorKeys: ReadonlySet<string> = new Set();
   private newlyPassableEdgeIds: ReadonlySet<string> = new Set();
+  private revealPlan: MapRevealPlan | null = null;
+  private revealElapsedMs = 0;
   private knownCells: GridCell[] = [];
   private focusedCell: GridCell | null = null;
   private markedSectorKinds: Map<string, SectorMarkKind> = new Map();
@@ -208,6 +213,18 @@ export class MapScene extends Phaser.Scene {
     discovery.clearNewlyPassableEdges();
     this.updatedObjectiveQuestIds = new Set(discovery.getUpdatedObjectiveQuestIds());
     discovery.clearUpdatedObjectives();
+    // Moments 3 and 4 follow moment 6's snapshot-then-clear rule, so the replay plays on exactly
+    // one open. Reduced motion clears the overlays too: a skipped replay must be dropped, never
+    // queued up to ambush a later open.
+    const bloomSecretIds = [...discovery.getNewlyFoundSecretIds()];
+    const chartedSectorKeys = [...discovery.getNewlyChartedSectorKeys()];
+    discovery.clearMapOpenReveal();
+    this.revealElapsedMs = 0;
+    this.revealPlan = null;
+    if (!getSettingsManager().isReducedMotionEnabled()) {
+      const plan = planMapOpenReveal(this.mapData, chartedSectorKeys, bloomSecretIds);
+      if (plan.durationMs > 0) this.revealPlan = plan;
+    }
     makeDisplayText(this, width / 2, 40, 'WORLD MAP', {
       fontSize: 38, letterSpacing: 3,
     }).setDepth(2);
@@ -777,6 +794,13 @@ export class MapScene extends Phaser.Scene {
       const speed = PAN_SPEED * this.view.scale * seconds;
       this.panBy(panX * speed, panY * speed);
     }
+    if (this.revealPlan) {
+      this.revealElapsedMs += delta;
+      // Nulled the frame it finishes, and viewDirty is still raised, so the last draw of the
+      // replay is the ordinary full-alpha chart rather than a cell frozen at 0.99.
+      if (this.revealElapsedMs >= this.revealPlan.durationMs) this.revealPlan = null;
+      this.viewDirty = true;
+    }
     if (this.viewDirty) this.redraw();
   }
 
@@ -947,6 +971,9 @@ export class MapScene extends Phaser.Scene {
       hintedSectorKeys: this.hintedSectorKeys,
       sealedLeadSectorKeys: this.sealedLeadSectorKeys,
       newlyPassableEdgeIds: this.newlyPassableEdgeIds,
+      mapOpenReveal: this.revealPlan
+        ? sampleMapOpenReveal(this.revealPlan, this.revealElapsedMs)
+        : null,
       focusedCell: this.focusedCell,
       poiFlagsOf: (poiId) => discovery.getPoiFlags(poiId),
       secretFlagsOf: (secretId) => discovery.getSecretFlags(secretId),
