@@ -4,6 +4,7 @@ import { getSprite } from '../ecs/systems/SpriteSystem';
 import { Transform, EnemyTag } from '../ecs/components';
 import { defineQuery, IWorld } from 'bitecs';
 import { getSettingsManager } from '../settings';
+import type { WorldRect } from '../world/worldSpace';
 
 // Query for all enemies
 const enemyQuery = defineQuery([Transform, EnemyTag]);
@@ -55,6 +56,7 @@ for (let i = 0; i < 6; i++) {
 export class DeathRippleManager {
   private scene: Phaser.Scene;
   private world: IWorld | null = null;
+  private viewRectProvider: (() => WorldRect) | null = null;
 
   // Active ripples expanding outward
   private activeRipples: ActiveRipple[] = [];
@@ -98,6 +100,14 @@ export class DeathRippleManager {
    */
   setWorld(world: IWorld): void {
     this.world = world;
+  }
+
+  /**
+   * The run's view rect, read at spawn time. These ripples are world-space graphics, so the
+   * screen rect is only the view in arena. No provider keeps the old screen-rect behaviour.
+   */
+  setViewRectProvider(provider: () => WorldRect): void {
+    this.viewRectProvider = provider;
   }
 
   /**
@@ -175,9 +185,16 @@ export class DeathRippleManager {
       this.activeRipples.shift();
     }
 
-    // Calculate max radius needed to fully exit screen
-    const maxDistX = Math.max(x, this.scene.scale.width - x);
-    const maxDistY = Math.max(y, this.scene.scale.height - y);
+    // Max radius needed to fully exit the VIEW. These graphics are world-space, so before the
+    // provider existed a kill at world x 5000 sized the ring to 5000 px and it crawled for
+    // roughly 19 seconds instead of flashing across the screen.
+    const view = this.viewRectProvider?.() ?? null;
+    const viewMinX = view ? view.minX : 0;
+    const viewMinY = view ? view.minY : 0;
+    const viewMaxX = view ? view.maxX : this.scene.scale.width;
+    const viewMaxY = view ? view.maxY : this.scene.scale.height;
+    const maxDistX = Math.max(x - viewMinX, viewMaxX - x);
+    const maxDistY = Math.max(y - viewMinY, viewMaxY - y);
     const maxRadius = Math.sqrt(maxDistX * maxDistX + maxDistY * maxDistY) + this.RIPPLE_BAND_WIDTH;
 
     this.activeRipples.push({

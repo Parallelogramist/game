@@ -1762,6 +1762,7 @@ export class GameScene extends Phaser.Scene {
     this.deathRippleManager = new DeathRippleManager(this);
     this.deathRippleManager.setWorld(this.world);
     this.deathRippleManager.setQuality(this.visualQuality);
+    this.deathRippleManager.setViewRectProvider(() => this.worldMode.viewRect());
 
     // Initialize boss arena and hazard zone systems
     setBossArenaScene(this);
@@ -3083,6 +3084,7 @@ export class GameScene extends Phaser.Scene {
     this.deathRippleManager = new DeathRippleManager(this);
     this.deathRippleManager.setWorld(this.world);
     this.deathRippleManager.setQuality(this.visualQuality);
+    this.deathRippleManager.setViewRectProvider(() => this.worldMode.viewRect());
 
     // Re-bind scene refs on the boss-arena/hazard-zone modules. Our reset
     // block above nulled their sceneRef; without these, any post-reload boss
