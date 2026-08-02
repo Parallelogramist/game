@@ -10,9 +10,10 @@ import {
   MoverKind, createCollisionResult, resolveCircleMove, raycastSolid,
   isSolidAtWorld, findNearestFreeCircleSpot,
 } from './staticCollision';
-import { resolvePlayerMoveWithAssist } from './moveAssist';
+import { resolveMoveWithAssist } from './moveAssist';
 
 const PLAYER_RADIUS = 16;
+const ENEMY_RADIUS = 12;
 const COLLISION_EPSILON = 0.001;
 
 function makeSector(
@@ -416,7 +417,10 @@ describe('a solid tile only blocks motion toward it', () => {
 
 const ASSIST_STEP = 8;
 
-function framesThroughVerticalDoor(startY: number, assisted: boolean): number {
+function framesThroughVerticalDoor(
+  startY: number, assisted: boolean,
+  moverKind: MoverKind = MoverKind.Player, radius: number = PLAYER_RADIUS,
+): number {
   const world = makeWorld(tiles => {
     paintColumn(tiles, 10, TileKind.Solid);
     tiles[tileIndex(10, 5)] = TileKind.Open;
@@ -426,9 +430,9 @@ function framesThroughVerticalDoor(startY: number, assisted: boolean): number {
   let y = startY;
   for (let frame = 0; frame < 200; frame++) {
     if (assisted) {
-      resolvePlayerMoveWithAssist(world, x, y, x + ASSIST_STEP, y, PLAYER_RADIUS, out);
+      resolveMoveWithAssist(world, x, y, x + ASSIST_STEP, y, radius, moverKind, out);
     } else {
-      resolveCircleMove(world, x, y, x + ASSIST_STEP, y, PLAYER_RADIUS, MoverKind.Player, out);
+      resolveCircleMove(world, x, y, x + ASSIST_STEP, y, radius, moverKind, out);
     }
     x = out.x;
     y = out.y;
@@ -437,7 +441,10 @@ function framesThroughVerticalDoor(startY: number, assisted: boolean): number {
   return -1;
 }
 
-function framesThroughHorizontalDoor(startX: number, assisted: boolean): number {
+function framesThroughHorizontalDoor(
+  startX: number, assisted: boolean,
+  moverKind: MoverKind = MoverKind.Player, radius: number = PLAYER_RADIUS,
+): number {
   const world = makeWorld(tiles => {
     paintRow(tiles, 10, TileKind.Solid);
     tiles[tileIndex(5, 10)] = TileKind.Open;
@@ -447,9 +454,9 @@ function framesThroughHorizontalDoor(startX: number, assisted: boolean): number 
   let y = 300;
   for (let frame = 0; frame < 200; frame++) {
     if (assisted) {
-      resolvePlayerMoveWithAssist(world, x, y, x, y + ASSIST_STEP, PLAYER_RADIUS, out);
+      resolveMoveWithAssist(world, x, y, x, y + ASSIST_STEP, radius, moverKind, out);
     } else {
-      resolveCircleMove(world, x, y, x, y + ASSIST_STEP, PLAYER_RADIUS, MoverKind.Player, out);
+      resolveCircleMove(world, x, y, x, y + ASSIST_STEP, radius, moverKind, out);
     }
     x = out.x;
     y = out.y;
@@ -469,11 +476,11 @@ describe('moveAssist — wall slide and doorway slip', () => {
 
     for (const degrees of APPROACH_DEGREES) {
       const radians = degrees * Math.PI / 180;
-      resolvePlayerMoveWithAssist(
+      resolveMoveWithAssist(
         world, startX, startY,
         startX + ASSIST_STEP * Math.cos(radians),
         startY + ASSIST_STEP * Math.sin(radians),
-        PLAYER_RADIUS, out,
+        PLAYER_RADIUS, MoverKind.Player, out,
       );
       expect(out.hitX).toBe(true);
       expect(out.y - startY).toBeGreaterThanOrEqual(ASSIST_STEP * 0.6);
@@ -489,11 +496,11 @@ describe('moveAssist — wall slide and doorway slip', () => {
 
     for (const degrees of APPROACH_DEGREES) {
       const radians = degrees * Math.PI / 180;
-      resolvePlayerMoveWithAssist(
+      resolveMoveWithAssist(
         world, startX, startY,
         startX + ASSIST_STEP * Math.sin(radians),
         startY + ASSIST_STEP * Math.cos(radians),
-        PLAYER_RADIUS, out,
+        PLAYER_RADIUS, MoverKind.Player, out,
       );
       expect(out.hitY).toBe(true);
       expect(out.x - startX).toBeGreaterThanOrEqual(ASSIST_STEP * 0.6);
@@ -507,7 +514,7 @@ describe('moveAssist — wall slide and doorway slip', () => {
     const startX = 10 * TILE_SIZE - PLAYER_RADIUS - 0.1;
     const startY = tileCentre(8, 5).y;
 
-    resolvePlayerMoveWithAssist(world, startX, startY, startX + ASSIST_STEP, startY, PLAYER_RADIUS, out);
+    resolveMoveWithAssist(world, startX, startY, startX + ASSIST_STEP, startY, PLAYER_RADIUS, MoverKind.Player, out);
 
     expect(out.y).toBe(startY);
     expect(out.x).toBeLessThanOrEqual(10 * TILE_SIZE - PLAYER_RADIUS);
@@ -537,5 +544,40 @@ describe('moveAssist — wall slide and doorway slip', () => {
     const doorCentreY = 5 * TILE_SIZE + TILE_SIZE / 2;
     expect(framesThroughVerticalDoor(doorCentreY - 16, true)).toBe(-1);
     expect(framesThroughVerticalDoor(doorCentreY + 16, true)).toBe(-1);
+  });
+
+  it('keeps most of a chaser speed pressing at an angle into a wall', () => {
+    const world = makeWorld(tiles => paintColumn(tiles, 10, TileKind.Solid));
+    const out = createCollisionResult();
+    const startX = 10 * TILE_SIZE - ENEMY_RADIUS - 0.1;
+    const startY = tileCentre(8, 5).y;
+
+    for (const degrees of APPROACH_DEGREES) {
+      const radians = degrees * Math.PI / 180;
+      resolveMoveWithAssist(
+        world, startX, startY,
+        startX + ASSIST_STEP * Math.cos(radians),
+        startY + ASSIST_STEP * Math.sin(radians),
+        ENEMY_RADIUS, MoverKind.Enemy, out,
+      );
+      expect(out.hitX).toBe(true);
+      expect(out.y - startY).toBeGreaterThanOrEqual(ASSIST_STEP * 0.6);
+      expect(out.y - startY).toBeLessThanOrEqual(ASSIST_STEP + COLLISION_EPSILON);
+    }
+  });
+
+  it('walks a chaser through a doorway it used to scrape forever', () => {
+    const doorCentreY = 5 * TILE_SIZE + TILE_SIZE / 2;
+    let stalled = 0;
+    let cleared = 0;
+    for (const offset of [-16, -14, -12, -10, 10, 12, 14, 16]) {
+      const bare = framesThroughVerticalDoor(doorCentreY + offset, false, MoverKind.Enemy, ENEMY_RADIUS);
+      if (bare !== -1) continue;
+      stalled++;
+      const assisted = framesThroughVerticalDoor(doorCentreY + offset, true, MoverKind.Enemy, ENEMY_RADIUS);
+      if (assisted > 0 && assisted <= 30) cleared++;
+    }
+    expect(stalled).toBeGreaterThan(0);
+    expect(cleared).toBe(stalled);
   });
 });

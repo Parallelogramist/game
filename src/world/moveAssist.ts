@@ -11,8 +11,9 @@
  * tangential input to transfer. When exactly one corner is in the way and the overlap is shallow,
  * the ship is nudged off it.
  *
- * Player-only by design: enemies steer from the flow field and have their own Band A items.
- * Phaser-free like the rest of src/world/: nothing here may import Phaser, src/game/,
+ * Both the ship and every wall-colliding enemy run it. The mover kind is threaded rather than
+ * assumed, because the resolver answers a one-way membrane differently for a hull than for an
+ * enemy. Phaser-free like the rest of src/world/: nothing here may import Phaser, src/game/,
  * src/systems/ or the ECS.
  */
 
@@ -37,12 +38,12 @@ function slideTransfer(blockedStep: number, freeStep: number): number {
 }
 
 function cornerSlipY(
-  world: WorldMap, x: number, y: number, radius: number, stepX: number,
+  world: WorldMap, x: number, y: number, radius: number, stepX: number, moverKind: MoverKind,
 ): number {
   const probeX = x + Math.sign(stepX) * (radius + CORNER_PROBE_AHEAD);
-  if (isSolidAtWorld(world, probeX, y, MoverKind.Player)) return 0;
-  const solidAbove = isSolidAtWorld(world, probeX, y - radius + CORNER_PROBE_INSET, MoverKind.Player);
-  const solidBelow = isSolidAtWorld(world, probeX, y + radius - CORNER_PROBE_INSET, MoverKind.Player);
+  if (isSolidAtWorld(world, probeX, y, moverKind)) return 0;
+  const solidAbove = isSolidAtWorld(world, probeX, y - radius + CORNER_PROBE_INSET, moverKind);
+  const solidBelow = isSolidAtWorld(world, probeX, y + radius - CORNER_PROBE_INSET, moverKind);
   if (solidAbove === solidBelow) return 0;
   const rowTop = Math.floor(y / TILE_SIZE) * TILE_SIZE;
   const overlap = solidAbove ? radius - (y - rowTop) : radius - (rowTop + TILE_SIZE - y);
@@ -52,12 +53,12 @@ function cornerSlipY(
 }
 
 function cornerSlipX(
-  world: WorldMap, x: number, y: number, radius: number, stepY: number,
+  world: WorldMap, x: number, y: number, radius: number, stepY: number, moverKind: MoverKind,
 ): number {
   const probeY = y + Math.sign(stepY) * (radius + CORNER_PROBE_AHEAD);
-  if (isSolidAtWorld(world, x, probeY, MoverKind.Player)) return 0;
-  const solidLeft = isSolidAtWorld(world, x - radius + CORNER_PROBE_INSET, probeY, MoverKind.Player);
-  const solidRight = isSolidAtWorld(world, x + radius - CORNER_PROBE_INSET, probeY, MoverKind.Player);
+  if (isSolidAtWorld(world, x, probeY, moverKind)) return 0;
+  const solidLeft = isSolidAtWorld(world, x - radius + CORNER_PROBE_INSET, probeY, moverKind);
+  const solidRight = isSolidAtWorld(world, x + radius - CORNER_PROBE_INSET, probeY, moverKind);
   if (solidLeft === solidRight) return 0;
   const columnLeft = Math.floor(x / TILE_SIZE) * TILE_SIZE;
   const overlap = solidLeft ? radius - (x - columnLeft) : radius - (columnLeft + TILE_SIZE - x);
@@ -75,11 +76,11 @@ function chooseAssistOffset(slip: number, transfer: number): number {
   return Math.abs(slip) > Math.abs(transfer) ? slip : transfer;
 }
 
-export function resolvePlayerMoveWithAssist(
+export function resolveMoveWithAssist(
   world: WorldMap, prevX: number, prevY: number, nextX: number, nextY: number,
-  radius: number, out: CollisionResult,
+  radius: number, moverKind: MoverKind, out: CollisionResult,
 ): void {
-  resolveCircleMove(world, prevX, prevY, nextX, nextY, radius, MoverKind.Player, out);
+  resolveCircleMove(world, prevX, prevY, nextX, nextY, radius, moverKind, out);
   const blockedX = out.hitX;
   const blockedY = out.hitY;
   if (blockedX === blockedY) return;
@@ -89,14 +90,14 @@ export function resolvePlayerMoveWithAssist(
   const restingX = out.x;
   const restingY = out.y;
   const offset = blockedX
-    ? chooseAssistOffset(cornerSlipY(world, restingX, restingY, radius, stepX), slideTransfer(stepX, stepY))
-    : chooseAssistOffset(cornerSlipX(world, restingX, restingY, radius, stepY), slideTransfer(stepY, stepX));
+    ? chooseAssistOffset(cornerSlipY(world, restingX, restingY, radius, stepX, moverKind), slideTransfer(stepX, stepY))
+    : chooseAssistOffset(cornerSlipX(world, restingX, restingY, radius, stepY, moverKind), slideTransfer(stepY, stepX));
 
   if (offset !== 0) {
     if (blockedX) {
-      resolveCircleMove(world, restingX, restingY, restingX, restingY + offset, radius, MoverKind.Player, out);
+      resolveCircleMove(world, restingX, restingY, restingX, restingY + offset, radius, moverKind, out);
     } else {
-      resolveCircleMove(world, restingX, restingY, restingX + offset, restingY, radius, MoverKind.Player, out);
+      resolveCircleMove(world, restingX, restingY, restingX + offset, restingY, radius, moverKind, out);
     }
   }
   // The assist move overwrote the flags with its own contact; the frame's contact is what callers mean.
