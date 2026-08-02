@@ -2867,6 +2867,21 @@ names worlds the player was not shown. Arena, daily, weekly, practice and gauntl
 construction. Files `POLISH-RETURN-SORT-ORDERS`; advances but does not close
 `POLISH-RETURN-PAGE-JUMP`.
 
+**45bb953 gave a besieged room a voice that outlives its toast.** Holding a sector for a
+`surviveInSector` objective makes the room answer with waves, and after the 3.2 s `THE ROOM
+ANSWERS` toast nothing on screen distinguished it from a busy one. A `SIEGE ·` row now rides the
+in-run ticker, first slot and then every other one, reading `NEXT WAVE 12S` normally,
+`14 STILL STANDING` at the besieger cap and `HELD OFF WHILE THE BOSS LIVES` under a boss, because
+`updateExpeditionSiege` skips a wave on both of those and a countdown to a wave that will not land
+is the one thing the line must not say. **It cost no new HUD line**, which is what the item said a
+siege tell could not have: the ticker is the shipped place that decides what claims the one line
+and in what order, so a fourth prefix joined `BOUNTY ·`, `OBJECTIVE ·` and `LEAD ·` rather than a
+widget joining the HUD. A tint was ruled out rather than guessed at: `runTicker.ts` records that
+the line keeps one colour because `setColor` on a per-frame path forces a full text re-render
+(settled at 5a0295d). No storage key, no sanitizer clause and no version constant of any kind
+moved. Arena, daily, weekly, practice and gauntlet are untouched by construction. Files
+`POLISH-SIEGE-TICKER-CADENCE`.
+
 ## Proposed (auto)
 
 - [x] **BUG-WEAPONS-VIEW-RECT** — six player weapons measured their projectiles against the
@@ -9490,12 +9505,40 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
   the director's global `maxEnemies` bounds the pile. Value: a hold that reads as a fight rather
   than as a wall. Deps: none, but it wants play, not a guess.
 
-- [ ] **FEAT-QUEST-SIEGE-HUD-TELL** (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): the siege
+- [x] **FEAT-QUEST-SIEGE-HUD-TELL** (done, 45bb953) (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): the siege
   announces itself once, with the `THE ROOM ANSWERS` toast, and after 3.2 s nothing on screen
   distinguishes a sieged room from a busy one. A persistent tell (a tint on the objective ticker
   line, or a rim on the radar) was cut for the reason `POLISH-DECRYPTOR-ACTIVE-BUTTON` was: a new
   HUD line is a layout change larger than the feature, and the portrait top band is already bars,
   world, timer, kills and gold. Value: the player can see why the room got harder. Deps: none.
+  **What shipped:** a `SIEGE ·` row in the in-run ticker, which is the one HUD line the bounty,
+  the objectives and the leads already share, so the persistent tell cost no new line, no new
+  colour and no layout change: exactly the three things this item said a siege line could not
+  have. `src/expedition/runTicker.ts` gained an optional `siege` input and a three-branch string
+  rule, and `GameScene` fills it from state the siege already kept.
+  **The precedence is the correctness half.** `updateExpeditionSiege` returns without spawning on
+  two conditions, a live boss (a boss owns the room) and the `SIEGE_MAX_LIVE_BESIEGERS` cap of 14,
+  so a plain countdown would run to zero with nothing arriving. The row names the reason instead:
+  `HELD OFF WHILE THE BOSS LIVES` first, then `N STILL STANDING`, and only otherwise
+  `NEXT WAVE Ns`. Two tests pin that order and the interleave.
+  **The row is dealt first and then every other slot**, rather than once per cycle. With three
+  objectives and two leads a cycle is five rows at five seconds each, so a single siege row would
+  have been on screen for five seconds in every twenty-five; every other slot makes it a standing
+  tell. `beginExpeditionSiege` also zeroes `questTickerRefreshTimer` and opens the cycle at index
+  0, the same idiom the quest board already uses to put an accept on the HUD next frame, so the
+  row lands with the toast rather than up to a cycle later, and `endExpeditionSiege` zeroes the
+  refresh timer so the row goes with the siege.
+  **One honest limitation, not a hidden one:** a bounty owns the line while it runs
+  (`GameScene.ts:7074`, doc 04 section 4's "one line, never two"), so the siege row is invisible
+  for the 15 to 45 seconds a bounty lasts. Overriding that would re-litigate a settled rule for a
+  case the toast and the boss-warning sound already cover, so it is asked as question (c) of
+  `POLISH-SIEGE-TICKER-CADENCE` instead.
+  **Nothing persisted moved:** no storage key, no `SAVE_VERSION`, no `SEASON_STATE_VERSION`, no
+  `WORLD_PROFILE_VERSION`, no `WORLD_ARCHIVE_VERSION`, no `WORLDGEN_VERSION` and no
+  `DISCOVERY_VERSION` bump, because the row is derived per refresh from scene state the run save
+  already carried. Arena, daily, weekly, practice and gauntlet are untouched by construction:
+  `updateObjectiveTicker` empties the line when there is no world map, and a siege exists only
+  under a live `surviveInSector` hold. Files `POLISH-SIEGE-TICKER-CADENCE`.
 
 - [x] **CHORE-QUEST-SIEGE-RESTORE** (done, 225426c, 2026-08-02) (new 2026-08-01, from FEAT-QUEST-SURVIVE-DANGER): a refresh
   mid-hold drops every besieger (they carry `AmbushSpawnTag`, which the serializer skips) and
@@ -10946,6 +10989,18 @@ drops need), `FEAT-EXPEDITION-RECALL`, `FEAT-MAPUI-DOORS-05` + `FEAT-MAPUI-CURSO
 ## Human gates
 
 Never agent work. The fleet must not do any of these.
+
+- [ ] **POLISH-SIEGE-TICKER-CADENCE** (new 2026-08-02, from FEAT-QUEST-SIEGE-HUD-TELL). Value: the
+  siege row, its three branches and its every-other-slot cadence were validated by reading the code
+  and by unit tests over the pure builder, never in a browser and never during a real hold. Four
+  questions only a player answers: (a) does `SIEGE · THE ROOM ANSWERS · NEXT WAVE 12S` read as a
+  warning at a glance, or does the shared line make it look like one more objective; (b) does the
+  every-other-slot cadence help, or does halving how often the hold objective's own `42/60` comes
+  round cost more than the tell is worth; (c) a bounty owns the line while it runs, so the row is
+  gone for 15 to 45 seconds at a time: is that a hole worth closing, and if so does a siege outrank
+  a bounty or does a bounty simply not start during a hold; (d) is `N STILL STANDING` the right
+  thing to say at the cap, or would the player rather see the countdown frozen than a body count.
+  Deps: none, wants a browser.
 
 - [ ] **POLISH-RETURN-SORT-ORDERS** (new 2026-08-02, from FEAT-SEASON-RETURN-SORT). Value: the
   four orders and the six-button row are validated by reading the code and by arithmetic on
