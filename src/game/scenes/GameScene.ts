@@ -179,17 +179,8 @@ import { getGameStateManager, GameSaveState } from '../../save/GameStateManager'
 import { getSettingsManager } from '../../settings';
 import { SecureStorage, flushStorage } from '../../storage';
 import { updateFrameCache, getEnemyIds as getFrameCacheEnemyIds } from '../../ecs/FrameCache';
-import {
-  GAUNTLET_BREATHER_SECONDS,
-  GAUNTLET_DAMAGE_MULT_PER_WAVE,
-  GAUNTLET_HEALTH_MULT_PER_WAVE,
-  GAUNTLET_INTRO_SECONDS,
-  GAUNTLET_XP_MULT_PER_WAVE,
-  GauntletSpawnPlanEntry,
-  gauntletWaveGoldReward,
-  gauntletWaveSpawnPlan,
-} from '../gauntlet/gauntletWaves';
-import { loadGauntletBestWave, saveGauntletBestWaveIfHigher } from '../gauntlet/GauntletBestWave';
+import { loadGauntletBestWave } from '../gauntlet/GauntletBestWave';
+import { GauntletDirector } from '../directors/GauntletDirector';
 import { loadEndlessBestCycle, saveEndlessBestCycleIfHigher } from '../endless/EndlessBestCycle';
 import {
   buildQuestRunData,
@@ -885,14 +876,26 @@ export class GameScene extends Phaser.Scene {
   private practiceRematchSeed: PracticeRematchSeed | null = null;
   private pendingRematchSpawn: PracticeDockState | null = null;
   private pendingRematchLaunch: PracticeRematchSeed | null = null;
-  private gauntletWave = 0;              // Current wave (0 = intro, before wave 1)
-  private gauntletPhase: 'intro' | 'combat' | 'breather' = 'intro';
-  private gauntletPhaseTimer = 0;        // Countdown for intro/breather phases
-  private gauntletPendingSpawns: GauntletSpawnPlanEntry[] = []; // Ticked from the gated update, so spawns freeze with pause
-  private gauntletClearScanTimer = 0;    // Throttles the wave-clear alive-scan
-  private gauntletNewBestThisRun = false;
-  private gauntletHudWaveShown = -1;     // Last wave pushed to the HUD label (lazy sync survives restore ordering)
-  private gauntletRestoredMidCombat = false; // Restored into 'combat': an empty first scan re-queues the wave instead of clearing it
+  private readonly gauntletDirector = new GauntletDirector({
+    hasAliveThreat: () => this.hasAliveGauntletThreat(),
+    spawnWaveEntry: (kind) => {
+      if (kind === 'boss') this.spawnNextBoss();
+      else this.spawnRandomMiniboss();
+    },
+    showWaveBanner: (message, color) => this.showWaveBanner(message, color),
+    hudReady: () => !!this.hudManager,
+    setTopCenterLabel: (label) => this.hudManager.setTopCenterLabel(label),
+    escalateWorldMultipliers: (healthMult, damageMult, xpMult) => {
+      this.worldLevelHealthMult *= healthMult;
+      this.worldLevelDamageMult *= damageMult;
+      this.worldLevelXPMult *= xpMult;
+    },
+    playerPosition: () => this.playerId === -1
+      ? null
+      : { x: Transform.x[this.playerId], y: Transform.y[this.playerId] },
+    spawnHealthPickup: (x, y, healAmount) => spawnHealthPickup(this.world, x, y, healAmount),
+    playGoldSparkle: (x, y, particleCount) => this.effectsManager.playGoldSparkle(x, y, particleCount),
+  });
 
   private enemyProjectileManager!: EnemyProjectileManager;
 
@@ -1585,20 +1588,7 @@ export class GameScene extends Phaser.Scene {
     this.endlessHudCycleShown = -1;
     this.endlessNewBestThisRun = false;
     // gauntletModeActive itself comes from init data — only the progression resets.
-    this.gauntletWave = 0;
-    this.gauntletPhase = 'intro';
-    this.gauntletPhaseTimer = GAUNTLET_INTRO_SECONDS;
-    this.gauntletPendingSpawns = [];
-    this.gauntletClearScanTimer = 0;
-    this.gauntletNewBestThisRun = false;
-    this.gauntletHudWaveShown = -1;
-    this.gauntletRestoredMidCombat = false;
-    // Starting a gauntlet run counts as reaching wave 1 — an intro-phase death
-    // otherwise reports "WAVE 1" against a stored best of 0.
-    if (this.gauntletModeActive && saveGauntletBestWaveIfHigher(1)) {
-      this.gauntletNewBestThisRun = true;
-      getAchievementManager().recordGauntletWaveReached(1);
-    }
+    this.gauntletDirector.resetForNewRun(this.gauntletModeActive);
     this.enemyProjectileManager.clear();
     // Reset miniboss spawn tracking and shuffle order for variety
     for (const miniboss of this.minibossSpawnTimes) {
@@ -2849,10 +2839,7 @@ export class GameScene extends Phaser.Scene {
       },
       gauntletState: {
         active: this.gauntletModeActive,
-        wave: this.gauntletWave,
-        phase: this.gauntletPhase,
-        phaseTimer: this.gauntletPhaseTimer,
-        newBestThisRun: this.gauntletNewBestThisRun,
+        ...this.gauntletDirector.serialize(),
       },
       dailyState: {
         active: this.dailyModeActive,
@@ -3100,31 +3087,8 @@ export class GameScene extends Phaser.Scene {
     // restored, and if none survived the save window the wave re-queues in
     // full (gauntletRestoredMidCombat) rather than granting a free clear.
     const savedGauntlet = state.gauntletState;
-    const sanitizeGauntlet = (value: unknown, fallback: number, min: number, max: number): number =>
-      (typeof value === 'number' && Number.isFinite(value))
-        ? Math.max(min, Math.min(max, value))
-        : fallback;
     this.gauntletModeActive = savedGauntlet?.active === true;
-    this.gauntletWave = Math.floor(sanitizeGauntlet(savedGauntlet?.wave, 0, 0, 100_000));
-    this.gauntletPhase = (savedGauntlet?.phase === 'combat' || savedGauntlet?.phase === 'breather')
-      ? savedGauntlet.phase
-      : 'intro';
-    // Combat/breather with wave 0 only occurs in a tampered save — wave 1 is
-    // the smallest state those phases can legitimately hold.
-    if (this.gauntletPhase !== 'intro' && this.gauntletWave < 1) {
-      this.gauntletWave = 1;
-    }
-    this.gauntletPhaseTimer = sanitizeGauntlet(
-      savedGauntlet?.phaseTimer,
-      GAUNTLET_INTRO_SECONDS,
-      0,
-      Math.max(GAUNTLET_INTRO_SECONDS, GAUNTLET_BREATHER_SECONDS),
-    );
-    this.gauntletPendingSpawns = [];
-    this.gauntletClearScanTimer = 1;
-    this.gauntletNewBestThisRun = savedGauntlet?.newBestThisRun === true;
-    this.gauntletHudWaveShown = -1;
-    this.gauntletRestoredMidCombat = this.gauntletModeActive && this.gauntletPhase === 'combat';
+    this.gauntletDirector.restore(savedGauntlet, this.gauntletModeActive);
 
     // Restore daily/weekly challenge identity. Assigned unconditionally (scene
     // restarts reuse this instance, so a prior daily run's fields must not
@@ -7367,7 +7331,7 @@ export class GameScene extends Phaser.Scene {
     // GAUNTLET replaces the stage's timed miniboss/boss schedule with its own
     // wave loop; the schedule checks below would double-spawn on top of it.
     if (this.gauntletModeActive) {
-      this.updateGauntletMode(deltaSeconds);
+      this.gauntletDirector.update(deltaSeconds);
     } else {
       // Check for miniboss spawns
       this.checkMinibossSpawns();
@@ -9177,7 +9141,7 @@ export class GameScene extends Phaser.Scene {
     const runOutcome = recordRunOutcome(runFacts, {
       practice: practiceRun,
       gauntlet: this.gauntletModeActive,
-      gauntletWave: this.gauntletWave,
+      gauntletWave: this.gauntletDirector.getWave(),
       endless: this.endlessModeActive,
       endlessCycle: this.endlessCycleNumber,
       daily: this.dailyModeActive && this.dailyDateString
@@ -9248,9 +9212,9 @@ export class GameScene extends Phaser.Scene {
       recentRuns: gameOverPriorRuns,
       gauntlet: this.gauntletModeActive
         ? {
-            wave: Math.max(1, this.gauntletWave),
+            wave: Math.max(1, this.gauntletDirector.getWave()),
             bestWave: loadGauntletBestWave(),
-            isNewBest: this.gauntletNewBestThisRun,
+            isNewBest: this.gauntletDirector.isNewBestThisRun(),
           }
         : undefined,
       endless: this.endlessModeActive && this.endlessCycleNumber >= 1
@@ -9356,7 +9320,7 @@ export class GameScene extends Phaser.Scene {
     recordRunOutcome(runFacts, {
       practice: false,
       gauntlet: this.gauntletModeActive,
-      gauntletWave: this.gauntletWave,
+      gauntletWave: this.gauntletDirector.getWave(),
       endless: this.endlessModeActive,
       endlessCycle: this.endlessCycleNumber,
       daily: this.dailyModeActive && this.dailyDateString
@@ -11200,21 +11164,21 @@ export class GameScene extends Phaser.Scene {
   /** Affixed bosses are replay-variety only: endless cycle 2+ / gauntlet wave 6+. */
   private bossAffixEligible(): boolean {
     if (this.practiceModeActive) return true;
-    if (this.gauntletModeActive) return this.gauntletWave >= 6;
+    if (this.gauntletModeActive) return this.gauntletDirector.getWave() >= 6;
     return this.endlessModeActive && this.endlessCycleNumber >= 2;
   }
 
   /** Affixed minibosses are replay-variety only: endless cycle 2+ / gauntlet wave 4+. */
   private minibossAffixEligible(): boolean {
     if (this.practiceModeActive) return true;
-    if (this.gauntletModeActive) return this.gauntletWave >= 4;
+    if (this.gauntletModeActive) return this.gauntletDirector.getWave() >= 4;
     return this.endlessModeActive && this.endlessCycleNumber >= 2;
   }
 
   /** Paragon (double-affix) elites: deep runs only — endless cycle 4+ / gauntlet wave 10+. */
   private paragonEligible(): boolean {
     if (this.practiceModeActive) return true;
-    if (this.gauntletModeActive) return this.gauntletWave >= 10;
+    if (this.gauntletModeActive) return this.gauntletDirector.getWave() >= 10;
     return this.endlessModeActive && this.endlessCycleNumber >= 4;
   }
 
@@ -11771,63 +11735,6 @@ export class GameScene extends Phaser.Scene {
     this.spawnBoss(bossTypeId);
   }
 
-  /**
-   * Drives GAUNTLET mode: intro countdown → staggered wave spawns →
-   * kill-driven wave clear → breather → next wave. Runs from the gated
-   * update() tick so spawn staggers and clear scans freeze with
-   * pause/game-over (a delayedCall would keep firing into menus).
-   */
-  private updateGauntletMode(deltaSeconds: number): void {
-    this.syncGauntletHudLabel();
-
-    if (this.gauntletPhase === 'intro' || this.gauntletPhase === 'breather') {
-      this.gauntletPhaseTimer -= deltaSeconds;
-      if (this.gauntletPhaseTimer <= 0) {
-        this.startGauntletWave(this.gauntletWave + 1);
-      }
-      return;
-    }
-
-    // Combat: release staggered spawns first. The clear scan never runs on a
-    // release frame — freshly created enemies enter the frame cache one frame
-    // later, so scanning now would read an empty arena and end the wave early.
-    if (this.gauntletPendingSpawns.length > 0) {
-      const stillPendingSpawns: GauntletSpawnPlanEntry[] = [];
-      for (const pendingSpawn of this.gauntletPendingSpawns) {
-        pendingSpawn.delaySeconds -= deltaSeconds;
-        if (pendingSpawn.delaySeconds <= 0) {
-          if (pendingSpawn.kind === 'boss') {
-            this.spawnNextBoss();
-          } else {
-            this.spawnRandomMiniboss();
-          }
-        } else {
-          stillPendingSpawns.push(pendingSpawn);
-        }
-      }
-      this.gauntletPendingSpawns = stillPendingSpawns;
-      this.gauntletClearScanTimer = 0.5;
-      return;
-    }
-
-    this.gauntletClearScanTimer -= deltaSeconds;
-    if (this.gauntletClearScanTimer > 0) return;
-    this.gauntletClearScanTimer = 0.5;
-    if (this.hasAliveGauntletThreat()) {
-      this.gauntletRestoredMidCombat = false;
-      return;
-    }
-    // A restore into 'combat' with nothing alive means the save caught the
-    // pre-spawn stagger window (pending spawns aren't persisted) — re-queue
-    // the wave instead of handing out a free clear.
-    if (this.gauntletRestoredMidCombat) {
-      this.gauntletRestoredMidCombat = false;
-      this.gauntletPendingSpawns = gauntletWaveSpawnPlan(this.gauntletWave).map(entry => ({ ...entry }));
-      return;
-    }
-    this.completeGauntletWave();
-  }
-
   /** True while any miniboss/boss-tier enemy (xpValue >= 30) is alive. */
   private hasAliveGauntletThreat(): boolean {
     const enemyIds = getFrameCacheEnemyIds();
@@ -11845,62 +11752,6 @@ export class GameScene extends Phaser.Scene {
       if (enemyId !== dyingBossId && (EnemyType.xpValue[enemyId] || 0) >= 1000) return true;
     }
     return false;
-  }
-
-  private startGauntletWave(waveNumber: number): void {
-    this.gauntletWave = waveNumber;
-    this.gauntletPhase = 'combat';
-    this.gauntletPendingSpawns = gauntletWaveSpawnPlan(waveNumber).map(entry => ({ ...entry }));
-    this.gauntletClearScanTimer = 1;
-
-    // Escalate from wave 2 on — the same knobs the endless cycles ramp.
-    if (waveNumber >= 2) {
-      this.worldLevelHealthMult *= GAUNTLET_HEALTH_MULT_PER_WAVE;
-      this.worldLevelDamageMult *= GAUNTLET_DAMAGE_MULT_PER_WAVE;
-      this.worldLevelXPMult *= GAUNTLET_XP_MULT_PER_WAVE;
-    }
-
-    if (saveGauntletBestWaveIfHigher(waveNumber)) {
-      this.gauntletNewBestThisRun = true;
-      getAchievementManager().recordGauntletWaveReached(waveNumber);
-    }
-
-    this.syncGauntletHudLabel();
-    this.showWaveBanner(`WAVE ${waveNumber}`, waveNumber >= 9 ? '#ff3366' : '#ffaa44');
-  }
-
-  private completeGauntletWave(): void {
-    const clearedWave = this.gauntletWave;
-    const goldReward = gauntletWaveGoldReward(clearedWave);
-    getMetaProgressionManager().addGold(goldReward);
-
-    // Breather heal: a pair of health pickups beside the player.
-    if (this.playerId !== -1) {
-      const playerX = Transform.x[this.playerId];
-      const playerY = Transform.y[this.playerId];
-      spawnHealthPickup(this.world, playerX - 40, playerY - 20, 20);
-      spawnHealthPickup(this.world, playerX + 40, playerY - 20, 20);
-      this.effectsManager.playGoldSparkle(playerX, playerY, 10);
-    }
-
-    this.showWaveBanner(`WAVE ${clearedWave} CLEARED\n+${goldReward} GOLD`, '#66ff99');
-
-    this.gauntletPhase = 'breather';
-    this.gauntletPhaseTimer = GAUNTLET_BREATHER_SECONDS;
-  }
-
-  /**
-   * Pushes the current wave into the HUD's top-center slot ("WORLD N" in
-   * standard runs). Lazy re-sync instead of a create-time call: the restore
-   * path builds the HUD after gauntletState is applied, so the first gated
-   * update tick is the earliest moment that is safe on every path.
-   */
-  private syncGauntletHudLabel(): void {
-    if (this.gauntletHudWaveShown === this.gauntletWave || !this.hudManager) return;
-    this.gauntletHudWaveShown = this.gauntletWave;
-    this.hudManager.setTopCenterLabel(
-      this.gauntletWave === 0 ? 'GAUNTLET' : `GAUNTLET · WAVE ${this.gauntletWave}`,
-    );
   }
 
   /**
